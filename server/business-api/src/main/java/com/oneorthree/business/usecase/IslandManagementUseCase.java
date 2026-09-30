@@ -27,6 +27,8 @@ import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -95,6 +97,7 @@ public class IslandManagementUseCase {
 
     private final DataIslandClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final BlockedProfileMask mask;
 
     /** 섬 정보 수정 (LLD §3.1). {@code fields} 는 앱이 보낸 키만 담는다 — 부재가 «미변경» 이다. */
     public ManagedIslandView manage(AccessTokenClaims claims, UUID islandId, Map<String, Object> fields, UUID key,
@@ -111,6 +114,9 @@ public class IslandManagementUseCase {
     /**
      * 주민 목록 (LLD §3.2). 커서는 사용자·섬·정렬·limit 에 묶인다 — 섬이나 limit 이 바뀌면 첫 페이지부터다.
      * 커서는 인가 증명이 아니다: 매 페이지 Data 가 활성 주민인지 다시 본다.
+     *
+     * <p>요청자가 차단한 주민은 행·ID·역할을 유지한 채 닉네임과 프로필(고양이 색·착용 외양)만 중립·기본값으로
+     * 바꾼다(GROMO-2183, {@link BlockedProfileMask}). 같은 섬 소속은 차단으로 바뀌지 않는다.
      */
     public MembersPage members(AccessTokenClaims claims, UUID islandId, String cursor, int limit,
             Deadline deadline) {
@@ -125,7 +131,10 @@ public class IslandManagementUseCase {
         }
         String next = page.nextJoinedAt() == null ? null : codec().encode(scope,
                 new CursorBoundary(page.nextJoinedAt().toString(), page.nextMembershipId().toString()));
-        return new MembersPage(page.items().stream().map(IslandMemberView::from).toList(), next, page.version());
+        Set<UUID> blocked = mask.blockedAmong(claims.userId(),
+                page.items().stream().filter(Objects::nonNull).map(IslandMembersPage.Item::id).toList(), deadline);
+        return new MembersPage(page.items().stream().map(item -> IslandMemberView.from(item, blocked)).toList(), next,
+                page.version());
     }
 
     /** 신청자 목록 (LLD §3.3) — 방장 전용. 403 을 빈 목록으로 접지 않는다. */
@@ -273,8 +282,16 @@ public class IslandManagementUseCase {
             String catColor,
             @JsonProperty(required = true) String role,
             @JsonProperty(required = true) MemberAppearanceView appearance) {
-        private static IslandMemberView from(IslandMembersPage.Item item) {
-            return item == null ? null : new IslandMemberView(item.id(), item.name(), item.catColor(), item.role(),
+        private static IslandMemberView from(IslandMembersPage.Item item, Set<UUID> blocked) {
+            if (item == null) {
+                return null;
+            }
+            if (blocked.contains(item.id())) {
+                // 차단 대상 — 닉네임은 중립 문구, 고양이 색은 미선택(null), 외양은 가입 직후 기본값이다.
+                return new IslandMemberView(item.id(), BlockedProfileMask.NEUTRAL_NAME, null, item.role(),
+                        MemberAppearanceView.neutral(item.appearance()));
+            }
+            return new IslandMemberView(item.id(), item.name(), item.catColor(), item.role(),
                     MemberAppearanceView.from(item.appearance()));
         }
     }
@@ -285,9 +302,21 @@ public class IslandManagementUseCase {
             @JsonProperty(required = true) String hull,
             @JsonProperty(required = true) String position,
             @JsonProperty(required = true) long version) {
+        /** 개인 외양 행의 기본 자리 — Data {@code personal_appearances.position} 의 DEFAULT 와 같다. */
+        static final String DEFAULT_POSITION = "front";
+
         private static MemberAppearanceView from(PersonalAppearanceState appearance) {
             return new MemberAppearanceView(appearance.clothes(), appearance.decor(), appearance.hull(),
                     appearance.position(), appearance.version());
+        }
+
+        /**
+         * 차단 대상의 외양 — 착용 아이템·자리를 기본값으로 가린다. {@code hull} 은 종류가 하나({@code raft})라 사용자
+         * 선택이 아니므로 그대로 둔다. {@code version} 도 유지한다 — 앱이 실시간 외양 사건과 순서를 비교하는 단조
+         * 값이라 임의로 바꾸면 병합 판정이 어긋난다. 실시간 외양 사건 쪽 치환은 이 경로의 범위가 아니다.
+         */
+        private static MemberAppearanceView neutral(PersonalAppearanceState appearance) {
+            return new MemberAppearanceView(null, null, appearance.hull(), DEFAULT_POSITION, appearance.version());
         }
     }
 

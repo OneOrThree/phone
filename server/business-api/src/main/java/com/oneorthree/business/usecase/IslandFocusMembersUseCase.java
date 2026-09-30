@@ -17,6 +17,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -25,6 +27,10 @@ import java.util.function.Supplier;
  *
  * <p>소속·목록·watermark 는 전부 Data 가 한 스냅샷에서 판정한다 — Business 는 세션 주체만 넘기고 도메인
  * 실패를 공개 오류로 옮긴다. 표에 없는 판정은 그대로 올려 502 로 접힌다({@code IslandConstructionUseCase} 와 같다).
+ *
+ * <p>focus-members 에서 요청자가 차단한 주민은 행을 빼지 않고 이름만 중립 표시로 바꾼다 — 집중 상태·경과 시간은
+ * 섬 공동 진행 표시라 그대로 둔다(GROMO-2183, {@link BlockedProfileMask}). 확정 범위는 주민 목록과 focus-members
+ * 두 곳이라 rest-members 는 아직 원래 이름을 내린다.
  */
 @Service
 @RequiredArgsConstructor
@@ -36,14 +42,17 @@ public class IslandFocusMembersUseCase {
             "MEMBER_ONLY", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId"));
 
     private final DataIslandClient data;
+    private final BlockedProfileMask mask;
 
     public FocusMembersView focusMembers(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
         IslandFocusMembers members = relay(() -> data.fetchFocusMembers(claims.userId(), islandId, deadline));
         if (members == null) {
             throw new UpstreamContractMismatchException("집중 주민 응답이 없습니다");
         }
-        return new FocusMembersView(members.items().stream().map(FocusMemberView::from).toList(),
-                members.serverNow(), members.watermarks().stream().map(MemberWatermarkView::from).toList());
+        Set<UUID> blocked = mask.blockedAmong(claims.userId(), members.items().stream().filter(Objects::nonNull)
+                .map(item -> BlockedProfileMask.parse(item.userId())).toList(), deadline);
+        return new FocusMembersView(members.items().stream().map(item -> FocusMemberView.from(item, blocked))
+                .toList(), members.serverNow(), members.watermarks().stream().map(MemberWatermarkView::from).toList());
     }
 
     public RestMembersView restMembers(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
@@ -88,8 +97,10 @@ public class IslandFocusMembersUseCase {
             @JsonProperty(required = true) String subject,
             @JsonProperty(required = true) long activeSeconds,
             @JsonProperty(required = true) String status) {
-        private static FocusMemberView from(IslandFocusMembers.Item item) {
-            return item == null ? null : new FocusMemberView(item.userId(), item.name(), item.sessionId(),
+        private static FocusMemberView from(IslandFocusMembers.Item item, Set<UUID> blocked) {
+            return item == null ? null : new FocusMemberView(item.userId(),
+                    blocked.contains(UUID.fromString(item.userId())) ? BlockedProfileMask.NEUTRAL_NAME : item.name(),
+                    item.sessionId(),
                     item.subject(), item.activeSeconds(), item.status());
         }
     }

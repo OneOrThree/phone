@@ -3,6 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -46,6 +47,12 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
             + "\"serverNow\":\"2026-09-11T09:10:00Z\","
             + "\"watermarks\":[{\"projection\":\"rest.member\",\"islandId\":\"" + ISLAND + "\","
             + "\"aggregateId\":\"" + OTHER + "\",\"version\":2}]}";
+
+    /** 차단 목록은 비어 있다 — 중립 치환(GROMO-2183)은 UserBlockContractTest 가 본다. */
+    @BeforeEach
+    void noBlocks() {
+        DATA.on("GET /internal/users/" + USER + "/blocks", request -> ok("[]"));
+    }
 
     @Test
     @DisplayName("focus-members 는 상류 스냅샷을 data 봉투로 내리고 watermark·null 이름 키를 보존한다")
