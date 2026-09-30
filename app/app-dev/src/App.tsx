@@ -43,6 +43,7 @@ import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import { reconcileTutorial } from '@/services/tutorial';
 import { clearStudyWidget } from '@/services/studyWidget';
+import { settleWithdrawalIntent } from '@/services/withdrawalIntent';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 import {
@@ -409,6 +410,8 @@ function Gromo() {
   // 소셜 로그인 진행 표식 — state(socialBusy)는 다음 렌더까지 반영되지 않아 연타 두 번이 모두
   // 통과한다. 첫 await 전에 동기로 세우고, 게스트 시작과도 서로 배제한다.
   const socialLoginFlight = useRef(false);
+  // 회원 전환 진행 표식 — 소셜 로그인과 같은 이유로 ref 로 잠근다.
+  const conversionFlight = useRef(false);
   const transitionRoute = useRef(
     createShieldedRouteTransition(setRouteTransitionShielded, setRoute),
   ).current;
@@ -998,7 +1001,15 @@ function Gromo() {
       guestLoginFlight.current
     )
       return;
+    // 잠금과 해제를 한 try/finally 로 묶는다 — 잠근 뒤 어떤 줄이 던져도 버튼이 영구히 잠기지 않는다.
     socialLoginFlight.current = true;
+    try {
+      await runSocialLogin(provider);
+    } finally {
+      socialLoginFlight.current = false;
+    }
+  };
+  const runSocialLogin = async (provider: Provider) => {
     const previousUserId = REVIEW || DEMO ? null : getLastSessionUserId();
     const generation = sessionGeneration();
     if (
@@ -1037,12 +1048,21 @@ function Gromo() {
         );
       }
     } finally {
-      socialLoginFlight.current = false;
       setSocialBusy(null);
     }
   };
   const pickProvider = async (provider: Provider) => {
-    if (!TERMS_VERSION || !convUi?.termsAccepted || convUi.busy) return;
+    if (!TERMS_VERSION || !convUi?.termsAccepted || convUi.busy || conversionFlight.current) return;
+    // 일반 로그인과 같이 첫 await 전에 동기로 잠근다 — convUi.busy 는 다음 렌더까지 반영되지 않아
+    // 연타 두 번이 제공자 SDK 와 memberConversion.convert() 를 동시에 부른다.
+    conversionFlight.current = true;
+    try {
+      await runConversion(provider);
+    } finally {
+      conversionFlight.current = false;
+    }
+  };
+  const runConversion = async (provider: Provider) => {
     const generation = sessionGeneration();
     if (
       conversionLoginAttempt.current?.provider !== provider ||
@@ -1190,16 +1210,28 @@ function Gromo() {
         const check = session ? await checkSession() : null;
         const account = check?.status === 'active' ? check.account : null;
         const rejected = check?.status === 'rejected';
-        const saved = raw ? JSON.parse(raw) : null;
+        // 탈퇴 응답을 잃고 앱이 종료됐던 경우 — 서버가 이 계정을 USER_NOT_FOUND 로 거절하면 남은 탈퇴
+        // 의도로 로컬 정리(1.x 데이터·소유자 표식)를 마친다. 실패하면 의도가 남아 다음 부팅에 다시 한다.
+        // 정리가 끝났으면 탈퇴 계정의 앱 저장본도 올리지 않고 지운다.
+        const withdrawn =
+          !mock &&
+          (await settleWithdrawalIntent(session?.userId ?? null, check).catch(() => false));
+        if (withdrawn) {
+          void clearStudyWidget();
+          await AsyncStorage.removeItem(STORAGE).catch(() => {});
+        }
+        const saved = raw && !withdrawn ? JSON.parse(raw) : null;
         const loadable = saved?.version === 1 ? saved : null;
         const restoredUserId = session?.userId ?? null;
         const ownerUserId = getLastSessionUserId();
         // 소유자 표식을 읽지 못했으면 저장본의 주인을 모른다 — 불일치와 같이 격리한다. 주인이 확인되지
         // 않은 저장본은 어느 계정에도 넘기지 않으므로 보류 상태로도 두지 않는다.
         const ownerUnknown = isLocalDataOwnerUnknown();
+        // 소유자를 모르면 복구된 세션이 없어도(로그아웃 상태) 격리한다 — 로그인 화면 뒤에서 저장본이
+        // 올라가고 저장 effect 가 그대로 다시 쓰지 않게 gate 를 닫아 둔다. 다음 로그인 채택이 비운다.
         const ownerMismatch =
-          restoredUserId !== null &&
-          (ownerUnknown || (ownerUserId !== null && restoredUserId !== ownerUserId));
+          ownerUnknown ||
+          (restoredUserId !== null && ownerUserId !== null && restoredUserId !== ownerUserId);
         if (ownerMismatch) {
           setStorageOwnerGate(false);
           deferredOwnerState.current =

@@ -1738,7 +1738,12 @@ test('탈퇴 뒤 로컬 소유자 정리를 확정하지 못하면 완료로 넘
     setSecure.getMockImplementation(),
     deleteSecure.getMockImplementation(),
   ] as const;
-  setAsync.mockImplementation(async () => Promise.reject(new Error('AsyncStorage 쓰기 실패')));
+  // 탈퇴 의도 표식은 요청 전에 기록돼야 탈퇴 요청이 나간다 — 그 쓰기만 통과시킨다.
+  setAsync.mockImplementation(async (key: string, value: string) =>
+    key === 'gromo.withdrawalIntent'
+      ? real[0]!(key, value)
+      : Promise.reject(new Error('AsyncStorage 쓰기 실패')),
+  );
   setSecure.mockImplementation(async () => Promise.reject(new Error('키체인 쓰기 실패')));
   deleteSecure.mockImplementation(async () => Promise.reject(new Error('키체인 삭제 실패')));
   const s = await render(

@@ -1,7 +1,11 @@
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
 import { LoginScreen } from '@/screens/LoginScreen';
-import { clearLocalDataOwner, getSession } from '@/services/api/session';
-import { clearLegacyUserData } from '@/services/legacyUserData';
+import { getSession } from '@/services/api/session';
+import {
+  beginWithdrawal,
+  finishWithdrawalCleanup,
+  type WithdrawalIntent,
+} from '@/services/withdrawalIntent';
 import { clearStudyWidget } from '@/services/studyWidget';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
@@ -803,9 +807,9 @@ export function RedesignScreens({ e }: any) {
     characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
     routeNowRef = useRef(route),
-    // 진행 중인 탈퇴 의도 — 탈퇴 대상 userId 와 멱등 키. 응답 유실 뒤 재시도도 같은 키로 보내
-    // 서버가 첫 결과를 재생하게 하고, 세션이 먼저 정리돼도 로컬 정리 대상 계정을 잃지 않는다.
-    withdrawIntent = useRef<{ userId: string | null; key: string } | null>(null);
+    // 진행 중인 탈퇴 의도 — 탈퇴 대상 userId 와 멱등 키. 요청 전에 기기에도 남겨(beginWithdrawal)
+    // 앱이 종료돼도 부팅이 로컬 정리를 이어 간다. 세션이 먼저 정리돼도 정리 대상 계정을 잃지 않는다.
+    withdrawIntent = useRef<WithdrawalIntent | null>(null);
   routeNowRef.current = route;
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
@@ -864,9 +868,7 @@ export function RedesignScreens({ e }: any) {
    */
   const finishWithdrawal = async () => {
     try {
-      const withdrawnUserId = withdrawIntent.current?.userId ?? getSession()?.userId;
-      if (withdrawnUserId) await clearLegacyUserData(withdrawnUserId);
-      await clearLocalDataOwner();
+      await finishWithdrawalCleanup(withdrawIntent.current?.userId || getSession()?.userId || null);
     } catch {
       setWithdrawCleanupPending(true);
       notify('기기에 남은 데이터를 정리하지 못했어요. 다시 시도해 주세요.');
@@ -6193,15 +6195,19 @@ export function RedesignScreens({ e }: any) {
                         return;
                       }
                       run(async () => {
-                        // 호출 전에 대상 계정을 잡아 둔다. 같은 계정의 재시도면 멱등 키를 재사용한다.
+                        // 호출 전에 대상 계정과 멱등 키를 기기에 남긴다(기록 실패면 요청하지 않는다).
+                        // 같은 계정의 재시도면 저장된 키를 재사용해 서버가 첫 결과를 재생한다.
                         const userId = getSession()?.userId ?? null;
-                        if (withdrawIntent.current?.userId !== userId)
-                          withdrawIntent.current = { userId, key: uuid() };
+                        withdrawIntent.current = userId
+                          ? await beginWithdrawal(userId)
+                          : { userId: '', key: uuid() };
                         try {
                           await withdrawAccount(withdrawIntent.current.key);
                         } catch (thrown) {
                           // 서버가 DELETE /me 를 커밋했는데 응답만 잃었으면 재시도는 404
                           // USER_NOT_FOUND 다 — 계정은 이미 없으니 탈퇴 완료로 보고 로컬 정리를 이어 간다.
+                          // 공용 클라이언트도 이 404 를 세션 거절로 처리해 세션을 비우고 로그인으로
+                          // 보낼 수 있다. 두 경로가 겹쳐도 계정이 없다는 같은 전제라 정리는 그대로 맞다.
                           if (!(
                             thrown instanceof ApiError &&
                             thrown.status === 404 &&

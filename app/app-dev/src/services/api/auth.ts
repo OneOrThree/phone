@@ -369,7 +369,11 @@ export function me(): Promise<Account> {
 export type SessionCheck =
   | { status: 'active'; account: Account }
   /** 서버가 이 세션을 거절했다 — 답은 재로그인뿐이고 로컬 세션은 비었다. */
-  | { status: 'rejected' }
+  | {
+      status: 'rejected';
+      /** `userNotFound` 는 계정이 서버에서 사라졌다(탈퇴)는 확정 신호다. 탈퇴 로컬 정리의 재개가 쓴다. */
+      reason: 'userNotFound' | 'unauthorized';
+    }
   /** 확인하지 못했을 뿐이다(네트워크·타임아웃·서버 장애). 세션은 그대로 둔다. */
   | { status: 'unreachable' };
 
@@ -402,8 +406,9 @@ export async function checkSession(): Promise<SessionCheck> {
       //  - 없으면(정리 완료·로그아웃) 거절이 맞다. 키체인 삭제가 실패했어도 메모리 세션은 비었다.
       //  - 있으면 우리가 확인한 그 세션일 때만 지운다(404 경로). 그 사이 새 로그인이 공개한
       //    세션이면 fence 에 걸리고, 옛 세션의 거절 판정으로 새 세션을 끊지 않는다.
-      if (getSession() === null) return { status: 'rejected' };
-      if (await clearRejectedSession(generation)) return { status: 'rejected' };
+      const reason = error.code === 'USER_NOT_FOUND' ? 'userNotFound' : 'unauthorized';
+      if (getSession() === null) return { status: 'rejected', reason };
+      if (await clearRejectedSession(generation)) return { status: 'rejected', reason };
     }
     return { status: 'unreachable' };
   }

@@ -702,15 +702,19 @@ export function clearSession(
  * secure copy 정리와 generation fence는 그대로 수행한다.
  */
 export function clearRejectedSession(expectedGeneration: number): Promise<boolean> {
-  return isLegacySessionPendingPromotion()
-    .catch(() => true)
-    .then((preserveLegacy) =>
-      clearSession(expectedGeneration, preserveLegacy, false, undefined, true),
-    )
-    .then(
-      (cleared) => cleared !== null,
-      () => true,
-    );
+  return (
+    isLegacySessionPendingPromotion()
+      .catch(() => true)
+      // legacy 원본을 보존해야 하는 세션에는 tombstone 을 남기지 않는다 — 다음 부팅의
+      // finishInterruptedLogout 은 명시 로그아웃용이라 Android legacy 원본 RT·승격 표식까지 지운다.
+      .then((preserveLegacy) =>
+        clearSession(expectedGeneration, preserveLegacy, false, undefined, !preserveLegacy),
+      )
+      .then(
+        (cleared) => cleared !== null,
+        () => true,
+      )
+  );
 }
 
 /**
