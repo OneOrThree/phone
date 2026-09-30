@@ -410,7 +410,8 @@ export async function isLegacySessionPendingPromotion(): Promise<boolean> {
   );
 }
 
-function subjectFromToken(token: string): string | null {
+/** JWT 페이로드의 `sub`(서명 검증 없음) — 저장된 토큰의 소유 계정 판정용. 읽지 못하면 null. */
+export function subjectFromToken(token: string): string | null {
   try {
     const encoded = token.split('.')[1];
     if (!encoded) return null;
@@ -515,6 +516,14 @@ export function saveSession(
 ): Promise<boolean> {
   return serialized(async () => {
     if (expectedGeneration !== undefined && expectedGeneration !== generation) return false;
+    // 기록된 소유자와 다른 계정이면 채택이 끝나기 전까지 소유자를 추론하지 못하게 표식을 남긴다
+    // (아래). 그 표식은 앞선 채택 대기 표식(커밋은 됐고 채택 전 종료된 세션의 것)을 덮어쓰므로,
+    // 커밋 실패 시 되돌릴 이전 값을 **무엇이든 쓰기 전에** 읽어 둔다. 읽지 못하면 저장을 실패로
+    // 돌린다 — 되돌릴 값을 모르는 채 진행했다가 커밋이 실패하면 표식은 새 계정(B)으로, 세션은
+    // 이전 계정(A)으로 남아, 다음 부팅이 「표식 불일치 → 세션 사용자 A 가 소유자」로 추론한다.
+    // 이 표식이 막으려던 바로 그 추론이다. 모르면 진행하지 않는다(미상 → 격리·실패 원칙).
+    const markAdoption = session.userId !== lastUserId;
+    const previousAdoptionMarker = markAdoption ? await readItem(KEY_OWNER_ADOPTION_PENDING) : null;
     // 삭제 일부가 실패해 남은 로그아웃 tombstone은 새 세션 커밋 전에 마저 처리한다.
     // 그대로 두면 다음 부팅의 정리가 방금 로그인한 세션까지 지운다.
     await finishInterruptedLogout();
@@ -524,23 +533,16 @@ export function saveSession(
       // 재복사 차단 표식을 커밋 전에 기록하고, 기록하지 못하면 로그인을 실패로 돌린다.
       await SecureStore.setItemAsync(KEY_LEGACY_MIGRATED, '1');
     }
-    // 기록된 소유자와 다른 계정이면 채택이 끝나기 전까지 소유자를 추론하지 못하게 표식을 먼저
-    // 남긴다. 기록하지 못하면 커밋하지 않는다 — 채택 전 종료 시 이전 데이터가 새 계정에 올라간다.
-    // 값은 채택 대상 userId 다(부팅 판정은 복구된 세션 사용자와 같을 때만 대기로 본다).
-    const markAdoption = session.userId !== lastUserId;
-    // 앞선 채택 대기 표식(커밋은 됐고 채택 전 종료된 세션의 것)을 덮어쓰므로 실패 시 되돌릴 값을 둔다.
-    // 읽지 못하면 되돌리지 않고 새 표식을 남긴다 — 부팅 판정에서 불일치로 무시될 뿐이다.
-    let previousAdoptionMarker: string | null | undefined;
-    if (markAdoption) {
-      previousAdoptionMarker = await readItem(KEY_OWNER_ADOPTION_PENDING).catch(() => undefined);
-      await writeItem(KEY_OWNER_ADOPTION_PENDING, session.userId);
-    }
+    // 채택 대기 표식을 커밋 전에 남긴다. 기록하지 못하면 커밋하지 않는다 — 채택 전 종료 시 이전
+    // 데이터가 새 계정에 올라간다. 값은 채택 대상 userId 다(부팅 판정은 복구된 세션 사용자와 같을
+    // 때만 대기로 본다).
+    if (markAdoption) await writeItem(KEY_OWNER_ADOPTION_PENDING, session.userId);
     try {
       await commit(session);
     } catch (error) {
       // 커밋 실패 — 방금 쓴 표식을 이전 값으로 best-effort 복원한다. 복원이 실패해 남아도 값이
       // 복구될 (이전) 세션의 사용자와 다르면 부팅 판정에서 무시되므로 실패는 삼킨다.
-      if (markAdoption && previousAdoptionMarker !== undefined)
+      if (markAdoption)
         await (
           previousAdoptionMarker === null
             ? removeItem(KEY_OWNER_ADOPTION_PENDING)

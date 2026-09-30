@@ -42,6 +42,7 @@ import {
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import { reconcileTutorial } from '@/services/tutorial';
+import { clearStudyWidget } from '@/services/studyWidget';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 import {
@@ -850,6 +851,10 @@ function Gromo() {
           ensureCurrent();
           await AsyncStorage.removeItem(STORAGE);
           deferredOwnerState.current = null;
+          // 안드로이드 홈 위젯도 비운다 — 위젯이 읽는 네이티브 저장소는 위 삭제로 지워지지 않아 이전
+          // 계정의 과목·공부시간이 런처에 남는다(1.x 계정 전환과 같은 처리). 새 계정 값은 홈 화면이
+          // 다시 보낸다. best-effort 라 기다리지 않는다(실패는 래퍼가 삼킨다).
+          void clearStudyWidget();
           ensureCurrent();
           dispatch({
             type: 'LOAD',
@@ -1718,6 +1723,9 @@ function Gromo() {
     setTerms(false);
     settleSwitch(false);
     void endLiveActivities().catch(() => {});
+    // 안드로이드 홈 위젯을 비운다 — 로그아웃 뒤에도 런처에 이전 계정의 공부시간이 남지 않게(1.x 로그아웃과
+    // 같은 처리). 탈퇴 완료도 이 경로를 지난다. best-effort 라 로그아웃을 막지 않는다.
+    void clearStudyWidget();
     // 확인한 준비 결과를 실제 정리에 넘긴다 — logout 이 다시 준비하면 그 실패는 여기서 못 본다.
     logout(preparation).catch(() => {});
     return true;

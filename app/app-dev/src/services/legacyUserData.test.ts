@@ -149,3 +149,130 @@ test('1.x 데이터가 없는 기기에서도 없는 파일 삭제만 시도하�
     'customCharacter_user-a.png.tmp',
   ]);
 });
+
+test('계정 귀속 대기열·라이브 세션은 탈퇴 계정 항목만 지운다', async () => {
+  await AsyncStorage.multiSet([
+    [
+      'gromo:focus:pendingUploads',
+      JSON.stringify([
+        { userId: 'user-a', body: { s: 1 } },
+        { userId: 'user-b', body: { s: 2 } },
+      ]),
+    ],
+    ['gromo:focus:pendingCancels', JSON.stringify([{ userId: 'user-a', sessionId: 'm1' }])],
+    ['gromo:focus:liveSession', JSON.stringify({ userId: 'user-a', elapsed: 30 })],
+  ]);
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.deepEqual(await readJson('gromo:focus:pendingUploads'), [
+    { userId: 'user-b', body: { s: 2 } },
+  ]);
+  assert.equal(await AsyncStorage.getItem('gromo:focus:pendingCancels'), null);
+  assert.equal(await AsyncStorage.getItem('gromo:focus:liveSession'), null);
+});
+
+test('다른 계정의 라이브 세션과 손상된 대기열 — 전자는 남기고 후자는 키째 지운다', async () => {
+  const live = JSON.stringify({ userId: 'user-b', elapsed: 30 });
+  await AsyncStorage.multiSet([
+    ['gromo:focus:liveSession', live],
+    ['gromo:focus:pendingUploads', '{not json'],
+    ['gromo:focus:pendingCancels', JSON.stringify([{ userId: 'user-b', sessionId: 'm2' }])],
+  ]);
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.equal(await AsyncStorage.getItem('gromo:focus:liveSession'), live);
+  assert.equal(await AsyncStorage.getItem('gromo:focus:pendingUploads'), null);
+  assert.deepEqual(await readJson('gromo:focus:pendingCancels'), [
+    { userId: 'user-b', sessionId: 'm2' },
+  ]);
+});
+
+test('마지막 provider·알림 보관함은 마지막 활성 1.x 계정이 탈퇴 계정일 때만 지운다', async () => {
+  const inbox = JSON.stringify([{ id: 'n1', title: 't', body: 'b', read: false }]);
+  await AsyncStorage.multiSet([
+    ['gromo:auth:lastProvider', 'kakao'],
+    ['gromo:notifications', inbox],
+    ['gromo:ownedItems:legacyOwner', 'user-b'],
+  ]);
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.equal(await AsyncStorage.getItem('gromo:auth:lastProvider'), 'kakao');
+  assert.equal(await AsyncStorage.getItem('gromo:notifications'), inbox);
+
+  await AsyncStorage.removeItem('gromo:ownedItems:legacyOwner');
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.equal(await AsyncStorage.getItem('gromo:auth:lastProvider'), 'kakao');
+
+  await AsyncStorage.setItem('gromo:ownedItems:legacyOwner', 'user-a');
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.equal(await AsyncStorage.getItem('gromo:auth:lastProvider'), null);
+  assert.equal(await AsyncStorage.getItem('gromo:notifications'), null);
+});
+
+// 서명 없는 테스트용 JWT — 소유자 판정은 페이로드 sub 만 본다.
+const jwt = (sub: string) =>
+  `h.${Buffer.from(JSON.stringify({ sub })).toString('base64').replace(/=+$/, '')}.s`;
+
+const SINGLE_USER_VALUES: [string, string][] = [
+  ['gromo:onboardingComplete', 'true'],
+  ['gromo:focusCategory', '공무원'],
+  ['gromo:subjects', JSON.stringify([{ id: 's1', name: '영어' }])],
+  ['gromo:focus', JSON.stringify({ todaySeconds: 60 })],
+  ['gromo:focus:firstDone', '1'],
+  ['gromo:settings:notification', JSON.stringify({ push: true })],
+  ['gromo:auth:lastProvider', 'kakao'],
+];
+
+test('1.x 로그인 프로필의 토큰 sub 가 탈퇴 계정이면 단일 값 계정 데이터를 지운다', async () => {
+  await AsyncStorage.multiSet([
+    ...SINGLE_USER_VALUES,
+    ['gromo:user', JSON.stringify({ userId: 'stale-1', accessToken: jwt('user-a') })],
+    // 마지막 듀얼라이트 소유자가 달라도 로그인 프로필이 정본이다.
+    ['gromo:ownedItems:legacyOwner', 'user-b'],
+    ['gromo:deviceId', 'device-1'],
+  ]);
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.equal(await AsyncStorage.getItem('gromo:user'), null);
+  for (const [key] of SINGLE_USER_VALUES) assert.equal(await AsyncStorage.getItem(key), null, key);
+  // 기기 귀속 값·다른 계정 소유 표식은 남긴다.
+  assert.equal(await AsyncStorage.getItem('gromo:deviceId'), 'device-1');
+  assert.equal(await AsyncStorage.getItem('gromo:ownedItems:legacyOwner'), 'user-b');
+});
+
+test('토큰이 없는 1.x 프로필은 저장된 userId 로 소유자를 판정한다', async () => {
+  await AsyncStorage.multiSet([
+    ['gromo:user', JSON.stringify({ userId: 'user-a' })],
+    ['gromo:subjects', '[]'],
+  ]);
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.equal(await AsyncStorage.getItem('gromo:user'), null);
+  assert.equal(await AsyncStorage.getItem('gromo:subjects'), null);
+});
+
+test('1.x 로그인 프로필이 다른 계정이면 단일 값은 건드리지 않는다', async () => {
+  const profile = JSON.stringify({ accessToken: jwt('user-b') });
+  await AsyncStorage.multiSet([...SINGLE_USER_VALUES, ['gromo:user', profile]]);
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.equal(await AsyncStorage.getItem('gromo:user'), profile);
+  for (const [key, value] of SINGLE_USER_VALUES)
+    assert.equal(await AsyncStorage.getItem(key), value, key);
+});
+
+test('1.x 프로필 소유자를 알 수 없으면 legacyOwner 로 대신하지 않고 남긴다', async () => {
+  await AsyncStorage.multiSet([
+    ...SINGLE_USER_VALUES,
+    ['gromo:user', '{not json'],
+    ['gromo:ownedItems:legacyOwner', 'user-a'],
+  ]);
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.equal(await AsyncStorage.getItem('gromo:user'), '{not json');
+  for (const [key, value] of SINGLE_USER_VALUES)
+    assert.equal(await AsyncStorage.getItem(key), value, key);
+
+  await AsyncStorage.setItem('gromo:user', JSON.stringify({ nickname: 'x', accessToken: 'bad' }));
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  assert.equal(await AsyncStorage.getItem('gromo:subjects'), SINGLE_USER_VALUES[2][1]);
+});
+
+test('1.x 가 로그아웃 상태면 마지막 활성 계정(legacyOwner)으로 단일 값 소유자를 판정한다', async () => {
+  await AsyncStorage.multiSet([...SINGLE_USER_VALUES, ['gromo:ownedItems:legacyOwner', 'user-a']]);
+  await clearLegacyUserData('user-a', fakeFiles().files);
+  for (const [key] of SINGLE_USER_VALUES) assert.equal(await AsyncStorage.getItem(key), null, key);
+});

@@ -2,6 +2,7 @@ import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { clearLocalDataOwner, getSession } from '@/services/api/session';
 import { clearLegacyUserData } from '@/services/legacyUserData';
+import { clearStudyWidget } from '@/services/studyWidget';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -869,6 +870,10 @@ export function RedesignScreens({ e }: any) {
       return;
     }
     setWithdrawCleanupPending(false);
+    // 안드로이드 홈 위젯을 비운다 — 탈퇴한 계정의 공부시간이 런처에 남지 않게. signOut 도 비우지만
+    // 그 준비가 실패하면(false) 거기까지 가지 않고, 서버 없는 모드는 signOut 을 부르지 않는다.
+    // best-effort 라 기다리지 않는다(실패는 래퍼가 삼킨다).
+    void clearStudyWidget();
     await screenTime.resetScreenTimeData().catch(() => {});
     // signOut 의 false(로그아웃 tombstone 기록 실패)는 의도적으로 무시한다. 서버 계정은 이미 삭제됐고
     // 로컬 데이터 소유자도 위에서 지웠으므로 화면은 탈퇴 완료로 넘긴다. 이 경우 토큰이 기기에 남지만

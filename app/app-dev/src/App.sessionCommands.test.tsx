@@ -30,6 +30,7 @@ const mockSyncIslands = jest.fn();
 const mockRecoverFocus = jest.fn();
 const mockPrepareLogout = jest.fn();
 const mockLogout = jest.fn(async (_prepared?: Promise<void>) => {});
+const mockClearStudyWidget = jest.fn(async () => false);
 let mockEmitAppLink: ((url: string) => void) | undefined;
 let mockRememberOverride: ((...args: any[]) => Promise<boolean>) | undefined;
 let mockAppDispatch: ((action: any) => void) | undefined;
@@ -58,6 +59,11 @@ jest.mock('@/services/api/auth', () => ({
   login: (...args: unknown[]) => mockApiLogin(...args),
   logout: (prepared?: Promise<void>) => mockLogout(prepared),
   prepareLogout: () => mockPrepareLogout(),
+}));
+
+jest.mock('@/services/studyWidget', () => ({
+  ...jest.requireActual('@/services/studyWidget'),
+  clearStudyWidget: () => mockClearStudyWidget(),
 }));
 
 jest.mock('@/services/appDeepLink', () => {
@@ -986,7 +992,47 @@ test('계정 전환 중 로컬 저장 삭제 실패는 채택과 owner 갱신을
   assert.equal(navigateCalls, 0);
   assert.equal(getLastSessionUserId(), 'guest');
   assert.equal(captured.socialError, '로그인을 완료하지 못했어요. 다시 시도해 주세요.');
+  // 이전 계정 저장본을 지우지 못했으면 위젯도 그대로 둔다(전환이 확정되지 않았다).
+  assert.equal(mockClearStudyWidget.mock.calls.length, 0);
   remove.mockRestore();
+});
+
+test('다른 계정으로 전환해 이전 계정 저장본을 지우면 안드로이드 홈 위젯도 비운다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+  await rememberLocalDataOwner('guest');
+  mockSocialCredential.mockResolvedValueOnce('google-id-token');
+  mockApiLogin.mockImplementationOnce(async () => {
+    const result = { accessToken: 'AT', refreshToken: 'RT', userId: 'member' };
+    await saveSession(result);
+    return { ...result, onboardingComplete: true };
+  });
+  mockAdoptSignedInAccount.mockImplementationOnce(
+    async (result: any, _previous: any, deps: any) => {
+      const account = {
+        id: result.userId,
+        name: null,
+        catColor: null,
+        mainIslandId: null,
+        linkedProviders: [],
+        onboardingComplete: true,
+      };
+      await deps.resetLocal();
+      deps.applyAccount(account);
+      await deps.navigate(account);
+      return account;
+    },
+  );
+
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await act(async () => captured.setTerms(true));
+  await act(async () => captured.startSocial('google'));
+
+  assert.equal(captured.socialError, '');
+  assert.equal(mockClearStudyWidget.mock.calls.length, 1);
 });
 
 test('A→B 채택 진행 중과 실패 뒤에는 B 상태를 A owner 아래 저장하지 않는다', async () => {
@@ -1334,6 +1380,8 @@ test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 �
   assert.equal(result, false);
   assert.equal(mockLogout.mock.calls.length, 0);
   assert.ok(screen.getByText(/로그아웃하지 못했어요/));
+  // 세션이 남는 실패에서는 위젯도 그대로 둔다.
+  assert.equal(mockClearStudyWidget.mock.calls.length, 0);
 
   const prepared = Promise.resolve();
   mockPrepareLogout.mockReturnValueOnce(prepared);
@@ -1342,6 +1390,8 @@ test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 �
   });
   assert.equal(result, true);
   assert.equal(mockLogout.mock.calls.length, 1);
+  // 로그아웃하면 이전 계정의 공부시간이 런처 위젯에 남지 않게 비운다.
+  assert.equal(mockClearStudyWidget.mock.calls.length, 1);
   // 화면 전환 판단에 쓴 준비 결과를 실제 정리에 그대로 넘긴다 — 다시 준비하지 않는다.
   assert.equal(mockLogout.mock.calls[0][0], prepared);
   assert.equal(mockPrepareLogout.mock.calls.length, 2);

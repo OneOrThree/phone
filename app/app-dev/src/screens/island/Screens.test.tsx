@@ -30,6 +30,12 @@ jest.mock('@/services/api/account', () => ({
   updateProfile: jest.fn(),
   withdrawAccount: jest.fn(),
 }));
+// 홈 위젯 비우기만 관찰한다 — 스냅샷 계산·전송(WorldMap)은 실제 구현(안드로이드 외 no-op)을 쓴다.
+const mockClearStudyWidget = jest.fn().mockResolvedValue(false);
+jest.mock('@/services/studyWidget', () => ({
+  ...jest.requireActual('@/services/studyWidget'),
+  clearStudyWidget: () => mockClearStudyWidget(),
+}));
 const mockUpdateProfile = updateProfile as jest.Mock;
 const mockWithdrawAccount = withdrawAccount as jest.Mock;
 const mockShopBuy = jest.fn();
@@ -60,6 +66,7 @@ const backMock = jest.fn();
 beforeEach(() => {
   mockUpdateProfile.mockReset();
   mockWithdrawAccount.mockReset();
+  mockClearStudyWidget.mockClear();
   mockShopBuy.mockReset();
   Object.assign(mockShopState, {
     items: [],
@@ -1707,6 +1714,8 @@ test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로�
   await fireEvent.press(s.getByText('회원 탈퇴'));
   await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
   await waitFor(() => assert.equal(exposed.signOut.mock.calls.length, 1));
+  // 탈퇴 계정의 공부시간이 런처 위젯에 남지 않게 비운다.
+  assert.equal(mockClearStudyWidget.mock.calls.length, 1);
   assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
   assert.ok(exposed.actions.includes('DELETE_ACCOUNT'));
   assert.equal(exposed.reset.mock.calls[0][0], 'login');
@@ -1791,6 +1800,8 @@ test('탈퇴는 1.x 로컬 버킷을 지우고, 지우지 못하면 완료하지
     assert.equal(mockWithdrawAccount.mock.calls.length, 1);
     assert.equal(exposed.signOut.mock.calls.length, 0);
     assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
+    // 정리를 확정하기 전에는 위젯도 건드리지 않는다(완료 시점에 비운다).
+    assert.equal(mockClearStudyWidget.mock.calls.length, 0);
     // 1.x 정리가 실패하면 소유자 표식도 아직 지우지 않는다.
     assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), 'withdrawn-user');
 
@@ -1829,6 +1840,7 @@ test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 
   assert.equal(exposed.signOut.mock.calls.length, 0);
   assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
   assert.equal(exposed.reset.mock.calls.length, 0);
+  assert.equal(mockClearStudyWidget.mock.calls.length, 0);
 });
 
 // ── GROMO-2138 서버 모드 홈 진입 ──

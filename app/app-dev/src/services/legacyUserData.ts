@@ -7,6 +7,9 @@
  * 캐릭터 이미지는 사라지지 않는다. iOS 2.0 은 번들이 달라(focuscat) 해당 데이터가 없지만, 없는
  * 키·파일을 지우는 것은 무해하므로 플랫폼을 가리지 않고 실행한다(파일 정리만 웹 제외).
  *
+ * 1.x 가 계정 구분 없이 둔 단일 값(프로필·과목·오늘 집중 등)과 재시도 대기열도, 탈퇴 계정 것임이
+ * 확인될 때만 지운다(아래 각 목록의 주석).
+ *
  * 키 모양의 정본은 `app/legacy/app-dev/src/types/storage.ts`, 누끼 파일명의 정본은
  * `app/legacy/app-dev/modules/subject-mask`(Android `filesDir`·iOS Documents 의
  * `customCharacter_{userId 영숫자·-·_}.png`)다. 1.x 는 동결됐으므로 여기 목록도 고정이다.
@@ -17,6 +20,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
+import { subjectFromToken } from '@/services/api/session';
 
 /** 계정별 맵 `{ [userId]: … }` 형태의 1.x 키. */
 export const LEGACY_USER_MAP_KEYS = [
@@ -35,17 +39,83 @@ const CHARACTER_KEY = 'gromo:character:v1';
 const LEGACY_OWNER_KEY = 'gromo:ownedItems:legacyOwner';
 const LEGACY_OWNER_DUAL_WRITE_KEYS = ['gromo:ownedItems', 'gromo:equipment', LEGACY_OWNER_KEY];
 
+/** 1.x 로그인 프로필 `UserProfile`(userId·accessToken·refreshToken 사본 포함) — 단일 값 소유자 판정 근거. */
+const LEGACY_USER_KEY = 'gromo:user';
+
+/**
+ * 1.x 가 계정 구분 없이 단일 값으로 둔 계정 데이터. 1.x 는 이 키들을 한 번에 한 계정 것만 두었다 —
+ * 로그아웃·계정 전환(App.tsx handleLogout·applyStoredSession) 때 비웠고(`gromo:notifications` 는
+ * clearInbox 로), `gromo:auth:lastProvider` 는 로그아웃에는 남기고 탈퇴 때만 지웠다(AccountScreen
+ * clearLastAuthProvider). 그래서 지금 남아 있다면 마지막으로 로그인해 있던 1.x 계정의 값이다.
+ * 값 자체에 소유자가 없으므로 {@link legacySingleUserOwner} 가 그 계정이 탈퇴 계정임을 증명할 때만
+ * 지운다. 증명하지 못하면(다른 계정·미상) 이 사용자의 데이터라고 단정할 수 없어 남긴다.
+ *
+ * 넣지 않은 것: 1.x 토큰 원본(`gromo:accessToken`·`gromo:refreshToken`)은 2.0 세션 계층
+ * (services/api/session.ts)이 이식·정리를 맡는다 — 탈퇴 완료의 signOut 이 지운다. 기기 귀속 값
+ * (deviceId·locale·guide*·storeReview*·deferredInvite*·selection*·statsCardOrder 등)은 1.x 도
+ * 계정 전환에서 보존했다.
+ */
+const LEGACY_SINGLE_USER_KEYS = [
+  LEGACY_USER_KEY, // 프로필 + 토큰 사본
+  'gromo:onboardingComplete',
+  'gromo:focusCategory', // 준비 시험 표시명
+  'gromo:goal:pending',
+  'gromo:settings:notification',
+  'gromo:settings:statVisibility',
+  'gromo:focus:firstDone',
+  'gromo:subjects', // 과목 목록·과목별 오늘 누적
+  'gromo:focus', // 오늘 집중 총합
+  'gromo:focus:goalCelebratedDate',
+  'gromo:focus:goalCelebratePending',
+  'gromo:screentime:lastRewardedDate',
+  'gromo:screentime:celebratePending',
+  'gromo:auth:lastProvider', // 재로그인 '최근 사용' 배지 — 1.x 도 탈퇴 때 지웠다
+  'gromo:notifications', // 수신 푸시 보관함
+];
+
+/**
+ * 1.x 단일 값의 소유 계정. `gromo:user` 가 있으면 그 프로필이 정본이다 — 1.x 처럼 accessToken 의
+ * `sub` 를 먼저 보고(App.tsx getUserIdFromToken), 없으면 저장된 userId 를 본다. 프로필이 손상됐거나
+ * 둘 다 없으면 미상(null)이다 — 이때 `legacyOwner` 로 대신하지 않는다: 프로필이 있다는 것은 1.x 가
+ * 로그인 상태였다는 뜻이고, 그 계정을 모르면 누구의 값인지 모른다.
+ * `gromo:user` 가 없으면(1.x 가 로그아웃 상태) 마지막 활성 계정인 `ownedItems:legacyOwner`
+ * (로그인 중이면 CoinContext 가 항상 기록)를 쓴다 — 로그아웃 뒤에도 남는 lastProvider 등의 주인이다.
+ */
+function legacySingleUserOwner(
+  rawProfile: string | null,
+  legacyOwner: string | null,
+): string | null {
+  if (rawProfile === null) return legacyOwner;
+  const profile = parse(rawProfile);
+  if (!isMap(profile)) return null;
+  const sub =
+    typeof profile.accessToken === 'string' ? subjectFromToken(profile.accessToken) : null;
+  if (sub) return sub;
+  return typeof profile.userId === 'string' && profile.userId ? profile.userId : null;
+}
+
 /** 실제 키가 `{prefix}:{userId}:{sessionId}` 인 1회 표시 마커. */
 const LEGACY_USER_PREFIXES = ['gromo:sessionResult', 'gromo:groupChallengeSettlement'];
 
-/** 값이 `{ userId, … }` 객체인 스크린타임 상태 키. 소유자가 탈퇴 계정일 때만 지운다. */
+/** 값이 `{ userId, … }` 객체인 키(라이브 세션·스크린타임 상태). 소유자가 탈퇴 계정일 때만 지운다. */
 const LEGACY_USER_TAGGED_KEYS = [
+  // 강제 종료된 집중 세션 레코드 `{ userId, … }` — 남기면 고아 정산이 탈퇴 계정 세션을 되살린다.
+  'gromo:focus:liveSession',
   'gromo:screentime:syncState',
   'gromo:screentime:measurementStartDate',
   'gromo:screentime:effectiveGoal',
   'gromo:screentime:lastClosedDate',
   'gromo:screentime:windowReports',
 ];
+
+/**
+ * 값이 `[{ userId, … }, …]` 재시도 대기열인 키. 탈퇴 계정 항목만 걸러 낸다.
+ * - `pendingUploads`: 업로드 실패한 집중 세션 — 남기면 다음 계정 로그인 뒤 flush 가 탈퇴 계정 기록을
+ *   올릴 수 있다(1.x flush 는 계정을 대조하지만, 삭제된 계정 기록을 기기에 둘 이유가 없다).
+ * - `pendingCancels`: 라이브 마커 취소 — 서버 계정이 지워졌으니 더는 보낼 곳이 없다.
+ * 손상된 값은 탈퇴 계정 항목이 섞여 있을 수 있고 1.x 도 버리는 값이므로 키째 지운다.
+ */
+const LEGACY_USER_QUEUE_KEYS = ['gromo:focus:pendingUploads', 'gromo:focus:pendingCancels'];
 
 /** 값이 `['{userId}:{날짜}', …]` 배열인 키. 탈퇴 계정 항목만 걸러 낸다. */
 const LEGACY_STREAK_POPPED_KEY = 'gromo:focus:streakPoppedDate';
@@ -130,22 +200,44 @@ export async function clearLegacyUserData(
   }
 
   // 2) 롤백 호환 듀얼라이트 — 마지막 활성 1.x 계정이 탈퇴 계정일 때만.
-  if ((await AsyncStorage.getItem(LEGACY_OWNER_KEY)) === userId)
-    removeKeys.push(...LEGACY_OWNER_DUAL_WRITE_KEYS);
+  const [[, legacyOwner], [, rawProfile]] = await AsyncStorage.multiGet([
+    LEGACY_OWNER_KEY,
+    LEGACY_USER_KEY,
+  ]);
+  if (legacyOwner === userId) removeKeys.push(...LEGACY_OWNER_DUAL_WRITE_KEYS);
 
-  // 3) `{prefix}:{userId}:…` 마커.
+  // 3) 소유자 표시 없는 단일 값 — 1.x 단일 사용자 소유자가 탈퇴 계정으로 증명될 때만.
+  if (legacySingleUserOwner(rawProfile, legacyOwner) === userId)
+    removeKeys.push(...LEGACY_SINGLE_USER_KEYS);
+
+  // 4) `{prefix}:{userId}:…` 마커.
   const allKeys = await AsyncStorage.getAllKeys();
   const prefixes = LEGACY_USER_PREFIXES.map((prefix) => `${prefix}:${userId}:`);
   removeKeys.push(...allKeys.filter((key) => prefixes.some((prefix) => key.startsWith(prefix))));
 
-  // 4) `{ userId, … }` 스크린타임 상태.
+  // 5) `{ userId, … }` 라이브 세션·스크린타임 상태.
   const tagged = await AsyncStorage.multiGet(LEGACY_USER_TAGGED_KEYS);
   for (const [key, raw] of tagged) {
     const value = parse(raw);
     if (isMap(value) && value.userId === userId) removeKeys.push(key);
   }
 
-  // 5) `userId:날짜` 팝 마커 배열.
+  // 6) `{ userId, … }` 항목 대기열.
+  const queues = await AsyncStorage.multiGet(LEGACY_USER_QUEUE_KEYS);
+  for (const [key, raw] of queues) {
+    const value = parse(raw);
+    if (value === null) continue;
+    if (!Array.isArray(value)) {
+      removeKeys.push(key);
+      continue;
+    }
+    const kept = value.filter((item) => !(isMap(item) && item.userId === userId));
+    if (kept.length === value.length) continue;
+    if (kept.length) writes.push([key, JSON.stringify(kept)]);
+    else removeKeys.push(key);
+  }
+
+  // 7) `userId:날짜` 팝 마커 배열.
   const popped = parse(await AsyncStorage.getItem(LEGACY_STREAK_POPPED_KEY));
   if (Array.isArray(popped)) {
     const kept = popped.filter(
