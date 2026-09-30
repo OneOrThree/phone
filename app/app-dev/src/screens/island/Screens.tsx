@@ -802,7 +802,10 @@ export function RedesignScreens({ e }: any) {
     profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
-    routeNowRef = useRef(route);
+    routeNowRef = useRef(route),
+    // 진행 중인 탈퇴 의도 — 탈퇴 대상 userId 와 멱등 키. 응답 유실 뒤 재시도도 같은 키로 보내
+    // 서버가 첫 결과를 재생하게 하고, 세션이 먼저 정리돼도 로컬 정리 대상 계정을 잃지 않는다.
+    withdrawIntent = useRef<{ userId: string | null; key: string } | null>(null);
   routeNowRef.current = route;
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
@@ -861,7 +864,7 @@ export function RedesignScreens({ e }: any) {
    */
   const finishWithdrawal = async () => {
     try {
-      const withdrawnUserId = getSession()?.userId;
+      const withdrawnUserId = withdrawIntent.current?.userId ?? getSession()?.userId;
       if (withdrawnUserId) await clearLegacyUserData(withdrawnUserId);
       await clearLocalDataOwner();
     } catch {
@@ -870,6 +873,7 @@ export function RedesignScreens({ e }: any) {
       return;
     }
     setWithdrawCleanupPending(false);
+    withdrawIntent.current = null;
     // 안드로이드 홈 위젯을 비운다 — 탈퇴한 계정의 공부시간이 런처에 남지 않게. signOut 도 비우지만
     // 그 준비가 실패하면(false) 거기까지 가지 않고, 서버 없는 모드는 signOut 을 부르지 않는다.
     // best-effort 라 기다리지 않는다(실패는 래퍼가 삼킨다).
@@ -6189,7 +6193,22 @@ export function RedesignScreens({ e }: any) {
                         return;
                       }
                       run(async () => {
-                        await withdrawAccount();
+                        // 호출 전에 대상 계정을 잡아 둔다. 같은 계정의 재시도면 멱등 키를 재사용한다.
+                        const userId = getSession()?.userId ?? null;
+                        if (withdrawIntent.current?.userId !== userId)
+                          withdrawIntent.current = { userId, key: uuid() };
+                        try {
+                          await withdrawAccount(withdrawIntent.current.key);
+                        } catch (thrown) {
+                          // 서버가 DELETE /me 를 커밋했는데 응답만 잃었으면 재시도는 404
+                          // USER_NOT_FOUND 다 — 계정은 이미 없으니 탈퇴 완료로 보고 로컬 정리를 이어 간다.
+                          if (!(
+                            thrown instanceof ApiError &&
+                            thrown.status === 404 &&
+                            thrown.code === 'USER_NOT_FOUND'
+                          ))
+                            throw thrown;
+                        }
                         await finishWithdrawal();
                       }, notify);
                     },

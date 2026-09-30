@@ -124,6 +124,7 @@ import {
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getLastSessionUserId,
+  isLocalDataOwnerUnknown,
   getSession,
   rememberLocalDataOwner,
   restoreSession,
@@ -405,6 +406,9 @@ function Gromo() {
     backOverride = useRef<(() => boolean) | null>(null),
     switchResolve = useRef<((ok: boolean) => void) | null>(null);
   const guestLoginFlight = useRef(false);
+  // 소셜 로그인 진행 표식 — state(socialBusy)는 다음 렌더까지 반영되지 않아 연타 두 번이 모두
+  // 통과한다. 첫 await 전에 동기로 세우고, 게스트 시작과도 서로 배제한다.
+  const socialLoginFlight = useRef(false);
   const transitionRoute = useRef(
     createShieldedRouteTransition(setRouteTransitionShielded, setRoute),
   ).current;
@@ -944,7 +948,7 @@ function Gromo() {
     },
   });
   const startGuest = async () => {
-    if (guestLoginFlight.current) return;
+    if (guestLoginFlight.current || socialLoginFlight.current) return;
     socialLoginAttempt.current = null;
     conversionLoginAttempt.current = null;
     conversionRef.current?.clearPending();
@@ -985,7 +989,16 @@ function Gromo() {
   };
   const getCredential = socialCredential;
   const startSocial = async (provider: Provider) => {
-    if (!TERMS_VERSION || socialBusy || guestBusy || !terms) return;
+    if (
+      !TERMS_VERSION ||
+      socialBusy ||
+      guestBusy ||
+      !terms ||
+      socialLoginFlight.current ||
+      guestLoginFlight.current
+    )
+      return;
+    socialLoginFlight.current = true;
     const previousUserId = REVIEW || DEMO ? null : getLastSessionUserId();
     const generation = sessionGeneration();
     if (
@@ -1024,6 +1037,7 @@ function Gromo() {
         );
       }
     } finally {
+      socialLoginFlight.current = false;
       setSocialBusy(null);
     }
   };
@@ -1180,11 +1194,18 @@ function Gromo() {
         const loadable = saved?.version === 1 ? saved : null;
         const restoredUserId = session?.userId ?? null;
         const ownerUserId = getLastSessionUserId();
+        // 소유자 표식을 읽지 못했으면 저장본의 주인을 모른다 — 불일치와 같이 격리한다. 주인이 확인되지
+        // 않은 저장본은 어느 계정에도 넘기지 않으므로 보류 상태로도 두지 않는다.
+        const ownerUnknown = isLocalDataOwnerUnknown();
         const ownerMismatch =
-          restoredUserId !== null && ownerUserId !== null && restoredUserId !== ownerUserId;
+          restoredUserId !== null &&
+          (ownerUnknown || (ownerUserId !== null && restoredUserId !== ownerUserId));
         if (ownerMismatch) {
           setStorageOwnerGate(false);
-          deferredOwnerState.current = loadable ? { userId: ownerUserId!, state: loadable } : null;
+          deferredOwnerState.current =
+            loadable && ownerUserId && !ownerUnknown
+              ? { userId: ownerUserId, state: loadable }
+              : null;
         }
         // owner가 다른 세션은 서버 확인 전까지 메모리에 올리지 않는다. 오프라인·거절일 때
         // 이전 사용자의 저장본은 디스크에 보존하고 빈 상태가 덮어쓰지 않도록 저장도 막는다.

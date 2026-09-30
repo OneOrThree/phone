@@ -74,6 +74,8 @@ let cached: Session | null = null;
 let lastUserId: string | null = null;
 let localDataOwnerClearPending = false;
 let localDataOwnerIntentionallyUnset = false;
+/** 소유자 표식 조회가 저장소 오류로 막혔다(blocked). 소유자를 모르므로 로컬 저장본을 격리해야 한다. */
+let localDataOwnerBlocked = false;
 let generation = 0;
 let onLost: (() => void) | null = null;
 const listeners = new Set<(session: Session | null) => void>();
@@ -137,6 +139,14 @@ export function getLastSessionUserId(): string | null {
   return lastUserId ?? cached?.userId ?? null;
 }
 
+/**
+ * 소유자 표식을 읽지 못해 로컬 저장본의 주인을 알 수 없는 상태인가. {@link getLastSessionUserId}
+ * 는 이때 null(소유자 없음)을 돌려주므로, 부팅은 이 값으로 「모름」을 따로 판정해 저장본을 올리지 않는다.
+ */
+export function isLocalDataOwnerUnknown(): boolean {
+  return localDataOwnerBlocked;
+}
+
 /** Retry a durable owner invalidation. A failed retry must never expose the old owner. */
 async function resolveLocalDataOwnerClear(): Promise<'normal' | 'cleared' | 'blocked'> {
   let pending: string | null;
@@ -150,9 +160,11 @@ async function resolveLocalDataOwnerClear(): Promise<'normal' | 'cleared' | 'blo
       pending = 'pending';
   } catch {
     localDataOwnerClearPending = true;
+    localDataOwnerBlocked = true;
     lastUserId = null;
     return 'blocked';
   }
+  localDataOwnerBlocked = false;
   if (pending !== 'pending' && pending !== 'cleared') {
     localDataOwnerClearPending = false;
     localDataOwnerIntentionallyUnset = false;
@@ -172,6 +184,7 @@ async function resolveLocalDataOwnerClear(): Promise<'normal' | 'cleared' | 'blo
     localDataOwnerClearPending = false;
     return 'cleared';
   } catch {
+    localDataOwnerBlocked = true;
     return 'blocked';
   }
 }
@@ -621,6 +634,7 @@ export function clearSession(
   preserveLegacy = false,
   explicitLogout = false,
   precondition?: Promise<void>,
+  tombstoneOnFailure = false,
 ): Promise<Session | null> {
   return serialized(async () => {
     // 명시 로그아웃 준비(tombstone 등)가 실패했으면 아무것도 지우지 않는다.
@@ -665,7 +679,13 @@ export function clearSession(
       await AsyncStorage.removeItem(KEY_LOGOUT_PENDING).catch(swallow);
       await removeItem(KEY_LOGOUT_PENDING).catch(swallow);
     }
-    if (failed.length > 0) throw failed[0];
+    if (failed.length > 0) {
+      // 거절된 세션은 메모리에서 이미 비웠다. 저장소 삭제만 실패했으면 다음 복구가 삭제를 마치도록
+      // tombstone 을 남긴다 — 없으면 재시작 때 남은 bundle 이 거절된 세션을 되살린다.
+      if (tombstoneOnFailure && !logoutTombstoneWritten)
+        await writeLogoutTombstone().catch(() => {});
+      throw failed[0];
+    }
     return cleared;
   });
 }
@@ -673,7 +693,9 @@ export function clearSession(
 /**
  * 서버가 거절한 세션(401·`USER_NOT_FOUND`)의 정리. 「**정말로 정리했는가**」만 돌려준다.
  *
- * 저장소 삭제 실패는 삼키되 **true** 다 — fence 에 걸리면 저장소를 건드리지 않고 즉시 돌아오므로,
+ * 저장소 삭제 실패는 삼키되 **true** 다 — 실패하면 clearSession 이 tombstone 을 남겨 다음 복구
+ * ({@link restoreSession} → finishInterruptedLogout)가 삭제를 마친다. tombstone 도 못 남기면
+ * 저장소가 전부 쓰기 불가한 상태라 더 할 수 있는 일이 없고, 메모리는 비웠으니 화면은 로그인으로 간다. fence 에 걸리면 저장소를 건드리지 않고 즉시 돌아오므로,
  * 던졌다는 것 자체가 fence 를 통과해 정리에 들어갔다는 뜻이다. 메모리 세션·세대는 삭제보다 먼저
  * 비우니 화면을 로그인으로 되돌려도 된다. false 면 그 사이 세션이 교체된 것이라, 옛 세션의 거절
  * 판정으로 새 세션을 끊지 않는다. pending 표식을 읽지 못하면 legacy 원본은 보존 대상으로 간주하되,
@@ -682,7 +704,9 @@ export function clearSession(
 export function clearRejectedSession(expectedGeneration: number): Promise<boolean> {
   return isLegacySessionPendingPromotion()
     .catch(() => true)
-    .then((preserveLegacy) => clearSession(expectedGeneration, preserveLegacy))
+    .then((preserveLegacy) =>
+      clearSession(expectedGeneration, preserveLegacy, false, undefined, true),
+    )
     .then(
       (cleared) => cleared !== null,
       () => true,

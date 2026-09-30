@@ -588,6 +588,65 @@ test('소셜 로그인 pending 중에는 중복 요청을 막고 오류 메시�
   );
 });
 
+test('렌더 전 소셜 로그인 연타와 게스트·소셜 교차 시작은 한 흐름만 통과한다', async () => {
+  let resolveCredential: (credential: string) => void = () => {};
+  mockSocialCredential.mockImplementationOnce(
+    () =>
+      new Promise<string>((resolve) => {
+        resolveCredential = resolve;
+      }),
+  );
+  mockApiLogin.mockResolvedValueOnce({
+    accessToken: 'AT',
+    refreshToken: 'RT',
+    userId: 'u1',
+    onboardingComplete: true,
+  });
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await act(async () => captured.setTerms(true));
+
+  // 같은 렌더의 명령을 잡아 두고 연달아 부른다 — socialBusy state 가 아직 반영되지 않은 연타다.
+  const { startSocial, startGuest } = captured;
+  let first!: Promise<void>;
+  await act(async () => {
+    first = startSocial('google');
+    void startSocial('google');
+    void startGuest();
+    await Promise.resolve();
+  });
+  assert.equal(mockSocialCredential.mock.calls.length, 1);
+  assert.equal(mockGuestLogin.mock.calls.length, 0);
+  resolveCredential('google-id-token');
+  await act(async () => first);
+  assert.equal(mockApiLogin.mock.calls.length, 1);
+
+  // 게스트 시작이 진행 중이면 같은 렌더의 소셜 시작도 막힌다.
+  let resolveGuest: (value: unknown) => void = () => {};
+  mockGuestLogin.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveGuest = resolve;
+      }),
+  );
+  await waitFor(() => assert.equal(captured.socialBusy, null));
+  await act(async () => captured.setTerms(true));
+  const next = captured;
+  let guest!: Promise<void>;
+  await act(async () => {
+    guest = next.startGuest();
+    void next.startSocial('kakao');
+    await Promise.resolve();
+  });
+  assert.equal(mockGuestLogin.mock.calls.length, 1);
+  assert.equal(mockSocialCredential.mock.calls.length, 1);
+  resolveGuest(Promise.reject(new Error('guest failed')));
+  await act(async () => guest);
+});
+
 test('소셜 로그인 retryable 응답 재시도는 자격과 attemptId를 재사용한다', async () => {
   mockSocialCredential.mockResolvedValueOnce('google-id-token');
   mockApiLogin

@@ -8,6 +8,7 @@ import {
   clearSession,
   getLastSessionUserId,
   getSession,
+  isLocalDataOwnerUnknown,
   LogoutNotDurableError,
   rememberLocalDataOwner,
   restoreSession,
@@ -408,6 +409,44 @@ test('레거시 재복사 차단 표식을 못 쓰면 새 세션을 커밋하지
     write.mockImplementation(realWrite);
     Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
   }
+});
+
+test('401 정리의 저장소 삭제가 실패하면 tombstone 을 남겨 다음 복구가 거절된 세션을 지운다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  const generation = sessionGeneration();
+  remove.mockImplementation(async () => {
+    throw new Error('키체인 삭제 실패');
+  });
+  try {
+    assert.equal(await clearRejectedSession(generation), true);
+    assert.equal(getSession(), null);
+    assert.equal(await AsyncStorage.getItem('gromo.androidLegacyLogoutPending'), '1');
+  } finally {
+    remove.mockImplementation(realRemove);
+  }
+  // 저장소가 회복된 재시작 — 남아 있던 bundle 을 세션으로 되살리지 않고 삭제를 마친다.
+  assert.equal(await restoreSession(), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+  assert.equal(await AsyncStorage.getItem('gromo.androidLegacyLogoutPending'), null);
+});
+
+test('소유자 표식 조회가 막히면 소유자 미상으로 노출하고, 회복되면 해제한다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  const getAsync = AsyncStorage.getItem as jest.Mock;
+  const realGetAsync = getAsync.getMockImplementation() as (key: string) => Promise<string | null>;
+  getAsync.mockImplementation(async (key: string) => {
+    if (key === 'gromo.lastUserIdClearState') throw new Error('AsyncStorage 읽기 실패');
+    return realGetAsync(key);
+  });
+  try {
+    await restoreSession();
+    assert.equal(isLocalDataOwnerUnknown(), true);
+    assert.equal(getLastSessionUserId(), null);
+  } finally {
+    getAsync.mockImplementation(realGetAsync);
+  }
+  await restoreSession();
+  assert.equal(isLocalDataOwnerUnknown(), false);
 });
 
 test('legacy pending 표식이 없는 현재 세션은 401 정리에서 정상 제거된다', async () => {

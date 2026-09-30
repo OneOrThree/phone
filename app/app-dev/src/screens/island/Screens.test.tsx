@@ -1822,6 +1822,47 @@ test('탈퇴는 1.x 로컬 버킷을 지우고, 지우지 못하면 완료하지
   await clearSession();
 });
 
+test('탈퇴 응답을 잃고 재시도가 USER_NOT_FOUND 면 같은 멱등 키로 보냈고 탈퇴 완료로 로컬 정리를 이어 간다', async () => {
+  let exposed: any;
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'withdrawn-user' });
+  await rememberLocalDataOwner('withdrawn-user');
+  await AsyncStorage.setItem('gromo:character:v1', JSON.stringify({ 'withdrawn-user': {} }));
+  // 1차: 서버는 커밋했지만 응답이 유실됐다.
+  mockWithdrawAccount.mockRejectedValueOnce(
+    new ApiError('CLIENT_TIMEOUT', '서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.', 0),
+  );
+  // 2차: 계정이 이미 없다 — 갱신 경로가 세션을 먼저 비운 뒤 USER_NOT_FOUND 로 던지는 경우까지.
+  mockWithdrawAccount.mockImplementationOnce(async () => {
+    await clearSession();
+    throw new ApiError('USER_NOT_FOUND', '사용자를 찾을 수 없습니다.', 404);
+  });
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
+  await waitFor(() =>
+    assert.ok(
+      notifyMock.mock.calls.some((c) => c[0] === '서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.'),
+    ),
+  );
+  assert.equal(exposed.reset.mock.calls.length, 0);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), 'withdrawn-user');
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(exposed.reset.mock.calls[0]?.[0], 'login'));
+  const [[firstKey], [retryKey]] = mockWithdrawAccount.mock.calls;
+  assert.ok(firstKey);
+  assert.equal(retryKey, firstKey);
+  assert.ok(exposed.actions.includes('DELETE_ACCOUNT'));
+  // 세션이 먼저 비워졌어도 호출 전에 잡아 둔 계정으로 1.x 버킷·소유자 표식을 지운다.
+  assert.equal(await AsyncStorage.getItem('gromo:character:v1'), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+  assert.equal(getLastSessionUserId(), null);
+  await clearSession();
+});
+
 test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 오류를 알린다', async () => {
   let exposed: any;
   mockWithdrawAccount.mockRejectedValue(new ApiError('STATE_CONFLICT', '탈퇴할 수 없어요.', 409));
