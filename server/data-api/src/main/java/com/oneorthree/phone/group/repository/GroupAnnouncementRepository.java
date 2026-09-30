@@ -22,6 +22,11 @@ import java.util.UUID;
  */
 public interface GroupAnnouncementRepository extends JpaRepository<GroupAnnouncement, UUID> {
 
+    /** 요청자({@code :viewerId})가 차단한 작성자의 공지를 빼는 조건 — 방향 고정(차단한 쪽에서만 숨긴다). */
+    String NOT_BLOCKED_AUTHOR = " AND NOT EXISTS (SELECT 1 FROM UserBlock b"
+            + " WHERE b.blocker.id = :viewerId AND b.blocked = a.user)";
+
+
     /**
      * 그룹 공지 목록 — 최신순. 페이징이 없어 그룹의 공지를 전부 싣는다(공지 수가 적다는 전제).
      *
@@ -46,16 +51,36 @@ public interface GroupAnnouncementRepository extends JpaRepository<GroupAnnounce
      */
     Optional<GroupAnnouncement> findByIdAndGroupId(UUID id, UUID groupId);
 
-    /** 게시판 목록 첫 페이지 — {@code (createdAt DESC, id DESC)}. 불변 키라 수정이 순서를 바꾸지 않는다. */
-    @Query("SELECT a FROM GroupAnnouncement a WHERE a.group.id = :groupId ORDER BY a.createdAt DESC, a.id DESC")
-    List<GroupAnnouncement> findNoticeFirstPage(@Param("groupId") UUID groupId, Pageable page);
-
-    /** 게시판 목록 다음 페이지 — anchor 값으로 seek 한다. anchor 공지가 지워져도 경계가 유지된다. */
-    @Query("SELECT a FROM GroupAnnouncement a WHERE a.group.id = :groupId"
-            + " AND (a.createdAt < :createdAt OR (a.createdAt = :createdAt AND a.id < :id))"
+    /**
+     * 게시판 목록 첫 페이지 — {@code (createdAt DESC, id DESC)}. 불변 키라 수정이 순서를 바꾸지 않는다.
+     *
+     * <p>요청자가 차단한 사람이 쓴 공지는 LIMIT 전에 DB 에서 뺀다(GROMO-2181, character-report policy
+     * RP-차단) — 걸러낸 뒤에 자르므로 페이지 크기와 keyset 경계가 차단 때문에 줄거나 어긋나지 않는다.
+     * 방향은 한쪽뿐이다(요청자 → 작성자). 작성자 연결이 끊긴 공지({@code user_id IS NULL})는 비교가 참이 되지
+     * 않아 그대로 남는다.
+     */
+    @Query("SELECT a FROM GroupAnnouncement a WHERE a.group.id = :groupId" + NOT_BLOCKED_AUTHOR
             + " ORDER BY a.createdAt DESC, a.id DESC")
-    List<GroupAnnouncement> findNoticePageAfter(@Param("groupId") UUID groupId,
+    List<GroupAnnouncement> findNoticeFirstPage(@Param("groupId") UUID groupId, @Param("viewerId") UUID viewerId,
+            Pageable page);
+
+    /**
+     * 게시판 목록 다음 페이지 — anchor 값으로 seek 한다. anchor 공지가 지워져도 경계가 유지된다.
+     * 차단 제외는 첫 페이지와 같다.
+     */
+    @Query("SELECT a FROM GroupAnnouncement a WHERE a.group.id = :groupId"
+            + " AND (a.createdAt < :createdAt OR (a.createdAt = :createdAt AND a.id < :id))" + NOT_BLOCKED_AUTHOR
+            + " ORDER BY a.createdAt DESC, a.id DESC")
+    List<GroupAnnouncement> findNoticePageAfter(@Param("groupId") UUID groupId, @Param("viewerId") UUID viewerId,
             @Param("createdAt") Instant createdAt, @Param("id") UUID id, Pageable page);
+
+    /**
+     * 게시판 상세의 공지 — {@link #findByIdAndGroupId} 에 차단 제외를 더한 것(GROMO-2181). 요청자가 차단한 사람의
+     * 공지는 «이 섬에 없는 공지»와 같게 빈 결과다 — 상세 id 직접 조회도 목록과 같은 규칙(RP-차단).
+     */
+    @Query("SELECT a FROM GroupAnnouncement a WHERE a.id = :id AND a.group.id = :groupId" + NOT_BLOCKED_AUTHOR)
+    Optional<GroupAnnouncement> findVisibleNotice(@Param("id") UUID id, @Param("groupId") UUID groupId,
+            @Param("viewerId") UUID viewerId);
 
     /**
      * 탈퇴자가 쓴 공지의 작성자 연결만 끊는다 (GROMO-1801 · 계정 LLD §4 group_announcements).
