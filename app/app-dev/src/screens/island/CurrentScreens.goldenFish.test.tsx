@@ -343,6 +343,25 @@ test('튜토리얼 집중 시작이 실패하면 오류를 대화창 안에서 �
   await screen.unmount();
 });
 
+test('첫 물고기를 기다리는 11단계에는 휴식과 종료 전환을 막는다', async () => {
+  const state = focusedState();
+  state.session!.version = 1;
+  const pause = jest.fn(),
+    setGuideStep = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focus', undefined, undefined, undefined, undefined, {
+      guideStep: 11,
+      setGuideStep,
+      focus: { pause, tutorialReward: jest.fn(() => new Promise(() => {})) },
+    }),
+  );
+  await fireEvent.press(screen.getByTestId('pause-focus', { includeHiddenElements: true }));
+  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
+  expect(pause).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('confirm-finish', { includeHiddenElements: true })).toBeNull();
+  await screen.unmount();
+});
+
 test('종료 확인 취소는 17단계로 돌아가며 다시 종료할 수 있다', async () => {
   const state = focusedState();
   const setGuideStep = jest.fn();

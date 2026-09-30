@@ -1718,6 +1718,8 @@ function FocusFlow({ e }: any) {
     if (!walkTo(LANDING, arrive)) arrive();
   };
   const pause = () => {
+    // 첫 물고기 보상·reel을 기다리는 11단계에는 오버레이가 없다 — 이때 전환하면 12~14단계 안내가 누락된다.
+    if (tutorialStep === 11) return;
     if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
       const requestedSessionId = s.session?.id;
       goldenDeferredNavigationRef.current = () => {
@@ -1983,6 +1985,7 @@ function FocusFlow({ e }: any) {
   };
   const skipTutorial = () => e.setGuideStep(99);
   const openEnd = () => {
+    if (tutorialStep === 11) return;
     if (tutorialStep === 17) e.setGuideStep(18);
     setDialog('end');
   };
