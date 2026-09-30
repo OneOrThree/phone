@@ -30,6 +30,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -69,6 +70,7 @@ class InternalUserBlockIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("internal.api.enabled", () -> true);
+        registry.add("user-blocks.realtime-events-enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         // 배포 yml 의 3줄 + 이 파일이 친구 제외를 증명하려고 여는 2줄.
         // yml 자체와 컨트롤러의 대조는 InternalUserBlockAllowlistTest 가 맡는다.
@@ -194,6 +196,39 @@ class InternalUserBlockIntegrationTest {
                 .content("{}"))
                 .andExpect(status().isForbidden());
         as(a, delete(path(a, "/blocks"))).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("실제로 관계가 바뀐 차단·해제만 user.blocks.updated 를 REALTIME 으로 적고, 그 version 이 차단 세대다")
+    void onlyEffectiveChangesAppendRealtimeBlockEvents() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+        String body = "{\"blockedUserId\":\"" + b + "\"}";
+
+        as(a, post(path(a, "/blocks")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNoContent());
+        // 이미 있는 관계의 재차단은 세대를 올리지 않는다.
+        as(a, post(path(a, "/blocks")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNoContent());
+        as(a, delete(path(a, "/blocks/" + b))).andExpect(status().isNoContent());
+        as(a, delete(path(a, "/blocks/" + b))).andExpect(status().isNoContent());
+
+        List<Map<String, Object>> events = jdbc.queryForList(
+                "select version, params->>'changeKind' as kind, params->>'blockerUserId' as blocker,"
+                        + " params->>'blockedUserId' as blocked, subject_id, user_id"
+                        + " from event_outbox where type = 'user.blocks.updated' and aggregate_type = 'USER_BLOCKS'"
+                        + " and aggregate_id = ? order by version", a.toString());
+        assertThat(events).extracting(row -> row.get("kind")).containsExactly("BLOCKED", "UNBLOCKED");
+        assertThat(events).extracting(row -> ((Number) row.get("version")).longValue()).containsExactly(1L, 2L);
+        assertThat(events).allSatisfy(row -> {
+            assertThat(row.get("blocker")).isEqualTo(a.toString());
+            assertThat(row.get("blocked")).isEqualTo(b.toString());
+            assertThat(row.get("subject_id")).isEqualTo(a.toString());
+            assertThat(row.get("user_id")).isEqualTo(a);
+        });
+        assertThat(jdbc.queryForObject("select count(*) from event_outbox_deliveries d join event_outbox o"
+                + " on o.id = d.outbox_id where o.type = 'user.blocks.updated' and o.aggregate_id = ?"
+                + " and d.target = 'REALTIME'", Integer.class, a.toString())).isEqualTo(2);
     }
 
     // ---------------------------------------------------------------- 2. 경합

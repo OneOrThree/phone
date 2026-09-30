@@ -153,7 +153,8 @@ class CurrentMembershipVerifierTest {
         sessions.register("socket", new ChatPrincipal(user, "Bearer " + token(claims())));
         var interceptor = new ChatOutboundChannelInterceptor(sessions, jwt, guard,
                 mock(com.oneorthree.realtime.event.RealtimeEventDelivery.class),
-                new tools.jackson.databind.ObjectMapper());
+                new tools.jackson.databind.ObjectMapper(),
+                mock(com.oneorthree.realtime.block.BlockedUsers.class));
         Message<?> frame = frame("/topic/groups/" + island);
 
         assertThat(interceptor.beforeHandle(frame, null, null)).isSameAs(frame);
@@ -183,7 +184,8 @@ class CurrentMembershipVerifierTest {
         sessions.register("socket", new ChatPrincipal(user, "Bearer " + token(claims())));
         var interceptor = new ChatOutboundChannelInterceptor(sessions, jwt, guard,
                 mock(com.oneorthree.realtime.event.RealtimeEventDelivery.class),
-                new tools.jackson.databind.ObjectMapper());
+                new tools.jackson.databind.ObjectMapper(),
+                mock(com.oneorthree.realtime.block.BlockedUsers.class));
         Message<?> duplicate = frame("/queue/duplicates-usersocket");
         assertThat(interceptor.beforeHandle(duplicate, null, null)).isSameAs(duplicate);
         assertThat(interceptor.beforeHandle(frame("/topic/islands/" + island + "/events"), null, null)).isNull();
@@ -210,7 +212,8 @@ class CurrentMembershipVerifierTest {
         SimpMessageHeaderAccessor headers = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
         headers.setSessionId("socket");
         headers.setDestination(destination);
-        return MessageBuilder.createMessage(new byte[0], headers.getMessageHeaders());
+        return MessageBuilder.createMessage("{\"senderId\":null}".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                headers.getMessageHeaders());
     }
 
     private static final class MutableClock extends Clock {

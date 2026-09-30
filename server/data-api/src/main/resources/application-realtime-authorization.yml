@@ -14,3 +14,6 @@ internal:
           # 읽는 정본이다. Business 와 «같은 경로»지만 caller 가 달라 허용목록도 각자 적는다(㉱).
           # `*` 는 세그먼트 하나이고, rest-members 는 이 판정에 필요 없어 열지 않는다.
           - 'GET /internal/islands/*/focus-members'
+          # GROMO-2182 받는 사람 기준 차단 필터 — Realtime 이 채팅·응원 전달 직전에 쓰는 차단 집합의 정본이다.
+          # Business 와 같은 경로지만 caller 가 달라 따로 적는다. 목록 조회(GET)만 열고 생성·해제는 열지 않는다.
+          - 'GET /internal/users/*/blocks'
