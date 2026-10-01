@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.focus.dto.session.FocusTutorialRewardView;
+import com.oneorthree.phone.focus.dto.session.TutorialExperienceRewardView;
 import com.oneorthree.phone.internal.service.FocusTutorialRewardService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,6 +15,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class InternalFocusTutorialRewardController {
     private final FocusTutorialRewardService rewards;
+
+    @PostMapping("/internal/users/{userId}/islands/{islandId}/tutorial-reward")
+    public TutorialExperienceRewardView claimExperience(@PathVariable UUID userId, @PathVariable UUID islandId) {
+        return rewards.claimExperience(userId, islandId);
+    }
 
     @PostMapping("/internal/users/{userId}/focus-sessions/{sessionId}/tutorial-reward")
     public FocusTutorialRewardView claim(@PathVariable UUID userId, @PathVariable UUID sessionId) {

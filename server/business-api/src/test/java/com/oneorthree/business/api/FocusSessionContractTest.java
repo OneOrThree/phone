@@ -25,6 +25,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class FocusSessionContractTest extends UpstreamTestBase {
 
     @Test
+    void experienceRewardUsesAuthenticatedUserWithoutSessionOrCommandKey() throws Exception {
+        String path = INTERNAL + "/islands/" + ISLAND + "/tutorial-reward";
+        DATA.on("POST " + path, request -> ok(
+                "{\"islandId\":\"" + ISLAND + "\",\"status\":\"granted\"}"));
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/tutorial-reward")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.islandId").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.status").value("granted"));
+        mockMvc.perform(post("/islands/" + ISLAND + "/tutorial-reward"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void malformedExperienceRewardIsNotReportedAsSuccess() throws Exception {
+        DATA.on("POST " + INTERNAL + "/islands/" + ISLAND + "/tutorial-reward",
+                request -> ok("{\"islandId\":\"" + ISLAND + "\",\"status\":\"pending\"}"));
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/tutorial-reward")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @Test
     void tutorialRewardUsesAuthenticatedUserAndNeedsNoCommandKey() throws Exception {
         String path = INTERNAL + "/focus-sessions/" + FOCUS + "/tutorial-reward";
         DATA.on("POST " + path, request -> ok(

@@ -84,7 +84,20 @@ receipt·정산의 원 결과 전체는 현재 섬 데이터 열람 권한이 �
 이유로 questProgress/섬 정보가 든 결과를 그대로 재생하지 않는다. 본인 완료 증거용 공개 축소 DTO가 필요하면 별도 계약으로 정한다.
 비활성 계정은404, 타인 세션은403, 없는 세션은404다.
 
-### tutorial-reward — POST /focus-sessions/{sessionId}/tutorial-reward, 200
+### tutorial-experience-reward — POST /islands/{islandId}/tutorial-reward, 200
+
+2026-10-01: 첫 집중 안내는 실제 세션 없는 체험이다. 5초는 앱 연출 시간이며 서버 집중 시간으로 검증·기록하지 않는다.
+본문·세션 ID·명령 키·지급량 없이 인증 사용자와 경로의 소속 섬만 받는다.
+Business는 `/internal/users/{userId}/islands/{islandId}/tutorial-reward`로 위임한다.
+
+- 사용자 배타 → 섬 → 활성 멤버십 → 지갑 순서로 잠그고 일반 물고기 1마리를 지급한다.
+- V105가 기존 계정별 영수증의 `session_id`를 nullable로 만들고 `island_id`를 추가한다. 구·신 API는 같은 영수증 PK와 지갑 멱등 키를 공유한다.
+- 같은 섬의 체험 수령 재요청은 `{islandId, status: "granted"}`이며 추가 지급하지 않는다. 구 API 또는 다른 섬 수령자는 `unavailable`이다. 재요청도 현재 소속 검증을 통과해야 한다.
+- 새 지급은 섬 잔액·건설 기여·영수증을 같은 트랜잭션에 쓴다. 누적 획득은 기존 적립 원장과 세션 없는 영수증을 합산해 한 번만 센다. 섬 삭제 시 귀속만 null로 하고 계정의 수령 이력은 남긴다.
+- 집중 세션·구간·집중 통계·정산·분당 보상·황금 이벤트는 만들지 않는다. 일반 집중과 황금 정책은 변경하지 않는다.
+- 배포 순서: Data API(V105) → Business API → 앱. 구 API는 호환을 위해 유지한다.
+
+### tutorial-reward — POST /focus-sessions/{sessionId}/tutorial-reward, 200 (구 앱 호환)
 
 최초 낚시 체험에서 호출한다. 본문·명령 키·지급량을 받지 않으며 주체는 인증된 사용자다.
 Business는 `/internal/users/{userId}/focus-sessions/{sessionId}/tutorial-reward`로 위임한다.

@@ -47,6 +47,14 @@ public class FocusSessionController {
     private final SettingsSessionGuard sessions;
     private final UpstreamConfigProperties properties;
 
+    /** 실제 집중 없이 지급하는 체험 보상. 인증 주체와 1마리 고정 수량은 서버가 정한다. */
+    @PostMapping("/islands/{islandId}/tutorial-reward")
+    public FocusSessionUseCase.TutorialExperienceView claimTutorialExperience(
+            @PathVariable String islandId, HttpServletRequest request) {
+        return focusSessions.claimTutorialExperience(sessions.requireSession(request),
+                PublicIds.uuid(islandId, "islandId"), properties.deadline());
+    }
+
     /** 사용자·지급량은 클라이언트에서 받지 않는다. 서버의 계정별 영수증이 중복 지급을 막는다. */
     @PostMapping("/focus-sessions/{sessionId}/tutorial-reward")
     public FocusSessionUseCase.TutorialRewardView claimTutorialReward(

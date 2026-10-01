@@ -25,8 +25,12 @@ public class FocusTutorialReward {
     @Column(name = "user_id")
     private UUID userId;
 
-    @Column(name = "session_id", nullable = false)
+    @Column(name = "session_id")
     private UUID sessionId;
+
+    /** 체험 보상의 귀속 섬. 기존 세션 보상은 null이며 적립 원장에서 집계한다. */
+    @Column(name = "island_id")
+    private UUID islandId;
 
     @Column(name = "claimed_at", nullable = false)
     private Instant claimedAt;

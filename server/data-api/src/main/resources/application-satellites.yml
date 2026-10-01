@@ -97,6 +97,7 @@ internal:
           - 'POST /internal/users/*/focus-sessions/*/acknowledge'
           # GROMO-1981 최초 낚시 보상 — sessionId 자리 하나만 받는다.
           - 'POST /internal/users/*/focus-sessions/*/tutorial-reward'
+          - 'POST /internal/users/*/islands/*/tutorial-reward'
           # GROMO-1775 우체통 편지방 — 주민 인가·작성자 표시·message.created 적재. 메시지 정본은 realtime.
           - 'GET /internal/islands/*/mailbox-access'
           - 'POST /internal/islands/*/message-authors'
