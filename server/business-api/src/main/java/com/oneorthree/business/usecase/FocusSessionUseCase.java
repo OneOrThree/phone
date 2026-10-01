@@ -80,6 +80,19 @@ public class FocusSessionUseCase {
     public record TutorialRewardView(UUID sessionId, String status) {
     }
 
+    public TutorialExperienceView claimTutorialExperience(AccessTokenClaims claims, UUID islandId,
+                                                          Deadline deadline) {
+        var reward = relay(() -> data.claimTutorialExperience(claims.userId(), islandId, deadline));
+        if (reward == null || !islandId.equals(reward.islandId())
+                || !("granted".equals(reward.status()) || "unavailable".equals(reward.status()))) {
+            throw new UpstreamContractMismatchException("체험 보상 응답이 올바르지 않습니다");
+        }
+        return new TutorialExperienceView(reward.islandId(), reward.status());
+    }
+
+    public record TutorialExperienceView(UUID islandId, String status) {
+    }
+
     public StateView start(AccessTokenClaims claims, UUID islandId, String subject, Integer targetMinutes,
             UUID key, Deadline deadline) {
         return StateView.from(relay(() -> data.startFocusSession(

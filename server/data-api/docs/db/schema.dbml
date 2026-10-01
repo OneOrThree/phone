@@ -830,7 +830,8 @@ Table focus_reward_accruals [note: 'GROMO-1990: 집중 보상 적립 원장(migr
 
 Table focus_tutorial_rewards [note: '계정당 1회 지급 영수증. 세션 삭제로 수령 자격이 되살아나지 않도록 session_id는 FK가 아닌 기록값이다'] {
   user_id uuid [pk, ref: > users.id, note: 'ON DELETE CASCADE']
-  session_id uuid [not null]
+  session_id uuid [note: 'V105: 체험 보상은 null, 기존 집중 보상은 세션 기록값 유지']
+  island_id uuid [ref: > groups.id, note: 'V105: 체험 보상의 귀속. ON DELETE SET NULL로 수령 이력 보존. session_id IS NULL 부분 인덱스 ix_focus_tutorial_rewards_island']
   claimed_at timestamptz [not null]
 }
 

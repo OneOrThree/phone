@@ -101,6 +101,108 @@ class FocusTutorialRewardIntegrationTest {
     }
 
     @Test
+    void experienceCreditsOnceWithoutCreatingFocusDataAndIncludesEarnings() {
+        var fixture = experienceFixture();
+        assertThat(rewards.claimExperience(fixture.user(), fixture.island()).status()).isEqualTo("granted");
+        assertThat(rewards.claimExperience(fixture.user(), fixture.island()).status()).isEqualTo("granted");
+        assertThat(balance(fixture.island())).isEqualTo(1);
+        assertThat(earnings.sumEarnedFishByUser(fixture.island(), List.of(fixture.user())).get(0).getEarnedFish())
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_sessions WHERE user_id = ?",
+                Integer.class, fixture.user())).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_session_details WHERE user_id = ?",
+                Integer.class, fixture.user())).isZero();
+        assertThat(accruals.sumEarnedFishOnDay(fixture.user(), fixture.island(), LocalDate.of(2031, 3, 10)))
+                .isZero();
+    }
+
+    @Test
+    void experienceAndLegacyRequestsShareOneReceiptEvenWhenConcurrent() {
+        var fixture = fixture();
+        now.set(START.plusSeconds(5));
+        var first = CompletableFuture.supplyAsync(() -> rewards.claimExperience(fixture.user(), fixture.island()));
+        var second = CompletableFuture.supplyAsync(() -> rewards.claim(fixture.user(), fixture.session()));
+        assertThat(List.of(first.join().status(), second.join().status()))
+                .containsExactlyInAnyOrder("granted", "unavailable");
+        assertThat(balance(fixture.island())).isEqualTo(1);
+        assertThat(earnings.sumEarnedFishByUser(fixture.island(), List.of(fixture.user())).get(0).getEarnedFish())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void legacyReceiptCannotClaimExperienceAndExperienceCannotClaimLegacy() {
+        var old = fixture();
+        now.set(START.plusSeconds(5));
+        rewards.claim(old.user(), old.session());
+        assertThat(rewards.claimExperience(old.user(), old.island()).status()).isEqualTo("unavailable");
+        var fresh = fixture();
+        rewards.claimExperience(fresh.user(), fresh.island());
+        assertThat(rewards.claim(fresh.user(), fresh.session()).status()).isEqualTo("unavailable");
+        assertThat(balance(old.island())).isEqualTo(1);
+        assertThat(balance(fresh.island())).isEqualTo(1);
+    }
+
+    @Test
+    void experienceRequiresMembershipAndCannotMoveRewardToAnotherIsland() {
+        var fixture = experienceFixture();
+        var other = groups.save(Group.builder().name("다른 섬").maxMembers(15).build());
+        assertFailure(() -> rewards.claimExperience(fixture.user(), other.getId()),
+                FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
+        rewards.claimExperience(fixture.user(), fixture.island());
+        members.save(GroupMember.builder().user(users.findById(fixture.user()).orElseThrow())
+                .group(other).role(GroupMemberRole.OWNER).build());
+        assertThat(rewards.claimExperience(fixture.user(), other.getId()).status()).isEqualTo("unavailable");
+        assertThat(balance(other.getId())).isZero();
+        jdbc.update("UPDATE group_members SET is_left = true WHERE user_id = ?", fixture.user());
+        assertFailure(() -> rewards.claimExperience(fixture.user(), fixture.island()),
+                FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
+    }
+
+    @Test
+    void experienceFailureRollsBackAndConcurrentRetryCreditsOnlyOnce() {
+        var fixture = experienceFixture();
+        jdbc.update("INSERT INTO island_wallets (island_id, balance) VALUES (?, ?)",
+                fixture.island(), Integer.MAX_VALUE);
+        assertThatThrownBy(() -> rewards.claimExperience(fixture.user(), fixture.island()))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_tutorial_rewards WHERE user_id = ?",
+                Integer.class, fixture.user())).isZero();
+        jdbc.update("UPDATE island_wallets SET balance = 0 WHERE island_id = ?", fixture.island());
+        var first = CompletableFuture.supplyAsync(() -> rewards.claimExperience(fixture.user(), fixture.island()));
+        var second = CompletableFuture.supplyAsync(() -> rewards.claimExperience(fixture.user(), fixture.island()));
+        assertThat(first.join().status()).isEqualTo("granted");
+        assertThat(second.join().status()).isEqualTo("granted");
+        assertThat(balance(fixture.island())).isEqualTo(1);
+    }
+
+    @Test
+    void deletingIslandKeepsAccountReceiptAndBlocksRewardOnNewIsland() {
+        var fixture = experienceFixture();
+        rewards.claimExperience(fixture.user(), fixture.island());
+        jdbc.update("DELETE FROM group_members WHERE group_id = ?", fixture.island());
+        // 실제 섬은 soft-delete한다. 향후 정리 작업의 물리 삭제에서도 영수증 FK가 보존되는지 검증한다.
+        jdbc.update("DELETE FROM island_wallet_transactions WHERE island_id = ?", fixture.island());
+        jdbc.update("DELETE FROM island_wallets WHERE island_id = ?", fixture.island());
+        jdbc.update("DELETE FROM island_construction_states WHERE island_id = ?", fixture.island());
+        jdbc.update("DELETE FROM groups WHERE id = ?", fixture.island());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_tutorial_rewards "
+                + "WHERE user_id = ? AND island_id IS NULL AND session_id IS NULL",
+                Integer.class, fixture.user())).isEqualTo(1);
+        var next = groups.save(Group.builder().name("다시 가입한 섬").maxMembers(15).build());
+        members.save(GroupMember.builder().user(users.findById(fixture.user()).orElseThrow())
+                .group(next).role(GroupMemberRole.OWNER).build());
+        assertThat(rewards.claimExperience(fixture.user(), next.getId()).status()).isEqualTo("unavailable");
+        assertThat(balance(next.getId())).isZero();
+    }
+
+    private Fixture experienceFixture() {
+        User user = users.save(User.builder().nickname("체험-" + UUID.randomUUID()).build());
+        Group island = groups.save(Group.builder().name("체험 섬").maxMembers(15).build());
+        members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.OWNER).build());
+        return new Fixture(user.getId(), island.getId(), null);
+    }
+
+    @Test
     void concurrentRequestsCreateOneReceiptAndOneFish() {
         var fixture = fixture();
         now.set(START.plusSeconds(5));

@@ -3,6 +3,7 @@ package com.oneorthree.phone.internal.service;
 import com.oneorthree.phone.construction.service.IslandWalletEvents;
 import com.oneorthree.phone.construction.service.IslandWalletService;
 import com.oneorthree.phone.focus.dto.session.FocusTutorialRewardView;
+import com.oneorthree.phone.focus.dto.session.TutorialExperienceRewardView;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.FocusRewardAccrualRepository;
@@ -41,6 +42,26 @@ public class FocusTutorialRewardService {
     private final IslandWalletService wallet;
     private final IslandWalletEvents events;
     private final Clock clock;
+
+    /** 5초는 앱의 체험 연출이다. 서버는 소속과 계정별 1회 지급만 검증하며 집중을 만들지 않는다. */
+    @Transactional
+    public TutorialExperienceRewardView claimExperience(UUID userId, UUID islandId) {
+        users.getCallerForUpdate(userId);
+        membershipLocks.lockGroup(islandId);
+        memberships.findActiveByUserIdAndGroupIdForShare(userId, islandId)
+                .orElseThrow(() -> new FocusException(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED));
+        var claimed = rewards.findByUserId(userId);
+        if (claimed.isPresent()) {
+            var receipt = claimed.get();
+            boolean sameExperience = receipt.getSessionId() == null && islandId.equals(receipt.getIslandId());
+            return new TutorialExperienceRewardView(islandId, sameExperience ? "granted" : "unavailable");
+        }
+        rewards.save(FocusTutorialReward.builder().userId(userId).islandId(islandId)
+                .claimedAt(clock.instant()).build());
+        wallet.contribute(islandId, userId, 1, "tutorial:" + userId);
+        events.changed(islandId, userId, "TUTORIAL_REWARD");
+        return new TutorialExperienceRewardView(islandId, "granted");
+    }
 
     @Transactional
     public FocusTutorialRewardView claim(UUID userId, UUID sessionId) {
