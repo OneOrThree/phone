@@ -779,7 +779,11 @@ function Gromo() {
   const resumeSession = () => {
     const session = stateRef.current.session;
     if (!serverSession()) {
-      dispatch({ type: 'RESUME' });
+      dispatch({
+        type: stateRef.current.tutorialExperience?.session
+          ? 'TUTORIAL_EXPERIENCE_RESUME'
+          : 'RESUME',
+      });
       if (route !== 'focus') transitionRoute('focus');
       return;
     }
@@ -1392,6 +1396,17 @@ function Gromo() {
   }, [loaded, state.onboarded, state.islandId, qaBuildingsReady]);
   useEffect(() => {
     if (!loaded) return;
+    const experience = state.tutorialExperience;
+    const experienceIsland = experience?.session?.islandId ?? experience?.result?.islandId;
+    if (
+      experienceIsland &&
+      state.serverIslands &&
+      experienceIsland !== state.serverIslands.currentIslandId
+    ) {
+      setGuideStep(4);
+      reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+      return;
+    }
     const restoring = !tutorialBootReconciled.current;
     const returningHome = route === 'home' && previousTutorialRoute.current !== 'home';
     previousTutorialRoute.current = route;
@@ -1401,7 +1416,17 @@ function Gromo() {
       setGuideStep(next, { step: guideStep, revision: state.tutorialRevision ?? 0 });
     if (route === 'home' && state.tutorial && next <= 3) reset('guide');
     if (route === 'guide' && !state.tutorial) setGuideStep(0);
-  }, [loaded, route, state.tutorial, state.session, state.lastResult]);
+    if (route === 'home' && next >= 22 && state.tutorialExperience)
+      dispatch({ type: 'TUTORIAL_EXPERIENCE_CLEAR' });
+  }, [
+    loaded,
+    route,
+    state.tutorial,
+    state.tutorialExperience,
+    state.session,
+    state.lastResult,
+    state.serverIslands?.currentIslandId,
+  ]);
   useEffect(() => {
     if (
       loaded &&

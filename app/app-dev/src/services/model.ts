@@ -244,6 +244,8 @@ export type State = {
   // 세션과 같은 저장본에 보관해 앱 종료·서버 복구 후에도 안내를 이어간다.
   tutorial?: { step: number; sessionId?: string };
   tutorialRevision?: number;
+  // 첫 집중은 화면 체험이다. 실제 session·records·통계에 합산하지 않는다.
+  tutorialExperience?: { session: Session | null; result: RecordItem | null; fromRest?: boolean };
   // 서버에서 소속 없음이 확인된 신규 흐름만 첫 소속 확정 후 안내를 시작한다.
   tutorialEnrollment?: 'awaiting-first-island' | 'existing';
   version: 1;
@@ -1415,6 +1417,8 @@ export function reducer(state: State, a: Action): State {
     );
     const next: State = {
       ...loaded,
+      // 재실행은 홈에서 체험을 다시 시작한다. 보상은 서버의 계정 영수증으로 복구한다.
+      tutorialExperience: undefined,
       schema: 2,
       fish: 0,
       friends: loaded.friends ?? [],
@@ -1513,11 +1517,19 @@ export function reducer(state: State, a: Action): State {
       )
         return state;
       const step = a.step as number;
+      if ([0, 4, 99].includes(step)) delete s.tutorialExperience;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       s.tutorial = {
         step,
         ...(step >= 9 && step <= 21
-          ? { sessionId: s.session?.id ?? s.tutorial?.sessionId ?? s.lastResult?.id }
+          ? {
+              sessionId:
+                s.session?.id ??
+                s.tutorialExperience?.session?.id ??
+                s.tutorialExperience?.result?.id ??
+                s.tutorial?.sessionId ??
+                s.lastResult?.id,
+            }
           : {}),
       };
       break;
@@ -1819,6 +1831,85 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     // ── 집중 세션 ──
+    case 'TUTORIAL_EXPERIENCE_CLEAR':
+      delete s.tutorialExperience;
+      break;
+    case 'TUTORIAL_EXPERIENCE_START':
+      if (
+        s.session ||
+        s.tutorialExperience?.session ||
+        s.tutorial?.step !== 8 ||
+        !(s.serverIslands ? s.serverIslands.currentIslandId : i.joined) ||
+        s.visitingIslandId
+      )
+        return state;
+      s.tutorialExperience = {
+        session: {
+          id: uuid(),
+          islandId: s.serverIslands?.currentIslandId ?? s.islandId,
+          subject: a.subject.trim() || '집중',
+          startedAt: now,
+          seconds: 0,
+          status: 'active',
+        },
+        result: null,
+      };
+      break;
+    case 'TUTORIAL_EXPERIENCE_SPOT':
+      if (
+        s.session ||
+        s.visitingIslandId ||
+        !(s.serverIslands ? s.serverIslands.currentIslandId : i.joined)
+      )
+        return state;
+      s.focusSpot = a.spot;
+      break;
+    case 'TUTORIAL_EXPERIENCE_PAUSE': {
+      const session = s.tutorialExperience?.session;
+      if (!s.session && session?.status === 'active') {
+        session.seconds = sessionSeconds(session, now);
+        session.status = 'paused';
+        session.restStartedAt = now;
+      }
+      break;
+    }
+    case 'TUTORIAL_EXPERIENCE_RESUME': {
+      const session = s.tutorialExperience?.session;
+      if (!s.session && session?.status === 'paused') {
+        session.startedAt = now;
+        session.status = 'active';
+        delete session.restStartedAt;
+      }
+      break;
+    }
+    case 'TUTORIAL_EXPERIENCE_REWARD': {
+      const session = s.tutorialExperience?.session;
+      if (s.session || !session || session.id !== a.sessionId || s.tutorial?.step !== 11)
+        return state;
+      // 서버 확정 사실만 표시한다. 실제 잔액은 다음 홈 조회에서 받는다.
+      session.tutorialFish = true;
+      break;
+    }
+    case 'TUTORIAL_EXPERIENCE_FINISH': {
+      const experience = s.tutorialExperience;
+      const session = experience?.session;
+      if (s.session || !experience || !session) return state;
+      experience.result = {
+        id: session.id,
+        islandId: session.islandId,
+        subject: session.subject,
+        seconds: Math.floor(sessionSeconds(session, now)),
+        at: now,
+        fish: session.tutorialFish ? 1 : 0,
+        contributed: true,
+      };
+      experience.fromRest = session.status === 'paused';
+      experience.session = null;
+      // 집중 기록은 남기지 않지만 첫 체험 이후 회관 안내로 이어지는 기존 여정은 유지한다.
+      const buildings = serverHome(s)?.completedBuildings ?? i.buildings;
+      if (!s.records.length && !s.hallGuide && !buildings.includes('hall')) s.hallGuide = 'pending';
+      break;
+    }
     case 'FOCUS_SPOT':
       if (s.session) return state;
       s.focusSpot = a.spot;
@@ -1937,9 +2028,11 @@ export function reducer(state: State, a: Action): State {
         if (next && next.id === s.session?.id && s.session.tutorialFish)
           next = { ...next, tutorialFish: true };
         s.session = next;
+        if (next) delete s.tutorialExperience;
       }
       break;
     case 'SESSION_RESULT': {
+      delete s.tutorialExperience;
       // 서버 finish·pending-result 의 정산 뷰를 기록+결과창으로 반영하고 진행 세션을 닫는다.
       // earnedFish 는 서버가 이미 섬 통장에 적립한 확정값 — 로컬 잔액 표시만 맞춘다.
       const record = a.record as RecordItem;
@@ -2402,6 +2495,7 @@ export function reducer(state: State, a: Action): State {
     case 'LOGOUT':
       s.loggedIn = false;
       delete s.tutorial;
+      delete s.tutorialExperience;
       delete s.tutorialEnrollment;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게

@@ -1587,6 +1587,39 @@ test('복구된 결과·집중 화면은 남아 있던 휴식 안내 단계를 �
   await app.unmount();
 });
 
+test.each(['next-island', null])(
+  '체험 중 소속이 %s로 바뀌면 체험을 지우고 안전한 화면으로 돌아간다',
+  async (nextIsland) => {
+    mockBootRoute = 'home';
+    const app = await render(<App />);
+    await waitFor(() => expect(captured).toBeTruthy());
+    await act(async () => {
+      captured.dispatch({
+        type: 'ISLAND_SYNC',
+        memberships: { items: [{ id: 'first-island' }], currentIslandId: 'first-island' },
+      });
+      captured.dispatch({ type: 'GUIDE_STEP', step: 8 });
+      captured.dispatch({ type: 'TUTORIAL_EXPERIENCE_START', subject: '체험' });
+      captured.dispatch({ type: 'GUIDE_STEP', step: 11 });
+      captured.reset('focus');
+    });
+    await waitFor(() =>
+      expect(captured.state.tutorialExperience?.session?.islandId).toBe('first-island'),
+    );
+    await act(async () => {
+      captured.dispatch({
+        type: 'ISLAND_SYNC',
+        memberships: { items: nextIsland ? [{ id: nextIsland }] : [], currentIslandId: nextIsland },
+      });
+    });
+    await waitFor(() => expect(captured.route).toBe(nextIsland ? 'home' : 'chooseIsland'));
+    expect(captured.state.tutorialExperience).toBeUndefined();
+    expect(captured.state.session).toBeNull();
+    expect(captured.guideStep).toBe(4);
+    await app.unmount();
+  },
+);
+
 test('CurrentScreens에는 실제 공개 세션이 있을 때만 서버 섬·집중 명령을 주입한다', async () => {
   await act(async () => {
     render(<App />);
