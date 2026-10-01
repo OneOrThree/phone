@@ -1626,6 +1626,10 @@ function Gromo() {
   }, [history, route, modal, state.visitingIslandId, island.id]);
   // 섬 음악은 집중 중이거나 축음기 시트를 보고 있을 때 들린다. 시트를 떠나면 집중 중이 아닐 때 멈춘다
   const islandAudioOn = island.playing && (state.session?.status === 'active' || route === 'sound');
+  const islandAudioOnRef = useRef(islandAudioOn);
+  islandAudioOnRef.current = islandAudioOn;
+  // 곡 로드는 곡·섬이 바뀔 때만 한다. 재생/정지는 아래 volume effect가 islandAudioOn으로 따로 다루므로
+  // 일시정지 뒤 재개하거나 다른 멤버가 재생 상태만 바꿔도 곡을 처음으로 되감지 않는다
   useEffect(() => {
     if (previewAudio) return;
     let cancelled = false;
@@ -1641,7 +1645,7 @@ function Gromo() {
       Promise.resolve(player.seekTo(0))
         .then(() => {
           if (cancelled) return;
-          if (islandAudioOn) player.play();
+          if (islandAudioOnRef.current) player.play();
           else player.pause();
         })
         .catch(() => {});
@@ -1649,7 +1653,7 @@ function Gromo() {
     return () => {
       cancelled = true;
     };
-  }, [island.track, island.id, island.serverPlayback?.version, previewAudio, islandAudioOn]);
+  }, [island.track, island.id, previewAudio]);
   useEffect(() => {
     if (!island.playbackReset) return;
     try {
