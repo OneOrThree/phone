@@ -175,6 +175,26 @@ class FocusTutorialRewardIntegrationTest {
         assertThat(balance(fixture.island())).isEqualTo(1);
     }
 
+    @Test
+    void deletingIslandKeepsAccountReceiptAndBlocksRewardOnNewIsland() {
+        var fixture = experienceFixture();
+        rewards.claimExperience(fixture.user(), fixture.island());
+        jdbc.update("DELETE FROM group_members WHERE group_id = ?", fixture.island());
+        // 실제 섬은 soft-delete한다. 향후 정리 작업의 물리 삭제에서도 영수증 FK가 보존되는지 검증한다.
+        jdbc.update("DELETE FROM island_wallet_transactions WHERE island_id = ?", fixture.island());
+        jdbc.update("DELETE FROM island_wallets WHERE island_id = ?", fixture.island());
+        jdbc.update("DELETE FROM island_construction_states WHERE island_id = ?", fixture.island());
+        jdbc.update("DELETE FROM groups WHERE id = ?", fixture.island());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_tutorial_rewards "
+                + "WHERE user_id = ? AND island_id IS NULL AND session_id IS NULL",
+                Integer.class, fixture.user())).isEqualTo(1);
+        var next = groups.save(Group.builder().name("다시 가입한 섬").maxMembers(15).build());
+        members.save(GroupMember.builder().user(users.findById(fixture.user()).orElseThrow())
+                .group(next).role(GroupMemberRole.OWNER).build());
+        assertThat(rewards.claimExperience(fixture.user(), next.getId()).status()).isEqualTo("unavailable");
+        assertThat(balance(next.getId())).isZero();
+    }
+
     private Fixture experienceFixture() {
         User user = users.save(User.builder().nickname("체험-" + UUID.randomUUID()).build());
         Group island = groups.save(Group.builder().name("체험 섬").maxMembers(15).build());
