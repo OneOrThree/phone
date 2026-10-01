@@ -68,9 +68,7 @@ test('진입 GET의 전체 상태를 적용하고 현재 version으로 PATCH한�
     type: 'PLAYBACK_SYNC',
     islandId: ISLAND,
     playback: next,
-    observedAtMs: dispatch.mock.calls.at(-1)?.[0].observedAtMs,
   });
-  assert.equal(typeof dispatch.mock.calls.at(-1)?.[0].observedAtMs, 'number');
 });
 
 test('연속 재생 명령은 앞 요청 뒤에 최신 version으로 직렬 실행한다', async () => {

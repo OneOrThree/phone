@@ -83,8 +83,7 @@ export function useIslandPlayback({
         return;
       stateRef.current = next;
       setState(next);
-      if (islandId)
-        dispatch({ type: 'PLAYBACK_SYNC', islandId, playback: next, observedAtMs: Date.now() });
+      if (islandId) dispatch({ type: 'PLAYBACK_SYNC', islandId, playback: next });
     },
     [dispatch, islandId],
   );
