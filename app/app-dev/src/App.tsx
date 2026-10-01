@@ -31,7 +31,6 @@ import { useSoundPlayer } from '@/hooks/useSoundPlayer';
 import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
 import { useBuildingIndicators } from '@/screens/island/useBuildingIndicators';
 import { bundledAudioSource } from '@/constants/audio';
-import { playbackSeekSeconds } from '@/services/api/playback';
 import { screenTime, selectionCount } from '@/services/screenTime';
 import {
   endLiveActivities,
@@ -1638,10 +1637,8 @@ function Gromo() {
       }
       player.replace(source);
       player.loop = true;
-      const seek = island.serverPlayback
-        ? playbackSeekSeconds(island.serverPlayback, island.serverPlaybackObservedAtMs)
-        : 0;
-      Promise.resolve(player.seekTo(seek))
+      // 같은 섬은 같은 곡만 공유한다. 재생 지점은 기기마다 처음부터 돌고 서버 위치에 맞추지 않는다
+      Promise.resolve(player.seekTo(0))
         .then(() => {
           if (cancelled) return;
           if (islandAudioOn) player.play();
@@ -1652,15 +1649,7 @@ function Gromo() {
     return () => {
       cancelled = true;
     };
-  }, [
-    island.track,
-    island.id,
-    island.serverPlayback?.version,
-    island.serverPlayback?.serverNow,
-    island.serverPlaybackObservedAtMs,
-    previewAudio,
-    islandAudioOn,
-  ]);
+  }, [island.track, island.id, island.serverPlayback?.version, previewAudio, islandAudioOn]);
   useEffect(() => {
     if (!island.playbackReset) return;
     try {

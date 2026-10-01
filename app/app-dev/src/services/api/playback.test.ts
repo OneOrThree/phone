@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { API_URL } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
-import { getPlayback, patchPlayback, playbackSeekSeconds } from '@/services/api/playback';
+import { getPlayback, patchPlayback } from '@/services/api/playback';
 
 type Call = { url: string; init: RequestInit };
 const calls: Call[] = [];
@@ -24,27 +24,6 @@ beforeEach(async () => {
   calls.length = 0;
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
-});
-
-test('재생 anchor는 serverNow와 스냅숏 수신 뒤 흐른 시간을 더하고 곡 길이로 순환한다', () => {
-  const observedAt = Date.parse('2026-09-22T00:01:00Z');
-  assert.equal(
-    playbackSeekSeconds(
-      {
-        trackId: 'rain',
-        playing: true,
-        positionSeconds: 118,
-        effectiveAt: '2026-09-22T00:00:00Z',
-        changedBy: 'u1',
-        version: 4,
-        serverNow: '2026-09-22T00:00:05Z',
-        durationSeconds: 120,
-      },
-      observedAt,
-      observedAt + 7_000,
-    ),
-    10,
-  );
 });
 
 test('재생 조회와 변경은 섬 playback 경로와 현재 버전·멱등 키를 그대로 쓴다', async () => {
