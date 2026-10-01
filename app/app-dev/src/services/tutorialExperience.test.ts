@@ -55,6 +55,33 @@ test('재실행은 체험 타이머를 버리고 홈의 시작 버튼부터 다�
   expect(reconcileTutorial(loaded, 'home', true)).toBe(4);
 });
 
+test('첫 체험 완료는 기록 없이 회관 안내로 이어지고 완료한 안내는 반복하지 않는다', () => {
+  let state = start();
+  state.records = [];
+  state.islands.find((i) => i.id === state.islandId)!.buildings = [];
+  state = reducer(state, { type: 'TUTORIAL_EXPERIENCE_FINISH', now: 6000 });
+  expect(state.hallGuide).toBe('pending');
+  expect(state.records).toEqual([]);
+  expect(state.lastResult).toBeNull();
+  state = reducer(state, { type: 'HALL_GUIDE_DONE' });
+  state = step(state, 4);
+  state = step(state, 8);
+  state = reducer(state, { type: 'TUTORIAL_EXPERIENCE_START', subject: '다시 보기' });
+  state = reducer(state, { type: 'TUTORIAL_EXPERIENCE_FINISH' });
+  expect(state.hallGuide).toBe('done');
+});
+
+test('서버에서 회관이 이미 완공된 섬은 첫 체험 뒤 건설 안내를 열지 않는다', () => {
+  const state = start();
+  state.records = [];
+  state.islands.find((i) => i.id === state.islandId)!.buildings = [];
+  state.serverIslands = {
+    currentIslandId: 'server-island',
+    home: { islandId: 'server-island', completedBuildings: ['hall'] },
+  } as any;
+  expect(reducer(state, { type: 'TUTORIAL_EXPERIENCE_FINISH' }).hallGuide).toBeUndefined();
+});
+
 test('실제 세션은 체험으로 바꾸지 않고 장면 투영은 원본 상태를 바꾸지 않는다', () => {
   const state = start();
   expect(isTutorialExperience(state)).toBe(true);

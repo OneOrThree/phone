@@ -1909,6 +1909,9 @@ export function reducer(state: State, a: Action): State {
       };
       experience.fromRest = session.status === 'paused';
       experience.session = null;
+      // 집중 기록은 남기지 않지만 첫 체험 이후 회관 안내로 이어지는 기존 여정은 유지한다.
+      const buildings = serverHome(s)?.completedBuildings ?? i.buildings;
+      if (!s.records.length && !s.hallGuide && !buildings.includes('hall')) s.hallGuide = 'pending';
       break;
     }
     case 'FOCUS_SPOT':
