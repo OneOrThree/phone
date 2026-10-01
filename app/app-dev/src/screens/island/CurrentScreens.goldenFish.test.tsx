@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import React, { useReducer } from 'react';
+import React, { useReducer, useState } from 'react';
 import { AccessibilityInfo, AppState, type AppStateEvent, type AppStateStatus } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
@@ -8,10 +8,15 @@ import { clearSession, saveSession } from '@/services/api/session';
 import type { GoldenFishEvent } from '@/services/islandRealtime';
 
 let onGoldenFish: ((event: GoldenFishEvent) => void) | undefined;
+let presenceActive: boolean | undefined;
 
 jest.mock('@/screens/focus/useIslandPresence', () => ({
   catColor: (color: string) => color,
-  useIslandPresence: (opts: { onGoldenFish?: (event: GoldenFishEvent) => void }) => {
+  useIslandPresence: (opts: {
+    active?: boolean;
+    onGoldenFish?: (event: GoldenFishEvent) => void;
+  }) => {
+    presenceActive = opts.active;
     onGoldenFish = opts.onGoldenFish;
     return {
       status: 'ready',
@@ -60,13 +65,21 @@ jest.mock('@/screens/focus/FishingIsland', () => {
         {overlay?.(() => ({ x: 150, y: 200 }), 640)}
       </View>
     ),
-    FishingActor: ({ name, goldenFishCount, goldenCatchToken, motion, tutorialFish }: any) => (
+    FishingActor: ({
+      name,
+      goldenFishCount,
+      goldenCatchToken,
+      motion,
+      tutorialFish,
+      caughtFish,
+    }: any) => (
       <View
         testID={name === '나' ? 'golden-self' : `golden-actor-${name}`}
         goldenFishCount={goldenFishCount}
         goldenCatchToken={goldenCatchToken}
         motion={motion}
         tutorialFish={tutorialFish}
+        caughtFish={caughtFish}
       />
     ),
     FishingPeerActorView: ({ actor, goldenFishCount, goldenCatchToken }: any) => (
@@ -440,7 +453,6 @@ test('자리 선택 중에는 뗏목 귀환을 막지만 일반 자리 선택의
 });
 
 test.each([
-  ['start', 8, 'focusSetup', 'start-focus'],
   ['pause', 14, 'focus', 'pause-focus'],
   ['resume', 15, 'rest', 'resume-focus'],
   ['finish', 17, 'focus', 'confirm-finish'],
@@ -453,7 +465,6 @@ test.each([
     });
     const seed = focusedState();
     seed.session!.version = 1;
-    if (command === 'start') seed.session = null;
     if (command === 'resume') seed.session!.status = 'paused';
     seed.tutorial = { step };
     let current: State = seed;
@@ -481,6 +492,153 @@ test.each([
     await screen.unmount();
   },
 );
+
+test('체험은 실제 시작 API·실시간 없이 5초 후 일반 1마리와 기존 대사를 보여 준다', async () => {
+  jest.useFakeTimers();
+  const start = jest.fn(),
+    pause = jest.fn(),
+    resume = jest.fn(),
+    finish = jest.fn();
+  const tutorialExperienceReward = jest
+    .fn()
+    .mockResolvedValue({ islandId: 'soda', status: 'granted' });
+  const seed = focusedState();
+  seed.session = null;
+  seed.tutorial = { step: 8 };
+  seed.serverIslands = { currentIslandId: 'soda' } as any;
+  let current = seed;
+  let step!: (value: number) => void;
+  function Flow({ now }: { now: number }) {
+    const [state, dispatch] = useReducer(reducer, seed);
+    const [route, setRoute] = useState<'focusSetup' | 'focus' | 'rest' | 'focusResult'>(
+      'focusSetup',
+    );
+    current = state;
+    step = (value) => dispatch({ type: 'GUIDE_STEP', step: value });
+    return screenElement(state, route, undefined, jest.fn(setRoute), jest.fn(), dispatch, {
+      now,
+      text: '첫 집중',
+      guideStep: state.tutorial?.step,
+      setGuideStep: (next: number, expected: unknown) =>
+        dispatch({ type: 'GUIDE_STEP', step: next, expected }),
+      focus: { start, pause, resume, finish, tutorialExperienceReward },
+      islands: {},
+    });
+  }
+  const now = Date.now();
+  const screen = await render(<Flow now={now} />);
+  await fireEvent.press(screen.getByTestId('start-focus', { includeHiddenElements: true }));
+  expect(start).not.toHaveBeenCalled();
+  expect(current.session).toBeNull();
+  expect(current.tutorialExperience?.session).toBeTruthy();
+  expect(presenceActive).toBe(false);
+  await act(async () => step(11));
+  await screen.rerender(<Flow now={now + 4999} />);
+  expect(tutorialExperienceReward).not.toHaveBeenCalled();
+  await screen.rerender(<Flow now={now + 5000} />);
+  expect(tutorialExperienceReward).toHaveBeenCalledWith('soda');
+  expect(screen.getByTestId('golden-self').props.motion).toBe('reel');
+  expect(current.tutorial?.step).toBe(11);
+  await act(async () =>
+    onGoldenFish?.(event([{ userId: 'me', sessionId: current.tutorialExperience!.session!.id }])),
+  );
+  expect(screen.queryByTestId('golden-cutscene')).toBeNull();
+  await act(async () => jest.advanceTimersByTime(2000));
+  expect(current.tutorial?.step).toBe(12);
+  expect(screen.getByText(/첫 물고기를 낚았어!/)).toBeTruthy();
+  await screen.rerender(<Flow now={now + 120000} />);
+  expect(screen.getByTestId('golden-self', { includeHiddenElements: true }).props.caughtFish).toBe(
+    1,
+  );
+  expect(current.session).toBeNull();
+  expect(current.records).toEqual(seed.records);
+  expect(pause).not.toHaveBeenCalled();
+  expect(resume).not.toHaveBeenCalled();
+  expect(finish).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+test('체험 종료 버튼은 서버 finish 없이 결과를 표시하고 실제 기록을 남기지 않는다', async () => {
+  jest.useFakeTimers();
+  let seed = focusedState();
+  seed.session = null;
+  seed.tutorial = { step: 8 };
+  seed = reducer(seed, { type: 'TUTORIAL_EXPERIENCE_START', subject: '체험 집중' });
+  seed = reducer(seed, { type: 'GUIDE_STEP', step: 11 });
+  seed = reducer(seed, {
+    type: 'TUTORIAL_EXPERIENCE_REWARD',
+    sessionId: seed.tutorialExperience!.session!.id,
+  });
+  seed = reducer(seed, { type: 'GUIDE_STEP', step: 17 });
+  seed.serverIslands = { currentIslandId: 'soda' } as any;
+  let current = seed;
+  const finish = jest.fn();
+  function Flow() {
+    const [state, dispatch] = useReducer(reducer, seed);
+    const [route, setRoute] = useState<'focus' | 'focusResult'>('focus');
+    current = state;
+    return screenElement(state, route, undefined, undefined, undefined, dispatch, {
+      guideStep: state.tutorial?.step,
+      setGuideStep: (next: number, expected: unknown) =>
+        dispatch({ type: 'GUIDE_STEP', step: next, expected }),
+      reset: setRoute,
+      focus: { finish },
+      islands: {},
+    });
+  }
+  const screen = await render(<Flow />);
+  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
+  await fireEvent.press(screen.getByTestId('confirm-finish', { includeHiddenElements: true }));
+  expect(finish).not.toHaveBeenCalled();
+  expect(current.tutorial?.step).toBe(19);
+  expect(current.tutorialExperience?.result?.fish).toBe(1);
+  expect(screen.getByText('이번 집중 결과', { includeHiddenElements: true })).toBeTruthy();
+  expect(current.session).toBeNull();
+  expect(current.records).toEqual(seed.records);
+  expect(current.lastResult).toEqual(seed.lastResult);
+  await screen.unmount();
+});
+
+test('체험 보상 요청 중 건너뛰면 늦은 성공은 대사·세션을 되살리지 않는다', async () => {
+  jest.useFakeTimers();
+  let resolve!: (value: { status: string }) => void;
+  const tutorialExperienceReward = jest.fn(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  let seed = reducer(focusedState(), { type: 'SESSION_SYNC', session: null });
+  seed = reducer(seed, { type: 'GUIDE_STEP', step: 8 });
+  seed = reducer(seed, {
+    type: 'TUTORIAL_EXPERIENCE_START',
+    subject: '수학',
+    now: Date.now() - 5000,
+  });
+  seed = reducer(seed, { type: 'GUIDE_STEP', step: 11 });
+  seed.serverIslands = { currentIslandId: 'soda' } as any;
+  let current = seed;
+  let skip!: () => void;
+  function Flow() {
+    const [state, dispatch] = useReducer(reducer, seed);
+    current = state;
+    skip = () => dispatch({ type: 'GUIDE_STEP', step: 99 });
+    return screenElement(state, 'focus', undefined, jest.fn(), jest.fn(), dispatch, {
+      guideStep: state.tutorial?.step,
+      setGuideStep: (value: number) => dispatch({ type: 'GUIDE_STEP', step: value }),
+      focus: { tutorialExperienceReward },
+      islands: {},
+    });
+  }
+  const screen = await render(<Flow />);
+  expect(tutorialExperienceReward).toHaveBeenCalledTimes(1);
+  await act(async () => skip());
+  await act(async () => resolve({ status: 'granted' }));
+  expect(current.tutorial?.step).toBe(99);
+  expect(current.tutorialExperience).toBeUndefined();
+  expect(current.session).toBeNull();
+  await screen.unmount();
+});
 
 test('자리 선택은 배경 접근성을 숨기고 유효한 실제 자리 선택 동작을 제공한다', async () => {
   jest.useFakeTimers();

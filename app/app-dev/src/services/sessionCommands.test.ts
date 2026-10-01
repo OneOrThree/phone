@@ -80,6 +80,8 @@ const harness = (api: Partial<FocusApi> = {}) => {
       acknowledge: wrap('acknowledge', api.acknowledge ?? (async () => null))!,
       tutorialReward:
         api.tutorialReward ?? (async (sessionId) => ({ sessionId, status: 'granted' })),
+      tutorialExperienceReward:
+        api.tutorialExperienceReward ?? (async (islandId) => ({ islandId, status: 'granted' })),
     },
   });
   return {
@@ -103,6 +105,46 @@ const harness = (api: Partial<FocusApi> = {}) => {
     },
   };
 };
+
+test('체험 보상은 세션 API·로컬 정산을 호출하지 않고 계정 변경 응답을 버린다', async () => {
+  const h = harness();
+  h.join();
+  const original = h.state();
+  expect(await h.cmds.tutorialExperienceReward('srv-island')).toEqual({
+    islandId: 'srv-island',
+    status: 'granted',
+  });
+  expect(h.calls).toEqual([]);
+  expect(h.dispatched).toEqual([]);
+  expect(h.state()).toBe(original);
+  let resolve!: (value: { islandId: string; status: 'granted' }) => void;
+  const late = harness({
+    tutorialExperienceReward: () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  });
+  late.join();
+  const pending = late.cmds.tutorialExperienceReward('srv-island');
+  late.bumpGen();
+  resolve({ islandId: 'srv-island', status: 'granted' });
+  await expect(pending).rejects.toMatchObject({ code: 'CLIENT_STALE_SESSION' });
+  expect(late.dispatched).toEqual([]);
+});
+
+test('체험 보상의 다른 섬·잘못된 계약·실패를 성공 처리하거나 집중 복구로 전환하지 않는다', async () => {
+  const request = jest.fn().mockResolvedValue({ islandId: 'other', status: 'granted' });
+  const h = harness({ tutorialExperienceReward: request });
+  h.join();
+  await expect(h.cmds.tutorialExperienceReward('other')).rejects.toBeDefined();
+  expect(request).not.toHaveBeenCalled();
+  await expect(h.cmds.tutorialExperienceReward('srv-island')).rejects.toMatchObject({
+    code: 'INVALID_RESPONSE',
+  });
+  request.mockRejectedValue(new ApiError('GROUP_NOT_FOUND', '없는 섬', 404));
+  await expect(h.cmds.tutorialExperienceReward('srv-island')).rejects.toBeDefined();
+  expect(h.calls).toEqual([]);
+});
 
 test('첫 물고기 지급 확인은 시간·잔액을 조작하지 않고 같은 세션 복구에도 유지된다', async () => {
   const h = harness({ current: async () => view() });

@@ -7,6 +7,7 @@ import { sessionGeneration } from '@/services/api/session';
 import {
   acknowledgeFocusResult as apiAcknowledge,
   claimTutorialReward as apiTutorialReward,
+  claimTutorialExperienceReward as apiTutorialExperienceReward,
   currentFocusSession as apiCurrent,
   finishFocusSession as apiFinish,
   FocusFinishView,
@@ -29,6 +30,7 @@ export type FocusApi = {
   finish: typeof apiFinish;
   acknowledge: typeof apiAcknowledge;
   tutorialReward: typeof apiTutorialReward;
+  tutorialExperienceReward: typeof apiTutorialExperienceReward;
 };
 
 export type SessionCommandDeps = {
@@ -53,6 +55,7 @@ const defaultApi: FocusApi = {
   finish: apiFinish,
   acknowledge: apiAcknowledge,
   tutorialReward: apiTutorialReward,
+  tutorialExperienceReward: apiTutorialExperienceReward,
 };
 
 const staleError = () =>
@@ -176,6 +179,21 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     }
   };
   const commands = {
+    // 체험 보상에는 current 재조회나 SESSION_SYNC도 필요 없다.
+    tutorialExperienceReward: async (islandId: string) => {
+      const g = generation();
+      if (deps.getSnap()?.currentIslandId !== islandId) throw staleError();
+      const result = await api.tutorialExperienceReward(islandId);
+      alive(g);
+      if (deps.getSnap()?.currentIslandId !== islandId) throw staleError();
+      if (
+        !result ||
+        result.islandId !== islandId ||
+        !['granted', 'unavailable'].includes(result.status)
+      )
+        throw new ApiError('INVALID_RESPONSE', '보상 정보를 확인하지 못했어요.', 0);
+      return result;
+    },
     tutorialReward: (sessionId: string) =>
       call(async () => {
         const g = generation();

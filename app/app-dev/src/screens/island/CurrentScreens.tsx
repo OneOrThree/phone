@@ -2,6 +2,11 @@ import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
 import { findReachableTutorialSpot } from '@/services/tutorial';
+import {
+  isTutorialExperience,
+  tutorialExperienceScene,
+  tutorialExperienceAction,
+} from '@/services/tutorialExperience';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -1148,7 +1153,23 @@ function FocusVisit({ e, islandId, onBack }: any) {
     </View>
   );
 }
-function FocusFlow({ e }: any) {
+function FocusFlow({ e: environment }: any) {
+  const experience = isTutorialExperience(environment.state);
+  // 화면 내부에서만 체험 세션을 투영한다. API·실시간·전역 집중 상태는 연결하지 않는다.
+  const e = experience
+    ? {
+        ...environment,
+        state: tutorialExperienceScene(environment.state),
+        focus: undefined,
+        islands: undefined,
+        dispatch: (action: any) =>
+          environment.dispatch({ ...action, type: tutorialExperienceAction(action.type) }),
+        setGuideStep: (step: number, expected?: any) => {
+          environment.setGuideStep(step, expected);
+          if (step === 99) environment.home();
+        },
+      }
+    : environment;
   const s: State = e.state,
     i = currentIsland(s),
     L = useAppLayout(),
@@ -1321,6 +1342,7 @@ function FocusFlow({ e }: any) {
     setGoldenCutscene(event);
   };
   goldenHandler.current = (event) => {
+    if (experience) return;
     const current = latest.current;
     const participantSessionId =
       current.s.session?.id ?? (current.r === 'focusResult' ? current.s.lastResult?.id : undefined);
@@ -1460,6 +1482,32 @@ function FocusFlow({ e }: any) {
     const showCatch = () => {
       if (stillHere()) setTutorialCatchStart(revision);
     };
+    if (experience) {
+      const claim = environment.focus?.tutorialExperienceReward;
+      const islandId = s.session.islandId;
+      const confirmed = () => {
+        if (!stillHere()) return;
+        environment.dispatch({ type: 'TUTORIAL_EXPERIENCE_REWARD', sessionId });
+        showCatch();
+      };
+      if (!environment.focus) {
+        confirmed();
+        return;
+      }
+      claim(islandId)
+        .then((reward: { status: string }) => {
+          if (!stillHere()) return;
+          if (reward.status === 'granted') confirmed();
+          else e.setGuideStep(14, { step: 11, revision });
+        })
+        .catch((error: any) => {
+          if (!stillHere()) return;
+          tutorialRequest.current = null;
+          tutorialRetryAt.current = latest.current.now + 5000;
+          e.notify(error?.message ?? '물고기 보상을 확인하지 못했어요. 다시 시도할게요.');
+        });
+      return;
+    }
     if (!e.focus) {
       if (s.records.length > 0) {
         e.setGuideStep(14, { step: 11, revision });
@@ -1639,7 +1687,13 @@ function FocusFlow({ e }: any) {
         }));
   useEffect(() => {
     const sessionId = s.session?.id;
-    if (!GOLDEN_TEST || r !== 'focus' || !sessionId || goldenTestSession.current === sessionId)
+    if (
+      experience ||
+      !GOLDEN_TEST ||
+      r !== 'focus' ||
+      !sessionId ||
+      goldenTestSession.current === sessionId
+    )
       return;
     const timeout = setTimeout(() => {
       const current = latest.current;
@@ -1664,7 +1718,7 @@ function FocusFlow({ e }: any) {
       });
     }, 900);
     return () => clearTimeout(timeout);
-  }, [r, s.session?.id, i.id, i.members]);
+  }, [experience, r, s.session?.id, i.id, i.members]);
   const peerFlow = useFishingPeerActors({
     members: peerMembers,
     ready: liveIslandId ? live.status === 'ready' : true,
@@ -2577,7 +2631,15 @@ function FocusFlow({ e }: any) {
                     reduce={reduce}
                     goldenFishCount={goldenFor(actorUserId, goldenSessionId)?.count ?? 0}
                     tutorialFish={s.session?.tutorialFish === true}
-                    caughtFish={r === 'focusResult' ? result?.fish : undefined}
+                    caughtFish={
+                      r === 'focusResult'
+                        ? result?.fish
+                        : experience
+                          ? s.session?.tutorialFish
+                            ? 1
+                            : 0
+                          : undefined
+                    }
                     goldenCatchToken={goldenFor(actorUserId, goldenSessionId)?.eventId}
                     catchAvoidSpots={peerSpots}
                     catchVisibleSpots={peerCatchSpots}

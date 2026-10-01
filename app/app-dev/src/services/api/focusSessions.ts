@@ -16,6 +16,21 @@
  */
 import { request } from './client';
 
+export type TutorialExperienceRewardView = {
+  islandId: string;
+  status: 'granted' | 'unavailable';
+};
+
+/** 세션을 만들지 않는 체험 보상. 계정당 1회, 같은 섬 재시도는 같은 영수증을 반환한다. */
+export function claimTutorialExperienceReward(
+  islandId: string,
+): Promise<TutorialExperienceRewardView> {
+  return request<TutorialExperienceRewardView>(
+    `/islands/${encodeURIComponent(islandId)}/tutorial-reward`,
+    { method: 'POST' },
+  );
+}
+
 export type TutorialRewardView = {
   sessionId: string;
   status: 'pending' | 'granted' | 'unavailable';
