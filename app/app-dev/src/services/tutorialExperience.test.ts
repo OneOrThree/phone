@@ -66,6 +66,12 @@ test('실제 세션은 체험으로 바꾸지 않고 장면 투영은 원본 상
   expect(state.islands.some((i) => i.members.length > 0)).toBe(true);
   state.session = state.tutorialExperience!.session;
   expect(isTutorialExperience(state)).toBe(false);
+  const synced = reducer(state, {
+    type: 'SESSION_SYNC',
+    session: { ...state.session, version: 1 },
+  });
+  expect(synced.tutorialExperience).toBeUndefined();
+  expect(synced.session?.version).toBe(1);
   expect(reducer(state, { type: 'TUTORIAL_EXPERIENCE_START', subject: '중복' })).toBe(state);
   expect(tutorialExperienceAction('START')).toBe('TUTORIAL_EXPERIENCE_START');
   expect(tutorialExperienceAction('FOCUS_SPOT')).toBe('TUTORIAL_EXPERIENCE_SPOT');
@@ -88,3 +94,16 @@ test('서버 소속만 있고 로컬 목업 섬에는 가입하지 않아도 자
   );
   expect(state.session).toBeNull();
 });
+
+test.each([11, 19, 20, 21])(
+  '구버전의 실제 세션 완료 결과(%s단계)는 체험으로 덮지 않는다',
+  (value) => {
+    let state = reducer(initialState(true), { type: 'START', subject: '기존 집중', now: 1000 });
+    state = step(state, value);
+    state = reducer(state, { type: 'FINISH', now: 121000 });
+    expect(state.session).toBeNull();
+    expect(state.lastResult?.fish).toBe(2);
+    expect(isTutorialExperience(state)).toBe(false);
+    expect(isTutorialExperience(step(state, 8))).toBe(true);
+  },
+);

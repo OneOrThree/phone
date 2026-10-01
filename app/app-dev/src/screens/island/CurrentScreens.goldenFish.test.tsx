@@ -558,6 +558,36 @@ test('체험은 실제 시작 API·실시간 없이 5초 후 일반 1마리와 �
   await screen.unmount();
 });
 
+test('구버전 완료 결과의 실제 물고기와 acknowledge 명령을 보존한다', async () => {
+  const state = focusedState();
+  state.session = null;
+  state.tutorial = { step: 21, sessionId: 'legacy-result' };
+  state.lastResult = {
+    id: 'legacy-result',
+    ackId: 'legacy-result',
+    islandId: 'soda',
+    subject: '기존 집중 결과',
+    seconds: 120,
+    fish: 2,
+    at: Date.now(),
+    contributed: true,
+  };
+  state.resultFromRest = true;
+  const acknowledge = jest.fn().mockResolvedValue(null);
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, undefined, undefined, {
+      guideStep: 21,
+      setGuideStep: jest.fn(),
+      focus: { acknowledge },
+    }),
+  );
+  expect(screen.getByText('기존 집중 결과', { includeHiddenElements: true })).toBeTruthy();
+  expect(screen.getByText('+2마리', { includeHiddenElements: true })).toBeTruthy();
+  await fireEvent.press(screen.getByTestId('result-done', { includeHiddenElements: true }));
+  expect(acknowledge).toHaveBeenCalledWith('legacy-result');
+  await screen.unmount();
+});
+
 test('체험 종료 버튼은 서버 finish 없이 결과를 표시하고 실제 기록을 남기지 않는다', async () => {
   jest.useFakeTimers();
   let seed = focusedState();

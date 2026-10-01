@@ -2,6 +2,14 @@ import type { State } from '@/services/model';
 
 /** 실제 세션을 복구한 구버전 이용자는 기존 수명주기를 유지한다. */
 export function isTutorialExperience(state: State): boolean {
+  // 구버전의 종료 결과에는 session이 없다. 체험 결과로 덮거나 acknowledge를 누락하지 않는다.
+  if (
+    !state.tutorialExperience &&
+    state.lastResult &&
+    state.tutorial &&
+    (state.tutorial.step >= 19 || state.tutorial.sessionId === state.lastResult.id)
+  )
+    return false;
   return (
     !state.session &&
     !!state.tutorial &&

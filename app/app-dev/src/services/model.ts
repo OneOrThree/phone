@@ -2029,9 +2029,11 @@ export function reducer(state: State, a: Action): State {
         if (next && next.id === s.session?.id && s.session.tutorialFish)
           next = { ...next, tutorialFish: true };
         s.session = next;
+        if (next) delete s.tutorialExperience;
       }
       break;
     case 'SESSION_RESULT': {
+      delete s.tutorialExperience;
       // 서버 finish·pending-result 의 정산 뷰를 기록+결과창으로 반영하고 진행 세션을 닫는다.
       // earnedFish 는 서버가 이미 섬 통장에 적립한 확정값 — 로컬 잔액 표시만 맞춘다.
       const record = a.record as RecordItem;
