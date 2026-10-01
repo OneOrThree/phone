@@ -196,6 +196,35 @@ class InboundEventServiceTest {
     }
 
     @Test
+    @DisplayName("user.blocks.updated 는 차단자의 차단 세대를 한 번만 올리고, blockerUserId 가 없으면 200 으로 건너뛴다")
+    void blocksUpdatedAdvancesTheBlockersGenerationOnce() throws Exception {
+        UUID blocker = UUID.randomUUID();
+        String event = blocksUpdated(UUID.randomUUID().toString(), "\"blockerUserId\":\"" + blocker + "\"");
+
+        http(event);
+        http(event);
+        new KafkaEventInbound(inboundEventService, objectMapper).receive(event);
+
+        assertThat(redis.opsForValue().get(RedisKeys.blockGeneration(blocker))).isEqualTo("1");
+        // 세대 키는 수명 없이 남는다 — 만료되면 번호가 재사용돼 옛 캐시와 충돌한다.
+        assertThat(redis.getExpire(RedisKeys.blockGeneration(blocker))).isEqualTo(-1L);
+
+        UUID other = UUID.randomUUID();
+        http(blocksUpdated(UUID.randomUUID().toString(), "\"blockedUserId\":\"" + other + "\""));
+        http(blocksUpdated(UUID.randomUUID().toString(), "\"blockerUserId\":\"not-a-uuid\""));
+        assertThat(redis.hasKey(RedisKeys.blockGeneration(other))).isFalse();
+        redis.delete(RedisKeys.blockGeneration(blocker));
+    }
+
+    /** Data {@code UserBlockEvents} 가 적는 10필드 정본 봉투. */
+    private static String blocksUpdated(String eventId, String params) {
+        UUID user = UUID.randomUUID();
+        return "{\"eventId\":\"" + eventId + "\",\"schemaVersion\":1,\"type\":\"user.blocks.updated\","
+                + "\"occurredAt\":\"2026-10-01T00:00:00Z\",\"scheduledAt\":null,\"userId\":\"" + user + "\","
+                + "\"locale\":null,\"subjectId\":\"" + user + "\",\"version\":1,\"params\":{" + params + "}}";
+    }
+
+    @Test
     @DisplayName("계약 밖 type·eventId 없는 봉투는 400 — 조용히 삼키지 않는다")
     void rejectsUnknownTypesAndMissingEventId() throws Exception {
         for (String body : new String[] {

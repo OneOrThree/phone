@@ -18,6 +18,7 @@ import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.letter.repository.domain.Letter;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.service.UserBlockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
@@ -63,6 +64,12 @@ public class InternalLetterService {
 
     private static final String SENT = "sent";
 
+    /**
+     * 차단한 상대의 편지를 상세로 열 때 원문 대신 싣는 중립 문구 (GROMO-2185). 응답 모양({@code content} 필수
+     * 문자열)을 바꾸지 않아 Business·앱이 그대로 그린다 — 원문은 DB 에 남고 차단을 해제하면 다시 보인다.
+     */
+    public static final String BLOCKED_CONTENT_PLACEHOLDER = "차단한 사용자의 편지라 내용을 볼 수 없어요.";
+
     private final LetterRepository letters;
     private final UserQueryService users;
     private final FriendshipRepository friendships;
@@ -70,6 +77,7 @@ public class InternalLetterService {
     private final IslandFacilityQueryService islandFacilityQueryService;
     private final PerUserHourlyLimiter sendLimiter;
     private final BannedWords bannedWords;
+    private final UserBlockService userBlockService;
 
     /**
      * 한도 카운터가 친구 요청 것과 같은 타입이라 이름으로 골라 받는다 — Lombok 생성자는 {@code @Qualifier} 를
@@ -81,7 +89,7 @@ public class InternalLetterService {
                                  GroupMemberRepository islandMemberships,
                                  IslandFacilityQueryService islandFacilityQueryService,
                                  @Qualifier("letterSendRateLimiter") PerUserHourlyLimiter sendLimiter,
-                                 BannedWords bannedWords) {
+                                 BannedWords bannedWords, UserBlockService userBlockService) {
         this.letters = letters;
         this.users = users;
         this.friendships = friendships;
@@ -89,6 +97,7 @@ public class InternalLetterService {
         this.islandFacilityQueryService = islandFacilityQueryService;
         this.sendLimiter = sendLimiter;
         this.bannedWords = bannedWords;
+        this.userBlockService = userBlockService;
     }
 
     /**
@@ -105,7 +114,7 @@ public class InternalLetterService {
      * @param body     받는 사람과 본문
      * @return 방금 만든 편지. {@code readAt} 은 항상 null 이다
      * @throws LetterException {@code SELF_LETTER}(400) · {@code LETTER_CONTENT_BLANK}(400) ·
-     *     {@code LETTER_CONTENT_OUT_OF_RANGE}(400) · {@code LETTER_RECIPIENT_NOT_FRIEND}(404)
+     *     {@code LETTER_CONTENT_OUT_OF_RANGE}(400) · {@code LETTER_RECIPIENT_NOT_FRIEND}(404, 차단 관계 포함)
      * @throws com.oneorthree.phone.common.exception.BannedWordException {@code BANNED_WORD}(400) — 금칙어
      * @throws com.oneorthree.phone.common.exception.RateLimitedException {@code RATE_LIMITED}(429) — 계정당 시간 한도
      */
@@ -118,6 +127,12 @@ public class InternalLetterService {
 
         User sender = users.getCallerForShare(senderId);
         User receiver = users.getTargetForShare(body.receiverId());
+        // 차단 관계면 어느 방향이든 발송하지 않는다 (GROMO-2179, policy RP-차단). 기존 친구 관계는 차단 중에도
+        // 지우지 않으므로(D3) 아래 친구 확인만으로는 막히지 않는다. 코드는 «친구가 아님»과 같은 404 —
+        // 차단 사실을 상대에게 따로 알리지 않는다(D3). 한도 카운터보다 앞이라 거절이 한도를 소모하지 않는다.
+        if (userBlockService.isBlockedEither(senderId, receiver.getId())) {
+            throw new LetterException(LetterErrorCode.LETTER_RECIPIENT_NOT_FRIEND);
+        }
         // 관계 행 배타 락 (codex 리뷰 P1) — 친구 삭제와 «같은 행»에서 직렬화한다. 락 없이 확인하면
         // 이 검사를 통과한 뒤 삭제가 미확인 편지 정리까지 커밋하고, 그 다음에 아래 save 가 새 편지를
         // 꽂아 「관계는 끊겼는데 미확인 편지가 남는」 상태가 된다(LLD §결정 3 위반).
@@ -128,7 +143,10 @@ public class InternalLetterService {
         // 한도는 판정을 다 통과한 «쓰기 직전»에 센다(GROMO-1934) — 거절될 요청까지 세면 오타 몇 번에 막힌다.
         sendLimiter.acquire(senderId);
 
-        Letter saved = letters.save(Letter.builder()
+        // saveAndFlush — @CreationTimestamp(createdAt)는 flush 시점에 채워진다. save()만 쓰면
+        // 영속성 컨텍스트에 남은 saved.getCreatedAt()이 null이라 Business 필수 필드 검증(400)에
+        // 걸린다(GROMO-2174) — insert를 여기서 즉시 flush해 아래 응답 생성 전에 값을 확정한다.
+        Letter saved = letters.saveAndFlush(Letter.builder()
                 .sender(sender)
                 .receiver(receiver)
                 .content(content)
@@ -187,7 +205,8 @@ public class InternalLetterService {
      *
      * @param userId   조회자
      * @param letterId 편지 id
-     * @return 편지 한 통. 방금 읽음 처리했다면 {@code readAt} 이 그 시각이다
+     * @return 편지 한 통. 방금 읽음 처리했다면 {@code readAt} 이 그 시각이다. 내가 차단한 상대와의 편지면
+     *     {@code content} 가 {@link #BLOCKED_CONTENT_PLACEHOLDER} 로 가려지고 읽음을 박지 않는다(GROMO-2185)
      * @throws LetterException {@code LETTER_MAILBOX_LOCKED}(403) · {@code LETTER_NOT_FOUND}(404,
      *     읽는 사이 닫힌 경우 포함) · {@code NOT_LETTER_PARTICIPANT}(403)
      */
@@ -200,17 +219,19 @@ public class InternalLetterService {
         if (letter.isNotParticipant(userId)) {
             throw new LetterException(LetterErrorCode.NOT_LETTER_PARTICIPANT);
         }
+        boolean masked = isCounterpartBlocked(letter, userId);
 
         // 아래 조건부 UPDATE 가 영속성 컨텍스트를 비우므로 응답 값을 «먼저» 꺼내 둔다.
         UUID senderId = letter.getSender().getId();
         String senderNickname = letter.getSender().getNickname();
         UUID receiverId = letter.getReceiver().getId();
-        String content = letter.getContent();
+        String content = masked ? BLOCKED_CONTENT_PLACEHOLDER : letter.getContent();
         Instant createdAt = letter.getCreatedAt();
         Instant readAt = letter.getReadAt();
 
         // 발신자 본인이 다시 봐도 읽음이 아니다 — 「상대가 읽었다」는 신호가 아니기 때문이다(HLD §2.2).
-        if (readAt == null && receiverId.equals(userId)) {
+        // 본문을 가린 열람도 읽음이 아니다 — 수신자는 내용을 보지 못했다(GROMO-2185).
+        if (!masked && readAt == null && receiverId.equals(userId)) {
             readAt = markRead(letterId);
         }
         return new LetterView(letterId, senderId, senderNickname, receiverId, content, createdAt, readAt);
@@ -288,6 +309,18 @@ public class InternalLetterService {
         return letters.findActiveWithSender(letterId)
                 .map(Letter::getReadAt)
                 .orElseThrow(() -> new LetterException(LetterErrorCode.LETTER_NOT_FOUND));
+    }
+
+    /**
+     * 내가 차단한 상대와 주고받은 편지인가 (GROMO-2185, policy RP-차단 「차단 전 받은 편지는 차단 중 목록·상세 ID
+     * 조회·미리보기에서 서버가 본문을 가리되 삭제하지 않는다」).
+     *
+     * <p>판정은 <b>차단한 쪽(호출자) 방향</b>이다 — 받은함({@code findReceivedByCursor})·보낸함
+     * ({@code findSentByCursor}) 목록 필터와 같은 축이다. 차단당한 쪽에서까지 가리면 그 자체가 «차단됐다»는
+     * 통보가 된다(D3 「따로 알리지 않는다」).
+     */
+    private boolean isCounterpartBlocked(Letter letter, UUID me) {
+        return userBlockService.blockedIds(me).contains(letter.counterpartOf(me).getId());
     }
 
     private static LetterItemView item(Letter letter, UUID me, boolean sent) {

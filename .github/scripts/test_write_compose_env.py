@@ -202,6 +202,56 @@ class WriteComposeEnvTest(unittest.TestCase):
         self.assertIn("REALTIME_BASE_URL='http://realtime:8081'", final)
         self.assertIn("SPRING_PROFILES_ACTIVE='prod,satellites'", final)
 
+    def test_섬_관리_명령_선택키는_data_api_렌더에서_있으면_나오고_없으면_안_나온다(self) -> None:
+        # GROMO-2156 — PR #1032 리뷰 제안: SERVICE_OPTIONAL_KEYS["data-api"] 경로(위성 오버레이 입력)를
+        # 직접 잠근다. render_service(--service data-api)로 렌더한 env에 섬 관리 명령 2종·게시판 쓰기
+        # 게이트가 있으면 값째로 나오고, 없으면 아예 나오지 않아야 한다. environment=prod로 겸사겸사
+        # 「없으면 prod에서도 안 나온다」까지 같은 호출로 확인한다.
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",
+            SVC_TOKEN_BIZ_TO_DATA="bd", SVC_TOKEN_NOTI_TO_DATA="nd",
+            SVC_TOKEN_DATA_TO_NOTI="dn", SVC_TOKEN_DATA_TO_LINK="dl", LINK_CAPABILITY_KEY="key",
+            LINK_IP_SALT="existing-salt", LINK_BASE_URL="https://links.example.test",
+            NOTIFICATION_BASE_URL="http://notification:8082", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            ISLAND_MANAGEMENT_COMMANDS_ENABLED="true", ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED="true",
+            ISLAND_BOARD_WRITES_ENABLED="true",
+        )
+        with_flags = MODULE.render(combined, "example/data:1", "data-api", "final", "prod")
+        self.assertIn("ISLAND_MANAGEMENT_COMMANDS_ENABLED='true'", with_flags)
+        self.assertIn("ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED='true'", with_flags)
+        self.assertIn("ISLAND_BOARD_WRITES_ENABLED='true'", with_flags)
+
+        without_flags = {key: value for key, value in combined.items()
+                         if key not in ("ISLAND_MANAGEMENT_COMMANDS_ENABLED",
+                                        "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
+                                        "ISLAND_BOARD_WRITES_ENABLED")}
+        without = MODULE.render(without_flags, "example/data:1", "data-api", "final", "prod")
+        self.assertNotIn("ISLAND_MANAGEMENT_COMMANDS_ENABLED=", without)
+        self.assertNotIn("ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED=", without)
+        self.assertNotIn("ISLAND_BOARD_WRITES_ENABLED=", without)
+
+    def test_차단_필터용_선택키는_data_api_렌더에서_있으면_나오고_없으면_안_나온다(self) -> None:
+        # GROMO-2182 — realtime-authorization 프로필이 읽는 realtime caller 자격과 차단 사건 생산 스위치.
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",
+            SVC_TOKEN_BIZ_TO_DATA="bd", SVC_TOKEN_NOTI_TO_DATA="nd",
+            SVC_TOKEN_DATA_TO_NOTI="dn", SVC_TOKEN_DATA_TO_LINK="dl", LINK_CAPABILITY_KEY="key",
+            LINK_IP_SALT="existing-salt", LINK_BASE_URL="https://links.example.test",
+            NOTIFICATION_BASE_URL="http://notification:8082", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            SVC_TOKEN_REALTIME_TO_DATA="rt-data", USER_BLOCKS_REALTIME_EVENTS_ENABLED="true",
+        )
+        rendered = MODULE.render(combined, "example/data:1", "data-api", "final", "dev",
+                                 data_profiles="dev,satellites,realtime-authorization")
+        self.assertIn("SVC_TOKEN_REALTIME_TO_DATA='rt-data'", rendered)
+        self.assertIn("USER_BLOCKS_REALTIME_EVENTS_ENABLED='true'", rendered)
+        self.assertIn("SPRING_PROFILES_ACTIVE='dev,satellites,realtime-authorization'", rendered)
+
+        without = MODULE.render({key: value for key, value in combined.items()
+                                 if key not in ("SVC_TOKEN_REALTIME_TO_DATA", "USER_BLOCKS_REALTIME_EVENTS_ENABLED")},
+                                "example/data:1", "data-api", "final", "dev")
+        self.assertNotIn("SVC_TOKEN_REALTIME_TO_DATA=", without)
+        self.assertNotIn("USER_BLOCKS_REALTIME_EVENTS_ENABLED=", without)
+
     def test_prod_Business의_프록시_시크릿_누락은_출력_전에_차단한다(self) -> None:
         baseline = {key: "synthetic-value" for key in MODULE.SERVICE_REQUIRED_KEYS["business-api"]}
         baseline.pop("LINK_PROXY_SECRET", None)
@@ -295,9 +345,13 @@ class WriteComposeEnvTest(unittest.TestCase):
                 env_file = Path(directory) / "dev.env"
                 values = secret()
                 if present:
+                    values.update(SVC_TOKEN_REALTIME_TO_DATA="rt-data",
+                                  REALTIME_AUTHORIZATION_DATA_URL="http://app:8080",
+                                  REALTIME_BLOCKS_FILTER_ENABLED=True)
                     values.update(SVC_TOKEN_DATA_TO_REALTIME="data-rt", SVC_TOKEN_BIZ_TO_REALTIME="biz-rt",
                                   FOCUS_SESSION_START_ENABLED=True, FOCUS_REWARD_ACCRUAL_ENABLED=True,
-                                  ISLAND_BOARD_WRITES_ENABLED=True)
+                                  ISLAND_BOARD_WRITES_ENABLED=True, ISLAND_MANAGEMENT_COMMANDS_ENABLED=True,
+                                  ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED=True)
                 subprocess.run([sys.executable, str(SCRIPT), "--output", str(env_file), "--app-image",
                                 "example/app@sha256:abc"], input=json.dumps(values), text=True, check=True)
                 configured = subprocess.run(
@@ -308,11 +362,18 @@ class WriteComposeEnvTest(unittest.TestCase):
                 realtime, app = services["realtime"]["environment"], services["data-api"]["environment"]
                 self.assertEqual(realtime["SVC_TOKEN_DATA_TO_REALTIME"], "data-rt" if present else "")
                 self.assertEqual(realtime["SVC_TOKEN_BIZ_TO_REALTIME"], "biz-rt" if present else "")
+                # GROMO-2182 — Realtime → Data 조회 대상·자격과 차단 필터 스위치도 컨테이너까지 와야 한다.
+                self.assertEqual(realtime["SVC_TOKEN_REALTIME_TO_DATA"], "rt-data" if present else "")
+                self.assertEqual(realtime["REALTIME_AUTHORIZATION_DATA_URL"], "http://app:8080" if present else "")
+                self.assertEqual(realtime["REALTIME_BLOCKS_FILTER_ENABLED"], "True" if present else "false")
                 self.assertEqual(app["FOCUS_SESSION_START_ENABLED"], "True" if present else "false")
                 # 스위치를 만들었는데 컨테이너까지 못 오면 만들지 않은 것과 같다 (GROMO-1990).
                 self.assertEqual(app["FOCUS_REWARD_ACCRUAL_ENABLED"], "True" if present else "false")
                 # 섬 게시판 쓰기 게이트 (GROMO-1771 · GROMO-2136) — 같은 이유로 dev.env → 컨테이너 전달을 고정한다.
                 self.assertEqual(app["ISLAND_BOARD_WRITES_ENABLED"], "True" if present else "false")
+                # 섬 관리 명령·방장 위임 게이트 (GROMO-2156) — 같은 경로로 컨테이너까지 와야 한다.
+                self.assertEqual(app["ISLAND_MANAGEMENT_COMMANDS_ENABLED"], "True" if present else "false")
+                self.assertEqual(app["ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED"], "True" if present else "false")
                 self.assertNotIn("SVC_TOKEN_DATA_TO_REALTIME", app, "legacy Data 는 satellites 프로파일이 없어 읽지 않는다")
                 for service in services.values():
                     self.assertEqual(service["logging"]["driver"], "json-file")

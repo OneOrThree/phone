@@ -1,34 +1,41 @@
-import React, { useState } from 'react';
+import { BlurTargetView, BlurView } from 'expo-blur';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   Image,
+  Keyboard,
   Modal,
   ScrollView,
   StyleSheet,
   View,
   type StyleProp,
   type ViewStyle,
+  type LayoutRectangle,
+  type ViewProps,
 } from 'react-native';
 import { assets } from '@/constants/assets';
-import { Btn, C, Pic, Txt } from '@/design-system/patterns';
+import { Btn, C, Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
 
 const space = primitiveTokens.space;
 
-// 온보딩 앵무새와 건물 안내가 공유하는 하단 대화창.
+// 몽돌 온보딩과 건물 안내가 공유하는 하단 대화창.
 export function GuideBox({
   text,
-  character = 'parrot',
+  character = 'mongdol',
   style,
   children,
+  accessibilityViewIsModal,
 }: {
   text: string;
-  character?: 'parrot' | 'pelican' | 'dog';
+  character?: 'mongdol' | 'pelican' | 'dog';
   style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
+  accessibilityViewIsModal?: boolean;
 }) {
   return (
-    <View style={[styles.box, style]}>
+    <View style={[styles.box, style]} accessibilityViewIsModal={accessibilityViewIsModal}>
       <View style={styles.dialogue}>
         {character === 'pelican' ? (
           <Image
@@ -45,7 +52,12 @@ export function GuideBox({
             style={styles.dog}
           />
         ) : (
-          <Pic id="parrot" w={56} />
+          <Image
+            source={assets['characters/mongdol/npc/idle.png']}
+            accessible={false}
+            resizeMode="contain"
+            style={styles.mongdol}
+          />
         )}
         <Txt
           lineBreakStrategyIOS="hangul-word"
@@ -56,6 +68,243 @@ export function GuideBox({
         </Txt>
       </View>
       <View style={styles.actions}>{children}</View>
+    </View>
+  );
+}
+
+export type SpotlightRect = LayoutRectangle;
+
+const BlurTargetContext = createContext<React.RefObject<View | null> | undefined>(undefined);
+const TutorialSkipContext = createContext<(() => void) | undefined>(undefined);
+
+export function useScreenReaderEnabled() {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void Promise.resolve(AccessibilityInfo.isScreenReaderEnabled())
+      .then((value) => {
+        if (live) setEnabled(!!value);
+      })
+      .catch(() => {});
+    const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', setEnabled);
+    return () => {
+      live = false;
+      subscription.remove();
+    };
+  }, []);
+  return enabled;
+}
+
+// Android는 블러가 읽을 실제 장면을 지정해야 한다. 오버레이는 장면의 형제로 둔다.
+export function TutorialScene({
+  children,
+  overlay,
+  onSkip,
+  isolateAccessibility = false,
+  ...props
+}: ViewProps & { overlay?: React.ReactNode; onSkip?: () => void; isolateAccessibility?: boolean }) {
+  const target = useRef<View>(null);
+  const isolated =
+    isolateAccessibility || (React.isValidElement(overlay) && overlay.type === TutorialSpotlight);
+  return (
+    <View {...props}>
+      <BlurTargetView
+        ref={target}
+        style={{ flex: 1 }}
+        accessibilityElementsHidden={isolated}
+        importantForAccessibility={isolated ? 'no-hide-descendants' : 'auto'}
+      >
+        {children}
+      </BlurTargetView>
+      <BlurTargetContext.Provider value={target}>
+        <TutorialSkipContext.Provider value={onSkip}>{overlay}</TutorialSkipContext.Provider>
+      </BlurTargetContext.Provider>
+    </View>
+  );
+}
+
+export function useSpotlightTarget(active = false) {
+  const ref = useRef<View>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const [rect, setRect] = useState<SpotlightRect | null>(null);
+  const measure = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (!activeRef.current) return;
+      const node = ref.current;
+      if (!node) {
+        setRect(null);
+        return;
+      }
+      node.measureInWindow((x, y, width, height) => {
+        if (!activeRef.current || ref.current !== node) return;
+        if (width <= 0 || height <= 0) {
+          setRect(null);
+          return;
+        }
+        setRect((previous) =>
+          previous?.x === x &&
+          previous.y === y &&
+          previous.width === width &&
+          previous.height === height
+            ? previous
+            : { x, y, width, height },
+        );
+      });
+    });
+  }, []);
+  useEffect(() => {
+    if (!active) {
+      setRect(null);
+      return;
+    }
+    measure();
+    // 키보드·화면 회전·부모 이동으로 바뀐 창 좌표도 따라간다.
+    const timer = setInterval(measure, 200);
+    return () => clearInterval(timer);
+  }, [active, measure]);
+  return { ref, rect, measure };
+}
+
+/** 실제 조작 대상을 비워 두고 나머지 화면만 블러·딤 처리한다. */
+export function TutorialSpotlight({
+  target,
+  text,
+  children,
+  action,
+  accessibleInput,
+  error,
+}: {
+  target?: SpotlightRect | null;
+  text: string;
+  children?: React.ReactNode;
+  action?: { title: string; onPress: () => void; disabled?: boolean };
+  accessibleInput?: React.ReactNode;
+  /** 조작 실패 메시지 — 블러·딤 뒤로 가려지지 않게 대화창 안에서 읽어 준다. */
+  error?: string;
+}) {
+  const layout = useAppLayout();
+  const blurTarget = useContext(BlurTargetContext);
+  const skip = useContext(TutorialSkipContext);
+  const screenReader = useScreenReaderEnabled();
+  const [measurementFailed, setMeasurementFailed] = useState(false);
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (event) =>
+      setKeyboardTop(event.endCoordinates.screenY),
+    );
+    const change = Keyboard.addListener('keyboardWillChangeFrame', (event) =>
+      setKeyboardTop(event.endCoordinates.screenY),
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardTop(null));
+    return () => {
+      show.remove();
+      change.remove();
+      hide.remove();
+    };
+  }, []);
+  const needsTarget = !!action || !!accessibleInput;
+  useEffect(() => {
+    setMeasurementFailed(false);
+    if (target || !needsTarget) return;
+    const timer = setTimeout(() => setMeasurementFailed(true), 2000);
+    return () => clearTimeout(timer);
+  }, [target, needsTarget, text]);
+  const root = useRef<View>(null);
+  const [area, setArea] = useState({ x: 0, y: 0, width: layout.width, height: layout.height });
+  const measureRoot = () =>
+    root.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) setArea({ x, y, width, height });
+    });
+  // 구멍의 여백으로 옆 버튼까지 눌리지 않도록 실제 대상 rect만 연다.
+  const pad = 0;
+  const x = Math.min(area.width, Math.max(0, (target?.x ?? 0) - area.x - pad));
+  const y = Math.min(area.height, Math.max(0, (target?.y ?? 0) - area.y - pad));
+  const right = Math.max(
+    x,
+    Math.min(area.width, (target?.x ?? 0) - area.x + (target?.width ?? 0) + pad),
+  );
+  const bottom = Math.max(
+    y,
+    Math.min(area.height, (target?.y ?? 0) - area.y + (target?.height ?? 0) + pad),
+  );
+  const panes = target
+    ? [
+        { left: 0, top: 0, right: 0, height: y },
+        { left: 0, top: y, width: x, height: Math.max(0, bottom - y) },
+        { left: right, right: 0, top: y, height: Math.max(0, bottom - y) },
+        { left: 0, right: 0, top: bottom, bottom: 0 },
+      ]
+    : [{ left: 0, top: 0, right: 0, bottom: 0 }];
+  const width = Math.min(layout.floatingWidth, 414, area.width - 24);
+  const safeTop = layout.insets.top + space[3];
+  const visibleBottom =
+    Math.min(
+      area.height - layout.insets.bottom,
+      keyboardTop == null ? area.height : keyboardTop - area.y,
+    ) - space[3];
+  const above = target && y > (visibleBottom + safeTop) / 2;
+  const guideTop = target && !above ? Math.min(bottom + space[4], visibleBottom) : safeTop;
+  const guideBottom = above ? Math.min(y - space[4], visibleBottom) : visibleBottom;
+  const guidePosition = {
+    ...(above || !target ? { bottom: area.height - guideBottom } : { top: guideTop }),
+    maxHeight: Math.max(space[12], guideBottom - guideTop),
+  };
+  return (
+    <View
+      ref={root}
+      testID="tutorial-spotlight"
+      collapsable={false}
+      onLayout={measureRoot}
+      pointerEvents="box-none"
+      accessibilityViewIsModal
+      onAccessibilityEscape={skip}
+      style={[StyleSheet.absoluteFill, styles.spotlight]}
+    >
+      {panes.map((pane, index) => (
+        <BlurView
+          key={index}
+          intensity={35}
+          tint="dark"
+          blurMethod="dimezisBlurView"
+          blurTarget={blurTarget}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          onStartShouldSetResponder={() => true}
+          style={[styles.blurPane, pane]}
+        >
+          <View style={styles.dim} />
+        </BlurView>
+      ))}
+      <ScrollView
+        testID="tutorial-dialogue"
+        keyboardShouldPersistTaps="handled"
+        style={{
+          position: 'absolute',
+          left: (area.width - width) / 2,
+          width,
+          ...guidePosition,
+        }}
+      >
+        <GuideBox text={text} style={{ position: 'relative' }}>
+          {!!error && (
+            <Txt
+              accessibilityRole="alert"
+              accessibilityLiveRegion="assertive"
+              style={{ color: semanticTokens.color.danger, fontWeight: '700' }}
+            >
+              {error}
+            </Txt>
+          )}
+          {(screenReader || measurementFailed) && accessibleInput}
+          {(screenReader || measurementFailed) && action && (
+            <Btn title={action.title} onPress={action.onPress} disabled={action.disabled} />
+          )}
+          {children ?? null}
+          {skip && <Btn title="안내 그만 보기" kind="ghost" onPress={skip} />}
+        </GuideBox>
+      </ScrollView>
     </View>
   );
 }
@@ -189,6 +438,7 @@ const styles = StyleSheet.create({
   },
   dialogue: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   pelican: { width: space[16], height: space[16] + space[4] },
+  mongdol: { width: space[16], height: space[16] },
   dog: { width: space[16] + space[4], height: space[16] + space[4] },
   text: {
     flex: 1,
@@ -209,4 +459,7 @@ const styles = StyleSheet.create({
   mailboxBox: { position: 'relative' },
   shopBox: { position: 'relative' },
   next: { minWidth: 120, minHeight: componentTokens.button.heightGhost },
+  spotlight: { zIndex: 100 },
+  blurPane: { position: 'absolute', overflow: 'hidden' },
+  dim: { flex: 1, backgroundColor: semanticTokens.color.overlay },
 });

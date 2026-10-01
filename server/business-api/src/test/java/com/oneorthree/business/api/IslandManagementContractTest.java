@@ -3,6 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -52,6 +53,12 @@ class IslandManagementContractTest extends UpstreamTestBase {
             + "\"nextJoinedAt\":\"2026-09-19T01:02:03.123456Z\",\"nextMembershipId\":\"" + TARGET + "\",\"version\":9}";
     private static final String REQUESTS = "{\"items\":[{\"id\":\"" + REQUEST + "\",\"applicantId\":\"" + TARGET
             + "\",\"name\":\"신청자\",\"status\":\"pending\",\"version\":0}],\"nextCreatedAt\":null,\"nextRequestId\":null}";
+
+    /** 차단 목록은 비어 있다 — 주민 목록의 중립 치환(GROMO-2183)은 UserBlockContractTest 가 본다. */
+    @BeforeEach
+    void noBlocks() {
+        DATA.on("GET /internal/users/" + USER + "/blocks", request -> ok("[]"));
+    }
 
     // ---------------------------------------------------------------- manage
 

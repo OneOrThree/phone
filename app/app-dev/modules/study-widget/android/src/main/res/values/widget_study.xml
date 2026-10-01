@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 홈 위젯 문자열·색 — 1.x 앱(values/strings.xml·colors.xml)의 위젯 항목을 그대로 옮겼다.
+     위젯은 다크모드에서도 라이트 톤 고정(1.x·iOS 결정 유지). -->
+<resources>
+  <string name="widget_study_label">오늘의 공부시간</string>
+  <string name="widget_study_description">오늘 집중한 시간과 가장 많이 집중한 두 과목을 보여줘요.</string>
+  <!-- 제목 줄 오른쪽에 총합(00:00:00)이 붙어 최소 폭 180dp에서도 잘리지 않게 짧게 둔다 -->
+  <string name="widget_study_title">오늘 공부</string>
+  <string name="widget_study_empty">아직 오늘 공부 기록이 없어요</string>
+
+  <color name="widget_paper">#FFFFFF</color>
+  <color name="widget_ink">#1C1E22</color>
+  <color name="widget_ink_sub">#667085</color>
+  <color name="widget_chip_bg">#F1F2F8</color>
+  <color name="widget_chip_border">#E3E5EE</color>
+  <color name="widget_accent">#5E6AD2</color>
+</resources>

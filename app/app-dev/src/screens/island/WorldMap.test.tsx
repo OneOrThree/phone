@@ -497,7 +497,8 @@ test('부두의 뗏목에 뗏목 이름을 표시한다', async () => {
     expect.objectContaining({
       left: 0,
       top: -30,
-      width: 120 * worldScale,
+      // 이름표는 뗏목 탭 영역(배경의 뗏목 그림, 폭 180) 위에 가운데 정렬된다(GROMO-2157).
+      width: 180 * worldScale,
       alignItems: 'center',
     }),
   );
@@ -1043,5 +1044,39 @@ test('밤에도 회관은 밤 문 프레임을 먼저 보여 준 뒤 라우트�
   } finally {
     timing.mockRestore();
     jest.useRealTimers();
+  }
+});
+
+test('뗏목 탭 영역은 부두 끝이 아니라 배경에 그려진 뗏목 위에 있고 누르면 배 화면을 연다', async () => {
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  const state = initialState(true);
+  state.settings.reduceMotion = true;
+  const go = jest.fn();
+  try {
+    const screen = await render(
+      <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
+    );
+    // 낚시섬 문의 명시 탭 영역(x 1230)으로 월드 배율을 구한다.
+    const fishing = screen.getByLabelText('낚시섬 구경하기').props.style;
+    const s = fishing.left / 1230;
+    const raft = screen.getByLabelText('뗏목').props.style;
+
+    // 배경 base/day.png 의 뗏목 그림(x 205~375, y 820~920)을 덮는다.
+    expect(raft.left / s).toBeLessThanOrEqual(205);
+    expect((raft.left + raft.width) / s).toBeGreaterThanOrEqual(375);
+    expect(raft.top / s).toBeLessThanOrEqual(820);
+    expect((raft.top + raft.height) / s).toBeGreaterThanOrEqual(920);
+
+    await fireEvent.press(screen.getByLabelText('뗏목'));
+    expect(go).toHaveBeenCalledWith('boat');
+  } finally {
+    timing.mockRestore();
   }
 });

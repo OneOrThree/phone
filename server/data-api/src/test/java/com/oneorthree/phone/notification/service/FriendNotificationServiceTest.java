@@ -3,6 +3,7 @@ package com.oneorthree.phone.notification.service;
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
+import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.notification.config.NotificationDispatchProperties;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
@@ -10,7 +11,9 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.service.UserBlockService;
 import com.oneorthree.phone.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,6 +33,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -58,6 +62,8 @@ class FriendNotificationServiceTest {
     private NotificationSentLogRepository notificationSentLogRepository;
     @Mock
     private PushNotificationService pushNotificationService;
+    @Mock
+    private UserBlockService userBlockService;
 
     private FriendNotificationService service;
 
@@ -76,7 +82,8 @@ class FriendNotificationServiceTest {
                 notificationSentLogRepository,
                 pushNotificationService,
                 legacyDispatcher(pushNotificationService),
-                null);
+                null,
+                userBlockService);
     }
 
     /**
@@ -275,6 +282,39 @@ class FriendNotificationServiceTest {
         service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 
         verify(friendshipRepository, never()).findByIdAndDeletedAtIsNull(any());
+    }
+
+    @Test
+    @DisplayName("차단된 사이면 구 경로 요청·수락 알림을 보내지 않는다 (GROMO-2180)")
+    void legacyFriendNotifications_blocked_skip() {
+        givenRequestStillPending();
+        given(userQueryService.findActive(RECIPIENT_ID))
+                .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
+        given(userBlockService.isBlockedEither(RECIPIENT_ID, COUNTERPART_ID)).willReturn(true);
+
+        service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
+        service.notifyFriendAccepted(RECIPIENT_ID, COUNTERPART_ID, NOW);
+
+        verify(pushNotificationService, never()).sendIfAllowed(any(), any(), any(), any());
+        verify(notificationSentLogRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("차단된 사이면 신 경로 수락 알림 요청을 만들지 않는다 — 적재 자체가 없다 (GROMO-2180)")
+    void outboxFriendAccepted_blocked_isNotEnqueued() {
+        FriendNotificationService outbox = new FriendNotificationService(friendshipRepository, userQueryService,
+                notificationSentLogRepository, pushNotificationService, legacyDispatcher(pushNotificationService),
+                mock(EntityManager.class), userBlockService);
+        User requester = user(RECIPIENT_ID, "받는사람");
+        User accepter = user(COUNTERPART_ID, "보낸사람");
+        given(userQueryService.findActive(RECIPIENT_ID)).willReturn(Optional.of(requester));
+        given(userQueryService.findActive(COUNTERPART_ID)).willReturn(Optional.of(accepter));
+        given(friendshipRepository.findByFromUserAndToUser(requester, accepter))
+                .willReturn(Optional.of(Friendship.builder().id(REQUEST_ID).fromUser(requester).toUser(accepter)
+                        .status(FriendshipStatus.ACCEPTED).build()));
+        given(userBlockService.isBlockedEither(RECIPIENT_ID, COUNTERPART_ID)).willReturn(true);
+
+        assertThat(outbox.friendAcceptedRequest(RECIPIENT_ID, COUNTERPART_ID)).isEmpty();
     }
 
     @Test

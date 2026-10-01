@@ -23,6 +23,7 @@ public class UserBlockService {
 
     private final UserBlockRepository blocks;
     private final UserQueryService users;
+    private final UserBlockEvents events;
 
     /**
      * 같은 관계를 다시 넣어도 성공한다 — 멱등은 {@code (blocker, blocked)} 유니크 +
@@ -36,7 +37,10 @@ public class UserBlockService {
         }
         users.getCallerForShare(blockerId);
         users.getTargetForShare(blockedId);
-        blocks.insertIgnoreConflict(UuidV7.next(), blockerId, blockedId);
+        if (blocks.insertIgnoreConflict(UuidV7.next(), blockerId, blockedId) > 0) {
+            // GROMO-2182 — 같은 트랜잭션의 outbox 로 Realtime 의 차단 세대를 올린다(채팅·응원 수신 필터).
+            events.blocked(blockerId, blockedId);
+        }
     }
 
     /**
@@ -46,7 +50,9 @@ public class UserBlockService {
     @Transactional
     public void unblock(UUID blockerId, UUID blockedId) {
         users.getCallerForShare(blockerId);
-        blocks.deleteByBlockerIdAndBlockedId(blockerId, blockedId);
+        if (blocks.deleteByBlockerIdAndBlockedId(blockerId, blockedId) > 0) {
+            events.unblocked(blockerId, blockedId);
+        }
     }
 
     public List<BlockedUserResponse> list(UUID blockerId) {
@@ -59,5 +65,34 @@ public class UserBlockService {
     /** blocker 관점의 화면 필터가 재사용하는 id 집합. */
     public Set<UUID> blockedIds(UUID blockerId) {
         return blocks.findBlockedIdsByBlockerId(blockerId);
+    }
+
+    /**
+     * 두 유저 사이에 어느 방향이든 차단이 있는가 (GROMO-2179, policy RP-차단 「한쪽이 차단하면 서버가 양방향
+     * 편지 발송과 친구 요청을 거절한다」). 직접 연락 게이트가 공통으로 쓴다.
+     *
+     * @param a 한쪽 유저 id
+     * @param b 다른 쪽 유저 id
+     * @return {@code a→b} 또는 {@code b→a} 차단이 있으면 true
+     */
+    public boolean isBlockedEither(UUID a, UUID b) {
+        return blocks.existsBetweenEitherWay(a, b);
+    }
+
+    /**
+     * 친구 요청처럼 «대상 유저»를 지목하는 직접 연락을 차단 관계에서 거절한다 (GROMO-2179).
+     *
+     * <p>거절 코드는 새로 만들지 않고 {@code TARGET_USER_NOT_FOUND}(404)를 재사용한다 — policy D3
+     * 「차단한 사실을 상대에게 따로 알리지 않는다」: 차단당한 쪽이 «차단됐다»는 전용 코드를 받으면 그 자체가
+     * 통보다. Business 는 이 코드를 이미 공개 {@code NOT_FOUND}(field=targetUserId)로 옮긴다.
+     *
+     * @param callerId 연락을 시도하는 유저
+     * @param targetId 지목된 유저
+     * @throws UserException {@code TARGET_USER_NOT_FOUND}(404) — 어느 방향이든 차단이 있다
+     */
+    public void requireNotBlockedEither(UUID callerId, UUID targetId) {
+        if (isBlockedEither(callerId, targetId)) {
+            throw new UserException(UserErrorCode.TARGET_USER_NOT_FOUND);
+        }
     }
 }

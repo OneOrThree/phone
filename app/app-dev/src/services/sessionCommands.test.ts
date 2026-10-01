@@ -78,6 +78,8 @@ const harness = (api: Partial<FocusApi> = {}) => {
       resume: wrap('resume', api.resume ?? (async () => view({ version: 3 })))!,
       finish: wrap('finish', api.finish ?? (async () => finish()))!,
       acknowledge: wrap('acknowledge', api.acknowledge ?? (async () => null))!,
+      tutorialReward:
+        api.tutorialReward ?? (async (sessionId) => ({ sessionId, status: 'granted' })),
     },
   });
   return {
@@ -101,6 +103,36 @@ const harness = (api: Partial<FocusApi> = {}) => {
     },
   };
 };
+
+test('첫 물고기 지급 확인은 시간·잔액을 조작하지 않고 같은 세션 복구에도 유지된다', async () => {
+  const h = harness({ current: async () => view() });
+  h.join();
+  await h.cmds.start({ subject: '수학' });
+  const fish = currentIsland(h.state()).fish;
+  await h.cmds.tutorialReward('sess-1');
+  expect(h.state().session?.tutorialFish).toBe(true);
+  expect(h.state().session?.seconds).toBe(120);
+  expect(currentIsland(h.state()).fish).toBe(fish);
+  await h.cmds.recover();
+  expect(h.state().session?.tutorialFish).toBe(true);
+});
+
+test('계정 변경 뒤 늦은 첫 물고기 응답은 버린다', async () => {
+  let resolve!: (value: { sessionId: string; status: 'granted' }) => void;
+  const h = harness({
+    tutorialReward: () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  });
+  h.join();
+  await h.cmds.start({ subject: '수학' });
+  const pending = h.cmds.tutorialReward('sess-1');
+  h.bumpGen();
+  resolve({ sessionId: 'sess-1', status: 'granted' });
+  await expect(pending).rejects.toMatchObject({ code: 'CLIENT_STALE_SESSION' });
+  expect(h.state().session?.tutorialFish).toBeUndefined();
+});
 
 test('start — memberships current 로 POST 하고 성공 뒤 세션·version 을 싣는다', async () => {
   const h = harness();

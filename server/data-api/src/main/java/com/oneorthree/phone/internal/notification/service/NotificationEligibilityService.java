@@ -16,6 +16,7 @@ import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationExpiry;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.service.UserBlockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -79,6 +80,12 @@ public class NotificationEligibilityService {
     /** 거절 사유 — 해당 참가자의 승리가 확정되지 않았다. */
     static final String REASON_WIN_NOT_CONFIRMED = "WIN_NOT_CONFIRMED";
 
+    /**
+     * 거절 사유 — 수신자와 상대 사이에 어느 방향이든 차단이 있다 (GROMO-2180, policy RP-차단 「알림 전달 직전에도
+     * 차단 여부를 확인한다」). 적재 뒤 차단된 친구 요청·수락 알림을 여기서 버린다.
+     */
+    static final String REASON_BLOCKED = "BLOCKED";
+
     /** 친구 요청 판정에 쓰는 {@code params} 키 — 요청 행 id. */
     static final String PARAM_REQUEST_ID = "requestId";
 
@@ -90,6 +97,7 @@ public class NotificationEligibilityService {
     private final Clock clock;
     private final NotificationRetentionEligibility retentionEligibility;
     private final NotificationLeagueEligibility leagueEligibility;
+    private final UserBlockService userBlockService;
 
     /**
      * 지금 이 알림을 보내도 되는가.
@@ -294,9 +302,19 @@ public class NotificationEligibilityService {
 
     /** 수락 사실은 친구 해제 뒤에도 유효하지만, 탈퇴한 상대의 보존된 닉네임은 전송하지 않는다. */
     private NotificationEligibilityResponse evaluateFriendAccepted(NotificationEligibilityRequest request) {
-        return userQueryService.findActive(request.subjectId()).isPresent()
-                ? NotificationEligibilityResponse.allow()
-                : NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);
+        if (userQueryService.findActive(request.subjectId()).isEmpty()) {
+            return NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);
+        }
+        return blockedBetween(request) ? NotificationEligibilityResponse.deny(REASON_BLOCKED)
+                : NotificationEligibilityResponse.allow();
+    }
+
+    /**
+     * 친구 알림의 수신자({@code userId})와 상대({@code subjectId}) 사이에 차단이 있는가 (GROMO-2180).
+     * 방향을 가리지 않는다 — 한쪽만 차단해도 새 요청·수락 알림을 보내지 않는다(RP-차단).
+     */
+    private boolean blockedBetween(NotificationEligibilityRequest request) {
+        return userBlockService.isBlockedEither(request.userId(), request.subjectId());
     }
 
     /**
@@ -318,9 +336,13 @@ public class NotificationEligibilityService {
         } catch (IllegalArgumentException e) {
             return NotificationEligibilityResponse.deny(REASON_SUBJECT_REQUIRED);
         }
-        return friendshipRepository.findStatusByIdAndDeletedAtIsNull(requestId)
+        boolean pending = friendshipRepository.findStatusByIdAndDeletedAtIsNull(requestId)
                 .filter(FriendshipStatus.PENDING::equals)
-                .map(status -> NotificationEligibilityResponse.allow())
-                .orElseGet(() -> NotificationEligibilityResponse.deny(REASON_REQUEST_RESOLVED));
+                .isPresent();
+        if (!pending) {
+            return NotificationEligibilityResponse.deny(REASON_REQUEST_RESOLVED);
+        }
+        return blockedBetween(request) ? NotificationEligibilityResponse.deny(REASON_BLOCKED)
+                : NotificationEligibilityResponse.allow();
     }
 }

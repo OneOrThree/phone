@@ -30,6 +30,9 @@ export const primitiveTokens = {
     controlIdle: '#D9C6B8',
     progressTrack: '#EADFD2',
     graphLine: '#5FB6E3',
+    googleBorder: '#747775',
+    googleText: '#1F1F1F',
+    lineBrand: '#06C755',
     gramophonePanel: '#9C6440',
     gramophoneWood: '#B87848',
     gramophoneWoodLight: '#D19B61',
@@ -183,6 +186,15 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  loginButton: {
+    // 카카오·Google/LINE·Apple 버튼이 같은 높이로 줄을 맞춘다. 최소 터치 영역(size.tapMin 44pt)보다 크다.
+    height: 54,
+    googleBackground: color.white,
+    googleBorder: color.googleBorder,
+    googleForeground: color.googleText,
+    lineBackground: color.lineBrand,
+    lineForeground: color.white,
+  },
   diary: {
     referenceWidth: 402,
     maxWidth: 560,

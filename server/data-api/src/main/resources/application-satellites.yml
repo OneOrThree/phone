@@ -8,16 +8,22 @@ notification:
   dispatch:
     mode: ${NOTIFICATION_DISPATCH_MODE:LEGACY}
 
-# 명령 기반만 구현했다. 전용 Realtime 수신·인가·주민 snapshot 복구 검증 전에는 열지 않는다.
+# 명령 기반만 구현했다. 기본은 OFF — prod 개방은 별도 결정이다. dev 는 2026-09-29 relay ON 뒤 강퇴 직후 채팅
+# 차단(GROMO-2140)까지 검증하고 env 로 켰다(GROMO-2156).
 island-management:
-  host-transfer-enabled: false
+  host-transfer-enabled: ${ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED:false}
   # GROMO-1802 섬 관리 명령 4종(정보 수정·가입 승인/거절·강퇴·나가기). 위임과 같은 이유로 기본 비활성이고
   # 꺼져 있으면 receipt·쓰기보다 먼저 503 ISLAND_MANAGEMENT_NOT_READY 다. 주민·신청자 목록 조회는 게이트가 없다.
-  commands-enabled: false
+  commands-enabled: ${ISLAND_MANAGEMENT_COMMANDS_ENABLED:false}
 
 # GROMO-1771 섬 게시판. BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정(GROMO-2136)으로
 # 확정됐다(island-board policy) — 공지 작성·수정·삭제는 방장만, 댓글 삭제는 작성자 본인 또는 방장이다.
 # 그래도 기본값은 OFF 로 둔다: prod 개방은 별도 릴리스 결정이고, dev 는 ISLAND_BOARD_WRITES_ENABLED 로 켠다.
+# GROMO-2182 차단 변경 사건(user.blocks.updated → realtime) 생산 스위치. 기본 OFF — 이 type 을 받는 Realtime 이
+# 배포된 것을 확인한 뒤 켠다(옛 Realtime 은 400 → 그 차단자 축이 permanent 로 막힌다).
+user-blocks:
+  realtime-events-enabled: ${USER_BLOCKS_REALTIME_EVENTS_ENABLED:false}
+
 island-board:
   writes-enabled: ${ISLAND_BOARD_WRITES_ENABLED:false}
   # UTF-16 단위 — 2026-09-25 결정 GROMO-2136 으로 확정값이다(BQ03).
@@ -89,6 +95,8 @@ internal:
           # `/focus-sessions/*/…`(sessionId 자리) 와 겹치지 않는다.
           - 'GET /internal/users/*/focus-sessions/pending-result'
           - 'POST /internal/users/*/focus-sessions/*/acknowledge'
+          # GROMO-1981 최초 낚시 보상 — sessionId 자리 하나만 받는다.
+          - 'POST /internal/users/*/focus-sessions/*/tutorial-reward'
           # GROMO-1775 우체통 편지방 — 주민 인가·작성자 표시·message.created 적재. 메시지 정본은 realtime.
           - 'GET /internal/islands/*/mailbox-access'
           - 'POST /internal/islands/*/message-authors'
@@ -278,6 +286,13 @@ outbox:
       # relay 가 보내지 않는다(permanent) — 새 REALTIME 사건을 만들면 같은 PR 에서 한 줄 늘린다
       # (RealtimeOutboxEndpointsTest 가 잡는다).
       "[user.withdrawn]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      # GROMO-2182 차단 관계 변경 — 앱으로 나가지 않는 내부 제어 사건. realtime 이 차단자의 차단 세대를 올린다.
+      # 생산은 user-blocks.realtime-events-enabled(아래)가 켜야 시작된다.
+      "[user.blocks.updated]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST

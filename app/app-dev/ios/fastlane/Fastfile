@@ -36,6 +36,17 @@ platform :ios do
 
   desc "Fishcat 테스트 빌드 → TestFlight 업로드"
   lane :beta do
+    raw_terms_version = ENV["EXPO_PUBLIC_TERMS_VERSION"].to_s
+    terms_version = raw_terms_version.strip
+    UI.user_error!("iOS release/TestFlight 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요.") if terms_version.empty?
+    # 서버는 앞뒤 공백이 있는 약관 버전을 400으로 거절한다. 값 그대로가 정본이어야 한다.
+    UI.user_error!("iOS release/TestFlight 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요.") if raw_terms_version != terms_version
+    UI.user_error!("iOS release/TestFlight 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요.") unless ENV["EXPO_PUBLIC_API_URL"] == "https://api.oneorthree.world"
+
+    UI.user_error!(
+      "iOS release/TestFlight 차단: Apple 계정 재진입을 위해 서버 dual-audience 배포를 검증한 뒤 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 실행하세요."
+    ) unless ENV["EXPO_PUBLIC_APPLE_LOGIN_ENABLED"] == "1"
+
     api_key = asc_api_key
     build_number = compute_build_number(api_key)
     UI.user_error!("Hermes compiler를 찾지 못했어요: #{HERMES_CLI_PATH}") unless File.executable?(HERMES_CLI_PATH)

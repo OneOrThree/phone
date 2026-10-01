@@ -2,6 +2,7 @@ package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.realtime.event.RealtimeEventDelivery;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
@@ -54,6 +55,16 @@ import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
  *
  * <p>ponytail: 남는 창 하나 — 발신과 전달 사이(밀리초)에 종료한 사람은 그 한 건을 받는다. 이미
  * 브로커로 넘어간 프레임을 회수하지 않는다는 LLD §4.2 의 경계와 같은 자리다.
+ *
+ * <h2>받는 사람 기준 차단 (GROMO-2182)</h2>
+ * 채팅({@code /topic/groups/{id}})과 응원({@code /topic/islands/{id}/emotes})은 섬 공용 토픽이라 브로커가
+ * 구독자 전원에게 같은 프레임을 복제한다. 그래서 차단은 발신 쪽이 아니라 <b>여기, 세션별 전달 직전</b>에
+ * 건다 — 받는 세션의 주체가 그 프레임의 발신자(채팅 {@code senderId}, 응원 {@code payload.userId})를
+ * 차단했으면 그 세션에만 보내지 않는다. 판정·세대는 {@link BlockedUsers} 에 있다.
+ *
+ * <p><b>판정을 못 내리면 보내지 않는다(fail-closed, 2026-10-01 결정).</b> 차단 조회 실패·timeout·계약 위반뿐
+ * 아니라 프레임에서 발신자를 읽지 못한 경우도 «전달 근거 없음»이다. 발신자가 JSON {@code null} 인 채팅
+ * (탈퇴 발신자, GROMO-1946)만은 거를 대상이 없으므로 그대로 보낸다.
  */
 @Slf4j
 @Component
@@ -64,6 +75,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     private final ChatAccessGuard accessGuard;
     private final RealtimeEventDelivery delivery;
     private final ObjectMapper objectMapper;
+    private final BlockedUsers blockedUsers;
 
     /**
      * {@code delivery} 를 <b>늦게</b> 받는다 — 순환 때문이다. 이 인터셉터는
@@ -72,12 +84,14 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
      * {@code clientOutboundChannel} 을 {@code @Lazy} 로 받는다.
      */
     public ChatOutboundChannelInterceptor(RealtimeSessionRegistry sessions, JwtValidator jwtValidator,
-            ChatAccessGuard accessGuard, @Lazy RealtimeEventDelivery delivery, ObjectMapper objectMapper) {
+            ChatAccessGuard accessGuard, @Lazy RealtimeEventDelivery delivery, ObjectMapper objectMapper,
+            BlockedUsers blockedUsers) {
         this.sessions = sessions;
         this.jwtValidator = jwtValidator;
         this.accessGuard = accessGuard;
         this.delivery = delivery;
         this.objectMapper = objectMapper;
+        this.blockedUsers = blockedUsers;
     }
 
     @Override
@@ -117,6 +131,12 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         try {
             if (groupMessage) {
                 accessGuard.requireCanChat(UUID.fromString(group.group(1)), principal.userId(), bearer);
+                // 스위치가 꺼져 있으면 발신자 판독도 하지 않는다 — 판독의 fail-closed 가 OFF 에서 새지 않게.
+                if (blockedUsers.enabled() && blockedUsers.hasBlocked(principal.userId(),
+                        senderOf(readPayload(message), "senderId", null, true))) {
+                    log.debug("채팅 전달 차단 — 받는 사람이 발신자를 차단했다");
+                    return null;
+                }
             } else {
                 accessGuard.requireNotFocusing(principal.userId());
             }
@@ -146,12 +166,81 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         if (!EMOTES_CHANNEL.equals(channel)) {
             return message;
         }
-        UUID eventId = eventIdOf(message);
+        JsonNode root = readPayload(message);
+        UUID eventId = root == null ? null : uuidAt(root.get("eventId"));
         if (eventId == null || !delivery.mayReceive(eventId, principal.userId())) {
             log.debug("응원 전달 차단 — 수신 대상이 아니다");
             return null;
         }
+        if (!blockedUsers.enabled()) {
+            return message;
+        }
+        try {
+            if (blockedUsers.hasBlocked(principal.userId(), senderOf(root, "payload", "userId", false))) {
+                log.debug("응원 전달 차단 — 받는 사람이 발신자를 차단했다");
+                return null;
+            }
+        } catch (RuntimeException e) {
+            // 차단 판정 불가 — 전달 근거가 없다. 소켓은 유지한다(자격은 여전히 유효하다).
+            log.debug("응원 전달 차단 — 차단 판정 불가. reason={}", e.getClass().getSimpleName());
+            return null;
+        }
         return message;
+    }
+
+    /**
+     * 나가는 프레임의 본문 JSON — 응원 {@code eventId}·발신자, 채팅 {@code senderId} 를 여기서 읽는다.
+     *
+     * <p>브로커를 지난 payload 는 이미 직렬화된 JSON 이라 여기서 다시 읽는다. <b>본문은 로그에 남기지 않는다.</b>
+     *
+     * @return 파싱한 루트, 실패하면 {@code null}
+     */
+    private JsonNode readPayload(Message<?> message) {
+        try {
+            Object payload = message.getPayload();
+            return payload instanceof byte[] bytes ? objectMapper.readTree(bytes)
+                    : objectMapper.readTree(String.valueOf(payload));
+        } catch (RuntimeException e) {
+            log.debug("프레임 본문 식별 실패 — reason={}", e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    /**
+     * 프레임의 발신자 — 채팅은 {@code senderId}, 응원은 {@code payload.userId}.
+     *
+     * @param nullable JSON {@code null} 을 «발신자 없음»으로 받아들일지. 채팅은 탈퇴 발신자(GROMO-1946)가
+     *                 {@code null} 이라 true, 응원은 발신자가 늘 있어야 하므로 false
+     * @return 발신자, 또는 허용된 {@code null}
+     * @throws IllegalStateException 본문·필드가 없거나 UUID 가 아닐 때 — 차단 판정의 근거가 없으므로 전달하지 않는다
+     */
+    private static UUID senderOf(JsonNode root, String field, String nested, boolean nullable) {
+        JsonNode node = root == null ? null : root.get(field);
+        if (node != null && nested != null) {
+            node = node.isObject() ? node.get(nested) : null;
+        }
+        if (node == null) {
+            throw new IllegalStateException("발신자 필드가 없다");
+        }
+        if (node.isNull() && nullable) {
+            return null;
+        }
+        UUID sender = uuidAt(node);
+        if (sender == null) {
+            throw new IllegalStateException("발신자 형식 오류");
+        }
+        return sender;
+    }
+
+    private static UUID uuidAt(JsonNode node) {
+        if (node == null || !node.isString()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(node.stringValue());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /**
@@ -163,25 +252,6 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
      *
      * @return 지금도 유효한 주체, 아니면 {@code null}
      */
-    /**
-     * 나가는 프레임의 {@code eventId} — 7필드 봉투의 필수 필드라 반드시 실려 있다.
-     *
-     * <p>브로커를 지난 payload 는 이미 직렬화된 JSON 이라 여기서 다시 읽는다. 응원 프레임에서만 부르고
-     * 응원은 사용자·섬당 3초에 한 건이라 이 파싱이 병목이 될 수 없다. <b>본문은 로그에 남기지 않는다.</b>
-     */
-    private UUID eventIdOf(Message<?> message) {
-        try {
-            Object payload = message.getPayload();
-            JsonNode root = payload instanceof byte[] bytes ? objectMapper.readTree(bytes)
-                    : objectMapper.readTree(String.valueOf(payload));
-            JsonNode eventId = root.get("eventId");
-            return eventId == null || !eventId.isString() ? null : UUID.fromString(eventId.stringValue());
-        } catch (RuntimeException e) {
-            log.debug("응원 프레임 식별 실패 — reason={}", e.getClass().getSimpleName());
-            return null;
-        }
-    }
-
     private ChatPrincipal stillAuthenticated(Message<?> message) {
         String sessionId = SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
         ChatPrincipal principal = sessions.find(sessionId);

@@ -29,6 +29,7 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
+import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
   ConstructionBuildingSprite,
   type ConstructionPhase as ConstructionSpritePhase,
@@ -54,6 +55,7 @@ import {
 } from '@/utils/village-world';
 import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens, primitiveTokens } from '@/design-system/tokens';
+import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
 import {
@@ -101,7 +103,6 @@ export function createWorldProjector(getViewport: () => WorldViewport) {
     };
   };
 }
-
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -163,7 +164,16 @@ const legacyDoors: Record<string, Door> = {
   mail: { x: 320, y: 596, r: 'mail', label: buildingNames.mail, building: 'mail' },
   tower: { x: 272, y: 200, r: 'tower', label: buildingNames.tower, building: 'tower' },
   shop: { x: 577, y: 783, r: 'shop', label: buildingNames.shop, building: 'shop' },
-  raft: { x: 274, y: 740, r: 'boat', label: '뗏목', memberOnly: true },
+  // 고양이는 부두 끝(x·y)까지 걸어가고, 탭 영역은 배경에 그려진 뗏목 위에 둔다. 기본 탭 영역은
+  // 도착점 주변(부두의 육지 쪽 끝)이라 뗏목 그림을 눌러도 바다만 눌렀다(GROMO-2157).
+  raft: {
+    x: 274,
+    y: 740,
+    r: 'boat',
+    label: '뗏목',
+    memberOnly: true,
+    hitbox: { x: 200, y: 815, w: 180, h: 110 },
+  },
   fishingIsland: {
     x: 1345,
     y: 882,
@@ -822,6 +832,7 @@ function FinalIslandScene({
   notify,
   dispatch,
   viewingIslandId,
+  focusTutorial,
   motion,
   showMailboxLetters,
   boardStatus = null,
@@ -841,6 +852,7 @@ function FinalIslandScene({
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
+  focusTutorial?: { text: string; onPress: () => void; onSkip: () => void };
   motion?: CatMotionInput;
   showMailboxLetters?: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
@@ -863,7 +875,10 @@ function FinalIslandScene({
     // 서버 모드 내 섬 홈이면 스냅샷(GROMO-2138) — 주민 색·오늘 집중을 서버 값으로 그린다
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
-    L = useAppLayout();
+    L = useAppLayout(),
+    focusTarget = useSpotlightTarget(!!focusTutorial);
+  const focusTutorialLatest = useRef(focusTutorial);
+  focusTutorialLatest.current = focusTutorial;
   const mailboxLetters = !visiting && (showMailboxLetters ?? hasMailboxLetters(state, i.id));
   const serverConstruction = state.serverIslands?.clientConstruction;
   const trackedConstruction = facts
@@ -907,6 +922,8 @@ function FinalIslandScene({
                 ...door,
                 x: villageMap.crossings.dock.arrival[0],
                 y: villageMap.crossings.dock.arrival[1],
+                // 기본 배경 좌표의 뗏목 탭 영역은 마을 장면 좌표와 맞지 않는다.
+                hitbox: undefined,
               }
             : door.building
               ? { ...door, ...villageDoors[door.building] }
@@ -1468,6 +1485,11 @@ function FinalIslandScene({
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
       .map((v) => String(v).padStart(2, '0'))
       .join(':');
+  // 안드로이드 홈 위젯('오늘의 공부시간')에 HUD와 같은 오늘 집중값을 넘긴다. 구경 중인 섬은 내 기록이 아니라 제외.
+  useEffect(() => {
+    if (visiting) return;
+    void updateStudyWidget(buildStudyWidgetSnapshot(state.records, i.id, today));
+  }, [visiting, state.records, i.id, today]);
   const hudTop = L.landscape ? 14 : Math.max(64, L.insets.top + 5),
     hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
     // 오른쪽 여백은 오른쪽 안전영역으로 따로 잡는다(노치가 오른쪽인 가로 방향) — 아래 집중 버튼과 같은 규칙
@@ -1480,8 +1502,31 @@ function FinalIslandScene({
       !visiting &&
       i.buildings.includes('board') &&
       (i.quests.length > 0 || rewardCount > 0);
+  const departFocus = () => {
+    if (buildingEntryPending.current) return;
+    // 걷기가 끝나 항해가 실제로 시작된 뒤에 진행한다 — 도중에 끊기면 4단계 스포트라이트가 남는다.
+    const started = !!focusTutorial;
+    walk(doors.raft, () => {
+      // 걷는 도중 안내 그만 보기로 4단계가 사라졌으면 저장된 단계를 되돌리지 않고 항해도 시작하지 않는다.
+      if (started && !focusTutorialLatest.current) return;
+      focusTutorialLatest.current?.onPress();
+      go('focusTravel');
+    });
+  };
   return (
-    <View style={{ flex: 1 }}>
+    <TutorialScene
+      style={{ flex: 1 }}
+      onSkip={focusTutorial?.onSkip}
+      overlay={
+        focusTutorial && (
+          <TutorialSpotlight
+            target={focusTarget.rect}
+            text={focusTutorial.text}
+            action={{ title: '집중 시작', onPress: departFocus }}
+          />
+        )
+      }
+    >
       <WorldMap
         state={state}
         village={scene}
@@ -1688,14 +1733,9 @@ function FinalIslandScene({
                 }}
               />
             ) : (
-              <Btn
-                round
-                title="집중하기"
-                id="depart-focus"
-                onPress={() => {
-                  if (!buildingEntryPending.current) walk(doors.raft, () => go('focusTravel'));
-                }}
-              />
+              <View ref={focusTarget.ref} collapsable={false} onLayout={focusTarget.measure}>
+                <Btn round title="집중 시작" id="depart-focus" onPress={departFocus} />
+              </View>
             )}
           </View>
         </>
@@ -1710,7 +1750,7 @@ function FinalIslandScene({
             : 0
         }
       />
-    </View>
+    </TutorialScene>
   );
 }
 

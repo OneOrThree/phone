@@ -65,6 +65,9 @@ REST 시간은 activeSeconds에 더하지 않는다. completed/active에 대한 
 
 ### finish — POST /focus-sessions/{sessionId}/finish, 200
 
+첫 섬 튜토리얼에서 실제 적립한 1마리도 `earnedFish`와 `constructionFishAdded`에 포함한다.
+종료 시 다시 지급하지 않는다.
+
 입력 `{expectedVersion}`와 키 필수. active/paused에서 가능하다. 새 종료만 version을 검사하고 열린 구간을
 닫은 뒤 **정산 «기록»을 확정한다 — 지급은 하지 않는다**(2026-09-20 결정 D5-적립: 물고기는 진행 중에 매분 적립 틱이 이미 섬 통장에 넣었고,
 마지막 틱 이후의 자투리는 버린다). endedAt/completedAt, 순수초·날짜분포·goalAchieved·정산 정책 revision·allocation(2026-09-19 D5-귀속-개정 — 섬 통장 100%·개인 0%, 비율은 운영값. ~~D5-귀속 50/50~~ 대체)·
@@ -80,6 +83,19 @@ REST 시간은 activeSeconds에 더하지 않는다. completed/active에 대한 
 receipt·정산의 원 결과 전체는 현재 섬 데이터 열람 권한이 있을 때만 공개한다. 소속 상실 뒤 같은 키라는
 이유로 questProgress/섬 정보가 든 결과를 그대로 재생하지 않는다. 본인 완료 증거용 공개 축소 DTO가 필요하면 별도 계약으로 정한다.
 비활성 계정은404, 타인 세션은403, 없는 세션은404다.
+
+### tutorial-reward — POST /focus-sessions/{sessionId}/tutorial-reward, 200
+
+최초 낚시 체험에서 호출한다. 본문·명령 키·지급량을 받지 않으며 주체는 인증된 사용자다.
+Business는 `/internal/users/{userId}/focus-sessions/{sessionId}/tutorial-reward`로 위임한다.
+
+- 사용자 배타 → 섬 → 활성 멤버십 → 세션 상세 순으로 잠근다. 본인 세션·멤버십 세대·진행 상태를 검사한다.
+- 서버 ACTIVE 구간 합이 5초 미만이면 `{sessionId, status: "pending"}`. 휴식 시간은 세지 않는다.
+- 최초 지급은 섬 지갑 1마리, 기여 기록, `focus_reward_accruals.tutorial_fish`, 계정별 영수증을 한 트랜잭션에 쓴다.
+- `focus_tutorial_rewards.user_id` PK로 계정당 한 번만 지급한다. 같은 세션 재요청은 `granted`, 다른 세션에서 이미 받은 계정은 `unavailable`이다. 세션 삭제도 지급 이력을 지우지 않는다.
+- 보너스는 일반 60초당 적립·480마리 상한·집중 시간과 별도다. 종료 결과와 주민 누적 획득에는 포함한다.
+- 앱은 `granted` 확인 뒤 기존 낚아올리기 액션을 2초 보여 주고 “첫 물고기를 낚았어!”를 표시한다. Reduce Motion에서는 액션을 생략한다. `pending`은 재시도하고, 오류·늦은 응답에 획득 대사를 선행하지 않는다.
+- 배포 순서: Data API(V104 마이그레이션 포함) → Business API → 앱. 구버전 서버에 앱부터 배포하지 않는다.
 
 ### rest-auto-close — 서버 크론(공개 엔드포인트 없음), GROMO-1998
 
@@ -147,6 +163,19 @@ watermark `{projection:"focus.member"|"rest.member",islandId,aggregateId:userId,
 같은 DB snapshot에서 읽는다. 종료/비휴식 tombstone도 version을 보존하되 무한 과거 사용자 목록을 공개하지 않는다.
 미지 key는 정본 재조회 규칙으로 복구한다. 원본 RestMember의 sessionId 필드를 몰래 추가하지 않으며
 휴식 시간 표시는 restStartedAt와 serverNow를 사용한다.
+
+**차단 중립 표시(2026-10-01 [결정 로그](../decision-log.md) RP-주민중립표시, 티켓 2183).**
+`focus-members` 에서 요청자가 **차단한**(요청자=blocker, 한 방향) 주민의 행은 빼지 않고 닉네임을
+**「차단한 주민」**으로 바꾼다. 현재 공개 행(`FocusMemberView`)의 프로필 필드는 `name` 하나라 치환 대상도
+`name` 뿐이다. userId·sessionId·집중 상태(status·activeSeconds·serverNow·watermark)는 그대로 둔다 — 같은
+섬 기능은 차단으로 바뀌지 않는다([신고센터 정책](../character-report/policy.md) RP-차단). 탈퇴 표기
+(「탈퇴한 사용자」·「알 수 없음」)와 섞지 않는다. 집중 주제(`subject`)는 타인에게 정형 문구로만 보여야
+한다는 신고센터 후속 범위(F5)의 대상이며 이 결정이 새로 정하지 않는다 — PR #1055 도 `subject` 를 그대로
+둔다. 구현은 PR #1055(main 머지)의 Business `BlockedProfileMask` 로 섬 주민 목록과 같다(서버 문자열 치환,
+차단 목록 조회 실패 fail-closed — [섬 관리 LLD §3.2](../island-management/low-level-design.md)).
+`rest-members` 는 이 결정의 명시 대상이 아니며 PR #1055 도 치환하지 않는다 — 같은 모양으로 확장하려면
+결정 로그에 먼저 올린다. 인가 판정용 내부 조회(`GET /internal/islands/{id}/focus-members`, 응원 인가)는
+표시 목록이 아니므로 치환 대상이 아니다.
 
 ### emote — STOMP SEND /app/islands/{islandId}/focus/emotes
 
@@ -801,4 +830,3 @@ subject·이름·JWT·멱등키 원문·원장 개인 응답 전체는 남기지
   }
 }
 ```
-

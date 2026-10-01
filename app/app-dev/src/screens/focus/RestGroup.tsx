@@ -18,6 +18,7 @@ import {
 } from '@/screens/focus/FishingIsland';
 import { C } from '@/design-system/primitives';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { CatSprite } from '@/components/CatSprite';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
@@ -149,6 +150,7 @@ export function RestGroup({
   home,
   endRest,
   result = false,
+  tutorial,
   goldenReeling = false,
   goldenFishCount = 0,
   ...confirm
@@ -161,6 +163,7 @@ export function RestGroup({
   endRest?: () => void;
   // 휴식 종료 결과창 뒤 배경으로 쓸 때는 버튼을 숨기고 휴식 시간을 종료 순간에 멈춘다
   result?: boolean;
+  tutorial?: { text: string; onSkip: () => void };
   /** 휴식 결과 배경에서 컷신 후 실제 reel sprite를 보여준다. */
   goldenReeling?: boolean;
   goldenFishCount?: number;
@@ -170,7 +173,8 @@ export function RestGroup({
 }) {
   const layout = useAppLayout(),
     wide = layout.width >= 600,
-    safe = useSafeAreaInsets();
+    safe = useSafeAreaInsets(),
+    resumeTarget = useSpotlightTarget(!!tutorial);
   const ended = result ? state.lastResult : null;
   const pausedSession = result ? null : state.session;
   const [own, setOwn] = useState(false),
@@ -237,7 +241,20 @@ export function RestGroup({
     };
   });
   return (
-    <View testID="rest-group" style={{ flex: 1, overflow: clip }}>
+    <TutorialScene
+      testID="rest-group"
+      style={{ flex: 1, overflow: clip }}
+      onSkip={tutorial?.onSkip}
+      overlay={
+        tutorial && (
+          <TutorialSpotlight
+            target={resumeTarget.rect}
+            text={tutorial.text}
+            action={{ title: '집중 이어가기', onPress: resume }}
+          />
+        )
+      }
+    >
       {/* 확인창·결과창이 떠 있으면 뒤 장면은 스크린리더에서 숨긴다 */}
       <View
         pointerEvents="box-none"
@@ -468,13 +485,19 @@ export function RestGroup({
             alignItems: 'center',
           }}
         >
-          <FiButton
-            primary
+          <View
+            ref={resumeTarget.ref}
+            collapsable={false}
+            onLayout={resumeTarget.measure}
             style={{ flex: 1 }}
-            id="resume-focus"
-            title={state.session ? '집중 이어가기' : '섬으로 돌아가기'}
-            onPress={state.session ? resume : home}
-          />
+          >
+            <FiButton
+              primary
+              id="resume-focus"
+              title={state.session ? '집중 이어가기' : '섬으로 돌아가기'}
+              onPress={state.session ? resume : home}
+            />
+          </View>
           {state.session && (
             <FiButton
               style={{ flex: 1 }}
@@ -504,6 +527,6 @@ export function RestGroup({
           </View>
         </FiModal>
       )}
-    </View>
+    </TutorialScene>
   );
 }

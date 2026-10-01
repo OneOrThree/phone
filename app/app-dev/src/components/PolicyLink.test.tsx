@@ -1,16 +1,18 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
-import { Linking, Pressable, Text } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PRIVACY_URL, TERMS_URL } from '@/constants/legal';
-import { PolicyLink } from './PolicyLink';
+import { semanticTokens } from '@/design-system/tokens';
+import { PolicyLinks } from './PolicyLink';
 
 function Agreement({ onToggle }: { onToggle: () => void }) {
   return (
-    <Pressable testID="agreement" accessibilityRole="checkbox" onPress={onToggle}>
-      <Text>
-        <PolicyLink policy="terms" />과 <PolicyLink policy="privacy" />에 동의해요.
-      </Text>
-    </Pressable>
+    <View>
+      <Pressable testID="agreement" accessibilityRole="checkbox" onPress={onToggle}>
+        <Text>이용약관과 개인정보처리방침에 동의해요.</Text>
+      </Pressable>
+      <PolicyLinks />
+    </View>
   );
 }
 
@@ -28,7 +30,7 @@ test('정책 URL은 team-page Catus 정책 포털(oneorthree.world)의 한국어
   expect(PRIVACY_URL).toBe('https://oneorthree.world/catus/privacy');
 });
 
-test('동의 문구 안의 이용약관을 누르면 원문을 열고 동의는 토글하지 않는다', async () => {
+test('이용약관 링크를 누르면 원문을 열고 동의는 토글하지 않는다', async () => {
   const onToggle = jest.fn();
   const screen = await render(<Agreement onToggle={onToggle} />);
 
@@ -38,7 +40,7 @@ test('동의 문구 안의 이용약관을 누르면 원문을 열고 동의는 
   expect(onToggle).not.toHaveBeenCalled();
 });
 
-test('동의 문구 안의 개인정보처리방침을 누르면 원문을 열고 동의는 토글하지 않는다', async () => {
+test('개인정보처리방침 링크를 누르면 원문을 열고 동의는 토글하지 않는다', async () => {
   const onToggle = jest.fn();
   const screen = await render(<Agreement onToggle={onToggle} />);
 
@@ -48,7 +50,7 @@ test('동의 문구 안의 개인정보처리방침을 누르면 원문을 열�
   expect(onToggle).not.toHaveBeenCalled();
 });
 
-test('링크 밖의 동의 문구를 누르면 동의가 토글된다', async () => {
+test('동의 문구를 누르면 동의가 토글되고 문서는 열지 않는다', async () => {
   const onToggle = jest.fn();
   const screen = await render(<Agreement onToggle={onToggle} />);
 
@@ -56,6 +58,17 @@ test('링크 밖의 동의 문구를 누르면 동의가 토글된다', async ()
 
   expect(onToggle).toHaveBeenCalledTimes(1);
   expect(Linking.openURL).not.toHaveBeenCalled();
+});
+
+test('각 링크는 최소 터치 영역(44pt)을 갖는 독립 컨트롤이다', async () => {
+  const screen = await render(<Agreement onToggle={() => {}} />);
+
+  for (const id of ['policy-link-terms', 'policy-link-privacy']) {
+    const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
+    expect(style.minHeight).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+    expect(style.minWidth).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  }
+  expect(semanticTokens.size.tapMin).toBeGreaterThanOrEqual(44);
 });
 
 test('링크는 스크린 리더에 link 역할과 원문 보기 라벨로 노출된다', async () => {

@@ -84,6 +84,15 @@ test('상점 안내는 완공 뒤 계정별 최초 1회만 표시한다', () => 
   assert.equal(shouldShowShopGuide(s, 'user-b'), false);
 });
 
+test('서버 로그인 채택의 연결 제공자를 저장 상태에 반영한다', () => {
+  const before = initialState();
+  const providers = ['google', 'kakao'];
+  const after = act(before, 'LOGIN', { linkedProviders: providers });
+  providers.push('apple');
+  assert.deepEqual(after.linkedProviders, ['google', 'kakao']);
+  assert.deepEqual(before.linkedProviders, undefined);
+});
+
 test('메인 섬을 바꿔도 현재 접속 섬은 유지하고 미가입 섬은 선택하지 않는다', () => {
   let s = initialState(true);
   s.islands.find((island) => island.id === 'strawberry')!.joined = true;
@@ -1129,6 +1138,19 @@ test('1분 미만 집중은 물고기 0마리라 가계부에 남기지 않는�
   assert.equal(s.lastResult?.fish, 0);
   assert.equal(balance(currentIsland(s)), 1200);
   assert.equal(currentIsland(s).ledger.length, ledger);
+});
+test('첫 집중 튜토리얼은 5초 뒤 물고기 1마리를 즉시 적립하고 종료 때 중복 적립하지 않는다', () => {
+  let s = initialState(true);
+  const now = new Date(2026, 8, 29, 12).getTime(),
+    before = balance(currentIsland(s));
+  s.records = [];
+  s = act(s, 'START', { subject: '첫 집중', now });
+  s = act(s, 'TUTORIAL_FISH', { now: now + 5000 });
+  assert.equal(balance(currentIsland(s)), before + 1);
+  assert.equal(s.session?.creditedFish, 1);
+  s = act(s, 'FINISH', { now: now + 6000 });
+  assert.equal(s.lastResult?.fish, 1);
+  assert.equal(balance(currentIsland(s)), before + 1);
 });
 test('시간대 일일 퀘스트는 휴식이 낀 실제 집중 구간만 계산', () => {
   let s = initialState(true);

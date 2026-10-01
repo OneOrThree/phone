@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 홈 위젯 배경(GROMO-1006) — 앱 카드 표면(paper)과 같은 흰색 둥근 배경 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+  <solid android:color="@color/widget_paper" />
+  <corners android:radius="16dp" />
+</shape>

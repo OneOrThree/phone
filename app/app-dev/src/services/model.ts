@@ -194,8 +194,6 @@ export type Island = {
   playing: boolean;
   /** 서버 공용 재생 전체 상태. null trackId도 명시적인 미선택 상태로 보존한다. */
   serverPlayback?: PlaybackState;
-  /** serverPlayback을 단말에서 관측한 시각. 서버 시계 기준 위치를 현재 시각으로 보정한다. */
-  serverPlaybackObservedAtMs?: number;
   /** 사용자가 정지 버튼을 누른 횟수. 플레이어가 일시정지와 구분해 재생 위치를 초기화한다. */
   playbackReset?: number;
   ledger: { id: string; text: string; at: number; memberId?: string }[];
@@ -216,6 +214,8 @@ export type Session = {
   version?: number;
   // 예전 저장 세션에서 집중 중 이미 섬에 적립한 물고기 수(지금은 종료 때 한 번에 적립)
   creditedFish?: number;
+  // 로컬 체험의 최초 보상. 서버 세션에는 클라이언트가 보상을 만들지 않는다.
+  tutorialFish?: boolean;
   intervals?: { start: number; end: number }[];
 };
 export type RecordItem = {
@@ -241,6 +241,11 @@ export type Product = {
   building?: Building;
 };
 export type State = {
+  // 세션과 같은 저장본에 보관해 앱 종료·서버 복구 후에도 안내를 이어간다.
+  tutorial?: { step: number; sessionId?: string };
+  tutorialRevision?: number;
+  // 서버에서 소속 없음이 확인된 신규 흐름만 첫 소속 확정 후 안내를 시작한다.
+  tutorialEnrollment?: 'awaiting-first-island' | 'existing';
   version: 1;
   schema?: 2;
   friends?: Friend[];
@@ -256,6 +261,8 @@ export type State = {
   color: Color;
   // 친구 목록·프로필에 표시하는 대표 섬. 현재 접속 섬(islandId)과 독립적으로 바뀐다.
   mainIslandId: string | null;
+  // 서버 /me 의 계정 연결 제공자. 선택 필드로 두어 구버전 저장본도 그대로 복구한다.
+  linkedProviders?: string[];
   islandId: string;
   fish: number;
   owned: string[];
@@ -1498,9 +1505,27 @@ export function reducer(state: State, a: Action): State {
   // 도메인별 구분선(GROMO-2004). 이 리듀서 하나에 여러 티켓이 동시에 붙는다 — 자기 도메인 구간
   // 안에만 case 를 더하면 서로의 머지 충돌이 줄어든다. 구간 순서는 바꾸지 않는다.
   switch (a.type) {
+    case 'GUIDE_STEP': {
+      if (
+        a.expected &&
+        ((s.tutorial?.step ?? 0) !== a.expected.step ||
+          (s.tutorialRevision ?? 0) !== a.expected.revision)
+      )
+        return state;
+      const step = a.step as number;
+      s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
+      s.tutorial = {
+        step,
+        ...(step >= 9 && step <= 21
+          ? { sessionId: s.session?.id ?? s.tutorial?.sessionId ?? s.lastResult?.id }
+          : {}),
+      };
+      break;
+    }
     // ── 인증·계정 ──
     case 'LOGIN':
       s.loggedIn = true;
+      if (Array.isArray(a.linkedProviders)) s.linkedProviders = [...a.linkedProviders];
       break;
     case 'PROFILE':
       if (a.name?.trim() && a.name.trim() !== s.name)
@@ -1590,6 +1615,22 @@ export function reducer(state: State, a: Action): State {
       // /me/islands 정본 — 소속·current·상실 사유를 갈아 끼우고 로컬 joined 표시를 맞춘다
       const my = a.memberships as MyIslands,
         snap = serverSnap(s);
+      if (!s.tutorialEnrollment) {
+        // 로컬 onboarded·records 는 로그아웃 뒤에도 남는 이전 계정 값이라 판정에 쓰지 않는다 —
+        // 새 계정에 속한 첫 서버 응답(상실 사유·current)만으로 가른다. 첫 pending 승인은 소속만 만들고
+        // current 는 옮기지 않으므로 items 가 있어도 current 가 비어 있고 상실 이력이 없으면 최초 확정 전이다.
+        s.tutorialEnrollment =
+          !s.tutorial && !my.lossReason && my.currentIslandId == null
+            ? 'awaiting-first-island'
+            : 'existing';
+      }
+      if (s.tutorialEnrollment === 'awaiting-first-island' && my.currentIslandId != null) {
+        if (!s.tutorial) {
+          s.tutorial = { step: 0 };
+          s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
+        }
+        s.tutorialEnrollment = 'existing';
+      }
       snap.memberships = my.items;
       // current 가 바뀌면 홈 스냅샷을 버린다 — 강퇴 뒤 같은 섬 재가입·전환 후 복귀에서 id 만 다시 맞아
       // 옛 방장 여부·완공 건물이 새 스냅샷 전에 그려지지 않게 한다(GROMO-2138)
@@ -1723,8 +1764,6 @@ export function reducer(state: State, a: Action): State {
         return state;
       const wasPlaying = target.playing;
       target.serverPlayback = playback;
-      target.serverPlaybackObservedAtMs =
-        typeof a.observedAtMs === 'number' ? a.observedAtMs : Date.now();
       target.track = playback.trackId;
       target.playing = playback.trackId !== null && playback.playing;
       if (wasPlaying && !target.playing) target.playbackReset = (target.playbackReset ?? 0) + 1;
@@ -1815,10 +1854,42 @@ export function reducer(state: State, a: Action): State {
     case 'ADVANCE':
       if (s.session?.status === 'active') s.session.seconds += a.seconds;
       break;
+    case 'TUTORIAL_FISH_CONFIRMED': {
+      // 서버가 지급한 사실만 표시한다. 섬 잔액과 종료 보상을 여기서 다시 더하지 않는다.
+      if (!s.session || s.session.id !== a.sessionId || s.session.version == null) return state;
+      s.session.tutorialFish = true;
+      break;
+    }
+    case 'TUTORIAL_FISH': {
+      if (
+        !s.session ||
+        s.session.version != null ||
+        s.session.status !== 'active' ||
+        sessionSeconds(s.session, now) < 5 ||
+        s.records.length ||
+        (s.session.creditedFish ?? 0) > 0
+      )
+        return state;
+      const tutorialIsland = s.islands.find((x) => x.id === s.session!.islandId)!;
+      s.session.creditedFish = 1;
+      s.session.tutorialFish = true;
+      tutorialIsland.fish = balance(tutorialIsland) + 1;
+      tutorialIsland.earned ??= {};
+      tutorialIsland.earned.me = earnedBy(tutorialIsland, 'me') + 1;
+      tutorialIsland.ledger.unshift({
+        id: uuid(),
+        text: `${s.name} · 첫 집중 +1마리`,
+        at: now,
+        memberId: 'me',
+      });
+      break;
+    }
     case 'FINISH': {
       if (!s.session) return state;
       const seconds = Math.floor(sessionSeconds(s.session, now)),
-        fish = Math.floor(seconds / SECONDS_PER_FISH),
+        fish = s.session.tutorialFish
+          ? 1 + Math.floor(seconds / SECONDS_PER_FISH)
+          : Math.floor(seconds / SECONDS_PER_FISH),
         island = s.islands.find((x) => x.id === s.session!.islandId)!;
       const contributed = true;
       const record = {
@@ -1861,7 +1932,12 @@ export function reducer(state: State, a: Action): State {
     case 'SESSION_SYNC':
       // 서버 current 정본으로 진행 세션을 갈아 끼운다(GROMO-2009). null 이면 지운다 —
       // 서버에 없는 진행 세션은 이미 끝난 것이다.
-      s.session = (a.session as Session | null) ?? null;
+      {
+        let next = (a.session as Session | null) ?? null;
+        if (next && next.id === s.session?.id && s.session.tutorialFish)
+          next = { ...next, tutorialFish: true };
+        s.session = next;
+      }
       break;
     case 'SESSION_RESULT': {
       // 서버 finish·pending-result 의 정산 뷰를 기록+결과창으로 반영하고 진행 세션을 닫는다.
@@ -2325,6 +2401,9 @@ export function reducer(state: State, a: Action): State {
     // ── 인증 — 로그아웃 ──
     case 'LOGOUT':
       s.loggedIn = false;
+      delete s.tutorial;
+      delete s.tutorialEnrollment;
+      s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게
       s.serverIslands = null;
       break;

@@ -870,6 +870,34 @@ test('낚시 고양이: 잡은 뒤 reel을 마치면 집중 focus로 돌아가�
   jest.useRealTimers();
 });
 
+test.each([false, true])(
+  '첫 물고기는 5초에도 더미에 남으며 Reduce Motion=%s를 따른다',
+  async (reduce) => {
+    jest.useFakeTimers();
+    const props = {
+      spot: { x: 34.1, y: 55.9, face: 1 },
+      size: 640,
+      sizeY: 640 / 1.5,
+      color: 'ginger' as const,
+      name: '나',
+      seconds: 5,
+      reduce,
+    };
+    const screen = await render(React.createElement(FishingActor, props));
+    expect(screen.queryByTestId('fishing-actor-catch')).toBeNull();
+    await screen.rerender(React.createElement(FishingActor, { ...props, tutorialFish: true }));
+    expect(screen.getByTestId('fishing-actor-catch')).toBeTruthy();
+    expect(screen.getByTestId('fishing-actor-cat').props.motion).toBe(reduce ? 'focus' : 'reel');
+    await act(async () => jest.advanceTimersByTime(2000));
+    await screen.rerender(
+      React.createElement(FishingActor, { ...props, caughtFish: 1, motion: 'stretch' }),
+    );
+    expect(screen.getByTestId('fishing-actor-catch')).toBeTruthy();
+    await screen.unmount();
+    jest.useRealTimers();
+  },
+);
+
 test('황금 물고기 참여자: 더미에 황금 물고기를 남기고 새 사건을 reel로 한 번 알린다', async () => {
   jest.useFakeTimers();
   const props = {
