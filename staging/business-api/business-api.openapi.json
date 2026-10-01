@@ -376,6 +376,36 @@
         }
       }
     },
+    "/islands/{islandId}/tutorial-reward": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "claimTutorialExperience",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TutorialExperienceView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/shop/orders": {
       "get": {
         "tags": [
@@ -3780,6 +3810,18 @@
           "membershipStatus",
           "role"
         ]
+      },
+      "TutorialExperienceView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
       },
       "ShopOrder": {
         "type": "object",

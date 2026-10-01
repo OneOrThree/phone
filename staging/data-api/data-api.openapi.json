@@ -511,6 +511,46 @@
         }
       }
     },
+    "/internal/users/{userId}/islands/{islandId}/tutorial-reward": {
+      "post": {
+        "tags": [
+          "internal-focus-tutorial-reward-controller"
+        ],
+        "operationId": "claimExperience",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TutorialExperienceRewardView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/islands/{islandId}/memberships": {
       "post": {
         "tags": [
@@ -5792,6 +5832,18 @@
           "currentIslandId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "TutorialExperienceRewardView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
           }
         }
       },
