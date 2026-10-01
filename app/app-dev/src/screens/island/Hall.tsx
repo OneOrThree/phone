@@ -110,7 +110,7 @@ const blockedText = (reason: string | null) =>
           : reason === 'IN_PROGRESS'
             ? '지금 다른 건물을 짓고 있어요'
             : '지금은 선택할 수 없어요';
-const buildBlockedText = (reason: string | null) =>
+export const buildBlockedText = (reason: string | null) =>
   reason === 'FORBIDDEN'
     ? '방장이 건설을 시작해요'
     : reason === 'INSUFFICIENT_FUNDS'
@@ -276,10 +276,10 @@ export function Hall({ e }: any) {
             completesAt: clientConstruction.endsAt,
           }
         : null,
-    onStarted: (receipt) =>
+    onStarted: (receipt, serverIslandId) =>
       e.dispatch({
         type: 'SERVER_CONSTRUCTION_STARTED',
-        islandId: liveIslandId,
+        islandId: serverIslandId,
         building: receipt.buildingId as Building,
         startedAt: Date.parse(receipt.startedAt),
         endsAt: Date.parse(receipt.completesAt),

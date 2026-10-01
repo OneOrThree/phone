@@ -89,11 +89,19 @@ export type ConstructionSnapshot = {
   options: ConstructionOptions | null;
   /** 서버 주민 전원(모든 페이지) — 「각자 몫」 분모와 대상 명단 표시의 정본. */
   members: IslandMember[] | null;
+  /** `/me/islands` 의 current 에서 배운 서버 섬 id — 호출부의 섬 id 와 대조하는 정본. */
+  serverIslandId: string | null;
   loading: boolean;
   error: ApiError | null;
 };
 
-const EMPTY: ConstructionSnapshot = { options: null, members: null, loading: false, error: null };
+const EMPTY: ConstructionSnapshot = {
+  options: null,
+  members: null,
+  serverIslandId: null,
+  loading: false,
+  error: null,
+};
 type ConstructionTiming = {
   buildingId: string;
   startedAt: string | number;
@@ -106,6 +114,7 @@ export function useConstruction({
   now,
   onStarted,
   resumeTiming,
+  withMembers = true,
 }: {
   /** 이 화면이 보이고 주민일 때만 true — 방문자·모크 모드·다른 route 에서는 호출이 0회다. */
   active: boolean;
@@ -113,10 +122,12 @@ export function useConstruction({
   islandId: string | null;
   /** 렌더 타이머(App 의 1초 tick) — 기기 시각 변경·완공 예정 도달 감지에만 쓰고 완공 판정엔 안 쓴다. */
   now: number;
-  /** 착공 POST receipt을 홈의 클라이언트 상태로 넘긴다. */
-  onStarted?: (started: ConstructionStarted) => void;
+  /** 착공 POST receipt과 그 대상 서버 섬 id를 홈의 클라이언트 상태로 넘긴다. */
+  onStarted?: (started: ConstructionStarted, serverIslandId: string) => void;
   /** 회관 재진입 뒤에도 홈이 보관한 착공 시각으로 완공 확인을 이어 간다. */
   resumeTiming?: ConstructionTiming | null;
+  /** 「각자 몫」 분모가 필요 없는 호출부는 false로 주민 전체 페이지 조회를 건너뛴다. */
+  withMembers?: boolean;
 }) {
   const [snap, setSnap] = useState<ConstructionSnapshot>(EMPTY);
   /** 이 클라이언트에서 받은 착공 POST receipt. */
@@ -184,13 +195,15 @@ export function useConstruction({
           });
         }
         const serverId = mine.currentIslandId;
-        const membersP = collectPages(guard, (cursor) => getMembers(serverId, cursor), true);
+        const membersP = withMembers
+          ? collectPages(guard, (cursor) => getMembers(serverId, cursor), true)
+          : Promise.resolve(null);
         const options = await getConstructionOptions(serverId);
         const members = await membersP;
         guard(); // 죽은 scope 의 완료는 성공으로 끝내지 않는다
         serverIsland.current = serverId;
         optionsRef.current = options;
-        publish({ options, members, loading: false, error: null });
+        publish({ options, members, serverIslandId: serverId, loading: false, error: null });
         confirmSeq.current = seq; // canonical 확정 — 쓰기 성공의 근거는 이 값이다
         // 서버가 완공 목록으로 옮긴 뒤에만 로컬 receipt을 내린다.
         setStarted((previous) =>
@@ -205,7 +218,7 @@ export function useConstruction({
         throw error;
       }
     },
-    [alive],
+    [alive, withMembers],
   );
 
   useEffect(() => {
@@ -435,6 +448,8 @@ export function useConstruction({
     async (buildingId: string): Promise<void> => {
       const scope = callScope();
       const options = confirmedItem(scope, buildingId, 'buildable');
+      // 쓰기 전에 고정한다 — 재조회로 serverIsland.current 가 바뀌어도 이 착공은 대상 섬 그대로 확정한다.
+      const target = serverIsland.current!;
       const body = {
         buildingId,
         expectedVersion: options.islandVersion,
@@ -446,14 +461,14 @@ export function useConstruction({
         JSON.stringify(body),
         (key) =>
           startConstruction(
-            serverIsland.current!,
+            target,
             buildingId,
             body.expectedVersion,
             body.expectedCostPolicyVersion,
             key,
           ),
         (result) => setStarted(result as ConstructionStarted),
-        (result) => onStarted?.(result as ConstructionStarted),
+        (result) => onStarted?.(result as ConstructionStarted, target),
       );
     },
     [callScope, confirmedItem, onStarted, runWrite],
@@ -464,6 +479,7 @@ export function useConstruction({
       snap.error !== null ? 'error' : snap.loading || snap.options === null ? 'loading' : 'ready',
     options: snap.options,
     members: snap.members,
+    serverIslandId: snap.serverIslandId,
     started,
     progress: normalizedConstructionProgress(started, now),
     phase: constructionPhase(normalizedConstructionProgress(started, now), started !== null),
