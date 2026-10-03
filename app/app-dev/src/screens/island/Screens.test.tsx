@@ -154,7 +154,8 @@ function Harness({
   const [state, baseDispatch] = useReducer(
     reducer,
     initial,
-    (value) => value ?? initialState(full),
+    // 신규 계정 기본값은 이름이 비어 있다 — 기존 시나리오는 이름이 있는 사용자로 시작한다.
+    (value) => value ?? { ...initialState(full), name: '수빈', profileNames: ['수빈'] },
   );
   const actions = useRef<string[]>([]);
   const dispatch = useMemo(() => {
@@ -1594,8 +1595,27 @@ test('프로필 최종 저장은 빈 닉네임을 차단한다', async () => {
   assert.equal(backMock.mock.calls.length, 1);
 });
 
+test('서버 이름이 없는 신규 계정은 닉네임이 빈 채 placeholder만 보이고 저장되지 않는다', async () => {
+  const s = await render(<Harness route="character" initial={initialState()} api={() => ({})} />);
+  const nickname = s.getByLabelText('닉네임');
+
+  assert.equal(nickname.props.value, '');
+  assert.equal(nickname.props.placeholder, '닉네임을 입력해 주세요');
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  assert.equal(mockUpdateProfile.mock.calls.length, 0);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), 'abc');
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 1));
+  assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: 'abc', catColor: 'black' });
+});
+
 test('프로필은 /me 에서 채택한 연결 제공자들을 표시한다', async () => {
-  const initial = { ...initialState(true), linkedProviders: ['google', 'kakao', 'line'] };
+  const initial = {
+    ...initialState(true),
+    name: '수빈',
+    linkedProviders: ['google', 'kakao', 'line'],
+  };
   const s = await render(<Harness route="profile" initial={initial} api={() => ({})} />);
   assert.ok(s.getByText('수빈님의 GROMO 계정 · Google · 카카오 · LINE'));
 });
