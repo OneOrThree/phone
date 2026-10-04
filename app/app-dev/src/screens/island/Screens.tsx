@@ -1525,6 +1525,7 @@ export function RedesignScreens({ e }: any) {
         />
         <Field
           label="닉네임"
+          placeholder="닉네임을 입력해 주세요"
           value={state.name}
           disabled={serverBusy}
           onChange={(name: string) => {
@@ -6145,6 +6146,7 @@ export function RedesignScreens({ e }: any) {
         />
         <Field
           label="닉네임"
+          placeholder="닉네임을 입력해 주세요"
           value={profileName}
           onChange={serverBusy ? () => {} : setProfileName}
           disabled={serverBusy}

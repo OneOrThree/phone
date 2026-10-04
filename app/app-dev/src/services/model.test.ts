@@ -680,6 +680,8 @@ test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', ()
 });
 test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정보를 제거한다', () => {
   let s = initialState(true);
+  s.name = '수빈';
+  s.profileNames = ['수빈'];
   const island = currentIsland(s);
   island.earned!.me = 999;
   island.ledger.push({ id: 'mine', text: `${s.name} 집중 보상`, at: 1, memberId: 'me' });
@@ -784,11 +786,19 @@ test('프로필 닉네임은 편집 중 빈 값이 되고 새 입력을 다시 �
   s = act(s, 'PROFILE', { name: '수' });
   s = act(s, 'PROFILE', { name: '' });
   assert.equal(s.name, '');
-  assert.deepEqual(s.profileNames, ['수빈', '수']);
+  assert.deepEqual(s.profileNames, ['수']);
 
   s = act(s, 'PROFILE', { name: 'abc' });
   assert.equal(s.name, 'abc');
-  assert.deepEqual(s.profileNames, ['수빈', '수', 'abc']);
+  assert.deepEqual(s.profileNames, ['수', 'abc']);
+});
+test('신규 계정 기본 상태는 이름이 비어 있어 같은 이름의 다른 주민 글을 내 글로 보지 않는다', () => {
+  const s = initialState(true);
+  assert.equal(s.name, '');
+  assert.deepEqual(s.profileNames, []);
+  assert.equal(isOwnComment(s, { name: '수빈', memberId: 'minji' }), false);
+  assert.equal(isOwnComment(s, { name: '수빈' }), false);
+  assert.equal(isOwnComment({ ...s, name: '내이름' }, { name: '수빈' }), false);
 });
 test('공지·댓글·그룹 편지 실패와 재시도', () => {
   let s = initialState(true);
