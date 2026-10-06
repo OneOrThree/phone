@@ -2013,6 +2013,27 @@ export function Hall({ e }: any) {
       setPanel('transfer');
       return;
     }
+    if (liveManagement) {
+      // 서버 모드(4-06): 확인창은 서버 섬 이름·주민 수로, 탈퇴는 서버 명령으로 보낸다.
+      // 탈퇴 뒤 어느 섬이 current 가 될지는 서버 재조회가 정한다 — 이동 목적지를 약속하지 않는다.
+      const liveSolo = (management.members?.length ?? 0) <= 1;
+      const islandName = management.detail?.name ?? '';
+      setDialog({
+        title: `${eul(islandName)} 떠날까요?`,
+        text: liveSolo
+          ? '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.'
+          : '내가 모은 물고기와 기록은 섬에 남아요.',
+        detail: '계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.',
+        ok: liveSolo ? '삭제하고 나가기' : '탈퇴하기',
+        onOk: () =>
+          void runManagement(async () => {
+            const my = await e.islands.leave(liveIslandId);
+            // current 가 비면 App 이 섬 선택 화면으로 보낸다. 다른 섬이 current 면 홈으로.
+            if (my.currentIslandId) e.home();
+          }, '섬을 떠났어요.'),
+      });
+      return;
+    }
     const solo = !i.members.length;
     setDialog({
       title: `${eul(i.name)} 떠날까요?`,

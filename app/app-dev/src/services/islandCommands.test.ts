@@ -548,3 +548,48 @@ test('LOGOUT은 서버 스냅샷을 비워 orphan 신청이 다음 계정에 섞
     assert.equal(loggedOut.serverIslands, null);
   });
 });
+
+test('leave — 탈퇴 뒤 /me/islands 재조회로 소속을 확정하고 키를 해제한다', async () => {
+  const keys: string[] = [];
+  const leave = jest.fn(async (_id: string, key: string) => {
+    keys.push(key);
+    return { left: true as const };
+  });
+  // 마지막 섬 탈퇴 — current 가 비면 onboarded=false 가 돼 App 이 섬 선택으로 보낸다
+  const my = jest.fn(async () => myIslands({ lossReason: 'LEFT' }));
+  const h = harness({
+    leave,
+    myIslands: my,
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  const result = await h.cmds.commands.leave('i1');
+  assert.equal(leave.mock.calls[0][0], 'i1');
+  assert.equal(my.mock.calls.length, 1);
+  assert.equal(result.currentIslandId, null);
+  assert.equal(h.state().onboarded, false);
+  await h.cmds.commands.leave('i1'); // 확정 뒤 다시 누르면 새 의도
+  assert.notEqual(keys[0], keys[1]);
+});
+
+test('leave — 결과 불명 오류는 재조회하고 같은 키로 재시도한다', async () => {
+  const keys: string[] = [];
+  let fail = true;
+  const leave = jest.fn(async (_id: string, key: string) => {
+    keys.push(key);
+    if (fail) {
+      fail = false;
+      throw new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0);
+    }
+    return { left: true as const };
+  });
+  const my = jest.fn(async () => myIslands());
+  const h = harness({
+    leave,
+    myIslands: my,
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await assert.rejects(h.cmds.commands.leave('i1'));
+  assert.equal(my.mock.calls.length, 1); // 서버가 이미 커밋했을 수 있어 재조회
+  await h.cmds.commands.leave('i1');
+  assert.equal(keys[0], keys[1]);
+});

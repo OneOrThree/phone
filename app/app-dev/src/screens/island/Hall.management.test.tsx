@@ -267,3 +267,21 @@ test('서버 current 섬이 있으면 관리 hook 에 로컬 목업 섬 대신 �
   await render(<Hall e={e('manage', state)} />);
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
 });
+
+test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave 를 보낸다(4-06)', async () => {
+  managementMock.mockReturnValue(management({ role: 'member', requests: null }));
+  const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: null }));
+  const env = { ...e('manage', state), islands: { leave } };
+  const screen = await render(<Hall e={env} />);
+
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  // 목업 '소다 섬'이 아니라 서버 섬 이름으로 묻는다(H2)
+  assert.ok(screen.getByText('서버 섬을 떠날까요?'));
+  await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+  await waitFor(() => assert.equal(leave.mock.calls[0]?.[0], 'srv-1'));
+  // 로컬 reducer LEAVE 로 끝내지 않는다(H1)
+  assert.ok(!env.dispatch.mock.calls.some(([a]: any) => a.type === 'LEAVE'));
+  await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
+  assert.equal(env.home.mock.calls.length, 0); // current 가 비면 App 이 섬 선택으로 보낸다
+});

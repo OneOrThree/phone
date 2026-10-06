@@ -25,6 +25,7 @@ import {
   resolveInvitation as apiResolveInvitation,
   visitIsland as apiVisitIsland,
 } from '@/services/api/islands';
+import { leaveIsland as apiLeaveIsland } from '@/services/api/islandManagement';
 import { intentKeyPool, myIslandsConsistent, State } from '@/services/model';
 import { captureProductEvent } from '@/services/posthog';
 
@@ -39,6 +40,8 @@ export type IslandApi = {
   myJoinRequests: typeof apiMyJoinRequests;
   cancelJoinRequest: typeof apiCancelJoinRequest;
   myIslands: typeof apiMyIslands;
+  /** DELETE /islands/{id}/memberships/me — 본인 탈퇴. */
+  leave: typeof apiLeaveIsland;
   /** GET /me — 메인 섬 정본(GROMO-1971·2054). `/me/islands` 는 이 축을 싣지 않는다. */
   me: typeof apiMe;
 };
@@ -66,6 +69,7 @@ const defaultApi: IslandApi = {
   myJoinRequests: apiMyJoinRequests,
   cancelJoinRequest: apiCancelJoinRequest,
   myIslands: apiMyIslands,
+  leave: apiLeaveIsland,
   me: apiMe,
 };
 
@@ -330,6 +334,19 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         alive(g);
         deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests });
         scoped().keys.release(`cancel:${requestId}`, '');
+      }, true),
+    // 섬 탈퇴(4-06) — 응답만으로 로컬 소속을 지우지 않고 /me/islands 재조회로 확정한다.
+    // 마지막 섬이었으면 current 가 비어 onboarded=false 가 되고 App 이 섬 선택 화면으로 보낸다.
+    // 결과 불명 오류도 재조회한다(write) — 서버가 이미 탈퇴를 커밋했을 수 있다.
+    leave: (islandId: string) =>
+      call(async () => {
+        const g = generation();
+        await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+        alive(g);
+        const my = await syncIslands();
+        alive(g);
+        scoped().keys.release(`leave:${islandId}`, '');
+        return my;
       }, true),
     // 부팅 동기화 재시도 — 성공하면 오류 플래그를 내린다. 단, 응답이 늦게 도착해 세대가
     // 죽었으면 플래그도 건드리지 않는다.
