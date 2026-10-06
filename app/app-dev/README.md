@@ -119,16 +119,16 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 ## TestFlight
 
-기존 Gromo의 로컬 App Store Connect API 키 설정을 재사용해 Catus 테스트 빌드를 올립니다.
+Catus 테스트 빌드를 TestFlight에 올립니다. 공개 릴리스 설정(약관 버전·Datadog RUM)은 `ios/release-config.sh`, App Store Connect API 키는 `ios/fastlane/.env`(gitignore, 양식은 `.env.example`)에 둡니다.
 
 서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. 릴리스에는 실제 배포 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://api.oneorthree.world`이 필요하며, 빠졌거나 다른 주소이면 `ios/testflight.sh`, Fastlane `beta`, Xcode Release gate가 차단합니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 이 Apple 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
 
 ```sh
 cd ios
-EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://api.oneorthree.world EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
+EXPO_PUBLIC_API_URL=https://api.oneorthree.world EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
 ```
 
-스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다. Catus 전용 키를 쓰려면 `ios/fastlane/.env`에 `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`를 설정합니다.
+스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다.
 
 ### dev 서버 빌드
 
@@ -136,17 +136,16 @@ EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://api.oneorthree.wor
 
 ```sh
 cd ios
-EXPO_PUBLIC_TERMS_VERSION=2026-09 ./testflight.sh --dev
+./testflight.sh --dev
 ```
 
-App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `fastlane/.env` 또는 legacy 설정 파일을 읽습니다. main 머지 시 자동으로 이 빌드를 올리는 워크플로는 티켓 2219 에서 다룹니다.
+App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `ios/fastlane/.env`를 읽습니다(양식 `ios/fastlane/.env.example`). 1.x legacy 폴더의 설정은 더 이상 읽지 않습니다. main 머지 시 자동으로 이 빌드를 올리는 워크플로는 티켓 2219 에서 다룹니다.
 
 ### 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`
 
 앱이 사용자에게 보여 준 약관 문서의 판을 가리키는 꼬리표입니다. 빌드에 박혀 로그인 요청의 `termsVersion`으로 서버에 전달되고, 서버는 사용자가 어느 판에 동의했는지를 이 값으로 기록합니다. 비어 있으면 로그인이 막히므로 운영·dev 빌드 모두 필수입니다.
 
-- **현재 값: `2026-09`** — 지금 올라가 있는 약관 문서 기준이며, 2026-10 까지의 TestFlight 빌드가 전부 이 값으로 나갔습니다. 바꾸면 기존 동의 기록과 판이 달라지므로 약관 문서를 실제로 개정할 때만 바꿉니다.
-- 레포 Variables의 `EXPO_PUBLIC_TERMS_VERSION`에도 같은 값이 있어 main 머지 자동 빌드가 그걸 씁니다. 로컬 실행은 명령 앞에 직접 붙입니다.
+- **정본은 `ios/release-config.sh`** (현재 `2026-09`) — 지금 올라가 있는 약관 문서 기준이며, 2026-10 까지의 TestFlight 빌드가 전부 이 값으로 나갔습니다. 바꾸면 기존 동의 기록과 판이 달라지므로 약관 문서를 실제로 개정할 때만, PR로 바꿉니다. `testflight.sh`가 이 파일을 읽으므로 명령 앞에 값을 붙일 필요가 없고, 붙이면 그 값이 우선합니다.
 - 허용 값 목록(정책 Q05)은 아직 서버에 없습니다. 형식은 64자 안의 문자열이면 되지만, 의미는 약관 문서의 판이어야 합니다.
 
 ## Android 스크린타임
