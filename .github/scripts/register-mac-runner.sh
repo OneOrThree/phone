@@ -17,7 +17,7 @@
 #      (워크플로는 이 변수에 있는 사람만 "러너 있음" 으로 보고, 없으면 오너 맥으로 폴백한다)
 #
 # 필요한 것: gh 로그인(레포 admin — 등록 토큰 발급과 러너 목록 조회가 admin 전용 API 다), Xcode,
-# Homebrew 의 node·cocoapods·ruby(bundler).
+# Homebrew 의 cocoapods·ruby(bundler). Node 는 워크플로가 setup-node 로 24 를 직접 깐다.
 # 등록 토큰은 1시간짜리 일회용이고 config.sh 인자로만 잠깐 쓰인다(파일·로그에 남지 않음).
 # ASC 키 값은 ~/actions-runner/.env 에만 남는다(600).
 set -euo pipefail
@@ -33,8 +33,8 @@ gh auth status >/dev/null 2>&1 || die "gh 로그인이 필요하다: gh auth log
 LOGIN="$(gh api user --jq .login)"
 [ "$(uname -m)" = "arm64" ] || die "Apple Silicon 맥만 지원한다 (지금: $(uname -m))"
 [ -d /Applications/Xcode.app ] || die "Xcode 가 /Applications 에 없다"
-for tool in node npm pod bundle; do
-  command -v "$tool" >/dev/null || die "$tool 이 PATH 에 없다. 러너는 지금 이 셸의 PATH 를 저장해 쓰므로 먼저 설치한다 (brew install node@24 cocoapods ruby)"
+for tool in pod bundle; do
+  command -v "$tool" >/dev/null || die "$tool 이 PATH 에 없다. 러너는 지금 이 셸의 PATH 를 저장해 쓰므로 먼저 설치한다 (brew install cocoapods ruby)"
 done
 
 say "1/5 러너 프로그램"
@@ -68,12 +68,16 @@ fi
 
 say "3/5 App Store Connect API 키 (.env)"
 ENV_WRITTEN=0 # 이번 실행에서 .env 를 새로 적었으면 5/5 에서 러너를 재시작한다 (러너는 시작할 때만 .env 를 읽는다)
-if [ -f .env ] && grep -q '^ASC_KEY_ID=' .env; then
+# 세 값이 다 비어 있지 않고 키 파일도 있어야 "설정됨" — 하나라도 빠졌으면 다시 물어서 덮어쓴다
+ENV_KEY_PATH="$(sed -n 's/^ASC_KEY_PATH=//p' .env 2>/dev/null || true)"
+if [ "$(grep -c -E '^ASC_(KEY_ID|ISSUER_ID|KEY_PATH)=.' .env 2>/dev/null)" = 3 ] && [ -f "$ENV_KEY_PATH" ]; then
   echo "이미 .env 에 ASC 설정이 있음 — 바꾸려면 $RUNNER_DIR/.env 를 직접 고친다"
 else
   echo "안수빈에게 받은 값을 넣는다. 키 파일(.p8)은 ~/.appstoreconnect/private_keys/ 에 두고 chmod 600."
   read -r -p "ASC_KEY_ID (예: 58SKY446HZ): " ASC_KEY_ID
+  [ -n "$ASC_KEY_ID" ] || die "ASC_KEY_ID 가 비었다"
   read -r -p "ASC_ISSUER_ID (36자): " ASC_ISSUER_ID
+  [ -n "$ASC_ISSUER_ID" ] || die "ASC_ISSUER_ID 가 비었다"
   DEFAULT_KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
   read -r -p "ASC_KEY_PATH [$DEFAULT_KEY_PATH]: " ASC_KEY_PATH
   ASC_KEY_PATH="${ASC_KEY_PATH:-$DEFAULT_KEY_PATH}"
@@ -127,6 +131,17 @@ AGENT="$(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' .runner)"
 FOUND="$(gh api "repos/$REPO/actions/runners" --jq '.runners[] | select(.name == "'"$AGENT"'") | select((["macOS","ios","'"$LOGIN"'"] - [.labels[].name]) == []) | "\(.name) | \(.status) | \([.labels[].name] | join(","))"')"
 [ -n "$FOUND" ] || die "레포에 이름 $AGENT, 라벨 macOS,ios,$LOGIN 을 모두 가진 러너가 안 보인다. 라벨이 다르게 등록돼 있으면 ./config.sh remove 뒤 재실행"
 echo "$FOUND"
+# 서비스가 뜬 직후라 GitHub 에 아직 안 붙었을 수 있다 — 30초까지 기다려 online 이 돼야 변수에 넣는다.
+# offline 인 채로 변수에 넣으면 그 사람의 머지가 오너 맥 폴백 대신 죽은 러너를 기다리게 된다.
+for _ in 1 2 3 4 5 6; do
+  case "$FOUND" in *"| online |"*) break ;; esac
+  sleep 5
+  FOUND="$(gh api "repos/$REPO/actions/runners" --jq '.runners[] | select(.name == "'"$AGENT"'") | "\(.name) | \(.status) | \([.labels[].name] | join(","))"')"
+done
+case "$FOUND" in
+  *"| online |"*) ;;
+  *) die "러너가 30초가 지나도 online 이 아니다 ($FOUND). ./svc.sh status 와 ~/Library/Logs/actions.runner.*/ 로그를 보고 고친 뒤 재실행 — IOS_DEV_RUNNERS 에는 아직 넣지 않았다" ;;
+esac
 # 워크플로는 GITHUB_TOKEN 으로 러너 목록을 못 읽어, 레포 변수 IOS_DEV_RUNNERS(쉼표 목록, 공백 없이)로 등록 여부를 본다
 CURRENT="$(gh variable get IOS_DEV_RUNNERS --repo "$REPO" 2>/dev/null || true)"
 case ",$CURRENT," in

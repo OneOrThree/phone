@@ -10,7 +10,7 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
 
 ## 한 번만 하면 되는 것
 
-1. **준비물**: `gh` 로그인(`gh auth login`), 레포 **admin** 권한(러너 등록 토큰 발급과 러너 목록 조회가 admin 전용 API다 — 없으면 안수빈에게 요청), Xcode, Homebrew의 `node@24`·`cocoapods`·`ruby`(bundler). 러너는 등록할 때의 셸 PATH를 저장해 쓰므로 **이 도구들이 보이는 터미널에서** 등록한다.
+1. **준비물**: `gh` 로그인(`gh auth login`), 레포 **admin** 권한(러너 등록 토큰 발급과 러너 목록 조회가 admin 전용 API다 — 없으면 안수빈에게 요청), Xcode, Homebrew의 `cocoapods`·`ruby`(bundler). 러너는 등록할 때의 셸 PATH를 저장해 쓰므로 **이 도구들이 보이는 터미널에서** 등록한다. Node는 워크플로가 `actions/setup-node`로 앱 CI와 같은 24를 직접 깔아 쓰므로 맥에 있는 버전과 무관하다.
 2. **받을 것 (안수빈에게)**: App Store Connect API 키 `.p8` 파일, Key ID, Issuer ID. `.p8`은 `~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8`에 두고 `chmod 600`. 메신저에 그냥 붙이지 말고 AirDrop이나 비밀번호 걸린 압축으로 — 다시 내려받을 수 없는 파일이라 새면 키를 폐기해야 한다. 그 밖의 설정(약관 버전, Datadog, fastlane 설정)은 전부 레포에 있어 받을 것이 없다.
 3. **등록 스크립트** (레포 체크아웃에서):
    ```sh
@@ -29,8 +29,8 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
 ## 빌드가 어떻게 도는가
 
 - 트리거: `main` push 중 `app/app-dev/**` 변경, 또는 수동 실행. **PR에서는 돌지 않는다**(아래 "공개 레포" 참고).
-- 러너 선택: `runs-on: [self-hosted, macOS, ios, <github.actor>]`. 단, 머지한 사람이 레포 변수 **`IOS_DEV_RUNNERS`**(러너를 등록한 깃허브 아이디의 쉼표 목록, 공백 없이 — 예 `flying-adventure,joejaeyoung`)에 없으면 **오스카 맥(`flying-adventure`)으로 폴백**한다. 등록 전에 머지해도 잡이 영원히 대기하지 않게 하기 위해서다(워크플로의 `GITHUB_TOKEN`으로는 러너 목록 API를 못 읽어 변수로 판단한다). 등록 스크립트가 변수에 아이디를 덧붙이므로 직접 만질 일은 없다. 수동 실행도 **누른 사람의 맥**에서 돈다. 다른 사람 맥에서 돌리고 싶으면 그 사람이 직접 Run workflow를 누른다 — 남의 맥을 고르는 입력란은 일부러 두지 않았다(수동 실행은 아무 브랜치에서나 할 수 있어서, 검토 안 된 코드를 남의 맥에서 돌리는 길이 된다).
-- 하는 일: `npm ci` → `app/app-dev/ios/testflight.sh --dev` (티켓 2218). 스크립트가 Pods 동기화, fastlane 설치, dev 서버 주소 고정, archive, TestFlight 업로드까지 한다. 테스트 노트 첫 줄에 `dev 서버(oneorthree.dev.mooo.com) 빌드 — <commit>`이 붙는다.
+- 러너 선택: `runs-on: [self-hosted, macOS, ios, <github.actor>]`. 단, 머지한 사람이 레포 변수 **`IOS_DEV_RUNNERS`**(러너를 등록한 깃허브 아이디의 쉼표 목록, 공백 없이 — 예 `flying-adventure,joejaeyoung`)에 없으면 **오스카 맥(`flying-adventure`)으로 폴백**한다. 등록 전에 머지해도 잡이 영원히 대기하지 않게 하기 위해서다(워크플로의 `GITHUB_TOKEN`으로는 러너 목록 API를 못 읽어 변수로 판단한다). 등록 스크립트가 러너가 **online**으로 보인 뒤에 변수에 아이디를 덧붙이므로 직접 만질 일은 없다. 수동 실행은 **폴백 없이 항상 누른 사람의 맥**에서 돈다 — 아무 브랜치나 고를 수 있는 수동 실행이 남의 맥으로 가면 안 되기 때문이다. 러너를 등록하지 않은 사람이 누르면 그냥 대기한다. 다른 사람 맥에서 돌리고 싶으면 그 사람이 직접 Run workflow를 누른다 — 남의 맥을 고르는 입력란은 일부러 두지 않았다(수동 실행은 아무 브랜치에서나 할 수 있어서, 검토 안 된 코드를 남의 맥에서 돌리는 길이 된다).
+- 하는 일: `setup-node`(Node 24) → `npm ci` → `app/app-dev/ios/testflight.sh --dev` (티켓 2218). 스크립트가 Pods 동기화, fastlane 설치, dev 서버 주소 고정, archive, TestFlight 업로드까지 한다. 테스트 노트 첫 줄에 `dev 서버(oneorthree.dev.mooo.com) 빌드 — <commit>`이 붙는다.
 - 값의 출처: ASC 키(비밀값)는 각자 맥의 `~/actions-runner/.env`. 약관 버전·Datadog 같은 공개 설정은 레포의 `app/app-dev/ios/release-config.sh`라 따로 넣을 것이 없다.
 - 동시 실행은 하나로 제한된다(빌드 번호는 TestFlight 최신 + 1이라 겹치면 안 된다). 연달아 머지되면 뒤 것들이 순서대로 기다린다(`queue: max` — 기본값은 대기 중인 실행을 하나만 남기고 취소한다).
 - 고른 맥이 꺼져 있으면 잡이 "대기 중"으로 남았다가 맥이 켜지면 돈다. 러너를 등록하지 않은 사람이나 봇이 머지하면 오스카 맥에서 빌드되고, 그 맥이 꺼져 있으면 역시 대기한다. 24시간 안에 러너가 안 잡히면 GitHub이 잡을 실패 처리한다.

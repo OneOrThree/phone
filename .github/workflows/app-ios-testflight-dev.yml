@@ -10,6 +10,7 @@ name: iOS TestFlight (dev)
 # 아직 러너를 등록하지 않은 사람(레포 변수 IOS_DEV_RUNNERS 에 없는 아이디)이 머지하면 오너 맥
 # (flying-adventure)으로 간다 — 등록 전에 머지해도 잡이 영원히 대기하지 않게. 등록 스크립트가
 # 변수에 아이디를 덧붙인다. (GITHUB_TOKEN 으로는 러너 목록 API 를 못 읽어 변수로 판단한다.)
+# 이 폴백은 main push 에만 있다. 수동 실행은 항상 누른 사람의 맥이다(아래 "공개 레포 주의").
 #
 # ## 공개 레포 주의 — 트리거를 늘리지 말 것
 # 이 레포는 공개 레포다. 개인 맥 러너에서 도는 잡은 **main push 와 수동 실행에서만** 돈다.
@@ -43,17 +44,24 @@ permissions:
 
 jobs:
   testflight-dev:
-    # 머지한 사람이 IOS_DEV_RUNNERS(쉼표 목록) 에 있으면 그 사람 맥, 아니면 오너 맥. 양쪽에 쉼표를 붙여
-    # 부분 일치(예: "kim" 이 "kimchi" 에 걸림)를 막는다. 변수가 없으면 ",," 라 항상 오너 맥.
+    # main push: 머지한 사람이 IOS_DEV_RUNNERS(쉼표 목록) 에 있으면 그 사람 맥, 아니면 오너 맥. 양쪽에 쉼표를
+    # 붙여 부분 일치(예: "kim" 이 "kimchi" 에 걸림)를 막는다. 변수가 없으면 ",," 라 항상 오너 맥.
+    # 수동 실행: 폴백 없이 항상 누른 사람의 맥 — 아무 브랜치나 고를 수 있는 수동 실행이 남의 맥으로 가면 안 된다.
     # runs-on 은 env 컨텍스트를 못 쓰므로 name 과 runs-on 두 곳에 같은 식이 있다 — 고칠 때 둘 다.
-    name: dev TestFlight 빌드 (${{ contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor)) && github.actor || 'flying-adventure' }})
-    runs-on: [self-hosted, macOS, ios, "${{ contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor)) && github.actor || 'flying-adventure' }}"]
+    name: dev TestFlight 빌드 (${{ (github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))) && github.actor || 'flying-adventure' }})
+    runs-on: [self-hosted, macOS, ios, "${{ (github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))) && github.actor || 'flying-adventure' }}"]
     timeout-minutes: 90
     env:
       CI: '1'
       LANG: en_US.UTF-8
     steps:
       - uses: actions/checkout@v4
+
+      # 맥에 깔린 node 가 아니라 앱 CI(app-lint.yml)와 같은 Node 24 를 쓴다 — react-native 가 요구하는
+      # 버전 범위를 러너마다 확인하지 않아도 되게. 러너의 _work/_tool 에 한 번 받아두고 재사용한다.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
       - name: 러너 준비 상태 확인
         # 빌드 20분을 돌리기 전에 빠지기 쉬운 것부터 확인한다. 실패 문구가 곧 등록 안내다.
