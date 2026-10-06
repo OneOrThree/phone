@@ -47,7 +47,10 @@ import {
   type LedgerTab,
 } from '@/screens/island/useLedgerScreen';
 import { useConstruction } from '@/screens/island/useConstruction';
-import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
+import {
+  managementErrorMessage,
+  useIslandManagement,
+} from '@/screens/interiors/useIslandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
@@ -221,7 +224,7 @@ export function Hall({ e }: any) {
   const managementHost = management.role === 'host';
   const displayHost = liveManagement ? managementHost : host;
   const managementMessage = liveManagement
-    ? managementError || management.error?.message || ''
+    ? managementError || (management.error ? managementErrorMessage(management.error) : '')
     : '';
   const runManagement = async (
     work: () => Promise<void>,
@@ -237,9 +240,10 @@ export function Hall({ e }: any) {
       notify(success);
     } catch (error) {
       if (run !== managementRun.current) return;
-      setManagementError(
-        error instanceof Error ? error.message : '처리하지 못했어요. 다시 시도해 주세요.',
-      );
+      const message = managementErrorMessage(error);
+      setManagementError(message);
+      // 정보 수정·위임 패널에는 주민 카드의 오류 줄이 안 보인다 — 패널에서는 토스트로 알린다(H5)
+      if (panel) notify(message);
     }
   };
   const transferCandidates = liveManagement
@@ -1948,7 +1952,7 @@ export function Hall({ e }: any) {
             }}
           >
             <T style={g(16, 25.6, { color: MUTED, fontWeight: '700', textAlign: 'center' })}>
-              {management.error.message}
+              {managementErrorMessage(management.error)}
             </T>
             <Pressable
               testID="hall-management-retry"

@@ -4,9 +4,13 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { Platform } from 'react-native';
 import { currentIsland, initialState, joinRequests, viewIsland } from '@/services/model';
 import { Hall } from '@/screens/island/Hall';
+import { ApiError } from '@/services/api/client';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 
-jest.mock('@/screens/interiors/useIslandManagement', () => ({ useIslandManagement: jest.fn() }));
+jest.mock('@/screens/interiors/useIslandManagement', () => ({
+  ...jest.requireActual('@/screens/interiors/useIslandManagement'),
+  useIslandManagement: jest.fn(),
+}));
 let mockSessionGeneration = 0;
 jest.mock('@/services/api/session', () => ({ sessionGeneration: () => mockSessionGeneration }));
 jest.mock('@/screens/island/useLedgerScreen', () => ({
@@ -284,4 +288,41 @@ test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave
   assert.ok(!env.dispatch.mock.calls.some(([a]: any) => a.type === 'LEAVE'));
   await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
   assert.equal(env.home.mock.calls.length, 0); // current 가 비면 App 이 섬 선택으로 보낸다
+});
+
+test('정보 수정 실패는 수정 패널 안에 사용자 문구 토스트로 보인다(H5·H18)', async () => {
+  const api = management({
+    saveSettings: jest.fn(async () => {
+      throw new ApiError(
+        'ISLAND_MANAGEMENT_NOT_READY',
+        '섬 관리 기능을 아직 사용할 수 없습니다.',
+        503,
+      );
+    }),
+  });
+  managementMock.mockReturnValue(api);
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  await fireEvent.press(screen.getByTestId('hall-save'));
+  await waitFor(() =>
+    assert.ok(
+      screen.getByText('섬 관리 기능을 아직 사용할 수 없어요.\n잠시 후 다시 시도해 주세요.'),
+    ),
+  );
+  assert.ok(screen.getByTestId('hall-name')); // 패널은 그대로 열려 있다
+});
+
+test('정원이 찬 뒤 승인하면 정원을 늘리라고 안내한다(H7)', async () => {
+  const api = management({
+    answerRequest: jest.fn(async () => {
+      throw new ApiError('ROOM_FULL', '그룹 정원이 가득 찼습니다.', 409);
+    }),
+  });
+  managementMock.mockReturnValue(api);
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-approve-r1'));
+  await waitFor(() =>
+    assert.ok(screen.getByText('정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.')),
+  );
+  assert.equal(screen.queryByText('그룹 정원이 가득 찼습니다.'), null);
 });
