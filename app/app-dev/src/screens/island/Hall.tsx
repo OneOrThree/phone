@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
-import { art, Wheel } from '@/design-system/patterns';
+import { art, CharCount, Wheel } from '@/design-system/patterns';
 import { useAppLayout } from '@/utils/layout';
 import {
   State,
@@ -2420,6 +2420,7 @@ export function Hall({ e }: any) {
             textAlignVertical: 'top',
           }}
         />
+        <CharCount value={draft[key]} max={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX} />
       </View>
     );
     const approval = setting(

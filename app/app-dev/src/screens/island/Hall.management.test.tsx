@@ -411,3 +411,11 @@ test('섬 이름·소개 입력 길이는 서버 계약 50/200자와 같다(H24)
   assert.equal(screen.getByTestId('hall-name').props.maxLength, 50);
   assert.equal(screen.getByTestId('hall-intro').props.maxLength, 200);
 });
+
+test('섬 이름·소개 칸은 현재 글자 수를 보여 주고 한도에 닿으면 안내한다(2-15)', async () => {
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  assert.ok(screen.getByText('4/50')); // '서버 섬' 은 4자
+  await fireEvent.changeText(screen.getByTestId('hall-name'), '가'.repeat(50));
+  assert.ok(screen.getByText('50자까지 쓸 수 있어요 · 50/50'));
+});

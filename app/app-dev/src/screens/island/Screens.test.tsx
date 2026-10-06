@@ -2085,3 +2085,10 @@ test('섬 만들기 이름·소개 입력은 서버 계약 50/200자로 막는�
   assert.equal(s.getByLabelText('섬 이름').props.maxLength, 50);
   assert.equal(s.getByLabelText('섬 소개').props.maxLength, 200);
 });
+
+test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으면 안내한다(2-15)', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  assert.ok(s.getByText('0/50'));
+  await fireEvent.changeText(s.getByLabelText('섬 이름'), '가'.repeat(50));
+  assert.ok(s.getByText('50자까지 쓸 수 있어요 · 50/50'));
+});
