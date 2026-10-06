@@ -125,6 +125,10 @@ changes trigger different jobs. This list rots; the authoritative source is
   **Android(XML·Kotlin·Gradle) 핫픽스는 여기에 더해** `app-android-build.yml` 이 하던 XML 정합 검사와
   `(cd android && ./gradlew :app:compileDebugJavaWithJavac)` 를 직접 돌린다 — 위 명령은 전부 통과해도
   네이티브는 컴파일되지 않을 수 있다. 절차는 `app/legacy/app-dev/README.md` 상단에 있다.
+- **App deploy (dev TestFlight)**: `app-ios-testflight-dev.yml` — **main push** 시(`app/app-dev/**`) 머지한
+  사람의 맥(self-hosted 러너, 라벨 = 깃허브 아이디; 레포 변수 `IOS_DEV_RUNNERS` 에 없는 사람이면 오너 맥으로
+  폴백)에서 `ios/testflight.sh --dev` 로 dev 서버용 TestFlight 빌드를 올린다. 공개 레포라 PR 트리거를 절대 붙이지 않고, 수동 실행도 누른 사람의 맥에서만 돈다. 러너 등록은
+  `docs/conventions/ios-testflight-dev-runner.md`.
 - **Business API · Notification**: `satellite-ci.yml` — `server/business-api/**` ·
   `server/notification/**` 매트릭스로 독립 Gradle build(Checkstyle·SpotBugs·Testcontainers 통합
   테스트)와 Docker 이미지 빌드. main push에서만 GAR, release push에서만 ECR 게시. 수동 dev overlay는
