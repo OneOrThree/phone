@@ -1505,14 +1505,9 @@ function FinalIslandScene({
       (i.quests.length > 0 || rewardCount > 0);
   const departFocus = () => {
     if (buildingEntryPending.current) return;
-    // 걷기가 끝나 항해가 실제로 시작된 뒤에 진행한다 — 도중에 끊기면 4단계 스포트라이트가 남는다.
-    const started = !!focusTutorial;
-    walk(doors.raft, () => {
-      // 걷는 도중 안내 그만 보기로 4단계가 사라졌으면 저장된 단계를 되돌리지 않고 항해도 시작하지 않는다.
-      if (started && !focusTutorialLatest.current) return;
-      focusTutorialLatest.current?.onPress();
-      go('focusTravel');
-    });
+    // 집중하기는 뗏목까지 걸어가지 않고 바로 항해 화면으로 넘어간다 — 걷는 시간만큼 기다리게 했다.
+    focusTutorialLatest.current?.onPress();
+    go('focusTravel');
   };
   return (
     <TutorialScene

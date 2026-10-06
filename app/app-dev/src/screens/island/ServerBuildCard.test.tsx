@@ -486,3 +486,20 @@ test('이 카드는 withMembers:false 로 주민 조회를 건너뛴다 — getM
     }),
   );
 });
+
+test('홈 집중 시작은 고양이가 뗏목까지 걷지 않고 바로 항해 화면으로 넘어간다', async () => {
+  const go = jest.fn();
+  // 회관·게시판을 다 지어 짓기 카드가 없는 섬장 홈 — 집중 버튼만 본다
+  const screen = await render(
+    <FinalIsland
+      state={serverState('host', ['hall', 'board'])}
+      go={go}
+      build={jest.fn()}
+      dispatch={jest.fn()}
+      onServerBuilt={jest.fn()}
+    />,
+  );
+  await act(async () => fireEvent.press(screen.getByTestId('depart-focus')));
+  // 걷기 애니메이션을 기다리지 않고 누르는 즉시 이동한다
+  assert.equal(go.mock.calls[0]?.[0], 'focusTravel');
+});
