@@ -116,6 +116,9 @@ changes trigger different jobs. This list rots; the authoritative source is
 
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
   `app-android-build.yml` — Android build checks on native-affecting paths.
+  `app-ios-testflight-dev.yml` — **main push** 시(`app/app-dev/**`) 머지한 사람의 맥(self-hosted 러너, 라벨 =
+  깃허브 아이디)에서 `ios/testflight.sh --dev` 로 dev 서버용 TestFlight 빌드를 올린다. 공개 레포라 PR 트리거를
+  절대 붙이지 않는다. 러너 등록은 `docs/conventions/ios-testflight-dev-runner.md`.
   활성 2.0 앱은 이 두 워크플로가 검증한다. ⚠️ **동결된 1.x 앱(`app/legacy/app-dev/**`)에는
   CI가 없다.** 1.x 핫픽스는 CI가
   검증해 주지 않으므로 `app/legacy/app-dev` 에서 `npm ci && npm run lint && npm run format:check

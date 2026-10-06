@@ -1,0 +1,93 @@
+name: iOS TestFlight (dev)
+
+# main 에 앱 변경이 머지되면 **머지한 사람의 맥**에서 dev 서버용 TestFlight 빌드를 올린다 (GROMO-2219)
+#
+# ## 왜 머지한 사람의 맥인가
+# iOS 빌드는 Xcode 가 있는 맥에서만 된다. GitHub 이 빌려주는 macOS 러너는 비공개 레포 기준
+# 리눅스의 10배 요금이고 매번 빈 컴퓨터라 인증서·키를 다시 넣어야 한다. 대신 팀원 각자의 맥을
+# self-hosted 러너로 등록하고(라벨 = 깃허브 아이디), 이 워크플로가 `github.actor` 라벨로
+# 머지 버튼을 누른 사람의 맥을 고른다. 등록 방법은 docs/conventions/ios-testflight-dev-runner.md.
+#
+# ## 공개 레포 주의 — 트리거를 늘리지 말 것
+# 이 레포는 공개 레포다. 개인 맥 러너에서 도는 잡은 **main push 와 수동 실행에서만** 돈다.
+# `pull_request` / `pull_request_target` 트리거를 여기에 추가하면 외부인이 보낸 PR 의 코드가
+# 팀원 맥에서 실행될 수 있다. 외부 기여자 워크플로는 레포 설정에서 전부 승인 필요로 돼 있다.
+#
+# ## 무엇을 돌리나
+# `app/app-dev/ios/testflight.sh --dev` (GROMO-2218) — 서버 주소를 dev 로 고정하고 Fastlane
+# `beta_dev` 로 archive·업로드한다. App Store Connect API 키는 각자 맥의 러너 `.env` 에서
+# 환경변수로 들어오고, 약관 버전은 레포 Variables 의 EXPO_PUBLIC_TERMS_VERSION 을 쓴다.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/app-dev/**'
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: 빌드할 맥의 러너 라벨(깃허브 아이디). 비우면 실행한 사람의 맥
+        required: false
+        type: string
+
+# 연달아 머지돼도 빌드는 한 번에 하나만 — 빌드 번호(TestFlight 최신 + 1)가 겹치지 않게
+concurrency:
+  group: ios-testflight-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  testflight-dev:
+    name: dev TestFlight 빌드 (${{ inputs.runner_label || github.actor }})
+    runs-on: [self-hosted, macOS, ios, "${{ inputs.runner_label || github.actor }}"]
+    timeout-minutes: 90
+    env:
+      CI: '1'
+      LANG: en_US.UTF-8
+      EXPO_PUBLIC_TERMS_VERSION: ${{ vars.EXPO_PUBLIC_TERMS_VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 러너 준비 상태 확인
+        # 빌드 20분을 돌리기 전에 빠지기 쉬운 것부터 확인한다. 실패 문구가 곧 등록 안내다.
+        run: |
+          fail=0
+          if [ -z "${EXPO_PUBLIC_TERMS_VERSION:-}" ]; then
+            echo "::error::레포 Settings → Secrets and variables → Actions → Variables 에 EXPO_PUBLIC_TERMS_VERSION 이 없다"; fail=1
+          fi
+          for v in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::러너 폴더의 .env 에 $v 가 없다 — docs/conventions/ios-testflight-dev-runner.md 3번"; fail=1
+            fi
+          done
+          if [ -n "${ASC_KEY_PATH:-}" ] && [ ! -f "$ASC_KEY_PATH" ]; then
+            echo "::error::ASC_KEY_PATH 가 가리키는 키 파일이 없다: $ASC_KEY_PATH"; fail=1
+          fi
+          for tool in xcodebuild node npm pod bundle; do
+            command -v "$tool" >/dev/null || { echo "::error::러너 PATH 에 $tool 이 없다 (러너를 등록할 때의 셸 PATH 가 .path 에 저장된다)"; fail=1; }
+          done
+          [ "$fail" = 0 ]
+          xcodebuild -version
+          node -v
+
+      - name: npm ci
+        working-directory: app/app-dev
+        run: npm ci
+
+      - name: dev TestFlight 빌드·업로드
+        # Pods 동기화·fastlane 설치·archive·업로드는 전부 스크립트가 한다. 테스트 노트를 달기 위해
+        # Apple 처리 완료까지 기다리므로 운영 빌드보다 5~15분 더 걸린다.
+        working-directory: app/app-dev/ios
+        run: ./testflight.sh --dev
+
+      - name: 결과 요약
+        if: always()
+        run: |
+          {
+            echo "## dev TestFlight"
+            echo "- 러너: \`${{ runner.name }}\` (라벨 ${{ inputs.runner_label || github.actor }})"
+            echo "- 커밋: \`${{ github.sha }}\`"
+            echo "- 결과: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
