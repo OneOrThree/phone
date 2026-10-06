@@ -120,8 +120,10 @@ sleep 5
 ./svc.sh status || true
 
 say "확인"
-FOUND="$(gh api "repos/$REPO/actions/runners" --jq '.runners[] | select(.labels[].name == "'"$LOGIN"'") | "\(.name) | \(.status) | \([.labels[].name] | join(","))"' | sort -u)"
-[ -n "$FOUND" ] || die "레포에 라벨 $LOGIN 인 러너가 안 보인다. 이 폴더의 러너가 다른 라벨로 등록돼 있으면 ./config.sh remove 뒤 재실행"
+# 이 폴더의 러너(.runner 의 agentName)가 워크플로 runs-on 의 라벨 macOS·ios·<아이디>를 전부 갖고 있는지 본다
+AGENT="$(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' .runner)"
+FOUND="$(gh api "repos/$REPO/actions/runners" --jq '.runners[] | select(.name == "'"$AGENT"'") | select((["macOS","ios","'"$LOGIN"'"] - [.labels[].name]) == []) | "\(.name) | \(.status) | \([.labels[].name] | join(","))"')"
+[ -n "$FOUND" ] || die "레포에 이름 $AGENT, 라벨 macOS,ios,$LOGIN 을 모두 가진 러너가 안 보인다. 라벨이 다르게 등록돼 있으면 ./config.sh remove 뒤 재실행"
 echo "$FOUND"
 cat <<EOF
 

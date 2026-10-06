@@ -39,6 +39,8 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
 
 이 레포는 공개 레포다. 개인 맥 러너에서 도는 워크플로에 `pull_request`나 `pull_request_target` 트리거를 **절대 추가하지 않는다** — 외부인이 보낸 PR의 코드가 팀원 맥에서 실행된다. 레포 설정(Actions → General)에서 외부 기여자의 워크플로 실행은 전부 승인 필요로 돼 있다. 새 워크플로를 만들 때 self-hosted 맥 라벨을 쓰려면 같은 원칙을 따른다.
 
+신뢰 경계는 **레포 쓰기 권한**이다. 쓰기 권한이 있으면 자기 브랜치에 `on: push` 워크플로를 올려 어떤 라벨의 러너에서든 코드를 돌릴 수 있고, 이건 워크플로 파일 안의 `if`나 트리거 조정으로 막을 수 없다(GitHub이 self-hosted 러너에 대해 문서화한 전제다). 그래서 이 레포의 쓰기 권한은 팀원에게만 있고, 러너 라벨은 admin만 붙일 수 있으며, 러너 맥의 ASC 키는 App Manager 역할로 제한한다. 계정이 탈취된 것 같으면 그 사람의 쓰기 권한을 먼저 끊고 ASC 키를 폐기한다.
+
 ## 자주 걸리는 것
 
 | 증상 | 원인 · 조치 |
@@ -46,6 +48,7 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
 | 잡이 계속 "Queued" | 머지한 사람 아이디 라벨의 러너가 없거나(미등록 팀원·봇 머지) 오프라인(잠듦·재부팅 후 미로그인). Settings → Runners에서 상태 확인, 맥에서 `~/actions-runner/svc.sh status`. 24시간 지나면 실패로 끝나니 필요하면 Run workflow로 내 맥에서 다시 올린다 |
 | "러너 .env 에 ASC_… 가 없다" | `~/actions-runner/.env`에 세 줄이 있는지 확인하고 `svc.sh stop && svc.sh start` (서비스는 시작할 때 .env를 읽는다) |
 | `errSecInternalComponent`로 CodeSign 실패 | 둘 중 하나다. ① 키체인이 백그라운드 서명을 허용하지 않음 → 위 4번 명령. ② 러너 서비스 설정(`~/Library/LaunchAgents/actions.runner.*.plist`)에 `SessionCreate`가 남아 있음 → 러너가 로그인 세션과 분리돼 키체인을 못 쓴다. 등록 스크립트를 다시 돌리면 빼고 재설치한다 |
+| 업로드가 "build number already used" 류로 거절됨 | 같은 시간에 누군가 로컬에서 수동 운영 빌드(`testflight.sh`)를 올린 것. 빌드 번호는 `beta`·`beta_dev`가 같은 앱의 TestFlight 최신 + 1을 쓰므로 겹칠 수 있다(`concurrency`는 Actions 안의 실행만 직렬화한다). Run workflow로 다시 올리면 된다 |
 | 서명·프로비저닝 실패 | fastlane이 ASC API 키로 프로파일을 받는다. 키의 역할이 App Manager 이상인지, 번들 id `com.oneorthree.focuscat`에 접근 권한이 있는지, 키체인에 팀 인증서가 있는지 확인 |
 | `pod install`에서 죽음 | 맥의 CocoaPods·Ruby 버전. 로컬에서 `cd app/app-dev/ios && pod install`이 되는지 먼저 본다 |
 | 링크 에러 `Sealable` 또는 즉시 크래시 | `ios/Pods`의 미리 빌드된 프레임워크 Debug/Release 표시가 어긋난 것. 러너 작업 폴더(`~/actions-runner/_work`)는 개발 폴더와 분리돼 있으니 그 안의 Pods를 지우고 다시 돌린다 |
