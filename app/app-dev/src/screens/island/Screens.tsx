@@ -66,6 +66,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { ApiError, uuid } from '@/services/api/client';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
+import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
 import { CatSprite } from '@/components/CatSprite';
@@ -1914,11 +1915,18 @@ export function RedesignScreens({ e }: any) {
         ) : null}
         {!serverDone && (
           <>
-            <Field label="섬 이름" value={text} onChange={setText} inputStyle={INP} />
+            <Field
+              label="섬 이름"
+              value={text}
+              onChange={setText}
+              inputStyle={INP}
+              maxLength={ISLAND_NAME_MAX}
+            />
             <Field
               label="섬 소개"
               value={body}
               onChange={setBody}
+              maxLength={ISLAND_INTRO_MAX}
               multiline={!layout.compact}
               inputStyle={layout.compact ? INP : INP_TA}
             />
@@ -3577,8 +3585,19 @@ export function RedesignScreens({ e }: any) {
           >
             {editing ? (
               <>
-                <Field label="섬 이름" value={text} onChange={setText} />
-                <Field label="섬 소개" value={body} onChange={setBody} multiline />
+                <Field
+                  label="섬 이름"
+                  value={text}
+                  onChange={setText}
+                  maxLength={ISLAND_NAME_MAX}
+                />
+                <Field
+                  label="섬 소개"
+                  value={body}
+                  onChange={setBody}
+                  multiline
+                  maxLength={ISLAND_INTRO_MAX}
+                />
               </>
             ) : (
               <>

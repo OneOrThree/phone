@@ -453,6 +453,7 @@ export function Field({
   placeholderColor,
   tabletScale,
   disabled = false,
+  maxLength,
 }: any) {
   return (
     <View style={{ gap: 6 }}>
@@ -469,6 +470,7 @@ export function Field({
         value={String(value ?? '')}
         onChangeText={onChange}
         editable={!disabled}
+        maxLength={maxLength}
         placeholder={placeholder}
         placeholderTextColor={placeholderColor || componentTokens.input.placeholder}
         multiline={multiline}

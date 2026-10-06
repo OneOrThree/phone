@@ -404,3 +404,10 @@ test('신청자·주민 아바타는 각자의 고양이 색이고 색이 없으
   if (state.color !== 'cream' && state.color !== 'calico')
     assert.ok(!all.includes(art[`avatar/${state.color}`]));
 });
+
+test('섬 이름·소개 입력 길이는 서버 계약 50/200자와 같다(H24)', async () => {
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  assert.equal(screen.getByTestId('hall-name').props.maxLength, 50);
+  assert.equal(screen.getByTestId('hall-intro').props.maxLength, 200);
+});

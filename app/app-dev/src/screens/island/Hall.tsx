@@ -52,6 +52,7 @@ import {
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
+import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
 // App.tsx 의 REVIEW/DEMO 와 같은 판정(services/demoMode) — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
@@ -2402,7 +2403,7 @@ export function Hall({ e }: any) {
           value={draft[key]}
           onChangeText={(v) => setDraft((d) => ({ ...d, [key]: v }))}
           multiline={key === 'intro'}
-          maxLength={key === 'name' ? 20 : 60}
+          maxLength={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX}
           style={{
             height: key === 'intro' ? (land ? 57 : 62) : land ? 39 : 44,
             paddingVertical: land ? 7 : 10,

@@ -2079,3 +2079,9 @@ test('서버 모드 home 은 스냅샷의 완공 건물과 오늘 집중을 그�
   // 로컬 비용으로 그리는 건설 카드는 서버 모드에서 띄우지 않는다
   assert.equal(s.queryByText(/짓기$/), null);
 });
+
+test('섬 만들기 이름·소개 입력은 서버 계약 50/200자로 막는다(2-19 H24)', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  assert.equal(s.getByLabelText('섬 이름').props.maxLength, 50);
+  assert.equal(s.getByLabelText('섬 소개').props.maxLength, 200);
+});
