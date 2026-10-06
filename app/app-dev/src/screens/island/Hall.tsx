@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { isMockMode } from '@/services/demoMode';
 import { art, Wheel } from '@/design-system/patterns';
 import { useAppLayout } from '@/utils/layout';
 import {
@@ -50,13 +51,8 @@ import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
-// App.tsx 의 REVIEW/DEMO 와 같은 판정 — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
-// 모듈 상수가 아니라 렌더 때 읽는 함수다(테스트에서 Platform.OS·location 을 바꿔 끼우기 위해).
-const ledgerMockMode = () =>
-  Platform.OS === 'web' &&
-  typeof window !== 'undefined' &&
-  (new URLSearchParams(window.location.search).has('review') ||
-    new URLSearchParams(window.location.search).has('demo'));
+// App.tsx 의 REVIEW/DEMO 와 같은 판정(services/demoMode) — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
+const ledgerMockMode = () => isMockMode();
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)

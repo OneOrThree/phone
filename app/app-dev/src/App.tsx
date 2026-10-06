@@ -160,14 +160,10 @@ import {
   resetPostHogUser,
   trackPostHogScreen,
 } from '@/services/posthog';
-const REVIEW =
-  Platform.OS === 'web' &&
-  typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).has('review');
-const DEMO =
-  Platform.OS === 'web' &&
-  typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).has('demo');
+import { isDemoMode, isReviewMode } from '@/services/demoMode';
+// 판정 정본은 services/demoMode — 회관·게시판·우체통·posthog 도 같은 함수를 본다
+const REVIEW = isReviewMode();
+const DEMO = isDemoMode();
 // GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
 const TESTFLIGHT_ALL_BUILDINGS = true;
 const STORAGE = 'gromo-r61-user-v2';

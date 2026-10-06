@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
+import { isDemoMode } from '@/services/demoMode';
 import {
   Animated,
   Easing,
@@ -315,14 +316,14 @@ const localDayNight = (): VillageDayNight => {
   return hour >= 6 && hour < 18 ? 'day' : 'night';
 };
 
-/** 기기 현지 시각의 낮(06~18시)·밤. 웹 데모 쿼리 ?demo&night 로 고정할 수 있다. */
+/** 기기 현지 시각의 낮(06~18시)·밤. 데모 모드는 낮으로 고정하고, 웹 ?demo&night 로 밤을 볼 수 있다. */
 export function useVillageDayNight(): VillageDayNight {
   const demoParams =
     Platform.OS === 'web' && typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search)
       : null;
-  const demo = demoParams?.has('demo') === true;
-  const demoNight = demo && demoParams!.has('night');
+  const demo = isDemoMode();
+  const demoNight = demo && demoParams?.has('night') === true;
   const [dayNight, setDayNight] = useState<VillageDayNight>(() =>
     demo ? (demoNight ? 'night' : 'day') : localDayNight(),
   );
@@ -1766,10 +1767,7 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         new URLSearchParams(window.location.search).get('village') === 'layered') ||
         process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
   );
-  const demoMotionStates =
-    Platform.OS === 'web' &&
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).has('demo');
+  const demoMotionStates = isDemoMode();
   return (
     <View style={{ flex: 1 }}>
       <FinalIslandScene

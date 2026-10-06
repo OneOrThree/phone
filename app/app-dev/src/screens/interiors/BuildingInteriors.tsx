@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { isMockMode } from '@/services/demoMode';
 import {
   Animated,
   Easing,
@@ -4092,16 +4093,9 @@ export function Board({
 
   // 다른 섬 방문자: 공지·댓글·퀘스트는 읽기만 하고 청사진은 보지 않는다
   const visitor = app ? app.visitor : concept.boardView === 'visitor';
-  // 라이브 앱 경로 — App.tsx 와 같은 판정으로 웹 ?review·?demo 목업을 걸러 낸다.
+  // 라이브 앱 경로 — App.tsx 와 같은 판정(services/demoMode)으로 review·demo 목업을 걸러 낸다.
   // 목업에서도 e 가 있으므로 e 유무만으로는 서버 경로를 켤 수 없다.
-  const liveApp =
-    !!e &&
-    !(
-      Platform.OS === 'web' &&
-      typeof window !== 'undefined' &&
-      (new URLSearchParams(window.location.search).has('review') ||
-        new URLSearchParams(window.location.search).has('demo'))
-    );
+  const liveApp = !!e && !isMockMode();
   // 서버 게시판: 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 방문자·목업·갤러리는 0콜이다.
   const serverBoard = liveApp && !visitor;
   const board = useBoardNotices({
@@ -7322,16 +7316,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const state: State | null = e?.state ?? null,
     island = state && currentIsland(state),
     now: number = e?.now ?? 0;
-  // 라이브 앱 경로 — Board 와 같은 판정으로 웹 ?review·?demo 목업을 걸러 낸다.
+  // 라이브 앱 경로 — Board 와 같은 판정(services/demoMode)으로 review·demo 목업을 걸러 낸다.
   // 목업에서도 e 가 있으므로 e 유무만으로는 서버 경로를 켤 수 없다.
-  const liveApp =
-    !!e &&
-    !(
-      Platform.OS === 'web' &&
-      typeof window !== 'undefined' &&
-      (new URLSearchParams(window.location.search).has('review') ||
-        new URLSearchParams(window.location.search).has('demo'))
-    );
+  const liveApp = !!e && !isMockMode();
   // 서버 우체통(GROMO-2016): 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 목업·갤러리는 0콜이다.
   const serverMail = liveApp && !state?.visitingIslandId;
   const mail = useMailbox({ active: serverMail, scopeKey: island ? String(island.id) : 'mock' });
