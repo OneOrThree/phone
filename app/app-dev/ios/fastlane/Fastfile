@@ -63,7 +63,14 @@ platform :ios do
       export_options: {
         signingStyle: "automatic",
       },
-      xcargs: "HERMES_CLI_PATH=#{HERMES_CLI_PATH.shellescape} -allowProvisioningUpdates",
+      # Xcode 에 Apple 계정이 로그인돼 있지 않아도 ASC API 키로 프로비저닝 프로파일을 받는다
+      xcargs: [
+        "HERMES_CLI_PATH=#{HERMES_CLI_PATH.shellescape}",
+        "-allowProvisioningUpdates",
+        "-authenticationKeyPath #{ENV.fetch("ASC_KEY_PATH").shellescape}",
+        "-authenticationKeyID #{ENV.fetch("ASC_KEY_ID").shellescape}",
+        "-authenticationKeyIssuerID #{ENV.fetch("ASC_ISSUER_ID").shellescape}",
+      ].join(" "),
     )
     upload_to_testflight(
       api_key: api_key,
