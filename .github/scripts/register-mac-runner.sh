@@ -75,8 +75,20 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s ~/Library/Key
   || echo "⚠️ 키체인 허용에 실패했다. 나중에 직접 실행한다: security set-key-partition-list -S apple-tool:,apple:,codesign: -s ~/Library/Keychains/login.keychain-db"
 
 say "5/5 로그인 시 자동 시작 서비스"
+# 러너의 기본 서비스 설정에는 SessionCreate 가 켜져 있어 러너가 로그인 세션과 분리된 세션에서 뜬다.
+# 그 세션에서는 키체인의 서명 키를 못 써서 아카이브가 errSecInternalComponent 로 실패한다 — 빼고 설치한다.
+if grep -q "SessionCreate" bin/actions.runner.plist.template; then
+  perl -0pi -e 's/\s*<key>SessionCreate<\/key>\s*<true\/>//' bin/actions.runner.plist.template
+  echo "서비스 설정에서 SessionCreate 를 뺐다"
+fi
+PLIST="$HOME/Library/LaunchAgents/actions.runner.$(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' .runner 2>/dev/null | head -1).plist"
 if ./svc.sh status 2>/dev/null | grep -q 'Started\|active'; then
-  echo "이미 돌고 있음"
+  if ls "$HOME"/Library/LaunchAgents/actions.runner.*.plist >/dev/null 2>&1 && grep -q SessionCreate "$HOME"/Library/LaunchAgents/actions.runner.*.plist; then
+    echo "이미 돌고 있지만 옛 설정(SessionCreate)이라 다시 설치한다"
+    ./svc.sh stop; ./svc.sh uninstall; ./svc.sh install; ./svc.sh start
+  else
+    echo "이미 돌고 있음"
+  fi
 else
   ./svc.sh install
   ./svc.sh start
