@@ -130,6 +130,17 @@ EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://api.oneorthree.wor
 
 스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다. Catus 전용 키를 쓰려면 `ios/fastlane/.env`에 `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`를 설정합니다.
 
+### dev 서버 빌드
+
+팀 dev 서버(`https://oneorthree.dev.mooo.com`)를 바라보는 TestFlight 빌드는 `--dev`로 올립니다. 서버 주소는 스크립트와 Fastlane `beta_dev` lane이 직접 고정하므로 `EXPO_PUBLIC_API_URL`을 넘길 필요가 없고, 운영 주소를 넘겨도 dev 주소로 덮어씁니다. Xcode Release gate는 `GROMO_IOS_AUDIENCE=dev`일 때만 dev 주소를 허용합니다(그 외에는 여전히 운영 주소만). 테스트 노트 첫 줄에 "dev 서버" 표기가 붙고, 그 노트를 달기 위해 Apple 처리 완료를 기다리므로 운영 빌드보다 5~15분 더 걸립니다.
+
+```sh
+cd ios
+EXPO_PUBLIC_TERMS_VERSION=2026-09 ./testflight.sh --dev
+```
+
+App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `fastlane/.env` 또는 legacy 설정 파일을 읽습니다. main 머지 시 자동으로 이 빌드를 올리는 워크플로는 티켓 2219 에서 다룹니다.
+
 ## Android 스크린타임
 
 `modules/screen-time`은 1.x의 UsageStatsManager 계산기를 이식한 로컬 Expo 모듈입니다. Expo Go에서는 사용할 수 없으며 네이티브 개발 빌드가 필요합니다.

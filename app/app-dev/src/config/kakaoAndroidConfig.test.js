@@ -83,3 +83,28 @@ test('Android/iOS release require real terms and the production API URL', () => 
   expect(testflight).toContain('EXPO_PUBLIC_API_URL:-}');
   expect(testflight).toContain('https://api.oneorthree.world');
 });
+
+test('iOS dev TestFlight lane pins the team dev server and keeps the production gate', () => {
+  const xcode = fs.readFileSync(
+    path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'),
+    'utf8',
+  );
+  const fastfile = fs.readFileSync(path.join(appDevRoot, 'ios/fastlane/Fastfile'), 'utf8');
+  const testflight = fs.readFileSync(path.join(appDevRoot, 'ios/testflight.sh'), 'utf8');
+  const client = fs.readFileSync(path.join(appDevRoot, 'src/services/api/client.ts'), 'utf8');
+
+  // dev 주소는 앱 코드(client.ts)와 lane 이 같은 값을 써야 한다
+  expect(client).toContain("DEV_API_URL = 'https://oneorthree.dev.mooo.com'");
+  expect(fastfile).toContain('DEV_API_URL = "https://oneorthree.dev.mooo.com"');
+  // dev lane 은 환경변수를 믿지 않고 서버 주소를 직접 고정한다
+  expect(fastfile).toContain('lane :beta_dev');
+  expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] = DEV_API_URL');
+  expect(fastfile).toContain('ENV["GROMO_IOS_AUDIENCE"] = "dev"');
+  // Xcode gate 는 dev 청중일 때만 dev 주소를 허용하고, 그때 운영 주소는 막는다
+  expect(xcode).toContain('${GROMO_IOS_AUDIENCE:-prod}');
+  expect(xcode).toContain('https://oneorthree.dev.mooo.com');
+  // 실행 스크립트의 --dev 도 같은 주소를 고정하고 dev lane 을 부른다
+  expect(testflight).toContain('--dev');
+  expect(testflight).toContain('export EXPO_PUBLIC_API_URL="https://oneorthree.dev.mooo.com"');
+  expect(testflight).toContain('fastlane beta_dev');
+});
