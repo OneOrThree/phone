@@ -132,7 +132,9 @@ EXPO_PUBLIC_API_URL=https://api.oneorthree.world EXPO_PUBLIC_APPLE_LOGIN_ENABLED
 
 ### dev 서버 빌드
 
-팀 dev 서버(`https://oneorthree.dev.mooo.com`)를 바라보는 TestFlight 빌드는 `--dev`로 올립니다. 서버 주소는 스크립트와 Fastlane `beta_dev` lane이 직접 고정하므로 `EXPO_PUBLIC_API_URL`을 넘길 필요가 없고, 운영 주소를 넘겨도 dev 주소로 덮어씁니다. Xcode Release gate는 `GROMO_IOS_AUDIENCE=dev`일 때만 dev 주소를 허용합니다(그 외에는 여전히 운영 주소만). 테스트 노트 첫 줄에 "dev 서버" 표기가 붙고, 그 노트를 달기 위해 Apple 처리 완료를 기다리므로 운영 빌드보다 5~15분 더 걸립니다.
+팀 dev 서버(`https://oneorthree.dev.mooo.com`)를 바라보는 TestFlight 빌드는 `--dev`로 올립니다(인자는 없음 또는 정확히 `--dev`만 받고, 그 외는 오타로 보고 멈춥니다). 서버 주소는 스크립트와 Fastlane `beta_dev` lane이 직접 고정하므로 `EXPO_PUBLIC_API_URL`을 넘길 필요가 없고, 운영 주소를 넘겨도 dev 주소로 덮어씁니다. Xcode Release gate는 `GROMO_IOS_AUDIENCE=dev`일 때만 dev 주소를 허용합니다(그 외에는 여전히 운영 주소만). 테스트 노트 첫 줄에 "dev 서버" 표기가 붙고, 그 노트를 달기 위해 Apple 처리 완료를 기다리므로 운영 빌드보다 5~15분 더 걸립니다.
+
+운영 빌드와 같은 번들 id로 올라가므로 운영 쪽에 섞이지 않게 lane이 몇 가지를 더 고정합니다: Datadog RUM 환경명 `EXPO_PUBLIC_ENV=dev`, PostHog 수집 끔(빈 토큰), OTA 업데이트(expo-updates) 끔 — 운영과 같은 채널·runtime을 쓰기 때문에 켜 두면 운영 OTA를 받아 운영 API가 박힌 JS로 바뀝니다(빌드 중 `Expo.plist`를 잠시 바꾸고 끝나면 원복). 저장된 로그인 세션은 아직 서버별로 분리하지 않아, 운영 빌드 위에 dev 빌드를 덮어 설치하면 첫 실행에서 운영 세션이 dev 서버에 거절돼 다시 로그인하게 됩니다. `bundle exec fastlane beta_dev`를 직접 부르면 `release-config.sh`를 거치지 않으므로 Datadog 값이 비어 lane이 막습니다 — 평소에는 `./testflight.sh --dev`를 쓰세요.
 
 ```sh
 cd ios

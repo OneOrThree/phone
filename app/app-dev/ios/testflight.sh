@@ -6,9 +6,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-AUDIENCE="prod"
-if [[ "${1:-}" == "--dev" ]]; then
+# 인자는 없음(운영) 또는 정확히 --dev 만 받는다. --deev 같은 오타가 조용히 운영 빌드로 흐르지 않게 그 외는 바로 멈춘다.
+if [[ $# -eq 0 ]]; then
+  AUDIENCE="prod"
+elif [[ $# -eq 1 && "$1" == "--dev" ]]; then
   AUDIENCE="dev"
+else
+  echo "❌ 알 수 없는 인자: $* — 인자 없이(운영 서버) 또는 --dev(팀 dev 서버)만 허용합니다." >&2
+  exit 1
 fi
 
 if [[ "$AUDIENCE" == "prod" ]]; then
