@@ -366,3 +366,41 @@ test('확인 버튼 위험색은 강퇴·탈퇴에만 쓴다(H23)', async () => 
   await fireEvent.press(screen.getByTestId('hall-member-kick'));
   assert.equal(screen.getByTestId('hall-dialog-ok').props.style.backgroundColor, '#e9a49d');
 });
+
+test('신청자·주민 아바타는 각자의 고양이 색이고 색이 없으면 내 색을 빌리지 않는다(H21)', async () => {
+  const state = initialState(true);
+  managementMock.mockReturnValue(
+    management({
+      members: [
+        { id: 'host', name: '방장', catColor: 'cream', role: 'host', appearance: {} },
+        { id: 'u2', name: '주민', catColor: null, role: 'member', appearance: {} },
+      ],
+      requests: [
+        {
+          id: 'r1',
+          applicantId: 'a1',
+          name: '신청자',
+          catColor: 'calico',
+          status: 'pending',
+          version: 1,
+        },
+      ],
+    }),
+  );
+  const screen = await render(<Hall e={e('manage', state)} />);
+  // RNTL 14 에는 UNSAFE 쿼리가 없다 — 렌더 트리를 훑어 Image source 를 모은다
+  const all: unknown[] = [];
+  const walk = (node: any) => {
+    if (!node) return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node.type === 'Image') all.push(node.props.source);
+    walk(node.children);
+  };
+  walk(screen.toJSON());
+  const { art } = require('@/design-system/patterns');
+  assert.ok(all.includes(art['avatar/calico'])); // 신청자 본인 색
+  assert.ok(all.includes(art['avatar/cream'])); // 방장 색
+  // 색 없는 주민 칸이 내 색(state.color)으로 칠해지지 않는다 — 내 색 그림은 어디에도 없다
+  if (state.color !== 'cream' && state.color !== 'calico')
+    assert.ok(!all.includes(art[`avatar/${state.color}`]));
+});

@@ -80,6 +80,8 @@ export type IslandJoinRequestItem = {
   id: string;
   applicantId: string;
   name: string | null;
+  /** 신청자 고양이 색(계정 Q03) — 미선택 null. 이 필드를 싣기 전 서버면 없을 수 있다. */
+  catColor?: string | null;
   status: 'pending';
   version: number;
 };

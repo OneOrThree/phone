@@ -227,6 +227,7 @@ public class IslandManagementService {
         return new IslandJoinRequestsPageView(page.stream()
                 .map(request -> new IslandJoinRequestsPageView.Item(request.getId(),
                         request.getApplicant().getId(), request.getApplicant().getNickname(),
+                        request.getApplicant().getCatColor(),
                         request.getStatus().wireName(),
                         request.getVersion() == null ? 0L : request.getVersion()))
                 .toList(),

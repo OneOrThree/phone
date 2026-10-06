@@ -142,6 +142,8 @@ function Icon({ d, size }: { d: string; size: number }) {
     </Svg>
   );
 }
+// 고양이 색 미선택(null)·모름 — 남의 칸을 내 색으로 칠하지 않고 빈 자리표시자 원으로 둔다(2-16 H21)
+const NO_CAT_COLOR = '';
 function Avatar({ color, n, size }: any) {
   return (
     <View
@@ -255,7 +257,7 @@ export function Hall({ e }: any) {
   const transferCandidates = liveManagement
     ? (management.members ?? [])
         .filter((m) => m.role !== 'host')
-        .map((m) => ({ id: m.id, name: m.name ?? '주민', color: m.catColor ?? s.color }))
+        .map((m) => ({ id: m.id, name: m.name ?? '주민', color: m.catColor ?? NO_CAT_COLOR }))
     : i.members;
   // 가계부: 서버 원장·지갑 조각이 정본이다 — 로컬 i.ledger 문자열·로컬 잔액 합산을 쓰지 않는다.
   // 방문자에게는 조회 자체를 하지 않는다(서버도 403). 리뷰·데모 모크 모드는 서버가 아예 없다 —
@@ -2193,7 +2195,7 @@ export function Hall({ e }: any) {
     ? (management.members ?? []).map((m) => ({
         id: m.id,
         name: m.name ?? '주민',
-        color: m.catColor ?? s.color,
+        color: m.catColor ?? NO_CAT_COLOR,
         isHost: m.role === 'host',
       }))
     : [
@@ -2750,15 +2752,26 @@ export function Hall({ e }: any) {
                 borderTopColor: '#e2d2b7',
               }}
             >
-              {person({ ...q, name: q.name ?? '신청자', color: s.color }, n, {
-                size: 16,
-                style: {
-                  flex: 1,
-                  borderWidth: 0,
-                  paddingVertical: land ? 4 : 0,
-                  paddingHorizontal: land ? 6 : 0,
+              {person(
+                {
+                  ...q,
+                  name: q.name ?? '신청자',
+                  // 서버 모드는 신청자 본인의 색, 목업은 로컬 신청 데이터의 색
+                  color: liveManagement
+                    ? ((q as { catColor?: string | null }).catColor ?? NO_CAT_COLOR)
+                    : ((q as { color?: string }).color ?? s.color),
                 },
-              })}
+                n,
+                {
+                  size: 16,
+                  style: {
+                    flex: 1,
+                    borderWidth: 0,
+                    paddingVertical: land ? 4 : 0,
+                    paddingHorizontal: land ? 6 : 0,
+                  },
+                },
+              )}
               <Pressable
                 testID={`hall-reject-${q.id}`}
                 accessibilityRole="button"

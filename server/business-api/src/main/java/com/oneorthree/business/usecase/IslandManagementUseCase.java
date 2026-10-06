@@ -325,11 +325,12 @@ public class IslandManagementUseCase {
             @JsonProperty(required = true) UUID id,
             @JsonProperty(required = true) UUID applicantId,
             String name,
+            String catColor,
             @JsonProperty(required = true) String status,
             @JsonProperty(required = true) long version) {
         private static IslandJoinRequestView from(IslandJoinRequestsPage.Item item) {
             return item == null ? null : new IslandJoinRequestView(item.id(), item.applicantId(), item.name(),
-                    item.status(), item.version());
+                    item.catColor(), item.status(), item.version());
         }
     }
 

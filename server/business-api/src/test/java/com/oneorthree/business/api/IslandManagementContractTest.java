@@ -52,7 +52,8 @@ class IslandManagementContractTest extends UpstreamTestBase {
             + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}}],"
             + "\"nextJoinedAt\":\"2026-09-19T01:02:03.123456Z\",\"nextMembershipId\":\"" + TARGET + "\",\"version\":9}";
     private static final String REQUESTS = "{\"items\":[{\"id\":\"" + REQUEST + "\",\"applicantId\":\"" + TARGET
-            + "\",\"name\":\"신청자\",\"status\":\"pending\",\"version\":0}],\"nextCreatedAt\":null,\"nextRequestId\":null}";
+            + "\",\"name\":\"신청자\",\"catColor\":\"gray\",\"status\":\"pending\",\"version\":0}],"
+            + "\"nextCreatedAt\":null,\"nextRequestId\":null}";
 
     /** 차단 목록은 비어 있다 — 주민 목록의 중립 치환(GROMO-2183)은 UserBlockContractTest 가 본다. */
     @BeforeEach
@@ -154,6 +155,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
         mockMvc.perform(auth(get("/islands/" + ISLAND + "/join-requests")).param("limit", "5"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].applicantId").value(TARGET.toString()))
+                .andExpect(jsonPath("$.data.items[0].catColor").value("gray"))
                 .andExpect(jsonPath("$.data.nextCursor").doesNotExist());
 
         DATA.reset();
@@ -401,7 +403,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
             "/islands/{islandId}/members|get|items|id name catColor role appearance|id role appearance",
             "/islands/{islandId}/members|get|items/appearance|clothes decor hull position version|clothes decor hull position version",
             "/islands/{islandId}/join-requests|get||items nextCursor|",
-            "/islands/{islandId}/join-requests|get|items|id applicantId name status version|id applicantId status version"})
+            "/islands/{islandId}/join-requests|get|items|id applicantId name catColor status version|id applicantId status version"})
     void publicDocumentationPreservesFieldsAndPresence(String path, String method, String nested,
             String fields, String requiredFields) throws Exception {
         var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();

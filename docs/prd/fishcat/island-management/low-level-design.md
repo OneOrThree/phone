@@ -65,7 +65,7 @@ membership.createdAt+membership.id의 안정 정렬과 동률 키를 사용한�
 
 ### 3.3 requests — GET /islands/{islandId}/join-requests
 
-Query `{cursor?,limit?}` 기본30/상한100을 원본 빈 query에 **유한 목록 확장**으로 추가한다. 성공200 `{data:{items:[{id,applicantId,name,status:"pending",version}],nextCursor}}`. 신청자 목록은 현재 host 전용이고 pending만 반환한다. 정렬은 createdAt+requestId다. 처리된 요청의 관리 감사 조회를 임의 탭/상태 filter로 늘리지 않는다.
+Query `{cursor?,limit?}` 기본30/상한100을 원본 빈 query에 **유한 목록 확장**으로 추가한다. 성공200 `{data:{items:[{id,applicantId,name,catColor,status:"pending",version}],nextCursor}}`. 신청자 목록은 현재 host 전용이고 pending만 반환한다. `catColor`는 신청자의 `users.cat_color`(계정 Q03)이고 미선택이면 null이다 — 주민 목록과 같은 출처다(GROMO-2222). 정렬은 createdAt+requestId다. 처리된 요청의 관리 감사 조회를 임의 탭/상태 filter로 늘리지 않는다.
 
 각 item의 version은 해당 `(join.request,islandId,requestId)` 축이다. 한 요청의 높은 version으로 다른 요청의 이벤트를 버리지 않는다. 재연결 시 목록을 다시 읽고 도중에 받은 신청 이벤트로 목록을 무효화한다. 페이지를 모두 읽는 동안 신청 변화가 생겼다면 dirty 상태를 유지하고 다시 조회한다. 이벤트를 받은 뒤 시작한 재조회는 Data 정본에서 읽는다. 그 조회에서 terminal 요청이 pending 목록에 없음을 확인하면 삭제 무효화를 해소할 수 있다. 지연 replica의 누락이나 과거 페이지의 부재만으로 dirty 상태를 해소하지 않는다.
 
