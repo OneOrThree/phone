@@ -1,0 +1,11 @@
+appId: com.oneorthree.focuscat
+---
+- tapOn: "앱 권한 관리.*"
+- waitForAnimationToEnd:
+    timeout: 5000
+- runFlow:
+    when:
+      visible: ".*Open debugger.*"
+    commands:
+      - tapOn:
+          point: 93%, 93%

@@ -1,0 +1,22 @@
+appId: com.oneorthree.focuscat
+---
+- tapOn:
+    point: 200,120
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn: "닫기"
+- extendedWaitUntil:
+    visible: "섬 관리"
+    timeout: 10000
+- tapOn: "뒤로"
+- extendedWaitUntil:
+    visible: "집중 시작"
+    timeout: 25000
+- swipe:
+    start: 20%, 60%
+    end: 85%, 40%
+    duration: 700
+- swipe:
+    start: 20%, 60%
+    end: 85%, 40%
+    duration: 700
