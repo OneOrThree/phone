@@ -60,10 +60,15 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 
 | 환경 | 파일 조합 | 지금 자동으로 도는 부분 | 사람이 붙이는 부분 |
 | --- | --- | --- | --- |
-| local | local (+`--profile nginx`) | — | 전부. nginx 프로필은 [dev 공개 라우팅 정본](nginx-dev-2.0-routes.conf.example)을 [`nginx-local-routes.sh`](nginx-local-routes.sh)가 upstream 만 호스트 포트(`LOCAL_BUSINESS_PORT`·`LOCAL_REALTIME_PORT`, 기본 8090·8085)로 치환해 그대로 쓴다. `/internal`·`/actuator`·옛 경로 404 와 신원 헤더 비움이 dev 와 같다. **WebSocket 을 이 경로로 붙이면 Realtime 에 `CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088` 이 필요하다** — 정본이 포트를 뗀 `$host`(`127.0.0.1`)를 넘겨 Origin 의 `:8088` 과 포트가 어긋나 same-origin 검사가 403 을 낸다(dev 의 GROMO-2175 는 TLS 종단으로 scheme 이 갈린 경우라 결과만 같다). 내릴 때는 `--profile nginx down`(프로필 없이 down 하면 nginx 는 남는다). Linux 는 `host-gateway` 가 브리지 IP 라 bootRun 이 `0.0.0.0` 에 바인드돼 있어야 닿는다 |
+| local | local (+`--profile nginx`) | — | 전부. nginx 프로필은 아래 불릿 |
 | dev | dev (+datadog) (+kafka) (+satellites.data.dev) → + realtime · satellites · satellites.dev | `dev-cd.yml`: 기존 DB를 유지하며 `data-api`만 갱신 | Realtime(`up -d realtime`) · 위성(Satellite Dev CD) · Kafka 기동(Actions **Dev Kafka**) |
 | prod | prod (+kafka) (+satellites (+satellites.data)) | `prod-cd.yml` → SSM 문서가 `docker-compose.prod.yml` 단독 `up -d` | 위성·Kafka 전부 수동. Realtime 은 prod 배선 자체가 없다 |
 
+- **local nginx 프로필**(GROMO-2216): [dev 공개 라우팅 정본](nginx-dev-2.0-routes.conf.example)을 [`nginx-local-routes.sh`](nginx-local-routes.sh)가 기동 때 읽어 upstream 두 곳만 호스트 포트로 치환해 그대로 쓴다 — `/internal`·`/actuator`·옛 경로 404 와 신원 헤더 비움이 dev 와 같다. 변수는 셸 env 로 준다(`.env` 불필요).
+  - `LOCAL_BUSINESS_PORT`(기본 8090) · `LOCAL_REALTIME_PORT`(기본 8085): 호스트에서 bootRun 중인 두 서비스의 포트.
+  - `LOCAL_NGINX_BIND`(기본 `127.0.0.1`) · `LOCAL_NGINX_PORT`(기본 8088): nginx 가 듣는 주소·포트. **`LOCAL_NGINX_BIND=0.0.0.0` 은 LAN 실기기 테스트용이다** — TLS 가 없어 토큰이 평문으로 지나고 앞단 인증이 없어 같은 LAN 의 누구나 bootRun 중인 Business·Realtime 에 닿는다. 집·사무실 LAN 에서만 쓰고 공용 Wi-Fi 에서는 열지 않는다.
+  - **WebSocket 을 이 경로로 붙이면 Realtime 에 `CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088` 이 필요하다**(포트를 바꿨으면 그 포트, LAN 실기기면 `http://<LAN IP>:8088` 추가). 정본이 포트를 뗀 `$host`(`127.0.0.1`)를 넘겨 Origin 의 `:8088` 과 포트가 어긋나 same-origin 검사가 403 을 낸다 — dev 의 GROMO-2175 는 TLS 종단으로 scheme 이 갈린 경우라 결과만 같다.
+  - 내릴 때는 `--profile nginx down`(프로필 없이 `down` 하면 nginx 는 남는다). Linux 는 `host-gateway` 가 브리지 IP 라 bootRun 이 `0.0.0.0` 에 바인드돼 있어야 닿는다. 헬스체크는 정본의 `location / → 404` 를 신호로 쓰므로 upstream 이 죽어도 healthy 다.
 - Data 를 전용 env 로 바꿀 때만(준비 도구를 `--data-image`로 실행해 `compose.env`에 `DATA_API_ENV_FILE`·`DATA_API_PROFILES`가 있을 때) dev에서는 `docker-compose.satellites.data.dev.yml`, prod에서는 `docker-compose.satellites.data.yml`을 **마지막 `-f`**로 더합니다. dev CD는 전용 env가 없거나 유효하지 않으면 배포를 중단합니다.
 - prod 호스트에는 레포가 없고 `prod-cd.yml`이 `docker-compose.prod.yml`만 S3 로 올립니다. prod 줄의 `server/scripts/…`는 같은 커밋의 파일을 호스트에 옮겨 둔 경로로 바꾸고, `.env.prod`·`./deploy/nginx.conf`·`./certs`는 `--project-directory`(현행 배포 디렉터리) 기준으로 풉니다.
 - prod 파일에는 `name:`이 없어 프로젝트명이 호스트 디렉터리에서 정해집니다. `satellites.yml`의 `name: phone`이 이를 바꾸지 않도록 `-p`에 `docker compose ls`로 확인한 현재 이름을 넣습니다.
