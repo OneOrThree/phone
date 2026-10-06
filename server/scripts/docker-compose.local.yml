@@ -51,10 +51,14 @@ services:
   # nginx-dev-2.0-routes.conf.example 그대로다(nginx-local-routes.sh 가 upstream 만 치환). 그래서 dev 처럼
   # /internal·/actuator·옛 Data 경로는 404, 신원·IP 헤더는 빈 값, /ws/realtime 은 Upgrade 를 살려 Realtime 으로 간다.
   #
-  # ⚠️ 이 경로로 WebSocket 을 붙이면 Realtime 이 보는 Host(host.docker.internal:8085)와 앱이 보내는
-  #    Origin(http://127.0.0.1:8088)이 달라 same-origin 기본값에 걸려 403 이다 — dev 에서 겪은 것과 같은 현상
-  #    (GROMO-2175). Realtime 에 CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088 을 주면 열린다. 직접 포트로 붙일
-  #    때는 둘이 같아 설정 없이 통과했던 것이다.
+  # ⚠️ 이 경로로 WebSocket 을 붙이면 403 이다. 정본이 `proxy_set_header Host $host` 로 포트를 뗀 Host(127.0.0.1)를
+  #    넘기는데 앱의 Origin 은 http://127.0.0.1:8088 이라, Spring same-origin 기본값이 포트 불일치로 거절한다
+  #    (실측: Origin 을 http://127.0.0.1 로 보내면 101). dev 의 GROMO-2175 도 결과는 같은 403 이지만 그쪽은 TLS 종단으로
+  #    scheme 이 갈린 경우다. 어느 쪽이든 Realtime 에 CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088 을 주면 열린다.
+  #    직접 8085 로 붙일 때는 Host 와 Origin 이 같아 설정 없이 통과한다.
+  #
+  # 내릴 때도 프로필을 붙인다 — `docker compose … --profile nginx down` 또는 `… rm -sf nginx`. 프로필 없이 down 하면
+  # 이 서비스는 대상에서 빠져 restart 정책대로 8088 을 계속 잡고 있다.
   #
   # TLS 는 없다(평문 80). dev 의 「TLS 종단 뒤 평문 loopback」 중 뒷부분만 재현한다.
   nginx:

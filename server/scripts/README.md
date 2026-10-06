@@ -48,7 +48,7 @@ Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모�
 # local — DB·Redis만 컨테이너. API 는 각 서비스 bootRun
 docker compose -f server/scripts/docker-compose.local.yml up -d db redis
 # local + Nginx(선택) — dev 와 같은 공개 라우팅을 호스트의 Business·Realtime 앞에 세운다. 127.0.0.1:8088 → Business 8090 · Realtime 8085
-docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx
+docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx   # 내릴 때도 --profile nginx 를 붙인다
 
 # dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(+전용 Redis)·Notification. nginx 없음
 # /var/lib/gromo/runtime 은 runner 소유 0700 이라, 서버에서 수동 실행할 때는 sudo -u runner 로 돌리거나 sudo 가 필요합니다.
@@ -60,7 +60,7 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 
 | 환경 | 파일 조합 | 지금 자동으로 도는 부분 | 사람이 붙이는 부분 |
 | --- | --- | --- | --- |
-| local | local (+`--profile nginx`) | — | 전부. nginx 프로필은 [dev 공개 라우팅 정본](nginx-dev-2.0-routes.conf.example)을 [`nginx-local-routes.sh`](nginx-local-routes.sh)가 upstream 만 호스트 포트(`LOCAL_BUSINESS_PORT`·`LOCAL_REALTIME_PORT`, 기본 8090·8085)로 치환해 그대로 쓴다. `/internal`·`/actuator`·옛 경로 404 와 신원 헤더 비움이 dev 와 같다. **WebSocket 을 이 경로로 붙이면 Realtime 에 `CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088` 이 필요하다** — 프록시 뒤라 Host 와 Origin 이 달라지는 dev 의 403(GROMO-2175)이 로컬에서도 그대로 난다 |
+| local | local (+`--profile nginx`) | — | 전부. nginx 프로필은 [dev 공개 라우팅 정본](nginx-dev-2.0-routes.conf.example)을 [`nginx-local-routes.sh`](nginx-local-routes.sh)가 upstream 만 호스트 포트(`LOCAL_BUSINESS_PORT`·`LOCAL_REALTIME_PORT`, 기본 8090·8085)로 치환해 그대로 쓴다. `/internal`·`/actuator`·옛 경로 404 와 신원 헤더 비움이 dev 와 같다. **WebSocket 을 이 경로로 붙이면 Realtime 에 `CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088` 이 필요하다** — 정본이 포트를 뗀 `$host`(`127.0.0.1`)를 넘겨 Origin 의 `:8088` 과 포트가 어긋나 same-origin 검사가 403 을 낸다(dev 의 GROMO-2175 는 TLS 종단으로 scheme 이 갈린 경우라 결과만 같다). 내릴 때는 `--profile nginx down`(프로필 없이 down 하면 nginx 는 남는다). Linux 는 `host-gateway` 가 브리지 IP 라 bootRun 이 `0.0.0.0` 에 바인드돼 있어야 닿는다 |
 | dev | dev (+datadog) (+kafka) (+satellites.data.dev) → + realtime · satellites · satellites.dev | `dev-cd.yml`: 기존 DB를 유지하며 `data-api`만 갱신 | Realtime(`up -d realtime`) · 위성(Satellite Dev CD) · Kafka 기동(Actions **Dev Kafka**) |
 | prod | prod (+kafka) (+satellites (+satellites.data)) | `prod-cd.yml` → SSM 문서가 `docker-compose.prod.yml` 단독 `up -d` | 위성·Kafka 전부 수동. Realtime 은 prod 배선 자체가 없다 |
 
