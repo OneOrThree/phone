@@ -16,7 +16,7 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
    ```sh
    .github/scripts/register-mac-runner.sh
    ```
-   러너를 `~/actions-runner`에 내려받고(릴리스 노트의 sha256과 대조), 라벨 `macOS, ios, <내 깃허브 아이디>`로 레포에 등록하고, ASC 값을 물어 `~/actions-runner/.env`에 적고, 로그인 시 자동 시작 서비스로 띄운다. 처음 실행할 때 macOS가 허용 창을 띄우면 허용한다. 다시 실행해도 안전하다 — 이미 된 단계는 건너뛰고, `.env`를 새로 적었거나 서비스가 멈춰 있으면 (재)시작한다.
+   러너를 `~/actions-runner`에 내려받고(릴리스 노트의 sha256과 대조), 라벨 `macOS, ios, <내 깃허브 아이디>`로 레포에 등록하고, ASC 값을 물어 `~/actions-runner/.env`에 적고, 로그인 시 자동 시작 서비스로 띄운 뒤, 레포 변수 `IOS_DEV_RUNNERS`에 내 아이디를 덧붙인다(아래 "러너 선택" 참고). 처음 실행할 때 macOS가 허용 창을 띄우면 허용한다. 다시 실행해도 안전하다 — 이미 된 단계는 건너뛰고, `.env`를 새로 적었거나 서비스가 멈춰 있으면 (재)시작한다.
 4. **서명 키 접근 허용 (한 번)**: 러너는 백그라운드 서비스라 macOS의 "codesign이 키를 쓰려고 합니다" 창을 띄울 수 없고, 그대로 두면 아카이브가 `errSecInternalComponent`로 실패한다. 터미널에서 아래를 치고 맥 비밀번호를 넣는다. 등록 스크립트 마지막에도 같은 명령을 실행한다.
    ```sh
    security set-key-partition-list -S apple-tool:,apple:,codesign: -s ~/Library/Keychains/login.keychain-db
@@ -29,11 +29,11 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
 ## 빌드가 어떻게 도는가
 
 - 트리거: `main` push 중 `app/app-dev/**` 변경, 또는 수동 실행. **PR에서는 돌지 않는다**(아래 "공개 레포" 참고).
-- 러너 선택: `runs-on: [self-hosted, macOS, ios, <github.actor>]`. 수동 실행도 **누른 사람의 맥**에서 돈다. 다른 사람 맥에서 돌리고 싶으면 그 사람이 직접 Run workflow를 누른다 — 남의 맥을 고르는 입력란은 일부러 두지 않았다(수동 실행은 아무 브랜치에서나 할 수 있어서, 검토 안 된 코드를 남의 맥에서 돌리는 길이 된다).
+- 러너 선택: `runs-on: [self-hosted, macOS, ios, <github.actor>]`. 단, 머지한 사람이 레포 변수 **`IOS_DEV_RUNNERS`**(러너를 등록한 깃허브 아이디의 쉼표 목록, 공백 없이 — 예 `flying-adventure,joejaeyoung`)에 없으면 **오스카 맥(`flying-adventure`)으로 폴백**한다. 등록 전에 머지해도 잡이 영원히 대기하지 않게 하기 위해서다(워크플로의 `GITHUB_TOKEN`으로는 러너 목록 API를 못 읽어 변수로 판단한다). 등록 스크립트가 변수에 아이디를 덧붙이므로 직접 만질 일은 없다. 수동 실행도 **누른 사람의 맥**에서 돈다. 다른 사람 맥에서 돌리고 싶으면 그 사람이 직접 Run workflow를 누른다 — 남의 맥을 고르는 입력란은 일부러 두지 않았다(수동 실행은 아무 브랜치에서나 할 수 있어서, 검토 안 된 코드를 남의 맥에서 돌리는 길이 된다).
 - 하는 일: `npm ci` → `app/app-dev/ios/testflight.sh --dev` (티켓 2218). 스크립트가 Pods 동기화, fastlane 설치, dev 서버 주소 고정, archive, TestFlight 업로드까지 한다. 테스트 노트 첫 줄에 `dev 서버(oneorthree.dev.mooo.com) 빌드 — <commit>`이 붙는다.
 - 값의 출처: ASC 키(비밀값)는 각자 맥의 `~/actions-runner/.env`. 약관 버전·Datadog 같은 공개 설정은 레포의 `app/app-dev/ios/release-config.sh`라 따로 넣을 것이 없다.
 - 동시 실행은 하나로 제한된다(빌드 번호는 TestFlight 최신 + 1이라 겹치면 안 된다). 연달아 머지되면 뒤 것들이 순서대로 기다린다(`queue: max` — 기본값은 대기 중인 실행을 하나만 남기고 취소한다).
-- 머지한 사람의 맥이 꺼져 있으면 잡이 "대기 중"으로 남았다가 맥이 켜지면 돈다. 24시간 안에 러너가 안 잡히면 GitHub이 잡을 실패 처리한다 — 러너를 등록하지 않은 사람이나 봇이 머지한 경우가 그렇다.
+- 고른 맥이 꺼져 있으면 잡이 "대기 중"으로 남았다가 맥이 켜지면 돈다. 러너를 등록하지 않은 사람이나 봇이 머지하면 오스카 맥에서 빌드되고, 그 맥이 꺼져 있으면 역시 대기한다. 24시간 안에 러너가 안 잡히면 GitHub이 잡을 실패 처리한다.
 
 ## 공개 레포라서 지키는 것
 
@@ -45,7 +45,8 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
 
 | 증상 | 원인 · 조치 |
 |---|---|
-| 잡이 계속 "Queued" | 머지한 사람 아이디 라벨의 러너가 없거나(미등록 팀원·봇 머지) 오프라인(잠듦·재부팅 후 미로그인). Settings → Runners에서 상태 확인, 맥에서 `~/actions-runner/svc.sh status`. 24시간 지나면 실패로 끝나니 필요하면 Run workflow로 내 맥에서 다시 올린다 |
+| 잡이 계속 "Queued" | 잡 이름에 적힌 라벨의 러너가 오프라인(잠듦·재부팅 후 미로그인)이거나, `IOS_DEV_RUNNERS`에는 있는데 실제 러너가 없는 경우. Settings → Runners에서 상태 확인, 맥에서 `~/actions-runner/svc.sh status`. 24시간 지나면 실패로 끝나니 필요하면 Run workflow로 내 맥에서 다시 올린다 |
+| 내가 머지했는데 오스카 맥에서 빌드됨 | `IOS_DEV_RUNNERS`에 내 아이디가 없다. 등록 스크립트를 (다시) 돌리면 덧붙인다 |
 | "러너 .env 에 ASC_… 가 없다" | `~/actions-runner/.env`에 세 줄이 있는지 확인하고 `svc.sh stop && svc.sh start` (서비스는 시작할 때 .env를 읽는다) |
 | `errSecInternalComponent`로 CodeSign 실패 | 둘 중 하나다. ① 키체인이 백그라운드 서명을 허용하지 않음 → 위 4번 명령. ② 러너 서비스 설정(`~/Library/LaunchAgents/actions.runner.*.plist`)에 `SessionCreate`가 남아 있음 → 러너가 로그인 세션과 분리돼 키체인을 못 쓴다. 등록 스크립트를 다시 돌리면 빼고 재설치한다 |
 | 업로드가 "build number already used" 류로 거절됨 | 같은 시간에 누군가 로컬에서 수동 운영 빌드(`testflight.sh`)를 올린 것. 빌드 번호는 `beta`·`beta_dev`가 같은 앱의 TestFlight 최신 + 1을 쓰므로 겹칠 수 있다(`concurrency`는 Actions 안의 실행만 직렬화한다). Run workflow로 다시 올리면 된다 |
@@ -53,4 +54,4 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
 | `pod install`에서 죽음 | 맥의 CocoaPods·Ruby 버전. 로컬에서 `cd app/app-dev/ios && pod install`이 되는지 먼저 본다 |
 | 링크 에러 `Sealable` 또는 즉시 크래시 | `ios/Pods`의 미리 빌드된 프레임워크 Debug/Release 표시가 어긋난 것. 러너 작업 폴더(`~/actions-runner/_work`)는 개발 폴더와 분리돼 있으니 그 안의 Pods를 지우고 다시 돌린다 |
 
-러너를 빼려면 `~/actions-runner`에서 `./svc.sh stop && ./svc.sh uninstall && ./config.sh remove`.
+러너를 빼려면 `~/actions-runner`에서 `./svc.sh stop && ./svc.sh uninstall && ./config.sh remove`, 그리고 레포 변수 `IOS_DEV_RUNNERS`에서 내 아이디를 뺀다(`gh variable set IOS_DEV_RUNNERS --repo OneOrThree/phone --body <나를 뺀 목록>`) — 안 빼면 내가 머지한 빌드가 없는 러너를 기다린다.

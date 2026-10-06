@@ -7,6 +7,9 @@ name: iOS TestFlight (dev)
 # 리눅스의 10배 요금이고 매번 빈 컴퓨터라 인증서·키를 다시 넣어야 한다. 대신 팀원 각자의 맥을
 # self-hosted 러너로 등록하고(라벨 = 깃허브 아이디), 이 워크플로가 `github.actor` 라벨로
 # 머지 버튼을 누른 사람의 맥을 고른다. 등록 방법은 docs/conventions/ios-testflight-dev-runner.md.
+# 아직 러너를 등록하지 않은 사람(레포 변수 IOS_DEV_RUNNERS 에 없는 아이디)이 머지하면 오너 맥
+# (flying-adventure)으로 간다 — 등록 전에 머지해도 잡이 영원히 대기하지 않게. 등록 스크립트가
+# 변수에 아이디를 덧붙인다. (GITHUB_TOKEN 으로는 러너 목록 API 를 못 읽어 변수로 판단한다.)
 #
 # ## 공개 레포 주의 — 트리거를 늘리지 말 것
 # 이 레포는 공개 레포다. 개인 맥 러너에서 도는 잡은 **main push 와 수동 실행에서만** 돈다.
@@ -40,8 +43,11 @@ permissions:
 
 jobs:
   testflight-dev:
-    name: dev TestFlight 빌드 (${{ github.actor }})
-    runs-on: [self-hosted, macOS, ios, "${{ github.actor }}"]
+    # 머지한 사람이 IOS_DEV_RUNNERS(쉼표 목록) 에 있으면 그 사람 맥, 아니면 오너 맥. 양쪽에 쉼표를 붙여
+    # 부분 일치(예: "kim" 이 "kimchi" 에 걸림)를 막는다. 변수가 없으면 ",," 라 항상 오너 맥.
+    # runs-on 은 env 컨텍스트를 못 쓰므로 name 과 runs-on 두 곳에 같은 식이 있다 — 고칠 때 둘 다.
+    name: dev TestFlight 빌드 (${{ contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor)) && github.actor || 'flying-adventure' }})
+    runs-on: [self-hosted, macOS, ios, "${{ contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor)) && github.actor || 'flying-adventure' }}"]
     timeout-minutes: 90
     env:
       CI: '1'
@@ -86,7 +92,7 @@ jobs:
         run: |
           {
             echo "## dev TestFlight"
-            echo "- 러너: \`${{ runner.name }}\` (라벨 ${{ github.actor }})"
+            echo "- 러너: \`${{ runner.name }}\` — 고른 라벨은 잡 이름에, 머지한 사람은 ${{ github.actor }} (둘이 다르면 미등록이라 오너 맥으로 폴백)"
             echo "- 커밋: \`${{ github.sha }}\`"
             echo "- 결과: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"

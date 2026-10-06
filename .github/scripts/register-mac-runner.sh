@@ -13,6 +13,8 @@
 #   3. App Store Connect API 키 환경변수를 러너 .env 에 적는다 (값은 물어본다)
 #   4. 키체인이 백그라운드 서명(codesign)을 허용하게 한다 (맥 비밀번호 입력)
 #   5. 로그인하면 자동으로 뜨는 서비스로 등록하고 시작한다
+#   확인. 레포에 러너가 보이는지 보고, 레포 변수 IOS_DEV_RUNNERS 에 내 아이디를 덧붙인다
+#      (워크플로는 이 변수에 있는 사람만 "러너 있음" 으로 보고, 없으면 오너 맥으로 폴백한다)
 #
 # 필요한 것: gh 로그인(레포 admin — 등록 토큰 발급과 러너 목록 조회가 admin 전용 API 다), Xcode,
 # Homebrew 의 node·cocoapods·ruby(bundler).
@@ -125,6 +127,13 @@ AGENT="$(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' .runner)"
 FOUND="$(gh api "repos/$REPO/actions/runners" --jq '.runners[] | select(.name == "'"$AGENT"'") | select((["macOS","ios","'"$LOGIN"'"] - [.labels[].name]) == []) | "\(.name) | \(.status) | \([.labels[].name] | join(","))"')"
 [ -n "$FOUND" ] || die "레포에 이름 $AGENT, 라벨 macOS,ios,$LOGIN 을 모두 가진 러너가 안 보인다. 라벨이 다르게 등록돼 있으면 ./config.sh remove 뒤 재실행"
 echo "$FOUND"
+# 워크플로는 GITHUB_TOKEN 으로 러너 목록을 못 읽어, 레포 변수 IOS_DEV_RUNNERS(쉼표 목록, 공백 없이)로 등록 여부를 본다
+CURRENT="$(gh variable get IOS_DEV_RUNNERS --repo "$REPO" 2>/dev/null || true)"
+case ",$CURRENT," in
+  *",$LOGIN,"*) echo "IOS_DEV_RUNNERS 에 이미 있음: $CURRENT" ;;
+  *) gh variable set IOS_DEV_RUNNERS --repo "$REPO" --body "${CURRENT:+$CURRENT,}$LOGIN"
+     echo "IOS_DEV_RUNNERS = ${CURRENT:+$CURRENT,}$LOGIN" ;;
+esac
 cat <<EOF
 
 끝. 다음 할 일:
