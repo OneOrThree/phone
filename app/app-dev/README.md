@@ -141,6 +141,14 @@ EXPO_PUBLIC_TERMS_VERSION=2026-09 ./testflight.sh --dev
 
 App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `fastlane/.env` 또는 legacy 설정 파일을 읽습니다. main 머지 시 자동으로 이 빌드를 올리는 워크플로는 티켓 2219 에서 다룹니다.
 
+### 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`
+
+앱이 사용자에게 보여 준 약관 문서의 판을 가리키는 꼬리표입니다. 빌드에 박혀 로그인 요청의 `termsVersion`으로 서버에 전달되고, 서버는 사용자가 어느 판에 동의했는지를 이 값으로 기록합니다. 비어 있으면 로그인이 막히므로 운영·dev 빌드 모두 필수입니다.
+
+- **현재 값: `2026-09`** — 지금 올라가 있는 약관 문서 기준이며, 2026-10 까지의 TestFlight 빌드가 전부 이 값으로 나갔습니다. 바꾸면 기존 동의 기록과 판이 달라지므로 약관 문서를 실제로 개정할 때만 바꿉니다.
+- 레포 Variables의 `EXPO_PUBLIC_TERMS_VERSION`에도 같은 값이 있어 main 머지 자동 빌드가 그걸 씁니다. 로컬 실행은 명령 앞에 직접 붙입니다.
+- 허용 값 목록(정책 Q05)은 아직 서버에 없습니다. 형식은 64자 안의 문자열이면 되지만, 의미는 약관 문서의 판이어야 합니다.
+
 ## Android 스크린타임
 
 `modules/screen-time`은 1.x의 UsageStatsManager 계산기를 이식한 로컬 Expo 모듈입니다. Expo Go에서는 사용할 수 없으며 네이티브 개발 빌드가 필요합니다.
