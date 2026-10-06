@@ -2013,6 +2013,7 @@ function FocusFlow({ e: environment }: any) {
     const walked = walkTo(p, () => {
       if (latest.current.r !== 'fishingArrival') return;
       e.dispatch({ type: 'FOCUS_SPOT', spot: p });
+      advanceTutorial(5, 7);
       advanceTutorial(6, 7);
       e.go('focusSetup');
     });
@@ -2212,20 +2213,21 @@ function FocusFlow({ e: environment }: any) {
   );
   const tutorialOverlay = (() => {
     if (leg || voyage || goldenCutscene || goldenReeling) return null;
-    if (r === 'fishingArrival' && tutorialStep === 5)
-      return tutorialNext('집중하고 싶은 빈 땅을 눌러 자리를 골라 봐.', 6);
-    if (r === 'fishingArrival' && tutorialStep === 6) {
+    // 5·6단계는 땅을 직접 눌러야 넘어간다 — 「다음」 없이 지도를 열어 두고 안내만 띄운다
+    if (r === 'fishingArrival' && (tutorialStep === 5 || tutorialStep === 6)) {
       const width = Math.min(L.floatingWidth, 414);
       return (
         <GuideBox
           accessibilityViewIsModal
           text={
-            '물 위나 다른 주민이 앉아 있는 곳은 고를 수 없어.\n마음에 드는 자리를 직접 누르면 돼.'
+            tutorialStep === 5
+              ? '집중하고 싶은 빈 땅을 눌러 자리를 골라 봐.'
+              : '물 위나 다른 주민이 앉아 있는 곳은 고를 수 없어.\n마음에 드는 자리를 직접 누르면 돼.'
           }
           style={{ zIndex: 100, left: (L.width - width) / 2, width, bottom: safe.bottom + 16 }}
+          onSkip={skipTutorial}
         >
           {screenReader && <Btn title="빈 땅에 자리 잡기" onPress={selectAccessibleSpot} />}
-          <Btn title="안내 그만 보기" kind="ghost" onPress={skipTutorial} />
         </GuideBox>
       );
     }
@@ -2527,7 +2529,7 @@ function FocusFlow({ e: environment }: any) {
       style={{ flex: 1 }}
       onLayout={(ev) => setBoxHeight(ev.nativeEvent.layout.height)}
       overlay={tutorialOverlay}
-      isolateAccessibility={tutorialStep === 6 && !!tutorialOverlay}
+      isolateAccessibility={(tutorialStep === 5 || tutorialStep === 6) && !!tutorialOverlay}
       onSkip={skipTutorial}
     >
       <View testID="golden-background" style={{ flex: 1 }} {...a11yHidden(!!goldenCutscene)}>

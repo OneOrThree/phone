@@ -2401,27 +2401,12 @@ export function RedesignScreens({ e }: any) {
             // v2 가로 guidebox는 아래 18px
             bottom: layout.compact ? 18 : ins.bottom + 12,
           }}
+          onSkip={() => {
+            setGuideStep(99);
+            home();
+          }}
+          skipTitle="건너뛰기"
         >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="건너뛰기"
-            hitSlop={12}
-            onPress={() => {
-              setGuideStep(99);
-              home();
-            }}
-          >
-            <Txt
-              kind="meta"
-              style={{
-                fontSize: 12,
-                lineHeight: 16.8,
-                textDecorationLine: 'underline',
-              }}
-            >
-              건너뛰기
-            </Txt>
-          </Pressable>
           <Btn
             title={last ? '같이 해볼게' : '다음'}
             small
