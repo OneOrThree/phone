@@ -11,7 +11,8 @@
 #   1. 러너 프로그램을 ~/actions-runner 에 내려받는다 (이미 있으면 건너뜀)
 #   2. gh 로 등록 토큰을 받아 레포에 등록한다. 라벨: macOS, ios, <내 깃허브 아이디>
 #   3. App Store Connect API 키 환경변수를 러너 .env 에 적는다 (값은 물어본다)
-#   4. 로그인하면 자동으로 뜨는 서비스로 등록하고 시작한다
+#   4. 키체인이 백그라운드 서명(codesign)을 허용하게 한다 (맥 비밀번호 입력)
+#   5. 로그인하면 자동으로 뜨는 서비스로 등록하고 시작한다
 #
 # 필요한 것: gh 로그인(레포 admin 또는 러너 등록 권한), Xcode, Homebrew 의 node·cocoapods·ruby(bundler).
 # 등록 토큰은 1시간짜리라 값이 남지 않는다. ASC 키 값은 ~/actions-runner/.env 에만 남는다(600).
@@ -32,7 +33,7 @@ for tool in node npm pod bundle; do
   command -v "$tool" >/dev/null || die "$tool 이 PATH 에 없다. 러너는 지금 이 셸의 PATH 를 저장해 쓰므로 먼저 설치한다 (brew install node@24 cocoapods ruby)"
 done
 
-say "1/4 러너 프로그램"
+say "1/5 러너 프로그램"
 mkdir -p "$RUNNER_DIR"
 cd "$RUNNER_DIR"
 if [ -f config.sh ]; then
@@ -44,7 +45,7 @@ else
   tar xzf runner.tar.gz && rm runner.tar.gz
 fi
 
-say "2/4 레포에 등록 — 라벨 macOS,ios,$LOGIN"
+say "2/5 레포에 등록 — 라벨 macOS,ios,$LOGIN"
 if [ -f .runner ]; then
   echo "이미 등록돼 있음 ($(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' .runner)). 다시 등록하려면 ./config.sh remove 뒤 재실행"
 else
@@ -53,7 +54,7 @@ else
   ./config.sh --url "https://github.com/$REPO" --token "$TOKEN" --name "$NAME" --labels "macOS,ios,$LOGIN" --work _work --unattended
 fi
 
-say "3/4 App Store Connect API 키 (.env)"
+say "3/5 App Store Connect API 키 (.env)"
 if [ -f .env ] && grep -q '^ASC_KEY_ID=' .env; then
   echo "이미 .env 에 ASC 설정이 있음 — 바꾸려면 $RUNNER_DIR/.env 를 직접 고친다"
 else
@@ -68,7 +69,12 @@ else
   chmod 600 .env
 fi
 
-say "4/4 로그인 시 자동 시작 서비스"
+say "4/5 서명 키 접근 허용 (맥 비밀번호를 물어본다)"
+# 러너는 백그라운드 서비스라 codesign 의 키체인 허용 창을 띄울 수 없다. 미리 허용해 두지 않으면 errSecInternalComponent 로 실패한다.
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s ~/Library/Keychains/login.keychain-db >/dev/null \
+  || echo "⚠️ 키체인 허용에 실패했다. 나중에 직접 실행한다: security set-key-partition-list -S apple-tool:,apple:,codesign: -s ~/Library/Keychains/login.keychain-db"
+
+say "5/5 로그인 시 자동 시작 서비스"
 if ./svc.sh status 2>/dev/null | grep -q 'Started\|active'; then
   echo "이미 돌고 있음"
 else

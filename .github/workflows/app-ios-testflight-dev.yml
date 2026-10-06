@@ -16,7 +16,7 @@ name: iOS TestFlight (dev)
 # ## 무엇을 돌리나
 # `app/app-dev/ios/testflight.sh --dev` (GROMO-2218) — 서버 주소를 dev 로 고정하고 Fastlane
 # `beta_dev` 로 archive·업로드한다. App Store Connect API 키는 각자 맥의 러너 `.env` 에서
-# 환경변수로 들어오고, 약관 버전은 레포 Variables 의 EXPO_PUBLIC_TERMS_VERSION 을 쓴다.
+# 환경변수로 들어오고, 약관 버전·Datadog 같은 공개 설정은 레포의 ios/release-config.sh 에 있다.
 
 on:
   push:
@@ -46,7 +46,6 @@ jobs:
     env:
       CI: '1'
       LANG: en_US.UTF-8
-      EXPO_PUBLIC_TERMS_VERSION: ${{ vars.EXPO_PUBLIC_TERMS_VERSION }}
     steps:
       - uses: actions/checkout@v4
 
@@ -54,9 +53,6 @@ jobs:
         # 빌드 20분을 돌리기 전에 빠지기 쉬운 것부터 확인한다. 실패 문구가 곧 등록 안내다.
         run: |
           fail=0
-          if [ -z "${EXPO_PUBLIC_TERMS_VERSION:-}" ]; then
-            echo "::error::레포 Settings → Secrets and variables → Actions → Variables 에 EXPO_PUBLIC_TERMS_VERSION 이 없다"; fail=1
-          fi
           for v in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH; do
             if [ -z "${!v:-}" ]; then
               echo "::error::러너 폴더의 .env 에 $v 가 없다 — docs/conventions/ios-testflight-dev-runner.md 3번"; fail=1
