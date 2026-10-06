@@ -244,7 +244,15 @@ export function useIslandManagement({
         }
       };
       guard(); // 이미 죽은 scope 에서는 첫 요청도 내지 않는다
-      publish({ ...EMPTY, loading: true });
+      // 같은 섬 재조회(쓰기 뒤 확정 등)는 확정된 목록을 화면에 남겨 둔 채 loading 만 켠다 — 전체가
+      // 로딩 화면으로 깜빡이고 스크롤이 초기화되지 않게(2-16 H6). 쓰기 권한 근거(detailRef)는
+      // 기존대로 비워 재조회가 끝나기 전 추측된 권한으로 쓰기가 나가지 않게 한다.
+      detailRef.current = null;
+      setSnap((prev) =>
+        prev.detail?.id === scope.islandId
+          ? { ...prev, loading: true, error: null }
+          : { ...EMPTY, loading: true },
+      );
       try {
         const detail = await getManagedIsland(scope.islandId);
         guard();

@@ -326,3 +326,43 @@ test('정원이 찬 뒤 승인하면 정원을 늘리라고 안내한다(H7)', a
   );
   assert.equal(screen.queryByText('그룹 정원이 가득 찼습니다.'), null);
 });
+
+test('재조회 중에도 확정된 관리 카드를 유지하고 이름 없는 신청자는 "신청자"로 읽는다(H6·H19)', async () => {
+  managementMock.mockReturnValue(
+    management({
+      loading: true,
+      requests: [{ id: 'r2', applicantId: 'a2', name: null, status: 'pending', version: 1 }],
+    }),
+  );
+  const screen = await render(<Hall e={e()} />);
+  assert.equal(screen.queryByTestId('hall-management-loading'), null);
+  assert.ok(screen.getByText('서버 섬'));
+  assert.ok(screen.getByLabelText('신청자 가입 승인'));
+  assert.ok(screen.getByLabelText('신청자 가입 거절'));
+});
+
+test('승인 처리 중에는 승인·거절을 다시 누를 수 없다(H20)', async () => {
+  let finish: () => void = () => {};
+  const api = management({
+    answerRequest: jest.fn(() => new Promise<void>((resolve) => (finish = resolve))),
+  });
+  managementMock.mockReturnValue(api);
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-approve-r1'));
+  await fireEvent.press(screen.getByTestId('hall-approve-r1'));
+  await fireEvent.press(screen.getByTestId('hall-reject-r1'));
+  assert.equal(api.answerRequest.mock.calls.length, 1);
+  await act(async () => finish());
+});
+
+test('확인 버튼 위험색은 강퇴·탈퇴에만 쓴다(H23)', async () => {
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-member-u2'));
+  await fireEvent.press(screen.getByTestId('hall-member-transfer'));
+  const transferOk = screen.getByTestId('hall-dialog-ok');
+  assert.notEqual(transferOk.props.style.backgroundColor, '#e9a49d');
+  await fireEvent.press(screen.getByTestId('hall-dialog-cancel'));
+  await fireEvent.press(screen.getByTestId('hall-member-u2'));
+  await fireEvent.press(screen.getByTestId('hall-member-kick'));
+  assert.equal(screen.getByTestId('hall-dialog-ok').props.style.backgroundColor, '#e9a49d');
+});

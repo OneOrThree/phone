@@ -201,6 +201,8 @@ export function Hall({ e }: any) {
       // ok가 없으면 취소만 있는 선택창
       ok?: string;
       onOk?: () => void;
+      // 되돌릴 수 없는 행동(탈퇴·강퇴)만 붉은 확인 버튼을 쓴다
+      danger?: boolean;
       body?: React.ReactNode;
     } | null>(null);
   const [draft, setDraft] = useState({
@@ -210,6 +212,7 @@ export function Hall({ e }: any) {
     capacity: capacityOf(i),
   });
   const [managementError, setManagementError] = useState('');
+  const [managementBusy, setManagementBusy] = useState(false);
   const managementRun = useRef(0);
   // 같은 섬의 관리 화면이라도 route 또는 인증 세대가 바뀌면 이전 요청의 UI 완료를 버린다.
   // 세대는 렌더 때 snapshot으로 잡아 effect dependency에 넣는다.
@@ -233,6 +236,7 @@ export function Hall({ e }: any) {
   ) => {
     const run = managementRun.current;
     setManagementError('');
+    setManagementBusy(true);
     try {
       await work();
       if (run !== managementRun.current) return;
@@ -244,6 +248,8 @@ export function Hall({ e }: any) {
       setManagementError(message);
       // 정보 수정·위임 패널에는 주민 카드의 오류 줄이 안 보인다 — 패널에서는 토스트로 알린다(H5)
       if (panel) notify(message);
+    } finally {
+      if (run === managementRun.current) setManagementBusy(false);
     }
   };
   const transferCandidates = liveManagement
@@ -512,12 +518,12 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
-                  backgroundColor: ok ? '#e9a49d' : undefined,
+                  backgroundColor: ok ? (dialog.danger ? '#e9a49d' : '#f3d77d') : undefined,
                 }}
               >
                 <T
                   style={g(14, 22.4, {
-                    color: ok ? '#6f2d2a' : CARD_INK,
+                    color: ok && dialog.danger ? '#6f2d2a' : CARD_INK,
                     fontWeight: ok ? '700' : '400',
                   })}
                 >
@@ -1923,7 +1929,7 @@ export function Hall({ e }: any) {
   );
   // 관리 표면은 server snapshot을 받기 전 로컬 Island를 대체 화면으로 쓰지 않는다.
   if (liveManagement) {
-    if (management.loading) {
+    if (management.loading && !management.detail) {
       return shell(
         managementFrame(
           <View
@@ -2029,6 +2035,7 @@ export function Hall({ e }: any) {
           : '내가 모은 물고기와 기록은 섬에 남아요.',
         detail: '계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.',
         ok: liveSolo ? '삭제하고 나가기' : '탈퇴하기',
+        danger: true,
         onOk: () =>
           void runManagement(async () => {
             const my = await e.islands.leave(liveIslandId);
@@ -2053,6 +2060,7 @@ export function Hall({ e }: any) {
         '이후 「혼자 시작 / 기존 섬 참여」 화면으로 이동해요.\n계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.'
       ),
       ok: solo ? (next ? '삭제하고 탈퇴' : '삭제하고 나가기') : '탈퇴하기',
+      danger: true,
       onOk: () => {
         e.dispatch({ type: 'LEAVE' });
         if (next) e.home();
@@ -2253,6 +2261,7 @@ export function Hall({ e }: any) {
                 title: '섬에서 내보낼까요?',
                 text: `${eul(m.name)} 섬에서 내보내요.\n모은 물고기와 기록은 섬에 남고, 건설 목표 대상에서 빠져요.`,
                 ok: '내보내기',
+                danger: true,
                 onOk: () => {
                   if (liveManagement)
                     void runManagement(
@@ -2753,7 +2762,9 @@ export function Hall({ e }: any) {
               <Pressable
                 testID={`hall-reject-${q.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${q.name} 가입 거절`}
+                accessibilityLabel={`${q.name ?? '신청자'} 가입 거절`}
+                accessibilityState={{ disabled: managementBusy }}
+                disabled={managementBusy}
                 onPress={() => {
                   if (liveManagement)
                     void runManagement(
@@ -2763,8 +2774,9 @@ export function Hall({ e }: any) {
                   else e.dispatch({ type: 'REJECT_MEMBER', id: q.id });
                 }}
                 style={{
-                  minWidth: 40,
-                  height: 40,
+                  minWidth: 44,
+                  height: 44,
+                  opacity: managementBusy ? 0.5 : 1,
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: 1.5,
@@ -2778,7 +2790,9 @@ export function Hall({ e }: any) {
               <Pressable
                 testID={`hall-approve-${q.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${q.name} 가입 승인`}
+                accessibilityLabel={`${q.name ?? '신청자'} 가입 승인`}
+                accessibilityState={{ disabled: managementBusy }}
+                disabled={managementBusy}
                 onPress={() => {
                   if (liveManagement)
                     void runManagement(
@@ -2790,7 +2804,8 @@ export function Hall({ e }: any) {
                 }}
                 style={{
                   minWidth: 52,
-                  height: 40,
+                  height: 44,
+                  opacity: managementBusy ? 0.5 : 1,
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: 1.5,
