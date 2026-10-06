@@ -1,0 +1,60 @@
+// 방법 검증용 대표 화면. 한 줄 = 한 장. (옵션 설명은 capture.cjs 의 openShot / runStep)
+module.exports = [
+  { route: 'login', title: '로그인' },
+  {
+    route: 'login',
+    title: '로그인 · 약관 동의 후(버튼 활성, 아래로 스크롤)',
+    steps: [{ js: "document.querySelector('[role=checkbox]').click()" }, { scroll: 'bottom' }],
+    name_: 'login-agreed',
+  },
+  { route: 'home', title: '홈(섬) 낮' },
+  { route: 'home', title: '홈(섬) 밤', night: true, name_: 'home-night' },
+  {
+    route: 'home',
+    title: '홈 · 섬 전체 보기(축소)',
+    steps: [{ zoom: [200, 450, 300] }],
+    name_: 'home-zoomed-out',
+  },
+  { route: 'home', title: '홈 + 펠리컨 우체통 안내', npcGuide: true, name_: 'home-pelican-guide' },
+  { route: 'guide', title: '몽돌 첫 안내(튜토리얼 0단계)', guideStep: 0 },
+  { route: 'hall', title: '건물 내부 · 마을회관' },
+  { route: 'members', title: '마을회관 · 주민 관리' },
+  { route: 'board', title: '게시판 + 퀘스트 달성 보상 팝업', name_: 'board-reward-popup' },
+  { route: 'board', title: '게시판(팝업 없음)', records: false },
+  { route: 'board', title: '게시판 · 공지 탭', records: false, tab: '공지', name_: 'board-notice-tab' },
+  { route: 'focus', title: '집중 화면', session: true },
+  {
+    route: 'focus',
+    title: '확인 팝업 · 집중 종료',
+    session: true,
+    steps: [{ click: '집중 종료' }],
+    name_: 'focus-confirm-end',
+  },
+  {
+    route: 'focus',
+    title: '집중 · 이모티콘 응원',
+    session: true,
+    steps: [{ click: '이모티콘' }, { click: '응원' }],
+    name_: 'focus-emote',
+  },
+  {
+    route: 'focus',
+    title: '집중 · 확대(내 자리 가까이)',
+    session: true,
+    steps: [{ zoom: [200, 560, -120] }],
+    name_: 'focus-zoom',
+  },
+  { route: 'focusSetup', title: '집중 준비 모달', text: '수학 문제 풀기' },
+  { route: 'settings', title: '설정(바텀시트)' },
+  { route: 'boat', title: '바텀시트 · 내 뗏목' },
+  {
+    route: 'product',
+    title: '상점 상품 · 구매 확인 팝업',
+    detail: 'scarf',
+    mutate: (s, is) => {
+      is.fish = 500;
+    },
+    steps: [{ click: '100마리로 구매' }],
+    name_: 'product-confirm-buy',
+  },
+];

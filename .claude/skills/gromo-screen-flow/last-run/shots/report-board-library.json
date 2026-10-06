@@ -1,0 +1,182 @@
+[
+ {
+  "id": "board",
+  "status": "ok",
+  "note": "방장 시점, 종이 닫힘."
+ },
+ {
+  "id": "board.noticeTab",
+  "status": "ok",
+  "note": "방장 시점(+ 새 공지 보임)."
+ },
+ {
+  "id": "board.noticeTabEmpty",
+  "status": "ok",
+  "note": "공지 0건."
+ },
+ {
+  "id": "board.questTab",
+  "status": "ok",
+  "note": "방장 시점(+ 만들기 보임). 두 번째 카드의 \"자세히 보기 ›\"는 종이 안 스크롤 아래."
+ },
+ {
+  "id": "board.questTabEmpty",
+  "status": "ok",
+  "note": "퀘스트 0건."
+ },
+ {
+  "id": "board.blueprintNone",
+  "status": "ok",
+  "note": "건물 전부 완공 + 목표 없음 상태."
+ },
+ {
+  "id": "board.blueprintWaiting",
+  "status": "ok",
+  "note": "현재 빌드는 App.tsx 의 임시 QA 설정(TESTFLIGHT_ALL_BUILDINGS=true)이 섬을 항상 '건물 전부 완공'으로 되돌려 이 상태가 안 나온다. 브라우저가 받은 번들에서 그 dispatch 한 줄만 끄고(capture-board-library.cjs) 도서관을 목표로 잡아 찍음. 주민 4명이라 패널이 스크롤되고, 맨 아래 \"주민 전원이 요구량을 채워야 건설할 수 있어요.\" 문구는 스크롤 아래에 있다(셋째 주민 줄에서 잘려 보임)."
+ },
+ {
+  "id": "board.blueprintReady",
+  "status": "ok",
+  "note": "현재 빌드는 App.tsx 의 임시 QA 설정(TESTFLIGHT_ALL_BUILDINGS=true)이 섬을 항상 '건물 전부 완공'으로 되돌려 이 상태가 안 나온다. 브라우저가 받은 번들에서 그 dispatch 한 줄만 끄고(capture-board-library.cjs) 도서관을 목표로 잡아 찍음. 방장 시점이라 \"건설하기\" 버튼이 보인다(주민용 문구 \"방장이 건설할 수 있어요\"는 이 장에 없음)."
+ },
+ {
+  "id": "board.blueprintBuilding",
+  "status": "ok",
+  "note": "현재 빌드는 App.tsx 의 임시 QA 설정(TESTFLIGHT_ALL_BUILDINGS=true)이 섬을 항상 '건물 전부 완공'으로 되돌려 이 상태가 안 나온다. 브라우저가 받은 번들에서 그 dispatch 한 줄만 끄고(capture-board-library.cjs) 도서관을 목표로 잡아 찍음. 진행률 35%."
+ },
+ {
+  "id": "board.blueprintComplete",
+  "status": "ok",
+  "note": "현재 빌드는 App.tsx 의 임시 QA 설정(TESTFLIGHT_ALL_BUILDINGS=true)이 섬을 항상 '건물 전부 완공'으로 되돌려 이 상태가 안 나온다. 브라우저가 받은 번들에서 그 dispatch 한 줄만 끄고(capture-board-library.cjs) 도서관을 목표로 잡아 찍음. 도서관은 안내 문구가 따로 있다: \"이제 도서관에서 주민들의 기록을 펼쳐볼 수 있어요.\" (대상의 \"이제 {건물}을 이용할 수 있어요\"는 다른 건물용)."
+ },
+ {
+  "id": "board.buildConfirm",
+  "status": "ok",
+  "note": "현재 빌드는 App.tsx 의 임시 QA 설정(TESTFLIGHT_ALL_BUILDINGS=true)이 섬을 항상 '건물 전부 완공'으로 되돌려 이 상태가 안 나온다. 브라우저가 받은 번들에서 그 dispatch 한 줄만 끄고(capture-board-library.cjs) 도서관을 목표로 잡아 찍음. 건설 가능 상태에서 \"건설하기\"를 눌러 연 확인창."
+ },
+ {
+  "id": "board.rewardModal",
+  "status": "ok",
+  "note": "오늘 30분 집중 기록이 있는 상태로 게시판 진입 → 자동 표시."
+ },
+ {
+  "id": "board.bonusRewardModal",
+  "status": "ok",
+  "note": "주민 전원이 오늘 30분을 채운 상태에서 개인 보상 \"보상받기\"를 누른 뒤 이어진 보너스 모달(20마리)."
+ },
+ {
+  "id": "notice",
+  "status": "ok",
+  "note": "방장 시점(수정·삭제 보임). 상세 종이 뒤에 네모난 그림자 상자와 목록 글자가 비쳐 보이는 것은 앱 렌더 그대로."
+ },
+ {
+  "id": "notice.comment",
+  "status": "ok",
+  "note": "\"등록 →\"이 종이 아래로 밀려 있어 그 버튼이 보일 만큼만 종이 안쪽을 내려 찍음(\"← 목록\"은 위로 밀려 안 보임). 웹이라 키보드는 없음."
+ },
+ {
+  "id": "notice.visitor",
+  "status": "ok",
+  "note": "딸기 섬 구경 중. 댓글 0건 공지로 맞춰 \"아직 댓글이 없어요.\"까지 보이게 함."
+ },
+ {
+  "id": "notice.deleteConfirm",
+  "status": "ok",
+  "note": "확인 문구는 상세 종이가 닫히고 뒤쪽 목록 종이 자리에 나온다(앱 동작 그대로)."
+ },
+ {
+  "id": "notice.commentDeleteConfirm",
+  "status": "ok",
+  "note": "목업 모드 + 방장 시점에서 민지 댓글의 \"삭제\"."
+ },
+ {
+  "id": "noticeEdit",
+  "status": "ok",
+  "note": "공지 목록의 \"+ 새 공지\"로 진입."
+ },
+ {
+  "id": "noticeEdit.edit",
+  "status": "ok",
+  "note": "공지 상세의 \"수정\"으로 진입(제목·본문 채워짐)."
+ },
+ {
+  "id": "quest",
+  "status": "ok",
+  "note": "방장 시점(수정 보임), 내 달성률 66%. \"보상 받기 · N마리\" 버튼은 서버 모드 전용이라 목업에는 없음. 넷째 주민 줄은 종이 스크롤에 걸쳐 잘림."
+ },
+ {
+  "id": "quest.homeList",
+  "status": "ok",
+  "note": "route quest + detail=home-quest-list. 화면은 board.questTab 과 같다(대상 설명대로)."
+ },
+ {
+  "id": "questEdit",
+  "status": "ok",
+  "note": "퀘스트 목록의 \"+ 만들기\"로 진입. 폼이 길어 \"퀘스트 시작\" 버튼은 종이 안 스크롤 아래(위쪽을 찍음)."
+ },
+ {
+  "id": "questEdit.edit",
+  "status": "approx",
+  "note": "퀘스트 상세의 \"수정\"으로 진입, 제목 \"퀘스트 수정\"까지는 맞음. 다만 \"종류·진행 시간은 바꿀 수 없어요…\" 안내와 읽기 전용 종류 칸은 서버 모드 전용이라 목업에서는 종류 카드가 그대로 고를 수 있게 나온다. \"수정 저장\" 버튼은 스크롤 아래."
+ },
+ {
+  "id": "library",
+  "status": "ok",
+  "note": "원탁 + 책 두 권."
+ },
+ {
+  "id": "diary",
+  "status": "ok",
+  "note": "기기 날짜를 이번 주 토요일(10/10)로 밀어 찍음. 주 보기는 오늘까지의 날만 막대를 그리므로 7일치가 다 보이게 한 것."
+ },
+ {
+  "id": "diary.weekPhone",
+  "status": "ok",
+  "note": "기기 날짜를 이번 주 토요일(10/10)로 밀어 찍음. 최근 7일 폰 사용 기록을 목업에 넣음."
+ },
+ {
+  "id": "diary.dayFocus",
+  "status": "ok",
+  "note": "기기 날짜를 이번 주 토요일(10/10)로 밀어 찍음. 목업 기록에 시간 구간이 없어 \"시간대 기록 없음\"(대상 문구대로)."
+ },
+ {
+  "id": "diary.dayPhone",
+  "status": "approx",
+  "note": "기기 날짜를 이번 주 토요일(10/10)로 밀어 찍음. 오늘 날짜의 폰 사용은 iOS 에서 네이티브 사용량 리포트(ScreenTimeReportView)로 그려진다. 웹에서는 그 자리에 저장된 값 \"1시간 24분\" 글자만 나온다."
+ },
+ {
+  "id": "diary.month",
+  "status": "ok",
+  "note": "기기 날짜를 이번 주 토요일(10/10)로 밀어 찍음. 선택한 날이 오늘이라 iOS 에서는 \"폰 사용\" 칸이 네이티브 리포트로 바뀐다(웹은 글자 값)."
+ },
+ {
+  "id": "diary.focusEmpty",
+  "status": "ok",
+  "note": "주 보기 문구(\"이 주에는 기록이 없어요\"). 일 보기 문구(\"이날은 기록이 없어요\")는 따로 찍지 않음."
+ },
+ {
+  "id": "diary.phoneNoPermission",
+  "status": "ok",
+  "note": "settings.permission=false."
+ },
+ {
+  "id": "diary.phoneNoData",
+  "status": "ok",
+  "note": "목업에서 나오는 문구는 \"측정 기록이 없어요\"(권한은 켜짐 + 측정 준비 안 됨) 하나뿐이고 \"측정 설정 열기\" 버튼이 같이 나온다. \"기록을 준비하고 있어요\"·\"폰 사용 기록을 이용할 수 없어요\"는 서버 모드 전용이라 못 찍음."
+ },
+ {
+  "id": "diary.neighbors",
+  "status": "ok",
+  "note": "이웃 3명."
+ },
+ {
+  "id": "diary.neighborsEmpty",
+  "status": "ok",
+  "note": "주민 0명으로 만든 섬."
+ },
+ {
+  "id": "diary.neighborDetail",
+  "status": "ok",
+  "note": "민지. 목업 주민은 오늘 기록만 있어 나머지 날은 0분·—."
+ }
+]

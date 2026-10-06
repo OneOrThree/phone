@@ -1,0 +1,2206 @@
+{
+  "domain": "hall-board-library",
+  "nodes": [
+    {
+      "id": "hall",
+      "route": "hall",
+      "kind": "screen",
+      "title": "마을회관 책상 장면",
+      "source": "src/screens/island/Hall.tsx:548",
+      "reach": "홈 지도에서 마을회관 건물 탭(고양이가 걸어가 입장 연출 후 진입)",
+      "condition": "회관 완공 + 내 섬(구경 중이면 차단)",
+      "uiText": [
+        "마을회관",
+        "(점 3개: 섬 관리 / 목각 건물 고르기 / 공동 가계부 — 글자 라벨 없음)"
+      ]
+    },
+    {
+      "id": "manage",
+      "route": "manage",
+      "kind": "screen",
+      "title": "섬 정보 카드 (방장 뷰)",
+      "source": "src/screens/island/Hall.tsx:2581",
+      "reach": "회관 책상의 '섬 관리' 점 탭",
+      "condition": "방장 (서버 모드는 관리 API 의 role=host, mock 은 로컬 섬 기준)",
+      "uiText": [
+        "가입 신청",
+        "함께 사는 주민",
+        "섬에 친구 초대하기"
+      ]
+    },
+    {
+      "id": "manage.resident",
+      "route": "manage",
+      "kind": "state",
+      "title": "섬 정보 카드 (주민 뷰)",
+      "source": "src/screens/island/Hall.tsx:2885",
+      "reach": "회관 책상의 '섬 관리' 점 탭",
+      "condition": "방장이 아닌 주민 — 수정·가입 신청·주민 관리 없음",
+      "uiText": [
+        "함께 사는 주민",
+        "섬에 친구 초대하기",
+        "섬 탈퇴"
+      ]
+    },
+    {
+      "id": "manage.visitor",
+      "route": "manage",
+      "kind": "state",
+      "title": "섬 정보 카드 (방문자 뷰)",
+      "source": "src/screens/island/Hall.tsx:2846",
+      "reach": "다른 섬 구경 중 홈 지도에서 마을회관 탭 (책상 없이 바로 go('manage'))",
+      "condition": "다른 섬 구경 중(주민 아님)",
+      "uiText": [
+        "함께 사는 주민",
+        "이 섬에 가입",
+        "가입 신청"
+      ]
+    },
+    {
+      "id": "manage.loading",
+      "route": "manage",
+      "kind": "state",
+      "title": "섬 정보 불러오는 중",
+      "source": "src/screens/island/Hall.tsx:1922",
+      "reach": "섬 관리 진입 직후",
+      "condition": "서버 모드만",
+      "uiText": [
+        "섬 정보를 불러오는 중이에요"
+      ]
+    },
+    {
+      "id": "manage.error",
+      "route": "manage",
+      "kind": "state",
+      "title": "섬 정보 불러오기 실패",
+      "source": "src/screens/island/Hall.tsx:1937",
+      "reach": "관리 API 실패",
+      "condition": "서버 모드만",
+      "uiText": [
+        "(서버 오류 문구)",
+        "다시 시도"
+      ]
+    },
+    {
+      "id": "manage.forbidden",
+      "route": "manage",
+      "kind": "state",
+      "title": "섬 주민만 관리 가능 안내",
+      "source": "src/screens/island/Hall.tsx:1968",
+      "reach": "관리 API 가 주민 자격 없음으로 응답",
+      "condition": "서버 모드만",
+      "uiText": [
+        "섬 주민만 관리할 수 있어요",
+        "다시 시도"
+      ]
+    },
+    {
+      "id": "manage.edit",
+      "route": "manage",
+      "kind": "state",
+      "title": "섬 정보 수정 패널",
+      "source": "src/screens/island/Hall.tsx:2317",
+      "reach": "섬 정보 카드의 연필 버튼",
+      "condition": "방장만",
+      "uiText": [
+        "섬 정보 수정",
+        "섬 이름",
+        "가입 승인",
+        "저장하기"
+      ]
+    },
+    {
+      "id": "manage.capacityDialog",
+      "route": "manage",
+      "kind": "popup",
+      "title": "주민 정원 선택창(휠)",
+      "source": "src/screens/island/Hall.tsx:2433",
+      "reach": "섬 정보 수정의 '주민 정원' 행",
+      "condition": "방장만",
+      "uiText": [
+        "주민 정원",
+        "현재 주민 수보다 작게 줄일 수는 없어요.",
+        "정하기"
+      ]
+    },
+    {
+      "id": "manage.transfer",
+      "route": "manage",
+      "kind": "state",
+      "title": "방장 위임 — 주민 선택 패널",
+      "source": "src/screens/island/Hall.tsx:2250",
+      "reach": "섬 정보 수정의 '방장 위임' 행, 또는 방장이 다른 주민이 있는 상태에서 '섬 탈퇴'를 눌렀을 때",
+      "condition": "방장만",
+      "uiText": [
+        "방장 위임",
+        "방장을 위임할 주민을 골라요."
+      ]
+    },
+    {
+      "id": "manage.transferConfirm",
+      "route": "manage",
+      "kind": "confirm",
+      "title": "방장 위임 확인창",
+      "source": "src/screens/island/Hall.tsx:2176",
+      "reach": "위임 패널에서 주민 선택, 또는 주민 메뉴의 방장 위임",
+      "condition": "방장만",
+      "uiText": [
+        "방장 위임",
+        "{이름}에게 방장을 위임하시겠습니까?",
+        "위임하기"
+      ]
+    },
+    {
+      "id": "manage.memberMenu",
+      "route": "manage",
+      "kind": "popup",
+      "title": "주민 관리 선택창",
+      "source": "src/screens/island/Hall.tsx:2217",
+      "reach": "섬 정보 카드에서 방장이 다른 주민 칸을 탭",
+      "condition": "방장만",
+      "uiText": [
+        "{주민 이름}",
+        "방장 위임",
+        "섬에서 내보내기"
+      ]
+    },
+    {
+      "id": "manage.kickConfirm",
+      "route": "manage",
+      "kind": "confirm",
+      "title": "주민 내보내기 확인창",
+      "source": "src/screens/island/Hall.tsx:2227",
+      "reach": "주민 관리 선택창의 '섬에서 내보내기'",
+      "condition": "방장만",
+      "uiText": [
+        "섬에서 내보낼까요?",
+        "모은 물고기와 기록은 섬에 남고, 건설 목표 대상에서 빠져요.",
+        "내보내기"
+      ]
+    },
+    {
+      "id": "manage.leaveConfirm",
+      "route": "manage",
+      "kind": "confirm",
+      "title": "섬 탈퇴 확인창",
+      "source": "src/screens/island/Hall.tsx:2017",
+      "reach": "'섬 탈퇴' 버튼 (주민은 카드 하단, 방장은 수정 패널 하단)",
+      "condition": "집중 중이 아니고, 방장이면 다른 주민이 없을 때",
+      "uiText": [
+        "{섬 이름}을 떠날까요?",
+        "내가 모은 물고기와 기록은 섬에 남아요.",
+        "탈퇴하기 / 삭제하고 나가기"
+      ]
+    },
+    {
+      "id": "manage.leaveBlockedToast",
+      "route": "manage",
+      "kind": "toast",
+      "title": "집중 중 탈퇴 불가 토스트",
+      "source": "src/screens/island/Hall.tsx:2005",
+      "reach": "집중 세션이 있는 상태에서 '섬 탈퇴'",
+      "condition": "집중 세션 진행 중",
+      "uiText": [
+        "집중 중에는 섬을 떠날 수 없어요.",
+        "집중을 마친 뒤 다시 시도해 주세요."
+      ]
+    },
+    {
+      "id": "manage.inviteShare",
+      "route": "manage",
+      "kind": "sheet",
+      "title": "OS 공유 시트 (초대 코드)",
+      "source": "src/screens/island/Hall.tsx:2826",
+      "reach": "'섬에 친구 초대하기' 공유 버튼",
+      "condition": "방장·주민 (방문자에게는 없음). 공유 실패 시 초대 코드 토스트",
+      "uiText": [
+        "{섬 이름}에서 같이 집중해요! 초대 코드: {코드}"
+      ]
+    },
+    {
+      "id": "manage.requestToast",
+      "route": "manage",
+      "kind": "toast",
+      "title": "가입 신청 승인/거절 토스트",
+      "source": "src/screens/island/Hall.tsx:2732",
+      "reach": "가입 신청 행의 '승인' 또는 거절 버튼",
+      "condition": "서버 모드만 (mock 은 토스트 없이 목록만 바뀜, 정원 초과 시 '정원이 가득 찼어요' 토스트)",
+      "uiText": [
+        "{이름}님의 가입을 승인했어요.",
+        "{이름}님의 가입을 거절했어요."
+      ]
+    },
+    {
+      "id": "manage.joinAppliedToast",
+      "route": "manage",
+      "kind": "toast",
+      "title": "가입 신청 완료 토스트",
+      "source": "src/screens/island/Hall.tsx:2860",
+      "reach": "방문자 뷰의 '가입 신청' 버튼",
+      "condition": "가입 승인이 필요한 섬. 버튼이 \"신청 취소\"로 바뀜",
+      "uiText": [
+        "참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요."
+      ]
+    },
+    {
+      "id": "members",
+      "route": "members",
+      "kind": "screen",
+      "title": "함께하는 주민 (manage 와 같은 화면)",
+      "source": "src/screens/island/Hall.tsx:184",
+      "reach": "현재 코드에 go('members') 호출이 없어 도달 경로 없음",
+      "condition": "미사용 route — 렌더는 manage 와 동일",
+      "uiText": [
+        "함께 사는 주민"
+      ]
+    },
+    {
+      "id": "ledger",
+      "route": "ledger",
+      "kind": "screen",
+      "title": "공동 가계부 (잔액 책갈피)",
+      "source": "src/screens/island/Hall.tsx:666",
+      "reach": "회관 책상의 '공동 가계부' 점 탭",
+      "condition": "",
+      "uiText": [
+        "공동 가계부",
+        "우리 섬 물고기",
+        "이번 달 적립"
+      ]
+    },
+    {
+      "id": "ledger.earnTab",
+      "route": "ledger",
+      "kind": "state",
+      "title": "공동 가계부 — 적립 책갈피",
+      "source": "src/screens/island/Hall.tsx:725",
+      "reach": "가계부 상단 '적립' 책갈피",
+      "condition": "",
+      "uiText": [
+        "적립",
+        "집중 적립",
+        "이전 내역 더 보기"
+      ]
+    },
+    {
+      "id": "ledger.spendTab",
+      "route": "ledger",
+      "kind": "state",
+      "title": "공동 가계부 — 지출 책갈피",
+      "source": "src/screens/island/Hall.tsx:725",
+      "reach": "가계부 상단 '지출' 책갈피",
+      "condition": "",
+      "uiText": [
+        "지출",
+        "건설 사용",
+        "공동 구매"
+      ]
+    },
+    {
+      "id": "ledger.empty",
+      "route": "ledger",
+      "kind": "state",
+      "title": "공동 가계부 — 내역 없음",
+      "source": "src/screens/island/Hall.tsx:943",
+      "reach": "해당 월·책갈피에 내역이 없을 때",
+      "condition": "",
+      "uiText": [
+        "아직 쌓인 내역이 없어요",
+        "이 달 적립 내역이 없어요",
+        "주민이 함께 모으고 쓰면 여기 쌓여요"
+      ]
+    },
+    {
+      "id": "ledger.loading",
+      "route": "ledger",
+      "kind": "state",
+      "title": "공동 가계부 — 불러오는 중",
+      "source": "src/screens/island/Hall.tsx:823",
+      "reach": "가계부 진입·월 이동 직후",
+      "condition": "서버 모드만",
+      "uiText": [
+        "불러오는 중이에요"
+      ]
+    },
+    {
+      "id": "ledger.error",
+      "route": "ledger",
+      "kind": "state",
+      "title": "공동 가계부 — 불러오기 실패",
+      "source": "src/screens/island/Hall.tsx:837",
+      "reach": "원장 API 실패",
+      "condition": "서버 모드만",
+      "uiText": [
+        "가계부를 불러오지 못했어요",
+        "다시 시도"
+      ]
+    },
+    {
+      "id": "construction",
+      "route": "construction",
+      "kind": "screen",
+      "title": "목각 건물 고르기 (건물 카드 격자)",
+      "source": "src/screens/island/Hall.tsx:1179",
+      "reach": "회관 책상의 '목각 건물 고르기' 점 탭, 또는 잠금 안내의 '회관에서 다음 건물 보기'",
+      "condition": "",
+      "uiText": [
+        "목각 건물 고르기",
+        "어떤 건물을 지을까요?"
+      ]
+    },
+    {
+      "id": "construction.loading",
+      "route": "construction",
+      "kind": "state",
+      "title": "건설 정보 불러오는 중",
+      "source": "src/screens/island/Hall.tsx:1280",
+      "reach": "건설 화면 진입 직후",
+      "condition": "서버 모드만",
+      "uiText": [
+        "서버에서 건설 정보를 불러오고 있어요"
+      ]
+    },
+    {
+      "id": "construction.error",
+      "route": "construction",
+      "kind": "state",
+      "title": "건설 정보 불러오기 실패",
+      "source": "src/screens/island/Hall.tsx:1249",
+      "reach": "건설 옵션 API 실패",
+      "condition": "서버 모드만",
+      "uiText": [
+        "건설 정보를 불러오지 못했어요.",
+        "다시 시도"
+      ]
+    },
+    {
+      "id": "construction.allDone",
+      "route": "construction",
+      "kind": "state",
+      "title": "모든 건물 완공",
+      "source": "src/screens/island/Hall.tsx:1292",
+      "reach": "서버 옵션 목록이 비어 있을 때",
+      "condition": "서버 모드만",
+      "uiText": [
+        "모든 건물을 지었어요"
+      ]
+    },
+    {
+      "id": "construction.plan",
+      "route": "construction",
+      "kind": "state",
+      "title": "청사진 패널 — 목표로 정할 수 있음",
+      "source": "src/screens/island/Hall.tsx:1853",
+      "reach": "건물 카드 탭",
+      "condition": "방장이고 선택 가능한 건물 (서버: selectable / mock: 로컬 조건 충족)",
+      "uiText": [
+        "BUILDING PLAN · 01",
+        "예상 모습",
+        "이 건물을 목표로 정하기"
+      ]
+    },
+    {
+      "id": "construction.planBlocked",
+      "route": "construction",
+      "kind": "state",
+      "title": "청사진 패널 — 선택 불가 안내",
+      "source": "src/screens/island/Hall.tsx:1863",
+      "reach": "건물 카드 탭",
+      "condition": "주민(방장 아님)이거나 선행 건물 미완공·다른 공사 중 등",
+      "uiText": [
+        "방장이 목표를 정해요",
+        "먼저 지어야 할 건물이 있어요",
+        "나머지 건물을 모두 완공한 뒤에 지을 수 있어요"
+      ]
+    },
+    {
+      "id": "construction.planCollect",
+      "route": "construction",
+      "kind": "state",
+      "title": "청사진 패널 — 목표로 물고기 모으는 중",
+      "source": "src/screens/island/Hall.tsx:1865",
+      "reach": "현재 목표인 건물 카드 탭, 또는 목표로 정한 직후",
+      "condition": "서버 모드: 잔액이 충분한 방장에게 '건설하기' 버튼, 아니면 안내 문구 / mock: '게시판에서 보기 ›' 링크",
+      "uiText": [
+        "섬 잔액",
+        "각자 몫",
+        "건설하기"
+      ]
+    },
+    {
+      "id": "construction.planBuilding",
+      "route": "construction",
+      "kind": "state",
+      "title": "청사진 패널 — 공사 중",
+      "source": "src/screens/island/Hall.tsx:1578",
+      "reach": "공사 중인 건물 카드 탭, 또는 건설 시작 직후",
+      "condition": "",
+      "uiText": [
+        "공사 중",
+        "남은 시간 {시간}"
+      ]
+    },
+    {
+      "id": "construction.planDone",
+      "route": "construction",
+      "kind": "state",
+      "title": "청사진 패널 — 완공",
+      "source": "src/screens/island/Hall.tsx:1873",
+      "reach": "완공된 건물 카드 탭",
+      "condition": "mock(review/demo) 모드만 (서버 모드는 완공 건물이 목록에서 빠짐)",
+      "uiText": [
+        "완공",
+        "{건물}로 가기"
+      ]
+    },
+    {
+      "id": "construction.changeGoalConfirm",
+      "route": "construction",
+      "kind": "confirm",
+      "title": "건설 목표 변경 확인창",
+      "source": "src/screens/island/Hall.tsx:1855",
+      "reach": "이미 다른 목표가 있을 때 '이 건물을 목표로 정하기'",
+      "condition": "방장만",
+      "uiText": [
+        "목표를 바꿀까요?",
+        "대상 주민은 지금 주민으로 다시 정해요.",
+        "바꾸기"
+      ]
+    },
+    {
+      "id": "hall.noIsland",
+      "route": "hall",
+      "kind": "popup",
+      "title": "가입한 섬 없음 안내 (공용 가드)",
+      "source": "src/screens/island/CurrentScreens.tsx:363",
+      "reach": "가입한 섬이 없는 상태로 주민 전용 route 에 있을 때(예: 강퇴 직후)",
+      "condition": "모든 주민 전용 route 공통 — 다른 도메인과 중복 가능",
+      "uiText": [
+        "가입한 섬이 없어요",
+        "섬을 선택하거나 새로 만든 뒤 이용할 수 있어요.",
+        "첫 섬 선택으로"
+      ]
+    },
+    {
+      "id": "hall.residentsOnly",
+      "route": "hall",
+      "kind": "popup",
+      "title": "주민만 이용 가능 안내 (구경 중 차단)",
+      "source": "src/screens/island/CurrentScreens.tsx:373",
+      "reach": "다른 섬 구경 중 허용되지 않은 route 진입",
+      "condition": "구경 중 hall·ledger·construction·library·diary·stats·noticeEdit·questEdit 진입 시 (manage·board·notice·quest 는 허용)",
+      "uiText": [
+        "주민만 이용할 수 있어요",
+        "확인"
+      ]
+    },
+    {
+      "id": "hall.notBuilt",
+      "route": "hall",
+      "kind": "popup",
+      "title": "회관 미완공 잠금 안내",
+      "source": "src/screens/island/CurrentScreens.tsx:429",
+      "reach": "회관이 없는 상태에서 hall/manage/members/ledger/construction 진입",
+      "condition": "회관 미완공",
+      "uiText": [
+        "아직 마을회관이 없어요",
+        "완공 후 이용할 수 있어요.",
+        "확인"
+      ]
+    },
+    {
+      "id": "board.notBuilt",
+      "route": "board",
+      "kind": "popup",
+      "title": "게시판 미완공 잠금 안내",
+      "source": "src/screens/island/CurrentScreens.tsx:429",
+      "reach": "게시판이 없는 상태에서 board/notice/noticeEdit/quest/questEdit 진입",
+      "condition": "게시판 미완공",
+      "uiText": [
+        "아직 게시판이 없어요",
+        "완공 후 이용할 수 있어요.",
+        "회관에서 다음 건물 보기"
+      ]
+    },
+    {
+      "id": "library.notBuilt",
+      "route": "library",
+      "kind": "popup",
+      "title": "도서관 미완공 잠금 안내",
+      "source": "src/screens/island/CurrentScreens.tsx:429",
+      "reach": "도서관이 없는 상태에서 library/diary/stats 진입",
+      "condition": "도서관 미완공",
+      "uiText": [
+        "아직 도서관이 없어요",
+        "도서관을 짓기 전에는 지난 기록을 볼 수 없어요.",
+        "회관에서 다음 건물 보기"
+      ]
+    },
+    {
+      "id": "board",
+      "route": "board",
+      "kind": "screen",
+      "title": "게시판 내부 장면 (종이 닫힘)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6102",
+      "reach": "홈 지도에서 게시판 건물 탭(입장 연출 후). 구경 중에는 걷지 않고 바로 열림",
+      "condition": "iOS 에서 스크린타임 안내를 아직 안 봤으면 permission 화면을 먼저 거침(App.tsx:467)",
+      "uiText": [
+        "게시판",
+        "공지",
+        "퀘스트"
+      ]
+    },
+    {
+      "id": "board.noticeTab",
+      "route": "board",
+      "kind": "state",
+      "title": "공지 목록 종이",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4820",
+      "reach": "게시판 장면의 '공지' 종이 탭 (tab=공지)",
+      "condition": "'+ 새 공지'는 방장만",
+      "uiText": [
+        "{섬 이름} 게시판",
+        "공지",
+        "+ 새 공지"
+      ]
+    },
+    {
+      "id": "board.noticeTabEmpty",
+      "route": "board",
+      "kind": "state",
+      "title": "공지 목록 — 비어 있음",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4914",
+      "reach": "공지가 하나도 없을 때",
+      "condition": "",
+      "uiText": [
+        "아직 등록된 공지가 없어요."
+      ]
+    },
+    {
+      "id": "board.questTab",
+      "route": "board",
+      "kind": "state",
+      "title": "퀘스트 목록 종이",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5525",
+      "reach": "게시판 장면의 '퀘스트' 종이 탭 (tab=퀘스트)",
+      "condition": "'+ 만들기'는 방장만. 방문자는 '내 달성률' 없음",
+      "uiText": [
+        "매일 새 도전",
+        "퀘스트",
+        "자세히 보기 ›"
+      ]
+    },
+    {
+      "id": "board.questTabEmpty",
+      "route": "board",
+      "kind": "state",
+      "title": "퀘스트 목록 — 비어 있음",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5577",
+      "reach": "진행 중인 퀘스트가 없을 때",
+      "condition": "",
+      "uiText": [
+        "진행 중인 퀘스트가 없어요",
+        "방장이 일일 퀘스트를 만들면 여기에 붙어요."
+      ]
+    },
+    {
+      "id": "board.listError",
+      "route": "board",
+      "kind": "state",
+      "title": "공지·퀘스트 목록 불러오기 실패",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4845",
+      "reach": "게시판 API 실패",
+      "condition": "서버 모드만",
+      "uiText": [
+        "불러오지 못했어요.",
+        "다시 시도"
+      ]
+    },
+    {
+      "id": "board.blueprintNone",
+      "route": "board",
+      "kind": "state",
+      "title": "청사진 패널 — 목표 건물 없음",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5591",
+      "reach": "게시판 장면의 목각 건물·청사진 영역 탭 (tab=청사진)",
+      "condition": "방문자에게는 영역 자체가 없음. 건설 목표가 없을 때",
+      "uiText": [
+        "회관에서 다음 건물을 골라 주세요."
+      ]
+    },
+    {
+      "id": "board.blueprintWaiting",
+      "route": "board",
+      "kind": "state",
+      "title": "청사진 패널 — 물고기 모으는 중",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5800",
+      "reach": "청사진 영역 탭, 또는 회관 건설 패널의 '게시판에서 보기 ›' (route quest, detail=building)",
+      "condition": "건설 목표가 있고 아직 요구량 미달",
+      "uiText": [
+        "주민 준비량",
+        "섬 잔액 / 공사 가격",
+        "주민 전원이 요구량을 채워야 건설할 수 있어요."
+      ]
+    },
+    {
+      "id": "board.blueprintReady",
+      "route": "board",
+      "kind": "state",
+      "title": "청사진 패널 — 건설 가능",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5776",
+      "reach": "청사진 영역 탭",
+      "condition": "요구량 충족. 방장에게만 '건설하기' 버튼, 주민은 안내 문구",
+      "uiText": [
+        "건설하기",
+        "방장이 건설할 수 있어요"
+      ]
+    },
+    {
+      "id": "board.blueprintBuilding",
+      "route": "board",
+      "kind": "state",
+      "title": "청사진 패널 — 공사 중",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5740",
+      "reach": "청사진 영역 탭, 또는 건설 확인 직후",
+      "condition": "공사 진행 중",
+      "uiText": [
+        "{건물}을 짓고 있어요",
+        "공사 진행률 · {N}%"
+      ]
+    },
+    {
+      "id": "board.blueprintComplete",
+      "route": "board",
+      "kind": "state",
+      "title": "청사진 패널 — 완공",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5759",
+      "reach": "청사진 영역 탭",
+      "condition": "직전 건설이 완공된 상태",
+      "uiText": [
+        "{건물}이 완공됐어요",
+        "이제 {건물}을 이용할 수 있어요.",
+        "{건물}로 이동"
+      ]
+    },
+    {
+      "id": "board.buildConfirm",
+      "route": "board",
+      "kind": "confirm",
+      "title": "건물 짓기 확인창",
+      "source": "src/App.tsx:1748",
+      "reach": "청사진 패널의 '건설하기'",
+      "condition": "방장만. 조건 미달이면 확인창 대신 토스트만",
+      "uiText": [
+        "{건물} 짓기",
+        "섬 물고기 {N}마리를 차감하고 {M}분 동안 공사해요.",
+        "확인"
+      ]
+    },
+    {
+      "id": "board.rewardModal",
+      "route": "board",
+      "kind": "popup",
+      "title": "퀘스트 달성 보상 모달 (RewardModal)",
+      "source": "src/screens/island/CurrentScreens.tsx:2868",
+      "reach": "미확인 퀘스트 보상이 있는 상태로 게시판 route(board·notice·quest 등) 진입 시 자동",
+      "condition": "내 섬에서만(구경 중 제외). 로컬 보상 목록(state.rewards) 기준",
+      "uiText": [
+        "퀘스트 달성!",
+        "물고기 {N}마리를 추가로 받았어요!",
+        "보상받기"
+      ]
+    },
+    {
+      "id": "board.bonusRewardModal",
+      "route": "board",
+      "kind": "popup",
+      "title": "전원 달성 보너스 모달 (RewardModal)",
+      "source": "src/screens/island/CurrentScreens.tsx:2908",
+      "reach": "미확인 전원 달성 보너스가 있는 상태로 게시판 진입 시 자동",
+      "condition": "내 섬에서만. 홈 쪽지로 연 퀘스트 목록(quest.homeList)에서는 뜨지 않음",
+      "uiText": [
+        "모두 해냈어요!",
+        "섬에 보너스 {N}마리가 쌓였어요",
+        "좋아요"
+      ]
+    },
+    {
+      "id": "notice",
+      "route": "notice",
+      "kind": "screen",
+      "title": "공지 상세 (종이 오버레이)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4928",
+      "reach": "공지 목록에서 항목 탭",
+      "condition": "'수정'·'삭제'는 방장만",
+      "uiText": [
+        "← 목록",
+        "주민 댓글",
+        "+ 댓글 쓰기"
+      ]
+    },
+    {
+      "id": "notice.comment",
+      "route": "notice",
+      "kind": "state",
+      "title": "공지 상세 — 댓글 입력 열림",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5038",
+      "reach": "공지 상세의 '+ 댓글 쓰기'",
+      "condition": "주민(방문자 제외)",
+      "uiText": [
+        "댓글을 적어주세요",
+        "등록 →",
+        "취소"
+      ]
+    },
+    {
+      "id": "notice.visitor",
+      "route": "notice",
+      "kind": "state",
+      "title": "공지 상세 — 방문자(읽기 전용)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5021",
+      "reach": "다른 섬 구경 중 공지 항목 탭",
+      "condition": "다른 섬 구경 중",
+      "uiText": [
+        "주민이 되면 댓글을 남길 수 있어요",
+        "아직 댓글이 없어요."
+      ]
+    },
+    {
+      "id": "notice.deleteConfirm",
+      "route": "notice",
+      "kind": "confirm",
+      "title": "공지 삭제 확인창",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5200",
+      "reach": "공지 상세의 '삭제'",
+      "condition": "방장만",
+      "uiText": [
+        "공지를 삭제할까요?",
+        "삭제한 내용은 되돌릴 수 없어요.",
+        "삭제"
+      ]
+    },
+    {
+      "id": "notice.commentDeleteConfirm",
+      "route": "notice",
+      "kind": "confirm",
+      "title": "댓글 삭제 확인창",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5200",
+      "reach": "댓글 옆 '삭제'",
+      "condition": "mock(review/demo) 모드만 (서버 모드는 댓글 삭제 버튼 숨김). 방장 또는 내 댓글",
+      "uiText": [
+        "댓글을 삭제할까요?",
+        "삭제한 내용은 되돌릴 수 없어요.",
+        "삭제"
+      ]
+    },
+    {
+      "id": "notice.error",
+      "route": "notice",
+      "kind": "state",
+      "title": "공지 상세 — 불러오기 실패/삭제된 공지",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4930",
+      "reach": "공지 상세 API 실패 또는 이미 삭제된 공지",
+      "condition": "서버 모드만",
+      "uiText": [
+        "불러오지 못했어요.",
+        "삭제됐거나 더 이상 볼 수 없는 공지예요.",
+        "다시 시도"
+      ]
+    },
+    {
+      "id": "noticeEdit",
+      "route": "noticeEdit",
+      "kind": "screen",
+      "title": "공지 쓰기",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5137",
+      "reach": "공지 목록의 '+ 새 공지'",
+      "condition": "방장만",
+      "uiText": [
+        "공지 쓰기",
+        "공지 제목을 적어주세요",
+        "게시하기"
+      ]
+    },
+    {
+      "id": "noticeEdit.edit",
+      "route": "noticeEdit",
+      "kind": "state",
+      "title": "공지 수정",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5145",
+      "reach": "공지 상세의 '수정' (detail=공지 id)",
+      "condition": "방장만",
+      "uiText": [
+        "공지 수정",
+        "← 공지",
+        "수정 저장"
+      ]
+    },
+    {
+      "id": "quest",
+      "route": "quest",
+      "kind": "screen",
+      "title": "퀘스트 상세 (주민별 달성률)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5245",
+      "reach": "퀘스트 목록 카드의 '자세히 보기 ›'",
+      "condition": "'수정'은 방장만. '보상 받기' 버튼은 서버 모드에서 수령 가능할 때만",
+      "uiText": [
+        "← 목록",
+        "주민별 달성률",
+        "보상 받기 · {N}마리"
+      ]
+    },
+    {
+      "id": "quest.homeList",
+      "route": "quest",
+      "kind": "state",
+      "title": "퀘스트 목록 (홈 쪽지로 진입)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4251",
+      "reach": "홈의 퀘스트 쪽지(HomeQuestIndicator) 탭 — go('quest','home-quest-list')",
+      "condition": "화면은 board.questTab 과 같음. 보상 모달은 이 섬의 미수령 개인 보상만 뜸",
+      "uiText": [
+        "매일 새 도전",
+        "퀘스트",
+        "자세히 보기 ›"
+      ]
+    },
+    {
+      "id": "quest.error",
+      "route": "quest",
+      "kind": "state",
+      "title": "퀘스트 상세 — 불러오기 실패",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5278",
+      "reach": "퀘스트 진행률 API 실패",
+      "condition": "서버 모드만",
+      "uiText": [
+        "불러오지 못했어요.",
+        "다시 시도"
+      ]
+    },
+    {
+      "id": "quest.claimToast",
+      "route": "quest",
+      "kind": "toast",
+      "title": "퀘스트 보상 수령 토스트",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4767",
+      "reach": "퀘스트 상세의 '보상 받기'",
+      "condition": "서버 모드만",
+      "uiText": [
+        "보상 {N}마리가 섬에 쌓였어요",
+        "보상 {N}마리와 전원 달성 보너스 {M}마리가 섬에 쌓였어요"
+      ]
+    },
+    {
+      "id": "questEdit",
+      "route": "questEdit",
+      "kind": "screen",
+      "title": "퀘스트 만들기",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5361",
+      "reach": "퀘스트 목록의 '+ 만들기'",
+      "condition": "방장만",
+      "uiText": [
+        "퀘스트 만들기",
+        "퀘스트 종류",
+        "퀘스트 시작"
+      ]
+    },
+    {
+      "id": "questEdit.edit",
+      "route": "questEdit",
+      "kind": "state",
+      "title": "퀘스트 수정",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5376",
+      "reach": "퀘스트 상세의 '수정' (detail=퀘스트 id)",
+      "condition": "방장만. 서버 모드는 제목·목표 분만 수정 가능",
+      "uiText": [
+        "퀘스트 수정",
+        "종류·진행 시간은 바꿀 수 없어요. 수정은 다음 회차부터 적용돼요.",
+        "수정 저장"
+      ]
+    },
+    {
+      "id": "library",
+      "route": "library",
+      "kind": "screen",
+      "title": "도서관 원탁 (책 두 권)",
+      "source": "src/screens/island/Library.tsx:161",
+      "reach": "홈 지도에서 도서관 건물 탭(입장 연출 후)",
+      "condition": "도서관 완공 + 내 섬",
+      "uiText": [
+        "내 일기장",
+        "이웃들의 일기장",
+        "나의 하루를 차곡차곡"
+      ]
+    },
+    {
+      "id": "diary",
+      "route": "diary",
+      "kind": "screen",
+      "title": "내 일기장 — 주 · 집중 (기본)",
+      "source": "src/screens/island/library/Diary.tsx:342",
+      "reach": "도서관 원탁의 '내 일기장' 책 탭",
+      "condition": "",
+      "uiText": [
+        "내 일기장",
+        "이번 주 집중",
+        "집중한 날"
+      ]
+    },
+    {
+      "id": "diary.weekPhone",
+      "route": "diary",
+      "kind": "state",
+      "title": "내 일기장 — 주 · 폰 사용",
+      "source": "src/screens/island/library/Diary.tsx:315",
+      "reach": "주 보기에서 '폰 사용' 탭",
+      "condition": "측정 권한·기록이 있을 때",
+      "uiText": [
+        "이번 주 폰 사용",
+        "하루 평균",
+        "측정된 날짜"
+      ]
+    },
+    {
+      "id": "diary.dayFocus",
+      "route": "diary",
+      "kind": "state",
+      "title": "내 일기장 — 일 · 집중",
+      "source": "src/screens/island/library/Diary.tsx:366",
+      "reach": "기간 '일' 선택",
+      "condition": "",
+      "uiText": [
+        "과목별 집중",
+        "최장",
+        "시간대 기록 없음"
+      ]
+    },
+    {
+      "id": "diary.dayPhone",
+      "route": "diary",
+      "kind": "state",
+      "title": "내 일기장 — 일 · 폰 사용",
+      "source": "src/screens/island/library/Diary.tsx:308",
+      "reach": "일 보기에서 '폰 사용' 탭",
+      "condition": "측정 권한·기록이 있을 때 (오늘은 iOS 네이티브 사용량 리포트)",
+      "uiText": [
+        "이날의 폰 사용"
+      ]
+    },
+    {
+      "id": "diary.month",
+      "route": "diary",
+      "kind": "state",
+      "title": "내 일기장 — 월 달력",
+      "source": "src/screens/island/library/Diary.tsx:233",
+      "reach": "기간 '월' 선택",
+      "condition": "집중/폰 사용 탭이 사라지고 달력 + 선택한 날 요약",
+      "uiText": [
+        "{YYYY}년 {M}월",
+        "집중",
+        "폰 사용",
+        "집중 기록"
+      ]
+    },
+    {
+      "id": "diary.focusEmpty",
+      "route": "diary",
+      "kind": "state",
+      "title": "내 일기장 — 집중 기록 없음",
+      "source": "src/screens/island/library/Diary.tsx:334",
+      "reach": "선택한 일/주에 집중 기록이 없을 때",
+      "condition": "",
+      "uiText": [
+        "이 주에는 기록이 없어요",
+        "이날은 기록이 없어요",
+        "집중하러 가기"
+      ]
+    },
+    {
+      "id": "diary.phoneNoPermission",
+      "route": "diary",
+      "kind": "state",
+      "title": "내 일기장 — 측정 권한 없음",
+      "source": "src/screens/island/library/Diary.tsx:282",
+      "reach": "'폰 사용' 탭에서 측정 권한이 꺼져 있을 때",
+      "condition": "스크린타임 권한 없음/거부",
+      "uiText": [
+        "측정 권한이 꺼져 있어요",
+        "측정 설정 열기"
+      ]
+    },
+    {
+      "id": "diary.phoneNoData",
+      "route": "diary",
+      "kind": "state",
+      "title": "내 일기장 — 폰 사용 기록 없음/준비 중",
+      "source": "src/screens/island/library/Diary.tsx:284",
+      "reach": "'폰 사용' 탭에서 권한은 있으나 기록이 없을 때",
+      "condition": "",
+      "uiText": [
+        "측정 기록이 없어요",
+        "기록을 준비하고 있어요",
+        "폰 사용 기록을 이용할 수 없어요"
+      ]
+    },
+    {
+      "id": "diary.loading",
+      "route": "diary",
+      "kind": "state",
+      "title": "일기장 — 불러오는 중(스켈레톤)",
+      "source": "src/screens/island/library/Diary.tsx:224",
+      "reach": "일기장 진입·기간 변경 직후",
+      "condition": "서버 모드만",
+      "uiText": [
+        "(회색 스켈레톤 — 글자 없음)"
+      ]
+    },
+    {
+      "id": "diary.locked",
+      "route": "diary",
+      "kind": "state",
+      "title": "일기장 — 도서관 미완공 응답",
+      "source": "src/screens/island/library/Diary.tsx:225",
+      "reach": "서버가 도서관 미완공으로 응답",
+      "condition": "서버 모드만",
+      "uiText": [
+        "도서관이 아직 완공되지 않았어요",
+        "도서관으로"
+      ]
+    },
+    {
+      "id": "diary.error",
+      "route": "diary",
+      "kind": "state",
+      "title": "일기장 — 불러오기 실패",
+      "source": "src/screens/island/library/Diary.tsx:227",
+      "reach": "기록 API 실패",
+      "condition": "서버 모드만",
+      "uiText": [
+        "기록을 불러오지 못했어요",
+        "다시 불러오기"
+      ]
+    },
+    {
+      "id": "diary.neighbors",
+      "route": "diary",
+      "kind": "state",
+      "title": "이웃들의 일기장 — 주민 목록",
+      "source": "src/screens/island/library/Diary.tsx:394",
+      "reach": "도서관 원탁의 '이웃들의 일기장' 책 탭 (detail=residents)",
+      "condition": "나 외 주민이 있을 때",
+      "uiText": [
+        "이웃들의 일기장",
+        "우리 섬의 일기장 · {N} / 15명"
+      ]
+    },
+    {
+      "id": "diary.neighborsEmpty",
+      "route": "diary",
+      "kind": "state",
+      "title": "이웃들의 일기장 — 이웃 없음",
+      "source": "src/screens/island/library/Diary.tsx:421",
+      "reach": "'이웃들의 일기장' 책 탭",
+      "condition": "나 외 주민이 없을 때",
+      "uiText": [
+        "이웃의 자리가 비어 있어요",
+        "도서관으로"
+      ]
+    },
+    {
+      "id": "diary.neighborDetail",
+      "route": "diary",
+      "kind": "state",
+      "title": "이웃 일기장 상세",
+      "source": "src/screens/island/library/Diary.tsx:423",
+      "reach": "이웃 목록에서 주민 탭",
+      "condition": "일·주·월 탭 없음",
+      "uiText": [
+        "{이름}의 일기장",
+        "최근 7일",
+        "날짜별 기록"
+      ]
+    },
+    {
+      "id": "stats",
+      "route": "stats",
+      "kind": "screen",
+      "title": "우리 섬 기록 (미사용 route)",
+      "source": "src/screens/island/CurrentScreens.tsx:474",
+      "reach": "현재 코드에 도달 경로 없음 — go('stats') 는 Screens.tsx 의 죽은 분기에만 있음",
+      "condition": "도달하면 Diary(내 일기장/이웃 일기장)와 같은 화면으로 그려짐",
+      "uiText": [
+        "내 일기장"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "hall",
+      "to": "manage",
+      "trigger": "책상 위 '섬 관리' 점",
+      "source": "src/screens/island/Hall.tsx:624",
+      "condition": "방장 (서버 모드는 로딩 후)"
+    },
+    {
+      "from": "hall",
+      "to": "manage.resident",
+      "trigger": "책상 위 '섬 관리' 점",
+      "source": "src/screens/island/Hall.tsx:624",
+      "condition": "방장이 아닌 주민 (서버 모드는 로딩 후)"
+    },
+    {
+      "from": "hall",
+      "to": "construction",
+      "trigger": "책상 위 '목각 건물 고르기' 점",
+      "source": "src/screens/island/Hall.tsx:624",
+      "condition": ""
+    },
+    {
+      "from": "hall",
+      "to": "ledger",
+      "trigger": "책상 위 '공동 가계부' 점",
+      "source": "src/screens/island/Hall.tsx:624",
+      "condition": ""
+    },
+    {
+      "from": "manage.loading",
+      "to": "manage",
+      "trigger": "자동: 섬 정보 응답 도착",
+      "source": "src/screens/island/Hall.tsx:1922",
+      "condition": "서버 모드, 방장"
+    },
+    {
+      "from": "manage.loading",
+      "to": "manage.resident",
+      "trigger": "자동: 섬 정보 응답 도착",
+      "source": "src/screens/island/Hall.tsx:1922",
+      "condition": "서버 모드, 주민"
+    },
+    {
+      "from": "manage.loading",
+      "to": "manage.error",
+      "trigger": "자동: 불러오기 실패",
+      "source": "src/screens/island/Hall.tsx:1937",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "manage.loading",
+      "to": "manage.forbidden",
+      "trigger": "자동: 주민 자격 없음 응답",
+      "source": "src/screens/island/Hall.tsx:1968",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "manage.error",
+      "to": "manage",
+      "trigger": "다시 시도",
+      "source": "src/screens/island/Hall.tsx:1957",
+      "condition": "재조회 성공 시"
+    },
+    {
+      "from": "manage.forbidden",
+      "to": "manage",
+      "trigger": "다시 시도",
+      "source": "src/screens/island/Hall.tsx:1988",
+      "condition": "재조회 성공 시"
+    },
+    {
+      "from": "manage",
+      "to": "manage.edit",
+      "trigger": "섬 이름 옆 연필 버튼(섬 정보 수정)",
+      "source": "src/screens/island/Hall.tsx:2648",
+      "condition": "방장만"
+    },
+    {
+      "from": "manage",
+      "to": "manage.memberMenu",
+      "trigger": "주민 칸 탭",
+      "source": "src/screens/island/Hall.tsx:2797",
+      "condition": "방장만, 방장 본인 칸 제외"
+    },
+    {
+      "from": "manage",
+      "to": "manage.inviteShare",
+      "trigger": "섬에 친구 초대하기 (공유 버튼)",
+      "source": "src/screens/island/Hall.tsx:2826",
+      "condition": ""
+    },
+    {
+      "from": "manage",
+      "to": "manage.requestToast",
+      "trigger": "가입 신청 행의 '승인' / 거절(×)",
+      "source": "src/screens/island/Hall.tsx:2757",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "manage.resident",
+      "to": "manage.inviteShare",
+      "trigger": "섬에 친구 초대하기 (공유 버튼)",
+      "source": "src/screens/island/Hall.tsx:2826",
+      "condition": ""
+    },
+    {
+      "from": "manage.resident",
+      "to": "manage.leaveConfirm",
+      "trigger": "섬 탈퇴",
+      "source": "src/screens/island/Hall.tsx:2141",
+      "condition": "집중 중이 아닐 때"
+    },
+    {
+      "from": "manage.resident",
+      "to": "manage.leaveBlockedToast",
+      "trigger": "섬 탈퇴",
+      "source": "src/screens/island/Hall.tsx:2005",
+      "condition": "집중 세션 진행 중"
+    },
+    {
+      "from": "manage.edit",
+      "to": "manage",
+      "trigger": "저장하기",
+      "source": "src/screens/island/Hall.tsx:2472",
+      "condition": "토스트 '섬 정보를 저장했어요.' (서버 모드는 저장 성공 시)"
+    },
+    {
+      "from": "manage.edit",
+      "to": "manage.capacityDialog",
+      "trigger": "'주민 정원' 행",
+      "source": "src/screens/island/Hall.tsx:2427",
+      "condition": ""
+    },
+    {
+      "from": "manage.edit",
+      "to": "manage.transfer",
+      "trigger": "'방장 위임' 행",
+      "source": "src/screens/island/Hall.tsx:2462",
+      "condition": "위임할 주민이 있을 때"
+    },
+    {
+      "from": "manage.edit",
+      "to": "manage.transfer",
+      "trigger": "섬 탈퇴",
+      "source": "src/screens/island/Hall.tsx:2013",
+      "condition": "방장이고 다른 주민이 있을 때 — 토스트 '방장은 바로 섬을 나갈 수 없어요. 방장을 위임한 뒤 나가주세요.'"
+    },
+    {
+      "from": "manage.edit",
+      "to": "manage.leaveConfirm",
+      "trigger": "섬 탈퇴",
+      "source": "src/screens/island/Hall.tsx:2017",
+      "condition": "방장 혼자 남은 섬"
+    },
+    {
+      "from": "manage.edit",
+      "to": "manage.leaveBlockedToast",
+      "trigger": "섬 탈퇴",
+      "source": "src/screens/island/Hall.tsx:2005",
+      "condition": "집중 세션 진행 중"
+    },
+    {
+      "from": "manage.transfer",
+      "to": "manage.transferConfirm",
+      "trigger": "위임할 주민 행 탭",
+      "source": "src/screens/island/Hall.tsx:2283",
+      "condition": ""
+    },
+    {
+      "from": "manage.memberMenu",
+      "to": "manage.transferConfirm",
+      "trigger": "방장 위임",
+      "source": "src/screens/island/Hall.tsx:2222",
+      "condition": ""
+    },
+    {
+      "from": "manage.memberMenu",
+      "to": "manage.kickConfirm",
+      "trigger": "섬에서 내보내기",
+      "source": "src/screens/island/Hall.tsx:2224",
+      "condition": ""
+    },
+    {
+      "from": "manage.transferConfirm",
+      "to": "manage.resident",
+      "trigger": "위임하기",
+      "source": "src/screens/island/Hall.tsx:2180",
+      "condition": "토스트 '{이름}에게 방장을 위임했어요.' 후 카드로 (이제 주민 뷰)"
+    },
+    {
+      "from": "manage.kickConfirm",
+      "to": "manage",
+      "trigger": "내보내기",
+      "source": "src/screens/island/Hall.tsx:2231",
+      "condition": "토스트 '{이름}님을 섬에서 내보냈어요.'"
+    },
+    {
+      "from": "manage.leaveConfirm",
+      "to": "home",
+      "trigger": "탈퇴하기 / 삭제하고 탈퇴",
+      "source": "src/screens/island/Hall.tsx:2033",
+      "condition": "가입한 다른 섬이 있을 때 (그 섬 홈으로)"
+    },
+    {
+      "from": "manage.leaveConfirm",
+      "to": "chooseIsland",
+      "trigger": "탈퇴하기 / 삭제하고 나가기",
+      "source": "src/screens/island/Hall.tsx:2034",
+      "condition": "가입한 다른 섬이 없을 때 (기록 초기화 후 이동)"
+    },
+    {
+      "from": "manage.visitor",
+      "to": "home",
+      "trigger": "이 섬에 가입",
+      "source": "src/screens/island/Hall.tsx:2864",
+      "condition": "승인이 필요 없는 섬 — 토스트 '{섬 이름} 주민이 됐어요'"
+    },
+    {
+      "from": "manage.visitor",
+      "to": "manage.joinAppliedToast",
+      "trigger": "가입 신청",
+      "source": "src/screens/island/Hall.tsx:2860",
+      "condition": "가입 승인이 필요한 섬"
+    },
+    {
+      "from": "ledger",
+      "to": "ledger.earnTab",
+      "trigger": "책갈피 '적립'",
+      "source": "src/screens/island/Hall.tsx:725",
+      "condition": ""
+    },
+    {
+      "from": "ledger",
+      "to": "ledger.spendTab",
+      "trigger": "책갈피 '지출'",
+      "source": "src/screens/island/Hall.tsx:725",
+      "condition": ""
+    },
+    {
+      "from": "ledger.earnTab",
+      "to": "ledger",
+      "trigger": "책갈피 '잔액'",
+      "source": "src/screens/island/Hall.tsx:725",
+      "condition": ""
+    },
+    {
+      "from": "ledger.earnTab",
+      "to": "ledger.spendTab",
+      "trigger": "책갈피 '지출'",
+      "source": "src/screens/island/Hall.tsx:725",
+      "condition": ""
+    },
+    {
+      "from": "ledger.spendTab",
+      "to": "ledger",
+      "trigger": "책갈피 '잔액'",
+      "source": "src/screens/island/Hall.tsx:725",
+      "condition": ""
+    },
+    {
+      "from": "ledger.spendTab",
+      "to": "ledger.earnTab",
+      "trigger": "책갈피 '적립'",
+      "source": "src/screens/island/Hall.tsx:725",
+      "condition": ""
+    },
+    {
+      "from": "ledger.loading",
+      "to": "ledger",
+      "trigger": "자동: 원장 응답 도착",
+      "source": "src/screens/island/Hall.tsx:823",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "ledger.loading",
+      "to": "ledger.empty",
+      "trigger": "자동: 해당 월 내역 없음",
+      "source": "src/screens/island/Hall.tsx:943",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "ledger.loading",
+      "to": "ledger.error",
+      "trigger": "자동: 불러오기 실패",
+      "source": "src/screens/island/Hall.tsx:837",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "ledger.error",
+      "to": "ledger",
+      "trigger": "다시 시도",
+      "source": "src/screens/island/Hall.tsx:858",
+      "condition": "재조회 성공 시"
+    },
+    {
+      "from": "construction.loading",
+      "to": "construction",
+      "trigger": "자동: 건설 옵션 응답 도착",
+      "source": "src/screens/island/Hall.tsx:1245",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "construction.loading",
+      "to": "construction.error",
+      "trigger": "자동: 불러오기 실패",
+      "source": "src/screens/island/Hall.tsx:1249",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "construction.loading",
+      "to": "construction.allDone",
+      "trigger": "자동: 지을 건물이 남지 않음",
+      "source": "src/screens/island/Hall.tsx:1292",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "construction.error",
+      "to": "construction",
+      "trigger": "다시 시도",
+      "source": "src/screens/island/Hall.tsx:1261",
+      "condition": "재조회 성공 시"
+    },
+    {
+      "from": "construction",
+      "to": "construction.plan",
+      "trigger": "건물 카드 탭",
+      "source": "src/screens/island/Hall.tsx:1359",
+      "condition": "방장이고 선택 가능한 건물"
+    },
+    {
+      "from": "construction",
+      "to": "construction.planBlocked",
+      "trigger": "건물 카드 탭",
+      "source": "src/screens/island/Hall.tsx:1359",
+      "condition": "주민이거나 잠긴 건물(선행 미완공·다른 공사 중)"
+    },
+    {
+      "from": "construction",
+      "to": "construction.planCollect",
+      "trigger": "건물 카드 탭",
+      "source": "src/screens/island/Hall.tsx:1359",
+      "condition": "현재 목표인 건물"
+    },
+    {
+      "from": "construction",
+      "to": "construction.planBuilding",
+      "trigger": "건물 카드 탭",
+      "source": "src/screens/island/Hall.tsx:1359",
+      "condition": "공사 중인 건물"
+    },
+    {
+      "from": "construction",
+      "to": "construction.planDone",
+      "trigger": "건물 카드 탭",
+      "source": "src/screens/island/Hall.tsx:1359",
+      "condition": "완공된 건물 — mock(review/demo) 모드만"
+    },
+    {
+      "from": "construction.plan",
+      "to": "construction.planCollect",
+      "trigger": "이 건물을 목표로 정하기",
+      "source": "src/screens/island/Hall.tsx:1853",
+      "condition": "기존 목표가 없을 때. 토스트 '{건물}을 목표로 정했어요.'(서버) / '게시판에 건설 퀘스트가 등록됐어요.'(mock)"
+    },
+    {
+      "from": "construction.plan",
+      "to": "construction.changeGoalConfirm",
+      "trigger": "이 건물을 목표로 정하기",
+      "source": "src/screens/island/Hall.tsx:1855",
+      "condition": "이미 다른 건물이 목표일 때"
+    },
+    {
+      "from": "construction.changeGoalConfirm",
+      "to": "construction.planCollect",
+      "trigger": "바꾸기",
+      "source": "src/screens/island/Hall.tsx:1858",
+      "condition": ""
+    },
+    {
+      "from": "construction.planCollect",
+      "to": "construction.planBuilding",
+      "trigger": "건설하기",
+      "source": "src/screens/island/Hall.tsx:1867",
+      "condition": "서버 모드, 방장, 잔액 충분. 토스트 '{건물} 공사를 시작했어요.'"
+    },
+    {
+      "from": "construction.planCollect",
+      "to": "board.blueprintWaiting",
+      "trigger": "게시판에서 보기 ›",
+      "source": "src/screens/island/Hall.tsx:1761",
+      "condition": "mock(review/demo) 모드만. go('quest','building') — 준비 상태에 따라 board.blueprintReady 일 수 있음"
+    },
+    {
+      "from": "construction.planDone",
+      "to": "library",
+      "trigger": "도서관로 가기",
+      "source": "src/screens/island/Hall.tsx:1873",
+      "condition": "도서관 완공 — mock(review/demo) 모드만"
+    },
+    {
+      "from": "construction.planDone",
+      "to": "tower",
+      "trigger": "전망대로 가기",
+      "source": "src/screens/island/Hall.tsx:1873",
+      "condition": "전망대 완공 — mock(review/demo) 모드만"
+    },
+    {
+      "from": "construction.planDone",
+      "to": "mail",
+      "trigger": "우체통로 가기",
+      "source": "src/screens/island/Hall.tsx:1873",
+      "condition": "우체통 완공 — mock(review/demo) 모드만"
+    },
+    {
+      "from": "construction.planDone",
+      "to": "sound",
+      "trigger": "축음기로 가기",
+      "source": "src/screens/island/Hall.tsx:1873",
+      "condition": "축음기 완공 — mock(review/demo) 모드만"
+    },
+    {
+      "from": "construction.planDone",
+      "to": "shop",
+      "trigger": "상점로 가기",
+      "source": "src/screens/island/Hall.tsx:1873",
+      "condition": "상점 완공 — mock(review/demo) 모드만"
+    },
+    {
+      "from": "hall.noIsland",
+      "to": "chooseIsland",
+      "trigger": "첫 섬 선택으로",
+      "source": "src/screens/island/CurrentScreens.tsx:368",
+      "condition": "기록 초기화(reset) 후 이동"
+    },
+    {
+      "from": "hall.residentsOnly",
+      "to": "home",
+      "trigger": "확인",
+      "source": "src/screens/island/CurrentScreens.tsx:403",
+      "condition": "구경 중인 섬의 홈으로"
+    },
+    {
+      "from": "hall.notBuilt",
+      "to": "home",
+      "trigger": "확인",
+      "source": "src/screens/island/CurrentScreens.tsx:452",
+      "condition": ""
+    },
+    {
+      "from": "board.notBuilt",
+      "to": "construction",
+      "trigger": "회관에서 다음 건물 보기",
+      "source": "src/screens/island/CurrentScreens.tsx:452",
+      "condition": "방장이고 회관 완공"
+    },
+    {
+      "from": "board.notBuilt",
+      "to": "home",
+      "trigger": "확인",
+      "source": "src/screens/island/CurrentScreens.tsx:452",
+      "condition": "주민이거나 회관 미완공"
+    },
+    {
+      "from": "library.notBuilt",
+      "to": "construction",
+      "trigger": "회관에서 다음 건물 보기",
+      "source": "src/screens/island/CurrentScreens.tsx:452",
+      "condition": "방장이고 회관 완공"
+    },
+    {
+      "from": "library.notBuilt",
+      "to": "home",
+      "trigger": "확인",
+      "source": "src/screens/island/CurrentScreens.tsx:452",
+      "condition": "주민이거나 회관 미완공"
+    },
+    {
+      "from": "board",
+      "to": "board.noticeTab",
+      "trigger": "장면의 '공지' 종이",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6107",
+      "condition": ""
+    },
+    {
+      "from": "board",
+      "to": "board.noticeTabEmpty",
+      "trigger": "장면의 '공지' 종이",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6107",
+      "condition": "공지가 없을 때"
+    },
+    {
+      "from": "board",
+      "to": "board.questTab",
+      "trigger": "장면의 '퀘스트' 종이",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6140",
+      "condition": ""
+    },
+    {
+      "from": "board",
+      "to": "board.questTabEmpty",
+      "trigger": "장면의 '퀘스트' 종이",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6140",
+      "condition": "퀘스트가 없을 때"
+    },
+    {
+      "from": "board",
+      "to": "board.listError",
+      "trigger": "장면의 '공지' 또는 '퀘스트' 종이",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4845",
+      "condition": "서버 모드, 목록 불러오기 실패"
+    },
+    {
+      "from": "board",
+      "to": "board.blueprintNone",
+      "trigger": "장면의 목각 건물·청사진 영역",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6172",
+      "condition": "건설 목표 없음 (방문자에게는 영역 없음)"
+    },
+    {
+      "from": "board",
+      "to": "board.blueprintWaiting",
+      "trigger": "장면의 목각 건물·청사진 영역",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6172",
+      "condition": "목표 있음, 요구량 미달 (방문자에게는 영역 없음)"
+    },
+    {
+      "from": "board",
+      "to": "board.blueprintReady",
+      "trigger": "장면의 목각 건물·청사진 영역",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6172",
+      "condition": "요구량 충족 (방문자에게는 영역 없음)"
+    },
+    {
+      "from": "board",
+      "to": "board.blueprintBuilding",
+      "trigger": "장면의 목각 건물·청사진 영역",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6172",
+      "condition": "공사 중 (방문자에게는 영역 없음)"
+    },
+    {
+      "from": "board",
+      "to": "board.blueprintComplete",
+      "trigger": "장면의 목각 건물·청사진 영역",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6172",
+      "condition": "직전 건설 완공 (방문자에게는 영역 없음)"
+    },
+    {
+      "from": "board",
+      "to": "board.rewardModal",
+      "trigger": "자동: 미확인 퀘스트 보상이 있으면 진입 즉시",
+      "source": "src/screens/island/CurrentScreens.tsx:483",
+      "condition": "내 섬, 로컬 보상 목록 기준"
+    },
+    {
+      "from": "board",
+      "to": "board.bonusRewardModal",
+      "trigger": "자동: 미확인 전원 달성 보너스가 있으면 진입 즉시",
+      "source": "src/screens/island/CurrentScreens.tsx:483",
+      "condition": "내 섬, 로컬 보상 목록 기준"
+    },
+    {
+      "from": "board.rewardModal",
+      "to": "board.bonusRewardModal",
+      "trigger": "보상받기",
+      "source": "src/screens/island/CurrentScreens.tsx:2919",
+      "condition": "다음 미확인 항목이 전원 달성 보너스일 때"
+    },
+    {
+      "from": "board.noticeTab",
+      "to": "board.questTab",
+      "trigger": "패널 전환 버튼(퀘스트 패널로 전환)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6278",
+      "condition": ""
+    },
+    {
+      "from": "board.questTab",
+      "to": "board.noticeTab",
+      "trigger": "패널 전환 버튼(공지 패널로 전환)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6278",
+      "condition": ""
+    },
+    {
+      "from": "board.noticeTab",
+      "to": "notice",
+      "trigger": "공지 항목 탭",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4862",
+      "condition": "주민"
+    },
+    {
+      "from": "board.noticeTab",
+      "to": "notice.visitor",
+      "trigger": "공지 항목 탭",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4862",
+      "condition": "다른 섬 구경 중"
+    },
+    {
+      "from": "board.noticeTab",
+      "to": "noticeEdit",
+      "trigger": "+ 새 공지",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4838",
+      "condition": "방장만"
+    },
+    {
+      "from": "board.noticeTabEmpty",
+      "to": "noticeEdit",
+      "trigger": "+ 새 공지",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4838",
+      "condition": "방장만"
+    },
+    {
+      "from": "board.noticeTab",
+      "to": "home",
+      "trigger": "‹ 섬으로 돌아가기 (왼쪽 위)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:903",
+      "condition": "건물 퇴장 전환 후 홈"
+    },
+    {
+      "from": "board.questTab",
+      "to": "home",
+      "trigger": "‹ 섬으로 돌아가기 (왼쪽 위)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:903",
+      "condition": "건물 퇴장 전환 후 홈"
+    },
+    {
+      "from": "board.listError",
+      "to": "board.noticeTab",
+      "trigger": "다시 시도",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4853",
+      "condition": "재조회 성공 시 (퀘스트 종이였다면 board.questTab)"
+    },
+    {
+      "from": "board.questTab",
+      "to": "quest",
+      "trigger": "카드의 자세히 보기 ›",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:3748",
+      "condition": ""
+    },
+    {
+      "from": "board.questTab",
+      "to": "questEdit",
+      "trigger": "+ 만들기",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5542",
+      "condition": "방장만"
+    },
+    {
+      "from": "board.questTabEmpty",
+      "to": "questEdit",
+      "trigger": "+ 만들기",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5542",
+      "condition": "방장만"
+    },
+    {
+      "from": "quest.homeList",
+      "to": "quest",
+      "trigger": "카드의 자세히 보기 ›",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:3748",
+      "condition": ""
+    },
+    {
+      "from": "quest.homeList",
+      "to": "questEdit",
+      "trigger": "+ 만들기",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5542",
+      "condition": "방장만"
+    },
+    {
+      "from": "quest.homeList",
+      "to": "board.noticeTab",
+      "trigger": "패널 전환 버튼(공지 패널로 전환)",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:6278",
+      "condition": "route 를 board 로 교체(replace)"
+    },
+    {
+      "from": "quest.homeList",
+      "to": "board.rewardModal",
+      "trigger": "자동: 이 섬의 미수령 개인 보상이 있으면 진입 즉시",
+      "source": "src/screens/island/CurrentScreens.tsx:320",
+      "condition": "내 섬, 로컬 보상 목록 기준"
+    },
+    {
+      "from": "notice",
+      "to": "notice.comment",
+      "trigger": "+ 댓글 쓰기",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5016",
+      "condition": "주민(방문자 제외)"
+    },
+    {
+      "from": "notice.comment",
+      "to": "notice",
+      "trigger": "등록 →",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5075",
+      "condition": "댓글 등록 성공 시 입력창이 닫히고 댓글이 목록에 추가"
+    },
+    {
+      "from": "notice",
+      "to": "noticeEdit.edit",
+      "trigger": "수정",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4986",
+      "condition": "방장만"
+    },
+    {
+      "from": "notice",
+      "to": "notice.deleteConfirm",
+      "trigger": "삭제",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4991",
+      "condition": "방장만"
+    },
+    {
+      "from": "notice",
+      "to": "notice.commentDeleteConfirm",
+      "trigger": "댓글 옆 '삭제'",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5112",
+      "condition": "mock(review/demo) 모드만, 방장 또는 내 댓글"
+    },
+    {
+      "from": "notice.deleteConfirm",
+      "to": "board.noticeTab",
+      "trigger": "삭제",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5216",
+      "condition": "삭제 성공 시 목록으로"
+    },
+    {
+      "from": "notice.commentDeleteConfirm",
+      "to": "notice",
+      "trigger": "삭제",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5216",
+      "condition": "댓글이 지워진 상세로"
+    },
+    {
+      "from": "notice.error",
+      "to": "notice",
+      "trigger": "다시 시도",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4942",
+      "condition": "재조회 성공 시"
+    },
+    {
+      "from": "noticeEdit",
+      "to": "board.noticeTab",
+      "trigger": "게시하기",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5181",
+      "condition": "제목·본문 입력 + 저장 성공 시 목록으로"
+    },
+    {
+      "from": "noticeEdit.edit",
+      "to": "notice",
+      "trigger": "수정 저장",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5181",
+      "condition": "저장 성공 시 상세로"
+    },
+    {
+      "from": "quest",
+      "to": "questEdit.edit",
+      "trigger": "수정",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5274",
+      "condition": "방장만"
+    },
+    {
+      "from": "quest",
+      "to": "quest.claimToast",
+      "trigger": "보상 받기 · {N}마리",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5343",
+      "condition": "서버 모드, 수령 가능(claimable)할 때"
+    },
+    {
+      "from": "quest.error",
+      "to": "quest",
+      "trigger": "다시 시도",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5286",
+      "condition": "재조회 성공 시"
+    },
+    {
+      "from": "questEdit",
+      "to": "board.questTab",
+      "trigger": "퀘스트 시작",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5515",
+      "condition": "입력 검증 통과 + 저장 성공 시 목록으로"
+    },
+    {
+      "from": "questEdit.edit",
+      "to": "quest",
+      "trigger": "수정 저장",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5515",
+      "condition": "저장 성공 시 상세로"
+    },
+    {
+      "from": "board.blueprintWaiting",
+      "to": "board.blueprintReady",
+      "trigger": "자동: 주민 전원 요구량 충족 + 섬 잔액 충분",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:4232",
+      "condition": ""
+    },
+    {
+      "from": "board.blueprintReady",
+      "to": "board.buildConfirm",
+      "trigger": "건설하기",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5783",
+      "condition": "방장만"
+    },
+    {
+      "from": "board.buildConfirm",
+      "to": "board.blueprintBuilding",
+      "trigger": "확인",
+      "source": "src/App.tsx:1752",
+      "condition": "토스트 '{건물} 공사를 시작했어요.'"
+    },
+    {
+      "from": "board.blueprintBuilding",
+      "to": "board.blueprintComplete",
+      "trigger": "자동: 공사 시간 경과로 완공",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:3860",
+      "condition": ""
+    },
+    {
+      "from": "board.blueprintComplete",
+      "to": "library",
+      "trigger": "도서관로 이동",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5772",
+      "condition": "완공된 건물이 도서관일 때"
+    },
+    {
+      "from": "board.blueprintComplete",
+      "to": "tower",
+      "trigger": "전망대로 이동",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5772",
+      "condition": "완공된 건물이 전망대일 때"
+    },
+    {
+      "from": "board.blueprintComplete",
+      "to": "mail",
+      "trigger": "우체통로 이동",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5772",
+      "condition": "완공된 건물이 우체통일 때"
+    },
+    {
+      "from": "board.blueprintComplete",
+      "to": "sound",
+      "trigger": "축음기로 이동",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5772",
+      "condition": "완공된 건물이 축음기일 때"
+    },
+    {
+      "from": "board.blueprintComplete",
+      "to": "shop",
+      "trigger": "상점로 이동",
+      "source": "src/screens/interiors/BuildingInteriors.tsx:5772",
+      "condition": "완공된 건물이 상점일 때"
+    },
+    {
+      "from": "library",
+      "to": "diary",
+      "trigger": "원탁의 '내 일기장' 책",
+      "source": "src/screens/island/Library.tsx:198",
+      "condition": ""
+    },
+    {
+      "from": "library",
+      "to": "diary.neighbors",
+      "trigger": "원탁의 '이웃들의 일기장' 책",
+      "source": "src/screens/island/Library.tsx:198",
+      "condition": "나 외 주민이 있을 때"
+    },
+    {
+      "from": "library",
+      "to": "diary.neighborsEmpty",
+      "trigger": "원탁의 '이웃들의 일기장' 책",
+      "source": "src/screens/island/Library.tsx:198",
+      "condition": "나 외 주민이 없을 때"
+    },
+    {
+      "from": "diary.loading",
+      "to": "diary",
+      "trigger": "자동: 기록 응답 도착",
+      "source": "src/screens/island/library/Diary.tsx:224",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "diary.loading",
+      "to": "diary.error",
+      "trigger": "자동: 불러오기 실패",
+      "source": "src/screens/island/library/Diary.tsx:227",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "diary.loading",
+      "to": "diary.locked",
+      "trigger": "자동: 서버가 도서관 미완공 응답",
+      "source": "src/screens/island/library/Diary.tsx:225",
+      "condition": "서버 모드만"
+    },
+    {
+      "from": "diary.error",
+      "to": "diary",
+      "trigger": "다시 불러오기",
+      "source": "src/screens/island/library/Diary.tsx:228",
+      "condition": "재조회 성공 시"
+    },
+    {
+      "from": "diary.locked",
+      "to": "library",
+      "trigger": "도서관으로",
+      "source": "src/screens/island/library/Diary.tsx:226",
+      "condition": ""
+    },
+    {
+      "from": "diary",
+      "to": "diary.weekPhone",
+      "trigger": "'폰 사용' 탭",
+      "source": "src/screens/island/library/Diary.tsx:496",
+      "condition": "측정 권한·기록 있음"
+    },
+    {
+      "from": "diary",
+      "to": "diary.phoneNoPermission",
+      "trigger": "'폰 사용' 탭",
+      "source": "src/screens/island/library/Diary.tsx:496",
+      "condition": "측정 권한 꺼짐/거부"
+    },
+    {
+      "from": "diary",
+      "to": "diary.phoneNoData",
+      "trigger": "'폰 사용' 탭",
+      "source": "src/screens/island/library/Diary.tsx:496",
+      "condition": "권한은 있으나 기록 없음·준비 중"
+    },
+    {
+      "from": "diary",
+      "to": "diary.dayFocus",
+      "trigger": "기간 '일'",
+      "source": "src/screens/island/library/Diary.tsx:471",
+      "condition": ""
+    },
+    {
+      "from": "diary",
+      "to": "diary.month",
+      "trigger": "기간 '월'",
+      "source": "src/screens/island/library/Diary.tsx:471",
+      "condition": ""
+    },
+    {
+      "from": "diary",
+      "to": "diary.focusEmpty",
+      "trigger": "자동: 해당 기간 집중 기록 없음",
+      "source": "src/screens/island/library/Diary.tsx:334",
+      "condition": ""
+    },
+    {
+      "from": "diary.weekPhone",
+      "to": "diary",
+      "trigger": "'집중' 탭",
+      "source": "src/screens/island/library/Diary.tsx:496",
+      "condition": ""
+    },
+    {
+      "from": "diary.weekPhone",
+      "to": "diary.dayPhone",
+      "trigger": "기간 '일'",
+      "source": "src/screens/island/library/Diary.tsx:471",
+      "condition": ""
+    },
+    {
+      "from": "diary.weekPhone",
+      "to": "diary.month",
+      "trigger": "기간 '월'",
+      "source": "src/screens/island/library/Diary.tsx:471",
+      "condition": ""
+    },
+    {
+      "from": "diary.dayFocus",
+      "to": "diary",
+      "trigger": "기간 '주'",
+      "source": "src/screens/island/library/Diary.tsx:471",
+      "condition": ""
+    },
+    {
+      "from": "diary.dayFocus",
+      "to": "diary.month",
+      "trigger": "기간 '월'",
+      "source": "src/screens/island/library/Diary.tsx:471",
+      "condition": ""
+    },
+    {
+      "from": "diary.dayFocus",
+      "to": "diary.dayPhone",
+      "trigger": "'폰 사용' 탭",
+      "source": "src/screens/island/library/Diary.tsx:496",
+      "condition": "측정 권한·기록 있음"
+    },
+    {
+      "from": "diary.dayPhone",
+      "to": "diary.dayFocus",
+      "trigger": "'집중' 탭",
+      "source": "src/screens/island/library/Diary.tsx:496",
+      "condition": ""
+    },
+    {
+      "from": "diary.dayPhone",
+      "to": "diary.weekPhone",
+      "trigger": "기간 '주'",
+      "source": "src/screens/island/library/Diary.tsx:471",
+      "condition": ""
+    },
+    {
+      "from": "diary.month",
+      "to": "diary",
+      "trigger": "기간 '주'",
+      "source": "src/screens/island/library/Diary.tsx:471",
+      "condition": "직전에 '폰 사용' 탭이었다면 diary.weekPhone"
+    },
+    {
+      "from": "diary.month",
+      "to": "diary.dayFocus",
+      "trigger": "기간 '일'",
+      "source": "src/screens/island/library/Diary.tsx:471",
+      "condition": "직전에 '폰 사용' 탭이었다면 diary.dayPhone"
+    },
+    {
+      "from": "diary.focusEmpty",
+      "to": "focusSetup",
+      "trigger": "집중하러 가기",
+      "source": "src/screens/island/library/Diary.tsx:339",
+      "condition": "현재 기간(오늘/이번 주)을 보고 있을 때"
+    },
+    {
+      "from": "diary.focusEmpty",
+      "to": "diary.dayFocus",
+      "trigger": "오늘 기록으로",
+      "source": "src/screens/island/library/Diary.tsx:339",
+      "condition": "과거 기간을 보고 있을 때"
+    },
+    {
+      "from": "diary.phoneNoPermission",
+      "to": "permission",
+      "trigger": "측정 설정 열기",
+      "source": "src/screens/island/library/Diary.tsx:165",
+      "condition": ""
+    },
+    {
+      "from": "diary.neighbors",
+      "to": "diary.neighborDetail",
+      "trigger": "주민 칸 탭",
+      "source": "src/screens/island/library/Diary.tsx:404",
+      "condition": ""
+    },
+    {
+      "from": "diary.neighborsEmpty",
+      "to": "library",
+      "trigger": "도서관으로",
+      "source": "src/screens/island/library/Diary.tsx:421",
+      "condition": ""
+    },
+    {
+      "from": "diary.neighborDetail",
+      "to": "library",
+      "trigger": "× 책 덮기",
+      "source": "src/screens/island/library/Diary.tsx:566",
+      "condition": "주민 목록을 건너뛰고 도서관 원탁으로"
+    }
+  ],
+  "unsure": [
+    "route 'stats': 실제 진입 코드 없음. go('stats') 는 Screens.tsx:1183·3498 에만 있는데 그 분기는 CurrentScreens.tsx:474~476 이 먼저 가로채 실행되지 않음. 도달하면 Diary 와 같은 화면.",
+    "route 'members': go('members') 호출이 코드에 없음. Hall.tsx 는 manage 와 같은 화면으로 그림.",
+    "게시판에는 신고/차단 시트(UserSafetySheet)가 연결돼 있지 않음 — UserSafetySheet 는 우체통(BuildingInteriors.tsx:8397)과 친구 화면(Screens.tsx:6054)에서만 쓰임. 과제 설명의 \"게시판 신고/차단\"은 코드에서 확인하지 못함.",
+    "ServerQuestRewardModal 은 게시판 route 가 아니라 집중 결과 흐름(CurrentScreens.tsx:2204, FocusFlow)에서만 뜸. 게시판 route 의 RewardModal 은 로컬 state.rewards 기준이라 서버 모드에서 실제로 뜨는지 확인 못함(서버 모드 수령은 퀘스트 상세의 \"보상 받기\" 버튼).",
+    "게시판 청사진 패널(board.blueprint*)은 서버 모드에서도 로컬 섬 상태(buildingQuest/construction)로 계산됨 — 서버 모드에서 이 값이 채워지는지, \"건설하기\"(App.build 로컬 dispatch)가 서버 건설로 이어지는지 확인 못함.",
+    "공동 가계부의 방문자 안내(\"섬 주민만 볼 수 있어요\", Hall.tsx:668)는 CurrentScreens 의 구경 중 가드가 ledger 를 먼저 막아 실제로는 도달하지 못하는 것으로 보여 노드에서 뺌.",
+    "섬 탈퇴 확인의 OK 는 로컬 dispatch LEAVE 만 호출(Hall.tsx:2032) — 서버 모드에서 서버 탈퇴 API 가 어디서 호출되는지, 이동 목적지(home/chooseIsland) 판정이 서버 섬 목록과 맞는지 확인 못함.",
+    "잠금 안내(hall/board/library.notBuilt)와 hall.noIsland 는 CurrentScreens 공용 가드. 홈 지도가 미완공 건물 탭을 어떻게 처리하는지(홈 도메인)에 따라 실제 도달 경로가 달라짐 — 도달 경로 미확인.",
+    "manage.error/forbidden 의 '다시 시도' 가 로딩 화면을 다시 거치는지 확인 못함(성공 시 manage 로 표기).",
+    "iOS 첫 게시판 진입 게이트 이후(permission → screenTimeApps → board) 흐름은 다른 도메인이라 확인하지 않음."
+  ]
+}
