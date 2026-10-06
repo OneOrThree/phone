@@ -42,5 +42,43 @@ services:
       timeout: 3s
       retries: 5
 
+  # dev 와 같은 공개 라우팅을 로컬에서 재현하는 선택 프로필 (GROMO-2216). 기본 `up -d db redis` 에는 뜨지 않는다.
+  #
+  #   docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx
+  #
+  # 호스트에서 bootRun 중인 Business·Realtime 앞에 선다 — 127.0.0.1:8088 → Business 8090 · Realtime 8085 가
+  # 기본이고 LOCAL_BUSINESS_PORT·LOCAL_REALTIME_PORT 로 바꾼다. 라우팅 표는 dev 정본
+  # nginx-dev-2.0-routes.conf.example 그대로다(nginx-local-routes.sh 가 upstream 만 치환). 그래서 dev 처럼
+  # /internal·/actuator·옛 Data 경로는 404, 신원·IP 헤더는 빈 값, /ws/realtime 은 Upgrade 를 살려 Realtime 으로 간다.
+  #
+  # ⚠️ 이 경로로 WebSocket 을 붙이면 Realtime 이 보는 Host(host.docker.internal:8085)와 앱이 보내는
+  #    Origin(http://127.0.0.1:8088)이 달라 same-origin 기본값에 걸려 403 이다 — dev 에서 겪은 것과 같은 현상
+  #    (GROMO-2175). Realtime 에 CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088 을 주면 열린다. 직접 포트로 붙일
+  #    때는 둘이 같아 설정 없이 통과했던 것이다.
+  #
+  # TLS 는 없다(평문 80). dev 의 「TLS 종단 뒤 평문 loopback」 중 뒷부분만 재현한다.
+  nginx:
+    logging: *infra-logging
+    profiles: ["nginx"]
+    image: nginx:1.28-alpine  # prod 와 같은 고정 버전
+    container_name: phone-nginx-local
+    ports:
+      - "${LOCAL_NGINX_BIND:-127.0.0.1}:${LOCAL_NGINX_PORT:-8088}:80"
+    environment:
+      LOCAL_BUSINESS_UPSTREAM: host.docker.internal:${LOCAL_BUSINESS_PORT:-8090}
+      LOCAL_REALTIME_UPSTREAM: host.docker.internal:${LOCAL_REALTIME_PORT:-8085}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # macOS Docker Desktop 은 기본 제공, Linux 는 이 줄이 필요
+    volumes:
+      - ./nginx-dev-2.0-routes.conf.example:/etc/nginx/gromo/routes.conf.example:ro
+      - ./nginx-local-routes.sh:/docker-entrypoint.d/40-gromo-local-routes.sh:ro
+    restart: unless-stopped
+    healthcheck:
+      # 정본의 `location /` 가 404 를 돌려주는 것 자체가 「라우팅이 올라왔다」는 신호다. upstream 생사와는 무관.
+      test: ["CMD-SHELL", "wget -q -O /dev/null -S http://127.0.0.1/__nginx_probe 2>&1 | grep -q ' 404 '"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_local_data:
