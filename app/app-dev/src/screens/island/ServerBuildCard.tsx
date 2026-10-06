@@ -2,11 +2,12 @@
  * 서버 모드 홈의 첫 건물(회관·게시판) 짓기 카드 (GROMO-2139).
  *
  * 기획상 회관·게시판은 홈에서 고정 순서로 짓는다(회관이 생기기 전이라 회관 화면을 쓸 수 없다).
- * 홈 진입 호출 수를 늘리지 않게, 접힌 카드는 홈 스냅샷만 그리고 서버 건설 조회
- * (`useConstruction`)는 카드를 펼쳤을 때만 돈다. 가격·건설 가능 여부는 서버 옵션이 정본이고,
- * 착공 뒤 홈 반영은 `onChanged`(홈 스냅샷 재조회)로만 한다 — 로컬 BUILD 는 부르지 않는다.
+ * 한 번 눌러 바로 짓도록 카드가 보이면 서버 건설 옵션(`useConstruction`)을 미리 읽는다 — 이 카드는
+ * 방장에게, 첫 두 건물이 남았을 때만 뜨므로 추가 조회는 그 경우 1회다. 가격·건설 가능 여부는 서버
+ * 옵션이 정본이고, 착공 뒤 홈 반영은 `onChanged`(홈 스냅샷 재조회)로만 한다 — 로컬 BUILD 는 부르지 않는다.
+ * 완공은 서버 스케줄러가 매분 처리하므로, 예정 시각이 지나면 카드가 스스로 홈을 다시 읽는다.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, type ViewStyle } from 'react-native';
 import { Bar, Btn, Txt } from '@/design-system/patterns';
 import { primitiveTokens } from '@/design-system/tokens';
@@ -16,6 +17,9 @@ import { useConstruction } from './useConstruction';
 import { buildBlockedText } from './Hall';
 
 type Tracked = { building: Building; startedAt: number; endsAt: number } | null;
+
+/** 완공 예정 시각이 지난 뒤 홈 스냅샷을 다시 읽는 간격 — 서버 완공 스케줄러는 매분 0초에 돈다. */
+export const COMPLETION_POLL_MS = 10_000;
 
 export function ServerBuildCard({
   islandId,
@@ -43,14 +47,12 @@ export function ServerBuildCard({
   /** 착공·완공 뒤 홈 스냅샷을 다시 읽는다. */
   onChanged: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
-  // 「완공 확인」을 눌렀는데도 아직 진행 중일 때만 보여줄 안내 — tracked branch 안에서만 쓴다.
-  const [checked, setChecked] = useState(false);
   const now = Date.now();
   const construction = useConstruction({
-    active: open,
+    // 공사 중이 아니면 바로 옵션을 읽어 「N마리로 건설하기」 한 버튼으로 짓게 한다
+    active: !tracked,
     islandId,
     now,
     // 이 카드는 「각자 몫」 분모를 보여 주지 않는다 — 주민 전체 페이지 조회는 낭비다.
@@ -67,10 +69,26 @@ export function ServerBuildCard({
   // 섬을 옮긴 것. 건설 버튼을 감추고 새로고침을 유도한다(잘못된 섬에 착공하지 않는다).
   const islandMismatch =
     construction.serverIslandId !== null && construction.serverIslandId !== islandId;
-  // receipt 확보 = 착공 확정 — 재조회 실패로 온 메시지와 상관없이 카드를 접는다
+  // 완공 예정 시각이 지나면 「완공 확인」 버튼 없이 스스로 홈을 다시 읽는다. 완공되면 홈 스냅샷이
+  // tracked 를 지워 이 effect 도 정리된다.
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
+  const endsAt = tracked?.endsAt;
   useEffect(() => {
-    if (tracked) setOpen(false);
-  }, [tracked]);
+    if (endsAt == null) return;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    const first = setTimeout(
+      () => {
+        onChangedRef.current();
+        poll = setInterval(() => onChangedRef.current(), COMPLETION_POLL_MS);
+      },
+      Math.max(0, endsAt - Date.now()),
+    );
+    return () => {
+      clearTimeout(first);
+      if (poll) clearInterval(poll);
+    };
+  }, [endsAt]);
   const name = buildingNames[tracked?.building ?? building];
   const item = construction.options?.items.find((it) => it.id === building);
 
@@ -80,37 +98,13 @@ export function ServerBuildCard({
       { startedAt: tracked.startedAt, completesAt: tracked.endsAt },
       now,
     );
-    meta = `${Math.max(0, Math.ceil((tracked.endsAt - now) / 60000))}분 남음`;
+    meta =
+      progress >= 1
+        ? '완공 처리 중'
+        : `${Math.max(0, Math.ceil((tracked.endsAt - now) / 60000))}분 남음`;
     bar = progress;
-    // 완공은 서버 스케줄러 몫 — 예정 시각이 지나면 홈을 다시 읽어 확인한다
-    action = progress >= 1 && (
-      <>
-        <Btn
-          small
-          id="server-build-refresh"
-          title="완공 확인"
-          onPress={() => {
-            setChecked(true);
-            onChanged();
-          }}
-        />
-        {checked && <Txt kind="meta">아직 마무리 중이에요. 잠시 뒤 다시 확인해 주세요.</Txt>}
-      </>
-    );
-  } else if (!open) {
-    meta = `섬 통장 ${villagePoints}마리`;
-    bar = 0;
-    action = (
-      <Btn
-        small
-        id="server-build-open"
-        title="건설하기"
-        onPress={() => {
-          setMessage('');
-          setOpen(true);
-        }}
-      />
-    );
+    // 완공은 서버 스케줄러 몫 — 위 effect 가 홈을 다시 읽어 자동으로 반영한다
+    action = progress >= 1 && <Txt kind="meta">완공 처리 중이에요. 곧 자동으로 반영돼요.</Txt>;
   } else if (construction.status === 'error') {
     meta = '';
     bar = 0;
@@ -144,7 +138,7 @@ export function ServerBuildCard({
     );
   } else if (construction.status === 'loading' || !item) {
     // 옵션에 이 건물이 없다 = 이미 완공 — 홈 스냅샷이 늦은 것이라 다시 읽는다
-    meta = '';
+    meta = `섬 통장 ${villagePoints}마리`;
     bar = 0;
     action =
       construction.status === 'ready' ? (
@@ -167,7 +161,6 @@ export function ServerBuildCard({
           construction.build(building).then(
             () => {
               setPending(false);
-              setOpen(false);
               onChanged();
             },
             (error) => {
