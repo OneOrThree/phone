@@ -15,7 +15,7 @@
   - 상점·뗏목·프로필·설정·친구·전망대: `src/screens/island/Screens.tsx`의 시트들
 - 공용 시트는 **×·바깥 탭이 직전 화면이 아니라 홈으로** 간다. ‹ 뒤로만 직전 화면이다.
 - iOS에서 `board`·`quest`로 가는 이동은 최초 1회 `permission`으로 우회한다.
-- 연습용 모드(웹 `?review`·`?demo`, 네이티브 `EXPO_PUBLIC_DEMO=1`)와 서버 모드가 공존한다. 판정은 `src/services/demoMode.ts` — 2026-10-05에는 아직 커밋되지 않은 파일이었다.
+- 연습용 모드(웹 `?review`·`?demo`)와 서버 모드가 공존한다. main(2026-10-06 확인)에서는 `src/App.tsx` 머리 부분이 `?review`·`?demo`를 직접 판정하고 네이티브 연습용 모드(`EXPO_PUBLIC_DEMO=1`)는 없다. 이를 `src/services/demoMode.ts` 한 곳으로 모으는 변경은 아직 머지되지 않은 브랜치에 있다 — 그 파일이 있으면 거기를, 없으면 `App.tsx`를 본다.
 - 몽돌 튜토리얼은 `state.tutorial.step` 0~21(13은 없음). 0~3 `guide`, 4 `home`, 5~6 `fishingArrival`, 7~8 `focusSetup`, 9~18 `focus`(15는 `rest`), 19~21 `focusResult`.
 
 ## 담당 나누기

@@ -1,5 +1,5 @@
 // 전망대·다른 섬 구경·우체통·친구·채팅 묶음. 한 줄 = 한 장, name_ = 대상 id (→ shots/final/<id>.png)
-// 실행: CAPTURE_CONFIG=cfg-tower-mail.cjs CAPTURE_OUT=../shots/tower-mail node capture.cjs
+// 실행: CAPTURE_CONFIG=cfg-tower-mail.cjs CAPTURE_OUT=../shots/tower-mail node $SK/capture.cjs   (SK = 스킬의 scripts 폴더 — 공용 하네스는 이 폴더에 없다)
 //
 // 주의: 검색어(search)는 __gromoReview.open 이 지우지 않는다. 그래서 검색어를 넣는 장은 맨 뒤에 모았다.
 // (CAPTURE_IDS 로 한 장만 다시 찍을 때는 새 페이지라 상관없다.)

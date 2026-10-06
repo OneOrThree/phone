@@ -106,7 +106,8 @@ if (fs.existsSync(tutFile)) {
   edges = edges.filter((e) => !(e.from in oldToNew) && e.from !== 'home.hallGuide' ? true : e.from === 'home.hallGuide').map((e) => ({ ...e, to: remap(e.to) }));
   edges = edges.filter((e) => !(e.to === 'home.hallGuide' && e.from === 'home'));
   for (let i = 0; i < t.steps.length - 1; i++) tutorialChain.push({ from: t.steps[i].id, to: t.steps[i + 1].id, trigger: t.steps[i].next || '다음' });
-  if (t.after && t.steps.length) tutorialChain.push({ from: t.steps[t.steps.length - 1].id, to: 'home.hallGuide', trigger: t.after.enteredBy || t.steps[t.steps.length - 1].next || '섬으로 돌아가기' });
+  // 마지막 화살표의 글씨는 실제로 누르는 버튼만: next 의 "버튼 → 그 뒤 연출 → …" 에서 첫 토막. after.enteredBy 는 도달 조건 설명이라 라벨로 쓰지 않는다
+  if (t.after && t.steps.length) tutorialChain.push({ from: t.steps[t.steps.length - 1].id, to: 'home.hallGuide', trigger: (t.steps[t.steps.length - 1].next || '섬으로 돌아가기').split(' → ')[0] });
   tutorialExits = t.exits || '';
 } else {
   // 단계별 결과가 없을 때: 조사된 묶음 노드를 정해진 순서로 잇는다
@@ -265,7 +266,9 @@ function buildSection(sec, idx) {
     const n = byId.get(id), x = X(id), yy = Y(id);
     const [sc, sw] = STROKE[n.kind] || ['#C8C8C8', 1.5];
     const jpg = path.join(shotsDir, 'jpg', `${id}.jpg`);
-    if (fs.existsSync(jpg)) {
+    const st = status.get(id);
+    // 보고가 uncaptured 면 지난 실행의 JPEG 가 남아 있어도 쓰지 않는다(옛 화면이 들어가는 것을 막는다)
+    if (fs.existsSync(jpg) && !(st && st.status === 'uncaptured')) {
       // 캡처 그림을 SVG 안에 품는다(올릴 때) / 파일 경로로 건다(미리보기)
       const href = EMBED ? `data:image/jpeg;base64,${fs.readFileSync(jpg).toString('base64')}` : `file://${jpg}`;
       S.push(`<image id="img:${esc(id)}" x="${x}" y="${yy}" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice" href="${href}"/>`);
@@ -274,7 +277,6 @@ function buildSection(sec, idx) {
       // 캡처가 없는 화면은 빈 자리 안에 이유를 적는다
       missing.push(id);
       S.push(`<rect id="shot:${esc(id)}" x="${x}" y="${yy}" width="${W}" height="${H}" rx="28" fill="#E9E9E9" stroke="${sc}" stroke-width="${sw}"/>`);
-      const st = status.get(id);
       const why = wrap(st && st.note ? st.note : '웹 연습용 모드에서는 이 화면을 띄울 수 없음', 14, W - 80, 8);
       S.push(`<text id="noshot-title:${esc(id)}" x="${x + 40}" y="${yy + 400}" font-family="Noto Sans KR" font-weight="700" font-size="22" fill="#8C8C8C">캡처 없음</text>`);
       why.forEach((t, i) => S.push(`<text id="noshot:${esc(id)}#${i}" x="${x + 40}" y="${yy + 436 + i * 21}" font-family="Noto Sans KR" font-size="14" fill="#8C8C8C">${esc(t)}</text>`));

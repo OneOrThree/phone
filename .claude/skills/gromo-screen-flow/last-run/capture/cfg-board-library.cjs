@@ -1,8 +1,8 @@
 // 게시판·도서관 묶음. 한 줄 = 한 장. name_ = 대상 id (final 로 복사할 때 그대로 쓴다)
 // 기본 목업: 소다 섬, 내가 방장(주민 중 host 가 없으면 내가 방장), 건물 전부 완공.
 //
-// 다시 찍는 법 (S = workflow 폴더, 전부 CAPTURE_CONFIG=이 파일 CAPTURE_OUT=S/shots/board-library):
-//   1) node capture.cjs                                             — 전체 (공용 하네스)
+// 다시 찍는 법 (S = workflow 폴더, SK = 스킬의 scripts 폴더, 전부 CAPTURE_CONFIG=이 파일 CAPTURE_OUT=S/shots/board-library):
+//   1) node $SK/capture.cjs                                         — 전체 (공용 하네스 — 이 폴더가 아니라 스킬 scripts/ 에 있다)
 //   2) CAPTURE_IDS=007,008,009,010,011 node capture-board-library.cjs — 청사진: App.tsx 의 임시 QA 설정
 //      (TESTFLIGHT_ALL_BUILDINGS)이 섬을 항상 '건물 전부 완공'으로 되돌려서, 그 dispatch 를 끈 사본으로 찍는다
 //   3) CAPTURE_WEEKDAY=6 CAPTURE_IDS=026,027,028,029,030,031,032,033,034,035,036 node capture-board-library.cjs

@@ -5,7 +5,7 @@ description: gromo(GROMO·Catus·Focuscat) 2.0 앱의 모든 화면을 캡처해
 
 # gromo-screen-flow — 앱 화면 흐름도를 피그마에 올리기
 
-gromo 2.0 앱(이 레포의 `app/app-dev`, React Native + Expo)의 화면 전체를 피그마 한 페이지에 "누르면 어디로 가는지"가 보이게 올린다. 2026-10-05에 화면 215개·화살표 195개로 처음 만들었고, 이 스킬은 그때 통한 방법과 막혔던 곳을 정리한 것이다.
+gromo 2.0 앱(이 레포의 `app/app-dev`, React Native + Expo)의 화면 전체를 피그마 한 페이지에 "누르면 어디로 가는지"가 보이게 올린다. 2026-10-05에 화면 215개·화살표 195개로 처음 만들었고, 이 스킬은 그때 통한 방법과 막혔던 곳을 정리한 것이다. 문서에 나오는 "오스카"는 이 스킬의 오너(레포 소유자)다.
 
 ## 결과물
 
@@ -30,6 +30,7 @@ gromo 2.0 앱(이 레포의 `app/app-dev`, React Native + Expo)의 화면 전체
 
 ## 준비물
 
+- **macOS.** `make-jpg.sh`는 `sips`, `upload-svgs.sh`·`simulator.md`는 BSD `stat -f`를 쓰고, 시뮬레이터 보완은 Xcode가 필요하다. 리눅스에서는 그 부분을 바꿔야 한다.
 - 레포를 `npm ci`한 상태(`app/app-dev/node_modules/playwright`를 쓴다 — 따로 설치하지 않는다).
 - Figma MCP(`upload_assets`, `use_figma`)가 연결된 Claude Code. 대상 파일 `new-design`에 편집 권한.
 - 시뮬레이터 보완까지 하려면 Xcode와 Maestro(`brew install maestro`).
@@ -42,6 +43,7 @@ gromo 2.0 앱(이 레포의 `app/app-dev`, React Native + Expo)의 화면 전체
   ```sh
   cp -R <레포>/.claude/skills/gromo-screen-flow/last-run/. $WF/
   ```
+  캡처 원본(`shots/final/`, 모아보기 `_sheet-*.png`)은 레포에 없다. 그래서 처음 쓰는 기계에서는 "갱신"이 아니라 **전체 재캡처**가 되고, 지난번과 나란히 비교할 모아보기도 없다. 캡처 없이 `layout.cjs`만 돌리면 화면 자리가 전부 빈 틀("캡처 없음")로 나온다 — 그림의 뼈대를 확인하는 용도로만 쓴다.
 - `run.json`에 지난 실행의 커밋·개수·피그마 프레임 id·캡처용 시뮬레이터 id가 있다. 시뮬레이터 id는 오스카 기계의 것이라 다른 기계에서는 새로 만든다.
 - 스크립트가 레포 밖에서 돌 때(작업 폴더 안에서 하네스 사본을 돌릴 때 등) 앱 위치는 환경변수 `GROMO_APP=<레포>/app/app-dev`로 알려 준다. 없으면 `~/soma/phone/app/app-dev`로 간주한다.
 
@@ -75,7 +77,7 @@ gromo 2.0 앱(이 레포의 `app/app-dev`, React Native + Expo)의 화면 전체
 
 ## 갱신할 때
 
-1. **범위 가늠.** 빌드는 늘 작업 폴더 그대로를 쓰므로 커밋 안 된 수정까지 본다: `git status --short`, `git diff --stat <run.json의 head> -- app/app-dev/src`.
+1. **범위 가늠.** 빌드는 늘 작업 폴더 그대로를 쓰므로 커밋 안 된 수정까지 본다: `git status --short`, `git diff --stat <run.json의 head> -- app/app-dev/src`. 단, 지난 실행(2026-10-05)의 `run.json`은 `note`대로 커밋 안 된 수정이 섞인 작업 폴더에서 찍은 것이라 `head`와의 diff가 바뀐 양을 **적게** 보여 준다(이동 지도의 `source` 줄번호도 그 코드 기준). 다음 실행부터는 깨끗한 커밋에서 찍고 그 해시를 `head`에 적는다.
 2. **다시 찍기.** 웹 빌드를 새로 만들고, `WF/capture/`의 기존 설정을 새 폴더로 돌린다(`CAPTURE_OUT=$WF/shots-new/<담당>`). 설정 파일 머리말에 정확한 명령이 있고, 명령이 여러 개인 담당은 전부 돌린다. 전체가 3분쯤이다. 모아보기를 지난번(`shots/<담당>/_sheet-*.png`)과 나란히 보고, `-FAILED.png`가 나오거나 달라진 장의 설정만 고친다.
 3. **최종으로 옮기기.** `node $SK/promote.cjs $WF/shots-new/<담당>`. 시뮬레이터로 찍어 둔 화면은 웹 캡처로 덮이지 않게 건너뛴다.
 4. **이동 지도.** 화면이 생기거나 없어진 묶음만 다시 뽑는다.

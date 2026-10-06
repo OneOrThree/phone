@@ -8,6 +8,11 @@ const inRepo = __dirname.includes(path.join('.claude', 'skills'));
 const APP = path.resolve(
   process.env.GROMO_APP || (inRepo ? path.join(__dirname, '../../../..', 'app/app-dev') : path.join(os.homedir(), 'soma/phone/app/app-dev')),
 );
+// 엉뚱한 폴더로 조용히 가지 않게: 앱 폴더가 아니면 바로 멈춘다
+if (!fs.existsSync(path.join(APP, 'package.json'))) {
+  console.error(`앱 폴더가 아닙니다: ${APP}\nGROMO_APP=<레포>/app/app-dev 로 알려 주세요.`);
+  process.exit(1);
+}
 // 작업 폴더: 캡처·이동 지도·그림이 놓이는 곳. 스킬 폴더가 아니라 여기에 읽고 쓴다.
 //   환경변수 WF_DIR → 오스카의 보관 폴더(~/soma/capture-catus, 있을 때만) → 레포의 gitignore 된 app/app-dev/.docs/screen-flow
 const oscarArchive = path.join(os.homedir(), 'soma/capture-catus');

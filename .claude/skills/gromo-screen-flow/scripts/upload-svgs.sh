@@ -5,8 +5,12 @@
 #   사용: upload-svgs.sh <페이지 id (예: 941:2)> <uuid1> <uuid2> ...
 #         ONLY=07-board upload-svgs.sh 941:2 <uuid>     (한 묶음만)
 # 파일은 이름순(00-index, 01-…)으로 uuid 와 짝지어진다. 주소는 한 번만 쓸 수 있고 10분 뒤 만료된다.
+# 한 장이라도 실패하면 종료 상태 1 — 실패한 파일만 ONLY= 로 다시 올린다.
 set -u
-DIR="${WF_DIR:-$HOME/soma/capture-catus}/svg-embed"
+# 작업 폴더는 sections.cjs 와 같은 규칙으로 고른다(WF_DIR → 보관 폴더 → app/app-dev/.docs/screen-flow)
+SK="$(cd "$(dirname "$0")" && pwd)"
+WF="$(WF_QUIET=1 node -p "require('$SK/sections.cjs').ROOT")" || exit 1
+DIR="$WF/svg-embed"
 PAGE="$1"; shift
 FILES=()
 # ONLY=07-board,13-common 처럼 주면 그 묶음만 올린다 (한 묶음만 바뀌었을 때)
@@ -21,6 +25,9 @@ if [ "${#FILES[@]}" -ne "$#" ]; then
 fi
 Q="submit?scaleMode=FILL&currentPageId=${PAGE/:/%3A}"
 i=0
+pids=""   # 배열 대신 문자열 — macOS 기본 bash(3.2)는 set -u 에서 빈 배열 전개가 에러
+fail=0
+wait_all() { for p in $pids; do wait "$p" || fail=1; done; pids=""; }
 for u in "$@"; do
   f="${FILES[$i]}"; i=$((i + 1))
   size=$(stat -f %z "$f")
@@ -28,9 +35,12 @@ for u in "$@"; do
   (
     r=$(curl -sS -m 280 -X POST -F "file=@$f;type=image/svg+xml;filename=$(basename "$f")" "https://mcp.figma.com/mcp/upload/$u/$Q")
     id=$(echo "$r" | grep -o '"placedOnNodeId":"[^"]*"' | cut -d'"' -f4)
-    if [ -n "$id" ]; then echo "$(basename "$f") → $id"; else echo "$(basename "$f") 실패: ${r:0:160}"; fi
+    # 응답에 프레임 id 가 없으면(주소 만료·네트워크·API 오류) 이 작업은 실패
+    if [ -n "$id" ]; then echo "$(basename "$f") → $id"; else echo "$(basename "$f") 실패: ${r:0:160}" >&2; exit 1; fi
   ) &
+  pids="$pids $!"
   # 네 개씩 동시에
-  if [ $((i % 4)) -eq 0 ]; then wait; fi
+  if [ $((i % 4)) -eq 0 ]; then wait_all; fi
 done
-wait
+wait_all
+if [ "$fail" -ne 0 ]; then echo "올리지 못한 파일이 있습니다. 위의 '실패' 줄을 보고 그 묶음만 ONLY= 로 다시 올리세요." >&2; exit 1; fi
