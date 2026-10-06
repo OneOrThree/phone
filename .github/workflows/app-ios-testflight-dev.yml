@@ -12,6 +12,8 @@ name: iOS TestFlight (dev)
 # 이 레포는 공개 레포다. 개인 맥 러너에서 도는 잡은 **main push 와 수동 실행에서만** 돈다.
 # `pull_request` / `pull_request_target` 트리거를 여기에 추가하면 외부인이 보낸 PR 의 코드가
 # 팀원 맥에서 실행될 수 있다. 외부 기여자 워크플로는 레포 설정에서 전부 승인 필요로 돼 있다.
+# 수동 실행도 **실행한 사람의 맥에서만** 돈다. 다른 사람 맥을 고르는 입력은 두지 않는다 — 수동 실행은
+# 아무 브랜치에서나 할 수 있어서, 검토 안 된 브랜치의 코드를 남의 맥에서 돌리는 길이 되기 때문이다.
 #
 # ## 무엇을 돌리나
 # `app/app-dev/ios/testflight.sh --dev` (GROMO-2218) — 서버 주소를 dev 로 고정하고 Fastlane
@@ -24,24 +26,21 @@ on:
     paths:
       - 'app/app-dev/**'
   workflow_dispatch:
-    inputs:
-      runner_label:
-        description: 빌드할 맥의 러너 라벨(깃허브 아이디). 비우면 실행한 사람의 맥
-        required: false
-        type: string
 
-# 연달아 머지돼도 빌드는 한 번에 하나만 — 빌드 번호(TestFlight 최신 + 1)가 겹치지 않게
+# 빌드는 한 번에 하나만(빌드 번호가 TestFlight 최신 + 1 이라 겹치면 안 된다). 연달아 머지되면
+# 뒤 것들이 순서대로 기다린다 — 기본값(queue: single)은 대기 중인 실행을 하나만 남기고 취소한다.
 concurrency:
   group: ios-testflight-dev
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
 
 jobs:
   testflight-dev:
-    name: dev TestFlight 빌드 (${{ inputs.runner_label || github.actor }})
-    runs-on: [self-hosted, macOS, ios, "${{ inputs.runner_label || github.actor }}"]
+    name: dev TestFlight 빌드 (${{ github.actor }})
+    runs-on: [self-hosted, macOS, ios, "${{ github.actor }}"]
     timeout-minutes: 90
     env:
       CI: '1'
@@ -64,6 +63,9 @@ jobs:
           for tool in xcodebuild node npm pod bundle; do
             command -v "$tool" >/dev/null || { echo "::error::러너 PATH 에 $tool 이 없다 (러너를 등록할 때의 셸 PATH 가 .path 에 저장된다)"; fail=1; }
           done
+          # --dev 는 GROMO-2218(#1070) 에서 들어온다. 그 전의 testflight.sh 는 --dev 를 모르고 운영용 검사로 가므로 여기서 막는다.
+          grep -q -- '--dev' app/app-dev/ios/testflight.sh \
+            || { echo "::error::testflight.sh 가 아직 --dev 를 모른다 — GROMO-2218 이 main 에 먼저 들어가야 한다"; fail=1; }
           [ "$fail" = 0 ]
           xcodebuild -version
           node -v
@@ -83,7 +85,7 @@ jobs:
         run: |
           {
             echo "## dev TestFlight"
-            echo "- 러너: \`${{ runner.name }}\` (라벨 ${{ inputs.runner_label || github.actor }})"
+            echo "- 러너: \`${{ runner.name }}\` (라벨 ${{ github.actor }})"
             echo "- 커밋: \`${{ github.sha }}\`"
             echo "- 결과: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"

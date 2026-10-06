@@ -14,8 +14,10 @@
 #   4. 키체인이 백그라운드 서명(codesign)을 허용하게 한다 (맥 비밀번호 입력)
 #   5. 로그인하면 자동으로 뜨는 서비스로 등록하고 시작한다
 #
-# 필요한 것: gh 로그인(레포 admin 또는 러너 등록 권한), Xcode, Homebrew 의 node·cocoapods·ruby(bundler).
-# 등록 토큰은 1시간짜리라 값이 남지 않는다. ASC 키 값은 ~/actions-runner/.env 에만 남는다(600).
+# 필요한 것: gh 로그인(레포 admin — 등록 토큰 발급과 러너 목록 조회가 admin 전용 API 다), Xcode,
+# Homebrew 의 node·cocoapods·ruby(bundler).
+# 등록 토큰은 1시간짜리 일회용이고 config.sh 인자로만 잠깐 쓰인다(파일·로그에 남지 않음).
+# ASC 키 값은 ~/actions-runner/.env 에만 남는다(600).
 set -euo pipefail
 
 REPO="OneOrThree/phone"
@@ -40,13 +42,21 @@ if [ -f config.sh ]; then
   echo "이미 내려받아져 있음: $RUNNER_DIR"
 else
   VER="$(gh api repos/actions/runner/releases/latest --jq .tag_name | sed 's/^v//')"
+  # 릴리스 노트에 적힌 sha256 과 대조한다 — 서명 키가 있는 맥에서 돌 프로그램이라 받은 그대로 풀지 않는다
+  SHA="$(gh api repos/actions/runner/releases/latest --jq '.body | capture("BEGIN SHA osx-arm64 -->(?<sha>[0-9a-f]{64})").sha')" \
+    || die "릴리스 노트에서 osx-arm64 sha256 을 못 찾았다 (v$VER). 형식이 바뀌었는지 https://github.com/actions/runner/releases 확인"
   echo "actions-runner $VER (osx-arm64) 내려받는 중"
   curl -sSL -o runner.tar.gz "https://github.com/actions/runner/releases/download/v$VER/actions-runner-osx-arm64-$VER.tar.gz"
+  echo "$SHA  runner.tar.gz" | shasum -a 256 -c - || die "내려받은 러너의 sha256 이 릴리스 노트와 다르다 — 풀지 않고 멈춘다"
   tar xzf runner.tar.gz && rm runner.tar.gz
 fi
 
 say "2/5 레포에 등록 — 라벨 macOS,ios,$LOGIN"
 if [ -f .runner ]; then
+  # 같은 폴더에 다른 레포용 러너가 있을 수 있다. 라벨은 로컬에 안 남으므로 맨 끝 "확인"에서 API 로 본다.
+  REGISTERED_URL="$(sed -n 's/.*"gitHubUrl": *"\([^"]*\)".*/\1/p' .runner)"
+  [ "$REGISTERED_URL" = "https://github.com/$REPO" ] \
+    || die "$RUNNER_DIR 의 러너는 다른 레포($REGISTERED_URL)용이다. RUNNER_DIR=~/다른폴더 로 다시 실행하거나 ./config.sh remove 뒤 재실행"
   echo "이미 등록돼 있음 ($(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' .runner)). 다시 등록하려면 ./config.sh remove 뒤 재실행"
 else
   NAME="$(hostname -s | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-\n' '-')"
@@ -55,6 +65,7 @@ else
 fi
 
 say "3/5 App Store Connect API 키 (.env)"
+ENV_WRITTEN=0 # 이번 실행에서 .env 를 새로 적었으면 5/5 에서 러너를 재시작한다 (러너는 시작할 때만 .env 를 읽는다)
 if [ -f .env ] && grep -q '^ASC_KEY_ID=' .env; then
   echo "이미 .env 에 ASC 설정이 있음 — 바꾸려면 $RUNNER_DIR/.env 를 직접 고친다"
 else
@@ -65,8 +76,9 @@ else
   read -r -p "ASC_KEY_PATH [$DEFAULT_KEY_PATH]: " ASC_KEY_PATH
   ASC_KEY_PATH="${ASC_KEY_PATH:-$DEFAULT_KEY_PATH}"
   [ -f "$ASC_KEY_PATH" ] || die "키 파일이 없다: $ASC_KEY_PATH"
-  printf 'ASC_KEY_ID=%s\nASC_ISSUER_ID=%s\nASC_KEY_PATH=%s\nLANG=en_US.UTF-8\n' "$ASC_KEY_ID" "$ASC_ISSUER_ID" "$ASC_KEY_PATH" > .env
-  chmod 600 .env
+  # umask 로 처음부터 600 으로 만든다 (만든 뒤 chmod 하면 그 사이가 644)
+  (umask 077; printf 'ASC_KEY_ID=%s\nASC_ISSUER_ID=%s\nASC_KEY_PATH=%s\nLANG=en_US.UTF-8\n' "$ASC_KEY_ID" "$ASC_ISSUER_ID" "$ASC_KEY_PATH" > .env)
+  ENV_WRITTEN=1
 fi
 
 say "4/5 서명 키 접근 허용 (맥 비밀번호를 물어본다)"
@@ -81,23 +93,36 @@ if grep -q "SessionCreate" bin/actions.runner.plist.template; then
   perl -0pi -e 's/\s*<key>SessionCreate<\/key>\s*<true\/>//' bin/actions.runner.plist.template
   echo "서비스 설정에서 SessionCreate 를 뺐다"
 fi
-PLIST="$HOME/Library/LaunchAgents/actions.runner.$(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' .runner 2>/dev/null | head -1).plist"
-if ./svc.sh status 2>/dev/null | grep -q 'Started\|active'; then
-  if ls "$HOME"/Library/LaunchAgents/actions.runner.*.plist >/dev/null 2>&1 && grep -q SessionCreate "$HOME"/Library/LaunchAgents/actions.runner.*.plist; then
-    echo "이미 돌고 있지만 옛 설정(SessionCreate)이라 다시 설치한다"
-    ./svc.sh stop; ./svc.sh uninstall; ./svc.sh install; ./svc.sh start
-  else
-    echo "이미 돌고 있음"
-  fi
-else
+# svc.sh 는 설치한 plist 경로를 .service 에 적는다. install 은 plist 가 이미 있으면 "error: exists" 로 죽고,
+# uninstall 은 stop 을 포함해 멈춘 서비스에는 실패하므로 설치 여부와 실행 여부를 따로 보고 갈라 처리한다.
+PLIST="$(cat .service 2>/dev/null || true)"
+SVC_STATUS="$(./svc.sh status 2>/dev/null || true)"
+running=0
+grep -q '^Started' <<<"$SVC_STATUS" && running=1
+need_start=1
+if [ -z "$PLIST" ] || [ ! -f "$PLIST" ]; then
   ./svc.sh install
-  ./svc.sh start
+elif grep -q SessionCreate "$PLIST"; then
+  echo "옛 설정(SessionCreate)이라 다시 설치한다"
+  if [ "$running" = 1 ]; then ./svc.sh uninstall; else rm -f "$PLIST" .service; fi
+  ./svc.sh install
+elif [ "$running" = 0 ]; then
+  echo "설치돼 있지만 멈춰 있음 — 시작한다"
+elif [ "$ENV_WRITTEN" = 1 ]; then
+  echo ".env 를 새로 적었으니 재시작한다"
+  ./svc.sh stop
+else
+  echo "이미 돌고 있음"
+  need_start=0
 fi
+[ "$need_start" = 0 ] || ./svc.sh start
 sleep 5
 ./svc.sh status || true
 
 say "확인"
-gh api "repos/$REPO/actions/runners" --jq '.runners[] | select(.labels[].name == "'"$LOGIN"'") | "\(.name) | \(.status) | \([.labels[].name] | join(","))"' | sort -u
+FOUND="$(gh api "repos/$REPO/actions/runners" --jq '.runners[] | select(.labels[].name == "'"$LOGIN"'") | "\(.name) | \(.status) | \([.labels[].name] | join(","))"' | sort -u)"
+[ -n "$FOUND" ] || die "레포에 라벨 $LOGIN 인 러너가 안 보인다. 이 폴더의 러너가 다른 라벨로 등록돼 있으면 ./config.sh remove 뒤 재실행"
+echo "$FOUND"
 cat <<EOF
 
 끝. 다음 할 일:
