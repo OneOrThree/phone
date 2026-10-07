@@ -34,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -170,10 +171,10 @@ public class LoginAttemptService {
         // 선점하기 «전» 이다 — 거절할 요청이 원장에 PENDING 을 남기면 안 된다.
         self.gateOptionalSession(request.callerAccessToken());
 
-        LoginSessionResponse replayed = self.claim(request);
-        if (replayed != null) {
+        Claim claim = self.claim(request);
+        if (claim.replay() != null) {
             // 조회와 실행 사이에 남이 끝냈다. 다시 교환하지 않고 그 결과를 그대로 준다.
-            return replayed;
+            return claim.replay();
         }
 
         // ── 여기부터 트랜잭션 밖이다. DB 잠금을 쥐지 않은 채 제공자를 부른다. ──
@@ -191,7 +192,7 @@ public class LoginAttemptService {
                 return self.completeTargetSwitch(request);
             }
             return self.complete(request.attemptId(), switchToLinkedAccount(
-                    request.provider(), providerId, callerUserId));
+                    request.provider(), providerId, callerUserId), claim.fence());
         }
 
         String authorization = request.callerAccessToken() == null
@@ -199,7 +200,7 @@ public class LoginAttemptService {
         SocialLoginResponse login =
                 authService.loginWithProviderId(request.provider(), providerId, authorization);
 
-        return self.complete(request.attemptId(), login);
+        return self.complete(request.attemptId(), login, claim.fence());
     }
 
     /**
@@ -472,7 +473,7 @@ public class LoginAttemptService {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         }
         // 같은 TX 안에서 기존 확정 헬퍼 재사용 — complete 가 attempt 를 다시 조회한다.
-        return self.complete(request.attemptId(), login);
+        return self.complete(request.attemptId(), login, attempt.getClaimedAt());
     }
 
     /**
@@ -527,18 +528,20 @@ public class LoginAttemptService {
     /**
      * 실행권 선점.
      *
-     * @return 이 호출이 선점했으면 {@code null}(호출자가 제공자를 부른다),
+     * @return 이 호출이 선점했으면 {@code replay == null} 이고 {@code fence} 가 내가 쥔 claimed_at,
      *         이미 끝난 시도면 재생할 결과
      */
     @Transactional
-    public LoginSessionResponse claim(LoginAttemptExecuteRequest request) {
-        Instant now = Instant.now();
+    public Claim claim(LoginAttemptExecuteRequest request) {
+        // claimed_at 은 timestamptz(마이크로초)다. 나노초를 그대로 쓰면 DB 가 반올림해 쓰는 순간
+        // complete 의 동등 비교(펜스)가 리눅스에서 어긋난다 — 쓰기 «전에» 잘라 둔다.
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         int claimed = loginAttemptRepository.insertClaim(
                 request.attemptId(), request.digestKeyId(), request.credentialDigest(),
                 request.provider().name(), request.credentialKind(), request.termsVersion(),
                 Boolean.TRUE.equals(request.accountSwitchConfirmed()), now, now.plus(RECOVERY_WINDOW));
         if (claimed == 1) {
-            return null;
+            return new Claim(null, now);
         }
 
         LoginAttempt attempt = loginAttemptRepository.findById(request.attemptId())
@@ -546,7 +549,7 @@ public class LoginAttemptService {
         guard(attempt, request.digestKeyId(), request.credentialDigest(), now);
 
         if (attempt.getStatus() == LoginAttemptStatus.COMPLETED) {
-            return replayOf(attempt);
+            return new Claim(replayOf(attempt), null);
         }
         // PENDING. 임차가 살아 있으면 남이 실행 중이고, 만료됐다면 «조건부로» 회수한다 —
         // 무조건 UPDATE 로 바꾸면 회수 자체가 동시 교환 창이 된다.
@@ -555,14 +558,27 @@ public class LoginAttemptService {
                         request.attemptId(), attempt.getClaimedAt(), now) == 0) {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_IN_PROGRESS);
         }
-        return null;
+        return new Claim(null, now);
+    }
+
+    /** {@link #claim} 결과 — {@code replay} 가 있으면 이미 끝난 시도, 아니면 {@code fence} 가 내 임차 표지. */
+    public record Claim(LoginSessionResponse replay, Instant fence) {
     }
 
     /** 제공자 검증 결과를 원장에 확정한다. 토큰 원문 대신 고정 서명 재료만 남긴다. */
     @Transactional
-    public LoginSessionResponse complete(UUID attemptId, SocialLoginResponse login) {
-        LoginAttempt attempt = loginAttemptRepository.findById(attemptId)
+    public LoginSessionResponse complete(
+            UUID attemptId, SocialLoginResponse login, Instant expectedClaimedAt) {
+        LoginAttempt attempt = loginAttemptRepository.findByAttemptIdForUpdate(attemptId)
                 .orElseThrow(() -> new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE));
+        // 펜스: 제공자가 느려 임차가 만료되면 다른 실행자가 claimed_at 을 바꿔 시도를 회수한다.
+        // 그 뒤에 늦게 돌아온 원래 실행자가 덮어쓰면 한 시도가 세션을 두 번 낸다. UNUSABLE 이 아니라
+        // IN_PROGRESS(409) 인 이유 — 임차를 정당하게 넘겨받은 실행자가 있고, 앱의 복구 경로(조회
+        // 재시도)가 그 승자의 결과를 재생으로 받기 때문이다.
+        if (attempt.getStatus() != LoginAttemptStatus.PENDING
+                || !attempt.getClaimedAt().equals(expectedClaimedAt)) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_IN_PROGRESS);
+        }
 
         UUID userId = jwtProvider.extractUserId(login.accessToken());
         // 방금 로그인한 «본인» 이므로 caller 축이다 — 부재는 404 USER_NOT_FOUND 이고 앱의 답은

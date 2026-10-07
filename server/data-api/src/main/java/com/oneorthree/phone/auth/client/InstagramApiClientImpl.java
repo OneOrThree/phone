@@ -33,6 +33,7 @@ public class InstagramApiClientImpl implements SocialLoginClient {
     public InstagramApiClientImpl(@Value("${instagram.api-base-url}") String baseUrl) {
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
+                .requestFactory(IdpHttp.requestFactory())
                 .build();
     }
 
