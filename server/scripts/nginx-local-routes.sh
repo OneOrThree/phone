@@ -24,6 +24,18 @@ for v in "$LOCAL_BUSINESS_UPSTREAM" "$LOCAL_REALTIME_UPSTREAM"; do
   esac
 done
 
+# 호스트 이름은 IPv4 주소로 풀어 넣는다. host.docker.internal 은 IPv4·IPv6 둘로 풀리는데, nginx 가 IPv6 를 먼저 골라
+# 연결에 실패하면 GET 은 다음 주소로 재시도하지만 POST 는 비멱등이라 재시도하지 않아 그대로 502 가 된다
+# (proxy_next_upstream 기본값). 로그인 POST /auth/sessions 가 간헐적으로 502 나는 것으로 실측했다(2026-10-07).
+ipv4() {
+  host=${1%:*}
+  addr=$(getent ahostsv4 "$host" | awk 'NR==1{print $1}')
+  [ -n "$addr" ] || fail "upstream 호스트 '$host' 의 IPv4 주소를 찾지 못했다"
+  echo "$addr:${1##*:}"
+}
+LOCAL_BUSINESS_UPSTREAM=$(ipv4 "$LOCAL_BUSINESS_UPSTREAM")
+LOCAL_REALTIME_UPSTREAM=$(ipv4 "$LOCAL_REALTIME_UPSTREAM")
+
 src=/etc/nginx/gromo/routes.conf.example
 [ -r "$src" ] || fail "정본 $src 를 읽을 수 없다 — compose 의 volumes 마운트를 확인한다"
 
