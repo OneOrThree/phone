@@ -1,5 +1,6 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -203,6 +204,34 @@ class HomeScreenContractTest extends ScreenContractTestBase {
         mockMvc.perform(auth(get("/screens/home")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    @DisplayName("구 data-api 호환 폴백(GROMO-2232): layout 라우트 부재 404 면 네 필드만 생략하고 200 이다")
+    void layoutRouteMissingOmitsOnlyLayoutFields() throws Exception {
+        DATA.on(DATA_LAYOUT, request -> new MockUpstream.Response(404, ""));
+
+        MvcResult result = mockMvc.perform(auth(get("/screens/home")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.mapId").doesNotExist())
+                .andExpect(jsonPath("$.data.mapVersion").doesNotExist())
+                .andExpect(jsonPath("$.data.layoutRevision").doesNotExist())
+                .andExpect(jsonPath("$.data.layout").doesNotExist())
+                .andReturn();
+        assertKeys(result, "island", "focusSummary", "session", "restMembers", "members", "wallets",
+                "buildings", "playback", "playbackAvailability");
+    }
+
+    @Test
+    @DisplayName("layout 의 도메인 코드 있는 404·5xx 는 폴백 대상이 아니다 — 화면 전체 실패(B04)")
+    void layoutOtherFailuresStillFailWholeScreen() throws Exception {
+        DATA.on(DATA_LAYOUT, request -> domainError(404, "GROUP_NOT_FOUND"));
+        mockMvc.perform(auth(get("/screens/home"))).andExpect(status().isNotFound());
+
+        DATA.on(DATA_LAYOUT, request -> domainError(500, "UNKNOWN"));
+        mockMvc.perform(auth(get("/screens/home"))).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
     @Test

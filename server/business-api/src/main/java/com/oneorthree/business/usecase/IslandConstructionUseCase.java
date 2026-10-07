@@ -72,14 +72,26 @@ public class IslandConstructionUseCase {
         return ConstructionOptionsView.from(options);
     }
 
-    /** 섬 배치 정본 (GROMO-2232) — {@code /screens/home} 의 layout 조각. 실패 표는 옵션 조회와 같다. */
+    /**
+     * 섬 배치 정본 (GROMO-2232) — {@code /screens/home} 의 layout 조각. 실패 표는 옵션 조회와 같다.
+     *
+     * <p>구 data-api 호환 폴백(GROMO-2232): 라우트 부재 404(도메인 코드 없는 404)만 {@code null} 로 접는다.
+     * 호출부는 layout 4필드를 생략한다. data-api 배포 뒤 제거 후보. 도메인 코드가 있는 404 는 그대로 실패다.
+     */
     public IslandLayout layout(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
-        IslandLayout layout = relay(() -> data.fetchIslandLayout(claims.userId(), islandId, deadline),
-                claims, null, null, null, deadline);
-        if (layout == null) {
-            throw new UpstreamContractMismatchException("섬 배치 응답이 없습니다");
+        try {
+            IslandLayout layout = relay(() -> data.fetchIslandLayout(claims.userId(), islandId, deadline),
+                    claims, null, null, null, deadline);
+            if (layout == null) {
+                throw new UpstreamContractMismatchException("섬 배치 응답이 없습니다");
+            }
+            return layout;
+        } catch (UpstreamContractMismatchException e) {
+            if (e.getUpstreamStatus() == 404) {
+                return null;
+            }
+            throw e;
         }
-        return layout;
     }
 
     /** 건설 목표 선택 (LLD §2 PUT). 같은 키·본문은 Data 의 확정 receipt 재생이다. */

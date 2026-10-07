@@ -225,10 +225,13 @@ public class ScreenReadUseCase {
                 fragment(ISLAND_LAYOUT, deadline -> construction.layout(claims, island.id(), deadline))));
         screen.put("buildings", completedBuildings((ConstructionOptionsView) parallel.get(FACILITIES)));
         IslandLayout layout = (IslandLayout) parallel.get(ISLAND_LAYOUT);
-        screen.put("mapId", MAP_ID);
-        screen.put("mapVersion", MAP_VERSION);
-        screen.put("layoutRevision", layout.layoutRevision());
-        screen.put("layout", layout.layout());
+        // 구 data-api 호환 폴백(GROMO-2232): 라우트 부재 404 만. data-api 배포 뒤 제거 후보.
+        if (layout != null) {
+            screen.put("mapId", MAP_ID);
+            screen.put("mapVersion", MAP_VERSION);
+            screen.put("layoutRevision", layout.layoutRevision());
+            screen.put("layout", layout.layout());
+        }
         putPlayback(screen, parallel, context, claims, island.id());
         return screen;
     }
