@@ -79,7 +79,6 @@ jobs:
       GROMO_ANDROID_AUDIENCE: dev
       EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com
       EXPO_PUBLIC_ENV: dev
-      NODE_ENV: production
     steps:
       - uses: actions/checkout@v4
 
@@ -207,6 +206,8 @@ jobs:
         working-directory: app/app-dev/android
         env:
           GROMO_VERSION_CODE: ${{ steps.version.outputs.code }}
+          # JS 번들을 production 으로 만든다. 잡 전체에 걸면 npm ci 가 devDependencies(patch-package 등)를 빼서 설치가 깨진다
+          NODE_ENV: production
         run: ./gradlew -I "$GITHUB_WORKSPACE/.github/ci/android-version-code.gradle" :app:bundleRelease
 
       - name: 서명 키 지우기
