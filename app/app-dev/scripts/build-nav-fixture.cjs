@@ -42,7 +42,10 @@ function blocks(o, p) {
   return ((p.x - o.x) / (rx + PAD)) ** 2 + ((p.y - (o.y - ry * 0.4)) / (ry + PAD)) ** 2 < 1;
 }
 
-const center = (cx, cy) => ({ x: (cx + 0.5) * cw, y: (cy + 0.5) * ch });
+const center = (cx, cy, cols = N, rows = N) => ({
+  x: (cx + 0.5) * (map.width / cols),
+  y: (cy + 0.5) * (map.height / rows),
+});
 const cellOf = (px, py) => ({
   cx: Math.min(N - 1, Math.max(0, Math.floor(px / cw))),
   cy: Math.min(N - 1, Math.max(0, Math.floor(py / ch))),
@@ -79,12 +82,18 @@ const polygons = [
   map.crossings.grove,
 ];
 
+// 통행 판정만 따로 뗀다. 격자 크기를 인자로 받아 villageScene() 과 셀 단위로 대조할 수 있다(패리티 테스트).
+function walkableAt(cx, cy, cols = N, rows = N) {
+  const p = center(cx, cy, cols, rows);
+  return polygons.some((poly) => inside(p, poly)) && !map.objects.some((o) => blocks(o, p));
+}
+
 function build() {
   const walk = [];
   const cost = [];
   for (let i = 0; i < N * N; i++) {
     const p = center(i % N, Math.floor(i / N));
-    const ok = polygons.some((poly) => inside(p, poly)) && !map.objects.some((o) => blocks(o, p));
+    const ok = walkableAt(i % N, Math.floor(i / N));
     const rc =
       Math.floor(p.y / map.roads.cellSize) * map.roads.columns +
       Math.floor(p.x / map.roads.cellSize);
@@ -140,7 +149,7 @@ function build() {
   return { 'home.map.json': fmt(home), 'nav.json': fmt(nav), 'objects.json': fmt(catalog) };
 }
 
-module.exports = { build };
+module.exports = { build, walkableAt };
 
 if (require.main === module) {
   const files = build();

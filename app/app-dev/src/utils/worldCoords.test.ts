@@ -51,4 +51,13 @@ describe('worldCoords', () => {
     expect(worldToWire({ x: -1, y: 100 })).toEqual({ x: 0, y: 10000 });
     expect(worldToWire({ x: 101, y: 0 })).toEqual({ x: 10000, y: 0 });
   });
+
+  it('NaN·±Infinity 는 throw 없이 0 으로 clamp 한다', () => {
+    expect(worldToCell({ x: NaN, y: Infinity })).toEqual({ cx: 0, cy: 0 });
+    expect(worldToWire({ x: NaN, y: -Infinity })).toEqual({ x: 0, y: 0 });
+    expect(screenToImage({ x: 5, y: 5 }, { offsetX: 0, offsetY: 0, scale: 0 })).toEqual({
+      x: 0,
+      y: 0,
+    });
+  });
 });
