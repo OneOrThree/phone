@@ -55,6 +55,14 @@ jobs:
           REVISION: ${{ inputs.revision }}
         run: echo "short=${REVISION:0:8}" >> "$GITHUB_OUTPUT"
 
+      # 의존성 설치는 키 받기 전에
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 확인 도구 설치
+        run: pip install --quiet 'google-auth==2.*' 'requests==2.*'
+
       - name: AWS 인증 (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -69,6 +77,8 @@ jobs:
             | jq -r '.PLAY_SERVICE_ACCOUNT_JSON // empty' > "$RUNNER_TEMP/play-sa.json"
           jq -e '.type == "service_account"' "$RUNNER_TEMP/play-sa.json" > /dev/null \
             || { echo "::error::$RELEASE_SECRET_ID 의 PLAY_SERVICE_ACCOUNT_JSON 이 비었거나 서비스 계정 키가 아니다"; exit 1; }
+          # 이후 스텝(서드파티 액션)이 AWS 자격 증명 못 쓰게 비움
+          for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
 
       - name: Play 내부 테스트 트랙 업로드
         # 키 받는 서드파티 액션 → 커밋 SHA 고정 (v1.1.5)
@@ -82,18 +92,14 @@ jobs:
           # 릴리스 이름 50자 제한 → 커밋 8자
           releaseName: dev ${{ inputs.version-code }} (${{ steps.rev.outputs.short }})
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: 업로드 확인 (internal 트랙 재조회)
+        id: verify
         # 액션 성공 ≠ 트랙 반영. Play 재조회. 읽기만, edit 는 지움.
         env:
           VERSION_CODE: ${{ inputs.version-code }}
           EXPECTED_STATUS: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
         run: |
           set -euo pipefail
-          pip install --quiet 'google-auth==2.*' 'requests==2.*'
           python3 - <<'PY'
           import json, os, sys
           from google.auth.transport.requests import AuthorizedSession
@@ -116,15 +122,18 @@ jobs:
               print(f"::error::internal 트랙에 versionCode {want} 가 {status} 상태로 없다"); sys.exit(1)
           print(f"확인: versionCode {want} → internal ({status})")
           PY
+          echo "status=$EXPECTED_STATUS" >> "$GITHUB_OUTPUT"
 
       - name: Play 키 지우기
         if: always()
         run: rm -f "$RUNNER_TEMP/play-sa.json"
 
       - name: 배포된 PR 에 표시
-        # 커밋의 머지 PR 찾아 라벨·코멘트. PR 없으면 건너뜀. 라벨 없으면 GitHub 가 첫 부착 때 만듦.
+        # 커밋의 머지 PR 찾아 표시. PR 없으면 건너뜀.
+        # completed 만 배포 완료(라벨). draft 는 테스터에게 안 감 → 콘솔 출시 필요 코멘트만.
         env:
           GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ steps.verify.outputs.status }}
           REVISION: ${{ inputs.revision }}
           VERSION_CODE: ${{ inputs.version-code }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -132,10 +141,21 @@ jobs:
           set -euo pipefail
           pr="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVISION/pulls" --jq '[.[] | select(.merged_at != null)][0].number // empty')"
           if [ -z "$pr" ]; then echo "커밋 $REVISION 에 연결된 머지 PR 이 없어 표시를 건너뛴다"; exit 0; fi
-          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/labels" -f "labels[]=deployed:play-internal" > /dev/null
+          if [ "$STATUS" != completed ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/comments" -f body="Play 내부 테스트에 $STATUS 로 업로드 — 콘솔에서 출시해야 테스터에게 감 · versionCode \`$VERSION_CODE\` · [실행 기록]($RUN_URL)" > /dev/null
+            echo "- PR: #$pr 에 $STATUS 업로드 코멘트 (라벨 없음)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          label=deployed:play-internal
+          # 부착 API 는 없는 라벨을 안 만듦 → 먼저 확인·생성
+          gh api "repos/$GITHUB_REPOSITORY/labels/$label" > /dev/null 2>&1 \
+            || gh api -X POST "repos/$GITHUB_REPOSITORY/labels" -f name="$label" -f color=0E8A16 \
+                 -f description="Play 내부 테스트 트랙 배포 완료 (Android CD 가 붙임)" > /dev/null
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/labels" -f "labels[]=$label" > /dev/null
+          gh api "repos/$GITHUB_REPOSITORY/issues/$pr/labels" --jq '.[].name' | grep -qx "$label" \
+            || { echo "::error::PR #$pr 에 $label 이 안 붙었다"; exit 1; }
           gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/comments" -f body="Play 내부 테스트 배포 완료 — versionCode \`$VERSION_CODE\` · 커밋 \`${REVISION:0:8}\` · [실행 기록]($RUN_URL)" > /dev/null
-          echo "PR #$pr 에 deployed:play-internal 표시"
-          echo "- PR: #$pr 에 \`deployed:play-internal\` 표시" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PR: #$pr 에 \`$label\` 표시" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 결과 요약
         if: always()

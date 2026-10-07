@@ -169,10 +169,15 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
   expect(ci).not.toMatch(/secrets\./);
   expect(cd).not.toMatch(/secrets\./);
   expect(ci).toContain('RELEASE_SECRET_ID: gromo/prod/android');
-  expect(ci).toMatch(/name: AWS 인증 \(OIDC\)\s*\n\s*if: env\.IS_RELEASE == 'true'/);
+  expect(ci).toMatch(/name: AWS 인증 \(versionCode 용\)\s*\n\s*if: env\.IS_RELEASE == 'true'/);
+  expect(ci).toMatch(/name: 업로드 키로 재서명\s*\n\s*if: env\.IS_RELEASE == 'true'/);
+  // 키는 의존성 설치 뒤에만, Gradle 은 일회용 키로만. 업로드 키는 빌드 뒤 재서명에만
+  expect(ci).toMatch(/name: npm ci[\s\S]*name: AWS 인증 \(versionCode 용\)/);
   expect(ci).toMatch(
-    /name: Secrets Manager 에서 서명 키·Play 키 받기\s*\n\s*if: env\.IS_RELEASE == 'true'/,
+    /name: AWS 자격 증명 비우기\n[\s\S]*name: AAB 빌드[\s\S]*name: AWS 인증 \(재서명 용\)/,
   );
+  // draft 는 배포 완료로 표시 안 함
+  expect(cd).toContain('if [ "$STATUS" != completed ]; then');
 });
 
 // pbxproj 는 스크립트 단계 본문을 \n·\" 로 이스케이프해 한 줄에 담는다 — 그걸 풀어 실제 sh 로 돌려 본다
