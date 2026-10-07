@@ -9,9 +9,9 @@
 [Mermaid 원본](diagrams/04-join.mmd)
 
 1. Business가 현재 섬·활성 소속을 Data 정본으로 검사한다. 클라이언트가 보낸 userId로 다른 주민을 선택하지 않는다.
-2. Business가 방 소유자·epoch를 확보하고, 최신 권한·배치를 worker에 push한다. worker 준비 ack 전에는 사용 가능한 티켓을 응답하지 않는다.
+2. Business가 방 소유자·epoch를 확보하고, 최신 권한·배치를 worker(제어 어댑터)에 push한다. worker 준비 ack 전에는 사용 가능한 티켓을 응답하지 않는다.
 3. 앱은 암호화 연결을 연 뒤 티켓을 제출한다. worker는 jti를 원자 소비하고 현재 권한 버전을 재검사한다.
-4. manifest의 hash로 통행 파일을 검증한 뒤 MapReady를 보낸다. 전체 상태·경로·시간 기준이 준비되면 입력을 연다.
+4. 앱이 manifest의 hash로 통행 파일을 검증한 뒤 MapReady를 보낸다. worker 는 전체 상태·경로·시간 기준을 보내고, 앱은 그것이 준비되면 입력을 연다.
 5. 입장 준비 이후 강퇴되는 경합은 권한 version/취소 tombstone이 우선한다. 뒤늦은 낮은 버전 push와 그 티켓은 다시 활성화시키지 못한다.
 
 ## 2. 탭부터 도착까지

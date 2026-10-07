@@ -4,7 +4,7 @@
 
 ## 1. 전송 선택
 
-**POC 추천:** QUIC 연결 하나에서 reliable stream과 DATAGRAM을 함께 사용한다. DATAGRAM은 손실 재전송을 기다리지 않는 좌표에, stream은 입장·명령·경로·퇴장에 사용한다. 둘 다 UDP 기반 QUIC 연결 안에 있다. DATAGRAM 협상이 실패하면 동기화 모드를 활성화하지 않고 이유를 표시한다. 임의로 평문 UDP로 내리지 않는다.
+**POC 추천:** QUIC 연결 하나에서 reliable stream과 DATAGRAM을 함께 사용한다. DATAGRAM은 손실 재전송을 기다리지 않는 좌표에, stream은 입장·명령·경로·퇴장에 사용한다. 둘 다 UDP 기반 QUIC 연결 안에 있다. DATAGRAM 협상이 실패하면 동기화 모드를 활성화하지 않고 이유를 표시한다. UDP 자체가 막혀 연결이 열리지 않는 망에서는 세션 폴백(PRD MV-14·정책 §3)을 따른다. 임의로 평문 UDP로 내리지 않는다.
 
 QUIC의 DATAGRAM 확장은 비신뢰성 데이터 전송을 제공하며 크기 제한과 혼잡 제어를 따른다. 실제 전송 가능 크기를 넘는 메시지를 애플리케이션이 나눠야 한다. [RFC 9221](https://www.rfc-editor.org/rfc/rfc9221.html)
 
@@ -28,7 +28,7 @@ TLS 기반 QUIC 보호를 사용하고 클라이언트는 서버 인증서·호�
 
 `POST /islands/{islandId}/movement-sessions`는 **새 공개 API 제안**이다. 실제 prefix·응답 envelope·오류 코드는 기존 API 규약에 맞춰 구현 시 고정한다.
 
-Business는 기존 로그인과 섬 컨텍스트를 검사하고, 소유자를 배정한 뒤 권한·배치 스냅샷 push의 준비 ack를 받는다. 응답에는 `endpoint`, `ticket`, `expiresAt`, `gameId`, `roomId`, `roomEpoch`, 지원 protocolVersion과 manifest를 넣는다. 티켓 payload는 audience·subject·room·epoch·sessionId·actorGeneration·permissionVersion·iat/exp·jti를 결합하고 Business가 서명한다.
+Business는 기존 로그인과 섬 컨텍스트를 검사하고, 소유자를 배정한 뒤 권한·배치 스냅샷 push의 준비 ack를 받는다. 응답에는 `endpoint`, `ticket`, `expiresAt`, `gameId`, `roomId`, `roomEpoch`, 지원 protocolVersion과 manifest를 넣는다. 티켓 payload는 audience·subject·room·epoch·sessionId·permissionVersion·iat/exp·jti를 결합하고 Business가 서명한다. `actorGeneration` 은 티켓에 없고 worker 가 Welcome 에서 배정한다(HLD §6).
 
 worker는 서명·기한·scope와 준비된 권한 투영의 일치를 확인한다. jti는 방 단일 작성자가 원자적으로 소비한다. 같은 티켓을 다른 worker나 epoch에서 쓰지 못한다. 인증 전에는 snapshot·actor 목록을 보내지 않는다. 티켓은 입장에만 쓰고 갱신된 권한 lease가 세션 유지 여부를 결정한다.
 
@@ -36,7 +36,7 @@ worker는 서명·기한·scope와 준비된 권한 투영의 일치를 확인�
 
 | 메시지 | 방향 / 채널 | 주요 필드·처리 |
 | --- | --- | --- |
-| Join / Welcome | 앱→서버 / 서버→앱, control stream | ticket·protocolVersion / session·actor·epoch·nav·serverTick·tickMs·limits |
+| Join / Welcome | 앱→서버 / 서버→앱, control stream | ticket·protocolVersion / session·actorId·actorGeneration·epoch·nav·serverTick·tickMs·limits·sendRateHz |
 | MapReady | 앱→서버, control stream | navRevision·contentHash; 일치 전 이동 명령 거부 |
 | MoveIntent | 앱→서버, command stream | commandSeq·navRevision·goalX/Y. 암호화된 목적지 좌표 |
 | PathAccepted | 서버→관심 수신자, actor event stream | actorId·actorGeneration·commandSeq·pathId·navRevision·startTick·확정 시작/도착·waypoints·속도 |
@@ -111,6 +111,8 @@ payload 상한 1000B일 때 snapshot당 최대 40 actor(992B)다. 협상/라이�
 - uint32 sequence·tick·revision이 랩어라운드하기 전에 새 세션/epoch로 재동기화한다. 단순 정수 비교가 랩어라운드에서 뒤집히지 않도록 수명 제한을 둔다.
 - 역순·중복·다른 epoch의 좌표는 상태를 바꾸지 않는다. datagram 수신 자체를 명령 성공 ack로 취급하지 않는다.
 - 암호화는 변조된 정식 클라이언트의 치팅을 막지 않는다. 서버는 목적지·속도·권한·빈도·맵·순서를 별도로 검사한다.
+- `NO_REACHABLE_GOAL`·`PATH_LIMIT`·`MAP_NOT_READY`·`STALE_COMMAND` 같은 reason 코드는 이 바이너리 프로토콜의 이름공간이다. HTTP `error-contract` 의 `ErrorCode` 상수와 이름을 공유하지 않으며, 입장 REST API 의 오류는 기존 규약을 따른다.
+- 송신 주기는 Welcome 의 `sendRateHz` 로 시작하고, 앱이 보고한 망 종류·포그라운드 여부·AFK 에 따라 서버가 5Hz~20Hz 사이에서 조정한다(PRD MV-15). 주기를 낮춰도 틱은 50ms 고정이다.
 - handshake rate/동시 연결, 프레임 크기, actor당 pending 1개, 방별 연산 quota, 신뢰성 송신 큐를 제한한다. 미인증 연결에 큰 맵·상태를 응답하지 않는다.
 
 ## 6. 진단 필드

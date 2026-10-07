@@ -23,7 +23,7 @@
 | Business API | 기존 인증·현재 섬 검사, 입장 티켓, 권한 lease·배치 스냅샷 push, 소유자 배정 조정 | 매 틱 좌표 계산 |
 | Data API | 소속·현재 섬·시설 배치 정본, 변경 트랜잭션과 재전달 가능한 변경 기록 | 위치 틱 쓰기 |
 | 맵 배포 저장소/CDN | content hash로 식별되는 원본·통행 산출물 배포 | 권한 판정·클라이언트 업로드 신뢰 |
-| Movement 제어 어댑터 | Business로부터 권한·배치 수신, 방 주소·상태 응답, 멱등·버전 검사 | 코어 DB 접근 |
+| Movement 제어 어댑터 | worker 프로세스 안의 내부 HTTPS 수신 모듈. Business로부터 권한·배치 수신, 방 주소·상태 응답, 멱등·버전 검사. 아래 문서들의 「worker」는 이 어댑터를 포함한 프로세스를 가리킨다 | 코어 DB 접근 |
 | Movement worker | 방 단일 작성자, 인증된 입력, A*, 위치·도착, 암호화 연결 | 재화·시설·집중 유스케이스 실행 |
 | 소유권 저장소 | 방→worker 주소·만료·단조 증가 epoch의 선형화 가능한 lease/CAS | 틱별 위치 저장 |
 | 앱 | 입력, 맵 캐시, A*, 네이티브 QUIC, 시간 동기화, 보간·보정·렌더링 | 서버 위치·권한의 정본 |
@@ -43,7 +43,7 @@
 
 Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않는다. 가입 시 필요한 사실을 Business가 먼저 push하고, worker가 준비 상태를 응답한 뒤 티켓을 발급한다. 갱신은 Business가 방별로 묶어 push한다. 매 갱신에는 최신 로그인/계정·현재 섬·소속 상태를 확인한 근거가 필요하며, 확인에 실패한 캐시 값을 새 기한으로 연장하지 않는다. 만료 시각은 권한 확인 시점에서 계산한다. 알 수 없는 권한 버전·배치 누락은 재시도 가능한 거부로 처리한다.
 
-**권한 취소·배치 변경은 Redis Pub/Sub 단독 전달에 의존하지 않는다.** 해당 유스케이스가 커밋한 변경을 재전달 가능한 기록으로 남기고 Business 제어 어댑터가 ack까지 재시도한다. 이벤트 봉투는 [서비스 아키텍처](../../../architecture/service-architecture.md) §4 정본을 사용한다. `eventId` 중복 거부와 해당 subject의 `version` 순서 검사를 적용하며, 버전 공백에는 전체 스냅샷으로 수렴한다. 이 제어 어댑터·변경 기록 연결도 신규 구현 범위다.
+**권한 취소·배치 변경은 Redis Pub/Sub 단독 전달에 의존하지 않는다.** 해당 유스케이스가 커밋한 변경을 재전달 가능한 기록으로 남기고 Business 제어 어댑터가 ack까지 재시도한다. 이벤트 봉투는 [서비스 아키텍처](../../../architecture/service-architecture.md) §4 정본을 사용한다. 제어 이벤트에서 `locale` 은 비우고 `scheduledAt` 은 `occurredAt` 과 같게 두며, `subjectId` 는 roomId, `version` 은 권한 버전 또는 `layoutRevision` 이다. `eventId` 중복 거부와 해당 subject의 `version` 순서 검사를 적용하며, 버전 공백에는 전체 스냅샷으로 수렴한다. 이 제어 어댑터·변경 기록 연결도 신규 구현 범위다.
 
 ## 4. 데이터 소유
 
@@ -53,7 +53,7 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 | 원본 지형·충돌 재료 | 승인된 맵 빌드 파이프라인 | 불변 버전 파일, 배포 manifest |
 | 합성 통행 맵 | Movement 맵 컴파일러 | 지형+배치+rulesVersion+반경의 hash, 다시 생성 가능 |
 | actor 위치·경로·속도 | 해당 방 worker 메모리 | epoch 동안만. 장애 후 입구 복귀 제안 |
-| 권한 투영·세션·사용한 jti | 해당 방 worker 메모리 | 현재 epoch·유효기간. 새 epoch는 옛 티켓을 거부 |
+| 권한 투영·세션·사용한 jti | 해당 방 worker 메모리 | 현재 epoch·유효기간. 새 epoch는 옛 티켓을 거부. worker 프로세스 재시작은 lease 재획득 때 항상 epoch 를 올린다 — 같은 epoch 로 재개하지 않으므로 jti 캐시를 영속화할 필요가 없다 |
 | room lease·epoch | 소유권 저장소 | 다중 노드 장애에서도 유일한 소유권 보장 |
 | 로그·지표 | 관측 시스템 | 운영 보존 정책. 위치 전체 이력은 기본 저장 안 함 |
 
@@ -78,10 +78,10 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 | 항목 | 제안 |
 | --- | --- |
 | 구현/레포 | Java 코어 + Netty QUIC 어댑터. A17의 JVM 대상 레포 `oneorthree/server` 내 `services/movement/` 후보로 등록하고 기존 서버 이관 계획과 맞춘다. 이 PR은 레포·서비스를 생성하지 않음 |
-| 공개 포트 | shard endpoint UDP 443 후보, 기존 HTTPS 호스트와 충돌하지 않도록 별도 주소 |
+| 공개 포트 | shard endpoint UDP 443 후보. **Cloudflare 프록시 밖의 별도 공개 호스트·IP** — prod 오리진 방화벽은 Cloudflare CIDR 만 허용(결정 ㊾)하므로 이 호스트는 그 규칙의 예외다. QUIC 주소 검증(Retry)·핸드셰이크 요청 제한·DDoS 노출을 MV-D06 에서 함께 승인 |
 | 내부 포트 | 제어 HTTPS 8443·관측 9090 후보, 외부 차단 |
 | 프로세스 예산 | 초기 부하 측정은 worker 4 vCPU / 8GiB. 운영 인스턴스·복제 수는 실측 후 자원표에 반영 |
-| 시크릿 | TLS 키/인증서, Business 티켓 공개 검증키, 내부 서비스 자격, 저장소 권한. 앱에 공유 비밀을 넣지 않음 |
+| 시크릿 | **공개 CA 인증서**(Cloudflare Origin Cert 는 앱이 신뢰하지 않음)와 자동 갱신, Business 티켓 서명 키 쌍(Business 비밀키·worker 공개키), 내부 서비스 자격은 A11 에 따라 caller(Business→Movement, worker→소유권 저장소) 별로 분리, 저장소 권한. 앱에 공유 비밀을 넣지 않음 |
 | CI | Java 코어·패킷 fuzz·TS/Java 공통 fixture·상호 운용·모바일 네이티브 빌드; 맵 산출물 hash 검증 |
 | 관측 | `DD_SERVICE=movement-server` 후보. room/actor 고유 ID를 메트릭 태그로 무제한 사용하지 않음 |
 
@@ -94,11 +94,13 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 3. 맵·메모리·lease 저장소의 소유와 namespace 등록.
 4. 제어 이벤트의 정본 봉투·재시도·취소 계약 등록.
 5. 시스템 자원·시크릿·CI 필터·관측 비용 등록.
-6. 앱 직접 UDP 공개 면과 인증 예외 승인.
+6. 앱 직접 UDP 공개 면과 인증 예외 승인 — Cloudflare 밖 별도 호스트, 오리진 방화벽 예외, 공개 CA 인증서, 요청 제한을 포함(MV-D06).
 7. 정식 서비스·배포 그림과 SVG 동시 갱신.
 8. 기존 규칙 변경의 A 결정 번호 기록.
 
 이번 PR은 위 변경을 검토할 입력 문서다. 승인되지 않은 예외를 기존 규칙의 확정 사실로 기록하지 않는다.
+
+**게이트와 Phase 의 관계(검증 계획 §3 과 같은 규칙):** Phase 0(계약·fixture)과 Phase 2(맵·코어, headless)는 위 8단계와 무관하게 시작할 수 있다. Phase 1(전송 POC)은 dev VM 에서 **출발지 IP 허용목록으로 닫힌 UDP 포트**로 먼저 수행하고, 공개망 노출은 6번 승인 뒤에만 한다. Phase 3 이후(수직 연결·상태 변화·부하·배포)는 8단계 전부 반영 뒤 착수한다.
 
 ## 7. Java · Kafka · Realtime 선택 검토
 
