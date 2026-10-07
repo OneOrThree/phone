@@ -97,6 +97,8 @@ dev 의 `/var/lib/gromo/runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다**
 | `BUSINESS_CURSOR_ENABLED` · `BUSINESS_CURSOR_KEY_V1` | Business(**필수**) | writer 가 거부. 손으로 비우면 부팅·헬스는 정상인데 커서 목록(`GET /islands`·`/islands/discover`·`/islands/{id}/members`·`/islands/{id}/join-requests`·`/me/join-requests`)만 503 |
 | `BUSINESS_CURSOR_ACTIVE_KEY` | Business(선택) | `v1` |
 | `LOGIN_ATTEMPT_DIGEST_SECRET` | Business(**필수**) | writer 가 거부(부팅 fail-fast) |
+| `JWT_SECRET` | Data(legacy **필수**) · Business(**필수**) · Realtime(dev.env → `realtime.yml`) | writer 가 거부. 세 서비스가 **같은 값**이어야 한다 — 다르면 한 곳이 서명한 AT 를 나머지가 전부 401 로 거절한다. `LOGIN_ATTEMPT_DIGEST_SECRET` 과는 달라야 한다 |
+| `APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID` | Data(legacy **필수**) · Business(선택) | writer 가 거부(키 자체가 없을 때). 값이 빈 문자열이면 부팅은 되고 경고 한 줄만 남긴 채 그 제공자 로그인이 **전부** 401 `APPLE_TOKEN`·`GOOGLE_TOKEN`. 값은 쉼표로 구분한 허용 `aud` 목록이다(계정 정책 LOGIN-D03) — Apple 은 앱 번들 id(`com.oneorthree.focuscat`, 1.x `com.oneorthree.gromo`), Google 은 **Web 클라이언트 id**(2.0 은 `263851348176-hpndg0cj…`, GROMO-2215). 바꿀 때는 기존 값을 지우지 않고 **덧붙인다** — 설치된 구 빌드가 옛 `aud` 로 들어온다. 발급·확인 절차는 개인 문서가 아니라 이 표가 정본이다 |
 | `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED` | Data(satellites, 선택) | `false` — REALTIME 을 HTTP 로 보낸다 |
 | `CHAT_WS_ALLOWED_ORIGINS` | Realtime(dev.env → `realtime.yml`) | Origin 을 보낸 WS 핸드셰이크 전부 403. React Native 앱도 접속 URL 기준 `Origin: https://<API 호스트>` 를 보내므로 **앱 실시간 연결이 끊긴다**. dev 는 `https://oneorthree.dev.mooo.com`(GROMO-2175). 기본값을 `*` 로 열지 않는다 |
 | `REALTIME_EVENTS_KAFKA_ENABLED` | Realtime(dev.env) | `false` — `realtime-events` 소비자가 뜨지 않는다 |

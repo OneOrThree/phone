@@ -115,7 +115,7 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 **계정 전환**(A→B, 같은 사용자 s1→s2 재로그인 포함)은 `login()` 이 LLD §2.4 의 「준비 → commit → commit 뒤 전달」 순서로 **이전 세션 RT 폐기까지만** 합니다. FCM 토큰 재발급·B 세션 bootstrap 재등록·`deliveryTag` 대조와 commit 직후의 결과 세션 채택 확인 요청은 기기·푸시 등록 티켓 몫입니다.
 
-아직 서버에 없는 것: 2.0 공개 표면(business-api)에 **토큰 갱신 엔드포인트(GROMO-2035)와 게스트 세션 발급(GROMO-2036)이 없습니다.** 그래서 401 의 답은 재로그인뿐입니다. 소셜 제공자 SDK(Apple·Google·Kakao·LINE)는 로그인 화면에 연결되어 있으며, Apple-only 기존 계정의 재진입을 보장하려면 서버가 Apple의 `gromo`와 `focuscat` audience를 모두 허용해야 합니다. 이 준비 전에는 Apple 버튼만 숨기지 않고 iOS 2.0 전체 출시를 보류합니다. LLD §2.1 의 `X-Device-Bootstrap` 응답 헤더도 서버 미구현이라 `login()` 이 받지 못합니다 — 푸시 기기 등록 티켓이 이 값을 쓰려면 `request()` 가 응답 헤더를 넘겨주도록 한 줄 늘려야 합니다.
+토큰 갱신(`POST /auth/sessions/current/refresh`, GROMO-2035)과 게스트 세션 발급(`POST /auth/sessions/guest`, GROMO-2036)은 2.0 공개 표면에 있고 앱이 호출합니다 — 401 은 갱신을 한 번 시도한 뒤 실패하면 재로그인입니다. 로그인 화면 제공자는 iOS 애플·구글, Android 구글입니다(계정 정책 LOGIN-D04). Kakao·LINE SDK 와 버튼 코드는 남아 있어 `src/services/loginProviders.ts` 목록만 바꾸면 되돌릴 수 있으며, Apple-only 기존 계정의 재진입을 보장하려면 서버가 Apple의 `gromo`와 `focuscat` audience를 모두 허용해야 합니다. 이 준비 전에는 Apple 버튼만 숨기지 않고 iOS 2.0 전체 출시를 보류합니다. LLD §2.1 의 `X-Device-Bootstrap` 응답 헤더도 서버 미구현이라 `login()` 이 받지 못합니다 — 푸시 기기 등록 티켓이 이 값을 쓰려면 `request()` 가 응답 헤더를 넘겨주도록 한 줄 늘려야 합니다.
 
 ## TestFlight
 
