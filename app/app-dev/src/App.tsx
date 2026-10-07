@@ -560,6 +560,17 @@ function Gromo() {
         return;
       }
       restorePrevious();
+    } else if (route === 'character' && !state.onboarded && hasServerSession) {
+      // 로그인 직후 첫 단계(GROMO-2215 · 로드맵 1-03). 로그인 성공이 reset() 으로 history 를 비우므로 아래 분기로
+      // 내려가면 chooseIsland 로 «앞으로» 갔다. 뒤로가기는 로그인 전으로 — 세션을 끝내야 로그인 화면이 뜬다.
+      // 프로필 화면의 로그아웃과 같은 순서다. 게스트면 기기 id 가 회전돼 다시 시작하면 새 게스트가 된다.
+      signOut()
+        .then((ok) => {
+          if (!ok) return;
+          dispatch({ type: 'LOGOUT' });
+          reset('login');
+        })
+        .catch(() => {});
     } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
   };
   const home = () => {
