@@ -3,7 +3,7 @@ name: Android CI
 # 안드로이드 release AAB 빌드 (GROMO-2223). 짝인 CD 는 app-android-cd.yml.
 #
 # ## 흐름 — 백엔드 dev-ci.yml → dev-cd.yml 과 같은 모양
-# - PR       : release AAB 를 끝까지 빌드해 본다(JS 번들·R8·리소스·서명 단계까지). 시크릿은 쓰지 않는다 —
+# - PR       : release AAB 를 끝까지 빌드해 본다(JS 번들·Hermes·리소스·서명 단계까지). 시크릿은 쓰지 않는다 —
 #              잡 안에서 만든 일회용 키로 서명하고, 결과물은 버린다.
 # - main push: 업로드 키로 서명한 AAB 를 만들어 아티팩트로 남기고, CD 를 불러 Play **내부 테스트** 트랙에 올린다.
 #              CD 는 다시 빌드하지 않고 이 아티팩트를 그대로 올린다(빌드 한 번, 배포 한 번).
@@ -54,6 +54,7 @@ on:
   push:
     branches: [main]
     paths: *android_release_paths
+  # 수동 실행은 main 에서만 키를 쓰고 Play 에 올린다. 다른 브랜치에서 돌리면 PR 처럼 일회용 키로 빌드만 한다.
   workflow_dispatch:
 
 # PR: 같은 PR 의 앞 실행은 버린다.
@@ -71,6 +72,8 @@ env:
   AWS_REGION: ap-northeast-2
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-android-github-actions
   RELEASE_SECRET_ID: gromo/prod/android
+  # Play Console 「앱 서명 → 업로드 키 인증서」의 SHA-1 (공개값). 키를 바꾸면 여기도 바꾼다
+  ANDROID_UPLOAD_CERT_SHA1: 85:DF:F5:E4:96:1A:A2:32:88:E0:CF:B7:48:47:F0:55:9A:77:02:37
 
 jobs:
   build:
@@ -86,7 +89,8 @@ jobs:
       version-code: ${{ steps.version.outputs.code }}
       artifact-name: ${{ steps.artifact.outputs.name }}
     env:
-      IS_RELEASE: ${{ github.event_name != 'pull_request' }}
+      # 키를 쓰고 Play 에 올리는 건 main 의 push·수동 실행뿐이다. 다른 브랜치의 수동 실행은 빌드 검증만 한다
+      IS_RELEASE: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g
       # ── 빌드에 박히는 값. 전부 고정한다(레포 변수로 바꿀 수 없게) ──
       GROMO_ANDROID_AUDIENCE: dev
@@ -237,7 +241,15 @@ jobs:
           set -euo pipefail
           aab=app/app-dev/android/app/build/outputs/bundle/release/app-release.aab
           [ -f "$aab" ] || { echo "::error::AAB 가 없다: $aab"; exit 1; }
-          jarsigner -verify "$aab" > /dev/null || { echo "::error::AAB 서명 검증 실패"; exit 1; }
+          # jarsigner 는 서명이 없는 파일에도 종료 코드 0 을 낸다 — 출력의 "jar verified." 로 판정한다
+          verify="$(jarsigner -verify "$aab" 2>&1 || true)"
+          grep -q '^jar verified\.' <<<"$verify" || { echo "::error::AAB 서명 검증 실패: $(head -1 <<<"$verify")"; exit 1; }
+          if [ "$IS_RELEASE" = true ]; then
+            # Play 는 등록된 업로드 키로 서명한 AAB 만 받는다 — 업로드 전에 지문을 맞춰 본다
+            sha1="$(keytool -printcert -jarfile "$aab" | sed -n 's/^[[:space:]]*SHA1: //p' | head -1)"
+            [ "$sha1" = "$ANDROID_UPLOAD_CERT_SHA1" ] \
+              || { echo "::error::업로드 키 지문이 Play 등록 값과 다르다: $sha1"; exit 1; }
+          fi
           ls -lh "$aab"
 
       - name: 아티팩트 이름
@@ -268,11 +280,13 @@ jobs:
   deploy:
     name: Play 내부 테스트 배포
     needs: build
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     # 불려 가는 CD 가 AWS OIDC 를 쓰므로 호출하는 쪽에서 id-token 권한을 넘겨야 한다
     permissions:
       contents: read
       id-token: write
+      pull-requests: write
+      issues: write
     uses: ./.github/workflows/app-android-cd.yml
     with:
       artifact-name: ${{ needs.build.outputs.artifact-name }}

@@ -3,6 +3,9 @@ name: Android CD
 # Android CI(app-android-ci.yml)가 main 에서 만든 AAB 를 Google Play **내부 테스트** 트랙에 올린다 (GROMO-2223).
 # 트리거가 따로 없다 — CI 의 deploy 잡이 workflow_call 로 부른다. 다시 빌드하지 않고 CI 아티팩트를 그대로 올린다.
 #
+# 올린 뒤 Play API 로 internal 트랙을 다시 읽어 이 versionCode 가 출시(completed) 상태로 들어갔는지 확인하고,
+# 확인되면 이 커밋을 만든 PR 에 라벨 deployed:play-internal 과 코멘트를 남긴다(머지한 사람이 알림을 받는다).
+#
 # 선택 레포 변수: PLAY_INTERNAL_RELEASE_STATUS (기본 completed). Play 가 앱을 아직 "초안 앱"으로 보면
 # "Only releases with status draft may be created on draft app" 로 거절한다. 그때 draft 로 바꾸고,
 # 콘솔에서 출시 버튼을 직접 누른다. 앱이 한 번 검토를 통과하면 다시 지운다.
@@ -26,6 +29,8 @@ on:
 permissions:
   contents: read
   id-token: write
+  pull-requests: write # 배포된 PR 에 라벨·코멘트
+  issues: write # 라벨은 이슈 API 로 붙는다
 
 env:
   AWS_REGION: ap-northeast-2
@@ -48,6 +53,12 @@ jobs:
           name: ${{ inputs.artifact-name }}
           path: aab
 
+      - name: 릴리스 이름용 짧은 커밋
+        id: rev
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: echo "short=${REVISION:0:8}" >> "$GITHUB_OUTPUT"
+
       - name: AWS 인증 (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -64,18 +75,72 @@ jobs:
             || { echo "::error::$RELEASE_SECRET_ID 의 PLAY_SERVICE_ACCOUNT_JSON 이 비었거나 서비스 계정 키가 아니다"; exit 1; }
 
       - name: Play 내부 테스트 트랙 업로드
-        uses: r0adkll/upload-google-play@v1
+        # 서비스 계정 키를 받는 서드파티 액션이라 커밋 SHA 로 고정한다 (v1.1.5)
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
         with:
           serviceAccountJson: ${{ runner.temp }}/play-sa.json
           packageName: com.oneorthree.gromo
           releaseFiles: aab/app-release.aab
           track: internal
           status: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
-          releaseName: dev ${{ inputs.version-code }} (${{ inputs.revision }})
+          # Play 릴리스 이름은 50자 제한 — 커밋은 8자만 쓴다
+          releaseName: dev ${{ inputs.version-code }} (${{ steps.rev.outputs.short }})
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 업로드 확인 (internal 트랙 재조회)
+        # 액션이 성공을 돌려줘도 트랙에 실제로 들어갔는지 Play 에서 다시 읽어 본다. 읽기만 하고 edit 는 지운다.
+        env:
+          VERSION_CODE: ${{ inputs.version-code }}
+          EXPECTED_STATUS: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
+        run: |
+          set -euo pipefail
+          pip install --quiet 'google-auth==2.*' 'requests==2.*'
+          python3 - <<'PY'
+          import json, os, sys
+          from google.auth.transport.requests import AuthorizedSession
+          from google.oauth2 import service_account
+          api = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.oneorthree.gromo"
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "play-sa.json"), encoding="utf-8") as f:
+              creds = service_account.Credentials.from_service_account_info(
+                  json.load(f), scopes=["https://www.googleapis.com/auth/androidpublisher"])
+          s = AuthorizedSession(creds)
+          edit = s.post(f"{api}/edits", json={}); edit.raise_for_status(); eid = edit.json()["id"]
+          try:
+              t = s.get(f"{api}/edits/{eid}/tracks/internal"); t.raise_for_status()
+              releases = t.json().get("releases", [])
+          finally:
+              s.delete(f"{api}/edits/{eid}")
+          want, status = os.environ["VERSION_CODE"], os.environ["EXPECTED_STATUS"]
+          hit = [r for r in releases if want in r.get("versionCodes", [])]
+          print(f"internal 트랙: {[(r.get('status'), r.get('versionCodes')) for r in releases]}")
+          if not hit or hit[0].get("status") != status:
+              print(f"::error::internal 트랙에 versionCode {want} 가 {status} 상태로 없다"); sys.exit(1)
+          print(f"확인: versionCode {want} → internal ({status})")
+          PY
 
       - name: Play 키 지우기
         if: always()
         run: rm -f "$RUNNER_TEMP/play-sa.json"
+
+      - name: 배포된 PR 에 표시
+        # 이 커밋을 만든 PR(squash 머지)을 찾아 라벨·코멘트를 남긴다. PR 이 없는 커밋(직접 수동 실행 등)은 건너뛴다.
+        # 라벨이 없으면 GitHub 가 처음 붙일 때 만든다.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ inputs.revision }}
+          VERSION_CODE: ${{ inputs.version-code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVISION/pulls" --jq '[.[] | select(.merged_at != null)][0].number // empty')"
+          if [ -z "$pr" ]; then echo "커밋 $REVISION 에 연결된 머지 PR 이 없어 표시를 건너뛴다"; exit 0; fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/labels" -f "labels[]=deployed:play-internal" > /dev/null
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/comments" -f body="Play 내부 테스트 배포 완료 — versionCode \`$VERSION_CODE\` · 커밋 \`${REVISION:0:8}\` · [실행 기록]($RUN_URL)" > /dev/null
+          echo "PR #$pr 에 deployed:play-internal 표시"
+          echo "- PR: #$pr 에 \`deployed:play-internal\` 표시" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 결과 요약
         if: always()

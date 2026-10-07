@@ -151,6 +151,19 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
     /deploy:[\s\S]*if: github\.event_name != 'pull_request'[\s\S]*app-android-cd\.yml/,
   );
   expect(cd).toContain('track: internal');
+  // 키·Play 업로드는 main 에서만 — 다른 브랜치의 수동 실행은 빌드 검증만 한다
+  expect(ci).toContain(
+    "IS_RELEASE: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}",
+  );
+  // 서명 검증은 jarsigner 종료 코드가 아니라 출력으로 판정하고, 업로드 키 지문을 맞춰 본다
+  expect(ci).toContain("grep -q '^jar verified\\.'");
+  expect(ci).toContain(
+    'ANDROID_UPLOAD_CERT_SHA1: 85:DF:F5:E4:96:1A:A2:32:88:E0:CF:B7:48:47:F0:55:9A:77:02:37',
+  );
+  // CD 는 업로드 뒤 트랙을 다시 읽어 확인하고, 그다음에만 PR 에 표시한다
+  expect(cd).toMatch(/업로드 확인 \(internal 트랙 재조회\)[\s\S]*배포된 PR 에 표시/);
+  expect(cd).toContain('deployed:play-internal');
+  expect(cd).toMatch(/r0adkll\/upload-google-play@[0-9a-f]{40}/);
   expect(cd).toMatch(/^on:\s*\n\s*workflow_call:/m);
   // 키는 AWS Secrets Manager 에서 main·수동 실행 때만 읽는다 — GitHub 레포 시크릿과 PR 단계는 키에 닿지 않는다
   expect(ci).not.toMatch(/secrets\./);

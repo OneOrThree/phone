@@ -99,7 +99,7 @@ gradle.taskGraph.whenReady { taskGraph ->
     }
     // dev 청중(GROMO_ANDROID_AUDIENCE=dev)은 Play 내부 테스트 트랙에 올리는 팀 dev 서버용 빌드다 (GROMO-2223).
     // 운영 서버의 세션을 이어받지 않으므로 legacy 세션 이관 가드는 운영 청중에만 건다.
-    // 이 값은 CI 워크플로(app-android-play-internal.yml)만 설정한다. 비어 있으면 운영(prod)으로 본다.
+    // 이 값은 CI 워크플로(.github/workflows/app-android-ci.yml)만 설정한다. 비어 있으면 운영(prod)으로 본다.
     def androidAudience = System.getenv("GROMO_ANDROID_AUDIENCE") ?: "prod"
     if (includesReleaseArtifactTask && !(androidAudience in ["prod", "dev"])) {
         throw new GradleException(
