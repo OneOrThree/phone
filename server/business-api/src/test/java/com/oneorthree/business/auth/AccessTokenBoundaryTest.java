@@ -5,10 +5,15 @@ import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -24,6 +29,12 @@ class AccessTokenBoundaryTest extends UpstreamTestBase {
 
     private static final UUID USER = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID VICTIM = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    private static final UUID SESSION = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final String SETTINGS = "/api/v1/users/me/notification-settings";
+
+    // 테스트 컨텍스트에는 Redis 가 없다 — 거부목록만 대체하고 나머지 필터 체인은 진짜를 쓴다.
+    @MockitoBean
+    RevokedSessions revokedSessions;
 
     @Test
     @DisplayName("토큰이 없으면 401 + UNAUTHORIZED 봉투 — 앱이 이 코드로 재로그인을 트리거한다")
@@ -160,5 +171,57 @@ class AccessTokenBoundaryTest extends UpstreamTestBase {
         }
         // 링크는 이 유스케이스에 끼지 않으므로 링크 토큰이 어디에도 나가지 않았다.
         assertThat(LINK.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("폐기된 sid 의 AT 는 서명·만료가 멀쩡해도 401 이고 상류를 부르지 않는다")
+    void 폐기된세션() throws Exception {
+        when(revokedSessions.isRevoked(SESSION)).thenReturn(true);
+
+        mockMvc.perform(get(SETTINGS)
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, SESSION)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("로그아웃 재전송은 폐기된 sid 의 AT 를 실어도 필터가 막지 않고 Data 의 멱등 재생에 닿는다")
+    void 폐기된세션_로그아웃재전송() throws Exception {
+        DATA.on("POST /internal/auth/sessions/logout", request -> new MockUpstream.Response(200,
+                "{\"revoked\":true,\"sessionId\":\"" + SESSION + "\"}"));
+
+        mockMvc.perform(delete("/auth/sessions/current")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, SESSION))
+                        .header("X-Refresh-Token", "rt"))
+                .andExpect(status().is2xxSuccessful());
+        assertThat(DATA.received()).isNotEmpty();
+        verify(revokedSessions, org.mockito.Mockito.never()).isRevoked(any());
+    }
+
+    @Test
+    @DisplayName("폐기되지 않은 sid 의 AT 는 통과한다")
+    void 살아있는세션() throws Exception {
+        stubSettings();
+        mockMvc.perform(get(SETTINGS)
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, SESSION)))
+                .andExpect(status().isOk());
+        verify(revokedSessions).isRevoked(SESSION);
+    }
+
+    @Test
+    @DisplayName("sid 없는 구 AT 는 거부목록을 보지 않고 통과한다")
+    void sid없는토큰() throws Exception {
+        stubSettings();
+        mockMvc.perform(get(SETTINGS).header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isOk());
+        verify(revokedSessions, org.mockito.Mockito.never()).isRevoked(any());
+    }
+
+    private void stubSettings() {
+        NOTI.on("GET /internal/users/" + USER + "/notification-settings", request ->
+                new MockUpstream.Response(200, """
+                        {"notificationEnabled":true,"soundEnabled":true,"nightModeEnabled":false,
+                         "nightStartTime":null,"nightEndTime":null}"""));
     }
 }
