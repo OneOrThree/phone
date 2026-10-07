@@ -473,6 +473,8 @@ public class LoginAttemptService {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         }
         // 같은 TX 안에서 기존 확정 헬퍼 재사용 — complete 가 attempt 를 다시 조회한다.
+        // 여기서 넘기는 펜스는 항등이다(같은 TX·같은 엔티티라 비교가 늘 참). 이 경로의 보호는 펜스가 아니라
+        // 위의 행 잠금 + guard + PENDING/GUEST_WITHDRAWN 검사이고, IdP 왕복이 없어 임차 만료 창도 없다.
         return self.complete(request.attemptId(), login, attempt.getClaimedAt());
     }
 
@@ -575,6 +577,11 @@ public class LoginAttemptService {
         // 그 뒤에 늦게 돌아온 원래 실행자가 덮어쓰면 한 시도가 세션을 두 번 낸다. UNUSABLE 이 아니라
         // IN_PROGRESS(409) 인 이유 — 임차를 정당하게 넘겨받은 실행자가 있고, 앱의 복구 경로(조회
         // 재시도)가 그 승자의 결과를 재생으로 받기 때문이다.
+        // 단, 탈퇴로 닫힌 시도(INVALIDATED)는 재시도해도 영원히 성공하지 않는다 — guard 와 같은 UNUSABLE 이다.
+        // 409 로 주면 앱이 «진행 중» 으로 읽고 재시도 루프에 들어간다.
+        if (attempt.getStatus() == LoginAttemptStatus.INVALIDATED) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
         if (attempt.getStatus() != LoginAttemptStatus.PENDING
                 || !attempt.getClaimedAt().equals(expectedClaimedAt)) {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_IN_PROGRESS);

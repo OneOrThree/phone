@@ -175,6 +175,22 @@ class LoginAttemptServiceGateTest {
     }
 
     @Test
+    @DisplayName("탈퇴로 닫힌 시도(INVALIDATED)는 펜스와 무관하게 UNUSABLE — 재시도해도 성공하지 않으니 409 를 주지 않는다")
+    void 닫힌시도는_UNUSABLE() {
+        Instant mine = Instant.parse("2026-10-07T00:00:00Z");
+        LoginAttempt attempt = LoginAttempt.builder()
+                .attemptId(ATTEMPT_ID).status(LoginAttemptStatus.INVALIDATED)
+                .claimedAt(mine).recoveryExpiresAt(mine.plus(Duration.ofMinutes(5)))
+                .build();
+        given(loginAttemptRepository.findByAttemptIdForUpdate(ATTEMPT_ID)).willReturn(Optional.of(attempt));
+
+        assertThatThrownBy(() -> service.complete(ATTEMPT_ID, login(), mine))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.INVALIDATED);
+    }
+
+    @Test
     @DisplayName("펜스가 claimed_at 과 같으면 complete 가 COMPLETED 로 확정한다")
     void 펜스일치면_완료() {
         Instant mine = Instant.parse("2026-10-07T00:00:00Z");
