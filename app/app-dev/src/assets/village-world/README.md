@@ -60,3 +60,7 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 - 탭·이동(GROMO-2231, 같은 플래그): 탭(`locationX/scale`=이미지 px) → `imageToWorld`(0~100) → `v1/nav.json` 100×100 위 A*(`utils/nav-path.ts`, HLD §3) → 셀 중심을 `worldToImage` 로 px 로 되돌려 기존 `Animated.timing` 루프에 태운다.
 - 목적지가 다른 연결 영역·바다면 출발 영역 안 최근접 통행 셀(동률 index 작은 쪽)로 보정한다. 대각은 양옆 직교 셀이 모두 통행일 때만.
 - 속도는 world unit/초(가로·세로 동일, 화면 px 비율 보정 없음): 한 칸 `MS_PER_UNIT`=91ms. `homePositions` 저장은 px 그대로.
+- 로컬 맵 에셋 서버(GROMO-2233): `npm run serve:map-assets`(기본 4300, `--fail manifest,tileset,layout` 으로 실패 재현) 가 `/static/maps/home/manifest.json`(max-age=60+ETag)·`v1/<file>`(immutable)을 Nginx 계약 그대로 내준다.
+- 앱은 `.env` 의 `EXPO_PUBLIC_MAP_ASSETS_URL`(시뮬레이터 `http://localhost:4300`, 실기기는 맥 LAN IP)이 있을 때만 받는다. 비우면 번들(`v1/`)만 쓴다.
+- 캐시 위치: 앱 캐시 디렉터리 `maps/home/{state.json, v<n>/}`(최근 2개 버전). 임시 디렉터리에 받아 sha256 검증 후 `v<n>` 으로 rename(원자 교체), 새 버전은 다음 홈 진입부터 쓴다.
+- 서버 꺼짐·해시 불일치·일부 실패 → 이전 캐시, 없으면 번들로 그린다(`services/mapAssets.ts`, 테스트 `mapAssets.test.ts`).

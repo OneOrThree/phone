@@ -46,7 +46,8 @@ import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
 import { TileTerrainCanvas } from './TileTerrainCanvas';
-import navJson from '@/assets/village-world/v1/nav.json';
+import bundledNavJson from '@/assets/village-world/v1/nav.json';
+import { promoteMapAssets, readMapJson, syncMapAssets } from '@/services/mapAssets';
 import { applyLayout } from '@/utils/island-layout';
 import { loadNav, navPath, stepDurationMs, tapToWorld } from '@/utils/nav-path';
 import { imageToWorld, worldToImage } from '@/utils/worldCoords';
@@ -260,7 +261,7 @@ function Wanderer({
           ? [
               at.current,
               ...navPath(
-                NAV,
+                activeNav(),
                 imageToWorld(at.current, sizeOf(grid)),
                 imageToWorld(target, sizeOf(grid)),
               ).map((n) => worldToImage(n, sizeOf(grid))),
@@ -1135,7 +1136,11 @@ function FinalIslandScene({
     worldLocation = useRef(imageToWorld(pos, sizeOf(grid)));
   // 타일 섬 경로: 월드 A* 결과를 px 로 되돌리고 출발점을 맨 앞에 둔다(기존 villagePath 와 같은 모양).
   const tilePath = (from: Point, to: Point): Point[] => {
-    const nodes = navPath(NAV, imageToWorld(from, sizeOf(grid)), imageToWorld(to, sizeOf(grid)));
+    const nodes = navPath(
+      activeNav(),
+      imageToWorld(from, sizeOf(grid)),
+      imageToWorld(to, sizeOf(grid)),
+    );
     return nodes.length ? [from, ...nodes.map((n) => worldToImage(n, sizeOf(grid)))] : [];
   };
   const walk = (target: Point, done?: () => void) => {
@@ -1807,10 +1812,17 @@ const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW =
 // 타일 섬 지형(GROMO-2230): 켜면 새 마을(layered)로 시작하고 지형을 Skia Atlas 로 그린다.
 // 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
-const NAV = loadNav(navJson as any);
+// 활성 소스(GROMO-2233)의 nav.json. 화면 수명 동안 소스가 고정이라 같은 JSON 이면 loadNav 의 WeakMap 캐시가 맞는다.
+const activeNav = () => loadNav(readMapJson('nav.json', bundledNavJson) as any);
 const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
 export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
   const L = useAppLayout();
+  // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 활성화하고(렌더 중 교체 금지),
+  // 백그라운드 동기화는 완료돼도 다음 홈 진입부터 반영된다. 실패하면 번들/이전 캐시로 그대로 그린다.
+  useState(() => promoteMapAssets('home'));
+  useEffect(() => {
+    if (TILE_ISLAND) void syncMapAssets('home');
+  }, []);
   const [layered, setLayered] = useState(
     () =>
       TILE_ISLAND ||

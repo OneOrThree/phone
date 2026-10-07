@@ -1,13 +1,17 @@
 import React, { useMemo } from 'react';
 import { Atlas, Canvas, Group, rect, Skia, useImage } from '@shopify/react-native-skia';
-import tilemap from '@/assets/village-world/v1/tilemap.json';
-import tileset from '@/assets/village-world/v1/tileset.json';
+import bundledTilemap from '@/assets/village-world/v1/tilemap.json';
+import bundledTileset from '@/assets/village-world/v1/tileset.json';
+import { activeTilesetUri, readMapJson } from '@/services/mapAssets';
 
 // 타일 섬 지형(GROMO-2230): terrain.png 한 장 대신 tileset@2x.png 의 384 조각을 Atlas 한 번(드로우콜 1)으로 그린다.
 // 소품·건물은 지금처럼 VillageScenery 가 RN 뷰로 그린다 — 한 캔버스로 합치는 건 실기기 측정 뒤 다음 단계.
 
 /** tilemap 의 terrain 레이어를 아틀라스 소스 rect(2x)·목적지 rsxform(1x)으로 바꾼다. gid 0 은 빈 칸. */
 export function buildTerrainAtlas() {
+  // 활성 소스(GROMO-2233)가 cache 면 캐시본, 아니면 번들 — 이미지와 같은 버전에서 읽는다.
+  const tilemap = readMapJson('tilemap.json', bundledTilemap);
+  const tileset = readMapJson('tileset.json', bundledTileset);
   const terrain = tilemap.layers.find((layer) => layer.name === 'terrain')!;
   const { tilewidth, tileheight, margin, spacing, columns, scale } = tileset;
   const sprites = [],
@@ -55,7 +59,12 @@ export function TileTerrainCanvas({
   base: number;
 }) {
   // Metro 는 `@2x` 를 배율 접미사로 읽어 파일명 그대로는 못 찾는다 — 기본 이름으로 부르면 tileset@2x.png 변형을 고른다.
-  const image = useImage(require('@/assets/village-world/v1/tileset.png'));
+  // 활성 소스가 cache 면 파일 URI(GROMO-2233). 소스는 화면 수명 동안 고정이라 마운트 때 한 번만 고른다.
+  const source = useMemo(
+    () => activeTilesetUri() ?? require('@/assets/village-world/v1/tileset.png'),
+    [],
+  );
+  const image = useImage(source);
   // 이미지가 뜬 뒤 한 번만 만든다. 로드 전에는 기존 Image 처럼 아무것도 그리지 않는다(뒤의 바다 배경이 보인다).
   const atlas = useMemo(() => (image ? buildTerrainAtlas() : null), [image]);
   if (!image || !atlas) return null;

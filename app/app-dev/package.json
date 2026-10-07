@@ -28,6 +28,7 @@
     "review:last-island-recovery": "node scripts/review-last-island-recovery.cjs",
     "gen:report-palette": "node scripts/generate-report-palette.cjs",
     "gen:report-palette:check": "node scripts/generate-report-palette.cjs --check",
+    "serve:map-assets": "node scripts/serve-map-assets.cjs",
     "gen:nav-fixture": "node scripts/build-nav-fixture.cjs",
     "gen:nav-fixture:check": "node scripts/build-nav-fixture.cjs --check",
     "gen:tile-atlas": "python3 scripts/build-tile-atlas.py",

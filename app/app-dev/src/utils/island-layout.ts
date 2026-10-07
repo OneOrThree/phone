@@ -1,5 +1,6 @@
 import type { IslandLayout } from '@/services/api/home';
-import mapMeta from '@/assets/village-world/v1/home.map.json';
+import bundledMapMeta from '@/assets/village-world/v1/home.map.json';
+import { readMapJson } from '@/services/mapAssets';
 import { cellCenterToWorld, worldToImage } from './worldCoords';
 
 /**
@@ -11,6 +12,7 @@ export function applyLayout<T extends { building?: string | null; x: number; y: 
   layout: IslandLayout | undefined,
 ): T[] {
   if (!layout?.buildings?.length) return objects;
+  const mapMeta = readMapJson('home.map.json', bundledMapMeta); // 활성 소스가 cache 면 캐시본(GROMO-2233)
   const cells = new Map(layout.buildings.map((b) => [b.id as string, b.cell]));
   return objects.map((o) => {
     const cell = o.building ? cells.get(o.building) : undefined;
