@@ -76,7 +76,7 @@ test('Android/iOS release require real terms and the production API URL', () => 
   expect(gradle).toMatch(/termsVersion\s*==\s*null\s*\|\|\s*termsVersion\.trim\(\)\.isEmpty\(\)/);
   expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*\(termsVersion/);
   expect(gradle).toMatch(/apiUrl\s*!=\s*"https:\/\/api\.oneorthree\.world"/);
-  expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*apiUrl\s*!=/);
+  expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*!devAudience\s*&&\s*apiUrl\s*!=/);
   expect(xcode).toContain('${EXPO_PUBLIC_API_URL:-}');
   expect(xcode).toContain('https://api.oneorthree.world');
   expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] == "https://api.oneorthree.world"');
@@ -120,6 +120,88 @@ test('iOS dev TestFlight lane pins the team dev server and keeps the production 
   expect(testflight).toContain('--dev');
   expect(testflight).toContain('export EXPO_PUBLIC_API_URL="https://oneorthree.dev.mooo.com"');
   expect(testflight).toContain('fastlane beta_dev');
+});
+
+test('Android CI builds the dev AAB and only main pushes reach Play via CD', () => {
+  const gradle = fs.readFileSync(path.join(appDevRoot, 'android/app/build.gradle'), 'utf8');
+  const ci = fs.readFileSync(
+    path.join(appDevRoot, '../../.github/workflows/app-android-ci.yml'),
+    'utf8',
+  );
+  const cd = fs.readFileSync(
+    path.join(appDevRoot, '../../.github/workflows/app-android-cd.yml'),
+    'utf8',
+  );
+
+  // 청중 비면 prod. prod·dev 외 차단
+  expect(gradle).toContain('System.getenv("GROMO_ANDROID_AUDIENCE") ?: "prod"');
+  expect(gradle).toMatch(/!\(androidAudience in \["prod", "dev"\]\)/);
+  // legacy 세션·운영 주소 가드는 운영만. dev 는 dev 주소만
+  expect(gradle).toMatch(
+    /!devAudience\s*&&\s*System\.getenv\("GROMO_LEGACY_SESSION_MIGRATION_READY"\)/,
+  );
+  expect(gradle).toMatch(/devAudience\s*&&\s*apiUrl\s*!=\s*"https:\/\/oneorthree\.dev\.mooo\.com"/);
+  // CI 가 dev 주소·청중·RUM 환경명 고정
+  expect(ci).toContain('EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com');
+  expect(ci).toContain('GROMO_ANDROID_AUDIENCE: dev');
+  expect(ci).toContain('EXPO_PUBLIC_ENV: dev');
+  // 잡 하나의 본문 (2칸 들여쓰기 잡 이름 기준)
+  const job = (name) => {
+    const m = ci.match(new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  [a-z-]+:\\n|$)`));
+    if (!m) throw new Error(`job ${name} 없음`);
+    return m[1];
+  };
+  const version = job('version');
+  const build = job('build');
+  const sign = job('sign');
+  const deploy = job('deploy');
+  // Play 업로드는 CD 만. 키 잡은 main 만
+  expect(ci).not.toContain('upload-google-play');
+  expect(cd).toContain('track: internal');
+  expect(version).toContain(
+    "if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'",
+  );
+  expect(sign).toContain(
+    "if: needs.version.result == 'success' && needs.build.result == 'success'",
+  );
+  expect(deploy).toContain("if: needs.sign.result == 'success'");
+  expect(deploy).toContain('app-android-cd.yml');
+  // 의존성 코드(npm·pip·Gradle)는 키 없는 build 잡에서만. 키 잡엔 안 돎
+  expect(build).toContain('npm ci');
+  expect(build).toContain('./gradlew');
+  expect(build).not.toMatch(/id-token|aws-actions|RELEASE_SECRET_ID/);
+  for (const keyJob of [version, sign]) {
+    expect(keyJob).toContain('id-token: write');
+    expect(keyJob).not.toMatch(/npm |pip |gradlew|setup-node|setup-python/);
+  }
+  expect(cd).not.toMatch(/pip |setup-python/);
+  // AAB 를 만드는 build 잡 액션도 커밋 SHA 고정
+  expect(build).not.toMatch(/uses: [^\n]*@v\d/);
+  // 재실행: 이미 트랙에 있으면 업로드 건너뜀
+  expect(cd).toMatch(/name: 이미 올라갔는지 확인[\s\S]*PRESENCE_ONLY: '1'/);
+  expect(cd).toContain("if: steps.pre.outputs.present != 'true'");
+  // 키 잡·CD 의 액션은 커밋 SHA 고정, 키 쓴 뒤 AWS 자격 증명 비움
+  for (const keyJob of [version, sign, cd]) {
+    expect(keyJob).not.toMatch(/uses: [^\n]*@v\d/);
+    expect(keyJob).toContain('AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN');
+  }
+  // 서명 검증은 jarsigner 출력으로. 업로드 키 지문 대조는 sign 잡
+  expect(build).toContain("grep -q '^jar verified\\.'");
+  expect(sign).toContain('"$ANDROID_UPLOAD_CERT_SHA1"');
+  expect(ci).toContain(
+    'ANDROID_UPLOAD_CERT_SHA1: 85:DF:F5:E4:96:1A:A2:32:88:E0:CF:B7:48:47:F0:55:9A:77:02:37',
+  );
+  // CD: 업로드 → 트랙 재조회 → 그다음 PR 표시
+  expect(cd).toMatch(/업로드 확인 \(internal 트랙 재조회\)[\s\S]*배포된 PR 에 표시/);
+  expect(cd).toContain('deployed:android-play-internal');
+  expect(cd).toMatch(/r0adkll\/upload-google-play@[0-9a-f]{40}/);
+  expect(cd).toMatch(/^on:\s*\n\s*workflow_call:/m);
+  // 키는 Secrets Manager 에서만. GitHub 시크릿 안 씀
+  expect(ci).not.toMatch(/secrets\./);
+  expect(cd).not.toMatch(/secrets\./);
+  expect(ci).toContain('RELEASE_SECRET_ID: gromo/prod/android');
+  // draft 는 배포 완료로 표시 안 함
+  expect(cd).toContain('if [ "$STATUS" != completed ]; then');
 });
 
 // pbxproj 는 스크립트 단계 본문을 \n·\" 로 이스케이프해 한 줄에 담는다 — 그걸 풀어 실제 sh 로 돌려 본다

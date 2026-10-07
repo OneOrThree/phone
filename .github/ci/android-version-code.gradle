@@ -1,0 +1,19 @@
+// CI 전용 Gradle init 스크립트 (GROMO-2223). `./gradlew -I <이 파일>` 로만 씀.
+//
+// Play 는 같은 versionCode 두 번 안 받음. build.gradle 값은 수동 운영 빌드용 고정값.
+// CI 가 GROMO_VERSION_CODE(Play 최대값 + 1)를 넘기면 모든 변형의 출력 versionCode 를 덮음. build.gradle 은 안 건드림.
+// androidComponents.onVariants = AGP 가 DSL 확정 뒤 출력값 바꾸는 공식 경로.
+def requested = System.getenv("GROMO_VERSION_CODE")
+if (requested == null || !(requested ==~ /[1-9][0-9]*/)) {
+    throw new GradleException("[ci] GROMO_VERSION_CODE 가 양의 정수가 아니다: '${requested}'")
+}
+def code = requested.toInteger()
+
+allprojects { p ->
+    p.pluginManager.withPlugin('com.android.application') {
+        p.extensions.getByName('androidComponents').onVariants(p.extensions.getByName('androidComponents').selector().all()) { variant ->
+            variant.outputs.each { output -> output.versionCode.set(code) }
+        }
+        p.logger.lifecycle("[ci] ${p.path}: versionCode = ${code}")
+    }
+}
