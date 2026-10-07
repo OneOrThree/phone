@@ -61,8 +61,8 @@ services:
   #    scheme 이 갈린 경우다. 어느 쪽이든 Realtime 에 CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088 을 주면 열린다
   #    (LAN 실기기면 http://<LAN IP>:8088 을 더한다). 직접 8085 로 붙일 때는 Host 와 Origin 이 같아 설정 없이 통과한다.
   #
-  # 내릴 때도 프로필을 붙인다 — `docker compose … --profile nginx down` 또는 `… rm -sf nginx`. 프로필 없이 down 하면
-  # 이 서비스는 대상에서 빠져 restart 정책대로 8088 을 계속 잡고 있다.
+  # nginx 만 내릴 때는 `docker compose … --profile nginx rm -sf nginx`. `--profile nginx down` 은 db·redis 까지 내리고,
+  # 프로필 없이 down 하면 이 서비스만 대상에서 빠져 restart 정책대로 8088 을 계속 잡고 있다.
   #
   # TLS 는 없다(평문 80). dev 의 「TLS 종단 뒤 평문 loopback」 중 뒷부분만 재현한다.
   nginx:

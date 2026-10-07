@@ -52,7 +52,7 @@ docker compose -f server/scripts/docker-compose.local.yml up -d db redis
 docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx
 LOCAL_BUSINESS_PORT=8083 LOCAL_REALTIME_PORT=8081 docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx   # 포트가 다를 때 — 셸 env 면 된다
 curl -si 127.0.0.1:8088/actuator/health | head -1; curl -si 127.0.0.1:8088/health | head -1   # 404 · 200(Business 응답) 이면 정상. 200 대신 502 면 Business 가 안 떠 있는 것
-docker compose -f server/scripts/docker-compose.local.yml --profile nginx down   # 내릴 때도 --profile nginx — 없으면 nginx 는 남는다
+docker compose -f server/scripts/docker-compose.local.yml --profile nginx rm -sf nginx   # nginx 만 내린다. `--profile nginx down` 은 db·redis 까지 내리니 쓰지 않는다
 
 # dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(+전용 Redis)·Notification. compose 에 nginx 없음(호스트 systemd Nginx 가 공개 라우팅)
 # /var/lib/gromo/runtime 은 runner 소유 0700 이라, 서버에서 수동 실행할 때는 sudo -u runner 로 돌리거나 sudo 가 필요합니다.
@@ -73,7 +73,7 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
   - **헬스체크는 upstream 을 보지 않는다**: 정본의 `location / → 404` 를 「라우팅이 올라왔다」는 신호로 쓰므로 두 서비스가 꺼져 있어도 healthy 다. 그때 `/health`·`/auth/...`·`/ws/realtime` 은 502(실측). 즉 **healthy + 502 = 호스트 서비스를 먼저 띄운다**.
   - `LOCAL_NGINX_BIND`(기본 `127.0.0.1`) · `LOCAL_NGINX_PORT`(기본 8088): nginx 가 듣는 주소·포트. **`LOCAL_NGINX_BIND=0.0.0.0` 은 LAN 실기기 테스트용이다** — TLS 가 없어 토큰이 평문으로 지나고 앞단 인증이 없어 같은 LAN 의 누구나 bootRun 중인 Business·Realtime 에 닿는다. 집·사무실 LAN 에서만 쓰고 공용 Wi-Fi 에서는 열지 않는다.
   - **WebSocket 을 이 경로로 붙이면 Realtime 에 `CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088` 이 필요하다**(포트를 바꿨으면 그 포트, LAN 실기기면 `http://<LAN IP>:8088` 추가). 정본이 포트를 뗀 `$host`(`127.0.0.1`)를 넘겨 Origin 의 `:8088` 과 포트가 어긋나 same-origin 검사가 403 을 낸다 — dev 의 GROMO-2175 는 TLS 종단으로 scheme 이 갈린 경우라 결과만 같다.
-  - **내릴 때**: `--profile nginx down` 또는 `--profile nginx rm -sf nginx`. 프로필 없이 `down` 하면 nginx 는 대상에서 빠져 8088 을 계속 잡는다.
+  - **내릴 때**: nginx 만 내리려면 `--profile nginx rm -sf nginx`. `--profile nginx down` 은 프로필 없는 db·redis 까지 내린다(Compose 프로필 규칙). 프로필 없이 `down` 하면 반대로 nginx 만 빠져 8088 을 계속 잡는다.
   - **Linux**: `host-gateway` 가 브리지 IP(예 `172.17.0.1`)라 bootRun 이 `127.0.0.1` 만 듣고 있으면 502 다 — `0.0.0.0` 에 바인드하거나 방화벽의 브리지→호스트 허용을 확인한다.
 - Data 를 전용 env 로 바꿀 때만(준비 도구를 `--data-image`로 실행해 `compose.env`에 `DATA_API_ENV_FILE`·`DATA_API_PROFILES`가 있을 때) dev에서는 `docker-compose.satellites.data.dev.yml`, prod에서는 `docker-compose.satellites.data.yml`을 **마지막 `-f`**로 더합니다. dev CD는 전용 env가 없거나 유효하지 않으면 배포를 중단합니다.
 - prod 호스트에는 레포가 없고 `prod-cd.yml`이 `docker-compose.prod.yml`만 S3 로 올립니다. prod 줄의 `server/scripts/…`는 같은 커밋의 파일을 호스트에 옮겨 둔 경로로 바꾸고, `.env.prod`·`./deploy/nginx.conf`·`./certs`는 `--project-directory`(현행 배포 디렉터리) 기준으로 풉니다.
@@ -140,7 +140,7 @@ ACL 파일은 원자 교체(새 inode)라 `restart`만으로는 기존 단일 �
 docker compose -f server/scripts/docker-compose.local.yml up -d db redis
 docker compose -f server/scripts/docker-compose.local.yml ps
 docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx   # dev 와 같은 공개 라우팅(선택) — 변수·주의는 §3 local nginx 프로필
-docker compose -f server/scripts/docker-compose.local.yml --profile nginx down
+docker compose -f server/scripts/docker-compose.local.yml --profile nginx down   # 전부 내린다(db·redis 포함). nginx 만이면 rm -sf nginx
 ```
 
 ### 기존 dev에 Realtime 추가
