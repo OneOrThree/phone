@@ -51,7 +51,8 @@ docker compose -f server/scripts/docker-compose.local.yml up -d db redis
 # 127.0.0.1:8088 → Business 8090 · Realtime 8085. 두 서비스가 안 떠 있으면 nginx 는 healthy 여도 그 경로는 502 다.
 # ⚠️ 두 서비스의 기본 포트는 Business 8080 · Realtime 8081 이라 그대로 bootRun 하면 Data(8080)·Metro(8081)와 부딪히고
 #    nginx 도 502 다. 로컬에서는 아래처럼 포트를 옮겨 띄운다(다른 필수 env 는 각 서비스 README).
-(cd server/business-api && SERVER_PORT=8090 ./gradlew bootRun)
+#    Business 의 폐기 세션 거부 목록은 기본 1시간이라, 로컬 data-api 의 AT 수명(예시 30일)에 맞춰 늘린다.
+(cd server/business-api && SERVER_PORT=8090 AUTH_REVOKED_SESSION_TTL=2592000s ./gradlew bootRun)
 (cd server/realtime && SERVER_PORT=8085 ./gradlew bootRun)
 docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx
 LOCAL_BUSINESS_PORT=8083 LOCAL_REALTIME_PORT=8081 docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx   # 포트가 다를 때 — 셸 env 면 된다
