@@ -4,10 +4,11 @@ import {
   navPath,
   resolveTarget,
   stepDurationMs,
+  tilePath,
   tapToWorld,
   MS_PER_UNIT,
 } from './nav-path';
-import { cellCenterToWorld, worldToCell } from './worldCoords';
+import { cellCenterToWorld, imageToWorld, worldToCell, worldToImage } from './worldCoords';
 
 const real = loadNav(nav as any);
 const synth = (rows: string[], costs?: number[]) => {
@@ -68,12 +69,12 @@ describe('v1 nav.json A*', () => {
 describe('resolveTarget', () => {
   it('다른 섬 탭은 출발 영역 안 최근접 셀로 보정한다', () => {
     const g = synth(['110011', '110011', '110011']);
-    expect(resolveTarget(g, center(0, 0), center(4, 1))).toEqual({ cx: 1, cy: 1 });
+    expect(resolveTarget(g, center(0, 0), center(4, 1))?.target).toEqual({ cx: 1, cy: 1 });
   });
   it('바다 탭의 동률은 index 작은 셀', () => {
     const g = synth(['111', '101', '111']);
     // (1,1) 은 바다 — 상하좌우 네 셀이 거리 1 로 동률, index 가장 작은 (1,0)
-    expect(resolveTarget(g, center(0, 0), center(1, 1))).toEqual({ cx: 1, cy: 0 });
+    expect(resolveTarget(g, center(0, 0), center(1, 1))?.target).toEqual({ cx: 1, cy: 0 });
   });
   it('출발 셀이 비통행이면 최근접 통행 셀에서 시작한다', () => {
     const g = synth(['011']);
@@ -136,5 +137,30 @@ describe('휴리스틱 허용성', () => {
         }
     }
     expect(pathCost(navPath(g, from, to))).toBeCloseTo(d[e], 9);
+  });
+});
+
+describe('tilePath (walk 의 done 호출 조건)', () => {
+  const size = { imageWidth: 1536, imageHeight: 1024 };
+  const px = (cx: number, cy: number) => worldToImage(center(cx, cy), size);
+
+  it('같은 셀 목적지는 [from] — 길이 1이라 walk 가 done 을 부른다', () => {
+    const from = px(3, 1);
+    expect(tilePath(synth(['1111', '1111']), from, from, size)).toEqual([from]);
+  });
+  it('도달 불가(빈 목적지 보정 실패)는 []', () => {
+    expect(tilePath(synth(['0000']), px(0, 0), px(1, 0), size)).toEqual([]);
+  });
+  it('입구 7곳을 같은 목적지로 두 번 연속 걷기 — 두 번째는 같은 셀이어도 비어 있지 않다', () => {
+    let at = worldToImage(center(nav.spawns.character.cx, nav.spawns.character.cy), size);
+    for (const en of Object.values(nav.entrances)) {
+      const dest = worldToImage(center(en.cx, en.cy), size);
+      const first = tilePath(real, at, dest, size);
+      expect(first.length).toBeGreaterThan(1);
+      at = first[first.length - 1];
+      const second = tilePath(real, at, dest, size);
+      expect(second.length).toBeGreaterThanOrEqual(1);
+      expect(imageToWorld(second[0], size)).toEqual(imageToWorld(at, size));
+    }
   });
 });

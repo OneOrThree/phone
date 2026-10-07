@@ -49,7 +49,7 @@ import { TileTerrainCanvas } from './TileTerrainCanvas';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import { promoteMapAssets, readMapJson, syncMapAssets } from '@/services/mapAssets';
 import { applyLayout } from '@/utils/island-layout';
-import { loadNav, navPath, stepDurationMs, tapToWorld } from '@/utils/nav-path';
+import { loadNav, navPath, stepDurationMs, tapToWorld, tilePath } from '@/utils/nav-path';
 import { imageToWorld, worldToImage } from '@/utils/worldCoords';
 import { villageAssets } from '@/constants/village-assets';
 import {
@@ -91,6 +91,9 @@ import { FireMotion } from '@/components/village-motion/FireMotion';
 import { RaftWaterMotion } from '@/components/village-motion/RaftWaterMotion';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
+// 타일 섬 지형(GROMO-2230): 켜면 새 마을(layered)로 시작하고 지형을 Skia Atlas 로 그린다.
+// 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
+const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
   for (let idx = 1; idx < pts.length; idx++) {
@@ -404,6 +407,8 @@ export function WorldMap({
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
+  // 타일 섬 지형 캔버스는 마을 + 플래그일 때만, 낚시 화면은 기존 Image 그대로.
+  const tileTerrain = village && !fishing && TILE_ISLAND;
   const ownDayNight = useVillageDayNight();
   const dayNight = dayNightProp ?? ownDayNight;
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
@@ -572,7 +577,7 @@ export function WorldMap({
           <Rect width="100%" height="100%" fill="url(#home-ocean)" />
         </Svg>
       )}
-      {village && TILE_ISLAND && (
+      {tileTerrain && (
         <TileTerrainCanvas width={L.width} height={L.height} camera={camera} base={base} />
       )}
       <Pressable
@@ -604,7 +609,7 @@ export function WorldMap({
         }}
       >
         {/* 타일 섬 플래그면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
-        {!(village && TILE_ISLAND) && (
+        {!tileTerrain && (
           <Image
             source={
               fishing
@@ -926,7 +931,7 @@ function FinalIslandScene({
   const activeBuilding =
     trackedConstruction && progress < 1 ? trackedConstruction.building : undefined;
   const sceneBuilding = trackedConstruction?.building;
-  const layout = facts?.home.layout;
+  const layout = facts?.home?.layout;
   const scene = useMemo(() => {
     if (!layeredPreview) return undefined;
     const built = villageScene(
@@ -936,7 +941,8 @@ function FinalIslandScene({
     );
     // ponytail: 서버 배치는 그리는 위치만 바꾼다. 통행 셀(grid)·공사 위치는 map.json 기준 그대로 —
     // 서버 배치가 실제로 달라지는 시점(2232 머지 뒤)에 villageScene 이 objects 를 받아 다시 계산하게 한다.
-    const objects = applyLayout(built.objects, layout);
+    // 플래그 off 에서는 서버 배치를 무시해 map.json 그대로 그린다.
+    const objects = TILE_ISLAND ? applyLayout(built.objects, layout) : built.objects;
     return objects === built.objects ? built : { ...built, objects };
   }, [layeredPreview, i.buildings, sceneBuilding, layout]);
   const grid = scene?.grid ?? grids.home;
@@ -1132,23 +1138,13 @@ function FinalIslandScene({
   const xy = useRef(new Animated.ValueXY(pos)).current,
     token = useRef(0),
     location = useRef(pos);
-  const tileNav = TILE_ISLAND && !!scene,
-    worldLocation = useRef(imageToWorld(pos, sizeOf(grid)));
-  // 타일 섬 경로: 월드 A* 결과를 px 로 되돌리고 출발점을 맨 앞에 둔다(기존 villagePath 와 같은 모양).
-  const tilePath = (from: Point, to: Point): Point[] => {
-    const nodes = navPath(
-      activeNav(),
-      imageToWorld(from, sizeOf(grid)),
-      imageToWorld(to, sizeOf(grid)),
-    );
-    return nodes.length ? [from, ...nodes.map((n) => worldToImage(n, sizeOf(grid)))] : [];
-  };
+  const tileNav = TILE_ISLAND && !!scene;
   const walk = (target: Point, done?: () => void) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
     setInteractiveMotion(null);
     const path = tileNav
-      ? tilePath(location.current, target)
+      ? tilePath(activeNav(), location.current, target, sizeOf(grid))
       : scene
         ? villagePath(scene, location.current, target)
         : landPath(grid, location.current, nearestLand(grid, target));
@@ -1189,8 +1185,7 @@ function FinalIslandScene({
       }).start(({ finished }) => {
         if (finished) {
           location.current = p;
-          // 월드 단위 정본은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
-          if (tileNav) worldLocation.current = imageToWorld(p, sizeOf(grid));
+          // 월드 단위 정본(location)은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
           setPos(p);
           homePositions[positionKey] = p;
           next();
@@ -1809,12 +1804,9 @@ function FinalIslandScene({
 
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
-// 타일 섬 지형(GROMO-2230): 켜면 새 마을(layered)로 시작하고 지형을 Skia Atlas 로 그린다.
-// 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
 // 활성 소스(GROMO-2233)의 nav.json. 화면 수명 동안 소스가 고정이라 같은 JSON 이면 loadNav 의 WeakMap 캐시가 맞는다.
 const activeNav = () => loadNav(readMapJson('nav.json', bundledNavJson) as any);
-const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
 export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
   const L = useAppLayout();
   // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 활성화하고(렌더 중 교체 금지),

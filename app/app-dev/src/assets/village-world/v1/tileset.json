@@ -1,5 +1,5 @@
 {
-  "//": "terrain.png 를 Lanczos 2배로 올려 128px 로 자른 @2x 아틀라스(1x 환산 64px). 생성: scripts/build-tile-atlas.py",
+  "//": "terrain.png 를 Lanczos 2배로 올려 128px 로 자른 @2x 아틀라스(1x 환산 64px). 최상위 scale 은 Tiled 비표준 확장이며 2230 TileTerrainCanvas 가 읽는 계약이다(Tiled 보존용은 properties 의 scale). 생성: scripts/build-tile-atlas.py",
   "name": "home-terrain",
   "image": "tileset@2x.png",
   "imagewidth": 4096,
@@ -10,5 +10,12 @@
   "spacing": 2,
   "columns": 31,
   "tilecount": 384,
-  "scale": 2
+  "scale": 2,
+  "properties": [
+    {
+      "name": "scale",
+      "type": "int",
+      "value": 2
+    }
+  ]
 }

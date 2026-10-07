@@ -1,11 +1,22 @@
 import React, { useMemo } from 'react';
-import { Atlas, Canvas, Group, rect, Skia, useImage } from '@shopify/react-native-skia';
+import {
+  Atlas,
+  Canvas,
+  Group,
+  rect,
+  Skia,
+  useImage,
+  type SkRect,
+  type SkRSXform,
+} from '@shopify/react-native-skia';
 import bundledTilemap from '@/assets/village-world/v1/tilemap.json';
 import bundledTileset from '@/assets/village-world/v1/tileset.json';
 import { activeTilesetUri, readMapJson } from '@/services/mapAssets';
 
 // 타일 섬 지형(GROMO-2230): terrain.png 한 장 대신 tileset@2x.png 의 384 조각을 Atlas 한 번(드로우콜 1)으로 그린다.
 // 소품·건물은 지금처럼 VillageScenery 가 RN 뷰로 그린다 — 한 캔버스로 합치는 건 실기기 측정 뒤 다음 단계.
+// 실기기 측정 항목: tileset@2x.png 는 4096×2048 RGBA(≈32 MB)라 최대 텍스처 크기가 4096 인 일부 저사양 Android 기기에서
+// 한계에 걸리거나 메모리 부담이 될 수 있다. 코드는 그대로 두고 실기기에서 로드·메모리를 확인한다.
 
 /** tilemap 의 terrain 레이어를 아틀라스 소스 rect(2x)·목적지 rsxform(1x)으로 바꾼다. gid 0 은 빈 칸. */
 export function buildTerrainAtlas() {
@@ -14,8 +25,8 @@ export function buildTerrainAtlas() {
   const tileset = readMapJson('tileset.json', bundledTileset);
   const terrain = tilemap.layers.find((layer) => layer.name === 'terrain')!;
   const { tilewidth, tileheight, margin, spacing, columns, scale } = tileset;
-  const sprites = [],
-    transforms = [];
+  const sprites: SkRect[] = [],
+    transforms: SkRSXform[] = [];
   for (let i = 0; i < terrain.data.length; i++) {
     const gid = terrain.data[i];
     if (!gid) continue;
@@ -60,6 +71,7 @@ export function TileTerrainCanvas({
 }) {
   // Metro 는 `@2x` 를 배율 접미사로 읽어 파일명 그대로는 못 찾는다 — 기본 이름으로 부르면 tileset@2x.png 변형을 고른다.
   // 활성 소스가 cache 면 파일 URI(GROMO-2233). 소스는 화면 수명 동안 고정이라 마운트 때 한 번만 고른다.
+  // 번들 쪽은 Metro 의 @2x 배율 해석에 기댄 우회, Expo 57 / `expo export --platform ios` 로 확인(2026-10-08).
   const source = useMemo(
     () => activeTilesetUri() ?? require('@/assets/village-world/v1/tileset.png'),
     [],
