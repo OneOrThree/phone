@@ -56,6 +56,7 @@ public class FacebookJwksClientImpl implements SocialLoginClient {
             @Value("${facebook.client-id}") String clientId) {
         this.restClient = RestClient.builder()
                 .baseUrl(jwksUrl)
+                .requestFactory(IdpHttp.requestFactory())
                 .build();
         this.clientId = clientId;
     }

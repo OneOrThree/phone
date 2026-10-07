@@ -189,6 +189,11 @@ export const componentTokens = {
   loginButton: {
     // 카카오·Google/LINE·Apple 버튼이 같은 높이로 줄을 맞춘다. 최소 터치 영역(size.tapMin 44pt)보다 크다.
     height: 54,
+    // Apple·Google 버튼이 공유하는 로고 상자와 로고의 왼쪽 여백(GROMO-2215). 글꼴·배치는 같고 색만 브랜드별이다.
+    logoSize: 20,
+    logoInset: 20,
+    appleBackground: color.black,
+    appleForeground: color.white,
     googleBackground: color.white,
     googleBorder: color.googleBorder,
     googleForeground: color.googleText,

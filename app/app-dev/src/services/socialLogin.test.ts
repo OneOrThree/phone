@@ -68,8 +68,8 @@ test('각 제공자의 서버 자격 토큰을 반환한다', async () => {
   // 1.x 와 같이 iOS 도 webClientId 를 넘겨 ID 토큰 aud 가 웹 클라이언트로 통일된다.
   expect(mockGoogleConfigure).toHaveBeenCalledWith(
     expect.objectContaining({
-      webClientId: '899365616896-f9hggskoharr2uogdtvd0d2qvntle8ae.apps.googleusercontent.com',
-      iosClientId: '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com',
+      webClientId: '263851348176-hpndg0cj79f9n0vp78us3cktno7p0h9k.apps.googleusercontent.com',
+      iosClientId: '263851348176-8ochua7scca7h6ldmdk7v3iqc9uoit50.apps.googleusercontent.com',
     }),
   );
   expect(mockLineSetup).toHaveBeenCalledWith({ channelId: '2011754820' });
@@ -139,7 +139,7 @@ test('Android Google 설정은 ID 토큰 발급에 필요한 webClientId 를 넘
   await expect(isolated('google', loaders)).resolves.toBe('google-id-token');
   expect(mockGoogleConfigure).toHaveBeenCalledWith(
     expect.objectContaining({
-      webClientId: '899365616896-f9hggskoharr2uogdtvd0d2qvntle8ae.apps.googleusercontent.com',
+      webClientId: '263851348176-hpndg0cj79f9n0vp78us3cktno7p0h9k.apps.googleusercontent.com',
     }),
   );
 });

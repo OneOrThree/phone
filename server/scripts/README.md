@@ -51,7 +51,8 @@ docker compose -f server/scripts/docker-compose.local.yml up -d db redis
 # 127.0.0.1:8088 → Business 8090 · Realtime 8085. 두 서비스가 안 떠 있으면 nginx 는 healthy 여도 그 경로는 502 다.
 # ⚠️ 두 서비스의 기본 포트는 Business 8080 · Realtime 8081 이라 그대로 bootRun 하면 Data(8080)·Metro(8081)와 부딪히고
 #    nginx 도 502 다. 로컬에서는 아래처럼 포트를 옮겨 띄운다(다른 필수 env 는 각 서비스 README).
-(cd server/business-api && SERVER_PORT=8090 ./gradlew bootRun)
+#    Business 의 폐기 세션 거부 목록은 기본 1시간이라, 로컬 data-api 의 AT 수명(예시 30일)에 맞춰 늘린다.
+(cd server/business-api && SERVER_PORT=8090 AUTH_REVOKED_SESSION_TTL=2592000s ./gradlew bootRun)
 (cd server/realtime && SERVER_PORT=8085 ./gradlew bootRun)
 docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx
 LOCAL_BUSINESS_PORT=8083 LOCAL_REALTIME_PORT=8081 docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx   # 포트가 다를 때 — 셸 env 면 된다
@@ -97,6 +98,8 @@ dev 의 `/var/lib/gromo/runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다**
 | `BUSINESS_CURSOR_ENABLED` · `BUSINESS_CURSOR_KEY_V1` | Business(**필수**) | writer 가 거부. 손으로 비우면 부팅·헬스는 정상인데 커서 목록(`GET /islands`·`/islands/discover`·`/islands/{id}/members`·`/islands/{id}/join-requests`·`/me/join-requests`)만 503 |
 | `BUSINESS_CURSOR_ACTIVE_KEY` | Business(선택) | `v1` |
 | `LOGIN_ATTEMPT_DIGEST_SECRET` | Business(**필수**) | writer 가 거부(부팅 fail-fast) |
+| `JWT_SECRET` | Data(legacy **필수**) · Business(**필수**) · Realtime(dev.env → `realtime.yml`) | writer 가 거부. 세 서비스가 **같은 값**이어야 한다 — 다르면 한 곳이 서명한 AT 를 나머지가 전부 401 로 거절한다. `LOGIN_ATTEMPT_DIGEST_SECRET` 과는 달라야 한다 |
+| `APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID` | Data(legacy **필수**). Business env 로도 옮겨지지만 Business 코드는 읽지 않는다 — 제공자 토큰 검증은 Data 가 한다 | writer 가 거부(키 자체가 없을 때). 값이 빈 문자열이면 부팅은 되고 경고 한 줄만 남긴 채 그 제공자 로그인이 **전부** 401 `APPLE_TOKEN`·`GOOGLE_TOKEN`. 값은 쉼표로 구분한 허용 `aud` 목록이다(계정 정책 LOGIN-D03) — Apple 은 앱 번들 id(`com.oneorthree.focuscat`, 1.x `com.oneorthree.gromo`), Google 은 **Web 클라이언트 id**(2.0 은 `263851348176-hpndg0cj…`, GROMO-2215). 바꿀 때는 기존 값을 지우지 않고 **덧붙인다** — 설치된 구 빌드가 옛 `aud` 로 들어온다. 발급·확인 절차는 개인 문서가 아니라 이 표가 정본이다 |
 | `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED` | Data(satellites, 선택) | `false` — REALTIME 을 HTTP 로 보낸다 |
 | `CHAT_WS_ALLOWED_ORIGINS` | Realtime(dev.env → `realtime.yml`) | Origin 을 보낸 WS 핸드셰이크 전부 403. React Native 앱도 접속 URL 기준 `Origin: https://<API 호스트>` 를 보내므로 **앱 실시간 연결이 끊긴다**. dev 는 `https://oneorthree.dev.mooo.com`(GROMO-2175). 기본값을 `*` 로 열지 않는다 |
 | `REALTIME_EVENTS_KAFKA_ENABLED` | Realtime(dev.env) | `false` — `realtime-events` 소비자가 뜨지 않는다 |
