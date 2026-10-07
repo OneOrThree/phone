@@ -4,7 +4,8 @@ import map from '../map.json';
 import home from './home.map.json';
 import nav from './nav.json';
 import catalog from './objects.json';
-const { build } = require('../../../../scripts/build-nav-fixture.cjs');
+import { villageScene } from '@/utils/village-world';
+const { build, walkableAt } = require('../../../../scripts/build-nav-fixture.cjs');
 
 const open = (cx: number, cy: number) => nav.walkable[cy * nav.columns + cx] === '1';
 
@@ -71,5 +72,33 @@ describe('v1 nav fixture', () => {
     expect(build()).toEqual(a);
     for (const f of Object.keys(a))
       expect(fs.readFileSync(path.join(__dirname, f), 'utf8')).toBe(a[f]);
+  });
+
+  it('.cjs 통행 판정은 villageScene() 과 96×64 에서 셀 단위로 같다', () => {
+    const all = ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const;
+    const { cols, rows, cells } = villageScene(all).grid;
+    expect([cols, rows]).toEqual([96, 64]);
+    const mine = Array.from({ length: cols * rows }, (_, i) =>
+      walkableAt(i % cols, Math.floor(i / cols), cols, rows) ? '1' : '0',
+    ).join('');
+    expect(mine).toBe(cells);
+  });
+
+  it('roads.cells 는 roadLayers 합집합과 같고 고립 길 셀 수는 고정', () => {
+    const { roads, roadLayers } = map;
+    const union = roads.cells.map((_, i) => roadLayers.some((r) => r.cells[i]));
+    expect(roads.cells.map(Boolean)).toEqual(union);
+    const c = roads.columns;
+    const isolated = roads.cells.filter(
+      (on, i) =>
+        on &&
+        !(
+          (i % c > 0 && roads.cells[i - 1]) ||
+          (i % c < c - 1 && roads.cells[i + 1]) ||
+          roads.cells[i - c] ||
+          roads.cells[i + c]
+        ),
+    ).length;
+    expect(isolated).toBe(9);
   });
 });
