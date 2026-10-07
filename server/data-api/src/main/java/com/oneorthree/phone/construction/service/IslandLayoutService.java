@@ -25,10 +25,15 @@ public class IslandLayoutService {
     private final IslandLayoutRepository layouts;
     private final Clock clock;
 
-    /** 현재 배치 — 동시 첫 조회는 INSERT 가 ON CONFLICT 로 접히고 이긴 쪽 행을 다시 읽는다. */
+    /**
+     * 현재 배치 — 행이 이미 있으면 읽기만 한다(홈 호출 빈도가 높아 매번 INSERT 를 타지 않는다).
+     * 없을 때만 INSERT 하며, 동시 첫 조회는 ON CONFLICT 로 접히고 이긴 쪽 행을 다시 읽는다.
+     */
     public IslandLayoutView current(UUID islandId) {
-        layouts.insertIfAbsent(islandId, IslandLayoutTemplate.DEFAULT_LAYOUT_JSON);
-        IslandLayout layout = layouts.findById(islandId).orElseThrow();
+        IslandLayout layout = layouts.findById(islandId).orElseGet(() -> {
+            layouts.insertIfAbsent(islandId, IslandLayoutTemplate.DEFAULT_LAYOUT_JSON);
+            return layouts.findById(islandId).orElseThrow();
+        });
         return new IslandLayoutView(layout.getLayoutRevision(), layout.getLayout());
     }
 
