@@ -16,8 +16,11 @@ import java.time.ZoneId;
  */
 public final class ZonePolicy {
 
+    /** 어노테이션 속성(예: {@code @Scheduled(zone=...)})은 컴파일타임 String 상수가 필요해 따로 둔다. */
+    public static final String KST_ID = "Asia/Seoul";
+
     /** 모든 날짜 버킷·판정의 단일 기준 존. */
-    public static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    public static final ZoneId KST = ZoneId.of(KST_ID);
 
     private ZonePolicy() {
     }

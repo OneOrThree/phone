@@ -3,7 +3,6 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.AccountSettingsUseCase;
@@ -32,7 +31,7 @@ public class AccountSettingsController {
     @GetMapping
     public AccountSettingsUseCase.Result read(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return settings.read(claims, deadline());
+        return settings.read(claims, properties.deadline());
     }
 
     @PatchMapping(consumes = "application/json")
@@ -43,10 +42,6 @@ public class AccountSettingsController {
                 || !body.has("notifications") || !body.get("notifications").isBoolean()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "notifications");
         }
-        return settings.patch(claims, body.get("notifications").booleanValue(), key, deadline());
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
+        return settings.patch(claims, body.get("notifications").booleanValue(), key, properties.deadline());
     }
 }

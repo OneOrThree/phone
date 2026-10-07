@@ -1,5 +1,13 @@
-import { GuideBox, MailboxGuide } from '@/screens/island/NpcGuide';
+import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
+import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession } from '@/services/api/session';
+import {
+  beginWithdrawal,
+  confirmWithdrawal,
+  finishWithdrawalCleanup,
+  type WithdrawalIntent,
+} from '@/services/withdrawalIntent';
+import { clearStudyWidget } from '@/services/studyWidget';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -22,10 +30,12 @@ import {
   State,
   Friend,
   shouldShowMailboxGuide,
+  shouldShowShopGuide,
   Building,
   Color,
   currentIsland,
   mainIsland,
+  serverHome,
   isHost,
   sessionSeconds,
   questRate,
@@ -52,11 +62,13 @@ import {
   trackNames,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
+import { semanticTokens } from '@/design-system/tokens';
 import { ApiError, uuid } from '@/services/api/client';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
+import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
@@ -119,6 +131,9 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
+import { UserSafetySheet } from '@/components/UserSafetySheet';
+import { PolicyLinks } from '@/components/PolicyLink';
+import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 // 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
 const shopUiKind = (kind: string) =>
   kind === 'island_theme'
@@ -385,12 +400,36 @@ function Spinner({ reduce }: { reduce: boolean }) {
 // v2 온보딩 페이지: 헤더(.hdr) · 스크롤(.scroll) · 아래 고정 CTA(.ctabar, 그라데이션으로 스크롤 위에 겹침).
 // 가로 폰은 왼쪽 330px 그림 칸(.lsplit .lleft) + 오른쪽 페이지(다이내믹 아일랜드 자리 56px 비움).
 // 작은 가로 폰(667 폭 등)은 그림 칸을 폭의 38%로 줄이고 오른쪽 여백은 20px(안전 영역이 더 크면 그만큼)
-function Onboard({ title, back, left, leftBg = C.sky, cta, children }: any) {
+function Onboard({
+  title,
+  back,
+  left,
+  leftBg = C.sky,
+  cta,
+  hideCtaOnKeyboard = false,
+  children,
+}: any) {
   const layout = useAppLayout(),
     ins = useScreenInsets(),
     land = layout.compact,
     gutter = land ? 22 : 20,
-    [ctaHeight, setCtaHeight] = useState(0);
+    [ctaHeight, setCtaHeight] = useState(0),
+    [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    if (!hideCtaOnKeyboard) return;
+    // 키보드 애니메이션이 끝나기 전에 CTA를 제거해 첫 포커스 탭과 입력 칸을 가리지 않는다.
+    const show = Keyboard.addListener('keyboardWillShow', () => setKeyboardVisible(true));
+    const didShow =
+      Platform.OS === 'ios'
+        ? undefined
+        : Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      show.remove();
+      didShow?.remove();
+      hide.remove();
+    };
+  }, [hideCtaOnKeyboard]);
   const page = (
     <View
       style={{
@@ -438,17 +477,23 @@ function Onboard({ title, back, left, leftBg = C.sky, cta, children }: any) {
       <ScrollView
         style={{ flex: 1 }}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={hideCtaOnKeyboard}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingHorizontal: gutter,
           paddingTop: land ? 6 : 16,
-          paddingBottom: cta ? Math.max(land ? 92 : 120, ctaHeight) : land ? 28 : 48,
+          paddingBottom:
+            cta && !(hideCtaOnKeyboard && keyboardVisible)
+              ? Math.max(land ? 92 : 120, ctaHeight)
+              : land
+                ? 28
+                : 48,
           gap: land ? 12 : 14,
         }}
       >
         {children}
       </ScrollView>
-      {cta && (
+      {cta && !(hideCtaOnKeyboard && keyboardVisible) && (
         <View
           onLayout={(ev) => setCtaHeight(ev.nativeEvent.layout.height)}
           style={[
@@ -746,10 +791,27 @@ export function RedesignScreens({ e }: any) {
     // 초대 코드 확인으로 받은 섬 미리보기 — 가입은 사용자가 카드를 보고 명시적으로 누른다
     [invitePick, setInvitePick] = useState<IslandSummary | null>(null),
     // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
-    [serverDone, setServerDone] = useState('');
+    [serverDone, setServerDone] = useState(''),
+    // 초대로 가입을 확정한 섬 id — 정본 스냅숏 카드와 같은 가입인지 이름이 아닌 id로 비교한다
+    [serverDoneId, setServerDoneId] = useState(''),
+    [safetyTarget, setSafetyTarget] = useState<{
+      id: string;
+      name: string;
+      onDelete?: () => void;
+    } | null>(null),
+    // 서버 탈퇴(또는 로컬 탈퇴)는 끝났는데 기기의 로컬 데이터 소유자 정리를 확정하지 못한 상태.
+    // route 가 바뀌어도 유지한다 — 탈퇴 API 를 다시 부르지 않고 로컬 정리만 재시도해야 한다.
+    [withdrawCleanupPending, setWithdrawCleanupPending] = useState(false);
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null);
+    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
+    routeNowRef = useRef(route),
+    // 진행 중인 탈퇴 의도 — 탈퇴 대상 userId 와 멱등 키. 요청 전에 기기에도 남겨(beginWithdrawal)
+    // 앱이 종료돼도 부팅이 로컬 정리를 이어 간다. 세션이 먼저 정리돼도 정리 대상 계정을 잃지 않는다.
+    withdrawIntent = useRef<WithdrawalIntent | null>(null);
+  routeNowRef.current = route;
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
@@ -767,6 +829,8 @@ export function RedesignScreens({ e }: any) {
     setSoundDialog(null);
     setInvitePick(null);
     setServerDone('');
+    setServerDoneId('');
+    setSafetyTarget(null);
   }, [route]);
   // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
   // stale 세션의 늦은 응답(CLIENT_STALE_SESSION)은 문구 없이 버린다.
@@ -795,6 +859,36 @@ export function RedesignScreens({ e }: any) {
         if (m) fail(m);
       })
       .finally(() => setServerBusy(false));
+  };
+  /**
+   * 탈퇴 뒤 기기 정리. 로컬 데이터 소유자 삭제(또는 다음 부팅이 이어 갈 내구 삭제 표식)가 확정돼야만
+   * 탈퇴 완료(로그인 화면)로 넘어간다. 확정하지 못하면 이전 사용자의 데이터가 다음 로그인에 남으므로
+   * 화면에 머물러 재시도 버튼을 띄운다 — 서버 계정은 이미 삭제됐으니 탈퇴 API 는 다시 부르지 않는다.
+   * 1.x(Android 같은 패키지)가 남긴 이 계정의 로컬 버킷·누끼 파일도 같은 규칙으로 먼저 지운다.
+   * 세션은 아래 signOut 전까지 남아 있으므로 재시도에서도 같은 userId 를 읽는다.
+   */
+  const finishWithdrawal = async () => {
+    try {
+      await finishWithdrawalCleanup(withdrawIntent.current?.userId || getSession()?.userId || null);
+    } catch {
+      setWithdrawCleanupPending(true);
+      notify('기기에 남은 데이터를 정리하지 못했어요. 다시 시도해 주세요.');
+      return;
+    }
+    setWithdrawCleanupPending(false);
+    withdrawIntent.current = null;
+    // 안드로이드 홈 위젯을 비운다 — 탈퇴한 계정의 공부시간이 런처에 남지 않게. signOut 도 비우지만
+    // 그 준비가 실패하면(false) 거기까지 가지 않고, 서버 없는 모드는 signOut 을 부르지 않는다.
+    // best-effort 라 기다리지 않는다(실패는 래퍼가 삼킨다).
+    void clearStudyWidget();
+    await screenTime.resetScreenTimeData().catch(() => {});
+    // signOut 의 false(로그아웃 tombstone 기록 실패)는 의도적으로 무시한다. 서버 계정은 이미 삭제됐고
+    // 로컬 데이터 소유자도 위에서 지웠으므로 화면은 탈퇴 완료로 넘긴다. 이 경우 토큰이 기기에 남지만
+    // 삭제된 계정의 세션이라, 다음 요청·다음 부팅의 checkSession 이 401/USER_NOT_FOUND 를 받아
+    // clearRejectedSession 으로 정리한다(auth.checkSession·client 401 처리).
+    if (server) await e.signOut();
+    act('DELETE_ACCOUNT');
+    reset('login');
   };
   // 서버 스냅샷 단축 — 첫 로드 전엔 undefined
   const snap = state.serverIslands;
@@ -853,7 +947,17 @@ export function RedesignScreens({ e }: any) {
     detail
       ? reqList.find((r) => r.status === 'pending' && r.islandId === detail)
       : reqList.find((r) => r.status === 'pending');
-  // 서버 소속 확인 카드 — 생성·가입 성공과 재시작 복구에 공용. arrival은 열지 않는다
+  // 서버 current 가 정해졌을 때만 홈으로 들어간다(GROMO-2138) — 승인만 되고 current 가 null 이면
+  // 홈이 chooseIsland 로 되돌리므로 버튼을 띄우지 않는다. 홈은 서버 스냅샷을 직접 그린다
+  const enterHome = snap?.currentIslandId ? (
+    <Btn
+      id="enter-home"
+      title="섬으로 가기"
+      style={{ marginTop: 6 }}
+      onPress={() => reset(state.tutorial && state.tutorial.step <= 3 ? 'guide' : 'home')}
+    />
+  ) : null;
+  // 서버 소속 확인 카드 — 최초 소속은 몽돌 안내, 기존 소속은 홈으로 들어간다.
   const doneCard = (title: string, sub: string) => (
     <View
       style={{
@@ -870,6 +974,7 @@ export function RedesignScreens({ e }: any) {
       <Txt kind="meta" style={META}>
         {sub}
       </Txt>
+      {enterHome}
     </View>
   );
   // 섬 찾기·승인 대기 진입 시 첫 페이지와 pending 목록을 서버에서 가져온다(재실행 복구 포함).
@@ -963,8 +1068,12 @@ export function RedesignScreens({ e }: any) {
         state={state}
         go={go}
         build={build}
+        libraryState={e.buildingIndicators?.libraryState}
+        showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
         showHud={route !== 'focusSetup'}
         showActions={false}
+        motion={route === 'focusSetup' ? 'tilt' : undefined}
+        boardStatus={e.boardStatus}
       />
     </View>
   );
@@ -988,7 +1097,7 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       )}
       {/* v2 CTA 바: 가로 폰에서도 주 버튼 아래 고스트 버튼을 쌓는다 */}
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: semanticTokens.spacing.control }}>
         <Btn title={primary} onPress={fn} disabled={disabled} />
         {ghost && <Btn title={ghost} onPress={gfn} kind="ghost" />}
       </View>
@@ -1050,13 +1159,18 @@ export function RedesignScreens({ e }: any) {
       },
     );
   // 섬 구경 시트의 가입 신청 알림(시트 위 토스트 한 줄)
-  const [sheetToast, setSheetToast] = useState('');
+  const [sheetToast, setSheetToast] = useState(''),
+    // 같은 문구가 다시 와도 토스트 시간을 새로 시작하도록 발생 횟수를 함께 둔다.
+    [sheetToastSeq, setSheetToastSeq] = useState(0);
   useEffect(() => {
     if (!sheetToast) return;
     const t = setTimeout(() => setSheetToast(''), 2400);
     return () => clearTimeout(t);
-  }, [sheetToast]);
+  }, [sheetToast, sheetToastSeq]);
   useEffect(() => setSheetToast(''), [route]);
+  // 비동기 결과가 도착했을 때 사용자가 아직 그 상품 화면에 있는지 확인하는 용도
+  const productViewRef = useRef('');
+  productViewRef.current = `${route}|${detail}`;
   // 나만 미리듣기가 곡 끝까지 재생되면 버튼을 다시 재생 모양으로
   useEffect(() => {
     if (!previewAudio) return;
@@ -1090,13 +1204,40 @@ export function RedesignScreens({ e }: any) {
       {children}
     </IslandSheet>
   );
+  if (route === 'login' && e.loginProviders) {
+    return (
+      <LoginScreen
+        providers={e.loginProviders}
+        termsVersion={e.termsVersion}
+        termsAccepted={terms}
+        onTermsAcceptedChange={setTerms}
+        onProviderPress={e.startSocial ? (provider) => void e.startSocial(provider) : undefined}
+        providerBusy={e.socialBusy}
+        providerError={e.socialError}
+        onGuestPress={
+          e.startGuest
+            ? () => void e.startGuest()
+            : () => {
+                act('LOGIN');
+                state.onboarded ? home() : go('character');
+              }
+        }
+        guestBusy={e.guestBusy}
+        guestError={e.guestError}
+      />
+    );
+  }
   if (route === 'login') {
-    const agree = (
+    const agreeCheck = (
       <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked: terms }}
         onPress={() => setTerms(!terms)}
-        style={[k.row, layout.compact ? { minHeight: 36, paddingVertical: 4 } : { minHeight: 40 }]}
+        style={[
+          k.row,
+          { minHeight: semanticTokens.size.tapMin },
+          layout.compact && { paddingVertical: semanticTokens.spacing.control },
+        ]}
       >
         <View
           style={{
@@ -1110,18 +1251,41 @@ export function RedesignScreens({ e }: any) {
         >
           {terms && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
-        <Txt kind="meta">이용약관과 개인정보 안내에 동의해요.</Txt>
+        <Txt kind="meta">이용약관과 개인정보처리방침에 동의해요.</Txt>
       </Pressable>
     );
+    const agree = (
+      <View>
+        {agreeCheck}
+        <PolicyLinks textStyle={{ fontSize: 13, color: C.ink }} />
+      </View>
+    );
     const start = (
-      <Btn
-        title="GROMO 시작하기"
-        disabled={!terms}
-        onPress={() => {
-          act('LOGIN');
-          state.onboarded ? home() : go('character');
-        }}
-      />
+      <View style={{ gap: 8 }}>
+        {!!e.guestError && (
+          <Txt kind="meta" accessibilityLiveRegion="polite" style={{ color: C.ink }}>
+            {e.guestError}
+          </Txt>
+        )}
+        <Btn
+          title={
+            e.guestBusy
+              ? '게스트 계정을 여는 중…'
+              : e.startGuest
+                ? '게스트로 시작하기'
+                : 'GROMO 시작하기'
+          }
+          disabled={!terms || !!e.guestBusy}
+          onPress={() => {
+            if (e.startGuest) {
+              void e.startGuest();
+              return;
+            }
+            act('LOGIN');
+            state.onboarded ? home() : go('character');
+          }}
+        />
+      </View>
     );
     // v2 로고: 흰 글자 + 아래로 떨어지는 그림자
     const shade = {
@@ -1202,6 +1366,7 @@ export function RedesignScreens({ e }: any) {
               {'조금씩 집중하고,\n함께 자라요.'}
             </Txt>
             <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
+            {!!e.startGuest && <Txt kind="meta">게스트 계정으로 먼저 시작할 수 있어요.</Txt>}
             {agree}
             <View style={{ flex: 1 }} />
             {start}
@@ -1265,6 +1430,7 @@ export function RedesignScreens({ e }: any) {
               {'조금씩 집중하고,\n함께 자라요.'}
             </Txt>
             <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
+            {!!e.startGuest && <Txt kind="meta">게스트 계정으로 먼저 시작할 수 있어요.</Txt>}
             {agree}
           </ScrollView>
           <View
@@ -1286,6 +1452,7 @@ export function RedesignScreens({ e }: any) {
       <Onboard
         title="내 고양이"
         back={back}
+        hideCtaOnKeyboard
         leftBg={C.soft}
         left={
           <View style={{ alignItems: 'center', gap: 6 }}>
@@ -1296,7 +1463,39 @@ export function RedesignScreens({ e }: any) {
             </Txt>
           </View>
         }
-        cta={<Btn title="내 고양이와 시작" onPress={() => go('chooseIsland')} />}
+        cta={
+          <Btn
+            title="내 고양이와 시작"
+            disabled={!state.name.trim() || serverBusy}
+            onPress={() => {
+              if (!server) {
+                // 목업·데모 흐름 — 서버 계정이 없어 PATCH 할 곳이 없다.
+                go('chooseIsland');
+                return;
+              }
+              // 서버 모드: GET /me.onboardingComplete는 PATCH /me(name+catColor)로만 true가 된다.
+              // 여기서 저장하지 않으면 이번 세션은 로컬 state.onboarded만으로 홈에 들어가지만,
+              // 재실행 복구(restoredRoute)는 서버 값을 정본으로 봐서 이 화면으로 되돌아간다.
+              const name = state.name.trim();
+              const signature = JSON.stringify([name, state.color]);
+              if (characterSaveIntent.current?.signature !== signature)
+                characterSaveIntent.current = { signature, key: uuid() };
+              const intent = characterSaveIntent.current;
+              run(() =>
+                updateProfile({ name, catColor: state.color }, intent.key).then((saved) => {
+                  if (characterSaveIntent.current?.key === intent.key)
+                    characterSaveIntent.current = null;
+                  act('PROFILE', {
+                    name: saved.name ?? name,
+                    color: saved.catColor ?? state.color,
+                  });
+                  // 저장이 늦어 그 사이 뒤로 가기 등으로 화면을 떠났다면 다시 끌어오지 않는다
+                  if (routeNowRef.current === 'character') go('chooseIsland');
+                }),
+              );
+            }}
+          />
+        }
       >
         {!layout.compact && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 }}>
@@ -1309,16 +1508,29 @@ export function RedesignScreens({ e }: any) {
             </View>
           </View>
         )}
+        {serverError ? (
+          <Txt kind="meta" style={[META, { color: C.danger }]}>
+            {serverError}
+          </Txt>
+        ) : null}
         <Txt style={[SEC, { marginTop: layout.compact ? 0 : 6 }]}>어떤 고양이로 시작할까요?</Txt>
         <AvatarGrid
           six={layout.compact}
           value={state.color}
-          onChange={(color: Color) => act('PROFILE', { color })}
+          disabled={serverBusy}
+          // 저장 요청이 오가는 동안은 입력을 잠가, 응답이 화면의 새 값을 되돌리지 않게 한다
+          onChange={(color: Color) => {
+            if (!serverBusy) act('PROFILE', { color });
+          }}
         />
         <Field
           label="닉네임"
+          placeholder="닉네임을 입력해 주세요"
           value={state.name}
-          onChange={(name: string) => act('PROFILE', { name })}
+          disabled={serverBusy}
+          onChange={(name: string) => {
+            if (!serverBusy) act('PROFILE', { name });
+          }}
           inputStyle={INP}
         />
       </Onboard>
@@ -1432,8 +1644,13 @@ export function RedesignScreens({ e }: any) {
                   ? doneCard('가입이 확인됐어요', `서버에서 「${cur.name}」 소속이 확인됐어요.`)
                   : null;
               })()}
-            {/* 서버 가입 완료 확인 — arrival 은 CurrentScreens 차단으로 열지 않는다 */}
-            {serverDone && doneCard('가입이 완료됐어요', `「${serverDone}」의 주민이 됐어요.`)}
+            {/* 서버 가입 완료 확인 — arrival 은 CurrentScreens 차단으로 열지 않는다.
+                초대 코드로 막 가입한 직후엔 snap.currentIslandId 가 이미 그 섬이라 위 「가입이
+                확인됐어요」 카드와 같은 가입을 동시에 가리킨다 — 그때는 정본 스냅숏 카드만 남기고
+                serverDone 카드는 건너뛴다(같은 가입인지는 이름이 아니라 id로 본다). */}
+            {serverDone &&
+              !(serverDoneId && snap?.currentIslandId === serverDoneId) &&
+              doneCard('가입이 완료됐어요', `「${serverDone}」의 주민이 됐어요.`)}
             {/* 초대받은 섬: 코드 확인 → 승인 없는 섬은 바로 참여, 승인 필요 섬은 가입 신청 */}
             <Btn
               kind="sec"
@@ -1563,6 +1780,7 @@ export function RedesignScreens({ e }: any) {
                             // pending 은 App 이 approval 경로로 보낸다 — active 만 여기서 확정 표시
                             if (r.status === 'active') {
                               setServerDone(invitePick.name);
+                              setServerDoneId(invitePick.id);
                               setInvitePick(null);
                               setInvite(false);
                             }
@@ -1680,12 +1898,13 @@ export function RedesignScreens({ e }: any) {
         }
       >
         {serverDone ? (
-          // 서버 current 확인 상태 — rich 섬 데이터가 없어 arrival 로는 이동하지 않는다
+          // 서버 current 확인 상태 — arrival 연출 없이 홈(서버 스냅샷)으로 들어간다
           <View style={{ gap: 6 }}>
             <Txt style={H22}>섬을 만들었어요</Txt>
             <Txt kind="meta" style={META}>
               {`「${serverDone}」이 내 섬이 됐어요.`}
             </Txt>
+            {enterHome}
           </View>
         ) : null}
         {serverError ? (
@@ -1868,7 +2087,9 @@ export function RedesignScreens({ e }: any) {
               </Txt>
             </View>
           ))}
-        {serverDone && joinedCard(serverDone)}
+        {/* join()은 active 확정 전에 syncIslands()로 snap을 이미 맞춘다 — serverDone과 joined가
+            같은 가입을 동시에 가리키면 카드를 두 번 그리지 않고 joined(정본 스냅숏)만 남긴다. */}
+        {serverDone && !joined && joinedCard(serverDone)}
         {joined && i && joinedCard(i.name)}
         {serverError ? (
           <View style={{ gap: 8 }}>
@@ -2152,13 +2373,11 @@ export function RedesignScreens({ e }: any) {
       />
     );
   if (route === 'guide') {
-    // 회관 안내(옛 5번째 대사)는 첫 집중 후 홈(20b)으로 옮겼다
     const lines = [
-      '안녕! 섬에 온 걸 환영해! 처음 보는 얼굴이네?',
-      '네가 집중하는 동안 고양이는 낚시를 할 거야!\n고양이를 도와 이 섬을 하나씩 꾸며 나가자!',
-      '집중하기를 누르면 배를 타고 낚시섬으로 가.\n도착해서 원하는 곳을 누르고 할 일을 정하면 돼!',
-      '잠깐 쉬고 싶으면 모닥불로 와.',
-      '그럼 첫 낚시 다녀와!\n다시 보고 싶으면 앱 설정의 튜토리얼 다시보기를 눌러.',
+      '안녕! 처음 보는 얼굴이네.\n나는 몽돌. 이 섬에 오래전부터 살고 있었지.',
+      '예전에는 사람들이 많이 오가던 활기찬 섬이었어.\n하지만 어느 순간 발길이 끊기면서 지금은 아무도 찾지 않는 섬이 되어 버렸지.',
+      '너와 함께라면 이 섬을 다시 살릴 수 있을 것 같아.\n나와 함께 섬을 되살려 보지 않을래?',
+      '좋아, 그럼 섬을 되살리는 첫걸음부터 시작해 보자.\n이곳에서는 네가 집중한 시간이 섬을 키울 힘이 되거든.\n어떻게 하는지 직접 해보면 금방 알 수 있을 거야.',
     ];
     const step = Math.min(guideStep, lines.length - 1),
       last = step === lines.length - 1,
@@ -2179,7 +2398,10 @@ export function RedesignScreens({ e }: any) {
             accessibilityRole="button"
             accessibilityLabel="건너뛰기"
             hitSlop={12}
-            onPress={home}
+            onPress={() => {
+              setGuideStep(99);
+              home();
+            }}
           >
             <Txt
               kind="meta"
@@ -2193,15 +2415,42 @@ export function RedesignScreens({ e }: any) {
             </Txt>
           </Pressable>
           <Btn
-            title={last ? '시작할게' : '다음'}
+            title={last ? '같이 해볼게' : '다음'}
             small
             style={{ minWidth: 96 }}
-            onPress={() => (last ? home() : setGuideStep(step + 1))}
+            onPress={() => {
+              if (last) {
+                setGuideStep(4);
+                home();
+              } else setGuideStep(step + 1);
+            }}
           />
         </GuideBox>
       </View>
     );
   }
+  // 서버 모드 홈은 스냅샷이 올 때까지 로컬 목업 섬 대신 로딩·재시도를 보여 준다(GROMO-2138)
+  if (route === 'home' && server && !serverHome(state))
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: semanticTokens.spacing.control,
+          padding: semanticTokens.spacing.page,
+        }}
+      >
+        {e.homeError ? (
+          <>
+            <Txt style={H17}>섬 정보를 불러오지 못했어요</Txt>
+            <Btn kind="ghost" id="home-retry" title="다시 시도" onPress={e.retryHome} />
+          </>
+        ) : (
+          <Spinner reduce={state.settings.reduceMotion} />
+        )}
+      </View>
+    );
   if (route === 'home') {
     // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
     const guideUserId = getSession()?.userId ?? 'local';
@@ -2220,10 +2469,25 @@ export function RedesignScreens({ e }: any) {
             request={e.walkRequest}
             notify={notify}
             dispatch={dispatch}
+            focusTutorial={
+              guideStep === 4
+                ? {
+                    text: '아래의 집중 시작 버튼을 눌러 집중을 시작해 보자.',
+                    onPress: () =>
+                      setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
+                    onSkip: () => setGuideStep(99),
+                  }
+                : undefined
+            }
+            boardStatus={e.boardStatus}
+            libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
+            showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
+            onServerBuilt={e.islands ? e.retryHome : undefined}
           />
         )}
         {mailboxGuide && (
           <MailboxGuide
+            blocked={e.routeTransitionShielded}
             key={`${guideUserId}:${island.id}`}
             onDone={(openMailbox) => {
               dispatch({ type: 'MAILBOX_GUIDE_DONE', userId: guideUserId });
@@ -2256,7 +2520,19 @@ export function RedesignScreens({ e }: any) {
     return (
       <Overlay close={home} background={backgroundHome}>
         <View style={[k.row, { justifyContent: 'space-between' }]}>
-          <Txt kind="h">집중 준비</Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Txt kind="h">집중 준비</Txt>
+            <View style={{ width: 36, height: 36, position: 'relative' }}>
+              <View style={{ position: 'absolute', left: 18, top: 30 }}>
+                <CatSprite
+                  color={state.color}
+                  motion="tilt"
+                  size={36}
+                  reduce={state.settings.reduceMotion}
+                />
+              </View>
+            </View>
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="닫기"
@@ -2556,11 +2832,7 @@ export function RedesignScreens({ e }: any) {
             aria-hidden={true}
             style={StyleSheet.absoluteFill}
           >
-            {scene ? (
-              focusScene
-            ) : (
-              <Pic id={(layout.compact ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
-            )}
+            {scene ? focusScene : <Pic id="interior/gram" w="100%" h="100%" cover />}
           </View>
           <Pressable
             accessibilityRole="button"
@@ -4602,9 +4874,14 @@ export function RedesignScreens({ e }: any) {
         )}
       </View>
     );
+  // island(currentIsland(state))는 로컬 목업 섬(state.islandId, 기본값 소다 섬)을 가리켜
+  // 서버 모드에서도 항상 「소다 섬」으로 보였다. 서버 모드는 snap.memberships 의 현재 섬 이름이 정본이다.
+  const fishStripIslandName = server
+    ? (snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ?? island.name)
+    : island.name;
   const fishStrip = (
     <Strip
-      label={island.name + ' 물고기'}
+      label={fishStripIslandName + ' 물고기'}
       value={
         server
           ? shopApi.wallets
@@ -4693,64 +4970,75 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
+    const guideUserId = getSession()?.userId ?? 'local';
+    const shopGuide = shouldShowShopGuide(state, guideUserId);
     return (
-      <IslandSheet
-        bg="shop"
-        sign="dog"
-        signKind="npc"
-        title="강아지 상점"
-        tall
-        action="구매 내역"
-        actionPress={() => go('orders')}
-        onClose={home}
-      >
-        {fishStrip}
-        <Chips
-          items={['내 꾸미기', '우리 섬 꾸미기']}
-          value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
-          onChange={setTab}
-        />
-        {mine ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Pic id="dog" w={56} />
-            <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
-              어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
-            </Txt>
-          </View>
-        ) : (
-          <Txt kind="meta" style={st.meta}>
-            섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
-          </Txt>
-        )}
-        {server && shopApi.error ? (
-          <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
-            <Txt kind="meta" style={st.meta}>
-              {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
-            </Txt>
-            <Btn title="다시 시도" onPress={shopApi.retry} />
-          </View>
-        ) : server && shopApi.loading ? (
-          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-            불러오는 중…
-          </Txt>
-        ) : null}
-        {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
-        <View style={{ gap: layout.compact ? 10 : 12 }}>
-          {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
-            <View key={r} style={{ flexDirection: 'row', gap: layout.compact ? 10 : 12 }}>
-              {Array.from({ length: cols }, (_, c) => {
-                const p = items[r * cols + c];
-                // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
-                return (
-                  <View key={c} style={{ flex: 1, minWidth: 0 }}>
-                    {p && card(p)}
-                  </View>
-                );
-              })}
+      <>
+        <IslandSheet
+          bg="shop"
+          sign="dog"
+          signKind="npc"
+          title="강아지 상점"
+          tall
+          action="구매 내역"
+          actionPress={() => go('orders')}
+          onClose={home}
+        >
+          {fishStrip}
+          <Chips
+            items={['내 꾸미기', '우리 섬 꾸미기']}
+            value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
+            onChange={setTab}
+          />
+          {mine ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Pic id="dog" w={56} />
+              <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
+                어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
+              </Txt>
             </View>
-          ))}
-        </View>
-      </IslandSheet>
+          ) : (
+            <Txt kind="meta" style={st.meta}>
+              섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
+            </Txt>
+          )}
+          {server && shopApi.error ? (
+            <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
+              <Txt kind="meta" style={st.meta}>
+                {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
+              </Txt>
+              <Btn title="다시 시도" onPress={shopApi.retry} />
+            </View>
+          ) : server && shopApi.loading ? (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              불러오는 중…
+            </Txt>
+          ) : null}
+          {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
+          <View style={{ gap: layout.compact ? 10 : 12 }}>
+            {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
+              <View key={r} style={{ flexDirection: 'row', gap: layout.compact ? 10 : 12 }}>
+                {Array.from({ length: cols }, (_, c) => {
+                  const p = items[r * cols + c];
+                  // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
+                  return (
+                    <View key={c} style={{ flex: 1, minWidth: 0 }}>
+                      {p && card(p)}
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </IslandSheet>
+        {shopGuide && (
+          <ShopGuide
+            blocked={e.routeTransitionShielded}
+            onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })}
+            onCancel={home}
+          />
+        )}
+      </>
     );
   }
   if (route === 'product') {
@@ -4832,12 +5120,23 @@ export function RedesignScreens({ e }: any) {
         () => {
           if (server) {
             // 응답 + 지갑·인벤토리·내역 재조회가 끝날 때만 성공 토스트 — 실패·응답 유실에는 붙지 않는다.
+            const startedView = productViewRef.current;
             shopApi
               .buy({ id: p.id, productVersion: sp!.productVersion })
               .then(() => setSheetToast('구매했어요.'))
               .catch((thrown) => {
+                if (e.conversion?.offer(thrown)) return;
                 const m = serverErrorText(thrown);
-                if (m) notify(m);
+                if (!m) return;
+                // 전역 알림(notify)은 이 상품 상세 시트 위에서 가려질 수 있어, 아직 같은 상품
+                // 화면에 있으면 시트 안 토스트로 알린다(스크린리더도 한 채널만 읽는다). 그 사이
+                // 다른 화면으로 옮겼다면 시트 토스트를 남의 화면에 띄우지 않고 전역 알림으로 알린다.
+                if (productViewRef.current === startedView) {
+                  setSheetToast(m);
+                  setSheetToastSeq((n) => n + 1);
+                } else {
+                  notify(m);
+                }
               });
             return;
           }
@@ -5055,9 +5354,24 @@ export function RedesignScreens({ e }: any) {
   }
   const friends = state.friends ?? [];
   if (route === 'boat') {
-    const received = friends.filter((f) => f.status === 'received').length,
+    const received = server
+        ? friendsScreen.status === 'ready'
+          ? (friendsScreen.data?.friendRequests.length ?? 0)
+          : 0
+        : friends.filter((f) => f.status === 'received').length,
       joinedIslands = state.islands.filter((candidate) => candidate.joined && !candidate.closed),
       primaryIsland = mainIsland(state) ?? island,
+      // mainIsland(state)/island 은 로컬 목업 섬(state.islands, 기본값 소다 섬)만 찾아 서버
+      // 모드에서도(특히 게스트→멤버 전환처럼 목업 섬을 하나도 가입하지 않은 상태에서) 항상 「소다
+      // 섬」으로 보였다. 서버 모드는 snap.memberships 에서 mainIslandId(/me 정본, 없으면
+      // currentIslandId)로 찾은 이름이 정본이다(상점 잔액 라벨과 같은 패턴).
+      // mainIslandId 가 멤버십에 없으면(재검증 중·탈퇴 직후) currentIslandId 쪽 이름도 찾고, 그래도 없으면
+      // 목업 섬 이름으로 떨어지지 않고 이름 없는 문구를 쓴다.
+      primaryIslandName = server
+        ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
+          snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
+          '내 섬')
+        : primaryIsland.name,
       canChangeMainIsland = joinedIslands.length > 1;
     const mainIslandCard = (
       <>
@@ -5069,7 +5383,9 @@ export function RedesignScreens({ e }: any) {
           >
             현재 내 메인 섬
           </Txt>
-          <Txt style={[st.h22, { marginTop: 1 }]}>{primaryIsland.name}</Txt>
+          <Txt numberOfLines={1} ellipsizeMode="tail" style={[st.h22, { marginTop: 1 }]}>
+            {primaryIslandName}
+          </Txt>
           <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, marginTop: 1, color: C.muted }}>
             친구 목록과 프로필에 표시돼요
           </Txt>
@@ -5101,7 +5417,7 @@ export function RedesignScreens({ e }: any) {
         {canChangeMainIsland ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`현재 내 메인 섬 ${primaryIsland.name}, 메인 섬 변경하기`}
+            accessibilityLabel={`현재 내 메인 섬 ${primaryIslandName}, 메인 섬 변경하기`}
             onPress={() => go('mainIsland')}
             style={({ pressed }) => ({
               height: 164,
@@ -5121,7 +5437,7 @@ export function RedesignScreens({ e }: any) {
         ) : (
           <View
             accessible
-            accessibilityLabel={`현재 내 메인 섬 ${primaryIsland.name}`}
+            accessibilityLabel={`현재 내 메인 섬 ${primaryIslandName}`}
             style={{
               height: 164,
               flexDirection: 'row',
@@ -5443,19 +5759,12 @@ export function RedesignScreens({ e }: any) {
         {count !== undefined && <Badge small>{count}</Badge>}
       </View>
     );
-    const friendMenu = (name: string, onDelete: () => void) => (
+    const friendMenu = (id: string, name: string, onDelete?: () => void) => (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${name} 친구 삭제`}
+        accessibilityLabel={`${name} 더보기`}
         hitSlop={6}
-        onPress={() =>
-          confirm(
-            '친구를 삭제할까요?',
-            `${name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
-            onDelete,
-            { ok: '삭제', destructive: true },
-          )
-        }
+        onPress={() => setSafetyTarget({ id, name, onDelete })}
         style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
       >
         <Txt
@@ -5471,18 +5780,33 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
-    const requestActions = (onAccept: () => void, onReject: () => void) => (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
-        <Btn
-          small
-          kind="sec"
-          title="거절"
-          disabled={serverMode && friendsScreen.busy}
-          onPress={onReject}
-        />
-      </View>
-    );
+    const requestActions = (
+      onAccept: () => void,
+      onReject: () => void,
+      safetyMenu?: React.ReactNode,
+    ) => {
+      const stacked = !!safetyMenu && layout.fontScale >= 1.3;
+      return (
+        <View
+          testID={safetyMenu ? 'friend-request-actions-with-safety' : undefined}
+          style={{
+            flexDirection: stacked ? 'column' : 'row',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
+          <Btn
+            small
+            kind="sec"
+            title="거절"
+            disabled={serverMode && friendsScreen.busy}
+            onPress={onReject}
+          />
+          {safetyMenu}
+        </View>
+      );
+    };
     const localFriendRow = (friend: (typeof friends)[number], searchResult = false) => (
       <SheetRow
         key={friend.id}
@@ -5514,7 +5838,19 @@ export function RedesignScreens({ e }: any) {
             searchResult ? (
               <Badge soft>친구</Badge>
             ) : (
-              friendMenu(friend.name, () => act('FRIEND_DELETE', { id: friend.id }))
+              <Btn
+                small
+                kind="sec"
+                title="친구 삭제"
+                onPress={() =>
+                  confirm(
+                    '친구를 삭제할까요?',
+                    `${friend.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                    () => act('FRIEND_DELETE', { id: friend.id }),
+                    { ok: '삭제', destructive: true },
+                  )
+                }
+              />
             )
           ) : (
             <Btn
@@ -5537,6 +5873,7 @@ export function RedesignScreens({ e }: any) {
           tail={requestActions(
             () => friendCmd(() => acceptFriendRequest(friend.requestId)),
             () => friendCmd(() => rejectFriendRequest(friend.requestId)),
+            friendMenu(friend.userId, name),
           )}
         />
       );
@@ -5566,7 +5903,7 @@ export function RedesignScreens({ e }: any) {
           title={name}
           sub={friend.mainIslandName ?? undefined}
           lead={<Avatar color="white" />}
-          tail={friendMenu(name, () => friendCmd(() => deleteFriend(friend.userId)))}
+          tail={friendMenu(friend.userId, name, () => friendCmd(() => deleteFriend(friend.userId)))}
         />
       );
     });
@@ -5674,45 +6011,85 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
-        <SearchField
-          value={queryValue}
-          onChange={serverMode ? friendsScreen.setQuery : setSearch}
-          placeholder="닉네임으로 친구 찾기"
-        />
-        {serverMode && !query && friendsScreen.status === 'loading' ? (
-          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-            불러오는 중이에요
-          </Txt>
-        ) : serverMode && !query && friendsScreen.status === 'error' ? (
-          <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
-            <Txt kind="meta">{friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}</Txt>
-            {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
-              <Btn
-                small
-                title="소셜 로그인하기"
-                onPress={() => e.conversion.offer(friendsScreen.error)}
-              />
-            ) : (
-              <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
-            )}
-          </View>
-        ) : (
-          <View
-            style={
-              layout.compact
-                ? { flexDirection: 'row', alignItems: 'flex-start', gap: 18 }
-                : { gap: 16 }
+      <>
+        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+          <SearchField
+            value={queryValue}
+            onChange={serverMode ? friendsScreen.setQuery : setSearch}
+            placeholder="닉네임으로 친구 찾기"
+          />
+          {serverMode && !query && friendsScreen.status === 'loading' ? (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              불러오는 중이에요
+            </Txt>
+          ) : serverMode && !query && friendsScreen.status === 'error' ? (
+            <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
+              <Txt kind="meta">
+                {friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}
+              </Txt>
+              {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
+                <Btn
+                  small
+                  title="소셜 로그인하기"
+                  onPress={() => e.conversion.offer(friendsScreen.error)}
+                />
+              ) : (
+                <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+              )}
+            </View>
+          ) : (
+            <View
+              style={
+                layout.compact
+                  ? { flexDirection: 'row', alignItems: 'flex-start', gap: 18 }
+                  : { gap: 16 }
+              }
+            >
+              {leftColumn}
+              {friendColumn}
+            </View>
+          )}
+        </IslandSheet>
+        {serverMode && safetyTarget ? (
+          <UserSafetySheet
+            visible
+            targetUserId={safetyTarget.id}
+            targetName={safetyTarget.name}
+            reportTargetType="USER"
+            reportTargetId={safetyTarget.id}
+            onClose={() => setSafetyTarget(null)}
+            onChanged={friendsScreen?.refresh ?? (() => {})}
+            onMessage={notify}
+            extraAction={
+              safetyTarget.onDelete
+                ? {
+                    title: '친구 삭제',
+                    onPress: () =>
+                      confirm(
+                        '친구를 삭제할까요?',
+                        `${safetyTarget.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                        safetyTarget.onDelete!,
+                        { ok: '삭제', destructive: true },
+                      ),
+                  }
+                : undefined
             }
-          >
-            {leftColumn}
-            {friendColumn}
-          </View>
-        )}
-      </IslandSheet>
+          />
+        ) : null}
+      </>
     );
   }
   if (route === 'profile') {
+    const providerLabels: Record<string, string> = {
+      google: 'Google',
+      kakao: '카카오',
+      line: 'LINE',
+      apple: 'Apple',
+    };
+    const linkedProviderText = (state.linkedProviders ?? [])
+      .map((provider: string) => providerLabels[provider] ?? provider)
+      .filter(Boolean)
+      .join(' · ');
     const mustTransferHost = state.islands.some(
       (candidate) => isHost(candidate) && candidate.members.length > 0,
     );
@@ -5769,58 +6146,90 @@ export function RedesignScreens({ e }: any) {
         />
         <Field
           label="닉네임"
+          placeholder="닉네임을 입력해 주세요"
           value={profileName}
           onChange={serverBusy ? () => {} : setProfileName}
           disabled={serverBusy}
           inputStyle={sheetInput}
         />
         <SheetGroup>
-          <SheetRow title="연동 계정" sub={state.name + '님의 GROMO 계정 · Apple'} />
+          <SheetRow
+            title="연동 계정"
+            sub={
+              linkedProviderText
+                ? `${state.name}님의 GROMO 계정 · ${linkedProviderText}`
+                : `${state.name}님의 GROMO 계정 · 연결된 계정 없음`
+            }
+          />
           <SheetRow
             title="로그아웃"
             chevron
             onPress={() =>
-              confirm('로그아웃할까요?', '저장된 기록은 그대로 남아요.', () => {
-                e.signOut();
+              confirm('로그아웃할까요?', '저장된 기록은 그대로 남아요.', async () => {
+                // 기기에 로그아웃을 기록하지 못했으면 세션이 남아 있으니 로그인 화면으로 가지 않는다.
+                if ((await e.signOut()) === false) return;
                 act('LOGOUT');
                 reset('login');
               })
             }
           />
         </SheetGroup>
-        <Btn
-          title="회원 탈퇴"
-          kind="danger"
-          style={{ alignSelf: 'center' }}
-          onPress={() =>
-            mustTransferHost
-              ? notify('방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.')
-              : confirm(
-                  '회원 탈퇴할까요?',
-                  '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
-                  () => {
-                    if (!server) {
-                      screenTime
-                        .resetScreenTimeData()
-                        .catch(() => {})
-                        .finally(() => {
-                          act('DELETE_ACCOUNT');
-                          reset('login');
-                        });
-                      return;
-                    }
-                    run(async () => {
-                      await withdrawAccount();
-                      await screenTime.resetScreenTimeData().catch(() => {});
-                      await e.signOut();
-                      act('DELETE_ACCOUNT');
-                      reset('login');
-                    }, notify);
-                  },
-                  { ok: '탈퇴', destructive: true },
-                )
-          }
-        />
+        {withdrawCleanupPending ? (
+          <Btn
+            title="기기 데이터 정리 다시 시도"
+            kind="danger"
+            style={{ alignSelf: 'center' }}
+            // 계정은 이미 삭제됐다 — 탈퇴 API 없이 로컬 정리만 다시 한다.
+            onPress={() => run(finishWithdrawal, notify)}
+          />
+        ) : (
+          <Btn
+            title="회원 탈퇴"
+            kind="danger"
+            style={{ alignSelf: 'center' }}
+            onPress={() =>
+              mustTransferHost
+                ? notify('방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.')
+                : confirm(
+                    '회원 탈퇴할까요?',
+                    '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
+                    () => {
+                      if (!server) {
+                        run(finishWithdrawal, notify);
+                        return;
+                      }
+                      run(async () => {
+                        // 호출 전에 대상 계정과 멱등 키를 기기에 남긴다(기록 실패면 요청하지 않는다).
+                        // 같은 계정의 재시도면 저장된 키를 재사용해 서버가 첫 결과를 재생한다.
+                        const userId = getSession()?.userId ?? null;
+                        withdrawIntent.current = userId
+                          ? await beginWithdrawal(userId)
+                          : { userId: '', key: uuid() };
+                        try {
+                          await withdrawAccount(withdrawIntent.current.key);
+                        } catch (thrown) {
+                          // 서버가 DELETE /me 를 커밋했는데 응답만 잃었으면 재시도는 404
+                          // USER_NOT_FOUND 다 — 계정은 이미 없으니 탈퇴 완료로 보고 로컬 정리를 이어 간다.
+                          // 공용 클라이언트도 이 404 를 세션 거절로 처리해 세션을 비우고 로그인으로
+                          // 보낼 수 있다. 두 경로가 겹쳐도 계정이 없다는 같은 전제라 정리는 그대로 맞다.
+                          if (!(
+                            thrown instanceof ApiError &&
+                            thrown.status === 404 &&
+                            thrown.code === 'USER_NOT_FOUND'
+                          ))
+                            throw thrown;
+                        }
+                        // 서버 탈퇴가 확정됐다 — 이후 정리가 실패하고 세션이 먼저 폐기돼도 다음 부팅이
+                        // 세션 없이 정리를 재개하도록 기기에 남긴다.
+                        await confirmWithdrawal(withdrawIntent.current);
+                        await finishWithdrawal();
+                      }, notify);
+                    },
+                    { ok: '탈퇴', destructive: true },
+                  )
+            }
+          />
+        )}
       </IslandSheet>
     );
   }
@@ -5873,11 +6282,24 @@ export function RedesignScreens({ e }: any) {
             onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
+        {server ? (
+          <>
+            {sec('안전')}
+            <SheetGroup flat>
+              <SheetRow
+                title="차단한 사용자"
+                sub="차단 목록을 확인하고 해제해요"
+                chevron
+                onPress={() => go('blockedUsers')}
+              />
+            </SheetGroup>
+          </>
+        ) : null}
         {sec('도움말')}
         <SheetGroup flat>
           <SheetRow
             title="튜토리얼 다시보기"
-            sub="앵무새 안내를 처음부터 다시 봐요"
+            sub="몽돌 안내를 처음부터 다시 봐요"
             chevron
             onPress={() => {
               setGuideStep(0);
@@ -5889,15 +6311,28 @@ export function RedesignScreens({ e }: any) {
         <SheetGroup flat>
           <SheetRow title="버전" sub="R61 · v2" />
           <SheetRow
-            title="이용약관 · 개인정보"
+            title="개인정보 처리 안내"
+            sub="앱에서 처리하는 정보와 외부 전송 안내"
             chevron
             onPress={() =>
               confirm(
-                '이용약관 · 개인정보',
-                'GROMO는 집중 기록과 섬 활동을 제공해요. 이 앱은 로컬 목업이며 계정과 결제 정보는 서버로 전송하지 않아요.\n\n닉네임, 집중 기록과 설정은 이 기기에 저장돼요. 회원 탈퇴를 누르면 삭제돼요.',
+                '개인정보 처리 안내',
+                '로그인 때 소셜 제공자 인증 정보와 계정 식별 정보가 서버로 전달돼요. 닉네임, 섬·주민 활동, 친구·편지, 집중 기록 등 서비스 데이터도 기능 제공과 동기화를 위해 서버에 저장돼요.\n\n화면 이용과 주요 기능 이벤트는 PostHog로, 화면·요청 진단 정보는 설정된 경우 Datadog으로 전송될 수 있어요. 스크린타임 권한을 허용하면 선택한 앱 사용 시간을 기기에서 읽어 목표와 통계에 사용해요. 자세한 처리 항목과 보관 기간은 개인정보 처리방침에서 확인할 수 있어요. 회원 탈퇴를 요청하면 서버 계정 삭제를 요청해요.',
                 () => {},
               )
             }
+          />
+          <SheetRow
+            title="이용약관"
+            chevron
+            label="이용약관 원문 보기"
+            onPress={() => openPolicy(TERMS_URL)}
+          />
+          <SheetRow
+            title="개인정보처리방침"
+            chevron
+            label="개인정보처리방침 원문 보기"
+            onPress={() => openPolicy(PRIVACY_URL)}
           />
         </SheetGroup>
       </IslandSheet>

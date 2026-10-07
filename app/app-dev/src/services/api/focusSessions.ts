@@ -16,6 +16,34 @@
  */
 import { request } from './client';
 
+export type TutorialExperienceRewardView = {
+  islandId: string;
+  status: 'granted' | 'unavailable';
+};
+
+/** 세션을 만들지 않는 체험 보상. 계정당 1회, 같은 섬 재시도는 같은 영수증을 반환한다. */
+export function claimTutorialExperienceReward(
+  islandId: string,
+): Promise<TutorialExperienceRewardView> {
+  return request<TutorialExperienceRewardView>(
+    `/islands/${encodeURIComponent(islandId)}/tutorial-reward`,
+    { method: 'POST' },
+  );
+}
+
+export type TutorialRewardView = {
+  sessionId: string;
+  status: 'pending' | 'granted' | 'unavailable';
+};
+
+/** 계정당 한 번인 서버 영수증으로 재시도에도 중복 지급하지 않는다. */
+export function claimTutorialReward(sessionId: string): Promise<TutorialRewardView> {
+  return request<TutorialRewardView>(
+    `/focus-sessions/${encodeURIComponent(sessionId)}/tutorial-reward`,
+    { method: 'POST' },
+  );
+}
+
 /** 진행 세션 뷰 — 시각 필드는 UTC ISO-8601 문자열이다. */
 export type FocusSessionView = {
   id: string;
@@ -30,6 +58,11 @@ export type FocusSessionView = {
   restStartedAt: string | null;
   /** pause/resume/finish 의 expectedVersion. 전이마다 +1. */
   version: number;
+  /**
+   * ACTIVE 구간 목록(GROMO-2131) — 없으면 구버전 서버라 undefined 로 둔다(퀘스트 집계는
+   * 기존처럼 seconds 로 뭉뚱그린다). 마지막 구간이 열려 있어도 서버가 serverNow 로 닫아 보낸다.
+   */
+  activeIntervals?: { startedAt: string; endedAt: string }[];
 };
 
 /** finish·pending-result 공용 정산 뷰 — earnedFish·allocation 은 서버 확정값이다. */
@@ -45,6 +78,8 @@ export type FocusFinishView = {
   allocation: { personalFishAdded: number; constructionFishAdded: number };
   completedAt: string;
   questProgress: { id: string; myRate: number }[];
+  /** ACTIVE 구간 목록(GROMO-2131) — 전부 닫힌 구간. 없으면 구버전 서버. */
+  activeIntervals?: { startedAt: string; endedAt: string }[];
 };
 
 export type FocusSessionStartInput = {

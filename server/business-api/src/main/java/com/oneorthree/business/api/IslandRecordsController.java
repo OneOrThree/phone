@@ -5,8 +5,8 @@ import com.oneorthree.business.api.dto.IslandRecordsResponses.ScreenTimeDayView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.IslandRecordsUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -64,8 +64,6 @@ public class IslandRecordsController {
             DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
     private static final DateTimeFormatter STRICT_MONTH =
             DateTimeFormatter.ofPattern("uuuu-MM").withResolverStyle(ResolverStyle.STRICT);
-    private static final Pattern CANONICAL_UUID =
-            Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
     private final IslandRecordsUseCase records;
     private final SettingsSessionGuard sessions;
@@ -77,7 +75,7 @@ public class IslandRecordsController {
         AccessTokenClaims claims = sessions.requireSession(request);
         Query query = query(request, FOCUS_QUERY);
         return records.focus(claims, islandId(islandId), query.from(), query.to(), query.scope(),
-                request.getParameter("cursor"), deadline());
+                request.getParameter("cursor"), properties.deadline());
     }
 
     /** 스크린타임 통계 — 원본 계약에 커서가 없어 목록을 자르지 않는다. */
@@ -85,7 +83,8 @@ public class IslandRecordsController {
     public Object screenTime(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         Query query = query(request, SCREEN_QUERY);
-        return records.screenTime(claims, islandId(islandId), query.from(), query.to(), query.scope(), deadline());
+        return records.screenTime(claims, islandId(islandId), query.from(), query.to(), query.scope(),
+                properties.deadline());
     }
 
     /**
@@ -110,7 +109,7 @@ public class IslandRecordsController {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "direction");
         }
         return records.ledger(claims, islandId(islandId), month(required(request, "month")), direction,
-                request.getParameter("cursor"), deadline());
+                request.getParameter("cursor"), properties.deadline());
     }
 
     /**
@@ -130,7 +129,7 @@ public class IslandRecordsController {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER,
                     request.getParameterMap().keySet().iterator().next());
         }
-        return records.fishEarnings(claims, islandId(islandId), deadline());
+        return records.fishEarnings(claims, islandId(islandId), properties.deadline());
     }
 
     /**
@@ -170,18 +169,15 @@ public class IslandRecordsController {
         } catch (DateTimeParseException e) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "measuredAt");
         }
-        String deviceId = text(body, "deviceId");
-        if (!CANONICAL_UUID.matcher(deviceId).matches()) {
-            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "deviceId");
-        }
+        UUID deviceId = PublicIds.uuid(text(body, "deviceId"), "deviceId", ApiErrorCode.INVALID_REQUEST);
         Map<String, Object> command = new LinkedHashMap<>();
         command.put("minutes", minutes);
         command.put("measurementStatus", status);
         command.put("timezone", UTC);
         // timestamptz 정밀도(마이크로초)로 맞춰 보낸다 — Data 가 저장한 시각과 같은 값으로 비교한다.
         command.put("measuredAt", measuredAt.truncatedTo(ChronoUnit.MICROS).toString());
-        command.put("deviceId", UUID.fromString(deviceId).toString());
-        return records.putScreenTime(claims, day, command, key, deadline());
+        command.put("deviceId", deviceId.toString());
+        return records.putScreenTime(claims, day, command, key, properties.deadline());
     }
 
     // ---------------------------------------------------------------- 입력 해석
@@ -278,14 +274,7 @@ public class IslandRecordsController {
     }
 
     private static UUID islandId(String value) {
-        if (!CANONICAL_UUID.matcher(value).matches()) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "islandId");
-        }
-        return UUID.fromString(value);
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
+        return PublicIds.uuid(value, "islandId");
     }
 
     private record Query(LocalDate from, LocalDate to, String scope) {

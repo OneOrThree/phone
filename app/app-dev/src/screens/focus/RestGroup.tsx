@@ -18,6 +18,10 @@ import {
 } from '@/screens/focus/FishingIsland';
 import { C } from '@/design-system/primitives';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
+import { CatSprite } from '@/components/CatSprite';
+import { art } from '@/constants/art';
+import { assets } from '@/constants/assets';
 
 // v2 시안 모닥불 전용 화면(GROMO-1862): 섬 지도가 아닌 모닥불 배경에 의자 없이 식빵 굽는 고양이만 앉힌다.
 // 배경 원본 1024×1024에서 돌 테두리 중심은 (482,600), 자리는 그 바깥 타원(가로 168·세로 125).
@@ -146,6 +150,9 @@ export function RestGroup({
   home,
   endRest,
   result = false,
+  tutorial,
+  goldenReeling = false,
+  goldenFishCount = 0,
   ...confirm
 }: {
   state: State;
@@ -156,13 +163,18 @@ export function RestGroup({
   endRest?: () => void;
   // 휴식 종료 결과창 뒤 배경으로 쓸 때는 버튼을 숨기고 휴식 시간을 종료 순간에 멈춘다
   result?: boolean;
+  tutorial?: { text: string; onSkip: () => void };
+  /** 휴식 결과 배경에서 컷신 후 실제 reel sprite를 보여준다. */
+  goldenReeling?: boolean;
+  goldenFishCount?: number;
   // 휴식 종료 확인창 열림 상태를 밖(뒤로가기 처리)에서 쥘 때
   confirming?: boolean;
   setConfirming?: (open: boolean) => void;
 }) {
   const layout = useAppLayout(),
     wide = layout.width >= 600,
-    safe = useSafeAreaInsets();
+    safe = useSafeAreaInsets(),
+    resumeTarget = useSpotlightTarget(!!tutorial);
   const ended = result ? state.lastResult : null;
   const pausedSession = result ? null : state.session;
   const [own, setOwn] = useState(false),
@@ -229,7 +241,20 @@ export function RestGroup({
     };
   });
   return (
-    <View testID="rest-group" style={{ flex: 1, overflow: clip }}>
+    <TutorialScene
+      testID="rest-group"
+      style={{ flex: 1, overflow: clip }}
+      onSkip={tutorial?.onSkip}
+      overlay={
+        tutorial && (
+          <TutorialSpotlight
+            target={resumeTarget.rect}
+            text={tutorial.text}
+            action={{ title: '집중 이어가기', onPress: resume }}
+          />
+        )
+      }
+    >
       {/* 확인창·결과창이 떠 있으면 뒤 장면은 스크린리더에서 숨긴다 */}
       <View
         pointerEvents="box-none"
@@ -246,22 +271,68 @@ export function RestGroup({
             height: 1024 * s,
           }}
         />
-        {placed.map((a) => (
-          <Image
-            key={a.seat}
-            testID={`loaf-${a.seat}`}
-            source={loaf[a.color]}
-            style={{
-              position: 'absolute',
-              left: a.x - a.n / 2,
-              top: a.top,
-              width: a.n,
-              height: a.n,
-              // 오른쪽 자리는 불을 보게 좌우 반전
-              transform: [{ scaleX: a.dx > 0 ? -1 : 1 }],
-            }}
-          />
-        ))}
+        {placed.map((a) =>
+          a.me && goldenReeling ? (
+            <View
+              key={a.seat}
+              pointerEvents="none"
+              testID="rest-golden-reel"
+              accessibilityLabel="황금 물고기를 낚아 올리는 중"
+              style={{ position: 'absolute', left: a.x, top: a.foot }}
+            >
+              <CatSprite
+                color={a.color}
+                motion="reel"
+                size={a.n}
+                left={a.dx > 0}
+                reduce={state.settings.reduceMotion}
+              />
+              <Image
+                source={assets['props/fishing/fishing-rod.png']}
+                accessible={false}
+                testID="rest-golden-reel-rod"
+                resizeMode="contain"
+                style={{
+                  position: 'absolute',
+                  left: -a.n * 0.08,
+                  top: -a.n * 0.8,
+                  width: a.n * 0.62,
+                  height: a.n * 0.62,
+                  transform: [{ rotate: a.dx > 0 ? '-38deg' : '38deg' }],
+                }}
+              />
+              {goldenFishCount > 0 && (
+                <Image
+                  source={art['fish/gold']}
+                  accessible={false}
+                  resizeMode="contain"
+                  style={{
+                    position: 'absolute',
+                    left: -a.n * 0.72,
+                    top: -a.n * 0.42,
+                    width: a.n * 0.42,
+                    height: a.n * 0.42,
+                  }}
+                />
+              )}
+            </View>
+          ) : (
+            <Image
+              key={a.seat}
+              testID={`loaf-${a.seat}`}
+              source={loaf[a.color]}
+              style={{
+                position: 'absolute',
+                left: a.x - a.n / 2,
+                top: a.top,
+                width: a.n,
+                height: a.n,
+                // 오른쪽 자리는 불을 보게 좌우 반전
+                transform: [{ scaleX: a.dx > 0 ? -1 : 1 }],
+              }}
+            />
+          ),
+        )}
         {placed.map((a) => (
           <React.Fragment key={a.seat}>
             {/* 휴식 시간은 머리 위(반투명 배경), 이름은 발 아래(그림자 글자) */}
@@ -414,13 +485,19 @@ export function RestGroup({
             alignItems: 'center',
           }}
         >
-          <FiButton
-            primary
+          <View
+            ref={resumeTarget.ref}
+            collapsable={false}
+            onLayout={resumeTarget.measure}
             style={{ flex: 1 }}
-            id="resume-focus"
-            title={state.session ? '집중 이어가기' : '섬으로 돌아가기'}
-            onPress={state.session ? resume : home}
-          />
+          >
+            <FiButton
+              primary
+              id="resume-focus"
+              title={state.session ? '집중 이어가기' : '섬으로 돌아가기'}
+              onPress={state.session ? resume : home}
+            />
+          </View>
           {state.session && (
             <FiButton
               style={{ flex: 1 }}
@@ -450,6 +527,6 @@ export function RestGroup({
           </View>
         </FiModal>
       )}
-    </View>
+    </TutorialScene>
   );
 }

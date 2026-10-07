@@ -16,7 +16,29 @@ allprojects {
   repositories {
     google()
     mavenCentral()
+    maven { url 'https://devrepo.kakao.com/nexus/content/groups/public/' }
     maven { url 'https://www.jitpack.io' }
+  }
+}
+
+// @react-native-kakao 2.4.8 pins compileSdk 33 in its package metadata.
+// Keep native dependencies on the app SDK so CI does not need an obsolete SDK installation.
+subprojects { subproject ->
+  afterEvaluate {
+    if (subproject.name in ['react-native-kakao_core', 'react-native-kakao_user'] &&
+        subproject.extensions.findByName('android') != null) {
+      subproject.android.compileSdkVersion rootProject.ext.compileSdkVersion
+    }
+  }
+}
+
+// expo-updates는 CMake를 사용하지만 자체 ndkVersion을 지정하지 않아 AGP 기본 NDK를 찾는다.
+// 모든 Android library가 앱과 같은 단일 NDK를 사용하게 해 로컬·CI 구성을 일치시킨다.
+subprojects {
+  plugins.withId('com.android.library') {
+    android {
+      ndkVersion rootProject.ext.ndkVersion
+    }
   }
 }
 

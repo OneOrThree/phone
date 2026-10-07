@@ -20,11 +20,17 @@ import {
   getAccessToken,
   getSession,
   notifySessionLost,
+  saveRefreshedSession,
   sessionGeneration,
 } from './session';
 
 export const DEV_API_URL = 'https://oneorthree.dev.mooo.com';
+export const PRODUCTION_API_URL = 'https://api.oneorthree.world';
 export const LOCAL_WEB_API_URL = 'http://localhost:8080';
+
+export function isProductionApiUrl(value: string | undefined): boolean {
+  return value?.trim() === PRODUCTION_API_URL;
+}
 
 /**
  * 레거시 `apiBaseUrl.ts` 이식. 웹 개발 서버는 로컬 백엔드를, 웹 배포 빌드는 팀 dev 백엔드를 쓴다 —
@@ -53,6 +59,89 @@ export const CLIENT_NETWORK_ERROR = 'CLIENT_NETWORK_ERROR';
 /** 응답이 도착했을 때 인증 세션이 이미 교체됐다 — 결과를 적용하면 안 된다. */
 export const CLIENT_STALE_SESSION = 'CLIENT_STALE_SESSION';
 
+interface RefreshResult {
+  accessToken: string;
+  refreshToken?: string | null;
+}
+
+let refreshFlight: { generation: number; promise: Promise<string | null> } | null = null;
+
+async function refreshAccessToken(expectedGeneration: number): Promise<string | null> {
+  if (refreshFlight) {
+    if (refreshFlight.generation !== expectedGeneration) return null;
+    return refreshFlight.promise;
+  }
+  const promise = refreshAccessTokenOnce(expectedGeneration);
+  const flight = { generation: expectedGeneration, promise };
+  refreshFlight = flight;
+  try {
+    return await promise;
+  } finally {
+    if (refreshFlight === flight) refreshFlight = null;
+  }
+}
+
+async function refreshAccessTokenOnce(expectedGeneration: number): Promise<string | null> {
+  const session = getSession();
+  if (!session || sessionGeneration() !== expectedGeneration) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(`${API_URL}/auth/sessions/current/refresh`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'X-Refresh-Token': session.refreshToken },
+      signal: controller.signal,
+    });
+    text = await response.text();
+  } catch {
+    throw new ApiError(
+      controller.signal.aborted ? CLIENT_TIMEOUT : CLIENT_NETWORK_ERROR,
+      controller.signal.aborted
+        ? '서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.'
+        : '네트워크에 연결할 수 없어요. 연결을 확인해 주세요.',
+      0,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  let payload: unknown = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
+  if (!response.ok) throw errorFrom(response, payload);
+  if (sessionGeneration() !== expectedGeneration || getSession() !== session) return null;
+
+  const envelope = payload as { data?: unknown } | null;
+  const result = (
+    envelope && typeof envelope === 'object' && 'data' in envelope ? envelope.data : payload
+  ) as Partial<RefreshResult> | null;
+  if (
+    !result ||
+    typeof result.accessToken !== 'string' ||
+    result.accessToken.length === 0 ||
+    (result.refreshToken != null && typeof result.refreshToken !== 'string')
+  ) {
+    throw new ApiError('UPSTREAM_CONTRACT_MISMATCH', '토큰 갱신 응답이 올바르지 않아요.', 502);
+  }
+
+  const updated = await saveRefreshedSession(
+    result.accessToken,
+    result.refreshToken ?? null,
+    expectedGeneration,
+    session.accessToken,
+    session.refreshToken,
+  );
+  return updated?.accessToken ?? null;
+}
+
 export interface ApiErrorDetail {
   /** 서버가 지목한 요청 필드(`name`·`catColor`·`provider`·헤더 이름). 없으면 null. */
   field?: string | null;
@@ -76,7 +165,15 @@ export class ApiError extends Error {
     readonly status: number,
     detail: ApiErrorDetail = {},
   ) {
-    super(message);
+    // 공개 API 경로가 라우팅되지 않을 때의 서버 문구는 화면 어디에서도 그대로 노출하지 않는다.
+    // 도메인 NOT_FOUND(삭제된 섬·친구 등)는 별개이므로 realtime의 경로 오류 문구만 가린다.
+    super(
+      status === 404 &&
+        (code === 'RESOURCE_NOT_FOUND' ||
+          (code === 'NOT_FOUND' && message === '요청하신 경로를 찾을 수 없습니다.'))
+        ? '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.'
+        : message,
+    );
     this.name = 'ApiError';
     this.field = detail.field ?? null;
     this.retryable = detail.retryable ?? false;
@@ -96,6 +193,8 @@ export interface RequestOptions {
   auth?: boolean;
   /** 호출부가 잡아 둔 세션 세대. 생략하면 요청 시작 시점의 값. */
   generation?: number;
+  /** 서버 작업 특성상 공용 15초보다 긴 응답 시간이 필요한 경우의 호출별 제한. */
+  timeoutMs?: number;
 }
 
 /**
@@ -148,26 +247,37 @@ function errorFrom(response: Response, payload: unknown): ApiError {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, headers = {}, idempotencyKey, auth = true } = options;
-  // 요청이 «시작된» 세대를 잡아 둔다. 응답 시점에 전역을 새로 읽으면 그 사이 바뀐 세션을 못 본다.
   const generation = options.generation ?? sessionGeneration();
+  return requestAttempt<T>(path, options, generation);
+}
+
+async function requestAttempt<T>(
+  path: string,
+  options: RequestOptions,
+  generation: number,
+  retried = false,
+  retryToken?: string,
+): Promise<T> {
+  const { method = 'GET', body, headers = {}, idempotencyKey, auth = true } = options;
 
   const sent: Record<string, string> = { Accept: 'application/json', ...headers };
   if (body !== undefined) sent['Content-Type'] = 'application/json';
   if (idempotencyKey) sent['Idempotency-Key'] = idempotencyKey;
   // 「저장된 세션의 AT 로 보냈는가」 — 401 을 세션 상실로 읽어도 되는지의 전제다.
   // 호출부가 직접 넣은 Authorization 이나 `auth: false` 요청은 이 세션을 쓴 것이 아니다.
-  let sentSessionToken = false;
+  let sentSessionToken = retryToken !== undefined;
+  let sentAccessToken = retryToken;
   if (auth && !sent.Authorization) {
-    const token = getAccessToken();
+    const token = retryToken ?? getAccessToken();
     if (token) {
       sent.Authorization = `Bearer ${token}`;
       sentSessionToken = true;
+      sentAccessToken = token;
     }
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
   let response: Response;
   let text: string;
   try {
@@ -207,16 +317,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     const error = errorFrom(response, payload);
     if (
       response.status === 401 &&
-      // 이 요청이 실제로 저장된 세션의 Bearer 를 썼을 때만 「그 세션이 무효화됐다」로 읽는다.
       sentSessionToken &&
-      // 제공자·RT 전용 코드(`*_TOKEN` — LLD §5 :928~933)는 **우리 AT 검증 실패가 아니다**.
-      // `POST /auth/sessions` 가 애플 자격을 거절한 401 로 멀쩡한 기존 세션을 지우면
-      // 실패한 계정 전환이 정상 로그인까지 끊는다. AT 무효는 `UNAUTHORIZED` 로 온다.
-      !error.code.endsWith('_TOKEN') &&
+      error.code === 'UNAUTHORIZED' &&
       getSession() &&
       generation === sessionGeneration()
     ) {
-      // 갱신 경로가 없다(2.0 공개 표면에 refresh 엔드포인트 미존재) — 401 의 답은 재로그인뿐이다.
+      // 만료 AT는 RT로 한 번 갱신하고 원 요청을 한 번만 재시도한다.
       // 세대가 이미 바뀐 응답으로는 정리하지 않는다: 옛 계정의 늦은 401 이 새 세션을 죽인다.
       //
       // ⚠️ 위의 세대 비교는 **큐 바깥**이다 — 계정 전환 중 B 의 saveSession 이 «저장하는 동안»
@@ -226,6 +332,64 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       // 살아 있는 것은 B 이고 화면을 로그인으로 되돌릴 이유가 없다.
       // 키체인 삭제 실패는 삼키되 알림은 실행한다: 건너뛰면 화면이 보호 화면에 남고, 원래의 401
       // 판정까지 저장소 예외로 바뀌어 checkSession 이 그것을 「확인 실패」로 오인한다.
+      const currentSession = getSession();
+      if (currentSession && currentSession.accessToken !== sentAccessToken) {
+        if (retried) {
+          throw new ApiError(
+            CLIENT_STALE_SESSION,
+            '로그인 정보가 바뀌었어요. 다시 시도해 주세요.',
+            0,
+          );
+        }
+        return requestAttempt<T>(
+          path,
+          {
+            ...options,
+            headers: { ...headers, Authorization: `Bearer ${currentSession.accessToken}` },
+          },
+          generation,
+          true,
+          currentSession.accessToken,
+        );
+      }
+      if (!retried) {
+        try {
+          const accessToken = await refreshAccessToken(generation);
+          if (generation !== sessionGeneration()) {
+            throw new ApiError(
+              CLIENT_STALE_SESSION,
+              '로그인 정보가 바뀌었어요. 다시 시도해 주세요.',
+              0,
+            );
+          }
+          if (accessToken) {
+            return requestAttempt<T>(
+              path,
+              { ...options, headers: { ...headers, Authorization: `Bearer ${accessToken}` } },
+              generation,
+              true,
+              accessToken,
+            );
+          }
+          throw new ApiError(
+            CLIENT_STALE_SESSION,
+            '로그인 정보가 바뀌었어요. 다시 시도해 주세요.',
+            0,
+          );
+        } catch (refreshError) {
+          if (generation !== sessionGeneration()) {
+            throw new ApiError(
+              CLIENT_STALE_SESSION,
+              '로그인 정보가 바뀌었어요. 다시 시도해 주세요.',
+              0,
+            );
+          }
+          if (isDefinitiveSessionRejection(refreshError)) {
+            if (await clearRejectedSession(generation)) notifySessionLost();
+          }
+          throw refreshError;
+        }
+      }
       if (await clearRejectedSession(generation)) notifySessionLost();
     }
     throw error;
@@ -240,4 +404,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (
     envelope && typeof envelope === 'object' && 'data' in envelope ? envelope.data : payload
   ) as T;
+}
+
+function isDefinitiveSessionRejection(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (error.status === 401 && error.code === 'REFRESH_TOKEN') return true;
+  if (error.status === 404 && error.code === 'USER_NOT_FOUND') return true;
+  return false;
 }

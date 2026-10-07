@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import {
   initialState,
+  demoState,
   reducer,
   currentIsland,
   mainIsland,
+  serverHome,
   viewIsland,
   canVisit,
   visitorJoinState,
@@ -34,6 +36,7 @@ import {
   weekStart,
   periodBounds,
   unreadLetters,
+  hasMailboxLetters,
   newChatCount,
   clockMinutes,
   canSendLetter,
@@ -49,10 +52,47 @@ import {
   kstHourMinute,
   myIslandsConsistent,
   intentKeyPool,
+  shouldShowMailboxGuide,
+  shouldShowShopGuide,
   trackNames,
+  todayFocusSeconds,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
+
+test('완성형 데모는 최초 건물 안내 없이 월드맵을 바로 보여 준다', () => {
+  const state = demoState();
+
+  assert.equal(shouldShowMailboxGuide(state, 'local'), false);
+  assert.equal(shouldShowShopGuide(state, 'local'), false);
+  assert.equal(hasMailboxLetters(state), true);
+});
+
+test('상점 안내는 완공 뒤 계정별 최초 1회만 표시한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.buildings = island.buildings.filter((building) => building !== 'shop');
+  assert.equal(shouldShowShopGuide(s, 'user-a'), false);
+
+  island.buildings.push('shop');
+  assert.equal(shouldShowShopGuide(s, 'user-a'), true);
+  s = act(s, 'SHOP_GUIDE_DONE', { userId: 'user-a' });
+  assert.equal(shouldShowShopGuide(s, 'user-a'), false);
+  assert.equal(shouldShowShopGuide(s, 'user-b'), true);
+
+  s.visitingIslandId = 'strawberry';
+  assert.equal(shouldShowShopGuide(s, 'user-b'), false);
+});
+
+test('서버 로그인 채택의 연결 제공자를 저장 상태에 반영한다', () => {
+  const before = initialState();
+  const providers = ['google', 'kakao'];
+  const after = act(before, 'LOGIN', { linkedProviders: providers });
+  providers.push('apple');
+  assert.deepEqual(after.linkedProviders, ['google', 'kakao']);
+  assert.deepEqual(before.linkedProviders, undefined);
+});
+
 test('메인 섬을 바꿔도 현재 접속 섬은 유지하고 미가입 섬은 선택하지 않는다', () => {
   let s = initialState(true);
   s.islands.find((island) => island.id === 'strawberry')!.joined = true;
@@ -609,6 +649,17 @@ test('서버 친구 스냅샷은 공용 친구 상태를 교체하되 기존 편
   assert.equal(s.friends?.[0].status, 'received');
   assert.deepEqual(s.friends?.[0].messages, []);
 });
+test('fail-closed 친구 동기화는 기존 요청 배지 snapshot을 비운다', () => {
+  let s = initialState(true);
+  assert.equal(
+    s.friends?.some((friend) => friend.status === 'received'),
+    true,
+  );
+
+  s = act(s, 'FRIENDS_SYNC', { friends: [] });
+
+  assert.deepEqual(s.friends, []);
+});
 test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', () => {
   let s = initialState(true);
   s.friends!.find((f) => f.id === 'saebom')!.messages.push({
@@ -629,6 +680,8 @@ test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', ()
 });
 test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정보를 제거한다', () => {
   let s = initialState(true);
+  s.name = '수빈';
+  s.profileNames = ['수빈'];
   const island = currentIsland(s);
   island.earned!.me = 999;
   island.ledger.push({ id: 'mine', text: `${s.name} 집중 보상`, at: 1, memberId: 'me' });
@@ -727,6 +780,25 @@ test('레거시 원장은 닉네임의 정확한 작성자 접두어만 삭제�
     s.islands[0].ledger.map((entry) => entry.id),
     ['other'],
   );
+});
+test('프로필 닉네임은 편집 중 빈 값이 되고 새 입력을 다시 반영한다', () => {
+  let s = initialState(true);
+  s = act(s, 'PROFILE', { name: '수' });
+  s = act(s, 'PROFILE', { name: '' });
+  assert.equal(s.name, '');
+  assert.deepEqual(s.profileNames, ['수']);
+
+  s = act(s, 'PROFILE', { name: 'abc' });
+  assert.equal(s.name, 'abc');
+  assert.deepEqual(s.profileNames, ['수', 'abc']);
+});
+test('신규 계정 기본 상태는 이름이 비어 있어 같은 이름의 다른 주민 글을 내 글로 보지 않는다', () => {
+  const s = initialState(true);
+  assert.equal(s.name, '');
+  assert.deepEqual(s.profileNames, []);
+  assert.equal(isOwnComment(s, { name: '수빈', memberId: 'minji' }), false);
+  assert.equal(isOwnComment(s, { name: '수빈' }), false);
+  assert.equal(isOwnComment({ ...s, name: '내이름' }, { name: '수빈' }), false);
 });
 test('공지·댓글·그룹 편지 실패와 재시도', () => {
   let s = initialState(true);
@@ -1076,6 +1148,19 @@ test('1분 미만 집중은 물고기 0마리라 가계부에 남기지 않는�
   assert.equal(s.lastResult?.fish, 0);
   assert.equal(balance(currentIsland(s)), 1200);
   assert.equal(currentIsland(s).ledger.length, ledger);
+});
+test('첫 집중 튜토리얼은 5초 뒤 물고기 1마리를 즉시 적립하고 종료 때 중복 적립하지 않는다', () => {
+  let s = initialState(true);
+  const now = new Date(2026, 8, 29, 12).getTime(),
+    before = balance(currentIsland(s));
+  s.records = [];
+  s = act(s, 'START', { subject: '첫 집중', now });
+  s = act(s, 'TUTORIAL_FISH', { now: now + 5000 });
+  assert.equal(balance(currentIsland(s)), before + 1);
+  assert.equal(s.session?.creditedFish, 1);
+  s = act(s, 'FINISH', { now: now + 6000 });
+  assert.equal(s.lastResult?.fish, 1);
+  assert.equal(balance(currentIsland(s)), before + 1);
 });
 test('시간대 일일 퀘스트는 휴식이 낀 실제 집중 구간만 계산', () => {
   let s = initialState(true);
@@ -2234,4 +2319,132 @@ test('ISLAND_VISIT — 방문 화면 스냅샷을 저장한다', () => {
   };
   const s = act(initialState(), 'ISLAND_VISIT', { visit });
   assert.equal(s.serverIslands!.visit!.island.id, 'i7');
+});
+
+test('todayFocusSeconds — KST 자정 기준, 현재 섬만, 자정을 넘은 구간은 이후분만, 진행 중 세션은 빼고 센다', () => {
+  const s = initialState(true);
+  s.islandId = 'soda';
+  // KST 로 고정된 테스트 TZ(jest.config.js)라 로컬 Date 생성자가 곧 KST 벽시계 시각이다.
+  const now = new Date(2026, 8, 20, 10, 0).getTime();
+  s.records = [
+    // 자정을 넘어 끝난 기록 — 23:30~00:30 중 자정 이후 30분(1800초)만 오늘 집중에 들어간다
+    {
+      id: 'cross-midnight',
+      islandId: 'soda',
+      subject: '공부',
+      seconds: 3600,
+      at: new Date(2026, 8, 20, 0, 30).getTime(),
+      fish: 60,
+      contributed: true,
+      intervals: [
+        {
+          start: new Date(2026, 8, 19, 23, 30).getTime(),
+          end: new Date(2026, 8, 20, 0, 30).getTime(),
+        },
+      ],
+    },
+    // 오늘, 다른 섬 — 섬이 다르므로 제외
+    {
+      id: 'other-island-today',
+      islandId: 'strawberry',
+      subject: '공부',
+      seconds: 600,
+      at: new Date(2026, 8, 20, 1, 0).getTime(),
+      fish: 10,
+      contributed: true,
+    },
+    // 어제, 같은 섬 — KST 자정 이전이므로 제외
+    {
+      id: 'yesterday',
+      islandId: 'soda',
+      subject: '공부',
+      seconds: 600,
+      at: new Date(2026, 8, 19, 10, 10).getTime(),
+      fish: 10,
+      contributed: true,
+    },
+  ];
+  // 진행 중 세션은 더하지 않는다 — 서버 복원 세션은 누적 초만 있어 자정 이전 집중을 오늘로 셀 수 있다.
+  // 어제 3600초를 집중하고 자정을 넘긴 복원 세션(startedAt = 복원 시각)이 오늘 값을 부풀리지 않아야 한다.
+  s.session = {
+    id: 'restored',
+    islandId: 'soda',
+    subject: '공부',
+    startedAt: new Date(2026, 8, 20, 9, 55).getTime(),
+    seconds: 3600,
+    status: 'paused',
+  };
+  assert.equal(todayFocusSeconds(s, 'soda', now), 1800);
+  assert.equal(todayFocusSeconds(s, 'strawberry', now), 600);
+});
+
+test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 스냅샷은 버린다(GROMO-2138)', () => {
+  const sync = (s: any, id: string) =>
+    act(s, 'ISLAND_SYNC', {
+      memberships: {
+        items: [sum('srv1'), sum('srv2')],
+        nextCursor: null,
+        currentIslandId: id,
+        lossReason: null,
+      },
+    });
+  let s = sync(initialState(), 'srv1');
+  assert.equal(serverHome(s), null);
+  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
+  assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
+  s = sync(s, 'srv2');
+  assert.equal(serverHome(s), null);
+  // 옛 섬으로 돌아와도(강퇴 뒤 재가입 포함) 새 스냅샷 전에는 옛 스냅샷을 되살리지 않는다
+  s = sync(s, 'srv1');
+  assert.equal(serverHome(s), null);
+  // 같은 current 재동기화는 스냅샷을 유지한다
+  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
+  s = sync(s, 'srv1');
+  assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
+});
+
+test('착공 POST 구간은 클라이언트에 보관하고 서버 완공 목록이 확인되면 지운다', () => {
+  let s = act(initialState(), 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1')],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+  });
+  s = act(s, 'SERVER_CONSTRUCTION_STARTED', {
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: 1_000,
+    endsAt: 61_000,
+  });
+  assert.deepEqual(s.serverIslands?.clientConstruction, {
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: 1_000,
+    endsAt: 61_000,
+  });
+
+  s = act(s, 'SERVER_HOME', {
+    facts: { islandId: 'srv1', completedBuildings: ['hall'] },
+  });
+  assert.equal(s.serverIslands?.clientConstruction?.building, 'library');
+  s = act(s, 'SERVER_HOME', {
+    facts: { islandId: 'srv1', completedBuildings: ['hall', 'library'] },
+  });
+  assert.equal(s.serverIslands?.clientConstruction, null);
+});
+
+test('LOAD 는 저장된 홈 스냅샷을 되살리지 않는다 — 재실행마다 서버에서 새로 받는다(GROMO-2138)', () => {
+  const stored = {
+    ...initialState(),
+    serverIslands: {
+      ...initialState().serverIslands,
+      currentIslandId: 'srv1',
+      home: { islandId: 'srv1' },
+    },
+  } as any;
+  const loaded = act(initialState(), 'LOAD', { state: stored });
+  assert.equal(loaded.serverIslands?.currentIslandId, 'srv1');
+  assert.equal(serverHome(loaded), null);
 });

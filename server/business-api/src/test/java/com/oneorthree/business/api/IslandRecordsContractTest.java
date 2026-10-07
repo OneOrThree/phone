@@ -193,6 +193,25 @@ class IslandRecordsContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.field").value(field));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"focus", "screen-time", "ledger", "fish-earnings"})
+    @DisplayName("경로의 islandId 가 비정규 UUID(1-2-3-4-5) 이면 400 INVALID_PARAMETER 이고 상류를 부르지 않는다")
+    void malformedIslandIdNeverReachesUpstream(String route) throws Exception {
+        MockHttpServletRequestBuilder request = switch (route) {
+            case "focus" -> auth(get("/islands/1-2-3-4-5/statistics/focus")
+                    .param("from", "2026-09-07").param("to", "2026-09-13").param("scope", "me"));
+            case "screen-time" -> auth(get("/islands/1-2-3-4-5/statistics/screen-time")
+                    .param("from", "2026-09-07").param("to", "2026-09-13").param("scope", "me"));
+            case "ledger" -> auth(get("/islands/1-2-3-4-5/resources/ledger").param("month", "2026-09"));
+            default -> auth(get("/islands/1-2-3-4-5/statistics/fish-earnings"));
+        };
+        mockMvc.perform(request)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.error.field").value("islandId"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
     // ---------------------------------------------------------------- 공동 가계부 (GROMO-1786)
 
     @Test
@@ -427,6 +446,18 @@ class IslandRecordsContractTest extends UpstreamTestBase {
         mockMvc.perform(write(put(UPLOAD), body.replace("%s", SESSION.toString())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1-2-3-4-5", "0-0-0-0-0", "aaaaaaa-1769-0000-0000-000000000001"})
+    @DisplayName("PUT — deviceId 가 비정규 UUID(1-2-3-4-5) 이면 400 INVALID_REQUEST 이고 상류를 부르지 않는다")
+    void putRejectsMalformedDeviceId(String deviceId) throws Exception {
+        mockMvc.perform(write(put(UPLOAD), "{\"minutes\":90,\"measurementStatus\":\"authorized\","
+                        + "\"measuredAt\":\"2026-09-11T09:10:00Z\",\"deviceId\":\"" + deviceId + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.field").value("deviceId"));
         assertThat(DATA.received()).isEmpty();
     }
 

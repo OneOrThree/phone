@@ -179,17 +179,17 @@ Business→Data 내부 경로는 표의 공개 경로 앞에 `/internal`을 붙�
 | notice-delete | 본문 없음,200 deleted=true. legacy의204와 혼합하지 않음 |
 | comment | text string 필수·공백만 거절,201 id/name/text. author는 검증주체,대리 userId 입력 금지 |
 
-현재 main entity `GroupAnnouncement`는 title100/content TEXT/user nullable이고 `updateContent`가 null을 유지한다. 신규PATCH의 null거절은 어댑터에서 명시하며 legacyPUT의 @NotBlank 둘필수와 구분한다. 추가 본문/댓글 상한은 BQ03 정책·설정 gate이고 여기서 임의 상수를 지급하지 않는다. commentCount는 해당 공지의 보이는 댓글만 세며 삭제 처리 BQ02에 따라 필터가 결정된다.
+현재 main entity `GroupAnnouncement`는 title100/content TEXT/user nullable이고 `updateContent`가 null을 유지한다. 신규PATCH의 null거절은 어댑터에서 명시하며 legacyPUT의 @NotBlank 둘필수와 구분한다. 본문·댓글 상한은 BQ03 확정값이다(2026-09-25 결정 GROMO-2136): 본문 5000·댓글 500 UTF-16 단위, `island-board.notice-body-max-length`·`island-board.comment-max-length`. commentCount는 해당 공지의 살아 있는 댓글 행 수다 — BQ02 확정으로 삭제 댓글은 행 자체가 사라지므로(hard delete) 별도 필터가 필요 없다.
 
-**명시 출력 확장:** 탈퇴 댓글 처리 BQ02에서 보존이 승인되면 원본 comments의 userId/name/catColor는 식별정보가 파기된 행에서 null을 허용하도록 확장한다. 임의의 fake UUID/다른 사용자 프로필을 넣지 않는다. 파기 판단 없는 조회 실패를 탈퇴자라고 숨기지 않는다. 결정 전 해당 댓글 기능은 비활성이다. 원본 예시에는 이 변경을 반영하지 않았다.
+**댓글 delete·author null 은 다른 결정이다(BQ02 확정, 2026-09-25 결정 GROMO-2136):** ① 공지가 지워지면 그 댓글도 DB `ON DELETE CASCADE`(V103)로 함께 지워진다. ② 탈퇴자의 댓글은 **원문째 지운다** — 공지 작성자(`group_announcements.user_id`)는 계속 detach(작성자 연결만 끊고 본문 보존)지만, 댓글은 `GroupAnnouncementCommentRepository.deleteAllOfUser`가 행 자체를 지운다. 그래서 `comments.userId/name`이 null로 나가는 경우는 탈퇴자 댓글이 아니라 다른 사유로 authorId가 비는 경로뿐이다 — 임의의 fake UUID/다른 사용자 프로필을 넣지 않는 원칙은 그대로다.
 
 ## 3. 저장·트랜잭션·멱등
 
-Data의 논리 모델은 기존 notice 행+단조 noticeVersion, 신규 comment(id,noticeId,authorId,text,createdAt), 공통 receipt와 outbox다. 실제 migration 번호는 조정자가 정한다. comment FK 삭제/보존은 BQ02 결정 후 확정한다. 기존 공지에는 시작 version을 백필하고 legacy 생성·PUT·DELETE도 동일 notice version/outbox 변경 경계를 사용해야 한다. 기존 응답 형식은 유지한다. 새 경로에서만 version을 올리면 legacy 수정이 새 구독자에게 보이지 않으므로 이것도 활성화 조건이다. 불변 createdAt/id를 cursor정렬에 사용하고 update시 createdAt을 바꾸지 않는다.
+Data의 논리 모델은 기존 notice 행+단조 noticeVersion, 신규 comment(id,noticeId,authorId,text,createdAt), 공통 receipt와 outbox다. comment FK 는 BQ02 확정대로다(2026-09-25 결정 GROMO-2136): notice_id 는 ON DELETE CASCADE(V103, 최초 V66 은 SET NULL 이었다), author_id 는 애플리케이션이 탈퇴 시 먼저 delete 하므로 그 FK 의 ON DELETE SET NULL 은 사실상 발동하지 않는다. 기존 공지에는 시작 version을 백필하고 legacy 생성·PUT·DELETE도 동일 notice version/outbox 변경 경계를 사용해야 한다. 기존 응답 형식은 유지한다. 새 경로에서만 version을 올리면 legacy 수정이 새 구독자에게 보이지 않으므로 이것도 활성화 조건이다. 불변 createdAt/id를 cursor정렬에 사용하고 update시 createdAt을 바꾸지 않는다.
 
 쓰기 caller가 Data TX를 열고 활성 users 공유 잠금 → group 잠금(소속/역할 변경과 같은 경계)을 확보한 뒤 공통 PublicCommandService.run을 호출한다. 공통 명령/receipt 잠금 뒤 신규 command callback 안에서 notice를 잠그고 댓글/본문을 변경한다. 즉 users → group → 공통 명령 → notice 순서다. 새 noticeId는 최초 성공 명령에서 한 번 발급한다. 모든 신규 writer와 그 legacy 공용 변경 경로가 이 순서와 권한경계를 지키도록 통합한다.
 
-읽은 선행 구현의 PublicCommandService.run은 Propagation.MANDATORY이며 activeAuthorization/replayAuthorization/command callback을 받는다. activeAuthorization은 이미 잠근 활성 주체·현재 섬/권한을 검증하고, replayAuthorization은 현재 공개 결과를 볼 자격을 검증한다. **대상 notice 존재 검사는 activeAuthorization에서 하지 않는다.** DELETE 완료 재생은 대상이 이미 사라졌기 때문이다. 신규 command callback에서만 대상 부재를 검사한다. 공통층 자체가 주민/시설 검사를 대신한다고 가정하지 않는다.
+읽은 선행 구현의 PublicCommandService.run은 Propagation.MANDATORY이며 activeAuthorization/replayAuthorization/command callback을 받는다. activeAuthorization은 이미 잠근 활성 주체·현재 섬/권한을 검증하고, replayAuthorization은 현재 공개 결과를 볼 자격을 검증한다. **대상 notice 존재 검사는 activeAuthorization에서 하지 않는다.** DELETE 완료 재생은 대상이 이미 사라졌기 때문이다. 신규 command callback에서만 대상 부재를 검사한다. 공통층 자체가 주민/시설 검사를 대신한다고 가정하지 않는다. 댓글 delete는 activeAuthorization(주민 확인)만으로 재생 인가가 부족하다 — 방장이 남의 댓글을 지운 뒤 방장을 위임해도 옛 방장은 여전히 주민이다. 그래서 완료 command가 근거(작성자 본인이면 AUTHOR, 아니면 HOST)를 receipt 내부 데이터에 남기고, replayAuthorization이 재생마다 그 근거가 지금도 유효한지(AUTHOR는 언제나, HOST는 지금도 방장인지) 다시 잰다(codex 리뷰 대응, GROMO-2137) — 근거가 없거나 모르는 값이면 닫힌 실패다.
 
 scope는 검증actor+method+route+실제islandId/noticeId+키이며 다른 섬/공지는 다른 scope다. fingerprint는 정규화한 의미JSON, 요청중/완료 다른본문은409(본문/원결과 공개 없음). PATCH의 생략과 null을 구분하고 미지필드를 버려 같은명령으로 취급하지 않는다. contractVersion은 resourceVersion과 별개다.
 
@@ -213,8 +213,21 @@ notice.updated 봉투는 schemaVersion1,eventId,type,islandId,aggregateVersion,o
 
 ## 5. 개인정보와 검증
 
-기존 공지는 탈퇴 후 보존 의도이나 작성자nullable만으로 파기가 완료되지 않는다. 계정삭제의 users배타잠금과 생성/댓글 writer 공유잠금을 맞추고 authorId/name/catColor 사본·receipt·outbox·조회 캐시 파기를 전수 확인한다. 타인수정이 늦은 전체UPDATE로 nullify된 authorId를 되살리지 않게 동적컬럼 갱신/공지행직렬화 등 실제경쟁으로 검증한다. 댓글보존 여부 BQ02 없이 기본 영구보존을 만들지 않는다.
+기존 공지는 탈퇴 후 보존 의도이나 작성자nullable만으로 파기가 완료되지 않는다. 계정삭제의 users배타잠금과 생성/댓글 writer 공유잠금을 맞추고 authorId/name/catColor 사본·receipt·outbox·조회 캐시 파기를 전수 확인한다. 타인수정이 늦은 전체UPDATE로 nullify된 authorId를 되살리지 않게 동적컬럼 갱신/공지행직렬화 등 실제경쟁으로 검증한다. 댓글은 공지와 다른 파기 방식이다(BQ02 확정, 2026-09-25 결정 GROMO-2136) — 공지는 작성자만 detach(본문 보존)하지만 댓글은 원문째 delete 한다. 댓글 벌크 delete도 다른 writer와 같은 섬 배타 락 아래에서 돌고(이미 나간 섬도 댓글이 남아 있으면 함께 잠근다) 지운 공지마다 notice.updated를 내 다른 주민의 commentCount를 갱신시킨다(GROMO-2137 코드리뷰 대응).
 
 로그: requestId,route,commandId,단계,안전한code,처리시간,outboxlag/재시도; title/body/text·프로필·토큰·키원문·상류본문은 금지. PII가 지워져도 사용자비활성과 명령tombstone으로 재실행을 차단한다.
 
-필수 검증: OWNER/ALLOW/일반주민/방문자·시설잠김·남의공지ID; PATCH생략/null/unknown과legacyPUT; 같은키재전송/다른본문409·삭제후동일키성공; 동일timestamp 커서·삭제anchor; 댓글추가/삭제/공지삭제/탈퇴·권한회수 경합; count/version/outbox/receipt rollback; 수신 직전 membership상실·조회중새event·fanout누락/재연결; 실제SQL·Servlet chain을 사용하며 production권한seam을 mockoverride한 성공만으로 검증하지 않는다.
+필수 검증: OWNER-only(2026-09-25 GROMO-2136 이후 ALLOW 주민은 거절)/일반주민/방문자·시설잠김·남의공지ID; PATCH생략/null/unknown과legacyPUT; 같은키재전송/다른본문409·삭제후동일키성공; 동일timestamp 커서·삭제anchor; 댓글추가/삭제(작성자·방장·타인)/공지삭제시댓글CASCADE/탈퇴시댓글delete/방장위임 경합; count/version/outbox/receipt rollback; 수신 직전 membership상실·조회중새event·fanout누락/재연결; 실제SQL·Servlet chain을 사용하며 production권한seam을 mockoverride한 성공만으로 검증하지 않는다.
+
+## 6. 차단 필터 — REST 조회(2181)
+
+2026-10-01 [결정 로그](../decision-log.md) RP-섬글조회필터(결정자 권태화, QA 2028~2033 후속)의 반영이다. 정책 근거는 [신고센터 정책](../character-report/policy.md) RP-차단 — 사용자 작성 공지는 방장 작성이어도 예외가 아니다.
+
+- **대상:** `GET /islands/{islandId}/notices`(목록)와 `GET /islands/{islandId}/notices/{noticeId}`(상세의 comments 페이지). 요청자가 **차단한**(요청자=blocker) 사용자가 작성한 공지를 목록에서, 그 사용자의 댓글을 상세 댓글 페이지에서 뺀다. **한 방향**이다.
+- **원문은 지우지 않는다.** 차단을 해제하면 다음 조회부터 다시 보인다. 제외 표지를 따로 저장하지 않는다.
+- **차단 상대가 쓴 공지를 상세 ID 로 직접 조회**하면 원문을 그대로 내리지 않는다(RP-차단 「상세 ID 직접 조회도 같은 규칙」). PR #1054(main 머지)는 이를 「이 섬에 없는 공지」와 같은 **404 `NOT_FOUND`** 로 구현한다 — 댓글만 빼고 본문을 보여 주면 숨긴 것이 아니라는 판단이다. 행·댓글은 지우지 않아 해제하면 다시 열린다. 다른 사람이 쓴 공지에서는 차단 상대의 댓글만 뺀다. 같은 PR 은 `commentCount` 에서도 차단 상대의 댓글을 세지 않는다(상세에서 보이는 수와 일치).
+- **판정 기준은 원 작성자(`authorId`)다.** 정책의 「현재 제목·본문 리비전의 실제 수정 주체」 기준 숨김은 필드별 수정자 ID 저장이 선행돼야 하며, 2026-10-01 RP-차단승계-보류(티켓 2184)로 **보류**다. 작성자가 탈퇴해 `authorId` 가 null 인 공지는 이 필터로 판정할 수 없어 그대로 남는다(같은 보류 범위).
+- **페이징:** §4 의 불변 정렬키·HMAC 커서 규칙을 유지한다. PR #1054 는 목록·댓글 쿼리에 `NOT EXISTS (user_blocks: blocker=요청자, blocked=작성자)` 를 LIMIT 전에 걸어 쪽 크기와 keyset 커서가 그대로 유지된다. 새 게시판 API(`IslandNoticeService`)만 대상이며 legacy `/api/v1` 공지 경로는 바꾸지 않는다.
+- **쓰기 경로는 이 필터를 타지 않는다.** 숨겨진 공지에 id 로 댓글을 다는 등의 쓰기 차단은 이 결정 범위 밖이다(PR #1054 주의사항).
+- **실시간:** `notice.updated` 는 무효화 신호(`{noticeId,version}`)라 본문이 없다. 수신 뒤 재조회가 이 절의 필터를 거치므로 별도 실시간 필터를 두지 않는다. 채팅·응원의 실시간 필터는 [실시간 LLD §4.3](../realtime-events/low-level-design.md#43-세션-기준-차단-필터2182).
+- **차단 조회 실패**를 「차단 없음」으로 간주하지 않는다. §1 공통 오류로 드러낸다.

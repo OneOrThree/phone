@@ -180,7 +180,7 @@ public class GroupService {
                 .role(GroupMemberRole.OWNER)
                 .build());
 
-        membershipEvents.changed(group.getId(), userId, "MEMBER_ADDED");
+        membershipEvents.changed(group.getId(), userId, "MEMBER_ADDED", userId);
 
         // 6) 응답 반환
         return new CreateGroupResponse(group.getId());
@@ -358,7 +358,7 @@ public class GroupService {
             groupMemberRepository.save(membership);
         }
 
-        membershipEvents.changed(groupId, userId, "MEMBER_ADDED");
+        membershipEvents.changed(groupId, userId, "MEMBER_ADDED", userId);
 
         // 6-1. 같은 (그룹, 신청자)의 열린 가입 요청은 직접 가입의 성공과 같은 트랜잭션에서 닫는다 —
         //      남겨 두면 이미 주민인 사람의 PENDING 이 방장 승인 목록에 유령으로 남는다(GROMO-1760).

@@ -1,7 +1,9 @@
 package com.oneorthree.realtime.event;
 
+import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +33,15 @@ import java.util.stream.Collectors;
  *   <li>{@code user.withdrawn} — {@link ChatUserFence#withdraw}(tombstone + 커서 파기).</li>
  *   <li>{@code focus.member.updated}·{@code rest.member.updated} — 7필드 봉투로 바꿔 {@link EventRouter} 로
  *       섬 토픽에 전달한다(GROMO-1765). 이 둘만 여는 조건은 아래에 적었다.</li>
+ *   <li>{@code island.members.updated} 의 MEMBER_ADDED·MEMBER_REMOVED — {@code params.memberUserId} 가 있으면
+ *       {@link MembershipService#evict} 로 그 유저의 채팅 멤버십 캐시를 즉시 지운다(GROMO-2140). 앱 전달(아래
+ *       항목)과는 <b>별개의 부수 효과</b>다 — 이 type 은 아직 STOMP 로 나가지 않지만 캐시 무효화는 그와 무관하게
+ *       적용한다. 옛 Data 가 보낸 필드 없는 사건은 조용히 건너뛴다 — TTL 이 그대로 백스톱이다.</li>
+ *   <li>{@code user.blocks.updated} — 앱 사건이 아닌 <b>내부 제어 사건</b>이다(GROMO-2182). Data 가 차단·해제
+ *       트랜잭션 안에서 적고, 여기서 {@code params.blockerUserId} 의 차단 세대를 {@link BlockedUsers#advanceGeneration}
+ *       으로 올린다 — 그 순간부터 그 사람의 캐시된 차단 집합은 읽히지 않고, 다음 전달 판정이 Data 정본을 다시
+ *       읽는다. 세대 올리기가 실패하면 예외를 올려 수신 기록까지 롤백한다(relay 가 다시 보낸다). 필드가 없으면
+ *       건너뛴다 — TTL 이 백스톱이다.</li>
  *   <li>나머지 앱 사건 — <b>받아서 중복만 거르고 앱으로 내보내지 않는다.</b> 여기서 거절하면 relay 가
  *       permanent 로 적고 그 순서 축이 영영 막히므로(A18 고갈 처리 없음) 형식이 달라도 받는다 —
  *       옛 7필드 외양 행({@code islandId}·{@code aggregateVersion}·{@code payload})도 {@code eventId}·
@@ -69,6 +80,9 @@ public class InboundEventService {
 
     static final String USER_WITHDRAWN = "user.withdrawn";
 
+    /** 차단 관계 변경 — 앱으로 나가지 않는 내부 제어 사건(GROMO-2182). Data {@code UserBlockEvents.EVENT_TYPE}. */
+    static final String USER_BLOCKS_UPDATED = "user.blocks.updated";
+
     private static final Set<String> APP_EVENT_TYPES = Arrays.stream(RealtimeEventType.values())
             .map(RealtimeEventType::wireName)
             .collect(Collectors.toUnmodifiableSet());
@@ -76,9 +90,14 @@ public class InboundEventService {
     private static final Set<String> DELIVERED_TYPES = Set.of(
             RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName(), RealtimeEventType.REST_MEMBER_UPDATED.wireName());
 
+    /** 주민 «집합»이 실제로 바뀌는 changeKind 만 — HOST_TRANSFER 는 무효화할 멤버십이 없다. */
+    private static final Set<String> MEMBERSHIP_CHANGE_KINDS = Set.of("MEMBER_ADDED", "MEMBER_REMOVED");
+
     private final JdbcTemplate jdbc;
     private final ChatUserFence chatUserFence;
     private final EventRouter eventRouter;
+    private final MembershipService membershipService;
+    private final BlockedUsers blockedUsers;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -91,7 +110,7 @@ public class InboundEventService {
     public boolean accept(JsonNode envelope) {
         String eventId = requiredText(envelope, "eventId");
         String type = requiredText(envelope, "type");
-        if (!USER_WITHDRAWN.equals(type) && !APP_EVENT_TYPES.contains(type)) {
+        if (!USER_WITHDRAWN.equals(type) && !USER_BLOCKS_UPDATED.equals(type) && !APP_EVENT_TYPES.contains(type)) {
             throw new InvalidEventException();
         }
         int inserted = jdbc.update("INSERT INTO inbound_events (event_id, type) VALUES (?, ?)"
@@ -102,10 +121,64 @@ public class InboundEventService {
         }
         if (USER_WITHDRAWN.equals(type)) {
             chatUserFence.withdraw(uuid(envelope, "userId"), authGeneration(envelope));
+        } else if (USER_BLOCKS_UPDATED.equals(type)) {
+            advanceBlockGeneration(eventId, envelope);
         } else {
+            evictMembershipCacheIfNeeded(type, envelope);
             deliver(eventId, type, envelope);
         }
         return true;
+    }
+
+    /**
+     * 강퇴·탈퇴·재가입의 즉시 캐시 무효화(GROMO-2140) — {@code island.members.updated} 의 MEMBER_ADDED·
+     * MEMBER_REMOVED 만 본다. STOMP 전달({@link #deliver})과 무관한 부수 효과라 이 type 이
+     * {@link #DELIVERED_TYPES} 밖이어도 그대로 적용한다.
+     */
+    private void evictMembershipCacheIfNeeded(String type, JsonNode envelope) {
+        if (!RealtimeEventType.ISLAND_MEMBERS_UPDATED.wireName().equals(type)) {
+            return;
+        }
+        JsonNode params = envelope.get("params");
+        if (params == null || !params.isObject()) {
+            return;
+        }
+        JsonNode changeKind = params.get("changeKind");
+        boolean membershipChanged = changeKind != null && changeKind.isString()
+                && MEMBERSHIP_CHANGE_KINDS.contains(changeKind.stringValue());
+        if (!membershipChanged) {
+            return;
+        }
+        JsonNode memberUserId = params.get("memberUserId");
+        if (memberUserId == null || !memberUserId.isString()) {
+            log.debug("주민 사건에 memberUserId 가 없다 — 옛 Data. TTL 로만 무효화한다.");
+            return;
+        }
+        try {
+            membershipService.evict(UUID.fromString(memberUserId.stringValue()));
+        } catch (IllegalArgumentException e) {
+            log.warn("memberUserId 가 UUID 형식이 아닙니다 — 무효화를 건너뜁니다.");
+        }
+    }
+
+    /**
+     * 차단자의 차단 세대를 올린다(GROMO-2182). 필드가 없거나 UUID 가 아니면 건너뛴다 — 여기서 400 을 내면 relay 가
+     * 그 차단자의 순서 축을 permanent 로 막아 이후 차단·해제 전파까지 멈춘다. TTL 이 백스톱이다.
+     */
+    private void advanceBlockGeneration(String eventId, JsonNode envelope) {
+        JsonNode params = envelope.get("params");
+        JsonNode blocker = params == null || !params.isObject() ? null : params.get("blockerUserId");
+        UUID blockerId;
+        try {
+            blockerId = blocker == null || !blocker.isString() ? null : UUID.fromString(blocker.stringValue());
+        } catch (IllegalArgumentException e) {
+            blockerId = null;
+        }
+        if (blockerId == null) {
+            log.warn("차단 사건에 blockerUserId 가 없다 — 세대를 올리지 않는다. eventId={}", eventId);
+            return;
+        }
+        blockedUsers.advanceGeneration(blockerId);
     }
 
     /** 전달 어댑터가 있는 사건만 7필드로 바꿔 섬 토픽으로 보낸다. 나머지는 기록만 하고 끝낸다. */

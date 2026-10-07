@@ -57,6 +57,8 @@ Primitive → Semantic → Component → Screen composition
 
 새 코드는 `semanticTokens` 또는 `componentTokens`를 우선한다. `C.*`는 기존 화면 호환 별칭이다.
 
+마을 건물의 새 소식 배지와 툴팁 치수는 `componentTokens.villageNotificationBadge` 및 `componentTokens.villageNotificationTooltip`에서 관리한다. 게시판·우체통·도서관이 같은 크기와 윤곽을 공유하고, 지도 배율은 배지 토큰 치수에 곱해 적용한다. 건물 상태는 문구 툴팁 대신 건물 이름표로 안내하며, 이름표 치수는 `componentTokens.villageBuildingNameTag`에서 관리한다.
+
 ## 4. 컬러
 
 ### 4.1 주간 · 딸기 소다
@@ -86,6 +88,10 @@ Primitive → Semantic → Component → Screen composition
 | Placeholder    | Muted Brown    | `#796256` | 입력 힌트(텍스트 대비 4.5 이상)      |
 | Progress track | Progress Track | `#EADFD2` | 진행 배경                            |
 | Graph line     | Graph Line     | `#5FB6E3` | 통계 선 그래프                       |
+| Google border  | Google Border  | `#747775` | Google 로그인 버튼 공식 윤곽         |
+| Google text    | Google Text    | `#1F1F1F` | Google 로그인 버튼 공식 텍스트       |
+| Apple button   | Black          | `#000000` | Apple 로그인 버튼 배경·흰 로고       |
+| LINE brand     | LINE Brand     | `#06C755` | LINE 로그인 버튼 공식 배경           |
 | White          | White          | `#FFFFFF` | 토글 손잡이 등 제한 사용             |
 | Black          | Black          | `#000000` | 투명 그림자 계산용                   |
 
@@ -126,6 +132,7 @@ Primitive → Semantic → Component → Screen composition
 
 - Divider: Brown 20% (`#8B695633`)
 - Overlay: Ink 40% (`#493B3966`)
+- Cinematic overlay: Ink 65% (`#493B39A6`)
 - Bottom sheet overlay: Ink 25% (`#493B3940`)
 - Glass button: Paper 약 72%
 
@@ -273,6 +280,8 @@ Semantic spacing:
 - Small의 시각 높이는 38이지만 실제 터치 영역은 최소 44가 되도록 `hitSlop` 또는 컨테이너를 보장해야 한다.
 - 아이콘만 있는 버튼은 접근성 라벨을 반드시 제공한다.
 
+**소셜 로그인 버튼** — Apple·Google 은 한 틀로 그린다(`componentTokens.loginButton`). 최소 높이 54(큰 글자에서 늘어난다), pill, 로고 20 상자를 왼쪽 20 에 고정하고 라벨은 가운데 Body semibold. 색만 브랜드별이다 — Apple 은 Black 바탕·흰 로고·글자, Google 은 White 바탕·Google Border 1px·Google Text. 로고는 `components/ProviderLogo` 의 SVG 를 쓴다(iOS 네이티브 Apple 버튼은 글꼴·로고를 시스템이 정해 다른 버튼과 맞출 수 없어 쓰지 않는다).
+
 ### 7.3 Card / Group / Row
 
 **Card**
@@ -360,6 +369,7 @@ Semantic spacing:
 - 기본 dim은 Ink 40%, sheet dim은 Ink 25%.
 - Modal은 가운데 정렬, radius 24, Brown 2px, 6px sticker shadow.
 - Bottom sheet는 휴대폰 세로 화면에서 하단 정렬, 상단 radius 26, 하단 radius 0.
+- Modal·sheet의 공용 padding, gap, radius, stroke, shadow 코드 정본은 `componentTokens.modal`이다.
 - 태블릿·가로 compact 화면에서는 sheet도 가운데 modal 형태로 전환한다.
 - Sheet handle은 40×5, Control Idle.
 - 내부 padding 20, gap 14.
@@ -387,6 +397,13 @@ Semantic spacing:
 - 탭·세그먼트·칩은 선택 상태를 `accessibilityState`에도 반영한다.
 - 오버레이 뒤 콘텐츠는 스크린 리더 탐색에서 숨긴다.
 - 키보드가 열린 상태에서도 입력과 CTA가 가려지지 않아야 한다.
+
+#### 몽돌 튜토리얼 스포트라이트
+
+- 실제 조작 대상의 영역만 선명하게 두며, 딤은 `semanticTokens.color.overlay`를 사용한다. 인접 버튼으로 터치가 새지 않도록 대상 밖에 구멍 여백을 두지 않는다.
+- 블러 뒤 장면은 접근성 트리에서 숨긴다. VoiceOver·TalkBack에서는 대화창 안에 현재 단계의 버튼·입력만 제공하고, 실제 UI와 같은 값·명령 핸들러를 사용한다.
+- 대화창은 키보드 위 가용 영역 안에서 스크롤한다. 모든 스포트라이트에 안내 종료를 제공하고, 대상 측정이 2초 이상 실패하면 동일한 명령을 실행하는 대체 조작을 제공한다.
+- 자리 선택은 지도 터치를 유지하되 배경 접근성 탐색은 차단한다. 스크린리더에는 현재 점유·시설·물고기 배치·보행 경로를 검사한 빈 땅을 선택하는 동작을 제공한다.
 
 ## 8. 제품 기능 패턴
 
@@ -421,6 +438,7 @@ Semantic spacing:
 - 유효 집중 60초마다 물고기 1마리가 섬 잔액에 바로 들어간다. 주민 한 명이 한 섬에서 집중으로 낚는 물고기는 하루 최대 480마리다. 상한에 닿아도 집중 기록은 계속 쌓이고 물고기만 더 낚지 않는다. 하루 기준 시간대는 아직 정해지지 않았다(초기화 시간대 미결).
 - 물고기 더미는 이번 집중 누적을 내 고양이 옆에만 보여준다. 유효 집중 1분 전에는 표시하지 않고, 1~59분 한 마리, 60~119분 작은 바구니, 120~239분 중간 바구니, 240분 이상 큰 더미 네 단계다.
 - 더미 단계는 누적량을 보여주는 시각 연출이며 보상 배율이 아니다. 이 화면에 섬 잔액이나 잡은 물고기 숫자를 따로 강조하지 않는다.
+- 첫 섬 튜토리얼은 실제 집중 세션이 아닌 화면 체험이다. 기존 버튼·입력·이동·블러 스포트라이트를 재사용하고 집중 기록·통계·퀘스트·실시간 집중 채널에는 참여하지 않는다. 5초 체험 뒤 세션 없는 보상 API로 일반 물고기 1마리의 실제 지급을 확인하고 → 기존 낚아올리기 액션 2초 → “첫 물고기를 낚았어!” 순서로 보여 준다. 별도 선물 대사는 추가하지 않는다. 체험 결과의 물고기는 0/1마리이며 오래 기다려도 일반 적립·황금 추첨은 발생하지 않는다. Reduce Motion에서는 낚아올리기 액션 없이 다음 대사를 보여 준다. 재실행은 홈의 시작 버튼부터 다시 안내하고 보상 재요청은 계정별 서버 영수증으로 중복을 막는다. 구버전에서 이미 생성된 실제 세션은 기존 수명주기로 복구한다.
 - 휴식하기를 누르면 유효 집중 누적을 즉시 멈춘다. 뗏목 이동과 모닥불까지 걷는 시간도 휴식에 포함하고, 섬 지도와 분리된 모닥불 전용 화면에서 고양이가 식빵을 굽는다.
 - 복귀하면 기존 집중 시간과 물고기 수를 이어간다.
 - 휴식 화면에는 같은 모닥불에서 쉬는 주민의 이름과 이번 휴식 경과 시간을 표시한다.
@@ -477,6 +495,8 @@ Semantic spacing:
 ### 8.7 상점
 
 - 상점 NPC는 강아지다. 사용자 캐릭터는 고양이다.
+- 마지막 건물인 상점을 완공한 뒤 주민이 상점에 처음 들어오면 강아지가 3단계로 섬의 완성과 상점 개장을 축하한다. 완공 직후 홈에서는 띄우지 않는다.
+- 첫 상점 안내는 펠리컨 안내와 같은 `NpcGuide.GuideBox` 하단 대화창과 강아지 기본 에셋을 사용한다. 완료·건너뛰기는 계정별로 기기에 저장하고, 다른 섬으로 이동해도 반복하지 않는다. 안내 도중 종료하면 다음 상점 진입에서 다시 시작한다.
 - 주민 누구나 섬 물고기로 상품을 구매한다. 진입 시 섬 물고기 잔액을 보여준다.
 - 상품은 구매 가능, 부족, 보유, 적용 중 상태를 구분한다.
 - 개인 의상·장신구는 구매한 주민의 보유품이고, 공동 섬·건물 꾸미기는 섬 소유다. 소유 주체를 혼동하지 않는다.

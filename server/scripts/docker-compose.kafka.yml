@@ -80,12 +80,13 @@ services:
       # 볼륨이 «필수»다. 없으면 재시작 한 번에 미소비 이벤트가 통째로 사라진다 —
       # outbox 가 커밋 이후 구간을 막아 주지만, 이미 발행된 뒤 소비 전 유실은 outbox 도 못 살린다.
       - kafka-data:/var/lib/kafka/data
+      - ./kafka-api-healthcheck.sh:/opt/kafka/bin/kafka-api-healthcheck.sh:ro
     networks:
       - app-network
     restart: unless-stopped
     healthcheck:
-      # 브로커가 «API 를 받는가»를 본다. 포트 열림만 보면 기동 중인 브로커를 정상으로 오판한다.
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      # JVM을 매번 띄우지 않고 브로커의 ApiVersions 응답을 직접 확인한다.
+      test: ["CMD", "bash", "/opt/kafka/bin/kafka-api-healthcheck.sh"]
       interval: 15s
       timeout: 10s
       retries: 10

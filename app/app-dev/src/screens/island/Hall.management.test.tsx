@@ -261,3 +261,9 @@ test('관리 명령 완료가 같은 활성 관리 route·세션 세대 전환 �
   assert.equal(screen.queryByText('섬 정보를 저장했어요.'), null);
   assert.equal(screen.queryByTestId('hall-management-action-error'), null);
 });
+
+test('서버 current 섬이 있으면 관리 hook 에 로컬 목업 섬 대신 그 id 를 넘긴다(GROMO-2138)', async () => {
+  const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  await render(<Hall e={e('manage', state)} />);
+  assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
+});

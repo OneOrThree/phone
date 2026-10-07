@@ -24,6 +24,51 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 class FocusSessionContractTest extends UpstreamTestBase {
 
+    @Test
+    void experienceRewardUsesAuthenticatedUserWithoutSessionOrCommandKey() throws Exception {
+        String path = INTERNAL + "/islands/" + ISLAND + "/tutorial-reward";
+        DATA.on("POST " + path, request -> ok(
+                "{\"islandId\":\"" + ISLAND + "\",\"status\":\"granted\"}"));
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/tutorial-reward")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.islandId").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.status").value("granted"));
+        mockMvc.perform(post("/islands/" + ISLAND + "/tutorial-reward"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void malformedExperienceRewardIsNotReportedAsSuccess() throws Exception {
+        DATA.on("POST " + INTERNAL + "/islands/" + ISLAND + "/tutorial-reward",
+                request -> ok("{\"islandId\":\"" + ISLAND + "\",\"status\":\"pending\"}"));
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/tutorial-reward")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @Test
+    void tutorialRewardUsesAuthenticatedUserAndNeedsNoCommandKey() throws Exception {
+        String path = INTERNAL + "/focus-sessions/" + FOCUS + "/tutorial-reward";
+        DATA.on("POST " + path, request -> ok(
+                "{\"sessionId\":\"" + FOCUS + "\",\"status\":\"granted\"}"));
+        mockMvc.perform(auth(post("/focus-sessions/" + FOCUS + "/tutorial-reward"))
+                        .header("X-User-Id", UUID.randomUUID()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("granted"))
+                .andExpect(jsonPath("$.data.sessionId").value(FOCUS.toString()));
+        assertThat(DATA.received().get(0).header("x-user-id")).isEqualTo(USER.toString());
+        mockMvc.perform(post("/focus-sessions/" + FOCUS + "/tutorial-reward"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void malformedTutorialRewardIsNotReportedAsSuccess() throws Exception {
+        DATA.on("POST " + INTERNAL + "/focus-sessions/" + FOCUS + "/tutorial-reward",
+                request -> ok("{\"sessionId\":\"" + FOCUS + "\",\"status\":\"unknown\"}"));
+        mockMvc.perform(auth(post("/focus-sessions/" + FOCUS + "/tutorial-reward")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
     private static final UUID USER = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000011");
     private static final UUID SESSION = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000011");
     private static final UUID ISLAND = UUID.fromString("cccccccc-0000-0000-0000-000000000011");
@@ -41,12 +86,14 @@ class FocusSessionContractTest extends UpstreamTestBase {
     private static final String STATE = "{\"id\":\"" + FOCUS + "\",\"islandId\":\"" + ISLAND + "\","
             + "\"subject\":\"알고리즘\",\"targetMinutes\":60,\"status\":\"active\",\"activeSeconds\":0,"
             + "\"serverNow\":\"2026-09-17T00:00:00Z\",\"startedAt\":\"2026-09-17T00:00:00Z\","
-            + "\"restStartedAt\":null,\"version\":1}";
+            + "\"restStartedAt\":null,\"version\":1,\"activeIntervals\":[{\"startedAt\":\"2026-09-17T00:00:00Z\","
+            + "\"endedAt\":\"2026-09-17T00:00:00Z\"}]}";
     /** 자동 종료가 남긴 정산 — finish 응답과 «같은 모양»이다(GROMO-1998). */
     private static final String FINISH = "{\"recordId\":\"" + FOCUS + "\",\"islandId\":\"" + ISLAND + "\","
             + "\"subject\":\"알고리즘\",\"targetMinutes\":60,\"activeSeconds\":600,\"goalAchieved\":false,"
             + "\"earnedFish\":10,\"allocation\":{\"personalFishAdded\":0,\"constructionFishAdded\":10},"
-            + "\"completedAt\":\"2026-09-17T01:00:00Z\",\"questProgress\":[]}";
+            + "\"completedAt\":\"2026-09-17T01:00:00Z\",\"questProgress\":[],"
+            + "\"activeIntervals\":[{\"startedAt\":\"2026-09-17T00:00:00Z\",\"endedAt\":\"2026-09-17T01:00:00Z\"}]}";
 
     @Test
     void startForwardsSignedActorToInternalPathAndReturnsCreatedEnvelope() throws Exception {
@@ -77,6 +124,21 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.id").value(FOCUS.toString()))
                 .andExpect(jsonPath("$.data.targetMinutes").doesNotExist());
         assertThat(DATA.hits(DATA_START)).isEqualTo(1);
+    }
+
+    /**
+     * 구간을 안 보내는 구버전 Data 와 섞여 배포돼도 공개 응답은 {@code activeIntervals} 를 빼고 내린다(GROMO-2131)
+     * — 빈 목록으로 채우면 앱이 구간 0건으로 읽어 같은 날 집중을 잃는다.
+     */
+    @Test
+    void currentOmitsActiveIntervalsWhenDataDoesNotSendThem() throws Exception {
+        String legacy = STATE.substring(0, STATE.indexOf(",\"activeIntervals\"")) + "}";
+        DATA.on(DATA_CURRENT, request -> ok("{\"session\":" + legacy + "}"));
+        String body = mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(FOCUS.toString()))
+                .andReturn().getResponse().getContentAsString();
+        // doesNotExist 는 명시 null 도 통과시키므로 키 자체가 없는지 본다.
+        assertThat(body).doesNotContain("activeIntervals");
     }
 
     @ParameterizedTest

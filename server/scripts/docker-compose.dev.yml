@@ -19,12 +19,12 @@ x-infra-logging: &infra-logging
   options: {max-size: "10m", max-file: "3"}
 
 services:
-  app:
+  data-api:
     logging: *app-logging
     image: ${APP_IMAGE:-asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest}
-    container_name: phone-app
+    container_name: phone-data-api
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       SPRING_PROFILES_ACTIVE: dev
       API_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
@@ -49,6 +49,12 @@ services:
       # 받지만 «finish 를 안 거치는» 강퇴·포기 세션은 그 시점까지의 몫을 못 받는다(그 경로는 크론만 메운다).
       # 배포가 한 버전으로 수렴한 뒤 켠다 — 혼합 버전 창의 이중 지급은 FocusRewardAccrualGate javadoc.
       FOCUS_REWARD_ACCRUAL_ENABLED: ${FOCUS_REWARD_ACCRUAL_ENABLED:-false}
+      # 섬 게시판 쓰기 4종 + 댓글 삭제 (GROMO-1771 · GROMO-2136). BQ02·BQ03 는 확정됐지만 기본은 여전히
+      # false — prod 개방은 별도 릴리스 결정이고, dev 는 여기서 켠다.
+      ISLAND_BOARD_WRITES_ENABLED: ${ISLAND_BOARD_WRITES_ENABLED:-false}
+      # 섬 관리 명령 4종·방장 위임 (GROMO-1802 · GROMO-2156). 기본 false — prod 개방은 별도 결정, dev 는 여기서 켠다.
+      ISLAND_MANAGEMENT_COMMANDS_ENABLED: ${ISLAND_MANAGEMENT_COMMANDS_ENABLED:-false}
+      ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED: ${ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED:-false}
       REDIS_HOST: redis
     depends_on:
       db:
@@ -59,8 +65,15 @@ services:
       #    redis 가 늦게 뜨면 그동안의 리스 쓰기만 실패하고 로그에 warn 이 남는다.
       #    반대로 chat 은 redis 에 묶는다(docker-compose.realtime.yml) — 그쪽은 하드 의존성이다.
     networks:
-      - app-network
+      app-network:
+        aliases: [app]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
 
   db:
     logging: *infra-logging

@@ -25,9 +25,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -51,6 +53,12 @@ public class IslandMailboxUseCase {
 
     public static final int DEFAULT_LIMIT = 30;
     public static final int MAX_LIMIT = 100;
+    /**
+     * 차단 제외로 모자란 쪽을 채우려 실시간 히스토리를 읽는 최대 횟수(첫 읽기 포함, GROMO-2181). 차단한 사람의
+     * 메시지만 길게 이어진 구간에서 한 요청이 상류를 끝없이 두드리지 않게 막는다.
+     * ponytail: 상한 3 — 차단 대상이 도배한 섬에서 빈 쪽이 잦으면 상한을 올리거나 실시간 서버에 제외 id 를 넘긴다.
+     */
+    static final int MAX_FILL_ROUNDS = 3;
 
     /** 서명 커서의 scope 이름 — 사용자·섬·정렬·limit 이 함께 지문에 묶인다(LLD §5). */
     private static final String CURSOR_RESOURCE = "islands/messages";
@@ -88,7 +96,7 @@ public class IslandMailboxUseCase {
             Deadline deadline) {
         CursorScope scope = scope(claims, islandId, limit);
         UUID anchor = anchorOf(codec().decode(cursorToken, scope));
-        return present(claims, islandId, scope, history(claims, islandId, anchor, limit, deadline), deadline);
+        return present(claims, islandId, scope, history(claims, islandId, anchor, limit, deadline), limit, deadline);
     }
 
     /**
@@ -106,7 +114,7 @@ public class IslandMailboxUseCase {
      */
     public MailboxPageResponse presentFirstPage(AccessTokenClaims claims, UUID islandId, RealtimeHistory page,
             Deadline deadline) {
-        return present(claims, islandId, scope(claims, islandId, DEFAULT_LIMIT), page, deadline);
+        return present(claims, islandId, scope(claims, islandId, DEFAULT_LIMIT), page, DEFAULT_LIMIT, deadline);
     }
 
     private static CursorScope scope(AccessTokenClaims claims, UUID islandId, int limit) {
@@ -117,25 +125,84 @@ public class IslandMailboxUseCase {
     private RealtimeHistory history(AccessTokenClaims claims, UUID islandId, UUID anchor, int limit,
             Deadline deadline) {
         access(islandId, claims, deadline);
-        RealtimeHistory page = relay(() -> realtime.history(islandId, claims.userId(), anchor, limit, deadline));
+        return requireHistory(relay(() -> realtime.history(islandId, claims.userId(), anchor, limit, deadline)));
+    }
+
+    private static RealtimeHistory requireHistory(RealtimeHistory page) {
         if (page == null || page.messages() == null) {
             throw new UpstreamContractMismatchException("실시간 히스토리 응답 봉투가 없습니다");
         }
         return page;
     }
 
+    /**
+     * 한 페이지를 공개 모양으로 옮긴다 — <b>요청자가 차단한 사람의 메시지는 뺀다</b>(GROMO-2181, character-report
+     * policy RP-차단).
+     *
+     * <h2>차단 제외와 쪽 크기·커서</h2>
+     * 메시지 정본은 실시간 서버의 {@code gromo_chat} 이라 Data 가 쿼리로 뺄 수 없다. 판정은 Data 가 작성자 표시와
+     * 같은 호출에서 {@code hiddenUserIds} 로 주고, 여기서는 그 사람의 메시지를 빼기만 한다. 빼서 모자라면 같은
+     * 요청 안에서 실시간 다음 쪽을 더 읽어 채운다(최대 {@link #MAX_FILL_ROUNDS} 번 읽기). 채우다 {@code limit} 에
+     * 닿으면 <b>마지막으로 담은 메시지 id</b> 가 다음 anchor 다 — 실시간 커서는 «이 id 보다 과거» 라서 그 뒤의
+     * 메시지를 건너뛰지도 겹치지도 않는다. 읽기 상한에 닿으면 쪽이 {@code limit} 보다 짧을 수 있지만 커서는
+     * 이어진다(마지막으로 읽은 실시간 쪽의 {@code nextCursor}). 아무것도 빼지 않은 쪽은 예전과 똑같이 한 번만 읽는다.
+     */
     private MailboxPageResponse present(AccessTokenClaims claims, UUID islandId, CursorScope scope,
-            RealtimeHistory page, Deadline deadline) {
-        Map<UUID, String> names = authorNames(islandId, claims, page.messages(), deadline);
+            RealtimeHistory page, int limit, Deadline deadline) {
+        List<RealtimeMessage> kept = new ArrayList<>(Math.min(page.messages().size(), limit));
+        Map<UUID, String> names = new HashMap<>();
+        RealtimeHistory current = page;
+        UUID next;
+        for (int round = 1; ; round++) {
+            AuthorView authors = authorView(islandId, claims, current.messages(), deadline);
+            names.putAll(authors.names());
+            List<RealtimeMessage> messages = current.messages();
+            boolean hidAny = false;
+            UUID filledAt = null;
+            for (int i = 0; i < messages.size(); i++) {
+                RealtimeMessage message = messages.get(i);
+                if (authors.hidden().contains(message.senderId())) {
+                    hidAny = true;
+                    continue;
+                }
+                kept.add(message);
+                if (kept.size() == limit) {
+                    boolean more = current.nextCursor() != null
+                            || anyVisible(messages.subList(i + 1, messages.size()), authors.hidden());
+                    filledAt = more ? message.messageId() : null;
+                    break;
+                }
+            }
+            if (kept.size() == limit) {
+                next = filledAt;
+                break;
+            }
+            if (!hidAny || current.nextCursor() == null || round == MAX_FILL_ROUNDS) {
+                next = current.nextCursor();
+                break;
+            }
+            UUID anchor = current.nextCursor();
+            current = requireHistory(relay(() -> realtime.history(islandId, claims.userId(), anchor, limit,
+                    deadline)));
+        }
 
-        List<MailboxMessageResponse> items = new ArrayList<>(page.messages().size());
-        for (int i = page.messages().size() - 1; i >= 0; i--) {
-            RealtimeMessage message = page.messages().get(i);
+        List<MailboxMessageResponse> items = new ArrayList<>(kept.size());
+        for (int i = kept.size() - 1; i >= 0; i--) {
+            RealtimeMessage message = kept.get(i);
             items.add(publicMessage(message, names.get(message.senderId())));
         }
-        String next = page.nextCursor() == null ? null
-                : codec().encode(scope, new CursorBoundary(page.nextCursor().toString(), page.nextCursor().toString()));
-        return new MailboxPageResponse(items, next);
+        String cursor = next == null ? null
+                : codec().encode(scope, new CursorBoundary(next.toString(), next.toString()));
+        return new MailboxPageResponse(items, cursor);
+    }
+
+    private static boolean anyVisible(List<RealtimeMessage> messages, Set<UUID> hidden) {
+        for (RealtimeMessage message : messages) {
+            if (!hidden.contains(message.senderId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -196,8 +263,9 @@ public class IslandMailboxUseCase {
     /**
      * 페이지의 sender 집합으로 <b>한 번</b> batch 조회한다(LLD §5). 상류 장애는 그대로 올린다 — 활성 작성자를
      * 「알 수 없음」으로 바꿔 그리지 않는다(LLD §2). 응답에 없는 id 는 계정이 없는 것이고 그때만 null 이다.
+     * 같은 응답의 {@code hiddenUserIds} 가 요청자가 차단한 sender 다(GROMO-2181) — 판정은 Data 가 한다.
      */
-    private Map<UUID, String> authorNames(UUID islandId, AccessTokenClaims claims, List<RealtimeMessage> messages,
+    private AuthorView authorView(UUID islandId, AccessTokenClaims claims, List<RealtimeMessage> messages,
             Deadline deadline) {
         LinkedHashSet<UUID> senders = new LinkedHashSet<>();
         for (RealtimeMessage message : messages) {
@@ -205,7 +273,7 @@ public class IslandMailboxUseCase {
         }
         Map<UUID, String> names = new HashMap<>();
         if (senders.isEmpty()) {
-            return names;
+            return new AuthorView(names, Set.of());
         }
         MessageAuthors authors = relay(
                 () -> data.messageAuthors(islandId, claims.userId(), List.copyOf(senders), deadline));
@@ -215,7 +283,12 @@ public class IslandMailboxUseCase {
         for (MailboxViewer author : authors.authors()) {
             names.put(author.userId(), author.name());
         }
-        return names;
+        Set<UUID> hidden = authors.hiddenUserIds() == null ? Set.of() : new HashSet<>(authors.hiddenUserIds());
+        return new AuthorView(names, hidden);
+    }
+
+    /** 한 쪽의 작성자 표시(이름)와 요청자가 차단한 sender 집합. */
+    private record AuthorView(Map<UUID, String> names, Set<UUID> hidden) {
     }
 
     private static MailboxMessageResponse publicMessage(RealtimeMessage message, String name) {

@@ -28,6 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -76,6 +77,8 @@ public class GroupBetJoinService {
     private final CurrencyLedgerService currencyLedgerService;
     private final GroupBetJudge groupBetJudge;
     private final GroupBetService groupBetService;
+    /** 서버 시계(GROMO-1723) — {@link GroupBetService#today} 에 넘겨 같은 "오늘"을 공유한다. */
+    private final Clock clock;
 
     // ── 참여 3종 (GROMO-1408) ───────────────────────────────────────────
 
@@ -118,7 +121,7 @@ public class GroupBetJoinService {
             throw new GroupException(GroupErrorCode.BET_ALREADY_JOINED);
         }
         // 무위험 참가 가드(FR-35)는 진행분이 존재하는 오늘 회차에만 건다. 목표분은 회차 박제값이 기준.
-        LocalDate today = GroupBetService.today();
+        LocalDate today = GroupBetService.today(clock);
         if (session.getSessionDate().equals(today)) {
             groupBetService.requireEligibleToStake(targetOf(session), user, today);
         }
@@ -142,7 +145,7 @@ public class GroupBetJoinService {
      */
     public JoinSessionResponse joinNext(UUID groupId, UUID challengeId, UUID userId) {
         JoinContext ctx = openJoinContext(groupId, challengeId, userId);
-        LocalDate nextDate = RepeatSchedule.next(ctx.repeatDays(), GroupBetService.today());
+        LocalDate nextDate = RepeatSchedule.next(ctx.repeatDays(), GroupBetService.today(clock));
         GroupChallengeBetSession session = lockSession(ensureSession(ctx, nextDate));
         requireJoinStillOpen(session);
         if (groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(session.getId(), userId)) {
@@ -171,7 +174,7 @@ public class GroupBetJoinService {
      */
     public JoinWeekResponse joinWeek(UUID groupId, UUID challengeId, UUID userId, JoinWeekRequest request) {
         JoinContext ctx = openJoinContext(groupId, challengeId, userId);
-        LocalDate today = GroupBetService.today();
+        LocalDate today = GroupBetService.today(clock);
         List<LocalDate> dates = resolveWeekDates(ctx, request, today);
 
         // 대상 회차 확보(lazy 개설) — 오늘은 N35 시각 조건(창형 = 창 시작 전)을 통과할 때만 담는다.
@@ -189,7 +192,7 @@ public class GroupBetJoinService {
         List<GroupChallengeBetSession> targets = new ArrayList<>();
         for (GroupChallengeBetSession candidate : candidates) {
             GroupChallengeBetSession session = lockSession(candidate);
-            if (!session.isOpen() || !Instant.now().isBefore(session.getJoinClosesAt())) {
+            if (!session.isOpen() || !clock.instant().isBefore(session.getJoinClosesAt())) {
                 continue;
             }
             if (groupChallengeBetParticipantRepository
@@ -261,7 +264,7 @@ public class GroupBetJoinService {
                 .enabled(true)
                 .build());
 
-        LocalDate today = GroupBetService.today();
+        LocalDate today = GroupBetService.today(clock);
         if (RepeatSchedule.activeOn(repeatDaysOf(challenge), today) && joinableNow(target, today)) {
             GroupChallengeBetSession session = groupChallengeBetSessionRepository
                     .save(groupBetService.newSession(bet, group, challenge, target, today));
@@ -344,7 +347,7 @@ public class GroupBetJoinService {
 
     /** 단건 참여의 마감 가드 — OPEN + 박제 {@code joinClosesAt}(창형 = 창 시작, FR-33) 전만 허용. */
     private void requireJoinStillOpen(GroupChallengeBetSession session) {
-        if (!session.isOpen() || !Instant.now().isBefore(session.getJoinClosesAt())) {
+        if (!session.isOpen() || !clock.instant().isBefore(session.getJoinClosesAt())) {
             throw new GroupException(GroupErrorCode.BET_CLOSED);
         }
     }
@@ -396,10 +399,10 @@ public class GroupBetJoinService {
      * 같은 값을 준다.
      */
     private boolean joinableNow(GroupBetJudge.Target target, LocalDate date) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         return groupBetJudge.windowOpensAt(target, date)
                 .map(now::isBefore)
-                .orElse(!date.isBefore(GroupBetService.today()));
+                .orElse(!date.isBefore(GroupBetService.today(clock)));
     }
 
     /**

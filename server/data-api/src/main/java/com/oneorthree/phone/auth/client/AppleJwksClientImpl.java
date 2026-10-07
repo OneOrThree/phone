@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.user.repository.domain.Provider;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -17,9 +18,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.spec.RSAPublicKeySpec;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Apple OIDC identityToken 을 <b>로컬에서</b> 검증한다 — 제공자 API 를 매 로그인마다 호출하는 대신
@@ -34,8 +38,13 @@ import java.util.Map;
  * 우리 키로 통과한다. {@code aud} 가 우리 앱 식별자이고 {@code iss} 가
  * {@code https://appleid.apple.com} 인지까지 봐야 그 토큰으로 남의 계정에 로그인하는 경로가 막힌다.
  *
+ * <p>{@code aud} 는 <b>허용 목록</b>으로 검증한다(GROMO-2161). Apple 은 {@code aud} 를 요청한 앱의 번들 id 로
+ * 고정해 발급하므로, 1.x({@code com.oneorthree.gromo})와 2.0({@code com.oneorthree.focuscat})의 토큰
+ * {@code aud} 가 다르다. {@code apple.client-id} 에 쉼표로 여러 번들 id 를 둔다. 목록이 비면 모든 토큰을 거절한다.
+ *
  * <p>JWKS 응답은 캐시하지 않는다 — Apple 이 키를 회전해도 다음 로그인부터 바로 새 키를 집는다.
  */
+@Slf4j
 @Component
 public class AppleJwksClientImpl implements SocialLoginClient {
 
@@ -43,21 +52,38 @@ public class AppleJwksClientImpl implements SocialLoginClient {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RestClient restClient;
-    private final String clientId;
+    private final Set<String> allowedAudiences;
 
     /**
      * @param jwksUrl {@code apple.jwks-url} — Apple 공개키 목록 엔드포인트. 매 검증마다 조회하므로
      *                여기가 막히면 Apple 로그인 전체가 멎는다
-     * @param clientId {@code apple.client-id} — {@code aud} 클레임과 대조할 우리 앱 식별자(Apple 은 번들 id 또는 Services ID).
-     *                 값이 틀리면 정상 토큰이 전부 거부되고, 검증을 건너뛰면 남의 앱 토큰이 통과한다
+     * @param clientId {@code apple.client-id} — {@code aud} 클레임과 대조할 우리 앱 식별자 목록(Apple 은 번들 id
+     *                 또는 Services ID, 쉼표 구분, 앞뒤 공백 무시). 값이 틀리면 정상 토큰이 전부 거부되고,
+     *                 검증을 건너뛰면 남의 앱 토큰이 통과한다
      */
     public AppleJwksClientImpl(
             @Value("${apple.jwks-url}") String jwksUrl,
             @Value("${apple.client-id}") String clientId) {
         this.restClient = RestClient.builder()
                 .baseUrl(jwksUrl)
+                .requestFactory(IdpHttp.requestFactory())
                 .build();
-        this.clientId = clientId;
+        this.allowedAudiences = parseAllowedAudiences(clientId);
+        if (allowedAudiences.isEmpty()) {
+            // 빈 목록은 모든 토큰을 거절한다. 잘못된 배포 설정이 로그인 장애로만 드러나지 않게 기동 때 알린다.
+            log.warn("apple.client-id 허용 목록이 비어 있어 Apple 로그인이 모두 거절된다");
+        }
+    }
+
+    /** 쉼표로 구분한 앱 식별자 목록을 공백·빈 항목 없이 집합으로 만든다. {@code null} 이면 빈 집합이다. */
+    static Set<String> parseAllowedAudiences(String raw) {
+        if (raw == null) {
+            return Set.of();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     @Override
@@ -115,10 +141,10 @@ public class AppleJwksClientImpl implements SocialLoginClient {
             throw new InvalidTokenException(InvalidTokenErrorCode.APPLE_TOKEN);
         }
 
-        // Step 5 — aud(우리 bundle id)·iss 검증
+        // Step 5 — aud(허용 목록의 bundle id 중 하나)·iss 검증
         //   서명만 검증하면 다른 앱용으로 발급된 정상 토큰도 통과하므로 aud/iss를 확인한다. (backend-review.md 지적 항목)
         if (claims.getAudience() == null
-                || !claims.getAudience().contains(clientId)
+                || claims.getAudience().stream().noneMatch(allowedAudiences::contains)
                 || !ISS.equals(claims.getIssuer())) {
             throw new InvalidTokenException(InvalidTokenErrorCode.APPLE_TOKEN);
         }

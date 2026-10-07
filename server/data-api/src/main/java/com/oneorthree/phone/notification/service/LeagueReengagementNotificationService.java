@@ -1,5 +1,7 @@
 package com.oneorthree.phone.notification.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
@@ -27,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -49,8 +50,6 @@ public class LeagueReengagementNotificationService {
 
     /** 스트릭(출석) 인정 최소 집중 초 — 하루 10분(FocusService.STREAK_MIN_SECONDS 와 동일 기준, GROMO-806). */
     private static final int STREAK_MIN_SECONDS = 600;
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /**
      * 라이브(진행 중) 세션으로 인정하는 최대 경과 — 이보다 오래된 미종료 세션은 아직 청소 안 된 orphan(버려진 세션)으로 보고 제외.

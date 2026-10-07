@@ -42,5 +42,51 @@ services:
       timeout: 3s
       retries: 5
 
+  # dev 와 같은 공개 라우팅을 로컬에서 재현하는 선택 프로필 (GROMO-2216). 기본 `up -d db redis` 에는 뜨지 않는다.
+  #
+  #   docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx
+  #
+  # 호스트에서 bootRun 중인 Business·Realtime 앞에 선다 — 127.0.0.1:8088 → Business 8090 · Realtime 8085 가
+  # 기본이고 LOCAL_BUSINESS_PORT·LOCAL_REALTIME_PORT 로 바꾼다(셸 env 로 충분, .env 불필요).
+  # 듣는 주소·포트는 LOCAL_NGINX_BIND(기본 127.0.0.1)·LOCAL_NGINX_PORT(기본 8088). LAN 실기기에서 붙이려면
+  # LOCAL_NGINX_BIND=0.0.0.0 — 단 TLS 가 없어 토큰이 평문으로 지나고 앞단 인증도 없어 같은 LAN 의 누구나
+  # Business·Realtime 에 닿는다. 집·사무실 LAN 에서만, 공용 Wi-Fi 에서는 쓰지 않는다. 포트를 바꾸면 아래
+  # CHAT_WS_ALLOWED_ORIGINS 의 :8088 도 같이 바꾼다. 라우팅 표는 dev 정본
+  # nginx-dev-2.0-routes.conf.example 그대로다(nginx-local-routes.sh 가 upstream 만 치환). 그래서 dev 처럼
+  # /internal·/actuator·옛 Data 경로는 404, 신원·IP 헤더는 빈 값, /ws/realtime 은 Upgrade 를 살려 Realtime 으로 간다.
+  #
+  # ⚠️ 이 경로로 WebSocket 을 붙이면 403 이다. 정본이 `proxy_set_header Host $host` 로 포트를 뗀 Host(127.0.0.1)를
+  #    넘기는데 앱의 Origin 은 http://127.0.0.1:8088 이라, Spring same-origin 기본값이 포트 불일치로 거절한다
+  #    (실측: Origin 을 http://127.0.0.1 로 보내면 101). dev 의 GROMO-2175 도 결과는 같은 403 이지만 그쪽은 TLS 종단으로
+  #    scheme 이 갈린 경우다. 어느 쪽이든 Realtime 에 CHAT_WS_ALLOWED_ORIGINS=http://127.0.0.1:8088 을 주면 열린다
+  #    (LAN 실기기면 http://<LAN IP>:8088 을 더한다). 직접 8085 로 붙일 때는 Host 와 Origin 이 같아 설정 없이 통과한다.
+  #
+  # nginx 만 내릴 때는 `docker compose … --profile nginx rm -sf nginx`. `--profile nginx down` 은 db·redis 까지 내리고,
+  # 프로필 없이 down 하면 이 서비스만 대상에서 빠져 restart 정책대로 8088 을 계속 잡고 있다.
+  #
+  # TLS 는 없다(평문 80). dev 의 「TLS 종단 뒤 평문 loopback」 중 뒷부분만 재현한다.
+  nginx:
+    logging: *infra-logging
+    profiles: ["nginx"]
+    image: nginx:1.28-alpine  # prod 와 같은 고정 버전
+    container_name: phone-nginx-local
+    ports:
+      - "${LOCAL_NGINX_BIND:-127.0.0.1}:${LOCAL_NGINX_PORT:-8088}:80"
+    environment:
+      LOCAL_BUSINESS_UPSTREAM: host.docker.internal:${LOCAL_BUSINESS_PORT:-8090}
+      LOCAL_REALTIME_UPSTREAM: host.docker.internal:${LOCAL_REALTIME_PORT:-8085}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # macOS Docker Desktop 은 기본 제공, Linux 는 이 줄이 필요
+    volumes:
+      - ./nginx-dev-2.0-routes.conf.example:/etc/nginx/gromo/routes.conf.example:ro
+      - ./nginx-local-routes.sh:/docker-entrypoint.d/40-gromo-local-routes.sh:ro
+    restart: unless-stopped
+    healthcheck:
+      # 정본의 `location /` 가 404 를 돌려주는 것 자체가 「라우팅이 올라왔다」는 신호다. upstream 생사와는 무관.
+      test: ["CMD-SHELL", "wget -q -O /dev/null -S http://127.0.0.1/__nginx_probe 2>&1 | grep -q ' 404 '"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_local_data:

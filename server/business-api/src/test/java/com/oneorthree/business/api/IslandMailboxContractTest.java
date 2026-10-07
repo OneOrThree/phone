@@ -295,6 +295,81 @@ class IslandMailboxContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.field").value("islandId"));
     }
 
+    // ---------------------------------------------------------------- 차단 제외 (GROMO-2181)
+
+    /** Data 가 hiddenUserIds 로 준 sender 의 메시지는 빠지고, 해제(빈 hiddenUserIds)하면 다시 들어온다. */
+    @Test
+    void listDropsMessagesOfBlockedSendersAndRestoresAfterUnblock() throws Exception {
+        stubHappyPath();
+        DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}],"
+                + "\"hiddenUserIds\":[\"" + OTHER + "\"]}"));
+        REALTIME.on(RT_HISTORY, request -> ok("{\"messages\":[" + rtMessage(M2, USER, "두 번째", KEY) + ","
+                + rtMessage(M1, OTHER, "첫 번째", UUID.randomUUID()) + "],\"nextCursor\":null,\"hasMore\":false}"));
+        mockMvc.perform(auth(get(PUBLIC)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(M2.toString()))
+                .andExpect(jsonPath("$.data.nextCursor").value(nullValue()));
+
+        DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"},"
+                + "{\"userId\":\"" + OTHER + "\",\"name\":\"상대\"}],\"hiddenUserIds\":[]}"));
+        mockMvc.perform(auth(get(PUBLIC)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].id").value(M1.toString()))
+                .andExpect(jsonPath("$.data.items[0].name").value("상대"));
+    }
+
+    /**
+     * 빼서 모자란 쪽은 같은 요청에서 실시간 다음 쪽으로 채운다 — limit 에 닿으면 마지막으로 담은 메시지 id 가
+     * 다음 anchor 가 되어 빠짐·겹침이 없다.
+     */
+    @Test
+    void listRefillsFilteredPageAndAnchorsCursorOnLastKeptMessage() throws Exception {
+        UUID m3 = UUID.fromString("01990000-0000-7000-8000-000000000003");
+        UUID m0 = UUID.fromString("01990000-0000-7000-8000-000000000000");
+        stubHappyPath();
+        DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}],"
+                + "\"hiddenUserIds\":" + (request.body().contains(OTHER.toString()) ? "[\"" + OTHER + "\"]" : "[]")
+                + "}"));
+        // 첫 쪽(limit 2): m3(차단)·M2 → 1개만 남아 cursor=M2 로 한 번 더 읽는다. 둘째 쪽: M1·m0 → M1 에서 꽉 찬다.
+        REALTIME.on(RT_HISTORY, request -> request.query().contains("cursor=")
+                ? ok("{\"messages\":[" + rtMessage(M1, USER, "셋", UUID.randomUUID()) + ","
+                        + rtMessage(m0, USER, "넷", UUID.randomUUID()) + "],\"nextCursor\":null,\"hasMore\":false}")
+                : ok("{\"messages\":[" + rtMessage(m3, OTHER, "차단", UUID.randomUUID()) + ","
+                        + rtMessage(M2, USER, "둘", KEY) + "],\"nextCursor\":\"" + M2 + "\",\"hasMore\":true}"));
+
+        String next = mockMvc.perform(auth(get(PUBLIC)).queryParam("limit", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].id").value(M1.toString()))
+                .andExpect(jsonPath("$.data.items[1].id").value(M2.toString()))
+                .andExpect(jsonPath("$.data.nextCursor").isString())
+                .andReturn().getResponse().getContentAsString()
+                .replaceAll(".*\"nextCursor\":\"([^\"]+)\".*", "$1");
+        assertThat(queryParams(REALTIME.receivedFor(RT_HISTORY).get(1).query()))
+                .containsExactlyInAnyOrder("cursor=" + M2, "limit=2");
+
+        mockMvc.perform(auth(get(PUBLIC)).queryParam("cursor", next).queryParam("limit", "2"))
+                .andExpect(status().isOk());
+        assertThat(queryParams(REALTIME.receivedFor(RT_HISTORY).get(2).query()))
+                .containsExactlyInAnyOrder("cursor=" + M1, "limit=2");
+    }
+
+    /** 차단한 사람 글만 이어지는 구간에서도 상류 읽기는 상한까지만 — 짧은 쪽을 주되 커서는 이어진다. */
+    @Test
+    void listStopsRefillingAtRoundLimitAndKeepsCursor() throws Exception {
+        stubHappyPath();
+        DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[],\"hiddenUserIds\":[\"" + OTHER + "\"]}"));
+        REALTIME.on(RT_HISTORY, request -> ok("{\"messages\":[" + rtMessage(M1, OTHER, "차단", UUID.randomUUID())
+                + "],\"nextCursor\":\"" + M1 + "\",\"hasMore\":true}"));
+        mockMvc.perform(auth(get(PUBLIC)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.nextCursor").isString());
+        assertThat(REALTIME.hits(RT_HISTORY)).isEqualTo(3);
+    }
+
     private static java.util.List<String> queryParams(String query) {
         return query == null ? java.util.List.of() : java.util.List.of(query.split("&"));
     }

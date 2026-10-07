@@ -27,7 +27,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * 섬 게시판 6종의 공개 유스케이스 (GROMO-1771, island-board LLD §1~§4).
+ * 섬 게시판 7종(댓글 삭제는 GROMO-2136)의 공개 유스케이스 (GROMO-1771, island-board LLD §1~§4).
  *
  * <p>주민·게시판 완공·작성 권한·멱등·version 은 전부 Data TX 가 판정한다. Business 는 strict 세션의 주체만
  * 넘기고, 서명 커서를 풀고 만들며, 도메인 실패를 공개 오류 표로 옮긴다.
@@ -62,6 +62,8 @@ public class IslandNoticeUseCase {
             // 비주민·공지 권한 없음 — api-platform policy 의 명시 매핑(403 FORBIDDEN, field=null).
             Map.entry("MEMBER_ONLY", new PublicFailure(403, ApiErrorCode.FORBIDDEN, null)),
             Map.entry("NOTICE_FORBIDDEN", new PublicFailure(403, ApiErrorCode.FORBIDDEN, null)),
+            // 댓글 삭제 전용 — 작성자 본인도 방장도 아니다(GROMO-2136).
+            Map.entry("NOTICE_COMMENT_FORBIDDEN", new PublicFailure(403, ApiErrorCode.FORBIDDEN, null)),
             Map.entry("BOARD_LOCKED", new PublicFailure(403, ApiErrorCode.FACILITY_LOCKED, null)),
             // 그 섬 경로에 없는 공지(다른 섬의 공지 id 포함).
             Map.entry("NOT_FOUND", new PublicFailure(404, ApiErrorCode.NOT_FOUND, "noticeId")),
@@ -155,6 +157,23 @@ public class IslandNoticeUseCase {
                 deadline))));
     }
 
+    /**
+     * 댓글 삭제 (GROMO-2136) — 작성자 본인 또는 방장만. {@link #delete} 와 같은 응답 모양이다.
+     *
+     * <p>상류 {@code NOT_FOUND} 의 공개 field 는 {@link #DOMAIN_FAILURES} 의 공용 {@code noticeId} 대신
+     * {@code commentId} 로 좁힌다 — Data 의 {@code IslandNoticeService} 가 공지·댓글 부재를 같은 코드로
+     * 묶으므로, 여기서는 실제로 제출한 경로 id 를 가리킨다(commentId).
+     */
+    public NoticeDeletedView deleteComment(AccessTokenClaims claims, UUID islandId, UUID noticeId, UUID commentId,
+            UUID key, Deadline deadline) {
+        IslandNotices.Deleted deleted = relayCommentDelete(() -> data.deleteNoticeComment(claims.userId(), islandId,
+                noticeId, commentId, key, deadline));
+        if (deleted == null || !deleted.deleted()) {
+            throw new UpstreamContractMismatchException("댓글 삭제 응답이 계약과 다릅니다");
+        }
+        return NoticeDeletedView.from(deleted);
+    }
+
     // ---------------------------------------------------------------- 도구
 
     /** {@code hasMore=true} 인데 행이 없으면 경계를 만들 수 없다 — 상류 계약 위반이다. */
@@ -185,6 +204,22 @@ public class IslandNoticeUseCase {
         try {
             return upstream.get();
         } catch (UpstreamDomainException e) {
+            PublicFailure failure = DOMAIN_FAILURES.get(e.getCode());
+            if (failure == null || failure.upstreamStatus() != e.getStatus()) {
+                throw e;
+            }
+            throw new PublicApiException(failure.code(), failure.field());
+        }
+    }
+
+    /** {@link #relay} 와 같지만 {@code NOT_FOUND} 의 field 만 {@code commentId} 로 좁힌다 — {@link #deleteComment}. */
+    private static <T> T relayCommentDelete(Supplier<T> upstream) {
+        try {
+            return upstream.get();
+        } catch (UpstreamDomainException e) {
+            if (e.getStatus() == 404 && "NOT_FOUND".equals(e.getCode())) {
+                throw new PublicApiException(ApiErrorCode.NOT_FOUND, "commentId");
+            }
             PublicFailure failure = DOMAIN_FAILURES.get(e.getCode());
             if (failure == null || failure.upstreamStatus() != e.getStatus()) {
                 throw e;

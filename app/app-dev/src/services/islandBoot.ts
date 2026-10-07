@@ -43,8 +43,8 @@ export const decideBootRoute = async (deps: {
     deps.account,
     deps.rejected,
   );
-  // 서버 모드는 rich 섬 데이터가 없어 home/arrival을 열 수 없고 옛 로컬 집중 세션도 되살리지 않는다
-  if (deps.serverMode && (r === 'home' || r === 'arrival' || r === 'focus' || r === 'rest'))
-    r = 'chooseIsland';
+  // 서버 모드 홈은 서버 스냅샷을 직접 그린다(GROMO-2138). 옛 로컬 집중 세션은 되살리지 않는다 —
+  // 진행 세션은 App 이 부팅 뒤 서버 recover 로 따로 복구한다.
+  if (deps.serverMode && (r === 'arrival' || r === 'focus' || r === 'rest')) r = 'home';
   return r;
 };

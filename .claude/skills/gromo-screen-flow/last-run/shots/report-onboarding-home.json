@@ -1,0 +1,197 @@
+[
+ {
+  "id": "login.bootLoading",
+  "status": "ok",
+  "note": "목업에서는 로딩이 한 프레임도 안 걸려, 브라우저에서 로딩 분기를 붙잡아 둔 채 찍음(화면 코드는 그대로)"
+ },
+ {
+  "id": "login",
+  "status": "ok",
+  "note": "이 웹 빌드는 약관 버전(EXPO_PUBLIC_TERMS_VERSION)이 비어 있어 동의 문구에 「현재 약관 버전 N:」 머리말이 없음 — 기기 빌드에서는 붙음. 카카오·Google 버튼은 하네스가 끼운 것"
+ },
+ {
+  "id": "character",
+  "status": "ok",
+  "note": "닉네임 「오스카」 입력된 상태(버튼 활성)"
+ },
+ {
+  "id": "chooseIsland",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "chooseIsland.inviteCode",
+  "status": "ok",
+  "note": "코드 CLOUD 입력된 상태(확인 버튼 활성)"
+ },
+ {
+  "id": "chooseIsland.invitePreview",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미. 「바로 참여」 섬 변형(버튼 = 이 섬에 참여). 승인 필요 섬 변형(가입 신청)은 안 찍음"
+ },
+ {
+  "id": "chooseIsland.joined",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미. 「가입이 확인됐어요」 카드 변형"
+ },
+ {
+  "id": "chooseIsland.pendingResume",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미"
+ },
+ {
+  "id": "createIsland",
+  "status": "ok",
+  "note": "섬 이름·소개 입력된 상태(버튼 활성)"
+ },
+ {
+  "id": "createIsland.done",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미. 실제 「섬 만들기」 버튼을 눌러 전환"
+ },
+ {
+  "id": "joinIsland",
+  "status": "ok",
+  "note": "목업 모드 분기(주민 아바타·평균 집중 표시). 「바로 참여」 섬(딸기 섬)"
+ },
+ {
+  "id": "joinIsland.empty",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "joinIsland.visitInfo",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미"
+ },
+ {
+  "id": "joinIsland.pending",
+  "status": "ok",
+  "note": "목업 모드 분기 — 실제 「가입 신청」 버튼을 눌러 전환"
+ },
+ {
+  "id": "joinIsland.joined",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미"
+ },
+ {
+  "id": "approval",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미. 목업 모드에서는 이 화면이 없고 섬 찾기 화면의 대기 상태(joinIsland.pending)로 대신 그려짐"
+ },
+ {
+  "id": "approval.approved",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미"
+ },
+ {
+  "id": "approval.closed",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미. 「신청이 거절됐어요」 변형(취소됨 변형은 안 찍음)"
+ },
+ {
+  "id": "arrival",
+  "status": "ok",
+  "note": "항해 연출 0.8초 시점 프레임"
+ },
+ {
+  "id": "home",
+  "status": "ok",
+  "note": "건물 전부 완공·퀘스트 없는 섬(퀘스트 쪽지 없는 기본 모습)"
+ },
+ {
+  "id": "home.mailboxGuide",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "home.mailboxGuide2",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "home.mailboxGuide3",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "home.buildCard",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미. 실제 사용자(서버 모드)가 보는 접힌 카드(섬 통장 72마리 + 건설하기). 목업 모드 변형(72/60 마리)은 shots/onboarding-home/025-home.buildCard.mock.png 에 참고용으로 있음"
+ },
+ {
+  "id": "home.buildConfirm",
+  "status": "ok",
+  "note": "목업 모드. 이 빌드는 TESTFLIGHT_ALL_BUILDINGS(QA 임시 설정)가 켜져 목업 섬 건물이 자동 완공되므로, 캡처 브라우저에서만 그 자동 완공을 끄고 찍음"
+ },
+ {
+  "id": "home.serverBuildOpen",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미. 건설 정보 API 응답도 더미(72/60 마리, 60마리로 건설하기)"
+ },
+ {
+  "id": "home.serverBuildBlocked",
+  "status": "approx",
+  "note": "서버 모드 전용 화면 — 캡처용 가짜 서버 객체를 브라우저에서만 끼워 실제 서버 모드 화면 코드로 그림. 섬 이름·인원 등 데이터는 더미. 물고기 부족 변형(24/60 마리). 「다른 공사 중 + 새로고침」 변형은 안 찍음"
+ },
+ {
+  "id": "home.underConstruction",
+  "status": "ok",
+  "note": "목업 모드, 공사 45% 시점(골조). 회관 터가 보이게 지도를 끌어 놓음. 착공 직후 토스트는 카드를 가려서 뺌. QA 자동 완공은 캡처 브라우저에서만 끔. 서버 모드의 「완공 확인」 버튼 변형은 안 찍음"
+ },
+ {
+  "id": "home.constructionDone",
+  "status": "ok",
+  "note": "완공 연출(별 반짝임) 중간 프레임. 회관 터가 보이게 지도를 끌어 놓음. QA 자동 완공은 캡처 브라우저에서만 끔"
+ },
+ {
+  "id": "home.questNote",
+  "status": "ok",
+  "note": "퀘스트 2개(외 1개 보기) 변형"
+ },
+ {
+  "id": "home.questRewardNote",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "home.buildingIndicators",
+  "status": "approx",
+  "note": "우체통 펠리컨은 안 읽은 친구 편지로 실제 재현. 게시판(!)·상점·전망대 표시는 서버 값이라 ?demo=1 시연 상태로 켬 — 게시판은 「읽지 않은 새 소식」이 아니라 「새 댓글」 변형. 도서관·전망대는 화면 밖(우체통과 게시판을 한 화면에 넣으려고 축소·이동)"
+ },
+ {
+  "id": "home.visiting",
+  "status": "ok",
+  "note": "실제 VISIT 명령으로 딸기 섬 구경 시작"
+ },
+ {
+  "id": "guard.notBuilt",
+  "status": "ok",
+  "note": "축음기만 미완공인 섬에서 sound 진입. QA 자동 완공은 캡처 브라우저에서만 끔. 문구가 「축음기이」로 나옴(조사 오류)"
+ },
+ {
+  "id": "guard.noIsland",
+  "status": "approx",
+  "note": "실제 앱은 소속이 없어지면 곧바로 첫 섬 선택으로 되돌려(App.tsx 1362~1378) 이 팝업이 거의 안 보임 — 그 되돌림을 피하려고 목업 상태의 loggedIn 을 내려 찍음(hall 진입)"
+ },
+ {
+  "id": "guard.residentsOnly",
+  "status": "ok",
+  "note": "딸기 섬 구경 중 library 진입"
+ },
+ {
+  "id": "product.memberConversion",
+  "status": "approx",
+  "note": "서버 모드·게스트 전용 — 앱의 시트 여는 함수를 캡처 브라우저에서 직접 불러 상품 화면 위에 띄움. 이 웹 빌드는 약관 버전이 비어 시트가 안 뜨므로 그 장에서만 2026-09 (README 예시값)로 채움. 소셜 버튼은 하네스가 끼운 카카오·Google"
+ },
+ {
+  "id": "product.accountSwitchConfirm",
+  "status": "approx",
+  "note": "위와 같은 방법 — 전환 시트를 연 뒤 앱의 충돌 확인 함수를 직접 불러 띄움(실제로는 서버 409 응답 때 뜸)"
+ },
+ {
+  "id": "external.mailApp",
+  "status": "uncaptured",
+  "note": "앱 화면이 아님 — mailto 링크로 기기 메일 앱이 열림(웹 목업에서는 띄울 화면이 없음)"
+ }
+]

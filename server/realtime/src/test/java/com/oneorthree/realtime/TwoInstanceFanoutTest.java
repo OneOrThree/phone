@@ -89,6 +89,10 @@ class TwoInstanceFanoutTest {
     @MockitoBean
     private GroupClient groupClient;
 
+    /** 차단 필터(GROMO-2182)는 fail-closed 라 상류가 없으면 남의 말이 전부 막힌다 — 목의 기본값(빈 집합)으로 «차단 없음». */
+    @MockitoBean
+    private com.oneorthree.realtime.block.client.BlockClient blockClient;
+
     private ConfigurableApplicationContext instanceB;
     private int portB;
     private WebSocketStompClient stompClient;
@@ -229,6 +233,18 @@ class TwoInstanceFanoutTest {
                 @Override
                 public Membership fetchMyGroupIds(String bearerToken) {
                     return Membership.of(Set.of(sharedIsland));
+                }
+            };
+        }
+
+        /** B 의 차단 조회 — 차단 없음. fail-closed 필터가 A 에서 온 남의 말을 막지 않게 한다(GROMO-2182). */
+        @org.springframework.context.annotation.Bean
+        @org.springframework.context.annotation.Primary
+        com.oneorthree.realtime.block.client.BlockClient stubBlockClient() {
+            return new com.oneorthree.realtime.block.client.BlockClient("http://localhost:1", "t", 100) {
+                @Override
+                public Set<java.util.UUID> fetchBlockedIds(java.util.UUID userId) {
+                    return Set.of();
                 }
             };
         }

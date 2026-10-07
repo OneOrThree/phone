@@ -162,4 +162,28 @@ class MembershipServiceTest {
         assertThat(membershipService.isMember(UUID.randomUUID(), userId, BEARER)).isFalse();
         verify(groupClient, never()).fetchMyGroupIds("Bearer other");
     }
+
+    @Test
+    @DisplayName("evict — 사건이 준 즉시 무효화(GROMO-2140), 다음 조회는 다시 상류를 부른다")
+    void evictForcesTheNextLookupUpstream() {
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of(groupId)));
+        membershipService.myGroupIds(userId, BEARER);
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isTrue();
+
+        membershipService.evict(userId);
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isFalse();
+        membershipService.myGroupIds(userId, BEARER);
+        verify(groupClient, times(2)).fetchMyGroupIds(BEARER);
+    }
+
+    @Test
+    @DisplayName("evict — 캐시가 애초에 없어도 조용히 끝난다")
+    void evictIsANoOpWhenNothingIsCached() {
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isFalse();
+
+        membershipService.evict(userId);
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isFalse();
+    }
 }

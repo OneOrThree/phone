@@ -110,7 +110,7 @@ const blockedText = (reason: string | null) =>
           : reason === 'IN_PROGRESS'
             ? '지금 다른 건물을 짓고 있어요'
             : '지금은 선택할 수 없어요';
-const buildBlockedText = (reason: string | null) =>
+export const buildBlockedText = (reason: string | null) =>
   reason === 'FORBIDDEN'
     ? '방장이 건설을 시작해요'
     : reason === 'INSUFFICIENT_FUNDS'
@@ -181,14 +181,16 @@ export function Hall({ e }: any) {
     r = e.route,
     host = isHost(i),
     // 다른 섬을 구경 중(주민 아님)이면 섬 정보 카드를 방문자 뷰로 보여 준다
-    visitor = !!s.visitingIslandId;
+    visitor = !!s.visitingIslandId,
+    // 서버 훅이 부를 섬 — 서버 모드 current 는 로컬 목업 섬 목록에 없다(GROMO-2138). 목업은 기존 섬 id
+    liveIslandId = s.serverIslands?.currentIslandId ?? i.id;
   // review/demo에는 서버가 없으므로 관리 hook을 열지 않고 기존 시연 섬 정보를 유지한다.
   const liveManagement = (r === 'manage' || r === 'members') && !visitor && !ledgerMockMode();
   // `manage`/`members`는 실제 App 경로(CurrentScreens → Hall)다. 로컬 Island를 서버 DTO로
   // 덮어쓰지 않고 이 표면에서만 관리 API snapshot을 직접 소비한다.
   const management = useIslandManagement({
     active: liveManagement,
-    islandId: visitor ? null : i.id,
+    islandId: visitor ? null : liveIslandId,
   });
   const [panel, setPanel] = useState<'' | 'edit' | 'transfer'>(''),
     [plan, setPlan] = useState<Building | null>(null),
@@ -256,15 +258,32 @@ export function Hall({ e }: any) {
   const mockLedger = ledgerMockMode();
   const serverLedger = useLedgerScreen({
     active: r === 'ledger' && !visitor && !mockLedger,
-    islandId: i.id,
+    islandId: liveIslandId,
     currentMonth: thisMonth,
   });
   // 건설 화면도 같은 서버 정본 규칙 — 방문자·모크 모드는 로컬 시연 UI 를 유지한다.
   const liveConstruction = r === 'construction' && !visitor && !mockLedger;
+  const clientConstruction = s.serverIslands?.clientConstruction;
   const construction = useConstruction({
     active: liveConstruction,
-    islandId: visitor ? null : i.id,
+    islandId: visitor ? null : liveIslandId,
     now: e.now,
+    resumeTiming:
+      clientConstruction?.islandId === liveIslandId
+        ? {
+            buildingId: clientConstruction.building,
+            startedAt: clientConstruction.startedAt,
+            completesAt: clientConstruction.endsAt,
+          }
+        : null,
+    onStarted: (receipt, serverIslandId) =>
+      e.dispatch({
+        type: 'SERVER_CONSTRUCTION_STARTED',
+        islandId: serverIslandId,
+        building: receipt.buildingId as Building,
+        startedAt: Date.parse(receipt.startedAt),
+        endsAt: Date.parse(receipt.completesAt),
+      }),
   });
   const [mockMonth, setMockMonth] = useState(0);
   const [mockTab, setMockTab] = useState<LedgerTab>('balance');
@@ -1313,11 +1332,16 @@ export function Hall({ e }: any) {
           <T style={g(25.8, 32.25)}>어떤 건물을 지을까요?</T>
         </View>
         <View
+          testID="hall-bld-grid"
           style={{
             flexDirection: 'row',
             flexWrap: 'wrap',
             gap,
-            transform: plan ? [{ scale: 0.985 }] : undefined,
+            // GROMO — 패널을 열고 닫을 때 이 값이 배열↔undefined 로 바뀌면 RN 이 이전 렌더의
+            // transform 을 지우려고 null 을 native 로 보내 processTransform 의 _validateTransforms
+            // 가 `null.forEach`로 죽는다(패널을 닫을 때 재현). transform 자체는 항상 배열로 두고
+            // 값만 바꾼다 — undefined/null 로 만들지 않는다.
+            transform: [{ scale: plan ? 0.985 : 1 }],
           }}
         >
           {cards.map((b, n) => {

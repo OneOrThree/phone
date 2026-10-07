@@ -1,0 +1,5 @@
+appId: com.oneorthree.focuscat
+---
+- tapOn: "측정 앱 고르기"
+- waitForAnimationToEnd:
+    timeout: 8000

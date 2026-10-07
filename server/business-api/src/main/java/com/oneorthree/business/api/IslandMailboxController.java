@@ -5,7 +5,7 @@ import com.oneorthree.business.api.dto.MailboxPageResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.IslandMailboxUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -51,15 +51,15 @@ public class IslandMailboxController {
     @GetMapping("/islands/{islandId}/messages")
     public MailboxPageResponse list(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return mailbox.list(claims, uuid(islandId, "islandId"), single(request, "cursor"),
-                limit(single(request, "limit")), deadline());
+        return mailbox.list(claims, PublicIds.uuid(islandId, "islandId"), single(request, "cursor"),
+                limit(single(request, "limit")), properties.deadline());
     }
 
     @PostMapping(value = "/islands/{islandId}/messages", consumes = "application/json")
     public ResponseEntity<MailboxMessageResponse> send(@PathVariable String islandId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        UUID island = uuid(islandId, "islandId");
+        UUID island = PublicIds.uuid(islandId, "islandId");
         // 정확히 두 필드 — senderId·receiverId·미지 필드는 거절한다(LLD §2). 주체는 AT 뿐이다.
         if (body == null || !body.isObject() || body.size() != 2
                 || !body.has("clientMessageId") || !body.has("text")) {
@@ -82,7 +82,7 @@ public class IslandMailboxController {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "text");
         }
         MailboxMessageResponse sent = mailbox.send(claims, island, UUID.fromString(key.stringValue()),
-                text.stringValue(), deadline());
+                text.stringValue(), properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(sent);
     }
 
@@ -111,21 +111,5 @@ public class IslandMailboxController {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, name);
         }
         return values[0];
-    }
-
-    private static UUID uuid(String value, String field) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

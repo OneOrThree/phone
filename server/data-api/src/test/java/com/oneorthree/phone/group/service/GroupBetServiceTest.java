@@ -52,11 +52,13 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
@@ -140,6 +142,13 @@ class GroupBetServiceTest {
      */
     @Mock
     private GroupBetWindowUsageService groupBetWindowUsageService;
+
+    /**
+     * 서버 시계(GROMO-1723·GROMO-2133) — 기본값은 시스템 시계라 기존 벽시계 기준 테스트는 그대로
+     * 통과한다. 고정 시각 경계를 보는 테스트만 {@code given(clock.instant())} 로 개별 스텁한다.
+     */
+    @Spy
+    private Clock clock = Clock.systemUTC();
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -1868,6 +1877,78 @@ class GroupBetServiceTest {
                 .isEqualTo(todaySession.getClosesAt());
     }
 
+    // ── 고정 시계 경계 (GROMO-2133) — 주입된 Clock 으로 KST 자정 경계를 실행 시각과 무관하게 고정한다 ──
+
+    @Test
+    @DisplayName("today() 는 주입된 시계 기준 — KST 자정 경계(±1초)에서 날짜가 갈린다")
+    void todayFlipsAtKstMidnightBoundary() {
+        // 2026-08-01T15:00:00Z = KST 2026-08-02 00:00:00 — 1초 전은 여전히 8/1, 정각부터 8/2.
+        Instant kstMidnight = Instant.parse("2026-08-01T15:00:00Z");
+
+        assertThat(GroupBetService.today(Clock.fixed(kstMidnight.minusSeconds(1), ZoneOffset.UTC)))
+                .isEqualTo(LocalDate.of(2026, 8, 1));
+        assertThat(GroupBetService.today(Clock.fixed(kstMidnight, ZoneOffset.UTC)))
+                .isEqualTo(LocalDate.of(2026, 8, 2));
+    }
+
+    @Test
+    @DisplayName("취소 마감 판정도 같은 경계에서 갈린다 — 마감 1초 전이면 철회가 통과한다(실서비스 경로)")
+    void leaveBetAllowsJustBeforeLeaveDeadlineBoundary() {
+        givenMember();
+        Instant leaveDeadline = Instant.parse("2026-08-01T15:00:00Z");
+        // 창형 세션 — leaveDeadline() 은 창형이면 참가 시점과 무관하게 회차 시작 그 자체다(N22).
+        GroupChallengeBetSession session = windowSession(leaveDeadline);
+        GroupChallengeBetParticipant mine =
+                myParticipantJoinedAt(session, leaveDeadline.minus(1, ChronoUnit.HOURS));
+        givenLeaveEntry(session, mine);
+        given(currencyLedgerService.credit(any(), any(), anyInt(), anyString())).willReturn(true);
+        given(clock.instant()).willReturn(leaveDeadline.minusSeconds(1));
+
+        groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID);
+
+        verify(groupChallengeBetParticipantRepository).delete(mine);
+        verify(currencyLedgerService).credit(any(), eq(CurrencyTransactionType.BET_REFUND), eq(30),
+                eq("session:" + SESSION_ID + ":refund:" + PARTICIPANT_ID));
+    }
+
+    @Test
+    @DisplayName("취소 마감 판정 — 마감 정각이면 BET_LEAVE_CLOSED (경계 바깥, 실서비스 경로)")
+    void leaveBetRejectsAtLeaveDeadlineBoundary() {
+        givenMember();
+        Instant leaveDeadline = Instant.parse("2026-08-01T15:00:00Z");
+        GroupChallengeBetSession session = windowSession(leaveDeadline);
+        GroupChallengeBetParticipant mine =
+                myParticipantJoinedAt(session, leaveDeadline.minus(1, ChronoUnit.HOURS));
+        givenLeaveEntry(session, mine);
+        given(clock.instant()).willReturn(leaveDeadline);
+
+        assertThatThrownBy(() -> groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID))
+                .isInstanceOf(GroupException.class)
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.BET_LEAVE_CLOSED);
+        assertNoRefundIssued();
+    }
+
+    /** 창형 회차 픽스처 — {@code startsAt} 이 취소 마감 그 자체다(N22, 참가 시점 무관). */
+    private GroupChallengeBetSession windowSession(Instant startsAt) {
+        Instant closesAt = startsAt.plus(3, ChronoUnit.HOURS);
+        return GroupChallengeBetSession.builder()
+                .id(SESSION_ID)
+                .bet(config())
+                .group(group())
+                .challenge(focusChallenge())
+                .sessionDate(LocalDate.of(2026, 8, 1))
+                .stake(30)
+                .goalMinutes(GOAL_MINUTES)
+                .missionCategory(MissionCategory.FOCUS)
+                .missionType(MissionType.TIME_WINDOW)
+                .status(GroupBetStatus.OPEN)
+                .startsAt(startsAt)
+                .joinClosesAt(startsAt)
+                .closesAt(closesAt)
+                .settleAfter(closesAt)
+                .build();
+    }
+
     // ── 활성 요일 검증 (N35 — 레거시 개설 브리지, PR #567 이관) ────────────────
 
     @Test
@@ -1876,7 +1957,7 @@ class GroupBetServiceTest {
         givenMember();
         // 오늘을 쉬는 날로 둔 실제 챌린지 — 시임을 덮지 않는다. 판정은 카드의 activeToday 와
         // 같은 함수(RepeatSchedule.activeOn × challenge.getRepeatDays())를 탄다.
-        LocalDate today = GroupBetService.today();
+        LocalDate today = GroupBetService.today(clock);
         givenChallenge(challengeRepeating(
                 RepeatSchedule.EVERYDAY ^ RepeatSchedule.bit(today.getDayOfWeek())));
 
@@ -1893,7 +1974,7 @@ class GroupBetServiceTest {
     void createBetHonoursMondayOnlySchedule() {
         givenMember();
         givenChallenge(challengeRepeating(RepeatSchedule.bit(DayOfWeek.MONDAY)));
-        LocalDate today = GroupBetService.today();
+        LocalDate today = GroupBetService.today(clock);
 
         // 개설 창(계약 §3)은 오늘·내일뿐이라 "화요일"을 고정할 수 없다 — 대신 그 창에서 월요일이
         // 아닌 날을 전부 훑는다. 오늘이 일·월이면 하나, 그 밖엔 둘이 걸린다.
@@ -1917,7 +1998,7 @@ class GroupBetServiceTest {
     @Test
     @DisplayName("다음 회차 예고는 '내일'이 아니라 실제 다음 활성일이다 — 월요일 전용이면 다음 월요일")
     void nextSessionFollowsRepeatDaysNotTomorrow() {
-        LocalDate today = GroupBetService.today();
+        LocalDate today = GroupBetService.today(clock);
         int mondayOnly = RepeatSchedule.bit(DayOfWeek.MONDAY);
         GroupChallenge mondayChallenge = challengeRepeating(mondayOnly);
         LocalDate expected = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY));

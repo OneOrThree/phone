@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
@@ -8,6 +9,7 @@ import com.oneorthree.business.common.exception.UpstreamContractMismatchExceptio
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.upstream.data.DataFocusClient;
+import com.oneorthree.business.upstream.data.dto.ActiveIntervalState;
 import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -31,6 +34,9 @@ import java.util.function.Supplier;
 @Service
 @RequiredArgsConstructor
 public class FocusSessionUseCase {
+
+    /** 최초 낚시 보상 응답에서 받아들이는 상태 — 그 밖의 값은 상류 계약 위반이다. */
+    private static final Set<String> TUTORIAL_REWARD_STATUSES = Set.of("granted", "pending", "unavailable");
 
     /**
      * Data 의 도메인 판정 → 공개 오류. 여기 없는 코드는 그대로 올려 보내고 전역 핸들러가
@@ -61,6 +67,31 @@ public class FocusSessionUseCase {
             Map.entry("INVALID_SUMMARY_TIMEZONE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "timezone")));
 
     private final DataFocusClient data;
+
+    public TutorialRewardView claimTutorialReward(AccessTokenClaims claims, UUID sessionId, Deadline deadline) {
+        var reward = relay(() -> data.claimTutorialReward(claims.userId(), sessionId, deadline));
+        if (reward == null || !sessionId.equals(reward.sessionId()) || reward.status() == null
+                || !TUTORIAL_REWARD_STATUSES.contains(reward.status())) {
+            throw new UpstreamContractMismatchException("최초 낚시 보상 응답이 올바르지 않습니다");
+        }
+        return new TutorialRewardView(reward.sessionId(), reward.status());
+    }
+
+    public record TutorialRewardView(UUID sessionId, String status) {
+    }
+
+    public TutorialExperienceView claimTutorialExperience(AccessTokenClaims claims, UUID islandId,
+                                                          Deadline deadline) {
+        var reward = relay(() -> data.claimTutorialExperience(claims.userId(), islandId, deadline));
+        if (reward == null || !islandId.equals(reward.islandId())
+                || !("granted".equals(reward.status()) || "unavailable".equals(reward.status()))) {
+            throw new UpstreamContractMismatchException("체험 보상 응답이 올바르지 않습니다");
+        }
+        return new TutorialExperienceView(reward.islandId(), reward.status());
+    }
+
+    public record TutorialExperienceView(UUID islandId, String status) {
+    }
 
     public StateView start(AccessTokenClaims claims, UUID islandId, String subject, Integer targetMinutes,
             UUID key, Deadline deadline) {
@@ -136,14 +167,15 @@ public class FocusSessionUseCase {
             @JsonProperty(required = true) String serverNow,
             @JsonProperty(required = true) String startedAt,
             String restStartedAt,
-            @JsonProperty(required = true) long version) {
+            @JsonProperty(required = true) long version,
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals) {
         private static StateView from(FocusSessionState source) {
             if (source == null) {
                 return null;
             }
             return new StateView(source.id(), source.islandId(), source.subject(), source.targetMinutes(),
                     source.status(), source.activeSeconds(), source.serverNow(), source.startedAt(),
-                    source.restStartedAt(), source.version());
+                    source.restStartedAt(), source.version(), ActiveIntervalView.fromAll(source.activeIntervals()));
         }
     }
 
@@ -158,7 +190,8 @@ public class FocusSessionUseCase {
             @JsonProperty(required = true) int earnedFish,
             @JsonProperty(required = true) AllocationView allocation,
             @JsonProperty(required = true) String completedAt,
-            List<QuestProgressView> questProgress) {
+            List<QuestProgressView> questProgress,
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals) {
         private static FinishView from(FocusFinish source) {
             if (source == null) {
                 return null;
@@ -169,7 +202,7 @@ public class FocusSessionUseCase {
                     source.activeSeconds(), source.goalAchieved(), source.earnedFish(),
                     new AllocationView(source.allocation().personalFishAdded(),
                             source.allocation().constructionFishAdded()),
-                    source.completedAt(), progress);
+                    source.completedAt(), progress, ActiveIntervalView.fromAll(source.activeIntervals()));
         }
     }
 
@@ -183,6 +216,19 @@ public class FocusSessionUseCase {
             @JsonProperty(required = true) double myRate) {
         private static QuestProgressView from(FocusFinish.QuestProgress source) {
             return source == null ? null : new QuestProgressView(source.id(), source.myRate());
+        }
+    }
+
+    /** ACTIVE 구간 하나의 공개 표현(GROMO-2131) — {@link StateView}·{@link FinishView} 가 공유한다. */
+    public record ActiveIntervalView(
+            @JsonProperty(required = true) String startedAt,
+            @JsonProperty(required = true) String endedAt) {
+        private static ActiveIntervalView from(ActiveIntervalState source) {
+            return source == null ? null : new ActiveIntervalView(source.startedAt(), source.endedAt());
+        }
+
+        private static List<ActiveIntervalView> fromAll(List<ActiveIntervalState> source) {
+            return source == null ? null : source.stream().map(ActiveIntervalView::from).toList();
         }
     }
 

@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.UUID;
 
 /** RT로 직접 주체를 증명하는 신규 종료. 기존 AuthService.logout의 호환 동작과 분리한다. */
 @Service
@@ -27,9 +28,9 @@ public class SessionLogoutService {
     private final AuthSessionService sessions;
     private final Clock clock;
 
-    /** users → session → aggregate 순서로 종료 증거와 내구 폐기를 한 번 확정한다. */
+    /** users → session → aggregate 순서로 종료 증거와 내구 폐기를 한 번 확정하고, 폐기한 세션 id 를 돌려준다. */
     @Transactional
-    public void logout(String refreshToken, String accessToken) {
+    public UUID logout(String refreshToken, String accessToken) {
         LogoutToken refresh = verify(refreshToken, false);
         LogoutToken access = accessToken == null ? null : verify(accessToken, true);
         User user = users.getCallerForUpdate(refresh.userId());
@@ -43,7 +44,7 @@ public class SessionLogoutService {
                 throw invalidRefresh();
             }
             log.info("session_logout outcome=replayed");
-            return;
+            return session.getId();
         }
         if (session == null) {
             session = sessions.createLegacyLogoutSession(user.getId(), hash);
@@ -54,6 +55,7 @@ public class SessionLogoutService {
         }
         sessions.completeLogout(session, refresh.expiresAt());
         log.info("session_logout outcome=completed");
+        return session.getId();
     }
 
     private LogoutToken verify(String token, boolean access) {

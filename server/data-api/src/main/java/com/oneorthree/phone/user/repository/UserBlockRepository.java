@@ -78,6 +78,20 @@ public interface UserBlockRepository extends JpaRepository<UserBlock, UUID> {
     Set<UUID> findBlockedIdsByBlockerId(@Param("blockerId") UUID blockerId);
 
     /**
+     * 두 유저 사이에 <b>어느 방향이든</b> 차단이 있는가 (GROMO-2179, policy RP-차단).
+     *
+     * <p>{@link #findByBlockerAndBlocked} 는 방향 고정이라 두 번 물어야 하고 엔티티까지 읽는다 — 직접 연락
+     * 게이트(편지 발송·친구 요청·수락)는 존재 여부만 필요하므로 한 쿼리로 양방향을 묻는다.
+     *
+     * @param a 한쪽 유저 id
+     * @param b 다른 쪽 유저 id
+     * @return {@code a→b} 또는 {@code b→a} 차단 행이 하나라도 있으면 true
+     */
+    @Query("SELECT CASE WHEN COUNT(b) > 0 THEN true ELSE false END FROM UserBlock b"
+            + " WHERE (b.blocker.id = :a AND b.blocked.id = :b) OR (b.blocker.id = :b AND b.blocked.id = :a)")
+    boolean existsBetweenEitherWay(@Param("a") UUID a, @Param("b") UUID b);
+
+    /**
      * 방향 고정 해제 (GROMO-1975) — (blocker → blocked) 한 방향만 지운다. 벌크 DELETE 라 없으면
      * 0 행이고 그 자체가 멱등이다 — 조회 후 remove 는 탈퇴 정리({@link #deleteAllInvolving})와 겹칠 때
      * StaleStateException 으로 500 이 난다. 대상 User 를 읽지 않으므로 존재하지 않는 UUID 도

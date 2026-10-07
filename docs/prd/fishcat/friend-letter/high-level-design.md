@@ -156,7 +156,7 @@ island-mailbox처럼 HMAC 서명 opaque cursor(LLD §5)를 쓰지 않는다 — 
 
 | 화면 | 조각 | 내부 GET | 비고 |
 | --- | --- | --- | --- |
-| `/screens/friends` (프레임 78·79) | `friends` | `GET /internal/users/{userId}/friends?date=` | `FriendService.getFriends` 그대로(§1 행 5) |
+| `/screens/friends` (프레임 78·79) | `friends` | `GET /internal/users/{userId}/friends?date=` | `FriendService.getFriends` 그대로(§1 행 5). 내부 GET만 `date` 선택 — 생략 시 KST 오늘(우체통 조합용, GROMO-2119) |
 | `/screens/friends` | `friendRequests` | `GET /internal/users/{userId}/friend-requests?type=received` | `FriendService.getRequests`(§1 행 6). 보낸 요청도 화면에 필요하면 `type=sent` 병렬 호출을 추가한다 — 이 설계는 두 방향 모두 같은 내부 GET으로 낼 수 있음을 전제로만 남긴다(화면 IA 확정은 이 문서 범위 밖) |
 | `/screens/mailbox` (프레임 63-66) | `letters` | `GET /internal/users/{userId}/letters?type=received&cursor=&size=` | 편지함 목록(신규, §2.3). Realtime `…/messages`(island-mailbox)와 나란히 병렬 조각으로 들어간다 |
 | `raft` (프레임 76·77) | "받은 친구 요청 수" | 위 `friendRequests`(`type=received`) **응답 배열의 길이**. `FriendService.getRequests` 와 §1.6 계약은 `List<FriendRequestResponse>` 를 그대로 돌려주고(`FriendController.java:83-88` 도 `ResponseEntity<List<…>>`), `{content, …}` 봉투가 아니다 — `content.length` 로 적으면 역직렬화나 카운트가 실패한다 | 별도 count 엔드포인트를 만들지 않는다 — 이미 있는 목록의 길이로 충분하다(ponytail) |

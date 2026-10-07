@@ -1,5 +1,7 @@
 package com.oneorthree.phone.internal.notification.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.UserStreakRepository;
@@ -14,7 +16,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
@@ -23,7 +24,7 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 public class NotificationRetentionEligibility {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     // LeagueReengagementNotificationService의 생성 조건: orphan 12h 제외, 출석 600초.
     private static final Duration LIVE_SESSION_MAX_AGE = Duration.ofHours(12);
     private static final int STREAK_MIN_SECONDS = 600;

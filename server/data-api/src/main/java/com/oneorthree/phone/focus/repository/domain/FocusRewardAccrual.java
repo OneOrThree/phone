@@ -72,6 +72,14 @@ public class FocusRewardAccrual {
     @Column(name = "golden_fish", nullable = false)
     private int goldenFish;
 
+    /** 최초 낚시 보상 — 일반 하루 상한과 분당 적립 워터마크에 포함하지 않는다. */
+    @Column(name = "tutorial_fish", nullable = false)
+    private int tutorialFish;
+
+    public void addTutorial() {
+        this.tutorialFish = Math.addExact(this.tutorialFish, 1);
+    }
+
     @CreationTimestamp
     @Column(name = "created_at", columnDefinition = "timestamptz not null default now()")
     private Instant createdAt;

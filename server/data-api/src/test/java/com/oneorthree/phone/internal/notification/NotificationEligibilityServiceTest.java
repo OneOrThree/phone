@@ -20,6 +20,7 @@ import com.oneorthree.phone.internal.notification.service.NotificationLeagueElig
 import com.oneorthree.phone.internal.notification.service.NotificationSnapshotService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.service.UserBlockService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -72,6 +73,8 @@ class NotificationEligibilityServiceTest {
     GroupChallengeBetParticipantRepository betParticipantRepository;
     @Mock
     FriendshipRepository friendshipRepository;
+    @Mock
+    UserBlockService userBlockService;
 
     /**
      * 서비스는 생성자로 직접 조립한다 — {@code @InjectMocks} 는 «어느 인자에 무엇이 들어갔는가»를
@@ -83,7 +86,8 @@ class NotificationEligibilityServiceTest {
         when(retention.evaluate(any(), any(), any())).thenReturn(NotificationEligibilityResponse.allow());
         return new NotificationEligibilityService(userQueryService, groupQueryService,
                 groupMemberRepository, betParticipantRepository, friendshipRepository,
-                Clock.fixed(NOW, ZoneOffset.UTC), retention, mock(NotificationLeagueEligibility.class));
+                Clock.fixed(NOW, ZoneOffset.UTC), retention, mock(NotificationLeagueEligibility.class),
+                userBlockService);
     }
 
     private void userIsActive() {
@@ -310,6 +314,32 @@ class NotificationEligibilityServiceTest {
                 .thenReturn(Optional.of(FriendshipStatus.PENDING));
         assertThat(service().evaluate(new NotificationEligibilityRequest(USER, "FRIEND_REQUEST", SUBJECT,
                 Map.of("requestId", requestId.toString()))).eligible()).isTrue();
+    }
+
+    @Test
+    @DisplayName("차단된 사이의 친구 요청·수락 알림은 발송 직전에 BLOCKED 로 거절한다 — 적재 뒤 차단도 거른다")
+    void friendNotificationsAreDeniedWhenBlocked() {
+        userIsActive();
+        UUID requestId = UUID.randomUUID();
+        when(userQueryService.findActive(SUBJECT)).thenReturn(Optional.of(User.builder().id(SUBJECT).build()));
+        when(friendshipRepository.findStatusByIdAndDeletedAtIsNull(requestId))
+                .thenReturn(Optional.of(FriendshipStatus.PENDING));
+        when(userBlockService.isBlockedEither(USER, SUBJECT)).thenReturn(true);
+
+        assertThat(service().evaluate(new NotificationEligibilityRequest(USER, "FRIEND_REQUEST", SUBJECT,
+                Map.of("requestId", requestId.toString()))).reason()).isEqualTo("BLOCKED");
+        assertThat(service().evaluate(request("FRIEND_ACCEPTED", SUBJECT)).reason()).isEqualTo("BLOCKED");
+
+        // 사유 우선순위 — 이미 처리된 요청은 차단보다 먼저 REQUEST_RESOLVED 다(운영 집계의 사유 분포 고정).
+        when(friendshipRepository.findStatusByIdAndDeletedAtIsNull(requestId))
+                .thenReturn(Optional.of(FriendshipStatus.ACCEPTED));
+        assertThat(service().evaluate(new NotificationEligibilityRequest(USER, "FRIEND_REQUEST", SUBJECT,
+                Map.of("requestId", requestId.toString()))).reason()).isEqualTo("REQUEST_RESOLVED");
+        // 상대 id 가 비면 차단 조회까지 가지 않는다 — 공통 SUBJECT_REQUIRED 가 먼저 막는다.
+        assertThat(service().evaluate(request("FRIEND_ACCEPTED", null)).reason()).isEqualTo("SUBJECT_REQUIRED");
+
+        when(userBlockService.isBlockedEither(USER, SUBJECT)).thenReturn(false);
+        assertThat(service().evaluate(request("FRIEND_ACCEPTED", SUBJECT)).eligible()).isTrue();
     }
 
     @Test

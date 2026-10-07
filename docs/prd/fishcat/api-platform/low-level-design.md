@@ -98,6 +98,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |PATCH|`/islands/{islandId}/notices/{noticeId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |DELETE|`/islands/{islandId}/notices/{noticeId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands/{islandId}/notices/{noticeId}/comments`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
+|DELETE|`/islands/{islandId}/notices/{noticeId}/comments/{commentId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 작성자 본인 또는 방장만(GROMO-2136)|
 |POST|`/islands/{islandId}/quests`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |PATCH|`/islands/{islandId}/quests/{questId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands/{islandId}/quests/{questId}/claims`|필수|작업에islandId+questId 포함, occurrenceId는본문. 정산유일성+지급 같은 TX|

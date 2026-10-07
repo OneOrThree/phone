@@ -1,5 +1,5 @@
 # GROMO-546 — promtail: docker 서비스 디스커버리로 컨테이너 stdout 수집 → Loki
-# 앱 로그(logback CONSOLE→stdout)가 여기로. Grafana 에서 {container="phone-app"} 라이브 테일.
+# 앱 로그(logback CONSOLE→stdout)가 여기로. Grafana 에서 {container="phone-data-api"} 라이브 테일.
 server:
   http_listen_port: 9080
   grpc_listen_port: 0
@@ -16,7 +16,7 @@ scrape_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 5s
     relabel_configs:
-      # 컨테이너명(/phone-app → phone-app) 을 container 라벨로
+      # 컨테이너명(/phone-data-api → phone-data-api) 을 container 라벨로
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
         target_label: container

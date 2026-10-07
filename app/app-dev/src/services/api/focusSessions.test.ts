@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   acknowledgeFocusResult,
+  claimTutorialReward,
+  claimTutorialExperienceReward,
   currentFocusSession,
   finishFocusSession,
   pauseFocusSession,
@@ -12,6 +14,27 @@ import { clearSession, saveSession } from '@/services/api/session';
 
 type Call = { url: string; init: RequestInit };
 const calls: Call[] = [];
+
+test('화면 체험 보상은 집중 세션 없이 인증된 섬 경로 하나만 호출한다', async () => {
+  stub([{ status: 200, body: { data: { islandId: 'island-1', status: 'granted' } } }]);
+  expect(await claimTutorialExperienceReward('island-1')).toEqual({
+    islandId: 'island-1',
+    status: 'granted',
+  });
+  expect(calls).toHaveLength(1);
+  expect(path(calls[0])).toBe('/islands/island-1/tutorial-reward');
+  expect(calls[0].init.method).toBe('POST');
+  expect(header(calls[0], 'Authorization')).toBe('Bearer AT');
+  expect(calls[0].init.body).toBeUndefined();
+});
+
+test('최초 낚시 보상은 공개 경로로 청구하고 지급량이나 사용자 ID를 보내지 않는다', async () => {
+  stub([{ status: 200, body: { data: { sessionId: 'sess-1', status: 'granted' } } }]);
+  expect(await claimTutorialReward('sess-1')).toEqual({ sessionId: 'sess-1', status: 'granted' });
+  expect(path(calls[0])).toBe('/focus-sessions/sess-1/tutorial-reward');
+  expect(calls[0].init.method).toBe('POST');
+  expect(calls[0].init.body).toBeUndefined();
+});
 
 function stub(responses: { status: number; body?: unknown }[]) {
   let index = 0;

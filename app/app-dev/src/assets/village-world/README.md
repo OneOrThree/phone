@@ -26,3 +26,27 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 - Expo 웹 서버 실행 후 `node scripts/review-village-world.cjs`: 세로·가로 전환, 시설 탭/이동/진입, 건설 단계, 기존 화면 기본값 검사. 서버 주소는 `GROMO_REVIEW_URL`로 지정한다.
 - 2026-09-23: Jest 59개 묶음/741개 테스트, 타입/포맷/팔레트 검사, ESLint 오류 0개, 3개 플랫폼 JS 번들 생성 통과. 웹 시각·동작 검사 통과, 실기기 성능은 미검증.
 - 현재 앱의 `TESTFLIGHT_ALL_BUILDINGS` 정책 때문에 내 섬은 모든 건물을 완성한다. 일부 시설 렌더링은 구경할 섬에서 확인한다.
+
+### 2026-09-23 흙길 보정 (surface 5)
+
+사용자 요청으로 길 바탕을 밝게 하고 2~4px 자갈을 드문드문 섞었다.
+길의 불투명 표면 평균 밝기(8비트 가중 RGB)는 201.04 → 214.49.
+배치와 통행 데이터는 유지하며, 길 PNG 8개와 표면 메타데이터를 기획 원본에서 다시 내보냈다.
+세로·가로 앱 화면, 시설 진입과 경로 검사 통과.
+
+### 2026-09-29 건설 밤 아틀라스
+
+- `construction/*-atlas-night.png`: 낮 아틀라스와 같은 픽셀 크기·격자의 밤 리라이트(이미지 생성 style transfer). 낮 아틀라스 실루엣에서 먼 픽셀은 투명 처리해 옆 셀이 viewport에 비치지 않게 했다.
+- `ConstructionBuildingSprite`의 `night` prop 이 밤 셀을 고른다. 밤에는 작업 진동·효과를 재생하지 않으므로 `effects-atlas-night.png`는 런타임에서 참조하지 않는다.
+- 웹 미리보기: `?construction-motion` 에서 낮·밤과 공사 단계를 전환해 확인한다.
+
+### 2026-09-29 건물 밤 모션 프레임 (GROMO-2154)
+
+- `motion/{hall,library,observatory,shop}/night-frame-0~3.png`: 낮 frame-0~3과 같은 크기·발밑 기준점.
+  night-frame-0은 `backgrounds/island/layers/night/<건물>.png`를 `placement.json` rect로 무손실 crop한 것이다.
+  1~3은 night-frame-0 위에 움직이는 부위(문·망원경·강아지)만 낮 프레임에서 밤 톤으로 변환해 합성한다.
+- 회관·도서관·전망대·상점 모션 컴포넌트는 `night` prop 으로 밤 프레임을 재생한다. 밤 마을에서도 이 네 건물은
+  정지 밤 레이어 대신 모션 프레임이 그리며, 게시판·우편함·축음기는 기존 밤 레이어를 쓴다.
+- 재생성: `python3 -m pip install -r scripts/requirements-night-motion.txt` 후
+  `python3 scripts/generate-night-village-motion.py` (건설 밤 아틀라스까지 다시 만들 때만 `--atlas-source`).
+- `WorldMap`은 네 모션을 `placement.json` rect 좌표에 그린다. 밤 프레임도 같은 rect로 잘라 정지 밤 레이어와 픽셀 위치가 같다.

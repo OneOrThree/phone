@@ -125,6 +125,10 @@ changes trigger different jobs. This list rots; the authoritative source is
   **Android(XML·Kotlin·Gradle) 핫픽스는 여기에 더해** `app-android-build.yml` 이 하던 XML 정합 검사와
   `(cd android && ./gradlew :app:compileDebugJavaWithJavac)` 를 직접 돌린다 — 위 명령은 전부 통과해도
   네이티브는 컴파일되지 않을 수 있다. 절차는 `app/legacy/app-dev/README.md` 상단에 있다.
+- **App deploy (dev TestFlight)**: `app-ios-testflight-dev.yml` — **main push** 시(`app/app-dev/**`) 머지한
+  사람의 맥(self-hosted 러너, 라벨 = 깃허브 아이디; 레포 변수 `IOS_DEV_RUNNERS` 에 없는 사람이면 오너 맥으로
+  폴백)에서 `ios/testflight.sh --dev` 로 dev 서버용 TestFlight 빌드를 올린다. 공개 레포라 PR 트리거를 절대 붙이지 않고, 수동 실행도 누른 사람의 맥에서만 돈다. 러너 등록은
+  `docs/conventions/ios-testflight-dev-runner.md`.
 - **Business API · Notification**: `satellite-ci.yml` — `server/business-api/**` ·
   `server/notification/**` 매트릭스로 독립 Gradle build(Checkstyle·SpotBugs·Testcontainers 통합
   테스트)와 Docker 이미지 빌드. main push에서만 GAR, release push에서만 ECR 게시. 수동 dev overlay는
@@ -134,8 +138,8 @@ changes trigger different jobs. This list rots; the authoritative source is
   `measure-jar`, and isolates `GRADLE_USER_HOME` per service. It starts **no database** — every
   service's tests bring their own via Testcontainers (GROMO-1793 verified data-api's 2,152 tests
   pass with the datasource pointed at a dead port). `runs-on` takes a **JSON array string**
-  (`'["ubuntu-latest"]'`) unpacked with `fromJSON`; its default keeps the self-hosted labels, so a
-  caller that omits it is unchanged.
+  (`'["ubuntu-latest"]'`) unpacked with `fromJSON`; its default is `'["ubuntu-latest"]'` (GROMO-2121 — the one
+  remaining self-hosted `ci` runner is reserved for push-time image publishing).
   **Callers today are exactly two**: `dev-ci.yml` (`service: data-api`) and `realtime-ci.yml`
   (`service: realtime`). `satellite-ci.yml` (business-api + notification) is a deliberate
   **exception** — business-api's PDF-preview tests need `poppler-utils`, installed by the `test`
@@ -148,7 +152,8 @@ changes trigger different jobs. This list rots; the authoritative source is
   (Checkstyle / SpotBugs / tests) on `server/data-api/**`.
   On PRs it also build-verifies the Docker image (no push); on `main` push the same
   run pushes `back:<sha>` to GAR and calls the reusable `dev-cd.yml` with the image
-  digest, which deploys to the GCP dev VM (`gromo-dev-app`, e2-medium, asia-northeast3-a) on the
+  digest, which deploys to the GCP dev VM (`gromo-dev-app`, e2-standard-2 — 2 vCPU · 8 GB,
+  asia-northeast3-a; see `docs/architecture/decisions.md` A25) on the
   self-hosted `dev` runner — AWS is touched only for OIDC → Secrets Manager `gromo/dev/env`
   (`dev-cd.yml` has no trigger of its own).
 - **Prod**: `prod-ci.yml` (verifies PRs to `release`; builds + pushes the image on

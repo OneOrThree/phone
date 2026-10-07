@@ -55,6 +55,8 @@ public interface LetterRepository extends JpaRepository<Letter, UUID> {
 
     /**
      * 보낸 편지함 한 페이지 — 상대(수신자)를 함께 로드한다. 조건이 {@code sender} 라는 점만 다르다.
+     * 내가 차단한 수신자에게 보낸 편지는 받은함과 같은 축으로 빼 둔다(GROMO-2185) — 쿼리 안에서 거르므로
+     * 페이지 크기·커서가 그대로 맞는다.
      *
      * @param userId   편지함 주인
      * @param cursor   직전 페이지의 마지막 편지 id. {@code null} 이면 첫 페이지
@@ -63,6 +65,7 @@ public interface LetterRepository extends JpaRepository<Letter, UUID> {
      */
     @Query("SELECT l FROM Letter l JOIN FETCH l.receiver "
             + "WHERE l.sender.id = :userId AND l.deletedAt IS NULL "
+            + "AND NOT EXISTS (SELECT 1 FROM UserBlock b WHERE b.blocker.id = :userId AND b.blocked = l.receiver) "
             + "AND (:cursor IS NULL OR l.id < :cursor) "
             + "ORDER BY l.id DESC")
     Slice<Letter> findSentByCursor(@Param("userId") UUID userId,

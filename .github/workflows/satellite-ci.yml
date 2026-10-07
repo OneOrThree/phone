@@ -16,9 +16,11 @@ on:
       - 'server/scripts/docker-compose.kafka.yml'
       - 'server/scripts/prepare-satellite-deploy.py'
       - 'server/scripts/nginx-satellites*.example'
+      - 'server/scripts/nginx-dev-2.0-routes.conf.example'
       - 'server/scripts/provision-notification-db.*'
       - '.github/scripts/**'
       - '.github/actions/ci-jar/**'
+      - '.github/actions/gar-login/**'
       - '.github/workflows/satellite-ci.yml'
       - '.github/workflows/satellite-dev-cd.yml'
       - 'docs/contracts/**'
@@ -38,9 +40,11 @@ on:
       - 'server/scripts/docker-compose.kafka.yml'
       - 'server/scripts/prepare-satellite-deploy.py'
       - 'server/scripts/nginx-satellites*.example'
+      - 'server/scripts/nginx-dev-2.0-routes.conf.example'
       - 'server/scripts/provision-notification-db.*'
       - '.github/scripts/**'
       - '.github/actions/ci-jar/**'
+      - '.github/actions/gar-login/**'
       - '.github/workflows/satellite-ci.yml'
       - '.github/workflows/satellite-dev-cd.yml'
       - 'docs/contracts/**'
@@ -254,12 +258,9 @@ jobs:
       # metadata.google.internal 은 GitHub-hosted 에서 응답하지 않는다 (GROMO-1918).
       - name: 이미지 캐시용 GAR 인증
         if: fromJSON(needs.changes.outputs.services)[matrix.service] && github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error -H 'Metadata-Flavor: Google' \
-            'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' \
-            | jq -er .access_token \
-            | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
       - name: release 발행용 AWS 자격증명
         if: fromJSON(needs.changes.outputs.services)[matrix.service] && (github.event_name == 'push' && github.ref == 'refs/heads/release')
         uses: aws-actions/configure-aws-credentials@v4

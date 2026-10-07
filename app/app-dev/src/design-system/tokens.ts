@@ -30,6 +30,9 @@ export const primitiveTokens = {
     controlIdle: '#D9C6B8',
     progressTrack: '#EADFD2',
     graphLine: '#5FB6E3',
+    googleBorder: '#747775',
+    googleText: '#1F1F1F',
+    lineBrand: '#06C755',
     gramophonePanel: '#9C6440',
     gramophoneWood: '#B87848',
     gramophoneWoodLight: '#D19B61',
@@ -89,6 +92,7 @@ export const primitiveTokens = {
     control: 14,
     card: 20,
     preview: 22,
+    modal: 24,
     sheet: 26,
     full: 999,
   },
@@ -128,6 +132,7 @@ export const semanticTokens = {
     letter: color.letter,
     divider: `${color.brown}33`,
     overlay: `${color.ink}66`,
+    overlayCinematic: `${color.ink}A6`,
     overlaySheet: `${color.ink}40`,
   },
   nightColor: {
@@ -171,6 +176,7 @@ export const semanticTokens = {
     control: radius.control,
     card: radius.card,
     preview: radius.preview,
+    modal: radius.modal,
     sheet: radius.sheet,
     full: radius.full,
   },
@@ -180,6 +186,20 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  loginButton: {
+    // 카카오·Google/LINE·Apple 버튼이 같은 높이로 줄을 맞춘다. 최소 터치 영역(size.tapMin 44pt)보다 크다.
+    height: 54,
+    // Apple·Google 버튼이 공유하는 로고 상자와 로고의 왼쪽 여백(GROMO-2215). 글꼴·배치는 같고 색만 브랜드별이다.
+    logoSize: 20,
+    logoInset: 20,
+    appleBackground: color.black,
+    appleForeground: color.white,
+    googleBackground: color.white,
+    googleBorder: color.googleBorder,
+    googleForeground: color.googleText,
+    lineBackground: color.lineBrand,
+    lineForeground: color.white,
+  },
   diary: {
     referenceWidth: 402,
     maxWidth: 560,
@@ -250,6 +270,28 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.default,
     radius: semanticTokens.radius.full,
   },
+  villageNotificationBadge: {
+    diameter: 25,
+    radius: 13,
+    borderWidth: semanticTokens.stroke.default,
+    topOffset: -11,
+    rightOffset: 21,
+  },
+  villageBuildingThemeTint: {
+    color: '#d7829b',
+    opacity: 0.3,
+  },
+  villageBuildingNameTag: {
+    minHeight: 24,
+    paddingHorizontal: space[2],
+    radius: 12,
+    borderWidth: semanticTokens.stroke.subtle,
+  },
+  villageNotificationTooltip: {
+    maxWidth: 180,
+    paddingVertical: space[2],
+    borderWidth: semanticTokens.stroke.default,
+  },
   progress: {
     track: color.progressTrack,
     fill: semanticTokens.color.primary,
@@ -310,7 +352,17 @@ export const componentTokens = {
   },
   overlay: {
     background: semanticTokens.color.overlay,
+    cinematicBackground: semanticTokens.color.overlayCinematic,
     sheetBackground: semanticTokens.color.overlaySheet,
+  },
+  modal: {
+    padding: semanticTokens.spacing.page,
+    paddingBottom: semanticTokens.spacing.section,
+    gap: 14,
+    radius: semanticTokens.radius.modal,
+    sheetRadius: semanticTokens.radius.sheet,
+    borderWidth: semanticTokens.stroke.strong,
+    shadow: `0px 6px 0px ${semanticTokens.color.outline}`,
   },
 } as const;
 

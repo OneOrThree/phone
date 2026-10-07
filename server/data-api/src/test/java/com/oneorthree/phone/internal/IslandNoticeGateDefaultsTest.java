@@ -36,9 +36,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 섬 게시판의 <b>기본 스위치</b> 검증 (GROMO-1771) — {@code island-board.writes-enabled} 와
  * {@code construction.facility-gates.enforce} 를 건드리지 않은 배포 그대로다.
  *
- * <p>BQ02·BQ03 결정 전이라 네 쓰기는 receipt·잠금보다 먼저 503 으로 닫히고, 조회는 열려 있다. 시설 게이트가
- * 꺼져 있어 게시판이 없는 섬도 읽힌다(적립 경로 배포 전 종전 동작 보존). legacy 공지 경로는 이 스위치와
- * 무관하게 그대로 동작한다.
+ * <p>BQ02·BQ03 는 2026-09-25 결정(GROMO-2136)으로 확정됐지만 기본값은 여전히 OFF 다(prod 개방은 별도 릴리스
+ * 결정) — 네 쓰기는 receipt·잠금보다 먼저 503 으로 닫히고, 조회는 열려 있다. 시설 게이트가 꺼져 있어
+ * 게시판이 없는 섬도 읽힌다(적립 경로 배포 전 종전 동작 보존). legacy 공지 경로는 이 스위치와 무관하게
+ * 그대로 동작한다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -71,7 +72,7 @@ class IslandNoticeGateDefaultsTest {
     MockMvc mvc;
 
     @Test
-    @DisplayName("쓰기 4종은 기본 OFF — NOTICE_WRITE_UNAVAILABLE(503), 행·receipt·사건이 남지 않는다")
+    @DisplayName("쓰기 5종은 기본 OFF — NOTICE_WRITE_UNAVAILABLE(503), 행·receipt·사건이 남지 않는다")
     void writesAreClosedByDefault() throws Exception {
         UUID owner = user();
         UUID islandId = island(owner);
@@ -88,6 +89,8 @@ class IslandNoticeGateDefaultsTest {
                 .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_WRITE_UNAVAILABLE);
         assertThatThrownBy(() -> notices.comment(islandId, noticeId, owner, "댓글", UUID.randomUUID()))
                 .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_WRITE_UNAVAILABLE);
+        assertThatThrownBy(() -> notices.deleteComment(islandId, noticeId, UUID.randomUUID(), owner,
+                UUID.randomUUID())).extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_WRITE_UNAVAILABLE);
 
         mvc.perform(post("/internal/islands/" + islandId + "/notices")
                         .header("Authorization", "Bearer " + TOKEN)

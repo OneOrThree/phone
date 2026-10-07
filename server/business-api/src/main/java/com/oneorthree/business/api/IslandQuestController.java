@@ -8,9 +8,9 @@ import com.oneorthree.business.api.dto.QuestResponses.IslandQuestUpdated;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.upstream.data.DataQuestClient;
 import com.oneorthree.business.usecase.IslandQuestUseCase;
@@ -66,7 +66,8 @@ public class IslandQuestController {
     @GetMapping("/islands/{islandId}/quests/current")
     public CurrentQuestsView current(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return quests.current(claims, uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER), deadline());
+        return quests.current(claims, PublicIds.uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER),
+                properties.deadline());
     }
 
     /**
@@ -84,9 +85,9 @@ public class IslandQuestController {
         if (occurrence == null || occurrence.length != 1) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "occurrenceId");
         }
-        return quests.progress(claims, uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER),
-                uuid(questId, "questId", ApiErrorCode.INVALID_PARAMETER),
-                uuid(occurrence[0], "occurrenceId", ApiErrorCode.INVALID_PARAMETER), deadline());
+        return quests.progress(claims, PublicIds.uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER),
+                PublicIds.uuid(questId, "questId", ApiErrorCode.INVALID_PARAMETER),
+                PublicIds.uuid(occurrence[0], "occurrenceId", ApiErrorCode.INVALID_PARAMETER), properties.deadline());
     }
 
     /** 퀘스트 생성 (LLD quest-create) — 방장만. 201 {@code {id,title}}. */
@@ -119,7 +120,8 @@ public class IslandQuestController {
         DataQuestClient.QuestCreateCommand command = new DataQuestClient.QuestCreateCommand(string(body, "title"), type,
                 integer(body, "targetMinutes"), windowStart, windowEnd, timezone);
         IslandQuestCreated created = quests.create(claims,
-                uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER), command, key, deadline());
+                PublicIds.uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER), command, key,
+                properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -135,8 +137,9 @@ public class IslandQuestController {
         }
         String title = body.has("title") ? string(body, "title") : null;
         Integer target = body.has("targetMinutes") ? integer(body, "targetMinutes") : null;
-        return quests.update(claims, uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER),
-                uuid(questId, "questId", ApiErrorCode.INVALID_PARAMETER), title, target, key, deadline());
+        return quests.update(claims, PublicIds.uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER),
+                PublicIds.uuid(questId, "questId", ApiErrorCode.INVALID_PARAMETER), title, target, key,
+                properties.deadline());
     }
 
     /** 회차 정산 (LLD claim) — 주민 누구나. 본문은 정확히 {occurrenceId, expectedVersion}. */
@@ -148,14 +151,14 @@ public class IslandQuestController {
         if (body == null || !body.isObject() || body.size() != 2) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
-        UUID occurrenceId = uuid(string(body, "occurrenceId"), "occurrenceId", ApiErrorCode.INVALID_REQUEST);
+        UUID occurrenceId = PublicIds.uuid(string(body, "occurrenceId"), "occurrenceId", ApiErrorCode.INVALID_REQUEST);
         long expectedVersion = ResourceVersions.fromJson(body.get("expectedVersion"), "expectedVersion");
         if (expectedVersion < 1) {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "expectedVersion");
         }
-        return quests.claim(claims, uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER),
-                uuid(questId, "questId", ApiErrorCode.INVALID_PARAMETER), occurrenceId, expectedVersion, key,
-                deadline());
+        return quests.claim(claims, PublicIds.uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER),
+                PublicIds.uuid(questId, "questId", ApiErrorCode.INVALID_PARAMETER), occurrenceId, expectedVersion, key,
+                properties.deadline());
     }
 
     // ---------------------------------------------------------------- 입력 해석
@@ -205,21 +208,5 @@ public class IslandQuestController {
         } catch (DateTimeParseException e) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, field);
         }
-    }
-
-    private static UUID uuid(String value, String field, ApiErrorCode code) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(code, field);
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

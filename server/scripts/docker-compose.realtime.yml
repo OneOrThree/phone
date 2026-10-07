@@ -72,7 +72,7 @@ services:
     ports:
       # 8081 — data-api(8080)와 같은 호스트에 뜨므로 겹치지 않게 잡았다.
       # 관리 포트 9091 은 절대 여기 올리지 않는다(포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단).
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     environment:
       JAVA_OPTS: "-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/dd-java-agent.jar"
       DD_AGENT_HOST: datadog-agent
@@ -95,11 +95,21 @@ services:
       CHAT_DB_USERNAME: ${POSTGRES_USER}
       CHAT_DB_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_HOST: redis
+      # 4GB dev VM에서 여러 JVM을 함께 시작하면 Redis 초기 handshake가 기본 2초를 넘겨 앱이 종료된다.
+      SPRING_DATA_REDIS_CONNECT_TIMEOUT: 5s
+      SPRING_DATA_REDIS_TIMEOUT: 10s
       # Data API 와 «같은 값»이어야 한다. 채팅은 이 키로 서명을 검증만 한다 — 발급하지 않는다.
       JWT_SECRET: ${JWT_SECRET}
       # 멤버십 조회 상류. 컨테이너 이름으로 부른다(호스트 포트를 거치지 않는다).
       DATA_API_BASE_URL: http://app:8080
-      # 네이티브 앱은 Origin 을 보내지 않으므로 비워 둔다 — 웹 클라이언트가 생기면 그 도메인만 넣는다.
+      # 핸드셰이크 허용 Origin(쉼표 구분, 패턴 허용). ⚠️ 「네이티브 앱은 Origin 을 안 보낸다」는 틀렸다 — React Native
+      # WebSocket(iOS SocketRocket · Android WebSocketModule)은 WS 접속 URL 로 `Origin: https://<WS 호스트>` 를
+      # 만들어 보낸다(비표준 포트면 포트까지, 지금은 API 도메인과 같은 호스트). 그래서 비워 두면(same-origin 만 허용 →
+      # 프록시 뒤라 사실상 전부 거절) 앱 접속까지 403 이다(GROMO-2175, 2026-10-01 KST dev 실측: API 도메인 Origin 403 ·
+      # Origin 없음 101). dev 는 SM `gromo/dev/env` 의 CHAT_WS_ALLOWED_ORIGINS 에 API 도메인
+      # (https://oneorthree.dev.mooo.com)을 넣어 허용한다 — dev.env 로 옮겨지는 키다(write-compose-env.py).
+      # 기본값은 «일부러» 빈 값(사실상 거절)이다. 환경마다 도메인이 달라 여기 박을 수 없고, `*` 는 임의의 웹페이지에
+      # 소켓을 열어 준다 — 값이 빠지면 조용히 열리는 대신 403 으로 드러나는 편이 낫다.
       CHAT_WS_ALLOWED_ORIGINS: ${CHAT_WS_ALLOWED_ORIGINS:-}
       # Data relay 의 사건 수신 자격(POST /internal/events, GROMO-1954). 비면 그 경로만 401 이라 Data 의 REALTIME
       # 전달이 멈춘다 — Data 의 SVC_TOKEN_DATA_TO_REALTIME 과 «같은 값», Business 토큰과는 «다른 값»(A22 ㊀).
@@ -107,6 +117,14 @@ services:
       # Business 우체통 내부 어댑터(/internal/*, GROMO-1775) 자격. 비면 그 경로만 401 — Business 의
       # SVC_TOKEN_BIZ_TO_REALTIME 과 «같은 값», Data 토큰과는 «다른 값»(A22 ㊀).
       SVC_TOKEN_BIZ_TO_REALTIME: ${SVC_TOKEN_BIZ_TO_REALTIME:-}
+      # Realtime → Data 내부 조회(응원 인가 GROMO-1765 · 받는 사람 기준 차단 GROMO-2182) 대상·자격.
+      # ⚠️ 차단 필터는 fail-closed 라 REALTIME_BLOCKS_FILTER_ENABLED=true 에서 토큰이 비면 섬 채팅·응원 수신이 전부
+      #    멈춘다. Data 는 realtime-authorization 프로필(DATA_API_PROFILES)과 같은 SVC_TOKEN_REALTIME_TO_DATA 를 먼저
+      #    갖춰야 한다. dev 는 SM gromo/dev/env → write-compose-env.py(legacy dev.env) 경로로 온다.
+      REALTIME_AUTHORIZATION_DATA_URL: ${REALTIME_AUTHORIZATION_DATA_URL:-}
+      SVC_TOKEN_REALTIME_TO_DATA: ${SVC_TOKEN_REALTIME_TO_DATA:-}
+      # 받는 사람 기준 차단 필터 스위치(GROMO-2182). 기본 꺼짐 — 위 배선 확인 뒤 켠다.
+      REALTIME_BLOCKS_FILTER_ENABLED: ${REALTIME_BLOCKS_FILTER_ENABLED:-false}
       # realtime-events Kafka 입구(2026-09-19 R-1). 기본 꺼짐 — 켜려면 Kafka 오버레이가 떠 있어야 한다.
       REALTIME_EVENTS_KAFKA_ENABLED: ${REALTIME_EVENTS_KAFKA_ENABLED:-false}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}

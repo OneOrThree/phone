@@ -12,6 +12,10 @@ import java.util.UUID;
  *   <tr><th>키</th><th>소유(쓰기)</th><th>이 서비스</th><th>용도</th></tr>
  *   <tr><td>{@code cache:chat:member:{userId}}</td><td>채팅</td><td>읽기·쓰기</td>
  *       <td>유저가 속한 섬(그룹) id 집합. 서비스 내부 캐시라 <b>다른 서비스와 공유하지 않는다</b></td></tr>
+ *   <tr><td>{@code cache:chat:block:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>그 유저가 차단한 사용자 id 집합 + 적재 당시 세대(GROMO-2182). Data 정본의 사본이다</td></tr>
+ *   <tr><td>{@code cache:chat:blockgen:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>그 유저의 차단 세대 — Data 의 {@code user.blocks.updated} 를 받을 때마다 1 오른다</td></tr>
  *   <tr><td>{@code chat:fanout}</td><td>채팅</td><td>발행·구독</td>
  *       <td>인스턴스 간 메시지 전파(Pub/Sub). 저장하지 않는 채널이라 영속 데이터가 아니다</td></tr>
  *   <tr><td>{@code chat:events:v1}</td><td>실시간</td><td>발행·구독</td>
@@ -53,6 +57,8 @@ public final class RedisKeys {
     public static final String EVENT_FANOUT_CHANNEL = "chat:events:v1";
 
     private static final String MEMBER_CACHE_PREFIX = "cache:chat:member:";
+    private static final String BLOCK_CACHE_PREFIX = "cache:chat:block:";
+    private static final String BLOCK_GENERATION_PREFIX = "cache:chat:blockgen:";
     private static final String FOCUS_PRESENCE_PREFIX = "presence:focus:";
     private static final String EMOTE_RATE_PREFIX = "lock:chat:emote:";
     private static final String EMOTE_ATTEMPT_PREFIX = "lock:chat:emote:try:";
@@ -64,6 +70,25 @@ public final class RedisKeys {
     /** 유저가 속한 그룹 id 집합(SET). 값은 groupId 의 문자열 표현이다. */
     public static String memberCache(UUID userId) {
         return MEMBER_CACHE_PREFIX + userId;
+    }
+
+    /**
+     * 그 유저가 차단한 사용자 id 집합(GROMO-2182) — 값은 {@code <세대>|<id>,<id>…} 문자열 하나다.
+     *
+     * <p>세대를 값에 함께 싣는 이유는 «늦게 도착한 적재»를 거르기 위해서다. 차단 직전에 시작한 Data 조회가
+     * 차단 사건의 무효화보다 늦게 캐시를 쓰면, 지우기만 하는 무효화로는 옛 집합이 TTL 내내 살아남는다.
+     * 읽을 때 {@link #blockGeneration} 과 대조해 다르면 버린다.
+     */
+    public static String blockCache(UUID userId) {
+        return BLOCK_CACHE_PREFIX + userId;
+    }
+
+    /**
+     * 그 유저의 차단 세대(GROMO-2182). 없으면 0 으로 읽는다. {@link #blockCache} 와 접두사를 일부러
+     * 다르게 둔다 — {@code cache:chat:block:*} 를 훑는 운영 명령에 세대 키가 섞이지 않게.
+     */
+    public static String blockGeneration(UUID userId) {
+        return BLOCK_GENERATION_PREFIX + userId;
     }
 
     /**

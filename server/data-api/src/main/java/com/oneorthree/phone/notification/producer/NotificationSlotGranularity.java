@@ -1,8 +1,9 @@
 package com.oneorthree.phone.notification.producer;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 
@@ -44,9 +45,6 @@ public enum NotificationSlotGranularity {
 
     /** KST 주(월요일 시작) — 주 1회 리그 결과처럼 주간 회차가 곧 사건인 것들. */
     WEEK;
-
-    /** 판정 기준 시간대 — 크론·리그 도메인이 전부 KST 고정이라 여기도 같다. */
-    static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final Duration QUARTER = Duration.ofMinutes(15);

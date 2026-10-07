@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
-import java.time.Instant;
+import java.time.Clock;
 
 /**
  * 전원 확정 → 조기 정산 트리거(GROMO-1268, N11) — {@link GroupBetWonEvent} 를
@@ -35,6 +35,8 @@ public class GroupBetEarlySettlementListener {
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final GroupQueryService groupQueryService;
     private final GroupBetSettler groupBetSettler;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     /**
      * 확정 이벤트를 커밋 뒤에 받아 조기 정산 조건을 검사한다.
@@ -55,7 +57,7 @@ public class GroupBetEarlySettlementListener {
         }
         // 실효 참가 마감(브리지 기간 = closes_at) — settle 의 락 안 재검증과 <b>같은 기준</b>이어야
         // 한다. 여기만 박제된 join_closes_at 을 보면 창 진행 중에 settle 을 불러 매번 스킵당한다.
-        if (Instant.now().isBefore(GroupBetSettler.effectiveJoinDeadline(session))) {
+        if (clock.instant().isBefore(GroupBetSettler.effectiveJoinDeadline(session))) {
             return;   // 생략하면 안 된다 — 아직 들어올 사람이 남아 있다.
         }
         if (groupChallengeBetParticipantRepository

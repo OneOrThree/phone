@@ -28,6 +28,8 @@ location = /actuator { return 404; }
 # POST /focus-sessions/{sessionId}/pause · .../resume · .../finish. me 분기: GET /me/focus-summary.
 # 휴식 1시간 자동 종료의 결과 1회 제공(GROMO-1998)도 같은 focus-sessions 분기다 —
 # GET /focus-sessions/pending-result · POST /focus-sessions/{sessionId}/acknowledge.
+# 최초 낚시 보상(GROMO-1981)도 같은 focus-sessions 분기다 —
+# POST /focus-sessions/{sessionId}/tutorial-reward.
 # 섬 소속·탐색(GROMO-1759)도 같다 — 새 location 이 필요하지 않다. islands 분기: POST /islands ·
 # GET /islands · GET /islands/discover · GET /islands/{islandId}. me 분기: GET /me/islands ·
 # PUT /me/current-island.

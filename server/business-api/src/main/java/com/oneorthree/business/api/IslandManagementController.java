@@ -3,8 +3,8 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.IslandManagementUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -57,7 +57,7 @@ public class IslandManagementController {
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        UUID island = uuid(islandId, "islandId");
+        UUID island = PublicIds.uuid(islandId, "islandId");
         if (body == null || !body.isObject()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
@@ -94,15 +94,15 @@ public class IslandManagementController {
             }
             fields.put("maxMembers", node.intValue());
         }
-        return management.manage(claims, island, fields, key, deadline());
+        return management.manage(claims, island, fields, key, properties.deadline());
     }
 
     /** 주민 목록 (LLD §3.2). 기본 30, 1~100 경계는 {@code CursorScope} 가 422 로 강제한다. */
     @GetMapping("/islands/{islandId}/members")
     public IslandManagementUseCase.MembersPage members(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return management.members(claims, uuid(islandId, "islandId"), single(request, "cursor"),
-                limit(request), deadline());
+        return management.members(claims, PublicIds.uuid(islandId, "islandId"), single(request, "cursor"),
+                limit(request), properties.deadline());
     }
 
     /** 신청자 목록 (LLD §3.3) — 방장 전용, pending 만. */
@@ -110,8 +110,8 @@ public class IslandManagementController {
     public IslandManagementUseCase.JoinRequestsPage joinRequests(@PathVariable String islandId,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return management.joinRequests(claims, uuid(islandId, "islandId"), single(request, "cursor"),
-                limit(request), deadline());
+        return management.joinRequests(claims, PublicIds.uuid(islandId, "islandId"), single(request, "cursor"),
+                limit(request), properties.deadline());
     }
 
     /** 가입 요청 승인·거절 (LLD §3.4). 본문은 정확히 {@code {decision: approve|reject}}. */
@@ -120,8 +120,8 @@ public class IslandManagementController {
             @PathVariable String requestId, @RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        UUID island = uuid(islandId, "islandId");
-        UUID joinRequest = uuid(requestId, "requestId");
+        UUID island = PublicIds.uuid(islandId, "islandId");
+        UUID joinRequest = PublicIds.uuid(requestId, "requestId");
         if (body == null || !body.isObject() || body.size() != 1) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
@@ -133,7 +133,7 @@ public class IslandManagementController {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "decision");
         }
         return management.answer(claims, island, joinRequest, "approve".equals(decision.stringValue()), key,
-                deadline());
+                properties.deadline());
     }
 
     /** 주민 강퇴 (LLD §3.6). 본문 없음. */
@@ -142,7 +142,8 @@ public class IslandManagementController {
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        return management.kick(claims, uuid(islandId, "islandId"), uuid(userId, "userId"), key, deadline());
+        return management.kick(claims, PublicIds.uuid(islandId, "islandId"), PublicIds.uuid(userId, "userId"), key,
+                properties.deadline());
     }
 
     /** 본인 나가기 (LLD §3.7). 본문 없음. */
@@ -150,7 +151,7 @@ public class IslandManagementController {
     public IslandManagementUseCase.Left leave(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        return management.leave(claims, uuid(islandId, "islandId"), key, deadline());
+        return management.leave(claims, PublicIds.uuid(islandId, "islandId"), key, properties.deadline());
     }
 
     // ---------------------------------------------------------------- 입력 해석
@@ -165,18 +166,6 @@ public class IslandManagementController {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, field);
         }
         return node.stringValue();
-    }
-
-    private static UUID uuid(String value, String field) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
-        }
     }
 
     /** 쿼리 파라미터 하나 — 같은 키가 여러 번 오면 400 이다. */
@@ -201,9 +190,5 @@ public class IslandManagementController {
         } catch (NumberFormatException e) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "limit");
         }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

@@ -81,24 +81,101 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+def releaseCredentialsDir = new File(rootProject.projectDir, "credentials/prod")
+def releaseKeystorePropertiesFile = new File(releaseCredentialsDir, "keystore.properties")
+def releaseKeystoreProperties = new Properties()
+
+if (releaseKeystorePropertiesFile.exists()) {
+    releaseKeystorePropertiesFile.withInputStream { releaseKeystoreProperties.load(it) }
+}
+
+// Inspect the resolved task graph so aggregate tasks such as `build` and
+// `assemble` also gate actual release artifacts. Variant checks such as
+// `check` may include release lint/unit-test tasks without producing an update.
+gradle.taskGraph.whenReady { taskGraph ->
+    def releaseArtifactTasks = ["assemblerelease", "bundlerelease", "packagerelease"]
+    def includesReleaseArtifactTask = taskGraph.allTasks.any { task ->
+        task.project == project && releaseArtifactTasks.contains(task.name.toLowerCase(Locale.ROOT))
+    }
+    // dev 청중(GROMO_ANDROID_AUDIENCE=dev) = Play 내부 테스트용 팀 dev 서버 빌드 (GROMO-2223).
+    // 운영 세션 안 이어받음 → legacy 세션 가드는 운영만. 값은 CI(.github/workflows/app-android-ci.yml)만 줌. 비면 prod.
+    def androidAudience = System.getenv("GROMO_ANDROID_AUDIENCE") ?: "prod"
+    if (includesReleaseArtifactTask && !(androidAudience in ["prod", "dev"])) {
+        throw new GradleException(
+            "Android release 차단: GROMO_ANDROID_AUDIENCE 는 prod 또는 dev 만 허용합니다 (현재: ${androidAudience})."
+        )
+    }
+    def devAudience = androidAudience == "dev"
+    if (includesReleaseArtifactTask && !devAudience && System.getenv("GROMO_LEGACY_SESSION_MIGRATION_READY") != "1") {
+        throw new GradleException(
+            "Android release 차단: legacy Android 세션의 refresh 토큰은 현재 안전한 재시도 계약이 없어 앱 업데이트 시 로그인 세션을 잃을 수 있습니다. 서버의 멱등 승격 계약이 준비되고 검증된 뒤에만 GROMO_LEGACY_SESSION_MIGRATION_READY=1 을 설정해 release 작업을 실행하세요."
+        )
+    }
+    def termsVersion = System.getenv("EXPO_PUBLIC_TERMS_VERSION")
+    if (includesReleaseArtifactTask && (termsVersion == null || termsVersion.trim().isEmpty())) {
+        throw new GradleException(
+            "Android release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요."
+        )
+    }
+    // 서버는 앞뒤 공백이 있는 약관 버전을 400으로 거절한다. 값 그대로가 정본이어야 한다.
+    if (includesReleaseArtifactTask && termsVersion != termsVersion.trim()) {
+        throw new GradleException(
+            "Android release 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요."
+        )
+    }
+    def apiUrl = System.getenv("EXPO_PUBLIC_API_URL")
+    if (includesReleaseArtifactTask && !devAudience && apiUrl != "https://api.oneorthree.world") {
+        throw new GradleException(
+            "Android release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요."
+        )
+    }
+    // dev 청중은 dev 주소만. 운영 주소 박힌 dev 빌드도 막음
+    if (includesReleaseArtifactTask && devAudience && apiUrl != "https://oneorthree.dev.mooo.com") {
+        throw new GradleException(
+            "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL은 https://oneorthree.dev.mooo.com 이어야 합니다."
+        )
+    }
+    if (includesReleaseArtifactTask && !releaseKeystorePropertiesFile.exists()) {
+        throw new GradleException(
+            "프로덕션 서명 파일 없음: ${releaseKeystorePropertiesFile} — 기존 GROMO 업로드 키를 android/credentials/prod/에 배치하세요."
+        )
+    }
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
 
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.oneorthree.focuscat'
+    namespace 'com.oneorthree.gromo'
     defaultConfig {
-        applicationId 'com.oneorthree.focuscat'
+        applicationId 'com.oneorthree.gromo'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        versionCode 4
         versionName "2.0.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
+    signingConfigs {
+        if (releaseKeystorePropertiesFile.exists()) {
+            release {
+                storeFile new File(
+                    releaseCredentialsDir,
+                    releaseKeystoreProperties.getProperty("storeFile", "release.keystore")
+                )
+                storePassword releaseKeystoreProperties.getProperty("storePassword")
+                keyAlias releaseKeystoreProperties.getProperty("keyAlias")
+                keyPassword releaseKeystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
         release {
+            if (releaseKeystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds

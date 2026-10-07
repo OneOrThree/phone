@@ -1,6 +1,7 @@
 package com.oneorthree.phone.focus.scheduler;
 
 import com.oneorthree.phone.common.port.FocusPresenceState;
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.repository.FocusSessionControlState;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -206,7 +207,7 @@ public class FocusPresenceReconciler {
      * <p>5분 주기는 다른 크론과 맞춘 값이다. 이 값이 곧 <b>「Redis 가 살아난 뒤 규칙이 다시 걸리기까지」</b>
      * 의 상한이다.
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 * * * *", zone = ZonePolicy.KST_ID)
     @SchedulerLock(name = "focus-presence-reconcile")
     public void reconcilePeriodically() {
         reconcile();

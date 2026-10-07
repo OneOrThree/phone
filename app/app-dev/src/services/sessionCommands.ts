@@ -6,6 +6,8 @@ import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import {
   acknowledgeFocusResult as apiAcknowledge,
+  claimTutorialReward as apiTutorialReward,
+  claimTutorialExperienceReward as apiTutorialExperienceReward,
   currentFocusSession as apiCurrent,
   finishFocusSession as apiFinish,
   FocusFinishView,
@@ -17,6 +19,7 @@ import {
   startFocusSession as apiStart,
 } from '@/services/api/focusSessions';
 import { intentKeyPool, RecordItem, Route, Session, State } from '@/services/model';
+import { captureProductEvent } from '@/services/posthog';
 
 export type FocusApi = {
   current: typeof apiCurrent;
@@ -26,6 +29,8 @@ export type FocusApi = {
   resume: typeof apiResume;
   finish: typeof apiFinish;
   acknowledge: typeof apiAcknowledge;
+  tutorialReward: typeof apiTutorialReward;
+  tutorialExperienceReward: typeof apiTutorialExperienceReward;
 };
 
 export type SessionCommandDeps = {
@@ -49,15 +54,31 @@ const defaultApi: FocusApi = {
   resume: apiResume,
   finish: apiFinish,
   acknowledge: apiAcknowledge,
+  tutorialReward: apiTutorialReward,
+  tutorialExperienceReward: apiTutorialExperienceReward,
 };
 
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 
+// 서버 ACTIVE 구간 → 로컬 {start,end}(ms) 매핑(GROMO-2131). 필드가 아예 없으면(구버전 서버)
+// undefined 를 유지한다 — []로 두면 당일 집중이 있어도 구간 0건이 되어 퀘스트 진행이 사라진다.
+// 파싱 못 한 시각이 하나라도 있으면 역시 undefined 로 폴백한다 — NaN 구간은 Math.min/max 합산을
+// 오염시켜 그 섬·그 날 전체 합계가 NaN 이 되고, 구간 하나만 버리면 집중 초가 빠진다.
+const mapIntervals = (spans?: { startedAt: string; endedAt: string }[]) => {
+  const mapped = spans?.map((span) => ({
+    start: Date.parse(span.startedAt),
+    end: Date.parse(span.endedAt),
+  }));
+  return mapped?.some((i) => Number.isNaN(i.start) || Number.isNaN(i.end)) ? undefined : mapped;
+};
+
 /**
  * 서버 뷰 → 로컬 Session. 시각은 서버가 정본이다 — `startedAt` 을 serverNow 로 두고
  * `seconds` 에 activeSeconds 를 넣으면 화면은 serverNow 이후의 경과를 이어서 센다.
  * paused 면 초가 고정되고 restStartedAt 만 의미를 가진다.
+ * intervals 는 activeIntervals(있으면) 를 그대로 옮긴다 — 서버가 마지막 구간을 serverNow 로
+ * 닫아 보내므로, 이어서 리듀서가 붙이는 실시간 꼬리 [startedAt(=serverNow), now] 와 겹치지 않는다.
  */
 export const sessionFromServer = (v: FocusSessionView): Session => ({
   id: v.id,
@@ -68,6 +89,7 @@ export const sessionFromServer = (v: FocusSessionView): Session => ({
   seconds: v.activeSeconds,
   status: v.status === 'paused' ? 'paused' : 'active',
   version: v.version,
+  intervals: mapIntervals(v.activeIntervals),
 });
 
 /**
@@ -83,6 +105,7 @@ export const recordFromFinish = (f: FocusFinishView, ackId?: string): RecordItem
   at: Date.parse(f.completedAt),
   fish: f.earnedFish,
   contributed: true,
+  intervals: mapIntervals(f.activeIntervals),
   ...(ackId ? { ackId } : {}),
 });
 
@@ -92,6 +115,8 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     newKey = deps.newKey ?? uuid;
   // 세대 격리 저장소 — 계정·세션이 바뀌면 진행 중 멱등 키를 함께 버린다.
   let box: { gen: number; keys: ReturnType<typeof intentKeyPool> } | null = null;
+  let transitionRevision = 0;
+  let transitioning = 0;
   const scoped = () => {
     const g = generation();
     if (box?.gen !== g) box = { gen: g, keys: intentKeyPool(newKey) };
@@ -140,16 +165,50 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
       throw new ApiError('STATE_CONFLICT', '진행 중인 집중이 없어요.', 409);
     }
     const body = String(session.version),
-      result = await fn(
-        session.id,
-        session.version,
-        scoped().keys.key(`${kind}:${session.id}`, body),
-      );
-    alive(g);
-    scoped().keys.release(`${kind}:${session.id}`, body);
-    return result;
+      key = scoped().keys.key(`${kind}:${session.id}`, body);
+    transitioning += 1;
+    transitionRevision += 1;
+    try {
+      const result = await fn(session.id, session.version, key);
+      alive(g);
+      scoped().keys.release(`${kind}:${session.id}`, body);
+      return result;
+    } finally {
+      transitioning -= 1;
+      transitionRevision += 1;
+    }
   };
   const commands = {
+    // 체험 보상에는 current 재조회나 SESSION_SYNC도 필요 없다.
+    tutorialExperienceReward: async (islandId: string) => {
+      const g = generation();
+      if (deps.getSnap()?.currentIslandId !== islandId) throw staleError();
+      const result = await api.tutorialExperienceReward(islandId);
+      alive(g);
+      if (deps.getSnap()?.currentIslandId !== islandId) throw staleError();
+      if (
+        !result ||
+        result.islandId !== islandId ||
+        !['granted', 'unavailable'].includes(result.status)
+      )
+        throw new ApiError('INVALID_RESPONSE', '보상 정보를 확인하지 못했어요.', 0);
+      return result;
+    },
+    tutorialReward: (sessionId: string) =>
+      call(async () => {
+        const g = generation();
+        const result = await api.tutorialReward(sessionId);
+        alive(g);
+        if (
+          !result ||
+          result.sessionId !== sessionId ||
+          !['pending', 'granted', 'unavailable'].includes(result.status)
+        )
+          throw new ApiError('INVALID_RESPONSE', '보상 정보를 확인하지 못했어요.', 0);
+        if (result.status === 'granted')
+          deps.dispatch({ type: 'TUTORIAL_FISH_CONFIRMED', sessionId });
+        return result;
+      }),
     // 시작 — islandId 는 memberships 의 current 에서만 온다(화면이 고르지 않는다)
     start: (input: { subject: string; targetMinutes?: number }) =>
       call(async () => {
@@ -163,6 +222,7 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         alive(g);
         deps.dispatch({ type: 'SESSION_SYNC', session: sessionFromServer(view) });
         scoped().keys.release('start', raw);
+        captureProductEvent('focus_started');
         return view;
       }),
     pause: () =>
@@ -183,6 +243,10 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         const fromRest = deps.getSession()?.status === 'paused',
           result = await transition('finish', api.finish);
         deps.dispatch({ type: 'SESSION_RESULT', record: recordFromFinish(result), fromRest });
+        captureProductEvent('focus_completed', {
+          duration_seconds: result.activeSeconds,
+          earned_fish: result.earnedFish,
+        });
         return result;
       }),
     // 결과 1회 표시의 확인 — 서버가 조건부 UPDATE 라 재시도·중복 호출이 무해하다.
@@ -200,8 +264,14 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
      */
     recover: async (): Promise<Route | null> => {
       const g = generation();
+      // 폴링 응답이 동시에 진행한 재개·종료 명령의 최신 상태를 되돌리지 않게 한다.
+      if (transitioning)
+        throw new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
+      const revision = transitionRevision;
       const [view, pending] = await Promise.all([api.current(), api.pendingResult()]);
       alive(g);
+      if (transitioning || transitionRevision !== revision)
+        throw new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
       deps.dispatch({ type: 'SESSION_SYNC', session: view ? sessionFromServer(view) : null });
       if (view) return view.status === 'paused' ? 'rest' : 'focus';
       if (pending) {

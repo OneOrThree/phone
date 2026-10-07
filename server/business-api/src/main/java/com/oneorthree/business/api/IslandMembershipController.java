@@ -12,8 +12,8 @@ import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.IslandMembershipUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -107,7 +107,7 @@ public class IslandMembershipController {
             maxMembers = node.intValue();
         }
         IslandCreatedView created = islands.create(claims, name, intro, approvalRequired.booleanValue(),
-                maxMembers, key, deadline());
+                maxMembers, key, properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -116,7 +116,7 @@ public class IslandMembershipController {
     public IslandPage islands(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return islands.search(claims, single(request, "q"), single(request, "cursor"),
-                limit(request, SEARCH_LIMIT_DEFAULT), deadline());
+                limit(request, SEARCH_LIMIT_DEFAULT), properties.deadline());
     }
 
     /**
@@ -129,20 +129,20 @@ public class IslandMembershipController {
     public IslandPage discover(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return islands.discover(claims, single(request, "cursor"),
-                limit(request, DISCOVER_LIMIT_DEFAULT), deadline());
+                limit(request, DISCOVER_LIMIT_DEFAULT), properties.deadline());
     }
 
     /** 섬 하나 (LLD §3.4). 주민이면 상세, 비소속이면 공개 요약이다. */
     @GetMapping("/islands/{islandId}")
     public Object island(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return islands.island(claims, uuid(islandId, "islandId"), deadline());
+        return islands.island(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
     }
 
     /** 내 섬 목록 (LLD §3.5). */
     @GetMapping("/me/islands")
     public MyIslandsResponse myIslands(HttpServletRequest request) {
-        return islands.myIslands(sessions.requireSession(request), deadline());
+        return islands.myIslands(sessions.requireSession(request), properties.deadline());
     }
 
     /** 현재 섬 이동 (LLD §3.6). */
@@ -157,8 +157,8 @@ public class IslandMembershipController {
         if (islandId == null || !islandId.isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "islandId");
         }
-        return islands.switchCurrentIsland(claims, uuid(islandId.stringValue(), "islandId"), key,
-                deadline());
+        return islands.switchCurrentIsland(claims, PublicIds.uuid(islandId.stringValue(), "islandId"), key,
+                properties.deadline());
     }
 
     /**
@@ -180,7 +180,7 @@ public class IslandMembershipController {
             }
             invitationToken = optionalText(body, "invitationToken", TOKEN_MAX);
         }
-        return islands.join(claims, uuid(islandId, "islandId"), invitationToken, key, deadline());
+        return islands.join(claims, PublicIds.uuid(islandId, "islandId"), invitationToken, key, properties.deadline());
     }
 
     /**
@@ -193,14 +193,14 @@ public class IslandMembershipController {
     public IslandMembershipUseCase.MyJoinRequests myJoinRequests(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return islands.myJoinRequests(claims, single(request, "cursor"),
-                limit(request, MY_JOIN_REQUESTS_LIMIT_DEFAULT), deadline());
+                limit(request, MY_JOIN_REQUESTS_LIMIT_DEFAULT), properties.deadline());
     }
 
     /** 가입 요청 상태 (GROMO-1760, LLD §3.8). 남의 요청은 상류가 404 로 접는다. */
     @GetMapping("/me/join-requests/{requestId}")
     public JoinRequestStatusView joinRequest(@PathVariable String requestId, HttpServletRequest request) {
         return islands.joinRequest(sessions.requireSession(request),
-                uuid(requestId, "requestId"), deadline());
+                PublicIds.uuid(requestId, "requestId"), properties.deadline());
     }
 
     /** 가입 요청 취소 (GROMO-1760, LLD §3.9). 본인의 pending 만 종결된다. */
@@ -209,7 +209,7 @@ public class IslandMembershipController {
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        return islands.cancelJoinRequest(claims, uuid(requestId, "requestId"), key, deadline());
+        return islands.cancelJoinRequest(claims, PublicIds.uuid(requestId, "requestId"), key, properties.deadline());
     }
 
     /**
@@ -223,7 +223,7 @@ public class IslandMembershipController {
         if (body == null || !body.isObject() || body.size() != 1) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
-        return islands.resolveInvitation(claims, requiredText(body, "code", CODE_MAX), deadline());
+        return islands.resolveInvitation(claims, requiredText(body, "code", CODE_MAX), properties.deadline());
     }
 
     /** 섬 초대 발급 (GROMO-1760, LLD §3.11). 본문 없음, 활성 주민만 발급된다. */
@@ -232,7 +232,7 @@ public class IslandMembershipController {
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        return islands.issueInvitation(claims, uuid(islandId, "islandId"), key, deadline());
+        return islands.issueInvitation(claims, PublicIds.uuid(islandId, "islandId"), key, properties.deadline());
     }
 
     // ---------------------------------------------------------------- 입력 해석
@@ -267,18 +267,6 @@ public class IslandMembershipController {
         return value;
     }
 
-    private static UUID uuid(String value, String field) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
-        }
-    }
-
     /** 쿼리 파라미터 하나 — 같은 키가 여러 번 오면 400 이다. */
     private static String single(HttpServletRequest request, String name) {
         String[] values = request.getParameterValues(name);
@@ -302,9 +290,5 @@ public class IslandMembershipController {
         } catch (NumberFormatException e) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "limit");
         }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

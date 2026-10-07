@@ -26,13 +26,18 @@ public interface FocusFishEarningsRepository extends Repository<FocusRewardAccru
      *
      * <p>기본 적립({@code earned_fish})과 황금 물고기 자기 몫({@code golden_fish})을 <b>둘 다</b> 센다
      * (GROMO-1956 — 기획 정본 「황금 물고기 50마리는 함께 낚은 주민의 누적 획득 기록 … 에 나눠 더한다」).
-     * 하루 480마리 상한만 {@code earned_fish} 를 따로 본다.
+     * 최초 낚시 보상({@code tutorial_fish})도 포함한다. 하루 480마리 상한만 {@code earned_fish} 를 따로 본다.
      */
-    @Query("SELECT d.userId AS userId, SUM(a.earnedFish + a.goldenFish) AS earnedFish "
-            + "FROM FocusRewardAccrual a, "
-            + "com.oneorthree.phone.focus.repository.domain.FocusSessionDetail d "
-            + "WHERE d.sessionId = a.sessionId AND d.islandId = :islandId AND d.userId IN :userIds "
-            + "GROUP BY d.userId")
+    @Query(value = """
+            SELECT e.user_id AS "userId", SUM(e.fish) AS "earnedFish" FROM (
+                SELECT d.user_id, a.earned_fish + a.golden_fish + a.tutorial_fish AS fish
+                FROM focus_reward_accruals a JOIN focus_session_details d ON d.session_id = a.session_id
+                WHERE d.island_id = :islandId AND d.user_id IN (:userIds)
+                UNION ALL
+                SELECT r.user_id, 1 AS fish FROM focus_tutorial_rewards r
+                WHERE r.island_id = :islandId AND r.session_id IS NULL AND r.user_id IN (:userIds)
+            ) e GROUP BY e.user_id
+            """, nativeQuery = true)
     List<UserEarnings> sumEarnedFishByUser(@Param("islandId") UUID islandId,
                                            @Param("userIds") Collection<UUID> userIds);
 

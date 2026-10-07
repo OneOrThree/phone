@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.repository.ChatReadCursorRepository;
 import com.oneorthree.realtime.message.service.ChatUserFence;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,6 +22,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -62,6 +65,12 @@ class InboundEventServiceTest {
 
     @MockitoSpyBean
     private ChatUserFence chatUserFence;
+
+    @MockitoSpyBean
+    private EventRouter eventRouter;
+
+    @Autowired
+    private StringRedisTemplate redis;
 
     @Value("${realtime.internal.data-service-token}")
     private String dataToken;
@@ -122,6 +131,97 @@ class InboundEventServiceTest {
         verify(chatUserFence, never()).withdraw(any(), anyLong());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE type IN (?, ?)", Long.class,
                 "island.updated", "member.appearance.updated")).isGreaterThanOrEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("강퇴·탈퇴 사건이 오면 그 유저의 멤버십 캐시만 즉시 지운다(GROMO-2140) — TTL 을 기다리지 않는다")
+    void memberRemovedEvictsOnlyThatUsersCache() throws Exception {
+        UUID island = UUID.randomUUID();
+        UUID kicked = UUID.randomUUID();
+        UUID untouched = UUID.randomUUID();
+        redis.opsForValue().set(RedisKeys.memberCache(kicked), island.toString(), Duration.ofSeconds(120));
+        redis.opsForValue().set(RedisKeys.memberCache(untouched), island.toString(), Duration.ofSeconds(120));
+
+        http(membersUpdated(island, "MEMBER_REMOVED", kicked, 5));
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(kicked))).isFalse();
+        assertThat(redis.hasKey(RedisKeys.memberCache(untouched))).isTrue();
+        // island.members.updated 는 아직 전달 어댑터가 없다 — 무효화는 STOMP 전달과 무관한 부수 효과다.
+        verify(eventRouter, never()).route(any(), any());
+    }
+
+    @Test
+    @DisplayName("memberUserId 가 없는 옛 Data 사건은 조용히 건너뛴다 — TTL 이 그대로 백스톱이다")
+    void missingMemberUserIdIsANoOp() throws Exception {
+        UUID island = UUID.randomUUID();
+        UUID member = UUID.randomUUID();
+        redis.opsForValue().set(RedisKeys.memberCache(member), island.toString(), Duration.ofSeconds(120));
+        String legacyShape = "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,"
+                + "\"type\":\"island.members.updated\",\"occurredAt\":\"2026-09-19T00:00:00Z\",\"scheduledAt\":null,"
+                + "\"userId\":\"" + UUID.randomUUID() + "\",\"locale\":null,\"subjectId\":\"" + island + "\","
+                + "\"version\":5,\"params\":{\"changeKind\":\"MEMBER_REMOVED\",\"islandId\":\"" + island + "\"}}";
+
+        http(legacyShape);
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(member))).isTrue();
+    }
+
+    @Test
+    @DisplayName("방장 위임(HOST_TRANSFER)은 소속이 안 바뀐다 — memberUserId 가 있어도 무효화하지 않는다")
+    void hostTransferNeverEvicts() throws Exception {
+        UUID island = UUID.randomUUID();
+        UUID previousHost = UUID.randomUUID();
+        UUID newHost = UUID.randomUUID();
+        redis.opsForValue().set(RedisKeys.memberCache(previousHost), island.toString(), Duration.ofSeconds(120));
+        redis.opsForValue().set(RedisKeys.memberCache(newHost), island.toString(), Duration.ofSeconds(120));
+        String hostTransfer = "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,"
+                + "\"type\":\"island.members.updated\",\"occurredAt\":\"2026-09-19T00:00:00Z\",\"scheduledAt\":null,"
+                + "\"userId\":\"" + previousHost + "\",\"locale\":null,\"subjectId\":\"" + island + "\","
+                + "\"version\":6,\"params\":{\"changeKind\":\"HOST_TRANSFER\",\"islandId\":\"" + island + "\","
+                + "\"previousHostUserId\":\"" + previousHost + "\",\"hostUserId\":\"" + newHost + "\"}}";
+
+        http(hostTransfer);
+
+        assertThat(redis.hasKey(RedisKeys.memberCache(previousHost))).isTrue();
+        assertThat(redis.hasKey(RedisKeys.memberCache(newHost))).isTrue();
+    }
+
+    /** Data outbox 정본 봉투 — {@code IslandMembershipEvents#changed} 가 내보내는 params 모양 그대로다. */
+    private static String membersUpdated(UUID island, String changeKind, UUID memberUserId, long version) {
+        return "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,"
+                + "\"type\":\"island.members.updated\",\"occurredAt\":\"2026-09-19T00:00:00Z\",\"scheduledAt\":null,"
+                + "\"userId\":\"" + UUID.randomUUID() + "\",\"locale\":null,\"subjectId\":\"" + island + "\","
+                + "\"version\":" + version + ",\"params\":{\"changeKind\":\"" + changeKind + "\",\"islandId\":\""
+                + island + "\",\"memberUserId\":\"" + memberUserId + "\"}}";
+    }
+
+    @Test
+    @DisplayName("user.blocks.updated 는 차단자의 차단 세대를 한 번만 올리고, blockerUserId 가 없으면 200 으로 건너뛴다")
+    void blocksUpdatedAdvancesTheBlockersGenerationOnce() throws Exception {
+        UUID blocker = UUID.randomUUID();
+        String event = blocksUpdated(UUID.randomUUID().toString(), "\"blockerUserId\":\"" + blocker + "\"");
+
+        http(event);
+        http(event);
+        new KafkaEventInbound(inboundEventService, objectMapper).receive(event);
+
+        assertThat(redis.opsForValue().get(RedisKeys.blockGeneration(blocker))).isEqualTo("1");
+        // 세대 키는 수명 없이 남는다 — 만료되면 번호가 재사용돼 옛 캐시와 충돌한다.
+        assertThat(redis.getExpire(RedisKeys.blockGeneration(blocker))).isEqualTo(-1L);
+
+        UUID other = UUID.randomUUID();
+        http(blocksUpdated(UUID.randomUUID().toString(), "\"blockedUserId\":\"" + other + "\""));
+        http(blocksUpdated(UUID.randomUUID().toString(), "\"blockerUserId\":\"not-a-uuid\""));
+        assertThat(redis.hasKey(RedisKeys.blockGeneration(other))).isFalse();
+        redis.delete(RedisKeys.blockGeneration(blocker));
+    }
+
+    /** Data {@code UserBlockEvents} 가 적는 10필드 정본 봉투. */
+    private static String blocksUpdated(String eventId, String params) {
+        UUID user = UUID.randomUUID();
+        return "{\"eventId\":\"" + eventId + "\",\"schemaVersion\":1,\"type\":\"user.blocks.updated\","
+                + "\"occurredAt\":\"2026-10-01T00:00:00Z\",\"scheduledAt\":null,\"userId\":\"" + user + "\","
+                + "\"locale\":null,\"subjectId\":\"" + user + "\",\"version\":1,\"params\":{" + params + "}}";
     }
 
     @Test

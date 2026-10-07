@@ -33,6 +33,7 @@ public class LineApiClientImpl implements SocialLoginClient {
     public LineApiClientImpl(@Value("${line.api-base-url}") String baseUrl) {
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
+                .requestFactory(IdpHttp.requestFactory())
                 .build();
     }
 

@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
@@ -40,7 +42,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -88,9 +89,6 @@ public class GroupChallengeService {
      */
     private final GroupBetJudge groupBetJudge;
     private final ApplicationEventPublisher eventPublisher;
-
-    /** activeToday 등 요일 판정의 시간대 — 정책은 저장축까지 KST 고정이다(§B3 · N8). */
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /**
      * 일 목표(DURATION) 카테고리별 상한(N51 · §A6-bis) — FOCUS 는 물리적 최대치 근처(18h),

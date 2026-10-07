@@ -33,5 +33,5 @@ GROMO-1845에서 꽃나팔 방송기의 완공 후 화면과 구매 피드백을
 ## 에셋과 시안
 
 - 지도와 모달은 기존 투명 PNG `src/assets/buildings/gramophone/day.png`를 공유한다. 원본 그림 영역은 632×910이며 앱에서 비율을 유지해 축소한다.
-- 배경은 기존 `bldbg/gram` 세로·가로 에셋을 사용한다.
+- 배경은 축음기 전용 일러스트 `src/assets/interiors/gram-cute-v1.png`(`art['interior/gram']`)를 세로·가로 공통으로 사용한다. 섬 지도 크롭 `bldbg/gram`은 쓰지 않는다. 집중 세션 중에는 기존 낚시 장면을 유지한다.
 - 확정 Figma: [곡 선택](https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg?node-id=723-145), [구매 확인](https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg?node-id=732-168), [구매 성공](https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg?node-id=732-235), [잔액 부족](https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg?node-id=732-302)

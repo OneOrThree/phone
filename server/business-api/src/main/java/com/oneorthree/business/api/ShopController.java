@@ -6,9 +6,9 @@ import com.oneorthree.business.api.dto.ShopResponses.ShopWallets;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import com.oneorthree.business.usecase.ShopUseCase;
@@ -53,7 +53,7 @@ public class ShopController {
     @GetMapping("/islands/{islandId}/shop/wallets")
     public ShopWallets wallets(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return shop.wallets(claims, uuid(islandId), deadline());
+        return shop.wallets(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
     }
 
     /** 카탈로그 (LLD §2.2) — {@code category} 필수, {@code cursor}·{@code limit}(기본 30, 1~100) 선택. */
@@ -67,8 +67,8 @@ public class ShopController {
         if (!CATEGORIES.contains(category)) {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "category");
         }
-        return shop.products(claims, uuid(islandId), category, single(request, "cursor"), limit(request),
-                deadline());
+        return shop.products(claims, PublicIds.uuid(islandId, "islandId"), category, single(request, "cursor"),
+                limit(request), properties.deadline());
     }
 
     /** 상품 상세 (LLD §2.3). */
@@ -76,11 +76,11 @@ public class ShopController {
     public ShopProduct product(@PathVariable String islandId, @PathVariable String productId,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        UUID island = uuid(islandId);
+        UUID island = PublicIds.uuid(islandId, "islandId");
         if (!PRODUCT_ID.matcher(productId).matches()) {
             throw new PublicApiException(ApiErrorCode.PRODUCT_NOT_FOUND, "productId");
         }
-        return shop.product(claims, island, productId, deadline());
+        return shop.product(claims, island, productId, properties.deadline());
     }
 
     /** 구매 (LLD §2.4) — {@code Idempotency-Key}(UUID36) 필수, 성공 201. */
@@ -104,10 +104,10 @@ public class ShopController {
         if (!PRODUCT_ID.matcher(productId.stringValue()).matches()) {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "productId");
         }
-        ShopOrder order = shop.purchase(claims, uuid(islandId), productId.stringValue(),
+        ShopOrder order = shop.purchase(claims, PublicIds.uuid(islandId, "islandId"), productId.stringValue(),
                 ResourceVersions.fromJson(body.get("expectedWalletVersion"), "expectedWalletVersion"),
                 ResourceVersions.fromJson(body.get("expectedProductVersion"), "expectedProductVersion"),
-                key, deadline());
+                key, properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(order);
     }
 
@@ -122,7 +122,8 @@ public class ShopController {
         if (!SCOPES.contains(scope)) {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "scope");
         }
-        return shop.orders(claims, uuid(islandId), scope, single(request, "cursor"), limit(request), deadline());
+        return shop.orders(claims, PublicIds.uuid(islandId, "islandId"), scope, single(request, "cursor"),
+                limit(request), properties.deadline());
     }
 
     // ---------------------------------------------------------------- 입력 해석
@@ -149,21 +150,5 @@ public class ShopController {
         } catch (NumberFormatException e) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "limit");
         }
-    }
-
-    private static UUID uuid(String value) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "islandId");
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

@@ -111,6 +111,26 @@ class RecipientEligibilityTest {
         assertThat(state(id)).isEqualTo("SUPPRESSED");
     }
 
+    /**
+     * GROMO-2180 — 적재 뒤 수신자와 상대 사이에 차단이 생기면 Data 가 {@code BLOCKED} 로 거절하고, 이 서버는
+     * FCM 을 한 번도 부르지 않은 채 SUPPRESSED 로 끝낸다. 판정 축(상대)은 {@code subjectId} 로 넘어간다.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"FRIEND_REQUEST", "FRIEND_ACCEPTED"})
+    void aFriendNotificationBlockedAfterEnqueueNeverReachesFcm(String kind) {
+        UUID counterpart = UUID.randomUUID();
+        UUID id = enqueue(kind);
+        store.update("UPDATE deliveries SET subject_id=? WHERE id=?", counterpart.toString(), id);
+        RESPONSE.set("{\"eligible\":false,\"reason\":\"BLOCKED\"}");
+
+        dispatch.dispatch(id);
+
+        assertThat(REQUEST.get()).containsEntry("userId", USER.toString()).containsEntry("kind", kind)
+                .containsEntry("subjectId", counterpart.toString());
+        verifyNoInteractions(transport);
+        assertThat(state(id)).isEqualTo("SUPPRESSED");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"FRIEND_ACCEPTED", "LEAGUE_WEEKLY_RESULT", "INACTIVE_RETURN"})
     void activeRecipientsStillReceiveKindsWithoutSubjectStateChecks(String kind) {

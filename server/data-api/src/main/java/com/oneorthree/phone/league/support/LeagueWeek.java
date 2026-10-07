@@ -1,11 +1,12 @@
 package com.oneorthree.phone.league.support;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 
 /**
@@ -20,8 +21,6 @@ import java.time.temporal.TemporalAdjusters;
  */
 @Component
 public class LeagueWeek {
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /**
      * @param now 기준 시각

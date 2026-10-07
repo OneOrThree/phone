@@ -24,9 +24,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 섬 게시판 공개 6종의 계약 (GROMO-1771) — 실제 필터·컨트롤러·TCP 클라이언트로 경계를 본다: 주체·본문 모양·
- * 서명 커서(목록 {@code cursor} / 댓글 {@code commentsCursor})·상류 판정의 공개 오류 매핑. 권한·version·멱등의
- * 원자성은 data-api 의 {@code IslandNoticeIntegrationTest} 가 실제 DB 로 본다.
+ * 섬 게시판 공개 7종의 계약 (GROMO-1771, 댓글 삭제는 GROMO-2136) — 실제 필터·컨트롤러·TCP 클라이언트로 경계를
+ * 본다: 주체·본문 모양·서명 커서(목록 {@code cursor} / 댓글 {@code commentsCursor})·상류 판정의 공개 오류 매핑.
+ * 권한·version·멱등의 원자성은 data-api 의 {@code IslandNoticeIntegrationTest} 가 실제 DB 로 본다.
  */
 class IslandNoticeContractTest extends UpstreamTestBase {
 
@@ -48,6 +48,7 @@ class IslandNoticeContractTest extends UpstreamTestBase {
     private static final String DATA_PATCH = "PATCH " + INTERNAL + "/" + N1;
     private static final String DATA_DELETE = "DELETE " + INTERNAL + "/" + N1;
     private static final String DATA_COMMENT = "POST " + INTERNAL + "/" + N1 + "/comments";
+    private static final String DATA_COMMENT_DELETE = "DELETE " + INTERNAL + "/" + N1 + "/comments/" + C1;
 
     private static final String PAGE_BODY = "{\"items\":[{\"id\":\"" + N2 + "\",\"title\":\"둘째\",\"commentCount\":0,"
             + "\"createdAt\":\"2026-09-19T01:00:00Z\"},{\"id\":\"" + N1 + "\",\"title\":\"환영해요\","
@@ -272,6 +273,23 @@ class IslandNoticeContractTest extends UpstreamTestBase {
         assertThat(DATA.hits(DATA_COMMENT)).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("댓글 삭제(GROMO-2136)는 공지 삭제와 같은 응답 모양 — 200 deleted=true, 키가 필수다")
+    void commentDeleteShape() throws Exception {
+        DATA.on(DATA_COMMENT_DELETE, request -> ok("{\"deleted\":true}"));
+
+        mockMvc.perform(auth(delete(PUBLIC + "/" + N1 + "/comments/" + C1)).header("Idempotency-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+        assertThat(DATA.receivedFor(DATA_COMMENT_DELETE).get(0).header("Idempotency-Key")).isEqualTo(KEY);
+        assertThat(DATA.receivedFor(DATA_COMMENT_DELETE).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+
+        mockMvc.perform(auth(delete(PUBLIC + "/" + N1 + "/comments/" + C1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_IDEMPOTENCY_KEY"));
+        assertThat(DATA.hits(DATA_COMMENT_DELETE)).isEqualTo(1);
+    }
+
     // ---------------------------------------------------------------- 상류 판정 → 공개 오류
 
     @ParameterizedTest
@@ -297,6 +315,19 @@ class IslandNoticeContractTest extends UpstreamTestBase {
         if (field != null) {
             result.andExpect(jsonPath("$.error.field").value(field));
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "403,NOTICE_COMMENT_FORBIDDEN,403,FORBIDDEN,",
+            "404,NOT_FOUND,404,NOT_FOUND,commentId"})
+    void commentDeleteRelaysDataVerdictsWithCommentIdField(int upstreamStatus, String upstreamCode, int status,
+            String code, String field) throws Exception {
+        DATA.on(DATA_COMMENT_DELETE, request -> error(upstreamStatus, upstreamCode));
+        mockMvc.perform(auth(delete(PUBLIC + "/" + N1 + "/comments/" + C1)).header("Idempotency-Key", KEY))
+                .andExpect(status().is(status))
+                .andExpect(jsonPath("$.error.code").value(code))
+                .andExpect(jsonPath("$.error.field").value(field));
     }
 
     @Test
@@ -375,7 +406,8 @@ class IslandNoticeContractTest extends UpstreamTestBase {
             "/islands/{islandId}/notices|post|200||id title body|id title body",
             "/islands/{islandId}/notices/{noticeId}|patch|200||id title body|id title body",
             "/islands/{islandId}/notices/{noticeId}|delete|200||deleted|deleted",
-            "/islands/{islandId}/notices/{noticeId}/comments|post|200||id name text|id text"})
+            "/islands/{islandId}/notices/{noticeId}/comments|post|200||id name text|id text",
+            "/islands/{islandId}/notices/{noticeId}/comments/{commentId}|delete|200||deleted|deleted"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {
         var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();

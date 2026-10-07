@@ -2,6 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
+import com.oneorthree.business.auth.RevokedSessions;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
@@ -41,6 +42,7 @@ public class AccountUseCase {
 
     private final DataAuthClient data;
     private final PreviewCache previewCache;
+    private final RevokedSessions revokedSessions;
 
     public AccountView me(AccessTokenClaims claims, Deadline deadline) {
         AccountMe me = relay(() -> data.fetchAccount(claims.userId(), claims.sessionId(),
@@ -75,6 +77,14 @@ public class AccountUseCase {
             // 탈퇴는 이미 Data 에 커밋됐다 — 사본 정리 실패로 탈퇴를 실패처럼 보이게 하지 않는다.
             // 남은 키는 TTL(최대 300초)로 사라진다. 표지가 없으니 남은 AT 수명 동안은 새 사본이 생길 수 있다.
             log.warn("탈퇴 미리보기 캐시 정리 실패 — userId={}", claims.userId(), e);
+        }
+        if (claims.sessionId() != null) {
+            try {
+                revokedSessions.revoke(claims.sessionId());
+            } catch (RuntimeException e) {
+                // 탈퇴는 이미 커밋됐다 — 기록 실패로 실패처럼 보이게 하지 않는다. Data 의 세션 폐기가 2차 방어다.
+                log.warn("탈퇴 세션 거부목록 기록 실패 — userId={}", claims.userId(), e);
+            }
         }
         return new Deleted(true);
     }

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import { checkSession, login, logout, me } from '@/services/api/auth';
+import { Platform } from 'react-native';
+import { checkSession, guestLogin, login, logout, me } from '@/services/api/auth';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import {
   clearSession,
   getSession,
+  LogoutNotDurableError,
   restoreSession,
   saveSession,
   sessionGeneration,
@@ -31,14 +34,163 @@ const header = (call: Call, name: string) => (call.init.headers as Record<string
 
 const remove = SecureStore.deleteItemAsync as jest.Mock;
 const realRemove = remove.getMockImplementation() as (key: string) => Promise<void>;
+const write = SecureStore.setItemAsync as jest.Mock;
+const realWrite = write.getMockImplementation() as (key: string, value: string) => Promise<void>;
 const read = SecureStore.getItemAsync as jest.Mock;
 const realRead = read.getMockImplementation() as (key: string) => Promise<string | null>;
 
 beforeEach(async () => {
   remove.mockImplementation(realRemove);
+  write.mockImplementation(realWrite);
   read.mockImplementation(realRead);
   calls.length = 0;
+  await AsyncStorage.multiRemove([
+    'gromo:accessToken',
+    'gromo:refreshToken',
+    'gromo:user',
+    'gromo.guestDeviceIdRotationPending',
+  ]);
+  await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
+  await SecureStore.deleteItemAsync('gromo.legacySessionPendingPromotion');
   await clearSession();
+  await SecureStore.deleteItemAsync('gromo.guestDeviceId');
+});
+
+test('게스트 시작 — 기기 UUID를 보내고 세션을 보안 저장소에서 복원한다', async () => {
+  stub([session('GUEST', 'guest-1')]);
+
+  const result = await guestLogin();
+
+  assert.equal(result.userId, 'guest-1');
+  assert.ok(calls[0].url.endsWith('/auth/sessions/guest'));
+  assert.equal(calls[0].init.method, 'POST');
+  assert.match(
+    header(calls[0], 'X-Device-Id'),
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  assert.equal(header(calls[0], 'Authorization'), undefined);
+  assert.equal(calls[0].init.body, undefined);
+  assert.deepEqual(await restoreSession(), {
+    accessToken: 'GUEST_AT',
+    refreshToken: 'GUEST_RT',
+    userId: 'guest-1',
+  });
+});
+
+test('게스트 시작 실패 뒤 재시도는 같은 기기 UUID를 재사용한다', async () => {
+  stub([
+    {
+      status: 503,
+      body: { error: { code: 'UPSTREAM_UNAVAILABLE', message: '잠시 후 다시 시도해 주세요.' } },
+    },
+    session('GUEST', 'guest-1'),
+  ]);
+
+  const error = await guestLogin().then(
+    () => {
+      throw new Error('게스트 시작은 실패해야 합니다.');
+    },
+    (caught: ApiError) => caught,
+  );
+  assert.equal(error.code, 'UPSTREAM_UNAVAILABLE');
+  assert.equal(getSession(), null);
+  await guestLogin();
+  assert.equal(header(calls[0], 'X-Device-Id'), header(calls[1], 'X-Device-Id'));
+  assert.equal(getSession()?.userId, 'guest-1');
+});
+
+test('명시 로그아웃 뒤 다음 게스트 시작은 새 기기 UUID를 쓰고 응답 유실 재시도는 기존 UUID를 유지한다', async () => {
+  stub([
+    session('GUEST', 'guest-1'),
+    { status: 200, body: { data: { revoked: true } } },
+    {
+      status: 503,
+      body: { error: { code: 'UPSTREAM_UNAVAILABLE', message: '잠시 후 다시 시도해 주세요.' } },
+    },
+    session('GUEST', 'guest-2'),
+  ]);
+
+  await guestLogin();
+  const firstDeviceId = header(calls[0], 'X-Device-Id');
+  await logout();
+  await guestLogin().catch(() => {});
+  await guestLogin();
+
+  const nextDeviceId = header(calls[2], 'X-Device-Id');
+  assert.notEqual(nextDeviceId, firstDeviceId);
+  assert.equal(header(calls[3], 'X-Device-Id'), nextDeviceId);
+});
+
+test('로그아웃 때 기기 ID 삭제 실패가 호출부에서 삼켜져도 다음 게스트 요청 전 재시도한다', async () => {
+  stub([
+    session('GUEST', 'guest-1'),
+    { status: 200, body: { data: { revoked: true } } },
+    session('GUEST', 'guest-2'),
+  ]);
+  await guestLogin();
+  const oldDeviceId = header(calls[0], 'X-Device-Id');
+
+  remove.mockImplementation(async (key: string) => {
+    if (key === 'gromo.guestDeviceId') throw new Error('기기 ID 삭제 실패');
+    return realRemove(key);
+  });
+  await logout().catch(() => {});
+  assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), '1');
+
+  remove.mockImplementation(realRemove);
+  let failFreshIdOnce = true;
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.guestDeviceId' && failFreshIdOnce) {
+      failFreshIdOnce = false;
+      throw new Error('새 기기 ID 저장 실패');
+    }
+    return realWrite(key, value);
+  });
+  await guestLogin().catch(() => {});
+  assert.equal(calls.length, 2);
+  assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), '1');
+
+  write.mockImplementation(realWrite);
+  await guestLogin();
+  assert.notEqual(header(calls[2], 'X-Device-Id'), oldDeviceId);
+  assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), null);
+});
+
+test('로그아웃 중 대기하던 게스트 기기 ID 획득은 회전을 기다리고 이전 generation 요청을 보내지 않는다', async () => {
+  const oldDeviceId = '11111111-1111-4111-8111-111111111111';
+  await SecureStore.setItemAsync('gromo.guestDeviceId', oldDeviceId);
+  let releaseIdRead!: () => void;
+  let signalIdRead!: () => void;
+  const idReadStarted = new Promise<void>((resolve) => {
+    signalIdRead = resolve;
+  });
+  const idReadGate = new Promise<void>((resolve) => {
+    releaseIdRead = resolve;
+  });
+  read.mockImplementation(async (key: string) => {
+    if (key === 'gromo.guestDeviceId') {
+      signalIdRead();
+      await idReadGate;
+    }
+    return realRead(key);
+  });
+
+  const startingGuest = guestLogin();
+  await idReadStarted;
+  const loggingOut = logout();
+  releaseIdRead();
+  await loggingOut;
+  const staleLoginError = await startingGuest.then(
+    () => null,
+    (error: ApiError) => error,
+  );
+  assert.equal(staleLoginError?.code, CLIENT_STALE_SESSION);
+  assert.equal(calls.length, 0);
+
+  read.mockImplementation(realRead);
+  stub([session('GUEST', 'guest-after-logout')]);
+  await guestLogin();
+  assert.notEqual(header(calls[0], 'X-Device-Id'), oldDeviceId);
 });
 
 test('login — 시도 id 를 헤더로 보내고 토큰을 보안 저장소에 넣는다', async () => {
@@ -71,6 +223,14 @@ test('login — 시도 id 를 헤더로 보내고 토큰을 보안 저장소에 
   // 인증 세션이 «교체»됐으므로 세대가 오른다.
   assert.equal(sessionGeneration(), before + 1);
   assert.deepEqual(await restoreSession(), { accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('login — 약관 버전이 비어 있으면 서버 요청을 보내지 않는다', async () => {
+  await assert.rejects(
+    login('apple', 'apple-jwt', '  '),
+    (error: unknown) => error instanceof ApiError && error.code === 'TERMS_VERSION_REQUIRED',
+  );
+  assert.equal(calls.length, 0);
 });
 
 test('login 실패는 저장소를 건드리지 않는다', async () => {
@@ -110,6 +270,31 @@ test('kakao 는 access_token, 게스트 승격·계정 전환은 AT 를 함께 �
   assert.deepEqual(JSON.parse(calls[0].init.body as string).credential, {
     type: 'access_token',
     value: 'kakao-token',
+  });
+});
+
+test('계정 전환 확정 로그인은 원 게스트 AT와 확정 신호를 함께 보낸다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'g1' });
+  stub([session('MEMBER', 'u2')]);
+
+  await login('apple', 'apple-jwt', '2026-09', {
+    attemptId: 'confirmed-attempt',
+    attachCurrentSession: true,
+    accountSwitchConfirmed: true,
+  });
+
+  assert.equal(header(calls[0], 'Authorization'), 'Bearer GUEST_AT');
+  assert.equal(JSON.parse(calls[0].init.body as string).accountSwitchConfirmed, true);
+});
+
+test('line 은 access_token 자격으로 로그인한다', async () => {
+  stub([session('LINE', 'u-line')]);
+
+  await login('line', 'line-token', '2026-09');
+
+  assert.deepEqual(JSON.parse(calls[0].init.body as string).credential, {
+    type: 'access_token',
+    value: 'line-token',
   });
 });
 
@@ -303,6 +488,136 @@ test('logout — 서버 호출이 실패해도 로컬 세션은 이미 비어 �
   assert.equal(await restoreSession(), null);
 });
 
+test('Android logout — tombstone을 어디에도 못 쓰면 세션·서버·기기 ID를 건드리지 않고 실패한다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const writeAsync = AsyncStorage.setItem as jest.Mock;
+  const realWriteAsync = writeAsync.getMockImplementation() as (
+    key: string,
+    value: string,
+  ) => Promise<void>;
+  try {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    await SecureStore.setItemAsync('gromo.guestDeviceId', 'device-1');
+    const generation = sessionGeneration();
+    writeAsync.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.androidLegacyLogoutPending') throw new Error('AsyncStorage 쓰기 실패');
+      return realWriteAsync(key, value);
+    });
+    write.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.androidLegacyLogoutPending') throw new Error('키체인 쓰기 실패');
+      return realWrite(key, value);
+    });
+    stub([{ status: 200, body: { data: { revoked: true } } }]);
+
+    await assert.rejects(logout(), LogoutNotDurableError);
+
+    assert.equal(calls.length, 0);
+    assert.equal(getSession()?.userId, 'u1');
+    assert.equal(sessionGeneration(), generation);
+    assert.equal(await SecureStore.getItemAsync('gromo.guestDeviceId'), 'device-1');
+    assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), null);
+    assert.equal((await restoreSession())?.userId, 'u1');
+  } finally {
+    writeAsync.mockImplementation(realWriteAsync);
+    write.mockImplementation(realWrite);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('logout — 게스트 ID 회전 표식을 어디에도 못 쓰면 세션·서버·기기 ID를 건드리지 않고 실패한다', async () => {
+  const writeAsync = AsyncStorage.setItem as jest.Mock;
+  const realWriteAsync = writeAsync.getMockImplementation() as (
+    key: string,
+    value: string,
+  ) => Promise<void>;
+  try {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'guest-1' });
+    await SecureStore.setItemAsync('gromo.guestDeviceId', 'device-1');
+    writeAsync.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.guestDeviceIdRotationPending') throw new Error('AsyncStorage 쓰기 실패');
+      return realWriteAsync(key, value);
+    });
+    write.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.guestDeviceIdRotationPending') throw new Error('키체인 쓰기 실패');
+      return realWrite(key, value);
+    });
+    stub([{ status: 200, body: { data: { revoked: true } } }]);
+
+    await assert.rejects(logout(), LogoutNotDurableError);
+
+    assert.equal(calls.length, 0);
+    assert.equal(getSession()?.userId, 'guest-1');
+    assert.equal(await SecureStore.getItemAsync('gromo.guestDeviceId'), 'device-1');
+  } finally {
+    writeAsync.mockImplementation(realWriteAsync);
+    write.mockImplementation(realWrite);
+  }
+});
+
+test('logout — 호출부가 확인한 준비 결과를 재사용하고 다시 준비하지 않는다', async () => {
+  const writeAsync = AsyncStorage.setItem as jest.Mock;
+  const realWriteAsync = writeAsync.getMockImplementation() as (
+    key: string,
+    value: string,
+  ) => Promise<void>;
+  try {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    // 첫 준비는 이미 성공했다. 두 번째 준비를 시도하면 이 쓰기 실패로 정리가 취소된다.
+    writeAsync.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.guestDeviceIdRotationPending') throw new Error('AsyncStorage 쓰기 실패');
+      return realWriteAsync(key, value);
+    });
+    write.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.guestDeviceIdRotationPending') throw new Error('키체인 쓰기 실패');
+      return realWrite(key, value);
+    });
+    stub([{ status: 200, body: { data: { revoked: true } } }]);
+
+    await logout(Promise.resolve());
+
+    assert.equal(getSession(), null);
+    assert.equal(calls.length, 1);
+    assert.equal(header(calls[0], 'X-Refresh-Token'), 'RT');
+  } finally {
+    writeAsync.mockImplementation(realWriteAsync);
+    write.mockImplementation(realWrite);
+  }
+});
+
+test('Android logout — 확인된 준비 결과가 있으면 tombstone을 다시 쓰지 않고 정리한다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const writeAsync = AsyncStorage.setItem as jest.Mock;
+  const realWriteAsync = writeAsync.getMockImplementation() as (
+    key: string,
+    value: string,
+  ) => Promise<void>;
+  try {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    // 준비 단계는 이미 tombstone을 확정했다. 이후 두 번째 쓰기는 모두 실패하는 상황이다.
+    writeAsync.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.androidLegacyLogoutPending') throw new Error('AsyncStorage 쓰기 실패');
+      return realWriteAsync(key, value);
+    });
+    write.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.androidLegacyLogoutPending') throw new Error('키체인 쓰기 실패');
+      return realWrite(key, value);
+    });
+    stub([{ status: 200, body: { data: { revoked: true } } }]);
+
+    await logout(Promise.resolve());
+
+    assert.equal(getSession(), null);
+    assert.equal(calls.length, 1);
+    assert.equal(await restoreSession(), null);
+  } finally {
+    writeAsync.mockImplementation(realWriteAsync);
+    write.mockImplementation(realWrite);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
 test('logout — 로컬 삭제가 실패해도 서버 폐기는 보낸다', async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   remove.mockImplementation(async (key: string) => {
@@ -346,6 +661,77 @@ test('checkSession — 정상이면 계정을 준다', async () => {
   const check = await checkSession();
   assert.equal(check.status, 'active');
   assert.equal(check.status === 'active' && check.account.name, '수빈');
+});
+
+test('checkSession — Android legacy RT를 보내지 않고 /me 성공 뒤에도 원본 키와 pending을 보존한다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const jwt = (sub: string) => `header.${btoa(JSON.stringify({ sub, sid: 'sid-1' }))}.signature`;
+  await AsyncStorage.multiSet([
+    ['gromo:accessToken', jwt('legacy-user')],
+    ['gromo:refreshToken', 'legacy-rt'],
+  ]);
+  await restoreSession();
+  stub([
+    {
+      status: 200,
+      body: {
+        data: {
+          id: 'legacy-user',
+          name: null,
+          catColor: null,
+          mainIslandId: null,
+          linkedProviders: [],
+          onboardingComplete: false,
+        },
+      },
+    },
+  ]);
+
+  try {
+    assert.equal((await checkSession()).status, 'active');
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.endsWith('/me'));
+    assert.equal(header(calls[0], 'Authorization'), `Bearer ${jwt('legacy-user')}`);
+    assert.equal(calls[0].init.method, 'GET');
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), jwt('legacy-user'));
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-rt');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), '1');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), null);
+  } finally {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('checkSession — /me 401이면 SecureStore 사본만 비우고 legacy 원본과 pending을 보존한다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const jwt = (sub: string) => `header.${btoa(JSON.stringify({ sub, sid: 'sid-1' }))}.signature`;
+  await AsyncStorage.multiSet([
+    ['gromo:accessToken', jwt('legacy-user')],
+    ['gromo:refreshToken', 'legacy-rt'],
+  ]);
+  await restoreSession();
+  stub([
+    { status: 401, body: { error: { code: 'UNAUTHORIZED', message: 'unauthorized' } } },
+    { status: 401, body: { error: { code: 'REFRESH_TOKEN', message: 'invalid refresh token' } } },
+  ]);
+
+  try {
+    assert.equal((await checkSession()).status, 'rejected');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].url.endsWith('/me'));
+    assert.equal(header(calls[0], 'Authorization'), `Bearer ${jwt('legacy-user')}`);
+    assert.ok(calls[1].url.endsWith('/auth/sessions/current/refresh'));
+    assert.equal(header(calls[1], 'X-Refresh-Token'), 'legacy-rt');
+    assert.equal(getSession(), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), jwt('legacy-user'));
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-rt');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), '1');
+  } finally {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
 });
 
 test('checkSession — 404 USER_NOT_FOUND 는 거절이다 (다른 기기에서 탈퇴)', async () => {

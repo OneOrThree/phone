@@ -1,5 +1,7 @@
 package com.oneorthree.phone.notification.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
@@ -16,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -45,16 +46,6 @@ import java.util.stream.Collectors;
 @Transactional
 public class InactiveReturnNotificationService {
 
-    /**
-     * last_active_at date diff 판정 타임존 고정 — 리그 도메인과 통일.
-     * ⚠️ UserActivityService 는 더 이상 KST 를 쓰지 않는다 (GROMO-903) — 활동 갱신 스로틀이 달력 하루에서
-     * 슬라이딩 창으로 바뀌어, last_active_at 은 실제 마지막 활동보다 최대 app.user-activity.touch-interval
-     * 만큼 과거일 수 있다. 자정 직후 그 창 안에 그날 첫 활동을 한 유저는 여기서 한 단계 이르게 판정된다.
-     * 날짜 경계를 정하는 책임은 이제 이 클래스 단독이다 — 비-KR 유저에게 KST 고정이 부정확한 문제(발송 시각
-     * 포함)는 GROMO-564(리그 마감 비KR 타임존)와 같은 부류로, 존 정책은 후속 티켓에서 함께 다룬다.
-     */
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-
     private final UserRepository userRepository;
     private final UserQueryService userQueryService;
     private final PushNotificationService pushNotificationService;
@@ -73,6 +64,12 @@ public class InactiveReturnNotificationService {
      *            부르면 중복 발송된다
      */
     public void sendInactiveReturnNotifications(Instant now) {
+        // last_active_at date diff 판정 타임존은 KST 고정 — 리그 도메인과 통일.
+        // ⚠️ UserActivityService 는 더 이상 KST 를 쓰지 않는다 (GROMO-903) — 활동 갱신 스로틀이 달력 하루에서
+        // 슬라이딩 창으로 바뀌어, last_active_at 은 실제 마지막 활동보다 최대 app.user-activity.touch-interval
+        // 만큼 과거일 수 있다. 자정 직후 그 창 안에 그날 첫 활동을 한 유저는 여기서 한 단계 이르게 판정된다.
+        // 날짜 경계를 정하는 책임은 이제 이 클래스 단독이다 — 비-KR 유저에게 KST 고정이 부정확한 문제(발송 시각
+        // 포함)는 GROMO-564(리그 마감 비KR 타임존)와 같은 부류로, 존 정책은 후속 티켓에서 함께 다룬다.
         LocalDate today = now.atZone(KST).toLocalDate();
 
         // 단계별 대상 유저 수집 — 유저당 정확히 한 단계에만 든다(date diff 는 단일 값).

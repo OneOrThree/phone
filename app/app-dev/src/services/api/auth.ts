@@ -4,23 +4,29 @@
  *
  * 서버 계약(business-api):
  *  - `POST   /auth/sessions`          소셜 로그인. `X-Login-Attempt-Id`(UUID36) 필수, AT 는 선택.
+ *  - `POST   /auth/sessions/guest`    게스트 시작. 저장된 `X-Device-Id`(UUID36) 필수.
  *  - `DELETE /auth/sessions/current`  로그아웃. `X-Refresh-Token` 필수.
  *  - `GET    /me`                     내 계정.
  */
+import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, CLIENT_STALE_SESSION, request, uuid } from './client';
 import {
   clearRejectedSession,
   clearSession,
   getSession,
+  LogoutNotDurableError,
+  prepareExplicitLogout,
   saveSession,
   sessionGeneration,
 } from './session';
+import type { Session } from './session';
 
 /**
- * 정책(2026-09-14 「인증·게스트 계정」): 로그인 수단은 이 셋뿐이고, 회원 하나에 하나만 연결한다.
- * 서버(`SocialCredential.PROVIDERS`)는 line·instagram·facebook 까지 6종을 받지만 2.0 은 셋만 쓴다.
+ * 정책(2026-09-14 「인증·게스트 계정」, GROMO-1967): 2.0 로그인 수단은
+ * Apple·Google과 국가별 Kakao/LINE이고, 회원 하나에 하나만 연결한다.
  */
-export type Provider = 'apple' | 'google' | 'kakao';
+export type Provider = 'apple' | 'google' | 'kakao' | 'line';
 
 /**
  * 제공자별 자격 종류(`SocialCredential.supportedKind`). **어긋나면 서버가 422 로 거절한다.**
@@ -31,6 +37,7 @@ const CREDENTIAL_KIND: Record<Provider, string> = {
   apple: 'id_token',
   google: 'id_token',
   kakao: 'access_token',
+  line: 'access_token',
 };
 
 export interface LoginOptions {
@@ -49,6 +56,8 @@ export interface LoginOptions {
    * 세션을 실으면 서버가 401 로 거절한다).
    */
   accountSwitchConfirmed?: boolean;
+  /** 로그인 세션 공개 직전의 내부 관측 훅 — 전환 원인과 외부 세션 변경을 구분한다. */
+  onSessionPublished?: (session: Session, generation: number) => void;
 }
 
 export interface LoginResult {
@@ -57,6 +66,144 @@ export interface LoginResult {
   userId: string;
   /** 고양이 색·이름까지 고른 계정인지. 재시작 복구에서 이 값이 정본이다. */
   onboardingComplete: boolean;
+}
+
+const GUEST_DEVICE_ID_KEY = 'gromo.guestDeviceId';
+const GUEST_DEVICE_ID_ROTATION_PENDING_KEY = 'gromo.guestDeviceIdRotationPending';
+let guestDeviceIdFlight: Promise<string> | null = null;
+let guestDeviceIdQueue: Promise<unknown> = Promise.resolve();
+let guestDeviceIdEpoch = 0;
+let guestDeviceIdRotationFlight: Promise<void> | null = null;
+let guestDeviceIdRotationRequested = false;
+
+function serializeGuestDeviceId<T>(work: () => Promise<T>): Promise<T> {
+  const done = guestDeviceIdQueue.then(work, work);
+  guestDeviceIdQueue = done.catch(() => undefined);
+  return done;
+}
+
+async function finishGuestDeviceIdRotation(): Promise<void> {
+  const [asyncMarker, secureMarker] = await Promise.all([
+    AsyncStorage.getItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY),
+    SecureStore.getItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY),
+  ]);
+  if (!guestDeviceIdRotationRequested && asyncMarker !== '1' && secureMarker !== '1') return;
+  await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
+  const fresh = uuid();
+  await SecureStore.setItemAsync(GUEST_DEVICE_ID_KEY, fresh);
+  await AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+  await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+  guestDeviceIdRotationRequested = false;
+}
+
+async function writeGuestDeviceIdRotationMarker(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1');
+  } catch (error) {
+    try {
+      await SecureStore.setItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1');
+    } catch {
+      throw new LogoutNotDurableError(error);
+    }
+  }
+}
+
+/**
+ * 명시 로그아웃의 선행 단계. 게스트 기기 ID 회전 의도와 세션 로그아웃 tombstone을 모두 기기에
+ * 남겨야 성공한다. 하나라도 못 남기면 {@link LogoutNotDurableError}를 던지고 아무것도 폐기하지
+ * 않는다 — 화면은 이 결과로 로그인 화면 전환을 막는다. 표식 없이 로그아웃하면 재시작 뒤 남은
+ * 기존 ID가 다시 전송돼 명시적으로 떠난 게스트 계정이 재개된다.
+ */
+export function prepareLogout(): Promise<void> {
+  return prepareExplicitLogout(writeGuestDeviceIdRotationMarker, async () => {
+    // 로그아웃을 취소하므로 회전 의도도 거둔다. 남기면 계속 로그인된 게스트의 복구 ID가 바뀐다.
+    await Promise.all([
+      AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY).catch(() => {}),
+      SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY).catch(() => {}),
+    ]);
+  });
+}
+
+/** Durable logout intent; a later guest request retries rotation if SecureStore deletion failed. */
+function rotateGuestDeviceId(intentRecorded: Promise<void>): Promise<void> {
+  guestDeviceIdFlight = null;
+  guestDeviceIdEpoch += 1;
+  guestDeviceIdRotationRequested = true;
+  const rotation = serializeGuestDeviceId(async () => {
+    // 내구 회전 표식이 확정된 뒤에만 기존 ID를 지운다. 확정 실패면 로그아웃 자체가 취소된다.
+    try {
+      await intentRecorded;
+    } catch (error) {
+      guestDeviceIdRotationRequested = false;
+      throw error;
+    }
+    await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
+    await AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+    await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+    guestDeviceIdRotationRequested = false;
+  });
+  guestDeviceIdRotationFlight = rotation;
+  void rotation.then(
+    () => {
+      if (guestDeviceIdRotationFlight === rotation) guestDeviceIdRotationFlight = null;
+    },
+    () => {
+      if (guestDeviceIdRotationFlight === rotation) guestDeviceIdRotationFlight = null;
+    },
+  );
+  return rotation;
+}
+
+/** 재시도에도 같은 기기 ID를 보내야 201 응답 유실이 중복 게스트 계정이 되지 않는다. */
+async function guestDeviceId(): Promise<string> {
+  guestDeviceIdFlight ??= (async () => {
+    return serializeGuestDeviceId(async () => {
+      await finishGuestDeviceIdRotation();
+      const saved = await SecureStore.getItemAsync(GUEST_DEVICE_ID_KEY);
+      if (saved && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saved))
+        return saved;
+      const created = uuid();
+      await SecureStore.setItemAsync(GUEST_DEVICE_ID_KEY, created);
+      return created;
+    });
+  })();
+  const flight = guestDeviceIdFlight;
+  try {
+    return await flight;
+  } finally {
+    if (guestDeviceIdFlight === flight) guestDeviceIdFlight = null;
+  }
+}
+
+/** 게스트도 소셜 로그인과 같은 세션 묶음을 보안 저장소에 커밋한다. */
+export async function guestLogin(): Promise<LoginResult> {
+  const generation = sessionGeneration();
+  const previous = getSession();
+  let deviceEpoch = guestDeviceIdEpoch;
+  let deviceId = await guestDeviceId();
+  while (deviceEpoch !== guestDeviceIdEpoch) {
+    deviceEpoch = guestDeviceIdEpoch;
+    await guestDeviceIdRotationFlight?.catch(() => {});
+    deviceId = await guestDeviceId();
+  }
+  if (generation !== sessionGeneration())
+    throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+  const result = await request<LoginResult>('/auth/sessions/guest', {
+    method: 'POST',
+    auth: false,
+    generation,
+    headers: { 'X-Device-Id': deviceId },
+  });
+  const published = await saveSession(
+    { accessToken: result.accessToken, refreshToken: result.refreshToken, userId: result.userId },
+    generation,
+  );
+  if (!published) {
+    revokeUnlessCurrent(result.refreshToken);
+    throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+  }
+  if (previous) revokeUnlessCurrent(previous.refreshToken);
+  return result;
 }
 
 /** `GET /me` 의 data. `name`·`catColor`·`mainIslandId` 는 온보딩 전·무소속이면 null 이다. */
@@ -85,15 +232,21 @@ export async function login(
     attemptId = uuid(),
     attachCurrentSession = false,
     accountSwitchConfirmed = false,
+    onSessionPublished,
   }: LoginOptions = {},
 ): Promise<LoginResult> {
+  if (!termsVersion.trim())
+    throw new ApiError(
+      'TERMS_VERSION_REQUIRED',
+      '약관 버전이 설정되지 않아 소셜 로그인을 사용할 수 없어요.',
+      0,
+    );
   // 준비: 전환 «전에» 이전 세션의 RT 와 세대를 쥔다. 새 세션을 커밋한 뒤엔 꺼낼 수 없다.
   const generation = sessionGeneration();
   const previous = getSession();
   const result = await request<LoginResult>('/auth/sessions', {
     method: 'POST',
-    // 충돌 확정 요청에 AT 를 실으면 «폐기된 게스트 세션»이라 401 이다 — 구조적으로 뺀다.
-    auth: attachCurrentSession && !accountSwitchConfirmed,
+    auth: attachCurrentSession,
     generation,
     headers: { 'X-Login-Attempt-Id': attemptId },
     body: {
@@ -114,6 +267,7 @@ export async function login(
       userId: result.userId,
     },
     generation,
+    onSessionPublished,
   );
   if (!published) {
     // 버려진 로그인의 **서버** 세션은 그대로 살아 있다 — 방금 받은 RT 로 그 세션만 끊는다.
@@ -160,15 +314,30 @@ function revokeRefreshToken(refreshToken: string): Promise<{ revoked: boolean }>
  * 서버가 401 로 거절해 **RT 만 보냈으면 폐기됐을 서버 세션이 그대로 남는다**(LLD §2.4 :108
  * 「만료 AT 를 실어 보내면 401 이므로 앱은 RT 만으로 로그아웃할 수 있다」).
  */
-export async function logout(): Promise<void> {
+export async function logout(prepared?: Promise<void>): Promise<void> {
   let refreshToken = getSession()?.refreshToken;
+  // 게스트 회전 표식·tombstone을 남기지 못하면 로컬도 서버도 건드리지 않고 실패한다 — 세션을
+  // 계속 쓰는 편이 «로그아웃된 줄 알았는데 재실행 때 되살아나는» 상태보다 낫다.
+  // 준비·회전·정리를 모두 동기적으로 줄에 세워, 늦은 로그인 저장이 정리보다 앞서지 못하게 한다.
+  // 호출부가 이미 준비를 끝냈으면(화면 전환 판단에 쓴 결과) 그 결과를 그대로 쓴다.
+  // 다시 준비하면 두 번째 실패가 삼켜져 화면은 로그아웃인데 세션이 남는다.
+  const preparation = prepared ?? prepareLogout();
   // 로컬 삭제와 서버 폐기는 **서로 독립**이다(LLD §2.4 「양쪽 실패에도 각각 진행」).
   // 여기만 fence 가 **없다** — 401 정리·checkSession 과 달리 사용자가 직접 누른 로그아웃은
   // 그 사이 로그인이 끝났더라도 이겨야 한다. 무엇을 지웠는지는 cleared 로 되받아 교정한다.
   // 로컬을 먼저 끝내되(느린 네트워크 중 앱이 죽어도 토큰이 남지 않는다) 키체인 삭제가
   // 던졌다는 이유로 서버 폐기를 건너뛰지 않는다 — 건너뛰면 서버 세션이 그대로 남는다.
   // clearSession 은 커밋 마커를 먼저 지우고, 실패해도 나머지를 마저 지운 뒤에 던진다.
-  const clearFailure = await clearSession().then(
+  const guestDeviceRotationFlight = rotateGuestDeviceId(preparation);
+  const clearSessionFlight = clearSession(undefined, false, true, preparation);
+  try {
+    await preparation;
+  } catch (error) {
+    void guestDeviceRotationFlight.catch(() => {});
+    void clearSessionFlight.catch(() => {});
+    throw error;
+  }
+  const clearFailure = await clearSessionFlight.then(
     (cleared) => {
       // 폐기 대상은 «정리 시점»의 세션이다. 진행 중이던 로그인이 줄 앞에서 먼저 공개했으면
       // 위에서 읽은 RT 는 이미 옛 세션의 것이고, 새 세션이 서버에 살아남는다.
@@ -177,8 +346,20 @@ export async function logout(): Promise<void> {
     },
     (error: unknown) => error ?? new Error('세션 삭제 실패'),
   );
+  if (clearFailure instanceof LogoutNotDurableError) {
+    void guestDeviceRotationFlight.catch(() => {});
+    throw clearFailure;
+  }
+  // 게스트 장치 ID는 평소 응답 유실 재시도 멱등성을 위해 보존하지만, 명시 로그아웃은 세션 정리보다
+  // 먼저 폐기를 시작한다 — 로그인 화면이 열리자마자 누른 게스트 시작이 옛 ID를 읽지 않도록
+  // guestLogin 이 이 로테이션을 기다린다. 삭제가 실패해도 표식이 남아 다음 게스트 요청 전에 재시도한다.
+  let guestDeviceIdClearFailure: unknown = null;
+  await guestDeviceRotationFlight.catch((error: unknown) => {
+    guestDeviceIdClearFailure = error;
+  });
   if (refreshToken) await revokeRefreshToken(refreshToken);
   if (clearFailure) throw clearFailure;
+  if (guestDeviceIdClearFailure) throw guestDeviceIdClearFailure;
 }
 
 export function me(): Promise<Account> {
@@ -188,7 +369,11 @@ export function me(): Promise<Account> {
 export type SessionCheck =
   | { status: 'active'; account: Account }
   /** 서버가 이 세션을 거절했다 — 답은 재로그인뿐이고 로컬 세션은 비었다. */
-  | { status: 'rejected' }
+  | {
+      status: 'rejected';
+      /** `userNotFound` 는 계정이 서버에서 사라졌다(탈퇴)는 확정 신호다. 탈퇴 로컬 정리의 재개가 쓴다. */
+      reason: 'userNotFound' | 'unauthorized';
+    }
   /** 확인하지 못했을 뿐이다(네트워크·타임아웃·서버 장애). 세션은 그대로 둔다. */
   | { status: 'unreachable' };
 
@@ -208,7 +393,8 @@ export async function checkSession(): Promise<SessionCheck> {
   // 끝났으면 옛 세션의 거절 판정으로 새 세션을 지우지도, 로그인 화면으로 보내지도 않는다.
   const generation = sessionGeneration();
   try {
-    return { status: 'active', account: await me() };
+    const account = await me();
+    return { status: 'active', account };
   } catch (thrown) {
     const error = thrown as ApiError;
     // 거절이면 저장본까지 비운다. 401 은 client 가 이미 비운 경우가 대부분이고 중복 호출은
@@ -220,8 +406,9 @@ export async function checkSession(): Promise<SessionCheck> {
       //  - 없으면(정리 완료·로그아웃) 거절이 맞다. 키체인 삭제가 실패했어도 메모리 세션은 비었다.
       //  - 있으면 우리가 확인한 그 세션일 때만 지운다(404 경로). 그 사이 새 로그인이 공개한
       //    세션이면 fence 에 걸리고, 옛 세션의 거절 판정으로 새 세션을 끊지 않는다.
-      if (getSession() === null) return { status: 'rejected' };
-      if (await clearRejectedSession(generation)) return { status: 'rejected' };
+      const reason = error.code === 'USER_NOT_FOUND' ? 'userNotFound' : 'unauthorized';
+      if (getSession() === null) return { status: 'rejected', reason };
+      if (await clearRejectedSession(generation)) return { status: 'rejected', reason };
     }
     return { status: 'unreachable' };
   }

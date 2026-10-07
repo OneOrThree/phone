@@ -11,6 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -59,6 +60,8 @@ class GroupBetEarlyWinLockChoiceTest {
     private GroupBetJudge groupBetJudge;
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private Clock clock;
 
     @InjectMocks
     private GroupBetEarlyWinConfirmer groupBetEarlyWinConfirmer;

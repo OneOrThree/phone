@@ -1,5 +1,6 @@
 package com.oneorthree.business.config;
 
+import com.oneorthree.business.common.http.Deadline;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -27,6 +28,15 @@ public class UpstreamConfigProperties {
      */
     private Target realtime = withMaxConnections(2);
     private Composition composition = new Composition();
+
+    /**
+     * 공개 요청 하나가 상류 호출들에 쓸 공유 시간 예산 — {@code composition.deadline} 값으로
+     * 지금부터 시작하는 새 {@link Deadline}. 화면 조합 컨트롤러뿐 아니라 단건 위임 컨트롤러도 같은
+     * 값을 쓴다.
+     */
+    public Deadline deadline() {
+        return Deadline.startingNow(composition.getDeadline());
+    }
 
     /** 대상 넷과 조합 worker의 합계. Tomcat·JVM·Redis·미리보기/PDF PID 여유는 별도로 남긴다. */
     public void validateWorkerBudget() {

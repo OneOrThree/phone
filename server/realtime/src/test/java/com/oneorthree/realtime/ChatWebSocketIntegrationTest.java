@@ -91,6 +91,10 @@ class ChatWebSocketIntegrationTest {
     @MockitoBean
     private GroupClient groupClient;
 
+    /** 차단 필터(GROMO-2182)는 fail-closed 라 상류가 없으면 남의 말이 전부 막힌다 — 목의 기본값(빈 집합)으로 «차단 없음». */
+    @MockitoBean
+    private com.oneorthree.realtime.block.client.BlockClient blockClient;
+
     @Autowired
     private ChatFanout chatFanout;
 

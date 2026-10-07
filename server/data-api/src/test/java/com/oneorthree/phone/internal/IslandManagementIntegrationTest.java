@@ -355,6 +355,11 @@ class IslandManagementIntegrationTest {
                 f.islandId().toString())).isEqualTo(before + 2);
         assertThat(count("select count(*) from event_outbox where subject_id=?"
                 + " and params->>'changeKind'='MEMBER_ADDED'", f.islandId().toString())).isEqualTo(1);
+        // memberUserId 는 신청자(applicant)여야 한다 — 승인한 방장(f.host())을 주면 Realtime 이 엉뚱한
+        // 사람의 멤버십 캐시를 지운다(GROMO-2140).
+        assertThat(count("select count(*) from event_outbox where subject_id=?"
+                + " and params->>'changeKind'='MEMBER_ADDED' and params->>'memberUserId'=?",
+                f.islandId().toString(), applicant.toString())).isEqualTo(1);
         assertThat(count("select count(*) from user_island_contexts where user_id=?"
                 + " and current_island_id=?", applicant, f.islandId())).isZero();
     }
@@ -467,6 +472,11 @@ class IslandManagementIntegrationTest {
                 + " and left_reason='KICKED'", f.islandId(), f.member())).isEqualTo(1);
         assertThat(count("select count(*) from event_outbox where subject_id=?"
                 + " and params->>'changeKind'='MEMBER_REMOVED'", f.islandId().toString())).isEqualTo(1);
+        // memberUserId 는 강퇴 «대상»(f.member())이어야 한다 — 강퇴한 방장(f.host())을 주면 Realtime 이
+        // 강퇴당한 유저가 아니라 방장의 멤버십 캐시를 지운다(GROMO-2140, dev 재현 2026-09-25).
+        assertThat(count("select count(*) from event_outbox where subject_id=?"
+                + " and params->>'changeKind'='MEMBER_REMOVED' and params->>'memberUserId'=?",
+                f.islandId().toString(), f.member().toString())).isEqualTo(1);
 
         assertThatThrownBy(() -> management.kick(f.host(), f.islandId(), f.member(), UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.NOT_FOUND);
@@ -511,6 +521,10 @@ class IslandManagementIntegrationTest {
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.MEMBER_ONLY);
         assertThat(count("select count(*) from event_outbox where subject_id=?"
                 + " and params->>'changeKind'='MEMBER_REMOVED'", f.islandId().toString())).isEqualTo(1);
+        // 자진 탈퇴는 actorId·memberUserId 가 둘 다 본인이다.
+        assertThat(count("select count(*) from event_outbox where subject_id=?"
+                + " and params->>'changeKind'='MEMBER_REMOVED' and params->>'memberUserId'=?",
+                f.islandId().toString(), f.member().toString())).isEqualTo(1);
     }
 
     @Test

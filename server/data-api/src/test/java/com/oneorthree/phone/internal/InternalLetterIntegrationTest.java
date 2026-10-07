@@ -41,6 +41,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -124,7 +125,10 @@ class InternalLetterIntegrationTest {
                 .andExpect(jsonPath("$.senderId").value(a.toString()))
                 .andExpect(jsonPath("$.receiverId").value(b.toString()))
                 .andExpect(jsonPath("$.content").value("안녕"))   // strip 된 본문이 저장된다
-                .andExpect(jsonPath("$.readAt").value(nullValue()));
+                .andExpect(jsonPath("$.readAt").value(nullValue()))
+                // createdAt 은 @CreationTimestamp 라 flush 전에는 null 이다 — saveAndFlush 로 채워야
+                // Business 필수 필드 검증(400 UPSTREAM_CONTRACT_ERROR)에 걸리지 않는다(GROMO-2174).
+                .andExpect(jsonPath("$.createdAt").value(notNullValue()));
         assertThat(countLetters()).isEqualTo(1);
     }
 

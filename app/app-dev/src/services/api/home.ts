@@ -2,7 +2,9 @@
  * 홈 화면 도메인 모듈(GROMO-2007). 공개 business-api 의 무접두 경로만 부른다.
  *
  * 계약(동결표):
- *  - `GET    /screens/home?date&timezone`              홈 원자 조회 — 조각이 모두 필수다.
+ *  - `GET    /screens/home?date&timezone`              홈 원자 조회 — 조각이 모두 필수다. `buildings`
+ *                                                      (완공 건물 id, canonical7 부분집합)·`members`
+ *                                                      (현재 섬 주민 첫 페이지)를 한 응답에 담는다(GROMO-2151).
  *  - `GET    /islands/{islandId}/construction-options` 미완공 건물만 `items` 에 온다.
  *  - `GET    /islands/{islandId}/members?cursor&limit` 주민 한 페이지 — `nextCursor` 가 오면
  *                                                      호출부가 같은 API 로 끝까지 잇는다.
@@ -112,6 +114,10 @@ export type HomeScreen = {
   wallets: HomeWallets;
   playback: Playback | null;
   playbackAvailability: 'available' | 'facility_locked';
+  /** 완공 건물 id — canonical7 의 부분집합, canonical 순서(GROMO-2151). */
+  buildings: BuildingId[];
+  /** 현재 섬 주민 첫 페이지 — `GET /islands/{islandId}/members` 와 같은 DTO(GROMO-2151). */
+  members: MembersPage;
 };
 
 export type ConstructionItem = {
@@ -132,7 +138,7 @@ export type ConstructionOptions = {
   /** 섬 공동 통장 잔액(별도 스냅샷) — home.wallets.villagePoints 를 이 값으로 덮어쓰지 않는다. */
   villagePoints: number;
   walletVersion: number;
-  /** **미완공** 건물만 온다(공사 중 포함) — 완공 목록은 {@link completedBuildings} 가 뺀다. */
+  /** **미완공** 건물만 온다(공사 중 포함). 홈의 완공 목록은 `/screens/home` 의 `buildings` 가 준다. */
   items: ConstructionItem[];
 };
 
@@ -265,12 +271,6 @@ function validateStarted(raw: unknown): ConstructionStarted {
   return raw as unknown as ConstructionStarted;
 }
 
-/** `canonical7 − items[].id` = 정확한 완공 건물. items 가 비면 7개 모두 완공이다. */
-export function completedBuildings(options: ConstructionOptions): BuildingId[] {
-  const pending = new Set(options.items.map((item) => item.id));
-  return CANONICAL_BUILDINGS.filter((id) => !pending.has(id));
-}
-
 /** 정의된 값만 query 로 붙인다. 값은 항상 인코딩한다. */
 const query = (params: Record<string, string | number | undefined>): string => {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined);
@@ -282,16 +282,6 @@ const query = (params: Record<string, string | number | undefined>): string => {
 /** 홈 원자 조회 — `date` 는 `YYYY-MM-DD`, `timezone` 은 IANA(예 `Asia/Seoul`). */
 export function getHome(date: string, timezone: string): Promise<HomeScreen> {
   return request<HomeScreen>(`/screens/home${query({ date, timezone })}`);
-}
-
-/**
- * `GET /me/focus-summary?date&timezone` — 오늘 집중 요약 단건(GROMO-2018).
- * `date` 는 KST `YYYY-MM-DD`(생략 시 서버 KST 오늘), `timezone` 은 명시하면 `Asia/Seoul` 만
- * 허용된다. `totalSeconds` = 완료 net + 요청 날짜에 걸친 진행 구간 — 이중 합산 없이 서버가
- * 한 snapshot 에서 읽은 값이다.
- */
-export function getFocusSummary(date?: string, timezone?: string): Promise<FocusSummary> {
-  return request<FocusSummary>(`/me/focus-summary${query({ date, timezone })}`);
 }
 
 export async function getConstructionOptions(islandId: string): Promise<ConstructionOptions> {
