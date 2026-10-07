@@ -31,6 +31,11 @@ class HomeScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_OPTIONS = DATA_ISLAND + "/construction-options";
     private static final String DATA_PLAYBACK = DATA_ISLAND + "/playback";
     private static final String DATA_WALLETS = DATA_ISLAND + "/shop/wallets";
+    private static final String DATA_LAYOUT = DATA_ISLAND + "/layout";
+    /** 섬 배치 정본(GROMO-2232) — Data 가 저장한 JSON 을 그대로 싣는다. */
+    private static final String LAYOUT = "{\"layoutRevision\":4,\"layout\":{\"schemaVersion\":1,\"mapId\":\"home\","
+            + "\"buildings\":[{\"id\":\"hall\",\"cell\":{\"x\":71,\"y\":31},\"anchor\":\"bottom-center\","
+            + "\"footprint\":[[63,7],[80,7],[80,32],[63,32]]}]}}";
 
     private static final String DETAIL = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,"
@@ -73,6 +78,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_OPTIONS, request -> ok(options(false)));
         DATA.on(DATA_PLAYBACK, request -> ok(PLAYBACK));
         DATA.on(DATA_WALLETS, request -> ok(FacilityFixtures.WALLETS));
+        DATA.on(DATA_LAYOUT, request -> ok(LAYOUT));
     }
 
     @Test
@@ -103,10 +109,17 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.playback.version").value(3))
                 .andExpect(jsonPath("$.data.wallets.villagePoints").value(1500))
                 .andExpect(jsonPath("$.data.wallets.villagePointsVersion").value(7))
+                .andExpect(jsonPath("$.data.mapId").value("home"))
+                .andExpect(jsonPath("$.data.mapVersion").value(1))
+                .andExpect(jsonPath("$.data.layoutRevision").value(4))
+                .andExpect(jsonPath("$.data.layout.schemaVersion").value(1))
+                .andExpect(jsonPath("$.data.layout.buildings[0].id").value("hall"))
+                .andExpect(jsonPath("$.data.layout.buildings[0].cell.x").value(71))
+                .andExpect(jsonPath("$.data.layout.buildings[0].footprint[1][0]").value(80))
                 .andReturn();
 
         assertKeys(result, "island", "focusSummary", "session", "restMembers", "members", "buildings", "wallets",
-                "playback", "playbackAvailability");
+                "playback", "playbackAvailability", "mapId", "mapVersion", "layoutRevision", "layout");
         JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
         assertThat(data.get("session").isNull()).as("session 은 명시 null").isTrue();
         assertThat(data.get("wallets").get("fishVersion").isNull()).as("개인 지갑 version 은 지어내지 않는다").isTrue();
@@ -152,7 +165,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andReturn();
 
         assertKeys(result, "island", "focusSummary", "session", "restMembers", "members", "buildings", "wallets",
-                "playback", "playbackAvailability");
+                "playback", "playbackAvailability", "mapId", "mapVersion", "layoutRevision", "layout");
         JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
         assertThat(data.get("playback").isNull()).isTrue();
         // options(true) 픽스처는 gram·library 가 미완공이다 — 나머지 5개만 완공 목록이다.
@@ -180,6 +193,16 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
         assertThat(DATA.hits(DATA_PLAYBACK)).isZero();
+    }
+
+    @Test
+    @DisplayName("섬 배치 조각(GROMO-2232)의 도메인 403 도 다른 필수 조각처럼 화면 전체 403 이다(B04)")
+    void layoutForbiddenFailsWholeScreen() throws Exception {
+        DATA.on(DATA_LAYOUT, request -> domainError(403, "MEMBER_ONLY"));
+
+        mockMvc.perform(auth(get("/screens/home")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
     @Test

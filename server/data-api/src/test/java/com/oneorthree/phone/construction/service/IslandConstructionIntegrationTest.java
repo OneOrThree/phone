@@ -17,6 +17,7 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.construction.dto.ConstructionStartedView;
+import com.oneorthree.phone.construction.dto.IslandLayoutView;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -38,6 +39,8 @@ import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -69,6 +72,8 @@ class IslandConstructionIntegrationTest {
     IslandConstructionService service;
     @Autowired
     IslandConstructionScheduler scheduler;
+    @Autowired
+    IslandFacilityCompletionService completion;
     @Autowired
     IslandWalletService walletService;
     @Autowired
@@ -153,6 +158,54 @@ class IslandConstructionIntegrationTest {
                 .findById(new IslandFacilityId(f.islandId, "hall")).orElseThrow();
         assertThat(done.getStatus()).isEqualTo(FacilityStatus.COMPLETED);
         assertThat(done.getCompletedAt()).isNotNull();
+    }
+
+    // ---------------------------------------------------------------- 배치 정본 (GROMO-2232)
+
+    @Test
+    @DisplayName("행이 없는 섬의 첫 배치 조회는 기본 템플릿 행을 만들고, 두 번째 조회는 같은 revision 이다")
+    void firstLayoutReadCreatesTemplateRowOnce() {
+        Fixture f = islandOnly();
+        assertThat(count("island_layouts", f.islandId)).isZero();
+
+        IslandLayoutView first = service.layout(f.islandId, f.ownerId);
+
+        assertThat(count("island_layouts", f.islandId)).isEqualTo(1);
+        assertThat(first.layoutRevision()).isEqualTo(1);
+        assertThat(first.layout()).containsEntry("schemaVersion", 1).containsEntry("mapId", "home");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> buildings = (List<Map<String, Object>>) first.layout().get("buildings");
+        assertThat(buildings).hasSize(7);
+        assertThat(buildings.get(0)).containsEntry("id", "hall")
+                .containsEntry("cell", Map.of("x", 71, "y", 31))
+                .containsEntry("anchor", "bottom-center");
+
+        IslandLayoutView second = service.layout(f.islandId, f.ownerId);
+
+        assertThat(second.layoutRevision()).isEqualTo(1);
+        assertThat(second.layout()).isEqualTo(first.layout());
+        assertThat(count("island_layouts", f.islandId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("완공 전이는 layout_revision 을 1 올리고 island.updated 페이로드에 layoutRevision 을 싣는다")
+    void completionBumpsLayoutRevisionAndPublishesIt() {
+        Fixture f = fundedIsland(100, "hall");
+        assertThat(service.layout(f.islandId, f.ownerId).layoutRevision()).isEqualTo(1);
+        service.start(f.islandId, f.ownerId, "hall", 0, 1, UUID.randomUUID());
+        jdbc.update("UPDATE island_facilities SET completes_at = ? WHERE island_id = ?",
+                Timestamp.from(Instant.now().minus(1, ChronoUnit.MINUTES)), f.islandId);
+
+        assertThat(completion.completeOne(f.islandId, "hall")).isTrue();
+
+        assertThat(service.layout(f.islandId, f.ownerId).layoutRevision()).isEqualTo(2);
+        assertThat(jdbc.queryForList("SELECT params->>'layoutRevision' FROM event_outbox "
+                        + "WHERE aggregate_id = ? AND params->>'changeKind' = 'FACILITY_COMPLETED'",
+                String.class, f.islandId.toString())).containsExactly("2");
+
+        // 멱등 — 이미 완공된 행을 다시 쓸어도 revision 이 오르지 않는다.
+        assertThat(completion.completeOne(f.islandId, "hall")).isFalse();
+        assertThat(service.layout(f.islandId, f.ownerId).layoutRevision()).isEqualTo(2);
     }
 
     // ---------------------------------------------------------------- 잠금 순서 · 스냅샷

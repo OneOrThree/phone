@@ -15,6 +15,7 @@ import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandDetailView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
+import com.oneorthree.business.upstream.data.dto.IslandLayout;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.NotificationSettingsView;
 import com.oneorthree.business.upstream.realtime.dto.RealtimeHistory;
@@ -77,6 +78,11 @@ public class ScreenReadUseCase {
     private static final String SOUND = "sound";
     /** 시설 완공 판정 재료(건설 옵션) — {@code home} 에서는 {@code buildings} 로 투영해 싣는다. */
     private static final String FACILITIES = "facilities";
+    /** 섬 배치 정본 조각(GROMO-2232) — {@code home} 에서 {@code layoutRevision}·{@code layout} 으로 풀어 싣는다. */
+    private static final String ISLAND_LAYOUT = "islandLayout";
+    /** 섬 맵 id·버전 — 10/9 출시는 맵이 하나라 상수다. 맵 수명(manifest)이 생기면 그쪽에서 읽는다. */
+    private static final String MAP_ID = "home";
+    private static final int MAP_VERSION = 1;
     /** 가계부의 달 경계 — Data 의 {@code ZonePolicy.KST} 와 같아야 화면과 도메인 GET 이 같은 달을 말한다. */
     private static final ZoneId LEDGER_ZONE = ZoneId.of("Asia/Seoul");
 
@@ -215,8 +221,14 @@ public class ScreenReadUseCase {
                 fragment("members", deadline -> management.members(claims, island.id(), null,
                         IslandManagementUseCase.DEFAULT_LIMIT, deadline)),
                 wallets(claims, island.id()),
-                facilities(claims, island.id())));
+                facilities(claims, island.id()),
+                fragment(ISLAND_LAYOUT, deadline -> construction.layout(claims, island.id(), deadline))));
         screen.put("buildings", completedBuildings((ConstructionOptionsView) parallel.get(FACILITIES)));
+        IslandLayout layout = (IslandLayout) parallel.get(ISLAND_LAYOUT);
+        screen.put("mapId", MAP_ID);
+        screen.put("mapVersion", MAP_VERSION);
+        screen.put("layoutRevision", layout.layoutRevision());
+        screen.put("layout", layout.layout());
         putPlayback(screen, parallel, context, claims, island.id());
         return screen;
     }
@@ -487,7 +499,7 @@ public class ScreenReadUseCase {
     private void putPlayback(Map<String, Object> screen, Map<String, Object> parallel,
             UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId) {
         parallel.forEach((name, value) -> {
-            if (!FACILITIES.equals(name)) {
+            if (!FACILITIES.equals(name) && !ISLAND_LAYOUT.equals(name)) {
                 screen.put(name, value);
             }
         });

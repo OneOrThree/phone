@@ -14,6 +14,7 @@ import com.oneorthree.business.upstream.data.DataConstructionClient;
 import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
 import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
+import com.oneorthree.business.upstream.data.dto.IslandLayout;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -69,6 +70,16 @@ public class IslandConstructionUseCase {
             throw new UpstreamContractMismatchException("건설 옵션 응답이 없습니다");
         }
         return ConstructionOptionsView.from(options);
+    }
+
+    /** 섬 배치 정본 (GROMO-2232) — {@code /screens/home} 의 layout 조각. 실패 표는 옵션 조회와 같다. */
+    public IslandLayout layout(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        IslandLayout layout = relay(() -> data.fetchIslandLayout(claims.userId(), islandId, deadline),
+                claims, null, null, null, deadline);
+        if (layout == null) {
+            throw new UpstreamContractMismatchException("섬 배치 응답이 없습니다");
+        }
+        return layout;
     }
 
     /** 건설 목표 선택 (LLD §2 PUT). 같은 키·본문은 Data 의 확정 receipt 재생이다. */
