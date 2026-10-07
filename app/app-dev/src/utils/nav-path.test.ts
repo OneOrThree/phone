@@ -1,0 +1,140 @@
+import nav from '@/assets/village-world/v1/nav.json';
+import {
+  loadNav,
+  navPath,
+  resolveTarget,
+  stepDurationMs,
+  tapToWorld,
+  MS_PER_UNIT,
+} from './nav-path';
+import { cellCenterToWorld, worldToCell } from './worldCoords';
+
+const real = loadNav(nav as any);
+const synth = (rows: string[], costs?: number[]) => {
+  const w = rows[0].length;
+  const walkable = rows.join('');
+  return loadNav({
+    columns: w,
+    rows: rows.length,
+    walkable,
+    traversalCost: costs ?? [...walkable].map((c) => (c === '1' ? 10 : 0)),
+  });
+};
+const center = (cx: number, cy: number) => cellCenterToWorld({ cx, cy });
+
+describe('tapToWorld', () => {
+  it('같은 이미지 지점은 줌·화면 크기와 무관하게 같은 world', () => {
+    const img = { x: 700, y: 400 };
+    const out = [0.35, 1, 2.6].flatMap((scale) =>
+      [390, 430].map(() => {
+        const w = tapToWorld(
+          { locationX: img.x * scale, locationY: img.y * scale },
+          { scale, imageWidth: 1536, imageHeight: 1024 },
+        );
+        return [w.x.toFixed(6), w.y.toFixed(6)].join();
+      }),
+    );
+    expect(new Set(out).size).toBe(1);
+  });
+});
+
+describe('v1 nav.json A*', () => {
+  const g = real;
+  it('spawn → entrance 7곳 경로 존재, 모두 통행 셀, 모서리 관통 0', () => {
+    const from = center(nav.spawns.character.cx, nav.spawns.character.cy);
+    const entrances = Object.values(nav.entrances);
+    expect(entrances).toHaveLength(7);
+    for (const en of entrances) {
+      const path = navPath(g, from, center(en.cx, en.cy));
+      expect(path.length).toBeGreaterThan(0);
+      expect(path[path.length - 1]).toEqual(center(en.cx, en.cy));
+      let prev = worldToCell(from);
+      for (const p of path) {
+        const c = worldToCell(p);
+        expect(g.walkable[c.cy * g.cols + c.cx]).toBe(1);
+        const dx = c.cx - prev.cx,
+          dy = c.cy - prev.cy;
+        expect(Math.max(Math.abs(dx), Math.abs(dy))).toBe(1);
+        if (dx && dy) {
+          expect(g.walkable[prev.cy * g.cols + c.cx]).toBe(1);
+          expect(g.walkable[c.cy * g.cols + prev.cx]).toBe(1);
+        }
+        prev = c;
+      }
+    }
+  });
+});
+
+describe('resolveTarget', () => {
+  it('다른 섬 탭은 출발 영역 안 최근접 셀로 보정한다', () => {
+    const g = synth(['110011', '110011', '110011']);
+    expect(resolveTarget(g, center(0, 0), center(4, 1))).toEqual({ cx: 1, cy: 1 });
+  });
+  it('바다 탭의 동률은 index 작은 셀', () => {
+    const g = synth(['111', '101', '111']);
+    // (1,1) 은 바다 — 상하좌우 네 셀이 거리 1 로 동률, index 가장 작은 (1,0)
+    expect(resolveTarget(g, center(0, 0), center(1, 1))).toEqual({ cx: 1, cy: 0 });
+  });
+  it('출발 셀이 비통행이면 최근접 통행 셀에서 시작한다', () => {
+    const g = synth(['011']);
+    expect(navPath(g, center(0, 0), center(2, 0)).map((p) => p.x)).toEqual([2.5]);
+  });
+});
+
+describe('stepDurationMs', () => {
+  it('가로 5칸과 세로 5칸의 합이 같고 대각 1칸은 √2배', () => {
+    const sum = (pts: { x: number; y: number }[]) =>
+      pts.slice(1).reduce((a, p, i) => a + stepDurationMs(pts[i], p), 0);
+    const h = [0, 1, 2, 3, 4, 5].map((i) => ({ x: i, y: 0 }));
+    const v = [0, 1, 2, 3, 4, 5].map((i) => ({ x: 0, y: i }));
+    expect(sum(h)).toBeCloseTo(5 * MS_PER_UNIT, 6);
+    expect(sum(v)).toBeCloseTo(sum(h), 6);
+    expect(stepDurationMs({ x: 0, y: 0 }, { x: 1, y: 1 })).toBeCloseTo(Math.SQRT2 * MS_PER_UNIT, 6);
+  });
+});
+
+describe('휴리스틱 허용성', () => {
+  it('합성 격자에서 A* 경로 비용이 다익스트라 참값과 같다', () => {
+    const rows = ['1111111', '1000001', '1011101', '1010101', '1010001', '1111111'];
+    const costs = [...rows.join('')].map((c, i) => (c === '1' ? (i % 3 === 0 ? 27 : 8) : 0));
+    const g = synth(rows, costs);
+    const from = center(0, 0),
+      to = center(6, 4);
+    const pathCost = (pts: { x: number; y: number }[]) => {
+      let prev = from,
+        total = 0;
+      for (const p of pts) {
+        const c = worldToCell(p);
+        total += Math.hypot(p.x - prev.x, p.y - prev.y) * (g.cost[c.cy * g.cols + c.cx] / 10);
+        prev = p;
+      }
+      return total;
+    };
+    // 다익스트라(h = 0) 참값
+    const n = g.walkable.length;
+    const d = new Array(n).fill(Infinity);
+    const s = 0,
+      e = 4 * 7 + 6;
+    d[s] = 0;
+    const done = new Set<number>();
+    for (;;) {
+      let u = -1;
+      for (let i = 0; i < n; i++)
+        if (!done.has(i) && d[i] < Infinity && (u < 0 || d[i] < d[u])) u = i;
+      if (u < 0) break;
+      done.add(u);
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const x = (u % 7) + dx,
+            y = Math.floor(u / 7) + dy;
+          if ((!dx && !dy) || x < 0 || y < 0 || x >= 7 || y >= 6) continue;
+          const q = y * 7 + x;
+          if (!g.walkable[q]) continue;
+          if (dx && dy && (!g.walkable[y * 7 + (u % 7)] || !g.walkable[Math.floor(u / 7) * 7 + x]))
+            continue;
+          d[q] = Math.min(d[q], d[u] + Math.hypot(dx, dy) * (g.cost[q] / 10));
+        }
+    }
+    expect(pathCost(navPath(g, from, to))).toBeCloseTo(d[e], 9);
+  });
+});

@@ -46,7 +46,10 @@ import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
 import { TileTerrainCanvas } from './TileTerrainCanvas';
+import navJson from '@/assets/village-world/v1/nav.json';
 import { applyLayout } from '@/utils/island-layout';
+import { loadNav, navPath, stepDurationMs, tapToWorld } from '@/utils/nav-path';
+import { imageToWorld, worldToImage } from '@/utils/worldCoords';
 import { villageAssets } from '@/constants/village-assets';
 import {
   villageScene,
@@ -251,8 +254,20 @@ function Wanderer({
         x: at.current.x + Math.random() * 400 - 200,
         y: at.current.y + Math.random() * 300 - 150,
       });
+      const grid = scene?.grid ?? grids.home;
       const path = (
-        scene ? villagePath(scene, at.current, target) : landPath(grids.home, at.current, target)
+        scene && TILE_ISLAND
+          ? [
+              at.current,
+              ...navPath(
+                NAV,
+                imageToWorld(at.current, sizeOf(grid)),
+                imageToWorld(target, sizeOf(grid)),
+              ).map((n) => worldToImage(n, sizeOf(grid))),
+            ]
+          : scene
+            ? villagePath(scene, at.current, target)
+            : landPath(grids.home, at.current, target)
       ).slice(1, 15);
       if (!path.length) {
         timer = setTimeout(roam, 1500);
@@ -573,10 +588,17 @@ export function WorldMap({
           const event = e.nativeEvent as any;
           const rect =
             Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
-          const p = {
-            x: (rect ? event.clientX - rect.left : event.locationX) / scale,
-            y: (rect ? event.clientY - rect.top : event.locationY) / scale,
+          const tap = {
+            locationX: rect ? event.clientX - rect.left : event.locationX,
+            locationY: rect ? event.clientY - rect.top : event.locationY,
           };
+          if (village && TILE_ISLAND) {
+            // 탭 → 월드. 출발 영역 보정(resolveTarget)은 walk 안의 navPath 가 맡는다.
+            const size = { scale, imageWidth: grid.w, imageHeight: grid.h };
+            current.current.onSpot?.(worldToImage(tapToWorld(tap, size), size));
+            return;
+          }
+          const p = { x: tap.locationX / scale, y: tap.locationY / scale };
           if (onLand(grid, p)) current.current.onSpot?.(p);
         }}
       >
@@ -1109,13 +1131,22 @@ function FinalIslandScene({
   const xy = useRef(new Animated.ValueXY(pos)).current,
     token = useRef(0),
     location = useRef(pos);
+  const tileNav = TILE_ISLAND && !!scene,
+    worldLocation = useRef(imageToWorld(pos, sizeOf(grid)));
+  // 타일 섬 경로: 월드 A* 결과를 px 로 되돌리고 출발점을 맨 앞에 둔다(기존 villagePath 와 같은 모양).
+  const tilePath = (from: Point, to: Point): Point[] => {
+    const nodes = navPath(NAV, imageToWorld(from, sizeOf(grid)), imageToWorld(to, sizeOf(grid)));
+    return nodes.length ? [from, ...nodes.map((n) => worldToImage(n, sizeOf(grid)))] : [];
+  };
   const walk = (target: Point, done?: () => void) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
     setInteractiveMotion(null);
-    const path = scene
-      ? villagePath(scene, location.current, target)
-      : landPath(grid, location.current, nearestLand(grid, target));
+    const path = tileNav
+      ? tilePath(location.current, target)
+      : scene
+        ? villagePath(scene, location.current, target)
+        : landPath(grid, location.current, nearestLand(grid, target));
     const t = ++token.current;
     xy.stopAnimation();
     if (!path.length) {
@@ -1141,13 +1172,20 @@ function FinalIslandScene({
       if (Math.abs(p.x - location.current.x) > 0.5) {
         setLeft(p.x < location.current.x);
       }
+      const prev = location.current;
       Animated.timing(xy, {
         toValue: p,
-        duration: state.settings.reduceMotion ? 0 : 95,
+        duration: state.settings.reduceMotion
+          ? 0
+          : tileNav
+            ? stepDurationMs(imageToWorld(prev, sizeOf(grid)), imageToWorld(p, sizeOf(grid)))
+            : 95,
         useNativeDriver: false,
       }).start(({ finished }) => {
         if (finished) {
           location.current = p;
+          // 월드 단위 정본은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
+          if (tileNav) worldLocation.current = imageToWorld(p, sizeOf(grid));
           setPos(p);
           homePositions[positionKey] = p;
           next();
@@ -1768,6 +1806,8 @@ function FinalIslandScene({
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
 // 타일 섬 지형(GROMO-2230): 켜면 새 마을(layered)로 시작하고 지형을 Skia Atlas 로 그린다.
 // 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
+const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
+const NAV = loadNav(navJson as any);
 const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
 export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
   const L = useAppLayout();
