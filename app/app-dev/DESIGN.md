@@ -90,6 +90,7 @@ Primitive → Semantic → Component → Screen composition
 | Graph line     | Graph Line     | `#5FB6E3` | 통계 선 그래프                       |
 | Google border  | Google Border  | `#747775` | Google 로그인 버튼 공식 윤곽         |
 | Google text    | Google Text    | `#1F1F1F` | Google 로그인 버튼 공식 텍스트       |
+| Apple button   | Black          | `#000000` | Apple 로그인 버튼 배경·흰 로고       |
 | LINE brand     | LINE Brand     | `#06C755` | LINE 로그인 버튼 공식 배경           |
 | White          | White          | `#FFFFFF` | 토글 손잡이 등 제한 사용             |
 | Black          | Black          | `#000000` | 투명 그림자 계산용                   |
@@ -278,6 +279,8 @@ Semantic spacing:
 - 한 화면에서 Primary 버튼을 경쟁시키지 않는다.
 - Small의 시각 높이는 38이지만 실제 터치 영역은 최소 44가 되도록 `hitSlop` 또는 컨테이너를 보장해야 한다.
 - 아이콘만 있는 버튼은 접근성 라벨을 반드시 제공한다.
+
+**소셜 로그인 버튼** — Apple·Google 은 한 틀로 그린다(`componentTokens.loginButton`). 최소 높이 54(큰 글자에서 늘어난다), pill, 로고 20 상자를 왼쪽 20 에 고정하고 라벨은 가운데 Body semibold. 색만 브랜드별이다 — Apple 은 Black 바탕·흰 로고·글자, Google 은 White 바탕·Google Border 1px·Google Text. 로고는 `components/ProviderLogo` 의 SVG 를 쓴다(iOS 네이티브 Apple 버튼은 글꼴·로고를 시스템이 정해 다른 버튼과 맞출 수 없어 쓰지 않는다).
 
 ### 7.3 Card / Group / Row
 

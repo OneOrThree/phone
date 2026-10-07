@@ -1,25 +1,19 @@
 import { loginProviders } from '@/services/loginProviders';
 
 test.each([
-  ['KR', 'ios', ['kakao', 'google']],
-  ['kr', 'android', ['kakao', 'google']],
-  ['JP', 'ios', ['line', 'google']],
-  ['US', 'android', ['line', 'google']],
-  ['ZZ', 'ios', ['line', 'google']],
-  ['ZZ', 'android', ['line', 'google']],
-  ['KR', 'web', []],
-  ['US', 'web', []],
-] as const)('%s / %s 로그인 제공자 순서', (region, platform, expected) => {
-  expect(loginProviders(region, platform)).toEqual(expected);
+  ['ios', false, ['google']],
+  ['ios', true, ['apple', 'google']],
+  ['android', false, ['google']],
+  ['android', true, ['google']], // Android 에는 Apple 이 없다 — 공개 플래그와 무관
+  ['web', false, []],
+  ['web', true, []],
+] as const)('%s / Apple 공개 플래그 %s → 애플·구글만', (platform, apple, expected) => {
+  expect(loginProviders(platform, apple)).toEqual(expected);
 });
 
-test.each([
-  ['KR', ['kakao', 'apple', 'google']],
-  ['JP', ['line', 'apple', 'google']],
-] as const)('%s / iOS Apple 로그인 공개 플래그 활성화', (region, expected) => {
-  expect(loginProviders(region, 'ios', true)).toEqual(expected);
-});
-
-test('Apple 로그인 공개 플래그는 Android 제공자 목록을 바꾸지 않는다', () => {
-  expect(loginProviders('KR', 'android', true)).toEqual(['kakao', 'google']);
+test('지역과 무관하게 Kakao·LINE 은 노출하지 않는다', () => {
+  for (const platform of ['ios', 'android'] as const) {
+    expect(loginProviders(platform, true)).not.toEqual(expect.arrayContaining(['kakao']));
+    expect(loginProviders(platform, true)).not.toEqual(expect.arrayContaining(['line']));
+  }
 });

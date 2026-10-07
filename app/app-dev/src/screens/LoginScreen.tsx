@@ -1,9 +1,9 @@
 import React from 'react';
-import * as AppleAuthentication from 'expo-apple-authentication';
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, View } from 'react-native';
 import { Btn, C, Pic, Txt, k } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { PolicyLinks } from '@/components/PolicyLink';
+import { AppleLogo, GoogleLogo } from '@/components/ProviderLogo';
 import type { Provider } from '@/services/api/auth';
 import { useAppLayout } from '@/utils/layout';
 
@@ -15,16 +15,9 @@ const LABEL: Record<Provider, string> = {
 };
 
 const KAKAO_LOGIN_ASSET = require('@/assets/login/kakao_login_medium_wide.png');
-const GOOGLE_LOGIN_ASSET = require('@/assets/login/google_signin_light_square_3x.png');
 const LINE_LOGIN_ASSET = require('@/assets/login/line_login_logo_3x.png');
 
 const BRAND_BUTTON = {
-  google: {
-    asset: GOOGLE_LOGIN_ASSET,
-    backgroundColor: componentTokens.loginButton.googleBackground,
-    borderColor: componentTokens.loginButton.googleBorder,
-    textColor: componentTokens.loginButton.googleForeground,
-  },
   line: {
     asset: LINE_LOGIN_ASSET,
     backgroundColor: componentTokens.loginButton.lineBackground,
@@ -110,8 +103,14 @@ export function LoginScreen({
       );
     }
 
-    if (provider === 'google' || provider === 'line') {
-      const brand = BRAND_BUTTON[provider];
+    // Apple·Google 은 한 틀로 그린다(GROMO-2215). 예전에는 Apple 이 iOS 네이티브 버튼이라 글꼴·로고 크기·배치를
+    // 시스템이 정했고, Google 은 PNG 를 잘라 붙여 둘이 서로 달랐다. 높이·모서리·로고 상자·로고 위치·글꼴을 공유하고
+    // 색만 브랜드별로 둔다 — 두 회사 가이드 모두 이런 직접 그린 버튼을 허용한다(Apple 은 검정 바탕·흰 로고).
+    if (provider === 'google' || (provider === 'apple' && Platform.OS === 'ios')) {
+      const apple = provider === 'apple';
+      const tokens = componentTokens.loginButton;
+      const background = apple ? tokens.appleBackground : tokens.googleBackground;
+      const foreground = apple ? tokens.appleForeground : tokens.googleForeground;
 
       return (
         <Pressable
@@ -124,52 +123,42 @@ export function LoginScreen({
           onPress={onProviderPress ? () => onProviderPress(provider) : undefined}
           style={({ pressed }) => ({
             width: '100%',
-            minHeight: componentTokens.loginButton.height,
+            // 고정 높이가 아니라 최소 높이 — 큰 글자 설정에서 버튼이 글자를 따라 커진다(LoginScreen.test).
+            minHeight: tokens.height,
             paddingVertical: primitiveTokens.space[3],
+            paddingHorizontal: tokens.logoInset * 2 + tokens.logoSize,
             alignItems: 'center',
             justifyContent: 'center',
             borderWidth: semanticTokens.stroke.subtle,
-            borderColor: brand.borderColor,
+            borderColor: apple ? background : tokens.googleBorder,
             borderRadius: semanticTokens.radius.full,
-            backgroundColor: brand.backgroundColor,
+            backgroundColor: background,
             overflow: 'hidden',
             opacity: disabled ? 0.45 : pressed ? 0.82 : 1,
           })}
         >
-          {provider === 'google' ? (
-            <View
-              style={{
-                position: 'absolute',
-                left: primitiveTokens.space[3],
-                width: primitiveTokens.space[8],
-                height: primitiveTokens.space[8],
-                overflow: 'hidden',
-                pointerEvents: 'none',
-              }}
-            >
-              <Image
-                source={brand.asset}
-                accessibilityIgnoresInvertColors
-                resizeMode="contain"
-                style={{ position: 'absolute', left: -6, top: -6, width: 44, height: 44 }}
-              />
-            </View>
-          ) : (
-            <Image
-              source={brand.asset}
-              accessibilityIgnoresInvertColors
-              resizeMode="contain"
-              style={{
-                position: 'absolute',
-                left: primitiveTokens.space[3],
-                width: primitiveTokens.space[8],
-                height: primitiveTokens.space[8],
-              }}
-            />
-          )}
+          <View
+            pointerEvents="none"
+            style={{
+              // 위아래로 늘려 두면 버튼이 큰 글자로 커져도 로고가 세로 가운데에 남는다.
+              position: 'absolute',
+              left: tokens.logoInset,
+              top: 0,
+              bottom: 0,
+              width: tokens.logoSize,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {apple ? (
+              <AppleLogo size={tokens.logoSize} color={foreground} />
+            ) : (
+              <GoogleLogo size={tokens.logoSize} />
+            )}
+          </View>
           <Txt
             style={{
-              color: brand.textColor,
+              color: foreground,
               fontSize: semanticTokens.typography.body,
               fontWeight: semanticTokens.typography.semibold,
             }}
@@ -195,29 +184,52 @@ export function LoginScreen({
       );
     }
 
-    if (provider === 'apple' && Platform.OS === 'ios') {
+    if (provider === 'line') {
+      const brand = BRAND_BUTTON[provider];
+
       return (
-        <View
+        <Pressable
           key={provider}
-          style={{
+          testID={`login-${provider}`}
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel}
+          accessibilityState={{ disabled, busy: loading }}
+          disabled={disabled}
+          onPress={onProviderPress ? () => onProviderPress(provider) : undefined}
+          style={({ pressed }) => ({
             width: '100%',
-            height: componentTokens.loginButton.height,
+            minHeight: componentTokens.loginButton.height,
+            paddingVertical: primitiveTokens.space[3],
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: semanticTokens.stroke.subtle,
+            borderColor: brand.borderColor,
             borderRadius: semanticTokens.radius.full,
+            backgroundColor: brand.backgroundColor,
             overflow: 'hidden',
-            opacity: disabled ? 0.45 : 1,
-            pointerEvents: disabled ? 'none' : 'auto',
-          }}
+            opacity: disabled ? 0.45 : pressed ? 0.82 : 1,
+          })}
         >
-          <AppleAuthentication.AppleAuthenticationButton
-            testID="login-apple"
-            accessibilityLabel={accessibilityLabel}
-            accessibilityState={{ disabled, busy: loading }}
-            buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE_OUTLINE}
-            cornerRadius={27}
-            onPress={() => onProviderPress?.(provider)}
-            style={{ width: '100%', height: '100%' }}
+          <Image
+            source={brand.asset}
+            accessibilityIgnoresInvertColors
+            resizeMode="contain"
+            style={{
+              position: 'absolute',
+              left: primitiveTokens.space[3],
+              width: primitiveTokens.space[8],
+              height: primitiveTokens.space[8],
+            }}
           />
+          <Txt
+            style={{
+              color: brand.textColor,
+              fontSize: semanticTokens.typography.body,
+              fontWeight: semanticTokens.typography.semibold,
+            }}
+          >
+            {LABEL[provider]}
+          </Txt>
           {loading && (
             <View
               pointerEvents="none"
@@ -233,7 +245,7 @@ export function LoginScreen({
               <ActivityIndicator color={primitiveTokens.color.white} />
             </View>
           )}
-        </View>
+        </Pressable>
       );
     }
 
