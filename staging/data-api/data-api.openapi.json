@@ -6817,6 +6817,10 @@
         "properties": {
           "revoked": {
             "type": "boolean"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
