@@ -1,6 +1,7 @@
 package com.oneorthree.business.auth;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -38,6 +39,8 @@ public class RevokedSessions {
     private final Clock clock;
     private volatile Instant skipUntil = Instant.MIN;
 
+    // 생성자가 둘(아래는 테스트용 시계 주입)이라 Spring 이 고를 쪽을 명시한다 — 없으면 기본 생성자를 찾다 기동이 실패한다.
+    @Autowired
     public RevokedSessions(StringRedisTemplate redis, @Value("${auth.revoked-session.ttl}") Duration ttl) {
         this(redis, ttl, Clock.systemUTC());
     }
