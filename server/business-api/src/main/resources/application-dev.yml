@@ -9,6 +9,9 @@ jwt:
   secret: ${JWT_SECRET}
 
 auth:
+  # data-api application-dev.yml 의 access-token 수명(2592000초 = 30일)과 같아야 한다.
+  revoked-session:
+    ttl: 2592000s
   # 로그인 시도의 자격 digest 전용 비밀 (GROMO-1908 · 계정 LLD §3).
   # ⚠️ jwt.secret 과 «다른 값»이어야 한다 — 한 키가 여러 용도를 겸하면 한쪽의 수명 정책
   #    (로그인 복구 창 5분)이 다른 쪽(발급 토큰의 최대 만료)을 끌어내려 멀쩡한 세션이 끊긴다.
