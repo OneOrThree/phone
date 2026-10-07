@@ -64,9 +64,16 @@ layoutRevision ─┘                                                           
 
 ## 6. `layoutRevision` — 지금과 다음
 
-- **지금(결정 2026-10-07, 조재영):** 서버에 배치 정본을 **바로** 만든다 — `island_layouts(island_id PK, layout_revision bigint, layout jsonb, updated_at)`. `layout` 은 `{ "buildings": [ { "id": "hall", "cell": { "x": 71, "y": 31 }, "anchor": "bottom-center", "footprint": [ [x, y], ... ] } ], "mapId": "home", "mapVersion": 12 }` 처럼 **좌표를 JSON 으로 저장**한다. `/screens/home` 에 `layoutRevision` 과 `layout` 을 노출하고, 완공·철거·이동이 `layout_revision` 을 올린다. 서버 변경이 앱보다 늦으면 그 사이에만 앱 로컬 카탈로그로 그린다(임시).
+- **지금(결정 2026-10-07, 조재영):** 서버에 배치 정본을 **바로** 만든다 — `island_layouts(island_id PK, layout_revision bigint, layout jsonb, updated_at)`. `layout` 은 `{ "schemaVersion": 1, "mapId": "home", "buildings": [ { "id": "hall", "cell": { "x": 71, "y": 31 }, "anchor": "bottom-center", "footprint": [ [x, y], ... ] } ] }` 처럼 **좌표를 JSON 으로 저장**한다. `cell`·`footprint` 는 모두 100×100 통행 셀 좌표(월드 단위 정수)이며 타일 격자(24×16)가 아니다. `mapVersion` 은 manifest 가 정본이라 layout 에 넣지 않고, `mapId` 는 참조일 뿐이다. `/screens/home` 에 `layoutRevision` 과 `layout` 을 노출하고, 완공·철거·이동이 `layout_revision` 을 올린다. 서버 변경이 앱보다 늦으면 그 사이에만 앱 로컬 카탈로그로 그린다(임시).
 - **다음(섬 꾸미기 피처 4):** 같은 `island_layouts.layout` 을 방장이 편집하는 API(건물 이동·장식 배치)를 붙인다. `layoutRevision` 은 섬 단위 단조 정수이며, Movement 는 이 값으로 NavArtifact 를 컴파일한다.
 - 전파: Data 는 `island.updated` 에 `layoutRevision` 을 싣는다. realtime 이 앱 쪽 `events` 구독을 열기 전까지 앱은 홈 재진입·포그라운드 복귀·건설 카드 완료 콜백에서 `/screens/home` 을 다시 읽는다. 감소하는 revision 은 버리고, 공백은 전체 재조회로 수렴한다(PRD data-flow §3 과 같은 규칙).
+
+### 6.1 확정 사항 (2026-10-07, 조재영)
+
+- 렌더러: **Skia Atlas**(`@shopify/react-native-skia`)로 타일 384장을 한 텍스처에서 단일 드로우콜로 그린다. 소품은 발밑 앵커·zIndex=y, 카메라는 캔버스 transform 하나. 플래그 `EXPO_PUBLIC_TILE_ISLAND`.
+- 타일 소스: **원화 자르기** — `terrain.png` 를 Lanczos 2배(3072×2048)로 올려 128px 384조각으로 자르고 아틀라스(≤4096, 1px extrusion) 한 장으로. 재사용 타일셋은 평면적(3/4 시점 입체감 손실)이라 보류했다. 기획 작업실 v3 시연이 근거(정합 오차 0.313/255, 기준점 이동 0px). 원화 자르기 단계에서는 `terrain` 한 층만 쓰고 `terrain-detail`·`roads` 는 비워 둔다.
+- 배치 전파: 10/9 는 재조회만(홈 재진입·포그라운드 복귀·건설 완료 콜백). `events` 토픽 개방은 이동 서버와 함께.
+- 기준 기기: 1차 측정은 단일 기기.
 
 ## 7. 타일 섬 전환(10/9) 과의 대응
 
@@ -75,7 +82,7 @@ layoutRevision ─┘                                                           
 | ① 좌표 계약 | §2 첫 줄, MV-D01 | 확정: 범위 [0,100]² + 통행 100×100 셀. 96×64 → 100×100 재생성 |
 | ② 타일 맵 스키마 | §2 | Tiled 부분집합 + NavArtifact 모양의 통행 파일 |
 | ③ 1차 에셋 다운로드 | §3·§4·§5 | 10/9 는 인프라 없이 로컬에서 동작: 로컬 정적 서버(또는 번들)에서 manifest·타일셋을 같은 URL 규칙으로 받고 캐시한다. Nginx 반영은 그 뒤 |
-| ④ 배치 시스템 렌더러 | §2 오브젝트, §6 지금 | 타일 레이어 + 오브젝트 앵커, 매 프레임 React 재레이아웃 금지(PRD 비기능 「맵 표시」) |
+| ④ 배치 시스템 렌더러 | §2 오브젝트, §6·§6.1 | Skia Atlas 단일 드로우콜 + 오브젝트 앵커, 매 프레임 React 재레이아웃 금지(PRD 비기능 「맵 표시」) |
 | ⑤ 로컬 이동 연결 | §2 통행 파일 | 기존 A* 를 bitset 통행 파일에 붙인다 |
 | ⑥ 집중섬 배경 | 이번 범위 밖 | MV-D08 확정: 지금은 앱 버그 수정으로 분리, 후속에 같은 스키마로 전환 |
 

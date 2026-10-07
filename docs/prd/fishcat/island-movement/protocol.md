@@ -2,7 +2,19 @@
 
 상태: wire v1 설계 제안. 구현 전 상호 운용 fixture와 함께 동결한다. 서버 언어·라이브러리 버전의 확정은 POC 이후다.
 
-## 1. 전송 선택
+## 0. 1단계 — Realtime STOMP 위에서 (결정 2026-10-07)
+
+1단계는 새 연결을 열지 않는다. 기존 `/ws/realtime` STOMP 연결과 CONNECT 인증·섬 구독 인가를 그대로 쓰고, 이동 메시지는 STOMP 프레임으로 보낸다.
+
+| 메시지 | destination | 본문 |
+| --- | --- | --- |
+| MoveIntent | `/app/islands/{islandId}/movement/intent` | JSON `{commandSeq, navRevision, goalX, goalY}` |
+| PathAccepted · MoveRejected · Arrived · Relocated · MapChanged | `/topic/islands/{islandId}/movement` | JSON, §3 과 같은 필드 |
+| Snapshot | `/topic/islands/{islandId}/movement/snapshot` | 바이너리 본문(§4 Snapshot v1 그대로) 또는 JSON, 20Hz 이하 |
+
+Join/Welcome 은 구독 성공 뒤 첫 FullState 로 대체하고, 티켓·jti·roomEpoch 는 2단계 항목이다(단일 Realtime 인스턴스 가정; 다중 인스턴스 소유권은 2단계). TCP 라 손실 시 앞선 프레임을 기다리므로 §4 의 「최신만 보낸다」 규칙을 서버 송신 큐에서 구현한다(수신자별 최신 스냅샷으로 덮어쓰기). 아래 §1~§6 은 2단계(분리 서버·QUIC) 계약이다.
+
+## 1. 전송 선택 (2단계)
 
 **POC 추천:** QUIC 연결 하나에서 reliable stream과 DATAGRAM을 함께 사용한다. DATAGRAM은 손실 재전송을 기다리지 않는 좌표에, stream은 입장·명령·경로·퇴장에 사용한다. 둘 다 UDP 기반 QUIC 연결 안에 있다. DATAGRAM 협상이 실패하면 동기화 모드를 활성화하지 않고 이유를 표시한다. UDP 자체가 막혀 연결이 열리지 않는 망에서는 세션 폴백(PRD MV-14·정책 §3)을 따른다. 임의로 평문 UDP로 내리지 않는다.
 

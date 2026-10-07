@@ -37,7 +37,7 @@
 | Business → Movement 제어 어댑터 | 내부 HTTPS + 서비스 인증 | 입장 준비, 권한 갱신/취소, layoutRevision 스냅샷. 틱과 독립 |
 | Business → 소유권 저장소 | 내부 인증 연결 | 방 배정·주소 조회. 위치 쓰기 없음 |
 | worker → 소유권 저장소 | 내부 인증 연결 | 배정된 방의 lease 갱신·해제 |
-| 앱 ↔ Movement | **신규 공개 QUIC/UDP, Java/Netty 후보** | scope가 해당 방인 티켓, 목적지·경로·좌표. Kafka를 좌표 전달 경로에 넣지 않음 |
+| 앱 ↔ Movement | **1단계: 기존 Realtime STOMP/WSS(`/ws/realtime`)** · 2단계: 신규 공개 QUIC/UDP, Java/Netty 후보 | 1단계는 기존 CONNECT 인증·섬 구독 인가로 입장, 목적지·경로·좌표를 STOMP 프레임으로. 2단계는 scope가 해당 방인 티켓. Kafka를 좌표 전달 경로에 넣지 않음 |
 | 앱·worker → 맵 저장소 | HTTPS, worker 쓰기는 서비스 자격 | 승인 manifest의 hash가 일치하는 산출물만 사용 |
 | 도메인 이벤트 → 기존 Realtime → 앱 | 현행 경로 | 집중·휴식·감정·재생 등 기존 이벤트. 위치 팬아웃 아님 |
 
@@ -49,7 +49,7 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 
 | 데이터 | 정본·쓰기 소유 | 수명 / 복구 |
 | --- | --- | --- |
-| 소속·현재 섬·완공 시설 | Data | 기존 DB·트랜잭션 |
+| 소속·현재 섬·완공 시설·시설/장식 배치(`island_layouts`, jsonb 좌표, `layoutRevision`) | Data | 기존 DB·트랜잭션. 행이 없는 섬은 첫 조회 때 서버 기본 템플릿으로 지연 생성(결정 2026-10-07) |
 | 원본 지형·충돌 재료 | 승인된 맵 빌드 파이프라인 | 불변 버전 파일, 배포 manifest |
 | 합성 통행 맵 | Movement 맵 컴파일러 | 지형+배치+rulesVersion+반경의 hash, 다시 생성 가능 |
 | actor 위치·경로·속도 | 해당 방 worker 메모리 | epoch 동안만. 장애 후 입구 복귀 제안 |
@@ -78,7 +78,7 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 | 항목 | 제안 |
 | --- | --- |
 | 구현/레포 | Java 코어 + Netty QUIC 어댑터. A17의 JVM 대상 레포 `oneorthree/server` 내 `services/movement/` 후보로 등록하고 기존 서버 이관 계획과 맞춘다. 이 PR은 레포·서비스를 생성하지 않음 |
-| 공개 포트 | shard endpoint UDP 443 후보. **Cloudflare 프록시 밖의 별도 공개 호스트·IP** — prod 오리진 방화벽은 Cloudflare CIDR 만 허용(결정 ㊾)하므로 이 호스트는 그 규칙의 예외다. QUIC 주소 검증(Retry)·핸드셰이크 요청 제한·DDoS 노출을 MV-D06 에서 함께 승인 |
+| 공개 포트 | shard endpoint UDP 443 후보. **Cloudflare 프록시 밖의 별도 공개 호스트·IP** — prod 오리진은 결정 ㊾(→ A23 대체문: `set_real_ip_from` = Cloudflare CIDR + 오리진 방화벽)로 HTTP 오리진을 Cloudflare 뒤에만 두는데, 그 전제는 HTTP 오리진에만 해당하므로 별도 UDP 호스트는 이 전제 밖이며 신규 A 결정으로 규정한다(MV-D06 기록 때 ㊾ 옆에 「UDP 별도 호스트 예외」 각주). Cloudflare 밖이라 `CF-Connecting-IP` 처리가 적용되지 않으므로 요청 제한은 직접 출발지 IP 기준이다. QUIC 주소 검증(Retry)·핸드셰이크 요청 제한·DDoS 노출을 함께 승인. **2단계(분리 서버) 항목** |
 | 내부 포트 | 제어 HTTPS 8443·관측 9090 후보, 외부 차단 |
 | 프로세스 예산 | 초기 부하 측정은 worker 4 vCPU / 8GiB. 운영 인스턴스·복제 수는 실측 후 자원표에 반영 |
 | 시크릿 | **공개 CA 인증서**(Cloudflare Origin Cert 는 앱이 신뢰하지 않음)와 자동 갱신, Business 티켓 서명 키 쌍(Business 비밀키·worker 공개키), 내부 서비스 자격은 A11 에 따라 caller(Business→Movement, worker→소유권 저장소) 별로 분리, 저장소 권한. 앱에 공유 비밀을 넣지 않음 |
@@ -106,7 +106,7 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 
 **2026-09-23 Plannotator 피드백:** Java로 좌표를 계산하고 Kafka를 앱이 소비할지, 직접 통신과 C++ 분리가 필요한지, 이미 연결된 Realtime에 합칠지 비교해 달라는 질문이다.
 
-**추천을 Java 이동 서비스 + 앱 직접 연결로 수정한다.** 최초 초안의 Go/quic-go 출발안은 기존 JVM 운영 기반을 우선한 Java/Netty 후보로 대체한다. 아직 기술 POC나 사용자 최종 승인을 마친 결정은 아니다.
+**결정(2026-10-07, 조재영): 1단계는 A 안 — Realtime JVM 에 이동 엔진을 넣고 기존 STOMP/WebSocket 연결·기존 JWT·멤버십 인가를 재사용한다. 분리된 Java worker + 앱 직접 QUIC(C 안)은 1단계 측정(틱 p99·송신 큐·GC pause·배터리) 뒤 2단계로 간다.** 최초 초안의 Go/quic-go 출발안은 기존 JVM 운영 기반을 우선한 Java/Netty 후보로 대체했고, 그 후보는 2단계의 출발안으로 남는다. 1단계의 알려진 단점: TCP 라 손실 때 앞선 패킷을 기다린다(head-of-line), 채팅과 CPU·GC·장애를 공유한다, 20Hz×15명 팬아웃이 Realtime 송신 큐를 지난다 — 이 셋의 측정값이 2단계로 가는 판단 기준이다.
 
 ### 7.1 언어·연결·서비스 분리는 각각 선택한다
 
@@ -135,9 +135,9 @@ Kafka의 일반 consumer group은 레코드를 그룹 내 소비자 중 하나�
 
 | 선택지 | 이점 | 추가 비용·제약 | 이번 추천 |
 | --- | --- | --- | --- |
-| Realtime JVM에 Java 이동 엔진·STOMP 채널 추가 | 기존 앱 연결과 배포를 재사용, 초기 연결 작업 적음 | 채팅과 A*·틱의 CPU/GC/장애 공유, 방 소유·20Hz 큐 정책 신규 구현, 기존 WebSocket은 UDP 요구 미충족 | 소규모 기능 검증 대안. 최종 UDP/서버 분리 요구 충족으로 표시하지 않음 |
+| Realtime JVM에 Java 이동 엔진·STOMP 채널 추가 | 기존 앱 연결과 배포를 재사용, 초기 연결 작업 적음 | 채팅과 A*·틱의 CPU/GC/장애 공유, 방 소유·20Hz 큐 정책 신규 구현, 기존 WebSocket은 UDP 요구 미충족 | **1단계 확정(2026-10-07)**. 최종 UDP/서버 분리 요구 충족으로 표시하지 않음 — 측정 뒤 2단계 |
 | Realtime은 gateway, Java Movement는 별도 worker | 앱 연결 하나 유지 가능, 이동 계산은 격리 | 앱→gateway→owner 추가 홉, owner 라우팅·구독·권한 취소·backpressure를 두 서비스에 구현. 기존 STOMP 연결의 전송 성질 유지 | 단일 앱 연결이 더 중요한 요구로 확정되면 재비교 |
-| **Java Movement + 앱 직접 QUIC** | UDP 요구 충족, 위치 경로가 짧고 채팅과 연산·송신 장애 분리 | 모바일 네이티브 어댑터·추가 연결·공개 UDP endpoint·망 차단 대응 필요 | **추천**, 모바일·부하 POC 통과 조건 |
+| **Java Movement + 앱 직접 QUIC** | UDP 요구 충족, 위치 경로가 짧고 채팅과 연산·송신 장애 분리 | 모바일 네이티브 어댑터·추가 연결·공개 UDP endpoint·망 차단 대응 필요 | **2단계 목표**, 1단계 측정과 모바일·부하 POC 통과 조건 |
 | C++ Movement + 앱 직접 연결 | 향후 측정된 CPU/메모리 병목을 더 세밀하게 제어할 여지 | 별도 언어·빌드·디버깅·운영 비용, 모바일 전송 문제는 여전히 검증 필요 | 측정 근거가 생길 때 재검토 |
 
 [현재 앱 연결](../../../../app/app-dev/src/services/islandRealtime.ts)은 `startIslandRealtime`에서 열고 `dispose()`에서 닫는다. 앱 전역에 단 하나의 영구 소켓이 항상 있다는 전제로 설계하지 않는다. 같은 연결을 재사용할 때도 섬 구독·배경 전환·재접속의 수명을 확인해야 한다.
