@@ -3,6 +3,7 @@ package com.oneorthree.business.auth;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -38,15 +39,18 @@ class RevokedSessionsBreakerTest {
             }
         };
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
-        given(redis.hasKey(anyString())).willThrow(new RedisConnectionFailureException("down"));
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> ops = mock(ValueOperations.class);
+        given(redis.opsForValue()).willReturn(ops);
+        given(ops.get(anyString())).willThrow(new RedisConnectionFailureException("down"));
         RevokedSessions revoked = new RevokedSessions(redis, Duration.ofSeconds(5), clock);
 
         assertThat(revoked.isRevoked(UUID.randomUUID())).isFalse();   // 실패 → 차단 열림
         assertThat(revoked.isRevoked(UUID.randomUUID())).isFalse();   // 차단 중 — Redis 안 부름
-        verify(redis, times(1)).hasKey(anyString());
+        verify(ops, times(1)).get(anyString());
 
         now.set(now.get().plus(RevokedSessions.BREAKER_OPEN));         // 차단 시간이 지나면 다시 시도
         assertThat(revoked.isRevoked(UUID.randomUUID())).isFalse();
-        verify(redis, times(2)).hasKey(anyString());
+        verify(ops, times(2)).get(anyString());
     }
 }

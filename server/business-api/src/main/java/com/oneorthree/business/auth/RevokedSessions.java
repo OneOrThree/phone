@@ -21,7 +21,13 @@ import java.util.UUID;
 @Component
 public class RevokedSessions {
 
-    private static final String KEY_PREFIX = "auth:business:revoked-session:";
+    /**
+     * 운영 Redis ACL 은 business 사용자에게 {@code ~cache:business:*} 키와 get·set 등 일부 명령만 연다
+     * ({@code .github/scripts/write-compose-env.py} {@code business_redis_acl}). 그 밖의 키나 EXISTS 를 쓰면
+     * NOPERM 으로 기록·조회가 모두 조용히 실패하고 fail-open 으로 폐기 AT 가 전부 통과한다 — 키는 이 접두,
+     * 조회는 GET 이어야 한다.
+     */
+    static final String KEY_PREFIX = "cache:business:revoked-session:";
     /** 서버 간 시계 차이 여유. TTL 은 폐기 시점부터, AT 수명은 발급 시점부터 세므로 원래도 남는 쪽이다. */
     private static final Duration CLOCK_SKEW = Duration.ofSeconds(60);
     /** 조회가 실패하면 이 시간 동안 Redis 를 부르지 않는다 — 장애 중 요청마다 타임아웃(2s)을 물지 않게. */
@@ -59,7 +65,7 @@ public class RevokedSessions {
             return false;
         }
         try {
-            return Boolean.TRUE.equals(redis.hasKey(KEY_PREFIX + sessionId));
+            return redis.opsForValue().get(KEY_PREFIX + sessionId) != null;
         } catch (RuntimeException e) {
             skipUntil = now.plus(BREAKER_OPEN);
             log.warn("폐기 세션 조회 실패 — {} 동안 조회를 건너뛰고 fail-open 으로 통과시킨다. sid={}",
