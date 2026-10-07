@@ -5,12 +5,13 @@
   + 1px extrusion (Tiled 의미로 margin 1, spacing 2). 남는 슬롯은 투명.
 - ``tilemap.json``: gid 1..384 를 위치 순(행 우선)으로 둔다. 같은 조각이 있어도 중복 제거하지 않는다
   (원화 자르기 단계). terrain-detail · roads 는 빈 data.
-- 검증: 아틀라스에서 384조각을 다시 조립해 2배 원화와 픽셀 차이 0 을 단언한다.
+- 검증: 아틀라스에서 384조각을 다시 조립해 2배 원화와 픽셀 차이 0 을 단언하고, 저장한 PNG 를 다시 열어
+  슬롯 내부 == 원화 crop, extrusion 1px 링(4변+모서리) == 타일 가장자리 복제를 384조각 전부 단언한다.
 - 결정적: 같은 입력이면 같은 바이트 (PNG 메타데이터 없음).
 
 사용법:
   python3 scripts/build-tile-atlas.py          # v1/ 에 생성
-  python3 scripts/build-tile-atlas.py --check  # 임시 경로에 만들어 v1/ 과 바이트 비교, 다르면 exit 1
+  python3 scripts/build-tile-atlas.py --check  # 임시 경로에 만들어 v1/ 과 비교(JSON 은 바이트, PNG 는 디코드 픽셀), 다르면 exit 1
 
 의존성: ``python3 -m pip install -r scripts/requirements-tile-atlas.txt``
 """
@@ -52,6 +53,31 @@ def upscale_2x(im):
     return rgb
 
 
+def verify_saved(path, high):
+    """저장된 PNG 를 다시 열어 슬롯 내부와 extrusion 링을 384조각 전부 단언한다."""
+    saved = np.asarray(Image.open(path).convert("RGBA"))
+    big = np.asarray(high)
+    for i in range(COLS * ROWS):
+        sx, sy = i % COLS * TILE, i // COLS * TILE
+        ax, ay = i % ATLAS_COLUMNS * PITCH, i // ATLAS_COLUMNS * PITCH
+        tile = big[sy:sy + TILE, sx:sx + TILE]
+        slot = saved[ay:ay + PITCH, ax:ax + PITCH]
+        assert np.array_equal(slot[1:-1, 1:-1], tile), f"슬롯 {i} 내부 != 원화 crop"
+        # 링 = 타일을 edge 패딩한 결과와 같아야 한다(4변 + 모서리 4점).
+        assert np.array_equal(slot, np.pad(tile, ((1, 1), (1, 1), (0, 0)), mode="edge")), f"슬롯 {i} extrusion 링 불일치"
+    print(f"저장 PNG 재검증: 슬롯 {COLS * ROWS}개 내부·extrusion 링 일치")
+
+
+def same_file(a, b):
+    """PNG 는 디코드 픽셀(모드·크기 포함)로, 나머지는 바이트로 비교한다(zlib 차이로 인한 거짓 실패 방지)."""
+    if not (a.exists() and b.exists()):
+        return False
+    if a.suffix == ".png":
+        ia, ib = Image.open(a), Image.open(b)
+        return ia.mode == ib.mode and ia.size == ib.size and ia.tobytes() == ib.tobytes()
+    return a.read_bytes() == b.read_bytes()
+
+
 def build(out):
     base = Image.open(VILLAGE / "terrain.png").convert("RGBA")
     assert base.size == (COLS * TILE // 2, ROWS * TILE // 2), base.size
@@ -79,9 +105,10 @@ def build(out):
     print(f"2x -> 1x 축소 vs 원본 terrain.png MAE: {mae:.4f}/255 (참고값)")
 
     save_png(atlas, out / "tileset@2x.png")
+    verify_saved(out / "tileset@2x.png", high)
 
     write_json(out / "tileset.json", {
-        "//": "terrain.png 를 Lanczos 2배로 올려 128px 로 자른 @2x 아틀라스(1x 환산 64px). 생성: scripts/build-tile-atlas.py",
+        "//": "terrain.png 를 Lanczos 2배로 올려 128px 로 자른 @2x 아틀라스(1x 환산 64px). 최상위 scale 은 Tiled 비표준 확장이며 2230 TileTerrainCanvas 가 읽는 계약이다(Tiled 보존용은 properties 의 scale). 생성: scripts/build-tile-atlas.py",
         "name": "home-terrain",
         "image": "tileset@2x.png",
         "imagewidth": ATLAS_SIZE[0],
@@ -93,6 +120,7 @@ def build(out):
         "columns": ATLAS_COLUMNS,
         "tilecount": COLS * ROWS,
         "scale": 2,
+        "properties": [{"name": "scale", "type": "int", "value": 2}],
     })
 
     def layer(name, data):
@@ -137,7 +165,7 @@ def main():
         return
     with tempfile.TemporaryDirectory() as tmp:
         build(Path(tmp))
-        bad = [f for f in FILES if not (V1 / f).exists() or (V1 / f).read_bytes() != (Path(tmp) / f).read_bytes()]
+        bad = [f for f in FILES if not same_file(V1 / f, Path(tmp) / f)]
     if bad:
         print("v1/ 이 최신이 아님: " + ", ".join(bad) + " (npm run gen:tile-atlas)", file=sys.stderr)
         sys.exit(1)
