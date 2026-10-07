@@ -18,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -70,8 +71,9 @@ class LoginAttemptServiceAccountSwitchTest {
     void setUp() {
         service = new LoginAttemptService(loginAttemptRepository, userQueryService, authService,
                 authSessionService, accountWithdrawalService, jwtProvider, null, self);
-        lenient().when(self.claim(any())).thenReturn(null);
-        lenient().when(self.complete(any(), any()))
+        lenient().when(self.claim(any()))
+                .thenReturn(new LoginAttemptService.Claim(null, Instant.now()));
+        lenient().when(self.complete(any(), any(), any()))
                 .thenReturn(new LoginSessionResponse("at", "rt", UUID.randomUUID(), true, "bootstrap"));
         lenient().when(authService.verifyProviderId(Provider.APPLE, "credential")).thenReturn(PROVIDER_ID);
         lenient().when(jwtProvider.extractUserId(TOKEN)).thenReturn(GUEST);

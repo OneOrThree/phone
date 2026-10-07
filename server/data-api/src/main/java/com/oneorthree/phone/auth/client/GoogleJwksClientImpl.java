@@ -66,6 +66,7 @@ public class GoogleJwksClientImpl implements SocialLoginClient {
             @Value("${google.client-id}") String clientId) {
         this.restClient = RestClient.builder()
                 .baseUrl(jwksUrl)
+                .requestFactory(IdpHttp.requestFactory())
                 .build();
         this.allowedAudiences = parseAllowedAudiences(clientId);
         if (allowedAudiences.isEmpty()) {

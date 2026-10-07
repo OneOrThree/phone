@@ -33,6 +33,7 @@ public class KakaoApiClientImpl implements SocialLoginClient {
     public KakaoApiClientImpl(@Value("${kakao.api-base-url}") String baseUrl) {
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
+                .requestFactory(IdpHttp.requestFactory())
                 .build();
     }
 
