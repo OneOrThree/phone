@@ -17,6 +17,10 @@ import java.util.UUID;
  *
  * <p>sid 없는 구 AT 는 이 목록으로 막지 못한다(필터가 그대로 통과시킨다). legacy RT 로그아웃은 새 세션 행을 만들어
  * 그 id 를 등록하지만, 그 id 를 가진 AT 는 없으므로 헛 키 하나가 TTL 로 사라질 뿐이다.
+ *
+ * <p>best-effort 다. 운영 business Redis 는 128MiB·allkeys-lru 라 메모리 압박이면 이 키도 TTL 전에 축출되고,
+ * 그 sid 의 AT 는 만료(운영 1시간)까지 다시 통과한다 — 아래 fail-open 과 같은 범위이고, 이 목록이 없던 때와 같다.
+ * ponytail: 축출 불가 저장소로 옮기는 건 ticket 2225.
  */
 @Slf4j
 @Component
