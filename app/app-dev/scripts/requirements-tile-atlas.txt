@@ -1,0 +1,4 @@
+# scripts/build-tile-atlas.py 실행 의존성 (에셋 재현용 고정 버전)
+# 설치: python3 -m pip install -r scripts/requirements-tile-atlas.txt
+numpy==2.4.4
+pillow==12.2.0

@@ -1,0 +1,14 @@
+{
+  "//": "terrain.png 를 Lanczos 2배로 올려 128px 로 자른 @2x 아틀라스(1x 환산 64px). 생성: scripts/build-tile-atlas.py",
+  "name": "home-terrain",
+  "image": "tileset@2x.png",
+  "imagewidth": 4096,
+  "imageheight": 2048,
+  "tilewidth": 128,
+  "tileheight": 128,
+  "margin": 1,
+  "spacing": 2,
+  "columns": 31,
+  "tilecount": 384,
+  "scale": 2
+}
