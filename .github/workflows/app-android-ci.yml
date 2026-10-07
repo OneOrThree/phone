@@ -69,7 +69,7 @@ jobs:
     outputs:
       code: ${{ steps.version.outputs.code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           sparse-checkout: |
             .github/ci
@@ -77,7 +77,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: AWS 인증
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -101,6 +101,10 @@ jobs:
           code="$(MIN_VERSION_CODE="$MIN_VERSION_CODE" PLAY_SERVICE_ACCOUNT_FILE="$sa" python3 .github/ci/play-next-version-code.py)"
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "versionCode=$code"
+
+      - name: AWS 자격 증명 비우기
+        # configure-aws-credentials 가 이후 스텝 env 로 내보낸 값 지움. 뒤 액션이 시크릿 다시 못 읽게
+        run: for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
 
   build:
     name: release AAB 빌드
@@ -203,7 +207,7 @@ jobs:
 
       - name: 재서명 전 AAB 넘기기
         if: env.IS_RELEASE == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: android-aab-throwaway-${{ github.run_id }}
           path: app/app-dev/android/app/build/outputs/bundle/release/app-release.aab
@@ -233,13 +237,13 @@ jobs:
       artifact-name: ${{ steps.artifact.outputs.name }}
     steps:
       - name: 재서명 전 AAB 받기
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: android-aab-throwaway-${{ github.run_id }}
           path: aab
 
       - name: AWS 인증
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -265,6 +269,10 @@ jobs:
             -keypass "$(jq -r .ANDROID_UPLOAD_KEY_PASSWORD "$dir/secret.json")" \
             aab/app-release.aab "$(jq -r .ANDROID_UPLOAD_KEY_ALIAS "$dir/secret.json")" > /dev/null
 
+      - name: AWS 자격 증명 비우기
+        # configure-aws-credentials 가 이후 스텝 env 로 내보낸 값 지움. 뒤 액션이 시크릿 다시 못 읽게
+        run: for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
+
       - name: AAB 확인 (업로드 키)
         run: |
           set -euo pipefail
@@ -280,7 +288,7 @@ jobs:
         run: echo "name=android-aab-${{ needs.version.outputs.code }}-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
 
       - name: AAB 아티팩트 업로드
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ steps.artifact.outputs.name }}
           path: aab/app-release.aab

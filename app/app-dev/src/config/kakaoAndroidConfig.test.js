@@ -175,6 +175,11 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
     expect(keyJob).not.toMatch(/npm |pip |gradlew|setup-node|setup-python/);
   }
   expect(cd).not.toMatch(/pip |setup-python/);
+  // 키 잡·CD 의 액션은 커밋 SHA 고정, 키 쓴 뒤 AWS 자격 증명 비움
+  for (const keyJob of [version, sign, cd]) {
+    expect(keyJob).not.toMatch(/uses: [^\n]*@v\d/);
+    expect(keyJob).toContain('AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN');
+  }
   // 서명 검증은 jarsigner 출력으로. 업로드 키 지문 대조는 sign 잡
   expect(build).toContain("grep -q '^jar verified\\.'");
   expect(sign).toContain('"$ANDROID_UPLOAD_CERT_SHA1"');
