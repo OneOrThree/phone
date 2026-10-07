@@ -1,0 +1,25 @@
+{
+  "$schema-note": "타일 맵 스키마(docs/prd/fishcat/island-movement/map-assets.md §2). 10/9 는 해시 대신 고정 파일명을 쓴다. 타일셋 파일은 GROMO-2229 가 만든다.",
+  "mapId": "home",
+  "mapVersion": 1,
+  "coordinateVersion": 1,
+  "imageWidth": 1536,
+  "imageHeight": 1024,
+  "tiles": {
+    "size": 64,
+    "columns": 24,
+    "rows": 16,
+    "tileset": "tileset@2x.png"
+  },
+  "nav": {
+    "columns": 100,
+    "rows": 100,
+    "file": "nav.json"
+  },
+  "layers": [
+    "terrain",
+    "terrain-detail",
+    "roads"
+  ],
+  "objectsCatalog": "objects.json"
+}

@@ -1,0 +1,1454 @@
+{
+  "$schema-note": "오브젝트 카탈로그. anchor 는 발밑 월드 좌표(소수 2자리, zIndex=y), footprint 는 통행 셀 코너 좌표(정수) 사각형 폴리곤(막지 않으면 []), entrance 는 건물 입구 셀.",
+  "objects": [
+    {
+      "id": 1,
+      "kind": "hall",
+      "building": "hall",
+      "layer": "buildings",
+      "anchor": {
+        "x": 71.29,
+        "y": 31.35
+      },
+      "footprint": [
+        [63,25],
+        [79,25],
+        [79,32],
+        [63,32]
+      ],
+      "entrance": {
+        "cx": 70,
+        "cy": 32
+      }
+    },
+    {
+      "id": 2,
+      "kind": "library",
+      "building": "library",
+      "layer": "buildings",
+      "anchor": {
+        "x": 80.4,
+        "y": 58.4
+      },
+      "footprint": [
+        [73,50],
+        [88,50],
+        [88,59],
+        [73,59]
+      ],
+      "entrance": {
+        "cx": 76,
+        "cy": 59
+      }
+    },
+    {
+      "id": 3,
+      "kind": "shop",
+      "building": "shop",
+      "layer": "buildings",
+      "anchor": {
+        "x": 65.1,
+        "y": 73.34
+      },
+      "footprint": [
+        [57,68],
+        [74,68],
+        [74,74],
+        [57,74]
+      ],
+      "entrance": {
+        "cx": 62,
+        "cy": 74
+      }
+    },
+    {
+      "id": 4,
+      "kind": "observatory",
+      "building": "tower",
+      "layer": "buildings",
+      "anchor": {
+        "x": 13.35,
+        "y": 19.82
+      },
+      "footprint": [
+        [9,15],
+        [17,15],
+        [17,21],
+        [9,21]
+      ],
+      "entrance": {
+        "cx": 13,
+        "cy": 21
+      }
+    },
+    {
+      "id": 5,
+      "kind": "notice-board",
+      "building": "board",
+      "layer": "buildings",
+      "anchor": {
+        "x": 60.48,
+        "y": 31.15
+      },
+      "footprint": [
+        [57,28],
+        [64,28],
+        [64,32],
+        [57,32]
+      ],
+      "entrance": {
+        "cx": 60,
+        "cy": 32
+      }
+    },
+    {
+      "id": 6,
+      "kind": "gramophone",
+      "building": "gram",
+      "layer": "buildings",
+      "anchor": {
+        "x": 28.78,
+        "y": 48.14
+      },
+      "footprint": [
+        [26,45],
+        [32,45],
+        [32,49],
+        [26,49]
+      ],
+      "entrance": {
+        "cx": 28,
+        "cy": 49
+      }
+    },
+    {
+      "id": 7,
+      "kind": "mailbox",
+      "building": "mail",
+      "layer": "buildings",
+      "anchor": {
+        "x": 23.63,
+        "y": 58.89
+      },
+      "footprint": [
+        [22,57],
+        [26,57],
+        [26,60],
+        [22,60]
+      ],
+      "entrance": {
+        "cx": 23,
+        "cy": 60
+      }
+    },
+    {
+      "id": 8,
+      "kind": "fire",
+      "building": null,
+      "layer": "fire",
+      "anchor": {
+        "x": 36.46,
+        "y": 55.18
+      },
+      "footprint": [
+        [32,50],
+        [41,50],
+        [41,58],
+        [32,58]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 9,
+      "kind": "tree",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 22.46,
+        "y": 42.87
+      },
+      "footprint": [
+        [20,40],
+        [25,40],
+        [25,45],
+        [20,45]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 10,
+      "kind": "pine",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 23.18,
+        "y": 56.64
+      },
+      "footprint": [
+        [22,54],
+        [25,54],
+        [25,58],
+        [22,58]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 11,
+      "kind": "bush",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 31,
+        "y": 63.96
+      },
+      "footprint": [
+        [28,61],
+        [34,61],
+        [34,66],
+        [28,66]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 12,
+      "kind": "tree",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 33.79,
+        "y": 73.05
+      },
+      "footprint": [
+        [31,70],
+        [36,70],
+        [36,75],
+        [31,75]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 13,
+      "kind": "pine",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 51.1,
+        "y": 78.64
+      },
+      "footprint": [
+        [50,76],
+        [53,76],
+        [53,80],
+        [50,80]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 14,
+      "kind": "bush",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 56.95,
+        "y": 66.21
+      },
+      "footprint": [
+        [54,64],
+        [59,64],
+        [59,68],
+        [54,68]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 15,
+      "kind": "tree",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 89.19,
+        "y": 52.73
+      },
+      "footprint": [
+        [87,50],
+        [92,50],
+        [92,54],
+        [87,54]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 16,
+      "kind": "pine",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 86,
+        "y": 34.96
+      },
+      "footprint": [
+        [84,32],
+        [88,32],
+        [88,37],
+        [84,37]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 17,
+      "kind": "bush",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 79.43,
+        "y": 20.61
+      },
+      "footprint": [
+        [77,18],
+        [82,18],
+        [82,22],
+        [77,22]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 18,
+      "kind": "tree",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 53.19,
+        "y": 20.9
+      },
+      "footprint": [
+        [51,18],
+        [55,18],
+        [55,23],
+        [51,23]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 19,
+      "kind": "pine",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 43.03,
+        "y": 23.83
+      },
+      "footprint": [
+        [41,21],
+        [45,21],
+        [45,25],
+        [41,25]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 20,
+      "kind": "bush",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 47.54,
+        "y": 38.71
+      },
+      "footprint": [
+        [45,36],
+        [50,36],
+        [50,41],
+        [45,41]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 21,
+      "kind": "tree",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 60.48,
+        "y": 43.94
+      },
+      "footprint": [
+        [58,41],
+        [63,41],
+        [63,46],
+        [58,46]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 22,
+      "kind": "pine",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 74.28,
+        "y": 65.72
+      },
+      "footprint": [
+        [73,63],
+        [76,63],
+        [76,67],
+        [73,67]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 23,
+      "kind": "bush",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 88.87,
+        "y": 65.14
+      },
+      "footprint": [
+        [86,62],
+        [92,62],
+        [92,67],
+        [86,67]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 24,
+      "kind": "tree",
+      "building": null,
+      "layer": "trees",
+      "anchor": {
+        "x": 57.03,
+        "y": 65.04
+      },
+      "footprint": [
+        [54,62],
+        [60,62],
+        [60,67],
+        [54,67]
+      ],
+      "entrance": null
+    },
+    {
+      "id": 25,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 55.99,
+        "y": 39.94
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 26,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 68.59,
+        "y": 51.99
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 27,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 44.92,
+        "y": 43.58
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 28,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 39.58,
+        "y": 35.87
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 29,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 42.54,
+        "y": 66.72
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 30,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 43.84,
+        "y": 69.69
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 31,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 63.52,
+        "y": 42.08
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 32,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 41.28,
+        "y": 18.77
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 33,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 85.93,
+        "y": 38.39
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 34,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 64.37,
+        "y": 49.22
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 35,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 44.05,
+        "y": 46.79
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 36,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 41.42,
+        "y": 42.2
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 37,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 43.42,
+        "y": 74.51
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 38,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 38.01,
+        "y": 73.02
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 39,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 21.53,
+        "y": 17.35
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 40,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 29.17,
+        "y": 65.79
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 41,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 66.15,
+        "y": 38.46
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 42,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 43.36,
+        "y": 61.57
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 43,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 26.81,
+        "y": 58.76
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 44,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 56.01,
+        "y": 41.98
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 45,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 28.54,
+        "y": 72.1
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 46,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 63.95,
+        "y": 42.96
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 47,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 50.75,
+        "y": 15.91
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 48,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 78.9,
+        "y": 15.8
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 49,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 42.08,
+        "y": 54.88
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 50,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 37.57,
+        "y": 63.2
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 51,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 36.46,
+        "y": 23.87
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 52,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 32.17,
+        "y": 61.02
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 53,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 29.98,
+        "y": 33.29
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 54,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 38.25,
+        "y": 28.87
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 55,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 66.94,
+        "y": 59.09
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 56,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 40.64,
+        "y": 71.72
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 57,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 40.78,
+        "y": 51.02
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 58,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 45.59,
+        "y": 38.08
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 59,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 58.86,
+        "y": 15.94
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 60,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 66.83,
+        "y": 60.31
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 61,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 47.37,
+        "y": 74.98
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 62,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 35.41,
+        "y": 69.05
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 63,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 36.77,
+        "y": 30.93
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 64,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 38.41,
+        "y": 31.63
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 65,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 81.77,
+        "y": 27.2
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 66,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 43.54,
+        "y": 29.76
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 67,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 38.82,
+        "y": 33.38
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 68,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 55.26,
+        "y": 35.32
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 69,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 51.24,
+        "y": 40.52
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 70,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 65.78,
+        "y": 55.9
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 71,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 35.34,
+        "y": 17.1
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 72,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 44.31,
+        "y": 32.52
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 73,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 44.97,
+        "y": 42.2
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 74,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 41.6,
+        "y": 52
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 75,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 35.2,
+        "y": 26.4
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 76,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 52.48,
+        "y": 77.25
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 77,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 52.01,
+        "y": 37.88
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 78,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 34.72,
+        "y": 36.2
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 79,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 31.23,
+        "y": 65.41
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 80,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 30.72,
+        "y": 28.26
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 81,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 56.9,
+        "y": 59.62
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 82,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 51.93,
+        "y": 72.85
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 83,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 74.4,
+        "y": 35.26
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 84,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 61.58,
+        "y": 55.49
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 85,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 42.64,
+        "y": 48.38
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 86,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 48.33,
+        "y": 58.46
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 87,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 39.18,
+        "y": 19.87
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 88,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 24.34,
+        "y": 35.14
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 89,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 26.85,
+        "y": 41.6
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 90,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 84.7,
+        "y": 39.31
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 91,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 52.57,
+        "y": 22.46
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 92,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 33.6,
+        "y": 18.93
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 93,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 35.32,
+        "y": 46.67
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 94,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 60.03,
+        "y": 52.7
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 95,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 51.67,
+        "y": 42.46
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 96,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 29.35,
+        "y": 69.45
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 97,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 24.72,
+        "y": 48.09
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 98,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 85.19,
+        "y": 31.66
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 99,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 44.01,
+        "y": 67.19
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 100,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 39.95,
+        "y": 35.64
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 101,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 44.14,
+        "y": 62.23
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 102,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 32.26,
+        "y": 71.03
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 103,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 87.76,
+        "y": 33.35
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 104,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 66.97,
+        "y": 58.41
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 105,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 22.46,
+        "y": 45.13
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 106,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 34.42,
+        "y": 23.3
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 107,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 69.61,
+        "y": 16.94
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 108,
+      "kind": "grass",
+      "building": null,
+      "layer": "grass",
+      "anchor": {
+        "x": 64.56,
+        "y": 51.41
+      },
+      "footprint": [],
+      "entrance": null
+    },
+    {
+      "id": 109,
+      "kind": "flowers",
+      "building": null,
+      "layer": "flowers",
+      "anchor": {
+        "x": 73.34,
+        "y": 38.53
+      },
+      "footprint": [],
+      "entrance": null
+    }
+  ]
+}
