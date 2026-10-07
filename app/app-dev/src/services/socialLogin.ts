@@ -3,11 +3,13 @@ import type { Provider } from '@/services/api/auth';
 import { ApiError } from '@/services/api/client';
 
 const UNAVAILABLE = 'CLIENT_PROVIDER_UNAVAILABLE';
+// GROMO-2215 — 구글 로그인을 2.0 전용 프로젝트(263851348176)로 옮겼다. 구 프로젝트(899365616896)는
+// 1.x 와 공유하던 것이고, 이미 설치된 구 빌드가 보내는 aud 는 서버 허용 목록에 남겨 둔다.
 const GOOGLE_IOS_CLIENT_ID =
-  '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com';
+  '263851348176-8ochua7scca7h6ldmdk7v3iqc9uoit50.apps.googleusercontent.com';
 const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
-  '899365616896-f9hggskoharr2uogdtvd0d2qvntle8ae.apps.googleusercontent.com';
+  '263851348176-hpndg0cj79f9n0vp78us3cktno7p0h9k.apps.googleusercontent.com';
 const LINE_CHANNEL_ID = process.env.EXPO_PUBLIC_LINE_CHANNEL_ID || '2011754820';
 let googleConfigured = false;
 let lineConfigured = false;
