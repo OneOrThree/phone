@@ -50,3 +50,10 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 - 재생성: `python3 -m pip install -r scripts/requirements-night-motion.txt` 후
   `python3 scripts/generate-night-village-motion.py` (건설 밤 아틀라스까지 다시 만들 때만 `--atlas-source`).
 - `WorldMap`은 네 모션을 `placement.json` rect 좌표에 그린다. 밤 프레임도 같은 rect로 잘라 정지 밤 레이어와 픽셀 위치가 같다.
+
+### 타일 지형(10/9, GROMO-2230)
+
+- `EXPO_PUBLIC_TILE_ISLAND=1`(iOS·Android) 이면 새 마을의 지형 `terrain.png` 한 장 대신 `v1/tileset@2x.png` 384 조각을 `TileTerrainCanvas`(Skia `<Atlas>`, 드로우콜 1)로 그린다. 웹은 플래그를 무시하고 기존 Image.
+- 배열은 `v1/tilemap.json` terrain 레이어 + `v1/tileset.json`(margin 1·spacing 2·31열·scale 2)에서 한 번 만든다. 목적지는 1x 이미지 좌표(64px 격자)라 기존 카메라 투영(`base·z`)을 Group transform 하나로 그대로 쓴다.
+- 소품·건물은 지금처럼 `VillageScenery` 가 그린다. 한 캔버스로 합치기·Reanimated 카메라는 실기기 프레임 측정(p95 ≤ 16.7ms) 뒤 다음 단계.
+- 서버 배치(`/screens/home` 의 `layout.buildings[].cell`)가 오면 `applyLayout` 이 건물 발밑을 셀 중심 px 로 덮어쓴다. 없으면 `map.json` 그대로.
