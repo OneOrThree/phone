@@ -49,6 +49,10 @@ Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모�
 docker compose -f server/scripts/docker-compose.local.yml up -d db redis
 # local + Nginx(선택) — dev 와 같은 공개 라우팅을 «호스트에서 이미 떠 있는» Business·Realtime 앞에 세운다.
 # 127.0.0.1:8088 → Business 8090 · Realtime 8085. 두 서비스가 안 떠 있으면 nginx 는 healthy 여도 그 경로는 502 다.
+# ⚠️ 두 서비스의 기본 포트는 Business 8080 · Realtime 8081 이라 그대로 bootRun 하면 Data(8080)·Metro(8081)와 부딪히고
+#    nginx 도 502 다. 로컬에서는 아래처럼 포트를 옮겨 띄운다(다른 필수 env 는 각 서비스 README).
+(cd server/business-api && SERVER_PORT=8090 ./gradlew bootRun)
+(cd server/realtime && SERVER_PORT=8085 ./gradlew bootRun)
 docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx
 LOCAL_BUSINESS_PORT=8083 LOCAL_REALTIME_PORT=8081 docker compose -f server/scripts/docker-compose.local.yml --profile nginx up -d nginx   # 포트가 다를 때 — 셸 env 면 된다
 curl -si 127.0.0.1:8088/actuator/health | head -1; curl -si 127.0.0.1:8088/health | head -1   # 404 · 200(Business 응답) 이면 정상. 200 대신 502 면 Business 가 안 떠 있는 것
