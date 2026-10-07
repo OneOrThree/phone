@@ -5,7 +5,8 @@
 Play 는 한 번 업로드된 versionCode 를 다시 받지 않기 때문이다.
 
 입력(환경변수)
-  PLAY_SERVICE_ACCOUNT_JSON  서비스 계정 키 JSON 본문 (Play Console 에서 이 앱의 릴리스 권한 필요)
+  PLAY_SERVICE_ACCOUNT_FILE  서비스 계정 키 JSON 파일 경로 (Play Console 에서 이 앱의 릴리스 권한 필요)
+                             (대신 PLAY_SERVICE_ACCOUNT_JSON 에 JSON 본문을 줘도 된다)
   PLAY_PACKAGE_NAME          예: com.oneorthree.gromo
   MIN_VERSION_CODE           하한(선택). 저장소의 versionCode 보다 작은 값이 나오지 않게 한다.
 
@@ -24,7 +25,12 @@ API = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications"
 def main() -> int:
     package = os.environ["PLAY_PACKAGE_NAME"]
     floor = int(os.environ.get("MIN_VERSION_CODE") or "0")
-    info = json.loads(os.environ["PLAY_SERVICE_ACCOUNT_JSON"])
+    path = os.environ.get("PLAY_SERVICE_ACCOUNT_FILE")
+    if path:
+        with open(path, encoding="utf-8") as f:
+            info = json.load(f)
+    else:
+        info = json.loads(os.environ["PLAY_SERVICE_ACCOUNT_JSON"])
     creds = service_account.Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/androidpublisher"]
     )

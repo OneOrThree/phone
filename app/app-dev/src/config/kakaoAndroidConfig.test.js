@@ -152,9 +152,13 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
   );
   expect(cd).toContain('track: internal');
   expect(cd).toMatch(/^on:\s*\n\s*workflow_call:/m);
-  // 공개 레포 — PR 단계에서는 시크릿을 쓰지 않는다
+  // 키는 AWS Secrets Manager 에서 main·수동 실행 때만 읽는다 — GitHub 레포 시크릿과 PR 단계는 키에 닿지 않는다
+  expect(ci).not.toMatch(/secrets\./);
+  expect(cd).not.toMatch(/secrets\./);
+  expect(ci).toContain('RELEASE_SECRET_ID: gromo/prod/android');
+  expect(ci).toMatch(/name: AWS 인증 \(OIDC\)\s*\n\s*if: env\.IS_RELEASE == 'true'/);
   expect(ci).toMatch(
-    /github\.event_name != 'pull_request' && secrets\.ANDROID_UPLOAD_KEYSTORE_B64/,
+    /name: Secrets Manager 에서 서명 키·Play 키 받기\s*\n\s*if: env\.IS_RELEASE == 'true'/,
   );
 });
 
