@@ -1,42 +1,29 @@
 name: Android CI
 
-# 안드로이드 release AAB 빌드 (GROMO-2223). 짝인 CD 는 app-android-cd.yml.
+# Android release AAB 빌드 (GROMO-2223). CD 짝: app-android-cd.yml.
 #
-# ## 흐름 — 백엔드 dev-ci.yml → dev-cd.yml 과 같은 모양
-# - PR       : release AAB 를 끝까지 빌드해 본다(JS 번들·Hermes·리소스·서명 단계까지). 시크릿은 쓰지 않는다 —
-#              잡 안에서 만든 일회용 키로 서명하고, 결과물은 버린다.
-# - main push: 업로드 키로 서명한 AAB 를 만들어 아티팩트로 남기고, CD 를 불러 Play **내부 테스트** 트랙에 올린다.
-#              CD 는 다시 빌드하지 않고 이 아티팩트를 그대로 올린다(빌드 한 번, 배포 한 번).
+# 흐름 (dev-ci → dev-cd 와 같은 모양):
+# - PR: AAB 끝까지 빌드(JS 번들·Hermes·리소스·서명). 키 안 씀. 일회용 키 서명, 결과 버림.
+# - main push: 업로드 키로 서명 → 아티팩트 → CD 가 Play 내부 테스트에 올림. CD 는 재빌드 안 함.
+# 네이티브 컴파일·XML 검사는 app-android-build.yml 담당.
 #
-# 네이티브 컴파일·XML 검사는 app-android-build.yml 이 한다. 이 워크플로는 "Play 에 올릴 수 있는 AAB 가
-# 실제로 만들어지는가" 를 본다.
+# 빌드 대상:
+# - 앱 com.oneorthree.gromo, 서버 dev(https://oneorthree.dev.mooo.com). 운영 아님.
+# - GROMO_ANDROID_AUDIENCE=dev 로 build.gradle 의 dev 가드 탐. 수동 운영 빌드는 이 값 없음 → 기존 가드 그대로.
+# - OTA·PostHog 켠 채 빌드 (팀 결정 2026-10-07).
+#   ⚠️ OTA 채널은 production. 운영 OTA 내보내면 이 빌드도 받음.
 #
-# ## 무엇을 빌드하나
-# - 앱: com.oneorthree.gromo (Play Console "GroMo - 집중 타이머 & 스크린타임")
-# - 서버: 팀 dev 서버 https://oneorthree.dev.mooo.com — 운영 주소가 아니다
-# - app/build.gradle 의 release 가드는 운영 주소·legacy 세션 이관 준비를 요구한다. 여기서는
-#   GROMO_ANDROID_AUDIENCE=dev 를 줘서 "dev 주소만 허용" 쪽 가드를 탄다. 손으로 운영 빌드를 만들 때는
-#   이 값을 주지 않으므로 기존 가드가 똑같이 걸린다.
-# - OTA·PostHog 는 매니페스트·코드 기본값 그대로 켠 채로 빌드한다(팀 결정 2026-10-07).
-#   ⚠️ 매니페스트의 OTA 채널은 production 이다 — 운영 채널에 OTA 를 내보내면 이 dev 빌드도 받는다.
+# 공개 레포: PR 단계에 AWS 인증·키 쓰는 스텝 추가 금지. 외부 PR 코드가 키 읽음.
 #
-# ## 공개 레포 주의
-# 키(업로드 키·Play 서비스 계정)는 main push·수동 실행 단계에서만 읽는다. PR 단계에 AWS 인증·키를 쓰는
-# 스텝을 추가하지 말 것 — 외부인이 보낸 PR 코드가 키를 읽을 수 있다.
-#
-# ## 키는 AWS Secrets Manager 에 둔다
-# 팀원이 AWS 콘솔에서 값을 볼 수 있게 GitHub 레포 시크릿이 아니라 Secrets Manager 에 둔다(dev 배포와 같은 방식).
-# GitHub OIDC 로 Android 배포 전용 역할(gromo-prod-android-github-actions)을 받아 읽는다. 이 역할은
-# main 브랜치와 play-internal environment 에서만 받을 수 있고, 아래 시크릿 하나만 읽을 수 있다.
-#
-# 시크릿 gromo/prod/android (ap-northeast-2) — JSON 키:
+# 키 위치: AWS Secrets Manager gromo/prod/android (ap-northeast-2). 팀원이 콘솔에서 볼 수 있게.
+# 전용 역할 gromo-prod-android-github-actions 를 OIDC 로 받음. main·play-internal 만 받고, 이 시크릿 하나만 읽음.
 # | 키 | 내용 |
 # | --- | --- |
-# | ANDROID_UPLOAD_KEYSTORE_B64 | 업로드 키 release.keystore 를 base64 로 인코딩한 값 |
+# | ANDROID_UPLOAD_KEYSTORE_B64 | 업로드 키 release.keystore, base64 |
 # | ANDROID_UPLOAD_STORE_PASSWORD | 키스토어 비밀번호 |
 # | ANDROID_UPLOAD_KEY_ALIAS | 키 별칭 |
 # | ANDROID_UPLOAD_KEY_PASSWORD | 키 비밀번호 |
-# | PLAY_SERVICE_ACCOUNT_JSON | Play Console 에서 이 앱의 "테스트 트랙에 출시" 권한을 받은 GCP 서비스 계정 키 JSON(문자열) |
+# | PLAY_SERVICE_ACCOUNT_JSON | Play "테스트 트랙 출시" 권한 받은 GCP 서비스 계정 키 JSON |
 
 on:
   pull_request:
@@ -45,21 +32,20 @@ on:
       - 'app/app-dev/**'
       - '!app/app-dev/**/*.md'
       - '!app/app-dev/ios/**'
-      # iOS 폴더는 빼되, 약관 버전·Datadog 공개 설정의 정본은 여기라 다시 넣는다
+      # iOS 폴더 제외. 단 약관 버전·Datadog 공개 설정 정본은 여기 → 다시 포함
       - 'app/app-dev/ios/release-config.sh'
       - '.github/workflows/app-android-ci.yml'
       - '.github/workflows/app-android-cd.yml'
-      - '.github/ci/android-version-code.gradle'
-      - '.github/scripts/play-next-version-code.py'
+      # Android CI 전용 스크립트. .github/scripts/ 에 두면 satellite-ci 까지 돎
+      - '.github/ci/**'
   push:
     branches: [main]
     paths: *android_release_paths
-  # 수동 실행은 main 에서만 키를 쓰고 Play 에 올린다. 다른 브랜치에서 돌리면 PR 처럼 일회용 키로 빌드만 한다.
+  # 수동 실행: main 만 키 쓰고 Play 업로드. 다른 브랜치는 일회용 키로 빌드만.
   workflow_dispatch:
 
-# PR: 같은 PR 의 앞 실행은 버린다.
-# main: versionCode 를 "Play 최대값 + 1" 로 정하고 CD 가 올리기까지 한 줄로 서야 한다 — 겹치면 같은 값을 두 번 쓴다.
-#       대기 중인 실행은 가장 최근 것 하나만 남는다. 그 실행이 최신 main 을 올린다.
+# PR: 같은 PR 앞 실행 버림.
+# main: 한 줄로 섬. versionCode = Play 최대값 + 1 이라 겹치면 같은 값 두 번 씀. 대기는 최신 하나만 남음.
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('android-ci-pr-{0}', github.ref) || 'android-ci-main' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -72,7 +58,7 @@ env:
   AWS_REGION: ap-northeast-2
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-android-github-actions
   RELEASE_SECRET_ID: gromo/prod/android
-  # Play Console 「앱 서명 → 업로드 키 인증서」의 SHA-1 (공개값). 키를 바꾸면 여기도 바꾼다
+  # Play Console 앱 서명 → 업로드 키 인증서 SHA-1 (공개값). 키 바꾸면 같이 바꿈
   ANDROID_UPLOAD_CERT_SHA1: 85:DF:F5:E4:96:1A:A2:32:88:E0:CF:B7:48:47:F0:55:9A:77:02:37
 
 jobs:
@@ -80,8 +66,8 @@ jobs:
     name: release AAB 빌드
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # id-token 은 AWS OIDC 용. PR 잡도 권한은 받지만 AWS 인증 스텝이 IS_RELEASE 에서만 돈다.
-    # 포크 PR 은 GitHub 가 OIDC 토큰을 아예 주지 않고, 역할 신뢰 조건도 main·play-internal 만 받는다.
+    # id-token: AWS OIDC 용. PR 잡도 권한 받지만 AWS 인증 스텝은 IS_RELEASE 만.
+    # 포크 PR 은 OIDC 토큰 못 받음. 역할 신뢰도 main·play-internal 만.
     permissions:
       contents: read
       id-token: write
@@ -89,10 +75,10 @@ jobs:
       version-code: ${{ steps.version.outputs.code }}
       artifact-name: ${{ steps.artifact.outputs.name }}
     env:
-      # 키를 쓰고 Play 에 올리는 건 main 의 push·수동 실행뿐이다. 다른 브랜치의 수동 실행은 빌드 검증만 한다
+      # 키·Play 업로드는 main 의 push·수동 실행만
       IS_RELEASE: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g
-      # ── 빌드에 박히는 값. 전부 고정한다(레포 변수로 바꿀 수 없게) ──
+      # 빌드에 박히는 값. 고정 (레포 변수로 못 바꾸게)
       GROMO_ANDROID_AUDIENCE: dev
       EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com
       EXPO_PUBLIC_ENV: dev
@@ -108,7 +94,7 @@ jobs:
 
       - name: Secrets Manager 에서 서명 키·Play 키 받기
         if: env.IS_RELEASE == 'true'
-        # 값은 출력하지 않고 러너 임시 폴더에 파일로만 쓴다. 비밀번호는 로그 마스킹에 등록한다.
+        # 값 출력 금지. 러너 임시 폴더에 파일로만. 비밀번호 마스킹.
         run: |
           set -euo pipefail
           umask 077
@@ -135,7 +121,7 @@ jobs:
           rm -f "$dir/secret.json"
 
       - name: 공개 릴리스 설정 읽기
-        # 약관 버전·Datadog RUM 공개 설정은 iOS 와 같은 파일이 정본이다 — 두 벌로 두면 갈라진다.
+        # 약관 버전·Datadog 공개 설정 정본은 iOS 와 같은 파일. 두 벌 두면 갈라짐.
         run: |
           set -euo pipefail
           # shellcheck disable=SC1091
@@ -158,19 +144,19 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$IS_RELEASE" != true ]; then
-            # PR 빌드는 올리지 않는다 — 값은 아무거나 괜찮다
+            # PR 은 안 올림. 값 무관
             echo "code=1" >> "$GITHUB_OUTPUT"; exit 0
           fi
           pip install --quiet 'google-auth==2.*' 'requests==2.*'
-          # Play 최대값 + 1. 저장소의 versionCode(수동 운영 빌드 값)보다 작아지지 않게 하한으로 준다
+          # Play 최대값 + 1. build.gradle versionCode(수동 운영 빌드 값)가 하한
           MIN_VERSION_CODE="$(sed -n 's/^ *versionCode \([0-9][0-9]*\).*/\1/p' app/app-dev/android/app/build.gradle)"
           [ -n "$MIN_VERSION_CODE" ] || { echo "::error::build.gradle 에서 versionCode 를 읽지 못했다"; exit 1; }
           export MIN_VERSION_CODE
-          code="$(python3 .github/scripts/play-next-version-code.py)"
+          code="$(python3 .github/ci/play-next-version-code.py)"
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "versionCode=$code"
 
-      # ── 빌드 도구 (app-android-build.yml 과 같은 구성) ──
+      # 빌드 도구 (app-android-build.yml 과 같음)
       - name: NDK 캐시
         id: ndk-cache
         uses: actions/cache@v4
@@ -206,8 +192,8 @@ jobs:
         run: npm ci
 
       - name: 서명 키 배치
-        # app/build.gradle 이 읽는 경로(android/credentials/prod)에 둔다. 러너는 매번 새 VM 이라 잡이 끝나면 사라진다.
-        # PR 은 잡 안에서 만든 일회용 키로 서명한다 — 그 AAB 는 Play 가 받지 않으므로 올릴 수도 없다.
+        # build.gradle 이 읽는 android/credentials/prod 에 둠. 러너는 매번 새 VM.
+        # PR 은 일회용 키 서명. Play 가 안 받으니 올릴 수도 없음.
         working-directory: app/app-dev/android
         run: |
           set -euo pipefail
@@ -228,7 +214,7 @@ jobs:
         working-directory: app/app-dev/android
         env:
           GROMO_VERSION_CODE: ${{ steps.version.outputs.code }}
-          # JS 번들을 production 으로 만든다. 잡 전체에 걸면 npm ci 가 devDependencies(patch-package 등)를 빼서 설치가 깨진다
+          # JS 번들 production. 잡 전체에 걸면 npm ci 가 devDependencies(patch-package) 빼서 깨짐
           NODE_ENV: production
         run: ./gradlew -I "$GITHUB_WORKSPACE/.github/ci/android-version-code.gradle" :app:bundleRelease
 
@@ -241,11 +227,11 @@ jobs:
           set -euo pipefail
           aab=app/app-dev/android/app/build/outputs/bundle/release/app-release.aab
           [ -f "$aab" ] || { echo "::error::AAB 가 없다: $aab"; exit 1; }
-          # jarsigner 는 서명이 없는 파일에도 종료 코드 0 을 낸다 — 출력의 "jar verified." 로 판정한다
+          # jarsigner 는 서명 없어도 종료 코드 0. 출력 "jar verified." 로 판정
           verify="$(jarsigner -verify "$aab" 2>&1 || true)"
           grep -q '^jar verified\.' <<<"$verify" || { echo "::error::AAB 서명 검증 실패: $(head -1 <<<"$verify")"; exit 1; }
           if [ "$IS_RELEASE" = true ]; then
-            # Play 는 등록된 업로드 키로 서명한 AAB 만 받는다 — 업로드 전에 지문을 맞춰 본다
+            # Play 는 등록 업로드 키 서명만 받음. 업로드 전 지문 대조
             sha1="$(keytool -printcert -jarfile "$aab" | sed -n 's/^[[:space:]]*SHA1: //p' | head -1)"
             [ "$sha1" = "$ANDROID_UPLOAD_CERT_SHA1" ] \
               || { echo "::error::업로드 키 지문이 Play 등록 값과 다르다: $sha1"; exit 1; }
@@ -281,7 +267,7 @@ jobs:
     name: Play 내부 테스트 배포
     needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    # 불려 가는 CD 가 AWS OIDC 를 쓰므로 호출하는 쪽에서 id-token 권한을 넘겨야 한다
+    # CD 가 OIDC·PR 표시 씀 → 호출하는 쪽이 권한 넘겨야 함
     permissions:
       contents: read
       id-token: write

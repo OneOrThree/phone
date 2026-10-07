@@ -1,14 +1,11 @@
 name: Android CD
 
-# Android CI(app-android-ci.yml)가 main 에서 만든 AAB 를 Google Play **내부 테스트** 트랙에 올린다 (GROMO-2223).
-# 트리거가 따로 없다 — CI 의 deploy 잡이 workflow_call 로 부른다. 다시 빌드하지 않고 CI 아티팩트를 그대로 올린다.
+# CI(app-android-ci.yml)가 main 에서 만든 AAB → Play 내부 테스트 (GROMO-2223).
+# 트리거 없음. CI deploy 잡이 workflow_call 로 부름. 재빌드 안 함.
+# 업로드 후 internal 트랙 재조회로 확인 → 머지 PR 에 deployed:play-internal 라벨·코멘트.
 #
-# 올린 뒤 Play API 로 internal 트랙을 다시 읽어 이 versionCode 가 출시(completed) 상태로 들어갔는지 확인하고,
-# 확인되면 이 커밋을 만든 PR 에 라벨 deployed:play-internal 과 코멘트를 남긴다(머지한 사람이 알림을 받는다).
-#
-# 선택 레포 변수: PLAY_INTERNAL_RELEASE_STATUS (기본 completed). Play 가 앱을 아직 "초안 앱"으로 보면
-# "Only releases with status draft may be created on draft app" 로 거절한다. 그때 draft 로 바꾸고,
-# 콘솔에서 출시 버튼을 직접 누른다. 앱이 한 번 검토를 통과하면 다시 지운다.
+# 선택 변수 PLAY_INTERNAL_RELEASE_STATUS (기본 completed). "Only releases with status draft may be created
+# on draft app" 나오면 draft 로 바꾸고 콘솔에서 출시. 앱이 검토 통과하면 지움.
 
 on:
   workflow_call:
@@ -29,12 +26,12 @@ on:
 permissions:
   contents: read
   id-token: write
-  pull-requests: write # 배포된 PR 에 라벨·코멘트
-  issues: write # 라벨은 이슈 API 로 붙는다
+  pull-requests: write # PR 라벨·코멘트
+  issues: write # 라벨은 이슈 API
 
 env:
   AWS_REGION: ap-northeast-2
-  # 키는 AWS Secrets Manager gromo/prod/android 에 있다 — 자세한 건 app-android-ci.yml 머리말
+  # 키: Secrets Manager gromo/prod/android. 자세한 건 app-android-ci.yml 머리말
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-android-github-actions
   RELEASE_SECRET_ID: gromo/prod/android
 
@@ -43,7 +40,7 @@ jobs:
     name: Play 내부 테스트 업로드
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # GitHub Deployments 에 "play-internal" 배포 기록이 남는다 (저장소 첫 화면 Deployments)
+    # Deployments 에 play-internal 기록 남음. 배포 브랜치 main 만 (레포 설정)
     environment:
       name: play-internal
     steps:
@@ -75,7 +72,7 @@ jobs:
             || { echo "::error::$RELEASE_SECRET_ID 의 PLAY_SERVICE_ACCOUNT_JSON 이 비었거나 서비스 계정 키가 아니다"; exit 1; }
 
       - name: Play 내부 테스트 트랙 업로드
-        # 서비스 계정 키를 받는 서드파티 액션이라 커밋 SHA 로 고정한다 (v1.1.5)
+        # 키 받는 서드파티 액션 → 커밋 SHA 고정 (v1.1.5)
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
         with:
           serviceAccountJson: ${{ runner.temp }}/play-sa.json
@@ -83,7 +80,7 @@ jobs:
           releaseFiles: aab/app-release.aab
           track: internal
           status: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
-          # Play 릴리스 이름은 50자 제한 — 커밋은 8자만 쓴다
+          # 릴리스 이름 50자 제한 → 커밋 8자
           releaseName: dev ${{ inputs.version-code }} (${{ steps.rev.outputs.short }})
 
       - uses: actions/setup-python@v5
@@ -91,7 +88,7 @@ jobs:
           python-version: '3.12'
 
       - name: 업로드 확인 (internal 트랙 재조회)
-        # 액션이 성공을 돌려줘도 트랙에 실제로 들어갔는지 Play 에서 다시 읽어 본다. 읽기만 하고 edit 는 지운다.
+        # 액션 성공 ≠ 트랙 반영. Play 재조회. 읽기만, edit 는 지움.
         env:
           VERSION_CODE: ${{ inputs.version-code }}
           EXPECTED_STATUS: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
@@ -126,8 +123,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/play-sa.json"
 
       - name: 배포된 PR 에 표시
-        # 이 커밋을 만든 PR(squash 머지)을 찾아 라벨·코멘트를 남긴다. PR 이 없는 커밋(직접 수동 실행 등)은 건너뛴다.
-        # 라벨이 없으면 GitHub 가 처음 붙일 때 만든다.
+        # 커밋의 머지 PR 찾아 라벨·코멘트. PR 없으면 건너뜀. 라벨 없으면 GitHub 가 첫 부착 때 만듦.
         env:
           GH_TOKEN: ${{ github.token }}
           REVISION: ${{ inputs.revision }}

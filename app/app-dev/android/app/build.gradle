@@ -97,9 +97,8 @@ gradle.taskGraph.whenReady { taskGraph ->
     def includesReleaseArtifactTask = taskGraph.allTasks.any { task ->
         task.project == project && releaseArtifactTasks.contains(task.name.toLowerCase(Locale.ROOT))
     }
-    // dev 청중(GROMO_ANDROID_AUDIENCE=dev)은 Play 내부 테스트 트랙에 올리는 팀 dev 서버용 빌드다 (GROMO-2223).
-    // 운영 서버의 세션을 이어받지 않으므로 legacy 세션 이관 가드는 운영 청중에만 건다.
-    // 이 값은 CI 워크플로(.github/workflows/app-android-ci.yml)만 설정한다. 비어 있으면 운영(prod)으로 본다.
+    // dev 청중(GROMO_ANDROID_AUDIENCE=dev) = Play 내부 테스트용 팀 dev 서버 빌드 (GROMO-2223).
+    // 운영 세션 안 이어받음 → legacy 세션 가드는 운영만. 값은 CI(.github/workflows/app-android-ci.yml)만 줌. 비면 prod.
     def androidAudience = System.getenv("GROMO_ANDROID_AUDIENCE") ?: "prod"
     if (includesReleaseArtifactTask && !(androidAudience in ["prod", "dev"])) {
         throw new GradleException(
@@ -130,7 +129,7 @@ gradle.taskGraph.whenReady { taskGraph ->
             "Android release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요."
         )
     }
-    // dev 청중은 팀 dev 서버 주소만 허용한다 — 운영 주소가 dev 빌드에 박히는 것도 막는다
+    // dev 청중은 dev 주소만. 운영 주소 박힌 dev 빌드도 막음
     if (includesReleaseArtifactTask && devAudience && apiUrl != "https://oneorthree.dev.mooo.com") {
         throw new GradleException(
             "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL은 https://oneorthree.dev.mooo.com 이어야 합니다."
