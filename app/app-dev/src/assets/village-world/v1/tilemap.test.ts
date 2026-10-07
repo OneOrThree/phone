@@ -44,4 +44,27 @@ describe('village-world v1 tilemap', () => {
     expect(homeMap.tiles.tileset).toBe(tileset.image);
     expect(homeMap.tiles.map).toBe('tilemap.json');
   });
+
+  // 타일셋 메타(margin·spacing·columns)로 gid 의 아틀라스 원본 좌표와 지형 목적지 좌표를 계산한다.
+  const rects = (gid: number) => {
+    const { margin, spacing, columns, tilewidth, tileheight } = tileset;
+    const k = gid - 1;
+    return {
+      src: [margin + (k % columns) * (tilewidth + spacing), margin + Math.floor(k / columns) * (tileheight + spacing)],
+      dest: [(k % tilemap.width) * tilemap.tilewidth, Math.floor(k / tilemap.width) * tilemap.tileheight],
+    };
+  };
+
+  it.each([
+    [1, [1, 1], [0, 0]],
+    [32, [1, 131], [448, 64]],
+    [384, [1431, 1561], [1472, 960]],
+  ])('gid %d 의 src·dest 좌표가 고정값과 같다', (gid, src, dest) => {
+    expect(rects(gid)).toEqual({ src, dest });
+  });
+
+  it('scale 은 Tiled 가 보존하는 properties 에도 있다', () => {
+    expect(tileset.properties).toEqual([{ name: 'scale', type: 'int', value: 2 }]);
+    expect(tileset.scale).toBe(2);
+  });
 });
