@@ -1,0 +1,258 @@
+name: Android CI
+
+# 안드로이드 release AAB 빌드 (GROMO-2223). 짝인 CD 는 app-android-cd.yml.
+#
+# ## 흐름 — 백엔드 dev-ci.yml → dev-cd.yml 과 같은 모양
+# - PR       : release AAB 를 끝까지 빌드해 본다(JS 번들·R8·리소스·서명 단계까지). 시크릿은 쓰지 않는다 —
+#              잡 안에서 만든 일회용 키로 서명하고, 결과물은 버린다.
+# - main push: 업로드 키로 서명한 AAB 를 만들어 아티팩트로 남기고, CD 를 불러 Play **내부 테스트** 트랙에 올린다.
+#              CD 는 다시 빌드하지 않고 이 아티팩트를 그대로 올린다(빌드 한 번, 배포 한 번).
+#
+# 네이티브 컴파일·XML 검사는 app-android-build.yml 이 한다. 이 워크플로는 "Play 에 올릴 수 있는 AAB 가
+# 실제로 만들어지는가" 를 본다.
+#
+# ## 무엇을 빌드하나
+# - 앱: com.oneorthree.gromo (Play Console "GroMo - 집중 타이머 & 스크린타임")
+# - 서버: 팀 dev 서버 https://oneorthree.dev.mooo.com — 운영 주소가 아니다
+# - app/build.gradle 의 release 가드는 운영 주소·legacy 세션 이관 준비를 요구한다. 여기서는
+#   GROMO_ANDROID_AUDIENCE=dev 를 줘서 "dev 주소만 허용" 쪽 가드를 탄다. 손으로 운영 빌드를 만들 때는
+#   이 값을 주지 않으므로 기존 가드가 똑같이 걸린다.
+# - OTA·PostHog 는 매니페스트·코드 기본값 그대로 켠 채로 빌드한다(팀 결정 2026-10-07).
+#   ⚠️ 매니페스트의 OTA 채널은 production 이다 — 운영 채널에 OTA 를 내보내면 이 dev 빌드도 받는다.
+#
+# ## 공개 레포 주의
+# 시크릿(업로드 키·Play 서비스 계정)은 main push·수동 실행 단계에서만 읽는다. PR 단계에 시크릿을 쓰는
+# 스텝을 추가하지 말 것 — 외부인이 보낸 PR 코드가 키를 읽을 수 있다.
+#
+# ## 필요한 레포 시크릿 (Settings → Secrets and variables → Actions)
+# | 이름 | 내용 |
+# | --- | --- |
+# | ANDROID_UPLOAD_KEYSTORE_B64 | 업로드 키 release.keystore 를 base64 로 인코딩한 값 |
+# | ANDROID_UPLOAD_STORE_PASSWORD | 키스토어 비밀번호 |
+# | ANDROID_UPLOAD_KEY_ALIAS | 키 별칭 |
+# | ANDROID_UPLOAD_KEY_PASSWORD | 키 비밀번호 |
+# | PLAY_SERVICE_ACCOUNT_JSON | Play Console 에서 이 앱의 "테스트 트랙에 출시" 권한을 받은 GCP 서비스 계정 키 JSON |
+
+on:
+  pull_request:
+    branches: [main]
+    paths: &android_release_paths
+      - 'app/app-dev/**'
+      - '!app/app-dev/**/*.md'
+      - '!app/app-dev/ios/**'
+      # iOS 폴더는 빼되, 약관 버전·Datadog 공개 설정의 정본은 여기라 다시 넣는다
+      - 'app/app-dev/ios/release-config.sh'
+      - '.github/workflows/app-android-ci.yml'
+      - '.github/workflows/app-android-cd.yml'
+      - '.github/ci/android-version-code.gradle'
+      - '.github/scripts/play-next-version-code.py'
+  push:
+    branches: [main]
+    paths: *android_release_paths
+  workflow_dispatch:
+
+# PR: 같은 PR 의 앞 실행은 버린다.
+# main: versionCode 를 "Play 최대값 + 1" 로 정하고 CD 가 올리기까지 한 줄로 서야 한다 — 겹치면 같은 값을 두 번 쓴다.
+#       대기 중인 실행은 가장 최근 것 하나만 남는다. 그 실행이 최신 main 을 올린다.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('android-ci-pr-{0}', github.ref) || 'android-ci-main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE_NAME: com.oneorthree.gromo
+
+jobs:
+  build:
+    name: release AAB 빌드
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      version-code: ${{ steps.version.outputs.code }}
+      artifact-name: ${{ steps.artifact.outputs.name }}
+    env:
+      IS_RELEASE: ${{ github.event_name != 'pull_request' }}
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g
+      # ── 빌드에 박히는 값. 전부 고정한다(레포 변수로 바꿀 수 없게) ──
+      GROMO_ANDROID_AUDIENCE: dev
+      EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com
+      EXPO_PUBLIC_ENV: dev
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 시크릿 확인
+        if: env.IS_RELEASE == 'true'
+        # 빌드를 돌리기 전에 빠진 것부터 알린다. 값은 출력하지 않는다.
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          fail=0
+          for pair in KEYSTORE_B64:ANDROID_UPLOAD_KEYSTORE_B64 STORE_PASSWORD:ANDROID_UPLOAD_STORE_PASSWORD \
+                      KEY_ALIAS:ANDROID_UPLOAD_KEY_ALIAS KEY_PASSWORD:ANDROID_UPLOAD_KEY_PASSWORD \
+                      PLAY_JSON:PLAY_SERVICE_ACCOUNT_JSON; do
+            var="${pair%%:*}"; name="${pair#*:}"
+            if [ -z "${!var:-}" ]; then
+              echo "::error::레포 시크릿 $name 이 없다 — 이 파일 머리말의 표 참고"; fail=1
+            fi
+          done
+          [ "$fail" = 0 ]
+
+      - name: 공개 릴리스 설정 읽기
+        # 약관 버전·Datadog RUM 공개 설정은 iOS 와 같은 파일이 정본이다 — 두 벌로 두면 갈라진다.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source app/app-dev/ios/release-config.sh
+          for v in EXPO_PUBLIC_TERMS_VERSION EXPO_PUBLIC_DATADOG_APPLICATION_ID EXPO_PUBLIC_DATADOG_CLIENT_TOKEN; do
+            [ -n "${!v:-}" ] || { echo "::error::release-config.sh 에 $v 가 없다"; exit 1; }
+            echo "$v=${!v}" >> "$GITHUB_ENV"
+          done
+
+      - uses: actions/setup-python@v5
+        if: env.IS_RELEASE == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: versionCode 정하기
+        id: version
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_PACKAGE_NAME: ${{ env.PACKAGE_NAME }}
+        run: |
+          set -euo pipefail
+          if [ "$IS_RELEASE" != true ]; then
+            # PR 빌드는 올리지 않는다 — 값은 아무거나 괜찮다
+            echo "code=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          pip install --quiet 'google-auth==2.*' 'requests==2.*'
+          # Play 최대값 + 1. 저장소의 versionCode(수동 운영 빌드 값)보다 작아지지 않게 하한으로 준다
+          MIN_VERSION_CODE="$(sed -n 's/^ *versionCode \([0-9][0-9]*\).*/\1/p' app/app-dev/android/app/build.gradle)"
+          [ -n "$MIN_VERSION_CODE" ] || { echo "::error::build.gradle 에서 versionCode 를 읽지 못했다"; exit 1; }
+          export MIN_VERSION_CODE
+          code="$(python3 .github/scripts/play-next-version-code.py)"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "versionCode=$code"
+
+      # ── 빌드 도구 (app-android-build.yml 과 같은 구성) ──
+      - name: NDK 캐시
+        id: ndk-cache
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/ndk/27.1.12297006
+          key: android-ndk-27.1.12297006
+
+      - name: NDK 설치
+        if: steps.ndk-cache.outputs.cache-hit != 'true'
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.1.12297006"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006" > /dev/null || true
+          if [ ! -f "$NDK/source.properties" ]; then
+            rm -rf "$NDK"
+            echo "::error::NDK 27.1.12297006 설치가 완결되지 않았습니다(source.properties 없음)."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: app/app-dev/package-lock.json
+
+      - name: npm ci
+        working-directory: app/app-dev
+        run: npm ci
+
+      - name: 서명 키 배치
+        # app/build.gradle 이 읽는 경로(android/credentials/prod)에 둔다. 러너는 매번 새 VM 이라 잡이 끝나면 사라진다.
+        # PR 은 잡 안에서 만든 일회용 키로 서명한다 — 그 AAB 는 Play 가 받지 않으므로 올릴 수도 없다.
+        working-directory: app/app-dev/android
+        env:
+          KEYSTORE_B64: ${{ github.event_name != 'pull_request' && secrets.ANDROID_UPLOAD_KEYSTORE_B64 || '' }}
+          STORE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.ANDROID_UPLOAD_STORE_PASSWORD || '' }}
+          KEY_ALIAS: ${{ github.event_name != 'pull_request' && secrets.ANDROID_UPLOAD_KEY_ALIAS || '' }}
+          KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.ANDROID_UPLOAD_KEY_PASSWORD || '' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p credentials/prod
+          if [ "$IS_RELEASE" = true ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > credentials/prod/release.keystore
+          else
+            STORE_PASSWORD="ci-$(openssl rand -hex 12)"; KEY_PASSWORD="$STORE_PASSWORD"; KEY_ALIAS=ci-throwaway
+            keytool -genkeypair -keystore credentials/prod/release.keystore -storepass "$STORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 1 \
+              -dname "CN=CI throwaway" > /dev/null 2>&1
+          fi
+          {
+            echo "storeFile=release.keystore"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > credentials/prod/keystore.properties
+
+      - name: AAB 빌드
+        working-directory: app/app-dev/android
+        env:
+          GROMO_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: ./gradlew -I "$GITHUB_WORKSPACE/.github/ci/android-version-code.gradle" :app:bundleRelease
+
+      - name: 서명 키 지우기
+        if: always()
+        run: rm -rf app/app-dev/android/credentials/prod
+
+      - name: AAB 확인
+        run: |
+          set -euo pipefail
+          aab=app/app-dev/android/app/build/outputs/bundle/release/app-release.aab
+          [ -f "$aab" ] || { echo "::error::AAB 가 없다: $aab"; exit 1; }
+          jarsigner -verify "$aab" > /dev/null || { echo "::error::AAB 서명 검증 실패"; exit 1; }
+          ls -lh "$aab"
+
+      - name: 아티팩트 이름
+        id: artifact
+        if: env.IS_RELEASE == 'true'
+        run: echo "name=android-aab-${{ steps.version.outputs.code }}-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: AAB 아티팩트 업로드
+        if: env.IS_RELEASE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: app/app-dev/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 결과 요약
+        if: always()
+        run: |
+          {
+            echo "## Android CI"
+            echo "- 이벤트: ${{ github.event_name }} · 서버: ${EXPO_PUBLIC_API_URL}"
+            echo "- versionCode: ${{ steps.version.outputs.code || '(정하기 전에 실패)' }}"
+            echo "- 서명: $([ "$IS_RELEASE" = true ] && echo '업로드 키' || echo '일회용 키(올리지 않음)')"
+            echo "- 결과: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Play 내부 테스트 배포
+    needs: build
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/app-android-cd.yml
+    with:
+      artifact-name: ${{ needs.build.outputs.artifact-name }}
+      version-code: ${{ needs.build.outputs.version-code }}
+      revision: ${{ github.sha }}
+    secrets: inherit

@@ -1,0 +1,62 @@
+name: Android CD
+
+# Android CI(app-android-ci.yml)가 main 에서 만든 AAB 를 Google Play **내부 테스트** 트랙에 올린다 (GROMO-2223).
+# 트리거가 따로 없다 — CI 의 deploy 잡이 workflow_call 로 부른다. 다시 빌드하지 않고 CI 아티팩트를 그대로 올린다.
+#
+# 선택 레포 변수: PLAY_INTERNAL_RELEASE_STATUS (기본 completed). Play 가 앱을 아직 "초안 앱"으로 보면
+# "Only releases with status draft may be created on draft app" 로 거절한다. 그때 draft 로 바꾸고,
+# 콘솔에서 출시 버튼을 직접 누른다. 앱이 한 번 검토를 통과하면 다시 지운다.
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: CI 가 올린 AAB 아티팩트 이름
+        required: true
+        type: string
+      version-code:
+        description: AAB 의 versionCode (릴리스 이름·요약용)
+        required: true
+        type: string
+      revision:
+        description: AAB 를 만든 main commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  play-internal:
+    name: Play 내부 테스트 업로드
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # GitHub Deployments 에 "play-internal" 배포 기록이 남는다 (저장소 첫 화면 Deployments)
+    environment:
+      name: play-internal
+    steps:
+      - name: AAB 받기
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: aab
+
+      - name: Play 내부 테스트 트랙 업로드
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.oneorthree.gromo
+          releaseFiles: aab/app-release.aab
+          track: internal
+          status: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
+          releaseName: dev ${{ inputs.version-code }} (${{ inputs.revision }})
+
+      - name: 결과 요약
+        if: always()
+        run: |
+          {
+            echo "## Android CD — Play 내부 테스트"
+            echo "- 패키지: \`com.oneorthree.gromo\` · 트랙: internal"
+            echo "- versionCode: ${{ inputs.version-code }} · 커밋: \`${{ inputs.revision }}\`"
+            echo "- 결과: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

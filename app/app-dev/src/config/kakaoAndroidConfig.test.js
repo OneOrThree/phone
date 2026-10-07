@@ -76,7 +76,7 @@ test('Android/iOS release require real terms and the production API URL', () => 
   expect(gradle).toMatch(/termsVersion\s*==\s*null\s*\|\|\s*termsVersion\.trim\(\)\.isEmpty\(\)/);
   expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*\(termsVersion/);
   expect(gradle).toMatch(/apiUrl\s*!=\s*"https:\/\/api\.oneorthree\.world"/);
-  expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*apiUrl\s*!=/);
+  expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*!devAudience\s*&&\s*apiUrl\s*!=/);
   expect(xcode).toContain('${EXPO_PUBLIC_API_URL:-}');
   expect(xcode).toContain('https://api.oneorthree.world');
   expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] == "https://api.oneorthree.world"');
@@ -120,6 +120,42 @@ test('iOS dev TestFlight lane pins the team dev server and keeps the production 
   expect(testflight).toContain('--dev');
   expect(testflight).toContain('export EXPO_PUBLIC_API_URL="https://oneorthree.dev.mooo.com"');
   expect(testflight).toContain('fastlane beta_dev');
+});
+
+test('Android CI builds the dev AAB and only main pushes reach Play via CD', () => {
+  const gradle = fs.readFileSync(path.join(appDevRoot, 'android/app/build.gradle'), 'utf8');
+  const ci = fs.readFileSync(
+    path.join(appDevRoot, '../../.github/workflows/app-android-ci.yml'),
+    'utf8',
+  );
+  const cd = fs.readFileSync(
+    path.join(appDevRoot, '../../.github/workflows/app-android-cd.yml'),
+    'utf8',
+  );
+
+  // 청중이 비면 운영으로 보고, prod·dev 외의 값은 막는다
+  expect(gradle).toContain('System.getenv("GROMO_ANDROID_AUDIENCE") ?: "prod"');
+  expect(gradle).toMatch(/!\(androidAudience in \["prod", "dev"\]\)/);
+  // legacy 세션 가드·운영 주소 가드는 운영 청중에만 걸리고, dev 청중은 dev 주소만 허용한다
+  expect(gradle).toMatch(
+    /!devAudience\s*&&\s*System\.getenv\("GROMO_LEGACY_SESSION_MIGRATION_READY"\)/,
+  );
+  expect(gradle).toMatch(/devAudience\s*&&\s*apiUrl\s*!=\s*"https:\/\/oneorthree\.dev\.mooo\.com"/);
+  // CI 는 dev 주소·청중·RUM 환경명을 고정한다
+  expect(ci).toContain('EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com');
+  expect(ci).toContain('GROMO_ANDROID_AUDIENCE: dev');
+  expect(ci).toContain('EXPO_PUBLIC_ENV: dev');
+  // Play 업로드는 CD 에만 있고, CD 는 PR 이 아닐 때만 불린다
+  expect(ci).not.toContain('upload-google-play');
+  expect(ci).toMatch(
+    /deploy:[\s\S]*if: github\.event_name != 'pull_request'[\s\S]*app-android-cd\.yml/,
+  );
+  expect(cd).toContain('track: internal');
+  expect(cd).toMatch(/^on:\s*\n\s*workflow_call:/m);
+  // 공개 레포 — PR 단계에서는 시크릿을 쓰지 않는다
+  expect(ci).toMatch(
+    /github\.event_name != 'pull_request' && secrets\.ANDROID_UPLOAD_KEYSTORE_B64/,
+  );
 });
 
 // pbxproj 는 스크립트 단계 본문을 \n·\" 로 이스케이프해 한 줄에 담는다 — 그걸 풀어 실제 sh 로 돌려 본다
