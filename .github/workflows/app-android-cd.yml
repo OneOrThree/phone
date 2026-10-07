@@ -43,6 +43,12 @@ jobs:
     environment:
       name: play-internal
     steps:
+      # 표준 라이브러리 스크립트만 (패키지 설치 없음. 키 잡에서 서드파티 코드 안 돌게).
+      # checkout 은 작업 폴더를 비우므로 아티팩트 받기보다 먼저
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/ci
+
       - name: AAB 받기
         uses: actions/download-artifact@v4
         with:
@@ -54,14 +60,6 @@ jobs:
         env:
           REVISION: ${{ inputs.revision }}
         run: echo "short=${REVISION:0:8}" >> "$GITHUB_OUTPUT"
-
-      # 의존성 설치는 키 받기 전에
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: 확인 도구 설치
-        run: pip install --quiet 'google-auth==2.*' 'requests==2.*'
 
       - name: AWS 인증 (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -96,32 +94,13 @@ jobs:
         id: verify
         # 액션 성공 ≠ 트랙 반영. Play 재조회. 읽기만, edit 는 지움.
         env:
+          PLAY_SERVICE_ACCOUNT_FILE: ${{ runner.temp }}/play-sa.json
+          PLAY_PACKAGE_NAME: com.oneorthree.gromo
+          TRACK: internal
           VERSION_CODE: ${{ inputs.version-code }}
           EXPECTED_STATUS: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json, os, sys
-          from google.auth.transport.requests import AuthorizedSession
-          from google.oauth2 import service_account
-          api = "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/com.oneorthree.gromo"
-          with open(os.path.join(os.environ["RUNNER_TEMP"], "play-sa.json"), encoding="utf-8") as f:
-              creds = service_account.Credentials.from_service_account_info(
-                  json.load(f), scopes=["https://www.googleapis.com/auth/androidpublisher"])
-          s = AuthorizedSession(creds)
-          edit = s.post(f"{api}/edits", json={}); edit.raise_for_status(); eid = edit.json()["id"]
-          try:
-              t = s.get(f"{api}/edits/{eid}/tracks/internal"); t.raise_for_status()
-              releases = t.json().get("releases", [])
-          finally:
-              s.delete(f"{api}/edits/{eid}")
-          want, status = os.environ["VERSION_CODE"], os.environ["EXPECTED_STATUS"]
-          hit = [r for r in releases if want in r.get("versionCodes", [])]
-          print(f"internal 트랙: {[(r.get('status'), r.get('versionCodes')) for r in releases]}")
-          if not hit or hit[0].get("status") != status:
-              print(f"::error::internal 트랙에 versionCode {want} 가 {status} 상태로 없다"); sys.exit(1)
-          print(f"확인: versionCode {want} → internal ({status})")
-          PY
+          python3 .github/ci/play-verify-track.py
           echo "status=$EXPECTED_STATUS" >> "$GITHUB_OUTPUT"
 
       - name: Play 키 지우기

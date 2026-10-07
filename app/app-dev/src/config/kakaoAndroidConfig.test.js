@@ -145,18 +145,39 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
   expect(ci).toContain('EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com');
   expect(ci).toContain('GROMO_ANDROID_AUDIENCE: dev');
   expect(ci).toContain('EXPO_PUBLIC_ENV: dev');
-  // Play 업로드는 CD 만. CD 는 PR 아닐 때만
+  // 잡 하나의 본문 (2칸 들여쓰기 잡 이름 기준)
+  const job = (name) => {
+    const m = ci.match(new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  [a-z-]+:\\n|$)`));
+    if (!m) throw new Error(`job ${name} 없음`);
+    return m[1];
+  };
+  const version = job('version');
+  const build = job('build');
+  const sign = job('sign');
+  const deploy = job('deploy');
+  // Play 업로드는 CD 만. 키 잡은 main 만
   expect(ci).not.toContain('upload-google-play');
-  expect(ci).toMatch(
-    /deploy:[\s\S]*if: github\.event_name != 'pull_request'[\s\S]*app-android-cd\.yml/,
-  );
   expect(cd).toContain('track: internal');
-  // 키·Play 업로드는 main 만. 다른 브랜치 수동 실행은 빌드만
-  expect(ci).toContain(
-    "IS_RELEASE: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}",
+  expect(version).toContain(
+    "if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'",
   );
-  // 서명 검증은 jarsigner 출력으로. 업로드 키 지문 대조
-  expect(ci).toContain("grep -q '^jar verified\\.'");
+  expect(sign).toContain(
+    "if: needs.version.result == 'success' && needs.build.result == 'success'",
+  );
+  expect(deploy).toContain("if: needs.sign.result == 'success'");
+  expect(deploy).toContain('app-android-cd.yml');
+  // 의존성 코드(npm·pip·Gradle)는 키 없는 build 잡에서만. 키 잡엔 안 돎
+  expect(build).toContain('npm ci');
+  expect(build).toContain('./gradlew');
+  expect(build).not.toMatch(/id-token|aws-actions|RELEASE_SECRET_ID/);
+  for (const keyJob of [version, sign]) {
+    expect(keyJob).toContain('id-token: write');
+    expect(keyJob).not.toMatch(/npm |pip |gradlew|setup-node|setup-python/);
+  }
+  expect(cd).not.toMatch(/pip |setup-python/);
+  // 서명 검증은 jarsigner 출력으로. 업로드 키 지문 대조는 sign 잡
+  expect(build).toContain("grep -q '^jar verified\\.'");
+  expect(sign).toContain('"$ANDROID_UPLOAD_CERT_SHA1"');
   expect(ci).toContain(
     'ANDROID_UPLOAD_CERT_SHA1: 85:DF:F5:E4:96:1A:A2:32:88:E0:CF:B7:48:47:F0:55:9A:77:02:37',
   );
@@ -165,17 +186,10 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
   expect(cd).toContain('deployed:android-play-internal');
   expect(cd).toMatch(/r0adkll\/upload-google-play@[0-9a-f]{40}/);
   expect(cd).toMatch(/^on:\s*\n\s*workflow_call:/m);
-  // 키는 Secrets Manager 에서 main 만 읽음. GitHub 시크릿·PR 단계는 키 못 닿음
+  // 키는 Secrets Manager 에서만. GitHub 시크릿 안 씀
   expect(ci).not.toMatch(/secrets\./);
   expect(cd).not.toMatch(/secrets\./);
   expect(ci).toContain('RELEASE_SECRET_ID: gromo/prod/android');
-  expect(ci).toMatch(/name: AWS 인증 \(versionCode 용\)\s*\n\s*if: env\.IS_RELEASE == 'true'/);
-  expect(ci).toMatch(/name: 업로드 키로 재서명\s*\n\s*if: env\.IS_RELEASE == 'true'/);
-  // 키는 의존성 설치 뒤에만, Gradle 은 일회용 키로만. 업로드 키는 빌드 뒤 재서명에만
-  expect(ci).toMatch(/name: npm ci[\s\S]*name: AWS 인증 \(versionCode 용\)/);
-  expect(ci).toMatch(
-    /name: AWS 자격 증명 비우기\n[\s\S]*name: AAB 빌드[\s\S]*name: AWS 인증 \(재서명 용\)/,
-  );
   // draft 는 배포 완료로 표시 안 함
   expect(cd).toContain('if [ "$STATUS" != completed ]; then');
 });
