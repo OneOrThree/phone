@@ -31,7 +31,8 @@ class RevokedSessionsTest {
 
             assertThat(revoked.isRevoked(sid)).isTrue();
             assertThat(revoked.isRevoked(UUID.randomUUID())).isFalse();
-            assertThat(redis.getExpire("auth:business:revoked-session:" + sid)).isBetween(1L, 5L);
+            // TTL = 설정값(5s) + 시계 차이 여유 60s
+            assertThat(redis.getExpire("auth:business:revoked-session:" + sid)).isBetween(60L, 65L);
         } finally {
             factory.destroy();
         }

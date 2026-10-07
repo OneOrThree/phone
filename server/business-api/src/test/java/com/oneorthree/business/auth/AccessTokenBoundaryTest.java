@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -182,6 +183,20 @@ class AccessTokenBoundaryTest extends UpstreamTestBase {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
         assertThat(NOTI.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("로그아웃 재전송은 폐기된 sid 의 AT 를 실어도 필터가 막지 않고 Data 의 멱등 재생에 닿는다")
+    void 폐기된세션_로그아웃재전송() throws Exception {
+        DATA.on("POST /internal/auth/sessions/logout", request -> new MockUpstream.Response(200,
+                "{\"revoked\":true,\"sessionId\":\"" + SESSION + "\"}"));
+
+        mockMvc.perform(delete("/auth/sessions/current")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 0, SESSION))
+                        .header("X-Refresh-Token", "rt"))
+                .andExpect(status().is2xxSuccessful());
+        assertThat(DATA.received()).isNotEmpty();
+        verify(revokedSessions, org.mockito.Mockito.never()).isRevoked(any());
     }
 
     @Test
