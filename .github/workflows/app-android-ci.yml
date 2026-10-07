@@ -12,18 +12,6 @@ name: Android CI
 # - GROMO_ANDROID_AUDIENCE=dev 로 build.gradle 의 dev 가드 탐. 수동 운영 빌드는 이 값 없음 → 기존 가드 그대로.
 # - OTA·PostHog 켠 채 빌드 (팀 결정 2026-10-07).
 #   ⚠️ OTA 채널은 production. 운영 OTA 내보내면 이 빌드도 받음.
-#
-# 공개 레포: PR 단계에 AWS 인증·키 쓰는 스텝 추가 금지. 외부 PR 코드가 키 읽음.
-#
-# 키 위치: AWS Secrets Manager gromo/prod/android (ap-northeast-2). 팀원이 콘솔에서 볼 수 있게.
-# 전용 역할 gromo-prod-android-github-actions 를 OIDC 로 받음. main·play-internal 만 받고, 이 시크릿 하나만 읽음.
-# | 키 | 내용 |
-# | --- | --- |
-# | ANDROID_UPLOAD_KEYSTORE_B64 | 업로드 키 release.keystore, base64 |
-# | ANDROID_UPLOAD_STORE_PASSWORD | 키스토어 비밀번호 |
-# | ANDROID_UPLOAD_KEY_ALIAS | 키 별칭 |
-# | ANDROID_UPLOAD_KEY_PASSWORD | 키 비밀번호 |
-# | PLAY_SERVICE_ACCOUNT_JSON | Play "테스트 트랙 출시" 권한 받은 GCP 서비스 계정 키 JSON |
 
 on:
   pull_request:
@@ -104,7 +92,7 @@ jobs:
           fail=0
           for k in ANDROID_UPLOAD_KEYSTORE_B64 ANDROID_UPLOAD_STORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD PLAY_SERVICE_ACCOUNT_JSON; do
             v="$(jq -r --arg k "$k" '.[$k] // empty' "$dir/secret.json")"
-            if [ -z "$v" ]; then echo "::error::$RELEASE_SECRET_ID 에 $k 가 없다 — 이 파일 머리말의 표 참고"; fail=1; fi
+            if [ -z "$v" ]; then echo "::error::$RELEASE_SECRET_ID 에 $k 가 없다"; fail=1; fi
           done
           [ "$fail" = 0 ]
           for k in ANDROID_UPLOAD_STORE_PASSWORD ANDROID_UPLOAD_KEY_PASSWORD; do echo "::add-mask::$(jq -r ".$k" "$dir/secret.json")"; done

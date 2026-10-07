@@ -31,7 +31,6 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-2
-  # 키: Secrets Manager gromo/prod/android. 자세한 건 app-android-ci.yml 머리말
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-android-github-actions
   RELEASE_SECRET_ID: gromo/prod/android
 
