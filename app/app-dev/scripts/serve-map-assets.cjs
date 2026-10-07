@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // 맵 에셋 로컬 정적 서버 (GROMO-2233). 호스트 Nginx `/static/`(MV-D09)의 URL·캐시 헤더 계약을 흉내 낸다.
-//   GET /static/maps/home/manifest.json      → Cache-Control: max-age=60 + ETag(내용 해시), If-None-Match 304
-//   GET /static/maps/home/v1/<file>          → Cache-Control: public, max-age=31536000, immutable
-// 사용: node scripts/serve-map-assets.cjs [--port 4300] [--root src/assets/village-world/v1] [--fail manifest,tileset,layout]
+//   GET /static/maps/home/manifest.json      → Cache-Control: public, max-age=60 + ETag(내용 해시), If-None-Match 304
+//   GET /static/maps/home/v<n>/<file>        → Cache-Control: public, max-age=31536000, immutable
+// 사용: node scripts/serve-map-assets.cjs [--port 4300] [--root src/assets/village-world/v1] [--map-version 1]
+//        [--fail manifest,tileset,layout]
+// --map-version <n>: 루트 디렉터리 이름 v<n> 과 manifest 의 mapVersion 을 함께 바꾼다(같은 파일을 v2 로 내려 갱신·prune 을 로컬에서 재현).
+// 주의: 파일명에 해시가 없는 것은 10/9 단순화다 — 「같은 URL 의 내용은 불변」 보증은 v<n>/ 디렉터리에만 의존한다.
 // --fail 은 해당 단계 응답을 500 으로 바꾼다(앱 폴백 테스트용): manifest | tileset(tileset@2x.png) | layout(JSON 5종).
 const http = require('node:http');
 const fs = require('node:fs');
@@ -17,7 +20,7 @@ const port = Number(arg('port', 4300));
 const root = path.resolve(arg('root', 'src/assets/village-world/v1'));
 const fail = new Set(String(arg('fail', '')).split(',').filter(Boolean));
 const MAP_ID = 'home';
-const MAP_VERSION = 1;
+const MAP_VERSION = Number(arg('map-version', 1));
 const VERSION_DIR = `v${MAP_VERSION}`;
 const FILES = [
   'tileset@2x.png',
@@ -54,13 +57,18 @@ const server = http.createServer((req, res) => {
     res.end(req.method === 'HEAD' ? undefined : body);
     console.log(`${new Date().toISOString()} ${req.method} ${req.url} -> ${status}`);
   };
-  const url = decodeURIComponent((req.url || '').split('?')[0]);
+  let url;
+  try {
+    url = decodeURIComponent((req.url || '').split('?')[0]);
+  } catch {
+    return send(400, {}, 'bad request');
+  }
   if (req.method !== 'GET' && req.method !== 'HEAD') return send(405, {}, '');
   if (url === `${base}manifest.json`) {
     if (fail.has('manifest')) return send(500, {}, 'forced failure');
     const headers = {
       'Content-Type': 'application/json',
-      'Cache-Control': 'max-age=60',
+      'Cache-Control': 'public, max-age=60',
       ETag: etag,
     };
     if (req.headers['if-none-match'] === etag) return send(304, headers, '');

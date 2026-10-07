@@ -28,6 +28,15 @@ function memFs() {
       for (const k of [...files.keys()]) if (k.startsWith(`${p}/`)) files.delete(k);
       for (const d of [...dirs]) if (d.startsWith(`${p}/`)) dirs.delete(d);
     },
+    size: (p) => (files.get(p) ?? assert.fail(`no file ${p}`)).length,
+    copy(from, to) {
+      mk(parent(to));
+      files.set(to, files.get(from) ?? assert.fail(`no file ${from}`));
+    },
+    move(from, to) {
+      files.set(to, files.get(from) ?? assert.fail(`no file ${from}`));
+      files.delete(from);
+    },
     list: (p) => [
       ...new Set(
         [...files.keys(), ...dirs]
@@ -52,6 +61,20 @@ function memFs() {
   return { fs, files, dirs };
 }
 
+// 승격 때 검증을 통과하는 최소 모양 JSON
+const VALID_JSON: Record<string, object> = {
+  'tileset.json': { columns: 1, tilewidth: 1, tileheight: 1, margin: 0, spacing: 0, scale: 2 },
+  'tilemap.json': {
+    width: 1,
+    tilewidth: 1,
+    tileheight: 1,
+    layers: [{ name: 'terrain', data: [1] }],
+  },
+  'nav.json': { columns: 1, rows: 1, walkable: '1', traversalCost: [8] },
+  'objects.json': { objects: [] },
+  'home.map.json': { imageWidth: 1, imageHeight: 1 },
+};
+
 // 가짜 서버: 버전별 파일 내용을 갖고 manifest/ETag/304 를 흉내 낸다. 요청 로그를 남긴다.
 function fakeServer(version = 1, tag = 'a') {
   const state = {
@@ -67,7 +90,7 @@ function fakeServer(version = 1, tag = 'a') {
     new TextEncoder().encode(
       name.endsWith('.png')
         ? `png-${name}-${state.version}-${state.tag}`
-        : JSON.stringify({ name, tag: state.tag }),
+        : JSON.stringify({ ...VALID_JSON[name], tag: state.tag }),
     );
   const manifest = () =>
     JSON.stringify({
@@ -243,4 +266,88 @@ test('(f) 서버 없음(fetch reject) → bundle, 비활성(baseUrl 빈 값)도 
   assert.deepEqual(await syncMapAssets('home', { fs, fetch: down, baseUrl: '' }), {
     kind: 'bundle',
   });
+});
+
+// 승격·스냅샷 테스트는 MAP_ASSETS_URL 이 켜진 새 모듈 인스턴스(전역 current/pending 격리)에서 돈다.
+function freshModule() {
+  process.env.EXPO_PUBLIC_MAP_ASSETS_URL = 'http://x';
+  let m!: typeof import('@/services/mapAssets');
+  jest.isolateModules(() => {
+    m = require('@/services/mapAssets');
+  });
+  return m;
+}
+const tagOf = (m: ReturnType<typeof freshModule>, src: Parameters<typeof m.readMapJson>[2]) =>
+  (m.readMapJson('nav.json', { tag: 'bundle' }, src) as { tag: string }).tag;
+
+test('(g) 스냅샷: 마운트 뒤 전역 승격이 일어나도 이미 받은 소스는 같은 버전으로 읽힌다', async () => {
+  const m = freshModule();
+  const { fs } = memFs();
+  const srv = fakeServer();
+  await m.syncMapAssets('home', opts(fs, srv.fetchFn));
+  const s1 = m.promoteMapAssets('home', fs); // 화면 A 마운트
+  srv.state.version = 2;
+  srv.state.tag = 'b';
+  await m.syncMapAssets('home', opts(fs, srv.fetchFn));
+  const s2 = m.promoteMapAssets('home', fs); // 화면 B 마운트(= 전역 승격)
+  assert.equal(s2.kind === 'cache' && s2.mapVersion, 2);
+  // A 의 렌더러(tileset/tilemap)·nav·layout 읽기는 모두 s1 인자로 v1 을 본다
+  for (const n of ['tileset.json', 'tilemap.json', 'nav.json', 'home.map.json'] as const)
+    assert.equal((m.readMapJson(n, { tag: 'x' }, s1) as { tag: string }).tag, 'a', n);
+  assert.equal(tagOf(m, s2), 'b');
+  assert.ok(m.tilesetUri(s1)?.includes('/v1/'));
+  assert.ok(m.tilesetUri(s2)?.includes('/v2/'));
+});
+
+test('(h) JSON 하나라도 깨지면 소스 전체가 번들 — 새 버전이 깨지면 기존 활성 유지', async () => {
+  const m = freshModule();
+  const { fs } = memFs();
+  const srv = fakeServer();
+  await m.syncMapAssets('home', opts(fs, srv.fetchFn));
+  fs.writeText('maps/home/v1/tilemap.json', '{"layers": 1}'); // 모양이 틀린 JSON
+  assert.deepEqual(m.promoteMapAssets('home', fs), { kind: 'bundle' });
+  assert.equal(fs.exists('maps/home/v1'), false); // 깨진 버전은 지워 다음 sync 가 다시 받는다
+
+  const n = freshModule();
+  const b = memFs();
+  await n.syncMapAssets('home', opts(b.fs, srv.fetchFn));
+  assert.equal(n.promoteMapAssets('home', b.fs).kind, 'cache');
+  srv.state.version = 2;
+  await n.syncMapAssets('home', opts(b.fs, srv.fetchFn));
+  b.fs.writeText('maps/home/v2/nav.json', '{');
+  const kept = n.promoteMapAssets('home', b.fs);
+  assert.equal(kept.kind === 'cache' && kept.mapVersion, 1);
+});
+
+test('(i) 부팅 시 파일 크기가 state 기록과 다르면 번들, demoteToBundle 은 current 를 번들로', async () => {
+  const m = freshModule();
+  const a = memFs();
+  const srv = fakeServer();
+  await m.syncMapAssets('home', opts(a.fs, srv.fetchFn));
+  a.fs.writeBytes('maps/home/v1/tileset@2x.png', new Uint8Array(3)); // 반쯤 쓰인 파일
+  assert.deepEqual(freshModule().getActiveMapAssets('home', a.fs), { kind: 'bundle' });
+
+  const b = memFs();
+  await m.syncMapAssets('home', opts(b.fs, srv.fetchFn));
+  assert.equal(m.promoteMapAssets('home', b.fs).kind, 'cache');
+  m.demoteToBundle('home');
+  assert.deepEqual(m.getActiveMapAssets('home', b.fs), { kind: 'bundle' });
+});
+
+test('(j) state.json 은 .tmp 를 거쳐 쓰고, 보관은 이전 활성 + 새 활성 둘뿐', async () => {
+  const { fs } = memFs();
+  const srv = fakeServer();
+  for (const v of [1, 2, 3]) {
+    srv.state.version = v;
+    await syncMapAssets('home', opts(fs, srv.fetchFn));
+  }
+  assert.equal(fs.exists('maps/home/state.json.tmp'), false);
+  assert.ok(fs.exists('maps/home/state.json'));
+  assert.deepEqual(
+    fs
+      .list('maps/home')
+      .filter((n) => /^v\d+$/.test(n))
+      .sort(),
+    ['v2', 'v3'],
+  );
 });

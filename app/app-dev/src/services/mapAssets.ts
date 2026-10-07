@@ -10,10 +10,12 @@
  * 어느 단계가 실패해도 이전 활성 버전(없으면 번들)을 돌려준다 — 반쯤 받은 상태는 렌더러에 보이지 않는다.
  *
  * 디스크 레이아웃(Paths.cache 아래): maps/<mapId>/{state.json, v<n>/<6 files>, tmp-<n>-<t>/(진행 중)}.
- * 최근 2개 mapVersion 만 보관한다.
+ * 이전 활성 + 새 활성 두 버전만 보관한다(롤백 안전). state.json 은 .tmp 에 쓰고 rename 으로 교체한다.
  *
- * 활성 소스는 렌더 중에 바뀌지 않는다: sync 결과는 pending 에 두고 {@link promoteMapAssets}(홈 진입 시 1회)에서
- * current 로 올린다 — 같은 화면 수명 동안 타일셋 이미지와 tilemap/nav JSON 이 서로 다른 버전이 되는 일이 없다.
+ * 스냅샷: 화면(FinalIsland)이 마운트 때 {@link promoteMapAssets} 로 받은 {@link MapAssetSource} 한 값을
+ * 렌더러(타일셋 이미지·tilemap)·nav·layout 에 인자로 내려준다. 전역 current 는 「다음 마운트가 쓸 값」일 뿐이라
+ * 마운트 중에 승격이 일어나도 그 화면의 세 곳은 같은 버전이다. 승격 시점에 캐시 JSON 5종을 한 번에 파싱·검증하고,
+ * 하나라도 깨졌으면 소스 전체를 번들로 둔다(파일 단위 혼합 금지).
  */
 import { Directory, File, Paths } from 'expo-file-system';
 import { sha256Hex } from '@/utils/sha256';
@@ -48,6 +50,9 @@ export interface MapFs {
   mkdir(path: string): void;
   remove(path: string): void; // 파일/디렉터리(재귀), 없으면 무시
   list(path: string): string[]; // 자식 이름, 없으면 []
+  size(path: string): number; // 파일 바이트 수
+  copy(from: string, to: string): void; // 네이티브 파일 복사(JS 로 읽었다 쓰지 않는다). 상위 디렉터리는 있어야 한다
+  move(from: string, to: string): void; // 파일 이동, 대상이 있으면 덮어쓴다(state.json 교체용)
   renameDir(path: string, newName: string): void; // 같은 부모 안에서의 이름 변경 = 원자 교체
 }
 
@@ -80,10 +85,24 @@ export const expoMapFs: MapFs = {
     const d = new Directory(Paths.cache, ...seg(p));
     return d.exists ? d.list().map((e) => e.name) : [];
   },
+  size: (p) => new File(Paths.cache, ...seg(p)).size,
+  copy: (from, to) =>
+    new File(Paths.cache, ...seg(from)).copySync(new File(Paths.cache, ...seg(to)), {
+      overwrite: true,
+    }),
+  move: (from, to) =>
+    new File(Paths.cache, ...seg(from)).moveSync(new File(Paths.cache, ...seg(to)), {
+      overwrite: true,
+    }),
   renameDir: (p, newName) => new Directory(Paths.cache, ...seg(p)).rename(newName),
 };
 
-type State = { mapVersion: number; etag: string | null; files: Record<string, string> };
+type State = {
+  mapVersion: number;
+  etag: string | null;
+  files: Record<string, string>; // 파일명 → sha256
+  bytes: Record<string, number>; // 파일명 → 바이트(부팅 때 크기만 대조해 반쯤 쓰인 파일을 거른다)
+};
 type Manifest = {
   mapVersion: number;
   files: Record<MapFileName, { path: string; sha256: string; bytes: number }>;
@@ -95,18 +114,19 @@ const versionPath = (mapId: string, n: number) => `${root(mapId)}/v${n}`;
 function readState(fs: MapFs, mapId: string): State | null {
   try {
     const s = JSON.parse(fs.readText(`${root(mapId)}/state.json`));
-    return Number.isInteger(s?.mapVersion) && s.files ? s : null;
+    return Number.isInteger(s?.mapVersion) && s.files && s.bytes ? s : null;
   } catch {
     return null;
   }
 }
 
-/** state.json 이 가리키는 버전 디렉터리에 6개 파일이 모두 있을 때만 cache, 아니면 null(→ bundle). */
+/** state.json 이 가리키는 버전 디렉터리에 6개 파일이 있고 크기가 기록과 같을 때만 cache, 아니면 null(→ bundle). */
 function sourceFromState(fs: MapFs, mapId: string): MapAssetSource | null {
   const s = readState(fs, mapId);
   if (!s) return null;
   const path = versionPath(mapId, s.mapVersion);
-  if (!MAP_FILES.every((f) => fs.exists(`${path}/${f}`))) return null;
+  if (!MAP_FILES.every((f) => fs.exists(`${path}/${f}`) && fs.size(`${path}/${f}`) === s.bytes[f]))
+    return null;
   return { kind: 'cache', mapVersion: s.mapVersion, dir: fs.uri(path), path };
 }
 
@@ -134,13 +154,63 @@ const inflight = new Map<string, Promise<MapAssetSource>>();
 const current = new Map<string, MapAssetSource>();
 const pending = new Map<string, MapAssetSource>();
 
-/** 현재 화면이 쓰는 활성 소스(동기). 앱 시작 후 첫 호출에 state.json 을 한 번 읽는다. */
-export function getActiveMapAssets(mapId = 'home'): MapAssetSource {
+type JsonName = Exclude<MapFileName, 'tileset@2x.png'>;
+const num = (v: unknown) => typeof v === 'number';
+// 렌더러·nav·layout 이 실제로 읽는 필드만 본다 — 번들 JSON 과 같은 모양인지의 최소 검증.
+const SHAPE: Record<JsonName, (j: any) => boolean> = {
+  'tileset.json': (j) =>
+    ['columns', 'tilewidth', 'tileheight', 'margin', 'spacing', 'scale'].every((k) => num(j?.[k])),
+  'tilemap.json': (j) =>
+    num(j?.width) &&
+    num(j?.tilewidth) &&
+    num(j?.tileheight) &&
+    Array.isArray(j?.layers) &&
+    j.layers.some((l: any) => l?.name === 'terrain' && Array.isArray(l.data)),
+  'nav.json': (j) =>
+    Number.isInteger(j?.columns) &&
+    Number.isInteger(j?.rows) &&
+    typeof j.walkable === 'string' &&
+    j.walkable.length === j.columns * j.rows &&
+    Array.isArray(j.traversalCost) &&
+    j.traversalCost.length === j.columns * j.rows,
+  'objects.json': (j) => Array.isArray(j?.objects),
+  'home.map.json': (j) => num(j?.imageWidth) && num(j?.imageHeight),
+};
+const jsonMemo = new Map<string, unknown>();
+
+/** 캐시 JSON 5종을 한 번에 파싱·검증해 메모에 올린다. 하나라도 실패하면 false(→ 호출부가 번들로). */
+function loadJson(fs: MapFs, src: Extract<MapAssetSource, { kind: 'cache' }>): boolean {
+  try {
+    const parsed = (Object.keys(SHAPE) as JsonName[]).map((name) => {
+      const j = JSON.parse(fs.readText(`${src.path}/${name}`));
+      if (!SHAPE[name](j)) throw new Error(`shape ${name}`);
+      return [`${src.path}/${name}`, j] as const;
+    });
+    for (const [k, j] of parsed) jsonMemo.set(k, j);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** JSON 이 깨진 버전은 디렉터리를 지워 다음 sync 가 전부 다시 받게 한다. */
+function adopt(fs: MapFs, src: MapAssetSource): MapAssetSource {
+  if (src.kind !== 'cache' || loadJson(fs, src)) return src;
+  try {
+    fs.remove(src.path);
+  } catch {
+    /* 지우기 실패해도 이번 실행은 번들로 그린다 */
+  }
+  return BUNDLE;
+}
+
+/** 다음 마운트가 쓸 활성 소스(동기). 앱 시작 후 첫 호출에 state.json 을 읽고 JSON 5종을 검증한다. */
+export function getActiveMapAssets(mapId = 'home', fs: MapFs = expoMapFs): MapAssetSource {
   if (!MAP_ASSETS_URL) return BUNDLE;
   let src = current.get(mapId);
   if (!src) {
     try {
-      src = sourceFromState(expoMapFs, mapId) ?? BUNDLE;
+      src = adopt(fs, sourceFromState(fs, mapId) ?? BUNDLE);
     } catch {
       src = BUNDLE;
     }
@@ -149,40 +219,38 @@ export function getActiveMapAssets(mapId = 'home'): MapAssetSource {
   return src;
 }
 
-/** 홈 진입 시 1회: 백그라운드 sync 가 끝나 있던 새 버전을 이번 화면부터 쓴다(렌더 중 교체 금지). */
-export function promoteMapAssets(mapId = 'home'): MapAssetSource {
+/**
+ * 화면 마운트 때 1회: 백그라운드 sync 가 끝나 있던 새 버전을 올리고 이번 화면의 스냅샷으로 돌려준다.
+ * 새 버전의 JSON 이 하나라도 깨졌으면 pending 을 버리고 기존 소스(없으면 번들)를 유지한다.
+ */
+export function promoteMapAssets(mapId = 'home', fs: MapFs = expoMapFs): MapAssetSource {
   const next = pending.get(mapId);
+  pending.delete(mapId);
   if (next) {
-    current.set(mapId, next);
-    pending.delete(mapId);
+    const ok = adopt(fs, next);
+    if (ok.kind === 'cache') current.set(mapId, ok);
   }
-  return getActiveMapAssets(mapId);
+  return getActiveMapAssets(mapId, fs);
 }
 
-/** 활성 소스의 JSON 파일을 읽어 파싱한다. 번들이거나 읽기/파싱이 실패하면 fallback(번들 정적 import). */
-export function readMapJson<T>(
-  name: MapFileName,
-  fallback: T,
-  mapId = 'home',
-  fs: MapFs = expoMapFs,
-): T {
-  const src = getActiveMapAssets(mapId);
+/**
+ * 타일셋 PNG 디코드 실패 등으로 캐시 소스 전체를 포기한다: 전역 current 를 번들로 내리고 pending 을 버린다.
+ * state 와 파일은 남긴다 — 다음 sync(304)가 캐시를 다시 pending 에 올려 재검증한다.
+ */
+export function demoteToBundle(mapId = 'home') {
+  current.set(mapId, BUNDLE);
+  pending.delete(mapId);
+}
+
+/** 스냅샷 소스의 JSON 파일. 번들이거나 캐시에서 못 읽으면 fallback(번들 정적 import). */
+export function readMapJson<T>(name: JsonName, fallback: T, src: MapAssetSource): T {
   if (src.kind !== 'cache') return fallback;
-  const key = `${src.path}/${name}`;
-  if (jsonMemo.has(key)) return jsonMemo.get(key) as T; // 같은 객체를 돌려줘야 loadNav 의 WeakMap 캐시가 맞는다
-  try {
-    const parsed = JSON.parse(fs.readText(key)) as T;
-    jsonMemo.set(key, parsed);
-    return parsed;
-  } catch {
-    return fallback;
-  }
+  // 같은 객체를 돌려줘야 loadNav 의 WeakMap 캐시가 맞는다
+  return (jsonMemo.get(`${src.path}/${name}`) as T | undefined) ?? fallback;
 }
-const jsonMemo = new Map<string, unknown>();
 
-/** 활성 소스의 타일셋 이미지: cache 면 file URI, 아니면 null(→ 호출부가 번들 require 사용). */
-export function activeTilesetUri(mapId = 'home'): string | null {
-  const src = getActiveMapAssets(mapId);
+/** 스냅샷 소스의 타일셋 이미지: cache 면 file URI, 아니면 null(→ 호출부가 번들 require 사용). */
+export function tilesetUri(src: MapAssetSource): string | null {
   return src.kind === 'cache' ? `${src.dir}/tileset@2x.png` : null;
 }
 
@@ -213,7 +281,10 @@ async function doSync(mapId: string, opts: SyncOpts): Promise<MapAssetSource> {
 
     const url = `${baseUrl}/static/maps/${mapId}`;
     const res = await fetchFn(`${url}/manifest.json`, {
-      headers: prevSource.kind === 'cache' && state?.etag ? { 'If-None-Match': state.etag } : {},
+      headers: {
+        'Cache-Control': 'no-cache', // 중간 캐시가 오래된 manifest 를 주지 못하게(서버는 max-age=60)
+        ...(prevSource.kind === 'cache' && state?.etag ? { 'If-None-Match': state.etag } : {}),
+      },
     });
     if (res.status === 304 && prevSource.kind === 'cache') return remember(mapId, prevSource);
     if (!res.ok) throw new Error(`manifest ${res.status}`);
@@ -232,7 +303,7 @@ async function doSync(mapId: string, opts: SyncOpts): Promise<MapAssetSource> {
     for (const name of MAP_FILES) {
       const entry = manifest.files[name];
       if (prevSource.kind === 'cache' && unchanged(name)) {
-        fs.writeBytes(`${tmp}/${name}`, fs.readBytes(`${prevSource.path}/${name}`)); // 바뀌지 않은 파일은 다시 안 받는다
+        fs.copy(`${prevSource.path}/${name}`, `${tmp}/${name}`); // 바뀌지 않은 파일은 다시 안 받고 네이티브 복사
         continue;
       }
       let ok = false;
@@ -256,8 +327,9 @@ async function doSync(mapId: string, opts: SyncOpts): Promise<MapAssetSource> {
       mapVersion: n,
       etag,
       files: Object.fromEntries(MAP_FILES.map((f) => [f, manifest.files[f].sha256])),
+      bytes: Object.fromEntries(MAP_FILES.map((f) => [f, manifest.files[f].bytes])),
     });
-    prune(fs, mapId, n);
+    prune(fs, mapId, [n, ...(prevSource.kind === 'cache' ? [prevSource.mapVersion] : [])]);
     return remember(mapId, sourceFromState(fs, mapId) ?? prevSource);
   } catch {
     if (tmp) {
@@ -276,18 +348,17 @@ const remember = (mapId: string, src: MapAssetSource) => {
   return src;
 };
 
+// 원자 쓰기: .tmp 에 다 쓴 뒤 덮어쓰기 이동 — 쓰다 죽어도 이전 state.json 이 남는다.
 function writeState(fs: MapFs, mapId: string, s: State) {
-  fs.writeText(`${root(mapId)}/state.json`, JSON.stringify(s));
+  const file = `${root(mapId)}/state.json`;
+  fs.writeText(`${file}.tmp`, JSON.stringify(s));
+  fs.move(`${file}.tmp`, file);
 }
 
-/** 최근 2개 mapVersion(+방금 활성화한 n)만 남기고 나머지 v<n> 삭제. */
-function prune(fs: MapFs, mapId: string, active: number) {
-  const versions = fs
-    .list(root(mapId))
-    .map((name) => /^v(\d+)$/.exec(name)?.[1])
-    .filter((v): v is string => !!v)
-    .map(Number)
-    .sort((a, b) => b - a);
-  const keep = new Set([...versions.slice(0, 2), active]);
-  for (const v of versions) if (!keep.has(v)) fs.remove(versionPath(mapId, v));
+/** keep(이전 활성 + 새 활성)만 남기고 나머지 v<n> 삭제. */
+function prune(fs: MapFs, mapId: string, keep: number[]) {
+  for (const name of fs.list(root(mapId))) {
+    const v = /^v(\d+)$/.exec(name)?.[1];
+    if (v && !keep.includes(Number(v))) fs.remove(versionPath(mapId, Number(v)));
+  }
 }
