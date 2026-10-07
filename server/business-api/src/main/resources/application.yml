@@ -125,6 +125,8 @@ jwt:
 auth:
   # 폐기된 세션 id 거부목록 보관 시간 — «data-api 의 access-token 수명(기본 3600초)과 같아야» 한다.
   # 짧으면 폐기된 AT 가 거부목록이 비워진 뒤 되살아나고, 길면 Redis 에 쓸모없는 키가 남는다.
+  # ⚠️ 로컬 data-api 예시(application-local.yml.example)는 AT 30일이다 — 프로파일 없이 띄우면
+  #    AUTH_REVOKED_SESSION_TTL=2592000s 를 같이 준다(server/scripts/README.md §3 bootRun 줄).
   revoked-session:
     ttl: 3600s
   # 로그인 시도의 자격 digest 전용 비밀 (GROMO-1908 · 계정 LLD §3).
