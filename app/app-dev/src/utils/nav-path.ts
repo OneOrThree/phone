@@ -7,6 +7,7 @@ import {
   cellCenterToWorld,
   imageToWorld,
   worldToCell,
+  worldToImage,
 } from './worldCoords';
 
 export type NavJson = { columns: number; rows: number; walkable: string; traversalCost: number[] };
@@ -101,21 +102,26 @@ const startCell = (g: NavGrid, from: WorldPoint) => {
 };
 
 // 규칙 ③: 목적지 셀이 출발 영역 밖이면 출발 영역 안의 최근접 통행 셀로 보정.
-export function resolveTarget(g: NavGrid, from: WorldPoint, to: WorldPoint): CellIndex | null {
+// 출발 셀 index 도 함께 돌려 navPath 가 다시 계산하지 않게 한다.
+export function resolveTarget(
+  g: NavGrid,
+  from: WorldPoint,
+  to: WorldPoint,
+): { start: number; target: CellIndex } | null {
   if (!Number.isFinite(to.x) || !Number.isFinite(to.y)) return null;
   const s = startCell(g, from);
   if (s < 0) return null;
   const t = cellOf(worldToCell(to), g);
   const e = g.walkable[t] && g.region[t] === g.region[s] ? t : nearestCell(g, to, g.region[s]);
-  return e < 0 ? null : { cx: e % g.cols, cy: Math.floor(e / g.cols) };
+  return e < 0 ? null : { start: s, target: { cx: e % g.cols, cy: Math.floor(e / g.cols) } };
 }
 
 // 규칙 ⑤⑥: 8방향 A*. edge = 월드 거리 × 대상 셀 비용/10, h = 월드 직선 거리 × minCost. 동률 (f, h, index).
 export function navPath(g: NavGrid, from: WorldPoint, to: WorldPoint): WorldPoint[] {
-  const goal = resolveTarget(g, from, to);
-  const s = startCell(g, from);
-  if (!goal || s < 0) return [];
-  const e = cellOf(goal, g);
+  const r = resolveTarget(g, from, to);
+  if (!r) return [];
+  const s = r.start,
+    e = cellOf(r.target, g);
   if (s === e) return [];
   const gx = e % g.cols,
     gy = Math.floor(e / g.cols);
@@ -123,6 +129,8 @@ export function navPath(g: NavGrid, from: WorldPoint, to: WorldPoint): WorldPoin
   const best = new Float64Array(g.walkable.length).fill(Infinity),
     parent = new Int32Array(g.walkable.length).fill(-1);
   type Node = { f: number; h: number; id: number };
+  // 동률 비교가 부동소수 동치(a.f - b.f)에 기댄다. 지금은 클라이언트 단독이라 유지하지만,
+  // 서버 A* 와 비트 단위 일치가 필요해지면 고정소수점(HLD §3 초안 10⁶)으로 비교·연산 순서를 fixture 로 고정한다.
   const less = (a: Node, b: Node) => a.f - b.f || a.h - b.h || a.id - b.id;
   const heap: Node[] = [];
   const push = (n: Node) => {
@@ -184,6 +192,22 @@ export function tapToWorld(
   return imageToWorld({ x: tap.locationX / view.scale, y: tap.locationY / view.scale }, view);
 }
 
+// 속도는 지형 비용과 무관하다(길을 더 빨리 걷지 않음) — 의도.
 // 속도는 world unit/초 기준(가로·세로 동일, 대각은 √2). 화면 px 비율 보정은 하지 않는다(결정 2026-10-08 A).
 export const stepDurationMs = (a: WorldPoint, b: WorldPoint, msPerUnit = MS_PER_UNIT) =>
   dist(a, b) * msPerUnit;
+
+// 이미지 px 경로(출발점 포함). 같은 셀이면 [from] 이라 walk 의 done 이 불린다. 도달 불가는 [] (기존 villagePath 와 동일).
+export function tilePath(
+  g: NavGrid,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  size: ImageSize,
+): { x: number; y: number }[] {
+  const wf = imageToWorld(from, size),
+    wt = imageToWorld(to, size);
+  const nodes = navPath(g, wf, wt);
+  if (nodes.length) return [from, ...nodes.map((n) => worldToImage(n, size))];
+  const r = resolveTarget(g, wf, wt);
+  return r && r.start === cellOf(r.target, g) ? [from] : [];
+}

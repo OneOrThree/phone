@@ -48,7 +48,7 @@ import { ServerBuildCard } from './ServerBuildCard';
 import { TileTerrainCanvas } from './TileTerrainCanvas';
 import navJson from '@/assets/village-world/v1/nav.json';
 import { applyLayout } from '@/utils/island-layout';
-import { loadNav, navPath, stepDurationMs, tapToWorld } from '@/utils/nav-path';
+import { loadNav, navPath, stepDurationMs, tapToWorld, tilePath } from '@/utils/nav-path';
 import { imageToWorld, worldToImage } from '@/utils/worldCoords';
 import { villageAssets } from '@/constants/village-assets';
 import {
@@ -1137,19 +1137,13 @@ function FinalIslandScene({
   const xy = useRef(new Animated.ValueXY(pos)).current,
     token = useRef(0),
     location = useRef(pos);
-  const tileNav = TILE_ISLAND && !!scene,
-    worldLocation = useRef(imageToWorld(pos, sizeOf(grid)));
-  // 타일 섬 경로: 월드 A* 결과를 px 로 되돌리고 출발점을 맨 앞에 둔다(기존 villagePath 와 같은 모양).
-  const tilePath = (from: Point, to: Point): Point[] => {
-    const nodes = navPath(NAV, imageToWorld(from, sizeOf(grid)), imageToWorld(to, sizeOf(grid)));
-    return nodes.length ? [from, ...nodes.map((n) => worldToImage(n, sizeOf(grid)))] : [];
-  };
+  const tileNav = TILE_ISLAND && !!scene;
   const walk = (target: Point, done?: () => void) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
     setInteractiveMotion(null);
     const path = tileNav
-      ? tilePath(location.current, target)
+      ? tilePath(NAV, location.current, target, sizeOf(grid))
       : scene
         ? villagePath(scene, location.current, target)
         : landPath(grid, location.current, nearestLand(grid, target));
@@ -1190,8 +1184,7 @@ function FinalIslandScene({
       }).start(({ finished }) => {
         if (finished) {
           location.current = p;
-          // 월드 단위 정본은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
-          if (tileNav) worldLocation.current = imageToWorld(p, sizeOf(grid));
+          // 월드 단위 정본(location)은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
           setPos(p);
           homePositions[positionKey] = p;
           next();
