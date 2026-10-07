@@ -78,7 +78,20 @@ jobs:
           # 이후 스텝(서드파티 액션)이 AWS 자격 증명 못 쓰게 비움
           for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
 
+      - name: 이미 올라갔는지 확인
+        id: pre
+        # 재실행 대비. 업로드 성공 뒤 후속 단계만 실패했으면 같은 versionCode 재업로드는 Play 가 거부 → 건너뜀
+        env:
+          PLAY_SERVICE_ACCOUNT_FILE: ${{ runner.temp }}/play-sa.json
+          PLAY_PACKAGE_NAME: com.oneorthree.gromo
+          TRACK: internal
+          VERSION_CODE: ${{ inputs.version-code }}
+          EXPECTED_STATUS: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
+          PRESENCE_ONLY: '1'
+        run: python3 .github/ci/play-verify-track.py
+
       - name: Play 내부 테스트 트랙 업로드
+        if: steps.pre.outputs.present != 'true'
         # 키 받는 서드파티 액션 → 커밋 SHA 고정 (v1.1.5)
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
         with:
@@ -133,6 +146,11 @@ jobs:
           gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/labels" -f "labels[]=$label" > /dev/null
           gh api "repos/$GITHUB_REPOSITORY/issues/$pr/labels" --jq '.[].name' | grep -qx "$label" \
             || { echo "::error::PR #$pr 에 $label 이 안 붙었다"; exit 1; }
+          # 재실행 때 같은 코멘트 중복 방지
+          marker="Play 내부 테스트 배포 완료 — versionCode \`$VERSION_CODE\`"
+          if gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --paginate --jq '.[].body' | grep -qF "$marker"; then
+            echo "- PR: #$pr 이미 표시됨 (재실행)" >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
           gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/comments" -f body="Play 내부 테스트 배포 완료 — versionCode \`$VERSION_CODE\` · 커밋 \`${REVISION:0:8}\` · [실행 기록]($RUN_URL)" > /dev/null
           echo "- PR: #$pr 에 \`$label\` 표시" >> "$GITHUB_STEP_SUMMARY"
 

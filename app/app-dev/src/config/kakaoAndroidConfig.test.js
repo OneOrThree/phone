@@ -175,6 +175,11 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
     expect(keyJob).not.toMatch(/npm |pip |gradlew|setup-node|setup-python/);
   }
   expect(cd).not.toMatch(/pip |setup-python/);
+  // AAB 를 만드는 build 잡 액션도 커밋 SHA 고정
+  expect(build).not.toMatch(/uses: [^\n]*@v\d/);
+  // 재실행: 이미 트랙에 있으면 업로드 건너뜀
+  expect(cd).toMatch(/name: 이미 올라갔는지 확인[\s\S]*PRESENCE_ONLY: '1'/);
+  expect(cd).toContain("if: steps.pre.outputs.present != 'true'");
   // 키 잡·CD 의 액션은 커밋 SHA 고정, 키 쓴 뒤 AWS 자격 증명 비움
   for (const keyJob of [version, sign, cd]) {
     expect(keyJob).not.toMatch(/uses: [^\n]*@v\d/);
