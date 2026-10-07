@@ -2,7 +2,7 @@ name: Android CD
 
 # CI(app-android-ci.yml)가 main 에서 만든 AAB → Play 내부 테스트 (GROMO-2223).
 # 트리거 없음. CI deploy 잡이 workflow_call 로 부름. 재빌드 안 함.
-# 업로드 후 internal 트랙 재조회로 확인 → 머지 PR 에 deployed:play-internal 라벨·코멘트.
+# 업로드 후 internal 트랙 재조회로 확인 → 머지 PR 에 deployed:android-play-internal 라벨·코멘트.
 #
 # 선택 변수 PLAY_INTERNAL_RELEASE_STATUS (기본 completed). "Only releases with status draft may be created
 # on draft app" 나오면 draft 로 바꾸고 콘솔에서 출시. 앱이 검토 통과하면 지움.
@@ -146,7 +146,7 @@ jobs:
             echo "- PR: #$pr 에 $STATUS 업로드 코멘트 (라벨 없음)" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          label=deployed:play-internal
+          label=deployed:android-play-internal
           # 부착 API 는 없는 라벨을 안 만듦 → 먼저 확인·생성
           gh api "repos/$GITHUB_REPOSITORY/labels/$label" > /dev/null 2>&1 \
             || gh api -X POST "repos/$GITHUB_REPOSITORY/labels" -f name="$label" -f color=0E8A16 \

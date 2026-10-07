@@ -162,7 +162,7 @@ test('Android CI builds the dev AAB and only main pushes reach Play via CD', () 
   );
   // CD: 업로드 → 트랙 재조회 → 그다음 PR 표시
   expect(cd).toMatch(/업로드 확인 \(internal 트랙 재조회\)[\s\S]*배포된 PR 에 표시/);
-  expect(cd).toContain('deployed:play-internal');
+  expect(cd).toContain('deployed:android-play-internal');
   expect(cd).toMatch(/r0adkll\/upload-google-play@[0-9a-f]{40}/);
   expect(cd).toMatch(/^on:\s*\n\s*workflow_call:/m);
   // 키는 Secrets Manager 에서 main 만 읽음. GitHub 시크릿·PR 단계는 키 못 닿음
