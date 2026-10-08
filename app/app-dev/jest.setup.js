@@ -49,3 +49,10 @@ jest.mock('expo-video', () => ({
 jest.mock('@shopify/react-native-skia', () =>
   require('@shopify/react-native-skia/lib/commonjs/mock').Mock(global.CanvasKit),
 );
+
+// expo-localization 은 네이티브 모듈이라 기기 언어를 ko-KR(테스트가 단언하는 정본 문구)로 고정한다.
+jest.mock('expo-localization', () => ({
+  getLocales: jest.fn(() => [
+    { languageCode: 'ko', languageTag: 'ko-KR', regionCode: 'KR', languageScriptCode: null },
+  ]),
+}));

@@ -160,6 +160,7 @@ import {
   resetPostHogUser,
   trackPostHogScreen,
 } from '@/services/posthog';
+import { applyLocalePref, LEGACY_LOCALE_KEY, LOCALE_KEY, type LocalePref } from '@/i18n';
 const REVIEW =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
@@ -302,6 +303,8 @@ function Gromo() {
       () => !REVIEW && !DEMO && getSession() !== null,
     ),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
+    // 언어 설정 — 바뀌면 이 state 의 재렌더로 화면의 t() 문구가 새 언어로 다시 그려진다.
+    [localePref, setLocalePref] = useState<LocalePref>('system'),
     [routeTransitionShielded, setRouteTransitionShielded] = useState(false),
     [history, setHistory] = useState<
       {
@@ -1218,8 +1221,13 @@ function Gromo() {
       // 보안 저장소의 인증 세션. 있으면 /me 로 «아직 유효한가»까지 확인한다 — 폐기된 세션으로
       // 홈에 들어가면 다음 요청에서야 401 이 나고, 그때는 원인이 로그인이라는 것이 안 보인다.
       mock ? Promise.resolve(null) : restoreSession(),
+      // 언어 설정(기기 전역 값). 2.0 키가 없으면 1.x 키를 읽고, 읽기 실패는 기기 언어 따름으로 본다.
+      AsyncStorage.getItem(LOCALE_KEY).catch(() => null),
+      AsyncStorage.getItem(LEGACY_LOCALE_KEY).catch(() => null),
     ])
-      .then(async ([raw, session]) => {
+      .then(async ([raw, session, localeRaw, legacyLocaleRaw]) => {
+        // 첫 화면이 그려지기 전에 언어부터 맞춘다.
+        setLocalePref(applyLocalePref(localeRaw ?? legacyLocaleRaw));
         // 「거절(재로그인)」·「확인 실패(오프라인)」·「정상」 셋을 가른다 — checkSession 참조.
         const check = session ? await checkSession() : null;
         const account = check?.status === 'active' ? check.account : null;
@@ -1903,6 +1911,9 @@ function Gromo() {
           conversion:
             REVIEW || DEMO || !TERMS_VERSION || !hasServerSession ? undefined : memberConversion,
           playback: REVIEW || DEMO || !hasServerSession ? undefined : playback,
+          // 언어 화면은 e.setLocalePref(applyLocalePref(pref)) 로 바꾼다.
+          localePref,
+          setLocalePref,
         }}
       />
     );
