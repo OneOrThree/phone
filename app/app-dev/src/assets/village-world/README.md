@@ -51,7 +51,13 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
   `python3 scripts/generate-night-village-motion.py` (건설 밤 아틀라스까지 다시 만들 때만 `--atlas-source`).
 - `WorldMap`은 네 모션을 `placement.json` rect 좌표에 그린다. 밤 프레임도 같은 rect로 잘라 정지 밤 레이어와 픽셀 위치가 같다.
 
-### 타일 지형(10/9, GROMO-2230)
+### 타일 지형 (10/9) — 에셋·재생성(GROMO-2229)
+
+- `v1/`: `terrain.png` 를 Lanczos 2배로 올려 128px 로 자른 `tileset@2x.png` 아틀라스와 `tileset.json`·`tilemap.json`·`nav.json`·`objects.json`. 아틀라스·타일맵은 `npm run gen:tile-atlas` 로 만들고 `npm run gen:tile-atlas:check` 가 최신 여부를 검증한다.
+- 재생성 환경: `python3 -m venv .venv-tile-atlas` 로 **별도 venv** 를 만들어 `scripts/requirements-tile-atlas.txt`(pillow 12.2.0·numpy 2.4.4)를 설치한다. `requirements-night-motion.txt`(pillow 11.3.0·numpy 2.5.1)와는 버전이 달라 한 venv 에 공존할 수 없다. 아틀라스 픽셀이 pillow 구현에 의존하므로 버전은 고정이 재현성이다.
+- `tilemap.json` 의 `terrain-detail`·`roads` 는 `data: []` 다. Tiled 규격상 비표준(원래 길이 384 의 0 배열)이며, 로더(`TileTerrainCanvas`)가 `[]` 를 빈 레이어로 다룬다는 전제다.
+
+### 타일 지형 (10/9) — 렌더러(GROMO-2230)
 
 - `EXPO_PUBLIC_TILE_ISLAND=1`(iOS·Android) 이면 새 마을의 지형 `terrain.png` 한 장 대신 `v1/tileset@2x.png` 384 조각을 `TileTerrainCanvas`(Skia `<Atlas>`, 드로우콜 1)로 그린다. 웹은 플래그를 무시하고 기존 Image.
 - 배열은 `v1/tilemap.json` terrain 레이어 + `v1/tileset.json`(margin 1·spacing 2·31열·scale 2)에서 한 번 만든다. 목적지는 1x 이미지 좌표(64px 격자)라 기존 카메라 투영(`base·z`)을 Group transform 하나로 그대로 쓴다.

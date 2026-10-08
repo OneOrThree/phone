@@ -10,12 +10,12 @@ export type ViewTransform = { offsetX: number; offsetY: number; scale: number };
 export type ImageSize = { imageWidth: number; imageHeight: number };
 
 // 입력 계약: 모든 숫자는 유한값. 제스처 중 scale=0 같은 순간값이 와도 앱이 죽지 않도록
-// 유한하지 않은 결과(NaN·±Infinity)는 throw 하지 않고 0 으로 clamp 한다.
-const finite = (v: number) => (Number.isFinite(v) ? v : 0);
-export const screenToImage = (p: ScreenPoint, v: ViewTransform): ImagePoint => ({
-  x: finite((p.x - v.offsetX) / v.scale),
-  y: finite((p.y - v.offsetY) / v.scale),
-});
+// 유한하지 않은 결과(NaN·±Infinity)는 throw 하지 않고 null 로 돌려준다(범위 게이트는 isInsideWorld 한 곳).
+export const screenToImage = (p: ScreenPoint, v: ViewTransform): ImagePoint | null => {
+  const x = (p.x - v.offsetX) / v.scale;
+  const y = (p.y - v.offsetY) / v.scale;
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+};
 export const imageToWorld = (p: ImagePoint, s: ImageSize): WorldPoint => ({
   x: p.x / (s.imageWidth / WORLD_SIZE),
   y: p.y / (s.imageHeight / WORLD_SIZE),
@@ -25,7 +25,8 @@ export const worldToImage = (p: WorldPoint, s: ImageSize): ImagePoint => ({
   y: p.y * (s.imageHeight / WORLD_SIZE),
 });
 // NaN·±Infinity 는 0 으로 보내 「차단 셀」로 조용히 흐르지 않게 한다(입력 계약: 유한값).
-const cell = (v: number) => Math.max(0, Math.min(WORLD_SIZE - 1, Math.floor(finite(v))));
+const cell = (v: number) =>
+  Math.max(0, Math.min(WORLD_SIZE - 1, Math.floor(Number.isFinite(v) ? v : 0)));
 /**
  * 내부 nav 인덱싱용 — 범위 밖은 경계 셀로 clamp 한다(정확히 100 은 마지막 셀 99).
  * 호출자가 먼저 `isInsideWorld` 로 범위 밖 탭을 걸러야 한다.
