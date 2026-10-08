@@ -1,4 +1,7 @@
 # scripts/build-tile-atlas.py 실행 의존성 (에셋 재현용 고정 버전)
 # 설치: python3 -m pip install -r scripts/requirements-tile-atlas.txt
+# 주의: requirements-night-motion.txt(pillow 11.3.0·numpy 2.5.1)와 한 venv 에 같이 못 깐다.
+#   별도 venv 로 설치한다: python3 -m venv .venv-tile-atlas && .venv-tile-atlas/bin/pip install -r scripts/requirements-tile-atlas.txt
+#   버전은 바꾸지 않는다 — 아틀라스 픽셀이 pillow 구현에 의존해 고정 버전이 재현성이다.
 numpy==2.4.4
 pillow==12.2.0
