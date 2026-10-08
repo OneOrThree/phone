@@ -28,6 +28,7 @@ jest.mock('@/utils/island-layout', () => ({
 }));
 jest.mock('./TileTerrainCanvas', () => ({ TileTerrainCanvas: () => null }));
 
+// WorldMap import 전에 process.env.EXPO_PUBLIC_TILE_ISLAND 를 세운다 — 모듈 로드 시 상수로 굳는다.
 // 플래그는 모듈 로드 때 읽는다 — TILE_ISLAND 는 지우고, 새 마을(layered)은 VILLAGE_PREVIEW 로 켠다.
 // (켠 쪽은 WorldMap.tileIsland.test.tsx 가 덮는다. 플래그는 모듈 상수라 한 파일에서 둘을 갈라 볼 수 없다.)
 delete process.env.EXPO_PUBLIC_TILE_ISLAND;
