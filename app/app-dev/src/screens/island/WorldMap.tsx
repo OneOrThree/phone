@@ -870,9 +870,7 @@ function FinalIslandScene({
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
   const explicitVisit = !!viewingIslandId,
     // 방문 카드(viewingIslandId)로 연 섬은 내 홈 스냅샷으로 대신 그리지 않는다 — 기존 폴백 유지
-    i = viewingIslandId
-      ? (state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state))
-      : homeIsland(state),
+    i = viewingIslandId ? viewIsland(state, viewingIslandId) : homeIsland(state),
     // 서버 모드 내 섬 홈이면 스냅샷(GROMO-2138) — 주민 색·오늘 집중을 서버 값으로 그린다
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,

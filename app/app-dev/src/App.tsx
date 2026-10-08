@@ -79,7 +79,7 @@ import {
   initialState,
   demoState,
   reducer,
-  currentIsland,
+  displayIsland as currentIsland,
   viewIsland,
   sessionSeconds,
   questRate,
@@ -444,6 +444,7 @@ function Gromo() {
   }, []);
   const island = currentIsland(state),
     qaBuildingsReady =
+      (!REVIEW && !DEMO && hasServerSession) ||
       !TESTFLIGHT_ALL_BUILDINGS ||
       !state.onboarded ||
       (buildingOrder.every((building) => island.buildings.includes(building)) &&

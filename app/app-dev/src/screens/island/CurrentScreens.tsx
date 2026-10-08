@@ -28,7 +28,7 @@ import {
   Building,
   Color,
   Route,
-  currentIsland,
+  displayIsland as currentIsland,
   viewIsland,
   serverHome,
   canVisit,

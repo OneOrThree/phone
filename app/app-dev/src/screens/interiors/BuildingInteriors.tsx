@@ -33,7 +33,7 @@ import {
   clockMinutes,
   clockText,
   collectedBy,
-  currentIsland,
+  displayIsland as currentIsland,
   dayKey,
   isHost,
   isOwnComment,

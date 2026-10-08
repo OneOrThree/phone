@@ -33,7 +33,7 @@ import {
   shouldShowShopGuide,
   Building,
   Color,
-  currentIsland,
+  displayIsland as currentIsland,
   mainIsland,
   serverHome,
   isHost,
