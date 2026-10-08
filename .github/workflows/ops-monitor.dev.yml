@@ -1,8 +1,8 @@
 name: Dev Monitoring (Observability)
 
 # 관측 스택(Prometheus·Grafana·Loki·exporters)을 dev(self-hosted) 서버에 수동으로 올린다.
-# 앱 배포(dev-cd.yml)와 분리 — app/db 는 건드리지 않고 관측 서비스만 관리한다.
-# dev-cd.yml이 checkout 밖에 만든 runtime env를 재사용하므로 checkout 정리 뒤에도 DB 설정이 유지된다.
+# 앱 배포(data-api-cd.dev.yml)와 분리 — app/db 는 건드리지 않고 관측 서비스만 관리한다.
+# data-api-cd.dev.yml이 checkout 밖에 만든 runtime env를 재사용하므로 checkout 정리 뒤에도 DB 설정이 유지된다.
 on:
   workflow_dispatch:
     inputs:
@@ -26,21 +26,28 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      id-token: write # SM 읽기 (임시 env)
     env:
       # 관측 overlay — app-network 를 공유해 Prometheus 가 app:9091 을 스크레이프한다.
       # app/db 는 아래 OBS_SERVICES 에서 제외해 CD 로 배포된 컨테이너를 건드리지 않는다.
       # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
       # 재부팅에도 살아남는다.
-      RUNTIME_ENV_FILE: /var/lib/gromo/runtime/dev.env
       OBS_SERVICES: prometheus grafana loki promtail postgres-exporter redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
     steps:
       - uses: actions/checkout@v4
 
-      - name: checkout 외부 runtime env 확인
-        run: |
-          set -euo pipefail
-          test -s "$RUNTIME_ENV_FILE" || { echo "::error::$RUNTIME_ENV_FILE 가 없거나 비었습니다 — 파일은 dev-cd(Data 배포)가 쓰고, 디렉터리는 VM 시작 스크립트가 만든다(GROMO-2134)"; exit 1; }
-          test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
+      - name: AWS 자격증명 (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+          aws-region: ap-northeast-2
+          role-session-name: gromo-dev-ops-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
+
+      # env 는 job 마다 SM 에서 임시로 만들고 마지막에 지움 (GROMO-2224)
+      - name: 임시 dev.env 생성
+        run: .github/scripts/dev-env.sh > /dev/null
 
       - name: 관측 스택 ${{ inputs.action }}
         run: |
@@ -79,3 +86,7 @@ jobs:
             echo "- Kafka JMX target: kafka-jmx-exporter:9404 (브로커 request rate)"
             echo "- Redis·Kafka dashboard: http://$(hostname -I | awk '{print $1}'):3000/d/redis-kafka-ops"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 임시 env 삭제
+        if: always()
+        run: rm -rf "$(dirname "${RUNTIME_ENV_FILE:-/nonexistent/x}")" 2>/dev/null || true
