@@ -1055,7 +1055,8 @@ export function SheetRow({
   };
   // right 가 없고 selected면 체크 표식 — 색만으로 상태를 전달하지 않는다(DESIGN.md 11장)
   const rightText = right ?? (selected ? '✓' : undefined);
-  const rightColor = right !== undefined ? C.muted : C.ink;
+  const isCheckmark = right === undefined;
+  const rightColor = isCheckmark ? C.ink : C.muted;
   const content = (
     <>
       {lead}
@@ -1069,6 +1070,9 @@ export function SheetRow({
       </View>
       {typeof rightText === 'string' ? (
         <Txt
+          // 체크 표식은 selected 로 이미 전달돼 중복 낭독되지 않게 뺀다 — 실제 right 값은 그대로 읽힌다
+          accessibilityElementsHidden={isCheckmark}
+          importantForAccessibility={isCheckmark ? 'no' : undefined}
           style={{
             fontSize: 15,
             lineHeight: 21.75,

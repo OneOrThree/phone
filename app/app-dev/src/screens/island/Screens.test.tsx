@@ -90,7 +90,11 @@ beforeEach(() => {
   backMock.mockClear();
 });
 // 언어 화면 테스트가 i18n 모듈 싱글턴 상태를 건드릴 수 있어 매 테스트 뒤 되돌린다(T1 패턴과 동일).
-afterEach(() => applyLocalePref('system'));
+const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+afterEach(() => {
+  applyLocalePref('system');
+  mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]); // 이 파일 다른 테스트로 안 새게
+});
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
@@ -1611,6 +1615,37 @@ test('기기 언어가 ko일 때 ko에서 기기 언어 따름으로 바꾸면 �
   assert.equal(setItem.mock.calls.at(-1)?.[1], 'system');
   assert.equal(exposed.setLocalePref.mock.calls[0][0], 'system');
   assert.equal(notifyMock.mock.calls.length, 0);
+});
+
+test('첫 탭의 저장이 끝나기 전 두 번째 탭이 들어오면 무시하고, 첫 탭 완료 뒤에만 적용·알림한다', async () => {
+  let exposed: any;
+  const setItem = AsyncStorage.setItem as jest.Mock;
+  let resolveSetItem = () => {};
+  setItem.mockImplementationOnce(() => new Promise<void>((resolve) => (resolveSetItem = resolve)));
+  const s = await render(
+    <Harness route="language" full localePref="ko" expose={(value: any) => (exposed = value)} />,
+  );
+  const priorSetItemCalls = setItem.mock.calls.length;
+
+  await fireEvent.press(s.getByLabelText('English')); // 첫 탭 — setItem 이 pending
+  await fireEvent.press(s.getByLabelText('English')); // 겹침 탭 — pickingLocale 가드로 즉시 반환돼야 함
+
+  assert.equal(setItem.mock.calls.length, priorSetItemCalls + 1); // setItem 은 1회만
+  assert.equal(exposed.setLocalePref.mock.calls.length, 0); // 첫 탭도 아직 안 끝남
+
+  await act(async () => resolveSetItem());
+
+  await waitFor(() => assert.equal(exposed.setLocalePref.mock.calls.length, 1));
+  assert.equal(exposed.setLocalePref.mock.calls[0][0], 'en');
+  assert.ok(notifyMock.mock.calls.some((c: unknown[]) => c[0] === 'Language changed'));
+});
+
+test('기기 언어가 지원 언어(ko·en)가 아니면 기기 언어 따름 sub 에 미지원 안내를 덧붙인다', async () => {
+  mockLocales.mockReturnValue([{ languageCode: 'ja', languageTag: 'ja-JP' }]);
+
+  const s = await render(<Harness route="language" full localePref="system" />);
+
+  assert.ok(s.getByText(/기기 언어 미지원/));
 });
 
 test('완공된 상점 첫 진입에서 강아지 이야기를 한 번만 보여준다', async () => {

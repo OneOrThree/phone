@@ -65,6 +65,7 @@
       "title": "Language",
       "system": "Follow device language",
       "systemNow": "Currently {{name}}",
+      "systemNowFallback": "Currently {{name}} (device language not supported)",
       "changed": "Language changed",
       "saveFailed": "Couldn't save the language setting. Please try again."
     }
