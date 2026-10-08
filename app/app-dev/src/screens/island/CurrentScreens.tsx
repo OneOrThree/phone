@@ -1016,7 +1016,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
         focus={{ x: 50, y: 50 }}
         spots={spots}
         onRaft={close}
-        raftLabel={visiting ? '뗏목 · 메인 섬으로 돌아가기' : undefined}
+        raftLabel={visiting ? t('focusFlow.common.raftLabelVisiting') : undefined}
         gram={i.buildings.includes('gram')}
       >
         {(size, sizeY, zoom) => {

@@ -422,7 +422,8 @@
       "continueAction": "Continue",
       "backToIsland": "Back to the Island",
       "todayTodo": "Today's To-Do",
-      "raftLabel": "Raft · Return to Our Island"
+      "raftLabel": "Raft · Return to Our Island",
+      "raftLabelVisiting": "Raft · Return to the Main Island"
     },
     "travel": {
       "inTransit": "Traveling...",

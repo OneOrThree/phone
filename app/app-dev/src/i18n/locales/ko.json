@@ -410,7 +410,8 @@
       "continueAction": "계속하기",
       "backToIsland": "섬으로 돌아가기",
       "todayTodo": "오늘의 할 일",
-      "raftLabel": "뗏목 · 우리 섬으로 돌아가기"
+      "raftLabel": "뗏목 · 우리 섬으로 돌아가기",
+      "raftLabelVisiting": "뗏목 · 메인 섬으로 돌아가기"
     },
     "travel": {
       "inTransit": "이동 중...",
