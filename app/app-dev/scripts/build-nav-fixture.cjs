@@ -1,6 +1,7 @@
 // map.json 의 폴리곤·footprint 에서 타일 섬 계약 fixture(v1/)를 결정적으로 만든다.
 // 같은 입력이면 바이트까지 같다. 사용: node scripts/build-nav-fixture.cjs [--check]
 // 규칙은 src/utils/village-world.ts 의 villageScene()/blocks() 와 같다(그쪽 동작은 바꾸지 않는다).
+// 통행 판정: 셀 중심점 1점(villageScene 과 동일)을 유지한다. 「중심+4변 중점」 보수적 판정은 입구 7종 중 5종이 막혀 보류(통행 셀 3,613→3,285, -9.1%).
 const fs = require('node:fs');
 const path = require('node:path');
 
