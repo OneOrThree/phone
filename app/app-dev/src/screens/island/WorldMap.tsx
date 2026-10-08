@@ -1747,7 +1747,7 @@ function FinalIslandScene({
             {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
             {visiting ? (
               <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
-                {t('home.a11y.visiting', { name: i.name })}
+                {t('home.hud.visiting', { name: i.name })}
               </Txt>
             ) : (
               <>

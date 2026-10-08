@@ -234,7 +234,8 @@
   },
   "home": {
     "hud": {
-      "todayFocus": "Focus today"
+      "todayFocus": "Focus today",
+      "visiting": "Visiting {{name}}"
     },
     "build": "Build {{building}}",
     "buildProgress": "{{current}}/{{total}} fish",
@@ -303,8 +304,7 @@
       "gram": "Gramophone",
       "boat": "My Boat",
       "dock": "Dock",
-      "todayFocusClock": "{{name}} Focus today {{clock}}",
-      "visiting": "Visiting {{name}}",
+      "todayFocusClock": "{{name}}, focus today {{clock}}",
       "raft": "Raft",
       "viewFishingIsland": "View the Fishing Island",
       "mailboxNewLetter": "You have a new letter from a friend."

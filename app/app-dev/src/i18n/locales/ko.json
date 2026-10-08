@@ -234,7 +234,8 @@
   },
   "home": {
     "hud": {
-      "todayFocus": "오늘 집중"
+      "todayFocus": "오늘 집중",
+      "visiting": "{{name}} 구경 중"
     },
     "build": "{{building}} 짓기",
     "buildProgress": "{{current}}/{{total}} 마리",
@@ -298,7 +299,6 @@
       "boat": "내 배",
       "dock": "부두",
       "todayFocusClock": "{{name}} 오늘 집중 {{clock}}",
-      "visiting": "{{name}} 구경 중",
       "raft": "뗏목",
       "viewFishingIsland": "낚시섬 구경하기",
       "mailboxNewLetter": "친구에게 받은 새 편지가 있습니다"
