@@ -50,7 +50,7 @@ jobs:
             local sha=$1 ci_run dir
             ci_run=""
             for ci in satellite-ci.dev.yml satellite-ci.yml; do
-              ci_run=$(gh run list --workflow "$ci" --branch main --commit "$sha" --status success \
+              ci_run=$(gh run list --all --workflow "$ci" --branch main --commit "$sha" --status success \
                 --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
               [ -z "$ci_run" ] || break
             done
@@ -61,7 +61,7 @@ jobs:
           }
 
           for workflow in "${workflows[@]}"; do
-            runs=$(gh run list --workflow "$workflow" --branch main --event "$( [[ "$workflow" == satellite-* ]] && echo workflow_run || echo push )" \
+            runs=$(gh run list --all --workflow "$workflow" --branch main --event "$( [[ "$workflow" == satellite-* ]] && echo workflow_run || echo push )" \
               --status success --limit 20 --json databaseId,headSha,createdAt \
               --jq '.[] | "\(.databaseId) \(.headSha) \(.createdAt)"' 2>/dev/null || true)
             while read -r run sha created; do

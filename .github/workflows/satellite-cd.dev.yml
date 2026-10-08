@@ -145,7 +145,8 @@ jobs:
               --business-image "$business_image" \
               --notification-image "$notification_image"
           # ACL 은 고정 경로로 복사, compose 에는 셸 env 로 경로 덮어씀 (셸 env 가 --env-file 보다 우선)
-          mkdir -p -m 700 "$(dirname "$REDIS_ACL_PERSISTENT")"  # 새 VM·정리된 VM 에선 폴더가 없음
+          acl_dir=$(dirname "$REDIS_ACL_PERSISTENT")
+          mkdir -p "$acl_dir" && chmod 700 "$acl_dir"  # 새 VM·정리된 VM 에선 폴더가 없음
           # Redis 는 aclfile 을 기동 때만 읽음 → 내용(비밀번호 해시)이 바뀌면 배포 단계에서 business-redis 를 재생성
           if cmp -s "$dir/business-redis.acl" "$REDIS_ACL_PERSISTENT"; then acl_changed=0; else acl_changed=1; fi
           install -m 644 "$dir/business-redis.acl" "$REDIS_ACL_PERSISTENT"
@@ -180,12 +181,14 @@ jobs:
           if [ "${{ needs.plan.outputs.notification }}" = true ]; then services+=(notification); fi
           test "${#services[@]}" -gt 0
           "${compose[@]}" config --quiet
+          # 이미지부터 받음 — 못 받으면 Redis 를 건드리기 전에 멈춰 기존 Business·Redis 비밀번호가 그대로 맞음
+          "${compose[@]}" pull "${services[@]}"
           if [ "${BUSINESS_REDIS_ACL_CHANGED:-0}" = 1 ]; then
-            # 비밀번호 회전 반영. 캐시 전용(--save "")이라 재생성해도 잃는 건 캐시뿐
+            # 비밀번호 회전 반영. aclfile 은 기동 때만 읽힘. 캐시 전용(--save "")이라 잃는 건 캐시뿐.
+            # 바로 다음 줄에서 Business 도 새 비밀번호로 재생성 → 어긋나는 구간은 Business 교체 시간뿐
             echo "business Redis ACL 변경 → business-redis 재생성"
             "${compose[@]}" up -d --no-deps --force-recreate business-redis
           fi
-          "${compose[@]}" pull "${services[@]}"
           "${compose[@]}" up -d "${services[@]}"
           "${compose[@]}" ps "${services[@]}"
 
@@ -201,12 +204,21 @@ jobs:
           services=()
           if [ "${{ needs.plan.outputs.business }}" = true ]; then services+=(business-api); fi
           if [ "${{ needs.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          # 서비스마다 결과를 따로 남김 → 한쪽만 실패해도 다른 쪽 PR 라벨은 성공으로 (GROMO-2224)
+          results="$RUNNER_TEMP/satellite-health.txt"
+          : > "$results"
+          failed=0
           for service in "${services[@]}"; do
-            container=$("${compose[@]}" ps -q "$service")
-            test -n "$container"
-            # 컨테이너 상태로 판정(GROMO-2224). 종료·재시작·unhealthy 는 즉시 실패.
-            .github/scripts/wait-healthy.sh "$(docker inspect -f '{{.Name}}' "$container" | sed 's#^/##')" 900
+            container=$("${compose[@]}" ps -q "$service" || true)
+            # 컨테이너 상태로 판정. 종료·재시작·unhealthy 는 즉시 실패
+            if [ -n "$container" ] && .github/scripts/wait-healthy.sh "$(docker inspect -f '{{.Name}}' "$container" | sed 's#^/##')" 900; then
+              echo "$service success" >> "$results"
+            else
+              echo "$service failure" >> "$results"
+              failed=1
+            fi
           done
+          [ "$failed" = 0 ]
 
       - name: 배포 결과 PR 표시
         if: always() && (steps.health.outcome == 'success' || failure())
@@ -214,14 +226,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RESULT: ${{ steps.health.outcome == 'success' && 'success' || 'failure' }}
         run: |
           set -euo pipefail
           services=()
           if [ "${{ needs.plan.outputs.business }}" = true ]; then services+=(business-api); fi
           if [ "${{ needs.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          results="$RUNNER_TEMP/satellite-health.txt"
           for service in "${services[@]}"; do
-            .github/scripts/mark-deploy.sh "$RESULT" "$service" "${{ github.event.workflow_run.head_sha }}"
+            # 헬스체크 결과가 없으면(앞 단계에서 실패) 실패로 표시
+            result=$(awk -v s="$service" '$1 == s {print $2}' "$results" 2>/dev/null || true)
+            .github/scripts/mark-deploy.sh "${result:-failure}" "$service" "${{ github.event.workflow_run.head_sha }}"
           done
 
       - name: 실패 로그
