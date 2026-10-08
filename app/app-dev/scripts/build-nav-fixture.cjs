@@ -108,6 +108,9 @@ function build() {
     kind: o.kind,
     building: o.building ?? null,
     layer: o.layer,
+    asset: o.asset,
+    w: o.w,
+    h: o.h,
     anchor: { x: +(o.x / cw).toFixed(2), y: +(o.y / ch).toFixed(2) },
     footprint: footprint(o),
     entrance: o.building && map.doors[o.building] ? entrances[o.building] : null,
@@ -137,7 +140,7 @@ function build() {
   };
   const catalog = {
     '$schema-note':
-      '오브젝트 카탈로그. anchor 는 발밑 월드 좌표(소수 2자리, zIndex=y), footprint 는 통행 셀 코너 좌표(정수) 사각형 폴리곤(막지 않으면 []), entrance 는 건물 입구 셀.',
+      '오브젝트 카탈로그. asset·w·h 는 map.json 원본 값(스프라이트 경로, 원본 px 크기 — 같은 kind 라도 크기가 다르다). anchor 는 발밑 월드 좌표(소수 2자리, zIndex=y), footprint 는 통행 셀 코너 좌표(정수) 사각형 폴리곤(막지 않으면 []), entrance 는 건물 입구 셀.',
     objects,
   };
   // 숫자만 든 배열은 한 줄로 접어 diff 와 크기를 줄인다.
