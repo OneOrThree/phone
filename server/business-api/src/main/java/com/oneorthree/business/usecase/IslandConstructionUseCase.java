@@ -16,6 +16,7 @@ import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
 import com.oneorthree.business.upstream.data.dto.IslandLayout;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -32,6 +33,7 @@ import java.util.function.Supplier;
  * <p>{@code REQUEST_IN_PROGRESS}·{@code IDEMPOTENCY_KEY_CONFLICT} 는 표에 두지 않는다 —
  * 이름·상태가 공개 계약과 이미 같아 그대로 올라가는 편이 {@code Retry-After} 값을 보존한다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class IslandConstructionUseCase {
@@ -87,11 +89,19 @@ public class IslandConstructionUseCase {
             }
             return layout;
         } catch (UpstreamContractMismatchException e) {
-            if (e.getUpstreamStatus() == 404) {
+            // 의존 순서: 도메인 코드가 있는 404(GROUP_NOT_FOUND 등)는 UpstreamDomainException 으로 relay 가
+            // 먼저 공개 오류로 옮기므로 여기까지 오지 않는다 — 여기 오는 404 는 코드 없는 라우트 부재뿐이다.
+            if (isRouteMissing(e)) {
+                log.warn("섬 배치 조회 404 — 구 data-api 호환 폴백, 배포 뒤 제거 후보 islandId={}", islandId);
                 return null;
             }
             throw e;
         }
+    }
+
+    /** 도메인 코드 없는 404 — 구 data-api 에 배치 라우트 자체가 없다. */
+    private static boolean isRouteMissing(UpstreamContractMismatchException e) {
+        return e.getUpstreamStatus() == 404;
     }
 
     /** 건설 목표 선택 (LLD §2 PUT). 같은 키·본문은 Data 의 확정 receipt 재생이다. */
