@@ -1,4 +1,5 @@
 import { Text } from '@/design-system/typography';
+import { t } from '@/i18n';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
@@ -196,7 +197,7 @@ export function RestGroup({
       ? live.rest
           .filter((m) => m.userId !== getSession()?.userId)
           .map((m) => ({
-            name: m.name ?? '주민',
+            name: m.name ?? t('focusFlow.common.resident'),
             color: catColor(m.catColor),
             restStartedAt: m.restStartedAt
               ? Date.parse(m.restStartedAt) - live.clockOffset
@@ -207,7 +208,13 @@ export function RestGroup({
   // 자리 배정: 나는 뒤 가운데(1번), 주민은 서버 restSeat(있고 겹치지 않으면) 아니면 0·2·3·4·5번, 7명부터는 바깥 줄(6번~)
   const taken = new Set<number>([1]);
   const actors = [
-    { seat: 1, me: true, name: '나', color: state.color, restStartedAt: started },
+    {
+      seat: 1,
+      me: true,
+      name: t('focusFlow.common.me'),
+      color: state.color,
+      restStartedAt: started,
+    },
     ...others.map((m, n) => {
       let seat = (m as { restSeat?: number | null }).restSeat;
       if (typeof seat !== 'number' || seat < 0 || seat === 1 || taken.has(seat))
@@ -250,7 +257,7 @@ export function RestGroup({
           <TutorialSpotlight
             target={resumeTarget.rect}
             text={tutorial.text}
-            action={{ title: '집중 이어가기', onPress: resume }}
+            action={{ title: t('focus.resume'), onPress: resume }}
           />
         )
       }
@@ -277,7 +284,7 @@ export function RestGroup({
               key={a.seat}
               pointerEvents="none"
               testID="rest-golden-reel"
-              accessibilityLabel="황금 물고기를 낚아 올리는 중"
+              accessibilityLabel={t('focusFlow.fish.goldenReelingA11y')}
               style={{ position: 'absolute', left: a.x, top: a.foot }}
             >
               <CatSprite
@@ -401,7 +408,7 @@ export function RestGroup({
             }}
           >
             <Text style={[fiTitle(wide ? 17 : 19), { lineHeight: (wide ? 17 : 19) * 1.3 }]}>
-              휴식 중...
+              {t('focusFlow.rest.resting')}
             </Text>
           </View>
           {pausedSession && (
@@ -436,7 +443,10 @@ export function RestGroup({
                 {pausedSession.subject}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={{ flexDirection: 'row', gap: 4 }} accessibilityLabel="멈춤">
+                <View
+                  style={{ flexDirection: 'row', gap: 4 }}
+                  accessibilityLabel={t('focusFlow.rest.pausedA11y')}
+                >
                   {[0, 1].map((bar) => (
                     <View
                       key={bar}
@@ -494,7 +504,7 @@ export function RestGroup({
             <FiButton
               primary
               id="resume-focus"
-              title={state.session ? '집중 이어가기' : '섬으로 돌아가기'}
+              title={state.session ? t('focus.resume') : t('focusFlow.common.backToIsland')}
               onPress={state.session ? resume : home}
             />
           </View>
@@ -502,7 +512,7 @@ export function RestGroup({
             <FiButton
               style={{ flex: 1 }}
               id="end-rest"
-              title="휴식 종료하기"
+              title={t('focusFlow.rest.endButton')}
               onPress={() => setConfirming(true)}
             />
           )}
@@ -511,13 +521,17 @@ export function RestGroup({
       {/* 휴식 종료는 집중이 통째로 끝나므로 한 번 묻는다. 계속 쉬기는 창만 닫고 휴식 시간은 계속 흐른다 */}
       {confirming && !result && (
         <FiModal>
-          <Text style={fiTitle(wide ? 19 : 22)}>휴식을 끝내고 이번 집중을 마칠까요?</Text>
+          <Text style={fiTitle(wide ? 19 : 22)}>{t('focusFlow.rest.endConfirmTitle')}</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
-            <FiButton title="계속 쉬기" style={{ flex: 1 }} onPress={() => setConfirming(false)} />
+            <FiButton
+              title={t('focusFlow.rest.keepResting')}
+              style={{ flex: 1 }}
+              onPress={() => setConfirming(false)}
+            />
             <FiButton
               primary
               id="confirm-end-rest"
-              title="집중 종료"
+              title={t('focusFlow.common.endFocus')}
               style={{ flex: 1 }}
               onPress={() => {
                 setConfirming(false);

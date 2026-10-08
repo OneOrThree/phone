@@ -396,5 +396,115 @@
       "viewFishingIsland": "낚시섬 구경하기",
       "mailboxNewLetter": "친구에게 받은 새 편지가 있습니다"
     }
+  },
+  "focusFlow": {
+    "common": {
+      "ourIsland": "우리 섬",
+      "fishingIsland": "낚시섬",
+      "myLittleBoat": "나의 작은 배",
+      "me": "나",
+      "resident": "주민",
+      "endFocus": "집중 종료",
+      "pauseFocus": "휴식하기",
+      "continueAction": "계속하기",
+      "backToIsland": "섬으로 돌아가기",
+      "todayTodo": "오늘의 할 일",
+      "raftLabel": "뗏목 · 우리 섬으로 돌아가기"
+    },
+    "travel": {
+      "inTransit": "이동 중...",
+      "restCampfire": "우리 섬 모닥불",
+      "fishingSpot": "낚시섬 내 자리"
+    },
+    "spot": {
+      "onWater": "물 위에는 앉을 수 없어요.",
+      "occupied": "여기는 주민이 앉아 있어요. 조금 옆에 앉아 주세요.",
+      "nearGram": "여기는 축음기가 있어 앉을 수 없어요. 조금 옆에 앉아 주세요.",
+      "nearRaft": "여기는 뗏목을 대는 곳이에요. 조금 옆에 앉아 주세요.",
+      "noCatchRoom": "여기에는 물고기를 둘 자리가 없어요. 조금 옆에 앉아 주세요.",
+      "unreachable": "이곳까지 이어지는 땅을 골라 주세요.",
+      "noneFound": "빈 자리를 찾지 못했어요. 잠시 후 다시 시도해 주세요.",
+      "groundA11y": "낚시섬 땅 · 원하는 곳을 눌러 앉기",
+      "sitEmptyA11y": "빈 자리에 앉기",
+      "sitEmptyButton": "빈 땅에 자리 잡기"
+    },
+    "setup": {
+      "title": "집중 준비",
+      "placeholder": "예: 영어 단어 외우기",
+      "subjectRequired": "집중할 과목이나 할 일을 적어주세요.",
+      "needsIsland": "섬에 가입한 뒤 집중할 수 있어요.",
+      "startFailed": "집중을 시작하지 못했어요.",
+      "pickAnotherSpot": "다른 곳 고르기"
+    },
+    "hud": {
+      "emoteFab": "이모티콘",
+      "emoteSendFailed": "응원을 보내지 못했어요. 잠시 후 다시 시도해 주세요.",
+      "residentsReloadA11y": "주민 상태 다시 불러오기",
+      "residentsLoadFailed": "주민 상태를 불러오지 못했어요 · 다시 시도",
+      "endConfirmTitle": "이번 집중을 마칠까요?",
+      "endedByServer": "집중이 종료됐어요. 섬 소속을 확인해 주세요.",
+      "pauseFailed": "휴식으로 이동하지 못했어요.",
+      "emote": {
+        "hello": "인사",
+        "cheer": "응원",
+        "sleepy": "졸림",
+        "laugh": "웃음",
+        "hearts": "하트뿅뿅"
+      }
+    },
+    "music": {
+      "title": "축음기 음악",
+      "subtitle": "보유한 음원 중에서 골라요.",
+      "changeFailed": "음악을 바꾸지 못했어요.",
+      "backToSpot": "자리로 돌아가기",
+      "gramA11y": "축음기 · 음악 고르기"
+    },
+    "result": {
+      "title": "이번 집중 결과",
+      "defaultSubject": "이번 집중",
+      "durationLabel": "이번 집중 시간",
+      "fishCount": "+{{count}}마리",
+      "questsAchievedTitle": "달성한 일일 퀘스트",
+      "checking": "확인 중…",
+      "checkFailed": "퀘스트를 확인하지 못했어요",
+      "notYet": "아직 없어요",
+      "notYetServerRate": "아직 없어요 · {{title}} {{rate}}",
+      "notYetLocalRate": "아직 없어요 · {{title}} {{current}}/{{target}}분",
+      "notMeasuredYet": "측정 전",
+      "backByBoat": "배 타고 우리 섬으로"
+    },
+    "tutorial": {
+      "step5": "집중하고 싶은 빈 땅을 눌러 자리를 골라 봐.",
+      "step6": "물 위나 다른 주민이 앉아 있는 곳은 고를 수 없어.\n마음에 드는 자리를 직접 누르면 돼.",
+      "step6SkipButton": "안내 그만 보기",
+      "step7": "이번 집중에서 할 일을 하나 적어 봐.\n“영어 단어 외우기”처럼 지금 바로 시작할 수 있는 일이 좋아.",
+      "step7Done": "입력 완료",
+      "step8": "좋아. 이제 집중 시작을 눌러 봐.",
+      "step9": "집중이 시작됐어.\n위에는 방금 적은 할 일과 실제 집중 시간이 표시돼.",
+      "step10": "네가 집중하는 동안 {{name}}이가 낚시를 할 거야.\n많은 사람들과 동시에 집중할수록 희귀한 물고기를 낚을 확률이 높아지니 참고해.",
+      "step12": "첫 물고기를 낚았어!\n이 물고기는 섬을 발전시키는 데 사용할 수 있어!",
+      "step14": "이번에는 잠깐 쉬어 보자.\n아래의 휴식하기를 눌러 봐.",
+      "step15": "같은 섬에서 쉬고 있는 주민이 있다면 이 모닥불에서 함께 볼 수 있어.\n충분히 쉬었다면 집중 이어가기를 눌러 봐.",
+      "step16": "아까 골랐던 자리로 돌아왔어.\n할 일과 집중 시간도 쉬기 전 그대로 이어졌지?",
+      "step17": "이렇게 쉬었다가 돌아와도 처음부터 다시 시작할 필요는 없어.\n이제 집중을 마쳐 보자.",
+      "step18": "집중 종료를 눌러 마쳐 봐.",
+      "step19": "방금 집중한 시간이 기록됐어.\n쉬었던 시간은 집중 시간에 포함되지 않아.",
+      "step20": "집중해서 낚은 물고기도 여기에서 확인할 수 있어.",
+      "step21": "이제 섬으로 돌아가기를 눌러 봐.\n돌아가면 섬을 되살릴 첫 번째 퀘스트를 줄게.",
+      "next": "다음"
+    },
+    "fish": {
+      "goldenCaughtA11y": "황금 물고기를 잡았어요.",
+      "rewardCheckFailed": "물고기 보상을 확인하지 못했어요. 다시 시도할게요.",
+      "goldenCaughtImageA11y": "방금 함께 낚은 황금 물고기",
+      "goldenReelingA11y": "황금 물고기를 낚아 올리는 중"
+    },
+    "rest": {
+      "resting": "휴식 중...",
+      "pausedA11y": "멈춤",
+      "endButton": "휴식 종료하기",
+      "endConfirmTitle": "휴식을 끝내고 이번 집중을 마칠까요?",
+      "keepResting": "계속 쉬기"
+    }
   }
 }
