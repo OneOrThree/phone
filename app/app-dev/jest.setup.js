@@ -42,3 +42,10 @@ jest.mock('expo-video', () => ({
   }),
   VideoView: 'VideoView',
 }));
+
+// Skia 는 네이티브 모듈이라 공식 mock 으로 대체한다. 기본 환경엔 CanvasKit 이 없어 컴포넌트·훅만 쓰이고
+// (useImage → null 이라 TileTerrainCanvas 는 아무것도 그리지 않는다), Skia API 단언이 필요한 테스트는
+// 파일 머리에 `@jest-environment @shopify/react-native-skia/jestEnv.js` 를 달아 CanvasKit 을 올린다.
+jest.mock('@shopify/react-native-skia', () =>
+  require('@shopify/react-native-skia/lib/commonjs/mock').Mock(global.CanvasKit),
+);

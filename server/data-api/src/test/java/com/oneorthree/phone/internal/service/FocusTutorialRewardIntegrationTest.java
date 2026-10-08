@@ -184,6 +184,8 @@ class FocusTutorialRewardIntegrationTest {
         jdbc.update("DELETE FROM island_wallet_transactions WHERE island_id = ?", fixture.island());
         jdbc.update("DELETE FROM island_wallets WHERE island_id = ?", fixture.island());
         jdbc.update("DELETE FROM island_construction_states WHERE island_id = ?", fixture.island());
+        // island_layouts 는 groups FK RESTRICT 라 섬보다 먼저 지운다.
+        jdbc.update("DELETE FROM island_layouts WHERE island_id = ?", fixture.island());
         jdbc.update("DELETE FROM groups WHERE id = ?", fixture.island());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_tutorial_rewards "
                 + "WHERE user_id = ? AND island_id IS NULL AND session_id IS NULL",
