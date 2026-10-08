@@ -59,5 +59,14 @@
     "minutes": "{{m}}분",
     "hours": "{{h}}시간",
     "hoursMinutes": "{{h}}시간 {{m}}분"
+  },
+  "settings": {
+    "language": {
+      "title": "언어",
+      "system": "기기 언어 따름",
+      "systemNow": "지금은 {{name}}",
+      "changed": "언어를 바꿨어요",
+      "saveFailed": "언어 설정을 저장하지 못했어요. 다시 시도해 주세요."
+    }
   }
 }

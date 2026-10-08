@@ -26,6 +26,7 @@ import {
   BackHandler,
 } from 'react-native';
 import Svg, { Path, Line } from 'react-native-svg';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   State,
   Friend,
@@ -64,6 +65,15 @@ import {
 import { useAppLayout } from '@/utils/layout';
 import { semanticTokens } from '@/design-system/tokens';
 import { ApiError, uuid } from '@/services/api/client';
+import {
+  applyLocalePref,
+  getLocale,
+  LOCALE_KEY,
+  LOCALE_NAMES,
+  resolveLocale,
+  t,
+  type LocalePref,
+} from '@/i18n';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
@@ -993,10 +1003,10 @@ export function RedesignScreens({ e }: any) {
   const pendingId = pendingReq()?.id;
   useEffect(() => {
     if (!server || route !== 'approval' || !pendingId) return;
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       Promise.resolve(server.status(pendingId)).catch(() => {});
     }, 4000);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [server, route, pendingId]);
   useEffect(() => {
     if (!invite) return;
@@ -1164,8 +1174,8 @@ export function RedesignScreens({ e }: any) {
     [sheetToastSeq, setSheetToastSeq] = useState(0);
   useEffect(() => {
     if (!sheetToast) return;
-    const t = setTimeout(() => setSheetToast(''), 2400);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setSheetToast(''), 2400);
+    return () => clearTimeout(timer);
   }, [sheetToast, sheetToastSeq]);
   useEffect(() => setSheetToast(''), [route]);
   // 비동기 결과가 도착했을 때 사용자가 아직 그 상품 화면에 있는지 확인하는 용도
@@ -4068,7 +4078,7 @@ export function RedesignScreens({ e }: any) {
     return (
       <WoodBoard
         tab={onNotice ? 'notice' : 'quest'}
-        onTab={(t) => setTab(t === 'notice' ? '공지' : '퀘스트')}
+        onTab={(nextTab) => setTab(nextTab === 'notice' ? '공지' : '퀘스트')}
         onMake={() =>
           !host
             ? notify('방장만 만들 수 있어요.')
@@ -6252,6 +6262,7 @@ export function RedesignScreens({ e }: any) {
         {name}
       </Txt>
     );
+    const pref: LocalePref = e.localePref;
     // 기록 공개 토글은 없다(도서관 기록은 전체 공개 고정)
     return (
       <IslandSheet
@@ -6272,6 +6283,15 @@ export function RedesignScreens({ e }: any) {
         {sec('화면')}
         <SheetGroup flat>
           {toggle('동작 줄이기', 'reduceMotion', '이동·전환 애니메이션을 줄여요')}
+        </SheetGroup>
+        {sec(t('settings.language.title'))}
+        <SheetGroup flat>
+          <SheetRow
+            title={t('settings.language.title')}
+            sub={pref === 'system' ? t('settings.language.system') : LOCALE_NAMES[pref]}
+            chevron
+            onPress={() => go('language', 'settings')}
+          />
         </SheetGroup>
         {sec('권한')}
         <SheetGroup flat>
@@ -6333,6 +6353,53 @@ export function RedesignScreens({ e }: any) {
             chevron
             label="개인정보처리방침 원문 보기"
             onPress={() => openPolicy(PRIVACY_URL)}
+          />
+        </SheetGroup>
+      </IslandSheet>
+    );
+  }
+  if (route === 'language') {
+    const pref: LocalePref = e.localePref;
+    // 탭 즉시 저장·적용 — 저장 버튼은 없다
+    const pick = async (next: LocalePref) => {
+      try {
+        await AsyncStorage.setItem(LOCALE_KEY, next);
+      } catch {
+        notify(t('settings.language.saveFailed')); // 저장 못 하면 적용도 안 한다
+        return;
+      }
+      const before = getLocale();
+      e.setLocalePref(applyLocalePref(next));
+      if (getLocale() !== before) notify(t('settings.language.changed')); // 실제로 언어가 바뀔 때만
+    };
+    return (
+      <IslandSheet
+        bg="dock"
+        sign="boat/raft"
+        title={t('settings.language.title')}
+        tall
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        <SheetGroup flat>
+          <SheetRow
+            title={t('settings.language.system')}
+            sub={t('settings.language.systemNow', { name: LOCALE_NAMES[resolveLocale()] })}
+            selected={pref === 'system'}
+            onPress={() => pick('system')}
+          />
+          <SheetRow
+            title={LOCALE_NAMES.ko}
+            selected={pref === 'ko'}
+            onPress={() => pick('ko')}
+            divider
+          />
+          <SheetRow
+            title={LOCALE_NAMES.en}
+            selected={pref === 'en'}
+            onPress={() => pick('en')}
+            divider
           />
         </SheetGroup>
       </IslandSheet>

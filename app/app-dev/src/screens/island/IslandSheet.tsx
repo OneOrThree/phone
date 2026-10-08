@@ -1022,6 +1022,7 @@ export function SheetRow({
   divider = false,
   disabled = false,
   label,
+  selected,
 }: {
   title: string;
   sub?: string;
@@ -1036,7 +1037,10 @@ export function SheetRow({
   divider?: boolean;
   disabled?: boolean;
   label?: string;
+  // 현재 선택된 행(언어 선택 등). true면 tone 기본값 'on'으로 선택 배경을 쓴다
+  selected?: boolean;
 }) {
+  const effectiveTone = selected ? (tone ?? 'on') : tone;
   const style: ViewStyle = {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1046,7 +1050,8 @@ export function SheetRow({
     paddingHorizontal: 14,
     borderTopWidth: divider ? 1 : 0,
     borderTopColor: '#8B695633',
-    backgroundColor: tone === 'on' ? C.soft : tone === 'butter' ? '#FFF3CF' : undefined,
+    backgroundColor:
+      effectiveTone === 'on' ? C.soft : effectiveTone === 'butter' ? '#FFF3CF' : undefined,
   };
   const content = (
     <>
@@ -1076,7 +1081,7 @@ export function SheetRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label ?? (sub ? `${title}, ${sub}` : title)}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, selected }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [style, pressed && { opacity: 0.7 }]}
