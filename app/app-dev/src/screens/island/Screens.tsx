@@ -1537,10 +1537,11 @@ export function RedesignScreens({ e }: any) {
         />
       </Onboard>
     );
-  if (server && route === 'currentIsland')
+  if (server && (route === 'mainIsland' || route === 'currentIsland'))
     return (
       <ServerIslandPicker
         key={route}
+        mode={route === 'mainIsland' ? 'main' : 'current'}
         state={state}
         islands={server}
         back={back}
@@ -5391,7 +5392,7 @@ export function RedesignScreens({ e }: any) {
           snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
           '내 섬')
         : primaryIsland.name,
-      canChangeMainIsland = joinedIslands.length > 1;
+      canChangeMainIsland = (server ? (snap?.memberships.length ?? 0) : joinedIslands.length) > 1;
     const mainIslandCard = (
       <>
         <IslandCircle size={112} />

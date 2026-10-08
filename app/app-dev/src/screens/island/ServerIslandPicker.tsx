@@ -9,6 +9,7 @@ import type { createIslandCommands } from '@/services/islandCommands';
 import type { Route, State } from '@/services/model';
 
 type Props = {
+  mode: 'current' | 'main';
   state: State;
   islands: ReturnType<typeof createIslandCommands>['commands'];
   back: () => void;
@@ -16,8 +17,8 @@ type Props = {
   reset: (route: Route) => void;
 };
 
-export function ServerIslandPicker({ state, islands, back, home, reset }: Props) {
-  const currentId = state.serverIslands?.currentIslandId;
+export function ServerIslandPicker({ mode, state, islands, back, home, reset }: Props) {
+  const currentId = mode === 'main' ? state.mainIslandId : state.serverIslands?.currentIslandId;
   const [selected, setSelected] = useState(currentId ?? '');
   const [loading, setLoading] = useState(true);
   const [writing, setWriting] = useState(false);
@@ -27,7 +28,7 @@ export function ServerIslandPicker({ state, islands, back, home, reset }: Props)
   const pending = useRef(false);
   const items = state.serverIslands?.memberships ?? [];
   const target = items.find((item) => item.id === selected);
-  const sessionBlocksMove = !!state.session && selected !== currentId;
+  const sessionBlocksMove = mode === 'current' && !!state.session && selected !== currentId;
 
   useEffect(() => {
     mounted.current = true;
@@ -61,12 +62,14 @@ export function ServerIslandPicker({ state, islands, back, home, reset }: Props)
     const gen = sessionGeneration();
     const alive = () => mounted.current && sessionGeneration() === gen;
     try {
-      await islands.switchCurrent(target.id);
+      if (mode === 'main') await islands.setMain(target.id);
+      else await islands.switchCurrent(target.id);
       if (alive()) {
-        reset(state.tutorialEnrollment === 'awaiting-first-island' ? 'guide' : 'home');
+        if (mode === 'main') back();
+        else reset(state.tutorialEnrollment === 'awaiting-first-island' ? 'guide' : 'home');
       }
     } catch (thrown) {
-      if (alive()) setError(islandErrorMessage(thrown, 'tower'));
+      if (alive()) setError(islandErrorMessage(thrown, mode === 'current' ? 'tower' : undefined));
     } finally {
       pending.current = false;
       if (alive()) setWriting(false);
@@ -77,12 +80,16 @@ export function ServerIslandPicker({ state, islands, back, home, reset }: Props)
     <IslandSheet
       bg="dock"
       sign="island/whole"
-      title="현재 섬 변경하기"
+      title={mode === 'main' ? '내 메인 섬 변경하기' : '현재 섬 변경하기'}
       onBack={back}
       onClose={home}
       tall
     >
-      <Txt kind="meta">가입한 섬 중 지금 들어갈 섬을 골라 주세요. 대표 섬은 그대로예요.</Txt>
+      <Txt kind="meta">
+        {mode === 'main'
+          ? '친구 목록과 프로필에 표시할 섬을 골라 주세요. 현재 접속한 섬은 그대로예요.'
+          : '가입한 섬 중 지금 들어갈 섬을 골라 주세요. 대표 섬은 그대로예요.'}
+      </Txt>
       {loading ? (
         <Txt>소속 섬을 불러오고 있어요.</Txt>
       ) : (
@@ -114,8 +121,20 @@ export function ServerIslandPicker({ state, islands, back, home, reset }: Props)
         </View>
       )}
       <Btn
-        title={writing ? '변경 중이에요' : '선택한 섬으로 가기'}
-        disabled={loading || writing || !target || sessionBlocksMove}
+        title={
+          writing
+            ? '변경 중이에요'
+            : mode === 'main'
+              ? '대표 섬으로 저장하기'
+              : '선택한 섬으로 가기'
+        }
+        disabled={
+          loading ||
+          writing ||
+          !target ||
+          sessionBlocksMove ||
+          (mode === 'main' && selected === currentId)
+        }
         onPress={() => {
           void save();
         }}

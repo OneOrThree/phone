@@ -83,3 +83,9 @@ test('현재 섬 변경 뒤 이전 홈 응답은 새 섬의 시설 정보를 덮
   assert.equal(displayIsland(state).name, 'b 서버 섬');
   assert.equal(isHost(displayIsland(state)), false);
 });
+
+test('대표 섬은 재실행 때 로컬 소다 섬으로 대체하지 않는다', () => {
+  const saved = sync(initialState(true), 'a');
+  const restored = reducer(initialState(), { type: 'LOAD', state: saved });
+  assert.equal(restored.mainIslandId, 'b');
+});

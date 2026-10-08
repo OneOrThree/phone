@@ -720,6 +720,54 @@ test('서로 다른 섬을 연달아 선택해도 쓰기는 하나만 실행된�
   assert.equal(switchCurrent.mock.calls.length, 1);
 });
 
+test('대표 섬은 서버 저장과 재조회 뒤 반영하고 현재 섬은 유지한다', async () => {
+  const updateProfile = jest.fn(async () => ({
+    id: 'u1',
+    name: '수빈',
+    catColor: 'black',
+    mainIslandId: 'i2',
+  }));
+  let main = 'i1';
+  const h = harness(
+    selectionApi({
+      updateProfile,
+      me: async () => account({ mainIslandId: main }),
+    }),
+  );
+  await h.cmds.commands.sync();
+  main = 'i2';
+  await h.cmds.commands.setMain('i2');
+  assert.deepEqual((updateProfile.mock.calls as unknown[][])[0][0], { mainIslandId: 'i2' });
+  assert.equal(h.state().mainIslandId, 'i2');
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i1');
+});
+
+test('대표 섬 저장 실패는 현재 선택을 바꾸지 않는다', async () => {
+  const h = harness(
+    selectionApi({
+      updateProfile: async () => {
+        throw new ApiError('FORBIDDEN', 'denied', 403);
+      },
+    }),
+  );
+  await h.cmds.commands.sync();
+  await assert.rejects(h.cmds.commands.setMain('i2'));
+  assert.equal(h.state().mainIslandId, 'i1');
+});
+
+test('대표 섬 응답 유실은 /me 값으로 복구한다', async () => {
+  const h = harness(
+    selectionApi({
+      updateProfile: async () => {
+        throw new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0);
+      },
+      me: async () => account({ mainIslandId: 'i2' }),
+    }),
+  );
+  await h.cmds.commands.setMain('i2');
+  assert.equal(h.state().mainIslandId, 'i2');
+});
+
 test('로그인 세대가 바뀐 뒤 도착한 섬 변경 성공은 반영하지 않는다', async () => {
   let finish!: (value: { currentIslandId: string }) => void;
   const h = harness(

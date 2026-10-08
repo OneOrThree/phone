@@ -1457,10 +1457,11 @@ export function reducer(state: State, a: Action): State {
       screenDays: loaded.screenDays ?? {},
       screenTimeUnconfirmedDays: loaded.screenTimeUnconfirmedDays ?? [],
       profileNames: loaded.profileNames ?? [loaded.name],
-      mainIslandId:
-        loadedMainIsland?.id ??
-        loaded.islands.find((island) => island.joined && !island.closed)?.id ??
-        null,
+      mainIslandId: loaded.serverIslands
+        ? (loaded.mainIslandId ?? null)
+        : (loadedMainIsland?.id ??
+          loaded.islands.find((island) => island.joined && !island.closed)?.id ??
+          null),
       // 받은 편지 읽음 기준이 없던 저장본은 이미 받은 편지를 모두 읽은 것으로 본다
       lettersReadAt:
         loaded.lettersReadAt ??
@@ -1653,6 +1654,9 @@ export function reducer(state: State, a: Action): State {
       s.mainIslandId = target.id;
       break;
     }
+    case 'SERVER_MAIN_ISLAND':
+      s.mainIslandId = a.islandId as string | null;
+      break;
     // ── 섬 — 서버 동기화(GROMO-2006) ──
     // 서버 응답만 serverIslands 스냅샷에 반영한다. CREATE_ISLAND·JOIN·CANCEL_JOIN 의
     // 로컬 성공 경로는 REVIEW·DEMO fixture 용이며 일반 실행의 성공 경로에서 부르지 않는다.

@@ -2093,6 +2093,78 @@ test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으�
   assert.ok(s.getByText('50자까지 쓸 수 있어요 · 50/50'));
 });
 
+test('대표 섬 선택은 서버 소속만 표시하고 저장 성공 뒤에 닫는다', async () => {
+  const initial = reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [
+        islandSummary({ id: 'a', name: '서버 A' }),
+        islandSummary({ id: 'b', name: '서버 B' }),
+      ],
+      currentIslandId: 'a',
+      nextCursor: null,
+      lossReason: null,
+    },
+    mainIslandId: 'a',
+  });
+  let finish!: () => void;
+  const save = jest.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const screen = await render(
+    <Harness
+      route="mainIsland"
+      initial={initial}
+      api={() => ({ sync: async () => {}, setMain: save })}
+    />,
+  );
+  await screen.findByText('서버 B');
+  assert.equal(screen.queryByText('소다 섬'), null);
+  await fireEvent.press(screen.getByLabelText('서버 B'));
+  await fireEvent.press(screen.getByText('대표 섬으로 저장하기'));
+  assert.equal(save.mock.calls.length, 1);
+  assert.equal(backMock.mock.calls.length, 0);
+  await act(async () => finish());
+  assert.equal(backMock.mock.calls.length, 1);
+});
+
+test('대표 섬 저장 실패는 화면에 남아 재시도할 수 있다', async () => {
+  const initial = reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [
+        islandSummary({ id: 'a', name: '서버 A' }),
+        islandSummary({ id: 'b', name: '서버 B' }),
+      ],
+      currentIslandId: 'a',
+      nextCursor: null,
+      lossReason: null,
+    },
+    mainIslandId: 'a',
+  });
+  const save = jest
+    .fn()
+    .mockRejectedValueOnce(new ApiError('CLIENT_TIMEOUT', 'lost', 0))
+    .mockResolvedValue(undefined);
+  const screen = await render(
+    <Harness
+      route="mainIsland"
+      initial={initial}
+      api={() => ({ sync: async () => {}, setMain: save })}
+    />,
+  );
+  await screen.findByText('서버 B');
+  await fireEvent.press(screen.getByLabelText('서버 B'));
+  await fireEvent.press(screen.getByText('대표 섬으로 저장하기'));
+  await screen.findByText('연결을 확인한 뒤 다시 시도해 주세요.');
+  assert.equal(backMock.mock.calls.length, 0);
+  await fireEvent.press(screen.getByText('대표 섬으로 저장하기'));
+  await waitFor(() => assert.equal(backMock.mock.calls.length, 1));
+});
+
 test('현재 섬 없이 재실행한 기존 주민도 가입한 섬 선택으로 갈 수 있다', async () => {
   const initial = reducer(initialState(false), {
     type: 'ISLAND_SYNC',

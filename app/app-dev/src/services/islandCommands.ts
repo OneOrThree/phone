@@ -11,6 +11,7 @@ import {
   uuid,
 } from '@/services/api/client';
 import { me as apiMe } from '@/services/api/auth';
+import { updateProfile as apiUpdateProfile } from '@/services/api/account';
 import { switchCurrentIsland as apiSwitchCurrentIsland } from '@/services/api/home';
 import { sessionGeneration } from '@/services/api/session';
 import {
@@ -46,6 +47,7 @@ export type IslandApi = {
   /** GET /me — 메인 섬 정본(GROMO-1971·2054). `/me/islands` 는 이 축을 싣지 않는다. */
   me: typeof apiMe;
   switchCurrent: typeof apiSwitchCurrentIsland;
+  updateProfile: typeof apiUpdateProfile;
 };
 
 export type IslandCommandDeps = {
@@ -74,6 +76,7 @@ const defaultApi: IslandApi = {
   leave: apiLeaveIsland,
   me: apiMe,
   switchCurrent: apiSwitchCurrentIsland,
+  updateProfile: apiUpdateProfile,
 };
 
 const contractError = () =>
@@ -226,6 +229,31 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
           if (my.currentIslandId !== islandId)
             throw new ApiError('STATE_CONFLICT', '현재 섬이 바뀌었어요. 다시 선택해 주세요.', 409);
           return my;
+        }, true),
+      ),
+    setMain: (islandId: string) =>
+      selection(() =>
+        call(async () => {
+          const g = generation();
+          const key = scoped().keys.key('main', islandId);
+          try {
+            await api.updateProfile({ mainIslandId: islandId }, key);
+          } catch (thrown) {
+            if (!unknownOutcome(thrown)) throw thrown;
+            alive(g);
+            const account = await api.me().catch(() => null);
+            alive(g);
+            if (account?.mainIslandId !== islandId) throw thrown;
+          }
+          alive(g);
+          // 같은 키의 재전송 응답은 과거 값일 수 있어 /me를 다시 읽는다.
+          const account = await api.me();
+          alive(g);
+          ++syncRevision;
+          deps.dispatch({ type: 'SERVER_MAIN_ISLAND', islandId: account.mainIslandId });
+          scoped().keys.release('main', islandId);
+          if (account.mainIslandId !== islandId)
+            throw new ApiError('STATE_CONFLICT', '대표 섬이 바뀌었어요. 다시 선택해 주세요.', 409);
         }, true),
       ),
     // 만들기: 응답만으로 로컬 성공 처리하지 않고 /me/islands 재조회로 current를 확정한다
