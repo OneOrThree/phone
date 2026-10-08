@@ -228,6 +228,32 @@ const SHAPE: [JsonName, string, (j: MapJson) => boolean][] = [
     'columns*rows === traversalCost.length',
     (j) => j['nav.json'].columns * j['nav.json'].rows === j['nav.json'].traversalCost.length,
   ],
+  // loadNav 가 비용 0 이하를 throw 하므로(탭 핸들러에서 터짐) 승격 단계에서 걸러 bad 표식으로 번들에 머물게 한다.
+  [
+    'nav.json',
+    'traversalCost 전 셀 > 0',
+    (j) => j['nav.json'].traversalCost.every((c: unknown) => typeof c === 'number' && c > 0),
+  ],
+  [
+    'nav.json',
+    'buildingCells·blockedEdges 형태(없거나 유효한 셀 index)',
+    (j) => {
+      const n = j['nav.json'];
+      const size = n.columns * n.rows;
+      const idx = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) < size;
+      const cellsOk =
+        n.buildingCells === undefined ||
+        (typeof n.buildingCells === 'object' &&
+          Object.values(n.buildingCells as Record<string, unknown>).every(
+            (a) => Array.isArray(a) && a.every(idx),
+          ));
+      const edgesOk =
+        n.blockedEdges === undefined ||
+        (Array.isArray(n.blockedEdges) &&
+          n.blockedEdges.every((e: unknown) => Array.isArray(e) && e.length === 2 && e.every(idx)));
+      return cellsOk && edgesOk;
+    },
+  ],
   ['objects.json', 'objects[]', (j) => Array.isArray(j['objects.json']?.objects)],
   [
     'home.map.json',
