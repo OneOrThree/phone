@@ -1706,7 +1706,8 @@ export function reducer(state: State, a: Action): State {
       for (const island of s.islands)
         if (island.joined && !ids.has(island.id)) island.joined = false;
       if (s.session && !ids.has(s.session.islandId)) s.session = null;
-      if (s.visitingIslandId && !ids.has(s.visitingIslandId)) s.visitingIslandId = null;
+      if (s.visitingIslandId && snap.visit?.island.id !== s.visitingIslandId)
+        s.visitingIslandId = null;
       // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
       s.onboarded = my.currentIslandId != null;
       // /me 정본의 메인 섬 — 실렸을 때만 갈아 끼운다(explore 등 안 싣는 발신자는 현재 값 유지).
@@ -1847,6 +1848,10 @@ export function reducer(state: State, a: Action): State {
     }
     case 'ISLAND_VISIT':
       serverSnap(s).visit = a.visit as VisitScreen;
+      break;
+    case 'SERVER_VISITING':
+      if (s.serverIslands?.visit?.island.id !== a.islandId) return state;
+      s.visitingIslandId = a.islandId as string;
       break;
     case 'ISLAND_REQUEST': {
       // 단건 상태는 표시 필드가 없다 — requestStatus에만 두고, 목록에 있는 항목은 status/version만 갱신한다.

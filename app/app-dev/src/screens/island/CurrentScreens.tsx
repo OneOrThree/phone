@@ -1,3 +1,4 @@
+import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
@@ -288,15 +289,17 @@ export function friendsSnapshotForSync(data: FriendsScreenState['data']) {
 }
 
 // 주민 화면 가드 판정(GROMO-2138). 서버 모드는 로컬 목업 섬 대신 서버 current 로 소속을,
-// 스냅샷의 완공 건물로 잠금을 본다. 스냅샷이 오기 전(built undefined)에는 잠그지 않는다 —
-// 각 건물 화면이 서버에서 다시 확인한다.
+// 스냅샷의 완공 건물로 잠금을 본다. 미조회는 undefined로 유지해 아래 진입 가드가 기다리게 한다.
+// 방문자는 현재 섬 주민 여부를 이어받지 않고 공개 읽기 API로 완공 여부를 확인한다.
 export function memberGate(state: State, server: boolean) {
-  const i = currentIsland(state);
-  if (!server) return { joined: i.joined, built: viewIsland(state).buildings, host: isHost(i) };
+  if (!server) {
+    const i = currentIsland(state);
+    return { joined: i.joined, built: viewIsland(state).buildings, host: isHost(i) };
+  }
   const facts = state.visitingIslandId ? null : serverHome(state);
   return {
-    joined: state.serverIslands?.currentIslandId != null,
-    built: state.visitingIslandId ? viewIsland(state).buildings : facts?.completedBuildings,
+    joined: !state.visitingIslandId && state.serverIslands?.currentIslandId != null,
+    built: facts?.completedBuildings,
     host: facts?.home.island.role === 'host',
   };
 }
@@ -360,7 +363,12 @@ function CurrentScreensContent({ e }: any) {
     'sound',
   ];
   const { joined, built, host } = memberGate(state, !!e.islands);
-  if (!joined && memberRoutes.includes(r))
+  const endServerVisit = () => {
+    const islandId = state.visitingIslandId;
+    e.dispatch({ type: 'END_VISIT' });
+    e.replace('visit', islandId);
+  };
+  if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
         <Txt kind="h17">가입한 섬이 없어요</Txt>
@@ -372,23 +380,27 @@ function CurrentScreensContent({ e }: any) {
   // 나머지는 내 섬 화면이 섞이거나 섬 상태가 꼬이지 않게 모두 막는다
   if (
     state.visitingIslandId &&
-    ![
-      'home',
-      'manage',
-      'members',
-      'board',
-      'notice',
-      'quest',
-      'travel',
-      'visitIsland',
-      'visitIslandFocus',
-      'permission',
-      'screenTimeApps',
-    ].includes(r)
+    !(
+      e.islands
+        ? ['board', 'notice']
+        : [
+            'home',
+            'manage',
+            'members',
+            'board',
+            'notice',
+            'quest',
+            'travel',
+            'visitIsland',
+            'visitIslandFocus',
+            'permission',
+            'screenTimeApps',
+          ]
+    ).includes(r)
   )
     return (
       <Overlay
-        close={e.home}
+        close={e.islands ? endServerVisit : e.home}
         background={
           <FinalIsland
             state={state}
@@ -400,7 +412,7 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Txt kind="h17">주민만 이용할 수 있어요</Txt>
-        <Btn title="확인" onPress={e.home} />
+        <Btn title="확인" onPress={e.islands ? endServerVisit : e.home} />
       </Overlay>
     );
   const locked: Partial<Record<Route, Building>> = {
@@ -423,9 +435,18 @@ function CurrentScreensContent({ e }: any) {
     chat: 'mail',
     friendMail: 'mail',
     shop: 'shop',
+    product: 'shop',
+    orders: 'shop',
     sound: 'gram',
   };
   const required = locked[r];
+  if (required && e.islands && !state.visitingIslandId && !serverHome(state))
+    return (
+      <Overlay close={e.home}>
+        <Txt>{e.homeError ? '시설 정보를 불러오지 못했어요' : '시설 정보를 확인하고 있어요.'}</Txt>
+        {e.homeError && <Btn title="다시 시도" onPress={e.retryHome} />}
+      </Overlay>
+    );
   if (required && built && !built.includes(required))
     return (
       <Overlay
@@ -453,6 +474,17 @@ function CurrentScreensContent({ e }: any) {
         />
       </Overlay>
     );
+  if (e.islands && state.visitingIslandId && ['board', 'notice'].includes(r)) {
+    const islandId = state.visitingIslandId;
+    return (
+      <VisitorBoard
+        key={islandId}
+        islandId={islandId}
+        backOverride={e.backOverride}
+        onClose={endServerVisit}
+      />
+    );
+  }
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
   if (r === 'focusVisit') return <FocusVisit e={e} />;

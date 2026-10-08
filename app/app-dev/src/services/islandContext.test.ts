@@ -76,6 +76,25 @@ test('소속이 있지만 현재 섬을 고르기 전에는 다른 섬을 대신
   assert.equal(displayIsland(state).joined, false);
 });
 
+test('방문 섬에는 내 섬의 이름·완공 시설·지갑이 섞이지 않는다', () => {
+  let state = home(sync(initialState(true), 'a'), 'a', 'host');
+  state = reducer(state, {
+    type: 'ISLAND_VISIT',
+    visit: {
+      island: { ...summary('visitor'), membershipStatus: 'pending' },
+      members: { items: [], nextCursor: null, version: 1 },
+      joinRequestAvailability: 'none',
+      joinRequest: null,
+    },
+  });
+  state = reducer(state, { type: 'SERVER_VISITING', islandId: 'visitor' });
+  assert.equal(viewIsland(state).name, 'visitor 서버 섬');
+  assert.equal(isHost(viewIsland(state)), false);
+  assert.deepEqual(homeIsland(state).buildings, []);
+  assert.equal(viewIsland(state).points, 0);
+  assert.equal(displayIsland(state).id, 'a');
+});
+
 test('현재 섬 변경 뒤 이전 홈 응답은 새 섬의 시설 정보를 덮어쓰지 않는다', () => {
   let state = sync(home(sync(initialState(true), 'a'), 'a', 'host'), 'b');
   state = home(state, 'a', 'host');

@@ -1,4 +1,5 @@
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
+import { ServerVisit } from '@/screens/island/ServerVisit';
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession } from '@/services/api/session';
@@ -1537,6 +1538,7 @@ export function RedesignScreens({ e }: any) {
         />
       </Onboard>
     );
+  if (server && route === 'visit') return <ServerVisit key={detail} e={e} />;
   if (server && (route === 'mainIsland' || route === 'currentIsland'))
     return (
       <ServerIslandPicker
@@ -4582,7 +4584,11 @@ export function RedesignScreens({ e }: any) {
                     onPress={
                       item.islandId === myIslandId
                         ? undefined
-                        : () => run(() => server.visit(item.islandId))
+                        : () =>
+                            run(async () => {
+                              await server.visit(item.islandId);
+                              go('visit', item.islandId);
+                            })
                     }
                   />
                 ))}

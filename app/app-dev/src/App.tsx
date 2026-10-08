@@ -658,6 +658,38 @@ function Gromo() {
   const serverCurrent =
     !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
   const onHome = route === 'home' || route === 'guide';
+  const needsHome =
+    onHome ||
+    [
+      'focus',
+      'rest',
+      'focusSetup',
+      'focusTravel',
+      'fishingArrival',
+      'boat',
+      'hall',
+      'manage',
+      'members',
+      'ledger',
+      'construction',
+      'board',
+      'notice',
+      'noticeEdit',
+      'quest',
+      'questEdit',
+      'tower',
+      'explore',
+      'library',
+      'diary',
+      'stats',
+      'mail',
+      'chat',
+      'friendMail',
+      'shop',
+      'product',
+      'orders',
+      'sound',
+    ].includes(route);
   const buildingIndicators = useBuildingIndicators({
     active: !!serverCurrent,
     islandId: serverCurrent,
@@ -665,7 +697,7 @@ function Gromo() {
     refreshKey: homeReload,
   });
   useEffect(() => {
-    if (!loaded || !serverCurrent || !onHome) return;
+    if (!loaded || !serverCurrent || !needsHome) return;
     let live = true;
     setHomeError(false);
     loadHomeSnapshot({ date: dayKey(), timezone: 'Asia/Seoul', isCurrent: () => live })
@@ -695,7 +727,7 @@ function Gromo() {
     return () => {
       live = false;
     };
-  }, [loaded, serverCurrent, onHome, homeReload]);
+  }, [loaded, serverCurrent, needsHome, homeReload]);
   // ── 집중 세션 서버 명령(GROMO-2009) ──
   // 섬 명령과 같은 저장소 규칙 — 멱등 키는 세대 격리 ref, state·세션은 최신 ref로 읽는다.
   const focusCmds = useRef<ReturnType<typeof createSessionCommands> | null>(null);
@@ -1370,7 +1402,7 @@ function Gromo() {
       if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
     }
-    if (state.onboarded) return;
+    if (state.onboarded || (state.visitingIslandId && ['board', 'notice'].includes(route))) return;
     if (
       [
         'login',
@@ -1380,6 +1412,7 @@ function Gromo() {
         'joinIsland',
         'approval',
         'currentIsland',
+        'visit',
       ].includes(route)
     )
       return;
@@ -1605,7 +1638,10 @@ function Gromo() {
   useEffect(() => {
     if (!loaded || !hasServerSession || REVIEW || DEMO) return;
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') setNow(Date.now());
+      if (nextState === 'active') {
+        setNow(Date.now());
+        setHomeReload((value) => value + 1);
+      }
     });
     return () => subscription.remove();
   }, [loaded, hasServerSession]);
