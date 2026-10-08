@@ -72,11 +72,16 @@ describe('미완공 건물 자리 · 막힌 간선', () => {
   const empty = loadNav(nav as any, []);
   const full = loadNav(nav as any, all);
   const from = center(nav.spawns.character.cx, nav.spawns.character.cy);
-  it('건물 0 섬에선 hall 자리가 통행, 전부 완공이면 차단', () => {
-    for (const i of bc.hall) {
-      expect(empty.walkable[i]).toBe(1);
-      expect(full.walkable[i]).toBe(0);
-    }
+  it('미완공 건물 자리는 통행, 완공이면 차단(기존 마을 nav 는 buildingCells 가 비어 있어 합성으로 본다)', () => {
+    const synthNav = {
+      columns: 3,
+      rows: 1,
+      walkable: '101',
+      traversalCost: [10, 10, 10],
+      buildingCells: { hall: [1] },
+    };
+    expect(loadNav(synthNav, []).walkable[1]).toBe(1);
+    expect(loadNav(synthNav, ['hall']).walkable[1]).toBe(0);
     expect(loadNav(nav as any, [])).toBe(empty);
   });
   it('스폰 → hall 입구 경로가 두 경우 모두 존재', () => {
