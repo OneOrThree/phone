@@ -207,7 +207,7 @@
   },
   "onboarding": {
     "back": "Back",
-    "spotlightSkip": "Stop showing this guide",
+    "spotlightSkip": "Stop Showing This Guide",
     "enterHome": "Go to My Island",
     "joinRequest": "Join Request",
     "approvalBadge": "Approval Required",
@@ -488,7 +488,7 @@
     "tutorial": {
       "step5": "Tap an empty spot on the ground to choose your seat.",
       "step6": "You can't choose the water or a spot where another resident is sitting.\nJust tap the spot you like.",
-      "step6SkipButton": "Skip This Guide",
+      "step6SkipButton": "Stop Showing This Guide",
       "step7": "Write down one to-do for this focus session.\nSomething you can start right away, like “Memorize English words,” works best.",
       "step7Done": "Done",
       "step8": "Good. Now tap Start Focus.",
