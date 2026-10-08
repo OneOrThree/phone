@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   Atlas,
   Canvas,
@@ -86,6 +86,11 @@ export function TileTerrainCanvas({
   const image = useImage(source, () => {
     if (assets.kind === 'cache') onAssetsFail?.();
   });
+  // 실기기 게이트(디코드 해상도 4096×2048 단언)용 — 개발 빌드에서만 한 번 찍는다.
+  const decoded = image ? `${image.width()}x${image.height()}` : null;
+  useEffect(() => {
+    if (__DEV__ && decoded) console.log(`[TileTerrainCanvas] 디코드 ${decoded} (${assets.kind})`);
+  }, [decoded, assets.kind]);
   // 이미지가 뜬 뒤 한 번만 만든다. 로드 전에는 기존 Image 처럼 아무것도 그리지 않는다(뒤의 바다 배경이 보인다).
   const atlas = useMemo(() => (image ? buildTerrainAtlas(assets) : null), [image, assets]);
   if (!image || !atlas) return null;

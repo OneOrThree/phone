@@ -32,7 +32,6 @@ export const MAP_FILES = [
   'tileset.json',
   'tilemap.json',
   'nav.json',
-  'objects.json',
   'home.map.json',
 ] as const;
 type MapFileName = (typeof MAP_FILES)[number];
@@ -132,7 +131,7 @@ const hasBad = (s: State) => Object.entries(s.bad ?? {}).some(([name, h]) => s.f
 /**
  * state.json 이 가리키는 버전 디렉터리를 cache 소스로 바꾼다. 판정 순서:
  * 1) state 가 없거나 모양이 틀리면 null  2) 활성 버전의 파일 해시가 bad 에 있으면 null
- * 3) 6개 파일이 모두 있고 크기가 기록과 같을 때만 cache. null 은 호출부가 bundle 로 둔다.
+ * 3) 5개 파일이 모두 있고 크기가 기록과 같을 때만 cache. null 은 호출부가 bundle 로 둔다.
  */
 function sourceFromState(fs: MapFs, mapId: string): MapAssetSource | null {
   const s = readState(fs, mapId);
@@ -254,7 +253,6 @@ const SHAPE: [JsonName, string, (j: MapJson) => boolean][] = [
       return cellsOk && edgesOk;
     },
   ],
-  ['objects.json', 'objects[]', (j) => Array.isArray(j['objects.json']?.objects)],
   [
     'home.map.json',
     'fields',
@@ -287,7 +285,7 @@ const SHAPE: [JsonName, string, (j: MapJson) => boolean][] = [
   ],
 ];
 
-/** 파싱된 JSON 5종을 검사한다. 통과면 null, 실패면 `<파일> <검사>` 메시지. 앞 검사가 실패하면 뒤 검사는 돌지 않는다. */
+/** 파싱된 JSON 4종을 검사한다. 통과면 null, 실패면 `<파일> <검사>` 메시지. 앞 검사가 실패하면 뒤 검사는 돌지 않는다. */
 export function validateMapJson(j: MapJson): string | null {
   for (const [file, check, ok] of SHAPE) {
     let pass = false;
@@ -321,6 +319,7 @@ function loadJson(fs: MapFs, src: Extract<MapAssetSource, { kind: 'cache' }>): J
 
 /** 실패한 파일의 해시를 state.bad 에 남긴다(그 파일이 활성 state 의 버전일 때만). 실패해도 이번 실행은 번들로 그린다. */
 function markBad(fs: MapFs, mapId: string, version: number, name: string) {
+  console.warn(`[mapAssets] ${mapId} v${version} ${name} 불량 표식`);
   try {
     const s = readState(fs, mapId);
     if (s && s.mapVersion === version && s.files[name])
@@ -379,6 +378,7 @@ export function promoteMapAssets(mapId = 'home', fs: MapFs = expoMapFs): MapAsse
  */
 export function demoteToBundle(mapId = 'home', fs: MapFs = expoMapFs) {
   const was = current.get(mapId);
+  console.warn(`[mapAssets] ${mapId} tileset@2x.png 디코드 실패 — 번들로 강등`);
   current.set(mapId, BUNDLE);
   pending.delete(mapId);
   if (was?.kind === 'cache') markBad(fs, mapId, was.mapVersion, 'tileset@2x.png');

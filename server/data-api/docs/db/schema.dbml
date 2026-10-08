@@ -1010,7 +1010,7 @@ Table island_construction_contributions [note: '목표 epoch 의 «대상 주민
 
 Table island_layouts [note: '섬 배치 정본 (GROMO-2232, map-assets §6) — 건물 좌표를 JSON 으로 저장한다. 백필 없이 첫 조회 때 서버 기본 템플릿(IslandLayoutTemplate)으로 지연 생성. 시설 완공(BUILDING→COMPLETED)마다 layout_revision +1 → island.updated 페이로드에 layoutRevision'] {
   island_id       uuid        [pk, note: 'FK → groups.id ON DELETE RESTRICT']
-  layout_revision bigint      [not null, default: 1, note: 'CHECK layout_revision >= 1 — 섬 단위 단조 정수. 앱은 감소하는 revision 을 버린다']
+  layout_revision bigint      [not null, default: 1, note: 'CHECK layout_revision >= 1 — 섬 단위 단조 정수. 앱은 감소하는 revision 을 버린다(앱 도입 예정 — 10/9 는 홈 재조회로만 반영)']
   layout          jsonb       [not null, note: '{ schemaVersion: 1, mapId: "home", buildings: [{ id, cell{x,y}, anchor, footprint[[x,y]...] }] } — 100×100 통행 셀 좌표. mapVersion 은 넣지 않는다']
   updated_at      timestamptz [not null, default: `now()`]
 }

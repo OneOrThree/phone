@@ -177,7 +177,7 @@ mmdc -i docs/prd/fishcat/island-movement/diagrams/01-architecture.mmd \
 | C-38 | 렌더 | 낚시 화면에서는 타일 지형을 쓰지 않는 가드 | 티켓 2230 | 정적 확인 | 통과(정적 읽기) | `WorldMap.tsx` `const tileTerrain = village && !fishing && TILE_ISLAND`. 이 가드 전용 테스트는 없고 실행도 하지 않았다 |
 | C-39 | 이동 | 같은 셀 목적지는 길이 1 경로라 걷기 done 콜백이 불림, 같은 입구를 연속으로 걸어도 두 번째 경로가 비지 않음 | 티켓 2231 | `nav-path.test.ts` `tilePath (walk 의 done 호출 조건)` | 통과 | 입구 7곳 연속 걷기 포함 |
 | C-40 | 좌표 | objects 카탈로그가 오브젝트별 `w·h·asset` 을 원본과 같게 보존 (tree 9 vs 12) | 티켓 2228 | `nav.test.ts` | 통과 | fixture 수치 고정 항목 [머지 뒤 재실행] |
-| C-41 | 캐시 | 캐시 안전망: 원자 쓰기(`state.json` 은 `.tmp` 경유)·스냅샷(마운트 뒤 승격이 이미 받은 소스에 영향 없음)·빈 섬 방지(JSON 하나라도 깨지면 소스 전체 번들)·나쁜 해시 표식(같은 해시 재채택 없음, 새 해시는 채택) | 티켓 2233 | `mapAssets.test.ts` (g)~(n) | 통과 | rename·state 쓰기 실패 주입 포함, jest 메모리 파일시스템 기준. 실기기 파일 I/O 는 C-27 |
+| C-41 | 캐시 | 캐시 안전망: 원자 쓰기(`state.json` 은 `.tmp` 경유)·스냅샷(마운트 뒤 승격이 이미 받은 소스에 영향 없음)·빈 섬 방지(JSON 하나라도 깨지면 소스 전체 번들)·나쁜 해시 표식(같은 해시 재채택 없음, 새 해시는 채택) | 티켓 2233 | `mapAssets.test.ts` (g)~(n) | 통과 | rename·state 쓰기 실패 주입 포함, jest 메모리 파일시스템 기준. 실기기 파일 I/O 는 C-27. `objects.json` 은 번들 전용이라 캐시 manifest 는 5개 파일(캐시 소비는 VillageScenery 가 카탈로그를 읽는 후속에서) |
 | C-42 | 이동 | 간선 중점이 막힌 인접 통행 셀 쌍 수를 2 로 고정 (입구 셀 예외는 후속 티켓) | 티켓 2231 | `nav.test.ts` | 통과 | fixture 수치 고정 항목 [머지 뒤 재실행] |
 | C-43 | 이동 | `loadNav` 입력 검증 (잘못된 nav 입력 거부) | 티켓 2231 | `nav-path.test.ts` `loadNav 입력 검증` | 통과 | |
 

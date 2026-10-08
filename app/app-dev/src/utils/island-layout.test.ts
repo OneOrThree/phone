@@ -29,4 +29,14 @@ describe('applyLayout', () => {
     expect(library).toBe(objects.find((o) => o.building === 'library'));
     expect(out.filter((o, i) => o !== objects[i])).toHaveLength(1);
   });
+
+  it.each([
+    ['schemaVersion 2', { schemaVersion: 2, mapId: 'home', cell: { x: 71, y: 31 } }],
+    ['mapId 다름', { schemaVersion: 1, mapId: 'other', cell: { x: 71, y: 31 } }],
+    ['cell 범위 밖', { schemaVersion: 1, mapId: 'home', cell: { x: 100, y: 31 } }],
+    ['cell NaN', { schemaVersion: 1, mapId: 'home', cell: { x: NaN, y: 31 } }],
+  ])('%s 이면 서버 배치를 무시하고 입력을 그대로 돌려준다', (_name, { cell, ...head }) => {
+    const layout = { ...head, buildings: [{ id: 'hall' as const, cell }] };
+    expect(applyLayout(objects, layout, bundle)).toBe(objects);
+  });
 });

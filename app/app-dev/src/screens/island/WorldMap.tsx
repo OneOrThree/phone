@@ -973,7 +973,7 @@ function FinalIslandScene({
         : i.buildings,
     );
     // ponytail: 서버 배치는 그리는 위치만 바꾼다. 통행 셀(grid)·공사 위치는 map.json 기준 그대로 —
-    // 서버 배치가 실제로 달라지는 시점(2232 머지 뒤)에 villageScene 이 objects 를 받아 다시 계산하게 한다.
+    // 서버 배치는 이 브랜치에 들어왔고(2232), 통행·건설 위치를 layout 으로 옮기는 것은 후속에 villageScene 이 objects 를 받아 다시 계산하게 한다.
     // 플래그 off 에서는 서버 배치를 무시해 map.json 그대로 그린다.
     const objects = TILE_ISLAND ? applyLayout(built.objects, layout, mapAssets) : built.objects;
     return objects === built.objects ? built : { ...built, objects };

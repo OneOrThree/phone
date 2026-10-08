@@ -53,7 +53,7 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 
 ### 타일 지형 (10/9) — 에셋·재생성(GROMO-2229)
 
-- `v1/`: `terrain.png` 를 Lanczos 2배로 올려 128px 로 자른 `tileset@2x.png` 아틀라스와 `tileset.json`·`tilemap.json`·`nav.json`·`objects.json`. 아틀라스·타일맵은 `npm run gen:tile-atlas` 로 만들고 `npm run gen:tile-atlas:check` 가 최신 여부를 검증한다.
+- `v1/`: `terrain.png` 를 Lanczos 2배로 올려 128px 로 자른 `tileset@2x.png` 아틀라스와 `tileset.json`·`tilemap.json`·`nav.json`·`objects.json`(번들 전용 — 캐시 manifest 5개 파일에는 없고, 캐시 소비는 VillageScenery 가 카탈로그를 읽는 후속에서). 아틀라스·타일맵은 `npm run gen:tile-atlas` 로 만들고 `npm run gen:tile-atlas:check` 가 최신 여부를 검증한다.
 - 재생성 환경: `python3 -m venv .venv-tile-atlas` 로 **별도 venv** 를 만들어 `scripts/requirements-tile-atlas.txt`(pillow 12.2.0·numpy 2.4.4)를 설치한다. `requirements-night-motion.txt`(pillow 11.3.0·numpy 2.5.1)와는 버전이 달라 한 venv 에 공존할 수 없다. 아틀라스 픽셀이 pillow 구현에 의존하므로 버전은 고정이 재현성이다.
 - `tilemap.json` 의 `terrain-detail`·`roads` 는 `data: []` 다. Tiled 규격상 비표준(원래 길이 384 의 0 배열)이며, 로더(`TileTerrainCanvas`)가 `[]` 를 빈 레이어로 다룬다는 전제다.
 

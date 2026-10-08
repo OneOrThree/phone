@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { MAP_FILES, syncMapAssets, validateMapJson, type MapFs } from '@/services/mapAssets';
 import { sha256Hex } from '@/utils/sha256';
 
+// 강등·bad 표식 경고 로그(console.warn)가 테스트 출력에 섞이지 않게 막는다.
+beforeAll(() => {
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
 // 메모리 파일시스템 — 파일은 Map, 디렉터리는 Set. renameDir 은 접두사 치환(원자 교체 흉내).
 // 실제 expo-file-system 과 같게: copy·move 는 대상의 부모 디렉터리가 없으면 던진다.
 // failNext(op): 다음 op 호출 한 번을 던지게 한다(실패 주입).
@@ -86,7 +91,6 @@ const VALID_JSON: Record<string, object> = {
     layers: [{ name: 'terrain', data: [1] }],
   },
   'nav.json': { columns: 1, rows: 1, walkable: '1', traversalCost: [8] },
-  'objects.json': { objects: [] },
   'home.map.json': {
     imageWidth: 1,
     imageHeight: 1,
@@ -166,13 +170,13 @@ const assertIntact = (fs: MapFs, src: Awaited<ReturnType<typeof syncMapAssets>>)
   if (src.kind === 'cache') for (const n of MAP_FILES) assert.ok(fs.exists(`${src.path}/${n}`), n);
 };
 
-test('(a) 콜드 스타트: manifest + 6파일 다운로드, 활성 = cache v1, 임시 디렉터리 없음', async () => {
+test('(a) 콜드 스타트: manifest + 5파일 다운로드, 활성 = cache v1, 임시 디렉터리 없음', async () => {
   const { fs, dirs } = memFs();
   const srv = fakeServer();
   const src = await syncMapAssets('home', opts(fs, srv.fetchFn));
   assert.equal(src.kind, 'cache');
   assert.equal(src.kind === 'cache' && src.mapVersion, 1);
-  assert.equal(downloads(srv.log).length, 6);
+  assert.equal(downloads(srv.log).length, 5);
   assertIntact(fs, src);
   assert.deepEqual(
     [...dirs].filter((d) => d.includes('tmp-')),
@@ -208,7 +212,7 @@ test('(c) sha256 불일치 → 버리고 1회 재시도로 성공, 재시도도 
   s1.state.corrupt = 1; // 첫 응답만 깨짐
   const ok = await syncMapAssets('home', opts(a.fs, s1.fetchFn));
   assert.equal(ok.kind, 'cache');
-  assert.equal(downloads(s1.log).length, 7); // 6 + 재시도 1
+  assert.equal(downloads(s1.log).length, 6); // 5 + 재시도 1
 
   s1.state.version = 2;
   s1.state.corrupt = 2; // 같은 파일이 두 번 연속 깨짐

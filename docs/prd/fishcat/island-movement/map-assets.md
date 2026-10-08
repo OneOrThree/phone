@@ -55,10 +55,12 @@
 
 ```text
 /screens/home ─┐
-                ├─ manifest(mapId, mapVersion) ─ 해시 비교 ─ tileset + nav + objects ─┐
+                ├─ manifest(mapId, mapVersion) ─ 해시 비교 ─ tileset + nav ─┐
 layoutRevision ─┘                                                                      ├─ 원자 교체 ─ 렌더
                                               bundled fallback(설치 시 포함 1벌) ───────┘
 ```
+
+`objects.json` 은 번들 전용이다(캐시 manifest 는 5개 파일: tileset@2x.png·tileset·tilemap·nav·home.map). 캐시 소비는 VillageScenery 가 카탈로그를 읽는 후속에서.
 
 - 의존 순서: manifest → 타일셋·통행·오브젝트 카탈로그(병렬) → 배치(layoutRevision) → 렌더. 배치가 먼저 와도 타일셋 없이 그리지 않는다. 캐릭터·UI·폰트는 독립 경로.
 - 원자 교체: 새 `mapVersion` 디렉터리의 파일이 전부 검증되기 전에는 이전 버전(없으면 번들)으로 그린다. 준비 완료 표식 파일을 마지막에 쓴다. HLD §2 의 맵 전환 원칙과 같다.

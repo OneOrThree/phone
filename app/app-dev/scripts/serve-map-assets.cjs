@@ -23,14 +23,7 @@ const fail = new Set(String(arg('fail', '')).split(',').filter(Boolean));
 const MAP_ID = 'home';
 const MAP_VERSION = Number(arg('map-version', 1));
 const VERSION_DIR = `v${MAP_VERSION}`;
-const FILES = [
-  'tileset@2x.png',
-  'tileset.json',
-  'tilemap.json',
-  'nav.json',
-  'objects.json',
-  'home.map.json',
-];
+const FILES = ['tileset@2x.png', 'tileset.json', 'tilemap.json', 'nav.json', 'home.map.json'];
 const TYPES = { '.png': 'image/png', '.json': 'application/json' };
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 const stageOf = (name) => (name === 'tileset@2x.png' ? 'tileset' : 'layout');

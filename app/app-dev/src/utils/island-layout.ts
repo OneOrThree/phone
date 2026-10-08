@@ -13,6 +13,14 @@ export function applyLayout<T extends { building?: string | null; x: number; y: 
   assets: MapAssetSource,
 ): T[] {
   if (!layout?.buildings?.length) return objects;
+  // 알 수 없는 스키마·맵·범위 밖 셀이면 서버 배치를 무시한다(구서버 호환 — 동작 차이 0).
+  const inRange = (n: number) => Number.isInteger(n) && n >= 0 && n <= 99;
+  if (
+    layout.schemaVersion !== 1 ||
+    layout.mapId !== 'home' ||
+    !layout.buildings.every((b) => inRange(b.cell?.x) && inRange(b.cell?.y))
+  )
+    return objects;
   const mapMeta = readMapJson('home.map.json', bundledMapMeta, assets); // 화면 스냅샷이 cache 면 캐시본(GROMO-2233)
   const cells = new Map(layout.buildings.map((b) => [b.id as string, b.cell]));
   return objects.map((o) => {
