@@ -15,6 +15,9 @@ on:
       - '!server/data-api/**/*.md'
       - 'docs/architecture/**'
       - 'server/scripts/docker-compose.satellites*.yml'
+      # 설정 계약 테스트(test_config_contract)가 모든 compose 의 environment 를 봄 (GROMO-2224)
+      - 'server/scripts/docker-compose.dev.yml'
+      - 'server/scripts/docker-compose.realtime.yml'
       - 'server/scripts/docker-compose.business.yml'
       - 'server/scripts/docker-compose.kafka.yml'
       - 'server/scripts/prepare-satellite-deploy.py'
@@ -40,6 +43,9 @@ on:
       - '!server/data-api/**/*.md'
       - 'docs/architecture/**'
       - 'server/scripts/docker-compose.satellites*.yml'
+      # 설정 계약 테스트(test_config_contract)가 모든 compose 의 environment 를 봄 (GROMO-2224)
+      - 'server/scripts/docker-compose.dev.yml'
+      - 'server/scripts/docker-compose.realtime.yml'
       - 'server/scripts/docker-compose.business.yml'
       - 'server/scripts/docker-compose.kafka.yml'
       - 'server/scripts/prepare-satellite-deploy.py'

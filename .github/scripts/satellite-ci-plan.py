@@ -42,6 +42,8 @@ CONTRACT_ONLY_PREFIXES = (
 # 「분류 안 된 경로」로 떨어져 두 서비스 전체 빌드를 켠다 (PR #790 이 실제로 그랬다).
 CONTRACT_ONLY_FILES = (
     'README.md', 'AGENTS.md', 'CLAUDE.md',
+    # realtime compose 는 위성이 안 띄움 — 설정 계약 테스트만 돌리면 됨 (GROMO-2224)
+    'server/scripts/docker-compose.realtime.yml',
     '.gitignore', '.gitattributes', '.editorconfig',
 )
 

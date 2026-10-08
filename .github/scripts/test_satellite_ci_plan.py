@@ -50,6 +50,8 @@ class SatelliteCiPlanTest(unittest.TestCase):
         self.assert_plan(['.github/workflows/data-api-ci.dev.yml'], False, False)
         self.assert_plan(['.github/workflows/app-lint.yml'], False, False)
         self.assert_plan(['.github/scripts/check-satellite-contracts.py'], False, False)
+        # realtime compose 는 계약 테스트만 (GROMO-2224)
+        self.assert_plan(['server/scripts/docker-compose.realtime.yml'], False, False)
 
     # ── 그래도 전체를 켜야 하는 것 ───────────────────────────────────────────
     def test_빌드_방식을_바꾸는_입력은_전체를_켠다(self):

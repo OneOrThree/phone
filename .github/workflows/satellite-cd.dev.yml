@@ -146,10 +146,13 @@ jobs:
               --notification-image "$notification_image"
           # ACL 은 고정 경로로 복사, compose 에는 셸 env 로 경로 덮어씀 (셸 env 가 --env-file 보다 우선)
           mkdir -p -m 700 "$(dirname "$REDIS_ACL_PERSISTENT")"  # 새 VM·정리된 VM 에선 폴더가 없음
+          # Redis 는 aclfile 을 기동 때만 읽음 → 내용(비밀번호 해시)이 바뀌면 배포 단계에서 business-redis 를 재생성
+          if cmp -s "$dir/business-redis.acl" "$REDIS_ACL_PERSISTENT"; then acl_changed=0; else acl_changed=1; fi
           install -m 644 "$dir/business-redis.acl" "$REDIS_ACL_PERSISTENT"
           {
             echo "SATELLITE_RUNTIME_DIR=$dir"
             echo "BUSINESS_REDIS_ACL_FILE=$REDIS_ACL_PERSISTENT"
+            echo "BUSINESS_REDIS_ACL_CHANGED=$acl_changed"
             echo "IMAGE_REVISION=$IMAGE_REVISION"
           } >> "$GITHUB_ENV"
 
@@ -177,6 +180,11 @@ jobs:
           if [ "${{ needs.plan.outputs.notification }}" = true ]; then services+=(notification); fi
           test "${#services[@]}" -gt 0
           "${compose[@]}" config --quiet
+          if [ "${BUSINESS_REDIS_ACL_CHANGED:-0}" = 1 ]; then
+            # 비밀번호 회전 반영. 캐시 전용(--save "")이라 재생성해도 잃는 건 캐시뿐
+            echo "business Redis ACL 변경 → business-redis 재생성"
+            "${compose[@]}" up -d --no-deps --force-recreate business-redis
+          fi
           "${compose[@]}" pull "${services[@]}"
           "${compose[@]}" up -d "${services[@]}"
           "${compose[@]}" ps "${services[@]}"
