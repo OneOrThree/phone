@@ -190,7 +190,9 @@ jobs:
           "${compose[@]}" config --quiet
           # 이미지부터 받음 — 못 받으면 Redis 를 건드리기 전에 멈춰 기존 Business·Redis 비밀번호가 그대로 맞음
           "${compose[@]}" pull "${services[@]}"
-          if [ "${BUSINESS_REDIS_ACL_CHANGED:-0}" = 1 ]; then
+          # Business 도 이번에 배포할 때만 전환 — Notification 단독 배포에서 바꾸면 기존 Business 가 옛 비밀번호로 끊김.
+          # 안 바꾼 경우 기준 파일이 그대로라 다음 Business 배포가 다시 «변경» 으로 판정함
+          if [ "${BUSINESS_REDIS_ACL_CHANGED:-0}" = 1 ] && [ "${{ needs.plan.outputs.business }}" = true ]; then
             # 비밀번호 회전(또는 새 VM). 고정 경로를 지금 갱신하고 바로 Redis 재생성 — 기준 파일과 Redis 메모리가 같이 바뀜.
             # aclfile 은 기동 때만 읽힘. 캐시 전용(--save "")이라 잃는 건 캐시뿐.
             acl_dir=$(dirname "$REDIS_ACL_PERSISTENT")

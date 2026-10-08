@@ -50,6 +50,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: AWS 자격증명 (OIDC)
+        # status 는 docker 조회만 — SM 장애·무관한 키 누락으로 상태 조회까지 막히지 않게
+        if: ${{ inputs.action != 'status' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::808715036056:role/gromo-dev-github-actions
@@ -60,6 +62,8 @@ jobs:
 
       # env 는 job 마다 SM 에서 임시로 만들고 마지막에 지움 (GROMO-2224)
       - name: 임시 dev.env 생성
+        # status 는 docker 조회만 — SM 장애·무관한 키 누락으로 상태 조회까지 막히지 않게
+        if: ${{ inputs.action != 'status' }}
         run: .github/scripts/dev-env.sh > /dev/null
 
       - name: Kafka ${{ inputs.action }}
