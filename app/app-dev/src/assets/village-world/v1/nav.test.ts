@@ -6,15 +6,20 @@ import { loadNav, navPath } from '@/utils/nav-path';
 import { cellCenterToWorld, imageToWorld, worldToImage } from '@/utils/worldCoords';
 import home from './home.map.json';
 import nav from './nav.json';
-import legacyDoors from '@/constants/legacy-doors.json';
+import legacyDoorCoords from '@/constants/legacy-doors.json';
 const { build, center, edgeOpen } = require('../../../../scripts/build-nav-fixture.cjs');
 
 // 문 좌표 정본은 WorldMap 과 fixture 스크립트가 같이 읽는 legacy-doors.json.
-const DOORS = legacyDoors.doors;
+const DOORS = legacyDoorCoords.doors;
 const open = (cx: number, cy: number) => nav.walkable[cy * nav.columns + cx] === '1';
 const size = { imageWidth: 1536, imageHeight: 1024 };
 
 describe('v1 nav fixture (기존 마을)', () => {
+  it('legacy-doors.json 의 문 키가 WorldMap 이 만드는 문 키와 같다', () => {
+    const { legacyDoors: built } = require('@/screens/island/WorldMap');
+    expect(Object.keys(built).sort()).toEqual(Object.keys(legacyDoorCoords.doors).sort());
+  });
+
   it('스키마 모양', () => {
     expect(home).toMatchObject({
       mapId: 'home',

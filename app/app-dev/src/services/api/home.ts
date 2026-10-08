@@ -128,6 +128,8 @@ export type HomeScreen = {
 /** 건물 배치 — cell 은 통행 셀(100×100) 좌표, 발밑 앵커는 셀 중심이다. */
 export type IslandLayout = {
   schemaVersion: number;
+  /** 기존 마을 기본 템플릿 세대(2). 구 행에는 없다. */
+  templateVersion?: number;
   mapId: string;
   buildings: {
     id: BuildingId;

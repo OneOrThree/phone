@@ -54,6 +54,7 @@ describe('legacyLayoutOffsets', () => {
   } as const;
   const layoutOf = (cells: Partial<Record<keyof typeof defaults, { x: number; y: number }>>) => ({
     schemaVersion: 1,
+    templateVersion: 2,
     mapId: 'home',
     buildings: Object.entries(cells).map(([id, cell]) => ({
       id: id as keyof typeof defaults,
@@ -82,6 +83,10 @@ describe('legacyLayoutOffsets', () => {
 
   it.each([
     ['layout 없음', undefined],
+    [
+      'templateVersion 없음(구 새마을 템플릿 행)',
+      { ...layoutOf({ hall: { x: 71, y: 31 } }), templateVersion: undefined },
+    ],
     ['schemaVersion 2', { ...layoutOf({ hall: { x: 71, y: 31 } }), schemaVersion: 2 }],
     ['mapId 다름', { ...layoutOf({ hall: { x: 71, y: 31 } }), mapId: 'other' }],
     ['cell 범위 밖', layoutOf({ hall: { x: 100, y: 31 } })],

@@ -169,7 +169,7 @@ const NO_OFFSET: Point = { x: 0, y: 0 };
 /** 타일 섬 서버 배치(GROMO-2227) — 건물별 평행이동(이미지 px). 없는 건물은 0. */
 type BuildingOffsets = Partial<Record<Building, Point>>;
 // 좌표·hitbox 숫자는 legacy-doors.json 한 곳(nav fixture 생성 스크립트와 공유). 라벨·경로만 여기서 붙인다.
-const legacyDoors: Record<string, Door> = (() => {
+export const legacyDoors: Record<string, Door> = (() => {
   const d = legacyDoorCoords.doors;
   return {
     hall: { ...d.hall, r: 'hall', label: buildingNames.hall, building: 'hall' },

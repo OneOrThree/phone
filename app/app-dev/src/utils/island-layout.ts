@@ -52,6 +52,12 @@ const cellCenterPx = (c: { x: number; y: number }) => ({
 });
 
 /**
+ * 기존 마을 서버 기본 템플릿 세대. 이 키가 없는 구 `island_layouts` 행은 새 마을(map.json) 템플릿의
+ * 셀 좌표를 담고 있어 기존 마을에 적용하면 건물이 엉뚱하게 밀린다 — 일치할 때만 적용한다.
+ */
+export const LEGACY_VILLAGE_TEMPLATE_VERSION = 2;
+
+/**
  * 타일 섬(기존 마을)용 — 서버 배치를 건물별 평행이동(이미지 px)으로 바꾼다. 건물 레이어가 전체 캔버스
  * 이미지라 자르지 않고 통째로 옮긴다. 기본 셀은 서버 기본 템플릿과 같은 식(placement rect 의 발밑
  * bottom-center → 100×100 셀)이라 기본 배치면 모든 값이 정확히 0 이다.
@@ -60,7 +66,8 @@ const cellCenterPx = (c: { x: number; y: number }) => ({
 export function legacyLayoutOffsets(
   layout: IslandLayout | undefined,
 ): Partial<Record<BuildingId, { x: number; y: number }>> {
-  if (!usableLayout(layout)) return {};
+  if (!usableLayout(layout) || layout.templateVersion !== LEGACY_VILLAGE_TEMPLATE_VERSION)
+    return {};
   const out: Partial<Record<BuildingId, { x: number; y: number }>> = {};
   for (const b of layout.buildings) {
     const rect = placement.assets.find((a) => a.id === PLACEMENT_ID[b.id])?.rect;
