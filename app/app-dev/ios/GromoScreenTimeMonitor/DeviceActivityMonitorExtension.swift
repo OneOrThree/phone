@@ -1,6 +1,7 @@
 import DeviceActivity
 import FamilyControls
 import Foundation
+import ManagedSettings
 
 final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     private let defaults = UserDefaults(suiteName: "group.com.oneorthree.focuscat")
@@ -52,7 +53,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             defaults?.removeObject(forKey: "gromo:goal:selectionPending")
             defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
             defaults?.set(today, forKey: "gromo:goal:selectionPromotedOkDate")
-            if markRecoveryDayUnconfirmed { markUnconfirmed(day: today) }
+            markUnconfirmed(day: today)
             return true
         } catch {
             var restored = false
@@ -91,6 +92,14 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     override func intervalDidStart(for activity: DeviceActivityName) {
         super.intervalDidStart(for: activity)
         guard activity.rawValue == "gromo.usage.buckets" else { return }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        let dayStart = calendar.startOfDay(for: Date()).timeIntervalSince1970
+        let registeredAt = defaults?.double(forKey: "gromo:screentime:bucketRegisteredAt") ?? 0
+        let startedKey = "gromo:screentime:timelineStart:" + today
+        if defaults?.object(forKey: startedKey) == nil {
+            defaults?.set(max(dayStart, registeredAt), forKey: startedKey)
+        }
         let previousDate = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
         guard previousDate != today else { return }
         let previousMinutes = defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
@@ -153,8 +162,21 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         let total = min(base + minutes, maxMinutes)
         if total > current {
             defaults?.set(total, forKey: "gromo:screentime:usageBucketMinutes")
+            appendBucketEvent(totalMinutes: total)
         }
         defaults?.set(today, forKey: "gromo:screentime:usageBucketDate")
+    }
+
+    private func appendBucketEvent(totalMinutes: Int) {
+        let key = "gromo:screentime:timeline:" + today
+        var events = defaults?.array(forKey: key) as? [[String: Any]] ?? []
+        events.append(["bucket": totalMinutes, "firedAt": Date().timeIntervalSince1970])
+        defaults?.set(Array(events.suffix(96)), forKey: key)
+        // 시작 콜백을 놓친 날을 완전한 0분으로 추정하지 않는다.
+        let startedKey = "gromo:screentime:timelineStart:" + today
+        if defaults?.object(forKey: startedKey) == nil {
+            defaults?.set(Date().timeIntervalSince1970, forKey: startedKey)
+        }
     }
 
     private func isPlausible(_ minutes: Int) -> Bool {

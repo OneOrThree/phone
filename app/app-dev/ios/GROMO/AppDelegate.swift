@@ -15,6 +15,8 @@ class AppDelegate: ExpoAppDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    // 콜드 스타트에서는 이전 차단부터 정리하고, 서버 세션을 확인한 JS가 유효한 집중에 재적용한다.
+    ScreenTimeModule().stopFocusShield({ _ in }, rejecter: { _, _, _ in })
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()

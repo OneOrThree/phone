@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import DeviceActivity
 import FamilyControls
 import Foundation
@@ -81,32 +82,7 @@ final class ScreenTimeModule: NSObject {
             defaults?.set(false, forKey: authorizationWasApprovedKey)
             resolve("denied")
         case .notDetermined:
-            if defaults?.bool(forKey: authorizationWasApprovedKey) == true {
-                resolve("approved")
-            } else if defaults?.object(forKey: authorizationWasApprovedKey) == nil,
-                      let data = defaults?.data(forKey: "gromo:goal:selection"),
-                      let selection = try? JSONDecoder().decode(
-                          FamilyActivitySelection.self,
-                          from: data
-                      ), !Self.isEmpty(selection) {
-                defaults?.set(true, forKey: authorizationWasApprovedKey)
-                resolve("approved")
-            } else if defaults?.object(forKey: authorizationWasApprovedKey) != nil {
-                switch AuthorizationCenter.shared.authorizationStatus {
-                case .approved, .approvedWithDataAccess:
-                    defaults?.set(true, forKey: authorizationWasApprovedKey)
-                    resolve("approved")
-                case .denied:
-                    defaults?.set(false, forKey: authorizationWasApprovedKey)
-                    resolve("denied")
-                case .notDetermined:
-                    resolve("notDetermined")
-                @unknown default:
-                    resolve("notDetermined")
-                }
-            } else {
-                resolve("notDetermined")
-            }
+            resolve("notDetermined")
         @unknown default: resolve("notDetermined")
         }
     }
@@ -299,6 +275,14 @@ final class ScreenTimeModule: NSObject {
         let registeredSelectionKey = "gromo:screentime:registeredSelection"
         let registeredMaxMinutesKey = "gromo:screentime:registeredMaxMinutes"
         let boundedMaxMinutes = min(max(maxMinutes, 15), 900)
+        if center.activities.contains(activity),
+           let registeredData = defaults?.data(forKey: registeredSelectionKey),
+           let registered = try? JSONDecoder().decode(FamilyActivitySelection.self, from: registeredData),
+           signature(registered) == signature(selection),
+           defaults?.integer(forKey: registeredMaxMinutesKey) == boundedMaxMinutes {
+            return
+        }
+        Self.markCurrentDayUnconfirmed(defaults)
         let previousRegisteredAt = defaults?.object(forKey: registeredAtKey)
         let previousBaseMinutes = defaults?.object(forKey: baseMinutesKey)
         let previousBaseDate = defaults?.object(forKey: baseDateKey)
@@ -388,6 +372,62 @@ final class ScreenTimeModule: NSObject {
             ? (defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0) : 0)
     }
 
+    @objc func bindMeasurementOwner(
+        _ owner: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: appGroupID)
+        let key = "gromo:screentime:owner"
+        if defaults?.string(forKey: key) != owner {
+            resetScreenTimeData({ _ in }, rejecter: reject)
+            defaults?.set(owner, forKey: key)
+        }
+        resolve(nil)
+    }
+
+    @objc func getUsageTimeline(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: appGroupID)
+        guard Self.isAuthorized,
+              DeviceActivityCenter().activities.contains(DeviceActivityName("gromo.usage.buckets")) else {
+            Self.markCurrentDayUnconfirmed(defaults)
+            resolve(nil)
+            return
+        }
+        let now = Date()
+        let epoch = now.timeIntervalSince1970
+        let startKey = "gromo:screentime:timelineStartedAt"
+        var boot = timeval()
+        var bootSize = MemoryLayout<timeval>.size
+        let bootKnown = sysctlbyname("kern.boottime", &boot, &bootSize, nil, 0) == 0
+        let bootChanged = bootKnown && defaults?.integer(forKey: "gromo:screentime:timelineBoot") != Int(boot.tv_sec)
+        if defaults?.object(forKey: startKey) == nil || bootChanged {
+            if bootKnown { defaults?.set(Int(boot.tv_sec), forKey: "gromo:screentime:timelineBoot") }
+            defaults?.set(epoch, forKey: startKey)
+            defaults?.set(epoch, forKey: "gromo:screentime:timelineStart:" + Self.dayString(now))
+            Self.markCurrentDayUnconfirmed(defaults)
+        }
+        // UTC 다음 날 12시 보고 마감에 필요한 KST 날짜를 포함해 4일분을 보존한다.
+        let dates = (0...3).map { Self.dayString(now.addingTimeInterval(Double(-$0) * 86400)) }
+        let prefixes = ["gromo:screentime:timeline:", "gromo:screentime:timelineStart:"]
+        for key in defaults?.dictionaryRepresentation().keys.map({ $0 }) ?? [] {
+            for prefix in prefixes where key.hasPrefix(prefix) {
+                if !dates.contains(String(key.dropFirst(prefix.count))) { defaults?.removeObject(forKey: key) }
+            }
+        }
+        let days: [[String: Any]] = dates.compactMap { date in
+            guard let started = defaults?.object(forKey: "gromo:screentime:timelineStart:" + date) as? NSNumber else { return nil }
+            return ["date": date, "startedAt": started.doubleValue,
+                    "events": defaults?.array(forKey: "gromo:screentime:timeline:" + date) ?? []]
+        }
+        resolve(["startedAt": defaults?.double(forKey: startKey) ?? epoch,
+                 "observedAt": epoch, "days": days,
+                 "unconfirmedDays": Self.unconfirmedDays(defaults).sorted()])
+    }
+
     @objc func getPreviousUsageBucket(
         _ resolve: @escaping RCTPromiseResolveBlock,
         rejecter _: @escaping RCTPromiseRejectBlock
@@ -447,6 +487,9 @@ final class ScreenTimeModule: NSObject {
             ManagedSettingsStore(named: .init("gromoFocus")).clearAllSettings()
         }
         let defaults = UserDefaults(suiteName: appGroupID)
+        for key in defaults?.dictionaryRepresentation().keys.map({ $0 }) ?? [] {
+            if key.hasPrefix("gromo:screentime:timeline") { defaults?.removeObject(forKey: key) }
+        }
         [
             "gromo:goal:selection",
             "gromo:goal:selectionPending",
@@ -551,10 +594,17 @@ final class ScreenTimeModule: NSObject {
     ) {
         guard #available(iOS 16.0, *),
               Self.isAuthorized else {
+            ManagedSettingsStore(named: .init("gromoFocus")).clearAllSettings()
+            UserDefaults(suiteName: appGroupID)?.set(false, forKey: "gromo:focus:shieldActive")
             resolve(false)
             return
         }
         let defaults = UserDefaults(suiteName: appGroupID)
+        var boot = timeval()
+        var size = MemoryLayout<timeval>.size
+        if sysctlbyname("kern.boottime", &boot, &size, nil, 0) == 0 {
+            defaults?.set(Int(boot.tv_sec), forKey: "gromo:focus:shieldBoot")
+        }
         defaults?.set(subjectName, forKey: "gromo:focus:shieldSubject")
         defaults?.set(true, forKey: "gromo:focus:shieldActive")
         applyFocusShield(defaults)
