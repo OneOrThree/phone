@@ -44,7 +44,21 @@ const cache = new WeakMap<NavJson, NavGrid>();
 export function loadNav(nav: NavJson): NavGrid {
   const hit = cache.get(nav);
   if (hit) return hit;
-  const n = nav.columns * nav.rows;
+  const { columns, rows } = nav;
+  if (!Number.isInteger(columns) || columns <= 0)
+    throw new Error(`nav.columns 는 양의 정수여야 한다: ${columns}`);
+  if (!Number.isInteger(rows) || rows <= 0)
+    throw new Error(`nav.rows 는 양의 정수여야 한다: ${rows}`);
+  const n = columns * rows;
+  if (nav.walkable.length !== n)
+    throw new Error(`nav.walkable 길이 ${nav.walkable.length} != columns*rows ${n}`);
+  if (nav.traversalCost.length !== n)
+    throw new Error(`nav.traversalCost 길이 ${nav.traversalCost.length} != columns*rows ${n}`);
+  for (let i = 0; i < n; i++)
+    if (nav.walkable[i] === '1' && !(nav.traversalCost[i] > 0))
+      throw new Error(
+        `nav.traversalCost[${i}] 가 통행 셀인데 ${nav.traversalCost[i]} (0 이하 불가)`,
+      );
   const walkable = new Uint8Array(n),
     cost = new Uint8Array(n);
   let min = Infinity;
@@ -86,7 +100,8 @@ function nearestCell(g: NavGrid, p: WorldPoint, region: number): number {
     bestD = Infinity;
   for (let i = 0; i < g.walkable.length; i++) {
     if (!g.walkable[i] || (region >= 0 && g.region[i] !== region)) continue;
-    const d = dist(p, cellCenterToWorld({ cx: i % g.cols, cy: Math.floor(i / g.cols) }));
+    // 루프 안 객체 할당을 피한다 — 셀 중심(cx+0.5, cy+0.5, cellCenterToWorld 와 동일)을 직접 계산해 index 로 비교한다.
+    const d = Math.hypot(p.x - ((i % g.cols) + 0.5), p.y - (Math.floor(i / g.cols) + 0.5));
     if (d < bestD) {
       bestD = d;
       best = i;
