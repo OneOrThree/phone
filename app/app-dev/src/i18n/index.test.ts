@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ApiError, CLIENT_TIMEOUT } from '@/services/api/client';
 import {
@@ -31,14 +31,17 @@ test('ko·en 은 같은 리프 키와 같은 {{var}} 자리표시자를 가진�
   expect(leaves(ko)).toEqual(leaves(en));
 });
 
+// 앱 쪽 변경 시점의 정합 검사다 — app-lint.yml 은 app/app-dev/** 에서만 돌아 서버만 바뀐 PR 은 여기 안 걸린다.
 test('errors 는 business-api ApiErrorCode 의 모든 코드를 가진다 — 서버에 코드가 늘면 여기서 잡힌다', () => {
-  const java = readFileSync(
-    path.resolve(
-      __dirname,
-      '../../../../server/business-api/src/main/java/com/oneorthree/business/common/api/ApiErrorCode.java',
-    ),
-    'utf8',
+  const javaPath = path.resolve(
+    __dirname,
+    '../../../../server/business-api/src/main/java/com/oneorthree/business/common/api/ApiErrorCode.java',
   );
+  if (!existsSync(javaPath))
+    throw new Error(
+      `ApiErrorCode.java 를 찾지 못했다 — 서버가 이동했거나 앱만 체크아웃된 환경이다 (경로: ${javaPath})`,
+    );
+  const java = readFileSync(javaPath, 'utf8');
   const names = [...java.matchAll(/^\s*([A-Z_][A-Z_0-9]*)\(/gm)].map((m) => m[1]);
   // 2026-10-08 기준 45건 — 정규식이 조용히 덜 뽑아 통과하는 것을 막는다.
   expect(names.length).toBeGreaterThanOrEqual(45);

@@ -181,8 +181,8 @@ beforeEach(async () => {
   await SecureStore.deleteItemAsync('gromo.lastUserId');
   await SecureStore.deleteItemAsync('gromo.ownerAdoptionPending');
   // 앞 테스트의 앱 저장본(섬·온보딩 상태)이 다음 테스트의 부팅 LOAD로 새지 않게 비운다.
-  // removeItem 호출 수를 세는 테스트가 있어 multiRemove로 지운다.
-  await AsyncStorage.multiRemove(['gromo-r61-user-v2']);
+  // removeItem 호출 수를 세는 테스트가 있어 multiRemove로 지운다. 언어 키는 기기 전역 값이라 앱이 안 지우니 여기서 비운다.
+  await AsyncStorage.multiRemove(['gromo-r61-user-v2', 'gromo.locale', 'gromo:settings:locale']);
 });
 
 test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이전 저장본을 비우고 owner를 갱신한다', async () => {
@@ -1827,18 +1827,18 @@ test('부팅은 언어 설정(gromo.locale)을 읽고, 없으면 1.x 키(gromo:s
 });
 
 test('로그아웃·탈퇴 정리는 기기 전역 언어 설정(gromo.locale)을 지우지 않는다', async () => {
-  await AsyncStorage.setItem('gromo.locale', 'en');
-  // 탈퇴 응답을 잃고 종료됐던 기기 — 부팅이 확정된 탈퇴 의도로 로컬 정리와 앱 저장본 삭제를 마친다.
-  await clearLocalDataOwner();
-  await AsyncStorage.setItem(
-    'gromo.withdrawalIntent',
-    JSON.stringify({ userId: 'withdrawn-user', key: 'k', confirmed: true }),
-  );
   // 앞 테스트의 spyOn·mockRestore 가 removeItem 구현을 지웠을 수 있다 — 공식 목과 같은 구현을 잠시 쓴다.
   const removeItem = AsyncStorage.removeItem as jest.Mock;
   const previousRemove = removeItem.getMockImplementation();
   removeItem.mockImplementation((key: string) => AsyncStorage.multiRemove([key]));
   try {
+    await AsyncStorage.setItem('gromo.locale', 'en');
+    // 탈퇴 응답을 잃고 종료됐던 기기 — 부팅이 확정된 탈퇴 의도로 로컬 정리와 앱 저장본 삭제를 마친다.
+    await clearLocalDataOwner();
+    await AsyncStorage.setItem(
+      'gromo.withdrawalIntent',
+      JSON.stringify({ userId: 'withdrawn-user', key: 'k', confirmed: true }),
+    );
     await act(async () => {
       render(<App />);
       for (let n = 0; n < 10; n += 1) await Promise.resolve();

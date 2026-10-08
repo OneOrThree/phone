@@ -29,6 +29,12 @@ test('formatDuration — ko 출력이 기존 hoursMinutes 와 글자까지 같�
   }
 });
 
+// 입력 방어는 호출부 몫이다 — 음수·NaN·Infinity 도 기존 hoursMinutes 와 같은 글자를 내야 회귀가 없다.
+test('formatDuration — 음수·NaN·Infinity 입력도 기존 hoursMinutes 와 같다', () => {
+  expect([-30, NaN, Infinity].map(formatDuration)).toEqual(['-1분', 'NaN시간', 'Infinity시간']);
+  for (const seconds of [-30, NaN, Infinity]) expect(formatDuration(seconds)).toBe(before(seconds));
+});
+
 test('formatDuration — en 은 m·h 단위', () => {
   applyLocalePref('en');
   expect(minutes.map((m) => formatDuration(m * 60))).toEqual(['0m', '59m', '1h', '1h 5m', '2h']);
