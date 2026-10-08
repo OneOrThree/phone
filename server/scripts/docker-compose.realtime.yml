@@ -62,7 +62,7 @@ services:
 
   realtime:
     logging: *app-logging
-    # 이 이미지는 main push 때 realtime-ci.yml 의 docker-build 잡이 올린다(:<sha> 와 :latest 둘 다).
+    # 이 이미지는 main push 때 realtime-ci.dev.yml 의 docker-build 잡이 올린다(:<sha> 와 :latest 둘 다).
     # 경로가 그쪽 REALTIME_IMAGE_REPOSITORY 와 «같아야» 한다 — 어긋나면 「올렸는데 안 뜬다」가 된다.
     #
     # 되돌릴 때는 REALTIME_IMAGE 로 sha 를 못 박는다: REALTIME_IMAGE=…/chat:<sha> docker compose … up -d
@@ -120,7 +120,7 @@ services:
       # Realtime → Data 내부 조회(응원 인가 GROMO-1765 · 받는 사람 기준 차단 GROMO-2182) 대상·자격.
       # ⚠️ 차단 필터는 fail-closed 라 REALTIME_BLOCKS_FILTER_ENABLED=true 에서 토큰이 비면 섬 채팅·응원 수신이 전부
       #    멈춘다. Data 는 realtime-authorization 프로필(DATA_API_PROFILES)과 같은 SVC_TOKEN_REALTIME_TO_DATA 를 먼저
-      #    갖춰야 한다. dev 는 SM gromo/dev/env → write-compose-env.py(legacy dev.env) 경로로 온다.
+      #    갖춰야 한다. dev 는 SM gromo/dev/env → dev-env.sh → write-compose-env.py(임시 dev.env) 경로로 온다.
       REALTIME_AUTHORIZATION_DATA_URL: ${REALTIME_AUTHORIZATION_DATA_URL:-}
       SVC_TOKEN_REALTIME_TO_DATA: ${SVC_TOKEN_REALTIME_TO_DATA:-}
       # 받는 사람 기준 차단 필터 스위치(GROMO-2182). 기본 꺼짐 — 위 배선 확인 뒤 켠다.

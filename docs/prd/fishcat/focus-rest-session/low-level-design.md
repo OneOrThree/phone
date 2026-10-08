@@ -406,7 +406,7 @@ projection은 최소 호환 앱 요구를 대체하지 못한다. 이 문서는 
 
 ### 5.2 호환 baseline을 먼저 배포하고 신규 API를 나중에 연다
 
-현재 `.github/workflows/prod-rollback.yml`의 `image_sha` 입력은 commit/tag를 받고, `:50~60`의 검사는
+작성 당시 `.github/workflows/prod-rollback.yml`(GROMO-2224 에서 삭제)의 `image_sha` 입력은 commit/tag를 받고, `:50~60`의 검사는
 ECR 이미지 존재 여부뿐이다. `:62~69`는 해당 이미지를 SSM 배포에 넘긴다. focus 상세 호환 여부를 검사하는
 현재 guard는 없다. DB를 되돌리지 않아도 옛 `FocusService.startFocusSession`의
 `autoCloseOpenMarkersOf` 호출(`:918`)과 `FocusSessionRepository.java:387~394`의 bulk update,

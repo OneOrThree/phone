@@ -7,7 +7,7 @@
 
 ## 서비스별 시크릿 생성
 
-`.github/scripts/write-compose-env.py`는 stdin의 Secrets Manager JSON에서 선택한 서비스의 허용목록만 추출한다. `--service` 생략은 기존 dev-cd와 같은 legacy 동작이다.
+`.github/scripts/write-compose-env.py`는 stdin의 Secrets Manager JSON에서 선택한 서비스의 허용목록만 추출한다. `--service` 생략은 기존 data-api-cd와 같은 legacy 동작이다.
 
 ```bash
 aws secretsmanager get-secret-value --secret-id gromo/dev/env --query SecretString --output text \
@@ -62,11 +62,11 @@ env 파일을 통째로 공유하지 않는다. Business의 HTTP port는 8080, N
 
 ## dev 에서 켜는 순서
 
-dev(GCP `gromo-dev-app`, e2-standard-2 · 2 vCPU · 8 GB, decisions.md A25)에서 Kafka와 Data 위성 모드를 켜는 순서다. 모든 단계는 사람이 명시적으로 실행한다. `dev-cd.yml`은 **이미 켜진 것을 유지만** 하고 스스로 켜거나 끄지 않는다. 스위치의 의미와 전환 조건은 [구현된 컷오버 스위치](#구현된-컷오버-스위치) 표가 정본이다.
+dev(GCP `gromo-dev-app`, e2-standard-2 · 2 vCPU · 8 GB, decisions.md A25)에서 Kafka와 Data 위성 모드를 켜는 순서다. 모든 단계는 사람이 명시적으로 실행한다. `data-api-cd.dev.yml`은 **이미 켜진 것을 유지만** 하고 스스로 켜거나 끄지 않는다. 스위치의 의미와 전환 조건은 [구현된 컷오버 스위치](#구현된-컷오버-스위치) 표가 정본이다.
 
 | 단계 | 하는 일 | 되돌리기 |
 |---|---|---|
-| 0 | `dev-cd.yml` 조건부 오버레이 + `dev-kafka.yml` 머지. `phone-kafka` 미실행이고 `/var/lib/gromo/runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
+| 0 | `data-api-cd.dev.yml` 조건부 오버레이 + `ops-kafka.dev.yml` 머지. `phone-kafka` 미실행이고 `/var/lib/gromo/runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
 | 1 | 서버에서 `free -m` 확인 → Actions **Dev Kafka** `up`. 여유 1024 MiB 미만이면 워크플로가 거부한다. 브로커만 뜨고 토픽은 없다(자동 생성 꺼짐). 이후 CD는 `phone-kafka`가 돌면 `docker-compose.kafka.yml`을 함께 물린다 | **Dev Kafka** `down` (`kafka-data` 볼륨 보존) |
 | 2 | `/var/lib/gromo/runtime/data-api.env`(0600, VM 시작 스크립트가 만드는 고정 경로 — GROMO-2134)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. 스위치는 전부 끈 채로 둔다: `INTERNAL_API_ENABLED=false`, `OUTBOX_RELAY_ENABLED=false`, `NOTIFICATION_DISPATCH_MODE=LEGACY`. 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
 | 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다. REALTIME 대상도 이때 함께 열리므로 아래 [relay ON 체크리스트](#relay-on-체크리스트)를 먼저 채운다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
@@ -79,7 +79,7 @@ dev(GCP `gromo-dev-app`, e2-standard-2 · 2 vCPU · 8 GB, decisions.md A25)에�
 
 - [ ] A18 의 `OUTBOX_RELAY_*` 여섯 값이 `data-api.env` 에 있다.
 - [ ] `REALTIME_BASE_URL`(dev: `http://realtime:8081`)과 `SVC_TOKEN_DATA_TO_REALTIME` 이 SM 에 있고 `data-api.env` 에 들어갔다. 둘 중 하나라도 비면 relay 를 켠 Data 가 기동을 거부한다.
-- [ ] 같은 `SVC_TOKEN_DATA_TO_REALTIME` 값이 Realtime 에도 닿았다(dev: SM `gromo/dev/env` → CD 가 쓰는 `dev.env` → `docker-compose.realtime.yml`). 비어 있으면 Data 는 뜨지만 Realtime 이 `POST /internal/events` 를 401 로 거절해 REALTIME 행이 쌓인다. Business 토큰(`SVC_TOKEN_BIZ_TO_REALTIME`)과 **다른 값**이다(A22 ㊀).
+- [ ] 같은 `SVC_TOKEN_DATA_TO_REALTIME` 값이 Realtime 에도 닿았다(dev: SM `gromo/dev/env` → CD 가 job 마다 만드는 임시 `dev.env` → `docker-compose.realtime.yml`). 비어 있으면 Data 는 뜨지만 Realtime 이 `POST /internal/events` 를 401 로 거절해 REALTIME 행이 쌓인다. Business 토큰(`SVC_TOKEN_BIZ_TO_REALTIME`)과 **다른 값**이다(A22 ㊀).
 - [ ] Realtime 을 재생성해 토큰을 읽혔다: `docker compose … -f docker-compose.realtime.yml up -d realtime`. CD 는 Realtime 을 건드리지 않는다.
 - [ ] REALTIME 을 Kafka 로 보낼 때만 — **Realtime 먼저, Data 나중**: ① Kafka 오버레이 기동 ② SM 에 `REALTIME_EVENTS_KAFKA_ENABLED=true` → Realtime 재생성 → `realtime-events` 소비자 기동 확인 ③ 그다음 `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED=true` 로 Data 재생성. 반대 순서면 소비자 없는 토픽에 사건이 쌓인다. 되돌릴 때는 역순(Data 먼저 끄고 Realtime 을 끈다).
 
@@ -91,10 +91,10 @@ dev(GCP `gromo-dev-app`, e2-standard-2 · 2 vCPU · 8 GB, decisions.md A25)에�
 
 2단계 주의:
 
-- `gromo/dev/env`에 data-api 필수 자격([위 표](#서비스별-시크릿-생성))이 먼저 있어야 writer가 파일을 쓴다. 지금 legacy dev-cd가 요구하는 9개 키보다 많다.
+- `gromo/dev/env`에 data-api 필수 자격([위 표](#서비스별-시크릿-생성))이 먼저 있어야 writer가 파일을 쓴다. 지금 legacy data-api-cd가 요구하는 9개 키보다 많다.
 - `satellites.data.yml`은 app의 `environment`를 `!override`로 지우므로 `docker-compose.dev.yml`이 계산하던 `API_DB_*`·`REDIS_HOST`·`FOCUS_PRESENCE_ENABLED`는 이 파일에서만 온다. CD는 파일을 직접 읽지 않고 **Compose가 파싱한 값**(env_file 하나만 가진 임시 서비스의 `config --format json`)으로 판정하므로 인라인 주석·CRLF·따옴표 해석이 실제 컨테이너와 같다. 파일이 비었거나 0600이 아니거나, Compose가 파싱하지 못하거나, `API_DB_*` 3종 중 하나라도 없거나 비었거나(공백뿐 포함), `SPRING_PROFILES_ACTIVE`가 있는데 비었거나 `dev`·`satellites`를 빠뜨리거나 `prod`를 담으면 app을 건드리기 전에 실패한다. `dev,satellites` 기본값은 키가 **없을 때만** 쓴다. 로그에는 키 이름·프로파일 목록만 남는다. `!override`를 모르는 구형 Compose면 `config --quiet`에서 멈춘다.
 - Datadog이 켜져 있으면 CD가 `DATA_API_JAVA_OPTS`에 `-javaagent`를 유지한다. 다만 오버레이의 `DD_SERVICE`는 `gromo-data-dev`라 컨테이너 라벨의 `gromo-back-dev`와 갈린다.
-- `dev-datadog.yml`의 up/restart/down은 app을 dev(+datadog) 파일로만 재생성한다. 2단계 이후 실행하면 다음 CD 전까지 satellites 없이 뜬다.
+- `ops-datadog.dev.yml`의 up/restart/down은 app을 dev(+datadog) 파일로만 재생성한다. 2단계 이후 실행하면 다음 CD 전까지 satellites 없이 뜬다.
 
 ## 검증과 CI
 
@@ -104,7 +104,7 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
 합성 JSON을 writer→실제 compose config로 전달하여 필수 키·서비스 간 자격 혼입·전환 자격을 확인한다. 별도 Postgres 컨테이너에서는 실제 초기화 스크립트를 재실행해 데이터 보존, 교차 DB 접속 거부, 관리자 Data 계정 거부, 다른 소유자의 DB 인수 거부를 확인한다. 테스트 컨테이너는 검사 후 제거하며 운영 DB를 사용하지 않는다.
 
-`satellite-ci.yml`은 두 서비스의 build/test/정적 검사와 Docker build를 실행한다. main push는 GAR에 amd64, release push는 ECR에 arm64 SHA 이미지와 digest 산출물을 발행한다. prod의 `gromo/prod/cicd`에는 `BUSINESS_API_ECR_REPO`와 `NOTIFICATION_ECR_REPO`를 준비하고 기존 prod OIDC 역할에 해당 저장소의 push 권한을 부여해야 한다. PR에서는 이미지만 검증하고 발행하지 않는다. digest 발행을 호스트 배포나 이관 완료로 취급하지 않는다. 기존 Data/채팅 CI는 각자의 검증을 계속 담당한다.
+`satellite-ci.dev.yml`은 두 서비스의 build/test/정적 검사와 Docker build를 실행한다. main push는 GAR에 amd64, release push는 ECR에 arm64 SHA 이미지와 digest 산출물을 발행한다. prod의 `gromo/prod/cicd`에는 `BUSINESS_API_ECR_REPO`와 `NOTIFICATION_ECR_REPO`를 준비하고 기존 prod OIDC 역할에 해당 저장소의 push 권한을 부여해야 한다. PR에서는 이미지만 검증하고 발행하지 않는다. digest 발행을 호스트 배포나 이관 완료로 취급하지 않는다. 기존 Data/채팅 CI는 각자의 검증을 계속 담당한다.
 
 ## 구현된 컷오버 스위치
 

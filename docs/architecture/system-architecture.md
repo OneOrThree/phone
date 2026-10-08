@@ -9,7 +9,7 @@
 
 | 환경 | 컴퓨트 | 현재 compose | DB | 관측 |
 |---|---|---|---|---|
-| **dev** | GCP `oneorthree2` / `gromo-dev-app` **e2-standard-2 (2 vCPU · 8 GB)**, asia-northeast3-a(A25) — 6 GB 커스텀 타입은 존 자원 부족으로 기동 거부(09-24), 8 GB 유지 확정(09-25). CI 러너 `gromo-dev-build`는 삭제가 아니라 e2-custom-4-8192(러너 3대) → e2-small(러너 1대, gromo-dev-build-1, 2 vCPU 버스트 · 2 GB)로 축소 — push 시 GAR 이미지 발행(dev-ci·realtime-ci·satellite-ci·prod-ci) 전용으로만 남는다. app CI·prod-cd·prod-rollback은 GitHub-hosted `ubuntu-latest`로 이전(A25) | `app` · `db`(Postgres 컨테이너) + `datadog` 오버레이 | 컨테이너 Postgres | Datadog `gromo-back-dev`, 샘플 20% |
+| **dev** | GCP `oneorthree2` / `gromo-dev-app` **e2-standard-2 (2 vCPU · 8 GB)**, asia-northeast3-a(A25) — 6 GB 커스텀 타입은 존 자원 부족으로 기동 거부(09-24), 8 GB 유지 확정(09-25). CI 러너 `gromo-dev-build`는 삭제가 아니라 e2-custom-4-8192(러너 3대) → e2-small(러너 1대, gromo-dev-build-1, 2 vCPU 버스트 · 2 GB)로 축소 — push 시 GAR 이미지 발행(data-api-ci·realtime-ci·satellite-ci·prod-ci) 전용으로만 남는다. app CI·prod-cd·prod-rollback은 GitHub-hosted `ubuntu-latest`로 이전(A25) | `app` · `db`(Postgres 컨테이너) + `datadog` 오버레이 | 컨테이너 Postgres | Datadog `gromo-back-dev`, 샘플 20% |
 | **prod** | AWS **`gromo-prod` t4g.medium (2 vCPU · 4 GB, arm64, ap-northeast-2a)** → **Target-1 은 t4g.large(8 GB) 사이즈업(A14)** + Kafka 컨테이너(A12) | `app` · `nginx` · `datadog-agent` | **RDS `gromo-prod-db` db.t4g.micro (2 vCPU · 1 GB · 20 GB · single-AZ · PG 16.13)** — 알림 database 추가 시 db.t4g.small 검토 | Datadog `gromo-back-prod`, 샘플 20% |
 | ~~**link**~~ → A23(2026-09-13) | ~~Vercel (Hobby → Pro 또는 Cloudflare, 링크 장부 미결)~~ → 없음 — business-api·data-api 컨테이너 안 | — | ~~Neon Postgres (무료)~~ → RDS `gromo` | ~~Vercel 로그 (Datadog 밖)~~ → business/data 와 같은 Datadog(§4) |
 
@@ -110,7 +110,7 @@ A22 ㋺의 기존 미리보기 통합으로 Business 컨테이너 한도는 2 Gi
 | ~~**`LINK_CAPABILITY_KEY`**(§3 비공개 가입 자격 서명)~~ → A23: 불필요 | **A23(2026-09-13)**: 비공개 가입 검증은 가입 트랜잭션 안에서 링크 행 잠금·재검증이라 서명 자격이 없다(링크 HLD §2). #745 가 남긴 data-api `link.capability-key` 는 링크 구현 PR 이 지운다(링크 LLD §9.1). 원문: ~~**링크 서버(발급) 와 data-api(검증) 양쪽** — HMAC 공유 비밀 또는 링크 서버 개인키/Data 공개키 쌍. 없으면 Data 는 자격의 발급자를 확인할 수 없어 **가입을 전부 실패시키거나, 서명을 안 보고 클라이언트가 준 `groupId`·`inviterId`·`membershipEpoch` 를 믿어 비공개 그룹 가입이 우회**된다. **회전은 구·신 키 병행 검증 기간을 두고**(자격 만료보다 긴 창) 그 뒤 구 키를 폐기한다~~ |
 | ~~**`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿)~~ → A23: 불필요 | **A23(2026-09-13)**: 같은 홉이라 현행 `X-Real-IP` 규칙만 쓴다(링크 HLD §2·§5). #745 의 business-api `link.proxy-secret` 은 링크 구현 PR 이 걷어낸다(링크 LLD §9.1·§9.2). 원문: ~~**nginx·링크 서버·Business API** — 서비스 토큰과 별개다. 운영 Business는 기본값 없이 참조하므로 env 생성 전에 필수 검증한다(A22 ㋯). 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다~~ |
 
-**런타임 시크릿 공급 경로(A22 ㋯):** prod 는 Secrets Manager(`gromo/prod/env` JSON), **dev 도 Secrets Manager(`gromo/dev/env`)** 이다. 현 `dev-cd.yml:79-90` 은 AWS OIDC 자격으로 JSON 을 읽어 `.github/scripts/write-compose-env.py` 를 통해 checkout 밖의 `dev.env` 로 쓴다. 같은 워크플로의 GCP 메타데이터 호출(`:92-98`)은 **GAR 이미지 pull 인증용**이다.
+**런타임 시크릿 공급 경로(A22 ㋯):** prod 는 Secrets Manager(`gromo/prod/env` JSON), **dev 도 Secrets Manager(`gromo/dev/env`)** 이다. 현 `data-api-cd.dev.yml:79-90` 은 AWS OIDC 자격으로 JSON 을 읽어 `.github/scripts/write-compose-env.py` 를 통해 checkout 밖의 `dev.env` 로 쓴다. 같은 워크플로의 GCP 메타데이터 호출(`:92-98`)은 **GAR 이미지 pull 인증용**이다.
 
 **Target-1 최초 배포 전에 공급 경로 전체를 수정한다.** 현 `write-compose-env.py:44-57` 은 `REQUIRED_KEYS` 와 Grafana 키만 출력해, JSON 에 `NOTI_DB_*`·`SVC_TOKEN_*` 를 추가해도 env 파일에는 나타나지 않는다. 구현 순서는 다음과 같다.
 
@@ -136,11 +136,11 @@ A22 ㋺의 기존 미리보기 통합으로 Business 컨테이너 한도는 2 Gi
   (docs 사이트 레포)         docs.oneorthree.world — 허브 페이지
 
 server/.github/workflows/
-  dev-ci.yml        paths 매트릭스: services/<name>/** 가 바뀐 서비스만 → be-gradle.yml(재사용 1개, service 입력) → 이미지 <name>:<sha> push
+  data-api-ci.dev.yml        paths 매트릭스: services/<name>/** 가 바뀐 서비스만 → be-gradle.yml(재사용 1개, service 입력) → 이미지 <name>:<sha> push
                     ※ 공통 입력(settings.gradle · gradle wrapper · 공통 build script · .github/workflows/be-gradle.yml · deploy/compose·nginx) 이 바뀌면
                       매트릭스를 전 서비스로 fan-out — 서비스 폴더 밖 변경이 검증 없이 머지되거나 이미지에 반영되지 않는 걸 막는다
                     ※ 전 서비스 fan-out 시 각 CD 가 같은 deploy/<env>.yml 을 따로 커밋하면 충돌한다 —
-                      호출자 SHA 를 checkout 하는 현 dev-cd.yml 구조 그대로면 첫 CD 가 봇 커밋을 push 한 뒤
+                      호출자 SHA 를 checkout 하는 현 data-api-cd.dev.yml 구조 그대로면 첫 CD 가 봇 커밋을 push 한 뒤
                       나머지는 그 커밋이 없는 같은 부모에서 push 해 non-fast-forward 로 실패하고,
                       병렬이면 서로의 digest 를 덮는다. 환경별 concurrency 만으로는 낡은 checkout 이 갱신되지 않는다.
                       → 한 작업이 모든 digest 를 원자적으로 커밋하거나, 각 CD 가 최신 매니페스트 위로
@@ -148,16 +148,16 @@ server/.github/workflows/
                     ※ 단 CD 가 자동 커밋하는 deploy/<env>.yml 매니페스트는 fan-out 에서 제외한다(paths-ignore) —
                       포함하면 배포 → 매니페스트 커밋 → 전 서비스 CI → 새 SHA 이미지 → 다시 배포 로 무한 재빌드가 돈다.
                       봇 커밋은 push 트리거에서 빼거나(actor 조건) 커밋 메시지에 [skip ci] 를 붙인다
-  dev-cd.yml        (workflow_call from ci + workflow_dispatch — 사람·CI 같은 버튼) 입력: service · digest · env → deploy/<env>.yml 갱신·커밋 → SSH/SSM: compose pull + up -d <service> → 헬스체크
-  prod-ci.yml / prod-cd.yml / prod-rollback.yml   동일 구조, ECR, rollback = 서비스별 이미지 태그
+  data-api-cd.dev.yml        (workflow_call from ci + workflow_dispatch — 사람·CI 같은 버튼) 입력: service · digest · env → deploy/<env>.yml 갱신·커밋 → SSH/SSM: compose pull + up -d <service> → 헬스체크
+  {service}-ci.prod.yml / {service}-cd.prod.yml   동일 구조, ECR, rollback = 서비스별 이미지 태그 (옛 prod-ci·prod-cd·prod-rollback 은 GROMO-2224 에서 삭제)
   api-dog-generate  service 별 OpenAPI (business-api 가 앱 계약의 정본, data-api 는 /internal 문서)
 ```
 
 - 변경된 서비스만 빌드·배포(경로 필터로 결정). compose 는 환경당 1파일 — **prod 6개**(JVM 서비스 3 + nginx · kafka · datadog-agent, DB 는 RDS), **dev 7개**(같은 6개 + Postgres `db` 컨테이너, §6·A10). 오버레이(datadog·observability) 유지.
 - 헬스체크: `GET /health` 각 서비스, CD 는 변경된 서비스만 기다림(300s).
 - **내부 HTTP 계약도 이벤트 스키마와 같은 expand/contract 를 따른다.** 서비스별 이미지를 하나씩 교체·롤백하는데 Business↔Data·코어↔위성의 동기 계약에는 규칙이 없었다 — Business 가 **새 엔드포인트·응답 필드를 요구하는 버전을 먼저** 올리면 기존 Data 에서 404·역직렬화 실패가 나고, Data 가 필드를 먼저 지우거나 **단독 롤백**되면 기존 Business 의 앱 경로가 끊긴다. 규칙: ⓐ 요청·응답 변경은 **additive** 만(필수화·삭제·타입 변경 금지) ⓑ **제공자 선배포 · 소비자 후배포**(이벤트의 「소비자 선배포」와 방향이 **반대**다 — HTTP 는 제공자가 먼저 준비돼야 한다) ⓒ 제거는 **다음 릴리즈에서**(롤백 창 밖) ⓓ **양방향 계약 테스트를 양쪽 CI 에** ⓔ 이 규칙을 지킬 수 없는 변경은 **상호 의존 이미지를 한 매니페스트로 원자 배포**한다.
-- 롤백: `prod-rollback.yml` 에 `service` 입력 추가 — **이전 digest 를 `deploy/<env>.yml` 매니페스트에 먼저 기록·커밋한 뒤 그 상태를 적용한다**(태그만 되돌리고 매니페스트를 두면, 다음 호스트 재구축이나 전체 `compose up` 이 매니페스트의 문제 digest 를 다시 배포해 롤백이 취소된다). compose·스키마는 유지(현행 원칙). **단 이 원칙은 스키마가 이전 바이너리와 호환될 때만 성립한다** — 이 레포엔 `V16__rename_refresh_token_to_hash.sql` 같은 rename 과 `DROP COLUMN` 이 실재해서, 그런 마이그레이션이 포함된 배포는 이미지를 되돌리면 이전 코드가 없는 컬럼을 읽어 기동·요청이 깨진다. 규칙: **① 롤백 가능 기간(직전 1 릴리즈) 동안은 파괴적 DDL 금지** — rename·drop 은 expand/contract 2단계로 나눈다(새 컬럼 추가 → 백필 → 읽기 전환 → **다음** 릴리즈에서 구 컬럼 제거). **② 파괴적 DDL 이 든 릴리즈는 롤백 대상이 아니다** — roll-forward(수정 배포)만 하고, PR 본문 「DB 변경」 절에 그 사실을 적는다.
-- ~~링크 서버는 Vercel Git 연동(별도 레포) — 이 파이프라인 밖.~~ → A23(2026-09-13): 링크 코드는 business-api·data-api 이미지에 포함되므로 같은 `dev-ci`·`prod-ci` 경로 필터를 탄다.
+- 롤백: prod CD 에 `service` 입력의 롤백 추가(옛 `prod-rollback.yml` 은 GROMO-2224 에서 삭제) — **이전 digest 를 `deploy/<env>.yml` 매니페스트에 먼저 기록·커밋한 뒤 그 상태를 적용한다**(태그만 되돌리고 매니페스트를 두면, 다음 호스트 재구축이나 전체 `compose up` 이 매니페스트의 문제 digest 를 다시 배포해 롤백이 취소된다). compose·스키마는 유지(현행 원칙). **단 이 원칙은 스키마가 이전 바이너리와 호환될 때만 성립한다** — 이 레포엔 `V16__rename_refresh_token_to_hash.sql` 같은 rename 과 `DROP COLUMN` 이 실재해서, 그런 마이그레이션이 포함된 배포는 이미지를 되돌리면 이전 코드가 없는 컬럼을 읽어 기동·요청이 깨진다. 규칙: **① 롤백 가능 기간(직전 1 릴리즈) 동안은 파괴적 DDL 금지** — rename·drop 은 expand/contract 2단계로 나눈다(새 컬럼 추가 → 백필 → 읽기 전환 → **다음** 릴리즈에서 구 컬럼 제거). **② 파괴적 DDL 이 든 릴리즈는 롤백 대상이 아니다** — roll-forward(수정 배포)만 하고, PR 본문 「DB 변경」 절에 그 사실을 적는다.
+- ~~링크 서버는 Vercel Git 연동(별도 레포) — 이 파이프라인 밖.~~ → A23(2026-09-13): 링크 코드는 business-api·data-api 이미지에 포함되므로 같은 `data-api-ci` 경로 필터를 탄다(prod CI 는 재작업 예정).
 
 ## 4. 관측
 

@@ -140,7 +140,7 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
   Loki/Promtail on the dev stack; configs live in `server/observability/`
   (see its README).
 - Datadog runs on both environments: `server/scripts/docker-compose.datadog.yml` +
-  the manual `dev-datadog.yml` workflow toggle it on dev, and
+  the manual `ops-datadog.dev.yml` workflow toggle it on dev, and
   `server/scripts/docker-compose.prod.yml` carries the same wiring permanently. The
   OpenMetrics scrape config is baked into `server/data-api/Dockerfile` as a
   `com.datadoghq.ad.checks` label (prod hosts have no repo checkout to mount a
@@ -148,15 +148,14 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
 
 ## Deploy
 
-- **Dev**: on `main` push, `dev-ci.yml` builds + pushes the image (`back:<sha>` to
-  GAR) and calls the reusable `dev-cd.yml` with its digest, which deploys to AWS
+- **Dev**: on `main` push, `data-api-ci.dev.yml` builds + pushes the image (`back:<sha>` to
+  GAR) and calls the reusable `data-api-cd.dev.yml` with its digest, which deploys to AWS
   (OIDC role `gromo-dev-github-actions`, region `ap-northeast-2`, runtime secrets from
-  Secrets Manager `gromo/dev/env`); health check at `/health`. Dev images use GAR, not
+  Secrets Manager `gromo/dev/env`, rendered per job by `.github/scripts/dev-env.sh`); health check at `/health`. Dev images use GAR, not
   ECR; host-bootstrap secrets (`gromo/dev/app-server`, `gromo/dev/ci-runner`) remain
   instance-role-only and are not loaded by the deployment workflow.
-- **Prod**: `prod-ci.yml` (on `release`) builds + pushes the image →
-  `prod-cd.yml` deploys it (auto via `workflow_run`, or manual dispatch by SHA);
-  `prod-rollback.yml` rolls back manually.
+- **Prod**: no pipeline — the old `prod-ci.yml` / `prod-cd.yml` / `prod-rollback.yml` were removed in
+  GROMO-2224; prod will be rebuilt as `{service}-{ci|cd}.prod.yml`.
 
 ## Recommended skills & tools (backend workflow)
 

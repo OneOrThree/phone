@@ -114,6 +114,11 @@ Pipelines are path-filtered — `app/app-dev/**` changes and `server/data-api/**
 changes trigger different jobs. This list rots; the authoritative source is
 `ls .github/workflows/` plus each file's `name:`.
 
+**Server workflow naming (GROMO-2224)**: `{service}-{ci|cd}.{dev|prod}.yml` — dev and prod are separate
+files because their deploy paths differ entirely (dev: compose on the VM runner, prod: SSM to EC2).
+PR checks live in the dev CI file. Shared steps go in a reusable file without an env suffix
+(`satellite-check.yml`, `be-gradle.yml`). App workflows are not renamed yet.
+
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**`;
   `app-android-build.yml` — Android build checks on native-affecting paths.
   활성 2.0 앱은 이 두 워크플로가 검증한다. ⚠️ **동결된 1.x 앱(`app/legacy/app-dev/**`)에는
@@ -129,9 +134,10 @@ changes trigger different jobs. This list rots; the authoritative source is
   사람의 맥(self-hosted 러너, 라벨 = 깃허브 아이디; 레포 변수 `IOS_DEV_RUNNERS` 에 없는 사람이면 오너 맥으로
   폴백)에서 `ios/testflight.sh --dev` 로 dev 서버용 TestFlight 빌드를 올린다. 공개 레포라 PR 트리거를 절대 붙이지 않고, 수동 실행도 누른 사람의 맥에서만 돈다. 러너 등록은
   `docs/conventions/ios-testflight-dev-runner.md`.
-- **Business API · Notification**: `satellite-ci.yml` — `server/business-api/**` ·
-  `server/notification/**` 매트릭스로 독립 Gradle build(Checkstyle·SpotBugs·Testcontainers 통합
-  테스트)와 Docker 이미지 빌드. main push에서만 GAR, release push에서만 ECR 게시. 수동 dev overlay는
+- **Business API · Notification**: 공용 검사 `satellite-check.yml`(`server/business-api/**` ·
+  `server/notification/**` 매트릭스로 독립 Gradle build — Checkstyle·SpotBugs·Testcontainers 통합 테스트,
+  계약 검사)를 `satellite-ci.dev.yml`(release 외 PR + main push → GAR amd64 → `satellite-cd.dev.yml` 배포)과
+  `satellite-ci.prod.yml`(release PR + release push → ECR arm64, prod 배포 단계는 아직 없음)이 호출. 수동 dev overlay는
   `docker-compose.business.yml`.
 - **Shared backend gate**: `be-gradle.yml` — the one reusable (`workflow_call`) workflow for JVM
   Gradle checks. Takes `service` / `runs-on` / `tasks` / `artifact-name` / `artifact-path` /
@@ -140,32 +146,53 @@ changes trigger different jobs. This list rots; the authoritative source is
   pass with the datasource pointed at a dead port). `runs-on` takes a **JSON array string**
   (`'["ubuntu-latest"]'`) unpacked with `fromJSON`; its default is `'["ubuntu-latest"]'` (GROMO-2121 — the one
   remaining self-hosted `ci` runner is reserved for push-time image publishing).
-  **Callers today are exactly two**: `dev-ci.yml` (`service: data-api`) and `realtime-ci.yml`
-  (`service: realtime`). `satellite-ci.yml` (business-api + notification) is a deliberate
+  **Callers today are exactly two**: `data-api-ci.dev.yml` (`service: data-api`) and `realtime-ci.dev.yml`
+  (`service: realtime`). `satellite-check.yml` (business-api + notification) is a deliberate
   **exception** — business-api's PDF-preview tests need `poppler-utils`, installed by the `test`
   stage of its Dockerfile, so that matrix keeps its own container-based build; don't "simplify" it
   into a caller without removing that dependency first.
-- **Realtime**: `realtime-ci.yml` — calls `be-gradle.yml` with `service: realtime` (one
+- **Realtime**: `realtime-ci.dev.yml` — calls `be-gradle.yml` with `service: realtime` (one
   `./gradlew build` covers Checkstyle + SpotBugs + Testcontainers tests + bootJar), plus a
   no-push Docker build, path-filtered to `server/realtime/**`.
-- **Backend PR gate + dev deploy**: `dev-ci.yml` calls `be-gradle.yml` three times
+- **Backend PR gate + dev deploy**: `data-api-ci.dev.yml` calls `be-gradle.yml` three times
   (Checkstyle / SpotBugs / tests) on `server/data-api/**`.
   On PRs it also build-verifies the Docker image (no push); on `main` push the same
-  run pushes `back:<sha>` to GAR and calls the reusable `dev-cd.yml` with the image
+  run pushes `data-api/data-api:<sha>` to GAR (one repository per server — `data-api` · `realtime` ·
+  `business-api` · `notification`; build cache stays in `ci-cache`) and calls the reusable `data-api-cd.dev.yml` with the image
   digest, which deploys to the GCP dev VM (`gromo-dev-app`, e2-standard-2 — 2 vCPU · 8 GB,
   asia-northeast3-a; see `docs/architecture/decisions.md` A25) on the
-  self-hosted `dev` runner — AWS is touched only for OIDC → Secrets Manager `gromo/dev/env`
-  (`dev-cd.yml` has no trigger of its own).
-- **Prod**: `prod-ci.yml` (verifies PRs to `release`; builds + pushes the image on
-  `release` push) → `prod-cd.yml` (auto-deploys via `workflow_run`, or manual
-  dispatch by SHA) → `prod-rollback.yml` (manual rollback).
+  self-hosted `dev` runner — AWS is touched only for OIDC → Secrets Manager
+  (`data-api-cd.dev.yml` has no trigger of its own).
+- **dev runtime secrets / deploy result (GROMO-2224)**: the single source is Secrets Manager `gromo/dev/env`
+  (read via `.github/scripts/dev-env.sh secrets`). Each container gets only its own keys because
+  `write-compose-env.py` filters by a per-service allowlist and fails on missing/blank required keys — **the
+  filter, not the secret layout, is the per-service boundary**. The filter also carries per-service
+  **forbidden keys** (`SERVICE_FORBIDDEN_KEYS` — e.g. notification never gets `JWT_SECRET`; overlap with an
+  allowlist fails at import), warns on SM keys no service uses, and has a `--check` mode run by the
+  `secrets-check` job of every dev CI on main push **before the image build** (`dev-env.sh check`; PRs skip
+  it — no AWS on PRs in a public repo). `test_config_contract.py` (PR-time, no SM) fails when an
+  `application-*.yml` `${KEY}` without default is not supplied by the filter or compose — new keys must be
+  added to `write-compose-env.py` in the same PR (documented exceptions: `OPTIONAL_BY_DESIGN`). **No env file persists on the VM**:
+  every dev CD and `ops-*.dev` job builds `dev.env` (and satellite envs) under `$RUNNER_TEMP` via
+  `.github/scripts/dev-env.sh` and deletes it in a final `if: always()` step; current images are read from
+  running containers, not files. `dev-env.sh` also renders the Data container env (`data-api.env`) from SM;
+  its two non-secret settings (`INTERNAL_API_ENABLED=true`, profiles `dev,satellites,realtime-authorization`)
+  are fixed in the script. Only exception: `satellites/business-redis.acl` (bind-mounted by Redis). Health is judged by
+  `.github/scripts/wait-healthy.sh` (container state: exited/restart/unhealthy fail at once, start time
+  logged), and `.github/scripts/mark-deploy.sh` labels the merged PR `deployed:dev-<service>` or
+  `deploy-failed:dev-<service>` (latest result only) and comments. GitHub Deployments shows one environment per
+  server: `dev-server/data-api`, `dev-server/realtime`, `dev-server/<business-api|notification|business-api+notification>`. `ops-redeploy.dev.yml` (manual) re-runs a server's last successful deploy job to reload
+  secrets without a new image.
+- **Prod**: **no deploy pipeline** — the old 1.x `prod-ci` / `prod-cd` / `prod-rollback` were removed in
+  GROMO-2224. Prod will be rebuilt as `{service}-{ci|cd}.prod.yml` (with a hotfix path); until then only
+  `satellite-ci.prod.yml` runs on `release` (ECR publish, no deploy).
 - **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
   `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `api-docs-cleanup.yml`
   (cleanup on branch delete — currently a **no-op**: its predicate checks a
   `refs/heads/` prefix that the `delete` event's `ref` never carries, so no
   branch deletion is cleaned and doc dirs accumulate on `gh-pages`; known gap).
-- **Observability (manual dispatch)**: `dev-datadog.yml` (Datadog APM toggle),
-  `dev-monitor.yml` (Prometheus/Grafana/Loki stack), `dev-kafka.yml` (single-node Kafka broker
+- **Dev ops (manual dispatch, `ops-*`)**: `ops-datadog.dev.yml` (Datadog APM toggle),
+  `ops-monitor.dev.yml` (Prometheus/Grafana/Loki stack), `ops-kafka.dev.yml` (single-node Kafka broker
   up/status/down only — does not enable the outbox relay).
 - **Load test**: `loadtest.yml` — manual dispatch with profile/scenario inputs.
 - `claude-review.yml` — Claude PR review, triggered by an `@claude` comment.

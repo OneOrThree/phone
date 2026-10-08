@@ -60,8 +60,9 @@ curl -si 127.0.0.1:8088/actuator/health | head -1; curl -si 127.0.0.1:8088/healt
 docker compose -f server/scripts/docker-compose.local.yml --profile nginx rm -sf nginx   # nginx 만 내린다. `--profile nginx down` 은 db·redis 까지 내리니 쓰지 않는다
 
 # dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(+전용 Redis)·Notification. compose 에 nginx 없음(호스트 systemd Nginx 가 공개 라우팅)
-# /var/lib/gromo/runtime 은 runner 소유 0700 이라, 서버에서 수동 실행할 때는 sudo -u runner 로 돌리거나 sudo 가 필요합니다.
-docker compose -p phone --env-file /var/lib/gromo/runtime/dev.env --env-file <out>/compose.env -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
+# dev VM 에 영구 env 없음(GROMO-2224) — CD·ops-*.dev 워크플로가 job 마다 SM 에서 임시로 만든다. 수동이면
+# RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh) 로 만들고(SM 읽을 AWS 자격 필요) 쓰고 나서 지운다. <out> 은 위성 env 임시 폴더.
+docker compose -p phone --env-file "$RUNTIME_ENV_FILE" --env-file <out>/compose.env -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
 
 # prod (AWS gromo-prod) — nginx·Data·datadog-agent·Kafka·Business(+전용 Redis)·Notification. DB 는 RDS, Realtime 없음
 docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리> --env-file <prod 배포 디렉터리>/.env.prod --env-file <out>/compose.env -f server/scripts/docker-compose.prod.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
@@ -70,8 +71,8 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 | 환경 | 파일 조합 | 지금 자동으로 도는 부분 | 사람이 붙이는 부분 |
 | --- | --- | --- | --- |
 | local | local (+`--profile nginx`) | — | 전부. nginx 프로필은 아래 불릿 |
-| dev | dev (+datadog) (+kafka) (+satellites.data.dev) → + realtime · satellites · satellites.dev | `dev-cd.yml`: 기존 DB를 유지하며 `data-api`만 갱신 | Realtime(`up -d realtime`) · 위성(Satellite Dev CD) · Kafka 기동(Actions **Dev Kafka**) |
-| prod | prod (+kafka) (+satellites (+satellites.data)) | `prod-cd.yml` → SSM 문서가 `docker-compose.prod.yml` 단독 `up -d` | 위성·Kafka 전부 수동. Realtime 은 prod 배선 자체가 없다 |
+| dev | dev (+datadog) (+kafka) (+satellites.data.dev) → + realtime · satellites · satellites.dev | `data-api-cd.dev.yml`: 기존 DB를 유지하며 `data-api`만 갱신 | Realtime(`up -d realtime`) · 위성(Satellite Dev CD) · Kafka 기동(Actions **Dev Kafka**) |
+| prod | prod (+kafka) (+satellites (+satellites.data)) | 없음 — 옛 `prod-cd.yml`(SSM 으로 `docker-compose.prod.yml` 단독 `up -d`)은 GROMO-2224 에서 삭제 | 위성·Kafka 전부 수동. Realtime 은 prod 배선 자체가 없다 |
 
 - **local nginx 프로필**(GROMO-2216): [dev 공개 라우팅 정본](nginx-dev-2.0-routes.conf.example)을 [`nginx-local-routes.sh`](nginx-local-routes.sh)가 기동 때 읽어 upstream 두 곳만 호스트 포트로 치환해 그대로 쓴다 — `/internal`·`/actuator`·옛 경로 404 와 신원 헤더 비움이 dev 와 같다. 변수는 셸 env 로 준다(`.env` 불필요).
   - **선행 조건**: Business·Realtime 이 호스트에서 떠 있어야 한다. 기본 포트 8090·8085 는 서비스 yml 값이 아니라 **로컬 기동 관례**다 — Data 가 8080, Metro 가 Realtime 기본 8081 을 쓰므로 둘을 비켜 `SERVER_PORT` 로 띄운 값. 다른 포트로 띄웠다면 `LOCAL_BUSINESS_PORT`·`LOCAL_REALTIME_PORT` 를 그 값으로 맞춘다.
@@ -81,14 +82,14 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
   - **내릴 때**: nginx 만 내리려면 `--profile nginx rm -sf nginx`. `--profile nginx down` 은 프로필 없는 db·redis 까지 내린다(Compose 프로필 규칙). 프로필 없이 `down` 하면 반대로 nginx 만 빠져 8088 을 계속 잡는다.
   - **Linux**: `host-gateway` 가 브리지 IP(예 `172.17.0.1`)라 bootRun 이 `127.0.0.1` 만 듣고 있으면 502 다 — `0.0.0.0` 에 바인드하거나 방화벽의 브리지→호스트 허용을 확인한다.
 - Data 를 전용 env 로 바꿀 때만(준비 도구를 `--data-image`로 실행해 `compose.env`에 `DATA_API_ENV_FILE`·`DATA_API_PROFILES`가 있을 때) dev에서는 `docker-compose.satellites.data.dev.yml`, prod에서는 `docker-compose.satellites.data.yml`을 **마지막 `-f`**로 더합니다. dev CD는 전용 env가 없거나 유효하지 않으면 배포를 중단합니다.
-- prod 호스트에는 레포가 없고 `prod-cd.yml`이 `docker-compose.prod.yml`만 S3 로 올립니다. prod 줄의 `server/scripts/…`는 같은 커밋의 파일을 호스트에 옮겨 둔 경로로 바꾸고, `.env.prod`·`./deploy/nginx.conf`·`./certs`는 `--project-directory`(현행 배포 디렉터리) 기준으로 풉니다.
+- prod 호스트에는 레포가 없고 옛 `prod-cd.yml`(GROMO-2224 에서 삭제)이 `docker-compose.prod.yml`만 S3 로 올렸습니다. prod 줄의 `server/scripts/…`는 같은 커밋의 파일을 호스트에 옮겨 둔 경로로 바꾸고, `.env.prod`·`./deploy/nginx.conf`·`./certs`는 `--project-directory`(현행 배포 디렉터리) 기준으로 풉니다.
 - prod 파일에는 `name:`이 없어 프로젝트명이 호스트 디렉터리에서 정해집니다. `satellites.yml`의 `name: phone`이 이를 바꾸지 않도록 `-p`에 `docker compose ls`로 확인한 현재 이름을 넣습니다.
 - `docker-compose.business.yml`은 Notification 없이 Business 만 띄우는 옛 진입점입니다. `satellites.yml`과 **함께 쓰지 않습니다**(같은 서비스를 정의).
 - dev 관측은 위 줄에 `-f server/scripts/docker-compose.datadog.yml` 또는 `-f server/scripts/docker-compose.observability.yml`을 더합니다.
 
 ## 4. 시크릿·스위치 — 비었을 때의 동작
 
-dev 의 `/var/lib/gromo/runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다** Secrets Manager `gromo/dev/env`에서 다시 씁니다([`write-compose-env.py`](../../.github/scripts/write-compose-env.py) legacy). 그래서 dev 스위치는 파일이 아니라 **SM 키**로 바꿉니다. 필수 9개 외 아래 dev 행의 키는 SM 에 있을 때만 옮기고, 없으면 compose 기본값이 남습니다. 위성·Data 전용 env 는 같은 스크립트의 `--service` 허용목록이 정합니다. prod 의 Data 는 `.env.prod`(SM `gromo/prod/env` 전체)를 통째로 받습니다.
+dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD·`ops-*.dev` 워크플로가 **job 마다** Secrets Manager 에서 임시로 만들고 끝나면 지웁니다([`dev-env.sh`](../../.github/scripts/dev-env.sh) → [`write-compose-env.py`](../../.github/scripts/write-compose-env.py)). 원본은 `gromo/dev/env` 하나이고, 서버별로 필요한 키만 고르는 건 `write-compose-env.py` 허용목록입니다. 그래서 dev 스위치는 파일이 아니라 **SM 키**로 바꾸고, 반영은 다음 배포 또는 Actions 의 `ops-redeploy.dev` 로 합니다. 필수 9개 외 아래 dev 행의 키는 SM 에 있을 때만 옮기고, 없으면 compose 기본값이 남습니다. 위성·Data 전용 env 는 같은 스크립트의 `--service` 허용목록이 정합니다. prod 의 Data 는 `.env.prod`(SM `gromo/prod/env` 전체)를 통째로 받습니다.
 
 | 키 | 받는 쪽 · 경로 | 비었을 때 |
 | --- | --- | --- |
@@ -152,12 +153,12 @@ docker compose -f server/scripts/docker-compose.local.yml --profile nginx down  
 
 ### 기존 dev에 Realtime 추가
 
-아래 예시는 기존 dev가 `phone` 프로젝트와 `/var/lib/gromo/runtime/dev.env`를 사용하는 경우입니다. 실제 배포의 프로젝트명·env 경로가 다르면 동일한 값으로 맞춥니다. 런타임 디렉터리는 runner 소유 0700 이라 VM 에서 `sudo -u runner` 로 실행합니다. `REALTIME_IMAGE`로 사용할 이미지를 지정할 수 있습니다.
+평소엔 `realtime-cd.dev` 가 배포합니다. 수동 예시는 `phone` 프로젝트 기준이고, env 는 `RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh)` 로 임시로 만든 뒤 쓰고 지웁니다(SM 을 읽을 AWS 자격 필요, VM 에 영구 env 없음). `REALTIME_IMAGE`로 사용할 이미지를 지정할 수 있습니다.
 
 ```bash
-docker compose -p phone --env-file /var/lib/gromo/runtime/dev.env   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml config --quiet
+docker compose -p phone --env-file "$RUNTIME_ENV_FILE"   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml config --quiet
 
-docker compose -p phone --env-file /var/lib/gromo/runtime/dev.env   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml up -d realtime
+docker compose -p phone --env-file "$RUNTIME_ENV_FILE"   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml up -d realtime
 ```
 
 Compose가 DB·Redis 및 `realtime-db-init` 의존성을 함께 처리합니다. 기존 `chat` 이름의 서비스는 자동으로 중지되지 않으므로 인스턴스 전환 절차에서 확인합니다.
