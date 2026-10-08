@@ -8,3 +8,8 @@
 "rest.expired.status" = "휴식 시간 만료";
 "rest.expired.short" = "휴식 끝";
 "rest.expired.title" = "앱에서 결과를 확인해요";
+
+"widget.today" = "오늘의 총 집중시간";
+"widget.duration" = "%d시간 %d분";
+"widget.name" = "고양이와 집중시간";
+"widget.description" = "고양이와 함께 오늘 쌓은 집중시간을 확인해요.";

@@ -1381,6 +1381,7 @@
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FocusWidget/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = FocusWidget/FocusWidget.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1409,6 +1410,7 @@
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FocusWidget/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = FocusWidget/FocusWidget.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -184,5 +184,123 @@ struct FocusWidget: Widget {
 
 @main
 struct FocusWidgetBundle: WidgetBundle {
-    var body: some Widget { FocusWidget() }
+    var body: some Widget {
+        FocusWidget()
+        GromoHomeWidget()
+    }
+}
+
+
+private struct HomeSnapshot: Decodable {
+    let owner: String
+    let day: String
+    let totalSeconds: Double
+    let catColor: String
+    let observedAt: Double
+}
+
+private struct HomeEntry: TimelineEntry {
+    let date: Date
+    let snapshot: HomeSnapshot?
+    var pose: String {
+        ["idle", "loaf", "reading", "tilt"][Int(date.timeIntervalSince1970 / 3600) % 4]
+    }
+    var seconds: Int? {
+        guard let snapshot, !snapshot.owner.isEmpty,
+              snapshot.day == HomeProvider.day(date),
+              snapshot.totalSeconds.isFinite, snapshot.totalSeconds >= 0,
+              snapshot.totalSeconds <= 86400,
+              snapshot.observedAt <= date.timeIntervalSince1970 * 1000 + 60000 else { return nil }
+        return Int(snapshot.totalSeconds)
+    }
+}
+
+private struct HomeProvider: TimelineProvider {
+    static var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        return calendar
+    }
+    static func day(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
+    }
+    func placeholder(in context: Context) -> HomeEntry {
+        HomeEntry(date: Date(), snapshot: nil)
+    }
+    func getSnapshot(in context: Context, completion: @escaping (HomeEntry) -> Void) {
+        completion(HomeEntry(date: Date(), snapshot: read()))
+    }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<HomeEntry>) -> Void) {
+        let now = Date()
+        let snapshot = read()
+        // 자정 항목을 반드시 포함해 OS가 앱을 깨우지 않아도 어제 값을 오늘로 표시하지 않는다.
+        let midnight = Self.calendar.startOfDay(for: now).addingTimeInterval(86400)
+        var dates = [now, midnight]
+        for hour in 1...6 { dates.append(now.addingTimeInterval(Double(hour) * 3600)) }
+        let entries = Set(dates).sorted().map { HomeEntry(date: $0, snapshot: snapshot) }
+        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(6 * 3600))))
+    }
+    private func read() -> HomeSnapshot? {
+        guard let data = UserDefaults(suiteName: "group.com.oneorthree.focuscat")?.data(forKey: "gromo:widget:home") else { return nil }
+        return try? JSONDecoder().decode(HomeSnapshot.self, from: data)
+    }
+}
+
+private struct HomeWidgetView: View {
+    let entry: HomeEntry
+    @Environment(\.widgetFamily) private var family
+    @ScaledMetric(relativeTo: .title2) private var numberSize: CGFloat = 26
+    private var color: String {
+        let candidate = entry.snapshot?.catColor ?? "black"
+        return ["black", "ginger", "cream", "gray", "white", "calico"].contains(candidate) ? candidate : "black"
+    }
+    private var duration: String {
+        guard let seconds = entry.seconds else { return "—" }
+        return String.localizedStringWithFormat(NSLocalizedString("widget.duration", comment: "집중시간"), seconds / 3600, (seconds / 60) % 60)
+    }
+    private var cat: some View {
+        Group {
+            if let path = Bundle.main.path(forResource: "cat-\(color)-\(entry.pose)", ofType: "png", inDirectory: "CatArt"),
+               let image = UIImage(contentsOfFile: path) {
+                Image(uiImage: image).resizable().scaledToFit()
+            }
+        }.frame(maxWidth: 100, maxHeight: 82).accessibilityHidden(true)
+    }
+    private var value: some View {
+        VStack(spacing: 4) {
+            Text("widget.today").font(.caption).foregroundStyle(Palette.inkSub)
+            Text(duration).font(.system(size: numberSize, weight: .bold)).monospacedDigit()
+                .foregroundStyle(Palette.ink).minimumScaleFactor(0.7).lineLimit(1)
+        }
+    }
+    private var content: some View {
+        Group {
+            if family == .systemMedium { HStack(spacing: 20) { cat; value } }
+            else { VStack(spacing: 8) { cat; value } }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            .widgetURL(URL(string: "com.oneorthree.focuscat://widget"))
+            .accessibilityElement(children: .combine)
+    }
+    var body: some View {
+        if #available(iOSApplicationExtension 17.0, *) {
+            content.containerBackground(Palette.bg, for: .widget)
+        } else {
+            content.padding(16).background(Palette.bg)
+        }
+    }
+}
+
+private struct GromoHomeWidget: Widget {
+    let kind = "GromoHomeWidget"
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: HomeProvider()) { HomeWidgetView(entry: $0) }
+            .configurationDisplayName("widget.name")
+            .description("widget.description")
+            .supportedFamilies([.systemSmall, .systemMedium])
+    }
 }
