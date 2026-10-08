@@ -46,6 +46,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # test_config_contract 가 compose yml 을 읽음 (GROMO-2224)
+      - name: 테스트 의존성
+        run: python3 -m pip install --quiet 'pyyaml==6.0.2'
       - name: 합성 SecretString의 compose 전달과 실제 Postgres 권한 확인
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
       - name: A22 위성 경계 · producer와 template 계약 검사

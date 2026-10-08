@@ -28,7 +28,7 @@ while :; do
   read -r status health restarts <<< "$state"
   elapsed=$((SECONDS - started))
   case "$status" in
-    exited|dead) fail "종료됨 (=status$status, ${elapsed}s)" ;;
+    exited|dead) fail "종료됨 (status=$status, ${elapsed}s)" ;;
     restarting) fail "재시작 반복 중 (${elapsed}s)" ;;
   esac
   [ "$restarts" = "$restarts_before" ] || fail "기동 중 재시작 발생 (restart $restarts_before → $restarts)"

@@ -121,6 +121,8 @@ SERVICE_OPTIONAL_KEYS = {
 # 서비스별 금지 키 — 허용목록에 실수로 들어가도 출력 전에 막는 2차 방어선 (GROMO-2224).
 # 서버 간 신뢰 경계: 다른 서버의 DB 자격·로그인 비밀·관리 키는 절대 그 서버로 가지 않음.
 # prepare-satellite-deploy.py 의 FORBIDDEN_KEYS 와 같은 취지. 허용목록과 겹치면 모듈 로드 시 실패.
+# legacy(dev.env)는 대상 아님: 컨테이너 env 가 아니라 공용 compose 보간 입력이고, GRAFANA_ADMIN_PASSWORD 는
+# 관측 스택용으로 legacy 가 일부러 내보낸다.
 FORBIDDEN_EVERYWHERE = ("DD_API_KEY", "GRAFANA_ADMIN_PASSWORD", "CONSOLE_ADMIN_PASSWORD",
                         "CONSOLE_BASIC_PASSWORD", "SUDO_PASSWORD")
 SERVICE_FORBIDDEN_KEYS = {

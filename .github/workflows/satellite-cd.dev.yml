@@ -58,7 +58,7 @@ jobs:
           echo "any=$any" >> "$GITHUB_OUTPUT"
           [ "$any" = true ] || echo "배포 대상 없음 — 건너뜀" >> "$GITHUB_STEP_SUMMARY"
           # Deployments 에 실제 배포한 서버 이름이 보이도록 환경 이름에 씀
-          label=$(jq -r '[to_entries[] | select(.value == true) | .key] | join("+")' <<< "$plan")
+          label=$(jq -r '[("business-api", "notification") as $k | select(.[$k] == true) | $k] | join("+")' <<< "$plan")
           echo "label=$label" >> "$GITHUB_OUTPUT"
 
   deploy:
