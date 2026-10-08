@@ -1860,3 +1860,36 @@ test('로그아웃·탈퇴 정리는 기기 전역 언어 설정(gromo.locale)�
     applyLocalePref(null);
   }
 });
+
+test('en 로케일 — 게스트→회원 시트는 영문 제목을 보여주고 서버 오류도 번역해 보여준다', async () => {
+  // App 부팅이 저장된 'gromo.locale' 을 읽어 적용한다 — 렌더 전에 미리 건 applyLocalePref 는
+  // 이 부팅 적용이 끝나는 순간 덮어써진다(T1 locale 부팅 테스트와 같은 이유).
+  await AsyncStorage.setItem('gromo.locale', 'en');
+  try {
+    await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+    let screen: Awaited<ReturnType<typeof render>>;
+    await act(async () => {
+      screen = await render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.equal(typeof captured.conversion?.offer, 'function'));
+
+    await act(async () => {
+      captured.conversion.offer(
+        new ApiError('SOCIAL_LOGIN_REQUIRED', '소셜 로그인이 필요합니다.', 403),
+      );
+    });
+    assert.ok(screen!.getByText('Continue with a Social Account'));
+
+    mockSocialCredential.mockRejectedValueOnce(
+      new ApiError('GOOGLE_TOKEN', '회원 전환 토큰 오류', 422),
+    );
+    await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
+    await fireEvent.press(screen!.getByText('Continue with Google'));
+
+    await waitFor(() => assert.ok(screen!.getByText('Your Google login is no longer valid.')));
+  } finally {
+    await AsyncStorage.multiRemove(['gromo.locale']);
+    applyLocalePref(null);
+  }
+});

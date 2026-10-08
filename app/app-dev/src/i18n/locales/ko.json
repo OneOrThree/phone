@@ -53,7 +53,9 @@
     "UPSTREAM_CONTRACT_ERROR": "요청을 처리할 수 없습니다.",
     "UPSTREAM_AUTH_FAILED": "요청을 처리할 수 없습니다.",
     "SERVICE_UNAVAILABLE": "잠시 후 다시 시도해 주세요.",
-    "UPSTREAM_TIMEOUT": "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+    "UPSTREAM_TIMEOUT": "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+    "CLIENT_TIMEOUT": "서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.",
+    "CLIENT_NETWORK_ERROR": "네트워크에 연결할 수 없어요. 연결을 확인해 주세요."
   },
   "time": {
     "minutes": "{{m}}분",
@@ -68,6 +70,164 @@
       "systemNowFallback": "지금은 {{name}} — 기기 언어 미지원",
       "changed": "언어를 바꿨어요",
       "saveFailed": "언어 설정을 저장하지 못했어요. 다시 시도해 주세요."
+    },
+    "notificationsSoundSection": "알림·소리",
+    "notifications": "알림",
+    "sound": "소리",
+    "haptics": "가벼운 진동",
+    "screenSection": "화면",
+    "reduceMotion": "동작 줄이기",
+    "reduceMotionSub": "이동·전환 애니메이션을 줄여요",
+    "permissionSection": "권한",
+    "permissionManage": "앱 권한 관리",
+    "permissionManageSub": "스크린타임 권한 · 측정 앱",
+    "safetySection": "안전",
+    "blockedUsersSub": "차단 목록을 확인하고 해제해요",
+    "helpSection": "도움말",
+    "replayTutorial": "튜토리얼 다시보기",
+    "replayTutorialSub": "몽돌 안내를 처음부터 다시 봐요",
+    "appInfoSection": "앱 정보",
+    "version": "버전",
+    "privacyNotice": "개인정보 처리 안내",
+    "privacyNoticeSub": "앱에서 처리하는 정보와 외부 전송 안내",
+    "privacyNoticeBody": "로그인 때 소셜 제공자 인증 정보와 계정 식별 정보가 서버로 전달돼요. 닉네임, 섬·주민 활동, 친구·편지, 집중 기록 등 서비스 데이터도 기능 제공과 동기화를 위해 서버에 저장돼요.\n\n화면 이용과 주요 기능 이벤트는 PostHog로, 화면·요청 진단 정보는 설정된 경우 Datadog으로 전송될 수 있어요. 스크린타임 권한을 허용하면 선택한 앱 사용 시간을 기기에서 읽어 목표와 통계에 사용해요. 자세한 처리 항목과 보관 기간은 개인정보 처리방침에서 확인할 수 있어요. 회원 탈퇴를 요청하면 서버 계정 삭제를 요청해요."
+  },
+  "login": {
+    "continue": {
+      "apple": "Apple로 계속하기",
+      "google": "Google로 계속하기",
+      "kakao": "카카오로 계속하기",
+      "line": "LINE으로 계속하기"
+    },
+    "connecting": "연결하는 중…",
+    "tagline": "오늘의 집중이 자라는 곳",
+    "termsAgreeA11y": "현재 약관 버전 {{version}}에 동의합니다",
+    "termsVersionPrefix": "현재 약관 버전 {{version}}: ",
+    "termsAgreeText": "이용약관 및 개인정보처리방침에 동의해요.",
+    "fallbackTermsAgree": "이용약관과 개인정보처리방침에 동의해요.",
+    "guestStart": "게스트로 시작하기",
+    "guestOpening": "게스트 계정을 여는 중…",
+    "fallbackStart": "GROMO 시작하기",
+    "heroTitle": "조금씩 집중하고,\n함께 자라요.",
+    "heroSubtitle": "나의 작은 배에서 시작하는 집중 습관.",
+    "policy": {
+      "terms": "이용약관",
+      "privacy": "개인정보처리방침",
+      "viewOriginalA11y": "{{title}} 원문 보기",
+      "view": "{{title}} 보기"
+    },
+    "error": {
+      "webUnavailable": "앱에서 소셜 로그인을 이용해 주세요.",
+      "appleIosOnly": "Apple 로그인은 iPhone과 iPad에서 이용할 수 있어요.",
+      "appleNoCredential": "Apple 로그인 정보를 받지 못했어요. 다시 시도해 주세요.",
+      "googleCancelled": "Google 로그인 취소",
+      "googleNoCredential": "Google 로그인 정보를 받지 못했어요. 다시 시도해 주세요.",
+      "guestFailed": "게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요.",
+      "socialFailed": "로그인을 완료하지 못했어요. 다시 시도해 주세요."
     }
+  },
+  "account": {
+    "loadingIsland": "내 섬을 불러오는 중이에요.",
+    "logoutStorageFailed": "기기 저장 공간 문제로 로그아웃하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    "boat": {
+      "title": "내 뗏목",
+      "myIslandFallback": "내 섬",
+      "currentMain": "현재 내 메인 섬",
+      "visibleInProfile": "친구 목록과 프로필에 표시돼요",
+      "changeMain": "메인 섬 변경하기",
+      "currentMainA11y": "현재 내 메인 섬 {{name}}, 메인 섬 변경하기",
+      "currentMainOnlyA11y": "현재 내 메인 섬 {{name}}",
+      "wardrobeTitle": "보유품 꾸미기",
+      "wardrobeSub": "옷 · 장신구",
+      "friendsTitle": "친구 관리",
+      "friendsSub": "친구 찾기 · 요청 · 친구 목록",
+      "friendRequestCount": "요청 {{count}}",
+      "settingsTitle": "앱 설정",
+      "settingsSub": "알림 · 소리 · 앱 권한 · 튜토리얼 다시보기"
+    },
+    "profile": {
+      "title": "내 정보",
+      "sub": "닉네임 · 털색 · 계정",
+      "nicknameRequired": "닉네임을 입력해 주세요.",
+      "saved": "저장했어요.",
+      "nickname": "닉네임",
+      "nicknamePlaceholder": "닉네임을 입력해 주세요",
+      "linkedAccount": "연동 계정",
+      "accountSummary": "{{name}}님의 GROMO 계정 · {{providers}}",
+      "noLinkedAccount": "연결된 계정 없음",
+      "providers": {
+        "google": "Google",
+        "kakao": "카카오",
+        "line": "LINE",
+        "apple": "Apple"
+      },
+      "logout": "로그아웃",
+      "logoutConfirmTitle": "로그아웃할까요?",
+      "logoutConfirmBody": "저장된 기록은 그대로 남아요.",
+      "retryDeviceCleanup": "기기 데이터 정리 다시 시도",
+      "withdraw": "회원 탈퇴",
+      "mustTransferHost": "방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.",
+      "withdrawConfirmTitle": "회원 탈퇴할까요?",
+      "withdrawConfirmBody": "계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.",
+      "withdrawConfirmOk": "탈퇴"
+    },
+    "guest": {
+      "title": "소셜 계정으로 계속하기",
+      "body": "친구 추가·편지·상점 구매는 회원 전환 후에 쓸 수 있어요.\n지금 고양이와 섬은 그대로 이어져요.",
+      "termsA11y": "약관 버전 {{version}}에 동의합니다",
+      "termsText": "현재 약관 버전 {{version}}: 이용약관 및 개인정보처리방침에 동의합니다.",
+      "failed": "문제가 생겼어요. 다시 시도해 주세요."
+    },
+    "switch": {
+      "title": "이미 연결된 계정이 있어요",
+      "body": "이 소셜 계정은 다른 GROMO 계정에 연결돼 있어요. 기존 계정으로 전환하면 지금 게스트의 고양이·섬·기록은 삭제되고 되돌릴 수 없어요. 전환할까요?",
+      "confirm": "전환하기"
+    },
+    "blocked": {
+      "title": "차단한 사용자",
+      "description": "차단한 사용자의 친구 요청과 편지는 내 화면에서 숨겨져요. 차단 중 받은 내용은 해제하면 다시 보일 수 있어요.",
+      "loading": "불러오는 중…",
+      "loadFailed": "차단 목록을 불러오지 못했어요.",
+      "unblocking": "해제 중…",
+      "unblock": "차단 해제",
+      "empty": "차단한 사용자가 없어요.",
+      "unblocked": "{{name}}님의 차단을 해제했어요.",
+      "unblockFailed": "차단을 해제하지 못했어요."
+    }
+  },
+  "character": {
+    "title": "내 고양이",
+    "greeting": "반가워, 나의 고양이!",
+    "furColorLaterCompact": "털색은 나중에 바꿀 수 있어요",
+    "startWithCat": "내 고양이와 시작",
+    "furColorLaterFull": "털색은 나중에 내 정보에서 바꿀 수 있어요",
+    "whichCat": "어떤 고양이로 시작할까요?"
+  },
+  "building": {
+    "hall": "마을회관",
+    "board": "게시판",
+    "tower": "전망대",
+    "mail": "우체통",
+    "gram": "축음기",
+    "library": "도서관",
+    "shop": "상점"
+  },
+  "color": {
+    "black": "검정",
+    "ginger": "치즈",
+    "cream": "크림",
+    "gray": "회색",
+    "white": "흰색",
+    "calico": "삼색"
+  },
+  "track": {
+    "waves": "잔잔한 파도",
+    "campfire": "모닥불 소리",
+    "forestWind": "숲바람",
+    "rain": "빗방울 소리"
+  },
+  "focus": {
+    "finishFailed": "집중을 마치지 못했어요.",
+    "resumeFailed": "집중을 이어가지 못했어요."
   }
 }

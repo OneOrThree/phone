@@ -3,6 +3,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { BlockedUsersScreen } from '@/screens/island/BlockedUsersScreen';
 import { ApiError } from '@/services/api/client';
 import { getBlockedUsers, unblockUser } from '@/services/api/safety';
+import { applyLocalePref } from '@/i18n';
 import {
   isUserBlocked,
   refreshBlockedUsers,
@@ -152,4 +153,41 @@ test('차단 목록은 단방향 숨김과 해제 뒤 재노출 가능성을 안
 
   assert.ok(screen.getByText(/내 화면에서 숨겨져요/));
   assert.ok(screen.getByText(/해제하면 다시 보일 수 있어요/));
+});
+
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  test('en 로케일 — 빈 목록 화면을 영문으로 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    listMock.mockResolvedValue([]);
+    const screen = await render(<BlockedUsersScreen e={events()} />);
+
+    await waitFor(() => assert.ok(screen.getByText('No blocked users.')));
+    assert.ok(screen.getByText('Blocked Users'));
+  });
+
+  // errorText 배선 — 서버가 보낸 한글 message 가 en 화면에 새지 않는지(차단 해제 흐름).
+  // 이름은 사용자 데이터라 번역 대상이 아니므로, 전수 한글 검사가 이름 자체를 걸러내지 않도록
+  // 영문 이름의 사용자로 검증한다.
+  test('en 로케일 — 차단 해제가 한글 서버 메시지로 실패해도 화면에 한글이 없다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const enUser = { id: 'user-en', name: 'Mina' };
+    listMock.mockResolvedValueOnce([enUser]);
+    unblockMock.mockRejectedValueOnce(new ApiError('CLIENT_UNKNOWN_CODE', '서버 한글 메시지', 400));
+    const screen = await render(<BlockedUsersScreen e={events()} />);
+    await waitFor(() => assert.ok(screen.getByText('Mina')));
+
+    await fireEvent.press(screen.getByText('Unblock'));
+
+    await waitFor(() => assert.ok(screen.getByText('Please check your connection and try again.')));
+    assert.equal(screen.queryByText(/[가-힣]/), null);
+  });
 });

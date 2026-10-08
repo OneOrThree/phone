@@ -53,7 +53,9 @@
     "UPSTREAM_CONTRACT_ERROR": "Couldn't process the request.",
     "UPSTREAM_AUTH_FAILED": "Couldn't process the request.",
     "SERVICE_UNAVAILABLE": "Please try again in a moment.",
-    "UPSTREAM_TIMEOUT": "The request timed out. Please try again in a moment."
+    "UPSTREAM_TIMEOUT": "The request timed out. Please try again in a moment.",
+    "CLIENT_TIMEOUT": "The server is taking a while to respond. Please try again in a moment.",
+    "CLIENT_NETWORK_ERROR": "Can't connect to the network. Please check your connection."
   },
   "time": {
     "minutes": "{{m}}m",
@@ -68,6 +70,164 @@
       "systemNowFallback": "Currently {{name}} (device language not supported)",
       "changed": "Language changed",
       "saveFailed": "Couldn't save the language setting. Please try again."
+    },
+    "notificationsSoundSection": "Notifications & Sound",
+    "notifications": "Notifications",
+    "sound": "Sound",
+    "haptics": "Light Haptics",
+    "screenSection": "Display",
+    "reduceMotion": "Reduce Motion",
+    "reduceMotionSub": "Reduces movement and transition animations",
+    "permissionSection": "Permissions",
+    "permissionManage": "Manage App Permissions",
+    "permissionManageSub": "Screen Time permission · Measured apps",
+    "safetySection": "Safety",
+    "blockedUsersSub": "Review and unblock your blocked list",
+    "helpSection": "Help",
+    "replayTutorial": "Replay Tutorial",
+    "replayTutorialSub": "Watch the Mongdol guide again from the start",
+    "appInfoSection": "App Info",
+    "version": "Version",
+    "privacyNotice": "Privacy Practices",
+    "privacyNoticeSub": "Information this app handles and sends externally",
+    "privacyNoticeBody": "Signing in shares your social provider's authentication info and account identifiers with our server. Service data such as your nickname, island and resident activity, friends and letters, and focus records is also stored on the server to provide features and keep them in sync.\n\nScreen usage and key feature events are sent to PostHog, and screen and request diagnostics may be sent to Datadog when configured. If you allow Screen Time permission, the app reads your selected app usage time on-device for goals and stats. You can find the full details and retention periods in the Privacy Policy. Requesting account deletion asks the server to delete your account."
+  },
+  "login": {
+    "continue": {
+      "apple": "Continue with Apple",
+      "google": "Continue with Google",
+      "kakao": "Continue with Kakao",
+      "line": "Continue with LINE"
+    },
+    "connecting": "Connecting…",
+    "tagline": "Where today's focus grows",
+    "termsAgreeA11y": "I agree to terms version {{version}}",
+    "termsVersionPrefix": "Current terms version {{version}}: ",
+    "termsAgreeText": "I agree to the Terms of Service and Privacy Policy.",
+    "fallbackTermsAgree": "I agree to the Terms of Service and Privacy Policy.",
+    "guestStart": "Start as a guest",
+    "guestOpening": "Opening your guest account…",
+    "fallbackStart": "Start GROMO",
+    "heroTitle": "Focus a little at a time,\nand grow together.",
+    "heroSubtitle": "A focus habit that starts on your little raft.",
+    "policy": {
+      "terms": "Terms of Service",
+      "privacy": "Privacy Policy",
+      "viewOriginalA11y": "View the full {{title}}",
+      "view": "View {{title}}"
+    },
+    "error": {
+      "webUnavailable": "Please use the app to sign in with a social account.",
+      "appleIosOnly": "Sign in with Apple is only available on iPhone and iPad.",
+      "appleNoCredential": "Couldn't get your Apple sign-in info. Please try again.",
+      "googleCancelled": "Google sign-in cancelled",
+      "googleNoCredential": "Couldn't get your Google sign-in info. Please try again.",
+      "guestFailed": "Couldn't open a guest account. Please try again in a moment.",
+      "socialFailed": "Couldn't finish signing in. Please try again."
     }
+  },
+  "account": {
+    "loadingIsland": "Loading your island…",
+    "logoutStorageFailed": "Couldn't sign out due to a device storage issue. Please try again in a moment.",
+    "boat": {
+      "title": "My Raft",
+      "myIslandFallback": "My Island",
+      "currentMain": "Your current main island",
+      "visibleInProfile": "Shown in your friend list and profile",
+      "changeMain": "Change main island",
+      "currentMainA11y": "Current main island {{name}}. Double tap to change.",
+      "currentMainOnlyA11y": "Current main island {{name}}",
+      "wardrobeTitle": "Customize Items",
+      "wardrobeSub": "Clothes · Accessories",
+      "friendsTitle": "Manage Friends",
+      "friendsSub": "Find friends · Requests · Friend list",
+      "friendRequestCount": { "one": "{{count}} request", "other": "{{count}} requests" },
+      "settingsTitle": "App Settings",
+      "settingsSub": "Notifications · Sound · App permissions · Replay tutorial"
+    },
+    "profile": {
+      "title": "My Info",
+      "sub": "Nickname · Fur color · Account",
+      "nicknameRequired": "Please enter a nickname.",
+      "saved": "Saved.",
+      "nickname": "Nickname",
+      "nicknamePlaceholder": "Enter a nickname",
+      "linkedAccount": "Linked Account",
+      "accountSummary": "{{name}}'s GROMO account · {{providers}}",
+      "noLinkedAccount": "No linked account",
+      "providers": {
+        "google": "Google",
+        "kakao": "Kakao",
+        "line": "LINE",
+        "apple": "Apple"
+      },
+      "logout": "Log Out",
+      "logoutConfirmTitle": "Log out?",
+      "logoutConfirmBody": "Your saved records will stay as they are.",
+      "retryDeviceCleanup": "Retry Device Data Cleanup",
+      "withdraw": "Delete Account",
+      "mustTransferHost": "Hand over your island host role to another resident before deleting your account.",
+      "withdrawConfirmTitle": "Delete your account?",
+      "withdrawConfirmBody": "This deletes your account and all saved records. This can't be undone.\nFish you've collected will stay on the island.",
+      "withdrawConfirmOk": "Delete Account"
+    },
+    "guest": {
+      "title": "Continue with a Social Account",
+      "body": "Adding friends, letters, and shop purchases are available after you upgrade.\nYour cat and island carry over exactly as they are.",
+      "termsA11y": "I agree to terms version {{version}}",
+      "termsText": "Current terms version {{version}}: I agree to the Terms of Service and Privacy Policy.",
+      "failed": "Something went wrong. Please try again."
+    },
+    "switch": {
+      "title": "This Account Is Already Linked",
+      "body": "This social account is linked to another GROMO account. Switching to the existing account deletes this guest's cat, island, and records, and this can't be undone. Switch anyway?",
+      "confirm": "Switch"
+    },
+    "blocked": {
+      "title": "Blocked Users",
+      "description": "Friend requests and letters from blocked users are hidden from your screen. Unblocking can bring back content you received while they were blocked.",
+      "loading": "Loading…",
+      "loadFailed": "Couldn't load the blocked list.",
+      "unblocking": "Unblocking…",
+      "unblock": "Unblock",
+      "empty": "No blocked users.",
+      "unblocked": "Unblocked {{name}}.",
+      "unblockFailed": "Couldn't unblock this user."
+    }
+  },
+  "character": {
+    "title": "My Cat",
+    "greeting": "Nice to meet you, my cat!",
+    "furColorLaterCompact": "You can change the fur color later",
+    "startWithCat": "Start with My Cat",
+    "furColorLaterFull": "You can change the fur color later in My Info",
+    "whichCat": "Which cat should we start with?"
+  },
+  "building": {
+    "hall": "Town Hall",
+    "board": "Notice Board",
+    "tower": "Lookout Tower",
+    "mail": "Mailbox",
+    "gram": "Gramophone",
+    "library": "Library",
+    "shop": "Shop"
+  },
+  "color": {
+    "black": "Black",
+    "ginger": "Ginger",
+    "cream": "Cream",
+    "gray": "Gray",
+    "white": "White",
+    "calico": "Calico"
+  },
+  "track": {
+    "waves": "Calm Waves",
+    "campfire": "Campfire Sounds",
+    "forestWind": "Forest Wind",
+    "rain": "Raindrops"
+  },
+  "focus": {
+    "finishFailed": "Couldn't finish the focus session.",
+    "resumeFailed": "Couldn't resume the focus session."
   }
 }

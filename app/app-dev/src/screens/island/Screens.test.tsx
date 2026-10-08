@@ -2238,3 +2238,48 @@ test('서버 모드 home 은 스냅샷의 완공 건물과 오늘 집중을 그�
   // 로컬 비용으로 그리는 건설 카드는 서버 모드에서 띄우지 않는다
   assert.equal(s.queryByText(/짓기$/), null);
 });
+
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  test('en 로케일 — 캐릭터 단계는 영문 제목·문구를 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="character" api={() => ({})} />);
+
+    assert.ok(s.getByText('My Cat'));
+    assert.ok(s.getByText('Which cat should we start with?'));
+  });
+
+  test('en 로케일 — 내 배 시트는 영문 제목과 행을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="boat" full />);
+
+    assert.ok(s.getByText('My Raft'));
+    assert.ok(s.getByText('Customize Items'));
+  });
+
+  test('en 로케일 — 내 정보는 영문 라벨을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="profile" full api={() => ({})} />);
+
+    assert.ok(s.getByText('My Info'));
+    assert.ok(s.getByText('Nickname'));
+  });
+
+  test('en 로케일 — 앱 설정은 영문 섹션·행을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="settings" full />);
+
+    assert.ok(s.getByText('App Settings'));
+    assert.ok(s.getByText('Notifications'));
+  });
+});

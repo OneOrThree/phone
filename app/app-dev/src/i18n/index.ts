@@ -112,6 +112,19 @@ export function errorText(err: unknown): string {
   return serverText || t('errors.GENERIC');
 }
 
+// 화면이 저마다 `x instanceof ApiError ? x.message : 한글` 로 직접 분기하던 자리의 공용 교체.
+// ko 는 errorText 의 특수 분기(STATE_CONFLICT·REQUEST_IN_PROGRESS 등)를 타지 않고 항상 원문 그대로 —
+// 그 특수 분기는 serverErrorText 호환용이라 이 호출부들의 기존 ko 단언과 다르다(GROMO-2238).
+// errorText(err) || t(fallbackKey) 는 en 의 CLIENT_STALE_SESSION('' 반환) 처럼 빈 문자열이 되는
+// 경로까지 막는다. socialLogin 이 throw 시점에 t() 로 현지화해 던지는 메시지는 전부 unavailable() 을
+// 거쳐 이미 ApiError 라 아래 ApiError 분기로 들어온다(예: «Apple 로그인은 iPhone과 iPad…») —
+// ApiError 가 아닌 일반 Error 는 폴백으로만 보낸다. 여기서 message 를 그대로 보여주면 테스트가
+// "알 수 없는 실패" 를 흉내 내는 new Error('network') 류 자리에서도 원문이 새 나간다(실측, GROMO-2238 리뷰).
+export function errorTextOr(err: unknown, fallbackKey: string): string {
+  if (!(err instanceof ApiError)) return t(fallbackKey);
+  return current === 'ko' ? err.message || t(fallbackKey) : errorText(err) || t(fallbackKey);
+}
+
 // 언어별 값(이미지 require 쌍 등)을 고른다. 현재 언어 값이 없으면 en.
 export function localized<T>(byLocale: Record<SupportedLocale, T>): T {
   return byLocale[current] ?? byLocale.en;
