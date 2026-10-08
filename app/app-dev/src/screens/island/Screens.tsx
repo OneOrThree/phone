@@ -46,7 +46,7 @@ import {
   costs,
   buildingNames,
   colors,
-  colorNames,
+  colorName,
   residentCount,
   capacityOf,
   isFull,
@@ -67,6 +67,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { ApiError, uuid } from '@/services/api/client';
 import {
   applyLocalePref,
+  errorText,
   getLocale,
   LOCALE_KEY,
   LOCALE_NAMES,
@@ -274,7 +275,7 @@ function AvatarGrid({ value, onChange, mini = false, six = false, disabled = fal
               return (
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={colorNames[colors.indexOf(c)]}
+                  accessibilityLabel={colorName(colors.indexOf(c))}
                   accessibilityState={{ selected: on }}
                   disabled={disabled}
                   key={c}
@@ -306,7 +307,7 @@ function AvatarGrid({ value, onChange, mini = false, six = false, disabled = fal
                       color: on ? C.ink : C.muted,
                     }}
                   >
-                    {colorNames[colors.indexOf(c)]}
+                    {colorName(colors.indexOf(c))}
                   </Txt>
                 </Pressable>
               );
@@ -845,19 +846,8 @@ export function RedesignScreens({ e }: any) {
   // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
   // stale 세션의 늦은 응답(CLIENT_STALE_SESSION)은 문구 없이 버린다.
   const server = e.islands;
-  const serverErrorText = (thrown: unknown) => {
-    if (!(thrown instanceof ApiError)) return '연결을 확인한 뒤 다시 시도해 주세요.';
-    const code = thrown.code;
-    if (code === 'CLIENT_STALE_SESSION') return '';
-    if (code === 'SLUG_NOT_FOUND') return '초대 코드를 다시 확인해 주세요.';
-    if (code === 'INVITATION_EXPIRED') return '만료된 초대예요. 새 초대를 받아 주세요.';
-    if (code === 'FORBIDDEN' && thrown.message) return thrown.message;
-    if (code === 'STATE_CONFLICT' || code === 'VERSION_CONFLICT')
-      return '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.';
-    if (code === 'REQUEST_IN_PROGRESS' || thrown.retryable)
-      return '처리 중이에요. 잠시 뒤 다시 시도해 주세요.';
-    return thrown.message || '연결을 확인한 뒤 다시 시도해 주세요.';
-  };
+  // ko 출력은 i18n/index.test.ts 의 errorText 테스트가 보증한다(GROMO-2238)
+  const serverErrorText = errorText;
   const run = (fn: () => Promise<unknown>, fail: (m: string) => void = setServerError) => {
     if (serverBusy) return;
     setServerBusy(true);
@@ -1261,7 +1251,7 @@ export function RedesignScreens({ e }: any) {
         >
           {terms && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
-        <Txt kind="meta">이용약관과 개인정보처리방침에 동의해요.</Txt>
+        <Txt kind="meta">{t('login.fallbackTermsAgree')}</Txt>
       </Pressable>
     );
     const agree = (
@@ -1280,10 +1270,10 @@ export function RedesignScreens({ e }: any) {
         <Btn
           title={
             e.guestBusy
-              ? '게스트 계정을 여는 중…'
+              ? t('login.guestOpening')
               : e.startGuest
-                ? '게스트로 시작하기'
-                : 'GROMO 시작하기'
+                ? t('login.guestStart')
+                : t('login.fallbackStart')
           }
           disabled={!terms || !!e.guestBusy}
           onPress={() => {
@@ -1460,22 +1450,22 @@ export function RedesignScreens({ e }: any) {
   if (route === 'character')
     return (
       <Onboard
-        title="내 고양이"
+        title={t('character.title')}
         back={back}
         hideCtaOnKeyboard
         leftBg={C.soft}
         left={
           <View style={{ alignItems: 'center', gap: 6 }}>
             <Pic id="cat/black/sitting" w={170} />
-            <Txt style={H17}>반가워, 나의 고양이!</Txt>
+            <Txt style={H17}>{t('character.greeting')}</Txt>
             <Txt kind="meta" style={META}>
-              털색은 나중에 바꿀 수 있어요
+              {t('character.furColorLaterCompact')}
             </Txt>
           </View>
         }
         cta={
           <Btn
-            title="내 고양이와 시작"
+            title={t('character.startWithCat')}
             disabled={!state.name.trim() || serverBusy}
             onPress={() => {
               if (!server) {
@@ -1511,9 +1501,9 @@ export function RedesignScreens({ e }: any) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 }}>
             <Pic id="cat/black/sitting" w={84} />
             <View style={{ flex: 1, gap: 2 }}>
-              <Txt style={H22}>반가워, 나의 고양이!</Txt>
+              <Txt style={H22}>{t('character.greeting')}</Txt>
               <Txt kind="meta" style={META}>
-                털색은 나중에 내 정보에서 바꿀 수 있어요
+                {t('character.furColorLaterFull')}
               </Txt>
             </View>
           </View>
@@ -1523,7 +1513,7 @@ export function RedesignScreens({ e }: any) {
             {serverError}
           </Txt>
         ) : null}
-        <Txt style={[SEC, { marginTop: layout.compact ? 0 : 6 }]}>어떤 고양이로 시작할까요?</Txt>
+        <Txt style={[SEC, { marginTop: layout.compact ? 0 : 6 }]}>{t('character.whichCat')}</Txt>
         <AvatarGrid
           six={layout.compact}
           value={state.color}
@@ -1534,8 +1524,8 @@ export function RedesignScreens({ e }: any) {
           }}
         />
         <Field
-          label="닉네임"
-          placeholder="닉네임을 입력해 주세요"
+          label={t('account.profile.nickname')}
+          placeholder={t('account.profile.nicknamePlaceholder')}
           value={state.name}
           disabled={serverBusy}
           onChange={(name: string) => {
@@ -5380,7 +5370,7 @@ export function RedesignScreens({ e }: any) {
       primaryIslandName = server
         ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
           snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
-          '내 섬')
+          t('account.boat.myIslandFallback'))
         : primaryIsland.name,
       canChangeMainIsland = joinedIslands.length > 1;
     const mainIslandCard = (
@@ -5391,13 +5381,13 @@ export function RedesignScreens({ e }: any) {
             kind="meta"
             style={{ fontSize: 13, lineHeight: 19, fontWeight: '600', color: C.muted }}
           >
-            현재 내 메인 섬
+            {t('account.boat.currentMain')}
           </Txt>
           <Txt numberOfLines={1} ellipsizeMode="tail" style={[st.h22, { marginTop: 1 }]}>
             {primaryIslandName}
           </Txt>
           <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, marginTop: 1, color: C.muted }}>
-            친구 목록과 프로필에 표시돼요
+            {t('account.boat.visibleInProfile')}
           </Txt>
           {canChangeMainIsland && (
             <Txt
@@ -5411,7 +5401,7 @@ export function RedesignScreens({ e }: any) {
                 color: '#9A4C3E',
               }}
             >
-              메인 섬 변경하기
+              {t('account.boat.changeMain')}
             </Txt>
           )}
           {canChangeMainIsland && (
@@ -5423,11 +5413,11 @@ export function RedesignScreens({ e }: any) {
       </>
     );
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title="내 뗏목" tight onClose={home}>
+      <IslandSheet bg="dock" sign="boat/raft" title={t('account.boat.title')} tight onClose={home}>
         {canChangeMainIsland ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`현재 내 메인 섬 ${primaryIslandName}, 메인 섬 변경하기`}
+            accessibilityLabel={t('account.boat.currentMainA11y', { name: primaryIslandName })}
             onPress={() => go('mainIsland')}
             style={({ pressed }) => ({
               height: 164,
@@ -5447,7 +5437,7 @@ export function RedesignScreens({ e }: any) {
         ) : (
           <View
             accessible
-            accessibilityLabel={`현재 내 메인 섬 ${primaryIslandName}`}
+            accessibilityLabel={t('account.boat.currentMainOnlyA11y', { name: primaryIslandName })}
             style={{
               height: 164,
               flexDirection: 'row',
@@ -5465,15 +5455,15 @@ export function RedesignScreens({ e }: any) {
         )}
         <SheetGroup>
           <SheetRow
-            title="보유품 꾸미기"
-            sub="옷 · 장신구"
+            title={t('account.boat.wardrobeTitle')}
+            sub={t('account.boat.wardrobeSub')}
             lead={<Pic id="scarf-cat" w={28} />}
             chevron
             onPress={() => go('wardrobe')}
           />
           <SheetRow
-            title="친구 관리"
-            sub="친구 찾기 · 요청 · 친구 목록"
+            title={t('account.boat.friendsTitle')}
+            sub={t('account.boat.friendsSub')}
             lead={<RowIcon name="group" />}
             right={
               received ? (
@@ -5485,7 +5475,7 @@ export function RedesignScreens({ e }: any) {
                     fontVariant: ['tabular-nums'],
                   }}
                 >
-                  요청 {received}
+                  {t('account.boat.friendRequestCount', { count: received })}
                 </Txt>
               ) : undefined
             }
@@ -5493,15 +5483,15 @@ export function RedesignScreens({ e }: any) {
             onPress={() => go('friends')}
           />
           <SheetRow
-            title="내 정보"
-            sub="닉네임 · 털색 · 계정"
+            title={t('account.profile.title')}
+            sub={t('account.profile.sub')}
             lead={<Pic id={'avatar/' + state.color} w={28} />}
             chevron
             onPress={() => go('profile')}
           />
           <SheetRow
-            title="앱 설정"
-            sub="알림 · 소리 · 앱 권한 · 튜토리얼 다시보기"
+            title={t('account.boat.settingsTitle')}
+            sub={t('account.boat.settingsSub')}
             lead={<RowIcon name="gear" />}
             chevron
             onPress={() => go('settings')}
@@ -6091,10 +6081,10 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'profile') {
     const providerLabels: Record<string, string> = {
-      google: 'Google',
-      kakao: '카카오',
-      line: 'LINE',
-      apple: 'Apple',
+      google: t('account.profile.providers.google'),
+      kakao: t('account.profile.providers.kakao'),
+      line: t('account.profile.providers.line'),
+      apple: t('account.profile.providers.apple'),
     };
     const linkedProviderText = (state.linkedProviders ?? [])
       .map((provider: string) => providerLabels[provider] ?? provider)
@@ -6108,20 +6098,20 @@ export function RedesignScreens({ e }: any) {
         bg="dock"
         sign={'avatar/' + profileColor}
         signKind="av"
-        title="내 정보"
+        title={t('account.profile.title')}
         tall
         onBack={back}
         onClose={home}
-        action="저장"
+        action={t('common.save')}
         actionPress={() => {
           const name = profileName.trim();
           if (!name) {
-            notify('닉네임을 입력해 주세요.');
+            notify(t('account.profile.nicknameRequired'));
             return;
           }
           if (!server) {
             act('PROFILE', { name, color: profileColor });
-            notify('저장했어요.');
+            notify(t('account.profile.saved'));
             back();
             return;
           }
@@ -6138,7 +6128,7 @@ export function RedesignScreens({ e }: any) {
                   name: saved.name ?? name,
                   color: saved.catColor ?? profileColor,
                 });
-                notify('저장했어요.');
+                notify(t('account.profile.saved'));
                 back();
               }),
             notify,
@@ -6155,8 +6145,8 @@ export function RedesignScreens({ e }: any) {
           disabled={serverBusy}
         />
         <Field
-          label="닉네임"
-          placeholder="닉네임을 입력해 주세요"
+          label={t('account.profile.nickname')}
+          placeholder={t('account.profile.nicknamePlaceholder')}
           value={profileName}
           onChange={serverBusy ? () => {} : setProfileName}
           disabled={serverBusy}
@@ -6164,29 +6154,32 @@ export function RedesignScreens({ e }: any) {
         />
         <SheetGroup>
           <SheetRow
-            title="연동 계정"
-            sub={
-              linkedProviderText
-                ? `${state.name}님의 GROMO 계정 · ${linkedProviderText}`
-                : `${state.name}님의 GROMO 계정 · 연결된 계정 없음`
-            }
+            title={t('account.profile.linkedAccount')}
+            sub={t('account.profile.accountSummary', {
+              name: state.name,
+              providers: linkedProviderText || t('account.profile.noLinkedAccount'),
+            })}
           />
           <SheetRow
-            title="로그아웃"
+            title={t('account.profile.logout')}
             chevron
             onPress={() =>
-              confirm('로그아웃할까요?', '저장된 기록은 그대로 남아요.', async () => {
-                // 기기에 로그아웃을 기록하지 못했으면 세션이 남아 있으니 로그인 화면으로 가지 않는다.
-                if ((await e.signOut()) === false) return;
-                act('LOGOUT');
-                reset('login');
-              })
+              confirm(
+                t('account.profile.logoutConfirmTitle'),
+                t('account.profile.logoutConfirmBody'),
+                async () => {
+                  // 기기에 로그아웃을 기록하지 못했으면 세션이 남아 있으니 로그인 화면으로 가지 않는다.
+                  if ((await e.signOut()) === false) return;
+                  act('LOGOUT');
+                  reset('login');
+                },
+              )
             }
           />
         </SheetGroup>
         {withdrawCleanupPending ? (
           <Btn
-            title="기기 데이터 정리 다시 시도"
+            title={t('account.profile.retryDeviceCleanup')}
             kind="danger"
             style={{ alignSelf: 'center' }}
             // 계정은 이미 삭제됐다 — 탈퇴 API 없이 로컬 정리만 다시 한다.
@@ -6194,15 +6187,15 @@ export function RedesignScreens({ e }: any) {
           />
         ) : (
           <Btn
-            title="회원 탈퇴"
+            title={t('account.profile.withdraw')}
             kind="danger"
             style={{ alignSelf: 'center' }}
             onPress={() =>
               mustTransferHost
-                ? notify('방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.')
+                ? notify(t('account.profile.mustTransferHost'))
                 : confirm(
-                    '회원 탈퇴할까요?',
-                    '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
+                    t('account.profile.withdrawConfirmTitle'),
+                    t('account.profile.withdrawConfirmBody'),
                     () => {
                       if (!server) {
                         run(finishWithdrawal, notify);
@@ -6235,7 +6228,7 @@ export function RedesignScreens({ e }: any) {
                         await finishWithdrawal();
                       }, notify);
                     },
-                    { ok: '탈퇴', destructive: true },
+                    { ok: t('account.profile.withdrawConfirmOk'), destructive: true },
                   )
             }
           />
@@ -6268,21 +6261,21 @@ export function RedesignScreens({ e }: any) {
       <IslandSheet
         bg="dock"
         sign="boat/raft"
-        title="앱 설정"
+        title={t('account.boat.settingsTitle')}
         tall
         tight
         onBack={back}
         onClose={home}
       >
-        {sec('알림·소리')}
+        {sec(t('settings.notificationsSoundSection'))}
         <SheetGroup flat>
-          {toggle('알림', 'notifications')}
-          {toggle('소리', 'sound')}
-          {toggle('가벼운 진동', 'haptics')}
+          {toggle(t('settings.notifications'), 'notifications')}
+          {toggle(t('settings.sound'), 'sound')}
+          {toggle(t('settings.haptics'), 'haptics')}
         </SheetGroup>
-        {sec('화면')}
+        {sec(t('settings.screenSection'))}
         <SheetGroup flat>
-          {toggle('동작 줄이기', 'reduceMotion', '이동·전환 애니메이션을 줄여요')}
+          {toggle(t('settings.reduceMotion'), 'reduceMotion', t('settings.reduceMotionSub'))}
         </SheetGroup>
         {sec(t('settings.language.title'))}
         <SheetGroup flat>
@@ -6293,33 +6286,33 @@ export function RedesignScreens({ e }: any) {
             onPress={() => go('language', 'settings')}
           />
         </SheetGroup>
-        {sec('권한')}
+        {sec(t('settings.permissionSection'))}
         <SheetGroup flat>
           <SheetRow
-            title="앱 권한 관리"
-            sub="스크린타임 권한 · 측정 앱"
+            title={t('settings.permissionManage')}
+            sub={t('settings.permissionManageSub')}
             chevron
             onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
         {server ? (
           <>
-            {sec('안전')}
+            {sec(t('settings.safetySection'))}
             <SheetGroup flat>
               <SheetRow
-                title="차단한 사용자"
-                sub="차단 목록을 확인하고 해제해요"
+                title={t('account.blocked.title')}
+                sub={t('settings.blockedUsersSub')}
                 chevron
                 onPress={() => go('blockedUsers')}
               />
             </SheetGroup>
           </>
         ) : null}
-        {sec('도움말')}
+        {sec(t('settings.helpSection'))}
         <SheetGroup flat>
           <SheetRow
-            title="튜토리얼 다시보기"
-            sub="몽돌 안내를 처음부터 다시 봐요"
+            title={t('settings.replayTutorial')}
+            sub={t('settings.replayTutorialSub')}
             chevron
             onPress={() => {
               setGuideStep(0);
@@ -6327,31 +6320,27 @@ export function RedesignScreens({ e }: any) {
             }}
           />
         </SheetGroup>
-        {sec('앱 정보')}
+        {sec(t('settings.appInfoSection'))}
         <SheetGroup flat>
-          <SheetRow title="버전" sub="R61 · v2" />
+          <SheetRow title={t('settings.version')} sub="R61 · v2" />
           <SheetRow
-            title="개인정보 처리 안내"
-            sub="앱에서 처리하는 정보와 외부 전송 안내"
+            title={t('settings.privacyNotice')}
+            sub={t('settings.privacyNoticeSub')}
             chevron
             onPress={() =>
-              confirm(
-                '개인정보 처리 안내',
-                '로그인 때 소셜 제공자 인증 정보와 계정 식별 정보가 서버로 전달돼요. 닉네임, 섬·주민 활동, 친구·편지, 집중 기록 등 서비스 데이터도 기능 제공과 동기화를 위해 서버에 저장돼요.\n\n화면 이용과 주요 기능 이벤트는 PostHog로, 화면·요청 진단 정보는 설정된 경우 Datadog으로 전송될 수 있어요. 스크린타임 권한을 허용하면 선택한 앱 사용 시간을 기기에서 읽어 목표와 통계에 사용해요. 자세한 처리 항목과 보관 기간은 개인정보 처리방침에서 확인할 수 있어요. 회원 탈퇴를 요청하면 서버 계정 삭제를 요청해요.',
-                () => {},
-              )
+              confirm(t('settings.privacyNotice'), t('settings.privacyNoticeBody'), () => {})
             }
           />
           <SheetRow
-            title="이용약관"
+            title={t('login.policy.terms')}
             chevron
-            label="이용약관 원문 보기"
+            label={t('login.policy.viewOriginalA11y', { title: t('login.policy.terms') })}
             onPress={() => openPolicy(TERMS_URL)}
           />
           <SheetRow
-            title="개인정보처리방침"
+            title={t('login.policy.privacy')}
             chevron
-            label="개인정보처리방침 원문 보기"
+            label={t('login.policy.viewOriginalA11y', { title: t('login.policy.privacy') })}
             onPress={() => openPolicy(PRIVACY_URL)}
           />
         </SheetGroup>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import { LoginScreen } from './LoginScreen';
 
 jest.mock('@/utils/layout', () => ({
@@ -136,4 +137,29 @@ test('한 제공자 로그인 중에는 모든 로그인 동작과 약관 변경
   }
   fireEvent.press(screen.getByRole('checkbox'));
   expect(onTermsAcceptedChange).not.toHaveBeenCalled();
+});
+
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  test('기기 언어가 en 이면 제공자 라벨과 게스트 문구를 영문으로 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const screen = await render(
+      <LoginScreen
+        providers={['google']}
+        termsAccepted
+        onTermsAcceptedChange={jest.fn()}
+        onGuestPress={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Continue with Google')).toBeTruthy();
+    expect(screen.getByText('Start as a guest')).toBeTruthy();
+  });
 });

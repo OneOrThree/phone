@@ -33,6 +33,7 @@ import { TextInput } from '@/design-system/typography';
 import { componentTokens } from '@/design-system/tokens';
 import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
+import { t } from '@/i18n';
 
 // 꽉 채우는 그림. 웹(react-native-web)은 absoluteFill만 주면 원본 픽셀 크기로 그려서 폭·높이를 같이 준다
 const fill: ImageStyle = { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' };
@@ -81,7 +82,7 @@ function CloseX({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="닫기"
+      accessibilityLabel={t('common.close')}
       onPress={onPress}
       hitSlop={6}
       style={[
@@ -716,7 +717,7 @@ export function QuestNote({
 }) {
   const { s, flow, font } = useContext(BoardCtx);
   const n = noteAt(i);
-  const t = { fontFamily: font, color: C.ink };
+  const tx = { fontFamily: font, color: C.ink };
   return (
     <View
       style={[
@@ -738,7 +739,7 @@ export function QuestNote({
         <Txt
           tabletScale={1}
           numberOfLines={3}
-          style={[t, { fontSize: 15 * s, lineHeight: 19.5 * s, fontWeight: '800' }]}
+          style={[tx, { fontSize: 15 * s, lineHeight: 19.5 * s, fontWeight: '800' }]}
         >
           {title}
         </Txt>
@@ -750,13 +751,13 @@ export function QuestNote({
               alignItems: 'baseline',
             }}
           >
-            <Txt tabletScale={1} style={[t, { fontSize: 11 * s, lineHeight: 16 * s }]}>
+            <Txt tabletScale={1} style={[tx, { fontSize: 11 * s, lineHeight: 16 * s }]}>
               내 달성률
             </Txt>
             <Txt
               tabletScale={1}
               style={[
-                t,
+                tx,
                 {
                   fontSize: 15 * s,
                   lineHeight: 21 * s,
@@ -837,7 +838,7 @@ export function NoticePaper({
   onPress?: () => void;
 }) {
   const { s, flow, font } = useContext(BoardCtx);
-  const t = { fontFamily: font, color: C.ink };
+  const tx = { fontFamily: font, color: C.ink };
   return (
     <Pressable
       accessibilityRole="button"
@@ -883,7 +884,10 @@ export function NoticePaper({
           transform: [{ rotate: '-2deg' }],
         }}
       />
-      <Txt tabletScale={1} style={[t, { fontSize: 16 * s, lineHeight: 21 * s, fontWeight: '700' }]}>
+      <Txt
+        tabletScale={1}
+        style={[tx, { fontSize: 16 * s, lineHeight: 21 * s, fontWeight: '700' }]}
+      >
         {title}
       </Txt>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 * s }}>
@@ -900,19 +904,19 @@ export function NoticePaper({
           >
             <Txt
               tabletScale={1}
-              style={[t, { fontSize: 10 * s, lineHeight: 14 * s, fontWeight: '700' }]}
+              style={[tx, { fontSize: 10 * s, lineHeight: 14 * s, fontWeight: '700' }]}
             >
               {badge}
             </Txt>
           </View>
         )}
-        <Txt tabletScale={1} style={[t, { fontSize: 12 * s, lineHeight: 17 * s, color: C.muted }]}>
+        <Txt tabletScale={1} style={[tx, { fontSize: 12 * s, lineHeight: 17 * s, color: C.muted }]}>
           {meta}
         </Txt>
         <Txt
           tabletScale={1}
           style={[
-            t,
+            tx,
             { marginLeft: 'auto', fontSize: 12 * s, lineHeight: 17 * s, fontWeight: '700' },
           ]}
         >

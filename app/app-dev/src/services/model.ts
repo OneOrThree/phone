@@ -9,6 +9,7 @@ import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
 import type { PlaybackState } from '@/services/api/playback';
 import type { HomeWorldFacts } from '@/services/homeSnapshot';
 import { formatDuration } from '@/i18n/format';
+import { t } from '@/i18n';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -342,15 +343,33 @@ export type State = {
   lettersReadAt?: number;
 };
 export const colors: Color[] = ['black', 'ginger', 'cream', 'gray', 'white', 'calico'];
-export const colorNames = ['검정', '치즈', '크림', '회색', '흰색', '삼색'];
+// colorNames 배열은 게터로 못 만든다 — 호출 시점에 해석하는 함수로 둔다(GROMO-2238)
+export function colorName(index: number): string {
+  return t(`color.${colors[index]}`);
+}
+// 프로퍼티 게터 — 호출부는 색인·점 접근 그대로 쓰고, 값은 호출 시점 언어로 해석된다(GROMO-2238)
 export const buildingNames: Record<Building, string> = {
-  hall: '마을회관',
-  board: '게시판',
-  tower: '전망대',
-  mail: '우체통',
-  gram: '축음기',
-  library: '도서관',
-  shop: '상점',
+  get hall() {
+    return t('building.hall');
+  },
+  get board() {
+    return t('building.board');
+  },
+  get tower() {
+    return t('building.tower');
+  },
+  get mail() {
+    return t('building.mail');
+  },
+  get gram() {
+    return t('building.gram');
+  },
+  get library() {
+    return t('building.library');
+  },
+  get shop() {
+    return t('building.shop');
+  },
 };
 // 유효 집중 이 초만큼마다 물고기 1마리 (GROMO-1830, 2026-09-15)
 export const SECONDS_PER_FISH = 60;
@@ -435,10 +454,18 @@ export const kstDayStart = (day: string) => {
   return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;
 };
 export const trackNames: Record<string, string> = {
-  waves: '잔잔한 파도',
-  campfire: '모닥불 소리',
-  'forest-wind': '숲바람',
-  rain: '빗방울 소리',
+  get waves() {
+    return t('track.waves');
+  },
+  get campfire() {
+    return t('track.campfire');
+  },
+  get 'forest-wind'() {
+    return t('track.forestWind');
+  },
+  get rain() {
+    return t('track.rain');
+  },
 };
 export const products: Product[] = [
   {
@@ -1178,12 +1205,12 @@ function focusTotal(records: RecordItem[], islandId: string, day: string, q: Que
       (n, r) =>
         n +
         (r.intervals ?? [{ start: r.at - r.seconds * 1000, end: r.at }]).reduce(
-          (sum, t) =>
+          (sum, iv) =>
             sum +
             Math.max(
               0,
-              Math.min(t.end, until, q.windowEnd ? clock(q.windowEnd) : until) -
-                Math.max(t.start, from, q.windowStart ? clock(q.windowStart) : from),
+              Math.min(iv.end, until, q.windowEnd ? clock(q.windowEnd) : until) -
+                Math.max(iv.start, from, q.windowStart ? clock(q.windowStart) : from),
             ) /
               1000,
           0,

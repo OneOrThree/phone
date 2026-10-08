@@ -102,6 +102,14 @@ export function errorText(err: unknown): string {
   return serverText || t('errors.GENERIC');
 }
 
+// 화면이 저마다 `x instanceof ApiError ? x.message : 한글` 로 직접 분기하던 자리의 공용 교체.
+// ko 는 errorText 의 특수 분기(STATE_CONFLICT·REQUEST_IN_PROGRESS 등)를 타지 않고 항상 원문 그대로 —
+// 그 특수 분기는 serverErrorText 호환용이라 이 호출부들의 기존 ko 단언과 다르다(GROMO-2238).
+export function errorTextOr(err: unknown, fallbackKey: string): string {
+  if (!(err instanceof ApiError)) return t(fallbackKey);
+  return current === 'ko' ? err.message || t(fallbackKey) : errorText(err);
+}
+
 // 언어별 값(이미지 require 쌍 등)을 고른다. 현재 언어 값이 없으면 en.
 export function localized<T>(byLocale: Record<SupportedLocale, T>): T {
   return byLocale[current] ?? byLocale.en;
