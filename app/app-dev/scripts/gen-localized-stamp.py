@@ -1,10 +1,10 @@
 """blueprint-ready-stamp-v3.ko.png("준비 완료" 도장) 의 영문판을 결정적으로 생성한다 (GROMO-2240).
 
 - 입력 ``<이름>.ko.png`` 에서 ① 불투명 픽셀의 채널별 중앙값으로 붉은 잉크색을 뽑고
-  (중앙값과 멀리 떨어진 픽셀이 5% 를 넘으면 "두 색 도장"으로 실패) ② 중심에서
-  반지름별 각도 채움 비율로 가장 바깥의 두 개 띠(이중 원 테두리)를 찾아 그 안쪽을
-  투명하게 지워 글자를 없앤다(테두리 자체는 원본 픽셀 그대로 보존, 띠 개수·폭·간격이
-  기대를 벗어나면 실패) ③ 빈 원 안에 굵은 글꼴로 READY 를 중앙 정렬해 찍는다(글꼴이
+  (중앙값과 멀리 떨어진 픽셀이 COLOR_TAIL_RATIO 를 넘으면 "두 색 도장"으로 실패) ② 중심에서
+  반지름별 각도 채움 비율로 띠를 모아 **정확히 두 개**(이중 원 테두리)일 때만 그 안쪽을
+  투명하게 지워 글자를 없앤다(테두리 자체는 원본 픽셀 그대로 보존, 띠가 2개가 아니거나
+  폭·간격이 기대를 벗어나면 실패) ③ 빈 원 안에 굵은 글꼴로 READY 를 중앙 정렬해 찍는다(글꼴이
   없으면 --check 는 바로 실패하고, 생성도 --allow-fallback-font 없이는 실패한다 — 있으면
   커밋 경로 대신 미리보기 파일에만 쓴다) ④ 가장자리를 1px 침식하고 고정 시드 잡음을
   알파에 곱해 원본의 거친 잉크 질감을 흉내 낸다.
@@ -21,6 +21,14 @@
 
 종료 코드: 0 정상 / 1 테두리 기하 이상·색 불균일·--check 불일치 / 2 글꼴 없음
 (생성은 --allow-fallback-font 로 우회 가능, --check 는 우회 불가 — 비교 기준이 흔들리면 안 됨).
+
+원본 도장이 바뀌어 기하·색 검사가 실패하면 점검할 상수(아래 정의 참조):
+  ALPHA_THRESH         "불투명 픽셀" 알파 하한(안티앨리어싱 잔여 무시)
+  COLOR_DIST_THRESH    잉크색 중앙값에서 이 RGB 거리보다 먼 픽셀을 "다른 색"으로 센다
+  COLOR_TAIL_RATIO     "다른 색" 픽셀 비율이 이 값을 넘으면 두 색 도장으로 실패
+  FILL_THRESH          한 반지름에서 불투명한 각도 비율이 이 값 이상이면 테두리 띠
+  EXPECTED_BAND_WIDTH  테두리 띠 하나의 폭(px) 허용 범위
+  EXPECTED_BAND_GAP    두 띠 사이 간격(px) 허용 범위
 
 의존성: Pillow(scripts/requirements-tile-atlas.txt 에 고정된 버전 — 새 requirements 없음, 설치된
 버전이 다르면 경고만 찍는다). 설치: ``python3 -m pip install -r scripts/requirements-tile-atlas.txt``
@@ -48,6 +56,7 @@ TEXT = "READY"
 SEED = 20240  # 잡음 마스크 고정 시드 -> 결정적 출력
 ALPHA_THRESH = 10  # 이보다 큰 알파만 "불투명 픽셀"로 취급(안티앨리어싱 잔여 무시)
 COLOR_DIST_THRESH = 30  # RGB 유클리드 거리 — 실측 ko 그런지 p95≈14 보다 넉넉히 여유를 둠(20 은 과적합이었음)
+COLOR_TAIL_RATIO = 0.05  # 중앙값에서 COLOR_DIST_THRESH 보다 먼 불투명 픽셀이 이 비율을 넘으면 두 색 도장
 FILL_THRESH = 0.8  # 이 비율 이상 각도가 불투명해야 "테두리 띠"로 인정(점 하나짜리 오탐 방지)
 ANGLE_SAMPLES = 360
 EXPECTED_BAND_WIDTH = (3, 20)  # px — 실측(바깥 8px, 안쪽 4px)에 여유를 둔 범위
@@ -63,19 +72,20 @@ def opaque_pixels(im):
 def geometry_fail(msg):
     """도장 기하·색 가정이 깨졌을 때 어느 상수를 점검할지 덧붙여 즉시 종료한다(exit 1)."""
     raise SystemExit(
-        f"{msg} — 원본 도장 기하가 바뀌었다면 FILL_THRESH/EXPECTED_BAND_WIDTH/"
-        "EXPECTED_BAND_GAP/COLOR_DIST_THRESH 를 점검(스크립트 docstring 참조)"
+        f"{msg} — 원본 도장이 바뀌었다면 FILL_THRESH/EXPECTED_BAND_WIDTH/EXPECTED_BAND_GAP/"
+        "COLOR_DIST_THRESH/COLOR_TAIL_RATIO 를 점검(스크립트 docstring 의 상수 설명 참조)"
     )
 
 
 def ink_color(im, opaque):
     """불투명(알파>200) 픽셀의 채널별 중앙값 -> 원본과 같은 붉은색.
 
-    중앙값과 거리가 COLOR_DIST_THRESH 를 넘는 불투명 픽셀이 5% 를 넘으면
+    중앙값과 거리가 COLOR_DIST_THRESH 를 넘는 불투명 픽셀이 COLOR_TAIL_RATIO 를 넘으면
     빨강 하나가 아니라 두 색을 쓰는 도장으로 보고 실패한다(이 스크립트는
     단색 잉크 도장만 다룬다).
     """
     px = im.load()
+    # 알파>200 만 쓴다 — ALPHA_THRESH(10) 까지 넣으면 가장자리 안티앨리어싱의 옅은 색이 중앙값을 흐린다
     strong = [(x, y) for x, y in opaque if px[x, y][3] > 200]
     if not strong:
         geometry_fail("불투명(알파>200) 픽셀이 없어 잉크색을 추출할 수 없음")
@@ -85,7 +95,7 @@ def ink_color(im, opaque):
     color = tuple(ch[mid] for ch in channels)
 
     far = sum(1 for x, y in strong if math.dist(px[x, y][:3], color) > COLOR_DIST_THRESH)
-    if far / len(strong) > 0.05:
+    if far / len(strong) > COLOR_TAIL_RATIO:
         geometry_fail(
             f"잉크색이 고르지 않음(중앙값과 거리>{COLOR_DIST_THRESH} 인 픽셀 "
             f"{far / len(strong):.1%}) — 두 색 도장으로 의심됨"
@@ -226,12 +236,12 @@ def grunge(alpha_img):
 
 
 def warn_pillow_version():
-    """requirements-tile-atlas.txt 에 고정된 Pillow 버전과 다르면 경고만 찍는다(실패 아님) —
+    """requirements-tile-atlas.txt 에 고정된 Pillow 버전과 다르면 경고만 찍고 True 를 돌려준다(실패 아님) —
     아틀라스 스크립트와 같은 버전이어야 픽셀 결과가 재현된다는 전제를 공유한다."""
     try:
         text = REQUIREMENTS_FILE.read_text(encoding="utf-8")
     except OSError:
-        return
+        return False
     for line in text.splitlines():
         if line.startswith("pillow=="):
             expected = line.split("==", 1)[1].strip()
@@ -241,7 +251,9 @@ def warn_pillow_version():
                     f"{expected} 과 다름 — 생성 픽셀이 달라질 수 있음",
                     file=sys.stderr,
                 )
-            return
+                return True
+            return False
+    return False
 
 
 def same_pixels(png_bytes, path):
@@ -286,7 +298,7 @@ def main():
     )
     args = ap.parse_args()
 
-    warn_pillow_version()
+    pillow_mismatch = warn_pillow_version()
 
     if not KO_PATH.exists():
         raise SystemExit(f"{KO_PATH} 없음")
@@ -309,7 +321,12 @@ def main():
 
     if args.check:
         if not same_pixels(out, EN_PATH):
-            print(f"{EN_PATH} 이 최신이 아님 (npm run gen:localized-stamp)", file=sys.stderr)
+            hint = (
+                " — Pillow 버전이 달라 생성 결과가 달라졌을 수 있다, 고정 버전 venv 에서 다시 확인"
+                if pillow_mismatch
+                else " (npm run gen:localized-stamp)"
+            )
+            print(f"{EN_PATH} 이 최신이 아님{hint}", file=sys.stderr)
             sys.exit(1)
         print("localized-stamp 산출물이 최신이다")
         return
