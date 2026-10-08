@@ -1,3 +1,5 @@
+import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
+import { syncFocusShield } from '@/services/focusShield';
 import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
@@ -31,7 +33,7 @@ import { useSoundPlayer } from '@/hooks/useSoundPlayer';
 import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
 import { useBuildingIndicators } from '@/screens/island/useBuildingIndicators';
 import { bundledAudioSource } from '@/constants/audio';
-import { screenTime, selectionCount } from '@/services/screenTime';
+import { screenTime } from '@/services/screenTime';
 import {
   endLiveActivities,
   shouldPollExpiredRest,
@@ -41,6 +43,8 @@ import {
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import { reconcileTutorial } from '@/services/tutorial';
+import { syncIOSScreenTime } from '@/services/iosScreenTimeSync';
+import { reportScreenTime, subscribeScreenTimeReporting } from '@/services/screenTimeReporting';
 import { clearStudyWidget } from '@/services/studyWidget';
 import { settleWithdrawalIntent } from '@/services/withdrawalIntent';
 import * as Haptics from 'expo-haptics';
@@ -710,6 +714,67 @@ function Gromo() {
       live = false;
     };
   }, [loaded, serverCurrent, onHome, homeReload]);
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !loaded || REVIEW || DEMO) return;
+    const initialOwner = getSession()?.userId;
+    let active = true;
+    let pending = false;
+    const update = async () => {
+      const owner = getSession()?.userId;
+      if (!owner || !serverCurrent || !storageOwnerReadyRef.current) {
+        await updateIOSHomeWidget(null).catch(() => {});
+        return;
+      }
+      if (pending) return;
+      pending = true;
+      const generation = sessionGeneration();
+      const date = dayKey();
+      const current = () =>
+        active && generation === sessionGeneration() && getSession()?.userId === owner;
+      try {
+        const result = await loadHomeSnapshot({ date, timezone: 'Asia/Seoul', isCurrent: current });
+        if (!current() || date !== dayKey()) return;
+        if (result.status !== 'loaded' || result.facts.islandId !== serverCurrent) return;
+        await updateIOSHomeWidget({
+          owner,
+          day: date,
+          totalSeconds: result.facts.home.focusSummary.totalSeconds,
+          catColor: stateRef.current.color,
+          observedAt: Date.now(),
+        });
+      } catch {
+        // 실패한 조회를 0분으로 덮지 않는다. 기존 스냅샷은 네이티브에서 날짜 만료된다.
+      } finally {
+        pending = false;
+      }
+    };
+    void update();
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') void update();
+    }, 60000);
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active' || next === 'background') void update();
+    });
+    const unsubscribe = subscribeSession((session) => {
+      if (!session || session.userId !== initialOwner)
+        void updateIOSHomeWidget(null).catch(() => {});
+    });
+    return () => {
+      active = false;
+      clearInterval(timer);
+      subscription.remove();
+      unsubscribe();
+    };
+  }, [
+    loaded,
+    hasServerSession,
+    storageOwnerReady,
+    serverCurrent,
+    state.session?.id,
+    state.session?.version,
+    state.session?.status,
+    state.color,
+  ]);
   // ── 집중 세션 서버 명령(GROMO-2009) ──
   // 섬 명령과 같은 저장소 규칙 — 멱등 키는 세대 격리 ref, state·세션은 최신 ref로 읽는다.
   const focusCmds = useRef<ReturnType<typeof createSessionCommands> | null>(null);
@@ -1509,38 +1574,30 @@ function Gromo() {
         dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
         return;
       }
+      if (!storageOwnerReadyRef.current || !getSession() || REVIEW || DEMO) return;
+      const current = ++request;
+      const generation = sessionGeneration();
+      const isCurrent = () => active && current === request && generation === sessionGeneration();
+      let measured = false;
       dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
       try {
-        const status = await screenTime.getAuthorizationStatus();
-        const approved = status === 'approved';
-        dispatch({ type: 'SETTING', key: 'permission', value: approved });
-        if (!approved) {
-          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
-          const unconfirmedDays = await screenTime
-            .markCurrentUsageBucketUnconfirmed()
-            .catch(() => []);
-          dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
-          return;
-        }
-        await screenTime.promotePendingSelectionIfDue().catch(() => false);
-        const selection = await screenTime.getMeasurementSelectionCounts();
-        const measurementReady = selectionCount(selection) > 0;
-        dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: measurementReady });
-        if (!measurementReady) {
+        const result = await syncIOSScreenTime(getSession()!.userId);
+        if (!isCurrent()) return;
+        dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot: result.snapshot, now: Date.now() });
+        measured = true;
+        await reportScreenTime(result.authorization, result.timeline, generation);
+        if (isCurrent()) dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: false });
+      } catch {
+        if (isCurrent()) {
+          if (!measured)
+            dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
+          dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: true });
           dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
-          return;
         }
-        const [minutes, history, unconfirmedDays] = await Promise.all([
-          screenTime.getTodayUsageBucketMinutes(),
-          screenTime.getUsageBucketHistory(),
-          screenTime.getUnconfirmedUsageBucketDays(),
-        ]);
-        dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
-        dispatch({ type: 'SCREEN_TIME_HISTORY', buckets: history, now: Date.now() });
-        dispatch({ type: 'SCREEN_TIME', value: minutes });
-      } catch {}
+      }
     };
     void syncPermission();
+    const unsubscribeReporting = subscribeScreenTimeReporting(() => void syncPermission());
     let syncedDay = dayKey();
     const dayChangeTimer = setInterval(() => {
       const currentDay = dayKey();
@@ -1549,7 +1606,7 @@ function Gromo() {
       void syncPermission();
     }, 1000);
     const usageTimer =
-      Platform.OS === 'android'
+      Platform.OS === 'android' || Platform.OS === 'ios'
         ? setInterval(() => {
             if (AppState.currentState === 'active') void syncPermission();
           }, 60000)
@@ -1560,19 +1617,29 @@ function Gromo() {
     return () => {
       active = false;
       request++;
+      unsubscribeReporting();
       clearInterval(usageTimer);
       clearInterval(dayChangeTimer);
       subscription.remove();
     };
-  }, [loaded]);
+  }, [loaded, hasServerSession, storageOwnerReady]);
   useEffect(() => {
     if (!loaded || Platform.OS !== 'ios') return;
-    if (state.session?.status === 'active') {
-      screenTime.startFocusShield(state.session.subject).catch(() => {});
-    } else {
-      screenTime.stopFocusShield().catch(() => {});
-    }
-  }, [loaded, state.session?.id, state.session?.status, state.session?.subject]);
+    const sync = () => {
+      const session = hasServerSession ? stateRef.current.session : null;
+      void syncFocusShield(session)
+        .then((applied) => {
+          if (!applied && session?.status === 'active')
+            notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
+        })
+        .catch(() => notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.'));
+    };
+    sync();
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') sync();
+    });
+    return () => subscription.remove();
+  }, [loaded, hasServerSession, state.session?.id, state.session?.status, state.session?.subject]);
   useEffect(() => {
     if (!loaded || Platform.OS !== 'ios') return;
     const session = REVIEW || DEMO || hasServerSession ? state.session : null;
@@ -1585,6 +1652,7 @@ function Gromo() {
     loaded,
     hasServerSession,
     state.session?.id,
+    state.session?.version,
     state.session?.islandId,
     state.session?.status,
     state.session?.subject,
@@ -1599,6 +1667,9 @@ function Gromo() {
     let active = true;
     const openActivity = (url: string | null) => {
       const session = stateRef.current.session;
+      if (active && url?.startsWith('com.oneorthree.focuscat://widget')) {
+        replace(session ? (session.status === 'paused' ? 'rest' : 'focus') : 'home');
+      }
       if (active && url?.startsWith('com.oneorthree.focuscat://activity') && session) {
         replace(session.status === 'paused' ? 'rest' : 'focus');
       }

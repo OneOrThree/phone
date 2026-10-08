@@ -1,3 +1,7 @@
+import {
+  getScreenTimeReportingConsent,
+  setScreenTimeReportingConsent,
+} from '@/services/screenTimeReporting';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
@@ -498,11 +502,82 @@ function CurrentScreensContent({ e }: any) {
   return <RedesignScreens e={screenE} />;
 }
 
+function ScreenTimeReportingSettings({ e }: any) {
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(true);
+  const owner = getSession()?.userId;
+  useEffect(() => {
+    let active = true;
+    setBusy(true);
+    setEnabled(false);
+    if (!owner) {
+      setBusy(false);
+      return;
+    }
+    getScreenTimeReportingConsent(owner)
+      .then((value) => {
+        if (active) setEnabled(value);
+      })
+      .catch(() => {
+        if (active) e.notify('전송 동의를 확인하지 못했어요.');
+      })
+      .finally(() => {
+        if (active) setBusy(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [owner]);
+  const change = async (value: boolean) => {
+    if (!owner || busy) return;
+    setBusy(true);
+    try {
+      await setScreenTimeReportingConsent(owner, value);
+      if (getSession()?.userId === owner) setEnabled(value);
+    } catch {
+      e.notify('전송 설정을 저장하지 못했어요. 다시 시도해 주세요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (Platform.OS !== 'ios') return null;
+  return (
+    <>
+      <Group>
+        <Row
+          title="통계·퀘스트에 사용"
+          sub="사용 시간과 측정 상태를 서버에 전송해요"
+          tail={
+            <Toggle
+              label="스크린타임 서버 전송 동의"
+              value={enabled}
+              disabled={busy || !owner}
+              onChange={change}
+            />
+          }
+        />
+      </Group>
+      <Txt kind="meta">
+        선택한 앱의 사용 시간을 통계와 폰 사용 퀘스트 보상 판정에 사용해요. 앱 이름은 보내지 않아요.
+        하루 기록은 한국 시각 오전 9시에 마감되고, 다음 앱 실행 시 전송해요. 언제든 여기서 전송을 끌
+        수 있어요.
+      </Txt>
+      {e.state.settings.screenTimeSyncError && (
+        <Txt kind="meta">
+          스크린타임을 확인하거나 전송하지 못했어요. 앱이 열려 있으면 다시 시도해요.
+        </Txt>
+      )}
+    </>
+  );
+}
+
 function AppPermissionManager({ e }: any) {
   const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
   const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
   const [selectionStatus, setSelectionStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [busy, setBusy] = useState(false);
+  const [allowSafari, setAllowSafari] = useState(false);
+  const [allowedCount, setAllowedCount] = useState(0);
   const unavailable = Platform.OS !== 'ios' || !isScreenTimeAvailable || status === 'unavailable';
   const approved = status === 'approved';
   const selectedCount = selectionCount(selection);
@@ -537,6 +612,22 @@ function AppPermissionManager({ e }: any) {
         })
         .catch(() => active && setSelectionStatus('error'));
     };
+    void screenTime
+      .getFocusAllowSafariWeb()
+      .then((value) => {
+        if (active) setAllowSafari(value);
+      })
+      .catch(() => {
+        if (active) e.notify('Safari 허용 설정을 확인하지 못했어요.');
+      });
+    void screenTime
+      .getAllowedSelectionCounts()
+      .then((value) => {
+        if (active) setAllowedCount(selectionCount(value));
+      })
+      .catch(() => {
+        if (active) e.notify('허용 앱 설정을 확인하지 못했어요.');
+      });
     syncPermissionState();
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') syncPermissionState();
@@ -613,6 +704,50 @@ function AppPermissionManager({ e }: any) {
         />
       </Group>
       <Txt kind="meta">연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.</Txt>
+      <Txt kind="section">집중 중 허용</Txt>
+      <Group>
+        <Row
+          title="허용 앱"
+          sub={`${allowedCount}개 선택됨`}
+          chevron
+          disabled={busy}
+          onPress={async () => {
+            if (!(approved || (await requestConnection()))) return;
+            setBusy(true);
+            try {
+              const picked = await screenTime.presentAllowedAppManager();
+              if (picked) setAllowedCount(selectionCount(picked));
+            } catch {
+              e.notify('허용 앱을 변경하지 못했어요.');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+        <Row
+          title="Safari 웹 사용 허용"
+          sub="집중 중에도 Safari에서 웹을 볼 수 있어요"
+          tail={
+            <Toggle
+              label="집중 중 Safari 웹 사용 허용"
+              value={allowSafari}
+              disabled={busy || !approved}
+              onChange={async (value: boolean) => {
+                setBusy(true);
+                try {
+                  await screenTime.setFocusAllowSafariWeb(value);
+                  setAllowSafari(value);
+                } catch {
+                  e.notify('Safari 허용 설정을 변경하지 못했어요.');
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
+          }
+        />
+      </Group>
+      <ScreenTimeReportingSettings e={e} />
       <Txt kind="section">시스템 설정</Txt>
       <Group>
         <Row
@@ -850,7 +985,7 @@ function MeasuredAppPicker({ e }: any) {
         e.notify(`측정 앱 ${count}개를 내일부터 적용해요.`);
       }
       setSelection(picked);
-      finish();
+      if (!boardFirst) finish();
     } catch {
       e.notify('측정 앱 선택 화면을 열지 못했어요.');
     } finally {
@@ -892,12 +1027,19 @@ function MeasuredAppPicker({ e }: any) {
           sub={selectionCount(selection) ? '기존 대상 변경은 다음 날부터' : '최초 선택은 바로'}
         />
       </Group>
+      <ScreenTimeReportingSettings e={e} />
       <Btn
         title={busy ? '선택 화면 여는 중…' : '측정 앱 고르기'}
         disabled={busy}
         onPress={openPicker}
       />
-      {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={finish} />}
+      {boardFirst && (
+        <Btn
+          title={selectionCount(selection) ? '게시판 열기' : '나중에 하고 게시판 열기'}
+          kind="ghost"
+          onPress={finish}
+        />
+      )}
       <Txt kind="meta">
         선택을 바꾸는 날에는 기존 앱 기준 기록을 유지하고, 자정부터 새 대상을 측정해요.
       </Txt>

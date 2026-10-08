@@ -14,6 +14,7 @@
  * 본다. 실패를 빈 기록으로 접지 않는다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { subscribeScreenTimeObservations } from '@/services/screenTimeEvents';
 import { ApiError } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import {
@@ -77,6 +78,13 @@ export function useLibraryDiary({
   islandKey?: string;
 }): LibraryDiaryState {
   const [nonce, setNonce] = useState(0);
+  useEffect(
+    () =>
+      subscribeScreenTimeObservations(() => {
+        if (active) setNonce((value) => value + 1);
+      }),
+    [active],
+  );
   const [status, setStatus] = useState<LibraryDiaryState['status']>(active ? 'loading' : 'mock');
   const [error, setError] = useState<ApiError | null>(null);
   const [screen, setScreen] = useState<LibraryScreen | null>(null);

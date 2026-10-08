@@ -20,6 +20,7 @@
  * 권한을 받아 온다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { subscribeScreenTimeObservations } from '@/services/screenTimeEvents';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import {
@@ -153,6 +154,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
   const selectSeq = useRef(0);
   // 퀘스트 상세도 같은 규칙 — 마지막으로 연 회차만 questDetail 로 적용된다.
   const questSeq = useRef(0);
+  const refreshSeq = useRef(0);
   const intents = useRef(new Map<string, IntentSlot>());
   // 멱등 재시도가 같은 댓글 결과를 재생해도 목록 카운트를 두 번 올리지 않는다.
   const confirmedCommentIds = useRef(new Set<string>());
@@ -295,8 +297,9 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
   const refreshList = useCallback(
     async (e: number, generation: number) => {
       if (!alive(e, generation)) throw stale();
+      const seq = ++refreshSeq.current;
       const board = await getBoard();
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation) || seq !== refreshSeq.current) throw stale();
       proven.current = { epoch: e, generation };
       set({
         islandId: board.island.id,
@@ -359,8 +362,9 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
       if (!alive(e, generation)) throw stale();
       const open = stateRef.current.questDetail;
       if (open?.id !== questId) return;
+      const seq = ++questSeq.current;
       const next = await getAllQuestProgress(islandId, questId, open.occurrenceId);
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation) || seq !== questSeq.current) throw stale();
       if (stateRef.current.questDetail?.id === questId) set({ questDetail: next });
     },
     [alive, set],
@@ -592,6 +596,29 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey·generation 은 재시작 신호다.
   }, [active, scopeKey, generation, load]);
+
+  useEffect(
+    () =>
+      subscribeScreenTimeObservations(() => {
+        if (!active) return;
+        if (!cached()) {
+          // 최초 조회 중 보고가 끝나면 보고 이전 응답을 버리고 다시 조회한다.
+          void load().catch(() => {});
+          return;
+        }
+        const e = epoch.current;
+        const authGeneration = sessionGeneration();
+        const detail = stateRef.current.questDetail;
+        const islandId = stateRef.current.islandId;
+        void refreshList(e, authGeneration)
+          .then(async () => {
+            if (detail && islandId)
+              await refreshQuestDetail(e, authGeneration, islandId, detail.id);
+          })
+          .catch(() => {});
+      }),
+    [active, cached, load, refreshList, refreshQuestDetail],
+  );
 
   return {
     ...state,

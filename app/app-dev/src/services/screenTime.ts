@@ -34,6 +34,9 @@ export const screenTime = {
     nativeModule?.getTodayUsageBucketMinutes?.() ?? Promise.resolve(0),
   getPreviousUsageBucket: () => nativeModule?.getPreviousUsageBucket?.() ?? Promise.resolve(null),
   getUsageBucketHistory: () => nativeModule?.getUsageBucketHistory?.() ?? Promise.resolve([]),
+  bindMeasurementOwner: (owner: string) =>
+    nativeModule?.bindMeasurementOwner?.(owner) ?? Promise.resolve(),
+  getUsageTimeline: () => nativeModule?.getUsageTimeline?.() ?? Promise.resolve(null),
   markCurrentUsageBucketUnconfirmed: () =>
     nativeModule?.markCurrentUsageBucketUnconfirmed?.() ?? Promise.resolve([]),
   getUnconfirmedUsageBucketDays: () =>

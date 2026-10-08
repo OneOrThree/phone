@@ -183,7 +183,7 @@ export class ApiError extends Error {
 }
 
 export interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   /** 추가 헤더. `Authorization` 을 직접 넣으면 저장된 토큰 대신 그 값을 쓴다. */
   headers?: Record<string, string>;

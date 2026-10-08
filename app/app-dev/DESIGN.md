@@ -691,3 +691,13 @@ import { Page, Group, Row, Btn } from '@/design-system/patterns';
 - 측정 범위는 전체 앱이다. 앱 선택·앱 잠금 UI는 제공하지 않는다.
 - 내 오늘 사용량은 네이티브 조회값을 분 단위로 표시하고, iOS의 15분 단위 기록과 문구를 구분한다.
 - 조회 실패·권한 철회·복원할 수 없는 날짜는 실제 0분과 구분하고 미확인 날짜를 퀘스트 달성에 사용하지 않는다.
+
+## iOS 일반 홈 위젯 (2026-10-08)
+
+- 고양이와 오늘의 총 집중시간 두 정보만 표시한다. small/medium을 지원한다.
+- 색은 생성된 `ios/Shared/ReportPalette.swift`의 `bg`·`ink`·`inkSub`를 재사용한다.
+- 본문은 시스템 caption, 집중시간은 기존 xl 크기(26)·bold·동적 글자 크기·tabular 숫자다.
+- 간격은 기존 4/8/16/20 값을 사용한다. 위젯 배경과 시스템 여백은 WidgetKit을 따른다.
+- 기존 6색 고양이의 idle·loaf·reading·tilt 정지 그림을 사용하고 시간별 타임라인에 포즈를 고정한다.
+- 날짜가 만료되거나 서버 합계가 없으면 숫자는 `—`이다. 한국어/영어는 위젯 Localizable.strings로 제공한다.
+- 화면 내 서버 전송 동의·허용 앱 설정은 기존 Group·Row·Toggle·Txt를 재사용한다.

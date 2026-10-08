@@ -18,6 +18,17 @@ export type PreviousUsageBucket = {
   minutes: number;
 };
 
+export type UsageTimeline = {
+  startedAt: number;
+  observedAt: number;
+  days: {
+    date: string;
+    startedAt: number;
+    events: { bucket: number; firedAt: number }[];
+  }[];
+  unconfirmedDays: string[];
+};
+
 export type ScreenTimeNativeModule = {
   requestAuthorization(): Promise<boolean>;
   getAuthorizationStatus(): Promise<ScreenTimeAuthorization>;
@@ -29,6 +40,8 @@ export type ScreenTimeNativeModule = {
   getTodayUsageBucketMinutes(): Promise<number>;
   getPreviousUsageBucket(): Promise<PreviousUsageBucket | null>;
   getUsageBucketHistory(): Promise<PreviousUsageBucket[]>;
+  bindMeasurementOwner(owner: string): Promise<void>;
+  getUsageTimeline(): Promise<UsageTimeline | null>;
   markCurrentUsageBucketUnconfirmed(): Promise<string[]>;
   getUnconfirmedUsageBucketDays(): Promise<string[]>;
   resetScreenTimeData(): Promise<void>;
