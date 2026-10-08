@@ -23,6 +23,9 @@ npm-debug.*
 .docs
 expo-env.d.ts
 
+# 글꼴 없이 폴백 생성한 언어별 이미지 미리보기(scripts/gen-localized-stamp.py --allow-fallback-font) — 커밋 대상 아님
+src/assets/interiors/ui/blueprint-ready-stamp-v3.en.fallback-preview.png
+
 # Expo·hot-updater·supabase 로컬 산출물
 .hot-updater/output
 .hot-updater/log

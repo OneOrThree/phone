@@ -46,6 +46,7 @@ import {
   viewIsland,
 } from '@/services/model';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { localized } from '@/i18n';
 import { semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useBoardNotices } from './useBoardNotices';
@@ -115,7 +116,11 @@ export const interiorArt = {
     detail: require('@/assets/interiors/ui/board-sheet-notice-detail-v3.png'),
     quest: require('@/assets/interiors/ui/board-sheet-quest-v2.png'),
   },
-  blueprintReadyStamp: require('@/assets/interiors/ui/blueprint-ready-stamp-v3.png'),
+  // 언어별 쌍 — 렌더 시점에 localized() 로 고른다(모듈 최상위에서 고르면 import 시점 언어로 굳는다)
+  blueprintReadyStamp: {
+    ko: require('@/assets/interiors/ui/blueprint-ready-stamp-v3.ko.png'),
+    en: require('@/assets/interiors/ui/blueprint-ready-stamp-v3.en.png'),
+  },
   letterEnvelope: require('@/assets/interiors/ui/letter-envelope-v1.png'),
 };
 
@@ -3498,7 +3503,7 @@ function BlueprintReadyStamp({ reduceMotion }: { reduceMotion: boolean }) {
       }}
     >
       <Picture
-        source={interiorArt.blueprintReadyStamp}
+        source={localized(interiorArt.blueprintReadyStamp)}
         label="준비 완료 도장"
         style={{ width: '100%', height: '100%' }}
       />
