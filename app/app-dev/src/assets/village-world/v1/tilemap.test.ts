@@ -42,6 +42,7 @@ describe('village-world v1 tilemap', () => {
     expect(homeMap.tiles.columns).toBe(tilemap.width);
     expect(homeMap.tiles.rows).toBe(tilemap.height);
     expect(homeMap.tiles.tileset).toBe(tileset.image);
+    expect(homeMap.tiles.tilesetNight).toBe(tileset.nightImage);
     expect(homeMap.tiles.map).toBe('tilemap.json');
   });
 

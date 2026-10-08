@@ -43,10 +43,11 @@ import {
 import { useAppLayout } from '@/utils/layout';
 import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
+import legacyDoorCoords from '@/constants/legacy-doors.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
-import { TileTerrainCanvas } from './TileTerrainCanvas';
+import { TileTerrainCanvas, navDebugText, type NavDebug, type NavWalk } from './TileTerrainCanvas';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import {
   demoteToBundle,
@@ -54,8 +55,9 @@ import {
   promoteMapAssets,
   readMapJson,
   syncMapAssets,
+  type TilesetFile,
 } from '@/services/mapAssets';
-import { applyLayout } from '@/utils/island-layout';
+import { applyLayout, legacyLayoutOffsets } from '@/utils/island-layout';
 import { loadNav, navPath, stepDurationMs, tapToWorld, tilePath } from '@/utils/nav-path';
 import { imageToWorld, worldToImage } from '@/utils/worldCoords';
 import { villageAssets } from '@/constants/village-assets';
@@ -98,9 +100,13 @@ import { FireMotion } from '@/components/village-motion/FireMotion';
 import { RaftWaterMotion } from '@/components/village-motion/RaftWaterMotion';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
-// 타일 섬 지형(GROMO-2230): 켜면 새 마을(layered)로 시작하고 지형을 Skia Atlas 로 그린다.
+// 타일 섬 지형(GROMO-2230): 켜면 기존 마을 홈 섬의 바닥을 Skia Atlas 로 그리고 탭·걷기를 v1/nav.json A* 로 한다.
+// 새 마을 미리보기(layered)는 플래그와 무관하게 자기 지형 이미지·villagePath 를 그대로 쓴다.
 // 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
 const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
+// 타일 섬 = 플래그 + 기존 마을 홈 섬(새 마을 미리보기·낚시가 아님). 지형(WorldMap)과 걷기(FinalIslandScene)가
+// 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
+const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -160,99 +166,61 @@ type Door = Point & {
   direct?: boolean;
   hitbox?: { x: number; y: number; w: number; h: number };
 };
+const NO_OFFSET: Point = { x: 0, y: 0 };
+/** 타일 섬 서버 배치(GROMO-2227) — 건물별 평행이동(이미지 px). 없는 건물은 0. */
+type BuildingOffsets = Partial<Record<Building, Point>>;
+// 좌표·hitbox 숫자는 legacy-doors.json 한 곳(nav fixture 생성 스크립트와 공유). 라벨·경로만 여기서 붙인다.
 // label 은 전부 게터다 — 모듈 최상위 상수지만 import 시점이 아니라 접근 시점(렌더 중)에 해석해
 // buildingNames/t() 가 그때의 언어를 따르게 한다(buildingNames.hall 자체가 게터여도 여기서 평범한
 // 필드로 한 번 읽어 담으면 그 즉시 고정값이 돼 버린다 — GROMO-2239 리뷰 지적).
-const legacyDoors: Record<string, Door> = {
-  hall: {
-    x: 1030,
-    y: 268,
-    r: 'hall',
+export const legacyDoors: Record<string, Door> = (() => {
+  const d = legacyDoorCoords.doors;
+  // ⚠️ 여기서 `...d.hall` 처럼 스프레드를 쓰면 안 된다 — Babel 의 _objectSpread 가 같은 리터럴의 게터를
+  // import 시점 값으로 복사해 라벨이 굳는다(Metro 도 같은 변환). 좌표는 필드로 옮겨 적는다.
+  const building = (b: Building, r: Route, memberOnly?: boolean): Door => ({
+    x: d[b].x,
+    y: d[b].y,
+    r,
     get label() {
-      return buildingNames.hall;
+      return buildingNames[b];
     },
-    building: 'hall',
-  },
-  board: {
-    x: 891,
-    y: 250,
-    r: 'board',
-    get label() {
-      return buildingNames.board;
+    building: b,
+    memberOnly,
+  });
+  return {
+    hall: building('hall', 'hall'),
+    board: building('board', 'board'),
+    gram: building('gram', 'sound', true),
+    library: building('library', 'library'),
+    mail: building('mail', 'mail'),
+    tower: building('tower', 'tower'),
+    shop: building('shop', 'shop'),
+    // 고양이는 부두 끝(x·y)까지 걸어가고, 탭 영역은 배경에 그려진 뗏목 위에 둔다. 기본 탭 영역은
+    // 도착점 주변(부두의 육지 쪽 끝)이라 뗏목 그림을 눌러도 바다만 눌렀다(GROMO-2157).
+    raft: {
+      x: d.raft.x,
+      y: d.raft.y,
+      hitbox: d.raft.hitbox,
+      r: 'boat',
+      get label() {
+        return t('home.a11y.raft');
+      },
+      memberOnly: true,
     },
-    building: 'board',
-  },
-  gram: {
-    x: 380,
-    y: 485,
-    r: 'sound',
-    get label() {
-      return buildingNames.gram;
+    fishingIsland: {
+      x: d.fishingIsland.x,
+      y: d.fishingIsland.y,
+      hitbox: d.fishingIsland.hitbox,
+      r: 'focusVisit',
+      get label() {
+        return t('home.a11y.viewFishingIsland');
+      },
+      memberOnly: true,
+      visitorRoute: 'visitIslandFocus',
+      direct: true,
     },
-    building: 'gram',
-    memberOnly: true,
-  },
-  library: {
-    x: 1190,
-    y: 612,
-    r: 'library',
-    get label() {
-      return buildingNames.library;
-    },
-    building: 'library',
-  },
-  mail: {
-    x: 320,
-    y: 596,
-    r: 'mail',
-    get label() {
-      return buildingNames.mail;
-    },
-    building: 'mail',
-  },
-  tower: {
-    x: 272,
-    y: 200,
-    r: 'tower',
-    get label() {
-      return buildingNames.tower;
-    },
-    building: 'tower',
-  },
-  shop: {
-    x: 577,
-    y: 783,
-    r: 'shop',
-    get label() {
-      return buildingNames.shop;
-    },
-    building: 'shop',
-  },
-  // 고양이는 부두 끝(x·y)까지 걸어가고, 탭 영역은 배경에 그려진 뗏목 위에 둔다. 기본 탭 영역은
-  // 도착점 주변(부두의 육지 쪽 끝)이라 뗏목 그림을 눌러도 바다만 눌렀다(GROMO-2157).
-  raft: {
-    x: 274,
-    y: 740,
-    r: 'boat',
-    get label() {
-      return t('home.a11y.raft');
-    },
-    memberOnly: true,
-    hitbox: { x: 200, y: 815, w: 180, h: 110 },
-  },
-  fishingIsland: {
-    x: 1345,
-    y: 882,
-    r: 'focusVisit',
-    get label() {
-      return t('home.a11y.viewFishingIsland');
-    },
-    memberOnly: true,
-    visitorRoute: 'visitIslandFocus',
-    direct: true,
-    hitbox: { x: 1230, y: 810, w: 230, h: 145 },
-  },
-};
+  };
+})();
 type ConstructionPlacement = { x: number; y: number; w: number; h: number };
 /** 기존 1536×1024 건물 레이어에서 투명 여백을 제외한 원본 rect의 bottom-center 좌표. */
 const legacyConstructionPlacements: Readonly<Record<Building, ConstructionPlacement>> = {
@@ -330,19 +298,19 @@ function Wanderer({
         x: at.current.x + Math.random() * 400 - 200,
         y: at.current.y + Math.random() * 300 - 150,
       });
-      const grid = scene?.grid ?? grids.home;
+      const size = sizeOf(grids.home);
       const path = (
-        scene && TILE_ISLAND
-          ? [
-              at.current,
-              ...navPath(
-                activeNav(assets, buildings),
-                imageToWorld(at.current, sizeOf(grid)),
-                imageToWorld(target, sizeOf(grid)),
-              ).map((n) => worldToImage(n, sizeOf(grid))),
-            ]
-          : scene
-            ? villagePath(scene, at.current, target)
+        scene
+          ? villagePath(scene, at.current, target)
+          : TILE_ISLAND
+            ? [
+                at.current,
+                ...navPath(
+                  activeNav(assets, buildings),
+                  imageToWorld(at.current, size),
+                  imageToWorld(target, size),
+                ).map((n) => worldToImage(n, size)),
+              ]
             : landPath(grids.home, at.current, target)
       ).slice(1, 15);
       if (!path.length) {
@@ -451,6 +419,8 @@ export function WorldMap({
   dayNight: dayNightProp,
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
+  navDebug,
+  buildingOffsets,
   children,
 }: {
   state: State;
@@ -478,15 +448,19 @@ export function WorldMap({
   /** 이 화면의 맵 에셋 스냅샷(GROMO-2233). 지형 이미지·tilemap·nav·layout 이 모두 이 소스를 쓴다. */
   mapAssets?: MapAssetSource;
   /** 캐시 이미지 디코드 실패 — 부모가 스냅샷을 번들로 바꾼다. */
-  onMapAssetsFail?: () => void;
+  onMapAssetsFail?: (file: TilesetFile) => void;
+  /** 개발 전용 이동 보기(타일 섬만). */
+  navDebug?: NavDebug | null;
+  /** 타일 섬 서버 배치 — 기존 마을 건물 레이어·모션·알림을 이만큼 옮겨 그린다. */
+  buildingOffsets?: BuildingOffsets;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
 }) {
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
-  // 타일 섬 지형 캔버스는 마을 + 플래그일 때만, 낚시 화면은 기존 Image 그대로.
-  const tileTerrain = village && !fishing && TILE_ISLAND;
+  // 타일 섬 지형 캔버스는 기존 마을 홈 섬 + 플래그일 때만. 낚시·새 마을 미리보기는 기존 Image 그대로.
+  const tileTerrain = isTileIsland(village, fishing);
   const ownDayNight = useVillageDayNight();
   const dayNight = dayNightProp ?? ownDayNight;
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
@@ -611,6 +585,11 @@ export function WorldMap({
   const framesDrawTheme = (b: Building) =>
     b === 'hall' || b === 'tower' || b === 'shop' || b === 'library';
   const night = dayNight === 'night';
+  // 건물 하나에 딸린 것(레이어·모션·알림)의 화면 원점 — 서버 배치 평행이동을 카메라 투영 전에 더한다.
+  const at = (b: Building) => {
+    const o = buildingOffsets?.[b] ?? NO_OFFSET;
+    return { left: left + o.x * scale, top: top + o.y * scale };
+  };
   return (
     <View
       ref={view}
@@ -661,9 +640,26 @@ export function WorldMap({
           height={L.height}
           camera={camera}
           base={base}
+          night={dayNight === 'night'}
           assets={mapAssets}
           onAssetsFail={onMapAssetsFail}
+          navDebug={navDebug}
         />
+      )}
+      {tileTerrain && navDebug && (
+        <Txt
+          pointerEvents="none"
+          kind="meta"
+          style={{
+            position: 'absolute',
+            left: semanticTokens.spacing.page,
+            top: Math.max(L.insets.top, semanticTokens.spacing.page),
+            color: 'white',
+            backgroundColor: 'rgba(0,0,0,0.6)',
+          }}
+        >
+          {navDebugText(navDebug.walk, mapAssets.kind)}
+        </Txt>
       )}
       <Pressable
         accessible={false}
@@ -683,7 +679,7 @@ export function WorldMap({
             locationX: rect ? event.clientX - rect.left : event.locationX,
             locationY: rect ? event.clientY - rect.top : event.locationY,
           };
-          if (village && TILE_ISLAND) {
+          if (tileTerrain) {
             // 탭 → 월드. 출발 영역 보정(resolveTarget)은 walk 안의 navPath 가 맡는다.
             const size = { scale, imageWidth: grid.w, imageHeight: grid.h };
             current.current.onSpot?.(worldToImage(tapToWorld(tap, size), size));
@@ -724,8 +720,7 @@ export function WorldMap({
                 source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
-                  left,
-                  top,
+                  ...at(b),
                   width: grid.w * scale,
                   height: grid.h * scale,
                 }}
@@ -738,8 +733,8 @@ export function WorldMap({
               source={assets['characters/pelican/npc/on-mailbox.png']}
               style={{
                 position: 'absolute',
-                left: left + 250 * scale,
-                top: top + 456 * scale,
+                left: at('mail').left + 250 * scale,
+                top: at('mail').top + 456 * scale,
                 width: 140 * scale,
                 height: 140 * scale,
               }}
@@ -751,7 +746,7 @@ export function WorldMap({
               testID="mailbox-new-indicator"
               accessibilityLabel={t('home.a11y.mailboxNewLetter')}
               scale={scale}
-              style={{ left: left + 348 * scale, top: top + 520 * scale }}
+              style={{ left: at('mail').left + 348 * scale, top: at('mail').top + 520 * scale }}
             />
           )}
           {/* 모션 좌표는 placement.json rect 와 같다. 밤 프레임도 같은 rect 로 잘라 정지 밤 레이어와 픽셀이 일치한다. */}
@@ -764,8 +759,8 @@ export function WorldMap({
               themed={themed('hall')}
               style={{
                 position: 'absolute',
-                left: left + 949 * scale,
-                top: top + 21 * scale,
+                left: at('hall').left + 949 * scale,
+                top: at('hall').top + 21 * scale,
                 width: 242 * scale,
                 height: 244 * scale,
               }}
@@ -780,8 +775,8 @@ export function WorldMap({
               indicatorScale={scale}
               style={{
                 position: 'absolute',
-                left: left + 858 * scale,
-                top: top + 158 * scale,
+                left: at('board').left + 858 * scale,
+                top: at('board').top + 158 * scale,
                 width: 80 * scale,
                 height: 80 * scale,
               }}
@@ -798,8 +793,8 @@ export function WorldMap({
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
-                left: left + 150 * scale,
-                top: top + 24 * scale,
+                left: at('tower').left + 150 * scale,
+                top: at('tower').top + 24 * scale,
                 width: 112 * scale,
                 height: 193 * scale,
               }}
@@ -816,8 +811,8 @@ export function WorldMap({
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
-                left: left + 456 * scale,
-                top: top + 580 * scale,
+                left: at('shop').left + 456 * scale,
+                top: at('shop').top + 580 * scale,
                 width: 262 * scale,
                 height: 199 * scale,
               }}
@@ -835,8 +830,8 @@ export function WorldMap({
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
-                left: left + 1120 * scale,
-                top: top + 288 * scale,
+                left: at('library').left + 1120 * scale,
+                top: at('library').top + 288 * scale,
                 width: 239 * scale,
                 height: 323 * scale,
               }}
@@ -898,8 +893,7 @@ export function WorldMap({
                 source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
-                  left,
-                  top,
+                  ...at(b),
                   width: grid.w * scale,
                   height: grid.h * scale,
                   tintColor: '#d7829b',
@@ -965,6 +959,7 @@ function FinalIslandScene({
   onServerBuilt,
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
+  navDebug = false,
 }: {
   state: State;
   go: (r: Route, id?: string) => void;
@@ -988,7 +983,9 @@ function FinalIslandScene({
   /** 서버 모드 홈 스냅샷 재조회 — 넘긴 화면(홈)에서만 서버 짓기 카드를 띄운다. */
   onServerBuilt?: () => void;
   mapAssets?: MapAssetSource;
-  onMapAssetsFail?: () => void;
+  onMapAssetsFail?: (file: TilesetFile) => void;
+  /** 개발 전용 이동 보기 — 켜진 동안만 마지막 걷기를 기록한다. */
+  navDebug?: boolean;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
@@ -1026,20 +1023,28 @@ function FinalIslandScene({
     sceneBuilding && !i.buildings.includes(sceneBuilding)
       ? [...i.buildings, sceneBuilding]
       : i.buildings;
+  // 서버 모드 homeIsland 는 렌더마다 buildings 배열을 새로 만든다 — 내용 키로 묶지 않으면 scene 이 매번 새로 생겨
+  // [positionKey, scene] 효과의 setPos 가 무한 렌더를 돈다(Maximum update depth exceeded).
+  const buildingsKey = i.buildings.join(',');
   const scene = useMemo(() => {
     if (!layeredPreview) return undefined;
-    const built = villageScene(
-      sceneBuilding && !i.buildings.includes(sceneBuilding)
-        ? [...i.buildings, sceneBuilding]
-        : i.buildings,
-    );
+    const built = villageScene(navBuildings);
     // ponytail: 서버 배치는 그리는 위치만 바꾼다. 통행 셀(grid)·공사 위치는 map.json 기준 그대로 —
     // 서버 배치는 이 브랜치에 들어왔고(2232), 통행·건설 위치를 layout 으로 옮기는 것은 후속에 villageScene 이 objects 를 받아 다시 계산하게 한다.
     // 플래그 off 에서는 서버 배치를 무시해 map.json 그대로 그린다.
+    // 타일 섬(기존 마을)은 여기가 아니라 아래 buildingOffsets(건물별 평행이동)로 layout 을 적용한다.
     const objects = TILE_ISLAND ? applyLayout(built.objects, layout, mapAssets) : built.objects;
     return objects === built.objects ? built : { ...built, objects };
-  }, [layeredPreview, i.buildings, sceneBuilding, layout, mapAssets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- navBuildings(렌더마다 새 배열)는 buildingsKey·sceneBuilding 으로 대신 묶는다
+  }, [layeredPreview, buildingsKey, sceneBuilding, layout, mapAssets]);
   const grid = scene?.grid ?? grids.home;
+  // 타일 섬(기존 마을)은 건물 레이어가 전체 캔버스 이미지라 자르지 않고 서버 배치만큼 통째로 평행이동한다 —
+  // 레이어·모션·알림·공사 스프라이트·문(탭 영역·걷기 목표)·이름표가 같은 값을 쓴다. 기본 배치면 전부 0(픽셀 동일).
+  // ponytail: 통행 셀은 정적 v1/nav.json 그대로라 옮긴 건물이 막는 칸은 바뀌지 않는다 — 서버가 nav 산출물을 가지면 그걸로 바꾼다.
+  const buildingOffsets: BuildingOffsets = useMemo(
+    () => (TILE_ISLAND && !scene ? legacyLayoutOffsets(layout) : {}),
+    [scene, layout],
+  );
   // WorldMap 이 부모와 같은 낮·밤 값을 쓰도록 한 번만 계산해 내려준다.
   const dayNight = useVillageDayNight();
   const hasEntrySprite = (target: BuildingTransitionTarget | null) =>
@@ -1063,12 +1068,24 @@ function FinalIslandScene({
               : door,
         ]),
       )
-    : legacyDoors;
+    : Object.fromEntries(
+        Object.entries(legacyDoors).map(([id, door]) => {
+          const o = door.building && buildingOffsets[door.building];
+          if (!o) return [id, door];
+          const hitbox = door.hitbox && {
+            ...door.hitbox,
+            x: door.hitbox.x + o.x,
+            y: door.hitbox.y + o.y,
+          };
+          return [id, { ...door, x: door.x + o.x, y: door.y + o.y, hitbox }];
+        }),
+      );
   const positionKey = i.id + (layeredPreview ? ':layered' : ':original');
   const initial = () =>
     nearestLand(
       grid,
-      homePositions[positionKey] ?? (layeredPreview ? { x: 820, y: 535 } : { x: 585, y: 470 }),
+      homePositions[positionKey] ??
+        (layeredPreview ? legacyDoorCoords.layeredSpawn : legacyDoorCoords.spawn),
     );
   const [pos, setPos] = useState(initial),
     [walking, setWalking] = useState(false),
@@ -1127,9 +1144,18 @@ function FinalIslandScene({
       ? 'completion'
       : null;
   const constructionBuilding = activeBuilding ?? completionBuilding ?? undefined;
-  const constructionObject = constructionBuilding
+  const constructionBase = constructionBuilding
     ? constructionPlacement(constructionBuilding, layeredPreview)
     : undefined;
+  const constructionOffset = constructionBuilding && buildingOffsets[constructionBuilding];
+  const constructionObject =
+    constructionBase && constructionOffset
+      ? {
+          ...constructionBase,
+          x: constructionBase.x + constructionOffset.x,
+          y: constructionBase.y + constructionOffset.y,
+        }
+      : constructionBase;
   const [buildingTransition, setBuildingTransition] = useState<BuildingTransitionState>({
     phase: 'idle',
     target: null,
@@ -1232,7 +1258,9 @@ function FinalIslandScene({
   const xy = useRef(new Animated.ValueXY(pos)).current,
     token = useRef(0),
     location = useRef(pos);
-  const tileNav = TILE_ISLAND && !!scene;
+  // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
+  const tileNav = isTileIsland(scene);
+  const [navWalk, setNavWalk] = useState<NavWalk | null>(null);
   const walk = (target: Point, done?: () => void) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
@@ -1242,6 +1270,7 @@ function FinalIslandScene({
       : scene
         ? villagePath(scene, location.current, target)
         : landPath(grid, location.current, nearestLand(grid, target));
+    if (tileNav && navDebug) setNavWalk({ tap: target, path });
     const run = ++token.current;
     xy.stopAnimation();
     if (!path.length) {
@@ -1397,17 +1426,20 @@ function FinalIslandScene({
                   ? { right: 0, top: -30, alignItems: 'flex-end' as const }
                   : { left: 0, top: -30, alignItems: 'flex-start' as const };
               }
+              // 이름표 컨테이너(hitbox)는 이미 shift 만큼 옮겨져 있다. box·anchorY 상수에도 같은 shift 를 더해야
+              // 컨테이너 기준 상대 위치가 그대로다(더하지 않으면 -shift 만큼 틀어진다).
+              const shift = buildingOffsets[d.building] ?? NO_OFFSET;
               const box = legacyBuildingLabelBox[d.building];
-              const anchorY = legacyBuildingLabelAnchorY[d.building];
+              const anchorY = legacyBuildingLabelAnchorY[d.building] + shift.y;
               const anchorXOffset = legacyBuildingLabelAnchorXOffset[d.building] ?? 0;
               return labelOnRight
                 ? {
-                    right: (hitbox.x + hitbox.w - (box.x + box.w)) * s,
+                    right: (hitbox.x + hitbox.w - (box.x + shift.x + box.w)) * s,
                     top: (anchorY - hitbox.y) * s,
                     alignItems: 'flex-end' as const,
                   }
                 : {
-                    left: (box.x + anchorXOffset - hitbox.x) * s,
+                    left: (box.x + shift.x + anchorXOffset - hitbox.x) * s,
                     top: (anchorY - hitbox.y) * s,
                     alignItems: 'flex-start' as const,
                   };
@@ -1674,8 +1706,12 @@ function FinalIslandScene({
       <WorldMap
         state={state}
         village={scene}
+        buildingOffsets={buildingOffsets}
         mapAssets={mapAssets}
         onMapAssetsFail={onMapAssetsFail}
+        navDebug={
+          tileNav && navDebug ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk } : null
+        }
         islandId={i.id}
         hallMotionActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
@@ -1932,8 +1968,8 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
     TILE_ISLAND ? promoteMapAssets('home') : BUNDLE_ASSETS,
   );
   // 캐시 이미지 디코드 실패 → 전역도, 이 화면의 스냅샷도 번들로 내린다(빈 섬 방지).
-  const failMapAssets = useCallback(() => {
-    demoteToBundle('home');
+  const failMapAssets = useCallback((file: TilesetFile) => {
+    demoteToBundle('home', undefined, file);
     setMapAssets(BUNDLE_ASSETS);
   }, []);
   useEffect(() => {
@@ -1941,13 +1977,13 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
   }, []);
   const [layered, setLayered] = useState(
     () =>
-      TILE_ISLAND ||
-      (CAN_PREVIEW_VILLAGE &&
-        ((Platform.OS === 'web' &&
-          typeof window !== 'undefined' &&
-          new URLSearchParams(window.location.search).get('village') === 'layered') ||
-          process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1')),
+      CAN_PREVIEW_VILLAGE &&
+      ((Platform.OS === 'web' &&
+        typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('village') === 'layered') ||
+        process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
   );
+  const [navDebug, setNavDebug] = useState(false);
   const demoMotionStates =
     Platform.OS === 'web' &&
     typeof window !== 'undefined' &&
@@ -1966,6 +2002,7 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         layeredPreview={layered}
         mapAssets={mapAssets}
         onMapAssetsFail={failMapAssets}
+        navDebug={navDebug}
       />
       {CAN_PREVIEW_VILLAGE && props.showHud !== false && props.showActions !== false && (
         <View
@@ -1982,6 +2019,14 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
             title={layered ? '기존 마을 보기' : '새 마을 미리보기'}
             onPress={() => setLayered((value) => !value)}
           />
+          {TILE_ISLAND && (
+            <Btn
+              id="nav-debug-toggle"
+              kind="sec"
+              title={navDebug ? '이동 숨기기' : '이동 보기'}
+              onPress={() => setNavDebug((value) => !value)}
+            />
+          )}
         </View>
       )}
     </View>

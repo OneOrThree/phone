@@ -2,7 +2,7 @@
  * @jest-environment @shopify/react-native-skia/jestEnv.js
  */
 // Skia 공식 jest 설정: CanvasKit(wasm)을 올리는 jestEnv 를 이 파일에만 건다(mock 은 jest.setup.js).
-import { buildTerrainAtlas } from './TileTerrainCanvas';
+import { buildBlockedPath, buildTerrainAtlas, navDebugText } from './TileTerrainCanvas';
 
 describe('buildTerrainAtlas', () => {
   const { sprites, transforms } = buildTerrainAtlas({ kind: 'bundle' });
@@ -33,5 +33,25 @@ describe('buildTerrainAtlas', () => {
     expect([t25.tx, t25.ty]).toEqual([64, 64]);
     const last = transforms[383];
     expect([last.tx, last.ty]).toEqual([23 * 64, 15 * 64]);
+  });
+});
+
+describe('이동 보기 helper', () => {
+  it('막힌 셀만 한 경로로 묶는다(셀 크기 = 1536/cols × 1024/rows)', () => {
+    const nav = { cols: 4, rows: 2, walkable: Uint8Array.from([1, 0, 1, 1, 1, 1, 1, 1]) } as any;
+    const b = buildBlockedPath(nav).getBounds();
+    expect([b.x, b.y, b.width, b.height]).toEqual([384, 0, 384, 512]);
+  });
+
+  it('읽기 줄: 경로 칸 수 · 탭과 목적지 거리 · nav 출처', () => {
+    const path = [
+      { x: 0, y: 0 },
+      { x: 30, y: 0 },
+      { x: 30, y: 40 },
+    ];
+    expect(navDebugText({ tap: { x: 0, y: 40 }, path }, 'cache')).toBe(
+      '경로 2칸 · 보정 30px · nav cache',
+    );
+    expect(navDebugText(null, 'bundle')).toBe('경로 없음 · nav bundle');
   });
 });
