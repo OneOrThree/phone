@@ -257,8 +257,13 @@ def render_service(secret: dict[str, Any], image: str, service: str,
     profiles = environment
     if service == "data-api":
         profiles = data_profiles if data_profiles is not None else f"{environment},satellites"
-        if "satellites" not in {profile.strip() for profile in profiles.split(",")}:
+        items = {profile.strip() for profile in profiles.split(",")}
+        if "satellites" not in items:
             raise ValueError("Data 프로파일에 satellites 항목이 필요합니다")
+        # 환경과 프로파일이 어긋나면 막음 — dev 에 prod 프로파일이 섞이면 운영 설정으로 뜬다 (옛 data-api CD 검사 이전)
+        other = "prod" if environment == "dev" else "dev"
+        if environment not in items or other in items:
+            raise ValueError(f"Data 프로파일은 {environment} 를 포함하고 {other} 는 없어야 합니다: {profiles}")
     elif data_profiles is not None:
         raise ValueError("Data 프로파일은 data-api에만 지정할 수 있습니다")
     required = SERVICE_REQUIRED_KEYS[service]

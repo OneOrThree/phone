@@ -30,6 +30,11 @@ on:
       - ".github/actions/gar-login/**"
       - ".github/scripts/ci-jar.py"
       - ".github/workflows/data-api-cd.dev.yml"
+      # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
+      - ".github/scripts/dev-env.sh"
+      - ".github/scripts/write-compose-env.py"
+      - ".github/scripts/wait-healthy.sh"
+      - ".github/scripts/mark-deploy.sh"
   # squash merge 뒤에는 최종 main SHA를 다시 검사하고, 이 실행에서 배포 이미지를 만든다.
   # PR에서 채운 GAR 캐시를 사용하므로 CD에서 별도로 재빌드하지 않는다.
   push:
@@ -52,6 +57,11 @@ on:
       - ".github/actions/gar-login/**"
       - ".github/scripts/ci-jar.py"
       - ".github/workflows/data-api-cd.dev.yml"
+      # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
+      - ".github/scripts/dev-env.sh"
+      - ".github/scripts/write-compose-env.py"
+      - ".github/scripts/wait-healthy.sh"
+      - ".github/scripts/mark-deploy.sh"
 
 concurrency:
   group: ci-${{ github.ref }}

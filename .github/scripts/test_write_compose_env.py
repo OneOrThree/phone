@@ -128,6 +128,16 @@ class WriteComposeEnvTest(unittest.TestCase):
         finally:
             MODULE.SERVICE_OPTIONAL_KEYS["notification"] = original
 
+    def test_Data_프로파일이_환경과_어긋나면_실패한다(self) -> None:
+        # GROMO-2224 — dev 배포에 prod 프로파일이 섞이면 운영 설정으로 뜬다
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["data-api"] + MODULE.TRANSITION_KEYS}
+        for profiles in ("prod,satellites", "dev,satellites,prod", "satellites"):
+            with self.subTest(profiles=profiles), self.assertRaisesRegex(ValueError, "프로파일"):
+                MODULE.render(baseline, "example/data:1", "data-api", "transition", "dev", data_profiles=profiles)
+        self.assertIn("SPRING_PROFILES_ACTIVE='dev,satellites,realtime-authorization'",
+                      MODULE.render(baseline, "example/data:1", "data-api", "transition", "dev",
+                                    data_profiles="dev,satellites,realtime-authorization"))
+
     def test_어느_허용목록에도_없는_SM_키만_이름으로_보고한다(self) -> None:
         unused = MODULE.unused_secret_keys({**secret(), "Team_ID": "x", "JWT_SECRET": "y", "STALE_KEY": "z"})
         self.assertEqual(unused, ["STALE_KEY", "Team_ID"])

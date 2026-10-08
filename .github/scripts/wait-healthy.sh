@@ -13,6 +13,13 @@ history_dir=${STARTUP_HISTORY_DIR:-/var/lib/gromo/runtime/startup-times}
 inspect() {
   docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.RestartCount}}' "$container"
 }
+# 방금 만든 컨테이너(30분 안)인데 이미 재시작했다면 기동 중 크래시 — 스크립트 시작 전에 일어난 재시작도 잡음.
+# 오래된 컨테이너(설정이 같아 재생성 안 된 경우)는 과거 재시작을 문제 삼지 않음
+fresh_restarts() {
+  local created
+  created=$(date -d "$(docker inspect -f '{{.Created}}' "$container")" +%s 2>/dev/null) || return 1
+  (( $(date +%s) - created < 1800 ))
+}
 
 fail() {
   echo "::error::$container $1"
@@ -22,6 +29,9 @@ fail() {
 
 state=$(inspect 2>/dev/null) || fail "컨테이너 없음"
 read -r _ _ restarts_before <<< "$state"
+if (( restarts_before > 0 )) && fresh_restarts; then
+  fail "새 컨테이너가 헬스체크 전에 이미 ${restarts_before}번 재시작함 (기동 중 크래시)"
+fi
 started=$SECONDS
 while :; do
   state=$(inspect 2>/dev/null) || fail "컨테이너가 사라짐"

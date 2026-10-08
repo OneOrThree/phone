@@ -17,6 +17,11 @@ on:
       - '!server/realtime/**/*.md'
       - '.github/workflows/realtime-ci.dev.yml'
       - '.github/workflows/realtime-cd.dev.yml'
+      # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
+      - '.github/scripts/dev-env.sh'
+      - '.github/scripts/write-compose-env.py'
+      - '.github/scripts/wait-healthy.sh'
+      - '.github/scripts/mark-deploy.sh'
       # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
       - '.github/workflows/be-gradle.yml'
@@ -32,6 +37,11 @@ on:
       - '!server/realtime/**/*.md'
       - '.github/workflows/realtime-ci.dev.yml'
       - '.github/workflows/realtime-cd.dev.yml'
+      # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
+      - '.github/scripts/dev-env.sh'
+      - '.github/scripts/write-compose-env.py'
+      - '.github/scripts/wait-healthy.sh'
+      - '.github/scripts/mark-deploy.sh'
       # 호출하는 재사용 워크플로도 넣는다 — 안 넣으면 be-gradle.yml 만 고치는 PR 에서
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
       - '.github/workflows/be-gradle.yml'
