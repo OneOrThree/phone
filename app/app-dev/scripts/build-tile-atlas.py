@@ -53,8 +53,14 @@ def upscale_2x(im):
     return rgb
 
 
+def first_mismatch(a, b):
+    """두 배열의 불일치 개수와 첫 불일치 좌표(y, x)를 돌려준다."""
+    bad = np.any(a != b, axis=-1)
+    return int(bad.sum()), tuple(int(v) for v in np.argwhere(bad)[0])
+
+
 def verify_saved(path, high):
-    """저장된 PNG 를 다시 열어 슬롯 내부와 extrusion 링을 384조각 전부 단언한다."""
+    """저장된 PNG 를 다시 열어 슬롯 내부와 extrusion 링을 384조각 전부 검증한다(-O 에서도 유지)."""
     saved = np.asarray(Image.open(path).convert("RGBA"))
     big = np.asarray(high)
     for i in range(COLS * ROWS):
@@ -62,25 +68,40 @@ def verify_saved(path, high):
         ax, ay = i % ATLAS_COLUMNS * PITCH, i // ATLAS_COLUMNS * PITCH
         tile = big[sy:sy + TILE, sx:sx + TILE]
         slot = saved[ay:ay + PITCH, ax:ax + PITCH]
-        assert np.array_equal(slot[1:-1, 1:-1], tile), f"슬롯 {i} 내부 != 원화 crop"
-        # 링 = 타일을 edge 패딩한 결과와 같아야 한다(4변 + 모서리 4점).
-        assert np.array_equal(slot, np.pad(tile, ((1, 1), (1, 1), (0, 0)), mode="edge")), f"슬롯 {i} extrusion 링 불일치"
+        # 내부 = 원화 crop, 링 = 타일을 edge 패딩한 결과(4변 + 모서리 4점).
+        for what, got, want in (
+            ("내부 != 원화 crop", slot[1:-1, 1:-1], tile),
+            ("extrusion 링 불일치", slot, np.pad(tile, ((1, 1), (1, 1), (0, 0)), mode="edge")),
+        ):
+            if not np.array_equal(got, want):
+                n, (y, x) = first_mismatch(got, want)
+                where = ""
+                if what.startswith("extrusion"):  # 내부는 위 검사에서 통과했으니 링의 어느 변인지만 가린다.
+                    parts = {"위": (0, slice(1, -1)), "아래": (-1, slice(1, -1)), "왼": (slice(1, -1), 0), "오른": (slice(1, -1), -1),
+                             "모서리": (np.ix_([0, -1], [0, -1]))}
+                    bad = [k for k, idx in parts.items() if not np.array_equal(got[idx], want[idx])]
+                    where = f", 어긋난 링 부분={'/'.join(bad)}"
+                raise SystemExit(
+                    f"gid {i + 1} {what}: 아틀라스 슬롯 (ax={ax}, ay={ay}), 원화 (sx={sx}, sy={sy}), "
+                    f"첫 불일치 슬롯 내 (y={y}, x={x}), 불일치 픽셀 {n}개{where}"
+                )
     print(f"저장 PNG 재검증: 슬롯 {COLS * ROWS}개 내부·extrusion 링 일치")
 
 
 def same_file(a, b):
-    """PNG 는 디코드 픽셀(모드·크기 포함)로, 나머지는 바이트로 비교한다(zlib 차이로 인한 거짓 실패 방지)."""
+    """PNG 는 RGBA 로 맞춘 디코드 픽셀(크기 포함)로, 나머지는 바이트로 비교한다(zlib 차이·팔레트 인덱스 차이로 인한 오판 방지)."""
     if not (a.exists() and b.exists()):
         return False
     if a.suffix == ".png":
-        ia, ib = Image.open(a), Image.open(b)
-        return ia.mode == ib.mode and ia.size == ib.size and ia.tobytes() == ib.tobytes()
+        ia, ib = Image.open(a).convert("RGBA"), Image.open(b).convert("RGBA")
+        return ia.size == ib.size and ia.tobytes() == ib.tobytes()
     return a.read_bytes() == b.read_bytes()
 
 
 def build(out):
     base = Image.open(VILLAGE / "terrain.png").convert("RGBA")
-    assert base.size == (COLS * TILE // 2, ROWS * TILE // 2), base.size
+    if base.size != (COLS * TILE // 2, ROWS * TILE // 2):
+        raise SystemExit(f"terrain.png 크기 {base.size} != {(COLS * TILE // 2, ROWS * TILE // 2)}")
     high = upscale_2x(base)
 
     atlas = Image.new("RGBA", ATLAS_SIZE)
@@ -98,7 +119,10 @@ def build(out):
     for sx, sy, ax, ay in slots:
         rebuilt.paste(atlas.crop((ax, ay, ax + TILE, ay + TILE)), (sx, sy))
     diff = int(np.abs(np.asarray(high).astype(int) - np.asarray(rebuilt).astype(int)).sum())
-    assert diff == 0, f"재조립 차이 {diff} != 0"
+    if diff:
+        n, (y, x) = first_mismatch(np.asarray(high), np.asarray(rebuilt))
+        gid = y // TILE * COLS + x // TILE + 1
+        raise SystemExit(f"재조립 차이 {diff} != 0: 첫 불일치 원화 (x={x}, y={y}) gid {gid}, 불일치 픽셀 {n}개")
     shrunk = rebuilt.resize(base.size, Image.Resampling.LANCZOS)
     mae = float(np.abs(np.asarray(base.convert("RGB")).astype(float) - np.asarray(shrunk.convert("RGB")).astype(float)).mean())
     print(f"재조립 차이: {diff} (0 이어야 함)")
@@ -128,6 +152,7 @@ def build(out):
 
     write_json(out / "tilemap.json", {
         "//": "gid 는 위치 순(행 우선) 1..384. 같은 그림 조각도 중복 제거하지 않는다(원화 자르기 단계). terrain-detail·roads 는 비어 있다.",
+        "$schema-note": "terrain-detail·roads 의 data: [] 는 Tiled 규격상 비표준(원래 길이 384 의 0 배열)이다. 로더(TileTerrainCanvas)가 [] 를 빈 레이어로 다룬다는 전제로 쓴다.",
         "type": "map",
         "orientation": "orthogonal",
         "renderorder": "right-down",

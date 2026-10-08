@@ -5,7 +5,7 @@ import home from './home.map.json';
 import nav from './nav.json';
 import catalog from './objects.json';
 import { villageScene } from '@/utils/village-world';
-const { build, walkableAt } = require('../../../../scripts/build-nav-fixture.cjs');
+const { build, walkableAt, openAtPx, center } = require('../../../../scripts/build-nav-fixture.cjs');
 
 const open = (cx: number, cy: number) => nav.walkable[cy * nav.columns + cx] === '1';
 
@@ -112,5 +112,32 @@ describe('v1 nav fixture', () => {
         ),
     ).length;
     expect(isolated).toBe(9);
+  });
+
+  it('간선 중점이 막힌 인접 통행 셀 쌍은 2 로 고정(입구 셀 예외는 후속 티켓)', () => {
+    let n = 0;
+    for (let cy = 0; cy < 100; cy++)
+      for (let cx = 0; cx < 100; cx++) {
+        if (!open(cx, cy)) continue;
+        const a = center(cx, cy);
+        for (const [dx, dy] of [
+          [1, 0],
+          [0, 1],
+        ]) {
+          if (cx + dx > 99 || cy + dy > 99 || !open(cx + dx, cy + dy)) continue;
+          const b = center(cx + dx, cy + dy);
+          if (!openAtPx({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })) n++;
+        }
+      }
+    expect(n).toBe(2);
+  });
+
+  it('anchor(world) → px 복원 오차는 0.01 px 이하', () => {
+    const byId = new Map(map.objects.map((o) => [o.id, o]));
+    for (const c of catalog.objects) {
+      const o = byId.get(c.id)!;
+      expect(Math.abs(c.anchor.x * 15.36 - o.x)).toBeLessThanOrEqual(0.01);
+      expect(Math.abs(c.anchor.y * 10.24 - o.y)).toBeLessThanOrEqual(0.01);
+    }
   });
 });

@@ -1,7 +1,7 @@
 // map.json 의 폴리곤·footprint 에서 타일 섬 계약 fixture(v1/)를 결정적으로 만든다.
 // 같은 입력이면 바이트까지 같다. 사용: node scripts/build-nav-fixture.cjs [--check]
 // 규칙은 src/utils/village-world.ts 의 villageScene()/blocks() 와 같다(그쪽 동작은 바꾸지 않는다).
-// 통행 판정: 셀 중심점 1점(villageScene 과 동일)을 유지한다. 「중심+4변 중점」 보수적 판정은 입구 7종 중 5종이 막혀 보류(통행 셀 3,613→3,285, -9.1%).
+// 통행 판정: 셀 중심점 1점(villageScene 과 동일)을 유지한다. 「중심+4변 중점」 보수적 판정은 입구 7종 중 5종이 막혀 보류(통행 셀 3,613→3,285, -9.1%). 그 결과 간선 중점이 막힌 인접 통행 셀 쌍이 남아 있다(nav.test.ts 가 개수를 고정). 후속 티켓(미발급): NavArtifact 서버 컴파일 때 입구 셀 예외로 해소.
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -84,9 +84,11 @@ const polygons = [
 ];
 
 // 통행 판정만 따로 뗀다. 격자 크기를 인자로 받아 villageScene() 과 셀 단위로 대조할 수 있다(패리티 테스트).
-function walkableAt(cx, cy, cols = N, rows = N) {
-  const p = center(cx, cy, cols, rows);
+function openAtPx(p) {
   return polygons.some((poly) => inside(p, poly)) && !map.objects.some((o) => blocks(o, p));
+}
+function walkableAt(cx, cy, cols = N, rows = N) {
+  return openAtPx(center(cx, cy, cols, rows));
 }
 
 function build() {
@@ -112,7 +114,7 @@ function build() {
     asset: o.asset,
     w: o.w,
     h: o.h,
-    anchor: { x: +(o.x / cw).toFixed(2), y: +(o.y / ch).toFixed(2) },
+    anchor: { x: +(o.x / cw).toFixed(3), y: +(o.y / ch).toFixed(3) },
     footprint: footprint(o),
     entrance: o.building && map.doors[o.building] ? entrances[o.building] : null,
   }));
@@ -141,7 +143,7 @@ function build() {
   };
   const catalog = {
     '$schema-note':
-      '오브젝트 카탈로그. asset·w·h 는 map.json 원본 값(스프라이트 경로, 원본 px 크기 — 같은 kind 라도 크기가 다르다). anchor 는 발밑 월드 좌표(소수 2자리, zIndex=y), footprint 는 통행 셀 코너 좌표(정수) 사각형 폴리곤(막지 않으면 []), entrance 는 건물 입구 셀.',
+      '오브젝트 카탈로그. asset·w·h 는 map.json 원본 값(스프라이트 경로, 원본 px 크기 — 같은 kind 라도 크기가 다르다). w·h 는 원본 1536×1024 px(소수 유지), anchor 는 world 단위 발밑 좌표(소수 3자리, zIndex=y), footprint 는 통행 셀 코너 좌표(정수) 사각형 폴리곤(막지 않으면 []), entrance 는 건물 입구 셀.',
     objects,
   };
   // 숫자만 든 배열은 한 줄로 접어 diff 와 크기를 줄인다.
@@ -153,7 +155,7 @@ function build() {
   return { 'home.map.json': fmt(home), 'nav.json': fmt(nav), 'objects.json': fmt(catalog) };
 }
 
-module.exports = { build, walkableAt };
+module.exports = { build, walkableAt, openAtPx, center };
 
 if (require.main === module) {
   const files = build();
