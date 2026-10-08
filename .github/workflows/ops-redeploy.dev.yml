@@ -1,0 +1,93 @@
+# dev 서버 재배포 — 시크릿만 바꿨을 때. GROMO-2224.
+#
+# 새 이미지 없이 SM 값만 다시 읽혀야 할 때 쓴다 (10/1 Origin 수정은 무관한 realtime PR 머지 때까지 반영 안 됐다).
+# 방식: 그 서비스의 «마지막 성공 배포 job» 을 그대로 재실행. 같은 커밋·같은 digest 라 이미지는 그대로,
+# 런타임 값 로드 단계가 SM 을 새로 읽는다. 배포 로직을 두 벌로 만들지 않으려고 재실행을 쓴다.
+# 주의: 재실행은 «그 실행 당시의 워크플로 파일» 로 돈다. GROMO-2224 머지 전 실행을 고르면 옛 SM(gromo/dev/env) 을 읽는다.
+# 한계: GitHub 재실행은 30일 안의 실행만 가능. 그보다 오래 배포가 없었으면 main 에 아무 변경이나 머지해 새로 배포.
+
+name: Ops Dev Redeploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 다시 띄울 서버 (SM 을 새로 읽음, 이미지는 마지막 배포 그대로)
+        required: true
+        type: choice
+        options: [data-api, realtime, business-api, notification]
+
+concurrency:
+  group: ops-redeploy-${{ inputs.service }}
+  cancel-in-progress: false
+
+permissions:
+  actions: write # 이전 실행의 job 재실행
+  contents: read
+
+jobs:
+  redeploy:
+    name: ${{ inputs.service }} 재배포
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 마지막 성공 배포 job 찾아 재실행
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SERVICE: ${{ inputs.service }}
+        run: |
+          set -euo pipefail
+          # 서비스 → 배포가 들어 있는 워크플로 파일(이름 바꾸기 전 파일 포함)과 배포 job 이름 끝부분
+          case "$SERVICE" in
+            data-api) workflows=(data-api-ci.dev.yml data-api-ci.yml dev-ci.yml); job_suffix='Data API 배포' ;;
+            realtime) workflows=(realtime-ci.dev.yml realtime-ci.yml); job_suffix='deploy' ;;
+            business-api|notification) workflows=(satellite-cd.dev.yml satellite-dev-cd.yml); job_suffix='deploy' ;;
+          esac
+
+          deployed_in_plan() {
+            # 위성 배포는 실행마다 대상이 다름 → 그 CD 실행이 이 서비스를 배포했는지 확인
+            local run=$1 sha=$2 ci_run dir
+            dir=$(mktemp -d)
+            # 새 CD 는 자기 실행에 배포 기록을 남김. workflow_run 실행의 headSha 는 배포 커밋이 아니라서 이게 정확함
+            if gh run download "$run" --name satellite-deploy-record --dir "$dir" > /dev/null 2>&1; then
+              jq -e --arg s "$SERVICE" '.[$s] == true' "$dir/satellite-deploy-record.json" > /dev/null
+              return
+            fi
+            # 기록이 없는 옛 실행(GROMO-2224 이전)만 커밋으로 CI 를 찾음 — headSha 가 어긋나면 못 찾고 넘어감
+            ci_run=""
+            for ci in satellite-ci.dev.yml satellite-ci.yml; do
+              ci_run=$(gh run list --all --workflow "$ci" --branch main --commit "$sha" --status success \
+                --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
+              [ -z "$ci_run" ] || break
+            done
+            [ -n "$ci_run" ] || return 1
+            gh run download "$ci_run" --name satellite-deploy-plan --dir "$dir" > /dev/null 2>&1 || return 1
+            jq -e --arg s "$SERVICE" '.[$s] == true' "$dir/satellite-deploy-plan.json" > /dev/null
+          }
+
+          for workflow in "${workflows[@]}"; do
+            runs=$(gh run list --all --workflow "$workflow" --branch main --event "$( [[ "$workflow" == satellite-* ]] && echo workflow_run || echo push )" \
+              --status success --limit 20 --json databaseId,headSha,createdAt \
+              --jq '.[] | "\(.databaseId) \(.headSha) \(.createdAt)"' 2>/dev/null || true)
+            while read -r run sha created; do
+              [ -n "${run:-}" ] || continue
+              # gh 의 --jq 는 --arg 를 못 받음 → jq 로 따로
+              job=$(gh run view "$run" --json jobs \
+                | jq -r --arg s "$job_suffix" '[.jobs[] | select(.conclusion == "success" and (.name | endswith($s)))][0].databaseId // empty')
+              [ -n "$job" ] || continue
+              if [[ "$SERVICE" =~ ^(business-api|notification)$ ]] && ! deployed_in_plan "$run" "$sha"; then continue; fi
+              echo "재실행: run $run · job $job · 커밋 ${sha:0:8} ($created)"
+              gh run rerun "$run" --job "$job"
+              {
+                echo "### $SERVICE 재배포"
+                echo "- 재실행한 배포: [run $run](${{ github.server_url }}/$GH_REPO/actions/runs/$run) · 커밋 \`${sha:0:8}\` ($created)"
+                if [[ "$SERVICE" =~ ^(business-api|notification)$ ]]; then
+                  echo "- 위성 배포는 그 실행의 대상 서비스 전부를 다시 띄움"
+                fi
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            done <<< "$runs"
+          done
+          echo "::error::$SERVICE 의 재실행 가능한 성공 배포가 없다 (최근 20회·30일 안). main 에 변경을 머지해 새로 배포할 것"
+          exit 1

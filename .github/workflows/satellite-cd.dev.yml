@@ -1,0 +1,277 @@
+name: Satellite Dev CD
+
+on:
+  workflow_run:
+    workflows: ["Satellite CI (dev)"]
+    types: [completed]
+
+concurrency:
+  group: dev-vm-deploy
+  cancel-in-progress: false
+  # 기본(queue: single)은 대기 실행을 하나만 남기고 취소 → 머지 한 번에 CD 3개가 겹치면 하나가 사라짐
+  queue: max
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  # Redis ACL 만 고정 경로에 둠 — business Redis 가 bind mount 해서 재시작·재부팅 때도 읽음 (비밀번호 해시뿐).
+  # 나머지 env 는 job 마다 임시로 만들고 지움 (GROMO-2224)
+  REDIS_ACL_PERSISTENT: /var/lib/gromo/runtime/satellites/business-redis.acl
+
+jobs:
+  # 배포 대상 판정을 따로 둠 → deploy 의 환경 이름을 dev-server/<배포한 서버> 로 정할 수 있음
+  plan:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      business: ${{ steps.plan.outputs.business }}
+      notification: ${{ steps.plan.outputs.notification }}
+      any: ${{ steps.plan.outputs.any }}
+      label: ${{ steps.plan.outputs.label }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: satellite-deploy-plan
+          path: image-inputs/plan
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: 배포 대상 판정
+        id: plan
+        run: |
+          set -euo pipefail
+          plan=$(cat image-inputs/plan/satellite-deploy-plan.json)
+          # jq 프로그램은 작은따옴표 안이므로 JSON 키의 큰따옴표를 escape 하지 않는다.
+          # `.\"business-api\"`는 일부 jq 버전에서 backslash가 그대로 전달되어 출력만 비고,
+          # command substitution의 실패가 echo에 가려져 Notification만 선택되는 문제가 있었다.
+          business=$(jq -er '.["business-api"] | select(type == "boolean")' <<< "$plan")
+          notification=$(jq -er '.notification | select(type == "boolean")' <<< "$plan")
+          printf 'business=%s\nnotification=%s\n' "$business" "$notification" >> "$GITHUB_OUTPUT"
+          # 위성 코드 변경 없는 실행(.github/scripts·docs 만 바뀜)은 배포할 게 없음 → 이후 단계 건너뜀
+          if [ "$business" = true ] || [ "$notification" = true ]; then any=true; else any=false; fi
+          echo "any=$any" >> "$GITHUB_OUTPUT"
+          [ "$any" = true ] || echo "배포 대상 없음 — 건너뜀" >> "$GITHUB_STEP_SUMMARY"
+          # Deployments 에 실제 배포한 서버 이름이 보이도록 환경 이름에 씀
+          label=$(jq -r '[("business-api", "notification") as $k | select(.[$k] == true) | $k] | join("+")' <<< "$plan")
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          # ops-redeploy 가 이 실행이 무엇을 배포했는지 알 수 있게 기록. workflow_run 실행의 headSha 는
+          # 배포한 커밋이 아니라 이벤트 시점 main 최신이라 그걸로는 CI 를 못 찾음
+          jq -c --arg sha "${{ github.event.workflow_run.head_sha }}" '. + {head_sha: $sha}' <<< "$plan" > satellite-deploy-record.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: satellite-deploy-record
+          path: satellite-deploy-record.json
+          retention-days: 30
+          # ops-redeploy 의 재실행은 plan 도 다시 돌림 — 같은 실행에 같은 이름이 이미 있어 덮어써야 함
+          overwrite: true
+
+  deploy:
+    needs: plan
+    # 위성 코드 변경 없는 실행(.github/scripts·docs 만 바뀜)은 배포할 게 없음 → 건너뜀
+    if: needs.plan.outputs.any == 'true'
+    runs-on: [self-hosted, dev]
+    environment:
+      name: dev-server/${{ needs.plan.outputs.label }}
+      url: https://oneorthree.dev.mooo.com
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      pull-requests: write # 배포 결과 PR 표시
+      issues: write # 라벨은 이슈 API
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/download-artifact@v4
+        if: needs.plan.outputs.business == 'true'
+        with:
+          name: business-api-image
+          path: image-inputs/business-api
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: needs.plan.outputs.notification == 'true'
+        with:
+          name: notification-image
+          path: image-inputs/notification
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: AWS 자격증명
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-satellite-dev-${{ github.run_id }}
+          unset-current-credentials: true
+
+      - name: 임시 dev.env 생성
+        run: .github/scripts/dev-env.sh > /dev/null
+
+      - name: 배포 입력 준비
+        env:
+          IMAGE_REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          # 이번에 안 바뀐 서비스는 떠 있는 컨테이너 이미지 유지 (상태 파일 대신 컨테이너에서 읽음)
+          running_image() {
+            local id
+            id=$(docker ps -q --filter label=com.docker.compose.project=phone \
+              --filter "label=com.docker.compose.service=$1" | head -n 1)
+            if [ -z "$id" ]; then
+              echo "::error::떠 있는 $1 컨테이너가 없어 유지할 이미지를 모름 — 이 서비스도 바뀐 커밋으로 배포하거나 수동으로 띄울 것" >&2
+              return 1
+            fi
+            docker inspect -f '{{.Config.Image}}' "$id"
+          }
+          if [ "${{ needs.plan.outputs.business }}" = true ]; then
+            business_image=$(cat image-inputs/business-api/business-api-image.txt)
+          else
+            business_image=$(running_image business-api)
+          fi
+          if [ "${{ needs.plan.outputs.notification }}" = true ]; then
+            notification_image=$(cat image-inputs/notification/notification-image.txt)
+          else
+            notification_image=$(running_image notification)
+          fi
+          test -n "$business_image"
+          test -n "$notification_image"
+          dir=$(dirname "$RUNTIME_ENV_FILE")/satellites
+          .github/scripts/dev-env.sh secrets \
+          | python3 server/scripts/prepare-satellite-deploy.py \
+              --environment dev \
+              --output-dir "$dir" \
+              --base-compose server/scripts/docker-compose.dev.yml \
+              --shared-env-file "$RUNTIME_ENV_FILE" \
+              --business-image "$business_image" \
+              --notification-image "$notification_image"
+          # ACL 은 고정 경로로 복사, compose 에는 셸 env 로 경로 덮어씀 (셸 env 가 --env-file 보다 우선)
+          # 새 ACL 은 임시 폴더에 둔 채 비교만 함. 고정 경로 반영은 배포 단계에서 이미지 pull 이 끝난 뒤
+          # (먼저 덮어쓰면 pull 실패 후 재시도가 «변경 없음» 으로 판정돼 Redis 가 옛 비밀번호로 남음)
+          if cmp -s "$dir/business-redis.acl" "$REDIS_ACL_PERSISTENT"; then acl_changed=0; else acl_changed=1; fi
+          {
+            echo "SATELLITE_RUNTIME_DIR=$dir"
+            echo "BUSINESS_REDIS_ACL_FILE=$REDIS_ACL_PERSISTENT"
+            echo "BUSINESS_REDIS_ACL_CHANGED=$acl_changed"
+            echo "BUSINESS_REDIS_ACL_NEW=$dir/business-redis.acl"
+            echo "IMAGE_REVISION=$IMAGE_REVISION"
+          } >> "$GITHUB_ENV"
+
+      - name: GAR 인증
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
+
+      - name: Business·Notification 배포
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml \
+            -f server/scripts/docker-compose.satellites.dev.yml)
+          if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
+            test -n "$DD_API_KEY"
+            compose+=(-f server/scripts/docker-compose.datadog.yml)
+          fi
+          services=()
+          if [ "${{ needs.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ needs.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          test "${#services[@]}" -gt 0
+          "${compose[@]}" config --quiet
+          # 이미지부터 받음 — 못 받으면 Redis 를 건드리기 전에 멈춰 기존 Business·Redis 비밀번호가 그대로 맞음
+          "${compose[@]}" pull "${services[@]}"
+          # Business 도 이번에 배포할 때만 전환 — Notification 단독 배포에서 바꾸면 기존 Business 가 옛 비밀번호로 끊김.
+          # 안 바꾼 경우 기준 파일이 그대로라 다음 Business 배포가 다시 «변경» 으로 판정함
+          if [ "${BUSINESS_REDIS_ACL_CHANGED:-0}" = 1 ] && [ "${{ needs.plan.outputs.business }}" = true ]; then
+            # 비밀번호 회전(또는 새 VM). 고정 경로를 지금 갱신하고 바로 Redis 재생성 — 기준 파일과 Redis 메모리가 같이 바뀜.
+            # aclfile 은 기동 때만 읽힘. 캐시 전용(--save "")이라 잃는 건 캐시뿐.
+            acl_dir=$(dirname "$REDIS_ACL_PERSISTENT")
+            mkdir -p "$acl_dir" && chmod 700 "$acl_dir"  # 새 VM·정리된 VM 에선 폴더가 없음
+            backup="$RUNNER_TEMP/business-redis.acl.prev"
+            if [ -f "$REDIS_ACL_PERSISTENT" ]; then cp -p "$REDIS_ACL_PERSISTENT" "$backup"; fi
+            install -m 644 "$BUSINESS_REDIS_ACL_NEW" "$REDIS_ACL_PERSISTENT"
+            echo "business Redis ACL 변경 → business-redis 재생성"
+            if ! "${compose[@]}" up -d --no-deps --force-recreate business-redis; then
+              # 재생성 실패 → 기준 파일을 되돌려 다음 실행이 다시 «변경» 으로 판정하게 함
+              if [ -f "$backup" ]; then install -m 644 "$backup" "$REDIS_ACL_PERSISTENT"; else rm -f "$REDIS_ACL_PERSISTENT"; fi
+              echo "::error::business-redis 재생성 실패 — ACL 기준 파일을 이전 상태로 되돌림"
+              exit 1
+            fi
+          fi
+          "${compose[@]}" up -d "${services[@]}"
+          "${compose[@]}" ps "${services[@]}"
+
+      - name: 서비스 health check
+        id: health
+        env:
+          IMAGE_REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml \
+            -f server/scripts/docker-compose.satellites.dev.yml)
+          services=()
+          if [ "${{ needs.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ needs.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          # 서비스마다 결과를 따로 남김 → 한쪽만 실패해도 다른 쪽 PR 라벨은 성공으로 (GROMO-2224)
+          results="$RUNNER_TEMP/satellite-health.txt"
+          : > "$results"
+          failed=0
+          for service in "${services[@]}"; do
+            container=$("${compose[@]}" ps -q "$service" || true)
+            # 컨테이너 상태로 판정. 종료·재시작·unhealthy 는 즉시 실패
+            if [ -n "$container" ] && .github/scripts/wait-healthy.sh "$(docker inspect -f '{{.Name}}' "$container" | sed 's#^/##')" 900; then
+              echo "$service success" >> "$results"
+            else
+              echo "$service failure" >> "$results"
+              failed=1
+            fi
+          done
+          [ "$failed" = 0 ]
+
+      - name: 배포 결과 PR 표시
+        if: always() && (steps.health.outcome == 'success' || failure())
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          services=()
+          if [ "${{ needs.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ needs.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          results="$RUNNER_TEMP/satellite-health.txt"
+          for service in "${services[@]}"; do
+            # 헬스체크 결과가 없으면(앞 단계에서 실패) 실패로 표시
+            result=$(awk -v s="$service" '$1 == s {print $2}' "$results" 2>/dev/null || true)
+            .github/scripts/mark-deploy.sh "${result:-failure}" "$service" "${{ github.event.workflow_run.head_sha }}"
+          done
+
+      - name: 실패 로그
+        if: failure()
+        run: |
+          services=()
+          if [ "${{ needs.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ needs.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          for service in "${services[@]}"; do
+            container=$(docker ps -aq \
+              --filter label=com.docker.compose.project=phone \
+              --filter label=com.docker.compose.service="$service" | head -n 1)
+            if [ -n "$container" ]; then docker logs --tail=100 "$container" 2>&1 || true; fi
+          done
+
+      - name: 임시 env 삭제
+        if: always()
+        run: rm -rf "$(dirname "${RUNTIME_ENV_FILE:-/nonexistent/x}")" 2>/dev/null || true

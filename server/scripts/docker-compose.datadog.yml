@@ -76,7 +76,7 @@ services:
     networks: [app-network, business-cache]
     restart: unless-stopped
 
-  # dev 의 app 서비스를 override — overlay 켤 때만 APM 활성. dev 파일 단독(dev-cd.yml) 실행 시엔 미적용(평문).
+  # dev 의 app 서비스를 override — overlay 켤 때만 APM 활성. dev 파일 단독(data-api-cd.dev.yml) 실행 시엔 미적용(평문).
   data-api:
     environment:
       # JAVA_OPTS 는 override 로 대체되므로 dev 의 egd 옵션을 다시 명시하고 -javaagent 를 추가.

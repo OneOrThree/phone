@@ -36,8 +36,8 @@ jobs:
             });
 
             const ciTargets = [
-              ['Data API', 'CI'],
-              ['Business · Notification 검사', 'Business · Notification CI'],
+              ['Data API', 'Data API CI'],
+              ['Business · Notification 검사', 'Satellite CI (dev)'],
               ['Realtime', 'Realtime CI'],
             ];
             const failed = new Set([
@@ -49,7 +49,7 @@ jobs:
               return run.conclusion === 'success' ? '성공' : `실패 (${run.conclusion})`;
             };
             const findRun = (workflow) => data.workflow_runs.find((run) => run.name === workflow);
-            const satelliteCi = findRun('Business · Notification CI');
+            const satelliteCi = findRun('Satellite CI (dev)');
             const satelliteCd = findRun('Satellite Dev CD');
             const satelliteCdLabel = satelliteCd
               ? label(satelliteCd)

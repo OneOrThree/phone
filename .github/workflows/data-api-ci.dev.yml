@@ -1,8 +1,8 @@
-name: CI
+name: Data API CI
 
 on:
   pull_request:
-    # release 대상 PR(통합→release)만 뺀다 — 그쪽은 prod-ci 가 test 를 직접 호출한다.
+    # release 대상 PR(통합→release)만 뺀다 — prod 파이프라인 재작업 때 다시 정함 (옛 prod-ci 는 GROMO-2224 에서 삭제)
     #
     # 예전엔 `branches: [main]` 이었는데, 그러면 **base 가 다른 브랜치인 스택 PR 에서 백엔드
     # 테스트가 한 번도 돌지 않는다**. 검사 없이 쌓이다가 base 를 통합 브랜치로 바꾸는 순간
@@ -18,18 +18,23 @@ on:
       - "!server/data-api/**/*.md"
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
-      # dev-cd 가 조건부로 물리는 오버레이 (GROMO-1658) — 바뀌면 다음 배포에 반영돼야 한다.
+      # data-api-cd 가 조건부로 물리는 오버레이 (GROMO-1658) — 바뀌면 다음 배포에 반영돼야 한다.
       - "server/scripts/docker-compose.kafka.yml"
       - "server/scripts/docker-compose.satellites.data.yml"
       - "server/scripts/docker-compose.satellites.data.dev.yml"
       # CI 자신과 CI 가 호출하는 워크플로도 트리거에 넣는다. 안 넣으면 이 파일들만
       # 고치는 PR 에서 정작 CI 가 안 돌아 **머지해 봐야** 맞는지 안다 (GROMO-1515).
-      - ".github/workflows/dev-ci.yml"
+      - ".github/workflows/data-api-ci.dev.yml"
       - ".github/workflows/be-gradle.yml"
       - ".github/actions/ci-jar/**"
       - ".github/actions/gar-login/**"
       - ".github/scripts/ci-jar.py"
-      - ".github/workflows/dev-cd.yml"
+      - ".github/workflows/data-api-cd.dev.yml"
+      # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
+      - ".github/scripts/dev-env.sh"
+      - ".github/scripts/write-compose-env.py"
+      - ".github/scripts/wait-healthy.sh"
+      - ".github/scripts/mark-deploy.sh"
   # squash merge 뒤에는 최종 main SHA를 다시 검사하고, 이 실행에서 배포 이미지를 만든다.
   # PR에서 채운 GAR 캐시를 사용하므로 CD에서 별도로 재빌드하지 않는다.
   push:
@@ -46,12 +51,17 @@ on:
       - "server/scripts/docker-compose.kafka.yml"
       - "server/scripts/docker-compose.satellites.data.yml"
       - "server/scripts/docker-compose.satellites.data.dev.yml"
-      - ".github/workflows/dev-ci.yml"
+      - ".github/workflows/data-api-ci.dev.yml"
       - ".github/workflows/be-gradle.yml"
       - ".github/actions/ci-jar/**"
       - ".github/actions/gar-login/**"
       - ".github/scripts/ci-jar.py"
-      - ".github/workflows/dev-cd.yml"
+      - ".github/workflows/data-api-cd.dev.yml"
+      # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
+      - ".github/scripts/dev-env.sh"
+      - ".github/scripts/write-compose-env.py"
+      - ".github/scripts/wait-healthy.sh"
+      - ".github/scripts/mark-deploy.sh"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -60,9 +70,36 @@ concurrency:
 
 env:
   GAR_HOST: asia-northeast3-docker.pkg.dev
-  APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
+  APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/data-api/data-api
 
 jobs:
+  # 배포 전 SM 점검 (GROMO-2224). main push 에서만 SM 을 읽고 PR 에선 아무것도 안 함 — 공개 레포라 PR 에 AWS 자격 금지.
+  # 필수 키가 빠졌으면 이미지 빌드 전에 멈춤. legacy + 전 서비스를 한 번에 봄.
+  secrets-check:
+    name: dev 시크릿 사전 점검
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: main push 아님 — 생략
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        run: echo "main push 아님 — SM 점검 생략" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: AWS 자격증명 (OIDC)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+          aws-region: ap-northeast-2
+          role-session-name: gromo-dev-secrets-check-${{ github.run_id }}
+          mask-aws-account-id: true
+      - name: 필수 키·금지 키·토큰 규칙 점검
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: .github/scripts/dev-env.sh check
+
   # 셋 다 be-gradle.yml 하나를 부른다(GROMO-1790).
   #
   # ── 러너 배치 (GROMO-1793 → GROMO-1910 현행화, 2026-09-17) ───────────────────
@@ -127,7 +164,7 @@ jobs:
   # digest를 아래 deploy job에 직접 넘기므로 CD는 태그를 다시 조회하거나 재빌드하지 않는다.
   build:
     name: Dev 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
-    needs: [checkstyle, spotbugs, test]
+    needs: [checkstyle, spotbugs, test, secrets-check]
     # GROMO-1918: 이미지를 «push» 하는 실행에서만 self-hosted 다. GAR 인증이 GCE 메타데이터
     # 토큰을 쓰는데 GitHub-hosted 에는 그 메타데이터가 없기 때문이다. PR 은 push 하지 않으므로
     # (아래 `push:` 가 main push 로 한정) 그 인증이 필요 없고, 레지스트리 캐시만 GAR 를 쓰던 것을
@@ -202,7 +239,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: ./.github/workflows/dev-cd.yml
+      pull-requests: write # CD 가 배포 결과를 PR 에 표시
+      issues: write
+    uses: ./.github/workflows/data-api-cd.dev.yml
     with:
       image_digest: ${{ needs.build.outputs.image-digest }}
       image_revision: ${{ github.sha }}

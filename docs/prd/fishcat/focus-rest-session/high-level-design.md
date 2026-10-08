@@ -19,7 +19,7 @@
 | `FocusPresenceReconciler`, `FocusSessionOrphanScheduler` | 기존 열린 마커 복구와12h 고아 정리 | v0.3 행을 기존 자동정리로 잃지 않도록 protocol 분기 필수 |
 | `league/repository/LeagueRankingQueryRepository.java:91~127` | `ended_at IS NULL` 마커를 골라 `now - GREATEST(started_at, weekStartAt)`를 정렬에 더함. 상세/REST 구간 미인지 | 상세가 있는 세션은 주간 ACTIVE 구간 합으로 읽도록 전환. paused를 단순 제외해 이미 쌓인 ACTIVE 초까지 버리지 않음 |
 | `FocusService.java:330~351`, 앱 `focusRestore.ts:29~43`, `useLeagueRanking.ts:75~85`, `stats/format.ts:70~102` | 완료 목록의 단일 startedAt~endedAt으로 앱이 순수 초/주간 합계와 연속 시간표를 재구성. 날짜별 net만 추가해도 이 경로는 그대로 | 완료 reader와 앱의 ACTIVE 합·구간 인식도 활성화 gate에 포함. 호환 앱 버전/접근 경계 또는 모든 소비처가 검증된 읽기 projection 필요 |
-| `.github/workflows/prod-rollback.yml:11~14,50~65` | 사용자가 지정한 옛 이미지가 ECR에 있는지만 확인한 뒤 SSM으로 재배포. 상세 프로토콜 호환 검사 없음 | 신규 API를 닫은 상태로 호환 reader/writer 먼저 배포하고 롤백 최소 호환 baseline을 올린 뒤 신규 활성화 |
+| `.github/workflows/prod-rollback.yml:11~14,50~65` (GROMO-2224 에서 삭제) | 사용자가 지정한 옛 이미지가 ECR에 있는지만 확인한 뒤 SSM으로 재배포. 상세 프로토콜 호환 검사 없음 | 신규 API를 닫은 상태로 호환 reader/writer 먼저 배포하고 롤백 최소 호환 baseline을 올린 뒤 신규 활성화 |
 
 기존 통계는 저장한 net 분포에서 방해를 다시 빼지 않는다. 새 휴식을 `totalDistractionSeconds`로 다시
 차감하거나 종료일 하나로 몰면 시간과 통계가 어긋난다. legacy 오프라인 업로드 계약도 서버 시각 REST와 다르다.

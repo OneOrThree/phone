@@ -6,11 +6,11 @@ GROMO-1889. [A24](../../architecture/decisions.md)(1.x 데이터 이관 없음 �
 
 범위는 `server/data-api/src/main/java/` 아래 클래스 레벨 `@RequestMapping("/api/v1")` 컨트롤러 **28개**다(§부록 집계 방법 참조). `server/realtime/`(예: `ChatController`)·`server/business-api/`는 별도 Gradle 프로젝트라 이 표에 없다.
 
-**"main 삭제가 운영 1.x 에 영향 없다"의 근거**는 두 워크플로의 트리거 분기다.
+**"main 삭제가 운영 1.x 에 영향 없다"의 근거**는 두 워크플로의 트리거 분기였다. 두 파일은 GROMO-2224 에서 삭제돼, 지금은 release 머지로도 prod 가 갱신되지 않는다.
 
 - `.github/workflows/prod-ci.yml:14-15` — `push: branches: [release]`. `main` push 는 이 워크플로를 트리거하지 않는다.
 - `.github/workflows/prod-cd.yml:11-14` — `workflow_run` 이 `prod-ci` 의 `release` 브랜치 성공만 구독한다(`branches: [release]`).
-- 대조: `.github/workflows/dev-ci.yml:28-29` — `push: branches: [main]` 이 dev 배포(`dev-cd.yml`)만 만든다.
+- 대조: `.github/workflows/data-api-ci.dev.yml:28-29` — `push: branches: [main]` 이 dev 배포(`data-api-cd.dev.yml`)만 만든다.
 
 즉 `main` 에서 레거시 컨트롤러를 지워도 그 이미지는 `prod-ci`/`prod-cd` 를 타지 않는다. prod 는 `release` 브랜치가 마지막으로 머지한 이미지를 계속 서빙하며, 종료 전 hotfix 는 `release` 에서 별도로 자른다(A24②).
 

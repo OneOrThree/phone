@@ -48,7 +48,7 @@ cd server/business-api
 ./gradlew build
 ```
 
-[위성 CI](../../.github/workflows/satellite-ci.yml)는 Dockerfile의 `test` 단계로 도구 이미지를 만든 뒤, 소스와 Docker 소켓을 마운트한 컨테이너에서 Gradle을 실행합니다. 도구 이미지 빌드만으로 테스트가 실행되지는 않습니다. 서비스 실행은 아래 상세 안내와 [배포 설정 준비](../scripts/README.md)를 참고합니다. 기본 서비스 포트는 `8080`이며 Data와 호스트에서 함께 실행할 때는 포트를 구분해야 합니다. 단독 [compose.yml](compose.yml)은 호스트 `127.0.0.1:8082`를 컨테이너 `8080`에 연결합니다.
+[위성 CI](../../.github/workflows/satellite-check.yml)는 Dockerfile의 `test` 단계로 도구 이미지를 만든 뒤, 소스와 Docker 소켓을 마운트한 컨테이너에서 Gradle을 실행합니다. 도구 이미지 빌드만으로 테스트가 실행되지는 않습니다. 서비스 실행은 아래 상세 안내와 [배포 설정 준비](../scripts/README.md)를 참고합니다. 기본 서비스 포트는 `8080`이며 Data와 호스트에서 함께 실행할 때는 포트를 구분해야 합니다. 단독 [compose.yml](compose.yml)은 호스트 `127.0.0.1:8082`를 컨테이너 `8080`에 연결합니다.
 
 ## 상세 안내
 
@@ -748,7 +748,7 @@ SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
 
 배포 절차는 [`deployment.md`](../../docs/prd/fishcat/server-separation/deployment.md)를 따른다.
 `server/scripts/docker-compose.satellites.yml`과 Business 단독 compose는 같은 env/ACL 계약을 사용한다.
-`.github/workflows/satellite-ci.yml`이 Poppler를 포함한 테스트·이미지 검증을 담당한다.
+`.github/workflows/satellite-check.yml`이 Poppler를 포함한 테스트·이미지 검증을 담당한다.
 운영 활성화에는 라우팅·TLS와 Google API 키 설정이 함께 필요하다.
 
 API 경로의 percent encoding·matrix parameter 표기에도 인증·본문 제한·요청 로그를 동일하게 적용한다.
