@@ -2322,4 +2322,65 @@ describe('en', () => {
     assert.ok(s.getByLabelText('Island Name'));
     assert.ok(s.getByText('Create Island'));
   });
+
+  // 대사 배열이 렌더 안에서 만들어지므로(lines = [t(...), ...]) 언어 전환 회귀를 여기서 잡는다.
+  test('en 로케일 — 몽돌 가이드는 첫 대사와 다음 버튼을 영문으로 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="guide" />);
+
+    assert.ok(
+      s.getByText(
+        "Hey! You're a new face.\nI'm Mongdol. I've lived on this island for a long time.",
+      ),
+    );
+    assert.ok(s.getByText('Next'));
+  });
+
+  test('en 로케일 — 섬 찾기(서버)는 영문 제목과 가입 신청 버튼을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const api = (dispatch: any) => ({
+      explore: jest.fn(async () => {
+        dispatch({
+          type: 'ISLAND_CANDIDATES',
+          items: [islandSummary({ approvalRequired: true })],
+          nextCursor: null,
+          reset: true,
+        });
+      }),
+    });
+    const s = await render(<Harness route="joinIsland" api={api} />);
+
+    assert.ok(s.getByText('Find an Island'));
+    await waitFor(() => assert.ok(s.getByText('Join Request')));
+  });
+
+  test('en 로케일 — 초대 코드 모달은 영문 제목과 입력 라벨을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="chooseIsland" api={() => ({})} />);
+
+    await fireEvent.press(s.getByTestId('invite-open'));
+    assert.ok(s.getByText('Enter Invite Code'));
+    assert.ok(s.getByLabelText('Invite code'));
+  });
+
+  // GROMO-2252 r3 1a: 대체 섬 이름(pendingIslandFallback)이 {{island}}에 들어가도
+  // en 템플릿에 더 이상 따옴표를 두르지 않는다("the island you applied to" 는 실제 이름이 아니다).
+  test('en 로케일 — 대체 섬 이름이 들어간 가입 신청 재개 문구는 따옴표로 감싸지 않는다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(
+      <Harness
+        route="chooseIsland"
+        api={() => ({})}
+        seed={(d: any) => d({ type: 'ISLAND_REQUEST', request: pendingReq({ islandName: null }) })}
+      />,
+    );
+
+    await waitFor(() =>
+      assert.ok(s.getByText('Your join request for the island you applied to is in progress')),
+    );
+  });
 });

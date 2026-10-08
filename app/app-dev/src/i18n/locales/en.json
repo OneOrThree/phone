@@ -216,11 +216,11 @@
     "kickedCannotRejoin": "You can't rejoin an island you were removed from.",
     "residents": "{{count}}/{{max}} residents",
     "residentsWithAverage": "{{count}}/{{max}} residents · avg focus {{average}}",
-    "visitResidents": "Residents {{names}}",
+    "visitResidents": "Residents: {{names}}",
     "residentFallbackName": "Resident",
     "joinedCard": {
       "title": "You've Joined!",
-      "sub": "You're now a resident of \"{{island}}\"."
+      "sub": "You're now a resident of {{island}}."
     },
     "chooseIsland": {
       "title": "Choose Your First Island",
@@ -235,7 +235,7 @@
         "sub": "Find a public island with the telescope"
       },
       "bootErrorTitle": "Couldn't load island info",
-      "pendingResume": "Your join request for \"{{island}}\" is in progress",
+      "pendingResume": "Your join request for {{island}} is in progress",
       "pendingIslandFallback": "the island you applied to",
       "membershipConfirmedTitle": "Membership Confirmed",
       "membershipConfirmedSub": "The server confirmed your membership in \"{{island}}\".",
