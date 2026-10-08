@@ -117,9 +117,10 @@ export const interiorArt = {
     quest: require('@/assets/interiors/ui/board-sheet-quest-v2.png'),
   },
   // 언어별 쌍 — 렌더 시점에 localized() 로 고른다(모듈 최상위에서 고르면 import 시점 언어로 굳는다)
+  // src/assets/ota/ 아래 — assetPatternsToBeBundled 패턴에 맞아야 OTA 로 구 바이너리에도 실린다
   blueprintReadyStamp: {
-    ko: require('@/assets/interiors/ui/blueprint-ready-stamp-v3.ko.png'),
-    en: require('@/assets/interiors/ui/blueprint-ready-stamp-v3.en.png'),
+    ko: require('@/assets/ota/interiors/ui/blueprint-ready-stamp-v3.ko.png'),
+    en: require('@/assets/ota/interiors/ui/blueprint-ready-stamp-v3.en.png'),
   },
   letterEnvelope: require('@/assets/interiors/ui/letter-envelope-v1.png'),
 };

@@ -45,7 +45,7 @@ from pathlib import Path
 import PIL
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
-UI_DIR = Path(__file__).resolve().parents[1] / "src/assets/interiors/ui"
+UI_DIR = Path(__file__).resolve().parents[1] / "src/assets/ota/interiors/ui"
 KO_PATH = UI_DIR / "blueprint-ready-stamp-v3.ko.png"
 EN_PATH = UI_DIR / "blueprint-ready-stamp-v3.en.png"
 # 글꼴 없이 폴백 생성한 결과물 — 커밋 대상(EN_PATH)을 덮어쓰지 않고 여기 따로 쓴다(.gitignore 처리됨).

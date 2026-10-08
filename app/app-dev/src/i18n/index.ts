@@ -8,7 +8,8 @@
  * - 키는 점 표기 네임스페이스('errors.GENERIC'), 치환은 {{var}}.
  * - en 복수는 { one, other } 객체 + vars.count 로 고른다(Hermes 엔 Intl.PluralRules 가 없다). ko 는 문자열.
  * - 이미지는 `<이름>.ko.png`·`<이름>.en.png` 정적 require 쌍을 localized({ ko, en }) 로 고른다.
- *   새 PNG 는 OTA 로 못 나간다 — app.config.js assetPatternsToBeBundled 가 src/assets/ota/** 만 싣는다.
+ *   새 이미지는 src/assets/ota/ 아래에 둔다 — app.config.js assetPatternsToBeBundled 가 그 경로만
+ *   OTA 에 실어서, 밖에 두면 OTA 를 받은 구 바이너리(고정 runtimeVersion)에서 못 찾는다.
  * - App.tsx 의 titles 는 Datadog RUM 뷰 이름이라 번역하지 않는다.
  */
 import { getLocales } from 'expo-localization';
@@ -100,6 +101,8 @@ export function t(key: string, vars: Record<string, string | number> = {}): stri
 // SLUG_NOT_FOUND·INVITATION_EXPIRED·STATE_CONFLICT(VERSION_CONFLICT 겸용)·REQUEST_IN_PROGRESS 만 앱 문구.
 // 서버 message 는 출처를 가리지 않는다 — Spring 기본 에러 본문(«Not Found»)·Bean Validation 기본
 // 메시지 같은 영문이 ko 사용자에게 그대로 노출되던 경로를 막는다. 한글이 하나도 없으면 버린다.
+// 전제: 서버 문구는 전부 한국어 "문장"이다 — 숫자·고유명사(ID, 코드값 등)만 있는 message 는 이 전제가
+// 깨지는 자리라 한글이 없다는 이유로 똑같이 폴백으로 간다(서버가 그런 message 를 보내면 재검토).
 const koText = (m: string): string => (/[가-힣]/.test(m) ? m : '');
 
 export function errorText(err: unknown): string {
@@ -108,6 +111,11 @@ export function errorText(err: unknown): string {
   const key = `errors.${code}`;
   const serverText = current === 'ko' ? koText(err.message) : has(key) ? t(key) : '';
   if (code === CLIENT_STALE_SESSION) return '';
+  // CLIENT_PROVIDER_UNAVAILABLE: 이 코드의 message 는 socialLogin.ts(UNAVAILABLE 상수)가 던질 때 이미
+  // t() 로 만든 앱 문구다 — 서버 message 규칙(ko 만 원문)의 예외라 언어 불문 그대로 쓴다. errors.
+  // CLIENT_PROVIDER_UNAVAILABLE 키가 en 에 없어 아래 일반 분기로 떨어지면 이 문구가 사라지니 먼저
+  // 가로챈다(socialLogin.ts import 는 순환(i18n → socialLogin → i18n)이라 문자열 리터럴로 둔다).
+  if (code === 'CLIENT_PROVIDER_UNAVAILABLE') return err.message || t('errors.GENERIC');
   if (code === 'SLUG_NOT_FOUND' || code === 'INVITATION_EXPIRED')
     return has(key) ? t(key) : t('errors.GENERIC');
   if (code === 'FORBIDDEN' && serverText) return serverText;
