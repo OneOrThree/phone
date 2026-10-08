@@ -66,9 +66,7 @@ describe('worldCoords', () => {
   it('NaN·±Infinity 는 throw 없이 처리한다', () => {
     expect(worldToCell({ x: NaN, y: Infinity })).toEqual({ cx: 0, cy: 0 });
     expect(worldToWire({ x: NaN, y: -Infinity })).toBeNull();
-    expect(screenToImage({ x: 5, y: 5 }, { offsetX: 0, offsetY: 0, scale: 0 })).toEqual({
-      x: 0,
-      y: 0,
-    });
+    expect(screenToImage({ x: 5, y: 5 }, { offsetX: 0, offsetY: 0, scale: 0 })).toBeNull();
+    expect(screenToImage({ x: NaN, y: 5 }, { offsetX: 0, offsetY: 0, scale: 1 })).toBeNull();
   });
 });
