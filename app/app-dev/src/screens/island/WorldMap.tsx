@@ -1304,41 +1304,7 @@ function FinalIslandScene({
                   minHeight: 44,
                   zIndex: scene ? 2000 : undefined,
                 }}
-              >
-                {id === 'raft' && (
-                  <View
-                    testID={`building-name-${id}`}
-                    pointerEvents="none"
-                    style={{
-                      position: 'absolute',
-                      ...(scene
-                        ? {
-                            left: (185 - hitbox.x) * s,
-                            top: (805 - hitbox.y) * s,
-                            width: 210 * s,
-                          }
-                        : { left: 0, top: -30, width: hitbox.w * s }),
-                      alignItems: 'center',
-                    }}
-                  >
-                    <View
-                      style={{
-                        minHeight: componentTokens.villageBuildingNameTag.minHeight,
-                        justifyContent: 'center',
-                        paddingHorizontal: componentTokens.villageBuildingNameTag.paddingHorizontal,
-                        borderRadius: componentTokens.villageBuildingNameTag.radius,
-                        borderWidth: componentTokens.villageBuildingNameTag.borderWidth,
-                        borderColor: semanticTokens.color.outline,
-                        backgroundColor: semanticTokens.color.surface,
-                      }}
-                    >
-                      <Txt kind="meta" numberOfLines={1} style={{ fontWeight: '700' }}>
-                        {d.label}
-                      </Txt>
-                    </View>
-                  </View>
-                )}
-              </Pressable>
+              />
             );
           })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}

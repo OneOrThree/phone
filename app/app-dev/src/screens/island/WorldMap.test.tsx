@@ -462,21 +462,13 @@ test('완공된 건물은 이름표 없이 접근성 이름으로 식별한다',
   await screen.unmount();
 });
 
-test('부두의 뗏목에 뗏목 이름을 표시한다', async () => {
+test('뗏목은 이름표 없이 접근성 이름으로 식별한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
-  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
 
-  expect(screen.getByText('뗏목')).toBeTruthy();
-  expect(screen.getByTestId('building-name-raft').props.style).toEqual(
-    expect.objectContaining({
-      left: 0,
-      top: -30,
-      // 이름표는 뗏목 탭 영역(배경의 뗏목 그림, 폭 180) 위에 가운데 정렬된다(GROMO-2157).
-      width: 180 * worldScale,
-      alignItems: 'center',
-    }),
-  );
+  expect(screen.queryByText('뗏목')).toBeNull();
+  expect(screen.queryByTestId('building-name-raft')).toBeNull();
+  expect(screen.getByRole('button', { name: '뗏목' })).toBeTruthy();
   await screen.unmount();
 });
 

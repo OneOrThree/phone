@@ -57,7 +57,7 @@ Primitive → Semantic → Component → Screen composition
 
 새 코드는 `semanticTokens` 또는 `componentTokens`를 우선한다. `C.*`는 기존 화면 호환 별칭이다.
 
-마을 건물의 새 소식 배지와 툴팁 치수는 `componentTokens.villageNotificationBadge` 및 `componentTokens.villageNotificationTooltip`에서 관리한다. 게시판·우체통·도서관이 같은 크기와 윤곽을 공유하고, 지도 배율은 배지 토큰 치수에 곱해 적용한다. 건물 위에는 상시 이름표를 표시하지 않는다. 건물 이름과 상태는 터치 영역의 접근성 라벨로 제공한다. 뗏목 이름표 치수는 `componentTokens.villageBuildingNameTag`에서 관리한다.
+마을 건물의 새 소식 배지와 툴팁 치수는 `componentTokens.villageNotificationBadge` 및 `componentTokens.villageNotificationTooltip`에서 관리한다. 게시판·우체통·도서관이 같은 크기와 윤곽을 공유하고, 지도 배율은 배지 토큰 치수에 곱해 적용한다. 건물과 뗏목 위에는 상시 이름표를 표시하지 않는다. 이름과 상태는 터치 영역의 접근성 라벨로 제공한다.
 
 ## 4. 컬러
 
