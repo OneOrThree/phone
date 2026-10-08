@@ -14,6 +14,7 @@ import {
   type ViewProps,
 } from 'react-native';
 import { assets } from '@/constants/assets';
+import { t } from '@/i18n';
 import { Btn, C, Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
@@ -302,7 +303,7 @@ export function TutorialSpotlight({
             <Btn title={action.title} onPress={action.onPress} disabled={action.disabled} />
           )}
           {children ?? null}
-          {skip && <Btn title="안내 그만 보기" kind="ghost" onPress={skip} />}
+          {skip && <Btn title={t('onboarding.spotlightSkip')} kind="ghost" onPress={skip} />}
         </GuideBox>
       </ScrollView>
     </View>

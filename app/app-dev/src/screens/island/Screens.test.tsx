@@ -2302,4 +2302,24 @@ describe('en', () => {
     await fireEvent.press(s.getByText('Retry'));
     assert.equal(retryHome.mock.calls.length, 1);
   });
+
+  test('en 로케일 — 첫 섬 선택은 영문 제목과 두 선택지를 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="chooseIsland" api={() => ({})} />);
+
+    assert.ok(s.getByText('Choose Your First Island'));
+    assert.ok(s.getByText('Create an island and start alone'));
+    assert.ok(s.getByText('Join an existing island'));
+  });
+
+  test('en 로케일 — 새 섬 만들기는 영문 제목과 입력 라벨을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="createIsland" api={() => ({})} />);
+
+    assert.ok(s.getByText('Create a New Island'));
+    assert.ok(s.getByLabelText('Island Name'));
+    assert.ok(s.getByText('Create Island'));
+  });
 });

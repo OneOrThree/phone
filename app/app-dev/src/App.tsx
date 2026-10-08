@@ -541,7 +541,7 @@ function Gromo() {
     if (cancelBuildingTransition()) return;
     if (backOverride.current?.()) return;
     if (route === 'focus' && state.session) {
-      confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => finishSession());
+      confirm(t('app.finishFocusTitle'), t('app.finishFocusBody'), () => finishSession());
       return;
     }
     if (route === 'rest' && state.session) {
@@ -632,7 +632,7 @@ function Gromo() {
     setIncomingAppLink(null);
     if (target.kind === 'unsupported') {
       goRef.current('home');
-      notifyRef.current('이 초대·그룹 링크는 현재 버전에서 지원하지 않아 홈으로 이동했어요.');
+      notifyRef.current(t('app.linkUnsupported'));
       return;
     }
     goRef.current(target.route);
@@ -837,8 +837,7 @@ function Gromo() {
       return true;
     }
     if (sessionGeneration() !== gen) return false;
-    if (attempt === 0)
-      notify('기기 저장소 문제로 변경 내용이 아직 저장되지 않아요. 자동으로 다시 시도할게요.');
+    if (attempt === 0) notify(t('app.storageRetrying'));
     setTimeout(
       () => void recordOwnerWithRetry(userId, gen, attempt + 1),
       Math.min(30_000, 1_000 * 2 ** attempt),
@@ -1103,7 +1102,7 @@ function Gromo() {
       if (outcome === 'converted') {
         captureProductEvent('member_conversion_completed', { provider: attempt.provider });
         setConvUi(null);
-        notify('회원으로 전환했어요.');
+        notify(t('app.memberConverted'));
       } else setConvUi((c) => (c ? { ...c, busy: null } : c)); // 취소 — 시트로 돌아간다
     } catch (thrown) {
       const retryableTransportFailure =
@@ -1367,7 +1366,7 @@ function Gromo() {
           if (recovered && sessionGeneration() === bootGen) setRoute(recovered);
         }
       })
-      .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
+      .catch(() => notify(t('app.restoreFailed')))
       .finally(() => setLoaded(true));
   }, []);
   const kickedDestination =
@@ -1453,7 +1452,7 @@ function Gromo() {
         await AsyncStorage.setItem(STORAGE, snapshot);
       });
       userStorageWriteQueue.current = write.catch(() => {
-        notify('기기 저장 공간을 확인해 주세요.');
+        notify(t('app.storageCheck'));
       });
     }
   }, [state, loaded, storageOwnerReady, qaBuildingsReady]);
