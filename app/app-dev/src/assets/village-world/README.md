@@ -67,6 +67,9 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 - 목적지가 다른 연결 영역·바다면 출발 영역 안 최근접 통행 셀(동률 index 작은 쪽)로 보정한다. 대각은 양옆 직교 셀이 모두 통행일 때만.
 - 속도는 world unit/초(가로·세로 동일, 화면 px 비율 보정 없음): 한 칸 `MS_PER_UNIT`=91ms. `homePositions` 저장은 px 그대로.
 - 로컬 맵 에셋 서버(GROMO-2233): `npm run serve:map-assets`(기본 4300, `--fail manifest,tileset,layout` 으로 실패 재현) 가 `/static/maps/home/manifest.json`(max-age=60+ETag)·`v1/<file>`(immutable)을 Nginx 계약 그대로 내준다.
+- 갱신 시나리오 재현: `cp -r src/assets/village-world/v1 /tmp/v2` 로 복사해 `tileset.json` 의 `scale` 등 한 파일만 고친 뒤 `npm run serve:map-assets -- --root /tmp/v2 --map-version 2` 로 띄운다.
+- 앱은 먼저 `--map-version` 없이 띄운 서버로 v1 을 받아 두고, 서버를 위 명령으로 바꿔 다시 홈에 들어가면 바뀐 파일만 받는다(다음 홈 진입부터 v2 반영). `--root` 내용이 같으면 해시가 같아 파일은 다시 받지 않는다.
+- 캐시된 PNG 가 디코드에 실패하거나 JSON 검증에 실패하면 그 해시를 `state.json` 의 `bad` 에 남겨 같은 해시는 다시 채택하지 않는다. 해시가 바뀐 새 버전이 오면 풀린다.
 - 앱은 `.env` 의 `EXPO_PUBLIC_MAP_ASSETS_URL`(시뮬레이터 `http://localhost:4300`, 실기기는 맥 LAN IP)이 있을 때만 받는다. 비우면 번들(`v1/`)만 쓴다.
 - 캐시 위치: 앱 캐시 디렉터리 `maps/home/{state.json, v<n>/}`(최근 2개 버전). 임시 디렉터리에 받아 sha256 검증 후 `v<n>` 으로 rename(원자 교체), 새 버전은 다음 홈 진입부터 쓴다.
 - 서버 꺼짐·해시 불일치·일부 실패 → 이전 캐시, 없으면 번들로 그린다(`services/mapAssets.ts`, 테스트 `mapAssets.test.ts`).

@@ -4,7 +4,8 @@
 //   GET /static/maps/home/v<n>/<file>        → Cache-Control: public, max-age=31536000, immutable
 // 사용: node scripts/serve-map-assets.cjs [--port 4300] [--root src/assets/village-world/v1] [--map-version 1]
 //        [--fail manifest,tileset,layout]
-// --map-version <n>: 루트 디렉터리 이름 v<n> 과 manifest 의 mapVersion 을 함께 바꾼다(같은 파일을 v2 로 내려 갱신·prune 을 로컬에서 재현).
+// --map-version <n>: manifest 의 mapVersion 과 파일 URL 의 v<n>/ 만 바꾼다. 파일은 항상 --root 에서 그대로 읽으므로 디렉터리 이름과 무관하고,
+//   내용이 같으면 해시도 같아 앱은 「새 버전」이 아니라 같은 파일의 버전 번호만 오른 것으로 본다(내용 변경은 --root 를 바꾼 복사본으로).
 // 주의: 파일명에 해시가 없는 것은 10/9 단순화다 — 「같은 URL 의 내용은 불변」 보증은 v<n>/ 디렉터리에만 의존한다.
 // --fail 은 해당 단계 응답을 500 으로 바꾼다(앱 폴백 테스트용): manifest | tileset(tileset@2x.png) | layout(JSON 5종).
 const http = require('node:http');
