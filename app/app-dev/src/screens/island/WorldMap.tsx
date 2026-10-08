@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
 import {
   Animated,
@@ -46,7 +46,14 @@ import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
 import { TileTerrainCanvas } from './TileTerrainCanvas';
-import navJson from '@/assets/village-world/v1/nav.json';
+import bundledNavJson from '@/assets/village-world/v1/nav.json';
+import {
+  demoteToBundle,
+  type MapAssetSource,
+  promoteMapAssets,
+  readMapJson,
+  syncMapAssets,
+} from '@/services/mapAssets';
 import { applyLayout } from '@/utils/island-layout';
 import { loadNav, navPath, stepDurationMs, tapToWorld, tilePath } from '@/utils/nav-path';
 import { imageToWorld, worldToImage } from '@/utils/worldCoords';
@@ -93,6 +100,7 @@ import { VillageNotificationBadge } from '@/components/village-motion/VillageNot
 // 타일 섬 지형(GROMO-2230): 켜면 새 마을(layered)로 시작하고 지형을 Skia Atlas 로 그린다.
 // 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
 const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
+const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
   for (let idx = 1; idx < pts.length; idx++) {
@@ -234,6 +242,7 @@ function Wanderer({
   reduce,
   delay,
   scene,
+  assets,
   buildings,
 }: {
   color: Color;
@@ -242,6 +251,7 @@ function Wanderer({
   reduce: boolean;
   delay: number;
   scene?: VillageScene;
+  assets: MapAssetSource;
   buildings: readonly string[];
 }) {
   const xy = useRef(new Animated.ValueXY(start)).current,
@@ -265,7 +275,7 @@ function Wanderer({
           ? [
               at.current,
               ...navPath(
-                activeNav(buildings),
+                activeNav(assets, buildings),
                 imageToWorld(at.current, sizeOf(grid)),
                 imageToWorld(target, sizeOf(grid)),
               ).map((n) => worldToImage(n, sizeOf(grid))),
@@ -309,7 +319,7 @@ function Wanderer({
       clearTimeout(timer);
       xy.stopAnimation();
     };
-  }, [scene, reduce]);
+  }, [scene, reduce, assets]);
   return (
     <Animated.View
       pointerEvents="none"
@@ -378,6 +388,8 @@ export function WorldMap({
   village,
   hiddenVillageBuilding,
   dayNight: dayNightProp,
+  mapAssets = BUNDLE_ASSETS,
+  onMapAssetsFail,
   children,
 }: {
   state: State;
@@ -402,6 +414,10 @@ export function WorldMap({
   hiddenVillageBuilding?: Building;
   /** 부모가 같은 낮·밤 판정으로 진입 모션을 조율할 때 넘긴다. 없으면 직접 계산한다. */
   dayNight?: VillageDayNight;
+  /** 이 화면의 맵 에셋 스냅샷(GROMO-2233). 지형 이미지·tilemap·nav·layout 이 모두 이 소스를 쓴다. */
+  mapAssets?: MapAssetSource;
+  /** 캐시 이미지 디코드 실패 — 부모가 스냅샷을 번들로 바꾼다. */
+  onMapAssetsFail?: () => void;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
 }) {
@@ -579,7 +595,14 @@ export function WorldMap({
         </Svg>
       )}
       {tileTerrain && (
-        <TileTerrainCanvas width={L.width} height={L.height} camera={camera} base={base} />
+        <TileTerrainCanvas
+          width={L.width}
+          height={L.height}
+          camera={camera}
+          base={base}
+          assets={mapAssets}
+          onAssetsFail={onMapAssetsFail}
+        />
       )}
       <Pressable
         accessible={false}
@@ -879,6 +902,8 @@ function FinalIslandScene({
   onBuildingEntrySound,
   layeredPreview = false,
   onServerBuilt,
+  mapAssets = BUNDLE_ASSETS,
+  onMapAssetsFail,
 }: {
   state: State;
   go: (r: Route, id?: string) => void;
@@ -901,6 +926,8 @@ function FinalIslandScene({
   layeredPreview?: boolean;
   /** 서버 모드 홈 스냅샷 재조회 — 넘긴 화면(홈)에서만 서버 짓기 카드를 띄운다. */
   onServerBuilt?: () => void;
+  mapAssets?: MapAssetSource;
+  onMapAssetsFail?: () => void;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
@@ -948,9 +975,9 @@ function FinalIslandScene({
     // ponytail: 서버 배치는 그리는 위치만 바꾼다. 통행 셀(grid)·공사 위치는 map.json 기준 그대로 —
     // 서버 배치가 실제로 달라지는 시점(2232 머지 뒤)에 villageScene 이 objects 를 받아 다시 계산하게 한다.
     // 플래그 off 에서는 서버 배치를 무시해 map.json 그대로 그린다.
-    const objects = TILE_ISLAND ? applyLayout(built.objects, layout) : built.objects;
+    const objects = TILE_ISLAND ? applyLayout(built.objects, layout, mapAssets) : built.objects;
     return objects === built.objects ? built : { ...built, objects };
-  }, [layeredPreview, i.buildings, sceneBuilding, layout]);
+  }, [layeredPreview, i.buildings, sceneBuilding, layout, mapAssets]);
   const grid = scene?.grid ?? grids.home;
   // WorldMap 이 부모와 같은 낮·밤 값을 쓰도록 한 번만 계산해 내려준다.
   const dayNight = useVillageDayNight();
@@ -1150,7 +1177,7 @@ function FinalIslandScene({
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
     setInteractiveMotion(null);
     const path = tileNav
-      ? tilePath(activeNav(navBuildings), location.current, target, sizeOf(grid))
+      ? tilePath(activeNav(mapAssets, navBuildings), location.current, target, sizeOf(grid))
       : scene
         ? villagePath(scene, location.current, target)
         : landPath(grid, location.current, nearestLand(grid, target));
@@ -1460,6 +1487,7 @@ function FinalIslandScene({
             color={color}
             start={nearestLand(grid, WANDER_STARTS[n])}
             scene={scene}
+            assets={mapAssets}
             buildings={navBuildings}
             s={s}
             reduce={state.settings.reduceMotion}
@@ -1585,6 +1613,8 @@ function FinalIslandScene({
       <WorldMap
         state={state}
         village={scene}
+        mapAssets={mapAssets}
+        onMapAssetsFail={onMapAssetsFail}
         islandId={i.id}
         hallMotionActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
@@ -1812,10 +1842,25 @@ function FinalIslandScene({
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
-// 완공된 건물만 막힌 nav(미완공 건물 자리는 통행). 캐시는 loadNav 가 가진다.
-const activeNav = (completed: readonly string[]) => loadNav(navJson as any, completed);
+// 화면 스냅샷(GROMO-2233)의 nav.json 을 완공 목록별로(미완공 건물 자리는 통행). 같은 소스면 같은 JSON 객체라 loadNav 의 캐시가 맞는다.
+const activeNav = (assets: MapAssetSource, completed: readonly string[]) =>
+  loadNav(readMapJson('nav.json', bundledNavJson, assets) as any, completed);
 export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
   const L = useAppLayout();
+  // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 스냅샷으로 고정해 렌더러·nav·layout 에
+  // 내려준다(렌더 중 교체 금지). 백그라운드 동기화는 완료돼도 다음 홈 진입부터 반영된다.
+  // 플래그 off 면 캐시를 읽지 않고 항상 번들이다.
+  const [mapAssets, setMapAssets] = useState<MapAssetSource>(() =>
+    TILE_ISLAND ? promoteMapAssets('home') : BUNDLE_ASSETS,
+  );
+  // 캐시 이미지 디코드 실패 → 전역도, 이 화면의 스냅샷도 번들로 내린다(빈 섬 방지).
+  const failMapAssets = useCallback(() => {
+    demoteToBundle('home');
+    setMapAssets(BUNDLE_ASSETS);
+  }, []);
+  useEffect(() => {
+    if (TILE_ISLAND) void syncMapAssets('home');
+  }, []);
   const [layered, setLayered] = useState(
     () =>
       TILE_ISLAND ||
@@ -1841,6 +1886,8 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         shopState={props.shopState ?? (demoMotionStates ? 'purchasable' : undefined)}
         libraryState={props.libraryState ?? (demoMotionStates ? 'new-reading' : undefined)}
         layeredPreview={layered}
+        mapAssets={mapAssets}
+        onMapAssetsFail={failMapAssets}
       />
       {CAN_PREVIEW_VILLAGE && props.showHud !== false && props.showActions !== false && (
         <View

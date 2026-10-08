@@ -5,7 +5,7 @@
 import { buildTerrainAtlas } from './TileTerrainCanvas';
 
 describe('buildTerrainAtlas', () => {
-  const { sprites, transforms } = buildTerrainAtlas();
+  const { sprites, transforms } = buildTerrainAtlas({ kind: 'bundle' });
 
   it('지형 24×16 = 384 조각을 한 배열로 만든다', () => {
     expect(sprites).toHaveLength(384);

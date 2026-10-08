@@ -1,5 +1,6 @@
 import type { IslandLayout } from '@/services/api/home';
-import mapMeta from '@/assets/village-world/v1/home.map.json';
+import bundledMapMeta from '@/assets/village-world/v1/home.map.json';
+import { type MapAssetSource, readMapJson } from '@/services/mapAssets';
 import { cellCenterToWorld, worldToImage } from './worldCoords';
 
 /**
@@ -9,8 +10,10 @@ import { cellCenterToWorld, worldToImage } from './worldCoords';
 export function applyLayout<T extends { building?: string | null; x: number; y: number }>(
   objects: T[],
   layout: IslandLayout | undefined,
+  assets: MapAssetSource,
 ): T[] {
   if (!layout?.buildings?.length) return objects;
+  const mapMeta = readMapJson('home.map.json', bundledMapMeta, assets); // 화면 스냅샷이 cache 면 캐시본(GROMO-2233)
   const cells = new Map(layout.buildings.map((b) => [b.id as string, b.cell]));
   return objects.map((o) => {
     const cell = o.building ? cells.get(o.building) : undefined;

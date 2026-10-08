@@ -47,6 +47,10 @@
 
 업로드는 빌드 파이프라인(기획 작업실 `export-village-world` 류)이 해시 파일을 만들고, 배포 스크립트가 `v{mapVersion}/` 디렉터리에 복사한 뒤 manifest 를 마지막에 바꾼다(manifest 가 가리키기 전까지 새 파일은 보이지 않는다).
 
+- manifest 는 `/static/` 의 `expires 1y` location 을 타면 안 된다 — `location = /static/maps/<mapId>/manifest.json` 을 따로 두고 `add_header Cache-Control "public, max-age=60"` + `etag on`.
+- 큰 파일은 `expires` 대신 `add_header Cache-Control "public, max-age=31536000, immutable"` 한 줄로 쓴다.
+- 앱은 manifest 요청에 `Cache-Control: no-cache` 요청 헤더를 붙여 중간 캐시가 오래된 manifest 를 주는 것을 막는다(`services/mapAssets.ts`).
+
 ## 5. 앱 로딩 순서와 캐시
 
 ```text

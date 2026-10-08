@@ -9,8 +9,9 @@ import {
   type SkRect,
   type SkRSXform,
 } from '@shopify/react-native-skia';
-import tilemap from '@/assets/village-world/v1/tilemap.json';
-import tileset from '@/assets/village-world/v1/tileset.json';
+import bundledTilemap from '@/assets/village-world/v1/tilemap.json';
+import bundledTileset from '@/assets/village-world/v1/tileset.json';
+import { type MapAssetSource, readMapJson, tilesetUri } from '@/services/mapAssets';
 
 // 타일 섬 지형(GROMO-2230): terrain.png 한 장 대신 tileset@2x.png 의 384 조각을 Atlas 한 번(드로우콜 1)으로 그린다.
 // 소품·건물은 지금처럼 VillageScenery 가 RN 뷰로 그린다 — 한 캔버스로 합치는 건 실기기 측정 뒤 다음 단계.
@@ -18,7 +19,10 @@ import tileset from '@/assets/village-world/v1/tileset.json';
 // 한계에 걸리거나 메모리 부담이 될 수 있다. 코드는 그대로 두고 실기기에서 로드·메모리를 확인한다.
 
 /** tilemap 의 terrain 레이어를 아틀라스 소스 rect(2x)·목적지 rsxform(1x)으로 바꾼다. gid 0 은 빈 칸. */
-export function buildTerrainAtlas() {
+export function buildTerrainAtlas(assets: MapAssetSource) {
+  // 화면 스냅샷(GROMO-2233)이 cache 면 캐시본, 아니면 번들 — 이미지와 같은 버전에서 읽는다.
+  const tilemap = readMapJson('tilemap.json', bundledTilemap, assets);
+  const tileset = readMapJson('tileset.json', bundledTileset, assets);
   const terrain = tilemap.layers.find((layer) => layer.name === 'terrain')!;
   const { tilewidth, tileheight, margin, spacing, columns, scale } = tileset;
   const sprites: SkRect[] = [],
@@ -59,18 +63,31 @@ export function TileTerrainCanvas({
   height,
   camera,
   base,
+  assets,
+  onAssetsFail,
 }: {
   width: number;
   height: number;
   camera: { x: number; y: number; z: number };
   base: number;
+  /** 화면 스냅샷. 이미지·tilemap·tileset 이 모두 이 소스에서 나온다. */
+  assets: MapAssetSource;
+  /** 캐시 PNG 디코드 실패 알림 — 부모가 전역 소스를 번들로 내리고 스냅샷을 번들로 바꾼다. */
+  onAssetsFail?: () => void;
 }) {
   // Metro 는 `@2x` 를 배율 접미사로 읽어 파일명 그대로는 못 찾는다 — 기본 이름으로 부르면 tileset@2x.png 변형을 고른다.
-  // Metro 의 @2x 배율 해석에 기댄 우회, Expo 57 / `expo export --platform ios` 로 확인(2026-10-08).
-  // 이 브랜치는 번들 require 만 쓴다 — useImage 실패 시 폴백(캐시 file://·onError 강등)은 2233(#1086)이 맡는다.
-  const image = useImage(require('@/assets/village-world/v1/tileset.png'));
+  // 스냅샷이 cache 면 파일 URI(GROMO-2233). 소스는 마운트 때 고정되고, 디코드 실패 때만 부모가 번들로 바꾼다.
+  // 번들 쪽은 Metro 의 @2x 배율 해석에 기댄 우회, Expo 57 / `expo export --platform ios` 로 확인(2026-10-08).
+  const source = useMemo(
+    () => tilesetUri(assets) ?? require('@/assets/village-world/v1/tileset.png'),
+    [assets],
+  );
+  // 캐시 PNG 가 깨져 디코드에 실패하면 빈 섬이 되지 않게 소스 전체를 번들로 강등한다(번들 이미지는 다시 로드).
+  const image = useImage(source, () => {
+    if (assets.kind === 'cache') onAssetsFail?.();
+  });
   // 이미지가 뜬 뒤 한 번만 만든다. 로드 전에는 기존 Image 처럼 아무것도 그리지 않는다(뒤의 바다 배경이 보인다).
-  const atlas = useMemo(() => (image ? buildTerrainAtlas() : null), [image]);
+  const atlas = useMemo(() => (image ? buildTerrainAtlas(assets) : null), [image, assets]);
   if (!image || !atlas) return null;
   const scale = base * camera.z;
   return (
