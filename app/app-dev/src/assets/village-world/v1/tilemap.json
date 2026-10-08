@@ -1,5 +1,6 @@
 {
   "//": "gid 는 위치 순(행 우선) 1..384. 같은 그림 조각도 중복 제거하지 않는다(원화 자르기 단계). terrain-detail·roads 는 비어 있다.",
+  "$schema-note": "terrain-detail·roads 의 data: [] 는 Tiled 규격상 비표준(원래 길이 384 의 0 배열)이다. 로더(TileTerrainCanvas)가 [] 를 빈 레이어로 다룬다는 전제로 쓴다.",
   "type": "map",
   "orientation": "orthogonal",
   "renderorder": "right-down",
