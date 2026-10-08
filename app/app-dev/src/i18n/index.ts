@@ -30,8 +30,14 @@ export const LEGACY_LOCALE_KEY = 'gromo:settings:locale';
 const tables: Record<SupportedLocale, unknown> = { ko, en };
 
 // 기기 로케일 → 지원 언어. 한국어가 아니면(로케일 부재 포함) en.
+// 네이티브 모듈 호출이 던지면(expo-localization 이 없는 구 빌드가 OTA 로 이 JS 를 받은 경우, 모킹 없는 테스트) ko —
+// 그런 빌드는 한국어 전용이었다. import 시점에 한 번 불리므로 여기서 터지면 앱 전체가 못 뜬다.
 export function resolveLocale(): SupportedLocale {
-  return getLocales()[0]?.languageCode === 'ko' ? 'ko' : 'en';
+  try {
+    return getLocales()[0]?.languageCode === 'ko' ? 'ko' : 'en';
+  } catch {
+    return 'ko';
+  }
 }
 
 // 고른 설정값과 실제 적용 언어를 따로 든다 — 명시 'ko' 와 기기 ko 는 결과가 같아 결과로 설정을 복원할 수 없다.
