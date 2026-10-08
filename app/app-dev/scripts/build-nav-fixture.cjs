@@ -1,6 +1,7 @@
 // map.json 의 폴리곤·footprint 에서 타일 섬 계약 fixture(v1/)를 결정적으로 만든다.
 // 같은 입력이면 바이트까지 같다. 사용: node scripts/build-nav-fixture.cjs [--check]
 // 규칙은 src/utils/village-world.ts 의 villageScene()/blocks() 와 같다(그쪽 동작은 바꾸지 않는다).
+// 통행 판정: 셀 중심점 1점(villageScene 과 동일)을 유지한다. 「중심+4변 중점」 보수적 판정은 입구 7종 중 5종이 막혀 보류(통행 셀 3,613→3,285, -9.1%).
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -108,6 +109,9 @@ function build() {
     kind: o.kind,
     building: o.building ?? null,
     layer: o.layer,
+    asset: o.asset,
+    w: o.w,
+    h: o.h,
     anchor: { x: +(o.x / cw).toFixed(2), y: +(o.y / ch).toFixed(2) },
     footprint: footprint(o),
     entrance: o.building && map.doors[o.building] ? entrances[o.building] : null,
@@ -137,7 +141,7 @@ function build() {
   };
   const catalog = {
     '$schema-note':
-      '오브젝트 카탈로그. anchor 는 발밑 월드 좌표(소수 2자리, zIndex=y), footprint 는 통행 셀 코너 좌표(정수) 사각형 폴리곤(막지 않으면 []), entrance 는 건물 입구 셀.',
+      '오브젝트 카탈로그. asset·w·h 는 map.json 원본 값(스프라이트 경로, 원본 px 크기 — 같은 kind 라도 크기가 다르다). anchor 는 발밑 월드 좌표(소수 2자리, zIndex=y), footprint 는 통행 셀 코너 좌표(정수) 사각형 폴리곤(막지 않으면 []), entrance 는 건물 입구 셀.',
     objects,
   };
   // 숫자만 든 배열은 한 줄로 접어 diff 와 크기를 줄인다.

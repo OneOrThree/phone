@@ -1,11 +1,14 @@
 {
-  "$schema-note": "오브젝트 카탈로그. anchor 는 발밑 월드 좌표(소수 2자리, zIndex=y), footprint 는 통행 셀 코너 좌표(정수) 사각형 폴리곤(막지 않으면 []), entrance 는 건물 입구 셀.",
+  "$schema-note": "오브젝트 카탈로그. asset·w·h 는 map.json 원본 값(스프라이트 경로, 원본 px 크기 — 같은 kind 라도 크기가 다르다). anchor 는 발밑 월드 좌표(소수 2자리, zIndex=y), footprint 는 통행 셀 코너 좌표(정수) 사각형 폴리곤(막지 않으면 []), entrance 는 건물 입구 셀.",
   "objects": [
     {
       "id": 1,
       "kind": "hall",
       "building": "hall",
       "layer": "buildings",
+      "asset": "sprites/hall.png",
+      "w": 242,
+      "h": 244,
       "anchor": {
         "x": 71.29,
         "y": 31.35
@@ -26,6 +29,9 @@
       "kind": "library",
       "building": "library",
       "layer": "buildings",
+      "asset": "sprites/library.png",
+      "w": 239,
+      "h": 323,
       "anchor": {
         "x": 80.4,
         "y": 58.4
@@ -46,6 +52,9 @@
       "kind": "shop",
       "building": "shop",
       "layer": "buildings",
+      "asset": "sprites/shop.png",
+      "w": 262,
+      "h": 199,
       "anchor": {
         "x": 65.1,
         "y": 73.34
@@ -66,6 +75,9 @@
       "kind": "observatory",
       "building": "tower",
       "layer": "buildings",
+      "asset": "sprites/observatory.png",
+      "w": 112,
+      "h": 193,
       "anchor": {
         "x": 13.35,
         "y": 19.82
@@ -86,6 +98,9 @@
       "kind": "notice-board",
       "building": "board",
       "layer": "buildings",
+      "asset": "sprites/notice-board.png",
+      "w": 80,
+      "h": 80,
       "anchor": {
         "x": 60.48,
         "y": 31.15
@@ -106,6 +121,9 @@
       "kind": "gramophone",
       "building": "gram",
       "layer": "buildings",
+      "asset": "sprites/gramophone.png",
+      "w": 73,
+      "h": 89,
       "anchor": {
         "x": 28.78,
         "y": 48.14
@@ -126,6 +144,9 @@
       "kind": "mailbox",
       "building": "mail",
       "layer": "buildings",
+      "asset": "sprites/mailbox.png",
+      "w": 46,
+      "h": 63,
       "anchor": {
         "x": 23.63,
         "y": 58.89
@@ -146,6 +167,9 @@
       "kind": "fire",
       "building": null,
       "layer": "fire",
+      "asset": "sprites/fire.png",
+      "w": 116,
+      "h": 77,
       "anchor": {
         "x": 36.46,
         "y": 55.18
@@ -163,6 +187,9 @@
       "kind": "tree",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/tree.png",
+      "w": 124,
+      "h": 139.20000000000002,
       "anchor": {
         "x": 22.46,
         "y": 42.87
@@ -180,6 +207,9 @@
       "kind": "pine",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/pine.png",
+      "w": 88,
+      "h": 144.32,
       "anchor": {
         "x": 23.18,
         "y": 56.64
@@ -197,6 +227,9 @@
       "kind": "bush",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/bush.png",
+      "w": 83.52000000000001,
+      "h": 67.2,
       "anchor": {
         "x": 31,
         "y": 63.96
@@ -214,6 +247,9 @@
       "kind": "tree",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/tree.png",
+      "w": 161.20000000000002,
+      "h": 180.96,
       "anchor": {
         "x": 33.79,
         "y": 73.05
@@ -231,6 +267,9 @@
       "kind": "pine",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/pine.png",
+      "w": 80,
+      "h": 131.20000000000002,
       "anchor": {
         "x": 51.1,
         "y": 78.64
@@ -248,6 +287,9 @@
       "kind": "bush",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/bush.png",
+      "w": 76.56,
+      "h": 61.6,
       "anchor": {
         "x": 56.95,
         "y": 66.21
@@ -265,6 +307,9 @@
       "kind": "tree",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/tree.png",
+      "w": 148.8,
+      "h": 167.04000000000002,
       "anchor": {
         "x": 89.19,
         "y": 52.73
@@ -282,6 +327,9 @@
       "kind": "pine",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/pine.png",
+      "w": 104,
+      "h": 170.56,
       "anchor": {
         "x": 86,
         "y": 34.96
@@ -299,6 +347,9 @@
       "kind": "bush",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/bush.png",
+      "w": 69.60000000000001,
+      "h": 56,
       "anchor": {
         "x": 79.43,
         "y": 20.61
@@ -316,6 +367,9 @@
       "kind": "tree",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/tree.png",
+      "w": 136.4,
+      "h": 153.12,
       "anchor": {
         "x": 53.19,
         "y": 20.9
@@ -333,6 +387,9 @@
       "kind": "pine",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/pine.png",
+      "w": 96.00000000000001,
+      "h": 157.44000000000003,
       "anchor": {
         "x": 43.03,
         "y": 23.83
@@ -350,6 +407,9 @@
       "kind": "bush",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/bush.png",
+      "w": 90.48,
+      "h": 72.8,
       "anchor": {
         "x": 47.54,
         "y": 38.71
@@ -367,6 +427,9 @@
       "kind": "tree",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/tree.png",
+      "w": 124,
+      "h": 139.20000000000002,
       "anchor": {
         "x": 60.48,
         "y": 43.94
@@ -384,6 +447,9 @@
       "kind": "pine",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/pine.png",
+      "w": 88,
+      "h": 144.32,
       "anchor": {
         "x": 74.28,
         "y": 65.72
@@ -401,6 +467,9 @@
       "kind": "bush",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/bush.png",
+      "w": 83.52000000000001,
+      "h": 67.2,
       "anchor": {
         "x": 88.87,
         "y": 65.14
@@ -418,6 +487,9 @@
       "kind": "tree",
       "building": null,
       "layer": "trees",
+      "asset": "sprites/tree.png",
+      "w": 161.20000000000002,
+      "h": 180.96,
       "anchor": {
         "x": 57.03,
         "y": 65.04
@@ -435,6 +507,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 60.306573137547815,
+      "h": 50.04162451839074,
       "anchor": {
         "x": 55.99,
         "y": 39.94
@@ -447,6 +522,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 44.41038140077143,
+      "h": 29.270478650508444,
       "anchor": {
         "x": 68.59,
         "y": 51.99
@@ -459,6 +537,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 45.65589081607759,
+      "h": 30.091382583323863,
       "anchor": {
         "x": 44.92,
         "y": 43.58
@@ -471,6 +552,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 43.974205197719854,
+      "h": 36.48923410023562,
       "anchor": {
         "x": 39.58,
         "y": 35.87
@@ -483,6 +567,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 57.19854540117085,
+      "h": 37.69904128713533,
       "anchor": {
         "x": 42.54,
         "y": 66.72
@@ -495,6 +582,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 52.18509991560131,
+      "h": 34.39472494437359,
       "anchor": {
         "x": 43.84,
         "y": 69.69
@@ -507,6 +597,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 51.98693835576996,
+      "h": 43.138097784575066,
       "anchor": {
         "x": 63.52,
         "y": 42.08
@@ -519,6 +612,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 41.66007377337664,
+      "h": 27.45777589608915,
       "anchor": {
         "x": 41.28,
         "y": 18.77
@@ -531,6 +627,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 36.5749451957643,
+      "h": 24.10621387902647,
       "anchor": {
         "x": 85.93,
         "y": 38.39
@@ -543,6 +642,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 48.532037714170286,
+      "h": 40.27126533729024,
       "anchor": {
         "x": 64.37,
         "y": 49.22
@@ -555,6 +657,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 44.012316778674716,
+      "h": 29.00811787685379,
       "anchor": {
         "x": 44.05,
         "y": 46.79
@@ -567,6 +672,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 47.89132223185152,
+      "h": 31.564735107356682,
       "anchor": {
         "x": 41.42,
         "y": 42.2
@@ -579,6 +687,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 51.82248380370438,
+      "h": 43.00163549669087,
       "anchor": {
         "x": 43.42,
         "y": 74.51
@@ -591,6 +702,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 39.77138926703483,
+      "h": 26.21296110781841,
       "anchor": {
         "x": 38.01,
         "y": 73.02
@@ -603,6 +717,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 50.71741146109997,
+      "h": 33.427384826634075,
       "anchor": {
         "x": 21.53,
         "y": 17.35
@@ -615,6 +732,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 52.622522339457646,
+      "h": 43.665497260401025,
       "anchor": {
         "x": 29.17,
         "y": 65.79
@@ -627,6 +747,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 35.29814802631736,
+      "h": 23.264688471890985,
       "anchor": {
         "x": 66.15,
         "y": 38.46
@@ -639,6 +762,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 46.60204416606575,
+      "h": 30.714983654906973,
       "anchor": {
         "x": 43.36,
         "y": 61.57
@@ -651,6 +777,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 51.97753922091797,
+      "h": 43.130298502463845,
       "anchor": {
         "x": 26.81,
         "y": 58.76
@@ -663,6 +792,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 33.083956534229216,
+      "h": 21.805334988469255,
       "anchor": {
         "x": 56.01,
         "y": 41.98
@@ -675,6 +807,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 35.22075645476579,
+      "h": 23.21368039064109,
       "anchor": {
         "x": 28.54,
         "y": 72.1
@@ -687,6 +822,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 43.04216035376302,
+      "h": 35.71583518716506,
       "anchor": {
         "x": 63.95,
         "y": 42.96
@@ -699,6 +837,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 48.4495788604021,
+      "h": 31.93267697617411,
       "anchor": {
         "x": 50.75,
         "y": 15.91
@@ -711,6 +852,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 34.642358261533076,
+      "h": 22.8324633996468,
       "anchor": {
         "x": 78.9,
         "y": 15.8
@@ -723,6 +867,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 57.62500594705343,
+      "h": 47.81649429649114,
       "anchor": {
         "x": 42.08,
         "y": 54.88
@@ -735,6 +882,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 34.196825690753755,
+      "h": 22.538816932542247,
       "anchor": {
         "x": 37.57,
         "y": 63.2
@@ -747,6 +897,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 41.95860152393579,
+      "h": 27.654532822594046,
       "anchor": {
         "x": 36.46,
         "y": 23.87
@@ -759,6 +912,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 40.4346592052374,
+      "h": 33.552164021367204,
       "anchor": {
         "x": 32.17,
         "y": 61.02
@@ -771,6 +927,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 40.37854426801204,
+      "h": 26.613131449371576,
       "anchor": {
         "x": 29.98,
         "y": 33.29
@@ -783,6 +942,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 51.59394924510269,
+      "h": 34.00510291154496,
       "anchor": {
         "x": 38.25,
         "y": 28.87
@@ -795,6 +957,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 57.5003831773065,
+      "h": 47.71308391308412,
       "anchor": {
         "x": 66.94,
         "y": 59.09
@@ -807,6 +972,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 49.331229911558324,
+      "h": 32.51376516898162,
       "anchor": {
         "x": 40.64,
         "y": 71.72
@@ -819,6 +987,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 40.976852915063496,
+      "h": 27.00747123947367,
       "anchor": {
         "x": 40.78,
         "y": 51.02
@@ -831,6 +1002,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 48.9201602963265,
+      "h": 40.59332450120709,
       "anchor": {
         "x": 45.59,
         "y": 38.08
@@ -843,6 +1017,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 50.48732718750834,
+      "h": 33.27573837358504,
       "anchor": {
         "x": 58.86,
         "y": 15.94
@@ -855,6 +1032,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 32.62543717902153,
+      "h": 21.503129049809647,
       "anchor": {
         "x": 66.83,
         "y": 60.31
@@ -867,6 +1047,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 38.74138664845377,
+      "h": 32.14710806999355,
       "anchor": {
         "x": 47.37,
         "y": 74.98
@@ -879,6 +1062,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 31.605435484088957,
+      "h": 20.830855205422267,
       "anchor": {
         "x": 35.41,
         "y": 69.05
@@ -891,6 +1077,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 53.01519151553512,
+      "h": 34.941830771602696,
       "anchor": {
         "x": 36.77,
         "y": 30.93
@@ -903,6 +1092,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 51.70730725233443,
+      "h": 42.90606346470304,
       "anchor": {
         "x": 38.41,
         "y": 31.63
@@ -915,6 +1107,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 38.21766376830637,
+      "h": 25.188914756383745,
       "anchor": {
         "x": 81.77,
         "y": 27.2
@@ -927,6 +1122,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 32.85912964399904,
+      "h": 21.657153628999367,
       "anchor": {
         "x": 43.54,
         "y": 29.76
@@ -939,6 +1137,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 57.4521024399437,
+      "h": 47.673021173570305,
       "anchor": {
         "x": 38.82,
         "y": 33.38
@@ -951,6 +1152,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 56.52979791369289,
+      "h": 37.25827589766122,
       "anchor": {
         "x": 55.26,
         "y": 35.32
@@ -963,6 +1167,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 50.76203073896467,
+      "h": 33.4567929870449,
       "anchor": {
         "x": 51.24,
         "y": 40.52
@@ -975,6 +1182,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 59.00111778643914,
+      "h": 48.958374333428225,
       "anchor": {
         "x": 65.78,
         "y": 55.9
@@ -987,6 +1197,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 32.078158559277654,
+      "h": 21.142422686796635,
       "anchor": {
         "x": 35.34,
         "y": 17.1
@@ -999,6 +1212,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 39.58785822894424,
+      "h": 26.091997469076887,
       "anchor": {
         "x": 44.31,
         "y": 32.52
@@ -1011,6 +1227,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 59.52163428366184,
+      "h": 49.39029227793216,
       "anchor": {
         "x": 44.97,
         "y": 42.2
@@ -1023,6 +1242,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 54.57422793563455,
+      "h": 35.969377503031865,
       "anchor": {
         "x": 41.6,
         "y": 52
@@ -1035,6 +1257,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 51.1746291603893,
+      "h": 33.72873285571113,
       "anchor": {
         "x": 35.2,
         "y": 26.4
@@ -1047,6 +1272,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 47.980774335702876,
+      "h": 39.81383402324281,
       "anchor": {
         "x": 52.48,
         "y": 77.25
@@ -1059,6 +1287,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 30.938974825665355,
+      "h": 20.39159704418853,
       "anchor": {
         "x": 52.01,
         "y": 37.88
@@ -1071,6 +1302,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 54.404776078648865,
+      "h": 35.857693324564025,
       "anchor": {
         "x": 34.72,
         "y": 36.2
@@ -1083,6 +1317,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 50.62990001887083,
+      "h": 42.01204469650983,
       "anchor": {
         "x": 31.23,
         "y": 65.41
@@ -1095,6 +1332,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 42.08317615557462,
+      "h": 27.736638829810545,
       "anchor": {
         "x": 30.72,
         "y": 28.26
@@ -1107,6 +1347,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 47.62479045540094,
+      "h": 31.389066436514256,
       "anchor": {
         "x": 56.9,
         "y": 59.62
@@ -1119,6 +1362,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 54.98984121517278,
+      "h": 45.62986824237741,
       "anchor": {
         "x": 51.93,
         "y": 72.85
@@ -1131,6 +1377,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 43.23103897832334,
+      "h": 28.493184781167656,
       "anchor": {
         "x": 74.4,
         "y": 35.26
@@ -1143,6 +1392,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 42.62182162683457,
+      "h": 28.091655163140967,
       "anchor": {
         "x": 61.58,
         "y": 55.49
@@ -1155,6 +1407,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 35.58065373990684,
+      "h": 29.524372252263127,
       "anchor": {
         "x": 42.64,
         "y": 48.38
@@ -1167,6 +1422,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 31.378467331640422,
+      "h": 20.68126255949028,
       "anchor": {
         "x": 48.33,
         "y": 58.46
@@ -1179,6 +1437,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 54.992866778373724,
+      "h": 36.24529855847359,
       "anchor": {
         "x": 39.18,
         "y": 19.87
@@ -1191,6 +1452,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 56.68465056219138,
+      "h": 47.03619940266944,
       "anchor": {
         "x": 24.34,
         "y": 35.14
@@ -1203,6 +1467,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 49.87457507960498,
+      "h": 32.871879029739645,
       "anchor": {
         "x": 26.85,
         "y": 41.6
@@ -1215,6 +1482,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 39.5980642946437,
+      "h": 26.098724194196983,
       "anchor": {
         "x": 84.7,
         "y": 39.31
@@ -1227,6 +1497,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 47.35370119651779,
+      "h": 39.29349673753604,
       "anchor": {
         "x": 52.57,
         "y": 22.46
@@ -1239,6 +1512,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 56.3919448537752,
+      "h": 37.16741819907911,
       "anchor": {
         "x": 33.6,
         "y": 18.93
@@ -1251,6 +1527,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 55.741826995462176,
+      "h": 36.73893142882734,
       "anchor": {
         "x": 35.32,
         "y": 46.67
@@ -1263,6 +1542,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 38.95364363729022,
+      "h": 32.323236209666355,
       "anchor": {
         "x": 60.03,
         "y": 52.7
@@ -1275,6 +1557,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 35.35485605150461,
+      "h": 23.302064215764403,
       "anchor": {
         "x": 51.67,
         "y": 42.46
@@ -1287,6 +1572,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 43.71159534659236,
+      "h": 28.809915114799512,
       "anchor": {
         "x": 29.35,
         "y": 69.45
@@ -1299,6 +1587,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 39.59616177473217,
+      "h": 32.85638955775648,
       "anchor": {
         "x": 24.72,
         "y": 48.09
@@ -1311,6 +1602,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 45.53204317037016,
+      "h": 30.009755725925785,
       "anchor": {
         "x": 85.19,
         "y": 31.66
@@ -1323,6 +1617,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 39.328591455891726,
+      "h": 25.921117095928636,
       "anchor": {
         "x": 44.01,
         "y": 67.19
@@ -1335,6 +1632,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 57.56095084999688,
+      "h": 47.76334219467826,
       "anchor": {
         "x": 39.95,
         "y": 35.64
@@ -1347,6 +1647,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 36.09546299912035,
+      "h": 23.790191522147506,
       "anchor": {
         "x": 44.14,
         "y": 62.23
@@ -1359,6 +1662,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 41.19576154407113,
+      "h": 27.151751926774157,
       "anchor": {
         "x": 32.26,
         "y": 71.03
@@ -1371,6 +1677,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 40.56810673810541,
+      "h": 33.66289708055555,
       "anchor": {
         "x": 87.76,
         "y": 33.35
@@ -1383,6 +1692,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 38.859034708328544,
+      "h": 25.61163651230745,
       "anchor": {
         "x": 66.97,
         "y": 58.41
@@ -1395,6 +1707,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 43.317424345389,
+      "h": 28.550120591279114,
       "anchor": {
         "x": 22.46,
         "y": 45.13
@@ -1407,6 +1722,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 49.91683084028773,
+      "h": 41.42034899513237,
       "anchor": {
         "x": 34.42,
         "y": 23.3
@@ -1419,6 +1737,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 31.536879694089293,
+      "h": 20.785670707467943,
       "anchor": {
         "x": 69.61,
         "y": 16.94
@@ -1431,6 +1752,9 @@
       "kind": "grass",
       "building": null,
       "layer": "grass",
+      "asset": "sprites/grass.png",
+      "w": 48.52615657430141,
+      "h": 31.983148651244115,
       "anchor": {
         "x": 64.56,
         "y": 51.41
@@ -1443,6 +1767,9 @@
       "kind": "flowers",
       "building": null,
       "layer": "flowers",
+      "asset": "sprites/flowers.png",
+      "w": 38.82464434523135,
+      "h": 32.216194243915375,
       "anchor": {
         "x": 73.34,
         "y": 38.53
