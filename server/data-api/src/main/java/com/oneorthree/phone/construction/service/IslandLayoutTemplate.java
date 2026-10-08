@@ -3,34 +3,43 @@ package com.oneorthree.phone.construction.service;
 /**
  * 섬 배치 기본 템플릿 — 행이 없는 섬의 첫 조회 때 이 값으로 {@code island_layouts} 를 만든다 (GROMO-2232).
  *
- * <p>출처: 앱 {@code app/app-dev/src/assets/village-world/map.json}(1536×1024 px, version 4) 의
- * {@code objects[]} 중 {@code building} 필드가 있는 7개. 서버는 앱 파일을 읽지 않는다 — 값만 복사했다.
+ * <p>출처: 앱 기존 마을 {@code app/app-dev/src/assets/backgrounds/island/placement.json}(1536×1024 px) 의
+ * 시설 7개 {@code rect[x,y,w,h]}, GROMO-2243 시점 값 — 타일 섬은 기존 마을을 2배로 올려 자른 것이다.
+ * 서버는 앱 파일을 읽지 않는다 — 값만 복사했다.
  * <ul>
+ *   <li>id 대응(placement.json → 서버): town-hall→hall · noticeboard→board · gramophone→gram · library→library ·
+ *       mailbox→mail · observatory→tower · shop→shop.</li>
  *   <li>{@code cell} = 앵커 px 를 100×100 통행 셀로 — x·100/1536, y·100/1024 의 floor.
- *       예: 회관 앵커 (1095,321) → (71,31).</li>
- *   <li>{@code footprint} = 스프라이트 상자(bottom-center 앵커: x±w/2, y−h..y)의 네 꼭짓점을 같은 변환으로 —
- *       최소 쪽은 floor, 최대 쪽은 ceil 이라 상자를 덮는다. 충돌 정밀화는 Movement 컴파일러 몫이다.</li>
+ *       앵커는 rect 의 아래 가운데(x+w/2, y+h). 예: 회관 rect (949,21,242,244) → 앵커 (1070,265) → (69,25).
+ *       셀 중심(+0.5)은 넣지 않는다 — 앱({@code legacyLayoutOffsets})이 서버 칸과 자기 기본 칸을 둘 다 셀 중심으로
+ *       바꿔 차이를 내므로, 여기서 +0.5 를 더하면 기본 배치의 이동량이 0 이 아니게 된다.</li>
+ *   <li>{@code footprint} = rect 의 네 꼭짓점을 같은 변환으로 — 최소 쪽은 floor, 최대 쪽은 ceil 이라 상자를 덮는다.
+ *       <b>시각 외곽 상자이지 충돌체가 아니다</b>. 충돌 정밀화는 Movement 컴파일러 몫이다.</li>
  * </ul>
- * 순서는 정책 C01 의 건물 7개 표시 순서다. 맵 원화가 바뀌면 이 상수와 map.json 을 함께 고친다.
+ * 순서는 정책 C01 의 건물 7개 표시 순서다. 맵 원화가 바뀌면 이 상수와 placement.json 을 함께 고친다.
+ * {@code templateVersion: 2} 는 「기존 마을 좌표로 만든 행」 표식이다. 그 전 템플릿(새 마을 map.json 좌표)으로 만든 행에는
+ * 이 키가 없고, 앱은 표식이 없는 행의 칸을 건물 이동에 쓰지 않는다(기본 위치로 그림). 형식 버전 {@code schemaVersion} 과 별개다.
+ * 템플릿은 생성 시점 스냅샷이라 <b>이미 만들어진 {@code island_layouts} 행은 바뀌지 않는다</b> — 에픽 main 머지 전에는
+ * 행을 지워 다시 만들고, 그 뒤에는 데이터 마이그레이션으로 고친다(docs/prd/fishcat/island-movement/map-assets.md §6).
  */
 final class IslandLayoutTemplate {
 
     static final String DEFAULT_LAYOUT_JSON = """
-            {"schemaVersion":1,"mapId":"home","buildings":[\
-            {"id":"hall","cell":{"x":71,"y":31},"anchor":"bottom-center",\
-            "footprint":[[63,7],[80,7],[80,32],[63,32]]},\
-            {"id":"board","cell":{"x":60,"y":31},"anchor":"bottom-center",\
-            "footprint":[[57,23],[64,23],[64,32],[57,32]]},\
-            {"id":"gram","cell":{"x":28,"y":48},"anchor":"bottom-center",\
-            "footprint":[[26,39],[32,39],[32,49],[26,49]]},\
-            {"id":"library","cell":{"x":80,"y":58},"anchor":"bottom-center",\
-            "footprint":[[72,26],[89,26],[89,59],[72,59]]},\
-            {"id":"mail","cell":{"x":23,"y":58},"anchor":"bottom-center",\
-            "footprint":[[22,52],[26,52],[26,59],[22,59]]},\
-            {"id":"tower","cell":{"x":13,"y":19},"anchor":"bottom-center",\
-            "footprint":[[9,0],[17,0],[17,20],[9,20]]},\
-            {"id":"shop","cell":{"x":65,"y":73},"anchor":"bottom-center",\
-            "footprint":[[56,53],[74,53],[74,74],[56,74]]}\
+            {"schemaVersion":1,"templateVersion":2,"mapId":"home","buildings":[\
+            {"id":"hall","cell":{"x":69,"y":25},"anchor":"bottom-center",\
+            "footprint":[[61,2],[78,2],[78,26],[61,26]]},\
+            {"id":"board","cell":{"x":58,"y":23},"anchor":"bottom-center",\
+            "footprint":[[55,15],[61,15],[61,24],[55,24]]},\
+            {"id":"gram","cell":{"x":23,"y":46},"anchor":"bottom-center",\
+            "footprint":[[21,38],[27,38],[27,47],[21,47]]},\
+            {"id":"library","cell":{"x":80,"y":59},"anchor":"bottom-center",\
+            "footprint":[[72,28],[89,28],[89,60],[72,60]]},\
+            {"id":"mail","cell":{"x":20,"y":56},"anchor":"bottom-center",\
+            "footprint":[[19,50],[23,50],[23,57],[19,57]]},\
+            {"id":"tower","cell":{"x":13,"y":21},"anchor":"bottom-center",\
+            "footprint":[[9,2],[18,2],[18,22],[9,22]]},\
+            {"id":"shop","cell":{"x":38,"y":76},"anchor":"bottom-center",\
+            "footprint":[[29,56],[47,56],[47,77],[29,77]]}\
             ]}""";
 
     private IslandLayoutTemplate() {
