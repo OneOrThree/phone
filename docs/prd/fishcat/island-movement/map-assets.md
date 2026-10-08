@@ -60,7 +60,7 @@ layoutRevision ─┘                                                           
                                               bundled fallback(설치 시 포함 1벌) ───────┘
 ```
 
-`objects.json` 은 번들 전용이다(캐시 manifest 는 5개 파일: tileset@2x.png·tileset·tilemap·nav·home.map). 캐시 소비는 VillageScenery 가 카탈로그를 읽는 후속에서.
+캐시 manifest 는 6개 파일이다: tileset@2x.png·tileset-night@2x.png·tileset·tilemap·nav·home.map. 타일 섬이 기존 마을로 바뀌면서(2026-10-08) 소품이 바닥 원화에 그려져 있어 오브젝트 카탈로그(`objects.json`)는 없앴다.
 
 - 의존 순서: manifest → 타일셋·통행·오브젝트 카탈로그(병렬) → 배치(layoutRevision) → 렌더. 배치가 먼저 와도 타일셋 없이 그리지 않는다. 캐릭터·UI·폰트는 독립 경로.
 - 원자 교체: 새 `mapVersion` 디렉터리의 파일이 전부 검증되기 전에는 이전 버전(없으면 번들)으로 그린다. 준비 완료 표식 파일을 마지막에 쓴다. HLD §2 의 맵 전환 원칙과 같다.
@@ -77,7 +77,13 @@ layoutRevision ─┘                                                           
 ### 6.1 확정 사항 (2026-10-07, 조재영)
 
 - 렌더러: **Skia Atlas**(`@shopify/react-native-skia`)로 타일 384장을 한 텍스처에서 단일 드로우콜로 그린다. 소품은 발밑 앵커·zIndex=y, 카메라는 캔버스 transform 하나. 플래그 `EXPO_PUBLIC_TILE_ISLAND`.
-- 타일 소스: **원화 자르기** — `terrain.png` 를 Lanczos 2배(3072×2048)로 올려 128px 384조각으로 자르고 아틀라스(≤4096, 1px extrusion) 한 장으로. 재사용 타일셋은 평면적(3/4 시점 입체감 손실)이라 보류했다. 기획 작업실 v3 시연이 근거(정합 오차 0.313/255, 기준점 이동 0px). 원화 자르기 단계에서는 `terrain` 한 층만 쓰고 `terrain-detail`·`roads` 는 비워 둔다.
+지금 타일 섬(2026-10-08, 기존 마을 2배 업스케일 — 빨간 선이 64px 타일 경계 24×16):
+
+![타일 섬 낮 — 타일 경계 표시](diagrams/08-tile-island-day.png)
+
+![타일 섬 밤](diagrams/08-tile-island-night.png)
+
+- 타일 소스: **원화 자르기** — 기존 마을 바닥 `backgrounds/island/base/day.png`·`night.png` 를 각각 Lanczos 2배(3072×2048)로 올려 128px 384조각으로 자르고 아틀라스(≤4096, 1px extrusion) 낮·밤 한 장씩으로(2026-10-08 재영님 결정: 새 마을 미리보기 `terrain.png` 에서 기존 마을로 교체). 길·나무·부두는 원화에 그려져 있어 통행 비용은 균일하고(길 우선 없음), 시설 레이어가 전체 캔버스 이미지라 서버 `layout` 으로 건물을 옮기지 않는다. 재사용 타일셋은 평면적(3/4 시점 입체감 손실)이라 보류했다. 기획 작업실 v3 시연이 근거(정합 오차 0.313/255, 기준점 이동 0px). 원화 자르기 단계에서는 `terrain` 한 층만 쓰고 `terrain-detail`·`roads` 는 비워 둔다.
 - 배치 전파: 10/9 는 재조회만(홈 재진입·포그라운드 복귀·건설 완료 콜백). `events` 토픽 개방은 이동 서버와 함께.
 - 기준 기기: 1차 측정은 단일 기기.
 

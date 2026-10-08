@@ -1,173 +1,112 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import map from '../map.json';
+import grids from '@/constants/world-v2.json';
+import { onLand } from '@/utils/world-grid';
+import { loadNav, navPath } from '@/utils/nav-path';
+import { cellCenterToWorld, imageToWorld, worldToImage } from '@/utils/worldCoords';
 import home from './home.map.json';
 import nav from './nav.json';
-import catalog from './objects.json';
-import { villageScene } from '@/utils/village-world';
-const { build, walkableAt, openAtPx, center } = require('../../../../scripts/build-nav-fixture.cjs');
+const { build, center, edgeOpen, DOORS } = require('../../../../scripts/build-nav-fixture.cjs');
 
 const open = (cx: number, cy: number) => nav.walkable[cy * nav.columns + cx] === '1';
+const size = { imageWidth: 1536, imageHeight: 1024 };
 
-// 폴리곤(px) 안에 중심이 드는 통행 가능 셀 수.
-function walkableCellsIn(poly: number[][]) {
-  let n = 0;
-  for (let cy = 0; cy < 100; cy++)
-    for (let cx = 0; cx < 100; cx++) {
-      const x = (cx + 0.5) * 15.36,
-        y = (cy + 0.5) * 10.24;
-      let inside = false;
-      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-        const [ax, ay] = poly[i],
-          [bx, by] = poly[j];
-        if (ay > y !== by > y && x < ((bx - ax) * (y - ay)) / (by - ay) + ax) inside = !inside;
-      }
-      if (inside && open(cx, cy)) n++;
-    }
-  return n;
-}
-
-describe('v1 nav fixture', () => {
-  it('objects.json 이 오브젝트별 w·h·asset 을 원본 map.json 과 같게 보존한다(tree 9 vs 12)', () => {
-    const byId = (list: { id: number }[], id: number) => list.find((o) => o.id === id) as never;
-    for (const id of [9, 12]) {
-      const c = byId(catalog.objects, id) as { w: number; h: number; asset: string };
-      const m = byId(map.objects, id) as { w: number; h: number; asset: string };
-      expect([c.w, c.h, c.asset]).toEqual([m.w, m.h, m.asset]);
-    }
-    expect((byId(catalog.objects, 9) as { w: number }).w).not.toBe(
-      (byId(catalog.objects, 12) as { w: number }).w,
-    );
-  });
-
+describe('v1 nav fixture (기존 마을)', () => {
   it('스키마 모양', () => {
     expect(home).toMatchObject({
       mapId: 'home',
       coordinateVersion: 1,
+      imageWidth: grids.home.w,
+      imageHeight: grids.home.h,
       nav: { columns: 100, rows: 100 },
     });
+    expect(home).not.toHaveProperty('objectsCatalog');
     expect(nav.walkable).toHaveLength(10000);
     expect(nav.traversalCost).toHaveLength(10000);
-    const n = [...nav.walkable].filter((c) => c === '1').length;
+  });
+
+  it('통행 셀은 셀 중심에서 onLand(grids.home) 와 같다', () => {
+    let n = 0;
+    for (let cy = 0; cy < 100; cy++)
+      for (let cx = 0; cx < 100; cx++) {
+        const p = { x: ((cx + 0.5) * 1536) / 100, y: ((cy + 0.5) * 1024) / 100 };
+        expect(open(cx, cy)).toBe(onLand(grids.home, p));
+        if (open(cx, cy)) n++;
+      }
     expect(n).toBeGreaterThan(0);
     expect(n).toBeLessThan(10000);
+    expect(open(0, 0)).toBe(false); // 바다
   });
 
-  it('비용은 차단 여부와 무관하게 전 셀 8/27', () => {
-    nav.traversalCost.forEach((c) => expect([8, 27]).toContain(c));
+  it('길은 원화에 그려져 비용은 전 셀 잔디 27 하나', () => {
+    expect(new Set(nav.traversalCost)).toEqual(new Set([27]));
   });
 
-  it('buildingCells 의 셀은 walkable 에서 0 이고 비용 > 0, 합집합은 건물 footprint 안', () => {
-    expect(Object.keys(nav.buildingCells).sort()).toEqual(
+  it('buildingCells 는 건물 7종 모두 빈 배열(기존 격자는 건설로 바뀌지 않는다)', () => {
+    expect(nav.buildingCells).toEqual({
+      hall: [],
+      library: [],
+      shop: [],
+      tower: [],
+      board: [],
+      gram: [],
+      mail: [],
+    });
+  });
+
+  it('입구 7곳·스폰은 걸을 수 있고 스폰에서 전부 도달한다', () => {
+    const g = loadNav(nav as any);
+    const spawn = nav.spawns.character;
+    expect(open(spawn.cx, spawn.cy)).toBe(true);
+    const from = cellCenterToWorld(spawn);
+    expect(Object.keys(nav.entrances).sort()).toEqual(
       ['board', 'gram', 'hall', 'library', 'mail', 'shop', 'tower'],
     );
-    for (const [b, cells] of Object.entries(nav.buildingCells as Record<string, number[]>)) {
-      expect(cells.length).toBeGreaterThan(0);
-      const rects = catalog.objects.filter((o) => o.building === b).map((o) => o.footprint);
-      for (const i of cells) {
-        expect(nav.walkable[i]).toBe('0');
-        expect(nav.traversalCost[i]).toBeGreaterThan(0);
-        const cx = i % 100,
-          cy = Math.floor(i / 100);
-        expect(
-          rects.some(([[x0, y0], , [x1, y1]]) => cx >= x0 && cx < x1 && cy >= y0 && cy < y1),
-        ).toBe(true);
-      }
+    for (const en of Object.values(nav.entrances)) {
+      expect(open(en.cx, en.cy)).toBe(true);
+      const route = navPath(g, from, cellCenterToWorld(en));
+      expect(route[route.length - 1]).toEqual(cellCenterToWorld(en));
     }
   });
 
-  it('다리·부두·그로브는 걷고 바다와 건물 footprint 는 막힌다', () => {
-    const g = map.crossings;
-    for (const poly of [g.dock.polygon, g.bridge.polygon, g.grove])
-      expect(walkableCellsIn(poly)).toBeGreaterThan(0);
-    expect(open(0, 0)).toBe(false);
-    const hall = catalog.objects.find((o) => o.building === 'hall')!;
-    const [[x0, y0], , [x1, y1]] = hall.footprint;
-    expect(open(Math.floor((x0 + x1) / 2), Math.floor((y0 + y1) / 2))).toBe(false);
+  it('입구 셀은 원래 문 px 에서 한 셀 대각 거리 안이다', () => {
+    for (const [id, d] of Object.entries(DOORS as Record<string, { x: number; y: number }>)) {
+      const c = worldToImage(cellCenterToWorld((nav.entrances as any)[id]), size);
+      expect(Math.hypot(c.x - d.x, c.y - d.y)).toBeLessThan(Math.hypot(15.36, 10.24) * 2);
+    }
   });
 
-  it('건물 7종 입구와 스폰은 걸을 수 있다', () => {
-    const ids = catalog.objects.map((o) => o.building).filter(Boolean);
-    expect(new Set(ids)).toEqual(
-      new Set(['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop']),
+  it('스폰에서 부두 끝(뗏목 문 274,740)까지 걸어간다', () => {
+    const g = loadNav(nav as any);
+    const route = navPath(
+      g,
+      cellCenterToWorld(nav.spawns.character),
+      imageToWorld({ x: 274, y: 740 }, size),
     );
-    expect(catalog.objects).toHaveLength(109);
-    for (const c of [...Object.values(nav.entrances), nav.spawns.character])
-      expect(open(c.cx, c.cy)).toBe(true);
+    const end = worldToImage(route[route.length - 1], size);
+    expect(Math.hypot(end.x - 274, end.y - 740)).toBeLessThan(20);
+  });
+
+  it('blockedEdges 는 선분 내부 31점 재계산과 같다', () => {
+    const found: number[][] = [];
+    for (let i = 0; i < 10000; i++) {
+      const cx = i % 100,
+        cy = Math.floor(i / 100);
+      if (!open(cx, cy)) continue;
+      if (cx < 99 && open(cx + 1, cy) && !edgeOpen(center(cx, cy), center(cx + 1, cy)))
+        found.push([i, i + 1]);
+      if (cy < 99 && open(cx, cy + 1) && !edgeOpen(center(cx, cy), center(cx, cy + 1)))
+        found.push([i, i + 100]);
+    }
+    expect(found).toEqual(nav.blockedEdges);
   });
 
   it('두 번 생성해도, 커밋된 파일과도 바이트가 같다', () => {
     const a = build();
     expect(build()).toEqual(a);
+    expect(Object.keys(a).sort()).toEqual(['home.map.json', 'nav.json']);
     for (const f of Object.keys(a))
       expect(fs.readFileSync(path.join(__dirname, f), 'utf8')).toBe(a[f]);
-  });
-
-  it('.cjs 통행 판정은 villageScene() 과 96×64 에서 셀 단위로 같다', () => {
-    const all = ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const;
-    const { cols, rows, cells } = villageScene(all).grid;
-    expect([cols, rows]).toEqual([96, 64]);
-    const mine = Array.from({ length: cols * rows }, (_, i) =>
-      walkableAt(i % cols, Math.floor(i / cols), cols, rows) ? '1' : '0',
-    ).join('');
-    expect(mine).toBe(cells);
-  });
-
-  it('roads.cells 는 roadLayers 합집합과 같고 고립 길 셀 수는 고정', () => {
-    const { roads, roadLayers } = map;
-    const union = roads.cells.map((_, i) => roadLayers.some((r) => r.cells[i]));
-    expect(roads.cells.map(Boolean)).toEqual(union);
-    const c = roads.columns;
-    const isolated = roads.cells.filter(
-      (on, i) =>
-        on &&
-        !(
-          (i % c > 0 && roads.cells[i - 1]) ||
-          (i % c < c - 1 && roads.cells[i + 1]) ||
-          roads.cells[i - c] ||
-          roads.cells[i + c]
-        ),
-    ).length;
-    expect(isolated).toBe(9);
-  });
-
-  it('선분 위 내부 31점 중 막힌 점이 있는 인접 통행 셀 쌍은 blockedEdges 4 개와 같다', () => {
-    expect(nav.blockedEdges).toHaveLength(4);
-    const found: number[][] = [];
-    for (let cy = 0; cy < 100; cy++)
-      for (let cx = 0; cx < 100; cx++) {
-        if (!open(cx, cy)) continue;
-        const a = center(cx, cy);
-        for (const [dx, dy] of [
-          [1, 0],
-          [0, 1],
-        ]) {
-          if (cx + dx > 99 || cy + dy > 99 || !open(cx + dx, cy + dy)) continue;
-          const b = center(cx + dx, cy + dy);
-          let blocked = false;
-          for (let k = 1; k < 32; k++) {
-            const t = k / 32;
-            if (!openAtPx({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })) blocked = true;
-          }
-          if (blocked) found.push([cy * 100 + cx, (cy + dy) * 100 + cx + dx]);
-        }
-      }
-    expect(found).toEqual(nav.blockedEdges);
-    // 셀 (cx,cy) 좌표: (19,16)↔(20,16), (31,22)↔(32,22), (42,25)↔(43,25), (21,55)↔(21,56)
-    expect(nav.blockedEdges).toEqual([
-      [1619, 1620],
-      [2231, 2232],
-      [2542, 2543],
-      [5521, 5621],
-    ]);
-  });
-
-  it('anchor(world) → px 복원 오차는 0.01 px 이하', () => {
-    const byId = new Map(map.objects.map((o) => [o.id, o]));
-    for (const c of catalog.objects) {
-      const o = byId.get(c.id)!;
-      expect(Math.abs(c.anchor.x * 15.36 - o.x)).toBeLessThanOrEqual(0.01);
-      expect(Math.abs(c.anchor.y * 10.24 - o.y)).toBeLessThanOrEqual(0.01);
-    }
+    expect(fs.existsSync(path.join(__dirname, 'objects.json'))).toBe(false);
   });
 });

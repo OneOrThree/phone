@@ -9,7 +9,7 @@
  * (불일치면 버리고 1회 재시도) → 전부 준비되면 임시 디렉터리를 `v<n>` 으로 rename(원자 교체) → state.json 갱신.
  * 어느 단계가 실패해도 이전 활성 버전(없으면 번들)을 돌려준다 — 반쯤 받은 상태는 렌더러에 보이지 않는다.
  *
- * 디스크 레이아웃(Paths.cache 아래): maps/<mapId>/{state.json, v<n>/<6 files>, tmp-<n>-<t>/(진행 중)}.
+ * 디스크 레이아웃(Paths.cache 아래): maps/<mapId>/{state.json, v<n>/<MAP_FILES>, tmp-<n>-<t>/(진행 중)}.
  * 이전 활성 + 새 활성 두 버전만 보관한다(롤백 안전). state.json 은 .tmp 에 쓰고 rename 으로 교체한다.
  *
  * 스냅샷: 화면(FinalIsland)이 마운트 때 {@link promoteMapAssets} 로 받은 {@link MapAssetSource} 한 값을
@@ -29,6 +29,7 @@ export const MAP_ASSETS_URL = process.env.EXPO_PUBLIC_MAP_ASSETS_URL ?? '';
 
 export const MAP_FILES = [
   'tileset@2x.png',
+  'tileset-night@2x.png',
   'tileset.json',
   'tilemap.json',
   'nav.json',
@@ -166,7 +167,10 @@ const inflight = new Map<string, Promise<MapAssetSource>>();
 const current = new Map<string, MapAssetSource>();
 const pending = new Map<string, MapAssetSource>();
 
-type JsonName = Exclude<MapFileName, 'tileset@2x.png'>;
+// 타일셋 PNG(낮·밤)는 JSON 검증에서 뺀다.
+export type TilesetFile = 'tileset@2x.png' | 'tileset-night@2x.png';
+const PNG_FILES: readonly string[] = ['tileset@2x.png', 'tileset-night@2x.png'];
+type JsonName = Exclude<MapFileName, TilesetFile>;
 const num = (v: unknown): v is number => typeof v === 'number';
 type MapJson = Record<JsonName, any>;
 // 렌더러·nav·layout 이 실제로 읽는 필드만 본다 — 번들 JSON 과 같은 모양인지의 최소 검증. [검사 이름, 통과 조건].
@@ -302,7 +306,7 @@ const jsonMemo = new Map<string, unknown>();
 
 /** 캐시 JSON 5종을 한 번에 파싱·검증해 메모에 올린다. 통과면 null, 실패하면 깨진 파일명(→ 호출부가 번들로). */
 function loadJson(fs: MapFs, src: Extract<MapAssetSource, { kind: 'cache' }>): JsonName | null {
-  const names = MAP_FILES.filter((f): f is JsonName => f !== 'tileset@2x.png');
+  const names = MAP_FILES.filter((f): f is JsonName => !PNG_FILES.includes(f));
   const parsed = {} as MapJson;
   for (const name of names) {
     try {
@@ -376,12 +380,16 @@ export function promoteMapAssets(mapId = 'home', fs: MapFs = expoMapFs): MapAsse
  * 타일셋 PNG 디코드 실패로 캐시 소스 전체를 포기한다: 전역 current 를 번들로 내리고 pending 을 버리며,
  * 활성 버전의 타일셋 해시를 state.bad 에 남긴다. 다음 시작은 즉시 번들이고, 같은 해시의 manifest 는 채택하지 않는다.
  */
-export function demoteToBundle(mapId = 'home', fs: MapFs = expoMapFs) {
+export function demoteToBundle(
+  mapId = 'home',
+  fs: MapFs = expoMapFs,
+  file: TilesetFile = 'tileset@2x.png',
+) {
   const was = current.get(mapId);
-  console.warn(`[mapAssets] ${mapId} tileset@2x.png 디코드 실패 — 번들로 강등`);
+  console.warn(`[mapAssets] ${mapId} ${file} 디코드 실패 — 번들로 강등`);
   current.set(mapId, BUNDLE);
   pending.delete(mapId);
-  if (was?.kind === 'cache') markBad(fs, mapId, was.mapVersion, 'tileset@2x.png');
+  if (was?.kind === 'cache') markBad(fs, mapId, was.mapVersion, file);
 }
 
 /** 스냅샷 소스의 JSON 파일. 번들이거나 캐시에서 못 읽으면 fallback(번들 정적 import). */
@@ -391,9 +399,9 @@ export function readMapJson<T>(name: JsonName, fallback: T, src: MapAssetSource)
   return (jsonMemo.get(`${src.path}/${name}`) as T | undefined) ?? fallback;
 }
 
-/** 스냅샷 소스의 타일셋 이미지: cache 면 file URI, 아니면 null(→ 호출부가 번들 require 사용). */
-export function tilesetUri(src: MapAssetSource): string | null {
-  return src.kind === 'cache' ? `${src.dir}/tileset@2x.png` : null;
+/** 스냅샷 소스의 타일셋 이미지(낮·밤 file): cache 면 file URI, 아니면 null(→ 호출부가 번들 require 사용). */
+export function tilesetUri(src: MapAssetSource, file: TilesetFile = 'tileset@2x.png') {
+  return src.kind === 'cache' ? `${src.dir}/${file}` : null;
 }
 
 /** 서버와 동기화한다. 실패하면 던지지 않고 이전 활성 소스(없으면 bundle)를 돌려준다. 같은 mapId 동시 호출은 합친다. */

@@ -1,4 +1,4 @@
-import { applyLayout } from './island-layout';
+import { applyLayout, legacyLayoutOffsets } from './island-layout';
 import { villageMap } from './village-world';
 
 describe('applyLayout', () => {
@@ -38,5 +38,48 @@ describe('applyLayout', () => {
   ])('%s 이면 서버 배치를 무시하고 입력을 그대로 돌려준다', (_name, { cell, ...head }) => {
     const layout = { ...head, buildings: [{ id: 'hall' as const, cell }] };
     expect(applyLayout(objects, layout, bundle)).toBe(objects);
+  });
+});
+
+describe('legacyLayoutOffsets', () => {
+  // 서버 기본 템플릿 — placement.json rect 발밑에서 유도한 셀과 같다.
+  const defaults = {
+    hall: { x: 69, y: 25 },
+    board: { x: 58, y: 23 },
+    gram: { x: 23, y: 46 },
+    library: { x: 80, y: 59 },
+    mail: { x: 20, y: 56 },
+    tower: { x: 13, y: 21 },
+    shop: { x: 38, y: 76 },
+  } as const;
+  const layoutOf = (cells: Partial<Record<keyof typeof defaults, { x: number; y: number }>>) => ({
+    schemaVersion: 1,
+    mapId: 'home',
+    buildings: Object.entries(cells).map(([id, cell]) => ({
+      id: id as keyof typeof defaults,
+      cell,
+    })),
+  });
+
+  it('기본 템플릿이면 모든 건물 이동량이 정확히 0', () => {
+    const out = legacyLayoutOffsets(layoutOf(defaults));
+    expect(Object.keys(out)).toHaveLength(7);
+    for (const o of Object.values(out)) expect(o).toEqual({ x: 0, y: 0 });
+  });
+
+  it('옮긴 셀은 셀 차 × (15.36, 10.24) px 만큼 이동한다', () => {
+    const out = legacyLayoutOffsets(layoutOf({ ...defaults, hall: { x: 71, y: 31 } }));
+    expect(out.hall!.x).toBeCloseTo(2 * 15.36, 6);
+    expect(out.hall!.y).toBeCloseTo(6 * 10.24, 6);
+    expect(out.shop).toEqual({ x: 0, y: 0 });
+  });
+
+  it.each([
+    ['layout 없음', undefined],
+    ['schemaVersion 2', { ...layoutOf({ hall: { x: 71, y: 31 } }), schemaVersion: 2 }],
+    ['mapId 다름', { ...layoutOf({ hall: { x: 71, y: 31 } }), mapId: 'other' }],
+    ['cell 범위 밖', layoutOf({ hall: { x: 100, y: 31 } })],
+  ])('%s 이면 이동 없음(빈 객체)', (_name, layout) => {
+    expect(legacyLayoutOffsets(layout)).toEqual({});
   });
 });

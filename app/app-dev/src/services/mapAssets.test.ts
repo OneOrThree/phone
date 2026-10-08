@@ -148,7 +148,7 @@ function fakeServer(version = 1, tag = 'a') {
       return res(200, manifest(), { ETag: etag() });
     }
     const name = path.replace(/^v\d+\//, '');
-    if (name === 'tileset@2x.png' ? state.failTileset : state.failLayout) return res(500);
+    if (name.endsWith('.png') ? state.failTileset : state.failLayout) return res(500);
     const data = body(name);
     if (state.corrupt > 0) {
       state.corrupt--;
@@ -170,13 +170,13 @@ const assertIntact = (fs: MapFs, src: Awaited<ReturnType<typeof syncMapAssets>>)
   if (src.kind === 'cache') for (const n of MAP_FILES) assert.ok(fs.exists(`${src.path}/${n}`), n);
 };
 
-test('(a) 콜드 스타트: manifest + 5파일 다운로드, 활성 = cache v1, 임시 디렉터리 없음', async () => {
+test('(a) 콜드 스타트: manifest + 6파일 다운로드, 활성 = cache v1, 임시 디렉터리 없음', async () => {
   const { fs, dirs } = memFs();
   const srv = fakeServer();
   const src = await syncMapAssets('home', opts(fs, srv.fetchFn));
   assert.equal(src.kind, 'cache');
   assert.equal(src.kind === 'cache' && src.mapVersion, 1);
-  assert.equal(downloads(srv.log).length, 5);
+  assert.equal(downloads(srv.log).length, MAP_FILES.length);
   assertIntact(fs, src);
   assert.deepEqual(
     [...dirs].filter((d) => d.includes('tmp-')),
@@ -203,7 +203,7 @@ test('(b2) 일부 파일만 바뀐 새 버전: 바뀐 파일만 받고 나머지
   srv.state.version = 2;
   const src = await syncMapAssets('home', opts(fs, srv.fetchFn));
   assert.equal(src.kind === 'cache' && src.mapVersion, 2);
-  assert.deepEqual(downloads(srv.log), ['v2/tileset@2x.png']); // 타일셋만 바뀜
+  assert.deepEqual(downloads(srv.log), ['v2/tileset@2x.png', 'v2/tileset-night@2x.png']); // 타일셋(낮·밤)만 바뀜
 });
 
 test('(c) sha256 불일치 → 버리고 1회 재시도로 성공, 재시도도 깨지면 이전 버전 유지', async () => {
@@ -212,7 +212,7 @@ test('(c) sha256 불일치 → 버리고 1회 재시도로 성공, 재시도도 
   s1.state.corrupt = 1; // 첫 응답만 깨짐
   const ok = await syncMapAssets('home', opts(a.fs, s1.fetchFn));
   assert.equal(ok.kind, 'cache');
-  assert.equal(downloads(s1.log).length, 6); // 5 + 재시도 1
+  assert.equal(downloads(s1.log).length, MAP_FILES.length + 1); // 전 파일 + 재시도 1
 
   s1.state.version = 2;
   s1.state.corrupt = 2; // 같은 파일이 두 번 연속 깨짐
@@ -321,6 +321,8 @@ test('(g) 스냅샷: 마운트 뒤 전역 승격이 일어나도 이미 받은 �
   assert.equal(tagOf(m, s2), 'b');
   assert.ok(m.tilesetUri(s1)?.includes('/v1/'));
   assert.ok(m.tilesetUri(s2)?.includes('/v2/'));
+  assert.ok(m.tilesetUri(s1, 'tileset-night@2x.png')?.endsWith('/v1/tileset-night@2x.png'));
+  assert.equal(m.tilesetUri({ kind: 'bundle' }, 'tileset-night@2x.png'), null);
 });
 
 test('(h) JSON 하나라도 깨지면 소스 전체가 번들 — 새 버전이 깨지면 기존 활성 유지', async () => {
@@ -387,6 +389,16 @@ test('(k) 디코드 실패 → bad 표식: 다음 시작은 즉시 번들, 같�
   const hash = sha256Hex(new TextEncoder().encode('png-tileset@2x.png-1-a'));
   m.demoteToBundle('home', fs); // 캐시 PNG 디코드 실패
   assert.deepEqual(readBad(fs), { 'tileset@2x.png': hash });
+
+  // 밤 타일셋 디코드 실패는 밤 PNG 해시를 남긴다
+  const night = freshModule();
+  const other = memFs().fs;
+  await night.syncMapAssets('home', opts(other, fakeServer().fetchFn));
+  night.promoteMapAssets('home', other);
+  night.demoteToBundle('home', other, 'tileset-night@2x.png');
+  assert.deepEqual(readBad(other), {
+    'tileset-night@2x.png': sha256Hex(new TextEncoder().encode('png-tileset-night@2x.png-1-a')),
+  });
 
   // 다음 앱 시작: 빈 화면 없이 곧장 번들
   const next = freshModule();

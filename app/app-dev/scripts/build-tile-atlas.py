@@ -1,12 +1,14 @@
-"""terrain.png 원화를 2배로 올려 128px 타일 384조각 아틀라스와 레이어 데이터를 만든다 (GROMO-2229).
+"""기존 마을 바닥 원화(낮·밤)를 2배로 올려 128px 타일 384조각 아틀라스와 레이어 데이터를 만든다 (GROMO-2229).
 
-- terrain.png(1536x1024) -> Lanczos 2배 + UnsharpMask -> 3072x2048 -> 128px 타일 24x16 = 384조각.
-- 아틀라스 ``tileset@2x.png``: 4096x2048, 130px 피치 31열 x 13행. 슬롯 = 1px extrusion + 128px 타일
-  + 1px extrusion (Tiled 의미로 margin 1, spacing 2). 남는 슬롯은 투명.
+- 원화 = ``backgrounds/island/base/{day,night}.png``(1536x1024, 길·나무·모닥불·부두·뗏목·다리가 그려져 있다).
+  -> Lanczos 2배 + UnsharpMask -> 3072x2048 -> 128px 타일 24x16 = 384조각.
+- 아틀라스 낮 ``tileset@2x.png``·밤 ``tileset-night@2x.png``: 각각 4096x2048, 130px 피치 31열 x 13행. 슬롯 = 1px extrusion + 128px 타일
+  + 1px extrusion (Tiled 의미로 margin 1, spacing 2). 남는 슬롯은 투명. 낮·밤 위치가 같아 tilemap.json 한 벌을 같이 쓴다.
 - ``tilemap.json``: gid 1..384 를 위치 순(행 우선)으로 둔다. 같은 조각이 있어도 중복 제거하지 않는다
   (원화 자르기 단계). terrain-detail · roads 는 빈 data.
-- 검증: 아틀라스에서 384조각을 다시 조립해 2배 원화와 픽셀 차이 0 을 단언하고, 저장한 PNG 를 다시 열어
+- 검증(낮·밤 각각): 아틀라스에서 384조각을 다시 조립해 2배 원화와 픽셀 차이 0 을 단언하고, 저장한 PNG 를 다시 열어
   슬롯 내부 == 원화 crop, extrusion 1px 링(4변+모서리) == 타일 가장자리 복제를 384조각 전부 단언한다.
+- 확인 컷 ``checks/dock-raft@1x.png``: 재조립 낮 원화(1x)에 뗏목 hitbox(200,815,180,110)를 빨간 테두리로.
 - 결정적: 같은 입력이면 같은 바이트 (PNG 메타데이터 없음).
 
 사용법:
@@ -25,15 +27,18 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-VILLAGE = Path(__file__).resolve().parents[1] / "src/assets/village-world"
-V1 = VILLAGE / "v1"
+ASSETS = Path(__file__).resolve().parents[1] / "src/assets"
+BASE = ASSETS / "backgrounds/island/base"
+V1 = ASSETS / "village-world/v1"
+# 원화 -> 아틀라스 파일명. 낮·밤은 같은 기하라 tilemap.json 하나로 둘 다 그린다.
+SOURCES = {"day.png": "tileset@2x.png", "night.png": "tileset-night@2x.png"}
 
 TILE = 128  # 2x 타일 한 변 (1x 환산 64)
 COLS, ROWS = 24, 16  # 원화 격자
 PITCH = TILE + 2  # 1px extrusion 양쪽
 ATLAS_COLUMNS = 31  # 31 * 130 = 4030 <= 4096
 ATLAS_SIZE = (4096, 2048)
-FILES = ["tileset@2x.png", "tileset.json", "tilemap.json", "checks/dock-raft@1x.png"]
+FILES = ["tileset@2x.png", "tileset-night@2x.png", "tileset.json", "tilemap.json", "checks/dock-raft@1x.png"]
 
 
 def save_png(im, path):
@@ -98,10 +103,11 @@ def same_file(a, b):
     return a.read_bytes() == b.read_bytes()
 
 
-def build(out):
-    base = Image.open(VILLAGE / "terrain.png").convert("RGBA")
+def build_atlas(src, out_png):
+    """원화 한 장 -> 아틀라스 저장·검증. 재조립 1x(확인 컷용)를 돌려준다."""
+    base = Image.open(BASE / src).convert("RGBA")
     if base.size != (COLS * TILE // 2, ROWS * TILE // 2):
-        raise SystemExit(f"terrain.png 크기 {base.size} != {(COLS * TILE // 2, ROWS * TILE // 2)}")
+        raise SystemExit(f"{src} 크기 {base.size} != {(COLS * TILE // 2, ROWS * TILE // 2)}")
     high = upscale_2x(base)
 
     atlas = Image.new("RGBA", ATLAS_SIZE)
@@ -122,19 +128,25 @@ def build(out):
     if diff:
         n, (y, x) = first_mismatch(np.asarray(high), np.asarray(rebuilt))
         gid = y // TILE * COLS + x // TILE + 1
-        raise SystemExit(f"재조립 차이 {diff} != 0: 첫 불일치 원화 (x={x}, y={y}) gid {gid}, 불일치 픽셀 {n}개")
+        raise SystemExit(f"{src} 재조립 차이 {diff} != 0: 첫 불일치 원화 (x={x}, y={y}) gid {gid}, 불일치 픽셀 {n}개")
     shrunk = rebuilt.resize(base.size, Image.Resampling.LANCZOS)
     mae = float(np.abs(np.asarray(base.convert("RGB")).astype(float) - np.asarray(shrunk.convert("RGB")).astype(float)).mean())
-    print(f"재조립 차이: {diff} (0 이어야 함)")
-    print(f"2x -> 1x 축소 vs 원본 terrain.png MAE: {mae:.4f}/255 (참고값)")
+    print(f"{src} 재조립 차이: {diff} (0 이어야 함)")
+    print(f"{src} 2x -> 1x 축소 vs 원본 MAE: {mae:.4f}/255 (참고값)")
 
-    save_png(atlas, out / "tileset@2x.png")
-    verify_saved(out / "tileset@2x.png", high)
+    save_png(atlas, out_png)
+    verify_saved(out_png, high)
+    return shrunk
+
+
+def build(out):
+    shrunk = {src: build_atlas(src, out / png) for src, png in SOURCES.items()}
 
     write_json(out / "tileset.json", {
-        "//": "terrain.png 를 Lanczos 2배로 올려 128px 로 자른 @2x 아틀라스(1x 환산 64px). 최상위 scale 은 Tiled 비표준 확장이며 2230 TileTerrainCanvas 가 읽는 계약이다(Tiled 보존용은 properties 의 scale). 생성: scripts/build-tile-atlas.py",
+        "//": "기존 마을 바닥 원화 backgrounds/island/base/day.png(낮)·night.png(밤, nightImage)를 Lanczos 2배로 올려 128px 로 자른 @2x 아틀라스(1x 환산 64px). 낮·밤은 같은 기하라 tilemap.json 한 벌을 같이 쓴다. 최상위 scale 은 Tiled 비표준 확장이며 2230 TileTerrainCanvas 가 읽는 계약이다(Tiled 보존용은 properties 의 scale). 생성: scripts/build-tile-atlas.py",
         "name": "home-terrain",
         "image": "tileset@2x.png",
+        "nightImage": "tileset-night@2x.png",
         "imagewidth": ATLAS_SIZE[0],
         "imageheight": ATLAS_SIZE[1],
         "tilewidth": TILE,
@@ -168,13 +180,8 @@ def build(out):
         "tilesets": [{"firstgid": 1, "source": "tileset.json"}],
     })
 
-    # 확인 컷: 재조립 지형(1x) 위에 부두를 올리고 뗏목 hitbox 를 빨간 테두리로 표시한다.
-    world = json.loads((VILLAGE / "map.json").read_text(encoding="utf-8"))
-    d = world["crossings"]["dock"]
-    canvas = shrunk.copy()
-    # dock.png 는 정사각 원본이라 crossings.dock 의 w x h 로 맞춰 그린다.
-    dock = Image.open(VILLAGE / "dock.png").convert("RGBA").resize((d["w"], d["h"]), Image.Resampling.LANCZOS)
-    canvas.alpha_composite(dock, (d["x"], d["y"]))
+    # 확인 컷: 재조립 낮 원화(1x)에 뗏목 hitbox(legacyDoors.raft)를 빨간 테두리로 표시한다. 부두·뗏목은 원화에 그려져 있다.
+    canvas = shrunk["day.png"].copy()
     ImageDraw.Draw(canvas).rectangle((200, 815, 200 + 180, 815 + 110), outline=(255, 0, 0, 255), width=2)
     # 확인 컷은 200KB 이하여야 해서 256색으로 줄인다(확인용 그림이라 충분).
     cut = canvas.crop((60, 540, 480, 960)).convert("RGB").quantize(256, Image.Quantize.MEDIANCUT)
