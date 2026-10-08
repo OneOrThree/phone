@@ -126,7 +126,7 @@ function build() {
     coordinateVersion: 1,
     imageWidth: map.width,
     imageHeight: map.height,
-    tiles: { size: 64, columns: 24, rows: 16, tileset: 'tileset@2x.png' },
+    tiles: { size: 64, columns: 24, rows: 16, tileset: 'tileset@2x.png', map: 'tilemap.json' },
     nav: { columns: N, rows: N, file: 'nav.json' },
     layers: ['terrain', 'terrain-detail', 'roads'],
     objectsCatalog: 'objects.json',

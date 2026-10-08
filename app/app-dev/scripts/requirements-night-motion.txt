@@ -1,5 +1,6 @@
 # scripts/generate-night-village-motion.py 실행 의존성 (에셋 재현용 고정 버전)
 # 설치: python3 -m pip install -r scripts/requirements-night-motion.txt
+# 주의: requirements-tile-atlas.txt 와 한 venv 에 같이 못 깐다(pillow·numpy 버전 충돌) — 별도 venv 사용.
 numpy==2.5.1
 opencv-python==5.0.0.93
 pillow==11.3.0

@@ -9,7 +9,8 @@
     "size": 64,
     "columns": 24,
     "rows": 16,
-    "tileset": "tileset@2x.png"
+    "tileset": "tileset@2x.png",
+    "map": "tilemap.json"
   },
   "nav": {
     "columns": 100,

@@ -30,6 +30,8 @@
     "gen:report-palette:check": "node scripts/generate-report-palette.cjs --check",
     "gen:nav-fixture": "node scripts/build-nav-fixture.cjs",
     "gen:nav-fixture:check": "node scripts/build-nav-fixture.cjs --check",
+    "gen:tile-atlas": "python3 scripts/build-tile-atlas.py",
+    "gen:tile-atlas:check": "python3 scripts/build-tile-atlas.py --check",
     "postinstall": "patch-package"
   },
   "dependencies": {
