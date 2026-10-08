@@ -13,6 +13,7 @@ import {
   canBuild,
   canBuy,
   products,
+  buildingNames,
   questRate,
   sessionSeconds,
   capacityOf,
@@ -57,6 +58,7 @@ import {
   trackNames,
   todayFocusSeconds,
 } from '@/services/model';
+import { applyLocalePref } from '@/i18n';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
 
@@ -298,6 +300,15 @@ test('상점은 다른 네 건물을 모두 완공해야 고르며, 축음기 �
   s = act(s, 'SELECT_BUILDING', { building: 'shop' });
   assert.equal(currentIsland(s).buildingQuest?.building, 'shop');
 });
+test('딸기 테마 상품명은 import 시점이 아니라 조회 시점 언어를 읽는다 (GROMO-2235 r4)', () => {
+  applyLocalePref('en');
+  assert.ok(
+    products.find((p) => p.id === 'strawberry-board')!.title.startsWith(buildingNames.board),
+  );
+  applyLocalePref('ko');
+  assert.equal(products.find((p) => p.id === 'strawberry-board')!.title, '게시판 딸기 테마');
+});
+afterEach(() => applyLocalePref(null));
 test('축음기는 보유한 현재 곡이 있을 때만 재생한다', () => {
   let s = initialState(true);
   const island = currentIsland(s);

@@ -513,15 +513,21 @@ export const products: Product[] = [
     description: '창가에 톡톡 떨어지는 빗방울 소리예요.',
   },
 ];
+// title·description 은 프로퍼티 게터 — buildingNames 처럼 호출 시점 언어로 건물 이름을 읽는다.
+// 접미사("딸기 테마"·"한 곳에만 적용하는 외양이에요.")는 그대로 둔다 — 상점 문구 번역은 1840 몫.
 for (const building of ['board', 'tower', 'mail', 'shop'] as Building[])
   products.push({
     id: 'strawberry-' + building,
-    title: buildingNames[building] + ' 딸기 테마',
+    get title() {
+      return buildingNames[building] + ' 딸기 테마';
+    },
     building,
     kind: 'building',
     price: 300,
     currency: 'fish',
-    description: buildingNames[building] + ' 한 곳에만 적용하는 외양이에요.',
+    get description() {
+      return buildingNames[building] + ' 한 곳에만 적용하는 외양이에요.';
+    },
   });
 const uuid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const peers = (): Member[] => [

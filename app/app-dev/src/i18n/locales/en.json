@@ -6,7 +6,8 @@
     "retry": "Retry",
     "save": "Save",
     "later": "Later",
-    "manageIsland": "Manage island"
+    "manageIsland": "Manage island",
+    "readyStampA11y": "Ready stamp"
   },
   "errors": {
     "GENERIC": "Please check your connection and try again.",

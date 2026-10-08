@@ -46,7 +46,7 @@ import {
   viewIsland,
 } from '@/services/model';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
-import { localized } from '@/i18n';
+import { localized, t } from '@/i18n';
 import { semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useBoardNotices } from './useBoardNotices';
@@ -3505,7 +3505,7 @@ function BlueprintReadyStamp({ reduceMotion }: { reduceMotion: boolean }) {
     >
       <Picture
         source={localized(interiorArt.blueprintReadyStamp)}
-        label="준비 완료 도장"
+        label={t('common.readyStampA11y')}
         style={{ width: '100%', height: '100%' }}
       />
     </Animated.View>
