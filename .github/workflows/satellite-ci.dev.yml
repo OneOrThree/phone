@@ -1,0 +1,173 @@
+# 위성(business-api · notification) CI — PR 검사 + main push 시 GAR(amd64) 발행. satellite-cd.dev.yml 이 이어서 배포.
+# 검사는 satellite-check.yml 공용. GROMO-2224 에서 satellite-ci.yml 을 dev·prod 로 분리.
+name: Satellite CI (dev)
+
+on:
+  pull_request:
+    branches-ignore: [release]
+    paths:
+      - 'server/business-api/**'
+      - 'server/notification/**'
+      # 설정·필터 일치 테스트(test_config_contract)가 realtime 설정도 봄 (GROMO-2224)
+      - 'server/realtime/src/main/resources/**'
+      # 위성 계약은 auth·user·group·internal 등 Data 경계 전반과 테스트에 의존한다.
+      - 'server/data-api/**'
+      # data-api 의 문서 변경은 위성 계약을 바꾸지 않는다 (GROMO-1925).
+      - '!server/data-api/docs/**'
+      - '!server/data-api/**/*.md'
+      - 'docs/architecture/**'
+      - 'server/scripts/docker-compose.satellites*.yml'
+      - 'server/scripts/docker-compose.business.yml'
+      - 'server/scripts/docker-compose.kafka.yml'
+      - 'server/scripts/prepare-satellite-deploy.py'
+      - 'server/scripts/nginx-satellites*.example'
+      - 'server/scripts/nginx-dev-2.0-routes.conf.example'
+      - 'server/scripts/provision-notification-db.*'
+      - '.github/scripts/**'
+      - '.github/actions/ci-jar/**'
+      - '.github/actions/gar-login/**'
+      - '.github/workflows/satellite-ci.*.yml'
+      - '.github/workflows/satellite-check.yml'
+      - '.github/workflows/satellite-cd.dev.yml'
+      - 'docs/contracts/**'
+  push:
+    branches: [main]
+    paths:
+      - 'server/business-api/**'
+      - 'server/notification/**'
+      # 설정·필터 일치 테스트(test_config_contract)가 realtime 설정도 봄 (GROMO-2224)
+      - 'server/realtime/src/main/resources/**'
+      # 위성 계약은 auth·user·group·internal 등 Data 경계 전반과 테스트에 의존한다.
+      - 'server/data-api/**'
+      # data-api 의 문서 변경은 위성 계약을 바꾸지 않는다 (GROMO-1925).
+      - '!server/data-api/docs/**'
+      - '!server/data-api/**/*.md'
+      - 'docs/architecture/**'
+      - 'server/scripts/docker-compose.satellites*.yml'
+      - 'server/scripts/docker-compose.business.yml'
+      - 'server/scripts/docker-compose.kafka.yml'
+      - 'server/scripts/prepare-satellite-deploy.py'
+      - 'server/scripts/nginx-satellites*.example'
+      - 'server/scripts/nginx-dev-2.0-routes.conf.example'
+      - 'server/scripts/provision-notification-db.*'
+      - '.github/scripts/**'
+      - '.github/actions/ci-jar/**'
+      - '.github/actions/gar-login/**'
+      - '.github/workflows/satellite-ci.*.yml'
+      - '.github/workflows/satellite-check.yml'
+      - '.github/workflows/satellite-cd.dev.yml'
+      - 'docs/contracts/**'
+
+concurrency:
+  group: satellite-ci-dev-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # 배포 전 SM 점검 (GROMO-2224). main push 에서만 SM 을 읽고 PR 에선 아무것도 안 함 — 공개 레포라 PR 에 AWS 자격 금지.
+  # 필수 키가 빠졌으면 이미지 빌드 전에 멈춤. legacy + 전 서비스를 한 번에 봄.
+  secrets-check:
+    name: dev 시크릿 사전 점검
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: main push 아님 — 생략
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        run: echo "main push 아님 — SM 점검 생략" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: AWS 자격증명 (OIDC)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+          aws-region: ap-northeast-2
+          role-session-name: gromo-dev-secrets-check-${{ github.run_id }}
+          mask-aws-account-id: true
+      - name: 필수 키·금지 키·토큰 규칙 점검
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: .github/scripts/dev-env.sh check
+
+  checks:
+    name: 검사
+    uses: ./.github/workflows/satellite-check.yml
+    permissions:
+      contents: read
+
+  images:
+    name: ${{ matrix.service }} 이미지
+    needs: [checks, secrets-check]
+    # GROMO-1918: 이미지를 «발행»하는 push 에서만 self-hosted 다. GAR 인증이 GCE 메타데이터
+    # 토큰을 쓰기 때문이고, 그건 GitHub-hosted 에 없다. PR 은 push 하지 않으므로 그 인증이
+    # 필요 없다 — 레지스트리 캐시만 GAR 를 쓰고 있었는데 PR 경로는 type=gha 로 바꿨다.
+    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "ci", "spot"]') || fromJSON('["ubuntu-latest"]') }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [business-api, notification]
+    env:
+      GAR_HOST: asia-northeast3-docker.pkg.dev
+      IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/${{ matrix.service }}/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+        if: fromJSON(needs.checks.outputs.services)[matrix.service]
+      - uses: ./.github/actions/ci-jar
+        if: fromJSON(needs.checks.outputs.services)[matrix.service]
+        with:
+          service: ${{ matrix.service }}
+          operation: verify
+      - uses: docker/setup-buildx-action@v3
+        if: fromJSON(needs.checks.outputs.services)[matrix.service]
+      # push 에서만 돈다 — PR 은 GAR 캐시 대신 type=gha 를 쓰므로 이 토큰이 필요 없고,
+      # metadata.google.internal 은 GitHub-hosted 에서 응답하지 않는다 (GROMO-1918).
+      - name: 이미지 캐시용 GAR 인증
+        if: fromJSON(needs.checks.outputs.services)[matrix.service] && github.event_name == 'push'
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
+      - name: 이미지 검증 · 환경별 digest 발행
+        if: fromJSON(needs.checks.outputs.services)[matrix.service]
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: server/${{ matrix.service }}
+          build-args: JAR_SOURCE=prebuilt
+          # push 는 GAR 레지스트리 캐시(교차 실행 공유), PR 은 GitHub Actions 캐시.
+          cache-from: ${{ github.event_name == 'push'
+            && format('type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/{0}:cache-{1}', matrix.service, (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64')
+            || format('type=gha,scope=satellite-{0}-{1}', matrix.service, (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64') }}
+          cache-to: ${{ github.event_name == 'push'
+            && format('type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/{0}:cache-{1},mode=max', matrix.service, (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64')
+            || format('type=gha,scope=satellite-{0}-{1},mode=max', matrix.service, (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64') }}
+          platforms: ${{ (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'linux/arm64' || 'linux/amd64' }}
+          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') }}
+          provenance: false
+          tags: ${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      # 이 CI는 이미지까지 발행한다. 호스트의 gate·데이터 이관을 건너뛰어 서비스를 활성화하지 않는다.
+      - name: 릴리즈 입력 digest 기록
+        if: fromJSON(needs.checks.outputs.services)[matrix.service] && (github.event_name == 'push')
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          printf '%s@%s\n' "$IMAGE_REPOSITORY" "$IMAGE_DIGEST" > '${{ matrix.service }}-image.txt'
+      - uses: actions/upload-artifact@v4
+        if: fromJSON(needs.checks.outputs.services)[matrix.service] && (github.event_name == 'push')
+        with:
+          name: ${{ matrix.service }}-image
+          path: ${{ matrix.service }}-image.txt
+          retention-days: 30
+      - name: 이미지 생략 기록
+        if: ${{ !fromJSON(needs.checks.outputs.services)[matrix.service] }}
+        run: echo '서비스 소스·빌드 입력 변경 없음. 이미지를 다시 만들지 않는다.' >> "$GITHUB_STEP_SUMMARY"

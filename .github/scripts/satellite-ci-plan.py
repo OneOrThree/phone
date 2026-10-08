@@ -13,7 +13,9 @@ SERVICES = ('business-api', 'notification')
 # 안 가르면 워크플로 한 줄만 고쳐도 business-api·notification 전체 빌드가 켜져
 # 러너 슬롯을 오래 물고, 관계없는 PR 까지 줄줄이 대기한다 (GROMO-1918).
 BUILD_AFFECTING = (
-    '.github/workflows/satellite-ci.yml',
+    '.github/workflows/satellite-check.yml',
+    '.github/workflows/satellite-ci.dev.yml',
+    '.github/workflows/satellite-ci.prod.yml',
     '.github/scripts/satellite-ci-plan.py',
     '.github/scripts/check-migration-checksum.py',
     # JAR 재사용 팩·검증 로직 — build 와 images 가 이 스크립트로 아티팩트를 주고받는다.

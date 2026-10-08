@@ -47,14 +47,14 @@ class SatelliteCiPlanTest(unittest.TestCase):
 
     def test_위성과_무관한_github_변경은_켜지_않는다(self):
         """이 줄이 GROMO-1918 의 핵심이다 — 여기가 True 로 돌아가면 그때 그 사고가 재발한다."""
-        self.assert_plan(['.github/workflows/dev-ci.yml'], False, False)
+        self.assert_plan(['.github/workflows/data-api-ci.dev.yml'], False, False)
         self.assert_plan(['.github/workflows/app-lint.yml'], False, False)
         self.assert_plan(['.github/scripts/check-satellite-contracts.py'], False, False)
 
     # ── 그래도 전체를 켜야 하는 것 ───────────────────────────────────────────
     def test_빌드_방식을_바꾸는_입력은_전체를_켠다(self):
         """빌드가 바뀌었으면 그 빌드가 실제로 도는지 증명해야 한다."""
-        self.assert_plan(['.github/workflows/satellite-ci.yml'], True, True)
+        self.assert_plan(['.github/workflows/satellite-check.yml'], True, True)
         self.assert_plan(['.github/scripts/satellite-ci-plan.py'], True, True)
         self.assert_plan(['.github/scripts/check-migration-checksum.py'], True, True)
         self.assert_plan(['.github/actions/ci-jar/action.yml'], True, True)
