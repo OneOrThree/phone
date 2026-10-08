@@ -6362,6 +6362,7 @@ export function RedesignScreens({ e }: any) {
     const pref: LocalePref = e.localePref;
     // 탭 즉시 저장·적용 — 저장 버튼은 없다
     const pick = async (next: LocalePref) => {
+      if (next === pref) return; // 같은 값이면 저장·재렌더·토스트 전부 생략
       try {
         await AsyncStorage.setItem(LOCALE_KEY, next);
       } catch {

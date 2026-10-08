@@ -1053,6 +1053,9 @@ export function SheetRow({
     backgroundColor:
       effectiveTone === 'on' ? C.soft : effectiveTone === 'butter' ? '#FFF3CF' : undefined,
   };
+  // right 가 없고 selected면 체크 표식 — 색만으로 상태를 전달하지 않는다(DESIGN.md 11장)
+  const rightText = right ?? (selected ? '✓' : undefined);
+  const rightColor = right !== undefined ? C.muted : C.ink;
   const content = (
     <>
       {lead}
@@ -1064,14 +1067,19 @@ export function SheetRow({
           </Txt>
         )}
       </View>
-      {typeof right === 'string' ? (
+      {typeof rightText === 'string' ? (
         <Txt
-          style={{ fontSize: 15, lineHeight: 21.75, color: C.muted, fontVariant: ['tabular-nums'] }}
+          style={{
+            fontSize: 15,
+            lineHeight: 21.75,
+            color: rightColor,
+            fontVariant: ['tabular-nums'],
+          }}
         >
-          {right}
+          {rightText}
         </Txt>
       ) : (
-        right
+        rightText
       )}
       {tail}
       {chevron && <SheetChev />}
@@ -1081,7 +1089,7 @@ export function SheetRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label ?? (sub ? `${title}, ${sub}` : title)}
-      accessibilityState={{ disabled, selected }}
+      accessibilityState={{ disabled, ...(selected !== undefined && { selected }) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [style, pressed && { opacity: 0.7 }]}

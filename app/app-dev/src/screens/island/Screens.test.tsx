@@ -1582,6 +1582,37 @@ test('AsyncStorage 저장이 실패하면 적용하지 않고 저장 실패 문�
   assert.equal(exposed.setLocalePref.mock.calls.length, 0);
 });
 
+test('현재 pref와 같은 값을 다시 탭하면 저장·적용·알림을 모두 생략한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="language" full localePref="ko" expose={(value: any) => (exposed = value)} />,
+  );
+  const setItem = AsyncStorage.setItem as jest.Mock;
+  const priorSetItemCalls = setItem.mock.calls.length;
+
+  await fireEvent.press(s.getByLabelText('한국어'));
+
+  assert.equal(setItem.mock.calls.length, priorSetItemCalls);
+  assert.equal(exposed.setLocalePref.mock.calls.length, 0);
+  assert.equal(notifyMock.mock.calls.length, 0);
+});
+
+test('기기 언어가 ko일 때 ko에서 기기 언어 따름으로 바꾸면 저장·적용은 되지만 적용 언어가 같아 알림은 없다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="language" full localePref="ko" expose={(value: any) => (exposed = value)} />,
+  );
+  const setItem = AsyncStorage.setItem as jest.Mock;
+
+  await fireEvent.press(s.getByLabelText('기기 언어 따름, 지금은 한국어'));
+
+  await waitFor(() => assert.equal(exposed.setLocalePref.mock.calls.length, 1));
+  assert.equal(setItem.mock.calls.at(-1)?.[0], 'gromo.locale');
+  assert.equal(setItem.mock.calls.at(-1)?.[1], 'system');
+  assert.equal(exposed.setLocalePref.mock.calls[0][0], 'system');
+  assert.equal(notifyMock.mock.calls.length, 0);
+});
+
 test('완공된 상점 첫 진입에서 강아지 이야기를 한 번만 보여준다', async () => {
   let exposed: any;
   const s = await render(<Harness route="shop" full expose={(value: any) => (exposed = value)} />);
