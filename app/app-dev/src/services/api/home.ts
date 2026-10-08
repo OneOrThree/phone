@@ -118,6 +118,23 @@ export type HomeScreen = {
   buildings: BuildingId[];
   /** 현재 섬 주민 첫 페이지 — `GET /islands/{islandId}/members` 와 같은 DTO(GROMO-2151). */
   members: MembersPage;
+  /** 타일 섬 배치(서버 2232). 구서버는 안 보낸다 — 없으면 앱 내장 map.json 배치를 그대로 쓴다. */
+  mapId?: string;
+  mapVersion?: number;
+  layoutRevision?: number;
+  layout?: IslandLayout;
+};
+
+/** 건물 배치 — cell 은 통행 셀(100×100) 좌표, 발밑 앵커는 셀 중심이다. */
+export type IslandLayout = {
+  schemaVersion: number;
+  mapId: string;
+  buildings: {
+    id: BuildingId;
+    cell: { x: number; y: number };
+    anchor?: string;
+    footprint?: unknown;
+  }[];
 };
 
 export type ConstructionItem = {

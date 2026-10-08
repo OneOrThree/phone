@@ -45,6 +45,8 @@ import grids from '@/constants/world-v2.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
+import { TileTerrainCanvas } from './TileTerrainCanvas';
+import { applyLayout } from '@/utils/island-layout';
 import { villageAssets } from '@/constants/village-assets';
 import {
   villageScene,
@@ -85,6 +87,9 @@ import { FireMotion } from '@/components/village-motion/FireMotion';
 import { RaftWaterMotion } from '@/components/village-motion/RaftWaterMotion';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
+// 타일 섬 지형(GROMO-2230): 켜면 새 마을(layered)로 시작하고 지형을 Skia Atlas 로 그린다.
+// 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
+const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
   for (let idx = 1; idx < pts.length; idx++) {
@@ -386,6 +391,8 @@ export function WorldMap({
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
+  // 타일 섬 지형 캔버스는 마을 + 플래그일 때만, 낚시 화면은 기존 Image 그대로.
+  const tileTerrain = village && !fishing && TILE_ISLAND;
   const ownDayNight = useVillageDayNight();
   const dayNight = dayNightProp ?? ownDayNight;
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
@@ -554,6 +561,9 @@ export function WorldMap({
           <Rect width="100%" height="100%" fill="url(#home-ocean)" />
         </Svg>
       )}
+      {tileTerrain && (
+        <TileTerrainCanvas width={L.width} height={L.height} camera={camera} base={base} />
+      )}
       <Pressable
         accessible={false}
         style={{
@@ -575,17 +585,20 @@ export function WorldMap({
           if (onLand(grid, p)) current.current.onSpot?.(p);
         }}
       >
-        <Image
-          source={
-            fishing
-              ? require('@/assets/reference-v2/fishing-island.png')
-              : village
-                ? villageAssets['terrain.png']
-                : assets[`backgrounds/island/base/${dayNight}.png`]
-          }
-          style={{ width: '100%', height: '100%' }}
-          resizeMode="stretch"
-        />
+        {/* 타일 섬 플래그면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
+        {!tileTerrain && (
+          <Image
+            source={
+              fishing
+                ? require('@/assets/reference-v2/fishing-island.png')
+                : village
+                  ? villageAssets['terrain.png']
+                  : assets[`backgrounds/island/base/${dayNight}.png`]
+            }
+            style={{ width: '100%', height: '100%' }}
+            resizeMode="stretch"
+          />
+        )}
       </Pressable>
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -895,17 +908,20 @@ function FinalIslandScene({
   const activeBuilding =
     trackedConstruction && progress < 1 ? trackedConstruction.building : undefined;
   const sceneBuilding = trackedConstruction?.building;
-  const scene = useMemo(
-    () =>
-      layeredPreview
-        ? villageScene(
-            sceneBuilding && !i.buildings.includes(sceneBuilding)
-              ? [...i.buildings, sceneBuilding]
-              : i.buildings,
-          )
-        : undefined,
-    [layeredPreview, i.buildings, sceneBuilding],
-  );
+  const layout = facts?.home?.layout;
+  const scene = useMemo(() => {
+    if (!layeredPreview) return undefined;
+    const built = villageScene(
+      sceneBuilding && !i.buildings.includes(sceneBuilding)
+        ? [...i.buildings, sceneBuilding]
+        : i.buildings,
+    );
+    // ponytail: 서버 배치는 그리는 위치만 바꾼다. 통행 셀(grid)·공사 위치는 map.json 기준 그대로 —
+    // 서버 배치가 실제로 달라지는 시점(2232 머지 뒤)에 villageScene 이 objects 를 받아 다시 계산하게 한다.
+    // 플래그 off 에서는 서버 배치를 무시해 map.json 그대로 그린다.
+    const objects = TILE_ISLAND ? applyLayout(built.objects, layout) : built.objects;
+    return objects === built.objects ? built : { ...built, objects };
+  }, [layeredPreview, i.buildings, sceneBuilding, layout]);
   const grid = scene?.grid ?? grids.home;
   // WorldMap 이 부모와 같은 낮·밤 값을 쓰도록 한 번만 계산해 내려준다.
   const dayNight = useVillageDayNight();
@@ -1760,11 +1776,12 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
   const L = useAppLayout();
   const [layered, setLayered] = useState(
     () =>
-      CAN_PREVIEW_VILLAGE &&
-      ((Platform.OS === 'web' &&
-        typeof window !== 'undefined' &&
-        new URLSearchParams(window.location.search).get('village') === 'layered') ||
-        process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
+      TILE_ISLAND ||
+      (CAN_PREVIEW_VILLAGE &&
+        ((Platform.OS === 'web' &&
+          typeof window !== 'undefined' &&
+          new URLSearchParams(window.location.search).get('village') === 'layered') ||
+          process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1')),
   );
   const demoMotionStates =
     Platform.OS === 'web' &&
