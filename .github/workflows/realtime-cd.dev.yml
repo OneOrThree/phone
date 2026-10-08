@@ -81,6 +81,8 @@ jobs:
           IMAGE_REVISION: ${{ inputs.image_revision }}
         run: |
           set -euo pipefail
+          # 이 시각 이후 시작한 컨테이너만 «이번에 재생성됨» 으로 보고 기동 시간을 잼 (wait-healthy.sh)
+          echo "DEPLOY_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
             -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml)
           "${compose[@]}" pull realtime
