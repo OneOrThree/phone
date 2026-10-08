@@ -61,6 +61,12 @@ describe('legacyLayoutOffsets', () => {
     })),
   });
 
+  it('오프셋 기준(placement.json canvas)과 그리는 기준(world-v2 home 격자)이 같은 px 크기다', () => {
+    const placement = require('@/assets/backgrounds/island/placement.json');
+    const grids = require('@/constants/world-v2.json');
+    expect(placement.canvas).toEqual([grids.home.w, grids.home.h]);
+  });
+
   it('기본 템플릿이면 모든 건물 이동량이 정확히 0', () => {
     const out = legacyLayoutOffsets(layoutOf(defaults));
     expect(Object.keys(out)).toHaveLength(7);

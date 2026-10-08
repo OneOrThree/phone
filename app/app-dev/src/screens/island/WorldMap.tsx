@@ -102,6 +102,9 @@ import { VillageNotificationBadge } from '@/components/village-motion/VillageNot
 // 새 마을 미리보기(layered)는 플래그와 무관하게 자기 지형 이미지·villagePath 를 그대로 쓴다.
 // 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
 const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
+// 타일 섬 = 플래그 + 기존 마을 홈 섬(새 마을 미리보기·낚시가 아님). 지형(WorldMap)과 걷기(FinalIslandScene)가
+// 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
+const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -436,7 +439,7 @@ export function WorldMap({
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
   // 타일 섬 지형 캔버스는 기존 마을 홈 섬 + 플래그일 때만. 낚시·새 마을 미리보기는 기존 Image 그대로.
-  const tileTerrain = TILE_ISLAND && !village && !fishing;
+  const tileTerrain = isTileIsland(village, fishing);
   const ownDayNight = useVillageDayNight();
   const dayNight = dayNightProp ?? ownDayNight;
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
@@ -1004,18 +1007,14 @@ function FinalIslandScene({
   const buildingsKey = i.buildings.join(',');
   const scene = useMemo(() => {
     if (!layeredPreview) return undefined;
-    const built = villageScene(
-      sceneBuilding && !i.buildings.includes(sceneBuilding)
-        ? [...i.buildings, sceneBuilding]
-        : i.buildings,
-    );
+    const built = villageScene(navBuildings);
     // ponytail: 서버 배치는 그리는 위치만 바꾼다. 통행 셀(grid)·공사 위치는 map.json 기준 그대로 —
     // 서버 배치는 이 브랜치에 들어왔고(2232), 통행·건설 위치를 layout 으로 옮기는 것은 후속에 villageScene 이 objects 를 받아 다시 계산하게 한다.
     // 플래그 off 에서는 서버 배치를 무시해 map.json 그대로 그린다.
     // 타일 섬(기존 마을)은 여기가 아니라 아래 buildingOffsets(건물별 평행이동)로 layout 을 적용한다.
     const objects = TILE_ISLAND ? applyLayout(built.objects, layout, mapAssets) : built.objects;
     return objects === built.objects ? built : { ...built, objects };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- i.buildings 는 buildingsKey 로 대신 묶는다
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- navBuildings(렌더마다 새 배열)는 buildingsKey·sceneBuilding 으로 대신 묶는다
   }, [layeredPreview, buildingsKey, sceneBuilding, layout, mapAssets]);
   const grid = scene?.grid ?? grids.home;
   // 타일 섬(기존 마을)은 건물 레이어가 전체 캔버스 이미지라 자르지 않고 서버 배치만큼 통째로 평행이동한다 —
@@ -1238,7 +1237,7 @@ function FinalIslandScene({
     token = useRef(0),
     location = useRef(pos);
   // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
-  const tileNav = TILE_ISLAND && !scene;
+  const tileNav = isTileIsland(scene);
   const [navWalk, setNavWalk] = useState<NavWalk | null>(null);
   const walk = (target: Point, done?: () => void) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
@@ -1405,6 +1404,8 @@ function FinalIslandScene({
                   ? { right: 0, top: -30, alignItems: 'flex-end' as const }
                   : { left: 0, top: -30, alignItems: 'flex-start' as const };
               }
+              // 이름표 컨테이너(hitbox)는 이미 shift 만큼 옮겨져 있다. box·anchorY 상수에도 같은 shift 를 더해야
+              // 컨테이너 기준 상대 위치가 그대로다(더하지 않으면 -shift 만큼 틀어진다).
               const shift = buildingOffsets[d.building] ?? NO_OFFSET;
               const box = legacyBuildingLabelBox[d.building];
               const anchorY = legacyBuildingLabelAnchorY[d.building] + shift.y;
