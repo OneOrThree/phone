@@ -344,8 +344,10 @@ export type State = {
 };
 export const colors: Color[] = ['black', 'ginger', 'cream', 'gray', 'white', 'calico'];
 // colorNames 배열은 게터로 못 만든다 — 호출 시점에 해석하는 함수로 둔다(GROMO-2238)
+// 범위 밖 index 는 원래 colorNames[i] 처럼 undefined 였다 — "color.undefined" 키 문자열이
+// 그대로 노출되지 않게 빈 문자열로 막는다.
 export function colorName(index: number): string {
-  return t(`color.${colors[index]}`);
+  return colors[index] ? t(`color.${colors[index]}`) : '';
 }
 // 프로퍼티 게터 — 호출부는 색인·점 접근 그대로 쓰고, 값은 호출 시점 언어로 해석된다(GROMO-2238)
 export const buildingNames: Record<Building, string> = {
