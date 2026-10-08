@@ -60,6 +60,14 @@ jobs:
           # Deployments 에 실제 배포한 서버 이름이 보이도록 환경 이름에 씀
           label=$(jq -r '[("business-api", "notification") as $k | select(.[$k] == true) | $k] | join("+")' <<< "$plan")
           echo "label=$label" >> "$GITHUB_OUTPUT"
+          # ops-redeploy 가 이 실행이 무엇을 배포했는지 알 수 있게 기록. workflow_run 실행의 headSha 는
+          # 배포한 커밋이 아니라 이벤트 시점 main 최신이라 그걸로는 CI 를 못 찾음
+          jq -c --arg sha "${{ github.event.workflow_run.head_sha }}" '. + {head_sha: $sha}' <<< "$plan" > satellite-deploy-record.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: satellite-deploy-record
+          path: satellite-deploy-record.json
+          retention-days: 30
 
   deploy:
     needs: plan
@@ -187,9 +195,16 @@ jobs:
             # aclfile 은 기동 때만 읽힘. 캐시 전용(--save "")이라 잃는 건 캐시뿐.
             acl_dir=$(dirname "$REDIS_ACL_PERSISTENT")
             mkdir -p "$acl_dir" && chmod 700 "$acl_dir"  # 새 VM·정리된 VM 에선 폴더가 없음
+            backup="$RUNNER_TEMP/business-redis.acl.prev"
+            if [ -f "$REDIS_ACL_PERSISTENT" ]; then cp -p "$REDIS_ACL_PERSISTENT" "$backup"; fi
             install -m 644 "$BUSINESS_REDIS_ACL_NEW" "$REDIS_ACL_PERSISTENT"
             echo "business Redis ACL 변경 → business-redis 재생성"
-            "${compose[@]}" up -d --no-deps --force-recreate business-redis
+            if ! "${compose[@]}" up -d --no-deps --force-recreate business-redis; then
+              # 재생성 실패 → 기준 파일을 되돌려 다음 실행이 다시 «변경» 으로 판정하게 함
+              if [ -f "$backup" ]; then install -m 644 "$backup" "$REDIS_ACL_PERSISTENT"; else rm -f "$REDIS_ACL_PERSISTENT"; fi
+              echo "::error::business-redis 재생성 실패 — ACL 기준 파일을 이전 상태로 되돌림"
+              exit 1
+            fi
           fi
           "${compose[@]}" up -d "${services[@]}"
           "${compose[@]}" ps "${services[@]}"

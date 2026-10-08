@@ -46,8 +46,15 @@ jobs:
           esac
 
           deployed_in_plan() {
-            # 위성 배포는 실행마다 대상이 다름 → 그 실행을 만든 CI 의 배포 계획에 이 서비스가 있었는지 확인
-            local sha=$1 ci_run dir
+            # 위성 배포는 실행마다 대상이 다름 → 그 CD 실행이 이 서비스를 배포했는지 확인
+            local run=$1 sha=$2 ci_run dir
+            dir=$(mktemp -d)
+            # 새 CD 는 자기 실행에 배포 기록을 남김. workflow_run 실행의 headSha 는 배포 커밋이 아니라서 이게 정확함
+            if gh run download "$run" --name satellite-deploy-record --dir "$dir" > /dev/null 2>&1; then
+              jq -e --arg s "$SERVICE" '.[$s] == true' "$dir/satellite-deploy-record.json" > /dev/null
+              return
+            fi
+            # 기록이 없는 옛 실행(GROMO-2224 이전)만 커밋으로 CI 를 찾음 — headSha 가 어긋나면 못 찾고 넘어감
             ci_run=""
             for ci in satellite-ci.dev.yml satellite-ci.yml; do
               ci_run=$(gh run list --all --workflow "$ci" --branch main --commit "$sha" --status success \
@@ -55,7 +62,6 @@ jobs:
               [ -z "$ci_run" ] || break
             done
             [ -n "$ci_run" ] || return 1
-            dir=$(mktemp -d)
             gh run download "$ci_run" --name satellite-deploy-plan --dir "$dir" > /dev/null 2>&1 || return 1
             jq -e --arg s "$SERVICE" '.[$s] == true' "$dir/satellite-deploy-plan.json" > /dev/null
           }
@@ -70,7 +76,7 @@ jobs:
               job=$(gh run view "$run" --json jobs \
                 | jq -r --arg s "$job_suffix" '[.jobs[] | select(.conclusion == "success" and (.name | endswith($s)))][0].databaseId // empty')
               [ -n "$job" ] || continue
-              if [[ "$SERVICE" =~ ^(business-api|notification)$ ]] && ! deployed_in_plan "$sha"; then continue; fi
+              if [[ "$SERVICE" =~ ^(business-api|notification)$ ]] && ! deployed_in_plan "$run" "$sha"; then continue; fi
               echo "재실행: run $run · job $job · 커밋 ${sha:0:8} ($created)"
               gh run rerun "$run" --job "$job"
               {
