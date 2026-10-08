@@ -4,14 +4,21 @@ package com.oneorthree.phone.construction.service;
  * 섬 배치 기본 템플릿 — 행이 없는 섬의 첫 조회 때 이 값으로 {@code island_layouts} 를 만든다 (GROMO-2232).
  *
  * <p>출처: 앱 기존 마을 {@code app/app-dev/src/assets/backgrounds/island/placement.json}(1536×1024 px) 의
- * 시설 7개 {@code rect[x,y,w,h]} — 타일 섬은 기존 마을을 2배로 올려 자른 것이다. 서버는 앱 파일을 읽지 않는다 — 값만 복사했다.
+ * 시설 7개 {@code rect[x,y,w,h]}, GROMO-2243 시점 값 — 타일 섬은 기존 마을을 2배로 올려 자른 것이다.
+ * 서버는 앱 파일을 읽지 않는다 — 값만 복사했다.
  * <ul>
+ *   <li>id 대응(placement.json → 서버): town-hall→hall · noticeboard→board · gramophone→gram · library→library ·
+ *       mailbox→mail · observatory→tower · shop→shop.</li>
  *   <li>{@code cell} = 앵커 px 를 100×100 통행 셀로 — x·100/1536, y·100/1024 의 floor.
- *       앵커는 rect 의 아래 가운데(x+w/2, y+h). 예: 회관 앵커 (1070,265) → (69,25).</li>
- *   <li>{@code footprint} = rect 의 네 꼭짓점을 같은 변환으로 —
- *       최소 쪽은 floor, 최대 쪽은 ceil 이라 상자를 덮는다. 충돌 정밀화는 Movement 컴파일러 몫이다.</li>
+ *       앵커는 rect 의 아래 가운데(x+w/2, y+h). 예: 회관 rect (949,21,242,244) → 앵커 (1070,265) → (69,25).
+ *       셀 중심(+0.5)은 넣지 않는다 — 앱({@code legacyLayoutOffsets})이 서버 칸과 자기 기본 칸을 둘 다 셀 중심으로
+ *       바꿔 차이를 내므로, 여기서 +0.5 를 더하면 기본 배치의 이동량이 0 이 아니게 된다.</li>
+ *   <li>{@code footprint} = rect 의 네 꼭짓점을 같은 변환으로 — 최소 쪽은 floor, 최대 쪽은 ceil 이라 상자를 덮는다.
+ *       <b>시각 외곽 상자이지 충돌체가 아니다</b>. 충돌 정밀화는 Movement 컴파일러 몫이다.</li>
  * </ul>
  * 순서는 정책 C01 의 건물 7개 표시 순서다. 맵 원화가 바뀌면 이 상수와 placement.json 을 함께 고친다.
+ * 템플릿은 생성 시점 스냅샷이라 <b>이미 만들어진 {@code island_layouts} 행은 바뀌지 않는다</b> — 에픽 main 머지 전에는
+ * 행을 지워 다시 만들고, 그 뒤에는 데이터 마이그레이션으로 고친다(docs/prd/fishcat/island-movement/map-assets.md §6).
  */
 final class IslandLayoutTemplate {
 
