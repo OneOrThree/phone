@@ -244,8 +244,8 @@
     "buildAction": "Build",
     "returnToMyIsland": "Back to My Island",
     "quest": {
-      "focusCondition": "{{start}}–{{end}} · {{target}}min",
-      "phoneCondition": "Daily phone use · under {{target}}min",
+      "focusCondition": "{{start}}–{{end}} · {{target}} min",
+      "phoneCondition": "Daily phone use · under {{target}} min",
       "today": "Today's Quest",
       "claim": "Claim Reward",
       "tapToClaim": "Tap to view your reward",
