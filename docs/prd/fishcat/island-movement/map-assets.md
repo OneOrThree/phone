@@ -68,7 +68,7 @@ layoutRevision ─┘                                                           
 
 ## 6. `layoutRevision` — 지금과 다음
 
-- **지금(결정 2026-10-07, 조재영):** 서버에 배치 정본을 **바로** 만든다 — `island_layouts(island_id PK, layout_revision bigint, layout jsonb, updated_at)`. `layout` 은 `{ "schemaVersion": 1, "mapId": "home", "buildings": [ { "id": "hall", "cell": { "x": 71, "y": 31 }, "anchor": "bottom-center", "footprint": [ [x, y], ... ] } ] }` 처럼 **좌표를 JSON 으로 저장**한다. `cell`·`footprint` 는 모두 100×100 통행 셀 좌표(월드 단위 정수)이며 타일 격자(24×16)가 아니다. `mapVersion` 은 manifest 가 정본이라 layout 에 넣지 않고, `mapId` 는 참조일 뿐이다. `/screens/home` 에 `layoutRevision` 과 `layout` 을 노출하고, 완공·철거·이동이 `layout_revision` 을 올린다. 서버 변경이 앱보다 늦으면 그 사이에만 앱 로컬 카탈로그로 그린다(임시).
+- **지금(결정 2026-10-07, 조재영):** 서버에 배치 정본을 **바로** 만든다 — `island_layouts(island_id PK, layout_revision bigint, layout jsonb, updated_at)`. `layout` 은 `{ "schemaVersion": 1, "mapId": "home", "buildings": [ { "id": "hall", "cell": { "x": 71, "y": 31 }, "anchor": "bottom-center", "footprint": [ [x, y], ... ] } ] }` 처럼 **좌표를 JSON 으로 저장**한다. `cell`·`footprint` 는 모두 100×100 통행 셀 좌표(월드 단위 정수)이며 타일 격자(24×16)가 아니다. `schemaVersion` 진화 규칙은 §8 참조. `mapVersion` 은 manifest 가 정본이라 layout 에 넣지 않고, `mapId` 는 참조일 뿐이다. `/screens/home` 에 `layoutRevision` 과 `layout` 을 노출하고, 완공·철거·이동이 `layout_revision` 을 올린다. 서버 변경이 앱보다 늦으면 그 사이에만 앱 로컬 카탈로그로 그린다(임시).
 - **다음(섬 꾸미기 피처 4):** 같은 `island_layouts.layout` 을 방장이 편집하는 API(건물 이동·장식 배치)를 붙인다. `layoutRevision` 은 섬 단위 단조 정수이며, Movement 는 이 값으로 NavArtifact 를 컴파일한다.
 - 전파: Data 는 `island.updated` 에 `layoutRevision` 을 싣는다. realtime 이 앱 쪽 `events` 구독을 열기 전까지 앱은 홈 재진입·포그라운드 복귀·건설 카드 완료 콜백에서 `/screens/home` 을 다시 읽는다. 감소하는 revision 은 버리고, 공백은 전체 재조회로 수렴한다(PRD data-flow §3 과 같은 규칙).
 
@@ -95,4 +95,5 @@ layoutRevision ─┘                                                           
 - 업로드 주체·스크립트(§4). 10/9 는 인프라 없이 로컬에서 전부 동작하는 것이 목표라 Nginx location 은 그 뒤에 넣는다.
 - 타일셋 배율 사본(@2x 하나 vs 밀도별)과 WebP 채택 — 실기기 메모리·디코드 측정 뒤.
 - `island_layouts` 의 jsonb 스키마 버전 관리(`layout.schemaVersion`)와 섬 꾸미기(피처 4)에서의 편집 API.
+- **`layout.schemaVersion` 진화 규칙(제안):** 2 가 되는 시점에 읽기는 하위 호환(모르는 필드는 무시), 쓰기는 항상 최신 버전, 기존 행은 읽을 때 변환한다(lazy upgrade). Flyway 데이터 마이그레이션으로 jsonb 를 일괄 변환하지 않는다.
 - realtime `events` 토픽의 앱 개방 여부 — 열지 않으면 재조회가 정본 경로로 남는다.

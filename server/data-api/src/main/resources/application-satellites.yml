@@ -133,6 +133,8 @@ internal:
           - 'GET /internal/islands/*/construction-options'
           - 'PUT /internal/islands/*/construction-target'
           - 'POST /internal/islands/*/constructions'
+          # GROMO-2232 섬 배치 정본 — /screens/home 의 layout 조각.
+          - 'GET /internal/islands/*/layout'
           # GROMO-1895 섬 공동 경제 읽기 2종 — 공동 가계부·주민별 누적 획득. 둘 다 세그먼트 수를 정확히 적는다.
           - 'GET /internal/islands/*/resources/ledger'
           - 'GET /internal/islands/*/statistics/fish-earnings'
