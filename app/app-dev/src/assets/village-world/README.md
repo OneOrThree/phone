@@ -63,3 +63,6 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 - 배열은 `v1/tilemap.json` terrain 레이어 + `v1/tileset.json`(margin 1·spacing 2·31열·scale 2)에서 한 번 만든다. 목적지는 1x 이미지 좌표(64px 격자)라 기존 카메라 투영(`base·z`)을 Group transform 하나로 그대로 쓴다.
 - 소품·건물은 지금처럼 `VillageScenery` 가 그린다. 한 캔버스로 합치기·Reanimated 카메라는 실기기 프레임 측정(p95 ≤ 16.7ms) 뒤 다음 단계.
 - 서버 배치(`/screens/home` 의 `layout.buildings[].cell`)가 오면 `applyLayout` 이 건물 발밑을 셀 중심 px 로 덮어쓴다. 없으면 `map.json` 그대로.
+- 탭·이동(GROMO-2231, 같은 플래그): 탭(`locationX/scale`=이미지 px) → `imageToWorld`(0~100) → `v1/nav.json` 100×100 위 A*(`utils/nav-path.ts`, HLD §3) → 셀 중심을 `worldToImage` 로 px 로 되돌려 기존 `Animated.timing` 루프에 태운다.
+- 목적지가 다른 연결 영역·바다면 출발 영역 안 최근접 통행 셀(동률 index 작은 쪽)로 보정한다. 대각은 양옆 직교 셀이 모두 통행일 때만.
+- 속도는 world unit/초(가로·세로 동일, 화면 px 비율 보정 없음): 한 칸 `MS_PER_UNIT`=91ms. `homePositions` 저장은 px 그대로.
