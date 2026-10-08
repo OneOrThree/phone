@@ -178,6 +178,8 @@ jobs:
           IMAGE_VERSION: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+          # 이 시각 이후 시작한 컨테이너만 «이번에 재생성됨» 으로 보고 기동 시간을 잼 (wait-healthy.sh)
+          echo "DEPLOY_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
             -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml \
             -f server/scripts/docker-compose.satellites.dev.yml)
@@ -228,18 +230,21 @@ jobs:
           # 서비스마다 결과를 따로 남김 → 한쪽만 실패해도 다른 쪽 PR 라벨은 성공으로 (GROMO-2224)
           results="$RUNNER_TEMP/satellite-health.txt"
           : > "$results"
-          failed=0
-          for service in "${services[@]}"; do
+          # 서비스를 동시에 검사 — 차례로 하면 뒤 서비스는 앞을 기다리는 동안 이미 healthy 라 기동 시간이 틀어짐
+          check() {
+            local service=$1 container
             container=$("${compose[@]}" ps -q "$service" || true)
             # 컨테이너 상태로 판정. 종료·재시작·unhealthy 는 즉시 실패
             if [ -n "$container" ] && .github/scripts/wait-healthy.sh "$(docker inspect -f '{{.Name}}' "$container" | sed 's#^/##')" 900; then
               echo "$service success" >> "$results"
             else
               echo "$service failure" >> "$results"
-              failed=1
             fi
-          done
-          [ "$failed" = 0 ]
+          }
+          pids=()
+          for service in "${services[@]}"; do check "$service" & pids+=($!); done
+          for pid in "${pids[@]}"; do wait "$pid" || true; done
+          ! grep -q " failure$" "$results"
 
       - name: 배포 결과 PR 표시
         if: always() && (steps.health.outcome == 'success' || failure())

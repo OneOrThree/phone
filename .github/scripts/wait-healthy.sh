@@ -3,7 +3,9 @@
 # 사용: wait-healthy.sh <컨테이너> [최대초=900]
 # 고정 타이머 대신 Docker 상태로 판단:
 #   starting → 대기 · healthy → 통과 · unhealthy·exited·dead·재시작 → 즉시 실패.
-# 기동 시간은 실행 요약과 VM 고정 경로 기록에 남김. 직전 5회 평균의 1.5배 넘으면 경고.
+# 기동 시간 = 컨테이너 실제 시작(StartedAt) → healthy 확인. 실행 요약과 VM 고정 경로 기록에 남기고
+# 직전 5회 평균의 1.5배 넘으면 경고. DEPLOY_STARTED_AT(배포 단계 시작 epoch)보다 먼저 떠 있던 컨테이너는
+# 이번에 재생성되지 않은 것(설정 변화 없음) → 기록하지 않음.
 set -euo pipefail
 
 container=${1:?컨테이너 이름 필요}
@@ -52,7 +54,16 @@ while :; do
   sleep 5
 done
 
-echo "$container healthy (${elapsed}s)"
+# 대기 시간이 아니라 컨테이너가 실제로 뜬 시각부터 잼 — 앞 서버를 기다리는 사이 이미 떠 있던 경우도 정확
+container_started=$(date -d "$(docker inspect -f '{{.State.StartedAt}}' "$container")" +%s 2>/dev/null || echo 0)
+if (( container_started > 0 )); then startup=$(( $(date +%s) - container_started )); else startup=$elapsed; fi
+if [ -n "${DEPLOY_STARTED_AT:-}" ] && (( container_started > 0 && container_started < DEPLOY_STARTED_AT )); then
+  echo "$container healthy — 이번 배포에서 재생성 안 됨(설정·이미지 변화 없음), 기동 시간 기록 안 함"
+  echo "- \`$container\` 재생성 없음 (변화 없음)" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  exit 0
+fi
+elapsed=$startup
+echo "$container healthy (기동 ${elapsed}s)"
 note=""
 if mkdir -p "$history_dir" 2>/dev/null && [ -w "$history_dir" ]; then
   log="$history_dir/$container.log"
