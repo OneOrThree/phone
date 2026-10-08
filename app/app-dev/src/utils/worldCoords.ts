@@ -26,8 +26,16 @@ export const worldToImage = (p: WorldPoint, s: ImageSize): ImagePoint => ({
 });
 // NaN·±Infinity 는 0 으로 보내 「차단 셀」로 조용히 흐르지 않게 한다(입력 계약: 유한값).
 const cell = (v: number) => Math.max(0, Math.min(WORLD_SIZE - 1, Math.floor(finite(v))));
+/**
+ * 내부 nav 인덱싱용 — 범위 밖은 경계 셀로 clamp 한다(정확히 100 은 마지막 셀 99).
+ * 호출자가 먼저 `isInsideWorld` 로 범위 밖 탭을 걸러야 한다.
+ */
 export const worldToCell = (p: WorldPoint): CellIndex => ({ cx: cell(p.x), cy: cell(p.y) });
 export const cellCenterToWorld = (c: CellIndex): WorldPoint => ({ x: c.cx + 0.5, y: c.cy + 0.5 });
-const wire = (v: number) => Math.max(0, Math.min(WORLD_SIZE * 100, Math.round(finite(v) * 100)));
-export const worldToWire = (p: WorldPoint): WirePoint => ({ x: wire(p.x), y: wire(p.y) });
+// 좌표 계약: 월드 범위 [0,100]² 의 유한값만 유효하다(범위 밖 탭은 앱이 무시, 서버가 거부).
+const inRange = (v: number) => Number.isFinite(v) && v >= 0 && v <= WORLD_SIZE;
+export const isInsideWorld = (p: WorldPoint): boolean => inRange(p.x) && inRange(p.y);
+/** 서버로 나가는 와이어 변환. 범위 밖·비유한값이면 clamp 하지 않고 null. */
+export const worldToWire = (p: WorldPoint): WirePoint | null =>
+  isInsideWorld(p) ? { x: Math.round(p.x * 100), y: Math.round(p.y * 100) } : null;
 export const wireToWorld = (p: WirePoint): WorldPoint => ({ x: p.x / 100, y: p.y / 100 });

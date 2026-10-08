@@ -28,6 +28,18 @@ function walkableCellsIn(poly: number[][]) {
 }
 
 describe('v1 nav fixture', () => {
+  it('objects.json 이 오브젝트별 w·h·asset 을 원본 map.json 과 같게 보존한다(tree 9 vs 12)', () => {
+    const byId = (list: { id: number }[], id: number) => list.find((o) => o.id === id) as never;
+    for (const id of [9, 12]) {
+      const c = byId(catalog.objects, id) as { w: number; h: number; asset: string };
+      const m = byId(map.objects, id) as { w: number; h: number; asset: string };
+      expect([c.w, c.h, c.asset]).toEqual([m.w, m.h, m.asset]);
+    }
+    expect((byId(catalog.objects, 9) as { w: number }).w).not.toBe(
+      (byId(catalog.objects, 12) as { w: number }).w,
+    );
+  });
+
   it('스키마 모양', () => {
     expect(home).toMatchObject({
       mapId: 'home',
