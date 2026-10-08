@@ -109,6 +109,7 @@
     "fallbackTermsAgree": "I agree to the Terms of Service and Privacy Policy.",
     "guestStart": "Start as a guest",
     "guestOpening": "Opening your guest account…",
+    "guestHint": "You can start with a guest account first.",
     "fallbackStart": "Start GROMO",
     "heroTitle": "Focus a little at a time,\nand grow together.",
     "heroSubtitle": "A focus habit that starts on your little raft.",
@@ -204,6 +205,103 @@
     "startWithCat": "Start with My Cat",
     "furColorLaterFull": "You can change the fur color later in My Info",
     "whichCat": "Which cat should we start with?"
+  },
+  "onboarding": {
+    "back": "Back",
+    "spotlightSkip": "Stop Showing This Guide",
+    "enterHome": "Go to My Island",
+    "joinRequest": "Join Request",
+    "approvalBadge": "Approval Required",
+    "instantJoinBadge": "Join Instantly",
+    "islandFull": "This island is full",
+    "kickedCannotRejoin": "You can't rejoin an island you were removed from.",
+    "residents": "{{count}}/{{max}} residents",
+    "residentsWithAverage": "{{count}}/{{max}} residents · avg focus {{average}}",
+    "visitResidents": "Residents: {{names}}",
+    "residentFallbackName": "Resident",
+    "joinedCard": {
+      "title": "You've Joined!",
+      "sub": "You're now a resident of {{island}}."
+    },
+    "chooseIsland": {
+      "title": "Choose Your First Island",
+      "firstVoyage": "Set sail on your first voyage",
+      "whereStart": "Where should we start?",
+      "createAlone": {
+        "title": "Create an island and start alone",
+        "sub": "Open a new island under your name"
+      },
+      "joinExisting": {
+        "title": "Join an existing island",
+        "sub": "Find a public island with the telescope"
+      },
+      "bootErrorTitle": "Couldn't load island info",
+      "pendingResume": "Your join request for {{island}} is in progress",
+      "pendingIslandFallback": "the island you applied to",
+      "membershipConfirmedTitle": "Membership Confirmed",
+      "membershipConfirmedSub": "The server confirmed your membership in \"{{island}}\".",
+      "alreadyInvited": "I already have an island invite!",
+      "inviteModal": {
+        "title": "Enter Invite Code",
+        "label": "Invite code",
+        "hint": "Once confirmed, you'll join that island right away, or send the host a join request.",
+        "joinThisIsland": "Join This Island"
+      }
+    },
+    "createIsland": {
+      "capacityLabel": "Capacity · up to {{max}}",
+      "capacityA11y": "Capacity",
+      "capacityUnit": { "one": "{{count}} resident", "other": "{{count}} residents" },
+      "approvalAfterJoin": "Approval to Join",
+      "approvalAfterJoinSub": "Residents join only after the host approves",
+      "title": "Create a New Island",
+      "submit": "Create Island",
+      "capacityRangeError": "Capacity must be between {{min}} and {{max}}.",
+      "doneTitle": "Island Created!",
+      "doneSub": "\"{{island}}\" is now your island.",
+      "nameLabel": "Island Name",
+      "introLabel": "Island Description"
+    },
+    "joinIsland": {
+      "title": "Find an Island",
+      "cancelRequest": "Cancel Join Request",
+      "viewOtherIslands": "View Other Islands",
+      "findAnotherIsland": "Find Another Island",
+      "joinAction": "Join",
+      "joinNamed": "Join {{island}}",
+      "createNewIfNotFound": "Can't find it? Create a new island",
+      "requestRejected": "Your request was declined",
+      "requestCancelled": "Your request was cancelled",
+      "tryAnotherIsland": "Try looking for another island.",
+      "thatIslandFallback": "that island",
+      "reload": "Reload",
+      "viewIslandInfoA11y": "View {{island}} info",
+      "nextIsland": "Next Island",
+      "previousIsland": "Previous Island",
+      "searchingPublicIslands": "Looking for public islands…",
+      "noPublicIslands": "There are no public islands to join right now.",
+      "pendingWaitTitle": "Join Request Pending",
+      "pendingWaitSubNamed": "We'll let you know once the host of \"{{island}}\" responds",
+      "pendingWaitSubGeneric": "We'll let you know once the host responds"
+    },
+    "guide": {
+      "line1": "Hey! You're a new face.\nI'm Mongdol. I've lived on this island for a long time.",
+      "line2": "This used to be a lively island with lots of visitors.\nBut at some point everyone stopped coming, and now it's an island nobody visits anymore.",
+      "line3": "With you here, I think we can bring this island back to life.\nWant to help me revive it together?",
+      "line4": "Great, let's start with the first step to revive the island.\nHere, the time you spend focusing becomes the power that grows the island.\nYou'll quickly get the hang of it once you try it yourself.",
+      "skip": "Skip",
+      "next": "Next",
+      "last": "Let's do it together"
+    }
+  },
+  "app": {
+    "finishFocusTitle": "Finish focusing?",
+    "finishFocusBody": "This will save your focus session.",
+    "linkUnsupported": "This invite or group link isn't supported in this version, so we took you home.",
+    "storageRetrying": "A device storage issue is delaying your save. We'll keep retrying automatically.",
+    "memberConverted": "You're now a member.",
+    "restoreFailed": "Couldn't load your saved data.",
+    "storageCheck": "Please check your device storage."
   },
   "building": {
     "hall": "Town Hall",
@@ -310,6 +408,116 @@
       "raft": "Raft",
       "viewFishingIsland": "View the Fishing Island",
       "mailboxNewLetter": "You have a new letter from a friend."
+    }
+  },
+  "focusFlow": {
+    "common": {
+      "ourIsland": "Our Island",
+      "fishingIsland": "Fishing Island",
+      "myLittleBoat": "My Little Raft",
+      "me": "Me",
+      "resident": "Resident",
+      "endFocus": "End Focus",
+      "pauseFocus": "Take a Break",
+      "continueAction": "Continue",
+      "backToIsland": "Back to the Island",
+      "todayTodo": "Today's To-Do",
+      "raftLabel": "Raft · Return to Our Island"
+    },
+    "travel": {
+      "inTransit": "Traveling...",
+      "restCampfire": "Our Island Campfire",
+      "fishingSpot": "My Spot on Fishing Island"
+    },
+    "spot": {
+      "onWater": "You can't sit on the water.",
+      "occupied": "A resident is sitting here. Please sit a little further over.",
+      "nearGram": "You can't sit here because of the gramophone. Please sit a little further over.",
+      "nearRaft": "This is where the raft docks. Please sit a little further over.",
+      "noCatchRoom": "There's no room to place a fish here. Please sit a little further over.",
+      "unreachable": "Please choose a spot connected by land.",
+      "noneFound": "Couldn't find an open spot. Please try again in a moment.",
+      "groundA11y": "Fishing Island ground · Tap where you want to sit",
+      "sitEmptyA11y": "Sit in an empty spot",
+      "sitEmptyButton": "Take a spot on empty ground"
+    },
+    "setup": {
+      "title": "Get Ready to Focus",
+      "placeholder": "e.g. Memorize English words",
+      "subjectRequired": "Please enter a subject or to-do to focus on.",
+      "needsIsland": "Join an island before you can focus.",
+      "startFailed": "Couldn't start the focus session.",
+      "pickAnotherSpot": "Choose Another Spot"
+    },
+    "hud": {
+      "emoteFab": "Emote",
+      "emoteSendFailed": "Couldn't send the cheer. Please try again in a moment.",
+      "residentsReloadA11y": "Reload resident status",
+      "residentsLoadFailed": "Couldn't load resident status · Retry",
+      "endConfirmTitle": "End this focus session?",
+      "endedByServer": "Your focus session has ended. Please check your island membership.",
+      "pauseFailed": "Couldn't move to your break.",
+      "emote": {
+        "hello": "Hello",
+        "cheer": "Cheer",
+        "sleepy": "Sleepy",
+        "laugh": "Laugh",
+        "hearts": "Hearts"
+      }
+    },
+    "music": {
+      "title": "Gramophone Music",
+      "subtitle": "Choose from the tracks you own.",
+      "changeFailed": "Couldn't change the music.",
+      "backToSpot": "Back to My Spot",
+      "gramA11y": "Gramophone · Choose music"
+    },
+    "result": {
+      "title": "This Focus Session's Results",
+      "defaultSubject": "This Focus Session",
+      "durationLabel": "This Session's Focus Time",
+      "fishCount": "+{{count}} fish",
+      "questsAchievedTitle": "Daily Quests Completed",
+      "checking": "Checking…",
+      "checkFailed": "Couldn't check your quests",
+      "notYet": "None yet",
+      "notYetServerRate": "None yet · {{title}} {{rate}}",
+      "notYetLocalRate": "None yet · {{title}} {{current}}/{{target}} min",
+      "notMeasuredYet": "Not measured yet",
+      "backByBoat": "By Boat to Our Island"
+    },
+    "tutorial": {
+      "step5": "Tap an empty spot on the ground to choose your seat.",
+      "step6": "You can't choose the water or a spot where another resident is sitting.\nJust tap the spot you like.",
+      "step6SkipButton": "Stop Showing This Guide",
+      "step7": "Write down one to-do for this focus session.\nSomething you can start right away, like “Memorize English words,” works best.",
+      "step7Done": "Done",
+      "step8": "Good. Now tap Start Focus.",
+      "step9": "Focus has started.\nUp top, you'll see the to-do you just wrote and your actual focus time.",
+      "step10": "While you focus, {{name}} will go fishing.\nFocusing together with more people raises the chance of catching a rare fish, so keep that in mind.",
+      "step12": "You caught your first fish!\nYou can use this fish to help your island grow!",
+      "step14": "Let's take a quick break this time.\nTap Take a Break below.",
+      "step15": "If other residents on the same island are on a break, you can see them together here at the campfire.\nOnce you've rested enough, tap Resume Focus.",
+      "step16": "You're back at the spot you picked earlier.\nYour to-do and focus time picked up right where they left off before your break, didn't they?",
+      "step17": "Even after taking a break like this, you don't need to start over from the beginning.\nNow let's finish up your focus session.",
+      "step18": "Tap End Focus to finish.",
+      "step19": "The time you just focused has been recorded.\nTime spent on break isn't included in your focus time.",
+      "step20": "You can also check the fish you caught by focusing here.",
+      "step21": "Now tap Back to the Island.\nWhen you get back, I'll give you your first quest to help revive the island.",
+      "next": "Next"
+    },
+    "fish": {
+      "goldenCaughtA11y": "You caught a golden fish.",
+      "rewardCheckFailed": "Couldn't check your fish reward. We'll try again.",
+      "goldenCaughtImageA11y": "The golden fish you just caught together",
+      "goldenReelingA11y": "Reeling in a golden fish"
+    },
+    "rest": {
+      "resting": "On a break...",
+      "pausedA11y": "Paused",
+      "endButton": "End Break",
+      "endConfirmTitle": "End your break and finish this focus session?",
+      "keepResting": "Keep Resting"
     }
   }
 }

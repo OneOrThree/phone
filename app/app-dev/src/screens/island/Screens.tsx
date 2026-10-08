@@ -464,7 +464,7 @@ function Onboard({
       >
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="뒤로"
+          accessibilityLabel={t('onboarding.back')}
           onPress={back}
           style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
         >
@@ -785,7 +785,9 @@ export function RedesignScreens({ e }: any) {
     // 섬 관리: 이름·소개 편집 모드, 정원 드럼 팝업 / 새 섬 만들기와 같이 쓰는 정원 선택값
     [editing, setEditing] = useState(false),
     [capacityOpen, setCapacityOpen] = useState(false),
-    [capacityPick, setCapacityPick] = useState('15명'),
+    [capacityPick, setCapacityPick] = useState(
+      t('onboarding.createIsland.capacityUnit', { count: 15 }),
+    ),
     [profileName, setProfileName] = useState(state.name),
     [profileColor, setProfileColor] = useState<Color>(state.color),
     [mainIslandPick, setMainIslandPick] = useState(state.mainIslandId ?? ''),
@@ -836,7 +838,7 @@ export function RedesignScreens({ e }: any) {
     setSearch('');
     setEditing(false);
     setCapacityOpen(false);
-    setCapacityPick('15명');
+    setCapacityPick(t('onboarding.createIsland.capacityUnit', { count: 15 }));
     setHallGuideOpen(false);
     setDiscoveryPick(null);
     setServerError('');
@@ -955,7 +957,7 @@ export function RedesignScreens({ e }: any) {
   const enterHome = snap?.currentIslandId ? (
     <Btn
       id="enter-home"
-      title="섬으로 가기"
+      title={t('onboarding.enterHome')}
       style={{ marginTop: 6 }}
       onPress={() => reset(state.tutorial && state.tutorial.step <= 3 ? 'guide' : 'home')}
     />
@@ -1108,11 +1110,11 @@ export function RedesignScreens({ e }: any) {
   );
   const join = (i: any) => {
     if (i.kicked) {
-      notify('강퇴된 섬에는 다시 가입할 수 없어요.');
+      notify(t('onboarding.kickedCannotRejoin'));
       return;
     }
     if (!i.joined && isFull(i)) {
-      notify('정원이 가득 찬 섬이에요');
+      notify(t('onboarding.islandFull'));
       return;
     }
     setVisited(i.id);
@@ -1131,11 +1133,11 @@ export function RedesignScreens({ e }: any) {
     }
     const i = findIslandByInviteCode(state.islands, inviteCode);
     if (!i) {
-      setInviteError('초대 코드를 다시 확인해 주세요.');
+      setInviteError(t('errors.SLUG_NOT_FOUND'));
       return;
     }
     if (!i.joined && isFull(i)) {
-      setInviteError('정원이 가득 찬 섬이에요');
+      setInviteError(t('onboarding.islandFull'));
       return;
     }
     setInvite(false);
@@ -1313,7 +1315,7 @@ export function RedesignScreens({ e }: any) {
           GROMO
         </Txt>
         <Txt style={[shade, { fontSize: 15, lineHeight: 21.75, fontWeight: '700' }]}>
-          오늘의 집중이 자라는 곳
+          {t('login.tagline')}
         </Txt>
       </>
     );
@@ -1366,10 +1368,10 @@ export function RedesignScreens({ e }: any) {
             }}
           >
             <Txt kind="h" style={{ fontSize: 24, lineHeight: 31.2, letterSpacing: -0.48 }}>
-              {'조금씩 집중하고,\n함께 자라요.'}
+              {t('login.heroTitle')}
             </Txt>
-            <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
-            {!!e.startGuest && <Txt kind="meta">게스트 계정으로 먼저 시작할 수 있어요.</Txt>}
+            <Txt style={{ color: C.muted }}>{t('login.heroSubtitle')}</Txt>
+            {!!e.startGuest && <Txt kind="meta">{t('login.guestHint')}</Txt>}
             {agree}
             <View style={{ flex: 1 }} />
             {start}
@@ -1430,10 +1432,10 @@ export function RedesignScreens({ e }: any) {
             }}
           >
             <Txt kind="h" style={{ fontSize: 26, lineHeight: 33.8, letterSpacing: -0.52 }}>
-              {'조금씩 집중하고,\n함께 자라요.'}
+              {t('login.heroTitle')}
             </Txt>
-            <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
-            {!!e.startGuest && <Txt kind="meta">게스트 계정으로 먼저 시작할 수 있어요.</Txt>}
+            <Txt style={{ color: C.muted }}>{t('login.heroSubtitle')}</Txt>
+            {!!e.startGuest && <Txt kind="meta">{t('login.guestHint')}</Txt>}
             {agree}
           </ScrollView>
           <View
@@ -1549,12 +1551,12 @@ export function RedesignScreens({ e }: any) {
           aria-hidden={invite}
         >
           <Onboard
-            title="첫 섬 선택"
+            title={t('onboarding.chooseIsland.title')}
             back={back}
             left={
               <View style={{ alignItems: 'center', gap: 4 }}>
                 <Pic id="boat/raft" w={210} />
-                <Txt style={H17}>첫 항해를 떠나요</Txt>
+                <Txt style={H17}>{t('onboarding.chooseIsland.firstVoyage')}</Txt>
               </View>
             }
           >
@@ -1572,16 +1574,16 @@ export function RedesignScreens({ e }: any) {
                 ]}
               >
                 <Pic id="boat/raft" w={100} />
-                <Txt style={H17}>첫 항해를 떠나요</Txt>
+                <Txt style={H17}>{t('onboarding.chooseIsland.firstVoyage')}</Txt>
               </View>
             )}
-            <Txt style={H22}>어디에서 시작할까요?</Txt>
+            <Txt style={H22}>{t('onboarding.chooseIsland.whereStart')}</Txt>
             <Group>
               <Row
-                title="혼자 시작할 섬 만들기"
+                title={t('onboarding.chooseIsland.createAlone.title')}
                 sub={
                   <Txt kind="meta" style={RS}>
-                    내 이름으로 새 섬을 열어요
+                    {t('onboarding.chooseIsland.createAlone.sub')}
                   </Txt>
                 }
                 lead={<Pic id="boat/raft" w={52} />}
@@ -1589,10 +1591,10 @@ export function RedesignScreens({ e }: any) {
                 onPress={() => go('createIsland')}
               />
               <Row
-                title="기존 섬 참여"
+                title={t('onboarding.chooseIsland.joinExisting.title')}
                 sub={
                   <Txt kind="meta" style={RS}>
-                    망원경으로 공개 섬 찾기
+                    {t('onboarding.chooseIsland.joinExisting.sub')}
                   </Txt>
                 }
                 lead={<Pic id="bld/observatory" w={52} />}
@@ -1612,13 +1614,13 @@ export function RedesignScreens({ e }: any) {
                   paddingHorizontal: 14,
                 }}
               >
-                <Txt style={H17}>섬 정보를 불러오지 못했어요</Txt>
+                <Txt style={H17}>{t('onboarding.chooseIsland.bootErrorTitle')}</Txt>
                 <Txt kind="meta" style={[META, serverError ? { color: C.danger } : null]}>
-                  {serverError || '연결을 확인한 뒤 다시 시도해 주세요.'}
+                  {serverError || t('errors.GENERIC')}
                 </Txt>
                 <Btn
                   kind="ghost"
-                  title="다시 시도"
+                  title={t('common.retry')}
                   disabled={serverBusy}
                   onPress={() => run(() => server.sync())}
                 />
@@ -1633,7 +1635,10 @@ export function RedesignScreens({ e }: any) {
                   <Btn
                     kind="sec"
                     id="pending-resume"
-                    title={`「${pending.islandName ?? '신청한 섬'}」 가입 신청이 진행 중이에요`}
+                    title={t('onboarding.chooseIsland.pendingResume', {
+                      island:
+                        pending.islandName ?? t('onboarding.chooseIsland.pendingIslandFallback'),
+                    })}
                     onPress={() => go('approval', pending.islandId)}
                   />
                 ) : null;
@@ -1644,7 +1649,10 @@ export function RedesignScreens({ e }: any) {
               (() => {
                 const cur = snap?.memberships.find((m) => m.id === snap.currentIslandId);
                 return cur
-                  ? doneCard('가입이 확인됐어요', `서버에서 「${cur.name}」 소속이 확인됐어요.`)
+                  ? doneCard(
+                      t('onboarding.chooseIsland.membershipConfirmedTitle'),
+                      t('onboarding.chooseIsland.membershipConfirmedSub', { island: cur.name }),
+                    )
                   : null;
               })()}
             {/* 서버 가입 완료 확인 — arrival 은 CurrentScreens 차단으로 열지 않는다.
@@ -1653,12 +1661,15 @@ export function RedesignScreens({ e }: any) {
                 serverDone 카드는 건너뛴다(같은 가입인지는 이름이 아니라 id로 본다). */}
             {serverDone &&
               !(serverDoneId && snap?.currentIslandId === serverDoneId) &&
-              doneCard('가입이 완료됐어요', `「${serverDone}」의 주민이 됐어요.`)}
+              doneCard(
+                t('onboarding.joinedCard.title'),
+                t('onboarding.joinedCard.sub', { island: serverDone }),
+              )}
             {/* 초대받은 섬: 코드 확인 → 승인 없는 섬은 바로 참여, 승인 필요 섬은 가입 신청 */}
             <Btn
               kind="sec"
               id="invite-open"
-              title="이미 초대받은 섬이 있어요!"
+              title={t('onboarding.chooseIsland.alreadyInvited')}
               style={{ marginTop: 6 }}
               onPress={() => {
                 setInviteError('');
@@ -1730,10 +1741,10 @@ export function RedesignScreens({ e }: any) {
                       justifyContent: 'space-between',
                     }}
                   >
-                    <Txt style={H22}>초대 코드 입력</Txt>
+                    <Txt style={H22}>{t('onboarding.chooseIsland.inviteModal.title')}</Txt>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="닫기"
+                      accessibilityLabel={t('common.close')}
                       hitSlop={12}
                       onPress={() => {
                         setInvite(false);
@@ -1761,10 +1772,15 @@ export function RedesignScreens({ e }: any) {
                           {invitePick.intro}
                         </Txt>
                         <Txt kind="meta" style={META}>
-                          {`주민 ${invitePick.memberCount}/${invitePick.maxMembers}명`}
+                          {t('onboarding.residents', {
+                            count: invitePick.memberCount,
+                            max: invitePick.maxMembers,
+                          })}
                         </Txt>
                         <Badge soft>
-                          {invitePick.approvalRequired ? '승인 필요' : '바로 참여'}
+                          {invitePick.approvalRequired
+                            ? t('onboarding.approvalBadge')
+                            : t('onboarding.instantJoinBadge')}
                         </Badge>
                       </View>
                       <Txt
@@ -1775,7 +1791,11 @@ export function RedesignScreens({ e }: any) {
                         {inviteError}
                       </Txt>
                       <Btn
-                        title={invitePick.approvalRequired ? '가입 신청' : '이 섬에 참여'}
+                        title={
+                          invitePick.approvalRequired
+                            ? t('onboarding.joinRequest')
+                            : t('onboarding.chooseIsland.inviteModal.joinThisIsland')
+                        }
                         disabled={serverBusy}
                         onPress={() =>
                           run(async () => {
@@ -1794,7 +1814,7 @@ export function RedesignScreens({ e }: any) {
                   ) : (
                     <>
                       <Field
-                        label="초대 코드"
+                        label={t('onboarding.chooseIsland.inviteModal.label')}
                         value={inviteCode}
                         onChange={(v: string) => {
                           setInviteCode(v);
@@ -1807,11 +1827,10 @@ export function RedesignScreens({ e }: any) {
                         lineBreakStrategyIOS="hangul-word"
                         style={[META, KEEP, inviteError ? { color: C.danger } : null]}
                       >
-                        {inviteError ||
-                          '확인하면 그 섬에 바로 참여하거나, 방장에게 가입 승인을 요청해요.'}
+                        {inviteError || t('onboarding.chooseIsland.inviteModal.hint')}
                       </Txt>
                       <Btn
-                        title="확인"
+                        title={t('common.ok')}
                         onPress={resolveInvite}
                         disabled={!inviteCode.trim() || serverBusy}
                       />
@@ -1828,16 +1847,15 @@ export function RedesignScreens({ e }: any) {
     const capacityWheel = (
       <View style={{ gap: 6 }}>
         <Txt kind="meta" style={{ fontWeight: '600' }}>
-          정원 · 최대 {CAPACITY_MAX}명
+          {t('onboarding.createIsland.capacityLabel', { max: CAPACITY_MAX })}
         </Txt>
         {/* v2 드럼: 빈 라벨 칸의 아래 여백 4px(세로) · 위아래 흐림 */}
         <View style={[k.row, { marginTop: layout.compact ? 0 : 4 }]}>
           <Wheel
-            a11yLabel="정원"
+            a11yLabel={t('onboarding.createIsland.capacityA11y')}
             row={layout.compact ? 24 : 44}
-            items={Array.from(
-              { length: CAPACITY_MAX - CAPACITY_MIN + 1 },
-              (_, n) => n + CAPACITY_MIN + '명',
+            items={Array.from({ length: CAPACITY_MAX - CAPACITY_MIN + 1 }, (_, n) =>
+              t('onboarding.createIsland.capacityUnit', { count: n + CAPACITY_MIN }),
             )}
             value={capacityPick}
             onChange={setCapacityPick}
@@ -1849,32 +1867,43 @@ export function RedesignScreens({ e }: any) {
     const approvalRow = (
       <Group flat>
         <Row
-          title="승인 후 가입"
+          title={t('onboarding.createIsland.approvalAfterJoin')}
           sub={
             <Txt kind="meta" style={RS}>
-              방장이 확인한 뒤 주민이 돼요
+              {t('onboarding.createIsland.approvalAfterJoinSub')}
             </Txt>
           }
-          tail={<Toggle label="승인 후 가입" value={approval} onChange={setApproval} />}
+          tail={
+            <Toggle
+              label={t('onboarding.createIsland.approvalAfterJoin')}
+              value={approval}
+              onChange={setApproval}
+            />
+          }
         />
       </Group>
     );
     return (
       <Onboard
-        title="새 섬 만들기"
+        title={t('onboarding.createIsland.title')}
         back={back}
         left={<Pic id="L/home/00-start/nocat" w="100%" h="100%" cover />}
         cta={
           serverDone ? undefined : (
             <Btn
-              title="섬 만들기"
+              title={t('onboarding.createIsland.submit')}
               disabled={!text.trim() || serverBusy}
               onPress={() => {
                 // 서버 모드: 응답만으로 성공 처리하지 않고 App 이 /me/islands 재조회로 확정한다
                 if (server) {
                   const capacity = parseInt(capacityPick, 10);
                   if (capacity < CAPACITY_MIN || capacity > CAPACITY_MAX) {
-                    setServerError(`정원은 ${CAPACITY_MIN}~${CAPACITY_MAX}명이에요.`);
+                    setServerError(
+                      t('onboarding.createIsland.capacityRangeError', {
+                        min: CAPACITY_MIN,
+                        max: CAPACITY_MAX,
+                      }),
+                    );
                     return;
                   }
                   run(async () => {
@@ -1903,9 +1932,9 @@ export function RedesignScreens({ e }: any) {
         {serverDone ? (
           // 서버 current 확인 상태 — arrival 연출 없이 홈(서버 스냅샷)으로 들어간다
           <View style={{ gap: 6 }}>
-            <Txt style={H22}>섬을 만들었어요</Txt>
+            <Txt style={H22}>{t('onboarding.createIsland.doneTitle')}</Txt>
             <Txt kind="meta" style={META}>
-              {`「${serverDone}」이 내 섬이 됐어요.`}
+              {t('onboarding.createIsland.doneSub', { island: serverDone })}
             </Txt>
             {enterHome}
           </View>
@@ -1917,9 +1946,14 @@ export function RedesignScreens({ e }: any) {
         ) : null}
         {!serverDone && (
           <>
-            <Field label="섬 이름" value={text} onChange={setText} inputStyle={INP} />
             <Field
-              label="섬 소개"
+              label={t('onboarding.createIsland.nameLabel')}
+              value={text}
+              onChange={setText}
+              inputStyle={INP}
+            />
+            <Field
+              label={t('onboarding.createIsland.introLabel')}
               value={body}
               onChange={setBody}
               multiline={!layout.compact}
@@ -1997,22 +2031,24 @@ export function RedesignScreens({ e }: any) {
       >
         <View style={{ gap: 2, flex: 1 }}>
           <Txt style={{ fontSize: 15, lineHeight: 21.75, fontWeight: '700' }}>
-            가입 신청 대기 중
+            {t('onboarding.joinIsland.pendingWaitTitle')}
           </Txt>
           <Txt kind="meta" style={{ lineHeight: 18.85 }}>
             {r.islandName
-              ? `「${r.islandName}」 방장이 확인하면 알려드릴게요`
-              : '방장이 확인하면 알려드릴게요'}
+              ? t('onboarding.joinIsland.pendingWaitSubNamed', { island: r.islandName })
+              : t('onboarding.joinIsland.pendingWaitSubGeneric')}
           </Txt>
         </View>
         <Spinner reduce={state.settings.reduceMotion} />
       </View>
     );
     const joinedCard = (name: string) =>
-      doneCard('가입이 완료됐어요', `「${name}」의 주민이 됐어요.`);
+      doneCard(t('onboarding.joinedCard.title'), t('onboarding.joinedCard.sub', { island: name }));
     return (
       <Onboard
-        title={route === 'approval' ? '가입 신청' : '섬 찾기'}
+        title={
+          route === 'approval' ? t('onboarding.joinRequest') : t('onboarding.joinIsland.title')
+        }
         back={back}
         left={
           <Pic
@@ -2028,25 +2064,32 @@ export function RedesignScreens({ e }: any) {
             <>
               <Btn
                 kind="sec"
-                title="가입 신청 취소"
+                title={t('onboarding.joinIsland.cancelRequest')}
                 disabled={serverBusy}
                 onPress={() => run(() => server.cancel(req.id))}
               />
-              <Btn kind="ghost" title="다른 섬 보기" onPress={() => go('joinIsland')} />
+              <Btn
+                kind="ghost"
+                title={t('onboarding.joinIsland.viewOtherIslands')}
+                onPress={() => go('joinIsland')}
+              />
             </>
           ) : closed && route === 'approval' ? (
-            <Btn title="다른 섬 찾기" onPress={() => go('joinIsland')} />
+            <Btn
+              title={t('onboarding.joinIsland.findAnotherIsland')}
+              onPress={() => go('joinIsland')}
+            />
           ) : iReq ? (
             <>
               <Btn
                 kind="sec"
-                title="가입 신청 취소"
+                title={t('onboarding.joinIsland.cancelRequest')}
                 disabled={serverBusy}
                 onPress={() => run(() => server.cancel(iReq.id))}
               />
               <Btn
                 kind="ghost"
-                title="다른 섬 보기"
+                title={t('onboarding.joinIsland.viewOtherIslands')}
                 disabled={candidates.length < 2 && !snap?.nextCursor}
                 onPress={() => move(1)}
               />
@@ -2054,7 +2097,13 @@ export function RedesignScreens({ e }: any) {
           ) : (
             <>
               <Btn
-                title={!i ? '참여하기' : i.approvalRequired ? '가입 신청' : `${i.name}에 참여하기`}
+                title={
+                  !i
+                    ? t('onboarding.joinIsland.joinAction')
+                    : i.approvalRequired
+                      ? t('onboarding.joinRequest')
+                      : t('onboarding.joinIsland.joinNamed', { island: i.name })
+                }
                 disabled={!i || serverBusy}
                 onPress={() =>
                   i &&
@@ -2066,7 +2115,7 @@ export function RedesignScreens({ e }: any) {
               />
               <Btn
                 kind="ghost"
-                title="찾는 섬이 없으면 새 섬 만들기"
+                title={t('onboarding.joinIsland.createNewIfNotFound')}
                 onPress={() => go('createIsland')}
               />
             </>
@@ -2079,14 +2128,16 @@ export function RedesignScreens({ e }: any) {
           !req &&
           closed &&
           (closed.status === 'approved' ? (
-            joinedCard(closed.islandName ?? '그 섬')
+            joinedCard(closed.islandName ?? t('onboarding.joinIsland.thatIslandFallback'))
           ) : (
             <View style={{ gap: 4 }}>
               <Txt style={H17}>
-                {closed.status === 'rejected' ? '신청이 거절됐어요' : '신청이 취소됐어요'}
+                {closed.status === 'rejected'
+                  ? t('onboarding.joinIsland.requestRejected')
+                  : t('onboarding.joinIsland.requestCancelled')}
               </Txt>
               <Txt kind="meta" style={META}>
-                다른 섬을 찾아보세요.
+                {t('onboarding.joinIsland.tryAnotherIsland')}
               </Txt>
             </View>
           ))}
@@ -2101,7 +2152,7 @@ export function RedesignScreens({ e }: any) {
             </Txt>
             <Btn
               kind="ghost"
-              title="다시 불러오기"
+              title={t('onboarding.joinIsland.reload')}
               disabled={serverBusy}
               onPress={() => run(() => server.explore())}
             />
@@ -2115,7 +2166,9 @@ export function RedesignScreens({ e }: any) {
                 <Pressable
                   style={{ flex: 1, gap: 2 }}
                   accessibilityRole="button"
-                  accessibilityLabel={`${i.name} 정보 보기`}
+                  accessibilityLabel={t('onboarding.joinIsland.viewIslandInfoA11y', {
+                    island: i.name,
+                  })}
                   // 카드를 누르면 방문 화면 DTO 로 공개 정보를 더 보여준다
                   onPress={() => run(() => server.visit(i.id))}
                 >
@@ -2128,7 +2181,11 @@ export function RedesignScreens({ e }: any) {
                   <Pressable
                     key={v}
                     accessibilityRole="button"
-                    accessibilityLabel={n ? '다음 섬' : '이전 섬'}
+                    accessibilityLabel={
+                      n
+                        ? t('onboarding.joinIsland.nextIsland')
+                        : t('onboarding.joinIsland.previousIsland')
+                    }
                     accessibilityState={{ disabled: serverBusy }}
                     disabled={serverBusy}
                     onPress={() => move(n ? 1 : -1)}
@@ -2154,9 +2211,13 @@ export function RedesignScreens({ e }: any) {
                 ))}
               </View>
               <Txt kind="meta" style={META}>
-                {`주민 ${i.memberCount}/${i.maxMembers}명`}
+                {t('onboarding.residents', { count: i.memberCount, max: i.maxMembers })}
               </Txt>
-              <Badge soft>{i.approvalRequired ? '승인 필요' : '바로 참여'}</Badge>
+              <Badge soft>
+                {i.approvalRequired
+                  ? t('onboarding.approvalBadge')
+                  : t('onboarding.instantJoinBadge')}
+              </Badge>
               {/* 방문 화면 DTO — 공개 주민 목록만, 집중 평균·건물은 서버가 주지 않는다 */}
               {snap?.visit && snap.visit.island.id === i.id && (
                 <View
@@ -2172,7 +2233,11 @@ export function RedesignScreens({ e }: any) {
                   <Txt style={H17}>{snap.visit.island.name}</Txt>
                   {snap.visit.members.items.length ? (
                     <Txt kind="meta" style={META}>
-                      {`주민 ${snap.visit.members.items.map((m) => m.name ?? '주민').join(', ')}`}
+                      {t('onboarding.visitResidents', {
+                        names: snap.visit.members.items
+                          .map((m) => m.name ?? t('onboarding.residentFallbackName'))
+                          .join(', '),
+                      })}
                     </Txt>
                   ) : null}
                 </View>
@@ -2181,10 +2246,10 @@ export function RedesignScreens({ e }: any) {
             </>
           ) : serverBusy ? (
             <Txt kind="meta" style={META}>
-              공개 섬을 찾는 중이에요…
+              {t('onboarding.joinIsland.searchingPublicIslands')}
             </Txt>
           ) : (
-            !serverError && <Txt>지금 참여할 수 있는 공개 섬이 없어요.</Txt>
+            !serverError && <Txt>{t('onboarding.joinIsland.noPublicIslands')}</Txt>
           ))}
       </Onboard>
     );
@@ -2213,7 +2278,7 @@ export function RedesignScreens({ e }: any) {
     const average = i ? hoursMinutes(islandWeeklyAverage(state, i, now)).replace(/ 0분$/, '') : '';
     return (
       <Onboard
-        title="섬 찾기"
+        title={t('onboarding.joinIsland.title')}
         back={back}
         left={
           <Pic
@@ -2228,12 +2293,12 @@ export function RedesignScreens({ e }: any) {
             <>
               <Btn
                 kind="sec"
-                title="가입 신청 취소"
+                title={t('onboarding.joinIsland.cancelRequest')}
                 onPress={() => act('CANCEL_JOIN', { id: i.id })}
               />
               <Btn
                 kind="ghost"
-                title="다른 섬 보기"
+                title={t('onboarding.joinIsland.viewOtherIslands')}
                 disabled={candidates.length < 2}
                 onPress={() => move(1)}
               />
@@ -2241,13 +2306,19 @@ export function RedesignScreens({ e }: any) {
           ) : (
             <>
               <Btn
-                title={!i ? '참여하기' : i.approval ? '가입 신청' : `${i.name}에 참여하기`}
+                title={
+                  !i
+                    ? t('onboarding.joinIsland.joinAction')
+                    : i.approval
+                      ? t('onboarding.joinRequest')
+                      : t('onboarding.joinIsland.joinNamed', { island: i.name })
+                }
                 disabled={!i}
                 onPress={() => i && join(i)}
               />
               <Btn
                 kind="ghost"
-                title="찾는 섬이 없으면 새 섬 만들기"
+                title={t('onboarding.joinIsland.createNewIfNotFound')}
                 onPress={() => go('createIsland')}
               />
             </>
@@ -2268,7 +2339,11 @@ export function RedesignScreens({ e }: any) {
                 <Pressable
                   key={v}
                   accessibilityRole="button"
-                  accessibilityLabel={n ? '다음 섬' : '이전 섬'}
+                  accessibilityLabel={
+                    n
+                      ? t('onboarding.joinIsland.nextIsland')
+                      : t('onboarding.joinIsland.previousIsland')
+                  }
                   accessibilityState={{ disabled: candidates.length < 2 }}
                   disabled={candidates.length < 2}
                   onPress={() => move(n ? 1 : -1)}
@@ -2296,7 +2371,11 @@ export function RedesignScreens({ e }: any) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <AvStack list={i.members.slice(0, 3).map((m) => m.color)} />
               <Txt kind="meta" style={[META, { flex: 1 }]}>
-                {`주민 ${residentCount(i)}/${capacityOf(i)}명 · 평균 집중 ${average}`}
+                {t('onboarding.residentsWithAverage', {
+                  count: residentCount(i),
+                  max: capacityOf(i),
+                  average,
+                })}
               </Txt>
             </View>
             {/* 합류 방식 배지: 바로 참여 / 승인 필요(버튼이 가입 신청) */}
@@ -2320,7 +2399,7 @@ export function RedesignScreens({ e }: any) {
                   color: i.approval ? C.muted : C.ink,
                 }}
               >
-                {i.approval ? '승인 필요' : '바로 참여'}
+                {i.approval ? t('onboarding.approvalBadge') : t('onboarding.instantJoinBadge')}
               </Txt>
             </View>
             {pending && (
@@ -2340,10 +2419,10 @@ export function RedesignScreens({ e }: any) {
               >
                 <View style={{ gap: 2 }}>
                   <Txt style={{ fontSize: 15, lineHeight: 21.75, fontWeight: '700' }}>
-                    가입 신청 대기 중
+                    {t('onboarding.joinIsland.pendingWaitTitle')}
                   </Txt>
                   <Txt kind="meta" style={{ lineHeight: 18.85 }}>
-                    방장이 확인하면 알려드릴게요
+                    {t('onboarding.joinIsland.pendingWaitSubGeneric')}
                   </Txt>
                 </View>
                 <Spinner reduce={state.settings.reduceMotion} />
@@ -2351,7 +2430,7 @@ export function RedesignScreens({ e }: any) {
             )}
           </>
         ) : (
-          <Txt>지금 참여할 수 있는 공개 섬이 없어요.</Txt>
+          <Txt>{t('onboarding.joinIsland.noPublicIslands')}</Txt>
         )}
       </Onboard>
     );
@@ -2377,10 +2456,10 @@ export function RedesignScreens({ e }: any) {
     );
   if (route === 'guide') {
     const lines = [
-      '안녕! 처음 보는 얼굴이네.\n나는 몽돌. 이 섬에 오래전부터 살고 있었지.',
-      '예전에는 사람들이 많이 오가던 활기찬 섬이었어.\n하지만 어느 순간 발길이 끊기면서 지금은 아무도 찾지 않는 섬이 되어 버렸지.',
-      '너와 함께라면 이 섬을 다시 살릴 수 있을 것 같아.\n나와 함께 섬을 되살려 보지 않을래?',
-      '좋아, 그럼 섬을 되살리는 첫걸음부터 시작해 보자.\n이곳에서는 네가 집중한 시간이 섬을 키울 힘이 되거든.\n어떻게 하는지 직접 해보면 금방 알 수 있을 거야.',
+      t('onboarding.guide.line1'),
+      t('onboarding.guide.line2'),
+      t('onboarding.guide.line3'),
+      t('onboarding.guide.line4'),
     ];
     const step = Math.min(guideStep, lines.length - 1),
       last = step === lines.length - 1,
@@ -2399,7 +2478,7 @@ export function RedesignScreens({ e }: any) {
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="건너뛰기"
+            accessibilityLabel={t('onboarding.guide.skip')}
             hitSlop={12}
             onPress={() => {
               setGuideStep(99);
@@ -2414,11 +2493,11 @@ export function RedesignScreens({ e }: any) {
                 textDecorationLine: 'underline',
               }}
             >
-              건너뛰기
+              {t('onboarding.guide.skip')}
             </Txt>
           </Pressable>
           <Btn
-            title={last ? '같이 해볼게' : '다음'}
+            title={last ? t('onboarding.guide.last') : t('onboarding.guide.next')}
             small
             style={{ minWidth: 96 }}
             onPress={() => {

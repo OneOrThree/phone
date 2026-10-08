@@ -3,6 +3,7 @@ import React, { useReducer, useState } from 'react';
 import { AccessibilityInfo, AppState, type AppStateEvent, type AppStateStatus } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
+import { applyLocalePref } from '@/i18n';
 import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 import type { GoldenFishEvent } from '@/services/islandRealtime';
@@ -1152,4 +1153,60 @@ test('컷신을 마친 황금 물고기 더미를 정상 결과 화면에서도 
   assert.equal(resultActor.props.goldenFishCount, 1);
   assert.equal(resultActor.props.goldenCatchToken, 'golden-i1-1');
   await screen.unmount();
+});
+
+// en 스모크 — GROMO-2252: 집중 흐름 튜토리얼·준비 화면이 영문으로도 나오는지 최소 확인(패턴은 Screens.test.tsx 의 describe('en')).
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref(null);
+  });
+
+  test('en 로케일 — 첫 물고기 튜토리얼 대사와 다음 버튼은 영문으로 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const setGuideStep = jest.fn();
+    const screen = await render(
+      screenElement(focusedState(), 'focus', undefined, undefined, undefined, undefined, {
+        guideStep: 12,
+        setGuideStep,
+      }),
+    );
+    expect(
+      screen.getByText(
+        'You caught your first fish!\nYou can use this fish to help your island grow!',
+      ),
+    ).toBeTruthy();
+    await fireEvent.press(screen.getByText('Next'));
+    expect(setGuideStep).toHaveBeenCalledWith(14);
+    await screen.unmount();
+  });
+
+  test('en 로케일 — 할 일 입력 모달은 영문 placeholder·완료 버튼을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const state = focusedState();
+    state.session = null;
+    const setGuideStep = jest.fn(),
+      setText = jest.fn(),
+      start = jest.fn();
+    const props = { guideStep: 7, setGuideStep, setText, focus: { start } };
+    const screen = await render(
+      screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, props),
+    );
+    expect(
+      screen.getByPlaceholderText('e.g. Memorize English words', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    await screen.rerender(
+      screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, {
+        ...props,
+        text: 'Memorize English words',
+      }),
+    );
+    await fireEvent.press(screen.getByText('Done'));
+    expect(setGuideStep).toHaveBeenCalledWith(8);
+    await screen.unmount();
+  });
 });

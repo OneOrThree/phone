@@ -109,6 +109,7 @@
     "fallbackTermsAgree": "이용약관과 개인정보처리방침에 동의해요.",
     "guestStart": "게스트로 시작하기",
     "guestOpening": "게스트 계정을 여는 중…",
+    "guestHint": "게스트 계정으로 먼저 시작할 수 있어요.",
     "fallbackStart": "GROMO 시작하기",
     "heroTitle": "조금씩 집중하고,\n함께 자라요.",
     "heroSubtitle": "나의 작은 배에서 시작하는 집중 습관.",
@@ -204,6 +205,97 @@
     "startWithCat": "내 고양이와 시작",
     "furColorLaterFull": "털색은 나중에 내 정보에서 바꿀 수 있어요",
     "whichCat": "어떤 고양이로 시작할까요?"
+  },
+  "onboarding": {
+    "back": "뒤로",
+    "spotlightSkip": "안내 그만 보기",
+    "enterHome": "섬으로 가기",
+    "joinRequest": "가입 신청",
+    "approvalBadge": "승인 필요",
+    "instantJoinBadge": "바로 참여",
+    "islandFull": "정원이 가득 찬 섬이에요",
+    "kickedCannotRejoin": "강퇴된 섬에는 다시 가입할 수 없어요.",
+    "residents": "주민 {{count}}/{{max}}명",
+    "residentsWithAverage": "주민 {{count}}/{{max}}명 · 평균 집중 {{average}}",
+    "visitResidents": "주민 {{names}}",
+    "residentFallbackName": "주민",
+    "joinedCard": {
+      "title": "가입이 완료됐어요",
+      "sub": "「{{island}}」의 주민이 됐어요."
+    },
+    "chooseIsland": {
+      "title": "첫 섬 선택",
+      "firstVoyage": "첫 항해를 떠나요",
+      "whereStart": "어디에서 시작할까요?",
+      "createAlone": { "title": "혼자 시작할 섬 만들기", "sub": "내 이름으로 새 섬을 열어요" },
+      "joinExisting": { "title": "기존 섬 참여", "sub": "망원경으로 공개 섬 찾기" },
+      "bootErrorTitle": "섬 정보를 불러오지 못했어요",
+      "pendingResume": "「{{island}}」 가입 신청이 진행 중이에요",
+      "pendingIslandFallback": "신청한 섬",
+      "membershipConfirmedTitle": "가입이 확인됐어요",
+      "membershipConfirmedSub": "서버에서 「{{island}}」 소속이 확인됐어요.",
+      "alreadyInvited": "이미 초대받은 섬이 있어요!",
+      "inviteModal": {
+        "title": "초대 코드 입력",
+        "label": "초대 코드",
+        "hint": "확인하면 그 섬에 바로 참여하거나, 방장에게 가입 승인을 요청해요.",
+        "joinThisIsland": "이 섬에 참여"
+      }
+    },
+    "createIsland": {
+      "capacityLabel": "정원 · 최대 {{max}}명",
+      "capacityA11y": "정원",
+      "capacityUnit": "{{count}}명",
+      "approvalAfterJoin": "승인 후 가입",
+      "approvalAfterJoinSub": "방장이 확인한 뒤 주민이 돼요",
+      "title": "새 섬 만들기",
+      "submit": "섬 만들기",
+      "capacityRangeError": "정원은 {{min}}~{{max}}명이에요.",
+      "doneTitle": "섬을 만들었어요",
+      "doneSub": "「{{island}}」이 내 섬이 됐어요.",
+      "nameLabel": "섬 이름",
+      "introLabel": "섬 소개"
+    },
+    "joinIsland": {
+      "title": "섬 찾기",
+      "cancelRequest": "가입 신청 취소",
+      "viewOtherIslands": "다른 섬 보기",
+      "findAnotherIsland": "다른 섬 찾기",
+      "joinAction": "참여하기",
+      "joinNamed": "{{island}}에 참여하기",
+      "createNewIfNotFound": "찾는 섬이 없으면 새 섬 만들기",
+      "requestRejected": "신청이 거절됐어요",
+      "requestCancelled": "신청이 취소됐어요",
+      "tryAnotherIsland": "다른 섬을 찾아보세요.",
+      "thatIslandFallback": "그 섬",
+      "reload": "다시 불러오기",
+      "viewIslandInfoA11y": "{{island}} 정보 보기",
+      "nextIsland": "다음 섬",
+      "previousIsland": "이전 섬",
+      "searchingPublicIslands": "공개 섬을 찾는 중이에요…",
+      "noPublicIslands": "지금 참여할 수 있는 공개 섬이 없어요.",
+      "pendingWaitTitle": "가입 신청 대기 중",
+      "pendingWaitSubNamed": "「{{island}}」 방장이 확인하면 알려드릴게요",
+      "pendingWaitSubGeneric": "방장이 확인하면 알려드릴게요"
+    },
+    "guide": {
+      "line1": "안녕! 처음 보는 얼굴이네.\n나는 몽돌. 이 섬에 오래전부터 살고 있었지.",
+      "line2": "예전에는 사람들이 많이 오가던 활기찬 섬이었어.\n하지만 어느 순간 발길이 끊기면서 지금은 아무도 찾지 않는 섬이 되어 버렸지.",
+      "line3": "너와 함께라면 이 섬을 다시 살릴 수 있을 것 같아.\n나와 함께 섬을 되살려 보지 않을래?",
+      "line4": "좋아, 그럼 섬을 되살리는 첫걸음부터 시작해 보자.\n이곳에서는 네가 집중한 시간이 섬을 키울 힘이 되거든.\n어떻게 하는지 직접 해보면 금방 알 수 있을 거야.",
+      "skip": "건너뛰기",
+      "next": "다음",
+      "last": "같이 해볼게"
+    }
+  },
+  "app": {
+    "finishFocusTitle": "집중을 마칠까요?",
+    "finishFocusBody": "이번 집중을 기록해요.",
+    "linkUnsupported": "이 초대·그룹 링크는 현재 버전에서 지원하지 않아 홈으로 이동했어요.",
+    "storageRetrying": "기기 저장소 문제로 변경 내용이 아직 저장되지 않아요. 자동으로 다시 시도할게요.",
+    "memberConverted": "회원으로 전환했어요.",
+    "restoreFailed": "저장된 상태를 불러오지 못했어요.",
+    "storageCheck": "기기 저장 공간을 확인해 주세요."
   },
   "building": {
     "hall": "마을회관",
@@ -304,6 +396,116 @@
       "raft": "뗏목",
       "viewFishingIsland": "낚시섬 구경하기",
       "mailboxNewLetter": "친구에게 받은 새 편지가 있습니다"
+    }
+  },
+  "focusFlow": {
+    "common": {
+      "ourIsland": "우리 섬",
+      "fishingIsland": "낚시섬",
+      "myLittleBoat": "나의 작은 배",
+      "me": "나",
+      "resident": "주민",
+      "endFocus": "집중 종료",
+      "pauseFocus": "휴식하기",
+      "continueAction": "계속하기",
+      "backToIsland": "섬으로 돌아가기",
+      "todayTodo": "오늘의 할 일",
+      "raftLabel": "뗏목 · 우리 섬으로 돌아가기"
+    },
+    "travel": {
+      "inTransit": "이동 중...",
+      "restCampfire": "우리 섬 모닥불",
+      "fishingSpot": "낚시섬 내 자리"
+    },
+    "spot": {
+      "onWater": "물 위에는 앉을 수 없어요.",
+      "occupied": "여기는 주민이 앉아 있어요. 조금 옆에 앉아 주세요.",
+      "nearGram": "여기는 축음기가 있어 앉을 수 없어요. 조금 옆에 앉아 주세요.",
+      "nearRaft": "여기는 뗏목을 대는 곳이에요. 조금 옆에 앉아 주세요.",
+      "noCatchRoom": "여기에는 물고기를 둘 자리가 없어요. 조금 옆에 앉아 주세요.",
+      "unreachable": "이곳까지 이어지는 땅을 골라 주세요.",
+      "noneFound": "빈 자리를 찾지 못했어요. 잠시 후 다시 시도해 주세요.",
+      "groundA11y": "낚시섬 땅 · 원하는 곳을 눌러 앉기",
+      "sitEmptyA11y": "빈 자리에 앉기",
+      "sitEmptyButton": "빈 땅에 자리 잡기"
+    },
+    "setup": {
+      "title": "집중 준비",
+      "placeholder": "예: 영어 단어 외우기",
+      "subjectRequired": "집중할 과목이나 할 일을 적어주세요.",
+      "needsIsland": "섬에 가입한 뒤 집중할 수 있어요.",
+      "startFailed": "집중을 시작하지 못했어요.",
+      "pickAnotherSpot": "다른 곳 고르기"
+    },
+    "hud": {
+      "emoteFab": "이모티콘",
+      "emoteSendFailed": "응원을 보내지 못했어요. 잠시 후 다시 시도해 주세요.",
+      "residentsReloadA11y": "주민 상태 다시 불러오기",
+      "residentsLoadFailed": "주민 상태를 불러오지 못했어요 · 다시 시도",
+      "endConfirmTitle": "이번 집중을 마칠까요?",
+      "endedByServer": "집중이 종료됐어요. 섬 소속을 확인해 주세요.",
+      "pauseFailed": "휴식으로 이동하지 못했어요.",
+      "emote": {
+        "hello": "인사",
+        "cheer": "응원",
+        "sleepy": "졸림",
+        "laugh": "웃음",
+        "hearts": "하트뿅뿅"
+      }
+    },
+    "music": {
+      "title": "축음기 음악",
+      "subtitle": "보유한 음원 중에서 골라요.",
+      "changeFailed": "음악을 바꾸지 못했어요.",
+      "backToSpot": "자리로 돌아가기",
+      "gramA11y": "축음기 · 음악 고르기"
+    },
+    "result": {
+      "title": "이번 집중 결과",
+      "defaultSubject": "이번 집중",
+      "durationLabel": "이번 집중 시간",
+      "fishCount": "+{{count}}마리",
+      "questsAchievedTitle": "달성한 일일 퀘스트",
+      "checking": "확인 중…",
+      "checkFailed": "퀘스트를 확인하지 못했어요",
+      "notYet": "아직 없어요",
+      "notYetServerRate": "아직 없어요 · {{title}} {{rate}}",
+      "notYetLocalRate": "아직 없어요 · {{title}} {{current}}/{{target}}분",
+      "notMeasuredYet": "측정 전",
+      "backByBoat": "배 타고 우리 섬으로"
+    },
+    "tutorial": {
+      "step5": "집중하고 싶은 빈 땅을 눌러 자리를 골라 봐.",
+      "step6": "물 위나 다른 주민이 앉아 있는 곳은 고를 수 없어.\n마음에 드는 자리를 직접 누르면 돼.",
+      "step6SkipButton": "안내 그만 보기",
+      "step7": "이번 집중에서 할 일을 하나 적어 봐.\n“영어 단어 외우기”처럼 지금 바로 시작할 수 있는 일이 좋아.",
+      "step7Done": "입력 완료",
+      "step8": "좋아. 이제 집중 시작을 눌러 봐.",
+      "step9": "집중이 시작됐어.\n위에는 방금 적은 할 일과 실제 집중 시간이 표시돼.",
+      "step10": "네가 집중하는 동안 {{name}}이가 낚시를 할 거야.\n많은 사람들과 동시에 집중할수록 희귀한 물고기를 낚을 확률이 높아지니 참고해.",
+      "step12": "첫 물고기를 낚았어!\n이 물고기는 섬을 발전시키는 데 사용할 수 있어!",
+      "step14": "이번에는 잠깐 쉬어 보자.\n아래의 휴식하기를 눌러 봐.",
+      "step15": "같은 섬에서 쉬고 있는 주민이 있다면 이 모닥불에서 함께 볼 수 있어.\n충분히 쉬었다면 집중 이어가기를 눌러 봐.",
+      "step16": "아까 골랐던 자리로 돌아왔어.\n할 일과 집중 시간도 쉬기 전 그대로 이어졌지?",
+      "step17": "이렇게 쉬었다가 돌아와도 처음부터 다시 시작할 필요는 없어.\n이제 집중을 마쳐 보자.",
+      "step18": "집중 종료를 눌러 마쳐 봐.",
+      "step19": "방금 집중한 시간이 기록됐어.\n쉬었던 시간은 집중 시간에 포함되지 않아.",
+      "step20": "집중해서 낚은 물고기도 여기에서 확인할 수 있어.",
+      "step21": "이제 섬으로 돌아가기를 눌러 봐.\n돌아가면 섬을 되살릴 첫 번째 퀘스트를 줄게.",
+      "next": "다음"
+    },
+    "fish": {
+      "goldenCaughtA11y": "황금 물고기를 잡았어요.",
+      "rewardCheckFailed": "물고기 보상을 확인하지 못했어요. 다시 시도할게요.",
+      "goldenCaughtImageA11y": "방금 함께 낚은 황금 물고기",
+      "goldenReelingA11y": "황금 물고기를 낚아 올리는 중"
+    },
+    "rest": {
+      "resting": "휴식 중...",
+      "pausedA11y": "멈춤",
+      "endButton": "휴식 종료하기",
+      "endConfirmTitle": "휴식을 끝내고 이번 집중을 마칠까요?",
+      "keepResting": "계속 쉬기"
     }
   }
 }
