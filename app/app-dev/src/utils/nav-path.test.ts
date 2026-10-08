@@ -84,7 +84,7 @@ describe('미완공 건물 자리 · 막힌 간선', () => {
     for (const g of [empty, full])
       expect(navPath(g, from, center(en.cx, en.cy)).length).toBeGreaterThan(0);
   });
-  it('막힌 간선 2 개는 어떤 경로에도 등장하지 않는다', () => {
+  it('nav.json 의 blockedEdges 전체는 어떤 경로에도 등장하지 않는다', () => {
     const bad = new Set((nav.blockedEdges as number[][]).map(([a, b]) => `${a},${b}`));
     for (const g of [empty, full])
       for (const en of Object.values(nav.entrances)) {
