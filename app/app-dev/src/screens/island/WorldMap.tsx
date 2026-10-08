@@ -243,6 +243,7 @@ function Wanderer({
   delay,
   scene,
   assets,
+  buildings,
 }: {
   color: Color;
   start: Point;
@@ -251,6 +252,7 @@ function Wanderer({
   delay: number;
   scene?: VillageScene;
   assets: MapAssetSource;
+  buildings: readonly string[];
 }) {
   const xy = useRef(new Animated.ValueXY(start)).current,
     at = useRef(start);
@@ -273,7 +275,7 @@ function Wanderer({
           ? [
               at.current,
               ...navPath(
-                activeNav(assets),
+                activeNav(assets, buildings),
                 imageToWorld(at.current, sizeOf(grid)),
                 imageToWorld(target, sizeOf(grid)),
               ).map((n) => worldToImage(n, sizeOf(grid))),
@@ -958,6 +960,11 @@ function FinalIslandScene({
     trackedConstruction && progress < 1 ? trackedConstruction.building : undefined;
   const sceneBuilding = trackedConstruction?.building;
   const layout = facts?.home?.layout;
+  // villageScene 에 넘기는 것과 같은 완공 목록(공사 중인 건물 포함).
+  const navBuildings =
+    sceneBuilding && !i.buildings.includes(sceneBuilding)
+      ? [...i.buildings, sceneBuilding]
+      : i.buildings;
   const scene = useMemo(() => {
     if (!layeredPreview) return undefined;
     const built = villageScene(
@@ -1170,7 +1177,7 @@ function FinalIslandScene({
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
     setInteractiveMotion(null);
     const path = tileNav
-      ? tilePath(activeNav(mapAssets), location.current, target, sizeOf(grid))
+      ? tilePath(activeNav(mapAssets, navBuildings), location.current, target, sizeOf(grid))
       : scene
         ? villagePath(scene, location.current, target)
         : landPath(grid, location.current, nearestLand(grid, target));
@@ -1481,6 +1488,7 @@ function FinalIslandScene({
             start={nearestLand(grid, WANDER_STARTS[n])}
             scene={scene}
             assets={mapAssets}
+            buildings={navBuildings}
             s={s}
             reduce={state.settings.reduceMotion}
             delay={1200 + n * 2500}
@@ -1834,9 +1842,9 @@ function FinalIslandScene({
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
-// 화면 스냅샷(GROMO-2233)의 nav.json. 같은 소스면 같은 JSON 객체라 loadNav 의 WeakMap 캐시가 맞는다.
-const activeNav = (assets: MapAssetSource) =>
-  loadNav(readMapJson('nav.json', bundledNavJson, assets) as any);
+// 화면 스냅샷(GROMO-2233)의 nav.json 을 완공 목록별로(미완공 건물 자리는 통행). 같은 소스면 같은 JSON 객체라 loadNav 의 캐시가 맞는다.
+const activeNav = (assets: MapAssetSource, completed: readonly string[]) =>
+  loadNav(readMapJson('nav.json', bundledNavJson, assets) as any, completed);
 export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
   const L = useAppLayout();
   // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 스냅샷으로 고정해 렌더러·nav·layout 에

@@ -10,7 +10,7 @@ const OUT = path.join(__dirname, '../src/assets/village-world/v1');
 const N = 100; // 통행 셀 100×100, 1 셀 = 1 world unit
 const PAD = 10;
 // 건물 id(building) → 지금 코드의 kind. objects.json 에는 둘 다 남긴다.
-const COST = { road: 8, grass: 27, blocked: 0 }; // 정수 ×10 (길 0.8, 잔디 2.7)
+const COST = { road: 8, grass: 27 }; // 정수 ×10 (길 0.8, 잔디 2.7). 차단 셀도 비용을 기록한다(미완공 건물 자리를 앱이 켜기 때문).
 
 const map = JSON.parse(fs.readFileSync(SRC, 'utf8'));
 const cw = map.width / N; // 15.36 px
@@ -28,7 +28,7 @@ function inside(p, polygon) {
 }
 
 // village-world.ts blocks() 와 같은 식. 건물은 전부 완공으로 막는다.
-// ponytail: 10/9 fixture 는 「완공 전부」 한 벌. 미완공 건물 자리는 앱이 그리지 않아 실제로는 걸을 수 있으나 배치 서버(layoutRevision)가 생기기 전까지 한 벌만 둔다.
+// walkable 은 「완공 전부」 한 벌이고, 미완공 건물 자리는 buildingCells 로 따로 적어 앱(loadNav)이 켠다.
 function blocks(o, p) {
   if (o.layer === 'grass' || o.layer === 'flowers') return false;
   if (o.building)
@@ -84,8 +84,12 @@ const polygons = [
 ];
 
 // 통행 판정만 따로 뗀다. 격자 크기를 인자로 받아 villageScene() 과 셀 단위로 대조할 수 있다(패리티 테스트).
-function openAtPx(p) {
-  return polygons.some((poly) => inside(p, poly)) && !map.objects.some((o) => blocks(o, p));
+// without: 이 건물 id 는 아직 없다고 본다(미완공).
+function openAtPx(p, without) {
+  return (
+    polygons.some((poly) => inside(p, poly)) &&
+    !map.objects.some((o) => !(without && o.building === without) && blocks(o, p))
+  );
 }
 function walkableAt(cx, cy, cols = N, rows = N) {
   return openAtPx(center(cx, cy, cols, rows));
@@ -101,7 +105,30 @@ function build() {
       Math.floor(p.y / map.roads.cellSize) * map.roads.columns +
       Math.floor(p.x / map.roads.cellSize);
     walk.push(ok ? '1' : '0');
-    cost.push(!ok ? COST.blocked : map.roads.cells[rc] ? COST.road : COST.grass);
+    cost.push(map.roads.cells[rc] ? COST.road : COST.grass);
+  }
+  // 건물 b 가 없을 때는 통행인데 전부 완공일 때 막히는 셀.
+  const buildingCells = {};
+  for (const b of new Set(map.objects.map((o) => o.building).filter(Boolean))) {
+    buildingCells[b] = [];
+    for (let i = 0; i < N * N; i++)
+      if (walk[i] === '0' && openAtPx(center(i % N, Math.floor(i / N)), b))
+        buildingCells[b].push(i);
+  }
+  // 직교 인접 통행 셀 쌍 중 간선 중점이 막힌 쌍(a<b). 전부 완공 기준 — buildingCells 로 켜진 셀 사이 간선은 10/9 에서 검사하지 않는다.
+  const blockedEdges = [];
+  for (let i = 0; i < N * N; i++) {
+    if (walk[i] !== '1') continue;
+    const a = center(i % N, Math.floor(i / N));
+    for (const [dx, dy, ok] of [
+      [1, 0, i % N < N - 1],
+      [0, 1, i < N * (N - 1)],
+    ]) {
+      const j = i + dx + dy * N;
+      if (!ok || walk[j] !== '1') continue;
+      const b = center(j % N, Math.floor(j / N));
+      if (!openAtPx({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })) blockedEdges.push([i, j]);
+    }
   }
   const entrances = Object.fromEntries(
     Object.entries(map.doors).map(([id, d]) => [id, cellOf(d.x, d.y)]),
@@ -133,11 +160,13 @@ function build() {
   };
   const nav = {
     '$schema-note':
-      'NavArtifact 모양의 통행 파일(100×100, 행 우선). walkable 은 "0"/"1" 문자열 — 기존 Grid.cells 와 같은 모양이고 길이 10,000 을 눈으로 검사하기 쉬워 10/9 는 비트셋 대신 쓴다. traversalCost 는 정수 ×10(길 8, 잔디 27, 차단 0). entrances·spawns 는 통행 셀 좌표. 건물은 전부 완공 상태로 막았다(생성: scripts/build-nav-fixture.cjs).',
+      'NavArtifact 모양의 통행 파일(100×100, 행 우선). walkable 은 "0"/"1" 문자열 — 기존 Grid.cells 와 같은 모양이고 길이 10,000 을 눈으로 검사하기 쉬워 10/9 는 비트셋 대신 쓴다. traversalCost 는 정수 ×10(길 8, 잔디 27)이고 차단 셀에도 기록한다. entrances·spawns 는 통행 셀 좌표. walkable 은 건물을 전부 완공으로 막은 기준이고, buildingCells[건물] 은 그 건물이 미완공일 때 통행인 셀 index, blockedEdges 는 중점이 막혀 건너지 못하는 인접 쌍[a,b] (a<b). 생성: scripts/build-nav-fixture.cjs.',
     columns: N,
     rows: N,
     walkable: walk.join(''),
     traversalCost: cost,
+    buildingCells,
+    blockedEdges,
     entrances,
     spawns: { character: cellOf(map.character.x, map.character.y) },
   };
