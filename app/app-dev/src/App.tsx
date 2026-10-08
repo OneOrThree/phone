@@ -1770,18 +1770,20 @@ function Gromo() {
       notify(error);
       return;
     }
+    const cost = buildingCost(island, b),
+      minutes = buildMinutes[b];
     confirm(
-      buildingNames[b] + ' 짓기',
-      `섬 물고기 ${buildingCost(island, b)}마리를 차감하고 ${buildMinutes[b]}분 동안 공사해요.`,
+      t('app.build.confirmTitle', { building: buildingNames[b] }),
+      t('app.build.confirmBody', { cost, minutes, count: minutes }),
       () => {
         dispatch({ type: 'BUILD', building: b });
-        notify(buildingNames[b] + ' 공사를 시작했어요.');
+        notify(t('app.build.started', { building: buildingNames[b] }));
       },
     );
   };
   const openFacility = (b: Building, r: Route) => {
     if (!island.buildings.includes(b)) {
-      notify(buildingNames[b] + ' 건설 후 이용할 수 있어요.');
+      notify(t('app.build.facilityLocked', { building: buildingNames[b] }));
       return;
     }
     go(r);

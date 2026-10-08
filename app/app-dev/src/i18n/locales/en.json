@@ -301,7 +301,27 @@
     "storageRetrying": "A device storage issue is delaying your save. We'll keep retrying automatically.",
     "memberConverted": "You're now a member.",
     "restoreFailed": "Couldn't load your saved data.",
-    "storageCheck": "Please check your device storage."
+    "storageCheck": "Please check your device storage.",
+    "build": {
+      "confirmTitle": "Build {{building}}",
+      "confirmBody": {
+        "one": "This uses {{cost}} island fish and takes {{minutes}} minute to build.",
+        "other": "This uses {{cost}} island fish and takes {{minutes}} minutes to build."
+      },
+      "started": "Started building {{building}}.",
+      "facilityLocked": "You can use this once {{building}} is built.",
+      "blocked": {
+        "notHost": "Only the host can build.",
+        "underConstruction": "You can build the next building once construction finishes.",
+        "alreadyBuilt": "This facility is already complete.",
+        "hallRequired": "Build the Town Hall first.",
+        "boardRequired": "You can choose this after the Notice Board is complete.",
+        "selectNextBuilding": "Please choose the next building in the Town Hall first.",
+        "targetNotMet": "All target residents need to reach the fish goal.",
+        "shopPrerequisite": "You can build the Shop only after every other building is complete.",
+        "insufficientBalance": "Not enough island fish."
+      }
+    }
   },
   "building": {
     "hall": "Town Hall",

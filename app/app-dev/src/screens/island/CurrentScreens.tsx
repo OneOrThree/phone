@@ -1,7 +1,7 @@
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
-import { t } from '@/i18n';
+import { errorTextOr, t } from '@/i18n';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
   isTutorialExperience,
@@ -1503,7 +1503,7 @@ function FocusFlow({ e: environment }: any) {
           if (!stillHere()) return;
           tutorialRequest.current = null;
           tutorialRetryAt.current = latest.current.now + 5000;
-          e.notify(error?.message ?? t('focusFlow.fish.rewardCheckFailed'));
+          e.notify(errorTextOr(error, 'focusFlow.fish.rewardCheckFailed'));
         });
       return;
     }
@@ -1531,7 +1531,7 @@ function FocusFlow({ e: environment }: any) {
         if (!stillHere()) return;
         tutorialRequest.current = null;
         tutorialRetryAt.current = latest.current.now + 5000;
-        e.notify(error?.message ?? t('focusFlow.fish.rewardCheckFailed'));
+        e.notify(errorTextOr(error, 'focusFlow.fish.rewardCheckFailed'));
       });
   }, [
     e.focus,
@@ -1638,7 +1638,7 @@ function FocusFlow({ e: environment }: any) {
           // 응답만 유실돼 서버는 종료를 반영했을 수 있다 — 표식을 풀어 뒤늦게 오는 완료 이벤트가
           // 무시되지 않고 종료 처리되게 한다.
           endedByMeSessionIdRef.current = null;
-          e.notify(error?.message ?? t('focus.finishFailed'));
+          e.notify(errorTextOr(error, 'focus.finishFailed'));
         })
         .finally(() => {
           finishInFlightRef.current = false;
@@ -1834,7 +1834,7 @@ function FocusFlow({ e: environment }: any) {
           // 15단계는 실제 rest 화면 도착 후 App의 복구 로직에서 연다.
           go();
         })
-        .catch((error: any) => e.notify(error?.message ?? t('focusFlow.hud.pauseFailed')));
+        .catch((error: any) => e.notify(errorTextOr(error, 'focusFlow.hud.pauseFailed')));
       return;
     }
     e.dispatch({ type: 'PAUSE' });
@@ -1880,7 +1880,7 @@ function FocusFlow({ e: environment }: any) {
         })
         .catch(async (error: any) => {
           if (await e.recoverExpiredRestConflict?.(error, session)) return;
-          e.notify(error?.message ?? t('focus.resumeFailed'));
+          e.notify(errorTextOr(error, 'focus.resumeFailed'));
         });
       return;
     }
@@ -2068,7 +2068,7 @@ function FocusFlow({ e: environment }: any) {
           advanceTutorial(8, 9);
           e.go('focus');
         })
-        .catch((error: any) => setError(error?.message ?? t('focusFlow.setup.startFailed')));
+        .catch((error: any) => setError(errorTextOr(error, 'focusFlow.setup.startFailed')));
       return;
     }
     e.dispatch({ type: 'START', subject: e.text });
@@ -2887,11 +2887,7 @@ function FocusFlow({ e: environment }: any) {
                           e.playback
                             .update({ trackId: id, playing: true })
                             .catch((thrown: unknown) =>
-                              e.notify(
-                                thrown instanceof Error
-                                  ? thrown.message
-                                  : t('focusFlow.music.changeFailed'),
-                              ),
+                              e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed')),
                             );
                       }}
                     />

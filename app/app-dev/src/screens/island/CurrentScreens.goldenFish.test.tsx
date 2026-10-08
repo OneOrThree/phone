@@ -6,6 +6,7 @@ import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { applyLocalePref } from '@/i18n';
 import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
+import { ApiError } from '@/services/api/client';
 import type { GoldenFishEvent } from '@/services/islandRealtime';
 
 let onGoldenFish: ((event: GoldenFishEvent) => void) | undefined;
@@ -390,7 +391,9 @@ test('튜토리얼 집중 시작이 실패하면 오류를 대화창 안에서 �
   );
   await fireEvent.press(screen.getByTestId('start-focus', { includeHiddenElements: true }));
   const alert = screen.getByRole('alert');
-  expect(alert).toHaveTextContent('네트워크 연결 실패');
+  // GROMO-2235 r6: errorTextOr 로 바뀌며 ApiError 가 아닌 일반 Error 는 message 를 그대로 보여주지
+  // 않고 폴백 문구로 통일한다 — 서버 message 는 항상 한국어라는 전제가 깨지는 자리라 원문을 믿지 않는다.
+  expect(alert).toHaveTextContent('집중을 시작하지 못했어요.');
   expect(screen.getByTestId('tutorial-dialogue')).toContainElement(alert);
   expect(setGuideStep).not.toHaveBeenCalled();
   await screen.unmount();
@@ -1207,6 +1210,32 @@ describe('en', () => {
     );
     await fireEvent.press(screen.getByText('Done'));
     expect(setGuideStep).toHaveBeenCalledWith(8);
+    await screen.unmount();
+  });
+
+  // GROMO-2235 r6: 서버 ApiError 의 한국어 message 가 en 로케일에서도 그대로 새지 않고
+  // errors.<code> 번역으로 바뀌는지 확인한다(errorTextOr, FocusFlow 의 집중 시작 실패 경로).
+  test('en 로케일 — 집중 시작 실패는 서버 한국어 message 대신 오류 코드의 영문 번역을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const state = focusedState();
+    state.session = null;
+    const setGuideStep = jest.fn();
+    const start = jest
+      .fn()
+      .mockRejectedValueOnce(new ApiError('GOOGLE_TOKEN', '회원 전환 토큰 오류', 422));
+    const screen = await render(
+      screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, {
+        guideStep: 8,
+        setGuideStep,
+        text: 'Memorize English words',
+        focus: { start },
+      }),
+    );
+    await fireEvent.press(screen.getByTestId('start-focus', { includeHiddenElements: true }));
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Your Google login is no longer valid.');
+    expect(alert).not.toHaveTextContent('회원 전환 토큰 오류');
     await screen.unmount();
   });
 });

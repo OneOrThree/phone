@@ -1072,22 +1072,21 @@ export function questRate(s: State, q: Quest, islandId = s.islandId): number | n
 }
 export function canBuild(s: State, b: Building): string | null {
   const i = currentIsland(s);
-  if (!isHost(i)) return '방장만 건설할 수 있어요.';
-  if (i.construction) return '공사가 끝난 뒤 다음 건물을 지을 수 있어요.';
-  if (i.buildings.includes(b)) return '이미 완성한 시설이에요.';
-  if (b === 'board' && !i.buildings.includes('hall')) return '마을회관을 먼저 지어요.';
+  if (!isHost(i)) return t('app.build.blocked.notHost');
+  if (i.construction) return t('app.build.blocked.underConstruction');
+  if (i.buildings.includes(b)) return t('app.build.blocked.alreadyBuilt');
+  if (b === 'board' && !i.buildings.includes('hall')) return t('app.build.blocked.hallRequired');
   if (b !== 'hall' && b !== 'board') {
-    if (!i.buildings.includes('board')) return '게시판 완공 후 선택할 수 있어요.';
-    if (i.buildingQuest?.building !== b) return '회관에서 다음 건물을 먼저 선택해 주세요.';
+    if (!i.buildings.includes('board')) return t('app.build.blocked.boardRequired');
+    if (i.buildingQuest?.building !== b) return t('app.build.blocked.selectNextBuilding');
     if (
       !i.buildingQuest.targets.length ||
       !i.buildingQuest.targets.every((id) => collectedBy(i, id) >= buildingShare(i, b))
     )
-      return '대상 주민 모두가 물고기 목표를 달성해야 해요.';
-    if (b === 'shop' && !shopPrerequisitesMet(i))
-      return '상점은 다른 모든 건물을 완공한 뒤 지을 수 있어요.';
+      return t('app.build.blocked.targetNotMet');
+    if (b === 'shop' && !shopPrerequisitesMet(i)) return t('app.build.blocked.shopPrerequisite');
   }
-  return balance(i) < buildingCost(i, b) ? '섬 물고기 잔액이 부족해요.' : null;
+  return balance(i) < buildingCost(i, b) ? t('app.build.blocked.insufficientBalance') : null;
 }
 // 상점은 도서관·전망대·우체통·축음기를 모두 완공한 뒤 고른다 (정책-결정-2026-09-14)
 export const shopPrerequisitesMet = (i: Island) =>

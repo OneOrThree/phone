@@ -295,7 +295,24 @@
     "storageRetrying": "기기 저장소 문제로 변경 내용이 아직 저장되지 않아요. 자동으로 다시 시도할게요.",
     "memberConverted": "회원으로 전환했어요.",
     "restoreFailed": "저장된 상태를 불러오지 못했어요.",
-    "storageCheck": "기기 저장 공간을 확인해 주세요."
+    "storageCheck": "기기 저장 공간을 확인해 주세요.",
+    "build": {
+      "confirmTitle": "{{building}} 짓기",
+      "confirmBody": "섬 물고기 {{cost}}마리를 차감하고 {{minutes}}분 동안 공사해요.",
+      "started": "{{building}} 공사를 시작했어요.",
+      "facilityLocked": "{{building}} 건설 후 이용할 수 있어요.",
+      "blocked": {
+        "notHost": "방장만 건설할 수 있어요.",
+        "underConstruction": "공사가 끝난 뒤 다음 건물을 지을 수 있어요.",
+        "alreadyBuilt": "이미 완성한 시설이에요.",
+        "hallRequired": "마을회관을 먼저 지어요.",
+        "boardRequired": "게시판 완공 후 선택할 수 있어요.",
+        "selectNextBuilding": "회관에서 다음 건물을 먼저 선택해 주세요.",
+        "targetNotMet": "대상 주민 모두가 물고기 목표를 달성해야 해요.",
+        "shopPrerequisite": "상점은 다른 모든 건물을 완공한 뒤 지을 수 있어요.",
+        "insufficientBalance": "섬 물고기 잔액이 부족해요."
+      }
+    }
   },
   "building": {
     "hall": "마을회관",

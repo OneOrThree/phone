@@ -58,7 +58,7 @@ import {
   trackNames,
   todayFocusSeconds,
 } from '@/services/model';
-import { applyLocalePref } from '@/i18n';
+import { applyLocalePref, t } from '@/i18n';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
 
@@ -159,6 +159,14 @@ test('회관→게시판은 섬 인원과 무관한 총량 고정; 차감 후 �
   s = act(s, 'TICK', { now: boardEndsAt + 2 * 86400000 });
   assert.ok(currentIsland(s).buildings.includes('board'));
   assert.equal(currentIsland(s).boardCompletedDay, dayKey(boardEndsAt));
+});
+test('canBuild — en 로케일에서는 방장 아님 안내가 영문으로 나온다 (GROMO-2235 r6)', () => {
+  const s = act(initialState(), 'JOIN', { id: 'strawberry' });
+  assert.equal(isHost(currentIsland(s)), false);
+  assert.equal(canBuild(s, 'hall'), '방장만 건설할 수 있어요.');
+  applyLocalePref('en');
+  assert.equal(canBuild(s, 'hall'), 'Only the host can build.');
+  assert.equal(canBuild(s, 'hall'), t('app.build.blocked.notHost'));
 });
 test('QA 완공은 온보딩을 유지하고 완료 후 현재 섬의 공사 중간 상태만 정리한다', () => {
   const fresh = initialState();
