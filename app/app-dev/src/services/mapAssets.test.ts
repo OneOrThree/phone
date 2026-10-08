@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
-import { MAP_FILES, syncMapAssets, type MapFs } from '@/services/mapAssets';
+import { MAP_FILES, syncMapAssets, validateMapJson, type MapFs } from '@/services/mapAssets';
 import { sha256Hex } from '@/utils/sha256';
 
 // 메모리 파일시스템 — 파일은 Map, 디렉터리는 Set. renameDir 은 접두사 치환(원자 교체 흉내).
+// 실제 expo-file-system 과 같게: copy·move 는 대상의 부모 디렉터리가 없으면 던진다.
+// failNext(op): 다음 op 호출 한 번을 던지게 한다(실패 주입).
+type FailOp = 'renameDir' | 'writeText' | 'move' | 'copy';
 function memFs() {
+  const failing = new Set<FailOp>();
+  const hit = (op: FailOp) => {
+    if (failing.delete(op)) throw new Error(`injected ${op} failure`);
+  };
   const files = new Map<string, Uint8Array>();
   const dirs = new Set<string>();
   const enc = new TextEncoder(),
@@ -17,7 +24,10 @@ function memFs() {
     exists: (p) => files.has(p) || dirs.has(p),
     readText: (p) => dec.decode(files.get(p) ?? assert.fail(`no file ${p}`)),
     readBytes: (p) => files.get(p) ?? assert.fail(`no file ${p}`),
-    writeText: (p, t) => fs.writeBytes(p, enc.encode(t)),
+    writeText(p, t) {
+      hit('writeText');
+      fs.writeBytes(p, enc.encode(t));
+    },
     writeBytes(p, b) {
       mk(parent(p));
       files.set(p, b);
@@ -30,10 +40,13 @@ function memFs() {
     },
     size: (p) => (files.get(p) ?? assert.fail(`no file ${p}`)).length,
     copy(from, to) {
-      mk(parent(to));
+      hit('copy');
+      if (!dirs.has(parent(to))) throw new Error(`no parent dir for ${to}`);
       files.set(to, files.get(from) ?? assert.fail(`no file ${from}`));
     },
     move(from, to) {
+      hit('move');
+      if (!dirs.has(parent(to))) throw new Error(`no parent dir for ${to}`);
       files.set(to, files.get(from) ?? assert.fail(`no file ${from}`));
       files.delete(from);
     },
@@ -45,6 +58,7 @@ function memFs() {
       ),
     ],
     renameDir(p, newName) {
+      hit('renameDir');
       const to = `${parent(p)}/${newName}`;
       for (const [k, v] of [...files])
         if (k.startsWith(`${p}/`)) {
@@ -58,7 +72,7 @@ function memFs() {
         }
     },
   };
-  return { fs, files, dirs };
+  return { fs, files, dirs, failNext: (op: FailOp) => void failing.add(op) };
 }
 
 // 승격 때 검증을 통과하는 최소 모양 JSON
@@ -66,13 +80,19 @@ const VALID_JSON: Record<string, object> = {
   'tileset.json': { columns: 1, tilewidth: 1, tileheight: 1, margin: 0, spacing: 0, scale: 2 },
   'tilemap.json': {
     width: 1,
+    height: 1,
     tilewidth: 1,
     tileheight: 1,
     layers: [{ name: 'terrain', data: [1] }],
   },
   'nav.json': { columns: 1, rows: 1, walkable: '1', traversalCost: [8] },
   'objects.json': { objects: [] },
-  'home.map.json': { imageWidth: 1, imageHeight: 1 },
+  'home.map.json': {
+    imageWidth: 1,
+    imageHeight: 1,
+    nav: { columns: 1, rows: 1 },
+    tiles: { columns: 1, rows: 1 },
+  },
 };
 
 // 가짜 서버: 버전별 파일 내용을 갖고 manifest/ETag/304 를 흉내 낸다. 요청 로그를 남긴다.
@@ -330,7 +350,7 @@ test('(i) 부팅 시 파일 크기가 state 기록과 다르면 번들, demoteTo
   const b = memFs();
   await m.syncMapAssets('home', opts(b.fs, srv.fetchFn));
   assert.equal(m.promoteMapAssets('home', b.fs).kind, 'cache');
-  m.demoteToBundle('home');
+  m.demoteToBundle('home', b.fs);
   assert.deepEqual(m.getActiveMapAssets('home', b.fs), { kind: 'bundle' });
 });
 
@@ -350,4 +370,110 @@ test('(j) state.json 은 .tmp 를 거쳐 쓰고, 보관은 이전 활성 + 새 �
       .sort(),
     ['v2', 'v3'],
   );
+});
+
+const readBad = (fs: MapFs) => JSON.parse(fs.readText('maps/home/state.json')).bad;
+
+test('(k) 디코드 실패 → bad 표식: 다음 시작은 즉시 번들, 같은 manifest 는 채택 안 함, 새 해시면 채택', async () => {
+  const m = freshModule();
+  const { fs } = memFs();
+  const srv = fakeServer();
+  await m.syncMapAssets('home', opts(fs, srv.fetchFn));
+  assert.equal(m.promoteMapAssets('home', fs).kind, 'cache');
+  const hash = sha256Hex(new TextEncoder().encode('png-tileset@2x.png-1-a'));
+  m.demoteToBundle('home', fs); // 캐시 PNG 디코드 실패
+  assert.deepEqual(readBad(fs), { 'tileset@2x.png': hash });
+
+  // 다음 앱 시작: 빈 화면 없이 곧장 번들
+  const next = freshModule();
+  assert.deepEqual(next.getActiveMapAssets('home', fs), { kind: 'bundle' });
+
+  // 같은 manifest 를 다시 받아도 받지 않고 채택하지 않는다
+  srv.log.length = 0;
+  assert.deepEqual(await next.syncMapAssets('home', opts(fs, srv.fetchFn)), { kind: 'bundle' });
+  assert.deepEqual(srv.log, ['manifest.json']);
+  assert.deepEqual(next.promoteMapAssets('home', fs), { kind: 'bundle' });
+
+  // 해시가 바뀐 새 버전은 정상 채택, bad 는 사라진다
+  srv.state.version = 2;
+  assert.equal((await next.syncMapAssets('home', opts(fs, srv.fetchFn))).kind, 'cache');
+  assert.equal(next.promoteMapAssets('home', fs).kind, 'cache');
+  assert.equal(readBad(fs), undefined);
+});
+
+test('(k2) 승격 때 JSON 검증 실패도 bad 표식을 남겨 같은 해시를 다시 받지 않는다', async () => {
+  const m = freshModule();
+  const { fs } = memFs();
+  const srv = fakeServer();
+  await m.syncMapAssets('home', opts(fs, srv.fetchFn));
+  fs.writeText('maps/home/v1/nav.json', '{'); // 깨진 JSON (state 의 해시는 서버 것 그대로)
+  assert.deepEqual(m.promoteMapAssets('home', fs), { kind: 'bundle' });
+  assert.deepEqual(Object.keys(readBad(fs)), ['nav.json']);
+
+  srv.log.length = 0;
+  assert.deepEqual(await m.syncMapAssets('home', opts(fs, srv.fetchFn)), { kind: 'bundle' });
+  assert.deepEqual(srv.log, ['manifest.json']);
+});
+
+test('(l) SHAPE 교차 검증: home.map 의 nav·tiles 가 nav.json·tilemap 과 다르면 실패 메시지', () => {
+  const ok = () => JSON.parse(JSON.stringify(VALID_JSON));
+  assert.equal(validateMapJson(ok()), null);
+
+  const nav = ok();
+  nav['home.map.json'].nav.columns = 2;
+  assert.equal(validateMapJson(nav), 'home.map.json nav.columns/rows === nav.json');
+
+  const tiles = ok();
+  tiles['home.map.json'].tiles.rows = 3;
+  assert.equal(validateMapJson(tiles), 'home.map.json tiles.columns*rows === tilemap.width*height');
+});
+
+test('(l2) SHAPE 단일 검사: scale·columns·terrain 길이·nav 길이', () => {
+  const bad = (file: string, patch: object) => {
+    const j = JSON.parse(JSON.stringify(VALID_JSON));
+    Object.assign(j[file], patch);
+    return validateMapJson(j);
+  };
+  assert.equal(bad('tileset.json', { scale: 0 }), 'tileset.json scale > 0');
+  assert.equal(bad('tileset.json', { columns: 0 }), 'tileset.json columns >= 1');
+  assert.equal(
+    bad('tilemap.json', { layers: [{ name: 'terrain', data: [1, 1] }] }),
+    'tilemap.json terrain.data.length === width*height',
+  );
+  assert.equal(bad('nav.json', { walkable: '11' }), 'nav.json columns*rows === walkable.length');
+});
+
+test('(m) rename 실패: 이전 cache 유지(없으면 bundle), 임시 디렉터리 정리', async () => {
+  const a = memFs();
+  const srv = fakeServer();
+  a.failNext('renameDir');
+  assert.deepEqual(await syncMapAssets('home', opts(a.fs, srv.fetchFn)), { kind: 'bundle' });
+  assert.deepEqual(
+    a.fs.list('maps/home').filter((n) => n.startsWith('tmp-')),
+    [],
+  );
+
+  const b = memFs();
+  await syncMapAssets('home', opts(b.fs, srv.fetchFn));
+  srv.state.version = 2;
+  b.failNext('renameDir');
+  const kept = await syncMapAssets('home', opts(b.fs, srv.fetchFn));
+  assert.equal(kept.kind === 'cache' && kept.mapVersion, 1);
+  assertIntact(b.fs, kept);
+  assert.equal(b.fs.exists('maps/home/v2'), false);
+});
+
+test('(n) state 쓰기 실패: 이전 cache v1 유지, 다음 sync 가 v2 를 정상 채택', async () => {
+  const { fs, failNext } = memFs();
+  const srv = fakeServer();
+  await syncMapAssets('home', opts(fs, srv.fetchFn));
+  srv.state.version = 2;
+  failNext('writeText'); // state.json.tmp 쓰기에서 실패
+  const kept = await syncMapAssets('home', opts(fs, srv.fetchFn));
+  assert.equal(kept.kind === 'cache' && kept.mapVersion, 1);
+  assert.equal(JSON.parse(fs.readText('maps/home/state.json')).mapVersion, 1);
+
+  const next = await syncMapAssets('home', opts(fs, srv.fetchFn));
+  assert.equal(next.kind === 'cache' && next.mapVersion, 2);
+  assertIntact(fs, next);
 });
