@@ -123,6 +123,15 @@ type Door = Point & {
   hitbox?: { x: number; y: number; w: number; h: number };
 };
 const legacyDoors: Record<string, Door> = {
+  fire: {
+    x: 460,
+    y: 540,
+    r: 'rest',
+    label: '모닥불',
+    memberOnly: true,
+    // 낮 연기와 밤 불꽃이 그려지는 영역을 함께 덮는다.
+    hitbox: { x: 402, y: 425, w: 143, h: 105 },
+  },
   hall: { x: 1030, y: 268, r: 'hall', label: buildingNames.hall, building: 'hall' },
   board: { x: 891, y: 250, r: 'board', label: buildingNames.board, building: 'board' },
   gram: {
@@ -890,6 +899,7 @@ function FinalIslandScene({
     // 네 건물은 낮·밤 모두 진입 프레임이 있다.
     !scene &&
     (target === 'hall' || target === 'library' || target === 'shop' || target === 'tower');
+  const fireObject = scene?.objects.find((object) => object.kind === 'fire');
   const doors: Record<string, Door> = scene
     ? Object.fromEntries(
         Object.entries(legacyDoors).map(([id, door]) => [
@@ -902,9 +912,21 @@ function FinalIslandScene({
                 // 기본 배경 좌표의 뗏목 탭 영역은 마을 장면 좌표와 맞지 않는다.
                 hitbox: undefined,
               }
-            : door.building
-              ? { ...door, ...villageDoors[door.building] }
-              : door,
+            : id === 'fire' && fireObject
+              ? {
+                  ...door,
+                  x: fireObject.x,
+                  y: fireObject.y + fireObject.h / 2,
+                  hitbox: {
+                    x: fireObject.x - fireObject.w / 2,
+                    y: fireObject.y - fireObject.h,
+                    w: fireObject.w,
+                    h: fireObject.h,
+                  },
+                }
+              : door.building
+                ? { ...door, ...villageDoors[door.building] }
+                : door,
         ]),
       )
     : legacyDoors;

@@ -525,6 +525,61 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
   jest.useRealTimers();
 });
 
+test.each([false, true])(
+  '홈 모닥불을 누르면 휴식 화면을 연다 (레이어드: %s)',
+  async (layeredPreview) => {
+    jest.useFakeTimers();
+    jest.spyOn(Animated, 'timing').mockImplementation(
+      () =>
+        ({
+          start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+          stop: jest.fn(),
+          reset: jest.fn(),
+        }) as unknown as Animated.CompositeAnimation,
+    );
+    const state = initialState(true);
+    state.settings.reduceMotion = true;
+    state.islands.find((island) => island.id === state.islandId)!.buildings = [];
+    const go = jest.fn();
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={go}
+        build={jest.fn()}
+        layeredPreview={layeredPreview}
+        showHud={false}
+        showActions={false}
+      />,
+    );
+
+    await fireEvent.press(screen.getByRole('button', { name: '모닥불' }));
+    expect(go).toHaveBeenCalledWith('rest');
+    expect(state.session).toBeFalsy();
+    expect(screen.queryByText('모닥불')).toBeNull();
+    await screen.unmount();
+  },
+);
+
+test.each([false, true])(
+  '방문 중에는 모닥불 휴식 진입을 노출하지 않는다 (방문 카드: %s)',
+  async (explicitVisit) => {
+    const state = initialState(true);
+    const visitingIslandId = state.islands.find((island) => island.id !== state.islandId)!.id;
+    if (!explicitVisit) state.visitingIslandId = visitingIslandId;
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={jest.fn()}
+        build={jest.fn()}
+        viewingIslandId={explicitVisit ? visitingIslandId : undefined}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: '모닥불' })).toBeNull();
+    await screen.unmount();
+  },
+);
+
 test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));

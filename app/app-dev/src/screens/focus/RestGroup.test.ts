@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 import { RestGroup, restSeats, seatBox } from '@/screens/focus/RestGroup';
 import { initialState } from '@/services/model';
 
@@ -82,12 +82,14 @@ test('집중 세션이 있으면 멈춘 집중 정보가 보인다', async () =>
 
 test('집중 세션 없이 모닥불에 들어오면 멈춘 집중 정보가 보이지 않는다', async () => {
   const state = initialState(true);
+  const home = jest.fn();
+  const resume = jest.fn();
 
   const screen = await render(
     React.createElement(RestGroup, {
       state,
-      resume: jest.fn(),
-      home: jest.fn(),
+      resume,
+      home,
     }),
   );
 
@@ -95,5 +97,9 @@ test('집중 세션 없이 모닥불에 들어오면 멈춘 집중 정보가 보
   assert.ok(screen.getByText('휴식 중...'));
   assert.ok(screen.getByText('섬으로 돌아가기'));
   assert.equal(screen.queryByTestId('end-rest'), null);
+  await fireEvent.press(screen.getByText('섬으로 돌아가기'));
+  expect(home).toHaveBeenCalledTimes(1);
+  expect(resume).not.toHaveBeenCalled();
+  expect(state.session).toBeFalsy();
   await screen.unmount();
 });
