@@ -8,6 +8,7 @@ import type {
 import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
 import type { PlaybackState } from '@/services/api/playback';
 import type { HomeWorldFacts } from '@/services/homeSnapshot';
+import { formatDuration } from '@/i18n/format';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -992,10 +993,9 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
     residents
   );
 }
-// "N시간 M분", 1시간 미만은 "M분", 딱 떨어지는 시간은 "N시간"
+// "N시간 M분", 1시간 미만은 "M분", 딱 떨어지는 시간은 "N시간" — 언어별 표기는 formatDuration 이 맡는다
 export function hoursMinutes(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  return m < 60 ? `${m}분` : m % 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m / 60}시간`;
+  return formatDuration(seconds);
 }
 export const sessionSeconds = (session: Session | null, now = Date.now()) =>
   !session
