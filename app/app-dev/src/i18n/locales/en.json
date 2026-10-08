@@ -227,7 +227,87 @@
     "rain": "Raindrops"
   },
   "focus": {
+    "start": "Start Focus",
+    "resume": "Resume Focus",
     "finishFailed": "Couldn't finish the focus session.",
     "resumeFailed": "Couldn't resume the focus session."
+  },
+  "home": {
+    "hud": {
+      "todayFocus": "Focus today",
+      "visiting": "Visiting {{name}}"
+    },
+    "build": "Build {{building}}",
+    "buildProgress": "{{current}}/{{total}} fish",
+    "buildInProgress": "{{building}} under construction",
+    "buildMinutesLeft": { "one": "{{count}} minute left", "other": "{{count}} minutes left" },
+    "buildAction": "Build",
+    "returnToMyIsland": "Back to My Island",
+    "quest": {
+      "focusCondition": "{{start}}–{{end}} · {{target}} min",
+      "phoneCondition": "Daily phone use · under {{target}} min",
+      "today": "Today's Quest",
+      "claim": "Claim Reward",
+      "tapToClaim": "Tap to view your reward",
+      "more": { "one": "+{{count}} more", "other": "+{{count}} more" },
+      "done": { "one": "{{count}} quest completed", "other": "{{count}} quests completed" },
+      "a11yReward": {
+        "one": "{{count}} quest reward to claim. Claim reward",
+        "other": "{{count}} quest rewards to claim. Claim reward"
+      },
+      "a11yMultiple": {
+        "one": "{{count}} quest today. {{title}} and {{rest}} more",
+        "other": "{{count}} quests today. {{title}} and {{rest}} more"
+      },
+      "a11ySingle": "Today's quest. {{title}}. {{meta}}"
+    },
+    "error": {
+      "loadFailed": "Couldn't load your island info."
+    },
+    "tutorial": {
+      "focusStart": "Tap the Start Focus button below to begin focusing.",
+      "hallGuide": "First, let's build the Town Hall to manage the island.\nJust gather {{count}} fish!",
+      "ok": "Got it"
+    },
+    "lock": {
+      "missing": "No {{building}} yet",
+      "libraryLocked": "You can't view past records until the library is built.",
+      "lockedGeneric": "You can use this once it's built.",
+      "viewNext": "View next building in Town Hall"
+    },
+    "construction": {
+      "foundation": "Foundation work in progress",
+      "structure": "Framing in progress",
+      "finishing": "Finishing work in progress",
+      "completion": "Completed"
+    },
+    "door": {
+      "mailNewLetter": "Mailbox, you have a new letter from a friend.",
+      "newComment": "{{label}}, there's a new comment.",
+      "unreadNotice": "{{label}}, there's an unread notice.",
+      "newProduct": "{{label}}, there's a new item.",
+      "purchasable": "{{label}}, there's an item you can buy.",
+      "rankUpdated": "{{label}}, the weekly ranking was updated.",
+      "rankChanged": "{{label}}, the weekly ranking changed.",
+      "newQuest": "{{label}}, there's a new quest.",
+      "newReading": "{{label}}, there's something new to read.",
+      "hallHint": "Tap to enter the Town Hall.",
+      "boardHint": "Open the board to check it out.",
+      "shopHint": "Check out the items in the shop.",
+      "towerHint": "Check the weekly ranking at the Lookout Tower.",
+      "libraryHint": "Check out what's new at the Library.",
+      "membersOnly": "Only residents can use this."
+    },
+    "a11y": {
+      "walk": "Walk around the island",
+      "campfire": "Campfire",
+      "gram": "Gramophone",
+      "boat": "My Boat",
+      "dock": "Dock",
+      "todayFocusClock": "{{name}}, focus today {{clock}}",
+      "raft": "Raft",
+      "viewFishingIsland": "View the Fishing Island",
+      "mailboxNewLetter": "You have a new letter from a friend."
+    }
   }
 }

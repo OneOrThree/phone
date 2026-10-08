@@ -26,6 +26,7 @@ import {
   costs,
 } from '@/services/model';
 import { assets } from '@/constants/assets';
+import { t } from '@/i18n';
 import { C, T, Button, Progress, useScreenInsets } from '@/design-system/primitives';
 import { semanticTokens } from '@/design-system/tokens';
 import { IslandDecor } from '@/screens/cosmetics/Cosmetics';
@@ -303,11 +304,11 @@ export function IslandHome({
       nodes[key] || nodes.low,
       (
         {
-          boat: '내 배',
-          focusSetup: '부두',
-          focus: '부두',
-          rest: '모닥불',
-          sound: '꽃나팔 방송기',
+          boat: t('home.a11y.boat'),
+          focusSetup: t('home.a11y.dock'),
+          focus: t('home.a11y.dock'),
+          rest: t('home.a11y.campfire'),
+          sound: t('home.a11y.gram'),
         } as Record<string, string>
       )[r] || buildingNames[r as Building],
       r,
@@ -351,7 +352,7 @@ export function IslandHome({
       >
         <Pressable
           testID="island-ground"
-          accessibilityLabel="섬 산책하기"
+          accessibilityLabel={t('home.a11y.walk')}
           onPress={(e) => {
             if (!camera.canTap()) return;
             camera.tapPoint(e.nativeEvent.pageX, e.nativeEvent.pageY, (point) => {
@@ -500,7 +501,7 @@ export function IslandHome({
             ))}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="모닥불"
+            accessibilityLabel={t('home.a11y.campfire')}
             onPress={() => camera.canTap() && enter('rest')}
             style={{
               position: 'absolute',
@@ -515,7 +516,7 @@ export function IslandHome({
           {bs.includes('gram') && (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="꽃나팔 방송기"
+              accessibilityLabel={t('home.a11y.gram')}
               onPress={() => camera.canTap() && enter('sound')}
               style={{
                 position: 'absolute',
@@ -533,7 +534,7 @@ export function IslandHome({
           )}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="내 배"
+            accessibilityLabel={t('home.a11y.boat')}
             onPress={() => camera.canTap() && enter('boat')}
             style={{
               position: 'absolute',
@@ -580,7 +581,7 @@ export function IslandHome({
             <Pressable
               testID="island-cat-actor"
               accessibilityRole="button"
-              accessibilityLabel="내 고양이"
+              accessibilityLabel={t('character.title')}
               onPress={handleCatPress}
               style={{
                 width: hitExtent,
@@ -641,7 +642,7 @@ export function IslandHome({
               justifyContent: 'space-between',
             }}
           >
-            <Text style={{ fontSize: 12, color: C.muted }}>오늘 집중</Text>
+            <Text style={{ fontSize: 12, color: C.muted }}>{t('home.hud.todayFocus')}</Text>
             <Text
               style={{
                 fontSize: 22,
@@ -705,22 +706,26 @@ export function IslandHome({
                 }}
               >
                 <Text style={{ fontSize: 14, fontWeight: '800', color: C.ink }}>
-                  {next === 'hall' ? '마을회관 짓기' : '게시판 짓기'}
+                  {t('home.build', { building: buildingNames[next] })}
                 </Text>
                 <T small>
-                  {island.contribution}/{costs[next]} 마리
+                  {t('home.buildProgress', { current: island.contribution, total: costs[next] })}
                 </T>
               </View>
               <Progress value={Math.min(100, (island.contribution / costs[next]) * 100)} />
               {island.contribution >= costs[next] ? (
-                <Button small title={buildingNames[next] + ' 짓기'} onPress={() => build(next)} />
+                <Button
+                  small
+                  title={t('home.build', { building: buildingNames[next] })}
+                  onPress={() => build(next)}
+                />
               ) : null}
             </View>
           )}
           <View style={{ marginLeft: 'auto' }}>
             <Button
               round
-              title={state.session ? '집중 이어가기' : '집중 시작'}
+              title={state.session ? t('focus.resume') : t('focus.start')}
               onPress={() =>
                 enter(
                   state.session

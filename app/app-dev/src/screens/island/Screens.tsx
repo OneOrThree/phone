@@ -2446,8 +2446,8 @@ export function RedesignScreens({ e }: any) {
       >
         {e.homeError ? (
           <>
-            <Txt style={H17}>섬 정보를 불러오지 못했어요</Txt>
-            <Btn kind="ghost" id="home-retry" title="다시 시도" onPress={e.retryHome} />
+            <Txt style={H17}>{t('home.error.loadFailed')}</Txt>
+            <Btn kind="ghost" id="home-retry" title={t('common.retry')} onPress={e.retryHome} />
           </>
         ) : (
           <Spinner reduce={state.settings.reduceMotion} />
@@ -2475,7 +2475,7 @@ export function RedesignScreens({ e }: any) {
             focusTutorial={
               guideStep === 4
                 ? {
-                    text: '아래의 집중 시작 버튼을 눌러 집중을 시작해 보자.',
+                    text: t('home.tutorial.focusStart'),
                     onPress: () =>
                       setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
                     onSkip: () => setGuideStep(99),
@@ -2500,7 +2500,7 @@ export function RedesignScreens({ e }: any) {
         )}
         {hallGuide && (
           <GuideBox
-            text={`제일 먼저 섬의 관리를 위한 마을회관부터 지어보자.\n물고기 ${costs.hall}마리만 모아줘!`}
+            text={t('home.tutorial.hallGuide', { count: costs.hall })}
             style={{
               left: (layout.width - w) / 2,
               width: w,
@@ -2509,7 +2509,7 @@ export function RedesignScreens({ e }: any) {
             }}
           >
             <Btn
-              title="알겠어"
+              title={t('home.tutorial.ok')}
               small
               style={{ minWidth: 96 }}
               onPress={() => setHallGuideOpen(false)}

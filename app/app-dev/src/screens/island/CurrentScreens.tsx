@@ -1,6 +1,7 @@
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
+import { t } from '@/i18n';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
   isTutorialExperience,
@@ -441,14 +442,12 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Pic id={`bld/${buildingArt[required]}`} w={100} />
-        <Txt kind="h17">아직 {buildingNames[required]}이 없어요</Txt>
+        <Txt kind="h17">{t('home.lock.missing', { building: buildingNames[required] })}</Txt>
         <Txt kind="meta">
-          {required === 'library'
-            ? '도서관을 짓기 전에는 지난 기록을 볼 수 없어요.'
-            : '완공 후 이용할 수 있어요.'}
+          {required === 'library' ? t('home.lock.libraryLocked') : t('home.lock.lockedGeneric')}
         </Txt>
         <Btn
-          title={host && built.includes('hall') ? '회관에서 다음 건물 보기' : '확인'}
+          title={host && built.includes('hall') ? t('home.lock.viewNext') : t('common.ok')}
           onPress={() => (host && built.includes('hall') ? e.go('construction') : e.home())}
         />
       </Overlay>
@@ -2451,8 +2450,8 @@ function FocusFlow({ e: environment }: any) {
               testID="focus-subject"
               accessibilityLabel="오늘의 할 일"
               value={e.text}
-              onChangeText={(t: string) => {
-                e.setText(t);
+              onChangeText={(tx: string) => {
+                e.setText(tx);
                 setError('');
               }}
               maxLength={40}
