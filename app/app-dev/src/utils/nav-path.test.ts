@@ -164,3 +164,28 @@ describe('tilePath (walk 의 done 호출 조건)', () => {
     }
   });
 });
+
+describe('모서리 관통 금지(규칙 ⑤) — 합성 3×3', () => {
+  const diag = (rows: string[]) => {
+    const g = synth(rows);
+    // (0,0) → (1,1) 인접 대각을 한 걸음으로 갈 수 있는지(경로 길이 1 + 직선 거리 √2).
+    const path = navPath(g, center(0, 0), center(1, 1));
+    return path.length === 1;
+  };
+  it('(1,0) 이 막히면 대각 금지', () => expect(diag(['101', '111', '111'])).toBe(false));
+  it('(0,1) 이 막히면 대각 금지', () => expect(diag(['111', '011', '111'])).toBe(false));
+  it('둘 다 열리면 대각 허용', () => expect(diag(['111', '111', '111'])).toBe(true));
+});
+
+describe('loadNav 입력 검증', () => {
+  it('walkable 길이가 columns*rows 와 다르면 throw', () => {
+    expect(() =>
+      loadNav({ columns: 2, rows: 2, walkable: '111', traversalCost: [10, 10, 10, 10] }),
+    ).toThrow(/walkable/);
+  });
+  it('통행 셀의 비용이 0 이면 throw', () => {
+    expect(() => loadNav({ columns: 2, rows: 1, walkable: '11', traversalCost: [10, 0] })).toThrow(
+      /traversalCost\[1\]/,
+    );
+  });
+});
