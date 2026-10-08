@@ -16,7 +16,7 @@
     "UNSUPPORTED_PROVIDER": "This social login provider isn't supported.",
     "NICKNAME_INVALID": "Nicknames must be 2–10 characters, not counting leading or trailing spaces.",
     "BANNED_WORD": "It contains words that aren't allowed.",
-    "HOST_WITHDRAW": "Hand over your island host role before leaving.",
+    "HOST_WITHDRAW": "Hand over your island host role before leaving the island.",
     "REFRESH_TOKEN": "Your login is no longer valid.",
     "UNAUTHORIZED": "Authentication is required. Please log in again.",
     "KAKAO_TOKEN": "Your Kakao login is no longer valid.",

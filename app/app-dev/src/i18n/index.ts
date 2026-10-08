@@ -48,6 +48,10 @@ export function getLocalePref(): LocalePref {
 
 // 저장값을 적용하고 정규화한 설정값을 돌려준다. null·미지원 값('ja'·'zh-Hant' 등)은 'system'.
 // 이미 그려진 화면은 스스로 다시 그려지지 않는다 — 반환값을 App 의 setLocalePref 에 넘겨 재렌더한다.
+// 'system' 의 기기 언어는 호출 시점에 한 번만 읽는다 — 앱 실행 중 기기 언어를 바꾸고 돌아와도 콜드 스타트
+// 전까지는 반영하지 않는다(iOS 는 언어를 바꾸면 앱이 종료되고, Android 는 프로세스가 살아 있으면 구 언어 유지).
+// 언어 화면 계약: 'ko'|'en'|'system' 을 AsyncStorage LOCALE_KEY 에 저장하고(키를 지우지 않는다)
+// setLocalePref(applyLocalePref(값)) 으로 재렌더한다. 현재 선택 표시는 getLocale() 이 아니라 getLocalePref().
 export function applyLocalePref(raw: string | null | undefined): LocalePref {
   const pref: LocalePref =
     raw && (SUPPORTED_LOCALES as readonly string[]).includes(raw)
@@ -60,6 +64,9 @@ export function applyLocalePref(raw: string | null | undefined): LocalePref {
 
 const lookup = (locale: SupportedLocale, key: string): any =>
   key.split('.').reduce((node: any, part) => node?.[part], tables[locale]);
+// 현재 언어나 en 표에 문자열 값이 있는지 — t() 의 «미존재 키는 키 반환» 과 값 비교하지 않고 직접 본다.
+const has = (key: string): boolean =>
+  typeof (lookup(current, key) ?? lookup('en', key)) === 'string';
 
 // 현재 언어 표 → en 표 순으로 찾고, 어디에도 없으면 키를 그대로 돌려준다(빈 화면보다 찾기 쉽다).
 export function t(key: string, vars: Record<string, string | number> = {}): string {
@@ -79,10 +86,10 @@ export function errorText(err: unknown): string {
   if (!(err instanceof ApiError)) return t('errors.GENERIC');
   const { code } = err;
   const key = `errors.${code}`;
-  const translated = t(key);
-  const serverText = current === 'ko' ? err.message : translated === key ? '' : translated;
+  const serverText = current === 'ko' ? err.message : has(key) ? t(key) : '';
   if (code === CLIENT_STALE_SESSION) return '';
-  if (code === 'SLUG_NOT_FOUND' || code === 'INVITATION_EXPIRED') return translated;
+  if (code === 'SLUG_NOT_FOUND' || code === 'INVITATION_EXPIRED')
+    return has(key) ? t(key) : t('errors.GENERIC');
   if (code === 'FORBIDDEN' && serverText) return serverText;
   if (code === 'STATE_CONFLICT' || code === 'VERSION_CONFLICT') return t('errors.STATE_CONFLICT');
   if (code === 'REQUEST_IN_PROGRESS' || err.retryable) return t('errors.REQUEST_IN_PROGRESS');
