@@ -471,6 +471,7 @@ function Gromo() {
     const gateBoard = shouldGateScreenTimeBoard(r, {
       isIOS: Platform.OS === 'ios',
       promptSeen: !!state.settings.screenTimeBoardPromptSeen,
+      visiting: !!state.visitingIslandId,
     });
     const nextRoute: Route = gateBoard ? 'permission' : r;
     const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
