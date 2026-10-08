@@ -17,13 +17,15 @@ package com.oneorthree.phone.construction.service;
  *       <b>시각 외곽 상자이지 충돌체가 아니다</b>. 충돌 정밀화는 Movement 컴파일러 몫이다.</li>
  * </ul>
  * 순서는 정책 C01 의 건물 7개 표시 순서다. 맵 원화가 바뀌면 이 상수와 placement.json 을 함께 고친다.
+ * {@code templateVersion: 2} 는 「기존 마을 좌표로 만든 행」 표식이다. 그 전 템플릿(새 마을 map.json 좌표)으로 만든 행에는
+ * 이 키가 없고, 앱은 표식이 없는 행의 칸을 건물 이동에 쓰지 않는다(기본 위치로 그림). 형식 버전 {@code schemaVersion} 과 별개다.
  * 템플릿은 생성 시점 스냅샷이라 <b>이미 만들어진 {@code island_layouts} 행은 바뀌지 않는다</b> — 에픽 main 머지 전에는
  * 행을 지워 다시 만들고, 그 뒤에는 데이터 마이그레이션으로 고친다(docs/prd/fishcat/island-movement/map-assets.md §6).
  */
 final class IslandLayoutTemplate {
 
     static final String DEFAULT_LAYOUT_JSON = """
-            {"schemaVersion":1,"mapId":"home","buildings":[\
+            {"schemaVersion":1,"templateVersion":2,"mapId":"home","buildings":[\
             {"id":"hall","cell":{"x":69,"y":25},"anchor":"bottom-center",\
             "footprint":[[61,2],[78,2],[78,26],[61,26]]},\
             {"id":"board","cell":{"x":58,"y":23},"anchor":"bottom-center",\

@@ -172,7 +172,8 @@ class IslandConstructionIntegrationTest {
 
         assertThat(count("island_layouts", f.islandId)).isEqualTo(1);
         assertThat(first.layoutRevision()).isEqualTo(1);
-        assertThat(first.layout()).containsEntry("schemaVersion", 1).containsEntry("mapId", "home");
+        assertThat(first.layout()).containsEntry("schemaVersion", 1).containsEntry("templateVersion", 2)
+                .containsEntry("mapId", "home");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> buildings = (List<Map<String, Object>>) first.layout().get("buildings");
         assertThat(buildings).hasSize(7);
