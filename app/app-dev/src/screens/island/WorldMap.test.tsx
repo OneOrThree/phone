@@ -20,7 +20,6 @@ import {
   BUILDING_ENTRY_DURATION_MS,
   BUILDING_TRANSITION_DURATION_MS,
 } from '@/services/buildingTransition';
-import { semanticTokens } from '@/design-system/tokens';
 import { villageScene } from '@/utils/village-world';
 import { assets } from '@/constants/assets';
 
@@ -307,7 +306,7 @@ test.each([
   ['new-product', 'rank-changed'],
   ['normal', 'normal'],
 ] as const)(
-  '상점 %s와 전망대 %s의 이름표는 상태에 맞게 강조한다',
+  '상점 %s와 전망대 %s는 이름표 없이 상태를 접근성 문구로 안내한다',
   async (shopState, observatoryRankState) => {
     const state = initialState(true);
     const island = state.islands.find((item) => item.id === state.islandId)!;
@@ -323,12 +322,7 @@ test.each([
       />,
     );
     for (const building of ['shop', 'tower']) {
-      const label = screen.getByTestId(`building-name-${building}`).children[0];
-      expect(typeof label).not.toBe('string');
-      if (typeof label !== 'string')
-        expect(label.props.style.backgroundColor).toBe(
-          shopState === 'normal' ? semanticTokens.color.surface : semanticTokens.color.accent,
-        );
+      expect(screen.queryByTestId(`building-name-${building}`)).toBeNull();
     }
     // 장식 모션은 스크린리더에서 숨기므로 순위 변동은 실제 전망대 버튼이 읽어 준다.
     const rankText =
@@ -444,8 +438,8 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   );
   expect(screen.getByTestId('world-shop-motion').props.accessibilityLabel).toBe('상점');
   expect(screen.queryByTestId('shop-motion-tooltip')).toBeNull();
-  expect(screen.getByTestId('building-name-shop')).toBeTruthy();
-  expect(screen.getByText(buildingNames.shop)).toBeTruthy();
+  expect(screen.queryByTestId('building-name-shop')).toBeNull();
+  expect(screen.queryByText(buildingNames.shop)).toBeNull();
 
   await screen.rerender(
     <FinalIsland state={state} go={jest.fn()} build={jest.fn()} shopState="purchasable" />,
@@ -456,34 +450,15 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   jest.useRealTimers();
 });
 
-test('완공된 각 건물에 상태와 무관한 건물명 라벨을 표시한다', async () => {
+test('완공된 건물은 이름표 없이 접근성 이름으로 식별한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
 
   for (const building of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const) {
-    expect(screen.getByTestId(`building-name-${building}`)).toBeTruthy();
-    expect(screen.getByText(buildingNames[building])).toBeTruthy();
+    expect(screen.queryByTestId(`building-name-${building}`)).toBeNull();
+    expect(screen.queryByText(buildingNames[building])).toBeNull();
+    expect(screen.getByRole('button', { name: buildingNames[building] })).toBeTruthy();
   }
-  for (const building of ['hall', 'library', 'shop'] as const) {
-    expect(screen.getByTestId(`building-name-${building}`).props.style).toEqual(
-      expect.objectContaining({ alignItems: 'flex-end' }),
-    );
-  }
-  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
-  expect(screen.getByTestId('building-name-shop').props.style).toEqual(
-    expect.objectContaining({
-      right: (577 - 60 + 120 - (456 + 262)) * worldScale,
-      top: (603 - (783 - 95)) * worldScale,
-      alignItems: 'flex-end',
-    }),
-  );
-  expect(screen.getByTestId('building-name-tower').props.style).toEqual(
-    expect.objectContaining({
-      left: (150 - 12 - (272 - 60)) * worldScale,
-      top: (52 - (200 - 95)) * worldScale,
-      alignItems: 'flex-start',
-    }),
-  );
   await screen.unmount();
 });
 

@@ -113,28 +113,6 @@ const layer: Record<Building, string> = {
   tower: 'observatory',
   shop: 'shop',
 };
-const legacyBuildingLabelBox: Record<Building, { x: number; y: number; w: number }> = {
-  hall: { x: 949, y: 21, w: 242 },
-  board: { x: 856, y: 157, w: 80 },
-  gram: { x: 330, y: 391, w: 73 },
-  library: { x: 1120, y: 288, w: 239 },
-  mail: { x: 298, y: 520, w: 46 },
-  tower: { x: 150, y: 24, w: 112 },
-  shop: { x: 456, y: 580, w: 262 },
-};
-const legacyBuildingLabelAnchorY: Record<Building, number> = {
-  hall: 70,
-  board: 157,
-  gram: 365,
-  library: 310,
-  mail: 494,
-  tower: 52,
-  shop: 603,
-};
-const legacyBuildingLabelAnchorXOffset: Partial<Record<Building, number>> = {
-  tower: -12,
-};
-const rightAlignedBuildingLabels = new Set<Building>(['hall', 'library', 'shop']);
 type Door = Point & {
   r: Route;
   label: string;
@@ -1231,44 +1209,6 @@ function FinalIslandScene({
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
-            const labelOnRight = d.building != null && rightAlignedBuildingLabels.has(d.building);
-            const buildingLabelPosition = (() => {
-              if (id === 'raft') {
-                return scene
-                  ? {
-                      left: (185 - hitbox.x) * s,
-                      top: (805 - hitbox.y) * s,
-                      width: 210 * s,
-                      alignItems: 'center' as const,
-                    }
-                  : {
-                      left: 0,
-                      top: -30,
-                      width: hitbox.w * s,
-                      alignItems: 'center' as const,
-                    };
-              }
-              if (d.building == null) return { left: 0, top: 0, alignItems: 'flex-start' as const };
-              if (scene) {
-                return labelOnRight
-                  ? { right: 0, top: -30, alignItems: 'flex-end' as const }
-                  : { left: 0, top: -30, alignItems: 'flex-start' as const };
-              }
-              const box = legacyBuildingLabelBox[d.building];
-              const anchorY = legacyBuildingLabelAnchorY[d.building];
-              const anchorXOffset = legacyBuildingLabelAnchorXOffset[d.building] ?? 0;
-              return labelOnRight
-                ? {
-                    right: (hitbox.x + hitbox.w - (box.x + box.w)) * s,
-                    top: (anchorY - hitbox.y) * s,
-                    alignItems: 'flex-end' as const,
-                  }
-                : {
-                    left: (box.x + anchorXOffset - hitbox.x) * s,
-                    top: (anchorY - hitbox.y) * s,
-                    alignItems: 'flex-start' as const,
-                  };
-            })();
             return (
               <Pressable
                 key={id}
@@ -1365,13 +1305,20 @@ function FinalIslandScene({
                   zIndex: scene ? 2000 : undefined,
                 }}
               >
-                {(d.building || id === 'raft') && (
+                {id === 'raft' && (
                   <View
                     testID={`building-name-${id}`}
                     pointerEvents="none"
                     style={{
                       position: 'absolute',
-                      ...buildingLabelPosition,
+                      ...(scene
+                        ? {
+                            left: (185 - hitbox.x) * s,
+                            top: (805 - hitbox.y) * s,
+                            width: 210 * s,
+                          }
+                        : { left: 0, top: -30, width: hitbox.w * s }),
+                      alignItems: 'center',
                     }}
                   >
                     <View
@@ -1382,11 +1329,7 @@ function FinalIslandScene({
                         borderRadius: componentTokens.villageBuildingNameTag.radius,
                         borderWidth: componentTokens.villageBuildingNameTag.borderWidth,
                         borderColor: semanticTokens.color.outline,
-                        backgroundColor:
-                          (d.building === 'shop' && shopState !== 'normal') ||
-                          (d.building === 'tower' && observatoryRankState !== 'normal')
-                            ? semanticTokens.color.accent
-                            : semanticTokens.color.surface,
+                        backgroundColor: semanticTokens.color.surface,
                       }}
                     >
                       <Txt kind="meta" numberOfLines={1} style={{ fontWeight: '700' }}>
