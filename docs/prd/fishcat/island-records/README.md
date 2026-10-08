@@ -14,3 +14,5 @@ PII snapshot 동기 파기는 별도 구현 gate다. 현재 요청자 재인가�
 중앙 withdraw와 같은 Data TX에서 전체 snapshot payload를 파기한다. 생성·페이지 반환은 같은 lifecycle
 공유 잠금에 참여하며 외부 캐시는 사용하지 않는다. [LLD](low-level-design.md)의 잠금 순서와 양방향 경합
 검증이 구현되기 전 공개 활성화를 허용하지 않는다. 이미 서비스에 적용된 기능이라는 뜻은 아니다.
+
+2026-10-08: [iOS 측정·보고 구현과 검증 경계](ios-screen-time-implementation.md) — UTC 구간 변환, 전송 동의·재시도, 통계·퀘스트 연결 및 실기기/서버 의존성.
