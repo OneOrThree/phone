@@ -2165,6 +2165,47 @@ test('대표 섬 저장 실패는 화면에 남아 재시도할 수 있다', asy
   await waitFor(() => assert.equal(backMock.mock.calls.length, 1));
 });
 
+test('승인 완료·현재 섬 없음에서도 명시적으로 입장하고 서버 성공을 기다린다', async () => {
+  let initial = reducer(initialState(false), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [islandSummary({ id: 'approved', name: '승인된 섬' })],
+      currentIslandId: null,
+      nextCursor: null,
+      lossReason: null,
+    },
+  });
+  initial = reducer(initial, {
+    type: 'ISLAND_REQUEST',
+    request: { id: 'req-approved', islandId: 'approved', status: 'approved', version: 2 },
+  });
+  let finish!: () => void;
+  const switchCurrent = jest.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="approval"
+      detail="approved"
+      initial={initial}
+      expose={(value: any) => {
+        exposed = value;
+      }}
+      api={() => ({ explore: async () => {}, switchCurrent })}
+    />,
+  );
+  await act(async () => {});
+  await fireEvent.press(screen.getByTestId('enter-home'));
+  await waitFor(() => assert.equal(switchCurrent.mock.calls.length, 1));
+  assert.equal(exposed.reset.mock.calls.length, 0);
+  await act(async () => finish());
+  assert.equal(exposed.reset.mock.calls[0][0], 'guide');
+});
+
 test('현재 섬 없이 재실행한 기존 주민도 가입한 섬 선택으로 갈 수 있다', async () => {
   const initial = reducer(initialState(false), {
     type: 'ISLAND_SYNC',

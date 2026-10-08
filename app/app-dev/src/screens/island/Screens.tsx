@@ -1,8 +1,9 @@
-import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
-import { ServerVisit } from '@/screens/island/ServerVisit';
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
+import { ServerVisit } from '@/screens/island/ServerVisit';
+import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
+import { islandErrorMessage } from '@/services/islandErrors';
 import { LoginScreen } from '@/screens/LoginScreen';
-import { getSession } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import {
   beginWithdrawal,
   confirmWithdrawal,
@@ -13,6 +14,7 @@ import { clearStudyWidget } from '@/services/studyWidget';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  AppState,
   View,
   Image,
   Pressable,
@@ -808,6 +810,7 @@ export function RedesignScreens({ e }: any) {
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    serverWriting = useRef(false),
     characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
     routeNowRef = useRef(route),
@@ -841,6 +844,18 @@ export function RedesignScreens({ e }: any) {
   const serverErrorText = (thrown: unknown) => {
     if (!(thrown instanceof ApiError)) return '연결을 확인한 뒤 다시 시도해 주세요.';
     const code = thrown.code;
+    if (
+      [
+        'SESSION_IN_PROGRESS',
+        'OBSERVATORY_LOCKED',
+        'FACILITY_LOCKED',
+        'MEMBER_ONLY',
+        'GROUP_NOT_FOUND',
+        'GROUP_FULL',
+        'GROUP_LIMIT_EXCEEDED',
+      ].includes(code)
+    )
+      return islandErrorMessage(thrown, 'tower');
     if (code === 'CLIENT_STALE_SESSION') return '';
     if (code === 'SLUG_NOT_FOUND') return '초대 코드를 다시 확인해 주세요.';
     if (code === 'INVITATION_EXPIRED') return '만료된 초대예요. 새 초대를 받아 주세요.';
@@ -852,7 +867,8 @@ export function RedesignScreens({ e }: any) {
     return thrown.message || '연결을 확인한 뒤 다시 시도해 주세요.';
   };
   const run = (fn: () => Promise<unknown>, fail: (m: string) => void = setServerError) => {
-    if (serverBusy) return;
+    if (serverWriting.current) return;
+    serverWriting.current = true;
     setServerBusy(true);
     fail('');
     Promise.resolve()
@@ -861,7 +877,10 @@ export function RedesignScreens({ e }: any) {
         const m = serverErrorText(thrown);
         if (m) fail(m);
       })
-      .finally(() => setServerBusy(false));
+      .finally(() => {
+        serverWriting.current = false;
+        setServerBusy(false);
+      });
   };
   /**
    * 탈퇴 뒤 기기 정리. 로컬 데이터 소유자 삭제(또는 다음 부팅이 이어 갈 내구 삭제 표식)가 확정돼야만
@@ -950,18 +969,30 @@ export function RedesignScreens({ e }: any) {
     detail
       ? reqList.find((r) => r.status === 'pending' && r.islandId === detail)
       : reqList.find((r) => r.status === 'pending');
-  // 서버 current 가 정해졌을 때만 홈으로 들어간다(GROMO-2138) — 승인만 되고 current 가 null 이면
-  // 홈이 chooseIsland 로 되돌리므로 버튼을 띄우지 않는다. 홈은 서버 스냅샷을 직접 그린다
-  const enterHome = snap?.currentIslandId ? (
-    <Btn
-      id="enter-home"
-      title="섬으로 가기"
-      style={{ marginTop: 6 }}
-      onPress={() => reset(state.tutorial && state.tutorial.step <= 3 ? 'guide' : 'home')}
-    />
-  ) : null;
+  // 승인은 소속만 만든다. 입장 버튼을 눌렀을 때 별도 현재 섬 변경을 확정한다.
+  const enterHome = (islandId = snap?.currentIslandId) =>
+    islandId ? (
+      <Btn
+        id="enter-home"
+        title="섬으로 가기"
+        disabled={serverBusy}
+        onPress={() =>
+          run(async () => {
+            const gen = sessionGeneration();
+            if (islandId !== snap?.currentIslandId) await server.switchCurrent(islandId);
+            if (routeNowRef.current !== route || gen !== sessionGeneration()) return;
+            reset(
+              state.tutorialEnrollment === 'awaiting-first-island' ||
+                (state.tutorial && state.tutorial.step <= 3)
+                ? 'guide'
+                : 'home',
+            );
+          })
+        }
+      />
+    ) : null;
   // 서버 소속 확인 카드 — 최초 소속은 몽돌 안내, 기존 소속은 홈으로 들어간다.
-  const doneCard = (title: string, sub: string) => (
+  const doneCard = (title: string, sub: string, islandId = snap?.currentIslandId) => (
     <View
       style={{
         gap: 4,
@@ -977,7 +1008,7 @@ export function RedesignScreens({ e }: any) {
       <Txt kind="meta" style={META}>
         {sub}
       </Txt>
-      {enterHome}
+      {enterHome(islandId)}
     </View>
   );
   // 섬 찾기·승인 대기 진입 시 첫 페이지와 pending 목록을 서버에서 가져온다(재실행 복구 포함).
@@ -992,14 +1023,37 @@ export function RedesignScreens({ e }: any) {
     serverTried.current = route;
     run(() => server.explore());
   }, [route, server]);
-  // 승인 대기 중엔 4초마다 신청 상태를 폴링 — 다른 기기의 승인·거절을 반영한다
+  // 승인 상태는 즉시·4초 주기·포그라운드 복귀 때 확인한다. 느린 요청은 겹치지 않는다.
   const pendingId = pendingReq()?.id;
   useEffect(() => {
     if (!server || route !== 'approval' || !pendingId) return;
-    const t = setInterval(() => {
-      Promise.resolve(server.status(pendingId)).catch(() => {});
+    let live = true,
+      polling = false;
+    const poll = async () => {
+      if (!live || polling || AppState.currentState === 'background' || serverWriting.current)
+        return;
+      polling = true;
+      try {
+        await server.status(pendingId);
+        if (live) setServerError('');
+      } catch (thrown) {
+        if (live) setServerError(serverErrorText(thrown));
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(() => {
+      void poll();
     }, 4000);
-    return () => clearInterval(t);
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void poll();
+    });
+    return () => {
+      live = false;
+      clearInterval(timer);
+      subscription.remove();
+    };
   }, [server, route, pendingId]);
   useEffect(() => {
     if (!invite) return;
@@ -1923,7 +1977,7 @@ export function RedesignScreens({ e }: any) {
             <Txt kind="meta" style={META}>
               {`「${serverDone}」이 내 섬이 됐어요.`}
             </Txt>
-            {enterHome}
+            {enterHome()}
           </View>
         ) : null}
         {serverError ? (
@@ -2031,8 +2085,8 @@ export function RedesignScreens({ e }: any) {
         <Spinner reduce={state.settings.reduceMotion} />
       </View>
     );
-    const joinedCard = (name: string) =>
-      doneCard('가입이 완료됐어요', `「${name}」의 주민이 됐어요.`);
+    const joinedCard = (name: string, id?: string) =>
+      doneCard('가입이 완료됐어요', `「${name}」의 주민이 됐어요.`, id);
     return (
       <Onboard
         title={route === 'approval' ? '가입 신청' : '섬 찾기'}
@@ -2102,7 +2156,12 @@ export function RedesignScreens({ e }: any) {
           !req &&
           closed &&
           (closed.status === 'approved' ? (
-            joinedCard(closed.islandName ?? '그 섬')
+            joinedCard(
+              closed.islandName ??
+                snap?.memberships.find((m) => m.id === closed.islandId)?.name ??
+                '그 섬',
+              closed.islandId,
+            )
           ) : (
             <View style={{ gap: 4 }}>
               <Txt style={H17}>
