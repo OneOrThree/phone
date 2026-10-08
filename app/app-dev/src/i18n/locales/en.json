@@ -234,7 +234,8 @@
   },
   "home": {
     "hud": {
-      "todayFocus": "Focus today"
+      "todayFocus": "Focus today",
+      "visiting": "Visiting {{name}}"
     },
     "build": "Build {{building}}",
     "buildProgress": "{{current}}/{{total}} fish",
@@ -243,8 +244,8 @@
     "buildAction": "Build",
     "returnToMyIsland": "Back to My Island",
     "quest": {
-      "focusCondition": "{{start}}–{{end}} · {{target}}min",
-      "phoneCondition": "Daily phone use · under {{target}}min",
+      "focusCondition": "{{start}}–{{end}} · {{target}} min",
+      "phoneCondition": "Daily phone use · under {{target}} min",
       "today": "Today's Quest",
       "claim": "Claim Reward",
       "tapToClaim": "Tap to view your reward",
@@ -303,8 +304,7 @@
       "gram": "Gramophone",
       "boat": "My Boat",
       "dock": "Dock",
-      "todayFocusClock": "{{name}} Focus today {{clock}}",
-      "visiting": "Visiting {{name}}",
+      "todayFocusClock": "{{name}}, focus today {{clock}}",
       "raft": "Raft",
       "viewFishingIsland": "View the Fishing Island",
       "mailboxNewLetter": "You have a new letter from a friend."
