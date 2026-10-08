@@ -67,6 +67,7 @@ export function TileTerrainCanvas({
 }) {
   // Metro 는 `@2x` 를 배율 접미사로 읽어 파일명 그대로는 못 찾는다 — 기본 이름으로 부르면 tileset@2x.png 변형을 고른다.
   // Metro 의 @2x 배율 해석에 기댄 우회, Expo 57 / `expo export --platform ios` 로 확인(2026-10-08).
+  // 이 브랜치는 번들 require 만 쓴다 — useImage 실패 시 폴백(캐시 file://·onError 강등)은 2233(#1086)이 맡는다.
   const image = useImage(require('@/assets/village-world/v1/tileset.png'));
   // 이미지가 뜬 뒤 한 번만 만든다. 로드 전에는 기존 Image 처럼 아무것도 그리지 않는다(뒤의 바다 배경이 보인다).
   const atlas = useMemo(() => (image ? buildTerrainAtlas() : null), [image]);
