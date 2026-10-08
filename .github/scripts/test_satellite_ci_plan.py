@@ -58,6 +58,11 @@ class SatelliteCiPlanTest(unittest.TestCase):
         self.assert_plan(['.github/scripts/satellite-ci-plan.py'], True, True)
         self.assert_plan(['.github/scripts/check-migration-checksum.py'], True, True)
         self.assert_plan(['.github/actions/ci-jar/action.yml'], True, True)
+        # 위성 배포가 실행하는 공용 스크립트·CD 도 배포 대상 (GROMO-2224)
+        for path in ('.github/scripts/dev-env.sh', '.github/scripts/write-compose-env.py',
+                     '.github/scripts/wait-healthy.sh', '.github/scripts/mark-deploy.sh',
+                     '.github/workflows/satellite-cd.dev.yml'):
+            self.assert_plan([path], True, True)
 
     def test_루트_설정_파일은_전체를_켜지_않는다(self):
         """PR #790 이 여기서 샜다 — docs 만 바꿨는데 .gitignore 한 줄이 전체 빌드를 켰다."""

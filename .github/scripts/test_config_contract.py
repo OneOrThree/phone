@@ -32,8 +32,6 @@ OPTIONAL_BY_DESIGN = {
     "data-api": {
         # outbox relay 를 켤 때만 읽힘. 꺼진 dev 에서 필수로 올리면 값 넣기 전 배포가 막힘 (GROMO-1954)
         "REALTIME_BASE_URL", "SVC_TOKEN_DATA_TO_REALTIME",
-        # realtime-authorization 프로필이 켜진 배포에서만 읽힘 (GROMO-2182)
-        "SVC_TOKEN_REALTIME_TO_DATA",
     },
 }
 
@@ -94,6 +92,8 @@ class ConfigContractTest(unittest.TestCase):
                 must = set(WRITER.SERVICE_REQUIRED_KEYS[service]) | compose_environment(service)
                 if service == "data-api":
                     must |= set(WRITER.TRANSITION_KEYS)
+                    # dev 에서 켜는 프로파일이 요구하는 키 (dev-env.sh 기본 프로파일과 같은 파일 묶음)
+                    must |= {key for keys in WRITER.PROFILE_REQUIRED_KEYS.values() for key in keys}
                 optional_only = set(required_by_config(service)) - must
                 self.assertEqual(optional_only - OPTIONAL_BY_DESIGN.get(service, set()), set(),
                                  f"{service}: 비면 기동이 깨질 키가 선택으로만 들어감 — 필수로 올리거나 이유와 함께 예외 추가")

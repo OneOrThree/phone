@@ -21,6 +21,13 @@ BUILD_AFFECTING = (
     # JAR 재사용 팩·검증 로직 — build 와 images 가 이 스크립트로 아티팩트를 주고받는다.
     # 처음에 `.github/actions/ci-jar/` 만 넣고 이걸 빠뜨렸다가 test_ci_build_reuse 에 잡혔다.
     '.github/scripts/ci-jar.py',
+    # 위성 배포가 직접 실행하는 공용 스크립트·CD — 바뀌면 다시 배포해 검증해야 한다 (GROMO-2224).
+    # contract-only(.github/)로 떨어지면 CI 는 돌아도 배포 계획이 비어 CD 가 통째로 건너뛴다.
+    '.github/scripts/dev-env.sh',
+    '.github/scripts/write-compose-env.py',
+    '.github/scripts/wait-healthy.sh',
+    '.github/scripts/mark-deploy.sh',
+    '.github/workflows/satellite-cd.dev.yml',
 )
 BUILD_AFFECTING_PREFIXES = (
     '.github/actions/ci-jar/',

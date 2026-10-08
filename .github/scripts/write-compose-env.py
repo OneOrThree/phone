@@ -157,6 +157,11 @@ def unused_secret_keys(secret: dict[str, Any]) -> list[str]:
     return sorted(key for key in secret if key not in known)
 
 
+# 프로파일을 켜면 필수가 되는 키. 켠 채로 비면 그 프로파일 설정의 ${KEY} 를 못 풀어 기동 실패 (GROMO-2224)
+PROFILE_REQUIRED_KEYS = {
+    "realtime-authorization": ("SVC_TOKEN_REALTIME_TO_DATA",),  # application-realtime-authorization.yml (GROMO-2182)
+}
+
 IMAGE_KEYS = {
     "data-api": "APP_IMAGE", "business-api": "BUSINESS_API_IMAGE", "notification": "NOTIFICATION_IMAGE",
 }
@@ -269,6 +274,9 @@ def render_service(secret: dict[str, Any], image: str, service: str,
     required = SERVICE_REQUIRED_KEYS[service]
     if service == "data-api" and phase == "transition":
         required += TRANSITION_KEYS
+    if service == "data-api":
+        for profile in sorted({item.strip() for item in profiles.split(",")}):
+            required += tuple(key for key in PROFILE_REQUIRED_KEYS.get(profile, ()) if key not in required)
     if service == "business-api" and environment == "prod":
         required += ("LINK_PROXY_SECRET",)
     require(secret, required)

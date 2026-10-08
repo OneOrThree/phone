@@ -135,8 +135,18 @@ class WriteComposeEnvTest(unittest.TestCase):
             with self.subTest(profiles=profiles), self.assertRaisesRegex(ValueError, "프로파일"):
                 MODULE.render(baseline, "example/data:1", "data-api", "transition", "dev", data_profiles=profiles)
         self.assertIn("SPRING_PROFILES_ACTIVE='dev,satellites,realtime-authorization'",
-                      MODULE.render(baseline, "example/data:1", "data-api", "transition", "dev",
-                                    data_profiles="dev,satellites,realtime-authorization"))
+                      MODULE.render({**baseline, "SVC_TOKEN_REALTIME_TO_DATA": "t"}, "example/data:1", "data-api",
+                                    "transition", "dev", data_profiles="dev,satellites,realtime-authorization"))
+
+    def test_켠_프로파일이_요구하는_토큰이_없으면_실패한다(self) -> None:
+        # GROMO-2224 — realtime-authorization 을 켜고 토큰이 비면 Data 가 기동 실패
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["data-api"] + MODULE.TRANSITION_KEYS}
+        with self.assertRaisesRegex(ValueError, "SVC_TOKEN_REALTIME_TO_DATA"):
+            MODULE.render(baseline, "x", "data-api", "transition", "dev",
+                          data_profiles="dev,satellites,realtime-authorization")
+        MODULE.render(baseline, "x", "data-api", "transition", "dev", data_profiles="dev,satellites")
+        MODULE.render({**baseline, "SVC_TOKEN_REALTIME_TO_DATA": "t"}, "x", "data-api", "transition", "dev",
+                      data_profiles="dev,satellites,realtime-authorization")
 
     def test_어느_허용목록에도_없는_SM_키만_이름으로_보고한다(self) -> None:
         unused = MODULE.unused_secret_keys({**secret(), "Team_ID": "x", "JWT_SECRET": "y", "STALE_KEY": "z"})
