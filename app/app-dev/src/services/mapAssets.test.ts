@@ -441,6 +441,12 @@ test('(l2) SHAPE 단일 검사: scale·columns·terrain 길이·nav 길이', () 
     'tilemap.json terrain.data.length === width*height',
   );
   assert.equal(bad('nav.json', { walkable: '11' }), 'nav.json columns*rows === walkable.length');
+  // 서버가 차단 셀 비용을 0 으로 발행하면 loadNav 가 탭에서 throw 하므로 승격에서 걸러야 한다
+  assert.equal(bad('nav.json', { traversalCost: [0] }), 'nav.json traversalCost 전 셀 > 0');
+  assert.equal(
+    bad('nav.json', { blockedEdges: [[0, 1]] }),
+    'nav.json buildingCells·blockedEdges 형태(없거나 유효한 셀 index)',
+  );
 });
 
 test('(m) rename 실패: 이전 cache 유지(없으면 bundle), 임시 디렉터리 정리', async () => {
