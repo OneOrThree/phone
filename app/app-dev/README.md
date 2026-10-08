@@ -54,7 +54,9 @@ MOTION_REVIEW_URL=http://localhost:8081 node scripts/review-cat-motion.cjs
 
 ## 문구·이미지 추가 규칙
 
-화면 문구는 `src/i18n/locales/ko.json`·`en.json`에 둡니다(네임스페이스: `common`·`login`·`account`·`character`·`building`·`color`·`track`·`focus`·`home`·`settings`·`errors`·`time`). 키는 점 표기 네임스페이스(`home.quest.claim`)이고 **ko 가 정본**이라 먼저 쓰고 en 은 번역만 채웁니다. 두 파일은 같은 리프 키·같은 `{{var}}` 자리표시자 집합이어야 하며 어긋나면 `src/i18n/index.test.ts` 가 실패합니다. 서버 오류 코드가 늘면 같은 테스트가 business-api `ApiErrorCode` 와 대조해 `errors.*` 누락을 잡습니다.
+> 시스템 구조·배선·용어(i18n/l10n)는 [`docs/prd/fishcat/l10n/high-level-design.md`](../../docs/prd/fishcat/l10n/high-level-design.md)에 있습니다. 이 절은 추가 규칙만 다룹니다.
+
+화면 문구는 `src/i18n/locales/ko.json`·`en.json`에 둡니다(네임스페이스: `common`·`login`·`account`·`character`·`onboarding`·`app`·`building`·`color`·`track`·`focus`·`focusFlow`·`home`·`settings`·`errors`·`time`). 키는 점 표기 네임스페이스(`home.quest.claim`)이고 **ko 가 정본**이라 먼저 쓰고 en 은 번역만 채웁니다. 두 파일은 같은 리프 키·같은 `{{var}}` 자리표시자 집합이어야 하며 어긋나면 `src/i18n/index.test.ts` 가 실패합니다. 서버 오류 코드가 늘면 같은 테스트가 business-api `ApiErrorCode` 와 대조해 `errors.*` 누락을 잡습니다.
 
 - 치환은 `{{var}}`. 복수는 `{ one, other }` 객체 + `vars.count`(숫자)로 고릅니다(Hermes 엔 `Intl.PluralRules` 가 없어 자체 분기). ko 는 단일 문자열로 두는 것이 관례입니다(`t()` 자체는 ko 의 복수 객체도 처리합니다).
 - 없는 키는 `t()` 가 **키 문자열을 그대로** 돌려줍니다 — 화면에 `home.foo.bar` 가 보이면 키 누락입니다. 값을 조립하는 동적 키(`login.continue.<provider>`)는 ko/en 동치 테스트가 못 잡으니, 제공자 등을 추가할 때 두 JSON 에 모두 넣습니다.
