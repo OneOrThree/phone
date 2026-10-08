@@ -4,6 +4,7 @@ import { ApiError, CLIENT_TIMEOUT } from '@/services/api/client';
 import {
   applyLocalePref,
   errorText,
+  errorTextOr,
   getLocale,
   getLocalePref,
   localized,
@@ -149,6 +150,39 @@ test('errorText — en 은 어떤 경로로도 서버 한글 문구를 내보내
   expect(errorText(unknownCode)).toBe(en.errors.GENERIC);
   expect(errorText(inputs[4])).toBe(en.errors.FORBIDDEN);
   expect(errorText(inputs[10])).toBe(en.errors.NICKNAME_INVALID);
+});
+
+test('errorTextOr — ko: ApiError 는 원문 그대로, 빈 message·일반 Error·비-Error 는 폴백', () => {
+  expect(
+    errorTextOr(
+      new ApiError('REQUEST_IN_PROGRESS', '처리 중', 409, { retryable: true }),
+      'login.error.guestFailed',
+    ),
+  ).toBe('처리 중'); // errorText 였다면 '처리 중이에요…' 로 덮였을 자리 — ko 는 특수분기를 안 탄다
+  expect(errorTextOr(new ApiError('SOME_CODE', '', 400), 'login.error.guestFailed')).toBe(
+    ko.login.error.guestFailed,
+  );
+  // socialLogin 이 t() 로 현지화해 던지는 메시지는 전부 unavailable() 을 거쳐 이미 ApiError 라 위
+  // 분기로 들어온다 — ApiError 가 아닌 일반 Error 는 "알 수 없는 실패" 로 보고 폴백으로만 보낸다
+  // (여기서 message 를 보여주면 new Error('network') 류 테스트 더블의 원문이 새 나간다, 실측).
+  expect(errorTextOr(new Error('network'), 'login.error.guestFailed')).toBe(
+    ko.login.error.guestFailed,
+  );
+  expect(errorTextOr(null, 'login.error.guestFailed')).toBe(ko.login.error.guestFailed);
+});
+
+test('errorTextOr — en: ApiError 는 한글이 안 새고 코드별 번역·STALE 은 폴백, 일반 Error 도 폴백', () => {
+  applyLocalePref('en');
+  expect(
+    errorTextOr(
+      new ApiError('GOOGLE_TOKEN', '회원 전환 토큰 오류', 422),
+      'login.error.guestFailed',
+    ),
+  ).toBe(en.errors.GOOGLE_TOKEN);
+  expect(errorTextOr(stale, 'login.error.guestFailed')).toBe(en.login.error.guestFailed);
+  expect(errorTextOr(new Error('network'), 'login.error.guestFailed')).toBe(
+    en.login.error.guestFailed,
+  );
 });
 
 test('localized — 현재 언어 값을 고르고, 없으면 en 값', () => {

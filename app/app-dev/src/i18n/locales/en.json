@@ -166,10 +166,10 @@
       "logoutConfirmBody": "Your saved records will stay as they are.",
       "retryDeviceCleanup": "Retry Device Data Cleanup",
       "withdraw": "Delete Account",
-      "mustTransferHost": "Hand over host to another resident before deleting your account.",
+      "mustTransferHost": "Transfer host to another resident before deleting your account.",
       "withdrawConfirmTitle": "Delete your account?",
       "withdrawConfirmBody": "This deletes your account and all saved records. This can't be undone.\nFish you've collected will stay on the island.",
-      "withdrawConfirmOk": "Delete"
+      "withdrawConfirmOk": "Delete Account"
     },
     "guest": {
       "title": "Continue with a Social Account",
@@ -205,7 +205,7 @@
   },
   "building": {
     "hall": "Town Hall",
-    "board": "Board",
+    "board": "Notice Board",
     "tower": "Lookout Tower",
     "mail": "Mailbox",
     "gram": "Gramophone",
