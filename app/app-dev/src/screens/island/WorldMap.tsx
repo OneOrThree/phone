@@ -1051,6 +1051,8 @@ function FinalIslandScene({
     // 네 건물은 낮·밤 모두 진입 프레임이 있다.
     !scene &&
     (target === 'hall' || target === 'library' || target === 'shop' || target === 'tower');
+  // 렌더 시점 스프레드 — legacyDoors 의 label 게터가 여기서 그때 언어로 복사된다. useMemo/useCallback/React.memo
+  // 로 감싸면 언어를 바꿔도 라벨이 굳으니 메모이즈하지 않는다(GROMO-2239·에픽 리뷰).
   const doors: Record<string, Door> = scene
     ? Object.fromEntries(
         Object.entries(legacyDoors).map(([id, door]) => [
