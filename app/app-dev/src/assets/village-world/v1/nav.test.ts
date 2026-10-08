@@ -53,10 +53,27 @@ describe('v1 nav fixture', () => {
     expect(n).toBeLessThan(10000);
   });
 
-  it('비용은 통행 가능 셀에만 8/27, 차단은 0', () => {
-    nav.traversalCost.forEach((c, i) =>
-      expect(nav.walkable[i] === '1' ? [8, 27] : [0]).toContain(c),
+  it('비용은 차단 여부와 무관하게 전 셀 8/27', () => {
+    nav.traversalCost.forEach((c) => expect([8, 27]).toContain(c));
+  });
+
+  it('buildingCells 의 셀은 walkable 에서 0 이고 비용 > 0, 합집합은 건물 footprint 안', () => {
+    expect(Object.keys(nav.buildingCells).sort()).toEqual(
+      ['board', 'gram', 'hall', 'library', 'mail', 'shop', 'tower'],
     );
+    for (const [b, cells] of Object.entries(nav.buildingCells as Record<string, number[]>)) {
+      expect(cells.length).toBeGreaterThan(0);
+      const rects = catalog.objects.filter((o) => o.building === b).map((o) => o.footprint);
+      for (const i of cells) {
+        expect(nav.walkable[i]).toBe('0');
+        expect(nav.traversalCost[i]).toBeGreaterThan(0);
+        const cx = i % 100,
+          cy = Math.floor(i / 100);
+        expect(
+          rects.some(([[x0, y0], , [x1, y1]]) => cx >= x0 && cx < x1 && cy >= y0 && cy < y1),
+        ).toBe(true);
+      }
+    }
   });
 
   it('다리·부두·그로브는 걷고 바다와 건물 footprint 는 막힌다', () => {
@@ -114,8 +131,9 @@ describe('v1 nav fixture', () => {
     expect(isolated).toBe(9);
   });
 
-  it('간선 중점이 막힌 인접 통행 셀 쌍은 2 로 고정(입구 셀 예외는 후속 티켓)', () => {
-    let n = 0;
+  it('간선 중점이 막힌 인접 통행 셀 쌍은 blockedEdges 2 개와 같다', () => {
+    expect(nav.blockedEdges).toHaveLength(2);
+    const found: number[][] = [];
     for (let cy = 0; cy < 100; cy++)
       for (let cx = 0; cx < 100; cx++) {
         if (!open(cx, cy)) continue;
@@ -126,10 +144,11 @@ describe('v1 nav fixture', () => {
         ]) {
           if (cx + dx > 99 || cy + dy > 99 || !open(cx + dx, cy + dy)) continue;
           const b = center(cx + dx, cy + dy);
-          if (!openAtPx({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })) n++;
+          if (!openAtPx({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }))
+            found.push([cy * 100 + cx, (cy + dy) * 100 + cx + dx]);
         }
       }
-    expect(n).toBe(2);
+    expect(found).toEqual(nav.blockedEdges);
   });
 
   it('anchor(world) → px 복원 오차는 0.01 px 이하', () => {

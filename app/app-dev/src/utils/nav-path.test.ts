@@ -18,7 +18,7 @@ const synth = (rows: string[], costs?: number[]) => {
     columns: w,
     rows: rows.length,
     walkable,
-    traversalCost: costs ?? [...walkable].map((c) => (c === '1' ? 10 : 0)),
+    traversalCost: costs ?? [...walkable].map(() => 10),
   });
 };
 const center = (cx: number, cy: number) => cellCenterToWorld({ cx, cy });
@@ -66,6 +66,50 @@ describe('v1 nav.json A*', () => {
   });
 });
 
+describe('미완공 건물 자리 · 막힌 간선', () => {
+  const bc = nav.buildingCells as Record<string, number[]>;
+  const all = Object.keys(bc);
+  const empty = loadNav(nav as any, []);
+  const full = loadNav(nav as any, all);
+  const from = center(nav.spawns.character.cx, nav.spawns.character.cy);
+  it('건물 0 섬에선 hall 자리가 통행, 전부 완공이면 차단', () => {
+    for (const i of bc.hall) {
+      expect(empty.walkable[i]).toBe(1);
+      expect(full.walkable[i]).toBe(0);
+    }
+    expect(loadNav(nav as any, [])).toBe(empty);
+  });
+  it('스폰 → hall 입구 경로가 두 경우 모두 존재', () => {
+    const en = nav.entrances.hall;
+    for (const g of [empty, full])
+      expect(navPath(g, from, center(en.cx, en.cy)).length).toBeGreaterThan(0);
+  });
+  it('막힌 간선 2 개는 어떤 경로에도 등장하지 않는다', () => {
+    const bad = new Set((nav.blockedEdges as number[][]).map(([a, b]) => `${a},${b}`));
+    for (const g of [empty, full])
+      for (const en of Object.values(nav.entrances)) {
+        const pts = [from, ...navPath(g, from, center(en.cx, en.cy))].map((p) => {
+          const c = worldToCell(p);
+          return c.cy * 100 + c.cx;
+        });
+        for (let k = 1; k < pts.length; k++)
+          expect(bad.has(`${Math.min(pts[k - 1], pts[k])},${Math.max(pts[k - 1], pts[k])}`)).toBe(
+            false,
+          );
+      }
+  });
+  it('직교 이동에서 blockedEdges 간선을 건너뛴다', () => {
+    const r = loadNav({
+      columns: 2,
+      rows: 1,
+      walkable: '11',
+      traversalCost: [10, 10],
+      blockedEdges: [[0, 1]],
+    });
+    expect(navPath(r, center(0, 0), center(1, 0))).toEqual([]);
+  });
+});
+
 describe('resolveTarget', () => {
   it('다른 섬 탭은 출발 영역 안 최근접 셀로 보정한다', () => {
     const g = synth(['110011', '110011', '110011']);
@@ -97,7 +141,7 @@ describe('stepDurationMs', () => {
 describe('휴리스틱 허용성', () => {
   it('합성 격자에서 A* 경로 비용이 다익스트라 참값과 같다', () => {
     const rows = ['1111111', '1000001', '1011101', '1010101', '1010001', '1111111'];
-    const costs = [...rows.join('')].map((c, i) => (c === '1' ? (i % 3 === 0 ? 27 : 8) : 0));
+    const costs = [...rows.join('')].map((_, i) => (i % 3 === 0 ? 27 : 8));
     const g = synth(rows, costs);
     const from = center(0, 0),
       to = center(6, 4);
