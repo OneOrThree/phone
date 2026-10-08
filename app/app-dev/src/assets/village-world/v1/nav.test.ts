@@ -131,8 +131,8 @@ describe('v1 nav fixture', () => {
     expect(isolated).toBe(9);
   });
 
-  it('간선 중점이 막힌 인접 통행 셀 쌍은 blockedEdges 2 개와 같다', () => {
-    expect(nav.blockedEdges).toHaveLength(2);
+  it('선분 위 내부 31점 중 막힌 점이 있는 인접 통행 셀 쌍은 blockedEdges 4 개와 같다', () => {
+    expect(nav.blockedEdges).toHaveLength(4);
     const found: number[][] = [];
     for (let cy = 0; cy < 100; cy++)
       for (let cx = 0; cx < 100; cx++) {
@@ -144,11 +144,22 @@ describe('v1 nav fixture', () => {
         ]) {
           if (cx + dx > 99 || cy + dy > 99 || !open(cx + dx, cy + dy)) continue;
           const b = center(cx + dx, cy + dy);
-          if (!openAtPx({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }))
-            found.push([cy * 100 + cx, (cy + dy) * 100 + cx + dx]);
+          let blocked = false;
+          for (let k = 1; k < 32; k++) {
+            const t = k / 32;
+            if (!openAtPx({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })) blocked = true;
+          }
+          if (blocked) found.push([cy * 100 + cx, (cy + dy) * 100 + cx + dx]);
         }
       }
     expect(found).toEqual(nav.blockedEdges);
+    // 셀 (cx,cy) 좌표: (19,16)↔(20,16), (31,22)↔(32,22), (42,25)↔(43,25), (21,55)↔(21,56)
+    expect(nav.blockedEdges).toEqual([
+      [1619, 1620],
+      [2231, 2232],
+      [2542, 2543],
+      [5521, 5621],
+    ]);
   });
 
   it('anchor(world) → px 복원 오차는 0.01 px 이하', () => {

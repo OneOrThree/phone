@@ -1,7 +1,10 @@
 // map.json 의 폴리곤·footprint 에서 타일 섬 계약 fixture(v1/)를 결정적으로 만든다.
 // 같은 입력이면 바이트까지 같다. 사용: node scripts/build-nav-fixture.cjs [--check]
 // 규칙은 src/utils/village-world.ts 의 villageScene()/blocks() 와 같다(그쪽 동작은 바꾸지 않는다).
-// 통행 판정: 셀 중심점 1점(villageScene 과 동일)을 유지한다. 「중심+4변 중점」 보수적 판정은 입구 7종 중 5종이 막혀 보류(통행 셀 3,613→3,285, -9.1%). 그 결과 간선 중점이 막힌 인접 통행 셀 쌍이 남아 있다(nav.test.ts 가 개수를 고정). 후속 티켓(미발급): NavArtifact 서버 컴파일 때 입구 셀 예외로 해소.
+// 통행 판정: 셀 중심점 1점(villageScene 과 동일)을 유지한다. 「중심+4변 중점」 보수적 판정은 입구 7종 중 5종이 막혀 보류(통행 셀 3,613→3,285, -9.1%).
+// 간선(blockedEdges): 직교 인접 통행 셀 쌍의 중심↔중심 선분을 EDGE_SAMPLES 등분해 끝점을 뺀 내부 점들을 모두 검사하고, 하나라도 막히면 차단 간선으로 둔다(중점 1점만 보면 놓친다).
+// 다음 단계: 캐릭터 반경 r 로 선분을 팽창해 검사(10/9 범위 밖). 입구 셀 예외는 후속 티켓(미발급)에서 NavArtifact 서버 컴파일 때 해소.
+
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -9,6 +12,8 @@ const SRC = path.join(__dirname, '../src/assets/village-world/map.json');
 const OUT = path.join(__dirname, '../src/assets/village-world/v1');
 const N = 100; // 통행 셀 100×100, 1 셀 = 1 world unit
 const PAD = 10;
+// 간선 선분 샘플 수. 장애물 타원 가장 좁은 폭(수 px)이 셀 간격(10~15 px)보다 작아 중점 1점으로는 놓친다. 1/16(15점)은 (19,16)↔(20,16) 의 t≈0.9 부근 0.3 px 장애물 가장자리를 놓쳐 1/32(31점)로 잡는다.
+const EDGE_SAMPLES = 32;
 // 건물 id(building) → 지금 코드의 kind. objects.json 에는 둘 다 남긴다.
 const COST = { road: 8, grass: 27 }; // 정수 ×10 (길 0.8, 잔디 2.7). 차단 셀도 비용을 기록한다(미완공 건물 자리를 앱이 켜기 때문).
 
@@ -91,6 +96,14 @@ function openAtPx(p, without) {
     !map.objects.some((o) => !(without && o.building === without) && blocks(o, p))
   );
 }
+// 두 중심 사이 선분의 내부 점(t=1/EDGE_SAMPLES … (n-1)/n)이 전부 통행이면 true.
+function edgeOpen(a, b) {
+  for (let k = 1; k < EDGE_SAMPLES; k++) {
+    const t = k / EDGE_SAMPLES;
+    if (!openAtPx({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })) return false;
+  }
+  return true;
+}
 function walkableAt(cx, cy, cols = N, rows = N) {
   return openAtPx(center(cx, cy, cols, rows));
 }
@@ -115,7 +128,7 @@ function build() {
       if (walk[i] === '0' && openAtPx(center(i % N, Math.floor(i / N)), b))
         buildingCells[b].push(i);
   }
-  // 직교 인접 통행 셀 쌍 중 간선 중점이 막힌 쌍(a<b). 전부 완공 기준 — buildingCells 로 켜진 셀 사이 간선은 10/9 에서 검사하지 않는다.
+  // 직교 인접 통행 셀 쌍 중 선분 위 내부 31점 중 하나라도 막힌 쌍(a<b). 전부 완공 기준 — buildingCells 로 켜진 셀 사이 간선은 10/9 에서 검사하지 않는다.
   const blockedEdges = [];
   for (let i = 0; i < N * N; i++) {
     if (walk[i] !== '1') continue;
@@ -127,7 +140,7 @@ function build() {
       const j = i + dx + dy * N;
       if (!ok || walk[j] !== '1') continue;
       const b = center(j % N, Math.floor(j / N));
-      if (!openAtPx({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })) blockedEdges.push([i, j]);
+      if (!edgeOpen(a, b)) blockedEdges.push([i, j]);
     }
   }
   const entrances = Object.fromEntries(
@@ -160,7 +173,7 @@ function build() {
   };
   const nav = {
     '$schema-note':
-      'NavArtifact 모양의 통행 파일(100×100, 행 우선). walkable 은 "0"/"1" 문자열 — 기존 Grid.cells 와 같은 모양이고 길이 10,000 을 눈으로 검사하기 쉬워 10/9 는 비트셋 대신 쓴다. traversalCost 는 정수 ×10(길 8, 잔디 27)이고 차단 셀에도 기록한다. entrances·spawns 는 통행 셀 좌표. walkable 은 건물을 전부 완공으로 막은 기준이고, buildingCells[건물] 은 그 건물이 미완공일 때 통행인 셀 index, blockedEdges 는 중점이 막혀 건너지 못하는 인접 쌍[a,b] (a<b). 생성: scripts/build-nav-fixture.cjs.',
+      'NavArtifact 모양의 통행 파일(100×100, 행 우선). walkable 은 "0"/"1" 문자열 — 기존 Grid.cells 와 같은 모양이고 길이 10,000 을 눈으로 검사하기 쉬워 10/9 는 비트셋 대신 쓴다. traversalCost 는 정수 ×10(길 8, 잔디 27)이고 차단 셀에도 기록한다. entrances·spawns 는 통행 셀 좌표. walkable 은 건물을 전부 완공으로 막은 기준이고, buildingCells[건물] 은 그 건물이 미완공일 때 통행인 셀 index, blockedEdges 는 중심 선분 위 31점 중 막힌 점이 있어 건너지 못하는 인접 쌍[a,b] (a<b). 생성: scripts/build-nav-fixture.cjs.',
     columns: N,
     rows: N,
     walkable: walk.join(''),
@@ -184,7 +197,7 @@ function build() {
   return { 'home.map.json': fmt(home), 'nav.json': fmt(nav), 'objects.json': fmt(catalog) };
 }
 
-module.exports = { build, walkableAt, openAtPx, center };
+module.exports = { build, walkableAt, openAtPx, center, edgeOpen };
 
 if (require.main === module) {
   const files = build();
