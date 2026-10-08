@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { t } from '@/i18n';
 import type { Quest, Reward } from '@/services/model';
 
 type Props = {
@@ -16,8 +17,12 @@ export const HOME_QUEST_LIST_DETAIL = 'home-quest-list';
 
 const questCondition = (quest: Quest) =>
   quest.type === 'focus'
-    ? `${quest.windowStart ?? '00:00'}–${quest.windowEnd ?? '24:00'} · ${quest.target}분`
-    : `하루 폰 사용 · ${quest.target}분 이하`;
+    ? t('home.quest.focusCondition', {
+        start: quest.windowStart ?? '00:00',
+        end: quest.windowEnd ?? '24:00',
+        target: quest.target,
+      })
+    : t('home.quest.phoneCondition', { target: quest.target });
 
 export const claimableQuestRewards = (rewards: Reward[] | undefined, islandId: string) =>
   (rewards ?? []).filter(
@@ -41,20 +46,24 @@ export function HomeQuestIndicator({ quests, rewardCount, onPress, style }: Prop
   const reward = rewardCount > 0;
   const multiple = !reward && quests.length > 1;
   const count = reward ? rewardCount : multiple ? quests.length : null;
-  const eyebrow = reward ? `완료한 퀘스트 ${rewardCount}개` : '오늘 퀘스트';
-  const title = reward ? '보상 받기' : first?.title;
+  const eyebrow = reward ? t('home.quest.done', { count: rewardCount }) : t('home.quest.today');
+  const title = reward ? t('home.quest.claim') : first?.title;
   const meta = reward
-    ? '눌러서 받을 보상 보기'
+    ? t('home.quest.tapToClaim')
     : multiple
-      ? `외 ${quests.length - 1}개 보기`
+      ? t('home.quest.more', { count: quests.length - 1 })
       : first
         ? questCondition(first)
         : '';
   const accessibilityLabel = reward
-    ? `받을 퀘스트 보상 ${rewardCount}개. 보상 받기`
+    ? t('home.quest.a11yReward', { count: rewardCount })
     : multiple
-      ? `오늘 퀘스트 ${quests.length}개. ${first?.title} 외 ${quests.length - 1}개 보기`
-      : `오늘 퀘스트. ${first?.title}. ${meta}`;
+      ? t('home.quest.a11yMultiple', {
+          count: quests.length,
+          title: first?.title ?? '',
+          rest: quests.length - 1,
+        })
+      : t('home.quest.a11ySingle', { title: first?.title ?? '', meta });
 
   return (
     <Pressable

@@ -227,7 +227,81 @@
     "rain": "빗방울 소리"
   },
   "focus": {
+    "start": "집중 시작",
+    "resume": "집중 이어가기",
     "finishFailed": "집중을 마치지 못했어요.",
     "resumeFailed": "집중을 이어가지 못했어요."
+  },
+  "home": {
+    "hud": {
+      "todayFocus": "오늘 집중"
+    },
+    "build": "{{building}} 짓기",
+    "buildProgress": "{{current}}/{{total}} 마리",
+    "buildInProgress": "{{building}} 공사 중",
+    "buildMinutesLeft": "{{count}}분 남음",
+    "buildAction": "건설하기",
+    "returnToMyIsland": "원래 섬으로",
+    "quest": {
+      "focusCondition": "{{start}}–{{end}} · {{target}}분",
+      "phoneCondition": "하루 폰 사용 · {{target}}분 이하",
+      "today": "오늘 퀘스트",
+      "claim": "보상 받기",
+      "tapToClaim": "눌러서 받을 보상 보기",
+      "more": "외 {{count}}개 보기",
+      "done": "완료한 퀘스트 {{count}}개",
+      "a11yReward": "받을 퀘스트 보상 {{count}}개. 보상 받기",
+      "a11yMultiple": "오늘 퀘스트 {{count}}개. {{title}} 외 {{rest}}개 보기",
+      "a11ySingle": "오늘 퀘스트. {{title}}. {{meta}}"
+    },
+    "error": {
+      "loadFailed": "섬 정보를 불러오지 못했어요"
+    },
+    "tutorial": {
+      "focusStart": "아래의 집중 시작 버튼을 눌러 집중을 시작해 보자.",
+      "hallGuide": "제일 먼저 섬의 관리를 위한 마을회관부터 지어보자.\n물고기 {{count}}마리만 모아줘!",
+      "ok": "알겠어"
+    },
+    "lock": {
+      "missing": "아직 {{building}}이 없어요",
+      "libraryLocked": "도서관을 짓기 전에는 지난 기록을 볼 수 없어요.",
+      "lockedGeneric": "완공 후 이용할 수 있어요.",
+      "viewNext": "회관에서 다음 건물 보기"
+    },
+    "construction": {
+      "foundation": "기초 공사 중",
+      "structure": "골조 공사 중",
+      "finishing": "마감 공사 중",
+      "completion": "완공"
+    },
+    "door": {
+      "mailNewLetter": "우체통, 친구에게 받은 새 편지가 있어요",
+      "newComment": "{{label}}, 새 댓글이 있어요",
+      "unreadNotice": "{{label}}, 읽지 않은 새 소식이 있어요",
+      "newProduct": "{{label}}, 새 상품이 있어요",
+      "purchasable": "{{label}}, 구매 가능한 상품이 있어요",
+      "rankUpdated": "{{label}}, 주간 순위가 갱신되었어요",
+      "rankChanged": "{{label}}, 주간 순위가 바뀌었어요",
+      "newQuest": "{{label}}, 새 퀘스트가 있어요",
+      "newReading": "{{label}}, 새 읽을거리가 있어요",
+      "hallHint": "터치하면 마을 회관으로 들어가요",
+      "boardHint": "게시판을 열어 확인하세요",
+      "shopHint": "상점에서 상품을 확인하세요",
+      "towerHint": "전망대에서 주간 순위를 확인하세요",
+      "libraryHint": "도서관에서 새 내용을 확인하세요",
+      "membersOnly": "주민만 이용할 수 있어요"
+    },
+    "a11y": {
+      "walk": "섬 산책하기",
+      "campfire": "모닥불",
+      "gram": "꽃나팔 방송기",
+      "boat": "내 배",
+      "dock": "부두",
+      "todayFocusClock": "{{name}} 오늘 집중 {{clock}}",
+      "visiting": "{{name}} 구경 중",
+      "raft": "뗏목",
+      "viewFishingIsland": "낚시섬 구경하기",
+      "mailboxNewLetter": "친구에게 받은 새 편지가 있습니다"
+    }
   }
 }

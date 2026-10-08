@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { applyLocalePref } from '@/i18n';
 import { currentIsland, initialState } from '@/services/model';
 import { nodes, type Point } from '@/utils/island-path';
 import { IslandHome, islandPositions } from './IslandHome';
@@ -91,6 +92,35 @@ describe('고양이가 부두에 있을 때 부두 경유 화면 진입', () => 
       jest.advanceTimersByTime(3000);
     });
     expect(go).toHaveBeenCalledWith('boat');
+    await screen.unmount();
+  });
+});
+
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  it('기기 언어가 en 이면 HUD와 집중 시작 버튼을 영문으로 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const state = initialState(true);
+    const screen = await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 0, left: 0, right: 0, bottom: 0 },
+        }}
+      >
+        <IslandHome state={state} go={jest.fn()} build={jest.fn()} />
+      </SafeAreaProvider>,
+    );
+
+    expect(screen.getByText('Focus today')).toBeTruthy();
+    expect(screen.getByText('Start Focus')).toBeTruthy();
     await screen.unmount();
   });
 });

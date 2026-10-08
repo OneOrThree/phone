@@ -2282,4 +2282,24 @@ describe('en', () => {
     assert.ok(s.getByText('App Settings'));
     assert.ok(s.getByText('Notifications'));
   });
+
+  test('en 로케일 — 서버 모드 home 오류 분기는 영문 문구와 재시도를 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const retryHome = jest.fn();
+    const api = () => ({});
+    const s = await render(
+      <Harness
+        route="home"
+        api={api}
+        seed={(d: any) => syncCurrent(d)}
+        homeError
+        retryHome={retryHome}
+      />,
+    );
+
+    await waitFor(() => s.getByText("Couldn't load your island info."));
+    await fireEvent.press(s.getByText('Retry'));
+    assert.equal(retryHome.mock.calls.length, 1);
+  });
 });

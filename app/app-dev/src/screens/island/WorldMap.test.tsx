@@ -15,6 +15,7 @@ import {
   useVillageDayNight,
   WorldMap,
 } from '@/screens/island/WorldMap';
+import { applyLocalePref } from '@/i18n';
 import { buildingNames, initialState } from '@/services/model';
 import {
   BUILDING_ENTRY_DURATION_MS,
@@ -1079,4 +1080,23 @@ test('뗏목 탭 영역은 부두 끝이 아니라 배경에 그려진 뗏목 �
   } finally {
     timing.mockRestore();
   }
+});
+
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  test('en 로케일 — 홈 HUD·건물 문 라벨을 영문으로 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const state = initialState(true);
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+
+    expect(screen.getByText('Focus today')).toBeTruthy();
+    expect(screen.getByLabelText('Raft')).toBeTruthy();
+  });
 });
