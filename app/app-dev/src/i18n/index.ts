@@ -98,11 +98,15 @@ export function t(key: string, vars: Record<string, string | number> = {}): stri
 // ko 에서만 그대로 쓰고, 다른 언어는 errors.<code> 번역(없으면 다음 분기·GENERIC)으로 바꾼다.
 // errors 의 ko 값은 business-api ApiErrorCode 문구 그대로다 — GENERIC 과 앱이 덮어쓰는
 // SLUG_NOT_FOUND·INVITATION_EXPIRED·STATE_CONFLICT(VERSION_CONFLICT 겸용)·REQUEST_IN_PROGRESS 만 앱 문구.
+// 서버 message 는 출처를 가리지 않는다 — Spring 기본 에러 본문(«Not Found»)·Bean Validation 기본
+// 메시지 같은 영문이 ko 사용자에게 그대로 노출되던 경로를 막는다. 한글이 하나도 없으면 버린다.
+const koText = (m: string): string => (/[가-힣]/.test(m) ? m : '');
+
 export function errorText(err: unknown): string {
   if (!(err instanceof ApiError)) return t('errors.GENERIC');
   const { code } = err;
   const key = `errors.${code}`;
-  const serverText = current === 'ko' ? err.message : has(key) ? t(key) : '';
+  const serverText = current === 'ko' ? koText(err.message) : has(key) ? t(key) : '';
   if (code === CLIENT_STALE_SESSION) return '';
   if (code === 'SLUG_NOT_FOUND' || code === 'INVITATION_EXPIRED')
     return has(key) ? t(key) : t('errors.GENERIC');
@@ -122,7 +126,9 @@ export function errorText(err: unknown): string {
 // "알 수 없는 실패" 를 흉내 내는 new Error('network') 류 자리에서도 원문이 새 나간다(실측, GROMO-2238 리뷰).
 export function errorTextOr(err: unknown, fallbackKey: string): string {
   if (!(err instanceof ApiError)) return t(fallbackKey);
-  return current === 'ko' ? err.message || t(fallbackKey) : errorText(err) || t(fallbackKey);
+  return current === 'ko'
+    ? koText(err.message) || t(fallbackKey)
+    : errorText(err) || t(fallbackKey);
 }
 
 // 언어별 값(이미지 require 쌍 등)을 고른다. 현재 언어 값이 없으면 en.

@@ -321,7 +321,7 @@ export function IslandSheet({
           {!!action && (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={action === '⚙' ? '섬 관리' : action}
+              accessibilityLabel={action === '⚙' ? t('common.manageIsland') : action}
               onPress={actionPress}
               style={{ paddingVertical: 6, paddingHorizontal: 4 }}
             >

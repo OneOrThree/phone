@@ -5,7 +5,8 @@
     "close": "닫기",
     "retry": "다시 시도",
     "save": "저장",
-    "later": "나중에"
+    "later": "나중에",
+    "manageIsland": "섬 관리"
   },
   "errors": {
     "GENERIC": "연결을 확인한 뒤 다시 시도해 주세요.",

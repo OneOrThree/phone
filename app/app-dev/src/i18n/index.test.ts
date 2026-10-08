@@ -185,6 +185,15 @@ test('errorTextOr — en: ApiError 는 한글이 안 새고 코드별 번역·ST
   );
 });
 
+test('errorText·errorTextOr — ko 분기는 한글 없는 서버 message(예: Spring 기본 "Not Found")를 거르고, 한글+숫자가 섞인 message는 그대로 돌려준다', () => {
+  const notFound = new ApiError('SOME_CODE', 'Not Found', 400);
+  expect(errorTextOr(notFound, 'common.retry')).toBe(t('common.retry'));
+  expect(errorText(notFound)).toBe(t('errors.GENERIC'));
+
+  const mixed = new ApiError('SOME_CODE', '요청이 너무 많아요 (429)', 400);
+  expect(errorText(mixed)).toBe('요청이 너무 많아요 (429)');
+});
+
 test('localized — 현재 언어 값을 고르고, 없으면 en 값', () => {
   expect(localized({ ko: '한국어 그림', en: 'English art' })).toBe('한국어 그림');
   applyLocalePref('en');

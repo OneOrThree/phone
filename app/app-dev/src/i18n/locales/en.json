@@ -5,7 +5,8 @@
     "close": "Close",
     "retry": "Retry",
     "save": "Save",
-    "later": "Later"
+    "later": "Later",
+    "manageIsland": "Manage island"
   },
   "errors": {
     "GENERIC": "Please check your connection and try again.",

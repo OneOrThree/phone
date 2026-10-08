@@ -255,6 +255,56 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   });
 });
 
+// 위 테스트와 같은 owner 불일치 부팅 조건(transferOwner)에서, STORAGE 삭제가 기기 전역 언어
+// 설정(gromo.locale)까지 같이 지우지 않는지 확인한다 — GROMO-2235 에픽 PR #1098 2라운드 리뷰.
+test('owner 전환(transferOwner) 부팅은 기기 전역 언어 설정(gromo.locale)을 지우지 않는다', async () => {
+  await AsyncStorage.setItem('gromo.locale', 'en');
+  try {
+    await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+    await rememberLocalDataOwner('user-a');
+    await AsyncStorage.setItem(
+      'gromo-r61-user-v2',
+      JSON.stringify({ ...initialState(true), name: 'A-only-private-state' }),
+    );
+    await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+    mockRestoreSession.mockImplementation(() =>
+      jest.requireActual('@/services/api/session').restoreSession(),
+    );
+    mockCheckSession.mockResolvedValue({
+      status: 'active',
+      account: {
+        id: 'user-b',
+        name: 'B',
+        catColor: null,
+        mainIslandId: null,
+        linkedProviders: [],
+        onboardingComplete: false,
+      },
+    });
+    mockSyncIslands.mockResolvedValue({ currentIslandId: 'server-island-b', items: [] });
+    mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
+      const memberships = await syncIslands();
+      return memberships.currentIslandId ? 'home' : 'chooseIsland';
+    });
+
+    const removeItem = AsyncStorage.removeItem as jest.Mock;
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 20; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+    await waitFor(() => assert.equal(getLastSessionUserId(), 'user-b')); // transferOwner 완료 확인
+
+    const removed = removeItem.mock.calls.map(([key]) => key);
+    assert.ok(removed.includes('gromo-r61-user-v2')); // transferOwner 경로를 실제로 탔다
+    assert.ok(!removed.includes('gromo.locale'));
+    assert.equal(await AsyncStorage.getItem('gromo.locale'), 'en');
+  } finally {
+    await AsyncStorage.multiRemove(['gromo.locale']);
+    applyLocalePref(null);
+  }
+});
+
 test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 뒤에 owner 전환과 저장을 완료한다', async () => {
   await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
   await rememberLocalDataOwner('user-a');
