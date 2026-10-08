@@ -24,7 +24,9 @@ export function applyLayout<T extends { building?: string | null; x: number; y: 
   layout: IslandLayout | undefined,
   assets: MapAssetSource,
 ): T[] {
-  if (!usableLayout(layout)) return objects;
+  // 새 마을 미리보기(map.json) 오브젝트용. templateVersion 2 행은 기존 마을 좌표라 새 마을에 덮어쓰면 엉뚱한 곳에 그린다.
+  if (!usableLayout(layout) || layout.templateVersion === LEGACY_VILLAGE_TEMPLATE_VERSION)
+    return objects;
   const mapMeta = readMapJson('home.map.json', bundledMapMeta, assets); // 화면 스냅샷이 cache 면 캐시본(GROMO-2233)
   const cells = new Map(layout.buildings.map((b) => [b.id as string, b.cell]));
   return objects.map((o) => {

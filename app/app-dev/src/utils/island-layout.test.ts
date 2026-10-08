@@ -12,6 +12,16 @@ describe('applyLayout', () => {
     );
   });
 
+  it('기존 마을 좌표(templateVersion 2) 행은 새 마을 오브젝트에 적용하지 않는다', () => {
+    const legacy = {
+      schemaVersion: 1,
+      templateVersion: 2,
+      mapId: 'home',
+      buildings: [{ id: 'hall', cell: { x: 69, y: 25 }, anchor: 'bottom-center', footprint: [] }],
+    };
+    expect(applyLayout(objects, legacy as any, bundle)).toBe(objects);
+  });
+
   it('건물 cell 중심을 이미지 px 발밑으로 덮어쓰고 나머지는 건드리지 않는다', () => {
     const out = applyLayout(
       objects,
