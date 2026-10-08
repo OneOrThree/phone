@@ -234,6 +234,7 @@ function Wanderer({
   reduce,
   delay,
   scene,
+  buildings,
 }: {
   color: Color;
   start: Point;
@@ -241,6 +242,7 @@ function Wanderer({
   reduce: boolean;
   delay: number;
   scene?: VillageScene;
+  buildings: readonly string[];
 }) {
   const xy = useRef(new Animated.ValueXY(start)).current,
     at = useRef(start);
@@ -263,7 +265,7 @@ function Wanderer({
           ? [
               at.current,
               ...navPath(
-                NAV,
+                activeNav(buildings),
                 imageToWorld(at.current, sizeOf(grid)),
                 imageToWorld(target, sizeOf(grid)),
               ).map((n) => worldToImage(n, sizeOf(grid))),
@@ -931,6 +933,11 @@ function FinalIslandScene({
     trackedConstruction && progress < 1 ? trackedConstruction.building : undefined;
   const sceneBuilding = trackedConstruction?.building;
   const layout = facts?.home?.layout;
+  // villageScene 에 넘기는 것과 같은 완공 목록(공사 중인 건물 포함).
+  const navBuildings =
+    sceneBuilding && !i.buildings.includes(sceneBuilding)
+      ? [...i.buildings, sceneBuilding]
+      : i.buildings;
   const scene = useMemo(() => {
     if (!layeredPreview) return undefined;
     const built = villageScene(
@@ -1143,7 +1150,7 @@ function FinalIslandScene({
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
     setInteractiveMotion(null);
     const path = tileNav
-      ? tilePath(NAV, location.current, target, sizeOf(grid))
+      ? tilePath(activeNav(navBuildings), location.current, target, sizeOf(grid))
       : scene
         ? villagePath(scene, location.current, target)
         : landPath(grid, location.current, nearestLand(grid, target));
@@ -1453,6 +1460,7 @@ function FinalIslandScene({
             color={color}
             start={nearestLand(grid, WANDER_STARTS[n])}
             scene={scene}
+            buildings={navBuildings}
             s={s}
             reduce={state.settings.reduceMotion}
             delay={1200 + n * 2500}
@@ -1804,7 +1812,8 @@ function FinalIslandScene({
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
-const NAV = loadNav(navJson as any);
+// 완공된 건물만 막힌 nav(미완공 건물 자리는 통행). 캐시는 loadNav 가 가진다.
+const activeNav = (completed: readonly string[]) => loadNav(navJson as any, completed);
 export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
   const L = useAppLayout();
   const [layered, setLayered] = useState(

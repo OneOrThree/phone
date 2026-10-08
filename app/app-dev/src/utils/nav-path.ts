@@ -10,12 +10,22 @@ import {
   worldToImage,
 } from './worldCoords';
 
-export type NavJson = { columns: number; rows: number; walkable: string; traversalCost: number[] };
+export type NavJson = {
+  columns: number;
+  rows: number;
+  walkable: string;
+  traversalCost: number[];
+  /** 건물별 「미완공일 때만 통행」인 셀 index. walkable 은 전부 완공 기준. */
+  buildingCells?: Record<string, number[]>;
+  /** 간선 중점이 막혀 직교 이동이 불가한 인접 셀 쌍 [a, b] (a < b). */
+  blockedEdges?: [number, number][];
+};
 export type NavGrid = {
   cols: number;
   rows: number;
   walkable: Uint8Array;
-  cost: Uint8Array; // ×10 정수 (길 8, 잔디 27, 차단 0)
+  cost: Uint8Array; // ×10 정수 (길 8, 잔디 27)
+  blockedEdges: Set<number>; // edgeKey(a, b)
   minCost: number; // 통행 셀 최소 비용 (휴리스틱 계수, 8/10)
   region: Int32Array; // 연결 영역 라벨 (비통행 -1)
 };
@@ -23,6 +33,7 @@ export type NavGrid = {
 // 근거: 기존 걷기는 16px 셀 한 칸에 95ms. 격자 셀 1칸 = 1 world unit 이므로 95ms / 1.04unit ≈ 91ms/unit.
 export const MS_PER_UNIT = 91;
 
+const edgeKey = (a: number, b: number, n: number) => (a < b ? a * n + b : b * n + a);
 const idx = (g: NavGrid, cx: number, cy: number) => cy * g.cols + cx;
 const dist = (a: WorldPoint, b: WorldPoint) => Math.hypot(a.x - b.x, a.y - b.y);
 const DIRS = [-1, 0, 1]
@@ -36,13 +47,18 @@ function neighbor(g: NavGrid, p: number, dx: number, dy: number) {
   if (x < 0 || y < 0 || x >= g.cols || y >= g.rows) return -1;
   const q = idx(g, x, y);
   if (!g.walkable[q]) return -1;
+  if ((!dx || !dy) && g.blockedEdges.has(edgeKey(p, q, g.walkable.length))) return -1;
   if (dx && dy && (!g.walkable[idx(g, x, y - dy)] || !g.walkable[idx(g, x - dx, y)])) return -1;
   return q;
 }
 
-const cache = new WeakMap<NavJson, NavGrid>();
-export function loadNav(nav: NavJson): NavGrid {
-  const hit = cache.get(nav);
+const cache = new WeakMap<NavJson, Map<string, NavGrid>>();
+// completedBuildings: 완공된 건물 id. buildingCells 중 완공되지 않은 건물의 셀을 통행으로 켠다(없으면 전부 완공 기준).
+export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): NavGrid {
+  const key = completedBuildings ? [...completedBuildings].sort().join(',') : '*';
+  const byKey = cache.get(nav) ?? new Map<string, NavGrid>();
+  cache.set(nav, byKey);
+  const hit = byKey.get(key);
   if (hit) return hit;
   const { columns, rows } = nav;
   if (!Number.isInteger(columns) || columns <= 0)
@@ -54,24 +70,27 @@ export function loadNav(nav: NavJson): NavGrid {
     throw new Error(`nav.walkable 길이 ${nav.walkable.length} != columns*rows ${n}`);
   if (nav.traversalCost.length !== n)
     throw new Error(`nav.traversalCost 길이 ${nav.traversalCost.length} != columns*rows ${n}`);
+  // 미완공 건물 자리가 켜질 수 있어 차단 셀도 비용이 있어야 한다.
   for (let i = 0; i < n; i++)
-    if (nav.walkable[i] === '1' && !(nav.traversalCost[i] > 0))
-      throw new Error(
-        `nav.traversalCost[${i}] 가 통행 셀인데 ${nav.traversalCost[i]} (0 이하 불가)`,
-      );
+    if (!(nav.traversalCost[i] > 0))
+      throw new Error(`nav.traversalCost[${i}] 가 ${nav.traversalCost[i]} (0 이하 불가)`);
   const walkable = new Uint8Array(n),
     cost = new Uint8Array(n);
   let min = Infinity;
   for (let i = 0; i < n; i++) {
     walkable[i] = nav.walkable[i] === '1' ? 1 : 0;
-    cost[i] = walkable[i] ? nav.traversalCost[i] : 0;
-    if (cost[i] > 0) min = Math.min(min, cost[i]);
+    cost[i] = nav.traversalCost[i];
   }
+  if (completedBuildings)
+    for (const [b, cells] of Object.entries(nav.buildingCells ?? {}))
+      if (!completedBuildings.includes(b)) for (const c of cells) walkable[c] = 1;
+  for (let i = 0; i < n; i++) if (walkable[i]) min = Math.min(min, cost[i]);
   const g: NavGrid = {
     cols: nav.columns,
     rows: nav.rows,
     walkable,
     cost,
+    blockedEdges: new Set((nav.blockedEdges ?? []).map(([a, b]) => edgeKey(a, b, n))),
     minCost: (Number.isFinite(min) ? min : 10) / 10,
     region: new Int32Array(n).fill(-1),
   };
@@ -90,7 +109,7 @@ export function loadNav(nav: NavJson): NavGrid {
       }
     label++;
   }
-  cache.set(nav, g);
+  byKey.set(key, g);
   return g;
 }
 
