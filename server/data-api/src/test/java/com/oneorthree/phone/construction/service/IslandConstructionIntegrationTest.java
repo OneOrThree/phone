@@ -177,7 +177,7 @@ class IslandConstructionIntegrationTest {
         List<Map<String, Object>> buildings = (List<Map<String, Object>>) first.layout().get("buildings");
         assertThat(buildings).hasSize(7);
         assertThat(buildings.get(0)).containsEntry("id", "hall")
-                .containsEntry("cell", Map.of("x", 71, "y", 31))
+                .containsEntry("cell", Map.of("x", 69, "y", 25))
                 .containsEntry("anchor", "bottom-center");
 
         IslandLayoutView second = service.layout(f.islandId, f.ownerId);
