@@ -24,6 +24,7 @@ import {
   saveSession,
 } from '@/services/api/session';
 import type { IslandSummary } from '@/services/api/islands';
+import { applyLocalePref } from '@/i18n';
 
 let mockFontScale = 1;
 jest.mock('@/services/api/account', () => ({
@@ -88,6 +89,12 @@ beforeEach(() => {
   notifyMock.mockClear();
   backMock.mockClear();
 });
+// 언어 화면 테스트가 i18n 모듈 싱글턴 상태를 건드릴 수 있어 매 테스트 뒤 되돌린다(T1 패턴과 동일).
+const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+afterEach(() => {
+  applyLocalePref('system');
+  mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]); // 이 파일 다른 테스트로 안 새게
+});
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
@@ -148,6 +155,7 @@ function Harness({
   retryHome,
   friendsScreen,
   conversion,
+  localePref = 'system',
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -184,9 +192,19 @@ function Harness({
   const reset = useRef(jest.fn()).current;
   const signOut = useRef(jest.fn(async () => {})).current;
   const confirm = useRef(jest.fn((_title, _body, ok) => ok())).current;
+  const setLocalePref = useRef(jest.fn()).current;
   useEffect(() => {
     seed?.(dispatch);
-    expose?.({ dispatch, actions: actions.current, go, home, reset, signOut, confirm });
+    expose?.({
+      dispatch,
+      actions: actions.current,
+      go,
+      home,
+      reset,
+      signOut,
+      confirm,
+      setLocalePref,
+    });
   }, []);
   const screens = (
     <RedesignScreens
@@ -237,6 +255,8 @@ function Harness({
         retryHome,
         friendsScreen,
         conversion,
+        localePref,
+        setLocalePref,
       }}
     />
   );
@@ -1487,6 +1507,145 @@ test('서버 앱 설정의 안전 섹션에서 차단 사용자 목록으로 진
   await fireEvent.press(s.getByText('차단한 사용자'));
 
   assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
+});
+
+test('앱 설정의 언어 행은 기기 언어 따름이면 그 문구를 보여주고 탭하면 언어 화면으로 이동한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness
+      route="settings"
+      full
+      localePref="system"
+      expose={(value: any) => (exposed = value)}
+    />,
+  );
+
+  assert.ok(s.getByText('기기 언어 따름'));
+  await fireEvent.press(s.getByLabelText('언어, 기기 언어 따름'));
+  assert.equal(exposed.go.mock.calls[0][0], 'language');
+  assert.equal(exposed.go.mock.calls[0][1], 'settings');
+});
+
+test('앱 설정의 언어 행은 명시적으로 고른 언어면 그 언어 이름을 보여준다', async () => {
+  const s = await render(<Harness route="settings" full localePref="en" />);
+
+  assert.ok(s.getByText('English'));
+});
+
+test("route==='language'는 행 3개를 그리고 현재 pref 행만 선택 표시한다", async () => {
+  const s = await render(<Harness route="language" full localePref="ko" />);
+
+  assert.equal(
+    s.getByLabelText('기기 언어 따름, 지금은 한국어').props.accessibilityState.selected,
+    false,
+  );
+  assert.equal(s.getByLabelText('한국어').props.accessibilityState.selected, true);
+  assert.equal(s.getByLabelText('English').props.accessibilityState.selected, false);
+});
+
+test('«English» 탭은 저장 → 적용 → 새 언어 알림 순서로 처리한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="language" full localePref="ko" expose={(value: any) => (exposed = value)} />,
+  );
+  const setItem = AsyncStorage.setItem as jest.Mock;
+
+  await fireEvent.press(s.getByLabelText('English'));
+
+  await waitFor(() => assert.equal(exposed.setLocalePref.mock.calls.length, 1));
+  assert.equal(setItem.mock.calls.at(-1)?.[0], 'gromo.locale');
+  assert.equal(setItem.mock.calls.at(-1)?.[1], 'en');
+  assert.equal(exposed.setLocalePref.mock.calls[0][0], 'en');
+  assert.ok(notifyMock.mock.calls.some((c: unknown[]) => c[0] === 'Language changed'));
+
+  // 저장 → 적용 → 알림 순서를 전역 호출 순번으로 확인한다
+  const setItemOrder = setItem.mock.invocationCallOrder.at(-1) as number;
+  const applyOrder = exposed.setLocalePref.mock.invocationCallOrder[0] as number;
+  const notifyOrder = notifyMock.mock.invocationCallOrder.at(-1) as number;
+  assert.ok(setItemOrder < applyOrder);
+  assert.ok(applyOrder < notifyOrder);
+});
+
+test('AsyncStorage 저장이 실패하면 적용하지 않고 저장 실패 문구만 알린다', async () => {
+  let exposed: any;
+  const setItem = AsyncStorage.setItem as jest.Mock;
+  setItem.mockRejectedValueOnce(new Error('AsyncStorage 쓰기 실패'));
+  const s = await render(
+    <Harness route="language" full localePref="ko" expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.press(s.getByLabelText('English'));
+
+  await waitFor(() =>
+    assert.ok(
+      notifyMock.mock.calls.some(
+        (c: unknown[]) => c[0] === '언어 설정을 저장하지 못했어요. 다시 시도해 주세요.',
+      ),
+    ),
+  );
+  assert.equal(exposed.setLocalePref.mock.calls.length, 0);
+});
+
+test('현재 pref와 같은 값을 다시 탭하면 저장·적용·알림을 모두 생략한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="language" full localePref="ko" expose={(value: any) => (exposed = value)} />,
+  );
+  const setItem = AsyncStorage.setItem as jest.Mock;
+  const priorSetItemCalls = setItem.mock.calls.length;
+
+  await fireEvent.press(s.getByLabelText('한국어'));
+
+  assert.equal(setItem.mock.calls.length, priorSetItemCalls);
+  assert.equal(exposed.setLocalePref.mock.calls.length, 0);
+  assert.equal(notifyMock.mock.calls.length, 0);
+});
+
+test('기기 언어가 ko일 때 ko에서 기기 언어 따름으로 바꾸면 저장·적용은 되지만 적용 언어가 같아 알림은 없다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="language" full localePref="ko" expose={(value: any) => (exposed = value)} />,
+  );
+  const setItem = AsyncStorage.setItem as jest.Mock;
+
+  await fireEvent.press(s.getByLabelText('기기 언어 따름, 지금은 한국어'));
+
+  await waitFor(() => assert.equal(exposed.setLocalePref.mock.calls.length, 1));
+  assert.equal(setItem.mock.calls.at(-1)?.[0], 'gromo.locale');
+  assert.equal(setItem.mock.calls.at(-1)?.[1], 'system');
+  assert.equal(exposed.setLocalePref.mock.calls[0][0], 'system');
+  assert.equal(notifyMock.mock.calls.length, 0);
+});
+
+test('첫 탭의 저장이 끝나기 전 두 번째 탭이 들어오면 무시하고, 첫 탭 완료 뒤에만 적용·알림한다', async () => {
+  let exposed: any;
+  const setItem = AsyncStorage.setItem as jest.Mock;
+  let resolveSetItem = () => {};
+  setItem.mockImplementationOnce(() => new Promise<void>((resolve) => (resolveSetItem = resolve)));
+  const s = await render(
+    <Harness route="language" full localePref="ko" expose={(value: any) => (exposed = value)} />,
+  );
+  const priorSetItemCalls = setItem.mock.calls.length;
+
+  await fireEvent.press(s.getByLabelText('English')); // 첫 탭 — setItem 이 pending
+  await fireEvent.press(s.getByLabelText('English')); // 겹침 탭 — pickingLocale 가드로 즉시 반환돼야 함
+
+  assert.equal(setItem.mock.calls.length, priorSetItemCalls + 1); // setItem 은 1회만
+  assert.equal(exposed.setLocalePref.mock.calls.length, 0); // 첫 탭도 아직 안 끝남
+
+  await act(async () => resolveSetItem());
+
+  await waitFor(() => assert.equal(exposed.setLocalePref.mock.calls.length, 1));
+  assert.equal(exposed.setLocalePref.mock.calls[0][0], 'en');
+  assert.ok(notifyMock.mock.calls.some((c: unknown[]) => c[0] === 'Language changed'));
+});
+
+test('기기 언어가 지원 언어(ko·en)가 아니면 기기 언어 따름 sub 에 미지원 안내를 덧붙인다', async () => {
+  mockLocales.mockReturnValue([{ languageCode: 'ja', languageTag: 'ja-JP' }]);
+
+  const s = await render(<Harness route="language" full localePref="system" />);
+
+  assert.ok(s.getByText(/기기 언어 미지원/));
 });
 
 test('완공된 상점 첫 진입에서 강아지 이야기를 한 번만 보여준다', async () => {

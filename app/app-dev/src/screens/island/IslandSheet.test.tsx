@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { render } from '@testing-library/react-native';
-import { IslandSheet } from '@/screens/island/IslandSheet';
+import { IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
 
 let mockLayout = {
   width: 874,
@@ -48,3 +48,17 @@ test.each([
     if (hasFooter) expect(getByText('저장')).toBeTruthy();
   },
 );
+
+test('SheetRow는 selected를 accessibilityState.selected로 반영한다(언어 선택 화면 등)', async () => {
+  const { getByLabelText } = await render(
+    <>
+      <SheetRow title="한국어" selected onPress={() => {}} />
+      <SheetRow title="English" selected={false} onPress={() => {}} />
+      <SheetRow title="기기 언어 따름" onPress={() => {}} />
+    </>,
+  );
+
+  expect(getByLabelText('한국어').props.accessibilityState.selected).toBe(true);
+  expect(getByLabelText('English').props.accessibilityState.selected).toBe(false);
+  expect(getByLabelText('기기 언어 따름').props.accessibilityState.selected).toBeUndefined();
+});
