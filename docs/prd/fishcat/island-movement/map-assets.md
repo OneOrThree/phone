@@ -70,9 +70,12 @@ layoutRevision ─┘                                                           
 
 ## 6. `layoutRevision` — 지금과 다음
 
-- **지금(결정 2026-10-07, 조재영):** 서버에 배치 정본을 **바로** 만든다 — `island_layouts(island_id PK, layout_revision bigint, layout jsonb, updated_at)`. `layout` 은 `{ "schemaVersion": 1, "mapId": "home", "buildings": [ { "id": "hall", "cell": { "x": 71, "y": 31 }, "anchor": "bottom-center", "footprint": [ [x, y], ... ] } ] }` 처럼 **좌표를 JSON 으로 저장**한다. `cell`·`footprint` 는 모두 100×100 통행 셀 좌표(월드 단위 정수)이며 타일 격자(24×16)가 아니다. `schemaVersion` 진화 규칙은 §8 참조. `mapVersion` 은 manifest 가 정본이라 layout 에 넣지 않고, `mapId` 는 참조일 뿐이다. `/screens/home` 에 `layoutRevision` 과 `layout` 을 노출하고, 완공·철거·이동이 `layout_revision` 을 올린다. 서버 변경이 앱보다 늦으면 그 사이에만 앱 로컬 카탈로그로 그린다(임시).
+- **지금(결정 2026-10-07, 조재영):** 서버에 배치 정본을 **바로** 만든다 — `island_layouts(island_id PK, layout_revision bigint, layout jsonb, updated_at)`. `layout` 은 `{ "schemaVersion": 1, "mapId": "home", "buildings": [ { "id": "hall", "cell": { "x": 69, "y": 25 }, "anchor": "bottom-center", "footprint": [ [x, y], ... ] } ] }` 처럼 **좌표를 JSON 으로 저장**한다. `cell`·`footprint` 는 모두 100×100 통행 셀 좌표(월드 단위 정수)이며 타일 격자(24×16)가 아니다. `schemaVersion` 진화 규칙은 §8 참조. `mapVersion` 은 manifest 가 정본이라 layout 에 넣지 않고, `mapId` 는 참조일 뿐이다. `/screens/home` 에 `layoutRevision` 과 `layout` 을 노출하고, 완공·철거·이동이 `layout_revision` 을 올린다. 서버 변경이 앱보다 늦으면 그 사이에만 앱 로컬 카탈로그로 그린다(임시).
 - **다음(섬 꾸미기 피처 4):** 같은 `island_layouts.layout` 을 방장이 편집하는 API(건물 이동·장식 배치)를 붙인다. `layoutRevision` 은 섬 단위 단조 정수이며, Movement 는 이 값으로 NavArtifact 를 컴파일한다.
 - 전파: Data 는 `island.updated` 에 `layoutRevision` 을 싣는다. realtime 이 앱 쪽 `events` 구독을 열기 전까지 앱은 홈 재진입·포그라운드 복귀·건설 카드 완료 콜백에서 `/screens/home` 을 다시 읽는다. 감소하는 revision 은 버리고, 공백은 전체 재조회로 수렴한다(PRD data-flow §3 과 같은 규칙).
+
+- **기본 템플릿은 생성 시점 스냅샷이다(2026-10-08, GROMO-2243).** 행이 없는 섬의 첫 조회 때만 템플릿으로 만들고, 그 뒤 템플릿을 바꿔도 기존 행은 그대로다. 에픽이 main 에 들어가기 **전**에는 행을 지우고 다시 만들어도 된다(개발 데이터뿐). 들어간 **뒤**에는 행 삭제를 쓰지 않는다 — `layoutRevision` 단조 계약이 깨지고 방장 편집(피처 4)이 사라진다. 그때는 데이터 마이그레이션으로 고치고, `layoutRevision` 을 올려 `island.updated` 를 보내야 하므로 앱 배포와 순서를 맞춘다.
+- **`footprint` 는 시각 외곽 상자이지 충돌체가 아니다.** 지금은 시설 rect 를 덮는 상자다. 통행 정본은 `nav.json` 이고, 2단계 Movement 컴파일러가 이 값을 충돌 입력으로 쓰려면 먼저 정밀 기단으로 바꾸거나 충돌 전용 필드를 둔다(§8).
 
 ### 6.1 확정 사항 (2026-10-07, 조재영)
 
@@ -104,4 +107,6 @@ layoutRevision ─┘                                                           
 - 타일셋 배율 사본(@2x 하나 vs 밀도별)과 WebP 채택 — 실기기 메모리·디코드 측정 뒤.
 - `island_layouts` 의 jsonb 스키마 버전 관리(`layout.schemaVersion`)와 섬 꾸미기(피처 4)에서의 편집 API.
 - **`layout.schemaVersion` 진화 규칙(제안):** 2 가 되는 시점에 읽기는 하위 호환(모르는 필드는 무시), 쓰기는 항상 최신 버전, 기존 행은 읽을 때 변환한다(lazy upgrade). Flyway 데이터 마이그레이션으로 jsonb 를 일괄 변환하지 않는다.
+- **기본 템플릿 갱신 수단:** 템플릿을 또 바꿀 일에 대비해 layout 에 `templateVersion` 을 둘지(형식 버전 `schemaVersion` 과 별개), 피처 4 이후 방장이 편집한 건물을 빼고 덮는 규칙. prod 첫 행이 만들어지기 전에 정하는 편이 싸다.
+- **`footprint` 의 2단계 쓰임:** (a) 지금 정밀 기단 폴리곤으로 교체 (b) 충돌 전용 필드를 따로 두고 `footprint` 는 표시용 (c) 상자 유지·컴파일러가 별도 기단 사용 — 2단계 설계 전에 하나를 고른다. 어느 쪽이든 「기본 템플릿에서 모든 입구 도달」 fixture 를 둔다.
 - realtime `events` 토픽의 앱 개방 여부 — 열지 않으면 재조회가 정본 경로로 남는다.

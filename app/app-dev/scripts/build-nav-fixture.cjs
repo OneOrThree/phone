@@ -14,18 +14,11 @@ const EDGE_SAMPLES = 32; // 선분 내부 31점
 // ponytail: 기존 마을은 길이 원화에 그려져 있어 길 데이터가 없다 — 전 셀 잔디 비용 하나(기존 landPath 도 균일 BFS 라 동작은 같다).
 // 길을 선호하게 하려면 그려진 길 마스크를 만들어 길 셀만 8 로 낮춘다.
 const GRASS_COST = 27; // 정수 ×10
-// 기존 마을 건물 입구 px(WorldMap.tsx legacyDoors 의 x·y 와 같아야 한다).
-const DOORS = {
-  hall: { x: 1030, y: 268 },
-  library: { x: 1190, y: 612 },
-  shop: { x: 577, y: 783 },
-  tower: { x: 272, y: 200 },
-  board: { x: 891, y: 250 },
-  gram: { x: 380, y: 485 },
-  mail: { x: 320, y: 596 },
-};
-// 기존 마을 첫 자리(WorldMap.tsx FinalIslandScene initial() 의 { x: 585, y: 470 }).
-const SPAWN = { x: 585, y: 470 };
+// 기존 마을 건물 입구 px·첫 자리 — WorldMap.tsx 와 같은 src/constants/legacy-doors.json 한 곳을 읽는다.
+const legacy = require('../src/constants/legacy-doors.json');
+const BUILDINGS = ['hall', 'library', 'shop', 'tower', 'board', 'gram', 'mail'];
+const DOORS = Object.fromEntries(BUILDINGS.map((b) => [b, legacy.doors[b]]));
+const SPAWN = legacy.spawn;
 
 const g = JSON.parse(fs.readFileSync(SRC, 'utf8')).home;
 

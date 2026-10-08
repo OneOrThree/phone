@@ -4,6 +4,8 @@ import { initialState } from '@/services/model';
 import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
 import { buildingNames } from '@/services/model';
+import placement from '@/assets/backgrounds/island/placement.json';
+import legacyDoorCoords from '@/constants/legacy-doors.json';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -155,4 +157,216 @@ it('이동 보기 버튼은 플래그 on 에서만 보이고 누르면 캔버스
   expect(screen.getByTestId('tile-terrain').props.navDebug).toBeNull();
   await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
   expect(screen.getByTestId('tile-terrain').props.navDebug).toMatchObject({ walk: null });
+});
+
+// ---- 건물별 평행이동 정합 -----------------------------------------------------------------
+// 카메라 배율은 렌더에서 재지 않고 테스트 설정(402×874, 홈 카메라 z=1)에서 계산한다.
+const SCALE = (((874 / 874) * 402) / 1536) * 2.8;
+const CELL_PX = { x: 15.36, y: 10.24 };
+const PLACEMENT_ID = {
+  hall: 'town-hall',
+  board: 'noticeboard',
+  gram: 'gramophone',
+  library: 'library',
+  mail: 'mailbox',
+  tower: 'observatory',
+  shop: 'shop',
+} as const;
+type B = keyof typeof PLACEMENT_ID;
+// 서버 기본 템플릿 셀 = placement rect 발밑 bottom-center 가 속한 100×100 셀.
+const defaultCell = (b: B) => {
+  const [x, y, w, h] = placement.assets.find((a) => a.id === PLACEMENT_ID[b])!.rect;
+  const [cw, ch] = placement.canvas;
+  return { x: Math.floor(((x + w / 2) * 100) / cw), y: Math.floor(((y + h) * 100) / ch) };
+};
+const DELTA = { x: 3, y: -2 };
+const movedCell = (b: B) => ({ x: defaultCell(b).x + DELTA.x, y: defaultCell(b).y + DELTA.y });
+const expected = { dx: DELTA.x * CELL_PX.x * SCALE, dy: DELTA.y * CELL_PX.y * SCALE };
+const flatStyle = (style: unknown) =>
+  Object.assign({}, ...[style].flat(3)) as Record<string, number>;
+const allBuildings = Object.keys(PLACEMENT_ID) as B[];
+const withLayout = (state: ReturnType<typeof initialState>, b?: B) => {
+  if (!b) return void (mockFacts.current = null);
+  const f = facts(state);
+  f.home.layout = {
+    schemaVersion: 1,
+    mapId: 'home',
+    buildings: [{ id: b, cell: movedCell(b) }] as never,
+  };
+  mockFacts.current = f;
+};
+const fullState = () => {
+  const state = initialState();
+  state.islands.find((x) => x.id === state.islandId)!.buildings = [...allBuildings];
+  return state;
+};
+const styleOf = (screen: { getByTestId: (id: string, o?: object) => { props: any } }, id: string) =>
+  flatStyle(screen.getByTestId(id, { includeHiddenElements: true }).props.style);
+
+// 건물별로 그 건물에 딸린 렌더 지점(레이어·모션·알림). 낮에는 정적 레이어가 모션에 흡수되는 건물이 있다.
+const cases: [string, B, string[], Record<string, unknown>][] = [
+  ['hall', 'hall', ['world-hall-motion'], {}],
+  [
+    'board',
+    'board',
+    ['world-static-building-board', 'world-board-indicator'],
+    { dayNight: 'night' },
+  ],
+  ['tower', 'tower', ['world-observatory-motion'], {}],
+  ['shop', 'shop', ['world-shop-motion'], {}],
+  ['library', 'library', ['world-library-motion'], {}],
+  ['gram', 'gram', ['world-static-building-gram'], {}],
+  ['mail(정적 레이어)', 'mail', ['world-static-building-mail'], { showMailboxLetters: false }],
+  [
+    'mail(펠리컨·배지)',
+    'mail',
+    ['mailbox-pelican', 'mailbox-new-indicator'],
+    { showMailboxLetters: true },
+  ],
+];
+it.each(cases)(
+  '%s: 기본 셀 대비 옮긴 셀이면 레이어·모션이 Δcell × (15.36,10.24) × 배율만큼 정확히 움직인다',
+  async (_name, b, ids, props) => {
+    const state = fullState();
+    const read = async (moved: boolean) => {
+      withLayout(state, moved ? b : undefined);
+      const screen = await render(
+        <FinalIsland state={state} go={jest.fn()} build={jest.fn()} {...props} />,
+      );
+      const out = ids.map((id) => styleOf(screen, id));
+      await screen.unmount();
+      return out;
+    };
+    const base = await read(false);
+    const moved = await read(true);
+    ids.forEach((_id, k) => {
+      expect(moved[k].left - base[k].left).toBeCloseTo(expected.dx, 6);
+      expect(moved[k].top - base[k].top).toBeCloseTo(expected.dy, 6);
+    });
+  },
+);
+
+it('공사 중인 건물의 공사 스프라이트도 같은 평행이동을 따른다', async () => {
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-21T00:10:00Z'));
+  const read = async (moved: boolean) => {
+    const state = initialState(true);
+    state.serverIslands = {
+      currentIslandId: 'srv1',
+      home: {
+        islandId: 'srv1',
+        home: {
+          island: {
+            id: 'srv1',
+            name: '공사섬',
+            intro: '',
+            approvalRequired: false,
+            maxMembers: 15,
+            role: 'host',
+          },
+          wallets: { villagePoints: 100 },
+          focusSummary: { totalSeconds: 0 },
+          layout: moved
+            ? {
+                schemaVersion: 1,
+                mapId: 'home',
+                buildings: [{ id: 'library', cell: movedCell('library') }],
+              }
+            : undefined,
+        },
+        completedBuildings: ['hall'],
+        members: [],
+      },
+      clientConstruction: {
+        islandId: 'srv1',
+        building: 'library',
+        startedAt: Date.parse('2026-09-21T00:00:00Z'),
+        endsAt: Date.parse('2026-09-21T01:00:00Z'),
+      },
+    } as never;
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={jest.fn()}
+        build={jest.fn()}
+        showHud={false}
+        showActions={false}
+      />,
+    );
+    const out = styleOf(screen, 'village-construction-library');
+    await screen.unmount();
+    return out;
+  };
+  const base = await read(false);
+  const moved = await read(true);
+  expect(moved.left - base.left).toBeCloseTo(expected.dx, 6);
+  expect(moved.top - base.top).toBeCloseTo(expected.dy, 6);
+  jest.restoreAllMocks();
+});
+
+it('건물을 옮겨도 모닥불·뗏목 렌더 지점은 움직이지 않는다(음성)', async () => {
+  const state = fullState();
+  const read = async (b?: B) => {
+    withLayout(state, b);
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    const out = {
+      fire: styleOf(screen, 'world-fire-motion'),
+      raft: styleOf(screen, 'world-raft-water-motion'),
+      hall: styleOf(screen, 'world-hall-motion'),
+    };
+    await screen.unmount();
+    return out;
+  };
+  const base = await read();
+  const moved = await read('hall');
+  expect(moved.hall.left).not.toBeCloseTo(base.hall.left, 3); // 대조: 옮긴 건물은 실제로 움직였다
+  expect(moved.fire).toEqual(base.fire);
+  expect(moved.raft).toEqual(base.raft);
+});
+
+it.each(allBuildings)('옮긴 %s 문을 탭하면 걷기 목표가 옮겨진 문 좌표다', async (b) => {
+  const state = fullState();
+  withLayout(state, b);
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+  await fireEvent.press(screen.getByLabelText(buildingNames[b]));
+  const door = legacyDoorCoords.doors[b];
+  const tap = screen.getByTestId('tile-terrain').props.navDebug.walk.tap;
+  expect(tap.x).toBeCloseTo(door.x + DELTA.x * CELL_PX.x, 6);
+  expect(tap.y).toBeCloseTo(door.y + DELTA.y * CELL_PX.y, 6);
+  await screen.unmount();
+});
+
+// 릴리스 빌드(__DEV__=false)에서는 QA 전환 버튼이 없어야 한다. 플래그는 모듈 로드 시 굳으므로 격리 로드한다.
+describe('릴리스 빌드의 디버그 버튼', () => {
+  const renderIsolated = async (env: Record<string, string | undefined>) => {
+    const keys = ['EXPO_PUBLIC_VILLAGE_PREVIEW', 'EXPO_PUBLIC_TILE_ISLAND'];
+    const saved = keys.map((k) => process.env[k]);
+    const dev = (globalThis as { __DEV__?: boolean }).__DEV__;
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
+    keys.forEach((k) => (env[k] === undefined ? delete process.env[k] : (process.env[k] = env[k])));
+    try {
+      // 격리 레지스트리가 React 를 따로 만들면 훅이 깨진다 — 바깥 React 를 그대로 물려준다.
+      let Island!: typeof FinalIsland;
+      jest.isolateModules(() => {
+        jest.doMock('react', () => React);
+        Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
+      });
+      return await render(<Island state={initialState()} go={jest.fn()} build={jest.fn()} />);
+    } finally {
+      (globalThis as { __DEV__?: boolean }).__DEV__ = dev;
+      keys.forEach((k, n) =>
+        saved[n] === undefined ? delete process.env[k] : (process.env[k] = saved[n]),
+      );
+    }
+  };
+  it('미리보기 env 없이 __DEV__=false 면 village-preview-toggle·nav-debug-toggle 이 없다', async () => {
+    const screen = await renderIsolated({ EXPO_PUBLIC_TILE_ISLAND: '1' });
+    expect(screen.queryByTestId('village-preview-toggle')).toBeNull();
+    expect(screen.queryByTestId('nav-debug-toggle')).toBeNull();
+  });
+  it('미리보기 env 가 켜져도 타일 섬 플래그가 없으면 nav-debug-toggle 은 없다', async () => {
+    const screen = await renderIsolated({ EXPO_PUBLIC_VILLAGE_PREVIEW: '1' });
+    expect(screen.getByTestId('village-preview-toggle')).toBeTruthy();
+    expect(screen.queryByTestId('nav-debug-toggle')).toBeNull();
+  });
 });

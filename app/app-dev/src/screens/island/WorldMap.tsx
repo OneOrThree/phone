@@ -42,6 +42,7 @@ import {
 import { useAppLayout } from '@/utils/layout';
 import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
+import legacyDoorCoords from '@/constants/legacy-doors.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
@@ -167,48 +168,36 @@ type Door = Point & {
 const NO_OFFSET: Point = { x: 0, y: 0 };
 /** 타일 섬 서버 배치(GROMO-2227) — 건물별 평행이동(이미지 px). 없는 건물은 0. */
 type BuildingOffsets = Partial<Record<Building, Point>>;
-const legacyDoors: Record<string, Door> = {
-  hall: { x: 1030, y: 268, r: 'hall', label: buildingNames.hall, building: 'hall' },
-  board: { x: 891, y: 250, r: 'board', label: buildingNames.board, building: 'board' },
-  gram: {
-    x: 380,
-    y: 485,
-    r: 'sound',
-    label: buildingNames.gram,
-    building: 'gram',
-    memberOnly: true,
-  },
-  library: {
-    x: 1190,
-    y: 612,
-    r: 'library',
-    label: buildingNames.library,
-    building: 'library',
-  },
-  mail: { x: 320, y: 596, r: 'mail', label: buildingNames.mail, building: 'mail' },
-  tower: { x: 272, y: 200, r: 'tower', label: buildingNames.tower, building: 'tower' },
-  shop: { x: 577, y: 783, r: 'shop', label: buildingNames.shop, building: 'shop' },
-  // 고양이는 부두 끝(x·y)까지 걸어가고, 탭 영역은 배경에 그려진 뗏목 위에 둔다. 기본 탭 영역은
-  // 도착점 주변(부두의 육지 쪽 끝)이라 뗏목 그림을 눌러도 바다만 눌렀다(GROMO-2157).
-  raft: {
-    x: 274,
-    y: 740,
-    r: 'boat',
-    label: '뗏목',
-    memberOnly: true,
-    hitbox: { x: 200, y: 815, w: 180, h: 110 },
-  },
-  fishingIsland: {
-    x: 1345,
-    y: 882,
-    r: 'focusVisit',
-    label: '낚시섬 구경하기',
-    memberOnly: true,
-    visitorRoute: 'visitIslandFocus',
-    direct: true,
-    hitbox: { x: 1230, y: 810, w: 230, h: 145 },
-  },
-};
+// 좌표·hitbox 숫자는 legacy-doors.json 한 곳(nav fixture 생성 스크립트와 공유). 라벨·경로만 여기서 붙인다.
+const legacyDoors: Record<string, Door> = (() => {
+  const d = legacyDoorCoords.doors;
+  return {
+    hall: { ...d.hall, r: 'hall', label: buildingNames.hall, building: 'hall' },
+    board: { ...d.board, r: 'board', label: buildingNames.board, building: 'board' },
+    gram: {
+      ...d.gram,
+      r: 'sound',
+      label: buildingNames.gram,
+      building: 'gram',
+      memberOnly: true,
+    },
+    library: { ...d.library, r: 'library', label: buildingNames.library, building: 'library' },
+    mail: { ...d.mail, r: 'mail', label: buildingNames.mail, building: 'mail' },
+    tower: { ...d.tower, r: 'tower', label: buildingNames.tower, building: 'tower' },
+    shop: { ...d.shop, r: 'shop', label: buildingNames.shop, building: 'shop' },
+    // 고양이는 부두 끝(x·y)까지 걸어가고, 탭 영역은 배경에 그려진 뗏목 위에 둔다. 기본 탭 영역은
+    // 도착점 주변(부두의 육지 쪽 끝)이라 뗏목 그림을 눌러도 바다만 눌렀다(GROMO-2157).
+    raft: { ...d.raft, r: 'boat', label: '뗏목', memberOnly: true },
+    fishingIsland: {
+      ...d.fishingIsland,
+      r: 'focusVisit',
+      label: '낚시섬 구경하기',
+      memberOnly: true,
+      visitorRoute: 'visitIslandFocus',
+      direct: true,
+    },
+  };
+})();
 type ConstructionPlacement = { x: number; y: number; w: number; h: number };
 /** 기존 1536×1024 건물 레이어에서 투명 여백을 제외한 원본 rect의 bottom-center 좌표. */
 const legacyConstructionPlacements: Readonly<Record<Building, ConstructionPlacement>> = {
@@ -1063,7 +1052,8 @@ function FinalIslandScene({
   const initial = () =>
     nearestLand(
       grid,
-      homePositions[positionKey] ?? (layeredPreview ? { x: 820, y: 535 } : { x: 585, y: 470 }),
+      homePositions[positionKey] ??
+        (layeredPreview ? legacyDoorCoords.layeredSpawn : legacyDoorCoords.spawn),
     );
   const [pos, setPos] = useState(initial),
     [walking, setWalking] = useState(false),

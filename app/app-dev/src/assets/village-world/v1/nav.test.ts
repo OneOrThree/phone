@@ -6,8 +6,11 @@ import { loadNav, navPath } from '@/utils/nav-path';
 import { cellCenterToWorld, imageToWorld, worldToImage } from '@/utils/worldCoords';
 import home from './home.map.json';
 import nav from './nav.json';
-const { build, center, edgeOpen, DOORS } = require('../../../../scripts/build-nav-fixture.cjs');
+import legacyDoors from '@/constants/legacy-doors.json';
+const { build, center, edgeOpen } = require('../../../../scripts/build-nav-fixture.cjs');
 
+// 문 좌표 정본은 WorldMap 과 fixture 스크립트가 같이 읽는 legacy-doors.json.
+const DOORS = legacyDoors.doors;
 const open = (cx: number, cy: number) => nav.walkable[cy * nav.columns + cx] === '1';
 const size = { imageWidth: 1536, imageHeight: 1024 };
 
@@ -70,21 +73,21 @@ describe('v1 nav fixture (기존 마을)', () => {
   });
 
   it('입구 셀은 원래 문 px 에서 한 셀 대각 거리 안이다', () => {
-    for (const [id, d] of Object.entries(DOORS as Record<string, { x: number; y: number }>)) {
+    for (const [id, d] of Object.entries(DOORS).filter(([id]) => id in nav.entrances)) {
       const c = worldToImage(cellCenterToWorld((nav.entrances as any)[id]), size);
       expect(Math.hypot(c.x - d.x, c.y - d.y)).toBeLessThan(Math.hypot(15.36, 10.24) * 2);
     }
   });
 
-  it('스폰에서 부두 끝(뗏목 문 274,740)까지 걸어간다', () => {
+  it('스폰에서 부두 끝(뗏목 문)까지 걸어간다', () => {
     const g = loadNav(nav as any);
     const route = navPath(
       g,
       cellCenterToWorld(nav.spawns.character),
-      imageToWorld({ x: 274, y: 740 }, size),
+      imageToWorld(DOORS.raft, size),
     );
     const end = worldToImage(route[route.length - 1], size);
-    expect(Math.hypot(end.x - 274, end.y - 740)).toBeLessThan(20);
+    expect(Math.hypot(end.x - DOORS.raft.x, end.y - DOORS.raft.y)).toBeLessThan(20);
   });
 
   it('blockedEdges 는 선분 내부 31점 재계산과 같다', () => {
