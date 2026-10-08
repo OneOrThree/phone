@@ -1,3 +1,4 @@
+import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession } from '@/services/api/session';
@@ -1536,6 +1537,17 @@ export function RedesignScreens({ e }: any) {
         />
       </Onboard>
     );
+  if (server && route === 'currentIsland')
+    return (
+      <ServerIslandPicker
+        key={route}
+        state={state}
+        islands={server}
+        back={back}
+        home={home}
+        reset={reset}
+      />
+    );
   if (route === 'chooseIsland')
     return (
       <View style={{ flex: 1 }}>
@@ -1574,6 +1586,9 @@ export function RedesignScreens({ e }: any) {
               </View>
             )}
             <Txt style={H22}>어디에서 시작할까요?</Txt>
+            {server && !!snap?.memberships.length && (
+              <Btn title="가입한 섬으로 들어가기" onPress={() => go('currentIsland')} />
+            )}
             <Group>
               <Row
                 title="혼자 시작할 섬 만들기"
@@ -5458,6 +5473,14 @@ export function RedesignScreens({ e }: any) {
           </View>
         )}
         <SheetGroup>
+          {server && (
+            <SheetRow
+              title="현재 섬 변경하기"
+              sub={island.name ? `현재 접속: ${island.name}` : '가입한 섬 선택'}
+              chevron
+              onPress={() => go('currentIsland')}
+            />
+          )}
           <SheetRow
             title="보유품 꾸미기"
             sub="옷 · 장신구"

@@ -485,7 +485,8 @@ function CurrentScreensContent({ e }: any) {
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
-  if (['boat', 'mainIsland', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
+  if (['boat', 'mainIsland', 'currentIsland', 'friends', 'friendSearch'].includes(r))
+    return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
   if (r === 'permission')
     return e.detail === 'settings' ? (
@@ -3029,7 +3030,7 @@ function Social({ e }: any) {
     r = e.route,
     [query, setQuery] = useState(''),
     friends = s.friends ?? [];
-  if (r === 'boat' || r === 'mainIsland')
+  if (r === 'boat' || r === 'mainIsland' || r === 'currentIsland')
     return (
       // 내 뗏목·메인 섬 변경·친구 관리는 v2 시트 구현(Screens.tsx)이 그린다
       <RedesignScreens e={e} />

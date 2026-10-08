@@ -213,6 +213,7 @@ const titles: Record<Route, string> = {
   orders: '구매 내역',
   boat: '내 배',
   mainIsland: '내 메인 섬 변경하기',
+  currentIsland: '현재 섬 변경하기',
   profile: '내 정보',
   settings: '앱 설정',
   blockedUsers: '차단한 사용자',
@@ -1371,9 +1372,15 @@ function Gromo() {
     }
     if (state.onboarded) return;
     if (
-      ['login', 'character', 'chooseIsland', 'createIsland', 'joinIsland', 'approval'].includes(
-        route,
-      )
+      [
+        'login',
+        'character',
+        'chooseIsland',
+        'createIsland',
+        'joinIsland',
+        'approval',
+        'currentIsland',
+      ].includes(route)
     )
       return;
     // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.

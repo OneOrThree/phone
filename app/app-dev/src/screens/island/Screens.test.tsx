@@ -2092,3 +2092,28 @@ test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으�
   await fireEvent.changeText(s.getByLabelText('섬 이름'), '가'.repeat(50));
   assert.ok(s.getByText('50자까지 쓸 수 있어요 · 50/50'));
 });
+
+test('현재 섬 없이 재실행한 기존 주민도 가입한 섬 선택으로 갈 수 있다', async () => {
+  const initial = reducer(initialState(false), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [islandSummary({ id: 'approved' })],
+      currentIslandId: null,
+      nextCursor: null,
+      lossReason: null,
+    },
+  });
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="chooseIsland"
+      initial={initial}
+      expose={(value: any) => {
+        exposed = value;
+      }}
+      api={() => ({})}
+    />,
+  );
+  await fireEvent.press(screen.getByText('가입한 섬으로 들어가기'));
+  assert.equal(exposed.go.mock.calls[0][0], 'currentIsland');
+});

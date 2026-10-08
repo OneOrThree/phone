@@ -593,3 +593,146 @@ test('leave — 결과 불명 오류는 재조회하고 같은 키로 재시도�
   await h.cmds.commands.leave('i1');
   assert.equal(keys[0], keys[1]);
 });
+
+const selectionApi = (over: Partial<IslandApi> = {}): Partial<IslandApi> => ({
+  myIslands: async () =>
+    myIslands({ items: [island({ id: 'i1' }), island({ id: 'i2' })], currentIslandId: 'i1' }),
+  myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  me: async () => account({ mainIslandId: 'i1' }),
+  ...over,
+});
+
+test('현재 섬 변경은 서버 재조회 뒤 확정하며 대표 섬을 바꾸지 않는다', async () => {
+  let current = 'i1';
+  let finish!: () => void;
+  const write = jest.fn(
+    () =>
+      new Promise<{ currentIslandId: string }>((resolve) => {
+        finish = () => {
+          current = 'i2';
+          resolve({ currentIslandId: current });
+        };
+      }),
+  );
+  const h = harness(
+    selectionApi({
+      switchCurrent: write,
+      myIslands: async () =>
+        myIslands({
+          items: [island({ id: 'i1' }), island({ id: 'i2' })],
+          currentIslandId: current,
+        }),
+    }),
+  );
+  await h.cmds.commands.sync();
+  const pending = h.cmds.commands.switchCurrent('i2');
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i1');
+  finish();
+  await pending;
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i2');
+  assert.equal(h.state().mainIslandId, 'i1');
+});
+
+test('전환 이전의 늦은 소속 조회는 새 현재 섬을 덮어쓰지 않는다', async () => {
+  let count = 0;
+  let old!: (value: MyIslands) => void;
+  const h = harness(
+    selectionApi({
+      switchCurrent: async () => ({ currentIslandId: 'i2' }),
+      myIslands: () =>
+        ++count === 1
+          ? new Promise((resolve) => {
+              old = resolve;
+            })
+          : Promise.resolve(myIslands({ items: [island({ id: 'i2' })], currentIslandId: 'i2' })),
+    }),
+  );
+  const stale = h.cmds.commands.sync();
+  const rejected = assert.rejects(stale, (error: any) => error.code === 'CLIENT_STALE_SESSION');
+  await h.cmds.commands.switchCurrent('i2');
+  old(myIslands({ items: [island({ id: 'i1' })], currentIslandId: 'i1' }));
+  await rejected;
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i2');
+});
+
+test('현재 섬 변경 응답 유실은 재조회로 성공을 복구한다', async () => {
+  const h = harness(
+    selectionApi({
+      switchCurrent: async () => {
+        throw new ApiError('CLIENT_TIMEOUT', 'lost', 0);
+      },
+      myIslands: async () => myIslands({ items: [island({ id: 'i2' })], currentIslandId: 'i2' }),
+    }),
+  );
+  await h.cmds.commands.switchCurrent('i2');
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i2');
+});
+
+test('변경 여부가 불명인 재시도는 같은 멱등 키를 쓰고 성공 후 새 키를 쓴다', async () => {
+  let current = 'i1';
+  const switchCurrent = jest.fn(async (_id: string, _key: string) => {
+    if (current === 'i1') throw new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0);
+    return { currentIslandId: current };
+  });
+  const h = harness(
+    selectionApi({
+      switchCurrent,
+      myIslands: async () =>
+        myIslands({ items: [island({ id: current })], currentIslandId: current }),
+    }),
+  );
+  await assert.rejects(h.cmds.commands.switchCurrent('i2'));
+  current = 'i2';
+  await h.cmds.commands.switchCurrent('i2');
+  await h.cmds.commands.switchCurrent('i2');
+  assert.equal(switchCurrent.mock.calls[0][1], switchCurrent.mock.calls[1][1]);
+  assert.notEqual(switchCurrent.mock.calls[1][1], switchCurrent.mock.calls[2][1]);
+});
+
+test('과거 성공 응답의 현재 섬과 최신 서버 값이 다르면 입장을 성공시키지 않는다', async () => {
+  const switchCurrent = jest.fn(async (_id: string, _key: string) => ({ currentIslandId: 'i2' }));
+  const h = harness(selectionApi({ switchCurrent }));
+  await assert.rejects(
+    h.cmds.commands.switchCurrent('i2'),
+    (error: any) => error.code === 'STATE_CONFLICT',
+  );
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i1');
+  await assert.rejects(h.cmds.commands.switchCurrent('i2'));
+  assert.notEqual(switchCurrent.mock.calls[0][1], switchCurrent.mock.calls[1][1]);
+});
+
+test('서로 다른 섬을 연달아 선택해도 쓰기는 하나만 실행된다', async () => {
+  let finish!: (value: { currentIslandId: string }) => void;
+  const switchCurrent = jest.fn(
+    () =>
+      new Promise<{ currentIslandId: string }>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const h = harness(selectionApi({ switchCurrent }));
+  const first = h.cmds.commands.switchCurrent('i1');
+  await assert.rejects(
+    h.cmds.commands.switchCurrent('i2'),
+    (error: any) => error.code === 'REQUEST_IN_PROGRESS',
+  );
+  finish({ currentIslandId: 'i1' });
+  await first;
+  assert.equal(switchCurrent.mock.calls.length, 1);
+});
+
+test('로그인 세대가 바뀐 뒤 도착한 섬 변경 성공은 반영하지 않는다', async () => {
+  let finish!: (value: { currentIslandId: string }) => void;
+  const h = harness(
+    selectionApi({
+      switchCurrent: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    }),
+  );
+  const pending = h.cmds.commands.switchCurrent('i2');
+  h.setGen(1);
+  finish({ currentIslandId: 'i2' });
+  await assert.rejects(pending, (error: any) => error.code === 'CLIENT_STALE_SESSION');
+  assert.equal(types(h).includes('ISLAND_SYNC'), false);
+});

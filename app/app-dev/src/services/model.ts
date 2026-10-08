@@ -48,6 +48,7 @@ export type Route =
   | 'orders'
   | 'boat'
   | 'mainIsland'
+  | 'currentIsland'
   | 'profile'
   | 'settings'
   | 'blockedUsers'
