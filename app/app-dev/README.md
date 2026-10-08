@@ -56,20 +56,26 @@ MOTION_REVIEW_URL=http://localhost:8081 node scripts/review-cat-motion.cjs
 
 화면 문구는 `src/i18n/locales/ko.json`·`en.json`에 둡니다(네임스페이스: `common`·`login`·`account`·`character`·`building`·`color`·`track`·`focus`·`home`·`settings`·`errors`·`time`). 키는 점 표기 네임스페이스(`home.quest.claim`)이고 **ko 가 정본**이라 먼저 쓰고 en 은 번역만 채웁니다. 두 파일은 같은 리프 키·같은 `{{var}}` 자리표시자 집합이어야 하며 어긋나면 `src/i18n/index.test.ts` 가 실패합니다. 서버 오류 코드가 늘면 같은 테스트가 business-api `ApiErrorCode` 와 대조해 `errors.*` 누락을 잡습니다.
 
-- 치환은 `{{var}}`, 복수는 **en 쪽만** `{ one, other }` 객체 + `vars.count` 로 고릅니다(Hermes 엔 `Intl.PluralRules` 가 없어 자체 분기). ko 는 항상 단일 문자열입니다.
+- 치환은 `{{var}}`. 복수는 `{ one, other }` 객체 + `vars.count`(숫자)로 고릅니다(Hermes 엔 `Intl.PluralRules` 가 없어 자체 분기). ko 는 단일 문자열로 두는 것이 관례입니다(`t()` 자체는 ko 의 복수 객체도 처리합니다).
+- 없는 키는 `t()` 가 **키 문자열을 그대로** 돌려줍니다 — 화면에 `home.foo.bar` 가 보이면 키 누락입니다. 값을 조립하는 동적 키(`login.continue.<provider>`)는 ko/en 동치 테스트가 못 잡으니, 제공자 등을 추가할 때 두 JSON 에 모두 넣습니다.
 - 시간·숫자·날짜는 문자열을 직접 만들지 말고 `src/i18n/format.ts` 의 `formatDuration`·`formatNumber`·`formatDate`(내부에서 `localeTag()` 로 `ko-KR`/`en-US` 선택)를 씁니다.
-- **모듈 최상위에서 `t()`·`localized()` 를 부르지 않습니다** — import 시점 언어로 값이 굳어 언어를 바꿔도 그대로입니다(1.x 교훈). 렌더 바디·콜백 안에서 부르고, `memo`/`useMemo`/`useCallback` 안에서 쓰면 언어 전환이 다시 계산을 유발하도록 `e.localePref` 를 prop·deps 에 넣습니다.
+- **번역된 값을 모듈 최상위에 담지 않습니다** — `t()`·`localized()` 직접 호출뿐 아니라 `buildingNames.hall` 같은 값을 최상위 표에 복사해도 import 시점 언어로 굳어 언어를 바꿔도 그대로입니다(1.x 교훈, `WorldMap.tsx` `legacyDoors` 사례). 최상위 표에는 키만 두거나 프로퍼티 게터로 두고 렌더 바디·콜백에서 해석합니다. 화면 prop `e`(`App.tsx` 가 `RedesignScreens` 에 내려주는 이벤트·상태 객체)의 `e.localePref` 는 언어 변경 때 바뀌는 값이라, `memo`/`useMemo`/`useCallback` 안에서 `t()` 를 쓰면 이것을 prop·deps 에 넣습니다.
 - `App.tsx` 의 `titles`(Datadog RUM 뷰 이름)는 번역하지 않습니다 — 분석 식별자입니다.
-- 서버 오류 문구는 직접 분기하지 말고 `errorText`/`errorTextOr` 를 거칩니다. ko 는 서버 `message` 그대로, en 은 `errors.<code>` 번역(없으면 `errors.GENERIC`)이며 **en 에서 서버가 보낸 한글이 새어 나가면 안 됩니다**(index.test.ts 가 가립니다).
+- 서버 오류 문구는 직접 분기하지 말고 두 함수 중 하나를 씁니다. `errorText(err)` 는 화면 공용 분기 — `CLIENT_STALE_SESSION` 은 `''`, `SLUG_NOT_FOUND`·`INVITATION_EXPIRED`·`STATE_CONFLICT`·`REQUEST_IN_PROGRESS`/재시도 가능 오류는 **ko 에서도 앱 문구**로 덮고, 나머지는 ko 는 서버 `message`, en 은 `errors.<code>`(없으면 `errors.GENERIC`). `errorTextOr(err, fallbackKey)` 는 종전 `x instanceof ApiError ? x.message : '한글'` 자리의 1:1 교체 — ko 는 서버 원문 그대로(비면 `fallbackKey`), en 은 `errorText` 결과(비면 `fallbackKey`), `ApiError` 가 아니면 `fallbackKey`. 어느 쪽이든 **en 에서 서버가 보낸 한글이 새어 나가면 안 됩니다**(`index.test.ts` 가 가립니다).
+- 닉네임·섬 이름·퀘스트 제목 같은 사용자 데이터는 번역 대상이 아닙니다 — en 화면의 «한글 0자» 테스트는 영문 이름의 픽스처로 씁니다.
 
-### 언어별 이미지 (GROMO-2240)
+### 언어별 이미지 (GROMO-2240 머지 후 유효)
 
-이미지는 `<이름>.ko.png`/`<이름>.en.png` 두 파일을 모듈 최상위에서 **require 쌍으로만** 두고(`{ ko: require(...), en: require(...) }`), 실제 선택은 **렌더 시점**에 `localized({ ko, en })` 로 합니다(위와 같은 이유로 최상위에서 `localized()` 를 직접 부르지 않습니다). en 자산은 `scripts/gen-localized-stamp.py`처럼 전용 스크립트로 결정적으로 생성하고(두 번 돌려도 같은 바이트), `npm run gen:localized-stamp`로 재생성·`npm run gen:localized-stamp:check`로 커밋 전 바이트가 최신인지 확인합니다. 자동 생성 스크립트가 없는 자산은 en 파일을 직접 그려 넣습니다 — 로케일별 require 쌍 구조는 같습니다. **새 PNG 는 OTA 로 못 나갑니다** — `app.config.js`의 `assetPatternsToBeBundled`가 `src/assets/ota/**`만 실어서, 새 로케일 이미지는 네이티브 빌드가 있어야 사용자에게 반영됩니다.
+- 글자가 박힌 이미지는 `<이름>.ko.png`/`<이름>.en.png` 두 파일을 모듈 최상위에 **require 쌍으로만** 둡니다(`{ ko: require(...), en: require(...) }`).
+- 실제 선택은 **렌더 시점**에 `localized({ ko, en })` 로 합니다(최상위에서 `localized()` 를 부르지 않습니다).
+- en 자산은 `scripts/gen-localized-stamp.py` 처럼 전용 스크립트로 결정적으로 생성합니다(같은 입력이면 같은 픽셀). `npm run gen:localized-stamp` 로 재생성하고 `npm run gen:localized-stamp:check` 로 커밋 전 최신인지 확인합니다(글꼴이 없으면 exit 2, 폴백 글꼴 결과는 `*.en.fallback-preview.png` 에만 쓰고 커밋하지 않습니다).
+- 자동 생성 스크립트가 없는 자산은 en 파일을 직접 그려 넣습니다 — require 쌍 구조는 같습니다.
+- **새 PNG 는 OTA 로 못 나갑니다** — `app.config.js` 의 `assetPatternsToBeBundled` 가 `src/assets/ota/**` 만 실어서, 새 로케일 이미지는 네이티브 빌드가 있어야 사용자에게 반영됩니다.
 
 ### 저장·테스트
 
-- 언어 선택은 `gromo.locale`(AsyncStorage, 값 `'ko'|'en'|'system'`)에 **기기 전역**으로 저장합니다 — 계정과 무관하므로 로그아웃·회원 탈퇴의 `removeItem` 목록에 넣지 않습니다.
-- en 쪽을 확인하는 테스트는 `jest.setup.js`가 전역으로 고정한 `expo-localization` ko-KR 모킹을, 테스트 안에서 `mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }])`로 덮고 `applyLocalePref('system')`을 부른 뒤, 파일 상단 `afterEach(() => applyLocalePref('system'))`로 다음 테스트에 ko 상태를 되돌려 줍니다.
+- 언어 선택은 `gromo.locale`(AsyncStorage, 값 `'ko'|'en'|'system'`, 미지원 값은 `'system'` 으로 정규화)에 **기기 전역**으로 저장합니다 — 계정과 무관하므로 로그아웃·회원 탈퇴의 `removeItem` 목록에 넣지 않습니다. 2.0 키가 없으면 부팅이 1.x 키 `gromo:settings:locale` 을 읽어 승계합니다.
+- en 쪽을 확인하는 테스트는 `jest.setup.js` 가 전역으로 고정한 `expo-localization` ko-KR 모킹을 테스트 안에서 `mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }])` 로 덮고 `applyLocalePref('system')` 을 부릅니다. `mockReturnValue` 는 저절로 되돌아가지 않으므로 `afterEach` 에서 **먼저 ko-KR 로 `mockReturnValue` 를 되돌린 뒤** `applyLocalePref('system')` 을 불러야 다음 테스트가 ko 로 돌아갑니다(`LoginScreen.test.tsx` 참고). 한 번만 바꿀 거면 `mockReturnValueOnce` 도 됩니다.
 
 ## 검증
 
