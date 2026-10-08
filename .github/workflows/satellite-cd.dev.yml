@@ -68,6 +68,8 @@ jobs:
           name: satellite-deploy-record
           path: satellite-deploy-record.json
           retention-days: 30
+          # ops-redeploy 의 재실행은 plan 도 다시 돌림 — 같은 실행에 같은 이름이 이미 있어 덮어써야 함
+          overwrite: true
 
   deploy:
     needs: plan
