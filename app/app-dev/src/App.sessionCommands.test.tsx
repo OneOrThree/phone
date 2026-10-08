@@ -1876,6 +1876,45 @@ test('부팅은 언어 설정(gromo.locale)을 읽고, 없으면 1.x 키(gromo:s
   }
 });
 
+test('부팅은 2.0 키(gromo.locale)와 1.x 키(gromo:settings:locale)가 둘 다 있으면 2.0 키를 우선한다', async () => {
+  await AsyncStorage.setItem('gromo.locale', 'ko');
+  await AsyncStorage.setItem('gromo:settings:locale', 'en');
+  try {
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+    assert.equal(getLocale(), 'ko');
+    assert.equal(captured.localePref, 'ko');
+  } finally {
+    await AsyncStorage.multiRemove(['gromo.locale', 'gromo:settings:locale']);
+    applyLocalePref(null);
+  }
+});
+
+test('부팅은 언어 키(gromo.locale·gromo:settings:locale) 읽기가 reject 해도 system(기기 언어)으로 진행한다', async () => {
+  const getItem = AsyncStorage.getItem as jest.Mock;
+  const previousGetItem = getItem.getMockImplementation()!;
+  // 언어 두 키만 실패시키고 나머지 키(세션·저장본 등)는 기존 목 구현 그대로 위임한다.
+  getItem.mockImplementation((key: string) =>
+    key === 'gromo.locale' || key === 'gromo:settings:locale'
+      ? Promise.reject(new Error('storage unavailable'))
+      : previousGetItem(key),
+  );
+  try {
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+    assert.equal(captured.localePref, 'system');
+  } finally {
+    getItem.mockImplementation(previousGetItem);
+    applyLocalePref(null);
+  }
+});
+
 test('로그아웃·탈퇴 정리는 기기 전역 언어 설정(gromo.locale)을 지우지 않는다', async () => {
   // 앞 테스트의 spyOn·mockRestore 가 removeItem 구현을 지웠을 수 있다 — 공식 목과 같은 구현을 잠시 쓴다.
   const removeItem = AsyncStorage.removeItem as jest.Mock;
@@ -1894,15 +1933,19 @@ test('로그아웃·탈퇴 정리는 기기 전역 언어 설정(gromo.locale)�
       for (let n = 0; n < 10; n += 1) await Promise.resolve();
     });
     await waitFor(() => assert.ok(captured));
+
+    const removed = () => removeItem.mock.calls.map(([key]) => key);
+    // signOut() 전에 먼저 확인한다 — signOut 의 resetLocal(App.tsx)도 같은 키를 지우므로, signOut
+    // 뒤에만 보면 이 제거가 부팅 탈퇴 정리에서 온 것인지 signOut 자체에서 온 것인지 구별이 안 된다.
+    await waitFor(() => assert.ok(removed().includes('gromo-r61-user-v2')));
+    assert.ok(!removed().includes('gromo.locale'));
+
     let signedOut: boolean | undefined;
     await act(async () => {
       signedOut = await captured.signOut();
     });
     assert.equal(signedOut, true);
-
-    const removed = removeItem.mock.calls.map(([key]) => key);
-    assert.ok(removed.includes('gromo-r61-user-v2')); // 탈퇴 정리 경로를 실제로 탔다
-    assert.ok(!removed.includes('gromo.locale'));
+    assert.ok(!removed().includes('gromo.locale'));
     assert.equal(await AsyncStorage.getItem('gromo.locale'), 'en');
   } finally {
     removeItem.mockImplementation(previousRemove);

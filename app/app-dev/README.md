@@ -70,7 +70,7 @@ MOTION_REVIEW_URL=http://localhost:8081 node scripts/review-cat-motion.cjs
 - 실제 선택은 **렌더 시점**에 `localized({ ko, en })` 로 합니다(최상위에서 `localized()` 를 부르지 않습니다).
 - en 자산은 `scripts/gen-localized-stamp.py` 처럼 전용 스크립트로 결정적으로 생성합니다(같은 입력이면 같은 픽셀). `npm run gen:localized-stamp` 로 재생성하고 `npm run gen:localized-stamp:check` 로 커밋 전 최신인지 확인합니다(글꼴이 없으면 exit 2, 폴백 글꼴 결과는 `*.en.fallback-preview.png` 에만 쓰고 커밋하지 않습니다).
 - 자동 생성 스크립트가 없는 자산은 en 파일을 직접 그려 넣습니다 — require 쌍 구조는 같습니다.
-- **새 PNG 는 OTA 로 못 나갑니다** — `app.config.js` 의 `assetPatternsToBeBundled` 가 `src/assets/ota/**` 만 실어서, 새 로케일 이미지는 네이티브 빌드가 있어야 사용자에게 반영됩니다.
+- **새 이미지(언어별 이미지 포함)는 `src/assets/ota/` 아래에 둡니다** — `app.config.js` 의 `assetPatternsToBeBundled` 가 `src/assets/ota/**/*` 만 OTA 업데이트에 실어서, 이 경로 밖에 둔 새 이미지는 OTA 를 받은 구 바이너리(고정 `runtimeVersion`)에서 못 찾아 깨집니다. 예: `src/assets/ota/interiors/ui/blueprint-ready-stamp-v3.{ko,en}.png`.
 
 ### 저장·테스트
 

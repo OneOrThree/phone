@@ -175,6 +175,13 @@ const DEMO =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('demo');
+// 검토·데모 모드 전용 언어 고정(`?review=1&lang=en`) — 저장된 gromo.locale 을 읽지 않는 mock 부팅에서
+// 쓴다. 없으면 'ko' 로 폴백(기존 캡처 스크립트가 한국어 이름을 찾는다), 지원 밖 값은 applyLocalePref 가
+// 이미 'system' 으로 정규화한다.
+const REVIEW_LANG =
+  Platform.OS === 'web' && typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('lang')
+    : null;
 // GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
 const TESTFLIGHT_ALL_BUILDINGS = true;
 const STORAGE = 'gromo-r61-user-v2';
@@ -1213,12 +1220,16 @@ function Gromo() {
       // 홈에 들어가면 다음 요청에서야 401 이 나고, 그때는 원인이 로그인이라는 것이 안 보인다.
       mock ? Promise.resolve(null) : restoreSession(),
       // 언어 설정(기기 전역 값). 2.0 키가 없으면 1.x 키를 읽고, 읽기 실패는 기기 언어 따름으로 본다.
-      AsyncStorage.getItem(LOCALE_KEY).catch(() => null),
-      AsyncStorage.getItem(LEGACY_LOCALE_KEY).catch(() => null),
+      // mock(검토·데모)은 저장된 값을 읽지 않는다 — 과거에 gromo.locale='en' 이 저장된 브라우저에서
+      // ?review=1 이 영문으로 떠 캡처·검증이 재현 불가능해지는 것을 막는다(REVIEW_LANG 으로 고정).
+      mock ? Promise.resolve(null) : AsyncStorage.getItem(LOCALE_KEY).catch(() => null),
+      mock ? Promise.resolve(null) : AsyncStorage.getItem(LEGACY_LOCALE_KEY).catch(() => null),
     ])
       .then(async ([raw, session, localeRaw, legacyLocaleRaw]) => {
         // 첫 화면이 그려지기 전에 언어부터 맞춘다.
-        setLocalePref(applyLocalePref(localeRaw ?? legacyLocaleRaw));
+        setLocalePref(
+          applyLocalePref(mock ? (REVIEW_LANG ?? 'ko') : (localeRaw ?? legacyLocaleRaw)),
+        );
         // 「거절(재로그인)」·「확인 실패(오프라인)」·「정상」 셋을 가른다 — checkSession 참조.
         const check = session ? await checkSession() : null;
         const account = check?.status === 'active' ? check.account : null;
