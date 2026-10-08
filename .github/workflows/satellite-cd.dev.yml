@@ -244,7 +244,8 @@ jobs:
           pids=()
           for service in "${services[@]}"; do check "$service" & pids+=($!); done
           for pid in "${pids[@]}"; do wait "$pid" || true; done
-          ! grep -q " failure$" "$results"
+          # 성공 줄 수 == 서비스 수 — 결과를 쓰기 전에 죽은 검사(OOM 등)도 실패로 잡음
+          [ "$(grep -c ' success$' "$results" || true)" = "${#services[@]}" ]
 
       - name: 배포 결과 PR 표시
         if: always() && (steps.health.outcome == 'success' || failure())
