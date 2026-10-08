@@ -26,7 +26,7 @@ REQUIRED_KEYS = (
     "OPENAI_API_KEY",
 )
 
-# legacy(dev-cd 가 쓰는 공유 dev.env)가 «있으면 옮기는» 값. 이 파일은 컨테이너 env_file 이 아니라 compose 보간
+# legacy(data-api-cd 가 쓰는 공유 dev.env)가 «있으면 옮기는» 값. 이 파일은 컨테이너 env_file 이 아니라 compose 보간
 # 입력이라 compose 가 ${...} 로 참조하는 키만 컨테이너에 닿는다(dev.yml·realtime.yml). 비어 있을 때의 동작은
 # server/scripts/README.md 「시크릿·스위치」 표. 필수로 올리지 않는 이유: 넣기 전 배포가 막히면 안 된다.
 LEGACY_OPTIONAL_KEYS = (
@@ -36,13 +36,17 @@ LEGACY_OPTIONAL_KEYS = (
     # GROMO-1802 섬 관리 명령 4종·방장 위임 게이트(GROMO-2156 — dev 에서 켠 값을 재생성에도 유지).
     "ISLAND_MANAGEMENT_COMMANDS_ENABLED", "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
     # docker-compose.realtime.yml — GROMO-1954 Data 사건 수신 · GROMO-1775 우체통 · R-1 Kafka 입구
-    "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME", "CHAT_WS_ALLOWED_ORIGINS",
+    "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME",
     # GROMO-2182 Realtime → Data 내부 조회(응원 인가·받는 사람 기준 차단) 대상·자격과 차단 필터 스위치.
     "SVC_TOKEN_REALTIME_TO_DATA", "REALTIME_AUTHORIZATION_DATA_URL", "REALTIME_BLOCKS_FILTER_ENABLED",
     "REALTIME_EVENTS_KAFKA_ENABLED", "KAFKA_BOOTSTRAP_SERVERS", "CHAT_POSTGRES_DB",
 )
 
-# legacy는 현재 dev-cd 호출과 호환된다. 신규 서비스는 공유 SecretString을 받아도
+# legacy(dev 전용) 에서 «비면 배포 차단» 으로 올린 값. GROMO-2224.
+# CHAT_WS_ALLOWED_ORIGINS: 비면 realtime 이 앱 접속까지 403 (10/1 Origin 사고, GROMO-2175). dev SM 에 들어간 뒤 필수로 올림.
+LEGACY_REQUIRED_KEYS = REQUIRED_KEYS + ("CHAT_WS_ALLOWED_ORIGINS",)
+
+# legacy는 현재 data-api-cd 호출과 호환된다. 신규 서비스는 공유 SecretString을 받아도
 # 자기 허용목록만 내보낸다. prod의 전체 env_file 주입을 새 서비스에 복제하지 않는다.
 SERVICE_REQUIRED_KEYS = {
     "data-api": (
@@ -114,6 +118,43 @@ SERVICE_OPTIONAL_KEYS = {
         "NOTIFICATION_LEGACY_DEVICE_REGISTRATION",
     ),
 }
+# 서비스별 금지 키 — 허용목록에 실수로 들어가도 출력 전에 막는 2차 방어선 (GROMO-2224).
+# 서버 간 신뢰 경계: 다른 서버의 DB 자격·로그인 비밀·관리 키는 절대 그 서버로 가지 않음.
+# prepare-satellite-deploy.py 의 FORBIDDEN_KEYS 와 같은 취지. 허용목록과 겹치면 모듈 로드 시 실패.
+FORBIDDEN_EVERYWHERE = ("DD_API_KEY", "GRAFANA_ADMIN_PASSWORD", "CONSOLE_ADMIN_PASSWORD",
+                        "CONSOLE_BASIC_PASSWORD", "SUDO_PASSWORD")
+SERVICE_FORBIDDEN_KEYS = {
+    "data-api": ("NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD",
+                 "BUSINESS_REDIS_PASSWORD", "LOGIN_ATTEMPT_DIGEST_SECRET", "BUSINESS_CURSOR_KEY_V1",
+                 "SVC_TOKEN_CONSOLE_TO_NOTI", "POSTGRES_PASSWORD"),
+    "business-api": ("API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD",
+                     "NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD",
+                     "FCM_SERVICE_ACCOUNT_JSON", "OPENAI_API_KEY", "LINK_CAPABILITY_KEY",
+                     "POSTGRES_PASSWORD", "LINK_MIGRATION_TOKEN"),
+    "notification": ("API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD", "JWT_SECRET",
+                     "OPENAI_API_KEY", "LINK_CAPABILITY_KEY", "POSTGRES_PASSWORD",
+                     "BUSINESS_REDIS_PASSWORD", "LOGIN_ATTEMPT_DIGEST_SECRET", "BUSINESS_CURSOR_KEY_V1"),
+}
+
+
+def allowed_keys(service: str) -> set[str]:
+    """그 서비스 env 에 나갈 수 있는 키 전부(필수·선택·관측·전환)."""
+    if service == "legacy":
+        return set(LEGACY_REQUIRED_KEYS) | set(LEGACY_OPTIONAL_KEYS) | {"GRAFANA_ADMIN_USER", "GRAFANA_ADMIN_PASSWORD"}
+    keys = set(SERVICE_REQUIRED_KEYS[service]) | set(SERVICE_OPTIONAL_KEYS[service]) | set(OBSERVABILITY_KEYS)
+    if service == "data-api":
+        keys |= set(TRANSITION_KEYS) | {"LINK_PROXY_SECRET"}
+    if service == "business-api":
+        keys |= {"LINK_PROXY_SECRET"}
+    return keys
+
+
+def unused_secret_keys(secret: dict[str, Any]) -> list[str]:
+    """어느 서비스·legacy 허용목록에도 없는 SM 키 이름. 값은 보지 않음 — 정리 대상 보고용."""
+    known = set().union(*(allowed_keys(s) for s in ("legacy", *SERVICE_REQUIRED_KEYS)))
+    return sorted(key for key in secret if key not in known)
+
+
 IMAGE_KEYS = {
     "data-api": "APP_IMAGE", "business-api": "BUSINESS_API_IMAGE", "notification": "NOTIFICATION_IMAGE",
 }
@@ -189,10 +230,10 @@ def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
         return render_service(secret, app_image, service, phase, environment, data_profiles=data_profiles)
     if data_profiles is not None:
         raise ValueError("Data 프로파일은 data-api에만 지정할 수 있습니다")
-    require(secret, REQUIRED_KEYS)
+    require(secret, LEGACY_REQUIRED_KEYS)
 
     values: list[tuple[str, Any]] = [("APP_IMAGE", app_image)]
-    values.extend((key, secret[key]) for key in REQUIRED_KEYS)
+    values.extend((key, secret[key]) for key in LEGACY_REQUIRED_KEYS)
     values.extend(
         (
             ("GRAFANA_ADMIN_USER", secret.get("GRAFANA_ADMIN_USER", "admin")),
@@ -232,6 +273,9 @@ def render_service(secret: dict[str, Any], image: str, service: str,
     values.extend((key, secret[key]) for key in required)
     optional = SERVICE_OPTIONAL_KEYS[service] + OBSERVABILITY_KEYS
     values.extend((key, secret[key]) for key in optional if key not in required and key in secret and secret[key] is not None)
+    intruders = sorted({key for key, _ in values} & set(SERVICE_FORBIDDEN_KEYS.get(service, ()) + FORBIDDEN_EVERYWHERE))
+    if intruders:
+        raise ValueError(f"{service}: 경계를 넘는 키가 env 에 들어감 — {', '.join(intruders)}")
     return "".join(f"{key}={dotenv_quote(value)}\n" for key, value in values)
 
 
@@ -283,12 +327,32 @@ def main() -> None:
     parser.add_argument("--phase", choices=("transition", "final"), default="transition")
     parser.add_argument("--environment", choices=("dev", "prod"), default="dev")
     parser.add_argument("--redis-acl-output", type=Path)
+    # data-api 전용. 생략 시 «<환경>,satellites». dev CD 가 realtime-authorization 등을 더할 때 씀 (GROMO-2224)
+    parser.add_argument("--data-profiles")
+    # 배포 전 점검: 파일을 쓰지 않고 legacy·전 서비스의 필수 키·금지 키·토큰 규칙만 검사 (GROMO-2224)
+    parser.add_argument("--check", action="store_true")
+    # 어느 허용목록에도 없는 SM 키 이름을 stderr 경고로 (실패 아님)
+    parser.add_argument("--report-unused", action="store_true")
     args = parser.parse_args()
 
     secret = json.load(sys.stdin)
     if not isinstance(secret, dict):
         raise ValueError("SecretString은 JSON object여야 합니다")
-    rendered = render(secret, args.app_image, args.service, args.phase, args.environment)
+    if args.report_unused:
+        unused = unused_secret_keys(secret)
+        if unused:
+            print(f"::warning::어느 서비스도 안 쓰는 SM 키 {len(unused)}개: {', '.join(unused)}", file=sys.stderr)
+    if args.check:
+        render(secret, args.app_image, "legacy", args.phase, args.environment)
+        for service in SERVICE_REQUIRED_KEYS:
+            render(secret, args.app_image, service, args.phase, args.environment,
+                   data_profiles=args.data_profiles if service == "data-api" else None)
+        if args.environment == "dev":
+            business_redis_acl(secret)
+        print("필수 키·금지 키·토큰 규칙 통과 (legacy + " + ", ".join(SERVICE_REQUIRED_KEYS) + ")")
+        return
+    rendered = render(secret, args.app_image, args.service, args.phase, args.environment,
+                      data_profiles=args.data_profiles)
     if args.redis_acl_output:
         if args.service != "business-api" or args.redis_acl_output.resolve() == args.output.resolve():
             raise ValueError("Redis ACL은 business-api env와 다른 파일로 작성해야 합니다")
@@ -296,6 +360,12 @@ def main() -> None:
         # 부모 디렉터리는 0700. 컨테이너의 redis uid가 읽을 수 있게 해시 ACL 파일만 0644다.
         write_atomic(args.redis_acl_output, acl, mode=0o644)
     write_atomic(args.output, rendered)
+
+
+for _service, _forbidden in SERVICE_FORBIDDEN_KEYS.items():
+    _overlap = allowed_keys(_service) & set(_forbidden + FORBIDDEN_EVERYWHERE)
+    if _overlap:
+        raise RuntimeError(f"{_service} 허용목록에 금지 키: {', '.join(sorted(_overlap))}")
 
 
 if __name__ == "__main__":

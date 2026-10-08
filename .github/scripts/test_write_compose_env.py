@@ -19,7 +19,7 @@ SPEC.loader.exec_module(MODULE)
 
 
 def secret(**overrides: object) -> dict[str, object]:
-    base: dict[str, object] = {key: f"value-{key}" for key in MODULE.REQUIRED_KEYS}
+    base: dict[str, object] = {key: f"value-{key}" for key in MODULE.LEGACY_REQUIRED_KEYS}
     base.update(overrides)
     return base
 
@@ -101,6 +101,45 @@ class WriteComposeEnvTest(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(env_file.read_text(encoding="utf-8"), "previous")
+
+    def test_legacy_Origin_허용목록이_없거나_공백이면_출력_전에_실패한다(self) -> None:
+        # GROMO-2224 — 비면 realtime 이 앱 접속까지 403 (GROMO-2175 사고). 배포 전에 막는다.
+        for value in (None, "", "  "):
+            with self.subTest(value=value):
+                values = secret()
+                if value is None:
+                    values.pop("CHAT_WS_ALLOWED_ORIGINS")
+                else:
+                    values["CHAT_WS_ALLOWED_ORIGINS"] = value
+                with self.assertRaisesRegex(ValueError, "CHAT_WS_ALLOWED_ORIGINS"):
+                    MODULE.render(values, "example/app@sha256:abc")
+        self.assertIn("CHAT_WS_ALLOWED_ORIGINS='value-CHAT_WS_ALLOWED_ORIGINS'",
+                      MODULE.render(secret(), "example/app@sha256:abc"))
+
+    def test_허용목록에_금지_키가_섞이면_출력_전에_실패한다(self) -> None:
+        # GROMO-2224 — 허용목록을 실수로 넓혀도 다른 서버 자격은 못 나가게 하는 2차 방어선
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
+        baseline["SVC_TOKEN_CONSOLE_TO_NOTI"] = "member-1:console"
+        original = MODULE.SERVICE_OPTIONAL_KEYS["notification"]
+        MODULE.SERVICE_OPTIONAL_KEYS["notification"] = original + ("JWT_SECRET",)
+        try:
+            with self.assertRaisesRegex(ValueError, "JWT_SECRET"):
+                MODULE.render({**baseline, "JWT_SECRET": "leak"}, "noti:test", "notification")
+        finally:
+            MODULE.SERVICE_OPTIONAL_KEYS["notification"] = original
+
+    def test_어느_허용목록에도_없는_SM_키만_이름으로_보고한다(self) -> None:
+        unused = MODULE.unused_secret_keys({**secret(), "Team_ID": "x", "JWT_SECRET": "y", "STALE_KEY": "z"})
+        self.assertEqual(unused, ["STALE_KEY", "Team_ID"])
+
+    def test_check_모드는_파일을_쓰지_않고_빠진_키를_잡는다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "never.env"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--check", "--output", str(env_file), "--app-image", "x@sha256:abc"],
+                input=json.dumps(secret()), text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0, "서비스 필수 키가 없으면 실패해야 함")
+            self.assertFalse(env_file.exists())
 
     def test_공유_secret의_서비스별_자격이_실제_compose에서_격리된다(self) -> None:
         combined = secret(
