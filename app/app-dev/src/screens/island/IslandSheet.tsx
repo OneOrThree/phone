@@ -1057,6 +1057,10 @@ export function SheetRow({
     backgroundColor:
       effectiveTone === 'on' ? C.soft : effectiveTone === 'butter' ? '#FFF3CF' : undefined,
   };
+  // right 가 없고 selected면 체크 표식 — 색만으로 상태를 전달하지 않는다(DESIGN.md 11장)
+  const rightText = right ?? (selected ? '✓' : undefined);
+  const isCheckmark = right === undefined;
+  const rightColor = isCheckmark ? C.ink : C.muted;
   const content = (
     <>
       {lead}
@@ -1068,14 +1072,22 @@ export function SheetRow({
           </Txt>
         )}
       </View>
-      {typeof right === 'string' ? (
+      {typeof rightText === 'string' ? (
         <Txt
-          style={{ fontSize: 15, lineHeight: 21.75, color: C.muted, fontVariant: ['tabular-nums'] }}
+          // 체크 표식은 selected 로 이미 전달돼 중복 낭독되지 않게 뺀다 — 실제 right 값은 그대로 읽힌다
+          accessibilityElementsHidden={isCheckmark}
+          importantForAccessibility={isCheckmark ? 'no' : undefined}
+          style={{
+            fontSize: 15,
+            lineHeight: 21.75,
+            color: rightColor,
+            fontVariant: ['tabular-nums'],
+          }}
         >
-          {right}
+          {rightText}
         </Txt>
       ) : (
-        right
+        rightText
       )}
       {tail}
       {chevron && <SheetChev />}
@@ -1085,7 +1097,7 @@ export function SheetRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label ?? (sub ? `${title}, ${sub}` : title)}
-      accessibilityState={{ disabled, selected }}
+      accessibilityState={{ disabled, ...(selected !== undefined && { selected }) }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [style, pressed && { opacity: 0.7 }]}

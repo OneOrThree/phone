@@ -69,6 +69,7 @@ import {
   applyLocalePref,
   errorText,
   getLocale,
+  isDeviceLocaleSupported,
   LOCALE_KEY,
   LOCALE_NAMES,
   resolveLocale,
@@ -726,6 +727,8 @@ function Eq() {
     </View>
   );
 }
+// 언어 화면 pick() 의 겹침 탭 가드 — route 분기 안이라 useRef 를 못 써(조건부 훅 금지) 모듈 플래그로 둔다.
+let pickingLocale = false;
 export function RedesignScreens({ e }: any) {
   const layout = useAppLayout();
   const state: State = e.state,
@@ -6351,11 +6354,16 @@ export function RedesignScreens({ e }: any) {
     const pref: LocalePref = e.localePref;
     // 탭 즉시 저장·적용 — 저장 버튼은 없다
     const pick = async (next: LocalePref) => {
+      if (next === pref) return; // 같은 값이면 저장·재렌더·토스트 전부 생략
+      if (pickingLocale) return; // 겹침 탭 — 앞선 저장이 끝날 때까지 무시
+      pickingLocale = true;
       try {
         await AsyncStorage.setItem(LOCALE_KEY, next);
       } catch {
         notify(t('settings.language.saveFailed')); // 저장 못 하면 적용도 안 한다
         return;
+      } finally {
+        pickingLocale = false;
       }
       const before = getLocale();
       e.setLocalePref(applyLocalePref(next));
@@ -6374,20 +6382,31 @@ export function RedesignScreens({ e }: any) {
         <SheetGroup flat>
           <SheetRow
             title={t('settings.language.system')}
-            sub={t('settings.language.systemNow', { name: LOCALE_NAMES[resolveLocale()] })}
+            sub={t(
+              isDeviceLocaleSupported()
+                ? 'settings.language.systemNow'
+                : 'settings.language.systemNowFallback',
+              { name: LOCALE_NAMES[resolveLocale()] },
+            )}
             selected={pref === 'system'}
-            onPress={() => pick('system')}
+            onPress={() => {
+              pick('system');
+            }}
           />
           <SheetRow
             title={LOCALE_NAMES.ko}
             selected={pref === 'ko'}
-            onPress={() => pick('ko')}
+            onPress={() => {
+              pick('ko');
+            }}
             divider
           />
           <SheetRow
             title={LOCALE_NAMES.en}
             selected={pref === 'en'}
-            onPress={() => pick('en')}
+            onPress={() => {
+              pick('en');
+            }}
             divider
           />
         </SheetGroup>

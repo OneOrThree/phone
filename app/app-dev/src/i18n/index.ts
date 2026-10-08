@@ -40,6 +40,16 @@ export function resolveLocale(): SupportedLocale {
   }
 }
 
+// 기기 언어가 ko·en 어느 쪽도 아니면(부재·네이티브 호출 예외 포함) false — 언어 화면 「기기 언어 따름」
+// sub 가 이 값으로 지원 여부 안내를 덧붙인다.
+export function isDeviceLocaleSupported(): boolean {
+  try {
+    return (SUPPORTED_LOCALES as readonly string[]).includes(getLocales()[0]?.languageCode ?? '');
+  } catch {
+    return false;
+  }
+}
+
 // 고른 설정값과 실제 적용 언어를 따로 든다 — 명시 'ko' 와 기기 ko 는 결과가 같아 결과로 설정을 복원할 수 없다.
 let currentPref: LocalePref = 'system';
 let current: SupportedLocale = resolveLocale();
