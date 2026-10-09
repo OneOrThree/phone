@@ -153,7 +153,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   // null current+소속은 유효하다(첫 pending 승인이 소속을 만들어도 current는 안 옮긴다).
   // /me 의 mainIslandId 도 함께 싣는다 — 소속 목록이 바뀌는 자리마다(가입·생성·승인·이탈 복구)
   // 서버 도출값(가장 최근 가입)과 프로필 선택값이 갈리지 않게 같은 액션으로 갈아 끼운다.
-  const syncIslands = async () => {
+  const syncIslandSnapshot = async () => {
     const g = generation();
     const revision = ++syncRevision;
     const [my, requests, account] = await Promise.all([
@@ -170,8 +170,9 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       requests,
       mainIslandId: account.mainIslandId,
     });
-    return my;
+    return { my, requests };
   };
+  const syncIslands = async () => (await syncIslandSnapshot()).my;
   // 409·404 계열은 서버 상태가 바뀌었다는 뜻 — 재조회로 화면 데이터를 맞춘 뒤 원 오류를 다시 던진다.
   // 쓰기 명령(write)은 결과 불명 오류에서도 재조회한다 — 서버가 이미 커밋했을 수 있다(GROMO-2118).
   // 조회는 아무것도 불명으로 만들지 않으므로 제외한다(승인 대기 폴링이 실패마다 재조회를 부르지 않게).
@@ -342,11 +343,47 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       call(async () => {
         const g = generation(),
           token = scoped().tokens[islandId],
-          body = token ?? '',
+          body = token ?? '';
+        // 복구된 활성 소속에는 쓰기 응답의 version이 없으므로 임의로 만들지 않는다.
+        let result: Omit<Awaited<ReturnType<IslandApi['join']>>, 'version'> & {
+          version?: number;
+        };
+        try {
           result = await api.join(islandId, {
             idempotencyKey: scoped().keys.key(`join:${islandId}`, body),
             invitationToken: token,
           });
+          alive(g);
+          if (result.status === 'active') await syncIslands();
+        } catch (error) {
+          alive(g);
+          if (!unknownOutcome(error)) throw error;
+          // 쓰기 응답 또는 첫 확인 조회가 유실돼도 같은 조회 묶음에서 성공을 확정한다.
+          const snapshot = await syncIslandSnapshot().catch(() => null);
+          alive(g);
+          if (!snapshot) throw error;
+          const { my, requests } = snapshot;
+          if (my.items.some((item) => item.id === islandId)) {
+            result = {
+              status: 'active',
+              requestId: null,
+              islandId,
+              currentIslandId: my.currentIslandId,
+            };
+          } else {
+            const request = requests.find(
+              (item) => item.islandId === islandId && item.status === 'pending',
+            );
+            if (!request) throw error;
+            result = {
+              status: 'pending',
+              requestId: request.id,
+              islandId,
+              currentIslandId: my.currentIslandId,
+              version: request.version,
+            };
+          }
+        }
         alive(g);
         if (result.status === 'pending' && result.requestId) {
           scoped().keys.release(`join:${islandId}`, body);
@@ -362,14 +399,12 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
           if (showApproval) deps.go('approval', islandId);
           captureProductEvent('island_join_requested');
         } else if (result.status === 'active') {
-          await syncIslands();
-          alive(g);
           scoped().keys.release(`join:${islandId}`, body);
           captureProductEvent('island_membership_activated', { method: 'joined' });
         }
         alive(g);
         return result;
-      }, true),
+      }),
     // 신청 상태 조회(승인 대기 폴링) — approved는 memberships 재조회 성공 뒤에만 공개한다.
     // 재조회가 실패하면 requestStatus를 갱신하지 않아 미확정 성공 카드가 뜨지 않고 다음 폴링이 재시도한다.
     status: (requestId: string) =>

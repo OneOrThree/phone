@@ -461,7 +461,7 @@ export function CharCount({ value, max }: { value: string; max: number }) {
         ...(full ? { color: semanticTokens.color.danger, fontWeight: '700' } : null),
       }}
     >
-      {full ? `${max}자까지 쓸 수 있어요 · ${value.length}/${max}` : `${value.length}/${max}`}
+      {full ? t('common.characterLimit', { max, count: value.length }) : `${value.length}/${max}`}
     </Txt>
   );
 }

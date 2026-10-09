@@ -1,5 +1,6 @@
 {
   "common": {
+    "characterLimit": "{{max}}자까지 쓸 수 있어요 · {{count}}/{{max}}",
     "cancel": "취소",
     "ok": "확인",
     "close": "닫기",

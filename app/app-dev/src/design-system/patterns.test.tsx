@@ -1,4 +1,5 @@
 import React from 'react';
+import { applyLocalePref } from '@/i18n';
 import { StyleSheet, ScrollView } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
 import { Page, Badge, Btn, Field, Wheel, Seg } from './patterns';
@@ -32,7 +33,10 @@ beforeEach(() => {
       return 0;
     });
 });
-afterEach(() => rafSpy.mockRestore());
+afterEach(() => {
+  rafSpy.mockRestore();
+  applyLocalePref('system');
+});
 
 test('inset 탭은 테두리와 패딩을 제외해도 터치 높이 44pt를 유지한다', async () => {
   const onChange = jest.fn();
@@ -149,4 +153,18 @@ test('Wheel 행을 누르면 그 행의 값과 effective 행 간격 scrollTo가 
   expect(onChange).toHaveBeenCalledWith('3');
   expect(spy).toHaveBeenCalledWith({ y: 2 * semanticTokens.size.tapMin, animated: true });
   spy.mockRestore();
+});
+
+test.each([50, 200])('영어 Field는 %i자 한도 도달 안내도 영어로 표시한다', async (max) => {
+  applyLocalePref('en');
+  const screen = await render(
+    <Field label="Name" value={'a'.repeat(max - 1)} maxLength={max} onChange={jest.fn()} />,
+  );
+  screen.getByText(`${max - 1}/${max}`);
+  await screen.rerender(
+    <Field label="Name" value={'a'.repeat(max)} maxLength={max} onChange={jest.fn()} />,
+  );
+  const limit = screen.getByText(`Up to ${max} characters · ${max}/${max}`);
+  expect(limit.props.accessibilityLiveRegion).toBe('polite');
+  expect(screen.queryByText(/자까지 쓸 수 있어요/)).toBeNull();
 });

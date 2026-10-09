@@ -1,5 +1,6 @@
 {
   "common": {
+    "characterLimit": "Up to {{max}} characters · {{count}}/{{max}}",
     "cancel": "Cancel",
     "ok": "OK",
     "close": "Close",
