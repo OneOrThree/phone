@@ -576,7 +576,12 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     expect(server.predicted).toEqual(worldToImage(SPAWN, SIZE));
 
     // 로컬과 다른 PathAccepted — server.path 에 서버 경로(출발점 포함, 이미지 px)가 실린다.
+    const sentAt = Date.now();
     await tapGround(screen, { x: 42.5, y: 45.5 });
+    // 응답(PathAccepted) 전 — server.waitingSince 는 state().sentAt 그대로다(commandSeq 추정 아님).
+    await act(async () => jest.advanceTimersByTime(100));
+    server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.waitingSince).toBe(sentAt);
     await emit(
       pathAccepted(ME, 1, 1, SPAWN, [
         { x: 39.5, y: 46.5 },
@@ -588,12 +593,16 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     expect(server.path).toEqual(
       [SPAWN, { x: 39.5, y: 46.5 }, { x: 40.5, y: 46.5 }].map((p) => worldToImage(p, SIZE)),
     );
+    // 응답을 받았으니 다시 null.
+    expect(server.waitingSince).toBeNull();
 
     // Snapshot 수신 — server.snapshot 에 실린다.
     await emit(snapshot(101, [entity(ME, 1, { x: 39.8, y: 46.2 })]));
     await act(async () => jest.advanceTimersByTime(100));
     server = screen.getByTestId('tile-terrain').props.navDebug.server;
     expect(server.snapshot).toEqual(worldToImage({ x: 39.8, y: 46.2 }, SIZE));
+    // server.snapshotAgeMs 는 state().lastSnapshot.receivedAt 기준 경과(ms) — serverTick 추정 아님(쓰로틀 한 틀 = 100ms).
+    expect(server.snapshotAgeMs).toBe(100);
 
     // 끄면 다시 null — 더 이상 쓰로틀 타이머도 돌지 않는다.
     await fireEvent.press(screen.getByTestId('nav-debug-toggle'));

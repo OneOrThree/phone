@@ -1561,32 +1561,11 @@ function FinalIslandScene({
     const size = sizeOf(grid);
     // 100ms 쓰로틀 — controller.subscribe() 는 스냅샷마다(최대 20Hz) 올 수 있어 마지막 반영 이후 100ms 안이면 미뤄서 합친다.
     let lastFlush = 0,
-      lastSeq = 0,
-      snapshotTick: number | null = null,
-      snapshotAt: number | null = null,
-      waitingSince: number | null = null,
       timer: ReturnType<typeof setTimeout> | null = null;
     const flush = () => {
       lastFlush = Date.now();
       timer = null;
       const st = controller?.state() ?? null;
-      if (!st) {
-        lastSeq = 0;
-        snapshotTick = null;
-        snapshotAt = null;
-        waitingSince = null;
-      } else {
-        // state() 는 "응답 대기 시작 시각"을 직접 주지 않는다 — commandSeq 변화로 추정한다(100ms 해상도).
-        if (st.commandSeq !== lastSeq) {
-          lastSeq = st.commandSeq;
-          waitingSince = Date.now();
-        }
-        if (st.self && st.self.lastCommandSeq >= st.commandSeq) waitingSince = null;
-        if (st.lastSnapshot && st.lastSnapshot.serverTick !== snapshotTick) {
-          snapshotTick = st.lastSnapshot.serverTick;
-          snapshotAt = Date.now();
-        }
-      }
       setServerDebug({
         path: st?.lastPath
           ? [st.lastPath.start, ...st.lastPath.waypoints].map((p) => worldToImage(p, size))
@@ -1594,8 +1573,9 @@ function FinalIslandScene({
         snapshot: st?.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
         predicted: location.current,
         correctedAt: st?.lastCorrectionAt ?? null,
-        snapshotAgeMs: snapshotAt !== null ? Date.now() - snapshotAt : null,
-        waitingSince,
+        // state() 가 송신·수신 시각을 그대로 준다(GROMO-2249 보완) — commandSeq/serverTick 변화로 추정하지 않는다.
+        snapshotAgeMs: st?.lastSnapshot ? Date.now() - st.lastSnapshot.receivedAt : null,
+        waitingSince: st?.sentAt ?? null,
       });
     };
     const schedule = () => {
