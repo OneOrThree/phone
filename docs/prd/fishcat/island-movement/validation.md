@@ -119,6 +119,85 @@ mmdc -i docs/prd/fishcat/island-movement/diagrams/01-architecture.mmd \
 | 2026-09-23 | 피드백 반영 후 문서 재검증 | Mermaid/SVG 7개 렌더·파싱 성공, 변경 도식 시각 점검, 상대 링크 59개 정상, 요구사항 13개 추적·32B/24B 패킷 계약 유지 |
 | 2026-09-23 | 학습 자료 추적 제외 | 사용자 요청으로 학습 문서·전용 도식을 Git 제외 경로 doc/island-movement/로 이동. 공유 설계 문서의 학습 링크 제거 |
 
+## 7. 1단계 측정 (2026-10-09, 로컬)
+
+1단계(Realtime JVM 안 이동 엔진 + 기존 STOMP/WSS)의 **서버 측** 측정이다. 앱은 띄우지 않았다. [측정 스크립트](scripts/measure-movement.mjs)가 앱 `islandRealtime.ts`(`e6e9b6920`, 피처 `f17856bcf` 와 같은 파일)의 이동 채널과 같은 연결·구독·intent 를 보내는 사용자 N명을 흉내 낸다. 기기 전용 행은 실기기 측정(티켓 2250 잔여, 오너)으로 채우고, 2단계 판단([아키텍처 §7](architecture.md#7-java--kafka--realtime-선택-검토))은 그 뒤에 한다.
+
+- 환경: 맥 한 대(Apple M5 Pro)의 Docker Desktop(8 CPU · 7.65 GiB, aarch64) 로컬 스택. nginx `:8088` 뒤에 business-api(게스트·섬 API)와 realtime(`/ws/realtime`)이 있다. 측정 클라이언트도 같은 맥이라 왕복에 실제 망 지연은 거의 없다.
+- 서버: realtime 컨테이너만 브랜치 `bfeat/GROMO-2247-movement-stomp` 의 `7af884d` jar 로 재기동(20:35 KST)했다. 나머지 컨테이너는 그대로다.
+- 부하: 게스트 N명이 가입 승인 없는 한 섬에 사용자당 세션 1개로 들어간다. 60초 동안 사용자마다 2초 간격(+0~1틱 무작위 지터, 사용자끼리는 2초를 N 등분해 엇갈림)으로, 스폰과 같은 연결 영역의 통행 셀 3,181개 중 무작위 셀 중심으로 intent 를 보낸다. 경로의 23~29%만 다음 intent 전에 도착했다(세션이 받은 Arrived ÷ PathAccepted) — 전원이 거의 쉬지 않고 걷는 부하다. N 사이에 60초 쉰다. 방(섬)은 1개다 — N 은 한 방의 세션 수이고, 방 수가 늘 때의 영향은 재지 않았다.
+- 시각(KST): N=1 23:46:27 · N=5 23:48:32 · N=15 23:50:36.
+
+모든 값은 재현 명령 ①, 서버 `7af884d` 기준. 평균 = Δsum/Δcount, 최대 = 뒤 스크레이프의 `_max`.
+
+| 항목 | N=1 | N=5 | N=15 | 측정 방법 |
+| --- | --- | --- | --- | --- |
+| 실행 유효성(서버 틱 진행) | 99.9% (Δtick 1288 / 벽시계 64.5초) — 정상 | 99.9% (Δtick 1288 / 벽시계 64.5초) — 정상 | 99.9% (Δtick 1290 / 벽시계 64.6초) — 정상 | movement_tick_seconds Δcount ÷ (전후 스크레이프 사이 벽시계 ÷ 50ms) |
+| 접속·첫 FullState | 준비 1/1 · 첫 movement 메시지 FullState 1/1 · 자기 actor 포함 1/1 · FullState 전 Snapshot 0건 · 구독→FullState p50 80.2 ms, 최대 80.2 ms | 준비 5/5 · 첫 movement 메시지 FullState 5/5 · 자기 actor 포함 5/5 · FullState 전 Snapshot 0건 · 구독→FullState p50 66.3 ms, 최대 67.6 ms | 준비 15/15 · 첫 movement 메시지 FullState 15/15 · 자기 actor 포함 15/15 · FullState 전 Snapshot 0건 · 구독→FullState p50 120.4 ms, 최대 132.4 ms | CONNECT(Bearer) 뒤 movement → movement/snapshot → /user/queue/errors 순 SUBSCRIBE, 첫 FullState 수신 − movement SUBSCRIBE 송신 |
+| intent → 내 PathAccepted 왕복 | p50 31.2 ms · p99 56.8 ms · 최대 56.8 ms (응답 30/보냄 30) | p50 29.5 ms · p99 58.6 ms · 최대 60.7 ms (응답 150/보냄 150) | p50 31.6 ms · p99 56.7 ms · 최대 70.3 ms (응답 450/보냄 450) | 사용자마다 2000ms 간격(+0~1틱 무작위 지터) 무작위 통행 셀(스폰 연결 영역) intent, 송신 직전 → 같은 commandSeq·내 userId PathAccepted 수신. 서버가 다음 틱(≤50ms)에 처리하므로 틱 대기 포함. 최근접 순위 백분위⁽¹⁾ |
+| MoveRejected | 0건 | 0건 | 0건 | 요청자 세션에만 오는 MoveRejected 를 reason 별로 |
+| 무응답 intent | 0건 (미연결로 못 보냄 0건) | 0건 (미연결로 못 보냄 0건) | 0건 (미연결로 못 보냄 0건) | 부하 끝 + 3초 안에 PathAccepted·MoveRejected 가 없던 intent |
+| Snapshot 수신 간격 | p50 50.0 ms · p99 53.6 ms · 최대 64.9 ms · 100ms 이상 0.00% (표본 1110) | p50 50.0 ms · p99 53.8 ms · 최대 74.9 ms · 100ms 이상 0.00% (표본 5995) | p50 50.0 ms · p99 57.2 ms · 최대 75.0 ms · 100ms 이상 0.00% (표본 17985) | 20Hz 기대 50ms. 직전 Snapshot 에 MOVING entity 가 있을 때 다음 Snapshot 까지의 간격(정지 뒤 공백 제외), 전 세션 합산 |
+| 세션당 수신량 | 평균 8361 B/s (≈ 30.1 MB/시간) · 세션 간 편차 0 · Snapshot 본문 평균 203 B | 평균 21964 B/s (≈ 79.1 MB/시간) · 세션 간 편차 0 · Snapshot 본문 평균 742 B | 평균 54717 B/s (≈ 197.0 MB/시간) · 세션 간 편차 0 · Snapshot 본문 평균 2090 B | 부하 60초 동안 WebSocket message 바이트(STOMP 헤더·하트비트 포함) ÷ 60. 전 세션이 같은 브로드캐스트를 받아 세션 간 편차는 거의 없다 |
+| 끊김·ERROR | close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | 의도적 해제 전 WebSocket close code·reason, STOMP ERROR message, /user/queue/errors code |
+| movement_tick_seconds | Δcount 1288 · 평균 0.1 ms · 최대 9.4 ms | Δcount 1288 · 평균 0.3 ms · 최대 12.7 ms | Δcount 1290 · 평균 0.3 ms · 최대 6.9 ms | /actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창)⁽²⁾ |
+| movement_pathfind_seconds | Δcount 30 · 평균 0.4 ms · 최대 2.8 ms | Δcount 150 · 평균 0.4 ms · 최대 12.5 ms | Δcount 450 · 평균 0.2 ms · 최대 5.2 ms | /actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창) |
+| movement_outbox_reliable_depth | 표본 38 · 평균 1.00 · 최대 1 | 표본 980 · 평균 1.00 · 최대 1 | 표본 8625 · 평균 1.05 · 최대 13 | /actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창). reliable 사건을 넣은 직후 세션 큐 깊이 |
+| movement_outbox_snapshot_superseded_total | Δ 0 | Δ 0 | Δ 0 | 보내기 전에 더 새 Snapshot 으로 덮어쓴 횟수(전후 델타) |
+| movement_outbox_overflow_total · send_failed_total | Δ 0 · Δ 0 | Δ 0 · Δ 0 | Δ 0 · Δ 0 | 큐 상한·넘기기 실패로 닫은 세션 수(전후 델타) |
+| movement_recheck_suspended_total | Δ 0 | Δ 0 | Δ 0 | 강퇴 재검사로 멈춘 outbox 수(전후 델타) |
+| jvm_gc_pause_seconds | _max 최대 13.0 ms · Δcount 1 · Δsum 13.0 ms | _max 최대 13.0 ms · Δcount 5 · Δsum 39.0 ms | _max 최대 13.0 ms · Δcount 21 · Δsum 70.0 ms | 전 GC 계열 합산. _max 는 뒤 스크레이프 기준 최근 창 |
+
+표는 [측정 스크립트](scripts/measure-movement.mjs)의 `--render`(run3.json) 출력을 그대로 붙였다 — 위 각 셀의 수치는 손으로 옮기지 않았다.
+
+측정 불가:
+- 틱 p50·p99 — `movement.tick` Timer 가 백분위·히스토그램을 내보내지 않는다(count·sum·max 만).
+- 틱 지연·catch-up·Snapshot 건너뜀·토큰 버킷 드롭 — `MovementTicker`(delayed·skippedSnapshot·skippedTick)·`RoomRuntime`(rateLimitedDrop) 카운터가 필드로만 있고 지표로 노출되지 않는다.
+
+**실기기 잔여(티켓 2250)** — 실기기 측정(오너)으로 채운다.
+
+| 항목 | 값 | 측정 방법 | 기준 |
+| --- | --- | --- | --- |
+| 앱 10분 이동 배터리 % | 미측정 — 실기기(2250 잔여) | 이동 동기화 플래그를 켠 빌드로 홈 섬에서 10분 동안 탭 이동, 전후 배터리 % | 앱 `e6e9b6920` |
+| 보정 점프 최대 px | 미측정 — 실기기(2250 잔여) | 서버 위치로 맞출 때(정지 보정·경로 갈아타기·도착) 캐릭터가 한 번에 옮겨지는 최대 화면 거리 | 앱 `e6e9b6920` |
+| dev 서버 RTT | 미측정 — 실기기(2250 잔여) | 실기기(Wi-Fi·LTE)에서 dev 서버로 intent → 내 PathAccepted 왕복 | 앱 `e6e9b6920` |
+| MV-D05 체감 | 미측정 — 실기기(2250 잔여) | 서버 확정 경로를 따라 걷는 가로·세로·대각 이동의 체감(정책 MV-D05) | 앱 `e6e9b6920` |
+
+⁽¹⁾ PathAccepted 는 방 전원에게 나가는 메시지라(`RoomRuntime` `Target.ALL`) movement 토픽 구독으로 받는다. 서버가 다음 틱에 처리해 틱 대기(0~50 ms)가 들어 있고, 같은 맥이라 망 지연은 거의 없다. 측정 클라이언트가 같은 맥의 Node 단일 이벤트 루프라 N=15 에선 클라이언트 쪽 지터가 p99 에 섞인다 — 서버 처리 시간만으로 읽지 않는다. 표본이 30·150·450 개라 p99 는 경향으로만 읽는다(N=1 의 p99 는 곧 최대).
+
+⁽²⁾ `_max` 는 뒤 스크레이프 직전 약 2분 창(Micrometer 기본 expiry 2분·버퍼 3)의 최댓값이라 60초 부하 구간을 덮는다. 앞 N 의 마지막 기록(부하 끝)은 뒤 N 의 after 스크레이프 시점에 gap 60초 + 준비 시간 + 부하 60초 ≈ 120초 + 준비 시간만큼 지나 있다(이번 실행은 N 시작 간격 약 125초) — 2분 창을 간신히 넘겨 섞이지 않았고, 그 여유가 얇아 이후 기본 `--gap` 을 130초로 늘렸다. N=5 의 틱 최대 12.7 ms 는 N=5 구간 안의 이상치(JIT·GC)로 읽는다. 섞일 수 있는 것은 첫 N 의 창에 든 실행 전 활동뿐인데, 이 실행은 직전 활동(2차 실행 종료 22:03)에서 100분 넘게 지나 시작했다.
+
+재현 명령 ①(레포 루트. 로컬 스택이 떠 있고 realtime 을 측정할 jar 로 재기동한 상태):
+
+```sh
+NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
+  node docs/prd/fishcat/island-movement/scripts/measure-movement.mjs \
+  --users 1,5,15 --state /tmp/measure-movement-state.json --json /tmp/measure-movement.json
+```
+
+- `app/app-dev/node_modules` 가 없는 워크트리는 `npm ci` 한 체크아웃의 경로를 `NODE_PATH` 로 준다(앱과 같은 `@stomp/stompjs` 7.3.0). `--self-check` 는 네트워크 없이 계산 함수만 점검한다.
+- 쓰는 공개 경로는 앱과 같다: `POST /auth/sessions/guest`(`X-Device-Id`) · `POST /auth/sessions/current/refresh`(`X-Refresh-Token`) · `POST /islands` · `POST /islands/{id}/memberships`(둘 다 `Idempotency-Key`) · `/ws/realtime` CONNECT(`Authorization: Bearer`).
+- 게스트 생성은 Data `GuestLoginRateLimiter` 기본값인 IP당 10회/시간에 걸린다. 로컬은 nginx 뒤라 모든 요청이 한 IP 다. 15명은 `--state` 파일로 계정을 이어 써 한 시간 창 두 번에 걸쳐 만들었다(첫 실행의 11번째가 429). 상태 파일에는 로컬 토큰이 들어가므로 레포 밖에 둔다. 만료된 AT 는 스크립트가 갱신 경로로 바꾼다.
+- nginx 가 `/actuator/*` 를 404 로 막아, Prometheus 는 `docker exec phone-realtime-local wget -qO- http://localhost:9091/actuator/prometheus`(관리 포트 9091)로 읽는다. `--metrics-cmd` 로 바꿀 수 있다.
+- `caffeinate -i` 는 맥 절전을 막는다. 측정 중 맥이 잠들면 서버 틱이 건너뛰어져 값이 틀어진다. 표의 「실행 유효성」이 90% 미만인 N 은 버린다.
+
+실행 기록: 위 표는 세 번째 실행이다. 첫 실행(20:51, N=1·5)은 intent 간격 2초가 틱 50ms 의 배수라 한 세션의 intent 가 같은 틱 위상에 몰려 왕복이 한 값 근처로 굳었다(N=1 p50 52.4 ms · p99 56.3 ms). 그래서 0~1틱 지터를 넣었다. 두 번째 실행(21:52~22:03)은 측정 중 맥이 잠들어 서버 틱 기록이 정상의 일부만 남았다(N=1 Δcount 142, 같은 길이의 정상 실행은 1,288). 이 실행은 버리고 「실행 유효성」 행을 넣었다. 다음 실행부터 기본 `--gap` 130초(여유)·프레임 종류별 바이트 분리를 스크립트가 찍는다.
+
+관찰:
+
+- 전 세션이 첫 movement 메시지로 자기 actor 가 든 대상 전용 FullState 를 받았고, 그 전에 온 Snapshot 은 0건이다.
+- N=15 에서도 왕복 p99 56.7 ms(틱 대기 포함), Snapshot 간격 p99 57.2 ms, 100ms 이상 간격 0건이다. 틱 평균 0.3 ms · 최대 6.9 ms, A* 평균 0.2 ms 이고, reliable 큐 최대 13 은 상한 256 아래다. 이 로컬 부하에서 틱과 송신 큐는 병목이 아니었다.
+
+### 데이터 예산
+
+| | 수신 B/s | Snapshot 본문 × 20 Hz | 차이 B/s | reliable 사건/초(세션당) |
+|---|---|---|---|---|
+| N=1 | 8,361 | 4,060 | 4,301 | 0.62 (PathAccepted 30 + Arrived 7 / 60초) |
+| N=5 | 21,964 | 14,840 | 7,124 | 3.22 (150 + 43) |
+| N=15 | 54,717 | 41,800 | 12,917 | 9.45 (450 + 117) |
+
+세션당 수신량은 정책 §3·T18 의 30 MB/시간을 N=15 에서 약 6.6배 넘는다. 197 MB/시간은 WebSocket 수신 총량(STOMP 헤더·reliable 사건·하트비트 포함)이고, Snapshot 본문만은 2,090 B × 20 Hz ≈ 150 MB/시간이다. 차이가 N 과 함께 늘어나므로 헤더만으로는 설명되지 않는다 — 차이 = 상수 + 사건당 바이트 × 사건/초 로 두고 N=1·15 로 풀면 상수 ≈ 3.7 KB/s(≈ 13 MB/시간, Snapshot 프레임 20개/초의 STOMP 헤더 ≈ 185 B/프레임), 사건당 ≈ 0.98 KB(경로 waypoints 를 실은 PathAccepted)이고 N=5 는 이 모델과 4% 안에서 맞는다. 즉 N=15 의 차이 약 46.5 MB/시간은 대략 헤더 13 : reliable 사건 33 (MB/시간)이다 — 표의 값에서 역산한 근사이며 건당 바이트는 이 측정에서 직접 재지 않았다(다음 실행부터 스크립트가 프레임 종류별로 나눠 찍는다). **Snapshot 만 줄여서는 목표에 못 간다**: Snapshot 본문을 0 으로 놓아도 약 46.5 MB/시간이 남는다. 바이너리 Snapshot·송신 주기 저감은 Snapshot 프레임의 헤더 몫(≈ 13 MB/시간)도 같이 줄이므로 실제 하한은 이보다 낮지만, reliable 사건 몫 ≈ 33 MB/시간만으로도 목표 30 을 넘는다. 2단계 판단에서 바이너리 Snapshot 과 함께 송신 주기 저감(정지·원거리 주민)과 reliable 사건 크기(PathAccepted 의 waypoints)를 같이 봐야 한다. 이 부하는 전원이 거의 쉬지 않고 걷는 경우라 실제 사용보다 크다(정지한 방에는 Snapshot 을 보내지 않는다).
+
 ## 부록 A. 10/9 타일 전환 체크리스트 (2026-10-08 작성)
 
 에픽 티켓 2227 의 선행 PR(2228 #1081 · 2229 #1082 · 2230 #1084 · 2231 #1085 · 2233 #1086, 서버 2232 #1083)이 모인 브랜치 `afeat/GROMO-2234-tile-island-checklist` 에서 `app/app-dev` 기준으로 돌린 기록이다. 단일 기기 가정이며, 이 환경에서 돌릴 수 있는 것(jest · 생성 스크립트 check · 로컬 정적 서버 + curl · typecheck)만 실행했다. 실기기 측정과 조작이 필요한 항목은 측정값을 적지 않고 「미실행 — 실기기 필요」로 둔다.
