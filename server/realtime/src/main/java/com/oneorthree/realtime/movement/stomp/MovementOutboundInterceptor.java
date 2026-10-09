@@ -19,8 +19,9 @@ import org.springframework.stereotype.Component;
  * {@code ChatOutboundChannelInterceptor} 가 프레임을 버린 경우(토큰 만료) 완료 통지가 영영 오지 않아 그 outbox 가
  * 멈춘다.
  *
- * <p>프레임을 꺼낼 때({@code beforeHandle}) 그 outbox 가 넘긴 뒤 멈췄거나(강퇴 재검사) 닫혔으면 그 한 건도 버린다 —
- * 실행기에 밀려 있던 프레임이 강퇴된 세션에 한 번 더 나가지 않게.
+ * <p>프레임을 꺼낼 때({@code beforeHandle}) 그 outbox 가 넘긴 뒤 한 번이라도 멈췄거나(강퇴 재검사 — 그사이 재개됐어도)
+ * 닫혔으면 그 한 건도 버린다 — 실행기에 밀려 있던 프레임이 강퇴된 세션에 한 번 더 나가거나, 재개 뒤 재동기화
+ * FullState 보다 먼저 나가지 않게.
  */
 @Slf4j
 @Component

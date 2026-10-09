@@ -131,6 +131,52 @@ class MovementOutboxTest {
     }
 
     @Test
+    @DisplayName("② 멈추기 전에 넘긴 프레임은 실행기가 꺼내기 전에 재개됐어도 버린다 — 재개 뒤 첫 메시지는 재동기화 FullState")
+    void frameHandedOffBeforeSuspendIsDroppedEvenIfResumedFirst() {
+        MovementOutboundInterceptor interceptor = new MovementOutboundInterceptor();
+        outbox.enqueueReliable(bytes("FullState"), true);
+        outbox.onSent();
+        outbox.enqueueReliable(bytes("PathAccepted"), false); // 채널에 넘어갔고 실행기에 밀려 있다
+
+        outbox.suspend();
+        outbox.resume(); // 실행기가 꺼내기 전에 재판정이 통과했다
+        outbox.enqueueReliable(bytes("FullState-resync"), true); // 옛 프레임(in-flight) 뒤에서 기다린다
+
+        List<String> delivered = new ArrayList<>();
+        for (int i = 1; i < sent.size(); i++) { // 실행기 흉내 — 꺼낸 순서대로 beforeHandle → 전송 → 완료 통지
+            Message<?> frame = sent.get(i);
+            if (interceptor.beforeHandle(frame, null, null) != null) {
+                delivered.add(new String((byte[]) frame.getPayload(), StandardCharsets.UTF_8));
+                interceptor.afterMessageHandled(frame, null, null, null);
+            }
+        }
+        assertThat(delivered).as("멈추기 전 PathAccepted 는 버리고 재동기화 FullState 가 첫 메시지")
+                .containsExactly("FullState-resync");
+    }
+
+    @Test
+    @DisplayName("① 자기 FullState 전 Snapshot 은 슬롯에도 두지 않고 버린다 — snapshot 을 먼저 구독했어도, movement 를 해지해도 같다")
+    void snapshotsBeforeTheOwnFullStateAreDropped() {
+        List<Message<?>> early = new ArrayList<>();
+        MovementOutbox snapshotFirst = new MovementOutbox((message, timeout) -> early.add(message), "s3",
+                UUID.randomUUID(), MOVEMENT, SNAPSHOT, () -> { });
+        snapshotFirst.subscribeSnapshot("sub-s");
+        snapshotFirst.offerSnapshot(bytes("Snapshot-0"));
+        assertThat(early).as("snapshot 만 먼저 구독 — FullState 가 올 길이 아직 없다").isEmpty();
+
+        outbox.offerSnapshot(bytes("Snapshot-1")); // 구독 직후, 자기 FullState 전
+        outbox.enqueueReliable(bytes("FullState"), true);
+        outbox.offerSnapshot(bytes("Snapshot-2"));
+        drainBySimulatedCompletions();
+        assertThat(payloads()).containsExactly("FullState", "Snapshot-2");
+
+        outbox.unsubscribeMovement("sub-m"); // 퇴장 — 남은 snapshot 구독도 다시 자기 FullState 전까지 받지 않는다
+        outbox.offerSnapshot(bytes("Snapshot-3"));
+        drainBySimulatedCompletions();
+        assertThat(payloads()).containsExactly("FullState", "Snapshot-2");
+    }
+
+    @Test
     @DisplayName("구독 직후 첫 reliable 은 그 세션 한정 FullState 다 — 그 전에 온 다른 사건·전원 FullState 는 버린다")
     void reliableEventsBeforeTheFirstFullStateAreDropped() {
         assertThat(outbox.enqueueReliable(bytes("PathAccepted"), false)).isZero();
