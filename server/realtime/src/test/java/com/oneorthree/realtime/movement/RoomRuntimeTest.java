@@ -76,6 +76,26 @@ class RoomRuntimeTest {
         }
     }
 
+    /**
+     * 첫 onEvent 콜백에서만 던지는 Listener(codex P1, 2246 보완8) — {@code drain()} 의 배치 루프가
+     * 예외를 삼키고 나머지 명령을 계속 처리하는지 호출 횟수로 검증한다.
+     */
+    private static final class ThrowingOnFirstEventListener implements RoomRuntime.Listener {
+        int onEventCallCount;
+
+        @Override
+        public void onEvent(UUID islandId, MovementEvent event, Target target) {
+            onEventCallCount++;
+            if (onEventCallCount == 1) {
+                throw new RuntimeException("전송 콜백 실패 재현(codex P1, 2246 보완8)");
+            }
+        }
+
+        @Override
+        public void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot) {
+        }
+    }
+
     /** cols×rows 전부 통행 가능한 합성 격자 — spawn 은 (0,0) 셀. */
     private static NavGrid openGrid(int cols, int rows) {
         return gridJson(cols, rows, '1');
@@ -589,6 +609,29 @@ class RoomRuntimeTest {
         assertThat(actorIn(room.fullStateOf(), userId).lastCommandSeq()).isEqualTo(6L);
     }
 
+    // ── codex P1(2246 보완8): 전송 콜백 예외가 같은 배치를 끊지 않는다 ──────
+
+    @Test
+    @DisplayName("두 사용자가 같은 틱에 join 하고 Listener 가 첫 FullState 전송에서 던져도, 틱 뒤 두"
+            + " actor 모두 존재하고 두 번째 사용자의 FullState 전송도 시도된다(호출 횟수 2, codex P1, 2246 보완8)")
+    void listenerExceptionOnFirstEventDoesNotDropRestOfSameBatch() {
+        NavGrid grid = openGrid(10, 10);
+        ThrowingOnFirstEventListener listener = new ThrowingOnFirstEventListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID user1 = UUID.randomUUID();
+        UUID user2 = UUID.randomUUID();
+
+        room.join(user1, "s1");
+        room.join(user2, "s2"); // 같은 배치 — 첫 FullState 전송(user1) 에서 Listener 가 던진다.
+        room.tick(1);
+
+        assertThat(listener.onEventCallCount)
+                .as("예외가 삼켜져 두 번째 사용자의 FullState 전송도 시도돼야 한다").isEqualTo(2);
+        assertThat(actorIn(room.fullStateOf(), user1))
+                .as("콜백 실패 전에 상태 변경이 이미 끝나 있어 actor 가 남아 있다").isNotNull();
+        assertThat(actorIn(room.fullStateOf(), user2)).as("배치의 나머지 명령도 그대로 처리된다").isNotNull();
+    }
+
     // ── N23: 퇴장 위치 기억 · 같은 셀 탭 ──────────────────────────────
 
     @Test
@@ -861,7 +904,10 @@ class RoomRuntimeTest {
     void delayedAcceptAfterLeaveKeepsBucketUntilDepartedWindowExpires() {
         NavGrid grid = openGrid(10, 10);
         RecordingListener listener = new RecordingListener();
-        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        // 버킷 prune 이 이제 틱 수가 아니라 마지막 사용 뒤 벽시계 경과로 바뀌어(codex P1, 2246 보완8),
+        // 틱만 빨리 돌리는 이 테스트도 실제 운영처럼 틱마다 시계를 tickMs 만큼 같이 전진시켜야 한다.
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener, () -> nowNanos[0]);
         UUID userId = UUID.randomUUID();
         long tick = 0;
         room.join(userId, "s1");
@@ -881,6 +927,7 @@ class RoomRuntimeTest {
 
         long ticksToExpire = MovementRules.DEFAULT.ticksFor(10 * 60 * 1000L) + 1; // 10분 창을 지난 뒤.
         for (long i = 0; i < ticksToExpire; i++) {
+            nowNanos[0] += MovementRules.DEFAULT.tickMs() * 1_000_000L; // 틱마다 벽시계도 같은 보폭으로.
             room.tick(++tick);
         }
         assertThat(room.departedCount()).isZero();
@@ -1016,20 +1063,32 @@ class RoomRuntimeTest {
     }
 
     @Test
-    @DisplayName("join 없이 들어온 가짜 accept 의 버킷은 actor 도 departed 도 없으니 다음 틱에 사라진다"
-            + "(codex P2, 2246 보완5)")
-    void bucketFromAcceptWithoutJoinIsPrunedNextTick() {
+    @DisplayName("join 없이 들어온 가짜 accept 의 버킷은 마지막 사용 뒤 10분이 지나야 지워진다 — 그 전엔"
+            + " 매 틱 prune 에 지워져 burst(20) 를 다시 받는 우회가 되면 안 된다(codex P1, 2246 보완8)")
+    void bucketFromAcceptWithoutJoinSurvivesUntilTenMinutesSinceLastUse() {
         NavGrid grid = openGrid(10, 10);
-        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener());
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
         UUID ghostUserId = UUID.randomUUID();
 
-        room.accept(ghostUserId, "s9", new MoveIntent(1, 1, 5.5, 5.5)); // join 이 한 번도 없던 세션.
+        for (long seq = 1; seq <= 20; seq++) {
+            room.accept(ghostUserId, "s9", new MoveIntent(seq, 1, 5.5, 5.5)); // join 없는 세션 — burst 전부 소진.
+        }
         assertThat(room.bucketCount()).as("accept() 호출 시점엔 버킷이 생긴다").isEqualTo(1);
 
         room.tick(1);
+        assertThat(room.bucketCount())
+                .as("마지막 사용 뒤 10분이 안 지났으면 actor·departed 가 없어도 버킷이 살아 있어야 한다")
+                .isEqualTo(1);
 
-        assertThat(room.bucketCount()).as("actor 도 departed 도 없는 사용자의 버킷은 다음 틱에 지워진다")
-                .isZero();
+        room.accept(ghostUserId, "s9", new MoveIntent(21, 1, 5.5, 5.5)); // burst(20) 를 넘겨 거절돼야 한다.
+        assertThat(room.rateLimitedDropCount())
+                .as("매 틱 prune 으로 버킷이 지워졌다면 이 호출은 통과했을 것이다").isEqualTo(1L);
+
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // DEPARTED_MEMORY_MS(10분)를 넘긴다.
+        room.tick(2);
+
+        assertThat(room.bucketCount()).as("마지막 사용 뒤 10분이 지나면 버킷도 prune 된다").isZero();
     }
 
     @Test

@@ -43,6 +43,12 @@ public final class RoomRuntime {
     private static final long DEPARTED_MEMORY_MS = 10 * 60 * 1000L;
 
     /**
+     * {@link #DEPARTED_MEMORY_MS} 를 나노초로 — 토큰 버킷의 {@code lastTouchedNanos} 는 틱이 아니라
+     * 벽시계 나노초 기준이라(codex P1, 2246 보완8) 이 변환이 필요하다.
+     */
+    private static final long DEPARTED_MEMORY_NANOS = DEPARTED_MEMORY_MS * 1_000_000L;
+
+    /**
      * 메트릭을 안 보는 호출자(대부분의 테스트)가 레지스트리를 안 챙겨도 되는 기본값(2246 보완3) — 운영은
      * {@code MovementRooms} 가 실제 {@code MeterRegistry} 로 만든 Timer 를 생성자로 주입한다.
      */
@@ -169,7 +175,7 @@ public final class RoomRuntime {
             lastTickHadMoving = lastTickHadMoving || movingNow; // 발행 의무를 다음 발행 틱으로 넘긴다.
         } else {
             if (movingNow || lastTickHadMoving) {
-                listener.onSnapshot(islandId, snapshotOf());
+                emitSnapshot(snapshotOf());
             }
             lastTickHadMoving = movingNow;
         }
@@ -205,6 +211,32 @@ public final class RoomRuntime {
     /** 패키지 전용 — 테스트용. 지금 살아 있는 사용자 토큰 버킷 수(codex P2, 2246 보완5). */
     int bucketCount() {
         return userBuckets.size();
+    }
+
+    // ── 콜백 전송(예외 삼킴) ────────────────────────────────────────────
+
+    /**
+     * {@code listener.onEvent} 콜백 하나를 내보낸다 — 전송 실패(런타임 예외)를 여기서 삼킨다(codex P1,
+     * 2246 보완8). actors·departed 갱신 같은 상태 변경은 이 호출 전에 이미 끝나 있다 — 콜백이 던져도
+     * {@link #drain()} 의 배치 루프는 끊기지 않고 다음 명령(다른 사용자의 Join·Leave·Intent)으로 이어진다.
+     * 전송 실패는 전송 층(2247 Outbox)의 문제이지 방 상태 기계를 멈출 이유가 아니다.
+     */
+    private void emit(MovementEvent event, Target target) {
+        try {
+            listener.onEvent(islandId, event, target);
+        } catch (RuntimeException e) {
+            LOG.warn("섬 {} 이벤트 {} 전송 콜백 실패 — 삼키고 계속한다(codex P1, 2246 보완8)", islandId,
+                    event.getClass().getSimpleName(), e);
+        }
+    }
+
+    /** {@link #emit} 과 같은 이유로 {@code listener.onSnapshot} 콜백의 예외도 삼킨다(codex P1, 2246 보완8). */
+    private void emitSnapshot(MovementEvent.Snapshot snapshot) {
+        try {
+            listener.onSnapshot(islandId, snapshot);
+        } catch (RuntimeException e) {
+            LOG.warn("섬 {} Snapshot 전송 콜백 실패 — 삼키고 계속한다(codex P1, 2246 보완8)", islandId, e);
+        }
     }
 
     // ── 큐 드레인 ────────────────────────────────────────────────────────
@@ -280,7 +312,7 @@ public final class RoomRuntime {
             actor.lastCommandSeq = 0;
         }
         sessionToUser.put(cmd.sessionKey(), cmd.userId());
-        listener.onEvent(islandId, fullStateOf(), Target.ALL);
+        emit(fullStateOf(), Target.ALL);
     }
 
     /**
@@ -303,7 +335,7 @@ public final class RoomRuntime {
         // 토큰 버킷(사용자 기준, 2246 보완5)은 여기서 지우지 않는다 — departed 에 남아 있는 10분
         // 동안 유지돼야 그 안에 재접속해도 순간 20 을 다시 받지 못한다. 정리는 pruneExpiredDeparted().
         departed.put(userId, new Departed(new MovementEvent.Point(actor.x, actor.y), serverTick));
-        listener.onEvent(islandId, fullStateOf(), Target.ALL);
+        emit(fullStateOf(), Target.ALL);
         return true;
     }
 
@@ -347,7 +379,7 @@ public final class RoomRuntime {
         actor.state = MotionState.MOVING;
         MovementEvent.PathAccepted accepted = new MovementEvent.PathAccepted(actor.userId, actor.lastCommandSeq,
                 actor.pathId, rules.navRevision(), serverTick, start, goal, rules.speed(), waypoints);
-        listener.onEvent(islandId, accepted, Target.ALL);
+        emit(accepted, Target.ALL);
         // waypoints 가 비어 있으면(같은 셀) advanceMovementAndReportMoving() 이 이번 틱에 바로 Arrived 를 낸다.
     }
 
@@ -363,7 +395,7 @@ public final class RoomRuntime {
             // 퇴장한 세션에 FullState 를 보내지 않는다.
             return;
         }
-        listener.onEvent(islandId, fullStateOf(), Target.only(cmd.sessionKey()));
+        emit(fullStateOf(), Target.only(cmd.sessionKey()));
     }
 
     private Actor actorFor(String sessionKey) {
@@ -379,7 +411,7 @@ public final class RoomRuntime {
         MovementEvent.Point position = new MovementEvent.Point(actor.x, actor.y);
         MovementEvent.MoveRejected event = new MovementEvent.MoveRejected(actor.userId, commandSeq, reason,
                 rules.navRevision(), position);
-        listener.onEvent(islandId, event, Target.only(sessionKey));
+        emit(event, Target.only(sessionKey));
     }
 
     // ── 이동 ────────────────────────────────────────────────────────────
@@ -397,7 +429,7 @@ public final class RoomRuntime {
                 MovementEvent.Point position = new MovementEvent.Point(actor.x, actor.y);
                 MovementEvent.Arrived arrived =
                         new MovementEvent.Arrived(actor.userId, actor.pathId, serverTick, position);
-                listener.onEvent(islandId, arrived, Target.ALL);
+                emit(arrived, Target.ALL);
             }
         }
         return movingNow;
@@ -451,14 +483,20 @@ public final class RoomRuntime {
      * 나누는 추가 상태 없이 가장 단순한 쪽을 택한다).
      *
      * <p>같은 틱에 토큰 버킷도 정리한다(codex P2, 2246 보완5) — actor 도 departed 도 없는 사용자는
-     * 더 이상 이 방과 관계가 없으니 버킷을 들고 있을 이유가 없다. {@code userBuckets} 는
-     * {@link ConcurrentHashMap} 이라 이 순회(스레드: 틱)가 {@link #accept}(스레드: STOMP)의 동시
-     * 삽입과 겹쳐도 안전하다.
+     * 더 이상 이 방과 관계가 없으니 버킷을 들고 있을 이유가 없다. 다만 actor·departed 부재만으로 바로
+     * 지우면 join 없이 accept 만 반복하는 사용자의 버킷이 매 틱 지워지고 다음 틱에 새 버킷이 burst(20)
+     * 를 다시 줘 초당 제한을 우회한다(codex P1, 2246 보완8) — 그래서 마지막 사용({@link
+     * Bucket#lastTouchedNanos()}) 뒤 {@link #DEPARTED_MEMORY_NANOS}(10분) 가 지난 버킷만 지운다.
+     * {@code userBuckets} 는 {@link ConcurrentHashMap} 이라 이 순회(스레드: 틱)가 {@link #accept}
+     * (스레드: STOMP)의 동시 삽입과 겹쳐도 안전하다.
      */
     private void pruneExpiredDeparted() {
         long window = rules.ticksFor(DEPARTED_MEMORY_MS);
         departed.values().removeIf(d -> serverTick - d.tick() > window);
-        userBuckets.keySet().removeIf(u -> !actors.containsKey(u) && !departed.containsKey(u));
+        long now = nowNanos.getAsLong();
+        userBuckets.entrySet().removeIf(entry -> !actors.containsKey(entry.getKey())
+                && !departed.containsKey(entry.getKey())
+                && now - entry.getValue().lastTouchedNanos() > DEPARTED_MEMORY_NANOS);
     }
 
     // ── 스냅샷 ────────────────────────────────────────────────────────────
@@ -542,19 +580,24 @@ public final class RoomRuntime {
     /**
      * 사용자별 토큰 버킷(policy §3, N8) — {@link #accept} 호출 스레드에서 직접 소모한다(codex P2,
      * 2246 보완5). 리필 기준은 틱 번호가 아니라 생성 시점에 받는 나노초 시계(기본은 벽시계) — accept
-     * 는 틱 스레드 밖에서 불린다.
+     * 는 틱 스레드 밖에서 불린다. {@code lastTouchedNanos} 는 리필 계산용 {@code lastRefillNanos} 와
+     * 별개로 "마지막으로 이 버킷을 썼는가"만 기록한다(codex P1, 2246 보완8) — {@link
+     * #pruneExpiredDeparted} 가 이 값으로 join 없는 사용자의 버킷을 너무 일찍 지우지 않는다.
      */
     private static final class Bucket {
 
         private double tokens;
         private long lastRefillNanos;
+        private long lastTouchedNanos;
 
         Bucket(double initialTokens, long nowNanos) {
             this.tokens = initialTokens;
             this.lastRefillNanos = nowNanos;
+            this.lastTouchedNanos = nowNanos;
         }
 
         synchronized boolean tryConsume(long nowNanos, MovementRules rules) {
+            lastTouchedNanos = nowNanos;
             long elapsedNanos = nowNanos - lastRefillNanos;
             if (elapsedNanos > 0) {
                 double refill = elapsedNanos * rules.maxIntentsPerSec() / 1_000_000_000.0;
@@ -566,6 +609,10 @@ public final class RoomRuntime {
             }
             tokens -= 1.0;
             return true;
+        }
+
+        synchronized long lastTouchedNanos() {
+            return lastTouchedNanos;
         }
     }
 }
