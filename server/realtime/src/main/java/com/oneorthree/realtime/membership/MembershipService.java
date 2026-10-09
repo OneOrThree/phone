@@ -87,7 +87,23 @@ public class MembershipService {
         if (cached != null) {
             return parse(cached);
         }
+        return fetchAndStore(key, bearerToken);
+    }
 
+    /**
+     * 캐시를 <b>읽지 않고</b> 상류에 바로 묻는다 — 이동 방의 강퇴 재검사용(GROMO-2247, N7). 받은 답은 캐시에도
+     * 다시 적재해 이후 판정이 그 답을 쓴다.
+     *
+     * <p>재검사가 캐시를 읽으면, 사건의 캐시 삭제({@link #evict})가 실패했을 때 남은 옛 답(「멤버」)이 강퇴된 사람을
+     * 그대로 통과시킨다. 정본에 바로 물으면 그 실패가 판정에 끼어들 자리가 없다.
+     *
+     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류가 답하지 않을 때
+     */
+    public boolean isMemberUncached(UUID groupId, UUID userId, String bearerToken) {
+        return fetchAndStore(RedisKeys.memberCache(userId), bearerToken).contains(groupId);
+    }
+
+    private Set<UUID> fetchAndStore(String key, String bearerToken) {
         GroupClient.Membership fresh = groupClient.fetchMyGroupIds(bearerToken);
         // 상류가 «이 토큰»을 거절해서 나온 빈 집합은 캐시하지 않는다. 캐시는 userId 로만 조회되므로,
         // 만료 토큰의 401 을 적재하면 유저가 곧바로 토큰을 갱신해 새로 붙어도 그 새 토큰이 상류에
@@ -118,13 +134,18 @@ public class MembershipService {
      * 사건이 준 즉시 무효화 — 그 유저의 캐시만 지운다(GROMO-2140).
      *
      * <p>실패해도 사건 처리를 막지 않는다({@link #store} 와 같은 이유) — 지우기가 실패해도 그 TTL 이
-     * 지나면 어차피 만료되므로, 여기서 예외를 올려 사건 적용 전체를 되돌릴 값어치가 없다.
+     * 지나면 어차피 만료되므로, 여기서 예외를 올려 사건 적용 전체를 되돌릴 값어치가 없다. 다만 실패를 돌려줘
+     * 부르는 쪽이 그 TTL 동안의 옛 답을 피해 갈 수 있게 한다(강퇴 뒤 이동 구독, GROMO-2247).
+     *
+     * @return 지웠거나 지울 게 없었으면 true, Redis 가 실패해 옛 답이 TTL 동안 남으면 false
      */
-    public void evict(UUID userId) {
+    public boolean evict(UUID userId) {
         try {
             redis.delete(RedisKeys.memberCache(userId));
+            return true;
         } catch (RuntimeException e) {
             log.warn("멤버십 캐시 무효화 실패 — userId={}", userId, e);
+            return false;
         }
     }
 

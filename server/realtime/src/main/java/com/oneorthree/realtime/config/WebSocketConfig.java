@@ -1,5 +1,7 @@
 package com.oneorthree.realtime.config;
 
+import com.oneorthree.realtime.movement.stomp.MovementOutboundInterceptor;
+import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -53,6 +55,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final ChatStompErrorHandler chatStompErrorHandler;
     private final ChatOutboundChannelInterceptor chatOutboundChannelInterceptor;
     private final RealtimeSessionRegistry sessions;
+    private final MovementSubscriptionListener movementSubscriptions;
+    private final MovementOutboundInterceptor movementOutboundInterceptor;
 
     /** 거절 ERROR 프레임을 보낼 통로. 이 설정이 채널을 만드는 쪽이라 순환을 피해 늦게 받는다. */
     @Lazy
@@ -97,7 +101,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 try {
                     super.afterConnectionEstablished(session);
                 } catch (Exception e) {
+                    // 종료 경로와 같은 순서·같은 짝 — 소켓 기록을 지운 뒤 이동 쪽 정리.
                     sessions.closed(session.getId());
+                    movementSubscriptions.closed(session.getId());
                     throw e;
                 }
             }
@@ -108,6 +114,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                     super.afterConnectionClosed(session, status);
                 } finally {
                     sessions.closed(session.getId());
+                    // 소켓 기록을 지운 «뒤»에 이동 방에서 내보낸다 — 순서 보존 큐에 남아 늦게 처리되는 SUBSCRIBE 가
+                    // 끊긴 세션을 보고 물러나게 하는 전제다(MovementSubscriptionListener).
+                    movementSubscriptions.closed(session.getId());
                 }
             }
         });
@@ -120,10 +129,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.setUserDestinationPrefix("/user");
     }
 
-    /** 인증·구독·발신 목적지를 검사한다. */
+    /**
+     * 인증·구독·발신 목적지를 검사한다. 이동 구독 처리는 관문 <b>뒤</b>다 — 관문이 거절한 프레임(null)에서 체인이 멈춰,
+     * 통과한 SUBSCRIBE 만 방 입장이 된다.
+     */
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(new RejectAsErrorFrame());
+        registration.interceptors(new RejectAsErrorFrame(), movementSubscriptions);
     }
 
     /**
@@ -153,9 +165,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         }
     }
 
-    /** 이미 구독한 소켓도 집중 시작·토큰 만료 뒤에는 채팅 본문을 받지 못한다. */
+    /**
+     * 이미 구독한 소켓도 집중 시작·토큰 만료 뒤에는 채팅 본문을 받지 못한다.
+     *
+     * <p>이동 완료 통지가 <b>맨 앞</b>이다 — {@code afterMessageHandled} 는 {@code beforeHandle} 을 통과한
+     * 인터셉터에게만 오므로, 채팅 인터셉터 뒤에 두면 그쪽이 버린 이동 프레임(토큰 만료)의 완료가 영영 오지 않아
+     * 그 세션의 이동 송신이 멈춘다.
+     */
     @Override
     public void configureClientOutboundChannel(ChannelRegistration registration) {
-        registration.interceptors(chatOutboundChannelInterceptor);
+        registration.interceptors(movementOutboundInterceptor, chatOutboundChannelInterceptor);
     }
 }

@@ -100,7 +100,13 @@ public enum ChatErrorCode implements ErrorCode {
      * 응원을 너무 자주 보냈다. 창은 표시 TTL 과 같은 3초이고, 한 창에 한 번이다 —
      * 근거는 {@code FocusEmoteService} 에 있다.
      */
-    EMOTE_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 응원해 주세요.");
+    EMOTE_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 응원해 주세요."),
+
+    /**
+     * 이동 토픽 구독을 너무 자주 시도했다(GROMO-2247, 사용자 축 600ms 창). 정상 앱은 접속마다 한 번만 판정받으므로
+     * 이 코드는 관문 위반과 같이 ERROR 프레임 + 연결 종료로 나간다.
+     */
+    MOVEMENT_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;
