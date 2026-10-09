@@ -18,7 +18,7 @@ const USAGE = `사용법(레포 루트에서):
   --users 1,5,15     측정할 동시 사용자 수(쉼표 목록, 반복 가능). 기본 1,5,15 를 차례로
   --duration 60      N 마다 부하 시간(초)
   --interval 2000    사용자마다 intent 간격(ms). 사용자끼리는 간격을 N 등분해 엇갈리고, 각 송신에 0~1틱 지터
-  --gap 60           N 사이 쉬는 시간(초) — Micrometer _max 창(최근 약 2분)이 앞 측정과 겹치지 않게
+  --gap 130          N 사이 쉬는 시간(초) — Micrometer _max 창(최근 약 2분)이 앞 측정과 겹치지 않게
   --island <uuid>    기존 섬 재사용(가입 승인 없는 섬). 생략하면 첫 계정이 새 섬을 만든다
   --state <file>     게스트 계정·섬을 저장/재사용 — 로컬 토큰이 들어가므로 레포 밖 경로로
   --json <file>      원자료(JSON)를 이 파일에 쓴다
@@ -39,7 +39,7 @@ function parseArgs(argv) {
     users: [],
     duration: 60,
     interval: 2000,
-    gap: 60,
+    gap: 130,
     grace: 3,
     island: null,
     state: null,
@@ -156,12 +156,28 @@ function scrape(cmd) {
 }
 
 // 카운터·count·sum 은 전후 델타, max 는 «뒤» 스크레이프 값(Micrometer 의 최근 창 최댓값).
+// 지표 키 자체가 «뒤» 스크레이프에 없으면(이름 오타·미등록) missingMetrics 에 남긴다 — 「이름이 틀려 조용히 Δ 0」 방지.
+// Micrometer 는 등록한 Counter 를 한 번도 증가시키지 않아도 `…_total 0.0` 으로 내보낸다(2026-10-10 로컬 realtime 스크레이프
+// 실측: overflow·send_failed·recheck_suspended 가 0.0 으로 찍힘) — 그래서 「키 없음」은 곧 이름 오타·미등록이다.
 function metricSummary(before, after) {
   const delta = (k) => (after.get(k) ?? 0) - (before.get(k) ?? 0);
+  const missingMetrics = [];
   const timer = (name) => {
+    const missing = !after.has(`${name}_count`) && !after.has(`${name}_sum`) && !after.has(`${name}_max`);
+    if (missing) missingMetrics.push(name);
     const c = delta(`${name}_count`);
-    return { count: c, meanMs: c ? (delta(`${name}_sum`) / c) * 1000 : null, maxMs: (after.get(`${name}_max`) ?? NaN) * 1000 };
+    return { count: c, meanMs: c ? (delta(`${name}_sum`) / c) * 1000 : null, maxMs: (after.get(`${name}_max`) ?? NaN) * 1000, missing };
   };
+  const counter = (key) => {
+    const missing = !after.has(key);
+    if (missing) missingMetrics.push(key);
+    return { value: delta(key), missing };
+  };
+  const depthMissing =
+    !after.has('movement_outbox_reliable_depth_count') &&
+    !after.has('movement_outbox_reliable_depth_sum') &&
+    !after.has('movement_outbox_reliable_depth_max');
+  if (depthMissing) missingMetrics.push('movement_outbox_reliable_depth');
   const depthCount = delta('movement_outbox_reliable_depth_count');
   let gcMax = 0;
   let gcCount = 0;
@@ -178,12 +194,14 @@ function metricSummary(before, after) {
       count: depthCount,
       mean: depthCount ? delta('movement_outbox_reliable_depth_sum') / depthCount : null,
       max: after.get('movement_outbox_reliable_depth_max') ?? null,
+      missing: depthMissing,
     },
-    superseded: delta('movement_outbox_snapshot_superseded_total'),
-    overflow: delta('movement_outbox_overflow_total'),
-    sendFailed: delta('movement_outbox_send_failed_total'),
-    recheckSuspended: delta('movement_recheck_suspended_total'),
+    superseded: counter('movement_outbox_snapshot_superseded_total'),
+    overflow: counter('movement_outbox_overflow_total'),
+    sendFailed: counter('movement_outbox_send_failed_total'),
+    recheckSuspended: counter('movement_recheck_suspended_total'),
     gc: { maxMs: gcMax * 1000, count: gcCount, sumMs: gcSum * 1000 },
+    missingMetrics,
   };
 }
 
@@ -493,7 +511,7 @@ function summarize(r, o) {
       max: intervals.at(-1) ?? null,
       over100: intervals.length ? intervals.filter((v) => v >= 100).length / intervals.length : null,
     },
-    bytesPerSec: bps.length ? { mean: bps.reduce((a, v) => a + v, 0) / bps.length, max: Math.max(...bps) } : null,
+    bytesPerSec: bps.length ? { mean: bps.reduce((a, v) => a + v, 0) / bps.length, min: Math.min(...bps), max: Math.max(...bps) } : null,
     snapBodyMean: bodies.length ? bodies.reduce((a, v) => a + v, 0) / bodies.length : null,
     closes: all((s) => s.closes),
     stompErrors: all((s) => s.stompErrors),
@@ -507,6 +525,7 @@ function summarize(r, o) {
   // 안 남으므로, 호스트 절전·VM 정지가 끼면 이 비율이 크게 떨어진다(2026-10-09 맥이 잠든 실행의 N=1 은 Δcount 142,
   // 같은 길이의 정상 실행은 1,288).
   out.tickProgress = out.metrics ? out.metrics.tick.count / (r.elapsedMs / 50) : null;
+  out.missingMetrics = out.metrics?.missingMetrics ?? [];
   out.raw = {
     rtts,
     snapIntervals: intervals,
@@ -519,6 +538,9 @@ function summarize(r, o) {
 
 const countText = (obj) =>
   Object.keys(obj).length ? Object.entries(obj).map(([k, v]) => `${k} ×${v}`).join(' · ') : '0건';
+// 지표 키 자체가 없을 때 표시 — Timer·DistributionSummary·Counter 모두 등록 즉시 찍히므로(Counter 는 0.0) 「없음」= 이름 오타·미등록.
+const MISSING_METRIC_TEXT = '지표 없음 — 스크레이프에 키가 없다(이름·등록 확인)';
+const counterText = (c) => (c.missing ? MISSING_METRIC_TEXT : `Δ ${c.value}`);
 
 function table(results, o) {
   const rows = [['항목', '값', 'N', '측정 방법']];
@@ -561,10 +583,10 @@ function table(results, o) {
     push(
       '세션당 수신량',
       s.bytesPerSec
-        ? `평균 ${s.bytesPerSec.mean.toFixed(0)} B/s (≈ ${((s.bytesPerSec.mean * 3600) / 1e6).toFixed(1)} MB/시간) · 최대 ${s.bytesPerSec.max.toFixed(0)} B/s · Snapshot 본문 평균 ${s.snapBodyMean === null ? '—' : s.snapBodyMean.toFixed(0) + ' B'}`
+        ? `평균 ${s.bytesPerSec.mean.toFixed(0)} B/s (≈ ${((s.bytesPerSec.mean * 3600) / 1e6).toFixed(1)} MB/시간) · ${s.bytesPerSec.min === s.bytesPerSec.max ? '세션 간 편차 0' : `세션 최소~최대 ${s.bytesPerSec.min.toFixed(0)}~${s.bytesPerSec.max.toFixed(0)} B/s`} · Snapshot 본문 평균 ${s.snapBodyMean === null ? '—' : s.snapBodyMean.toFixed(0) + ' B'}`
         : '측정 불가 — 준비된 세션 없음',
       s.n,
-      `부하 ${o.duration}초 동안 WebSocket message 바이트(STOMP 헤더·하트비트 포함) ÷ ${o.duration}`,
+      `부하 ${o.duration}초 동안 WebSocket message 바이트(STOMP 헤더·하트비트 포함) ÷ ${o.duration}. 전 세션이 같은 브로드캐스트를 받아 세션 간 편차는 거의 없다`,
     );
     push(
       '끊김·ERROR',
@@ -581,18 +603,35 @@ function table(results, o) {
       continue;
     }
     const how = '/actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창)';
-    push('movement_tick_seconds', `Δcount ${m.tick.count} · 평균 ${ms(m.tick.meanMs)} · 최대 ${ms(m.tick.maxMs)}`, s.n, how);
+    push(
+      'movement_tick_seconds',
+      m.tick.missing ? MISSING_METRIC_TEXT : `Δcount ${m.tick.count} · 평균 ${ms(m.tick.meanMs)} · 최대 ${ms(m.tick.maxMs)}`,
+      s.n,
+      how,
+    );
     push('틱 p50·p99', '측정 불가 — movement.tick Timer 가 백분위·히스토그램을 내지 않는다(count·sum·max 만)', s.n, '—');
-    push('movement_pathfind_seconds', `Δcount ${m.pathfind.count} · 평균 ${ms(m.pathfind.meanMs)} · 최대 ${ms(m.pathfind.maxMs)}`, s.n, how);
+    push(
+      'movement_pathfind_seconds',
+      m.pathfind.missing ? MISSING_METRIC_TEXT : `Δcount ${m.pathfind.count} · 평균 ${ms(m.pathfind.meanMs)} · 최대 ${ms(m.pathfind.maxMs)}`,
+      s.n,
+      how,
+    );
     push(
       'movement_outbox_reliable_depth',
-      `표본 ${m.depth.count} · 평균 ${m.depth.mean === null ? '—' : m.depth.mean.toFixed(2)} · 최대 ${m.depth.max}`,
+      m.depth.missing
+        ? MISSING_METRIC_TEXT
+        : `표본 ${m.depth.count} · 평균 ${m.depth.mean === null ? '—' : m.depth.mean.toFixed(2)} · 최대 ${m.depth.max}`,
       s.n,
       `${how}. reliable 사건을 넣은 직후 세션 큐 깊이`,
     );
-    push('movement_outbox_snapshot_superseded_total', `Δ ${m.superseded}`, s.n, '보내기 전에 더 새 Snapshot 으로 덮어쓴 횟수(전후 델타)');
-    push('movement_outbox_overflow_total · send_failed_total', `Δ ${m.overflow} · Δ ${m.sendFailed}`, s.n, '큐 상한·넘기기 실패로 닫은 세션 수(전후 델타)');
-    push('movement_recheck_suspended_total', `Δ ${m.recheckSuspended}`, s.n, '강퇴 재검사로 멈춘 outbox 수(전후 델타)');
+    push('movement_outbox_snapshot_superseded_total', counterText(m.superseded), s.n, '보내기 전에 더 새 Snapshot 으로 덮어쓴 횟수(전후 델타)');
+    push(
+      'movement_outbox_overflow_total · send_failed_total',
+      `${counterText(m.overflow)} · ${counterText(m.sendFailed)}`,
+      s.n,
+      '큐 상한·넘기기 실패로 닫은 세션 수(전후 델타)',
+    );
+    push('movement_recheck_suspended_total', counterText(m.recheckSuspended), s.n, '강퇴 재검사로 멈춘 outbox 수(전후 델타)');
     push(
       'jvm_gc_pause_seconds',
       `_max 최대 ${ms(m.gc.maxMs)} · Δcount ${m.gc.count} · Δsum ${ms(m.gc.sumMs)}`,
@@ -630,6 +669,20 @@ function selfCheck(nav) {
   assert.equal(s.tick.count, 6);
   assert.ok(Math.abs(s.tick.meanMs - (0.4 / 6) * 1000) < 1e-9);
   assert.ok(Math.abs(s.gc.maxMs - 4) < 1e-9);
+  // 지표 존재 검사 — 스크레이프에 없는 지표는 missing 으로 잡혀야 한다(「이름이 틀려 조용히 Δ 0」 방지).
+  assert.equal(s.tick.missing, false);
+  assert.equal(s.pathfind.missing, true);
+  assert.deepEqual(
+    s.missingMetrics.sort(),
+    [
+      'movement_outbox_overflow_total',
+      'movement_outbox_reliable_depth',
+      'movement_outbox_send_failed_total',
+      'movement_pathfind_seconds',
+      'movement_recheck_suspended_total',
+      'movement_outbox_snapshot_superseded_total',
+    ].sort(),
+  );
   const region = spawnRegion(nav);
   const { cx, cy } = nav.spawns.character;
   assert.ok(region.some((p) => p.x === cx + 0.5 && p.y === cy + 0.5));

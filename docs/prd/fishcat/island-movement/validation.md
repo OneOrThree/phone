@@ -121,11 +121,11 @@ mmdc -i docs/prd/fishcat/island-movement/diagrams/01-architecture.mmd \
 
 ## 7. 1단계 측정 (2026-10-09, 로컬)
 
-1단계(Realtime JVM 안 이동 엔진 + 기존 STOMP/WSS)의 **서버 측** 측정이다. 앱은 띄우지 않았다. [측정 스크립트](scripts/measure-movement.mjs)가 앱 `islandRealtime.ts`(`e6e9b6920`, 피처 `f17856bcf` 와 같은 파일)의 이동 채널과 같은 연결·구독·intent 를 보내는 사용자 N명을 흉내 낸다. 기기 전용 행은 재영님 실기기 측정으로 채우고, 2단계 판단([아키텍처 §7](architecture.md#7-java--kafka--realtime-선택-검토))은 그 뒤에 한다.
+1단계(Realtime JVM 안 이동 엔진 + 기존 STOMP/WSS)의 **서버 측** 측정이다. 앱은 띄우지 않았다. [측정 스크립트](scripts/measure-movement.mjs)가 앱 `islandRealtime.ts`(`e6e9b6920`, 피처 `f17856bcf` 와 같은 파일)의 이동 채널과 같은 연결·구독·intent 를 보내는 사용자 N명을 흉내 낸다. 기기 전용 행은 실기기 측정(티켓 2250 잔여, 오너)으로 채우고, 2단계 판단([아키텍처 §7](architecture.md#7-java--kafka--realtime-선택-검토))은 그 뒤에 한다.
 
 - 환경: 맥 한 대(Apple M5 Pro)의 Docker Desktop(8 CPU · 7.65 GiB, aarch64) 로컬 스택. nginx `:8088` 뒤에 business-api(게스트·섬 API)와 realtime(`/ws/realtime`)이 있다. 측정 클라이언트도 같은 맥이라 왕복에 실제 망 지연은 거의 없다.
 - 서버: realtime 컨테이너만 브랜치 `bfeat/GROMO-2247-movement-stomp` 의 `7af884d` jar 로 재기동(20:35 KST)했다. 나머지 컨테이너는 그대로다.
-- 부하: 게스트 N명이 가입 승인 없는 한 섬에 사용자당 세션 1개로 들어간다. 60초 동안 사용자마다 2초 간격(+0~1틱 무작위 지터, 사용자끼리는 2초를 N 등분해 엇갈림)으로, 스폰과 같은 연결 영역의 통행 셀 3,181개 중 무작위 셀 중심으로 intent 를 보낸다. 경로의 23~29%만 다음 intent 전에 도착했다(세션이 받은 Arrived ÷ PathAccepted) — 전원이 거의 쉬지 않고 걷는 부하다. N 사이에 60초 쉰다.
+- 부하: 게스트 N명이 가입 승인 없는 한 섬에 사용자당 세션 1개로 들어간다. 60초 동안 사용자마다 2초 간격(+0~1틱 무작위 지터, 사용자끼리는 2초를 N 등분해 엇갈림)으로, 스폰과 같은 연결 영역의 통행 셀 3,181개 중 무작위 셀 중심으로 intent 를 보낸다. 경로의 23~29%만 다음 intent 전에 도착했다(세션이 받은 Arrived ÷ PathAccepted) — 전원이 거의 쉬지 않고 걷는 부하다. N 사이에 60초 쉰다. 방(섬)은 1개다 — N 은 한 방의 세션 수이고, 방 수가 늘 때의 영향은 재지 않았다.
 - 시각(KST): N=1 23:46:27 · N=5 23:48:32 · N=15 23:50:36.
 
 | 항목 | 값 | 측정 방법 | 명령 | 기준 커밋 |
@@ -133,13 +133,13 @@ mmdc -i docs/prd/fishcat/island-movement/diagrams/01-architecture.mmd \
 | 실행 유효성(서버 틱 진행) | N=1: 99.9% (Δtick 1288 / 벽시계 64.5초)<br>N=5: 99.9% (Δtick 1288 / 벽시계 64.5초)<br>N=15: 99.9% (Δtick 1290 / 벽시계 64.6초) | `movement_tick_seconds` Δcount ÷ (전후 스크레이프 사이 벽시계 ÷ 50ms). 90% 미만이면 측정 중 서버가 멈춘 것이라 버린다 | ① | 서버 `7af884d` |
 | 첫 FullState(대상 전용·자기 actor 포함) | N=1: 준비 1/1 · 첫 movement 메시지 FullState 1/1 · 자기 actor 포함 1/1 · FullState 전 Snapshot 0건<br>N=5: 준비 5/5 · 첫 movement 메시지 FullState 5/5 · 자기 actor 포함 5/5 · FullState 전 Snapshot 0건<br>N=15: 준비 15/15 · 첫 movement 메시지 FullState 15/15 · 자기 actor 포함 15/15 · FullState 전 Snapshot 0건 | 세션마다 첫 movement 메시지의 type 과 자기 userId 포함 여부, 첫 FullState 전에 온 Snapshot 수 | ① | 서버 `7af884d` |
 | 구독 → 첫 FullState | N=1: p50 80.2 ms · 최대 80.2 ms<br>N=5: p50 66.3 ms · 최대 67.6 ms<br>N=15: p50 120.4 ms · 최대 132.4 ms | movement SUBSCRIBE 송신 → 첫 FullState 수신 | ① | 서버 `7af884d` |
-| intent → 내 PathAccepted 왕복 | N=1: p50 31.2 ms · p99 56.8 ms · 최대 56.8 ms (응답 30/보냄 30)<br>N=5: p50 29.5 ms · p99 58.6 ms · 최대 60.7 ms (응답 150/보냄 150)<br>N=15: p50 31.6 ms · p99 56.7 ms · 최대 70.3 ms (응답 450/보냄 450) | 송신 직전 → 같은 commandSeq·내 userId 의 PathAccepted 수신. 서버가 다음 틱에 처리해 틱 대기(0~50ms)가 들어 있고, 같은 맥이라 망 지연은 거의 없다. 최근접 순위 백분위 | ① | 서버 `7af884d` |
+| intent → 내 PathAccepted 왕복 | N=1: p50 31.2 ms · p99 56.8 ms · 최대 56.8 ms (응답 30/보냄 30)<br>N=5: p50 29.5 ms · p99 58.6 ms · 최대 60.7 ms (응답 150/보냄 150)<br>N=15: p50 31.6 ms · p99 56.7 ms · 최대 70.3 ms (응답 450/보냄 450) | 송신 직전 → 같은 commandSeq·내 userId 의 PathAccepted 수신. 서버가 다음 틱에 처리해 틱 대기(0~50ms)가 들어 있고, 같은 맥이라 망 지연은 거의 없다. 최근접 순위 백분위. PathAccepted 는 방 전원에게 나가는 메시지라(`RoomRuntime` `Target.ALL`) movement 토픽 구독으로 받는다. 측정 클라이언트가 같은 맥의 Node 단일 이벤트 루프라 N=15 에선 클라이언트 쪽 지터가 p99 에 섞인다 — 서버 처리 시간만으로 읽지 않는다. | ① | 서버 `7af884d` |
 | Snapshot 수신 간격 | N=1: p50 50.0 ms · p99 53.6 ms · 최대 64.9 ms · 100ms 이상 0.00% (표본 1110)<br>N=5: p50 50.0 ms · p99 53.8 ms · 최대 74.9 ms · 100ms 이상 0.00% (표본 5995)<br>N=15: p50 50.0 ms · p99 57.2 ms · 최대 75.0 ms · 100ms 이상 0.00% (표본 17985) | 20Hz 기대 50ms. 직전 Snapshot 에 걷는 주민이 있을 때 다음 Snapshot 까지의 간격(정지 뒤 공백 제외), 전 세션 합산 | ① | 서버 `7af884d` |
-| 세션당 수신량 | N=1: 평균 8361 B/s (≈ 30.1 MB/시간) · 최대 8361 B/s · Snapshot 본문 평균 203 B<br>N=5: 평균 21964 B/s (≈ 79.1 MB/시간) · 최대 21964 B/s · Snapshot 본문 평균 742 B<br>N=15: 평균 54717 B/s (≈ 197.0 MB/시간) · 최대 54717 B/s · Snapshot 본문 평균 2090 B | 부하 60초 동안 WebSocket 수신 바이트(STOMP 헤더·하트비트 포함) ÷ 60 | ① | 서버 `7af884d` |
+| 세션당 수신량 | N=1: 평균 8361 B/s (≈ 30.1 MB/시간) · 세션 간 편차 0 · Snapshot 본문 평균 203 B<br>N=5: 평균 21964 B/s (≈ 79.1 MB/시간) · 세션 간 편차 0 · Snapshot 본문 평균 742 B<br>N=15: 평균 54717 B/s (≈ 197.0 MB/시간) · 세션 간 편차 0 · Snapshot 본문 평균 2090 B | 부하 60초 동안 WebSocket 수신 바이트(STOMP 헤더·하트비트 포함) ÷ 60. 전 세션이 같은 브로드캐스트를 받아 세션 간 편차는 거의 없다 | ① | 서버 `7af884d` |
 | MoveRejected 수·사유 | N=1: 0건<br>N=5: 0건<br>N=15: 0건 | 요청자 세션에만 오는 MoveRejected 를 reason 별로 | ① | 서버 `7af884d` |
 | 무응답 intent | N=1: 0건 (미연결로 못 보냄 0건)<br>N=5: 0건 (미연결로 못 보냄 0건)<br>N=15: 0건 (미연결로 못 보냄 0건) | 부하 끝 + 3초 안에 PathAccepted·MoveRejected 가 없던 intent | ① | 서버 `7af884d` |
 | 끊김·ERROR | N=1: close 0건 · STOMP ERROR 0건 · 오류 큐 0건<br>N=5: close 0건 · STOMP ERROR 0건 · 오류 큐 0건<br>N=15: close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | 의도적 해제 전 WebSocket close code·reason, STOMP ERROR, `/user/queue/errors` code | ① | 서버 `7af884d` |
-| `movement_tick_seconds` | N=1: 평균 0.1 ms · 최대 9.4 ms (Δcount 1288)<br>N=5: 평균 0.3 ms · 최대 12.7 ms (Δcount 1288)<br>N=15: 평균 0.3 ms · 최대 6.9 ms (Δcount 1290) | realtime `/actuator/prometheus` 실행 전후 델타 — 평균 = Δsum/Δcount, 최대 = 뒤 스크레이프의 `_max`(Micrometer 최근 약 2분 창) | ① | 서버 `7af884d` |
+| `movement_tick_seconds` | N=1: 평균 0.1 ms · 최대 9.4 ms (Δcount 1288)<br>N=5: 평균 0.3 ms · 최대 12.7 ms (Δcount 1288)<br>N=15: 평균 0.3 ms · 최대 6.9 ms (Δcount 1290) | realtime `/actuator/prometheus` 실행 전후 델타 — 평균 = Δsum/Δcount, 최대 = 뒤 스크레이프의 `_max`(Micrometer 최근 약 2분 창). `_max` 는 약 2분 창이라 N 사이 60초 휴지로는 창이 완전히 갈리지 않는다 — 「최대」는 직전 N 의 값을 포함할 수 있다(N=5 틱 최대 12.7 ms > N=15 6.9 ms 가 그 예일 수 있다). 다음 실행부터 기본 `--gap` 130초. | ① | 서버 `7af884d` |
 | 틱 p50·p99 | 측정 불가 — `movement.tick` Timer 가 백분위·히스토그램을 내보내지 않는다(count·sum·max 만) | — | — | 서버 `7af884d` |
 | `movement_pathfind_seconds` | N=1: 평균 0.4 ms · 최대 2.8 ms (호출 30)<br>N=5: 평균 0.4 ms · 최대 12.5 ms (호출 150)<br>N=15: 평균 0.2 ms · 최대 5.2 ms (호출 450) | 위와 같음(A* 1회 시간, 틱 스레드 안 동기) | ① | 서버 `7af884d` |
 | 송신 큐 `movement_outbox_reliable_depth` | N=1: 최대 1 · 평균 1.00 (표본 38)<br>N=5: 최대 1 · 평균 1.00 (표본 980)<br>N=15: 최대 13 · 평균 1.05 (표본 8625) | 위와 같음 — reliable 사건(FullState·PathAccepted·Arrived 등)을 넣은 직후의 세션 큐 깊이 | ① | 서버 `7af884d` |
@@ -147,10 +147,10 @@ mmdc -i docs/prd/fishcat/island-movement/diagrams/01-architecture.mmd \
 | `movement_recheck_suspended` | N=1: Δ 0<br>N=5: Δ 0<br>N=15: Δ 0 | 전후 델타(측정 중 강퇴 없음) | ① | 서버 `7af884d` |
 | `jvm_gc_pause_seconds` | N=1: 최대 13.0 ms · Δcount 1 · Δsum 13.0 ms<br>N=5: 최대 13.0 ms · Δcount 5 · Δsum 39.0 ms<br>N=15: 최대 13.0 ms · Δcount 21 · Δsum 70.0 ms | 전 GC 계열 합산. 최대 = 뒤 스크레이프의 `_max` | ① | 서버 `7af884d` |
 | 틱 지연·catch-up·Snapshot 건너뜀·토큰 버킷 드롭 | 측정 불가 — `MovementTicker`(delayed·skippedSnapshot·skippedTick)·`RoomRuntime`(rateLimitedDrop) 카운터가 필드로만 있고 지표로 노출되지 않는다 | — | — | 서버 `7af884d` |
-| 앱 10분 이동 배터리 % | 미측정 — 재영님 실기기 | 이동 동기화 플래그를 켠 빌드로 홈 섬에서 10분 동안 탭 이동, 전후 배터리 % | — | 앱 `e6e9b6920` |
-| 보정 점프 최대 px | 미측정 — 재영님 실기기 | 서버 위치로 맞출 때(정지 보정·경로 갈아타기·도착) 캐릭터가 한 번에 옮겨지는 최대 화면 거리 | — | 앱 `e6e9b6920` |
-| dev 서버 RTT | 미측정 — 재영님 실기기 | 실기기(Wi-Fi·LTE)에서 dev 서버로 intent → 내 PathAccepted 왕복 | — | 앱 `e6e9b6920` |
-| MV-D05 체감 | 미측정 — 재영님 실기기 | 서버 확정 경로를 따라 걷는 가로·세로·대각 이동의 체감(정책 MV-D05) | — | 앱 `e6e9b6920` |
+| 앱 10분 이동 배터리 % | 미측정 — 실기기(2250 잔여) | 이동 동기화 플래그를 켠 빌드로 홈 섬에서 10분 동안 탭 이동, 전후 배터리 % | — | 앱 `e6e9b6920` |
+| 보정 점프 최대 px | 미측정 — 실기기(2250 잔여) | 서버 위치로 맞출 때(정지 보정·경로 갈아타기·도착) 캐릭터가 한 번에 옮겨지는 최대 화면 거리 | — | 앱 `e6e9b6920` |
+| dev 서버 RTT | 미측정 — 실기기(2250 잔여) | 실기기(Wi-Fi·LTE)에서 dev 서버로 intent → 내 PathAccepted 왕복 | — | 앱 `e6e9b6920` |
+| MV-D05 체감 | 미측정 — 실기기(2250 잔여) | 서버 확정 경로를 따라 걷는 가로·세로·대각 이동의 체감(정책 MV-D05) | — | 앱 `e6e9b6920` |
 
 재현 명령 ①(레포 루트. 로컬 스택이 떠 있고 realtime 을 측정할 jar 로 재기동한 상태):
 
@@ -171,8 +171,8 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 관찰:
 
 - 전 세션이 첫 movement 메시지로 자기 actor 가 든 대상 전용 FullState 를 받았고, 그 전에 온 Snapshot 은 0건이다.
-- N=15 에서도 왕복 p99 56.7 ms(틱 대기 포함), Snapshot 간격 p99 57.2 ms, 100ms 이상 간격 0건이다. 틱 평균 0.3 ms · 최대 6.9 ms, A* 평균 0.2 ms 이고, reliable 큐 최대 13 은 상한 256 아래다. 이 로컬 부하에서 틱과 송신 큐는 병목이 아니었다.
-- **수신량은 데이터 예산을 넘는다.** 세션당 N=1 30.1 MB/시간, N=5 79.1 MB/시간, N=15 197.0 MB/시간이다. 정책 §3 의 세션당 목표 30 MB/시간과 T18 의 「15명 방 20Hz 시간당 ≤ 30 MB」를 N=15 에서 약 6.6배 넘는다. Snapshot JSON 본문만 평균 2,090 B 를 초당 20번 받아 41,800 B/s(약 150 MB/시간)다. 이 부하는 전원이 거의 쉬지 않고 걷는 경우라 실제 사용보다 크다(정지한 방에는 Snapshot 을 보내지 않는다). 기기의 배터리·셀룰러 영향과 함께 2단계(바이너리 Snapshot·송신 주기 저감) 판단 입력이다.
+- N=15 에서도 왕복 p99 56.7 ms(틱 대기 포함), Snapshot 간격 p99 57.2 ms, 100ms 이상 간격 0건이다. 틱 평균 0.3 ms · 최대 6.9 ms, A* 평균 0.2 ms 이고, reliable 큐 최대 13 은 상한 256 아래다. 이 로컬 부하에서 틱과 송신 큐는 병목이 아니었다. 표본이 30·150·450 개라 p99 는 경향으로만 읽는다(N=1 의 p99 는 곧 최대).
+- **수신량은 데이터 예산을 넘는다.** 세션당 N=1 30.1 MB/시간, N=5 79.1 MB/시간, N=15 197.0 MB/시간이다. 정책 §3 의 세션당 목표 30 MB/시간과 T18 의 「15명 방 20Hz 시간당 ≤ 30 MB」를 N=15 에서 약 6.6배 넘는다. Snapshot JSON 본문만 평균 2,090 B 를 초당 20번 받아 41,800 B/s(약 150 MB/시간)다. 197 MB/시간은 WebSocket 수신 총량(STOMP 프레임 헤더·PathAccepted·Arrived·FullState·하트비트 포함)이고 150 MB/시간은 Snapshot 본문만의 추정이다. 차이 약 47 MB/시간은 Snapshot 1건당 STOMP 헤더(destination·subscription·message-id·content-length·content-type, 수백 B) × 20 Hz 가 대부분이고 나머지는 reliable 사건 본문이다(N=15 세션당 60초간 PathAccepted 450건·Arrived 117건 수신 — 건수는 원자료로 확인했으나 건당 바이트는 이 측정에서 재지 않아 추정치를 적지 않는다). 이 부하는 전원이 거의 쉬지 않고 걷는 경우라 실제 사용보다 크다(정지한 방에는 Snapshot 을 보내지 않는다). 기기의 배터리·셀룰러 영향과 함께 2단계(바이너리 Snapshot·송신 주기 저감) 판단 입력이다.
 
 ## 부록 A. 10/9 타일 전환 체크리스트 (2026-10-08 작성)
 
