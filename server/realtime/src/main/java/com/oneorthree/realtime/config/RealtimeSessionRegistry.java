@@ -142,23 +142,24 @@ public class RealtimeSessionRegistry {
 
     /** 수신만 하던 앱도 토큰 갱신·재연결을 시작할 수 있게 실제 연결을 끝낸다. */
     public void closeUnauthorized(String sessionId) {
-        close(sessionId, "UNAUTHORIZED");
+        close(sessionId, CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
     }
 
     /**
-     * 실제 연결을 1008(POLICY_VIOLATION)로 끝낸다 — {@code reason} 은 앱이 볼 수 있는 기계용 사유다
-     * ({@code UNAUTHORIZED}, 이동 송신 큐 초과 {@code MOVEMENT_BACKPRESSURE}).
+     * 실제 연결을 끝낸다 — 상태의 {@code reason} 이 앱이 볼 수 있는 기계용 사유다(1008 {@code UNAUTHORIZED}·
+     * {@code MOVEMENT_BACKPRESSURE}, 1011 {@code MEMBERSHIP_UNVERIFIED}). 던지지 않는다 — 부르는 쪽이 송신·재검사
+     * 스레드라, 여기서 새는 예외가 그 스레드의 다음 일을 끊으면 안 된다.
      */
-    public void close(String sessionId, String reason) {
+    public void close(String sessionId, CloseStatus status) {
         WebSocketSession socket = sessionId == null ? null : sockets.get(sessionId);
         if (socket == null || !socket.isOpen()) {
             return;
         }
         try {
-            socket.close(CloseStatus.POLICY_VIOLATION.withReason(reason));
-        } catch (IOException e) {
+            socket.close(status);
+        } catch (IOException | RuntimeException e) {
             // 원 자격과 프레임은 기록하지 않는다. 실패해도 본문은 계속 차단하고 다음 전달에서 재시도한다.
-            log.warn("소켓 종료 실패 — reason={} cause={}", reason, e.getClass().getSimpleName());
+            log.warn("소켓 종료 실패 — status={} cause={}", status, e.getClass().getSimpleName());
         }
     }
 

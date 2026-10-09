@@ -101,7 +101,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 try {
                     super.afterConnectionEstablished(session);
                 } catch (Exception e) {
+                    // 종료 경로와 같은 순서·같은 짝 — 소켓 기록을 지운 뒤 이동 쪽 정리.
                     sessions.closed(session.getId());
+                    movementSubscriptions.closed(session.getId());
                     throw e;
                 }
             }

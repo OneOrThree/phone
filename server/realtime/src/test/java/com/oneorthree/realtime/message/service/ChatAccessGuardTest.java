@@ -114,6 +114,19 @@ class ChatAccessGuardTest {
     }
 
     @Test
+    @DisplayName("이동 강퇴 재검사용 관문은 멤버십 캐시를 읽지 않는다 — 캐시 삭제 실패가 판정에 끼어들지 못한다")
+    void uncachedMembershipGateNeverReadsTheCache() {
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(false);
+
+        assertThatThrownBy(() -> accessGuard.requireMemberUncached(groupId, userId, BEARER))
+                .isInstanceOf(ChatException.class)
+                .extracting(e -> ((ChatException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+        verify(membershipService, never()).isMember(any(), any(), any());
+        verifyNoInteractions(focusPresenceReader);
+    }
+
+    @Test
     @DisplayName("섬을 특정하지 않는 입구는 집중만 본다 — 방 목록 조회가 상류를 두드리지 않는다")
     void focusOnlyGateSkipsMembership() {
         given(focusPresenceReader.isFocusing(userId)).willReturn(false);

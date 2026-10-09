@@ -15,50 +15,77 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
  * 이동 구독 수명 — 입장·퇴장·세션 교체·멤버십 재검사. 실제 {@link MovementRooms}·{@link MovementPublisher} 에
- * 즉시 완료하는 채널을 물려 틱을 손으로 돌린다(스케줄러 없음).
+ * 즉시 완료하는 채널을 물려 틱을 손으로 돌린다. 재검사 스케줄러는 가짜다 — 예약된 작업을 한 단계씩 손으로
+ * 돌려 «1초 뒤»·«16초 뒤»를 실제로 기다리지 않는다.
  */
 class MovementSubscriptionListenerTest {
 
     private final RealtimeSessionRegistry sessions = new RealtimeSessionRegistry();
     private final ChatAccessGuard accessGuard = mock(ChatAccessGuard.class);
     private final ObjectMapper json = JsonMapper.builder().build();
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final List<Message<?>> sent = new ArrayList<>();
+    private final Map<String, WebSocketSession> sockets = new HashMap<>();
     private final UUID island = UUID.randomUUID();
+
+    private final ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    private final Deque<Runnable> scheduled = new ArrayDeque<>();
+    private final List<Long> delays = new ArrayList<>();
+    private final List<ScheduledFuture<?>> futures = new ArrayList<>();
+
     private MovementRooms rooms;
     private MovementSubscriptionListener listener;
     private long tick;
 
     @BeforeEach
     void setUp() {
-        MovementOutboundInterceptor completion = new MovementOutboundInterceptor();
-        MovementPublisher publisher = new MovementPublisher(json, sessions, new SimpleMeterRegistry(),
-                (message, timeout) -> {
-                    sent.add(message);
-                    completion.afterMessageHandled(message, null, null, null);
-                    return true;
-                });
-        rooms = new MovementRooms(publisher, new SimpleMeterRegistry());
-        listener = new MovementSubscriptionListener(rooms, publisher, sessions, accessGuard);
+        given(scheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).willAnswer(invocation -> {
+            scheduled.add(invocation.getArgument(0));
+            delays.add(invocation.getArgument(1));
+            ScheduledFuture<?> future = mock(ScheduledFuture.class);
+            futures.add(future);
+            return future;
+        });
+        MovementPublisher publisher = publisher();
+        rooms = new MovementRooms(publisher, meterRegistry);
+        listener = new MovementSubscriptionListener(rooms, publisher, sessions, accessGuard, meterRegistry, scheduler);
     }
 
     @Test
@@ -84,12 +111,12 @@ class MovementSubscriptionListenerTest {
     @DisplayName("같은 사용자의 두 번째 세션이 구독하면 이전 세션엔 더 보내지 않고, 이전 세션이 끊겨도 actor 는 남는다(N6)")
     void secondSessionOfTheSameUserTakesOverTheActor() {
         ChatPrincipal phone = connect("phone");
-        listener.preSend(subscribe("phone", "m", StompTopics.movementTopic(island), phone), null);
+        join("phone", phone);
         tick();
         sent.clear();
 
         ChatPrincipal tablet = register("tablet", phone.userId());
-        listener.preSend(subscribe("tablet", "m", StompTopics.movementTopic(island), tablet), null);
+        join("tablet", tablet);
         tick();
         rooms.accept(island, phone.userId(), "tablet", new MoveIntent(1, 1, 39.5, 45.5));
         for (int i = 0; i < 5; i++) {
@@ -97,8 +124,7 @@ class MovementSubscriptionListenerTest {
         }
 
         assertThat(bodiesFor("phone")).as("교체된 세션엔 아무것도 가지 않는다").isEmpty();
-        assertThat(bodiesFor("tablet")).extracting(b -> b.get("type").stringValue())
-                .contains("FullState", "PathAccepted", "Arrived");
+        assertThat(types(bodiesFor("tablet"))).contains("FullState", "PathAccepted", "Arrived");
 
         sent.clear();
         sessions.closed("phone");
@@ -108,39 +134,12 @@ class MovementSubscriptionListenerTest {
     }
 
     @Test
-    @DisplayName("주민 사건 재검사: 비멤버로 확정된 세션만 내보내고 더 보내지 않는다 — 상류 장애는 남긴다(N7)")
-    void recheckRevokesOnlyConfirmedNonMembers() {
-        ChatPrincipal member = connect("a");
-        ChatPrincipal kicked = connect("b");
-        ChatPrincipal unknown = connect("c");
-        for (ChatPrincipal p : List.of(member, kicked, unknown)) {
-            String session = sessionOf(p);
-            listener.preSend(subscribe(session, "m", StompTopics.movementTopic(island), p), null);
-        }
-        tick();
-        sent.clear();
-        willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
-                .given(accessGuard).requireMember(island, kicked.userId(), kicked.bearer());
-        willThrow(new UpstreamUnavailableException())
-                .given(accessGuard).requireMember(island, unknown.userId(), unknown.bearer());
-
-        listener.recheckMembership(island);
-        tick();
-
-        assertThat(bodiesFor("b")).as("내보낸 세션엔 퇴장 FullState 도 가지 않는다").isEmpty();
-        JsonNode toMember = bodiesFor("a").get(0);
-        assertThat(toMember.get("type").stringValue()).isEqualTo("FullState");
-        assertThat(actorIds(toMember)).containsExactlyInAnyOrder(member.userId().toString(),
-                unknown.userId().toString());
-    }
-
-    @Test
     @DisplayName("movement UNSUBSCRIBE 는 퇴장이다 — 남은 사람이 FullState 를 받는다. snapshot 만 해지하면 방에 남는다")
     void unsubscribeOfMovementLeavesTheRoom() {
         ChatPrincipal stays = connect("a");
         ChatPrincipal leaves = connect("b");
-        listener.preSend(subscribe("a", "m", StompTopics.movementTopic(island), stays), null);
-        listener.preSend(subscribe("b", "m", StompTopics.movementTopic(island), leaves), null);
+        join("a", stays);
+        join("b", leaves);
         listener.preSend(subscribe("b", "s", StompTopics.movementSnapshotTopic(island), leaves), null);
         tick();
         sent.clear();
@@ -155,11 +154,170 @@ class MovementSubscriptionListenerTest {
         assertThat(bodiesFor("b")).isEmpty();
     }
 
+    // ── 강퇴 재검사(N7) — fail-closed + 백오프 재판정 ─────────────────────────
+
+    @Test
+    @DisplayName("① 재검사 판정이 상류 장애로 실패하면 그 세션 전달을 멈추고, 1초 뒤 재판정이 통과하면 쌓인 것부터 다시 보낸다")
+    void failedRecheckSuspendsDeliveryUntilARetryAllows() {
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal target = connect("b");
+        join("a", stays);
+        join("b", target);
+        tick();
+        sent.clear();
+        willThrow(new UpstreamUnavailableException()).willDoNothing()
+                .given(accessGuard).requireMemberUncached(island, target.userId(), target.bearer());
+
+        listener.recheckMembership(island, target.userId());
+        runNext(); // 사건 직후 판정 — 상류 장애
+        rooms.accept(island, stays.userId(), "a", new MoveIntent(1, 1, 39.5, 45.5));
+        tick();
+
+        assertThat(delays).as("사건 직후 한 번, 실패하면 1초 뒤").containsExactly(0L, 1L);
+        assertThat(bodiesFor("b")).as("판정을 못 내린 동안 탈락 후보에겐 아무것도 가지 않는다(fail-closed)").isEmpty();
+        assertThat(types(bodiesFor("a"))).contains("PathAccepted");
+        assertThat(meterRegistry.get("movement.recheck.suspended").counter().count()).isEqualTo(1.0);
+
+        runNext(); // 1초 뒤 재판정 — 통과
+
+        assertThat(types(bodiesFor("b"))).as("재개하면 멈춘 동안 쌓인 사건이 나간다").contains("PathAccepted");
+        assertThat(scheduled).as("통과하면 더 예약하지 않는다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("② 재판정이 1·2·4·8·16초 뒤까지 모두 판정 불가면 세션을 1011 MEMBERSHIP_UNVERIFIED 로 닫는다")
+    void exhaustedRetriesCloseTheSessionWith1011() throws Exception {
+        ChatPrincipal target = connect("b");
+        join("b", target);
+        tick();
+        sent.clear();
+        willThrow(new UpstreamUnavailableException())
+                .given(accessGuard).requireMemberUncached(island, target.userId(), target.bearer());
+
+        listener.recheckMembership(island, target.userId());
+        for (int attempt = 0; attempt < 6; attempt++) {
+            runNext();
+        }
+
+        assertThat(delays).containsExactly(0L, 1L, 2L, 4L, 8L, 16L);
+        assertThat(scheduled).as("예산을 다 쓰면 더 예약하지 않는다").isEmpty();
+        verify(accessGuard, times(6)).requireMemberUncached(island, target.userId(), target.bearer());
+        verify(sockets.get("b")).close(CloseStatus.SERVER_ERROR.withReason("MEMBERSHIP_UNVERIFIED"));
+        tick();
+        assertThat(bodiesFor("b")).as("닫힐 때까지도 받지 못한다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("③ 재판정 중 비멤버로 확정되면 방에서 내보낸다 — 남은 사람만 FullState 를 받는다")
+    void notAMemberDuringRetryEvictsTheSession() {
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal kicked = connect("b");
+        join("a", stays);
+        join("b", kicked);
+        tick();
+        sent.clear();
+        willThrow(new UpstreamUnavailableException()).willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMemberUncached(island, kicked.userId(), kicked.bearer());
+
+        listener.recheckMembership(island, kicked.userId());
+        runNext(); // 판정 불가 — 멈춤
+        runNext(); // 비멤버 확정 — 퇴장
+        tick();
+
+        assertThat(actorIds(bodiesFor("a").get(0))).containsExactly(stays.userId().toString());
+        assertThat(bodiesFor("b")).as("내보낸 세션엔 퇴장 FullState 도 가지 않는다").isEmpty();
+        assertThat(scheduled).isEmpty();
+    }
+
+    @Test
+    @DisplayName("재검사 대상은 사건의 memberUserId 세션뿐이다 — 없으면(옛 Data) 섬 전체")
+    void recheckTargetsOnlyTheRemovedMember() {
+        ChatPrincipal a = connect("a");
+        ChatPrincipal b = connect("b");
+        ChatPrincipal c = connect("c");
+        join("a", a);
+        join("b", b);
+        join("c", c);
+
+        listener.recheckMembership(island, b.userId());
+        assertThat(scheduled).hasSize(1);
+        runNext();
+
+        verify(accessGuard).requireMemberUncached(island, b.userId(), b.bearer());
+        verify(accessGuard, never()).requireMemberUncached(eq(island), eq(a.userId()), any());
+        verify(accessGuard, never()).requireMemberUncached(eq(island), eq(c.userId()), any());
+
+        listener.recheckMembership(island, null);
+        assertThat(scheduled).as("memberUserId 가 없으면 섬 전체").hasSize(3);
+    }
+
+    @Test
+    @DisplayName("새 사건은 진행 중인 재판정을 처음부터 다시 잡고(옛 예약 취소), 소켓 종료는 남은 예약을 취소한다")
+    void newEventRestartsAndSocketCloseCancelsThePendingRecheck() {
+        ChatPrincipal target = connect("b");
+        join("b", target);
+        willThrow(new UpstreamUnavailableException())
+                .given(accessGuard).requireMemberUncached(island, target.userId(), target.bearer());
+        listener.recheckMembership(island, target.userId());
+        runNext(); // 판정 불가 — 1초 뒤 재판정 예약
+
+        listener.recheckMembership(island, target.userId()); // 같은 세션의 새 사건
+        verify(futures.get(1)).cancel(false);
+        assertThat(delays).as("새 사건은 즉시, 처음부터").containsExactly(0L, 1L, 0L);
+        runNext(); // 취소된 옛 재판정이 늦게 돌아도 아무것도 하지 않는다
+        verify(accessGuard, times(1)).requireMemberUncached(island, target.userId(), target.bearer());
+
+        sessions.closed("b");
+        listener.closed("b");
+        verify(futures.get(2)).cancel(false);
+        runNext();
+        verify(accessGuard, times(1)).requireMemberUncached(island, target.userId(), target.bearer());
+    }
+
+    @Test
+    @DisplayName("처치(퇴장)가 던져도 재검사는 던지지 않고 그 세션 전달을 멈춘다 — 수신 트랜잭션을 되돌리지 않는다")
+    void actionFailureNeverEscapesTheRecheck() {
+        MovementRooms brokenRooms = mock(MovementRooms.class);
+        willThrow(new IllegalStateException("퇴장 실패")).given(brokenRooms).leave(any(), any());
+        MovementPublisher publisher = publisher();
+        MovementSubscriptionListener fragile =
+                new MovementSubscriptionListener(brokenRooms, publisher, sessions, accessGuard, meterRegistry,
+                        scheduler);
+        ChatPrincipal kicked = connect("b");
+        fragile.preSend(subscribe("b", "m", StompTopics.movementTopic(island), kicked), null);
+        willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMemberUncached(island, kicked.userId(), kicked.bearer());
+
+        assertThatCode(() -> fragile.recheckMembership(island, kicked.userId())).doesNotThrowAnyException();
+        assertThatCode(this::runNext).doesNotThrowAnyException();
+        assertThat(scheduled).isEmpty();
+    }
+
+    private MovementPublisher publisher() {
+        MovementOutboundInterceptor completion = new MovementOutboundInterceptor();
+        MessageChannel channel = (message, timeout) -> {
+            sent.add(message);
+            completion.afterMessageHandled(message, null, null, null);
+            return true;
+        };
+        return new MovementPublisher(json, sessions, meterRegistry, channel);
+    }
+
+    private void runNext() {
+        Runnable next = scheduled.poll();
+        assertThat(next).as("예약된 재판정이 있어야 한다").isNotNull();
+        next.run();
+    }
+
     private void tick() {
         tick++;
         for (RoomRuntime room : rooms.rooms().values()) {
             room.tick(tick);
         }
+    }
+
+    private void join(String sessionId, ChatPrincipal principal) {
+        listener.preSend(subscribe(sessionId, "m", StompTopics.movementTopic(island), principal), null);
     }
 
     private ChatPrincipal connect(String sessionId) {
@@ -171,13 +329,10 @@ class MovementSubscriptionListenerTest {
         when(socket.getId()).thenReturn(sessionId);
         when(socket.isOpen()).thenReturn(true);
         sessions.opened(socket);
+        sockets.put(sessionId, socket);
         ChatPrincipal principal = new ChatPrincipal(userId, "Bearer " + sessionId);
         sessions.register(sessionId, principal);
         return principal;
-    }
-
-    private String sessionOf(ChatPrincipal principal) {
-        return principal.bearer().substring("Bearer ".length());
     }
 
     private List<JsonNode> bodiesFor(String sessionId) {
@@ -188,6 +343,14 @@ class MovementSubscriptionListenerTest {
             }
         }
         return bodies;
+    }
+
+    private static List<String> types(List<JsonNode> bodies) {
+        List<String> types = new ArrayList<>();
+        for (JsonNode body : bodies) {
+            types.add(body.get("type").stringValue());
+        }
+        return types;
     }
 
     private static List<String> actorIds(JsonNode fullState) {

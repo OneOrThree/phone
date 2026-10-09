@@ -80,12 +80,27 @@ public class ChatAccessGuard {
      *         멤버십 판정을 내릴 수 없을 때 — 통과시키지 않는다
      */
     public void requireMember(UUID islandId, UUID userId, String bearerToken) {
+        checkMember(islandId, userId, bearerToken, false);
+    }
+
+    /**
+     * {@link #requireMember} 와 같은 판정이되 옵션 OFF 에서도 <b>멤버십 캐시를 읽지 않는다</b> — 이동 방의 강퇴
+     * 재검사용(GROMO-2247). ON 은 원래 매번 Data 현재 인가라 같다. 이유는
+     * {@link MembershipService#isMemberUncached} 에 있다.
+     */
+    public void requireMemberUncached(UUID islandId, UUID userId, String bearerToken) {
+        checkMember(islandId, userId, bearerToken, true);
+    }
+
+    private void checkMember(UUID islandId, UUID userId, String bearerToken, boolean uncached) {
         CurrentMembershipVerifier verifier = currentVerifier == null ? null : currentVerifier.getIfAvailable();
         if (verifier != null) {
             verifier.requireMember(islandId, userId, bearerToken);
             return;
         }
-        if (!membershipService.isMember(islandId, userId, bearerToken)) {
+        boolean member = uncached ? membershipService.isMemberUncached(islandId, userId, bearerToken)
+                : membershipService.isMember(islandId, userId, bearerToken);
+        if (!member) {
             throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
         }
     }

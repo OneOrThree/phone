@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
@@ -37,8 +39,9 @@ import java.util.stream.Collectors;
  *   <li>{@code island.members.updated} 의 MEMBER_ADDED·MEMBER_REMOVED — {@code params.memberUserId} 가 있으면
  *       {@link MembershipService#evict} 로 그 유저의 채팅 멤버십 캐시를 즉시 지운다(GROMO-2140). 앱 전달(아래
  *       항목)과는 <b>별개의 부수 효과</b>다 — 이 type 은 아직 STOMP 로 나가지 않지만 캐시 무효화는 그와 무관하게
- *       적용한다. 옛 Data 가 보낸 필드 없는 사건은 조용히 건너뛴다 — TTL 이 그대로 백스톱이다. 같은 자리에서
- *       그 섬 이동 방의 멤버십을 다시 본다({@link MovementSubscriptionListener#recheckMembership}, GROMO-2247 N7).</li>
+ *       적용한다. 옛 Data 가 보낸 필드 없는 사건은 조용히 건너뛴다 — TTL 이 그대로 백스톱이다. MEMBER_REMOVED 는
+ *       커밋 뒤 그 섬 이동 방의 멤버십도 다시 본다({@link MovementSubscriptionListener#recheckMembership},
+ *       GROMO-2247 N7).</li>
  *   <li>{@code user.blocks.updated} — 앱 사건이 아닌 <b>내부 제어 사건</b>이다(GROMO-2182). Data 가 차단·해제
  *       트랜잭션 안에서 적고, 여기서 {@code params.blockerUserId} 의 차단 세대를 {@link BlockedUsers#advanceGeneration}
  *       으로 올린다 — 그 순간부터 그 사람의 캐시된 차단 집합은 읽히지 않고, 다음 전달 판정이 Data 정본을 다시
@@ -92,8 +95,11 @@ public class InboundEventService {
     private static final Set<String> DELIVERED_TYPES = Set.of(
             RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName(), RealtimeEventType.REST_MEMBER_UPDATED.wireName());
 
+    /** 소속이 «줄어드는» changeKind — 이동 방 재검사는 이것만 본다(GROMO-2247, 늘어나는 쪽은 회수할 게 없다). */
+    private static final String MEMBER_REMOVED = "MEMBER_REMOVED";
+
     /** 주민 «집합»이 실제로 바뀌는 changeKind 만 — HOST_TRANSFER 는 무효화할 멤버십이 없다. */
-    private static final Set<String> MEMBERSHIP_CHANGE_KINDS = Set.of("MEMBER_ADDED", "MEMBER_REMOVED");
+    private static final Set<String> MEMBERSHIP_CHANGE_KINDS = Set.of("MEMBER_ADDED", MEMBER_REMOVED);
 
     private final JdbcTemplate jdbc;
     private final ChatUserFence chatUserFence;
@@ -153,11 +159,39 @@ public class InboundEventService {
             return;
         }
         evictMember(params.get("memberUserId"));
-        // 이동 방 재검사(GROMO-2247, N7) — 캐시를 지운 «뒤»라 탈락자는 새 판정을 받는다. 재검사는 던지지 않는다.
-        UUID islandId = uuidOrNull(params.get("islandId"));
-        if (islandId != null) {
-            movementSubscriptions.recheckMembership(islandId);
+        if (MEMBER_REMOVED.equals(changeKind.stringValue())) {
+            recheckMovementAfterCommit(uuidOrNull(params.get("islandId")), uuidOrNull(params.get("memberUserId")));
         }
+    }
+
+    /**
+     * 이동 방 강퇴 재검사(GROMO-2247, N7) — 소속이 «줄어드는» MEMBER_REMOVED 만, {@code memberUserId} 가 있으면 그
+     * 사람 세션만(없으면 섬 전체) 다시 판정한다. 재검사는 캐시를 읽지 않으므로 위의 캐시 삭제 성패와 무관하다.
+     *
+     * <p><b>커밋 뒤에</b> 예약한다 — 롤백돼 relay 가 다시 보낼 사건으로 사람을 내보내는 부수 효과를 막는다. 예약도
+     * 판정도 이 트랜잭션을 되돌리지 않도록 여기서 한 번 더 감싼다(재검사 쪽도 던지지 않지만 구조로 보장한다).
+     */
+    private void recheckMovementAfterCommit(UUID islandId, UUID memberUserId) {
+        if (islandId == null) {
+            return;
+        }
+        Runnable recheck = () -> {
+            try {
+                movementSubscriptions.recheckMembership(islandId, memberUserId);
+            } catch (RuntimeException e) {
+                log.warn("이동 방 재검사 예약 실패 — reason={}", e.getClass().getSimpleName());
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            recheck.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                recheck.run();
+            }
+        });
     }
 
     private static UUID uuidOrNull(JsonNode node) {

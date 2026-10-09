@@ -87,7 +87,23 @@ public class MembershipService {
         if (cached != null) {
             return parse(cached);
         }
+        return fetchAndStore(key, bearerToken);
+    }
 
+    /**
+     * 캐시를 <b>읽지 않고</b> 상류에 바로 묻는다 — 이동 방의 강퇴 재검사용(GROMO-2247, N7). 받은 답은 캐시에도
+     * 다시 적재해 이후 판정이 그 답을 쓴다.
+     *
+     * <p>재검사가 캐시를 읽으면, 사건의 캐시 삭제({@link #evict})가 실패했을 때 남은 옛 답(「멤버」)이 강퇴된 사람을
+     * 그대로 통과시킨다. 정본에 바로 물으면 그 실패가 판정에 끼어들 자리가 없다.
+     *
+     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류가 답하지 않을 때
+     */
+    public boolean isMemberUncached(UUID groupId, UUID userId, String bearerToken) {
+        return fetchAndStore(RedisKeys.memberCache(userId), bearerToken).contains(groupId);
+    }
+
+    private Set<UUID> fetchAndStore(String key, String bearerToken) {
         GroupClient.Membership fresh = groupClient.fetchMyGroupIds(bearerToken);
         // 상류가 «이 토큰»을 거절해서 나온 빈 집합은 캐시하지 않는다. 캐시는 userId 로만 조회되므로,
         // 만료 토큰의 401 을 적재하면 유저가 곧바로 토큰을 갱신해 새로 붙어도 그 새 토큰이 상류에

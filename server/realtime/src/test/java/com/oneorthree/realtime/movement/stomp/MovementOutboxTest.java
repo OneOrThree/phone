@@ -32,7 +32,10 @@ class MovementOutboxTest {
     @BeforeEach
     void setUp() {
         outbox = new MovementOutbox((message, timeout) -> sent.add(message), "s1", UUID.randomUUID(), MOVEMENT,
-                SNAPSHOT, overflowCalls::incrementAndGet);
+                SNAPSHOT, () -> {
+                    overflowCalls.incrementAndGet();
+                    throw new IllegalStateException("종료 콜백이 던져도 송신 큐는 멈추지 않는다");
+                });
         outbox.subscribeMovement("sub-m");
         outbox.subscribeSnapshot("sub-s");
     }
@@ -60,8 +63,53 @@ class MovementOutboxTest {
         assertThat(sent).extracting(m -> SimpMessageHeaderAccessor.getSubscriptionId(m.getHeaders()))
                 .containsExactly("sub-m", "sub-m", "sub-m", "sub-s");
         assertThat(sent).extracting(m -> SimpMessageHeaderAccessor.getSessionId(m.getHeaders())).containsOnly("s1");
-        assertThat(sent).as("완료 통지를 받는 표식은 이 outbox 자신이다")
-                .allSatisfy(m -> assertThat(m.getHeaders().get(MovementOutbox.MARK)).isSameAs(outbox));
+        assertThat(sent).as("프레임마다 따로 된 완료 표식이 실린다")
+                .allSatisfy(m -> assertThat(m.getHeaders().get(MovementOutbox.MARK))
+                        .isInstanceOf(MovementOutbox.Ticket.class))
+                .extracting(m -> m.getHeaders().get(MovementOutbox.MARK)).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("완료 통지가 없는 프레임은 워치독이 15초 뒤 풀어 다음 건을 보내고, 늦게 온 옛 통지는 아무것도 풀지 않는다")
+    void watchdogReleasesAStuckFrameAndIgnoresItsLateCompletion() {
+        outbox.enqueueReliable(bytes("FullState"), true); // 완료 통지가 끝내 안 오는 프레임
+        outbox.enqueueReliable(bytes("PathAccepted"), false);
+        outbox.enqueueReliable(bytes("Arrived"), false);
+        MovementOutbox.Ticket stuck = (MovementOutbox.Ticket) sent.get(0).getHeaders().get(MovementOutbox.MARK);
+
+        outbox.sweep(System.nanoTime());
+        assertThat(sent).as("15초 전에는 기다린다").hasSize(1);
+
+        outbox.sweep(System.nanoTime() + MovementOutbox.STUCK_NANOS);
+        assertThat(payloads()).as("굳은 프레임을 끝난 것으로 치고 다음 건을 보낸다").containsExactly("FullState", "PathAccepted");
+
+        stuck.release();
+        assertThat(sent).as("옛 프레임의 늦은 통지가 지금 in-flight 를 풀면 동시에 두 건이 나간다").hasSize(2);
+    }
+
+    @Test
+    @DisplayName("멈춘 동안은 쌓기만 하고 재개하면 순서대로 나간다 — 멈춘 채 넘친 큐는 워치독이 종료를 요청한다")
+    void suspendedOutboxQueuesUntilResumedAndIdleOverflowIsClosedByTheWatchdog() {
+        assertThat(outbox.suspend()).isTrue();
+        assertThat(outbox.suspend()).as("이미 멈춘 상태 — 측정은 처음 한 번만").isFalse();
+        outbox.enqueueReliable(bytes("FullState"), true);
+        outbox.offerSnapshot(bytes("Snapshot-1"));
+        outbox.offerSnapshot(bytes("Snapshot-2"));
+        assertThat(sent).as("멈춘 동안은 아무것도 보내지 않는다(fail-closed)").isEmpty();
+
+        outbox.resume();
+        drainBySimulatedCompletions();
+        assertThat(payloads()).containsExactly("FullState", "Snapshot-2");
+
+        outbox.suspend();
+        for (int i = 0; i <= MovementOutbox.RELIABLE_LIMIT; i++) {
+            outbox.enqueueReliable(bytes("r" + i), false);
+        }
+        assertThat(overflowCalls).as("in-flight 가 없어 완료 통지로는 닫을 계기가 없다").hasValue(0);
+        outbox.sweep(System.nanoTime());
+        assertThat(overflowCalls).as("워치독이 종료를 요청한다").hasValue(1);
+        outbox.sweep(System.nanoTime());
+        assertThat(overflowCalls).hasValue(1);
     }
 
     @Test

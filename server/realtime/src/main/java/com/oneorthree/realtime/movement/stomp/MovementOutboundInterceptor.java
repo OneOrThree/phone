@@ -1,9 +1,12 @@
 package com.oneorthree.realtime.movement.stomp;
 
+import com.oneorthree.realtime.config.StompTopics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.ExecutorChannelInterceptor;
 import org.springframework.stereotype.Component;
 
@@ -23,13 +26,20 @@ public class MovementOutboundInterceptor implements ExecutorChannelInterceptor {
     @Override
     public void afterMessageHandled(Message<?> message, MessageChannel channel, MessageHandler handler,
             Exception ex) {
-        if (!(message.getHeaders().get(MovementOutbox.MARK) instanceof MovementOutbox outbox)) {
+        if (message.getHeaders().get(MovementOutbox.MARK) instanceof MovementOutbox.Ticket ticket) {
+            if (ex != null) {
+                // 전송 실패도 «처리 끝»이다 — 여기서 멈추면 그 세션의 이동 송신이 영영 서 버린다.
+                log.debug("이동 프레임 처리 실패 — 다음 건으로 넘어간다. reason={}", ex.getClass().getSimpleName());
+            }
+            ticket.release();
             return;
         }
-        if (ex != null) {
-            // 전송 실패도 «처리 끝»이다 — 여기서 멈추면 그 세션의 이동 송신이 영영 서 버린다.
-            log.debug("이동 프레임 처리 실패 — 다음 건으로 넘어간다. reason={}", ex.getClass().getSimpleName());
+        if (SimpMessageHeaderAccessor.getMessageType(message.getHeaders()) == SimpMessageType.MESSAGE) {
+            String destination = SimpMessageHeaderAccessor.getDestination(message.getHeaders());
+            if (destination != null && StompTopics.MOVEMENT_TOPIC.matcher(destination).matches()) {
+                // 이동 토픽은 outbox 만 보낸다 — 표식이 없으면 중간에 헤더가 사라졌거나 다른 경로가 보냈다.
+                log.warn("완료 표식 없는 이동 프레임 — 그 세션 송신은 워치독이 풀 때까지 멈춰 있을 수 있다");
+            }
         }
-        outbox.onSent();
     }
 }

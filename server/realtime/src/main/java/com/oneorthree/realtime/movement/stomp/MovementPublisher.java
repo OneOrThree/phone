@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
@@ -110,7 +111,10 @@ public class MovementPublisher implements RoomRuntime.Listener {
         }
     }
 
-    /** 그 섬에 이 세션의 outbox 를 만든다(인바운드 스레드, 세션 잠금 안). */
+    /**
+     * 그 섬에 이 세션의 outbox 를 만든다(인바운드 스레드, 세션 잠금 안). 람다 안에서 블로킹 금지 — 바깥은 세션 잠금,
+     * 안쪽 {@code compute} 는 섬 키 잠금이라 둘 다 짧아야 한다.
+     */
     MovementOutbox open(UUID islandId, String sessionId, UUID userId) {
         MovementOutbox outbox = new MovementOutbox(clientOutboundChannel, sessionId, userId,
                 StompTopics.movementTopic(islandId), StompTopics.movementSnapshotTopic(islandId),
@@ -123,7 +127,10 @@ public class MovementPublisher implements RoomRuntime.Listener {
         return outbox;
     }
 
-    /** 그 섬에서 이 세션의 outbox 를 떼고 닫는다. 비면 섬 항목도 지운다. */
+    /**
+     * 그 섬에서 이 세션의 outbox 를 떼고 닫는다. 비면 섬 항목도 지운다. 람다 안에서 블로킹 금지 — {@code compute} 는
+     * 그 섬 키를 잠근 채 돌아 틱 스레드의 사건 배분을 붙잡는다.
+     */
     void close(UUID islandId, String sessionId) {
         byIsland.computeIfPresent(islandId, (id, outboxes) -> {
             MovementOutbox outbox = outboxes.remove(sessionId);
@@ -134,16 +141,35 @@ public class MovementPublisher implements RoomRuntime.Listener {
         });
     }
 
-    /** 그 섬의 outbox 들(복사본) — 멤버십 재검사·세션 교체가 훑는다. */
+    /**
+     * 그 섬의 outbox 들(복사본) — 멤버십 재검사·세션 교체가 훑는다. 잠그지 않고 읽기만 한다(블로킹 없음) — 세션
+     * 잠금({@code MovementSubscriptionListener} 의 {@code compute}) 안에서 불려도 된다.
+     */
     List<MovementOutbox> outboxes(UUID islandId) {
         Map<String, MovementOutbox> outboxes = byIsland.get(islandId);
         return outboxes == null ? List.of() : List.copyOf(outboxes.values());
     }
 
-    /** 아웃바운드 실행기 스레드에서 불린다({@link MovementOutbox#onSent}) — 틱 스레드에서 소켓을 닫지 않는다. */
+    /**
+     * 송신 워치독 — 이동 스케줄러가 5초마다 부른다(틱 스레드 아님). 완료 통지가 굳은 outbox 를 풀고, 멈춘 동안 넘친
+     * 큐의 소켓 종료를 낸다({@link MovementOutbox#sweep}). 한 outbox 의 예외가 나머지를 막지 않는다.
+     */
+    void sweep(long nowNanos) {
+        for (Map<String, MovementOutbox> outboxes : byIsland.values()) {
+            for (MovementOutbox outbox : outboxes.values()) {
+                try {
+                    outbox.sweep(nowNanos);
+                } catch (RuntimeException e) {
+                    log.warn("이동 송신 워치독 처리 실패 — reason={}", e.getClass().getSimpleName());
+                }
+            }
+        }
+    }
+
+    /** 아웃바운드 실행기·이동 스케줄러 스레드에서 불린다({@link MovementOutbox}) — 틱 스레드에서 소켓을 닫지 않는다. */
     private void closeForBackpressure(String sessionId) {
         overflows.increment();
         log.warn("이동 송신 큐 상한({}) 초과 — 따라잡을 수 없는 구독자라 소켓을 닫는다", MovementOutbox.RELIABLE_LIMIT);
-        sessions.close(sessionId, BACKPRESSURE);
+        sessions.close(sessionId, CloseStatus.POLICY_VIOLATION.withReason(BACKPRESSURE));
     }
 }
