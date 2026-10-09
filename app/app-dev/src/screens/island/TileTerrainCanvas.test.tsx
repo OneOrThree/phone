@@ -146,7 +146,7 @@ describe('서버 이동 보기 helper (GROMO-2249)', () => {
   });
 });
 
-describe('서버 디버그 시계 — 50ms 깜빡임 / 500ms readout 갱신 (GROMO-2249 라운드1 지적 1 · 보완4 지적 2)', () => {
+describe('서버 디버그 시계 — 보정 깜빡임 50ms, 창 밖이면 멈춘다 (GROMO-2249 라운드1 지적 1 · 보완6 지적 1 — 보완4 지적 2 번복)', () => {
   const nav = { cols: 1, rows: 1, walkable: Uint8Array.from([1]) } as any;
   const baseProps = {
     width: 100,
@@ -198,13 +198,12 @@ describe('서버 디버그 시계 — 50ms 깜빡임 / 500ms readout 갱신 (GRO
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  it('status 가 live 면 깜빡임 창이 끝나도 500ms 주기로 계속 돌아 readout 을 갱신한다(보완4 지적 2)', async () => {
+  it('status 가 live 여도 깜빡임 창 밖이면 타이머가 없다 — 틱 지연 readout 은 WorldMap 의 debugNow 가 돌리므로 캔버스가 500ms 로 더 돌 필요가 없다(보완6 지적 1, 보완4 지적 2 번복)', async () => {
     jest.useFakeTimers();
     await render(<TileTerrainCanvas {...baseProps} navDebug={debugWith(Date.now(), 'live')} />);
     settle();
-    jest.advanceTimersByTime(500); // 깜빡임 창을 넘긴다 — 50ms → 500ms 로 느려지되 멈추지 않는다.
     expect(jest.getTimerCount()).toBeGreaterThan(0);
-    jest.advanceTimersByTime(1000); // fake timer 로 1초 더 흘러도 500ms 마다 스스로 재스케줄된다.
-    expect(jest.getTimerCount()).toBeGreaterThan(0);
+    jest.advanceTimersByTime(500); // 깜빡임 창(500ms) 을 넘긴다 — live 여도 멈춘다.
+    expect(jest.getTimerCount()).toBe(0);
   });
 });
