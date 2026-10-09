@@ -2,6 +2,7 @@ package com.oneorthree.realtime.movement;
 
 import com.oneorthree.realtime.movement.nav.Cell;
 import com.oneorthree.realtime.movement.nav.NavGrid;
+import com.oneorthree.realtime.movement.nav.NavJsonLoader;
 import com.oneorthree.realtime.movement.nav.Pathfinder.PathResult;
 import com.oneorthree.realtime.movement.nav.WorldCoords;
 import com.oneorthree.realtime.movement.nav.WorldPoint;
@@ -518,7 +519,7 @@ public final class RoomRuntime {
         if (d != null && serverTick - d.tick() <= rules.ticksFor(DEPARTED_MEMORY_MS)) {
             return d.position();
         }
-        Cell spawn = nav.spawns().get("character");
+        Cell spawn = nav.spawns().get(NavJsonLoader.REQUIRED_SPAWN);
         WorldPoint center = WorldCoords.cellCenter(spawn);
         return new MovementEvent.Point(center.x(), center.y());
     }
