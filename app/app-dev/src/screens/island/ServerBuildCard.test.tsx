@@ -556,3 +556,46 @@ test('로컬 receipt 없이 조회한 공사도 진행률을 표시하고 예정
     jest.useRealTimers();
   }
 });
+
+test('다른 섬의 공사 조회 뒤 재조회가 실패해도 그 공사를 현재 홈에 표시하지 않는다', async () => {
+  jest.useFakeTimers();
+  const now = Date.parse('2026-10-09T00:00:00Z');
+  jest.setSystemTime(now);
+  try {
+    mine.myIslands.mockResolvedValue({ items: [{ id: 'srv2' }], currentIslandId: 'srv2' } as any);
+    api.getConstructionOptions.mockResolvedValue({
+      ...hallOptions,
+      activeConstruction: {
+        buildingId: 'hall',
+        startedAt: new Date(now - 1000).toISOString(),
+        completesAt: new Date(now + 1000).toISOString(),
+      },
+    });
+    const onChanged = jest.fn();
+    const screen = await render(
+      <ServerBuildCard
+        islandId="srv1"
+        building="hall"
+        villagePoints={10}
+        tracked={null}
+        style={{}}
+        onStarted={jest.fn()}
+        onChanged={onChanged}
+      />,
+    );
+    await act(async () => {});
+    assert.ok(screen.getByText('섬 정보가 바뀌었어요'));
+    api.getConstructionOptions.mockRejectedValue(
+      new ApiError('CLIENT_NETWORK_ERROR', '연결 실패', 0),
+    );
+    await fireEvent.press(screen.getByTestId('server-build-refresh'));
+    await act(async () => {});
+    assert.equal(screen.queryByText('마을회관 공사 중'), null);
+    assert.ok(screen.getByTestId('server-build-retry'));
+    await act(async () => jest.advanceTimersByTime(1000 + COMPLETION_POLL_MS));
+    assert.equal(onChanged.mock.calls.length, 1);
+    await screen.unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});

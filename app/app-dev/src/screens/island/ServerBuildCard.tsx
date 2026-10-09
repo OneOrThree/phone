@@ -75,7 +75,7 @@ export function ServerBuildCard({
   onChangedRef.current = onChanged;
   const timing = tracked
     ? { buildingId: tracked.building, startedAt: tracked.startedAt, completesAt: tracked.endsAt }
-    : !islandMismatch && construction.timing?.buildingId === building
+    : construction.serverIslandId === islandId && construction.timing?.buildingId === building
       ? construction.timing
       : null;
   const endsAt = timing
