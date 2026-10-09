@@ -5,12 +5,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
+import org.springframework.web.socket.CloseStatus;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -26,14 +26,15 @@ class MovementOutboxTest {
     private static final String SNAPSHOT = "/topic/islands/i/movement/snapshot";
 
     private final List<Message<?>> sent = new ArrayList<>();
-    private final AtomicInteger overflowCalls = new AtomicInteger();
+    /** 소켓 종료 콜백이 받은 사유들. */
+    private final List<CloseStatus> closes = new ArrayList<>();
     private MovementOutbox outbox;
 
     @BeforeEach
     void setUp() {
         outbox = new MovementOutbox((message, timeout) -> sent.add(message), "s1", UUID.randomUUID(), MOVEMENT,
-                SNAPSHOT, () -> {
-                    overflowCalls.incrementAndGet();
+                SNAPSHOT, status -> {
+                    closes.add(status);
                     throw new IllegalStateException("종료 콜백이 던져도 송신 큐는 멈추지 않는다");
                 });
         outbox.subscribeMovement("sub-m");
@@ -107,7 +108,7 @@ class MovementOutboxTest {
         drainBySimulatedCompletions();
 
         assertThat(payloads()).containsExactly("FullState", "FullState-resync", "PathAccepted-2");
-        assertThat(overflowCalls).as("쌓지 않으므로 큐 상한과 다툴 일이 없다").hasValue(0);
+        assertThat(closes).as("쌓지 않으므로 큐 상한과 다툴 일이 없다").isEmpty();
     }
 
     @Test
@@ -159,7 +160,7 @@ class MovementOutboxTest {
     void snapshotsBeforeTheOwnFullStateAreDropped() {
         List<Message<?>> early = new ArrayList<>();
         MovementOutbox snapshotFirst = new MovementOutbox((message, timeout) -> early.add(message), "s3",
-                UUID.randomUUID(), MOVEMENT, SNAPSHOT, () -> { });
+                UUID.randomUUID(), MOVEMENT, SNAPSHOT, status -> { });
         snapshotFirst.subscribeSnapshot("sub-s");
         snapshotFirst.offerSnapshot(bytes("Snapshot-0"));
         assertThat(early).as("snapshot 만 먼저 구독 — FullState 가 올 길이 아직 없다").isEmpty();
@@ -218,34 +219,75 @@ class MovementOutboxTest {
             assertThat(outbox.enqueueReliable(bytes("r" + i), false)).isPositive();
         }
         assertThat(outbox.enqueueReliable(bytes("over"), false)).isEqualTo(-1);
-        assertThat(overflowCalls).as("틱 스레드에서는 닫지 않는다").hasValue(0);
+        assertThat(closes).as("틱 스레드에서는 닫지 않는다").isEmpty();
 
         outbox.onSent();
         outbox.onSent();
 
-        assertThat(overflowCalls).hasValue(1);
+        assertThat(closes).containsExactly(MovementOutbox.BACKPRESSURE);
         assertThat(sent).as("상한을 넘긴 뒤로는 아무것도 보내지 않는다").hasSize(1);
         assertThat(outbox.enqueueReliable(bytes("late"), false)).isZero();
     }
 
     @Test
-    @DisplayName("movement 구독을 해지하면 밀린 reliable 을 버리고, 채널이 받지 않은 프레임은 완료 없이 다음으로 넘어간다")
-    void unsubscribeDropsQueuedReliableAndRejectedSendDoesNotStall() {
+    @DisplayName("movement 구독을 해지하면 밀린 reliable 을 버린다")
+    void unsubscribeDropsQueuedReliable() {
         outbox.enqueueReliable(bytes("FullState"), true);
         outbox.enqueueReliable(bytes("PathAccepted"), false);
         assertThat(outbox.unsubscribeMovement("sub-m")).isTrue();
         outbox.onSent();
         assertThat(payloads()).containsExactly("FullState");
+    }
 
+    @Test
+    @DisplayName("첫 FullState 를 채널이 받지 않으면(false) 게이트를 열지 않고 outbox 를 닫는다 — 1011 종료는 틱 밖에서 한 번")
+    void rejectedFirstFullStateClosesTheOutboxAndTheSocketOnce() {
         List<Message<?>> refused = new ArrayList<>();
+        List<CloseStatus> stubbornCloses = new ArrayList<>();
         MovementOutbox stubborn = new MovementOutbox((message, timeout) -> {
             refused.add(message);
             return false;
-        }, "s2", UUID.randomUUID(), MOVEMENT, SNAPSHOT, () -> { });
+        }, "s2", UUID.randomUUID(), MOVEMENT, SNAPSHOT, stubbornCloses::add);
         stubborn.subscribeMovement("m");
-        stubborn.enqueueReliable(bytes("FullState"), true);
-        stubborn.enqueueReliable(bytes("Arrived"), false);
-        assertThat(refused).as("완료 통지가 안 오는 거절도 멈추지 않고 다음 건을 시도한다").hasSize(2);
+        stubborn.subscribeSnapshot("s");
+
+        stubborn.enqueueReliable(bytes("FullState"), true); // 틱 스레드 — 넘기기 실패
+        assertThat(stubbornCloses).as("틱 스레드에서는 소켓을 닫지 않는다").isEmpty();
+        assertThat(stubborn.isClosed()).isTrue();
+        assertThat(stubborn.enqueueReliable(bytes("PathAccepted"), false)).as("뒤따르는 사건은 받지 않는다").isZero();
+        assertThat(stubborn.offerSnapshot(bytes("Snapshot"))).isFalse();
+        assertThat(refused).as("첫 FullState 한 번만 시도했다").hasSize(1);
+
+        stubborn.sweep(System.nanoTime()); // 다음 워치독이 예약된 종료를 낸다
+        stubborn.sweep(System.nanoTime());
+        assertThat(stubbornCloses).containsExactly(MovementOutbox.SEND_FAILED);
+    }
+
+    @Test
+    @DisplayName("Snapshot 을 채널이 받지 않으면(예외) 그 한 건만 버리고 계속 보낸다 — 세션은 닫지 않는다")
+    void rejectedSnapshotIsDroppedAndDeliveryGoesOn() {
+        List<Message<?>> handed = new ArrayList<>();
+        List<CloseStatus> flakyCloses = new ArrayList<>();
+        MovementOutbox flaky = new MovementOutbox((message, timeout) -> {
+            if (SNAPSHOT.equals(SimpMessageHeaderAccessor.getDestination(message.getHeaders()))) {
+                throw new IllegalStateException("Snapshot 넘기기 실패");
+            }
+            handed.add(message);
+            return true;
+        }, "s4", UUID.randomUUID(), MOVEMENT, SNAPSHOT, flakyCloses::add);
+        flaky.subscribeMovement("m");
+        flaky.subscribeSnapshot("s");
+        flaky.enqueueReliable(bytes("FullState"), true);
+        flaky.onSent();
+
+        flaky.offerSnapshot(bytes("Snapshot-1")); // 던진다 — 버리고 in-flight 를 비운다
+        flaky.enqueueReliable(bytes("PathAccepted"), false);
+        flaky.sweep(System.nanoTime());
+
+        assertThat(payloads(handed)).as("완료 통지 없이도 다음 reliable 이 곧바로 나간다")
+                .containsExactly("FullState", "PathAccepted");
+        assertThat(flaky.isClosed()).isFalse();
+        assertThat(flakyCloses).isEmpty();
     }
 
     private void drainBySimulatedCompletions() {
@@ -255,8 +297,12 @@ class MovementOutboxTest {
     }
 
     private List<String> payloads() {
+        return payloads(sent);
+    }
+
+    private static List<String> payloads(List<Message<?>> messages) {
         List<String> out = new ArrayList<>();
-        for (Message<?> message : sent) {
+        for (Message<?> message : messages) {
             out.add(new String((byte[]) message.getPayload(), StandardCharsets.UTF_8));
         }
         return out;

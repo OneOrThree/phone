@@ -30,7 +30,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>측정(2250)은 같은 {@link MeterRegistry} 에 {@code movement.*} 로 둔다 — reliable 덱 깊이
  * ({@code movement.outbox.reliable.depth}), 못 보내고 덮어쓴 Snapshot 수({@code movement.outbox.snapshot.superseded}),
- * 상한 초과로 닫은 세션 수({@code movement.outbox.overflow}).
+ * 상한 초과로 닫은 세션 수({@code movement.outbox.overflow}), reliable 넘기기 실패로 닫은 세션 수
+ * ({@code movement.outbox.send.failed}).
  *
  * <p>ponytail: 단일 인스턴스 가정(N5) — 방·outbox 가 이 JVM 메모리에만 있다. 다중 인스턴스 소유권은 2단계.
  */
@@ -38,14 +39,13 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class MovementPublisher implements RoomRuntime.Listener {
 
-    private static final String BACKPRESSURE = "MOVEMENT_BACKPRESSURE";
-
     private final ObjectMapper objectMapper;
     private final RealtimeSessionRegistry sessions;
     private final MessageChannel clientOutboundChannel;
     private final DistributionSummary reliableDepth;
     private final Counter supersededSnapshots;
     private final Counter overflows;
+    private final Counter sendFailures;
 
     /** islandId → (sessionId → outbox). 안쪽 맵의 추가·제거는 바깥 맵의 {@code compute} 안에서만 한다. */
     private final ConcurrentHashMap<UUID, Map<String, MovementOutbox>> byIsland = new ConcurrentHashMap<>();
@@ -67,6 +67,10 @@ public class MovementPublisher implements RoomRuntime.Listener {
                 .register(meterRegistry);
         this.overflows = Counter.builder("movement.outbox.overflow")
                 .description("reliable 송신 큐 상한을 넘겨 소켓을 닫은 세션 수")
+                .register(meterRegistry);
+        this.sendFailures = Counter.builder("movement.outbox.send.failed")
+                .description("reliable 프레임을 아웃바운드 채널에 넘기지 못해(false·예외) 1011 로 닫은 세션 수 — "
+                        + "Snapshot 넘기기 실패는 버리기만 하고 세지 않는다")
                 .register(meterRegistry);
     }
 
@@ -120,7 +124,7 @@ public class MovementPublisher implements RoomRuntime.Listener {
     MovementOutbox open(UUID islandId, String sessionId, UUID userId) {
         MovementOutbox outbox = new MovementOutbox(clientOutboundChannel, sessionId, userId,
                 StompTopics.movementTopic(islandId), StompTopics.movementSnapshotTopic(islandId),
-                () -> closeForBackpressure(sessionId));
+                status -> closeSession(sessionId, status));
         byIsland.compute(islandId, (id, outboxes) -> {
             Map<String, MovementOutbox> held = outboxes != null ? outboxes : new ConcurrentHashMap<>();
             held.put(sessionId, outbox);
@@ -153,8 +157,8 @@ public class MovementPublisher implements RoomRuntime.Listener {
     }
 
     /**
-     * 송신 워치독 — 이동 스케줄러가 5초마다 부른다(틱 스레드 아님). 완료 통지가 굳은 outbox 를 풀고, 멈춘 동안 넘친
-     * 큐의 소켓 종료를 낸다({@link MovementOutbox#sweep}). 한 outbox 의 예외가 나머지를 막지 않는다.
+     * 송신 워치독 — 이동 스케줄러가 5초마다 부른다(틱 스레드 아님). 완료 통지가 굳은 outbox 를 풀고, 예약된 소켓
+     * 종료(큐 초과·reliable 넘기기 실패)를 낸다({@link MovementOutbox#sweep}). 한 outbox 의 예외가 나머지를 막지 않는다.
      */
     void sweep(long nowNanos) {
         for (Map<String, MovementOutbox> outboxes : byIsland.values()) {
@@ -168,10 +172,18 @@ public class MovementPublisher implements RoomRuntime.Listener {
         }
     }
 
-    /** 아웃바운드 실행기·이동 스케줄러 스레드에서 불린다({@link MovementOutbox}) — 틱 스레드에서 소켓을 닫지 않는다. */
-    private void closeForBackpressure(String sessionId) {
-        overflows.increment();
-        log.warn("이동 송신 큐 상한({}) 초과 — 따라잡을 수 없는 구독자라 소켓을 닫는다", MovementOutbox.RELIABLE_LIMIT);
-        sessions.close(sessionId, CloseStatus.POLICY_VIOLATION.withReason(BACKPRESSURE));
+    /**
+     * outbox 가 스스로 닫혀 소켓도 닫는다 — 아웃바운드 실행기·워치독 스레드에서 불린다({@link MovementOutbox}), 틱
+     * 스레드에서 소켓을 닫지 않는다. 앱은 재연결·재구독으로 FullState 부터 다시 받는다.
+     */
+    private void closeSession(String sessionId, CloseStatus status) {
+        if (MovementOutbox.SEND_FAILED.equals(status)) {
+            sendFailures.increment();
+            log.warn("이동 reliable 프레임을 아웃바운드 채널에 넘기지 못했다 — 소켓을 {} 로 닫는다", status);
+        } else {
+            overflows.increment();
+            log.warn("이동 송신 큐 상한({}) 초과 — 따라잡을 수 없는 구독자라 소켓을 닫는다", MovementOutbox.RELIABLE_LIMIT);
+        }
+        sessions.close(sessionId, status);
     }
 }

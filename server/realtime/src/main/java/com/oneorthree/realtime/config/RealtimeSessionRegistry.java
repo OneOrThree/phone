@@ -162,8 +162,8 @@ public class RealtimeSessionRegistry {
 
     /**
      * 실제 연결을 끝낸다 — 상태의 {@code reason} 이 앱이 볼 수 있는 기계용 사유다(1008 {@code UNAUTHORIZED}·
-     * {@code MOVEMENT_BACKPRESSURE}, 1011 {@code MEMBERSHIP_UNVERIFIED}). 던지지 않는다 — 부르는 쪽이 송신·재검사
-     * 스레드라, 여기서 새는 예외가 그 스레드의 다음 일을 끊으면 안 된다.
+     * {@code MOVEMENT_BACKPRESSURE}, 1011 {@code MEMBERSHIP_UNVERIFIED}·{@code MOVEMENT_SEND_FAILED}). 던지지
+     * 않는다 — 부르는 쪽이 송신·재검사 스레드라, 여기서 새는 예외가 그 스레드의 다음 일을 끊으면 안 된다.
      */
     public void close(String sessionId, CloseStatus status) {
         WebSocketSession socket = sessionId == null ? null : sockets.get(sessionId);

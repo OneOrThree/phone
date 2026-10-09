@@ -8,10 +8,12 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.util.MimeTypeUtils;
+import org.springframework.web.socket.CloseStatus;
 
 import java.util.ArrayDeque;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * 세션 하나 × 섬 하나의 이동 송신 큐 — reliable 덱 + 최신 Snapshot 슬롯 1개, <b>동시 in-flight 1건</b>(N3).
@@ -44,6 +46,15 @@ import java.util.concurrent.TimeUnit;
  * 만 먼저 구독했거나 movement 를 해지한 세션은 FullState 가 올 길이 없으니 받지 않는다. 게이트는 멈춤·세션 교체·
  * movement 해지·새 구독 때 닫히고({@link #closeGate}), 닫힐 때마다 세대가 올라 이미 넘긴 프레임도 버려진다.
  *
+ * <p><b>넘기기 실패는 fail-closed 다</b> — 채널이 프레임을 받지 않으면({@code send} 가 false 거나 던짐) reliable 은
+ * 그 세션이 받은 상태를 장담할 수 없으므로(첫 FullState 없이 게이트가 열리거나 PathAccepted 가 조용히 빠진다) outbox 를
+ * 닫고 소켓을 1011 {@code MOVEMENT_SEND_FAILED} 로 닫는다 — 앱은 재연결·재구독으로 FullState 부터 다시 받는다.
+ * Snapshot 은 버리고 다음 건으로 간다(다음 틱이 또 준다). 소켓 종료는 큐 초과와 같은 경로다(아래).
+ *
+ * <p><b>소켓 종료는 틱 스레드에서 하지 않는다</b> — 큐 초과·reliable 넘기기 실패는 종료를 <b>예약</b>만 하고, 완료
+ * 통지(아웃바운드 실행기)나 워치독이 낸다. 틱 스레드에서 넘기기가 실패하면 기다릴 완료 통지가 없으므로 다음 워치독
+ * (5초 안)이 낸다 — 그 사이엔 이미 닫힌 outbox 라 아무것도 보내지 않는다.
+ *
  * <p><b>워치독</b> — 완료 통지가 끝내 오지 않는 프레임(표식 유실, 채널 구독자 0)이 있으면 그 세션 송신이 조용히
  * 굳는다. 워치독 실행기가 5초마다 {@link #sweep} 을 불러 {@link #STUCK_NANOS} 넘게 묶인 프레임을 끝난 것으로 친다
  * (덱이 찬 채 굳었으면 그때 종료 콜백도 나간다). 프레임마다 표식({@link Ticket})이 따로라, 워치독이 푼 뒤에 늦게 온
@@ -68,6 +79,12 @@ final class MovementOutbox {
      */
     static final long STUCK_NANOS = TimeUnit.SECONDS.toNanos(15);
 
+    /** reliable 상한 초과 — 따라잡을 수 없는 구독자. */
+    static final CloseStatus BACKPRESSURE = CloseStatus.POLICY_VIOLATION.withReason("MOVEMENT_BACKPRESSURE");
+
+    /** reliable 프레임을 채널에 넘기지 못했다 — 받은 상태를 장담할 수 없어 끊고 처음부터 맞춘다. */
+    static final CloseStatus SEND_FAILED = CloseStatus.SERVER_ERROR.withReason("MOVEMENT_SEND_FAILED");
+
     private static final Logger LOG = LoggerFactory.getLogger(MovementOutbox.class);
 
     private final MessageChannel channel;
@@ -75,7 +92,7 @@ final class MovementOutbox {
     private final UUID userId;
     private final String movementDestination;
     private final String snapshotDestination;
-    private final Runnable onOverflow;
+    private final Consumer<CloseStatus> onClose;
 
     private final ArrayDeque<byte[]> reliable = new ArrayDeque<>();
     private byte[] latestSnapshot;
@@ -99,20 +116,21 @@ final class MovementOutbox {
     private Ticket inFlight;
     private long inFlightSince;
     private boolean closed;
-    private boolean overflowed;
+    /** 예약된 소켓 종료({@link #BACKPRESSURE}·{@link #SEND_FAILED}) — {@link #closeIfPending} 가 한 번 낸다. */
+    private CloseStatus pendingClose;
 
     /**
-     * @param onOverflow reliable 상한을 넘긴 뒤 <b>완료 통지나 워치독 때</b>(아웃바운드 실행기·이동 스케줄러 스레드)
-     *                   한 번 불린다 — 소켓 종료는 쓰기가 막힐 수 있어 틱 스레드에서 하지 않는다
+     * @param onClose outbox 가 스스로 닫혀 소켓도 닫아야 할 때(큐 초과·reliable 넘기기 실패) <b>완료 통지나 워치독 때</b>
+     *                (아웃바운드 실행기·워치독 스레드) 한 번 불린다 — 소켓 종료는 쓰기가 막힐 수 있어 틱 스레드에서 하지 않는다
      */
     MovementOutbox(MessageChannel channel, String sessionId, UUID userId, String movementDestination,
-            String snapshotDestination, Runnable onOverflow) {
+            String snapshotDestination, Consumer<CloseStatus> onClose) {
         this.channel = channel;
         this.sessionId = sessionId;
         this.userId = userId;
         this.movementDestination = movementDestination;
         this.snapshotDestination = snapshotDestination;
-        this.onOverflow = onOverflow;
+        this.onClose = onClose;
     }
 
     String sessionId() {
@@ -141,7 +159,7 @@ final class MovementOutbox {
             if (reliable.size() >= RELIABLE_LIMIT) {
                 // 더 받지 않는다. 덱이 찼다는 건 in-flight 한 건이 끝나지 않고 있다는 뜻이다 — 소켓 종료는 그 완료
                 // 통지(또는 그게 굳었으면 워치독)가 낸다.
-                overflowed = true;
+                pendingClose = BACKPRESSURE;
                 closed = true;
                 reliable.clear();
                 latestSnapshot = null;
@@ -187,16 +205,19 @@ final class MovementOutbox {
     }
 
     /**
-     * 워치독 — {@link #STUCK_NANOS} 넘게 완료 통지가 없는 프레임을 끝난 것으로 친다(덱이 찬 채였으면 종료 콜백도
-     * 이때 나간다). 워치독 실행기에서만 불린다.
+     * 워치독 — {@link #STUCK_NANOS} 넘게 완료 통지가 없는 프레임을 끝난 것으로 치고(덱이 찬 채였으면 종료 콜백도
+     * 이때 나간다), 기다릴 완료 통지가 없는 예약 종료(틱 스레드에서의 넘기기 실패)를 낸다. 워치독 실행기에서만 불린다.
      */
     void sweep(long nowNanos) {
-        Ticket stuck;
+        Ticket stuck = null;
         synchronized (this) {
-            if (inFlight == null || nowNanos - inFlightSince < STUCK_NANOS) {
-                return;
+            if (inFlight != null && nowNanos - inFlightSince >= STUCK_NANOS) {
+                stuck = inFlight;
             }
-            stuck = inFlight;
+        }
+        if (stuck == null) {
+            closeIfPending();
+            return;
         }
         LOG.warn("이동 프레임 완료 통지가 {}초 넘게 없다 — 끝난 것으로 치고 다음 건으로 넘어간다",
                 TimeUnit.NANOSECONDS.toSeconds(STUCK_NANOS));
@@ -304,27 +325,41 @@ final class MovementOutbox {
         latestSnapshot = null;
     }
 
-    /** 그 표식의 프레임이 끝났다 — 지금 in-flight 인 바로 그 프레임일 때만 다음 건으로 간다. */
+    /**
+     * 그 표식의 프레임이 끝났다 — 지금 in-flight 인 바로 그 프레임일 때만 다음 건으로 간다. 완료 통지(아웃바운드
+     * 실행기)·워치독·테스트에서만 불린다 — 틱 스레드가 아니므로 예약된 소켓 종료도 여기서 낸다.
+     */
     private void release(Ticket ticket) {
         Message<byte[]> next;
-        boolean overflowNow;
         synchronized (this) {
             if (ticket != inFlight) {
                 return; // 워치독이 이미 풀어 준 프레임의 늦은 통지
             }
             inFlight = null;
-            overflowNow = overflowed;
-            overflowed = false;
             next = takeNextIfIdle();
         }
-        if (overflowNow) {
-            try {
-                onOverflow.run();
-            } catch (RuntimeException e) {
-                LOG.warn("이동 송신 큐 초과 처리 실패 — reason={}", e.getClass().getSimpleName());
-            }
-        }
         transmit(next);
+        closeIfPending();
+    }
+
+    /**
+     * 예약된 소켓 종료를 한 번 낸다 — 나가 있는 프레임이 있으면 그 완료 통지(또는 워치독)를 기다린다. 틱 스레드에서
+     * 부르지 않는다({@link #release}·{@link #sweep}).
+     */
+    private void closeIfPending() {
+        CloseStatus status;
+        synchronized (this) {
+            if (pendingClose == null || inFlight != null) {
+                return;
+            }
+            status = pendingClose;
+            pendingClose = null;
+        }
+        try {
+            onClose.accept(status);
+        } catch (RuntimeException e) {
+            LOG.warn("이동 세션 종료 처리 실패 — status={} reason={}", status, e.getClass().getSimpleName());
+        }
     }
 
     /** 잠금 안에서만 부른다. 보낼 게 있고 in-flight 가 없으면 꺼내 in-flight 로 표시한다. */
@@ -332,11 +367,13 @@ final class MovementOutbox {
         if (inFlight != null || closed) {
             return null;
         }
-        Ticket ticket = new Ticket(gateGeneration);
+        Ticket ticket;
         Message<byte[]> next;
         if (!reliable.isEmpty()) {
+            ticket = new Ticket(gateGeneration, false);
             next = frame(reliable.poll(), movementDestination, movementSubscriptionId, ticket);
         } else if (latestSnapshot != null) {
+            ticket = new Ticket(gateGeneration, true);
             next = frame(latestSnapshot, snapshotDestination, snapshotSubscriptionId, ticket);
             latestSnapshot = null;
         } else {
@@ -347,21 +384,47 @@ final class MovementOutbox {
         return next;
     }
 
-    /** 잠금 밖에서 보낸다. 채널이 받지 않았으면 완료 통지가 오지 않으므로 직접 다음 건으로 넘어간다. */
+    /**
+     * 잠금 밖에서 보낸다. 채널이 받지 않으면(false·예외) 완료 통지가 오지 않는다 — Snapshot 은 버리고 다음 건을
+     * 보내고, reliable 은 fail-closed 다({@link #sendFailed}). 소켓 종료는 여기서 내지 않는다(틱 스레드일 수 있다).
+     */
     private void transmit(Message<byte[]> next) {
-        if (next == null) {
-            return;
+        while (next != null) {
+            boolean handedOff;
+            try {
+                handedOff = channel.send(next);
+            } catch (RuntimeException e) {
+                LOG.debug("이동 프레임 넘기기 실패 — reason={}", e.getClass().getSimpleName());
+                handedOff = false;
+            }
+            if (handedOff) {
+                return;
+            }
+            next = sendFailed((Ticket) next.getHeaders().get(MARK));
         }
-        boolean handedOff;
-        try {
-            handedOff = channel.send(next);
-        } catch (RuntimeException e) {
-            LOG.debug("이동 프레임 전송 실패 — 다음 건으로 넘어간다. reason={}", e.getClass().getSimpleName());
-            handedOff = false;
+    }
+
+    /**
+     * 넘기지 못한 프레임 — Snapshot 이면 버리고 다음 건을 꺼낸다. reliable 이면 그 세션이 받은 상태를 장담할 수 없다
+     * (첫 FullState 없이 게이트가 열리거나 PathAccepted 가 빠진다) — outbox 를 닫고 1011 종료를 예약한다.
+     *
+     * @return 이어서 보낼 프레임, 없으면 {@code null}
+     */
+    private synchronized Message<byte[]> sendFailed(Ticket ticket) {
+        if (ticket != inFlight) {
+            return null; // 이미 다른 경로(워치독)가 풀었다
         }
-        if (!handedOff) {
-            release((Ticket) next.getHeaders().get(MARK));
+        inFlight = null;
+        if (ticket.snapshot) {
+            return takeNextIfIdle(); // 버린다 — 다음 틱이 또 준다
         }
+        if (!closed) { // 이미 닫혔으면(해지·종료·큐 초과) 그쪽 정리를 따른다
+            closed = true;
+            pendingClose = SEND_FAILED;
+            reliable.clear();
+            latestSnapshot = null;
+        }
+        return null;
     }
 
     /**
@@ -384,9 +447,12 @@ final class MovementOutbox {
 
         /** 만든 때의 게이트 세대. */
         private final int generation;
+        /** Snapshot 프레임인가 — 넘기기 실패 때 버리기만 한다(reliable 은 fail-closed). */
+        private final boolean snapshot;
 
-        private Ticket(int generation) {
+        private Ticket(int generation, boolean snapshot) {
             this.generation = generation;
+            this.snapshot = snapshot;
         }
 
         /** {@link MovementOutboundInterceptor} 가 그 프레임 처리가 끝났을 때(또는 버렸을 때) 부른다. */
