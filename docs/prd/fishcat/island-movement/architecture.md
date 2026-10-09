@@ -108,6 +108,8 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 
 **결정(2026-10-07, 조재영): 1단계는 A 안 — Realtime JVM 에 이동 엔진을 넣고 기존 STOMP/WebSocket 연결·기존 JWT·멤버십 인가를 재사용한다. 분리된 Java worker + 앱 직접 QUIC(C 안)은 1단계 측정(틱 p99·송신 큐·GC pause·배터리) 뒤 2단계로 간다.** 최초 초안의 Go/quic-go 출발안은 기존 JVM 운영 기반을 우선한 Java/Netty 후보로 대체했고, 그 후보는 2단계의 출발안으로 남는다. 1단계의 알려진 단점: TCP 라 손실 때 앞선 패킷을 기다린다(head-of-line), 채팅과 CPU·GC·장애를 공유한다, 20Hz×15명 팬아웃이 Realtime 송신 큐를 지난다 — 이 셋의 측정값이 2단계로 가는 판단 기준이다.
 
+**측정 결과 2026-10-09(로컬, 서버 측만 — [검증 §7](validation.md#7-1단계-측정-2026-10-09-로컬)), 재검토 조건: 실기기 측정 후**(배터리·dev 서버 RTT·보정 점프·체감은 미측정).
+
 ### 7.1 언어·연결·서비스 분리는 각각 선택한다
 
 - Java로 A*·틱·위치를 계산하면서 QUIC/UDP 연결을 직접 받을 수 있다. Java용 [Netty QUIC API](https://netty.io/4.2/api/io/netty/handler/codec/quic/package-summary.html)와 [DATAGRAM 설정](https://netty.io/4.2/api/io/netty/handler/codec/quic/QuicCodecBuilder.html)이 있다. 서버 언어와 전송 프로토콜을 함께 바꿀 필요는 없다.
