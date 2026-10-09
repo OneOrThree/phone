@@ -5784,6 +5784,9 @@
           "name": {
             "type": "string"
           },
+          "catColor": {
+            "type": "string"
+          },
           "status": {
             "type": "string"
           },
@@ -5922,6 +5925,25 @@
           "watermarks"
         ]
       },
+      "ActiveConstruction": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "completesAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "buildingId",
+          "completesAt",
+          "startedAt"
+        ]
+      },
       "ConstructionOptionItem": {
         "type": "object",
         "properties": {
@@ -5985,6 +6007,12 @@
             "items": {
               "$ref": "#/components/schemas/ConstructionOptionItem"
             }
+          },
+          "residentProgress": {
+            "$ref": "#/components/schemas/ConstructionResidentProgress"
+          },
+          "activeConstruction": {
+            "$ref": "#/components/schemas/ActiveConstruction"
           }
         },
         "required": [
@@ -5994,6 +6022,55 @@
           "selectedBuildingId",
           "villagePoints",
           "walletVersion"
+        ]
+      },
+      "ConstructionResident": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "contributed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "remaining": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "contributed",
+          "name",
+          "remaining",
+          "userId"
+        ]
+      },
+      "ConstructionResidentProgress": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "requiredPerResident": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "residents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConstructionResident"
+            }
+          }
+        },
+        "required": [
+          "buildingId",
+          "requiredPerResident",
+          "residents"
         ]
       },
       "FriendView": {

@@ -7995,6 +7995,12 @@
           },
           "member": {
             "$ref": "#/components/schemas/IslandDetailView"
+          },
+          "buildings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -8732,6 +8738,22 @@
           }
         }
       },
+      "ActiveConstruction": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completesAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ConstructionOptionItem": {
         "type": "object",
         "properties": {
@@ -8786,6 +8808,50 @@
             "items": {
               "$ref": "#/components/schemas/ConstructionOptionItem"
             }
+          },
+          "residentProgress": {
+            "$ref": "#/components/schemas/ConstructionResidentProgress"
+          },
+          "activeConstruction": {
+            "$ref": "#/components/schemas/ActiveConstruction"
+          }
+        }
+      },
+      "ConstructionResidentProgress": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "requiredPerResident": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "residents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Resident"
+            }
+          }
+        }
+      },
+      "Resident": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "contributed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "remaining": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
