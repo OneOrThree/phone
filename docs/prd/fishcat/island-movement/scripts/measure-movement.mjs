@@ -18,10 +18,11 @@ const USAGE = `사용법(레포 루트에서):
   --users 1,5,15     측정할 동시 사용자 수(쉼표 목록, 반복 가능). 기본 1,5,15 를 차례로
   --duration 60      N 마다 부하 시간(초)
   --interval 2000    사용자마다 intent 간격(ms). 사용자끼리는 간격을 N 등분해 엇갈리고, 각 송신에 0~1틱 지터
-  --gap 130          N 사이 쉬는 시간(초) — Micrometer _max 창(최근 약 2분)이 앞 측정과 겹치지 않게
+  --gap 130          N 사이 쉬는 시간(초) — 앞 N 의 \`_max\`(약 2분 창)가 뒤 N 의 after 스크레이프에 남지 않게 — 부하 60초가 끼어 60초로도 갈리지만 여유로 130
   --island <uuid>    기존 섬 재사용(가입 승인 없는 섬). 생략하면 첫 계정이 새 섬을 만든다
   --state <file>     게스트 계정·섬을 저장/재사용 — 로컬 토큰이 들어가므로 레포 밖 경로로
   --json <file>      원자료(JSON)를 이 파일에 쓴다
+  --render <json>    --json 으로 저장한 파일을 읽어 네트워크 없이 표만 다시 찍는다(측정 재실행 없음)
   --base <url>       기본 http://127.0.0.1:8088 (로컬 nginx)
   --metrics-cmd <s>  Prometheus 본문을 stdout 으로 내는 명령. 기본은 아래(nginx 는 /actuator 를 막는다)
                      docker exec phone-realtime-local wget -qO- http://localhost:9091/actuator/prometheus
@@ -44,6 +45,7 @@ function parseArgs(argv) {
     island: null,
     state: null,
     json: null,
+    render: null,
     nav: REPO_NAV,
     seed: 2250,
     metricsCmd: 'docker exec phone-realtime-local wget -qO- http://localhost:9091/actuator/prometheus',
@@ -63,6 +65,7 @@ function parseArgs(argv) {
     else if (flag === '--island') o.island = val().toLowerCase();
     else if (flag === '--state') o.state = val();
     else if (flag === '--json') o.json = val();
+    else if (flag === '--render') o.render = val();
     else if (flag === '--base') o.base = val().replace(/\/$/, '');
     else if (flag === '--metrics-cmd') o.metricsCmd = val();
     else if (flag === '--nav') o.nav = val();
@@ -145,6 +148,19 @@ function parseProm(text) {
   return m;
 }
 
+// STOMP MESSAGE 프레임을 destination 헤더로 분류한다 — 바이너리 프레임도 헤더는 텍스트라 그대로 읽힌다.
+// 하트비트(단독 "\n")·ERROR·RECEIPT 등 MESSAGE 가 아닌 프레임, destination 이 없거나 다른 토픽인 프레임은 other.
+function frameKind(text) {
+  const nl = text.indexOf('\n');
+  if (nl < 0 || text.slice(0, nl).trim() !== 'MESSAGE') return 'other';
+  const headerEnd = text.indexOf('\n\n');
+  const headers = text.slice(nl + 1, headerEnd < 0 ? undefined : headerEnd);
+  const dest = headers.match(/^destination:(.*)$/m)?.[1]?.trim() ?? '';
+  if (dest.endsWith('/movement/snapshot')) return 'snapshot';
+  if (dest.endsWith('/movement')) return 'movement'; // PathAccepted·Arrived·FullState·MoveRejected
+  return 'other';
+}
+
 function scrape(cmd) {
   try {
     const text = execSync(cmd, { encoding: 'utf8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -158,7 +174,7 @@ function scrape(cmd) {
 // 카운터·count·sum 은 전후 델타, max 는 «뒤» 스크레이프 값(Micrometer 의 최근 창 최댓값).
 // 지표 키 자체가 «뒤» 스크레이프에 없으면(이름 오타·미등록) missingMetrics 에 남긴다 — 「이름이 틀려 조용히 Δ 0」 방지.
 // Micrometer 는 등록한 Counter 를 한 번도 증가시키지 않아도 `…_total 0.0` 으로 내보낸다(2026-10-10 로컬 realtime 스크레이프
-// 실측: overflow·send_failed·recheck_suspended 가 0.0 으로 찍힘) — 그래서 「키 없음」은 곧 이름 오타·미등록이다.
+// 실측(jar 7af884d): overflow·send_failed·recheck_suspended 가 0.0 으로 찍힘) — 그래서 「키 없음」은 곧 이름 오타·미등록이다.
 function metricSummary(before, after) {
   const delta = (k) => (after.get(k) ?? 0) - (before.get(k) ?? 0);
   const missingMetrics = [];
@@ -307,6 +323,7 @@ class Session {
     this.snapIntervals = [];
     this.snapBodyBytes = [];
     this.windowBytes = 0;
+    this.windowBytesByKind = { snapshot: 0, movement: 0, other: 0 };
     this.window = [Infinity, Infinity];
     this.sent = 0;
     this.sendSkipped = 0;
@@ -336,7 +353,10 @@ class Session {
           const ws = new WebSocket(this.wsUrl, ['v12.stomp', 'v11.stomp', 'v10.stomp']);
           ws.addEventListener('message', (ev) => {
             if (!this.inWindow(performance.now())) return;
-            this.windowBytes += typeof ev.data === 'string' ? Buffer.byteLength(ev.data) : (ev.data.byteLength ?? 0);
+            const text = typeof ev.data === 'string' ? ev.data : Buffer.from(ev.data).toString('utf8');
+            const bytes = typeof ev.data === 'string' ? Buffer.byteLength(ev.data) : (ev.data.byteLength ?? Buffer.byteLength(text));
+            this.windowBytes += bytes;
+            this.windowBytesByKind[frameKind(text)] += bytes;
           });
           ws.addEventListener('close', (ev) => {
             if (!this.closing) this.closes.push(`${ev.code} ${ev.reason || '(사유 없음)'}`);
@@ -485,7 +505,14 @@ function summarize(r, o) {
   const intervals = all((s) => s.snapIntervals).sort((a, b) => a - b);
   const subToFull = all((s) => (s.subscribeToFullStateMs === null ? [] : [s.subscribeToFullStateMs])).sort((a, b) => a - b);
   const bodies = all((s) => s.snapBodyBytes);
-  const bps = r.sessions.filter((s) => s.ready).map((s) => s.windowBytes / o.duration);
+  const readySessions = r.sessions.filter((s) => s.ready);
+  const bps = readySessions.map((s) => s.windowBytes / o.duration);
+  const meanOf = (arr) => (arr.length ? arr.reduce((a, v) => a + v, 0) / arr.length : null);
+  const bpsByKind = {
+    snapshot: meanOf(readySessions.map((s) => s.windowBytesByKind.snapshot / o.duration)),
+    movement: meanOf(readySessions.map((s) => s.windowBytesByKind.movement / o.duration)),
+    other: meanOf(readySessions.map((s) => s.windowBytesByKind.other / o.duration)),
+  };
   const merge = (f) =>
     r.sessions.reduce((acc, s) => {
       for (const [k, v] of Object.entries(f(s))) acc[k] = (acc[k] ?? 0) + v;
@@ -512,6 +539,7 @@ function summarize(r, o) {
       over100: intervals.length ? intervals.filter((v) => v >= 100).length / intervals.length : null,
     },
     bytesPerSec: bps.length ? { mean: bps.reduce((a, v) => a + v, 0) / bps.length, min: Math.min(...bps), max: Math.max(...bps) } : null,
+    bytesPerSecByKind: bps.length ? bpsByKind : null,
     snapBodyMean: bodies.length ? bodies.reduce((a, v) => a + v, 0) / bodies.length : null,
     closes: all((s) => s.closes),
     stompErrors: all((s) => s.stompErrors),
@@ -540,11 +568,24 @@ const countText = (obj) =>
   Object.keys(obj).length ? Object.entries(obj).map(([k, v]) => `${k} ×${v}`).join(' · ') : '0건';
 // 지표 키 자체가 없을 때 표시 — Timer·DistributionSummary·Counter 모두 등록 즉시 찍히므로(Counter 는 0.0) 「없음」= 이름 오타·미등록.
 const MISSING_METRIC_TEXT = '지표 없음 — 스크레이프에 키가 없다(이름·등록 확인)';
-const counterText = (c) => (c.missing ? MISSING_METRIC_TEXT : `Δ ${c.value}`);
+// --render 로 missing 추적이 생기기 전의 옛 원자료(카운터가 숫자 하나)를 찍을 때는 그 숫자를 그대로 Δ 로 보여준다.
+const counterText = (c) => (typeof c === 'number' ? `Δ ${c}` : c.missing ? MISSING_METRIC_TEXT : `Δ ${c.value}`);
 
+// name → {콜럼키: text} 로 모아 마지막에 N=1·N=5·N=15(결과 순서) 열로 한 번에 피벗 렌더.
+// n 이 열 목록(cols)에 없는 값(예: 'all')으로 push 되면 모든 열에 같은 텍스트를 보여준다 — N 과 무관한 공통 행용.
 function table(results, o) {
-  const rows = [['항목', '값', 'N', '측정 방법']];
-  const push = (item, value, n, how) => rows.push([item, value, String(n), how]);
+  const cols = results.map((r) => String(r.n));
+  const order = [];
+  const data = new Map();
+  const hows = new Map();
+  const push = (item, value, n, how) => {
+    if (!data.has(item)) {
+      data.set(item, new Map());
+      order.push(item);
+    }
+    data.get(item).set(String(n), value);
+    hows.set(item, how);
+  };
   for (const s of results) {
     if (s.skipped) {
       push('전체', s.skipped, s.n, '—');
@@ -556,7 +597,7 @@ function table(results, o) {
       '실행 유효성(서버 틱 진행)',
       s.tickProgress === null
         ? '판단 불가 — Prometheus 를 못 읽었다'
-        : `${(s.tickProgress * 100).toFixed(1)}%${s.tickProgress < 0.9 ? ' ⚠ 측정 중 서버가 멈췄다(호스트 절전·VM 정지 의심) — 이 N 의 값은 버린다' : ' — 정상'}`,
+        : `${(s.tickProgress * 100).toFixed(1)}% (Δtick ${m.tick.count} / 벽시계 ${(s.elapsedMs / 1000).toFixed(1)}초)${s.tickProgress < 0.9 ? ' ⚠ 측정 중 서버가 멈췄다(호스트 절전·VM 정지 의심) — 이 N 의 값은 버린다' : ' — 정상'}`,
       s.n,
       'movement_tick_seconds Δcount ÷ (전후 스크레이프 사이 벽시계 ÷ 50ms)',
     );
@@ -580,10 +621,22 @@ function table(results, o) {
       s.n,
       '20Hz 기대 50ms. 직전 Snapshot 에 MOVING entity 가 있을 때 다음 Snapshot 까지의 간격(정지 뒤 공백 제외), 전 세션 합산',
     );
+    // min 필드가 없던 옛 원자료(--render)는 세션별 원자료 raw.bytesPerSecBySession 에서 최소·최대를 다시 구한다.
+    const sessionBps = s.raw?.bytesPerSecBySession;
+    const bpsMin = s.bytesPerSec?.min ?? (sessionBps?.length ? Math.min(...sessionBps) : undefined);
+    const bpsMax = s.bytesPerSec?.max ?? (sessionBps?.length ? Math.max(...sessionBps) : undefined);
     push(
       '세션당 수신량',
       s.bytesPerSec
-        ? `평균 ${s.bytesPerSec.mean.toFixed(0)} B/s (≈ ${((s.bytesPerSec.mean * 3600) / 1e6).toFixed(1)} MB/시간) · ${s.bytesPerSec.min === s.bytesPerSec.max ? '세션 간 편차 0' : `세션 최소~최대 ${s.bytesPerSec.min.toFixed(0)}~${s.bytesPerSec.max.toFixed(0)} B/s`} · Snapshot 본문 평균 ${s.snapBodyMean === null ? '—' : s.snapBodyMean.toFixed(0) + ' B'}`
+        ? `평균 ${s.bytesPerSec.mean.toFixed(0)} B/s (≈ ${((s.bytesPerSec.mean * 3600) / 1e6).toFixed(1)} MB/시간)${
+            bpsMin === undefined
+              ? '' // 세션별 원자료조차 없으면 생략
+              : ` · ${bpsMin === bpsMax ? '세션 간 편차 0' : `세션 최소~최대 ${bpsMin.toFixed(0)}~${bpsMax.toFixed(0)} B/s`}`
+          } · Snapshot 본문 평균 ${s.snapBodyMean === null ? '—' : s.snapBodyMean.toFixed(0) + ' B'}${
+          s.bytesPerSecByKind
+            ? ` · Snapshot 프레임 ${s.bytesPerSecByKind.snapshot.toFixed(0)} B/s · movement 프레임 ${s.bytesPerSecByKind.movement.toFixed(0)} B/s · 기타 ${s.bytesPerSecByKind.other.toFixed(0)} B/s`
+            : '' // --render 로 옛 원자료를 찍을 땐 이 값이 없다
+        }`
         : '측정 불가 — 준비된 세션 없음',
       s.n,
       `부하 ${o.duration}초 동안 WebSocket message 바이트(STOMP 헤더·하트비트 포함) ÷ ${o.duration}. 전 세션이 같은 브로드캐스트를 받아 세션 간 편차는 거의 없다`,
@@ -639,14 +692,21 @@ function table(results, o) {
       '전 GC 계열 합산. _max 는 뒤 스크레이프 기준 최근 창',
     );
   }
-  rows.push([
+  push(
     '틱 지연·catch-up·Snapshot 건너뜀·토큰 버킷 드롭',
     '측정 불가 — MovementTicker(delayed·skippedSnapshot·skippedTick)·RoomRuntime(rateLimitedDrop) 카운터가 지표로 노출되지 않는다',
-    '공통',
+    'all',
     '—',
-  ]);
+  );
   const esc = (c) => String(c).replaceAll('|', '\\|');
-  return rows.map((r, i) => `| ${r.map(esc).join(' | ')} |${i === 0 ? '\n|---|---|---|---|' : ''}`).join('\n');
+  const header = ['항목', ...cols.map((c) => `N=${c}`), '측정 방법'];
+  const lines = [header, header.map(() => '---')];
+  for (const name of order) {
+    const byCol = data.get(name);
+    const cells = cols.map((c) => (byCol.has(c) ? byCol.get(c) : byCol.has('all') ? byCol.get('all') : '—'));
+    lines.push([name, ...cells, hows.get(name)]);
+  }
+  return lines.map((r) => `| ${r.map(esc).join(' | ')} |`).join('\n');
 }
 
 function selfCheck(nav) {
@@ -659,11 +719,12 @@ function selfCheck(nav) {
       'movement_tick_seconds_count 10',
       'movement_tick_seconds_sum 0.5',
       'movement_tick_seconds_max 0.07',
+      'movement_outbox_overflow_total 0',
       'jvm_gc_pause_seconds_max{action="end of minor GC",cause="G1 Evacuation Pause",gc="G1 Young Generation"} 0.004',
       'jvm_other 1',
     ].join('\n'),
   );
-  assert.equal(prom.size, 4);
+  assert.equal(prom.size, 5);
   assert.equal(prom.get('jvm_gc_pause_seconds_max{action="end of minor GC",cause="G1 Evacuation Pause",gc="G1 Young Generation"}'), 0.004);
   const s = metricSummary(new Map([['movement_tick_seconds_count', 4], ['movement_tick_seconds_sum', 0.1]]), prom);
   assert.equal(s.tick.count, 6);
@@ -672,10 +733,12 @@ function selfCheck(nav) {
   // 지표 존재 검사 — 스크레이프에 없는 지표는 missing 으로 잡혀야 한다(「이름이 틀려 조용히 Δ 0」 방지).
   assert.equal(s.tick.missing, false);
   assert.equal(s.pathfind.missing, true);
+  // 값이 0 이어도 키가 있으면 missing 이 아니다(Micrometer Counter 는 안 올라도 0.0 을 낸다).
+  assert.equal(s.overflow.missing, false);
+  assert.equal(s.overflow.value, 0);
   assert.deepEqual(
     s.missingMetrics.sort(),
     [
-      'movement_outbox_overflow_total',
       'movement_outbox_reliable_depth',
       'movement_outbox_send_failed_total',
       'movement_pathfind_seconds',
@@ -683,6 +746,10 @@ function selfCheck(nav) {
       'movement_outbox_snapshot_superseded_total',
     ].sort(),
   );
+  // frameKind — MESSAGE + destination 헤더로 snapshot·movement·other 3분기.
+  assert.equal(frameKind('MESSAGE\ndestination:/topic/islands/abc/movement/snapshot\nsubscription:sub-0\ncontent-length:2\n\n{}\u0000'), 'snapshot');
+  assert.equal(frameKind('MESSAGE\ndestination:/topic/islands/abc/movement\nsubscription:sub-1\ncontent-length:2\n\n{}\u0000'), 'movement');
+  assert.equal(frameKind('\n'), 'other'); // 하트비트
   const region = spawnRegion(nav);
   const { cx, cy } = nav.spawns.character;
   assert.ok(region.some((p) => p.x === cx + 0.5 && p.y === cy + 0.5));
@@ -692,6 +759,11 @@ function selfCheck(nav) {
 
 async function main() {
   const o = parseArgs(process.argv.slice(2));
+  if (o.render) {
+    const data = JSON.parse(readFileSync(o.render, 'utf8'));
+    console.log(table(data.results, { duration: data.duration, interval: data.interval, grace: 3, metricsCmd: '(render 모드 — 원 명령 미기록)' }));
+    return;
+  }
   const nav = JSON.parse(readFileSync(o.nav, 'utf8'));
   if (o.selfCheck) return selfCheck(nav);
   if (typeof WebSocket !== 'function') throw new Error('전역 WebSocket 이 없다 — Node 22 이상');
