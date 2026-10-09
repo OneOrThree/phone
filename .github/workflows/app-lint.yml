@@ -6,6 +6,8 @@ on:
     paths:
       - 'app/app-dev/**'
       - '.github/workflows/app-lint.yml'
+      # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
+      - 'docs/prd/fishcat/island-movement/fixtures/**'
   pull_request:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (data-api-ci.dev.yml과 동일 패턴)
     paths:
@@ -14,6 +16,8 @@ on:
       # 검사가 아예 안 돌아, 워크플로 변경이 맞는지 **머지해 봐야** 알 수 있다.
       # 실제로 이 파일의 NODE_OPTIONS 수정이 그 상황에 걸렸다.
       - '.github/workflows/app-lint.yml'
+      # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
+      - 'docs/prd/fishcat/island-movement/fixtures/**'
 
 # 중간 푸시분은 어차피 다음 푸시에 무의미해지는데, 그때까지 러너를 물고 있다
 # (GROMO-1797). 그룹 이름은 다른 파이프라인과 달라야 한다 — 같으면 서로를 막는다.

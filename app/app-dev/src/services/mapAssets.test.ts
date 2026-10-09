@@ -431,6 +431,34 @@ test('(k2) 승격 때 JSON 검증 실패도 bad 표식을 남겨 같은 해시�
   assert.deepEqual(srv.log, ['manifest.json']);
 });
 
+test('(k3) 승격 때 loadNav 검증 실패(비용이 정수가 아님, 8.5)도 bad 표식을 남겨 번들로 강등한다', async () => {
+  const m = freshModule();
+  const { fs } = memFs();
+  const srv = fakeServer();
+  await m.syncMapAssets('home', opts(fs, srv.fetchFn));
+  // SHAPE 의 'traversalCost 전 셀 > 0' 은 8.5 를 통과시키지만 loadNav 는 정수가 아닌 비용을 거부한다.
+  fs.writeText(
+    'maps/home/v1/nav.json',
+    JSON.stringify({ ...VALID_JSON['nav.json'], traversalCost: [8.5] }),
+  );
+  assert.deepEqual(m.promoteMapAssets('home', fs), { kind: 'bundle' });
+  assert.deepEqual(Object.keys(readBad(fs)), ['nav.json']);
+});
+
+test('(k4) 승격 때 loadNav 검증 실패(spawns 가 격자 밖)도 bad 표식을 남겨 번들로 강등한다', async () => {
+  const m = freshModule();
+  const { fs } = memFs();
+  const srv = fakeServer();
+  await m.syncMapAssets('home', opts(fs, srv.fetchFn));
+  // SHAPE 는 entrances/spawns 자체를 보지 않지만 loadNav 는 격자 밖 좌표를 거부한다.
+  fs.writeText(
+    'maps/home/v1/nav.json',
+    JSON.stringify({ ...VALID_JSON['nav.json'], spawns: { dock: { cx: 1, cy: 0 } } }),
+  );
+  assert.deepEqual(m.promoteMapAssets('home', fs), { kind: 'bundle' });
+  assert.deepEqual(Object.keys(readBad(fs)), ['nav.json']);
+});
+
 test('(l) SHAPE 교차 검증: home.map 의 nav·tiles 가 nav.json·tilemap 과 다르면 실패 메시지', () => {
   const ok = () => JSON.parse(JSON.stringify(VALID_JSON));
   assert.equal(validateMapJson(ok()), null);

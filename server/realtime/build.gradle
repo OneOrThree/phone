@@ -87,6 +87,12 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 	finalizedBy jacocoTestReport
+	// movement/nav 테스트가 레포의 다른 곳을 읽는다(앱 nav.json 원본·앱과 공유하는 A* fixture).
+	// 입력으로 알려야 그 파일만 바뀌었을 때 test 가 UP-TO-DATE 로 건너뛰어지지 않는다.
+	inputs.files('../../app/app-dev/src/assets/village-world/v1/nav.json',
+			'../../docs/prd/fishcat/island-movement/fixtures/paths.json')
+			.withPropertyName('movementParityFiles')
+			.withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // ── Checkstyle ────────────────────────────────────────────────────────────
