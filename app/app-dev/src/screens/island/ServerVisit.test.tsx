@@ -3,6 +3,7 @@ import { act, fireEvent, render } from '@testing-library/react-native';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
+import { applyLocalePref } from '@/i18n';
 
 jest.mock('@/screens/island/IslandSheet', () => ({
   IslandSheet: ({ children }: any) => {
@@ -10,6 +11,8 @@ jest.mock('@/screens/island/IslandSheet', () => ({
     return <View>{children}</View>;
   },
 }));
+
+afterEach(() => applyLocalePref('system'));
 
 function env(joined = false) {
   const island = {
@@ -46,6 +49,7 @@ function env(joined = false) {
     replace: jest.fn(),
     go: jest.fn(),
     back: jest.fn(),
+    notify: jest.fn(),
     islands: {
       visit: jest.fn().mockResolvedValue(undefined),
       switchCurrent: jest.fn(),
@@ -109,4 +113,41 @@ test('가입 실패는 방문 화면에 남고 승인이 필요한 응답도 홈
   e.islands.join.mockResolvedValue({ status: 'pending', requestId: 'request' });
   await fireEvent.press(screen.getByText('이 섬에 가입하기'));
   expect(e.reset).not.toHaveBeenCalled();
+});
+
+test('영어 방문 상세에서 상태와 둘러보기·세션 안내를 번역한다', async () => {
+  applyLocalePref('en');
+  const e = env();
+  e.state.onboarded = true;
+  e.state.session = { id: 'focus' } as any;
+  const screen = await render(<ServerVisit e={e} />);
+  await screen.findByText('Residents 3/15 · Visiting');
+  await fireEvent.press(screen.getByText('Explore Island'));
+  expect(e.notify).toHaveBeenCalledWith(
+    'Finish your focus session or break before exploring the island.',
+  );
+  expect(e.replace).not.toHaveBeenCalled();
+  expect(screen.queryByText('섬 둘러보기')).toBeNull();
+});
+
+test.each([false, true])(
+  '영어 온보딩에서 승인제 %s에 맞는 가입 버튼을 표시한다',
+  async (approvalRequired) => {
+    applyLocalePref('en');
+    const e = env();
+    e.state.serverIslands!.visit!.island.approvalRequired = approvalRequired;
+    const screen = await render(<ServerVisit e={e} />);
+    await screen.findByText(approvalRequired ? 'Request to Join' : 'Join This Island');
+  },
+);
+
+test('영어 방문 상세 조회 실패의 오류와 재시도를 번역한다', async () => {
+  applyLocalePref('en');
+  const e = env(true);
+  e.islands.visit.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '연결 실패', 0));
+  const screen = await render(<ServerVisit e={e} />);
+  await screen.findByText("Can't connect to the network. Please check your connection.");
+  await fireEvent.press(screen.getByText('Reload'));
+  await screen.findByText('Go to This Island');
+  expect(e.islands.visit).toHaveBeenCalledTimes(2);
 });

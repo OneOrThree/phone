@@ -542,5 +542,35 @@
     "saveMain": "대표 섬으로 저장하기",
     "enter": "선택한 섬으로 가기",
     "enterJoined": "가입한 섬으로 들어가기"
+  },
+  "islandVisit": {
+    "title": "바다 건너 섬",
+    "loading": "섬 정보를 불러오고 있어요.",
+    "residents": "주민 {{count}}/{{max}}명 · {{status}}",
+    "joined": "소속된 섬",
+    "pending": "승인 대기 중",
+    "visiting": "방문 중",
+    "resident": "주민",
+    "browse": "섬 둘러보기",
+    "sessionBlocksBrowse": "집중이나 휴식을 마친 뒤 섬을 구경해 주세요.",
+    "sceneryUnavailable": "섬 모습을 불러오지 못했어요. 잠시 후 다시 확인해 주세요.",
+    "pendingHint": "가입 신청 대기 중이에요. 신청 취소는 이 섬 마을회관에서 할 수 있어요.",
+    "checkRequest": "가입 신청 확인하기",
+    "writing": "처리 중이에요",
+    "enter": "이 섬으로 이동하기",
+    "requestJoin": "가입 신청",
+    "join": "이 섬에 가입하기",
+    "reload": "다시 불러오기"
+  },
+  "visitorBoard": {
+    "title": "게시판",
+    "readOnly": "방문 중에는 공지와 댓글을 읽을 수 있어요. 작성은 주민만 할 수 있어요.",
+    "formerResident": "떠난 주민",
+    "moreComments": "댓글 더 보기",
+    "commentCount": "댓글 {{count}}개",
+    "empty": "아직 공지가 없어요.",
+    "moreNotices": "공지 더 보기",
+    "loading": "불러오고 있어요.",
+    "reload": "다시 불러오기"
   }
 }

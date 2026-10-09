@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React, { useEffect, useRef, useState } from 'react';
 import { IslandSheet } from '@/screens/island/IslandSheet';
 import { Btn, Group, Row, Txt } from '@/design-system/patterns';
@@ -118,24 +119,28 @@ export function VisitorBoard({
     <IslandSheet
       bg="board"
       sign="bld/notice-board"
-      title="게시판"
+      title={t('visitorBoard.title')}
       tall
       onBack={back}
       onClose={onClose}
     >
-      <Txt kind="meta">방문 중에는 공지와 댓글을 읽을 수 있어요. 작성은 주민만 할 수 있어요.</Txt>
+      <Txt kind="meta">{t('visitorBoard.readOnly')}</Txt>
       {detail ? (
         <>
           <Txt kind="h17">{detail.title}</Txt>
           <Txt>{detail.body}</Txt>
           <Group>
             {detail.comments.map((comment) => (
-              <Row key={comment.id} title={comment.name ?? '떠난 주민'} sub={comment.text} />
+              <Row
+                key={comment.id}
+                title={comment.name ?? t('visitorBoard.formerResident')}
+                sub={comment.text}
+              />
             ))}
           </Group>
           {detail.nextCommentsCursor && (
             <Btn
-              title="댓글 더 보기"
+              title={t('visitorBoard.moreComments')}
               disabled={loading}
               onPress={() => {
                 void read(detail.id, detail.nextCommentsCursor!);
@@ -150,7 +155,7 @@ export function VisitorBoard({
               <Row
                 key={notice.id}
                 title={notice.title}
-                sub={`댓글 ${notice.commentCount}개`}
+                sub={t('visitorBoard.commentCount', { count: notice.commentCount })}
                 disabled={loading}
                 onPress={() => {
                   void read(notice.id);
@@ -158,10 +163,10 @@ export function VisitorBoard({
               />
             ))}
           </Group>
-          {!loading && !error && !page.items.length && <Txt>아직 공지가 없어요.</Txt>}
+          {!loading && !error && !page.items.length && <Txt>{t('visitorBoard.empty')}</Txt>}
           {page.nextCursor && (
             <Btn
-              title="공지 더 보기"
+              title={t('visitorBoard.moreNotices')}
               disabled={loading}
               onPress={() => {
                 void read(undefined, page.nextCursor!);
@@ -170,12 +175,12 @@ export function VisitorBoard({
           )}
         </>
       )}
-      {loading && <Txt>불러오고 있어요.</Txt>}
+      {loading && <Txt>{t('visitorBoard.loading')}</Txt>}
       {!!error && (
         <>
           <Txt accessibilityRole="alert">{error}</Txt>
           <Btn
-            title="다시 불러오기"
+            title={t('visitorBoard.reload')}
             disabled={loading}
             onPress={() => {
               if (failedRead) void read(failedRead.id, failedRead.cursor);

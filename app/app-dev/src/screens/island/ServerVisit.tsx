@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React, { useEffect, useRef, useState } from 'react';
 import { IslandSheet } from '@/screens/island/IslandSheet';
 import { Btn, Group, Row, Txt } from '@/design-system/patterns';
@@ -68,57 +69,67 @@ export function ServerVisit({ e }: { e: any }) {
     <IslandSheet
       bg="tower"
       sign="island/whole"
-      title="바다 건너 섬"
+      title={t('islandVisit.title')}
       onBack={e.back}
       onClose={e.back}
       tall
     >
       {loading ? (
-        <Txt>섬 정보를 불러오고 있어요.</Txt>
+        <Txt>{t('islandVisit.loading')}</Txt>
       ) : (
         data && (
           <>
             <Txt kind="h17">{data.island.name}</Txt>
             <Txt>{data.island.intro}</Txt>
-            <Txt kind="meta">{`주민 ${data.island.memberCount}/${data.island.maxMembers}명 · ${joined ? '소속된 섬' : request?.status === 'pending' ? '승인 대기 중' : '방문 중'}`}</Txt>
+            <Txt kind="meta">
+              {t('islandVisit.residents', {
+                count: data.island.memberCount,
+                max: data.island.maxMembers,
+                status: t(
+                  joined
+                    ? 'islandVisit.joined'
+                    : request?.status === 'pending'
+                      ? 'islandVisit.pending'
+                      : 'islandVisit.visiting',
+                ),
+              })}
+            </Txt>
             <Group>
               {data.members.items.map((member) => (
-                <Row key={member.id} title={member.name ?? '주민'} />
+                <Row key={member.id} title={member.name ?? t('islandVisit.resident')} />
               ))}
             </Group>
             {state.onboarded && !joined && (
               <Btn
-                title="섬 둘러보기"
+                title={t('islandVisit.browse')}
                 disabled={writing || !!error || !canBrowse}
                 onPress={() => {
-                  if (state.session) return e.notify('집중이나 휴식을 마친 뒤 섬을 구경해 주세요.');
+                  if (state.session) return e.notify(t('islandVisit.sessionBlocksBrowse'));
                   e.dispatch({ type: 'SERVER_VISITING', islandId: id });
                   e.replace('visitIsland', id);
                 }}
               />
             )}
             {state.onboarded && !joined && !canBrowse && (
-              <Txt kind="meta">섬 모습을 불러오지 못했어요. 잠시 후 다시 확인해 주세요.</Txt>
+              <Txt kind="meta">{t('islandVisit.sceneryUnavailable')}</Txt>
             )}
             {state.onboarded && !joined && request?.status === 'pending' && (
-              <Txt kind="meta">
-                가입 신청 대기 중이에요. 신청 취소는 이 섬 마을회관에서 할 수 있어요.
-              </Txt>
+              <Txt kind="meta">{t('islandVisit.pendingHint')}</Txt>
             )}
             {(!state.onboarded || joined) &&
               (request?.status === 'pending' ? (
-                <Btn title="가입 신청 확인하기" onPress={() => e.go('approval', id)} />
+                <Btn title={t('islandVisit.checkRequest')} onPress={() => e.go('approval', id)} />
               ) : (
                 <Btn
-                  title={
+                  title={t(
                     writing
-                      ? '처리 중이에요'
+                      ? 'islandVisit.writing'
                       : joined
-                        ? '이 섬으로 이동하기'
+                        ? 'islandVisit.enter'
                         : data.island.approvalRequired
-                          ? '가입 신청'
-                          : '이 섬에 가입하기'
-                  }
+                          ? 'islandVisit.requestJoin'
+                          : 'islandVisit.join',
+                  )}
                   disabled={writing || !!error}
                   onPress={() => {
                     void enter();
@@ -131,7 +142,7 @@ export function ServerVisit({ e }: { e: any }) {
       {!!error && (
         <>
           <Txt accessibilityRole="alert">{error}</Txt>
-          <Btn title="다시 불러오기" onPress={() => setReload((value) => value + 1)} />
+          <Btn title={t('islandVisit.reload')} onPress={() => setReload((value) => value + 1)} />
         </>
       )}
     </IslandSheet>

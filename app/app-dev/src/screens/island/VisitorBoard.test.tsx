@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { ApiError } from '@/services/api/client';
+import { applyLocalePref } from '@/i18n';
 import { getBoard, getNotice, listNotices, createNoticeComment } from '@/services/api/notices';
 
 jest.mock('@/services/api/notices', () => ({
@@ -20,6 +21,7 @@ jest.mock('@/screens/island/IslandSheet', () => ({
 const list = listNotices as jest.Mock;
 const detail = getNotice as jest.Mock;
 beforeEach(() => jest.resetAllMocks());
+afterEach(() => applyLocalePref('system'));
 
 test('방문 섬의 공지·댓글을 읽고 주민 화면 조회와 쓰기 API를 호출하지 않는다', async () => {
   list.mockResolvedValue({
@@ -189,4 +191,36 @@ test('공지 다음 페이지 실패는 기존 목록을 유지하고 같은 커
     ['visitor', 'notice-next'],
     ['visitor', 'notice-next'],
   ]);
+});
+
+test('영어 방문 게시판에서 읽기 안내·댓글 수·페이지 버튼·떠난 주민을 번역한다', async () => {
+  applyLocalePref('en');
+  list.mockResolvedValue({
+    ...firstPage,
+    items: [...firstPage.items, { id: 'n2', title: '두 번째 공지', commentCount: 2 }],
+  });
+  detail.mockResolvedValue({
+    ...firstDetail,
+    comments: [{ ...firstDetail.comments[0], name: null }],
+  });
+  const screen = await render(<VisitorBoard islandId="visitor" onClose={jest.fn()} />);
+  await screen.findByText('1 comment');
+  screen.getByText('2 comments');
+  screen.getByText('Visitors can read notices and comments. Only residents can post.');
+  screen.getByText('More Notices');
+  await fireEvent.press(screen.getByText('첫 공지'));
+  await screen.findByText('Former resident');
+  screen.getByText('More Comments');
+});
+
+test('영어 방문 게시판에서 조회 오류를 재시도하면 빈 상태를 번역한다', async () => {
+  applyLocalePref('en');
+  list
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '연결 실패', 0))
+    .mockResolvedValue({ items: [], nextCursor: null });
+  const screen = await render(<VisitorBoard islandId="visitor" onClose={jest.fn()} />);
+  await screen.findByText("Can't connect to the network. Please check your connection.");
+  await fireEvent.press(screen.getByText('Reload'));
+  await screen.findByText('No notices yet.');
+  expect(screen.queryByText('아직 공지가 없어요.')).toBeNull();
 });

@@ -4726,13 +4726,7 @@ export function RedesignScreens({ e }: any) {
                     tail={<IslandThumb />}
                     chevron={item.islandId !== myIslandId}
                     onPress={
-                      item.islandId === myIslandId
-                        ? undefined
-                        : () =>
-                            run(async () => {
-                              await server.visit(item.islandId);
-                              go('visit', item.islandId);
-                            })
+                      item.islandId === myIslandId ? undefined : () => go('visit', item.islandId)
                     }
                   />
                 ))}

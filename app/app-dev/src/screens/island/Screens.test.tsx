@@ -26,6 +26,10 @@ import {
 import type { IslandSummary } from '@/services/api/islands';
 import { applyLocalePref } from '@/i18n';
 
+const mockRankings = jest.fn();
+jest.mock('@/screens/island/useIslandRankings', () => ({
+  useIslandRankings: (...args: unknown[]) => mockRankings(...args),
+}));
 let mockFontScale = 1;
 jest.mock('@/services/api/account', () => ({
   updateProfile: jest.fn(),
@@ -65,6 +69,7 @@ jest.mock('@/screens/island/useShop', () => ({ useShop: () => mockShopState }));
 const notifyMock = jest.fn();
 const backMock = jest.fn();
 beforeEach(() => {
+  mockRankings.mockReturnValue({ status: 'idle', data: null, error: null, retry: jest.fn() });
   mockUpdateProfile.mockReset();
   mockWithdrawAccount.mockReset();
   mockClearStudyWidget.mockClear();
@@ -2624,3 +2629,44 @@ test.each(['mainIsland', 'currentIsland'] as const)(
     expect(save).toHaveBeenCalledWith('a');
   },
 );
+
+test('전망대 순위에서 방문 상세로 이동하면 상세 조회는 한 번만 실행한다', async () => {
+  const island = islandSummary({ id: 'ranked-island', name: '순위에 오른 섬' });
+  mockRankings.mockReturnValue({
+    status: 'ready',
+    data: {
+      items: [{ islandId: island.id, name: island.name, rank: 1, averageFocusSeconds: 3600 }],
+      myRank: null,
+    },
+  });
+  const visit = jest.fn();
+  const screen = await render(
+    <Harness
+      route="tower"
+      detail={island.id}
+      flow
+      full
+      api={(dispatch: any) => {
+        visit
+          .mockImplementationOnce(async () => {
+            dispatch({
+              type: 'ISLAND_VISIT',
+              visit: {
+                island,
+                buildings: ['hall', 'board'],
+                members: { items: [], nextCursor: null },
+                joinRequest: null,
+              },
+            });
+          })
+          .mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
+        return { visit };
+      }}
+    />,
+  );
+  await fireEvent.press(await screen.findByText('순위에 오른 섬'));
+  await screen.findByText('섬 둘러보기');
+  expect(visit).toHaveBeenCalledTimes(1);
+  expect(visit).toHaveBeenCalledWith(island.id);
+  expect(screen.queryByText('다시 불러오기')).toBeNull();
+});
