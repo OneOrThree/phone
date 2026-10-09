@@ -4,12 +4,14 @@ import com.oneorthree.realtime.movement.nav.NavGrid;
 import com.oneorthree.realtime.movement.nav.NavJsonLoader;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 
 /**
  * 섬(islandId)별 {@link RoomRuntime} 수명 관리. 방은 처음 쓰일 때 생기고, 비면 {@link MovementTicker} 가 지운다.
@@ -21,6 +23,18 @@ import java.util.concurrent.ConcurrentHashMap;
  * 그대로 써서 큐(또는 대기 슬롯)에 넣는다"를 한 번에 한다(codex P1, 2246 보완2).</b> {@link #remove} 의
  * {@code computeIfPresent} 가 같은 키를 잠그므로, 방을 꺼내 들고 있다가 그 사이 지워지는 간격이 없다 —
  * {@link #roomFor} 는 그래서 등록 경로로 쓰면 안 되고 테스트·Ticker 전용이다.
+ *
+ * <p><b>호출자는 이미 소속·인가를 통과한 islandId 만 넘겨야 한다</b>(2246 보완14) — 이 클래스 자체는
+ * 임의의 islandId 로 방을 만들어 준다(검사하지 않는다). 그 앞을 지키는 것은 2247 의 STOMP 경계다 —
+ * SUBSCRIBE 관문과 SEND 의 구독 보유 검사가 비소속 islandId 를 걸러낸 뒤에야 이 클래스의 메서드가
+ * 불린다.
+ *
+ * <p><b>단일 인스턴스 전제</b>(2246 보완14) — ① 방 상태(이 {@link #rooms} 맵과 그 안의 각
+ * {@link RoomRuntime})는 전부 이 JVM 의 메모리일 뿐이다. 인스턴스를 둘로 늘리면 같은 섬이 인스턴스마다
+ * 각자 "그 섬의 방"을 따로 만들어, 사실상 같은 섬에 서로 모르는 방이 두 개 생긴다(틱·actor 상태가
+ * 갈린다). ② 사용자당 토큰 버킷도 {@code RoomRuntime} 안에 있어 (사용자, 섬, 인스턴스) 조합마다
+ * 따로다 — 다중화하면 같은 사용자가 인스턴스를 오가며 버킷을 공유하지 못해 실질 제한이 느슨해질 수
+ * 있다. 수평 확장은 이 전제를 깨므로 별도 설계가 필요하다.
  */
 @Component
 public final class MovementRooms {
@@ -29,17 +43,36 @@ public final class MovementRooms {
     private final Pathfinder pathfinder = new Pathfinder();
     private final RoomRuntime.Listener listener;
     private final Timer pathfindTimer;
+    private final LongSupplier nowNanos;
     private final ConcurrentHashMap<UUID, RoomRuntime> rooms = new ConcurrentHashMap<>();
 
     /**
      * {@code movement.pathfind} 는 방마다 생성자로 넘긴다(2246 보완3, {@code movement.tick} 바로 옆) — A*
-     * 는 그대로 틱 스레드에서 동기 호출되고(N10, codex P1 반박), 호출 수·소요 nanos 만 센다.
+     * 는 그대로 틱 스레드에서 동기 호출되고(N10, codex P1 반박), 호출 수·소요 nanos 만 센다. 운영은 벽시계
+     * {@code System::nanoTime} 을 그대로 쓴다 — 아래 패키지 전용 생성자로 테스트만 가짜 시계를 주입한다
+     * (codex PR 스레드, 2246 보완16).
+     *
+     * <p>{@code @Autowired} 를 명시한 이유: 생성자가 둘이 되어(패키지 전용 테스트용 생성자 추가) 더 이상
+     * "생성자 하나뿐이면 자동 추론" 규칙이 성립하지 않는다 — 명시하지 않으면 Spring 이 둘 중 어느 쪽도
+     * 고르지 못해 기본 생성자를 찾다가 부팅이 깨진다. {@link com.oneorthree.realtime.block.client.BlockClient}
+     * 와 같은 패턴.
      */
+    @Autowired
     public MovementRooms(RoomRuntime.Listener listener, MeterRegistry meterRegistry) {
+        this(listener, meterRegistry, System::nanoTime);
+    }
+
+    /**
+     * 패키지 전용 — 테스트가 퇴장 기억(Departed) 만료 판정의 벽시계를 주입하기 위함(codex PR 스레드, 2246
+     * 보완16). {@link #ensure} 가 이 {@code nowNanos} 를 그대로 {@link RoomRuntime} 생성자에 넘겨, 같은
+     * {@code MovementRooms} 가 만드는 모든 방이 같은 시계를 공유한다.
+     */
+    MovementRooms(RoomRuntime.Listener listener, MeterRegistry meterRegistry, LongSupplier nowNanos) {
         this.listener = listener;
         this.pathfindTimer = Timer.builder("movement.pathfind")
                 .description("방 하나의 A* 경로탐색(pathfinder.find) 1회 호출 시간 — 2250 틱 p99 판단용")
                 .register(meterRegistry);
+        this.nowNanos = nowNanos;
     }
 
     public void join(UUID islandId, UUID userId, String sessionKey) {
@@ -118,7 +151,7 @@ public final class MovementRooms {
 
     private RoomRuntime ensure(UUID islandId, RoomRuntime room) {
         return room != null ? room
-                : new RoomRuntime(islandId, nav, pathfinder, MovementRules.DEFAULT, listener, System::nanoTime,
+                : new RoomRuntime(islandId, nav, pathfinder, MovementRules.DEFAULT, listener, nowNanos,
                         pathfindTimer);
     }
 }

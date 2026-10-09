@@ -190,6 +190,11 @@ class RoomRuntimeTest {
         return grid.walkable(grid.index(WorldCoords.worldToCell(x, y)));
     }
 
+    /** 테스트 전용 — {@code RoomRuntime.round2()} 와 같은 반올림(비공개라 복제, 계약 §0, 2246 보완14). */
+    private static double round2(double v) {
+        return Math.round(v * 100) / 100.0;
+    }
+
     // ── 티켓 2: commandSeq 최신만 채택 · 범위 밖/NaN 거절 ────────────────
 
     @Test
@@ -422,15 +427,20 @@ class RoomRuntimeTest {
         }
         assertThat(state).isNotNull();
         assertThat(state.state()).isEqualTo(MotionState.IDLE);
-        assertThat(state.x()).isEqualTo(1.5);
-        assertThat(state.y()).isEqualTo(0.5);
+        // raw(반올림 전) 좌표로 오차 없이 검증한다 — round2() 를 거친 값만 보면 셀 경계에 걸리지 않는
+        // goal 에서는 오버슈트가 반올림에 가려질 수 있다(2246 보완14).
+        MovementEvent.Point raw = room.rawPositionOf(userId);
+        assertThat(raw.x()).isEqualTo(1.5);
+        assertThat(raw.y()).isEqualTo(0.5);
+        assertThat(state.x()).as("송신값(FullState)은 round2(raw) 다").isEqualTo(round2(raw.x()));
+        assertThat(state.y()).isEqualTo(round2(raw.y()));
         assertThat(listener.of(MovementEvent.Arrived.class)).hasSize(1);
 
         for (int i = 0; i < 3; i++) {
             room.tick(++tick);
-            MovementEvent.ActorState after = actorIn(room.fullStateOf(), userId);
-            assertThat(after.x()).isEqualTo(1.5);
-            assertThat(after.y()).isEqualTo(0.5);
+            MovementEvent.Point afterRaw = room.rawPositionOf(userId);
+            assertThat(afterRaw.x()).isEqualTo(1.5);
+            assertThat(afterRaw.y()).isEqualTo(0.5);
         }
         assertThat(listener.of(MovementEvent.Arrived.class)).as("도착 뒤에도 Arrived 가 더 나지 않는다").hasSize(1);
     }
@@ -767,6 +777,82 @@ class RoomRuntimeTest {
                 .as("leave·예외와 무관하게 정상 세션의 accept 도 그대로 처리된다").hasSize(1);
     }
 
+    // ── codex P2(2246 보완13): 경로 탐색 예외는 명령 번호를 소비하지 않는다 ──────
+
+    @Test
+    @DisplayName("pathfinder 예외로 응답 없이 끝난 commandSeq 는 소비되지 않아, 같은 seq 를 정상 goal 로"
+            + " 재시도하면 STALE_COMMAND 가 아니라 PathAccepted 로 처리된다(2246 보완13)")
+    void commandSeqSurvivesPathfinderExceptionForRetry() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = new RoomRuntime(ISLAND, grid, new ThrowingForGoalPathfinder(9.5, 9.5),
+                MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.tick(1);
+
+        room.accept(userId, "s1", new MoveIntent(3, 1, 9.5, 9.5)); // 예외 goal — 응답 없이 끝난다.
+        room.tick(2); // 예외가 drain() 밖으로 새면 이 호출 자체가 테스트를 실패시킨다.
+
+        assertThat(listener.of(MovementEvent.PathAccepted.class)).as("예외라 응답이 전혀 없다").isEmpty();
+        assertThat(listener.of(MovementEvent.MoveRejected.class)).as("예외라 거절 응답도 없다").isEmpty();
+        assertThat(actorIn(room.fullStateOf(), userId).lastCommandSeq())
+                .as("번호가 확정되지 않아 join 때 그대로 0 이어야 한다").isEqualTo(0L);
+
+        room.accept(userId, "s1", new MoveIntent(3, 1, 5.5, 5.5)); // 같은 seq 3 을 정상 goal 로 재시도.
+        room.tick(3);
+
+        assertThat(listener.of(MovementEvent.MoveRejected.class)).as("재시도가 STALE_COMMAND 로 밀리면 안 된다")
+                .isEmpty();
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        assertThat(accepted).as("재시도가 정상 수락돼야 한다").hasSize(1);
+        assertThat(accepted.get(0).commandSeq()).isEqualTo(3L);
+    }
+
+    // ── codex P2(2246 보완13): drain() 의 FIFO — 입장 전 intent 는 입장과 함께 죽는다 ──
+
+    @Test
+    @DisplayName("같은 틱에 accept 가 join 보다 먼저 들어오면, 입장 전 intent 는 입장과 함께 죽어 새"
+            + " actor 는 IDLE 로 남고 PathAccepted 가 나가지 않는다(2246 보완13)")
+    void acceptBeforeJoinInSameBatchIsDiscardedWithTheJoin() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5)); // join 보다 먼저 큐에 들어간다.
+        room.join(userId, "s1");
+        room.tick(1);
+
+        assertThat(listener.of(MovementEvent.PathAccepted.class))
+                .as("입장 전 intent 는 적용되지 않아야 한다").isEmpty();
+        MovementEvent.ActorState state = actorIn(room.fullStateOf(), userId);
+        assertThat(state).isNotNull();
+        assertThat(state.state()).as("새 actor 는 유령 명령 없이 IDLE 로 남는다").isEqualTo(MotionState.IDLE);
+    }
+
+    // ── codex 프리-PR 13라운드 P2(2246 보완15): 멱등 중복 join 은 입장이 아니라 대기 intent 를 지우면 안 된다 ──
+
+    @Test
+    @DisplayName("이미 입장한 세션에 accept(seq 1) 뒤 같은 세션의 중복 join 이 같은 틱에 오면, 멱등 무시라"
+            + " 입장이 아니므로 이미 합쳐진 intent 가 지워지지 않고 PathAccepted 로 수락된다(codex 프리-PR"
+            + " 13라운드 P2, 2246 보완15)")
+    void duplicateJoinAfterAcceptInSameBatchDoesNotDiscardMergedIntent() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1"); // 첫 입장.
+        room.tick(1);
+
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5)); // 같은 틱에 먼저 큐에 들어간 intent.
+        room.join(userId, "s1"); // 같은 세션의 중복 join(멱등 무시) — 입장이 아니다.
+        room.tick(2);
+
+        assertThat(listener.of(MovementEvent.PathAccepted.class))
+                .as("멱등 무시된 중복 join 이 이미 합쳐진 intent 를 지우면 안 된다").hasSize(1);
+    }
+
     // ── N23: 퇴장 위치 기억 · 같은 셀 탭 ──────────────────────────────
 
     @Test
@@ -804,7 +890,9 @@ class RoomRuntimeTest {
     @DisplayName("퇴장 위치 기억: 10분이 지나면 스폰에서 다시 시작한다(N23)")
     void rejoinAfterTenMinutesSpawnsAgain() {
         NavGrid grid = openGrid(10, 10);
-        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener());
+        // 만료 판정이 serverTick 이 아니라 벽시계 나노초 기준이라(2246 보완16) 주입 시계를 직접 전진시킨다.
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
         UUID userId = UUID.randomUUID();
         long tick = 0;
         room.join(userId, "s1");
@@ -820,10 +908,10 @@ class RoomRuntimeTest {
 
         room.leave("s1");
         room.tick(++tick);
-        long leftAtTick = tick;
 
         room.join(userId, "s2");
-        room.tick(leftAtTick + MovementRules.DEFAULT.ticksFor(10 * 60 * 1000L) + 1); // 10분 창을 지난 뒤.
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // DEPARTED_MEMORY_MS(10분) 를 넘긴다.
+        room.tick(++tick);
 
         MovementEvent.ActorState rejoined = actorIn(room.fullStateOf(), userId);
         assertThat(rejoined.x()).isEqualTo(0.5);
@@ -887,10 +975,15 @@ class RoomRuntimeTest {
                 room.tick(++tick);
                 sampledTicks++;
                 MovementEvent.ActorState state = actorIn(room.fullStateOf(), userId);
-                assertThat(isWalkable(grid, state.x(), state.y()))
-                        .as("입구 %s 로 가는 중 틱 %d 위치 (%f,%f) 가 비통행 셀", entrance.getKey(), tick, state.x(),
-                                state.y())
+                // raw(반올림 전) 위치로 통행 판정한다 — round2() 로 반올림한 값은 셀 경계 바로 바깥으로
+                // 밀려 비통행처럼 보일 수 있다(2246 보완14).
+                MovementEvent.Point raw = room.rawPositionOf(userId);
+                assertThat(isWalkable(grid, raw.x(), raw.y()))
+                        .as("입구 %s 로 가는 중 틱 %d raw 위치 (%f,%f) 가 비통행 셀", entrance.getKey(), tick,
+                                raw.x(), raw.y())
                         .isTrue();
+                assertThat(state.x()).as("송신값(FullState)은 round2(raw) 다").isEqualTo(round2(raw.x()));
+                assertThat(state.y()).isEqualTo(round2(raw.y()));
                 arrived = state.state() == MotionState.IDLE;
             }
             assertThat(arrived).as("입구 %s 도착 못함(가드 초과)", entrance.getKey()).isTrue();
@@ -967,6 +1060,83 @@ class RoomRuntimeTest {
     }
 
     @Test
+    @DisplayName("실제 번들 nav: 이동 도중(셀 경계 아닌 raw 위치) 새 intent 를 받아도 매 틱 raw 좌표가"
+            + " 통행 셀 안이고, 새 경로의 첫 waypoint 선분을 0.01 간격으로 샘플해도 전부 통행 셀이다"
+            + "(2246 보완13 — pathfinder.find 의 from 이 셀 중심이 아닌 raw 위치로 불리는 경로)")
+    void rerouteMidFlightFromRawPositionStaysWalkable() {
+        NavGrid grid = NavJsonLoader.loadBundled();
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+
+        List<Cell> entranceCells = new ArrayList<>(grid.entrances().values());
+        var firstGoal = WorldCoords.cellCenter(entranceCells.get(0));
+        var secondGoal = entranceCells.size() > 1
+                ? WorldCoords.cellCenter(entranceCells.get(1))
+                : WorldCoords.cellCenter(grid.spawns().get("character"));
+
+        room.accept(userId, "s1", new MoveIntent(1, 1, firstGoal.x(), firstGoal.y()));
+        // 도착 전 중간까지만 전진시켜 raw 위치(셀 경계 아닌 지점)에 세운다 — 틱 보폭이 셀 크기의 배수가
+        // 아니라 몇 틱만 돌려도 보통 셀 중심이 아닌 위치에 멈춘다.
+        MovementEvent.ActorState midFlight = null;
+        for (int i = 0; i < 3; i++) {
+            room.tick(++tick);
+            midFlight = actorIn(room.fullStateOf(), userId);
+            // raw(반올림 전) 위치로 통행 판정한다(2246 보완14) — round2() 값은 셀 경계 바로 바깥으로
+            // 밀려 비통행처럼 보일 수 있다.
+            MovementEvent.Point midFlightRaw = room.rawPositionOf(userId);
+            assertThat(isWalkable(grid, midFlightRaw.x(), midFlightRaw.y()))
+                    .as("재경로 전 전진 중 틱 %d raw 위치 (%f,%f) 가 비통행 셀", tick, midFlightRaw.x(),
+                            midFlightRaw.y())
+                    .isTrue();
+            assertThat(midFlight.x()).as("송신값(FullState)은 round2(raw) 다").isEqualTo(round2(midFlightRaw.x()));
+            assertThat(midFlight.y()).isEqualTo(round2(midFlightRaw.y()));
+        }
+        assertThat(midFlight.state()).as("아직 도착 전이어야 재경로 의미가 있다").isEqualTo(MotionState.MOVING);
+
+        room.accept(userId, "s1", new MoveIntent(2, 1, secondGoal.x(), secondGoal.y())); // 이동 도중 새 intent.
+        room.tick(++tick); // drain() 의 processAccept 가 raw 위치(from)에서 A* 를 다시 돈다.
+
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        MovementEvent.PathAccepted reroute = accepted.get(accepted.size() - 1);
+        assertThat(reroute.commandSeq()).as("재경로 intent 가 실제로 채택됐다").isEqualTo(2L);
+        assertThat(reroute.waypoints()).as("다른 목적지라 waypoints 가 있어야 한다").isNotEmpty();
+
+        boolean arrived = false;
+        int guard = 0;
+        while (!arrived && guard++ < 3000) {
+            room.tick(++tick);
+            MovementEvent.ActorState state = actorIn(room.fullStateOf(), userId);
+            // raw(반올림 전) 위치로 통행 판정한다(2246 보완14).
+            MovementEvent.Point raw = room.rawPositionOf(userId);
+            assertThat(isWalkable(grid, raw.x(), raw.y()))
+                    .as("재경로 뒤 틱 %d raw 위치 (%f,%f) 가 비통행 셀", tick, raw.x(), raw.y()).isTrue();
+            assertThat(state.x()).as("송신값(FullState)은 round2(raw) 다").isEqualTo(round2(raw.x()));
+            assertThat(state.y()).isEqualTo(round2(raw.y()));
+            arrived = state.state() == MotionState.IDLE;
+        }
+        assertThat(arrived).as("재경로 목적지 도착 못함(가드 초과)").isTrue();
+
+        // 새 경로의 첫 waypoint 선분 — raw 위치에서 출발하는 유일한 구간이라 0.01 간격으로 촘촘히 샘플한다.
+        MovementEvent.Point start = reroute.start();
+        MovementEvent.Point firstWaypoint = reroute.waypoints().get(0);
+        double dx = firstWaypoint.x() - start.x();
+        double dy = firstWaypoint.y() - start.y();
+        double length = Math.hypot(dx, dy);
+        int steps = (int) Math.ceil(length / 0.01);
+        for (int i = 0; i <= steps; i++) {
+            double fraction = steps == 0 ? 0.0 : Math.min(1.0, i * 0.01 / length);
+            double x = start.x() + dx * fraction;
+            double y = start.y() + dy * fraction;
+            assertThat(isWalkable(grid, x, y))
+                    .as("재경로 첫 선분의 %.4f 지점 (%f,%f) 가 비통행 셀", fraction, x, y).isTrue();
+        }
+    }
+
+    @Test
     @DisplayName("MoveIntent 은 commandSeq·navRevision·goalX·goalY 네 필드뿐이다 — 출발점을 클라이언트가 보낼 수 없다")
     void moveIntentHasNoClientSuppliedStartField() {
         RecordComponent[] components = MoveIntent.class.getRecordComponents();
@@ -1038,13 +1208,69 @@ class RoomRuntimeTest {
         assertThat(arrivedState.waypoints()).as("도착해 IDLE 이면 빈 리스트다").isEmpty();
     }
 
+    // ── codex 프리-PR 14라운드 P2: 2246 보완17 — FullState·Snapshot 의 segmentIndex 는 같은 원래 경로 기준 ──
+
+    @Test
+    @DisplayName("걷는 actor 가 waypoint 인덱스 k 를 지난 뒤 새 세션이 requestFullState 하면 FullState 의"
+            + " segmentIndex==k·waypoints 길이==원래 경로−k 이고, 같은 틱 Snapshot 의 segmentIndex 는 k"
+            + " 이상이다 — 둘 다 원래 경로 기준을 공유해야 앱이 snapshot.segmentIndex-fullState.segmentIndex 로"
+            + " 남은 waypoints 에 맞출 수 있다(codex 프리-PR 14라운드 P2, 2246 보완17)")
+    void fullStateSegmentIndexSharesSameOriginalPathBasisAsSnapshot() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 0.5)); // 스폰에서 5칸 직선 — waypoint 5개(index 0..4).
+
+        int k = 2;
+        for (int i = 0; i < 4; i++) {
+            room.tick(++tick); // stepPerTick(~0.549) × 4 ≈ 2.198 — segmentIndex 가 k=2 를 지난 상태가 된다.
+        }
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        List<MovementEvent.Point> fullPath = accepted.get(accepted.size() - 1).waypoints();
+        MovementEvent.ActorState beforeResync = actorIn(room.fullStateOf(), userId);
+        assertThat(beforeResync.state()).as("아직 도착 전이어야 segmentIndex 가 중간값 k 로 고정된다")
+                .isEqualTo(MotionState.MOVING);
+        assertThat(beforeResync.segmentIndex()).as("4틱 뒤 segmentIndex 는 정확히 k=2 여야 한다").isEqualTo(k);
+
+        room.join(userId, "s2"); // 재접속(세션 교체) — 위치·경로는 유지된다(N6/N20).
+        room.requestFullState("s2"); // 재동기화 요청 — 같은 배치(FIFO)로 join 뒤, 이번 틱 전진보다 먼저 처리된다.
+        room.tick(++tick);
+
+        List<MovementEvent.FullState> fullStates = listener.of(MovementEvent.FullState.class);
+        MovementEvent.FullState resynced = fullStates.stream()
+                .filter(fs -> Target.only("s2").equals(listener.targetOf(fs)))
+                .reduce((first, last) -> last)
+                .orElseThrow();
+        MovementEvent.ActorState resyncedActor = actorIn(resynced, userId);
+
+        assertThat(resyncedActor.segmentIndex())
+                .as("새 세션 FullState 의 segmentIndex 는 걷던 actor 가 지나온 원래 경로 인덱스(k)와 같아야 한다")
+                .isEqualTo(k);
+        assertThat(resyncedActor.waypoints())
+                .as("남은 waypoints 는 원래 경로의 k 번째 점부터 — 길이는 원래 경로 − k 다")
+                .containsExactlyElementsOf(fullPath.subList(k, fullPath.size()));
+
+        MovementEvent.Snapshot snapshotThisTick = listener.snapshots.get(listener.snapshots.size() - 1);
+        MovementEvent.Entity entityThisTick = entityIn(snapshotThisTick, userId);
+        assertThat(entityThisTick.segmentIndex())
+                .as("같은 틱 Snapshot 의 segmentIndex(원래 경로 기준)는 FullState 의 segmentIndex(k) 이상이어야"
+                        + " 한다 — 이 틱의 이동 전진은 drain() 뒤에 일어나 FullState 보다 늦게 반영되기 때문이다")
+                .isGreaterThanOrEqualTo(k);
+    }
+
     // ── codex P2: 만료된 퇴장 기억 정리(N23 prune) ────────────────────────
 
     @Test
     @DisplayName("다른 actor 가 남아 방이 살아 있어도 만료된 퇴장 기억은 틱마다 정리된다(N23 prune)")
     void departedMemoryIsPrunedEvenWhenAnotherActorKeepsRoomAlive() {
         NavGrid grid = openGrid(10, 10);
-        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener());
+        // 만료 판정이 serverTick 이 아니라 벽시계 나노초 기준이라(2246 보완16) 주입 시계를 직접 전진시킨다.
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
         UUID staying = UUID.randomUUID();
         UUID leaving = UUID.randomUUID();
         long tick = 0;
@@ -1057,13 +1283,54 @@ class RoomRuntimeTest {
         assertThat(room.departedCount()).as("퇴장 직후엔 기억이 남아 있다").isEqualTo(1);
         assertThat(room.isRemovable()).isFalse();
 
-        long ticksToExpire = MovementRules.DEFAULT.ticksFor(10 * 60 * 1000L) + 1; // 10분 창을 지난 뒤.
-        for (long i = 0; i < ticksToExpire; i++) {
-            room.tick(++tick);
-        }
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // DEPARTED_MEMORY_MS(10분) 를 넘긴다.
+        room.tick(++tick); // 단 한 틱만 더 돌려도 매 틱 prune 이 만료를 정리해야 한다.
 
         assertThat(room.departedCount()).as("만료된 퇴장 기억은 다른 actor 가 있어도 정리돼야 한다").isEqualTo(0);
         assertThat(room.isRemovable()).as("stay 세션의 actor 가 남아 있으니 방은 여전히 제거 대상이 아니다").isFalse();
+    }
+
+    // ── codex PR 스레드(2246 보완16): catch-up 상한 때문에 serverTick 차이가 작아도 만료는 벽시계 기준 ──
+
+    @Test
+    @DisplayName("MovementTicker 의 catch-up 상한(20틱) 때문에 serverTick 차이가 21밖에 안 나도, 벽시계로"
+            + " 실제 10분이 넘게 지났으면 퇴장 기억은 만료돼 재입장은 떠난 자리가 아니라 스폰에서 시작한다"
+            + "(codex PR 스레드, 2246 보완16 — serverTick 기준이면 이 경우 만료를 놓쳐 재입장자가 만료됐어야"
+            + " 할 자리로 돌아간다)")
+    void departedExpiresByWallClockEvenWhenCatchUpCapKeepsServerTickDeltaAt21() {
+        NavGrid grid = openGrid(10, 10);
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+        room.accept(userId, "s1", new MoveIntent(1, 1, 1.5, 0.5)); // 스폰과 다른 곳으로 이동해 둔다.
+        MovementEvent.ActorState state;
+        int guard = 0;
+        do {
+            room.tick(++tick);
+            state = actorIn(room.fullStateOf(), userId);
+        } while (state.state() != MotionState.IDLE && ++guard < 10);
+        assertThat(state.x()).as("스폰과 달라야 \"떠난 자리\" 검증이 의미 있다").isNotEqualTo(0.5);
+
+        room.leave("s1");
+        room.tick(++tick);
+
+        // GC·호스트 정지로 벽시계는 10분 넘게 밀렸지만, MovementTicker.MAX_CATCH_UP_TICKS(20) 상한 때문에
+        // 실제 운영에서는 serverTick 이 그 정지 구간 동안 20(+경계 1틱)만 올라간다 — 여기서는 그 결과만
+        // RoomRuntime.tick() 호출 21번으로 직접 재현한다(MovementTicker 는 건드리지 않는다).
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // 벽시계는 DEPARTED_MEMORY_MS(10분)를 넘긴다.
+        for (int i = 0; i < 21; i++) {
+            room.tick(++tick); // serverTick 차이는 21뿐 — 틱 기준이었다면 아직 만료 전(12,000틱 필요)이다.
+        }
+        room.join(userId, "s2");
+        room.tick(++tick);
+
+        MovementEvent.ActorState rejoined = actorIn(room.fullStateOf(), userId);
+        assertThat(rejoined.x()).as("벽시계로 이미 만료됐으니 떠난 자리가 아니라 스폰에서 시작해야 한다")
+                .isEqualTo(0.5);
+        assertThat(rejoined.y()).isEqualTo(0.5);
     }
 
     // ── codex P2: 2246 보완3 — 퇴장한 세션엔 FullState 를 보내지 않는다 ────
@@ -1336,6 +1603,31 @@ class RoomRuntimeTest {
         room.accept(userId, "s2", new MoveIntent(21, 1, 5.5, 5.5)); // 소진된 버킷 그대로 — 거절돼야 한다.
         assertThat(room.rateLimitedDropCount())
                 .as("교체가 버킷을 리셋했다면 이 호출은 통과했을 것이다").isEqualTo(1L);
+    }
+
+    // ── codex 프리-PR 12라운드 P2(2246 보완14): accept 의 compute 와 prune 의 computeIfPresent 원자화 ──
+
+    @Test
+    @DisplayName("만료 직전 버킷을 accept 로 되살린 직후 같은 now 로 prune(틱) 해도 지워지지 않는다 — 판정과"
+            + " 제거를 같은 키의 compute 안에서 한 번에 하는 원자화 보호(2246 보완14). 실제 두 스레드 경합"
+            + " 재현은 Bucket 이 private final 이라 후크를 심을 수 없어 결정적으로 쓸 수 없다 — 단일"
+            + " 스레드 검증으로 대체한다(보고 참고)")
+    void bucketTouchedByAcceptSurvivesImmediatePruneAtTheSameClockValue() {
+        NavGrid grid = openGrid(10, 10);
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
+        UUID ghostUserId = UUID.randomUUID();
+
+        room.accept(ghostUserId, "s9", new MoveIntent(1, 1, 5.5, 5.5)); // 버킷 생성 — lastTouchedNanos=0.
+        assertThat(room.bucketCount()).isEqualTo(1);
+
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // DEPARTED_MEMORY_MS(10분)를 넘겨 — 안 건드리면 다음 prune 이 지운다.
+        room.accept(ghostUserId, "s9", new MoveIntent(2, 1, 5.5, 5.5)); // 같은 now 에 되살린다 — lastTouchedNanos=now.
+        room.tick(1); // 같은 now 로 바로 prune — 방금 되살린 버킷을 지우면 안 된다.
+
+        assertThat(room.bucketCount())
+                .as("방금 compute 로 되살린 버킷은 같은 now 의 prune(computeIfPresent) 에 지워지면 안 된다")
+                .isEqualTo(1);
     }
 
     // ── codex P2: 2246 보완9 — 밖으로 나가는 좌표는 전부 계약 정밀도(0.01) ────────

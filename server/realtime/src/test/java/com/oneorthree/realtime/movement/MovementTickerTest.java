@@ -11,7 +11,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,6 +51,27 @@ class MovementTickerTest {
         public void onEvent(UUID islandId, MovementEvent event, Target target) {
             if (callCount.getAndIncrement() == 0) {
                 throw new AssertionError("runTick 최상위 Throwable 가드 재현(2246 보완11)");
+            }
+        }
+
+        @Override
+        public void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot) {
+        }
+    }
+
+    /**
+     * 방마다 처음 onEvent 가 불릴 때(섬별 최초 1회) {@link AssertionError} 를 던지는 Listener(2246
+     * 보완13) — 여러 방을 등록해도 {@code rooms.rooms()} 의 순회 순서와 무관하게 "앞서 처리된 방의
+     * Error 가 같은 사이클의 다른 방 처리를 막는지" 를 검증할 수 있다 — 어느 방이 먼저 돌든 그 방도
+     * 자기 차례에 한 번은 던진다.
+     */
+    private static final class ThrowingOncePerIslandListener implements RoomRuntime.Listener {
+        private final Set<UUID> thrown = ConcurrentHashMap.newKeySet();
+
+        @Override
+        public void onEvent(UUID islandId, MovementEvent event, Target target) {
+            if (thrown.add(islandId)) {
+                throw new AssertionError("방 단위 Throwable 가드 재현(2246 보완13)");
             }
         }
 
@@ -201,9 +224,14 @@ class MovementTickerTest {
     }
 
     @Test
-    @DisplayName("퇴장 기억이 10분을 넘기면 비워지고 방도 MovementRooms 에서 제거된다(N23, codex P2)")
+    @DisplayName("퇴장 기억이 10분을 넘기면 비워지고 방도 MovementRooms 에서 제거된다(N23, codex P2, 2246 보완16"
+            + " — 가짜 벽시계를 직접 전진시켜 검증한다)")
     void roomIsRemovedFromRoomsAfterDepartedMemoryExpires() {
-        MovementRooms rooms = new MovementRooms(new NoopListener(), new SimpleMeterRegistry());
+        // 만료 판정이 serverTick 차이 대신 벽시계 나노초로 바뀌어(2246 보완16) 틱 수천 번을 돌릴 필요가
+        // 없다 — 가짜 시계(nanos)를 주입한 MovementRooms 로 만든 방은 이 배열 하나를 공유해 직접 전진시킬
+        // 수 있다.
+        long[] nanos = {0L};
+        MovementRooms rooms = new MovementRooms(new NoopListener(), new SimpleMeterRegistry(), () -> nanos[0]);
         UUID islandId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         RoomRuntime room = rooms.roomFor(islandId);
@@ -212,13 +240,11 @@ class MovementTickerTest {
         room.join(userId, "s1");
         ticker.tickAllRooms();
         room.leave("s1");
-        ticker.tickAllRooms(); // 퇴장 — departed 기록, 방은 아직 유지된다.
+        ticker.tickAllRooms(); // 퇴장 — departed 기록(이 시점의 nanos[0]), 방은 아직 유지된다.
         assertThat(rooms.rooms()).containsKey(islandId);
 
-        long ticksToExpire = MovementRules.DEFAULT.ticksFor(10 * 60 * 1000L) + 1; // 10분 창을 지난 뒤.
-        for (long i = 0; i < ticksToExpire; i++) {
-            ticker.tickAllRooms();
-        }
+        nanos[0] += TimeUnit.MINUTES.toNanos(10) + 1; // 10분 창을 1ns 넘겨 벽시계를 전진시킨다.
+        ticker.tickAllRooms(); // 한 틱 안에서 prune(만료) 과 isRemovable 재확인·제거가 함께 끝난다.
 
         assertThat(rooms.rooms()).as("퇴장 기억이 만료되면 아무도 없는 방도 제거돼야 한다").doesNotContainKey(islandId);
     }
@@ -303,5 +329,65 @@ class MovementTickerTest {
 
         assertThat(actorIn(rooms.roomFor(islandY).fullStateOf(), userY))
                 .as("Error 뒤에도 다음 runTick 이 계속 돌아야 새 join 이 반영된다").isNotNull();
+    }
+
+    // ── codex P2(2246 보완13): tickAllRooms 의 방 단위 가드를 Throwable 로 넓힌다 ──────
+
+    @Test
+    @DisplayName("runTick: 같은 사이클에서 먼저 처리된 방이 Error 를 던져도 그 뒤 방은 같은 호출 안에서"
+            + " 그대로 틱을 받는다(2246 보완13 — 기존 테스트는 다음 호출만 확인했다)")
+    void errorFromOneRoomStillLetsOtherRoomsTickInTheSameCycle() {
+        ThrowingOncePerIslandListener listener = new ThrowingOncePerIslandListener();
+        MovementRooms rooms = new MovementRooms(listener, new SimpleMeterRegistry());
+        MovementTicker ticker = new MovementTicker(rooms, new SimpleMeterRegistry());
+
+        UUID islandA = UUID.randomUUID();
+        UUID userA = UUID.randomUUID();
+        UUID islandB = UUID.randomUUID();
+        UUID userB = UUID.randomUUID();
+        rooms.join(islandA, userA, "sa");
+        rooms.join(islandB, userB, "sb"); // 두 방 다 join 대기 — 어느 쪽이 먼저 돌든 각자 처음 emit 에서 던진다.
+
+        ticker.runTick(); // 한 번만 — 예외가 밖으로 새면 이 호출 자체가 테스트를 실패시킨다.
+
+        assertThat(actorIn(rooms.roomFor(islandA).fullStateOf(), userA))
+                .as("섬 A 가 먼저 돌았든 나중에 돌았든 이번 한 번의 호출에서 join 이 반영돼야 한다").isNotNull();
+        assertThat(actorIn(rooms.roomFor(islandB).fullStateOf(), userB))
+                .as("섬 B 도 마찬가지 — 한 방의 Error 가 같은 사이클의 다른 방 처리를 막으면 안 된다").isNotNull();
+    }
+
+    // ── codex P2(2246 보완13): catch-up 연속 상한 — MAX_CATCH_UP_TICKS 초과는 틱 자체를 건너뛴다 ──
+
+    @Test
+    @DisplayName("nextCatchUpStreak/exceedsMaxCatchUp: 정상 간격이면 0 으로 리셋, catch-up 이면 1씩"
+            + " 증가하고 MAX_CATCH_UP_TICKS(20) 을 넘겨야(21부터) true 다(순수 함수 경계, 2246 보완13)")
+    void catchUpStreakBoundary() {
+        assertThat(MovementTicker.nextCatchUpStreak(5L, false)).as("정상 간격이면 0 으로 리셋").isEqualTo(0L);
+        assertThat(MovementTicker.nextCatchUpStreak(5L, true)).as("catch-up 이면 1 증가").isEqualTo(6L);
+        assertThat(MovementTicker.exceedsMaxCatchUp(20L)).as("정확히 20 은 아직 넘지 않았다").isFalse();
+        assertThat(MovementTicker.exceedsMaxCatchUp(21L)).as("21 부터 넘는다").isTrue();
+    }
+
+    @Test
+    @DisplayName("runTick: catch-up 이 MAX_CATCH_UP_TICKS(20) 를 넘겨 연속되면 21 번째부터는 방 tick"
+            + " 자체를 건너뛴다(drain 없음 — GC/정지 뒤 수천 틱 backlog 가 틱 스레드를 가두지 않는다,"
+            + " 2246 보완13)")
+    void runTickSkipsEntirelyAfterMaxCatchUpStreak() {
+        MovementRooms rooms = new MovementRooms(new NoopListener(), new SimpleMeterRegistry());
+        MovementTicker ticker = new MovementTicker(rooms, new SimpleMeterRegistry());
+        UUID islandId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        ticker.runTick(); // 1 회차 — previous==0, catch-up 아님(streak 0).
+        for (int i = 0; i < 20; i++) {
+            ticker.runTick(); // catch-up 1~20 회 — 아직 MAX_CATCH_UP_TICKS 를 넘지 않아 방은 그대로 틱 받는다.
+        }
+
+        rooms.join(islandId, userId, "s1"); // 21 번째 catch-up 직전에 큐에 쌓인다.
+        ticker.runTick(); // catch-up 21 번째 — 이번엔 통째로 건너뛰어야 한다.
+
+        assertThat(ticker.skippedTickCount()).as("21 번째 catch-up 1 회가 건너뛰어졌다").isEqualTo(1L);
+        assertThat(actorIn(rooms.roomFor(islandId).fullStateOf(), userId))
+                .as("방 tick(drain) 자체가 안 돌아 join 이 아직 반영되지 않았어야 한다").isNull();
     }
 }

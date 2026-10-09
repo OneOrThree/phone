@@ -35,6 +35,13 @@ import java.util.function.LongSupplier;
  * 사용자(userId) 기준이라(policy §3 「사용자당」, 2246 보완5) 세션 교체·재접속으로는 바뀌지 않는다.
  * 버킷을 통과한 intent 는 다른 명령과 똑같이 큐에 들어가고, 세션당 최신 1개로 합치는 일은
  * {@link #drain()} 이 틱마다 한 번에 한다(별도 pendingIntent 슬롯 없음, 2246 보완7).
+ *
+ * <p><b>이 인스턴스 하나의 메모리일 뿐이다</b>(2246 보완14, {@link MovementRooms} 의 다중화 전제 참고) —
+ * {@link #serverTick} 은 이 인스턴스가 뜰 때마다(재시작 포함) 0 부터 다시 세므로, {@link Departed#departedAtNanos}·
+ * {@link MovementEvent.Snapshot#serverTick} 은 인스턴스를 건너뛰어 비교할 수 없다(같은 섬이 다른
+ * 인스턴스로 뜨면 틱 번호가 리셋된다). {@code actor.lastCommandSeq} 도 그 actor 객체의 메모리일
+ * 뿐이다 — 소유권이 다른 인스턴스로 넘어가면(인스턴스를 내렸다 올리거나 다중화) 0 으로 리셋돼, 이전
+ * 인스턴스가 이미 채택했던 commandSeq 를 새 인스턴스가 다시 수락할 수 있다.
  */
 public final class RoomRuntime {
 
@@ -45,7 +52,8 @@ public final class RoomRuntime {
 
     /**
      * {@link #DEPARTED_MEMORY_MS} 를 나노초로 — 토큰 버킷의 {@code lastTouchedNanos} 는 틱이 아니라
-     * 벽시계 나노초 기준이라(codex P1, 2246 보완8) 이 변환이 필요하다.
+     * 벽시계 나노초 기준이라(codex P1, 2246 보완8) 이 변환이 필요하다. {@link Departed} 의 만료
+     * 판정도 같은 축을 쓴다(codex PR 스레드, 2246 보완16).
      */
     private static final long DEPARTED_MEMORY_NANOS = DEPARTED_MEMORY_MS * 1_000_000L;
 
@@ -129,11 +137,21 @@ public final class RoomRuntime {
      * 번에 한다 — 적용 대기 명령은 actor당 최신 1개뿐이라(policy §3) 나머지는 응답 없이 superseded 로
      * 끝난다(protocol §5). 이미 채택된 뒤의 명령을 또 보낸 경우의 STALE_COMMAND 응답은
      * {@link #processAccept} 가 여전히 낸다.
+     *
+     * <p>버킷 조회·생성·소모는 {@link ConcurrentHashMap#compute} 안에서 한 번에 한다(codex 프리-PR
+     * 12라운드 P2, 2246 보완14, {@link #pruneExpiredDeparted} 참고) — 따로 하면 그 틈에 prune 의 만료
+     * 판정이 끼어들어, 방금 되살린 버킷이 지워지고 다음 호출이 burst 를 공짜로 다시 받을 수 있다.
      */
     public void accept(UUID userId, String sessionKey, MoveIntent intent) {
-        Bucket bucket = userBuckets.computeIfAbsent(userId, k -> new Bucket(rules.intentBurst(),
-                nowNanos.getAsLong()));
-        if (!bucket.tryConsume(nowNanos.getAsLong(), rules)) {
+        // 생성 여부 판단과 토큰 소모를 이 compute 안에서 함께 한다(2246 보완14, 위 javadoc) — prune 과
+        // 원자성을 공유해야 하는 지점이라 computeIfAbsent+tryConsume 둘로 나누지 않는다.
+        boolean[] consumed = {false};
+        userBuckets.compute(userId, (id, existing) -> {
+            Bucket bucket = existing != null ? existing : new Bucket(rules.intentBurst(), nowNanos.getAsLong());
+            consumed[0] = bucket.tryConsume(nowNanos.getAsLong(), rules);
+            return bucket;
+        });
+        if (!consumed[0]) {
             rateLimitedDropCount.incrementAndGet();
             LOG.debug("사용자 {} 토큰 버킷 초과 — commandSeq={} intent 를 큐에 넣지 않고 버린다(N8)", userId,
                     intent.commandSeq());
@@ -170,17 +188,22 @@ public final class RoomRuntime {
      */
     void tick(long tickNumber, boolean publishSnapshot) {
         this.serverTick = tickNumber;
-        drain();
-        boolean movingNow = advanceMovementAndReportMoving();
-        if (!publishSnapshot) {
-            lastTickHadMoving = lastTickHadMoving || movingNow; // 발행 의무를 다음 발행 틱으로 넘긴다.
-        } else {
-            if (movingNow || lastTickHadMoving) {
-                emitSnapshot(snapshotOf());
+        try {
+            drain();
+            boolean movingNow = advanceMovementAndReportMoving();
+            if (!publishSnapshot) {
+                lastTickHadMoving = lastTickHadMoving || movingNow; // 발행 의무를 다음 발행 틱으로 넘긴다.
+            } else {
+                if (movingNow || lastTickHadMoving) {
+                    emitSnapshot(snapshotOf());
+                }
+                lastTickHadMoving = movingNow;
             }
-            lastTickHadMoving = movingNow;
+        } finally {
+            // advance 쪽에서 예외가 결정적으로 나도 이 방의 prune 은 건너뛰면 안 된다(2246 보완13) —
+            // 안 그러면 그 방의 departed 기억이 영영 안 만료돼 isRemovable() 이 평생 false 가 된다.
+            pruneExpiredDeparted();
         }
-        pruneExpiredDeparted();
     }
 
     /**
@@ -224,6 +247,16 @@ public final class RoomRuntime {
         return userBuckets.size();
     }
 
+    /**
+     * 패키지 전용 — 테스트용. actor 의 raw(반올림 전) 좌표 — 없으면 {@code null}. {@link #fullStateOf}·
+     * {@link #snapshotOf} 는 전부 {@link #round2} 를 거친 값만 내보내므로, 반올림 자체(계약 §0)를
+     * 검증하려는 테스트는 이 접근자로 실제 {@code actor.x/y} 를 직접 봐야 한다(2246 보완14).
+     */
+    MovementEvent.Point rawPositionOf(UUID userId) {
+        Actor actor = actors.get(userId);
+        return actor == null ? null : new MovementEvent.Point(actor.x, actor.y);
+    }
+
     // ── 콜백 전송(예외 삼킴) ────────────────────────────────────────────
 
     /**
@@ -265,7 +298,12 @@ public final class RoomRuntime {
      * latest} 에 합치고(더 큰 commandSeq 만 남긴다), {@link Leave} 가 그 세션의 actor 를 실제로
      * 지운 순간엔({@link #processLeave} 가 {@code true} 를 돌려줄 때만 — 이미 교체된 세션의 뒷북
      * leave 는 포함되지 않는다) 그 세션의 {@code latest} 항목도 함께 지운다 — 퇴장 전 intent 는
-     * 입장과 함께 죽는다(2246 보완6). 루프가 끝난 뒤에야 {@code latest} 를 순서대로
+     * 입장과 함께 죽는다(2246 보완6). {@link Join} 도 {@link #processJoin} 이 실제로 입장했을
+     * 때만({@code true} — 새 actor 생성 또는 세션 교체) 그 세션의 {@code latest} 항목을 지운다(2246
+     * 보완13) — 입장 전에 쌓인 intent 가 방금 생긴 새 actor 에 유령 명령으로 적용되는 것을 막는다.
+     * 같은 세션의 중복 join(멱등 무시, {@code false})은 입장이 아니므로 슬롯을 그대로 둔다 — 안
+     * 그러면 같은 틱에 먼저 합쳐진 유효한 intent 가 응답 없이 사라진다(codex 프리-PR 13라운드 P2,
+     * 2246 보완15). 루프가 끝난 뒤에야 {@code latest} 를 순서대로
      * {@link #processAccept} 하므로, 퇴장 뒤(같은 틱 재입장 뒤) 들어온 Intent 는 루프 중 지워지지
      * 않고 새 actor 에 적용된다(2246 보완7). 같은 틱에 requestFullState 와 intent 가 함께 오면
      * FullState 가 PathAccepted 보다 먼저 나간다 — PathAccepted 가 곧바로 경로를 갱신하므로 계약상
@@ -287,7 +325,11 @@ public final class RoomRuntime {
         Map<String, MoveIntent> latest = new LinkedHashMap<>();
         for (Command c : batch) {
             if (c instanceof Join j) {
-                guarded("Join session=" + j.sessionKey(), () -> processJoin(j));
+                boolean[] entered = {false};
+                guarded("Join session=" + j.sessionKey(), () -> entered[0] = processJoin(j));
+                if (entered[0]) {
+                    latest.remove(j.sessionKey()); // 입장 전 intent 는 입장과 함께 죽는다(2246 보완13).
+                }
             } else if (c instanceof Leave l) {
                 boolean[] removed = {false};
                 guarded("Leave session=" + l.sessionKey(), () -> removed[0] = processLeave(l));
@@ -325,11 +367,16 @@ public final class RoomRuntime {
         return newIntent.commandSeq() > oldIntent.commandSeq() ? newIntent : oldIntent;
     }
 
-    private void processJoin(Join cmd) {
+    /** @return 실제 입장(새 actor 생성 또는 세션 교체)이면 true, 멱등 무시(같은 세션 중복 join)면 false. */
+    private boolean processJoin(Join cmd) {
         Actor actor = actors.get(cmd.userId());
         if (actor == null) {
             MovementEvent.Point spawn = spawnOrDepartedPosition(cmd.userId());
             actor = new Actor(cmd.userId(), cmd.sessionKey(), spawn.x(), spawn.y());
+            // sessionToUser 를 actors 보다 먼저 채운다(2246 보완13) — 반대 순서면 둘 사이에서 예외가
+            // 날 때 actor 는 있는데 actorFor 로는 못 찾는 영구 고아가 된다. 이 순서면 반대로 actors 가
+            // 비어 다음 processJoin 이 if(actor==null) 로 자가 복구한다.
+            sessionToUser.put(cmd.sessionKey(), cmd.userId());
             actors.put(cmd.userId(), actor);
         } else {
             if (actor.sessionKey.equals(cmd.sessionKey())) {
@@ -337,16 +384,17 @@ public final class RoomRuntime {
                 // lastCommandSeq·토큰 버킷·sessionToUser 를 그대로 두고 FullState 도 다시 보내지 않는다.
                 // 그러지 않으면 이미 채택한 commandSeq 를 다시 수락하거나 순간 제한이 리셋된다. 중복
                 // SUBSCRIBE 는 2247 의 requestFullState 가 별도로 받으므로 여기서는 챙기지 않는다.
-                return;
+                return false;
             }
             // 두 번째 세션이 교체 — 위치·경로는 유지, 명령 번호만 새 세션 기준으로 리셋(N6, N20). 토큰
             // 버킷은 세션이 아니라 사용자 기준이라(2246 보완5) 여기서 지울 게 없다 — 재접속을 반복해도
             // 버킷은 그대로 이어져, 순간 20 을 다시 받는 우회가 되지 않는다.
             actor.sessionKey = cmd.sessionKey();
             actor.lastCommandSeq = 0;
+            sessionToUser.put(cmd.sessionKey(), cmd.userId());
         }
-        sessionToUser.put(cmd.sessionKey(), cmd.userId());
         emit(fullStateOf(), Target.ALL);
+        return true;
     }
 
     /**
@@ -368,7 +416,8 @@ public final class RoomRuntime {
         actors.remove(userId);
         // 토큰 버킷(사용자 기준, 2246 보완5)은 여기서 지우지 않는다 — departed 에 남아 있는 10분
         // 동안 유지돼야 그 안에 재접속해도 순간 20 을 다시 받지 못한다. 정리는 pruneExpiredDeparted().
-        departed.put(userId, new Departed(new MovementEvent.Point(actor.x, actor.y), serverTick));
+        // 기록 시각은 serverTick 이 아니라 벽시계 나노초다(codex PR 스레드, 2246 보완16 — Departed 참고).
+        departed.put(userId, new Departed(new MovementEvent.Point(actor.x, actor.y), nowNanos.getAsLong()));
         emit(fullStateOf(), Target.ALL);
         return true;
     }
@@ -386,28 +435,33 @@ public final class RoomRuntime {
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.STALE_COMMAND);
             return;
         }
-        // commandSeq 는 단조 증가로 다룬다(codex PR 리뷰, 2246 보완11) — 이 아래부터는 수락이든
-        // STALE_COMMAND 가 아닌 거절(NAV_REVISION_MISMATCH·OUT_OF_RANGE·NO_REACHABLE_GOAL)이든 이
-        // commandSeq 가 "처리 종료" 상태라, 먼저 반영해 둬야 뒤늦게 도착한 더 작은 commandSeq 가
-        // STALE_COMMAND 로 밀린다(예전엔 거절 분기들이 반영하지 않아 거절된 commandSeq 보다 작은 뒷북이
-        // 다시 수락돼 위치를 바꿀 수 있었다). 거절 분기마다 따로 대입하지 않도록 여기 한 곳에서만 한다.
-        actor.lastCommandSeq = intent.commandSeq();
+        // commandSeq 확정(settle)은 응답이 실제로 나가는 지점에서만 한다(codex P2, 2246 보완13) — 전엔
+        // 이 체크 바로 다음 한 곳에서 미리 대입해, pathfinder.find 가 예외를 던져 drain() 의 guarded 가
+        // 명령을 통째로 건너뛴 경우(응답 0건)에도 번호만 올라가 있었다. 그러면 응답을 못 받은 클라이언트가
+        // 같은 commandSeq 로 재시도해도 STALE_COMMAND 로 밀려 다시는 처리될 수 없었다. 거절·수락 분기마다
+        // 응답 직전에 settle() 을 불러 — 예외로 빠지면 어떤 분기도 못 타 번호가 그대로 남고, 같은 seq
+        // 재시도가 다시 처리된다. STALE_COMMAND 판정(위 체크)은 그대로 미확정 lastCommandSeq 기준이다.
         if (intent.navRevision() != rules.navRevision()) {
+            settle(actor, intent.commandSeq());
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.NAV_REVISION_MISMATCH);
             return;
         }
         if (!WorldCoords.isInsideWorld(intent.goalX(), intent.goalY())) {
+            settle(actor, intent.commandSeq());
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.OUT_OF_RANGE);
             return;
         }
         WorldPoint from = new WorldPoint(actor.x, actor.y);
         WorldPoint to = new WorldPoint(intent.goalX(), intent.goalY());
         // A* 는 그대로 이 틱 스레드에서 동기 호출 — Micrometer 로 호출 수·소요만 센다(N10, P1 반박 대응).
+        // settle() 보다 먼저 호출한다 — 예외가 나면 번호 확정 없이 그대로 던져야 재시도가 살아난다.
         Optional<PathResult> found = pathfindTimer.record(() -> pathfinder.find(nav, from, to));
         if (found.isEmpty()) {
+            settle(actor, intent.commandSeq());
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.NO_REACHABLE_GOAL);
             return;
         }
+        settle(actor, intent.commandSeq());
         List<MovementEvent.Point> waypoints = toWaypoints(found.get());
         // start 는 밖으로 나가는 좌표라 emitted() 로 계약 정밀도(0.01)에 맞춘다(codex P2, 2246 보완9) — actor.x/y
         // 자체는 원시 double 그대로 둔다.
@@ -423,6 +477,15 @@ public final class RoomRuntime {
                 actor.pathId, rules.navRevision(), serverTick, start, goal, rules.speed(), waypoints);
         emit(accepted, Target.ALL);
         // waypoints 가 비어 있으면(같은 셀) advanceMovementAndReportMoving() 이 이번 틱에 바로 Arrived 를 낸다.
+    }
+
+    /**
+     * commandSeq 확정을 한 곳으로 모은 한 줄 헬퍼(2246 보완13) — {@link #processAccept} 의 거절·수락 네
+     * 분기가 각자 대입하는 대신 이것만 부른다. 단조 증가 규칙(거절도 처리 종료 상태, 2246 보완11)은
+     * 그대로다 — 바뀐 것은 "언제" 대입하느냐(응답이 나가는 지점 직전)뿐이다.
+     */
+    private void settle(Actor actor, long seq) {
+        actor.lastCommandSeq = seq;
     }
 
     private void processApplyLayout(ApplyLayout cmd) {
@@ -515,13 +578,19 @@ public final class RoomRuntime {
     }
 
     private MovementEvent.Point spawnOrDepartedPosition(UUID userId) {
-        Departed d = departed.remove(userId);
-        if (d != null && serverTick - d.tick() <= rules.ticksFor(DEPARTED_MEMORY_MS)) {
-            return d.position();
+        // 조회(조건 계산·spawn 룩업)를 모두 끝내고 departed.remove 는 맨 끝에 한 번만 한다(2246
+        // 보완13) — 순서가 반대면 remove 뒤 조회가 던질 때 돌아갈 자리를 잃은 퇴장 기억만 사라진다.
+        Departed d = departed.get(userId);
+        MovementEvent.Point position;
+        if (d != null && nowNanos.getAsLong() - d.departedAtNanos() <= DEPARTED_MEMORY_NANOS) {
+            position = d.position();
+        } else {
+            Cell spawn = nav.spawns().get(NavJsonLoader.REQUIRED_SPAWN);
+            WorldPoint center = WorldCoords.cellCenter(spawn);
+            position = new MovementEvent.Point(center.x(), center.y());
         }
-        Cell spawn = nav.spawns().get(NavJsonLoader.REQUIRED_SPAWN);
-        WorldPoint center = WorldCoords.cellCenter(spawn);
-        return new MovementEvent.Point(center.x(), center.y());
+        departed.remove(userId);
+        return position;
     }
 
     /**
@@ -529,21 +598,36 @@ public final class RoomRuntime {
      * 쪽이다. 건수가 최근 퇴장자 수로 자연히 작아 매 틱 비용은 무시할 만하다(ponytail: 20틱마다로
      * 나누는 추가 상태 없이 가장 단순한 쪽을 택한다).
      *
+     * <p>만료 판정은 {@code serverTick} 차이가 아니라 벽시계 나노초({@link Departed#departedAtNanos()})
+     * 기준이다(codex PR 스레드, 2246 보완16) — {@code serverTick} 기준이면 {@link MovementTicker} 의
+     * catch-up 상한(20틱, 밀린 틱을 건너뛰고 serverTick 을 그만큼만 올린다) 때문에 GC·호스트 정지로
+     * 실제 10분 넘게 밀려도 틱 차이는 그 상한만큼만 보인다 — 재입장자가 만료됐어야 할 퇴장 위치로
+     * 복귀하고 빈 방·버킷이 최대 10분 더 산다. 버킷의 {@link Bucket#lastTouchedNanos()} 와 같은 축으로
+     * 맞춰 이 혼선을 없앴다.
+     *
      * <p>같은 틱에 토큰 버킷도 정리한다(codex P2, 2246 보완5) — actor 도 departed 도 없는 사용자는
      * 더 이상 이 방과 관계가 없으니 버킷을 들고 있을 이유가 없다. 다만 actor·departed 부재만으로 바로
      * 지우면 join 없이 accept 만 반복하는 사용자의 버킷이 매 틱 지워지고 다음 틱에 새 버킷이 burst(20)
      * 를 다시 줘 초당 제한을 우회한다(codex P1, 2246 보완8) — 그래서 마지막 사용({@link
      * Bucket#lastTouchedNanos()}) 뒤 {@link #DEPARTED_MEMORY_NANOS}(10분) 가 지난 버킷만 지운다.
-     * {@code userBuckets} 는 {@link ConcurrentHashMap} 이라 이 순회(스레드: 틱)가 {@link #accept}
-     * (스레드: STOMP)의 동시 삽입과 겹쳐도 안전하다.
+     *
+     * <p>만료 판정과 제거를 키마다 {@link ConcurrentHashMap#computeIfPresent} 안에서 한 번에 한다
+     * (codex 프리-PR 12라운드 P2, 2246 보완14) — 판정만 먼저 하고 제거를 나중에 하면(예:
+     * {@code removeIf}) 그 틈에 {@link #accept}(스레드: STOMP)가 같은 버킷을 되살려도 판정은 이미
+     * 끝나 있어 그대로 지워버린다 — 다음 accept 가 지워진 자리에 새 버킷의 burst(20) 를 공짜로 받는다.
+     * {@code computeIfPresent} 는 {@link #accept} 의 {@code compute} 와 같은 키에서 잠금을 공유해,
+     * 판정이 그 되살림을 보고 살려두거나 되살림이 판정이 끝난 뒤에 일어나거나 둘 중 하나로만 끝난다.
      */
     private void pruneExpiredDeparted() {
-        long window = rules.ticksFor(DEPARTED_MEMORY_MS);
-        departed.values().removeIf(d -> serverTick - d.tick() > window);
         long now = nowNanos.getAsLong();
-        userBuckets.entrySet().removeIf(entry -> !actors.containsKey(entry.getKey())
-                && !departed.containsKey(entry.getKey())
-                && now - entry.getValue().lastTouchedNanos() > DEPARTED_MEMORY_NANOS);
+        departed.values().removeIf(d -> now - d.departedAtNanos() > DEPARTED_MEMORY_NANOS);
+        // 판정(만료?)과 제거를 같은 computeIfPresent 안에서 한다(위 javadoc, 2246 보완14) — accept() 의
+        // compute 와 같은 키의 잠금을 공유해야 "판정 뒤 되살림" 틈이 없어진다.
+        for (UUID userId : userBuckets.keySet()) {
+            userBuckets.computeIfPresent(userId, (id, bucket) -> !actors.containsKey(id)
+                    && !departed.containsKey(id) && now - bucket.lastTouchedNanos() > DEPARTED_MEMORY_NANOS
+                    ? null : bucket);
+        }
     }
 
     // ── 스냅샷 ────────────────────────────────────────────────────────────
@@ -552,12 +636,21 @@ public final class RoomRuntime {
      * 패키지 전용 — 테스트·Ticker 용. 좌표는 Snapshot 과 같은 정밀도(0.01)로 반올림한다(codex P2, 2246 보완9) —
      * 전엔 actor.x/y 원시값을 그대로 내보내 재동기화(requestFullState) 직후 같은 흐름의 Snapshot 좌표와 어긋나
      * 위치가 튀었다(policy.md §3 좌표 정밀도).
+     *
+     * <p>{@link MovementEvent.ActorState#segmentIndex} 도 {@link MovementEvent.Entity#segmentIndex}
+     * (Snapshot)와 같은 원래 경로 기준이다(codex 프리-PR 14라운드 P2, 2246 보완17) — 전엔 waypoints 만
+     * 남은 경로로 잘라 보내 기준이 없어, 이동 중 재동기화한 세션이 그 뒤 받는 Snapshot 의 segmentIndex 를
+     * 이 남은 waypoints 에 맞출 수 없었다.
      */
     MovementEvent.FullState fullStateOf() {
         List<MovementEvent.ActorState> states = new ArrayList<>(actors.size());
         for (Actor actor : actors.values()) {
+            List<MovementEvent.Point> remaining = remainingWaypoints(actor);
+            // remaining 이 비면(IDLE, 아래 remainingWaypoints 주석) "남은 첫 점" 이 없어 0 — 있으면 그
+            // 첫 원소가 원래 경로에서 actor.segmentIndex 번째라 그대로 쓴다(2246 보완17).
+            int segmentIndex = remaining.isEmpty() ? 0 : actor.segmentIndex;
             states.add(new MovementEvent.ActorState(actor.userId, round2(actor.x), round2(actor.y), actor.state,
-                    actor.pathId, actor.lastCommandSeq, remainingWaypoints(actor)));
+                    actor.pathId, actor.lastCommandSeq, segmentIndex, remaining));
         }
         return new MovementEvent.FullState(rules.navRevision(), serverTick, rules.tickMs(), rules.speed(), states);
     }
@@ -602,7 +695,14 @@ public final class RoomRuntime {
 
     // ── 수신 대상 콜백 ──────────────────────────────────────────────────
 
-    /** {@link RoomRuntime} 은 네트워크를 모른다 — 이벤트는 이 콜백으로만 나간다. */
+    /**
+     * {@link RoomRuntime} 은 네트워크를 모른다 — 이벤트는 이 콜백으로만 나간다.
+     *
+     * <p><b>구현은 로컬 전송을 전제한다</b>(2246 보완14) — 이 콜백 하나로는 같은 JVM 인스턴스에 붙은
+     * 구독자에게만 닿는다. 다른 인스턴스에 붙은 구독자에게도 보내려면(수평 확장) Redis 팬아웃
+     * ({@code chat:events:v1}) 으로 중계하는 구현이 필요한데, 그 설계는 2단계 결정이다 — 지금
+     * 구현({@code MovementRooms} 가 주입하는 것)은 로컬 전송만 한다.
+     */
     public interface Listener {
 
         void onEvent(UUID islandId, MovementEvent event, Target target);
@@ -635,8 +735,12 @@ public final class RoomRuntime {
     private record Intent(String sessionKey, MoveIntent intent) implements Command {
     }
 
-    /** 퇴장 위치 기억(N23) 한 건. */
-    private record Departed(MovementEvent.Point position, long tick) {
+    /**
+     * 퇴장 위치 기억(N23) 한 건 — 만료 판정은 {@code serverTick} 이 아니라 기록 시점의 벽시계
+     * 나노초({@code departedAtNanos})다(codex PR 스레드, 2246 보완16, {@link #pruneExpiredDeparted}
+     * 참고).
+     */
+    private record Departed(MovementEvent.Point position, long departedAtNanos) {
     }
 
     /**

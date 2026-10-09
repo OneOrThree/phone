@@ -56,8 +56,9 @@ class MovementPublisherTest {
         MovementEvent.Point start = new MovementEvent.Point(38.5, 45.5);
         MovementEvent.Point next = new MovementEvent.Point(39.5, 44.5);
         // 첫 reliable 은 그 세션 한정 FullState 여야 송신 게이트가 열린다(구독 직후의 requestFullState).
+        // IDLE 이므로 segmentIndex 는 0(2246 보완17 — waypoints 가 비면 "남은 첫 점" 이 없어 0).
         publisher.onEvent(island, new MovementEvent.FullState(1, 10, 50, 10.989, List.of(
-                new MovementEvent.ActorState(user, 38.5, 45.5, MotionState.IDLE, 0, 0, List.of()))),
+                new MovementEvent.ActorState(user, 38.5, 45.5, MotionState.IDLE, 0, 0, 0, List.of()))),
                 Target.only("s1"));
         publisher.onEvent(island, new MovementEvent.PathAccepted(user, 7, 3, 1, 11, start, next, 10.989,
                 List.of(next)), Target.ALL);
@@ -73,7 +74,7 @@ class MovementPublisherTest {
         assertThat(fieldNames(fullState)).containsExactlyInAnyOrder("type", "navRevision", "serverTick", "tickMs",
                 "speed", "actors");
         assertThat(fieldNames(fullState.get("actors").get(0))).containsExactlyInAnyOrder("userId", "x", "y",
-                "state", "pathId", "lastCommandSeq", "waypoints");
+                "state", "pathId", "lastCommandSeq", "segmentIndex", "waypoints");
         assertThat(fullState.get("actors").get(0).get("state").stringValue()).isEqualTo("IDLE");
 
         JsonNode accepted = body(1);
