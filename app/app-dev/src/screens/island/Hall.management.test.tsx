@@ -164,6 +164,7 @@ test('방문자 관리 카드는 비활성 management snapshot 대신 기존 정
   await waitFor(() => assert.ok(visitor.getByText(visiting.name)));
   assert.ok(visitor.getByText(visiting.intro));
   assert.equal(managementMock.mock.calls.at(-1)?.[0].active, false);
+  assert.equal(visitor.queryByTestId('hall-leave'), null);
 });
 
 test('review/demo 로컬 관리는 hook을 비활성화하고 기존 reducer 저장·위임·승인을 사용한다', async () => {
@@ -288,6 +289,43 @@ test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave
   assert.ok(!env.dispatch.mock.calls.some(([a]: any) => a.type === 'LEAVE'));
   await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
   assert.equal(env.home.mock.calls.length, 0); // current 가 비면 App 이 섬 선택으로 보낸다
+});
+
+test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 서버로 탈퇴한다', async () => {
+  const api = management();
+  // 로컬 목업 주민과 승인 대기 신청자가 남아 있어도 서버의 활성 주민만 센다.
+  managementMock.mockReturnValue({ ...api, members: [api.members[0]] });
+  const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: null }));
+  const env = { ...e('manage', state), islands: { leave } };
+  const screen = await render(<Hall e={env} />);
+
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  await waitFor(() => assert.ok(screen.getByText('삭제하고 나가기')));
+  assert.ok(
+    screen.getByText(
+      '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.',
+    ),
+  );
+  assert.equal(leave.mock.calls.length, 0); // 삭제 영향에 동의한 뒤에만 탈퇴한다
+  await fireEvent.press(screen.getByTestId('hall-dialog-cancel'));
+  assert.equal(leave.mock.calls.length, 0);
+  assert.equal(screen.queryByTestId('hall-dialog-ok'), null);
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+  await waitFor(() => assert.equal(leave.mock.calls[0]?.[0], 'srv-1'));
+  assert.equal(env.home.mock.calls.length, 0);
+  assert.ok(!env.dispatch.mock.calls.some(([action]: any[]) => action.type === 'LEAVE'));
+});
+
+test('다른 주민이 있는 방장은 기본 섬 정보에서 탈퇴를 누르면 위임부터 안내한다', async () => {
+  const leave = asyncCommand();
+  const screen = await render(<Hall e={{ ...e(), islands: { leave } }} />);
+
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  await waitFor(() => assert.ok(screen.getByText('방장을 위임할 주민을 골라요.')));
+  assert.equal(screen.queryByTestId('hall-dialog-ok'), null);
+  assert.equal(leave.mock.calls.length, 0);
 });
 
 test('정보 수정 실패는 수정 패널 안에 사용자 문구 토스트로 보인다(H5·H18)', async () => {

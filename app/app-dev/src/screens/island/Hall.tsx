@@ -2937,7 +2937,7 @@ export function Hall({ e }: any) {
           </T>
         </Pressable>
       ) : (
-        !displayHost && leaveBtn()
+        leaveBtn()
       )}
     </ScrollView>
   );
