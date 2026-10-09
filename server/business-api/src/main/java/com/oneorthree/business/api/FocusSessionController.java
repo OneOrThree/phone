@@ -19,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
@@ -46,6 +47,26 @@ public class FocusSessionController {
     private final FocusSessionUseCase focusSessions;
     private final SettingsSessionGuard sessions;
     private final UpstreamConfigProperties properties;
+
+    @PutMapping(value = "/focus-sessions/{sessionId}/live-activity", consumes = "application/json")
+    public ResponseEntity<Void> registerLiveActivity(@PathVariable String sessionId, @RequestBody JsonNode body,
+                                                    HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        if (body == null || !body.isObject() || body.size() != 4) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+        }
+        for (String field : java.util.List.of("activityId", "pushToken", "environment", "catColor")) {
+            if (!body.has(field) || !body.get(field).isString()) {
+                throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, field);
+            }
+        }
+        focusSessions.registerLiveActivity(claims, PublicIds.uuid(sessionId, "sessionId"),
+                java.util.Map.of("activityId", body.get("activityId").stringValue(),
+                        "pushToken", body.get("pushToken").stringValue(),
+                        "environment", body.get("environment").stringValue(),
+                        "catColor", body.get("catColor").stringValue()), properties.deadline());
+        return ResponseEntity.noContent().build();
+    }
 
     /** 실제 집중 없이 지급하는 체험 보상. 인증 주체와 1마리 고정 수량은 서버가 정한다. */
     @PostMapping("/islands/{islandId}/tutorial-reward")

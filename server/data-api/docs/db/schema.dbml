@@ -1940,3 +1940,20 @@ Table notification_result_bundle_manifests {
 
 // 주간 섬 랭킹 동결 분모 (V85)
 Ref: island_weekly_member_counts.island_id > groups.id [delete: cascade]  // GROMO-1997 — 섬이 사라지면 그 섬의 동결 분모도 같이 지운다
+
+Table focus_live_activities [note: 'Live Activity APNs 등록·전송 상태, 최대 8시간 보관'] {
+  id uuid [pk]
+  session_id uuid [not null, unique, ref: > focus_session_details.session_id]
+  user_id uuid [not null, ref: > users.id]
+  activity_id varchar(128) [not null]
+  push_token varchar(1024) [not null]
+  environment varchar(16) [not null]
+  cat_color varchar(16) [not null]
+  sent_version bigint [not null]
+  sent_timestamp bigint [not null]
+  next_attempt_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  indexes {
+    next_attempt_at [name: 'focus_live_activities_due_idx']
+  }
+}

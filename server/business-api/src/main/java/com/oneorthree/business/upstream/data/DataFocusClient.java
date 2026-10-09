@@ -14,6 +14,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 
 import java.util.UUID;
+import java.util.Map;
 
 import static com.oneorthree.business.upstream.data.DataPaths.userPath;
 
@@ -35,6 +36,12 @@ public class DataFocusClient {
     private static final String PATH_FOCUS_SUMMARY = "/internal/users/{userId}/focus-summary";
 
     private final InternalHttpClient http;
+
+    public void registerLiveActivity(UUID userId, UUID sessionId, Map<String, String> body, Deadline deadline) {
+        http.execute(InternalCall.to(HttpMethod.PUT, userPath(PATH_FOCUS_SESSIONS, userId)
+                        + "/" + sessionId + "/live-activity")
+                .onBehalfOf(userId).body(body).idempotentCommand().build(), deadline);
+    }
 
     public DataFocusClient(InternalHttpClient http) {
         this.http = http;

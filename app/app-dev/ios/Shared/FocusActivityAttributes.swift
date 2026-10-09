@@ -20,4 +20,6 @@ struct GromoFocusAttributes: ActivityAttributes {
     }
 
     var sessionId: String
+    // 기존 pushType:nil Activity를 앱 업데이트 뒤 한 번 교체하기 위한 호환 필드.
+    var pushEnabled: Bool? = nil
 }

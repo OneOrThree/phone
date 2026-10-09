@@ -44,6 +44,10 @@ services:
       # 연결 타임아웃을 문다. 쓰기는 best-effort 라 켜도 Redis 장애가 집중을 막지는 않는다.
       FOCUS_PRESENCE_ENABLED: ${FOCUS_PRESENCE_ENABLED:-false}
       # v0.3 집중 세션 시작 게이트 (GROMO-1924). 끄면 새 start 만 503 — 켜기 전 조건은 FocusSessionStartGate javadoc.
+      # Live Activity APNs 전용 키. 비어 있으면 로컬 표시만 사용하고 원격 전송은 대기한다.
+      FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID: ${FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID:-}
+      FOCUS_LIVE_ACTIVITY_APNS_KEY_ID: ${FOCUS_LIVE_ACTIVITY_APNS_KEY_ID:-}
+      FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64: ${FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64:-}
       FOCUS_SESSION_START_ENABLED: ${FOCUS_SESSION_START_ENABLED:-false}
       # 집중 보상 분당 적립 크론 (GROMO-1990). 끄면 적립을 finish 가 한 번에 확정한다 — 정상 종료는 제값을
       # 받지만 «finish 를 안 거치는» 강퇴·포기 세션은 그 시점까지의 몫을 못 받는다(그 경로는 크론만 메운다).

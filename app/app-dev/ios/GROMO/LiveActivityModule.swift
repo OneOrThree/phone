@@ -4,8 +4,50 @@ import React
 import WidgetKit
 
 @objc(LiveActivityModule)
-final class LiveActivityModule: NSObject {
-    @objc static func requiresMainQueueSetup() -> Bool { false }
+final class LiveActivityModule: RCTEventEmitter {
+    @objc override static func requiresMainQueueSetup() -> Bool { true }
+    override var methodQueue: DispatchQueue! { DispatchQueue.main }
+    private var work: Task<Void, Never>?
+    private var observers: [String: Task<Void, Never>] = [:]
+    private var hasListeners = false
+
+    override func supportedEvents() -> [String]! { ["LiveActivityPushToken"] }
+    override func startObserving() { hasListeners = true }
+    override func stopObserving() { hasListeners = false }
+
+    @MainActor
+    private func tokenPayload(_ activity: Activity<GromoFocusAttributes>, token: Data) -> [String: Any] {
+        ["sessionId": activity.attributes.sessionId, "activityId": activity.id,
+         "pushToken": token.map { String(format: "%02x", $0) }.joined(),
+         "environment": Bundle.main.object(forInfoDictionaryKey: "GromoAPNsEnvironment") as? String ?? "production"]
+    }
+
+    @MainActor
+    private func observeToken(_ activity: Activity<GromoFocusAttributes>) {
+        guard observers[activity.id] == nil else { return }
+        observers[activity.id] = Task { @MainActor [weak self] in
+            for await token in activity.pushTokenUpdates {
+                guard !Task.isCancelled else { return }
+                if let self, self.hasListeners {
+                    self.sendEvent(withName: "LiveActivityPushToken", body: self.tokenPayload(activity, token: token))
+                }
+            }
+        }
+    }
+
+    @objc(getPushTokens:rejecter:)
+    func getPushTokens(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+        Task { @MainActor in
+            let activities = Activity<GromoFocusAttributes>.activities.filter {
+                $0.activityState != .ended && $0.activityState != .dismissed
+            }
+            for activity in activities { observeToken(activity) }
+            resolve(activities.compactMap { activity -> [String: Any]? in
+                guard let token = activity.pushToken else { return nil }
+                return tokenPayload(activity, token: token)
+            })
+        }
+    }
 
     @objc(updateHomeWidget:resolver:rejecter:)
     func updateHomeWidget(
@@ -58,15 +100,23 @@ final class LiveActivityModule: NSObject {
             restCount: (payload["restCount"] as? NSNumber)?.intValue
         )
 
-        Task {
-            for activity in Activity<GromoFocusAttributes>.activities where activity.attributes.sessionId != sessionId {
+        let prior = work
+        work = Task { @MainActor in
+            await prior?.value
+            for activity in Activity<GromoFocusAttributes>.activities where
+                activity.attributes.sessionId != sessionId || activity.attributes.pushEnabled != true {
                 await activity.end(nil, dismissalPolicy: .immediate)
+                observers.removeValue(forKey: activity.id)?.cancel()
             }
             let matches = Activity<GromoFocusAttributes>.activities.filter {
                 $0.attributes.sessionId == sessionId && $0.activityState != .ended && $0.activityState != .dismissed
             }
-            for duplicate in matches.dropFirst() { await duplicate.end(nil, dismissalPolicy: .immediate) }
+            for duplicate in matches.dropFirst() {
+                await duplicate.end(nil, dismissalPolicy: .immediate)
+                observers.removeValue(forKey: duplicate.id)?.cancel()
+            }
             if let activity = matches.first {
+                observeToken(activity)
                 await activity.update(ActivityContent(state: state, staleDate: state.restExpiresAt))
 #if DEBUG
                 NSLog("GROMO Live Activity updated: %@ (%@)", activity.id, phase)
@@ -83,10 +133,11 @@ final class LiveActivityModule: NSObject {
             }
             do {
                 let activity = try Activity.request(
-                    attributes: GromoFocusAttributes(sessionId: sessionId),
+                    attributes: GromoFocusAttributes(sessionId: sessionId, pushEnabled: true),
                     content: ActivityContent(state: state, staleDate: state.restExpiresAt),
-                    pushType: nil
+                    pushType: .token
                 )
+                observeToken(activity)
 #if DEBUG
                 NSLog("GROMO Live Activity created: %@ (%@)", activity.id, phase)
 #endif
@@ -114,9 +165,12 @@ final class LiveActivityModule: NSObject {
             return
         }
 #endif
-        Task {
+        let prior = work
+        work = Task { @MainActor in
+            await prior?.value
             for activity in Activity<GromoFocusAttributes>.activities {
                 await activity.end(nil, dismissalPolicy: .immediate)
+                observers.removeValue(forKey: activity.id)?.cancel()
             }
             resolve(nil)
         }

@@ -1,3 +1,4 @@
+import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
 import { syncFocusShield } from '@/services/focusShield';
 import { Text } from '@/design-system/typography';
@@ -1640,6 +1641,14 @@ function Gromo() {
     });
     return () => subscription.remove();
   }, [loaded, hasServerSession, state.session?.id, state.session?.status, state.session?.subject]);
+  const liveActivityOwner = getSession()?.userId;
+  useEffect(() => {
+    if (!loaded || !hasServerSession || !storageOwnerReady || REVIEW || DEMO) return;
+    return startLiveActivityPushSync(() => ({
+      session: stateRef.current.session,
+      color: stateRef.current.color,
+    }));
+  }, [loaded, hasServerSession, storageOwnerReady, liveActivityOwner]);
   useEffect(() => {
     if (!loaded || Platform.OS !== 'ios') return;
     const session = REVIEW || DEMO || hasServerSession ? state.session : null;
