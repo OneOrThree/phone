@@ -432,6 +432,32 @@ class RoomRuntimeTest {
         assertThat(listener.snapshots).as("걷는 틱 1 + 도착 틱 1 + 멈춘 뒤 1 = 3").hasSize(3);
     }
 
+    @Test
+    @DisplayName("catch-up(발행 안 함) 틱에서도 이동은 그대로 전진하고, 멈추는 틱이 false 면 그 다음"
+            + " true 틱에서 Snapshot 이 \"+1\" 로 나온다(codex P2, 2246 보완4)")
+    void catchUpTickSkipsSnapshotButCarriesStopObligationToNextPublishingTick() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.accept("s1", new MoveIntent(1, 1, 1.5, 0.5)); // 인접 셀 — stepPerTick(~0.549) 두 번이면 도착.
+
+        room.tick(1, true); // join+accept 가 같은 틱에 드레인 — 첫 전진.
+        assertThat(listener.snapshots).as("걷는 틱 — 발행").hasSize(1);
+
+        room.tick(2, false); // 이 틱에 도착(멈춤)하지만 catch-up 이라 Snapshot 은 건너뛴다.
+        assertThat(listener.snapshots).as("catch-up 틱은 추가 발행이 없다").hasSize(1);
+        assertThat(listener.of(MovementEvent.Arrived.class))
+                .as("Arrived 자체는 publishSnapshot 과 무관하게 난다").hasSize(1);
+
+        room.tick(3, true); // 다음 발행 틱에서 미뤄진 "멈춘 뒤 +1" 이 나온다.
+        assertThat(listener.snapshots).as("미뤄진 의무가 +1 로 나와야 한다").hasSize(2);
+
+        room.tick(4, true); // 그 뒤로는 다시 조용하다.
+        assertThat(listener.snapshots).as("더 이상 추가 발행이 없다").hasSize(2);
+    }
+
     // ── N6/N20: 세션 교체 · leave ─────────────────────────────────────
 
     @Test
@@ -467,6 +493,39 @@ class RoomRuntimeTest {
         room.accept("s2", new MoveIntent(1, 1, 2.5, 2.5));
         room.tick(++tick);
         assertThat(listener.of(MovementEvent.MoveRejected.class)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("같은 세션의 중복 join 은 멱등이다 — lastCommandSeq·토큰 버킷을 그대로 두고 FullState 를"
+            + " 다시 보내지 않는다(codex P2, 2246 보완4)")
+    void duplicateJoinFromSameSessionIsNoop() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.tick(1);
+        room.accept("s1", new MoveIntent(1, 1, 5.5, 5.5)); // seq 1 수락 — lastCommandSeq=1 이 된다.
+        room.tick(2);
+        assertThat(listener.of(MovementEvent.PathAccepted.class)).hasSize(1);
+
+        int fullStateCountBefore = listener.of(MovementEvent.FullState.class).size();
+        int bucketCountBefore = room.bucketCount();
+
+        room.join(userId, "s1"); // 같은 세션의 중복 join(예: 재연결 재시도) — 세션 교체가 아니다.
+        room.tick(3);
+
+        assertThat(room.bucketCount()).as("중복 join 이 옛 세션의 토큰 버킷을 지우면 안 된다")
+                .isEqualTo(bucketCountBefore);
+        assertThat(listener.of(MovementEvent.FullState.class))
+                .as("중복 join 으로 FullState(ALL) 가 추가로 나가면 안 된다").hasSize(fullStateCountBefore);
+
+        room.accept("s1", new MoveIntent(1, 1, 5.5, 5.5)); // 이미 채택된 seq 1 을 다시 보낸다.
+        room.tick(4);
+
+        List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
+        assertThat(rejected).as("lastCommandSeq 가 0 으로 리셋되지 않았어야 seq 1 재전송이 거절된다").hasSize(1);
+        assertThat(rejected.get(0).reason()).isEqualTo(RejectReason.STALE_COMMAND.name());
     }
 
     @Test

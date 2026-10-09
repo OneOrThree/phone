@@ -34,6 +34,7 @@ public final class MovementTicker {
     private final Timer tickTimer;
     private final AtomicLong serverTick = new AtomicLong();
     private final AtomicLong delayedTickCount = new AtomicLong();
+    private final AtomicLong skippedSnapshotCount = new AtomicLong();
     private ScheduledExecutorService executor;
     private volatile long lastTickStartedAtMs;
 
@@ -67,12 +68,21 @@ public final class MovementTicker {
         return delayedTickCount.get();
     }
 
-    private void runTick() {
-        checkDelay();
-        tickTimer.record(this::tickAllRooms);
+    /**
+     * 측정용(2250) — catch-up 틱이라 Snapshot 발행을 건너뛴 횟수(codex P2, 2246 보완4). 틱 1회당 1 증가
+     * — 그 틱에 방이 몇 개였는지는 세지 않는다.
+     */
+    long skippedSnapshotCount() {
+        return skippedSnapshotCount.get();
     }
 
-    private void checkDelay() {
+    private void runTick() {
+        boolean catchUp = checkDelay();
+        tickTimer.record(() -> tickAllRooms(!catchUp));
+    }
+
+    /** @return 이번 실행이 catch-up(밀린) 실행인지({@link #isCatchUp}). */
+    private boolean checkDelay() {
         long now = System.currentTimeMillis();
         long previous = lastTickStartedAtMs;
         lastTickStartedAtMs = now;
@@ -81,22 +91,46 @@ public final class MovementTicker {
             delayedTickCount.incrementAndGet();
             LOG.debug("섬 틱 지연 감지: {}ms(기준 {}ms)", now - previous, tickMs);
         }
+        return isCatchUp(previous, now, tickMs);
+    }
+
+    /**
+     * 패키지 전용 — 순수 함수(단위 테스트용, codex P2, 2246 보완4). 직전 틱이 시작한 뒤 반 주기
+     * (tickMs/2) 도 지나지 않고 이번 실행이 시작됐으면, {@code scheduleAtFixedRate} 가 밀린 실행을
+     * 연속으로 돌리는 중이다 — 그 틱은 Snapshot 발행을 건너뛴다. {@code previousMs==0}(첫 실행)은
+     * catch-up 이 아니다.
+     */
+    static boolean isCatchUp(long previousMs, long nowMs, long tickMs) {
+        return previousMs != 0 && nowMs - previousMs < tickMs / 2;
     }
 
     /**
      * 패키지 전용 — 테스트가 스케줄러(50ms 실제 대기) 없이 틱을 바로, 여러 번 빠르게 돌리려고 쓴다.
+     * {@code tickAllRooms(true)} 위임 — 기존 테스트 호출부를 그대로 보존한다(codex P2, 2246 보완4).
+     */
+    void tickAllRooms() {
+        tickAllRooms(true);
+    }
+
+    /**
+     * 패키지 전용. {@code publishSnapshot=false} 는 catch-up 틱 전용(codex P2, 2246 보완4) — 방마다
+     * 이동은 그대로 전진시키되({@link RoomRuntime#tick(long, boolean)}) Snapshot 발행만 건너뛴다.
+     * {@link #skippedSnapshotCount} 는 여기서 틱 1회당 1 증가한다.
      *
      * <p>방마다 틱 처리 직후 같은 스레드에서 바로 제거를 시도한다(codex P1) — 모든 방을 다 틱한 뒤
      * 따로 두 번째 루프를 돌리면 "이 방은 비었다"고 본 시점과 실제로 지우는 시점 사이가 다른 방들의
      * 틱 처리 시간만큼 벌어진다. 실제 제거는 {@link MovementRooms#remove} 가 그 순간 {@code
      * isRemovable()} 을 한 번 더 확인해(CAS) 그사이 들어온 명령을 지키므로, 여기서는 그냥 시도한다.
      */
-    void tickAllRooms() {
+    void tickAllRooms(boolean publishSnapshot) {
         long tick = serverTick.incrementAndGet();
+        if (!publishSnapshot) {
+            skippedSnapshotCount.incrementAndGet();
+        }
         for (Map.Entry<UUID, RoomRuntime> entry : rooms.rooms().entrySet()) {
             RoomRuntime room = entry.getValue();
             try {
-                room.tick(tick);
+                room.tick(tick, publishSnapshot);
             } catch (RuntimeException e) {
                 LOG.warn("섬 {} 틱 처리 중 예외 — 이번 틱만 건너뛴다", entry.getKey(), e);
             }

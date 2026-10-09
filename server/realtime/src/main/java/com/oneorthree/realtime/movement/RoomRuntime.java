@@ -137,19 +137,33 @@ public final class RoomRuntime {
         queue.add(new ApplyLayout(newLayoutRevision));
     }
 
+    /** 공개 API(Ticker·테스트) — 매번 Snapshot 을 발행하는 평범한 틱({@code tick(tickNumber, true)} 위임). */
+    public void tick(long tickNumber) {
+        tick(tickNumber, true);
+    }
+
     /**
      * 한 틱 처리: ① 큐 드레인(join → leave → accept → applyLayout → requestFullState 순) ② MOVING
-     * actor 전진 ③ 도착 처리(경로당 1회) ④ 스냅샷(MOVING 이 있었거나 바로 전 틱까지 있었으면, N15)
-     * ⑤ serverTick 저장.
+     * actor 전진 ③ 도착 처리(경로당 1회) ④ Snapshot({@code publishSnapshot} 이고 MOVING 이 있었거나
+     * 바로 전 틱까지 있었으면, N15) ⑤ serverTick 저장.
+     *
+     * <p>패키지 전용 — {@code publishSnapshot=false} 는 catch-up(밀린) 틱 전용이다(codex P2, 2246
+     * 보완4, {@link MovementTicker#isCatchUp}). 이동 전진은 catch-up 틱에서도 그대로 한다 — 벽시계
+     * 속도를 유지해야 앱의 시간 기준 투영이 느려지지 않는다. <b>Snapshot 발행만</b> 건너뛰고, 「멈춘 뒤
+     * +1틱」 발행 의무는 {@code lastTickHadMoving} 에 그대로 담아 다음 발행 틱으로 넘긴다.
      */
-    public void tick(long tickNumber) {
+    void tick(long tickNumber, boolean publishSnapshot) {
         this.serverTick = tickNumber;
         drain();
         boolean movingNow = advanceMovementAndReportMoving();
-        if (movingNow || lastTickHadMoving) {
-            listener.onSnapshot(islandId, snapshotOf());
+        if (!publishSnapshot) {
+            lastTickHadMoving = lastTickHadMoving || movingNow; // 발행 의무를 다음 발행 틱으로 넘긴다.
+        } else {
+            if (movingNow || lastTickHadMoving) {
+                listener.onSnapshot(islandId, snapshotOf());
+            }
+            lastTickHadMoving = movingNow;
         }
-        lastTickHadMoving = movingNow;
         pruneExpiredDeparted();
     }
 
@@ -221,6 +235,13 @@ public final class RoomRuntime {
             actor = new Actor(cmd.userId(), cmd.sessionKey(), spawn.x(), spawn.y());
             actors.put(cmd.userId(), actor);
         } else {
+            if (actor.sessionKey.equals(cmd.sessionKey())) {
+                // 같은 세션의 중복 join 은 멱등이다(codex P2, 2246 보완4) — 세션 교체가 아니므로
+                // lastCommandSeq·토큰 버킷·sessionToUser 를 그대로 두고 FullState 도 다시 보내지 않는다.
+                // 그러지 않으면 이미 채택한 commandSeq 를 다시 수락하거나 순간 제한이 리셋된다. 중복
+                // SUBSCRIBE 는 2247 의 requestFullState 가 별도로 받으므로 여기서는 챙기지 않는다.
+                return;
+            }
             // 두 번째 세션이 교체 — 위치·경로는 유지, 명령 번호만 새 세션 기준으로 리셋(N6, N20).
             sessionBuckets.remove(actor.sessionKey); // 옛 세션의 토큰 버킷 정리(codex P2) — 새 세션은 다음 accept 에서 새로 받는다.
             actor.sessionKey = cmd.sessionKey();

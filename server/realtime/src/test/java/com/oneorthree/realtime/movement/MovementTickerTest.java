@@ -1,5 +1,10 @@
 package com.oneorthree.realtime.movement;
 
+import com.oneorthree.realtime.movement.nav.Cell;
+import com.oneorthree.realtime.movement.nav.NavGrid;
+import com.oneorthree.realtime.movement.nav.NavJsonLoader;
+import com.oneorthree.realtime.movement.nav.WorldCoords;
+import com.oneorthree.realtime.movement.nav.WorldPoint;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -194,5 +199,55 @@ class MovementTickerTest {
         }
 
         assertThat(rooms.rooms()).as("퇴장 기억이 만료되면 아무도 없는 방도 제거돼야 한다").doesNotContainKey(islandId);
+    }
+
+    // ── codex P2: 2246 보완4 — catch-up 틱에서는 Snapshot 을 발행하지 않는다 ──────
+
+    @Test
+    @DisplayName("isCatchUp: 직전 틱 시작 뒤 반 주기(tickMs/2) 가 안 지났으면 true, 지났으면"
+            + " false(경계값, codex P2, 2246 보완4)")
+    void isCatchUpBoundary() {
+        long tickMs = 50;
+        assertThat(MovementTicker.isCatchUp(100, 100, tickMs)).as("diff 0ms").isTrue();
+        assertThat(MovementTicker.isCatchUp(100, 124, tickMs)).as("diff 24ms").isTrue();
+        assertThat(MovementTicker.isCatchUp(100, 125, tickMs)).as("diff 25ms(정확히 반 주기) 는 false").isFalse();
+        assertThat(MovementTicker.isCatchUp(100, 149, tickMs)).as("diff 49ms").isFalse();
+        assertThat(MovementTicker.isCatchUp(100, 150, tickMs)).as("diff 50ms(한 주기) 는 false").isFalse();
+        assertThat(MovementTicker.isCatchUp(0, 10, tickMs)).as("첫 실행(previous=0) 은 catch-up 이 아니다").isFalse();
+    }
+
+    @Test
+    @DisplayName("tickAllRooms(false) 는 이동은 그대로 전진시키되 Snapshot 은 전혀 발행하지"
+            + " 않는다(codex P2, 2246 보완4)")
+    void tickAllRoomsFalseAdvancesMovementButSkipsSnapshot() {
+        List<MovementEvent.Snapshot> snapshots = new ArrayList<>();
+        RoomRuntime.Listener listener = new RoomRuntime.Listener() {
+            @Override
+            public void onEvent(UUID islandId, MovementEvent event, Target target) {
+            }
+
+            @Override
+            public void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot) {
+                snapshots.add(snapshot);
+            }
+        };
+        MovementRooms rooms = new MovementRooms(listener, new SimpleMeterRegistry());
+        UUID islandId = UUID.randomUUID();
+        RoomRuntime room = rooms.roomFor(islandId);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+
+        NavGrid grid = NavJsonLoader.loadBundled();
+        Cell entranceCell = grid.entrances().values().iterator().next();
+        WorldPoint target = WorldCoords.cellCenter(entranceCell);
+        room.accept("s1", new MoveIntent(1, 1, target.x(), target.y()));
+
+        MovementTicker ticker = new MovementTicker(rooms, new SimpleMeterRegistry());
+        ticker.tickAllRooms(false); // join+accept 가 한 틱에 같이 드레인 — catch-up 이라 Snapshot 없어야 한다.
+
+        assertThat(actorIn(room.fullStateOf(), userId).state()).as("catch-up 틱에서도 이동은 전진한다")
+                .isEqualTo(MotionState.MOVING);
+        assertThat(snapshots).as("catch-up 틱은 Snapshot 을 전혀 내지 않는다").isEmpty();
+        assertThat(ticker.skippedSnapshotCount()).as("catch-up 틱 1회 — 카운터 1 증가").isEqualTo(1L);
     }
 }
