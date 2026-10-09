@@ -35,6 +35,13 @@ import java.util.function.LongSupplier;
  * 사용자(userId) 기준이라(policy §3 「사용자당」, 2246 보완5) 세션 교체·재접속으로는 바뀌지 않는다.
  * 버킷을 통과한 intent 는 다른 명령과 똑같이 큐에 들어가고, 세션당 최신 1개로 합치는 일은
  * {@link #drain()} 이 틱마다 한 번에 한다(별도 pendingIntent 슬롯 없음, 2246 보완7).
+ *
+ * <p><b>이 인스턴스 하나의 메모리일 뿐이다</b>(2246 보완14, {@link MovementRooms} 의 다중화 전제 참고) —
+ * {@link #serverTick} 은 이 인스턴스가 뜰 때마다(재시작 포함) 0 부터 다시 세므로, {@link Departed#tick}·
+ * {@link MovementEvent.Snapshot#serverTick} 은 인스턴스를 건너뛰어 비교할 수 없다(같은 섬이 다른
+ * 인스턴스로 뜨면 틱 번호가 리셋된다). {@code actor.lastCommandSeq} 도 그 actor 객체의 메모리일
+ * 뿐이다 — 소유권이 다른 인스턴스로 넘어가면(인스턴스를 내렸다 올리거나 다중화) 0 으로 리셋돼, 이전
+ * 인스턴스가 이미 채택했던 commandSeq 를 새 인스턴스가 다시 수락할 수 있다.
  */
 public final class RoomRuntime {
 
@@ -129,11 +136,21 @@ public final class RoomRuntime {
      * 번에 한다 — 적용 대기 명령은 actor당 최신 1개뿐이라(policy §3) 나머지는 응답 없이 superseded 로
      * 끝난다(protocol §5). 이미 채택된 뒤의 명령을 또 보낸 경우의 STALE_COMMAND 응답은
      * {@link #processAccept} 가 여전히 낸다.
+     *
+     * <p>버킷 조회·생성·소모는 {@link ConcurrentHashMap#compute} 안에서 한 번에 한다(codex 프리-PR
+     * 12라운드 P2, 2246 보완14, {@link #pruneExpiredDeparted} 참고) — 따로 하면 그 틈에 prune 의 만료
+     * 판정이 끼어들어, 방금 되살린 버킷이 지워지고 다음 호출이 burst 를 공짜로 다시 받을 수 있다.
      */
     public void accept(UUID userId, String sessionKey, MoveIntent intent) {
-        Bucket bucket = userBuckets.computeIfAbsent(userId, k -> new Bucket(rules.intentBurst(),
-                nowNanos.getAsLong()));
-        if (!bucket.tryConsume(nowNanos.getAsLong(), rules)) {
+        // 생성 여부 판단과 토큰 소모를 이 compute 안에서 함께 한다(2246 보완14, 위 javadoc) — prune 과
+        // 원자성을 공유해야 하는 지점이라 computeIfAbsent+tryConsume 둘로 나누지 않는다.
+        boolean[] consumed = {false};
+        userBuckets.compute(userId, (id, existing) -> {
+            Bucket bucket = existing != null ? existing : new Bucket(rules.intentBurst(), nowNanos.getAsLong());
+            consumed[0] = bucket.tryConsume(nowNanos.getAsLong(), rules);
+            return bucket;
+        });
+        if (!consumed[0]) {
             rateLimitedDropCount.incrementAndGet();
             LOG.debug("사용자 {} 토큰 버킷 초과 — commandSeq={} intent 를 큐에 넣지 않고 버린다(N8)", userId,
                     intent.commandSeq());
@@ -227,6 +244,16 @@ public final class RoomRuntime {
     /** 패키지 전용 — 테스트용. 지금 살아 있는 사용자 토큰 버킷 수(codex P2, 2246 보완5). */
     int bucketCount() {
         return userBuckets.size();
+    }
+
+    /**
+     * 패키지 전용 — 테스트용. actor 의 raw(반올림 전) 좌표 — 없으면 {@code null}. {@link #fullStateOf}·
+     * {@link #snapshotOf} 는 전부 {@link #round2} 를 거친 값만 내보내므로, 반올림 자체(계약 §0)를
+     * 검증하려는 테스트는 이 접근자로 실제 {@code actor.x/y} 를 직접 봐야 한다(2246 보완14).
+     */
+    MovementEvent.Point rawPositionOf(UUID userId) {
+        Actor actor = actors.get(userId);
+        return actor == null ? null : new MovementEvent.Point(actor.x, actor.y);
     }
 
     // ── 콜백 전송(예외 삼킴) ────────────────────────────────────────────
@@ -566,16 +593,25 @@ public final class RoomRuntime {
      * 지우면 join 없이 accept 만 반복하는 사용자의 버킷이 매 틱 지워지고 다음 틱에 새 버킷이 burst(20)
      * 를 다시 줘 초당 제한을 우회한다(codex P1, 2246 보완8) — 그래서 마지막 사용({@link
      * Bucket#lastTouchedNanos()}) 뒤 {@link #DEPARTED_MEMORY_NANOS}(10분) 가 지난 버킷만 지운다.
-     * {@code userBuckets} 는 {@link ConcurrentHashMap} 이라 이 순회(스레드: 틱)가 {@link #accept}
-     * (스레드: STOMP)의 동시 삽입과 겹쳐도 안전하다.
+     *
+     * <p>만료 판정과 제거를 키마다 {@link ConcurrentHashMap#computeIfPresent} 안에서 한 번에 한다
+     * (codex 프리-PR 12라운드 P2, 2246 보완14) — 판정만 먼저 하고 제거를 나중에 하면(예:
+     * {@code removeIf}) 그 틈에 {@link #accept}(스레드: STOMP)가 같은 버킷을 되살려도 판정은 이미
+     * 끝나 있어 그대로 지워버린다 — 다음 accept 가 지워진 자리에 새 버킷의 burst(20) 를 공짜로 받는다.
+     * {@code computeIfPresent} 는 {@link #accept} 의 {@code compute} 와 같은 키에서 잠금을 공유해,
+     * 판정이 그 되살림을 보고 살려두거나 되살림이 판정이 끝난 뒤에 일어나거나 둘 중 하나로만 끝난다.
      */
     private void pruneExpiredDeparted() {
         long window = rules.ticksFor(DEPARTED_MEMORY_MS);
         departed.values().removeIf(d -> serverTick - d.tick() > window);
         long now = nowNanos.getAsLong();
-        userBuckets.entrySet().removeIf(entry -> !actors.containsKey(entry.getKey())
-                && !departed.containsKey(entry.getKey())
-                && now - entry.getValue().lastTouchedNanos() > DEPARTED_MEMORY_NANOS);
+        // 판정(만료?)과 제거를 같은 computeIfPresent 안에서 한다(위 javadoc, 2246 보완14) — accept() 의
+        // compute 와 같은 키의 잠금을 공유해야 "판정 뒤 되살림" 틈이 없어진다.
+        for (UUID userId : userBuckets.keySet()) {
+            userBuckets.computeIfPresent(userId, (id, bucket) -> !actors.containsKey(id)
+                    && !departed.containsKey(id) && now - bucket.lastTouchedNanos() > DEPARTED_MEMORY_NANOS
+                    ? null : bucket);
+        }
     }
 
     // ── 스냅샷 ────────────────────────────────────────────────────────────
@@ -634,7 +670,14 @@ public final class RoomRuntime {
 
     // ── 수신 대상 콜백 ──────────────────────────────────────────────────
 
-    /** {@link RoomRuntime} 은 네트워크를 모른다 — 이벤트는 이 콜백으로만 나간다. */
+    /**
+     * {@link RoomRuntime} 은 네트워크를 모른다 — 이벤트는 이 콜백으로만 나간다.
+     *
+     * <p><b>구현은 로컬 전송을 전제한다</b>(2246 보완14) — 이 콜백 하나로는 같은 JVM 인스턴스에 붙은
+     * 구독자에게만 닿는다. 다른 인스턴스에 붙은 구독자에게도 보내려면(수평 확장) Redis 팬아웃
+     * ({@code chat:events:v1}) 으로 중계하는 구현이 필요한데, 그 설계는 2단계 결정이다 — 지금
+     * 구현({@code MovementRooms} 가 주입하는 것)은 로컬 전송만 한다.
+     */
     public interface Listener {
 
         void onEvent(UUID islandId, MovementEvent event, Target target);

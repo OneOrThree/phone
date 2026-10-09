@@ -21,6 +21,18 @@ import java.util.concurrent.ConcurrentHashMap;
  * 그대로 써서 큐(또는 대기 슬롯)에 넣는다"를 한 번에 한다(codex P1, 2246 보완2).</b> {@link #remove} 의
  * {@code computeIfPresent} 가 같은 키를 잠그므로, 방을 꺼내 들고 있다가 그 사이 지워지는 간격이 없다 —
  * {@link #roomFor} 는 그래서 등록 경로로 쓰면 안 되고 테스트·Ticker 전용이다.
+ *
+ * <p><b>호출자는 이미 소속·인가를 통과한 islandId 만 넘겨야 한다</b>(2246 보완14) — 이 클래스 자체는
+ * 임의의 islandId 로 방을 만들어 준다(검사하지 않는다). 그 앞을 지키는 것은 2247 의 STOMP 경계다 —
+ * SUBSCRIBE 관문과 SEND 의 구독 보유 검사가 비소속 islandId 를 걸러낸 뒤에야 이 클래스의 메서드가
+ * 불린다.
+ *
+ * <p><b>단일 인스턴스 전제</b>(2246 보완14) — ① 방 상태(이 {@link #rooms} 맵과 그 안의 각
+ * {@link RoomRuntime})는 전부 이 JVM 의 메모리일 뿐이다. 인스턴스를 둘로 늘리면 같은 섬이 인스턴스마다
+ * 각자 "그 섬의 방"을 따로 만들어, 사실상 같은 섬에 서로 모르는 방이 두 개 생긴다(틱·actor 상태가
+ * 갈린다). ② 사용자당 토큰 버킷도 {@code RoomRuntime} 안에 있어 (사용자, 섬, 인스턴스) 조합마다
+ * 따로다 — 다중화하면 같은 사용자가 인스턴스를 오가며 버킷을 공유하지 못해 실질 제한이 느슨해질 수
+ * 있다. 수평 확장은 이 전제를 깨므로 별도 설계가 필요하다.
  */
 @Component
 public final class MovementRooms {

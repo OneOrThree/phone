@@ -190,6 +190,11 @@ class RoomRuntimeTest {
         return grid.walkable(grid.index(WorldCoords.worldToCell(x, y)));
     }
 
+    /** 테스트 전용 — {@code RoomRuntime.round2()} 와 같은 반올림(비공개라 복제, 계약 §0, 2246 보완14). */
+    private static double round2(double v) {
+        return Math.round(v * 100) / 100.0;
+    }
+
     // ── 티켓 2: commandSeq 최신만 채택 · 범위 밖/NaN 거절 ────────────────
 
     @Test
@@ -422,15 +427,20 @@ class RoomRuntimeTest {
         }
         assertThat(state).isNotNull();
         assertThat(state.state()).isEqualTo(MotionState.IDLE);
-        assertThat(state.x()).isEqualTo(1.5);
-        assertThat(state.y()).isEqualTo(0.5);
+        // raw(반올림 전) 좌표로 오차 없이 검증한다 — round2() 를 거친 값만 보면 셀 경계에 걸리지 않는
+        // goal 에서는 오버슈트가 반올림에 가려질 수 있다(2246 보완14).
+        MovementEvent.Point raw = room.rawPositionOf(userId);
+        assertThat(raw.x()).isEqualTo(1.5);
+        assertThat(raw.y()).isEqualTo(0.5);
+        assertThat(state.x()).as("송신값(FullState)은 round2(raw) 다").isEqualTo(round2(raw.x()));
+        assertThat(state.y()).isEqualTo(round2(raw.y()));
         assertThat(listener.of(MovementEvent.Arrived.class)).hasSize(1);
 
         for (int i = 0; i < 3; i++) {
             room.tick(++tick);
-            MovementEvent.ActorState after = actorIn(room.fullStateOf(), userId);
-            assertThat(after.x()).isEqualTo(1.5);
-            assertThat(after.y()).isEqualTo(0.5);
+            MovementEvent.Point afterRaw = room.rawPositionOf(userId);
+            assertThat(afterRaw.x()).isEqualTo(1.5);
+            assertThat(afterRaw.y()).isEqualTo(0.5);
         }
         assertThat(listener.of(MovementEvent.Arrived.class)).as("도착 뒤에도 Arrived 가 더 나지 않는다").hasSize(1);
     }
@@ -941,10 +951,15 @@ class RoomRuntimeTest {
                 room.tick(++tick);
                 sampledTicks++;
                 MovementEvent.ActorState state = actorIn(room.fullStateOf(), userId);
-                assertThat(isWalkable(grid, state.x(), state.y()))
-                        .as("입구 %s 로 가는 중 틱 %d 위치 (%f,%f) 가 비통행 셀", entrance.getKey(), tick, state.x(),
-                                state.y())
+                // raw(반올림 전) 위치로 통행 판정한다 — round2() 로 반올림한 값은 셀 경계 바로 바깥으로
+                // 밀려 비통행처럼 보일 수 있다(2246 보완14).
+                MovementEvent.Point raw = room.rawPositionOf(userId);
+                assertThat(isWalkable(grid, raw.x(), raw.y()))
+                        .as("입구 %s 로 가는 중 틱 %d raw 위치 (%f,%f) 가 비통행 셀", entrance.getKey(), tick,
+                                raw.x(), raw.y())
                         .isTrue();
+                assertThat(state.x()).as("송신값(FullState)은 round2(raw) 다").isEqualTo(round2(raw.x()));
+                assertThat(state.y()).isEqualTo(round2(raw.y()));
                 arrived = state.state() == MotionState.IDLE;
             }
             assertThat(arrived).as("입구 %s 도착 못함(가드 초과)", entrance.getKey()).isTrue();
@@ -1046,9 +1061,15 @@ class RoomRuntimeTest {
         for (int i = 0; i < 3; i++) {
             room.tick(++tick);
             midFlight = actorIn(room.fullStateOf(), userId);
-            assertThat(isWalkable(grid, midFlight.x(), midFlight.y()))
-                    .as("재경로 전 전진 중 틱 %d 위치 (%f,%f) 가 비통행 셀", tick, midFlight.x(), midFlight.y())
+            // raw(반올림 전) 위치로 통행 판정한다(2246 보완14) — round2() 값은 셀 경계 바로 바깥으로
+            // 밀려 비통행처럼 보일 수 있다.
+            MovementEvent.Point midFlightRaw = room.rawPositionOf(userId);
+            assertThat(isWalkable(grid, midFlightRaw.x(), midFlightRaw.y()))
+                    .as("재경로 전 전진 중 틱 %d raw 위치 (%f,%f) 가 비통행 셀", tick, midFlightRaw.x(),
+                            midFlightRaw.y())
                     .isTrue();
+            assertThat(midFlight.x()).as("송신값(FullState)은 round2(raw) 다").isEqualTo(round2(midFlightRaw.x()));
+            assertThat(midFlight.y()).isEqualTo(round2(midFlightRaw.y()));
         }
         assertThat(midFlight.state()).as("아직 도착 전이어야 재경로 의미가 있다").isEqualTo(MotionState.MOVING);
 
@@ -1065,8 +1086,12 @@ class RoomRuntimeTest {
         while (!arrived && guard++ < 3000) {
             room.tick(++tick);
             MovementEvent.ActorState state = actorIn(room.fullStateOf(), userId);
-            assertThat(isWalkable(grid, state.x(), state.y()))
-                    .as("재경로 뒤 틱 %d 위치 (%f,%f) 가 비통행 셀", tick, state.x(), state.y()).isTrue();
+            // raw(반올림 전) 위치로 통행 판정한다(2246 보완14).
+            MovementEvent.Point raw = room.rawPositionOf(userId);
+            assertThat(isWalkable(grid, raw.x(), raw.y()))
+                    .as("재경로 뒤 틱 %d raw 위치 (%f,%f) 가 비통행 셀", tick, raw.x(), raw.y()).isTrue();
+            assertThat(state.x()).as("송신값(FullState)은 round2(raw) 다").isEqualTo(round2(raw.x()));
+            assertThat(state.y()).isEqualTo(round2(raw.y()));
             arrived = state.state() == MotionState.IDLE;
         }
         assertThat(arrived).as("재경로 목적지 도착 못함(가드 초과)").isTrue();
@@ -1457,6 +1482,31 @@ class RoomRuntimeTest {
         room.accept(userId, "s2", new MoveIntent(21, 1, 5.5, 5.5)); // 소진된 버킷 그대로 — 거절돼야 한다.
         assertThat(room.rateLimitedDropCount())
                 .as("교체가 버킷을 리셋했다면 이 호출은 통과했을 것이다").isEqualTo(1L);
+    }
+
+    // ── codex 프리-PR 12라운드 P2(2246 보완14): accept 의 compute 와 prune 의 computeIfPresent 원자화 ──
+
+    @Test
+    @DisplayName("만료 직전 버킷을 accept 로 되살린 직후 같은 now 로 prune(틱) 해도 지워지지 않는다 — 판정과"
+            + " 제거를 같은 키의 compute 안에서 한 번에 하는 원자화 보호(2246 보완14). 실제 두 스레드 경합"
+            + " 재현은 Bucket 이 private final 이라 후크를 심을 수 없어 결정적으로 쓸 수 없다 — 단일"
+            + " 스레드 검증으로 대체한다(보고 참고)")
+    void bucketTouchedByAcceptSurvivesImmediatePruneAtTheSameClockValue() {
+        NavGrid grid = openGrid(10, 10);
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
+        UUID ghostUserId = UUID.randomUUID();
+
+        room.accept(ghostUserId, "s9", new MoveIntent(1, 1, 5.5, 5.5)); // 버킷 생성 — lastTouchedNanos=0.
+        assertThat(room.bucketCount()).isEqualTo(1);
+
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // DEPARTED_MEMORY_MS(10분)를 넘겨 — 안 건드리면 다음 prune 이 지운다.
+        room.accept(ghostUserId, "s9", new MoveIntent(2, 1, 5.5, 5.5)); // 같은 now 에 되살린다 — lastTouchedNanos=now.
+        room.tick(1); // 같은 now 로 바로 prune — 방금 되살린 버킷을 지우면 안 된다.
+
+        assertThat(room.bucketCount())
+                .as("방금 compute 로 되살린 버킷은 같은 now 의 prune(computeIfPresent) 에 지워지면 안 된다")
+                .isEqualTo(1);
     }
 
     // ── codex P2: 2246 보완9 — 밖으로 나가는 좌표는 전부 계약 정밀도(0.01) ────────
