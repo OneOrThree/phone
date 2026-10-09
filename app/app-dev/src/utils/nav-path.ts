@@ -218,7 +218,7 @@ export function resolveTarget(
 
 // 규칙 ⑤⑥: 8방향 A*, 비용은 전부 정수(고정소수점).
 //   edge = ceil(step × cost[q] / 10)       step = 직교 10⁶ · 대각 1,414,214, cost = 대상 셀 ×10
-//   h    = floor(floor(√(dx²+dy²) × 10⁶) × minCost / 10)   — sqrt·곱·floor 만 double(IEEE 로 엔진 무관)
+//   h    = floor(floor(√(dx²+dy²) × 10⁶) × minCostTenths / 10)   — sqrt·곱·floor 만 double(IEEE 로 엔진 무관)
 // 우선순위 (f, h, index) 오름차순, 개선은 strict < (같은 비용이면 먼저 찾은 부모 유지).
 // 출발 보정 실패·도달 불가면 null, 같은 셀이면 cells 가 빈 결과.
 export function navPathDetailed(
