@@ -47,7 +47,14 @@ import legacyDoorCoords from '@/constants/legacy-doors.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
-import { TileTerrainCanvas, navDebugText, type NavDebug, type NavWalk } from './TileTerrainCanvas';
+import {
+  TileTerrainCanvas,
+  navDebugText,
+  type NavDebug,
+  type NavServerDebug,
+  type NavWalk,
+} from './TileTerrainCanvas';
+import { debugClockPeriod } from './navDebugClock';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import {
   demoteToBundle,
@@ -508,6 +515,7 @@ export function WorldMap({
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug,
+  debugNow,
   buildingOffsets,
   children,
 }: {
@@ -539,6 +547,10 @@ export function WorldMap({
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기(타일 섬만). */
   navDebug?: NavDebug | null;
+  /** 틱 지연·대기 readout 시계 — FinalIslandScene 이 serverDebug flush 와 같은 동기 구간에서
+   * 갱신한다(GROMO-2249 보완8 항목 2). navDebug 없이 호출하는 쪽(WorldMap.test.tsx)은 readout 자체를
+   * 안 그리니 안 넘겨도 된다. */
+  debugNow?: number;
   /** 타일 섬 서버 배치 — 기존 마을 건물 레이어·모션·알림을 이만큼 옮겨 그린다. */
   buildingOffsets?: BuildingOffsets;
   children?:
@@ -732,10 +744,12 @@ export function WorldMap({
           assets={mapAssets}
           onAssetsFail={onMapAssetsFail}
           navDebug={navDebug}
+          reduceMotion={state.settings.reduceMotion}
         />
       )}
       {tileTerrain && navDebug && (
         <Txt
+          testID="nav-debug-text"
           pointerEvents="none"
           kind="meta"
           style={{
@@ -746,7 +760,7 @@ export function WorldMap({
             backgroundColor: 'rgba(0,0,0,0.6)',
           }}
         >
-          {navDebugText(navDebug.walk, mapAssets.kind)}
+          {navDebugText(navDebug.walk, mapAssets.kind, navDebug.server, debugNow)}
         </Txt>
       )}
       <Pressable
@@ -1025,6 +1039,45 @@ export function WorldMap({
     </View>
   );
 }
+// 이동 보기 오버레이(GROMO-2249) flush 결과 비교용 — 같으면 이전 state 를 그대로 써 TileTerrainCanvas
+// 리렌더를 건너뛴다(보완 3). waitingSince·snapshotReceivedAt 도 비교에 넣는다(보완4 지적 1) — 둘 다
+// 이벤트 때만 바뀌는 절대 시각이라 250ms 재시도 인터벌만으론 새 객체가 안 생기고, intent 전송으로
+// sentAt 만 바뀌거나 정지 상태에서 같은 좌표의 새 Snapshot 으로 receivedAt 만 바뀌는 경우를 놓치지 않는다.
+const sameImagePoint = (a: Point | null, b: Point | null) =>
+  a === b || (!!a && !!b && a.x === b.x && a.y === b.y);
+// 모든 점을 깊이 비교한다(보완4 지적 3) — 점 ≤ 100개라 비용은 무시한다(보완5 지적 1).
+const samePathPoints = (a: Point[], b: Point[]) =>
+  a.length === b.length && a.every((p, i) => sameImagePoint(p, b[i]));
+// path 는 flush 마다 새 배열이라 참조가 다르면 비교가 필요하다. pathId(서버 경로 식별자)가 같아도 서버
+// 재시작 뒤 재사용된 값일 수 있다(movementSync 가 pathId 역행을 허용) — 길이만 보고 "같다"고 끝내던
+// pathId 지름길은 그 경우 중간 waypoint 가 달라져도 옛 경로를 그대로 남겼다(보완5 지적 1). 지름길 없이
+// pathId 와 전 지점을 항상 함께 비교한다.
+const sameImagePath = (
+  a: Point[] | null,
+  b: Point[] | null,
+  aPathId: number | null,
+  bPathId: number | null,
+) => a === b || (!!a && !!b && aPathId === bPathId && samePathPoints(a, b));
+const sameServerDebug = (a: NavServerDebug, b: NavServerDebug) =>
+  a.status === b.status &&
+  a.correctedAt === b.correctedAt &&
+  a.waitingSince === b.waitingSince &&
+  a.snapshotReceivedAt === b.snapshotReceivedAt &&
+  sameImagePoint(a.predicted, b.predicted) &&
+  sameImagePoint(a.snapshot, b.snapshot) &&
+  sameImagePath(a.path, b.path, a.pathId, b.pathId);
+// NavServerDebug 에 필드를 추가하면(또는 빼면) 이 타입이 깨진다 — sameServerDebug 도 같이 고치라는
+// 컴파일 타임 잠금이다(GROMO-2249 보완8 항목 4).
+export const SERVER_DEBUG_KEYS: Record<keyof NavServerDebug, true> = {
+  status: true,
+  path: true,
+  pathId: true,
+  snapshot: true,
+  predicted: true,
+  correctedAt: true,
+  snapshotReceivedAt: true,
+  waitingSince: true,
+};
 function FinalIslandScene({
   state,
   go,
@@ -1559,6 +1612,133 @@ function FinalIslandScene({
       setRemoteActors(null);
     };
   }, [syncIslandId, me]);
+  // 이동 보기 오버레이(GROMO-2249) — 서버 확정 경로·스냅샷·예측 오차. navDebug 가 꺼져 있으면 아무것도 계산·구독하지 않는다(비용 0).
+  const [serverDebug, setServerDebug] = useState<NavServerDebug | null>(null);
+  // flush 가 비교·배칭에 쓰는 최신값 거울(GROMO-2249 보완8 항목 2) — setState 는 비동기라 같은 tick
+  // 안에서 state 클로저가 묵을 수 있다. ref 는 항상 바로 갱신해 다음 flush 가 최신값과 비교한다.
+  const serverDebugRef = useRef<NavServerDebug | null>(null);
+  // 틱 지연·대기 readout 시계(GROMO-2249 보완4 지적 2 · 보완8 항목 2) — serverDebug 가 flush 로 실제
+  // 바뀔 때는 그 flush 와 같은 동기 구간에서 Date.now() 로 맞춰(아래 flush, React 18 자동 배칭) 렌더가
+  // 1번만 늘어난다. 그 뒤는 아래 별도 effect 의 navDebugClock.debugClockPeriod 규칙대로 이어간다.
+  const [debugNow, setDebugNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!navDebug || !tileNav) {
+      setServerDebug(null);
+      serverDebugRef.current = null;
+      return;
+    }
+    const controller = movement.current;
+    const size = sizeOf(grid);
+    // 걷는 동안 화면에 보이는 고양이 위치를 ref 로 샘플링한다 — location.current 는 구간이 끝나야
+    // 갱신돼 걷는 중엔 전 꼭짓점에 머문다. 오버레이 화살표·서버 Δ 가 긴 구간에서 예측 오차를 잘못
+    // 보여준다(GROMO-2249 보완7 지적 2). xy 는 location.current 와 같은 1x 이미지 px 공간이라
+    // px→world 변환이 필요 없다(둘 다 image px — worldCoords 의 WorldPoint 가 아니다). 컨트롤러가
+    // 없으면(동기화 off) predicted 자체를 안 그리니(아래 flush) 리스너도 걸지 않는다 — 기존 off 동작
+    // 그대로(MOVEMENT_SYNC 가 꺼지면 controller 는 항상 null).
+    const livePos = { current: location.current };
+    const listenerId = controller
+      ? xy.addListener((v) => {
+          livePos.current = v;
+        })
+      : null;
+    // 100ms 쓰로틀 — controller.subscribe() 는 스냅샷마다(최대 20Hz) 올 수 있어 마지막 반영 이후 100ms 안이면 미뤄서 합친다.
+    let lastFlush = 0,
+      timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      lastFlush = Date.now();
+      timer = null;
+      // 컨트롤러가 없으면(동기화 off·비홈이거나 아직 안 열렸다) 동기화 자체가 꺼진 것과 같다 — "전부 null"
+      // 객체 대신 server 자체를 비워 TileTerrainCanvas 쪽 판정이 상시 켜지지 않게 한다(GROMO-2249 보완 — 항목 2).
+      // movement.current(살아있는 ref)가 아니라 캡처한 controller 로 판정한다 — 거절·언마운트 정리는 항상
+      // controller.deny() 를 먼저 부르고서 movement.current 를 null 로 비우므로, 거절은 아래 st.denied 로 이미
+      // 갈린다. 산 ref 로 판정하면 거절 직후 movement.current 가 비는 순간 off 로 오판한다.
+      if (!controller) {
+        setServerDebug(null);
+        serverDebugRef.current = null;
+        return;
+      }
+      const st = controller.state();
+      const next: NavServerDebug = st.denied
+        ? // 거절(controller.deny())되면 lastPath·lastSnapshot 은 컨트롤러 안에 그대로 남는다 — 오버레이까지
+          // 묵은 경로·스냅샷을 계속 그리지 않게 통째로 비운다(지적 3). status 로 "서버 없음"과 구분한다(보완 5).
+          {
+            status: 'denied',
+            path: null,
+            pathId: null,
+            snapshot: null,
+            predicted: null,
+            correctedAt: null,
+            snapshotReceivedAt: null,
+            waitingSince: null,
+          }
+        : {
+            status: 'live',
+            path: st.lastPath
+              ? [st.lastPath.start, ...st.lastPath.waypoints].map((p) => worldToImage(p, size))
+              : null,
+            // 경로 비교 1순위(보완4 지적 3) — 서버 경로 식별자. lastPath 가 없으면(아직 PathAccepted 전) null.
+            pathId: st.lastPath?.pathId ?? null,
+            snapshot: st.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
+            // 걷는 중엔 xy 의 애니메이션 중간값(livePos) — 멈춰 있으면 location.current 와 같다(폴백, 지적 2).
+            predicted: livePos.current,
+            correctedAt: st.lastCorrectionAt,
+            // state() 가 수신 시각을 그대로 준다(GROMO-2249 보완) — 틱 지연(now - 이 값)은 readout 이 그릴 때
+            // 계산해, 절대 시각이라 메시지가 안 와도 값이 그대로다(아래 shallow 비교가 매번 새 객체를 안 만든다).
+            snapshotReceivedAt: st.lastSnapshot?.receivedAt ?? null,
+            waitingSince: st.sentAt,
+          };
+      // path·snapshot·predicted·correctedAt·status 가 이전과 같으면 아무것도 하지 않아 리렌더를
+      // 건너뛴다 — 시간값은 비교하지 않는다(보완 3). ref 는 항상 최신이라 효과 클로저가 묵어도 최신값과
+      // 비교한다. 바뀐 경우에만 serverDebug 와 debugNow 를 같은 동기 구간에서 함께 올려 React 18 자동
+      // 배칭으로 렌더가 1번만 늘어난다(보완8 항목 2) — 전에는 debugNow 를 WorldMap 쪽 참조 deps effect 가
+      // 따로 뒤쫓아 flush 마다 렌더가 1번 더 늘었다.
+      if (!serverDebugRef.current || !sameServerDebug(serverDebugRef.current, next)) {
+        serverDebugRef.current = next;
+        setServerDebug(next);
+        setDebugNow(Date.now());
+      }
+    };
+    const schedule = () => {
+      const wait = 100 - (Date.now() - lastFlush);
+      if (wait <= 0) flush();
+      else if (!timer) timer = setTimeout(flush, wait);
+    };
+    schedule();
+    const unsubscribe = controller?.subscribe(schedule) ?? (() => {});
+    // 서버 응답·스냅샷이 끊겨 구독 콜백이 안 와도 오버레이가 켜진 동안은 250ms 마다 같은 flush 를 다시
+    // 돌려 거절(deny) 처럼 콜백 없는 상태 변화도 집어 든다. 내용이 그대로면 위 shallow 비교가 리렌더까진
+    // 만들지 않는다(지적 2·보완 3). 컨트롤러가 없으면(동기화 off) flush 는 매번 같은 early-return 뿐이라
+    // 인터벌을 만들지 않는다 — 나중에 컨트롤러가 생기는(교체) 경우는 deps(syncIslandId·me) 로 이 effect
+    // 가 다시 돌며 새로 잡는다(보완9 항목 2).
+    const interval = controller ? setInterval(flush, 250) : null;
+    return () => {
+      if (listenerId) xy.removeListener(listenerId);
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+      if (interval) clearInterval(interval);
+    };
+    // me: 컨트롤러 교체(계정 전환 등)를 추적해 effect 를 다시 돌려 새 controller 를 다시 캡처한다(보완 4).
+  }, [navDebug, tileNav, grid, syncIslandId, me]);
+  // 깜빡임·readout 시계 체인(GROMO-2249 보완4 지적 2 · 보완8 항목 2 · 보완9 항목 1) — flush 효과와는
+  // 별도다. navDebugClock.debugClockPeriod 가 이제 live 여부만 보므로(보정 창 50ms 분기 제거, 보완9
+  // 항목 1) deps 도 debugLive 하나면 된다 — 보정이 와도(correctedAt 변경) 주기가 안 바뀌니 이 effect 를
+  // 다시 돌릴 이유가 없다. serverDebug 참조 전체를 deps 로 두면(이전 버전의 WorldMap 쪽 effect 가
+  // 그랬다) flush 마다 이 effect 도 다시 돌아 debugNow 를 또 갱신해 렌더가 1번 더 늘었다(위 flush 가
+  // 이미 같은 동기 구간에서 처리한다).
+  const debugLive = serverDebug?.status === 'live';
+  useEffect(() => {
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setDebugNow(Date.now());
+      const period = debugClockPeriod(serverDebugRef.current);
+      if (period === null) return;
+      id = setTimeout(tick, period);
+    };
+    const period0 = debugClockPeriod(serverDebugRef.current);
+    if (period0 === null) return;
+    id = setTimeout(tick, period0);
+    return () => clearTimeout(id);
+  }, [debugLive]);
   useEffect(() => {
     const p = initial();
     location.current = p;
@@ -1969,8 +2149,11 @@ function FinalIslandScene({
         mapAssets={mapAssets}
         onMapAssetsFail={onMapAssetsFail}
         navDebug={
-          tileNav && navDebug ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk } : null
+          tileNav && navDebug
+            ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk, server: serverDebug }
+            : null
         }
+        debugNow={debugNow}
         islandId={i.id}
         hallMotionActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'

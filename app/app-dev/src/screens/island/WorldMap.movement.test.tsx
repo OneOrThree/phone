@@ -70,6 +70,26 @@ jest.mock('@/services/islandRealtime', () => ({
     return channel;
   },
 }));
+// 이동 보기 오버레이(GROMO-2249)는 controller.subscribe() 로 알림을 받는다 — 구독 호출 자체를 스파이로 확인한다.
+// 실제 컨트롤러 로직은 그대로 두고 subscribe 만 jest.fn 으로 감싼다.
+type MockController = ReturnType<
+  typeof import('@/services/movementSync').createMovementController
+> & {
+  subscribe: jest.Mock;
+};
+const controllers: MockController[] = [];
+jest.mock('@/services/movementSync', () => {
+  const actual = jest.requireActual('@/services/movementSync');
+  return {
+    ...actual,
+    createMovementController: (opts: Parameters<typeof actual.createMovementController>[0]) => {
+      const controller = actual.createMovementController(opts);
+      const wrapped = { ...controller, subscribe: jest.fn(controller.subscribe) };
+      controllers.push(wrapped);
+      return wrapped;
+    },
+  };
+});
 
 // 플래그는 모듈 로드 때 상수로 굳는다 — env 를 먼저 세우고 require 한다(import 는 호이스팅된다).
 process.env.EXPO_PUBLIC_TILE_ISLAND = '1';
@@ -585,6 +605,381 @@ it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동�
   await screen.unmount();
 });
 
+describe('이동 보기 오버레이 (GROMO-2249)', () => {
+  it('꺼져 있으면 controller.subscribe 를 부르지 않고 tile-terrain.navDebug 도 null 이다', async () => {
+    const screen = await renderHome(nextIsland());
+    const ctl = controllers[controllers.length - 1];
+    await emit(fullState([actor(ME, SPAWN)]));
+    expect(screen.getByTestId('tile-terrain').props.navDebug).toBeNull();
+    expect(ctl.subscribe).not.toHaveBeenCalled();
+    await screen.unmount();
+  });
+
+  it('켜면 서버 경로·스냅샷·보정 시각을 100ms 쓰로틀로 tile-terrain.navDebug.server 에 채운다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    const ctl = controllers[controllers.length - 1];
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    expect(ctl.subscribe).toHaveBeenCalled();
+
+    // FullState 채택(스폰 차이)이 보정이다 — Snapshot 은 아직 없어 server.snapshot 은 null.
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    let server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.correctedAt).not.toBeNull();
+    expect(server.snapshot).toBeNull();
+    expect(server.predicted).toEqual(worldToImage(SPAWN, SIZE));
+
+    // 로컬과 다른 PathAccepted — server.path 에 서버 경로(출발점 포함, 이미지 px)가 실린다.
+    const sentAt = Date.now();
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+    // 응답(PathAccepted) 전 — server.waitingSince 는 state().sentAt 그대로다(commandSeq 추정 아님).
+    await act(async () => jest.advanceTimersByTime(100));
+    server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.waitingSince).toBe(sentAt);
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 46.5 },
+        { x: 40.5, y: 46.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(100));
+    server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.path).toEqual(
+      [SPAWN, { x: 39.5, y: 46.5 }, { x: 40.5, y: 46.5 }].map((p) => worldToImage(p, SIZE)),
+    );
+    // 응답을 받았으니 다시 null.
+    expect(server.waitingSince).toBeNull();
+
+    // Snapshot 수신 — server.snapshot 에 실린다.
+    const receivedAt = Date.now();
+    await emit(snapshot(101, [entity(ME, 1, { x: 39.8, y: 46.2 })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.snapshot).toEqual(worldToImage({ x: 39.8, y: 46.2 }, SIZE));
+    // server.snapshotReceivedAt 은 state().lastSnapshot.receivedAt 그대로(절대 시각, serverTick 추정 아님) —
+    // 틱 지연(now - 이 값)은 readout 이 그릴 때 계산한다(GROMO-2249 보완 — 항목 3).
+    expect(server.snapshotReceivedAt).toBe(receivedAt);
+
+    // 끄면 다시 null — 더 이상 쓰로틀 타이머도 돌지 않는다.
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    expect(screen.getByTestId('tile-terrain').props.navDebug).toBeNull();
+    await screen.unmount();
+  });
+
+  it('서버 메시지가 끊겨도 snapshotReceivedAt 은 절대 시각 그대로다 — 틱 지연은 readout 이 그릴 때 계산한다(지적 2·보완 3)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const first = screen.getByTestId('tile-terrain').props.navDebug.server.snapshotReceivedAt;
+    expect(first).not.toBeNull();
+    // 이후 메시지 없이 500ms 만 지난다 — 구독 콜백(controller.notify)은 더 안 오지만 250ms 인터벌이 같은
+    // flush 를 다시 돌린다. 수신 시각은 절대값이라 그대로고(보완 3), 틱 지연은 readout 이 now 로 계산한다.
+    await act(async () => jest.advanceTimersByTime(500));
+    const second = screen.getByTestId('tile-terrain').props.navDebug.server.snapshotReceivedAt;
+    expect(second).toBe(first);
+    await screen.unmount();
+  });
+
+  it('거절되면(controller.deny()) 보존된 lastPath 대신 status:denied·나머지 null 로 통째로 비운다(지적 3·보완 5)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 46.5 },
+        { x: 40.5, y: 46.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(100));
+    // 거절 전 — 서버 경로가 오버레이에 실려 있다.
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server.path).not.toBeNull();
+    // 채널 거절 — movementSync 의 state() 는 denied 만 true 로 바꾸고 lastPath 는 그대로 보존한다.
+    const denied = channel();
+    await act(async () => denied.opts.onMovementDenied?.());
+    await act(async () => jest.advanceTimersByTime(100));
+    // off(컨트롤러 없음, 항목 2)와 달리 거절은 server 를 null 이 아니라 status:'denied' 객체로 남긴다(보완 5).
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server).toEqual({
+      status: 'denied',
+      path: null,
+      pathId: null,
+      snapshot: null,
+      predicted: null,
+      correctedAt: null,
+      snapshotReceivedAt: null,
+      waitingSince: null,
+    });
+    await screen.unmount();
+  });
+
+  it('컨트롤러가 없으면(동기화 off·비홈) server 자체가 null 이다 — 전부 null 인 객체가 아니다(보완 2)', async () => {
+    // 목업 섬(서버 홈 facts 없음) — syncIslandId 가 null 이라 movement 컨트롤러가 전혀 생기지 않는다.
+    const screen = await render(
+      <FinalIsland state={initialState()} go={jest.fn()} build={jest.fn()} />,
+    );
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server).toBeNull();
+    await screen.unmount();
+  });
+
+  it('intent 를 보내 sentAt 만 바뀌어도(위치·경로·스냅샷 불변) waitingSince 가 갱신된다(보완4 지적 1)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const before = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(before.waitingSince).toBeNull();
+    // WorldMap 의 walk()/Animated 를 거치지 않고 컨트롤러에 바로 intend 한다 — 탭은 로컬 걷기도 같이
+    // 시작시켜 predicted(location.current)까지 함께 바뀐다. 직접 호출하면 waitingSince 만 바뀌는
+    // 상황을 그대로 만들 수 있다.
+    const ctl = controllers[controllers.length - 1];
+    await act(async () => {
+      ctl.intend({ x: 42.5, y: 45.5 });
+    });
+    await act(async () => jest.advanceTimersByTime(100));
+    const after = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(after.waitingSince).not.toBeNull();
+    expect(after).toEqual({ ...before, waitingSince: after.waitingSince });
+    await screen.unmount();
+  });
+
+  it('정지 상태에서 같은 좌표의 새 Snapshot 이 와도(위치 불변) snapshotReceivedAt 이 갱신된다(보완4 지적 1)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const before = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(before.snapshotReceivedAt).not.toBeNull();
+    // 메시지 사이에 시간이 흘러야 다음 Snapshot 의 receivedAt 이 실제로 달라진다.
+    await act(async () => jest.advanceTimersByTime(600));
+    await emit(snapshot(102, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const after = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(after.snapshotReceivedAt).not.toBe(before.snapshotReceivedAt);
+    expect(after).toEqual({ ...before, snapshotReceivedAt: after.snapshotReceivedAt });
+    await screen.unmount();
+  });
+
+  it('같은 길이·끝점인 새 경로도 pathId 가 다르면 중간 waypoint 변경을 반영한다(보완4 지적 3)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, { x: 41.5, y: 45.5 });
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 40.5, y: 44.5 },
+        { x: 41.5, y: 45.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(100));
+    const before = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(before.pathId).toBe(1);
+    const firstPath = before.path;
+    // 같은 commandSeq 로 길이·끝점은 같지만 중간 waypoint 만 다른 새 경로(pathId 2)가 확정된다 — 끝점만
+    // 보던 종전 비교라면 "같다"고 오판해 옛 경로가 그대로 남는다.
+    await emit(
+      pathAccepted(ME, 1, 2, SPAWN, [
+        { x: 40.5, y: 46.5 },
+        { x: 41.5, y: 45.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(100));
+    const after = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(after.pathId).toBe(2);
+    expect(after.path).toEqual(
+      [SPAWN, { x: 40.5, y: 46.5 }, { x: 41.5, y: 45.5 }].map((p) => worldToImage(p, SIZE)),
+    );
+    expect(after.path).not.toEqual(firstPath);
+    await screen.unmount();
+  });
+
+  it('같은 pathId·길이여도 중간 waypoint 가 다르면 경로를 갱신한다 — 서버 재시작 pathId 재사용(보완5 지적 1)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, { x: 41.5, y: 45.5 });
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 40.5, y: 44.5 },
+        { x: 41.5, y: 45.5 },
+      ]),
+    );
+    // 첫 경로를 끝까지 걷게 둔다 — 두 경로의 끝점이 같아(41.5,45.5) 걷기가 끝나면 predicted(고양이
+    // 위치)가 어느 경로를 거쳤든 같은 값에 멈춘다. 그래야 "걷는 중이라 predicted 가 달라서" 전체
+    // state 가 다르다고 판정되는 거짓 통과 없이 path 비교만을 검증할 수 있다.
+    await act(async () => jest.advanceTimersByTime(3000));
+    const before = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(before.pathId).toBe(1);
+    const firstPath = before.path;
+    // 서버 재시작 뒤 pathId 가 재사용된 상황 — 같은 pathId(1)·같은 길이(2점)·같은 끝점이지만 중간
+    // waypoint 만 다른 새 경로가 확정된다(같은 commandSeq 로 또 받아들여지는 것은 movementSync 쪽
+    // 동작 — 바로 위 지적 3 테스트와 동일). predicted·snapshot·correctedAt·waitingSince 는 이미
+    // 안정된 뒤라 path 비교만이 변수다 — pathId + 길이만 보고 끝내는 지름길이 남아 있으면 전체가
+    // "같다"고 오판해 옛 경로가 그대로 남는다(지적 1).
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 40.5, y: 46.5 },
+        { x: 41.5, y: 45.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(3000));
+    const after = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(after).toEqual({ ...before, path: after.path });
+    expect(after.pathId).toBe(1);
+    expect(after.path).toEqual(
+      [SPAWN, { x: 40.5, y: 46.5 }, { x: 41.5, y: 45.5 }].map((p) => worldToImage(p, SIZE)),
+    );
+    expect(after.path).not.toEqual(firstPath);
+    await screen.unmount();
+  });
+
+  it('status 가 live 면 메시지가 끊겨도 500ms 마다 다시 그려 틱 지연 readout 숫자가 시간과 함께 커진다(보완4 지적 2)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const readout = () => screen.getByTestId('nav-debug-text').props.children as string;
+    const delayOf = (text: string) => Number(/틱 지연 (\d+)ms/.exec(text)?.[1]);
+    const before = delayOf(readout());
+    expect(Number.isNaN(before)).toBe(false);
+    // 그 뒤로 메시지 없이 1초만 흐른다 — TileTerrainCanvas 는 이 파일 상단에서 mock 이라 그 안의
+    // 시계는 안 돈다. WorldMap 자신의 시계(debugNow)가 500ms 마다 다시 그려 readout 의 지연 숫자를
+    // 갱신해야 한다(지적 2) — 그러지 않으면 멈춘 state 와 함께 숫자도 멈춘다.
+    await act(async () => jest.advanceTimersByTime(1000));
+    const after = delayOf(readout());
+    expect(after).toBeGreaterThan(before);
+    await screen.unmount();
+  });
+
+  it('debugNow 가 낡은 상태에서 새 Snapshot 이 와도 readout 틱 지연이 음수로 보이지 않는다(보완5 지적 2)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    // 보정 깜빡임 창(500ms)을 지나 500ms 주기 모드로 들어간 뒤 다음 눈금 훨씬 전까지 흘린다 — 그 사이
+    // debugNow 는 직전 눈금(500ms 째)에 멈춰 있다.
+    await act(async () => jest.advanceTimersByTime(600));
+    const readout = () => screen.getByTestId('nav-debug-text').props.children as string;
+    const delayOf = (text: string) => Number(/틱 지연 (-?\d+)ms/.exec(text)?.[1]);
+    // 이 순간 새 Snapshot 이 도착한다 — receivedAt(now) 이 멈춰 있는 debugNow 보다 최신이다. 보완 전에는
+    // flush 가 바뀐 상태를 그려도 debugNow 는 다음 눈금까지 그대로라 틱 지연이 음수로 보였다(지적 2).
+    await emit(snapshot(102, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    expect(readout()).not.toContain('지연 -');
+    expect(delayOf(readout())).toBeGreaterThanOrEqual(0);
+    await screen.unmount();
+  });
+
+  it('걷는 중엔 predicted 가 전 꼭짓점(location.current) 대신 화면에 보이는 중간 위치를 따라간다(보완7 지적 2)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    // 로컬 A*: 오른쪽으로 곧장 4칸(39.5..42.5, 45.5) — 한 칸은 MS_PER_UNIT(91ms, 위 걷기 테스트들과 같다).
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+    // 왕복 지연 동안 로컬로 1칸 반쯤 먼저 걸어 나간다(걷기 테스트와 같은 타이밍) — 두 번째 구간
+    // (39.5→40.5) 한중간이라 location.current 는 아직 첫 꼭짓점(39.5)에 멈춰 있다.
+    await act(async () => jest.advanceTimersByTime(150));
+    const server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    const predictedWorld = imageToWorld(server.predicted, SIZE);
+    // 화면에 실제로 보이는 고양이 위치(myCat, xy 의 같은 애니메이션 중간값)와 가깝다.
+    const cat = myCat(screen);
+    expect(predictedWorld.x).toBeCloseTo(cat.x, 1);
+    expect(predictedWorld.y).toBeCloseTo(cat.y, 1);
+    // 전 꼭짓점(39.5)이 아니라 그 사이 값 — location.current 였다면 정확히 39.5다.
+    expect(predictedWorld.x).toBeGreaterThan(SPAWN.x + 1);
+    expect(predictedWorld.x).toBeLessThan(42.5);
+    await screen.unmount();
+  });
+
+  it('새 서버 상태 flush 는 debugNow 갱신을 같은 렌더에 배칭해 커밋이 1번만 늘어난다(보완8 항목 2)', async () => {
+    jest.useFakeTimers();
+    let commits = 0;
+    const onRender = () => {
+      commits++;
+    };
+    const screen = await render(
+      <React.Profiler id="world-map-flush" onRender={onRender}>
+        <FinalIsland state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />
+      </React.Profiler>,
+    );
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    // 100ms 더 흘려 다음 flush 가 emit() 안에서 바로(동기) 돌 쓰로틀 경계로 미리 맞춘다 — 이 구간 자체의
+    // 커밋 수는 재지 않는다(아래 참고).
+    await act(async () => jest.advanceTimersByTime(100));
+
+    // snapshotReceivedAt 이 실제로 달라지는 새 Snapshot. flush 가 sameServerDebug 로 "달라졌다"고
+    // 판단해 serverDebug·debugNow 를 같은 동기 구간에서 함께 올리면 커밋이 정확히 1번만 늘어야 한다
+    // (보완8 항목 2 전엔 debugNow 를 뒤쫓는 WorldMap 쪽 참조 deps effect 가 따로 있어 2번 늘었다).
+    // "기준 구간 흘리고 빼기" 방식은 쓰지 않는다 — readout 시계가 보정 창 안에서도 500ms 로 도는
+    // (보완9 항목 1) 지금은 그 창이 사라져, 뺄셈으로 상쇄되던 주변 잡음(마운트 직후 가라앉는 비동기
+    // effect 등)이 두 구간에 비대칭으로 걸려 거짓 실패를 냈다 — emit 직후 동기 커밋만 재면 그 잡음을
+    // 타지 않는다.
+    commits = 0;
+    await emit(snapshot(102, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    expect(commits).toBe(1);
+    await screen.unmount();
+  });
+
+  it('내 걷기가 끝나 settle() 이 보정을 만들면 250ms 인터벌 전에(쓰로틀 창 안에서) correctedAt 이 갱신된다(보완10 지적 1)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    // FullState 채택(스폰 차이)이 첫 보정이다 — 100ms 쓰로틀 경계로 흘려 보낸다(기존 관례).
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const adopted = screen.getByTestId('tile-terrain').props.navDebug.server.correctedAt;
+    expect(adopted).not.toBeNull();
+
+    // 내 위치(SPAWN)와 먼 서버 위치(90,90)를 "보정 없이" self 에 심는다 — PathAccepted 핸들러는 restCheck 를
+    // 전혀 부르지 않는다(자리만 바꾼다). waypoints=[]·속도를 로컬 MS_PER_UNIT(91ms/unit, `@/utils/nav-path`)
+    // 과 똑같이 맞춰(1000/91) WorldMap.onMyPath 의 sameCells+속도일치 조건으로 조기 반환시킨다 — 로컬 걷기를
+    // 전혀 건드리지 않고 self 만 멀어진다.
+    const ctl = controllers[controllers.length - 1];
+    const FAR = { x: 90, y: 90 };
+    await act(async () => {
+      ctl.intend(FAR);
+    });
+    await emit({ ...pathAccepted(ME, 1, 99, FAR, []), speed: 1000 / 91 });
+
+    // 마지막 flush(위 100ms 경계)로부터 100ms 넘게 흘려 다음 notify() 가 쓰로틀 타이머 없이 바로(동기)
+    // flush 하도록 미리 맞춘다 — 그 사이 250ms 인터벌이 한 번 돌아도(내용 불변) correctedAt 은 그대로다.
+    await act(async () => jest.advanceTimersByTime(260));
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server.correctedAt).toBe(adopted);
+
+    // settle() 을 직접 불러 "로컬 걷기가 막 끝난" 상황을 흉내낸다 — 추가로 시간을 흘리지 않고 바로 읽는다.
+    // 그 사이 250ms 인터벌이 돌 틈이 전혀 없으므로, 지금 바뀌어 있다면 settle 의 restCheck 가 notify 를
+    // 직접 불러 쓰로틀 flush 를 동기로 돌렸다는 뜻이다 — 고치기 전에는 settle 이 notify 를 전혀 안 불러
+    // 이 값이 다음 250ms 인터벌까지(최대 250ms) 그대로였다(지적 1).
+    await act(async () => {
+      ctl.settle();
+    });
+    const server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.correctedAt).not.toBe(adopted);
+    expect(server.correctedAt).not.toBeNull();
+
+    await screen.unmount();
+  });
+});
+
 it('섬 전환 뒤 옛 채널의 늦은 onMovementDenied 는 새 컨트롤러를 끄지 않는다(채널 소유권, 리뷰 3)', async () => {
   jest.useFakeTimers();
   const islandA = nextIsland();
@@ -656,6 +1051,26 @@ describe('플래그 off·서버 홈 아님', () => {
     await screen.unmount();
   });
 
+  it('플래그 off(EXPO_PUBLIC_MOVEMENT_SYNC 없음)여도 오버레이는 켜진다 — 컨트롤러가 없으니(동기화 off) 250ms no-op 플러시 인터벌은 만들지 않는다(보완9 항목 2)', async () => {
+    jest.useFakeTimers();
+    const Island = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: '1' });
+    const screen = await render(
+      <Island state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
+    );
+    // jest.getTimerCount() 의 생 델타는 이 화면의 다른 setTimeout 잡음(배회하는 다른 주민의 roam() 재귀
+    // 예약, 버튼 프레스 모션)에 가려 기준선 노릇을 못 한다 — setInterval 호출만 집어 센다. WorldMap.tsx
+    // 안의 setInterval 은 낮·밤 시계(마운트 때 1회, navDebug 와 무관)와 이 250ms flush 뿐이라, 스파이를
+    // 마운트 뒤에 걸면 토글이 만드는 setInterval 호출 수만 그대로 드러난다.
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    // 컨트롤러가 없으면(동기화 off) server 는 null 이다(항목 2 불변) — 오버레이는 켜졌지만 flush 효과는
+    // early-return 경로만 타 250ms 인터벌(setInterval)을 한 번도 만들지 않는다.
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server).toBeNull();
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
+    await screen.unmount();
+  });
+
   it('플래그 on 이어도 서버 홈(facts)이 없는 목업 섬이면 채널을 열지 않는다', async () => {
     const opened = mockChannels.length;
     const screen = await render(
@@ -671,5 +1086,50 @@ describe('플래그 off·서버 홈 아님', () => {
     expect(mockChannels.length).toBe(opened);
     expect(otherCats(screen)).toBe(2);
     await screen.unmount();
+  });
+
+  // 항목 6(릴리스 음성 테스트) — WorldMap.tileIsland.test.tsx 는 movementSync mock 이 없어(다른 mock 구조)
+  // 거기 추가하면 전체 테스트에 새 전역 mock 을 얹어야 한다. 이미 controllers 스파이가 있는 이 파일의
+  // __DEV__=false 케이스로 대체한다(보고: 이쪽을 선택). EXPO_PUBLIC_TILE_ISLAND·MOVEMENT_SYNC 는
+  // 이미 파일 상단에서 '1' — process.env 는 격리 레지스트리와도 공유라 다시 안 세운다. 세션은 모듈별
+  // 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 으로 따로 채운다.
+  it('__DEV__=false 릴리스 빌드는 nav-debug-toggle 이 없어 movementSync.subscribe 를 한 번도 안 부른다(음성, 항목 6)', async () => {
+    jest.useFakeTimers();
+    const before = controllers.length;
+    const savedDev = (globalThis as { __DEV__?: boolean }).__DEV__;
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
+    let Island!: typeof FinalIsland;
+    let isolatedSaveSession!: typeof saveSession;
+    jest.isolateModules(() => {
+      jest.doMock('react', () => React);
+      isolatedSaveSession = (
+        require('@/services/api/session') as typeof import('@/services/api/session')
+      ).saveSession;
+      Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
+    });
+    try {
+      await isolatedSaveSession({ accessToken: 'AT', refreshToken: 'RT', userId: ME });
+      const state = serverState(nextIsland()) as any;
+      state.serverIslands.home.members = [member(ME, 'cream')];
+      const screen = await render(<Island state={state} go={jest.fn()} build={jest.fn()} />);
+      // 걷기 동기화(컨트롤러 생성)는 릴리스에서도 평소처럼 돈다 — 디버그 오버레이만 없다.
+      expect(controllers.length).toBeGreaterThan(before);
+      expect(screen.queryByTestId('nav-debug-toggle')).toBeNull();
+      for (const ctl of controllers.slice(before)) expect(ctl.subscribe).not.toHaveBeenCalled();
+      // 항목 3(보완8) — 디버그 토글 자체가 없으니 깜빡임·readout 시계 타이머도 전혀 안 돈다: 마운트
+      // 직후 가라앉는 타이머(세션 복구 재시도 등, 디버그 시계와 무관 — 실측 500ms 안에 가라앉고 다시는
+      // 안 생긴다)를 짧게 흘려보내 기준선(컨트롤러 등 다른 타이머)을 잡고, 1초를 더 흘린 뒤가 같은
+      // 수인지로 확인한다.
+      await act(async () => jest.advanceTimersByTime(600));
+      const baseline = jest.getTimerCount();
+      await act(async () => jest.advanceTimersByTime(1000));
+      expect(jest.getTimerCount()).toBe(baseline);
+      await screen.unmount();
+    } finally {
+      // 항목 5(보완8) — 원래 없던 전역이면(undefined) 값을 되돌리는 대신 지운다. `__DEV__ = undefined`
+      // 로 두면 키 자체는 남아('__DEV__' in globalThis 가 true) 원래 상태(부재)와 달라진다.
+      if (savedDev === undefined) delete (globalThis as { __DEV__?: boolean }).__DEV__;
+      else (globalThis as { __DEV__?: boolean }).__DEV__ = savedDev;
+    }
   });
 });
