@@ -772,4 +772,48 @@ class RoomRuntimeTest {
         assertThat(room.departedCount()).as("만료된 퇴장 기억은 다른 actor 가 있어도 정리돼야 한다").isEqualTo(0);
         assertThat(room.isRemovable()).as("stay 세션의 actor 가 남아 있으니 방은 여전히 제거 대상이 아니다").isFalse();
     }
+
+    // ── codex P2: 2246 보완3 — 퇴장 세션엔 FullState 를 보내지 않고, 버킷도 정리한다 ────
+
+    @Test
+    @DisplayName("같은 틱에 requestFullState 와 leave 가 함께 오면 drain 이 leave 를 먼저 처리해 actor 가"
+            + " 없으므로, 퇴장한 세션엔 FullState(ONLY) 를 보내지 않는다(codex P2, 2246 보완3)")
+    void doesNotSendFullStateToSessionThatLeftInSameTick() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.tick(1);
+
+        room.requestFullState("s1"); // 구독 직후 2247 이 요청하는 상황을 흉내 — 같은 틱에 leave 도 들어온다.
+        room.leave("s1");
+        room.tick(2);
+
+        long sentOnlyToLeftSession = listener.of(MovementEvent.FullState.class).stream()
+                .filter(fs -> Target.only("s1").equals(listener.targetOf(fs)))
+                .count();
+        assertThat(sentOnlyToLeftSession).as("퇴장한 세션 s1 에 FullState(ONLY) 이벤트가 가면 안 된다").isZero();
+    }
+
+    @Test
+    @DisplayName("leave 뒤 지연 도착한 accept 는 다음 틱에 세션 토큰 버킷을 남기지 않는다(codex P2, 2246 보완3)")
+    void processAcceptCleansUpBucketWhenSessionHasNoActor() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.tick(1);
+
+        room.leave("s1");
+        room.tick(2); // 정상 퇴장 처리 — processLeave 가 버킷을 이미 한 번 정리한다.
+        assertThat(room.bucketCount()).as("퇴장 처리 직후엔 버킷이 없다").isZero();
+
+        room.accept("s1", new MoveIntent(1, 1, 5.5, 5.5)); // 퇴장 뒤 지연 도착 — accept() 가 새 버킷을 만든다.
+        assertThat(room.bucketCount()).as("accept() 호출 시점(호출 스레드)엔 버킷이 다시 생긴다").isEqualTo(1);
+
+        room.tick(3); // processAccept 가 actor 없음을 보고 버킷·대기 intent 를 정리해야 한다.
+        assertThat(room.bucketCount()).as("actor 없는 세션의 버킷은 다음 틱에 사라져야 한다").isZero();
+    }
 }

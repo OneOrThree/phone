@@ -55,7 +55,7 @@ class MovementTickerTest {
             public void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot) {
             }
         };
-        MovementRooms rooms = new MovementRooms(captureThreadName);
+        MovementRooms rooms = new MovementRooms(captureThreadName, new SimpleMeterRegistry());
         // join 을 큐에 넣는다 — tick 이 돌면 FullState 를 내며 Listener 가 불린다.
         rooms.roomFor(UUID.randomUUID()).join(UUID.randomUUID(), "session-1");
 
@@ -78,7 +78,7 @@ class MovementTickerTest {
     @DisplayName("MovementRooms.join 은 remove 와 같은 섬 키의 compute 안에서 돌아, 그 사이에 걸려도 join 을"
             + " 유실하지 않는다(codex P1, 2246 보완2 — roomFor 를 거치지 않는 공개 API 로 교체)")
     void joinAndRemoveOnSameIslandNeverLoseTheJoin() {
-        MovementRooms rooms = new MovementRooms(new NoopListener());
+        MovementRooms rooms = new MovementRooms(new NoopListener(), new SimpleMeterRegistry());
         UUID islandId = UUID.randomUUID();
         RoomRuntime room = rooms.roomFor(islandId); // 들여다보기 전용 — 아무도 없다, 지금은 isRemovable() true.
         assertThat(room.isRemovable()).isTrue();
@@ -99,7 +99,7 @@ class MovementTickerTest {
     @DisplayName("MovementRooms.join 과 remove 를 다른 스레드에서 수천 번 동시에 돌려도 join 이 유실되지"
             + " 않는다(codex P1 compute 경합 스트레스, 2246 보완2)")
     void concurrentJoinAndRemoveNeverLoseAnActor() throws InterruptedException {
-        MovementRooms rooms = new MovementRooms(new NoopListener());
+        MovementRooms rooms = new MovementRooms(new NoopListener(), new SimpleMeterRegistry());
         UUID islandId = UUID.randomUUID();
         int joinCount = 5000;
         List<UUID> userIds = new ArrayList<>(joinCount);
@@ -142,7 +142,7 @@ class MovementTickerTest {
     @DisplayName("마지막 퇴장 뒤에도 방이 유지돼 10분 안 재입장하면 MovementRooms+MovementTicker 조합에서도"
             + " 위치가 복원된다(N23, codex P2)")
     void roomSurvivesLastDepartureAndRestoresPositionViaRoomsAndTicker() {
-        MovementRooms rooms = new MovementRooms(new NoopListener());
+        MovementRooms rooms = new MovementRooms(new NoopListener(), new SimpleMeterRegistry());
         UUID islandId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         RoomRuntime room = rooms.roomFor(islandId);
@@ -176,7 +176,7 @@ class MovementTickerTest {
     @Test
     @DisplayName("퇴장 기억이 10분을 넘기면 비워지고 방도 MovementRooms 에서 제거된다(N23, codex P2)")
     void roomIsRemovedFromRoomsAfterDepartedMemoryExpires() {
-        MovementRooms rooms = new MovementRooms(new NoopListener());
+        MovementRooms rooms = new MovementRooms(new NoopListener(), new SimpleMeterRegistry());
         UUID islandId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         RoomRuntime room = rooms.roomFor(islandId);

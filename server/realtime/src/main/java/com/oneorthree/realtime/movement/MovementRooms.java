@@ -2,6 +2,8 @@ package com.oneorthree.realtime.movement;
 
 import com.oneorthree.realtime.movement.nav.NavGrid;
 import com.oneorthree.realtime.movement.nav.NavJsonLoader;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -26,10 +28,18 @@ public final class MovementRooms {
     private final NavGrid nav = NavJsonLoader.loadBundled();
     private final Pathfinder pathfinder = new Pathfinder();
     private final RoomRuntime.Listener listener;
+    private final Timer pathfindTimer;
     private final ConcurrentHashMap<UUID, RoomRuntime> rooms = new ConcurrentHashMap<>();
 
-    public MovementRooms(RoomRuntime.Listener listener) {
+    /**
+     * {@code movement.pathfind} 는 방마다 생성자로 넘긴다(2246 보완3, {@code movement.tick} 바로 옆) — A*
+     * 는 그대로 틱 스레드에서 동기 호출되고(N10, codex P1 반박), 호출 수·소요 nanos 만 센다.
+     */
+    public MovementRooms(RoomRuntime.Listener listener, MeterRegistry meterRegistry) {
         this.listener = listener;
+        this.pathfindTimer = Timer.builder("movement.pathfind")
+                .description("방 하나의 A* 경로탐색(pathfinder.find) 1회 호출 시간 — 2250 틱 p99 판단용")
+                .register(meterRegistry);
     }
 
     public void join(UUID islandId, UUID userId, String sessionKey) {
@@ -102,6 +112,8 @@ public final class MovementRooms {
     }
 
     private RoomRuntime ensure(UUID islandId, RoomRuntime room) {
-        return room != null ? room : new RoomRuntime(islandId, nav, pathfinder, MovementRules.DEFAULT, listener);
+        return room != null ? room
+                : new RoomRuntime(islandId, nav, pathfinder, MovementRules.DEFAULT, listener, System::nanoTime,
+                        pathfindTimer);
     }
 }

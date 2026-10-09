@@ -5,6 +5,8 @@ import com.oneorthree.realtime.movement.nav.NavGrid;
 import com.oneorthree.realtime.movement.nav.Pathfinder.PathResult;
 import com.oneorthree.realtime.movement.nav.WorldCoords;
 import com.oneorthree.realtime.movement.nav.WorldPoint;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,12 +39,20 @@ public final class RoomRuntime {
     /** 퇴장 위치 기억 창(N23) — 10분. */
     private static final long DEPARTED_MEMORY_MS = 10 * 60 * 1000L;
 
+    /**
+     * 메트릭을 안 보는 호출자(대부분의 테스트)가 레지스트리를 안 챙겨도 되는 기본값(2246 보완3) — 운영은
+     * {@code MovementRooms} 가 실제 {@code MeterRegistry} 로 만든 Timer 를 생성자로 주입한다.
+     */
+    private static final Timer DEFAULT_PATHFIND_TIMER =
+            Timer.builder("movement.pathfind").register(new SimpleMeterRegistry());
+
     private final UUID islandId;
     private final NavGrid nav;
     private final Pathfinder pathfinder;
     private final MovementRules rules;
     private final Listener listener;
     private final LongSupplier nowNanos;
+    private final Timer pathfindTimer;
     private final ConcurrentLinkedQueue<Command> queue = new ConcurrentLinkedQueue<>();
 
     // accept() 호출 스레드(STOMP)가 틱 스레드와 동시에 건드린다(codex P2) — 그래서 이 둘만 ConcurrentHashMap.
@@ -60,18 +70,30 @@ public final class RoomRuntime {
     private boolean lastTickHadMoving;
 
     public RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener) {
-        this(islandId, nav, pathfinder, rules, listener, System::nanoTime);
+        this(islandId, nav, pathfinder, rules, listener, System::nanoTime, DEFAULT_PATHFIND_TIMER);
     }
 
     /** 패키지 전용 — 토큰 버킷 리필 시계를 테스트가 주입하기 위함(codex P2, 틱 번호 대신 벽시계 나노초). */
     RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener,
             LongSupplier nowNanos) {
+        this(islandId, nav, pathfinder, rules, listener, nowNanos, DEFAULT_PATHFIND_TIMER);
+    }
+
+    /**
+     * 패키지 전용 — {@code MovementRooms}(운영)가 실제 {@code MeterRegistry} 로 만든 {@code
+     * movement.pathfind} Timer 를 주입한다(codex P1 반박 대응, 2246 보완3). A* 는 여전히 이 틱 스레드
+     * 안에서 동기 호출된다 — 작업 풀로 옮기는 변경이 아니라 호출 수·소요 nanos 만 센다(N10, 2250 이
+     * 틱 p99 판단에 쓴다).
+     */
+    RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener,
+            LongSupplier nowNanos, Timer pathfindTimer) {
         this.islandId = islandId;
         this.nav = nav;
         this.pathfinder = pathfinder;
         this.rules = rules;
         this.listener = listener;
         this.nowNanos = nowNanos;
+        this.pathfindTimer = pathfindTimer;
     }
 
     public void join(UUID userId, String sessionKey) {
@@ -157,6 +179,11 @@ public final class RoomRuntime {
         return rateLimitedDropCount.get();
     }
 
+    /** 패키지 전용 — 테스트용. 지금 살아 있는 세션 토큰 버킷 수(codex P2, 2246 보완3). */
+    int bucketCount() {
+        return sessionBuckets.size();
+    }
+
     // ── 큐 드레인 ────────────────────────────────────────────────────────
 
     private void drain() {
@@ -237,7 +264,13 @@ public final class RoomRuntime {
     private void processAccept(String sessionKey, MoveIntent intent) {
         Actor actor = actorFor(sessionKey);
         if (actor == null) {
-            return; // 세션의 actor 없음 — 무시.
+            // 퇴장 뒤 지연 도착한 accept(codex P2, 2246 보완3) — accept() 가 호출 스레드(STOMP)에서 이미
+            // 만들어 둔 sessionBuckets·pendingIntent 항목을 여기서 지운다. 이 세션엔 leave 가 다시 오지
+            // 않으므로 processLeave 의 정리를 기대할 수 없다 — 안 지우면 세션 키마다 버킷이 하나씩
+            // 영원히 남는다.
+            sessionBuckets.remove(sessionKey);
+            pendingIntent.remove(sessionKey);
+            return;
         }
         if (intent.commandSeq() <= actor.lastCommandSeq) {
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.STALE_COMMAND);
@@ -253,7 +286,8 @@ public final class RoomRuntime {
         }
         WorldPoint from = new WorldPoint(actor.x, actor.y);
         WorldPoint to = new WorldPoint(intent.goalX(), intent.goalY());
-        Optional<PathResult> found = pathfinder.find(nav, from, to);
+        // A* 는 그대로 이 틱 스레드에서 동기 호출 — Micrometer 로 호출 수·소요만 센다(N10, P1 반박 대응).
+        Optional<PathResult> found = pathfindTimer.record(() -> pathfinder.find(nav, from, to));
         if (found.isEmpty()) {
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.NO_REACHABLE_GOAL);
             return;
@@ -279,6 +313,12 @@ public final class RoomRuntime {
     }
 
     private void processRequestFullState(RequestFullState cmd) {
+        if (actorFor(cmd.sessionKey()) == null) {
+            // 같은 틱에 leave 가 먼저 드레인됐거나(drain 순서상 Leave → RequestFullState) 세션이 교체돼
+            // 다른 세션이 이 actor 를 들고 있다(codex P2, 2246 보완3) — 퇴장한 세션에 FullState 를 보내지
+            // 않는다.
+            return;
+        }
         listener.onEvent(islandId, fullStateOf(), Target.only(cmd.sessionKey()));
     }
 
