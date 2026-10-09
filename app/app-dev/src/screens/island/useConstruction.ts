@@ -13,9 +13,8 @@
  *    앱은 그 구간으로 표시 진행률을 계산하고, `completesAt` 경과는 재조회 신호로만 쓴다.
  *  - `islandId` 입력은 지금 로컬 섬 id 라 fetch 에 쓰지 않는다 — 서버 섬 id 는 `/me/islands`
  *    의 current 에서 배우고(`useLedgerScreen` 과 같은 계약), `islandId` 는 scope 리셋 신호다.
- *  - 「각자 몫」의 대상 명단은 목표 선택 시점 주민 스냅샷(GROMO-1999) — 공개 읽기 계약에는
- *    cohort 필드가 없어 화면은 같은 조회 순간의 주민 목록으로 표시한다(서버 정본과의
- *    차이는 목표 선택 후 가입한 주민이 화면 분모에 섞이는 경우뿐이다).
+ *  - 「각자 몫」의 대상 명단과 목표량은 options.residentProgress가 정본이다.
+ *    현재 주민 목록으로 목표 선택 시점의 대상을 다시 계산하지 않는다.
  *
  * 경합·쓰기 규칙은 `useIslandManagement` 와 같다 — scope(로컬 섬 id + 인증 세대)·순서·mounted
  * fence, 단일 쓰기 flight, 성공은 서버 재조회로만 확정, 403/409 는 재조회 뒤 원래 오류를 올린다.

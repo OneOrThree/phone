@@ -428,18 +428,21 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     leave: (islandId: string) =>
       call(async () => {
         const g = generation();
-        let uncertain: unknown;
+        let my;
         try {
           await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+          alive(g);
+          my = await syncIslands();
         } catch (error) {
           alive(g);
           if (!unknownOutcome(error)) throw error;
-          uncertain = error;
+          // 응답 유실과 첫 확인 조회 실패 모두 정본 재조회로 한 번 복구한다.
+          my = await syncIslands().catch(() => null);
+          alive(g);
+          if (!my || my.items.some((item) => item.id === islandId)) throw error;
         }
         alive(g);
-        const my = await syncIslands();
-        alive(g);
-        if (my.items.some((item) => item.id === islandId)) throw uncertain ?? contractError();
+        if (my.items.some((item) => item.id === islandId)) throw contractError();
         scoped().keys.release(`leave:${islandId}`, '');
         return my;
       }),

@@ -920,3 +920,30 @@ test.each(['current', 'main'] as const)(
     assert.equal(h.dispatched.length, 0);
   },
 );
+
+test('탈퇴 성공 뒤 첫 확인 조회가 실패해도 복구 조회로 성공하고 키를 해제한다', async () => {
+  const leave = jest.fn(async (_id: string, _key: string) => ({ left: true as const }));
+  const reads = jest
+    .fn()
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0))
+    .mockResolvedValue(myIslands({ items: [island({ id: 'i2' })], currentIslandId: 'i2' }));
+  const h = harness(selectionApi({ leave, myIslands: reads }));
+  const result = await h.cmds.commands.leave('i1');
+  assert.equal(result.currentIslandId, 'i2');
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i2');
+  assert.equal(reads.mock.calls.length, 2);
+  await h.cmds.commands.leave('i1');
+  assert.notEqual(leave.mock.calls[0][1], leave.mock.calls[1][1]);
+});
+
+test('탈퇴 복구 조회도 실패하면 성공으로 처리하지 않고 재시도 키를 유지한다', async () => {
+  const leave = jest.fn(async (_id: string, _key: string) => ({ left: true as const }));
+  const reads = jest.fn().mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
+  const h = harness(selectionApi({ leave, myIslands: reads }));
+  await assert.rejects(h.cmds.commands.leave('i1'), { code: 'CLIENT_NETWORK_ERROR' });
+  assert.equal(reads.mock.calls.length, 2);
+  assert.equal(h.dispatched.length, 0);
+  reads.mockResolvedValue(myIslands());
+  await h.cmds.commands.leave('i1');
+  assert.equal(leave.mock.calls[0][1], leave.mock.calls[1][1]);
+});

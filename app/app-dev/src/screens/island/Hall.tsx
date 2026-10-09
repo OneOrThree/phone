@@ -288,6 +288,7 @@ export function Hall({ e }: any) {
   const clientConstruction = s.serverIslands?.clientConstruction;
   const construction = useConstruction({
     active: liveConstruction,
+    withMembers: false,
     islandId: visitor ? null : liveIslandId,
     now: e.now,
     resumeTiming:
@@ -1477,13 +1478,14 @@ export function Hall({ e }: any) {
     if (plan && (!liveConstruction || planItem !== undefined)) {
       const st = status(plan),
         name = liveConstruction ? planItem!.name : buildingNames[plan],
-        // 「각자 몫」= 총액 ÷ 대상 주민 수(올림) — 분모는 같은 조회의 서버 주민 목록이다
-        residents = liveConstruction ? (construction.members ?? []) : i.members,
-        share = liveConstruction
-          ? Math.ceil(planItem!.cost / Math.max(1, residents.length))
-          : buildingShare(i, plan),
+        // 로컬 시연의 몫. 실서버 본문은 아래 residentProgress만 사용한다.
+        share = buildingShare(i, plan),
         q = i.buildingQuest;
       const meId = liveConstruction ? getSession()?.userId : undefined;
+      const residentProgress =
+        opts?.selectedBuildingId === plan && opts.residentProgress?.buildingId === plan
+          ? opts.residentProgress
+          : null;
       const row = (label: string, value: string) => (
         <View
           key={label}
@@ -1605,6 +1607,18 @@ export function Hall({ e }: any) {
           {text}
         </T>
       );
+      const shareRow = walletTotal(plan)
+        ? row('모으는 법', '섬 통장 합산')
+        : row(
+            '각자 몫',
+            residentProgress
+              ? residentProgress.requiredPerResident === null
+                ? '대상 주민이 없어요'
+                : `${residentProgress.requiredPerResident.toLocaleString('ko-KR')}마리 · ${residentProgress.residents.length}명`
+              : opts?.selectedBuildingId === plan
+                ? '조회 불가'
+                : '목표를 정한 뒤 확인해 주세요',
+          );
       // 서버 경로의 본문 — 잔액·몫·공사 구간 모두 options/POST 응답 값이다
       const liveCopy =
         st === 'locked' ? (
@@ -1634,10 +1648,8 @@ export function Hall({ e }: any) {
               `${opts!.villagePoints.toLocaleString('ko-KR')} / ${planItem!.cost.toLocaleString('ko-KR')}마리`,
             )}
             {bar((opts!.villagePoints / Math.max(1, planItem!.cost)) * 100)}
-            {walletTotal(plan)
-              ? row('모으는 법', '섬 통장 합산')
-              : row('각자 몫', `${share.toLocaleString('ko-KR')}마리 · ${residents.length}명`)}
-            {!walletTotal(plan) && (
+            {shareRow}
+            {!walletTotal(plan) && residentProgress && (
               <View
                 style={{
                   flexDirection: 'row',
@@ -1650,9 +1662,9 @@ export function Hall({ e }: any) {
                   borderTopColor: 'rgba(223, 247, 255, 0.667)',
                 }}
               >
-                {residents.map((m) => (
+                {residentProgress.residents.map((m) => (
                   <View
-                    key={m.id}
+                    key={m.userId}
                     style={{
                       paddingVertical: 1.3,
                       paddingHorizontal: 7.7,
@@ -1661,7 +1673,7 @@ export function Hall({ e }: any) {
                     }}
                   >
                     <T style={g(13, 17.55, { color: '#f7fcff' })}>
-                      {m.id === meId ? '나' : (m.name ?? '주민')}
+                      {m.userId === meId ? '나' : (m.name ?? '주민')}
                     </T>
                   </View>
                 ))}
@@ -1672,9 +1684,7 @@ export function Hall({ e }: any) {
         ) : (
           <>
             {row('총액', `${planItem!.cost.toLocaleString('ko-KR')}마리`)}
-            {walletTotal(plan)
-              ? row('모으는 법', '섬 통장 합산')
-              : row('각자 몫', `${share.toLocaleString('ko-KR')}마리 · ${residents.length}명`)}
+            {shareRow}
             {para(planDesc[plan] ?? '', true)}
           </>
         );

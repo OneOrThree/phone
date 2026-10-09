@@ -20,14 +20,17 @@ export function VisitorBoard({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const [failedRead, setFailedRead] = useState<{ id?: string; cursor?: string } | null>(null);
   const epoch = useRef(0);
-  const pending = useRef(false);
+  const pending = useRef<object | null>(null);
   const back = () => {
     if (!detail) return onClose();
     ++epoch.current;
     setDetail(null);
     setLoading(false);
     setError('');
+    setFailedRead(null);
+    pending.current = null;
   };
   useEffect(() => {
     if (!backOverride) return;
@@ -41,6 +44,8 @@ export function VisitorBoard({
   });
   useEffect(() => {
     const own = ++epoch.current;
+    pending.current = null;
+    setFailedRead(null);
     setDetail(null);
     setPage({ items: [], nextCursor: null });
     setError('');
@@ -63,7 +68,9 @@ export function VisitorBoard({
   }, [islandId, reload]);
   const read = async (id?: string, cursor?: string) => {
     if (pending.current || loading) return;
-    pending.current = true;
+    const request = {};
+    pending.current = request;
+    setFailedRead(null);
     const own = epoch.current,
       gen = sessionGeneration();
     const alive = () => epoch.current === own && gen === sessionGeneration();
@@ -98,9 +105,12 @@ export function VisitorBoard({
           }));
       }
     } catch (thrown) {
-      if (alive()) setError(islandErrorMessage(thrown, 'board'));
+      if (alive()) {
+        setError(islandErrorMessage(thrown, 'board'));
+        setFailedRead({ id, cursor });
+      }
     } finally {
-      pending.current = false;
+      if (pending.current === request) pending.current = null;
       if (alive()) setLoading(false);
     }
   };
@@ -167,7 +177,10 @@ export function VisitorBoard({
           <Btn
             title="다시 불러오기"
             disabled={loading}
-            onPress={() => setReload((value) => value + 1)}
+            onPress={() => {
+              if (failedRead) void read(failedRead.id, failedRead.cursor);
+              else setReload((value) => value + 1);
+            }}
           />
         </>
       )}

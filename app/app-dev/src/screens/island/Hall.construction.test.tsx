@@ -240,3 +240,64 @@ test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드�
     `다시 닫힌 상태의 transform 도 배열이어야 한다 (받은 값: ${JSON.stringify(reClosedStyle.transform)})`,
   );
 });
+
+test('회관 청사진은 현재 주민 수가 달라도 목표 당시 주민과 서버 몫을 표시한다', async () => {
+  constructionMock.mockReturnValue(
+    construction({
+      members: [
+        { id: 'host', name: '방장' },
+        { id: 'member-1', name: '나' },
+        { id: 'late', name: '늦게 온 주민' },
+      ],
+      options: options({
+        selectedBuildingId: 'library',
+        items: [{ ...options().items[1], selectable: true, blockedReason: 'INSUFFICIENT_FUNDS' }],
+        residentProgress: {
+          buildingId: 'library',
+          requiredPerResident: 100,
+          residents: [
+            { userId: 'host', name: '목표 주민', contributed: 20, remaining: 80 },
+            { userId: 'member-1', name: '나', contributed: 0, remaining: 100 },
+          ],
+        },
+      }),
+    }),
+  );
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-bld-library'));
+  assert.ok(screen.getByText('100마리 · 2명'));
+  assert.ok(screen.getByText('목표 주민'));
+  assert.ok(screen.getByText('나'));
+  assert.equal(screen.queryByText('늦게 온 주민'), null);
+  assert.equal(screen.queryByText('67마리 · 3명'), null);
+});
+
+test.each(['missing', 'empty', 'unselected'] as const)(
+  '회관은 알 수 없는 대상 몫을 현재 주민 수로 추정하지 않는다: %s',
+  async (kind) => {
+    constructionMock.mockReturnValue(
+      construction({
+        options: options({
+          selectedBuildingId: kind === 'unselected' ? null : 'library',
+          items: [{ ...options().items[1], selectable: true, blockedReason: 'INSUFFICIENT_FUNDS' }],
+          residentProgress:
+            kind === 'empty'
+              ? { buildingId: 'library', requiredPerResident: null, residents: [] }
+              : undefined,
+        }),
+      }),
+    );
+    const screen = await render(<Hall e={e()} />);
+    await fireEvent.press(screen.getByTestId('hall-bld-library'));
+    assert.ok(
+      screen.getByText(
+        kind === 'missing'
+          ? '조회 불가'
+          : kind === 'empty'
+            ? '대상 주민이 없어요'
+            : '목표를 정한 뒤 확인해 주세요',
+      ),
+    );
+    assert.equal(screen.queryByText('100마리 · 2명'), null);
+  },
+);
