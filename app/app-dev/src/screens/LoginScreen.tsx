@@ -6,13 +6,10 @@ import { PolicyLinks } from '@/components/PolicyLink';
 import { AppleLogo, GoogleLogo } from '@/components/ProviderLogo';
 import type { Provider } from '@/services/api/auth';
 import { useAppLayout } from '@/utils/layout';
+import { t } from '@/i18n';
 
-const LABEL: Record<Provider, string> = {
-  kakao: '카카오로 계속하기',
-  line: 'LINE으로 계속하기',
-  apple: 'Apple로 계속하기',
-  google: 'Google로 계속하기',
-};
+// 호출 시점에 해석 — 표로 두면 언어 전환에 반응하지 않는다(GROMO-2238)
+const continueLabel = (provider: Provider) => t(`login.continue.${provider}`);
 
 const KAKAO_LOGIN_ASSET = require('@/assets/login/kakao_login_medium_wide.png');
 const LINE_LOGIN_ASSET = require('@/assets/login/line_login_logo_3x.png');
@@ -58,7 +55,7 @@ export function LoginScreen({
   const providerButton = (provider: Provider) => {
     const loading = providerBusy === provider;
     const disabled = busy || !termsAccepted || !onProviderPress;
-    const accessibilityLabel = loading ? '연결하는 중…' : LABEL[provider];
+    const accessibilityLabel = loading ? t('login.connecting') : continueLabel(provider);
 
     if (provider === 'kakao') {
       return (
@@ -163,7 +160,7 @@ export function LoginScreen({
               fontWeight: semanticTokens.typography.semibold,
             }}
           >
-            {LABEL[provider]}
+            {continueLabel(provider)}
           </Txt>
           {loading && (
             <View
@@ -228,7 +225,7 @@ export function LoginScreen({
               fontWeight: semanticTokens.typography.semibold,
             }}
           >
-            {LABEL[provider]}
+            {continueLabel(provider)}
           </Txt>
           {loading && (
             <View
@@ -289,7 +286,7 @@ export function LoginScreen({
           textShadowRadius: 0,
         }}
       >
-        오늘의 집중이 자라는 곳
+        {t('login.tagline')}
       </Txt>
     </>
   );
@@ -300,7 +297,7 @@ export function LoginScreen({
         testID="login-terms"
         accessibilityRole="checkbox"
         accessibilityLabel={
-          termsVersion ? `현재 약관 버전 ${termsVersion}에 동의합니다` : undefined
+          termsVersion ? t('login.termsAgreeA11y', { version: termsVersion }) : undefined
         }
         accessibilityState={{ checked: termsAccepted, disabled: busy }}
         disabled={busy}
@@ -322,8 +319,8 @@ export function LoginScreen({
           {termsAccepted && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
         <Txt kind="meta" style={{ flex: 1 }}>
-          {termsVersion ? `현재 약관 버전 ${termsVersion}: ` : ''}이용약관 및 개인정보처리방침에
-          동의해요.
+          {termsVersion ? t('login.termsVersionPrefix', { version: termsVersion }) : ''}
+          {t('login.termsAgreeText')}
         </Txt>
       </Pressable>
       <PolicyLinks textStyle={{ fontSize: 13, color: semanticTokens.color.text }} />
@@ -350,7 +347,7 @@ export function LoginScreen({
         <Pressable
           testID="login-guest"
           accessibilityRole="button"
-          accessibilityLabel="게스트로 시작하기"
+          accessibilityLabel={t('login.guestStart')}
           accessibilityState={{ disabled: busy || !termsAccepted }}
           disabled={busy || !termsAccepted}
           onPress={onGuestPress}
@@ -362,7 +359,7 @@ export function LoginScreen({
           }}
         >
           <Txt style={{ fontWeight: '700', textDecorationLine: 'underline' }}>
-            {guestBusy ? '게스트 계정을 여는 중…' : '게스트로 시작하기'}
+            {guestBusy ? t('login.guestOpening') : t('login.guestStart')}
           </Txt>
         </Pressable>
       )}
@@ -381,9 +378,9 @@ export function LoginScreen({
   const copy = (
     <View style={{ gap: primitiveTokens.space[2] }}>
       <Txt kind="h" style={{ fontSize: 26, lineHeight: 34, letterSpacing: -0.52 }}>
-        {'조금씩 집중하고,\n함께 자라요.'}
+        {t('login.heroTitle')}
       </Txt>
-      <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
+      <Txt style={{ color: C.muted }}>{t('login.heroSubtitle')}</Txt>
     </View>
   );
 

@@ -8,6 +8,8 @@ import type {
 import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
 import type { PlaybackState } from '@/services/api/playback';
 import type { HomeWorldFacts } from '@/services/homeSnapshot';
+import { formatDuration } from '@/i18n/format';
+import { t } from '@/i18n';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -50,6 +52,7 @@ export type Route =
   | 'mainIsland'
   | 'profile'
   | 'settings'
+  | 'language'
   | 'blockedUsers'
   | 'wardrobe'
   | 'sound'
@@ -340,15 +343,35 @@ export type State = {
   lettersReadAt?: number;
 };
 export const colors: Color[] = ['black', 'ginger', 'cream', 'gray', 'white', 'calico'];
-export const colorNames = ['검정', '치즈', '크림', '회색', '흰색', '삼색'];
+// colorNames 배열은 게터로 못 만든다 — 호출 시점에 해석하는 함수로 둔다(GROMO-2238)
+// 범위 밖 index 는 원래 colorNames[i] 처럼 undefined 였다 — "color.undefined" 키 문자열이
+// 그대로 노출되지 않게 빈 문자열로 막는다.
+export function colorName(index: number): string {
+  return colors[index] ? t(`color.${colors[index]}`) : '';
+}
+// 프로퍼티 게터 — 호출부는 색인·점 접근 그대로 쓰고, 값은 호출 시점 언어로 해석된다(GROMO-2238)
 export const buildingNames: Record<Building, string> = {
-  hall: '마을회관',
-  board: '게시판',
-  tower: '전망대',
-  mail: '우체통',
-  gram: '축음기',
-  library: '도서관',
-  shop: '상점',
+  get hall() {
+    return t('building.hall');
+  },
+  get board() {
+    return t('building.board');
+  },
+  get tower() {
+    return t('building.tower');
+  },
+  get mail() {
+    return t('building.mail');
+  },
+  get gram() {
+    return t('building.gram');
+  },
+  get library() {
+    return t('building.library');
+  },
+  get shop() {
+    return t('building.shop');
+  },
 };
 // 유효 집중 이 초만큼마다 물고기 1마리 (GROMO-1830, 2026-09-15)
 export const SECONDS_PER_FISH = 60;
@@ -433,10 +456,18 @@ export const kstDayStart = (day: string) => {
   return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;
 };
 export const trackNames: Record<string, string> = {
-  waves: '잔잔한 파도',
-  campfire: '모닥불 소리',
-  'forest-wind': '숲바람',
-  rain: '빗방울 소리',
+  get waves() {
+    return t('track.waves');
+  },
+  get campfire() {
+    return t('track.campfire');
+  },
+  get 'forest-wind'() {
+    return t('track.forestWind');
+  },
+  get rain() {
+    return t('track.rain');
+  },
 };
 export const products: Product[] = [
   {
@@ -482,15 +513,21 @@ export const products: Product[] = [
     description: '창가에 톡톡 떨어지는 빗방울 소리예요.',
   },
 ];
+// title·description 은 프로퍼티 게터 — buildingNames 처럼 호출 시점 언어로 건물 이름을 읽는다.
+// 접미사("딸기 테마"·"한 곳에만 적용하는 외양이에요.")는 그대로 둔다 — 상점 문구 번역은 1840 몫.
 for (const building of ['board', 'tower', 'mail', 'shop'] as Building[])
   products.push({
     id: 'strawberry-' + building,
-    title: buildingNames[building] + ' 딸기 테마',
+    get title() {
+      return buildingNames[building] + ' 딸기 테마';
+    },
     building,
     kind: 'building',
     price: 300,
     currency: 'fish',
-    description: buildingNames[building] + ' 한 곳에만 적용하는 외양이에요.',
+    get description() {
+      return buildingNames[building] + ' 한 곳에만 적용하는 외양이에요.';
+    },
   });
 const uuid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const peers = (): Member[] => [
@@ -992,10 +1029,9 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
     residents
   );
 }
-// "N시간 M분", 1시간 미만은 "M분", 딱 떨어지는 시간은 "N시간"
+// "N시간 M분", 1시간 미만은 "M분", 딱 떨어지는 시간은 "N시간" — 언어별 표기는 formatDuration 이 맡는다
 export function hoursMinutes(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  return m < 60 ? `${m}분` : m % 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m / 60}시간`;
+  return formatDuration(seconds);
 }
 export const sessionSeconds = (session: Session | null, now = Date.now()) =>
   !session
@@ -1036,22 +1072,21 @@ export function questRate(s: State, q: Quest, islandId = s.islandId): number | n
 }
 export function canBuild(s: State, b: Building): string | null {
   const i = currentIsland(s);
-  if (!isHost(i)) return '방장만 건설할 수 있어요.';
-  if (i.construction) return '공사가 끝난 뒤 다음 건물을 지을 수 있어요.';
-  if (i.buildings.includes(b)) return '이미 완성한 시설이에요.';
-  if (b === 'board' && !i.buildings.includes('hall')) return '마을회관을 먼저 지어요.';
+  if (!isHost(i)) return t('app.build.blocked.notHost');
+  if (i.construction) return t('app.build.blocked.underConstruction');
+  if (i.buildings.includes(b)) return t('app.build.blocked.alreadyBuilt');
+  if (b === 'board' && !i.buildings.includes('hall')) return t('app.build.blocked.hallRequired');
   if (b !== 'hall' && b !== 'board') {
-    if (!i.buildings.includes('board')) return '게시판 완공 후 선택할 수 있어요.';
-    if (i.buildingQuest?.building !== b) return '회관에서 다음 건물을 먼저 선택해 주세요.';
+    if (!i.buildings.includes('board')) return t('app.build.blocked.boardRequired');
+    if (i.buildingQuest?.building !== b) return t('app.build.blocked.selectNextBuilding');
     if (
       !i.buildingQuest.targets.length ||
       !i.buildingQuest.targets.every((id) => collectedBy(i, id) >= buildingShare(i, b))
     )
-      return '대상 주민 모두가 물고기 목표를 달성해야 해요.';
-    if (b === 'shop' && !shopPrerequisitesMet(i))
-      return '상점은 다른 모든 건물을 완공한 뒤 지을 수 있어요.';
+      return t('app.build.blocked.targetNotMet');
+    if (b === 'shop' && !shopPrerequisitesMet(i)) return t('app.build.blocked.shopPrerequisite');
   }
-  return balance(i) < buildingCost(i, b) ? '섬 물고기 잔액이 부족해요.' : null;
+  return balance(i) < buildingCost(i, b) ? t('app.build.blocked.insufficientBalance') : null;
 }
 // 상점은 도서관·전망대·우체통·축음기를 모두 완공한 뒤 고른다 (정책-결정-2026-09-14)
 export const shopPrerequisitesMet = (i: Island) =>
@@ -1177,12 +1212,12 @@ function focusTotal(records: RecordItem[], islandId: string, day: string, q: Que
       (n, r) =>
         n +
         (r.intervals ?? [{ start: r.at - r.seconds * 1000, end: r.at }]).reduce(
-          (sum, t) =>
+          (sum, iv) =>
             sum +
             Math.max(
               0,
-              Math.min(t.end, until, q.windowEnd ? clock(q.windowEnd) : until) -
-                Math.max(t.start, from, q.windowStart ? clock(q.windowStart) : from),
+              Math.min(iv.end, until, q.windowEnd ? clock(q.windowEnd) : until) -
+                Math.max(iv.start, from, q.windowStart ? clock(q.windowStart) : from),
             ) /
               1000,
           0,

@@ -28,6 +28,7 @@ import {
   todayFocusSeconds,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
+import { t } from '@/i18n';
 import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
@@ -169,29 +170,51 @@ const NO_OFFSET: Point = { x: 0, y: 0 };
 /** 타일 섬 서버 배치(GROMO-2227) — 건물별 평행이동(이미지 px). 없는 건물은 0. */
 type BuildingOffsets = Partial<Record<Building, Point>>;
 // 좌표·hitbox 숫자는 legacy-doors.json 한 곳(nav fixture 생성 스크립트와 공유). 라벨·경로만 여기서 붙인다.
+// label 은 전부 게터다 — 모듈 최상위 상수지만 import 시점이 아니라 접근 시점(렌더 중)에 해석해
+// buildingNames/t() 가 그때의 언어를 따르게 한다(buildingNames.hall 자체가 게터여도 여기서 평범한
+// 필드로 한 번 읽어 담으면 그 즉시 고정값이 돼 버린다 — GROMO-2239 리뷰 지적).
 export const legacyDoors: Record<string, Door> = (() => {
   const d = legacyDoorCoords.doors;
-  return {
-    hall: { ...d.hall, r: 'hall', label: buildingNames.hall, building: 'hall' },
-    board: { ...d.board, r: 'board', label: buildingNames.board, building: 'board' },
-    gram: {
-      ...d.gram,
-      r: 'sound',
-      label: buildingNames.gram,
-      building: 'gram',
-      memberOnly: true,
+  // ⚠️ 여기서 `...d.hall` 처럼 스프레드를 쓰면 안 된다 — Babel 의 _objectSpread 가 같은 리터럴의 게터를
+  // import 시점 값으로 복사해 라벨이 굳는다(Metro 도 같은 변환). 좌표는 필드로 옮겨 적는다.
+  const building = (b: Building, r: Route, memberOnly?: boolean): Door => ({
+    x: d[b].x,
+    y: d[b].y,
+    r,
+    get label() {
+      return buildingNames[b];
     },
-    library: { ...d.library, r: 'library', label: buildingNames.library, building: 'library' },
-    mail: { ...d.mail, r: 'mail', label: buildingNames.mail, building: 'mail' },
-    tower: { ...d.tower, r: 'tower', label: buildingNames.tower, building: 'tower' },
-    shop: { ...d.shop, r: 'shop', label: buildingNames.shop, building: 'shop' },
+    building: b,
+    memberOnly,
+  });
+  return {
+    hall: building('hall', 'hall'),
+    board: building('board', 'board'),
+    gram: building('gram', 'sound', true),
+    library: building('library', 'library'),
+    mail: building('mail', 'mail'),
+    tower: building('tower', 'tower'),
+    shop: building('shop', 'shop'),
     // 고양이는 부두 끝(x·y)까지 걸어가고, 탭 영역은 배경에 그려진 뗏목 위에 둔다. 기본 탭 영역은
     // 도착점 주변(부두의 육지 쪽 끝)이라 뗏목 그림을 눌러도 바다만 눌렀다(GROMO-2157).
-    raft: { ...d.raft, r: 'boat', label: '뗏목', memberOnly: true },
+    raft: {
+      x: d.raft.x,
+      y: d.raft.y,
+      hitbox: d.raft.hitbox,
+      r: 'boat',
+      get label() {
+        return t('home.a11y.raft');
+      },
+      memberOnly: true,
+    },
     fishingIsland: {
-      ...d.fishingIsland,
+      x: d.fishingIsland.x,
+      y: d.fishingIsland.y,
+      hitbox: d.fishingIsland.hitbox,
       r: 'focusVisit',
-      label: '낚시섬 구경하기',
+      get label() {
+        return t('home.a11y.viewFishingIsland');
+      },
       memberOnly: true,
       visitorRoute: 'visitIslandFocus',
       direct: true,
@@ -219,11 +242,20 @@ export function constructionPlacement(
     : legacyConstructionPlacements[building];
 }
 
+// label 과 같은 이유로 게터 — 모듈 최상위 상수지만 접근 시점에 t() 를 부른다.
 const constructionPhaseLabels: Readonly<Record<ConstructionSpritePhase, string>> = {
-  foundation: '기초 공사 중',
-  structure: '골조 공사 중',
-  finishing: '마감 공사 중',
-  completion: '완공',
+  get foundation() {
+    return t('home.construction.foundation');
+  },
+  get structure() {
+    return t('home.construction.structure');
+  },
+  get finishing() {
+    return t('home.construction.finishing');
+  },
+  get completion() {
+    return t('home.construction.completion');
+  },
 };
 const homePositions: Record<string, Point> = {};
 // 섬을 돌아다니는 주민 고양이 두 마리의 출발 자리(모닥불 근처 땅)
@@ -479,19 +511,19 @@ export function WorldMap({
     z: Math.max(0.35, Math.min(2.6, c.z)),
   });
   const touches = (e: any) => e.nativeEvent.touches ?? [];
-  const dist = (t: any[]) =>
-    t.length > 1 ? Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY) : 0;
-  const midpoint = (t: any[]) => ({
-    x: (t[0].pageX + t[1].pageX) / 2 - frame.current.x,
-    y: (t[0].pageY + t[1].pageY) / 2 - frame.current.y,
+  const dist = (tp: any[]) =>
+    tp.length > 1 ? Math.hypot(tp[0].pageX - tp[1].pageX, tp[0].pageY - tp[1].pageY) : 0;
+  const midpoint = (tp: any[]) => ({
+    x: (tp[0].pageX + tp[1].pageX) / 2 - frame.current.x,
+    y: (tp[0].pageY + tp[1].pageY) / 2 - frame.current.y,
   });
-  const begin = (t: any[]) => {
+  const begin = (tp: any[]) => {
     const v = current.current,
       c = v.camera;
-    const m = t.length > 1 ? midpoint(t) : { x: v.width / 2, y: v.height / 2 };
+    const m = tp.length > 1 ? midpoint(tp) : { x: v.width / 2, y: v.height / 2 };
     origin.current = {
       ...c,
-      dist: dist(t),
+      dist: dist(tp),
       anchorX: c.x + (m.x - v.width / 2) / v.scale,
       anchorY: c.y + (m.y - v.height / 2) / v.scale,
     };
@@ -506,16 +538,16 @@ export function WorldMap({
         drag.current = true;
       },
       onPanResponderMove: (e, g) => {
-        const t = touches(e),
+        const tp = touches(e),
           o = origin.current,
           v = current.current;
-        if (t.length > 1) {
+        if (tp.length > 1) {
           if (!o.dist) {
-            begin(t);
+            begin(tp);
             return;
           }
-          const z = Math.max(0.35, Math.min(2.6, (o.z * dist(t)) / o.dist)),
-            m = midpoint(t);
+          const z = Math.max(0.35, Math.min(2.6, (o.z * dist(tp)) / o.dist)),
+            m = midpoint(tp);
           setCamera(
             clamp({
               x: o.anchorX - (m.x - v.width / 2) / (v.base * z),
@@ -712,7 +744,7 @@ export function WorldMap({
           {mailboxLetters && (
             <VillageNotificationBadge
               testID="mailbox-new-indicator"
-              accessibilityLabel="친구에게 받은 새 편지가 있습니다"
+              accessibilityLabel={t('home.a11y.mailboxNewLetter')}
               scale={scale}
               style={{ left: at('mail').left + 348 * scale, top: at('mail').top + 520 * scale }}
             />
@@ -1019,6 +1051,8 @@ function FinalIslandScene({
     // 네 건물은 낮·밤 모두 진입 프레임이 있다.
     !scene &&
     (target === 'hall' || target === 'library' || target === 'shop' || target === 'tower');
+  // 렌더 시점 스프레드 — legacyDoors 의 label 게터가 여기서 그때 언어로 복사된다. useMemo/useCallback/React.memo
+  // 로 감싸면 언어를 바꿔도 라벨이 굳으니 메모이즈하지 않는다(GROMO-2239·에픽 리뷰).
   const doors: Record<string, Door> = scene
     ? Object.fromEntries(
         Object.entries(legacyDoors).map(([id, door]) => [
@@ -1239,7 +1273,7 @@ function FinalIslandScene({
         ? villagePath(scene, location.current, target)
         : landPath(grid, location.current, nearestLand(grid, target));
     if (tileNav && navDebug) setNavWalk({ tap: target, path });
-    const t = ++token.current;
+    const run = ++token.current;
     xy.stopAnimation();
     if (!path.length) {
       setWalking(false);
@@ -1251,7 +1285,7 @@ function FinalIslandScene({
     setWalking(true);
     let idx = 1;
     const next = () => {
-      if (t !== token.current) return;
+      if (run !== token.current) return;
       if (idx >= path.length) {
         setWalking(false);
         if (pathDistance(path) >= 180) {
@@ -1418,39 +1452,39 @@ function FinalIslandScene({
                 accessibilityRole="button"
                 accessibilityLabel={
                   id === 'mail' && mailboxLetters
-                    ? '우체통, 친구에게 받은 새 편지가 있어요'
+                    ? t('home.door.mailNewLetter')
                     : d.building === 'board' && boardStatus === 'new-comment'
-                      ? `${d.label}, 새 댓글이 있어요`
+                      ? t('home.door.newComment', { label: d.label })
                       : d.building === 'board' && boardStatus === 'unread'
-                        ? `${d.label}, 읽지 않은 새 소식이 있어요`
+                        ? t('home.door.unreadNotice', { label: d.label })
                         : d.building === 'shop' && shopState === 'new-product'
-                          ? `${d.label}, 새 상품이 있어요`
+                          ? t('home.door.newProduct', { label: d.label })
                           : d.building === 'shop' && shopState === 'purchasable'
-                            ? `${d.label}, 구매 가능한 상품이 있어요`
+                            ? t('home.door.purchasable', { label: d.label })
                             : d.building === 'tower' && observatoryRankState === 'rank-updated'
-                              ? `${d.label}, 주간 순위가 갱신되었어요`
+                              ? t('home.door.rankUpdated', { label: d.label })
                               : d.building === 'tower' && observatoryRankState === 'rank-changed'
-                                ? `${d.label}, 주간 순위가 바뀌었어요`
+                                ? t('home.door.rankChanged', { label: d.label })
                                 : d.building === 'library' && libraryState === 'new-quest'
-                                  ? `${d.label}, 새 퀘스트가 있어요`
+                                  ? t('home.door.newQuest', { label: d.label })
                                   : d.building === 'library' && libraryState === 'new-reading'
-                                    ? `${d.label}, 새 읽을거리가 있어요`
+                                    ? t('home.door.newReading', { label: d.label })
                                     : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
                   d.building === 'hall' && !visiting
-                    ? '터치하면 마을 회관으로 들어가요'
+                    ? t('home.door.hallHint')
                     : d.building === 'board' && !!boardStatus
-                      ? '게시판을 열어 확인하세요'
+                      ? t('home.door.boardHint')
                       : d.building === 'shop' && shopState !== 'normal'
-                        ? '상점에서 상품을 확인하세요'
+                        ? t('home.door.shopHint')
                         : d.building === 'tower' && observatoryRankState !== 'normal'
-                          ? '전망대에서 주간 순위를 확인하세요'
+                          ? t('home.door.towerHint')
                           : d.building === 'library' && libraryState !== 'normal'
-                            ? '도서관에서 새 내용을 확인하세요'
+                            ? t('home.door.libraryHint')
                             : visiting && d.building && !['hall', 'board'].includes(d.building)
-                              ? '주민만 이용할 수 있어요'
+                              ? t('home.door.membersOnly')
                               : undefined
                 }
                 onPress={() => {
@@ -1495,7 +1529,7 @@ function FinalIslandScene({
                   // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
                   if (d.building === 'hall') go('manage');
                   else if (d.building === 'board') go('board');
-                  else notify?.('주민만 이용할 수 있어요');
+                  else notify?.(t('home.door.membersOnly'));
                 }}
                 style={{
                   position: 'absolute',
@@ -1573,7 +1607,7 @@ function FinalIslandScene({
             <Pressable
               testID="home-cat-actor"
               accessibilityRole="button"
-              accessibilityLabel="내 고양이"
+              accessibilityLabel={t('character.title')}
               onPress={handleCatPress}
               style={{
                 width: hitSize,
@@ -1666,7 +1700,7 @@ function FinalIslandScene({
           <TutorialSpotlight
             target={focusTarget.rect}
             text={focusTutorial.text}
-            action={{ title: '집중 시작', onPress: departFocus }}
+            action={{ title: t('focus.start'), onPress: departFocus }}
           />
         )
       }
@@ -1728,7 +1762,11 @@ function FinalIslandScene({
             pointerEvents="none"
             // 섬 이름·오늘 집중·시간을 스크린리더가 한 번에 읽는다
             accessible={!visiting}
-            accessibilityLabel={visiting ? undefined : `${i.name} 오늘 집중 ${todayClock}`}
+            accessibilityLabel={
+              visiting
+                ? undefined
+                : t('home.a11y.todayFocusClock', { name: i.name, clock: todayClock })
+            }
             style={{
               backgroundColor: '#FFFDFAB3',
               borderRadius: 999,
@@ -1747,7 +1785,7 @@ function FinalIslandScene({
             {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
             {visiting ? (
               <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
-                {`${i.name} 구경 중`}
+                {t('home.hud.visiting', { name: i.name })}
               </Txt>
             ) : (
               <>
@@ -1761,7 +1799,7 @@ function FinalIslandScene({
                     {i.name}
                   </Txt>
                   <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
-                    오늘 집중
+                    {t('home.hud.todayFocus')}
                   </Txt>
                 </View>
                 <Txt
@@ -1820,8 +1858,11 @@ function FinalIslandScene({
                 }}
               >
                 <Txt style={{ fontSize: 14, lineHeight: 20.3, fontWeight: '800' }}>
-                  {buildingNames[i.construction?.building ?? next!]}{' '}
-                  {i.construction ? '공사 중' : '짓기'}
+                  {i.construction
+                    ? t('home.buildInProgress', {
+                        building: buildingNames[i.construction.building],
+                      })
+                    : t('home.build', { building: buildingNames[next!] })}
                 </Txt>
                 <Txt
                   kind="meta"
@@ -1833,8 +1874,13 @@ function FinalIslandScene({
                   }}
                 >
                   {i.construction
-                    ? `${Math.max(0, Math.ceil((i.construction.endsAt - Date.now()) / 60000))}분 남음`
-                    : `${balance(i)}/${buildingCost(i, next!)} 마리`}
+                    ? t('home.buildMinutesLeft', {
+                        count: Math.max(0, Math.ceil((i.construction.endsAt - Date.now()) / 60000)),
+                      })
+                    : t('home.buildProgress', {
+                        current: balance(i),
+                        total: buildingCost(i, next!),
+                      })}
                 </Txt>
               </View>
               <View
@@ -1854,7 +1900,12 @@ function FinalIslandScene({
                 />
               </View>
               {!i.construction && next && balance(i) >= buildingCost(i, next) && isHost(i) && (
-                <Btn small title="건설하기" style={{ marginTop: 2 }} onPress={() => build(next)} />
+                <Btn
+                  small
+                  title={t('home.buildAction')}
+                  style={{ marginTop: 2 }}
+                  onPress={() => build(next)}
+                />
               )}
             </View>
           )}
@@ -1873,7 +1924,7 @@ function FinalIslandScene({
             {visiting ? (
               <Btn
                 kind="butter"
-                title="원래 섬으로"
+                title={t('home.returnToMyIsland')}
                 id="visit-return"
                 onPress={() => {
                   // 구경을 끝내고 내 섬으로 배를 타고 돌아간다. Travel 도착 시 SWITCH_ISLAND 후 홈
@@ -1884,7 +1935,7 @@ function FinalIslandScene({
               />
             ) : (
               <View ref={focusTarget.ref} collapsable={false} onLayout={focusTarget.measure}>
-                <Btn round title="집중 시작" id="depart-focus" onPress={departFocus} />
+                <Btn round title={t('focus.start')} id="depart-focus" onPress={departFocus} />
               </View>
             )}
           </View>

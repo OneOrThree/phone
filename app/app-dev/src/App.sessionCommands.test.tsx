@@ -7,12 +7,14 @@ import App from '@/App';
 import type { Account } from '@/services/api/auth';
 import { ApiError } from '@/services/api/client';
 import {
+  clearLocalDataOwner,
   clearSession,
   getLastSessionUserId,
   rememberLocalDataOwner,
   saveSession,
   sessionGeneration,
 } from '@/services/api/session';
+import { applyLocalePref, getLocale } from '@/i18n';
 import { initialState, reducer, type Route } from '@/services/model';
 import {
   cancelBuildingTransition,
@@ -179,8 +181,8 @@ beforeEach(async () => {
   await SecureStore.deleteItemAsync('gromo.lastUserId');
   await SecureStore.deleteItemAsync('gromo.ownerAdoptionPending');
   // 앞 테스트의 앱 저장본(섬·온보딩 상태)이 다음 테스트의 부팅 LOAD로 새지 않게 비운다.
-  // removeItem 호출 수를 세는 테스트가 있어 multiRemove로 지운다.
-  await AsyncStorage.multiRemove(['gromo-r61-user-v2']);
+  // removeItem 호출 수를 세는 테스트가 있어 multiRemove로 지운다. 언어 키는 기기 전역 값이라 앱이 안 지우니 여기서 비운다.
+  await AsyncStorage.multiRemove(['gromo-r61-user-v2', 'gromo.locale', 'gromo:settings:locale']);
 });
 
 test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이전 저장본을 비우고 owner를 갱신한다', async () => {
@@ -251,6 +253,56 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
     assert.equal(persisted.loggedIn, true);
     assert.equal(persisted.serverIslands.currentIslandId, 'server-island-b');
   });
+});
+
+// 위 테스트와 같은 owner 불일치 부팅 조건(transferOwner)에서, STORAGE 삭제가 기기 전역 언어
+// 설정(gromo.locale)까지 같이 지우지 않는지 확인한다 — GROMO-2235 에픽 PR #1098 2라운드 리뷰.
+test('owner 전환(transferOwner) 부팅은 기기 전역 언어 설정(gromo.locale)을 지우지 않는다', async () => {
+  await AsyncStorage.setItem('gromo.locale', 'en');
+  try {
+    await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+    await rememberLocalDataOwner('user-a');
+    await AsyncStorage.setItem(
+      'gromo-r61-user-v2',
+      JSON.stringify({ ...initialState(true), name: 'A-only-private-state' }),
+    );
+    await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+    mockRestoreSession.mockImplementation(() =>
+      jest.requireActual('@/services/api/session').restoreSession(),
+    );
+    mockCheckSession.mockResolvedValue({
+      status: 'active',
+      account: {
+        id: 'user-b',
+        name: 'B',
+        catColor: null,
+        mainIslandId: null,
+        linkedProviders: [],
+        onboardingComplete: false,
+      },
+    });
+    mockSyncIslands.mockResolvedValue({ currentIslandId: 'server-island-b', items: [] });
+    mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
+      const memberships = await syncIslands();
+      return memberships.currentIslandId ? 'home' : 'chooseIsland';
+    });
+
+    const removeItem = AsyncStorage.removeItem as jest.Mock;
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 20; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+    await waitFor(() => assert.equal(getLastSessionUserId(), 'user-b')); // transferOwner 완료 확인
+
+    const removed = removeItem.mock.calls.map(([key]) => key);
+    assert.ok(removed.includes('gromo-r61-user-v2')); // transferOwner 경로를 실제로 탔다
+    assert.ok(!removed.includes('gromo.locale'));
+    assert.equal(await AsyncStorage.getItem('gromo.locale'), 'en');
+  } finally {
+    await AsyncStorage.multiRemove(['gromo.locale']);
+    applyLocalePref(null);
+  }
 });
 
 test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 뒤에 owner 전환과 저장을 완료한다', async () => {
@@ -1803,5 +1855,134 @@ test('WorldMap의 진입 전환 중에는 앱 콘텐츠를 접근성 트리에�
       controller.cancel();
       controller.dispose();
     });
+  }
+});
+
+test('부팅은 언어 설정(gromo.locale)을 읽고, 없으면 1.x 키(gromo:settings:locale) 값을 적용한다', async () => {
+  await AsyncStorage.setItem('gromo:settings:locale', 'en');
+  try {
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+    const read = (AsyncStorage.getItem as jest.Mock).mock.calls.map(([key]) => key);
+    assert.ok(read.includes('gromo.locale'));
+    assert.equal(getLocale(), 'en');
+    assert.equal(captured.localePref, 'en');
+  } finally {
+    await AsyncStorage.multiRemove(['gromo:settings:locale']);
+    applyLocalePref(null);
+  }
+});
+
+test('부팅은 2.0 키(gromo.locale)와 1.x 키(gromo:settings:locale)가 둘 다 있으면 2.0 키를 우선한다', async () => {
+  await AsyncStorage.setItem('gromo.locale', 'ko');
+  await AsyncStorage.setItem('gromo:settings:locale', 'en');
+  try {
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+    assert.equal(getLocale(), 'ko');
+    assert.equal(captured.localePref, 'ko');
+  } finally {
+    await AsyncStorage.multiRemove(['gromo.locale', 'gromo:settings:locale']);
+    applyLocalePref(null);
+  }
+});
+
+test('부팅은 언어 키(gromo.locale·gromo:settings:locale) 읽기가 reject 해도 system(기기 언어)으로 진행한다', async () => {
+  const getItem = AsyncStorage.getItem as jest.Mock;
+  const previousGetItem = getItem.getMockImplementation()!;
+  // 언어 두 키만 실패시키고 나머지 키(세션·저장본 등)는 기존 목 구현 그대로 위임한다.
+  getItem.mockImplementation((key: string) =>
+    key === 'gromo.locale' || key === 'gromo:settings:locale'
+      ? Promise.reject(new Error('storage unavailable'))
+      : previousGetItem(key),
+  );
+  try {
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+    assert.equal(captured.localePref, 'system');
+  } finally {
+    getItem.mockImplementation(previousGetItem);
+    applyLocalePref(null);
+  }
+});
+
+test('로그아웃·탈퇴 정리는 기기 전역 언어 설정(gromo.locale)을 지우지 않는다', async () => {
+  // 앞 테스트의 spyOn·mockRestore 가 removeItem 구현을 지웠을 수 있다 — 공식 목과 같은 구현을 잠시 쓴다.
+  const removeItem = AsyncStorage.removeItem as jest.Mock;
+  const previousRemove = removeItem.getMockImplementation();
+  removeItem.mockImplementation((key: string) => AsyncStorage.multiRemove([key]));
+  try {
+    await AsyncStorage.setItem('gromo.locale', 'en');
+    // 탈퇴 응답을 잃고 종료됐던 기기 — 부팅이 확정된 탈퇴 의도로 로컬 정리와 앱 저장본 삭제를 마친다.
+    await clearLocalDataOwner();
+    await AsyncStorage.setItem(
+      'gromo.withdrawalIntent',
+      JSON.stringify({ userId: 'withdrawn-user', key: 'k', confirmed: true }),
+    );
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+
+    const removed = () => removeItem.mock.calls.map(([key]) => key);
+    // signOut() 전에 먼저 확인한다 — signOut 의 resetLocal(App.tsx)도 같은 키를 지우므로, signOut
+    // 뒤에만 보면 이 제거가 부팅 탈퇴 정리에서 온 것인지 signOut 자체에서 온 것인지 구별이 안 된다.
+    await waitFor(() => assert.ok(removed().includes('gromo-r61-user-v2')));
+    assert.ok(!removed().includes('gromo.locale'));
+
+    let signedOut: boolean | undefined;
+    await act(async () => {
+      signedOut = await captured.signOut();
+    });
+    assert.equal(signedOut, true);
+    assert.ok(!removed().includes('gromo.locale'));
+    assert.equal(await AsyncStorage.getItem('gromo.locale'), 'en');
+  } finally {
+    removeItem.mockImplementation(previousRemove);
+    await AsyncStorage.multiRemove(['gromo.locale']);
+    applyLocalePref(null);
+  }
+});
+
+test('en 로케일 — 게스트→회원 시트는 영문 제목을 보여주고 서버 오류도 번역해 보여준다', async () => {
+  // App 부팅이 저장된 'gromo.locale' 을 읽어 적용한다 — 렌더 전에 미리 건 applyLocalePref 는
+  // 이 부팅 적용이 끝나는 순간 덮어써진다(T1 locale 부팅 테스트와 같은 이유).
+  await AsyncStorage.setItem('gromo.locale', 'en');
+  try {
+    await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+    let screen: Awaited<ReturnType<typeof render>>;
+    await act(async () => {
+      screen = await render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.equal(typeof captured.conversion?.offer, 'function'));
+
+    await act(async () => {
+      captured.conversion.offer(
+        new ApiError('SOCIAL_LOGIN_REQUIRED', '소셜 로그인이 필요합니다.', 403),
+      );
+    });
+    assert.ok(screen!.getByText('Continue with a Social Account'));
+
+    mockSocialCredential.mockRejectedValueOnce(
+      new ApiError('GOOGLE_TOKEN', '회원 전환 토큰 오류', 422),
+    );
+    await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
+    await fireEvent.press(screen!.getByText('Continue with Google'));
+
+    await waitFor(() => assert.ok(screen!.getByText('Your Google login is no longer valid.')));
+  } finally {
+    await AsyncStorage.multiRemove(['gromo.locale']);
+    applyLocalePref(null);
   }
 });
