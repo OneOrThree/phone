@@ -1248,7 +1248,11 @@ describe('이동 채널 (GROMO-2248)', () => {
     client().subs.find((s: { dest: string }) => s.dest === dest) as {
       cb: (m: { body: string }) => void;
     };
-  const open = (onEvent: (body: unknown) => void = () => {}, errors: string[] = []) =>
+  const open = (
+    onEvent: (body: unknown) => void = () => {},
+    errors: string[] = [],
+    denied: number[] = [],
+  ) =>
     stompIslandChannel({
       islandId: ISLAND,
       presence: false,
@@ -1257,6 +1261,7 @@ describe('이동 채널 (GROMO-2248)', () => {
       onEvent,
       onOpen: () => {},
       onError: (m) => errors.push(m),
+      onMovementDenied: () => denied.push(1),
     });
 
   beforeEach(() => {
@@ -1348,9 +1353,10 @@ describe('이동 채널 (GROMO-2248)', () => {
     assert.deepEqual(remote, [[B, { x: 39.21, y: 44.79, moving: true }]]);
   });
 
-  test('오류 큐의 NOT_A_MEMBER 를 받으면 호출부에 알리고, 재접속해도 이동 토픽을 다시 구독하지 않는다', () => {
+  test('오류 큐의 NOT_A_MEMBER 를 받으면 호출부에 알리고(onMovementDenied), 재접속해도 이동 토픽을 다시 구독하지 않는다', () => {
     const errors: string[] = [];
-    open(undefined, errors);
+    const denied: number[] = [];
+    open(undefined, errors, denied);
     const c = client();
     sub('/user/queue/errors').cb({
       body: JSON.stringify({
@@ -1360,6 +1366,7 @@ describe('이동 채널 (GROMO-2248)', () => {
       }),
     });
     assert.equal(errors.length, 1);
+    assert.equal(denied.length, 1);
     c.subs.length = 0;
     c.activate(); // stompjs 의 5초 재접속
     assert.deepEqual(
@@ -1368,18 +1375,34 @@ describe('이동 채널 (GROMO-2248)', () => {
     );
   });
 
-  test('구독 거절 STOMP ERROR 도 이동 구독을 끊는다 — 무한 재접속·재거절 루프를 막는다', () => {
+  test('구독 거절 STOMP ERROR 도 onMovementDenied 를 부르고 이동 구독을 끊는다 — 무한 재접속·재거절 루프를 막는다', () => {
     const errors: string[] = [];
-    open(undefined, errors);
+    const denied: number[] = [];
+    open(undefined, errors, denied);
     const c = client();
     c.opts.onStompError({ headers: { message: 'NOT_A_MEMBER' } });
     assert.equal(errors.length, 1);
+    assert.equal(denied.length, 1);
     c.subs.length = 0;
     c.activate();
     assert.deepEqual(
       c.subs.map((s: { dest: string }) => s.dest),
       ['/user/queue/errors'],
     );
+  });
+
+  test('오류 큐의 STALE_COMMAND 같은 무관한 코드는 onMovementDenied 를 부르지 않는다 — onError 로만 오고 동기화는 그대로 둔다', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    sub('/user/queue/errors').cb({
+      body: JSON.stringify({
+        code: 'STALE_COMMAND',
+        message: '명령이 낡았어요. 다시 시도해주세요.',
+      }),
+    });
+    assert.deepEqual(errors, ['명령이 낡았어요. 다시 시도해주세요.']);
+    assert.equal(denied.length, 0);
   });
 });
 

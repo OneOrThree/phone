@@ -249,6 +249,36 @@ describe('정지 상태 보정(onMyCorrection)', () => {
     t.controller.onMessage(snapshot(110, [entity(ME, 0, { x: 43, y: 45.5 }, { state: 'IDLE' })]));
     assert.deepEqual(t.corrections, []);
   });
+
+  test('응답 없는 intent 는 SERVER_LAG_MS 를 넘기면 가드가 풀려 보정·Arrived 가 다시 동작한다(seq 는 그대로)', () => {
+    const t = ready();
+    t.controller.intend({ x: 42.5, y: 45.5 }); // seq -> 1
+    // 서버가 이 intent 를 조용히 버렸다(속도 제한 등) — PathAccepted·MoveRejected 가 영영 오지 않는다.
+    t.env.clock = SERVER_LAG_MS;
+    t.controller.onMessage(snapshot(110, [entity(ME, 0, { x: 50, y: 50 }, { state: 'IDLE' })]));
+    assert.deepEqual(t.corrections, [], 'SERVER_LAG_MS 이내 — 보정 가드가 남아 있다');
+    t.controller.onMessage(arrived(ME, 0, { x: 55, y: 55 }));
+    assert.deepEqual(t.arrivals, [], 'SERVER_LAG_MS 이내 — Arrived 가드도 남아 있다');
+    t.env.clock = SERVER_LAG_MS + 1;
+    t.controller.onMessage(snapshot(111, [entity(ME, 0, { x: 50, y: 50 }, { state: 'IDLE' })]));
+    assert.deepEqual(
+      t.corrections,
+      [{ x: 50, y: 50 }],
+      'SERVER_LAG_MS 를 넘기면 보정 가드가 풀린다',
+    );
+    t.controller.onMessage(arrived(ME, 0, { x: 55, y: 55 }));
+    assert.deepEqual(
+      t.arrivals,
+      [{ x: 55, y: 55 }],
+      'SERVER_LAG_MS 를 넘기면 Arrived 가드도 풀린다',
+    );
+    t.controller.intend({ x: 10, y: 10 });
+    assert.equal(
+      t.sent.at(-1)?.commandSeq,
+      2,
+      'seq 는 되돌리지 않아 다음 intent 가 seq+1 로 채택된다',
+    );
+  });
 });
 
 describe('다른 주민 스냅샷 버퍼', () => {
@@ -363,6 +393,22 @@ describe('다른 주민 스냅샷 버퍼', () => {
     assert.equal(buf.push(B, sample(13, { x: 13, y: 12.5 }, 2)), true);
     assert.deepEqual(buf.positionAt(B, 11), { x: 13, y: 12.5, moving: true });
   });
+
+  test('positionAtTimed — 보간에 쓴 두 샘플의 틱 간격 × 50ms 를 durationMs 로 돌려준다(저주기 스냅샷도 다음 호출까지 매끄럽게)', () => {
+    const buf = new SnapshotBuffer();
+    buf.addPath(B, 1, [
+      { x: 10.5, y: 10.5 },
+      { x: 20.5, y: 10.5 },
+    ]);
+    // 20Hz 틱 기준 4틱(200ms)마다 한 샘플 — 5Hz 저주기 스냅샷을 흉내낸다.
+    buf.push(B, sample(10, { x: 11.5, y: 10.5 }));
+    buf.push(B, sample(14, { x: 15.5, y: 10.5 }));
+    const p = buf.positionAtTimed(B, 12);
+    assert.deepEqual(p && { x: p.x, y: p.y }, { x: 13.5, y: 10.5 });
+    assert.equal(p?.durationMs, 200);
+    // positionAt 은 기존 계약 그대로 durationMs 없이 돌려준다.
+    assert.deepEqual(buf.positionAt(B, 12), { x: 13.5, y: 10.5, moving: true });
+  });
 });
 
 describe('경로 비교·갈아타기', () => {
@@ -399,5 +445,71 @@ describe('경로 비교·갈아타기', () => {
     assert.deepEqual(remainingPath(path, { x: 40.2, y: 44.1 }), path.slice(2));
     assert.deepEqual(remainingPath(path, path[0]), path.slice(1));
     assert.deepEqual(remainingPath([path[0]], path[0]), []);
+  });
+});
+
+describe('서버 재시작 — pathId 역행(FullState, 틱은 역행하지 않음)', () => {
+  test('내 pathId 가 역행하면 lastPath·lastSnapshot 을 비우고, 다른 주민 pathId 역행은 그 트랙 판정만 풀어(샘플은 유지) 낮은 pathId 도 받아들인다', () => {
+    const t = ready(SPAWN, [actor(B, SPAWN, { pathId: 50 })]);
+    t.controller.intend({ x: 39.5, y: 45.5 }); // seq -> 1
+    t.controller.onMessage(pathAccepted(ME, 1, 50, SPAWN, [{ x: 39.5, y: 45.5 }]));
+    t.controller.onMessage(
+      snapshot(110, [entity(ME, 50, { x: 39.5, y: 45.5 }, { lastCommandSeq: 1 })]),
+    );
+    assert.equal(t.controller.state().lastPath?.pathId, 50);
+    assert.notEqual(t.controller.state().lastSnapshot, null);
+    t.controller.onMessage(pathAccepted(B, 7, 50, SPAWN, [{ x: 39.5, y: 44.5 }]));
+    // 서버가 재시작해 두 actor 의 pathId 가 2 로 되돌아왔다 — 틱은 정상 진행(역행 아님).
+    t.controller.onMessage(
+      fullState([actor(ME, SPAWN, { pathId: 2 }), actor(B, SPAWN, { pathId: 2 })], {
+        serverTick: 120,
+      }),
+    );
+    assert.equal(t.controller.state().lastPath, null, '내 pathId 역행 — 낡은 경로 표시를 비운다');
+    assert.equal(
+      t.controller.state().lastSnapshot,
+      null,
+      '내 pathId 역행 — 낡은 스냅샷 표시를 비운다',
+    );
+    // 리셋 전이면 2 < 50 이라 거부됐을 B 의 새(역행한) 경로·스냅샷이 이제 채택된다.
+    t.remote.length = 0;
+    t.controller.onMessage(pathAccepted(B, 8, 2, SPAWN, [{ x: 40.5, y: 45.5 }]));
+    t.controller.onMessage(snapshot(121, [entity(B, 2, { x: 40, y: 45.5 })]));
+    assert.deepEqual(t.remote, [[B, { x: 40, y: 45.5, moving: true }]]);
+  });
+});
+
+describe('서버 재시작 — serverTick 역행(FullState)', () => {
+  test('FullState 의 serverTick 이 역행하면 latestTick 을 그 값으로 되돌리고 주민 트랙을 전부 비운다 — 낡은 고틱 샘플이 새 낮은 틱을 역순으로 막지 않는다', () => {
+    const t = ready(SPAWN, [actor(B, SPAWN, { pathId: 50 })]);
+    t.controller.onMessage(pathAccepted(B, 1, 50, SPAWN, [{ x: 39.5, y: 44.5 }]));
+    t.controller.onMessage(snapshot(9000, [entity(B, 50, { x: 39.5, y: 44.5 })]));
+    // 서버·방 재시작 — serverTick 이 9000 대에서 10 으로 되돌아왔다(pathId 도 함께 역행). FullState 자체는
+    // "others" 를 항상 직접 한 번 내려보낸다(버퍼와 무관) — 그 직접 신호는 비교 대상이 아니라 비운다.
+    t.controller.onMessage(
+      fullState([actor(ME, SPAWN, { pathId: 2 }), actor(B, SPAWN, { pathId: 2 })], {
+        serverTick: 10,
+      }),
+    );
+    t.remote.length = 0;
+    t.controller.onMessage(pathAccepted(B, 2, 2, SPAWN, [{ x: 40.5, y: 45.5 }]));
+    t.controller.onMessage(snapshot(12, [entity(B, 2, { x: 40, y: 45.5 })]));
+    assert.deepEqual(t.remote, [[B, { x: 40, y: 45.5, moving: true }]]);
+  });
+});
+
+describe('상태 노출(sentAt·lastSnapshot.receivedAt)', () => {
+  test('sentAt 은 송신 시각을 담고 응답을 받으면 null, lastSnapshot.receivedAt 은 수신 시각을 담는다', () => {
+    const t = ready();
+    assert.equal(t.controller.state().sentAt, null);
+    t.env.clock = 1000;
+    t.controller.intend({ x: 42.5, y: 45.5 });
+    assert.equal(t.controller.state().sentAt, 1000);
+    t.env.clock = 1200;
+    t.controller.onMessage(pathAccepted(ME, 1, 1, SPAWN, [{ x: 39.5, y: 45.5 }]));
+    assert.equal(t.controller.state().sentAt, null, '응답을 받으면 null');
+    t.env.clock = 1300;
+    t.controller.onMessage(snapshot(110, [entity(ME, 1, { x: 39.5, y: 45.5 }, { state: 'IDLE' })]));
+    assert.equal(t.controller.state().lastSnapshot?.receivedAt, 1300);
   });
 });
