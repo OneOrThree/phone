@@ -278,6 +278,11 @@ final class MovementOutbox {
         return movementSubscriptionId != null;
     }
 
+    /** 이 id 로 그 토픽(snapshot 이면 Snapshot, 아니면 movement)을 들고 있는가 — 같은 구독의 재전송인지 가린다. */
+    synchronized boolean holds(String subscriptionId, boolean snapshot) {
+        return subscriptionId.equals(snapshot ? snapshotSubscriptionId : movementSubscriptionId);
+    }
+
     synchronized boolean hasSubscriptions() {
         return movementSubscriptionId != null || snapshotSubscriptionId != null;
     }

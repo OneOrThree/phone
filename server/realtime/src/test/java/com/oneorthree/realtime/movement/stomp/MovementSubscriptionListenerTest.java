@@ -469,6 +469,37 @@ class MovementSubscriptionListenerTest {
     }
 
     @Test
+    @DisplayName("같은 구독 id 를 해지 없이 다른 섬 movement 에 다시 쓰면 옛 섬 구독부터 푼다 — 옛 섬 outbox·actor 가 남지 않고 옛 섬 사건이 그 id 로 나가지 않는다")
+    void reusedSubscriptionIdForAnotherIslandDetachesTheOldIslandFirst() {
+        StompAuthChannelInterceptor gate = gate();
+        UUID otherIsland = UUID.randomUUID();
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal mover = connect("b");
+        join("a", stays);
+        inbound(gate, raw("b", "x", StompTopics.movementTopic(island), mover));
+        tick();
+        sent.clear();
+
+        inbound(gate, raw("b", "x", StompTopics.movementTopic(otherIsland), mover)); // 같은 id x 로 다른 섬
+        rooms.accept(island, stays.userId(), "a", new MoveIntent(1, 1, 39.5, 45.5)); // 옛 섬에서 사건이 난다
+        tick();
+        tick();
+
+        assertThat(publisher.outboxes(island)).extracting(MovementOutbox::sessionId).as("옛 섬 outbox 는 없다")
+                .containsExactly("a");
+        assertThat(actorIds(bodiesFor("a").get(0))).as("옛 섬에서 퇴장했다 — 유령 actor 없음")
+                .containsExactly(stays.userId().toString());
+        List<Message<?>> toMover = framesFor("b");
+        assertThat(toMover).as("옛 섬 사건은 그 id 로 나가지 않는다 — 전부 새 섬 목적지")
+                .isNotEmpty()
+                .allSatisfy(frame -> assertThat(SimpMessageHeaderAccessor.getDestination(frame.getHeaders()))
+                        .isEqualTo(StompTopics.movementTopic(otherIsland)));
+        JsonNode first = json.readTree((byte[]) toMover.get(0).getPayload());
+        assertThat(first.get("type").stringValue()).as("새 섬은 정상 — 첫 메시지는 자기 FullState").isEqualTo("FullState");
+        assertThat(actorIds(first)).containsExactly(mover.userId().toString());
+    }
+
+    @Test
     @DisplayName("③ 교체됐던 기기가 같은 구독 id 로 돌아오면 첫 reliable 은 자기 FullState 다 — 그 사이 나간 다른 사건은 버린다")
     void supersededDeviceReturningWithTheSameIdStartsFromItsOwnFullState() {
         ChatPrincipal phone = connect("phone");
@@ -581,12 +612,20 @@ class MovementSubscriptionListenerTest {
         return principal;
     }
 
-    private List<JsonNode> bodiesFor(String sessionId) {
-        List<JsonNode> bodies = new ArrayList<>();
+    private List<Message<?>> framesFor(String sessionId) {
+        List<Message<?>> frames = new ArrayList<>();
         for (Message<?> message : sent) {
             if (sessionId.equals(SimpMessageHeaderAccessor.getSessionId(message.getHeaders()))) {
-                bodies.add(json.readTree((byte[]) message.getPayload()));
+                frames.add(message);
             }
+        }
+        return frames;
+    }
+
+    private List<JsonNode> bodiesFor(String sessionId) {
+        List<JsonNode> bodies = new ArrayList<>();
+        for (Message<?> message : framesFor(sessionId)) {
+            bodies.add(json.readTree((byte[]) message.getPayload()));
         }
         return bodies;
     }

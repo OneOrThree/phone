@@ -205,12 +205,19 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             }
             Map<UUID, MovementOutbox> outboxes = held != null ? held : new ConcurrentHashMap<>();
             MovementOutbox outbox = outboxes.get(islandId);
+            if (outbox == null || !outbox.holds(subscriptionId, snapshot)) {
+                // 같은 id 가 이 세션의 다른 이동 목적지에 묶여 있었으면(해지 없이 id 를 재사용 — 레지스트리는 id 의 목적지를
+                // 바꿔 끼운다) 그 묶음부터 해지 경로로 푼다. 옛 섬 actor·outbox 가 유령으로 남거나 옛 섬 사건이 이 id 로
+                // 나가지 않게. 묶인 곳이 없으면 아무 일도 없고, 같은 목적지 재전송은 여기 오지 않는다.
+                detach(sessionId, outboxes, subscriptionId);
+                outbox = outboxes.get(islandId);
+            }
             if (outbox == null) {
                 if (!judged) {
                     // 관문은 살아 있던 outbox 를 근거로 판정을 이어받았는데 그 사이 강퇴됐다 — 판정 없이 새로 들이지 않고,
                     // 구독 기록도 지워 «판정받은 구독»으로 남기지 않는다. 다음 구독은 관문이 처음부터 판정한다.
                     sessions.unsubscribe(sessionId, subscriptionId);
-                    return held;
+                    return outboxes.isEmpty() ? null : outboxes;
                 }
                 outbox = publisher.open(islandId, sessionId, principal.userId());
                 outboxes.put(islandId, outbox);
@@ -237,20 +244,28 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     private void unsubscribed(String sessionId, String subscriptionId) {
         // 세션 잠금 — 람다 안에서 블로킹 금지.
         bySession.computeIfPresent(sessionId, (id, held) -> {
-            held.entrySet().removeIf(entry -> {
-                MovementOutbox outbox = entry.getValue();
-                if (outbox.unsubscribeMovement(subscriptionId)) {
-                    rooms.leave(entry.getKey(), id);
-                }
-                outbox.unsubscribeSnapshot(subscriptionId);
-                if (outbox.hasSubscriptions()) {
-                    return false; // snapshot 이 남았으면 재판정도 계속 — 그 전달도 멤버십에 묶여 있다.
-                }
-                cancelRecheck(outbox);
-                publisher.close(entry.getKey(), id);
-                return true;
-            });
+            detach(id, held, subscriptionId);
             return held.isEmpty() ? null : held;
+        });
+    }
+
+    /**
+     * 그 구독 id 의 묶음을 푼다(세션 잠금 안에서만) — movement 면 방에서 퇴장, snapshot 이면 그 구독만. 구독이 하나도 안
+     * 남은 outbox 는 재판정을 취소하고 닫는다. 묶인 곳이 없으면 아무 일도 없다.
+     */
+    private void detach(String sessionId, Map<UUID, MovementOutbox> held, String subscriptionId) {
+        held.entrySet().removeIf(entry -> {
+            MovementOutbox outbox = entry.getValue();
+            if (outbox.unsubscribeMovement(subscriptionId)) {
+                rooms.leave(entry.getKey(), sessionId);
+            }
+            outbox.unsubscribeSnapshot(subscriptionId);
+            if (outbox.hasSubscriptions()) {
+                return false; // snapshot 이 남았으면 재판정도 계속 — 그 전달도 멤버십에 묶여 있다.
+            }
+            cancelRecheck(outbox);
+            publisher.close(entry.getKey(), sessionId);
+            return true;
         });
     }
 
