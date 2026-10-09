@@ -22,6 +22,8 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>이 서비스의 <b>첫 전용 executor</b> 다. {@code scheduleAtFixedRate} 는 본문에서 예외가 한 번만 터져도
  * 이후 모든 틱을 영구히 취소하므로, 방 하나의 예외가 다른 방·다음 틱까지 멈추지 않도록 방마다 try/catch 로 감싼다.
+ * {@link #runTick()} 전체도 {@code catch (Throwable)} 로 한 번 더 감싼다(2246 보완11) — 방 단위 가드를
+ * 뚫고 올라온 예외(또는 가드 밖의 코드가 던지는 예외)의 마지막 안전망이다.
  */
 @Component
 public final class MovementTicker {
@@ -36,7 +38,7 @@ public final class MovementTicker {
     private final AtomicLong delayedTickCount = new AtomicLong();
     private final AtomicLong skippedSnapshotCount = new AtomicLong();
     private ScheduledExecutorService executor;
-    private volatile long lastTickStartedAtMs;
+    private volatile long lastTickStartedAtNanos;
 
     public MovementTicker(MovementRooms rooms, MeterRegistry meterRegistry) {
         this.rooms = rooms;
@@ -76,32 +78,47 @@ public final class MovementTicker {
         return skippedSnapshotCount.get();
     }
 
-    private void runTick() {
-        boolean catchUp = checkDelay();
-        tickTimer.record(() -> tickAllRooms(!catchUp));
+    /**
+     * 패키지 전용 — {@code scheduleAtFixedRate} 가 직접 돌린다(테스트가 50ms 실제 대기 없이 호출하려고
+     * 패키지 전용으로 둔다, 2246 보완11 — 추가된 유일한 시그니처). 본문 전체를 {@code catch (Throwable
+     * t)} 로 감싼다 — {@code scheduleAtFixedRate} 는 실행 중 예외(Error 포함)가 한 번만 새도 이후 모든
+     * 틱을 영구히 취소하므로, 방 단위 {@link RuntimeException} 가드({@link #tickAllRooms})를 뚫고 올라온
+     * 예외까지(또는 그 가드 밖의 {@link #checkDelay} 자체가 던지는 예외까지) 여기서 마지막으로 삼켜야
+     * 스케줄이 계속 돈다. 방 단위 가드는 그대로 유지한다 — 이건 그걸 대신하지 않고 마지막 안전망이다.
+     */
+    void runTick() {
+        try {
+            boolean catchUp = checkDelay();
+            tickTimer.record(() -> tickAllRooms(!catchUp));
+        } catch (Throwable t) {
+            LOG.error("섬 틱 처리 중 최상위 예외 — scheduleAtFixedRate 가 영구 취소되지 않도록 삼킨다(2246 보완11)", t);
+        }
     }
 
     /** @return 이번 실행이 catch-up(밀린) 실행인지({@link #isCatchUp}). */
     private boolean checkDelay() {
-        long now = System.currentTimeMillis();
-        long previous = lastTickStartedAtMs;
-        lastTickStartedAtMs = now;
-        long tickMs = MovementRules.DEFAULT.tickMs();
-        if (previous != 0 && now - previous > 2 * tickMs) {
+        long now = System.nanoTime();
+        long previous = lastTickStartedAtNanos;
+        lastTickStartedAtNanos = now;
+        long tickNanos = MovementRules.DEFAULT.tickMs() * 1_000_000L;
+        if (previous != 0 && now - previous > 2 * tickNanos) {
             delayedTickCount.incrementAndGet();
-            LOG.debug("섬 틱 지연 감지: {}ms(기준 {}ms)", now - previous, tickMs);
+            LOG.debug("섬 틱 지연 감지: {}ms(기준 {}ms)", (now - previous) / 1_000_000L,
+                    MovementRules.DEFAULT.tickMs());
         }
-        return isCatchUp(previous, now, tickMs);
+        return isCatchUp(previous, now, tickNanos);
     }
 
     /**
-     * 패키지 전용 — 순수 함수(단위 테스트용, codex P2, 2246 보완4). 직전 틱이 시작한 뒤 반 주기
-     * (tickMs/2) 도 지나지 않고 이번 실행이 시작됐으면, {@code scheduleAtFixedRate} 가 밀린 실행을
-     * 연속으로 돌리는 중이다 — 그 틱은 Snapshot 발행을 건너뛴다. {@code previousMs==0}(첫 실행)은
-     * catch-up 이 아니다.
+     * 패키지 전용 — 순수 함수(단위 테스트용, codex P2, 2246 보완4). 나노초 기준이다(2246 보완11,
+     * {@code System.nanoTime()} — {@code currentTimeMillis()} 의 벽시계는 NTP 보정으로 시계가 뒤로
+     * 가면 직전 호출보다 작아져 이 판정이 거짓양성(catch-up 으로 오판)이 될 수 있다. {@code nanoTime()}
+     * 은 단조 증가만 보장한다). 직전 틱이 시작한 뒤 반 주기(tickNanos/2) 도 지나지 않고 이번 실행이
+     * 시작됐으면, {@code scheduleAtFixedRate} 가 밀린 실행을 연속으로 돌리는 중이다 — 그 틱은 Snapshot
+     * 발행을 건너뛴다. {@code previousNanos==0}(첫 실행)은 catch-up 이 아니다.
      */
-    static boolean isCatchUp(long previousMs, long nowMs, long tickMs) {
-        return previousMs != 0 && nowMs - previousMs < tickMs / 2;
+    static boolean isCatchUp(long previousNanos, long nowNanos, long tickNanos) {
+        return previousNanos != 0 && nowNanos - previousNanos < tickNanos / 2;
     }
 
     /**
@@ -121,6 +138,10 @@ public final class MovementTicker {
      * 따로 두 번째 루프를 돌리면 "이 방은 비었다"고 본 시점과 실제로 지우는 시점 사이가 다른 방들의
      * 틱 처리 시간만큼 벌어진다. 실제 제거는 {@link MovementRooms#remove} 가 그 순간 {@code
      * isRemovable()} 을 한 번 더 확인해(CAS) 그사이 들어온 명령을 지키므로, 여기서는 그냥 시도한다.
+     *
+     * <p>{@code isRemovable()}·{@link MovementRooms#remove} 호출도 {@code room.tick(...)} 과 같은
+     * 방 단위 try 안에 있다(2246 보완11) — 둘 중 하나가 던져도 다른 방들의 틱·제거 시도가 이어진다.
+     * 예전엔 이 둘이 try 밖이라, 던지면 이 for 문 전체가 멈춰 나머지 방은 이번 사이클에 틱도 못 받았다.
      */
     void tickAllRooms(boolean publishSnapshot) {
         long tick = serverTick.incrementAndGet();
@@ -131,11 +152,11 @@ public final class MovementTicker {
             RoomRuntime room = entry.getValue();
             try {
                 room.tick(tick, publishSnapshot);
+                if (room.isRemovable()) {
+                    rooms.remove(entry.getKey());
+                }
             } catch (RuntimeException e) {
                 LOG.warn("섬 {} 틱 처리 중 예외 — 이번 틱만 건너뛴다", entry.getKey(), e);
-            }
-            if (room.isRemovable()) {
-                rooms.remove(entry.getKey());
             }
         }
     }
