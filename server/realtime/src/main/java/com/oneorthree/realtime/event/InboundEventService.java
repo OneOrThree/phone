@@ -5,6 +5,7 @@ import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
+import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,7 +37,8 @@ import java.util.stream.Collectors;
  *   <li>{@code island.members.updated} 의 MEMBER_ADDED·MEMBER_REMOVED — {@code params.memberUserId} 가 있으면
  *       {@link MembershipService#evict} 로 그 유저의 채팅 멤버십 캐시를 즉시 지운다(GROMO-2140). 앱 전달(아래
  *       항목)과는 <b>별개의 부수 효과</b>다 — 이 type 은 아직 STOMP 로 나가지 않지만 캐시 무효화는 그와 무관하게
- *       적용한다. 옛 Data 가 보낸 필드 없는 사건은 조용히 건너뛴다 — TTL 이 그대로 백스톱이다.</li>
+ *       적용한다. 옛 Data 가 보낸 필드 없는 사건은 조용히 건너뛴다 — TTL 이 그대로 백스톱이다. 같은 자리에서
+ *       그 섬 이동 방의 멤버십을 다시 본다({@link MovementSubscriptionListener#recheckMembership}, GROMO-2247 N7).</li>
  *   <li>{@code user.blocks.updated} — 앱 사건이 아닌 <b>내부 제어 사건</b>이다(GROMO-2182). Data 가 차단·해제
  *       트랜잭션 안에서 적고, 여기서 {@code params.blockerUserId} 의 차단 세대를 {@link BlockedUsers#advanceGeneration}
  *       으로 올린다 — 그 순간부터 그 사람의 캐시된 차단 집합은 읽히지 않고, 다음 전달 판정이 Data 정본을 다시
@@ -98,6 +100,7 @@ public class InboundEventService {
     private final EventRouter eventRouter;
     private final MembershipService membershipService;
     private final BlockedUsers blockedUsers;
+    private final MovementSubscriptionListener movementSubscriptions;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -149,7 +152,23 @@ public class InboundEventService {
         if (!membershipChanged) {
             return;
         }
-        JsonNode memberUserId = params.get("memberUserId");
+        evictMember(params.get("memberUserId"));
+        // 이동 방 재검사(GROMO-2247, N7) — 캐시를 지운 «뒤»라 탈락자는 새 판정을 받는다. 재검사는 던지지 않는다.
+        UUID islandId = uuidOrNull(params.get("islandId"));
+        if (islandId != null) {
+            movementSubscriptions.recheckMembership(islandId);
+        }
+    }
+
+    private static UUID uuidOrNull(JsonNode node) {
+        try {
+            return node == null || !node.isString() ? null : UUID.fromString(node.stringValue());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private void evictMember(JsonNode memberUserId) {
         if (memberUserId == null || !memberUserId.isString()) {
             log.debug("주민 사건에 memberUserId 가 없다 — 옛 Data. TTL 로만 무효화한다.");
             return;

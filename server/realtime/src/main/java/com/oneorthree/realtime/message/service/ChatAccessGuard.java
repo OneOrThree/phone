@@ -66,12 +66,26 @@ public class ChatAccessGuard {
      */
     public void requireCanChat(UUID groupId, UUID userId, String bearerToken) {
         requireNotFocusing(userId);
+        requireMember(groupId, userId, bearerToken);
+    }
+
+    /**
+     * 「지금 이 사람이 이 섬의 활성 멤버인가」 — 집중 여부는 보지 않는다(GROMO-2247, N1).
+     *
+     * <p>섬 이동은 집중 중에도 열려 있어야 해서 {@link #requireCanChat} 을 쓸 수 없다. 판정은 그것과
+     * <b>같은 한 곳</b>이다 — 현재 인가 옵션 ON 이면 Data 현재 인가, OFF 면 기존 멤버십 캐시.
+     *
+     * @throws ChatException {@code NOT_A_MEMBER} — 그 섬의 활성 멤버가 아니다
+     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException
+     *         멤버십 판정을 내릴 수 없을 때 — 통과시키지 않는다
+     */
+    public void requireMember(UUID islandId, UUID userId, String bearerToken) {
         CurrentMembershipVerifier verifier = currentVerifier == null ? null : currentVerifier.getIfAvailable();
         if (verifier != null) {
-            verifier.requireMember(groupId, userId, bearerToken);
+            verifier.requireMember(islandId, userId, bearerToken);
             return;
         }
-        if (!membershipService.isMember(groupId, userId, bearerToken)) {
+        if (!membershipService.isMember(islandId, userId, bearerToken)) {
             throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
         }
     }

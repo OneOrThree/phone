@@ -71,7 +71,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   reproducible. The measurements are in that class's javadoc.
 - **Three places encode the topic path** (`ChatFanout.topicOf` and the regexes in
   `StompAuthChannelInterceptor` and `ChatOutboundChannelInterceptor`). Change one without the other and subscriptions still
-  work — only the authorization check silently stops matching.
+  work — only the authorization check silently stops matching. The two movement topics (`/topic/islands/{id}/movement`,
+  `/movement/snapshot`, GROMO-2247) live once in `StompTopics` (`MOVEMENT_TOPIC` regex + `movementTopic()` builder) and
+  all three readers (gate, outbound check, `movement.stomp`) use it.
 - **`presence:*` is read-only here.** Data API owns it. A write or delete from this
   service would let chat cancel the focus rule.
 - **The simple broker only knows subscribers in this JVM.** Cross-instance delivery is

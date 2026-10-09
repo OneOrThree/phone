@@ -104,6 +104,28 @@ class ChatOutboundChannelInterceptorTest {
         assertThat(interceptor.beforeHandle(frame("socket", "/queue/events-usersocket"), null, null)).isNull();
     }
 
+    // ── GROMO-2247 이동 채널 ─────────────────────────────────────────────
+
+    @Test
+    void movementFramesPassAfterReauthenticationOnly() throws Exception {
+        // N9 — 이동 두 토픽은 JWT 재검증만 보고 통과한다(멤버십·집중·차단·사건 수신 집합을 보지 않는다).
+        for (String suffix : new String[] {"/movement", "/movement/snapshot"}) {
+            Message<?> message = frame("socket", "/topic/islands/" + island + suffix, "{\"type\":\"Snapshot\"}");
+            assertThat(interceptor.beforeHandle(message, null, null)).isSameAs(message);
+        }
+        org.mockito.Mockito.verifyNoInteractions(guard, delivery);
+        verify(blockedUsers, never()).hasBlocked(any(), any());
+        // 열거 밖 이동 하위 목적지는 계속 닫혀 있다.
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/movement/other"), null,
+                null)).isNull();
+
+        WebSocketSession socket = openSocket("socket");
+        when(jwt.extractUserId("token")).thenReturn(Optional.empty());
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/movement"), null, null))
+                .as("만료 토큰의 세션은 이동 프레임도 못 받는다").isNull();
+        verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+    }
+
     // ── GROMO-2182 받는 사람 기준 차단 ─────────────────────────────────────
 
     @Test

@@ -34,16 +34,17 @@ public class RealtimeSessionRegistry {
      * 세션 하나가 들 수 있는 구독 수.
      *
      * <p>근거는 <b>계정당 소속 상한</b>이다({@code GroupService.MAX_JOINED_GROUPS} = 10,
-     * {@code IslandMovementGuards} 가 같은 값을 되읽는다). 한 섬이 쓰는 목적지는 넷
-     * ({@code focus}·{@code rest}·{@code emotes}·채팅 {@code /topic/groups/{id}})이고 개인 큐가 둘
-     * ({@code errors}·{@code duplicates})이라, <b>이론상 최대는 10 × 4 + 2 = 42</b> 다. 64 는 거기에
-     * 약 50% 여유를 둔 값이다 — 화면 전환 중 옛 구독과 새 구독이 잠깐 겹치는 창을 덮는다.
+     * {@code IslandMovementGuards} 가 같은 값을 되읽는다). 한 섬이 쓰는 목적지는 여섯
+     * ({@code focus}·{@code rest}·{@code emotes}·채팅 {@code /topic/groups/{id}}·이동 {@code movement}·
+     * {@code movement/snapshot}, GROMO-2247)이고 개인 큐가 둘({@code errors}·{@code duplicates})이라,
+     * <b>이론상 최대는 10 × 6 + 2 = 62</b> 다. 96 은 거기에 약 50% 여유를 둔 값이다 — 화면 전환 중 옛 구독과
+     * 새 구독이 잠깐 겹치는 창을 덮는다.
      *
      * <p>비소속 관전이 열려 있어 한 세션으로 여러 섬을 «둘러보는» 흐름은 소속 상한에 묶이지 않는다.
      * 그 경우에도 <b>UNSUBSCRIBE 가 자리를 돌려주므로</b>, 섬을 떠날 때 구독을 해지하는 정상 클라이언트는
      * 이 상한에 닿지 않는다. 해지 없이 계속 쌓기만 하면 걸리는데, 그건 고쳐야 할 클라이언트 쪽 버그다.
      */
-    static final int MAX_SUBSCRIPTIONS_PER_SESSION = 64;
+    static final int MAX_SUBSCRIPTIONS_PER_SESSION = 96;
 
     private final Map<String, ChatPrincipal> principals = new ConcurrentHashMap<>();
     private final Map<String, WebSocketSession> sockets = new ConcurrentHashMap<>();
@@ -111,17 +112,53 @@ public class RealtimeSessionRegistry {
         return held == null ? 0 : held.size();
     }
 
+    /**
+     * 이 세션이 그 목적지에 쓴 STOMP 구독 id — 구독하지 않았으면 {@code null}.
+     *
+     * <p>이동 intent 의 SEND 관문이 「그 섬 movement 를 구독 중인가」를 인메모리로 보는 데 쓴다(GROMO-2247, N2).
+     */
+    public String subscriptionIdOf(String sessionId, String destination) {
+        Map<String, String> held = sessionId == null || destination == null ? null : subscriptions.get(sessionId);
+        if (held == null) {
+            return null;
+        }
+        synchronized (held) {
+            for (Map.Entry<String, String> entry : held.entrySet()) {
+                if (destination.equals(entry.getValue())) {
+                    return entry.getKey();
+                }
+            }
+            return null;
+        }
+    }
+
+    /**
+     * 소켓이 아직 {@link #closed} 되지 않았는가. <b>한 번 false 가 되면 그 세션 id 로는 다시 true 가 되지 않는다</b>
+     * — 소켓 종료 뒤에도 순서 보존 큐에 남아 늦게 처리되는 프레임을 가려내는 데 쓴다(이동 방 입장, GROMO-2247).
+     */
+    public boolean isConnected(String sessionId) {
+        return sessionId != null && sockets.containsKey(sessionId);
+    }
+
     /** 수신만 하던 앱도 토큰 갱신·재연결을 시작할 수 있게 실제 연결을 끝낸다. */
     public void closeUnauthorized(String sessionId) {
+        close(sessionId, "UNAUTHORIZED");
+    }
+
+    /**
+     * 실제 연결을 1008(POLICY_VIOLATION)로 끝낸다 — {@code reason} 은 앱이 볼 수 있는 기계용 사유다
+     * ({@code UNAUTHORIZED}, 이동 송신 큐 초과 {@code MOVEMENT_BACKPRESSURE}).
+     */
+    public void close(String sessionId, String reason) {
         WebSocketSession socket = sessionId == null ? null : sockets.get(sessionId);
         if (socket == null || !socket.isOpen()) {
             return;
         }
         try {
-            socket.close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+            socket.close(CloseStatus.POLICY_VIOLATION.withReason(reason));
         } catch (IOException e) {
             // 원 자격과 프레임은 기록하지 않는다. 실패해도 본문은 계속 차단하고 다음 전달에서 재시도한다.
-            log.warn("인증 만료 소켓 종료 실패 — reason={}", e.getClass().getSimpleName());
+            log.warn("소켓 종료 실패 — reason={} cause={}", reason, e.getClass().getSimpleName());
         }
     }
 

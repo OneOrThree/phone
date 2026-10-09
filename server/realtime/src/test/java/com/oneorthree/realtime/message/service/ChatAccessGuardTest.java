@@ -99,6 +99,21 @@ class ChatAccessGuardTest {
     }
 
     @Test
+    @DisplayName("섬 멤버십 관문은 집중 여부를 보지 않는다 — 집중 중에도 섬을 걸을 수 있다(GROMO-2247 N1)")
+    void membershipGateIgnoresFocus() {
+        given(membershipService.isMember(groupId, userId, BEARER)).willReturn(true);
+
+        assertThatCode(() -> accessGuard.requireMember(groupId, userId, BEARER)).doesNotThrowAnyException();
+        verifyNoInteractions(focusPresenceReader);
+
+        given(membershipService.isMember(groupId, userId, BEARER)).willReturn(false);
+        assertThatThrownBy(() -> accessGuard.requireMember(groupId, userId, BEARER))
+                .isInstanceOf(ChatException.class)
+                .extracting(e -> ((ChatException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+    }
+
+    @Test
     @DisplayName("섬을 특정하지 않는 입구는 집중만 본다 — 방 목록 조회가 상류를 두드리지 않는다")
     void focusOnlyGateSkipsMembership() {
         given(focusPresenceReader.isFocusing(userId)).willReturn(false);

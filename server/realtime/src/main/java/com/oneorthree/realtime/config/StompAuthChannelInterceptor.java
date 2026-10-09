@@ -28,6 +28,8 @@ import java.util.regex.Pattern;
 import static com.oneorthree.realtime.config.StompTopics.EMOTES_CHANNEL;
 import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_INTENT_SEND;
+import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
 
 /**
  * STOMP 프레임에 관문을 세운다 — CONNECT·SUBSCRIBE·SEND.
@@ -72,6 +74,11 @@ import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
  * </ul>
  * 나머지 섬 채널({@code events}·{@code playback}·{@code messages})과 {@code /user/queue/events} 는
  * 각 도메인의 인가·복구 계약이 구현될 때까지 계속 닫아 둔다.
+ *
+ * <h2>이동 채널 (GROMO-2247)</h2>
+ * {@code /topic/islands/{id}/movement}·{@code /movement/snapshot} 구독은 <b>섬 멤버십</b>
+ * ({@link ChatAccessGuard#requireMember}) 을 1회 본다 — 구독이 곧 방 입장이고, 집중 중에도 걸을 수 있어야 해서
+ * 채팅 관문(집중 검사 포함)은 쓰지 않는다(N1·N2). intent SEND 는 인증과 「그 섬 movement 구독 중」만 본다.
  */
 @Slf4j
 @Component
@@ -183,6 +190,14 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             return;
         }
 
+        Matcher movement = MOVEMENT_TOPIC.matcher(destination);
+        if (movement.matches()) {
+            ChatPrincipal principal = requireSubscribable(accessor, destination);
+            UUID islandId = uuidOrReject(movement.group(1));
+            accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            return;
+        }
+
         Matcher island = ISLAND_TOPIC.matcher(destination);
         if (island.matches()) {
             ChatPrincipal principal = requireSubscribable(accessor, destination);
@@ -256,6 +271,11 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      */
     private void authorizeSend(StompHeaderAccessor accessor) {
         String destination = String.valueOf(accessor.getDestination());
+        Matcher intent = MOVEMENT_INTENT_SEND.matcher(destination);
+        if (intent.matches()) {
+            authorizeMovementIntent(accessor, intent.group(1));
+            return;
+        }
         Matcher matcher = SEND_DESTINATION.matcher(destination);
         Matcher emote = EMOTE_SEND.matcher(destination);
         boolean chatSend = matcher.matches();
@@ -279,6 +299,23 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         // 그 프레임을 무제한으로 반복해 변환·오류 응답 경로를 고갈시킬 수 있다.
         if (!chatSend && !acquireWindow(RedisKeys.emoteAttempt(principal.userId()))) {
             throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
+        }
+    }
+
+    /**
+     * 이동 intent — 인증 + <b>이 세션이 그 섬 {@code movement} 토픽을 구독 중인가</b>(GROMO-2247, N2).
+     *
+     * <p>멤버십은 구독 때 이미 봤으므로 SEND 마다 다시 묻지 않는다 — ON 모드는 매번 동기 HTTP 이고, 순서 보존이
+     * 이 세션의 뒤따르는 프레임을 그 조회 뒤에 줄세운다. 구독 여부는 {@link RealtimeSessionRegistry} 인메모리다.
+     * 구독 없이 보낸 intent 는 정상 클라이언트가 만들 수 없는 프레임이라 다른 관문 위반처럼 ERROR 프레임 + 연결
+     * 종료다({@code NOT_A_MEMBER}). 비멤버는 그보다 앞의 구독 단계에서 이미 거절된다. 속도 제한은 여기가 아니라
+     * {@code RoomRuntime} 의 사용자 토큰 버킷(N8)이다.
+     */
+    private void authorizeMovementIntent(StompHeaderAccessor accessor, String islandId) {
+        UUID island = uuidOrReject(islandId);
+        requireAuthenticated(accessor);
+        if (sessions.subscriptionIdOf(accessor.getSessionId(), StompTopics.movementTopic(island)) == null) {
+            throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
         }
     }
 

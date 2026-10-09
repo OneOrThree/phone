@@ -465,6 +465,95 @@ class StompAuthChannelInterceptorTest {
                 .isLessThan(RealtimeSessionRegistry.MAX_SUBSCRIPTIONS_PER_SESSION);
     }
 
+    // ── GROMO-2247 이동 채널 ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("이동 두 토픽 구독은 섬 멤버십만 본다 — 집중 검사가 섞인 채팅 관문은 부르지 않는다(N1)")
+    void movementSubscriptionsRequireMembershipOnly() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        for (String topic : new String[] {"movement", "movement/snapshot"}) {
+            assertThatCode(() -> interceptor.preSend(message(movementSubscribe(topic, groupId)), null))
+                    .doesNotThrowAnyException();
+        }
+        verify(accessGuard, org.mockito.Mockito.times(2)).requireMember(groupId, userId, BEARER);
+        verify(accessGuard, org.mockito.Mockito.never()).requireCanChat(any(), any(), any());
+        verify(accessGuard, org.mockito.Mockito.never()).requireNotFocusing(any());
+        verifyNoInteractions(focusSessions);
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/movement"))
+                .isEqualTo("movement");
+    }
+
+    @Test
+    @DisplayName("이동 토픽 구독 — 비멤버는 NOT_A_MEMBER, 열거 밖 모양·대문자 UUID 는 INVALID_REQUEST 로 거절한다")
+    void movementSubscriptionRejectsNonMembersAndMalformedTopics() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(groupId, userId, BEARER);
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("movement", groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+
+        UUID other = UUID.randomUUID();
+        for (String topic : new String[] {"movement/", "movement/snapshot/x", "movement/*", "movements"}) {
+            assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe(topic, other)), null))
+                    .describedAs("목적지 %s", topic)
+                    .isInstanceOf(DomainException.class)
+                    .extracting(e -> ((DomainException) e).getErrorCode())
+                    .isEqualTo(CommonErrorCode.INVALID_REQUEST);
+        }
+        StompHeaderAccessor upper = movementSubscribe("movement", other);
+        upper.setDestination("/topic/islands/" + other.toString().toUpperCase(Locale.ROOT) + "/movement");
+        assertThatThrownBy(() -> interceptor.preSend(message(upper), null)).isInstanceOf(DomainException.class);
+    }
+
+    @Test
+    @DisplayName("이동 intent SEND — 그 섬 movement 를 구독 중일 때만 통과하고 멤버십은 다시 묻지 않는다(N2)")
+    void movementIntentRequiresTheMovementSubscription() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        assertThatThrownBy(() -> interceptor.preSend(message(intentSend(groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+
+        // snapshot 구독만으로는 방에 들어간 것이 아니다.
+        interceptor.preSend(message(movementSubscribe("movement/snapshot", groupId)), null);
+        assertThatThrownBy(() -> interceptor.preSend(message(intentSend(groupId)), null))
+                .isInstanceOf(DomainException.class);
+
+        interceptor.preSend(message(movementSubscribe("movement", groupId)), null);
+        org.mockito.Mockito.clearInvocations(accessGuard);
+        assertThatCode(() -> interceptor.preSend(message(intentSend(groupId)), null)).doesNotThrowAnyException();
+        verifyNoInteractions(accessGuard);
+
+        // 다른 섬 intent 는 그 섬 구독이 없다 — 구독은 섬별이다.
+        assertThatThrownBy(() -> interceptor.preSend(message(intentSend(UUID.randomUUID())), null))
+                .isInstanceOf(DomainException.class);
+        // 만료 토큰은 구독이 있어도 UNAUTHORIZED.
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.empty());
+        assertThatThrownBy(() -> interceptor.preSend(message(intentSend(groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+    }
+
+    private StompHeaderAccessor movementSubscribe(String topic, UUID island) {
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setSessionId(SESSION);
+        frame.setSubscriptionId(topic);
+        frame.setDestination("/topic/islands/" + island + "/" + topic);
+        return frame;
+    }
+
+    private StompHeaderAccessor intentSend(UUID island) {
+        StompHeaderAccessor frame = accessor(StompCommand.SEND);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setSessionId(SESSION);
+        frame.setDestination("/app/islands/" + island + "/movement/intent");
+        return frame;
+    }
+
     private StompHeaderAccessor islandSubscribe(String subscriptionId, UUID island) {
         StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
         frame.setUser(new ChatPrincipal(userId, BEARER));
