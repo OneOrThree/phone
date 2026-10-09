@@ -101,6 +101,25 @@ class IslandConstructionContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("주민별 준비량은 공개 응답으로 전달하고 상류의 내부 필드는 노출하지 않는다")
+    void optionsPassesThroughResidentProgress() throws Exception {
+        String progress = "\"residentProgress\":{\"buildingId\":\"gram\",\"requiredPerResident\":1,"
+                + "\"residents\":[{\"userId\":\"" + USER + "\",\"name\":\"방장\","
+                + "\"contributed\":1,\"remaining\":0,\"internalNote\":\"private\"},"
+                + "{\"userId\":\"" + OTHER + "\",\"name\":null,\"contributed\":0,\"remaining\":1}]}";
+        DATA.on(DATA_OPTIONS, request -> ok("{" + progress + "," + OPTIONS_BODY.substring(1)));
+
+        mockMvc.perform(auth(get("/islands/" + ISLAND + "/construction-options")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.residentProgress.buildingId").value("gram"))
+                .andExpect(jsonPath("$.data.residentProgress.requiredPerResident").value(1))
+                .andExpect(jsonPath("$.data.residentProgress.residents[0].name").value("방장"))
+                .andExpect(jsonPath("$.data.residentProgress.residents[0].remaining").value(0))
+                .andExpect(jsonPath("$.data.residentProgress.residents[0].internalNote").doesNotExist())
+                .andExpect(jsonPath("$.data.residentProgress.residents[1].remaining").value(1));
+    }
+
+    @Test
     @DisplayName("PUT 목표 선택은 차감 없는 2키 본문을 상류로 옮긴다")
     void targetPutForwardsTwoFieldBody() throws Exception {
         DATA.on(DATA_TARGET, request -> ok(TARGET_BODY));
@@ -362,6 +381,9 @@ class IslandConstructionContractTest extends UpstreamTestBase {
         var json = new tools.jackson.databind.ObjectMapper();
         var expected = (tools.jackson.databind.node.ObjectNode) json.readTree(
                 operation.equals("target") ? TARGET_BODY : operation.equals("build") ? BUILD_BODY : OPTIONS_BODY);
+        if (!operation.equals("target") && !operation.equals("build")) {
+            expected.putNull("residentProgress");
+        }
         if (operation.equals("empty-options")) {
             expected.putArray("items");
             expected.putNull("selectedBuildingId");
@@ -389,8 +411,10 @@ class IslandConstructionContractTest extends UpstreamTestBase {
     }
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "/islands/{islandId}/construction-options|get|200||islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items|islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items",
+            "/islands/{islandId}/construction-options|get|200||islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items residentProgress|islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items",
             "/islands/{islandId}/construction-options|get|200|items|id name cost currency selectable buildable blockedReason|id name cost currency selectable buildable blockedReason",
+            "/islands/{islandId}/construction-options|get|200|residentProgress|buildingId requiredPerResident residents|buildingId requiredPerResident residents",
+            "/islands/{islandId}/construction-options|get|200|residentProgress/residents|userId name contributed remaining|userId name contributed remaining",
             "/islands/{islandId}/construction-target|put|200||buildingId selected spent version|buildingId selected spent version",
             "/islands/{islandId}/constructions|post|200||buildingId status spent version villagePoints walletVersion startedAt completesAt|buildingId status spent version villagePoints walletVersion startedAt completesAt",
             "/islands/{islandId}/constructions|post|200|spent|currency amount|currency amount"})

@@ -6,6 +6,7 @@ import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
 
 import java.util.List;
+import java.util.UUID;
 
 /** 공개 필드만 명시적으로 조립한다. 내부 전송 DTO의 확장이 응답에 섞이지 않도록 분리한다. */
 public final class ConstructionResponses {
@@ -19,7 +20,8 @@ public final class ConstructionResponses {
             @JsonProperty(required = true) String selectedBuildingId,
             @JsonProperty(required = true) long villagePoints,
             @JsonProperty(required = true) long walletVersion,
-            @JsonProperty(required = true) List<ConstructionOptionItem> items) {
+            @JsonProperty(required = true) List<ConstructionOptionItem> items,
+            ConstructionResidentProgress residentProgress) {
         public static ConstructionOptionsView from(ConstructionOptions value) {
             if (value == null) {
                 return null;
@@ -30,7 +32,28 @@ public final class ConstructionResponses {
                     value.selectedBuildingId(),
                     value.villagePoints(),
                     value.walletVersion(),
-                    value.items() == null ? null : value.items().stream().map(ConstructionOptionItem::from).toList());
+                    value.items() == null ? null : value.items().stream().map(ConstructionOptionItem::from).toList(),
+                    ConstructionResidentProgress.from(value.residentProgress()));
+        }
+    }
+
+    public record ConstructionResidentProgress(
+            @JsonProperty(required = true) String buildingId,
+            @JsonProperty(required = true) Long requiredPerResident,
+            @JsonProperty(required = true) List<ConstructionResident> residents) {
+        public static ConstructionResidentProgress from(ConstructionOptions.ResidentProgress value) {
+            return value == null ? null : new ConstructionResidentProgress(value.buildingId(),
+                    value.requiredPerResident(), value.residents().stream().map(ConstructionResident::from).toList());
+        }
+    }
+
+    public record ConstructionResident(
+            @JsonProperty(required = true) UUID userId,
+            @JsonProperty(required = true) String name,
+            @JsonProperty(required = true) long contributed,
+            @JsonProperty(required = true) long remaining) {
+        public static ConstructionResident from(ConstructionOptions.Resident value) {
+            return new ConstructionResident(value.userId(), value.name(), value.contributed(), value.remaining());
         }
     }
 

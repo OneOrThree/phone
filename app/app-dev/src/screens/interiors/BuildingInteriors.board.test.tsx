@@ -678,6 +678,79 @@ test('일반 주민도 서버 목표를 보지만 게시판에서 착공할 수 
   assert.equal(startConstructionMock.mock.calls.length, 0);
 });
 
+test.each(['host', 'member'] as const)(
+  '청사진 상세에서 %s도 총액 1마리와 두 주민의 각자 몫을 구분한다',
+  async (role) => {
+    getBoardMock.mockResolvedValue(page([], null, role));
+    const options = constructionOptions({
+      selectedBuildingId: 'library',
+      villagePoints: 1,
+      residentProgress: {
+        buildingId: 'library',
+        requiredPerResident: 1,
+        residents: [
+          { userId: 'u1', name: '방장', contributed: 1, remaining: 0 },
+          { userId: 'u2', name: '주민 둘', contributed: 0, remaining: 1 },
+        ],
+      },
+    });
+    options.items[0] = {
+      ...options.items[0],
+      cost: 1,
+      buildable: false,
+      selectable: role === 'host',
+      blockedReason: role === 'host' ? 'INSUFFICIENT_FUNDS' : 'FORBIDDEN',
+    };
+    getConstructionOptionsMock.mockResolvedValue(options);
+    const e = makeE({ tab: '' });
+    // 실제 뒤로 가기는 청사진을 열기 전 라우트의 빈 탭도 복원한다.
+    e.back = jest.fn(() => {
+      e.route = 'board';
+      e.detail = '';
+      e.setTab('');
+    });
+    const screen = await renderBoard(e);
+    await waitFor(() =>
+      assert.equal(
+        screen.getByTestId('board-blueprint-area').props.accessibilityLabel,
+        '도서관 건설 현황 보기',
+      ),
+    );
+    assert.equal(screen.queryByTestId('board-resident-progress'), null);
+    await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+    await waitFor(() => assert.ok(screen.getByText('대상 주민 2명 · 각자 1마리')));
+    assert.ok(screen.getByText('총 1마리'));
+    assert.ok(screen.getByText('주민 둘'));
+    assert.ok(screen.getByText('1마리 남음'));
+    assert.ok(screen.getByText('건설할 때 섬 잔액에서 총 1마리를 차감해요.'));
+    assert.equal(screen.queryByTestId('board-build-start'), null);
+
+    getConstructionOptionsMock.mockResolvedValue({
+      ...options,
+      villagePoints: 2,
+      residentProgress: {
+        ...options.residentProgress!,
+        residents: options.residentProgress!.residents.map((resident) => ({
+          ...resident,
+          contributed: 1,
+          remaining: 0,
+        })),
+      },
+      items: options.items.map((item) => ({
+        ...item,
+        buildable: role === 'host',
+        blockedReason: role === 'host' ? null : 'FORBIDDEN',
+      })),
+    });
+    assert.equal(screen.queryByTestId('board-contribution-refresh'), null);
+    await fireEvent.press(screen.getByTestId('board-drawer-close'));
+    await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+    await waitFor(() => assert.equal(screen.getAllByText('달성').length, 2));
+    assert.equal(screen.queryByText('1마리 남음'), null);
+    assert.equal(!!screen.queryByTestId('board-build-start'), role === 'host');
+  },
+);
+
 test('게시판 건설하기는 서버 착공 후 재조회하고 홈에 착공 시각을 전달한다', async () => {
   getBoardMock.mockResolvedValue(page([]));
   const options = constructionOptions({ selectedBuildingId: 'library', villagePoints: 100 });

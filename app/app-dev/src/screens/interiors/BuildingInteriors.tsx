@@ -4295,7 +4295,7 @@ export function Board({
         detail: selectedArt?.detail ?? '',
         balance: constructionOptions?.villagePoints ?? 0,
         cost: selectedOption?.cost ?? 0,
-        // 주민별 기여·목표 당시 대상 명단은 조회 계약에 없다. 서버 UI에서는 표시하지 않는다.
+        // 실제 주민별 준비량은 options.residentProgress 를 상세에서 표시한다.
         collected: 0,
         needed: 0,
         residents: [],
@@ -5717,6 +5717,10 @@ export function Board({
         <Text style={boardFont(14, 1.6, '400', light)}>{value}</Text>
       </View>
     );
+    const splitTarget = selectedBuilding && !['hall', 'board'].includes(selectedBuilding);
+    const residentProgress = constructionOptions?.residentProgress;
+    const showResidentProgress =
+      serverBoard && splitTarget && (bp.state === 'waiting' || bp.state === 'ready');
     return (
       <>
         <View style={[{ paddingTop: 32, paddingBottom: 14, borderBottomWidth: 1 }, dashed]}>
@@ -5831,6 +5835,60 @@ export function Board({
             </View>
           </View>
         </View>
+        {showResidentProgress && (
+          <View
+            testID="board-resident-progress"
+            style={{
+              paddingTop: semanticTokens.spacing.component,
+              gap: semanticTokens.spacing.control,
+            }}
+          >
+            <Text style={boardFont(14, 1.6, '700', light)}>각자 모을 물고기</Text>
+            {!residentProgress ? (
+              <Text style={boardFont(12, 1.45, '400', light)}>
+                주민별 준비량을 아직 불러올 수 없어요. 섬 잔액과는 별도로 각자의 몫을 채워야 해요.
+              </Text>
+            ) : residentProgress.residents.length === 0 ? (
+              <Text style={boardFont(12, 1.45, '400', light)}>
+                대상 주민이 없어 건설할 수 없어요.
+              </Text>
+            ) : (
+              <>
+                <Text style={boardFont(13, 1.6, '700', light)}>
+                  {`대상 주민 ${residentProgress.residents.length}명 · 각자 ${residentProgress.requiredPerResident}마리`}
+                </Text>
+                <Text style={boardFont(12, 1.45, '400', light)}>
+                  목표를 정한 뒤 모은 물고기예요. 전원이 각자의 몫을 채워야 해요.
+                </Text>
+                {residentProgress.residents.map((resident) => (
+                  <View
+                    key={resident.userId}
+                    testID={`board-contribution-${resident.userId}`}
+                    style={{
+                      gap: semanticTokens.spacing.control,
+                      padding: semanticTokens.spacing.control,
+                      borderRadius: semanticTokens.radius.control,
+                      backgroundColor: semanticTokens.color.surface,
+                    }}
+                  >
+                    <Text style={boardFont(13, 1.6, '700', semanticTokens.color.text)}>
+                      {resident.name || '주민'}
+                    </Text>
+                    <Text style={boardFont(13, 1.6, '400', semanticTokens.color.text)}>
+                      {`모은 ${resident.contributed}마리 / 목표 ${residentProgress.requiredPerResident}마리`}
+                    </Text>
+                    <Text style={boardFont(13, 1.6, '700', semanticTokens.color.text)}>
+                      {resident.remaining === 0 ? '달성' : `${resident.remaining}마리 남음`}
+                    </Text>
+                  </View>
+                ))}
+                <Text style={boardFont(12, 1.45, '400', light)}>
+                  {`건설할 때 섬 잔액에서 총 ${bp.cost}마리를 차감해요.`}
+                </Text>
+              </>
+            )}
+          </View>
+        )}
         {bp.state === 'building' ? (
           <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
             <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>
@@ -6060,13 +6118,16 @@ export function Board({
   const dismissQuestDetail = () => (e ? e.back() : render({ view: 'list', error: '' }));
   const paperSource =
     s.panel === 'quest' ? interiorArt.boardPaper.quest : interiorArt.boardPaper.notice;
-  const blueprintPanelContentHeight = {
-    complete: 380,
-    building: 326,
-    ready: owner ? 300 : 236,
-    waiting: 430,
-    none: 236,
-  }[blueprintView.state];
+  const blueprintPanelContentHeight =
+    serverBoard && constructionOptions?.residentProgress
+      ? height - 48
+      : {
+          complete: 380,
+          building: 326,
+          ready: owner ? 300 : 236,
+          waiting: 430,
+          none: 236,
+        }[blueprintView.state];
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
   const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
   const panelNavigationHeight = panelNavigationOpen ? 52 : 0;

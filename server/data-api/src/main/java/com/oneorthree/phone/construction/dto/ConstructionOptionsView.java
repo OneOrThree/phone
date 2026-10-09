@@ -15,5 +15,6 @@ public record ConstructionOptionsView(
         String selectedBuildingId,
         int villagePoints,
         long walletVersion,
-        List<ConstructionOptionItem> items) {
+        List<ConstructionOptionItem> items,
+        ConstructionResidentProgress residentProgress) {
 }

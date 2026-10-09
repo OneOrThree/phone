@@ -523,6 +523,76 @@ class IslandConstructionIntegrationTest {
     // ---------------------------------------------------------------- 목표 선택 당시 대상 주민
 
     @Test
+    @DisplayName("주민별 준비량은 착공 판정과 같은 몫이며 방장·주민 모두 남은 수량을 조회한다")
+    void optionsExposeEachResidentsRemainingShare() {
+        SharedFixture f = sharedIsland();
+        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
+        completeFacility(new Fixture(f.islandId, f.ownerId), "board");
+        assertThat(service.options(f.islandId, f.ownerId).residentProgress()).isNull();
+        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.ownerId, 1360, "own-" + f.islandId));
+
+        var ownerView = service.options(f.islandId, f.ownerId);
+        var progress = ownerView.residentProgress();
+        assertThat(progress.buildingId()).isEqualTo("gram");
+        assertThat(progress.requiredPerResident()).isEqualTo(680);
+        assertThat(progress.residents()).hasSize(2);
+        assertThat(progress.residents()).filteredOn(row -> row.userId().equals(f.ownerId))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.name()).startsWith("방장-");
+                    assertThat(row.contributed()).isEqualTo(1360);
+                    assertThat(row.remaining()).isZero();
+                });
+        assertThat(progress.residents()).filteredOn(row -> row.userId().equals(f.memberId))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.contributed()).isZero();
+                    assertThat(row.remaining()).isEqualTo(680);
+                });
+        assertThat(ownerView.items()).filteredOn(item -> item.id().equals("gram"))
+                .singleElement().satisfies(item -> assertThat(item.buildable()).isFalse());
+        assertThat(service.options(f.islandId, f.memberId).residentProgress()).isEqualTo(progress);
+    }
+
+    @Test
+    @DisplayName("총액 1마리·대상 2명이면 각자 1마리를 채우고 착공은 총액 1마리만 차감한다")
+    void oneFishPriceStillRequiresOneFishFromEachResident() {
+        // 테스트 DB 에만 새 비용 revision 을 발행한다. 운영/dev 정책에는 손대지 않는다.
+        int revision = 10001;
+        jdbc.update("INSERT INTO construction_cost_policies (revision, building_id, cost, build_seconds) "
+                + "SELECT ?, building_id, 1, build_seconds FROM construction_cost_policies WHERE revision=1",
+                revision);
+        jdbc.update("UPDATE construction_cost_policy_publication SET revision=?", revision);
+        try {
+            SharedFixture f = sharedIsland();
+            completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
+            completeFacility(new Fixture(f.islandId, f.ownerId), "board");
+            service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
+            tx().executeWithoutResult(status ->
+                    walletService.contribute(f.islandId, f.ownerId, 1, "own-" + f.islandId));
+            var waiting = service.options(f.islandId, f.ownerId);
+            assertThat(waiting.residentProgress().requiredPerResident()).isEqualTo(1);
+            assertThat(waiting.residentProgress().residents()).extracting(row -> row.remaining())
+                    .containsExactlyInAnyOrder(0, 1);
+            assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "gram", waiting.islandVersion(),
+                    revision, UUID.randomUUID())).isInstanceOf(ConstructionException.class)
+                    .extracting("errorCode").isEqualTo(ConstructionErrorCode.INSUFFICIENT_FUNDS);
+
+            tx().executeWithoutResult(status ->
+                    walletService.contribute(f.islandId, f.memberId, 1, "mem-" + f.islandId));
+            var ready = service.options(f.islandId, f.ownerId);
+            assertThat(ready.residentProgress().residents()).allSatisfy(row -> assertThat(row.remaining()).isZero());
+            var started = service.start(f.islandId, f.ownerId, "gram", ready.islandVersion(),
+                    revision, UUID.randomUUID());
+            assertThat(started.spent().amount()).isEqualTo(1);
+            assertThat(started.villagePoints()).isEqualTo(1);
+            assertThat(service.options(f.islandId, f.ownerId).residentProgress()).isNull();
+        } finally {
+            jdbc.update("UPDATE construction_cost_policy_publication SET revision=1");
+        }
+    }
+
+    @Test
     @DisplayName("대상은 목표 선택 당시의 주민으로 고정된다 — 뒤에 가입한 주민은 몫을 지지 않는다")
     void targetCohortIsPinnedAtSelection() {
         SharedFixture f = sharedIsland();
@@ -532,6 +602,8 @@ class IslandConstructionIntegrationTest {
 
         // 목표를 고른 «뒤» 새 주민이 들어온다 — 대상이 아니므로 분모도 몫도 바뀌지 않는다.
         UUID latecomer = joinNewMember(f.islandId);
+        assertThat(service.options(f.islandId, f.ownerId).residentProgress().residents())
+                .extracting(row -> row.userId()).containsExactlyInAnyOrder(f.ownerId, f.memberId);
 
         // 대상 2명 → 각자 ceil(1360/2)=680.
         tx().executeWithoutResult(status -> {
