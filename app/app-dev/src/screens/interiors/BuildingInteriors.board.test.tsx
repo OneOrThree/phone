@@ -647,6 +647,24 @@ test('게시판 청사진은 회관이 서버에 저장한 목표·가격·잔�
   assert.equal(screen.queryByText('공사 15분'), null);
 });
 
+test('게시판 장면에는 건물 그림을 덧붙이지 않고 청사진을 연 뒤에만 미리보기를 보여준다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await waitFor(() =>
+    assert.equal(
+      screen.getByTestId('board-blueprint-area').props.accessibilityLabel,
+      '도서관 건설 현황 보기',
+    ),
+  );
+  assert.equal(screen.queryByLabelText('도서관'), null);
+  assert.equal(screen.queryByLabelText('도서관 건물 미리보기'), null);
+  await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+  await waitFor(() => assert.ok(screen.getByLabelText('도서관 건물 미리보기')));
+});
+
 test('일반 주민도 서버 목표를 보지만 게시판에서 착공할 수 없다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'member'));
   const options = constructionOptions({ selectedBuildingId: 'library' });

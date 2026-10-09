@@ -6048,12 +6048,6 @@ export function Board({
     top: LAND.overlay.top * landScale,
     maxHeight: LAND.overlay.maxHeight,
   };
-  // 장면 속 청사진 종이 위 도서관 그림: grid 행 높이가 그림 비율로 정해지는 원본 계산을 그대로 따른다
-  const planeWidth = lu(scene.width);
-  const blueprintInner = lu(planeWidth * 0.19) - 10;
-  const libraryWidth = lu(blueprintInner * 0.82);
-  const libraryRow = lu((libraryWidth * artSize.library[1]) / artSize.library[0]);
-  const libraryHeight = lu(libraryRow * 0.92);
   const pressedFilter = (panel: BoardState['panel']) =>
     s.panel === panel && webOnly({ filter: 'brightness(1.08)' });
   const paperPanel = s.panel === 'notice' || s.panel === 'quest';
@@ -6278,7 +6272,7 @@ export function Board({
               </Text>
               <Handwriting short scale={labelScale} />
             </Pressable>
-            {/* 목각 건물·청사진은 방문자에게 보이지 않는다 */}
+            {/* 청사진은 주민만 연다. 선택한 건물 미리보기는 열린 청사진 안에서만 보여 준다. */}
             {!visitor && (
               <Pressable
                 testID="board-blueprint-area"
@@ -6293,22 +6287,7 @@ export function Board({
                   },
                   pressedFilter('blueprint'),
                 ]}
-              >
-                {blueprintView.state !== 'none' && (
-                  <Picture
-                    source={blueprintView.image}
-                    label={blueprintView.name}
-                    shadow="0 2px 2px #173e5140"
-                    style={{
-                      position: 'absolute',
-                      left: 5 + lu((blueprintInner - libraryWidth) / 2),
-                      top: 5 + lu((libraryRow - libraryHeight) / 2),
-                      width: libraryWidth,
-                      height: libraryHeight,
-                    }}
-                  />
-                )}
-              </Pressable>
+              />
             )}
           </View>
         </View>
