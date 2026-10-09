@@ -273,6 +273,25 @@ describe('정지 상태 보정(onMyCorrection)', () => {
     assert.deepEqual(t.corrections, [{ x: 43, y: 45.5 }]);
   });
 
+  test('settle 의 보정도 snapshot·PathAccepted 처럼 구독 리스너를 부른다(GROMO-2249 보완10 지적 1)', () => {
+    const t = ready();
+    t.controller.onMessage(snapshot(110, [entity(ME, 0, { x: 43, y: 45.5 })]));
+    t.env.walking = true;
+    t.controller.onMessage(snapshot(111, [entity(ME, 0, { x: 43, y: 45.5 }, { state: 'IDLE' })]));
+    t.env.walking = false;
+    // 보정 전 단계(FullState·snapshot)에서 이미 몇 번 불렸을 구독 호출은 세지 않는다 — settle 만 따로 센다.
+    let calls = 0;
+    const unsubscribe = t.controller.subscribe(() => calls++);
+    t.controller.settle();
+    assert.deepEqual(t.corrections, [{ x: 43, y: 45.5 }], 'settle 이 보정을 만든다');
+    assert.equal(
+      calls,
+      1,
+      'settle 의 restCheck 보정이 notify() 를 불러야 오버레이가 다음 250ms 폴링 전에 안다',
+    );
+    unsubscribe();
+  });
+
   test('서버가 내 최신 명령을 아직 처리하지 않았으면 맞추지 않는다', () => {
     const t = ready();
     t.controller.intend({ x: 42.5, y: 45.5 });

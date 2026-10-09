@@ -938,6 +938,46 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     expect(commits).toBe(1);
     await screen.unmount();
   });
+
+  it('내 걷기가 끝나 settle() 이 보정을 만들면 250ms 인터벌 전에(쓰로틀 창 안에서) correctedAt 이 갱신된다(보완10 지적 1)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    // FullState 채택(스폰 차이)이 첫 보정이다 — 100ms 쓰로틀 경계로 흘려 보낸다(기존 관례).
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const adopted = screen.getByTestId('tile-terrain').props.navDebug.server.correctedAt;
+    expect(adopted).not.toBeNull();
+
+    // 내 위치(SPAWN)와 먼 서버 위치(90,90)를 "보정 없이" self 에 심는다 — PathAccepted 핸들러는 restCheck 를
+    // 전혀 부르지 않는다(자리만 바꾼다). waypoints=[]·속도를 로컬 MS_PER_UNIT(91ms/unit, `@/utils/nav-path`)
+    // 과 똑같이 맞춰(1000/91) WorldMap.onMyPath 의 sameCells+속도일치 조건으로 조기 반환시킨다 — 로컬 걷기를
+    // 전혀 건드리지 않고 self 만 멀어진다.
+    const ctl = controllers[controllers.length - 1];
+    const FAR = { x: 90, y: 90 };
+    await act(async () => {
+      ctl.intend(FAR);
+    });
+    await emit({ ...pathAccepted(ME, 1, 99, FAR, []), speed: 1000 / 91 });
+
+    // 마지막 flush(위 100ms 경계)로부터 100ms 넘게 흘려 다음 notify() 가 쓰로틀 타이머 없이 바로(동기)
+    // flush 하도록 미리 맞춘다 — 그 사이 250ms 인터벌이 한 번 돌아도(내용 불변) correctedAt 은 그대로다.
+    await act(async () => jest.advanceTimersByTime(260));
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server.correctedAt).toBe(adopted);
+
+    // settle() 을 직접 불러 "로컬 걷기가 막 끝난" 상황을 흉내낸다 — 추가로 시간을 흘리지 않고 바로 읽는다.
+    // 그 사이 250ms 인터벌이 돌 틈이 전혀 없으므로, 지금 바뀌어 있다면 settle 의 restCheck 가 notify 를
+    // 직접 불러 쓰로틀 flush 를 동기로 돌렸다는 뜻이다 — 고치기 전에는 settle 이 notify 를 전혀 안 불러
+    // 이 값이 다음 250ms 인터벌까지(최대 250ms) 그대로였다(지적 1).
+    await act(async () => {
+      ctl.settle();
+    });
+    const server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.correctedAt).not.toBe(adopted);
+    expect(server.correctedAt).not.toBeNull();
+
+    await screen.unmount();
+  });
 });
 
 it('섬 전환 뒤 옛 채널의 늦은 onMovementDenied 는 새 컨트롤러를 끄지 않는다(채널 소유권, 리뷰 3)', async () => {
