@@ -922,20 +922,20 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     await emit(fullState([actor(ME, SPAWN)]));
     await emit(snapshot(101, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
     await act(async () => jest.advanceTimersByTime(100));
-
-    // 기준 구간 — 아무 메시지도 안 보내고 100ms 만 흘린다. 주변 잡음(HUD 시계 등)의 커밋 수를 기준선으로 잡는다.
-    commits = 0;
+    // 100ms 더 흘려 다음 flush 가 emit() 안에서 바로(동기) 돌 쓰로틀 경계로 미리 맞춘다 — 이 구간 자체의
+    // 커밋 수는 재지 않는다(아래 참고).
     await act(async () => jest.advanceTimersByTime(100));
-    const baseline = commits;
 
-    // 비교 구간 — snapshotReceivedAt 이 실제로 달라지는 새 Snapshot. flush 가 sameServerDebug 로
-    // "달라졌다"고 판단해 serverDebug·debugNow 를 같은 동기 구간에서 함께 올린다 — 잡음을 빼면 커밋이
-    // 정확히 1번 늘어야 한다(보완8 항목 2 전엔 debugNow 를 뒤쫓는 WorldMap 쪽 참조 deps effect 가 따로
-    // 있어 2번 늘었다).
+    // snapshotReceivedAt 이 실제로 달라지는 새 Snapshot. flush 가 sameServerDebug 로 "달라졌다"고
+    // 판단해 serverDebug·debugNow 를 같은 동기 구간에서 함께 올리면 커밋이 정확히 1번만 늘어야 한다
+    // (보완8 항목 2 전엔 debugNow 를 뒤쫓는 WorldMap 쪽 참조 deps effect 가 따로 있어 2번 늘었다).
+    // "기준 구간 흘리고 빼기" 방식은 쓰지 않는다 — readout 시계가 보정 창 안에서도 500ms 로 도는
+    // (보완9 항목 1) 지금은 그 창이 사라져, 뺄셈으로 상쇄되던 주변 잡음(마운트 직후 가라앉는 비동기
+    // effect 등)이 두 구간에 비대칭으로 걸려 거짓 실패를 냈다 — emit 직후 동기 커밋만 재면 그 잡음을
+    // 타지 않는다.
     commits = 0;
     await emit(snapshot(102, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
-    await act(async () => jest.advanceTimersByTime(100));
-    expect(commits - baseline).toBe(1);
+    expect(commits).toBe(1);
     await screen.unmount();
   });
 });
@@ -1008,6 +1008,26 @@ describe('플래그 off·서버 홈 아님', () => {
     expect(myMotion(screen)).toBe('walking');
     expect(residents(screen)).toEqual([]);
     expect(otherCats(screen)).toBe(2);
+    await screen.unmount();
+  });
+
+  it('플래그 off(EXPO_PUBLIC_MOVEMENT_SYNC 없음)여도 오버레이는 켜진다 — 컨트롤러가 없으니(동기화 off) 250ms no-op 플러시 인터벌은 만들지 않는다(보완9 항목 2)', async () => {
+    jest.useFakeTimers();
+    const Island = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: '1' });
+    const screen = await render(
+      <Island state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
+    );
+    // jest.getTimerCount() 의 생 델타는 이 화면의 다른 setTimeout 잡음(배회하는 다른 주민의 roam() 재귀
+    // 예약, 버튼 프레스 모션)에 가려 기준선 노릇을 못 한다 — setInterval 호출만 집어 센다. WorldMap.tsx
+    // 안의 setInterval 은 낮·밤 시계(마운트 때 1회, navDebug 와 무관)와 이 250ms flush 뿐이라, 스파이를
+    // 마운트 뒤에 걸면 토글이 만드는 setInterval 호출 수만 그대로 드러난다.
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    // 컨트롤러가 없으면(동기화 off) server 는 null 이다(항목 2 불변) — 오버레이는 켜졌지만 flush 효과는
+    // early-return 경로만 타 250ms 인터벌(setInterval)을 한 번도 만들지 않는다.
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server).toBeNull();
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
     await screen.unmount();
   });
 

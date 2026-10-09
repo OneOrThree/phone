@@ -21,7 +21,12 @@ import {
   tilesetUri,
 } from '@/services/mapAssets';
 // 시계 규칙(보정 깜빡임 창·주기)은 navDebugClock.ts 한 곳에 — WorldMap.tsx 도 같은 모듈을 쓴다(GROMO-2249 보완8 항목 1).
-import { CORRECTION_WINDOW_MS, correctionBlinkVisible, correctionFlash } from './navDebugClock';
+import {
+  CORRECTION_TICK_MS,
+  CORRECTION_WINDOW_MS,
+  correctionBlinkVisible,
+  correctionFlash,
+} from './navDebugClock';
 
 type Point = { x: number; y: number };
 
@@ -293,7 +298,7 @@ export function TileTerrainCanvas({
       const now = Date.now();
       setFlashNow(now);
       if (!correctionFlash(correctedAt, now)) clearInterval(id);
-    }, 50);
+    }, CORRECTION_TICK_MS);
     return () => clearInterval(id);
   }, [correctedAt, reduceMotion]);
   if (!image || !atlas) return null;

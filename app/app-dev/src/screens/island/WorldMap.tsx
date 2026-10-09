@@ -1706,40 +1706,39 @@ function FinalIslandScene({
     schedule();
     const unsubscribe = controller?.subscribe(schedule) ?? (() => {});
     // 서버 응답·스냅샷이 끊겨 구독 콜백이 안 와도 오버레이가 켜진 동안은 250ms 마다 같은 flush 를 다시
-    // 돌린다 — 그사이 컨트롤러가 생기거나(교체) 거절돼도 바로 집어 든다. 내용이 그대로면 위 shallow 비교가
-    // 리렌더까진 만들지 않는다(지적 2·보완 3).
-    const interval = setInterval(flush, 250);
+    // 돌려 거절(deny) 처럼 콜백 없는 상태 변화도 집어 든다. 내용이 그대로면 위 shallow 비교가 리렌더까진
+    // 만들지 않는다(지적 2·보완 3). 컨트롤러가 없으면(동기화 off) flush 는 매번 같은 early-return 뿐이라
+    // 인터벌을 만들지 않는다 — 나중에 컨트롤러가 생기는(교체) 경우는 deps(syncIslandId·me) 로 이 effect
+    // 가 다시 돌며 새로 잡는다(보완9 항목 2).
+    const interval = controller ? setInterval(flush, 250) : null;
     return () => {
       if (listenerId) xy.removeListener(listenerId);
       unsubscribe();
       if (timer) clearTimeout(timer);
-      clearInterval(interval);
+      if (interval) clearInterval(interval);
     };
     // me: 컨트롤러 교체(계정 전환 등)를 추적해 effect 를 다시 돌려 새 controller 를 다시 캡처한다(보완 4).
   }, [navDebug, tileNav, grid, syncIslandId, me]);
-  // 깜빡임·readout 시계 체인(GROMO-2249 보완4 지적 2 · 보완8 항목 2) — flush 효과와는 별도다. deps 는
-  // status·보정창(correctedAt) 두 primitive 뿐 — serverDebug 참조 전체를 deps 로 두면(이전 버전의
-  // WorldMap 쪽 effect 가 그랬다) flush 마다 이 effect 도 다시 돌아 debugNow 를 또 갱신해 렌더가 1번
-  // 더 늘었다(위 flush 가 이미 같은 동기 구간에서 처리한다). navDebugClock.debugClockPeriod 규칙(보정
-  // 창 안 50ms · 그 밖 live 500ms · 아니면 정지)대로 이어가고, reduceMotion 이면 50ms 분기를 타지
-  // 않는다(보완8 항목 6).
-  const debugCorrectedAt = serverDebug?.correctedAt ?? null;
+  // 깜빡임·readout 시계 체인(GROMO-2249 보완4 지적 2 · 보완8 항목 2 · 보완9 항목 1) — flush 효과와는
+  // 별도다. navDebugClock.debugClockPeriod 가 이제 live 여부만 보므로(보정 창 50ms 분기 제거, 보완9
+  // 항목 1) deps 도 debugLive 하나면 된다 — 보정이 와도(correctedAt 변경) 주기가 안 바뀌니 이 effect 를
+  // 다시 돌릴 이유가 없다. serverDebug 참조 전체를 deps 로 두면(이전 버전의 WorldMap 쪽 effect 가
+  // 그랬다) flush 마다 이 effect 도 다시 돌아 debugNow 를 또 갱신해 렌더가 1번 더 늘었다(위 flush 가
+  // 이미 같은 동기 구간에서 처리한다).
   const debugLive = serverDebug?.status === 'live';
-  const reduceMotion = state.settings.reduceMotion;
   useEffect(() => {
     let id: ReturnType<typeof setTimeout>;
     const tick = () => {
-      const n = Date.now();
-      setDebugNow(n);
-      const period = debugClockPeriod(serverDebugRef.current, n, reduceMotion);
+      setDebugNow(Date.now());
+      const period = debugClockPeriod(serverDebugRef.current);
       if (period === null) return;
       id = setTimeout(tick, period);
     };
-    const period0 = debugClockPeriod(serverDebugRef.current, Date.now(), reduceMotion);
+    const period0 = debugClockPeriod(serverDebugRef.current);
     if (period0 === null) return;
     id = setTimeout(tick, period0);
     return () => clearTimeout(id);
-  }, [debugCorrectedAt, debugLive, reduceMotion]);
+  }, [debugLive]);
   useEffect(() => {
     const p = initial();
     location.current = p;

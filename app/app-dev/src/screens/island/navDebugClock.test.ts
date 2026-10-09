@@ -1,4 +1,5 @@
 import {
+  CORRECTION_TICK_MS,
   CORRECTION_WINDOW_MS,
   correctionBlinkVisible,
   correctionFlash,
@@ -23,6 +24,10 @@ it('CORRECTION_WINDOW_MS 는 500ms', () => {
   expect(CORRECTION_WINDOW_MS).toBe(500);
 });
 
+it('CORRECTION_TICK_MS 는 50ms', () => {
+  expect(CORRECTION_TICK_MS).toBe(50);
+});
+
 it('correctionFlash: 499ms 는 깜빡이고 501ms·null 은 꺼진다', () => {
   expect(correctionFlash(1000, 1499)).toBe(true);
   expect(correctionFlash(1000, 1501)).toBe(false);
@@ -31,6 +36,9 @@ it('correctionFlash: 499ms 는 깜빡이고 501ms·null 은 꺼진다', () => {
 
 it('correctionBlinkVisible: 창 안에서 100ms 주기로 켜짐·꺼짐, 창 밖이면 무조건 꺼짐(보완7 지적 1)', () => {
   const t0 = 1000;
+  // now < correctedAt(식은 flashNow 의 첫 렌더) 도 창 안으로 보고 켜짐 — 음수 나머지로 한 프레임 꺼져
+  // 보이던 버그(보완9 항목 3).
+  expect(correctionBlinkVisible(t0, t0 - 5)).toBe(true);
   // 0·50ms 켜짐.
   expect(correctionBlinkVisible(t0, t0 + 0)).toBe(true);
   expect(correctionBlinkVisible(t0, t0 + 50)).toBe(true);
@@ -45,25 +53,14 @@ it('correctionBlinkVisible: 창 안에서 100ms 주기로 켜짐·꺼짐, 창 �
   expect(correctionBlinkVisible(null, t0)).toBe(false);
 });
 
-describe('debugClockPeriod (GROMO-2249 보완8 항목 1 — WorldMap readout 시계 주기)', () => {
-  it('보정 창 안이면 50, 창 밖에서 live 면 500, 둘 다 아니면 null', () => {
-    expect(debugClockPeriod({ ...noServer, status: 'live', correctedAt: 1000 }, 1100)).toBe(50);
-    expect(debugClockPeriod({ ...noServer, status: 'live', correctedAt: 1000 }, 1600)).toBe(500);
-    expect(debugClockPeriod({ ...noServer, status: 'off', correctedAt: null }, 1600)).toBeNull();
-    expect(debugClockPeriod(null, 1600)).toBeNull();
-    expect(debugClockPeriod(undefined, 1600)).toBeNull();
-  });
-
-  it('창 안이라도 live 가 아니면(denied 등 비-live) 50 — status 가 아니라 창이 우선', () => {
-    expect(debugClockPeriod({ ...noServer, status: 'denied', correctedAt: 1000 }, 1100)).toBe(50);
-  });
-
-  it('reduceMotion 이면 창 안이어도 50 분기를 타지 않는다 — live 의 500 은 숫자 갱신이라 유지한다(보완8 항목 6)', () => {
-    expect(debugClockPeriod({ ...noServer, status: 'live', correctedAt: 1000 }, 1100, true)).toBe(
-      500,
-    );
-    expect(
-      debugClockPeriod({ ...noServer, status: 'off', correctedAt: 1000 }, 1100, true),
-    ).toBeNull();
+describe('debugClockPeriod (GROMO-2249 보완9 항목 1 — WorldMap readout 시계 주기, 창 안도 500 으로 통일)', () => {
+  it('live 면 보정 창 안팎 모두 500, live 가 아니면(denied·off 등) null', () => {
+    // correctedAt 유무(창 안·밖)는 더 이상 결과를 바꾸지 않는다 — live 만 본다.
+    expect(debugClockPeriod({ ...noServer, status: 'live', correctedAt: 1000 })).toBe(500);
+    expect(debugClockPeriod({ ...noServer, status: 'live', correctedAt: null })).toBe(500);
+    expect(debugClockPeriod({ ...noServer, status: 'denied', correctedAt: 1000 })).toBeNull();
+    expect(debugClockPeriod({ ...noServer, status: 'off', correctedAt: null })).toBeNull();
+    expect(debugClockPeriod(null)).toBeNull();
+    expect(debugClockPeriod(undefined)).toBeNull();
   });
 });
