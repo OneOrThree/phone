@@ -1,3 +1,4 @@
+import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
@@ -29,7 +30,7 @@ import {
   Building,
   Color,
   Route,
-  currentIsland,
+  displayIsland as currentIsland,
   viewIsland,
   serverHome,
   canVisit,
@@ -289,15 +290,22 @@ export function friendsSnapshotForSync(data: FriendsScreenState['data']) {
 }
 
 // 주민 화면 가드 판정(GROMO-2138). 서버 모드는 로컬 목업 섬 대신 서버 current 로 소속을,
-// 스냅샷의 완공 건물로 잠금을 본다. 스냅샷이 오기 전(built undefined)에는 잠그지 않는다 —
-// 각 건물 화면이 서버에서 다시 확인한다.
+// 스냅샷의 완공 건물로 잠금을 본다. 미조회는 undefined로 유지해 아래 진입 가드가 기다리게 한다.
+// 방문자는 현재 섬 주민 여부를 이어받지 않고 공개 읽기 API로 완공 여부를 확인한다.
 export function memberGate(state: State, server: boolean) {
-  const i = currentIsland(state);
-  if (!server) return { joined: i.joined, built: viewIsland(state).buildings, host: isHost(i) };
+  if (!server) {
+    const i = currentIsland(state);
+    return { joined: i.joined, built: viewIsland(state).buildings, host: isHost(i) };
+  }
   const facts = state.visitingIslandId ? null : serverHome(state);
+  const visit = state.serverIslands?.visit;
   return {
-    joined: state.serverIslands?.currentIslandId != null,
-    built: state.visitingIslandId ? viewIsland(state).buildings : facts?.completedBuildings,
+    joined: !state.visitingIslandId && state.serverIslands?.currentIslandId != null,
+    built: state.visitingIslandId
+      ? visit?.island.id === state.visitingIslandId
+        ? (visit.buildings ?? undefined)
+        : undefined
+      : facts?.completedBuildings,
     host: facts?.home.island.role === 'host',
   };
 }
@@ -361,7 +369,13 @@ function CurrentScreensContent({ e }: any) {
     'sound',
   ];
   const { joined, built, host } = memberGate(state, !!e.islands);
-  if (!joined && memberRoutes.includes(r))
+  const endServerVisit = () => {
+    e.dispatch({ type: 'END_VISIT' });
+    e.reset(state.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
+  };
+  const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
+  const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
+  if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
         <Txt kind="h17">가입한 섬이 없어요</Txt>
@@ -373,23 +387,27 @@ function CurrentScreensContent({ e }: any) {
   // 나머지는 내 섬 화면이 섞이거나 섬 상태가 꼬이지 않게 모두 막는다
   if (
     state.visitingIslandId &&
-    ![
-      'home',
-      'manage',
-      'members',
-      'board',
-      'notice',
-      'quest',
-      'travel',
-      'visitIsland',
-      'visitIslandFocus',
-      'permission',
-      'screenTimeApps',
-    ].includes(r)
+    !(
+      e.islands
+        ? ['visitIsland', 'manage', 'members', 'board', 'notice', 'visitIslandFocus']
+        : [
+            'home',
+            'manage',
+            'members',
+            'board',
+            'notice',
+            'quest',
+            'travel',
+            'visitIsland',
+            'visitIslandFocus',
+            'permission',
+            'screenTimeApps',
+          ]
+    ).includes(r)
   )
     return (
       <Overlay
-        close={e.home}
+        close={closeFacility}
         background={
           <FinalIsland
             state={state}
@@ -401,7 +419,14 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Txt kind="h17">주민만 이용할 수 있어요</Txt>
-        <Btn title="확인" onPress={e.home} />
+        <Btn title="확인" onPress={closeFacility} />
+      </Overlay>
+    );
+  if (e.islands && state.visitingIslandId && !built)
+    return (
+      <Overlay close={endServerVisit}>
+        <Txt>섬 모습을 불러오지 못했어요. 다시 방문해 주세요.</Txt>
+        <Btn title="원래 섬으로" onPress={endServerVisit} />
       </Overlay>
     );
   const locked: Partial<Record<Route, Building>> = {
@@ -424,13 +449,22 @@ function CurrentScreensContent({ e }: any) {
     chat: 'mail',
     friendMail: 'mail',
     shop: 'shop',
+    product: 'shop',
+    orders: 'shop',
     sound: 'gram',
   };
   const required = locked[r];
+  if (required && e.islands && !state.visitingIslandId && !serverHome(state))
+    return (
+      <Overlay close={e.home}>
+        <Txt>{e.homeError ? '시설 정보를 불러오지 못했어요' : '시설 정보를 확인하고 있어요.'}</Txt>
+        {e.homeError && <Btn title="다시 시도" onPress={e.retryHome} />}
+      </Overlay>
+    );
   if (required && built && !built.includes(required))
     return (
       <Overlay
-        close={e.home}
+        close={closeFacility}
         background={
           <FinalIsland
             state={state}
@@ -448,16 +482,34 @@ function CurrentScreensContent({ e }: any) {
         </Txt>
         <Btn
           title={host && built.includes('hall') ? t('home.lock.viewNext') : t('common.ok')}
-          onPress={() => (host && built.includes('hall') ? e.go('construction') : e.home())}
+          onPress={() => (host && built.includes('hall') ? e.go('construction') : closeFacility())}
         />
       </Overlay>
     );
+  if (e.islands && state.visitingIslandId && ['board', 'notice'].includes(r)) {
+    const islandId = state.visitingIslandId;
+    return (
+      <VisitorBoard
+        key={islandId}
+        islandId={islandId}
+        backOverride={e.backOverride}
+        onClose={visitMap}
+      />
+    );
+  }
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
   if (r === 'focusVisit') return <FocusVisit e={e} />;
-  if (r === 'visitIsland') return <VisitIsland e={screenE} />;
+  if (r === 'visitIsland')
+    return <VisitIsland e={screenE} onReturnFromVisit={e.islands ? endServerVisit : undefined} />;
   if (r === 'visitIslandFocus')
-    return <FocusVisit e={e} islandId={e.detail || state.visitingIslandId} onBack={e.back} />;
+    return (
+      <FocusVisit
+        e={e}
+        islandId={e.detail || state.visitingIslandId}
+        onBack={e.islands ? visitMap : e.back}
+      />
+    );
   if (
     [
       'focusTravel',
@@ -472,7 +524,12 @@ function CurrentScreensContent({ e }: any) {
     return <FocusFlow e={e} />;
   if (['library', 'diary', 'stats'].includes(r)) return <Library e={e} />;
   if (['hall', 'manage', 'members', 'ledger', 'construction'].includes(r))
-    return <Hall key={r} e={e} />;
+    return (
+      <Hall
+        key={r}
+        e={e.islands && state.visitingIslandId ? { ...e, back: visitMap, home: visitMap } : e}
+      />
+    );
   // 게시판·우체통은 건물 안 장면(BuildingInteriors)으로 그린다
   if (['board', 'notice', 'noticeEdit', 'quest', 'questEdit'].includes(r))
     return (
@@ -484,7 +541,8 @@ function CurrentScreensContent({ e }: any) {
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
-  if (['boat', 'mainIsland', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
+  if (['boat', 'mainIsland', 'currentIsland', 'friends', 'friendSearch'].includes(r))
+    return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
   if (r === 'permission')
     return e.detail === 'settings' ? (
@@ -935,7 +993,7 @@ function Travel({ e }: any) {
     />
   );
 }
-function VisitIsland({ e }: any) {
+function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
   return (
@@ -947,12 +1005,13 @@ function VisitIsland({ e }: any) {
       viewingIslandId={s.visitingIslandId ? undefined : islandId}
       notify={e.notify}
       dispatch={e.dispatch}
+      onReturnFromVisit={onReturnFromVisit}
     />
   );
 }
 function FocusVisit({ e, islandId, onBack }: any) {
   const s: State = e.state,
-    i = s.islands.find((island) => island.id === islandId) ?? currentIsland(s),
+    i = viewIsland(s, islandId ?? s.serverIslands?.currentIslandId ?? s.islandId),
     L = useAppLayout(),
     safe = useSafeAreaInsets(),
     reduce = s.settings.reduceMotion,
@@ -1912,7 +1971,7 @@ function FocusFlow({ e: environment }: any) {
       done();
       return true;
     }
-    if (r === 'rest' && s.session) {
+    if (r === 'rest' && s.session?.status === 'paused') {
       resume();
       return true;
     }
@@ -2025,6 +2084,7 @@ function FocusFlow({ e: environment }: any) {
     const walked = walkTo(p, () => {
       if (latest.current.r !== 'fishingArrival') return;
       e.dispatch({ type: 'FOCUS_SPOT', spot: p });
+      advanceTutorial(5, 7);
       advanceTutorial(6, 7);
       e.go('focusSetup');
     });
@@ -2244,24 +2304,19 @@ function FocusFlow({ e: environment }: any) {
   );
   const tutorialOverlay = (() => {
     if (leg || voyage || goldenCutscene || goldenReeling) return null;
-    if (r === 'fishingArrival' && tutorialStep === 5)
-      return tutorialNext(t('focusFlow.tutorial.step5'), 6);
-    if (r === 'fishingArrival' && tutorialStep === 6) {
+    // 5·6단계는 땅을 직접 눌러야 넘어간다 — 「다음」 없이 지도를 열어 두고 안내만 띄운다
+    if (r === 'fishingArrival' && (tutorialStep === 5 || tutorialStep === 6)) {
       const width = Math.min(L.floatingWidth, 414);
       return (
         <GuideBox
           accessibilityViewIsModal
-          text={t('focusFlow.tutorial.step6')}
+          text={t(tutorialStep === 5 ? 'focusFlow.tutorial.step5' : 'focusFlow.tutorial.step6')}
           style={{ zIndex: 100, left: (L.width - width) / 2, width, bottom: safe.bottom + 16 }}
+          onSkip={skipTutorial}
         >
           {screenReader && (
             <Btn title={t('focusFlow.spot.sitEmptyButton')} onPress={selectAccessibleSpot} />
           )}
-          <Btn
-            title={t('focusFlow.tutorial.step6SkipButton')}
-            kind="ghost"
-            onPress={skipTutorial}
-          />
         </GuideBox>
       );
     }
@@ -2555,7 +2610,7 @@ function FocusFlow({ e: environment }: any) {
       style={{ flex: 1 }}
       onLayout={(ev) => setBoxHeight(ev.nativeEvent.layout.height)}
       overlay={tutorialOverlay}
-      isolateAccessibility={tutorialStep === 6 && !!tutorialOverlay}
+      isolateAccessibility={(tutorialStep === 5 || tutorialStep === 6) && !!tutorialOverlay}
       onSkip={skipTutorial}
     >
       <View testID="golden-background" style={{ flex: 1 }} {...a11yHidden(!!goldenCutscene)}>
@@ -3075,7 +3130,7 @@ function Social({ e }: any) {
     r = e.route,
     [query, setQuery] = useState(''),
     friends = s.friends ?? [];
-  if (r === 'boat' || r === 'mainIsland')
+  if (r === 'boat' || r === 'mainIsland' || r === 'currentIsland')
     return (
       // 내 뗏목·메인 섬 변경·친구 관리는 v2 시트 구현(Screens.tsx)이 그린다
       <RedesignScreens e={e} />

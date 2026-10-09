@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.Nulls;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 건설 옵션 스냅샷 (GROMO-1767, LLD §2). 공개 GET 의 {@code data} 와 같은 필드라 그대로 내보낸다.
@@ -20,7 +21,30 @@ public record ConstructionOptions(
         @JsonProperty(required = true) String selectedBuildingId,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long villagePoints,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long walletVersion,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<Item> items) {
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<Item> items,
+        ResidentProgress residentProgress,
+        ActiveConstruction activeConstruction) {
+
+    /** 순차 배포 중 이전 Data 응답에는 없을 수 있다. */
+    public record ActiveConstruction(
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String buildingId,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String startedAt,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String completesAt) {
+    }
+
+    /** 순차 배포 중 이전 Data 응답에는 없을 수 있다. 현재 목표가 합산 방식이면 null 이다. */
+    public record ResidentProgress(
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String buildingId,
+            @JsonProperty(required = true) Long requiredPerResident,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<Resident> residents) {
+    }
+
+    public record Resident(
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID userId,
+            @JsonProperty(required = true) String name,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long contributed,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long remaining) {
+    }
 
     /** {@code blockedReason} 만 null 허용 — 통과하면 null, 아니면 FORBIDDEN 등 UI 사유다. */
     @Schema(name = "ConstructionOptionItem")

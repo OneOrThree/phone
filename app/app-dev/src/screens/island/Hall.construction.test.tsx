@@ -8,6 +8,7 @@ import { useConstruction } from '@/screens/island/useConstruction';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 import { getSession } from '@/services/api/session';
 import type { ConstructionOptions } from '@/services/api/home';
+import { componentTokens } from '@/design-system/tokens';
 
 // GROMO — 마을회관 「목각 건물 고르기」 실서버 건설 패널 회귀 테스트.
 //
@@ -153,13 +154,58 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐리게 비활성화한다', async () => {
+  const select = jest.fn(async () => {});
+  const build = jest.fn(async () => {});
+  const initialOptions = options({ selectedBuildingId: null });
+  constructionMock.mockReturnValue(construction({ options: initialOptions, select, build }));
+  const env = e();
+  const screen = await render(<Hall e={env} />);
+  await fireEvent.press(screen.getByTestId('hall-bld-board'));
+  assert.ok(screen.getByText('이 건물을 목표로 정하기'));
+  await fireEvent.press(screen.getByTestId('hall-plan-action'));
+  await waitFor(() => assert.equal(select.mock.calls.length, 1));
+
+  const selected = options();
+  constructionMock.mockReturnValue(construction({ options: selected, select, build }));
+  await screen.rerender(<Hall e={env} />);
+  let button = screen.getByTestId('hall-plan-action');
+  assert.ok(screen.getByText('건설하기'));
+  assert.equal(button.props.accessibilityState.disabled, true);
+  assert.equal(
+    StyleSheet.flatten(button.props.style).opacity,
+    componentTokens.button.disabledOpacity,
+  );
+  await fireEvent.press(button);
+  assert.equal(build.mock.calls.length, 0);
+
+  // 잔액만 충분해져도 주민별 기여 등 서버 조건이 남으면 버튼을 열지 않는다.
+  constructionMock.mockReturnValue(
+    construction({ options: { ...selected, villagePoints: 1000 }, select, build }),
+  );
+  await screen.rerender(<Hall e={env} />);
+  assert.equal(screen.getByTestId('hall-plan-action').props.accessibilityState.disabled, true);
+
+  selected.items[0] = { ...selected.items[0], buildable: true, blockedReason: null };
+  constructionMock.mockReturnValue(
+    construction({ options: { ...selected, villagePoints: 1000 }, select, build }),
+  );
+  await screen.rerender(<Hall e={env} />);
+  button = screen.getByTestId('hall-plan-action');
+  assert.equal(button.props.accessibilityState.disabled, false);
+  assert.equal(StyleSheet.flatten(button.props.style).opacity, 1);
+  await fireEvent.press(button);
+  await waitFor(() => expect(build).toHaveBeenCalledWith('board'));
+});
+
 test('잔액이 목표 원가의 일부만 찬 상태로 게시판 건설 패널을 열어도 렌더가 죽지 않는다', async () => {
   const screen = await render(<Hall e={e()} />);
 
-  // 「목각 건물 고르기」 그리드에서 게시판 카드를 눌러 BUILDING PLAN 패널을 연다.
+  // 「목각 건물 고르기」 그리드에서 게시판 카드를 눌러 청사진 패널을 연다.
   await fireEvent.press(screen.getByTestId('hall-bld-board'));
 
-  await waitFor(() => assert.ok(screen.getByText('BUILDING PLAN · 01')));
+  await waitFor(() => assert.ok(screen.getByTestId('hall-building-plan')));
+  assert.equal(screen.queryByText('BUILDING PLAN · 01'), null);
   assert.ok(screen.getByText('120 / 240마리'));
 });
 
@@ -175,7 +221,7 @@ test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드�
 
   // 연다 — 그리드가 살짝 축소된다.
   await fireEvent.press(screen.getByTestId('hall-bld-board'));
-  await waitFor(() => assert.ok(screen.getByText('BUILDING PLAN · 01')));
+  await waitFor(() => assert.ok(screen.getByTestId('hall-building-plan')));
   const openStyle = StyleSheet.flatten(screen.getByTestId('hall-bld-grid').props.style);
   assert.ok(
     Array.isArray(openStyle.transform),
@@ -187,10 +233,71 @@ test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드�
   // processTransform 의 _validateTransforms 에서 `null.forEach` 로 죽는다(RedBox: "Cannot read
   // property 'forEach' of null"). 고정 전에는 여기서 transform 이 `undefined` 였다.
   await fireEvent.press(screen.getByTestId('hall-back'));
-  await waitFor(() => assert.equal(screen.queryByText('BUILDING PLAN · 01'), null));
+  await waitFor(() => assert.equal(screen.queryByTestId('hall-building-plan'), null));
   const reClosedStyle = StyleSheet.flatten(screen.getByTestId('hall-bld-grid').props.style);
   assert.ok(
     Array.isArray(reClosedStyle.transform),
     `다시 닫힌 상태의 transform 도 배열이어야 한다 (받은 값: ${JSON.stringify(reClosedStyle.transform)})`,
   );
 });
+
+test('회관 청사진은 현재 주민 수가 달라도 목표 당시 주민과 서버 몫을 표시한다', async () => {
+  constructionMock.mockReturnValue(
+    construction({
+      members: [
+        { id: 'host', name: '방장' },
+        { id: 'member-1', name: '나' },
+        { id: 'late', name: '늦게 온 주민' },
+      ],
+      options: options({
+        selectedBuildingId: 'library',
+        items: [{ ...options().items[1], selectable: true, blockedReason: 'INSUFFICIENT_FUNDS' }],
+        residentProgress: {
+          buildingId: 'library',
+          requiredPerResident: 100,
+          residents: [
+            { userId: 'host', name: '목표 주민', contributed: 20, remaining: 80 },
+            { userId: 'member-1', name: '나', contributed: 0, remaining: 100 },
+          ],
+        },
+      }),
+    }),
+  );
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-bld-library'));
+  assert.ok(screen.getByText('100마리 · 2명'));
+  assert.ok(screen.getByText('목표 주민'));
+  assert.ok(screen.getByText('나'));
+  assert.equal(screen.queryByText('늦게 온 주민'), null);
+  assert.equal(screen.queryByText('67마리 · 3명'), null);
+});
+
+test.each(['missing', 'empty', 'unselected'] as const)(
+  '회관은 알 수 없는 대상 몫을 현재 주민 수로 추정하지 않는다: %s',
+  async (kind) => {
+    constructionMock.mockReturnValue(
+      construction({
+        options: options({
+          selectedBuildingId: kind === 'unselected' ? null : 'library',
+          items: [{ ...options().items[1], selectable: true, blockedReason: 'INSUFFICIENT_FUNDS' }],
+          residentProgress:
+            kind === 'empty'
+              ? { buildingId: 'library', requiredPerResident: null, residents: [] }
+              : undefined,
+        }),
+      }),
+    );
+    const screen = await render(<Hall e={e()} />);
+    await fireEvent.press(screen.getByTestId('hall-bld-library'));
+    assert.ok(
+      screen.getByText(
+        kind === 'missing'
+          ? '조회 불가'
+          : kind === 'empty'
+            ? '대상 주민이 없어요'
+            : '목표를 정한 뒤 확인해 주세요',
+      ),
+    );
+    assert.equal(screen.queryByText('100마리 · 2명'), null);
+  },
+);

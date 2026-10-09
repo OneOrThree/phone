@@ -77,15 +77,23 @@ Query `q:string?`, `cursor:Cursor?`, `limit:integer=20`(1~100). 성공200 `{data
 
 Query `cursor:Cursor?`, `limit:integer=1`(1~100). 성공200 `{data:{items:PublicIslandSummary[],nextCursor:Cursor?}}`.
 
-공개·approvalRequired=false·미소속·미삭제·미종료·실제 가입 가능 정원 후보를 무작위로 고른다. 현재 강퇴 이력으로 가입 불가능한 후보도 '즉시 가입 가능'이라고 표시하지 않는다. 진행 집중에 대한 이동 제한은 후보의 공개/가입방식과 별개이며 실제 가입 커밋에서 검증한다. 첫 소속 탐색은 전망대가 없으므로 search의 전망대 가드를 가져오지 않는다.
+공개·미소속·미삭제·미종료·실제 가입 가능 정원 후보를 무작위로 고른다. ~~approvalRequired=false인 즉시 가입 섬만 포함한다.~~ → 2026-10-09 IM-발견1: 승인제 공개 섬도 포함한다. 응답의 `approvalRequired`에 따라 즉시 가입/가입 신청을 구분하며, 승인제 신청은 `pending`이고 실제 소속이 아니다. 현재 강퇴 이력으로 가입 불가능한 후보는 제외한다. 진행 집중에 대한 이동 제한은 후보의 공개/가입방식과 별개이며 실제 가입 커밋에서 검증한다. 첫 소속 탐색은 전망대가 없으므로 search의 전망대 가드를 가져오지 않는다.
 
-아래 §5의 고정 탐색 순서를 사용한다. 빈 결과는 items=[]/nextCursor=null. 한 명뿐인 섬도 후보가 될 수 있으며 전망대 랭킹 최소 2명과 섬 발견 조건을 섞지 않는다.
+아래 §5의 고정 탐색 순서를 사용한다. 빈 결과는 items=[]/nextCursor=null. 한 명뿐인 섬도 후보가 될 수 있으며 전망대 랭킹 최소 2명과 섬 발견 조건을 섞지 않는다. 마지막 주민이 탈퇴한 섬은 같은 트랜잭션에서 종료·삭제 처리되어 발견·검색·방문 대상에서 제외한다.
 
 ### 3.4 island — GET /islands/{islandId}
 
 성공200 active 주민이면 MemberIslandDetail, 비소속이면 PublicIslandSummary 기반 외관 요약. 조회 시작에 사용자·섬·활성 membership을 확인하고 단일 읽기 snapshot에서 범위를 고른다. 그룹 종료/삭제는404, private 비소속 ID 직접 조회는403이다.
 
 private 초대 resolve가 반환한 공개 요약은 초대 흐름에서 사용하되 이 GET에 토큰 없는 예외 권한을 만들지 않는다. `X-User-Id`, `role`, `isMember` query/header로 분기를 고를 수 없다. 읽기 캐시를 둘 때도 사용자·섬·권한 revision을 분리하며 공통 no-store를 기본으로 한다.
+
+#### 방문 지도 조회 확장 (2026-10-09)
+
+`GET /internal/islands/{islandId}`의 권한 분기 봉투에 `buildings:BuildingId[]`를 추가한다. 같은 섬 열람 권한을 확인한 뒤 해당 섬 `island_facilities`의 `COMPLETED`만 canonical7 순서로 반환한다. 공사 중 시설·다른 섬 시설·게이트 유예 설정은 완공 목록에 반영하지 않는다. 종료/삭제 404와 비공개 비주민 403은 그대로 적용한다.
+
+Business의 `GET /screens/visit/{islandId}`는 `{island, buildings, members, joinRequestAvailability, joinRequest}`를 반환한다. `island`는 주민 호출이어도 공개 요약이며 지갑·역할·건설 목표를 추가하지 않는다. 별도 시설 API를 호출하지 않고 위 인가 조회에서 읽은 완공 목록을 사용한다. 구 Data 서버가 필드를 누락하면 `buildings:null`을 보존하며 실제 빈 목록 `[]`과 구별한다. 앱은 누락 상태에서 임의 지도를 만들지 않고 둘러보기를 비활성화한다. DB 변경은 없다.
+
+앱은 소속 후 `전망대 → 미리보기 → 섬 둘러보기 → 방문 지도`로 이동하고 회관 등록증에서 가입·신청 취소한다. 게시판은 방문 지도에서 열람한다. 첫 섬 온보딩은 기존 미리보기 가입 흐름을 유지한다. 방문·귀환 자체는 서버 현재 섬이나 대표 섬을 변경하지 않는다.
 
 ### 3.5 memberships — GET /me/islands
 

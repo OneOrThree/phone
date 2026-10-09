@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { isMockMode } from '@/services/demoMode';
 import {
   Animated,
   Easing,
@@ -32,7 +33,7 @@ import {
   clockMinutes,
   clockText,
   collectedBy,
-  currentIsland,
+  displayIsland as currentIsland,
   dayKey,
   isHost,
   isOwnComment,
@@ -45,10 +46,14 @@ import {
   unreadLetters,
   viewIsland,
 } from '@/services/model';
+import { loadHomeSnapshot } from '@/services/homeSnapshot';
+import { sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { localized, t } from '@/i18n';
 import { semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
+import { useConstruction } from '@/screens/island/useConstruction';
+import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
 import { useBoardNotices } from './useBoardNotices';
 import { useMailbox } from './useMailbox';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
@@ -4095,24 +4100,45 @@ export function Board({
   const commentInflight = useRef<string | null>(null);
   const questInflight = useRef<string | null>(null);
   const claimInflight = useRef<string | null>(null);
+  const constructionInflight = useRef<string | null>(null);
+  const buildingOpenPending = useRef(false);
 
   // 다른 섬 방문자: 공지·댓글·퀘스트는 읽기만 하고 청사진은 보지 않는다
   const visitor = app ? app.visitor : concept.boardView === 'visitor';
-  // 라이브 앱 경로 — App.tsx 와 같은 판정으로 웹 ?review·?demo 목업을 걸러 낸다.
+  // 라이브 앱 경로 — App.tsx 와 같은 판정(services/demoMode)으로 review·demo 목업을 걸러 낸다.
   // 목업에서도 e 가 있으므로 e 유무만으로는 서버 경로를 켤 수 없다.
-  const liveApp =
-    !!e &&
-    !(
-      Platform.OS === 'web' &&
-      typeof window !== 'undefined' &&
-      (new URLSearchParams(window.location.search).has('review') ||
-        new URLSearchParams(window.location.search).has('demo'))
-    );
+  const liveApp = !!e && !isMockMode();
   // 서버 게시판: 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 방문자·목업·갤러리는 0콜이다.
   const serverBoard = liveApp && !visitor;
   const board = useBoardNotices({
     active: serverBoard,
     scopeKey: app ? String(app.island.id) : 'mock',
+  });
+  const constructionIslandId = e?.state.serverIslands?.currentIslandId ?? app?.island.id ?? null;
+  const clientConstruction = e?.state.serverIslands?.clientConstruction;
+  const resumeConstruction =
+    clientConstruction?.islandId === constructionIslandId
+      ? {
+          buildingId: clientConstruction.building,
+          startedAt: clientConstruction.startedAt,
+          completesAt: clientConstruction.endsAt,
+        }
+      : null;
+  // 회관에서 저장한 목표를 게시판에서도 같은 서버 조회·착공 명령으로 읽고 변경한다.
+  const construction = useConstruction({
+    active: serverBoard,
+    islandId: constructionIslandId,
+    now: e?.now ?? 0,
+    withMembers: false,
+    resumeTiming: resumeConstruction,
+    onStarted: (receipt, islandId) =>
+      eRef.current?.dispatch({
+        type: 'SERVER_CONSTRUCTION_STARTED',
+        islandId,
+        building: receipt.buildingId as Building,
+        startedAt: Date.parse(receipt.startedAt),
+        endsAt: Date.parse(receipt.completesAt),
+      }),
   });
   useEffect(() => {
     if (!serverBoard || !e || !board.islandId || !board.wallets) return;
@@ -4242,20 +4268,54 @@ export function Board({
       value: `${local.ready ? 20 : [20, 18, 12][i]} / 20마리${local.ready || i === 0 ? ' ✓' : ''}`,
     })),
   };
-  const blueprintView: BlueprintView =
-    serverBoard && board.wallets
-      ? {
-          ...localBlueprintView,
-          balance: board.wallets.villagePoints,
-          state:
-            localBlueprintView.state === 'waiting' || localBlueprintView.state === 'ready'
-              ? localBlueprintView.collected >= localBlueprintView.needed &&
-                board.wallets.villagePoints >= localBlueprintView.cost
+  const constructionOptions = construction.options;
+  // 서버 옵션은 미완공 건물만 포함하므로, 조회에 성공한 빈 목록은 전체 완공이다.
+  const allBuildingsComplete =
+    serverBoard && construction.status === 'ready' && constructionOptions?.items.length === 0;
+  const constructionTiming = construction.timing;
+  // 착공하면 서버 목표는 null이 된다. 서버가 알려 준 공사 구간으로 진행 건물을 잇는다.
+  const selectedBuilding =
+    constructionOptions?.selectedBuildingId ??
+    (constructionOptions ? constructionTiming?.buildingId : null);
+  const selectedOption = constructionOptions?.items.find((item) => item.id === selectedBuilding);
+  const selectedArt = buildOptions.find(
+    (item) => item.id === blueprintOption[selectedBuilding as Building],
+  );
+  const hasConstructionTiming =
+    !!selectedBuilding && constructionTiming?.buildingId === selectedBuilding;
+  const blueprintView: BlueprintView = serverBoard
+    ? {
+        state: !selectedBuilding
+          ? 'none'
+          : !selectedOption
+            ? 'complete' // options에는 미완공 건물만 있다.
+            : selectedOption.blockedReason === 'IN_PROGRESS'
+              ? 'building'
+              : selectedOption.buildable
                 ? 'ready'
-                : 'waiting'
-              : localBlueprintView.state,
-        }
-      : localBlueprintView;
+                : 'waiting',
+        name:
+          selectedOption?.name ??
+          (selectedBuilding ? buildingNames[selectedBuilding as Building] : ''),
+        image:
+          selectedArt?.image ??
+          (selectedBuilding === 'hall'
+            ? interiorArt.buildings.hall
+            : interiorArt.buildings.noticeboard),
+        price: selectedOption ? `총 ${selectedOption.cost}마리` : '',
+        time: '', // 조회 응답에는 공사 소요 시간이 없으므로 시안 값을 보여 주지 않는다.
+        detail: selectedArt?.detail ?? '',
+        balance: constructionOptions?.villagePoints ?? 0,
+        cost: selectedOption?.cost ?? 0,
+        // 실제 주민별 준비량은 options.residentProgress 를 상세에서 표시한다.
+        collected: 0,
+        needed: 0,
+        residents: [],
+        progress: hasConstructionTiming
+          ? Math.round(normalizedConstructionProgress(constructionTiming, e.now) * 100)
+          : 0,
+      }
+    : localBlueprintView;
 
   // 없는 공지·퀘스트 id로 상세를 열면 목록을 보여 주고 라우트도 목록으로 바꾼다
   // 서버 경로의 공지는 이 검사를 건너뛴다 — 목록은 첫 페이지뿐이라 없는 id 판정이 틀리고,
@@ -4386,6 +4446,7 @@ export function Board({
       }
       // 열린 종이를 다시 누르면 닫고, 다른 종이는 기록을 쌓지 않고 바꿔 연다
       if (s.panel === panel) return e.back();
+      if (serverBoard && panel === 'blueprint') void construction.reload().catch(() => undefined);
       if (s.panel) e.replace('board');
       else e.go('board');
       if (panel) e.setTab(boardTabs[panel]);
@@ -4793,13 +4854,71 @@ export function Board({
     },
     build: () => {
       if (!owner || blueprintView.state !== 'ready') return;
+      if (serverBoard) {
+        if (!selectedBuilding || constructionInflight.current !== null) return;
+        const target = selectedBuilding;
+        const op = routeGen.current;
+        constructionInflight.current = target;
+        setError('');
+        construction
+          .build(target)
+          .catch((error: unknown) => {
+            if (liveE(op)) setError(apiWriteMessage(error));
+          })
+          .finally(() => {
+            if (constructionInflight.current === target) constructionInflight.current = null;
+          });
+        return;
+      }
       if (e) return app?.building && e.build(app.building);
       if (s.balance < 60) return;
       render({ balance: s.balance - 60, view: 'building' });
     },
     openBuilding: () => {
-      const r = app?.building && buildingRoute[app.building];
-      if (r) e.go(r);
+      const building = serverBoard ? selectedBuilding : app?.building;
+      const r = building && buildingRoute[building as Building];
+      if (!r) return;
+      if (!serverBoard) return e.go(r);
+      if (buildingOpenPending.current) return;
+      const op = routeGen.current;
+      const gen = sessionGeneration();
+      const islandId = constructionIslandId;
+      const current = () => {
+        const latest = liveE(op);
+        return (
+          latest &&
+          sessionGeneration() === gen &&
+          latest.state.serverIslands?.currentIslandId === islandId &&
+          !latest.state.visitingIslandId
+        );
+      };
+      buildingOpenPending.current = true;
+      setError('');
+      loadHomeSnapshot({
+        date: dayKey(e.now),
+        timezone: 'Asia/Seoul',
+        isCurrent: () => !!current(),
+      })
+        .then((snapshot) => {
+          if (!current()) return;
+          if (
+            snapshot.status !== 'loaded' ||
+            snapshot.facts.islandId !== islandId ||
+            !snapshot.facts.completedBuildings.includes(building as Building)
+          ) {
+            setError('완공 상태를 확인하지 못했어요. 잠시 뒤 다시 눌러 주세요.');
+            return;
+          }
+          const latest = liveE(op);
+          latest.dispatch({ type: 'SERVER_HOME', facts: snapshot.facts });
+          latest.go(r);
+        })
+        .catch((error: unknown) => {
+          if (current()) setError(apiWriteMessage(error));
+        })
+        .finally(() => {
+          buildingOpenPending.current = false;
+        });
     },
   };
 
@@ -5601,12 +5720,29 @@ export function Board({
   const blueprint = () => {
     const bp = blueprintView,
       stamp = bp.state === 'ready' || bp.state === 'building';
-    if (bp.state === 'none')
+    if (serverBoard && construction.status !== 'ready')
+      return (
+        <View style={{ paddingTop: 32, gap: semanticTokens.spacing.control }}>
+          <Text testID="board-construction-status" style={boardFont(14, 1.6, '700', '#f7fcff')}>
+            {construction.status === 'error'
+              ? '건설 목표를 불러오지 못했어요.'
+              : '건설 목표를 불러오고 있어요.'}
+          </Text>
+          {construction.status === 'error' && (
+            <BoardPill
+              testID="board-construction-retry"
+              label="다시 시도"
+              onPress={() => void construction.retry().catch(() => undefined)}
+            />
+          )}
+        </View>
+      );
+    if (allBuildingsComplete || bp.state === 'none')
       return (
         <Text
           style={[boardFont(14, 1.6, '700', '#f7fcff'), { paddingTop: 32, textAlign: 'center' }]}
         >
-          회관에서 다음 건물을 골라 주세요.
+          {allBuildingsComplete ? '모든 건물을 완공했어요.' : '회관에서 다음 건물을 골라 주세요.'}
         </Text>
       );
     const light = '#f7fcff';
@@ -5634,6 +5770,10 @@ export function Board({
         <Text style={boardFont(14, 1.6, '400', light)}>{value}</Text>
       </View>
     );
+    const splitTarget = selectedBuilding && !['hall', 'board'].includes(selectedBuilding);
+    const residentProgress = constructionOptions?.residentProgress;
+    const showResidentProgress =
+      serverBoard && splitTarget && (bp.state === 'waiting' || bp.state === 'ready');
     return (
       <>
         <View style={[{ paddingTop: 32, paddingBottom: 14, borderBottomWidth: 1 }, dashed]}>
@@ -5719,8 +5859,8 @@ export function Board({
               <Text style={[boardFont(22, 1.1, '700', light, GOWUN), { marginBottom: 7 }]}>
                 {bp.name}
               </Text>
-              {copyRow('가격', bp.price)}
-              {copyRow('시간', bp.time)}
+              {!!bp.price && copyRow('가격', bp.price)}
+              {!!bp.time && copyRow('시간', bp.time)}
               <Text
                 style={[
                   boardFont(12, 1.45, '400', light),
@@ -5748,24 +5888,82 @@ export function Board({
             </View>
           </View>
         </View>
+        {showResidentProgress && (
+          <View
+            testID="board-resident-progress"
+            style={{
+              paddingTop: semanticTokens.spacing.component,
+              gap: semanticTokens.spacing.control,
+            }}
+          >
+            <Text style={boardFont(14, 1.6, '700', light)}>각자 모을 물고기</Text>
+            {!residentProgress ? (
+              <Text style={boardFont(12, 1.45, '400', light)}>
+                주민별 준비량을 아직 불러올 수 없어요. 섬 잔액과는 별도로 각자의 몫을 채워야 해요.
+              </Text>
+            ) : residentProgress.residents.length === 0 ? (
+              <Text style={boardFont(12, 1.45, '400', light)}>
+                대상 주민이 없어 건설할 수 없어요.
+              </Text>
+            ) : (
+              <>
+                <Text style={boardFont(13, 1.6, '700', light)}>
+                  {`대상 주민 ${residentProgress.residents.length}명 · 각자 ${residentProgress.requiredPerResident}마리`}
+                </Text>
+                <Text style={boardFont(12, 1.45, '400', light)}>
+                  목표를 정한 뒤 모은 물고기예요. 전원이 각자의 몫을 채워야 해요.
+                </Text>
+                {residentProgress.residents.map((resident) => (
+                  <View
+                    key={resident.userId}
+                    testID={`board-contribution-${resident.userId}`}
+                    style={{
+                      gap: semanticTokens.spacing.control,
+                      padding: semanticTokens.spacing.control,
+                      borderRadius: semanticTokens.radius.control,
+                      backgroundColor: semanticTokens.color.surface,
+                    }}
+                  >
+                    <Text style={boardFont(13, 1.6, '700', semanticTokens.color.text)}>
+                      {resident.name || '주민'}
+                    </Text>
+                    <Text style={boardFont(13, 1.6, '400', semanticTokens.color.text)}>
+                      {`모은 ${resident.contributed}마리 / 목표 ${residentProgress.requiredPerResident}마리`}
+                    </Text>
+                    <Text style={boardFont(13, 1.6, '700', semanticTokens.color.text)}>
+                      {resident.remaining === 0 ? '달성' : `${resident.remaining}마리 남음`}
+                    </Text>
+                  </View>
+                ))}
+                <Text style={boardFont(12, 1.45, '400', light)}>
+                  {`건설할 때 섬 잔액에서 총 ${bp.cost}마리를 차감해요.`}
+                </Text>
+              </>
+            )}
+          </View>
+        )}
         {bp.state === 'building' ? (
           <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
             <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>
               {`${josa(bp.name, '을', '를')} 짓고 있어요`}
             </Text>
-            <Text
-              style={boardFont(13, 1.6, '400', '#e8faff')}
-            >{`공사 진행률 · ${bp.progress}%`}</Text>
-            <Track
-              rate={bp.progress}
-              color="#f3d16d"
-              style={{
-                height: 10,
-                borderWidth: 1,
-                borderColor: '#dff7ff',
-                backgroundColor: '#eaf8fb',
-              }}
-            />
+            {(!serverBoard || hasConstructionTiming) && (
+              <>
+                <Text
+                  style={boardFont(13, 1.6, '400', '#e8faff')}
+                >{`공사 진행률 · ${bp.progress}%`}</Text>
+                <Track
+                  rate={bp.progress}
+                  color="#f3d16d"
+                  style={{
+                    height: 10,
+                    borderWidth: 1,
+                    borderColor: '#dff7ff',
+                    backgroundColor: '#eaf8fb',
+                  }}
+                />
+              </>
+            )}
           </View>
         ) : bp.state === 'complete' ? (
           <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
@@ -5806,6 +6004,17 @@ export function Board({
               방장이 건설할 수 있어요
             </Text>
           )
+        ) : serverBoard ? (
+          <View style={{ paddingTop: 14, gap: semanticTokens.spacing.control }}>
+            {fishRow('섬 잔액 / 공사 가격', `${bp.balance} / ${bp.cost}마리`)}
+            <Text style={boardFont(12, 1.45, '400', '#e8faff')}>
+              {selectedOption?.blockedReason === 'FORBIDDEN'
+                ? '방장이 건설을 진행할 수 있어요.'
+                : selectedOption?.blockedReason === 'FACILITY_LOCKED'
+                  ? '먼저 필요한 시설을 완공해 주세요.'
+                  : '필요한 물고기와 주민별 기여 조건을 채우면 건설할 수 있어요.'}
+            </Text>
+          </View>
         ) : (
           <View style={{ paddingTop: 14 }}>
             <View style={{ gap: 7 }}>
@@ -5864,6 +6073,11 @@ export function Board({
               주민 전원이 요구량을 채워야 건설할 수 있어요.
             </Text>
           </View>
+        )}
+        {serverBoard && !!s.error && (
+          <Text accessibilityRole="alert" style={boardFont(13, 1.45, '700', '#f7fcff')}>
+            {s.error}
+          </Text>
         )}
       </>
     );
@@ -5945,12 +6159,6 @@ export function Board({
     top: LAND.overlay.top * landScale,
     maxHeight: LAND.overlay.maxHeight,
   };
-  // 장면 속 청사진 종이 위 도서관 그림: grid 행 높이가 그림 비율로 정해지는 원본 계산을 그대로 따른다
-  const planeWidth = lu(scene.width);
-  const blueprintInner = lu(planeWidth * 0.19) - 10;
-  const libraryWidth = lu(blueprintInner * 0.82);
-  const libraryRow = lu((libraryWidth * artSize.library[1]) / artSize.library[0]);
-  const libraryHeight = lu(libraryRow * 0.92);
   const pressedFilter = (panel: BoardState['panel']) =>
     s.panel === panel && webOnly({ filter: 'brightness(1.08)' });
   const paperPanel = s.panel === 'notice' || s.panel === 'quest';
@@ -5963,13 +6171,16 @@ export function Board({
   const dismissQuestDetail = () => (e ? e.back() : render({ view: 'list', error: '' }));
   const paperSource =
     s.panel === 'quest' ? interiorArt.boardPaper.quest : interiorArt.boardPaper.notice;
-  const blueprintPanelContentHeight = {
-    complete: 380,
-    building: 326,
-    ready: owner ? 300 : 236,
-    waiting: 430,
-    none: 236,
-  }[blueprintView.state];
+  const blueprintPanelContentHeight =
+    serverBoard && constructionOptions?.residentProgress
+      ? height - 48
+      : {
+          complete: 380,
+          building: 326,
+          ready: owner ? 300 : 236,
+          waiting: 430,
+          none: 236,
+        }[blueprintView.state];
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
   const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
   const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
@@ -6175,12 +6386,16 @@ export function Board({
               </Text>
               <Handwriting short scale={labelScale} />
             </Pressable>
-            {/* 목각 건물·청사진은 방문자에게 보이지 않는다 */}
+            {/* 청사진은 주민만 연다. 선택한 건물 미리보기는 열린 청사진 안에서만 보여 준다. */}
             {!visitor && (
               <Pressable
                 testID="board-blueprint-area"
                 accessibilityRole="button"
-                accessibilityLabel={`${blueprintView.name || '다음 건물'} 건설 현황 보기`}
+                accessibilityLabel={
+                  allBuildingsComplete
+                    ? '모든 건물 완공 현황 보기'
+                    : `${blueprintView.name || '다음 건물'} 건설 현황 보기`
+                }
                 onPress={() => nav.open('blueprint')}
                 style={[
                   {
@@ -6190,22 +6405,7 @@ export function Board({
                   },
                   pressedFilter('blueprint'),
                 ]}
-              >
-                {blueprintView.state !== 'none' && (
-                  <Picture
-                    source={blueprintView.image}
-                    label={blueprintView.name}
-                    shadow="0 2px 2px #173e5140"
-                    style={{
-                      position: 'absolute',
-                      left: 5 + lu((blueprintInner - libraryWidth) / 2),
-                      top: 5 + lu((libraryRow - libraryHeight) / 2),
-                      width: libraryWidth,
-                      height: libraryHeight,
-                    }}
-                  />
-                )}
-              </Pressable>
+              />
             )}
           </View>
         </View>
@@ -7328,16 +7528,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const state: State | null = e?.state ?? null,
     island = state && currentIsland(state),
     now: number = e?.now ?? 0;
-  // 라이브 앱 경로 — Board 와 같은 판정으로 웹 ?review·?demo 목업을 걸러 낸다.
+  // 라이브 앱 경로 — Board 와 같은 판정(services/demoMode)으로 review·demo 목업을 걸러 낸다.
   // 목업에서도 e 가 있으므로 e 유무만으로는 서버 경로를 켤 수 없다.
-  const liveApp =
-    !!e &&
-    !(
-      Platform.OS === 'web' &&
-      typeof window !== 'undefined' &&
-      (new URLSearchParams(window.location.search).has('review') ||
-        new URLSearchParams(window.location.search).has('demo'))
-    );
+  const liveApp = !!e && !isMockMode();
   // 서버 우체통(GROMO-2016): 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 목업·갤러리는 0콜이다.
   const serverMail = liveApp && !state?.visitingIslandId;
   const mail = useMailbox({ active: serverMail, scopeKey: island ? String(island.id) : 'mock' });

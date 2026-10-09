@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { ServerBuildCard, COMPLETION_POLL_MS } from '@/screens/island/ServerBuildCard';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import { initialState } from '@/services/model';
 import { ApiError } from '@/services/api/client';
@@ -34,6 +35,10 @@ jest.mock('@/services/api/islands', () => ({
 
 const api = home as jest.Mocked<typeof home>;
 const mine = islands as jest.Mocked<typeof islands>;
+
+beforeEach(() => {
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-29T00:01:00Z'));
+});
 
 afterEach(() => {
   cleanup();
@@ -111,12 +116,13 @@ test('회관 없는 섬의 방장은 홈에서 서버 건설로 회관을 짓고
       onServerBuilt={onServerBuilt}
     />,
   );
-  // 접힌 카드는 스냅샷만 그린다 — 홈 진입에 건설 조회를 더하지 않는다
+  // 카드가 뜨면 옵션을 미리 읽어 「N마리로 건설하기」 한 번으로 짓는다(펼치기 단계 없음)
   expect(screen.getByText('마을회관 짓기')).toBeTruthy();
-  assert.equal(api.getConstructionOptions.mock.calls.length, 0);
+  const start = await screen.findByTestId('server-build-start');
+  assert.equal(api.getConstructionOptions.mock.calls.length, 1);
+  expect(screen.getByText('60마리로 건설하기')).toBeTruthy();
 
-  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
-  await act(async () => fireEvent.press(await screen.findByTestId('server-build-start')));
+  await act(async () => fireEvent.press(start));
 
   assert.equal(api.getConstructionOptions.mock.calls[0][0], 'srv1');
   const [islandId, buildingId, version, costVersion] = api.startConstruction.mock.calls[0];
@@ -206,7 +212,7 @@ test('receipt 확보 뒤 옵션 재조회가 실패해도 공사 중 표시를 �
   } as any);
   api.getMembers.mockResolvedValue({ items: [], nextCursor: null, version: 1 } as any);
   api.getConstructionOptions
-    .mockResolvedValueOnce(hallOptions) // 카드를 펼칠 때의 첫 조회
+    .mockResolvedValueOnce(hallOptions) // 카드가 뜰 때의 첫 조회
     .mockRejectedValueOnce(new Error('x')); // 착공 성공 뒤 재조회
   api.startConstruction.mockResolvedValue({
     buildingId: 'hall',
@@ -221,14 +227,13 @@ test('receipt 확보 뒤 옵션 재조회가 실패해도 공사 중 표시를 �
   const onServerBuilt = jest.fn();
   const screen = await render(<ServerBuildHost onServerBuilt={onServerBuilt} />);
 
-  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
   await act(async () => fireEvent.press(await screen.findByTestId('server-build-start')));
 
   expect(screen.getByText('마을회관 공사 중')).toBeTruthy();
   expect(screen.getByText('9분 남음')).toBeTruthy();
   expect(screen.queryByText(/불러오지 못했어요|건설을 시작하지 못했어요|^x$/)).toBeNull();
   expect(onServerBuilt).toHaveBeenCalled();
-  // 카드 오픈 시 1회 + 착공 성공 뒤 재조회 1회(실패로 끝남) = 2회
+  // 카드가 뜰 때 1회 + 착공 성공 뒤 재조회 1회(실패로 끝남) = 2회
   assert.equal(api.getConstructionOptions.mock.calls.length, 2);
 });
 
@@ -263,7 +268,6 @@ test('착공 성공 뒤 재조회가 실패했는데 dispatch 가 반영되지 �
     />,
   );
 
-  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
   await act(async () => fireEvent.press(await screen.findByTestId('server-build-start')));
 
   await waitFor(() => assert.equal(api.getConstructionOptions.mock.calls.length, 2));
@@ -290,7 +294,6 @@ test('건설 시작이 403으로 거절되면 메시지를 보여주고 홈을 �
     />,
   );
 
-  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
   await act(async () => fireEvent.press(await screen.findByTestId('server-build-start')));
 
   expect(screen.getByText('권한이 없어요')).toBeTruthy();
@@ -339,7 +342,6 @@ test('다른 기기가 짓고 있어 IN_PROGRESS 로 막히면 새로고침으�
     />,
   );
 
-  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
   expect(await screen.findByText('다른 공사가 끝난 뒤에 지을 수 있어요')).toBeTruthy();
   assert.equal(api.getConstructionOptions.mock.calls.length, 1);
 
@@ -351,7 +353,7 @@ test('다른 기기가 짓고 있어 IN_PROGRESS 로 막히면 새로고침으�
   assert.equal(onServerBuilt.mock.calls.length, 1);
 });
 
-test('카드를 편 채로 다른 섬으로 전환되면(key 리셋) 다시 건설하기 버튼이 뜬다', async () => {
+test('다른 섬으로 전환되면(key 리셋) 카드가 새 섬의 옵션을 다시 읽는다', async () => {
   mine.myIslands.mockResolvedValue({
     items: [{ id: 'srv1' }],
     currentIslandId: 'srv1',
@@ -367,8 +369,8 @@ test('카드를 편 채로 다른 섬으로 전환되면(key 리셋) 다시 건�
     />,
   );
 
-  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
   expect(await screen.findByTestId('server-build-start')).toBeTruthy();
+  const before = api.getConstructionOptions.mock.calls.length;
 
   // WorldMap 은 `${facts.islandId}:${next}` 를 key 로 준다 — 섬이 바뀌면 카드가 통째로 리마운트된다.
   await act(async () =>
@@ -383,12 +385,13 @@ test('카드를 편 채로 다른 섬으로 전환되면(key 리셋) 다시 건�
     ),
   );
 
-  expect(screen.getByTestId('server-build-open')).toBeTruthy();
+  // 리마운트된 카드는 새 범위로 옵션을 처음부터 다시 읽는다(이전 섬의 옵션을 들고 있지 않는다)
+  await waitFor(() => assert.ok(api.getConstructionOptions.mock.calls.length > before));
 });
 
-test('완공 확인을 눌렀는데도 서버가 아직 진행 중이면 안내를 보여준다', async () => {
+test('완공 예정 시각이 지나면 버튼 없이 스스로 홈을 다시 읽어 완공을 확인한다', async () => {
   const state = serverState('host');
-  // 착공 구간이 이미 지났다 — 「완공 확인」이 뜨는 조건(progress >= 1)이다.
+  // 착공 구간이 이미 지났다 — 서버 스케줄러가 완공 처리하기를 기다리는 상태다.
   (state as any).serverIslands.clientConstruction = {
     islandId: 'srv1',
     building: 'hall',
@@ -406,10 +409,12 @@ test('완공 확인을 눌렀는데도 서버가 아직 진행 중이면 안내�
     />,
   );
 
-  await act(async () => fireEvent.press(screen.getByTestId('server-build-refresh')));
-
-  assert.equal(onServerBuilt.mock.calls.length, 1);
-  expect(screen.getByText(/아직 마무리 중이에요/)).toBeTruthy();
+  // 누를 버튼이 없다 — 예정 시각이 지났으니 바로 홈 스냅샷을 다시 읽는다
+  expect(screen.queryByTestId('server-build-refresh')).toBeNull();
+  expect(screen.getByText('완공 처리 중이에요. 곧 자동으로 반영돼요.')).toBeTruthy();
+  await waitFor(() => assert.equal(onServerBuilt.mock.calls.length, 1));
+  // 공사 중에는 건설 옵션을 읽지 않는다
+  assert.equal(api.getConstructionOptions.mock.calls.length, 0);
 });
 
 test('다른 곳에서 섬을 옮겨 서버가 배운 섬이 홈 스냅샷과 다르면 섬 정보가 바뀌었다고 안내한다', async () => {
@@ -429,8 +434,6 @@ test('다른 곳에서 섬을 옮겨 서버가 배운 섬이 홈 스냅샷과 �
       onServerBuilt={onServerBuilt}
     />,
   );
-
-  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
 
   expect(await screen.findByText('섬 정보가 바뀌었어요')).toBeTruthy();
   expect(screen.queryByTestId('server-build-start')).toBeNull();
@@ -476,7 +479,6 @@ test('이 카드는 withMembers:false 로 주민 조회를 건너뛴다 — getM
     />,
   );
 
-  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
   await act(async () => fireEvent.press(await screen.findByTestId('server-build-start')));
 
   assert.equal(api.getMembers.mock.calls.length, 0);
@@ -488,4 +490,112 @@ test('이 카드는 withMembers:false 로 주민 조회를 건너뛴다 — getM
       building: 'hall',
     }),
   );
+});
+
+test('홈 집중 시작은 고양이가 뗏목까지 걷지 않고 바로 항해 화면으로 넘어간다', async () => {
+  const go = jest.fn();
+  // 회관·게시판을 다 지어 짓기 카드가 없는 섬장 홈 — 집중 버튼만 본다
+  const screen = await render(
+    <FinalIsland
+      state={serverState('host', ['hall', 'board'])}
+      go={go}
+      build={jest.fn()}
+      dispatch={jest.fn()}
+      onServerBuilt={jest.fn()}
+    />,
+  );
+  await act(async () => fireEvent.press(screen.getByTestId('depart-focus')));
+  // 걷기 애니메이션을 기다리지 않고 누르는 즉시 이동한다
+  assert.equal(go.mock.calls[0]?.[0], 'focusTravel');
+});
+
+test('로컬 receipt 없이 조회한 공사도 진행률을 표시하고 예정 시각부터 홈을 재조회한다', async () => {
+  jest.useFakeTimers();
+  const now = Date.parse('2026-10-09T00:00:00Z');
+  jest.setSystemTime(now);
+  try {
+    mine.myIslands.mockResolvedValue({ items: [{ id: 'srv1' }], currentIslandId: 'srv1' } as any);
+    api.getConstructionOptions.mockResolvedValue({
+      ...hallOptions,
+      activeConstruction: {
+        buildingId: 'hall',
+        startedAt: new Date(now - 1000).toISOString(),
+        completesAt: new Date(now + 1000).toISOString(),
+      },
+      items: hallOptions.items.map((item: any) => ({
+        ...item,
+        buildable: false,
+        blockedReason: 'IN_PROGRESS',
+      })),
+    });
+    const onChanged = jest.fn();
+    const screen = await render(
+      <ServerBuildCard
+        islandId="srv1"
+        building="hall"
+        villagePoints={10}
+        tracked={null}
+        style={{}}
+        onStarted={jest.fn()}
+        onChanged={onChanged}
+      />,
+    );
+    await act(async () => {});
+    assert.ok(screen.getByText('마을회관 공사 중'));
+    assert.ok(screen.getByText('1분 남음'));
+    assert.equal(screen.queryByTestId('server-build-recheck'), null);
+    assert.equal(onChanged.mock.calls.length, 0);
+    await act(async () => jest.advanceTimersByTime(1000));
+    assert.equal(onChanged.mock.calls.length, 1);
+    await act(async () => jest.advanceTimersByTime(COMPLETION_POLL_MS));
+    assert.equal(onChanged.mock.calls.length, 2);
+    await screen.unmount();
+    await act(async () => jest.advanceTimersByTime(COMPLETION_POLL_MS));
+    assert.equal(onChanged.mock.calls.length, 2);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('다른 섬의 공사 조회 뒤 재조회가 실패해도 그 공사를 현재 홈에 표시하지 않는다', async () => {
+  jest.useFakeTimers();
+  const now = Date.parse('2026-10-09T00:00:00Z');
+  jest.setSystemTime(now);
+  try {
+    mine.myIslands.mockResolvedValue({ items: [{ id: 'srv2' }], currentIslandId: 'srv2' } as any);
+    api.getConstructionOptions.mockResolvedValue({
+      ...hallOptions,
+      activeConstruction: {
+        buildingId: 'hall',
+        startedAt: new Date(now - 1000).toISOString(),
+        completesAt: new Date(now + 1000).toISOString(),
+      },
+    });
+    const onChanged = jest.fn();
+    const screen = await render(
+      <ServerBuildCard
+        islandId="srv1"
+        building="hall"
+        villagePoints={10}
+        tracked={null}
+        style={{}}
+        onStarted={jest.fn()}
+        onChanged={onChanged}
+      />,
+    );
+    await act(async () => {});
+    assert.ok(screen.getByText('섬 정보가 바뀌었어요'));
+    api.getConstructionOptions.mockRejectedValue(
+      new ApiError('CLIENT_NETWORK_ERROR', '연결 실패', 0),
+    );
+    await fireEvent.press(screen.getByTestId('server-build-refresh'));
+    await act(async () => {});
+    assert.equal(screen.queryByText('마을회관 공사 중'), null);
+    assert.ok(screen.getByTestId('server-build-retry'));
+    await act(async () => jest.advanceTimersByTime(1000 + COMPLETION_POLL_MS));
+    assert.equal(onChanged.mock.calls.length, 1);
+    await screen.unmount();
+  } finally {
+    jest.useRealTimers();
+  }
 });

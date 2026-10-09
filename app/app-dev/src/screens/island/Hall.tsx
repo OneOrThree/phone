@@ -10,13 +10,16 @@ import {
   View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { art, Wheel } from '@/design-system/patterns';
+import { isMockMode } from '@/services/demoMode';
+import { art, CharCount, Wheel } from '@/design-system/patterns';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
 import {
   State,
   Building,
   viewIsland,
   visitorJoinState,
+  pendingVisitRequest,
   visitorJoinLabel,
   buildingNames,
   costs,
@@ -46,17 +49,17 @@ import {
   type LedgerTab,
 } from '@/screens/island/useLedgerScreen';
 import { useConstruction } from '@/screens/island/useConstruction';
-import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
+import {
+  managementErrorMessage,
+  useIslandManagement,
+} from '@/screens/interiors/useIslandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
+import { islandErrorMessage } from '@/services/islandErrors';
+import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
-// App.tsx 의 REVIEW/DEMO 와 같은 판정 — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
-// 모듈 상수가 아니라 렌더 때 읽는 함수다(테스트에서 Platform.OS·location 을 바꿔 끼우기 위해).
-const ledgerMockMode = () =>
-  Platform.OS === 'web' &&
-  typeof window !== 'undefined' &&
-  (new URLSearchParams(window.location.search).has('review') ||
-    new URLSearchParams(window.location.search).has('demo'));
+// App.tsx 의 REVIEW/DEMO 와 같은 판정(services/demoMode) — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
+const ledgerMockMode = () => isMockMode();
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
@@ -143,6 +146,8 @@ function Icon({ d, size }: { d: string; size: number }) {
     </Svg>
   );
 }
+// 고양이 색 미선택(null)·모름 — 남의 칸을 내 색으로 칠하지 않고 빈 자리표시자 원으로 둔다(2-16 H21)
+const NO_CAT_COLOR = '';
 function Avatar({ color, n, size }: any) {
   return (
     <View
@@ -202,6 +207,8 @@ export function Hall({ e }: any) {
       // ok가 없으면 취소만 있는 선택창
       ok?: string;
       onOk?: () => void;
+      // 되돌릴 수 없는 행동(탈퇴·강퇴)만 붉은 확인 버튼을 쓴다
+      danger?: boolean;
       body?: React.ReactNode;
     } | null>(null);
   const [draft, setDraft] = useState({
@@ -211,7 +218,17 @@ export function Hall({ e }: any) {
     capacity: capacityOf(i),
   });
   const [managementError, setManagementError] = useState('');
+  const [managementBusy, setManagementBusy] = useState(false);
   const managementRun = useRef(0);
+  const visitorJoinPending = useRef(false);
+  const visitorJoinMounted = useRef(true);
+  const [visitorJoinBusy, setVisitorJoinBusy] = useState(false);
+  useEffect(() => {
+    visitorJoinMounted.current = true;
+    return () => {
+      visitorJoinMounted.current = false;
+    };
+  }, []);
   // 같은 섬의 관리 화면이라도 route 또는 인증 세대가 바뀌면 이전 요청의 UI 완료를 버린다.
   // 세대는 렌더 때 snapshot으로 잡아 effect dependency에 넣는다.
   const managementSessionGeneration = sessionGeneration();
@@ -225,15 +242,17 @@ export function Hall({ e }: any) {
   const managementHost = management.role === 'host';
   const displayHost = liveManagement ? managementHost : host;
   const managementMessage = liveManagement
-    ? managementError || management.error?.message || ''
+    ? managementError || (management.error ? managementErrorMessage(management.error) : '')
     : '';
   const runManagement = async (
     work: () => Promise<void>,
     success: string,
     afterSuccess?: () => void,
+    operation?: 'approve' | 'settings',
   ) => {
     const run = managementRun.current;
     setManagementError('');
+    setManagementBusy(true);
     try {
       await work();
       if (run !== managementRun.current) return;
@@ -241,15 +260,18 @@ export function Hall({ e }: any) {
       notify(success);
     } catch (error) {
       if (run !== managementRun.current) return;
-      setManagementError(
-        error instanceof Error ? error.message : '처리하지 못했어요. 다시 시도해 주세요.',
-      );
+      const message = managementErrorMessage(error, operation);
+      setManagementError(message);
+      // 정보 수정·위임 패널에는 주민 카드의 오류 줄이 안 보인다 — 패널에서는 토스트로 알린다(H5)
+      if (panel) notify(message);
+    } finally {
+      if (run === managementRun.current) setManagementBusy(false);
     }
   };
   const transferCandidates = liveManagement
     ? (management.members ?? [])
         .filter((m) => m.role !== 'host')
-        .map((m) => ({ id: m.id, name: m.name ?? '주민', color: m.catColor ?? s.color }))
+        .map((m) => ({ id: m.id, name: m.name ?? '주민', color: m.catColor ?? NO_CAT_COLOR }))
     : i.members;
   // 가계부: 서버 원장·지갑 조각이 정본이다 — 로컬 i.ledger 문자열·로컬 잔액 합산을 쓰지 않는다.
   // 방문자에게는 조회 자체를 하지 않는다(서버도 403). 리뷰·데모 모크 모드는 서버가 아예 없다 —
@@ -266,6 +288,7 @@ export function Hall({ e }: any) {
   const clientConstruction = s.serverIslands?.clientConstruction;
   const construction = useConstruction({
     active: liveConstruction,
+    withMembers: false,
     islandId: visitor ? null : liveIslandId,
     now: e.now,
     resumeTiming:
@@ -512,12 +535,16 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
-                  backgroundColor: ok ? '#e9a49d' : undefined,
+                  backgroundColor: ok
+                    ? dialog.danger
+                      ? '#e9a49d'
+                      : semanticTokens.color.accent
+                    : undefined,
                 }}
               >
                 <T
                   style={g(14, 22.4, {
-                    color: ok ? '#6f2d2a' : CARD_INK,
+                    color: ok && dialog.danger ? '#6f2d2a' : CARD_INK,
                     fontWeight: ok ? '700' : '400',
                   })}
                 >
@@ -1451,13 +1478,14 @@ export function Hall({ e }: any) {
     if (plan && (!liveConstruction || planItem !== undefined)) {
       const st = status(plan),
         name = liveConstruction ? planItem!.name : buildingNames[plan],
-        // 「각자 몫」= 총액 ÷ 대상 주민 수(올림) — 분모는 같은 조회의 서버 주민 목록이다
-        residents = liveConstruction ? (construction.members ?? []) : i.members,
-        share = liveConstruction
-          ? Math.ceil(planItem!.cost / Math.max(1, residents.length))
-          : buildingShare(i, plan),
+        // 로컬 시연의 몫. 실서버 본문은 아래 residentProgress만 사용한다.
+        share = buildingShare(i, plan),
         q = i.buildingQuest;
       const meId = liveConstruction ? getSession()?.userId : undefined;
+      const residentProgress =
+        opts?.selectedBuildingId === plan && opts.residentProgress?.buildingId === plan
+          ? opts.residentProgress
+          : null;
       const row = (label: string, value: string) => (
         <View
           key={label}
@@ -1515,13 +1543,16 @@ export function Hall({ e }: any) {
           <T style={g(15.5, 22.475, { color: '#f7fcff' })}>{text}</T>
         </View>
       );
-      const btn = (label: string, onPress: () => void) => (
+      const btn = (label: string, onPress: () => void, disabled = false) => (
         <Pressable
           testID="hall-plan-action"
           accessibilityRole="button"
           accessibilityLabel={label}
+          accessibilityState={{ disabled }}
+          disabled={disabled}
           onPress={onPress}
           style={{
+            opacity: disabled ? componentTokens.button.disabledOpacity : 1,
             marginTop: 10.3,
             minHeight: 56.8,
             alignItems: 'center',
@@ -1576,6 +1607,18 @@ export function Hall({ e }: any) {
           {text}
         </T>
       );
+      const shareRow = walletTotal(plan)
+        ? row('모으는 법', '섬 통장 합산')
+        : row(
+            '각자 몫',
+            residentProgress
+              ? residentProgress.requiredPerResident === null
+                ? '대상 주민이 없어요'
+                : `${residentProgress.requiredPerResident.toLocaleString('ko-KR')}마리 · ${residentProgress.residents.length}명`
+              : opts?.selectedBuildingId === plan
+                ? '조회 불가'
+                : '목표를 정한 뒤 확인해 주세요',
+          );
       // 서버 경로의 본문 — 잔액·몫·공사 구간 모두 options/POST 응답 값이다
       const liveCopy =
         st === 'locked' ? (
@@ -1605,10 +1648,8 @@ export function Hall({ e }: any) {
               `${opts!.villagePoints.toLocaleString('ko-KR')} / ${planItem!.cost.toLocaleString('ko-KR')}마리`,
             )}
             {bar((opts!.villagePoints / Math.max(1, planItem!.cost)) * 100)}
-            {walletTotal(plan)
-              ? row('모으는 법', '섬 통장 합산')
-              : row('각자 몫', `${share.toLocaleString('ko-KR')}마리 · ${residents.length}명`)}
-            {!walletTotal(plan) && (
+            {shareRow}
+            {!walletTotal(plan) && residentProgress && (
               <View
                 style={{
                   flexDirection: 'row',
@@ -1621,9 +1662,9 @@ export function Hall({ e }: any) {
                   borderTopColor: 'rgba(223, 247, 255, 0.667)',
                 }}
               >
-                {residents.map((m) => (
+                {residentProgress.residents.map((m) => (
                   <View
-                    key={m.id}
+                    key={m.userId}
                     style={{
                       paddingVertical: 1.3,
                       paddingHorizontal: 7.7,
@@ -1632,7 +1673,7 @@ export function Hall({ e }: any) {
                     }}
                   >
                     <T style={g(13, 17.55, { color: '#f7fcff' })}>
-                      {m.id === meId ? '나' : (m.name ?? '주민')}
+                      {m.userId === meId ? '나' : (m.name ?? '주민')}
                     </T>
                   </View>
                 ))}
@@ -1643,9 +1684,7 @@ export function Hall({ e }: any) {
         ) : (
           <>
             {row('총액', `${planItem!.cost.toLocaleString('ko-KR')}마리`)}
-            {walletTotal(plan)
-              ? row('모으는 법', '섬 통장 합산')
-              : row('각자 몫', `${share.toLocaleString('ko-KR')}마리 · ${residents.length}명`)}
+            {shareRow}
             {para(planDesc[plan] ?? '', true)}
           </>
         );
@@ -1722,6 +1761,7 @@ export function Hall({ e }: any) {
       );
       planView = (
         <View
+          testID="hall-building-plan"
           style={[
             {
               position: 'absolute',
@@ -1745,18 +1785,15 @@ export function Hall({ e }: any) {
             }),
           ]}
         >
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 12.9,
-            }}
-          >
-            <T style={g(15.5, 24.8, { color: '#e8faff', letterSpacing: 0.62 })}>
-              BUILDING PLAN · 01
-            </T>
-            {st === 'collect' && !liveConstruction && (
+          {st === 'collect' && !liveConstruction && (
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                marginBottom: 12.9,
+              }}
+            >
               <Pressable
                 testID="hall-plan-quest"
                 accessibilityRole="link"
@@ -1768,8 +1805,8 @@ export function Hall({ e }: any) {
                   게시판에서 보기 ›
                 </T>
               </Pressable>
-            )}
-          </View>
+            </View>
+          )}
           <View style={{ flex: 1, minHeight: 0, flexDirection: 'row', gap: 12.9 }}>
             <View
               style={{
@@ -1866,11 +1903,12 @@ export function Hall({ e }: any) {
                     )
                   : // 서버가 막은 사유 그대로 안내한다 — 권한·중복·선행 조건은 서버 판정
                     note(blockedText(planItem!.blockedReason)))}
-              {st === 'collect' &&
-                (planItem!.buildable
-                  ? btn('건설하기', liveBuild)
-                  : // 잔액 부족 등은 서버 blockedReason — 충분하면 null 이라 버튼이 나온다
-                    note(buildBlockedText(planItem!.blockedReason)))}
+              {st === 'collect' && (
+                <>
+                  {btn('건설하기', liveBuild, !planItem!.buildable)}
+                  {!planItem!.buildable && note(buildBlockedText(planItem!.blockedReason))}
+                </>
+              )}
             </>
           ) : (
             <>
@@ -1923,7 +1961,7 @@ export function Hall({ e }: any) {
   );
   // 관리 표면은 server snapshot을 받기 전 로컬 Island를 대체 화면으로 쓰지 않는다.
   if (liveManagement) {
-    if (management.loading) {
+    if (management.loading && !management.detail) {
       return shell(
         managementFrame(
           <View
@@ -1952,7 +1990,7 @@ export function Hall({ e }: any) {
             }}
           >
             <T style={g(16, 25.6, { color: MUTED, fontWeight: '700', textAlign: 'center' })}>
-              {management.error.message}
+              {managementErrorMessage(management.error)}
             </T>
             <Pressable
               testID="hall-management-retry"
@@ -2017,6 +2055,28 @@ export function Hall({ e }: any) {
       setPanel('transfer');
       return;
     }
+    if (liveManagement) {
+      // 서버 모드(4-06): 확인창은 서버 섬 이름·주민 수로, 탈퇴는 서버 명령으로 보낸다.
+      // 탈퇴 뒤 어느 섬이 current 가 될지는 서버 재조회가 정한다 — 이동 목적지를 약속하지 않는다.
+      const liveSolo = (management.members?.length ?? 0) <= 1;
+      const islandName = management.detail?.name ?? '';
+      setDialog({
+        title: `${eul(islandName)} 떠날까요?`,
+        text: liveSolo
+          ? '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.'
+          : '내가 모은 물고기와 기록은 섬에 남아요.',
+        detail: '계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.',
+        ok: liveSolo ? '삭제하고 나가기' : '탈퇴하기',
+        danger: true,
+        onOk: () =>
+          void runManagement(async () => {
+            const my = await e.islands.leave(liveIslandId);
+            // current 가 비면 App 이 섬 선택 화면으로 보낸다. 다른 섬이 current 면 홈으로.
+            if (my.currentIslandId) e.home();
+          }, '섬을 떠났어요.'),
+      });
+      return;
+    }
     const solo = !i.members.length;
     setDialog({
       title: `${eul(i.name)} 떠날까요?`,
@@ -2032,6 +2092,7 @@ export function Hall({ e }: any) {
         '이후 「혼자 시작 / 기존 섬 참여」 화면으로 이동해요.\n계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.'
       ),
       ok: solo ? (next ? '삭제하고 탈퇴' : '삭제하고 나가기') : '탈퇴하기',
+      danger: true,
       onOk: () => {
         e.dispatch({ type: 'LEAVE' });
         if (next) e.home();
@@ -2160,22 +2221,27 @@ export function Hall({ e }: any) {
     </Pressable>
   );
   // 방문자는 이 섬 주민이 아니므로 '나'를 앞에 붙이지 않는다
-  const residents = liveManagement
-    ? (management.members ?? []).map((m) => ({
-        id: m.id,
-        name: m.name ?? '주민',
-        color: m.catColor ?? s.color,
-        isHost: m.role === 'host',
-      }))
-    : [
-        ...(visitor ? [] : [{ id: 'me', name: '나', color: s.color, isHost: host }]),
-        ...i.members.map((m) => ({
+  const visitorMembers =
+    visitor && s.serverIslands?.visit?.island.id === i.id
+      ? s.serverIslands.visit.members.items
+      : null;
+  const residents =
+    liveManagement || visitorMembers
+      ? (visitorMembers ?? management.members ?? []).map((m) => ({
           id: m.id,
-          name: m.name,
-          color: m.color,
+          name: m.name ?? '주민',
+          color: m.catColor ?? NO_CAT_COLOR,
           isHost: m.role === 'host',
-        })),
-      ];
+        }))
+      : [
+          ...(visitor ? [] : [{ id: 'me', name: '나', color: s.color, isHost: host }]),
+          ...i.members.map((m) => ({
+            id: m.id,
+            name: m.name,
+            color: m.color,
+            isHost: m.role === 'host',
+          })),
+        ];
   const hostId = residents.find((m) => m.isHost)?.id;
   const transferDialog = (m: { id: string; name: string }) => ({
     title: '방장 위임',
@@ -2232,6 +2298,7 @@ export function Hall({ e }: any) {
                 title: '섬에서 내보낼까요?',
                 text: `${eul(m.name)} 섬에서 내보내요.\n모은 물고기와 기록은 섬에 남고, 건설 목표 대상에서 빠져요.`,
                 ok: '내보내기',
+                danger: true,
                 onOk: () => {
                   if (liveManagement)
                     void runManagement(
@@ -2370,7 +2437,7 @@ export function Hall({ e }: any) {
           value={draft[key]}
           onChangeText={(v) => setDraft((d) => ({ ...d, [key]: v }))}
           multiline={key === 'intro'}
-          maxLength={key === 'name' ? 20 : 60}
+          maxLength={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX}
           style={{
             height: key === 'intro' ? (land ? 57 : 62) : land ? 39 : 44,
             paddingVertical: land ? 7 : 10,
@@ -2387,6 +2454,7 @@ export function Hall({ e }: any) {
             textAlignVertical: 'top',
           }}
         />
+        <CharCount value={draft[key]} max={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX} />
       </View>
     );
     const approval = setting(
@@ -2485,6 +2553,7 @@ export function Hall({ e }: any) {
                 }),
               '섬 정보를 저장했어요.',
               () => setPanel(''),
+              'settings',
             );
           else {
             e.dispatch({
@@ -2506,7 +2575,7 @@ export function Hall({ e }: any) {
           borderWidth: 2,
           borderColor: BROWN,
           borderRadius: 99,
-          backgroundColor: '#f3d77d',
+          backgroundColor: semanticTokens.color.accent,
           boxShadow: `0px 3px 0px ${BROWN}`,
           opacity: draft.name.trim() ? 1 : 0.5,
         }}
@@ -2591,6 +2660,40 @@ export function Hall({ e }: any) {
       ? joinRequests(i)
       : [];
   const join = visitorJoinState(s, i);
+  const joinDisabled = visitorJoinBusy || join === 'full' || join === 'blocked';
+  const joinLabel = visitorJoinBusy ? '처리 중이에요' : visitorJoinLabel[join];
+  const serverJoin = async () => {
+    if (visitorJoinPending.current || joinDisabled) return;
+    if (s.session) return notify('집중이나 휴식을 마친 뒤 가입해 주세요.');
+    visitorJoinPending.current = true;
+    setVisitorJoinBusy(true);
+    const generation = sessionGeneration();
+    // 즉시 가입의 재조회가 current/방문 상태를 바꿔도, 같은 화면·인증의 성공 처리는 마친다.
+    const alive = () => visitorJoinMounted.current && generation === sessionGeneration();
+    try {
+      if (join === 'cancel') {
+        const request = pendingVisitRequest(s, i.id);
+        if (!request) return;
+        await e.islands.cancel(request.id);
+        if (alive()) notify('가입 신청을 취소했어요.');
+      } else {
+        const result = await e.islands.join(i.id, { showApproval: false });
+        if (!alive()) return;
+        if (result.status === 'pending') {
+          notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+        } else {
+          e.dispatch({ type: 'END_VISIT' });
+          e.reset('home');
+          e.notify(`${i.name} 주민이 됐어요`);
+        }
+      }
+    } catch (error) {
+      if (alive()) notify(islandErrorMessage(error));
+    } finally {
+      visitorJoinPending.current = false;
+      if (alive()) setVisitorJoinBusy(false);
+    }
+  };
   const section = (title: string, children: React.ReactNode, right?: string) => (
     <View
       style={{
@@ -2720,19 +2823,32 @@ export function Hall({ e }: any) {
                 borderTopColor: '#e2d2b7',
               }}
             >
-              {person({ ...q, name: q.name ?? '신청자', color: s.color }, n, {
-                size: 16,
-                style: {
-                  flex: 1,
-                  borderWidth: 0,
-                  paddingVertical: land ? 4 : 0,
-                  paddingHorizontal: land ? 6 : 0,
+              {person(
+                {
+                  ...q,
+                  name: q.name ?? '신청자',
+                  // 서버 모드는 신청자 본인의 색, 목업은 로컬 신청 데이터의 색
+                  color: liveManagement
+                    ? ((q as { catColor?: string | null }).catColor ?? NO_CAT_COLOR)
+                    : ((q as { color?: string }).color ?? s.color),
                 },
-              })}
+                n,
+                {
+                  size: 16,
+                  style: {
+                    flex: 1,
+                    borderWidth: 0,
+                    paddingVertical: land ? 4 : 0,
+                    paddingHorizontal: land ? 6 : 0,
+                  },
+                },
+              )}
               <Pressable
                 testID={`hall-reject-${q.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${q.name} 가입 거절`}
+                accessibilityLabel={`${q.name ?? '신청자'} 가입 거절`}
+                accessibilityState={{ disabled: managementBusy }}
+                disabled={managementBusy}
                 onPress={() => {
                   if (liveManagement)
                     void runManagement(
@@ -2742,8 +2858,9 @@ export function Hall({ e }: any) {
                   else e.dispatch({ type: 'REJECT_MEMBER', id: q.id });
                 }}
                 style={{
-                  minWidth: 40,
-                  height: 40,
+                  minWidth: 44,
+                  height: 44,
+                  opacity: managementBusy ? 0.5 : 1,
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: 1.5,
@@ -2757,25 +2874,30 @@ export function Hall({ e }: any) {
               <Pressable
                 testID={`hall-approve-${q.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${q.name} 가입 승인`}
+                accessibilityLabel={`${q.name ?? '신청자'} 가입 승인`}
+                accessibilityState={{ disabled: managementBusy }}
+                disabled={managementBusy}
                 onPress={() => {
                   if (liveManagement)
                     void runManagement(
                       () => management.answerRequest(q.id, 'approve'),
                       `${q.name ?? '신청자'}님의 가입을 승인했어요.`,
+                      undefined,
+                      'approve',
                     );
                   else if (isFull(i)) notify('정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.');
                   else e.dispatch({ type: 'ADD_MEMBER', id: q.id });
                 }}
                 style={{
                   minWidth: 52,
-                  height: 40,
+                  height: 44,
+                  opacity: managementBusy ? 0.5 : 1,
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
-                  backgroundColor: '#f3d77d',
+                  backgroundColor: semanticTokens.color.accent,
                 }}
               >
                 <T style={g(14, 22.4, { color: CARD_INK, fontWeight: '700' })}>승인</T>
@@ -2852,10 +2974,14 @@ export function Hall({ e }: any) {
         <Pressable
           testID="hall-join"
           accessibilityRole="button"
-          accessibilityLabel={visitorJoinLabel[join]}
-          accessibilityState={{ disabled: join === 'full' || join === 'blocked' }}
-          disabled={join === 'full' || join === 'blocked'}
+          accessibilityLabel={joinLabel}
+          accessibilityState={{ disabled: joinDisabled, busy: visitorJoinBusy }}
+          disabled={joinDisabled}
           onPress={() => {
+            if (e.islands) {
+              void serverJoin();
+              return;
+            }
             if (join === 'cancel') {
               e.dispatch({ type: 'CANCEL_JOIN', id: i.id });
               return;
@@ -2876,17 +3002,15 @@ export function Hall({ e }: any) {
             borderWidth: 2,
             borderColor: BROWN,
             borderRadius: 99,
-            backgroundColor: '#f3d77d',
+            backgroundColor: semanticTokens.color.accent,
             boxShadow: `0px 3px 0px ${BROWN}`,
-            opacity: join === 'full' || join === 'blocked' ? 0.5 : 1,
+            opacity: joinDisabled ? 0.5 : 1,
           }}
         >
-          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '800' })}>
-            {visitorJoinLabel[join]}
-          </T>
+          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '800' })}>{joinLabel}</T>
         </Pressable>
       ) : (
-        !displayHost && leaveBtn()
+        leaveBtn()
       )}
     </ScrollView>
   );

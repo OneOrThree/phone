@@ -159,6 +159,17 @@ export type ConstructionOptions = {
   walletVersion: number;
   /** **미완공** 건물만 온다(공사 중 포함). 홈의 완공 목록은 `/screens/home` 의 `buildings` 가 준다. */
   items: ConstructionItem[];
+  /** 목표 선택 당시 대상 주민의 실제 기여. 이전 서버 또는 합산 방식 목표에서는 없을 수 있다. */
+  residentProgress?: ConstructionResidentProgress | null;
+  /** 서버에서 진행 중인 공사. 이전 서버 응답에는 없을 수 있다. */
+  activeConstruction?: { buildingId: BuildingId; startedAt: string; completesAt: string } | null;
+};
+
+export type ConstructionResidentProgress = {
+  buildingId: string;
+  /** 대상 주민이 없으면 나눌 수 없으므로 null. */
+  requiredPerResident: number | null;
+  residents: { userId: string; name: string | null; contributed: number; remaining: number }[];
 };
 
 /** `PUT /islands/{islandId}/construction-target` 결과 — 목표 변경에는 차감이 없어 spent=0 이다. */
@@ -247,6 +258,51 @@ function validateOptions(raw: unknown): ConstructionOptions {
     }
     if (blockedReason !== null && typeof blockedReason !== 'string') {
       throw contractError('items.blockedReason');
+    }
+  }
+  const active = raw.activeConstruction;
+  if (active !== undefined && active !== null) {
+    if (
+      !isRecord(active) ||
+      typeof active.buildingId !== 'string' ||
+      !seen.has(active.buildingId) ||
+      typeof active.startedAt !== 'string' ||
+      typeof active.completesAt !== 'string' ||
+      !Number.isFinite(Date.parse(active.startedAt)) ||
+      !Number.isFinite(Date.parse(active.completesAt)) ||
+      Date.parse(active.completesAt) <= Date.parse(active.startedAt)
+    )
+      throw contractError('activeConstruction');
+  }
+  const progress = raw.residentProgress;
+  if (progress !== undefined && progress !== null) {
+    const count = (value: unknown): value is number =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+    if (
+      !isRecord(progress) ||
+      typeof progress.buildingId !== 'string' ||
+      !CANONICAL.has(progress.buildingId) ||
+      progress.buildingId !== selectedBuildingId ||
+      !Array.isArray(progress.residents) ||
+      (progress.requiredPerResident !== null && !count(progress.requiredPerResident)) ||
+      (progress.requiredPerResident === null) !== (progress.residents.length === 0)
+    )
+      throw contractError('residentProgress');
+    const residentIds = new Set<string>();
+    for (const resident of progress.residents) {
+      if (
+        !isRecord(resident) ||
+        typeof resident.userId !== 'string' ||
+        !resident.userId ||
+        residentIds.has(resident.userId) ||
+        (resident.name !== null && typeof resident.name !== 'string') ||
+        !count(resident.contributed) ||
+        !count(resident.remaining) ||
+        resident.remaining !==
+          Math.max(0, (progress.requiredPerResident as number) - resident.contributed)
+      )
+        throw contractError('residentProgress.residents');
+      residentIds.add(resident.userId);
     }
   }
   return raw as unknown as ConstructionOptions;

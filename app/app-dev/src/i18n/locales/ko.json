@@ -1,5 +1,6 @@
 {
   "common": {
+    "characterLimit": "{{max}}자까지 쓸 수 있어요 · {{count}}/{{max}}",
     "cancel": "취소",
     "ok": "확인",
     "close": "닫기",
@@ -519,11 +520,61 @@
       "goldenReelingA11y": "황금 물고기를 낚아 올리는 중"
     },
     "rest": {
+      "browsing": "모닥불 둘러보기",
       "resting": "휴식 중...",
       "pausedA11y": "멈춤",
       "endButton": "휴식 종료하기",
       "endConfirmTitle": "휴식을 끝내고 이번 집중을 마칠까요?",
       "keepResting": "계속 쉬기"
     }
+  },
+  "islandPicker": {
+    "currentIslandName": "현재 접속: {{name}}",
+    "chooseJoined": "가입한 섬 선택",
+    "mainTitle": "내 메인 섬 변경하기",
+    "currentTitle": "현재 섬 변경하기",
+    "mainDescription": "친구 목록과 프로필에 표시할 섬을 골라 주세요. 현재 접속한 섬은 그대로예요.",
+    "currentDescription": "가입한 섬 중 지금 들어갈 섬을 골라 주세요. 대표 섬은 그대로예요.",
+    "loading": "소속 섬을 불러오고 있어요.",
+    "members": "주민 {{count}}/{{max}}명",
+    "currentSuffix": " · 현재 선택된 섬",
+    "selected": "선택됨",
+    "empty": "가입한 섬이 없어요.",
+    "sessionBlocksMove": "집중이나 휴식을 마친 뒤 섬을 이동해 주세요.",
+    "reload": "다시 불러오기",
+    "saving": "변경 중이에요",
+    "saveMain": "대표 섬으로 저장하기",
+    "enter": "선택한 섬으로 가기",
+    "enterJoined": "가입한 섬으로 들어가기"
+  },
+  "islandVisit": {
+    "title": "바다 건너 섬",
+    "loading": "섬 정보를 불러오고 있어요.",
+    "residents": "주민 {{count}}/{{max}}명 · {{status}}",
+    "joined": "소속된 섬",
+    "pending": "승인 대기 중",
+    "visiting": "방문 중",
+    "resident": "주민",
+    "browse": "섬 둘러보기",
+    "sessionBlocksBrowse": "집중이나 휴식을 마친 뒤 섬을 구경해 주세요.",
+    "sceneryUnavailable": "섬 모습을 불러오지 못했어요. 잠시 후 다시 확인해 주세요.",
+    "pendingHint": "가입 신청 대기 중이에요. 신청 취소는 이 섬 마을회관에서 할 수 있어요.",
+    "checkRequest": "가입 신청 확인하기",
+    "writing": "처리 중이에요",
+    "enter": "이 섬으로 이동하기",
+    "requestJoin": "가입 신청",
+    "join": "이 섬에 가입하기",
+    "reload": "다시 불러오기"
+  },
+  "visitorBoard": {
+    "title": "게시판",
+    "readOnly": "방문 중에는 공지와 댓글을 읽을 수 있어요. 작성은 주민만 할 수 있어요.",
+    "formerResident": "떠난 주민",
+    "moreComments": "댓글 더 보기",
+    "commentCount": "댓글 {{count}}개",
+    "empty": "아직 공지가 없어요.",
+    "moreNotices": "공지 더 보기",
+    "loading": "불러오고 있어요.",
+    "reload": "다시 불러오기"
   }
 }

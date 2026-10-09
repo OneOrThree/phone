@@ -1,5 +1,6 @@
 {
   "common": {
+    "characterLimit": "Up to {{max}} characters · {{count}}/{{max}}",
     "cancel": "Cancel",
     "ok": "OK",
     "close": "Close",
@@ -534,11 +535,64 @@
       "goldenReelingA11y": "Reeling in a golden fish"
     },
     "rest": {
+      "browsing": "Campfire View",
       "resting": "On a break...",
       "pausedA11y": "Paused",
       "endButton": "End Break",
       "endConfirmTitle": "End your break and finish this focus session?",
       "keepResting": "Keep Resting"
     }
+  },
+  "islandPicker": {
+    "currentIslandName": "Currently on: {{name}}",
+    "chooseJoined": "Choose an island you joined",
+    "mainTitle": "Change Main Island",
+    "currentTitle": "Change Current Island",
+    "mainDescription": "Choose the island to show on your profile and friends list. Your current island will stay the same.",
+    "currentDescription": "Choose one of your islands to enter. Your main island will stay the same.",
+    "loading": "Loading your islands…",
+    "members": "Residents {{count}}/{{max}}",
+    "currentSuffix": " · Current selection",
+    "selected": "Selected",
+    "empty": "You haven't joined an island yet.",
+    "sessionBlocksMove": "Finish your focus session or break before switching islands.",
+    "reload": "Reload",
+    "saving": "Updating…",
+    "saveMain": "Save as Main Island",
+    "enter": "Go to Selected Island",
+    "enterJoined": "Enter an Island You Joined"
+  },
+  "islandVisit": {
+    "title": "Island Across the Sea",
+    "loading": "Loading island details…",
+    "residents": "Residents {{count}}/{{max}} · {{status}}",
+    "joined": "Joined",
+    "pending": "Awaiting approval",
+    "visiting": "Visiting",
+    "resident": "Resident",
+    "browse": "Explore Island",
+    "sessionBlocksBrowse": "Finish your focus session or break before exploring the island.",
+    "sceneryUnavailable": "Couldn't load the island view. Please try again later.",
+    "pendingHint": "Your join request is pending. You can cancel it at this island’s town hall.",
+    "checkRequest": "View Join Request",
+    "writing": "Updating…",
+    "enter": "Go to This Island",
+    "requestJoin": "Request to Join",
+    "join": "Join This Island",
+    "reload": "Reload"
+  },
+  "visitorBoard": {
+    "title": "Notice Board",
+    "readOnly": "Visitors can read notices and comments. Only residents can post.",
+    "formerResident": "Former resident",
+    "moreComments": "More Comments",
+    "commentCount": {
+      "one": "{{count}} comment",
+      "other": "{{count}} comments"
+    },
+    "empty": "No notices yet.",
+    "moreNotices": "More Notices",
+    "loading": "Loading…",
+    "reload": "Reload"
   }
 }

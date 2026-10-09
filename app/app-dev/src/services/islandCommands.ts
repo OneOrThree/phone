@@ -11,6 +11,8 @@ import {
   uuid,
 } from '@/services/api/client';
 import { me as apiMe } from '@/services/api/auth';
+import { updateProfile as apiUpdateProfile } from '@/services/api/account';
+import { switchCurrentIsland as apiSwitchCurrentIsland } from '@/services/api/home';
 import { sessionGeneration } from '@/services/api/session';
 import {
   cancelJoinRequest as apiCancelJoinRequest,
@@ -25,6 +27,7 @@ import {
   resolveInvitation as apiResolveInvitation,
   visitIsland as apiVisitIsland,
 } from '@/services/api/islands';
+import { leaveIsland as apiLeaveIsland } from '@/services/api/islandManagement';
 import { intentKeyPool, myIslandsConsistent, State } from '@/services/model';
 import { captureProductEvent } from '@/services/posthog';
 
@@ -39,8 +42,12 @@ export type IslandApi = {
   myJoinRequests: typeof apiMyJoinRequests;
   cancelJoinRequest: typeof apiCancelJoinRequest;
   myIslands: typeof apiMyIslands;
+  /** DELETE /islands/{id}/memberships/me — 본인 탈퇴. */
+  leave: typeof apiLeaveIsland;
   /** GET /me — 메인 섬 정본(GROMO-1971·2054). `/me/islands` 는 이 축을 싣지 않는다. */
   me: typeof apiMe;
+  switchCurrent: typeof apiSwitchCurrentIsland;
+  updateProfile: typeof apiUpdateProfile;
 };
 
 export type IslandCommandDeps = {
@@ -66,7 +73,10 @@ const defaultApi: IslandApi = {
   myJoinRequests: apiMyJoinRequests,
   cancelJoinRequest: apiCancelJoinRequest,
   myIslands: apiMyIslands,
+  leave: apiLeaveIsland,
   me: apiMe,
+  switchCurrent: apiSwitchCurrentIsland,
+  updateProfile: apiUpdateProfile,
 };
 
 const contractError = () =>
@@ -102,6 +112,23 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   const alive = (g: number) => {
     if (generation() !== g) throw staleError();
   };
+  // 오래된 조회가 새 섬 선택을 되돌리지 않게 읽기 순서를 구분한다.
+  let syncRevision = 0;
+  let visitRevision = 0;
+  let selectingGeneration: number | null = null;
+  const selection = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const g = generation();
+    if (selectingGeneration === g)
+      throw new ApiError('REQUEST_IN_PROGRESS', '섬을 변경하고 있어요. 잠시 기다려 주세요.', 409);
+    selectingGeneration = g;
+    ++syncRevision;
+    ++visitRevision;
+    try {
+      return await fn();
+    } finally {
+      if (selectingGeneration === g) selectingGeneration = null;
+    }
+  };
   const allJoinRequests = async (g: number) => {
     const requests: Awaited<ReturnType<IslandApi['myJoinRequests']>>['items'] = [];
     const ids = new Set<string>(),
@@ -126,14 +153,16 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   // null current+소속은 유효하다(첫 pending 승인이 소속을 만들어도 current는 안 옮긴다).
   // /me 의 mainIslandId 도 함께 싣는다 — 소속 목록이 바뀌는 자리마다(가입·생성·승인·이탈 복구)
   // 서버 도출값(가장 최근 가입)과 프로필 선택값이 갈리지 않게 같은 액션으로 갈아 끼운다.
-  const syncIslands = async () => {
+  const syncIslandSnapshot = async () => {
     const g = generation();
+    const revision = ++syncRevision;
     const [my, requests, account] = await Promise.all([
       api.myIslands(),
       allJoinRequests(g),
       api.me(),
     ]);
     alive(g);
+    if (revision !== syncRevision) throw staleError();
     if (!myIslandsConsistent(my)) throw contractError();
     deps.dispatch({
       type: 'ISLAND_SYNC',
@@ -141,8 +170,9 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       requests,
       mainIslandId: account.mainIslandId,
     });
-    return my;
+    return { my, requests };
   };
+  const syncIslands = async () => (await syncIslandSnapshot()).my;
   // 409·404 계열은 서버 상태가 바뀌었다는 뜻 — 재조회로 화면 데이터를 맞춘 뒤 원 오류를 다시 던진다.
   // 쓰기 명령(write)은 결과 불명 오류에서도 재조회한다 — 서버가 이미 커밋했을 수 있다(GROMO-2118).
   // 조회는 아무것도 불명으로 만들지 않으므로 제외한다(승인 대기 폴링이 실패마다 재조회를 부르지 않게).
@@ -156,9 +186,14 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       if (generation() !== g) throw staleError();
       if (
         thrown instanceof ApiError &&
-        (['STATE_CONFLICT', 'VERSION_CONFLICT', 'GROUP_NOT_FOUND', 'NOT_FOUND'].includes(
-          thrown.code,
-        ) ||
+        ([
+          'STATE_CONFLICT',
+          'VERSION_CONFLICT',
+          'GROUP_NOT_FOUND',
+          'NOT_FOUND',
+          'MEMBER_ONLY',
+          'GROUP_FULL',
+        ].includes(thrown.code) ||
           (write && unknownOutcome(thrown)))
       )
         try {
@@ -170,6 +205,58 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     }
   };
   const commands = {
+    switchCurrent: (islandId: string) =>
+      selection(() =>
+        call(async () => {
+          const g = generation();
+          const key = scoped().keys.key('current', islandId);
+          let my;
+          try {
+            await api.switchCurrent(islandId, key);
+            alive(g);
+            my = await syncIslands();
+          } catch (thrown) {
+            alive(g);
+            if (!unknownOutcome(thrown)) throw thrown;
+            // 쓰기 응답뿐 아니라 첫 확인 조회의 유실도 같은 복구 경로로 확정한다.
+            my = await syncIslands().catch(() => null);
+            alive(g);
+            if (my?.currentIslandId !== islandId) throw thrown;
+          }
+          alive(g);
+          scoped().keys.release('current', islandId);
+          // 멱등 응답은 과거 성공일 수 있다. 최신 current가 일치해야 입장을 확정한다.
+          if (my.currentIslandId !== islandId)
+            throw new ApiError('STATE_CONFLICT', '현재 섬이 바뀌었어요. 다시 선택해 주세요.', 409);
+          return my;
+        }),
+      ),
+    setMain: (islandId: string) =>
+      selection(() =>
+        call(async () => {
+          const g = generation();
+          const key = scoped().keys.key('main', islandId);
+          let account;
+          try {
+            await api.updateProfile({ mainIslandId: islandId }, key);
+            alive(g);
+            // 같은 키의 재전송 응답은 과거 값일 수 있어 /me를 다시 읽는다.
+            account = await api.me();
+          } catch (thrown) {
+            alive(g);
+            if (!unknownOutcome(thrown)) throw thrown;
+            account = await api.me().catch(() => null);
+            alive(g);
+            if (account?.mainIslandId !== islandId) throw thrown;
+          }
+          alive(g);
+          ++syncRevision;
+          deps.dispatch({ type: 'SERVER_MAIN_ISLAND', islandId: account.mainIslandId });
+          scoped().keys.release('main', islandId);
+          if (account.mainIslandId !== islandId)
+            throw new ApiError('STATE_CONFLICT', '대표 섬이 바뀌었어요. 다시 선택해 주세요.', 409);
+        }),
+      ),
     // 만들기: 응답만으로 로컬 성공 처리하지 않고 /me/islands 재조회로 current를 확정한다
     create: (input: CreateIslandInput) =>
       call(async () => {
@@ -201,8 +288,10 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     explore: () =>
       call(async () => {
         const g = generation();
+        const revision = ++syncRevision;
         const [screen, requests] = await Promise.all([api.explore(), allJoinRequests(g)]);
         alive(g);
+        if (revision !== syncRevision) throw staleError();
         if (!myIslandsConsistent(screen.memberships)) throw contractError();
         deps.dispatch({ type: 'ISLAND_SYNC', memberships: screen.memberships });
         deps.dispatch({
@@ -230,8 +319,10 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     visit: (islandId: string) =>
       call(async () => {
         const g = generation(),
+          revision = ++visitRevision,
           screen = await api.visit(islandId);
         alive(g);
+        if (revision !== visitRevision) throw staleError();
         deps.dispatch({ type: 'ISLAND_VISIT', visit: screen });
         return screen;
       }),
@@ -248,15 +339,51 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     // active면 /me/islands 재조회로 current를 확정한다(arrival/home은 CurrentScreens 차단이
     // 풀리기 전까지 열지 않는다). 응답이 확정되면 의도 키를 해제한다 — 취소·거절 뒤 같은 섬
     // 재신청은 새 키를 쓴다.
-    join: (islandId: string) =>
+    join: (islandId: string, { showApproval = true }: { showApproval?: boolean } = {}) =>
       call(async () => {
         const g = generation(),
           token = scoped().tokens[islandId],
-          body = token ?? '',
+          body = token ?? '';
+        // 복구된 활성 소속에는 쓰기 응답의 version이 없으므로 임의로 만들지 않는다.
+        let result: Omit<Awaited<ReturnType<IslandApi['join']>>, 'version'> & {
+          version?: number;
+        };
+        try {
           result = await api.join(islandId, {
             idempotencyKey: scoped().keys.key(`join:${islandId}`, body),
             invitationToken: token,
           });
+          alive(g);
+          if (result.status === 'active') await syncIslands();
+        } catch (error) {
+          alive(g);
+          if (!unknownOutcome(error)) throw error;
+          // 쓰기 응답 또는 첫 확인 조회가 유실돼도 같은 조회 묶음에서 성공을 확정한다.
+          const snapshot = await syncIslandSnapshot().catch(() => null);
+          alive(g);
+          if (!snapshot) throw error;
+          const { my, requests } = snapshot;
+          if (my.items.some((item) => item.id === islandId)) {
+            result = {
+              status: 'active',
+              requestId: null,
+              islandId,
+              currentIslandId: my.currentIslandId,
+            };
+          } else {
+            const request = requests.find(
+              (item) => item.islandId === islandId && item.status === 'pending',
+            );
+            if (!request) throw error;
+            result = {
+              status: 'pending',
+              requestId: request.id,
+              islandId,
+              currentIslandId: my.currentIslandId,
+              version: request.version,
+            };
+          }
+        }
         alive(g);
         if (result.status === 'pending' && result.requestId) {
           scoped().keys.release(`join:${islandId}`, body);
@@ -269,17 +396,15 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
               version: result.version,
             },
           });
-          deps.go('approval', islandId);
+          if (showApproval) deps.go('approval', islandId);
           captureProductEvent('island_join_requested');
         } else if (result.status === 'active') {
-          await syncIslands();
-          alive(g);
           scoped().keys.release(`join:${islandId}`, body);
           captureProductEvent('island_membership_activated', { method: 'joined' });
         }
         alive(g);
         return result;
-      }, true),
+      }),
     // 신청 상태 조회(승인 대기 폴링) — approved는 memberships 재조회 성공 뒤에만 공개한다.
     // 재조회가 실패하면 requestStatus를 갱신하지 않아 미확정 성공 카드가 뜨지 않고 다음 폴링이 재시도한다.
     status: (requestId: string) =>
@@ -310,27 +435,78 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     cancel: (requestId: string) =>
       call(async () => {
         const g = generation(),
+          snap = deps.getSnap(),
+          prev =
+            snap?.requestStatus.find((x) => x.id === requestId) ??
+            snap?.joinRequests.find((x) => x.id === requestId) ??
+            (snap?.visit?.joinRequest?.id === requestId ? snap.visit.joinRequest : undefined);
+        let res: Awaited<ReturnType<IslandApi['cancelJoinRequest']>> | undefined;
+        let islandId = prev?.islandId;
+        let version: number | undefined;
+        let requests: Awaited<ReturnType<typeof allJoinRequests>>;
+        try {
           res = await api.cancelJoinRequest(
             requestId,
             scoped().keys.key(`cancel:${requestId}`, ''),
           );
+          alive(g);
+          requests = await allJoinRequests(g);
+        } catch (error) {
+          alive(g);
+          if (!unknownOutcome(error)) throw error;
+          // DELETE 응답까지 잃었으면 목록 누락만으로 취소를 추측하지 않는다(동시 승인·거절 가능).
+          if (!res) {
+            const request = await api.joinRequest(requestId).catch(() => null);
+            alive(g);
+            if (request?.status !== 'cancelled') throw error;
+            res = { id: request.id, status: request.status };
+            islandId = request.islandId;
+            version = request.version;
+          }
+          const snapshot = await syncIslandSnapshot().catch(() => null);
+          alive(g);
+          if (!snapshot || snapshot.requests.some((item) => item.id === requestId)) throw error;
+          requests = snapshot.requests;
+        }
         alive(g);
-        // 목록이 갈아 끼워지기 전 기존 엔트리에서 islandId를 찾는다 — 모르면 합성하지 않는다
-        const snap = deps.getSnap(),
-          prev =
-            snap?.requestStatus.find((x) => x.id === requestId) ??
-            snap?.joinRequests.find((x) => x.id === requestId);
-        // 목록 갱신 전에 종결 상태를 먼저 기록한다 — reducer가 기존 항목의 version을 유지할 수 있게
-        if (prev)
+        // 확인 조회까지 성공한 뒤 종결을 발행한다. 실패 시 취소 버튼과 같은 요청 키를 남긴다.
+        if (islandId)
           deps.dispatch({
             type: 'ISLAND_REQUEST',
-            request: { id: res.id, islandId: prev.islandId, status: res.status },
+            request: {
+              id: res.id,
+              islandId,
+              status: res.status,
+              ...(version !== undefined ? { version } : {}),
+            },
           });
-        const requests = await allJoinRequests(g);
-        alive(g);
         deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests });
         scoped().keys.release(`cancel:${requestId}`, '');
-      }, true),
+      }),
+    // 섬 탈퇴(4-06) — 응답만으로 로컬 소속을 지우지 않고 /me/islands 재조회로 확정한다.
+    // 마지막 섬이었으면 current 가 비어 onboarded=false 가 되고 App 이 섬 선택 화면으로 보낸다.
+    // 결과 불명 오류는 재조회에서 소속이 사라졌으면 성공으로 확정한다.
+    leave: (islandId: string) =>
+      call(async () => {
+        const g = generation();
+        let my;
+        try {
+          await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+          alive(g);
+          my = await syncIslands();
+        } catch (error) {
+          alive(g);
+          if (!unknownOutcome(error)) throw error;
+          // 응답 유실과 첫 확인 조회 실패 모두 정본 재조회로 한 번 복구한다.
+          my = await syncIslands().catch(() => null);
+          alive(g);
+          if (!my || my.items.some((item) => item.id === islandId)) throw error;
+        }
+        alive(g);
+        if (my.items.some((item) => item.id === islandId)) throw contractError();
+        scoped().keys.release(`leave:${islandId}`, '');
+        return my;
+      }),
     // 부팅 동기화 재시도 — 성공하면 오류 플래그를 내린다. 단, 응답이 늦게 도착해 세대가
     // 죽었으면 플래그도 건드리지 않는다.
     sync: async () => {

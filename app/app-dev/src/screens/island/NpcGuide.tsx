@@ -5,6 +5,7 @@ import {
   Image,
   Keyboard,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -28,12 +29,17 @@ export function GuideBox({
   style,
   children,
   accessibilityViewIsModal,
+  onSkip,
+  skipTitle = t('onboarding.spotlightSkip'),
 }: {
   text: string;
   character?: 'mongdol' | 'pelican' | 'dog';
   style?: StyleProp<ViewStyle>;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   accessibilityViewIsModal?: boolean;
+  /** 안내를 끝내는 링크 — 단계마다 다른 버튼이 있어도 항상 왼쪽 같은 자리에 둔다. */
+  onSkip?: () => void;
+  skipTitle?: string;
 }) {
   return (
     <View style={[styles.box, style]} accessibilityViewIsModal={accessibilityViewIsModal}>
@@ -68,7 +74,21 @@ export function GuideBox({
           {text}
         </Txt>
       </View>
-      <View style={styles.actions}>{children}</View>
+      <View style={styles.actions}>
+        {onSkip && (
+          <Pressable
+            testID="guide-skip"
+            accessibilityRole="button"
+            accessibilityLabel={skipTitle}
+            onPress={onSkip}
+            hitSlop={8}
+            style={styles.skip}
+          >
+            <Txt style={styles.skipText}>{skipTitle}</Txt>
+          </Pressable>
+        )}
+        {children}
+      </View>
     </View>
   );
 }
@@ -288,7 +308,7 @@ export function TutorialSpotlight({
           ...guidePosition,
         }}
       >
-        <GuideBox text={text} style={{ position: 'relative' }}>
+        <GuideBox text={text} style={{ position: 'relative' }} onSkip={skip}>
           {!!error && (
             <Txt
               accessibilityRole="alert"
@@ -303,7 +323,6 @@ export function TutorialSpotlight({
             <Btn title={action.title} onPress={action.onPress} disabled={action.disabled} />
           )}
           {children ?? null}
-          {skip && <Btn title={t('onboarding.spotlightSkip')} kind="ghost" onPress={skip} />}
         </GuideBox>
       </ScrollView>
     </View>
@@ -349,8 +368,13 @@ export function MailboxGuide({
           contentContainerStyle={styles.scrollContent}
           bounces={false}
         >
-          <GuideBox character="pelican" text={lines[step]} style={styles.mailboxBox}>
-            <Btn title="건너뛰기" kind="ghost" onPress={() => onDone(false)} />
+          <GuideBox
+            character="pelican"
+            text={lines[step]}
+            style={styles.mailboxBox}
+            onSkip={() => onDone(false)}
+            skipTitle="건너뛰기"
+          >
             <Btn
               title={last ? '우체통 열기' : '다음'}
               dialog
@@ -410,8 +434,13 @@ export function ShopGuide({
           contentContainerStyle={styles.scrollContent}
           bounces={false}
         >
-          <GuideBox character="dog" text={shopLines[step]} style={styles.shopBox}>
-            <Btn title="건너뛰기" kind="ghost" onPress={onDone} />
+          <GuideBox
+            character="dog"
+            text={shopLines[step]}
+            style={styles.shopBox}
+            onSkip={onDone}
+            skipTitle="건너뛰기"
+          >
             <Btn
               title={last ? '상점 둘러보기' : '다음'}
               dialog
@@ -453,6 +482,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: space[4],
+  },
+  // 그만 보기는 왼쪽 끝에 붙고(marginRight auto) 나머지 버튼은 오른쪽으로 밀린다
+  skip: { marginRight: 'auto', minHeight: 44, justifyContent: 'center' },
+  skipText: {
+    fontSize: primitiveTokens.fontSize.sm,
+    lineHeight: space[5],
+    fontWeight: primitiveTokens.fontWeight.bold,
+    color: semanticTokens.color.textMuted,
+    textDecorationLine: 'underline',
   },
   overlay: { flex: 1, justifyContent: 'flex-end', alignItems: 'center' },
   scroll: { flexGrow: 0, flexShrink: 1, width: '100%', maxWidth: 414 },

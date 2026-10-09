@@ -134,8 +134,8 @@ it('타일 섬은 서버 home.layout 을 건물 평행이동으로 적용한다 
     const out = {
       layer: flat(screen.getByTestId('world-static-building-gram').props.style),
       door: flat(screen.getByLabelText(buildingNames.gram).props.style),
-      label: flat(screen.getByTestId('building-name-gram').props.style),
     };
+    expect(screen.queryByTestId('building-name-gram')).toBeNull();
     await screen.unmount();
     return out;
   };
@@ -152,9 +152,6 @@ it('타일 섬은 서버 home.layout 을 건물 평행이동으로 적용한다 
   expect(moved.layer.top - base.layer.top).toBeCloseTo(40.96 * s, 6);
   expect(moved.door.left - base.door.left).toBeCloseTo(153.6 * s, 6);
   expect(moved.door.top - base.door.top).toBeCloseTo(40.96 * s, 6);
-  // 이름표는 문 탭 영역 기준 상대 위치라 그대로다.
-  expect(moved.label.left).toBeCloseTo(base.label.left, 6);
-  expect(moved.label.top).toBeCloseTo(base.label.top, 6);
 });
 
 it('templateVersion 없는 구 템플릿 layout 이면 건물은 기본 위치 그대로다', async () => {

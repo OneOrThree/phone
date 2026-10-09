@@ -7,7 +7,7 @@ import React from 'react';
 import { render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { RedesignScreens } from '@/screens/island/Screens';
-import { initialState, type Route, type State } from '@/services/model';
+import { initialState, reducer, type Route, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 
 // 가로채기 고정 대상: RedesignScreens 를 호출 기록용 가짜로 바꾸되 나머지 export 는 실제 구현을 유지한다.
@@ -63,8 +63,10 @@ jest.mock('@/screens/focus/FishingIsland', () => {
   const { View } = require('react-native');
   return {
     ...actual,
-    FishingIsland: ({ children }: any) => (
-      <View testID="focus-world">{children(640, 640 / 1.5, 1)}</View>
+    FishingIsland: ({ children, gram }: any) => (
+      <View testID="focus-world" accessibilityLabel={gram ? 'gram-on' : 'gram-off'}>
+        {children(640, 640 / 1.5, 1)}
+      </View>
     ),
     FishingActor: () => <View />,
     FishingPeerActorView: () => <View />,
@@ -142,6 +144,7 @@ const mount = async (route: Route, state: State = serverFocusState()) =>
         notify: jest.fn(),
         text: '',
         setText: jest.fn(),
+        setGuideStep: jest.fn(),
         islands: {},
       }}
     />,
@@ -183,3 +186,32 @@ test('가로채기 목록에 없는 라우트 chooseIsland 는 RedesignScreens �
   expect(redesignScreensMock).toHaveBeenCalledTimes(1);
   await screen.unmount();
 });
+
+test.each([true, false])(
+  '방문 낚시 장면은 방문 섬의 방송기 완공 상태를 따른다: %s',
+  async (hasGram) => {
+    let state = serverFocusState();
+    state = reducer(state, {
+      type: 'SERVER_HOME',
+      facts: {
+        islandId: 'soda',
+        home: { island: { id: 'soda', role: 'member' }, wallets: { villagePoints: 0 } },
+        completedBuildings: hasGram ? ['hall', 'board'] : ['hall', 'board', 'gram'],
+        members: [],
+      },
+    } as any);
+    state = reducer(state, {
+      type: 'ISLAND_VISIT',
+      visit: {
+        island: { id: 'visitor' },
+        buildings: hasGram ? ['hall', 'board', 'gram'] : ['hall', 'board'],
+      },
+    } as any);
+    state = reducer(state, { type: 'SERVER_VISITING', islandId: 'visitor' });
+    const screen = await mount('visitIslandFocus', state);
+    expect(screen.getByTestId('focus-world').props.accessibilityLabel).toBe(
+      hasGram ? 'gram-on' : 'gram-off',
+    );
+    await screen.unmount();
+  },
+);

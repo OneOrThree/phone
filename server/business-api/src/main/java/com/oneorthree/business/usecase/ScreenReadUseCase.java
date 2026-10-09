@@ -167,8 +167,9 @@ public class ScreenReadUseCase {
     public Map<String, Object> visit(AccessTokenClaims claims, UUID islandId, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
         Map<String, Object> first = composer.compose(context, List.of(
-                fragment("island", deadline -> publicSummary(islands.island(claims, islandId, deadline)))));
-        IslandSummaryView island = (IslandSummaryView) first.get("island");
+                fragment("scene", deadline -> islands.islandScene(claims, islandId, deadline))));
+        IslandMembershipUseCase.IslandScene scene = (IslandMembershipUseCase.IslandScene) first.get("scene");
+        IslandSummaryView island = publicSummary(scene.island());
         List<ReadFragment<?>> fragments = new ArrayList<>(List.of(fragment("members",
                 deadline -> management.members(claims, islandId, null, IslandManagementUseCase.DEFAULT_LIMIT,
                         deadline))));
@@ -177,7 +178,9 @@ public class ScreenReadUseCase {
                     deadline -> islands.joinRequest(claims, island.joinRequestId(), deadline)));
         }
         Map<String, Object> second = composer.compose(context, fragments);
-        Map<String, Object> screen = new LinkedHashMap<>(first);
+        Map<String, Object> screen = new LinkedHashMap<>();
+        screen.put("island", island);
+        screen.put("buildings", scene.buildings());
         screen.put("members", second.get("members"));
         if (island.joinRequestId() == null) {
             screen.put("joinRequestAvailability", NONE);

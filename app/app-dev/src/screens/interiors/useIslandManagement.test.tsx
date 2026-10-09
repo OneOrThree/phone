@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { act, renderHook } from '@testing-library/react-native';
 import {
+  managementErrorMessage,
   CLIENT_BROKEN_PAGE,
   CLIENT_FORBIDDEN,
   CLIENT_IN_FLIGHT,
   CLIENT_INACTIVE,
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
-import { CLIENT_STALE_SESSION } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 
 type Call = { url: string; init: RequestInit };
@@ -1282,4 +1283,63 @@ test('쓰기 도중 언마운트 — 늦은 성공도 STALE 로 끝나고 상태
   release(data(managed()));
   const e = await w;
   assert.equal(code(e), CLIENT_STALE_SESSION);
+});
+
+test('같은 섬 재조회 중에는 확정된 목록을 남겨 두고 loading 만 켠다(2-16 H6)', async () => {
+  let release: (() => void) | null = null;
+  let detailGets = 0;
+  serve({
+    'GET /islands/i1': () => {
+      detailGets += 1;
+      if (detailGets === 1) return data(detail('host'));
+      // 두 번째(쓰기 뒤 확정) 재조회는 테스트가 풀어줄 때까지 붙잡는다
+      return new Promise<Resp>((resolve) => {
+        release = () => resolve(data(detail('host')));
+      });
+    },
+    'GET /islands/i1/members': data(membersPage([member('u1', 'host'), member('u2')])),
+    'GET /islands/i1/join-requests': data(requestsPage([joinReq('r1')])),
+    'PATCH /islands/i1/join-requests/r1': data({ status: 'approved', memberId: 'm', version: 2 }),
+  });
+  const h = await mount({ active: true, islandId: 'i1' });
+  await flush();
+  let done: Promise<void> | null = null;
+  await act(async () => {
+    done = h.result.current.answerRequest('r1', 'approve');
+  });
+  await flush();
+  // 재조회가 진행 중이어도 목록은 비지 않는다 — 전체 로딩 화면으로 깜빡이지 않는다
+  assert.equal(h.result.current.loading, true);
+  assert.equal(h.result.current.members?.length, 2);
+  assert.equal(h.result.current.detail?.id, 'i1');
+  await act(async () => {
+    release!();
+    await done;
+  });
+  assert.equal(h.result.current.loading, false);
+  await h.unmount();
+});
+
+test('정원 안내는 공개 오류의 field와 실행한 명령이 일치할 때만 구체화한다', () => {
+  const full = new ApiError('STATE_CONFLICT', '서버 원문', 409, { field: 'islandId' });
+  const small = new ApiError('STATE_CONFLICT', '서버 원문', 409, { field: 'maxMembers' });
+  assert.equal(
+    managementErrorMessage(full, 'approve'),
+    '정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.',
+  );
+  assert.equal(
+    managementErrorMessage(small, 'settings'),
+    '정원은 현재 주민 수보다 작게 줄일 수 없어요.',
+  );
+  assert.equal(
+    managementErrorMessage(full, 'settings'),
+    '섬 상태가 바뀌었어요.\n다시 확인한 뒤 시도해 주세요.',
+  );
+  assert.equal(
+    managementErrorMessage(
+      new ApiError('STATE_CONFLICT', '서버 원문', 409, { field: 'requestId' }),
+      'approve',
+    ),
+    '섬 상태가 바뀌었어요.\n다시 확인한 뒤 시도해 주세요.',
+  );
 });

@@ -79,7 +79,7 @@ import {
   initialState,
   demoState,
   reducer,
-  currentIsland,
+  displayIsland as currentIsland,
   viewIsland,
   sessionSeconds,
   questRate,
@@ -167,14 +167,10 @@ import {
   t,
   type LocalePref,
 } from '@/i18n';
-const REVIEW =
-  Platform.OS === 'web' &&
-  typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).has('review');
-const DEMO =
-  Platform.OS === 'web' &&
-  typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).has('demo');
+import { isDemoMode, isReviewMode } from '@/services/demoMode';
+// 판정 정본은 services/demoMode — 회관·게시판·우체통·posthog 도 같은 함수를 본다
+const REVIEW = isReviewMode();
+const DEMO = isDemoMode();
 // 검토·데모 모드 전용 언어 고정(`?review=1&lang=en`) — 저장된 gromo.locale 을 읽지 않는 mock 부팅에서
 // 쓴다. 없으면 'ko' 로 폴백(기존 캡처 스크립트가 한국어 이름을 찾는다), 지원 밖 값은 applyLocalePref 가
 // 이미 'system' 으로 정규화한다.
@@ -225,6 +221,7 @@ const titles: Record<Route, string> = {
   orders: '구매 내역',
   boat: '내 배',
   mainIsland: '내 메인 섬 변경하기',
+  currentIsland: '현재 섬 변경하기',
   profile: '내 정보',
   settings: '앱 설정',
   language: '언어',
@@ -459,6 +456,7 @@ function Gromo() {
   }, []);
   const island = currentIsland(state),
     qaBuildingsReady =
+      (!REVIEW && !DEMO && hasServerSession) ||
       !TESTFLIGHT_ALL_BUILDINGS ||
       !state.onboarded ||
       (buildingOrder.every((building) => island.buildings.includes(building)) &&
@@ -682,14 +680,47 @@ function Gromo() {
   const serverCurrent =
     !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
   const onHome = route === 'home' || route === 'guide';
+  const needsHome =
+    onHome ||
+    [
+      'focus',
+      'rest',
+      'focusSetup',
+      'focusTravel',
+      'fishingArrival',
+      'boat',
+      'hall',
+      'manage',
+      'members',
+      'ledger',
+      'construction',
+      'board',
+      'notice',
+      'noticeEdit',
+      'quest',
+      'questEdit',
+      'tower',
+      'explore',
+      'library',
+      'diary',
+      'stats',
+      'mail',
+      'chat',
+      'friendMail',
+      'shop',
+      'product',
+      'orders',
+      'sound',
+    ].includes(route);
   const buildingIndicators = useBuildingIndicators({
     active: !!serverCurrent,
     islandId: serverCurrent,
     onHome,
     refreshKey: homeReload,
   });
+  // 관리 화면도 needsHome이므로 홈 복귀 여부를 별도로 추적해 이름·인원·역할을 다시 읽는다.
   useEffect(() => {
-    if (!loaded || !serverCurrent || !onHome) return;
+    if (!loaded || !serverCurrent || !needsHome) return;
     let live = true;
     setHomeError(false);
     loadHomeSnapshot({ date: dayKey(), timezone: 'Asia/Seoul', isCurrent: () => live })
@@ -719,7 +750,7 @@ function Gromo() {
     return () => {
       live = false;
     };
-  }, [loaded, serverCurrent, onHome, homeReload]);
+  }, [loaded, serverCurrent, needsHome, onHome, homeReload]);
   // ── 집중 세션 서버 명령(GROMO-2009) ──
   // 섬 명령과 같은 저장소 규칙 — 멱등 키는 세대 격리 ref, state·세션은 최신 ref로 읽는다.
   const focusCmds = useRef<ReturnType<typeof createSessionCommands> | null>(null);
@@ -1393,11 +1424,18 @@ function Gromo() {
       if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
     }
-    if (state.onboarded) return;
+    if (state.onboarded || (state.visitingIslandId && ['board', 'notice'].includes(route))) return;
     if (
-      ['login', 'character', 'chooseIsland', 'createIsland', 'joinIsland', 'approval'].includes(
-        route,
-      )
+      [
+        'login',
+        'character',
+        'chooseIsland',
+        'createIsland',
+        'joinIsland',
+        'approval',
+        'currentIsland',
+        'visit',
+      ].includes(route)
     )
       return;
     // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
@@ -1622,7 +1660,10 @@ function Gromo() {
   useEffect(() => {
     if (!loaded || !hasServerSession || REVIEW || DEMO) return;
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') setNow(Date.now());
+      if (nextState === 'active') {
+        setNow(Date.now());
+        setHomeReload((value) => value + 1);
+      }
     });
     return () => subscription.remove();
   }, [loaded, hasServerSession]);
@@ -1649,6 +1690,16 @@ function Gromo() {
   }, [route, loaded, reviewEpoch]);
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      // 서버 방문은 현재 섬을 바꾸지 않으므로 방문 상태만 지우고 내 섬으로 돌아간다.
+      if (
+        ['home', 'visitIsland'].includes(route) &&
+        state.visitingIslandId &&
+        state.serverIslands
+      ) {
+        dispatch({ type: 'END_VISIT' });
+        reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+        return true;
+      }
       // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다
       if (route === 'home' && state.visitingIslandId) {
         dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });

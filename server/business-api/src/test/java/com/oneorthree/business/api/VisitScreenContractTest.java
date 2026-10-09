@@ -4,6 +4,7 @@ import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -56,7 +57,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.joinRequest.status").value("pending"))
                 .andExpect(jsonPath("$.data.joinRequest.version").value(1))
                 .andReturn();
-        assertKeys(result, "island", "members", "joinRequestAvailability", "joinRequest");
+        assertKeys(result, "island", "buildings", "members", "joinRequestAvailability", "joinRequest");
         assertThat(DATA.receivedFor(DATA_MEMBERS).get(0).query()).contains("limit=30");
     }
 
@@ -80,7 +81,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.joinRequestAvailability").value("none"))
                 .andExpect(jsonPath("$.data.joinRequest").value(nullValue()))
                 .andReturn();
-        assertKeys(result, "island", "members", "joinRequestAvailability", "joinRequest");
+        assertKeys(result, "island", "buildings", "members", "joinRequestAvailability", "joinRequest");
         assertThat(DATA.hits(DATA_REQUEST)).isZero();
         assertThat(DATA.received()).hasSize(2);
     }
@@ -130,6 +131,45 @@ class VisitScreenContractTest extends ScreenContractTestBase {
         mockMvc.perform(auth(get(PATH)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @Test
+    void completedBuildingsComeFromTheAuthorizedIslandRead() throws Exception {
+        DATA.on(DATA_ISLAND, request -> ok(visitor(null).replace("\"member\":null",
+                "\"member\":null,\"buildings\":[\"hall\",\"board\"]")));
+        DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        mockMvc.perform(auth(get(PATH)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.buildings[0]").value("hall"))
+                .andExpect(jsonPath("$.data.buildings[1]").value("board"))
+                .andExpect(jsonPath("$.data.buildings.length()").value(2))
+                .andExpect(jsonPath("$.data.island.role").doesNotExist())
+                .andExpect(jsonPath("$.data.wallets").doesNotExist());
+        assertThat(DATA.hits(DATA_ISLAND)).isEqualTo(1);
+        assertThat(DATA.received()).hasSize(2);
+    }
+
+    @Test
+    void missingAndEmptyBuildingsRemainDistinctDuringRollout() throws Exception {
+        DATA.on(DATA_ISLAND, request -> ok(visitor(null)));
+        DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        mockMvc.perform(auth(get(PATH))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.buildings").value(nullValue()));
+        DATA.on(DATA_ISLAND, request -> ok(visitor(null).replace("\"member\":null",
+                "\"member\":null,\"buildings\":[]")));
+        mockMvc.perform(auth(get(PATH))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.buildings").isEmpty());
+    }
+
+    @Test
+    void invalidBuildingListsFailTheScreenInsteadOfInventingFacilities() throws Exception {
+        for (String buildings : List.of("[\"unknown\"]", "[\"hall\",\"hall\"]", "[null]")) {
+            DATA.on(DATA_ISLAND, request -> ok(visitor(null).replace("\"member\":null",
+                    "\"member\":null,\"buildings\":" + buildings)));
+            mockMvc.perform(auth(get(PATH))).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+        }
+        assertThat(DATA.hits(DATA_MEMBERS)).isZero();
     }
 
     @Test

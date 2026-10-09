@@ -176,3 +176,17 @@ test('응원 세션이 바뀌어도 presence 연결을 다시 열지 않는다',
   assert.equal((sessions[0].dispose as jest.Mock).mock.calls.length, 0);
   assert.equal((sessions[0].setEmoteSessionId as jest.Mock).mock.calls.at(-1)?.[0], null);
 });
+
+test('섬 전환 직후 이전 주민 목록을 비우고 해제된 채널의 늦은 이벤트를 무시한다', async () => {
+  const { result, rerender } = await mount({ active: true, islandId: 'i1' });
+  const oldView = { ...READY, clockOffset: 123 };
+  await act(async () => sessions[0].deps.onView(oldView));
+  assert.equal(result.current.clockOffset, 123);
+  await rerender({ active: true, islandId: 'i2' });
+  assert.equal(result.current.clockOffset, 0);
+  await act(async () => sessions[0].deps.onView(oldView));
+  assert.equal(result.current.clockOffset, 0);
+  assert.equal(sessions[0].deps.alive?.(), false);
+  await act(async () => sessions[1].deps.onView({ ...READY, clockOffset: 456 }));
+  assert.equal(result.current.clockOffset, 456);
+});

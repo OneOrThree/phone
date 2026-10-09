@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, renderHook } from '@testing-library/react-native';
 import { AccessibilityInfo, Keyboard, Pressable, Text, TextInput, StyleSheet } from 'react-native';
 import {
+  GuideBox,
   MailboxGuide,
   ShopGuide,
   TutorialScene,
@@ -169,4 +170,26 @@ test('키보드가 올라오면 대화창의 스크롤 영역을 키보드 위�
   const style = StyleSheet.flatten(screen.getByTestId('tutorial-dialogue').props.style);
   expect(874 - style.bottom).toBeLessThan(550);
   expect(style.maxHeight).toBeLessThan(550);
+});
+
+test('안내 그만 보기는 다른 버튼이 있든 없든 항상 버튼 줄 맨 왼쪽에 있다', async () => {
+  const skip = jest.fn();
+  const order = (node: any): string[] => {
+    // 버튼 줄(actions)의 직계 자식 순서를 testID·글자로 읽는다
+    const actions = node.children.at(-1);
+    return actions.children.map((c: any) => c.props.testID ?? JSON.stringify(c.children));
+  };
+  const withNext = await render(
+    <GuideBox text="안내" onSkip={skip}>
+      <Text testID="next">다음</Text>
+    </GuideBox>,
+  );
+  expect(order(withNext.toJSON())[0]).toBe('guide-skip');
+  await act(async () => fireEvent.press(withNext.getByTestId('guide-skip')));
+  expect(skip).toHaveBeenCalledTimes(1);
+
+  const alone = await render(<GuideBox text="안내" onSkip={skip} />);
+  expect(order(alone.toJSON())).toEqual(['guide-skip']);
+  // 왼쪽 끝에 붙어 있도록 오른쪽 여백을 auto 로 민다
+  expect(StyleSheet.flatten(alone.getByTestId('guide-skip').props.style).marginRight).toBe('auto');
 });

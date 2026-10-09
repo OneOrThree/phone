@@ -58,6 +58,36 @@ export const CLIENT_IN_FLIGHT = 'CLIENT_IN_FLIGHT';
 
 const PAGE_LIMIT = 100;
 
+/** 서버 오류 코드 → 사용자 문구(2-15·2-18 H18). 서버·계약 문구를 화면에 그대로 내보내지 않는다. */
+const MANAGEMENT_MESSAGES: Record<string, string> = {
+  // 승인 대기 중에 정원이 찼다 — 신청은 남기고 승인만 막는다(정책). 방장에게 정원 확대를 안내(H7).
+  ROOM_FULL: '정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.',
+  MAX_MEMBERS_TOO_SMALL: '정원은 현재 주민 수보다 작게 줄일 수 없어요.',
+  ISLAND_MANAGEMENT_NOT_READY: '섬 관리 기능을 아직 사용할 수 없어요.\n잠시 후 다시 시도해 주세요.',
+  HOST_WITHDRAW: '방장은 바로 섬을 나갈 수 없어요.\n방장을 위임한 뒤 나가주세요.',
+  SESSION_IN_PROGRESS: '집중 중에는 섬을 떠날 수 없어요.\n집중을 마친 뒤 다시 시도해 주세요.',
+  [CLIENT_NETWORK_ERROR]: '연결이 불안정해요.\n잠시 후 다시 시도해 주세요.',
+  [CLIENT_TIMEOUT]: '응답이 늦어지고 있어요.\n잠시 후 다시 시도해 주세요.',
+};
+
+export function managementErrorMessage(error: unknown, operation?: 'approve' | 'settings'): string {
+  if (!(error instanceof ApiError)) return '처리하지 못했어요. 다시 시도해 주세요.';
+  // 공개 API는 내부 정원 오류를 STATE_CONFLICT + field로 변환한다.
+  if (error.code === 'STATE_CONFLICT') {
+    if (operation === 'approve' && error.field === 'islandId') return MANAGEMENT_MESSAGES.ROOM_FULL;
+    if (operation === 'settings' && error.field === 'maxMembers')
+      return MANAGEMENT_MESSAGES.MAX_MEMBERS_TOO_SMALL;
+  }
+  const mapped = MANAGEMENT_MESSAGES[error.code];
+  if (mapped) return mapped;
+  // 앱이 만든 CLIENT_ 오류는 이미 사용자 문구다(다른 명령 처리 중·로그인 변경 등)
+  if (error.code.startsWith('CLIENT_')) return error.message;
+  if (error.status === 403) return '이 작업을 할 권한이 없어요.';
+  if (error.status === 409) return '섬 상태가 바뀌었어요.\n다시 확인한 뒤 시도해 주세요.';
+  if (error.status === 400 || error.status === 422) return '입력한 내용을 다시 확인해 주세요.';
+  return '처리하지 못했어요. 잠시 후 다시 시도해 주세요.';
+}
+
 export type IslandManagementSnapshot = {
   /** 주민 상세 — role/version 이 확인된 것만 싣는다. */
   detail: ManagedIsland | null;
@@ -220,7 +250,15 @@ export function useIslandManagement({
         }
       };
       guard(); // 이미 죽은 scope 에서는 첫 요청도 내지 않는다
-      publish({ ...EMPTY, loading: true });
+      // 같은 섬 재조회(쓰기 뒤 확정 등)는 확정된 목록을 화면에 남겨 둔 채 loading 만 켠다 — 전체가
+      // 로딩 화면으로 깜빡이고 스크롤이 초기화되지 않게(2-16 H6). 쓰기 권한 근거(detailRef)는
+      // 기존대로 비워 재조회가 끝나기 전 추측된 권한으로 쓰기가 나가지 않게 한다.
+      detailRef.current = null;
+      setSnap((prev) =>
+        prev.detail?.id === scope.islandId
+          ? { ...prev, loading: true, error: null }
+          : { ...EMPTY, loading: true },
+      );
       try {
         const detail = await getManagedIsland(scope.islandId);
         guard();

@@ -37,6 +37,10 @@ export type IslandManaged = {
   version: number;
 };
 
+/** 섬 이름·소개 최대 길이 — 서버 생성·수정 계약(`@Size(max = 50)`·`@Size(max = 200)`)과 같다. */
+export const ISLAND_NAME_MAX = 50;
+export const ISLAND_INTRO_MAX = 200;
+
 /** 부분 수정 입력 — 허용 키만. `expectedVersion`·`password` 등 계약 밖 키는 타입이 막는다. */
 export type ManageIslandPatch = {
   /** 최대 50자, blank 불가. */
@@ -80,6 +84,8 @@ export type IslandJoinRequestItem = {
   id: string;
   applicantId: string;
   name: string | null;
+  /** 신청자 고양이 색(계정 Q03) — 미선택 null. 이 필드를 싣기 전 서버면 없을 수 있다. */
+  catColor?: string | null;
   status: 'pending';
   version: number;
 };

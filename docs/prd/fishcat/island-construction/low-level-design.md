@@ -144,6 +144,16 @@ GET options는 활성 주민의 조회다. 변경 권한이 없는 주민도 GET
 
 GET은 원본 data와 같은 스냅샷에서 읽은 `costPolicyVersion:1`을 추가한다. GET과 POST의 data에는 `walletVersion`도 필수 추가하며 반환 villagePoints의 공동 지갑 version이다. 원본 JSON은 보존하고 추가 필드 예시는 `{"walletVersion":7}`이다. islandVersion 및 costPolicyVersion과 비교하지 않는다. 앱은 응답 walletVersion이 이미 관측한 wallet.updated보다 낮으면 잔액과 잔액 의존 buildable을 적용하지 않고 새 GET으로 복구한다. 같은 지갑 버전이어도 island/cost 축이 낮으면 해당 옵션 부분을 적용하지 않는다. POST receipt는 원 walletVersion과 원 잔액을 보존하며 과거 성공 재생으로 최신 화면을 되돌리지 않는다. 이 숫자1은 예시 revision이다. cost revision이 바뀌었으면 섬 version이 같아도409 VERSION_CONFLICT(field=expectedCostPolicyVersion)다. current에는 현재 사용자가 볼 수 있는 options 공개 DTO만 넣고 재조회·금액 재확인 후 새 키를 사용한다. 가격 publication과 명령이 같은 정책 잠금 경계를 사용하여 검증 직후 가격만 교체되는 경합을 막는다.
 
+#### 주민별 준비량 조회 (2026-10-09)
+
+GET options는 `residentProgress`를 추가한다. 각자 몫 방식의 현재 목표가 있으면 `{buildingId, requiredPerResident, residents:[{userId,name,contributed,remaining}]}`를 반환한다. `name`은 nullable이고, `contributed`는 그 목표 epoch 이후 실제 기여, `remaining`은 `max(0, requiredPerResident - contributed)`다. 가격·대상 주민·기여는 착공 판정과 동일한 읽기 스냅샷을 사용한다. 탈퇴·강퇴·재가입 제외와 목표 선택 뒤 가입한 주민 제외도 같은 대상 산식을 따른다.
+
+`requiredPerResident`는 총액 ÷ 대상 인원을 올림한 정수다. 대상이 0명이면 null과 빈 주민 배열을 반환하며 착공은 불가능하다. 목표가 없거나 회관·게시판처럼 섬 잔액 합산 방식이면 `residentProgress=null`이다. 일반 주민도 이 정보를 조회할 수 있고, 목표 선택·착공 권한은 방장만 유지한다. 앱은 청사진을 눌러 열린 상세에서만 총 건설비·각자 목표량·주민별 남은 수량을 보여 준다.
+
+dev의 테스트 가격 1마리도 같은 산식을 적용한다. 대상이 2명이면 각자 1마리를 채워야 하지만 실제 착공 차감은 총액 1마리이므로, 둘이 모은 2마리 중 1마리는 섬 잔액에 남는다. 가격 설정은 이 조회 확장으로 변경하지 않는다.
+
+필드 추가는 Data → Business → 앱 순차 배포를 지원한다. 이전 Data 응답에는 필드가 없을 수 있으며 Business·앱은 이를 허용한다. 앱은 누락된 진행량을 주민 수·섬 잔액으로 추측하지 않고 조회 불가로 표시한다. DB 스키마 변경은 없다.
+
 목표 PUT은 costPolicyVersion과 잔액을 요구하지 않는다. target 변경에는 island version만 증가하고 wallet/appearance 사건은 없다. 같은 목표·현재 version은200/차감0/기존 version이며 receipt에 빈 events를 저장한다. 건설은 원본처럼 buildingId를 명시하는 별도 명령으로, 숨은 '현재 선택 목표와 반드시 일치' 제약을 새로 추가하지 않는다.
 
 ## 3. 멱등·오류·재생
@@ -247,3 +257,6 @@ GROMO-1895 추가(town-hall 화면 `ledger` 조각, 기획 `GET /v1/islands/{isl
 - 인덱스: 섬 축 인덱스가 유일키 `(island_id, type, idempotency_key)` 앞머리뿐이라 섬 한 곳의 원장을 훑는다. **분당 적립(D5-적립)으로 섬당 행 수가 빠르게 는다 — `(island_id, created_at, id)` 인덱스를 더할 시점이 가까워졌다**(하루 묶음 집계도 같은 스캔을 탄다).
 - 내부 경로(B26): `GET /internal/islands/{islandId}/resources/ledger` + 허용목록 `'GET /internal/islands/*/resources/ledger'`.
 
+GET options의 `activeConstruction`은 진행 중인 공사의 `{buildingId, startedAt, completesAt}`이며 공사가 없으면 null이다. 목표 ID는 착공 때 해제되므로 진행 중인 건물은 이 필드로 식별한다. 앱은 시각 도달을 재조회 신호로만 쓰고, 옵션에서 해당 건물이 빠진 뒤 홈 정본의 완공 목록을 확인하여 시설에 진입한다. 이전 서버에는 이 필드가 없을 수 있다.
+
+공개 `residentProgress.residents`는 차단한 주민의 이름을 주민 목록과 동일한 중립 이름으로 바꾼다. 대상 행·사용자 ID·기여량·남은 수량은 유지하며, 차단 조회에 실패하면 이름을 그대로 노출하지 않는다. 버전 충돌의 `current`에도 같은 정책을 적용한다.

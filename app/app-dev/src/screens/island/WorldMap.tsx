@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
+import { isDemoMode } from '@/services/demoMode';
 import {
   Animated,
   Easing,
@@ -135,28 +136,6 @@ const layer: Record<Building, string> = {
   tower: 'observatory',
   shop: 'shop',
 };
-const legacyBuildingLabelBox: Record<Building, { x: number; y: number; w: number }> = {
-  hall: { x: 949, y: 21, w: 242 },
-  board: { x: 856, y: 157, w: 80 },
-  gram: { x: 330, y: 391, w: 73 },
-  library: { x: 1120, y: 288, w: 239 },
-  mail: { x: 298, y: 520, w: 46 },
-  tower: { x: 150, y: 24, w: 112 },
-  shop: { x: 456, y: 580, w: 262 },
-};
-const legacyBuildingLabelAnchorY: Record<Building, number> = {
-  hall: 70,
-  board: 157,
-  gram: 365,
-  library: 310,
-  mail: 494,
-  tower: 52,
-  shop: 603,
-};
-const legacyBuildingLabelAnchorXOffset: Partial<Record<Building, number>> = {
-  tower: -12,
-};
-const rightAlignedBuildingLabels = new Set<Building>(['hall', 'library', 'shop']);
 type Door = Point & {
   r: Route;
   label: string;
@@ -188,6 +167,17 @@ export const legacyDoors: Record<string, Door> = (() => {
     memberOnly,
   });
   return {
+    fire: {
+      x: d.fire.x,
+      y: d.fire.y,
+      r: 'rest',
+      get label() {
+        return t('home.a11y.campfire');
+      },
+      memberOnly: true,
+      // 낮 연기와 밤 불꽃이 그려지는 영역을 함께 덮는다.
+      hitbox: d.fire.hitbox,
+    },
     hall: building('hall', 'hall'),
     board: building('board', 'board'),
     gram: building('gram', 'sound', true),
@@ -376,14 +366,14 @@ const localDayNight = (): VillageDayNight => {
   return hour >= 6 && hour < 18 ? 'day' : 'night';
 };
 
-/** 기기 현지 시각의 낮(06~18시)·밤. 웹 데모 쿼리 ?demo&night 로 고정할 수 있다. */
+/** 기기 현지 시각의 낮(06~18시)·밤. 데모 모드는 낮으로 고정하고, 웹 ?demo&night 로 밤을 볼 수 있다. */
 export function useVillageDayNight(): VillageDayNight {
   const demoParams =
     Platform.OS === 'web' && typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search)
       : null;
-  const demo = demoParams?.has('demo') === true;
-  const demoNight = demo && demoParams!.has('night');
+  const demo = isDemoMode();
+  const demoNight = demo && demoParams?.has('night') === true;
   const [dayNight, setDayNight] = useState<VillageDayNight>(() =>
     demo ? (demoNight ? 'night' : 'day') : localDayNight(),
   );
@@ -957,6 +947,7 @@ function FinalIslandScene({
   onBuildingEntrySound,
   layeredPreview = false,
   onServerBuilt,
+  onReturnFromVisit,
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug = false,
@@ -982,6 +973,8 @@ function FinalIslandScene({
   layeredPreview?: boolean;
   /** 서버 모드 홈 스냅샷 재조회 — 넘긴 화면(홈)에서만 서버 짓기 카드를 띄운다. */
   onServerBuilt?: () => void;
+  /** 서버 방문은 현재 소속 섬을 변경하지 않고 구경만 끝낸다. */
+  onReturnFromVisit?: () => void;
   mapAssets?: MapAssetSource;
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기 — 켜진 동안만 마지막 걷기를 기록한다. */
@@ -991,9 +984,7 @@ function FinalIslandScene({
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
   const explicitVisit = !!viewingIslandId,
     // 방문 카드(viewingIslandId)로 연 섬은 내 홈 스냅샷으로 대신 그리지 않는다 — 기존 폴백 유지
-    i = viewingIslandId
-      ? (state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state))
-      : homeIsland(state),
+    i = viewingIslandId ? viewIsland(state, viewingIslandId) : homeIsland(state),
     // 서버 모드 내 섬 홈이면 스냅샷(GROMO-2138) — 주민 색·오늘 집중을 서버 값으로 그린다
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
@@ -1051,6 +1042,7 @@ function FinalIslandScene({
     // 네 건물은 낮·밤 모두 진입 프레임이 있다.
     !scene &&
     (target === 'hall' || target === 'library' || target === 'shop' || target === 'tower');
+  const fireObject = scene?.objects.find((object) => object.kind === 'fire');
   // 렌더 시점 스프레드 — legacyDoors 의 label 게터가 여기서 그때 언어로 복사된다. useMemo/useCallback/React.memo
   // 로 감싸면 언어를 바꿔도 라벨이 굳으니 메모이즈하지 않는다(GROMO-2239·에픽 리뷰).
   const doors: Record<string, Door> = scene
@@ -1065,9 +1057,21 @@ function FinalIslandScene({
                 // 기본 배경 좌표의 뗏목 탭 영역은 마을 장면 좌표와 맞지 않는다.
                 hitbox: undefined,
               }
-            : door.building
-              ? { ...door, ...villageDoors[door.building] }
-              : door,
+            : id === 'fire' && fireObject
+              ? {
+                  ...door,
+                  x: fireObject.x,
+                  y: fireObject.y + fireObject.h / 2,
+                  hitbox: {
+                    x: fireObject.x - fireObject.w / 2,
+                    y: fireObject.y - fireObject.h,
+                    w: fireObject.w,
+                    h: fireObject.h,
+                  },
+                }
+              : door.building
+                ? { ...door, ...villageDoors[door.building] }
+                : door,
         ]),
       )
     : Object.fromEntries(
@@ -1405,47 +1409,6 @@ function FinalIslandScene({
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
-            const labelOnRight = d.building != null && rightAlignedBuildingLabels.has(d.building);
-            const buildingLabelPosition = (() => {
-              if (id === 'raft') {
-                return scene
-                  ? {
-                      left: (185 - hitbox.x) * s,
-                      top: (805 - hitbox.y) * s,
-                      width: 210 * s,
-                      alignItems: 'center' as const,
-                    }
-                  : {
-                      left: 0,
-                      top: -30,
-                      width: hitbox.w * s,
-                      alignItems: 'center' as const,
-                    };
-              }
-              if (d.building == null) return { left: 0, top: 0, alignItems: 'flex-start' as const };
-              if (scene) {
-                return labelOnRight
-                  ? { right: 0, top: -30, alignItems: 'flex-end' as const }
-                  : { left: 0, top: -30, alignItems: 'flex-start' as const };
-              }
-              // 이름표 컨테이너(hitbox)는 이미 shift 만큼 옮겨져 있다. box·anchorY 상수에도 같은 shift 를 더해야
-              // 컨테이너 기준 상대 위치가 그대로다(더하지 않으면 -shift 만큼 틀어진다).
-              const shift = buildingOffsets[d.building] ?? NO_OFFSET;
-              const box = legacyBuildingLabelBox[d.building];
-              const anchorY = legacyBuildingLabelAnchorY[d.building] + shift.y;
-              const anchorXOffset = legacyBuildingLabelAnchorXOffset[d.building] ?? 0;
-              return labelOnRight
-                ? {
-                    right: (hitbox.x + hitbox.w - (box.x + shift.x + box.w)) * s,
-                    top: (anchorY - hitbox.y) * s,
-                    alignItems: 'flex-end' as const,
-                  }
-                : {
-                    left: (box.x + shift.x + anchorXOffset - hitbox.x) * s,
-                    top: (anchorY - hitbox.y) * s,
-                    alignItems: 'flex-start' as const,
-                  };
-            })();
             return (
               <Pressable
                 key={id}
@@ -1529,6 +1492,7 @@ function FinalIslandScene({
                   // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
                   if (d.building === 'hall') go('manage');
                   else if (d.building === 'board') go('board');
+                  else if (d.building === 'gram') return;
                   else notify?.(t('home.door.membersOnly'));
                 }}
                 style={{
@@ -1541,38 +1505,7 @@ function FinalIslandScene({
                   minHeight: 44,
                   zIndex: scene ? 2000 : undefined,
                 }}
-              >
-                {(d.building || id === 'raft') && (
-                  <View
-                    testID={`building-name-${id}`}
-                    pointerEvents="none"
-                    style={{
-                      position: 'absolute',
-                      ...buildingLabelPosition,
-                    }}
-                  >
-                    <View
-                      style={{
-                        minHeight: componentTokens.villageBuildingNameTag.minHeight,
-                        justifyContent: 'center',
-                        paddingHorizontal: componentTokens.villageBuildingNameTag.paddingHorizontal,
-                        borderRadius: componentTokens.villageBuildingNameTag.radius,
-                        borderWidth: componentTokens.villageBuildingNameTag.borderWidth,
-                        borderColor: semanticTokens.color.outline,
-                        backgroundColor:
-                          (d.building === 'shop' && shopState !== 'normal') ||
-                          (d.building === 'tower' && observatoryRankState !== 'normal')
-                            ? semanticTokens.color.accent
-                            : semanticTokens.color.surface,
-                      }}
-                    >
-                      <Txt kind="meta" numberOfLines={1} style={{ fontWeight: '700' }}>
-                        {d.label}
-                      </Txt>
-                    </View>
-                  </View>
-                )}
-              </Pressable>
+              />
             );
           })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
@@ -1682,14 +1615,9 @@ function FinalIslandScene({
       (i.quests.length > 0 || rewardCount > 0);
   const departFocus = () => {
     if (buildingEntryPending.current) return;
-    // 걷기가 끝나 항해가 실제로 시작된 뒤에 진행한다 — 도중에 끊기면 4단계 스포트라이트가 남는다.
-    const started = !!focusTutorial;
-    walk(doors.raft, () => {
-      // 걷는 도중 안내 그만 보기로 4단계가 사라졌으면 저장된 단계를 되돌리지 않고 항해도 시작하지 않는다.
-      if (started && !focusTutorialLatest.current) return;
-      focusTutorialLatest.current?.onPress();
-      go('focusTravel');
-    });
+    // 집중하기는 뗏목까지 걸어가지 않고 바로 항해 화면으로 넘어간다 — 걷는 시간만큼 기다리게 했다.
+    focusTutorialLatest.current?.onPress();
+    go('focusTravel');
   };
   return (
     <TutorialScene
@@ -1927,6 +1855,7 @@ function FinalIslandScene({
                 title={t('home.returnToMyIsland')}
                 id="visit-return"
                 onPress={() => {
+                  if (onReturnFromVisit) return onReturnFromVisit();
                   // 구경을 끝내고 내 섬으로 배를 타고 돌아간다. Travel 도착 시 SWITCH_ISLAND 후 홈
                   dispatch?.({ type: 'TRAVEL_FROM', name: i.name });
                   dispatch?.({ type: 'END_VISIT' });
@@ -1986,10 +1915,7 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
   );
   const [navDebug, setNavDebug] = useState(false);
-  const demoMotionStates =
-    Platform.OS === 'web' &&
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).has('demo');
+  const demoMotionStates = isDemoMode();
   return (
     <View style={{ flex: 1 }}>
       <FinalIslandScene

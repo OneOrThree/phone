@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
@@ -98,6 +99,7 @@ public class IslandMembershipService {
     private final PublicCommandService publicCommands;
     private final IslandWalletRepository islandWalletRepository;
     private final IslandConstructionStateRepository islandConstructionStateRepository;
+    private final IslandFacilityQueryService facilityQueries;
     private final IslandMovementGuards movementGuards;
     private final BannedWords bannedWords;
 
@@ -233,14 +235,15 @@ public class IslandMembershipService {
                     ? IslandSummaries.STATUS_PENDING : IslandSummaries.STATUS_NONE;
             return IslandViewResponse.ofVisitor(IslandSummaries.of(
                     island, memberCount, membershipStatus,
-                    latest == null ? null : latest.getId()));
+                    latest == null ? null : latest.getId()), facilityQueries.completedBuildings(islandId));
         }
         return IslandViewResponse.ofMember(new IslandDetailView(
                 island.getId(), island.getName(), IslandSummaries.introOf(island),
                 IslandSummaries.visibilityOf(island),
                 island.isApprovalRequired(), memberCount, island.getMaxMembers(),
                 IslandSummaries.STATUS_ACTIVE, null, null,
-                roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion()));
+                roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion()),
+                facilityQueries.completedBuildings(islandId));
     }
 
     // ---------------------------------------------------------------- §3.5 memberships
@@ -307,9 +310,9 @@ public class IslandMembershipService {
     /**
      * 첫 소속 탐색 (LLD §3.3). 전망대 가드가 <b>없다</b> — 아직 섬이 없는 사람을 위한 경로다.
      *
-     * <p>후보 조건은 공개·{@code approvalRequired=false}·미소속·미종료·미삭제·실제 가입 가능 정원이며
-     * 강퇴 이력이 있는 섬은 제외한다. 「즉시 가입 가능」이라고 보여 준 뒤 가입에서 막히지 않게
-     * 하려는 것이라 정원과 강퇴를 SQL 에서 함께 건다.
+     * <p>후보 조건은 공개·미소속·미종료·미삭제·실제 가입 가능 정원이며 강퇴 이력이 있는 섬은 제외한다.
+     * 승인제도 후보에 포함한다. {@code approvalRequired} 로 즉시 가입과 가입 신청을 구분하며,
+     * 신청 자체가 불가능한 후보를 보여 주지 않도록 정원과 강퇴를 SQL 에서 함께 건다.
      *
      * <p>탐색 세션이 시작된 <b>뒤에 생긴</b> 섬도 뒷 페이지에 노출된다 — 매 페이지 후보를 다시 조회하고
      * 순서가 {@code md5(seed || id)} 라 그 값이 경계보다 크면 실린다. 의도적이다: 후보 집합을 세션 시작
