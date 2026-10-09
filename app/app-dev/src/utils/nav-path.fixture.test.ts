@@ -58,6 +58,15 @@ const CASES: Input[] = [
     from: SPAWN,
     to: { x: 100, y: 100 },
   },
+  // 좌표 계약(HLD §2): 범위 밖 탭은 서버가 거부한다 — resolveTarget 이 셀 변환 전에 isInsideWorld 로 거른다(리뷰 반영).
+  { name: '바다 밖 좌표 (-1, 50) 탭 → 거부(unreachable)', from: SPAWN, to: { x: -1, y: 50 } },
+  { name: '범위 밖 (100.5, 50) → 거부', from: SPAWN, to: { x: 100.5, y: 50 } },
+  // 경계값 100 은 isInsideWorld 가 포함(≤100)하므로 여전히 유효 — 거부 사례와 짝을 이루는 정상 경로.
+  {
+    name: '월드 경계(100,50) 탭 → 여전히 유효(본섬 최근접 보정)',
+    from: SPAWN,
+    to: { x: 100, y: 50 },
+  },
   // 회관 원화 상자 [949,21,242,244] 의 가운데 — 바다가 아닌 섬 안 비통행 셀.
   { name: '건물(회관 px 1070,143) 탭 → 본섬 최근접 보정', from: SPAWN, to: px(1070, 143) },
   { name: '다른 섬(낚시섬) 탭 → 본섬 최근접 보정', from: SPAWN, to: at(88, 89) },

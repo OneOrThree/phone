@@ -46,10 +46,11 @@ public final class Pathfinder {
 
     /**
      * 출발 셀이 비통행이면 전체 통행 셀 중 최근접에서 출발하고, 목적지가 비통행이거나 출발 영역 밖이면 출발 영역 안
-     * 최근접 셀로 보정한다(HLD §3 ③). 목적지가 비유한값이거나 출발할 셀이 없으면 빈 값.
+     * 최근접 셀로 보정한다(HLD §3 ③). 목적지가 범위 밖(비유한값 포함)이거나 출발할 셀이 없으면 빈 값.
      */
     public static Optional<Target> resolveTarget(NavGrid grid, WorldPoint from, WorldPoint to) {
-        if (!Double.isFinite(to.x()) || !Double.isFinite(to.y())) {
+        // 좌표 계약(HLD §2): 서버는 범위 밖 입력을 거부한다 — 앱은 탭이 이미지 안이라 실제로는 못 만들지만 계약을 맞춘다.
+        if (!WorldCoords.isInsideWorld(to.x(), to.y())) {
             return Optional.empty();
         }
         int s = startCell(grid, from);

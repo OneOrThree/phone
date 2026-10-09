@@ -8,6 +8,7 @@ import {
   WorldPoint,
   cellCenterToWorld,
   imageToWorld,
+  isInsideWorld,
   worldToCell,
   worldToImage,
 } from './worldCoords';
@@ -158,7 +159,8 @@ export function resolveTarget(
   from: WorldPoint,
   to: WorldPoint,
 ): { start: number; target: CellIndex } | null {
-  if (!Number.isFinite(to.x) || !Number.isFinite(to.y)) return null;
+  // 좌표 계약(HLD §2): 서버는 범위 밖 입력을 거부한다 — 앱은 탭이 이미지 안이라 실제로는 못 만들지만 계약을 맞춘다.
+  if (!isInsideWorld(to)) return null;
   const s = startCell(g, from);
   if (s < 0) return null;
   const t = cellOf(worldToCell(to), g);
