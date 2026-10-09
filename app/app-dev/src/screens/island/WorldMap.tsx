@@ -1031,6 +1031,23 @@ export function WorldMap({
     </View>
   );
 }
+// 이동 보기 오버레이(GROMO-2249) flush 결과 비교용 — 시간값(snapshotReceivedAt·waitingSince)은 절대
+// 시각이라 빼고, 나머지가 같으면 이전 state 를 그대로 써 TileTerrainCanvas 리렌더를 건너뛴다(보완 3).
+const sameImagePoint = (a: Point | null, b: Point | null) =>
+  a === b || (!!a && !!b && a.x === b.x && a.y === b.y);
+// path 는 flush 마다 새 배열이라 참조가 다르면 길이 + 끝점만 비교한다(매번 깊이 비교하지 않는다).
+const sameImagePath = (a: Point[] | null, b: Point[] | null) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.length === b.length &&
+    sameImagePoint(a[a.length - 1] ?? null, b[b.length - 1] ?? null));
+const sameServerDebug = (a: NavServerDebug, b: NavServerDebug) =>
+  a.status === b.status &&
+  a.correctedAt === b.correctedAt &&
+  sameImagePoint(a.predicted, b.predicted) &&
+  sameImagePoint(a.snapshot, b.snapshot) &&
+  sameImagePath(a.path, b.path);
 function FinalIslandScene({
   state,
   go,
@@ -1580,24 +1597,45 @@ function FinalIslandScene({
     const flush = () => {
       lastFlush = Date.now();
       timer = null;
-      const st = controller?.state() ?? null;
-      // 거절(controller.deny())되거나 채널이 닫혀 movement.current 가 null 이 되면 lastPath·lastSnapshot 은
-      // 컨트롤러 안에 그대로 남는다 — 오버레이까지 묵은 경로·스냅샷을 계속 그리지 않게 통째로 비운다(지적 3).
-      if (st?.denied || !movement.current) {
+      // 컨트롤러가 없으면(동기화 off·비홈이거나 아직 안 열렸다) 동기화 자체가 꺼진 것과 같다 — "전부 null"
+      // 객체 대신 server 자체를 비워 TileTerrainCanvas 쪽 판정이 상시 켜지지 않게 한다(GROMO-2249 보완 — 항목 2).
+      // movement.current(살아있는 ref)가 아니라 캡처한 controller 로 판정한다 — 거절·언마운트 정리는 항상
+      // controller.deny() 를 먼저 부르고서 movement.current 를 null 로 비우므로, 거절은 아래 st.denied 로 이미
+      // 갈린다. 산 ref 로 판정하면 거절 직후 movement.current 가 비는 순간 off 로 오판한다.
+      if (!controller) {
         setServerDebug(null);
         return;
       }
-      setServerDebug({
-        path: st?.lastPath
-          ? [st.lastPath.start, ...st.lastPath.waypoints].map((p) => worldToImage(p, size))
-          : null,
-        snapshot: st?.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
-        predicted: location.current,
-        correctedAt: st?.lastCorrectionAt ?? null,
-        // state() 가 송신·수신 시각을 그대로 준다(GROMO-2249 보완) — commandSeq/serverTick 변화로 추정하지 않는다.
-        snapshotAgeMs: st?.lastSnapshot ? Date.now() - st.lastSnapshot.receivedAt : null,
-        waitingSince: st?.sentAt ?? null,
-      });
+      const st = controller.state();
+      const next: NavServerDebug = st.denied
+        ? // 거절(controller.deny())되면 lastPath·lastSnapshot 은 컨트롤러 안에 그대로 남는다 — 오버레이까지
+          // 묵은 경로·스냅샷을 계속 그리지 않게 통째로 비운다(지적 3). status 로 "서버 없음"과 구분한다(보완 5).
+          {
+            status: 'denied',
+            path: null,
+            snapshot: null,
+            predicted: null,
+            correctedAt: null,
+            snapshotReceivedAt: null,
+            waitingSince: null,
+          }
+        : {
+            status: 'live',
+            path: st.lastPath
+              ? [st.lastPath.start, ...st.lastPath.waypoints].map((p) => worldToImage(p, size))
+              : null,
+            snapshot: st.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
+            predicted: location.current,
+            correctedAt: st.lastCorrectionAt,
+            // state() 가 수신 시각을 그대로 준다(GROMO-2249 보완) — 틱 지연(now - 이 값)은 readout 이 그릴 때
+            // 계산해, 절대 시각이라 메시지가 안 와도 값이 그대로다(아래 shallow 비교가 매번 새 객체를 안 만든다).
+            snapshotReceivedAt: st.lastSnapshot?.receivedAt ?? null,
+            waitingSince: st.sentAt,
+          };
+      // path·snapshot·predicted·correctedAt·status 가 이전과 같으면 이전 state 를 그대로 돌려줘 리렌더를
+      // 건너뛴다 — 시간값은 비교하지 않는다(보완 3). 효과 클로저가 묵어도 최신 state 와 비교하도록 함수형
+      // setState 를 쓴다.
+      setServerDebug((prev) => (prev && sameServerDebug(prev, next) ? prev : next));
     };
     const schedule = () => {
       const wait = 100 - (Date.now() - lastFlush);
@@ -1606,15 +1644,17 @@ function FinalIslandScene({
     };
     schedule();
     const unsubscribe = controller?.subscribe(schedule) ?? (() => {});
-    // 서버 응답·스냅샷이 끊기면 구독 콜백이 안 와 snapshotAgeMs·대기 시간이 마지막 값으로 고정된다 —
-    // 오버레이가 켜진 동안은 250ms 마다 같은 flush 를 돌려 시간값을 다시 계산한다(지적 2).
+    // 서버 응답·스냅샷이 끊겨 구독 콜백이 안 와도 오버레이가 켜진 동안은 250ms 마다 같은 flush 를 다시
+    // 돌린다 — 그사이 컨트롤러가 생기거나(교체) 거절돼도 바로 집어 든다. 내용이 그대로면 위 shallow 비교가
+    // 리렌더까진 만들지 않는다(지적 2·보완 3).
     const interval = setInterval(flush, 250);
     return () => {
       unsubscribe();
       if (timer) clearTimeout(timer);
       clearInterval(interval);
     };
-  }, [navDebug, tileNav, grid, syncIslandId]);
+    // me: 컨트롤러 교체(계정 전환 등)를 추적해 effect 를 다시 돌려 새 controller 를 다시 캡처한다(보완 4).
+  }, [navDebug, tileNav, grid, syncIslandId, me]);
   useEffect(() => {
     const p = initial();
     location.current = p;

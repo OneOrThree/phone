@@ -652,12 +652,14 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     expect(server.waitingSince).toBeNull();
 
     // Snapshot 수신 — server.snapshot 에 실린다.
+    const receivedAt = Date.now();
     await emit(snapshot(101, [entity(ME, 1, { x: 39.8, y: 46.2 })]));
     await act(async () => jest.advanceTimersByTime(100));
     server = screen.getByTestId('tile-terrain').props.navDebug.server;
     expect(server.snapshot).toEqual(worldToImage({ x: 39.8, y: 46.2 }, SIZE));
-    // server.snapshotAgeMs 는 state().lastSnapshot.receivedAt 기준 경과(ms) — serverTick 추정 아님(쓰로틀 한 틀 = 100ms).
-    expect(server.snapshotAgeMs).toBe(100);
+    // server.snapshotReceivedAt 은 state().lastSnapshot.receivedAt 그대로(절대 시각, serverTick 추정 아님) —
+    // 틱 지연(now - 이 값)은 readout 이 그릴 때 계산한다(GROMO-2249 보완 — 항목 3).
+    expect(server.snapshotReceivedAt).toBe(receivedAt);
 
     // 끄면 다시 null — 더 이상 쓰로틀 타이머도 돌지 않는다.
     await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
@@ -665,24 +667,24 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     await screen.unmount();
   });
 
-  it('서버 메시지가 끊겨도 250ms 마다 다시 계산해 snapshotAgeMs 가 계속 늘어난다(지적 2)', async () => {
+  it('서버 메시지가 끊겨도 snapshotReceivedAt 은 절대 시각 그대로다 — 틱 지연은 readout 이 그릴 때 계산한다(지적 2·보완 3)', async () => {
     jest.useFakeTimers();
     const screen = await renderHome(nextIsland());
     await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
     await emit(fullState([actor(ME, SPAWN)]));
     await emit(snapshot(101, [entity(ME, 0, SPAWN)]));
     await act(async () => jest.advanceTimersByTime(100));
-    const first = screen.getByTestId('tile-terrain').props.navDebug.server.snapshotAgeMs;
+    const first = screen.getByTestId('tile-terrain').props.navDebug.server.snapshotReceivedAt;
     expect(first).not.toBeNull();
-    // 이후 메시지 없이 500ms 만 지난다 — 구독 콜백(controller.notify)은 더 안 오지만 250ms 인터벌이
-    // 같은 flush 를 다시 돌려 snapshotAgeMs 를 지금 시각 기준으로 다시 계산한다.
+    // 이후 메시지 없이 500ms 만 지난다 — 구독 콜백(controller.notify)은 더 안 오지만 250ms 인터벌이 같은
+    // flush 를 다시 돌린다. 수신 시각은 절대값이라 그대로고(보완 3), 틱 지연은 readout 이 now 로 계산한다.
     await act(async () => jest.advanceTimersByTime(500));
-    const second = screen.getByTestId('tile-terrain').props.navDebug.server.snapshotAgeMs;
-    expect(second).toBeGreaterThan(first);
+    const second = screen.getByTestId('tile-terrain').props.navDebug.server.snapshotReceivedAt;
+    expect(second).toBe(first);
     await screen.unmount();
   });
 
-  it('거절되면(controller.deny()) 보존된 lastPath 대신 navDebug.server 를 통째로 비운다(지적 3)', async () => {
+  it('거절되면(controller.deny()) 보존된 lastPath 대신 status:denied·나머지 null 로 통째로 비운다(지적 3·보완 5)', async () => {
     jest.useFakeTimers();
     const screen = await renderHome(nextIsland());
     await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
@@ -701,6 +703,25 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     const denied = channel();
     await act(async () => denied.opts.onMovementDenied?.());
     await act(async () => jest.advanceTimersByTime(100));
+    // off(컨트롤러 없음, 항목 2)와 달리 거절은 server 를 null 이 아니라 status:'denied' 객체로 남긴다(보완 5).
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server).toEqual({
+      status: 'denied',
+      path: null,
+      snapshot: null,
+      predicted: null,
+      correctedAt: null,
+      snapshotReceivedAt: null,
+      waitingSince: null,
+    });
+    await screen.unmount();
+  });
+
+  it('컨트롤러가 없으면(동기화 off·비홈) server 자체가 null 이다 — 전부 null 인 객체가 아니다(보완 2)', async () => {
+    // 목업 섬(서버 홈 facts 없음) — syncIslandId 가 null 이라 movement 컨트롤러가 전혀 생기지 않는다.
+    const screen = await render(
+      <FinalIsland state={initialState()} go={jest.fn()} build={jest.fn()} />,
+    );
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
     expect(screen.getByTestId('tile-terrain').props.navDebug.server).toBeNull();
     await screen.unmount();
   });
@@ -792,5 +813,38 @@ describe('플래그 off·서버 홈 아님', () => {
     expect(mockChannels.length).toBe(opened);
     expect(otherCats(screen)).toBe(2);
     await screen.unmount();
+  });
+
+  // 항목 6(릴리스 음성 테스트) — WorldMap.tileIsland.test.tsx 는 movementSync mock 이 없어(다른 mock 구조)
+  // 거기 추가하면 전체 테스트에 새 전역 mock 을 얹어야 한다. 이미 controllers 스파이가 있는 이 파일의
+  // __DEV__=false 케이스로 대체한다(보고: 이쪽을 선택). EXPO_PUBLIC_TILE_ISLAND·MOVEMENT_SYNC 는
+  // 이미 파일 상단에서 '1' — process.env 는 격리 레지스트리와도 공유라 다시 안 세운다. 세션은 모듈별
+  // 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 으로 따로 채운다.
+  it('__DEV__=false 릴리스 빌드는 nav-debug-toggle 이 없어 movementSync.subscribe 를 한 번도 안 부른다(음성, 항목 6)', async () => {
+    const before = controllers.length;
+    const savedDev = (globalThis as { __DEV__?: boolean }).__DEV__;
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
+    let Island!: typeof FinalIsland;
+    let isolatedSaveSession!: typeof saveSession;
+    jest.isolateModules(() => {
+      jest.doMock('react', () => React);
+      isolatedSaveSession = (
+        require('@/services/api/session') as typeof import('@/services/api/session')
+      ).saveSession;
+      Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
+    });
+    try {
+      await isolatedSaveSession({ accessToken: 'AT', refreshToken: 'RT', userId: ME });
+      const screen = await render(
+        <Island state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
+      );
+      // 걷기 동기화(컨트롤러 생성)는 릴리스에서도 평소처럼 돈다 — 디버그 오버레이만 없다.
+      expect(controllers.length).toBeGreaterThan(before);
+      expect(screen.queryByTestId('nav-debug-toggle')).toBeNull();
+      for (const ctl of controllers.slice(before)) expect(ctl.subscribe).not.toHaveBeenCalled();
+      await screen.unmount();
+    } finally {
+      (globalThis as { __DEV__?: boolean }).__DEV__ = savedDev;
+    }
   });
 });

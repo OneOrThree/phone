@@ -33,6 +33,11 @@ type Point = { x: number; y: number };
 export type NavWalk = { tap: Point; path: Point[] };
 /** 서버 확정 경로·스냅샷·예측 오차(GROMO-2249), 전부 1x 이미지 px. 이동 동기화가 꺼져 있으면 전부 null. */
 export type NavServerDebug = {
+  /**
+   * off(동기화 꺼짐)·denied(거절)·live(정상). off 는 보통 server 자체가 null 로 표현된다
+   * (WorldMap 의 컨트롤러 없음 분기) — 이 값은 denied·live 를 구분하는 용도다(GROMO-2249 보완).
+   */
+  status: 'off' | 'denied' | 'live';
   /** PathAccepted 출발점 + waypoints. */
   path: Point[] | null;
   /** 최근 Snapshot 의 내 위치. */
@@ -41,8 +46,8 @@ export type NavServerDebug = {
   predicted: Point | null;
   /** 마지막 onMyCorrection 호출 시각(ms) — 500ms 안이면 깜빡인다. */
   correctedAt: number | null;
-  /** 최근 Snapshot 을 받은 지 지난 시간(ms). */
-  snapshotAgeMs: number | null;
+  /** 최근 Snapshot 을 받은 시각(ms, 절대) — 틱 지연은 readout 이 now 로 계산한다(GROMO-2249 보완). */
+  snapshotReceivedAt: number | null;
   /** intent 를 보냈는데 아직 PathAccepted·MoveRejected 를 못 받은 상태의 시작 시각(ms). */
   waitingSince: number | null;
 };
@@ -78,21 +83,24 @@ function walkSummary(walk: NavWalk | null, kind: MapAssetSource['kind']) {
 }
 
 /**
- * 서버 Δ(예측-스냅샷 거리)·틱 지연 한 줄, 또는 대기/없음(GROMO-2249).
+ * 서버 Δ(예측-스냅샷 거리)·틱 지연 한 줄, 또는 대기/거절/없음(GROMO-2249, 보완).
  * 대기(waitingSince)가 최우선이다 — 첫 Snapshot 뒤 새 이동 명령을 보내도 지난 snapshot·predicted 가
  * 남아 있어 Δ·지연 조건이 계속 참이 된다. 그 묵은 값보다 지금 서버 응답을 기다린다는 사실을 먼저 보여준다(지적 1).
+ * snapshotReceivedAt 은 절대 시각이라 틱 지연(now - snapshotReceivedAt)은 여기서 매번 새로 계산한다.
  */
 function serverDebugLine(server: NavServerDebug, now: number) {
-  const { snapshot, predicted, snapshotAgeMs, waitingSince } = server;
+  if (server.status === 'denied') return '동기화 거절됨';
+  if (server.status === 'off') return '서버 없음';
+  const { snapshot, predicted, snapshotReceivedAt, waitingSince } = server;
   if (waitingSince !== null) return `서버 대기 ${Math.max(0, Math.round(now - waitingSince))}ms`;
-  if (snapshot && predicted && snapshotAgeMs !== null) {
+  if (snapshot && predicted && snapshotReceivedAt !== null) {
     const delta = Math.round(Math.hypot(predicted.x - snapshot.x, predicted.y - snapshot.y));
-    return `서버 Δ ${delta}px · 틱 지연 ${Math.round(snapshotAgeMs)}ms`;
+    return `서버 Δ ${delta}px · 틱 지연 ${Math.round(now - snapshotReceivedAt)}ms`;
   }
   return '서버 없음';
 }
 
-/** 마지막 걷기 한 줄 요약, server 가 있으면 둘째 줄로 서버 Δ·지연/대기/없음을 더한다(GROMO-2249). */
+/** 마지막 걷기 한 줄 요약, server 가 있으면 둘째 줄로 서버 Δ·지연/대기/거절/없음을 더한다(GROMO-2249). */
 export function navDebugText(
   walk: NavWalk | null,
   kind: MapAssetSource['kind'],
@@ -100,7 +108,10 @@ export function navDebugText(
   now: number = Date.now(),
 ) {
   const summary = walkSummary(walk, kind);
-  return server ? `${summary}\n${serverDebugLine(server, now)}` : summary;
+  // server 를 아예 안 주면(기존 호출) 둘째 줄이 없다 — 기존 동작 불변. null 은 "동기화 꺼짐(off)"을 명시한
+  // 호출이라 「서버 없음」을 보여준다 — status:'off' 객체와 같은 문구다(GROMO-2249 보완 — 항목 2·5).
+  if (server === undefined) return summary;
+  return `${summary}\n${server ? serverDebugLine(server, now) : '서버 없음'}`;
 }
 
 function polyline(points: Point[]) {
@@ -254,13 +265,19 @@ export function TileTerrainCanvas({
   }, [walk]);
   // 서버 확정 경로·보정 깜빡임(GROMO-2249) — server 가 없으면(동기화 꺼짐) 아무것도 계산·타이머도 없다.
   const server = navDebug?.server;
-  const hasServer = !!server;
+  const correctedAt = server?.correctedAt ?? null;
   const [flashNow, setFlashNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!hasServer) return;
-    const id = setInterval(() => setFlashNow(Date.now()), 50);
+    // server 가 있다고 상시 돌리지 않는다 — correctedAt 이 깜빡임 창(500ms) 안일 때만 돌고, 창이
+    // 끝나면 스스로 clear 한다(GROMO-2249 보완 — 항목 1).
+    if (!correctionFlash(correctedAt, Date.now())) return;
+    const id = setInterval(() => {
+      const now = Date.now();
+      setFlashNow(now);
+      if (!correctionFlash(correctedAt, now)) clearInterval(id);
+    }, 50);
     return () => clearInterval(id);
-  }, [hasServer]);
+  }, [correctedAt]);
   if (!image || !atlas) return null;
   const scale = base * camera.z;
   const serverPath = server?.path && server.path.length > 1 ? polyline(server.path) : null;
@@ -268,7 +285,7 @@ export function TileTerrainCanvas({
     server?.predicted && server?.snapshot
       ? buildArrowPath(server.predicted, server.snapshot, scale)
       : null;
-  const flash = !!server && correctionFlash(server.correctedAt, flashNow);
+  const flash = correctionFlash(correctedAt, flashNow);
   return (
     <Canvas pointerEvents="none" style={{ position: 'absolute', width, height }}>
       <Group
