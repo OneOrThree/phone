@@ -17,6 +17,8 @@ import java.util.PriorityQueue;
  * </pre>
  *
  * <p>{@code Math.hypot} 는 쓰지 않는다 — JVM 과 V8 의 결과가 마지막 비트에서 다를 수 있다. 최근접 셀도 제곱 거리로 비교한다.
+ *
+ * <p>전제: JS 엔진이 {@code Math.sqrt} 를 근사하지 않는다(V8·Hermes 는 하드웨어 sqrt) — 휴리스틱 h 가 앱과 비트까지 같다.
  */
 public final class Pathfinder {
 
@@ -57,7 +59,7 @@ public final class Pathfinder {
         if (s < 0) {
             return Optional.empty();
         }
-        int t = grid.index(WorldCoords.worldToCell(to.x(), to.y()));
+        int t = cellIndexOf(grid, to.x(), to.y());
         int e = grid.walkable(t) && grid.region(t) == grid.region(s)
                 ? t
                 : nearestCell(grid, to.x(), to.y(), grid.region(s));
@@ -126,8 +128,22 @@ public final class Pathfinder {
     }
 
     private static int startCell(NavGrid grid, WorldPoint from) {
-        int i = grid.index(WorldCoords.worldToCell(from.x(), from.y()));
+        int i = cellIndexOf(grid, from.x(), from.y());
         return grid.walkable(i) ? i : nearestCell(grid, from.x(), from.y(), -1);
+    }
+
+    // 내부 nav 인덱싱용 — 범위는 이 격자의 cols·rows 로 clamp 한다(WorldCoords.worldToCell 의 100×100 규칙과
+    // 같되 상한은 격자 기준). 100×100 격자에서는 WorldCoords.worldToCell 과 결과가 같다. 리뷰: 격자 크기 ≠ 100 이면
+    // worldToCell 의 고정 상한(99) 때문에 index 가 틀린 셀(열이 적으면 줄바뀜 꼴)이나 배열 밖을 가리킬 수 있다.
+    // 합성 격자는 셀 1칸 = 1 unit 전제라 clampCell 은 크래시만 막을 뿐 좌표 의미는 100×100 에서만 맞다.
+    private static int cellIndexOf(NavGrid grid, double x, double y) {
+        int cx = clampCell(x, grid.cols() - 1);
+        int cy = clampCell(y, grid.rows() - 1);
+        return grid.index(new Cell(cx, cy));
+    }
+
+    private static int clampCell(double v, int max) {
+        return (int) Math.max(0, Math.min(max, Math.floor(Double.isFinite(v) ? v : 0)));
     }
 
     // region 이 -1 이면 전체 통행 셀. 셀 중심 (cx+0.5, cy+0.5) 까지 제곱 거리 strict < — 동률은 index 작은 쪽.

@@ -36,15 +36,29 @@ public final class NavJsonLoader {
     private NavJsonLoader() {
     }
 
-    /** classpath 의 {@value #BUNDLED} 를 읽는다. 없으면 배포 산출물이 깨진 것이라 {@link IllegalStateException}. */
+    /**
+     * classpath 의 {@value #BUNDLED} 를 읽는다. 없으면 배포 산출물이 깨진 것이라 {@link IllegalStateException}.
+     * 번들은 반드시 100×100(MV-D01) 이어야 한다 — 아니면 {@link IllegalArgumentException}.
+     */
     public static NavGrid loadBundled() {
         try (InputStream in = NavJsonLoader.class.getClassLoader().getResourceAsStream(BUNDLED)) {
             if (in == null) {
                 throw new IllegalStateException("classpath 에 " + BUNDLED + " 가 없다");
             }
-            return load(in);
+            NavGrid grid = load(in);
+            requireBundledSize(grid);
+            return grid;
         } catch (IOException e) {
             throw new UncheckedIOException(BUNDLED + " 를 읽지 못했다", e);
+        }
+    }
+
+    // 번들 전용 크기 가드(MV-D01). package-private 로 둬 테스트가 classpath 리소스 없이 직접 검증한다.
+    // 리뷰: WorldCoords.worldToCell 의 고정 상한(99) 에 기대는 코드가 많아 번들만은 100×100 을 강제한다.
+    static void requireBundledSize(NavGrid grid) {
+        if (grid.cols() != WorldCoords.WORLD_SIZE || grid.rows() != WorldCoords.WORLD_SIZE) {
+            throw new IllegalArgumentException(
+                    "nav 가 MV-D01 100×100 이 아니다: " + grid.cols() + "x" + grid.rows());
         }
     }
 
@@ -90,7 +104,9 @@ public final class NavJsonLoader {
         // 조용히 무시하지 않고 거부한다. 쓰게 되면 앱 loadNav(nav, completedBuildings) 처럼 칸을 켠다.
         for (JsonNode cells : nav.path("buildingCells")) {
             if (!cells.isEmpty()) {
-                throw new IllegalArgumentException("nav.buildingCells 는 아직 지원하지 않는다(전부 빈 배열이어야 한다)");
+                throw new IllegalArgumentException(
+                        "nav.buildingCells 는 아직 지원하지 않는다(전부 빈 배열이어야 한다) — "
+                                + "앱이 buildingCells 를 쓰기 시작했다면 NavArtifact(2단계) 가 필요하다");
             }
         }
         Set<Long> blocked = new HashSet<>();
@@ -98,10 +114,16 @@ public final class NavJsonLoader {
             if (edge.size() != 2 || !edge.get(0).isInt() || !edge.get(1).isInt()) {
                 throw new IllegalArgumentException("nav.blockedEdges 원소는 [a, b] 정수 쌍이어야 한다: " + edge);
             }
-            blocked.add(NavGrid.edgeKey(edge.get(0).intValue(), edge.get(1).intValue(), (int) n));
+            int a = edge.get(0).intValue();
+            int b = edge.get(1).intValue();
+            // 리뷰: 범위(0<=i<n)·순서(a<b) 를 어기면 edgeKey 로 바로 넣지 않고 거부한다.
+            if (a < 0 || a >= n || b < 0 || b >= n || a >= b) {
+                throw new IllegalArgumentException("nav.blockedEdges 원소가 올바르지 않다(0<=a<b<n): " + edge);
+            }
+            blocked.add(NavGrid.edgeKey(a, b, (int) n));
         }
         return new NavGrid(cols, rows, walkable, costTenths, blocked,
-                cells(nav, "entrances"), cells(nav, "spawns"));
+                cells(nav, "entrances", cols, rows, walkable), cells(nav, "spawns", cols, rows, walkable));
     }
 
     private static int positiveInt(JsonNode nav, String field) {
@@ -112,7 +134,7 @@ public final class NavJsonLoader {
         return v.intValue();
     }
 
-    private static Map<String, Cell> cells(JsonNode nav, String field) {
+    private static Map<String, Cell> cells(JsonNode nav, String field, int cols, int rows, boolean[] walkable) {
         Map<String, Cell> out = new LinkedHashMap<>();
         for (Map.Entry<String, JsonNode> e : nav.path(field).properties()) {
             JsonNode cx = e.getValue().path("cx");
@@ -120,7 +142,21 @@ public final class NavJsonLoader {
             if (!cx.isInt() || !cy.isInt()) {
                 throw new IllegalArgumentException("nav." + field + "." + e.getKey() + " 는 {cx, cy} 정수여야 한다");
             }
-            out.put(e.getKey(), new Cell(cx.intValue(), cy.intValue()));
+            int x = cx.intValue();
+            int y = cy.intValue();
+            // 리뷰: 격자 밖 입구/스폰 좌표가 조용히 틀린 셀로 쓰이지 않게 거부한다.
+            if (x < 0 || x >= cols || y < 0 || y >= rows) {
+                throw new IllegalArgumentException(
+                        "nav." + field + "." + e.getKey() + " 가 격자 밖 (" + x + "," + y + ")");
+            }
+            // 계약: entrances 는 비통행이어도 Pathfinder.resolveTarget 의 목적지 보정이 출발 영역 안 최근접 셀로
+            // 바로잡는다 — spawns 는 출발 영역 자체를 정하는 기준점이라 비통행이면 전역 최근접 보정이 다른 섬으로
+            // 튈 수 있어 거부한다.
+            if (field.equals("spawns") && !walkable[y * cols + x]) {
+                throw new IllegalArgumentException(
+                        "nav." + field + "." + e.getKey() + " 가 비통행 셀이다: (" + x + "," + y + ")");
+            }
+            out.put(e.getKey(), new Cell(x, y));
         }
         return out;
     }
