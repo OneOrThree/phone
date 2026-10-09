@@ -264,6 +264,37 @@ class MovementOutboxTest {
     }
 
     @Test
+    @DisplayName("아웃바운드 핸들러가 reliable 프레임 처리 중 던지면 outbox 를 닫고 1011 종료를 한 번 낸다(뒤 프레임 0) — Snapshot 이면 버리고 계속")
+    void handlerFailureClosesOnReliableAndGoesOnForSnapshot() {
+        MovementOutboundInterceptor interceptor = new MovementOutboundInterceptor();
+        outbox.enqueueReliable(bytes("FullState"), true); // 채널에 넘어갔다
+        outbox.enqueueReliable(bytes("PathAccepted"), false); // 그 뒤에 줄 서 있다
+        interceptor.afterMessageHandled(sent.get(0), null, null, new IllegalStateException("핸들러 실패"));
+
+        assertThat(closes).as("완료 통지(아웃바운드 스레드)에서 곧바로 한 번").containsExactly(MovementOutbox.SEND_FAILED);
+        assertThat(payloads()).as("첫 FullState 가 안 갔으면 뒤 사건도 보내지 않는다").containsExactly("FullState");
+        assertThat(outbox.isClosed()).isTrue();
+        outbox.sweep(System.nanoTime());
+        assertThat(closes).hasSize(1);
+
+        List<Message<?>> handed = new ArrayList<>();
+        List<CloseStatus> snapshotCloses = new ArrayList<>();
+        MovementOutbox other = new MovementOutbox((message, timeout) -> handed.add(message), "s5", UUID.randomUUID(),
+                MOVEMENT, SNAPSHOT, snapshotCloses::add);
+        other.subscribeMovement("m");
+        other.subscribeSnapshot("s");
+        other.enqueueReliable(bytes("FullState"), true);
+        other.onSent();
+        other.offerSnapshot(bytes("Snapshot-1")); // 채널에 넘어갔다
+        other.enqueueReliable(bytes("Arrived"), false); // 그 뒤에 줄 서 있다
+        interceptor.afterMessageHandled(handed.get(1), null, null, new IllegalStateException("핸들러 실패"));
+
+        assertThat(payloads(handed)).as("Snapshot 은 버리고 다음 건으로").containsExactly("FullState", "Snapshot-1", "Arrived");
+        assertThat(other.isClosed()).isFalse();
+        assertThat(snapshotCloses).isEmpty();
+    }
+
+    @Test
     @DisplayName("Snapshot 을 채널이 받지 않으면(예외) 그 한 건만 버리고 계속 보낸다 — 세션은 닫지 않는다")
     void rejectedSnapshotIsDroppedAndDeliveryGoesOn() {
         List<Message<?>> handed = new ArrayList<>();

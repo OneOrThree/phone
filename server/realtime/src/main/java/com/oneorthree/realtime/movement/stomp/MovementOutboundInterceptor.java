@@ -44,8 +44,12 @@ public class MovementOutboundInterceptor implements ExecutorChannelInterceptor {
             Exception ex) {
         if (message.getHeaders().get(MovementOutbox.MARK) instanceof MovementOutbox.Ticket ticket) {
             if (ex != null) {
-                // 전송 실패도 «처리 끝»이다 — 여기서 멈추면 그 세션의 이동 송신이 영영 서 버린다.
-                log.debug("이동 프레임 처리 실패 — 다음 건으로 넘어간다. reason={}", ex.getClass().getSimpleName());
+                // 핸들러가 그 프레임 처리 중 던졌다 — 전해졌는지 알 수 없다. 넘기기 실패와 같은 경로다: reliable 이면
+                // outbox 를 닫고 1011 MOVEMENT_SEND_FAILED(첫 FullState·PathAccepted 없이 뒤 사건이 나가지 않게),
+                // Snapshot 이면 버리고 다음 건. 어느 쪽이든 in-flight 는 풀린다.
+                log.debug("이동 프레임 처리 실패 — reason={}", ex.getClass().getSimpleName());
+                ticket.fail();
+                return;
             }
             ticket.release();
             return;

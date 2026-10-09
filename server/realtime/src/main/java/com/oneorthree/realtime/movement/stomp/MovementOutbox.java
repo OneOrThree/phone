@@ -46,7 +46,8 @@ import java.util.function.Consumer;
  * 만 먼저 구독했거나 movement 를 해지한 세션은 FullState 가 올 길이 없으니 받지 않는다. 게이트는 멈춤·세션 교체·
  * movement 해지·새 구독 때 닫히고({@link #closeGate}), 닫힐 때마다 세대가 올라 이미 넘긴 프레임도 버려진다.
  *
- * <p><b>넘기기 실패는 fail-closed 다</b> — 채널이 프레임을 받지 않으면({@code send} 가 false 거나 던짐) reliable 은
+ * <p><b>넘기기 실패는 fail-closed 다</b> — 채널이 프레임을 받지 않거나({@code send} 가 false 거나 던짐) 아웃바운드
+ * 핸들러가 처리 중 던지면({@link Ticket#fail}) reliable 은
  * 그 세션이 받은 상태를 장담할 수 없으므로(첫 FullState 없이 게이트가 열리거나 PathAccepted 가 조용히 빠진다) outbox 를
  * 닫고 소켓을 1011 {@code MOVEMENT_SEND_FAILED} 로 닫는다 — 앱은 재연결·재구독으로 FullState 부터 다시 받는다.
  * Snapshot 은 버리고 다음 건으로 간다(다음 틱이 또 준다). 소켓 종료는 큐 초과와 같은 경로다(아래).
@@ -356,8 +357,18 @@ final class MovementOutbox {
     }
 
     /**
+     * 아웃바운드 핸들러가 그 프레임을 처리하다 던졌다 — 전해졌는지 알 수 없으니 넘기기 실패와 같다({@link #sendFailed}):
+     * reliable 은 outbox 를 닫고 1011 종료, Snapshot 은 버리고 다음 건. 완료 통지(아웃바운드 스레드)에서만 불려 종료도
+     * 바로 낸다.
+     */
+    private void handlerFailed(Ticket ticket) {
+        transmit(sendFailed(ticket));
+        closeIfPending();
+    }
+
+    /**
      * 예약된 소켓 종료를 한 번 낸다 — 나가 있는 프레임이 있으면 그 완료 통지(또는 워치독)를 기다린다. 틱 스레드에서
-     * 부르지 않는다({@link #release}·{@link #sweep}).
+     * 부르지 않는다({@link #release}·{@link #handlerFailed}·{@link #sweep}).
      */
     private void closeIfPending() {
         CloseStatus status;
@@ -471,6 +482,11 @@ final class MovementOutbox {
         /** {@link MovementOutboundInterceptor} 가 그 프레임 처리가 끝났을 때(또는 버렸을 때) 부른다. */
         void release() {
             MovementOutbox.this.release(this);
+        }
+
+        /** {@link MovementOutboundInterceptor} 가 그 프레임 처리 중 핸들러가 던졌을 때 부른다 — 넘기기 실패와 같다. */
+        void fail() {
+            handlerFailed(this);
         }
 
         /** 이 프레임을 넘긴 뒤 outbox 가 닫혔거나 게이트가 다시 닫힌 적이 있다(재개됐어도) — 실행기가 꺼낼 때 버린다. */

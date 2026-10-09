@@ -69,8 +69,8 @@ public class MovementPublisher implements RoomRuntime.Listener {
                 .description("reliable 송신 큐 상한을 넘겨 소켓을 닫은 세션 수")
                 .register(meterRegistry);
         this.sendFailures = Counter.builder("movement.outbox.send.failed")
-                .description("reliable 프레임을 아웃바운드 채널에 넘기지 못해(false·예외) 1011 로 닫은 세션 수 — "
-                        + "Snapshot 넘기기 실패는 버리기만 하고 세지 않는다")
+                .description("reliable 프레임을 아웃바운드 채널에 넘기지 못하거나(false·예외) 핸들러가 처리 중 던져 "
+                        + "1011 로 닫은 세션 수 — Snapshot 실패는 버리기만 하고 세지 않는다")
                 .register(meterRegistry);
     }
 

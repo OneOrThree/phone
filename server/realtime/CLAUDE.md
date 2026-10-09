@@ -264,7 +264,7 @@ ON 실패 시 기존 캐시 fallback은 없다. `allowed:false`는 `NOT_A_MEMBER
 백오프(1·2·4·8·16초) 재판정, 예산 소진 시 1011 `MEMBERSHIP_UNVERIFIED` 종료 — 조회가 밀리거나 상류 장애 중에도 받지
 못한다. 세션 토큰이 죽었으면(로컬 JWT 검증, 상류 401 포함) 소속을 묻지 않고 즉시 1008 `UNAUTHORIZED`. 판정은
 `movement-recheck`(1스레드), 송신 워치독·소켓 종료는 `movement-watchdog`(2스레드)에서 돈다.
-이동 소켓 종료 사유(close reason, 앱은 재연결·재구독 FullState 로 다시 맞춘다): 1008 `UNAUTHORIZED`·`MOVEMENT_BACKPRESSURE`(송신 큐 상한), 1011 `MEMBERSHIP_UNVERIFIED`·`MOVEMENT_SEND_FAILED`(reliable 프레임을 아웃바운드 채널에 넘기지 못함 — Snapshot 실패는 버리기만).
+이동 소켓 종료 사유(close reason, 앱은 재연결·재구독 FullState 로 다시 맞춘다): 1008 `UNAUTHORIZED`·`MOVEMENT_BACKPRESSURE`(송신 큐 상한), 1011 `MEMBERSHIP_UNVERIFIED`·`MOVEMENT_SEND_FAILED`(reliable 프레임을 아웃바운드 채널에 넘기지 못했거나 핸들러가 처리 중 던짐 — Snapshot 실패는 버리기만).
 CONNECT·방 목록·duplicates·개인큐는 이 추가 조회 범위가 아니다.
 새14개 이벤트·시설·snapshot·재연결·transport는 계속 닫혀 있고 host-transfer도 OFF다.
 rooms 목록·개인 duplicates의 오래된 재전송 응답까지 현재 세션을 검사하는 것은 아니므로
