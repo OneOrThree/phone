@@ -89,23 +89,30 @@ afterEach(() => {
 });
 
 it('EXPO_PUBLIC_TILE_ISLAND=1 이면 기존 마을로 시작하고 바닥 Image 대신 Skia 타일 캔버스(낮·밤)를 둔다', async () => {
-  const screen = await render(
-    <FinalIsland state={initialState()} go={jest.fn()} build={jest.fn()} />,
-  );
-  const hour = new Date().getHours();
-  expect(screen.getByTestId('tile-terrain').props).toMatchObject({
-    width: 402,
-    height: 874,
-    camera: { x: 585, y: 430, z: 1 },
-    night: !(hour >= 6 && hour < 18),
-  });
-  const nodes = collect(screen.toJSON() as Node);
-  for (const src of [
-    assets['backgrounds/island/base/day.png'],
-    assets['backgrounds/island/base/night.png'],
-    villageAssets['terrain.png'],
-  ])
-    expect(nodes.filter((n) => n.props.source === src)).toHaveLength(0);
+  // FinalIsland 는 dayNight prop 을 받지 않고 실제 시계로 낮/밤을 읽는다(WorldMap.tsx) — 시계를
+  // 밤으로 고정해 시간대와 무관하게 결정적으로 통과시킨다.
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-10-09T21:00:00'));
+  try {
+    const screen = await render(
+      <FinalIsland state={initialState()} go={jest.fn()} build={jest.fn()} />,
+    );
+    expect(screen.getByTestId('tile-terrain').props).toMatchObject({
+      width: 402,
+      height: 874,
+      camera: { x: 585, y: 430, z: 1 },
+      night: true,
+    });
+    const nodes = collect(screen.toJSON() as Node);
+    for (const src of [
+      assets['backgrounds/island/base/day.png'],
+      assets['backgrounds/island/base/night.png'],
+      villageAssets['terrain.png'],
+    ])
+      expect(nodes.filter((n) => n.props.source === src)).toHaveLength(0);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 it('타일 섬은 서버 home.layout 을 건물 평행이동으로 적용한다 — 기본 배치면 그대로, 옮기면 레이어·문이 같이 간다', async () => {
@@ -240,12 +247,9 @@ const styleOf = (screen: { getByTestId: (id: string, o?: object) => { props: any
 // 건물별로 그 건물에 딸린 렌더 지점(레이어·모션·알림). 낮에는 정적 레이어가 모션에 흡수되는 건물이 있다.
 const cases: [string, B, string[], Record<string, unknown>][] = [
   ['hall', 'hall', ['world-hall-motion'], {}],
-  [
-    'board',
-    'board',
-    ['world-static-building-board', 'world-board-indicator'],
-    { dayNight: 'night' },
-  ],
+  // board 정적 레이어는 밤에만 그려진다(WorldMap.tsx) — FinalIsland 는 dayNight prop 을 받지 않으므로
+  // 아래 it.each 안에서 시계 자체를 밤으로 고정해 둔다.
+  ['board', 'board', ['world-static-building-board', 'world-board-indicator'], {}],
   ['tower', 'tower', ['world-observatory-motion'], {}],
   ['shop', 'shop', ['world-shop-motion'], {}],
   ['library', 'library', ['world-library-motion'], {}],
@@ -261,22 +265,30 @@ const cases: [string, B, string[], Record<string, unknown>][] = [
 it.each(cases)(
   '%s: 기본 셀 대비 옮긴 셀이면 레이어·모션이 Δcell × (15.36,10.24) × 배율만큼 정확히 움직인다',
   async (_name, b, ids, props) => {
-    const state = fullState();
-    const read = async (moved: boolean) => {
-      withLayout(state, moved ? b : undefined);
-      const screen = await render(
-        <FinalIsland state={state} go={jest.fn()} build={jest.fn()} {...props} />,
-      );
-      const out = ids.map((id) => styleOf(screen, id));
-      await screen.unmount();
-      return out;
-    };
-    const base = await read(false);
-    const moved = await read(true);
-    ids.forEach((_id, k) => {
-      expect(moved[k].left - base[k].left).toBeCloseTo(expected.dx, 6);
-      expect(moved[k].top - base[k].top).toBeCloseTo(expected.dy, 6);
-    });
+    // FinalIsland 는 실제 시계로 낮/밤을 읽는다 — board 정적 레이어가 밤에만 그려지므로 시계를
+    // 밤으로 고정해 시간대와 무관하게 통과시킨다(다른 case 의 레이어·모션 위치는 낮/밤과 무관하다).
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-10-09T21:00:00'));
+    try {
+      const state = fullState();
+      const read = async (moved: boolean) => {
+        withLayout(state, moved ? b : undefined);
+        const screen = await render(
+          <FinalIsland state={state} go={jest.fn()} build={jest.fn()} {...props} />,
+        );
+        const out = ids.map((id) => styleOf(screen, id));
+        await screen.unmount();
+        return out;
+      };
+      const base = await read(false);
+      const moved = await read(true);
+      ids.forEach((_id, k) => {
+        expect(moved[k].left - base[k].left).toBeCloseTo(expected.dx, 6);
+        expect(moved[k].top - base[k].top).toBeCloseTo(expected.dy, 6);
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   },
 );
 
