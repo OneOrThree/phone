@@ -205,7 +205,14 @@ export function RestGroup({
             restStartedAt: m.restStartedAt
               ? Date.parse(m.restStartedAt) - live.clockOffset
               : Date.now(),
-            restSeat: m.restSeat,
+            // 서버 restSeat는 1부터 시작하고 화면 배열은 0부터 시작한다.
+            restSeat:
+              typeof m.restSeat === 'number' &&
+              Number.isInteger(m.restSeat) &&
+              m.restSeat >= 1 &&
+              m.restSeat <= 15
+                ? m.restSeat - 1
+                : null,
           }))
       : live
         ? []
@@ -224,10 +231,9 @@ export function RestGroup({
           },
         ]
       : []),
-    ...others.map((m, n) => {
+    ...others.map((m) => {
       let seat = (m as { restSeat?: number | null }).restSeat;
-      if (typeof seat !== 'number' || seat < 0 || taken.has(seat))
-        seat = browsing ? n : n < 5 ? [0, 2, 3, 4, 5][n] : n + 1;
+      if (typeof seat !== 'number' || seat < 0 || taken.has(seat)) seat = 0;
       while (taken.has(seat)) seat += 1;
       taken.add(seat);
       return { ...m, me: false, seat };
@@ -235,10 +241,12 @@ export function RestGroup({
   ].sort((a, b) => a.seat - b.seat);
   const { width: W, height: H } = layout,
     { top: it, bottom: ib, left: il, right: ir } = layout.insets;
-  // 자리 계산은 인원·화면 크기가 바뀔 때만(1초마다 도는 휴식 시간 갱신과 무관)
+  // 중간 주민이 떠나 높은 번호만 남아도 그 좌석까지 배치를 생성한다.
+  const seatCount = Math.max(actors.length, ...actors.map((actor) => actor.seat + 1));
+  // 자리 계산은 좌석 범위·화면 크기가 바뀔 때만(1초마다 도는 휴식 시간 갱신과 무관)
   const { x0, y0, s, seats } = useMemo(
-    () => restSeats(actors.length, W, H, { top: it, bottom: ib, left: il, right: ir }),
-    [actors.length, W, H, it, ib, il, ir],
+    () => restSeats(seatCount, W, H, { top: it, bottom: ib, left: il, right: ir }),
+    [seatCount, W, H, it, ib, il, ir],
   );
   // 자리가 없는 인원은 건너뛴다(restSeats 는 인원수만큼 돌려주지만 렌더링이 죽지 않게 한 번 더 막는다)
   const placed = actors.flatMap((a) => {

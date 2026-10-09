@@ -143,3 +143,31 @@ test('영어 모닥불 구경은 서버 휴식 주민만 표시하고 준비 중
     applyLocalePref('system');
   }
 });
+
+test.each([[1, 2, 3, 4, 5, 6], Array.from({ length: 15 }, (_, i) => i + 1), [15]])(
+  '모닥불 구경은 1-based·빈 좌석이 있는 서버 좌석 %j의 주민을 모두 표시한다',
+  async (...seatNumbers) => {
+    const live = {
+      status: 'ready',
+      clockOffset: 0,
+      rest: seatNumbers.map((restSeat) => ({
+        userId: `peer-${restSeat}`,
+        name: `주민 ${restSeat}`,
+        catColor: 'black',
+        restStartedAt: new Date().toISOString(),
+        restSeat,
+      })),
+    } as any;
+    const screen = await render(
+      React.createElement(RestGroup, {
+        state: initialState(true),
+        live,
+        home: jest.fn(),
+        resume: jest.fn(),
+      }),
+    );
+    expect(screen.queryAllByTestId(/^loaf-/)).toHaveLength(seatNumbers.length);
+    for (const seat of seatNumbers) screen.getByTestId(`loaf-${seat - 1}`);
+    await screen.unmount();
+  },
+);

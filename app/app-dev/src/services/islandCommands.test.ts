@@ -1072,9 +1072,9 @@ test('응답 유실 뒤 목록에서 사라진 신청이 approved라면 취소 �
     h.cmds.commands.cancel('r1'),
     (error: ApiError) => error.code === 'CLIENT_TIMEOUT',
   );
-  expect(h.state().serverIslands?.requestStatus.some((item) => item.status === 'cancelled')).toBe(
-    false,
-  );
+  expect(
+    h.state().serverIslands?.requestStatus.some((item) => item.status === 'cancelled'),
+  ).toBeFalsy();
   await assert.rejects(h.cmds.commands.cancel('r1'));
   assert.equal(cancel.mock.calls[0][1], cancel.mock.calls[1][1]);
 });
@@ -1101,6 +1101,7 @@ test('취소 복구 중 계정이 바뀌면 새 계정에 종결 상태를 반�
     cancelJoinRequest: async () => {
       throw new ApiError('CLIENT_TIMEOUT', 'lost', 0);
     },
+    joinRequest: async () => ({ id: 'r1', islandId: 'i1', status: 'cancelled', version: 4 }),
     myJoinRequests: async () => ({ items: [], nextCursor: null }),
     myIslands: async () => {
       h.setGen(1);
@@ -1113,3 +1114,29 @@ test('취소 복구 중 계정이 바뀌면 새 계정에 종결 상태를 반�
   );
   expect(h.dispatched).toHaveLength(0);
 });
+
+test.each(['CLIENT_NETWORK_ERROR', 'UPSTREAM_CONTRACT_ERROR'])(
+  '취소 확인이 %s로 실패하면 pending과 취소 버튼을 보존한다',
+  async (code) => {
+    const cancel = jest.fn().mockResolvedValue({ id: 'r1', status: 'cancelled' });
+    const requests = jest
+      .fn()
+      .mockResolvedValueOnce({ items: [myReq()], nextCursor: null })
+      .mockRejectedValue(new ApiError(code, 'confirmation failed', 502));
+    const h = harness({
+      cancelJoinRequest: cancel,
+      myJoinRequests: requests,
+      myIslands: async () => myIslands(),
+    });
+    await h.cmds.commands.requests();
+    await assert.rejects(h.cmds.commands.cancel('r1'));
+    expect(pendingVisitRequest(h.state(), 'i1')?.status).toBe('pending');
+    expect(h.state().serverIslands?.requestStatus.some((item) => item.status === 'cancelled')).toBe(
+      false,
+    );
+    requests.mockResolvedValue({ items: [], nextCursor: null });
+    await h.cmds.commands.cancel('r1');
+    expect(pendingVisitRequest(h.state(), 'i1')).toBeUndefined();
+    assert.equal(cancel.mock.calls[0][1], cancel.mock.calls[1][1]);
+  },
+);
