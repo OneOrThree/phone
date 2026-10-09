@@ -7,7 +7,7 @@ import {
   render,
   renderHook,
 } from '@testing-library/react-native';
-import { Animated, Platform } from 'react-native';
+import { Animated, PanResponder, Platform } from 'react-native';
 import {
   constructionPlacement,
   createWorldProjector,
@@ -487,22 +487,66 @@ test('완공된 각 건물에 상태와 무관한 건물명 라벨을 표시한�
   await screen.unmount();
 });
 
-test('부두의 뗏목에 뗏목 이름을 표시한다', async () => {
+test('부두의 뗏목 이름표는 터치 영역을 넓혀도 원래 위치를 유지한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
 
   expect(screen.getByText('뗏목')).toBeTruthy();
-  expect(screen.getByTestId('building-name-raft').props.style).toEqual(
+  const label = screen.getByTestId('building-name-raft').props.style;
+  const raft = screen.getByLabelText('뗏목').props.style;
+  expect(label).toEqual(
     expect.objectContaining({
-      left: 0,
-      top: -30,
-      // 이름표는 뗏목 탭 영역(배경의 뗏목 그림, 폭 180) 위에 가운데 정렬된다(GROMO-2157).
       width: 180 * worldScale,
       alignItems: 'center',
     }),
   );
+  expect(label.left).toBeGreaterThanOrEqual(0);
+  expect(label.left + label.width).toBeLessThanOrEqual(raft.width);
+  expect(raft.left + label.left).toBeCloseTo(200 * worldScale);
+  expect(raft.top + label.top).toBeCloseTo(815 * worldScale - 30);
   await screen.unmount();
+});
+
+test('홈을 최대로 축소해도 뗏목 터치 영역은 44pt 이상이며 그림 중앙에 맞는다', async () => {
+  const createPanResponder = jest.spyOn(PanResponder, 'create');
+  const screen = await render(
+    <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const pan = createPanResponder.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  await act(async () => {
+    pan.onPanResponderGrant!(pinch(200), {} as any);
+    pan.onPanResponderMove!(pinch(70), {} as any);
+  });
+  const scale = (((874 / 874) * 402) / 1536) * 2.8 * 0.35;
+  const raft = screen.getByLabelText('뗏목').props.style;
+  expect(raft.width).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  expect(raft.height).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  expect(raft.left + raft.width / 2).toBeCloseTo(290 * scale);
+  expect(raft.top + raft.height / 2).toBeCloseTo(870 * scale);
+  expect(raft.top).toBeLessThanOrEqual(815 * scale);
+  expect(raft.top + raft.height).toBeGreaterThanOrEqual(925 * scale);
+});
+
+test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다리지 않고 배 메뉴를 연다', async () => {
+  const go = jest.fn();
+  const state = initialState(true);
+  state.settings.reduceMotion = false;
+  const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+
+  await fireEvent.press(screen.getByLabelText('뗏목'));
+
+  expect(go).toHaveBeenCalledTimes(1);
+  expect(go).toHaveBeenCalledWith('boat');
 });
 
 test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생한다', async () => {
