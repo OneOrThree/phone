@@ -156,6 +156,7 @@ function frameKind(text) {
   const headerEnd = text.indexOf('\n\n');
   const headers = text.slice(nl + 1, headerEnd < 0 ? undefined : headerEnd);
   const dest = headers.match(/^destination:(.*)$/m)?.[1]?.trim() ?? '';
+  if (!dest.startsWith('/topic/islands/')) return 'other'; // 같은 접미사를 쓰는 다른 목적지(사용자 큐 등)를 섬 토픽으로 세지 않는다
   if (dest.endsWith('/movement/snapshot')) return 'snapshot';
   if (dest.endsWith('/movement')) return 'movement'; // PathAccepted·Arrived·FullState·MoveRejected
   return 'other';
@@ -750,6 +751,7 @@ function selfCheck(nav) {
   assert.equal(frameKind('MESSAGE\ndestination:/topic/islands/abc/movement/snapshot\nsubscription:sub-0\ncontent-length:2\n\n{}\u0000'), 'snapshot');
   assert.equal(frameKind('MESSAGE\ndestination:/topic/islands/abc/movement\nsubscription:sub-1\ncontent-length:2\n\n{}\u0000'), 'movement');
   assert.equal(frameKind('\n'), 'other'); // 하트비트
+  assert.equal(frameKind('MESSAGE\ndestination:/user/queue/movement\nsubscription:sub-2\ncontent-length:2\n\n{}\u0000'), 'other'); // 같은 접미사·다른 접두사
   const region = spawnRegion(nav);
   const { cx, cy } = nav.spawns.character;
   assert.ok(region.some((p) => p.x === cx + 0.5 && p.y === cy + 0.5));
