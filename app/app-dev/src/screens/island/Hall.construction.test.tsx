@@ -201,10 +201,11 @@ test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐
 test('잔액이 목표 원가의 일부만 찬 상태로 게시판 건설 패널을 열어도 렌더가 죽지 않는다', async () => {
   const screen = await render(<Hall e={e()} />);
 
-  // 「목각 건물 고르기」 그리드에서 게시판 카드를 눌러 BUILDING PLAN 패널을 연다.
+  // 「목각 건물 고르기」 그리드에서 게시판 카드를 눌러 청사진 패널을 연다.
   await fireEvent.press(screen.getByTestId('hall-bld-board'));
 
-  await waitFor(() => assert.ok(screen.getByText('BUILDING PLAN · 01')));
+  await waitFor(() => assert.ok(screen.getByTestId('hall-building-plan')));
+  assert.equal(screen.queryByText('BUILDING PLAN · 01'), null);
   assert.ok(screen.getByText('120 / 240마리'));
 });
 
@@ -220,7 +221,7 @@ test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드�
 
   // 연다 — 그리드가 살짝 축소된다.
   await fireEvent.press(screen.getByTestId('hall-bld-board'));
-  await waitFor(() => assert.ok(screen.getByText('BUILDING PLAN · 01')));
+  await waitFor(() => assert.ok(screen.getByTestId('hall-building-plan')));
   const openStyle = StyleSheet.flatten(screen.getByTestId('hall-bld-grid').props.style);
   assert.ok(
     Array.isArray(openStyle.transform),
@@ -232,7 +233,7 @@ test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드�
   // processTransform 의 _validateTransforms 에서 `null.forEach` 로 죽는다(RedBox: "Cannot read
   // property 'forEach' of null"). 고정 전에는 여기서 transform 이 `undefined` 였다.
   await fireEvent.press(screen.getByTestId('hall-back'));
-  await waitFor(() => assert.equal(screen.queryByText('BUILDING PLAN · 01'), null));
+  await waitFor(() => assert.equal(screen.queryByTestId('hall-building-plan'), null));
   const reClosedStyle = StyleSheet.flatten(screen.getByTestId('hall-bld-grid').props.style);
   assert.ok(
     Array.isArray(reClosedStyle.transform),

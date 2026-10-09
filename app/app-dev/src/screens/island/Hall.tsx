@@ -1735,6 +1735,7 @@ export function Hall({ e }: any) {
       );
       planView = (
         <View
+          testID="hall-building-plan"
           style={[
             {
               position: 'absolute',
@@ -1758,18 +1759,15 @@ export function Hall({ e }: any) {
             }),
           ]}
         >
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 12.9,
-            }}
-          >
-            <T style={g(15.5, 24.8, { color: '#e8faff', letterSpacing: 0.62 })}>
-              BUILDING PLAN · 01
-            </T>
-            {st === 'collect' && !liveConstruction && (
+          {st === 'collect' && !liveConstruction && (
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                marginBottom: 12.9,
+              }}
+            >
               <Pressable
                 testID="hall-plan-quest"
                 accessibilityRole="link"
@@ -1781,8 +1779,8 @@ export function Hall({ e }: any) {
                   게시판에서 보기 ›
                 </T>
               </Pressable>
-            )}
-          </View>
+            </View>
+          )}
           <View style={{ flex: 1, minHeight: 0, flexDirection: 'row', gap: 12.9 }}>
             <View
               style={{
