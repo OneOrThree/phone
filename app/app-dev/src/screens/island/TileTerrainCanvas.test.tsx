@@ -18,6 +18,7 @@ import {
 const noServer: NavServerDebug = {
   status: 'live',
   path: null,
+  pathId: null,
   snapshot: null,
   predicted: null,
   correctedAt: null,
@@ -135,7 +136,7 @@ describe('서버 이동 보기 helper (GROMO-2249)', () => {
   });
 });
 
-describe('보정 깜빡임 50ms 타이머 (GROMO-2249 보완 — 항목 1)', () => {
+describe('서버 디버그 시계 — 50ms 깜빡임 / 500ms readout 갱신 (GROMO-2249 라운드1 지적 1 · 보완4 지적 2)', () => {
   const nav = { cols: 1, rows: 1, walkable: Uint8Array.from([1]) } as any;
   const baseProps = {
     width: 100,
@@ -152,10 +153,10 @@ describe('보정 깜빡임 50ms 타이머 (GROMO-2249 보완 — 항목 1)', () 
     jest.useRealTimers();
   });
 
-  const debugWith = (correctedAt: number | null): NavDebug => ({
+  const debugWith = (correctedAt: number | null, status: NavServerDebug['status']): NavDebug => ({
     nav,
     walk: null,
-    server: { ...noServer, correctedAt },
+    server: { ...noServer, status, correctedAt },
   });
 
   // 마운트 때 내 타이머와 무관하게 한 번 뜨는 타이머(useImage 비동기 로드 등)가 있다 — 짧게 흘려보내고
@@ -163,20 +164,37 @@ describe('보정 깜빡임 50ms 타이머 (GROMO-2249 보완 — 항목 1)', () 
   // 다시 스케줄링해 수가 흔들린다 — 순수 틱 전진만 쓴다(React 의 act 경고는 무해해 여기선 무시한다).
   const settle = () => jest.advanceTimersByTime(200);
 
-  it('correctedAt 이 500ms 보다 오래됐으면 50ms 간격 타이머를 만들지 않는다', async () => {
+  it('correctedAt 이 500ms 보다 오래됐고 status 도 live 가 아니면 타이머를 만들지 않는다(라운드1 지적 1 유지)', async () => {
     jest.useFakeTimers();
     const now = Date.now();
-    await render(<TileTerrainCanvas {...baseProps} navDebug={debugWith(now - 600)} />);
+    await render(<TileTerrainCanvas {...baseProps} navDebug={debugWith(now - 600, 'off')} />);
     settle();
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  it('correctedAt 이 500ms 안이면 50ms 간격 타이머가 돌고, 창이 끝나면 스스로 clear 한다(server 가 있다고 상시 돌리지 않는다)', async () => {
+  it('server 가 null(동기화 꺼짐) 이면 타이머를 만들지 않는다', async () => {
     jest.useFakeTimers();
-    await render(<TileTerrainCanvas {...baseProps} navDebug={debugWith(Date.now())} />);
+    await render(<TileTerrainCanvas {...baseProps} navDebug={{ nav, walk: null, server: null }} />);
+    settle();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('correctedAt 이 500ms 안이면 50ms 간격 타이머가 돌고, status 가 live 가 아니면 창이 끝나는 순간 멈춘다', async () => {
+    jest.useFakeTimers();
+    await render(<TileTerrainCanvas {...baseProps} navDebug={debugWith(Date.now(), 'off')} />);
     settle();
     expect(jest.getTimerCount()).toBeGreaterThan(0);
     jest.advanceTimersByTime(500); // 깜빡임 창(500ms) 을 넘긴다.
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('status 가 live 면 깜빡임 창이 끝나도 500ms 주기로 계속 돌아 readout 을 갱신한다(보완4 지적 2)', async () => {
+    jest.useFakeTimers();
+    await render(<TileTerrainCanvas {...baseProps} navDebug={debugWith(Date.now(), 'live')} />);
+    settle();
+    jest.advanceTimersByTime(500); // 깜빡임 창을 넘긴다 — 50ms → 500ms 로 느려지되 멈추지 않는다.
+    expect(jest.getTimerCount()).toBeGreaterThan(0);
+    jest.advanceTimersByTime(1000); // fake timer 로 1초 더 흘러도 500ms 마다 스스로 재스케줄된다.
+    expect(jest.getTimerCount()).toBeGreaterThan(0);
   });
 });

@@ -684,6 +684,29 @@ export function WorldMap({
     const o = buildingOffsets?.[b] ?? NO_OFFSET;
     return { left: left + o.x * scale, top: top + o.y * scale };
   };
+  // 틱 지연·대기 readout 시계(GROMO-2249 보완4 지적 2) — TileTerrainCanvas.tsx 의 깜빡임 시계와 같은
+  // 규칙(status 가 live 거나 보정 깜빡임 창 안일 때만, 창 안 50ms / 그 밖 500ms)을 여기서도 그대로
+  // 쓰지만 그 파일에서 값을 import 하지 않는다 — WorldMap.tileIslandOff.test.tsx 가 './TileTerrainCanvas'
+  // 를 `{ TileTerrainCanvas: () => null }` 로만 얕게 mock 해서, 훅처럼 매 렌더 무조건 불러야 하는
+  // 값을 거기서 가져오면(navDebugText 처럼 tileTerrain 가드 뒤에서만 부르는 값과 달리) 그 테스트가
+  // "함수가 아니다"로 깨진다. correctionFlash 와 같은 한 줄 판정을 그대로 복제한다.
+  const debugCorrectedAt = navDebug?.server?.correctedAt ?? null;
+  const debugLive = navDebug?.server?.status === 'live';
+  const [debugNow, setDebugNow] = useState(() => Date.now());
+  useEffect(() => {
+    const flashing = (n: number) => debugCorrectedAt !== null && n - debugCorrectedAt < 500;
+    if (!debugLive && !flashing(Date.now())) return;
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const n = Date.now();
+      setDebugNow(n);
+      const inWindow = flashing(n);
+      if (!debugLive && !inWindow) return;
+      id = setTimeout(tick, inWindow ? 50 : 500);
+    };
+    id = setTimeout(tick, flashing(Date.now()) ? 50 : 500);
+    return () => clearTimeout(id);
+  }, [debugCorrectedAt, debugLive]);
   return (
     <View
       ref={view}
@@ -742,6 +765,7 @@ export function WorldMap({
       )}
       {tileTerrain && navDebug && (
         <Txt
+          testID="nav-debug-text"
           pointerEvents="none"
           kind="meta"
           style={{
@@ -752,7 +776,7 @@ export function WorldMap({
             backgroundColor: 'rgba(0,0,0,0.6)',
           }}
         >
-          {navDebugText(navDebug.walk, mapAssets.kind, navDebug.server)}
+          {navDebugText(navDebug.walk, mapAssets.kind, navDebug.server, debugNow)}
         </Txt>
       )}
       <Pressable
@@ -1031,23 +1055,38 @@ export function WorldMap({
     </View>
   );
 }
-// 이동 보기 오버레이(GROMO-2249) flush 결과 비교용 — 시간값(snapshotReceivedAt·waitingSince)은 절대
-// 시각이라 빼고, 나머지가 같으면 이전 state 를 그대로 써 TileTerrainCanvas 리렌더를 건너뛴다(보완 3).
+// 이동 보기 오버레이(GROMO-2249) flush 결과 비교용 — 같으면 이전 state 를 그대로 써 TileTerrainCanvas
+// 리렌더를 건너뛴다(보완 3). waitingSince·snapshotReceivedAt 도 비교에 넣는다(보완4 지적 1) — 둘 다
+// 이벤트 때만 바뀌는 절대 시각이라 250ms 재시도 인터벌만으론 새 객체가 안 생기고, intent 전송으로
+// sentAt 만 바뀌거나 정지 상태에서 같은 좌표의 새 Snapshot 으로 receivedAt 만 바뀌는 경우를 놓치지 않는다.
 const sameImagePoint = (a: Point | null, b: Point | null) =>
   a === b || (!!a && !!b && a.x === b.x && a.y === b.y);
-// path 는 flush 마다 새 배열이라 참조가 다르면 길이 + 끝점만 비교한다(매번 깊이 비교하지 않는다).
-const sameImagePath = (a: Point[] | null, b: Point[] | null) =>
+// pathId 를 못 쓸 때만 쓰는 느린 보조 경로 — 모든 점을 깊이 비교한다(보완4 지적 3).
+const samePathPoints = (a: Point[], b: Point[]) =>
+  a.length === b.length && a.every((p, i) => sameImagePoint(p, b[i]));
+// path 는 flush 마다 새 배열이라 참조가 다르면 비교가 필요하다. pathId(서버 경로 식별자)가 둘 다 있으면
+// pathId + 길이로 끝낸다(1순위, 싸다) — 길이·끝점만 보던 종전 비교는 같은 길이·끝점에 중간 waypoint 만
+// 다른 새 경로를 "같다"고 오판했다(보완4 지적 3). pathId 를 못 쓸 때만 전 지점을 깊이 비교한다.
+const sameImagePath = (
+  a: Point[] | null,
+  b: Point[] | null,
+  aPathId: number | null,
+  bPathId: number | null,
+) =>
   a === b ||
   (!!a &&
     !!b &&
-    a.length === b.length &&
-    sameImagePoint(a[a.length - 1] ?? null, b[b.length - 1] ?? null));
+    (aPathId !== null && bPathId !== null
+      ? aPathId === bPathId && a.length === b.length
+      : samePathPoints(a, b)));
 const sameServerDebug = (a: NavServerDebug, b: NavServerDebug) =>
   a.status === b.status &&
   a.correctedAt === b.correctedAt &&
+  a.waitingSince === b.waitingSince &&
+  a.snapshotReceivedAt === b.snapshotReceivedAt &&
   sameImagePoint(a.predicted, b.predicted) &&
   sameImagePoint(a.snapshot, b.snapshot) &&
-  sameImagePath(a.path, b.path);
+  sameImagePath(a.path, b.path, a.pathId, b.pathId);
 function FinalIslandScene({
   state,
   go,
@@ -1613,6 +1652,7 @@ function FinalIslandScene({
           {
             status: 'denied',
             path: null,
+            pathId: null,
             snapshot: null,
             predicted: null,
             correctedAt: null,
@@ -1624,6 +1664,8 @@ function FinalIslandScene({
             path: st.lastPath
               ? [st.lastPath.start, ...st.lastPath.waypoints].map((p) => worldToImage(p, size))
               : null,
+            // 경로 비교 1순위(보완4 지적 3) — 서버 경로 식별자. lastPath 가 없으면(아직 PathAccepted 전) null.
+            pathId: st.lastPath?.pathId ?? null,
             snapshot: st.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
             predicted: location.current,
             correctedAt: st.lastCorrectionAt,

@@ -707,6 +707,7 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     expect(screen.getByTestId('tile-terrain').props.navDebug.server).toEqual({
       status: 'denied',
       path: null,
+      pathId: null,
       snapshot: null,
       predicted: null,
       correctedAt: null,
@@ -723,6 +724,101 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     );
     await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
     expect(screen.getByTestId('tile-terrain').props.navDebug.server).toBeNull();
+    await screen.unmount();
+  });
+
+  it('intent 를 보내 sentAt 만 바뀌어도(위치·경로·스냅샷 불변) waitingSince 가 갱신된다(보완4 지적 1)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const before = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(before.waitingSince).toBeNull();
+    // WorldMap 의 walk()/Animated 를 거치지 않고 컨트롤러에 바로 intend 한다 — 탭은 로컬 걷기도 같이
+    // 시작시켜 predicted(location.current)까지 함께 바뀐다. 직접 호출하면 waitingSince 만 바뀌는
+    // 상황을 그대로 만들 수 있다.
+    const ctl = controllers[controllers.length - 1];
+    await act(async () => {
+      ctl.intend({ x: 42.5, y: 45.5 });
+    });
+    await act(async () => jest.advanceTimersByTime(100));
+    const after = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(after.waitingSince).not.toBeNull();
+    expect(after).toEqual({ ...before, waitingSince: after.waitingSince });
+    await screen.unmount();
+  });
+
+  it('정지 상태에서 같은 좌표의 새 Snapshot 이 와도(위치 불변) snapshotReceivedAt 이 갱신된다(보완4 지적 1)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const before = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(before.snapshotReceivedAt).not.toBeNull();
+    // 메시지 사이에 시간이 흘러야 다음 Snapshot 의 receivedAt 이 실제로 달라진다.
+    await act(async () => jest.advanceTimersByTime(600));
+    await emit(snapshot(102, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const after = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(after.snapshotReceivedAt).not.toBe(before.snapshotReceivedAt);
+    expect(after).toEqual({ ...before, snapshotReceivedAt: after.snapshotReceivedAt });
+    await screen.unmount();
+  });
+
+  it('같은 길이·끝점인 새 경로도 pathId 가 다르면 중간 waypoint 변경을 반영한다(보완4 지적 3)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, { x: 41.5, y: 45.5 });
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 40.5, y: 44.5 },
+        { x: 41.5, y: 45.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(100));
+    const before = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(before.pathId).toBe(1);
+    const firstPath = before.path;
+    // 같은 commandSeq 로 길이·끝점은 같지만 중간 waypoint 만 다른 새 경로(pathId 2)가 확정된다 — 끝점만
+    // 보던 종전 비교라면 "같다"고 오판해 옛 경로가 그대로 남는다.
+    await emit(
+      pathAccepted(ME, 1, 2, SPAWN, [
+        { x: 40.5, y: 46.5 },
+        { x: 41.5, y: 45.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(100));
+    const after = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(after.pathId).toBe(2);
+    expect(after.path).toEqual(
+      [SPAWN, { x: 40.5, y: 46.5 }, { x: 41.5, y: 45.5 }].map((p) => worldToImage(p, SIZE)),
+    );
+    expect(after.path).not.toEqual(firstPath);
+    await screen.unmount();
+  });
+
+  it('status 가 live 면 메시지가 끊겨도 500ms 마다 다시 그려 틱 지연 readout 숫자가 시간과 함께 커진다(보완4 지적 2)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const readout = () => screen.getByTestId('nav-debug-text').props.children as string;
+    const delayOf = (text: string) => Number(/틱 지연 (\d+)ms/.exec(text)?.[1]);
+    const before = delayOf(readout());
+    expect(Number.isNaN(before)).toBe(false);
+    // 그 뒤로 메시지 없이 1초만 흐른다 — TileTerrainCanvas 는 이 파일 상단에서 mock 이라 그 안의
+    // 시계는 안 돈다. WorldMap 자신의 시계(debugNow)가 500ms 마다 다시 그려 readout 의 지연 숫자를
+    // 갱신해야 한다(지적 2) — 그러지 않으면 멈춘 state 와 함께 숫자도 멈춘다.
+    await act(async () => jest.advanceTimersByTime(1000));
+    const after = delayOf(readout());
+    expect(after).toBeGreaterThan(before);
     await screen.unmount();
   });
 });

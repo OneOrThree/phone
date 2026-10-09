@@ -40,6 +40,8 @@ export type NavServerDebug = {
   status: 'off' | 'denied' | 'live';
   /** PathAccepted 출발점 + waypoints. */
   path: Point[] | null;
+  /** path 가 속한 서버 경로 식별자(PathAccepted.pathId) — path 비교 1순위로 쓴다(GROMO-2249 보완4 지적 3). */
+  pathId: number | null;
   /** 최근 Snapshot 의 내 위치. */
   snapshot: Point | null;
   /** 앱 예측 위치(WorldMap 의 location.current). */
@@ -263,21 +265,30 @@ export function TileTerrainCanvas({
     const dest = walk?.path[walk.path.length - 1];
     return walk && dest ? polyline([walk.tap, dest]) : null;
   }, [walk]);
-  // 서버 확정 경로·보정 깜빡임(GROMO-2249) — server 가 없으면(동기화 꺼짐) 아무것도 계산·타이머도 없다.
+  // 서버 확정 경로·보정 깜빡임·readout 시계(GROMO-2249, 보완4 지적 2) — server 가 없고(동기화 꺼짐)
+  // 깜빡임 창도 아니면 아무것도 계산·타이머도 없다(라운드1 지적 1 유지 — 서버 디버그가 있다고 상시
+  // 50ms 로 돌지 않는다). status 가 live 면 깜빡임 창이 끝나도 500ms 주기로 계속 돌아 flashNow 를
+  // 갱신한다 — 메시지가 끊겨도 틱 지연 readout 이 멈추지 않는다(지적 2). 창 안에서는 애니메이션을
+  // 위해 50ms 로 더 촘촘히 돈다. 하나의 setTimeout 체인으로 합쳐 주기를 그때그때 바꾼다(종전엔
+  // 50ms 전용 interval 하나뿐이라 주기를 바꿀 수 없었다).
   const server = navDebug?.server;
   const correctedAt = server?.correctedAt ?? null;
+  const live = server?.status === 'live';
   const [flashNow, setFlashNow] = useState(() => Date.now());
   useEffect(() => {
-    // server 가 있다고 상시 돌리지 않는다 — correctedAt 이 깜빡임 창(500ms) 안일 때만 돌고, 창이
-    // 끝나면 스스로 clear 한다(GROMO-2249 보완 — 항목 1).
-    if (!correctionFlash(correctedAt, Date.now())) return;
-    const id = setInterval(() => {
-      const now = Date.now();
-      setFlashNow(now);
-      if (!correctionFlash(correctedAt, now)) clearInterval(id);
-    }, 50);
-    return () => clearInterval(id);
-  }, [correctedAt]);
+    const flashing = (n: number) => correctionFlash(correctedAt, n);
+    if (!live && !flashing(Date.now())) return;
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const n = Date.now();
+      setFlashNow(n);
+      const inWindow = flashing(n);
+      if (!live && !inWindow) return; // 창이 끝났고 live 도 아니면 더 돌지 않는다.
+      id = setTimeout(tick, inWindow ? 50 : 500);
+    };
+    id = setTimeout(tick, flashing(Date.now()) ? 50 : 500);
+    return () => clearTimeout(id);
+  }, [correctedAt, live]);
   if (!image || !atlas) return null;
   const scale = base * camera.z;
   const serverPath = server?.path && server.path.length > 1 ? polyline(server.path) : null;
