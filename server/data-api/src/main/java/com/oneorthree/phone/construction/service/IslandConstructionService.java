@@ -31,6 +31,7 @@ import com.oneorthree.phone.construction.dto.ConstructionOptionsView;
 import com.oneorthree.phone.construction.dto.ConstructionResidentProgress;
 import com.oneorthree.phone.construction.dto.ConstructionStartedView;
 import com.oneorthree.phone.construction.dto.ConstructionTargetView;
+import com.oneorthree.phone.construction.dto.IslandLayoutView;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
@@ -92,11 +93,27 @@ public class IslandConstructionService {
     private final ConstructionCostPolicyRepository policies;
     private final CostPolicyPublicationRepository publication;
     private final IslandWalletService walletService;
+    private final IslandLayoutService layouts;
     private final AggregateVersionRepository aggregateVersions;
     private final IslandStateEvents islandStateEvents;
     private final IslandWalletEvents walletEvents;
     private final PublicCommandService publicCommands;
     private final Clock clock;
+
+    // ---------------------------------------------------------------- GET layout
+
+    /**
+     * 섬 배치 정본 조회 (GROMO-2232) — 옵션 조회와 같은 활성 주민 게이트다. 행이 없는 섬은 이 조회가
+     * 기본 템플릿으로 만들므로 읽기 전용이 아닌 쓰기 트랜잭션이다.
+     */
+    @Transactional
+    public IslandLayoutView layout(UUID islandId, UUID userId) {
+        User viewer = userQueryService.getCaller(userId);
+        Group island = aliveIsland(islandId);
+        groupMemberRepository.findByUserAndGroup(viewer, island)
+                .orElseThrow(() -> new ConstructionException(ConstructionErrorCode.CONSTRUCTION_FORBIDDEN));
+        return layouts.current(islandId);
+    }
 
     // ---------------------------------------------------------------- GET options
 

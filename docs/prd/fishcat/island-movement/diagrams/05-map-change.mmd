@@ -1,0 +1,21 @@
+sequenceDiagram
+  participant D as Data 정본
+  participant B as Business 제어 어댑터
+  participant S as 이동 worker
+  participant M as 맵 저장소
+  participant C as 앱
+  D->>D: 시설 배치 TX + 재전달 가능한 변경 기록
+  D-->>B: 배치 변경 사실 / 재전달
+  B->>S: 전체 layoutRevision 스냅샷 push
+  S->>S: 중복·역순 거부, 통행 맵 합성
+  S->>M: 새 artifact 게시
+  S-->>C: MapChanged(manifest, effectiveTick)
+  C->>M: 새 artifact 요청
+  M-->>C: 통행 데이터
+  S->>S: effectiveTick에 맵 원자 전환
+  S->>S: 경로 재검증 / 필요 시 안전 위치 재배치
+  S-->>B: 적용 ack
+  C->>C: hash 검증, 이전 경로 버퍼 폐기
+  C->>S: MapReady(newNavRevision)
+  S-->>C: 새 FullState + 경로
+  C->>C: 입력 재개

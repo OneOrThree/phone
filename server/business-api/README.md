@@ -48,7 +48,7 @@ cd server/business-api
 ./gradlew build
 ```
 
-[위성 CI](../../.github/workflows/satellite-ci.yml)는 Dockerfile의 `test` 단계로 도구 이미지를 만든 뒤, 소스와 Docker 소켓을 마운트한 컨테이너에서 Gradle을 실행합니다. 도구 이미지 빌드만으로 테스트가 실행되지는 않습니다. 서비스 실행은 아래 상세 안내와 [배포 설정 준비](../scripts/README.md)를 참고합니다. 기본 서비스 포트는 `8080`이며 Data와 호스트에서 함께 실행할 때는 포트를 구분해야 합니다. 단독 [compose.yml](compose.yml)은 호스트 `127.0.0.1:8082`를 컨테이너 `8080`에 연결합니다.
+[위성 CI](../../.github/workflows/satellite-check.yml)는 Dockerfile의 `test` 단계로 도구 이미지를 만든 뒤, 소스와 Docker 소켓을 마운트한 컨테이너에서 Gradle을 실행합니다. 도구 이미지 빌드만으로 테스트가 실행되지는 않습니다. 서비스 실행은 아래 상세 안내와 [배포 설정 준비](../scripts/README.md)를 참고합니다. 기본 서비스 포트는 `8080`이며 Data와 호스트에서 함께 실행할 때는 포트를 구분해야 합니다. 단독 [compose.yml](compose.yml)은 호스트 `127.0.0.1:8082`를 컨테이너 `8080`에 연결합니다.
 
 ## 상세 안내
 
@@ -711,7 +711,7 @@ sequenceDiagram
 - 사용자별 캐시: `cache:business:preview:{userId}:{urlHash}`. ID를 알아도 다른 계정의 URL·이미지는 볼 수 없다. 같은 공개 링크를 받은 사용자는 자기 계정으로 POST하면 된다. 중복 방지는 같은 사용자 내에서 적용된다.
 - PENDING 90초 / READY 300초 / FAILED 30초. SET NX로 선점하고 완료 시 원래 generation이 그대로 있을 때만 교체한다. 만료 후 재생성 중에 이전 작업이 끝나도 새 결과를 덮어쓰지 못한다.
 - 프로세스 종료·Redis 장애로 결과 저장이 실패하면 pending TTL 후 POST로 복구한다. GET만으로 작업을 생성하지 않는다. Redis eviction으로 일찍 사라질 수도 있다.
-- 전용 Redis는 128MiB·allkeys-lru·영속화 없음. 캐시 손실이 허용되며 기존 채팅/프레즌스 Redis와 분리한다. 메모리 압박 시 rate key도 eviction될 수 있어 이 제한은 남용 방어의 보조 수단이다. 인터넷 경계의 인증/IP 요청 제한과 함께 운영한다.
+- 전용 Redis는 128MiB·allkeys-lru·영속화 없음. 캐시 손실이 허용되며 기존 채팅/프레즌스 Redis와 분리한다. 메모리 압박 시 rate key도 eviction될 수 있어 이 제한은 남용 방어의 보조 수단이다. 폐기 세션 거부 목록(`cache:business:revoked-session:*`)은 캐시와 달리 잃으면 보안 영향이 있다. 그래도 축출로 키 단위, 재시작·페일오버로 목록 전체를 잃을 수 있다. 잃은 세션의 AT 는 남은 수명(운영 최대 1시간)만큼 다시 통과한다. 최악 노출 상한이 거부 목록이 없을 때와 같아 수용한 한계다(축출 불가 저장소 이전은 ticket 2225). 인터넷 경계의 인증/IP 요청 제한과 함께 운영한다.
 - 1분 240 비용: 배치 POST URL당 4, GET/썸네일당 1. 프로세스별 동시 작업 4·대기 8, 초과는 `BUSY`로 30초 캐시한다.
 - 파일 최대 10MiB, Google 메타데이터 64KiB. 이미지 최대 2천만 픽셀·출력 480px/512KiB. PNG가 바이트 한도를 넘으면 치수를 더 줄여 재인코딩한다. SVG/WebP/HTML은 렌더링하지 않는다.
 - HTTP(S) 기본 포트만 허용한다. 사설·루프백·링크 로컬·예약 IP 및 IPv6 전환 주소를 차단한다. DNS 결과 전체를 검사하고 실제 연결 주소로 고정한다. 최대 3회 리다이렉트마다 재검증하며 HTTPS→HTTP를 거절한다. 쿠키·자동 압축·자동 재시도는 끈다. Google 키는 메타데이터 API 첫 요청에만 전송하고 Google 메타데이터 리다이렉트는 거절한다.
@@ -748,7 +748,7 @@ SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
 
 배포 절차는 [`deployment.md`](../../docs/prd/fishcat/server-separation/deployment.md)를 따른다.
 `server/scripts/docker-compose.satellites.yml`과 Business 단독 compose는 같은 env/ACL 계약을 사용한다.
-`.github/workflows/satellite-ci.yml`이 Poppler를 포함한 테스트·이미지 검증을 담당한다.
+`.github/workflows/satellite-check.yml`이 Poppler를 포함한 테스트·이미지 검증을 담당한다.
 운영 활성화에는 라우팅·TLS와 Google API 키 설정이 함께 필요하다.
 
 API 경로의 percent encoding·matrix parameter 표기에도 인증·본문 제한·요청 로그를 동일하게 적용한다.

@@ -28,6 +28,13 @@
     "review:last-island-recovery": "node scripts/review-last-island-recovery.cjs",
     "gen:report-palette": "node scripts/generate-report-palette.cjs",
     "gen:report-palette:check": "node scripts/generate-report-palette.cjs --check",
+    "serve:map-assets": "node scripts/serve-map-assets.cjs",
+    "gen:nav-fixture": "node scripts/build-nav-fixture.cjs",
+    "gen:nav-fixture:check": "node scripts/build-nav-fixture.cjs --check",
+    "gen:tile-atlas": "python3 scripts/build-tile-atlas.py",
+    "gen:tile-atlas:check": "python3 scripts/build-tile-atlas.py --check",
+    "gen:localized-stamp": "python3 scripts/gen-localized-stamp.py",
+    "gen:localized-stamp:check": "python3 scripts/gen-localized-stamp.py --check",
     "postinstall": "patch-package"
   },
   "dependencies": {
@@ -36,6 +43,7 @@
     "@react-native-google-signin/google-signin": "^16.1.5",
     "@react-native-kakao/core": "^2.4.8",
     "@react-native-kakao/user": "^2.4.8",
+    "@shopify/react-native-skia": "2.6.2",
     "@stomp/stompjs": "^7.3.0",
     "@xmartlabs/react-native-line": "^6.0.1",
     "expo": "~57.0.8",
@@ -57,9 +65,11 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.0",
+    "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4",
-    "react-native-web": "^0.21.2"
+    "react-native-web": "^0.21.2",
+    "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",

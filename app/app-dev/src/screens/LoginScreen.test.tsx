@@ -1,18 +1,7 @@
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import { LoginScreen } from './LoginScreen';
-
-jest.mock('expo-apple-authentication', () => {
-  const React = jest.requireActual('react');
-  const { Pressable } = jest.requireActual('react-native');
-
-  return {
-    AppleAuthenticationButton: (props: Record<string, unknown>) =>
-      React.createElement(Pressable, { ...props, accessibilityRole: 'button' }),
-    AppleAuthenticationButtonType: { CONTINUE: 2 },
-    AppleAuthenticationButtonStyle: { WHITE_OUTLINE: 2 },
-  };
-});
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -48,19 +37,49 @@ test('전달받은 제공자를 순서대로 표시한다', async () => {
 test('텍스트 브랜드 버튼은 큰 글자에 맞춰 최소 높이 이상으로 확장된다', async () => {
   const screen = await render(
     <LoginScreen
-      providers={['line', 'google']}
+      providers={['line', 'apple', 'google']}
       termsAccepted
       onTermsAcceptedChange={jest.fn()}
       onProviderPress={jest.fn()}
     />,
   );
 
-  for (const provider of ['line', 'google']) {
+  for (const provider of ['line', 'apple', 'google']) {
     const style = screen.getByTestId(`login-${provider}`).props.style;
     expect(style.height).toBeUndefined();
     expect(style.minHeight).toBe(54);
     expect(style.paddingVertical).toBeGreaterThan(0);
   }
+});
+
+test('Apple·Google 버튼은 높이·여백·모서리와 라벨 글꼴을 공유하고 색만 다르다', async () => {
+  const screen = await render(
+    <LoginScreen
+      providers={['apple', 'google']}
+      termsAccepted
+      onTermsAcceptedChange={jest.fn()}
+      onProviderPress={jest.fn()}
+    />,
+  );
+
+  const apple = screen.getByTestId('login-apple').props.style;
+  const google = screen.getByTestId('login-google').props.style;
+  for (const key of [
+    'minHeight',
+    'paddingVertical',
+    'paddingHorizontal',
+    'borderRadius',
+    'borderWidth',
+  ]) {
+    expect(apple[key]).toBe(google[key]);
+  }
+  expect(apple.backgroundColor).not.toBe(google.backgroundColor);
+
+  const label = (text: string) => screen.getByText(text).props.style;
+  const appleLabel = [label('Apple로 계속하기')].flat().reduce((a, s) => ({ ...a, ...s }), {});
+  const googleLabel = [label('Google로 계속하기')].flat().reduce((a, s) => ({ ...a, ...s }), {});
+  expect(appleLabel.fontSize).toBe(googleLabel.fontSize);
+  expect(appleLabel.fontWeight).toBe(googleLabel.fontWeight);
 });
 
 test('로그인 동의 영역은 약관 버전을 표시하고 법률 문서 링크를 제공한다', async () => {
@@ -118,4 +137,29 @@ test('한 제공자 로그인 중에는 모든 로그인 동작과 약관 변경
   }
   fireEvent.press(screen.getByRole('checkbox'));
   expect(onTermsAcceptedChange).not.toHaveBeenCalled();
+});
+
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  test('기기 언어가 en 이면 제공자 라벨과 게스트 문구를 영문으로 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const screen = await render(
+      <LoginScreen
+        providers={['google']}
+        termsAccepted
+        onTermsAcceptedChange={jest.fn()}
+        onGuestPress={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Continue with Google')).toBeTruthy();
+    expect(screen.getByText('Start as a guest')).toBeTruthy();
+  });
 });

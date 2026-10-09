@@ -1,0 +1,25 @@
+flowchart TB
+  App[모바일 앱]
+  API[기존 HTTPS 진입점<br/>Business API]
+  subgraph internal[신규 이동 서비스 배포 영역]
+    Control[제어 어댑터<br/>내부 HTTPS]
+    Directory[선형화 가능한 소유권 저장소<br/>room → worker / epoch / lease]
+    A[Java Worker A<br/>방 1 · 방 2]
+    B[Java Worker B<br/>방 3 · 방 4]
+    Metrics[로그 · 지표 · 경보]
+    Control --> A
+    Control --> B
+    A -. lease .-> Directory
+    B -. lease .-> Directory
+    A --> Metrics
+    B --> Metrics
+  end
+  UDP_A[shard A 공개 endpoint<br/>UDP 443 후보]
+  UDP_B[shard B 공개 endpoint<br/>UDP 443 후보]
+  App <-->|HTTPS 입장 · 티켓 · owner 주소| API
+  API -. 준비 · 권한 · 배치 .-> Control
+  API -. 배정 / 조회 .-> Directory
+  App <-->|암호화 QUIC| UDP_A
+  App <-->|암호화 QUIC| UDP_B
+  UDP_A <--> A
+  UDP_B <--> B

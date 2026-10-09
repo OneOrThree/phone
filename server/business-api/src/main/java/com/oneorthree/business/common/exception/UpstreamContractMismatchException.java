@@ -11,7 +11,19 @@ public class UpstreamContractMismatchException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
+    /** 상류 HTTP 상태 — 응답을 받기 전 실패(변환·크기 등)는 0 이다. */
+    private final int upstreamStatus;
+
     public UpstreamContractMismatchException(String message) {
+        this(message, 0);
+    }
+
+    public UpstreamContractMismatchException(String message, int upstreamStatus) {
         super(message);
+        this.upstreamStatus = upstreamStatus;
+    }
+
+    public int getUpstreamStatus() {
+        return upstreamStatus;
     }
 }

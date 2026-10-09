@@ -102,6 +102,7 @@ class SessionLogoutIntegrationTest {
         mvc.perform(post(PATH).header("Authorization", "Bearer " + SERVICE_TOKEN)
                         .header("X-User-Id", UUID.randomUUID()).contentType("application/json").content(body))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.revoked").value(true))
+                .andExpect(jsonPath("$.sessionId").value(actor.sessionId().toString()))
                 .andExpect(jsonPath("$.data").doesNotExist()).andExpect(jsonPath("$.refreshToken").doesNotExist());
     }
 
@@ -110,7 +111,7 @@ class SessionLogoutIntegrationTest {
     void exactEvidenceReplay() {
         Actor actor = actor();
         long before = row(actor).getSessionEpoch();
-        service.logout(actor.refreshToken(), null);
+        assertThat(service.logout(actor.refreshToken(), null)).isEqualTo(actor.sessionId());
         var stopped = row(actor);
         assertThat(stopped.isActive()).isFalse();
         assertThat(stopped.getSessionEpoch()).isGreaterThan(before);
@@ -118,7 +119,8 @@ class SessionLogoutIntegrationTest {
                 .isEqualTo(jwt.extractExpiration(actor.refreshToken()).toInstant());
         assertThat(stopped.getRevokeReason()).isEqualTo("LOGOUT");
         assertThat(stopped.getBootstrapNonceHash()).isNotBlank();
-        service.logout(actor.refreshToken(), null);
+        // 멱등 재생도 같은 세션 id 를 돌려줘야 business 거부목록 기록이 재시도로 복구된다.
+        assertThat(service.logout(actor.refreshToken(), null)).isEqualTo(actor.sessionId());
         assertThat(row(actor).getSessionEpoch()).isEqualTo(stopped.getSessionEpoch());
         assertThat(row(actor).getRevokedAt()).isEqualTo(stopped.getRevokedAt());
         assertThat(revocationCount(actor)).isEqualTo(1);

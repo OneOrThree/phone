@@ -1,0 +1,18 @@
+appId: com.oneorthree.focuscat
+---
+- swipe:
+    start: 85%, 60%
+    end: 15%, 45%
+    duration: 700
+- swipe:
+    start: 85%, 60%
+    end: 30%, 50%
+    duration: 700
+- tapOn: "마을회관"
+- extendedWaitUntil:
+    visible: "섬 관리"
+    timeout: 25000
+- tapOn: "섬 관리"
+- extendedWaitUntil:
+    visible: "섬에 친구 초대하기"
+    timeout: 15000

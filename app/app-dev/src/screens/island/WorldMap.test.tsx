@@ -15,6 +15,7 @@ import {
   useVillageDayNight,
   WorldMap,
 } from '@/screens/island/WorldMap';
+import { applyLocalePref } from '@/i18n';
 import { buildingNames, initialState, reducer } from '@/services/model';
 import {
   BUILDING_ENTRY_DURATION_MS,
@@ -1149,4 +1150,38 @@ test('서버 방문 지도는 대상 건물만 열고 귀환도 서버 경로를
   expect(onReturn).toHaveBeenCalledTimes(1);
   expect(dispatch).not.toHaveBeenCalled();
   expect(go).not.toHaveBeenCalledWith('travel', expect.anything());
+});
+
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  test('en 로케일 — 홈 HUD·건물 문 라벨을 영문으로 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const state = initialState(true);
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+
+    expect(screen.getByText('Focus today')).toBeTruthy();
+    expect(screen.getByLabelText('Raft')).toBeTruthy();
+  });
+
+  // legacyDoors 의 label 게터 + home.door.* 템플릿이 한 번에 걸리는 조합 — 게터가 import
+  // 시점에 다시 굳는 회귀(건물명이 ko 로 멈추는 것)를 잡는다.
+  test('en 로케일 — 게시판 새 댓글 문 배지는 영문 건물명을 합친 라벨을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const state = initialState(true);
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    if (!island.buildings.includes('board')) island.buildings.push('board');
+    const screen = await render(
+      <FinalIsland state={state} go={jest.fn()} build={jest.fn()} boardStatus="new-comment" />,
+    );
+
+    expect(screen.getByLabelText("Notice Board, there's a new comment.")).toBeTruthy();
+  });
 });

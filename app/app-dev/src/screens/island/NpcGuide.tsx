@@ -15,6 +15,7 @@ import {
   type ViewProps,
 } from 'react-native';
 import { assets } from '@/constants/assets';
+import { t } from '@/i18n';
 import { Btn, C, Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
@@ -29,7 +30,7 @@ export function GuideBox({
   children,
   accessibilityViewIsModal,
   onSkip,
-  skipTitle = '안내 그만 보기',
+  skipTitle = t('onboarding.spotlightSkip'),
 }: {
   text: string;
   character?: 'mongdol' | 'pelican' | 'dog';

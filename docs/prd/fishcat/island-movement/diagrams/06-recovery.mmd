@@ -1,0 +1,25 @@
+sequenceDiagram
+  participant C as 앱
+  participant B as Business
+  participant R as 소유권 저장소
+  participant A as 이전 worker
+  participant N as 새 worker
+  alt 소유 worker 장애
+    A->>A: 장애 또는 lease 갱신 실패
+    C->>C: 좌표 timeout → 예측 정지
+    C->>B: 재입장 요청
+    B->>R: 기존 lease 만료 확인 후 재배정
+    R-->>B: 새 owner + 새 roomEpoch
+    B->>N: 최신 권한·배치 push
+    N-->>B: 준비 ack
+    B-->>C: 새 티켓·endpoint
+    C->>N: 암호화 Join + MapReady
+    N-->>C: 입구 위치에서 FullState
+    C->>C: 이전 epoch 패킷·경로 폐기
+  else 강퇴 또는 로그아웃
+    B->>A: 권한 취소(version), ack까지 재시도
+    A->>A: 취소 tombstone, 이동·구독 종료
+    A-->>C: SessionClosed
+    C->>C: 방 상태 제거
+    Note over B,A: 통지 단절 시에도 기존 권한 lease 만료로 종료
+  end

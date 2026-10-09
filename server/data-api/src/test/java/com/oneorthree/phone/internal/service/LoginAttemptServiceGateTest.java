@@ -3,11 +3,17 @@ package com.oneorthree.phone.internal.service;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.repository.LoginAttemptRepository;
+import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.repository.domain.AuthSession;
+import com.oneorthree.phone.auth.repository.domain.LoginAttempt;
+import com.oneorthree.phone.auth.repository.domain.LoginAttemptStatus;
+import com.oneorthree.phone.auth.repository.domain.LoginTokenMaterials;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.internal.dto.LoginAttemptExecuteRequest;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,13 +22,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -127,5 +137,84 @@ class LoginAttemptServiceGateTest {
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SESSION_NOT_ACTIVE);
         verify(authSessionService, never()).verifySession(any(), any());
+    }
+
+    // ── 임차 펜스 (GROMO-2215) ──
+
+    private static final UUID ATTEMPT_ID = UUID.fromString("00000000-0000-0000-0000-000000002215");
+
+    private LoginAttempt pendingClaimedAt(Instant claimedAt) {
+        return LoginAttempt.builder()
+                .attemptId(ATTEMPT_ID).status(LoginAttemptStatus.PENDING)
+                .claimedAt(claimedAt).recoveryExpiresAt(claimedAt.plus(Duration.ofMinutes(5)))
+                .build();
+    }
+
+    private void stubCompletion() {
+        given(jwtProvider.extractUserId("at")).willReturn(USER_ID);
+        given(jwtProvider.freezeMaterials("at", "rt")).willReturn(new LoginTokenMaterials(
+                false, 0L, Instant.now(), Instant.now(), Instant.now(), Instant.now(), UUID.randomUUID()));
+    }
+
+    private static SocialLoginResponse login() {
+        return new SocialLoginResponse("at", "rt", false, "bootstrap", SESSION_ID);
+    }
+
+    @Test
+    @DisplayName("임차를 남이 회수했으면(claimed_at 변경) complete 는 IN_PROGRESS 로 거절하고 아무것도 쓰지 않는다")
+    void 회수된임차는_완료거절() {
+        Instant mine = Instant.parse("2026-10-07T00:00:00Z");
+        LoginAttempt attempt = pendingClaimedAt(mine.plusSeconds(31)); // 다른 실행자가 회수한 뒤의 값
+        given(loginAttemptRepository.findByAttemptIdForUpdate(ATTEMPT_ID)).willReturn(Optional.of(attempt));
+
+        assertThatThrownBy(() -> service.complete(ATTEMPT_ID, login(), mine))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_IN_PROGRESS);
+        assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.PENDING);
+        verify(userQueryService, never()).getCaller(any());
+    }
+
+    @Test
+    @DisplayName("탈퇴로 닫힌 시도(INVALIDATED)는 펜스와 무관하게 UNUSABLE — 재시도해도 성공하지 않으니 409 를 주지 않는다")
+    void 닫힌시도는_UNUSABLE() {
+        Instant mine = Instant.parse("2026-10-07T00:00:00Z");
+        LoginAttempt attempt = LoginAttempt.builder()
+                .attemptId(ATTEMPT_ID).status(LoginAttemptStatus.INVALIDATED)
+                .claimedAt(mine).recoveryExpiresAt(mine.plus(Duration.ofMinutes(5)))
+                .build();
+        given(loginAttemptRepository.findByAttemptIdForUpdate(ATTEMPT_ID)).willReturn(Optional.of(attempt));
+
+        assertThatThrownBy(() -> service.complete(ATTEMPT_ID, login(), mine))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.INVALIDATED);
+    }
+
+    @Test
+    @DisplayName("펜스가 claimed_at 과 같으면 complete 가 COMPLETED 로 확정한다")
+    void 펜스일치면_완료() {
+        Instant mine = Instant.parse("2026-10-07T00:00:00Z");
+        LoginAttempt attempt = pendingClaimedAt(mine);
+        given(loginAttemptRepository.findByAttemptIdForUpdate(ATTEMPT_ID)).willReturn(Optional.of(attempt));
+        stubCompletion();
+
+        assertThat(service.complete(ATTEMPT_ID, login(), mine).userId()).isEqualTo(USER_ID);
+        assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("claim 은 마이크로초로 자른 펜스를 쓰고 돌려준다 — DB 반올림과 동등 비교가 어긋나지 않게")
+    void claim_펜스는_마이크로초() {
+        given(loginAttemptRepository.insertClaim(any(), any(), any(), any(), any(), any(), anyBoolean(),
+                any(), any())).willReturn(1);
+        LoginAttemptExecuteRequest request = new LoginAttemptExecuteRequest(
+                ATTEMPT_ID, "key", "digest", Provider.APPLE, "id_token", "credential", "2026-09", null, false);
+
+        LoginAttemptService.Claim claim = service.claim(request);
+
+        assertThat(claim.replay()).isNull();
+        assertThat(claim.fence().getNano() % 1000).isZero();
+        verify(loginAttemptRepository).insertClaim(any(), any(), any(), any(), any(), any(), anyBoolean(),
+                eq(claim.fence()), any());
     }
 }

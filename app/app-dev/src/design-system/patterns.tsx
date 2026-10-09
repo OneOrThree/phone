@@ -20,6 +20,7 @@ import { componentTokens, primitiveTokens, semanticTokens } from '@/design-syste
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
+import { t } from '@/i18n';
 export { C, art };
 export const k = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -719,7 +720,7 @@ export function Page({
         {action && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={action === '⚙' ? '섬 관리' : action}
+            accessibilityLabel={action === '⚙' ? t('common.manageIsland') : action}
             onPress={actionPress}
             style={{ padding: 8 }}
           >

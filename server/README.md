@@ -95,9 +95,9 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 
 서비스 폴더에서 `./gradlew build`로 테스트·정적 검사·패키징을 수행합니다. 통합 테스트에는 실행 중인 Docker가 필요합니다. Business의 PDF 미리보기 테스트는 Poppler가 필요하므로 Dockerfile의 `test` 단계를 사용할 수 있습니다.
 
-- Data API: [dev CI](../.github/workflows/dev-ci.yml), [운영 CI](../.github/workflows/prod-ci.yml).
-- Realtime: [독립 CI](../.github/workflows/realtime-ci.yml).
-- Business·Notification: [위성 서비스 CI](../.github/workflows/satellite-ci.yml).
+- Data API: [dev CI](../.github/workflows/data-api-ci.dev.yml). 운영 CI·CD 는 없음 (GROMO-2224 에서 삭제 — prod 파이프라인 재작업 예정).
+- Realtime: [독립 CI](../.github/workflows/realtime-ci.dev.yml).
+- Business·Notification: [위성 서비스 CI](../.github/workflows/satellite-check.yml).
 - 배포·이관: [Scripts 실행 안내](scripts/README.md).
 
 ---

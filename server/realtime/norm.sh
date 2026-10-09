@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI와 동일한 검사를 로컬에서 실행 (realtime-ci.yml)
+# CI와 동일한 검사를 로컬에서 실행 (realtime-ci.dev.yml)
 #
 # realtime 은 be-*.yml 재사용 워크플로를 쓰지 않는다 — 그쪽이
 # `working-directory: server/data-api` 를 하드코딩하고 있기 때문이다.

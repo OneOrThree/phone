@@ -57,10 +57,12 @@ docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이�
 
 ```bash
 # 저장소 루트에서 실행
-# --env-file 은 dev-cd 가 /var/lib/gromo/runtime 에 만든 runtime env (POSTGRES_*, GRAFANA_ADMIN_PASSWORD 등
-# — dev-monitor.yml 이 쓰는 것과 동일). 빼면 빈 값으로 치환돼 db 재생성·기동 실패 위험.
-# /var/lib/gromo/runtime 은 runner 소유 0700 이라, 서버에서 수동 실행할 때는 sudo -u runner 로 돌리거나 sudo 가 필요합니다.
-docker compose --env-file /var/lib/gromo/runtime/dev.env \
+# dev VM 에는 영구 env 파일이 없다(GROMO-2224). 평소엔 Actions 의 ops-monitor.dev 를 쓴다.
+# 수동이 꼭 필요하면 SM 을 읽을 수 있는 AWS 자격으로 임시 env 를 만들고, 쓰고 나면 지운다:
+#   RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh)   # 떠 있는 data-api 이미지 기준
+#   ... 아래 명령 ...;  rm -rf "$(dirname "$RUNTIME_ENV_FILE")"
+# --env-file 이 빠지면 POSTGRES_* 등이 빈 값으로 치환돼 db 재생성·기동 실패 위험.
+docker compose --env-file "$RUNTIME_ENV_FILE" \
   -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml up -d
 ```
 
@@ -71,7 +73,7 @@ docker compose --env-file /var/lib/gromo/runtime/dev.env \
 관측 컨테이너만 중지:
 
 ```bash
-docker compose --env-file /var/lib/gromo/runtime/dev.env \
+docker compose --env-file "$RUNTIME_ENV_FILE" \
   -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml \
   stop prometheus grafana loki promtail postgres-exporter redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
 ```
@@ -79,7 +81,7 @@ docker compose --env-file /var/lib/gromo/runtime/dev.env \
 > `down`은 병합된 기본 앱·DB까지 종료하므로 관측만 중지할 때는 위 `stop`을 사용합니다.
 
 > ⚠️ 반드시 `-f` 두 개로 실행. 그래야 dev 의 `app-network`·`app`·`db` 와 같은 프로젝트/네트워크를 공유해
-> `data-api:9091`·`db:5432` 를 서비스명으로 스크레이프한다. `dev-cd.yml` 은 `up -d --no-deps data-api` 만 하므로 배포와 간섭 없음.
+> `data-api:9091`·`db:5432` 를 서비스명으로 스크레이프한다. `data-api-cd.dev.yml` 은 `up -d --no-deps data-api` 만 하므로 배포와 간섭 없음.
 
 ## 한 화면 구성
 

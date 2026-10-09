@@ -366,7 +366,7 @@ public class InternalHttpClient implements AutoCloseable {
         if (status == 401 || status == 403) {
             return new UpstreamCredentialRejectedException(target + " 서비스 자격 거부 status=" + status);
         }
-        return new UpstreamContractMismatchException(target + " 미지원 상류 응답 status=" + status);
+        return new UpstreamContractMismatchException(target + " 미지원 상류 응답 status=" + status, status);
     }
 
     private static Duration parseRetryAfter(String value) {

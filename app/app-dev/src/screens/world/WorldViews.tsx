@@ -1,4 +1,5 @@
 import { Text } from '@/design-system/typography';
+import { t } from '@/i18n';
 import { useAppLayout } from '@/utils/layout';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import React, { useEffect, useRef, useState } from 'react';
@@ -104,7 +105,7 @@ export function Sailing({
   destination,
   onArrive,
   duration = 7000,
-  from = '우리 섬',
+  from = t('focusFlow.common.ourIsland'),
 }: {
   state: State;
   destination: string;
@@ -326,7 +327,7 @@ export function Sailing({
             color: '#354737',
           }}
         >
-          이동 중...
+          {t('focusFlow.travel.inTransit')}
         </Text>
       </View>
       <Animated.View

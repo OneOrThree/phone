@@ -1,0 +1,544 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "ok": "OK",
+    "close": "Close",
+    "retry": "Retry",
+    "save": "Save",
+    "later": "Later",
+    "manageIsland": "Manage island",
+    "readyStampA11y": "Ready stamp"
+  },
+  "errors": {
+    "GENERIC": "Please check your connection and try again.",
+    "INVALID_REQUEST": "The request format is invalid.",
+    "INVALID_PARAMETER": "Some request parameters are invalid.",
+    "INVALID_IDEMPOTENCY_KEY": "The request key is invalid.",
+    "INVALID_CURSOR": "The list position is invalid.",
+    "UNSUPPORTED_PROVIDER": "This social login provider isn't supported.",
+    "NICKNAME_INVALID": "Nicknames must be 2–10 characters, not counting leading or trailing spaces.",
+    "BANNED_WORD": "It contains words that aren't allowed.",
+    "HOST_WITHDRAW": "Hand over your island host role before leaving the island.",
+    "REFRESH_TOKEN": "Your login is no longer valid.",
+    "UNAUTHORIZED": "Authentication is required. Please log in again.",
+    "KAKAO_TOKEN": "Your Kakao login is no longer valid.",
+    "APPLE_TOKEN": "Your Apple login is no longer valid.",
+    "GOOGLE_TOKEN": "Your Google login is no longer valid.",
+    "LINE_TOKEN": "Your LINE login is no longer valid.",
+    "INSTAGRAM_TOKEN": "Your Instagram login is no longer valid.",
+    "FACEBOOK_TOKEN": "Your Facebook login is no longer valid.",
+    "FORBIDDEN": "You don't have permission to do this.",
+    "FACILITY_LOCKED": "Please unlock the required facility first.",
+    "SOCIAL_LOGIN_REQUIRED": "Log in with a social account to use this.",
+    "NOT_FOUND": "Couldn't find what you were looking for.",
+    "USER_NOT_FOUND": "Couldn't find your account. Please log in again.",
+    "GROUP_NOT_FOUND": "Couldn't find the island.",
+    "RESOURCE_NOT_FOUND": "Couldn't process the request. Please try again in a moment.",
+    "PRODUCT_NOT_FOUND": "Couldn't find the item.",
+    "SLUG_NOT_FOUND": "Please check the invite code again.",
+    "METHOD_NOT_ALLOWED": "This request method isn't supported.",
+    "VERSION_CONFLICT": "Something has changed. Please check the latest details.",
+    "STATE_CONFLICT": "The island has changed. Please try again with the latest info.",
+    "INSUFFICIENT_FUNDS": "Not enough fish.",
+    "NICKNAME_DUPLICATE": "That nickname is already taken.",
+    "IDEMPOTENCY_KEY_REUSED": "This request key was already used for another request.",
+    "SOCIAL_ACCOUNT_ALREADY_LINKED": "This social account is already linked to another account.",
+    "GUEST_ALREADY_PROMOTED": "This guest has already been upgraded to another account.",
+    "REQUEST_IN_PROGRESS": "Still processing. Please try again in a moment.",
+    "CURSOR_EXPIRED": "The list has expired. Please load it again from the start.",
+    "INVITATION_EXPIRED": "This invite has expired. Please get a new invite.",
+    "REQUEST_TOO_LARGE": "The request is too large.",
+    "UNSUPPORTED_MEDIA_TYPE": "This request format isn't supported.",
+    "OUT_OF_RANGE": "The value is out of the allowed range.",
+    "RATE_LIMITED": "Too many requests. Please try again in a moment.",
+    "INTERNAL_ERROR": "Couldn't process the request.",
+    "UPSTREAM_CONTRACT_ERROR": "Couldn't process the request.",
+    "UPSTREAM_AUTH_FAILED": "Couldn't process the request.",
+    "SERVICE_UNAVAILABLE": "Please try again in a moment.",
+    "UPSTREAM_TIMEOUT": "The request timed out. Please try again in a moment.",
+    "CLIENT_TIMEOUT": "The server is taking a while to respond. Please try again in a moment.",
+    "CLIENT_NETWORK_ERROR": "Can't connect to the network. Please check your connection."
+  },
+  "time": {
+    "minutes": "{{m}}m",
+    "hours": "{{h}}h",
+    "hoursMinutes": "{{h}}h {{m}}m"
+  },
+  "settings": {
+    "language": {
+      "title": "Language",
+      "system": "Follow device language",
+      "systemNow": "Currently {{name}}",
+      "systemNowFallback": "Currently {{name}} (device language not supported)",
+      "changed": "Language changed",
+      "saveFailed": "Couldn't save the language setting. Please try again."
+    },
+    "notificationsSoundSection": "Notifications & Sound",
+    "notifications": "Notifications",
+    "sound": "Sound",
+    "haptics": "Light Haptics",
+    "screenSection": "Display",
+    "reduceMotion": "Reduce Motion",
+    "reduceMotionSub": "Reduces movement and transition animations",
+    "permissionSection": "Permissions",
+    "permissionManage": "Manage App Permissions",
+    "permissionManageSub": "Screen Time permission · Measured apps",
+    "safetySection": "Safety",
+    "blockedUsersSub": "Review and unblock your blocked list",
+    "helpSection": "Help",
+    "replayTutorial": "Replay Tutorial",
+    "replayTutorialSub": "Watch the Mongdol guide again from the start",
+    "appInfoSection": "App Info",
+    "version": "Version",
+    "privacyNotice": "Privacy Practices",
+    "privacyNoticeSub": "Information this app handles and sends externally",
+    "privacyNoticeBody": "Signing in shares your social provider's authentication info and account identifiers with our server. Service data such as your nickname, island and resident activity, friends and letters, and focus records is also stored on the server to provide features and keep them in sync.\n\nScreen usage and key feature events are sent to PostHog, and screen and request diagnostics may be sent to Datadog when configured. If you allow Screen Time permission, the app reads your selected app usage time on-device for goals and stats. You can find the full details and retention periods in the Privacy Policy. Requesting account deletion asks the server to delete your account."
+  },
+  "login": {
+    "continue": {
+      "apple": "Continue with Apple",
+      "google": "Continue with Google",
+      "kakao": "Continue with Kakao",
+      "line": "Continue with LINE"
+    },
+    "connecting": "Connecting…",
+    "tagline": "Where today's focus grows",
+    "termsAgreeA11y": "I agree to terms version {{version}}",
+    "termsVersionPrefix": "Current terms version {{version}}: ",
+    "termsAgreeText": "I agree to the Terms of Service and Privacy Policy.",
+    "fallbackTermsAgree": "I agree to the Terms of Service and Privacy Policy.",
+    "guestStart": "Start as a guest",
+    "guestOpening": "Opening your guest account…",
+    "guestHint": "You can start with a guest account first.",
+    "fallbackStart": "Start GROMO",
+    "heroTitle": "Focus a little at a time,\nand grow together.",
+    "heroSubtitle": "A focus habit that starts on your little raft.",
+    "policy": {
+      "terms": "Terms of Service",
+      "privacy": "Privacy Policy",
+      "viewOriginalA11y": "View the full {{title}}",
+      "view": "View {{title}}"
+    },
+    "error": {
+      "webUnavailable": "Please use the app to sign in with a social account.",
+      "appleIosOnly": "Sign in with Apple is only available on iPhone and iPad.",
+      "appleNoCredential": "Couldn't get your Apple sign-in info. Please try again.",
+      "googleCancelled": "Google sign-in cancelled",
+      "googleNoCredential": "Couldn't get your Google sign-in info. Please try again.",
+      "guestFailed": "Couldn't open a guest account. Please try again in a moment.",
+      "socialFailed": "Couldn't finish signing in. Please try again."
+    }
+  },
+  "account": {
+    "loadingIsland": "Loading your island…",
+    "logoutStorageFailed": "Couldn't sign out due to a device storage issue. Please try again in a moment.",
+    "boat": {
+      "title": "My Raft",
+      "myIslandFallback": "My Island",
+      "currentMain": "Your current main island",
+      "visibleInProfile": "Shown in your friend list and profile",
+      "changeMain": "Change main island",
+      "currentMainA11y": "Current main island {{name}}. Double tap to change.",
+      "currentMainOnlyA11y": "Current main island {{name}}",
+      "wardrobeTitle": "Customize Items",
+      "wardrobeSub": "Clothes · Accessories",
+      "friendsTitle": "Manage Friends",
+      "friendsSub": "Find friends · Requests · Friend list",
+      "friendRequestCount": { "one": "{{count}} request", "other": "{{count}} requests" },
+      "settingsTitle": "App Settings",
+      "settingsSub": "Notifications · Sound · App permissions · Replay tutorial"
+    },
+    "profile": {
+      "title": "My Info",
+      "sub": "Nickname · Fur color · Account",
+      "nicknameRequired": "Please enter a nickname.",
+      "saved": "Saved.",
+      "nickname": "Nickname",
+      "nicknamePlaceholder": "Enter a nickname",
+      "linkedAccount": "Linked Account",
+      "accountSummary": "{{name}}'s GROMO account · {{providers}}",
+      "noLinkedAccount": "No linked account",
+      "providers": {
+        "google": "Google",
+        "kakao": "Kakao",
+        "line": "LINE",
+        "apple": "Apple"
+      },
+      "logout": "Log Out",
+      "logoutConfirmTitle": "Log out?",
+      "logoutConfirmBody": "Your saved records will stay as they are.",
+      "retryDeviceCleanup": "Retry Device Data Cleanup",
+      "withdraw": "Delete Account",
+      "mustTransferHost": "Hand over your island host role to another resident before deleting your account.",
+      "withdrawConfirmTitle": "Delete your account?",
+      "withdrawConfirmBody": "This deletes your account and all saved records. This can't be undone.\nFish you've collected will stay on the island.",
+      "withdrawConfirmOk": "Delete Account"
+    },
+    "guest": {
+      "title": "Continue with a Social Account",
+      "body": "Adding friends, letters, and shop purchases are available after you upgrade.\nYour cat and island carry over exactly as they are.",
+      "termsA11y": "I agree to terms version {{version}}",
+      "termsText": "Current terms version {{version}}: I agree to the Terms of Service and Privacy Policy.",
+      "failed": "Something went wrong. Please try again."
+    },
+    "switch": {
+      "title": "This Account Is Already Linked",
+      "body": "This social account is linked to another GROMO account. Switching to the existing account deletes this guest's cat, island, and records, and this can't be undone. Switch anyway?",
+      "confirm": "Switch"
+    },
+    "blocked": {
+      "title": "Blocked Users",
+      "description": "Friend requests and letters from blocked users are hidden from your screen. Unblocking can bring back content you received while they were blocked.",
+      "loading": "Loading…",
+      "loadFailed": "Couldn't load the blocked list.",
+      "unblocking": "Unblocking…",
+      "unblock": "Unblock",
+      "empty": "No blocked users.",
+      "unblocked": "Unblocked {{name}}.",
+      "unblockFailed": "Couldn't unblock this user."
+    }
+  },
+  "character": {
+    "title": "My Cat",
+    "greeting": "Nice to meet you, my cat!",
+    "furColorLaterCompact": "You can change the fur color later",
+    "startWithCat": "Start with My Cat",
+    "furColorLaterFull": "You can change the fur color later in My Info",
+    "whichCat": "Which cat should we start with?"
+  },
+  "onboarding": {
+    "back": "Back",
+    "spotlightSkip": "Stop Showing This Guide",
+    "enterHome": "Go to My Island",
+    "joinRequest": "Join Request",
+    "approvalBadge": "Approval Required",
+    "instantJoinBadge": "Join Instantly",
+    "islandFull": "This island is full",
+    "kickedCannotRejoin": "You can't rejoin an island you were removed from.",
+    "residents": "{{count}}/{{max}} residents",
+    "residentsWithAverage": "{{count}}/{{max}} residents · avg focus {{average}}",
+    "visitResidents": "Residents: {{names}}",
+    "residentFallbackName": "Resident",
+    "joinedCard": {
+      "title": "You've Joined!",
+      "sub": "You're now a resident of {{island}}."
+    },
+    "chooseIsland": {
+      "title": "Choose Your First Island",
+      "firstVoyage": "Set sail on your first voyage",
+      "whereStart": "Where should we start?",
+      "createAlone": {
+        "title": "Create an island and start alone",
+        "sub": "Open a new island under your name"
+      },
+      "joinExisting": {
+        "title": "Join an existing island",
+        "sub": "Find a public island with the telescope"
+      },
+      "bootErrorTitle": "Couldn't load island info",
+      "pendingResume": "Your join request for {{island}} is in progress",
+      "pendingIslandFallback": "the island you applied to",
+      "membershipConfirmedTitle": "Membership Confirmed",
+      "membershipConfirmedSub": "The server confirmed your membership in \"{{island}}\".",
+      "alreadyInvited": "I already have an island invite!",
+      "inviteModal": {
+        "title": "Enter Invite Code",
+        "label": "Invite code",
+        "hint": "Once confirmed, you'll join that island right away, or send the host a join request.",
+        "joinThisIsland": "Join This Island"
+      }
+    },
+    "createIsland": {
+      "capacityLabel": "Capacity · up to {{max}}",
+      "capacityA11y": "Capacity",
+      "capacityUnit": { "one": "{{count}} resident", "other": "{{count}} residents" },
+      "approvalAfterJoin": "Approval to Join",
+      "approvalAfterJoinSub": "Residents join only after the host approves",
+      "title": "Create a New Island",
+      "submit": "Create Island",
+      "capacityRangeError": "Capacity must be between {{min}} and {{max}}.",
+      "doneTitle": "Island Created!",
+      "doneSub": "\"{{island}}\" is now your island.",
+      "nameLabel": "Island Name",
+      "introLabel": "Island Description"
+    },
+    "joinIsland": {
+      "title": "Find an Island",
+      "cancelRequest": "Cancel Join Request",
+      "viewOtherIslands": "View Other Islands",
+      "findAnotherIsland": "Find Another Island",
+      "joinAction": "Join",
+      "joinNamed": "Join {{island}}",
+      "createNewIfNotFound": "Can't find it? Create a new island",
+      "requestRejected": "Your request was declined",
+      "requestCancelled": "Your request was cancelled",
+      "tryAnotherIsland": "Try looking for another island.",
+      "thatIslandFallback": "that island",
+      "reload": "Reload",
+      "viewIslandInfoA11y": "View {{island}} info",
+      "nextIsland": "Next Island",
+      "previousIsland": "Previous Island",
+      "searchingPublicIslands": "Looking for public islands…",
+      "noPublicIslands": "There are no public islands to join right now.",
+      "pendingWaitTitle": "Join Request Pending",
+      "pendingWaitSubNamed": "We'll let you know once the host of \"{{island}}\" responds",
+      "pendingWaitSubGeneric": "We'll let you know once the host responds"
+    },
+    "guide": {
+      "line1": "Hey! You're a new face.\nI'm Mongdol. I've lived on this island for a long time.",
+      "line2": "This used to be a lively island with lots of visitors.\nBut at some point everyone stopped coming, and now it's an island nobody visits anymore.",
+      "line3": "With you here, I think we can bring this island back to life.\nWant to help me revive it together?",
+      "line4": "Great, let's start with the first step to revive the island.\nHere, the time you spend focusing becomes the power that grows the island.\nYou'll quickly get the hang of it once you try it yourself.",
+      "skip": "Skip",
+      "next": "Next",
+      "last": "Let's do it together"
+    }
+  },
+  "app": {
+    "finishFocusTitle": "Finish focusing?",
+    "finishFocusBody": "This will save your focus session.",
+    "linkUnsupported": "This invite or group link isn't supported in this version, so we took you home.",
+    "storageRetrying": "A device storage issue is delaying your save. We'll keep retrying automatically.",
+    "memberConverted": "You're now a member.",
+    "restoreFailed": "Couldn't load your saved data.",
+    "storageCheck": "Please check your device storage.",
+    "build": {
+      "confirmTitle": "Build {{building}}",
+      "confirmBody": {
+        "one": "This uses {{cost}} island fish and takes {{minutes}} minute to build.",
+        "other": "This uses {{cost}} island fish and takes {{minutes}} minutes to build."
+      },
+      "started": "Started building {{building}}.",
+      "facilityLocked": "You can use this once {{building}} is built.",
+      "blocked": {
+        "notHost": "Only the host can build.",
+        "underConstruction": "You can build the next building once construction finishes.",
+        "alreadyBuilt": "This facility is already complete.",
+        "hallRequired": "Build the Town Hall first.",
+        "boardRequired": "You can choose this after the Notice Board is complete.",
+        "selectNextBuilding": "Please choose the next building in the Town Hall first.",
+        "targetNotMet": "All target residents need to reach the fish goal.",
+        "shopPrerequisite": "You can build the Shop only after every other building is complete.",
+        "insufficientBalance": "Not enough island fish."
+      }
+    }
+  },
+  "building": {
+    "hall": "Town Hall",
+    "board": "Notice Board",
+    "tower": "Lookout Tower",
+    "mail": "Mailbox",
+    "gram": "Gramophone",
+    "library": "Library",
+    "shop": "Shop"
+  },
+  "color": {
+    "black": "Black",
+    "ginger": "Ginger",
+    "cream": "Cream",
+    "gray": "Gray",
+    "white": "White",
+    "calico": "Calico"
+  },
+  "track": {
+    "waves": "Calm Waves",
+    "campfire": "Campfire Sounds",
+    "forestWind": "Forest Wind",
+    "rain": "Raindrops"
+  },
+  "focus": {
+    "start": "Start Focus",
+    "resume": "Resume Focus",
+    "finishFailed": "Couldn't finish the focus session.",
+    "resumeFailed": "Couldn't resume the focus session."
+  },
+  "home": {
+    "hud": {
+      "todayFocus": "Focus today",
+      "visiting": "Visiting {{name}}"
+    },
+    "build": "Build {{building}}",
+    "buildProgress": "{{current}}/{{total}} fish",
+    "buildInProgress": "{{building}} under construction",
+    "buildMinutesLeft": { "one": "{{count}} minute left", "other": "{{count}} minutes left" },
+    "buildAction": "Build",
+    "returnToMyIsland": "Back to My Island",
+    "quest": {
+      "focusCondition": "{{start}}–{{end}} · {{target}} min",
+      "phoneCondition": "Daily phone use · under {{target}} min",
+      "today": "Today's Quest",
+      "claim": "Claim Reward",
+      "tapToClaim": "Tap to view your reward",
+      "more": { "one": "+{{count}} more", "other": "+{{count}} more" },
+      "done": { "one": "{{count}} quest completed", "other": "{{count}} quests completed" },
+      "a11yReward": {
+        "one": "{{count}} quest reward to claim. Claim reward",
+        "other": "{{count}} quest rewards to claim. Claim reward"
+      },
+      "a11yMultiple": {
+        "one": "{{count}} quest today. {{title}} and {{rest}} more",
+        "other": "{{count}} quests today. {{title}} and {{rest}} more"
+      },
+      "a11ySingle": "Today's quest. {{title}}. {{meta}}"
+    },
+    "error": {
+      "loadFailed": "Couldn't load your island info."
+    },
+    "tutorial": {
+      "focusStart": "Tap the Start Focus button below to begin focusing.",
+      "hallGuide": "First, let's build the Town Hall to manage the island.\nJust gather {{count}} fish!",
+      "ok": "Got it"
+    },
+    "lock": {
+      "missing": "No {{building}} yet",
+      "libraryLocked": "You can't view past records until the library is built.",
+      "lockedGeneric": "You can use this once it's built.",
+      "viewNext": "View next building in Town Hall"
+    },
+    "construction": {
+      "foundation": "Foundation work in progress",
+      "structure": "Framing in progress",
+      "finishing": "Finishing work in progress",
+      "completion": "Completed"
+    },
+    "door": {
+      "mailNewLetter": "Mailbox, you have a new letter from a friend.",
+      "newComment": "{{label}}, there's a new comment.",
+      "unreadNotice": "{{label}}, there's an unread notice.",
+      "newProduct": "{{label}}, there's a new item.",
+      "purchasable": "{{label}}, there's an item you can buy.",
+      "rankUpdated": "{{label}}, the weekly ranking was updated.",
+      "rankChanged": "{{label}}, the weekly ranking changed.",
+      "newQuest": "{{label}}, there's a new quest.",
+      "newReading": "{{label}}, there's something new to read.",
+      "hallHint": "Tap to enter the Town Hall.",
+      "boardHint": "Open the board to check it out.",
+      "shopHint": "Check out the items in the shop.",
+      "towerHint": "Check the weekly ranking at the Lookout Tower.",
+      "libraryHint": "Check out what's new at the Library.",
+      "membersOnly": "Only residents can use this."
+    },
+    "a11y": {
+      "walk": "Walk around the island",
+      "campfire": "Campfire",
+      "gram": "Gramophone",
+      "boat": "My Boat",
+      "dock": "Dock",
+      "todayFocusClock": "{{name}}, focus today {{clock}}",
+      "raft": "Raft",
+      "viewFishingIsland": "View the Fishing Island",
+      "mailboxNewLetter": "You have a new letter from a friend."
+    }
+  },
+  "focusFlow": {
+    "common": {
+      "ourIsland": "Our Island",
+      "fishingIsland": "Fishing Island",
+      "myLittleBoat": "My Little Raft",
+      "me": "Me",
+      "resident": "Resident",
+      "endFocus": "End Focus",
+      "pauseFocus": "Take a Break",
+      "continueAction": "Continue",
+      "backToIsland": "Back to the Island",
+      "todayTodo": "Today's To-Do",
+      "raftLabel": "Raft · Return to Our Island",
+      "raftLabelVisiting": "Raft · Return to the Main Island"
+    },
+    "travel": {
+      "inTransit": "Traveling...",
+      "restCampfire": "Our Island Campfire",
+      "fishingSpot": "My Spot on Fishing Island"
+    },
+    "spot": {
+      "onWater": "You can't sit on the water.",
+      "occupied": "A resident is sitting here. Please sit a little further over.",
+      "nearGram": "You can't sit here because of the gramophone. Please sit a little further over.",
+      "nearRaft": "This is where the raft docks. Please sit a little further over.",
+      "noCatchRoom": "There's no room to place a fish here. Please sit a little further over.",
+      "unreachable": "Please choose a spot connected by land.",
+      "noneFound": "Couldn't find an open spot. Please try again in a moment.",
+      "groundA11y": "Fishing Island ground · Tap where you want to sit",
+      "sitEmptyA11y": "Sit in an empty spot",
+      "sitEmptyButton": "Take a spot on empty ground"
+    },
+    "setup": {
+      "title": "Get Ready to Focus",
+      "placeholder": "e.g. Memorize English words",
+      "subjectRequired": "Please enter a subject or to-do to focus on.",
+      "needsIsland": "Join an island before you can focus.",
+      "startFailed": "Couldn't start the focus session.",
+      "pickAnotherSpot": "Choose Another Spot"
+    },
+    "hud": {
+      "emoteFab": "Emote",
+      "emoteSendFailed": "Couldn't send the cheer. Please try again in a moment.",
+      "residentsReloadA11y": "Reload resident status",
+      "residentsLoadFailed": "Couldn't load resident status · Retry",
+      "endConfirmTitle": "End this focus session?",
+      "endedByServer": "Your focus session has ended. Please check your island membership.",
+      "pauseFailed": "Couldn't move to your break.",
+      "emote": {
+        "hello": "Hello",
+        "cheer": "Cheer",
+        "sleepy": "Sleepy",
+        "laugh": "Laugh",
+        "hearts": "Hearts"
+      }
+    },
+    "music": {
+      "title": "Gramophone Music",
+      "subtitle": "Choose from the tracks you own.",
+      "changeFailed": "Couldn't change the music.",
+      "backToSpot": "Back to My Spot",
+      "gramA11y": "Gramophone · Choose music"
+    },
+    "result": {
+      "title": "This Focus Session's Results",
+      "defaultSubject": "This Focus Session",
+      "durationLabel": "This Session's Focus Time",
+      "fishCount": "+{{count}} fish",
+      "questsAchievedTitle": "Daily Quests Completed",
+      "checking": "Checking…",
+      "checkFailed": "Couldn't check your quests",
+      "notYet": "None yet",
+      "notYetServerRate": "None yet · {{title}} {{rate}}",
+      "notYetLocalRate": "None yet · {{title}} {{current}}/{{target}} min",
+      "notMeasuredYet": "Not measured yet",
+      "backByBoat": "By Boat to Our Island"
+    },
+    "tutorial": {
+      "step5": "Tap an empty spot on the ground to choose your seat.",
+      "step6": "You can't choose the water or a spot where another resident is sitting.\nJust tap the spot you like.",
+      "step6SkipButton": "Stop Showing This Guide",
+      "step7": "Write down one to-do for this focus session.\nSomething you can start right away, like “Memorize English words,” works best.",
+      "step7Done": "Done",
+      "step8": "Good. Now tap Start Focus.",
+      "step9": "Focus has started.\nUp top, you'll see the to-do you just wrote and your actual focus time.",
+      "step10": "While you focus, {{name}} will go fishing.\nFocusing together with more people raises the chance of catching a rare fish, so keep that in mind.",
+      "step12": "You caught your first fish!\nYou can use this fish to help your island grow!",
+      "step14": "Let's take a quick break this time.\nTap Take a Break below.",
+      "step15": "If other residents on the same island are on a break, you can see them together here at the campfire.\nOnce you've rested enough, tap Resume Focus.",
+      "step16": "You're back at the spot you picked earlier.\nYour to-do and focus time picked up right where they left off before your break, didn't they?",
+      "step17": "Even after taking a break like this, you don't need to start over from the beginning.\nNow let's finish up your focus session.",
+      "step18": "Tap End Focus to finish.",
+      "step19": "The time you just focused has been recorded.\nTime spent on break isn't included in your focus time.",
+      "step20": "You can also check the fish you caught by focusing here.",
+      "step21": "Now tap Back to the Island.\nWhen you get back, I'll give you your first quest to help revive the island.",
+      "next": "Next"
+    },
+    "fish": {
+      "goldenCaughtA11y": "You caught a golden fish.",
+      "rewardCheckFailed": "Couldn't check your fish reward. We'll try again.",
+      "goldenCaughtImageA11y": "The golden fish you just caught together",
+      "goldenReelingA11y": "Reeling in a golden fish"
+    },
+    "rest": {
+      "resting": "On a break...",
+      "pausedA11y": "Paused",
+      "endButton": "End Break",
+      "endConfirmTitle": "End your break and finish this focus session?",
+      "keepResting": "Keep Resting"
+    }
+  }
+}

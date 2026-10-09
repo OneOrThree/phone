@@ -92,7 +92,6 @@ import {
   buildingNames,
   buildingOrder,
   colors,
-  colorNames,
   State,
   Route,
   Building,
@@ -160,22 +159,31 @@ import {
   resetPostHogUser,
   trackPostHogScreen,
 } from '@/services/posthog';
+import {
+  applyLocalePref,
+  errorTextOr,
+  LEGACY_LOCALE_KEY,
+  LOCALE_KEY,
+  t,
+  type LocalePref,
+} from '@/i18n';
 import { isDemoMode, isReviewMode } from '@/services/demoMode';
 // 판정 정본은 services/demoMode — 회관·게시판·우체통·posthog 도 같은 함수를 본다
 const REVIEW = isReviewMode();
 const DEMO = isDemoMode();
+// 검토·데모 모드 전용 언어 고정(`?review=1&lang=en`) — 저장된 gromo.locale 을 읽지 않는 mock 부팅에서
+// 쓴다. 없으면 'ko' 로 폴백(기존 캡처 스크립트가 한국어 이름을 찾는다), 지원 밖 값은 applyLocalePref 가
+// 이미 'system' 으로 정규화한다.
+const REVIEW_LANG =
+  Platform.OS === 'web' && typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('lang')
+    : null;
 // GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
 const TESTFLIGHT_ALL_BUILDINGS = true;
 const STORAGE = 'gromo-r61-user-v2';
 // 채택 도중 세션 세대가 바뀌면(401 정리·다른 로그인) 남은 적용을 버리는 내부 신호. 호출부에는
 // 오류로 드러내지 않는다 — 새 세션의 화면이 이미 자기 흐름을 진행 중이다.
 const STALE_ADOPTION = Symbol('staleAdoption');
-const PROVIDER_LABEL: Record<Provider, string> = {
-  apple: 'Apple로 계속하기',
-  google: 'Google로 계속하기',
-  kakao: 'Kakao로 계속하기',
-  line: 'LINE으로 계속하기',
-};
 const titles: Record<Route, string> = {
   login: 'GROMO',
   character: '내 고양이',
@@ -216,6 +224,7 @@ const titles: Record<Route, string> = {
   currentIsland: '현재 섬 변경하기',
   profile: '내 정보',
   settings: '앱 설정',
+  language: '언어',
   blockedUsers: '차단한 사용자',
   wardrobe: '내 꾸미기',
   sound: '꽃나팔 방송기',
@@ -299,6 +308,8 @@ function Gromo() {
       () => !REVIEW && !DEMO && getSession() !== null,
     ),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
+    // 언어 설정 — 바뀌면 이 state 의 재렌더로 화면의 t() 문구가 새 언어로 다시 그려진다.
+    [localePref, setLocalePref] = useState<LocalePref>('system'),
     [routeTransitionShielded, setRouteTransitionShielded] = useState(false),
     [history, setHistory] = useState<
       {
@@ -535,7 +546,7 @@ function Gromo() {
     if (cancelBuildingTransition()) return;
     if (backOverride.current?.()) return;
     if (route === 'focus' && state.session) {
-      confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => finishSession());
+      confirm(t('app.finishFocusTitle'), t('app.finishFocusBody'), () => finishSession());
       return;
     }
     if (route === 'rest' && state.session) {
@@ -558,6 +569,17 @@ function Gromo() {
         return;
       }
       restorePrevious();
+    } else if (route === 'character' && !state.onboarded && hasServerSession && !REVIEW && !DEMO) {
+      // 로그인 직후 첫 단계(GROMO-2215 · 로드맵 1-03). 로그인 성공이 reset() 으로 history 를 비우므로 아래 분기로
+      // 내려가면 chooseIsland 로 «앞으로» 갔다. 뒤로가기는 로그인 전으로 — 세션을 끝내야 로그인 화면이 뜬다.
+      // 프로필 화면의 로그아웃과 같은 순서다. 게스트면 기기 id 가 회전돼 다시 시작하면 새 게스트가 된다.
+      signOut()
+        .then((ok) => {
+          if (!ok) return;
+          dispatch({ type: 'LOGOUT' });
+          reset('login');
+        })
+        .catch(() => {});
     } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
   };
   const home = () => {
@@ -615,7 +637,7 @@ function Gromo() {
     setIncomingAppLink(null);
     if (target.kind === 'unsupported') {
       goRef.current('home');
-      notifyRef.current('이 초대·그룹 링크는 현재 버전에서 지원하지 않아 홈으로 이동했어요.');
+      notifyRef.current(t('app.linkUnsupported'));
       return;
     }
     goRef.current(target.route);
@@ -803,7 +825,7 @@ function Gromo() {
       .then(() => reset('focusResult'))
       .catch(async (error) => {
         if (await recoverExpiredRestConflict(error, session)) return;
-        notify(error instanceof Error ? error.message : '집중을 마치지 못했어요.');
+        notify(errorTextOr(error, 'focus.finishFailed'));
       });
   };
   const resumeSession = () => {
@@ -824,7 +846,7 @@ function Gromo() {
       })
       .catch(async (error) => {
         if (await recoverExpiredRestConflict(error, session)) return;
-        notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.');
+        notify(errorTextOr(error, 'focus.resumeFailed'));
         if (routeRef.current === 'focus' && stateRef.current.session?.status === 'paused') {
           performGo('rest', '', { sessionIsAlreadyPaused: true });
         }
@@ -852,8 +874,7 @@ function Gromo() {
       return true;
     }
     if (sessionGeneration() !== gen) return false;
-    if (attempt === 0)
-      notify('기기 저장소 문제로 변경 내용이 아직 저장되지 않아요. 자동으로 다시 시도할게요.');
+    if (attempt === 0) notify(t('app.storageRetrying'));
     setTimeout(
       () => void recordOwnerWithRetry(userId, gen, attempt + 1),
       Math.min(30_000, 1_000 * 2 ** attempt),
@@ -1000,11 +1021,7 @@ function Gromo() {
       // 채택 도중 세션이 바뀌어 중단됐으면(null) 완료 이벤트를 남기지 않는다.
       if (await adoptSession(result, previousUserId)) captureProductEvent('guest_login_completed');
     } catch (error) {
-      setGuestError(
-        error instanceof ApiError && error.message
-          ? error.message
-          : '게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요.',
-      );
+      setGuestError(errorTextOr(error, 'login.error.guestFailed'));
     } finally {
       guestLoginFlight.current = false;
       setGuestBusy(false);
@@ -1074,11 +1091,7 @@ function Gromo() {
           thrown.code === CLIENT_NETWORK_ERROR);
       if (!retryableTransportFailure) socialLoginAttempt.current = null;
       if (!isSocialLoginCancellation(thrown)) {
-        setSocialError(
-          thrown instanceof ApiError && thrown.message
-            ? thrown.message
-            : '로그인을 완료하지 못했어요. 다시 시도해 주세요.',
-        );
+        setSocialError(errorTextOr(thrown, 'login.error.socialFailed'));
       }
     } finally {
       setSocialBusy(null);
@@ -1126,7 +1139,7 @@ function Gromo() {
       if (outcome === 'converted') {
         captureProductEvent('member_conversion_completed', { provider: attempt.provider });
         setConvUi(null);
-        notify('회원으로 전환했어요.');
+        notify(t('app.memberConverted'));
       } else setConvUi((c) => (c ? { ...c, busy: null } : c)); // 취소 — 시트로 돌아간다
     } catch (thrown) {
       const retryableTransportFailure =
@@ -1148,8 +1161,7 @@ function Gromo() {
         setConvUi((c) => (c ? { ...c, busy: null, error: null } : c));
         return;
       }
-      const message =
-        thrown instanceof ApiError ? thrown.message : '문제가 생겼어요. 다시 시도해 주세요.';
+      const message = errorTextOr(thrown, 'account.guest.failed');
       setConvUi((c) => (c ? { ...c, busy: null, error: message } : c));
     } finally {
       conversionSessionTransition.current = null;
@@ -1237,8 +1249,17 @@ function Gromo() {
       // 보안 저장소의 인증 세션. 있으면 /me 로 «아직 유효한가»까지 확인한다 — 폐기된 세션으로
       // 홈에 들어가면 다음 요청에서야 401 이 나고, 그때는 원인이 로그인이라는 것이 안 보인다.
       mock ? Promise.resolve(null) : restoreSession(),
+      // 언어 설정(기기 전역 값). 2.0 키가 없으면 1.x 키를 읽고, 읽기 실패는 기기 언어 따름으로 본다.
+      // mock(검토·데모)은 저장된 값을 읽지 않는다 — 과거에 gromo.locale='en' 이 저장된 브라우저에서
+      // ?review=1 이 영문으로 떠 캡처·검증이 재현 불가능해지는 것을 막는다(REVIEW_LANG 으로 고정).
+      mock ? Promise.resolve(null) : AsyncStorage.getItem(LOCALE_KEY).catch(() => null),
+      mock ? Promise.resolve(null) : AsyncStorage.getItem(LEGACY_LOCALE_KEY).catch(() => null),
     ])
-      .then(async ([raw, session]) => {
+      .then(async ([raw, session, localeRaw, legacyLocaleRaw]) => {
+        // 첫 화면이 그려지기 전에 언어부터 맞춘다.
+        setLocalePref(
+          applyLocalePref(mock ? (REVIEW_LANG ?? 'ko') : (localeRaw ?? legacyLocaleRaw)),
+        );
         // 「거절(재로그인)」·「확인 실패(오프라인)」·「정상」 셋을 가른다 — checkSession 참조.
         const check = session ? await checkSession() : null;
         const account = check?.status === 'active' ? check.account : null;
@@ -1386,7 +1407,7 @@ function Gromo() {
           if (recovered && sessionGeneration() === bootGen) setRoute(recovered);
         }
       })
-      .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
+      .catch(() => notify(t('app.restoreFailed')))
       .finally(() => setLoaded(true));
   }, []);
   const kickedDestination =
@@ -1479,7 +1500,7 @@ function Gromo() {
         await AsyncStorage.setItem(STORAGE, snapshot);
       });
       userStorageWriteQueue.current = write.catch(() => {
-        notify('기기 저장 공간을 확인해 주세요.');
+        notify(t('app.storageCheck'));
       });
     }
   }, [state, loaded, storageOwnerReady, qaBuildingsReady]);
@@ -1799,18 +1820,20 @@ function Gromo() {
       notify(error);
       return;
     }
+    const cost = buildingCost(island, b),
+      minutes = buildMinutes[b];
     confirm(
-      buildingNames[b] + ' 짓기',
-      `섬 물고기 ${buildingCost(island, b)}마리를 차감하고 ${buildMinutes[b]}분 동안 공사해요.`,
+      t('app.build.confirmTitle', { building: buildingNames[b] }),
+      t('app.build.confirmBody', { cost, minutes, count: minutes }),
       () => {
         dispatch({ type: 'BUILD', building: b });
-        notify(buildingNames[b] + ' 공사를 시작했어요.');
+        notify(t('app.build.started', { building: buildingNames[b] }));
       },
     );
   };
   const openFacility = (b: Building, r: Route) => {
     if (!island.buildings.includes(b)) {
-      notify(buildingNames[b] + ' 건설 후 이용할 수 있어요.');
+      notify(t('app.build.facilityLocked', { building: buildingNames[b] }));
       return;
     }
     go(r);
@@ -1832,7 +1855,7 @@ function Gromo() {
       try {
         await preparation;
       } catch {
-        notify('기기 저장 공간 문제로 로그아웃하지 못했어요. 잠시 후 다시 시도해 주세요.');
+        notify(t('account.logoutStorageFailed'));
         return false;
       }
     }
@@ -1942,6 +1965,9 @@ function Gromo() {
           conversion:
             REVIEW || DEMO || !TERMS_VERSION || !hasServerSession ? undefined : memberConversion,
           playback: REVIEW || DEMO || !hasServerSession ? undefined : playback,
+          // 언어 화면은 e.setLocalePref(applyLocalePref(pref)) 로 바꾼다.
+          localePref,
+          setLocalePref,
         }}
       />
     );
@@ -1961,7 +1987,7 @@ function Gromo() {
     return (
       <SafeAreaView style={[S.page, { alignItems: 'center', justifyContent: 'center' }]}>
         <ActivityIndicator color={C.brown} />
-        <T>내 섬을 불러오는 중이에요.</T>
+        <T>{t('account.loadingIsland')}</T>
       </SafeAreaView>
     );
   const appContentHidden =
@@ -2088,10 +2114,15 @@ function Gromo() {
                   {modal?.text}
                 </NativeText>
                 <View style={[S.row, { justifyContent: 'flex-end', gap: 8, marginTop: 8 }]}>
-                  <NativeButton dialog title="취소" kind="glass" onPress={() => setModal(null)} />
                   <NativeButton
                     dialog
-                    title={modal.ok ?? '확인'}
+                    title={t('common.cancel')}
+                    kind="glass"
+                    onPress={() => setModal(null)}
+                  />
+                  <NativeButton
+                    dialog
+                    title={modal.ok ?? t('common.ok')}
                     kind={modal.destructive ? 'destructive' : ''}
                     onPress={() => {
                       const action = modal?.action;
@@ -2153,7 +2184,7 @@ function Gromo() {
                   contentContainerStyle={{ gap: 10 }}
                 >
                   <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
-                    소셜 계정으로 계속하기
+                    {t('account.guest.title')}
                   </NativeText>
                   <NativeText
                     lineBreakStrategyIOS="hangul-word"
@@ -2162,13 +2193,12 @@ function Gromo() {
                       Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
                     ]}
                   >
-                    친구 추가·편지·상점 구매는 회원 전환 후에 쓸 수 있어요.
-                    {'\n'}지금 고양이와 섬은 그대로 이어져요.
+                    {t('account.guest.body')}
                   </NativeText>
                   <Pressable
                     testID="member-conversion-terms"
                     accessibilityRole="checkbox"
-                    accessibilityLabel={`약관 버전 ${TERMS_VERSION}에 동의합니다`}
+                    accessibilityLabel={t('account.guest.termsA11y', { version: TERMS_VERSION })}
                     accessibilityState={{
                       checked: convUi.termsAccepted,
                       disabled: !!convUi.busy || conversionAdoptionPending,
@@ -2203,7 +2233,7 @@ function Gromo() {
                       )}
                     </View>
                     <NativeText style={{ flex: 1 }}>
-                      현재 약관 버전 {TERMS_VERSION}: 이용약관 및 개인정보처리방침에 동의합니다.
+                      {t('account.guest.termsText', { version: TERMS_VERSION })}
                     </NativeText>
                   </Pressable>
                   <PolicyLinks textStyle={{ color: C.muted }} />
@@ -2212,7 +2242,11 @@ function Gromo() {
                       key={provider}
                       dialog
                       dynamicHeight
-                      title={convUi.busy === provider ? '연결하는 중…' : PROVIDER_LABEL[provider]}
+                      title={
+                        convUi.busy === provider
+                          ? t('login.connecting')
+                          : t(`login.continue.${provider}`)
+                      }
                       kind="sec"
                       disabled={!!convUi.busy || !convUi.termsAccepted}
                       onPress={() => void pickProvider(provider)}
@@ -2226,7 +2260,7 @@ function Gromo() {
                   <NativeButton
                     dialog
                     dynamicHeight
-                    title="나중에"
+                    title={t('common.later')}
                     kind="glass"
                     disabled={!!convUi.busy || conversionAdoptionPending}
                     onPress={closeMemberConversion}
@@ -2252,7 +2286,7 @@ function Gromo() {
             >
               <Overlay close={() => settleSwitch(false)}>
                 <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
-                  이미 연결된 계정이 있어요
+                  {t('account.switch.title')}
                 </NativeText>
                 <NativeText
                   lineBreakStrategyIOS="hangul-word"
@@ -2261,21 +2295,20 @@ function Gromo() {
                     Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
                   ]}
                 >
-                  이 소셜 계정은 다른 GROMO 계정에 연결돼 있어요. 기존 계정으로 전환하면 지금
-                  게스트의 고양이·섬·기록은 삭제되고 되돌릴 수 없어요. 전환할까요?
+                  {t('account.switch.body')}
                 </NativeText>
                 <View style={[S.row, { justifyContent: 'flex-end', gap: 8, marginTop: 8 }]}>
                   <NativeButton
                     dialog
                     dynamicHeight
-                    title="취소"
+                    title={t('common.cancel')}
                     kind="glass"
                     onPress={() => settleSwitch(false)}
                   />
                   <NativeButton
                     dialog
                     dynamicHeight
-                    title="전환하기"
+                    title={t('account.switch.confirm')}
                     kind="destructive"
                     onPress={() => settleSwitch(true)}
                   />

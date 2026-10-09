@@ -1,0 +1,124 @@
+[
+ {
+  "id": "hall",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "manage",
+  "status": "ok",
+  "note": "방장 뷰(가입 신청 1건 · 주민 4/15명)"
+ },
+ {
+  "id": "manage.resident",
+  "status": "ok",
+  "note": "목업에서 민지를 방장으로 바꿔 내가 주민인 상태"
+ },
+ {
+  "id": "manage.visitor",
+  "status": "ok",
+  "note": "딸기 섬 구경 중(가입 승인 없는 섬 → 버튼 '이 섬에 가입'). 승인제 섬이면 같은 자리 버튼이 '가입 신청'으로 바뀐다(따로 찍지 않음). 홈을 연 뒤 VISIT 액션 → manage 로 이동해 도달"
+ },
+ {
+  "id": "manage.edit",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "manage.capacityDialog",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "manage.transfer",
+  "status": "ok",
+  "note": "수정 패널의 '방장 위임' 행으로 진입"
+ },
+ {
+  "id": "manage.transferConfirm",
+  "status": "ok",
+  "note": "위임 패널에서 민지 선택 경로. 주민 메뉴 경로도 같은 확인창(뒤 배경만 다름)"
+ },
+ {
+  "id": "manage.memberMenu",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "manage.kickConfirm",
+  "status": "ok",
+  "note": ""
+ },
+ {
+  "id": "manage.leaveConfirm",
+  "status": "ok",
+  "note": "주민 변형('탈퇴하기'). 혼자 남은 방장 변형('삭제하고 나가기')은 따로 찍지 않음"
+ },
+ {
+  "id": "manage.inviteShare",
+  "status": "ok",
+  "note": "아이폰 시뮬레이터(iPhone 17, 최신 코드 연습용 모드)에서 찍은 실제 화면",
+  "via": "simulator",
+  "date": "2026-10-05"
+ },
+ {
+  "id": "ledger",
+  "status": "ok",
+  "note": "목업 원장은 기본이 비어 있어 내역 5건을 넣어 찍음. 줄 제목은 서버 모드 표기(집중 적립·공동 구매 등)에 맞췄다 — 목업 리듀서가 실제로 쓰는 문구('오스카 · 집중' 등)와는 다름"
+ },
+ {
+  "id": "ledger.earnTab",
+  "status": "approx",
+  "note": "'이전 내역 더 보기' 버튼 없음 — 서버 커서(다음 쪽) 전용이라 목업에서는 나오지 않는다. 나머지(적립 책갈피·집중 적립 줄)는 그대로"
+ },
+ {
+  "id": "ledger.spendTab",
+  "status": "ok",
+  "note": "ledger 와 같은 넣은 내역(건설 사용·공동 구매)"
+ },
+ {
+  "id": "ledger.empty",
+  "status": "ok",
+  "note": "잔액 책갈피의 빈 상태('아직 쌓인 내역이 없어요'). 적립·지출 책갈피의 '이 달 적립 내역이 없어요' 변형은 따로 찍지 않음"
+ },
+ {
+  "id": "construction",
+  "status": "ok",
+  "note": "회관·게시판만 완공인 섬(상점 잠금·흐림). 번들 패치 필요: 지금 빌드는 TESTFLIGHT_ALL_BUILDINGS(QA 임시 설정)가 목업 건물을 전부 완공으로 되돌려, 패치 없이는 5칸 모두 '완공' 딱지로만 보인다"
+ },
+ {
+  "id": "construction.allDone",
+  "status": "uncaptured",
+  "note": "서버 모드 전용('모든 건물을 지었어요'는 서버 옵션 목록이 빌 때만). 목업에서는 완공 건물이 '완공' 딱지 카드로 남는다"
+ },
+ {
+  "id": "construction.plan",
+  "status": "ok",
+  "note": "번들 패치 2개로 찍음(QA 전건물 완공 끄기 + 청사진 패널 크래시 우회). 지금 빌드의 목업 모드에서는 건물 카드를 누르면 앱이 빈 화면으로 죽는다(Hall.tsx:1576 liveCopy). 목업 변형이라 '공사 시간' 행이 있음 — 서버 모드에는 그 행이 없다"
+ },
+ {
+  "id": "construction.planBlocked",
+  "status": "ok",
+  "note": "주민 변형('방장이 목표를 정해요')만. 나머지 두 문구는 서버 blockedReason 전용. 번들 패치로 찍음(construction.plan 과 같음)"
+ },
+ {
+  "id": "construction.planCollect",
+  "status": "approx",
+  "note": "목업 변형: '섬 잔액' + 주민별 몫 칩 + '게시판에서 보기 ›' 링크. 서버 모드의 '각자 몫' 행과 '건설하기' 버튼은 없다. 번들 패치로 찍음"
+ },
+ {
+  "id": "construction.planBuilding",
+  "status": "ok",
+  "note": "축음기 공사 중(남은 시간 20분). QA 전건물 완공 패치 필요"
+ },
+ {
+  "id": "construction.planDone",
+  "status": "ok",
+  "note": "기본 목업(전 건물 완공)에서 상점 카드 탭 → '상점으로 가기'. 크래시 우회 패치 필요(패치 없으면 완공 카드를 누르는 순간 앱이 죽음)"
+ },
+ {
+  "id": "construction.changeGoalConfirm",
+  "status": "ok",
+  "note": "목표가 축음기인 상태에서 도서관을 목표로 정하기. 번들 패치로 찍음"
+ }
+]

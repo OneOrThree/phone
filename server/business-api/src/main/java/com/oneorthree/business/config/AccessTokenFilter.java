@@ -7,6 +7,7 @@ import com.oneorthree.business.auth.GuestDeviceCredentials;
 import com.oneorthree.business.auth.LoginAttemptCredentials;
 import com.oneorthree.business.auth.LogoutCredentials;
 import com.oneorthree.business.auth.RefreshCredentials;
+import com.oneorthree.business.auth.RevokedSessions;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.ApiResponses;
 import com.oneorthree.business.common.exception.CommonErrorCode;
@@ -21,6 +22,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * 기존 및 신규 외부 REST의 인증 필터 — 정확히 열거한 공개 경로 외에는 AT가 필요하다.
@@ -89,6 +91,7 @@ public class AccessTokenFilter extends OncePerRequestFilter {
 
     private final AccessTokenVerifier verifier;
     private final ApiResponses responses;
+    private final RevokedSessions revokedSessions;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -136,6 +139,14 @@ public class AccessTokenFilter extends OncePerRequestFilter {
         }
         Optional<AccessTokenClaims> claims = verifier.verify(extractToken(request));
         if (claims.isEmpty()) {
+            sendUnauthorized(request, response);
+            return;
+        }
+        // 로그아웃·탈퇴로 폐기된 세션의 AT 는 서명·만료가 멀쩡해도 거절한다. sid 없는 구 토큰은 그대로 통과한다.
+        // 로그아웃 경로만 예외다 — 그쪽 인증 정본은 RT 라 폐기 AT 를 실은 «재전송» 이 와도 Data 의 멱등 재생
+        // (이미 폐기된 세션 → revoked:true)에 닿아야 한다. 여기서 401 을 주면 성공한 로그아웃이 실패로 보인다.
+        UUID sid = claims.get().sessionId();
+        if (sid != null && !LogoutCredentials.matches(request) && revokedSessions.isRevoked(sid)) {
             sendUnauthorized(request, response);
             return;
         }

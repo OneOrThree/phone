@@ -2,8 +2,8 @@ name: Backend Gradle
 
 # JVM 서버의 Gradle 검사를 한 곳에서 돈다.
 #
-# 현재 호출부는 «둘뿐»이다 — dev-ci.yml(`service: data-api`) 과 realtime-ci.yml(`service: realtime`).
-# business-api·notification 은 아래 사유로 «의도적 예외»라 satellite-ci.yml 이 맡는다. 서버가 늘면
+# 현재 호출부는 «둘뿐»이다 — data-api-ci.dev.yml(`service: data-api`) 과 realtime-ci.dev.yml(`service: realtime`).
+# business-api·notification 은 아래 사유로 «의도적 예외»라 satellite-check.yml 이 맡는다. 서버가 늘면
 # 여기로 붙이되, 이 목록도 같이 고쳐라 — 「전부 이걸 부른다」고 적어 두면 예외가 사고가 된다.
 #
 # 왜 합쳤나 — 이전의 be-check-style.yml · be-test.yml · be-spot-bugs.yml 은 `workflow_call` 전용인데
@@ -25,7 +25,7 @@ name: Backend Gradle
 # 부수 효과: 이 워크플로가 도커에 의존하지 않게 되어, 호출부가 `runs-on` 만 바꾸면 GitHub-hosted
 # 러너로 그대로 옮겨진다.
 #
-# satellite-ci.yml 의 business-api·notification 매트릭스는 이 파일을 쓰지 않는다 — business-api 의
+# satellite-check.yml 의 business-api·notification 매트릭스는 이 파일을 쓰지 않는다 — business-api 의
 # PDF 미리보기 테스트가 poppler-utils 에 의존하고 그건 Dockerfile 의 `test` 스테이지가 깐다.
 # 일반 러너에서 gradle 을 돌리는 이 파일로는 대체할 수 없다.
 

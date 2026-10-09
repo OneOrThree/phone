@@ -13,12 +13,21 @@ SERVICES = ('business-api', 'notification')
 # 안 가르면 워크플로 한 줄만 고쳐도 business-api·notification 전체 빌드가 켜져
 # 러너 슬롯을 오래 물고, 관계없는 PR 까지 줄줄이 대기한다 (GROMO-1918).
 BUILD_AFFECTING = (
-    '.github/workflows/satellite-ci.yml',
+    '.github/workflows/satellite-check.yml',
+    '.github/workflows/satellite-ci.dev.yml',
+    '.github/workflows/satellite-ci.prod.yml',
     '.github/scripts/satellite-ci-plan.py',
     '.github/scripts/check-migration-checksum.py',
     # JAR 재사용 팩·검증 로직 — build 와 images 가 이 스크립트로 아티팩트를 주고받는다.
     # 처음에 `.github/actions/ci-jar/` 만 넣고 이걸 빠뜨렸다가 test_ci_build_reuse 에 잡혔다.
     '.github/scripts/ci-jar.py',
+    # 위성 배포가 직접 실행하는 공용 스크립트·CD — 바뀌면 다시 배포해 검증해야 한다 (GROMO-2224).
+    # contract-only(.github/)로 떨어지면 CI 는 돌아도 배포 계획이 비어 CD 가 통째로 건너뛴다.
+    '.github/scripts/dev-env.sh',
+    '.github/scripts/write-compose-env.py',
+    '.github/scripts/wait-healthy.sh',
+    '.github/scripts/mark-deploy.sh',
+    '.github/workflows/satellite-cd.dev.yml',
 )
 BUILD_AFFECTING_PREFIXES = (
     '.github/actions/ci-jar/',
@@ -33,6 +42,8 @@ CONTRACT_ONLY_PREFIXES = (
 # 「분류 안 된 경로」로 떨어져 두 서비스 전체 빌드를 켠다 (PR #790 이 실제로 그랬다).
 CONTRACT_ONLY_FILES = (
     'README.md', 'AGENTS.md', 'CLAUDE.md',
+    # realtime compose 는 위성이 안 띄움 — 설정 계약 테스트만 돌리면 됨 (GROMO-2224)
+    'server/scripts/docker-compose.realtime.yml',
     '.gitignore', '.gitattributes', '.editorconfig',
 )
 

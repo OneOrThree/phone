@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { t } from '@/i18n';
 import {
   Animated,
   AppState,
@@ -449,7 +450,7 @@ export function FishingIsland({
   spots,
   onTap,
   onRaft,
-  raftLabel = '뗏목 · 우리 섬으로 돌아가기',
+  raftLabel = t('focusFlow.common.raftLabel'),
   gram = false,
   onGram,
   seated = false,
@@ -592,8 +593,10 @@ export function FishingIsland({
           // 스크린리더 사용자는 좌표를 누를 수 없으니 "빈 자리에 앉기" 동작으로 기본 빈 자리를 고른다
           accessible={!!onTap}
           accessibilityRole={onTap ? 'button' : undefined}
-          accessibilityLabel={onTap ? '낚시섬 땅 · 원하는 곳을 눌러 앉기' : undefined}
-          accessibilityActions={onTap ? [{ name: 'activate', label: '빈 자리에 앉기' }] : undefined}
+          accessibilityLabel={onTap ? t('focusFlow.spot.groundA11y') : undefined}
+          accessibilityActions={
+            onTap ? [{ name: 'activate', label: t('focusFlow.spot.sitEmptyA11y') }] : undefined
+          }
           onAccessibilityAction={() => onTap?.(DEFAULT_SPOT)}
           style={StyleSheet.absoluteFill}
           onPress={(e) => {
@@ -649,7 +652,7 @@ export function FishingIsland({
         {goldenFish && (
           <Image
             source={art['fish/gold']}
-            accessibilityLabel="방금 함께 낚은 황금 물고기"
+            accessibilityLabel={t('focusFlow.fish.goldenCaughtImageA11y')}
             testID="fishing-island-golden-fish"
             resizeMode="contain"
             style={{
@@ -693,7 +696,7 @@ export function FishingIsland({
           <Pressable
             accessible={!!onGram}
             accessibilityRole={onGram ? 'button' : undefined}
-            accessibilityLabel={onGram ? '축음기 · 음악 고르기' : undefined}
+            accessibilityLabel={onGram ? t('focusFlow.music.gramA11y') : undefined}
             testID="fishing-gram"
             onPress={() => !dragged.current && onGram?.()}
             // 그림이 작아(세로 폭 약 38px) 누르는 영역을 사방 8px 넓힌다
@@ -1255,7 +1258,7 @@ export function FishingWalker({
         reduce={reduce}
       />
       <View style={{ position: 'absolute', top: a * (0.98 - 0.90625), left: -100, width: 200 }}>
-        <Text style={[nameText(true), { textAlign: 'center' }]}>나</Text>
+        <Text style={[nameText(true), { textAlign: 'center' }]}>{t('focusFlow.common.me')}</Text>
       </View>
     </View>
   );
