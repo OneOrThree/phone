@@ -89,6 +89,8 @@ function walkSummary(walk: NavWalk | null, kind: MapAssetSource['kind']) {
  * 대기(waitingSince)가 최우선이다 — 첫 Snapshot 뒤 새 이동 명령을 보내도 지난 snapshot·predicted 가
  * 남아 있어 Δ·지연 조건이 계속 참이 된다. 그 묵은 값보다 지금 서버 응답을 기다린다는 사실을 먼저 보여준다(지적 1).
  * snapshotReceivedAt 은 절대 시각이라 틱 지연(now - snapshotReceivedAt)은 여기서 매번 새로 계산한다.
+ * now(호출자의 debugNow)가 새 스냅샷 수신 직후 아직 갱신 전이면 snapshotReceivedAt 보다 과거일 수 있어
+ * 두 값 모두 0 으로 클램프한다(보완5 지적 2) — 그래야 「틱 지연 -12ms」처럼 음수로 보이지 않는다.
  */
 function serverDebugLine(server: NavServerDebug, now: number) {
   if (server.status === 'denied') return '동기화 거절됨';
@@ -97,7 +99,8 @@ function serverDebugLine(server: NavServerDebug, now: number) {
   if (waitingSince !== null) return `서버 대기 ${Math.max(0, Math.round(now - waitingSince))}ms`;
   if (snapshot && predicted && snapshotReceivedAt !== null) {
     const delta = Math.round(Math.hypot(predicted.x - snapshot.x, predicted.y - snapshot.y));
-    return `서버 Δ ${delta}px · 틱 지연 ${Math.round(now - snapshotReceivedAt)}ms`;
+    const lag = Math.max(0, Math.round(now - snapshotReceivedAt));
+    return `서버 Δ ${delta}px · 틱 지연 ${lag}ms`;
   }
   return '서버 없음';
 }

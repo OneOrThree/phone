@@ -694,6 +694,11 @@ export function WorldMap({
   const debugLive = navDebug?.server?.status === 'live';
   const [debugNow, setDebugNow] = useState(() => Date.now());
   useEffect(() => {
+    // flush 가 실제로 바꾼 새 서버 상태(navDebug.server 참조 변경 — sameServerDebug 가 다를 때만 새
+    // 참조가 생긴다)를 그릴 때는 지금 시각으로 바로 맞춘다(보완5 지적 2) — 안 그러면 다음 500ms 눈금
+    // 전에 새 스냅샷이 와도 틱 지연이 (낡은 debugNow − 새 snapshotReceivedAt)으로 음수가 될 수 있다.
+    // 그 뒤는 기존 타이머 규칙(보정 깜빡임 창 안 50ms · 그 밖 500ms)대로 이어간다.
+    if (navDebug?.server) setDebugNow(Date.now());
     const flashing = (n: number) => debugCorrectedAt !== null && n - debugCorrectedAt < 500;
     if (!debugLive && !flashing(Date.now())) return;
     let id: ReturnType<typeof setTimeout>;
@@ -706,7 +711,7 @@ export function WorldMap({
     };
     id = setTimeout(tick, flashing(Date.now()) ? 50 : 500);
     return () => clearTimeout(id);
-  }, [debugCorrectedAt, debugLive]);
+  }, [debugCorrectedAt, debugLive, navDebug?.server]);
   return (
     <View
       ref={view}
@@ -1061,24 +1066,19 @@ export function WorldMap({
 // sentAt 만 바뀌거나 정지 상태에서 같은 좌표의 새 Snapshot 으로 receivedAt 만 바뀌는 경우를 놓치지 않는다.
 const sameImagePoint = (a: Point | null, b: Point | null) =>
   a === b || (!!a && !!b && a.x === b.x && a.y === b.y);
-// pathId 를 못 쓸 때만 쓰는 느린 보조 경로 — 모든 점을 깊이 비교한다(보완4 지적 3).
+// 모든 점을 깊이 비교한다(보완4 지적 3) — 점 ≤ 100개라 비용은 무시한다(보완5 지적 1).
 const samePathPoints = (a: Point[], b: Point[]) =>
   a.length === b.length && a.every((p, i) => sameImagePoint(p, b[i]));
-// path 는 flush 마다 새 배열이라 참조가 다르면 비교가 필요하다. pathId(서버 경로 식별자)가 둘 다 있으면
-// pathId + 길이로 끝낸다(1순위, 싸다) — 길이·끝점만 보던 종전 비교는 같은 길이·끝점에 중간 waypoint 만
-// 다른 새 경로를 "같다"고 오판했다(보완4 지적 3). pathId 를 못 쓸 때만 전 지점을 깊이 비교한다.
+// path 는 flush 마다 새 배열이라 참조가 다르면 비교가 필요하다. pathId(서버 경로 식별자)가 같아도 서버
+// 재시작 뒤 재사용된 값일 수 있다(movementSync 가 pathId 역행을 허용) — 길이만 보고 "같다"고 끝내던
+// pathId 지름길은 그 경우 중간 waypoint 가 달라져도 옛 경로를 그대로 남겼다(보완5 지적 1). 지름길 없이
+// pathId 와 전 지점을 항상 함께 비교한다.
 const sameImagePath = (
   a: Point[] | null,
   b: Point[] | null,
   aPathId: number | null,
   bPathId: number | null,
-) =>
-  a === b ||
-  (!!a &&
-    !!b &&
-    (aPathId !== null && bPathId !== null
-      ? aPathId === bPathId && a.length === b.length
-      : samePathPoints(a, b)));
+) => a === b || (!!a && !!b && aPathId === bPathId && samePathPoints(a, b));
 const sameServerDebug = (a: NavServerDebug, b: NavServerDebug) =>
   a.status === b.status &&
   a.correctedAt === b.correctedAt &&

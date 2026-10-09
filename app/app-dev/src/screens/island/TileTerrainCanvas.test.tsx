@@ -104,6 +104,16 @@ describe('서버 이동 보기 helper (GROMO-2249)', () => {
         1083.4,
       ),
     ).toBe('경로 없음 · nav bundle\n서버 Δ 5px · 틱 지연 83ms');
+    // now(debugNow) 가 snapshotReceivedAt 보다 과거면(새 스냅샷 수신 직후 아직 안 돈 시계) 음수
+    // 대신 0 으로 클램프한다(보완5 지적 2).
+    expect(
+      navDebugText(
+        null,
+        'bundle',
+        { ...noServer, predicted, snapshot, snapshotReceivedAt: 1000 },
+        900,
+      ),
+    ).toBe('경로 없음 · nav bundle\n서버 Δ 5px · 틱 지연 0ms');
     expect(navDebugText(null, 'bundle', { ...noServer, waitingSince: 1000 }, 1300)).toBe(
       '경로 없음 · nav bundle\n서버 대기 300ms',
     );

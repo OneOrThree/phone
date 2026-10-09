@@ -802,6 +802,47 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     await screen.unmount();
   });
 
+  it('같은 pathId·길이여도 중간 waypoint 가 다르면 경로를 갱신한다 — 서버 재시작 pathId 재사용(보완5 지적 1)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, { x: 41.5, y: 45.5 });
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 40.5, y: 44.5 },
+        { x: 41.5, y: 45.5 },
+      ]),
+    );
+    // 첫 경로를 끝까지 걷게 둔다 — 두 경로의 끝점이 같아(41.5,45.5) 걷기가 끝나면 predicted(고양이
+    // 위치)가 어느 경로를 거쳤든 같은 값에 멈춘다. 그래야 "걷는 중이라 predicted 가 달라서" 전체
+    // state 가 다르다고 판정되는 거짓 통과 없이 path 비교만을 검증할 수 있다.
+    await act(async () => jest.advanceTimersByTime(3000));
+    const before = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(before.pathId).toBe(1);
+    const firstPath = before.path;
+    // 서버 재시작 뒤 pathId 가 재사용된 상황 — 같은 pathId(1)·같은 길이(2점)·같은 끝점이지만 중간
+    // waypoint 만 다른 새 경로가 확정된다(같은 commandSeq 로 또 받아들여지는 것은 movementSync 쪽
+    // 동작 — 바로 위 지적 3 테스트와 동일). predicted·snapshot·correctedAt·waitingSince 는 이미
+    // 안정된 뒤라 path 비교만이 변수다 — pathId + 길이만 보고 끝내는 지름길이 남아 있으면 전체가
+    // "같다"고 오판해 옛 경로가 그대로 남는다(지적 1).
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 40.5, y: 46.5 },
+        { x: 41.5, y: 45.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(3000));
+    const after = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(after).toEqual({ ...before, path: after.path });
+    expect(after.pathId).toBe(1);
+    expect(after.path).toEqual(
+      [SPAWN, { x: 40.5, y: 46.5 }, { x: 41.5, y: 45.5 }].map((p) => worldToImage(p, SIZE)),
+    );
+    expect(after.path).not.toEqual(firstPath);
+    await screen.unmount();
+  });
+
   it('status 가 live 면 메시지가 끊겨도 500ms 마다 다시 그려 틱 지연 readout 숫자가 시간과 함께 커진다(보완4 지적 2)', async () => {
     jest.useFakeTimers();
     const screen = await renderHome(nextIsland());
@@ -819,6 +860,27 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     await act(async () => jest.advanceTimersByTime(1000));
     const after = delayOf(readout());
     expect(after).toBeGreaterThan(before);
+    await screen.unmount();
+  });
+
+  it('debugNow 가 낡은 상태에서 새 Snapshot 이 와도 readout 틱 지연이 음수로 보이지 않는다(보완5 지적 2)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    // 보정 깜빡임 창(500ms)을 지나 500ms 주기 모드로 들어간 뒤 다음 눈금 훨씬 전까지 흘린다 — 그 사이
+    // debugNow 는 직전 눈금(500ms 째)에 멈춰 있다.
+    await act(async () => jest.advanceTimersByTime(600));
+    const readout = () => screen.getByTestId('nav-debug-text').props.children as string;
+    const delayOf = (text: string) => Number(/틱 지연 (-?\d+)ms/.exec(text)?.[1]);
+    // 이 순간 새 Snapshot 이 도착한다 — receivedAt(now) 이 멈춰 있는 debugNow 보다 최신이다. 보완 전에는
+    // flush 가 바뀐 상태를 그려도 debugNow 는 다음 눈금까지 그대로라 틱 지연이 음수로 보였다(지적 2).
+    await emit(snapshot(102, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    expect(readout()).not.toContain('지연 -');
+    expect(delayOf(readout())).toBeGreaterThanOrEqual(0);
     await screen.unmount();
   });
 });
