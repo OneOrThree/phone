@@ -169,9 +169,9 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * 순서가 안정»하고(PRD M03), 인스턴스가 달라도 같은 순서가 나온다. 경계도 그 해시라서 이미
      * 돌려준 후보가 다시 나오지 않는다.
      *
-     * <p>조건을 전부 SQL 에 두는 것이 핵심이다 — 「즉시 가입 가능」이라고 보여 준 뒤 실제 가입에서
-     * 막히면 안 되므로 공개·승인불요·생존·<b>실제 남은 정원</b>·미소속·<b>강퇴 이력 없음</b> 을 같은
-     * 질의에서 판정한다. 자진 탈퇴자는 재가입할 수 있으므로 제외하지 않는다.
+     * <p>공개·생존·<b>실제 남은 정원</b>·미소속·<b>강퇴 이력 없음</b> 을 같은 질의에서 판정한다.
+     * 승인제도 공개 섬이면 후보에 포함하고, 응답의 가입 방식에 따라 즉시 가입/가입 신청을 안내한다.
+     * 자진 탈퇴자는 재가입할 수 있으므로 제외하지 않는다.
      *
      * @param userId 탐색하는 사용자 id 문자열
      * @param seed 이 탐색 세션의 셔플 seed
@@ -181,7 +181,6 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      */
     @Query(value = "SELECT g.id FROM groups g "
             + "WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
-            + "AND g.approval_required = false "
             + "AND (SELECT count(*) FROM group_members m "
             + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
             + "AND NOT EXISTS (SELECT 1 FROM group_members k WHERE k.group_id = g.id "

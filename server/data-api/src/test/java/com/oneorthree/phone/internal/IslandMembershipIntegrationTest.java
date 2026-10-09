@@ -15,9 +15,12 @@ import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandCreatedView;
 import com.oneorthree.phone.internal.dto.IslandDiscoverPageView;
+import com.oneorthree.phone.internal.dto.IslandManageCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandSearchPageView;
 import com.oneorthree.phone.internal.dto.IslandSummaryView;
 import com.oneorthree.phone.internal.dto.IslandViewResponse;
+import com.oneorthree.phone.internal.service.IslandJoinService;
+import com.oneorthree.phone.internal.service.IslandManagementService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.outbox.exception.OutboxException;
@@ -66,6 +69,7 @@ class IslandMembershipIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
+        registry.add("island-management.commands-enabled", () -> true);
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/islands/*");
@@ -74,6 +78,10 @@ class IslandMembershipIntegrationTest {
 
     @Autowired
     IslandMembershipService islands;
+    @Autowired
+    IslandManagementService management;
+    @Autowired
+    IslandJoinService joins;
     @Autowired
     FocusService legacyFocus;
     @Autowired
@@ -160,12 +168,17 @@ class IslandMembershipIntegrationTest {
     }
 
     @Test
-    @DisplayName("발견 후보는 승인제·만원·내 소속·강퇴 이력 섬을 제외한다")
-    void discoverExcludesApprovalFullJoinedAndKickedIslands() {
+    @DisplayName("발견 후보는 승인제를 포함하고 비공개·종료·삭제·만원·내 소속·강퇴 이력 섬은 제외한다")
+    void discoverIncludesApprovalButExcludesUnavailableIslands() {
         UUID hunter = newUser();
         UUID open = publicIsland("열린섬");
         UUID approval = island("승인섬", false, 10);
         jdbc.update("update groups set approval_required=true where id=?", approval);
+        UUID secret = island("비공개섬", true, 10);
+        UUID ended = publicIsland("종료섬");
+        jdbc.update("update groups set status='ENDED' where id=?", ended);
+        UUID deleted = publicIsland("삭제섬");
+        jdbc.update("update groups set deleted_at=now() where id=?", deleted);
         UUID full = island("만원섬", false, 1);
         joinAs(newUser(), full, GroupMemberRole.MEMBER);
         UUID mine = publicIsland("내섬");
@@ -177,7 +190,47 @@ class IslandMembershipIntegrationTest {
 
         Set<UUID> candidates = new HashSet<>(pageThroughDiscover(hunter, 50));
 
-        assertThat(candidates).contains(open).doesNotContain(approval, full, mine, kicked);
+        assertThat(candidates).contains(open, approval).doesNotContain(secret, ended, deleted, full, mine, kicked);
+    }
+
+    @Test
+    @DisplayName("즉시 가입 섬을 승인제로 바꿔도 첫 발견에 남고 새 주민은 승인 대기로 신청한다")
+    void approvalChangeKeepsIslandDiscoverableAndRequiresApproval() {
+        UUID host = newUser();
+        UUID visitor = newUser();
+        UUID islandId = islands.create(host, new CreateIslandCommandRequest("가입방식섬", null, false, null),
+                UUID.randomUUID()).id();
+        assertThat(pageThroughDiscover(visitor, 2)).contains(islandId);
+
+        management.manage(host, islandId, new IslandManageCommandRequest(null, null, true, null),
+                UUID.randomUUID());
+
+        assertThat(pageThroughDiscover(visitor, 2)).contains(islandId);
+        assertThat(islands.view(islandId, visitor).visitor().approvalRequired()).isTrue();
+        assertThat(joins.join(visitor, islandId, null, UUID.randomUUID()).status()).isEqualTo("pending");
+        assertThat(islands.myIslands(visitor).items()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("마지막 주민이 나간 섬은 발견·검색·내 섬에서 사라지고 직접 조회·가입도 막힌다")
+    void lastResidentLeaveHidesIslandAcrossDiscoveryAndAccess() {
+        UUID host = newUser();
+        UUID visitor = newUser();
+        UUID islandId = islands.create(host, new CreateIslandCommandRequest("빈섬확인", null, true, null),
+                UUID.randomUUID()).id();
+        assertThat(pageThroughDiscover(visitor, 2)).contains(islandId);
+
+        management.leave(host, islandId, UUID.randomUUID());
+
+        assertThat(pageThroughDiscover(visitor, 2)).doesNotContain(islandId);
+        assertThat(islands.myIslands(host).items()).isEmpty();
+        giveCurrentIsland(visitor);
+        assertThat(pageThroughSearch(visitor, "빈섬확인", 2)).doesNotContain(islandId);
+        assertThat(pageThroughSearch(visitor, null, 2)).doesNotContain(islandId);
+        assertThatThrownBy(() -> islands.view(islandId, visitor))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_NOT_FOUND);
+        assertThatThrownBy(() -> joins.join(visitor, islandId, null, UUID.randomUUID()))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test
