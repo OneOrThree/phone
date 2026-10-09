@@ -535,6 +535,7 @@
       "goldenReelingA11y": "Reeling in a golden fish"
     },
     "rest": {
+      "browsing": "Campfire View",
       "resting": "On a break...",
       "pausedA11y": "Paused",
       "endButton": "End Break",
@@ -543,6 +544,8 @@
     }
   },
   "islandPicker": {
+    "currentIslandName": "Currently on: {{name}}",
+    "chooseJoined": "Choose an island you joined",
     "mainTitle": "Change Main Island",
     "currentTitle": "Change Current Island",
     "mainDescription": "Choose the island to show on your profile and friends list. Your current island will stay the same.",

@@ -2670,3 +2670,32 @@ test('전망대 순위에서 방문 상세로 이동하면 상세 조회는 한 
   expect(visit).toHaveBeenCalledWith(island.id);
   expect(screen.queryByText('다시 불러오기')).toBeNull();
 });
+
+test.each([true, false])(
+  '영어 계정의 현재 섬 설명은 소속 %s 상태에서도 번역한다',
+  async (joined) => {
+    applyLocalePref('en');
+    const initial = initialState(false);
+    initial.serverIslands = {
+      memberships: joined ? [islandSummary({ id: 'current', name: 'Current Island' })] : [],
+      currentIslandId: joined ? 'current' : null,
+      lossReason: null,
+      candidates: [],
+      nextCursor: null,
+      visit: null,
+      joinRequests: [],
+      requestStatus: [],
+    };
+    const screen = await render(
+      <Harness
+        route="boat"
+        initial={initial}
+        api={() => ({})}
+        friendsScreen={{ status: 'loading', data: null }}
+      />,
+    );
+    screen.getByText('Change Current Island');
+    screen.getByText(joined ? 'Currently on: Current Island' : 'Choose an island you joined');
+    expect(screen.queryByText(/현재 접속:|가입한 섬 선택/)).toBeNull();
+  },
+);

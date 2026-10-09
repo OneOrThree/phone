@@ -520,6 +520,7 @@
       "goldenReelingA11y": "황금 물고기를 낚아 올리는 중"
     },
     "rest": {
+      "browsing": "모닥불 둘러보기",
       "resting": "휴식 중...",
       "pausedA11y": "멈춤",
       "endButton": "휴식 종료하기",
@@ -528,6 +529,8 @@
     }
   },
   "islandPicker": {
+    "currentIslandName": "현재 접속: {{name}}",
+    "chooseJoined": "가입한 섬 선택",
     "mainTitle": "내 메인 섬 변경하기",
     "currentTitle": "현재 섬 변경하기",
     "mainDescription": "친구 목록과 프로필에 표시할 섬을 골라 주세요. 현재 접속한 섬은 그대로예요.",

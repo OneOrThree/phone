@@ -5621,7 +5621,11 @@ export function RedesignScreens({ e }: any) {
           {server && (
             <SheetRow
               title={t('islandPicker.currentTitle')}
-              sub={island.name ? `현재 접속: ${island.name}` : '가입한 섬 선택'}
+              sub={
+                island.name
+                  ? t('islandPicker.currentIslandName', { name: island.name })
+                  : t('islandPicker.chooseJoined')
+              }
               chevron
               onPress={() => go('currentIsland')}
             />

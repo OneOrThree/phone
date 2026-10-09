@@ -1971,7 +1971,7 @@ function FocusFlow({ e: environment }: any) {
       done();
       return true;
     }
-    if (r === 'rest' && s.session) {
+    if (r === 'rest' && s.session?.status === 'paused') {
       resume();
       return true;
     }

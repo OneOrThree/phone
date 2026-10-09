@@ -174,10 +174,13 @@ export function RestGroup({
 }) {
   const layout = useAppLayout(),
     wide = layout.width >= 600,
-    safe = useSafeAreaInsets(),
-    resumeTarget = useSpotlightTarget(!!tutorial);
+    safe = useSafeAreaInsets();
   const ended = result ? state.lastResult : null;
-  const pausedSession = result ? null : state.session;
+  const pausedSession = !result && state.session?.status === 'paused' ? state.session : null;
+  // 홈 모닥불은 열되 세션 없는 구경을 공유 휴식으로 표시하지 않는다(FR-P01·FR-P20).
+  const browsing = !result && !pausedSession;
+  const restTutorial = pausedSession ? tutorial : undefined;
+  const resumeTarget = useSpotlightTarget(!!restTutorial);
   const [own, setOwn] = useState(false),
     confirming = confirm.confirming ?? own,
     setConfirming = confirm.setConfirming ?? setOwn;
@@ -204,21 +207,27 @@ export function RestGroup({
               : Date.now(),
             restSeat: m.restSeat,
           }))
-      : currentIsland(state).members.filter((m) => !m.focusing && m.restStartedAt);
+      : live
+        ? []
+        : currentIsland(state).members.filter((m) => !m.focusing && m.restStartedAt);
   // 자리 배정: 나는 뒤 가운데(1번), 주민은 서버 restSeat(있고 겹치지 않으면) 아니면 0·2·3·4·5번, 7명부터는 바깥 줄(6번~)
-  const taken = new Set<number>([1]);
+  const taken = new Set<number>(browsing ? [] : [1]);
   const actors = [
-    {
-      seat: 1,
-      me: true,
-      name: t('focusFlow.common.me'),
-      color: state.color,
-      restStartedAt: started,
-    },
+    ...(!browsing
+      ? [
+          {
+            seat: 1,
+            me: true,
+            name: t('focusFlow.common.me'),
+            color: state.color,
+            restStartedAt: started,
+          },
+        ]
+      : []),
     ...others.map((m, n) => {
       let seat = (m as { restSeat?: number | null }).restSeat;
-      if (typeof seat !== 'number' || seat < 0 || seat === 1 || taken.has(seat))
-        seat = n < 5 ? [0, 2, 3, 4, 5][n] : n + 1;
+      if (typeof seat !== 'number' || seat < 0 || taken.has(seat))
+        seat = browsing ? n : n < 5 ? [0, 2, 3, 4, 5][n] : n + 1;
       while (taken.has(seat)) seat += 1;
       taken.add(seat);
       return { ...m, me: false, seat };
@@ -251,12 +260,12 @@ export function RestGroup({
     <TutorialScene
       testID="rest-group"
       style={{ flex: 1, overflow: clip }}
-      onSkip={tutorial?.onSkip}
+      onSkip={restTutorial?.onSkip}
       overlay={
-        tutorial && (
+        restTutorial && (
           <TutorialSpotlight
             target={resumeTarget.rect}
-            text={tutorial.text}
+            text={restTutorial.text}
             action={{ title: t('focus.resume'), onPress: resume }}
           />
         )
@@ -408,7 +417,7 @@ export function RestGroup({
             }}
           >
             <Text style={[fiTitle(wide ? 17 : 19), { lineHeight: (wide ? 17 : 19) * 1.3 }]}>
-              {t('focusFlow.rest.resting')}
+              {t(browsing ? 'focusFlow.rest.browsing' : 'focusFlow.rest.resting')}
             </Text>
           </View>
           {pausedSession && (
@@ -504,11 +513,11 @@ export function RestGroup({
             <FiButton
               primary
               id="resume-focus"
-              title={state.session ? t('focus.resume') : t('focusFlow.common.backToIsland')}
-              onPress={state.session ? resume : home}
+              title={pausedSession ? t('focus.resume') : t('focusFlow.common.backToIsland')}
+              onPress={pausedSession ? resume : home}
             />
           </View>
-          {state.session && (
+          {pausedSession && (
             <FiButton
               style={{ flex: 1 }}
               id="end-rest"
@@ -519,7 +528,7 @@ export function RestGroup({
         </View>
       )}
       {/* 휴식 종료는 집중이 통째로 끝나므로 한 번 묻는다. 계속 쉬기는 창만 닫고 휴식 시간은 계속 흐른다 */}
-      {confirming && !result && (
+      {confirming && !!pausedSession && (
         <FiModal>
           <Text style={fiTitle(wide ? 19 : 22)}>{t('focusFlow.rest.endConfirmTitle')}</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
