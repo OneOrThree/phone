@@ -26,12 +26,14 @@ import java.util.function.LongSupplier;
  * 방(섬) 하나의 이동 상태 — 경로 탐색·actor 위치·틱 전진을 네트워크 없이 담당한다(계약 §4).
  *
  * <p><b>단일 작성자 = 틱 스레드.</b> {@link #join}·{@link #leave}·{@link #requestFullState}·
- * {@link #applyLayout} 은 모두 다른 스레드(STOMP 인바운드)에서 불려도 안전하도록 <b>큐에 넣기만</b> 하고,
- * 실제 처리는 {@link #tick} 이 큐를 드레인할 때 한 스레드에서만 일어난다 — 그래서 {@link Actor} 와 아래
- * 맵들에 동기화가 없다. {@link #accept} 는 예외다 — 토큰 버킷 소모와 "세션당 최신 1개" 병합은 호출
- * 스레드에서 바로 끝낸다(codex P2, 2246 보완2) — 그래서 그 둘이 쓰는 {@link #userBuckets}·
- * {@link #pendingIntent} 는 {@link ConcurrentHashMap} 이다. 토큰 버킷은 사용자(userId) 기준이라
- * (policy §3 「사용자당」, 2246 보완5) 세션 교체·재접속으로는 바뀌지 않는다.
+ * {@link #applyLayout}·{@link #accept} 는 모두 다른 스레드(STOMP 인바운드)에서 불려도 안전하도록
+ * <b>큐에 넣기만</b> 하고, 실제 처리는 {@link #tick} 이 큐를 드레인할 때 한 스레드에서만 일어난다 —
+ * 그래서 {@link Actor} 와 아래 맵들에 동기화가 없다. {@link #accept} 의 토큰 버킷 소모만 예외다
+ * (codex P2, 2246 보완2) — 호출 스레드에서 바로 끝내야 폭주하는 사용자 하나가 큐에 넣는 양을 막을 수
+ * 있어서, 그 버킷이 쓰는 {@link #userBuckets} 는 {@link ConcurrentHashMap} 이다. 토큰 버킷은
+ * 사용자(userId) 기준이라(policy §3 「사용자당」, 2246 보완5) 세션 교체·재접속으로는 바뀌지 않는다.
+ * 버킷을 통과한 intent 는 다른 명령과 똑같이 큐에 들어가고, 세션당 최신 1개로 합치는 일은
+ * {@link #drain()} 이 틱마다 한 번에 한다(별도 pendingIntent 슬롯 없음, 2246 보완7).
  */
 public final class RoomRuntime {
 
@@ -56,12 +58,11 @@ public final class RoomRuntime {
     private final Timer pathfindTimer;
     private final ConcurrentLinkedQueue<Command> queue = new ConcurrentLinkedQueue<>();
 
-    // accept() 호출 스레드(STOMP)가 틱 스레드와 동시에 건드린다(codex P2) — 그래서 이 둘만 ConcurrentHashMap.
+    // accept() 호출 스레드(STOMP)가 틱 스레드와 동시에 건드린다(codex P2) — 그래서 이것만 ConcurrentHashMap.
     // policy §3 「사용자당 초당 10·순간 20」이라 세션이 아니라 userId 로 키를 잡는다(codex P2, 2246
     // 보완5) — 세션 교체(재접속)마다 새로 만들지 않고, actor 가 있거나 departed 에 남아 있는 동안
     // 그대로 유지된다(정리는 pruneExpiredDeparted() 끝줄).
     private final ConcurrentHashMap<UUID, Bucket> userBuckets = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, MoveIntent> pendingIntent = new ConcurrentHashMap<>();
     private final AtomicLong rateLimitedDropCount = new AtomicLong();
 
     // 아래 셋은 틱 스레드만 만진다(단일 작성자) — 그래서 평범한 Map 이다.
@@ -110,16 +111,17 @@ public final class RoomRuntime {
 
     /**
      * 토큰 버킷(policy §3 「사용자당 초당 10·순간 20」, N8)을 호출 스레드(STOMP)에서 바로 소모한다
-     * (codex P2) — 큐에 쌓아 틱이 전부 드레인·정렬하면 폭주하는 사용자 하나가 메모리와 틱 처리 시간을
-     * 늘려 같은 Ticker 의 다른 방까지 지연시킨다. 초과하면 큐에 넣지 않고 조용히 버린다
+     * (codex P2) — 통과한 intent 만 {@link Intent} 로 큐에 들어가므로, 같은 세션이 한 틱 사이에 큐에
+     * 쌓는 Intent 수도 이 버킷(사용자당 초당 10·순간 20)이 이미 묶는다(2246 보완7 — 별도
+     * pendingIntent 슬롯은 더 없다). 초과하면 큐에 넣지 않고 조용히 버린다
      * ({@link #rateLimitedDropCount()}, debug 로그).
      *
      * <p>버킷은 {@code userId} 기준이다(codex P2, 2246 보완5) — 세션 기준이면 재접속마다 새
-     * sessionKey 로 새 버킷이 생겨, 접속을 반복하면 매번 순간 20 개를 다시 얻는 우회가 된다. 통과한
-     * intent 는 세션당 대기 슬롯 하나({@link #pendingIntent})에 {@code merge} 로 덮어쓴다 — 적용
-     * 대기 명령은 actor당 최신 1개뿐이라(policy §3) 이전 pending 은 응답 없이 superseded 로 끝난다
-     * (protocol §5). 역순으로 도착해도 더 큰 commandSeq 만 남도록 비교해서 고른다 — 이미 채택된 뒤의
-     * 명령을 또 보낸 경우의 STALE_COMMAND 응답은 {@link #processAccept} 가 여전히 낸다.
+     * sessionKey 로 새 버킷이 생겨, 접속을 반복하면 매번 순간 20 개를 다시 얻는 우회가 된다. 큐에 쌓인
+     * Intent 를 세션당 최신 1개로 합치는 일은 더 이상 여기서 하지 않고 {@link #drain()} 이 틱마다 한
+     * 번에 한다 — 적용 대기 명령은 actor당 최신 1개뿐이라(policy §3) 나머지는 응답 없이 superseded 로
+     * 끝난다(protocol §5). 이미 채택된 뒤의 명령을 또 보낸 경우의 STALE_COMMAND 응답은
+     * {@link #processAccept} 가 여전히 낸다.
      */
     public void accept(UUID userId, String sessionKey, MoveIntent intent) {
         Bucket bucket = userBuckets.computeIfAbsent(userId, k -> new Bucket(rules.intentBurst(),
@@ -130,8 +132,7 @@ public final class RoomRuntime {
                     intent.commandSeq());
             return;
         }
-        pendingIntent.merge(sessionKey, intent,
-                (oldIntent, newIntent) -> newIntent.commandSeq() > oldIntent.commandSeq() ? newIntent : oldIntent);
+        queue.add(new Intent(sessionKey, intent));
     }
 
     /** 2247 이 구독 직후에 쓴다 — 그 세션에만 FullState(ONLY). */
@@ -176,11 +177,11 @@ public final class RoomRuntime {
     }
 
     /**
-     * Ticker 가 빈 방을 지우려고 쓴다 — actors·명령 큐·대기 intent·퇴장 기억(N23) 이 전부 비어야 한다
-     * (codex P1/P2, 2246 보완2).
+     * Ticker 가 빈 방을 지우려고 쓴다 — actors·명령 큐(accept 로 들어온 대기 Intent 도 이 큐 안에 있다,
+     * 2246 보완7)·퇴장 기억(N23) 이 전부 비어야 한다(codex P1/P2, 2246 보완2).
      *
-     * <p>큐·대기 intent 까지 보는 이유: actors 만 보면 "지우기로 판단한 순간"과 "실제로 지우는 순간" 사이에
-     * 다른 스레드의 {@link MovementRooms#join}·{@link MovementRooms#accept} 호출이 들어와도 그대로
+     * <p>큐까지 보는 이유: actors 만 보면 "지우기로 판단한 순간"과 "실제로 지우는 순간" 사이에 다른
+     * 스레드의 {@link MovementRooms#join}·{@link MovementRooms#accept} 호출이 들어와도 그대로
      * 지워버려 명령이 유실된다. {@link MovementRooms#remove} 가 같은 섬 키로 {@code
      * ConcurrentHashMap.compute} 안에서 이 메서드를 재확인하므로, 저 호출들이 그보다 먼저 끝났으면 여기서
      * 보이고(지우지 않는다), 나중에 시작했으면 빈 맵에 새 방을 만들어 받는다 — 반쪽짜리로 끼어드는 경우가
@@ -188,7 +189,7 @@ public final class RoomRuntime {
      * 복원(N23)이 깨진다.
      */
     boolean isRemovable() {
-        return actors.isEmpty() && queue.isEmpty() && pendingIntent.isEmpty() && departed.isEmpty();
+        return actors.isEmpty() && queue.isEmpty() && departed.isEmpty();
     }
 
     /** 패키지 전용 — 테스트용. 지금 기억 중인 퇴장 인원 수(N23). */
@@ -209,35 +210,53 @@ public final class RoomRuntime {
     // ── 큐 드레인 ────────────────────────────────────────────────────────
 
     /**
-     * join·leave·applyLayout·requestFullState 는 큐에 쌓인 순서(FIFO) 그대로 한 루프에서 처리한다
-     * (codex P2, 2246 보완5 — {@code instanceof} 체인, Java 17 이라 패턴 switch 는 쓰지 않는다).
-     * 예전엔 타입별로 4번 나눠 돌았는데, 같은 STOMP 세션에서 {@code leave(s1)} 뒤 {@code
-     * join(U, s1)} 이 한 틱 안에 들어오면(앱 채널 effect 의 cleanup→재구독이 수 ms 안에 일어나 실제로
-     * 난다) Join 패스가 먼저 전부 돌아 멱등으로 무시되고, 뒤이은 Leave 패스가 방금 재입장한 actor 를
-     * 지워버렸다. FIFO 로 고치면 큐에 들어온 순서 그대로 Leave → Join 이 처리돼 재입장이 살아남는다.
+     * join·leave·applyLayout·requestFullState·accept(큐에 쌓인 {@link Intent}) 는 전부 같은 큐에
+     * 쌓인 순서(FIFO) 그대로 한 루프에서 처리한다(codex P2, 2246 보완5·보완7 — {@code instanceof}
+     * 체인, Java 17 이라 패턴 switch 는 쓰지 않는다). 예전엔 타입별로 나눠 돌았는데, 같은 STOMP
+     * 세션에서 {@code leave(s1)} 뒤 {@code join(U, s1)} 이 한 틱 안에 들어오면(앱 채널 effect 의
+     * cleanup→재구독이 수 ms 안에 일어나 실제로 난다) Join 패스가 먼저 전부 돌아 멱등으로 무시되고,
+     * 뒤이은 Leave 패스가 방금 재입장한 actor 를 지워버렸다. FIFO 로 고치면 큐에 들어온 순서 그대로
+     * Leave → Join 이 처리돼 재입장이 살아남는다.
      *
-     * <p>accept 로 쌓인 대기 intent({@link #pendingIntent})는 세션당 최신 1개로 이미 병합돼 그 안의
-     * 순서가 의미 없으므로 루프 뒤에 {@link #processPendingIntents()} 로 한 번에 처리한다 — 그래서
-     * 같은 틱에 requestFullState 와 intent 가 함께 오면 FullState 가 PathAccepted 보다 먼저 나간다.
-     * PathAccepted 가 곧바로 경로를 갱신하므로 계약상 문제없다.
+     * <p>{@link Intent} 는 즉시 적용하지 않는다 — 이번 배치 안에서 세션당 최신 1개로 로컬 {@code
+     * latest} 에 합치고(더 큰 commandSeq 만 남긴다), {@link Leave} 가 그 세션의 actor 를 실제로
+     * 지운 순간엔({@link #processLeave} 가 {@code true} 를 돌려줄 때만 — 이미 교체된 세션의 뒷북
+     * leave 는 포함되지 않는다) 그 세션의 {@code latest} 항목도 함께 지운다 — 퇴장 전 intent 는
+     * 입장과 함께 죽는다(2246 보완6). 루프가 끝난 뒤에야 {@code latest} 를 순서대로
+     * {@link #processAccept} 하므로, 퇴장 뒤(같은 틱 재입장 뒤) 들어온 Intent 는 루프 중 지워지지
+     * 않고 새 actor 에 적용된다(2246 보완7). 같은 틱에 requestFullState 와 intent 가 함께 오면
+     * FullState 가 PathAccepted 보다 먼저 나간다 — PathAccepted 가 곧바로 경로를 갱신하므로 계약상
+     * 문제없다.
      */
     private void drain() {
         List<Command> batch = new ArrayList<>();
         for (Command c = queue.poll(); c != null; c = queue.poll()) {
             batch.add(c);
         }
+        Map<String, MoveIntent> latest = new LinkedHashMap<>();
         for (Command c : batch) {
             if (c instanceof Join j) {
                 processJoin(j);
             } else if (c instanceof Leave l) {
-                processLeave(l);
+                if (processLeave(l)) {
+                    latest.remove(l.sessionKey());
+                }
             } else if (c instanceof ApplyLayout a) {
                 processApplyLayout(a);
             } else if (c instanceof RequestFullState r) {
                 processRequestFullState(r);
+            } else if (c instanceof Intent i) {
+                latest.merge(i.sessionKey(), i.intent(), RoomRuntime::newerIntent);
             }
         }
-        processPendingIntents();
+        for (Map.Entry<String, MoveIntent> entry : latest.entrySet()) {
+            processAccept(entry.getKey(), entry.getValue());
+        }
+    }
+
+    /** 역순으로 도착해도 더 큰 commandSeq 만 남도록 고른다({@link #drain()} 의 세션당 최신 1개 병합). */
+    private static MoveIntent newerIntent(MoveIntent oldIntent, MoveIntent newIntent) {
+        return newIntent.commandSeq() > oldIntent.commandSeq() ? newIntent : oldIntent;
     }
 
     private void processJoin(Join cmd) {
@@ -264,50 +283,37 @@ public final class RoomRuntime {
         listener.onEvent(islandId, fullStateOf(), Target.ALL);
     }
 
-    private void processLeave(Leave cmd) {
+    /**
+     * @return 이 세션의 actor 를 실제로 지웠으면 true. {@link #drain()} 이 이 신호로만 그 세션의
+     *     {@code latest} 대기 Intent 를 함께 지운다 — 퇴장 전 intent 는 입장과 함께 죽어야 하기
+     *     때문이다(같은 틱에 재입장(leave→join, 같은 세션 키)한 새 actor 에 옛 명령이 그대로 적용돼
+     *     의도치 않게 움직이는 것을 막는다, 2246 보완6). 이미 다른 세션으로 교체된 뒤의 뒷북 leave(아래
+     *     두 번째 분기)는 세션 키가 달라 원래 다른 세션의 대기 Intent 를 건드리지 않으므로 false.
+     */
+    private boolean processLeave(Leave cmd) {
         UUID userId = sessionToUser.remove(cmd.sessionKey());
         if (userId == null) {
-            return;
+            return false;
         }
         Actor actor = actors.get(userId);
         if (actor == null || !actor.sessionKey.equals(cmd.sessionKey())) {
-            return; // 이미 다른 세션으로 교체된 뒤의 뒷북 — 그 세션의 actor 를 건드리지 않는다.
+            return false; // 이미 다른 세션으로 교체된 뒤의 뒷북 — 그 세션의 actor 를 건드리지 않는다.
         }
         actors.remove(userId);
-        // 퇴장 전에 쌓인 대기 intent 는 입장 수명에 묶인다(codex P2, 2246 보완6) — 지우지 않으면 같은
-        // 틱에 재입장(leave→join, 같은 세션 키)한 새 actor 에 processPendingIntents() 가 옛 명령을
-        // 그대로 적용해 의도치 않게 움직인다. 뒷북 leave 분기(위)는 세션 키가 달라 원래 닿지 않는다.
-        pendingIntent.remove(cmd.sessionKey());
         // 토큰 버킷(사용자 기준, 2246 보완5)은 여기서 지우지 않는다 — departed 에 남아 있는 10분
         // 동안 유지돼야 그 안에 재접속해도 순간 20 을 다시 받지 못한다. 정리는 pruneExpiredDeparted().
         departed.put(userId, new Departed(new MovementEvent.Point(actor.x, actor.y), serverTick));
         listener.onEvent(islandId, fullStateOf(), Target.ALL);
-    }
-
-    /**
-     * 세션당 최신 1개만 남는 대기 intent({@link #pendingIntent})를 드레인한다(codex P2) — 토큰 버킷은
-     * {@link #accept} 호출 시점(STOMP 스레드)에서 이미 걸렀으므로 여기서는 더 제한하지 않는다. 세션마다
-     * 독립이라 처리 순서는 보장하지 않는다. 드레인 도중 같은 세션에 새 intent 가 {@code merge} 로
-     * 들어오면(다른 스레드) 이번 틱에 집히거나 다음 틱으로 넘어가거나 둘 다 안전하다 — {@code remove(key)}
-     * 뒤의 {@code merge} 는 그 키가 없는 것으로 보고 그대로 새로 꽂기 때문이다.
-     */
-    private void processPendingIntents() {
-        for (String sessionKey : pendingIntent.keySet()) {
-            MoveIntent intent = pendingIntent.remove(sessionKey);
-            if (intent != null) {
-                processAccept(sessionKey, intent);
-            }
-        }
+        return true;
     }
 
     private void processAccept(String sessionKey, MoveIntent intent) {
         Actor actor = actorFor(sessionKey);
         if (actor == null) {
-            // 퇴장 뒤 지연 도착한 accept, 또는 join 없이 들어온 가짜 accept(codex P2, 2246 보완5) —
-            // 세션 자체가 유효하지 않으니 대기 intent 만 지운다(동시에 들어온 race 대비 — 보통은 이미
-            // processPendingIntents() 가 지운 뒤라 no-op). 토큰 버킷(사용자 기준)은 여기서 지우지
-            // 않는다 — actor 도 departed 도 없는 사용자의 버킷은 pruneExpiredDeparted() 가 지운다.
-            pendingIntent.remove(sessionKey);
+            // 퇴장 뒤 지연 도착한 Intent, 또는 join 없이 들어온 가짜 accept(codex P2, 2246 보완5) —
+            // 세션 자체가 유효하지 않다. 정리할 대기 맵이 더 없다(2246 보완7 — latest 는 drain() 의
+            // 로컬 변수라 이 틱이 끝나면 사라진다). 토큰 버킷(사용자 기준)도 여기서 지우지 않는다 —
+            // actor 도 departed 도 없는 사용자의 버킷은 pruneExpiredDeparted() 가 지운다.
             return;
         }
         if (intent.commandSeq() <= actor.lastCommandSeq) {
@@ -519,6 +525,14 @@ public final class RoomRuntime {
     }
 
     private record RequestFullState(String sessionKey) implements Command {
+    }
+
+    /**
+     * {@link #accept} 가 토큰 버킷을 통과시킨 intent 한 건 — 다른 명령과 같은 큐에 들어가 FIFO 로
+     * 드레인된다. 세션당 최신 1개로 합치는 일은 큐에 넣을 때가 아니라 {@link #drain()} 이 배치 끝에
+     * 한 번에 한다(별도 pendingIntent 슬롯 없음, 2246 보완7).
+     */
+    private record Intent(String sessionKey, MoveIntent intent) implements Command {
     }
 
     /** 퇴장 위치 기억(N23) 한 건. */

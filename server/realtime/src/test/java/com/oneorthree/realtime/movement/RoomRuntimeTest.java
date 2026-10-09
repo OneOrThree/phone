@@ -963,6 +963,32 @@ class RoomRuntimeTest {
     }
 
     @Test
+    @DisplayName("퇴장 뒤(같은 틱 재입장 뒤) 큐에 들어온 intent 는 새 actor 에 그대로 적용된다 — leave 가"
+            + " 실제로 지운 세션의 옛 대기만 지워지고, 그 뒤에 쌓인 intent 는 살아남는다(codex P2 7라운드,"
+            + " 2246 보완7 — 명령 큐 FIFO 로 통합한 뒤의 회귀)")
+    void intentQueuedAfterLeaveInSameTickAppliesToReenteredActor() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.tick(1);
+
+        room.leave("s1"); // 먼저 큐에 들어간다(FIFO) — 옛 actor 를 지우고 그 세션의 대기도 지운다.
+        room.join(userId, "s1"); // 같은 세션 키로 같은 틱에 재입장 — 새 actor 가 만들어진다.
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5)); // leave 뒤에 큐에 들어온 intent.
+        room.tick(2);
+
+        MovementEvent.ActorState reentered = actorIn(room.fullStateOf(), userId);
+        assertThat(reentered).as("재입장한 actor 가 있어야 한다").isNotNull();
+        assertThat(reentered.state()).as("leave 뒤에 들어온 intent 는 새 actor 에 적용돼야 한다")
+                .isEqualTo(MotionState.MOVING);
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        assertThat(accepted).as("새 actor 가 그 intent 로 PathAccepted 를 1회 받아야 한다").hasSize(1);
+        assertThat(accepted.get(0).commandSeq()).isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("토큰 버킷은 사용자 기준이라 leave 뒤 재접속해도 순간 20 을 다시 받는 우회가 되지 않는다"
             + "(codex P2, 2246 보완5, policy §3)")
     void tokenBucketSurvivesReconnectAndStillRateLimitsSameUser() {
