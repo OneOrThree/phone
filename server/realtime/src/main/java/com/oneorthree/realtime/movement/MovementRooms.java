@@ -4,12 +4,14 @@ import com.oneorthree.realtime.movement.nav.NavGrid;
 import com.oneorthree.realtime.movement.nav.NavJsonLoader;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 
 /**
  * 섬(islandId)별 {@link RoomRuntime} 수명 관리. 방은 처음 쓰일 때 생기고, 비면 {@link MovementTicker} 가 지운다.
@@ -41,17 +43,36 @@ public final class MovementRooms {
     private final Pathfinder pathfinder = new Pathfinder();
     private final RoomRuntime.Listener listener;
     private final Timer pathfindTimer;
+    private final LongSupplier nowNanos;
     private final ConcurrentHashMap<UUID, RoomRuntime> rooms = new ConcurrentHashMap<>();
 
     /**
      * {@code movement.pathfind} 는 방마다 생성자로 넘긴다(2246 보완3, {@code movement.tick} 바로 옆) — A*
-     * 는 그대로 틱 스레드에서 동기 호출되고(N10, codex P1 반박), 호출 수·소요 nanos 만 센다.
+     * 는 그대로 틱 스레드에서 동기 호출되고(N10, codex P1 반박), 호출 수·소요 nanos 만 센다. 운영은 벽시계
+     * {@code System::nanoTime} 을 그대로 쓴다 — 아래 패키지 전용 생성자로 테스트만 가짜 시계를 주입한다
+     * (codex PR 스레드, 2246 보완16).
+     *
+     * <p>{@code @Autowired} 를 명시한 이유: 생성자가 둘이 되어(패키지 전용 테스트용 생성자 추가) 더 이상
+     * "생성자 하나뿐이면 자동 추론" 규칙이 성립하지 않는다 — 명시하지 않으면 Spring 이 둘 중 어느 쪽도
+     * 고르지 못해 기본 생성자를 찾다가 부팅이 깨진다. {@link com.oneorthree.realtime.block.client.BlockClient}
+     * 와 같은 패턴.
      */
+    @Autowired
     public MovementRooms(RoomRuntime.Listener listener, MeterRegistry meterRegistry) {
+        this(listener, meterRegistry, System::nanoTime);
+    }
+
+    /**
+     * 패키지 전용 — 테스트가 퇴장 기억(Departed) 만료 판정의 벽시계를 주입하기 위함(codex PR 스레드, 2246
+     * 보완16). {@link #ensure} 가 이 {@code nowNanos} 를 그대로 {@link RoomRuntime} 생성자에 넘겨, 같은
+     * {@code MovementRooms} 가 만드는 모든 방이 같은 시계를 공유한다.
+     */
+    MovementRooms(RoomRuntime.Listener listener, MeterRegistry meterRegistry, LongSupplier nowNanos) {
         this.listener = listener;
         this.pathfindTimer = Timer.builder("movement.pathfind")
                 .description("방 하나의 A* 경로탐색(pathfinder.find) 1회 호출 시간 — 2250 틱 p99 판단용")
                 .register(meterRegistry);
+        this.nowNanos = nowNanos;
     }
 
     public void join(UUID islandId, UUID userId, String sessionKey) {
@@ -130,7 +151,7 @@ public final class MovementRooms {
 
     private RoomRuntime ensure(UUID islandId, RoomRuntime room) {
         return room != null ? room
-                : new RoomRuntime(islandId, nav, pathfinder, MovementRules.DEFAULT, listener, System::nanoTime,
+                : new RoomRuntime(islandId, nav, pathfinder, MovementRules.DEFAULT, listener, nowNanos,
                         pathfindTimer);
     }
 }

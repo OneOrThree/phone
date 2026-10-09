@@ -831,6 +831,28 @@ class RoomRuntimeTest {
         assertThat(state.state()).as("새 actor 는 유령 명령 없이 IDLE 로 남는다").isEqualTo(MotionState.IDLE);
     }
 
+    // ── codex 프리-PR 13라운드 P2(2246 보완15): 멱등 중복 join 은 입장이 아니라 대기 intent 를 지우면 안 된다 ──
+
+    @Test
+    @DisplayName("이미 입장한 세션에 accept(seq 1) 뒤 같은 세션의 중복 join 이 같은 틱에 오면, 멱등 무시라"
+            + " 입장이 아니므로 이미 합쳐진 intent 가 지워지지 않고 PathAccepted 로 수락된다(codex 프리-PR"
+            + " 13라운드 P2, 2246 보완15)")
+    void duplicateJoinAfterAcceptInSameBatchDoesNotDiscardMergedIntent() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1"); // 첫 입장.
+        room.tick(1);
+
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5)); // 같은 틱에 먼저 큐에 들어간 intent.
+        room.join(userId, "s1"); // 같은 세션의 중복 join(멱등 무시) — 입장이 아니다.
+        room.tick(2);
+
+        assertThat(listener.of(MovementEvent.PathAccepted.class))
+                .as("멱등 무시된 중복 join 이 이미 합쳐진 intent 를 지우면 안 된다").hasSize(1);
+    }
+
     // ── N23: 퇴장 위치 기억 · 같은 셀 탭 ──────────────────────────────
 
     @Test
@@ -868,7 +890,9 @@ class RoomRuntimeTest {
     @DisplayName("퇴장 위치 기억: 10분이 지나면 스폰에서 다시 시작한다(N23)")
     void rejoinAfterTenMinutesSpawnsAgain() {
         NavGrid grid = openGrid(10, 10);
-        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener());
+        // 만료 판정이 serverTick 이 아니라 벽시계 나노초 기준이라(2246 보완16) 주입 시계를 직접 전진시킨다.
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
         UUID userId = UUID.randomUUID();
         long tick = 0;
         room.join(userId, "s1");
@@ -884,10 +908,10 @@ class RoomRuntimeTest {
 
         room.leave("s1");
         room.tick(++tick);
-        long leftAtTick = tick;
 
         room.join(userId, "s2");
-        room.tick(leftAtTick + MovementRules.DEFAULT.ticksFor(10 * 60 * 1000L) + 1); // 10분 창을 지난 뒤.
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // DEPARTED_MEMORY_MS(10분) 를 넘긴다.
+        room.tick(++tick);
 
         MovementEvent.ActorState rejoined = actorIn(room.fullStateOf(), userId);
         assertThat(rejoined.x()).isEqualTo(0.5);
@@ -1190,7 +1214,9 @@ class RoomRuntimeTest {
     @DisplayName("다른 actor 가 남아 방이 살아 있어도 만료된 퇴장 기억은 틱마다 정리된다(N23 prune)")
     void departedMemoryIsPrunedEvenWhenAnotherActorKeepsRoomAlive() {
         NavGrid grid = openGrid(10, 10);
-        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener());
+        // 만료 판정이 serverTick 이 아니라 벽시계 나노초 기준이라(2246 보완16) 주입 시계를 직접 전진시킨다.
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
         UUID staying = UUID.randomUUID();
         UUID leaving = UUID.randomUUID();
         long tick = 0;
@@ -1203,13 +1229,54 @@ class RoomRuntimeTest {
         assertThat(room.departedCount()).as("퇴장 직후엔 기억이 남아 있다").isEqualTo(1);
         assertThat(room.isRemovable()).isFalse();
 
-        long ticksToExpire = MovementRules.DEFAULT.ticksFor(10 * 60 * 1000L) + 1; // 10분 창을 지난 뒤.
-        for (long i = 0; i < ticksToExpire; i++) {
-            room.tick(++tick);
-        }
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // DEPARTED_MEMORY_MS(10분) 를 넘긴다.
+        room.tick(++tick); // 단 한 틱만 더 돌려도 매 틱 prune 이 만료를 정리해야 한다.
 
         assertThat(room.departedCount()).as("만료된 퇴장 기억은 다른 actor 가 있어도 정리돼야 한다").isEqualTo(0);
         assertThat(room.isRemovable()).as("stay 세션의 actor 가 남아 있으니 방은 여전히 제거 대상이 아니다").isFalse();
+    }
+
+    // ── codex PR 스레드(2246 보완16): catch-up 상한 때문에 serverTick 차이가 작아도 만료는 벽시계 기준 ──
+
+    @Test
+    @DisplayName("MovementTicker 의 catch-up 상한(20틱) 때문에 serverTick 차이가 21밖에 안 나도, 벽시계로"
+            + " 실제 10분이 넘게 지났으면 퇴장 기억은 만료돼 재입장은 떠난 자리가 아니라 스폰에서 시작한다"
+            + "(codex PR 스레드, 2246 보완16 — serverTick 기준이면 이 경우 만료를 놓쳐 재입장자가 만료됐어야"
+            + " 할 자리로 돌아간다)")
+    void departedExpiresByWallClockEvenWhenCatchUpCapKeepsServerTickDeltaAt21() {
+        NavGrid grid = openGrid(10, 10);
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+        room.accept(userId, "s1", new MoveIntent(1, 1, 1.5, 0.5)); // 스폰과 다른 곳으로 이동해 둔다.
+        MovementEvent.ActorState state;
+        int guard = 0;
+        do {
+            room.tick(++tick);
+            state = actorIn(room.fullStateOf(), userId);
+        } while (state.state() != MotionState.IDLE && ++guard < 10);
+        assertThat(state.x()).as("스폰과 달라야 \"떠난 자리\" 검증이 의미 있다").isNotEqualTo(0.5);
+
+        room.leave("s1");
+        room.tick(++tick);
+
+        // GC·호스트 정지로 벽시계는 10분 넘게 밀렸지만, MovementTicker.MAX_CATCH_UP_TICKS(20) 상한 때문에
+        // 실제 운영에서는 serverTick 이 그 정지 구간 동안 20(+경계 1틱)만 올라간다 — 여기서는 그 결과만
+        // RoomRuntime.tick() 호출 21번으로 직접 재현한다(MovementTicker 는 건드리지 않는다).
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // 벽시계는 DEPARTED_MEMORY_MS(10분)를 넘긴다.
+        for (int i = 0; i < 21; i++) {
+            room.tick(++tick); // serverTick 차이는 21뿐 — 틱 기준이었다면 아직 만료 전(12,000틱 필요)이다.
+        }
+        room.join(userId, "s2");
+        room.tick(++tick);
+
+        MovementEvent.ActorState rejoined = actorIn(room.fullStateOf(), userId);
+        assertThat(rejoined.x()).as("벽시계로 이미 만료됐으니 떠난 자리가 아니라 스폰에서 시작해야 한다")
+                .isEqualTo(0.5);
+        assertThat(rejoined.y()).isEqualTo(0.5);
     }
 
     // ── codex P2: 2246 보완3 — 퇴장한 세션엔 FullState 를 보내지 않는다 ────

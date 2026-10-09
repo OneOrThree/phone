@@ -224,9 +224,14 @@ class MovementTickerTest {
     }
 
     @Test
-    @DisplayName("퇴장 기억이 10분을 넘기면 비워지고 방도 MovementRooms 에서 제거된다(N23, codex P2)")
+    @DisplayName("퇴장 기억이 10분을 넘기면 비워지고 방도 MovementRooms 에서 제거된다(N23, codex P2, 2246 보완16"
+            + " — 가짜 벽시계를 직접 전진시켜 검증한다)")
     void roomIsRemovedFromRoomsAfterDepartedMemoryExpires() {
-        MovementRooms rooms = new MovementRooms(new NoopListener(), new SimpleMeterRegistry());
+        // 만료 판정이 serverTick 차이 대신 벽시계 나노초로 바뀌어(2246 보완16) 틱 수천 번을 돌릴 필요가
+        // 없다 — 가짜 시계(nanos)를 주입한 MovementRooms 로 만든 방은 이 배열 하나를 공유해 직접 전진시킬
+        // 수 있다.
+        long[] nanos = {0L};
+        MovementRooms rooms = new MovementRooms(new NoopListener(), new SimpleMeterRegistry(), () -> nanos[0]);
         UUID islandId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         RoomRuntime room = rooms.roomFor(islandId);
@@ -235,13 +240,11 @@ class MovementTickerTest {
         room.join(userId, "s1");
         ticker.tickAllRooms();
         room.leave("s1");
-        ticker.tickAllRooms(); // 퇴장 — departed 기록, 방은 아직 유지된다.
+        ticker.tickAllRooms(); // 퇴장 — departed 기록(이 시점의 nanos[0]), 방은 아직 유지된다.
         assertThat(rooms.rooms()).containsKey(islandId);
 
-        long ticksToExpire = MovementRules.DEFAULT.ticksFor(10 * 60 * 1000L) + 1; // 10분 창을 지난 뒤.
-        for (long i = 0; i < ticksToExpire; i++) {
-            ticker.tickAllRooms();
-        }
+        nanos[0] += TimeUnit.MINUTES.toNanos(10) + 1; // 10분 창을 1ns 넘겨 벽시계를 전진시킨다.
+        ticker.tickAllRooms(); // 한 틱 안에서 prune(만료) 과 isRemovable 재확인·제거가 함께 끝난다.
 
         assertThat(rooms.rooms()).as("퇴장 기억이 만료되면 아무도 없는 방도 제거돼야 한다").doesNotContainKey(islandId);
     }
