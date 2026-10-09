@@ -31,7 +31,12 @@ function env(joined = false) {
   });
   state = reducer(state, {
     type: 'ISLAND_VISIT',
-    visit: { island, members: { items: [], nextCursor: null }, joinRequest: null },
+    visit: {
+      island,
+      buildings: ['hall', 'board'],
+      members: { items: [], nextCursor: null },
+      joinRequest: null,
+    },
   });
   return {
     state,
@@ -49,15 +54,27 @@ function env(joined = false) {
   };
 }
 
-test('방문 게시판은 대상 섬을 지정하고 읽기 전용 경로로 연다', async () => {
+test('소속 후 미리보기의 둘러보기는 방문 섬 지도로 연결하고 가입은 회관에 둔다', async () => {
   const e = env();
+  e.state.onboarded = true;
   const screen = await render(<ServerVisit e={e} />);
   await screen.findByText('방문할 서버 섬');
   expect(screen.queryByText('소다 섬')).toBeNull();
-  await fireEvent.press(screen.getByText('게시판 둘러보기'));
+  expect(screen.queryByText('이 섬에 가입하기')).toBeNull();
+  await fireEvent.press(screen.getByText('섬 둘러보기'));
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'SERVER_VISITING', islandId: 'visitor' });
-  expect(e.replace).toHaveBeenCalledWith('board');
+  expect(e.replace).toHaveBeenCalledWith('visitIsland', 'visitor');
   expect(e.islands.join).not.toHaveBeenCalled();
+});
+
+test('이전 서버가 완공 정보를 안 주면 섬을 지어내지 않고 둘러보기를 잠근다', async () => {
+  const e = env();
+  e.state.onboarded = true;
+  delete e.state.serverIslands!.visit!.buildings;
+  const screen = await render(<ServerVisit e={e} />);
+  await fireEvent.press(await screen.findByText('섬 둘러보기'));
+  expect(e.dispatch).not.toHaveBeenCalled();
+  screen.getByText('섬 모습을 불러오지 못했어요. 잠시 후 다시 확인해 주세요.');
 });
 
 test('소속 섬 입장은 서버 전환이 끝난 뒤에만 이동하고 중복 탭은 무시한다', async () => {

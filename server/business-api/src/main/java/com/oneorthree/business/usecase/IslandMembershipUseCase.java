@@ -40,8 +40,10 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.HexFormat;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -182,10 +184,33 @@ public class IslandMembershipUseCase {
      * <b>상류가</b> 정하고 Business 는 봉투만 벗긴다 — 요청이 범위를 고를 여지를 만들지 않는다.
      */
     public Object island(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        return islandProjection(readIsland(claims, islandId, deadline));
+    }
+
+    /** 같은 인가 조회에서 읽은 섬 요약과 실제 완공 시설. 구 Data 서버의 누락은 null로 구분한다. */
+    public IslandScene islandScene(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        IslandView view = readIsland(claims, islandId, deadline);
+        List<String> buildings = view.buildings();
+        Set<String> canonical = Set.of("hall", "board", "gram", "library", "mail", "tower", "shop");
+        if (buildings != null && (buildings.stream().anyMatch(id -> id == null || !canonical.contains(id))
+                || new HashSet<>(buildings).size() != buildings.size())) {
+            throw new UpstreamContractMismatchException("방문 섬의 완공 시설 목록이 올바르지 않습니다");
+        }
+        return new IslandScene(islandProjection(view), buildings == null ? null : List.copyOf(buildings));
+    }
+
+    public record IslandScene(Object island, List<String> buildings) {
+    }
+
+    private IslandView readIsland(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
         IslandView view = relay(() -> data.fetchIsland(claims.userId(), islandId, deadline));
         if (view == null) {
             throw new UpstreamContractMismatchException("섬 상세 응답이 없습니다");
         }
+        return view;
+    }
+
+    private static Object islandProjection(IslandView view) {
         if (SCOPE_MEMBER.equals(view.scope()) && view.member() != null) {
             return IslandDetailView.from(view.member());
         }

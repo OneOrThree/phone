@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
@@ -98,6 +99,7 @@ public class IslandMembershipService {
     private final PublicCommandService publicCommands;
     private final IslandWalletRepository islandWalletRepository;
     private final IslandConstructionStateRepository islandConstructionStateRepository;
+    private final IslandFacilityQueryService facilityQueries;
     private final IslandMovementGuards movementGuards;
     private final BannedWords bannedWords;
 
@@ -233,14 +235,15 @@ public class IslandMembershipService {
                     ? IslandSummaries.STATUS_PENDING : IslandSummaries.STATUS_NONE;
             return IslandViewResponse.ofVisitor(IslandSummaries.of(
                     island, memberCount, membershipStatus,
-                    latest == null ? null : latest.getId()));
+                    latest == null ? null : latest.getId()), facilityQueries.completedBuildings(islandId));
         }
         return IslandViewResponse.ofMember(new IslandDetailView(
                 island.getId(), island.getName(), IslandSummaries.introOf(island),
                 IslandSummaries.visibilityOf(island),
                 island.isApprovalRequired(), memberCount, island.getMaxMembers(),
                 IslandSummaries.STATUS_ACTIVE, null, null,
-                roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion()));
+                roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion()),
+                facilityQueries.completedBuildings(islandId));
     }
 
     // ---------------------------------------------------------------- §3.5 memberships

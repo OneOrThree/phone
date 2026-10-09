@@ -808,7 +808,8 @@ export const homeIsland = (s: State): Island => viewIsland(s);
 export const displayIsland = (s: State, id = s.serverIslands?.currentIslandId): Island => {
   const snap = s.serverIslands;
   if (!snap) return currentIsland(s);
-  const facts = id === snap.currentIslandId ? serverHome(s) : null;
+  const facts = id === snap.currentIslandId && id !== s.visitingIslandId ? serverHome(s) : null;
+  const visit = snap.visit?.island.id === id ? snap.visit : null;
   const island =
     facts?.home.island ??
     snap.memberships?.find((item) => item.id === id) ??
@@ -830,7 +831,7 @@ export const displayIsland = (s: State, id = s.serverIslands?.currentIslandId): 
       !!id && (id === snap.currentIslandId || !!snap.memberships?.some((item) => item.id === id)),
     serverRole: facts?.home.island.role ?? null,
     serverMemberCount: island?.memberCount,
-    buildings: facts ? [...facts.completedBuildings] : [],
+    buildings: facts ? [...facts.completedBuildings] : [...(visit?.buildings ?? [])],
     fish: facts?.home.wallets.villagePoints ?? 0,
     points: facts?.home.wallets.villagePoints ?? 0,
     contribution: facts?.home.wallets.villagePoints ?? 0,
@@ -930,10 +931,29 @@ export const capacityOf = (i: Island) => i.capacity ?? CAPACITY_MAX;
 export const isFull = (i: Island) => residentCount(i) >= capacityOf(i);
 // 방문자 등록증의 가입 버튼 상태. 집중 중에는 배 이동부터 막혀 방문 화면에 올 수 없으므로 집중 상태는 없다
 export type VisitorJoin = 'join' | 'apply' | 'cancel' | 'full' | 'blocked';
+export const pendingVisitRequest = (s: State, islandId: string) => {
+  const snap = s.serverIslands;
+  if (!snap) return undefined;
+  const requests = [
+    ...(snap.requestStatus ?? []),
+    ...(snap.joinRequests ?? []),
+    ...(snap.visit?.island.id === islandId && snap.visit.joinRequest
+      ? [snap.visit.joinRequest]
+      : []),
+  ];
+  const terminalIds = new Set(requests.filter((r) => r.status !== 'pending').map((r) => r.id));
+  return requests.find(
+    (r) => r.islandId === islandId && r.status === 'pending' && !terminalIds.has(r.id),
+  );
+};
 export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
   i.kicked
     ? 'blocked'
-    : (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
+    : (
+          s.serverIslands
+            ? !!pendingVisitRequest(s, i.id)
+            : (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
+        )
       ? 'cancel'
       : isFull(i)
         ? 'full'

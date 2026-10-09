@@ -2,13 +2,17 @@ package com.oneorthree.phone.construction.service;
 
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
+import com.oneorthree.phone.construction.repository.domain.FacilityStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * 시설 완공 조회 — 전망대(섬 검색·이동 게이트, GROMO-1759)·우체통(우체통 편지방·편지
@@ -42,6 +46,16 @@ public class IslandFacilityQueryService {
             @Value("${construction.facility-gates.enforce:false}") boolean enforce) {
         this.facilities = facilities;
         this.enforce = enforce;
+    }
+
+    /** 공개 섬 장면용 실제 완공 시설. 잠금 유예 플래그와 무관하며 호출측이 섬 열람 권한을 확인한다. */
+    public List<String> completedBuildings(UUID islandId) {
+        Set<String> completed = facilities.findByIslandId(islandId).stream()
+                .filter(facility -> facility.getStatus() == FacilityStatus.COMPLETED)
+                .map(facility -> facility.getBuildingId())
+                .collect(Collectors.toSet());
+        return Arrays.stream(ConstructionBuilding.values()).map(ConstructionBuilding::id)
+                .filter(completed::contains).toList();
     }
 
     /** 이 섬의 전망대가 완공됐는가 — 섬 검색 진입·이동 게이트({@code OBSERVATORY_LOCKED}). */

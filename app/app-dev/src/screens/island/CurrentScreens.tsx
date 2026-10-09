@@ -297,9 +297,14 @@ export function memberGate(state: State, server: boolean) {
     return { joined: i.joined, built: viewIsland(state).buildings, host: isHost(i) };
   }
   const facts = state.visitingIslandId ? null : serverHome(state);
+  const visit = state.serverIslands?.visit;
   return {
     joined: !state.visitingIslandId && state.serverIslands?.currentIslandId != null,
-    built: facts?.completedBuildings,
+    built: state.visitingIslandId
+      ? visit?.island.id === state.visitingIslandId
+        ? (visit.buildings ?? undefined)
+        : undefined
+      : facts?.completedBuildings,
     host: facts?.home.island.role === 'host',
   };
 }
@@ -364,10 +369,11 @@ function CurrentScreensContent({ e }: any) {
   ];
   const { joined, built, host } = memberGate(state, !!e.islands);
   const endServerVisit = () => {
-    const islandId = state.visitingIslandId;
     e.dispatch({ type: 'END_VISIT' });
-    e.replace('visit', islandId);
+    e.reset(state.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
   };
+  const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
+  const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
@@ -382,7 +388,7 @@ function CurrentScreensContent({ e }: any) {
     state.visitingIslandId &&
     !(
       e.islands
-        ? ['board', 'notice']
+        ? ['visitIsland', 'manage', 'members', 'board', 'notice', 'visitIslandFocus']
         : [
             'home',
             'manage',
@@ -400,7 +406,7 @@ function CurrentScreensContent({ e }: any) {
   )
     return (
       <Overlay
-        close={e.islands ? endServerVisit : e.home}
+        close={closeFacility}
         background={
           <FinalIsland
             state={state}
@@ -412,7 +418,14 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Txt kind="h17">주민만 이용할 수 있어요</Txt>
-        <Btn title="확인" onPress={e.islands ? endServerVisit : e.home} />
+        <Btn title="확인" onPress={closeFacility} />
+      </Overlay>
+    );
+  if (e.islands && state.visitingIslandId && !built)
+    return (
+      <Overlay close={endServerVisit}>
+        <Txt>섬 모습을 불러오지 못했어요. 다시 방문해 주세요.</Txt>
+        <Btn title="원래 섬으로" onPress={endServerVisit} />
       </Overlay>
     );
   const locked: Partial<Record<Route, Building>> = {
@@ -450,7 +463,7 @@ function CurrentScreensContent({ e }: any) {
   if (required && built && !built.includes(required))
     return (
       <Overlay
-        close={e.home}
+        close={closeFacility}
         background={
           <FinalIsland
             state={state}
@@ -470,7 +483,7 @@ function CurrentScreensContent({ e }: any) {
         </Txt>
         <Btn
           title={host && built.includes('hall') ? '회관에서 다음 건물 보기' : '확인'}
-          onPress={() => (host && built.includes('hall') ? e.go('construction') : e.home())}
+          onPress={() => (host && built.includes('hall') ? e.go('construction') : closeFacility())}
         />
       </Overlay>
     );
@@ -481,16 +494,23 @@ function CurrentScreensContent({ e }: any) {
         key={islandId}
         islandId={islandId}
         backOverride={e.backOverride}
-        onClose={endServerVisit}
+        onClose={visitMap}
       />
     );
   }
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
   if (r === 'focusVisit') return <FocusVisit e={e} />;
-  if (r === 'visitIsland') return <VisitIsland e={screenE} />;
+  if (r === 'visitIsland')
+    return <VisitIsland e={screenE} onReturnFromVisit={e.islands ? endServerVisit : undefined} />;
   if (r === 'visitIslandFocus')
-    return <FocusVisit e={e} islandId={e.detail || state.visitingIslandId} onBack={e.back} />;
+    return (
+      <FocusVisit
+        e={e}
+        islandId={e.detail || state.visitingIslandId}
+        onBack={e.islands ? visitMap : e.back}
+      />
+    );
   if (
     [
       'focusTravel',
@@ -505,7 +525,12 @@ function CurrentScreensContent({ e }: any) {
     return <FocusFlow e={e} />;
   if (['library', 'diary', 'stats'].includes(r)) return <Library e={e} />;
   if (['hall', 'manage', 'members', 'ledger', 'construction'].includes(r))
-    return <Hall key={r} e={e} />;
+    return (
+      <Hall
+        key={r}
+        e={e.islands && state.visitingIslandId ? { ...e, back: visitMap, home: visitMap } : e}
+      />
+    );
   // 게시판·우체통은 건물 안 장면(BuildingInteriors)으로 그린다
   if (['board', 'notice', 'noticeEdit', 'quest', 'questEdit'].includes(r))
     return (
@@ -969,7 +994,7 @@ function Travel({ e }: any) {
     />
   );
 }
-function VisitIsland({ e }: any) {
+function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
   return (
@@ -981,6 +1006,7 @@ function VisitIsland({ e }: any) {
       viewingIslandId={s.visitingIslandId ? undefined : islandId}
       notify={e.notify}
       dispatch={e.dispatch}
+      onReturnFromVisit={onReturnFromVisit}
     />
   );
 }

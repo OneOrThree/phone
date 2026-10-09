@@ -4,6 +4,7 @@ import {
   homeIsland,
   initialState,
   isHost,
+  pendingVisitRequest,
   reducer,
   residentCount,
   viewIsland,
@@ -107,4 +108,49 @@ test('대표 섬은 재실행 때 로컬 소다 섬으로 대체하지 않는다
   const saved = sync(initialState(true), 'a');
   const restored = reducer(initialState(), { type: 'LOAD', state: saved });
   assert.equal(restored.mainIslandId, 'b');
+});
+
+test('방문 지도는 그 섬의 완공 건물만 사용하며 현재 섬과 대표 섬은 유지한다', () => {
+  let s = home(sync(initialState(true), 'a'), 'a', 'host');
+  s = reducer(s, {
+    type: 'ISLAND_VISIT',
+    visit: {
+      island: summary('visitor'),
+      buildings: ['hall', 'tower'],
+      members: { items: [], nextCursor: null, version: 1 },
+      joinRequest: null,
+    },
+  });
+  s = reducer(s, { type: 'SERVER_VISITING', islandId: 'visitor' });
+  assert.deepEqual(homeIsland(s).buildings, ['hall', 'tower']);
+  assert.equal(s.serverIslands!.currentIslandId, 'a');
+  assert.equal(s.mainIslandId, 'b');
+  s = reducer(s, { type: 'END_VISIT' });
+  assert.deepEqual(homeIsland(s).buildings, ['hall', 'board']);
+});
+
+test('회관 신청·취소의 최신 상태가 이전 방문 응답보다 우선한다', () => {
+  let s = sync(initialState(true), 'a');
+  const request = { id: 'r1', islandId: 'visitor', status: 'pending', version: 1 };
+  s = reducer(s, {
+    type: 'ISLAND_VISIT',
+    visit: {
+      island: summary('visitor'),
+      buildings: ['hall'],
+      joinRequest: request,
+    },
+  });
+  assert.equal(pendingVisitRequest(s, 'visitor')?.id, 'r1');
+  s = reducer(s, { type: 'ISLAND_REQUEST', request: { ...request, status: 'cancelled' } });
+  assert.equal(pendingVisitRequest(s, 'visitor'), undefined);
+  s = reducer(s, { type: 'ISLAND_REQUEST', request: { ...request, id: 'r2' } });
+  assert.equal(pendingVisitRequest(s, 'visitor')?.id, 'r2');
+  s = reducer(s, {
+    type: 'ISLAND_VISIT',
+    visit: {
+      ...s.serverIslands!.visit!,
+      joinRequest: { ...request, id: 'r2', status: 'approved', version: 2 },
+    },
+  });
+  assert.equal(pendingVisitRequest(s, 'visitor'), undefined);
 });

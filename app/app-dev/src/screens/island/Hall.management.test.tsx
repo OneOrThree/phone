@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Platform } from 'react-native';
-import { currentIsland, initialState, joinRequests, viewIsland } from '@/services/model';
+import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
 import { Hall } from '@/screens/island/Hall';
 import { ApiError } from '@/services/api/client';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
@@ -456,4 +456,104 @@ test('섬 이름·소개 칸은 현재 글자 수를 보여 주고 한도에 닿
   assert.ok(screen.getByText('4/50')); // '서버 섬' 은 4자
   await fireEvent.changeText(screen.getByTestId('hall-name'), '가'.repeat(50));
   assert.ok(screen.getByText('50자까지 쓸 수 있어요 · 50/50'));
+});
+
+function serverVisitor(approval = false, pending = false) {
+  const own = { id: 'own', name: '내 섬' };
+  let state = reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [own],
+      currentIslandId: own.id,
+      nextCursor: null,
+      lossReason: null,
+    },
+  });
+  state = reducer(state, {
+    type: 'ISLAND_VISIT',
+    visit: {
+      island: {
+        id: 'other',
+        name: '실제 방문 섬',
+        intro: '방문 섬 소개',
+        memberCount: 1,
+        maxMembers: 15,
+        approvalRequired: approval,
+        membershipStatus: 'none',
+      },
+      buildings: ['hall', 'board'],
+      members: {
+        items: [{ id: 'other-host', name: '방문 섬 방장', catColor: 'orange', role: 'host' }],
+        nextCursor: null,
+        version: 1,
+      },
+      joinRequest: pending
+        ? { id: 'request', islandId: 'other', status: 'pending', version: 1 }
+        : null,
+    },
+  });
+  state = reducer(state, { type: 'SERVER_VISITING', islandId: 'other' });
+  return {
+    ...e('manage', state),
+    islands: {
+      join: jest.fn().mockResolvedValue({ status: approval ? 'pending' : 'active' }),
+      cancel: asyncCommand(),
+    },
+  };
+}
+
+test('방문 회관은 서버 주민을 보여주고 즉시 가입 확정 후 방문을 종료한다', async () => {
+  const env = serverVisitor();
+  const screen = await render(<Hall e={env} />);
+  screen.getByText('실제 방문 섬');
+  screen.getByText('방문 섬 방장');
+  expect(screen.queryByTestId('hall-edit')).toBeNull();
+  expect(screen.queryByTestId('hall-leave')).toBeNull();
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  await waitFor(() => expect(env.reset).toHaveBeenCalledWith('home'));
+  expect(env.islands.join).toHaveBeenCalledWith('other', { showApproval: false });
+  expect(env.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
+  expect(env.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'JOIN' }));
+});
+
+test('회관의 승인제 신청은 중복 탭을 막고 회관에 남는다', async () => {
+  const env = serverVisitor(true);
+  let finish!: (result: object) => void;
+  env.islands.join.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const screen = await render(<Hall e={env} />);
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  expect(env.islands.join).toHaveBeenCalledTimes(1);
+  await act(async () => finish({ status: 'pending' }));
+  await screen.findByText('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+  expect(env.reset).not.toHaveBeenCalled();
+  expect(env.dispatch).not.toHaveBeenCalled();
+});
+
+test('방문 응답으로 복구한 신청도 회관에서 서버 취소를 호출한다', async () => {
+  const env = serverVisitor(true, true);
+  const screen = await render(<Hall e={env} />);
+  screen.getByText('신청 취소');
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  await screen.findByText('가입 신청을 취소했어요.');
+  expect(env.islands.cancel).toHaveBeenCalledWith('request');
+  expect(env.dispatch).not.toHaveBeenCalled();
+});
+
+test('방문 가입 실패는 회관에서 오류를 알리고 이동하지 않는다', async () => {
+  const env = serverVisitor();
+  env.islands.join.mockRejectedValue(new ApiError('GROUP_FULL', '가득 찼어요', 409));
+  const screen = await render(<Hall e={env} />);
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  await screen.findByText('섬의 정원이 찼어요. 다른 섬을 선택해 주세요.');
+  await waitFor(() =>
+    expect(screen.getByTestId('hall-join').props.accessibilityState.disabled).toBe(false),
+  );
+  expect(env.reset).not.toHaveBeenCalled();
+  expect(env.dispatch).not.toHaveBeenCalled();
 });

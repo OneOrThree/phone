@@ -1,5 +1,7 @@
 package com.oneorthree.phone.internal.dto;
 
+import java.util.List;
+
 /**
  * {@code GET /internal/islands/{islandId}} 응답 (GROMO-1759).
  *
@@ -13,15 +15,16 @@ package com.oneorthree.phone.internal.dto;
  *
  * @param scope {@code member} 또는 {@code visitor}
  */
-public record IslandViewResponse(String scope, IslandSummaryView visitor, IslandDetailView member) {
+public record IslandViewResponse(String scope, IslandSummaryView visitor, IslandDetailView member,
+        List<String> buildings) {
 
     /** 활성 주민 응답. */
-    public static IslandViewResponse ofMember(IslandDetailView detail) {
-        return new IslandViewResponse("member", null, detail);
+    public static IslandViewResponse ofMember(IslandDetailView detail, List<String> buildings) {
+        return new IslandViewResponse("member", null, detail, buildings);
     }
 
     /** 비소속 방문자 응답. */
-    public static IslandViewResponse ofVisitor(IslandSummaryView summary) {
-        return new IslandViewResponse("visitor", summary, null);
+    public static IslandViewResponse ofVisitor(IslandSummaryView summary, List<String> buildings) {
+        return new IslandViewResponse("visitor", summary, null, buildings);
     }
 }

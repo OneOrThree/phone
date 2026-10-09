@@ -830,6 +830,7 @@ function FinalIslandScene({
   onBuildingEntrySound,
   layeredPreview = false,
   onServerBuilt,
+  onReturnFromVisit,
 }: {
   state: State;
   go: (r: Route, id?: string) => void;
@@ -852,6 +853,8 @@ function FinalIslandScene({
   layeredPreview?: boolean;
   /** 서버 모드 홈 스냅샷 재조회 — 넘긴 화면(홈)에서만 서버 짓기 카드를 띄운다. */
   onServerBuilt?: () => void;
+  /** 서버 방문은 현재 소속 섬을 변경하지 않고 구경만 끝낸다. */
+  onReturnFromVisit?: () => void;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
@@ -1314,6 +1317,7 @@ function FinalIslandScene({
                   // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
                   if (d.building === 'hall') go('manage');
                   else if (d.building === 'board') go('board');
+                  else if (d.building === 'gram') return;
                   else notify?.('주민만 이용할 수 있어요');
                 }}
                 style={{
@@ -1651,6 +1655,7 @@ function FinalIslandScene({
                 title="원래 섬으로"
                 id="visit-return"
                 onPress={() => {
+                  if (onReturnFromVisit) return onReturnFromVisit();
                   // 구경을 끝내고 내 섬으로 배를 타고 돌아간다. Travel 도착 시 SWITCH_ISLAND 후 홈
                   dispatch?.({ type: 'TRAVEL_FROM', name: i.name });
                   dispatch?.({ type: 'END_VISIT' });

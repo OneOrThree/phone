@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { createIslandCommands, IslandApi } from '@/services/islandCommands';
-import { initialState, reducer } from '@/services/model';
+import { initialState, pendingVisitRequest, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import type { Account } from '@/services/api/auth';
 import type { IslandSummary, MyIslands, MyJoinRequest } from '@/services/api/islands';
@@ -783,4 +783,37 @@ test('로그인 세대가 바뀐 뒤 도착한 섬 변경 성공은 반영하지
   finish({ currentIslandId: 'i2' });
   await assert.rejects(pending, (error: any) => error.code === 'CLIENT_STALE_SESSION');
   assert.equal(types(h).includes('ISLAND_SYNC'), false);
+});
+
+test('방문 회관에서 신청하면 pending은 기록하되 승인 화면으로 강제 이동하지 않는다', async () => {
+  const h = harness({
+    join: async () => ({
+      status: 'pending',
+      requestId: 'r1',
+      islandId: 'i1',
+      currentIslandId: null,
+      version: 1,
+    }),
+  });
+  await h.cmds.commands.join('i1', { showApproval: false });
+  assert.deepEqual(h.went, []);
+  assert.equal(pendingVisitRequest(h.state(), 'i1')?.id, 'r1');
+});
+
+test('신청 목록에 없고 방문 응답에만 있는 신청을 취소해도 버튼 상태가 종결된다', async () => {
+  const h = harness({
+    visit: async () => ({
+      island: island(),
+      buildings: ['hall'],
+      members: { items: [], nextCursor: null, version: 1 },
+      joinRequestAvailability: 'available',
+      joinRequest: myReq(),
+    }),
+    cancelJoinRequest: async () => ({ id: 'r1', status: 'cancelled' }),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await h.cmds.commands.visit('i1');
+  assert.equal(pendingVisitRequest(h.state(), 'i1')?.id, 'r1');
+  await h.cmds.commands.cancel('r1');
+  assert.equal(pendingVisitRequest(h.state(), 'i1'), undefined);
 });

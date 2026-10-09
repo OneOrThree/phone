@@ -1668,6 +1668,16 @@ function Gromo() {
   }, [route, loaded, reviewEpoch]);
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      // 서버 방문은 현재 섬을 바꾸지 않으므로 방문 상태만 지우고 내 섬으로 돌아간다.
+      if (
+        ['home', 'visitIsland'].includes(route) &&
+        state.visitingIslandId &&
+        state.serverIslands
+      ) {
+        dispatch({ type: 'END_VISIT' });
+        reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+        return true;
+      }
       // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다
       if (route === 'home' && state.visitingIslandId) {
         dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });

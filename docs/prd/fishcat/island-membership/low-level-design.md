@@ -87,6 +87,14 @@ Query `cursor:Cursor?`, `limit:integer=1`(1~100). 성공200 `{data:{items:Public
 
 private 초대 resolve가 반환한 공개 요약은 초대 흐름에서 사용하되 이 GET에 토큰 없는 예외 권한을 만들지 않는다. `X-User-Id`, `role`, `isMember` query/header로 분기를 고를 수 없다. 읽기 캐시를 둘 때도 사용자·섬·권한 revision을 분리하며 공통 no-store를 기본으로 한다.
 
+#### 방문 지도 조회 확장 (2026-10-09)
+
+`GET /internal/islands/{islandId}`의 권한 분기 봉투에 `buildings:BuildingId[]`를 추가한다. 같은 섬 열람 권한을 확인한 뒤 해당 섬 `island_facilities`의 `COMPLETED`만 canonical7 순서로 반환한다. 공사 중 시설·다른 섬 시설·게이트 유예 설정은 완공 목록에 반영하지 않는다. 종료/삭제 404와 비공개 비주민 403은 그대로 적용한다.
+
+Business의 `GET /screens/visit/{islandId}`는 `{island, buildings, members, joinRequestAvailability, joinRequest}`를 반환한다. `island`는 주민 호출이어도 공개 요약이며 지갑·역할·건설 목표를 추가하지 않는다. 별도 시설 API를 호출하지 않고 위 인가 조회에서 읽은 완공 목록을 사용한다. 구 Data 서버가 필드를 누락하면 `buildings:null`을 보존하며 실제 빈 목록 `[]`과 구별한다. 앱은 누락 상태에서 임의 지도를 만들지 않고 둘러보기를 비활성화한다. DB 변경은 없다.
+
+앱은 소속 후 `전망대 → 미리보기 → 섬 둘러보기 → 방문 지도`로 이동하고 회관 등록증에서 가입·신청 취소한다. 게시판은 방문 지도에서 열람한다. 첫 섬 온보딩은 기존 미리보기 가입 흐름을 유지한다. 방문·귀환 자체는 서버 현재 섬이나 대표 섬을 변경하지 않는다.
+
 ### 3.5 memberships — GET /me/islands
 
 성공200 `{data:{items:PublicIslandSummary[],nextCursor:null,currentIslandId:Id?,lossReason:"LEFT"|"KICKED"|null}}`. 원본 items와 nextCursor에 **본인 currentIslandId를 기술 확장**해 재실행 시 현재 선택을 식별한다. 현재 소속 상한10을 보존하는 동안 목록은 전량이며, 향후 상한 변경은 페이지 계약을 함께 개정한다.

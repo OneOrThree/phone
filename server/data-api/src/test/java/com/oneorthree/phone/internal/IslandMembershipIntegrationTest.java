@@ -318,6 +318,28 @@ class IslandMembershipIntegrationTest {
     }
 
     @Test
+    @DisplayName("방문 장면은 해당 섬의 실제 완공 건물만 정해진 순서로 공개한다")
+    void visitorSceneContainsOnlyCompletedBuildingsOfThatIsland() {
+        UUID owner = newUser();
+        UUID visitor = newUser();
+        UUID target = publicIsland("둘러볼섬");
+        joinAs(owner, target, GroupMemberRole.OWNER);
+        UUID other = publicIsland("다른섬");
+        for (String building : List.of("board", "hall")) {
+            jdbc.update("INSERT INTO island_facilities (island_id, building_id, status, cost, cost_revision) "
+                    + "VALUES (?, ?, 'COMPLETED', 1, 1)", target, building);
+        }
+        jdbc.update("INSERT INTO island_facilities (island_id, building_id, status, cost, cost_revision) "
+                + "VALUES (?, 'library', 'BUILDING', 1, 1)", target);
+        jdbc.update("INSERT INTO island_facilities (island_id, building_id, status, cost, cost_revision) "
+                + "VALUES (?, 'tower', 'COMPLETED', 1, 1)", other);
+
+        assertThat(islands.view(target, visitor).buildings()).containsExactly("hall", "board");
+        assertThat(islands.view(target, owner).buildings()).containsExactly("hall", "board");
+        assertThat(islands.view(publicIsland("빈섬"), visitor).buildings()).isEmpty();
+    }
+
+    @Test
     @DisplayName("role·isMember 를 쿼리로 넣어도 방문자 응답이 주민 상세로 바뀌지 않는다")
     void scopeCannotBeForcedByQueryParameters() throws Exception {
         UUID visitor = newUser();

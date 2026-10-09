@@ -15,7 +15,7 @@ import {
   useVillageDayNight,
   WorldMap,
 } from '@/screens/island/WorldMap';
-import { buildingNames, initialState } from '@/services/model';
+import { buildingNames, initialState, reducer } from '@/services/model';
 import {
   BUILDING_ENTRY_DURATION_MS,
   BUILDING_TRANSITION_DURATION_MS,
@@ -1101,4 +1101,52 @@ test('뗏목 탭 영역은 부두 끝이 아니라 배경에 그려진 뗏목 �
   } finally {
     timing.mockRestore();
   }
+});
+
+test('서버 방문 지도는 대상 건물만 열고 귀환도 서버 경로를 사용한다', async () => {
+  let state = reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [{ id: 'own', name: '원래 섬' }],
+      currentIslandId: 'own',
+      nextCursor: null,
+      lossReason: null,
+    },
+  });
+  state = reducer(state, {
+    type: 'ISLAND_VISIT',
+    visit: {
+      island: { id: 'visitor', name: '구경할 섬', memberCount: 1, maxMembers: 15 },
+      buildings: ['hall', 'board', 'library'],
+      members: { items: [], nextCursor: null, version: 1 },
+    },
+  });
+  state = reducer(state, { type: 'SERVER_VISITING', islandId: 'visitor' });
+  const go = jest.fn(),
+    notify = jest.fn(),
+    dispatch = jest.fn(),
+    onReturn = jest.fn();
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={go}
+      build={jest.fn()}
+      notify={notify}
+      dispatch={dispatch}
+      onReturnFromVisit={onReturn}
+    />,
+  );
+  expect(screen.queryByTestId('home-cat-sprite')).toBeNull();
+  expect(screen.queryByText('집중 시작')).toBeNull();
+  expect(screen.queryByLabelText(buildingNames.tower)).toBeNull();
+  await fireEvent.press(screen.getByLabelText(buildingNames.hall));
+  expect(go).toHaveBeenLastCalledWith('manage');
+  await fireEvent.press(screen.getByLabelText(buildingNames.board));
+  expect(go).toHaveBeenLastCalledWith('board');
+  await fireEvent.press(screen.getByLabelText(buildingNames.library));
+  expect(notify).toHaveBeenCalledWith('주민만 이용할 수 있어요');
+  await fireEvent.press(screen.getByText('원래 섬으로'));
+  expect(onReturn).toHaveBeenCalledTimes(1);
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(go).not.toHaveBeenCalledWith('travel', expect.anything());
 });

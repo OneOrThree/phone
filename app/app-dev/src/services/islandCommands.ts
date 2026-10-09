@@ -338,7 +338,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     // active면 /me/islands 재조회로 current를 확정한다(arrival/home은 CurrentScreens 차단이
     // 풀리기 전까지 열지 않는다). 응답이 확정되면 의도 키를 해제한다 — 취소·거절 뒤 같은 섬
     // 재신청은 새 키를 쓴다.
-    join: (islandId: string) =>
+    join: (islandId: string, { showApproval = true }: { showApproval?: boolean } = {}) =>
       call(async () => {
         const g = generation(),
           token = scoped().tokens[islandId],
@@ -359,7 +359,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
               version: result.version,
             },
           });
-          deps.go('approval', islandId);
+          if (showApproval) deps.go('approval', islandId);
           captureProductEvent('island_join_requested');
         } else if (result.status === 'active') {
           await syncIslands();
@@ -409,7 +409,8 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         const snap = deps.getSnap(),
           prev =
             snap?.requestStatus.find((x) => x.id === requestId) ??
-            snap?.joinRequests.find((x) => x.id === requestId);
+            snap?.joinRequests.find((x) => x.id === requestId) ??
+            (snap?.visit?.joinRequest?.id === requestId ? snap.visit.joinRequest : undefined);
         // 목록 갱신 전에 종결 상태를 먼저 기록한다 — reducer가 기존 항목의 version을 유지할 수 있게
         if (prev)
           deps.dispatch({
