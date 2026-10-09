@@ -1,16 +1,31 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import { join } from 'node:path';
 import nav from '@/assets/village-world/v1/nav.json';
 import {
+  NavJson,
   loadNav,
   navPath,
+  navPathDetailed,
   resolveTarget,
   stepDurationMs,
   tilePath,
   tapToWorld,
   MS_PER_UNIT,
 } from './nav-path';
-import { cellCenterToWorld, imageToWorld, worldToCell, worldToImage } from './worldCoords';
+import {
+  CellIndex,
+  WorldPoint,
+  cellCenterToWorld,
+  imageToWorld,
+  worldToCell,
+  worldToImage,
+} from './worldCoords';
 
 const real = loadNav(nav as any);
+// 계약 §1 간선 비용(오라클용으로 구현과 따로 적는다): ceil(step × cost / 10), step 직교 10⁶ · 대각 1,414,214.
+const edgeCost = (dx: number, dy: number, cost: number) =>
+  Math.ceil(((dx && dy ? 1_414_214 : 1_000_000) * cost) / 10);
 const synth = (rows: string[], costs?: number[]) => {
   const w = rows[0].length;
   const walkable = rows.join('');
@@ -144,19 +159,19 @@ describe('stepDurationMs', () => {
 });
 
 describe('휴리스틱 허용성', () => {
-  it('합성 격자에서 A* 경로 비용이 다익스트라 참값과 같다', () => {
+  it('합성 격자에서 A* 경로 비용이 다익스트라 참값과 같다(같은 정수 간선 비용)', () => {
     const rows = ['1111111', '1000001', '1011101', '1010101', '1010001', '1111111'];
     const costs = [...rows.join('')].map((_, i) => (i % 3 === 0 ? 27 : 8));
     const g = synth(rows, costs);
     const from = center(0, 0),
       to = center(6, 4);
     const pathCost = (pts: { x: number; y: number }[]) => {
-      let prev = from,
+      let prev = worldToCell(from),
         total = 0;
       for (const p of pts) {
         const c = worldToCell(p);
-        total += Math.hypot(p.x - prev.x, p.y - prev.y) * (g.cost[c.cy * g.cols + c.cx] / 10);
-        prev = p;
+        total += edgeCost(c.cx - prev.cx, c.cy - prev.cy, g.cost[c.cy * g.cols + c.cx]);
+        prev = c;
       }
       return total;
     };
@@ -182,10 +197,11 @@ describe('휴리스틱 허용성', () => {
           if (!g.walkable[q]) continue;
           if (dx && dy && (!g.walkable[y * 7 + (u % 7)] || !g.walkable[Math.floor(u / 7) * 7 + x]))
             continue;
-          d[q] = Math.min(d[q], d[u] + Math.hypot(dx, dy) * (g.cost[q] / 10));
+          d[q] = Math.min(d[q], d[u] + edgeCost(dx, dy, g.cost[q]));
         }
     }
-    expect(pathCost(navPath(g, from, to))).toBeCloseTo(d[e], 9);
+    expect(pathCost(navPath(g, from, to))).toBe(d[e]);
+    expect(navPathDetailed(g, from, to)?.cost).toBe(d[e]);
   });
 });
 
@@ -226,6 +242,71 @@ describe('모서리 관통 금지(규칙 ⑤) — 합성 3×3', () => {
   it('둘 다 열리면 대각 허용', () => expect(diag(['111', '111', '111'])).toBe(true));
 });
 
+// 서버 PathfinderTest 가 같은 파일을 읽어 같은 단언을 한다(티켓 2245 완료 조건 2). 파일 생성은 nav-path.fixture.test.ts.
+describe('공통 A* fixture(docs/prd/fishcat/island-movement/fixtures/paths.json)', () => {
+  type Case = {
+    name: string;
+    from: WorldPoint;
+    to: WorldPoint;
+    inlineNav?: NavJson;
+    unreachable?: boolean;
+    start?: CellIndex;
+    goal?: CellIndex;
+    cost?: number;
+    path: number[][];
+  };
+  const fixture: { navSha256: string; cases: Case[] } = JSON.parse(
+    fs.readFileSync(
+      join(__dirname, '../../../../docs/prd/fishcat/island-movement/fixtures/paths.json'),
+      'utf8',
+    ),
+  );
+
+  it('navSha256 은 앱 nav.json 의 sha256 이고 케이스는 20건 이상', () => {
+    const bytes = fs.readFileSync(join(__dirname, '../assets/village-world/v1/nav.json'));
+    expect(crypto.createHash('sha256').update(bytes).digest('hex')).toBe(fixture.navSha256);
+    expect(fixture.cases.length).toBeGreaterThanOrEqual(20);
+  });
+
+  for (const c of fixture.cases)
+    it(c.name, () => {
+      const src = c.inlineNav ?? (nav as NavJson);
+      const g = loadNav(src);
+      const r = navPathDetailed(g, c.from, c.to);
+      if (c.unreachable) {
+        expect(r).toBeNull();
+        expect(c.path).toEqual([]);
+        return;
+      }
+      const cell = (i: number) => ({ cx: i % g.cols, cy: Math.floor(i / g.cols) });
+      expect({
+        start: cell(r!.start),
+        goal: cell(r!.goal),
+        cost: r!.cost,
+        path: r!.cells.map((i) => [i % g.cols, Math.floor(i / g.cols)]),
+      }).toEqual({ start: c.start, goal: c.goal, cost: c.cost, path: c.path });
+      // fixture 자체의 정합: 한 칸씩 · 통행 셀 · 모서리 관통 0 · 막힌 간선 0 · 간선 합 = cost · 끝 = goal.
+      const open = (cx: number, cy: number) => src.walkable[cy * src.columns + cx] === '1';
+      const blocked = new Set((src.blockedEdges ?? []).map(([a, b]) => `${a},${b}`));
+      let prev = c.start!,
+        total = 0;
+      for (const [cx, cy] of c.path) {
+        const dx = cx - prev.cx,
+          dy = cy - prev.cy;
+        const a = prev.cy * src.columns + prev.cx,
+          b = cy * src.columns + cx;
+        expect(Math.max(Math.abs(dx), Math.abs(dy))).toBe(1);
+        expect(open(cx, cy)).toBe(true);
+        if (dx && dy) expect(open(prev.cx, cy) && open(cx, prev.cy)).toBe(true);
+        else expect(blocked.has(`${Math.min(a, b)},${Math.max(a, b)}`)).toBe(false);
+        total += edgeCost(dx, dy, src.traversalCost[b]);
+        prev = { cx, cy };
+      }
+      expect(total).toBe(c.cost);
+      expect(prev).toEqual(c.goal);
+    });
+});
+
 describe('loadNav 입력 검증', () => {
   it('walkable 길이가 columns*rows 와 다르면 throw', () => {
     expect(() =>
@@ -236,5 +317,66 @@ describe('loadNav 입력 검증', () => {
     expect(() => loadNav({ columns: 2, rows: 1, walkable: '11', traversalCost: [10, 0] })).toThrow(
       /traversalCost\[1\]/,
     );
+  });
+  it('traversalCost 가 256 이상이면 throw(Uint8Array 에서 조용히 0 이 되는 값)', () => {
+    expect(() =>
+      loadNav({ columns: 2, rows: 1, walkable: '11', traversalCost: [10, 256] }),
+    ).toThrow(/traversalCost\[1\]/);
+  });
+  it('traversalCost 가 정수가 아니면 throw(Uint8Array 에서 조용히 잘리는 값)', () => {
+    expect(() =>
+      loadNav({ columns: 2, rows: 1, walkable: '11', traversalCost: [10, 8.5] }),
+    ).toThrow(/traversalCost\[1\]/);
+  });
+  it('entrances/spawns 좌표가 격자 밖이거나 blockedEdges 가 범위·순서(a<b)를 어기면 throw', () => {
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 2,
+        walkable: '1111',
+        traversalCost: [10, 10, 10, 10],
+        entrances: { hall: { cx: 2, cy: 0 } },
+      }),
+    ).toThrow(/entrances/);
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 2,
+        walkable: '1111',
+        traversalCost: [10, 10, 10, 10],
+        spawns: { character: { cx: 0, cy: 2 } },
+      }),
+    ).toThrow(/spawns/);
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 1,
+        walkable: '11',
+        traversalCost: [10, 10],
+        blockedEdges: [[1, 0]],
+      }),
+    ).toThrow(/blockedEdges/);
+  });
+  it('스폰 셀이 비통행이면 throw(입구는 목적지 보정이 있어 허용, 스폰은 허용하지 않는다)', () => {
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 1,
+        walkable: '10',
+        traversalCost: [10, 10],
+        spawns: { character: { cx: 1, cy: 0 } },
+      }),
+    ).toThrow(/spawns/);
+  });
+  it('buildingCells 의 index 가 격자 밖이면 throw', () => {
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 1,
+        walkable: '11',
+        traversalCost: [10, 10],
+        buildingCells: { hall: [2] },
+      }),
+    ).toThrow(/buildingCells/);
   });
 });

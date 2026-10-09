@@ -29,6 +29,10 @@ on:
       - '.github/actions/gar-login/**'
       - '.github/scripts/ci-jar.py'
       - 'server/scripts/docker-compose.realtime.yml'
+      # 이동 A* 가 앱과 공유하는 두 파일 — 앱 nav.json 만 바뀐 PR 에서도 NavJsonParityTest(sha256)·
+      # PathfinderTest(fixture) 가 돌아야 「다르면 CI 가 실패한다」가 성립한다 (GROMO-2245)
+      - 'app/app-dev/src/assets/village-world/v1/nav.json'
+      - 'docs/prd/fishcat/island-movement/fixtures/paths.json'
   push:
     branches: [main]
     paths:
@@ -49,6 +53,9 @@ on:
       - '.github/actions/gar-login/**'
       - '.github/scripts/ci-jar.py'
       - 'server/scripts/docker-compose.realtime.yml'
+      # 이동 A* 가 앱과 공유하는 두 파일 (GROMO-2245) — pull_request 와 같은 이유
+      - 'app/app-dev/src/assets/village-world/v1/nav.json'
+      - 'docs/prd/fishcat/island-movement/fixtures/paths.json'
 
 # 통합 브랜치 푸시가 «겹치지» 않게 한다. 겹치면 늦게 끝난 «옛» 빌드가 :latest 를 되가리켜,
 # compose 의 기본 배포가 이전 코드로 되돌아간다. 그룹 이름은 data-api-ci 의 것과 달라야 한다
