@@ -369,8 +369,11 @@ public final class RoomRuntime {
             return;
         }
         List<MovementEvent.Point> waypoints = toWaypoints(found.get());
-        MovementEvent.Point start = new MovementEvent.Point(actor.x, actor.y);
+        // start 는 밖으로 나가는 좌표라 emitted() 로 계약 정밀도(0.01)에 맞춘다(codex P2, 2246 보완9) — actor.x/y
+        // 자체는 원시 double 그대로 둔다.
+        MovementEvent.Point start = emitted(actor.x, actor.y);
         // goal 은 탭 좌표가 아니라 서버가 확정한 도착점(보정된 마지막 waypoint, 같은 셀이면 현재 위치) — HLD 「확정 도착」.
+        // start·waypoints 가 이미 emitted() 를 거쳤으니 goal 도 자동으로 같은 정밀도다.
         MovementEvent.Point goal = waypoints.isEmpty() ? start : waypoints.get(waypoints.size() - 1);
         actor.lastCommandSeq = intent.commandSeq();
         actor.pathId++;
@@ -408,7 +411,9 @@ public final class RoomRuntime {
     }
 
     private void reject(Actor actor, String sessionKey, long commandSeq, RejectReason reason) {
-        MovementEvent.Point position = new MovementEvent.Point(actor.x, actor.y);
+        // 거절 응답도 밖으로 나가는 좌표라 emitted() 를 거친다(codex P2, 2246 보완9) — 같은 틱의 Snapshot·
+        // FullState 와 정밀도가 어긋나면 안 된다.
+        MovementEvent.Point position = emitted(actor.x, actor.y);
         MovementEvent.MoveRejected event = new MovementEvent.MoveRejected(actor.userId, commandSeq, reason,
                 rules.navRevision(), position);
         emit(event, Target.only(sessionKey));
@@ -426,7 +431,8 @@ public final class RoomRuntime {
             movingNow = true;
             if (step(actor, rules.stepPerTick())) {
                 actor.state = MotionState.IDLE;
-                MovementEvent.Point position = new MovementEvent.Point(actor.x, actor.y);
+                // Arrived.position 도 밖으로 나가는 좌표라 emitted() 를 거친다(codex P2, 2246 보완9).
+                MovementEvent.Point position = emitted(actor.x, actor.y);
                 MovementEvent.Arrived arrived =
                         new MovementEvent.Arrived(actor.userId, actor.pathId, serverTick, position);
                 emit(arrived, Target.ALL);
@@ -462,7 +468,9 @@ public final class RoomRuntime {
         List<MovementEvent.Point> points = new ArrayList<>(result.cells().length);
         for (int cellIndex : result.cells()) {
             WorldPoint center = WorldCoords.cellCenter(nav.cellOf(cellIndex));
-            points.add(new MovementEvent.Point(center.x(), center.y()));
+            // 셀 중심은 이미 0.5 단위라 emitted() 반올림은 무해하다 — 그래도 같은 헬퍼를 거쳐야 PathAccepted·
+            // FullState 로 나가는 waypoints 가 정밀도 규칙의 예외가 되지 않는다(codex P2, 2246 보완9).
+            points.add(emitted(center.x(), center.y()));
         }
         return points;
     }
@@ -501,12 +509,16 @@ public final class RoomRuntime {
 
     // ── 스냅샷 ────────────────────────────────────────────────────────────
 
-    /** 패키지 전용 — 테스트·Ticker 용. */
+    /**
+     * 패키지 전용 — 테스트·Ticker 용. 좌표는 Snapshot 과 같은 정밀도(0.01)로 반올림한다(codex P2, 2246 보완9) —
+     * 전엔 actor.x/y 원시값을 그대로 내보내 재동기화(requestFullState) 직후 같은 흐름의 Snapshot 좌표와 어긋나
+     * 위치가 튀었다(policy.md §3 좌표 정밀도).
+     */
     MovementEvent.FullState fullStateOf() {
         List<MovementEvent.ActorState> states = new ArrayList<>(actors.size());
         for (Actor actor : actors.values()) {
-            states.add(new MovementEvent.ActorState(actor.userId, actor.x, actor.y, actor.state, actor.pathId,
-                    actor.lastCommandSeq, remainingWaypoints(actor)));
+            states.add(new MovementEvent.ActorState(actor.userId, round2(actor.x), round2(actor.y), actor.state,
+                    actor.pathId, actor.lastCommandSeq, remainingWaypoints(actor)));
         }
         return new MovementEvent.FullState(rules.navRevision(), serverTick, rules.tickMs(), rules.speed(), states);
     }
@@ -536,6 +548,17 @@ public final class RoomRuntime {
 
     private static double round2(double v) {
         return Math.round(v * 100) / 100.0;
+    }
+
+    /**
+     * actor 의 raw 좌표를 송신 경계에서 계약 정밀도(0.01 world unit, policy.md §3)로 반올림해 {@link
+     * MovementEvent.Point} 로 감싼다(codex P2, 2246 보완9) — FullState·PathAccepted.start·Arrived.position·
+     * MoveRejected.position·waypoints 가 이 메서드 하나를 거쳐야 같은 흐름의 서로 다른 메시지 좌표가 어긋나지
+     * 않는다. {@code actor.x/y} 자체와 waypoint 전진 수학({@link #step})은 원시 double 그대로 둔다 — 반올림은
+     * 여기, 내보내는 자리에서만 한다.
+     */
+    private static MovementEvent.Point emitted(double x, double y) {
+        return new MovementEvent.Point(round2(x), round2(y));
     }
 
     // ── 수신 대상 콜백 ──────────────────────────────────────────────────

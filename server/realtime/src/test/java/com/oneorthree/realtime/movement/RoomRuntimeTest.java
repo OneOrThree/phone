@@ -32,6 +32,13 @@ class RoomRuntimeTest {
     private static final UUID ISLAND = UUID.randomUUID();
     private static final Offset<Double> EPS = Offset.offset(1e-9);
 
+    /**
+     * FullState 가 계약 정밀도(0.01 world unit)로 반올림해 나가면서(codex P2, 2246 보완9) 생기는 최대 오차 —
+     * 아직 도착 전(격자에 안 걸리는) 중간 위치를 수식으로 유도한 값과 비교하는 테스트는 EPS 대신 이 여유를
+     * 써야 한다. 도착 위치는 항상 goal 에 정확히 스냅되므로 이 반올림의 영향을 받지 않는다.
+     */
+    private static final Offset<Double> ROUNDING_EPS = Offset.offset(0.0051);
+
     // ── 테스트 보조 ──────────────────────────────────────────────────────
 
     /** onEvent/onSnapshot 을 그냥 쌓아 두는 Listener — 단언은 테스트가 직접 한다. */
@@ -334,7 +341,8 @@ class RoomRuntimeTest {
             room.tick(++tick);
             MovementEvent.ActorState state = actorIn(room.fullStateOf(), userId);
             double traveled = Math.hypot(state.x() - 0.5, state.y() - 0.5);
-            assertThat(traveled).as("틱 %d 뒤 누적 이동 거리", n).isCloseTo(stepPerTick * n, EPS);
+            // FullState 가 0.01 로 반올림해 나가므로(codex P2, 2246 보완9) 그 오차까지 허용한다.
+            assertThat(traveled).as("틱 %d 뒤 누적 이동 거리", n).isCloseTo(stepPerTick * n, ROUNDING_EPS);
             assertThat(state.state()).isEqualTo(MotionState.MOVING);
         }
         assertThat(listener.of(MovementEvent.Arrived.class)).isEmpty();
@@ -1116,5 +1124,48 @@ class RoomRuntimeTest {
         room.accept(userId, "s2", new MoveIntent(21, 1, 5.5, 5.5)); // 소진된 버킷 그대로 — 거절돼야 한다.
         assertThat(room.rateLimitedDropCount())
                 .as("교체가 버킷을 리셋했다면 이 호출은 통과했을 것이다").isEqualTo(1L);
+    }
+
+    // ── codex P2: 2246 보완9 — 밖으로 나가는 좌표는 전부 계약 정밀도(0.01) ────────
+
+    @Test
+    @DisplayName("한 틱 전진해 0.01 격자에 맞지 않는 위치가 된 actor 에 대해, 그 틱의 Snapshot 좌표와"
+            + " 재동기화(새 세션 requestFullState)의 FullState 좌표가 서로 같고 둘 다 계약 정밀도(0.01,"
+            + " ×100 이 정수)다(codex P2, 2246 보완9)")
+    void snapshotAndResyncedFullStateReportSameRoundedCoordinateAfterOneTickOfMovement() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 0.5)); // 먼 목적지 — stepPerTick(~0.549)만 전진.
+        room.tick(++tick); // PathAccepted + 한 틱 전진(도착 전) — 0.01 격자에 안 걸려 반올림 차이가 드러난다.
+
+        MovementEvent.Snapshot snapshot = listener.snapshots.get(listener.snapshots.size() - 1);
+        MovementEvent.Entity moving = entityIn(snapshot, userId);
+        assertThat(moving.state()).as("아직 도착 전이어야 분수 좌표로 반올림 차이를 검증할 수 있다")
+                .isEqualTo(MotionState.MOVING);
+
+        room.join(userId, "s2"); // 재접속(세션 교체) — 위치는 유지된다(N6/N20).
+        room.requestFullState("s2"); // 재동기화 요청 — 같은 배치(FIFO)로 join 뒤, 이번 틱 전진보다 먼저 처리된다.
+        room.tick(++tick);
+
+        List<MovementEvent.FullState> fullStates = listener.of(MovementEvent.FullState.class);
+        MovementEvent.FullState resynced = fullStates.stream()
+                .filter(fs -> Target.only("s2").equals(listener.targetOf(fs)))
+                .reduce((first, last) -> last)
+                .orElseThrow();
+        MovementEvent.ActorState resyncedActor = actorIn(resynced, userId);
+
+        assertThat(resyncedActor.x()).as("재동기화 FullState 와 바로 앞 Snapshot 의 x 가 같아야 한다")
+                .isEqualTo(moving.x());
+        assertThat(resyncedActor.y()).as("재동기화 FullState 와 바로 앞 Snapshot 의 y 가 같아야 한다")
+                .isEqualTo(moving.y());
+        assertThat(Math.round(moving.x() * 100) / 100.0).as("Snapshot x 가 이미 계약 정밀도(0.01)다")
+                .isEqualTo(moving.x());
+        assertThat(Math.round(moving.y() * 100) / 100.0).as("Snapshot y 가 이미 계약 정밀도(0.01)다")
+                .isEqualTo(moving.y());
     }
 }
