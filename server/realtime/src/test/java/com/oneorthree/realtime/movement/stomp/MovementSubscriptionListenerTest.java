@@ -500,6 +500,30 @@ class MovementSubscriptionListenerTest {
     }
 
     @Test
+    @DisplayName("이동 구독 id 를 해지 없이 비이동 토픽(/user/queue/errors)에 다시 쓰면 옛 이동 구독부터 푼다 — outbox·actor 가 남지 않고 이동 프레임이 그 id 로 나가지 않는다")
+    void reusedSubscriptionIdForANonMovementTopicDetachesTheMovementFirst() {
+        StompAuthChannelInterceptor gate = gate();
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal mover = connect("b");
+        join("a", stays);
+        inbound(gate, raw("b", "x", StompTopics.movementTopic(island), mover));
+        tick();
+        sent.clear();
+
+        inbound(gate, raw("b", "x", "/user/queue/errors", mover)); // 같은 id x 로 비이동 토픽
+        rooms.accept(island, stays.userId(), "a", new MoveIntent(1, 1, 39.5, 45.5)); // 그 섬에서 사건이 난다
+        tick();
+        tick();
+
+        assertThat(publisher.outboxes(island)).extracting(MovementOutbox::sessionId).as("이동 outbox 는 없다")
+                .containsExactly("a");
+        assertThat(actorIds(bodiesFor("a").get(0))).as("퇴장했다 — 유령 actor 없음")
+                .containsExactly(stays.userId().toString());
+        assertThat(framesFor("b")).as("이동 프레임이 그 id 로 나가지 않는다").isEmpty();
+        assertThat(sessions.subscriptionIdOf("b", "/user/queue/errors")).as("비이동 구독은 그대로 선다").isEqualTo("x");
+    }
+
+    @Test
     @DisplayName("③ 교체됐던 기기가 같은 구독 id 로 돌아오면 첫 reliable 은 자기 FullState 다 — 그 사이 나간 다른 사건은 버린다")
     void supersededDeviceReturningWithTheSameIdStartsFromItsOwnFullState() {
         ChatPrincipal phone = connect("phone");

@@ -186,14 +186,17 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     }
 
     private void subscribed(StompHeaderAccessor accessor) {
-        String destination = accessor.getDestination();
-        Matcher topic = destination == null ? null : StompTopics.MOVEMENT_TOPIC.matcher(destination);
-        if (topic == null || !topic.matches() || !(accessor.getUser() instanceof ChatPrincipal principal)) {
-            return;
-        }
         String subscriptionId = accessor.getSubscriptionId();
         if (subscriptionId == null) {
             return; // id 없는 구독은 UNSUBSCRIBE·종료 정리로 찾을 수 없다 — 들이면 내보낼 길이 없다.
+        }
+        String destination = accessor.getDestination();
+        Matcher topic = destination == null ? null : StompTopics.MOVEMENT_TOPIC.matcher(destination);
+        if (topic == null || !topic.matches() || !(accessor.getUser() instanceof ChatPrincipal principal)) {
+            // 이동 토픽이 아니어도 이 id 가 이동 구독에 묶여 있었으면(해지 없이 id 를 재사용 — 레지스트리는 id 의
+            // 목적지를 바꿔 끼운다) 그 묶음부터 해지 경로로 푼다. 묶인 곳이 없으면 아무 일도 없다.
+            unsubscribed(accessor.getSessionId(), subscriptionId);
+            return;
         }
         UUID islandId = UUID.fromString(topic.group(1));
         boolean snapshot = topic.group(2) != null;
