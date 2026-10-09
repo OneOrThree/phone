@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -110,6 +111,12 @@ class RoomRuntimeTest {
         return new RoomRuntime(ISLAND, grid, new Pathfinder(), rules, listener);
     }
 
+    /** 토큰 버킷 리필 시계를 주입하려고 쓴다(codex P2) — accept() 가 호출 스레드에서 바로 이 시계를 본다. */
+    private static RoomRuntime newRoom(NavGrid grid, MovementRules rules, RoomRuntime.Listener listener,
+            LongSupplier nowNanos) {
+        return new RoomRuntime(ISLAND, grid, new Pathfinder(), rules, listener, nowNanos);
+    }
+
     private static MovementEvent.ActorState actorIn(MovementEvent.FullState state, UUID userId) {
         for (MovementEvent.ActorState a : state.actors()) {
             if (a.userId().equals(userId)) {
@@ -135,7 +142,8 @@ class RoomRuntimeTest {
     // ── 티켓 2: commandSeq 최신만 채택 · 범위 밖/NaN 거절 ────────────────
 
     @Test
-    @DisplayName("같은 틱에 commandSeq 를 역순으로 넣어도 가장 큰 값만 PathAccepted 되고 나머지는 STALE_COMMAND 거절된다")
+    @DisplayName("같은 세션에 commandSeq 를 역순으로 보내도 대기 슬롯엔 가장 큰 값만 남아 PathAccepted 되고,"
+            + " 덮어써진 나머지는 응답 없이 superseded 로 끝난다(codex P2, protocol §5)")
     void acceptsOnlyLatestCommandSeqWithinSameTick() {
         NavGrid grid = openGrid(10, 10);
         RecordingListener listener = new RecordingListener();
@@ -154,14 +162,9 @@ class RoomRuntimeTest {
         assertThat(accepted.get(0).commandSeq()).isEqualTo(9L);
         assertThat(listener.targetOf(accepted.get(0))).isEqualTo(Target.ALL);
 
-        List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
-        assertThat(rejected).hasSize(2);
-        assertThat(rejected.stream().map(MovementEvent.MoveRejected::commandSeq).toList())
-                .containsExactlyInAnyOrder(8L, 7L);
-        for (MovementEvent.MoveRejected r : rejected) {
-            assertThat(r.reason()).isEqualTo(RejectReason.STALE_COMMAND.name());
-            assertThat(listener.targetOf(r)).isInstanceOf(Target.Only.class);
-        }
+        // 대기 슬롯이 세션당 1개라 8·7 은 9 에 merge 로 덮어써진 순간 이미 사라진다 — STALE_COMMAND 거절
+        // 응답이 나가던 예전과 달리, processAccept 까지 가지도 못하니 응답 자체가 없다.
+        assertThat(listener.of(MovementEvent.MoveRejected.class)).isEmpty();
     }
 
     @Test
@@ -238,8 +241,9 @@ class RoomRuntimeTest {
     }
 
     @Test
-    @DisplayName("토큰 버킷: 한 틱에 intent 21건을 넣으면 가장 작은 commandSeq 1건은 조용히 버려진다(N8)")
-    void tokenBucketDropsOneOfTwentyOneIntentsInOneTick() {
+    @DisplayName("토큰 버킷: accept 호출 시점에 21건을 연달아 보내면 burst(20) 를 넘긴 1건만 조용히 버려지고"
+            + "(카운터), 대기 슬롯엔 버킷을 통과한 마지막 commandSeq 만 남아 PathAccepted 가 1회 난다(codex P2)")
+    void tokenBucketDropsOneOfTwentyOneAcceptCallsAndKeepsOnlyLatestPending() {
         NavGrid grid = openGrid(10, 10);
         RecordingListener listener = new RecordingListener();
         RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
@@ -250,20 +254,45 @@ class RoomRuntimeTest {
         for (long seq = 1; seq <= 21; seq++) {
             room.accept("s1", new MoveIntent(seq, 1, 5.5, 5.5));
         }
+        assertThat(room.rateLimitedDropCount()).as("burst(20) 를 넘긴 1건만 버려야 한다").isEqualTo(1L);
+
         room.tick(2);
 
         List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
-        List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
         assertThat(accepted).hasSize(1);
-        assertThat(accepted.get(0).commandSeq()).isEqualTo(21L);
-        assertThat(rejected).hasSize(19);
-        List<Long> expectedStale = new ArrayList<>();
-        for (long seq = 2; seq <= 20; seq++) {
-            expectedStale.add(seq);
+        assertThat(accepted.get(0).commandSeq())
+                .as("버킷을 통과한 마지막 commandSeq(20) 만 대기 슬롯에 남는다 — 21은 버킷에서 이미 버려졌다")
+                .isEqualTo(20L);
+        assertThat(listener.of(MovementEvent.MoveRejected.class))
+                .as("merge 로 덮어써진 1~19 는 응답 없이 superseded 로 끝난다(protocol §5)")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("토큰 버킷은 시간이 지나면 다시 채워진다 — 주입한 나노초 시계로 1초 뒤 burst 가 다시 채워진다(codex P2)")
+    void tokenBucketRefillsOverInjectedClockTime() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener, () -> nowNanos[0]);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.tick(1);
+
+        for (long seq = 1; seq <= 20; seq++) {
+            room.accept("s1", new MoveIntent(seq, 1, 5.5, 5.5)); // burst(20) 전부 소모.
         }
-        assertThat(rejected.stream().map(MovementEvent.MoveRejected::commandSeq).toList())
-                .as("commandSeq=1(가장 작은 값)은 토큰 소진으로 버려져 이 목록에 없어야 한다")
-                .containsExactlyInAnyOrderElementsOf(expectedStale);
+        room.accept("s1", new MoveIntent(21, 1, 5.5, 5.5)); // 리필 전 — 버려진다.
+        assertThat(room.rateLimitedDropCount()).isEqualTo(1L);
+
+        nowNanos[0] += 1_000_000_000L; // 1초 경과 — maxIntentsPerSec(10) 만큼 다시 채워진다.
+        room.accept("s1", new MoveIntent(22, 1, 5.5, 5.5)); // 리필된 토큰으로 통과해야 한다.
+        assertThat(room.rateLimitedDropCount()).as("리필 뒤 호출은 더 버려지지 않는다").isEqualTo(1L);
+
+        room.tick(2);
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        assertThat(accepted).hasSize(1);
+        assertThat(accepted.get(0).commandSeq()).isEqualTo(22L);
     }
 
     // ── 티켓 3: 틱당 전진 거리 · 도착 1회 ────────────────────────────────

@@ -4,6 +4,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -73,25 +75,67 @@ class MovementTickerTest {
     // 필요해 실제 대기로는 비현실적이다. tickAllRooms() 를 직접 빠르게 반복 호출한다(패키지 전용 시임).
 
     @Test
-    @DisplayName("MovementRooms.remove 는 제거 순간 isRemovable() 을 다시 확인해, 그 사이 들어온 join 을"
-            + " 지키고 유실하지 않는다(codex P1)")
-    void removeRechecksIsRemovableAtDeletionTimeAndKeepsRacingJoin() {
+    @DisplayName("MovementRooms.join 은 remove 와 같은 섬 키의 compute 안에서 돌아, 그 사이에 걸려도 join 을"
+            + " 유실하지 않는다(codex P1, 2246 보완2 — roomFor 를 거치지 않는 공개 API 로 교체)")
+    void joinAndRemoveOnSameIslandNeverLoseTheJoin() {
         MovementRooms rooms = new MovementRooms(new NoopListener());
         UUID islandId = UUID.randomUUID();
-        RoomRuntime room = rooms.roomFor(islandId); // 아무도 없다 — 지금은 isRemovable() true.
+        RoomRuntime room = rooms.roomFor(islandId); // 들여다보기 전용 — 아무도 없다, 지금은 isRemovable() true.
         assertThat(room.isRemovable()).isTrue();
 
-        // "그 사이" 다른 스레드의 roomFor(islandId).join(...) 흉내 — remove() 가 불리기 전에 큐로 들어간다.
         UUID userId = UUID.randomUUID();
-        room.join(userId, "s1");
+        rooms.join(islandId, userId, "s1"); // 공개 API — compute 안에서 방 확보 + 큐 등록이 한 번에 돈다.
 
-        rooms.remove(islandId); // CAS 재확인: 이 순간엔 이미 큐가 비어 있지 않다 — 지우면 안 된다.
+        rooms.remove(islandId); // 같은 키라 위 join 의 compute 뒤에만 실행될 수 있다 — 재확인은 false.
 
-        assertThat(rooms.rooms()).as("큐에 든 join 을 두고 방을 지우면 안 된다").containsKey(islandId);
+        assertThat(rooms.rooms()).as("join 이 이미 큐에 들어간 뒤라 지우면 안 된다").containsKey(islandId);
 
         MovementTicker ticker = new MovementTicker(rooms, new SimpleMeterRegistry());
         ticker.tickAllRooms(); // 다음 틱에 큐가 드레인돼 join 이 실제로 반영돼야 한다(유실 없음).
         assertThat(actorIn(room.fullStateOf(), userId)).as("큐에 있던 join 이 유실 없이 처리돼야 한다").isNotNull();
+    }
+
+    @Test
+    @DisplayName("MovementRooms.join 과 remove 를 다른 스레드에서 수천 번 동시에 돌려도 join 이 유실되지"
+            + " 않는다(codex P1 compute 경합 스트레스, 2246 보완2)")
+    void concurrentJoinAndRemoveNeverLoseAnActor() throws InterruptedException {
+        MovementRooms rooms = new MovementRooms(new NoopListener());
+        UUID islandId = UUID.randomUUID();
+        int joinCount = 5000;
+        List<UUID> userIds = new ArrayList<>(joinCount);
+        for (int i = 0; i < joinCount; i++) {
+            userIds.add(UUID.randomUUID());
+        }
+
+        Thread joiner = new Thread(() -> {
+            for (int i = 0; i < joinCount; i++) {
+                rooms.join(islandId, userIds.get(i), "session-" + i);
+            }
+        }, "joiner");
+        Thread remover = new Thread(() -> {
+            for (int i = 0; i < joinCount; i++) {
+                rooms.remove(islandId);
+            }
+        }, "remover");
+
+        joiner.start();
+        remover.start();
+        joiner.join(1000);
+        remover.join(1000);
+
+        // 두 스레드가 끝난 뒤 드레인한다 — remove 가 중간에 성공해 방이 갈렸어도 각 방은 자기 큐만큼은
+        // 전부 턴다(여러 번 돌려 안전하게 비운다).
+        MovementTicker ticker = new MovementTicker(rooms, new SimpleMeterRegistry());
+        for (int i = 0; i < 5; i++) {
+            ticker.tickAllRooms();
+        }
+
+        int totalActors = 0;
+        for (RoomRuntime room : rooms.rooms().values()) {
+            totalActors += room.fullStateOf().actors().size();
+        }
+        assertThat(totalActors).as("join %d 건이 어느 방으로 갈렸든 전부 살아 있어야 한다", joinCount)
+                .isEqualTo(joinCount);
     }
 
     @Test

@@ -15,15 +15,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 /**
  * 방(섬) 하나의 이동 상태 — 경로 탐색·actor 위치·틱 전진을 네트워크 없이 담당한다(계약 §4).
  *
- * <p><b>단일 작성자 = 틱 스레드.</b> {@link #join}·{@link #leave}·{@link #accept}·
- * {@link #requestFullState}·{@link #applyLayout} 은 모두 다른 스레드(STOMP 인바운드)에서 불려도
- * 안전하도록 <b>큐에 넣기만</b> 하고, 실제 처리는 {@link #tick} 이 큐를 드레인할 때 한 스레드에서만
- * 일어난다 — 그래서 {@link Actor} 와 아래 맵들에 동기화가 없다.
+ * <p><b>단일 작성자 = 틱 스레드.</b> {@link #join}·{@link #leave}·{@link #requestFullState}·
+ * {@link #applyLayout} 은 모두 다른 스레드(STOMP 인바운드)에서 불려도 안전하도록 <b>큐에 넣기만</b> 하고,
+ * 실제 처리는 {@link #tick} 이 큐를 드레인할 때 한 스레드에서만 일어난다 — 그래서 {@link Actor} 와 아래
+ * 맵들에 동기화가 없다. {@link #accept} 는 예외다 — 토큰 버킷 소모와 "세션당 최신 1개" 병합은 호출
+ * 스레드에서 바로 끝낸다(codex P2, 2246 보완2) — 그래서 그 둘이 쓰는 {@link #sessionBuckets}·
+ * {@link #pendingIntent} 는 {@link ConcurrentHashMap} 이다.
  */
 public final class RoomRuntime {
 
@@ -37,7 +42,13 @@ public final class RoomRuntime {
     private final Pathfinder pathfinder;
     private final MovementRules rules;
     private final Listener listener;
+    private final LongSupplier nowNanos;
     private final ConcurrentLinkedQueue<Command> queue = new ConcurrentLinkedQueue<>();
+
+    // accept() 호출 스레드(STOMP)가 틱 스레드와 동시에 건드린다(codex P2) — 그래서 이 둘만 ConcurrentHashMap.
+    private final ConcurrentHashMap<String, Bucket> sessionBuckets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, MoveIntent> pendingIntent = new ConcurrentHashMap<>();
+    private final AtomicLong rateLimitedDropCount = new AtomicLong();
 
     // 아래 셋은 틱 스레드만 만진다(단일 작성자) — 그래서 평범한 Map 이다.
     private final Map<UUID, Actor> actors = new LinkedHashMap<>();
@@ -49,11 +60,18 @@ public final class RoomRuntime {
     private boolean lastTickHadMoving;
 
     public RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener) {
+        this(islandId, nav, pathfinder, rules, listener, System::nanoTime);
+    }
+
+    /** 패키지 전용 — 토큰 버킷 리필 시계를 테스트가 주입하기 위함(codex P2, 틱 번호 대신 벽시계 나노초). */
+    RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener,
+            LongSupplier nowNanos) {
         this.islandId = islandId;
         this.nav = nav;
         this.pathfinder = pathfinder;
         this.rules = rules;
         this.listener = listener;
+        this.nowNanos = nowNanos;
     }
 
     public void join(UUID userId, String sessionKey) {
@@ -64,8 +82,27 @@ public final class RoomRuntime {
         queue.add(new Leave(sessionKey));
     }
 
+    /**
+     * 토큰 버킷(policy §3, N8)을 호출 스레드(STOMP)에서 바로 소모한다(codex P2) — 큐에 쌓아 틱이 전부
+     * 드레인·정렬하면 폭주하는 세션 하나가 메모리와 틱 처리 시간을 늘려 같은 Ticker 의 다른 방까지
+     * 지연시킨다. 초과하면 큐에 넣지 않고 조용히 버린다({@link #rateLimitedDropCount()}, debug 로그).
+     *
+     * <p>통과한 intent 는 세션당 대기 슬롯 하나({@link #pendingIntent})에 {@code merge} 로 덮어쓴다 —
+     * 적용 대기 명령은 actor당 최신 1개뿐이라(policy §3) 이전 pending 은 응답 없이 superseded 로 끝난다
+     * (protocol §5). 역순으로 도착해도 더 큰 commandSeq 만 남도록 비교해서 고른다 — 이미 채택된 뒤의
+     * 명령을 또 보낸 경우의 STALE_COMMAND 응답은 {@link #processAccept} 가 여전히 낸다.
+     */
     public void accept(String sessionKey, MoveIntent intent) {
-        queue.add(new Accept(sessionKey, intent));
+        Bucket bucket = sessionBuckets.computeIfAbsent(sessionKey, k -> new Bucket(rules.intentBurst(),
+                nowNanos.getAsLong()));
+        if (!bucket.tryConsume(nowNanos.getAsLong(), rules)) {
+            rateLimitedDropCount.incrementAndGet();
+            LOG.debug("세션 {} 토큰 버킷 초과 — commandSeq={} intent 를 큐에 넣지 않고 버린다(N8)", sessionKey,
+                    intent.commandSeq());
+            return;
+        }
+        pendingIntent.merge(sessionKey, intent,
+                (oldIntent, newIntent) -> newIntent.commandSeq() > oldIntent.commandSeq() ? newIntent : oldIntent);
     }
 
     /** 2247 이 구독 직후에 쓴다 — 그 세션에만 FullState(ONLY). */
@@ -95,18 +132,29 @@ public final class RoomRuntime {
     }
 
     /**
-     * Ticker 가 빈 방을 지우려고 쓴다 — actors·명령 큐·퇴장 기억(N23) 이 전부 비어야 한다(codex P1/P2).
-     * 큐까지 보는 이유: actors 만 보면 "지우기로 판단한 순간"과 "실제로 지우는 순간" 사이에 다른 스레드의
-     * {@code roomFor(...).join(...)} 이 큐에 들어와도 그대로 지워버려 입장이 유실된다. departed 까지 보는
-     * 이유: 마지막 퇴장자의 위치 기억이 방과 함께 사라지면 10분 안 재입장 복원(N23)이 깨진다.
+     * Ticker 가 빈 방을 지우려고 쓴다 — actors·명령 큐·대기 intent·퇴장 기억(N23) 이 전부 비어야 한다
+     * (codex P1/P2, 2246 보완2).
+     *
+     * <p>큐·대기 intent 까지 보는 이유: actors 만 보면 "지우기로 판단한 순간"과 "실제로 지우는 순간" 사이에
+     * 다른 스레드의 {@link MovementRooms#join}·{@link MovementRooms#accept} 호출이 들어와도 그대로
+     * 지워버려 명령이 유실된다. {@link MovementRooms#remove} 가 같은 섬 키로 {@code
+     * ConcurrentHashMap.compute} 안에서 이 메서드를 재확인하므로, 저 호출들이 그보다 먼저 끝났으면 여기서
+     * 보이고(지우지 않는다), 나중에 시작했으면 빈 맵에 새 방을 만들어 받는다 — 반쪽짜리로 끼어드는 경우가
+     * 없다. departed 까지 보는 이유: 마지막 퇴장자의 위치 기억이 방과 함께 사라지면 10분 안 재입장
+     * 복원(N23)이 깨진다.
      */
     boolean isRemovable() {
-        return actors.isEmpty() && queue.isEmpty() && departed.isEmpty();
+        return actors.isEmpty() && queue.isEmpty() && pendingIntent.isEmpty() && departed.isEmpty();
     }
 
     /** 패키지 전용 — 테스트용. 지금 기억 중인 퇴장 인원 수(N23). */
     int departedCount() {
         return departed.size();
+    }
+
+    /** 패키지 전용 — 테스트용. 토큰 버킷 초과로 조용히 버려진 intent 수(codex P2, N8). */
+    long rateLimitedDropCount() {
+        return rateLimitedDropCount.get();
     }
 
     // ── 큐 드레인 ────────────────────────────────────────────────────────
@@ -126,7 +174,7 @@ public final class RoomRuntime {
                 processLeave(l);
             }
         }
-        processAccepts(batch);
+        processPendingIntents();
         for (Command c : batch) {
             if (c instanceof ApplyLayout a) {
                 processApplyLayout(a);
@@ -143,10 +191,11 @@ public final class RoomRuntime {
         Actor actor = actors.get(cmd.userId());
         if (actor == null) {
             MovementEvent.Point spawn = spawnOrDepartedPosition(cmd.userId());
-            actor = new Actor(cmd.userId(), cmd.sessionKey(), spawn.x(), spawn.y(), serverTick, rules.intentBurst());
+            actor = new Actor(cmd.userId(), cmd.sessionKey(), spawn.x(), spawn.y());
             actors.put(cmd.userId(), actor);
         } else {
             // 두 번째 세션이 교체 — 위치·경로는 유지, 명령 번호만 새 세션 기준으로 리셋(N6, N20).
+            sessionBuckets.remove(actor.sessionKey); // 옛 세션의 토큰 버킷 정리(codex P2) — 새 세션은 다음 accept 에서 새로 받는다.
             actor.sessionKey = cmd.sessionKey();
             actor.lastCommandSeq = 0;
         }
@@ -164,40 +213,31 @@ public final class RoomRuntime {
             return; // 이미 다른 세션으로 교체된 뒤의 뒷북 — 그 세션의 actor 를 건드리지 않는다.
         }
         actors.remove(userId);
+        sessionBuckets.remove(cmd.sessionKey()); // 떠난 세션의 토큰 버킷 정리(codex P2) — 안 지우면 재입장 없는 세션 키마다 하나씩 남는다.
         departed.put(userId, new Departed(new MovementEvent.Point(actor.x, actor.y), serverTick));
         listener.onEvent(islandId, fullStateOf(), Target.ALL);
     }
 
     /**
-     * 같은 틱에 같은 세션의 intent 가 여럿이면 <b>commandSeq 내림차순</b>으로 하나씩
-     * {@link #processAccept} 에 넣는다 — 도착 순서와 무관하게 가장 큰 seq 가 먼저 lastCommandSeq 를
-     * 올려, 나머지는 기존 STALE_COMMAND 비교로 자연스럽게 걸린다(티켓2, 역순으로 넣어도 최신만 채택).
-     * 토큰 버킷은 각 시도마다(=accept 호출마다) 소모되므로 순서를 바꿔도 "21건에 1건 버림"은 그대로다(N8).
+     * 세션당 최신 1개만 남는 대기 intent({@link #pendingIntent})를 드레인한다(codex P2) — 토큰 버킷은
+     * {@link #accept} 호출 시점(STOMP 스레드)에서 이미 걸렀으므로 여기서는 더 제한하지 않는다. 세션마다
+     * 독립이라 처리 순서는 보장하지 않는다. 드레인 도중 같은 세션에 새 intent 가 {@code merge} 로
+     * 들어오면(다른 스레드) 이번 틱에 집히거나 다음 틱으로 넘어가거나 둘 다 안전하다 — {@code remove(key)}
+     * 뒤의 {@code merge} 는 그 키가 없는 것으로 보고 그대로 새로 꽂기 때문이다.
      */
-    private void processAccepts(List<Command> batch) {
-        Map<String, List<Accept>> bySession = new LinkedHashMap<>();
-        for (Command c : batch) {
-            if (c instanceof Accept accept) {
-                bySession.computeIfAbsent(accept.sessionKey(), k -> new ArrayList<>()).add(accept);
-            }
-        }
-        for (List<Accept> accepts : bySession.values()) {
-            accepts.sort((a, b) -> Long.compare(b.intent().commandSeq(), a.intent().commandSeq()));
-            for (Accept accept : accepts) {
-                processAccept(accept);
+    private void processPendingIntents() {
+        for (String sessionKey : pendingIntent.keySet()) {
+            MoveIntent intent = pendingIntent.remove(sessionKey);
+            if (intent != null) {
+                processAccept(sessionKey, intent);
             }
         }
     }
 
-    private void processAccept(Accept cmd) {
-        String sessionKey = cmd.sessionKey();
-        MoveIntent intent = cmd.intent();
+    private void processAccept(String sessionKey, MoveIntent intent) {
         Actor actor = actorFor(sessionKey);
         if (actor == null) {
             return; // 세션의 actor 없음 — 무시.
-        }
-        if (!consumeToken(actor)) {
-            return; // 토큰 버킷 초과 — 조용히 버린다(N8).
         }
         if (intent.commandSeq() <= actor.lastCommandSeq) {
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.STALE_COMMAND);
@@ -256,20 +296,6 @@ public final class RoomRuntime {
         MovementEvent.MoveRejected event = new MovementEvent.MoveRejected(actor.userId, commandSeq, reason,
                 rules.navRevision(), position);
         listener.onEvent(islandId, event, Target.only(sessionKey));
-    }
-
-    private boolean consumeToken(Actor actor) {
-        long elapsedTicks = serverTick - actor.lastRefillTick;
-        if (elapsedTicks > 0) {
-            double refill = elapsedTicks * rules.maxIntentsPerSec() * rules.tickMs() / 1000.0;
-            actor.tokens = Math.min(rules.intentBurst(), actor.tokens + refill);
-            actor.lastRefillTick = serverTick;
-        }
-        if (actor.tokens < 1.0) {
-            return false;
-        }
-        actor.tokens -= 1.0;
-        return true;
     }
 
     // ── 이동 ────────────────────────────────────────────────────────────
@@ -405,9 +431,6 @@ public final class RoomRuntime {
     private record Leave(String sessionKey) implements Command {
     }
 
-    private record Accept(String sessionKey, MoveIntent intent) implements Command {
-    }
-
     private record ApplyLayout(long layoutRevision) implements Command {
     }
 
@@ -416,5 +439,34 @@ public final class RoomRuntime {
 
     /** 퇴장 위치 기억(N23) 한 건. */
     private record Departed(MovementEvent.Point position, long tick) {
+    }
+
+    /**
+     * 세션별 토큰 버킷(policy §3, N8) — {@link #accept} 호출 스레드에서 직접 소모한다(codex P2). 리필
+     * 기준은 틱 번호가 아니라 생성 시점에 받는 나노초 시계(기본은 벽시계) — accept 는 틱 스레드 밖에서 불린다.
+     */
+    private static final class Bucket {
+
+        private double tokens;
+        private long lastRefillNanos;
+
+        Bucket(double initialTokens, long nowNanos) {
+            this.tokens = initialTokens;
+            this.lastRefillNanos = nowNanos;
+        }
+
+        synchronized boolean tryConsume(long nowNanos, MovementRules rules) {
+            long elapsedNanos = nowNanos - lastRefillNanos;
+            if (elapsedNanos > 0) {
+                double refill = elapsedNanos * rules.maxIntentsPerSec() / 1_000_000_000.0;
+                tokens = Math.min(rules.intentBurst(), tokens + refill);
+                lastRefillNanos = nowNanos;
+            }
+            if (tokens < 1.0) {
+                return false;
+            }
+            tokens -= 1.0;
+            return true;
+        }
     }
 }
