@@ -126,8 +126,6 @@ type Sample = {
   y: number;
   segmentIndex: number;
   moving: boolean;
-  /** 이 샘플을 자기 경로 폴리라인에 투영한 누적 거리 — 보간은 이 거리로 한다. */
-  along: number;
 };
 type Track = {
   samples: Sample[];
@@ -135,6 +133,8 @@ type Track = {
   latestPathId: number;
   arrivedPathId: number | null;
   fixed: WorldPoint | null;
+  /** 직전 positionAtTimed 호출의 renderTick — durationMs 를 두 샘플 간격이 아니라 이 차이로 센다(N36). */
+  prevRenderTick: number | null;
 };
 
 /**
@@ -147,7 +147,14 @@ export class SnapshotBuffer {
   private track(userId: string): Track {
     let t = this.tracks.get(userId);
     if (!t) {
-      t = { samples: [], paths: new Map(), latestPathId: 0, arrivedPathId: null, fixed: null };
+      t = {
+        samples: [],
+        paths: new Map(),
+        latestPathId: 0,
+        arrivedPathId: null,
+        fixed: null,
+        prevRenderTick: null,
+      };
       this.tracks.set(userId, t);
     }
     return t;
@@ -162,16 +169,22 @@ export class SnapshotBuffer {
     if (t.paths.size > MAX_SAMPLES) t.paths.delete(t.paths.keys().next().value as number);
   }
 
-  /** 모르는 pathId·이미 도착한 경로·latestPathId 보다 오래된 경로·지난 틱의 샘플은 버린다(false). */
-  push(userId: string, s: Omit<Sample, 'along'>): boolean {
-    const t = this.tracks.get(userId);
-    const line = t?.paths.get(s.pathId);
-    if (!t || !line || s.pathId === t.arrivedPathId || s.pathId < t.latestPathId) return false;
+  /**
+   * 이미 도착한 경로·latestPathId 보다 오래된 경로·지난 틱의 샘플은 버린다(false).
+   * pathId 의 경로를 아직 모르면(PathAccepted 를 못 받은 입장 직후·재접속·유실, N35) 그래도 받아 둔다 —
+   * positionAtTimed 가 보간 없이 그 샘플 위치 그대로 낸다. 나중에 addPath 로 경로를 알게 되면 같은 자리에서
+   * 경로 보간으로 승격한다(along 은 push 시점에 저장하지 않고 조회 때마다 다시 투영한다 — 모르던 시점의
+   * 값이 섞이지 않는다).
+   */
+  push(userId: string, s: Sample): boolean {
+    const t = this.track(userId);
+    if (s.pathId === t.arrivedPathId || s.pathId < t.latestPathId) return false;
     const last = t.samples[t.samples.length - 1];
     if (last && s.serverTick <= last.serverTick) return false;
     t.fixed = null;
-    t.samples.push({ ...s, along: project(line, s).along });
+    t.samples.push(s);
     if (t.samples.length > MAX_SAMPLES) t.samples.shift();
+    t.latestPathId = Math.max(t.latestPathId, s.pathId);
     return true;
   }
 
@@ -215,22 +228,30 @@ export class SnapshotBuffer {
     return p && { x: p.x, y: p.y, moving: p.moving };
   }
 
-  /** positionAt 과 같지만 보간에 쓴 두 샘플의 틱 간격 기반 애니메이션 길이(durationMs)도 함께 돌려준다. */
+  /** positionAt 과 같지만 이 주민을 그릴 애니메이션 길이(durationMs)도 함께 돌려준다. */
   positionAtTimed(
     userId: string,
     renderTick: number,
   ): (RemotePosition & { durationMs: number }) | null {
     const t = this.tracks.get(userId);
     if (!t) return null;
-    if (t.fixed) return { ...t.fixed, moving: false, durationMs: REMOTE_TICK_MS };
+    // durationMs 는 보간에 쓴 두 샘플의 간격이 아니라 이 주민을 마지막으로 그린 renderTick 과의 차이다(N36)
+    // — 샘플이 저주기·유실로 들쭉날쭉해도 "느려졌다 빨라지는" 모양 없이 호출 리듬대로 매끄럽다. 1틱(50ms)
+    // ~GAP_TICKS 틱(300ms) 사이로 clamp, 비교할 이전 호출이 없으면 한 틱 기본값이다.
+    const dur = () => {
+      const prev = t.prevRenderTick;
+      t.prevRenderTick = renderTick;
+      return prev === null
+        ? REMOTE_TICK_MS
+        : Math.min(
+            GAP_TICKS * REMOTE_TICK_MS,
+            Math.max(REMOTE_TICK_MS, (renderTick - prev) * REMOTE_TICK_MS),
+          );
+    };
+    if (t.fixed) return { ...t.fixed, moving: false, durationMs: dur() };
     const s = t.samples;
     if (!s.length) return null;
-    const at = (x: Sample, moving: boolean) => ({
-      x: x.x,
-      y: x.y,
-      moving,
-      durationMs: REMOTE_TICK_MS,
-    });
+    const at = (x: Sample, moving: boolean) => ({ x: x.x, y: x.y, moving, durationMs: dur() });
     const last = s[s.length - 1];
     // 데이터 끝 너머는 외삽하지 않는다. 300ms 넘게 끊기면 걷는 자세도 멈춘다.
     if (renderTick >= last.serverTick)
@@ -241,16 +262,15 @@ export class SnapshotBuffer {
       b = s[j];
     if (b.serverTick - a.serverTick >= GAP_TICKS) return at(a, false);
     const line = a.pathId === b.pathId ? t.paths.get(a.pathId) : undefined;
+    // 경로를 아직 모르면(N35) 보간하지 않고 앞 샘플 위치 그대로 낸다 — PathAccepted 로 line 이 생기면 승격된다.
     if (!line) return at(a, a.moving);
     const f = (renderTick - a.serverTick) / (b.serverTick - a.serverTick);
+    const alongA = project(line, a).along,
+      alongB = project(line, b).along;
     return {
-      ...pointAt(line, a.along + (b.along - a.along) * f),
+      ...pointAt(line, alongA + (alongB - alongA) * f),
       moving: a.moving,
-      // 저주기 스냅샷(예: 5Hz)도 다음 호출까지 매끄럽게 잇도록 — 1틱(50ms)~GAP_TICKS 틱(300ms) 사이로 clamp.
-      durationMs: Math.min(
-        GAP_TICKS * REMOTE_TICK_MS,
-        Math.max(REMOTE_TICK_MS, (b.serverTick - a.serverTick) * REMOTE_TICK_MS),
-      ),
+      durationMs: dur(),
     };
   }
 }
@@ -362,7 +382,16 @@ export function createMovementController(opts: MovementControllerOpts): Movement
 
   const fullState = (m: Record<string, unknown>) => {
     if (!Array.isArray(m.actors)) return;
-    const actors = m.actors.map(actorOf).filter((a): a is MovementActor => !!a);
+    // N34: actors[].waypoints(선택) — MOVING 이면 남은 waypoint 열, IDLE·옛 서버는 없다(아래서 등록).
+    const actors: MovementActor[] = [];
+    const waypointsOf = new Map<string, WorldPoint[]>();
+    for (const raw of m.actors) {
+      const a = actorOf(raw);
+      if (!a) continue;
+      actors.push(a);
+      const wp = points((raw as Record<string, unknown> | null)?.waypoints);
+      if (wp) waypointsOf.set(a.userId, wp);
+    }
     navRevision = num(m.navRevision) ?? navRevision;
     const serverTick = num(m.serverTick) ?? 0;
     if (serverTick < latestTick) {
@@ -376,9 +405,16 @@ export function createMovementController(opts: MovementControllerOpts): Movement
     const mine = actors.find((a) => a.userId === opts.me) ?? null;
     const others = actors.filter((a) => a !== mine);
     buffer.retain(new Set(others.map((a) => a.userId)));
-    // 서버 재시작으로 pathId 만 되돌아간 주민은(틱은 역행하지 않았을 수도 있다) 그 트랙의 판정만 푼다 —
-    // clear() 와 달리 샘플·경로는 남겨 정상 FullState 에서 걷는 주민이 끊기지 않는다.
-    for (const a of others) buffer.resetIf(a.userId, a.pathId);
+    for (const a of others) {
+      // 서버 재시작으로 pathId 만 되돌아간 주민은(틱은 역행하지 않았을 수도 있다) 그 트랙의 판정만 푼다 —
+      // clear() 와 달리 샘플·경로는 남겨 정상 FullState 에서 걷는 주민이 끊기지 않는다.
+      buffer.resetIf(a.userId, a.pathId);
+      // 입장 당시 이미 걷는 주민(N34) — 지금 위치부터 남은 경로를 등록해 이후 Snapshot 이 모르는 pathId 라는
+      // 이유로 버려지지 않게 한다. waypoints 가 없으면(옛 서버) N35 의 raw 폴백이 받는다.
+      const waypoints = waypointsOf.get(a.userId);
+      if (a.state === 'MOVING' && waypoints?.length)
+        buffer.addPath(a.userId, a.pathId, [{ x: a.x, y: a.y }, ...waypoints]);
+    }
     const wasReady = ready;
     // 내 actor 가 빠졌으면(강퇴 등) 목적지를 더 보내지 않는다 — 로컬 걷기로 폴백.
     ready = !!mine;
@@ -455,10 +491,12 @@ export function createMovementController(opts: MovementControllerOpts): Movement
         opts.onRemotePosition?.(userId, { ...at, moving: false }, REMOTE_TICK_MS);
       return;
     }
-    // 더 새 목적지를 보내 두었어도, 응답 없이 SERVER_LAG_MS 를 넘겼으면(조용히 버려진 intent) 더는 막지 않는다.
-    if (!self || pathId !== self.pathId || awaitingServer()) return;
+    if (!self || pathId !== self.pathId) return;
+    // 리뷰 4: 더 새 명령을 기다리는 중(awaitingServer)에도 self.state 는 항상 IDLE 로 갱신한다 — 안 그러면
+    // 그 명령이 거절됐을 때 restCheck 가 "MOVING" 에 영영 묶인다(움직이는 주민이 있을 때만 오는 스냅샷으로만
+    // 풀린다). 화면을 도착 위치로 바로 스냅하는 onMyArrived 만 대기 중이 아닐 때로 미룬다.
     self = { ...self, ...at, state: 'IDLE' };
-    opts.onMyArrived?.(at);
+    if (!awaitingServer()) opts.onMyArrived?.(at);
     notify();
   };
 

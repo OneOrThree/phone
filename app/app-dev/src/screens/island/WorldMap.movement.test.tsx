@@ -395,6 +395,61 @@ it('로컬 예측과 서버 경로가 멀리 떨어져 있어도 갈아탄 연�
   await screen.unmount();
 });
 
+it('연결 경로(navPath)가 비고 현재 셀이 서버 출발점과 다르면(다른 통행 영역·맵 버전) 직선으로 걷지 않고 서버 출발점으로 맞춘 뒤 서버 경로를 걷는다(리뷰 2)', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  await emit(fullState([actor(ME, SPAWN)]));
+  // 로컬 A*: 오른쪽으로 곧장(39.5..42.5, 45.5) — 아직 한 틱도 안 지났다(here == SPAWN).
+  await tapGround(screen, { x: 42.5, y: 45.5 });
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  let durations: number[] = [];
+  let toValues: WorldPoint[] = [];
+  try {
+    // 서버는 SPAWN 과 전혀 다른 영역(60.5,60.5)에서 출발하는 경로를 확정했다 — 연결(navPath)을 다른
+    // 통행 영역·맵 버전처럼 비게 만든다(mock — 실제로 다른 영역인지는 중요하지 않다).
+    const nav = jest.spyOn(navPathModule, 'navPath').mockReturnValueOnce([]);
+    try {
+      await emit(
+        pathAccepted(ME, 1, 1, { x: 60.5, y: 60.5 }, [
+          { x: 61.5, y: 60.5 },
+          { x: 62.5, y: 60.5 },
+        ]),
+      );
+    } finally {
+      nav.mockRestore();
+    }
+    // mockRestore 는 mock.calls 기록도 지운다 — 복원 전에 먼저 읽어 둔다. Animated.timing 을 흉내만 내고
+    // xy 를 실제로 바꾸지 않는 mock 이라 myCat() 최종 위치는 못 읽는다 — toValue·duration 으로 검증한다.
+    durations = timing.mock.calls.map(
+      (call) => (call[1] as Animated.TimingAnimationConfig).duration as number,
+    );
+    toValues = timing.mock.calls.map((call) =>
+      imageToWorld(
+        (call[1] as Animated.TimingAnimationConfig).toValue as unknown as WorldPoint,
+        SIZE,
+      ),
+    );
+  } finally {
+    timing.mockRestore();
+  }
+  // 직선 점프(SPAWN → 61.5,60.5, 약 27유닛 ≈ 2500ms)였다면 첫 구간이 길다. 서버 출발점으로 먼저
+  // 맞춘(place) 뒤 걸었다면 첫 구간은 1유닛(약 91ms)뿐이다.
+  expect(durations[0]).toBeLessThan(200);
+  // rest(연결 실패로 비는 구간) 가 아니라 서버가 보낸 전체 경로([start, ...waypoints])를 그대로 걷는다.
+  expect(toValues).toEqual([
+    { x: 61.5, y: 60.5 },
+    { x: 62.5, y: 60.5 },
+  ]);
+  await screen.unmount();
+});
+
 it('같은 셀을 탭해도 intent 를 보내고, 빈 경로 PathAccepted 뒤 Arrived 로 서버 위치에 정지한다', async () => {
   jest.useFakeTimers();
   const screen = await renderHome(nextIsland());
@@ -527,6 +582,27 @@ it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동�
   expect(denied.send).not.toHaveBeenCalled();
   expect(myMotion(screen)).toBe('walking');
   expect(notify).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+it('섬 전환 뒤 옛 채널의 늦은 onMovementDenied 는 새 컨트롤러를 끄지 않는다(채널 소유권, 리뷰 3)', async () => {
+  jest.useFakeTimers();
+  const islandA = nextIsland();
+  const islandB = nextIsland();
+  const screen = await renderHome(islandA);
+  await emit(fullState([actor(ME, SPAWN)]));
+  const oldChannel = channel();
+  await screen.rerender(
+    <FinalIsland state={serverState(islandB)} go={jest.fn()} build={jest.fn()} />,
+  );
+  await emit(fullState([actor(ME, SPAWN)]));
+  // 옛 채널(A)의 늦은 영구 거절 — close() 의 deactivate() 가 끝나기 전 도착한 메시지를 흉내낸다.
+  await act(async () => oldChannel.opts.onMovementDenied?.());
+  const newChannel = channel();
+  expect(newChannel.close).not.toHaveBeenCalled();
+  // 새 컨트롤러가 꺼졌다면(버그) movement.current 가 null 이 돼 탭이 로컬로만 걷고 intent 를 보내지 않는다.
+  await tapGround(screen, { x: 42.5, y: 45.5 });
+  expect(newChannel.send).toHaveBeenCalled();
   await screen.unmount();
 });
 
