@@ -34,14 +34,15 @@ import java.util.concurrent.TimeUnit;
  * (fail-closed). 멈춘 동안의 사건은 <b>쌓지 않고 버린다</b> — 재개 때 FullState 한 번으로 다시 맞추므로
  * ({@code awaitingFullState}) 밀린 사건을 한꺼번에 쏟지 않고, 큐 상한과 다툴 일도 없다. 멈추기 전에 채널에 넘긴
  * in-flight 한 건도 아웃바운드 실행기가 꺼낼 때 버린다({@link MovementOutboundInterceptor#beforeHandle}) — 그사이
- * 재개됐어도 버린다(프레임마다 만든 때의 멈춤 세대를 지닌다). 소켓 쓰기가 이미 시작된 한 건만 나간다.
+ * 재개됐어도 버린다(프레임마다 만든 때의 게이트 세대를 지닌다). 소켓 쓰기가 이미 시작된 한 건만 나간다.
  * 판정·재시도·재동기화 요청은 {@link MovementSubscriptionListener} 가 한다.
  *
  * <p><b>첫 메시지는 이 세션만 겨냥한 FullState 다</b>({@code awaitingFullState}) — 구독 직후·재개 뒤·세션 교체에서
  * 돌아온 뒤. 남의 입장·퇴장이 낸 전원 FullState 는 이 세션의 join 이 방 큐에서 처리되기 전일 수 있어(자기 actor 가
  * 없다) 게이트를 열지 않는다. 그 세션 한정 FullState({@code requestFullState})는 방 큐 FIFO 상 join 뒤에 처리된다.
  * Snapshot 도 그 뒤부터다 — 게이트가 닫힌 동안의 Snapshot 은 슬롯에도 두지 않고 버린다(다음 틱이 또 준다). snapshot
- * 만 먼저 구독했거나 movement 를 해지한 세션은 FullState 가 올 길이 없으니 받지 않는다.
+ * 만 먼저 구독했거나 movement 를 해지한 세션은 FullState 가 올 길이 없으니 받지 않는다. 게이트는 멈춤·세션 교체·
+ * movement 해지·새 구독 때 닫히고({@link #closeGate}), 닫힐 때마다 세대가 올라 이미 넘긴 프레임도 버려진다.
  *
  * <p><b>워치독</b> — 완료 통지가 끝내 오지 않는 프레임(표식 유실, 채널 구독자 0)이 있으면 그 세션 송신이 조용히
  * 굳는다. 워치독 실행기가 5초마다 {@link #sweep} 을 불러 {@link #STUCK_NANOS} 넘게 묶인 프레임을 끝난 것으로 친다
@@ -89,8 +90,11 @@ final class MovementOutbox {
     private boolean superseded;
     /** 멤버십 재판정 중(예약부터 통과 판정까지) — 받는 사건을 버린다. */
     private boolean suspended;
-    /** 멈출 때마다 1 씩 오른다 — 프레임({@link Ticket})이 만든 때의 값과 다르면 그 뒤 재개됐어도 버린다. */
-    private int suspendGeneration;
+    /**
+     * 게이트를 닫을 때마다({@link #closeGate} — 멈춤·교체·movement 해지·새 구독) 1 씩 오른다. 프레임({@link Ticket})이 만든
+     * 때의 값과 다르면 그 뒤 재개·재구독됐어도 버린다.
+     */
+    private int gateGeneration;
     /** 지금 나가 있는 프레임의 표식, 없으면 {@code null}. */
     private Ticket inFlight;
     private long inFlightSince;
@@ -199,16 +203,10 @@ final class MovementOutbox {
         release(stuck);
     }
 
-    /**
-     * 멈춘다 — 쌓인 reliable·Snapshot 을 버리고 다음 메시지는 FullState 부터 받는다(재개 때 재동기화). 채널에 이미
-     * 넘긴 in-flight 한 건은 실행기가 꺼낼 때 버려진다 — 그 전에 재개돼도 세대가 달라 버린다({@link #isWithheld}).
-     */
+    /** 멈춘다 — 게이트를 닫는다(재개 때 FullState 로 재동기화). 재개는 게이트를 열지 않는다. */
     synchronized void suspend() {
         suspended = true;
-        suspendGeneration++;
-        awaitingFullState = true;
-        reliable.clear();
-        latestSnapshot = null;
+        closeGate();
     }
 
     /** 재판정 통과 — 다시 받는다. 첫 reliable 은 호출자가 요청한 FullState 다({@code awaitingFullState}). */
@@ -224,8 +222,7 @@ final class MovementOutbox {
     synchronized void subscribeMovement(String subscriptionId) {
         if (!subscriptionId.equals(movementSubscriptionId)) {
             movementSubscriptionId = subscriptionId;
-            awaitingFullState = true;
-            latestSnapshot = null;
+            closeGate();
         }
         superseded = false;
     }
@@ -236,7 +233,7 @@ final class MovementOutbox {
 
     /**
      * movement 해지 = 퇴장. 남은 snapshot 구독도 다시 movement 를 구독해 자기 FullState 를 받을 때까지 받지 않는다 —
-     * 경로 사건(PathAccepted)이 끊긴 채 Snapshot 만 받으면 모르는 pathId 를 그린다.
+     * 경로 사건(PathAccepted)이 끊긴 채 Snapshot 만 받으면 모르는 pathId 를 그린다. 이미 넘긴 Snapshot 도 버려진다(세대).
      *
      * @return 이 id 가 movement 구독이었으면 true — 호출자가 방에서 내보낸다
      */
@@ -245,9 +242,7 @@ final class MovementOutbox {
             return false;
         }
         movementSubscriptionId = null;
-        awaitingFullState = true;
-        reliable.clear();
-        latestSnapshot = null;
+        closeGate();
         return true;
     }
 
@@ -273,24 +268,33 @@ final class MovementOutbox {
 
     /**
      * 이미 채널에 넘긴 그 프레임을 실행기가 꺼낼 때 버려야 하는가({@link MovementOutboundInterceptor#beforeHandle}) —
-     * 닫혔거나, 만든 뒤 한 번이라도 멈췄다. 멈춘 동안엔 프레임을 만들지 않으므로 세대 비교가 «지금 멈춤»까지 덮는다.
-     * 재개 뒤라도 그 전 프레임이 재동기화 FullState 보다 먼저 나가면 안 된다.
+     * 닫혔거나, 만든 뒤 게이트가 한 번이라도 닫혔다(멈춤·교체·movement 해지). 게이트가 닫힌 동안엔 프레임을 만들지 않으므로
+     * 세대 비교가 «지금 닫힘»까지 덮는다. 재개·재구독 뒤라도 그 전 프레임이 자기 FullState 보다 먼저 나가면 안 된다.
      */
     private synchronized boolean isWithheld(Ticket ticket) {
-        return closed || ticket.generation != suspendGeneration;
+        return closed || ticket.generation != gateGeneration;
+    }
+
+    /**
+     * 게이트를 닫는다 — 다음 메시지는 이 세션만 겨냥한 FullState 부터다. 쌓인 reliable·Snapshot 을 버리고 세대를 올려
+     * 이미 채널에 넘긴 프레임도 실행기가 꺼낼 때 버리게 한다. 잠금 안에서만 부른다.
+     */
+    private void closeGate() {
+        awaitingFullState = true;
+        gateGeneration++;
+        reliable.clear();
+        latestSnapshot = null;
     }
 
     /**
      * 같은 사용자의 다른 세션이 actor 를 가져갔다(N6) — 이 세션이 다시 movement 를 구독할 때까지 보내지 않는다.
      * 구독 자체(레지스트리 슬롯)는 그대로 둔다 — 그 기기가 다시 구독하면 actor 를 되찾는 자리이고, 해지나 연결
-     * 종료 때 평소처럼 돌려받는다. 게이트도 여기서 닫는다 — 같은 id 로 돌아와도 그 사이 다른 사건이 자기 FullState 보다
-     * 먼저 나가지 않게.
+     * 종료 때 평소처럼 돌려받는다. 게이트도 여기서 닫는다 — 이미 넘긴 프레임도 그 기기엔 가지 않고, 같은 id 로 돌아와도
+     * 그 사이 다른 사건이 자기 FullState 보다 먼저 나가지 않게.
      */
     synchronized void supersede() {
         superseded = true;
-        awaitingFullState = true;
-        reliable.clear();
-        latestSnapshot = null;
+        closeGate();
     }
 
     /** 더 보내지 않는다. 이미 나간 in-flight 한 건의 완료 통지는 그대로 받아 아무것도 하지 않는다. */
@@ -328,7 +332,7 @@ final class MovementOutbox {
         if (inFlight != null || closed) {
             return null;
         }
-        Ticket ticket = new Ticket(suspendGeneration);
+        Ticket ticket = new Ticket(gateGeneration);
         Message<byte[]> next;
         if (!reliable.isEmpty()) {
             next = frame(reliable.poll(), movementDestination, movementSubscriptionId, ticket);
@@ -378,7 +382,7 @@ final class MovementOutbox {
     /** 보낸 프레임 한 건의 표식 — 그 프레임의 완료 통지만 다음 건을 풀어 준다. */
     final class Ticket {
 
-        /** 만든 때의 멈춤 세대. */
+        /** 만든 때의 게이트 세대. */
         private final int generation;
 
         private Ticket(int generation) {
@@ -390,7 +394,7 @@ final class MovementOutbox {
             MovementOutbox.this.release(this);
         }
 
-        /** 이 프레임을 넘긴 뒤 outbox 가 닫혔거나 멈춘 적이 있다(재개됐어도) — 실행기가 꺼낼 때 버린다. */
+        /** 이 프레임을 넘긴 뒤 outbox 가 닫혔거나 게이트가 다시 닫힌 적이 있다(재개됐어도) — 실행기가 꺼낼 때 버린다. */
         boolean withheld() {
             return isWithheld(this);
         }

@@ -177,6 +177,27 @@ class MovementOutboxTest {
     }
 
     @Test
+    @DisplayName("movement 해지·세션 교체 전에 넘긴 프레임도 실행기가 꺼낼 때 버리고 in-flight 를 푼다 — 게이트가 닫힐 때마다 세대가 오른다")
+    void framesHandedOffBeforeUnsubscribeOrSupersedeAreDropped() {
+        MovementOutboundInterceptor interceptor = new MovementOutboundInterceptor();
+        outbox.enqueueReliable(bytes("FullState"), true);
+        outbox.onSent();
+        outbox.offerSnapshot(bytes("Snapshot-1")); // 채널에 넘어갔고 실행기에 밀려 있다
+
+        outbox.unsubscribeMovement("sub-m"); // 퇴장 — snapshot 구독은 남는다
+        assertThat(interceptor.beforeHandle(sent.get(1), null, null)).as("해지 전에 넘긴 Snapshot 은 버린다").isNull();
+
+        outbox.subscribeMovement("sub-m2");
+        outbox.enqueueReliable(bytes("FullState-again"), true);
+        assertThat(payloads()).as("버리면서 in-flight 를 풀었다 — 다시 구독한 자기 FullState 가 곧바로 나간다")
+                .containsExactly("FullState", "Snapshot-1", "FullState-again");
+
+        outbox.supersede(); // 다른 기기가 actor 를 가져갔다
+        assertThat(interceptor.beforeHandle(sent.get(2), null, null)).as("교체 전에 넘긴 프레임도 그 기기엔 가지 않는다")
+                .isNull();
+    }
+
+    @Test
     @DisplayName("구독 직후 첫 reliable 은 그 세션 한정 FullState 다 — 그 전에 온 다른 사건·전원 FullState 는 버린다")
     void reliableEventsBeforeTheFirstFullStateAreDropped() {
         assertThat(outbox.enqueueReliable(bytes("PathAccepted"), false)).isZero();
