@@ -20,6 +20,8 @@ import {
   readMapJson,
   tilesetUri,
 } from '@/services/mapAssets';
+// 시계 규칙(보정 깜빡임 창·주기)은 navDebugClock.ts 한 곳에 — WorldMap.tsx 도 같은 모듈을 쓴다(GROMO-2249 보완8 항목 1).
+import { CORRECTION_WINDOW_MS, correctionBlinkVisible, correctionFlash } from './navDebugClock';
 
 type Point = { x: number; y: number };
 
@@ -147,22 +149,6 @@ export function buildArrowPath(from: Point, to: Point, scale: number) {
   return b.build();
 }
 
-/** 보정 직후 500ms 만 깜빡인다 — now 를 외부에서 받는 순수 함수라 테스트 가능하다(GROMO-2249). */
-export function correctionFlash(correctedAt: number | null, now: number): boolean {
-  return correctedAt !== null && now - correctedAt < 500;
-}
-
-/**
- * 보정 창(correctionFlash) 안에서 100ms 주기로 켜짐/꺼짐을 바꾼다 — 창 안이라고 쭉 켠 채로 두면
- * 500ms 동안 안 꺼지는 "표시"일 뿐 깜빡임이 아니다(GROMO-2249 보완7 지적 1). 50ms 타이머가 이미
- * 재렌더하므로 타이머는 그대로 두고 이 가시성 판정만 얹는다. 창 밖이면 무조건 꺼짐.
- */
-export function correctionBlinkVisible(correctedAt: number | null, now: number): boolean {
-  return (
-    correctionFlash(correctedAt, now) && Math.floor((now - (correctedAt as number)) / 100) % 2 === 0
-  );
-}
-
 /** 1x 이미지 좌표의 타일 격자선(세로 columns+1 · 가로 rows+1). */
 export function buildTileGridPath(tilemap: {
   width: number;
@@ -229,6 +215,7 @@ export function TileTerrainCanvas({
   assets,
   onAssetsFail,
   navDebug,
+  reduceMotion = false,
 }: {
   width: number;
   height: number;
@@ -242,6 +229,8 @@ export function TileTerrainCanvas({
   onAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기. 없으면 아무것도 더 그리지 않는다. */
   navDebug?: NavDebug | null;
+  /** 설정의 모션 줄이기 — 보정 원을 50ms로 깜빡이지 않고 창 동안 정적으로 보여준다(GROMO-2249 보완8 항목 6). */
+  reduceMotion?: boolean;
 }) {
   // Metro 는 `@2x` 를 배율 접미사로 읽어 파일명 그대로는 못 찾는다 — 기본 이름으로 부르면 tileset@2x.png(밤 tileset-night@2x.png) 변형을 고른다.
   // 스냅샷이 cache 면 파일 URI(GROMO-2233). 소스는 마운트 때 고정되고, 디코드 실패 때만 부모가 번들로 바꾼다.
@@ -281,22 +270,32 @@ export function TileTerrainCanvas({
   }, [walk]);
   // 서버 확정 경로·보정 깜빡임(GROMO-2249) — server 가 없으면(동기화 꺼짐) 아무것도 계산·타이머도
   // 없다. flashNow 는 이 캔버스의 보정 깜빡임(노란 원) 판정에만 쓴다 — 틱 지연 readout 문구는
-  // WorldMap 이 자기 시계(debugNow)로 따로 갱신한다(navDebugText 호출은 WorldMap 쪽에만 있고 이
-  // 캔버스 안에는 없다). 그래서 live 여도 창이 끝나면 더 돌 필요가 없다(보완4 가 넣은 live 500ms
-  // 분기는 그 전제가 틀려 보완6 에서 되돌린다 — 프리-PR 5라운드 지적 1). correctedAt 이 깜빡임
-  // 창(500ms) 안일 때만 50ms 로 돌고, 창이 끝나면 스스로 clear 한다(라운드1 지적 1 원복).
+  // WorldMap 쪽 시계(debugNow)로 따로 갱신한다(navDebugText 호출은 WorldMap 쪽에만 있고 이 캔버스
+  // 안에는 없다). correctedAt 이 깜빡임 창(CORRECTION_WINDOW_MS) 안일 때만 돌고, 창이 끝나면 스스로
+  // clear 한다(라운드1 지적 1 원복).
   const server = navDebug?.server;
   const correctedAt = server?.correctedAt ?? null;
   const [flashNow, setFlashNow] = useState(() => Date.now());
   useEffect(() => {
     if (!correctionFlash(correctedAt, Date.now())) return;
+    // 창에 (재)진입하는 순간 flashNow 를 바로 보정 시점으로 맞춘다 — 식은 flashNow(전 창이 끝나고
+    // 한참 지난 값)로 비교하면 위상이 어긋나 첫 렌더부터 원이 꺼져 보이거나 깜빡임 기간이 짧아진다
+    // (GROMO-2249 보완8 항목 7).
+    setFlashNow(Date.now());
+    if (reduceMotion) {
+      // 모션 줄이기 — 50ms 로 깜빡이지 않고 창 동안 원을 정적으로 보여준 뒤, 창이 끝나는 순간 한
+      // 번만 다시 그려 지운다(타이머 1개, GROMO-2249 보완8 항목 6).
+      const remaining = CORRECTION_WINDOW_MS - (Date.now() - (correctedAt as number));
+      const id = setTimeout(() => setFlashNow(Date.now()), Math.max(remaining, 0));
+      return () => clearTimeout(id);
+    }
     const id = setInterval(() => {
       const now = Date.now();
       setFlashNow(now);
       if (!correctionFlash(correctedAt, now)) clearInterval(id);
     }, 50);
     return () => clearInterval(id);
-  }, [correctedAt]);
+  }, [correctedAt, reduceMotion]);
   if (!image || !atlas) return null;
   const scale = base * camera.z;
   const serverPath = server?.path && server.path.length > 1 ? polyline(server.path) : null;
@@ -304,7 +303,10 @@ export function TileTerrainCanvas({
     server?.predicted && server?.snapshot
       ? buildArrowPath(server.predicted, server.snapshot, scale)
       : null;
-  const flash = correctionBlinkVisible(correctedAt, flashNow);
+  // 모션 줄이기면 100ms 깜빡임 대신 창 안 내내 정적으로 켠다(GROMO-2249 보완8 항목 6).
+  const flash = reduceMotion
+    ? correctionFlash(correctedAt, flashNow)
+    : correctionBlinkVisible(correctedAt, flashNow);
   return (
     <Canvas pointerEvents="none" style={{ position: 'absolute', width, height }}>
       <Group

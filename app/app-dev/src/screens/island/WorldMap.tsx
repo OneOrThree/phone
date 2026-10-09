@@ -54,6 +54,7 @@ import {
   type NavServerDebug,
   type NavWalk,
 } from './TileTerrainCanvas';
+import { debugClockPeriod } from './navDebugClock';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import {
   demoteToBundle,
@@ -514,6 +515,7 @@ export function WorldMap({
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug,
+  debugNow,
   buildingOffsets,
   children,
 }: {
@@ -545,6 +547,10 @@ export function WorldMap({
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기(타일 섬만). */
   navDebug?: NavDebug | null;
+  /** 틱 지연·대기 readout 시계 — FinalIslandScene 이 serverDebug flush 와 같은 동기 구간에서
+   * 갱신한다(GROMO-2249 보완8 항목 2). navDebug 없이 호출하는 쪽(WorldMap.test.tsx)은 readout 자체를
+   * 안 그리니 안 넘겨도 된다. */
+  debugNow?: number;
   /** 타일 섬 서버 배치 — 기존 마을 건물 레이어·모션·알림을 이만큼 옮겨 그린다. */
   buildingOffsets?: BuildingOffsets;
   children?:
@@ -684,34 +690,6 @@ export function WorldMap({
     const o = buildingOffsets?.[b] ?? NO_OFFSET;
     return { left: left + o.x * scale, top: top + o.y * scale };
   };
-  // 틱 지연·대기 readout 시계(GROMO-2249 보완4 지적 2) — TileTerrainCanvas.tsx 의 깜빡임 시계와 같은
-  // 규칙(status 가 live 거나 보정 깜빡임 창 안일 때만, 창 안 50ms / 그 밖 500ms)을 여기서도 그대로
-  // 쓰지만 그 파일에서 값을 import 하지 않는다 — WorldMap.tileIslandOff.test.tsx 가 './TileTerrainCanvas'
-  // 를 `{ TileTerrainCanvas: () => null }` 로만 얕게 mock 해서, 훅처럼 매 렌더 무조건 불러야 하는
-  // 값을 거기서 가져오면(navDebugText 처럼 tileTerrain 가드 뒤에서만 부르는 값과 달리) 그 테스트가
-  // "함수가 아니다"로 깨진다. correctionFlash 와 같은 한 줄 판정을 그대로 복제한다.
-  const debugCorrectedAt = navDebug?.server?.correctedAt ?? null;
-  const debugLive = navDebug?.server?.status === 'live';
-  const [debugNow, setDebugNow] = useState(() => Date.now());
-  useEffect(() => {
-    // flush 가 실제로 바꾼 새 서버 상태(navDebug.server 참조 변경 — sameServerDebug 가 다를 때만 새
-    // 참조가 생긴다)를 그릴 때는 지금 시각으로 바로 맞춘다(보완5 지적 2) — 안 그러면 다음 500ms 눈금
-    // 전에 새 스냅샷이 와도 틱 지연이 (낡은 debugNow − 새 snapshotReceivedAt)으로 음수가 될 수 있다.
-    // 그 뒤는 기존 타이머 규칙(보정 깜빡임 창 안 50ms · 그 밖 500ms)대로 이어간다.
-    if (navDebug?.server) setDebugNow(Date.now());
-    const flashing = (n: number) => debugCorrectedAt !== null && n - debugCorrectedAt < 500;
-    if (!debugLive && !flashing(Date.now())) return;
-    let id: ReturnType<typeof setTimeout>;
-    const tick = () => {
-      const n = Date.now();
-      setDebugNow(n);
-      const inWindow = flashing(n);
-      if (!debugLive && !inWindow) return;
-      id = setTimeout(tick, inWindow ? 50 : 500);
-    };
-    id = setTimeout(tick, flashing(Date.now()) ? 50 : 500);
-    return () => clearTimeout(id);
-  }, [debugCorrectedAt, debugLive, navDebug?.server]);
   return (
     <View
       ref={view}
@@ -766,6 +744,7 @@ export function WorldMap({
           assets={mapAssets}
           onAssetsFail={onMapAssetsFail}
           navDebug={navDebug}
+          reduceMotion={state.settings.reduceMotion}
         />
       )}
       {tileTerrain && navDebug && (
@@ -1087,6 +1066,18 @@ const sameServerDebug = (a: NavServerDebug, b: NavServerDebug) =>
   sameImagePoint(a.predicted, b.predicted) &&
   sameImagePoint(a.snapshot, b.snapshot) &&
   sameImagePath(a.path, b.path, a.pathId, b.pathId);
+// NavServerDebug 에 필드를 추가하면(또는 빼면) 이 타입이 깨진다 — sameServerDebug 도 같이 고치라는
+// 컴파일 타임 잠금이다(GROMO-2249 보완8 항목 4).
+export const SERVER_DEBUG_KEYS: Record<keyof NavServerDebug, true> = {
+  status: true,
+  path: true,
+  pathId: true,
+  snapshot: true,
+  predicted: true,
+  correctedAt: true,
+  snapshotReceivedAt: true,
+  waitingSince: true,
+};
 function FinalIslandScene({
   state,
   go,
@@ -1623,9 +1614,17 @@ function FinalIslandScene({
   }, [syncIslandId, me]);
   // 이동 보기 오버레이(GROMO-2249) — 서버 확정 경로·스냅샷·예측 오차. navDebug 가 꺼져 있으면 아무것도 계산·구독하지 않는다(비용 0).
   const [serverDebug, setServerDebug] = useState<NavServerDebug | null>(null);
+  // flush 가 비교·배칭에 쓰는 최신값 거울(GROMO-2249 보완8 항목 2) — setState 는 비동기라 같은 tick
+  // 안에서 state 클로저가 묵을 수 있다. ref 는 항상 바로 갱신해 다음 flush 가 최신값과 비교한다.
+  const serverDebugRef = useRef<NavServerDebug | null>(null);
+  // 틱 지연·대기 readout 시계(GROMO-2249 보완4 지적 2 · 보완8 항목 2) — serverDebug 가 flush 로 실제
+  // 바뀔 때는 그 flush 와 같은 동기 구간에서 Date.now() 로 맞춰(아래 flush, React 18 자동 배칭) 렌더가
+  // 1번만 늘어난다. 그 뒤는 아래 별도 effect 의 navDebugClock.debugClockPeriod 규칙대로 이어간다.
+  const [debugNow, setDebugNow] = useState(() => Date.now());
   useEffect(() => {
     if (!navDebug || !tileNav) {
       setServerDebug(null);
+      serverDebugRef.current = null;
       return;
     }
     const controller = movement.current;
@@ -1655,6 +1654,7 @@ function FinalIslandScene({
       // 갈린다. 산 ref 로 판정하면 거절 직후 movement.current 가 비는 순간 off 로 오판한다.
       if (!controller) {
         setServerDebug(null);
+        serverDebugRef.current = null;
         return;
       }
       const st = controller.state();
@@ -1687,10 +1687,16 @@ function FinalIslandScene({
             snapshotReceivedAt: st.lastSnapshot?.receivedAt ?? null,
             waitingSince: st.sentAt,
           };
-      // path·snapshot·predicted·correctedAt·status 가 이전과 같으면 이전 state 를 그대로 돌려줘 리렌더를
-      // 건너뛴다 — 시간값은 비교하지 않는다(보완 3). 효과 클로저가 묵어도 최신 state 와 비교하도록 함수형
-      // setState 를 쓴다.
-      setServerDebug((prev) => (prev && sameServerDebug(prev, next) ? prev : next));
+      // path·snapshot·predicted·correctedAt·status 가 이전과 같으면 아무것도 하지 않아 리렌더를
+      // 건너뛴다 — 시간값은 비교하지 않는다(보완 3). ref 는 항상 최신이라 효과 클로저가 묵어도 최신값과
+      // 비교한다. 바뀐 경우에만 serverDebug 와 debugNow 를 같은 동기 구간에서 함께 올려 React 18 자동
+      // 배칭으로 렌더가 1번만 늘어난다(보완8 항목 2) — 전에는 debugNow 를 WorldMap 쪽 참조 deps effect 가
+      // 따로 뒤쫓아 flush 마다 렌더가 1번 더 늘었다.
+      if (!serverDebugRef.current || !sameServerDebug(serverDebugRef.current, next)) {
+        serverDebugRef.current = next;
+        setServerDebug(next);
+        setDebugNow(Date.now());
+      }
     };
     const schedule = () => {
       const wait = 100 - (Date.now() - lastFlush);
@@ -1711,6 +1717,29 @@ function FinalIslandScene({
     };
     // me: 컨트롤러 교체(계정 전환 등)를 추적해 effect 를 다시 돌려 새 controller 를 다시 캡처한다(보완 4).
   }, [navDebug, tileNav, grid, syncIslandId, me]);
+  // 깜빡임·readout 시계 체인(GROMO-2249 보완4 지적 2 · 보완8 항목 2) — flush 효과와는 별도다. deps 는
+  // status·보정창(correctedAt) 두 primitive 뿐 — serverDebug 참조 전체를 deps 로 두면(이전 버전의
+  // WorldMap 쪽 effect 가 그랬다) flush 마다 이 effect 도 다시 돌아 debugNow 를 또 갱신해 렌더가 1번
+  // 더 늘었다(위 flush 가 이미 같은 동기 구간에서 처리한다). navDebugClock.debugClockPeriod 규칙(보정
+  // 창 안 50ms · 그 밖 live 500ms · 아니면 정지)대로 이어가고, reduceMotion 이면 50ms 분기를 타지
+  // 않는다(보완8 항목 6).
+  const debugCorrectedAt = serverDebug?.correctedAt ?? null;
+  const debugLive = serverDebug?.status === 'live';
+  const reduceMotion = state.settings.reduceMotion;
+  useEffect(() => {
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const n = Date.now();
+      setDebugNow(n);
+      const period = debugClockPeriod(serverDebugRef.current, n, reduceMotion);
+      if (period === null) return;
+      id = setTimeout(tick, period);
+    };
+    const period0 = debugClockPeriod(serverDebugRef.current, Date.now(), reduceMotion);
+    if (period0 === null) return;
+    id = setTimeout(tick, period0);
+    return () => clearTimeout(id);
+  }, [debugCorrectedAt, debugLive, reduceMotion]);
   useEffect(() => {
     const p = initial();
     location.current = p;
@@ -2125,6 +2154,7 @@ function FinalIslandScene({
             ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk, server: serverDebug }
             : null
         }
+        debugNow={debugNow}
         islandId={i.id}
         hallMotionActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'

@@ -8,8 +8,6 @@ import {
   buildArrowPath,
   buildBlockedPath,
   buildTerrainAtlas,
-  correctionBlinkVisible,
-  correctionFlash,
   navDebugText,
   TileTerrainCanvas,
   type NavDebug,
@@ -87,27 +85,8 @@ describe('서버 이동 보기 helper (GROMO-2249)', () => {
     expect([b2.x, b2.y, b2.width, b2.height]).toEqual([0, -2, 20, 4]);
   });
 
-  it('correctionFlash: 499ms 는 깜빡이고 501ms·null 은 꺼진다', () => {
-    expect(correctionFlash(1000, 1499)).toBe(true);
-    expect(correctionFlash(1000, 1501)).toBe(false);
-    expect(correctionFlash(null, 1499)).toBe(false);
-  });
-
-  it('correctionBlinkVisible: 창 안에서 100ms 주기로 켜짐·꺼짐, 창 밖이면 무조건 꺼짐(보완7 지적 1)', () => {
-    const t0 = 1000;
-    // 0·50ms 켜짐.
-    expect(correctionBlinkVisible(t0, t0 + 0)).toBe(true);
-    expect(correctionBlinkVisible(t0, t0 + 50)).toBe(true);
-    // 100·150ms 꺼짐.
-    expect(correctionBlinkVisible(t0, t0 + 100)).toBe(false);
-    expect(correctionBlinkVisible(t0, t0 + 150)).toBe(false);
-    // 200ms 다시 켜짐.
-    expect(correctionBlinkVisible(t0, t0 + 200)).toBe(true);
-    // 500ms 부터는 깜빡임 창(correctionFlash) 자체가 꺼져 있어, 주기상 켜질 차례여도 꺼짐이다.
-    expect(correctionBlinkVisible(t0, t0 + 400)).toBe(true);
-    expect(correctionBlinkVisible(t0, t0 + 500)).toBe(false);
-    expect(correctionBlinkVisible(null, t0)).toBe(false);
-  });
+  // correctionFlash·correctionBlinkVisible 자체 테스트는 navDebugClock.test.ts 로 옮겼다(GROMO-2249
+  // 보완8 항목 1) — 함수가 거기로 이동했으니 테스트도 같이 이동한다.
 
   it('navDebugText 둘째 줄: Δ·지연 / 대기 / 없음 세 가지', () => {
     const predicted = { x: 10, y: 0 },
@@ -222,5 +201,46 @@ describe('서버 디버그 시계 — 보정 깜빡임 50ms, 창 밖이면 멈�
     expect(jest.getTimerCount()).toBeGreaterThan(0);
     jest.advanceTimersByTime(500); // 깜빡임 창(500ms) 을 넘긴다 — live 여도 멈춘다.
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('reduceMotion 이면 50ms 인터벌 대신 창 끝에만 도는 타이머 1개고, 창 안에서는 지워지지 않는다(보완8 항목 6)', async () => {
+    jest.useFakeTimers();
+    await render(
+      <TileTerrainCanvas {...baseProps} reduceMotion navDebug={debugWith(Date.now(), 'off')} />,
+    );
+    settle();
+    // 인터벌이라면 이미 여러 틱이 지났을 시간에도 — 창 끝에만 도는 타이머 1개뿐이다.
+    expect(jest.getTimerCount()).toBe(1);
+    jest.advanceTimersByTime(100);
+    // 블링크 인터벌이면 벌써 꺼졌다 켜졌다 했을 시간이 지나도 단일 타이머가 그대로다 — 창이 안 끝났다.
+    expect(jest.getTimerCount()).toBe(1);
+    jest.advanceTimersByTime(500); // 창(500ms) 을 넘긴다.
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('식은 flashNow 상태에서 correctedAt 이 새로 들어오면 effect 가 틱 전에도 flashNow 를 즉시 리셋한다 — 커밋이 하나 더 는다(보완8 항목 7)', async () => {
+    jest.useFakeTimers();
+    let commits = 0;
+    const onRender = () => {
+      commits++;
+    };
+    const now0 = Date.now();
+    const screen = await render(
+      <React.Profiler id="flash-phase" onRender={onRender}>
+        <TileTerrainCanvas {...baseProps} navDebug={debugWith(now0, 'off')} />
+      </React.Profiler>,
+    );
+    settle();
+    jest.advanceTimersByTime(500); // 깜빡임 창을 완전히 넘겨 인터벌이 스스로 멈춘다 — flashNow 는 그 마지막 틱에 식어 있다.
+    commits = 0; // 여기부터 새로 센다.
+    const now1 = Date.now(); // 창이 끝난 지 한참 지난 뒤 — now1 은 식은 flashNow 와 거리가 멀다.
+    await screen.rerender(
+      <React.Profiler id="flash-phase" onRender={onRender}>
+        <TileTerrainCanvas {...baseProps} navDebug={debugWith(now1, 'off')} />
+      </React.Profiler>,
+    );
+    // 리셋이 없으면 prop 변경 커밋 1개뿐 — flashNow 는 다음 50ms 틱이 와야 갱신된다. 즉시 리셋하면
+    // effect 가 틱 전에도 setFlashNow 를 한 번 더 불러 커밋이 2개다.
+    expect(commits).toBe(2);
   });
 });

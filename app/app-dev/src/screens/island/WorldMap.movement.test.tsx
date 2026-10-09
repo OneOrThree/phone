@@ -906,6 +906,38 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     expect(predictedWorld.x).toBeLessThan(42.5);
     await screen.unmount();
   });
+
+  it('새 서버 상태 flush 는 debugNow 갱신을 같은 렌더에 배칭해 커밋이 1번만 늘어난다(보완8 항목 2)', async () => {
+    jest.useFakeTimers();
+    let commits = 0;
+    const onRender = () => {
+      commits++;
+    };
+    const screen = await render(
+      <React.Profiler id="world-map-flush" onRender={onRender}>
+        <FinalIsland state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />
+      </React.Profiler>,
+    );
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+
+    // 기준 구간 — 아무 메시지도 안 보내고 100ms 만 흘린다. 주변 잡음(HUD 시계 등)의 커밋 수를 기준선으로 잡는다.
+    commits = 0;
+    await act(async () => jest.advanceTimersByTime(100));
+    const baseline = commits;
+
+    // 비교 구간 — snapshotReceivedAt 이 실제로 달라지는 새 Snapshot. flush 가 sameServerDebug 로
+    // "달라졌다"고 판단해 serverDebug·debugNow 를 같은 동기 구간에서 함께 올린다 — 잡음을 빼면 커밋이
+    // 정확히 1번 늘어야 한다(보완8 항목 2 전엔 debugNow 를 뒤쫓는 WorldMap 쪽 참조 deps effect 가 따로
+    // 있어 2번 늘었다).
+    commits = 0;
+    await emit(snapshot(102, [entity(ME, 0, SPAWN, { state: 'IDLE' })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    expect(commits - baseline).toBe(1);
+    await screen.unmount();
+  });
 });
 
 it('섬 전환 뒤 옛 채널의 늦은 onMovementDenied 는 새 컨트롤러를 끄지 않는다(채널 소유권, 리뷰 3)', async () => {
@@ -1002,6 +1034,7 @@ describe('플래그 off·서버 홈 아님', () => {
   // 이미 파일 상단에서 '1' — process.env 는 격리 레지스트리와도 공유라 다시 안 세운다. 세션은 모듈별
   // 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 으로 따로 채운다.
   it('__DEV__=false 릴리스 빌드는 nav-debug-toggle 이 없어 movementSync.subscribe 를 한 번도 안 부른다(음성, 항목 6)', async () => {
+    jest.useFakeTimers();
     const before = controllers.length;
     const savedDev = (globalThis as { __DEV__?: boolean }).__DEV__;
     (globalThis as { __DEV__?: boolean }).__DEV__ = false;
@@ -1016,16 +1049,27 @@ describe('플래그 off·서버 홈 아님', () => {
     });
     try {
       await isolatedSaveSession({ accessToken: 'AT', refreshToken: 'RT', userId: ME });
-      const screen = await render(
-        <Island state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
-      );
+      const state = serverState(nextIsland()) as any;
+      state.serverIslands.home.members = [member(ME, 'cream')];
+      const screen = await render(<Island state={state} go={jest.fn()} build={jest.fn()} />);
       // 걷기 동기화(컨트롤러 생성)는 릴리스에서도 평소처럼 돈다 — 디버그 오버레이만 없다.
       expect(controllers.length).toBeGreaterThan(before);
       expect(screen.queryByTestId('nav-debug-toggle')).toBeNull();
       for (const ctl of controllers.slice(before)) expect(ctl.subscribe).not.toHaveBeenCalled();
+      // 항목 3(보완8) — 디버그 토글 자체가 없으니 깜빡임·readout 시계 타이머도 전혀 안 돈다: 마운트
+      // 직후 가라앉는 타이머(세션 복구 재시도 등, 디버그 시계와 무관 — 실측 500ms 안에 가라앉고 다시는
+      // 안 생긴다)를 짧게 흘려보내 기준선(컨트롤러 등 다른 타이머)을 잡고, 1초를 더 흘린 뒤가 같은
+      // 수인지로 확인한다.
+      await act(async () => jest.advanceTimersByTime(600));
+      const baseline = jest.getTimerCount();
+      await act(async () => jest.advanceTimersByTime(1000));
+      expect(jest.getTimerCount()).toBe(baseline);
       await screen.unmount();
     } finally {
-      (globalThis as { __DEV__?: boolean }).__DEV__ = savedDev;
+      // 항목 5(보완8) — 원래 없던 전역이면(undefined) 값을 되돌리는 대신 지운다. `__DEV__ = undefined`
+      // 로 두면 키 자체는 남아('__DEV__' in globalThis 가 true) 원래 상태(부재)와 달라진다.
+      if (savedDev === undefined) delete (globalThis as { __DEV__?: boolean }).__DEV__;
+      else (globalThis as { __DEV__?: boolean }).__DEV__ = savedDev;
     }
   });
 });
