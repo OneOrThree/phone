@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Atlas,
   Canvas,
@@ -31,7 +31,22 @@ type Point = { x: number; y: number };
 // 개발 확인용 이동 보기(`navDebug`, FinalIsland 의 개발 버튼): 타일 경계선 · 막힌 nav 셀 · 마지막 걷기(탭→보정 목적지·경로)를
 // 그려 준다. 버튼이 CAN_PREVIEW_VILLAGE 로만 뜨고 그리기는 prop 이 있을 때만이라 배포 빌드에서는 그려지지 않는다.
 export type NavWalk = { tap: Point; path: Point[] };
-export type NavDebug = { nav: NavGrid; walk: NavWalk | null };
+/** 서버 확정 경로·스냅샷·예측 오차(GROMO-2249), 전부 1x 이미지 px. 이동 동기화가 꺼져 있으면 전부 null. */
+export type NavServerDebug = {
+  /** PathAccepted 출발점 + waypoints. */
+  path: Point[] | null;
+  /** 최근 Snapshot 의 내 위치. */
+  snapshot: Point | null;
+  /** 앱 예측 위치(WorldMap 의 location.current). */
+  predicted: Point | null;
+  /** 마지막 onMyCorrection 호출 시각(ms) — 500ms 안이면 깜빡인다. */
+  correctedAt: number | null;
+  /** 최근 Snapshot 을 받은 지 지난 시간(ms). */
+  snapshotAgeMs: number | null;
+  /** intent 를 보냈는데 아직 PathAccepted·MoveRejected 를 못 받은 상태의 시작 시각(ms). */
+  waitingSince: number | null;
+};
+export type NavDebug = { nav: NavGrid; walk: NavWalk | null; server?: NavServerDebug | null };
 const IMAGE_W = 1536,
   IMAGE_H = 1024;
 
@@ -55,17 +70,66 @@ export function buildBlockedPath(nav: NavGrid) {
 }
 
 /** 마지막 걷기 한 줄 요약 — 경로 칸 수 · 탭과 보정 목적지의 거리(px) · nav 출처. */
-export function navDebugText(walk: NavWalk | null, kind: MapAssetSource['kind']) {
+function walkSummary(walk: NavWalk | null, kind: MapAssetSource['kind']) {
   if (!walk) return `경로 없음 · nav ${kind}`;
   const dest = walk.path[walk.path.length - 1];
   const gap = dest ? Math.round(Math.hypot(dest.x - walk.tap.x, dest.y - walk.tap.y)) : 0;
   return `경로 ${Math.max(walk.path.length - 1, 0)}칸 · 보정 ${gap}px · nav ${kind}`;
 }
 
+/** 서버 Δ(예측-스냅샷 거리)·틱 지연 한 줄, 또는 대기/없음(GROMO-2249). */
+function serverDebugLine(server: NavServerDebug, now: number) {
+  const { snapshot, predicted, snapshotAgeMs, waitingSince } = server;
+  if (snapshot && predicted && snapshotAgeMs !== null) {
+    const delta = Math.round(Math.hypot(predicted.x - snapshot.x, predicted.y - snapshot.y));
+    return `서버 Δ ${delta}px · 틱 지연 ${Math.round(snapshotAgeMs)}ms`;
+  }
+  if (waitingSince !== null) return `서버 대기 ${Math.max(0, Math.round(now - waitingSince))}ms`;
+  return '서버 없음';
+}
+
+/** 마지막 걷기 한 줄 요약, server 가 있으면 둘째 줄로 서버 Δ·지연/대기/없음을 더한다(GROMO-2249). */
+export function navDebugText(
+  walk: NavWalk | null,
+  kind: MapAssetSource['kind'],
+  server?: NavServerDebug | null,
+  now: number = Date.now(),
+) {
+  const summary = walkSummary(walk, kind);
+  return server ? `${summary}\n${serverDebugLine(server, now)}` : summary;
+}
+
 function polyline(points: Point[]) {
   const b = Skia.PathBuilder.Make();
   points.forEach((p, i) => (i ? b.lineTo(p.x, p.y) : b.moveTo(p.x, p.y)));
   return b.build();
+}
+
+/** 예측 → 서버 위치 화살표(자루 + 끝 쉐브론), 1x 이미지 좌표. scale 로 나눠 화면 크기를 고정한다(GROMO-2249). */
+export function buildArrowPath(from: Point, to: Point, scale: number) {
+  const b = Skia.PathBuilder.Make();
+  b.moveTo(from.x, from.y).lineTo(to.x, to.y);
+  const dx = to.x - from.x,
+    dy = to.y - from.y,
+    len = Math.hypot(dx, dy);
+  if (len > 0) {
+    const ux = dx / len,
+      uy = dy / len,
+      back = 12 / scale,
+      half = 4 / scale,
+      bx = to.x - ux * back,
+      by = to.y - uy * back;
+    // 자루는 열린 선, 쉐브론은 끝점에서 양쪽으로 벌어진 두 선 — 한 Path 를 stroke 로만 그린다(채우기 없음).
+    b.moveTo(bx - uy * half, by + ux * half)
+      .lineTo(to.x, to.y)
+      .lineTo(bx + uy * half, by - ux * half);
+  }
+  return b.build();
+}
+
+/** 보정 직후 500ms 만 깜빡인다 — now 를 외부에서 받는 순수 함수라 테스트 가능하다(GROMO-2249). */
+export function correctionFlash(correctedAt: number | null, now: number): boolean {
+  return correctedAt !== null && now - correctedAt < 500;
 }
 
 /** 1x 이미지 좌표의 타일 격자선(세로 columns+1 · 가로 rows+1). */
@@ -184,8 +248,23 @@ export function TileTerrainCanvas({
     const dest = walk?.path[walk.path.length - 1];
     return walk && dest ? polyline([walk.tap, dest]) : null;
   }, [walk]);
+  // 서버 확정 경로·보정 깜빡임(GROMO-2249) — server 가 없으면(동기화 꺼짐) 아무것도 계산·타이머도 없다.
+  const server = navDebug?.server;
+  const hasServer = !!server;
+  const [flashNow, setFlashNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hasServer) return;
+    const id = setInterval(() => setFlashNow(Date.now()), 50);
+    return () => clearInterval(id);
+  }, [hasServer]);
   if (!image || !atlas) return null;
   const scale = base * camera.z;
+  const serverPath = server?.path && server.path.length > 1 ? polyline(server.path) : null;
+  const arrow =
+    server?.predicted && server?.snapshot
+      ? buildArrowPath(server.predicted, server.snapshot, scale)
+      : null;
+  const flash = !!server && correctionFlash(server.correctedAt, flashNow);
   return (
     <Canvas pointerEvents="none" style={{ position: 'absolute', width, height }}>
       <Group
@@ -227,6 +306,34 @@ export function TileTerrainCanvas({
               color="lime"
             />
           </>
+        )}
+        {/* 서버 확정 경로·스냅샷·예측 오차(GROMO-2249) — 기존 파란 로컬 선 위에 주황으로 겹쳐 그린다. */}
+        {serverPath && (
+          <Path
+            path={serverPath}
+            style="stroke"
+            strokeWidth={3 / scale}
+            color="rgba(255,140,0,0.9)"
+          />
+        )}
+        {server?.snapshot && (
+          <Circle
+            cx={server.snapshot.x}
+            cy={server.snapshot.y}
+            r={6 / scale}
+            color="rgba(255,140,0,0.9)"
+          />
+        )}
+        {arrow && (
+          <Path path={arrow} style="stroke" strokeWidth={2 / scale} color="rgba(255,140,0,0.9)" />
+        )}
+        {flash && server?.predicted && (
+          <Circle
+            cx={server.predicted.x}
+            cy={server.predicted.y}
+            r={12 / scale}
+            color="rgba(255,255,0,0.8)"
+          />
         )}
       </Group>
     </Canvas>

@@ -47,7 +47,13 @@ import legacyDoorCoords from '@/constants/legacy-doors.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
-import { TileTerrainCanvas, navDebugText, type NavDebug, type NavWalk } from './TileTerrainCanvas';
+import {
+  TileTerrainCanvas,
+  navDebugText,
+  type NavDebug,
+  type NavServerDebug,
+  type NavWalk,
+} from './TileTerrainCanvas';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import {
   demoteToBundle,
@@ -738,7 +744,7 @@ export function WorldMap({
             backgroundColor: 'rgba(0,0,0,0.6)',
           }}
         >
-          {navDebugText(navDebug.walk, mapAssets.kind)}
+          {navDebugText(navDebug.walk, mapAssets.kind, navDebug.server)}
         </Txt>
       )}
       <Pressable
@@ -1528,6 +1534,66 @@ function FinalIslandScene({
       setRemoteActors(null);
     };
   }, [syncIslandId]);
+  // 이동 보기 오버레이(GROMO-2249) — 서버 확정 경로·스냅샷·예측 오차. navDebug 가 꺼져 있으면 아무것도 계산·구독하지 않는다(비용 0).
+  const [serverDebug, setServerDebug] = useState<NavServerDebug | null>(null);
+  useEffect(() => {
+    if (!navDebug || !tileNav) {
+      setServerDebug(null);
+      return;
+    }
+    const controller = movement.current;
+    const size = sizeOf(grid);
+    // 100ms 쓰로틀 — controller.subscribe() 는 스냅샷마다(최대 20Hz) 올 수 있어 마지막 반영 이후 100ms 안이면 미뤄서 합친다.
+    let lastFlush = 0,
+      lastSeq = 0,
+      snapshotTick: number | null = null,
+      snapshotAt: number | null = null,
+      waitingSince: number | null = null,
+      timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      lastFlush = Date.now();
+      timer = null;
+      const st = controller?.state() ?? null;
+      if (!st) {
+        lastSeq = 0;
+        snapshotTick = null;
+        snapshotAt = null;
+        waitingSince = null;
+      } else {
+        // state() 는 "응답 대기 시작 시각"을 직접 주지 않는다 — commandSeq 변화로 추정한다(100ms 해상도).
+        if (st.commandSeq !== lastSeq) {
+          lastSeq = st.commandSeq;
+          waitingSince = Date.now();
+        }
+        if (st.self && st.self.lastCommandSeq >= st.commandSeq) waitingSince = null;
+        if (st.lastSnapshot && st.lastSnapshot.serverTick !== snapshotTick) {
+          snapshotTick = st.lastSnapshot.serverTick;
+          snapshotAt = Date.now();
+        }
+      }
+      setServerDebug({
+        path: st?.lastPath
+          ? [st.lastPath.start, ...st.lastPath.waypoints].map((p) => worldToImage(p, size))
+          : null,
+        snapshot: st?.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
+        predicted: location.current,
+        correctedAt: st?.lastCorrectionAt ?? null,
+        snapshotAgeMs: snapshotAt !== null ? Date.now() - snapshotAt : null,
+        waitingSince,
+      });
+    };
+    const schedule = () => {
+      const wait = 100 - (Date.now() - lastFlush);
+      if (wait <= 0) flush();
+      else if (!timer) timer = setTimeout(flush, wait);
+    };
+    schedule();
+    const unsubscribe = controller?.subscribe(schedule) ?? (() => {});
+    return () => {
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+    };
+  }, [navDebug, tileNav, grid, syncIslandId]);
   useEffect(() => {
     const p = initial();
     location.current = p;
@@ -1937,7 +2003,9 @@ function FinalIslandScene({
         mapAssets={mapAssets}
         onMapAssetsFail={onMapAssetsFail}
         navDebug={
-          tileNav && navDebug ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk } : null
+          tileNav && navDebug
+            ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk, server: serverDebug }
+            : null
         }
         islandId={i.id}
         hallMotionActive={

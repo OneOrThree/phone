@@ -2,7 +2,23 @@
  * @jest-environment @shopify/react-native-skia/jestEnv.js
  */
 // Skia 공식 jest 설정: CanvasKit(wasm)을 올리는 jestEnv 를 이 파일에만 건다(mock 은 jest.setup.js).
-import { buildBlockedPath, buildTerrainAtlas, navDebugText } from './TileTerrainCanvas';
+import {
+  buildArrowPath,
+  buildBlockedPath,
+  buildTerrainAtlas,
+  correctionFlash,
+  navDebugText,
+  type NavServerDebug,
+} from './TileTerrainCanvas';
+
+const noServer: NavServerDebug = {
+  path: null,
+  snapshot: null,
+  predicted: null,
+  correctedAt: null,
+  snapshotAgeMs: null,
+  waitingSince: null,
+};
 
 describe('buildTerrainAtlas', () => {
   const { sprites, transforms } = buildTerrainAtlas({ kind: 'bundle' });
@@ -52,6 +68,36 @@ describe('이동 보기 helper', () => {
     expect(navDebugText({ tap: { x: 0, y: 40 }, path }, 'cache')).toBe(
       '경로 2칸 · 보정 30px · nav cache',
     );
+    expect(navDebugText(null, 'bundle')).toBe('경로 없음 · nav bundle');
+  });
+});
+
+describe('서버 이동 보기 helper (GROMO-2249)', () => {
+  it('buildArrowPath: 자루+쉐브론 bounds 는 scale 로 나뉜다', () => {
+    const b1 = buildArrowPath({ x: 0, y: 0 }, { x: 20, y: 0 }, 1).getBounds();
+    expect([b1.x, b1.y, b1.width, b1.height]).toEqual([0, -4, 20, 8]);
+    const b2 = buildArrowPath({ x: 0, y: 0 }, { x: 20, y: 0 }, 2).getBounds();
+    expect([b2.x, b2.y, b2.width, b2.height]).toEqual([0, -2, 20, 4]);
+  });
+
+  it('correctionFlash: 499ms 는 깜빡이고 501ms·null 은 꺼진다', () => {
+    expect(correctionFlash(1000, 1499)).toBe(true);
+    expect(correctionFlash(1000, 1501)).toBe(false);
+    expect(correctionFlash(null, 1499)).toBe(false);
+  });
+
+  it('navDebugText 둘째 줄: Δ·지연 / 대기 / 없음 세 가지', () => {
+    const predicted = { x: 10, y: 0 },
+      snapshot = { x: 13, y: 4 };
+    // Δ = hypot(3,4) = 5
+    expect(
+      navDebugText(null, 'bundle', { ...noServer, predicted, snapshot, snapshotAgeMs: 83.4 }),
+    ).toBe('경로 없음 · nav bundle\n서버 Δ 5px · 틱 지연 83ms');
+    expect(navDebugText(null, 'bundle', { ...noServer, waitingSince: 1000 }, 1300)).toBe(
+      '경로 없음 · nav bundle\n서버 대기 300ms',
+    );
+    expect(navDebugText(null, 'bundle', noServer)).toBe('경로 없음 · nav bundle\n서버 없음');
+    // server 를 안 주면(기존 호출) 둘째 줄이 없다 — 기존 동작 불변.
     expect(navDebugText(null, 'bundle')).toBe('경로 없음 · nav bundle');
   });
 });

@@ -68,6 +68,26 @@ jest.mock('@/services/islandRealtime', () => ({
     return channel;
   },
 }));
+// 이동 보기 오버레이(GROMO-2249)는 controller.subscribe() 로 알림을 받는다 — 구독 호출 자체를 스파이로 확인한다.
+// 실제 컨트롤러 로직은 그대로 두고 subscribe 만 jest.fn 으로 감싼다.
+type MockController = ReturnType<
+  typeof import('@/services/movementSync').createMovementController
+> & {
+  subscribe: jest.Mock;
+};
+const controllers: MockController[] = [];
+jest.mock('@/services/movementSync', () => {
+  const actual = jest.requireActual('@/services/movementSync');
+  return {
+    ...actual,
+    createMovementController: (opts: Parameters<typeof actual.createMovementController>[0]) => {
+      const controller = actual.createMovementController(opts);
+      const wrapped = { ...controller, subscribe: jest.fn(controller.subscribe) };
+      controllers.push(wrapped);
+      return wrapped;
+    },
+  };
+});
 
 // 플래그는 모듈 로드 때 상수로 굳는다 — env 를 먼저 세우고 require 한다(import 는 호이스팅된다).
 process.env.EXPO_PUBLIC_TILE_ISLAND = '1';
@@ -450,6 +470,58 @@ it('채널이 거절되면 토스트 없이 동기화를 끄고 Wanderer·로컬
   expect(myMotion(screen)).toBe('walking');
   expect(notify).not.toHaveBeenCalled();
   await screen.unmount();
+});
+
+describe('이동 보기 오버레이 (GROMO-2249)', () => {
+  it('꺼져 있으면 controller.subscribe 를 부르지 않고 tile-terrain.navDebug 도 null 이다', async () => {
+    const screen = await renderHome(nextIsland());
+    const ctl = controllers[controllers.length - 1];
+    await emit(fullState([actor(ME, SPAWN)]));
+    expect(screen.getByTestId('tile-terrain').props.navDebug).toBeNull();
+    expect(ctl.subscribe).not.toHaveBeenCalled();
+    await screen.unmount();
+  });
+
+  it('켜면 서버 경로·스냅샷·보정 시각을 100ms 쓰로틀로 tile-terrain.navDebug.server 에 채운다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    const ctl = controllers[controllers.length - 1];
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    expect(ctl.subscribe).toHaveBeenCalled();
+
+    // FullState 채택(스폰 차이)이 보정이다 — Snapshot 은 아직 없어 server.snapshot 은 null.
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    let server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.correctedAt).not.toBeNull();
+    expect(server.snapshot).toBeNull();
+    expect(server.predicted).toEqual(worldToImage(SPAWN, SIZE));
+
+    // 로컬과 다른 PathAccepted — server.path 에 서버 경로(출발점 포함, 이미지 px)가 실린다.
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 46.5 },
+        { x: 40.5, y: 46.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(100));
+    server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.path).toEqual(
+      [SPAWN, { x: 39.5, y: 46.5 }, { x: 40.5, y: 46.5 }].map((p) => worldToImage(p, SIZE)),
+    );
+
+    // Snapshot 수신 — server.snapshot 에 실린다.
+    await emit(snapshot(101, [entity(ME, 1, { x: 39.8, y: 46.2 })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    expect(server.snapshot).toEqual(worldToImage({ x: 39.8, y: 46.2 }, SIZE));
+
+    // 끄면 다시 null — 더 이상 쓰로틀 타이머도 돌지 않는다.
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    expect(screen.getByTestId('tile-terrain').props.navDebug).toBeNull();
+    await screen.unmount();
+  });
 });
 
 describe('플래그 off·서버 홈 아님', () => {
