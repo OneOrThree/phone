@@ -9,6 +9,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -103,6 +104,20 @@ public class RealtimeSessionRegistry {
         }
         synchronized (held) {
             held.remove(subscriptionId);
+        }
+    }
+
+    /**
+     * 이 목적지들의 구독 기록을 id 와 무관하게 지운다 — 이동 강퇴가 그 세션×섬 두 토픽의 «판정받은 구독»을 무효화할 때
+     * 쓴다(GROMO-2247). 남겨 두면 intent 관문이 통과시키고, 같은 id 의 재구독이 재전송으로 읽힌다.
+     */
+    public void unsubscribeDestinations(String sessionId, Collection<String> destinations) {
+        Map<String, String> held = sessionId == null ? null : subscriptions.get(sessionId);
+        if (held == null) {
+            return;
+        }
+        synchronized (held) {
+            held.values().removeIf(destinations::contains);
         }
     }
 

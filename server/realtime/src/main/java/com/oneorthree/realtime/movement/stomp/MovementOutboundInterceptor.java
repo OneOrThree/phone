@@ -18,10 +18,25 @@ import org.springframework.stereotype.Component;
  * 은 {@code beforeHandle} 을 통과한 인터셉터에게만 {@code afterMessageHandled} 를 돌려준다 — 뒤에 두면 앞의
  * {@code ChatOutboundChannelInterceptor} 가 프레임을 버린 경우(토큰 만료) 완료 통지가 영영 오지 않아 그 outbox 가
  * 멈춘다.
+ *
+ * <p>프레임을 꺼낼 때({@code beforeHandle}) 그 outbox 가 넘긴 뒤 멈췄거나(강퇴 재검사) 닫혔으면 그 한 건도 버린다 —
+ * 실행기에 밀려 있던 프레임이 강퇴된 세션에 한 번 더 나가지 않게.
  */
 @Slf4j
 @Component
 public class MovementOutboundInterceptor implements ExecutorChannelInterceptor {
+
+    @Override
+    public Message<?> beforeHandle(Message<?> message, MessageChannel channel, MessageHandler handler) {
+        if (message.getHeaders().get(MovementOutbox.MARK) instanceof MovementOutbox.Ticket ticket
+                && ticket.withheld()) {
+            // 맨 앞 인터셉터가 null 을 돌려주면 자기 afterMessageHandled 가 오지 않는다 — 여기서 끝난 것으로 쳐야
+            // in-flight 가 굳지 않는다.
+            ticket.release();
+            return null;
+        }
+        return message;
+    }
 
     @Override
     public void afterMessageHandled(Message<?> message, MessageChannel channel, MessageHandler handler,

@@ -302,13 +302,17 @@ class MovementStompIntegrationTest {
     }
 
     @Test
-    @DisplayName("⑨ island.members.updated 로 탈락한 주민은 방에서 나가고 남은 주민이 FullState 를 받는다 — 탈락자에겐 더 보내지 않는다")
+    @DisplayName("⑨ island.members.updated 로 탈락한 주민은 방에서 나가고 남은 주민이 FullState 를 받는다 — 탈락자에겐 더 보내지 않고, "
+            + "같은 id 로 다시 구독하면 관문이 다시 판정해 ERROR·종료")
     void membershipRemovalEvictsTheResident() throws Exception {
         UUID a = member();
         UUID b = member();
         BlockingQueue<Map<String, Object>> aMoves = movement(connect(a));
         awaitFullState(aMoves, 1);
-        BlockingQueue<Map<String, Object>> bMoves = movement(connect(b));
+        RecordingHandler bHandler = new RecordingHandler();
+        StompSession sb = connect(b, bHandler);
+        BlockingQueue<Map<String, Object>> bMoves = collect(sb, subscription(movementDestination(), "b-move"));
+        snapshots(sb); // 짝 토픽 — 강퇴 뒤 남은 이 기록이 재구독의 판정을 건너뛰게 하던 자리다
         awaitFullState(bMoves, 2);
         awaitFullState(aMoves, 2);
         drainUntilQuiet(aMoves);
@@ -320,6 +324,11 @@ class MovementStompIntegrationTest {
 
         assertThat(actorIds(awaitFullState(aMoves, 1))).containsExactly(a.toString());
         assertThat(bMoves.poll(1, TimeUnit.SECONDS)).as("탈락자에겐 퇴장 FullState 도 가지 않는다(N7)").isNull();
+
+        sb.subscribe(subscription(movementDestination(), "b-move"), new DiscardingFrameHandler());
+        assertThat(bHandler.awaitError()).as("같은 id 재구독도 관문이 다시 판정한다").isEqualTo(ChatErrorCode.NOT_A_MEMBER.name());
+        awaitDisconnected(sb);
+        assertThat(aMoves.poll(1, TimeUnit.SECONDS)).as("방에 다시 들어오지 않는다").isNull();
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
@@ -345,16 +354,30 @@ class MovementStompIntegrationTest {
     }
 
     private BlockingQueue<Map<String, Object>> movement(StompSession session) {
-        return collect(session, "/topic/islands/" + island + "/movement");
+        return collect(session, subscription(movementDestination(), null));
     }
 
     private BlockingQueue<Map<String, Object>> snapshots(StompSession session) {
-        return collect(session, "/topic/islands/" + island + "/movement/snapshot");
+        return collect(session, subscription("/topic/islands/" + island + "/movement/snapshot", null));
     }
 
-    private static BlockingQueue<Map<String, Object>> collect(StompSession session, String destination) {
+    private String movementDestination() {
+        return "/topic/islands/" + island + "/movement";
+    }
+
+    /** {@code id} 가 null 이면 클라이언트가 매긴다. */
+    private static StompHeaders subscription(String destination, String id) {
+        StompHeaders headers = new StompHeaders();
+        headers.setDestination(destination);
+        if (id != null) {
+            headers.setId(id);
+        }
+        return headers;
+    }
+
+    private static BlockingQueue<Map<String, Object>> collect(StompSession session, StompHeaders subscription) {
         BlockingQueue<Map<String, Object>> queue = new LinkedBlockingQueue<>();
-        session.subscribe(destination, new StompFrameHandler() {
+        session.subscribe(subscription, new StompFrameHandler() {
             @Override
             public @NonNull Type getPayloadType(@NonNull StompHeaders headers) {
                 return Map.class;
@@ -406,7 +429,7 @@ class MovementStompIntegrationTest {
         }
     }
 
-    /** actor 가 정확히 {@code count} 명인 FullState 가 올 때까지 기다린다(join 의 전원 FullState 와 구독자 한정 FullState 가 겹쳐 온다). */
+    /** actor 가 정확히 {@code count} 명인 FullState 가 올 때까지 기다린다(남의 입장·퇴장 전원 FullState 와 자기 한정 FullState 가 섞여 온다). */
     private static Map<String, Object> awaitFullState(BlockingQueue<Map<String, Object>> queue, int count)
             throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(TIMEOUT_MS);

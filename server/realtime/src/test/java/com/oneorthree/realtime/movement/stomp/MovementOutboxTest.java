@@ -111,9 +111,30 @@ class MovementOutboxTest {
     }
 
     @Test
-    @DisplayName("구독 직후 첫 reliable 은 FullState 다 — 그 전에 온 다른 사건은 버린다")
+    @DisplayName("⑤ 멈추기 전에 채널에 넘긴 프레임도 실행기가 꺼낼 때 버리고 in-flight 를 푼다 — 재개 뒤 FullState 가 곧바로 나간다")
+    void frameHandedOffBeforeSuspendIsDroppedAndReleasesInFlight() {
+        MovementOutboundInterceptor interceptor = new MovementOutboundInterceptor();
+        outbox.enqueueReliable(bytes("FullState"), true); // 채널에 넘어갔고 실행기에 밀려 있다(완료 통지 전)
+        outbox.enqueueReliable(bytes("PathAccepted"), false);
+
+        outbox.suspend();
+        assertThat(interceptor.beforeHandle(sent.get(0), null, null)).as("멈춘 outbox 의 프레임은 버린다").isNull();
+
+        outbox.resume();
+        outbox.enqueueReliable(bytes("FullState-resync"), true);
+        assertThat(payloads()).as("버리면서 in-flight 를 풀었다 — 완료 통지 없이 다음 건이 나간다")
+                .containsExactly("FullState", "FullState-resync");
+        assertThat(interceptor.beforeHandle(sent.get(1), null, null)).as("살아 있으면 그대로 내보낸다")
+                .isSameAs(sent.get(1));
+        outbox.close();
+        assertThat(interceptor.beforeHandle(sent.get(1), null, null)).as("닫혔어도 버린다").isNull();
+    }
+
+    @Test
+    @DisplayName("구독 직후 첫 reliable 은 그 세션 한정 FullState 다 — 그 전에 온 다른 사건·전원 FullState 는 버린다")
     void reliableEventsBeforeTheFirstFullStateAreDropped() {
         assertThat(outbox.enqueueReliable(bytes("PathAccepted"), false)).isZero();
+        assertThat(outbox.enqueueReliable(bytes("FullState-ALL"), false)).as("남의 입장이 낸 전원 FullState").isZero();
         outbox.enqueueReliable(bytes("FullState"), true);
         outbox.enqueueReliable(bytes("Arrived"), false);
 

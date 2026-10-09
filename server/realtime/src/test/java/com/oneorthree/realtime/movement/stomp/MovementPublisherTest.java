@@ -55,8 +55,10 @@ class MovementPublisherTest {
     void everyMessageTypeSerializesWithTheContractShape() {
         MovementEvent.Point start = new MovementEvent.Point(38.5, 45.5);
         MovementEvent.Point next = new MovementEvent.Point(39.5, 44.5);
+        // 첫 reliable 은 그 세션 한정 FullState 여야 송신 게이트가 열린다(구독 직후의 requestFullState).
         publisher.onEvent(island, new MovementEvent.FullState(1, 10, 50, 10.989, List.of(
-                new MovementEvent.ActorState(user, 38.5, 45.5, MotionState.IDLE, 0, 0, List.of()))), Target.ALL);
+                new MovementEvent.ActorState(user, 38.5, 45.5, MotionState.IDLE, 0, 0, List.of()))),
+                Target.only("s1"));
         publisher.onEvent(island, new MovementEvent.PathAccepted(user, 7, 3, 1, 11, start, next, 10.989,
                 List.of(next)), Target.ALL);
         publisher.onEvent(island, new MovementEvent.MoveRejected(user, 8, RejectReason.OUT_OF_RANGE, 1, start),
@@ -109,7 +111,8 @@ class MovementPublisherTest {
         MovementOutbox other = publisher.open(island, "s2", UUID.randomUUID());
         other.subscribeMovement("sub-other");
         MovementEvent.FullState state = new MovementEvent.FullState(1, 1, 50, 10.989, List.of());
-        publisher.onEvent(island, state, Target.ALL);
+        publisher.onEvent(island, state, Target.only("s1"));
+        publisher.onEvent(island, state, Target.only("s2"));
         sent.clear();
 
         publisher.onEvent(island, new MovementEvent.MoveRejected(user, 1, RejectReason.STALE_COMMAND, 1,

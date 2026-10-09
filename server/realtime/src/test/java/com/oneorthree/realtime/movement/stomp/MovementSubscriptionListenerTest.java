@@ -2,31 +2,40 @@ package com.oneorthree.realtime.movement.stomp;
 
 import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
+import com.oneorthree.realtime.config.StompAuthChannelInterceptor;
 import com.oneorthree.realtime.config.StompTopics;
+import com.oneorthree.realtime.focus.IslandFocusSessions;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.movement.MoveIntent;
+import com.oneorthree.realtime.movement.MovementEvent;
 import com.oneorthree.realtime.movement.MovementRooms;
 import com.oneorthree.realtime.movement.RoomRuntime;
+import com.oneorthree.realtime.movement.Target;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -35,12 +44,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -76,6 +87,7 @@ class MovementSubscriptionListenerTest {
     private final List<Long> delays = new ArrayList<>();
     private final List<ScheduledFuture<?>> futures = new ArrayList<>();
 
+    private MovementPublisher publisher;
     private MovementRooms rooms;
     private MovementSubscriptionListener listener;
     private long tick;
@@ -93,7 +105,7 @@ class MovementSubscriptionListenerTest {
             ((Runnable) invocation.getArgument(0)).run();
             return null;
         }).given(watchdog).execute(any(Runnable.class));
-        MovementPublisher publisher = publisher();
+        publisher = publisher();
         rooms = new MovementRooms(publisher, meterRegistry);
         listener = listener(rooms, publisher);
     }
@@ -352,6 +364,150 @@ class MovementSubscriptionListenerTest {
         assertThat(scheduled).isEmpty();
     }
 
+    @Test
+    @DisplayName("통과 판정의 재개와 새 사건의 멈춤이 같은 순간에 엇갈려도 새 판정 전엔 그 세션에 아무것도 가지 않는다")
+    void allowedVerdictRacingANewEventNeverReopensBeforeTheNewJudgment() throws Exception {
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal target = connect("b");
+        join("a", stays);
+        join("b", target);
+        tick();
+        sent.clear();
+        MovementOutbox outbox = outboxOf("b");
+        CountDownLatch judging = new CountDownLatch(1);
+        CountDownLatch verdict = new CountDownLatch(1);
+        willAnswer(invocation -> {
+            judging.countDown();
+            verdict.await(5, TimeUnit.SECONDS);
+            return null; // 통과
+        }).willDoNothing().given(accessGuard).requireMemberUncached(island, target.userId(), target.bearer());
+
+        listener.recheckMembership(island, target.userId());
+        Thread oldJudgment = new Thread(this::runNext, "old-judgment");
+        oldJudgment.start();
+        assertThat(judging.await(5, TimeUnit.SECONDS)).isTrue();
+        Thread newEvent = new Thread(() -> listener.recheckMembership(island, target.userId()), "new-event");
+        synchronized (outbox) {
+            verdict.countDown();
+            awaitBlocked(oldJudgment); // 통과로 판정하고 재개(outbox 잠금) 앞에 섰다
+            newEvent.start();
+            awaitBlocked(newEvent); // 새 사건의 멈춤이 바로 그 순간에 들어온다
+        }
+        oldJudgment.join(5_000);
+        newEvent.join(5_000);
+
+        rooms.accept(island, stays.userId(), "a", new MoveIntent(1, 1, 39.5, 45.5));
+        tick();
+        tick();
+        assertThat(bodiesFor("b")).as("새 판정 전엔 옛 통과의 재개·FullState 도 새지 않는다").isEmpty();
+        assertThat(scheduled).as("새 사건의 판정이 남아 있다").hasSize(1);
+
+        runNext(); // 새 세대 판정 — 통과
+        tick();
+        assertThat(types(bodiesFor("b")).get(0)).isEqualTo("FullState");
+    }
+
+    @Test
+    @DisplayName("강퇴 뒤 같은 id 로 다시 구독하면 남은 짝 구독 기록을 근거로 건너뛰지 않고 관문이 다시 판정한다 — 비멤버면 거절(ERROR)")
+    void evictedSessionIsJudgedAgainWhenItResubscribesWithTheSameId() {
+        StompAuthChannelInterceptor gate = gate();
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal kicked = connect("b");
+        join("a", stays);
+        inbound(gate, raw("b", "m", StompTopics.movementTopic(island), kicked));
+        inbound(gate, raw("b", "s", StompTopics.movementSnapshotTopic(island), kicked));
+        verify(accessGuard, times(1)).requireMember(island, kicked.userId(), kicked.bearer()); // 짝 토픽은 이어받는다
+        tick();
+        willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMemberUncached(island, kicked.userId(), kicked.bearer());
+        listener.recheckMembership(island, kicked.userId());
+        runNext(); // 비멤버 확정 — 퇴장
+        tick();
+        sent.clear();
+        assertThat(sessions.subscriptionIdOf("b", StompTopics.movementTopic(island))).as("두 구독 기록도 지운다").isNull();
+        assertThat(sessions.subscriptionIdOf("b", StompTopics.movementSnapshotTopic(island))).isNull();
+
+        willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(island, kicked.userId(), kicked.bearer());
+        assertThatThrownBy(() -> inbound(gate, raw("b", "m", StompTopics.movementTopic(island), kicked)))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+        verify(accessGuard, times(2)).requireMember(island, kicked.userId(), kicked.bearer()); // 다시 판정 1회
+        tick();
+        assertThat(sent).as("방에 다시 들어가지 않는다 — 남은 주민도 FullState 를 받지 않는다").isEmpty();
+        assertThat(listener.holdsLiveOutbox("b", island)).isFalse();
+    }
+
+    @Test
+    @DisplayName("관문이 살아 있던 outbox 로 판정을 이어받은 직후 강퇴가 끼어들면 그 구독은 새 outbox·actor 를 만들지 않는다")
+    void subscribeInheritedJustBeforeEvictionNeverRejoins() {
+        StompAuthChannelInterceptor gate = gate();
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal kicked = connect("b");
+        join("a", stays);
+        inbound(gate, raw("b", "m", StompTopics.movementTopic(island), kicked));
+        inbound(gate, raw("b", "s", StompTopics.movementSnapshotTopic(island), kicked));
+        tick();
+        // 같은 id 재전송 — 관문은 살아 있는 outbox 로 이어받아 통과시켰고, 처리기에 닿기 전에 강퇴가 끼어든다.
+        Message<?> resent = gate.preSend(raw("b", "m", StompTopics.movementTopic(island), kicked), null);
+        willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMemberUncached(island, kicked.userId(), kicked.bearer());
+        listener.recheckMembership(island, kicked.userId());
+        runNext();
+        tick();
+        sent.clear();
+
+        listener.preSend(resent, null);
+        tick();
+
+        verify(accessGuard, times(1)).requireMember(island, kicked.userId(), kicked.bearer());
+        assertThat(sent).as("유령 actor 없음 — 남은 주민에게 FullState 도 가지 않는다").isEmpty();
+        assertThat(listener.holdsLiveOutbox("b", island)).isFalse();
+        assertThat(sessions.subscriptionIdOf("b", StompTopics.movementTopic(island)))
+                .as("판정받은 구독으로 남지 않는다 — 다음 구독은 처음부터 판정").isNull();
+    }
+
+    @Test
+    @DisplayName("③ 교체됐던 기기가 같은 구독 id 로 돌아오면 첫 reliable 은 자기 FullState 다 — 그 사이 나간 다른 사건은 버린다")
+    void supersededDeviceReturningWithTheSameIdStartsFromItsOwnFullState() {
+        ChatPrincipal phone = connect("phone");
+        join("phone", phone);
+        tick();
+        ChatPrincipal tablet = register("tablet", phone.userId());
+        join("tablet", tablet);
+        tick();
+        sent.clear();
+
+        join("phone", phone); // 같은 id "m" — actor 를 되찾는다
+        // 틱 스레드가 그 입장을 처리하기 전에 낸 사건(진행 중이던 이동의 도착 등)
+        publisher.onEvent(island, new MovementEvent.Arrived(phone.userId(), 1, 99,
+                new MovementEvent.Point(39.5, 45.5)), Target.ALL);
+        tick();
+
+        List<JsonNode> bodies = bodiesFor("phone");
+        assertThat(types(bodies)).as("자기 FullState 전에 낸 Arrived 는 버린다").doesNotContain("Arrived");
+        assertThat(types(bodies).get(0)).isEqualTo("FullState");
+        assertThat(actorIds(bodies.get(0))).containsExactly(phone.userId().toString());
+    }
+
+    @Test
+    @DisplayName("⑥ 다른 세션 입장의 전원 FullState 가 먼저 처리돼도 첫 메시지는 자기 actor 가 든 그 세션 한정 FullState 다")
+    void firstFullStateAlwaysCarriesTheSubscribersOwnActor() {
+        ChatPrincipal a = connect("a");
+        join("a", a);
+        tick();
+        ChatPrincipal c = connect("c");
+        ChatPrincipal b = connect("b");
+        join("c", c); // 방 큐에서 b 보다 앞 — 그 입장의 전원 FullState 엔 b 가 없다
+        join("b", b);
+        tick();
+
+        JsonNode first = bodiesFor("b").get(0);
+        assertThat(first.get("type").stringValue()).isEqualTo("FullState");
+        assertThat(actorIds(first)).contains(b.userId().toString());
+    }
+
     private MovementPublisher publisher() {
         MovementOutboundInterceptor completion = new MovementOutboundInterceptor();
         MessageChannel channel = (message, timeout) -> {
@@ -360,6 +516,36 @@ class MovementSubscriptionListenerTest {
             return true;
         };
         return new MovementPublisher(json, sessions, meterRegistry, channel);
+    }
+
+    /** 실제 관문 — 이 처리기와 같은 레지스트리·멤버십 목을 쓴다. 시도 창은 늘 잡힌다. */
+    @SuppressWarnings("unchecked")
+    private StompAuthChannelInterceptor gate() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        given(redis.opsForValue()).willReturn(values);
+        given(values.setIfAbsent(any(String.class), any(String.class), any(Duration.class))).willReturn(true);
+        return new StompAuthChannelInterceptor(jwtValidator, accessGuard, sessions, mock(IslandFocusSessions.class),
+                redis, listener);
+    }
+
+    /** 인바운드 체인 그대로 — 관문(거절이면 예외 = 실서비스의 ERROR 프레임 + 종료) 다음 이 처리기. */
+    private void inbound(StompAuthChannelInterceptor gate, Message<?> frame) {
+        listener.preSend(gate.preSend(frame, null), null);
+    }
+
+    private MovementOutbox outboxOf(String sessionId) {
+        return publisher.outboxes(island).stream().filter(o -> o.sessionId().equals(sessionId)).findFirst()
+                .orElseThrow();
+    }
+
+    /** 그 스레드가 모니터 앞에서 기다릴 때까지 — 5초 안에 안 서면 실패. */
+    private static void awaitBlocked(Thread thread) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (thread.getState() != Thread.State.BLOCKED) {
+            assertThat(System.nanoTime()).as("%s 가 잠금 앞에 서야 한다", thread.getName()).isLessThan(deadline);
+            Thread.sleep(1);
+        }
     }
 
     private void runNext() {
@@ -421,7 +607,17 @@ class MovementSubscriptionListenerTest {
         return ids;
     }
 
+    /** 관문이 멤버십을 직접 판정해 통과시킨 SUBSCRIBE — 이 처리기만 도는 테스트가 쓴다. */
     private static Message<byte[]> subscribe(String sessionId, String subscriptionId, String destination,
+            ChatPrincipal principal) {
+        Message<byte[]> frame = raw(sessionId, subscriptionId, destination, principal);
+        MessageHeaderAccessor.getAccessor(frame, StompHeaderAccessor.class)
+                .setHeader(MovementSubscriptionListener.JUDGED, Boolean.TRUE);
+        return frame;
+    }
+
+    /** 관문을 거치기 전의 SUBSCRIBE — 판정 표식은 관문이 붙인다. */
+    private static Message<byte[]> raw(String sessionId, String subscriptionId, String destination,
             ChatPrincipal principal) {
         StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
         accessor.setSessionId(sessionId);

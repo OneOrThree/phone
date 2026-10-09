@@ -24,7 +24,7 @@ import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -59,7 +59,14 @@ import java.util.regex.Matcher;
  * 때만</b> 재개한다 — 앞선 조회에 밀리거나 조회가 늦는 동안에도 강퇴된 사람에게 FullState·Snapshot 이 새지 않는다.
  * 통과하면 FullState 한 번으로 다시 맞춘다(멈춘 동안의 사건은 버렸다). 판정을 못 내리면(상류 장애) 멈춘 채
  * 1·2·4·8·16초 뒤 다시 판정한다 — 비멤버면 퇴장, 토큰이 죽었으면 1008, 31초 예산을 다 쓰면 1011
- * {@code MEMBERSHIP_UNVERIFIED} 로 닫아 앱이 다시 붙어 구독 관문에서 새로 판정받게 한다.
+ * {@code MEMBERSHIP_UNVERIFIED} 로 닫아 앱이 다시 붙어 구독 관문에서 새로 판정받게 한다. 세대 교체·멈춤과
+ * 세대 확인·재개는 {@code rechecks} 의 같은 키 잠금 안에서 한다 — 옛 세대의 통과가 새 사건의 멈춤을 덮지 못한다.
+ *
+ * <h2>짝 토픽 판정 이어받기의 근거는 이 색인이다</h2>
+ * 관문은 이 세션이 그 섬의 <b>살아 있는</b> outbox 를 들고 있을 때만({@link #holdsLiveOutbox}) 멤버십 판정을
+ * 건너뛴다 — 레지스트리의 구독 기록이 아니다. 강퇴는 outbox 를 색인에서 떼고 두 토픽의 구독 기록도 지운다. 관문이
+ * 이어받은 직후 강퇴가 끼어들 수 있으므로, 관문이 <b>직접 판정한</b> 구독에만 {@link #JUDGED} 헤더가 붙고, 이 처리기는
+ * outbox 가 없을 때 그 헤더가 없으면 새로 들이지 않는다.
  *
  * <h2>스레드 둘</h2>
  * 판정·재시도는 전용 단일 스레드 {@code movement-recheck}, 송신 워치독과 <b>모든 소켓 종료</b>는 별도
@@ -70,6 +77,12 @@ import java.util.regex.Matcher;
 @Slf4j
 @Component
 public class MovementSubscriptionListener implements ChannelInterceptor {
+
+    /**
+     * 관문({@code StompAuthChannelInterceptor})이 멤버십을 <b>직접 판정해 통과시킨</b> 이동 SUBSCRIBE 에 붙이는 메시지
+     * 헤더(값 {@code Boolean.TRUE}). 클라이언트 헤더는 네이티브 헤더로만 들어오므로 클라이언트가 붙일 수 없다.
+     */
+    public static final String JUDGED = "movementJudged";
 
     /** 첫 판정이 실패한 뒤의 재판정 간격(초) — 다 쓰면(총 31초) 1011 로 닫는다. */
     private static final long[] RETRY_DELAYS_SECONDS = {1, 2, 4, 8, 16};
@@ -87,7 +100,10 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     private final ScheduledExecutorService watchdog;
     private final Counter suspendedCount;
 
-    /** sessionId → (islandId → outbox). 이 맵의 {@code compute} 가 세션별 잠금이다 — 람다 안에서 블로킹 금지. */
+    /**
+     * sessionId → (islandId → outbox). 이 맵의 {@code compute} 가 세션별 잠금이다 — 람다 안에서 블로킹 금지. 안쪽 맵은
+     * 그 잠금 안에서만 고치고, 관문은 잠그지 않고 읽는다({@link #holdsLiveOutbox}).
+     */
     private final ConcurrentHashMap<String, Map<UUID, MovementOutbox>> bySession = new ConcurrentHashMap<>();
 
     /** 진행 중인 재판정 — outbox 당 한 세대. 세대가 바뀌면(새 사건·취소) 늦게 도는 옛 작업은 아무것도 하지 않는다. */
@@ -96,7 +112,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     /**
      * ponytail: 판정 풀은 1스레드 — 상류 장애 때 판정이 줄을 서 31초 예산보다 늦게 끝날 수 있다(그동안 멈춰 있어
      * fail-closed). 늘려야 하면 {@code newExecutor(1, …)} 의 크기만 키운다 — 같은 outbox 의 옛·새 작업이 겹쳐도
-     * 처치는 세대 비교({@code rechecks} 의 remove/replace)로 한 번뿐이다.
+     * 처치는 세대 비교({@code rechecks} 의 compute/remove/replace)로 한 번뿐이다.
      */
     @Autowired
     public MovementSubscriptionListener(MovementRooms rooms, MovementPublisher publisher,
@@ -181,14 +197,24 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         }
         UUID islandId = UUID.fromString(topic.group(1));
         boolean snapshot = topic.group(2) != null;
+        boolean judged = Boolean.TRUE.equals(accessor.getHeader(JUDGED));
         // 세션 잠금 — 람다 안에서 블로킹 금지(방·outbox 등록은 큐에 넣기만 한다).
         bySession.compute(accessor.getSessionId(), (sessionId, held) -> {
             if (!sessions.isConnected(sessionId)) {
                 return held; // 정리가 이미 지나간 세션의 늦은 프레임 — 들이면 아무도 내보내지 않는다.
             }
-            Map<UUID, MovementOutbox> outboxes = held != null ? held : new HashMap<>();
-            MovementOutbox outbox = outboxes.computeIfAbsent(islandId,
-                    id -> publisher.open(id, sessionId, principal.userId()));
+            Map<UUID, MovementOutbox> outboxes = held != null ? held : new ConcurrentHashMap<>();
+            MovementOutbox outbox = outboxes.get(islandId);
+            if (outbox == null) {
+                if (!judged) {
+                    // 관문은 살아 있던 outbox 를 근거로 판정을 이어받았는데 그 사이 강퇴됐다 — 판정 없이 새로 들이지 않고,
+                    // 구독 기록도 지워 «판정받은 구독»으로 남기지 않는다. 다음 구독은 관문이 처음부터 판정한다.
+                    sessions.unsubscribe(sessionId, subscriptionId);
+                    return held;
+                }
+                outbox = publisher.open(islandId, sessionId, principal.userId());
+                outboxes.put(islandId, outbox);
+            }
             if (snapshot) {
                 outbox.subscribeSnapshot(subscriptionId);
                 return outboxes;
@@ -229,6 +255,17 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     }
 
     /**
+     * 이 세션이 그 섬의 이동 outbox 를 <b>살아 있는 채로</b> 들고 있는가 — 관문이 짝 토픽의 멤버십 판정을 이어받는
+     * 근거다(강퇴·해지·종료 뒤엔 false). 멈춘(재판정 중) outbox 도 살아 있다 — 이어받은 구독도 같이 멈춰 있고, 강퇴되면
+     * 같이 지워진다. 잠그지 않고 읽는다.
+     */
+    public boolean holdsLiveOutbox(String sessionId, UUID islandId) {
+        Map<UUID, MovementOutbox> held = sessionId == null ? null : bySession.get(sessionId);
+        MovementOutbox outbox = held == null ? null : held.get(islandId);
+        return outbox != null && !outbox.isClosed();
+    }
+
+    /**
      * 소켓 종료 — 그 세션이 든 방 전부에서 퇴장하고 재판정도 취소한다. {@code WebSocketConfig} 가
      * {@link RealtimeSessionRegistry#closed} <b>직후</b>에 부른다(순서가 유령 actor 방지의 전제다, 클래스 설명).
      */
@@ -261,15 +298,22 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     }
 
     /**
-     * 전달부터 멈추고 예약한다 — 이 outbox 는 여기서부터 {@code ALLOWED} 판정({@link #act})까지 아무것도 보내지
-     * 않는다(그 사이 사건은 버리고, 재개 때 FullState 로 다시 맞춘다). 재개는 그 한 곳뿐이라 나머지 처치(퇴장·
+     * 전달부터 멈추고 예약한다 — 이 outbox 는 여기서부터 {@code ALLOWED} 판정({@link #resumeIfCurrent})까지 아무것도
+     * 보내지 않는다(그 사이 사건은 버리고, 재개 때 FullState 로 다시 맞춘다). 재개는 그 한 곳뿐이라 나머지 처치(퇴장·
      * 1011·1008·취소)는 멈춘 채로 끝난다.
      */
     private void restart(MovementOutbox outbox, UUID islandId) {
-        outbox.suspend();
-        suspendedCount.increment();
         Recheck first = new Recheck(islandId, 0);
-        cancel(rechecks.put(outbox, first));
+        Recheck[] previous = new Recheck[1];
+        // 세대 교체와 멈춤을 한 키 잠금 안에서 — 옛 세대의 재개(resumeIfCurrent)와 직렬화돼, 그 사이에 끼어 새 판정 전에
+        // 전달이 열리지 않는다. 람다 안에서 블로킹 금지(멈춤은 플래그만 바꾼다).
+        rechecks.compute(outbox, (key, current) -> {
+            previous[0] = current;
+            outbox.suspend();
+            return first;
+        });
+        cancel(previous[0]);
+        suspendedCount.increment();
         first.future = scheduler.schedule(() -> judgeAndAct(outbox, first), 0, TimeUnit.SECONDS);
     }
 
@@ -324,11 +368,8 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         switch (verdict) {
             case ALLOWED -> {
                 // 멈춘 동안의 사건은 버렸다 — FullState 한 번으로 다시 맞춘다(그 세션에만, 방 큐 FIFO).
-                if (rechecks.remove(outbox, recheck)) {
-                    outbox.resume();
-                    if (outbox.hasMovement()) {
-                        rooms.requestFullState(recheck.islandId, outbox.sessionId());
-                    }
+                if (resumeIfCurrent(outbox, recheck) && outbox.hasMovement()) {
+                    rooms.requestFullState(recheck.islandId, outbox.sessionId());
                 }
             }
             case NOT_A_MEMBER -> {
@@ -345,6 +386,25 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             case GONE -> rechecks.remove(outbox, recheck);
             default -> retryOrGiveUp(outbox, recheck);
         }
+    }
+
+    /**
+     * 그 세대가 아직 현재일 때만 재개하고 세대를 지운다 — 세대 확인과 재개가 {@code rechecks} 의 같은 키 잠금 안이라,
+     * 새 사건의 멈춤({@link #restart})은 이 앞이나 뒤에만 온다(뒤면 다시 멈춘다). 람다 안에서 블로킹 금지.
+     *
+     * @return 재개했으면 true
+     */
+    private boolean resumeIfCurrent(MovementOutbox outbox, Recheck recheck) {
+        boolean[] resumed = new boolean[1];
+        rechecks.computeIfPresent(outbox, (key, current) -> {
+            if (current != recheck) {
+                return current;
+            }
+            outbox.resume();
+            resumed[0] = true;
+            return null;
+        });
+        return resumed[0];
     }
 
     /** 판정 불가 — 멈춘 채 백오프로 다시 잰다. 예산을 다 쓰면 1011 로 닫는다(워치독 실행기에서). */
@@ -381,6 +441,10 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         // 세션 잠금 — 람다 안에서 블로킹 금지. 같은 섬에 새로 생긴 다른 outbox 는 건드리지 않는다.
         bySession.computeIfPresent(outbox.sessionId(), (id, held) -> {
             if (held.remove(islandId, outbox)) {
+                // 두 토픽의 구독 기록도 지운다 — 남으면 intent 관문을 통과하고, 같은 id 의 재구독이 재전송으로 읽힌다.
+                // 다음 구독은 관문이 처음부터 판정한다(이어받을 살아 있는 outbox 도 방금 뗐다).
+                sessions.unsubscribeDestinations(id,
+                        List.of(StompTopics.movementTopic(islandId), StompTopics.movementSnapshotTopic(islandId)));
                 leaveAndClose(islandId, id, outbox);
             }
             return held.isEmpty() ? null : held;

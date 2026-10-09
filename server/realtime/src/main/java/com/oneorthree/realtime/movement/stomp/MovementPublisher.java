@@ -77,16 +77,18 @@ public class MovementPublisher implements RoomRuntime.Listener {
             return;
         }
         byte[] payload = objectMapper.writeValueAsBytes(event);
-        boolean fullState = event instanceof MovementEvent.FullState;
         if (target instanceof Target.Only only) {
             MovementOutbox outbox = outboxes.get(only.sessionKey());
             if (outbox != null) {
-                enqueue(outbox, payload, fullState);
+                // 그 세션 한정 FullState(requestFullState)만 송신 게이트를 연다 — 방 큐 FIFO 상 그 세션의 join 뒤라 자기
+                // actor 가 들어 있다.
+                enqueue(outbox, payload, event instanceof MovementEvent.FullState);
             }
             return;
         }
         for (MovementOutbox outbox : outboxes.values()) {
-            enqueue(outbox, payload, fullState);
+            // 전원 FullState(남의 입장·퇴장)는 게이트를 열지 않는다 — 이 세션의 join 이 아직 처리되기 전일 수 있다.
+            enqueue(outbox, payload, false);
         }
     }
 
@@ -104,8 +106,8 @@ public class MovementPublisher implements RoomRuntime.Listener {
         }
     }
 
-    private void enqueue(MovementOutbox outbox, byte[] payload, boolean fullState) {
-        int depth = outbox.enqueueReliable(payload, fullState);
+    private void enqueue(MovementOutbox outbox, byte[] payload, boolean resync) {
+        int depth = outbox.enqueueReliable(payload, resync);
         if (depth > 0) {
             reliableDepth.record(depth);
         }

@@ -10,6 +10,7 @@ import com.oneorthree.realtime.focus.IslandFocusSessions;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -68,6 +69,10 @@ class StompAuthChannelInterceptorTest {
     @Mock
     private org.springframework.data.redis.core.ValueOperations<String, String> valueOps;
 
+    /** 이동 처리기의 색인 — 짝 토픽 판정 이어받기의 근거({@code holdsLiveOutbox}). 기본은 «들고 있는 outbox 없음». */
+    @Mock
+    private MovementSubscriptionListener movementSubscriptions;
+
     private StompAuthChannelInterceptor interceptor;
     private RealtimeSessionRegistry registry;
 
@@ -77,7 +82,8 @@ class StompAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         registry = new RealtimeSessionRegistry();
-        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis);
+        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
+                movementSubscriptions);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         given(redis.opsForValue()).willReturn(valueOps);
@@ -470,13 +476,19 @@ class StompAuthChannelInterceptorTest {
     // ── GROMO-2247 이동 채널 ─────────────────────────────────────────────
 
     @Test
-    @DisplayName("이동 두 토픽 구독은 섬 멤버십만 본다 — 집중 검사가 섞인 채팅 관문은 부르지 않고, 짝 토픽은 판정을 이어받는다(N1)")
+    @DisplayName("이동 두 토픽 구독은 섬 멤버십만 본다 — 집중 검사가 섞인 채팅 관문은 부르지 않고, 짝 토픽은 살아 있는 판정을 이어받는다(N1)")
     void movementSubscriptionsRequireMembershipOnly() {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
-        for (String topic : new String[] {"movement", "movement/snapshot"}) {
-            assertThatCode(() -> interceptor.preSend(message(movementSubscribe(topic, groupId)), null))
-                    .doesNotThrowAnyException();
-        }
+        // 첫 구독이 통과하면 처리기가 outbox 를 연다 — 둘째 구독 때는 살아 있다.
+        given(movementSubscriptions.holdsLiveOutbox(SESSION, groupId)).willReturn(false, true);
+        Message<byte[]> movement = message(movementSubscribe("movement", groupId));
+        Message<byte[]> snapshot = message(movementSubscribe("movement/snapshot", groupId));
+        assertThatCode(() -> interceptor.preSend(movement, null)).doesNotThrowAnyException();
+        assertThatCode(() -> interceptor.preSend(snapshot, null)).doesNotThrowAnyException();
+        assertThat(movement.getHeaders().get(MovementSubscriptionListener.JUDGED)).as("직접 판정한 구독에만 표식")
+                .isEqualTo(Boolean.TRUE);
+        assertThat(snapshot.getHeaders().get(MovementSubscriptionListener.JUDGED)).as("이어받은 구독엔 표식이 없다")
+                .isNull();
         // 앱은 접속마다 두 토픽을 연달아 구독한다 — 판정·시도 창은 세션×섬에 한 번이다.
         verify(accessGuard, org.mockito.Mockito.times(1)).requireMember(groupId, userId, BEARER);
         verify(valueOps, org.mockito.Mockito.times(1))

@@ -10,6 +10,7 @@ import com.oneorthree.realtime.focus.IslandFocusSessions;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -124,6 +125,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final RealtimeSessionRegistry sessions;
     private final IslandFocusSessions focusSessions;
     private final StringRedisTemplate redis;
+    private final MovementSubscriptionListener movementSubscriptions;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -228,20 +230,21 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     /**
      * 이동 토픽 구독(GROMO-2247) — 섬 멤버십을 <b>세션×섬마다 한 번</b> 판정한다.
      *
-     * <p>앱은 접속마다 {@code movement}·{@code movement/snapshot} 을 연달아 구독한다. 같은 세션이 그 섬의 짝 토픽을
-     * 이미 판정받고 들고 있으면 이번 것은 그 판정을 이어받는다 — 사용자 축 시도 창(600ms,
-     * {@code emoteSubscribeAttempt} 와 같은 방식)이 둘째 구독을 막지 않고, 상류 조회도 한 번이다. 짝이 없으면
-     * 창 → 멤버십 순으로 보고, 창 초과는 다른 관문 위반처럼 ERROR + 연결 종료다.
+     * <p>앱은 접속마다 {@code movement}·{@code movement/snapshot} 을 연달아 구독한다. 이 세션이 그 섬의 판정받은 이동
+     * 구독을 <b>살아 있는 채로</b> 들고 있으면(이동 처리기 색인의 outbox — 강퇴되면 사라진다,
+     * {@link MovementSubscriptionListener#holdsLiveOutbox}) 이번 것은 그 판정을 이어받는다 — 사용자 축 시도 창(600ms,
+     * {@code emoteSubscribeAttempt} 와 같은 방식)이 둘째 구독을 막지 않고, 상류 조회도 한 번이다. 근거를 레지스트리
+     * 구독 기록에 두지 않는 것은 강퇴 뒤 남은 기록이 판정을 건너뛰게 하기 때문이다. 이어받을 게 없으면 창 → 멤버십 순으로
+     * 보고 통과한 프레임에 {@link MovementSubscriptionListener#JUDGED} 를 붙인다(이어받은 직후 강퇴가 끼면 처리기가 그
+     * 헤더 없는 구독을 들이지 않는다). 창 초과는 다른 관문 위반처럼 ERROR + 연결 종료다.
      *
-     * <p><b>거절된 구독은 레지스트리 자리를 돌려준다.</b> 남겨 두면 «판정받은 구독»으로 오인돼 짝 토픽과 intent
-     * SEND 관문({@link #authorizeMovementIntent})을 통과시킨다 — ERROR 뒤 소켓이 닫히기 전에 처리되는 프레임이 있다.
+     * <p><b>거절된 구독은 레지스트리 자리를 돌려준다.</b> 남겨 두면 «판정받은 구독»으로 오인돼 intent SEND
+     * 관문({@link #authorizeMovementIntent})을 통과시킨다 — ERROR 뒤 소켓이 닫히기 전에 처리되는 프레임이 있다.
      */
     private void authorizeMovementSubscription(StompHeaderAccessor accessor, String destination, Matcher movement) {
         ChatPrincipal principal = requireSubscribable(accessor, destination);
         UUID islandId = uuidOrReject(movement.group(1));
-        String sibling = movement.group(2) == null ? StompTopics.movementSnapshotTopic(islandId)
-                : StompTopics.movementTopic(islandId);
-        if (sessions.subscriptionIdOf(accessor.getSessionId(), sibling) != null) {
+        if (movementSubscriptions.holdsLiveOutbox(accessor.getSessionId(), islandId)) {
             return;
         }
         try {
@@ -253,6 +256,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
             throw e;
         }
+        accessor.setHeader(MovementSubscriptionListener.JUDGED, Boolean.TRUE);
     }
 
     /**

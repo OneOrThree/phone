@@ -32,13 +32,19 @@ import java.util.concurrent.TimeUnit;
  *
  * <p><b>멈춤(suspend)</b> — 강퇴 재검사를 예약한 순간부터 통과로 판정될 때까지 이 세션엔 아무것도 보내지 않는다
  * (fail-closed). 멈춘 동안의 사건은 <b>쌓지 않고 버린다</b> — 재개 때 FullState 한 번으로 다시 맞추므로
- * ({@code awaitingFullState}) 밀린 사건을 한꺼번에 쏟지 않고, 큐 상한과 다툴 일도 없다. 판정·재시도·재동기화 요청은
- * {@link MovementSubscriptionListener} 가 한다.
+ * ({@code awaitingFullState}) 밀린 사건을 한꺼번에 쏟지 않고, 큐 상한과 다툴 일도 없다. 멈추기 전에 채널에 넘긴
+ * in-flight 한 건도 아웃바운드 실행기가 꺼낼 때 버린다({@link MovementOutboundInterceptor#beforeHandle}) — 소켓
+ * 쓰기가 이미 시작된 한 건만 나간다. 판정·재시도·재동기화 요청은 {@link MovementSubscriptionListener} 가 한다.
+ *
+ * <p><b>첫 reliable 은 이 세션만 겨냥한 FullState 다</b>({@code awaitingFullState}) — 구독 직후·재개 뒤·세션 교체에서
+ * 돌아온 뒤. 남의 입장·퇴장이 낸 전원 FullState 는 이 세션의 join 이 방 큐에서 처리되기 전일 수 있어(자기 actor 가
+ * 없다) 게이트를 열지 않는다. 그 세션 한정 FullState({@code requestFullState})는 방 큐 FIFO 상 join 뒤에 처리된다.
  *
  * <p><b>워치독</b> — 완료 통지가 끝내 오지 않는 프레임(표식 유실, 채널 구독자 0)이 있으면 그 세션 송신이 조용히
  * 굳는다. 워치독 실행기가 5초마다 {@link #sweep} 을 불러 {@link #STUCK_NANOS} 넘게 묶인 프레임을 끝난 것으로 친다
  * (덱이 찬 채 굳었으면 그때 종료 콜백도 나간다). 프레임마다 표식({@link Ticket})이 따로라, 워치독이 푼 뒤에 늦게 온
- * 옛 통지는 아무것도 풀지 않는다.
+ * 옛 통지는 아무것도 풀지 않는다. 단, 워치독이 푼 프레임이 실제로는 아웃바운드 실행기에 밀려 있다가 다음 프레임보다
+ * 늦게 나가면 그 세션의 순서가 한 번 어긋날 수 있다 — 완료 통지가 유실된 경우에만이고, 정상 경로는 통지가 다음 건을 푼다.
  *
  * <p>잠금은 이 객체 하나(짧다). <b>채널 전송·종료 콜백은 잠금 밖에서</b> 한다 — in-flight 표식이 동시 전송을 막으므로
  * 잠금이 필요 없고, 잠근 채 보내면 실행기가 작업을 바로 돌리는 경우(종료 중 거절 → 호출 스레드 실행) 완료 통지가
@@ -71,7 +77,10 @@ final class MovementOutbox {
     private byte[] latestSnapshot;
     private String movementSubscriptionId;
     private String snapshotSubscriptionId;
-    /** movement 구독 직후 첫 reliable 은 FullState 여야 한다(티켓 완료 조건 4) — 그 전의 다른 사건은 버린다. */
+    /**
+     * 첫 reliable 은 이 세션만 겨냥한 FullState(자기 actor 포함)여야 한다(티켓 완료 조건 4) — 그 전의 다른 사건과
+     * 전원 FullState 는 버린다.
+     */
     private boolean awaitingFullState;
     /** 같은 사용자의 다른 세션이 그 섬 actor 를 가져갔다 — 이 세션엔 더 보내지 않는다(N6). */
     private boolean superseded;
@@ -108,15 +117,16 @@ final class MovementOutbox {
     /**
      * reliable 사건 하나를 줄 세운다.
      *
-     * @param fullState 이 사건이 FullState 인가 — 구독 직후엔 FullState 가 올 때까지 다른 사건을 버린다
+     * @param resync 이 세션만 겨냥한 FullState 인가({@code Target.Only}) — 게이트({@code awaitingFullState})를 여는
+     *               유일한 사건이다. 전원 FullState 는 {@code false} 로 온다
      * @return 줄 세운 직후 덱 깊이(측정용), 받을 구독이 없거나 버렸으면 0, 상한을 넘겼으면 -1
      */
-    int enqueueReliable(byte[] payload, boolean fullState) {
+    int enqueueReliable(byte[] payload, boolean resync) {
         Message<byte[]> next;
         int depth;
         synchronized (this) {
             if (closed || superseded || suspended || movementSubscriptionId == null
-                    || (awaitingFullState && !fullState)) {
+                    || (awaitingFullState && !resync)) {
                 return 0;
             }
             if (reliable.size() >= RELIABLE_LIMIT) {
@@ -184,8 +194,8 @@ final class MovementOutbox {
     }
 
     /**
-     * 멈춘다 — 쌓인 reliable·Snapshot 을 버리고 다음 reliable 은 FullState 부터 받는다(재개 때 재동기화). 이미 나간
-     * in-flight 한 건은 그대로 끝난다.
+     * 멈춘다 — 쌓인 reliable·Snapshot 을 버리고 다음 reliable 은 FullState 부터 받는다(재개 때 재동기화). 채널에 이미
+     * 넘긴 in-flight 한 건은 실행기가 꺼낼 때 버려진다({@link #isWithheld}).
      */
     synchronized void suspend() {
         suspended = true;
@@ -201,7 +211,8 @@ final class MovementOutbox {
 
     /**
      * movement 구독(= 방 입장). 새 구독이면 첫 reliable 은 FullState 를 기다린다 — 같은 id 의 재전송 SUBSCRIBE 는
-     * 이미 받던 흐름을 끊지 않는다. 어느 쪽이든 이 세션이 actor 를 다시 가져온다(N6).
+     * 이미 받던 흐름을 끊지 않는다(교체됐다가 같은 id 로 돌아온 경우는 {@link #supersede} 가 이미 게이트를 닫아 뒀다).
+     * 어느 쪽이든 이 세션이 actor 를 다시 가져온다(N6).
      */
     synchronized void subscribeMovement(String subscriptionId) {
         if (!subscriptionId.equals(movementSubscriptionId)) {
@@ -240,18 +251,25 @@ final class MovementOutbox {
         return movementSubscriptionId != null || snapshotSubscriptionId != null;
     }
 
-    /** 닫혔다(해지·종료·퇴장·큐 초과) — 이 outbox 로는 더 보내지 않는다. */
+    /** 닫혔다(해지·종료·강퇴·큐 초과) — 이 outbox 로는 더 보내지 않는다. */
     synchronized boolean isClosed() {
         return closed;
+    }
+
+    /** 멈췄거나 닫혔다 — 이미 채널에 넘긴 프레임도 내보내지 않는다({@link MovementOutboundInterceptor#beforeHandle}). */
+    synchronized boolean isWithheld() {
+        return suspended || closed;
     }
 
     /**
      * 같은 사용자의 다른 세션이 actor 를 가져갔다(N6) — 이 세션이 다시 movement 를 구독할 때까지 보내지 않는다.
      * 구독 자체(레지스트리 슬롯)는 그대로 둔다 — 그 기기가 다시 구독하면 actor 를 되찾는 자리이고, 해지나 연결
-     * 종료 때 평소처럼 돌려받는다.
+     * 종료 때 평소처럼 돌려받는다. 게이트도 여기서 닫는다 — 같은 id 로 돌아와도 그 사이 다른 사건이 자기 FullState 보다
+     * 먼저 나가지 않게.
      */
     synchronized void supersede() {
         superseded = true;
+        awaitingFullState = true;
         reliable.clear();
         latestSnapshot = null;
     }
@@ -341,9 +359,14 @@ final class MovementOutbox {
     /** 보낸 프레임 한 건의 표식 — 그 프레임의 완료 통지만 다음 건을 풀어 준다. */
     final class Ticket {
 
-        /** {@link MovementOutboundInterceptor} 가 그 프레임 처리가 끝났을 때 부른다. */
+        /** {@link MovementOutboundInterceptor} 가 그 프레임 처리가 끝났을 때(또는 버렸을 때) 부른다. */
         void release() {
             MovementOutbox.this.release(this);
+        }
+
+        /** 이 프레임을 넘긴 뒤 outbox 가 멈췄거나 닫혔다 — 실행기가 꺼낼 때 버린다. */
+        boolean withheld() {
+            return isWithheld();
         }
     }
 }
