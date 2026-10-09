@@ -10,6 +10,7 @@ import {
   IslandProjection,
   isGoldenFishParticipant,
   parseGoldenFishEvent,
+  publishMoveIntent,
   realtimeWsUrl,
   startIslandRealtime,
   stompIslandChannel,
@@ -18,6 +19,7 @@ import {
   type GoldenFishEvent,
   type PresenceView,
 } from '@/services/islandRealtime';
+import { createMovementController, type RemotePosition } from '@/services/movementSync';
 import type { FocusMember, ProjectionWatermark, RestMember } from '@/services/api/islands';
 import { Client } from '@stomp/stompjs';
 
@@ -1232,6 +1234,177 @@ describe('stompIslandChannel', () => {
     assert.equal((events[0] as any).type, 'focus.member.updated');
     assert.equal(ch.send('/app/islands/i1/focus/emotes', { sessionId: 's', type: 'hello' }), true);
     assert.deepEqual(JSON.parse(client().published[0].body), { sessionId: 's', type: 'hello' });
+  });
+});
+
+describe('이동 채널 (GROMO-2248)', () => {
+  const ISLAND = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const ME = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const MOVEMENT = `/topic/islands/${ISLAND}/movement`;
+  const SNAPSHOT = `/topic/islands/${ISLAND}/movement/snapshot`;
+  const client = () => (Client as any).instances.at(-1);
+  const sub = (dest: string) =>
+    client().subs.find((s: { dest: string }) => s.dest === dest) as {
+      cb: (m: { body: string }) => void;
+    };
+  const open = (
+    onEvent: (body: unknown) => void = () => {},
+    errors: string[] = [],
+    denied: number[] = [],
+  ) =>
+    stompIslandChannel({
+      islandId: ISLAND,
+      presence: false,
+      emote: false,
+      movement: true,
+      onEvent,
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+      onMovementDenied: () => denied.push(1),
+    });
+
+  beforeEach(() => {
+    (Client as any).instances.length = 0;
+  });
+
+  test('이동 채널은 movement → movement/snapshot → 오류 큐 순으로 구독하고 presence 는 구독하지 않는다', () => {
+    open();
+    assert.deepEqual(
+      client().subs.map((s: { dest: string }) => s.dest),
+      [MOVEMENT, SNAPSHOT, '/user/queue/errors'],
+    );
+    assert.equal(client().connectHeaders.Authorization, 'Bearer AT');
+  });
+
+  test('목적지는 /app/islands/{id}/movement/intent 로 MoveIntent JSON 을 보낸다(id 인코딩 없음)', () => {
+    const channel = open();
+    const intent = { commandSeq: 1, navRevision: 1, goalX: 67.5, goalY: 27.5 };
+    assert.equal(publishMoveIntent(channel, ISLAND, intent), true);
+    assert.equal(client().published[0].destination, `/app/islands/${ISLAND}/movement/intent`);
+    assert.deepEqual(JSON.parse(client().published[0].body), intent);
+  });
+
+  test('PathAccepted 전에 온 스냅샷(pathId 3)도 모르는 pathId 그대로 그리고(N35), PathAccepted(pathId 3) 뒤에도 채택한다', () => {
+    const remote: [string, RemotePosition][] = [];
+    const controller = createMovementController({
+      me: ME,
+      send: () => true,
+      position: () => ({ x: 38.5, y: 45.5 }),
+      walking: () => false,
+      onRemotePosition: (userId, p) => remote.push([userId, p]),
+    });
+    open(controller.onMessage);
+    const actor = (userId: string) => ({
+      userId,
+      x: 38.5,
+      y: 45.5,
+      state: 'IDLE',
+      pathId: 0,
+      lastCommandSeq: 0,
+    });
+    sub(MOVEMENT).cb({
+      body: JSON.stringify({
+        type: 'FullState',
+        navRevision: 1,
+        serverTick: 12345,
+        tickMs: 50,
+        speed: 10.989,
+        actors: [actor(ME), actor(B)],
+      }),
+    });
+    remote.length = 0;
+    const snapshot = JSON.stringify({
+      type: 'Snapshot',
+      serverTick: 12350,
+      navRevision: 1,
+      entities: [
+        {
+          userId: B,
+          pathId: 3,
+          x: 39.21,
+          y: 44.79,
+          segmentIndex: 1,
+          state: 'MOVING',
+          lastCommandSeq: 7,
+        },
+      ],
+    });
+    sub(SNAPSHOT).cb({ body: snapshot });
+    // N35: 경로를 아직 몰라도 보간 없이 서버 좌표를 그대로 그린다 — 멈춰 있지 않는다.
+    assert.deepEqual(remote, [[B, { x: 39.21, y: 44.79, moving: true }]]);
+    sub(MOVEMENT).cb({
+      body: JSON.stringify({
+        type: 'PathAccepted',
+        userId: B,
+        commandSeq: 7,
+        pathId: 3,
+        navRevision: 1,
+        startTick: 12346,
+        start: { x: 38.5, y: 45.5 },
+        goal: { x: 40.5, y: 43.5 },
+        speed: 10.989,
+        waypoints: [
+          { x: 39.5, y: 44.5 },
+          { x: 40.5, y: 43.5 },
+        ],
+      }),
+    });
+    remote.length = 0;
+    sub(SNAPSHOT).cb({ body: snapshot });
+    assert.deepEqual(remote, [[B, { x: 39.21, y: 44.79, moving: true }]]);
+  });
+
+  test('오류 큐의 NOT_A_MEMBER 를 받으면 호출부에 알리고(onMovementDenied), 재접속해도 이동 토픽을 다시 구독하지 않는다', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    const c = client();
+    sub('/user/queue/errors').cb({
+      body: JSON.stringify({
+        code: 'NOT_A_MEMBER',
+        message: 'NOT_A_MEMBER',
+        clientMessageId: null,
+      }),
+    });
+    assert.equal(errors.length, 1);
+    assert.equal(denied.length, 1);
+    c.subs.length = 0;
+    c.activate(); // stompjs 의 5초 재접속
+    assert.deepEqual(
+      c.subs.map((s: { dest: string }) => s.dest),
+      ['/user/queue/errors'],
+    );
+  });
+
+  test('구독 거절 STOMP ERROR 도 onMovementDenied 를 부르고 이동 구독을 끊는다 — 무한 재접속·재거절 루프를 막는다', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'NOT_A_MEMBER' } });
+    assert.equal(errors.length, 1);
+    assert.equal(denied.length, 1);
+    c.subs.length = 0;
+    c.activate();
+    assert.deepEqual(
+      c.subs.map((s: { dest: string }) => s.dest),
+      ['/user/queue/errors'],
+    );
+  });
+
+  test('오류 큐의 STALE_COMMAND 같은 무관한 코드는 onMovementDenied 를 부르지 않는다 — onError 로만 오고 동기화는 그대로 둔다', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    sub('/user/queue/errors').cb({
+      body: JSON.stringify({
+        code: 'STALE_COMMAND',
+        message: '명령이 낡았어요. 다시 시도해주세요.',
+      }),
+    });
+    assert.deepEqual(errors, ['명령이 낡았어요. 다시 시도해주세요.']);
+    assert.equal(denied.length, 0);
   });
 });
 

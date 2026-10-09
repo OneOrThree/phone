@@ -12,10 +12,15 @@
  *  - `aggregateVersion` 이 알고 있는 버전 이하이면 중복·역순으로 버린다.
  *  - `schemaVersion !== 1`, 모르는 type, 다른 섬 이벤트는 버리고 워터마크도 진행하지 않는다.
  *  - 응원은 `eventId` 중복 제거와 `expiresAt` TTL만 적용한다(버전 없음).
+ *
+ * 홈 섬 이동(GROMO-2248)은 같은 채널 함수로 **이동 전용 연결**을 따로 연다(`movement: true`) —
+ * `SUB /topic/islands/{id}/movement`·`/movement/snapshot`, `SEND /app/islands/{id}/movement/intent`.
+ * 메시지 해석은 `movementSync.ts` 가 맡는다.
  */
 import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
 import { API_URL, ApiError } from '@/services/api/client';
 import { getAccessToken } from '@/services/api/session';
+import type { MoveIntent } from '@/services/movementSync';
 import {
   focusMembers,
   restMembers,
@@ -418,12 +423,22 @@ export type IslandChannelOpts = {
   presence?: boolean;
   /** 공용 재생 전체 상태 채널. */
   playback?: boolean;
+  /**
+   * 홈 섬 이동 채널(GROMO-2248) — movement·movement/snapshot 을 구독한다. 거절(STOMP ERROR, 오류 큐의
+   * `NOT_A_MEMBER`)을 한 번 받으면 이 채널은 재접속해도 다시 구독하지 않는다.
+   */
+  movement?: boolean;
   /** 내 진행 세션이 있을 때만 emotes 채널을 구독한다 — 없으면 서버가 구독을 거절한다. */
   emote: boolean;
   onEvent: (body: unknown) => void;
   /** (재)연결됐다 — 호출부가 최신 스냅숏으로 재동기화한다. */
   onOpen: () => void;
   onError: (message: string) => void;
+  /**
+   * 이동 채널이 영구 거절됐다(STOMP ERROR, 오류 큐의 `NOT_A_MEMBER`) — `onError` 는 그 외 오류 큐 코드로도
+   * 불리므로, 동기화를 끄는 판단은 이 콜백으로만 한다(`movement: true` 일 때만 불린다).
+   */
+  onMovementDenied?: () => void;
 };
 
 export function realtimeWsUrl(apiUrl: string = API_URL): string {
@@ -452,6 +467,8 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   let emoteDenied = false;
   let emoteEnabled = opts.emote;
   let emoteSubscription: { unsubscribe(): void } | null = null;
+  // 이동 구독이 거절되면 서버가 소켓을 닫고 stompjs 가 5초마다 재접속·재거절한다 — 같은 방식으로 끊는다.
+  let movementDenied = false;
   const onMsg = (msg: IMessage) => {
     try {
       opts.onEvent(JSON.parse(msg.body));
@@ -477,6 +494,10 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
         client.subscribe(`/topic/islands/${id}/focus`, onMsg);
         client.subscribe(`/topic/islands/${id}/rest`, onMsg);
       }
+      if (opts.movement && !movementDenied) {
+        client.subscribe(`/topic/islands/${id}/movement`, onMsg);
+        client.subscribe(`/topic/islands/${id}/movement/snapshot`, onMsg);
+      }
       if (opts.playback) client.subscribe(`/topic/islands/${id}/playback`, onMsg);
       client.subscribe('/user/queue/errors', (msg: IMessage) => {
         let text = '실시간 요청이 거절됐어요.';
@@ -485,6 +506,11 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
           if (typeof b?.message === 'string' && b.message) text = b.message;
           // 서버 오류 봉투는 code 와 message 를 따로 싣는다 — 코드로 기대된 잡음을 거른다.
           if (b?.code === 'NOT_FOCUSING') text = 'NOT_FOCUSING';
+          // 이동 의도가 멤버 아님으로 거절됐다 — 이 채널은 다시 구독하지 않는다. 호출부는 조용히 로컬로 폴백한다.
+          if (b?.code === 'NOT_A_MEMBER' && opts.movement) {
+            movementDenied = true;
+            opts.onMovementDenied?.();
+          }
         } catch {
           // 기본 문구로 둔다.
         }
@@ -496,6 +522,10 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     },
     onStompError: (frame: IFrame) => {
       if (emoteEnabled) emoteDenied = true;
+      if (opts.movement) {
+        movementDenied = true;
+        opts.onMovementDenied?.();
+      }
       emitError(frame.headers.message ?? '실시간 연결이 거절됐어요.');
     },
   });
@@ -523,6 +553,18 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       void client.deactivate();
     },
   };
+}
+
+/**
+ * `SEND /app/islands/{islandId}/movement/intent` (GROMO-2248). 미연결이면 false.
+ * islandId 는 인코딩하지 않는다 — 서버가 소문자 UUID 36자 그대로만 받는다(응원 send 와 같다).
+ */
+export function publishMoveIntent(
+  channel: IslandChannel,
+  islandId: string,
+  intent: MoveIntent,
+): boolean {
+  return channel.send(`/app/islands/${islandId}/movement/intent`, intent);
 }
 
 export type IslandRealtime = {
