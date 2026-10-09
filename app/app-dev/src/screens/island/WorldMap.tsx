@@ -1581,6 +1581,12 @@ function FinalIslandScene({
       lastFlush = Date.now();
       timer = null;
       const st = controller?.state() ?? null;
+      // 거절(controller.deny())되거나 채널이 닫혀 movement.current 가 null 이 되면 lastPath·lastSnapshot 은
+      // 컨트롤러 안에 그대로 남는다 — 오버레이까지 묵은 경로·스냅샷을 계속 그리지 않게 통째로 비운다(지적 3).
+      if (st?.denied || !movement.current) {
+        setServerDebug(null);
+        return;
+      }
       setServerDebug({
         path: st?.lastPath
           ? [st.lastPath.start, ...st.lastPath.waypoints].map((p) => worldToImage(p, size))
@@ -1600,9 +1606,13 @@ function FinalIslandScene({
     };
     schedule();
     const unsubscribe = controller?.subscribe(schedule) ?? (() => {});
+    // 서버 응답·스냅샷이 끊기면 구독 콜백이 안 와 snapshotAgeMs·대기 시간이 마지막 값으로 고정된다 —
+    // 오버레이가 켜진 동안은 250ms 마다 같은 flush 를 돌려 시간값을 다시 계산한다(지적 2).
+    const interval = setInterval(flush, 250);
     return () => {
       unsubscribe();
       if (timer) clearTimeout(timer);
+      clearInterval(interval);
     };
   }, [navDebug, tileNav, grid, syncIslandId]);
   useEffect(() => {

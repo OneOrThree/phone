@@ -664,6 +664,46 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     expect(screen.getByTestId('tile-terrain').props.navDebug).toBeNull();
     await screen.unmount();
   });
+
+  it('서버 메시지가 끊겨도 250ms 마다 다시 계산해 snapshotAgeMs 가 계속 늘어난다(지적 2)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await emit(snapshot(101, [entity(ME, 0, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const first = screen.getByTestId('tile-terrain').props.navDebug.server.snapshotAgeMs;
+    expect(first).not.toBeNull();
+    // 이후 메시지 없이 500ms 만 지난다 — 구독 콜백(controller.notify)은 더 안 오지만 250ms 인터벌이
+    // 같은 flush 를 다시 돌려 snapshotAgeMs 를 지금 시각 기준으로 다시 계산한다.
+    await act(async () => jest.advanceTimersByTime(500));
+    const second = screen.getByTestId('tile-terrain').props.navDebug.server.snapshotAgeMs;
+    expect(second).toBeGreaterThan(first);
+    await screen.unmount();
+  });
+
+  it('거절되면(controller.deny()) 보존된 lastPath 대신 navDebug.server 를 통째로 비운다(지적 3)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 46.5 },
+        { x: 40.5, y: 46.5 },
+      ]),
+    );
+    await act(async () => jest.advanceTimersByTime(100));
+    // 거절 전 — 서버 경로가 오버레이에 실려 있다.
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server.path).not.toBeNull();
+    // 채널 거절 — movementSync 의 state() 는 denied 만 true 로 바꾸고 lastPath 는 그대로 보존한다.
+    const denied = channel();
+    await act(async () => denied.opts.onMovementDenied?.());
+    await act(async () => jest.advanceTimersByTime(100));
+    expect(screen.getByTestId('tile-terrain').props.navDebug.server).toBeNull();
+    await screen.unmount();
+  });
 });
 
 it('섬 전환 뒤 옛 채널의 늦은 onMovementDenied 는 새 컨트롤러를 끄지 않는다(채널 소유권, 리뷰 3)', async () => {

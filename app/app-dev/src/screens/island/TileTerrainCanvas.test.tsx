@@ -100,4 +100,19 @@ describe('서버 이동 보기 helper (GROMO-2249)', () => {
     // server 를 안 주면(기존 호출) 둘째 줄이 없다 — 기존 동작 불변.
     expect(navDebugText(null, 'bundle')).toBe('경로 없음 · nav bundle');
   });
+
+  it('navDebugText 둘째 줄: 대기 + 스냅샷·예측이 둘 다 있으면 대기가 우선한다(지적 1)', () => {
+    const predicted = { x: 10, y: 0 },
+      snapshot = { x: 13, y: 4 };
+    // 첫 Snapshot 뒤 새 이동 명령을 보내 waitingSince 가 다시 생겨도 지난 snapshot·predicted 는
+    // 아직 남아 있다 — Δ·지연 조건은 계속 참이지만 대기 중이라는 사실을 먼저 보여준다.
+    expect(
+      navDebugText(
+        null,
+        'bundle',
+        { ...noServer, predicted, snapshot, snapshotAgeMs: 83.4, waitingSince: 1000 },
+        1300,
+      ),
+    ).toBe('경로 없음 · nav bundle\n서버 대기 300ms');
+  });
 });

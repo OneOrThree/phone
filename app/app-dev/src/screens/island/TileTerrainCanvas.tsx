@@ -77,14 +77,18 @@ function walkSummary(walk: NavWalk | null, kind: MapAssetSource['kind']) {
   return `경로 ${Math.max(walk.path.length - 1, 0)}칸 · 보정 ${gap}px · nav ${kind}`;
 }
 
-/** 서버 Δ(예측-스냅샷 거리)·틱 지연 한 줄, 또는 대기/없음(GROMO-2249). */
+/**
+ * 서버 Δ(예측-스냅샷 거리)·틱 지연 한 줄, 또는 대기/없음(GROMO-2249).
+ * 대기(waitingSince)가 최우선이다 — 첫 Snapshot 뒤 새 이동 명령을 보내도 지난 snapshot·predicted 가
+ * 남아 있어 Δ·지연 조건이 계속 참이 된다. 그 묵은 값보다 지금 서버 응답을 기다린다는 사실을 먼저 보여준다(지적 1).
+ */
 function serverDebugLine(server: NavServerDebug, now: number) {
   const { snapshot, predicted, snapshotAgeMs, waitingSince } = server;
+  if (waitingSince !== null) return `서버 대기 ${Math.max(0, Math.round(now - waitingSince))}ms`;
   if (snapshot && predicted && snapshotAgeMs !== null) {
     const delta = Math.round(Math.hypot(predicted.x - snapshot.x, predicted.y - snapshot.y));
     return `서버 Δ ${delta}px · 틱 지연 ${Math.round(snapshotAgeMs)}ms`;
   }
-  if (waitingSince !== null) return `서버 대기 ${Math.max(0, Math.round(now - waitingSince))}ms`;
   return '서버 없음';
 }
 
