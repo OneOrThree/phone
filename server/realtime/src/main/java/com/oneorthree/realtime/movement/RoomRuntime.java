@@ -636,12 +636,21 @@ public final class RoomRuntime {
      * 패키지 전용 — 테스트·Ticker 용. 좌표는 Snapshot 과 같은 정밀도(0.01)로 반올림한다(codex P2, 2246 보완9) —
      * 전엔 actor.x/y 원시값을 그대로 내보내 재동기화(requestFullState) 직후 같은 흐름의 Snapshot 좌표와 어긋나
      * 위치가 튀었다(policy.md §3 좌표 정밀도).
+     *
+     * <p>{@link MovementEvent.ActorState#segmentIndex} 도 {@link MovementEvent.Entity#segmentIndex}
+     * (Snapshot)와 같은 원래 경로 기준이다(codex 프리-PR 14라운드 P2, 2246 보완17) — 전엔 waypoints 만
+     * 남은 경로로 잘라 보내 기준이 없어, 이동 중 재동기화한 세션이 그 뒤 받는 Snapshot 의 segmentIndex 를
+     * 이 남은 waypoints 에 맞출 수 없었다.
      */
     MovementEvent.FullState fullStateOf() {
         List<MovementEvent.ActorState> states = new ArrayList<>(actors.size());
         for (Actor actor : actors.values()) {
+            List<MovementEvent.Point> remaining = remainingWaypoints(actor);
+            // remaining 이 비면(IDLE, 아래 remainingWaypoints 주석) "남은 첫 점" 이 없어 0 — 있으면 그
+            // 첫 원소가 원래 경로에서 actor.segmentIndex 번째라 그대로 쓴다(2246 보완17).
+            int segmentIndex = remaining.isEmpty() ? 0 : actor.segmentIndex;
             states.add(new MovementEvent.ActorState(actor.userId, round2(actor.x), round2(actor.y), actor.state,
-                    actor.pathId, actor.lastCommandSeq, remainingWaypoints(actor)));
+                    actor.pathId, actor.lastCommandSeq, segmentIndex, remaining));
         }
         return new MovementEvent.FullState(rules.navRevision(), serverTick, rules.tickMs(), rules.speed(), states);
     }

@@ -27,9 +27,15 @@ public sealed interface MovementEvent {
      * 부터 끝까지(현재 위치는 제외), IDLE 이면 빈 리스트다(계약 §2 변경, N34). 입장 당시 이미 걷고 있던
      * 주민의 남은 경로를 몰라 앱이 스냅샷을 못 받던 결함을 고친다(2246 보완1) — 앱은
      * {@code [현재 위치, ...waypoints]} 로 등록한다.
+     *
+     * <p>{@code segmentIndex} 는 {@code waypoints} 의 첫 점이 원래 경로에서 갖는 인덱스다(IDLE 이면
+     * 0, codex 프리-PR 14라운드 P2, 2246 보완17). {@link Snapshot}·{@link Entity} 의 {@code
+     * segmentIndex} 도 같은 원래 경로 기준이다 — 이동 중 재동기화한 세션은 그 뒤 받는 Snapshot 의
+     * {@code segmentIndex} 에서 이 값을 뺀({@code snapshot.segmentIndex - fullState.segmentIndex})
+     * 값을 {@code waypoints}(남은 경로) 의 인덱스로 쓴다.
      */
     record ActorState(UUID userId, double x, double y, MotionState state, int pathId, long lastCommandSeq,
-            List<Point> waypoints) {
+            int segmentIndex, List<Point> waypoints) {
         public ActorState {
             Objects.requireNonNull(userId, "userId");
             Objects.requireNonNull(state, "state");

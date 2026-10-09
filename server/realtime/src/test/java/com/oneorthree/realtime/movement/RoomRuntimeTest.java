@@ -1208,6 +1208,60 @@ class RoomRuntimeTest {
         assertThat(arrivedState.waypoints()).as("도착해 IDLE 이면 빈 리스트다").isEmpty();
     }
 
+    // ── codex 프리-PR 14라운드 P2: 2246 보완17 — FullState·Snapshot 의 segmentIndex 는 같은 원래 경로 기준 ──
+
+    @Test
+    @DisplayName("걷는 actor 가 waypoint 인덱스 k 를 지난 뒤 새 세션이 requestFullState 하면 FullState 의"
+            + " segmentIndex==k·waypoints 길이==원래 경로−k 이고, 같은 틱 Snapshot 의 segmentIndex 는 k"
+            + " 이상이다 — 둘 다 원래 경로 기준을 공유해야 앱이 snapshot.segmentIndex-fullState.segmentIndex 로"
+            + " 남은 waypoints 에 맞출 수 있다(codex 프리-PR 14라운드 P2, 2246 보완17)")
+    void fullStateSegmentIndexSharesSameOriginalPathBasisAsSnapshot() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 0.5)); // 스폰에서 5칸 직선 — waypoint 5개(index 0..4).
+
+        int k = 2;
+        for (int i = 0; i < 4; i++) {
+            room.tick(++tick); // stepPerTick(~0.549) × 4 ≈ 2.198 — segmentIndex 가 k=2 를 지난 상태가 된다.
+        }
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        List<MovementEvent.Point> fullPath = accepted.get(accepted.size() - 1).waypoints();
+        MovementEvent.ActorState beforeResync = actorIn(room.fullStateOf(), userId);
+        assertThat(beforeResync.state()).as("아직 도착 전이어야 segmentIndex 가 중간값 k 로 고정된다")
+                .isEqualTo(MotionState.MOVING);
+        assertThat(beforeResync.segmentIndex()).as("4틱 뒤 segmentIndex 는 정확히 k=2 여야 한다").isEqualTo(k);
+
+        room.join(userId, "s2"); // 재접속(세션 교체) — 위치·경로는 유지된다(N6/N20).
+        room.requestFullState("s2"); // 재동기화 요청 — 같은 배치(FIFO)로 join 뒤, 이번 틱 전진보다 먼저 처리된다.
+        room.tick(++tick);
+
+        List<MovementEvent.FullState> fullStates = listener.of(MovementEvent.FullState.class);
+        MovementEvent.FullState resynced = fullStates.stream()
+                .filter(fs -> Target.only("s2").equals(listener.targetOf(fs)))
+                .reduce((first, last) -> last)
+                .orElseThrow();
+        MovementEvent.ActorState resyncedActor = actorIn(resynced, userId);
+
+        assertThat(resyncedActor.segmentIndex())
+                .as("새 세션 FullState 의 segmentIndex 는 걷던 actor 가 지나온 원래 경로 인덱스(k)와 같아야 한다")
+                .isEqualTo(k);
+        assertThat(resyncedActor.waypoints())
+                .as("남은 waypoints 는 원래 경로의 k 번째 점부터 — 길이는 원래 경로 − k 다")
+                .containsExactlyElementsOf(fullPath.subList(k, fullPath.size()));
+
+        MovementEvent.Snapshot snapshotThisTick = listener.snapshots.get(listener.snapshots.size() - 1);
+        MovementEvent.Entity entityThisTick = entityIn(snapshotThisTick, userId);
+        assertThat(entityThisTick.segmentIndex())
+                .as("같은 틱 Snapshot 의 segmentIndex(원래 경로 기준)는 FullState 의 segmentIndex(k) 이상이어야"
+                        + " 한다 — 이 틱의 이동 전진은 drain() 뒤에 일어나 FullState 보다 늦게 반영되기 때문이다")
+                .isGreaterThanOrEqualTo(k);
+    }
+
     // ── codex P2: 만료된 퇴장 기억 정리(N23 prune) ────────────────────────
 
     @Test
