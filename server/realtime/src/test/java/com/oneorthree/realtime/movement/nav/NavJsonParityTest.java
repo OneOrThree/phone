@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collections;
 import java.util.HexFormat;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -91,6 +92,41 @@ class NavJsonParityTest {
                 + "\"buildingCells\":{\"hall\":[1]}}"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("buildingCells");
+    }
+
+    @Test
+    @DisplayName("번들 전용 크기 가드(MV-D01) — 100×100 이 아닌 격자는 거부한다")
+    void rejectsBundledSizeMismatch() {
+        NavGrid g = load(navJson(99, 100));
+
+        assertThatThrownBy(() -> NavJsonLoader.requireBundledSize(g))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("MV-D01 100×100");
+    }
+
+    @Test
+    @DisplayName("entrances/spawns 범위 밖·blockedEdges 범위·순서 위반은 거부한다(앱 loadNav 와 같은 검증)")
+    void rejectsOutOfBoundsAnchorsAndEdges() {
+        assertThatThrownBy(() -> load("{\"columns\":2,\"rows\":2,\"walkable\":\"1111\","
+                + "\"traversalCost\":[10,10,10,10],\"entrances\":{\"hall\":{\"cx\":2,\"cy\":0}}}"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("entrances");
+        assertThatThrownBy(() -> load("{\"columns\":2,\"rows\":2,\"walkable\":\"1111\","
+                + "\"traversalCost\":[10,10,10,10],\"spawns\":{\"character\":{\"cx\":0,\"cy\":2}}}"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("spawns");
+        assertThatThrownBy(() -> load("{\"columns\":2,\"rows\":1,\"walkable\":\"11\",\"traversalCost\":[10,10],"
+                + "\"blockedEdges\":[[1,0]]}"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("blockedEdges");
+    }
+
+    // 전부 통행·비용 10인 cols×rows 격자 — 크기 가드 전용 테스트에서 다른 검증에 걸리지 않게 한다.
+    private static String navJson(int cols, int rows) {
+        String walkable = "1".repeat(cols * rows);
+        String costs = String.join(",", Collections.nCopies(cols * rows, "10"));
+        return "{\"columns\":" + cols + ",\"rows\":" + rows + ",\"walkable\":\"" + walkable
+                + "\",\"traversalCost\":[" + costs + "]}";
     }
 
     private static NavGrid load(String json) {

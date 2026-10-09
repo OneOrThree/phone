@@ -145,6 +145,32 @@ const CASES: Input[] = [
     to: at(2, 0),
     inlineNav: inline(['000']),
   },
+  {
+    // 리뷰: 격자 크기 ≠ 100 검증 — (50,50) 은 world 범위([0,100]) 안이라 거부되지 않지만 3×3 격자 밖이다.
+    // cellIndexOf 가 격자 크기(cols-1=2, rows-1=2)로 clamp 해 경계 셀 (2,2) 를 가리켜야 한다(배열 밖·틀린 셀 금지).
+    name: '합성 3×3 범위 밖 탭(50,50) → 격자 크기로 클램프된 경계 셀(2,2)',
+    from: at(0, 0),
+    to: { x: 50, y: 50 },
+    inlineNav: inline(['111', '111', '111']),
+  },
+  {
+    // 리뷰: h 동률 — (f, h, index) 에서 h 를 빼면(= f, index 만) 같은 최적 비용의 다른 경로가 나온다.
+    // 탐색(h-tie-search.js, 격자 cols*rows<=40 · 비용 혼합 · 1404 configs/219010 pairs 중 첫 사례): 6×3 전부 통행,
+    // 비용은 아래 cost() 그대로. Java 비교자에서 .thenComparingLong(Node::h) 를 빼는 변이 시험으로 PathfinderTest 가
+    // 이 케이스에서만 실패하는지 확인한 뒤 원복한다(영구 코드 변경 아님).
+    name: '합성 6×3 비용 혼합 h 동률: h 키를 빼면 같은 비용의 다른 경로(비교자 h 항 필수)',
+    from: at(5, 2),
+    to: at(2, 0),
+    inlineNav: inline(
+      ['111111', '111111', '111111'],
+      (x, y) =>
+        [
+          [8, 27, 27, 8, 8, 16],
+          [27, 10, 8, 10, 27, 27],
+          [27, 10, 10, 8, 27, 10],
+        ][y][x],
+    ),
+  },
 ];
 
 const real = loadNav(nav as NavJson);

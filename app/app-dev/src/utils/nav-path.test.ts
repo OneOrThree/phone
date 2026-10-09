@@ -318,4 +318,33 @@ describe('loadNav 입력 검증', () => {
       /traversalCost\[1\]/,
     );
   });
+  it('entrances/spawns 좌표가 격자 밖이거나 blockedEdges 가 범위·순서(a<b)를 어기면 throw', () => {
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 2,
+        walkable: '1111',
+        traversalCost: [10, 10, 10, 10],
+        entrances: { hall: { cx: 2, cy: 0 } },
+      }),
+    ).toThrow(/entrances/);
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 2,
+        walkable: '1111',
+        traversalCost: [10, 10, 10, 10],
+        spawns: { character: { cx: 0, cy: 2 } },
+      }),
+    ).toThrow(/spawns/);
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 1,
+        walkable: '11',
+        traversalCost: [10, 10],
+        blockedEdges: [[1, 0]],
+      }),
+    ).toThrow(/blockedEdges/);
+  });
 });

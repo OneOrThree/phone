@@ -2,6 +2,7 @@
 // 규칙 정본: docs/prd/fishcat/island-movement/high-level-design.md §3.
 // 서버 Pathfinder(server/realtime …/movement/nav)와 같은 정수 연산을 같은 순서로 한다 —
 // 공통 fixture docs/prd/fishcat/island-movement/fixtures/paths.json 을 양쪽 테스트가 같이 통과해야 한다.
+// 전제: JS 엔진이 Math.sqrt 를 근사하지 않는다(V8·Hermes 는 하드웨어 sqrt) — 휴리스틱 h 가 서버와 비트까지 같다.
 import {
   CellIndex,
   ImageSize,
@@ -9,7 +10,6 @@ import {
   cellCenterToWorld,
   imageToWorld,
   isInsideWorld,
-  worldToCell,
   worldToImage,
 } from './worldCoords';
 
@@ -22,6 +22,10 @@ export type NavJson = {
   buildingCells?: Record<string, number[]>;
   /** 간선 중점이 막혀 직교 이동이 불가한 인접 셀 쌍 [a, b] (a < b). */
   blockedEdges?: [number, number][];
+  /** 건물 입구 셀. 격자 밖 좌표는 거부. */
+  entrances?: Record<string, CellIndex>;
+  /** 스폰 셀. 격자 밖 좌표는 거부. */
+  spawns?: Record<string, CellIndex>;
 };
 export type NavGrid = {
   cols: number;
@@ -47,6 +51,13 @@ const ceilDiv10 = (a: number) => Math.floor((a + 9) / 10);
 
 const edgeKey = (a: number, b: number, n: number) => (a < b ? a * n + b : b * n + a);
 const idx = (g: NavGrid, cx: number, cy: number) => cy * g.cols + cx;
+// 내부 nav 인덱싱용 — 범위는 이 격자의 cols·rows 로 clamp 한다(worldToCell 의 100×100 규칙과 같되 상한은
+// 격자 기준). 100×100 격자에서는 worldToCell 과 결과가 같다. 리뷰: 격자 크기 ≠ 100 이면 worldToCell 의 고정
+// 상한(99) 때문에 index 가 틀린 셀(열이 적으면 줄바뀜 꼴)이나 배열 밖을 가리킬 수 있다.
+const clampCell = (v: number, max: number) =>
+  Math.max(0, Math.min(max, Math.floor(Number.isFinite(v) ? v : 0)));
+const cellIndexOf = (g: NavGrid, p: WorldPoint) =>
+  idx(g, clampCell(p.x, g.cols - 1), clampCell(p.y, g.rows - 1));
 const dist = (a: WorldPoint, b: WorldPoint) => Math.hypot(a.x - b.x, a.y - b.y);
 // 이웃 순서 (-1,-1) (0,-1) (1,-1) (-1,0) (1,0) (-1,1) (0,1) (1,1) — 서버와 같게 둔다(계약 §1).
 // 결과는 이 순서에 기대지 않는다: 꺼내는 순서는 항목마다 유일한 (f, h, index) 가 정한다.
@@ -88,6 +99,29 @@ export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): N
   for (let i = 0; i < n; i++)
     if (!(nav.traversalCost[i] > 0))
       throw new Error(`nav.traversalCost[${i}] 가 ${nav.traversalCost[i]} (0 이하 불가)`);
+  // 리뷰: entrances/spawns 가 격자 밖이거나 blockedEdges 가 범위·순서(a<b)를 어기면 조용히 틀린 셀로 쓰이지 않게 거부한다.
+  for (const field of ['entrances', 'spawns'] as const)
+    for (const [id, c] of Object.entries(nav[field] ?? {}))
+      if (!(
+        Number.isInteger(c.cx) &&
+        c.cx >= 0 &&
+        c.cx < columns &&
+        Number.isInteger(c.cy) &&
+        c.cy >= 0 &&
+        c.cy < rows
+      ))
+        throw new Error(`nav.${field}.${id} 가 격자 밖 (${c.cx},${c.cy})`);
+  for (const [a, b] of nav.blockedEdges ?? [])
+    if (!(
+      Number.isInteger(a) &&
+      a >= 0 &&
+      a < n &&
+      Number.isInteger(b) &&
+      b >= 0 &&
+      b < n &&
+      a < b
+    ))
+      throw new Error(`nav.blockedEdges 원소가 올바르지 않다(0≤a<b<n): [${a}, ${b}]`);
   const walkable = new Uint8Array(n),
     cost = new Uint8Array(n);
   let min = Infinity;
@@ -148,7 +182,7 @@ function nearestCell(g: NavGrid, p: WorldPoint, region: number): number {
 
 const cellOf = (c: CellIndex, g: NavGrid) => idx(g, c.cx, c.cy);
 const startCell = (g: NavGrid, from: WorldPoint) => {
-  const i = cellOf(worldToCell(from), g);
+  const i = cellIndexOf(g, from);
   return g.walkable[i] ? i : nearestCell(g, from, -1);
 };
 
@@ -163,7 +197,7 @@ export function resolveTarget(
   if (!isInsideWorld(to)) return null;
   const s = startCell(g, from);
   if (s < 0) return null;
-  const t = cellOf(worldToCell(to), g);
+  const t = cellIndexOf(g, to);
   const e = g.walkable[t] && g.region[t] === g.region[s] ? t : nearestCell(g, to, g.region[s]);
   return e < 0 ? null : { start: s, target: { cx: e % g.cols, cy: Math.floor(e / g.cols) } };
 }
