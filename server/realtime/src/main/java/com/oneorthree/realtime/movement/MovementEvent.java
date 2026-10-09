@@ -22,11 +22,18 @@ public sealed interface MovementEvent {
     record Point(double x, double y) {
     }
 
-    /** {@link FullState} 의 actor 한 명. */
-    record ActorState(UUID userId, double x, double y, MotionState state, int pathId, long lastCommandSeq) {
+    /**
+     * {@link FullState} 의 actor 한 명. {@code waypoints} 는 남은 경로 — MOVING 이면 지금 segmentIndex
+     * 부터 끝까지(현재 위치는 제외), IDLE 이면 빈 리스트다(계약 §2 변경, N34). 입장 당시 이미 걷고 있던
+     * 주민의 남은 경로를 몰라 앱이 스냅샷을 못 받던 결함을 고친다(2246 보완1) — 앱은
+     * {@code [현재 위치, ...waypoints]} 로 등록한다.
+     */
+    record ActorState(UUID userId, double x, double y, MotionState state, int pathId, long lastCommandSeq,
+            List<Point> waypoints) {
         public ActorState {
             Objects.requireNonNull(userId, "userId");
             Objects.requireNonNull(state, "state");
+            waypoints = List.copyOf(waypoints);
         }
     }
 

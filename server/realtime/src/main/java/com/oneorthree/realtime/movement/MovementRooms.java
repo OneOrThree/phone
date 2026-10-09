@@ -33,8 +33,14 @@ public final class MovementRooms {
                 listener));
     }
 
+    /**
+     * {@code isRemovable()} 을 제거하는 그 순간 한 번 더 확인한다(CAS 식, codex P1) — {@link
+     * MovementTicker} 가 "비었다" 고 본 시점과 이 메서드가 실제로 지우는 시점 사이에 다른 스레드의
+     * {@link #roomFor} {@code .join(...)} 이 큐에 들어왔으면, 그 재확인이 실패해 방을 지우지 않는다.
+     * {@code computeIfPresent} 의 재계산 함수는 그 키에 대해 원자적으로 돈다.
+     */
     public void remove(UUID islandId) {
-        rooms.remove(islandId);
+        rooms.computeIfPresent(islandId, (id, room) -> room.isRemovable() ? null : room);
     }
 
     /** {@link MovementTicker} 가 매 틱마다 돈다. 수정 불가 뷰 — 뒤에서 바뀌는 건 그대로 보인다. */

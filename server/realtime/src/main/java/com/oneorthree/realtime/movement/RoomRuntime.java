@@ -91,11 +91,22 @@ public final class RoomRuntime {
             listener.onSnapshot(islandId, snapshotOf());
         }
         lastTickHadMoving = movingNow;
+        pruneExpiredDeparted();
     }
 
-    /** Ticker 가 빈 방을 지우려고 쓴다. */
-    boolean isEmpty() {
-        return actors.isEmpty();
+    /**
+     * Ticker 가 빈 방을 지우려고 쓴다 — actors·명령 큐·퇴장 기억(N23) 이 전부 비어야 한다(codex P1/P2).
+     * 큐까지 보는 이유: actors 만 보면 "지우기로 판단한 순간"과 "실제로 지우는 순간" 사이에 다른 스레드의
+     * {@code roomFor(...).join(...)} 이 큐에 들어와도 그대로 지워버려 입장이 유실된다. departed 까지 보는
+     * 이유: 마지막 퇴장자의 위치 기억이 방과 함께 사라지면 10분 안 재입장 복원(N23)이 깨진다.
+     */
+    boolean isRemovable() {
+        return actors.isEmpty() && queue.isEmpty() && departed.isEmpty();
+    }
+
+    /** 패키지 전용 — 테스트용. 지금 기억 중인 퇴장 인원 수(N23). */
+    int departedCount() {
+        return departed.size();
     }
 
     // ── 큐 드레인 ────────────────────────────────────────────────────────
@@ -324,6 +335,16 @@ public final class RoomRuntime {
         return new MovementEvent.Point(center.x(), center.y());
     }
 
+    /**
+     * 만료된 퇴장 기억을 매 틱 지운다(codex P2) — {@link #isRemovable()} 이 실제로 비는 날이 오게 하는
+     * 쪽이다. 건수가 최근 퇴장자 수로 자연히 작아 매 틱 비용은 무시할 만하다(ponytail: 20틱마다로
+     * 나누는 추가 상태 없이 가장 단순한 쪽을 택한다).
+     */
+    private void pruneExpiredDeparted() {
+        long window = rules.ticksFor(DEPARTED_MEMORY_MS);
+        departed.values().removeIf(d -> serverTick - d.tick() > window);
+    }
+
     // ── 스냅샷 ────────────────────────────────────────────────────────────
 
     /** 패키지 전용 — 테스트·Ticker 용. */
@@ -331,9 +352,15 @@ public final class RoomRuntime {
         List<MovementEvent.ActorState> states = new ArrayList<>(actors.size());
         for (Actor actor : actors.values()) {
             states.add(new MovementEvent.ActorState(actor.userId, actor.x, actor.y, actor.state, actor.pathId,
-                    actor.lastCommandSeq));
+                    actor.lastCommandSeq, remainingWaypoints(actor)));
         }
         return new MovementEvent.FullState(rules.navRevision(), serverTick, rules.tickMs(), rules.speed(), states);
+    }
+
+    // IDLE 이면 늘 segmentIndex == waypoints.size() 다(막 join 해 waypoints 가 비어 있을 때도, 도착
+    // 직후에도) — 그래서 분기 없이 subList 만으로 MOVING 은 남은 열, IDLE 은 빈 리스트가 그대로 나온다.
+    private static List<MovementEvent.Point> remainingWaypoints(Actor actor) {
+        return actor.waypoints.subList(actor.segmentIndex, actor.waypoints.size());
     }
 
     /** 패키지 전용 — 테스트·Ticker 용. 좌표는 소수 2자리로 반올림한다(계약 §0). */

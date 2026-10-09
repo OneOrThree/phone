@@ -3,7 +3,9 @@ package com.oneorthree.realtime.movement;
 import com.oneorthree.realtime.movement.nav.Cell;
 import com.oneorthree.realtime.movement.nav.NavGrid;
 import com.oneorthree.realtime.movement.nav.NavJsonLoader;
+import com.oneorthree.realtime.movement.nav.Pathfinder.PathResult;
 import com.oneorthree.realtime.movement.nav.WorldCoords;
+import com.oneorthree.realtime.movement.nav.WorldPoint;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.assertj.core.data.Offset;
@@ -15,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -77,9 +80,18 @@ class RoomRuntimeTest {
         return gridJson(cols, rows, '1');
     }
 
-    /** 전부 비통행인 합성 격자 — NO_REACHABLE_GOAL 테스트용. */
-    private static NavGrid blockedGrid(int cols, int rows) {
-        return gridJson(cols, rows, '0');
+    /**
+     * 경로를 절대 못 찾는 테스트 대체물(codex/2245 반영) — {@link RoomRuntime#processAccept} 의
+     * NO_REACHABLE_GOAL 거절 분기를 검증한다. 2245 가 nav.spawns 를 로더에서 통행 칸으로 강제한
+     * 뒤로는 {@code nav.Pathfinder.resolveTarget} 이 항상 출발 영역 안 최근접 셀로 보정해, 격자를
+     * 아무리 비통행으로 채워도(스폰 칸까지 비통행이면 로더가 거부) 이 분기를 합성 격자만으로는
+     * 재현할 수 없다 — 그래서 {@link Pathfinder} 시임을 상속해 "못 찾음" 을 직접 흉내 낸다.
+     */
+    private static final class UnreachablePathfinder extends Pathfinder {
+        @Override
+        public Optional<PathResult> find(NavGrid grid, WorldPoint from, WorldPoint to) {
+            return Optional.empty();
+        }
     }
 
     private static NavGrid gridJson(int cols, int rows, char walk) {
@@ -207,16 +219,17 @@ class RoomRuntimeTest {
     }
 
     @Test
-    @DisplayName("통행 칸이 전혀 없는 격자에서는 NO_REACHABLE_GOAL 로 거절된다")
+    @DisplayName("경로 탐색기가 경로를 못 찾으면 NO_REACHABLE_GOAL 로 거절된다")
     void rejectsWhenNoReachableGoalExists() {
-        NavGrid grid = blockedGrid(3, 3);
+        NavGrid grid = openGrid(10, 10);
         RecordingListener listener = new RecordingListener();
-        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        RoomRuntime room = new RoomRuntime(ISLAND, grid, new UnreachablePathfinder(), MovementRules.DEFAULT,
+                listener);
         UUID userId = UUID.randomUUID();
         room.join(userId, "s1");
         room.tick(1);
 
-        room.accept("s1", new MoveIntent(1, 1, 1.5, 1.5));
+        room.accept("s1", new MoveIntent(1, 1, 5.5, 5.5));
         room.tick(2);
 
         List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
@@ -664,5 +677,70 @@ class RoomRuntimeTest {
         MovementEvent.PathAccepted second = accepted.get(1);
         assertThat(second.start().x()).isEqualTo(mid.x());
         assertThat(second.start().y()).isEqualTo(mid.y());
+    }
+
+    // ── N34: FullState.ActorState.waypoints ──────────────────────────────
+
+    @Test
+    @DisplayName("FullState.ActorState.waypoints 는 MOVING 이면 지금 segmentIndex 부터 남은 waypoint 열과 같고,"
+            + " IDLE 이면(막 join 했든 도착했든) 빈 리스트다(계약 §2 변경, N34)")
+    void fullStateWaypointsMatchRemainingPathWhileMovingAndEmptyWhenIdle() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+
+        MovementEvent.ActorState freshlyJoined = actorIn(room.fullStateOf(), userId);
+        assertThat(freshlyJoined.waypoints()).as("아직 경로가 없는 actor 는 빈 리스트다").isEmpty();
+
+        room.accept("s1", new MoveIntent(1, 1, 5.5, 0.5)); // 스폰에서 5칸 직선 — waypoint 5개(index 0..4).
+        room.tick(++tick); // 아직 도착 전(stepPerTick~0.549 < 5.0) — MOVING.
+
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        List<MovementEvent.Point> fullPath = accepted.get(accepted.size() - 1).waypoints();
+        MovementEvent.Entity movingEntity = entityIn(room.snapshotOf(), userId);
+        MovementEvent.ActorState movingState = actorIn(room.fullStateOf(), userId);
+        assertThat(movingState.state()).isEqualTo(MotionState.MOVING);
+        assertThat(movingState.waypoints())
+                .as("MOVING 이면 지금 segmentIndex(%d) 부터 끝까지 남은 열이어야 한다", movingEntity.segmentIndex())
+                .containsExactlyElementsOf(fullPath.subList(movingEntity.segmentIndex(), fullPath.size()));
+
+        for (int i = 0; i < 10; i++) {
+            room.tick(++tick); // 도착까지 넉넉히(이 경로는 10번째 틱에 도착한다).
+        }
+        MovementEvent.ActorState arrivedState = actorIn(room.fullStateOf(), userId);
+        assertThat(arrivedState.state()).isEqualTo(MotionState.IDLE);
+        assertThat(arrivedState.waypoints()).as("도착해 IDLE 이면 빈 리스트다").isEmpty();
+    }
+
+    // ── codex P2: 만료된 퇴장 기억 정리(N23 prune) ────────────────────────
+
+    @Test
+    @DisplayName("다른 actor 가 남아 방이 살아 있어도 만료된 퇴장 기억은 틱마다 정리된다(N23 prune)")
+    void departedMemoryIsPrunedEvenWhenAnotherActorKeepsRoomAlive() {
+        NavGrid grid = openGrid(10, 10);
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener());
+        UUID staying = UUID.randomUUID();
+        UUID leaving = UUID.randomUUID();
+        long tick = 0;
+        room.join(staying, "stay"); // 끝까지 남아 방을 살려 둔다 — isRemovable() 이 actors 때문에 false.
+        room.join(leaving, "leave");
+        room.tick(++tick);
+
+        room.leave("leave");
+        room.tick(++tick);
+        assertThat(room.departedCount()).as("퇴장 직후엔 기억이 남아 있다").isEqualTo(1);
+        assertThat(room.isRemovable()).isFalse();
+
+        long ticksToExpire = MovementRules.DEFAULT.ticksFor(10 * 60 * 1000L) + 1; // 10분 창을 지난 뒤.
+        for (long i = 0; i < ticksToExpire; i++) {
+            room.tick(++tick);
+        }
+
+        assertThat(room.departedCount()).as("만료된 퇴장 기억은 다른 actor 가 있어도 정리돼야 한다").isEqualTo(0);
+        assertThat(room.isRemovable()).as("stay 세션의 actor 가 남아 있으니 방은 여전히 제거 대상이 아니다").isFalse();
     }
 }

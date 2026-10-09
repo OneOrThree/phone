@@ -83,17 +83,24 @@ public final class MovementTicker {
         }
     }
 
-    private void tickAllRooms() {
+    /**
+     * 패키지 전용 — 테스트가 스케줄러(50ms 실제 대기) 없이 틱을 바로, 여러 번 빠르게 돌리려고 쓴다.
+     *
+     * <p>방마다 틱 처리 직후 같은 스레드에서 바로 제거를 시도한다(codex P1) — 모든 방을 다 틱한 뒤
+     * 따로 두 번째 루프를 돌리면 "이 방은 비었다"고 본 시점과 실제로 지우는 시점 사이가 다른 방들의
+     * 틱 처리 시간만큼 벌어진다. 실제 제거는 {@link MovementRooms#remove} 가 그 순간 {@code
+     * isRemovable()} 을 한 번 더 확인해(CAS) 그사이 들어온 명령을 지키므로, 여기서는 그냥 시도한다.
+     */
+    void tickAllRooms() {
         long tick = serverTick.incrementAndGet();
         for (Map.Entry<UUID, RoomRuntime> entry : rooms.rooms().entrySet()) {
+            RoomRuntime room = entry.getValue();
             try {
-                entry.getValue().tick(tick);
+                room.tick(tick);
             } catch (RuntimeException e) {
                 LOG.warn("섬 {} 틱 처리 중 예외 — 이번 틱만 건너뛴다", entry.getKey(), e);
             }
-        }
-        for (Map.Entry<UUID, RoomRuntime> entry : rooms.rooms().entrySet()) {
-            if (entry.getValue().isEmpty()) {
+            if (room.isRemovable()) {
                 rooms.remove(entry.getKey());
             }
         }
