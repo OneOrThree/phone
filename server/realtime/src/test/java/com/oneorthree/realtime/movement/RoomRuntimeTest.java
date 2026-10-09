@@ -928,6 +928,41 @@ class RoomRuntimeTest {
     }
 
     @Test
+    @DisplayName("퇴장 전에 쌓인 대기 intent 는 같은 틱에 재입장한 새 actor 에 적용되지 않는다 — 새 actor 는"
+            + " IDLE 로 남고, lastCommandSeq 가 0 부터 다시 시작해 그 뒤 옛 seq 보다 작은 commandSeq 도"
+            + " 수락된다(codex P2, 2246 보완6)")
+    void pendingIntentBeforeLeaveDoesNotApplyToReenteredActorInSameTick() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.tick(1);
+
+        room.accept(userId, "s1", new MoveIntent(5, 1, 5.5, 5.5)); // 퇴장 전 대기 슬롯에 쌓인 옛 명령.
+        room.leave("s1");
+        room.join(userId, "s1"); // 같은 세션 키로 같은 틱에 재입장.
+        room.tick(2);
+
+        MovementEvent.ActorState reentered = actorIn(room.fullStateOf(), userId);
+        assertThat(reentered).as("재입장한 actor 가 있어야 한다").isNotNull();
+        assertThat(reentered.state()).as("옛 대기 intent 가 적용되면 안 된다 — IDLE 로 남아야 한다")
+                .isEqualTo(MotionState.IDLE);
+        assertThat(reentered.lastCommandSeq()).as("아직 아무 명령도 채택되지 않았다").isZero();
+        assertThat(listener.of(MovementEvent.PathAccepted.class))
+                .as("재입장 틱에 옛 명령의 PathAccepted 가 나가면 안 된다").isEmpty();
+
+        // lastCommandSeq 가 0 부터 다시 시작해, 옛 seq(5) 보다 작은 seq(1)도 STALE_COMMAND 에 밀리지 않는다.
+        room.accept(userId, "s1", new MoveIntent(1, 1, 2.5, 2.5));
+        room.tick(3);
+
+        assertThat(listener.of(MovementEvent.MoveRejected.class)).as("옛 seq 5 에 밀려 거절되면 안 된다").isEmpty();
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        assertThat(accepted).as("seq 1 이 수락돼야 한다").hasSize(1);
+        assertThat(accepted.get(0).commandSeq()).isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("토큰 버킷은 사용자 기준이라 leave 뒤 재접속해도 순간 20 을 다시 받는 우회가 되지 않는다"
             + "(codex P2, 2246 보완5, policy §3)")
     void tokenBucketSurvivesReconnectAndStillRateLimitsSameUser() {

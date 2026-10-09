@@ -274,6 +274,10 @@ public final class RoomRuntime {
             return; // 이미 다른 세션으로 교체된 뒤의 뒷북 — 그 세션의 actor 를 건드리지 않는다.
         }
         actors.remove(userId);
+        // 퇴장 전에 쌓인 대기 intent 는 입장 수명에 묶인다(codex P2, 2246 보완6) — 지우지 않으면 같은
+        // 틱에 재입장(leave→join, 같은 세션 키)한 새 actor 에 processPendingIntents() 가 옛 명령을
+        // 그대로 적용해 의도치 않게 움직인다. 뒷북 leave 분기(위)는 세션 키가 달라 원래 닿지 않는다.
+        pendingIntent.remove(cmd.sessionKey());
         // 토큰 버킷(사용자 기준, 2246 보완5)은 여기서 지우지 않는다 — departed 에 남아 있는 10분
         // 동안 유지돼야 그 안에 재접속해도 순간 20 을 다시 받지 못한다. 정리는 pruneExpiredDeparted().
         departed.put(userId, new Departed(new MovementEvent.Point(actor.x, actor.y), serverTick));
