@@ -8,6 +8,7 @@ import { useConstruction } from '@/screens/island/useConstruction';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 import { getSession } from '@/services/api/session';
 import type { ConstructionOptions } from '@/services/api/home';
+import { componentTokens } from '@/design-system/tokens';
 
 // GROMO — 마을회관 「목각 건물 고르기」 실서버 건설 패널 회귀 테스트.
 //
@@ -152,6 +153,50 @@ beforeEach(() => {
   getSessionMock.mockReturnValue({ userId: 'member-1' });
 });
 afterEach(cleanup);
+
+test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐리게 비활성화한다', async () => {
+  const select = jest.fn(async () => {});
+  const build = jest.fn(async () => {});
+  const initialOptions = options({ selectedBuildingId: null });
+  constructionMock.mockReturnValue(construction({ options: initialOptions, select, build }));
+  const env = e();
+  const screen = await render(<Hall e={env} />);
+  await fireEvent.press(screen.getByTestId('hall-bld-board'));
+  assert.ok(screen.getByText('이 건물을 목표로 정하기'));
+  await fireEvent.press(screen.getByTestId('hall-plan-action'));
+  await waitFor(() => assert.equal(select.mock.calls.length, 1));
+
+  const selected = options();
+  constructionMock.mockReturnValue(construction({ options: selected, select, build }));
+  await screen.rerender(<Hall e={env} />);
+  let button = screen.getByTestId('hall-plan-action');
+  assert.ok(screen.getByText('건설하기'));
+  assert.equal(button.props.accessibilityState.disabled, true);
+  assert.equal(
+    StyleSheet.flatten(button.props.style).opacity,
+    componentTokens.button.disabledOpacity,
+  );
+  await fireEvent.press(button);
+  assert.equal(build.mock.calls.length, 0);
+
+  // 잔액만 충분해져도 주민별 기여 등 서버 조건이 남으면 버튼을 열지 않는다.
+  constructionMock.mockReturnValue(
+    construction({ options: { ...selected, villagePoints: 1000 }, select, build }),
+  );
+  await screen.rerender(<Hall e={env} />);
+  assert.equal(screen.getByTestId('hall-plan-action').props.accessibilityState.disabled, true);
+
+  selected.items[0] = { ...selected.items[0], buildable: true, blockedReason: null };
+  constructionMock.mockReturnValue(
+    construction({ options: { ...selected, villagePoints: 1000 }, select, build }),
+  );
+  await screen.rerender(<Hall e={env} />);
+  button = screen.getByTestId('hall-plan-action');
+  assert.equal(button.props.accessibilityState.disabled, false);
+  assert.equal(StyleSheet.flatten(button.props.style).opacity, 1);
+  await fireEvent.press(button);
+  await waitFor(() => expect(build).toHaveBeenCalledWith('board'));
+});
 
 test('잔액이 목표 원가의 일부만 찬 상태로 게시판 건설 패널을 열어도 렌더가 죽지 않는다', async () => {
   const screen = await render(<Hall e={e()} />);

@@ -49,6 +49,8 @@ import {
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
+import { useConstruction } from '@/screens/island/useConstruction';
+import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
 import { useBoardNotices } from './useBoardNotices';
 import { useMailbox } from './useMailbox';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
@@ -4090,6 +4092,7 @@ export function Board({
   const commentInflight = useRef<string | null>(null);
   const questInflight = useRef<string | null>(null);
   const claimInflight = useRef<string | null>(null);
+  const constructionInflight = useRef<string | null>(null);
 
   // 다른 섬 방문자: 공지·댓글·퀘스트는 읽기만 하고 청사진은 보지 않는다
   const visitor = app ? app.visitor : concept.boardView === 'visitor';
@@ -4101,6 +4104,32 @@ export function Board({
   const board = useBoardNotices({
     active: serverBoard,
     scopeKey: app ? String(app.island.id) : 'mock',
+  });
+  const constructionIslandId = e?.state.serverIslands?.currentIslandId ?? app?.island.id ?? null;
+  const clientConstruction = e?.state.serverIslands?.clientConstruction;
+  const resumeConstruction =
+    clientConstruction?.islandId === constructionIslandId
+      ? {
+          buildingId: clientConstruction.building,
+          startedAt: clientConstruction.startedAt,
+          completesAt: clientConstruction.endsAt,
+        }
+      : null;
+  // 회관에서 저장한 목표를 게시판에서도 같은 서버 조회·착공 명령으로 읽고 변경한다.
+  const construction = useConstruction({
+    active: serverBoard,
+    islandId: constructionIslandId,
+    now: e?.now ?? 0,
+    withMembers: false,
+    resumeTiming: resumeConstruction,
+    onStarted: (receipt, islandId) =>
+      eRef.current?.dispatch({
+        type: 'SERVER_CONSTRUCTION_STARTED',
+        islandId,
+        building: receipt.buildingId as Building,
+        startedAt: Date.parse(receipt.startedAt),
+        endsAt: Date.parse(receipt.completesAt),
+      }),
   });
   useEffect(() => {
     if (!serverBoard || !e || !board.islandId || !board.wallets) return;
@@ -4230,20 +4259,51 @@ export function Board({
       value: `${local.ready ? 20 : [20, 18, 12][i]} / 20마리${local.ready || i === 0 ? ' ✓' : ''}`,
     })),
   };
-  const blueprintView: BlueprintView =
-    serverBoard && board.wallets
-      ? {
-          ...localBlueprintView,
-          balance: board.wallets.villagePoints,
-          state:
-            localBlueprintView.state === 'waiting' || localBlueprintView.state === 'ready'
-              ? localBlueprintView.collected >= localBlueprintView.needed &&
-                board.wallets.villagePoints >= localBlueprintView.cost
+  const constructionOptions = construction.options;
+  const constructionTiming = construction.started ?? resumeConstruction;
+  // 착공하면 서버 목표는 소비되어 null이 된다. 이 기기가 받은 착공 영수증으로 진행 건물을 잇는다.
+  const selectedBuilding =
+    constructionOptions?.selectedBuildingId ??
+    (constructionOptions ? constructionTiming?.buildingId : null);
+  const selectedOption = constructionOptions?.items.find((item) => item.id === selectedBuilding);
+  const selectedArt = buildOptions.find(
+    (item) => item.id === blueprintOption[selectedBuilding as Building],
+  );
+  const hasConstructionTiming =
+    !!selectedBuilding && constructionTiming?.buildingId === selectedBuilding;
+  const blueprintView: BlueprintView = serverBoard
+    ? {
+        state: !selectedBuilding
+          ? 'none'
+          : !selectedOption
+            ? 'complete' // options에는 미완공 건물만 있다.
+            : selectedOption.blockedReason === 'IN_PROGRESS'
+              ? 'building'
+              : selectedOption.buildable
                 ? 'ready'
-                : 'waiting'
-              : localBlueprintView.state,
-        }
-      : localBlueprintView;
+                : 'waiting',
+        name:
+          selectedOption?.name ??
+          (selectedBuilding ? buildingNames[selectedBuilding as Building] : ''),
+        image:
+          selectedArt?.image ??
+          (selectedBuilding === 'hall'
+            ? interiorArt.buildings.hall
+            : interiorArt.buildings.noticeboard),
+        price: selectedOption ? `총 ${selectedOption.cost}마리` : '',
+        time: '', // 조회 응답에는 공사 소요 시간이 없으므로 시안 값을 보여 주지 않는다.
+        detail: selectedArt?.detail ?? '',
+        balance: constructionOptions?.villagePoints ?? 0,
+        cost: selectedOption?.cost ?? 0,
+        // 주민별 기여·목표 당시 대상 명단은 조회 계약에 없다. 서버 UI에서는 표시하지 않는다.
+        collected: 0,
+        needed: 0,
+        residents: [],
+        progress: hasConstructionTiming
+          ? Math.round(normalizedConstructionProgress(constructionTiming, e.now) * 100)
+          : 0,
+      }
+    : localBlueprintView;
 
   // 없는 공지·퀘스트 id로 상세를 열면 목록을 보여 주고 라우트도 목록으로 바꾼다
   // 서버 경로의 공지는 이 검사를 건너뛴다 — 목록은 첫 페이지뿐이라 없는 id 판정이 틀리고,
@@ -4374,6 +4434,7 @@ export function Board({
       }
       // 열린 종이를 다시 누르면 닫고, 다른 종이는 기록을 쌓지 않고 바꿔 연다
       if (s.panel === panel) return e.back();
+      if (serverBoard && panel === 'blueprint') void construction.reload().catch(() => undefined);
       if (s.panel) e.replace('board');
       else e.go('board');
       if (panel) e.setTab(boardTabs[panel]);
@@ -4781,12 +4842,29 @@ export function Board({
     },
     build: () => {
       if (!owner || blueprintView.state !== 'ready') return;
+      if (serverBoard) {
+        if (!selectedBuilding || constructionInflight.current !== null) return;
+        const target = selectedBuilding;
+        const op = routeGen.current;
+        constructionInflight.current = target;
+        setError('');
+        construction
+          .build(target)
+          .catch((error: unknown) => {
+            if (liveE(op)) setError(apiWriteMessage(error));
+          })
+          .finally(() => {
+            if (constructionInflight.current === target) constructionInflight.current = null;
+          });
+        return;
+      }
       if (e) return app?.building && e.build(app.building);
       if (s.balance < 60) return;
       render({ balance: s.balance - 60, view: 'building' });
     },
     openBuilding: () => {
-      const r = app?.building && buildingRoute[app.building];
+      const building = serverBoard ? selectedBuilding : app?.building;
+      const r = building && buildingRoute[building as Building];
       if (r) e.go(r);
     },
   };
@@ -5589,6 +5667,23 @@ export function Board({
   const blueprint = () => {
     const bp = blueprintView,
       stamp = bp.state === 'ready' || bp.state === 'building';
+    if (serverBoard && construction.status !== 'ready')
+      return (
+        <View style={{ paddingTop: 32, gap: semanticTokens.spacing.control }}>
+          <Text testID="board-construction-status" style={boardFont(14, 1.6, '700', '#f7fcff')}>
+            {construction.status === 'error'
+              ? '건설 목표를 불러오지 못했어요.'
+              : '건설 목표를 불러오고 있어요.'}
+          </Text>
+          {construction.status === 'error' && (
+            <BoardPill
+              testID="board-construction-retry"
+              label="다시 시도"
+              onPress={() => void construction.retry().catch(() => undefined)}
+            />
+          )}
+        </View>
+      );
     if (bp.state === 'none')
       return (
         <Text
@@ -5707,8 +5802,8 @@ export function Board({
               <Text style={[boardFont(22, 1.1, '700', light, GOWUN), { marginBottom: 7 }]}>
                 {bp.name}
               </Text>
-              {copyRow('가격', bp.price)}
-              {copyRow('시간', bp.time)}
+              {!!bp.price && copyRow('가격', bp.price)}
+              {!!bp.time && copyRow('시간', bp.time)}
               <Text
                 style={[
                   boardFont(12, 1.45, '400', light),
@@ -5741,19 +5836,23 @@ export function Board({
             <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>
               {`${josa(bp.name, '을', '를')} 짓고 있어요`}
             </Text>
-            <Text
-              style={boardFont(13, 1.6, '400', '#e8faff')}
-            >{`공사 진행률 · ${bp.progress}%`}</Text>
-            <Track
-              rate={bp.progress}
-              color="#f3d16d"
-              style={{
-                height: 10,
-                borderWidth: 1,
-                borderColor: '#dff7ff',
-                backgroundColor: '#eaf8fb',
-              }}
-            />
+            {(!serverBoard || hasConstructionTiming) && (
+              <>
+                <Text
+                  style={boardFont(13, 1.6, '400', '#e8faff')}
+                >{`공사 진행률 · ${bp.progress}%`}</Text>
+                <Track
+                  rate={bp.progress}
+                  color="#f3d16d"
+                  style={{
+                    height: 10,
+                    borderWidth: 1,
+                    borderColor: '#dff7ff',
+                    backgroundColor: '#eaf8fb',
+                  }}
+                />
+              </>
+            )}
           </View>
         ) : bp.state === 'complete' ? (
           <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
@@ -5794,6 +5893,17 @@ export function Board({
               방장이 건설할 수 있어요
             </Text>
           )
+        ) : serverBoard ? (
+          <View style={{ paddingTop: 14, gap: semanticTokens.spacing.control }}>
+            {fishRow('섬 잔액 / 공사 가격', `${bp.balance} / ${bp.cost}마리`)}
+            <Text style={boardFont(12, 1.45, '400', '#e8faff')}>
+              {selectedOption?.blockedReason === 'FORBIDDEN'
+                ? '방장이 건설을 진행할 수 있어요.'
+                : selectedOption?.blockedReason === 'FACILITY_LOCKED'
+                  ? '먼저 필요한 시설을 완공해 주세요.'
+                  : '필요한 물고기와 주민별 기여 조건을 채우면 건설할 수 있어요.'}
+            </Text>
+          </View>
         ) : (
           <View style={{ paddingTop: 14 }}>
             <View style={{ gap: 7 }}>
@@ -5852,6 +5962,11 @@ export function Board({
               주민 전원이 요구량을 채워야 건설할 수 있어요.
             </Text>
           </View>
+        )}
+        {serverBoard && !!s.error && (
+          <Text accessibilityRole="alert" style={boardFont(13, 1.45, '700', '#f7fcff')}>
+            {s.error}
+          </Text>
         )}
       </>
     );

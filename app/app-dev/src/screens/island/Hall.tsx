@@ -12,6 +12,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
 import { art, CharCount, Wheel } from '@/design-system/patterns';
+import { componentTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
 import {
   State,
@@ -1524,13 +1525,16 @@ export function Hall({ e }: any) {
           <T style={g(15.5, 22.475, { color: '#f7fcff' })}>{text}</T>
         </View>
       );
-      const btn = (label: string, onPress: () => void) => (
+      const btn = (label: string, onPress: () => void, disabled = false) => (
         <Pressable
           testID="hall-plan-action"
           accessibilityRole="button"
           accessibilityLabel={label}
+          accessibilityState={{ disabled }}
+          disabled={disabled}
           onPress={onPress}
           style={{
+            opacity: disabled ? componentTokens.button.disabledOpacity : 1,
             marginTop: 10.3,
             minHeight: 56.8,
             alignItems: 'center',
@@ -1875,11 +1879,12 @@ export function Hall({ e }: any) {
                     )
                   : // 서버가 막은 사유 그대로 안내한다 — 권한·중복·선행 조건은 서버 판정
                     note(blockedText(planItem!.blockedReason)))}
-              {st === 'collect' &&
-                (planItem!.buildable
-                  ? btn('건설하기', liveBuild)
-                  : // 잔액 부족 등은 서버 blockedReason — 충분하면 null 이라 버튼이 나온다
-                    note(buildBlockedText(planItem!.blockedReason)))}
+              {st === 'collect' && (
+                <>
+                  {btn('건설하기', liveBuild, !planItem!.buildable)}
+                  {!planItem!.buildable && note(buildBlockedText(planItem!.blockedReason))}
+                </>
+              )}
             </>
           ) : (
             <>
