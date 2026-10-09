@@ -1,13 +1,16 @@
 package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.repository.ChatReadCursorRepository;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,6 +24,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
@@ -30,7 +36,10 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -76,6 +85,9 @@ class InboundEventServiceTest {
 
     @Autowired
     private StringRedisTemplate redis;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Value("${realtime.internal.data-service-token}")
     private String dataToken;
@@ -203,6 +215,41 @@ class InboundEventServiceTest {
 
         http(membersUpdated(island, "MEMBER_REMOVED", kicked, 2));
         verify(movementSubscriptions).recheckMembership(island, kicked);
+    }
+
+    @Test
+    @DisplayName("사건 수신이 롤백되면 이동 방 재검사를 부르지 않는다 — relay 가 다시 보낼 사건으로 사람을 내보내지 않는다")
+    void rolledBackEventNeverTriggersTheMovementRecheck() {
+        UUID island = UUID.randomUUID();
+        UUID kicked = UUID.randomUUID();
+        JsonNode event = objectMapper.readTree(membersUpdated(island, "MEMBER_REMOVED", kicked, 5));
+
+        // 수신(같은 트랜잭션에 합류) 뒤 그 트랜잭션이 실패한 경우 — afterCommit 이 오지 않아야 한다.
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            inboundEventService.accept(event);
+            status.setRollbackOnly();
+        });
+
+        verify(movementSubscriptions, never()).recheckMembership(any(), any());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?", Long.class,
+                event.get("eventId").stringValue())).isZero();
+    }
+
+    @Test
+    @DisplayName("트랜잭션 밖에서 불리면 이동 방 재검사를 곧바로 건다 — 기다릴 커밋이 없다")
+    void movementRecheckRunsImmediatelyWithoutATransaction() {
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        MovementSubscriptionListener listener = mock(MovementSubscriptionListener.class);
+        InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
+                mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener);
+        UUID island = UUID.randomUUID();
+        UUID kicked = UUID.randomUUID();
+
+        assertThat(plain.accept(objectMapper.readTree(membersUpdated(island, "MEMBER_REMOVED", kicked, 4)))).isTrue();
+
+        verify(listener).recheckMembership(island, kicked);
     }
 
     @Test

@@ -77,8 +77,9 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  *
  * <h2>이동 채널 (GROMO-2247)</h2>
  * {@code /topic/islands/{id}/movement}·{@code /movement/snapshot} 구독은 <b>섬 멤버십</b>
- * ({@link ChatAccessGuard#requireMember}) 을 1회 본다 — 구독이 곧 방 입장이고, 집중 중에도 걸을 수 있어야 해서
- * 채팅 관문(집중 검사 포함)은 쓰지 않는다(N1·N2). intent SEND 는 인증과 「그 섬 movement 구독 중」만 본다.
+ * ({@link ChatAccessGuard#requireMember}) 을 세션×섬마다 1회 본다(사용자 축 시도 창 600ms 뒤) — 구독이 곧 방
+ * 입장이고, 집중 중에도 걸을 수 있어야 해서 채팅 관문(집중 검사 포함)은 쓰지 않는다(N1·N2). intent SEND 는 인증과
+ * 「그 섬 movement 구독 중」만 본다.
  */
 @Slf4j
 @Component
@@ -192,9 +193,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
         Matcher movement = MOVEMENT_TOPIC.matcher(destination);
         if (movement.matches()) {
-            ChatPrincipal principal = requireSubscribable(accessor, destination);
-            UUID islandId = uuidOrReject(movement.group(1));
-            accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            authorizeMovementSubscription(accessor, destination, movement);
             return;
         }
 
@@ -224,6 +223,36 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         UUID groupId = uuidOrReject(matcher.group(1));
 
         accessGuard.requireCanChat(groupId, principal.userId(), principal.bearer());
+    }
+
+    /**
+     * 이동 토픽 구독(GROMO-2247) — 섬 멤버십을 <b>세션×섬마다 한 번</b> 판정한다.
+     *
+     * <p>앱은 접속마다 {@code movement}·{@code movement/snapshot} 을 연달아 구독한다. 같은 세션이 그 섬의 짝 토픽을
+     * 이미 판정받고 들고 있으면 이번 것은 그 판정을 이어받는다 — 사용자 축 시도 창(600ms,
+     * {@code emoteSubscribeAttempt} 와 같은 방식)이 둘째 구독을 막지 않고, 상류 조회도 한 번이다. 짝이 없으면
+     * 창 → 멤버십 순으로 보고, 창 초과는 다른 관문 위반처럼 ERROR + 연결 종료다.
+     *
+     * <p><b>거절된 구독은 레지스트리 자리를 돌려준다.</b> 남겨 두면 «판정받은 구독»으로 오인돼 짝 토픽과 intent
+     * SEND 관문({@link #authorizeMovementIntent})을 통과시킨다 — ERROR 뒤 소켓이 닫히기 전에 처리되는 프레임이 있다.
+     */
+    private void authorizeMovementSubscription(StompHeaderAccessor accessor, String destination, Matcher movement) {
+        ChatPrincipal principal = requireSubscribable(accessor, destination);
+        UUID islandId = uuidOrReject(movement.group(1));
+        String sibling = movement.group(2) == null ? StompTopics.movementSnapshotTopic(islandId)
+                : StompTopics.movementTopic(islandId);
+        if (sessions.subscriptionIdOf(accessor.getSessionId(), sibling) != null) {
+            return;
+        }
+        try {
+            if (!acquireWindow(RedisKeys.movementSubscribeAttempt(principal.userId()))) {
+                throw new ChatException(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
+            }
+            accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+        } catch (RuntimeException e) {
+            sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            throw e;
+        }
     }
 
     /**

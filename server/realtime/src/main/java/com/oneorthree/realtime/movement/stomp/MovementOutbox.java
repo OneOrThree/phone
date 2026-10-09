@@ -30,13 +30,15 @@ import java.util.concurrent.TimeUnit;
  * reliable 이 먼저, 그다음 슬롯이다 — 같은 틱의 PathAccepted 가 그 경로의 Snapshot 보다 먼저 도착해야 앱이
  * pathId 를 안다.
  *
- * <p><b>멈춤(suspend)</b> — 강퇴 재검사가 판정을 못 내리는 동안(상류 장애) 이 세션엔 아무것도 보내지 않는다
- * (fail-closed). 사건은 덱·슬롯에 그대로 쌓이고(넘치면 위 백프레셔), 재판정이 통과하면 {@link #resume} 이 한꺼번에
- * 내보낸다. 판정·재시도는 {@link MovementSubscriptionListener} 가 한다.
+ * <p><b>멈춤(suspend)</b> — 강퇴 재검사를 예약한 순간부터 통과로 판정될 때까지 이 세션엔 아무것도 보내지 않는다
+ * (fail-closed). 멈춘 동안의 사건은 <b>쌓지 않고 버린다</b> — 재개 때 FullState 한 번으로 다시 맞추므로
+ * ({@code awaitingFullState}) 밀린 사건을 한꺼번에 쏟지 않고, 큐 상한과 다툴 일도 없다. 판정·재시도·재동기화 요청은
+ * {@link MovementSubscriptionListener} 가 한다.
  *
  * <p><b>워치독</b> — 완료 통지가 끝내 오지 않는 프레임(표식 유실, 채널 구독자 0)이 있으면 그 세션 송신이 조용히
- * 굳는다. 이동 스케줄러가 5초마다 {@link #sweep} 을 불러 {@link #STUCK_NANOS} 넘게 묶인 프레임을 끝난 것으로 친다.
- * 프레임마다 표식({@link Ticket})이 따로라, 워치독이 푼 뒤에 늦게 온 옛 통지는 아무것도 풀지 않는다.
+ * 굳는다. 워치독 실행기가 5초마다 {@link #sweep} 을 불러 {@link #STUCK_NANOS} 넘게 묶인 프레임을 끝난 것으로 친다
+ * (덱이 찬 채 굳었으면 그때 종료 콜백도 나간다). 프레임마다 표식({@link Ticket})이 따로라, 워치독이 푼 뒤에 늦게 온
+ * 옛 통지는 아무것도 풀지 않는다.
  *
  * <p>잠금은 이 객체 하나(짧다). <b>채널 전송·종료 콜백은 잠금 밖에서</b> 한다 — in-flight 표식이 동시 전송을 막으므로
  * 잠금이 필요 없고, 잠근 채 보내면 실행기가 작업을 바로 돌리는 경우(종료 중 거절 → 호출 스레드 실행) 완료 통지가
@@ -73,7 +75,7 @@ final class MovementOutbox {
     private boolean awaitingFullState;
     /** 같은 사용자의 다른 세션이 그 섬 actor 를 가져갔다 — 이 세션엔 더 보내지 않는다(N6). */
     private boolean superseded;
-    /** 멤버십 재판정 대기 — 쌓기만 하고 보내지 않는다. */
+    /** 멤버십 재판정 중(예약부터 통과 판정까지) — 받는 사건을 버린다. */
     private boolean suspended;
     /** 지금 나가 있는 프레임의 표식, 없으면 {@code null}. */
     private Ticket inFlight;
@@ -113,11 +115,13 @@ final class MovementOutbox {
         Message<byte[]> next;
         int depth;
         synchronized (this) {
-            if (closed || superseded || movementSubscriptionId == null || (awaitingFullState && !fullState)) {
+            if (closed || superseded || suspended || movementSubscriptionId == null
+                    || (awaitingFullState && !fullState)) {
                 return 0;
             }
             if (reliable.size() >= RELIABLE_LIMIT) {
-                // 더 받지 않는다. 소켓 종료는 다음 완료 통지(보내는 중) 또는 워치독(멈춰 있는 중)이 낸다.
+                // 더 받지 않는다. 덱이 찼다는 건 in-flight 한 건이 끝나지 않고 있다는 뜻이다 — 소켓 종료는 그 완료
+                // 통지(또는 그게 굳었으면 워치독)가 낸다.
                 overflowed = true;
                 closed = true;
                 reliable.clear();
@@ -142,7 +146,7 @@ final class MovementOutbox {
         Message<byte[]> next;
         boolean replaced;
         synchronized (this) {
-            if (closed || superseded || snapshotSubscriptionId == null) {
+            if (closed || superseded || suspended || snapshotSubscriptionId == null) {
                 return false;
             }
             replaced = latestSnapshot != null;
@@ -163,46 +167,36 @@ final class MovementOutbox {
     }
 
     /**
-     * 워치독 — {@link #STUCK_NANOS} 넘게 완료 통지가 없는 프레임을 끝난 것으로 치고, 멈춰 있는 동안 넘친 큐의 종료
-     * 요청({@code onOverflow})을 낸다. 이동 스케줄러 스레드에서만 불린다.
+     * 워치독 — {@link #STUCK_NANOS} 넘게 완료 통지가 없는 프레임을 끝난 것으로 친다(덱이 찬 채였으면 종료 콜백도
+     * 이때 나간다). 워치독 실행기에서만 불린다.
      */
     void sweep(long nowNanos) {
         Ticket stuck;
         synchronized (this) {
-            boolean stalled = inFlight != null && nowNanos - inFlightSince >= STUCK_NANOS;
-            boolean idleOverflow = inFlight == null && overflowed;
-            if (!stalled && !idleOverflow) {
+            if (inFlight == null || nowNanos - inFlightSince < STUCK_NANOS) {
                 return;
             }
             stuck = inFlight;
         }
-        if (stuck != null) {
-            LOG.warn("이동 프레임 완료 통지가 {}초 넘게 없다 — 끝난 것으로 치고 다음 건으로 넘어간다",
-                    TimeUnit.NANOSECONDS.toSeconds(STUCK_NANOS));
-        }
+        LOG.warn("이동 프레임 완료 통지가 {}초 넘게 없다 — 끝난 것으로 치고 다음 건으로 넘어간다",
+                TimeUnit.NANOSECONDS.toSeconds(STUCK_NANOS));
         release(stuck);
     }
 
-    /** @return 이번에 처음 멈췄으면 true(측정용) */
-    synchronized boolean suspend() {
-        if (suspended) {
-            return false;
-        }
+    /**
+     * 멈춘다 — 쌓인 reliable·Snapshot 을 버리고 다음 reliable 은 FullState 부터 받는다(재개 때 재동기화). 이미 나간
+     * in-flight 한 건은 그대로 끝난다.
+     */
+    synchronized void suspend() {
         suspended = true;
-        return true;
+        awaitingFullState = true;
+        reliable.clear();
+        latestSnapshot = null;
     }
 
-    /** 재판정 통과 — 멈춘 동안 쌓인 것을 보내기 시작한다. */
-    void resume() {
-        Message<byte[]> next;
-        synchronized (this) {
-            if (!suspended) {
-                return;
-            }
-            suspended = false;
-            next = takeNextIfIdle();
-        }
-        transmit(next);
+    /** 재판정 통과 — 다시 받는다. 첫 reliable 은 호출자가 요청한 FullState 다({@code awaitingFullState}). */
+    synchronized void resume() {
+        suspended = false;
     }
 
     /**
@@ -294,7 +288,7 @@ final class MovementOutbox {
 
     /** 잠금 안에서만 부른다. 보낼 게 있고 in-flight 가 없으면 꺼내 in-flight 로 표시한다. */
     private Message<byte[]> takeNextIfIdle() {
-        if (inFlight != null || closed || suspended) {
+        if (inFlight != null || closed) {
             return null;
         }
         Ticket ticket = new Ticket();

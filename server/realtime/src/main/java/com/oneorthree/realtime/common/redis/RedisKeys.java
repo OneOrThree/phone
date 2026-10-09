@@ -26,6 +26,8 @@ import java.util.UUID;
  *       <td>응원 <b>발신</b> 시도 창 — 거절된 요청도 여기를 소모해 상류 조회 수를 누른다</td></tr>
  *   <tr><td>{@code lock:chat:emote:sub:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
  *       <td>응원 <b>구독</b> 시도 창 — SUBSCRIBE 도 상류 조회를 부르므로 같은 상한을 건다</td></tr>
+ *   <tr><td>{@code lock:chat:movement:sub:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>이동 <b>구독</b> 시도 창(GROMO-2247) — 멤버십 조회를 부르는 이동 SUBSCRIBE 의 상한</td></tr>
  *   <tr><td>{@code presence:focus:{userId}}</td><td><b>Data API</b></td><td><b>읽기 전용</b></td>
  *       <td>집중 세션 리스. 채팅은 존재 여부만 본다 — 쓰지도 지우지도 않는다</td></tr>
  * </table>
@@ -63,6 +65,7 @@ public final class RedisKeys {
     private static final String EMOTE_RATE_PREFIX = "lock:chat:emote:";
     private static final String EMOTE_ATTEMPT_PREFIX = "lock:chat:emote:try:";
     private static final String EMOTE_SUBSCRIBE_PREFIX = "lock:chat:emote:sub:";
+    private static final String MOVEMENT_SUBSCRIBE_PREFIX = "lock:chat:movement:sub:";
 
     private RedisKeys() {
     }
@@ -148,5 +151,16 @@ public final class RedisKeys {
      */
     public static String emoteSubscribeAttempt(UUID userId) {
         return EMOTE_SUBSCRIBE_PREFIX + userId;
+    }
+
+    /**
+     * 이동 <b>구독</b> 시도 창(GROMO-2247) — {@link #emoteSubscribeAttempt} 와 같은 방식, 사용자 축.
+     *
+     * <p>이동 SUBSCRIBE 는 멤버십 조회를 부른다(옵션 ON 이면 Data HTTP). 그 섬 이동 토픽 둘 중 <b>먼저 오는
+     * 하나만</b> 이 창을 쓴다 — 같은 세션의 짝 토픽은 그 판정을 이어받으므로(관문 참고) 앱이 접속마다 두 토픽을
+     * 연달아 구독해도 창에 걸리지 않는다.
+     */
+    public static String movementSubscribeAttempt(UUID userId) {
+        return MOVEMENT_SUBSCRIBE_PREFIX + userId;
     }
 }

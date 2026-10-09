@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.movement.stomp;
 
 import com.oneorthree.realtime.auth.ChatPrincipal;
+import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
 import com.oneorthree.realtime.config.StompTopics;
@@ -32,6 +33,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -43,6 +45,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -59,6 +62,9 @@ class MovementSubscriptionListenerTest {
 
     private final RealtimeSessionRegistry sessions = new RealtimeSessionRegistry();
     private final ChatAccessGuard accessGuard = mock(ChatAccessGuard.class);
+    private final JwtValidator jwtValidator = mock(JwtValidator.class);
+    /** 소켓 종료를 맡는 워치독 실행기 — 테스트에선 받는 즉시 돌린다. */
+    private final ScheduledExecutorService watchdog = mock(ScheduledExecutorService.class);
     private final ObjectMapper json = JsonMapper.builder().build();
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final List<Message<?>> sent = new ArrayList<>();
@@ -83,9 +89,18 @@ class MovementSubscriptionListenerTest {
             futures.add(future);
             return future;
         });
+        willAnswer(invocation -> {
+            ((Runnable) invocation.getArgument(0)).run();
+            return null;
+        }).given(watchdog).execute(any(Runnable.class));
         MovementPublisher publisher = publisher();
         rooms = new MovementRooms(publisher, meterRegistry);
-        listener = new MovementSubscriptionListener(rooms, publisher, sessions, accessGuard, meterRegistry, scheduler);
+        listener = listener(rooms, publisher);
+    }
+
+    private MovementSubscriptionListener listener(MovementRooms movementRooms, MovementPublisher publisher) {
+        return new MovementSubscriptionListener(movementRooms, publisher, sessions, accessGuard, jwtValidator,
+                meterRegistry, scheduler, watchdog);
     }
 
     @Test
@@ -157,7 +172,38 @@ class MovementSubscriptionListenerTest {
     // ── 강퇴 재검사(N7) — fail-closed + 백오프 재판정 ─────────────────────────
 
     @Test
-    @DisplayName("① 재검사 판정이 상류 장애로 실패하면 그 세션 전달을 멈추고, 1초 뒤 재판정이 통과하면 쌓인 것부터 다시 보낸다")
+    @DisplayName("MEMBER_REMOVED 를 받아 재판정을 예약한 순간부터 그 세션엔 아무것도 가지 않고, 통과 판정 뒤에야 재개한다")
+    void deliveryStopsTheMomentTheRecheckIsScheduled() {
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal target = connect("b");
+        join("a", stays);
+        join("b", target);
+        listener.preSend(subscribe("a", "s", StompTopics.movementSnapshotTopic(island), stays), null);
+        listener.preSend(subscribe("b", "s", StompTopics.movementSnapshotTopic(island), target), null);
+        tick();
+        sent.clear();
+
+        listener.recheckMembership(island, target.userId()); // 예약만 — 재판정은 아직 돌지 않았다(앞선 조회에 밀린 상태)
+        rooms.accept(island, stays.userId(), "a", new MoveIntent(1, 1, 39.5, 45.5));
+        tick();
+
+        assertThat(scheduled).as("재판정은 아직 실행 전이다").hasSize(1);
+        assertThat(bodiesFor("b")).as("예약 순간부터 PathAccepted·Snapshot 모두 멈춘다").isEmpty();
+        assertThat(types(bodiesFor("a"))).as("다른 사람 전달은 그대로다").contains("PathAccepted", "Snapshot");
+        assertThat(meterRegistry.get("movement.recheck.suspended").counter().count()).isEqualTo(1.0);
+
+        runNext(); // 통과 — 재개 + 그 세션 FullState 요청
+        assertThat(bodiesFor("b")).as("재개만으로는 아무것도 쏟아지지 않는다 — 멈춘 동안의 사건은 버렸다").isEmpty();
+        tick();
+
+        List<String> resumed = types(bodiesFor("b"));
+        assertThat(resumed.get(0)).as("재개 뒤 첫 메시지는 다시 맞추는 FullState").isEqualTo("FullState");
+        assertThat(resumed).as("멈춘 동안 버린 PathAccepted 는 끝내 오지 않는다").doesNotContain("PathAccepted");
+        assertThat(resumed).as("재개 뒤 사건은 다시 받는다").contains("Arrived", "Snapshot");
+    }
+
+    @Test
+    @DisplayName("① 재검사 판정이 상류 장애로 실패하면 그 세션 전달을 멈춘 채 두고, 1초 뒤 재판정이 통과하면 FullState 로 다시 맞춘다")
     void failedRecheckSuspendsDeliveryUntilARetryAllows() {
         ChatPrincipal stays = connect("a");
         ChatPrincipal target = connect("b");
@@ -179,9 +225,25 @@ class MovementSubscriptionListenerTest {
         assertThat(meterRegistry.get("movement.recheck.suspended").counter().count()).isEqualTo(1.0);
 
         runNext(); // 1초 뒤 재판정 — 통과
+        tick();
 
-        assertThat(types(bodiesFor("b"))).as("재개하면 멈춘 동안 쌓인 사건이 나간다").contains("PathAccepted");
+        assertThat(types(bodiesFor("b")).get(0)).as("재개 뒤 첫 메시지는 FullState").isEqualTo("FullState");
         assertThat(scheduled).as("통과하면 더 예약하지 않는다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("세션 토큰이 죽었으면 소속을 묻지 않고 1008 UNAUTHORIZED 로 닫는다 — 「소속 없음」으로 접혀 조용히 퇴장되지 않는다")
+    void expiredTokenClosesWith1008InsteadOfAskingMembership() throws Exception {
+        ChatPrincipal expired = connect("b");
+        join("b", expired);
+        given(jwtValidator.extractUserId("b")).willReturn(Optional.empty());
+
+        listener.recheckMembership(island, null); // 옛 Data — 섬 전체 폴백
+        runNext();
+
+        verify(accessGuard, never()).requireMemberUncached(any(), any(), any());
+        verify(sockets.get("b")).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+        assertThat(scheduled).as("같은 토큰으로 다시 물어도 같다 — 재시도하지 않는다").isEmpty();
     }
 
     @Test
@@ -279,10 +341,7 @@ class MovementSubscriptionListenerTest {
     void actionFailureNeverEscapesTheRecheck() {
         MovementRooms brokenRooms = mock(MovementRooms.class);
         willThrow(new IllegalStateException("퇴장 실패")).given(brokenRooms).leave(any(), any());
-        MovementPublisher publisher = publisher();
-        MovementSubscriptionListener fragile =
-                new MovementSubscriptionListener(brokenRooms, publisher, sessions, accessGuard, meterRegistry,
-                        scheduler);
+        MovementSubscriptionListener fragile = listener(brokenRooms, publisher());
         ChatPrincipal kicked = connect("b");
         fragile.preSend(subscribe("b", "m", StompTopics.movementTopic(island), kicked), null);
         willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
@@ -332,6 +391,7 @@ class MovementSubscriptionListenerTest {
         sockets.put(sessionId, socket);
         ChatPrincipal principal = new ChatPrincipal(userId, "Bearer " + sessionId);
         sessions.register(sessionId, principal);
+        given(jwtValidator.extractUserId(sessionId)).willReturn(Optional.of(userId)); // 토큰 = 세션 id, 살아 있다
         return principal;
     }
 

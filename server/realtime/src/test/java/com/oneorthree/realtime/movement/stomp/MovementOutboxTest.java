@@ -88,28 +88,26 @@ class MovementOutboxTest {
     }
 
     @Test
-    @DisplayName("멈춘 동안은 쌓기만 하고 재개하면 순서대로 나간다 — 멈춘 채 넘친 큐는 워치독이 종료를 요청한다")
-    void suspendedOutboxQueuesUntilResumedAndIdleOverflowIsClosedByTheWatchdog() {
-        assertThat(outbox.suspend()).isTrue();
-        assertThat(outbox.suspend()).as("이미 멈춘 상태 — 측정은 처음 한 번만").isFalse();
-        outbox.enqueueReliable(bytes("FullState"), true);
+    @DisplayName("멈춘 동안 받는 reliable·Snapshot 은 쌓지 않고 버린다 — 재개하면 FullState 부터 다시 받는다")
+    void suspendedOutboxDropsEverythingAndResyncsFromFullState() {
+        outbox.enqueueReliable(bytes("FullState"), true); // in-flight 인 채로 멈춘다
+        outbox.enqueueReliable(bytes("PathAccepted-1"), false);
         outbox.offerSnapshot(bytes("Snapshot-1"));
-        outbox.offerSnapshot(bytes("Snapshot-2"));
-        assertThat(sent).as("멈춘 동안은 아무것도 보내지 않는다(fail-closed)").isEmpty();
-
-        outbox.resume();
-        drainBySimulatedCompletions();
-        assertThat(payloads()).containsExactly("FullState", "Snapshot-2");
 
         outbox.suspend();
-        for (int i = 0; i <= MovementOutbox.RELIABLE_LIMIT; i++) {
-            outbox.enqueueReliable(bytes("r" + i), false);
-        }
-        assertThat(overflowCalls).as("in-flight 가 없어 완료 통지로는 닫을 계기가 없다").hasValue(0);
-        outbox.sweep(System.nanoTime());
-        assertThat(overflowCalls).as("워치독이 종료를 요청한다").hasValue(1);
-        outbox.sweep(System.nanoTime());
-        assertThat(overflowCalls).hasValue(1);
+        assertThat(outbox.enqueueReliable(bytes("FullState-2"), true)).as("멈춘 동안은 FullState 도 버린다").isZero();
+        assertThat(outbox.offerSnapshot(bytes("Snapshot-2"))).isFalse();
+        drainBySimulatedCompletions();
+        assertThat(payloads()).as("이미 나간 한 건만 — 덱·슬롯에 있던 것도 버렸다").containsExactly("FullState");
+
+        outbox.resume();
+        assertThat(outbox.enqueueReliable(bytes("Arrived"), false)).as("재개 직후 FullState 전 사건은 버린다").isZero();
+        outbox.enqueueReliable(bytes("FullState-resync"), true);
+        outbox.enqueueReliable(bytes("PathAccepted-2"), false);
+        drainBySimulatedCompletions();
+
+        assertThat(payloads()).containsExactly("FullState", "FullState-resync", "PathAccepted-2");
+        assertThat(overflowCalls).as("쌓지 않으므로 큐 상한과 다툴 일이 없다").hasValue(0);
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.movement.stomp;
 
 import com.oneorthree.realtime.auth.ChatPrincipal;
+import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
@@ -31,6 +32,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 
 /**
@@ -53,11 +55,17 @@ import java.util.regex.Matcher;
  *
  * <h2>강퇴 재검사는 fail-closed 다</h2>
  * {@code island.members.updated}(MEMBER_REMOVED) 커밋 뒤 그 사용자의 이동 세션을 <b>캐시 없이</b> 다시 판정한다
- * ({@link #recheckMembership}). 판정을 못 내리면(상류 장애) 그 세션×섬 전달을 멈추고(suspend) 1·2·4·8·16초 뒤
- * 다시 판정한다 — 통과하면 재개, 비멤버면 퇴장, 31초 예산을 다 쓰면 1011 {@code MEMBERSHIP_UNVERIFIED} 로 닫아
- * 앱이 다시 붙어 구독 관문에서 새로 판정받게 한다. 상류 장애 중에도 강퇴된 사람은 받지 못한다. 판정·재시도·
- * 소켓 종료·송신 워치독은 전부 전용 단일 스레드 {@code movement-recheck} 에서 돈다 — 틱 스레드도, 브로커의
- * 스케줄러({@code messageBrokerTaskScheduler}, 하트비트)도 상류 HTTP 대기에 묶이지 않게 따로 둔다.
+ * ({@link #recheckMembership}). <b>재판정을 예약하는 그 순간</b> 그 세션×섬 전달을 멈추고(suspend) <b>통과로 판정될
+ * 때만</b> 재개한다 — 앞선 조회에 밀리거나 조회가 늦는 동안에도 강퇴된 사람에게 FullState·Snapshot 이 새지 않는다.
+ * 통과하면 FullState 한 번으로 다시 맞춘다(멈춘 동안의 사건은 버렸다). 판정을 못 내리면(상류 장애) 멈춘 채
+ * 1·2·4·8·16초 뒤 다시 판정한다 — 비멤버면 퇴장, 토큰이 죽었으면 1008, 31초 예산을 다 쓰면 1011
+ * {@code MEMBERSHIP_UNVERIFIED} 로 닫아 앱이 다시 붙어 구독 관문에서 새로 판정받게 한다.
+ *
+ * <h2>스레드 둘</h2>
+ * 판정·재시도는 전용 단일 스레드 {@code movement-recheck}, 송신 워치독과 <b>모든 소켓 종료</b>는 별도
+ * {@code movement-watchdog}(2스레드)다 — 상류 장애로 판정이 줄을 서도 굳은 송신 해제·종료가 돌고, 막힌
+ * 클라이언트의 blocking close 가 판정 스레드를 잡지 않는다. 둘 다 틱 스레드·브로커 스케줄러
+ * ({@code messageBrokerTaskScheduler}, 하트비트)와 따로다.
  */
 @Slf4j
 @Component
@@ -74,7 +82,9 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     private final MovementPublisher publisher;
     private final RealtimeSessionRegistry sessions;
     private final ChatAccessGuard accessGuard;
+    private final JwtValidator jwtValidator;
     private final ScheduledExecutorService scheduler;
+    private final ScheduledExecutorService watchdog;
     private final Counter suspendedCount;
 
     /** sessionId → (islandId → outbox). 이 맵의 {@code compute} 가 세션별 잠금이다 — 람다 안에서 블로킹 금지. */
@@ -83,28 +93,39 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     /** 진행 중인 재판정 — outbox 당 한 세대. 세대가 바뀌면(새 사건·취소) 늦게 도는 옛 작업은 아무것도 하지 않는다. */
     private final ConcurrentHashMap<MovementOutbox, Recheck> rechecks = new ConcurrentHashMap<>();
 
+    /**
+     * ponytail: 판정 풀은 1스레드 — 상류 장애 때 판정이 줄을 서 31초 예산보다 늦게 끝날 수 있다(그동안 멈춰 있어
+     * fail-closed). 늘려야 하면 {@code newExecutor(1, …)} 의 크기만 키운다 — 같은 outbox 의 옛·새 작업이 겹쳐도
+     * 처치는 세대 비교({@code rechecks} 의 remove/replace)로 한 번뿐이다.
+     */
     @Autowired
     public MovementSubscriptionListener(MovementRooms rooms, MovementPublisher publisher,
-            RealtimeSessionRegistry sessions, ChatAccessGuard accessGuard, MeterRegistry meterRegistry) {
-        this(rooms, publisher, sessions, accessGuard, meterRegistry, newScheduler());
+            RealtimeSessionRegistry sessions, ChatAccessGuard accessGuard, JwtValidator jwtValidator,
+            MeterRegistry meterRegistry) {
+        this(rooms, publisher, sessions, accessGuard, jwtValidator, meterRegistry, newExecutor(1, "movement-recheck"),
+                newExecutor(2, "movement-watchdog"));
     }
 
-    /** 패키지 전용 — 테스트가 스케줄러를 갈아 끼워 실제 대기 없이 재판정을 한 단계씩 돌린다. */
+    /** 패키지 전용 — 테스트가 두 실행기를 갈아 끼워 실제 대기 없이 한 단계씩 돌린다. */
     MovementSubscriptionListener(MovementRooms rooms, MovementPublisher publisher, RealtimeSessionRegistry sessions,
-            ChatAccessGuard accessGuard, MeterRegistry meterRegistry, ScheduledExecutorService scheduler) {
+            ChatAccessGuard accessGuard, JwtValidator jwtValidator, MeterRegistry meterRegistry,
+            ScheduledExecutorService scheduler, ScheduledExecutorService watchdog) {
         this.rooms = rooms;
         this.publisher = publisher;
         this.sessions = sessions;
         this.accessGuard = accessGuard;
+        this.jwtValidator = jwtValidator;
         this.scheduler = scheduler;
+        this.watchdog = watchdog;
         this.suspendedCount = Counter.builder("movement.recheck.suspended")
-                .description("강퇴 재검사가 판정을 못 내려 이동 전달을 멈춘 세션×섬 수")
+                .description("강퇴 재검사로 이동 전달을 멈춘 횟수 — 재판정 예약(세션×섬)마다 1, 통과 판정 때만 재개")
                 .register(meterRegistry);
     }
 
-    private static ScheduledExecutorService newScheduler() {
-        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, runnable -> {
-            Thread thread = new Thread(runnable, "movement-recheck");
+    private static ScheduledExecutorService newExecutor(int threads, String name) {
+        AtomicInteger sequence = new AtomicInteger();
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(threads, runnable -> {
+            Thread thread = new Thread(runnable, threads == 1 ? name : name + "-" + sequence.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         });
@@ -112,15 +133,16 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         return executor;
     }
 
-    /** 송신 워치독({@link MovementPublisher#sweep})을 이 스케줄러에서 5초마다 돌린다. */
+    /** 송신 워치독({@link MovementPublisher#sweep})을 워치독 실행기에서 5초마다 돌린다. */
     @PostConstruct
     void start() {
-        scheduler.scheduleWithFixedDelay(this::sweep, SWEEP_PERIOD_SECONDS, SWEEP_PERIOD_SECONDS, TimeUnit.SECONDS);
+        watchdog.scheduleWithFixedDelay(this::sweep, SWEEP_PERIOD_SECONDS, SWEEP_PERIOD_SECONDS, TimeUnit.SECONDS);
     }
 
     @PreDestroy
     void stop() {
         scheduler.shutdownNow();
+        watchdog.shutdownNow();
     }
 
     private void sweep() {
@@ -238,13 +260,23 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         }
     }
 
+    /**
+     * 전달부터 멈추고 예약한다 — 이 outbox 는 여기서부터 {@code ALLOWED} 판정({@link #act})까지 아무것도 보내지
+     * 않는다(그 사이 사건은 버리고, 재개 때 FullState 로 다시 맞춘다). 재개는 그 한 곳뿐이라 나머지 처치(퇴장·
+     * 1011·1008·취소)는 멈춘 채로 끝난다.
+     */
     private void restart(MovementOutbox outbox, UUID islandId) {
+        outbox.suspend();
+        suspendedCount.increment();
         Recheck first = new Recheck(islandId, 0);
         cancel(rechecks.put(outbox, first));
         first.future = scheduler.schedule(() -> judgeAndAct(outbox, first), 0, TimeUnit.SECONDS);
     }
 
-    /** 판정(상류 조회)과 처치(퇴장·재개·종료)를 나눈다 — 처치가 던져도 이 작업은 던지지 않고 그 세션 전달만 멈춘다. */
+    /**
+     * 판정(상류 조회)과 처치(퇴장·재개·종료)를 나눈다 — 처치가 던져도 이 작업은 던지지 않는다. 그 세션 전달은 예약
+     * 때부터 멈춰 있어 그대로 멈춘 채 남는다.
+     */
     private void judgeAndAct(MovementOutbox outbox, Recheck recheck) {
         if (rechecks.get(outbox) != recheck) {
             return; // 새 사건으로 다시 시작됐거나 해지·종료로 취소됐다.
@@ -258,8 +290,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             act(outbox, recheck, verdict);
         } catch (RuntimeException e) {
             rechecks.remove(outbox, recheck);
-            outbox.suspend();
-            log.warn("이동 멤버십 재검사 처치 실패 — 그 세션 전달을 멈춘다. verdict={} reason={}", verdict,
+            log.warn("이동 멤버십 재검사 처치 실패 — 그 세션 전달은 멈춘 채 둔다. verdict={} reason={}", verdict,
                     e.getClass().getSimpleName());
         }
     }
@@ -268,6 +299,13 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         ChatPrincipal principal = sessions.find(outbox.sessionId());
         if (principal == null) {
             return Verdict.GONE;
+        }
+        // 토큰부터 로컬로 본다 — 죽은 토큰을 상류에 물으면 옵션 OFF 에서 「소속 없음」으로 접혀(403 → 빈 집합)
+        // 정상 주민이 조용히 퇴장될 수 있다. 죽었으면 소속을 묻지 않고 기존 만료 규칙(1008)으로 간다.
+        String bearer = principal.bearer();
+        String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
+        if (jwtValidator.extractUserId(token).filter(principal.userId()::equals).isEmpty()) {
+            return Verdict.UNAUTHORIZED;
         }
         try {
             accessGuard.requireMemberUncached(islandId, principal.userId(), principal.bearer());
@@ -285,8 +323,12 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     private void act(MovementOutbox outbox, Recheck recheck, Verdict verdict) {
         switch (verdict) {
             case ALLOWED -> {
+                // 멈춘 동안의 사건은 버렸다 — FullState 한 번으로 다시 맞춘다(그 세션에만, 방 큐 FIFO).
                 if (rechecks.remove(outbox, recheck)) {
                     outbox.resume();
+                    if (outbox.hasMovement()) {
+                        rooms.requestFullState(recheck.islandId, outbox.sessionId());
+                    }
                 }
             }
             case NOT_A_MEMBER -> {
@@ -297,8 +339,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             case UNAUTHORIZED -> {
                 // 그 토큰으로는 다시 물어도 같다 — 기존 만료 토큰 규칙대로 1008 로 닫아 앱이 갱신·재연결하게 한다.
                 if (rechecks.remove(outbox, recheck)) {
-                    outbox.suspend();
-                    sessions.closeUnauthorized(outbox.sessionId());
+                    closeLater(outbox.sessionId(), CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
                 }
             }
             case GONE -> rechecks.remove(outbox, recheck);
@@ -306,26 +347,34 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         }
     }
 
-    /** 판정 불가 — 전달을 멈추고 백오프로 다시 잰다. 예산을 다 쓰면 1011 로 닫는다(이 스케줄러 스레드에서). */
+    /** 판정 불가 — 멈춘 채 백오프로 다시 잰다. 예산을 다 쓰면 1011 로 닫는다(워치독 실행기에서). */
     private void retryOrGiveUp(MovementOutbox outbox, Recheck recheck) {
         if (recheck.attempt >= RETRY_DELAYS_SECONDS.length) {
             if (rechecks.remove(outbox, recheck)) {
-                outbox.suspend();
                 log.warn("이동 멤버십 재판정이 {}회 모두 판정 불가 — 세션을 1011 {} 로 닫는다",
                         RETRY_DELAYS_SECONDS.length + 1, UNVERIFIED.getReason());
-                sessions.close(outbox.sessionId(), UNVERIFIED);
+                closeLater(outbox.sessionId(), UNVERIFIED);
             }
             return;
         }
         Recheck next = new Recheck(recheck.islandId, recheck.attempt + 1);
-        if (!rechecks.replace(outbox, recheck, next)) {
-            return;
+        if (rechecks.replace(outbox, recheck, next)) {
+            next.future = scheduler.schedule(() -> judgeAndAct(outbox, next), RETRY_DELAYS_SECONDS[recheck.attempt],
+                    TimeUnit.SECONDS);
         }
-        if (outbox.suspend()) {
-            suspendedCount.increment();
+    }
+
+    /**
+     * 소켓 종료는 워치독 실행기에 넘긴다 — 막힌 클라이언트의 close 는 close 프레임 쓰기에서 오래 묶일 수 있어 판정
+     * 스레드를 잡으면 안 된다.
+     */
+    private void closeLater(String sessionId, CloseStatus status) {
+        try {
+            watchdog.execute(() -> sessions.close(sessionId, status));
+        } catch (RuntimeException e) {
+            // 종료 중(실행기 거절) — 그 소켓도 곧 같이 닫힌다.
+            log.warn("이동 세션 종료 예약 실패 — status={} reason={}", status, e.getClass().getSimpleName());
         }
-        next.future = scheduler.schedule(() -> judgeAndAct(outbox, next), RETRY_DELAYS_SECONDS[recheck.attempt],
-                TimeUnit.SECONDS);
     }
 
     private void revoke(UUID islandId, MovementOutbox outbox) {

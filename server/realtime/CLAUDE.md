@@ -126,6 +126,7 @@ architecture decision A19 table.
 | `lock:chat:emote:{islandId}:{userId}` | realtime | read/write | 응원 **성공** 창(3초). 존재가 곧 「이미 보냈다」 |
 | `lock:chat:emote:try:{userId}` | realtime | read/write | 응원 **발신** 시도 창(600ms, **사용자 축**). 거절된 요청도 소모해 상류 조회를 누른다 |
 | `lock:chat:emote:sub:{userId}` | realtime | read/write | 응원 **구독** 시도 창(600ms). SUBSCRIBE 도 상류 조회를 부르므로 같은 상한 |
+| `lock:chat:movement:sub:{userId}` | realtime | read/write | 이동 **구독** 시도 창(600ms, GROMO-2247). 세션×섬의 첫 이동 토픽만 쓴다 — 짝 토픽은 그 판정을 이어받는다 |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
 
 **This ownership is a code convention, not an enforced boundary — yet.** A19 says the chat
@@ -155,7 +156,7 @@ designed fresh.
 | `SUB /topic/islands/{islandId}/focus`, `/rest` | 섬의 집중·휴식 주민 갱신. **인증만** — 비소속 관전 개방(2026-09-19) |
 | `SUB /topic/islands/{islandId}/emotes` | 응원 수신. 그 섬의 **본인 진행 세션(active·paused)** 이 있어야 한다 |
 | `SEND /app/islands/{islandId}/focus/emotes` | 응원 발신, body `{sessionId,type}`. 성공은 브로드캐스트가 ack |
-| `SUB /topic/islands/{islandId}/movement` | 섬 이동 동기화(GROMO-2247): FullState·PathAccepted·MoveRejected·Arrived — 세션별 직접 전송, **members only**(`requireMember`, 비멤버는 ERROR `NOT_A_MEMBER` + 연결 종료 1002 — 관문 거절은 STOMP ERROR 경로). 첫 메시지는 항상 FullState |
+| `SUB /topic/islands/{islandId}/movement` | 섬 이동 동기화(GROMO-2247): FullState·PathAccepted·MoveRejected·Arrived — 세션별 직접 전송, **members only**(`requireMember`, 비멤버는 ERROR `NOT_A_MEMBER` + 연결 종료 1002 — 관문 거절은 STOMP ERROR 경로). 판정은 세션×섬마다 한 번(사용자 축 시도 창 600ms, 초과는 ERROR `MOVEMENT_TOO_FREQUENT`) — 짝 토픽은 이어받는다. 첫 메시지는 항상 FullState |
 | `SUB /topic/islands/{islandId}/movement/snapshot` | 같은 섬의 위치 Snapshot(≤20Hz, 세션당 최신 1개만 전송). members only |
 | `SEND /app/islands/{islandId}/movement/intent` | 목적지 전송, body `{commandSeq,navRevision,goalX,goalY}`. movement 구독 보유 세션만; 응답은 PathAccepted/MoveRejected. 사용자당 10/s·순간 20 초과는 조용히 버림 |
 | `GET /api/v1/chat/rooms` | my islands + unread counts |
@@ -256,8 +257,11 @@ ON 실패 시 기존 캐시 fallback은 없다. `allowed:false`는 `NOT_A_MEMBER
 `beforeHandle`, 그리고 **movement 두 토픽의 SUBSCRIBE**(`ChatAccessGuard.requireMember` — 집중 여부 없이
 멤버십만, GROMO-2247)이다. ON이면 movement SUBSCRIBE도 Data 현재 인가를 탄다. 그 뒤의 강퇴는
 `island.members.updated`(MEMBER_REMOVED) 커밋 뒤 `MovementSubscriptionListener`가 그 사용자(`memberUserId`가 없으면
-섬 전체)의 outbox를 **캐시 없이**(`requireMemberUncached`) 다시 판정한다. 판정 실패 시 전달을 멈추고 백오프(1·2·4·8·16초)
-재판정, 예산 소진 시 1011 `MEMBERSHIP_UNVERIFIED` 종료 — 상류 장애 중에도 받지 못한다(401은 즉시 1008 `UNAUTHORIZED`).
+섬 전체)의 outbox를 **캐시 없이**(`requireMemberUncached`) 다시 판정한다. 재판정을 **예약하는 순간 전달을 멈추고**
+(그동안의 사건은 버린다) 통과로 판정될 때만 재개해 FullState 한 번으로 다시 맞춘다. 판정 실패면 멈춘 채
+백오프(1·2·4·8·16초) 재판정, 예산 소진 시 1011 `MEMBERSHIP_UNVERIFIED` 종료 — 조회가 밀리거나 상류 장애 중에도 받지
+못한다. 세션 토큰이 죽었으면(로컬 JWT 검증, 상류 401 포함) 소속을 묻지 않고 즉시 1008 `UNAUTHORIZED`. 판정은
+`movement-recheck`(1스레드), 송신 워치독·소켓 종료는 `movement-watchdog`(2스레드)에서 돈다.
 CONNECT·방 목록·duplicates·개인큐는 이 추가 조회 범위가 아니다.
 새14개 이벤트·시설·snapshot·재연결·transport는 계속 닫혀 있고 host-transfer도 OFF다.
 rooms 목록·개인 duplicates의 오래된 재전송 응답까지 현재 세션을 검사하는 것은 아니므로
