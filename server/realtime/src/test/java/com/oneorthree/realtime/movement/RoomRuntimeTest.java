@@ -767,6 +767,60 @@ class RoomRuntimeTest {
                 .as("leave·예외와 무관하게 정상 세션의 accept 도 그대로 처리된다").hasSize(1);
     }
 
+    // ── codex P2(2246 보완13): 경로 탐색 예외는 명령 번호를 소비하지 않는다 ──────
+
+    @Test
+    @DisplayName("pathfinder 예외로 응답 없이 끝난 commandSeq 는 소비되지 않아, 같은 seq 를 정상 goal 로"
+            + " 재시도하면 STALE_COMMAND 가 아니라 PathAccepted 로 처리된다(2246 보완13)")
+    void commandSeqSurvivesPathfinderExceptionForRetry() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = new RoomRuntime(ISLAND, grid, new ThrowingForGoalPathfinder(9.5, 9.5),
+                MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.tick(1);
+
+        room.accept(userId, "s1", new MoveIntent(3, 1, 9.5, 9.5)); // 예외 goal — 응답 없이 끝난다.
+        room.tick(2); // 예외가 drain() 밖으로 새면 이 호출 자체가 테스트를 실패시킨다.
+
+        assertThat(listener.of(MovementEvent.PathAccepted.class)).as("예외라 응답이 전혀 없다").isEmpty();
+        assertThat(listener.of(MovementEvent.MoveRejected.class)).as("예외라 거절 응답도 없다").isEmpty();
+        assertThat(actorIn(room.fullStateOf(), userId).lastCommandSeq())
+                .as("번호가 확정되지 않아 join 때 그대로 0 이어야 한다").isEqualTo(0L);
+
+        room.accept(userId, "s1", new MoveIntent(3, 1, 5.5, 5.5)); // 같은 seq 3 을 정상 goal 로 재시도.
+        room.tick(3);
+
+        assertThat(listener.of(MovementEvent.MoveRejected.class)).as("재시도가 STALE_COMMAND 로 밀리면 안 된다")
+                .isEmpty();
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        assertThat(accepted).as("재시도가 정상 수락돼야 한다").hasSize(1);
+        assertThat(accepted.get(0).commandSeq()).isEqualTo(3L);
+    }
+
+    // ── codex P2(2246 보완13): drain() 의 FIFO — 입장 전 intent 는 입장과 함께 죽는다 ──
+
+    @Test
+    @DisplayName("같은 틱에 accept 가 join 보다 먼저 들어오면, 입장 전 intent 는 입장과 함께 죽어 새"
+            + " actor 는 IDLE 로 남고 PathAccepted 가 나가지 않는다(2246 보완13)")
+    void acceptBeforeJoinInSameBatchIsDiscardedWithTheJoin() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5)); // join 보다 먼저 큐에 들어간다.
+        room.join(userId, "s1");
+        room.tick(1);
+
+        assertThat(listener.of(MovementEvent.PathAccepted.class))
+                .as("입장 전 intent 는 적용되지 않아야 한다").isEmpty();
+        MovementEvent.ActorState state = actorIn(room.fullStateOf(), userId);
+        assertThat(state).isNotNull();
+        assertThat(state.state()).as("새 actor 는 유령 명령 없이 IDLE 로 남는다").isEqualTo(MotionState.IDLE);
+    }
+
     // ── N23: 퇴장 위치 기억 · 같은 셀 탭 ──────────────────────────────
 
     @Test
@@ -964,6 +1018,73 @@ class RoomRuntimeTest {
             }
         }
         assertThat(sampledPoints).as("0.01 간격 샘플이 충분히 모였다").isGreaterThanOrEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("실제 번들 nav: 이동 도중(셀 경계 아닌 raw 위치) 새 intent 를 받아도 매 틱 raw 좌표가"
+            + " 통행 셀 안이고, 새 경로의 첫 waypoint 선분을 0.01 간격으로 샘플해도 전부 통행 셀이다"
+            + "(2246 보완13 — pathfinder.find 의 from 이 셀 중심이 아닌 raw 위치로 불리는 경로)")
+    void rerouteMidFlightFromRawPositionStaysWalkable() {
+        NavGrid grid = NavJsonLoader.loadBundled();
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+
+        List<Cell> entranceCells = new ArrayList<>(grid.entrances().values());
+        var firstGoal = WorldCoords.cellCenter(entranceCells.get(0));
+        var secondGoal = entranceCells.size() > 1
+                ? WorldCoords.cellCenter(entranceCells.get(1))
+                : WorldCoords.cellCenter(grid.spawns().get("character"));
+
+        room.accept(userId, "s1", new MoveIntent(1, 1, firstGoal.x(), firstGoal.y()));
+        // 도착 전 중간까지만 전진시켜 raw 위치(셀 경계 아닌 지점)에 세운다 — 틱 보폭이 셀 크기의 배수가
+        // 아니라 몇 틱만 돌려도 보통 셀 중심이 아닌 위치에 멈춘다.
+        MovementEvent.ActorState midFlight = null;
+        for (int i = 0; i < 3; i++) {
+            room.tick(++tick);
+            midFlight = actorIn(room.fullStateOf(), userId);
+            assertThat(isWalkable(grid, midFlight.x(), midFlight.y()))
+                    .as("재경로 전 전진 중 틱 %d 위치 (%f,%f) 가 비통행 셀", tick, midFlight.x(), midFlight.y())
+                    .isTrue();
+        }
+        assertThat(midFlight.state()).as("아직 도착 전이어야 재경로 의미가 있다").isEqualTo(MotionState.MOVING);
+
+        room.accept(userId, "s1", new MoveIntent(2, 1, secondGoal.x(), secondGoal.y())); // 이동 도중 새 intent.
+        room.tick(++tick); // drain() 의 processAccept 가 raw 위치(from)에서 A* 를 다시 돈다.
+
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        MovementEvent.PathAccepted reroute = accepted.get(accepted.size() - 1);
+        assertThat(reroute.commandSeq()).as("재경로 intent 가 실제로 채택됐다").isEqualTo(2L);
+        assertThat(reroute.waypoints()).as("다른 목적지라 waypoints 가 있어야 한다").isNotEmpty();
+
+        boolean arrived = false;
+        int guard = 0;
+        while (!arrived && guard++ < 3000) {
+            room.tick(++tick);
+            MovementEvent.ActorState state = actorIn(room.fullStateOf(), userId);
+            assertThat(isWalkable(grid, state.x(), state.y()))
+                    .as("재경로 뒤 틱 %d 위치 (%f,%f) 가 비통행 셀", tick, state.x(), state.y()).isTrue();
+            arrived = state.state() == MotionState.IDLE;
+        }
+        assertThat(arrived).as("재경로 목적지 도착 못함(가드 초과)").isTrue();
+
+        // 새 경로의 첫 waypoint 선분 — raw 위치에서 출발하는 유일한 구간이라 0.01 간격으로 촘촘히 샘플한다.
+        MovementEvent.Point start = reroute.start();
+        MovementEvent.Point firstWaypoint = reroute.waypoints().get(0);
+        double dx = firstWaypoint.x() - start.x();
+        double dy = firstWaypoint.y() - start.y();
+        double length = Math.hypot(dx, dy);
+        int steps = (int) Math.ceil(length / 0.01);
+        for (int i = 0; i <= steps; i++) {
+            double fraction = steps == 0 ? 0.0 : Math.min(1.0, i * 0.01 / length);
+            double x = start.x() + dx * fraction;
+            double y = start.y() + dy * fraction;
+            assertThat(isWalkable(grid, x, y))
+                    .as("재경로 첫 선분의 %.4f 지점 (%f,%f) 가 비통행 셀", fraction, x, y).isTrue();
+        }
     }
 
     @Test

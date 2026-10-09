@@ -170,17 +170,22 @@ public final class RoomRuntime {
      */
     void tick(long tickNumber, boolean publishSnapshot) {
         this.serverTick = tickNumber;
-        drain();
-        boolean movingNow = advanceMovementAndReportMoving();
-        if (!publishSnapshot) {
-            lastTickHadMoving = lastTickHadMoving || movingNow; // 발행 의무를 다음 발행 틱으로 넘긴다.
-        } else {
-            if (movingNow || lastTickHadMoving) {
-                emitSnapshot(snapshotOf());
+        try {
+            drain();
+            boolean movingNow = advanceMovementAndReportMoving();
+            if (!publishSnapshot) {
+                lastTickHadMoving = lastTickHadMoving || movingNow; // 발행 의무를 다음 발행 틱으로 넘긴다.
+            } else {
+                if (movingNow || lastTickHadMoving) {
+                    emitSnapshot(snapshotOf());
+                }
+                lastTickHadMoving = movingNow;
             }
-            lastTickHadMoving = movingNow;
+        } finally {
+            // advance 쪽에서 예외가 결정적으로 나도 이 방의 prune 은 건너뛰면 안 된다(2246 보완13) —
+            // 안 그러면 그 방의 departed 기억이 영영 안 만료돼 isRemovable() 이 평생 false 가 된다.
+            pruneExpiredDeparted();
         }
-        pruneExpiredDeparted();
     }
 
     /**
@@ -265,7 +270,9 @@ public final class RoomRuntime {
      * latest} 에 합치고(더 큰 commandSeq 만 남긴다), {@link Leave} 가 그 세션의 actor 를 실제로
      * 지운 순간엔({@link #processLeave} 가 {@code true} 를 돌려줄 때만 — 이미 교체된 세션의 뒷북
      * leave 는 포함되지 않는다) 그 세션의 {@code latest} 항목도 함께 지운다 — 퇴장 전 intent 는
-     * 입장과 함께 죽는다(2246 보완6). 루프가 끝난 뒤에야 {@code latest} 를 순서대로
+     * 입장과 함께 죽는다(2246 보완6). {@link Join} 도 처리 시점에 그 세션의 {@code latest} 항목을
+     * 지운다(2246 보완13) — 입장 전에 쌓인 intent 가 방금 생긴 새 actor 에 유령 명령으로 적용되는
+     * 것을 막는다. 루프가 끝난 뒤에야 {@code latest} 를 순서대로
      * {@link #processAccept} 하므로, 퇴장 뒤(같은 틱 재입장 뒤) 들어온 Intent 는 루프 중 지워지지
      * 않고 새 actor 에 적용된다(2246 보완7). 같은 틱에 requestFullState 와 intent 가 함께 오면
      * FullState 가 PathAccepted 보다 먼저 나간다 — PathAccepted 가 곧바로 경로를 갱신하므로 계약상
@@ -288,6 +295,7 @@ public final class RoomRuntime {
         for (Command c : batch) {
             if (c instanceof Join j) {
                 guarded("Join session=" + j.sessionKey(), () -> processJoin(j));
+                latest.remove(j.sessionKey()); // 입장 전 intent 는 입장과 함께 죽는다(2246 보완13).
             } else if (c instanceof Leave l) {
                 boolean[] removed = {false};
                 guarded("Leave session=" + l.sessionKey(), () -> removed[0] = processLeave(l));
@@ -330,6 +338,10 @@ public final class RoomRuntime {
         if (actor == null) {
             MovementEvent.Point spawn = spawnOrDepartedPosition(cmd.userId());
             actor = new Actor(cmd.userId(), cmd.sessionKey(), spawn.x(), spawn.y());
+            // sessionToUser 를 actors 보다 먼저 채운다(2246 보완13) — 반대 순서면 둘 사이에서 예외가
+            // 날 때 actor 는 있는데 actorFor 로는 못 찾는 영구 고아가 된다. 이 순서면 반대로 actors 가
+            // 비어 다음 processJoin 이 if(actor==null) 로 자가 복구한다.
+            sessionToUser.put(cmd.sessionKey(), cmd.userId());
             actors.put(cmd.userId(), actor);
         } else {
             if (actor.sessionKey.equals(cmd.sessionKey())) {
@@ -344,8 +356,8 @@ public final class RoomRuntime {
             // 버킷은 그대로 이어져, 순간 20 을 다시 받는 우회가 되지 않는다.
             actor.sessionKey = cmd.sessionKey();
             actor.lastCommandSeq = 0;
+            sessionToUser.put(cmd.sessionKey(), cmd.userId());
         }
-        sessionToUser.put(cmd.sessionKey(), cmd.userId());
         emit(fullStateOf(), Target.ALL);
     }
 
@@ -386,28 +398,33 @@ public final class RoomRuntime {
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.STALE_COMMAND);
             return;
         }
-        // commandSeq 는 단조 증가로 다룬다(codex PR 리뷰, 2246 보완11) — 이 아래부터는 수락이든
-        // STALE_COMMAND 가 아닌 거절(NAV_REVISION_MISMATCH·OUT_OF_RANGE·NO_REACHABLE_GOAL)이든 이
-        // commandSeq 가 "처리 종료" 상태라, 먼저 반영해 둬야 뒤늦게 도착한 더 작은 commandSeq 가
-        // STALE_COMMAND 로 밀린다(예전엔 거절 분기들이 반영하지 않아 거절된 commandSeq 보다 작은 뒷북이
-        // 다시 수락돼 위치를 바꿀 수 있었다). 거절 분기마다 따로 대입하지 않도록 여기 한 곳에서만 한다.
-        actor.lastCommandSeq = intent.commandSeq();
+        // commandSeq 확정(settle)은 응답이 실제로 나가는 지점에서만 한다(codex P2, 2246 보완13) — 전엔
+        // 이 체크 바로 다음 한 곳에서 미리 대입해, pathfinder.find 가 예외를 던져 drain() 의 guarded 가
+        // 명령을 통째로 건너뛴 경우(응답 0건)에도 번호만 올라가 있었다. 그러면 응답을 못 받은 클라이언트가
+        // 같은 commandSeq 로 재시도해도 STALE_COMMAND 로 밀려 다시는 처리될 수 없었다. 거절·수락 분기마다
+        // 응답 직전에 settle() 을 불러 — 예외로 빠지면 어떤 분기도 못 타 번호가 그대로 남고, 같은 seq
+        // 재시도가 다시 처리된다. STALE_COMMAND 판정(위 체크)은 그대로 미확정 lastCommandSeq 기준이다.
         if (intent.navRevision() != rules.navRevision()) {
+            settle(actor, intent.commandSeq());
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.NAV_REVISION_MISMATCH);
             return;
         }
         if (!WorldCoords.isInsideWorld(intent.goalX(), intent.goalY())) {
+            settle(actor, intent.commandSeq());
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.OUT_OF_RANGE);
             return;
         }
         WorldPoint from = new WorldPoint(actor.x, actor.y);
         WorldPoint to = new WorldPoint(intent.goalX(), intent.goalY());
         // A* 는 그대로 이 틱 스레드에서 동기 호출 — Micrometer 로 호출 수·소요만 센다(N10, P1 반박 대응).
+        // settle() 보다 먼저 호출한다 — 예외가 나면 번호 확정 없이 그대로 던져야 재시도가 살아난다.
         Optional<PathResult> found = pathfindTimer.record(() -> pathfinder.find(nav, from, to));
         if (found.isEmpty()) {
+            settle(actor, intent.commandSeq());
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.NO_REACHABLE_GOAL);
             return;
         }
+        settle(actor, intent.commandSeq());
         List<MovementEvent.Point> waypoints = toWaypoints(found.get());
         // start 는 밖으로 나가는 좌표라 emitted() 로 계약 정밀도(0.01)에 맞춘다(codex P2, 2246 보완9) — actor.x/y
         // 자체는 원시 double 그대로 둔다.
@@ -423,6 +440,15 @@ public final class RoomRuntime {
                 actor.pathId, rules.navRevision(), serverTick, start, goal, rules.speed(), waypoints);
         emit(accepted, Target.ALL);
         // waypoints 가 비어 있으면(같은 셀) advanceMovementAndReportMoving() 이 이번 틱에 바로 Arrived 를 낸다.
+    }
+
+    /**
+     * commandSeq 확정을 한 곳으로 모은 한 줄 헬퍼(2246 보완13) — {@link #processAccept} 의 거절·수락 네
+     * 분기가 각자 대입하는 대신 이것만 부른다. 단조 증가 규칙(거절도 처리 종료 상태, 2246 보완11)은
+     * 그대로다 — 바뀐 것은 "언제" 대입하느냐(응답이 나가는 지점 직전)뿐이다.
+     */
+    private void settle(Actor actor, long seq) {
+        actor.lastCommandSeq = seq;
     }
 
     private void processApplyLayout(ApplyLayout cmd) {
@@ -515,13 +541,19 @@ public final class RoomRuntime {
     }
 
     private MovementEvent.Point spawnOrDepartedPosition(UUID userId) {
-        Departed d = departed.remove(userId);
+        // 조회(조건 계산·spawn 룩업)를 모두 끝내고 departed.remove 는 맨 끝에 한 번만 한다(2246
+        // 보완13) — 순서가 반대면 remove 뒤 조회가 던질 때 돌아갈 자리를 잃은 퇴장 기억만 사라진다.
+        Departed d = departed.get(userId);
+        MovementEvent.Point position;
         if (d != null && serverTick - d.tick() <= rules.ticksFor(DEPARTED_MEMORY_MS)) {
-            return d.position();
+            position = d.position();
+        } else {
+            Cell spawn = nav.spawns().get(NavJsonLoader.REQUIRED_SPAWN);
+            WorldPoint center = WorldCoords.cellCenter(spawn);
+            position = new MovementEvent.Point(center.x(), center.y());
         }
-        Cell spawn = nav.spawns().get(NavJsonLoader.REQUIRED_SPAWN);
-        WorldPoint center = WorldCoords.cellCenter(spawn);
-        return new MovementEvent.Point(center.x(), center.y());
+        departed.remove(userId);
+        return position;
     }
 
     /**
