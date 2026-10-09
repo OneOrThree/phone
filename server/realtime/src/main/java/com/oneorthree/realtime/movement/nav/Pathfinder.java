@@ -135,6 +135,7 @@ public final class Pathfinder {
     // 내부 nav 인덱싱용 — 범위는 이 격자의 cols·rows 로 clamp 한다(WorldCoords.worldToCell 의 100×100 규칙과
     // 같되 상한은 격자 기준). 100×100 격자에서는 WorldCoords.worldToCell 과 결과가 같다. 리뷰: 격자 크기 ≠ 100 이면
     // worldToCell 의 고정 상한(99) 때문에 index 가 틀린 셀(열이 적으면 줄바뀜 꼴)이나 배열 밖을 가리킬 수 있다.
+    // 합성 격자는 셀 1칸 = 1 unit 전제라 clampCell 은 크래시만 막을 뿐 좌표 의미는 100×100 에서만 맞다.
     private static int cellIndexOf(NavGrid grid, double x, double y) {
         int cx = clampCell(x, grid.cols() - 1);
         int cy = clampCell(y, grid.rows() - 1);

@@ -123,7 +123,7 @@ public final class NavJsonLoader {
             blocked.add(NavGrid.edgeKey(a, b, (int) n));
         }
         return new NavGrid(cols, rows, walkable, costTenths, blocked,
-                cells(nav, "entrances", cols, rows), cells(nav, "spawns", cols, rows));
+                cells(nav, "entrances", cols, rows, walkable), cells(nav, "spawns", cols, rows, walkable));
     }
 
     private static int positiveInt(JsonNode nav, String field) {
@@ -134,7 +134,7 @@ public final class NavJsonLoader {
         return v.intValue();
     }
 
-    private static Map<String, Cell> cells(JsonNode nav, String field, int cols, int rows) {
+    private static Map<String, Cell> cells(JsonNode nav, String field, int cols, int rows, boolean[] walkable) {
         Map<String, Cell> out = new LinkedHashMap<>();
         for (Map.Entry<String, JsonNode> e : nav.path(field).properties()) {
             JsonNode cx = e.getValue().path("cx");
@@ -148,6 +148,13 @@ public final class NavJsonLoader {
             if (x < 0 || x >= cols || y < 0 || y >= rows) {
                 throw new IllegalArgumentException(
                         "nav." + field + "." + e.getKey() + " 가 격자 밖 (" + x + "," + y + ")");
+            }
+            // 계약: entrances 는 비통행이어도 Pathfinder.resolveTarget 의 목적지 보정이 출발 영역 안 최근접 셀로
+            // 바로잡는다 — spawns 는 출발 영역 자체를 정하는 기준점이라 비통행이면 전역 최근접 보정이 다른 섬으로
+            // 튈 수 있어 거부한다.
+            if (field.equals("spawns") && !walkable[y * cols + x]) {
+                throw new IllegalArgumentException(
+                        "nav." + field + "." + e.getKey() + " 가 비통행 셀이다: (" + x + "," + y + ")");
             }
             out.put(e.getKey(), new Cell(x, y));
         }

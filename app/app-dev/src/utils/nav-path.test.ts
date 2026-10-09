@@ -318,6 +318,16 @@ describe('loadNav 입력 검증', () => {
       /traversalCost\[1\]/,
     );
   });
+  it('traversalCost 가 256 이상이면 throw(Uint8Array 에서 조용히 0 이 되는 값)', () => {
+    expect(() =>
+      loadNav({ columns: 2, rows: 1, walkable: '11', traversalCost: [10, 256] }),
+    ).toThrow(/traversalCost\[1\]/);
+  });
+  it('traversalCost 가 정수가 아니면 throw(Uint8Array 에서 조용히 잘리는 값)', () => {
+    expect(() =>
+      loadNav({ columns: 2, rows: 1, walkable: '11', traversalCost: [10, 8.5] }),
+    ).toThrow(/traversalCost\[1\]/);
+  });
   it('entrances/spawns 좌표가 격자 밖이거나 blockedEdges 가 범위·순서(a<b)를 어기면 throw', () => {
     expect(() =>
       loadNav({
@@ -346,5 +356,27 @@ describe('loadNav 입력 검증', () => {
         blockedEdges: [[1, 0]],
       }),
     ).toThrow(/blockedEdges/);
+  });
+  it('스폰 셀이 비통행이면 throw(입구는 목적지 보정이 있어 허용, 스폰은 허용하지 않는다)', () => {
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 1,
+        walkable: '10',
+        traversalCost: [10, 10],
+        spawns: { character: { cx: 1, cy: 0 } },
+      }),
+    ).toThrow(/spawns/);
+  });
+  it('buildingCells 의 index 가 격자 밖이면 throw', () => {
+    expect(() =>
+      loadNav({
+        columns: 2,
+        rows: 1,
+        walkable: '11',
+        traversalCost: [10, 10],
+        buildingCells: { hall: [2] },
+      }),
+    ).toThrow(/buildingCells/);
   });
 });

@@ -55,6 +55,7 @@ class NavJsonParityTest {
         assertThat(g.entrances()).containsOnlyKeys("hall", "library", "shop", "tower", "board", "gram", "mail");
         assertThat(g.entrances()).containsEntry("hall", new Cell(67, 27));
         assertThat(g.spawns()).containsEntry("character", new Cell(38, 45));
+        assertThat(g.walkable(g.index(g.spawns().get("character")))).as("스폰 셀은 통행이어야 한다").isTrue();
         for (Cell c : g.entrances().values()) {
             assertThat(g.region(g.index(c))).as("입구 %s 는 스폰과 같은 영역", c)
                     .isEqualTo(g.region(g.index(g.spawns().get("character"))));
@@ -92,6 +93,15 @@ class NavJsonParityTest {
                 + "\"buildingCells\":{\"hall\":[1]}}"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("buildingCells");
+    }
+
+    @Test
+    @DisplayName("스폰 셀이 비통행이면 거부한다(입구는 목적지 보정이 있어 허용, 스폰은 허용하지 않는다)")
+    void rejectsNonWalkableSpawn() {
+        assertThatThrownBy(() -> load("{\"columns\":2,\"rows\":1,\"walkable\":\"10\",\"traversalCost\":[10,10],"
+                + "\"spawns\":{\"character\":{\"cx\":1,\"cy\":0}}}"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("spawns");
     }
 
     @Test

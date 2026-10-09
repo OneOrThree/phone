@@ -56,6 +56,7 @@ const idx = (g: NavGrid, cx: number, cy: number) => cy * g.cols + cx;
 // 상한(99) 때문에 index 가 틀린 셀(열이 적으면 줄바뀜 꼴)이나 배열 밖을 가리킬 수 있다.
 const clampCell = (v: number, max: number) =>
   Math.max(0, Math.min(max, Math.floor(Number.isFinite(v) ? v : 0)));
+// 합성 격자는 셀 1칸 = 1 unit 전제라 clampCell 은 크래시만 막을 뿐 좌표 의미는 100×100 에서만 맞다.
 const cellIndexOf = (g: NavGrid, p: WorldPoint) =>
   idx(g, clampCell(p.x, g.cols - 1), clampCell(p.y, g.rows - 1));
 const dist = (a: WorldPoint, b: WorldPoint) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -82,7 +83,6 @@ const cache = new WeakMap<NavJson, Map<string, NavGrid>>();
 export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): NavGrid {
   const key = completedBuildings ? [...completedBuildings].sort().join(',') : '*';
   const byKey = cache.get(nav) ?? new Map<string, NavGrid>();
-  cache.set(nav, byKey);
   const hit = byKey.get(key);
   if (hit) return hit;
   const { columns, rows } = nav;
@@ -96,12 +96,17 @@ export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): N
   if (nav.traversalCost.length !== n)
     throw new Error(`nav.traversalCost 길이 ${nav.traversalCost.length} != columns*rows ${n}`);
   // 미완공 건물 자리가 켜질 수 있어 차단 셀도 비용이 있어야 한다.
-  for (let i = 0; i < n; i++)
-    if (!(nav.traversalCost[i] > 0))
-      throw new Error(`nav.traversalCost[${i}] 가 ${nav.traversalCost[i]} (0 이하 불가)`);
+  // 앱은 비용을 Uint8Array 에 담는다 — 256 이상이면 조용히 0 이, 정수가 아니면 조용히 잘린 값이 되므로 거부한다(서버와 동일).
+  for (let i = 0; i < n; i++) {
+    const c = nav.traversalCost[i];
+    if (!(Number.isInteger(c) && c >= 1 && c <= 255))
+      throw new Error(`nav.traversalCost[${i}] 가 ${c} (1~255 정수만)`);
+  }
   // 리뷰: entrances/spawns 가 격자 밖이거나 blockedEdges 가 범위·순서(a<b)를 어기면 조용히 틀린 셀로 쓰이지 않게 거부한다.
+  // 계약: entrances 는 비통행이어도 resolveTarget 의 목적지 보정이 출발 영역 안 최근접 셀로 바로잡는다 — spawns 는
+  // 출발 영역 자체를 정하는 기준점이라 비통행이면 nearestCell(region=-1) 전역 보정이 다른 섬으로 튈 수 있어 거부한다.
   for (const field of ['entrances', 'spawns'] as const)
-    for (const [id, c] of Object.entries(nav[field] ?? {}))
+    for (const [id, c] of Object.entries(nav[field] ?? {})) {
       if (!(
         Number.isInteger(c.cx) &&
         c.cx >= 0 &&
@@ -111,6 +116,13 @@ export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): N
         c.cy < rows
       ))
         throw new Error(`nav.${field}.${id} 가 격자 밖 (${c.cx},${c.cy})`);
+      if (field === 'spawns' && nav.walkable[c.cy * columns + c.cx] !== '1')
+        throw new Error(`nav.spawns.${id} 가 비통행 셀이다: (${c.cx},${c.cy})`);
+    }
+  for (const [b, cells] of Object.entries(nav.buildingCells ?? {}))
+    for (const c of cells)
+      if (!(Number.isInteger(c) && c >= 0 && c < n))
+        throw new Error(`nav.buildingCells.${b} 의 index 가 올바르지 않다(0≤i<${n}): ${c}`);
   for (const [a, b] of nav.blockedEdges ?? [])
     if (!(
       Number.isInteger(a) &&
@@ -157,6 +169,8 @@ export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): N
       }
     label++;
   }
+  // 검증을 통과한 뒤에만 캐시에 연결한다 — 실패하면 빈 Map 을 WeakMap 에 남기지 않는다.
+  cache.set(nav, byKey);
   byKey.set(key, g);
   return g;
 }
