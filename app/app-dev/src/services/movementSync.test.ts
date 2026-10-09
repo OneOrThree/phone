@@ -60,6 +60,18 @@ const arrived = (userId: string, pathId: number, position: WorldPoint) => ({
   serverTick: 120,
   position,
 });
+const moveRejected = (
+  userId: string,
+  commandSeq: number,
+  position: WorldPoint,
+  reason = '사유',
+) => ({
+  type: 'MoveRejected',
+  userId,
+  commandSeq,
+  reason,
+  position,
+});
 const snapshot = (serverTick: number, entities: object[]) => ({
   type: 'Snapshot',
   serverTick,
@@ -206,6 +218,24 @@ describe('내 경로(PathAccepted·Arrived)', () => {
     t.controller.onMessage(arrived(ME, 8, { x: 39.5, y: 45.5 }));
     assert.deepEqual(t.arrivals, [{ x: 39.5, y: 45.5 }]);
   });
+
+  test('대기 중(awaitingServer) 에 온 내 Arrived 도 self.state 는 IDLE 로 갱신한다 — 안 그러면 거절 뒤 restCheck 가 영영 막힌다(리뷰 4)', () => {
+    const t = ready();
+    t.controller.intend({ x: 40.5, y: 45.5 });
+    t.controller.onMessage(pathAccepted(ME, 1, 5, SPAWN, [{ x: 40.5, y: 45.5 }]));
+    // 도착 전에 새 목적지를 눌러 응답을 기다리는 동안(awaitingServer) 지금 경로의 Arrived 가 온다.
+    t.controller.intend({ x: 44.5, y: 45.5 });
+    t.controller.onMessage(arrived(ME, 5, { x: 40.5, y: 45.5 }));
+    assert.deepEqual(t.arrivals, [], '대기 중이라 화면 스냅(onMyArrived)은 미룬다');
+    // 그 새 명령이 거절됐다 — self.state 가 IDLE 로 갱신돼 있지 않으면(버그) restCheck 가 MOVING 에 막혀
+    // 위치가 멀어도 영영 보정하지 않는다.
+    t.controller.onMessage(moveRejected(ME, 2, { x: 50, y: 50 }));
+    assert.deepEqual(
+      t.corrections,
+      [{ x: 50, y: 50 }],
+      'Arrived 가 self.state 를 IDLE 로 갱신해 둬 restCheck 가 바로 보정한다',
+    );
+  });
 });
 
 describe('정지 상태 보정(onMyCorrection)', () => {
@@ -282,20 +312,27 @@ describe('정지 상태 보정(onMyCorrection)', () => {
 });
 
 describe('다른 주민 스냅샷 버퍼', () => {
-  test('PathAccepted 전에 온 스냅샷(pathId 3)은 버리고, 경로를 받은 뒤 같은 스냅샷은 채택한다', () => {
+  test('PathAccepted 전에 온 스냅샷도 모르는 pathId 그대로 그려 멈추지 않고(N35), PathAccepted 뒤엔 경로 보간으로 승격한다', () => {
     const t = ready(SPAWN, [actor(B, SPAWN)]);
     t.remote.length = 0;
-    const snap = snapshot(12350, [entity(B, 3, { x: 39.21, y: 44.79 }, { segmentIndex: 1 })]);
-    t.controller.onMessage(snap);
-    assert.deepEqual(t.remote, []);
+    // 아직 B 의 PathAccepted 를 모른다 — 경로를 추측하지 않고 서버 좌표를 그대로 그린다(직선 연결 최대 0.3 unit).
+    t.controller.onMessage(
+      snapshot(12350, [entity(B, 3, { x: 39.5, y: 45.5 }, { segmentIndex: 0 })]),
+    );
+    assert.deepEqual(t.remote, [[B, { x: 39.5, y: 45.5, moving: true }]]);
     t.controller.onMessage(
       pathAccepted(B, 7, 3, SPAWN, [
-        { x: 39.5, y: 44.5 },
-        { x: 40.5, y: 43.5 },
+        { x: 39.5, y: 45.5 },
+        { x: 40.5, y: 45.5 },
       ]),
     );
-    t.controller.onMessage(snap);
-    assert.deepEqual(t.remote, [[B, { x: 39.21, y: 44.79, moving: true }]]);
+    t.remote.length = 0;
+    // 같은 pathId(3)의 새 스냅샷은 이제 경로 보간으로 승격된다 — line 이 여전히 모르는 상태였다면
+    // at(a, …) 로 앞 샘플(39.5,45.5)에 멈춰 있었을 것이다. 두 샘플 사이로 보간된 중간점이 그 증거다.
+    t.controller.onMessage(
+      snapshot(12354, [entity(B, 3, { x: 40.5, y: 45.5 }, { segmentIndex: 1 })]),
+    );
+    assert.deepEqual(t.remote, [[B, { x: 40, y: 45.5, moving: true }]]);
   });
 
   // ㄱ자 경로: (10.5,10.5) → 오른쪽 2칸 → 아래 2칸. 모서리는 (12.5,10.5).
@@ -349,7 +386,7 @@ describe('다른 주민 스냅샷 버퍼', () => {
     assert.deepEqual(buf.positionAt(B, 22), { x: 17.5, y: 10.5, moving: false });
   });
 
-  test('샘플은 주민당 최근 8개만 두고 지난 틱·모르는 경로 샘플은 버린다', () => {
+  test('샘플은 주민당 최근 8개만 두고 지난 틱·되돌아간 pathId 샘플은 버린다', () => {
     const buf = new SnapshotBuffer();
     buf.addPath(B, 1, [
       { x: 0.5, y: 10.5 },
@@ -358,8 +395,16 @@ describe('다른 주민 스냅샷 버퍼', () => {
     for (let tick = 1; tick <= 10; tick++) buf.push(B, sample(tick, { x: tick + 0.5, y: 10.5 }));
     // 첫 두 샘플(1·2틱)은 밀려났다 — 그 앞 렌더 틱은 남은 가장 오래된 샘플(3틱)에 선다.
     assert.deepEqual(xyOf(buf.positionAt(B, 1)), { x: 3.5, y: 10.5 });
-    assert.equal(buf.push(B, sample(10, { x: 9, y: 10.5 })), false);
-    assert.equal(buf.push(B, sample(11, { x: 9, y: 10.5 }, 2)), false);
+    assert.equal(
+      buf.push(B, sample(10, { x: 9, y: 10.5 })),
+      false,
+      '지난 틱(동일 serverTick)은 버린다',
+    );
+    assert.equal(
+      buf.push(B, sample(11, { x: 9, y: 10.5 }, 0)),
+      false,
+      'latestPathId(1) 보다 되돌아간 pathId 는 버린다(모르는 pathId 는 N35 로 받아들인다 — 별도 테스트)',
+    );
   });
 
   test('새 pathId 의 PathAccepted 뒤 늦게 온 이전 경로의 샘플은 버리고(되돌아가지 않음), 새 경로의 샘플은 채택한다', () => {
@@ -394,20 +439,44 @@ describe('다른 주민 스냅샷 버퍼', () => {
     assert.deepEqual(buf.positionAt(B, 11), { x: 13, y: 12.5, moving: true });
   });
 
-  test('positionAtTimed — 보간에 쓴 두 샘플의 틱 간격 × 50ms 를 durationMs 로 돌려준다(저주기 스냅샷도 다음 호출까지 매끄럽게)', () => {
+  test('positionAtTimed — durationMs 는 보간에 쓴 두 샘플 간격이 아니라 이 주민을 마지막으로 그린 renderTick 과의 차이다(N36)', () => {
     const buf = new SnapshotBuffer();
     buf.addPath(B, 1, [
       { x: 10.5, y: 10.5 },
       { x: 20.5, y: 10.5 },
     ]);
-    // 20Hz 틱 기준 4틱(200ms)마다 한 샘플 — 5Hz 저주기 스냅샷을 흉내낸다.
+    // 20Hz 틱 기준 4틱(200ms)마다 한 샘플 — 5Hz 저주기 스냅샷을 흉내낸다. 샘플 간격(200ms)은 두 호출 내내
+    // 고정이지만 durationMs 는 렌더 호출 간 틱 차이로 매번 달라진다(샘플 간격 기반이면 둘 다 200 이었을 것).
     buf.push(B, sample(10, { x: 11.5, y: 10.5 }));
     buf.push(B, sample(14, { x: 15.5, y: 10.5 }));
-    const p = buf.positionAtTimed(B, 12);
-    assert.deepEqual(p && { x: p.x, y: p.y }, { x: 13.5, y: 10.5 });
-    assert.equal(p?.durationMs, 200);
-    // positionAt 은 기존 계약 그대로 durationMs 없이 돌려준다.
-    assert.deepEqual(buf.positionAt(B, 12), { x: 13.5, y: 10.5, moving: true });
+    const p1 = buf.positionAtTimed(B, 11);
+    assert.deepEqual(p1 && { x: p1.x, y: p1.y }, { x: 12.5, y: 10.5 });
+    assert.equal(p1?.durationMs, 50, '첫 호출은 비교할 이전 렌더 틱이 없어 한 틱(50ms) 기본값이다');
+    const p2 = buf.positionAtTimed(B, 13);
+    assert.deepEqual(p2 && { x: p2.x, y: p2.y }, { x: 14.5, y: 10.5 });
+    assert.equal(
+      p2?.durationMs,
+      100,
+      '직전 호출(11)과의 렌더 틱 차이 2 × 50ms — 샘플 간격(200ms)과 다르다',
+    );
+  });
+
+  test('입장 당시 이미 걷는 주민 — FullState waypoints(N34) 로 남은 경로를 등록해 이후 Snapshot 이 그 경로로 보간된다', () => {
+    // 입장 시 B 는 이미 ㄱ자 경로를 걷는 중 — 지금 위치 (11.5,10.5), 남은 waypoints 는 모서리 이후.
+    const waypoints = [
+      { x: 12.5, y: 10.5 },
+      { x: 12.5, y: 11.5 },
+    ];
+    const t = ready(SPAWN, [
+      actor(B, { x: 11.5, y: 10.5 }, { state: 'MOVING', pathId: 9, waypoints }),
+    ]);
+    t.remote.length = 0;
+    // waypoints 를 등록하지 않았다면 모르는 pathId 는 아니라도(N35 로 raw 는 받아들여지지만) 경로가 없어
+    // 둘 다 그냥 raw 샘플에 멈췄을 것이다 — 아래서 모서리를 거친 보간 점이 나와야 등록됐다는 증거다.
+    t.controller.onMessage(snapshot(110, [entity(B, 9, { x: 11.5, y: 10.5 })]));
+    t.controller.onMessage(snapshot(114, [entity(B, 9, { x: 12.5, y: 11.5 })]));
+    // 직선 보간이면 (12, 11) — 모서리를 관통한다. 경로 위 거리 보간이면 모서리 꼭짓점(12.5, 10.5)이다.
+    assert.deepEqual(t.remote.at(-1), [B, { x: 12.5, y: 10.5, moving: true }]);
   });
 });
 

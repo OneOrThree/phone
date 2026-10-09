@@ -1285,7 +1285,7 @@ describe('이동 채널 (GROMO-2248)', () => {
     assert.deepEqual(JSON.parse(client().published[0].body), intent);
   });
 
-  test('PathAccepted 전에 온 스냅샷(pathId 3)은 버리고, PathAccepted(pathId 3) 뒤 같은 스냅샷은 채택한다', () => {
+  test('PathAccepted 전에 온 스냅샷(pathId 3)도 모르는 pathId 그대로 그리고(N35), PathAccepted(pathId 3) 뒤에도 채택한다', () => {
     const remote: [string, RemotePosition][] = [];
     const controller = createMovementController({
       me: ME,
@@ -1331,7 +1331,8 @@ describe('이동 채널 (GROMO-2248)', () => {
       ],
     });
     sub(SNAPSHOT).cb({ body: snapshot });
-    assert.deepEqual(remote, [], '경로를 모르는 좌표는 추측하지 않는다');
+    // N35: 경로를 아직 몰라도 보간 없이 서버 좌표를 그대로 그린다 — 멈춰 있지 않는다.
+    assert.deepEqual(remote, [[B, { x: 39.21, y: 44.79, moving: true }]]);
     sub(MOVEMENT).cb({
       body: JSON.stringify({
         type: 'PathAccepted',
@@ -1349,6 +1350,7 @@ describe('이동 채널 (GROMO-2248)', () => {
         ],
       }),
     });
+    remote.length = 0;
     sub(SNAPSHOT).cb({ body: snapshot });
     assert.deepEqual(remote, [[B, { x: 39.21, y: 44.79, moving: true }]]);
   });

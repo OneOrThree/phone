@@ -72,7 +72,7 @@ import {
   tapToWorld,
   tilePath,
 } from '@/utils/nav-path';
-import { imageToWorld, worldToImage, type WorldPoint } from '@/utils/worldCoords';
+import { imageToWorld, worldToCell, worldToImage, type WorldPoint } from '@/utils/worldCoords';
 import {
   publishMoveIntent,
   stompIslandChannel,
@@ -1492,6 +1492,19 @@ function FinalIslandScene({
       // 장애물의 다른 쪽을 지날 수 있어(로컬 예측과 서버 경로가 반대편일 때) 로컬 A* 로 잇는다.
       const target = rest[0] ?? waypoints[waypoints.length - 1] ?? start;
       const connect = navPath(activeNav(mapAssets, navBuildings), hereWorld, target);
+      // connect 가 비었는데 같은 셀도 아니면(같은 셀이라 비는 정상 경우와 구분) 로컬 예측과 서버 경로가 다른
+      // 통행 영역·맵 버전이라 이을 수 없다는 뜻이다 — 직선으로 장애물을 뚫지 않고 서버 출발점(정본)으로
+      // 즉시 맞춘 뒤 서버 경로를 그대로 걷는다.
+      if (!connect.length && !cellEq(hereWorld, target)) {
+        const startImage = worldToImage(start, size);
+        place(startImage);
+        walkPath(
+          [startImage, ...waypoints.map((p) => worldToImage(p, size))],
+          walkDone.current,
+          msPerUnit,
+        );
+        return;
+      }
       const worldPath = connect.length ? [...connect, ...rest.slice(1)] : rest;
       walkPath([here, ...worldPath.map((p) => worldToImage(p, size))], walkDone.current, msPerUnit);
     },
@@ -1534,6 +1547,8 @@ function FinalIslandScene({
       // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
       // 돌아간다 — 토스트는 없다. 그 외 오류 큐 코드(예: 속도 제한)는 onError 로만 오고 동기화는 그대로 둔다.
       onMovementDenied: () => {
+        // 섬 전환으로 이미 해제된 옛 채널의 늦은 거절일 수 있다 — 소유권을 먼저 확인해 새 컨트롤러를 끄지 않는다.
+        if (movement.current !== controller) return;
         controller.deny();
         movement.current = null;
         setRemoteActors(null);
@@ -2248,6 +2263,12 @@ function FinalIslandScene({
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
+// 두 월드 점이 같은 통행 셀인지 — 연결 경로(navPath)가 비어도 되는 정상 경우(같은 셀)를 가려낸다.
+const cellEq = (a: WorldPoint, b: WorldPoint) => {
+  const ca = worldToCell(a),
+    cb = worldToCell(b);
+  return ca.cx === cb.cx && ca.cy === cb.cy;
+};
 // 화면 스냅샷(GROMO-2233)의 nav.json 을 완공 목록별로(미완공 건물 자리는 통행). 같은 소스면 같은 JSON 객체라 loadNav 의 캐시가 맞는다.
 const activeNav = (assets: MapAssetSource, completed: readonly string[]) =>
   loadNav(readMapJson('nav.json', bundledNavJson, assets) as any, completed);
