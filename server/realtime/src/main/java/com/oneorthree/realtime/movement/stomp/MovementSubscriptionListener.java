@@ -80,7 +80,9 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
 
     /**
      * 관문({@code StompAuthChannelInterceptor})이 멤버십을 <b>직접 판정해 통과시킨</b> 이동 SUBSCRIBE 에 붙이는 메시지
-     * 헤더(값 {@code Boolean.TRUE}). 클라이언트 헤더는 네이티브 헤더로만 들어오므로 클라이언트가 붙일 수 없다.
+     * 헤더. 값은 판정 <b>직전</b>의 그 섬 재검사 세대({@link #recheckGeneration}, {@code Long}) — 등록 때 세대가 그새
+     * 올랐으면 판정 도중 강퇴 재검사가 지나간 것이다. 클라이언트 헤더는 네이티브 헤더로만 들어오므로 클라이언트가 붙일
+     * 수 없다.
      */
     public static final String JUDGED = "movementJudged";
 
@@ -108,6 +110,13 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
 
     /** 진행 중인 재판정 — outbox 당 한 세대. 세대가 바뀌면(새 사건·취소) 늦게 도는 옛 작업은 아무것도 하지 않는다. */
     private final ConcurrentHashMap<MovementOutbox, Recheck> rechecks = new ConcurrentHashMap<>();
+
+    /**
+     * 섬별 재검사 세대 — 강퇴 재검사({@link #recheckMembership})를 시작할 때마다 1 오른다. 관문 판정과 등록 사이에
+     * 재검사가 지나가 색인 순회에서 빠진 세션을 등록 때 가려낸다. 지우지 않는다(되돌아간 세대가 판정 도장과 겹치면
+     * 안 된다). ponytail: 강퇴가 한 번이라도 난 섬마다 항목 하나 — 섬 수만큼만 자란다.
+     */
+    private final ConcurrentHashMap<UUID, Long> recheckGenerations = new ConcurrentHashMap<>();
 
     /**
      * ponytail: 판정 풀은 1스레드 — 상류 장애 때 판정이 줄을 서 31초 예산보다 늦게 끝날 수 있다(그동안 멈춰 있어
@@ -200,7 +209,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         }
         UUID islandId = UUID.fromString(topic.group(1));
         boolean snapshot = topic.group(2) != null;
-        boolean judged = Boolean.TRUE.equals(accessor.getHeader(JUDGED));
+        Object judgedAt = accessor.getHeader(JUDGED);
         // 세션 잠금 — 람다 안에서 블로킹 금지(방·outbox 등록은 큐에 넣기만 한다).
         bySession.compute(accessor.getSessionId(), (sessionId, held) -> {
             if (!sessions.isConnected(sessionId)) {
@@ -216,7 +225,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
                 outbox = outboxes.get(islandId);
             }
             if (outbox == null) {
-                if (!judged) {
+                if (!(judgedAt instanceof Long judgedGeneration)) {
                     // 관문은 살아 있던 outbox 를 근거로 판정을 이어받았는데 그 사이 강퇴됐다 — 판정 없이 새로 들이지 않고,
                     // 구독 기록도 지워 «판정받은 구독»으로 남기지 않는다. 다음 구독은 관문이 처음부터 판정한다.
                     sessions.unsubscribe(sessionId, subscriptionId);
@@ -224,6 +233,12 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
                 }
                 outbox = publisher.open(islandId, sessionId, principal.userId());
                 outboxes.put(islandId, outbox);
+                if (judgedGeneration != recheckGeneration(islandId)) {
+                    // 관문 판정(옛 캐시일 수 있다)과 이 등록 사이에 그 섬 강퇴 재검사가 지나갔다 — 그 순회는 아직 없던 이
+                    // outbox 를 못 봤다. 입장·FullState 요청보다 먼저 멈추고 캐시 없이 다시 잰다. 등록(open) 뒤에 세대를
+                    // 읽으므로, 재검사가 세대를 올린 뒤 순회하는 것과 맞물려 둘 중 한쪽은 반드시 이 outbox 를 잡는다.
+                    restart(outbox, islandId);
+                }
             }
             if (snapshot) {
                 outbox.subscribeSnapshot(subscriptionId);
@@ -284,6 +299,21 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     }
 
     /**
+     * 이 세션이 그 섬에서 intent 를 낼 수 있는가 — outbox 가 있고 멈추지(강퇴 재검사 중)도 닫히지도 않았을 때만. 관문이
+     * intent SEND 마다 묻는다. 잠그지 않고 읽는다.
+     */
+    public boolean acceptsIntents(String sessionId, UUID islandId) {
+        Map<UUID, MovementOutbox> held = sessionId == null ? null : bySession.get(sessionId);
+        MovementOutbox outbox = held == null ? null : held.get(islandId);
+        return outbox != null && !outbox.isSuspendedOrClosed();
+    }
+
+    /** 그 섬의 재검사 세대 — 관문이 판정 직전에 읽어 {@link #JUDGED} 에 찍는다. */
+    public long recheckGeneration(UUID islandId) {
+        return recheckGenerations.getOrDefault(islandId, 0L);
+    }
+
+    /**
      * 소켓 종료 — 그 세션이 든 방 전부에서 퇴장하고 재판정도 취소한다. {@code WebSocketConfig} 가
      * {@link RealtimeSessionRegistry#closed} <b>직후</b>에 부른다(순서가 유령 actor 방지의 전제다, 클래스 설명).
      */
@@ -305,6 +335,8 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
      */
     public void recheckMembership(UUID islandId, UUID memberUserId) {
         try {
+            // 세대부터 올리고 순회한다 — 판정은 끝났지만 아직 등록 전인 세션은 등록 때 이 세대를 보고 스스로 재판정한다.
+            recheckGenerations.merge(islandId, 1L, Long::sum);
             for (MovementOutbox outbox : publisher.outboxes(islandId)) {
                 if (memberUserId == null || memberUserId.equals(outbox.userId())) {
                     restart(outbox, islandId);

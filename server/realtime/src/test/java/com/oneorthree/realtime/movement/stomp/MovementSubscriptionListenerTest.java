@@ -60,6 +60,7 @@ import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -524,6 +525,55 @@ class MovementSubscriptionListenerTest {
     }
 
     @Test
+    @DisplayName("관문 판정 뒤 등록 전에 그 섬 강퇴 재검사가 지나가면 등록되는 outbox 는 멈춘 채 캐시 없이 다시 잰다 — 비멤버면 퇴장")
+    void registrationRacingARecheckIsJudgedAgainUncached() {
+        StompAuthChannelInterceptor gate = gate();
+        ChatPrincipal stays = connect("a");
+        ChatPrincipal late = connect("b");
+        join("a", stays);
+        tick();
+        Message<?> judged = gate.preSend(raw("b", "m", StompTopics.movementTopic(island), late), null); // 옛 캐시로 통과
+        listener.recheckMembership(island, late.userId()); // MEMBER_REMOVED — b 는 아직 색인에 없어 순회에서 빠진다
+        assertThat(scheduled).as("순회에서 빠졌다").isEmpty();
+
+        listener.preSend(judged, null); // 이제 등록된다
+        assertThat(scheduled).as("등록하면서 멈추고 재판정을 예약했다").hasSize(1);
+        sent.clear();
+        tick();
+        assertThat(bodiesFor("b")).as("판정 전엔 아무것도 받지 않는다").isEmpty();
+
+        willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMemberUncached(island, late.userId(), late.bearer());
+        runNext(); // 비멤버 확정 — 퇴장
+        tick();
+
+        assertThat(publisher.outboxes(island)).extracting(MovementOutbox::sessionId).containsExactly("a");
+        assertThat(bodiesFor("b")).isEmpty();
+        List<JsonNode> toStays = bodiesFor("a");
+        assertThat(actorIds(toStays.get(toStays.size() - 1))).as("마지막 FullState 엔 퇴장한 b 가 없다")
+                .containsExactly(stays.userId().toString());
+    }
+
+    @Test
+    @DisplayName("강퇴 재검사로 멈춘 동안의 intent 는 관문에서 조용히 버린다(ERROR 없음) — 방에 닿지 않고, 재개 뒤엔 다시 닿는다")
+    void intentsAreDroppedWhileTheRecheckSuspendsDelivery() {
+        StompAuthChannelInterceptor gate = gate();
+        MovementRooms counted = spy(rooms);
+        MovementStompController controller = new MovementStompController(counted);
+        ChatPrincipal walker = connect("b");
+        inbound(gate, raw("b", "m", StompTopics.movementTopic(island), walker));
+        tick();
+        listener.recheckMembership(island, walker.userId()); // 멈춤 — 판정은 아직(앞선 조회에 밀렸다)
+
+        assertThat(sendIntent(gate, controller, "b", walker, 1)).as("멈춘 동안 intent 는 버린다").isFalse();
+        verify(counted, never()).accept(any(), any(), any(), any());
+
+        runNext(); // 통과 — 재개
+        assertThat(sendIntent(gate, controller, "b", walker, 2)).as("재개 뒤엔 다시 닿는다").isTrue();
+        verify(counted).accept(eq(island), eq(walker.userId()), eq("b"), any());
+    }
+
+    @Test
     @DisplayName("③ 교체됐던 기기가 같은 구독 id 로 돌아오면 첫 reliable 은 자기 FullState 다 — 그 사이 나간 다른 사건은 버린다")
     void supersededDeviceReturningWithTheSameIdStartsFromItsOwnFullState() {
         ChatPrincipal phone = connect("phone");
@@ -587,6 +637,21 @@ class MovementSubscriptionListenerTest {
     /** 인바운드 체인 그대로 — 관문(거절이면 예외 = 실서비스의 ERROR 프레임 + 종료) 다음 이 처리기. */
     private void inbound(StompAuthChannelInterceptor gate, Message<?> frame) {
         listener.preSend(gate.preSend(frame, null), null);
+    }
+
+    /** intent SEND 를 관문 → 컨트롤러 순서로 흘린다 — 관문이 버리면(null) 컨트롤러에 닿지 않는다. */
+    private boolean sendIntent(StompAuthChannelInterceptor gate, MovementStompController controller, String sessionId,
+            ChatPrincipal principal, long commandSeq) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
+        accessor.setSessionId(sessionId);
+        accessor.setDestination("/app/islands/" + island + "/movement/intent");
+        accessor.setUser(principal);
+        accessor.setLeaveMutable(true);
+        if (gate.preSend(MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders()), null) == null) {
+            return false;
+        }
+        controller.intent(island, new MoveIntentRequest(commandSeq, 1, 39.5, 45.5), principal, sessionId);
+        return true;
     }
 
     private MovementOutbox outboxOf(String sessionId) {
@@ -670,12 +735,12 @@ class MovementSubscriptionListenerTest {
         return ids;
     }
 
-    /** 관문이 멤버십을 직접 판정해 통과시킨 SUBSCRIBE — 이 처리기만 도는 테스트가 쓴다. */
-    private static Message<byte[]> subscribe(String sessionId, String subscriptionId, String destination,
+    /** 관문이 멤버십을 지금 막 직접 판정해 통과시킨 SUBSCRIBE(그 섬의 현재 재검사 세대를 찍는다) — 이 처리기만 도는 테스트가 쓴다. */
+    private Message<byte[]> subscribe(String sessionId, String subscriptionId, String destination,
             ChatPrincipal principal) {
         Message<byte[]> frame = raw(sessionId, subscriptionId, destination, principal);
         MessageHeaderAccessor.getAccessor(frame, StompHeaderAccessor.class)
-                .setHeader(MovementSubscriptionListener.JUDGED, Boolean.TRUE);
+                .setHeader(MovementSubscriptionListener.JUDGED, listener.recheckGeneration(island));
         return frame;
     }
 

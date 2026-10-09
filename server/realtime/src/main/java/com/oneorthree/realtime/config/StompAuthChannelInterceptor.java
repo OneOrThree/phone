@@ -80,7 +80,7 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  * {@code /topic/islands/{id}/movement}·{@code /movement/snapshot} 구독은 <b>섬 멤버십</b>
  * ({@link ChatAccessGuard#requireMember}) 을 세션×섬마다 1회 본다(사용자 축 시도 창 600ms 뒤) — 구독이 곧 방
  * 입장이고, 집중 중에도 걸을 수 있어야 해서 채팅 관문(집중 검사 포함)은 쓰지 않는다(N1·N2). intent SEND 는 인증과
- * 「그 섬 movement 구독 중」만 본다.
+ * 「그 섬 movement 구독 중」만 보고, 강퇴 재검사로 그 세션 송신이 멈춘 동안은 조용히 버린다.
  */
 @Slf4j
 @Component
@@ -138,7 +138,11 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             case CONNECT -> authenticate(accessor);
             case SUBSCRIBE -> authorizeSubscription(accessor);
             case UNSUBSCRIBE -> sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
-            case SEND -> authorizeSend(accessor);
+            case SEND -> {
+                if (!authorizeSend(accessor)) {
+                    return null; // 조용히 버린다 — 응답·ERROR 없음(authorizeMovementIntent)
+                }
+            }
             default -> {
                 // 나머지 프레임(SEND·DISCONNECT·ACK…)은 그대로 흘린다. SEND 의 규칙 검사는 서비스가 한다.
             }
@@ -235,8 +239,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      * {@link MovementSubscriptionListener#holdsLiveOutbox}) 이번 것은 그 판정을 이어받는다 — 사용자 축 시도 창(600ms,
      * {@code emoteSubscribeAttempt} 와 같은 방식)이 둘째 구독을 막지 않고, 상류 조회도 한 번이다. 근거를 레지스트리
      * 구독 기록에 두지 않는 것은 강퇴 뒤 남은 기록이 판정을 건너뛰게 하기 때문이다. 이어받을 게 없으면 창 → 멤버십 순으로
-     * 보고 통과한 프레임에 {@link MovementSubscriptionListener#JUDGED} 를 붙인다(이어받은 직후 강퇴가 끼면 처리기가 그
-     * 헤더 없는 구독을 들이지 않는다). 창 초과는 다른 관문 위반처럼 ERROR + 연결 종료다.
+     * 보고 통과한 프레임에 {@link MovementSubscriptionListener#JUDGED} 를 붙인다 — 값은 판정 <b>직전</b>의 그 섬 재검사
+     * 세대다(이어받은 직후 강퇴가 끼면 처리기가 그 헤더 없는 구독을 들이지 않고, 판정 도중 재검사가 지나갔으면 처리기가
+     * 멈춘 채 등록해 다시 잰다). 창 초과는 다른 관문 위반처럼 ERROR + 연결 종료다.
      *
      * <p><b>거절된 구독은 레지스트리 자리를 돌려준다.</b> 남겨 두면 «판정받은 구독»으로 오인돼 intent SEND
      * 관문({@link #authorizeMovementIntent})을 통과시킨다 — ERROR 뒤 소켓이 닫히기 전에 처리되는 프레임이 있다.
@@ -247,6 +252,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         if (movementSubscriptions.holdsLiveOutbox(accessor.getSessionId(), islandId)) {
             return;
         }
+        long generation = movementSubscriptions.recheckGeneration(islandId); // 판정(캐시일 수 있다)보다 먼저 읽는다
         try {
             if (!acquireWindow(RedisKeys.movementSubscribeAttempt(principal.userId()))) {
                 throw new ChatException(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
@@ -256,7 +262,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
             throw e;
         }
-        accessor.setHeader(MovementSubscriptionListener.JUDGED, Boolean.TRUE);
+        accessor.setHeader(MovementSubscriptionListener.JUDGED, generation);
     }
 
     /**
@@ -301,13 +307,14 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      *
      * <p>「같은 섬인가·집중 중인가」는 여기서 보지 않는다 — 그건 {@code ChatMessageService.send} 한
      * 곳이고, 두 곳에서 검사하면 언젠가 한쪽만 바뀐다.
+     *
+     * @return 컨트롤러로 흘려보낼 프레임이면 true, 조용히 버릴 프레임이면 false(이동 intent 만)
      */
-    private void authorizeSend(StompHeaderAccessor accessor) {
+    private boolean authorizeSend(StompHeaderAccessor accessor) {
         String destination = String.valueOf(accessor.getDestination());
         Matcher intent = MOVEMENT_INTENT_SEND.matcher(destination);
         if (intent.matches()) {
-            authorizeMovementIntent(accessor, intent.group(1));
-            return;
+            return authorizeMovementIntent(accessor, intent.group(1));
         }
         Matcher matcher = SEND_DESTINATION.matcher(destination);
         Matcher emote = EMOTE_SEND.matcher(destination);
@@ -333,6 +340,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         if (!chatSend && !acquireWindow(RedisKeys.emoteAttempt(principal.userId()))) {
             throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
         }
+        return true;
     }
 
     /**
@@ -343,13 +351,20 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      * 구독 없이 보낸 intent 는 정상 클라이언트가 만들 수 없는 프레임이라 다른 관문 위반처럼 ERROR 프레임 + 연결
      * 종료다({@code NOT_A_MEMBER}). 비멤버는 그보다 앞의 구독 단계에서 이미 거절된다. 속도 제한은 여기가 아니라
      * {@code RoomRuntime} 의 사용자 토큰 버킷(N8)이다.
+     *
+     * <p><b>강퇴 재검사로 그 세션 송신이 멈춘 동안(또는 outbox 가 없거나 닫혔으면) intent 는 조용히 버린다</b> — 방에
+     * 닿으면 강퇴 후보 actor 가 계속 걷고 남들에게 Snapshot 이 간다. ERROR 는 내지 않는다(멤버십이 아직 미정이다).
+     * 재판정이 퇴장·1011·1008·재개 중 하나로 정리한다.
+     *
+     * @return 컨트롤러로 흘려보낼 intent 면 true
      */
-    private void authorizeMovementIntent(StompHeaderAccessor accessor, String islandId) {
+    private boolean authorizeMovementIntent(StompHeaderAccessor accessor, String islandId) {
         UUID island = uuidOrReject(islandId);
         requireAuthenticated(accessor);
         if (sessions.subscriptionIdOf(accessor.getSessionId(), StompTopics.movementTopic(island)) == null) {
             throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
         }
+        return movementSubscriptions.acceptsIntents(accessor.getSessionId(), island);
     }
 
     /**

@@ -485,8 +485,8 @@ class StompAuthChannelInterceptorTest {
         Message<byte[]> snapshot = message(movementSubscribe("movement/snapshot", groupId));
         assertThatCode(() -> interceptor.preSend(movement, null)).doesNotThrowAnyException();
         assertThatCode(() -> interceptor.preSend(snapshot, null)).doesNotThrowAnyException();
-        assertThat(movement.getHeaders().get(MovementSubscriptionListener.JUDGED)).as("직접 판정한 구독에만 표식")
-                .isEqualTo(Boolean.TRUE);
+        assertThat(movement.getHeaders().get(MovementSubscriptionListener.JUDGED))
+                .as("직접 판정한 구독에만 표식 — 값은 판정 직전의 그 섬 재검사 세대").isEqualTo(0L);
         assertThat(snapshot.getHeaders().get(MovementSubscriptionListener.JUDGED)).as("이어받은 구독엔 표식이 없다")
                 .isNull();
         // 앱은 접속마다 두 토픽을 연달아 구독한다 — 판정·시도 창은 세션×섬에 한 번이다.
@@ -530,7 +530,7 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
-    @DisplayName("이동 intent SEND — 그 섬 movement 를 구독 중일 때만 통과하고 멤버십은 다시 묻지 않는다(N2)")
+    @DisplayName("이동 intent SEND — 그 섬 movement 를 구독 중일 때만 통과하고 멤버십은 다시 묻지 않는다(N2) · 재검사로 멈춘 동안은 조용히 버린다")
     void movementIntentRequiresTheMovementSubscription() {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
         assertThatThrownBy(() -> interceptor.preSend(message(intentSend(groupId)), null))
@@ -545,8 +545,13 @@ class StompAuthChannelInterceptorTest {
 
         interceptor.preSend(message(movementSubscribe("movement", groupId)), null);
         org.mockito.Mockito.clearInvocations(accessGuard);
-        assertThatCode(() -> interceptor.preSend(message(intentSend(groupId)), null)).doesNotThrowAnyException();
+        given(movementSubscriptions.acceptsIntents(SESSION, groupId)).willReturn(true);
+        assertThat(interceptor.preSend(message(intentSend(groupId)), null)).as("컨트롤러로 흘려보낸다").isNotNull();
         verifyNoInteractions(accessGuard);
+
+        // 강퇴 재검사로 그 세션 송신이 멈춘 동안은 조용히 버린다 — ERROR 도 내지 않는다(멤버십이 아직 미정).
+        given(movementSubscriptions.acceptsIntents(SESSION, groupId)).willReturn(false);
+        assertThat(interceptor.preSend(message(intentSend(groupId)), null)).as("버린다(null)").isNull();
 
         // 다른 섬 intent 는 그 섬 구독이 없다 — 구독은 섬별이다.
         assertThatThrownBy(() -> interceptor.preSend(message(intentSend(UUID.randomUUID())), null))

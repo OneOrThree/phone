@@ -292,6 +292,11 @@ final class MovementOutbox {
         return closed;
     }
 
+    /** 멈췄거나(강퇴 재검사 중) 닫혔다 — 이 세션의 intent 를 받지 않는다. */
+    synchronized boolean isSuspendedOrClosed() {
+        return suspended || closed;
+    }
+
     /**
      * 이미 채널에 넘긴 그 프레임을 실행기가 꺼낼 때 버려야 하는가({@link MovementOutboundInterceptor#beforeHandle}) —
      * 닫혔거나, 만든 뒤 게이트가 한 번이라도 닫혔다(멈춤·교체·movement 해지). 게이트가 닫힌 동안엔 프레임을 만들지 않으므로
