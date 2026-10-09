@@ -142,6 +142,7 @@ const mount = async (route: Route, state: State = serverFocusState()) =>
         notify: jest.fn(),
         text: '',
         setText: jest.fn(),
+        setGuideStep: jest.fn(),
         islands: {},
       }}
     />,

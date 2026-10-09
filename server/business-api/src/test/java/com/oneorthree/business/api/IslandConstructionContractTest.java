@@ -108,6 +108,7 @@ class IslandConstructionContractTest extends UpstreamTestBase {
                 + "\"contributed\":1,\"remaining\":0,\"internalNote\":\"private\"},"
                 + "{\"userId\":\"" + OTHER + "\",\"name\":null,\"contributed\":0,\"remaining\":1}]}";
         DATA.on(DATA_OPTIONS, request -> ok("{" + progress + "," + OPTIONS_BODY.substring(1)));
+        DATA.on("GET /internal/users/" + USER + "/blocks", request -> ok("[]"));
 
         mockMvc.perform(auth(get("/islands/" + ISLAND + "/construction-options")))
                 .andExpect(status().isOk())
@@ -162,6 +163,62 @@ class IslandConstructionContractTest extends UpstreamTestBase {
                         "{\"buildingId\":\"gram\",\"expectedVersion\":4,\"expectedCostPolicyVersion\":1}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+
+    @Test
+    @DisplayName("다른 기기에서 시작한 공사의 건물과 구간을 조회할 수 있다")
+    void optionsIncludeActiveConstruction() throws Exception {
+        String active = "\"activeConstruction\":{\"buildingId\":\"gram\","
+                + "\"startedAt\":\"2026-10-09T00:00:00Z\",\"completesAt\":\"2026-10-09T00:01:00Z\","
+                + "\"internalNote\":\"private\"}";
+        DATA.on(DATA_OPTIONS, request -> ok("{" + active + "," + OPTIONS_BODY.substring(1)));
+        mockMvc.perform(auth(get("/islands/" + ISLAND + "/construction-options")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.activeConstruction.buildingId").value("gram"))
+                .andExpect(jsonPath("$.data.activeConstruction.startedAt").value("2026-10-09T00:00:00Z"))
+                .andExpect(jsonPath("$.data.activeConstruction.completesAt").value("2026-10-09T00:01:00Z"))
+                .andExpect(jsonPath("$.data.activeConstruction.internalNote").doesNotExist());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("건설 조회와 버전 충돌 모두 차단 주민 이름만 가리고 수량·행은 유지한다")
+    void masksBlockedResidentNamesInOptionsAndConflict(boolean conflict) throws Exception {
+        DATA.on(DATA_OPTIONS, request -> ok(optionsWithOtherResident()));
+        DATA.on("GET /internal/users/" + USER + "/blocks",
+                request -> ok("[{\"id\":\"" + OTHER + "\"}]"));
+        DATA.on(DATA_BUILD, request -> error(409, "VERSION_CONFLICT"));
+        var request = conflict ? write(post("/islands/" + ISLAND + "/constructions"),
+                "{\"buildingId\":\"gram\",\"expectedVersion\":3,\"expectedCostPolicyVersion\":1}")
+                : auth(get("/islands/" + ISLAND + "/construction-options"));
+        String prefix = conflict ? "$.current.resource" : "$.data";
+        mockMvc.perform(request).andExpect(status().is(conflict ? 409 : 200))
+                .andExpect(jsonPath(prefix + ".residentProgress.residents[0].name").value("차단한 주민"))
+                .andExpect(jsonPath(prefix + ".residentProgress.residents[0].userId").value(OTHER.toString()))
+                .andExpect(jsonPath(prefix + ".residentProgress.residents[0].contributed").value(3))
+                .andExpect(jsonPath(prefix + ".residentProgress.residents[0].remaining").value(2));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("차단 조회 실패 시 건설 응답에 원래 이름을 노출하지 않는다")
+    void blockReadFailureDoesNotExposeNames(boolean conflict) throws Exception {
+        DATA.on(DATA_OPTIONS, request -> ok(optionsWithOtherResident()));
+        DATA.on("GET /internal/users/" + USER + "/blocks", request -> error(500, "INTERNAL_ERROR"));
+        DATA.on(DATA_BUILD, request -> error(409, "VERSION_CONFLICT"));
+        var request = conflict ? write(post("/islands/" + ISLAND + "/constructions"),
+                "{\"buildingId\":\"gram\",\"expectedVersion\":3,\"expectedCostPolicyVersion\":1}")
+                : auth(get("/islands/" + ISLAND + "/construction-options"));
+        var response = mockMvc.perform(request).andReturn().getResponse();
+        assertThat(response.getStatus()).isGreaterThanOrEqualTo(400);
+        assertThat(response.getContentAsString()).doesNotContain("숨길 이름", OTHER.toString());
+    }
+
+    private static String optionsWithOtherResident() {
+        return "{\"residentProgress\":{\"buildingId\":\"gram\",\"requiredPerResident\":5,"
+                + "\"residents\":[{\"userId\":\"" + OTHER + "\",\"name\":\"숨길 이름\","
+                + "\"contributed\":3,\"remaining\":2}]}," + OPTIONS_BODY.substring(1);
     }
 
     // ---------------------------------------------------------------- 버전 충돌의 current
@@ -383,6 +440,7 @@ class IslandConstructionContractTest extends UpstreamTestBase {
                 operation.equals("target") ? TARGET_BODY : operation.equals("build") ? BUILD_BODY : OPTIONS_BODY);
         if (!operation.equals("target") && !operation.equals("build")) {
             expected.putNull("residentProgress");
+            expected.putNull("activeConstruction");
         }
         if (operation.equals("empty-options")) {
             expected.putArray("items");
@@ -411,7 +469,8 @@ class IslandConstructionContractTest extends UpstreamTestBase {
     }
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "/islands/{islandId}/construction-options|get|200||islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items residentProgress|islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items",
+            "/islands/{islandId}/construction-options|get|200||islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items residentProgress activeConstruction|islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items",
+            "/islands/{islandId}/construction-options|get|200|activeConstruction|buildingId startedAt completesAt|buildingId startedAt completesAt",
             "/islands/{islandId}/construction-options|get|200|items|id name cost currency selectable buildable blockedReason|id name cost currency selectable buildable blockedReason",
             "/islands/{islandId}/construction-options|get|200|residentProgress|buildingId requiredPerResident residents|buildingId requiredPerResident residents",
             "/islands/{islandId}/construction-options|get|200|residentProgress/residents|userId name contributed remaining|userId name contributed remaining",

@@ -158,6 +158,7 @@ class IslandConstructionIntegrationTest {
                 .findById(new IslandFacilityId(f.islandId, "hall")).orElseThrow();
         assertThat(done.getStatus()).isEqualTo(FacilityStatus.COMPLETED);
         assertThat(done.getCompletedAt()).isNotNull();
+        assertThat(service.options(f.islandId, f.ownerId).activeConstruction()).isNull();
     }
 
     // ---------------------------------------------------------------- 배치 정본 (GROMO-2232)
@@ -640,6 +641,10 @@ class IslandConstructionIntegrationTest {
                     revision, UUID.randomUUID());
             assertThat(started.spent().amount()).isEqualTo(1);
             assertThat(started.villagePoints()).isEqualTo(1);
+            var active = service.options(f.islandId, f.memberId).activeConstruction();
+            assertThat(active.buildingId()).isEqualTo("gram");
+            assertThat(active.startedAt()).isEqualTo(toDbMicros(started.startedAt()));
+            assertThat(active.completesAt()).isEqualTo(toDbMicros(started.completesAt()));
             assertThat(service.options(f.islandId, f.ownerId).residentProgress()).isNull();
         } finally {
             jdbc.update("UPDATE construction_cost_policy_publication SET revision=1");

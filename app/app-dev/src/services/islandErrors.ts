@@ -1,7 +1,9 @@
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { errorText, getLocale } from '@/i18n';
 
 /** 섬 진입·가입·선택에서 사용하는 사용자 안내. 서버 내부 문구는 그대로 노출하지 않는다. */
 export function islandErrorMessage(error: unknown, facility?: 'board' | 'tower'): string {
+  if (getLocale() !== 'ko') return errorText(error);
   if (!(error instanceof ApiError)) return '연결을 확인한 뒤 다시 시도해 주세요.';
   const messages: Record<string, string> = {
     [CLIENT_STALE_SESSION]: '',

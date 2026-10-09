@@ -339,3 +339,30 @@ test('서버 오류는 코드를 그대로 올린다 — 성공으로 접지 않
   assert.equal(forbidden.code, 'FORBIDDEN');
   assert.equal(forbidden.status, 403);
 });
+
+const activeConstruction = {
+  buildingId: 'library',
+  startedAt: '2026-10-09T00:00:00Z',
+  completesAt: '2026-10-09T00:01:00Z',
+};
+test('공사 조회는 건물과 시간을 보존하고 잘못된 공사 구간은 거절한다', async () => {
+  const values = [
+    activeConstruction,
+    null,
+    undefined,
+    { ...activeConstruction, buildingId: 'mail' },
+    { ...activeConstruction, startedAt: 'invalid' },
+    { ...activeConstruction, completesAt: activeConstruction.startedAt },
+  ];
+  stub(
+    values.map((activeConstruction) => ({
+      status: 200,
+      body: { data: options([item('library')], { activeConstruction }) },
+    })),
+  );
+  assert.deepEqual((await getConstructionOptions('i1')).activeConstruction, activeConstruction);
+  assert.equal((await getConstructionOptions('i1')).activeConstruction, null);
+  assert.equal((await getConstructionOptions('i1')).activeConstruction, undefined);
+  for (let n = 0; n < 3; n++)
+    await assert.rejects(getConstructionOptions('i1'), { code: CLIENT_CONTRACT_ERROR });
+});

@@ -12,7 +12,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
 import { art, CharCount, Wheel } from '@/design-system/patterns';
-import { componentTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
 import {
   State,
@@ -533,7 +533,11 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
-                  backgroundColor: ok ? (dialog.danger ? '#e9a49d' : '#f3d77d') : undefined,
+                  backgroundColor: ok
+                    ? dialog.danger
+                      ? '#e9a49d'
+                      : semanticTokens.color.accent
+                    : undefined,
                 }}
               >
                 <T
@@ -2559,7 +2563,7 @@ export function Hall({ e }: any) {
           borderWidth: 2,
           borderColor: BROWN,
           borderRadius: 99,
-          backgroundColor: '#f3d77d',
+          backgroundColor: semanticTokens.color.accent,
           boxShadow: `0px 3px 0px ${BROWN}`,
           opacity: draft.name.trim() ? 1 : 0.5,
         }}
@@ -2879,7 +2883,7 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
-                  backgroundColor: '#f3d77d',
+                  backgroundColor: semanticTokens.color.accent,
                 }}
               >
                 <T style={g(14, 22.4, { color: CARD_INK, fontWeight: '700' })}>승인</T>
@@ -2984,7 +2988,7 @@ export function Hall({ e }: any) {
             borderWidth: 2,
             borderColor: BROWN,
             borderRadius: 99,
-            backgroundColor: '#f3d77d',
+            backgroundColor: semanticTokens.color.accent,
             boxShadow: `0px 3px 0px ${BROWN}`,
             opacity: joinDisabled ? 0.5 : 1,
           }}

@@ -46,6 +46,8 @@ import {
   unreadLetters,
   viewIsland,
 } from '@/services/model';
+import { loadHomeSnapshot } from '@/services/homeSnapshot';
+import { sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { localized, t } from '@/i18n';
 import { semanticTokens } from '@/design-system/tokens';
@@ -4099,6 +4101,7 @@ export function Board({
   const questInflight = useRef<string | null>(null);
   const claimInflight = useRef<string | null>(null);
   const constructionInflight = useRef<string | null>(null);
+  const buildingOpenPending = useRef(false);
 
   // 다른 섬 방문자: 공지·댓글·퀘스트는 읽기만 하고 청사진은 보지 않는다
   const visitor = app ? app.visitor : concept.boardView === 'visitor';
@@ -4269,8 +4272,8 @@ export function Board({
   // 서버 옵션은 미완공 건물만 포함하므로, 조회에 성공한 빈 목록은 전체 완공이다.
   const allBuildingsComplete =
     serverBoard && construction.status === 'ready' && constructionOptions?.items.length === 0;
-  const constructionTiming = construction.started ?? resumeConstruction;
-  // 착공하면 서버 목표는 소비되어 null이 된다. 이 기기가 받은 착공 영수증으로 진행 건물을 잇는다.
+  const constructionTiming = construction.timing;
+  // 착공하면 서버 목표는 null이 된다. 서버가 알려 준 공사 구간으로 진행 건물을 잇는다.
   const selectedBuilding =
     constructionOptions?.selectedBuildingId ??
     (constructionOptions ? constructionTiming?.buildingId : null);
@@ -4874,7 +4877,48 @@ export function Board({
     openBuilding: () => {
       const building = serverBoard ? selectedBuilding : app?.building;
       const r = building && buildingRoute[building as Building];
-      if (r) e.go(r);
+      if (!r) return;
+      if (!serverBoard) return e.go(r);
+      if (buildingOpenPending.current) return;
+      const op = routeGen.current;
+      const gen = sessionGeneration();
+      const islandId = constructionIslandId;
+      const current = () => {
+        const latest = liveE(op);
+        return (
+          latest &&
+          sessionGeneration() === gen &&
+          latest.state.serverIslands?.currentIslandId === islandId &&
+          !latest.state.visitingIslandId
+        );
+      };
+      buildingOpenPending.current = true;
+      setError('');
+      loadHomeSnapshot({
+        date: dayKey(e.now),
+        timezone: 'Asia/Seoul',
+        isCurrent: () => !!current(),
+      })
+        .then((snapshot) => {
+          if (!current()) return;
+          if (
+            snapshot.status !== 'loaded' ||
+            snapshot.facts.islandId !== islandId ||
+            !snapshot.facts.completedBuildings.includes(building as Building)
+          ) {
+            setError('완공 상태를 확인하지 못했어요. 잠시 뒤 다시 눌러 주세요.');
+            return;
+          }
+          const latest = liveE(op);
+          latest.dispatch({ type: 'SERVER_HOME', facts: snapshot.facts });
+          latest.go(r);
+        })
+        .catch((error: unknown) => {
+          if (current()) setError(apiWriteMessage(error));
+        })
+        .finally(() => {
+          buildingOpenPending.current = false;
+        });
     },
   };
 

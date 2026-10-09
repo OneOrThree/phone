@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React, { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { IslandSheet } from '@/screens/island/IslandSheet';
@@ -80,54 +81,52 @@ export function ServerIslandPicker({ mode, state, islands, back, home, reset }: 
     <IslandSheet
       bg="dock"
       sign="island/whole"
-      title={mode === 'main' ? '내 메인 섬 변경하기' : '현재 섬 변경하기'}
+      title={t(mode === 'main' ? 'islandPicker.mainTitle' : 'islandPicker.currentTitle')}
       onBack={back}
       onClose={home}
       tall
     >
       <Txt kind="meta">
-        {mode === 'main'
-          ? '친구 목록과 프로필에 표시할 섬을 골라 주세요. 현재 접속한 섬은 그대로예요.'
-          : '가입한 섬 중 지금 들어갈 섬을 골라 주세요. 대표 섬은 그대로예요.'}
+        {t(mode === 'main' ? 'islandPicker.mainDescription' : 'islandPicker.currentDescription')}
       </Txt>
       {loading ? (
-        <Txt>소속 섬을 불러오고 있어요.</Txt>
+        <Txt>{t('islandPicker.loading')}</Txt>
       ) : (
         <Group>
           {items.map((item) => (
             <Row
               key={item.id}
               title={item.name}
-              sub={`주민 ${item.memberCount}/${item.maxMembers}명${item.id === currentId ? ' · 현재 선택된 섬' : ''}`}
+              sub={`${t('islandPicker.members', { count: item.memberCount, max: item.maxMembers })}${item.id === currentId ? t('islandPicker.currentSuffix') : ''}`}
               selected={selected === item.id}
               disabled={writing}
-              tail={<Txt>{selected === item.id ? '선택됨' : ''}</Txt>}
+              tail={<Txt>{selected === item.id ? t('islandPicker.selected') : ''}</Txt>}
               onPress={() => setSelected(item.id)}
             />
           ))}
-          {!items.length && <Txt>가입한 섬이 없어요.</Txt>}
+          {!items.length && <Txt>{t('islandPicker.empty')}</Txt>}
         </Group>
       )}
-      {sessionBlocksMove && <Txt kind="meta">집중이나 휴식을 마친 뒤 섬을 이동해 주세요.</Txt>}
+      {sessionBlocksMove && <Txt kind="meta">{t('islandPicker.sessionBlocksMove')}</Txt>}
       {!!error && (
         <View accessibilityRole="alert" style={{ gap: semanticTokens.spacing.control }}>
           <Txt>{error}</Txt>
           <Btn
             kind="ghost"
-            title="다시 불러오기"
+            title={t('islandPicker.reload')}
             disabled={writing}
             onPress={() => setReload((value) => value + 1)}
           />
         </View>
       )}
       <Btn
-        title={
+        title={t(
           writing
-            ? '변경 중이에요'
+            ? 'islandPicker.saving'
             : mode === 'main'
-              ? '대표 섬으로 저장하기'
-              : '선택한 섬으로 가기'
-        }
+              ? 'islandPicker.saveMain'
+              : 'islandPicker.enter',
+        )}
         disabled={
           loading ||
           writing ||

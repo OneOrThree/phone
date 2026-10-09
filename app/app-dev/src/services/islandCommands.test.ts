@@ -582,7 +582,10 @@ test('leave — 결과 불명 오류는 재조회하고 같은 키로 재시도�
     }
     return { left: true as const };
   });
-  const my = jest.fn(async () => myIslands());
+  const my = jest
+    .fn()
+    .mockResolvedValueOnce(myIslands({ items: [island()], currentIslandId: 'i1' }))
+    .mockResolvedValue(myIslands());
   const h = harness({
     leave,
     myIslands: my,
@@ -592,6 +595,22 @@ test('leave — 결과 불명 오류는 재조회하고 같은 키로 재시도�
   assert.equal(my.mock.calls.length, 1); // 서버가 이미 커밋했을 수 있어 재조회
   await h.cmds.commands.leave('i1');
   assert.equal(keys[0], keys[1]);
+});
+
+test('leave — 응답이 유실돼도 재조회에서 탈퇴가 확인되면 성공하고 키를 해제한다', async () => {
+  const leave = jest.fn(async (_id: string, _key: string) => {
+    throw new ApiError('CLIENT_TIMEOUT', 'lost', 0);
+  });
+  const h = harness({
+    leave,
+    myIslands: async () => myIslands({ items: [island({ id: 'i2' })], currentIslandId: 'i2' }),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  const result = await h.cmds.commands.leave('i1');
+  assert.equal(result.currentIslandId, 'i2');
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i2');
+  await h.cmds.commands.leave('i1');
+  assert.notEqual(leave.mock.calls[0][1], leave.mock.calls[1][1]);
 });
 
 const selectionApi = (over: Partial<IslandApi> = {}): Partial<IslandApi> => ({

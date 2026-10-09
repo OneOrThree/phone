@@ -161,6 +161,8 @@ export type ConstructionOptions = {
   items: ConstructionItem[];
   /** 목표 선택 당시 대상 주민의 실제 기여. 이전 서버 또는 합산 방식 목표에서는 없을 수 있다. */
   residentProgress?: ConstructionResidentProgress | null;
+  /** 서버에서 진행 중인 공사. 이전 서버 응답에는 없을 수 있다. */
+  activeConstruction?: { buildingId: BuildingId; startedAt: string; completesAt: string } | null;
 };
 
 export type ConstructionResidentProgress = {
@@ -257,6 +259,20 @@ function validateOptions(raw: unknown): ConstructionOptions {
     if (blockedReason !== null && typeof blockedReason !== 'string') {
       throw contractError('items.blockedReason');
     }
+  }
+  const active = raw.activeConstruction;
+  if (active !== undefined && active !== null) {
+    if (
+      !isRecord(active) ||
+      typeof active.buildingId !== 'string' ||
+      !seen.has(active.buildingId) ||
+      typeof active.startedAt !== 'string' ||
+      typeof active.completesAt !== 'string' ||
+      !Number.isFinite(Date.parse(active.startedAt)) ||
+      !Number.isFinite(Date.parse(active.completesAt)) ||
+      Date.parse(active.completesAt) <= Date.parse(active.startedAt)
+    )
+      throw contractError('activeConstruction');
   }
   const progress = raw.residentProgress;
   if (progress !== undefined && progress !== null) {

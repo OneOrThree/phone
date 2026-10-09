@@ -9,7 +9,7 @@
  *  - 목표는 `PUT …/construction-target`(`buildingId`+`expectedVersion`), 착공은
  *    `POST …/constructions`(`expectedCostPolicyVersion` 포함) — 둘 다 `Idempotency-Key` 필수.
  *    같은 의도의 재시도는 같은 키·같은 본문, 바뀐 본문은 새 키다(409 `IDEMPOTENCY_KEY_REUSED`).
- *  - BUILDING·`startedAt`/`completesAt` 은 기존 POST 응답을 클라이언트가 보관한다.
+ *  - 공사 구간은 GET의 `activeConstruction`과 이 기기에서 받은 POST 응답으로 읽는다.
  *    앱은 그 구간으로 표시 진행률을 계산하고, `completesAt` 경과는 재조회 신호로만 쓴다.
  *  - `islandId` 입력은 지금 로컬 섬 id 라 fetch 에 쓰지 않는다 — 서버 섬 id 는 `/me/islands`
  *    의 current 에서 배우고(`useLedgerScreen` 과 같은 계약), `islandId` 는 scope 리셋 신호다.
@@ -132,6 +132,10 @@ export function useConstruction({
   const [snap, setSnap] = useState<ConstructionSnapshot>(EMPTY);
   /** 이 클라이언트에서 받은 착공 POST receipt. */
   const [started, setStarted] = useState<ConstructionStarted | null>(null);
+  // 완공 직후 안내에도 방금 확인한 공사 대상을 유지한다. 섬·세션이 바뀌면 비운다.
+  const [observedTiming, setObservedTiming] = useState<ConstructionTiming | null>(null);
+  const timing =
+    snap.options?.activeConstruction ?? started ?? observedTiming ?? resumeTiming ?? null;
   const mounted = useRef(false);
   const scopeRef = useRef<Scope | null>(null);
   const loadSeq = useRef(0);
@@ -201,9 +205,11 @@ export function useConstruction({
         const options = await getConstructionOptions(serverId);
         const members = await membersP;
         guard(); // 죽은 scope 의 완료는 성공으로 끝내지 않는다
+        if (serverIsland.current !== serverId) setObservedTiming(null);
         serverIsland.current = serverId;
         optionsRef.current = options;
         publish({ options, members, serverIslandId: serverId, loading: false, error: null });
+        if (options.activeConstruction) setObservedTiming(options.activeConstruction);
         confirmSeq.current = seq; // canonical 확정 — 쓰기 성공의 근거는 이 값이다
         // 서버가 완공 목록으로 옮긴 뒤에만 로컬 receipt을 내린다.
         setStarted((previous) =>
@@ -230,6 +236,7 @@ export function useConstruction({
       optionsRef.current = null;
       loadSeq.current += 1;
       setStarted(null);
+      setObservedTiming(null);
       setSnap(EMPTY);
       return;
     }
@@ -253,6 +260,7 @@ export function useConstruction({
       optionsRef.current = null;
       loadSeq.current += 1;
       setStarted(null);
+      setObservedTiming(null);
     };
   }, [active, islandId, generation, runReload]);
 
@@ -291,7 +299,6 @@ export function useConstruction({
     lastNow.current = now;
     if (!active || scopeRef.current === null) return;
     const jumped = Math.abs(now - prev) > CLOCK_JUMP_MS;
-    const timing = started ?? resumeTiming ?? null;
     const dueKey = timing !== null ? `${timing.buildingId}:${timing.completesAt}` : null;
     const stillBuilding =
       timing !== null &&
@@ -319,7 +326,7 @@ export function useConstruction({
       .finally(() => {
         if (confirmationReloading.current === dueKey) confirmationReloading.current = null;
       });
-  }, [now, active, started, resumeTiming, snap.loading, snap.options, snap.error, reload]);
+  }, [now, active, timing, snap.loading, snap.options, snap.error, reload]);
 
   /**
    * 모든 쓰기 명령의 단일 통로 — fence·의도 슬롯·단일 flight·성공 후 재조회·오류 분류를
@@ -481,8 +488,9 @@ export function useConstruction({
     members: snap.members,
     serverIslandId: snap.serverIslandId,
     started,
-    progress: normalizedConstructionProgress(started, now),
-    phase: constructionPhase(normalizedConstructionProgress(started, now), started !== null),
+    timing,
+    progress: normalizedConstructionProgress(timing, now),
+    phase: constructionPhase(normalizedConstructionProgress(timing, now), timing !== null),
     error: snap.error,
     reload,
     retry: reload,

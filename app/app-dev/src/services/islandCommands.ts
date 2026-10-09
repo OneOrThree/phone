@@ -424,17 +424,25 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       }, true),
     // 섬 탈퇴(4-06) — 응답만으로 로컬 소속을 지우지 않고 /me/islands 재조회로 확정한다.
     // 마지막 섬이었으면 current 가 비어 onboarded=false 가 되고 App 이 섬 선택 화면으로 보낸다.
-    // 결과 불명 오류도 재조회한다(write) — 서버가 이미 탈퇴를 커밋했을 수 있다.
+    // 결과 불명 오류는 재조회에서 소속이 사라졌으면 성공으로 확정한다.
     leave: (islandId: string) =>
       call(async () => {
         const g = generation();
-        await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+        let uncertain: unknown;
+        try {
+          await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+        } catch (error) {
+          alive(g);
+          if (!unknownOutcome(error)) throw error;
+          uncertain = error;
+        }
         alive(g);
         const my = await syncIslands();
         alive(g);
+        if (my.items.some((item) => item.id === islandId)) throw uncertain ?? contractError();
         scoped().keys.release(`leave:${islandId}`, '');
         return my;
-      }, true),
+      }),
     // 부팅 동기화 재시도 — 성공하면 오류 플래그를 내린다. 단, 응답이 늦게 도착해 세대가
     // 죽었으면 플래그도 건드리지 않는다.
     sync: async () => {

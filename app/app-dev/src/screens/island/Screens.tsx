@@ -1653,7 +1653,7 @@ export function RedesignScreens({ e }: any) {
             )}
             <Txt style={H22}>{t('onboarding.chooseIsland.whereStart')}</Txt>
             {server && !!snap?.memberships.length && (
-              <Btn title="가입한 섬으로 들어가기" onPress={() => go('currentIsland')} />
+              <Btn title={t('islandPicker.enterJoined')} onPress={() => go('currentIsland')} />
             )}
             <Group>
               <Row
@@ -5626,7 +5626,7 @@ export function RedesignScreens({ e }: any) {
         <SheetGroup>
           {server && (
             <SheetRow
-              title="현재 섬 변경하기"
+              title={t('islandPicker.currentTitle')}
               sub={island.name ? `현재 접속: ${island.name}` : '가입한 섬 선택'}
               chevron
               onPress={() => go('currentIsland')}

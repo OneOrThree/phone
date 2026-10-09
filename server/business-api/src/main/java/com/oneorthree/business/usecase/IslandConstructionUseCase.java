@@ -62,6 +62,7 @@ public class IslandConstructionUseCase {
             Map.entry("CONCURRENT_UPDATE", new PublicFailure(ApiErrorCode.VERSION_CONFLICT, null)));
 
     private final DataConstructionClient data;
+    private final BlockedProfileMask profileMask;
 
     /** 건설 옵션 스냅샷 (LLD §2 GET). */
     public ConstructionOptionsView options(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
@@ -71,7 +72,18 @@ public class IslandConstructionUseCase {
         if (options == null) {
             throw new UpstreamContractMismatchException("건설 옵션 응답이 없습니다");
         }
-        return ConstructionOptionsView.from(options);
+        return publicOptions(options, claims, deadline);
+    }
+
+    /** 공사 참여 행과 기여량은 유지하고 요청자가 차단한 주민의 표시 이름만 가린다. */
+    private ConstructionOptionsView publicOptions(ConstructionOptions options, AccessTokenClaims claims,
+            Deadline deadline) {
+        var progress = options.residentProgress();
+        var blocked = profileMask.blockedAmong(claims.userId(),
+                progress == null ? java.util.List.of()
+                        : progress.residents().stream().map(ConstructionOptions.Resident::userId).toList(), deadline);
+        return ConstructionOptionsView.from(options, resident -> blocked.contains(resident.userId())
+                ? BlockedProfileMask.NEUTRAL_NAME : resident.name());
     }
 
     /**
@@ -169,8 +181,10 @@ public class IslandConstructionUseCase {
     private RuntimeException versionConflict(AccessTokenClaims claims, UUID islandId,
             Long expectedVersion, Long expectedCostPolicyVersion, Deadline deadline) {
         ConstructionOptions current;
+        ConstructionOptionsView publicCurrent;
         try {
             current = data.fetchConstructionOptions(claims.userId(), islandId, deadline);
+            publicCurrent = current == null ? null : publicOptions(current, claims, deadline);
         } catch (RuntimeException e) {
             return new PublicApiException(ApiErrorCode.VERSION_CONFLICT, FIELD_VERSION);
         }
@@ -180,7 +194,7 @@ public class IslandConstructionUseCase {
         String field = expectedVersion != null && expectedVersion == current.islandVersion()
                 && expectedCostPolicyVersion != null ? FIELD_COST_VERSION : FIELD_VERSION;
         return new PublicApiException(ApiErrorCode.VERSION_CONFLICT, field,
-                new PublicCurrentState(current.islandVersion(), ConstructionOptionsView.from(current)));
+                new PublicCurrentState(current.islandVersion(), publicCurrent));
     }
 
     /** 공개 오류 한 줄 — 코드와 사용자에게 알려 줄 입력 필드. */

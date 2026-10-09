@@ -2391,6 +2391,33 @@ test('현재 섬 없이 재실행한 기존 주민도 가입한 섬 선택으로
 });
 
 describe('en', () => {
+  test.each(['mainIsland', 'currentIsland'] as const)(
+    'en 섬 선택은 제목·버튼·오류를 번역한다: %s',
+    async (route) => {
+      mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+      applyLocalePref('system');
+      const screen = await render(
+        <Harness
+          route={route}
+          api={() => ({
+            sync: async () => {
+              throw new ApiError('CLIENT_TIMEOUT', '한국어 서버 오류', 0);
+            },
+          })}
+        />,
+      );
+      await screen.findByText('Reload');
+      assert.ok(
+        screen.getByText(route === 'mainIsland' ? 'Change Main Island' : 'Change Current Island'),
+      );
+      assert.ok(
+        screen.getByText(route === 'mainIsland' ? 'Save as Main Island' : 'Go to Selected Island'),
+      );
+      assert.equal(screen.queryByText('한국어 서버 오류'), null);
+      assert.equal(screen.queryByText('연결을 확인한 뒤 다시 시도해 주세요.'), null);
+    },
+  );
+
   const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
 
   afterEach(() => {

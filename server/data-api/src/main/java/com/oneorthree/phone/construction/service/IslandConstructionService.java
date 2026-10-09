@@ -172,7 +172,12 @@ public class IslandConstructionService {
                 balance,
                 aggregateVersion(IslandWalletEvents.AGGREGATE_TYPE, islandId),
                 items,
-                residentProgress(targetBuildingId, priceBook, targetIds, contributed));
+                residentProgress(targetBuildingId, priceBook, targetIds, contributed),
+                facilityByBuilding.values().stream()
+                        .filter(f -> f.getStatus() == FacilityStatus.BUILDING)
+                        .map(f -> new ConstructionOptionsView.ActiveConstruction(
+                                f.getBuildingId(), f.getStartedAt(), f.getCompletesAt()))
+                        .findFirst().orElse(null));
     }
 
     /** 착공 판정과 같은 스냅샷·대상·가격으로 읽는다. 일반 주민에게도 진행량을 제공한다. */

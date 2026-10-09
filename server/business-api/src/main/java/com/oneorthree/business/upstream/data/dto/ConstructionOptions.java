@@ -22,7 +22,15 @@ public record ConstructionOptions(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long villagePoints,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long walletVersion,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<Item> items,
-        ResidentProgress residentProgress) {
+        ResidentProgress residentProgress,
+        ActiveConstruction activeConstruction) {
+
+    /** 순차 배포 중 이전 Data 응답에는 없을 수 있다. */
+    public record ActiveConstruction(
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String buildingId,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String startedAt,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String completesAt) {
+    }
 
     /** 순차 배포 중 이전 Data 응답에는 없을 수 있다. 현재 목표가 합산 방식이면 null 이다. */
     public record ResidentProgress(

@@ -525,5 +525,22 @@
       "endConfirmTitle": "휴식을 끝내고 이번 집중을 마칠까요?",
       "keepResting": "계속 쉬기"
     }
+  },
+  "islandPicker": {
+    "mainTitle": "내 메인 섬 변경하기",
+    "currentTitle": "현재 섬 변경하기",
+    "mainDescription": "친구 목록과 프로필에 표시할 섬을 골라 주세요. 현재 접속한 섬은 그대로예요.",
+    "currentDescription": "가입한 섬 중 지금 들어갈 섬을 골라 주세요. 대표 섬은 그대로예요.",
+    "loading": "소속 섬을 불러오고 있어요.",
+    "members": "주민 {{count}}/{{max}}명",
+    "currentSuffix": " · 현재 선택된 섬",
+    "selected": "선택됨",
+    "empty": "가입한 섬이 없어요.",
+    "sessionBlocksMove": "집중이나 휴식을 마친 뒤 섬을 이동해 주세요.",
+    "reload": "다시 불러오기",
+    "saving": "변경 중이에요",
+    "saveMain": "대표 섬으로 저장하기",
+    "enter": "선택한 섬으로 가기",
+    "enterJoined": "가입한 섬으로 들어가기"
   }
 }

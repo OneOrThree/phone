@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import React, { useState } from 'react';
 import { PixelRatio, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
@@ -40,6 +41,7 @@ import {
   updateQuest as patchQuest,
 } from '@/services/api/quests';
 
+jest.mock('@/services/homeSnapshot', () => ({ loadHomeSnapshot: jest.fn() }));
 jest.mock('@/services/api/notices', () => ({
   getBoard: jest.fn(),
   listNotices: jest.fn(),
@@ -626,6 +628,7 @@ beforeEach(async () => {
   myIslandsMock.mockResolvedValue({ currentIslandId: ISLAND, items: [{ id: ISLAND }] });
   getConstructionOptionsMock.mockResolvedValue(constructionOptions());
   startConstructionMock.mockReset();
+  (loadHomeSnapshot as jest.Mock).mockReset();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
@@ -2251,3 +2254,65 @@ test('퀘스트 만들기 — 서버 실패 시 초안·문구를 보존하고 �
   assert.equal(e.text, '저녁 집중');
   await screen.unmount();
 });
+
+test.each(['success', 'failure', 'stale'] as const)(
+  '다른 기기 공사 완료 뒤 시설 진입은 홈 정본을 확인한다: %s',
+  async (outcome) => {
+    getBoardMock.mockResolvedValue(page([], null, 'member'));
+    const e = makeE({ route: 'quest', detail: 'building' });
+    e.state.serverIslands = { ...e.state.serverIslands, currentIslandId: ISLAND };
+    const activeConstruction = {
+      buildingId: 'library' as const,
+      startedAt: new Date(e.now - 30000).toISOString(),
+      completesAt: new Date(e.now + 30000).toISOString(),
+    };
+    getConstructionOptionsMock.mockResolvedValue(
+      constructionOptions({
+        activeConstruction,
+        items: constructionOptions().items.map((item) => ({
+          ...item,
+          blockedReason: 'IN_PROGRESS',
+        })),
+      }),
+    );
+    const screen = await renderBoard(e);
+    await waitFor(() => assert.ok(screen.getByText('도서관을 짓고 있어요')));
+    assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+    getConstructionOptionsMock.mockResolvedValue(
+      constructionOptions({
+        items: [{ ...constructionOptions().items[0], id: 'mail', name: '우체통' }],
+      }),
+    );
+    await act(async () => {
+      e.now += 31000;
+      e._tick();
+    });
+    await waitFor(() => assert.ok(screen.getByTestId('board-open-library')));
+    const response = deferred<any>();
+    (loadHomeSnapshot as jest.Mock).mockReturnValue(response.promise);
+    await fireEvent.press(screen.getByTestId('board-open-library'));
+    await fireEvent.press(screen.getByTestId('board-open-library'));
+    assert.equal((loadHomeSnapshot as jest.Mock).mock.calls.length, 1);
+    assert.equal(e.go.mock.calls.length, 0);
+    if (outcome === 'stale') await act(async () => e.go('home'));
+    const before = e.go.mock.calls.length;
+    const facts = {
+      islandId: ISLAND,
+      completedBuildings: ['hall', 'board', 'library'],
+      home: {},
+      members: [],
+    };
+    await act(async () => {
+      if (outcome === 'failure') response.reject(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
+      else response.resolve({ status: 'loaded', facts });
+    });
+    const homeActions = e.dispatch.mock.calls.filter(([a]: any[]) => a.type === 'SERVER_HOME');
+    assert.equal(homeActions.length, outcome === 'success' ? 1 : 0);
+    assert.equal(e.go.mock.calls.length, before + (outcome === 'success' ? 1 : 0));
+    if (outcome === 'success') {
+      assert.equal(e.go.mock.calls.at(-1)[0], 'library');
+      assert.ok(e.dispatch.mock.invocationCallOrder.at(-1) < e.go.mock.invocationCallOrder.at(-1));
+    }
+    if (outcome === 'failure') assert.ok(screen.getByText('lost'));
+  },
+);

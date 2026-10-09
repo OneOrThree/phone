@@ -540,5 +540,22 @@
       "endConfirmTitle": "End your break and finish this focus session?",
       "keepResting": "Keep Resting"
     }
+  },
+  "islandPicker": {
+    "mainTitle": "Change Main Island",
+    "currentTitle": "Change Current Island",
+    "mainDescription": "Choose the island to show on your profile and friends list. Your current island will stay the same.",
+    "currentDescription": "Choose one of your islands to enter. Your main island will stay the same.",
+    "loading": "Loading your islands…",
+    "members": "Residents {{count}}/{{max}}",
+    "currentSuffix": " · Current selection",
+    "selected": "Selected",
+    "empty": "You haven't joined an island yet.",
+    "sessionBlocksMove": "Finish your focus session or break before switching islands.",
+    "reload": "Reload",
+    "saving": "Updating…",
+    "saveMain": "Save as Main Island",
+    "enter": "Go to Selected Island",
+    "enterJoined": "Enter an Island You Joined"
   }
 }

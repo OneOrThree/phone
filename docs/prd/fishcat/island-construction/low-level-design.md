@@ -256,3 +256,7 @@ GROMO-1895 추가(town-hall 화면 `ledger` 조각, 기획 `GET /v1/islands/{isl
 - 원장 행에 주체(누가 적립했나)가 없어 항목에 사용자 필드가 없다. 주민별 몫은 [회관 기록 LLD](../island-records/low-level-design.md) §7 의 누적 획득이 답한다.
 - 인덱스: 섬 축 인덱스가 유일키 `(island_id, type, idempotency_key)` 앞머리뿐이라 섬 한 곳의 원장을 훑는다. **분당 적립(D5-적립)으로 섬당 행 수가 빠르게 는다 — `(island_id, created_at, id)` 인덱스를 더할 시점이 가까워졌다**(하루 묶음 집계도 같은 스캔을 탄다).
 - 내부 경로(B26): `GET /internal/islands/{islandId}/resources/ledger` + 허용목록 `'GET /internal/islands/*/resources/ledger'`.
+
+GET options의 `activeConstruction`은 진행 중인 공사의 `{buildingId, startedAt, completesAt}`이며 공사가 없으면 null이다. 목표 ID는 착공 때 해제되므로 진행 중인 건물은 이 필드로 식별한다. 앱은 시각 도달을 재조회 신호로만 쓰고, 옵션에서 해당 건물이 빠진 뒤 홈 정본의 완공 목록을 확인하여 시설에 진입한다. 이전 서버에는 이 필드가 없을 수 있다.
+
+공개 `residentProgress.residents`는 차단한 주민의 이름을 주민 목록과 동일한 중립 이름으로 바꾼다. 대상 행·사용자 ID·기여량·남은 수량은 유지하며, 차단 조회에 실패하면 이름을 그대로 노출하지 않는다. 버전 충돌의 `current`에도 같은 정책을 적용한다.
