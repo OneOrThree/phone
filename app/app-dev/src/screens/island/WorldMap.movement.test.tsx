@@ -11,6 +11,8 @@ import { clearSession, saveSession } from '@/services/api/session';
 import type { IslandChannelOpts } from '@/services/islandRealtime';
 import { imageToWorld, worldToImage, worldToCell, type WorldPoint } from '@/utils/worldCoords';
 import { loadNav } from '@/utils/nav-path';
+// tilePath 를 하나의 탭에서만 가짜로 바꾸는 스파이용 — 네임스페이스로 가져와야 jest.spyOn 대상이 된다.
+import * as navPathModule from '@/utils/nav-path';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있다.
@@ -273,6 +275,29 @@ it('바닥을 탭하면 로컬로 곧장 걷고 같은 목적지를 intent 1건�
   expect(opened.close).toHaveBeenCalled();
 });
 
+it('섬 전환 뒤 옛 채널로 FullState 를 흘려도 새 섬의 위치·주민 목록이 안 바뀐다(닫히는 중 도착한 메시지)', async () => {
+  jest.useFakeTimers();
+  const islandA = nextIsland();
+  const islandB = nextIsland();
+  const screen = await renderHome(islandA);
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
+  const oldChannel = channel();
+  await screen.rerender(
+    <FinalIsland state={serverState(islandB)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const newSpawn = { x: 10.5, y: 10.5 };
+  await emit(fullState([actor(ME, newSpawn), actor(U2, { x: 20.5, y: 20.5 })]));
+  const expectedCat = myCat(screen);
+  const expectedResidents = residents(screen);
+  // 옛 채널(A)로 늦게 도착한 FullState — close() 의 deactivate() 가 끝나기 전 도착한 메시지를 흉내낸다.
+  await act(async () =>
+    oldChannel.opts.onEvent(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })])),
+  );
+  expect(myCat(screen)).toEqual(expectedCat);
+  expect(residents(screen)).toEqual(expectedResidents);
+  await screen.unmount();
+});
+
 it('FullState 의 내 actor 위치를 채택한다 — 옛 격자 스폰과 서버 스폰의 차이를 맞춘다', async () => {
   const screen = await renderHome(nextIsland());
   const before = myCat(screen);
@@ -390,6 +415,59 @@ it('같은 셀을 탭해도 intent 를 보내고, 빈 경로 PathAccepted 뒤 Ar
   await screen.unmount();
 });
 
+it('도달 불가 탭은 로컬도 걷지 않고 서버 intent 도 보내지 않는다(tilePath 가 [])', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  await emit(fullState([actor(ME, SPAWN)]));
+  const spy = jest.spyOn(navPathModule, 'tilePath').mockReturnValueOnce([]);
+  try {
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+  } finally {
+    spy.mockRestore();
+  }
+  expect(channel().send).not.toHaveBeenCalled();
+  expect(myMotion(screen)).not.toBe('walking');
+  await screen.unmount();
+});
+
+it('셀 열이 같아도 서버 speed 가 로컬과 다르면 남은 구간을 그 속도로 다시 걷는다', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  await emit(fullState([actor(ME, SPAWN)]));
+  // 로컬 A*: 오른쪽으로 곧장(39.5..42.5, 45.5) — 아직 한 틱도 안 지났다(here == SPAWN).
+  await tapGround(screen, { x: 42.5, y: 45.5 });
+  // Animated.timing 을 즉시 끝내 갈아타는 걷기 전체를 한 번에 풀고, duration 을 전부 기록한다.
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  let durations: number[] = [];
+  try {
+    // 서버는 로컬과 같은 셀 경로를 확정했지만 속도(1000/5=200ms/unit)는 로컬 기본값(91ms/unit)과 다르다.
+    await emit({
+      ...pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 45.5 },
+        { x: 40.5, y: 45.5 },
+        { x: 41.5, y: 45.5 },
+        { x: 42.5, y: 45.5 },
+      ]),
+      speed: 5,
+    });
+    durations = timing.mock.calls.map(
+      (call) => (call[1] as Animated.TimingAnimationConfig).duration as number,
+    );
+  } finally {
+    timing.mockRestore();
+  }
+  expect(durations.length).toBeGreaterThan(0);
+  for (const d of durations) expect(d).toBeCloseTo(200, 1);
+  await screen.unmount();
+});
+
 it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 — 명단 밖·털색 미선택·나는 그리지 않는다 — 스냅샷 위치로 걷는다', async () => {
   jest.useFakeTimers();
   const screen = await renderHome(nextIsland());
@@ -432,7 +510,7 @@ it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 —
   await screen.unmount();
 });
 
-it('채널이 거절되면 토스트 없이 동기화를 끄고 Wanderer·로컬 걷기로 돌아간다', async () => {
+it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동기화를 끄고 Wanderer·로컬 걷기로 돌아간다', async () => {
   jest.useFakeTimers();
   const notify = jest.fn();
   const screen = await renderHome(nextIsland(), { notify });
@@ -441,7 +519,7 @@ it('채널이 거절되면 토스트 없이 동기화를 끄고 Wanderer·로컬
   );
   expect(residents(screen)).toHaveLength(2);
   const denied = channel();
-  await act(async () => denied.opts.onError('실시간 요청이 거절됐어요.'));
+  await act(async () => denied.opts.onMovementDenied?.());
   expect(denied.close).toHaveBeenCalled();
   expect(residents(screen)).toEqual([]);
   expect(otherCats(screen)).toBe(2);
@@ -449,6 +527,20 @@ it('채널이 거절되면 토스트 없이 동기화를 끄고 Wanderer·로컬
   expect(denied.send).not.toHaveBeenCalled();
   expect(myMotion(screen)).toBe('walking');
   expect(notify).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+it('이동 채널의 onError(그 외 오류 큐 코드)는 동기화를 끄지 않는다 — deny 는 onMovementDenied 로만 한다', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
+  expect(residents(screen)).toHaveLength(1);
+  const ch = channel();
+  await act(async () => ch.opts.onError('명령이 낡았어요. 다시 시도해주세요.'));
+  expect(ch.close).not.toHaveBeenCalled();
+  expect(residents(screen)).toHaveLength(1);
+  await tapGround(screen, { x: 42.5, y: 45.5 });
+  expect(ch.send).toHaveBeenCalled();
   await screen.unmount();
 });
 

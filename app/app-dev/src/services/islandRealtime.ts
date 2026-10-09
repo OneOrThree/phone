@@ -434,6 +434,11 @@ export type IslandChannelOpts = {
   /** (재)연결됐다 — 호출부가 최신 스냅숏으로 재동기화한다. */
   onOpen: () => void;
   onError: (message: string) => void;
+  /**
+   * 이동 채널이 영구 거절됐다(STOMP ERROR, 오류 큐의 `NOT_A_MEMBER`) — `onError` 는 그 외 오류 큐 코드로도
+   * 불리므로, 동기화를 끄는 판단은 이 콜백으로만 한다(`movement: true` 일 때만 불린다).
+   */
+  onMovementDenied?: () => void;
 };
 
 export function realtimeWsUrl(apiUrl: string = API_URL): string {
@@ -502,7 +507,10 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
           // 서버 오류 봉투는 code 와 message 를 따로 싣는다 — 코드로 기대된 잡음을 거른다.
           if (b?.code === 'NOT_FOCUSING') text = 'NOT_FOCUSING';
           // 이동 의도가 멤버 아님으로 거절됐다 — 이 채널은 다시 구독하지 않는다. 호출부는 조용히 로컬로 폴백한다.
-          if (b?.code === 'NOT_A_MEMBER' && opts.movement) movementDenied = true;
+          if (b?.code === 'NOT_A_MEMBER' && opts.movement) {
+            movementDenied = true;
+            opts.onMovementDenied?.();
+          }
         } catch {
           // 기본 문구로 둔다.
         }
@@ -514,7 +522,10 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     },
     onStompError: (frame: IFrame) => {
       if (emoteEnabled) emoteDenied = true;
-      if (opts.movement) movementDenied = true;
+      if (opts.movement) {
+        movementDenied = true;
+        opts.onMovementDenied?.();
+      }
       emitError(frame.headers.message ?? '실시간 연결이 거절됐어요.');
     },
   });

@@ -35,6 +35,8 @@ export const CORRECTION_UNITS = 1;
 export const SERVER_LAG_MS = 2000;
 // FullState 의 내 위치 채택은 반올림 오차만 넘으면 맞춘다(스폰 차이 보정 — 1 unit 보다 작다).
 const ADOPT_UNITS = 0.01;
+// 다른 주민 보간 애니메이션 한 틱 = 50ms(GAP_TICKS 주석과 같은 기준: 300ms = GAP_TICKS(6)×50ms).
+const REMOTE_TICK_MS = 50;
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const dist = (a: WorldPoint, b: WorldPoint) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -190,13 +192,45 @@ export class SnapshotBuffer {
       if (!userIds.has(userId)) this.tracks.delete(userId);
   }
 
+  /** serverTick 역행(서버·방 재시작)일 때만 — 모든 주민 트랙을 통째로 비운다. */
+  clear(): void {
+    this.tracks.clear();
+  }
+
+  /**
+   * FullState 의 actor.pathId 가 이 주민 트랙의 latestPathId 보다 작으면(서버 재시작 등으로 pathId 가
+   * 되돌아간 경우) 판정 상태(latestPathId·arrivedPathId)만 되돌린다 — 샘플·경로는 그대로 둬 정상 FullState 에서
+   * 걷는 주민이 다음 PathAccepted 전까지 멈추지 않는다.
+   */
+  resetIf(userId: string, pathId: number): void {
+    const t = this.tracks.get(userId);
+    if (t && pathId < t.latestPathId) {
+      t.latestPathId = pathId;
+      t.arrivedPathId = null;
+    }
+  }
+
   positionAt(userId: string, renderTick: number): RemotePosition | null {
+    const p = this.positionAtTimed(userId, renderTick);
+    return p && { x: p.x, y: p.y, moving: p.moving };
+  }
+
+  /** positionAt 과 같지만 보간에 쓴 두 샘플의 틱 간격 기반 애니메이션 길이(durationMs)도 함께 돌려준다. */
+  positionAtTimed(
+    userId: string,
+    renderTick: number,
+  ): (RemotePosition & { durationMs: number }) | null {
     const t = this.tracks.get(userId);
     if (!t) return null;
-    if (t.fixed) return { ...t.fixed, moving: false };
+    if (t.fixed) return { ...t.fixed, moving: false, durationMs: REMOTE_TICK_MS };
     const s = t.samples;
     if (!s.length) return null;
-    const at = (x: Sample, moving: boolean): RemotePosition => ({ x: x.x, y: x.y, moving });
+    const at = (x: Sample, moving: boolean) => ({
+      x: x.x,
+      y: x.y,
+      moving,
+      durationMs: REMOTE_TICK_MS,
+    });
     const last = s[s.length - 1];
     // 데이터 끝 너머는 외삽하지 않는다. 300ms 넘게 끊기면 걷는 자세도 멈춘다.
     if (renderTick >= last.serverTick)
@@ -209,7 +243,15 @@ export class SnapshotBuffer {
     const line = a.pathId === b.pathId ? t.paths.get(a.pathId) : undefined;
     if (!line) return at(a, a.moving);
     const f = (renderTick - a.serverTick) / (b.serverTick - a.serverTick);
-    return { ...pointAt(line, a.along + (b.along - a.along) * f), moving: a.moving };
+    return {
+      ...pointAt(line, a.along + (b.along - a.along) * f),
+      moving: a.moving,
+      // 저주기 스냅샷(예: 5Hz)도 다음 호출까지 매끄럽게 잇도록 — 1틱(50ms)~GAP_TICKS 틱(300ms) 사이로 clamp.
+      durationMs: Math.min(
+        GAP_TICKS * REMOTE_TICK_MS,
+        Math.max(REMOTE_TICK_MS, (b.serverTick - a.serverTick) * REMOTE_TICK_MS),
+      ),
+    };
   }
 }
 
@@ -222,8 +264,12 @@ export type MovementCallbacks = {
   onMyCorrection?: (position: WorldPoint) => void;
   /** FullState 의 다른 주민 목록(통째 교체). */
   onActors?: (actors: MovementActor[]) => void;
-  /** 다른 주민의 그릴 위치 — FullState·Arrived 즉시, 스냅샷마다 100ms 뒤 보간 결과. */
-  onRemotePosition?: (userId: string, position: RemotePosition) => void;
+  /**
+   * 다른 주민의 그릴 위치 — FullState·Arrived 즉시, 스냅샷마다 100ms 뒤 보간 결과.
+   * durationMs 는 이 위치까지 움직이는 애니메이션 길이(ms) — 보간 두 샘플의 틱 간격 기반이라 저주기
+   * 스냅샷에서도 "움직이다 멈췄다"로 끊기지 않는다.
+   */
+  onRemotePosition?: (userId: string, position: RemotePosition, durationMs: number) => void;
 };
 
 export type MovementControllerOpts = MovementCallbacks & {
@@ -246,12 +292,14 @@ export type MovementState = {
   commandSeq: number;
   /** 보낸 목적지에 2초 넘게 서버 응답이 없다 — 로컬로 걷는 중(폴백). */
   serverLag: boolean;
+  /** 마지막 intent 송신 시각(now 기준) — PathAccepted·MoveRejected 로 응답을 받으면 null. */
+  sentAt: number | null;
   /** 서버가 보는 내 actor. */
   self: MovementActor | null;
   /** 최근에 채택한 내 PathAccepted. */
   lastPath: { pathId: number; start: WorldPoint; waypoints: WorldPoint[] } | null;
-  /** 최근 스냅샷의 내 위치. */
-  lastSnapshot: (WorldPoint & { serverTick: number; state: string }) | null;
+  /** 최근 스냅샷의 내 위치. receivedAt 은 수신 벽시계(now 기준) — serverTick 은 서버 시계라 둘이 다르다. */
+  lastSnapshot: (WorldPoint & { serverTick: number; state: string; receivedAt: number }) | null;
   /** 마지막으로 onMyCorrection 을 부른 시각(now 기준). */
   lastCorrectionAt: number | null;
   /** 마지막 MoveRejected 사유. */
@@ -299,10 +347,14 @@ export function createMovementController(opts: MovementControllerOpts): Movement
     return true;
   };
 
+  // 응답 없는 intent 로 영영 막히지 않도록 "서버 대기 중"은 commandSeq 비교가 아니라 보낸 시각으로 판단한다 —
+  // 속도 제한 등으로 응답(PathAccepted·MoveRejected)이 조용히 버려지면 SERVER_LAG_MS(= serverLag 와 같은 기준)를
+  // 넘긴 순간 가드를 푼다. seq 자체는 되돌리지 않는다 — 다음 intent 는 seq+1 로 정상 채택된다.
+  const awaitingServer = () => sentAt !== null && now() - sentAt <= SERVER_LAG_MS;
   // 정지 상태 보정 — 서버가 내 최신 명령까지 처리했고, 서버·로컬 둘 다 멈춰 있을 때만 비교한다.
   // 걷는 중에 비교하면 지연만큼 뒤처진 서버 위치로 뒤로 튄다(RTT 100ms × 11 unit/s ≈ 1 unit).
   const restCheck = (threshold: number) => {
-    if (!self || self.state === 'MOVING' || self.lastCommandSeq < seq || opts.walking()) return;
+    if (!self || self.state === 'MOVING' || awaitingServer() || opts.walking()) return;
     if (dist(opts.position(), self) <= threshold) return;
     lastCorrectionAt = now();
     opts.onMyCorrection?.({ x: self.x, y: self.y });
@@ -312,21 +364,41 @@ export function createMovementController(opts: MovementControllerOpts): Movement
     if (!Array.isArray(m.actors)) return;
     const actors = m.actors.map(actorOf).filter((a): a is MovementActor => !!a);
     navRevision = num(m.navRevision) ?? navRevision;
-    latestTick = Math.max(latestTick, num(m.serverTick) ?? 0);
+    const serverTick = num(m.serverTick) ?? 0;
+    if (serverTick < latestTick) {
+      // 서버·방 재시작 — 틱이 역행했다. 부분 리셋(resetIf)만으론 트랙에 남은 낡은 고틱 샘플이 새로 오는
+      // 낮은 틱 샘플을 계속 역순으로 버린다(push 의 "지난 틱" 가드) — 주민 트랙을 통째로 비운다.
+      buffer.clear();
+      latestTick = serverTick;
+    } else {
+      latestTick = Math.max(latestTick, serverTick);
+    }
     const mine = actors.find((a) => a.userId === opts.me) ?? null;
     const others = actors.filter((a) => a !== mine);
     buffer.retain(new Set(others.map((a) => a.userId)));
+    // 서버 재시작으로 pathId 만 되돌아간 주민은(틱은 역행하지 않았을 수도 있다) 그 트랙의 판정만 푼다 —
+    // clear() 와 달리 샘플·경로는 남겨 정상 FullState 에서 걷는 주민이 끊기지 않는다.
+    for (const a of others) buffer.resetIf(a.userId, a.pathId);
     const wasReady = ready;
     // 내 actor 가 빠졌으면(강퇴 등) 목적지를 더 보내지 않는다 — 로컬 걷기로 폴백.
     ready = !!mine;
     if (mine) {
+      // 내 pathId 도 같은 이유로 역행했으면 낡은 경로·스냅샷 표시만 비운다(판정은 바로 아래 self 교체가 맡는다).
+      if (self && mine.pathId < self.pathId) {
+        lastPath = null;
+        lastSnapshot = null;
+      }
       // 서버가 이미 처리한 번호는 다시 쓰지 않는다(재접속·다른 기기 세션 교체 방어).
       seq = Math.max(seq, mine.lastCommandSeq);
       self = mine;
     }
     opts.onActors?.(others);
     for (const a of others)
-      opts.onRemotePosition?.(a.userId, { x: a.x, y: a.y, moving: a.state === 'MOVING' });
+      opts.onRemotePosition?.(
+        a.userId,
+        { x: a.x, y: a.y, moving: a.state === 'MOVING' },
+        REMOTE_TICK_MS,
+      );
     if (ready && !wasReady && deferred) {
       // ready 전에 누른 마지막 목적지를 이제 보낸다 — 서버가 경로를 내면 PathAccepted 로 갈아탄다.
       const goal = deferred;
@@ -380,11 +452,11 @@ export function createMovementController(opts: MovementControllerOpts): Movement
     latestTick = Math.max(latestTick, num(m.serverTick) ?? 0);
     if (userId !== opts.me) {
       if (buffer.arrive(userId, pathId, at))
-        opts.onRemotePosition?.(userId, { ...at, moving: false });
+        opts.onRemotePosition?.(userId, { ...at, moving: false }, REMOTE_TICK_MS);
       return;
     }
-    // 더 새 목적지를 보내 두었으면 옛 경로의 도착은 무시한다.
-    if (!self || pathId !== self.pathId || self.lastCommandSeq < seq) return;
+    // 더 새 목적지를 보내 두었어도, 응답 없이 SERVER_LAG_MS 를 넘겼으면(조용히 버려진 intent) 더는 막지 않는다.
+    if (!self || pathId !== self.pathId || awaitingServer()) return;
     self = { ...self, ...at, state: 'IDLE' };
     opts.onMyArrived?.(at);
     notify();
@@ -402,7 +474,7 @@ export function createMovementController(opts: MovementControllerOpts): Movement
         // 옛 경로의 늦은 좌표는 버린다(경로 메시지와 스냅샷은 순서가 뒤바뀔 수 있다).
         if (!self || e.pathId < self.pathId) continue;
         self = { ...e, lastCommandSeq: Math.max(self.lastCommandSeq, e.lastCommandSeq) };
-        lastSnapshot = { x: e.x, y: e.y, serverTick: tick, state: e.state };
+        lastSnapshot = { x: e.x, y: e.y, serverTick: tick, state: e.state, receivedAt: now() };
         continue;
       }
       const segmentIndex = num((raw as Record<string, unknown>).segmentIndex) ?? 0;
@@ -418,8 +490,8 @@ export function createMovementController(opts: MovementControllerOpts): Movement
     }
     const renderTick = latestTick - RENDER_DELAY_TICKS;
     for (const userId of remote) {
-      const p = buffer.positionAt(userId, renderTick);
-      if (p) opts.onRemotePosition?.(userId, p);
+      const p = buffer.positionAtTimed(userId, renderTick);
+      if (p) opts.onRemotePosition?.(userId, { x: p.x, y: p.y, moving: p.moving }, p.durationMs);
     }
     restCheck(CORRECTION_UNITS);
     notify();
@@ -458,6 +530,7 @@ export function createMovementController(opts: MovementControllerOpts): Movement
       navRevision,
       commandSeq: seq,
       serverLag: sentAt !== null && now() - sentAt > SERVER_LAG_MS,
+      sentAt,
       self,
       lastPath,
       lastSnapshot,

@@ -58,7 +58,14 @@ import {
   type TilesetFile,
 } from '@/services/mapAssets';
 import { applyLayout, legacyLayoutOffsets } from '@/utils/island-layout';
-import { loadNav, navPath, stepDurationMs, tapToWorld, tilePath } from '@/utils/nav-path';
+import {
+  loadNav,
+  MS_PER_UNIT,
+  navPath,
+  stepDurationMs,
+  tapToWorld,
+  tilePath,
+} from '@/utils/nav-path';
 import { imageToWorld, worldToImage, type WorldPoint } from '@/utils/worldCoords';
 import {
   publishMoveIntent,
@@ -385,7 +392,7 @@ function Wanderer({
     </Animated.View>
   );
 }
-type RemoteListener = (p: Point, moving: boolean) => void;
+type RemoteListener = (p: Point, moving: boolean, durationMs: number) => void;
 // 다른 주민(GROMO-2248): 배회 대신 서버가 정한 위치(100ms 늦춰 경로 위로 보간한 값)만 받아 그린다.
 // 위치는 React state 가 아니라 Animated 값으로만 옮긴다(20Hz setState 금지) — 자세·방향만 바뀔 때 state.
 function RemoteResident({
@@ -409,16 +416,17 @@ function RemoteResident({
     [left, setLeft] = useState(false);
   useEffect(() => {
     let stop: ReturnType<typeof setTimeout> | undefined;
-    const unsubscribe = subscribe(userId, (p, moving) => {
+    const unsubscribe = subscribe(userId, (p, moving, durationMs) => {
       if (Math.abs(p.x - at.current.x) > 0.5) setLeft(p.x < at.current.x);
       at.current = p;
       setWalking(moving);
       // 위치가 300ms 넘게 안 오면 제자리걸음을 멈춘다(계약 §3 — 끊기면 마지막 위치에 정지).
       clearTimeout(stop);
       if (moving) stop = setTimeout(() => setWalking(false), 300);
+      // durationMs 는 보간에 쓴 두 샘플의 틱 간격 기반 — 저주기 스냅샷도 다음 호출까지 매끄럽게 잇는다.
       Animated.timing(xy, {
         toValue: p,
-        duration: reduce ? 0 : 50,
+        duration: reduce ? 0 : durationMs,
         easing: Easing.linear,
         useNativeDriver: false,
       }).start();
@@ -1346,6 +1354,8 @@ function FinalIslandScene({
   // 이동 동기화(GROMO-2248) — 플래그·타일 섬·서버 홈일 때만 켠다. 꺼져 있으면 movement 가 null 이라 걷기는 이전과 같다.
   // 배경으로 깔린 홈(showActions=false — 집중 준비·잠금 안내·우체통 안내 뒤)은 조작이 없으니 열지 않는다(구독 = 방 입장).
   const syncIslandId = MOVEMENT_SYNC && tileNav && facts && showActions ? facts.islandId : null;
+  // 채널 effect 의존성에 넣어 로그인 세션이 바뀌면(계정 전환 등) 묵은 me 로 연 채널을 그대로 쓰지 않는다.
+  const me = getSession()?.userId;
   const movement = useRef<MovementController | null>(null),
     // 걷기 사슬이 도는 중인지 · 그 걷기의 done(서버 경로로 갈아타도 넘겨 준다) · 로컬 경로 셀(월드) · 걷는 중 받은 도착
     stepping = useRef(false),
@@ -1447,7 +1457,9 @@ function FinalIslandScene({
         : landPath(grid, location.current, nearestLand(grid, target));
     if (tileNav && navDebug) setNavWalk({ tap: target, path });
     // 로컬 A* 로 곧장 걷고 같은 목적지를 서버에 보낸다(바닥·문·뗏목이 전부 여기로 온다).
-    if (movement.current) {
+    // path 가 비었으면(도달 불가) 로컬도 걷지 않는다 — intend 를 보내면 서버가 최근접 경로를 내려 걷게 돼
+    // walkPath 의 "무시"와 동작이 갈린다.
+    if (movement.current && path.length) {
       walkCells.current = path.slice(1).map((p) => imageToWorld(p, sizeOf(grid)));
       movement.current.intend(imageToWorld(target, sizeOf(grid)));
     }
@@ -1458,8 +1470,11 @@ function FinalIslandScene({
   sync.current = {
     position: () => imageToWorld(location.current, sizeOf(grid)),
     onMyPath: (waypoints, speed, _pathId, start) => {
-      // 셀 열이 같으면 로컬 예측을 그대로 둔다. 다르면 지금 자리에서 서버 경로의 남은 부분으로 갈아탄다.
-      if (sameCells(walkCells.current, waypoints)) return;
+      const msPerUnit = 1000 / speed;
+      // 셀 열이 같고 속도도 로컬과 같으면 지금 걷기를 그대로 둔다. 속도만 다르면(서버 속도 채택 계약) 같은
+      // 갈아타기 경로 계산을 재사용해 남은 구간만 그 속도로 다시 걷는다.
+      if (sameCells(walkCells.current, waypoints) && Math.abs(msPerUnit - MS_PER_UNIT) <= 1e-6)
+        return;
       const size = sizeOf(grid);
       let here = location.current;
       xy.stopAnimation((value) => (here = value));
@@ -1472,11 +1487,7 @@ function FinalIslandScene({
       const target = rest[0] ?? waypoints[waypoints.length - 1] ?? start;
       const connect = navPath(activeNav(mapAssets, navBuildings), hereWorld, target);
       const worldPath = connect.length ? [...connect, ...rest.slice(1)] : rest;
-      walkPath(
-        [here, ...worldPath.map((p) => worldToImage(p, size))],
-        walkDone.current,
-        1000 / speed,
-      );
+      walkPath([here, ...worldPath.map((p) => worldToImage(p, size))], walkDone.current, msPerUnit);
     },
     onMyArrived: (p) => {
       const at = worldToImage(p, sizeOf(grid));
@@ -1488,11 +1499,10 @@ function FinalIslandScene({
     },
     onMyCorrection: (p) => place(worldToImage(p, sizeOf(grid))),
     onActors: setRemoteActors,
-    onRemotePosition: (userId, p) =>
-      remoteListeners.get(userId)?.(worldToImage(p, sizeOf(grid)), p.moving),
+    onRemotePosition: (userId, p, durationMs) =>
+      remoteListeners.get(userId)?.(worldToImage(p, sizeOf(grid)), p.moving, durationMs),
   };
   useEffect(() => {
-    const me = getSession()?.userId;
     if (!syncIslandId || !me) return;
     let channel: IslandChannel | null = null;
     const controller = createMovementController({
@@ -1504,7 +1514,8 @@ function FinalIslandScene({
       onMyArrived: (p) => sync.current.onMyArrived(p),
       onMyCorrection: (p) => sync.current.onMyCorrection(p),
       onActors: (actors) => sync.current.onActors(actors),
-      onRemotePosition: (userId, p) => sync.current.onRemotePosition(userId, p),
+      onRemotePosition: (userId, p, durationMs) =>
+        sync.current.onRemotePosition(userId, p, durationMs),
     });
     movement.current = controller;
     channel = stompIslandChannel({
@@ -1514,20 +1525,25 @@ function FinalIslandScene({
       movement: true,
       onEvent: controller.onMessage,
       onOpen: () => {},
-      // 거절(STOMP ERROR·NOT_A_MEMBER)이면 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로 돌아간다. 토스트는 없다.
-      onError: () => {
+      // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
+      // 돌아간다 — 토스트는 없다. 그 외 오류 큐 코드(예: 속도 제한)는 onError 로만 오고 동기화는 그대로 둔다.
+      onMovementDenied: () => {
         controller.deny();
         movement.current = null;
         setRemoteActors(null);
         channel?.close();
       },
+      onError: () => {},
     });
     return () => {
+      // close() 의 deactivate() 는 비동기라 닫히는 중 도착한 메시지가 옛 controller.onMessage 로 들어가
+      // sync.current(이미 새 섬 클로저로 바뀌어 있을 수 있다) 를 건드릴 수 있다 — deny 를 먼저 불러 막는다.
+      controller.deny();
       movement.current = null;
       channel?.close();
       setRemoteActors(null);
     };
-  }, [syncIslandId]);
+  }, [syncIslandId, me]);
   useEffect(() => {
     const p = initial();
     location.current = p;
@@ -1538,6 +1554,7 @@ function FinalIslandScene({
     return () => {
       token.current++;
       xy.stopAnimation();
+      walkDone.current = undefined;
     };
   }, [positionKey, scene]);
   useEffect(() => {
