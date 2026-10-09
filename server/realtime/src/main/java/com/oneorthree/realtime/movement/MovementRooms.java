@@ -90,6 +90,11 @@ public final class MovementRooms {
      * 등록 메서드가 큐·대기 슬롯에 명령을 넣었으면, 그 재확인이 실패해 방을 지우지 않는다. {@code
      * computeIfPresent} 의 재계산 함수는 그 키에 대해 원자적으로 돈다 — 등록 메서드들의 {@code compute}
      * 와 같은 키 잠금을 공유해 반쪽짜리로 끼어드는 경우가 없다.
+     *
+     * <p><b>틱 스레드 전용</b> — {@link MovementTicker} 만 부른다({@link RoomRuntime#isRemovable()} 이
+     * {@code actors}·{@code departed} 를 동기화 없이 읽어서다, 2246 보완11). 토큰 버킷은 {@code
+     * ConcurrentHashMap} 이라 다른 스레드와 안전하게 겹쳐 읽히지만, 그 대신 방 수명이 버킷 수명과도
+     * 묶인다(2246 보완10).
      */
     public void remove(UUID islandId) {
         rooms.computeIfPresent(islandId, (id, room) -> room.isRemovable() ? null : room);

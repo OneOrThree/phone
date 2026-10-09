@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +29,27 @@ class MovementTickerTest {
     private static final class NoopListener implements RoomRuntime.Listener {
         @Override
         public void onEvent(UUID islandId, MovementEvent event, Target target) {
+        }
+
+        @Override
+        public void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot) {
+        }
+    }
+
+    /**
+     * 첫 onEvent 호출에서만 {@link AssertionError}(Error, RuntimeException 아님) 를 던지는
+     * Listener(2246 보완11) — {@link RoomRuntime#emit}·{@link MovementTicker#tickAllRooms(boolean)} 의
+     * {@code RuntimeException} 가드를 전부 뚫고 {@link MovementTicker#runTick()} 의 최상위
+     * {@code catch (Throwable)} 까지 올라오는 경로를 재현한다.
+     */
+    private static final class ThrowingOnceListener implements RoomRuntime.Listener {
+        private final AtomicInteger callCount = new AtomicInteger();
+
+        @Override
+        public void onEvent(UUID islandId, MovementEvent event, Target target) {
+            if (callCount.getAndIncrement() == 0) {
+                throw new AssertionError("runTick 최상위 Throwable 가드 재현(2246 보완11)");
+            }
         }
 
         @Override
@@ -204,16 +226,19 @@ class MovementTickerTest {
     // ── codex P2: 2246 보완4 — catch-up 틱에서는 Snapshot 을 발행하지 않는다 ──────
 
     @Test
-    @DisplayName("isCatchUp: 직전 틱 시작 뒤 반 주기(tickMs/2) 가 안 지났으면 true, 지났으면"
-            + " false(경계값, codex P2, 2246 보완4)")
+    @DisplayName("isCatchUp: 직전 틱 시작 뒤 반 주기(tickNanos/2) 가 안 지났으면 true, 지났으면"
+            + " false(경계값, 나노초 단위, codex P2, 2246 보완4·보완11)")
     void isCatchUpBoundary() {
-        long tickMs = 50;
-        assertThat(MovementTicker.isCatchUp(100, 100, tickMs)).as("diff 0ms").isTrue();
-        assertThat(MovementTicker.isCatchUp(100, 124, tickMs)).as("diff 24ms").isTrue();
-        assertThat(MovementTicker.isCatchUp(100, 125, tickMs)).as("diff 25ms(정확히 반 주기) 는 false").isFalse();
-        assertThat(MovementTicker.isCatchUp(100, 149, tickMs)).as("diff 49ms").isFalse();
-        assertThat(MovementTicker.isCatchUp(100, 150, tickMs)).as("diff 50ms(한 주기) 는 false").isFalse();
-        assertThat(MovementTicker.isCatchUp(0, 10, tickMs)).as("첫 실행(previous=0) 은 catch-up 이 아니다").isFalse();
+        long tickNanos = 50_000_000L; // 50ms.
+        assertThat(MovementTicker.isCatchUp(100_000_000L, 100_000_000L, tickNanos)).as("diff 0ms").isTrue();
+        assertThat(MovementTicker.isCatchUp(100_000_000L, 124_000_000L, tickNanos)).as("diff 24ms").isTrue();
+        assertThat(MovementTicker.isCatchUp(100_000_000L, 125_000_000L, tickNanos))
+                .as("diff 25ms(정확히 반 주기) 는 false").isFalse();
+        assertThat(MovementTicker.isCatchUp(100_000_000L, 149_000_000L, tickNanos)).as("diff 49ms").isFalse();
+        assertThat(MovementTicker.isCatchUp(100_000_000L, 150_000_000L, tickNanos)).as("diff 50ms(한 주기) 는 false")
+                .isFalse();
+        assertThat(MovementTicker.isCatchUp(0L, 10_000_000L, tickNanos))
+                .as("첫 실행(previousNanos=0) 은 catch-up 이 아니다").isFalse();
     }
 
     @Test
@@ -249,5 +274,34 @@ class MovementTickerTest {
                 .isEqualTo(MotionState.MOVING);
         assertThat(snapshots).as("catch-up 틱은 Snapshot 을 전혀 내지 않는다").isEmpty();
         assertThat(ticker.skippedSnapshotCount()).as("catch-up 틱 1회 — 카운터 1 증가").isEqualTo(1L);
+    }
+
+    // ── codex PR 리뷰(2246 보완11): runTick() 최상위 Throwable 가드 ──────────
+
+    @Test
+    @DisplayName("runTick: 한 방의 콜백이 Error(AssertionError) 를 던져도 scheduleAtFixedRate 가 영구"
+            + " 취소되지 않고, 다음 runTick 이 다른 방의 join 을 계속 반영한다(2246 보완11 — RuntimeException"
+            + " 이 아니라 Throwable 전체를 가드해야 하는 이유)")
+    void runTickSurvivesErrorFromOneRoomAndKeepsTickingOnNextInvocation() {
+        ThrowingOnceListener listener = new ThrowingOnceListener();
+        MovementRooms rooms = new MovementRooms(listener, new SimpleMeterRegistry());
+        MovementTicker ticker = new MovementTicker(rooms, new SimpleMeterRegistry());
+        UUID islandX = UUID.randomUUID();
+        UUID userX = UUID.randomUUID();
+        rooms.join(islandX, userX, "sx"); // 이 join 의 FullState 전송(onEvent 첫 호출)에서 Error 가 난다.
+
+        ticker.runTick(); // Error 가 여기서 삼켜져야 한다 — 밖으로 새면 이 호출 자체가 테스트를 실패시킨다.
+
+        assertThat(actorIn(rooms.roomFor(islandX).fullStateOf(), userX))
+                .as("emit() 이 던지기 전에 상태 변경(actor 생성)은 이미 끝나 있다").isNotNull();
+
+        UUID islandY = UUID.randomUUID();
+        UUID userY = UUID.randomUUID();
+        rooms.join(islandY, userY, "sy"); // 다음 runTick 에 반영돼야 한다 — 영구 취소됐다면 반영되지 않는다.
+
+        ticker.runTick(); // 두 번째 호출 — Listener 는 이제(callCount>=1) 더 안 던진다.
+
+        assertThat(actorIn(rooms.roomFor(islandY).fullStateOf(), userY))
+                .as("Error 뒤에도 다음 runTick 이 계속 돌아야 새 join 이 반영된다").isNotNull();
     }
 }

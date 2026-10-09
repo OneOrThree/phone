@@ -122,6 +122,30 @@ class RoomRuntimeTest {
         }
     }
 
+    /**
+     * 목적지가 지정한 좌표일 때만 {@link RuntimeException} 을 던지는 대체물(2246 보완11) —
+     * {@link RoomRuntime#processAccept} 의 pathfinder 예외 경로(drain() 의 {@code guarded} 격리)를
+     * 재현한다. 다른 목적지는 실제 {@code nav.Pathfinder} 로 위임해({@code super.find}) 정상 동작을
+     * 유지한다 — 같은 배치의 다른 세션 intent 가 영향받지 않는지 검증할 수 있다.
+     */
+    private static final class ThrowingForGoalPathfinder extends Pathfinder {
+        private final double throwGoalX;
+        private final double throwGoalY;
+
+        ThrowingForGoalPathfinder(double throwGoalX, double throwGoalY) {
+            this.throwGoalX = throwGoalX;
+            this.throwGoalY = throwGoalY;
+        }
+
+        @Override
+        public Optional<PathResult> find(NavGrid grid, WorldPoint from, WorldPoint to) {
+            if (to.x() == throwGoalX && to.y() == throwGoalY) {
+                throw new RuntimeException("pathfinder 예외 재현(2246 보완11)");
+            }
+            return super.find(grid, from, to);
+        }
+    }
+
     private static NavGrid gridJson(int cols, int rows, char walk) {
         int n = cols * rows;
         StringBuilder cost = new StringBuilder();
@@ -600,21 +624,62 @@ class RoomRuntimeTest {
     }
 
     @Test
-    @DisplayName("거절된 intent 는 lastCommandSeq 를 옮기지 않는다 — FullState 는 마지막으로 채택된 번호만 보여준다")
-    void lastCommandSeqOnlyAdvancesOnAcceptedIntents() {
+    @DisplayName("거절된 intent 도(STALE_COMMAND 제외) lastCommandSeq 를 옮긴다 — 거절도 그 순번의 처리"
+            + " 종료 상태라 FullState 는 마지막으로 \"처리\"된(수락이든 거절이든) 번호를 보여준다"
+            + "(codex PR 리뷰, 2246 보완11 — commandSeq 단조 증가)")
+    void lastCommandSeqAdvancesOnRejectedIntentsToo() {
         NavGrid grid = openGrid(10, 10);
         RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener());
         UUID userId = UUID.randomUUID();
         room.join(userId, "s1");
         room.tick(1);
 
-        room.accept(userId, "s1", new MoveIntent(5, 1, 500.0, 500.0)); // 범위 밖 — 거절.
+        room.accept(userId, "s1", new MoveIntent(5, 1, 500.0, 500.0)); // 범위 밖 — OUT_OF_RANGE 거절.
         room.tick(2);
-        assertThat(actorIn(room.fullStateOf(), userId).lastCommandSeq()).isEqualTo(0L);
+        assertThat(actorIn(room.fullStateOf(), userId).lastCommandSeq())
+                .as("OUT_OF_RANGE 거절도 처리 순번에 반영된다 — 단조 증가를 보장한다").isEqualTo(5L);
 
         room.accept(userId, "s1", new MoveIntent(6, 1, 5.5, 5.5)); // 유효 — 채택.
         room.tick(3);
         assertThat(actorIn(room.fullStateOf(), userId).lastCommandSeq()).isEqualTo(6L);
+    }
+
+    @Test
+    @DisplayName("거절된 commandSeq 뒤에 더 작은(옛) commandSeq 가 뒷북으로 오면 STALE_COMMAND 로 밀려"
+            + " 위치를 바꾸지 못한다 — 거절도 단조 증가 순번의 종료 상태이기 때문이다"
+            + "(codex PR 리뷰, 2246 보완11)")
+    void rejectedCommandSeqBlocksEarlierLateArrivingCommandSeqAsStale() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        room.join(userId, "s1");
+        room.tick(1);
+
+        room.accept(userId, "s1", new MoveIntent(5, 1, 500.0, 500.0)); // seq 5, 범위 밖 — OUT_OF_RANGE 거절.
+        room.tick(2);
+        MovementEvent.ActorState afterReject = actorIn(room.fullStateOf(), userId);
+        assertThat(afterReject.lastCommandSeq()).isEqualTo(5L);
+        double xAfterReject = afterReject.x();
+        double yAfterReject = afterReject.y();
+
+        room.accept(userId, "s1", new MoveIntent(4, 1, 5.5, 5.5)); // seq 4 — 네트워크 뒷북으로 늦게 도착.
+        room.tick(3);
+        // listener 는 누적이다 — seq 5 의 OUT_OF_RANGE 거절(1건) 이 이미 들어 있으니 이번에 2건이어야 한다.
+        List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
+        assertThat(rejected).as("seq 5 OUT_OF_RANGE 거절 1건 + seq 4 STALE_COMMAND 거절 1건").hasSize(2);
+        assertThat(rejected.get(1).reason())
+                .as("seq 4 는 (거절이었지만 반영된) seq 5 보다 작아 STALE_COMMAND 로 밀려야 한다")
+                .isEqualTo(RejectReason.STALE_COMMAND.name());
+        MovementEvent.ActorState afterStale = actorIn(room.fullStateOf(), userId);
+        assertThat(afterStale.x()).as("STALE_COMMAND 로 밀려 위치가 바뀌면 안 된다").isEqualTo(xAfterReject);
+        assertThat(afterStale.y()).isEqualTo(yAfterReject);
+
+        room.accept(userId, "s1", new MoveIntent(6, 1, 5.5, 5.5)); // seq 6 — 유효하고 5 보다 크다 — 수락돼야 한다.
+        room.tick(4);
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        assertThat(accepted).hasSize(1);
+        assertThat(accepted.get(0).commandSeq()).isEqualTo(6L);
     }
 
     // ── codex P1(2246 보완8): 전송 콜백 예외가 같은 배치를 끊지 않는다 ──────
@@ -638,6 +703,68 @@ class RoomRuntimeTest {
         assertThat(actorIn(room.fullStateOf(), user1))
                 .as("콜백 실패 전에 상태 변경이 이미 끝나 있어 actor 가 남아 있다").isNotNull();
         assertThat(actorIn(room.fullStateOf(), user2)).as("배치의 나머지 명령도 그대로 처리된다").isNotNull();
+    }
+
+    // ── codex PR 리뷰(2246 보완11): drain() 의 명령 단위 예외 격리 ──────────
+
+    @Test
+    @DisplayName("accept 배치에서 한 세션의 pathfinder 가 예외를 던져도 다른 세션의 intent 는 그대로"
+            + " PathAccepted 를 받고 그 뒤 틱에서 전진한다(drain() 의 guarded 격리)")
+    void pathfinderExceptionForOneSessionDoesNotBlockAnotherSessionsAccept() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = new RoomRuntime(ISLAND, grid, new ThrowingForGoalPathfinder(9.5, 9.5),
+                MovementRules.DEFAULT, listener);
+        UUID throwingUser = UUID.randomUUID();
+        UUID okUser = UUID.randomUUID();
+        room.join(throwingUser, "sa");
+        room.join(okUser, "sb");
+        room.tick(1);
+
+        room.accept(throwingUser, "sa", new MoveIntent(1, 1, 9.5, 9.5)); // pathfinder.find 가 던진다.
+        room.accept(okUser, "sb", new MoveIntent(1, 1, 5.5, 5.5)); // 같은 배치의 다른 세션 — 영향받으면 안 된다.
+        room.tick(2); // 예외가 drain() 밖으로 새면 이 호출 자체가 테스트를 실패시킨다.
+
+        List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
+        assertThat(accepted).as("던진 세션은 응답이 없고, 정상 세션만 PathAccepted 를 받는다").hasSize(1);
+        assertThat(accepted.get(0).userId()).isEqualTo(okUser);
+
+        room.tick(3); // 한 틱 더 — 정상 세션이 실제로 전진하는지까지 본다.
+        MovementEvent.ActorState okState = actorIn(room.fullStateOf(), okUser);
+        assertThat(okState.state()).as("예외 세션과 무관하게 정상 세션은 계속 전진한다").isEqualTo(MotionState.MOVING);
+        assertThat(okState.x()).as("실제로 전진했다(스폰 0.5 에서 벗어났다)").isNotEqualTo(0.5);
+
+        MovementEvent.ActorState throwingState = actorIn(room.fullStateOf(), throwingUser);
+        assertThat(throwingState.state()).as("던진 세션은 경로를 받지 못해 그대로 IDLE 이다")
+                .isEqualTo(MotionState.IDLE);
+    }
+
+    @Test
+    @DisplayName("같은 배치에 pathfinder 예외와 leave 가 함께 있어도 leave 는 그대로 처리돼 actor 가"
+            + " 유령 사용자로 남지 않는다(drain() 의 guarded 격리)")
+    void leaveInSameBatchAsThrowingAcceptStillRemovesActor() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = new RoomRuntime(ISLAND, grid, new ThrowingForGoalPathfinder(9.5, 9.5),
+                MovementRules.DEFAULT, listener);
+        UUID throwingUser = UUID.randomUUID();
+        UUID okUser = UUID.randomUUID();
+        UUID leavingUser = UUID.randomUUID();
+        room.join(throwingUser, "sa");
+        room.join(okUser, "sb");
+        room.join(leavingUser, "sc");
+        room.tick(1);
+
+        room.leave("sc"); // FIFO 1차 루프에서 처리 — accept(2차, latest 드레인)보다 먼저 끝난다.
+        room.accept(throwingUser, "sa", new MoveIntent(1, 1, 9.5, 9.5)); // 2차 루프에서 던진다.
+        room.accept(okUser, "sb", new MoveIntent(1, 1, 5.5, 5.5));
+        room.tick(2); // 예외가 drain() 밖으로 새면 이 호출 자체가 테스트를 실패시킨다.
+
+        assertThat(actorIn(room.fullStateOf(), leavingUser))
+                .as("leave 가 처리돼 유령 사용자로 남지 않는다").isNull();
+        assertThat(room.departedCount()).as("퇴장 기억은 정상적으로 남는다(N23)").isEqualTo(1);
+        assertThat(listener.of(MovementEvent.PathAccepted.class))
+                .as("leave·예외와 무관하게 정상 세션의 accept 도 그대로 처리된다").hasSize(1);
     }
 
     // ── N23: 퇴장 위치 기억 · 같은 셀 탭 ──────────────────────────────
@@ -781,6 +908,62 @@ class RoomRuntimeTest {
             }
         }
         assertThat(sawDiagonalSegment).as("7개 입구로 가는 경로 중 대각 구간이 하나도 없다").isTrue();
+    }
+
+    @Test
+    @DisplayName("실제 번들 nav: 입구 7곳을 왕복하는 모든 PathAccepted 선분을 0.01 간격으로 촘촘히"
+            + " 샘플해도(반올림 전 raw 좌표) 매 점이 통행 셀 안이다 — 대각 구간의 네 셀 교차점 반올림까지"
+            + " 결정론적으로 덮는다(2246 보완11, 틱 보폭(~0.55)에 기대 샘플하던 기존 테스트의 보완)")
+    void everySampledPointAlongPathAcceptedSegmentsStaysWalkableAcrossRealNav() {
+        NavGrid grid = NavJsonLoader.loadBundled();
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+
+        var spawnCenter = WorldCoords.cellCenter(grid.spawns().get("character"));
+        long commandSeq = 0;
+        for (Cell entranceCell : grid.entrances().values()) {
+            var entranceCenter = WorldCoords.cellCenter(entranceCell);
+            // 왕복 — 스폰 → 입구 → 스폰. 반대 방향의 A* 가 타이브레이크로 다른 셀 열을 골라 대각 구간을
+            // 더 다양하게 모은다(갈 때 안 쓴 대각이 올 때 나올 수 있다).
+            for (var goal : List.of(entranceCenter, spawnCenter)) {
+                room.accept(userId, "s1", new MoveIntent(++commandSeq, 1, goal.x(), goal.y()));
+                boolean arrived = false;
+                int guard = 0;
+                while (!arrived && guard++ < 3000) {
+                    room.tick(++tick);
+                    arrived = actorIn(room.fullStateOf(), userId).state() == MotionState.IDLE;
+                }
+                assertThat(arrived).as("목적지 (%f,%f) 도착 못함(가드 초과)", goal.x(), goal.y()).isTrue();
+            }
+        }
+
+        int sampledPoints = 0;
+        for (MovementEvent.PathAccepted p : listener.of(MovementEvent.PathAccepted.class)) {
+            MovementEvent.Point prev = p.start();
+            for (MovementEvent.Point wp : p.waypoints()) {
+                double dx = wp.x() - prev.x();
+                double dy = wp.y() - prev.y();
+                double length = Math.hypot(dx, dy);
+                int steps = (int) Math.ceil(length / 0.01);
+                for (int i = 0; i <= steps; i++) {
+                    double fraction = steps == 0 ? 0.0 : Math.min(1.0, i * 0.01 / length);
+                    // raw 좌표 — round2() 를 거치지 않은 보간점을 그대로 검사한다(계약 반올림 전 선분).
+                    double x = prev.x() + dx * fraction;
+                    double y = prev.y() + dy * fraction;
+                    assertThat(isWalkable(grid, x, y))
+                            .as("선분 (%f,%f)→(%f,%f) 의 %.4f 지점 (%f,%f) 가 비통행 셀", prev.x(), prev.y(),
+                                    wp.x(), wp.y(), fraction, x, y)
+                            .isTrue();
+                    sampledPoints++;
+                }
+                prev = wp;
+            }
+        }
+        assertThat(sampledPoints).as("0.01 간격 샘플이 충분히 모였다").isGreaterThanOrEqualTo(200);
     }
 
     @Test

@@ -198,6 +198,11 @@ public final class RoomRuntime {
      * 없이 accept 만 반복하면 큐는 매 틱 비어도 소진된 버킷이 남는데, 그걸 안 보고 지우면 다음 accept 가
      * 새 방의 가득 찬 burst(20)를 다시 받는 우회가 된다. 방 객체 하나·버킷 하나뿐이라 버킷이 마지막 사용
      * 뒤 10분(prune, {@link #pruneExpiredDeparted}) 지날 때까지 방이 더 사는 비용은 무시한다.
+     *
+     * <p><b>틱 스레드 전용</b> — {@code actors}·{@code departed} 를 동기화 없이 읽는다(2246 보완11).
+     * {@code userBuckets} 만 예외로 {@link ConcurrentHashMap} 이라 다른 스레드의 {@link #accept} 와
+     * 동시에 읽어도 안전하지만, 그 대신 방 수명이 actor·퇴장 기억 수명뿐 아니라 버킷 수명과도 묶인다(바로
+     * 위 문단, 2246 보완10).
      */
     boolean isRemovable() {
         return actors.isEmpty() && queue.isEmpty() && departed.isEmpty() && userBuckets.isEmpty();
@@ -264,6 +269,14 @@ public final class RoomRuntime {
      * 않고 새 actor 에 적용된다(2246 보완7). 같은 틱에 requestFullState 와 intent 가 함께 오면
      * FullState 가 PathAccepted 보다 먼저 나간다 — PathAccepted 가 곧바로 경로를 갱신하므로 계약상
      * 문제없다.
+     *
+     * <p>명령 하나(또는 루프 뒤 {@code latest} 항목 하나)의 처리는 {@link #guarded} 로 감싼다(2246
+     * 보완11) — {@link #processJoin}(스폰 없음 NPE)·{@link #processAccept}(pathfinder 예외) 등에서
+     * {@link RuntimeException} 이 나도 이 for 문이 멈추지 않는다. 감싸지 않으면 예외가 {@link #drain()}
+     * 밖으로 새 {@link #tick(long, boolean)} 전체가 던지고, 배치의 나머지(다른 사용자의
+     * Join/Leave/RequestFullState·{@code latest} 의 intent 전부)가 사라지며 이번 틱의 이동 전진도
+     * 건너뛴다 — Leave 유실은 그대로 유령 사용자가 된다. {@link #emit}·{@link #emitSnapshot} 과 같은
+     * 수준의 격리다.
      */
     private void drain() {
         List<Command> batch = new ArrayList<>();
@@ -273,21 +286,36 @@ public final class RoomRuntime {
         Map<String, MoveIntent> latest = new LinkedHashMap<>();
         for (Command c : batch) {
             if (c instanceof Join j) {
-                processJoin(j);
+                guarded("Join session=" + j.sessionKey(), () -> processJoin(j));
             } else if (c instanceof Leave l) {
-                if (processLeave(l)) {
+                boolean[] removed = {false};
+                guarded("Leave session=" + l.sessionKey(), () -> removed[0] = processLeave(l));
+                if (removed[0]) {
                     latest.remove(l.sessionKey());
                 }
             } else if (c instanceof ApplyLayout a) {
-                processApplyLayout(a);
+                guarded("ApplyLayout revision=" + a.layoutRevision(), () -> processApplyLayout(a));
             } else if (c instanceof RequestFullState r) {
-                processRequestFullState(r);
+                guarded("RequestFullState session=" + r.sessionKey(), () -> processRequestFullState(r));
             } else if (c instanceof Intent i) {
                 latest.merge(i.sessionKey(), i.intent(), RoomRuntime::newerIntent);
             }
         }
         for (Map.Entry<String, MoveIntent> entry : latest.entrySet()) {
-            processAccept(entry.getKey(), entry.getValue());
+            guarded("Accept session=" + entry.getKey(), () -> processAccept(entry.getKey(), entry.getValue()));
+        }
+    }
+
+    /**
+     * {@link #drain()} 의 명령(또는 latest 항목) 하나를 실행하며 {@link RuntimeException} 을 격리한다
+     * (2246 보완11, {@link #emit} 과 같은 수준) — 이 명령만 건너뛰고 배치의 나머지는 계속한다. {@code
+     * what} 에 섬 대신 명령 종류·세션을 담는다 — 섬은 로그 호출부가 {@link #islandId} 로 이미 채운다.
+     */
+    private void guarded(String what, Runnable r) {
+        try {
+            r.run();
+        } catch (RuntimeException e) {
+            LOG.warn("섬 {} 명령 처리 실패({}) — 이 명령만 건너뛰고 배치의 나머지는 계속한다(2246 보완11)", islandId, what, e);
         }
     }
 
@@ -357,6 +385,12 @@ public final class RoomRuntime {
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.STALE_COMMAND);
             return;
         }
+        // commandSeq 는 단조 증가로 다룬다(codex PR 리뷰, 2246 보완11) — 이 아래부터는 수락이든
+        // STALE_COMMAND 가 아닌 거절(NAV_REVISION_MISMATCH·OUT_OF_RANGE·NO_REACHABLE_GOAL)이든 이
+        // commandSeq 가 "처리 종료" 상태라, 먼저 반영해 둬야 뒤늦게 도착한 더 작은 commandSeq 가
+        // STALE_COMMAND 로 밀린다(예전엔 거절 분기들이 반영하지 않아 거절된 commandSeq 보다 작은 뒷북이
+        // 다시 수락돼 위치를 바꿀 수 있었다). 거절 분기마다 따로 대입하지 않도록 여기 한 곳에서만 한다.
+        actor.lastCommandSeq = intent.commandSeq();
         if (intent.navRevision() != rules.navRevision()) {
             reject(actor, sessionKey, intent.commandSeq(), RejectReason.NAV_REVISION_MISMATCH);
             return;
@@ -380,7 +414,6 @@ public final class RoomRuntime {
         // goal 은 탭 좌표가 아니라 서버가 확정한 도착점(보정된 마지막 waypoint, 같은 셀이면 현재 위치) — HLD 「확정 도착」.
         // start·waypoints 가 이미 emitted() 를 거쳤으니 goal 도 자동으로 같은 정밀도다.
         MovementEvent.Point goal = waypoints.isEmpty() ? start : waypoints.get(waypoints.size() - 1);
-        actor.lastCommandSeq = intent.commandSeq();
         actor.pathId++;
         actor.waypoints = waypoints;
         actor.segmentIndex = 0;
