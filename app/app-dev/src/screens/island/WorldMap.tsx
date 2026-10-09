@@ -1630,6 +1630,18 @@ function FinalIslandScene({
     }
     const controller = movement.current;
     const size = sizeOf(grid);
+    // 걷는 동안 화면에 보이는 고양이 위치를 ref 로 샘플링한다 — location.current 는 구간이 끝나야
+    // 갱신돼 걷는 중엔 전 꼭짓점에 머문다. 오버레이 화살표·서버 Δ 가 긴 구간에서 예측 오차를 잘못
+    // 보여준다(GROMO-2249 보완7 지적 2). xy 는 location.current 와 같은 1x 이미지 px 공간이라
+    // px→world 변환이 필요 없다(둘 다 image px — worldCoords 의 WorldPoint 가 아니다). 컨트롤러가
+    // 없으면(동기화 off) predicted 자체를 안 그리니(아래 flush) 리스너도 걸지 않는다 — 기존 off 동작
+    // 그대로(MOVEMENT_SYNC 가 꺼지면 controller 는 항상 null).
+    const livePos = { current: location.current };
+    const listenerId = controller
+      ? xy.addListener((v) => {
+          livePos.current = v;
+        })
+      : null;
     // 100ms 쓰로틀 — controller.subscribe() 는 스냅샷마다(최대 20Hz) 올 수 있어 마지막 반영 이후 100ms 안이면 미뤄서 합친다.
     let lastFlush = 0,
       timer: ReturnType<typeof setTimeout> | null = null;
@@ -1667,7 +1679,8 @@ function FinalIslandScene({
             // 경로 비교 1순위(보완4 지적 3) — 서버 경로 식별자. lastPath 가 없으면(아직 PathAccepted 전) null.
             pathId: st.lastPath?.pathId ?? null,
             snapshot: st.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
-            predicted: location.current,
+            // 걷는 중엔 xy 의 애니메이션 중간값(livePos) — 멈춰 있으면 location.current 와 같다(폴백, 지적 2).
+            predicted: livePos.current,
             correctedAt: st.lastCorrectionAt,
             // state() 가 수신 시각을 그대로 준다(GROMO-2249 보완) — 틱 지연(now - 이 값)은 readout 이 그릴 때
             // 계산해, 절대 시각이라 메시지가 안 와도 값이 그대로다(아래 shallow 비교가 매번 새 객체를 안 만든다).
@@ -1691,6 +1704,7 @@ function FinalIslandScene({
     // 리렌더까진 만들지 않는다(지적 2·보완 3).
     const interval = setInterval(flush, 250);
     return () => {
+      if (listenerId) xy.removeListener(listenerId);
       unsubscribe();
       if (timer) clearTimeout(timer);
       clearInterval(interval);

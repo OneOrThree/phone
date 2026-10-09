@@ -883,6 +883,29 @@ describe('이동 보기 오버레이 (GROMO-2249)', () => {
     expect(delayOf(readout())).toBeGreaterThanOrEqual(0);
     await screen.unmount();
   });
+
+  it('걷는 중엔 predicted 가 전 꼭짓점(location.current) 대신 화면에 보이는 중간 위치를 따라간다(보완7 지적 2)', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(100));
+    // 로컬 A*: 오른쪽으로 곧장 4칸(39.5..42.5, 45.5) — 한 칸은 MS_PER_UNIT(91ms, 위 걷기 테스트들과 같다).
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+    // 왕복 지연 동안 로컬로 1칸 반쯤 먼저 걸어 나간다(걷기 테스트와 같은 타이밍) — 두 번째 구간
+    // (39.5→40.5) 한중간이라 location.current 는 아직 첫 꼭짓점(39.5)에 멈춰 있다.
+    await act(async () => jest.advanceTimersByTime(150));
+    const server = screen.getByTestId('tile-terrain').props.navDebug.server;
+    const predictedWorld = imageToWorld(server.predicted, SIZE);
+    // 화면에 실제로 보이는 고양이 위치(myCat, xy 의 같은 애니메이션 중간값)와 가깝다.
+    const cat = myCat(screen);
+    expect(predictedWorld.x).toBeCloseTo(cat.x, 1);
+    expect(predictedWorld.y).toBeCloseTo(cat.y, 1);
+    // 전 꼭짓점(39.5)이 아니라 그 사이 값 — location.current 였다면 정확히 39.5다.
+    expect(predictedWorld.x).toBeGreaterThan(SPAWN.x + 1);
+    expect(predictedWorld.x).toBeLessThan(42.5);
+    await screen.unmount();
+  });
 });
 
 it('섬 전환 뒤 옛 채널의 늦은 onMovementDenied 는 새 컨트롤러를 끄지 않는다(채널 소유권, 리뷰 3)', async () => {

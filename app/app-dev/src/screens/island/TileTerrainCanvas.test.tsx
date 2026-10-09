@@ -8,6 +8,7 @@ import {
   buildArrowPath,
   buildBlockedPath,
   buildTerrainAtlas,
+  correctionBlinkVisible,
   correctionFlash,
   navDebugText,
   TileTerrainCanvas,
@@ -90,6 +91,22 @@ describe('서버 이동 보기 helper (GROMO-2249)', () => {
     expect(correctionFlash(1000, 1499)).toBe(true);
     expect(correctionFlash(1000, 1501)).toBe(false);
     expect(correctionFlash(null, 1499)).toBe(false);
+  });
+
+  it('correctionBlinkVisible: 창 안에서 100ms 주기로 켜짐·꺼짐, 창 밖이면 무조건 꺼짐(보완7 지적 1)', () => {
+    const t0 = 1000;
+    // 0·50ms 켜짐.
+    expect(correctionBlinkVisible(t0, t0 + 0)).toBe(true);
+    expect(correctionBlinkVisible(t0, t0 + 50)).toBe(true);
+    // 100·150ms 꺼짐.
+    expect(correctionBlinkVisible(t0, t0 + 100)).toBe(false);
+    expect(correctionBlinkVisible(t0, t0 + 150)).toBe(false);
+    // 200ms 다시 켜짐.
+    expect(correctionBlinkVisible(t0, t0 + 200)).toBe(true);
+    // 500ms 부터는 깜빡임 창(correctionFlash) 자체가 꺼져 있어, 주기상 켜질 차례여도 꺼짐이다.
+    expect(correctionBlinkVisible(t0, t0 + 400)).toBe(true);
+    expect(correctionBlinkVisible(t0, t0 + 500)).toBe(false);
+    expect(correctionBlinkVisible(null, t0)).toBe(false);
   });
 
   it('navDebugText 둘째 줄: Δ·지연 / 대기 / 없음 세 가지', () => {

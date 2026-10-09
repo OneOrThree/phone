@@ -152,6 +152,17 @@ export function correctionFlash(correctedAt: number | null, now: number): boolea
   return correctedAt !== null && now - correctedAt < 500;
 }
 
+/**
+ * 보정 창(correctionFlash) 안에서 100ms 주기로 켜짐/꺼짐을 바꾼다 — 창 안이라고 쭉 켠 채로 두면
+ * 500ms 동안 안 꺼지는 "표시"일 뿐 깜빡임이 아니다(GROMO-2249 보완7 지적 1). 50ms 타이머가 이미
+ * 재렌더하므로 타이머는 그대로 두고 이 가시성 판정만 얹는다. 창 밖이면 무조건 꺼짐.
+ */
+export function correctionBlinkVisible(correctedAt: number | null, now: number): boolean {
+  return (
+    correctionFlash(correctedAt, now) && Math.floor((now - (correctedAt as number)) / 100) % 2 === 0
+  );
+}
+
 /** 1x 이미지 좌표의 타일 격자선(세로 columns+1 · 가로 rows+1). */
 export function buildTileGridPath(tilemap: {
   width: number;
@@ -293,7 +304,7 @@ export function TileTerrainCanvas({
     server?.predicted && server?.snapshot
       ? buildArrowPath(server.predicted, server.snapshot, scale)
       : null;
-  const flash = correctionFlash(correctedAt, flashNow);
+  const flash = correctionBlinkVisible(correctedAt, flashNow);
   return (
     <Canvas pointerEvents="none" style={{ position: 'absolute', width, height }}>
       <Group
