@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { ServerBuildCard, COMPLETION_POLL_MS } from '@/screens/island/ServerBuildCard';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import { initialState } from '@/services/model';
 import { ApiError } from '@/services/api/client';
@@ -34,6 +35,10 @@ jest.mock('@/services/api/islands', () => ({
 
 const api = home as jest.Mocked<typeof home>;
 const mine = islands as jest.Mocked<typeof islands>;
+
+beforeEach(() => {
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-29T00:01:00Z'));
+});
 
 afterEach(() => {
   cleanup();
@@ -502,4 +507,52 @@ test('홈 집중 시작은 고양이가 뗏목까지 걷지 않고 바로 항해
   await act(async () => fireEvent.press(screen.getByTestId('depart-focus')));
   // 걷기 애니메이션을 기다리지 않고 누르는 즉시 이동한다
   assert.equal(go.mock.calls[0]?.[0], 'focusTravel');
+});
+
+test('로컬 receipt 없이 조회한 공사도 진행률을 표시하고 예정 시각부터 홈을 재조회한다', async () => {
+  jest.useFakeTimers();
+  const now = Date.parse('2026-10-09T00:00:00Z');
+  jest.setSystemTime(now);
+  try {
+    mine.myIslands.mockResolvedValue({ items: [{ id: 'srv1' }], currentIslandId: 'srv1' } as any);
+    api.getConstructionOptions.mockResolvedValue({
+      ...hallOptions,
+      activeConstruction: {
+        buildingId: 'hall',
+        startedAt: new Date(now - 1000).toISOString(),
+        completesAt: new Date(now + 1000).toISOString(),
+      },
+      items: hallOptions.items.map((item: any) => ({
+        ...item,
+        buildable: false,
+        blockedReason: 'IN_PROGRESS',
+      })),
+    });
+    const onChanged = jest.fn();
+    const screen = await render(
+      <ServerBuildCard
+        islandId="srv1"
+        building="hall"
+        villagePoints={10}
+        tracked={null}
+        style={{}}
+        onStarted={jest.fn()}
+        onChanged={onChanged}
+      />,
+    );
+    await act(async () => {});
+    assert.ok(screen.getByText('마을회관 공사 중'));
+    assert.ok(screen.getByText('1분 남음'));
+    assert.equal(screen.queryByTestId('server-build-recheck'), null);
+    assert.equal(onChanged.mock.calls.length, 0);
+    await act(async () => jest.advanceTimersByTime(1000));
+    assert.equal(onChanged.mock.calls.length, 1);
+    await act(async () => jest.advanceTimersByTime(COMPLETION_POLL_MS));
+    assert.equal(onChanged.mock.calls.length, 2);
+    await screen.unmount();
+    await act(async () => jest.advanceTimersByTime(COMPLETION_POLL_MS));
+    assert.equal(onChanged.mock.calls.length, 2);
+  } finally {
+    jest.useRealTimers();
+  }
 });

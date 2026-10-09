@@ -20,7 +20,9 @@ type Props = {
 
 export function ServerIslandPicker({ mode, state, islands, back, home, reset }: Props) {
   const currentId = mode === 'main' ? state.mainIslandId : state.serverIslands?.currentIslandId;
-  const [selected, setSelected] = useState(currentId ?? '');
+  // 직접 행을 고르기 전에는 동기화된 서버 선택을 그대로 따른다.
+  const [chosenId, setSelected] = useState<string | null>(null);
+  const selected = chosenId ?? currentId ?? '';
   const [loading, setLoading] = useState(true);
   const [writing, setWriting] = useState(false);
   const [error, setError] = useState('');

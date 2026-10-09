@@ -248,6 +248,7 @@ export function Hall({ e }: any) {
     work: () => Promise<void>,
     success: string,
     afterSuccess?: () => void,
+    operation?: 'approve' | 'settings',
   ) => {
     const run = managementRun.current;
     setManagementError('');
@@ -259,7 +260,7 @@ export function Hall({ e }: any) {
       notify(success);
     } catch (error) {
       if (run !== managementRun.current) return;
-      const message = managementErrorMessage(error);
+      const message = managementErrorMessage(error, operation);
       setManagementError(message);
       // 정보 수정·위임 패널에는 주민 카드의 오류 줄이 안 보인다 — 패널에서는 토스트로 알린다(H5)
       if (panel) notify(message);
@@ -2542,6 +2543,7 @@ export function Hall({ e }: any) {
                 }),
               '섬 정보를 저장했어요.',
               () => setPanel(''),
+              'settings',
             );
           else {
             e.dispatch({
@@ -2870,6 +2872,8 @@ export function Hall({ e }: any) {
                     void runManagement(
                       () => management.answerRequest(q.id, 'approve'),
                       `${q.name ?? '신청자'}님의 가입을 승인했어요.`,
+                      undefined,
+                      'approve',
                     );
                   else if (isFull(i)) notify('정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.');
                   else e.dispatch({ type: 'ADD_MEMBER', id: q.id });

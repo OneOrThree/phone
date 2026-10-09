@@ -353,7 +353,9 @@ test('정보 수정 실패는 수정 패널 안에 사용자 문구 토스트로
 test('정원이 찬 뒤 승인하면 정원을 늘리라고 안내한다(H7)', async () => {
   const api = management({
     answerRequest: jest.fn(async () => {
-      throw new ApiError('ROOM_FULL', '그룹 정원이 가득 찼습니다.', 409);
+      throw new ApiError('STATE_CONFLICT', '그룹 정원이 가득 찼습니다.', 409, {
+        field: 'islandId',
+      });
     }),
   });
   managementMock.mockReturnValue(api);

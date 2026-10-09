@@ -73,7 +73,16 @@ export function ServerBuildCard({
   // tracked 를 지워 이 effect 도 정리된다.
   const onChangedRef = useRef(onChanged);
   onChangedRef.current = onChanged;
-  const endsAt = tracked?.endsAt;
+  const timing = tracked
+    ? { buildingId: tracked.building, startedAt: tracked.startedAt, completesAt: tracked.endsAt }
+    : !islandMismatch && construction.timing?.buildingId === building
+      ? construction.timing
+      : null;
+  const endsAt = timing
+    ? typeof timing.completesAt === 'number'
+      ? timing.completesAt
+      : Date.parse(timing.completesAt)
+    : undefined;
   useEffect(() => {
     if (endsAt == null) return;
     let poll: ReturnType<typeof setInterval> | null = null;
@@ -93,15 +102,10 @@ export function ServerBuildCard({
   const item = construction.options?.items.find((it) => it.id === building);
 
   let meta: string, bar: number, action: React.ReactNode;
-  if (tracked) {
-    const progress = normalizedConstructionProgress(
-      { startedAt: tracked.startedAt, completesAt: tracked.endsAt },
-      now,
-    );
+  if (timing) {
+    const progress = normalizedConstructionProgress(timing, now);
     meta =
-      progress >= 1
-        ? '완공 처리 중'
-        : `${Math.max(0, Math.ceil((tracked.endsAt - now) / 60000))}분 남음`;
+      progress >= 1 ? '완공 처리 중' : `${Math.max(0, Math.ceil((endsAt! - now) / 60000))}분 남음`;
     bar = progress;
     // 완공은 서버 스케줄러 몫 — 위 effect 가 홈을 다시 읽어 자동으로 반영한다
     action = progress >= 1 && <Txt kind="meta">완공 처리 중이에요. 곧 자동으로 반영돼요.</Txt>;
@@ -201,7 +205,7 @@ export function ServerBuildCard({
         }}
       >
         <Txt style={{ fontSize: 14, lineHeight: 20.3, fontWeight: '800' }}>
-          {name} {tracked ? '공사 중' : '짓기'}
+          {name} {timing ? '공사 중' : '짓기'}
         </Txt>
         <Txt
           kind="meta"
@@ -218,7 +222,7 @@ export function ServerBuildCard({
       <Bar value={bar * 100} />
       {action}
       {/* receipt 확보 뒤에는 재조회 실패 메시지가 「공사 중」과 모순되므로 감춘다 */}
-      {!tracked && !!message && <Txt kind="meta">{message}</Txt>}
+      {!timing && !!message && <Txt kind="meta">{message}</Txt>}
     </View>
   );
 }

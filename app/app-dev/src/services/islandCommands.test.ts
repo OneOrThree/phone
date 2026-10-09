@@ -836,3 +836,87 @@ test('신청 목록에 없고 방문 응답에만 있는 신청을 취소해도 
   await h.cmds.commands.cancel('r1');
   assert.equal(pendingVisitRequest(h.state(), 'i1'), undefined);
 });
+
+test.each(['current', 'main'] as const)(
+  '%s 저장 성공 후 첫 확인 조회 유실은 복구 성공으로 확정하고 키를 해제한다',
+  async (kind) => {
+    const keys: string[] = [];
+    const reads = jest
+      .fn()
+      .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0))
+      .mockResolvedValue(
+        kind === 'current'
+          ? myIslands({ items: [island({ id: 'i2' })], currentIslandId: 'i2' })
+          : account({ mainIslandId: 'i2' }),
+      );
+    const h = harness(
+      selectionApi(
+        kind === 'current'
+          ? {
+              switchCurrent: async (_id, key) => {
+                assert.ok(key);
+                keys.push(key);
+                return { currentIslandId: 'i2' };
+              },
+              myIslands: reads,
+            }
+          : {
+              updateProfile: async (_patch, key) => {
+                assert.ok(key);
+                keys.push(key);
+                return account({ mainIslandId: 'i2' });
+              },
+              me: reads,
+            },
+      ),
+    );
+    const run = () =>
+      kind === 'current' ? h.cmds.commands.switchCurrent('i2') : h.cmds.commands.setMain('i2');
+    await run();
+    assert.equal(reads.mock.calls.length, 2);
+    assert.equal(
+      kind === 'current' ? h.state().serverIslands?.currentIslandId : h.state().mainIslandId,
+      'i2',
+    );
+    await run();
+    assert.notEqual(keys[0], keys[1]);
+  },
+);
+
+test.each(['current', 'main'] as const)(
+  '%s 복구 조회 중 세션이 바뀌면 성공을 반영하지 않는다',
+  async (kind) => {
+    let finish!: (value: any) => void;
+    const reads = jest
+      .fn()
+      .mockRejectedValueOnce(new ApiError('CLIENT_TIMEOUT', 'lost', 0))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+    const h = harness(
+      selectionApi(
+        kind === 'current'
+          ? {
+              switchCurrent: async () => ({ currentIslandId: 'i2' }),
+              myIslands: reads,
+            }
+          : { updateProfile: async () => account(), me: reads },
+      ),
+    );
+    const pending =
+      kind === 'current' ? h.cmds.commands.switchCurrent('i2') : h.cmds.commands.setMain('i2');
+    const rejected = assert.rejects(pending, { code: 'CLIENT_STALE_SESSION' });
+    for (let n = 0; n < 20 && !finish; n++) await Promise.resolve();
+    h.setGen(1);
+    finish(
+      kind === 'current'
+        ? myIslands({ items: [island({ id: 'i2' })], currentIslandId: 'i2' })
+        : account({ mainIslandId: 'i2' }),
+    );
+    await rejected;
+    assert.equal(h.dispatched.length, 0);
+  },
+);

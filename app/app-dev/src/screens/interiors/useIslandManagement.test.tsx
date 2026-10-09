@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { act, renderHook } from '@testing-library/react-native';
 import {
+  managementErrorMessage,
   CLIENT_BROKEN_PAGE,
   CLIENT_FORBIDDEN,
   CLIENT_IN_FLIGHT,
   CLIENT_INACTIVE,
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
-import { CLIENT_STALE_SESSION } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 
 type Call = { url: string; init: RequestInit };
@@ -1317,4 +1318,28 @@ test('같은 섬 재조회 중에는 확정된 목록을 남겨 두고 loading �
   });
   assert.equal(h.result.current.loading, false);
   await h.unmount();
+});
+
+test('정원 안내는 공개 오류의 field와 실행한 명령이 일치할 때만 구체화한다', () => {
+  const full = new ApiError('STATE_CONFLICT', '서버 원문', 409, { field: 'islandId' });
+  const small = new ApiError('STATE_CONFLICT', '서버 원문', 409, { field: 'maxMembers' });
+  assert.equal(
+    managementErrorMessage(full, 'approve'),
+    '정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.',
+  );
+  assert.equal(
+    managementErrorMessage(small, 'settings'),
+    '정원은 현재 주민 수보다 작게 줄일 수 없어요.',
+  );
+  assert.equal(
+    managementErrorMessage(full, 'settings'),
+    '섬 상태가 바뀌었어요.\n다시 확인한 뒤 시도해 주세요.',
+  );
+  assert.equal(
+    managementErrorMessage(
+      new ApiError('STATE_CONFLICT', '서버 원문', 409, { field: 'requestId' }),
+      'approve',
+    ),
+    '섬 상태가 바뀌었어요.\n다시 확인한 뒤 시도해 주세요.',
+  );
 });

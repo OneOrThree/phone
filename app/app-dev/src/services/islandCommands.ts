@@ -209,52 +209,52 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         call(async () => {
           const g = generation();
           const key = scoped().keys.key('current', islandId);
+          let my;
           try {
             await api.switchCurrent(islandId, key);
-          } catch (thrown) {
-            if (!unknownOutcome(thrown)) throw thrown;
             alive(g);
-            const my = await syncIslands().catch(() => null);
+            my = await syncIslands();
+          } catch (thrown) {
+            alive(g);
+            if (!unknownOutcome(thrown)) throw thrown;
+            // 쓰기 응답뿐 아니라 첫 확인 조회의 유실도 같은 복구 경로로 확정한다.
+            my = await syncIslands().catch(() => null);
             alive(g);
             if (my?.currentIslandId !== islandId) throw thrown;
-            scoped().keys.release('current', islandId);
-            return my;
           }
-          alive(g);
-          const my = await syncIslands();
           alive(g);
           scoped().keys.release('current', islandId);
           // 멱등 응답은 과거 성공일 수 있다. 최신 current가 일치해야 입장을 확정한다.
-          // 확인된 과거 쓰기의 키는 해제해 다음 명시적 선택을 새 요청으로 보낸다.
           if (my.currentIslandId !== islandId)
             throw new ApiError('STATE_CONFLICT', '현재 섬이 바뀌었어요. 다시 선택해 주세요.', 409);
           return my;
-        }, true),
+        }),
       ),
     setMain: (islandId: string) =>
       selection(() =>
         call(async () => {
           const g = generation();
           const key = scoped().keys.key('main', islandId);
+          let account;
           try {
             await api.updateProfile({ mainIslandId: islandId }, key);
-          } catch (thrown) {
-            if (!unknownOutcome(thrown)) throw thrown;
             alive(g);
-            const account = await api.me().catch(() => null);
+            // 같은 키의 재전송 응답은 과거 값일 수 있어 /me를 다시 읽는다.
+            account = await api.me();
+          } catch (thrown) {
+            alive(g);
+            if (!unknownOutcome(thrown)) throw thrown;
+            account = await api.me().catch(() => null);
             alive(g);
             if (account?.mainIslandId !== islandId) throw thrown;
           }
-          alive(g);
-          // 같은 키의 재전송 응답은 과거 값일 수 있어 /me를 다시 읽는다.
-          const account = await api.me();
           alive(g);
           ++syncRevision;
           deps.dispatch({ type: 'SERVER_MAIN_ISLAND', islandId: account.mainIslandId });
           scoped().keys.release('main', islandId);
           if (account.mainIslandId !== islandId)
             throw new ApiError('STATE_CONFLICT', '대표 섬이 바뀌었어요. 다시 선택해 주세요.', 409);
-        }, true),
+        }),
       ),
     // 만들기: 응답만으로 로컬 성공 처리하지 않고 /me/islands 재조회로 current를 확정한다
     create: (input: CreateIslandInput) =>

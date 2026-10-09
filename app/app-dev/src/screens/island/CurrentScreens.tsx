@@ -1011,7 +1011,7 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
 }
 function FocusVisit({ e, islandId, onBack }: any) {
   const s: State = e.state,
-    i = s.islands.find((island) => island.id === islandId) ?? currentIsland(s),
+    i = viewIsland(s, islandId ?? s.serverIslands?.currentIslandId ?? s.islandId),
     L = useAppLayout(),
     safe = useSafeAreaInsets(),
     reduce = s.settings.reduceMotion,

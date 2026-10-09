@@ -2562,3 +2562,65 @@ describe('en', () => {
     );
   });
 });
+
+test.each(['mainIsland', 'currentIsland'] as const)(
+  '%s 최초 동기화의 선택을 따르고 직접 고른 뒤에는 선택을 유지한다',
+  async (route) => {
+    const membership = {
+      items: [
+        islandSummary({ id: 'a', name: '서버 A' }),
+        islandSummary({ id: 'b', name: '서버 B' }),
+      ],
+      currentIslandId: 'a',
+      nextCursor: null,
+      lossReason: null,
+    };
+    const initial = reducer(initialState(true), {
+      type: 'ISLAND_SYNC',
+      memberships: membership,
+      mainIslandId: 'a',
+    });
+    let exposed: any;
+    const save = jest.fn(async () => {});
+    const screen = await render(
+      <Harness
+        route={route}
+        initial={initial}
+        expose={(value: any) => {
+          exposed = value;
+        }}
+        api={(dispatch: any) => ({
+          sync: async () => {
+            dispatch({
+              type: 'ISLAND_SYNC',
+              memberships: { ...membership, currentIslandId: 'b' },
+              mainIslandId: 'b',
+            });
+          },
+          setMain: save,
+          switchCurrent: save,
+        })}
+      />,
+    );
+    const b = await screen.findByLabelText('서버 B');
+    assert.equal(b.props.accessibilityState.selected, true);
+    if (route === 'mainIsland') {
+      await fireEvent.press(screen.getByText('대표 섬으로 저장하기'));
+      assert.equal(save.mock.calls.length, 0);
+    }
+    await fireEvent.press(screen.getByLabelText('서버 A'));
+    await act(async () =>
+      exposed.dispatch({
+        type: 'ISLAND_SYNC',
+        memberships: { ...membership, currentIslandId: 'b' },
+        mainIslandId: 'b',
+      }),
+    );
+    assert.equal(screen.getByLabelText('서버 A').props.accessibilityState.selected, true);
+    await fireEvent.press(
+      screen.getByText(route === 'mainIsland' ? '대표 섬으로 저장하기' : '선택한 섬으로 가기'),
+    );
+    assert.equal(save.mock.calls.length, 1);
+    expect(save).toHaveBeenCalledWith('a');
+  },
+);

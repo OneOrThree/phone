@@ -70,8 +70,14 @@ const MANAGEMENT_MESSAGES: Record<string, string> = {
   [CLIENT_TIMEOUT]: '응답이 늦어지고 있어요.\n잠시 후 다시 시도해 주세요.',
 };
 
-export function managementErrorMessage(error: unknown): string {
+export function managementErrorMessage(error: unknown, operation?: 'approve' | 'settings'): string {
   if (!(error instanceof ApiError)) return '처리하지 못했어요. 다시 시도해 주세요.';
+  // 공개 API는 내부 정원 오류를 STATE_CONFLICT + field로 변환한다.
+  if (error.code === 'STATE_CONFLICT') {
+    if (operation === 'approve' && error.field === 'islandId') return MANAGEMENT_MESSAGES.ROOM_FULL;
+    if (operation === 'settings' && error.field === 'maxMembers')
+      return MANAGEMENT_MESSAGES.MAX_MEMBERS_TOO_SMALL;
+  }
   const mapped = MANAGEMENT_MESSAGES[error.code];
   if (mapped) return mapped;
   // 앱이 만든 CLIENT_ 오류는 이미 사용자 문구다(다른 명령 처리 중·로그인 변경 등)
