@@ -1100,6 +1100,35 @@ class RoomRuntimeTest {
     }
 
     @Test
+    @DisplayName("join 없이 들어온 가짜 accept 의 버킷이 남아 있는 동안은 isRemovable() 이 false 다 — 10분"
+            + " 지나 버킷까지 prune 돼야 true 가 된다(codex P2, 2246 보완10 — MovementRooms 는 시계를 주입받지"
+            + " 않아 Ticker 조합 경로는 이 RoomRuntime 단위 검증으로 대체한다)")
+    void isRemovableStaysFalseWhileGhostBucketAliveAndTrueAfterTenMinutePrune() {
+        NavGrid grid = openGrid(10, 10);
+        long[] nowNanos = {0L};
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener(), () -> nowNanos[0]);
+        UUID ghostUserId = UUID.randomUUID();
+
+        for (long seq = 1; seq <= 20; seq++) {
+            room.accept(ghostUserId, "s9", new MoveIntent(seq, 1, 5.5, 5.5)); // join 없는 세션 — burst 전부 소진.
+        }
+        room.tick(1); // 큐는 비지만(적용받을 actor 가 없다) 소진된 버킷은 그대로 남는다.
+
+        assertThat(room.isRemovable())
+                .as("버킷이 남아 있는데 지우면 다음 accept 가 새 방의 가득 찬 burst(20)를 다시 받는다(codex P2)")
+                .isFalse();
+
+        room.accept(ghostUserId, "s9", new MoveIntent(21, 1, 5.5, 5.5)); // burst(20) 를 넘겨 거절돼야 한다.
+        assertThat(room.rateLimitedDropCount()).as("버킷이 이어졌다면 21번째 accept 는 거절된다").isEqualTo(1L);
+
+        nowNanos[0] += 10 * 60 * 1_000_000_000L + 1; // DEPARTED_MEMORY_MS(10분)를 넘긴다.
+        room.tick(2);
+
+        assertThat(room.bucketCount()).as("마지막 사용 뒤 10분이 지나면 버킷도 prune 된다").isZero();
+        assertThat(room.isRemovable()).as("버킷까지 비었으니 방은 다시 제거 대상이 된다").isTrue();
+    }
+
+    @Test
     @DisplayName("세션 교체(leave 없는 재접속)는 버킷 수를 바꾸지 않고 소진 상태를 그대로 이어간다"
             + "(codex P2, 2246 보완5)")
     void sessionReplacementKeepsBucketAndItsConsumedState() {

@@ -184,7 +184,7 @@ public final class RoomRuntime {
 
     /**
      * Ticker 가 빈 방을 지우려고 쓴다 — actors·명령 큐(accept 로 들어온 대기 Intent 도 이 큐 안에 있다,
-     * 2246 보완7)·퇴장 기억(N23) 이 전부 비어야 한다(codex P1/P2, 2246 보완2).
+     * 2246 보완7)·퇴장 기억(N23)·사용자 토큰 버킷(2246 보완10)이 전부 비어야 한다(codex P1/P2, 2246 보완2).
      *
      * <p>큐까지 보는 이유: actors 만 보면 "지우기로 판단한 순간"과 "실제로 지우는 순간" 사이에 다른
      * 스레드의 {@link MovementRooms#join}·{@link MovementRooms#accept} 호출이 들어와도 그대로
@@ -193,9 +193,14 @@ public final class RoomRuntime {
      * 보이고(지우지 않는다), 나중에 시작했으면 빈 맵에 새 방을 만들어 받는다 — 반쪽짜리로 끼어드는 경우가
      * 없다. departed 까지 보는 이유: 마지막 퇴장자의 위치 기억이 방과 함께 사라지면 10분 안 재입장
      * 복원(N23)이 깨진다.
+     *
+     * <p>버킷은 사용자 제한의 기억이라 방과 같이 사라지면 제한이 리셋된다(codex P2, 2246 보완10) — join
+     * 없이 accept 만 반복하면 큐는 매 틱 비어도 소진된 버킷이 남는데, 그걸 안 보고 지우면 다음 accept 가
+     * 새 방의 가득 찬 burst(20)를 다시 받는 우회가 된다. 방 객체 하나·버킷 하나뿐이라 버킷이 마지막 사용
+     * 뒤 10분(prune, {@link #pruneExpiredDeparted}) 지날 때까지 방이 더 사는 비용은 무시한다.
      */
     boolean isRemovable() {
-        return actors.isEmpty() && queue.isEmpty() && departed.isEmpty();
+        return actors.isEmpty() && queue.isEmpty() && departed.isEmpty() && userBuckets.isEmpty();
     }
 
     /** 패키지 전용 — 테스트용. 지금 기억 중인 퇴장 인원 수(N23). */
