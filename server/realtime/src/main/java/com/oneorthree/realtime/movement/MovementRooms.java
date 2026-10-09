@@ -58,10 +58,10 @@ public final class MovementRooms {
         });
     }
 
-    public void accept(UUID islandId, String sessionKey, MoveIntent intent) {
+    public void accept(UUID islandId, UUID userId, String sessionKey, MoveIntent intent) {
         rooms.compute(islandId, (id, room) -> {
             RoomRuntime r = ensure(id, room);
-            r.accept(sessionKey, intent);
+            r.accept(userId, sessionKey, intent);
             return r;
         });
     }

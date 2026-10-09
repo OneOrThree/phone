@@ -155,7 +155,7 @@ class MovementTickerTest {
 
         room.join(userId, "s1");
         ticker.tickAllRooms();
-        room.accept("s1", new MoveIntent(1, 1, 1.5, 0.5)); // 스폰과 다른 곳으로 — "떠난 자리" 를 만든다.
+        room.accept(userId, "s1", new MoveIntent(1, 1, 1.5, 0.5)); // 스폰과 다른 곳으로 — "떠난 자리" 를 만든다.
         MovementEvent.ActorState state;
         int guard = 0;
         do {
@@ -240,7 +240,7 @@ class MovementTickerTest {
         NavGrid grid = NavJsonLoader.loadBundled();
         Cell entranceCell = grid.entrances().values().iterator().next();
         WorldPoint target = WorldCoords.cellCenter(entranceCell);
-        room.accept("s1", new MoveIntent(1, 1, target.x(), target.y()));
+        room.accept(userId, "s1", new MoveIntent(1, 1, target.x(), target.y()));
 
         MovementTicker ticker = new MovementTicker(rooms, new SimpleMeterRegistry());
         ticker.tickAllRooms(false); // join+accept 가 한 틱에 같이 드레인 — catch-up 이라 Snapshot 없어야 한다.

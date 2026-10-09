@@ -152,9 +152,9 @@ class RoomRuntimeTest {
         room.join(userId, "s1");
         room.tick(1);
 
-        room.accept("s1", new MoveIntent(9, 1, 5.5, 5.5));
-        room.accept("s1", new MoveIntent(8, 1, 5.5, 5.5));
-        room.accept("s1", new MoveIntent(7, 1, 5.5, 5.5));
+        room.accept(userId, "s1", new MoveIntent(9, 1, 5.5, 5.5));
+        room.accept(userId, "s1", new MoveIntent(8, 1, 5.5, 5.5));
+        room.accept(userId, "s1", new MoveIntent(7, 1, 5.5, 5.5));
         room.tick(2);
 
         List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
@@ -177,7 +177,7 @@ class RoomRuntimeTest {
         room.join(userId, "s1");
         room.tick(1);
 
-        room.accept("s1", new MoveIntent(1, 1, 150.0, 5.0));
+        room.accept(userId, "s1", new MoveIntent(1, 1, 150.0, 5.0));
         room.tick(2);
 
         List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
@@ -195,7 +195,7 @@ class RoomRuntimeTest {
         room.join(userId, "s1");
         room.tick(1);
 
-        room.accept("s1", new MoveIntent(1, 1, Double.NaN, 5.0));
+        room.accept(userId, "s1", new MoveIntent(1, 1, Double.NaN, 5.0));
         room.tick(2);
 
         List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
@@ -213,7 +213,7 @@ class RoomRuntimeTest {
         room.join(userId, "s1");
         room.tick(1);
 
-        room.accept("s1", new MoveIntent(1, 99, 5.5, 5.5));
+        room.accept(userId, "s1", new MoveIntent(1, 99, 5.5, 5.5));
         room.tick(2);
 
         List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
@@ -232,7 +232,7 @@ class RoomRuntimeTest {
         room.join(userId, "s1");
         room.tick(1);
 
-        room.accept("s1", new MoveIntent(1, 1, 5.5, 5.5));
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5));
         room.tick(2);
 
         List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
@@ -252,7 +252,7 @@ class RoomRuntimeTest {
         room.tick(1);
 
         for (long seq = 1; seq <= 21; seq++) {
-            room.accept("s1", new MoveIntent(seq, 1, 5.5, 5.5));
+            room.accept(userId, "s1", new MoveIntent(seq, 1, 5.5, 5.5));
         }
         assertThat(room.rateLimitedDropCount()).as("burst(20) 를 넘긴 1건만 버려야 한다").isEqualTo(1L);
 
@@ -280,13 +280,13 @@ class RoomRuntimeTest {
         room.tick(1);
 
         for (long seq = 1; seq <= 20; seq++) {
-            room.accept("s1", new MoveIntent(seq, 1, 5.5, 5.5)); // burst(20) 전부 소모.
+            room.accept(userId, "s1", new MoveIntent(seq, 1, 5.5, 5.5)); // burst(20) 전부 소모.
         }
-        room.accept("s1", new MoveIntent(21, 1, 5.5, 5.5)); // 리필 전 — 버려진다.
+        room.accept(userId, "s1", new MoveIntent(21, 1, 5.5, 5.5)); // 리필 전 — 버려진다.
         assertThat(room.rateLimitedDropCount()).isEqualTo(1L);
 
         nowNanos[0] += 1_000_000_000L; // 1초 경과 — maxIntentsPerSec(10) 만큼 다시 채워진다.
-        room.accept("s1", new MoveIntent(22, 1, 5.5, 5.5)); // 리필된 토큰으로 통과해야 한다.
+        room.accept(userId, "s1", new MoveIntent(22, 1, 5.5, 5.5)); // 리필된 토큰으로 통과해야 한다.
         assertThat(room.rateLimitedDropCount()).as("리필 뒤 호출은 더 버려지지 않는다").isEqualTo(1L);
 
         room.tick(2);
@@ -307,7 +307,7 @@ class RoomRuntimeTest {
         long tick = 0;
         room.join(userId, "s1");
         room.tick(++tick);
-        room.accept("s1", new MoveIntent(1, 1, 5.5, 0.5)); // 스폰(0.5,0.5)에서 5칸 직선 — 경로 5.0 unit.
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 0.5)); // 스폰(0.5,0.5)에서 5칸 직선 — 경로 5.0 unit.
 
         double stepPerTick = MovementRules.DEFAULT.stepPerTick();
         for (int n = 1; n <= 9; n++) {
@@ -338,7 +338,7 @@ class RoomRuntimeTest {
         long tick = 0;
         room.join(userId, "s1");
         room.tick(++tick);
-        room.accept("s1", new MoveIntent(7, 1, 4.5, 0.5)); // 스폰에서 4칸 직선 — waypoint 4개(index 0..3).
+        room.accept(userId, "s1", new MoveIntent(7, 1, 4.5, 0.5)); // 스폰에서 4칸 직선 — waypoint 4개(index 0..3).
         room.tick(++tick); // 2.5 unit 전진 — waypoint 0,1 을 지나 세그먼트 2 중간.
 
         MovementEvent.Snapshot snapshot = listener.snapshots.get(listener.snapshots.size() - 1);
@@ -361,7 +361,7 @@ class RoomRuntimeTest {
         room.join(userId, "s1");
         room.tick(++tick);
         // 인접 셀(거리 1.0) — stepPerTick(~0.549) 의 배수가 아니라 마지막 구간이 짧게 남아 오버슈트가 나기 쉽다.
-        room.accept("s1", new MoveIntent(1, 1, 1.5, 0.5));
+        room.accept(userId, "s1", new MoveIntent(1, 1, 1.5, 0.5));
 
         MovementEvent.ActorState state = null;
         for (int i = 0; i < 10 && (state == null || state.state() != MotionState.IDLE); i++) {
@@ -405,7 +405,7 @@ class RoomRuntimeTest {
         long tick = 0;
         room.join(userId, "s1");
         room.tick(++tick);
-        room.accept("s1", new MoveIntent(1, 1, 5.5, 0.5)); // 5 waypoints — index 0..4.
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 0.5)); // 5 waypoints — index 0..4.
 
         for (int i = 0; i < 10; i++) {
             room.tick(++tick);
@@ -424,7 +424,7 @@ class RoomRuntimeTest {
         long tick = 0;
         room.join(userId, "s1");
         room.tick(++tick);
-        room.accept("s1", new MoveIntent(1, 1, 1.5, 0.5)); // 1칸 — 2틱이면 도착(0.5494*2 >= 1.0).
+        room.accept(userId, "s1", new MoveIntent(1, 1, 1.5, 0.5)); // 1칸 — 2틱이면 도착(0.5494*2 >= 1.0).
 
         for (int i = 0; i < 5; i++) {
             room.tick(++tick);
@@ -441,7 +441,7 @@ class RoomRuntimeTest {
         RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
         UUID userId = UUID.randomUUID();
         room.join(userId, "s1");
-        room.accept("s1", new MoveIntent(1, 1, 1.5, 0.5)); // 인접 셀 — stepPerTick(~0.549) 두 번이면 도착.
+        room.accept(userId, "s1", new MoveIntent(1, 1, 1.5, 0.5)); // 인접 셀 — stepPerTick(~0.549) 두 번이면 도착.
 
         room.tick(1, true); // join+accept 가 같은 틱에 드레인 — 첫 전진.
         assertThat(listener.snapshots).as("걷는 틱 — 발행").hasSize(1);
@@ -470,7 +470,7 @@ class RoomRuntimeTest {
         long tick = 0;
         room.join(userId, "s1");
         room.tick(++tick);
-        room.accept("s1", new MoveIntent(5, 1, 1.5, 0.5)); // 금방 도착해 가만히 있는 상태로 만든다.
+        room.accept(userId, "s1", new MoveIntent(5, 1, 1.5, 0.5)); // 금방 도착해 가만히 있는 상태로 만든다.
         MovementEvent.ActorState state;
         int guard = 0;
         do {
@@ -490,7 +490,7 @@ class RoomRuntimeTest {
         assertThat(after.lastCommandSeq()).isEqualTo(0L);
 
         // 리셋이 실제로 효과가 있다 — 새 세션은 작은 commandSeq(1)도 다시 받아들여진다.
-        room.accept("s2", new MoveIntent(1, 1, 2.5, 2.5));
+        room.accept(userId, "s2", new MoveIntent(1, 1, 2.5, 2.5));
         room.tick(++tick);
         assertThat(listener.of(MovementEvent.MoveRejected.class)).isEmpty();
     }
@@ -505,7 +505,7 @@ class RoomRuntimeTest {
         UUID userId = UUID.randomUUID();
         room.join(userId, "s1");
         room.tick(1);
-        room.accept("s1", new MoveIntent(1, 1, 5.5, 5.5)); // seq 1 수락 — lastCommandSeq=1 이 된다.
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5)); // seq 1 수락 — lastCommandSeq=1 이 된다.
         room.tick(2);
         assertThat(listener.of(MovementEvent.PathAccepted.class)).hasSize(1);
 
@@ -520,7 +520,7 @@ class RoomRuntimeTest {
         assertThat(listener.of(MovementEvent.FullState.class))
                 .as("중복 join 으로 FullState(ALL) 가 추가로 나가면 안 된다").hasSize(fullStateCountBefore);
 
-        room.accept("s1", new MoveIntent(1, 1, 5.5, 5.5)); // 이미 채택된 seq 1 을 다시 보낸다.
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5)); // 이미 채택된 seq 1 을 다시 보낸다.
         room.tick(4);
 
         List<MovementEvent.MoveRejected> rejected = listener.of(MovementEvent.MoveRejected.class);
@@ -545,7 +545,7 @@ class RoomRuntimeTest {
 
         assertThat(actorIn(room.fullStateOf(), userId)).as("새 세션(s2)의 actor 가 살아 있어야 한다").isNotNull();
 
-        room.accept("s2", new MoveIntent(1, 1, 2.5, 2.5)); // s2 는 여전히 멀쩡히 동작한다.
+        room.accept(userId, "s2", new MoveIntent(1, 1, 2.5, 2.5)); // s2 는 여전히 멀쩡히 동작한다.
         room.tick(4);
         assertThat(listener.of(MovementEvent.MoveRejected.class)).isEmpty();
     }
@@ -580,11 +580,11 @@ class RoomRuntimeTest {
         room.join(userId, "s1");
         room.tick(1);
 
-        room.accept("s1", new MoveIntent(5, 1, 500.0, 500.0)); // 범위 밖 — 거절.
+        room.accept(userId, "s1", new MoveIntent(5, 1, 500.0, 500.0)); // 범위 밖 — 거절.
         room.tick(2);
         assertThat(actorIn(room.fullStateOf(), userId).lastCommandSeq()).isEqualTo(0L);
 
-        room.accept("s1", new MoveIntent(6, 1, 5.5, 5.5)); // 유효 — 채택.
+        room.accept(userId, "s1", new MoveIntent(6, 1, 5.5, 5.5)); // 유효 — 채택.
         room.tick(3);
         assertThat(actorIn(room.fullStateOf(), userId).lastCommandSeq()).isEqualTo(6L);
     }
@@ -600,7 +600,7 @@ class RoomRuntimeTest {
         long tick = 0;
         room.join(userId, "s1");
         room.tick(++tick);
-        room.accept("s1", new MoveIntent(1, 1, 1.5, 0.5));
+        room.accept(userId, "s1", new MoveIntent(1, 1, 1.5, 0.5));
         MovementEvent.ActorState state;
         int guard = 0;
         do {
@@ -631,7 +631,7 @@ class RoomRuntimeTest {
         long tick = 0;
         room.join(userId, "s1");
         room.tick(++tick);
-        room.accept("s1", new MoveIntent(1, 1, 1.5, 0.5));
+        room.accept(userId, "s1", new MoveIntent(1, 1, 1.5, 0.5));
         MovementEvent.ActorState state;
         int guard = 0;
         do {
@@ -663,7 +663,7 @@ class RoomRuntimeTest {
         long tick = 0;
         room.join(userId, "s1");
         room.tick(++tick);
-        room.accept("s1", new MoveIntent(1, 1, 9.5, 0.5)); // 먼 목적지 — 중간에 멈춰 세우려는 의도.
+        room.accept(userId, "s1", new MoveIntent(1, 1, 9.5, 0.5)); // 먼 목적지 — 중간에 멈춰 세우려는 의도.
         room.tick(++tick); // 0.3 unit 전진 → (0.8, 0.5), 셀 중심이 아니다.
 
         MovementEvent.ActorState mid = actorIn(room.fullStateOf(), userId);
@@ -671,7 +671,7 @@ class RoomRuntimeTest {
         assertThat(mid.state()).isEqualTo(MotionState.MOVING);
 
         int eventsBefore = listener.eventCount();
-        room.accept("s1", new MoveIntent(2, 1, 0.9, 0.9)); // mid 와 같은 셀(0,0) 안.
+        room.accept(userId, "s1", new MoveIntent(2, 1, 0.9, 0.9)); // mid 와 같은 셀(0,0) 안.
         room.tick(++tick);
 
         List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
@@ -702,7 +702,7 @@ class RoomRuntimeTest {
         int sampledTicks = 0;
         for (Map.Entry<String, Cell> entrance : grid.entrances().entrySet()) {
             var center = WorldCoords.cellCenter(entrance.getValue());
-            room.accept("s1", new MoveIntent(++commandSeq, 1, center.x(), center.y()));
+            room.accept(userId, "s1", new MoveIntent(++commandSeq, 1, center.x(), center.y()));
             boolean arrived = false;
             int guard = 0;
             while (!arrived && guard++ < 3000) {
@@ -750,14 +750,14 @@ class RoomRuntimeTest {
         long tick = 0;
         room.join(userId, "s1");
         room.tick(++tick);
-        room.accept("s1", new MoveIntent(1, 1, 5.5, 5.5));
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5));
         for (int i = 0; i < 5; i++) {
             room.tick(++tick); // 도착 전 — 아직 MOVING 인 어중간한 위치에 세운다.
         }
         MovementEvent.ActorState mid = actorIn(room.fullStateOf(), userId);
         assertThat(mid.state()).isEqualTo(MotionState.MOVING);
 
-        room.accept("s1", new MoveIntent(2, 1, 8.5, 2.5));
+        room.accept(userId, "s1", new MoveIntent(2, 1, 8.5, 2.5));
         room.tick(++tick);
 
         List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
@@ -784,7 +784,7 @@ class RoomRuntimeTest {
         MovementEvent.ActorState freshlyJoined = actorIn(room.fullStateOf(), userId);
         assertThat(freshlyJoined.waypoints()).as("아직 경로가 없는 actor 는 빈 리스트다").isEmpty();
 
-        room.accept("s1", new MoveIntent(1, 1, 5.5, 0.5)); // 스폰에서 5칸 직선 — waypoint 5개(index 0..4).
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 0.5)); // 스폰에서 5칸 직선 — waypoint 5개(index 0..4).
         room.tick(++tick); // 아직 도착 전(stepPerTick~0.549 < 5.0) — MOVING.
 
         List<MovementEvent.PathAccepted> accepted = listener.of(MovementEvent.PathAccepted.class);
@@ -832,11 +832,11 @@ class RoomRuntimeTest {
         assertThat(room.isRemovable()).as("stay 세션의 actor 가 남아 있으니 방은 여전히 제거 대상이 아니다").isFalse();
     }
 
-    // ── codex P2: 2246 보완3 — 퇴장 세션엔 FullState 를 보내지 않고, 버킷도 정리한다 ────
+    // ── codex P2: 2246 보완3 — 퇴장한 세션엔 FullState 를 보내지 않는다 ────
 
     @Test
-    @DisplayName("같은 틱에 requestFullState 와 leave 가 함께 오면 drain 이 leave 를 먼저 처리해 actor 가"
-            + " 없으므로, 퇴장한 세션엔 FullState(ONLY) 를 보내지 않는다(codex P2, 2246 보완3)")
+    @DisplayName("같은 틱에 leave(s1) 가 requestFullState(s1) 보다 먼저 큐에 들어오면(FIFO), actor 가"
+            + " 이미 없으므로 퇴장한 세션엔 FullState(ONLY) 를 보내지 않는다(codex P2, 2246 보완3·보완5)")
     void doesNotSendFullStateToSessionThatLeftInSameTick() {
         NavGrid grid = openGrid(10, 10);
         RecordingListener listener = new RecordingListener();
@@ -845,8 +845,8 @@ class RoomRuntimeTest {
         room.join(userId, "s1");
         room.tick(1);
 
-        room.requestFullState("s1"); // 구독 직후 2247 이 요청하는 상황을 흉내 — 같은 틱에 leave 도 들어온다.
-        room.leave("s1");
+        room.leave("s1"); // 먼저 큐에 들어간다 — FIFO(2246 보완5)로 requestFullState 보다 앞서 처리된다.
+        room.requestFullState("s1"); // 뒷북 요청 — 처리 시점엔 이미 actor 가 없다.
         room.tick(2);
 
         long sentOnlyToLeftSession = listener.of(MovementEvent.FullState.class).stream()
@@ -856,23 +856,145 @@ class RoomRuntimeTest {
     }
 
     @Test
-    @DisplayName("leave 뒤 지연 도착한 accept 는 다음 틱에 세션 토큰 버킷을 남기지 않는다(codex P2, 2246 보완3)")
-    void processAcceptCleansUpBucketWhenSessionHasNoActor() {
+    @DisplayName("leave 뒤 지연 도착한 accept 의 버킷은 departed 창(10분) 동안 남고, 창이 지나야 prune 된다"
+            + "(codex P2, 2246 보완5 — 토큰 버킷이 세션이 아니라 사용자 기준이 된 뒤의 새 의미)")
+    void delayedAcceptAfterLeaveKeepsBucketUntilDepartedWindowExpires() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+
+        room.leave("s1");
+        room.tick(++tick);
+        assertThat(room.departedCount()).as("퇴장 직후엔 기억이 남아 있다").isEqualTo(1);
+
+        room.accept(userId, "s1", new MoveIntent(1, 1, 5.5, 5.5)); // 퇴장 뒤 지연 도착 — accept() 가 버킷을 만든다.
+        assertThat(room.bucketCount()).as("accept() 호출 시점(호출 스레드)엔 버킷이 생긴다").isEqualTo(1);
+
+        room.tick(++tick); // processAccept 가 actor 없음을 보고 대기 intent 만 정리한다 — 버킷은 그대로.
+        assertThat(room.bucketCount())
+                .as("departed 창 안이라 버킷은 지워지지 않는다(재접속해도 순간 20 을 다시 받으면 안 된다)")
+                .isEqualTo(1);
+
+        long ticksToExpire = MovementRules.DEFAULT.ticksFor(10 * 60 * 1000L) + 1; // 10분 창을 지난 뒤.
+        for (long i = 0; i < ticksToExpire; i++) {
+            room.tick(++tick);
+        }
+        assertThat(room.departedCount()).isZero();
+        assertThat(room.bucketCount()).as("departed 가 만료되면 버킷도 함께 prune 된다").isZero();
+    }
+
+    // ── codex P2: 2246 보완5 — 큐 드레인은 FIFO, 토큰 버킷은 사용자 기준 ────────────
+
+    @Test
+    @DisplayName("같은 틱에 leave(s1) 가 join(U, s1) 보다 먼저 큐에 들어오면(FIFO), 재입장한 actor 가"
+            + " 살아남는다 — 타입별 4패스였다면 Join 패스가 먼저 돌아 멱등으로 무시되고 뒤이은 Leave"
+            + " 패스가 지웠을 것이다(codex P2, 2246 보완5)")
+    void sameTickLeaveThenJoinSameSessionKeepsReentryAlive() {
         NavGrid grid = openGrid(10, 10);
         RecordingListener listener = new RecordingListener();
         RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
         UUID userId = UUID.randomUUID();
         room.join(userId, "s1");
         room.tick(1);
+        assertThat(actorIn(room.fullStateOf(), userId)).isNotNull();
 
-        room.leave("s1");
-        room.tick(2); // 정상 퇴장 처리 — processLeave 가 버킷을 이미 한 번 정리한다.
-        assertThat(room.bucketCount()).as("퇴장 처리 직후엔 버킷이 없다").isZero();
+        room.leave("s1"); // 앱 채널 effect 의 cleanup(UNSUBSCRIBE) — 먼저 큐에 들어간다.
+        room.join(userId, "s1"); // 곧바로 재구독(SUBSCRIBE) — 같은 세션 키로 같은 틱에 들어온다.
+        room.tick(2);
 
-        room.accept("s1", new MoveIntent(1, 1, 5.5, 5.5)); // 퇴장 뒤 지연 도착 — accept() 가 새 버킷을 만든다.
-        assertThat(room.bucketCount()).as("accept() 호출 시점(호출 스레드)엔 버킷이 다시 생긴다").isEqualTo(1);
+        assertThat(actorIn(room.fullStateOf(), userId))
+                .as("FIFO 순서대로 Leave 뒤 Join 이 처리돼 재입장한 actor 가 남아 있어야 한다").isNotNull();
+    }
 
-        room.tick(3); // processAccept 가 actor 없음을 보고 버킷·대기 intent 를 정리해야 한다.
-        assertThat(room.bucketCount()).as("actor 없는 세션의 버킷은 다음 틱에 사라져야 한다").isZero();
+    @Test
+    @DisplayName("같은 틱에 join(U, s1) 이 leave(s1) 보다 먼저 큐에 들어와도(FIFO) 정상적인 join-후-leave"
+            + " 는 그대로 actor 를 지운다(codex P2, 2246 보완5)")
+    void sameTickJoinThenLeaveSameSessionStillRemovesActor() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+
+        room.join(userId, "s1"); // 첫 입장.
+        room.leave("s1"); // 같은 틱에 곧바로 퇴장 — 둘 다 첫 틱에 함께 드레인된다.
+        room.tick(1);
+
+        assertThat(actorIn(room.fullStateOf(), userId))
+                .as("join 뒤 leave 가 FIFO 로 처리돼 actor 가 없어야 한다").isNull();
+    }
+
+    @Test
+    @DisplayName("토큰 버킷은 사용자 기준이라 leave 뒤 재접속해도 순간 20 을 다시 받는 우회가 되지 않는다"
+            + "(codex P2, 2246 보완5, policy §3)")
+    void tokenBucketSurvivesReconnectAndStillRateLimitsSameUser() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+
+        for (long seq = 1; seq <= 20; seq++) {
+            room.accept(userId, "s1", new MoveIntent(seq, 1, 5.5, 5.5)); // burst(20) 전부 소진.
+        }
+        assertThat(room.rateLimitedDropCount()).isZero();
+
+        room.leave("s1"); // 실제 퇴장(세션 교체가 아니다) — 같은 틱에 재접속도 들어온다.
+        room.join(userId, "s2");
+        room.tick(++tick);
+
+        room.accept(userId, "s2", new MoveIntent(21, 1, 5.5, 5.5)); // 버킷이 비어 있으니 거절돼야 한다.
+        assertThat(room.rateLimitedDropCount())
+                .as("재접속해도 버킷이 유지돼 순간 20 을 다시 얻으면 안 된다").isEqualTo(1L);
+        assertThat(room.bucketCount()).as("버킷은 세션이 아니라 사용자 기준으로 유지된다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("join 없이 들어온 가짜 accept 의 버킷은 actor 도 departed 도 없으니 다음 틱에 사라진다"
+            + "(codex P2, 2246 보완5)")
+    void bucketFromAcceptWithoutJoinIsPrunedNextTick() {
+        NavGrid grid = openGrid(10, 10);
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, new RecordingListener());
+        UUID ghostUserId = UUID.randomUUID();
+
+        room.accept(ghostUserId, "s9", new MoveIntent(1, 1, 5.5, 5.5)); // join 이 한 번도 없던 세션.
+        assertThat(room.bucketCount()).as("accept() 호출 시점엔 버킷이 생긴다").isEqualTo(1);
+
+        room.tick(1);
+
+        assertThat(room.bucketCount()).as("actor 도 departed 도 없는 사용자의 버킷은 다음 틱에 지워진다")
+                .isZero();
+    }
+
+    @Test
+    @DisplayName("세션 교체(leave 없는 재접속)는 버킷 수를 바꾸지 않고 소진 상태를 그대로 이어간다"
+            + "(codex P2, 2246 보완5)")
+    void sessionReplacementKeepsBucketAndItsConsumedState() {
+        NavGrid grid = openGrid(10, 10);
+        RecordingListener listener = new RecordingListener();
+        RoomRuntime room = newRoom(grid, MovementRules.DEFAULT, listener);
+        UUID userId = UUID.randomUUID();
+        long tick = 0;
+        room.join(userId, "s1");
+        room.tick(++tick);
+
+        for (long seq = 1; seq <= 20; seq++) {
+            room.accept(userId, "s1", new MoveIntent(seq, 1, 5.5, 5.5)); // burst(20) 전부 소진.
+        }
+        assertThat(room.bucketCount()).isEqualTo(1);
+
+        room.join(userId, "s2"); // 세션 교체 — actor 는 leave 없이 그대로 살아 있다.
+        room.tick(++tick);
+
+        assertThat(room.bucketCount()).as("세션 교체는 버킷 수를 바꾸지 않는다").isEqualTo(1);
+
+        room.accept(userId, "s2", new MoveIntent(21, 1, 5.5, 5.5)); // 소진된 버킷 그대로 — 거절돼야 한다.
+        assertThat(room.rateLimitedDropCount())
+                .as("교체가 버킷을 리셋했다면 이 호출은 통과했을 것이다").isEqualTo(1L);
     }
 }

@@ -29,8 +29,9 @@ import java.util.function.LongSupplier;
  * {@link #applyLayout} 은 모두 다른 스레드(STOMP 인바운드)에서 불려도 안전하도록 <b>큐에 넣기만</b> 하고,
  * 실제 처리는 {@link #tick} 이 큐를 드레인할 때 한 스레드에서만 일어난다 — 그래서 {@link Actor} 와 아래
  * 맵들에 동기화가 없다. {@link #accept} 는 예외다 — 토큰 버킷 소모와 "세션당 최신 1개" 병합은 호출
- * 스레드에서 바로 끝낸다(codex P2, 2246 보완2) — 그래서 그 둘이 쓰는 {@link #sessionBuckets}·
- * {@link #pendingIntent} 는 {@link ConcurrentHashMap} 이다.
+ * 스레드에서 바로 끝낸다(codex P2, 2246 보완2) — 그래서 그 둘이 쓰는 {@link #userBuckets}·
+ * {@link #pendingIntent} 는 {@link ConcurrentHashMap} 이다. 토큰 버킷은 사용자(userId) 기준이라
+ * (policy §3 「사용자당」, 2246 보완5) 세션 교체·재접속으로는 바뀌지 않는다.
  */
 public final class RoomRuntime {
 
@@ -56,7 +57,10 @@ public final class RoomRuntime {
     private final ConcurrentLinkedQueue<Command> queue = new ConcurrentLinkedQueue<>();
 
     // accept() 호출 스레드(STOMP)가 틱 스레드와 동시에 건드린다(codex P2) — 그래서 이 둘만 ConcurrentHashMap.
-    private final ConcurrentHashMap<String, Bucket> sessionBuckets = new ConcurrentHashMap<>();
+    // policy §3 「사용자당 초당 10·순간 20」이라 세션이 아니라 userId 로 키를 잡는다(codex P2, 2246
+    // 보완5) — 세션 교체(재접속)마다 새로 만들지 않고, actor 가 있거나 departed 에 남아 있는 동안
+    // 그대로 유지된다(정리는 pruneExpiredDeparted() 끝줄).
+    private final ConcurrentHashMap<UUID, Bucket> userBuckets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, MoveIntent> pendingIntent = new ConcurrentHashMap<>();
     private final AtomicLong rateLimitedDropCount = new AtomicLong();
 
@@ -105,21 +109,24 @@ public final class RoomRuntime {
     }
 
     /**
-     * 토큰 버킷(policy §3, N8)을 호출 스레드(STOMP)에서 바로 소모한다(codex P2) — 큐에 쌓아 틱이 전부
-     * 드레인·정렬하면 폭주하는 세션 하나가 메모리와 틱 처리 시간을 늘려 같은 Ticker 의 다른 방까지
-     * 지연시킨다. 초과하면 큐에 넣지 않고 조용히 버린다({@link #rateLimitedDropCount()}, debug 로그).
+     * 토큰 버킷(policy §3 「사용자당 초당 10·순간 20」, N8)을 호출 스레드(STOMP)에서 바로 소모한다
+     * (codex P2) — 큐에 쌓아 틱이 전부 드레인·정렬하면 폭주하는 사용자 하나가 메모리와 틱 처리 시간을
+     * 늘려 같은 Ticker 의 다른 방까지 지연시킨다. 초과하면 큐에 넣지 않고 조용히 버린다
+     * ({@link #rateLimitedDropCount()}, debug 로그).
      *
-     * <p>통과한 intent 는 세션당 대기 슬롯 하나({@link #pendingIntent})에 {@code merge} 로 덮어쓴다 —
-     * 적용 대기 명령은 actor당 최신 1개뿐이라(policy §3) 이전 pending 은 응답 없이 superseded 로 끝난다
+     * <p>버킷은 {@code userId} 기준이다(codex P2, 2246 보완5) — 세션 기준이면 재접속마다 새
+     * sessionKey 로 새 버킷이 생겨, 접속을 반복하면 매번 순간 20 개를 다시 얻는 우회가 된다. 통과한
+     * intent 는 세션당 대기 슬롯 하나({@link #pendingIntent})에 {@code merge} 로 덮어쓴다 — 적용
+     * 대기 명령은 actor당 최신 1개뿐이라(policy §3) 이전 pending 은 응답 없이 superseded 로 끝난다
      * (protocol §5). 역순으로 도착해도 더 큰 commandSeq 만 남도록 비교해서 고른다 — 이미 채택된 뒤의
      * 명령을 또 보낸 경우의 STALE_COMMAND 응답은 {@link #processAccept} 가 여전히 낸다.
      */
-    public void accept(String sessionKey, MoveIntent intent) {
-        Bucket bucket = sessionBuckets.computeIfAbsent(sessionKey, k -> new Bucket(rules.intentBurst(),
+    public void accept(UUID userId, String sessionKey, MoveIntent intent) {
+        Bucket bucket = userBuckets.computeIfAbsent(userId, k -> new Bucket(rules.intentBurst(),
                 nowNanos.getAsLong()));
         if (!bucket.tryConsume(nowNanos.getAsLong(), rules)) {
             rateLimitedDropCount.incrementAndGet();
-            LOG.debug("세션 {} 토큰 버킷 초과 — commandSeq={} intent 를 큐에 넣지 않고 버린다(N8)", sessionKey,
+            LOG.debug("사용자 {} 토큰 버킷 초과 — commandSeq={} intent 를 큐에 넣지 않고 버린다(N8)", userId,
                     intent.commandSeq());
             return;
         }
@@ -143,7 +150,8 @@ public final class RoomRuntime {
     }
 
     /**
-     * 한 틱 처리: ① 큐 드레인(join → leave → accept → applyLayout → requestFullState 순) ② MOVING
+     * 한 틱 처리: ① 큐 드레인(join·leave·applyLayout·requestFullState 는 큐에 쌓인 순서(FIFO)
+     * 그대로, accept 로 쌓인 대기 intent 는 그 뒤에 한 번에 — {@link #drain()} 참고) ② MOVING
      * actor 전진 ③ 도착 처리(경로당 1회) ④ Snapshot({@code publishSnapshot} 이고 MOVING 이 있었거나
      * 바로 전 틱까지 있었으면, N15) ⑤ serverTick 저장.
      *
@@ -193,13 +201,26 @@ public final class RoomRuntime {
         return rateLimitedDropCount.get();
     }
 
-    /** 패키지 전용 — 테스트용. 지금 살아 있는 세션 토큰 버킷 수(codex P2, 2246 보완3). */
+    /** 패키지 전용 — 테스트용. 지금 살아 있는 사용자 토큰 버킷 수(codex P2, 2246 보완5). */
     int bucketCount() {
-        return sessionBuckets.size();
+        return userBuckets.size();
     }
 
     // ── 큐 드레인 ────────────────────────────────────────────────────────
 
+    /**
+     * join·leave·applyLayout·requestFullState 는 큐에 쌓인 순서(FIFO) 그대로 한 루프에서 처리한다
+     * (codex P2, 2246 보완5 — {@code instanceof} 체인, Java 17 이라 패턴 switch 는 쓰지 않는다).
+     * 예전엔 타입별로 4번 나눠 돌았는데, 같은 STOMP 세션에서 {@code leave(s1)} 뒤 {@code
+     * join(U, s1)} 이 한 틱 안에 들어오면(앱 채널 effect 의 cleanup→재구독이 수 ms 안에 일어나 실제로
+     * 난다) Join 패스가 먼저 전부 돌아 멱등으로 무시되고, 뒤이은 Leave 패스가 방금 재입장한 actor 를
+     * 지워버렸다. FIFO 로 고치면 큐에 들어온 순서 그대로 Leave → Join 이 처리돼 재입장이 살아남는다.
+     *
+     * <p>accept 로 쌓인 대기 intent({@link #pendingIntent})는 세션당 최신 1개로 이미 병합돼 그 안의
+     * 순서가 의미 없으므로 루프 뒤에 {@link #processPendingIntents()} 로 한 번에 처리한다 — 그래서
+     * 같은 틱에 requestFullState 와 intent 가 함께 오면 FullState 가 PathAccepted 보다 먼저 나간다.
+     * PathAccepted 가 곧바로 경로를 갱신하므로 계약상 문제없다.
+     */
     private void drain() {
         List<Command> batch = new ArrayList<>();
         for (Command c = queue.poll(); c != null; c = queue.poll()) {
@@ -208,24 +229,15 @@ public final class RoomRuntime {
         for (Command c : batch) {
             if (c instanceof Join j) {
                 processJoin(j);
-            }
-        }
-        for (Command c : batch) {
-            if (c instanceof Leave l) {
+            } else if (c instanceof Leave l) {
                 processLeave(l);
-            }
-        }
-        processPendingIntents();
-        for (Command c : batch) {
-            if (c instanceof ApplyLayout a) {
+            } else if (c instanceof ApplyLayout a) {
                 processApplyLayout(a);
-            }
-        }
-        for (Command c : batch) {
-            if (c instanceof RequestFullState r) {
+            } else if (c instanceof RequestFullState r) {
                 processRequestFullState(r);
             }
         }
+        processPendingIntents();
     }
 
     private void processJoin(Join cmd) {
@@ -242,8 +254,9 @@ public final class RoomRuntime {
                 // SUBSCRIBE 는 2247 의 requestFullState 가 별도로 받으므로 여기서는 챙기지 않는다.
                 return;
             }
-            // 두 번째 세션이 교체 — 위치·경로는 유지, 명령 번호만 새 세션 기준으로 리셋(N6, N20).
-            sessionBuckets.remove(actor.sessionKey); // 옛 세션의 토큰 버킷 정리(codex P2) — 새 세션은 다음 accept 에서 새로 받는다.
+            // 두 번째 세션이 교체 — 위치·경로는 유지, 명령 번호만 새 세션 기준으로 리셋(N6, N20). 토큰
+            // 버킷은 세션이 아니라 사용자 기준이라(2246 보완5) 여기서 지울 게 없다 — 재접속을 반복해도
+            // 버킷은 그대로 이어져, 순간 20 을 다시 받는 우회가 되지 않는다.
             actor.sessionKey = cmd.sessionKey();
             actor.lastCommandSeq = 0;
         }
@@ -261,7 +274,8 @@ public final class RoomRuntime {
             return; // 이미 다른 세션으로 교체된 뒤의 뒷북 — 그 세션의 actor 를 건드리지 않는다.
         }
         actors.remove(userId);
-        sessionBuckets.remove(cmd.sessionKey()); // 떠난 세션의 토큰 버킷 정리(codex P2) — 안 지우면 재입장 없는 세션 키마다 하나씩 남는다.
+        // 토큰 버킷(사용자 기준, 2246 보완5)은 여기서 지우지 않는다 — departed 에 남아 있는 10분
+        // 동안 유지돼야 그 안에 재접속해도 순간 20 을 다시 받지 못한다. 정리는 pruneExpiredDeparted().
         departed.put(userId, new Departed(new MovementEvent.Point(actor.x, actor.y), serverTick));
         listener.onEvent(islandId, fullStateOf(), Target.ALL);
     }
@@ -285,11 +299,10 @@ public final class RoomRuntime {
     private void processAccept(String sessionKey, MoveIntent intent) {
         Actor actor = actorFor(sessionKey);
         if (actor == null) {
-            // 퇴장 뒤 지연 도착한 accept(codex P2, 2246 보완3) — accept() 가 호출 스레드(STOMP)에서 이미
-            // 만들어 둔 sessionBuckets·pendingIntent 항목을 여기서 지운다. 이 세션엔 leave 가 다시 오지
-            // 않으므로 processLeave 의 정리를 기대할 수 없다 — 안 지우면 세션 키마다 버킷이 하나씩
-            // 영원히 남는다.
-            sessionBuckets.remove(sessionKey);
+            // 퇴장 뒤 지연 도착한 accept, 또는 join 없이 들어온 가짜 accept(codex P2, 2246 보완5) —
+            // 세션 자체가 유효하지 않으니 대기 intent 만 지운다(동시에 들어온 race 대비 — 보통은 이미
+            // processPendingIntents() 가 지운 뒤라 no-op). 토큰 버킷(사용자 기준)은 여기서 지우지
+            // 않는다 — actor 도 departed 도 없는 사용자의 버킷은 pruneExpiredDeparted() 가 지운다.
             pendingIntent.remove(sessionKey);
             return;
         }
@@ -335,9 +348,9 @@ public final class RoomRuntime {
 
     private void processRequestFullState(RequestFullState cmd) {
         if (actorFor(cmd.sessionKey()) == null) {
-            // 같은 틱에 leave 가 먼저 드레인됐거나(drain 순서상 Leave → RequestFullState) 세션이 교체돼
-            // 다른 세션이 이 actor 를 들고 있다(codex P2, 2246 보완3) — 퇴장한 세션에 FullState 를 보내지
-            // 않는다.
+            // 이 세션이 같은 틱에 먼저 드레인된 leave 로 이미 떠났거나(큐 순서(FIFO)상 Leave 가 앞,
+            // 2246 보완5) 세션이 교체돼 다른 세션이 이 actor 를 들고 있다(codex P2, 2246 보완3) —
+            // 퇴장한 세션에 FullState 를 보내지 않는다.
             return;
         }
         listener.onEvent(islandId, fullStateOf(), Target.only(cmd.sessionKey()));
@@ -426,10 +439,16 @@ public final class RoomRuntime {
      * 만료된 퇴장 기억을 매 틱 지운다(codex P2) — {@link #isRemovable()} 이 실제로 비는 날이 오게 하는
      * 쪽이다. 건수가 최근 퇴장자 수로 자연히 작아 매 틱 비용은 무시할 만하다(ponytail: 20틱마다로
      * 나누는 추가 상태 없이 가장 단순한 쪽을 택한다).
+     *
+     * <p>같은 틱에 토큰 버킷도 정리한다(codex P2, 2246 보완5) — actor 도 departed 도 없는 사용자는
+     * 더 이상 이 방과 관계가 없으니 버킷을 들고 있을 이유가 없다. {@code userBuckets} 는
+     * {@link ConcurrentHashMap} 이라 이 순회(스레드: 틱)가 {@link #accept}(스레드: STOMP)의 동시
+     * 삽입과 겹쳐도 안전하다.
      */
     private void pruneExpiredDeparted() {
         long window = rules.ticksFor(DEPARTED_MEMORY_MS);
         departed.values().removeIf(d -> serverTick - d.tick() > window);
+        userBuckets.keySet().removeIf(u -> !actors.containsKey(u) && !departed.containsKey(u));
     }
 
     // ── 스냅샷 ────────────────────────────────────────────────────────────
@@ -503,8 +522,9 @@ public final class RoomRuntime {
     }
 
     /**
-     * 세션별 토큰 버킷(policy §3, N8) — {@link #accept} 호출 스레드에서 직접 소모한다(codex P2). 리필
-     * 기준은 틱 번호가 아니라 생성 시점에 받는 나노초 시계(기본은 벽시계) — accept 는 틱 스레드 밖에서 불린다.
+     * 사용자별 토큰 버킷(policy §3, N8) — {@link #accept} 호출 스레드에서 직접 소모한다(codex P2,
+     * 2246 보완5). 리필 기준은 틱 번호가 아니라 생성 시점에 받는 나노초 시계(기본은 벽시계) — accept
+     * 는 틱 스레드 밖에서 불린다.
      */
     private static final class Bucket {
 
