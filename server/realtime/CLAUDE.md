@@ -155,6 +155,9 @@ designed fresh.
 | `SUB /topic/islands/{islandId}/focus`, `/rest` | 섬의 집중·휴식 주민 갱신. **인증만** — 비소속 관전 개방(2026-09-19) |
 | `SUB /topic/islands/{islandId}/emotes` | 응원 수신. 그 섬의 **본인 진행 세션(active·paused)** 이 있어야 한다 |
 | `SEND /app/islands/{islandId}/focus/emotes` | 응원 발신, body `{sessionId,type}`. 성공은 브로드캐스트가 ack |
+| `SUB /topic/islands/{islandId}/movement` | 섬 이동 동기화(GROMO-2247): FullState·PathAccepted·MoveRejected·Arrived — 세션별 직접 전송, **members only**(`requireMember`, 비멤버는 ERROR `NOT_A_MEMBER` + 1008). 첫 메시지는 항상 FullState |
+| `SUB /topic/islands/{islandId}/movement/snapshot` | 같은 섬의 위치 Snapshot(≤20Hz, 세션당 최신 1개만 전송). members only |
+| `SEND /app/islands/{islandId}/movement/intent` | 목적지 전송, body `{commandSeq,navRevision,goalX,goalY}`. movement 구독 보유 세션만; 응답은 PathAccepted/MoveRejected. 사용자당 10/s·순간 20 초과는 조용히 버림 |
 | `GET /api/v1/chat/rooms` | my islands + unread counts |
 | `GET /api/v1/chat/rooms/{groupId}/messages?cursor&size` | history, newest → oldest |
 | `POST /api/v1/chat/rooms/{groupId}/read` | advance the read cursor (forward only) |
@@ -250,7 +253,10 @@ ON 실패 시 기존 캐시 fallback은 없다. `allowed:false`는 `NOT_A_MEMBER
 실패했는지 추측하지 않는다. 로컬 invalid AT는401, 서비스401/403/404·5xx·malformed·timeout은503이다.
 
 현재 연결 범위는 그룹 SUBSCRIBE, SEND 서비스, 히스토리 GET, 읽음 POST, 기존 그룹 outbound
-`beforeHandle`이다. CONNECT·방 목록·duplicates·개인큐는 이 추가 조회 범위가 아니다.
+`beforeHandle`, 그리고 **movement 두 토픽의 SUBSCRIBE**(`ChatAccessGuard.requireMember` — 집중 여부 없이
+멤버십만, GROMO-2247)이다. ON이면 movement SUBSCRIBE도 Data 현재 인가를 탄다. 그 뒤의 강퇴는
+`island.members.updated` 수신 때 `MovementSubscriptionListener`가 outbox 색인을 돌며 다시 검사한다.
+CONNECT·방 목록·duplicates·개인큐는 이 추가 조회 범위가 아니다.
 새14개 이벤트·시설·snapshot·재연결·transport는 계속 닫혀 있고 host-transfer도 OFF다.
 rooms 목록·개인 duplicates의 오래된 재전송 응답까지 현재 세션을 검사하는 것은 아니므로
 “로그아웃 후 채팅 전체 즉시 차단”·“Realtime 전체 세션 철회 완료”로 설명하지 않는다.
