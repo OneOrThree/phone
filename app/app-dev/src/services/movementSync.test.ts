@@ -332,6 +332,21 @@ describe('다른 주민 스냅샷 버퍼', () => {
     assert.equal(buf.push(B, sample(11, { x: 9, y: 10.5 }, 2)), false);
   });
 
+  test('새 pathId 의 PathAccepted 뒤 늦게 온 이전 경로의 샘플은 버리고(되돌아가지 않음), 새 경로의 샘플은 채택한다', () => {
+    const buf = new SnapshotBuffer();
+    buf.addPath(B, 1, corner);
+    assert.equal(buf.push(B, sample(10, { x: 11.5, y: 10.5 }, 1)), true);
+    buf.addPath(B, 2, [
+      { x: 12.5, y: 12.5 },
+      { x: 13.5, y: 12.5 },
+    ]);
+    // tick 은 last(10) 보다 새롭지만(11>10) pathId(1)가 latestPathId(2)보다 오래됐다 — 버린다.
+    assert.equal(buf.push(B, sample(11, { x: 12, y: 10.5 }, 1)), false);
+    assert.equal(buf.push(B, sample(12, { x: 13, y: 12.5 }, 2)), true);
+    // 거부된 path1 샘플로 되돌아가지 않고 path2 위에 선다.
+    assert.deepEqual(xyOf(buf.positionAt(B, 12)), { x: 13, y: 12.5 });
+  });
+
   test('Arrived 가 오면 도착점에 고정하고 샘플을 비운다 — 같은 경로의 늦은 좌표도 무시한다', () => {
     const buf = new SnapshotBuffer();
     buf.addPath(B, 1, corner);

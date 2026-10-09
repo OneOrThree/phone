@@ -1465,8 +1465,18 @@ function FinalIslandScene({
       xy.stopAnimation((value) => (here = value));
       location.current = here;
       walkCells.current = waypoints;
-      const rest = remainingPath([start, ...waypoints], imageToWorld(here, size));
-      walkPath([here, ...rest.map((p) => worldToImage(p, size))], walkDone.current, 1000 / speed);
+      const hereWorld = imageToWorld(here, size);
+      const rest = remainingPath([start, ...waypoints], hereWorld);
+      // 연결 구간(지금 자리 → 갈아탄 경로의 첫 꼭짓점)도 통행 가능한 경로여야 한다 — 직선은
+      // 장애물의 다른 쪽을 지날 수 있어(로컬 예측과 서버 경로가 반대편일 때) 로컬 A* 로 잇는다.
+      const target = rest[0] ?? waypoints[waypoints.length - 1] ?? start;
+      const connect = navPath(activeNav(mapAssets, navBuildings), hereWorld, target);
+      const worldPath = connect.length ? [...connect, ...rest.slice(1)] : rest;
+      walkPath(
+        [here, ...worldPath.map((p) => worldToImage(p, size))],
+        walkDone.current,
+        1000 / speed,
+      );
     },
     onMyArrived: (p) => {
       const at = worldToImage(p, sizeOf(grid));

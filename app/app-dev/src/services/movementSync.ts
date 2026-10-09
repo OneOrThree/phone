@@ -110,6 +110,7 @@ export const sameCells = (a: readonly WorldPoint[], b: readonly WorldPoint[]) =>
 /**
  * 경로(출발점 포함)에서 from 을 가장 가까운 선분에 투영하고 그 뒤에 남은 꼭짓점만 돌려준다.
  * 걷는 도중 서버 경로로 갈아탈 때 이미 지나온 꼭짓점으로 되돌아가지 않게 한다.
+ * from → 첫 꼭짓점의 연결 구간은 직선이 아닐 수 있다 — 호출자가 통행 가능한 경로로 잇는다.
  */
 export function remainingPath(path: readonly WorldPoint[], from: WorldPoint): WorldPoint[] {
   if (path.length < 2) return [];
@@ -159,11 +160,11 @@ export class SnapshotBuffer {
     if (t.paths.size > MAX_SAMPLES) t.paths.delete(t.paths.keys().next().value as number);
   }
 
-  /** 모르는 pathId·이미 도착한 경로·지난 틱의 샘플은 버린다(false). */
+  /** 모르는 pathId·이미 도착한 경로·latestPathId 보다 오래된 경로·지난 틱의 샘플은 버린다(false). */
   push(userId: string, s: Omit<Sample, 'along'>): boolean {
     const t = this.tracks.get(userId);
     const line = t?.paths.get(s.pathId);
-    if (!t || !line || s.pathId === t.arrivedPathId) return false;
+    if (!t || !line || s.pathId === t.arrivedPathId || s.pathId < t.latestPathId) return false;
     const last = t.samples[t.samples.length - 1];
     if (last && s.serverTick <= last.serverTick) return false;
     t.fixed = null;

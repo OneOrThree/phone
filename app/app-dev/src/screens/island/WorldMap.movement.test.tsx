@@ -4,11 +4,14 @@
  * 플래그 off·목업 섬·채널 거절이면 이 PR 이전과 같다(채널 없음·로컬 걷기·Wanderer).
  */
 import React from 'react';
+import { Animated } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { initialState } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 import type { IslandChannelOpts } from '@/services/islandRealtime';
-import { imageToWorld, worldToImage, type WorldPoint } from '@/utils/worldCoords';
+import { imageToWorld, worldToImage, worldToCell, type WorldPoint } from '@/utils/worldCoords';
+import { loadNav } from '@/utils/nav-path';
+import bundledNavJson from '@/assets/village-world/v1/nav.json';
 
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있다.
 const mockLayoutHeight = 874;
@@ -313,6 +316,57 @@ it('PathAccepted 경로가 로컬과 다르면 지금 자리에서 서버 경로
   expect(end.y).toBeCloseTo(46.4, 6);
   // 갈아타기는 새 명령을 보내지 않는다.
   expect(channel().send).toHaveBeenCalledTimes(1);
+  await screen.unmount();
+});
+
+it('로컬 예측과 서버 경로가 멀리 떨어져 있어도 갈아탄 연결 구간은 인접한 통행 셀로만 잇는다(장애물 관통 금지)', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  await emit(fullState([actor(ME, SPAWN)]));
+  // 로컬 A*: 오른쪽으로 곧장(39.5..42.5, 45.5) — 아직 한 틱도 안 지났다(here == SPAWN).
+  await tapGround(screen, { x: 42.5, y: 45.5 });
+  // Animated.timing 을 즉시 끝내 갈아타는 걷기 전체를 한 번에 풀고, 거친 꼭짓점(toValue)을 전부 기록한다.
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  let verts: WorldPoint[] = [SPAWN];
+  try {
+    // 서버는 지금 자리(SPAWN)에서 4칸 떨어진 아래쪽 줄로 경로를 확정했다 — 직선이면 건너뛴다.
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 49.5 },
+        { x: 40.5, y: 49.5 },
+        { x: 41.5, y: 49.5 },
+      ]),
+    );
+    // mockRestore 는 mock.calls 기록도 지운다 — 복원 전에 먼저 읽어 둔다.
+    verts = [
+      SPAWN,
+      ...timing.mock.calls.map((call) =>
+        imageToWorld(
+          (call[1] as Animated.TimingAnimationConfig).toValue as unknown as WorldPoint,
+          SIZE,
+        ),
+      ),
+    ];
+  } finally {
+    timing.mockRestore();
+  }
+  // 단일 직선 점프(here → rest[0], 꼭짓점 4개)가 아니라 로컬 A* 로 여러 꼭짓점을 거쳐 간다.
+  expect(verts.length).toBeGreaterThan(4);
+  const nav = loadNav(bundledNavJson as never, ['hall']);
+  for (let i = 1; i < verts.length; i++) {
+    const a = worldToCell(verts[i - 1]),
+      b = worldToCell(verts[i]);
+    // 8방향 인접(체비셰프 거리 1 이하) — 장애물 반대편으로 건너뛰지 않는다는 관찰 가능한 형태.
+    expect(Math.max(Math.abs(a.cx - b.cx), Math.abs(a.cy - b.cy))).toBeLessThanOrEqual(1);
+    expect(nav.walkable[b.cy * nav.cols + b.cx]).toBe(1);
+  }
   await screen.unmount();
 });
 
