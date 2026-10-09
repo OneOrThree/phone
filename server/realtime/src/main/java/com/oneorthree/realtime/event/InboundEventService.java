@@ -158,9 +158,16 @@ public class InboundEventService {
         if (!membershipChanged) {
             return;
         }
-        evictMember(params.get("memberUserId"));
+        boolean evictionFailed = evictMember(params.get("memberUserId"));
         if (MEMBER_REMOVED.equals(changeKind.stringValue())) {
-            recheckMovementAfterCommit(uuidOrNull(params.get("islandId")), uuidOrNull(params.get("memberUserId")));
+            UUID islandId = uuidOrNull(params.get("islandId"));
+            UUID memberUserId = uuidOrNull(params.get("memberUserId"));
+            if (evictionFailed) {
+                // 옛 「멤버」 캐시가 TTL 동안 남는다 — 그 사람이 지금 이동 outbox 가 없으면 아래 재검사도 잡을 게 없으니,
+                // 그 (섬, 사용자)의 다음 이동 구독은 캐시를 건너뛰고 판정받게 표시한다. 재검사보다 먼저다.
+                movementSubscriptions.markMembershipCacheStale(islandId, memberUserId);
+            }
+            recheckMovementAfterCommit(islandId, memberUserId);
         }
     }
 
@@ -202,15 +209,17 @@ public class InboundEventService {
         }
     }
 
-    private void evictMember(JsonNode memberUserId) {
+    /** @return 캐시 삭제를 시도했는데 Redis 가 실패했으면 true — 옛 답이 TTL 동안 남는다 */
+    private boolean evictMember(JsonNode memberUserId) {
         if (memberUserId == null || !memberUserId.isString()) {
             log.debug("주민 사건에 memberUserId 가 없다 — 옛 Data. TTL 로만 무효화한다.");
-            return;
+            return false;
         }
         try {
-            membershipService.evict(UUID.fromString(memberUserId.stringValue()));
+            return !membershipService.evict(UUID.fromString(memberUserId.stringValue()));
         } catch (IllegalArgumentException e) {
             log.warn("memberUserId 가 UUID 형식이 아닙니다 — 무효화를 건너뜁니다.");
+            return false;
         }
     }
 

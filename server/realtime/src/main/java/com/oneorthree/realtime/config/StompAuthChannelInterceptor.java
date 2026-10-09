@@ -253,14 +253,24 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             return;
         }
         long generation = movementSubscriptions.recheckGeneration(islandId); // 판정(캐시일 수 있다)보다 먼저 읽는다
+        // 강퇴 사건의 캐시 삭제가 실패해 옛 「멤버」 답이 남았을 수 있다 — 그 (섬, 사용자)는 캐시를 건너뛰고 정본에 묻는다.
+        boolean staleCache = movementSubscriptions.membershipCacheStale(islandId, principal.userId());
         try {
             if (!acquireWindow(RedisKeys.movementSubscribeAttempt(principal.userId()))) {
                 throw new ChatException(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
             }
-            accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            if (staleCache) {
+                accessGuard.requireMemberUncached(islandId, principal.userId(), principal.bearer());
+            } else {
+                accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            }
         } catch (RuntimeException e) {
             sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
             throw e;
+        }
+        if (staleCache) {
+            // 정본이 「멤버」라고 답했고 그 답이 캐시도 덮었다 — 다음 구독은 다시 캐시를 쓴다. 비멤버면 표시를 남긴다.
+            movementSubscriptions.clearMembershipCacheStale(islandId, principal.userId());
         }
         accessor.setHeader(MovementSubscriptionListener.JUDGED, generation);
     }

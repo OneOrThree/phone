@@ -253,6 +253,29 @@ class InboundEventServiceTest {
     }
 
     @Test
+    @DisplayName("강퇴 사건의 멤버십 캐시 삭제가 실패하면 그 (섬, 사용자)의 이동 구독 판정이 캐시를 건너뛰게 표시한다 — 성공하면 표시하지 않는다")
+    void failedCacheEvictionMarksTheMembershipStaleForMovement() {
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        MovementSubscriptionListener listener = mock(MovementSubscriptionListener.class);
+        MembershipService membership = mock(MembershipService.class);
+        InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
+                mock(EventRouter.class), membership, mock(BlockedUsers.class), listener);
+        UUID island = UUID.randomUUID();
+        UUID kicked = UUID.randomUUID();
+        UUID evicted = UUID.randomUUID();
+        given(membership.evict(kicked)).willReturn(false); // Redis 실패 — 옛 「멤버」 답이 남는다
+        given(membership.evict(evicted)).willReturn(true);
+
+        plain.accept(objectMapper.readTree(membersUpdated(island, "MEMBER_REMOVED", kicked, 4)));
+        plain.accept(objectMapper.readTree(membersUpdated(island, "MEMBER_REMOVED", evicted, 5)));
+
+        verify(listener).markMembershipCacheStale(island, kicked);
+        verify(listener, never()).markMembershipCacheStale(island, evicted);
+    }
+
+    @Test
     @DisplayName("이동 방 재검사가 던져도 사건 수신은 그대로 커밋된다 — relay 가 같은 사건을 되풀이하지 않는다")
     void movementRecheckFailureNeverRollsBackTheEvent() throws Exception {
         UUID island = UUID.randomUUID();

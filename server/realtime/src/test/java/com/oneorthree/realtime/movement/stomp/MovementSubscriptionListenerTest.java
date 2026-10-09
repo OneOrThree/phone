@@ -113,7 +113,7 @@ class MovementSubscriptionListenerTest {
 
     private MovementSubscriptionListener listener(MovementRooms movementRooms, MovementPublisher publisher) {
         return new MovementSubscriptionListener(movementRooms, publisher, sessions, accessGuard, jwtValidator,
-                meterRegistry, scheduler, watchdog);
+                meterRegistry, scheduler, watchdog, 120);
     }
 
     @Test
@@ -589,6 +589,44 @@ class MovementSubscriptionListenerTest {
         verify(counted, never()).accept(any(), any(), any(), any());
         assertThat(sendIntent(gate, controller, "tablet", tablet, 1)).as("현재 기기는 정상").isTrue();
         verify(counted).accept(eq(island), eq(phone.userId()), eq("tablet"), any());
+    }
+
+    @Test
+    @DisplayName("강퇴 사건의 캐시 삭제가 실패했고 그 사람 outbox 도 없으면 다음 이동 구독은 캐시를 건너뛰고 판정한다 — 비멤버면 거절(ERROR)")
+    void subscribeAfterAFailedCacheEvictionIsJudgedUncached() {
+        StompAuthChannelInterceptor gate = gate();
+        ChatPrincipal kicked = connect("b");
+        listener.markMembershipCacheStale(island, kicked.userId()); // InboundEventService — 캐시 삭제 실패
+        listener.recheckMembership(island, kicked.userId()); // outbox 가 없어 재검사할 것도 없다
+        assertThat(scheduled).isEmpty();
+        willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMemberUncached(island, kicked.userId(), kicked.bearer());
+
+        assertThatThrownBy(() -> inbound(gate, raw("b", "m", StompTopics.movementTopic(island), kicked)))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+        verify(accessGuard, times(1)).requireMemberUncached(island, kicked.userId(), kicked.bearer());
+        verify(accessGuard, never()).requireMember(any(), any(), any());
+        assertThat(listener.membershipCacheStale(island, kicked.userId())).as("비멤버면 표시가 남는다").isTrue();
+        assertThat(publisher.outboxes(island)).as("방에 들어가지 않는다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("캐시를 건너뛴 판정이 통과하면 표시를 지운다 — 다음 이동 구독은 다시 캐시 경로로 판정한다")
+    void passingUncachedJudgmentClearsTheStaleMark() {
+        StompAuthChannelInterceptor gate = gate();
+        ChatPrincipal phone = connect("b");
+        listener.markMembershipCacheStale(island, phone.userId());
+
+        inbound(gate, raw("b", "m", StompTopics.movementTopic(island), phone)); // 캐시 없이 — 통과(그새 다시 들어왔다)
+        verify(accessGuard, times(1)).requireMemberUncached(island, phone.userId(), phone.bearer());
+        assertThat(listener.membershipCacheStale(island, phone.userId())).isFalse();
+
+        ChatPrincipal tablet = register("c", phone.userId()); // 같은 사용자의 다른 세션 — 이어받을 outbox 가 없어 새로 판정
+        inbound(gate, raw("c", "m", StompTopics.movementTopic(island), tablet));
+        verify(accessGuard, times(1)).requireMember(island, phone.userId(), tablet.bearer());
+        verify(accessGuard, times(1)).requireMemberUncached(any(), any(), any());
     }
 
     @Test

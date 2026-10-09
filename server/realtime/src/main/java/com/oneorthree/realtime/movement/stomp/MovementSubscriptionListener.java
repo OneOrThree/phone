@@ -15,6 +15,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -119,6 +120,14 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     private final ConcurrentHashMap<UUID, Long> recheckGenerations = new ConcurrentHashMap<>();
 
     /**
+     * 강퇴 사건의 멤버십 캐시 삭제가 실패한 (섬, 사용자) → 표시가 풀리는 시각(nanoTime). 그 사람 outbox 가 없으면 재검사도
+     * 잡을 게 없고 옛 「멤버」 캐시가 남으므로, 그동안 관문의 이동 구독 판정이 캐시를 건너뛴다. 남은 캐시가 저절로 만료되는
+     * TTL 만큼만 기억한다.
+     */
+    private final ConcurrentHashMap<StaleMembership, Long> staleMemberships = new ConcurrentHashMap<>();
+    private final long membershipCacheTtlNanos;
+
+    /**
      * ponytail: 판정 풀은 1스레드 — 상류 장애 때 판정이 줄을 서 31초 예산보다 늦게 끝날 수 있다(그동안 멈춰 있어
      * fail-closed). 늘려야 하면 {@code newExecutor(1, …)} 의 크기만 키운다 — 같은 outbox 의 옛·새 작업이 겹쳐도
      * 처치는 세대 비교({@code rechecks} 의 compute/remove/replace)로 한 번뿐이다.
@@ -126,15 +135,15 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     @Autowired
     public MovementSubscriptionListener(MovementRooms rooms, MovementPublisher publisher,
             RealtimeSessionRegistry sessions, ChatAccessGuard accessGuard, JwtValidator jwtValidator,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry, @Value("${chat.membership.cache-ttl-seconds:120}") long membershipCacheTtl) {
         this(rooms, publisher, sessions, accessGuard, jwtValidator, meterRegistry, newExecutor(1, "movement-recheck"),
-                newExecutor(2, "movement-watchdog"));
+                newExecutor(2, "movement-watchdog"), membershipCacheTtl);
     }
 
     /** 패키지 전용 — 테스트가 두 실행기를 갈아 끼워 실제 대기 없이 한 단계씩 돌린다. */
     MovementSubscriptionListener(MovementRooms rooms, MovementPublisher publisher, RealtimeSessionRegistry sessions,
             ChatAccessGuard accessGuard, JwtValidator jwtValidator, MeterRegistry meterRegistry,
-            ScheduledExecutorService scheduler, ScheduledExecutorService watchdog) {
+            ScheduledExecutorService scheduler, ScheduledExecutorService watchdog, long membershipCacheTtlSeconds) {
         this.rooms = rooms;
         this.publisher = publisher;
         this.sessions = sessions;
@@ -142,6 +151,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         this.jwtValidator = jwtValidator;
         this.scheduler = scheduler;
         this.watchdog = watchdog;
+        this.membershipCacheTtlNanos = TimeUnit.SECONDS.toNanos(membershipCacheTtlSeconds);
         this.suspendedCount = Counter.builder("movement.recheck.suspended")
                 .description("강퇴 재검사로 이동 전달을 멈춘 횟수 — 재판정 예약(세션×섬)마다 1, 통과 판정 때만 재개")
                 .register(meterRegistry);
@@ -311,6 +321,31 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     /** 그 섬의 재검사 세대 — 관문이 판정 직전에 읽어 {@link #JUDGED} 에 찍는다. */
     public long recheckGeneration(UUID islandId) {
         return recheckGenerations.getOrDefault(islandId, 0L);
+    }
+
+    /**
+     * 강퇴(MEMBER_REMOVED) 사건의 멤버십 캐시 삭제가 실패했다 — 그 (섬, 사용자)의 이동 구독 판정이 캐시 TTL 동안 캐시를
+     * 건너뛰게 표시한다. {@code InboundEventService} 가 재검사({@link #recheckMembership})보다 <b>먼저</b> 부른다 — 재검사가
+     * 세대를 올린 뒤 시작하는 판정은 반드시 이 표시를 본다. 던지지 않는다.
+     */
+    public void markMembershipCacheStale(UUID islandId, UUID userId) {
+        if (islandId == null || userId == null) {
+            return;
+        }
+        long now = System.nanoTime();
+        staleMemberships.values().removeIf(until -> until - now <= 0); // 지난 표시 정리 — 삭제 실패는 드물다
+        staleMemberships.put(new StaleMembership(islandId, userId), now + membershipCacheTtlNanos);
+    }
+
+    /** 관문 — 이 (섬, 사용자)의 멤버십 캐시를 믿지 말아야 하는가(강퇴 뒤 캐시 삭제 실패, TTL 안). */
+    public boolean membershipCacheStale(UUID islandId, UUID userId) {
+        Long until = staleMemberships.get(new StaleMembership(islandId, userId));
+        return until != null && until - System.nanoTime() > 0;
+    }
+
+    /** 관문 — 캐시 없이 물은 답이 「멤버」였다(그 답이 캐시도 덮었다) — 표시를 지운다. */
+    public void clearMembershipCacheStale(UUID islandId, UUID userId) {
+        staleMemberships.remove(new StaleMembership(islandId, userId));
     }
 
     /**
@@ -523,6 +558,9 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     }
 
     private enum Verdict { ALLOWED, NOT_A_MEMBER, UNAUTHORIZED, UNKNOWN, GONE }
+
+    /** 멤버십 캐시를 믿지 않을 (섬, 사용자). */
+    private record StaleMembership(UUID islandId, UUID userId) { }
 
     /** 재판정 한 세대 — {@code attempt} 0 은 사건 직후, 1~5 는 재시도. */
     private static final class Recheck {

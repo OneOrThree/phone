@@ -134,13 +134,18 @@ public class MembershipService {
      * 사건이 준 즉시 무효화 — 그 유저의 캐시만 지운다(GROMO-2140).
      *
      * <p>실패해도 사건 처리를 막지 않는다({@link #store} 와 같은 이유) — 지우기가 실패해도 그 TTL 이
-     * 지나면 어차피 만료되므로, 여기서 예외를 올려 사건 적용 전체를 되돌릴 값어치가 없다.
+     * 지나면 어차피 만료되므로, 여기서 예외를 올려 사건 적용 전체를 되돌릴 값어치가 없다. 다만 실패를 돌려줘
+     * 부르는 쪽이 그 TTL 동안의 옛 답을 피해 갈 수 있게 한다(강퇴 뒤 이동 구독, GROMO-2247).
+     *
+     * @return 지웠거나 지울 게 없었으면 true, Redis 가 실패해 옛 답이 TTL 동안 남으면 false
      */
-    public void evict(UUID userId) {
+    public boolean evict(UUID userId) {
         try {
             redis.delete(RedisKeys.memberCache(userId));
+            return true;
         } catch (RuntimeException e) {
             log.warn("멤버십 캐시 무효화 실패 — userId={}", userId, e);
+            return false;
         }
     }
 
