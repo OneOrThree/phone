@@ -434,29 +434,46 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     // 대기 카드·취소 버튼이 남지 않게 한다. 서버가 version을 안 주면 기존 값을 유지한다(합성 금지).
     cancel: (requestId: string) =>
       call(async () => {
-        const g = generation(),
-          res = await api.cancelJoinRequest(
+        const g = generation();
+        let confirmed = false;
+        try {
+          const res = await api.cancelJoinRequest(
             requestId,
             scoped().keys.key(`cancel:${requestId}`, ''),
           );
+          alive(g);
+          confirmed = true;
+          // 목록이 갈아 끼워지기 전 기존 엔트리에서 islandId를 찾는다 — 모르면 합성하지 않는다.
+          const snap = deps.getSnap(),
+            prev =
+              snap?.requestStatus.find((x) => x.id === requestId) ??
+              snap?.joinRequests.find((x) => x.id === requestId) ??
+              (snap?.visit?.joinRequest?.id === requestId ? snap.visit.joinRequest : undefined);
+          if (prev)
+            deps.dispatch({
+              type: 'ISLAND_REQUEST',
+              request: { id: res.id, islandId: prev.islandId, status: res.status },
+            });
+          const requests = await allJoinRequests(g);
+          alive(g);
+          deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests });
+        } catch (error) {
+          alive(g);
+          if (!unknownOutcome(error)) throw error;
+          const snapshot = await syncIslandSnapshot().catch(() => null);
+          alive(g);
+          if (!snapshot || snapshot.requests.some((item) => item.id === requestId)) throw error;
+          // DELETE 응답까지 잃었으면 목록 누락만으로 취소를 추측하지 않는다(동시 승인·거절 가능).
+          if (!confirmed) {
+            const request = await api.joinRequest(requestId).catch(() => null);
+            alive(g);
+            if (request?.status !== 'cancelled') throw error;
+            deps.dispatch({ type: 'ISLAND_REQUEST', request });
+          }
+        }
         alive(g);
-        // 목록이 갈아 끼워지기 전 기존 엔트리에서 islandId를 찾는다 — 모르면 합성하지 않는다
-        const snap = deps.getSnap(),
-          prev =
-            snap?.requestStatus.find((x) => x.id === requestId) ??
-            snap?.joinRequests.find((x) => x.id === requestId) ??
-            (snap?.visit?.joinRequest?.id === requestId ? snap.visit.joinRequest : undefined);
-        // 목록 갱신 전에 종결 상태를 먼저 기록한다 — reducer가 기존 항목의 version을 유지할 수 있게
-        if (prev)
-          deps.dispatch({
-            type: 'ISLAND_REQUEST',
-            request: { id: res.id, islandId: prev.islandId, status: res.status },
-          });
-        const requests = await allJoinRequests(g);
-        alive(g);
-        deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests });
         scoped().keys.release(`cancel:${requestId}`, '');
-      }, true),
+      }),
     // 섬 탈퇴(4-06) — 응답만으로 로컬 소속을 지우지 않고 /me/islands 재조회로 확정한다.
     // 마지막 섬이었으면 current 가 비어 onboarded=false 가 되고 App 이 섬 선택 화면으로 보낸다.
     // 결과 불명 오류는 재조회에서 소속이 사라졌으면 성공으로 확정한다.

@@ -718,6 +718,7 @@ function Gromo() {
     onHome,
     refreshKey: homeReload,
   });
+  // 관리 화면도 needsHome이므로 홈 복귀 여부를 별도로 추적해 이름·인원·역할을 다시 읽는다.
   useEffect(() => {
     if (!loaded || !serverCurrent || !needsHome) return;
     let live = true;
@@ -749,7 +750,7 @@ function Gromo() {
     return () => {
       live = false;
     };
-  }, [loaded, serverCurrent, needsHome, homeReload]);
+  }, [loaded, serverCurrent, needsHome, onHome, homeReload]);
   // ── 집중 세션 서버 명령(GROMO-2009) ──
   // 섬 명령과 같은 저장소 규칙 — 멱등 키는 세대 격리 ref, state·세션은 최신 ref로 읽는다.
   const focusCmds = useRef<ReturnType<typeof createSessionCommands> | null>(null);

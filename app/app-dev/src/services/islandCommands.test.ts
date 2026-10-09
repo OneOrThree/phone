@@ -1027,3 +1027,89 @@ test('가입 복구 조회 도중 계정이 바뀌면 성공 처리·상태 반�
   assert.equal(h.dispatched.length, 0);
   assert.equal(h.went.length, 0);
 });
+
+test('취소 성공 후 첫 목록 조회가 실패해도 복구 목록에서 신청이 없으면 성공하고 키를 해제한다', async () => {
+  const cancel = jest.fn().mockResolvedValue({ id: 'r1', status: 'cancelled' });
+  const requests = jest
+    .fn()
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0))
+    .mockResolvedValue({ items: [], nextCursor: null });
+  const h = harness({
+    cancelJoinRequest: cancel,
+    myJoinRequests: requests,
+    myIslands: async () => myIslands(),
+  });
+  await h.cmds.commands.cancel('r1');
+  expect(requests).toHaveBeenCalledTimes(2);
+  await h.cmds.commands.cancel('r1');
+  assert.notEqual(cancel.mock.calls[0][1], cancel.mock.calls[1][1]);
+});
+
+test('취소 응답까지 유실되면 단건 상태의 cancelled로 성공을 확정한다', async () => {
+  const h = harness({
+    cancelJoinRequest: async () => {
+      throw new ApiError('CLIENT_TIMEOUT', 'lost', 0);
+    },
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+    myIslands: async () => myIslands(),
+    joinRequest: async () => ({ id: 'r1', islandId: 'i1', status: 'cancelled', version: 4 }),
+  });
+  await h.cmds.commands.cancel('r1');
+  expect(h.state().serverIslands?.requestStatus).toEqual([
+    { id: 'r1', islandId: 'i1', status: 'cancelled', version: 4 },
+  ]);
+});
+
+test('응답 유실 뒤 목록에서 사라진 신청이 approved라면 취소 성공으로 만들지 않는다', async () => {
+  const cancel = jest.fn().mockRejectedValue(new ApiError('CLIENT_TIMEOUT', 'lost', 0));
+  const h = harness({
+    cancelJoinRequest: cancel,
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+    myIslands: async () => myIslands({ items: [island()], currentIslandId: 'i1' }),
+    joinRequest: async () => ({ id: 'r1', islandId: 'i1', status: 'approved', version: 4 }),
+  });
+  await assert.rejects(
+    h.cmds.commands.cancel('r1'),
+    (error: ApiError) => error.code === 'CLIENT_TIMEOUT',
+  );
+  expect(h.state().serverIslands?.requestStatus.some((item) => item.status === 'cancelled')).toBe(
+    false,
+  );
+  await assert.rejects(h.cmds.commands.cancel('r1'));
+  assert.equal(cancel.mock.calls[0][1], cancel.mock.calls[1][1]);
+});
+
+test('취소 후 복구 조회도 실패하면 원 오류와 같은 요청 키를 유지한다', async () => {
+  const cancel = jest.fn().mockResolvedValue({ id: 'r1', status: 'cancelled' });
+  const h = harness({
+    cancelJoinRequest: cancel,
+    myJoinRequests: async () => {
+      throw new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0);
+    },
+    myIslands: async () => myIslands(),
+  });
+  await assert.rejects(
+    h.cmds.commands.cancel('r1'),
+    (error: ApiError) => error.code === 'CLIENT_NETWORK_ERROR',
+  );
+  await assert.rejects(h.cmds.commands.cancel('r1'));
+  assert.equal(cancel.mock.calls[0][1], cancel.mock.calls[1][1]);
+});
+
+test('취소 복구 중 계정이 바뀌면 새 계정에 종결 상태를 반영하지 않는다', async () => {
+  const h = harness({
+    cancelJoinRequest: async () => {
+      throw new ApiError('CLIENT_TIMEOUT', 'lost', 0);
+    },
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+    myIslands: async () => {
+      h.setGen(1);
+      return myIslands();
+    },
+  });
+  await assert.rejects(
+    h.cmds.commands.cancel('r1'),
+    (error: ApiError) => error.code === 'CLIENT_STALE_SESSION',
+  );
+  expect(h.dispatched).toHaveLength(0);
+});
