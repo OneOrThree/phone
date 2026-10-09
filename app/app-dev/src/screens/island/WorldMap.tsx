@@ -59,7 +59,20 @@ import {
 } from '@/services/mapAssets';
 import { applyLayout, legacyLayoutOffsets } from '@/utils/island-layout';
 import { loadNav, navPath, stepDurationMs, tapToWorld, tilePath } from '@/utils/nav-path';
-import { imageToWorld, worldToImage } from '@/utils/worldCoords';
+import { imageToWorld, worldToImage, type WorldPoint } from '@/utils/worldCoords';
+import {
+  publishMoveIntent,
+  stompIslandChannel,
+  type IslandChannel,
+} from '@/services/islandRealtime';
+import {
+  createMovementController,
+  remainingPath,
+  sameCells,
+  type MovementActor,
+  type MovementCallbacks,
+  type MovementController,
+} from '@/services/movementSync';
 import { villageAssets } from '@/constants/village-assets';
 import {
   villageScene,
@@ -104,6 +117,9 @@ import { VillageNotificationBadge } from '@/components/village-motion/VillageNot
 // 새 마을 미리보기(layered)는 플래그와 무관하게 자기 지형 이미지·villagePath 를 그대로 쓴다.
 // 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
 const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
+// 이동 동기화(GROMO-2248): 타일 섬 + 이 플래그 + 서버 홈일 때만 이동 채널을 열어 서버 확정 경로를 따른다.
+// 서버가 없거나 거절하면 지금처럼 로컬로 걷고 주민은 Wanderer 로 돌아다닌다.
+const MOVEMENT_SYNC = TILE_ISLAND && process.env.EXPO_PUBLIC_MOVEMENT_SYNC === '1';
 // 타일 섬 = 플래그 + 기존 마을 홈 섬(새 마을 미리보기·낚시가 아님). 지형(WorldMap)과 걷기(FinalIslandScene)가
 // 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
 const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
@@ -357,6 +373,70 @@ function Wanderer({
         left: Animated.multiply(xy.x, s),
         top: Animated.multiply(xy.y, s),
         zIndex: scene ? Math.round(depth) : undefined,
+      }}
+    >
+      <CatSprite
+        color={color}
+        size={70 * s}
+        motion={walking ? 'walking' : 'blink'}
+        left={left}
+        reduce={reduce}
+      />
+    </Animated.View>
+  );
+}
+type RemoteListener = (p: Point, moving: boolean) => void;
+// 다른 주민(GROMO-2248): 배회 대신 서버가 정한 위치(100ms 늦춰 경로 위로 보간한 값)만 받아 그린다.
+// 위치는 React state 가 아니라 Animated 값으로만 옮긴다(20Hz setState 금지) — 자세·방향만 바뀔 때 state.
+function RemoteResident({
+  userId,
+  color,
+  start,
+  s,
+  reduce,
+  subscribe,
+}: {
+  userId: string;
+  color: Color;
+  start: Point;
+  s: number;
+  reduce: boolean;
+  subscribe: (userId: string, listener: RemoteListener) => () => void;
+}) {
+  const xy = useRef(new Animated.ValueXY(start)).current,
+    at = useRef(start);
+  const [walking, setWalking] = useState(false),
+    [left, setLeft] = useState(false);
+  useEffect(() => {
+    let stop: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = subscribe(userId, (p, moving) => {
+      if (Math.abs(p.x - at.current.x) > 0.5) setLeft(p.x < at.current.x);
+      at.current = p;
+      setWalking(moving);
+      // 위치가 300ms 넘게 안 오면 제자리걸음을 멈춘다(계약 §3 — 끊기면 마지막 위치에 정지).
+      clearTimeout(stop);
+      if (moving) stop = setTimeout(() => setWalking(false), 300);
+      Animated.timing(xy, {
+        toValue: p,
+        duration: reduce ? 0 : 50,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      }).start();
+    });
+    return () => {
+      unsubscribe();
+      clearTimeout(stop);
+      xy.stopAnimation();
+    };
+  }, [userId, subscribe, reduce, xy]);
+  return (
+    <Animated.View
+      testID={`remote-resident-${userId}`}
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: Animated.multiply(xy.x, s),
+        top: Animated.multiply(xy.y, s),
       }}
     >
       <CatSprite
@@ -1263,35 +1343,67 @@ function FinalIslandScene({
   // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
   const tileNav = isTileIsland(scene);
   const [navWalk, setNavWalk] = useState<NavWalk | null>(null);
-  const walk = (target: Point, done?: () => void) => {
-    if (tiltTimer.current) clearTimeout(tiltTimer.current);
-    if (transitionTimer.current) clearTimeout(transitionTimer.current);
-    setInteractiveMotion(null);
-    const path = tileNav
-      ? tilePath(activeNav(mapAssets, navBuildings), location.current, target, sizeOf(grid))
-      : scene
-        ? villagePath(scene, location.current, target)
-        : landPath(grid, location.current, nearestLand(grid, target));
-    if (tileNav && navDebug) setNavWalk({ tap: target, path });
+  // 이동 동기화(GROMO-2248) — 플래그·타일 섬·서버 홈일 때만 켠다. 꺼져 있으면 movement 가 null 이라 걷기는 이전과 같다.
+  // 배경으로 깔린 홈(showActions=false — 집중 준비·잠금 안내·우체통 안내 뒤)은 조작이 없으니 열지 않는다(구독 = 방 입장).
+  const syncIslandId = MOVEMENT_SYNC && tileNav && facts && showActions ? facts.islandId : null;
+  const movement = useRef<MovementController | null>(null),
+    // 걷기 사슬이 도는 중인지 · 그 걷기의 done(서버 경로로 갈아타도 넘겨 준다) · 로컬 경로 셀(월드) · 걷는 중 받은 도착
+    stepping = useRef(false),
+    walkDone = useRef<(() => void) | undefined>(undefined),
+    walkCells = useRef<WorldPoint[]>([]),
+    arrival = useRef<Point | null>(null);
+  const [remoteActors, setRemoteActors] = useState<MovementActor[] | null>(null);
+  const remoteListeners = useRef(new Map<string, RemoteListener>()).current;
+  const subscribeRemote = useCallback(
+    (userId: string, listener: RemoteListener) => {
+      remoteListeners.set(userId, listener);
+      return () => {
+        if (remoteListeners.get(userId) === listener) remoteListeners.delete(userId);
+      };
+    },
+    [remoteListeners],
+  );
+  const moving = (value: boolean) => {
+    stepping.current = value;
+    setWalking(value);
+  };
+  // 멈춘 상태에서 서버 위치로 맞춘다(FullState 채택·보정·도착).
+  const place = (p: Point) => {
+    xy.setValue(p);
+    location.current = p;
+    setPos(p);
+    homePositions[positionKey] = p;
+  };
+  // 주어진 이미지 px 경로(출발점 포함)를 걷는다. 반환값·done 계약은 walk 그대로다(buildingTransition 이 의존).
+  // msPerUnit 은 서버 경로를 걸을 때 서버 속도(1000/speed), 없으면 로컬 MS_PER_UNIT.
+  const walkPath = (path: Point[], done?: () => void, msPerUnit?: number) => {
     const run = ++token.current;
     xy.stopAnimation();
+    arrival.current = null;
+    // false 를 돌려준 걷기의 done 은 호출부가 이미 포기했다 — 서버 경로로 갈아탈 때 되살리지 않는다.
+    walkDone.current = path.length ? done : undefined;
     if (!path.length) {
-      setWalking(false);
+      moving(false);
       return false;
     }
     if (path.length > 1) {
       setLeft(path[path.length - 1].x < location.current.x);
     }
-    setWalking(true);
+    moving(true);
     let idx = 1;
     const next = () => {
       if (run !== token.current) return;
       if (idx >= path.length) {
-        setWalking(false);
+        moving(false);
+        // 걷는 중에 서버 Arrived 가 왔으면 마지막 세그먼트를 마친 뒤 그 자리에 선다.
+        if (arrival.current) place(arrival.current);
+        arrival.current = null;
         if (pathDistance(path) >= 180) {
           triggerMotion('stretch');
         }
+        walkDone.current = undefined;
         done?.();
+        movement.current?.settle();
         return;
       }
       const p = path[idx++];
@@ -1304,7 +1416,11 @@ function FinalIslandScene({
         duration: state.settings.reduceMotion
           ? 0
           : tileNav
-            ? stepDurationMs(imageToWorld(prev, sizeOf(grid)), imageToWorld(p, sizeOf(grid)))
+            ? stepDurationMs(
+                imageToWorld(prev, sizeOf(grid)),
+                imageToWorld(p, sizeOf(grid)),
+                msPerUnit,
+              )
             : 95,
         useNativeDriver: false,
       }).start(({ finished }) => {
@@ -1320,12 +1436,95 @@ function FinalIslandScene({
     next();
     return true;
   };
+  const walk = (target: Point, done?: () => void) => {
+    if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    setInteractiveMotion(null);
+    const path = tileNav
+      ? tilePath(activeNav(mapAssets, navBuildings), location.current, target, sizeOf(grid))
+      : scene
+        ? villagePath(scene, location.current, target)
+        : landPath(grid, location.current, nearestLand(grid, target));
+    if (tileNav && navDebug) setNavWalk({ tap: target, path });
+    // 로컬 A* 로 곧장 걷고 같은 목적지를 서버에 보낸다(바닥·문·뗏목이 전부 여기로 온다).
+    if (movement.current) {
+      walkCells.current = path.slice(1).map((p) => imageToWorld(p, sizeOf(grid)));
+      movement.current.intend(imageToWorld(target, sizeOf(grid)));
+    }
+    return walkPath(path, done);
+  };
+  // 이동 채널 콜백 — 렌더마다 최신 클로저로 갈아 끼운다(채널은 섬이 바뀔 때만 다시 연다).
+  const sync = useRef<Required<MovementCallbacks> & { position: () => WorldPoint }>(null!);
+  sync.current = {
+    position: () => imageToWorld(location.current, sizeOf(grid)),
+    onMyPath: (waypoints, speed, _pathId, start) => {
+      // 셀 열이 같으면 로컬 예측을 그대로 둔다. 다르면 지금 자리에서 서버 경로의 남은 부분으로 갈아탄다.
+      if (sameCells(walkCells.current, waypoints)) return;
+      const size = sizeOf(grid);
+      let here = location.current;
+      xy.stopAnimation((value) => (here = value));
+      location.current = here;
+      walkCells.current = waypoints;
+      const rest = remainingPath([start, ...waypoints], imageToWorld(here, size));
+      walkPath([here, ...rest.map((p) => worldToImage(p, size))], walkDone.current, 1000 / speed);
+    },
+    onMyArrived: (p) => {
+      const at = worldToImage(p, sizeOf(grid));
+      if (stepping.current) arrival.current = at;
+      else {
+        place(at);
+        moving(false);
+      }
+    },
+    onMyCorrection: (p) => place(worldToImage(p, sizeOf(grid))),
+    onActors: setRemoteActors,
+    onRemotePosition: (userId, p) =>
+      remoteListeners.get(userId)?.(worldToImage(p, sizeOf(grid)), p.moving),
+  };
+  useEffect(() => {
+    const me = getSession()?.userId;
+    if (!syncIslandId || !me) return;
+    let channel: IslandChannel | null = null;
+    const controller = createMovementController({
+      me,
+      send: (intent) => !!channel && publishMoveIntent(channel, syncIslandId, intent),
+      position: () => sync.current.position(),
+      walking: () => stepping.current,
+      onMyPath: (...args) => sync.current.onMyPath(...args),
+      onMyArrived: (p) => sync.current.onMyArrived(p),
+      onMyCorrection: (p) => sync.current.onMyCorrection(p),
+      onActors: (actors) => sync.current.onActors(actors),
+      onRemotePosition: (userId, p) => sync.current.onRemotePosition(userId, p),
+    });
+    movement.current = controller;
+    channel = stompIslandChannel({
+      islandId: syncIslandId,
+      presence: false,
+      emote: false,
+      movement: true,
+      onEvent: controller.onMessage,
+      onOpen: () => {},
+      // 거절(STOMP ERROR·NOT_A_MEMBER)이면 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로 돌아간다. 토스트는 없다.
+      onError: () => {
+        controller.deny();
+        movement.current = null;
+        setRemoteActors(null);
+        channel?.close();
+      },
+    });
+    return () => {
+      movement.current = null;
+      channel?.close();
+      setRemoteActors(null);
+    };
+  }, [syncIslandId]);
   useEffect(() => {
     const p = initial();
     location.current = p;
     xy.setValue(p);
     setPos(p);
     setWalking(false);
+    stepping.current = false;
     return () => {
       token.current++;
       xy.stopAnimation();
@@ -1576,19 +1775,35 @@ function FinalIslandScene({
             );
           })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
-        {wanderColors.map((color, n) => (
-          <Wanderer
-            key={color + n}
-            color={color}
-            start={nearestLand(grid, WANDER_STARTS[n])}
-            scene={scene}
-            assets={mapAssets}
-            buildings={navBuildings}
-            s={s}
-            reduce={state.settings.reduceMotion}
-            delay={1200 + n * 2500}
-          />
-        ))}
+        {!remoteActors &&
+          wanderColors.map((color, n) => (
+            <Wanderer
+              key={color + n}
+              color={color}
+              start={nearestLand(grid, WANDER_STARTS[n])}
+              scene={scene}
+              assets={mapAssets}
+              buildings={navBuildings}
+              s={s}
+              reduce={state.settings.reduceMotion}
+              delay={1200 + n * 2500}
+            />
+          ))}
+        {/* 이동 동기화 중이면 Wanderer 대신 서버가 정한 주민 — 색을 고른 주민만(catColor null·명단 밖은 그리지 않는다) */}
+        {remoteActors?.map((a) => {
+          const color = facts?.members.find((m) => m.id === a.userId)?.catColor;
+          return color ? (
+            <RemoteResident
+              key={a.userId}
+              userId={a.userId}
+              color={catColor(color)}
+              start={worldToImage(a, sizeOf(grid))}
+              s={s}
+              reduce={state.settings.reduceMotion}
+              subscribe={subscribeRemote}
+            />
+          ) : null;
+        })}
         {/* 구경 중에는 내 고양이가 이 섬에 없다 */}
         {!visiting && (
           <Animated.View
