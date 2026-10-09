@@ -574,6 +574,24 @@ class MovementSubscriptionListenerTest {
     }
 
     @Test
+    @DisplayName("다른 기기에 actor 를 넘긴(교체된) 옛 세션의 intent 는 관문에서 조용히 버린다 — 사용자 공용 토큰 버킷을 옛 기기가 먹지 않는다")
+    void supersededSessionIntentsAreDropped() {
+        StompAuthChannelInterceptor gate = gate();
+        MovementRooms counted = spy(rooms);
+        MovementStompController controller = new MovementStompController(counted);
+        ChatPrincipal phone = connect("phone");
+        inbound(gate, raw("phone", "m", StompTopics.movementTopic(island), phone));
+        ChatPrincipal tablet = register("tablet", phone.userId());
+        inbound(gate, raw("tablet", "m", StompTopics.movementTopic(island), tablet)); // phone 이 교체된다
+        tick();
+
+        assertThat(sendIntent(gate, controller, "phone", phone, 1)).as("교체된 옛 기기 intent 는 버린다").isFalse();
+        verify(counted, never()).accept(any(), any(), any(), any());
+        assertThat(sendIntent(gate, controller, "tablet", tablet, 1)).as("현재 기기는 정상").isTrue();
+        verify(counted).accept(eq(island), eq(phone.userId()), eq("tablet"), any());
+    }
+
+    @Test
     @DisplayName("③ 교체됐던 기기가 같은 구독 id 로 돌아오면 첫 reliable 은 자기 FullState 다 — 그 사이 나간 다른 사건은 버린다")
     void supersededDeviceReturningWithTheSameIdStartsFromItsOwnFullState() {
         ChatPrincipal phone = connect("phone");

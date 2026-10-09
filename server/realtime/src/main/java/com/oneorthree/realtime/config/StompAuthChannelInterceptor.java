@@ -354,7 +354,8 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      *
      * <p><b>강퇴 재검사로 그 세션 송신이 멈춘 동안(또는 outbox 가 없거나 닫혔으면) intent 는 조용히 버린다</b> — 방에
      * 닿으면 강퇴 후보 actor 가 계속 걷고 남들에게 Snapshot 이 간다. ERROR 는 내지 않는다(멤버십이 아직 미정이다).
-     * 재판정이 퇴장·1011·1008·재개 중 하나로 정리한다.
+     * 재판정이 퇴장·1011·1008·재개 중 하나로 정리한다. 다른 기기에 actor 를 넘긴 옛 세션의 intent 도 같이 버린다 — actor 엔
+     * 붙지 않으면서 사용자 공용 토큰 버킷을 먹어 현재 기기의 명령을 밀어낸다(다시 구독하면 actor 를 되찾고 풀린다).
      *
      * @return 컨트롤러로 흘려보낼 intent 면 true
      */

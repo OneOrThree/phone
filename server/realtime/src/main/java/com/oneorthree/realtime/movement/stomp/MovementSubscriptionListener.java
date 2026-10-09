@@ -299,13 +299,13 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     }
 
     /**
-     * 이 세션이 그 섬에서 intent 를 낼 수 있는가 — outbox 가 있고 멈추지(강퇴 재검사 중)도 닫히지도 않았을 때만. 관문이
-     * intent SEND 마다 묻는다. 잠그지 않고 읽는다.
+     * 이 세션이 그 섬에서 intent 를 낼 수 있는가 — outbox 가 있고 멈추지(강퇴 재검사 중)도, 닫히지도, 다른 기기에 actor 를
+     * 넘기지도(N6) 않았을 때만({@link MovementOutbox#acceptsIntents}). 관문이 intent SEND 마다 묻는다. 잠그지 않고 읽는다.
      */
     public boolean acceptsIntents(String sessionId, UUID islandId) {
         Map<UUID, MovementOutbox> held = sessionId == null ? null : bySession.get(sessionId);
         MovementOutbox outbox = held == null ? null : held.get(islandId);
-        return outbox != null && !outbox.isSuspendedOrClosed();
+        return outbox != null && outbox.acceptsIntents();
     }
 
     /** 그 섬의 재검사 세대 — 관문이 판정 직전에 읽어 {@link #JUDGED} 에 찍는다. */

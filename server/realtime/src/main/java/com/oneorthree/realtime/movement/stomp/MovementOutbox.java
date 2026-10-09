@@ -292,9 +292,12 @@ final class MovementOutbox {
         return closed;
     }
 
-    /** 멈췄거나(강퇴 재검사 중) 닫혔다 — 이 세션의 intent 를 받지 않는다. */
-    synchronized boolean isSuspendedOrClosed() {
-        return suspended || closed;
+    /**
+     * 이 세션의 intent 를 방에 들여도 되는가 — 멈췄거나(강퇴 재검사 중) 닫혔거나 다른 기기에 actor 를 넘겼으면(N6)
+     * 아니다. 교체된 옛 기기의 명령은 actor 에 붙지 않으면서 사용자 공용 토큰 버킷만 먹어 현재 기기 명령을 밀어낸다.
+     */
+    synchronized boolean acceptsIntents() {
+        return !suspended && !closed && !superseded;
     }
 
     /**
