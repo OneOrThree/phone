@@ -647,6 +647,31 @@ test('게시판 청사진은 회관이 서버에 저장한 목표·가격·잔�
   assert.equal(screen.queryByText('공사 15분'), null);
 });
 
+test.each(['host', 'member'] as const)(
+  '모든 건물이 완공되면 %s의 청사진에 전체 완공 안내를 보여준다',
+  async (role) => {
+    getBoardMock.mockResolvedValue(page([], null, role));
+    getConstructionOptionsMock.mockResolvedValue(constructionOptions({ items: [] }));
+    const screen = await renderBoard(makeE({ tab: '' }));
+
+    await waitFor(() => assert.ok(screen.getByLabelText('모든 건물 완공 현황 보기')));
+    assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
+    await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+    await waitFor(() => assert.ok(screen.getByText('모든 건물을 완공했어요.')));
+    assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+    assert.equal(screen.queryByTestId('board-build-start'), null);
+  },
+);
+
+test('미완공 건물이 남아 있고 목표만 없으면 다음 건물을 고르도록 안내한다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(constructionOptions());
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+
+  await waitFor(() => assert.ok(screen.getByText('회관에서 다음 건물을 골라 주세요.')));
+  assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
+});
+
 test('게시판 장면에는 건물 그림을 덧붙이지 않고 청사진을 연 뒤에만 미리보기를 보여준다', async () => {
   getBoardMock.mockResolvedValue(page([]));
   getConstructionOptionsMock.mockResolvedValue(

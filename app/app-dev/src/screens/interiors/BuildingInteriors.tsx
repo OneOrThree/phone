@@ -4266,6 +4266,9 @@ export function Board({
     })),
   };
   const constructionOptions = construction.options;
+  // 서버 옵션은 미완공 건물만 포함하므로, 조회에 성공한 빈 목록은 전체 완공이다.
+  const allBuildingsComplete =
+    serverBoard && construction.status === 'ready' && constructionOptions?.items.length === 0;
   const constructionTiming = construction.started ?? resumeConstruction;
   // 착공하면 서버 목표는 소비되어 null이 된다. 이 기기가 받은 착공 영수증으로 진행 건물을 잇는다.
   const selectedBuilding =
@@ -5690,12 +5693,12 @@ export function Board({
           )}
         </View>
       );
-    if (bp.state === 'none')
+    if (allBuildingsComplete || bp.state === 'none')
       return (
         <Text
           style={[boardFont(14, 1.6, '700', '#f7fcff'), { paddingTop: 32, textAlign: 'center' }]}
         >
-          회관에서 다음 건물을 골라 주세요.
+          {allBuildingsComplete ? '모든 건물을 완공했어요.' : '회관에서 다음 건물을 골라 주세요.'}
         </Text>
       );
     const light = '#f7fcff';
@@ -6344,7 +6347,11 @@ export function Board({
               <Pressable
                 testID="board-blueprint-area"
                 accessibilityRole="button"
-                accessibilityLabel={`${blueprintView.name || '다음 건물'} 건설 현황 보기`}
+                accessibilityLabel={
+                  allBuildingsComplete
+                    ? '모든 건물 완공 현황 보기'
+                    : `${blueprintView.name || '다음 건물'} 건설 현황 보기`
+                }
                 onPress={() => nav.open('blueprint')}
                 style={[
                   {
