@@ -153,7 +153,7 @@ docker compose -f server/scripts/docker-compose.local.yml --profile nginx down  
 
 ### 기존 dev에 Realtime 추가
 
-평소엔 `realtime-cd.dev` 가 배포합니다. 수동 예시는 `phone` 프로젝트 기준이고, env 는 `RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh)` 로 임시로 만든 뒤 쓰고 지웁니다(SM 을 읽을 AWS 자격 필요, VM 에 영구 env 없음). `REALTIME_IMAGE`로 사용할 이미지를 지정할 수 있습니다.
+평소엔 `realtime-cd.dev` 가 배포합니다. 수동 예시는 `phone` 프로젝트 기준이고, env 는 `RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh)` 로 임시로 만든 뒤 쓰고 지웁니다(SM 을 읽을 AWS 자격 필요, VM 에 영구 env 없음). `REALTIME_IMAGE`(예: `asia-northeast3-docker.pkg.dev/oneorthree2/realtime/realtime:<sha>`)는 필수입니다 — 기본값이 없어 비면 compose 가 실패합니다. `APP_IMAGE` 는 `dev-env.sh` 가 넣어 줍니다.
 
 ```bash
 docker compose -p phone --env-file "$RUNTIME_ENV_FILE"   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml config --quiet
