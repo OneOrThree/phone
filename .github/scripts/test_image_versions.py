@@ -21,8 +21,9 @@ VERSIONED_TAG = re.compile(r"^v?\d+\.\d+")
 
 # 의도적 예외. 키 = (파일 이름, 이미지), 값 = 이유
 ALLOWED = {
-    ("docker-compose.prod.yml", "gcr.io/datadoghq/agent:7"):
-        "prod 실행 버전 미확인 — 확인 전 고정하면 내려갈 수 있음",
+    # Datadog agent 는 메이저만 따라감 — 고정 범위 밖으로 결정
+    ("docker-compose.datadog.yml", "gcr.io/datadoghq/agent:7"): "agent 는 메이저 추종 (고정 제외)",
+    ("docker-compose.prod.yml", "gcr.io/datadoghq/agent:7"): "agent 는 메이저 추종 (고정 제외)",
 }
 
 
