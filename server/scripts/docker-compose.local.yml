@@ -10,7 +10,7 @@ x-infra-logging: &infra-logging
 services:
   db:
     logging: *infra-logging
-    image: postgres:16-alpine
+    image: postgres:16.14-alpine
     container_name: phone-db-local
     ports:
       - "5432:5432"
@@ -31,7 +31,7 @@ services:
   # 기존 백엔드 개발에는 지장이 없다 — 채팅을 돌릴 때만 필요하다.
   redis:
     logging: *infra-logging
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: phone-redis-local
     ports:
       - "6379:6379"

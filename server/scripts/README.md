@@ -62,7 +62,8 @@ docker compose -f server/scripts/docker-compose.local.yml --profile nginx rm -sf
 # dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(+전용 Redis)·Notification. compose 에 nginx 없음(호스트 systemd Nginx 가 공개 라우팅)
 # dev VM 에 영구 env 없음(GROMO-2224) — CD·ops-*.dev 워크플로가 job 마다 SM 에서 임시로 만든다. 수동이면
 # RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh) 로 만들고(SM 읽을 AWS 자격 필요) 쓰고 나서 지운다. <out> 은 위성 env 임시 폴더.
-docker compose -p phone --env-file "$RUNTIME_ENV_FILE" --env-file <out>/compose.env -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
+# REALTIME_IMAGE 필수(기본값 없음) — 지금 떠 있는 것: REALTIME_IMAGE=$(docker inspect -f '{{.Config.Image}}' phone-realtime)
+REALTIME_IMAGE=<…/realtime/realtime:sha 또는 @digest> docker compose -p phone --env-file "$RUNTIME_ENV_FILE" --env-file <out>/compose.env -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
 
 # prod (AWS gromo-prod) — nginx·Data·datadog-agent·Kafka·Business(+전용 Redis)·Notification. DB 는 RDS, Realtime 없음
 docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리> --env-file <prod 배포 디렉터리>/.env.prod --env-file <out>/compose.env -f server/scripts/docker-compose.prod.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
@@ -153,7 +154,7 @@ docker compose -f server/scripts/docker-compose.local.yml --profile nginx down  
 
 ### 기존 dev에 Realtime 추가
 
-평소엔 `realtime-cd.dev` 가 배포합니다. 수동 예시는 `phone` 프로젝트 기준이고, env 는 `RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh)` 로 임시로 만든 뒤 쓰고 지웁니다(SM 을 읽을 AWS 자격 필요, VM 에 영구 env 없음). `REALTIME_IMAGE`로 사용할 이미지를 지정할 수 있습니다.
+평소엔 `realtime-cd.dev` 가 배포합니다. 수동 예시는 `phone` 프로젝트 기준이고, env 는 `RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh)` 로 임시로 만든 뒤 쓰고 지웁니다(SM 을 읽을 AWS 자격 필요, VM 에 영구 env 없음). `REALTIME_IMAGE`(예: `asia-northeast3-docker.pkg.dev/oneorthree2/realtime/realtime:<sha>`)는 필수입니다 — 기본값이 없어 비면 compose 가 실패합니다. `APP_IMAGE` 는 `dev-env.sh` 가 넣어 줍니다.
 
 ```bash
 docker compose -p phone --env-file "$RUNTIME_ENV_FILE"   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml config --quiet

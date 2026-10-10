@@ -7,7 +7,7 @@
 # 기본값은 기존 소스 빌드. CI는 같은 실행에서 검증한 JAR를 prebuilt로 전달한다.
 ARG JAR_SOURCE=builder
 
-FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk-jammy AS builder
+FROM --platform=$BUILDPLATFORM eclipse-temurin:17.0.20.1_1-jdk-jammy AS builder
 
 WORKDIR /app
 
@@ -31,7 +31,7 @@ COPY ci-artifact/app.jar /app/app.jar
 
 FROM ${JAR_SOURCE} AS artifact
 
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:17.0.20.1_1-jre-jammy
 
 WORKDIR /app
 

@@ -50,8 +50,8 @@ on:
       - '.github/scripts/ci-jar.py'
       - 'server/scripts/docker-compose.realtime.yml'
 
-# 통합 브랜치 푸시가 «겹치지» 않게 한다. 겹치면 늦게 끝난 «옛» 빌드가 :latest 를 되가리켜,
-# compose 의 기본 배포가 이전 코드로 되돌아간다. 그룹 이름은 data-api-ci 의 것과 달라야 한다
+# 통합 브랜치 푸시가 «겹치지» 않게 한다. 겹치면 늦게 끝난 «옛» 빌드의 배포가 새 배포를 덮어
+# 이전 코드로 되돌아간다. 그룹 이름은 data-api-ci 의 것과 달라야 한다
 # (같으면 두 파이프라인이 서로를 막는다).
 concurrency:
   group: realtime-ci-${{ github.ref }}
@@ -60,8 +60,7 @@ concurrency:
 
 env:
   GAR_HOST: asia-northeast3-docker.pkg.dev
-  # docker-compose.realtime.yml 의 REALTIME_IMAGE 기본값과 «같은 경로»여야 한다 — 어긋나면 올리는 곳과
-  # 받는 곳이 달라져 「올렸는데 안 뜬다」가 된다.
+  # realtime-cd.dev.yml 의 REALTIME_IMAGE_REPOSITORY 와 같은 경로여야 함 — 어긋나면 「올렸는데 안 뜬다」.
   REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/realtime/realtime
 
 jobs:
@@ -117,8 +116,7 @@ jobs:
   docker-build:
     name: 채팅 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
     # 검증이 끝난 뒤에만 올린다. 이게 없으면 두 잡이 나란히 돌아, 테스트·checkstyle·spotbugs 가
-    # 깨진 리비전도 이미지 빌드(bootJar 는 -x test 다)만 성공해 :latest 로 올라간다 — 그리고
-    # compose 의 기본값이 바로 그 태그다.
+    # 깨진 리비전도 이미지 빌드(bootJar 는 -x test 다)만 성공해 GAR 에 올라간다.
     #
     # GROMO-1910 에서는 「GAR 인증이 GCE 메타데이터를 쓰니 못 옮긴다」고 판단해 남겼는데,
     # 다시 보니 그 인증이 PR 에서 필요한 이유는 «레지스트리 캐시» 하나뿐이었다. 이미지를
@@ -159,11 +157,9 @@ jobs:
           # PR 이 만든 태그를 배포 신뢰점으로 삼지 않는다 — main push 실행만 올린다(data-api-ci 와 같은 규율).
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           provenance: false
-          # :<sha> 가 «진짜» 신뢰점이다. :latest 는 compose 의 기본값이 그것이라 함께 올릴 뿐이고,
-          # 배포를 되돌릴 때는 REALTIME_IMAGE 로 sha 를 못 박는 편이 낫다.
+          # :<sha> 만 올림. 움직이는 :latest 는 안 씀 — 배포는 digest, 되돌리기는 REALTIME_IMAGE 로 sha 지정.
           tags: |
             ${{ env.REALTIME_IMAGE_REPOSITORY }}:${{ github.sha }}
-            ${{ env.REALTIME_IMAGE_REPOSITORY }}:latest
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}

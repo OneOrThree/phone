@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -416,7 +417,9 @@ class WriteComposeEnvTest(unittest.TestCase):
                 configured = subprocess.run(
                     ["docker", "compose", "--env-file", str(env_file),
                      "-f", str(scripts / "docker-compose.dev.yml"), "-f", str(scripts / "docker-compose.realtime.yml"),
-                     "config", "--format", "json"], text=True, check=True, capture_output=True)
+                     "config", "--format", "json"], text=True, check=True, capture_output=True,
+                    env={**{k: v for k, v in os.environ.items() if k != "APP_IMAGE"},  # 셸 APP_IMAGE 가 env 파일 덮지 않게
+                         "REALTIME_IMAGE": "example/realtime@sha256:def"})  # realtime-cd 처럼 셸 env 로
                 services = json.loads(configured.stdout)["services"]
                 realtime, app = services["realtime"]["environment"], services["data-api"]["environment"]
                 self.assertEqual(realtime["SVC_TOKEN_DATA_TO_REALTIME"], "data-rt" if present else "")
@@ -437,6 +440,24 @@ class WriteComposeEnvTest(unittest.TestCase):
                 for service in services.values():
                     self.assertEqual(service["logging"]["driver"], "json-file")
 
+
+    def test_앱_이미지_변수가_비면_compose가_latest로_뜨지_않고_실패한다(self) -> None:
+        # 기본값(옛 ci-cache :latest) 제거 회귀 방지 — 비면 옛 이미지·VM 캐시로 조용히 떴음
+        scripts = Path(__file__).resolve().parents[2] / "server" / "scripts"
+        base = {k: v for k, v in os.environ.items() if k not in ("APP_IMAGE", "REALTIME_IMAGE")}
+        cases = (("APP_IMAGE", "", ["docker-compose.dev.yml"]),
+                 ("REALTIME_IMAGE", "APP_IMAGE=example/app@sha256:abc\n",
+                  ["docker-compose.dev.yml", "docker-compose.realtime.yml"]))
+        for variable, content, files in cases:
+            with self.subTest(variable=variable), tempfile.TemporaryDirectory() as directory:
+                env_file = Path(directory) / "dev.env"
+                env_file.write_text(content, encoding="utf-8")
+                argv = ["docker", "compose", "--env-file", str(env_file)]
+                for name in files:
+                    argv += ["-f", str(scripts / name)]
+                result = subprocess.run([*argv, "config", "--quiet"], text=True, capture_output=True, env=base)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(variable, result.stderr)
 
     def test_Realtime_caller_토큰이_같으면_모든_모드에서_출력_전에_실패한다(self) -> None:
         same = secret(SVC_TOKEN_DATA_TO_REALTIME="same-token", SVC_TOKEN_BIZ_TO_REALTIME="same-token")
