@@ -418,7 +418,8 @@ class WriteComposeEnvTest(unittest.TestCase):
                     ["docker", "compose", "--env-file", str(env_file),
                      "-f", str(scripts / "docker-compose.dev.yml"), "-f", str(scripts / "docker-compose.realtime.yml"),
                      "config", "--format", "json"], text=True, check=True, capture_output=True,
-                    env={**os.environ, "REALTIME_IMAGE": "example/realtime@sha256:def"})  # realtime-cd 처럼 셸 env 로
+                    env={**{k: v for k, v in os.environ.items() if k != "APP_IMAGE"},  # 셸 APP_IMAGE 가 env 파일 덮지 않게
+                         "REALTIME_IMAGE": "example/realtime@sha256:def"})  # realtime-cd 처럼 셸 env 로
                 services = json.loads(configured.stdout)["services"]
                 realtime, app = services["realtime"]["environment"], services["data-api"]["environment"]
                 self.assertEqual(realtime["SVC_TOKEN_DATA_TO_REALTIME"], "data-rt" if present else "")
