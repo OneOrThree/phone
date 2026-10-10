@@ -17,7 +17,7 @@ x-infra-logging: &infra-logging
 services:
   datadog-agent:
     logging: *infra-logging
-    image: gcr.io/datadoghq/agent:7
+    image: gcr.io/datadoghq/agent:7.82.1
     container_name: gromo-datadog-agent
     mem_limit: 512m                            # prod 와 동일 — Agent 가 호스트 메모리를 잠식하지 않게 (GROMO-1489)
     environment:

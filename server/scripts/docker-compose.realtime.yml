@@ -40,7 +40,7 @@ services:
   # 여러 번 돌려도 안전하다(이미 있으면 아무 일도 하지 않는다).
   realtime-db-init:
     logging: *infra-logging
-    image: postgres:16-alpine
+    image: postgres:16.14-alpine
     container_name: phone-realtime-db-init
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD}

@@ -76,7 +76,7 @@ services:
 
   db:
     logging: *infra-logging
-    image: postgres:16-alpine
+    image: postgres:16.14-alpine
     container_name: phone-db
     # 통합 서비스 태그 (GROMO-1489). Datadog 오버레이가 아니라 **여기**에 둔다 —
     # 오버레이에만 두면 datadog 을 켤 때 라벨 추가로, 끌 때 라벨 제거로 compose 가 db 를 매번
@@ -85,7 +85,7 @@ services:
     labels:
       com.datadoghq.tags.env: "dev"
       com.datadoghq.tags.service: "gromo-db-dev"
-      com.datadoghq.tags.version: "16-alpine"
+      com.datadoghq.tags.version: "16.14-alpine"
     ports:
       - "127.0.0.1:5432:5432"
     environment:
@@ -108,12 +108,12 @@ services:
   # ACL 없이 뜨고, ACL 적용은 채팅 dev 배포와 함께 온다(그때까지 이 Redis 는 프레즌스 전용이다).
   redis:
     logging: *infra-logging
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: phone-redis
     labels:
       com.datadoghq.tags.env: "dev"
       com.datadoghq.tags.service: "gromo-redis-dev"
-      com.datadoghq.tags.version: "7-alpine"
+      com.datadoghq.tags.version: "7.4.11-alpine"
       com.datadoghq.ad.checks: >-
         {"redisdb":{"instances":[{"host":"%%host%%","port":6379,"tags":["env:dev","service:gromo-redis-dev","redis_instance:shared"]}]}}
     networks:
