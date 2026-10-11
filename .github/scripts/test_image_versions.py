@@ -13,7 +13,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-COMPOSE_FILES = sorted((ROOT / "server" / "scripts").glob("docker-compose*.yml"))
+# local 은 범위 밖 — 개발자 PC 전용이라 고정하지 않음
+COMPOSE_FILES = sorted(p for p in (ROOT / "server" / "scripts").glob("docker-compose*.yml")
+                       if p.name != "docker-compose.local.yml")
 DOCKERFILES = sorted((ROOT / "server").glob("*/Dockerfile"))
 
 # 숫자.숫자 이상 (v 접두사 허용) — 16.14-alpine · 7.4.11-alpine · 17.0.20.1_1-jre-jammy · v2.55.1 · 1.28-alpine
