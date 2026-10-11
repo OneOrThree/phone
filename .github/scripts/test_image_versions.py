@@ -32,9 +32,9 @@ ALLOWED = {
 def compose_images(path: Path) -> list[str]:
     images = []
     for line in path.read_text(encoding="utf-8").splitlines():
-        match = re.match(r"^\s*image:\s*(\S+)", line)
+        match = re.match(r"^\s*image:\s*(.+?)(?:\s+#.*)?$", line)  # ${VAR:?메시지} 의 공백 포함, 끝 주석 제외
         if match:
-            images.append(match.group(1))
+            images.append(match.group(1).strip())
     return images
 
 
@@ -51,8 +51,15 @@ def dockerfile_images(path: Path) -> list[str]:
 
 
 def problem(image: str, stages: set[str]) -> str | None:
-    if image.startswith("${") or image == "scratch" or image in stages:
-        return None  # 변수(우리 앱 이미지 digest)·빈 베이스·앞 단계 참조
+    if image.startswith("${"):
+        # ${VAR:-기본} 은 비면 기본 이미지로 뜸 → 기본값도 같은 규칙. ${VAR:?…}·${A}:${B} 는 우리 앱 digest
+        default = re.fullmatch(r"\$\{\w+:?-(.+)\}", image)
+        if default:
+            reason = problem(default.group(1), stages)
+            return f"변수 기본값 {reason}" if reason else None
+        return None
+    if image == "scratch" or image in stages:
+        return None  # 빈 베이스·앞 단계 참조
     if "@sha256:" in image:
         return None
     last = image.split("/")[-1]  # registry:5000/... 포트 콜론 제외
@@ -93,12 +100,15 @@ class ImageVersionTest(unittest.TestCase):
 
     def test_판정_규칙(self) -> None:
         for image in ("postgres:16-alpine", "redis:7", "gcr.io/datadoghq/agent:7", "nginx", "nginx:latest",
-                      "eclipse-temurin:17-jre-jammy"):
+                      "eclipse-temurin:17-jre-jammy", "${REDIS_IMAGE:-redis:7-alpine}",
+                      "${APP_IMAGE:-asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest}"):
             with self.subTest(image=image):
                 self.assertIsNotNone(problem(image, set()))
         for image in ("postgres:16.14-alpine", "redis:7.4.11-alpine", "prom/prometheus:v2.55.1",
                       "nginx:1.28-alpine", "eclipse-temurin:17.0.20.1_1-jre-jammy",
                       "bitnami/jmx-exporter@sha256:652a", "${APP_IMAGE:?x}", "scratch",
+                      "${APP_IMAGE:?Data 이미지 digest 필요 — x}", "${ECR_REPO}:${IMAGE_TAG}",
+                      "${REDIS_IMAGE:-redis:7.4.11-alpine}",
                       "registry.example:5000/app:1.2.3"):
             with self.subTest(image=image):
                 self.assertIsNone(problem(image, set()))
