@@ -11,6 +11,8 @@ import re
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 # local 은 범위 밖 — 개발자 PC 전용이라 고정하지 않음
@@ -20,6 +22,18 @@ DOCKERFILES = sorted((ROOT / "server").glob("*/Dockerfile"))
 
 # 숫자.숫자 이상 (v 접두사 허용) — 16.14-alpine · 7.4.11-alpine · 17.0.20.1_1-jre-jammy · v2.55.1 · 1.28-alpine
 VERSIONED_TAG = re.compile(r"^v?\d+\.\d+")
+
+DD_VERSION_LABEL = "com.datadoghq.tags.version"
+
+
+class _ComposeLoader(yaml.SafeLoader):
+    """compose 전용 태그(!override·!reset)를 값 그대로 읽음"""
+
+
+_ComposeLoader.add_multi_constructor("!", lambda loader, suffix, node: (
+    loader.construct_mapping(node) if isinstance(node, yaml.MappingNode)
+    else loader.construct_sequence(node) if isinstance(node, yaml.SequenceNode)
+    else loader.construct_scalar(node)))
 
 # 의도적 예외. 키 = (파일 이름, 이미지), 값 = 이유
 ALLOWED = {
@@ -90,6 +104,24 @@ class ImageVersionTest(unittest.TestCase):
             for image in dockerfile_images(path):
                 if (path.name, image) not in ALLOWED and (reason := problem(image, stages)):
                     found.append(f"{path.relative_to(ROOT)}: {image} — {reason}")
+        self.assertEqual(found, [])
+
+    def test_Datadog_버전_라벨은_이미지_태그와_같다(self) -> None:
+        # Renovate 는 image: 만 올리고 손으로 적은 라벨은 못 봄 → 갈리면 여기서 실패, 같은 PR 에서 라벨도 고침
+        found = []
+        for path in COMPOSE_FILES:
+            services = (yaml.load(path.read_text(encoding="utf-8"), Loader=_ComposeLoader) or {}).get("services") or {}
+            for name, service in services.items():
+                image = (service or {}).get("image")
+                labels = (service or {}).get("labels") or {}
+                if isinstance(labels, list):
+                    labels = dict(item.split("=", 1) for item in labels if "=" in item)
+                version = labels.get(DD_VERSION_LABEL)
+                if not image or not version or "${" in str(image) or "${" in str(version):
+                    continue  # 우리 앱 이미지(revision 라벨)·라벨 없는 서비스
+                tag = str(image).split("/")[-1].split(":", 1)[1] if ":" in str(image).split("/")[-1] else ""
+                if str(version) != tag:
+                    found.append(f"{path.relative_to(ROOT)} {name}: image 태그 {tag!r} ≠ {DD_VERSION_LABEL} {version!r}")
         self.assertEqual(found, [])
 
     def test_예외_목록은_실제로_쓰이는_이미지만_남긴다(self) -> None:
