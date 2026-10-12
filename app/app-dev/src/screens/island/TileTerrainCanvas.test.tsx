@@ -185,6 +185,13 @@ describe('서버 디버그 시계 — 보정 깜빡임 50ms, 창 밖이면 멈�
     expect(jest.getTimerCount()).toBe(0);
   });
 
+  it('server 키 자체가 없어도(플래그 꺼진 기존 호출) null 과 같이 타이머 없이 렌더된다(에픽 리뷰 2라운드)', async () => {
+    jest.useFakeTimers();
+    await render(<TileTerrainCanvas {...baseProps} navDebug={{ nav, walk: null }} />);
+    settle();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('correctedAt 이 500ms 안이면 50ms 간격 타이머가 돌고, status 가 live 가 아니면 창이 끝나는 순간 멈춘다', async () => {
     jest.useFakeTimers();
     await render(<TileTerrainCanvas {...baseProps} navDebug={debugWith(Date.now(), 'off')} />);
