@@ -23,6 +23,7 @@
  * 않는다. 해시가 바뀐 새 버전이 채택되면 state 가 새로 쓰여 `bad` 는 사라진다.
  */
 import { Directory, File, Paths } from 'expo-file-system';
+import { loadNav } from '@/utils/nav-path';
 import { sha256Hex } from '@/utils/sha256';
 
 export const MAP_ASSETS_URL = process.env.EXPO_PUBLIC_MAP_ASSETS_URL ?? '';
@@ -255,6 +256,17 @@ const SHAPE: [JsonName, string, (j: MapJson) => boolean][] = [
         (Array.isArray(n.blockedEdges) &&
           n.blockedEdges.every((e: unknown) => Array.isArray(e) && e.length === 2 && e.every(idx)));
       return cellsOk && edgesOk;
+    },
+  ],
+  // 위 검사들은 비용>0·index 범위만 보고 entrances/spawns 앵커·blockedEdges 의 a<b 순서는 안 보므로, 채택 기준을
+  // activeNav 가 렌더 중에 실제로 부르는 loadNav 와 맞춘다(그 전엔 loadNav 만 거부하는 버전도 채택되어 홈 렌더 중 크래시).
+  [
+    'nav.json',
+    'loadNav 통과(앵커 범위·blockedEdges 순서까지 loadNav 와 일치)',
+    (j) => {
+      // 같은 nav 객체를 검사하므로(통과 시 jsonMemo 에 그대로 저장) loadNav 의 WeakMap 캐시가 재사용돼 렌더 때 다시 계산하지 않는다.
+      loadNav(j['nav.json']);
+      return true;
     },
   ],
   [

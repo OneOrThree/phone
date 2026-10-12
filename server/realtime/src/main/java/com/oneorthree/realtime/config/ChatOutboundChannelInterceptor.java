@@ -24,6 +24,7 @@ import java.util.regex.Matcher;
 import static com.oneorthree.realtime.config.StompTopics.EMOTES_CHANNEL;
 import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
 
 /**
  * 구독 후 집중 시작·토큰 만료에도 채팅 본문을 전달하지 않는다.
@@ -106,6 +107,11 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         // 개인 이벤트 큐는 event 별 owner/방장 권한 재검사가 구현될 때까지 계속 닫아 둔다.
         if (destination.startsWith("/queue/events") || destination.equals("/user/queue/events")) {
             return null;
+        }
+        // 이동 두 토픽(GROMO-2247) — 세션 인증만 다시 본다(N9). 멤버십은 구독 때 1회(N2), 회수는 주민 사건 재검사(N7).
+        // ponytail: 프레임마다 HMAC 검증(스냅샷 20Hz × 구독자) — 2250 측정에서 보이면 세션별 만료 시각 캐시로 바꾼다.
+        if (MOVEMENT_TOPIC.matcher(destination).matches()) {
+            return stillAuthenticated(message) == null ? null : message;
         }
         Matcher island = ISLAND_TOPIC.matcher(destination);
         if (island.matches()) {

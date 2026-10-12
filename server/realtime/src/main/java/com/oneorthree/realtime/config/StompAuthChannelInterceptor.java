@@ -10,6 +10,7 @@ import com.oneorthree.realtime.focus.IslandFocusSessions;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -28,6 +29,8 @@ import java.util.regex.Pattern;
 import static com.oneorthree.realtime.config.StompTopics.EMOTES_CHANNEL;
 import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_INTENT_SEND;
+import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
 
 /**
  * STOMP 프레임에 관문을 세운다 — CONNECT·SUBSCRIBE·SEND.
@@ -72,6 +75,12 @@ import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
  * </ul>
  * 나머지 섬 채널({@code events}·{@code playback}·{@code messages})과 {@code /user/queue/events} 는
  * 각 도메인의 인가·복구 계약이 구현될 때까지 계속 닫아 둔다.
+ *
+ * <h2>이동 채널 (GROMO-2247)</h2>
+ * {@code /topic/islands/{id}/movement}·{@code /movement/snapshot} 구독은 <b>섬 멤버십</b>
+ * ({@link ChatAccessGuard#requireMember}) 을 세션×섬마다 1회 본다(사용자 축 시도 창 600ms 뒤) — 구독이 곧 방
+ * 입장이고, 집중 중에도 걸을 수 있어야 해서 채팅 관문(집중 검사 포함)은 쓰지 않는다(N1·N2). intent SEND 는 인증과
+ * 「그 섬 movement 구독 중」만 보고, 강퇴 재검사로 그 세션 송신이 멈춘 동안은 조용히 버린다.
  */
 @Slf4j
 @Component
@@ -116,6 +125,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final RealtimeSessionRegistry sessions;
     private final IslandFocusSessions focusSessions;
     private final StringRedisTemplate redis;
+    private final MovementSubscriptionListener movementSubscriptions;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -128,7 +138,11 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             case CONNECT -> authenticate(accessor);
             case SUBSCRIBE -> authorizeSubscription(accessor);
             case UNSUBSCRIBE -> sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
-            case SEND -> authorizeSend(accessor);
+            case SEND -> {
+                if (!authorizeSend(accessor)) {
+                    return null; // 조용히 버린다 — 응답·ERROR 없음(authorizeMovementIntent)
+                }
+            }
             default -> {
                 // 나머지 프레임(SEND·DISCONNECT·ACK…)은 그대로 흘린다. SEND 의 규칙 검사는 서비스가 한다.
             }
@@ -183,6 +197,12 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             return;
         }
 
+        Matcher movement = MOVEMENT_TOPIC.matcher(destination);
+        if (movement.matches()) {
+            authorizeMovementSubscription(accessor, destination, movement);
+            return;
+        }
+
         Matcher island = ISLAND_TOPIC.matcher(destination);
         if (island.matches()) {
             ChatPrincipal principal = requireSubscribable(accessor, destination);
@@ -209,6 +229,50 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         UUID groupId = uuidOrReject(matcher.group(1));
 
         accessGuard.requireCanChat(groupId, principal.userId(), principal.bearer());
+    }
+
+    /**
+     * 이동 토픽 구독(GROMO-2247) — 섬 멤버십을 <b>세션×섬마다 한 번</b> 판정한다.
+     *
+     * <p>앱은 접속마다 {@code movement}·{@code movement/snapshot} 을 연달아 구독한다. 이 세션이 그 섬의 판정받은 이동
+     * 구독을 <b>살아 있는 채로</b> 들고 있으면(이동 처리기 색인의 outbox — 강퇴되면 사라진다,
+     * {@link MovementSubscriptionListener#holdsLiveOutbox}) 이번 것은 그 판정을 이어받는다 — 사용자 축 시도 창(600ms,
+     * {@code emoteSubscribeAttempt} 와 같은 방식)이 둘째 구독을 막지 않고, 상류 조회도 한 번이다. 근거를 레지스트리
+     * 구독 기록에 두지 않는 것은 강퇴 뒤 남은 기록이 판정을 건너뛰게 하기 때문이다. 이어받을 게 없으면 창 → 멤버십 순으로
+     * 보고 통과한 프레임에 {@link MovementSubscriptionListener#JUDGED} 를 붙인다 — 값은 판정 <b>직전</b>의 그 섬 재검사
+     * 세대다(이어받은 직후 강퇴가 끼면 처리기가 그 헤더 없는 구독을 들이지 않고, 판정 도중 재검사가 지나갔으면 처리기가
+     * 멈춘 채 등록해 다시 잰다). 창 초과는 다른 관문 위반처럼 ERROR + 연결 종료다.
+     *
+     * <p><b>거절된 구독은 레지스트리 자리를 돌려준다.</b> 남겨 두면 «판정받은 구독»으로 오인돼 intent SEND
+     * 관문({@link #authorizeMovementIntent})을 통과시킨다 — ERROR 뒤 소켓이 닫히기 전에 처리되는 프레임이 있다.
+     */
+    private void authorizeMovementSubscription(StompHeaderAccessor accessor, String destination, Matcher movement) {
+        ChatPrincipal principal = requireSubscribable(accessor, destination);
+        UUID islandId = uuidOrReject(movement.group(1));
+        if (movementSubscriptions.holdsLiveOutbox(accessor.getSessionId(), islandId)) {
+            return;
+        }
+        long generation = movementSubscriptions.recheckGeneration(islandId); // 판정(캐시일 수 있다)보다 먼저 읽는다
+        // 강퇴 사건의 캐시 삭제가 실패해 옛 「멤버」 답이 남았을 수 있다 — 그 (섬, 사용자)는 캐시를 건너뛰고 정본에 묻는다.
+        boolean staleCache = movementSubscriptions.membershipCacheStale(islandId, principal.userId());
+        try {
+            if (!acquireWindow(RedisKeys.movementSubscribeAttempt(principal.userId()))) {
+                throw new ChatException(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
+            }
+            if (staleCache) {
+                accessGuard.requireMemberUncached(islandId, principal.userId(), principal.bearer());
+            } else {
+                accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            }
+        } catch (RuntimeException e) {
+            sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            throw e;
+        }
+        if (staleCache) {
+            // 정본이 「멤버」라고 답했고 그 답이 캐시도 덮었다 — 다음 구독은 다시 캐시를 쓴다. 비멤버면 표시를 남긴다.
+            movementSubscriptions.clearMembershipCacheStale(islandId, principal.userId());
+        }
+        accessor.setHeader(MovementSubscriptionListener.JUDGED, generation);
     }
 
     /**
@@ -253,9 +317,15 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      *
      * <p>「같은 섬인가·집중 중인가」는 여기서 보지 않는다 — 그건 {@code ChatMessageService.send} 한
      * 곳이고, 두 곳에서 검사하면 언젠가 한쪽만 바뀐다.
+     *
+     * @return 컨트롤러로 흘려보낼 프레임이면 true, 조용히 버릴 프레임이면 false(이동 intent 만)
      */
-    private void authorizeSend(StompHeaderAccessor accessor) {
+    private boolean authorizeSend(StompHeaderAccessor accessor) {
         String destination = String.valueOf(accessor.getDestination());
+        Matcher intent = MOVEMENT_INTENT_SEND.matcher(destination);
+        if (intent.matches()) {
+            return authorizeMovementIntent(accessor, intent.group(1));
+        }
         Matcher matcher = SEND_DESTINATION.matcher(destination);
         Matcher emote = EMOTE_SEND.matcher(destination);
         boolean chatSend = matcher.matches();
@@ -280,6 +350,32 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         if (!chatSend && !acquireWindow(RedisKeys.emoteAttempt(principal.userId()))) {
             throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
         }
+        return true;
+    }
+
+    /**
+     * 이동 intent — 인증 + <b>이 세션이 그 섬 {@code movement} 토픽을 구독 중인가</b>(GROMO-2247, N2).
+     *
+     * <p>멤버십은 구독 때 이미 봤으므로 SEND 마다 다시 묻지 않는다 — ON 모드는 매번 동기 HTTP 이고, 순서 보존이
+     * 이 세션의 뒤따르는 프레임을 그 조회 뒤에 줄세운다. 구독 여부는 {@link RealtimeSessionRegistry} 인메모리다.
+     * 구독 없이 보낸 intent 는 정상 클라이언트가 만들 수 없는 프레임이라 다른 관문 위반처럼 ERROR 프레임 + 연결
+     * 종료다({@code NOT_A_MEMBER}). 비멤버는 그보다 앞의 구독 단계에서 이미 거절된다. 속도 제한은 여기가 아니라
+     * {@code RoomRuntime} 의 사용자 토큰 버킷(N8)이다.
+     *
+     * <p><b>강퇴 재검사로 그 세션 송신이 멈춘 동안(또는 outbox 가 없거나 닫혔으면) intent 는 조용히 버린다</b> — 방에
+     * 닿으면 강퇴 후보 actor 가 계속 걷고 남들에게 Snapshot 이 간다. ERROR 는 내지 않는다(멤버십이 아직 미정이다).
+     * 재판정이 퇴장·1011·1008·재개 중 하나로 정리한다. 다른 기기에 actor 를 넘긴 옛 세션의 intent 도 같이 버린다 — actor 엔
+     * 붙지 않으면서 사용자 공용 토큰 버킷을 먹어 현재 기기의 명령을 밀어낸다(다시 구독하면 actor 를 되찾고 풀린다).
+     *
+     * @return 컨트롤러로 흘려보낼 intent 면 true
+     */
+    private boolean authorizeMovementIntent(StompHeaderAccessor accessor, String islandId) {
+        UUID island = uuidOrReject(islandId);
+        requireAuthenticated(accessor);
+        if (sessions.subscriptionIdOf(accessor.getSessionId(), StompTopics.movementTopic(island)) == null) {
+            throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
+        }
+        return movementSubscriptions.acceptsIntents(accessor.getSessionId(), island);
     }
 
     /**
