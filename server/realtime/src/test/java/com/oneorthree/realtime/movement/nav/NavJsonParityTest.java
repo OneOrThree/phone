@@ -115,6 +115,20 @@ class NavJsonParityTest {
     }
 
     @Test
+    @DisplayName("번들 전용 필수 스폰 가드 — spawns.character 가 없으면 거부한다"
+            + "(2246 보완12, RoomRuntime 첫 join NPE 를 기동 시점 실패로 막는다)")
+    void rejectsMissingRequiredSpawn() {
+        // spawns 자체가 없는 최소 JSON — fromJson()/load() 는 cells() 가 "있는 키만" 검증해 그대로
+        // 통과한다. 번들 전용 가드가 이 통과를 막는다(fromJson 안에 두지 않는 이유는 가드 javadoc 참고
+        // — PathfinderTest 의 스폰 없는 합성 inlineNav 격자까지 막아버리기 때문).
+        NavGrid g = load("{\"columns\":2,\"rows\":1,\"walkable\":\"11\",\"traversalCost\":[10,10]}");
+
+        assertThatThrownBy(() -> NavJsonLoader.requireRequiredSpawn(g))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("spawns.character");
+    }
+
+    @Test
     @DisplayName("entrances/spawns 범위 밖·blockedEdges 범위·순서 위반은 거부한다(앱 loadNav 와 같은 검증)")
     void rejectsOutOfBoundsAnchorsAndEdges() {
         assertThatThrownBy(() -> load("{\"columns\":2,\"rows\":2,\"walkable\":\"1111\","

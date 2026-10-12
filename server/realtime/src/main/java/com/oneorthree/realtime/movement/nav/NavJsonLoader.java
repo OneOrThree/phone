@@ -26,6 +26,10 @@ public final class NavJsonLoader {
     /** classpath 상의 번들 nav 경로. */
     public static final String BUNDLED = "movement/nav.json";
 
+    // RoomRuntime.spawnOrDepartedPosition() 이 입장 스폰으로 쓰는 필수 키 — 한 곳(2246 보완12).
+    // nav.json 에 이 키가 없으면 로드는 통과하고 첫 join 에서야 NPE 로 터져 그 섬엔 아무도 못 들어간다.
+    public static final String REQUIRED_SPAWN = "character";
+
     // 앱은 비용을 Uint8Array 에 담는다 — 256 이상이면 앱만 조용히 다른 값이 되므로 서버는 읽을 때 거부한다.
     private static final int MAX_COST_TENTHS = 255;
 
@@ -38,7 +42,8 @@ public final class NavJsonLoader {
 
     /**
      * classpath 의 {@value #BUNDLED} 를 읽는다. 없으면 배포 산출물이 깨진 것이라 {@link IllegalStateException}.
-     * 번들은 반드시 100×100(MV-D01) 이어야 한다 — 아니면 {@link IllegalArgumentException}.
+     * 번들은 반드시 100×100(MV-D01) 이어야 하고 {@value #REQUIRED_SPAWN} 스폰이 있어야 한다 — 아니면
+     * {@link IllegalArgumentException}.
      */
     public static NavGrid loadBundled() {
         try (InputStream in = NavJsonLoader.class.getClassLoader().getResourceAsStream(BUNDLED)) {
@@ -47,6 +52,7 @@ public final class NavJsonLoader {
             }
             NavGrid grid = load(in);
             requireBundledSize(grid);
+            requireRequiredSpawn(grid);
             return grid;
         } catch (IOException e) {
             throw new UncheckedIOException(BUNDLED + " 를 읽지 못했다", e);
@@ -59,6 +65,25 @@ public final class NavJsonLoader {
         if (grid.cols() != WorldCoords.WORLD_SIZE || grid.rows() != WorldCoords.WORLD_SIZE) {
             throw new IllegalArgumentException(
                     "nav 가 MV-D01 100×100 이 아니다: " + grid.cols() + "x" + grid.rows());
+        }
+    }
+
+    /**
+     * 번들 전용 필수 스폰 가드(2246 보완12). package-private 로 둬 테스트가 classpath 리소스 없이 직접
+     * 검증한다({@link #requireBundledSize} 와 같은 이유).
+     *
+     * <p>{@link #fromJson} 의 {@code cells()} 검증은 JSON 에 <b>있는</b> 키만 본다 — {@value
+     * #REQUIRED_SPAWN} 키 자체가 없으면 그 검증을 조용히 통과해, 기동이 아니라 첫 {@code join} 의 {@link
+     * com.oneorthree.realtime.movement.RoomRuntime#spawnOrDepartedPosition} 에서 {@code
+     * NullPointerException} 으로 터진다(그 섬엔 아무도 못 들어간다). 이 가드를 {@link #fromJson} 안에 두지
+     * 않는 이유: {@code fromJson}/{@code load} 는 {@code PathfinderTest} 의 합성 A* 전용 격자(공통
+     * fixture {@code inlineNav}, 스폰 없이도 유효)에도 직접 쓰여 거기까지 막아버린다 — 실제로 스폰이
+     * 필요한 건 서버가 공유하는 단 하나의 번들 격자({@code MovementRooms})뿐이라 여기, {@link
+     * #loadBundled} 경로에서만 강제한다.
+     */
+    static void requireRequiredSpawn(NavGrid grid) {
+        if (!grid.spawns().containsKey(REQUIRED_SPAWN)) {
+            throw new IllegalArgumentException("nav.spawns." + REQUIRED_SPAWN + " 가 없다(필수 스폰 키)");
         }
     }
 
