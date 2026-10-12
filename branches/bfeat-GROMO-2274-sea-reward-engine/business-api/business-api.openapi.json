@@ -250,6 +250,36 @@
         }
       }
     },
+    "/me/telescope/pins": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "pinTelescope",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopePinView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/letters": {
       "get": {
         "tags": [
@@ -2573,6 +2603,26 @@
         }
       }
     },
+    "/me/telescope": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "telescope",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/join-requests": {
       "get": {
         "tags": [
@@ -3486,6 +3536,36 @@
         }
       }
     },
+    "/me/telescope/pins/{islandId}": {
+      "delete": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "unpinTelescope",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/notices/{noticeId}/comments/{commentId}": {
       "delete": {
         "tags": [
@@ -3906,6 +3986,102 @@
             "type": "string"
           }
         }
+      },
+      "EvictedPinView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "islandId",
+          "name"
+        ]
+      },
+      "TelescopeItemView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "sailingMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "full": {
+            "type": "boolean"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "pinnedFrom": {
+            "type": "string"
+          },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "approvalRequired",
+          "arrivedBefore",
+          "full",
+          "intro",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "membershipStatus",
+          "name",
+          "sailingMinutes",
+          "slot"
+        ]
+      },
+      "TelescopePinView": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/TelescopeItemView"
+          },
+          "evicted": {
+            "$ref": "#/components/schemas/EvictedPinView"
+          }
+        },
+        "required": [
+          "item"
+        ]
       },
       "LetterDetailView": {
         "type": "object",
@@ -5060,6 +5236,30 @@
           "onboardingComplete"
         ]
       },
+      "TelescopeView": {
+        "type": "object",
+        "properties": {
+          "bucketStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextRefreshMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TelescopeItemView"
+            }
+          }
+        },
+        "required": [
+          "bucketStart",
+          "items",
+          "nextRefreshMinutes"
+        ]
+      },
       "MyJoinRequestView": {
         "type": "object",
         "properties": {
@@ -5261,6 +5461,9 @@
           "islandId": {
             "type": "string",
             "format": "uuid"
+          },
+          "readAt": {
+            "type": "string"
           }
         },
         "required": [
@@ -6590,6 +6793,17 @@
           }
         }
       },
+      "NoticeDeletedView": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ]
+      },
       "JoinRequestCancelView": {
         "type": "object",
         "properties": {
@@ -6604,17 +6818,6 @@
         "required": [
           "id",
           "status"
-        ]
-      },
-      "NoticeDeletedView": {
-        "type": "object",
-        "properties": {
-          "deleted": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "deleted"
         ]
       },
       "Left": {
