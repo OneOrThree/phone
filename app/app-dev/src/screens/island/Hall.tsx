@@ -51,13 +51,13 @@ import {
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
+import { t } from '@/i18n';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import {
   ISLAND_GREETING_MAX,
   ISLAND_INTRO_MAX,
   ISLAND_NAME_MAX,
 } from '@/services/api/islandManagement';
-import { t } from '@/i18n';
 import { clampCodePoints } from '@/utils/codePoints';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
@@ -2988,10 +2988,10 @@ export function Hall({ e }: any) {
               return;
             }
             e.dispatch({ type: 'JOIN', id: i.id });
-            if (join === 'apply') notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+            if (join === 'apply') notify(t('islandVisit.visitorJoin.requested'));
             else {
               // 바로 가입: 이 섬 주민이 되어 구경이 끝나므로 새 섬 홈으로 간다
-              e.notify(`${i.name} 주민이 됐어요`);
+              e.notify(t('islandVisit.visitorJoin.joined', { name: i.name }));
               e.home();
             }
           }}

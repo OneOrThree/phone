@@ -361,6 +361,7 @@
       "visiting": "Visiting {{name}}",
       "focusingNow": "{{count}} focusing on Fishing Island now",
       "quietNow": "Fishing Island is quiet right now",
+      "focusingNowHint": "Tap to watch Fishing Island.",
       "todayFocusVisitor": "Focus today {{time}}"
     },
     "build": "Build {{building}}",
@@ -584,6 +585,18 @@
     "leaveWithoutJoinTitle": "Leave without joining?",
     "leaveWithoutJoinBody": "Become a resident to focus together here.",
     "leaveWithoutJoinLeave": "Leave",
+    "visitorJoin": {
+      "join": "Join This Island",
+      "apply": "Request to Join",
+      "cancel": "Cancel Join Request",
+      "full": "This island is full",
+      "blocked": "You can't rejoin this island",
+      "busy": "Updating…",
+      "sessionActive": "Finish your focus session or break before joining.",
+      "cancelled": "Your join request was cancelled.",
+      "requested": "Request sent. We'll let you know once the host responds.",
+      "joined": "You're now a resident of {{name}}"
+    },
     "title": "Island Across the Sea",
     "loading": "Loading island details…",
     "residents": "Residents {{count}}/{{max}} · {{status}}",

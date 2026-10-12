@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { t } from '@/i18n';
 import { sessionGeneration } from '@/services/api/session';
 import { islandErrorMessage } from '@/services/islandErrors';
 import {
@@ -25,10 +26,10 @@ export function useVisitorJoin(e: any, s: State, i: Island, notify: (text: strin
   }, []);
   const join = visitorJoinState(s, i);
   const disabled = busy || join === 'full' || join === 'blocked';
-  const label = busy ? '처리 중이에요' : visitorJoinLabel[join];
+  const label = busy ? t('islandVisit.visitorJoin.busy') : visitorJoinLabel[join];
   const serverJoin = async () => {
     if (pending.current || disabled) return;
-    if (s.session) return notify('집중이나 휴식을 마친 뒤 가입해 주세요.');
+    if (s.session) return notify(t('islandVisit.visitorJoin.sessionActive'));
     pending.current = true;
     setBusy(true);
     const generation = sessionGeneration();
@@ -39,16 +40,16 @@ export function useVisitorJoin(e: any, s: State, i: Island, notify: (text: strin
         const request = pendingVisitRequest(s, i.id);
         if (!request) return;
         await e.islands.cancel(request.id);
-        if (alive()) notify('가입 신청을 취소했어요.');
+        if (alive()) notify(t('islandVisit.visitorJoin.cancelled'));
       } else {
         const result = await e.islands.join(i.id, { showApproval: false });
         if (!alive()) return;
         if (result.status === 'pending') {
-          notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+          notify(t('islandVisit.visitorJoin.requested'));
         } else {
           e.dispatch({ type: 'END_VISIT' });
           e.reset('home');
-          e.notify(`${i.name} 주민이 됐어요`);
+          e.notify(t('islandVisit.visitorJoin.joined', { name: i.name }));
         }
       }
     } catch (error) {

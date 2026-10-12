@@ -154,6 +154,8 @@ function visitEnv({
   items = [] as object[],
   currentIslandId = null as string | null,
   membershipStatus = 'none',
+  island = {} as object,
+  joinRequest = null as object | null,
 } = {}) {
   let state = reducer(initialState(true), {
     type: 'ISLAND_SYNC',
@@ -161,10 +163,20 @@ function visitEnv({
   });
   state = reducer(state, {
     type: 'ISLAND_VISIT',
-    visit: { island: isl('v', '구경섬', { membershipStatus }) },
+    visit: { island: isl('v', '구경섬', { membershipStatus, ...island }), joinRequest },
   });
   state = reducer(state, { type: 'SERVER_VISITING', islandId: 'v' });
-  const e: any = { ...env(), state, confirm: jest.fn() };
+  const base = env();
+  const e: any = {
+    ...base,
+    state,
+    confirm: jest.fn(),
+    islands: {
+      ...base.islands,
+      join: jest.fn().mockResolvedValue({ status: 'active' }),
+      cancel: jest.fn(),
+    },
+  };
   e.dispatch = jest.fn((a: any) => {
     e.state = reducer(e.state, a);
   });
@@ -203,9 +215,66 @@ test('확인창을 거쳐 「떠나기」를 고르면 그때 이동한다', asy
   });
   const screen = await render(<RaftDestinations e={e} />);
   await fireEvent.press(screen.getByText('하나섬으로'));
-  expect(e.confirm.mock.calls[0][3]).toEqual({ ok: '떠나기' });
+  expect(e.confirm.mock.calls[0][3]).toEqual({
+    ok: '떠나기',
+    cancel: '이 섬에 가입',
+    onCancel: expect.any(Function),
+  });
   await act(async () => e.confirm.mock.calls[0][2]());
   expect(e.islands.switchCurrent).toHaveBeenCalledWith('a');
+  expect(e.islands.join).not.toHaveBeenCalled();
+});
+
+test('확인창의 취소 자리는 가입 버튼이고 누르면 가입만 한다(떠나기 동작은 돌리지 않는다)', async () => {
+  const e = visitEnv();
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('구경 끝내기'));
+  const opts = e.confirm.mock.calls[0][3];
+  expect(opts.cancel).toBe('이 섬에 가입');
+  await act(async () => opts.onCancel());
+  expect(e.islands.join).toHaveBeenCalledTimes(1);
+  expect(e.islands.join).toHaveBeenCalledWith('v', { showApproval: false });
+  // 바로 가입이면 가입 훅이 구경을 끝내고 홈으로 보낸다 — endVisit 이었다면 소속 섬이 없어 chooseIsland 였다
+  expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
+  expect(e.reset).toHaveBeenCalledTimes(1);
+  expect(e.reset).toHaveBeenCalledWith('home');
+  expect(e.notify).toHaveBeenCalledWith('구경섬 주민이 됐어요');
+  expect(e.islands.switchCurrent).not.toHaveBeenCalled();
+});
+
+test('승인제 섬이면 가입 버튼 글자는 「가입 신청」이고 신청만 보내고 구경은 이어진다', async () => {
+  const e = visitEnv({
+    items: [isl('a', '하나', { arrivedBefore: true })],
+    currentIslandId: 'a',
+    island: { approvalRequired: true },
+  });
+  e.islands.join.mockResolvedValue({ status: 'pending' });
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  const opts = e.confirm.mock.calls[0][3];
+  expect(opts.cancel).toBe('가입 신청');
+  await act(async () => opts.onCancel());
+  expect(e.islands.join).toHaveBeenCalledTimes(1);
+  expect(e.notify).toHaveBeenCalledWith('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+  expect(e.reset).not.toHaveBeenCalled();
+  expect(e.islands.switchCurrent).not.toHaveBeenCalled();
+});
+
+test('정원이 찬 섬이거나 이미 신청 중이면 취소 자리는 기본 「취소」다(가입 버튼 없음)', async () => {
+  const full = visitEnv({ island: { maxMembers: 1, memberCount: 1 } });
+  const fullScreen = await render(<RaftDestinations e={full} />);
+  await fireEvent.press(fullScreen.getByText('구경 끝내기'));
+  expect(full.confirm).toHaveBeenCalledTimes(1);
+  expect(full.confirm.mock.calls[0][3]).toEqual({ ok: '떠나기' });
+  await fullScreen.unmount();
+
+  const requested = visitEnv({
+    joinRequest: { id: 'r1', islandId: 'v', status: 'pending', version: 1 },
+  });
+  const requestedScreen = await render(<RaftDestinations e={requested} />);
+  await fireEvent.press(requestedScreen.getByText('구경 끝내기'));
+  expect(requested.confirm).toHaveBeenCalledTimes(1);
+  expect(requested.confirm.mock.calls[0][3]).toEqual({ ok: '떠나기' });
 });
 
 test.each(['pending', 'active'])(
@@ -245,6 +314,26 @@ test('현재 섬이 있으면 「구경 끝내기」는 home 으로 간다(이�
   e.dispatch({ type: 'VISIT_LEAVE_ASKED' });
   const screen = await render(<RaftDestinations e={e} />);
   await fireEvent.press(screen.getByText('구경 끝내기'));
+  expect(e.confirm).not.toHaveBeenCalled();
+  expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
+  expect(e.reset).toHaveBeenCalledWith('home');
+});
+
+test('방문 스냅샷이 구경 중인 섬과 다르면 가입 여부를 알 수 없어 확인 없이 떠난다(구경 끝내기도 막히지 않는다)', async () => {
+  const e = visitEnv({
+    items: [isl('a', '하나', { arrivedBefore: true })],
+    currentIslandId: 'a',
+  });
+  // ISLAND_VISIT 가 visit 만 바꾸고 visitingIslandId 는 그대로인 구간 — visit 는 v, 구경 중인 섬은 other
+  e.state = { ...e.state, visitingIslandId: 'other' };
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  expect(e.confirm).not.toHaveBeenCalled();
+  expect(e.islands.switchCurrent).toHaveBeenCalledWith('a');
+  await screen.unmount();
+
+  const again = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(again.getByText('구경 끝내기'));
   expect(e.confirm).not.toHaveBeenCalled();
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
   expect(e.reset).toHaveBeenCalledWith('home');

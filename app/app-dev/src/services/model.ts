@@ -847,6 +847,12 @@ export const serverHome = (s: State) => {
   const snap = s.serverIslands;
   return snap?.home && snap.home.islandId === snap.currentIslandId ? snap.home : null;
 };
+// 서버 방문 화면 스냅샷 — 지금 구경 중인 섬의 것일 때만 돌려준다. ISLAND_VISIT 가 visit 만 바꾸고
+// visitingIslandId 는 그대로인 구간에 HUD·가입·떠나기 확인이 서로 다른 섬을 보지 않게 한다(GROMO-2259).
+export const serverVisit = (s: State): VisitScreen | null =>
+  s.visitingIslandId && s.serverIslands?.visit?.island.id === s.visitingIslandId
+    ? s.serverIslands.visit
+    : null;
 // 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
 export const viewIsland = (s: State, islandId = s.visitingIslandId) =>
   s.serverIslands
@@ -1012,12 +1018,23 @@ export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
         : i.approval
           ? 'apply'
           : 'join';
+// 읽는 시점에 번역한다 — 모듈 최상위에서 t() 를 부르면 import 시점 언어로 굳는다(i18n/index.ts)
 export const visitorJoinLabel: Record<VisitorJoin, string> = {
-  join: '이 섬에 가입',
-  apply: '가입 신청',
-  cancel: '신청 취소',
-  full: '정원이 가득 찼어요',
-  blocked: '다시 가입할 수 없어요',
+  get join() {
+    return t('islandVisit.visitorJoin.join');
+  },
+  get apply() {
+    return t('islandVisit.visitorJoin.apply');
+  },
+  get cancel() {
+    return t('islandVisit.visitorJoin.cancel');
+  },
+  get full() {
+    return t('islandVisit.visitorJoin.full');
+  },
+  get blocked() {
+    return t('islandVisit.visitorJoin.blocked');
+  },
 };
 export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
 export const findIslandByInviteCode = (islands: Island[], code: string) =>
