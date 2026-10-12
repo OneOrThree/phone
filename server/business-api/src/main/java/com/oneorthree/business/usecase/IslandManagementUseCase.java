@@ -217,16 +217,29 @@ public class IslandManagementUseCase {
         }
     }
 
+    /**
+     * 이탈 응답은 {@code {field:true}} 하나이거나 {@code nextLocation} 이 붙은 두 키다 (GROMO-2260). 한 키짜리를
+     * 받아 주는 이유는 GROMO-2260 배포 전에 저장된 receipt 재생과 구버전 Data 응답이 그 모양이기 때문이다.
+     */
     private static void requireTrue(JsonNode result, String field) {
-        if (result == null || !result.isObject() || result.size() != 2 || !result.path(field).isBoolean()
-                || !result.path(field).booleanValue()) {
+        if (result == null || !result.isObject() || !result.path(field).isBoolean()
+                || !result.path(field).booleanValue()
+                || !(result.size() == 1 || (result.size() == 2 && result.has("nextLocation")))) {
             throw new UpstreamContractMismatchException("섬 이탈 응답 계약 불일치");
         }
     }
 
-    /** 이탈 응답의 다음 위치 (GROMO-2260) — {@code {islandId: UUID|null}}. null 이면 먼바다다. */
+    /**
+     * 이탈 응답의 다음 위치 (GROMO-2260) — {@code {islandId: UUID|null}}, {@code islandId} 가 null 이면 먼바다다.
+     *
+     * <p>키 자체가 없으면(배포 전 receipt·구버전 Data) {@code null} 을 돌려준다 — 「모름」이다. 「먼바다」
+     * ({@code {islandId:null}})와 섞으면 앱이 아직 섬이 있는 사람을 먼바다로 보낸다.
+     */
     private static NextLocation nextLocationOf(JsonNode result) {
         JsonNode location = result.path("nextLocation");
+        if (location.isMissingNode() || location.isNull()) {
+            return null;
+        }
         JsonNode islandId = location.path("islandId");
         if (!location.isObject() || !location.has("islandId") || !(islandId.isNull() || islandId.isString())) {
             throw new UpstreamContractMismatchException("섬 이탈 응답의 다음 위치 계약 불일치");
@@ -353,11 +366,16 @@ public class IslandManagementUseCase {
     public record NextLocation(@JsonInclude(JsonInclude.Include.ALWAYS) UUID islandId) {
     }
 
-    /** 강퇴 결과 {@code {removed:true, nextLocation}} — 다음 위치는 강퇴된 사람의 것이다. */
-    public record Removed(boolean removed, @JsonProperty(required = true) NextLocation nextLocation) {
+    /**
+     * 강퇴 결과 {@code {removed:true, nextLocation}} — 다음 위치는 강퇴된 사람의 것이다. {@code nextLocation} 이
+     * null 이면 「모름」(배포 전 receipt 재생)이다.
+     */
+    public record Removed(boolean removed,
+            @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) NextLocation nextLocation) {
     }
 
-    /** 나가기 결과 {@code {left:true, nextLocation}}. */
-    public record Left(boolean left, @JsonProperty(required = true) NextLocation nextLocation) {
+    /** 나가기 결과 {@code {left:true, nextLocation}}. {@code nextLocation} 이 null 이면 「모름」(배포 전 receipt 재생)이다. */
+    public record Left(boolean left,
+            @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) NextLocation nextLocation) {
     }
 }
