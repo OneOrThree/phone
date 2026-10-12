@@ -23,6 +23,20 @@ public final class LiveActivityContent {
                 && detail.getLifecycle() != FocusSessionLifecycle.PAUSED);
     }
 
+    /** Android는 Unix 밀리초와 서버 버전을 사용한다. 클라이언트가 보낸 상태를 전파하지 않는다. */
+    public static Map<String, Object> androidPayload(FocusSessionDetail detail,
+            List<FocusSessionInterval> intervals, java.util.UUID owner, String color, Instant expiresAt, Instant now) {
+        boolean rest = detail.getLifecycle() == FocusSessionLifecycle.PAUSED;
+        long activeSeconds = intervals.stream().filter(i -> i.getKind() == FocusIntervalKind.ACTIVE)
+                .mapToLong(i -> Math.max(0, Duration.between(i.getStartedAt(),
+                        i.getEndedAt() == null ? now : i.getEndedAt()).getSeconds())).sum();
+        Instant anchor = rest ? detail.getLastTransitionAt() : now.minusSeconds(activeSeconds);
+        return Map.of("owner", owner.toString(), "sessionId", detail.getSessionId().toString(),
+                "version", detail.getVersion(), "phase", ended(detail) ? "ended" : rest ? "rest" : "focus",
+                "subject", rest ? "" : detail.getSubject(), "catColor", color, "anchorMs", anchor.toEpochMilli(),
+                "validUntilMs", (rest ? anchor.plusSeconds(3600) : expiresAt).toEpochMilli());
+    }
+
     public static Map<String, Object> payload(FocusSessionDetail detail, List<FocusSessionInterval> intervals,
                                               String color, long timestamp, Instant now) {
         boolean rest = detail.getLifecycle() == FocusSessionLifecycle.PAUSED;

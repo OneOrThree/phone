@@ -74,8 +74,11 @@ public class FocusLiveActivityService {
             return;
         }
         long timestamp = now.getEpochSecond();
-        var payload = LiveActivityContent.payload(detail,
-                intervals.findBySessionIdOrderByOrdinalAsc(sessionId), activity.getCatColor(), timestamp, now);
+        var sessionIntervals = intervals.findBySessionIdOrderByOrdinalAsc(sessionId);
+        var payload = "android".equals(activity.getEnvironment())
+                ? LiveActivityContent.androidPayload(detail, sessionIntervals, activity.getUserId(),
+                        activity.getCatColor(), activity.getExpiresAt(), now)
+                : LiveActivityContent.payload(detail, sessionIntervals, activity.getCatColor(), timestamp, now);
         var result = push.send(activity.getPushToken(), activity.getEnvironment(), payload);
         if (result == LiveActivityPushClient.Result.INVALID_TOKEN
                 || (result == LiveActivityPushClient.Result.SENT && LiveActivityContent.ended(detail))) {

@@ -124,4 +124,23 @@ class FocusLiveActivityServiceTest {
         assertThat(activity.getExpiresAt()).isEqualTo(now.plusSeconds(28800));
         assertThat(activity.getNextAttemptAt()).isEqualTo(now.plusSeconds(60));
     }
+
+    @Test
+    void androidRegistrationAcceptsFcmTokenAndUsesServerState() {
+        var request = new LiveActivityRegistration("android-activity", "a".repeat(40) + ":_token", "android", "black");
+        request.validate();
+        var activity = new FocusLiveActivity(sessionId, owner, request, now.minusSeconds(30));
+        when(sessions.requireForUpdate(sessionId)).thenReturn(detail(FocusSessionLifecycle.PAUSED));
+        when(activities.findBySessionIdForUpdate(sessionId)).thenReturn(Optional.of(activity));
+        when(intervals.findBySessionIdOrderByOrdinalAsc(sessionId)).thenReturn(List.of());
+        when(push.enabled()).thenReturn(true);
+        when(push.send(anyString(), eq("android"), any())).thenReturn(LiveActivityPushClient.Result.SENT);
+        service.deliver(sessionId);
+        verify(push).send(eq(request.pushToken()), eq("android"), argThat(payload ->
+                payload.get("phase").equals("rest") && payload.get("owner").equals(owner.toString())
+                        && payload.get("version").equals(3L)
+                        && payload.get("anchorMs").equals(now.minusSeconds(20).toEpochMilli())
+                        && payload.get("validUntilMs").equals(now.plusSeconds(3580).toEpochMilli())));
+        assertThat(activity.getSentVersion()).isEqualTo(3);
+    }
 }

@@ -9,9 +9,10 @@ import java.util.Set;
 public record LiveActivityRegistration(String activityId, String pushToken, String environment, String catColor) {
     public void validate() {
         if (activityId == null || !activityId.matches("[A-Za-z0-9-]{1,128}")
-                || pushToken == null || !pushToken.matches("[a-fA-F0-9]{64,1024}")
-                || (pushToken.length() % 2) != 0
-                || !Set.of("development", "production").contains(environment == null ? "" : environment)
+                || pushToken == null || !("android".equals(environment)
+                    ? pushToken.matches("[A-Za-z0-9_:\\-]{32,1024}")
+                    : pushToken.matches("[a-fA-F0-9]{64,1024}") && (pushToken.length() % 2) == 0)
+                || !Set.of("development", "production", "android").contains(environment == null ? "" : environment)
                 || !Set.of("black", "ginger", "cream", "gray", "white", "calico")
                         .contains(catColor == null ? "" : catColor)) {
             throw new FocusException(FocusErrorCode.INVALID_LIVE_ACTIVITY);
