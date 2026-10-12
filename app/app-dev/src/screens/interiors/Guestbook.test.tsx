@@ -236,6 +236,41 @@ test('막았던 칸은 섬이 바뀌어 다시 불러오면 다시 열린다', a
   expect(screen.getByTestId(INPUT).props.editable).toBe(true);
 });
 
+test('막힌 뒤 [다시 불러오기]로 잠금이 풀려도 쓰던 글은 지우지 않고 그대로 보낼 수 있다', async () => {
+  const { screen } = await mount(false);
+  writeMock.mockRejectedValueOnce(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', 'x', 409));
+  await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await screen.findByText('오늘은 이미 남겼어요');
+  expect(screen.getByTestId(INPUT).props.value).toBe('안녕'); // 막힌 칸에도 쓰던 글이 남아 있다
+
+  // 자정(KST)이 지나 서버가 다시 허용한다 — 같은 섬의 수동 다시 불러오기는 잠금·목록만 새로 받는다
+  getMock.mockResolvedValue(page([entry('g1')]));
+  await fireEvent.press(screen.getByTestId('guestbook-reload'));
+  await waitFor(() => expect(screen.queryByText('오늘은 이미 남겼어요')).toBeNull());
+  await screen.findByTestId(INPUT);
+  expect(screen.getByTestId(INPUT).props.editable).toBe(true);
+  expect(screen.getByTestId(INPUT).props.value).toBe('안녕'); // 쓰던 글은 그대로
+  expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(false);
+
+  writeMock.mockResolvedValue(entry('g9', { content: '안녕', mine: true }));
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await screen.findByText('안녕');
+  expect(writeMock).toHaveBeenLastCalledWith('i1', '안녕');
+});
+
+test('섬이 바뀌면 쓰던 글을 비운다(다른 섬에 옛 초안이 남지 않는다)', async () => {
+  const { screen } = await mount(false);
+  await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+  expect(screen.getByTestId(INPUT).props.value).toBe('안녕');
+
+  getMock.mockResolvedValue(page([entry('b1')]));
+  await screen.rerender(<Guestbook islandId="i2" host={false} e={env()} />);
+  await screen.findByText('b1 놀러 왔어요');
+  expect(screen.getByTestId(INPUT).props.value).toBe('');
+  expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(true);
+});
+
 test('게시판이 사라진 섬(403 FACILITY_LOCKED)은 토스트 없이 칸 아래 안내로 짓고 나서 쓰라고 알린다', async () => {
   const { screen, e } = await mount(false);
   writeMock.mockRejectedValue(

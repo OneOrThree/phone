@@ -6223,9 +6223,11 @@ export function Board({
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
   const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
   const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
-  // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다
+  // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다.
+  // 방명록은 목록뿐 아니라 제목+입력 칸+글자 수+[남기기](약 203px)가 한 번에 보여야 해서 바닥을 더 높게 둔다
   const sheetHeight = Math.min(height * 0.58, 492 * landScale);
-  const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < 140;
+  const minPaperScroll = s.panel === 'guestbook' ? 210 : 140;
+  const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < minPaperScroll;
   const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
   const paperPad = sheetCramped
     ? { top: 38 * landScale, bottom: 28 * landScale }
@@ -6632,9 +6634,12 @@ export function Board({
           <Scroll style={{ maxHeight: paperScroll }}>{questContent(questDetailOpen)}</Scroll>
         )}
         {/* 섬 id·섬장 여부는 공지와 같은 getBoard 응답이 정본이다 — 그 첫 조회가 끝나기 전·실패했을 때는 빈 종이가
-            아니라 공지·퀘스트와 같은 불러오는 중·오류+다시 시도를 보인다(다시 시도 = board.retry). */}
+            아니라 공지·퀘스트와 같은 불러오는 중·오류+다시 시도를 보인다(다시 시도 = board.retry).
+            키보드는 공지 댓글·편지 입력과 같은 길로 피한다 — App 루트 KeyboardAvoidingView(iOS padding)·adjustResize(안드로이드)가
+            InteriorRoute 높이를 줄이면 paperScroll·sheetCramped 가 그 높이를 따른다(방명록은 minPaperScroll 바닥이 더 높다).
+            automaticallyAdjustKeyboardInsets 는 줄어들기 전 좌표로 inset 을 잡아 이중 보정이 될 수 있어 두지 않는다. */}
         {s.panel === 'guestbook' && serverBoard && (
-          <Scroll style={{ maxHeight: paperScroll }}>
+          <Scroll testID="board-guestbook-scroll" style={{ maxHeight: paperScroll }}>
             {board.islandId ? (
               <Guestbook islandId={board.islandId} host={owner} e={e} />
             ) : board.error && !board.loading ? (

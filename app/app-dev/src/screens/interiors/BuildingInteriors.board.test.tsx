@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
 import { PixelRatio, Platform, StyleSheet } from 'react-native';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { applyLocalePref } from '@/i18n';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { ApiError } from '@/services/api/client';
@@ -2379,6 +2379,46 @@ test('일반 주민은 방명록을 읽고 쓸 수 있지만 지우기·신고 �
   assert.equal(screen.queryByText('지우기'), null);
   assert.equal(screen.queryByText('신고'), null);
 });
+
+// 키보드는 InteriorRoute 가 재는 높이를 줄여서 들어온다(iOS: App 루트 KeyboardAvoidingView padding, 안드로이드: adjustResize).
+// 방명록 종이는 그 줄어든 높이 안에서 위로 붙고, 입력 칸·[남기기]는 그 안의 스크롤에 있어 키보드 위에 남는다. 다만 스크롤 칸이
+// 제목+입력 칸+글자 수+[남기기](23+12+75+12+17+12+52 = 203px)보다 낮으면 [남기기]가 접힌 아래로 밀려 스크롤해야 보이므로,
+// 그럴 땐 종이가 화면 높이를 다 쓴다(sheetCramped).
+// 실기기(iOS 세로) 확인: 입력 칸을 눌러 키보드가 올라와도 입력 칸과 [남기기]가 키보드 위에 스크롤 없이 보인다.
+const GUESTBOOK_COMPOSER_HEIGHT = 203;
+test.each([
+  ['키보드 없음', { width: 402, height: 874 }],
+  ['키보드로 줄어든 높이(402×874)', { width: 402, height: 538, sceneHeight: 874 }],
+  ['키보드로 줄어든 높이(430×932)', { width: 430, height: 586, sceneHeight: 932 }],
+  ['키보드로 줄어든 높이(393×852)', { width: 393, height: 516, sceneHeight: 852 }],
+])(
+  '방명록 종이는 보이는 높이 안에서 입력 칸·[남기기]가 한 번에 보이게 남는다 (%s)',
+  async (_label, size) => {
+    getBoardMock.mockResolvedValue(page([], null, 'member'));
+    getGuestbookMock.mockResolvedValue({ boardBuilt: true, items: [guestbookEntry('g1')] });
+    const screen = await renderBoard(makeE({ tab: '' }), {}, size);
+    await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+    const scroll = await screen.findByTestId('board-guestbook-scroll');
+    await screen.findByTestId('guestbook-submit');
+
+    const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+    const paperBottom =
+      drawer.top !== undefined ? drawer.top + drawer.height : size.height - drawer.bottom;
+    assert.ok(
+      paperBottom <= size.height,
+      `종이 아래 ${paperBottom} 가 보이는 높이 ${size.height} 밖`,
+    );
+    const { maxHeight } = StyleSheet.flatten(scroll.props.style);
+    assert.ok(maxHeight <= drawer.height - drawer.paddingTop - drawer.paddingBottom);
+    assert.ok(
+      maxHeight >= GUESTBOOK_COMPOSER_HEIGHT,
+      `스크롤 칸 ${maxHeight}px 에 [남기기]까지(${GUESTBOOK_COMPOSER_HEIGHT}px)가 안 들어감`,
+    );
+    assert.ok(within(scroll).getByTestId('field-한마디 남기기'));
+    assert.ok(within(scroll).getByTestId('guestbook-submit'));
+    await screen.unmount();
+  },
+);
 
 test('목업·갤러리 게시판(서버 없음)에는 방명록 입구도 API 호출도 없다', async () => {
   const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }));

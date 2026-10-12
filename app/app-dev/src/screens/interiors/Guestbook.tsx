@@ -97,13 +97,18 @@ export function Guestbook({
     setDeletingIds(new Set(deleting.current));
   };
 
+  // 쓰던 글은 섬이 바뀔 때만 비운다(다른 섬에 옛 초안이 남지 않게). 같은 섬의 [다시 불러오기]는 아래 효과가 잠금·목록만 새로
+  // 받으므로 자정이 지나 잠금이 풀려도 쓰던 글은 그대로 남는다
+  useEffect(() => {
+    setDraft('');
+  }, [islandId]);
+
   // 섬이 바뀌거나 화면을 떠난 뒤 늦게 온 응답·쓰기 결과는 버린다(세션 세대 포함).
   useEffect(() => {
     scope.current = {};
     const alive = aliveGuard(scope);
     setLoaded(null);
     setFailed(false);
-    setDraft('');
     setBusy(false);
     setBlocked(null);
     writing.current = false;
