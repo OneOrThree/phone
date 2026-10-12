@@ -194,4 +194,16 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             @Param("seed") String seed,
             @Param("afterHandle") String afterHandle,
             @Param("limit") int limit);
+
+    /**
+     * 살아 있는 섬(소프트 삭제도 종료도 아닌)의 id 전부 — 섬별 7일 평균 배치의 모집단이다 (GROMO-2257).
+     * {@code IslandMovementGuards.isAlive} 와 같은 두 축이고, 공개·비공개를 가리지 않는다. 주민이 0명인 섬도
+     * 포함한다 — 그 섬은 «평균 없음» 행이 돼야 하므로 세션·멤버십이 아니라 <b>이 표에서 출발</b>해야 한다.
+     *
+     * @return 살아 있는 섬 id 전량, id 오름차순. 순서를 고정하는 이유는 이 목록으로 한 문장에 여러 행을 쓰는 두 인스턴스가
+     *     같은 순서로 잠금을 잡아 교착하지 않게 하려는 것이다. 페이징이 없다 — id 만 싣는 전수 조회라 섬 수에 비례할 뿐이다
+     */
+    @Query("SELECT g.id FROM Group g WHERE g.deletedAt IS NULL "
+            + "AND g.status <> com.oneorthree.phone.group.repository.domain.GroupStatus.ENDED ORDER BY g.id")
+    List<UUID> findAliveIslandIds();
 }
