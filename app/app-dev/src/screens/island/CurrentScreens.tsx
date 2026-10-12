@@ -497,6 +497,7 @@ function CurrentScreensContent({ e }: any) {
         islandId={islandId}
         backOverride={e.backOverride}
         onClose={visitMap}
+        e={e}
       />
     );
   }
@@ -1017,34 +1018,54 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
   const visit = e.islands && s.visitingIslandId ? s.serverIslands?.visit : null;
   const live = useIslandPresence({ active: !!visit, islandId: visit?.island.id ?? null });
   const join = useVisitorJoin(e, s, viewIsland(s, islandId), e.notify);
+  // 섬장 인사말 말풍선(GROMO-2263) — 이번 방문(리듀서 visitGreeted)에 한 번만 띄운다. 게시판·낚시 구경에서 돌아와
+  // 이 화면이 다시 마운트돼도 안 뜬다. 구서버는 greeting 이 없어 띄우지 않는다.
+  const greeting = visit?.island.greeting?.trim();
+  const [greetingOpen, setGreetingOpen] = useState(false);
+  useEffect(() => {
+    if (!greeting || s.visitGreeted) return;
+    e.dispatch({ type: 'VISIT_GREETED' });
+    setGreetingOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- e 는 매 렌더 새 객체다. 방문 여부(visitGreeted)만 본다
+  }, [greeting, s.visitGreeted]);
   return (
-    <FinalIsland
-      state={s}
-      go={e.go}
-      build={e.build}
-      boardStatus={e.boardStatus}
-      viewingIslandId={s.visitingIslandId ? undefined : islandId}
-      notify={e.notify}
-      dispatch={e.dispatch}
-      onReturnFromVisit={onReturnFromVisit}
-      visitHud={
-        visit
-          ? {
-              focusCount:
-                live.status === 'ready'
-                  ? live.focus.filter((m) => m.status === 'active').length
-                  : null,
-              onFocusPress: () => e.go('visitIslandFocus', visit.island.id),
-              todayMinutes: visit.focusToday?.minutes,
-            }
-          : undefined
-      }
-      visitJoin={
-        visit
-          ? { label: join.label, disabled: join.disabled, onPress: () => void join.serverJoin() }
-          : undefined
-      }
-    />
+    <>
+      <FinalIsland
+        state={s}
+        go={e.go}
+        build={e.build}
+        boardStatus={e.boardStatus}
+        viewingIslandId={s.visitingIslandId ? undefined : islandId}
+        notify={e.notify}
+        dispatch={e.dispatch}
+        onReturnFromVisit={onReturnFromVisit}
+        visitHud={
+          visit
+            ? {
+                focusCount:
+                  live.status === 'ready'
+                    ? live.focus.filter((m) => m.status === 'active').length
+                    : null,
+                onFocusPress: () => e.go('visitIslandFocus', visit.island.id),
+                todayMinutes: visit.focusToday?.minutes,
+              }
+            : undefined
+        }
+        visitJoin={
+          visit
+            ? { label: join.label, disabled: join.disabled, onPress: () => void join.serverJoin() }
+            : undefined
+        }
+      />
+      {greetingOpen && !!greeting && (
+        <IslandPopup onClose={() => setGreetingOpen(false)}>
+          <Txt kind="meta">{t('islandVisit.greetingTitle')}</Txt>
+          <Txt testID="visit-greeting" kind="h17">
+            {greeting}
+          </Txt>
+        </IslandPopup>
+      )}
+    </>
   );
 }
 /** 응원 이모트 부채꼴 + 버튼 — 주민 집중 화면과 낚시 구경 화면(방문자, GROMO-2259)이 같이 쓴다. 부모가 위치를 잡는다. */

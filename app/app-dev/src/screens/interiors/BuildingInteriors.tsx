@@ -50,12 +50,13 @@ import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { localized, t } from '@/i18n';
-import { semanticTokens } from '@/design-system/tokens';
+import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
 import { useBoardNotices } from './useBoardNotices';
 import { useMailbox } from './useMailbox';
+import { Guestbook } from './Guestbook';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
@@ -68,7 +69,7 @@ export type Concept = {
   position: 'scene' | 'bottom' | 'middle';
   items: Item[];
   managementTab?: 'info' | 'residents' | 'requests';
-  boardPanel?: '' | 'notice' | 'quest' | 'blueprint';
+  boardPanel?: '' | 'notice' | 'quest' | 'blueprint' | 'guestbook';
   boardRole?: 'owner' | 'resident';
   boardView?: string;
 };
@@ -2949,7 +2950,7 @@ type QuestForm = {
 };
 type BoardState = {
   role: 'owner' | 'resident';
-  panel: '' | 'notice' | 'quest' | 'blueprint';
+  panel: '' | 'notice' | 'quest' | 'blueprint' | 'guestbook';
   view: string;
   noticeIndex: number;
   questIndex: number;
@@ -3764,7 +3765,12 @@ function QuestCard({
 }
 
 // 앱 라우트의 게시판 탭 이름 ↔ 종이
-const boardTabs = { notice: '공지', quest: '퀘스트', blueprint: '청사진' } as const;
+const boardTabs = {
+  notice: '공지',
+  quest: '퀘스트',
+  blueprint: '청사진',
+  guestbook: '방명록',
+} as const;
 // 건물 → 청사진 설명(buildOptions)과 완공 후 이동할 라우트
 const blueprintOption: Partial<Record<Building, string>> = {
   library: 'library',
@@ -6145,6 +6151,8 @@ export function Board({
     notice: sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height),
     quest: sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height),
     blueprint: sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight),
+    // 선반 위 펜꽂이 — 그림 비율(1024×1536) 기준 중심 (0.54, 0.535). 청사진 터치 영역 아래에 겹치지 않게 놓는다
+    guestbook: sceneHitbox(0.54, 0.535, 0.2, 0.07),
   };
   // 상세 패널은 원본 874px 가로 시안의 화면 폭 비율을 유지한다.
   const landScale = land ? width / 874 : 1;
@@ -6161,7 +6169,7 @@ export function Board({
   };
   const pressedFilter = (panel: BoardState['panel']) =>
     s.panel === panel && webOnly({ filter: 'brightness(1.08)' });
-  const paperPanel = s.panel === 'notice' || s.panel === 'quest';
+  const paperPanel = s.panel === 'notice' || s.panel === 'quest' || s.panel === 'guestbook';
   const noticeDetailOpen = s.panel === 'notice' && (s.view === 'detail' || s.view === 'comment');
   const noticeEditorOpen = s.panel === 'notice' && (s.view === 'write' || s.view === 'edit');
   const noticeOverlayOpen = noticeDetailOpen || noticeEditorOpen;
@@ -6407,6 +6415,40 @@ export function Board({
                 ]}
               />
             )}
+            {/* 방명록은 선반 위 펜꽂이로 연다. 서버 게시판(주민)에서만 — 방문자는 VisitorBoard 에 방명록이 있다 */}
+            {serverBoard && (
+              <Pressable
+                testID="board-guestbook-area"
+                accessibilityRole="button"
+                accessibilityLabel={t('guestbook.title')}
+                onPress={() => nav.open('guestbook')}
+                style={[
+                  {
+                    position: 'absolute',
+                    zIndex: 2,
+                    ...boardHitboxes.guestbook,
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                  },
+                  pressedFilter('guestbook'),
+                ]}
+              >
+                <View
+                  style={{
+                    paddingVertical: primitiveTokens.space[1],
+                    paddingHorizontal: primitiveTokens.space[3],
+                    borderRadius: semanticTokens.radius.full,
+                    borderWidth: semanticTokens.stroke.default,
+                    borderColor: semanticTokens.color.outline,
+                    backgroundColor: semanticTokens.color.surface,
+                  }}
+                >
+                  <Text allowFontScaling style={boardFont(13 * labelScale, 1.3, '700')}>
+                    {t('guestbook.title')}
+                  </Text>
+                </View>
+              </Pressable>
+            )}
           </View>
         </View>
       </ScrollView>
@@ -6556,6 +6598,12 @@ export function Board({
         )}
         {s.panel === 'quest' && (
           <Scroll style={{ maxHeight: paperScroll }}>{questContent(questDetailOpen)}</Scroll>
+        )}
+        {/* 섬 id·섬장 여부는 공지와 같은 getBoard 응답이 정본이다 */}
+        {s.panel === 'guestbook' && serverBoard && !!board.islandId && (
+          <Scroll style={{ maxHeight: paperScroll }}>
+            <Guestbook islandId={board.islandId} host={owner} e={e} />
+          </Scroll>
         )}
         {s.panel === 'blueprint' && (
           <Scroll

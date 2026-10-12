@@ -632,6 +632,28 @@ test('saveSettings — PATCH 뒤 상세·주민·신청 재조회가 끝나야 r
   await h.unmount();
 });
 
+test('saveSettings — 인사말은 넘긴 때만 body 에 실리고 지울 때는 null 이 아니라 빈 문자열이다', async () => {
+  serveHost({ 'PATCH /islands/i1': data(managed({ version: 5 })) });
+  const h = await mount({ active: true, islandId: 'i1' });
+  await flush();
+
+  await act(async () => {
+    await h.result.current.saveSettings({ name: '이름만' });
+  });
+  await act(async () => {
+    await h.result.current.saveSettings({ greeting: '어서 와요 🐟' });
+  });
+  await act(async () => {
+    await h.result.current.saveSettings({ greeting: '' }); // 기본 문구로 되돌리기
+  });
+  const patches = writes('/islands/i1', 'PATCH');
+  assert.equal(patches.length, 3);
+  assert.deepEqual(sentBody(patches[0]), { name: '이름만' }); // 안 넘긴 greeting 은 키도 없다
+  assert.deepEqual(sentBody(patches[1]), { greeting: '어서 와요 🐟' });
+  assert.deepEqual(sentBody(patches[2]), { greeting: '' });
+  await h.unmount();
+});
+
 test('saveSettings — 응답 유실 재시도는 같은 UUID36 key·같은 body 로 다시 보낸다', async () => {
   let fail = true;
   serveHost({

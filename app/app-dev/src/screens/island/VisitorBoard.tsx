@@ -1,20 +1,27 @@
 import { t } from '@/i18n';
 import React, { useEffect, useRef, useState } from 'react';
 import { IslandSheet } from '@/screens/island/IslandSheet';
+import { Guestbook, type GuestbookEnv } from '@/screens/interiors/Guestbook';
 import { Btn, Group, Row, Txt } from '@/design-system/patterns';
 import { getNotice, listNotices, type NoticeDetail, type NoticePage } from '@/services/api/notices';
 import { sessionGeneration } from '@/services/api/session';
 import { islandErrorMessage } from '@/services/islandErrors';
 
-/** 방문자·가입 대기자는 공지와 댓글만 읽는다. 주민 전용 /screens/board와 쓰기 API는 호출하지 않는다. */
+/**
+ * 방문자·가입 대기자는 공지와 댓글만 읽는다. 주민 전용 /screens/board와 쓰기 API는 호출하지 않는다.
+ * 방명록(GROMO-2263)만 방문자도 쓴다 — 공지 목록 아래에 두고, 게시판이 없는 섬이면 스스로 숨는다.
+ */
 export function VisitorBoard({
   islandId,
   onClose,
   backOverride,
+  e,
 }: {
   islandId: string;
   onClose: () => void;
   backOverride?: React.RefObject<(() => boolean) | null>;
+  /** 앱 셸 문맥 — 방명록의 알림·회원 전환에 쓴다. */
+  e?: GuestbookEnv;
 }) {
   const [page, setPage] = useState<NoticePage>({ items: [], nextCursor: null });
   const [detail, setDetail] = useState<NoticeDetail | null>(null);
@@ -189,6 +196,7 @@ export function VisitorBoard({
           />
         </>
       )}
+      {!detail && <Guestbook islandId={islandId} host={false} e={e} />}
     </IslandSheet>
   );
 }

@@ -59,7 +59,8 @@
     "UPSTREAM_TIMEOUT": "The request timed out. Please try again in a moment.",
     "CLIENT_TIMEOUT": "The server is taking a while to respond. Please try again in a moment.",
     "CLIENT_NETWORK_ERROR": "Can't connect to the network. Please check your connection.",
-    "ISLAND_NOT_ARRIVED": "You haven't been to this island yet. Sail there from the telescope."
+    "ISLAND_NOT_ARRIVED": "You haven't been to this island yet. Sail there from the telescope.",
+    "GUESTBOOK_ALREADY_WRITTEN_TODAY": "You've already left a guestbook note today."
   },
   "time": {
     "minutes": "{{m}}m",
@@ -599,7 +600,8 @@
     "enter": "Go to This Island",
     "requestJoin": "Request to Join",
     "join": "Join This Island",
-    "reload": "Reload"
+    "reload": "Reload",
+    "greetingTitle": "A word from the island host"
   },
   "visitorBoard": {
     "title": "Notice Board",
@@ -614,5 +616,30 @@
     "moreNotices": "More Notices",
     "loading": "Loading…",
     "reload": "Reload"
+  },
+  "hall": {
+    "greeting": "Greeting",
+    "greetingPlaceholder": "Leave blank to use the default greeting"
+  },
+  "guestbook": {
+    "title": "Guestbook",
+    "inputLabel": "Leave a note",
+    "inputPlaceholder": "A note for today (up to {{max}} characters)",
+    "write": "Post",
+    "writing": "Posting…",
+    "delete": "Delete",
+    "report": "Report",
+    "deleteTitle": "Delete this note?",
+    "deleteBody": "This can't be undone.",
+    "deleted": "Note deleted",
+    "empty": "No notes yet. Be the first to leave one.",
+    "loading": "Loading…",
+    "loadFailed": "Couldn't load the guestbook.",
+    "reload": "Reload",
+    "formerResident": "Former resident",
+    "error": {
+      "boardLocked": "You can write in the guestbook once the island builds a notice board",
+      "alreadyWritten": "You've already left a note today"
+    }
   }
 }

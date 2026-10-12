@@ -20,6 +20,7 @@ import { componentTokens, primitiveTokens, semanticTokens } from '@/design-syste
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
+import { codePointLength } from '@/utils/codePoints';
 import { t } from '@/i18n';
 export { C, art };
 export const k = StyleSheet.create({
@@ -447,8 +448,18 @@ export function Chips({
  * 글자 수 제한 칸 아래의 「현재/최대」 표시. 한도에 닿으면 더 쓸 수 없다는 안내로 바꾼다 —
  * maxLength 로 입력이 소리 없이 멈추거나 붙여 넣은 글이 잘려도 사용자가 알 수 있게.
  */
-export function CharCount({ value, max }: { value: string; max: number }) {
-  const full = value.length >= max;
+export function CharCount({
+  value,
+  max,
+  codePoints = false,
+}: {
+  value: string;
+  max: number;
+  /** 서버가 코드포인트로 세는 칸(🐟 = 1, GROMO-2263)이면 켠다. 기본은 기존 UTF-16 길이. */
+  codePoints?: boolean;
+}) {
+  const length = codePoints ? codePointLength(value) : value.length;
+  const full = length >= max;
   return (
     <Txt
       kind="meta"
@@ -461,7 +472,7 @@ export function CharCount({ value, max }: { value: string; max: number }) {
         ...(full ? { color: semanticTokens.color.danger, fontWeight: '700' } : null),
       }}
     >
-      {full ? t('common.characterLimit', { max, count: value.length }) : `${value.length}/${max}`}
+      {full ? t('common.characterLimit', { max, count: length }) : `${length}/${max}`}
     </Txt>
   );
 }

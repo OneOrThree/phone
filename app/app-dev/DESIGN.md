@@ -331,6 +331,7 @@ Semantic spacing:
 - 좌우 padding 14, 세로 padding 12–13, 입력 글자 16.
 - placeholder는 Muted Brown(`#796256`, 본문 대비 4.5 이상)을 쓴다.
 - multiline은 최소 높이 96–100, 위쪽 정렬.
+- 글자 수 제한은 칸 아래 `CharCount`(`현재/최대`, 한도에 닿으면 안내 문구)로 보여 준다. 서버가 길이를 **코드포인트**로 세는 칸(인사말 40·방명록 20, 🐟 = 1)은 `TextInput maxLength`(UTF-16)를 쓰지 않고 `onChangeText` 에서 `utils/codePoints.clampCodePoints` 로 자르며 `CharCount codePoints` 로 센다.
 - 숫자 입력은 적절한 키보드 타입을 사용한다.
 - 오류는 색만 바꾸지 않고 원인과 해결 행동을 텍스트로 제공한다.
 

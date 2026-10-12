@@ -59,7 +59,8 @@
     "UPSTREAM_TIMEOUT": "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
     "CLIENT_TIMEOUT": "서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.",
     "CLIENT_NETWORK_ERROR": "네트워크에 연결할 수 없어요. 연결을 확인해 주세요.",
-    "ISLAND_NOT_ARRIVED": "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요."
+    "ISLAND_NOT_ARRIVED": "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.",
+    "GUESTBOOK_ALREADY_WRITTEN_TODAY": "오늘은 이미 방명록을 남겼어요"
   },
   "time": {
     "minutes": "{{m}}분",
@@ -584,7 +585,8 @@
     "enter": "이 섬으로 이동하기",
     "requestJoin": "가입 신청",
     "join": "이 섬에 가입하기",
-    "reload": "다시 불러오기"
+    "reload": "다시 불러오기",
+    "greetingTitle": "섬장의 인사말"
   },
   "visitorBoard": {
     "title": "게시판",
@@ -596,5 +598,30 @@
     "moreNotices": "공지 더 보기",
     "loading": "불러오고 있어요.",
     "reload": "다시 불러오기"
+  },
+  "hall": {
+    "greeting": "인사말",
+    "greetingPlaceholder": "비워 두면 기본 인사말이 나가요"
+  },
+  "guestbook": {
+    "title": "방명록",
+    "inputLabel": "한마디 남기기",
+    "inputPlaceholder": "오늘의 한마디 (최대 {{max}}자)",
+    "write": "남기기",
+    "writing": "남기는 중이에요",
+    "delete": "지우기",
+    "report": "신고",
+    "deleteTitle": "이 글을 지울까요?",
+    "deleteBody": "지운 글은 되돌릴 수 없어요.",
+    "deleted": "방명록 글을 지웠어요",
+    "empty": "아직 방명록이 없어요. 첫 한마디를 남겨 보세요.",
+    "loading": "불러오고 있어요.",
+    "loadFailed": "방명록을 불러오지 못했어요.",
+    "reload": "다시 불러오기",
+    "formerResident": "떠난 주민",
+    "error": {
+      "boardLocked": "게시판을 지으면 방명록을 쓸 수 있어요",
+      "alreadyWritten": "오늘은 이미 남겼어요"
+    }
   }
 }

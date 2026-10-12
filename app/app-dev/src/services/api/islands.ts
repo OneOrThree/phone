@@ -16,6 +16,9 @@
  *  - `DELETE /me/join-requests/{requestId}`     신청 취소. `Idempotency-Key` 필수.
  *  - `POST   /invitations/resolve`              초대 코드 해석. 조회 성격이라 멱등 키 없음.
  *  - `GET    /me/islands`                       내 섬 재조회 — 생성·가입·승인·재실행의 정본.
+ *  - `GET    /islands/{islandId}/guestbook`     방명록 목록(최근 30, 최신순) — 방문자·주민·게스트 읽기.
+ *  - `POST   /islands/{islandId}/guestbook`     한 줄 남기기(≤20 코드포인트, 하루 1개). 멱등 키 없음.
+ *  - `DELETE /islands/{islandId}/guestbook/{entryId}`  섬장만 지우기.
  *
  * 쓰기 의도마다 `Idempotency-Key` 를 한 번 만든다 — 응답 유실·retryable 재시도는 **같은 키와
  * 같은 body** 로 보낸다. 키는 호출부가 의도당 한 번 만들어 넘긴다. 어댑터가 기본값을 만들면
@@ -38,6 +41,12 @@ export type IslandSummary = {
   themeId: string | null;
   /** 도착한 적 있는 섬인지(GROMO-2260). 구서버는 필드가 없으니 undefined 는 true 로 본다. */
   arrivedBefore?: boolean;
+  /**
+   * 섬장 인사말(GROMO-2262). 섬장이 안 썼으면 서버가 합성한 기본 문구가 온다(`greetingIsDefault`).
+   * 구서버는 두 필드가 없다 — 없으면 말풍선·입력 초기값을 만들지 않는다.
+   */
+  greeting?: string;
+  greetingIsDefault?: boolean;
 };
 
 export type IslandDetail = Omit<IslandSummary, 'joinRequestId'> & {
@@ -229,6 +238,52 @@ export function resolveInvitation(
 /** 내 섬 정본 — `currentIslandId` 가 null 이면 소속이 없을 수 있다. */
 export function myIslands(): Promise<MyIslands> {
   return request<MyIslands>('/me/islands');
+}
+
+/** 방명록 한 줄 최대 길이(코드포인트, 🐟 = 1) — 서버 계약(GROMO-2262)과 같다. */
+export const GUESTBOOK_CONTENT_MAX = 20;
+/** 목록은 최근 30개까지만 온다(서버가 31번째부터 지운다). */
+export const GUESTBOOK_LIST_MAX = 30;
+
+export type GuestbookEntry = {
+  id: string;
+  authorId: string;
+  /** 닉네임이 아직 없는 계정은 null — 키는 항상 온다. */
+  authorName: string | null;
+  content: string;
+  createdAt: string;
+  /** 내가 쓴 글인지. */
+  mine: boolean;
+};
+
+/** `boardBuilt=false` 는 게시판이 없는 섬이다 — items 는 비어 있고 앱은 방명록을 숨긴다. */
+export type GuestbookPage = { boardBuilt: boolean; items: GuestbookEntry[] };
+
+/** 방명록 목록(최신순). 방문자·주민·게스트 모두 읽는다. */
+export function getGuestbook(islandId: string): Promise<GuestbookPage> {
+  return request<GuestbookPage>(`/islands/${encodeURIComponent(islandId)}/guestbook`);
+}
+
+/**
+ * 한 줄 남기기 — 같은 KST 날 1개(지운 뒤라도)라 `Idempotency-Key` 를 보내지 않는다. 만든 항목을 돌려준다.
+ * 거절: 403 `FACILITY_LOCKED`(게시판 없음)·`SOCIAL_LOGIN_REQUIRED`(게스트) · 409 `GUESTBOOK_ALREADY_WRITTEN_TODAY`.
+ */
+export function writeGuestbook(islandId: string, content: string): Promise<GuestbookEntry> {
+  return request<GuestbookEntry>(`/islands/${encodeURIComponent(islandId)}/guestbook`, {
+    method: 'POST',
+    body: { content },
+  });
+}
+
+/** 섬장만 지운다(아니면 403 `FORBIDDEN`). 없거나 이미 지운 항목은 404 `NOT_FOUND`. */
+export function deleteGuestbookEntry(
+  islandId: string,
+  entryId: string,
+): Promise<{ deleted: true }> {
+  return request(
+    `/islands/${encodeURIComponent(islandId)}/guestbook/${encodeURIComponent(entryId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 /**

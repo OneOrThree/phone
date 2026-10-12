@@ -2,7 +2,7 @@ import React from 'react';
 import { applyLocalePref } from '@/i18n';
 import { StyleSheet, ScrollView } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
-import { Page, Badge, Btn, Field, Wheel, Seg } from './patterns';
+import { Page, Badge, Btn, CharCount, Field, Wheel, Seg } from './patterns';
 import { componentTokens, semanticTokens } from './tokens';
 
 jest.mock('@/utils/layout', () => ({
@@ -167,4 +167,17 @@ test.each([50, 200])('영어 Field는 %i자 한도 도달 안내도 영어로 �
   const limit = screen.getByText(`Up to ${max} characters · ${max}/${max}`);
   expect(limit.props.accessibilityLiveRegion).toBe('polite');
   expect(screen.queryByText(/자까지 쓸 수 있어요/)).toBeNull();
+});
+
+test('CharCount codePoints 는 🐟 를 1글자로 세고 기본은 UTF-16 길이 그대로다', async () => {
+  const screen = await render(
+    <>
+      <CharCount value={'🐟'.repeat(3)} max={40} codePoints />
+      <CharCount value={'🐟'.repeat(3)} max={40} />
+    </>,
+  );
+  screen.getByText('3/40');
+  screen.getByText('6/40');
+  await screen.rerender(<CharCount value={'🐟'.repeat(40)} max={40} codePoints />);
+  screen.getByText('40자까지 쓸 수 있어요 · 40/40');
 });

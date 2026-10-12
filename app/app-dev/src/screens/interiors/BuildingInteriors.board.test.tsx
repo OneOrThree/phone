@@ -32,7 +32,7 @@ import {
   startConstruction,
   type ConstructionOptions,
 } from '@/services/api/home';
-import { myIslands } from '@/services/api/islands';
+import { getGuestbook, myIslands } from '@/services/api/islands';
 
 import {
   claimQuest as postClaim,
@@ -66,6 +66,7 @@ jest.mock('@/services/api/home', () => ({
 jest.mock('@/services/api/islands', () => ({
   ...jest.requireActual('@/services/api/islands'),
   myIslands: jest.fn(),
+  getGuestbook: jest.fn(),
 }));
 
 const ISLAND = 'island-1';
@@ -159,6 +160,7 @@ const postClaimMock = postClaim as jest.Mock;
 const getConstructionOptionsMock = getConstructionOptions as jest.Mock;
 const startConstructionMock = startConstruction as jest.Mock;
 const myIslandsMock = myIslands as jest.Mock;
+const getGuestbookMock = getGuestbook as jest.Mock;
 const constructionOptions = (over: Partial<ConstructionOptions> = {}): ConstructionOptions => ({
   islandVersion: 2,
   costPolicyVersion: 3,
@@ -2314,5 +2316,112 @@ test.each(['success', 'failure', 'stale'] as const)(
       assert.ok(e.dispatch.mock.invocationCallOrder.at(-1) < e.go.mock.invocationCallOrder.at(-1));
     }
     if (outcome === 'failure') assert.ok(screen.getByText('lost'));
+  },
+);
+
+// ─── 방명록(GROMO-2263) — 선반 위 펜꽂이로 여는 네 번째 종이 ───
+const guestbookEntry = (id: string) => ({
+  id,
+  authorId: `u-${id}`,
+  authorName: '수아',
+  content: `${id} 놀러 왔어요`,
+  createdAt: '2026-10-12T01:00:00Z',
+  mine: false,
+});
+
+test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기·신고 두 버튼을 본다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host'));
+  getGuestbookMock.mockResolvedValue({
+    boardBuilt: true,
+    items: [guestbookEntry('g1'), guestbookEntry('g2')],
+  });
+  const e = makeE({ tab: '' });
+  // 이 하네스의 back 은 탭을 안 비운다 — 실제 App 처럼 직전 화면(탭 없음)으로 돌아가게 한다
+  e.back = jest.fn(() => {
+    e.tab = '';
+    e._tick();
+  });
+  const screen = await renderBoard(e);
+  assert.equal(getGuestbookMock.mock.calls.length, 0); // 열기 전에는 부르지 않는다
+  await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
+  assert.equal(screen.getByTestId('board-guestbook-area').props.accessibilityLabel, '방명록');
+
+  await fireEvent.press(screen.getByTestId('board-guestbook-area'));
+  assert.equal(e.setTab.mock.calls.at(-1)[0], '방명록');
+  await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
+  assert.equal(getGuestbookMock.mock.calls[0][0], ISLAND);
+  assert.ok(screen.getByText('g2 놀러 왔어요'));
+  assert.equal(screen.getAllByText('지우기').length, 2);
+  assert.equal(screen.getAllByText('신고').length, 2);
+  assert.ok(screen.getByTestId('guestbook-delete-g1'));
+  assert.ok(screen.getByTestId('guestbook-report-g2'));
+  // 다른 종이처럼 전환·닫기 줄이 뜨고, 전환 버튼은 공지로 돌아간다
+  assert.equal(
+    screen.getByTestId('board-panel-switch').props.accessibilityLabel,
+    '공지 패널로 전환',
+  );
+  await fireEvent.press(screen.getByTestId('board-panel-close'));
+  // 요소를 assert.equal 의 실제값으로 두지 않는다 — 실패하면 fiber 트리 전체를 diff 하느라 메모리가 터진다
+  await waitFor(() => expect(screen.queryByText('g1 놀러 왔어요')).toBeNull());
+});
+
+test('일반 주민은 방명록을 읽고 쓸 수 있지만 지우기·신고 버튼은 없다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'member'));
+  getGuestbookMock.mockResolvedValue({ boardBuilt: true, items: [guestbookEntry('g1')] });
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
+  await fireEvent.press(screen.getByTestId('board-guestbook-area'));
+  await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
+  assert.ok(screen.getByTestId('guestbook-submit'));
+  assert.equal(screen.queryByTestId('guestbook-delete-g1'), null);
+  assert.equal(screen.queryByTestId('guestbook-report-g1'), null);
+  assert.equal(screen.queryByText('지우기'), null);
+  assert.equal(screen.queryByText('신고'), null);
+});
+
+test('목업·갤러리 게시판(서버 없음)에는 방명록 입구도 API 호출도 없다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }));
+  assert.equal(screen.queryByTestId('board-guestbook-area'), null);
+  assert.equal(getGuestbookMock.mock.calls.length, 0);
+});
+
+test.each([
+  [402, 874],
+  [375, 667],
+  [320, 480],
+  [290, 400],
+  [874, 402],
+  [1024, 1180],
+])(
+  '방명록 펜꽂이 터치 영역은 %i×%i 에서 44px 이상이고 다른 세 종이와 겹치지 않는다',
+  async (width, height) => {
+    getBoardMock.mockResolvedValue(page([], null, 'member'));
+    const screen = await renderBoard(makeE({ tab: '' }), concept({ boardView: 'list' }), {
+      width,
+      height,
+    });
+    await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
+    const box = (id: string) => {
+      const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
+      return {
+        left: style.left,
+        top: style.top,
+        right: style.left + style.width,
+        bottom: style.top + style.height,
+        width: style.width,
+        height: style.height,
+      };
+    };
+    const guestbook = box('board-guestbook-area');
+    assert.ok(guestbook.width >= 44 && guestbook.height >= 44);
+    for (const other of ['board-notice-area', 'board-quest-area', 'board-blueprint-area']) {
+      const o = box(other);
+      const separated =
+        guestbook.right <= o.left ||
+        o.right <= guestbook.left ||
+        guestbook.bottom <= o.top ||
+        o.bottom <= guestbook.top;
+      assert.ok(separated, `${other} 와 방명록 영역이 ${width}×${height} 에서 겹침`);
+    }
   },
 );
