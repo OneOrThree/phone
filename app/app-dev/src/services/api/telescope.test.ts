@@ -91,21 +91,35 @@ test.each([
   },
 );
 
-test('arriveAtIsland — POST /islands/{id}/arrivals 는 본문·멱등 키 없이 보내고 응답을 그대로 돌려준다', async () => {
+test('arriveAtIsland — POST /islands/{id}/arrivals 는 본문 없이 Idempotency-Key 를 싣고(재시도는 같은 키) 응답을 그대로 돌려준다', async () => {
   const data = {
     islandId: 'i 1',
     arrivedBefore: true,
     membershipStatus: 'active',
     currentIslandId: 'i 1',
   };
-  stub([{ status: 200, body: { data } }]);
-  const result = await arriveAtIsland('i 1');
+  stub([
+    { status: 200, body: { data } },
+    { status: 200, body: { data } },
+  ]);
+  const result = await arriveAtIsland('i 1', 'idem-arrive');
+  const retry = await arriveAtIsland('i 1', 'idem-arrive'); // 응답 유실 재시도 — 같은 키(switchCurrentIsland 와 같다)
   assert.equal(path(calls[0]), '/islands/i%201/arrivals');
   assert.equal(calls[0].init.method, 'POST');
   assert.equal(calls[0].init.body, undefined);
-  assert.equal(header(calls[0], 'Idempotency-Key'), undefined);
+  assert.equal(header(calls[0], 'Idempotency-Key'), 'idem-arrive');
+  assert.equal(header(calls[1], 'Idempotency-Key'), 'idem-arrive');
   assert.equal(header(calls[0], 'Authorization'), 'Bearer AT');
   assert.deepEqual(result, data);
+  assert.deepEqual(retry, data);
+});
+
+test('arriveAtIsland — 의도마다 다른 키는 다른 헤더로 나간다', async () => {
+  stub([{ status: 200, body: { data: { membershipStatus: 'none' } } }]);
+  await arriveAtIsland('a', 'idem-a');
+  await arriveAtIsland('b', 'idem-b');
+  assert.equal(header(calls[0], 'Idempotency-Key'), 'idem-a');
+  assert.equal(header(calls[1], 'Idempotency-Key'), 'idem-b');
 });
 
 test('arriveAtIsland — 서버 거절 코드는 그대로 오류로 올라간다', async () => {
@@ -117,7 +131,7 @@ test('arriveAtIsland — 서버 거절 코드는 그대로 오류로 올라간�
       },
     },
   ]);
-  await assert.rejects(arriveAtIsland('gone'), (e: unknown) => {
+  await assert.rejects(arriveAtIsland('gone', 'idem-gone'), (e: unknown) => {
     assert.ok(e instanceof ApiError);
     assert.equal(e.code, 'NOT_FOUND');
     assert.equal(e.status, 404);

@@ -4,8 +4,9 @@
  *
  *  - `GET  /me/telescope`            지금 시간대(1시간 버킷)의 섬 최대 8개 — 소속 ≤3 + 가까운 섬 1 +
  *                                    무작위·찜 4. 게스트도 읽고 전망대 게이트가 없다. 순서도 서버가 정한다.
- *  - `POST /islands/{id}/arrivals`   도착 기록(멱등, 본문 없음). 주민이면 서버가 현재 섬도 옮기고, 비주민은
- *                                    기록만 한다(방문). 미존재·비공개 비주민은 404.
+ *  - `POST /islands/{id}/arrivals`   도착 기록(멱등, 본문 없음). `Idempotency-Key` 필수 — `PUT /me/current-island` 와
+ *                                    같다: 키는 호출부가 의도당 한 번 만들고, 응답 유실 재시도는 같은 키로 보낸다.
+ *                                    주민이면 서버가 현재 섬도 옮기고, 비주민은 기록만 한다(방문). 미존재·비공개 비주민은 404.
  *
  * 가입의 `origin: 'telescope'` 는 `islands.ts joinIsland` 가 맡는다 — 즉시 가입이어도 현재 섬을 옮기지 않는다.
  */
@@ -75,7 +76,13 @@ export async function getTelescope(): Promise<Telescope> {
   return validateTelescope(await request<unknown>('/me/telescope'));
 }
 
-/** 항해를 마친 섬에 도착을 기록한다. `membershipStatus === 'active'` 면 서버가 현재 섬을 그 섬으로 옮겼다. */
-export function arriveAtIsland(islandId: string): Promise<Arrival> {
-  return request<Arrival>(`/islands/${encodeURIComponent(islandId)}/arrivals`, { method: 'POST' });
+/**
+ * 항해를 마친 섬에 도착을 기록한다. `membershipStatus === 'active'` 면 서버가 현재 섬을 그 섬으로 옮겼다.
+ * `idempotencyKey` 는 필수다 — `switchCurrentIsland` 와 같은 방식으로 헤더에 싣는다(응답 유실 재시도는 같은 키).
+ */
+export function arriveAtIsland(islandId: string, idempotencyKey: string): Promise<Arrival> {
+  return request<Arrival>(`/islands/${encodeURIComponent(islandId)}/arrivals`, {
+    method: 'POST',
+    idempotencyKey,
+  });
 }

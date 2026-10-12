@@ -17,11 +17,12 @@ import { Flag } from '@/screens/cosmetics/Cosmetics';
 import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';
+import { uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import { arriveAtIsland, type TelescopeItem } from '@/services/api/telescope';
 import { unknownOutcome } from '@/services/islandCommands';
 import { islandErrorMessage } from '@/services/islandErrors';
-import type { State } from '@/services/model';
+import { intentKeyPool, type State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 
 const { space } = primitiveTokens;
@@ -31,7 +32,8 @@ const ISLAND = space[16] * 2;
 /** 소속 섬 깃발 크기. 깃대 끝이 그림 높이의 88% 라(Flag 도형) 그만큼 올려 섬 꼭대기에 꽂는다. */
 const FLAG = size.tapMin;
 const FLAG_POLE_BASE = Math.round(FLAG * 0.88);
-const PRESSED_OPACITY = 0.7; // DESIGN §7.3 Row 누름
+// 눌림 opacity — SheetRow·Row 와 같은 값(DESIGN §7.3). 내보낸 공용 상수가 없어(SheetRow 는 인라인 0.7, 토큰은 diary 전용) 여기서 한 번만 이름을 붙인다.
+const PRESSED_OPACITY = 0.7;
 // 꽉 채우는 그림. 웹(react-native-web)은 absoluteFill 만 주면 원본 픽셀 크기로 그려서 폭·높이를 같이 준다(IslandSheet 와 같다)
 const FILL: ImageStyle = { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' };
 
@@ -73,15 +75,13 @@ const styles = StyleSheet.create({
     borderColor: componentTokens.badge.soft.border,
     backgroundColor: componentTokens.badge.soft.background,
   },
-  pillText: {
-    fontSize: typography.label,
-    lineHeight: 20,
-    fontWeight: typography.semibold,
-    color: componentTokens.badge.soft.foreground,
-  },
+  // 글자는 공용 Meta(13/18, Muted = badge.soft.foreground)에 Badge soft 의 굵기만 얹는다
+  pillText: { fontWeight: typography.semibold },
   // 말풍선 이름이 오른쪽 위 닫기(×) 밑으로 들어가지 않게 비운다
   bubbleName: { paddingRight: space[10] },
 });
+
+type IntentKeys = ReturnType<typeof intentKeyPool>;
 
 /**
  * 도착 기록. 내 소속 섬이면(`true`) 서버가 현재 섬도 옮겼고 소속은 다시 읽어 둔 상태다.
@@ -89,10 +89,14 @@ const styles = StyleSheet.create({
  * islandCommands.switchCurrent 와 같은 분류·규칙으로 소속을 다시 읽어 그 섬이 현재 섬이면 성공으로, 아니면 원래 오류를 올린다.
  * (그대로 두면 로컬은 옛 현재 섬을 들고 있어 이후 [돌아가기]가 «이미 서 있는 섬»으로 착각해 요청 없이 홈만 연다.)
  * 확정된 4xx 는 서버가 바꾼 게 없으니 다시 읽지 않는다.
+ * `Idempotency-Key` 는 현재 섬 이동(switchCurrent)과 같은 의도 키 풀·UUID 생성기로 만든다 — 섬당 의도 하나, 실패(결과 불명 포함)로
+ * 끝나면 키를 그대로 둬 같은 섬으로의 재시도가 같은 키로 나가고, 도착이 확정되면 해제한다.
  */
-async function arrive(e: any, islandId: string): Promise<boolean> {
+async function arrive(e: any, keys: IntentKeys, islandId: string): Promise<boolean> {
+  const key = keys.key('arrive', islandId);
   try {
-    const { membershipStatus } = await arriveAtIsland(islandId);
+    const { membershipStatus } = await arriveAtIsland(islandId, key);
+    keys.release('arrive', islandId);
     if (membershipStatus !== 'active') return false;
     await e.islands.sync();
     return true;
@@ -105,7 +109,7 @@ async function arrive(e: any, islandId: string): Promise<boolean> {
       my = null;
     }
     if (my?.currentIslandId !== islandId) throw thrown;
-    return true;
+    return true; // 서버가 이미 옮겼다 — 곧 화면을 떠나 키 풀도 사라진다
   }
 }
 
@@ -168,7 +172,7 @@ function IslandCell({
         </View>
       )}
       <View style={styles.pill}>
-        <Txt numberOfLines={1} style={styles.pillText}>
+        <Txt kind="meta" numberOfLines={1} style={styles.pillText}>
           {item.name}
         </Txt>
       </View>
@@ -190,8 +194,9 @@ function IslandBubble({
   onJoin,
 }: {
   item: TelescopeItem;
-  /** 요청 중 — 모든 버튼을 막아 항해·가입이 겹쳐 나가지 않게 한다. */
+  /** 요청 중(항해·이동, 어느 섬의 가입이든) — 모든 버튼을 막아 항해·가입이 겹쳐 나가지 않게 한다. */
   locked: boolean;
+  /** 이 섬의 가입 요청 중 — 가입 버튼만 «처리 중»으로 보인다(다른 섬의 요청은 이 섬 버튼을 처리 중으로 보이게 하지 않는다). */
   joining: boolean;
   onClose: () => void;
   onSail: () => void;
@@ -258,8 +263,12 @@ export function Telescope({ e }: { e: any }) {
   const L = useAppLayout();
   const list = useTelescope({ active: !!e.islands });
   const sail = useIslandSailing(e);
+  // 도착 의도 키 풀 — 세션이 바뀌면 App 이 route 를 reset 해 이 화면이 언마운트되므로 풀도 함께 사라진다.
+  const keyPool = useRef<IntentKeys | null>(null);
+  const keys = (keyPool.current ??= intentKeyPool(uuid));
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [joining, setJoining] = useState(false);
+  // 가입 요청 중인 섬 — 그 섬의 버튼만 «처리 중»으로 보인다. joiningRef 는 서버 중복 호출 방지(한 번에 한 가입 요청만 나간다).
+  const [joiningId, setJoiningId] = useState<string | null>(null);
   const joiningRef = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
@@ -293,7 +302,7 @@ export function Telescope({ e }: { e: any }) {
     setSelectedId(null);
     return sail.sail(item.name, async () => {
       // 망원경으로 가입한 소속 섬의 첫 도착이면 서버가 현재 섬을 옮겼다 — 소속을 다시 읽고 새 섬 홈으로 간다.
-      if (await arrive(e, item.islandId)) return () => e.reset('home');
+      if (await arrive(e, keys, item.islandId)) return () => e.reset('home');
       // 비주민은 구경(방문 모드)으로 들어간다 — ServerVisit 의 [섬 둘러보기]와 같은 길이다.
       // TODO E1-5 항해 집중이 생기면 바다 담당이 이 구경 진입을 항해 집중으로 교체한다
       await e.islands.visit(item.islandId);
@@ -314,7 +323,7 @@ export function Telescope({ e }: { e: any }) {
   const join = async (item: TelescopeItem) => {
     if (joiningRef.current) return;
     joiningRef.current = true;
-    setJoining(true);
+    setJoiningId(item.islandId);
     const gen = sessionGeneration();
     const alive = () => mounted.current && sessionGeneration() === gen;
     try {
@@ -334,7 +343,7 @@ export function Telescope({ e }: { e: any }) {
       if (message && alive()) e.notify(message);
     } finally {
       joiningRef.current = false;
-      if (mounted.current) setJoining(false);
+      if (mounted.current) setJoiningId(null);
     }
   };
 
@@ -415,8 +424,8 @@ export function Telescope({ e }: { e: any }) {
       {selected && (
         <IslandBubble
           item={selected}
-          locked={sail.pending || joining}
-          joining={joining}
+          locked={sail.pending || joiningId !== null}
+          joining={joiningId === selected.islandId}
           onClose={() => setSelectedId(null)}
           // 핸들러는 Promise 를 돌려주지 않는다 — 테스트의 fireEvent 가 돌려준 Promise 를 기다리며 멈추지 않게
           onSail={() => {

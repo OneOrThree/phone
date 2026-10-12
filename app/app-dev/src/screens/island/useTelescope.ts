@@ -33,6 +33,7 @@ export function useTelescope({ active }: { active: boolean }): TelescopeState {
   const req = useRef(0);
   const loaded = useRef(false);
   const refreshAt = useRef(0);
+  // 세션이 바뀌면(로그아웃·계정 전환·세션 상실) App 이 route 를 reset 해 이 화면은 언마운트된다 — loaded·data 는 세션별로 비우지 않고 session 은 늦은 옛 응답을 버리는 데만 쓴다.
   const session = sessionGeneration();
 
   useEffect(() => {
@@ -75,6 +76,7 @@ export function useTelescope({ active }: { active: boolean }): TelescopeState {
     return () => clearInterval(timer);
   }, [data]);
   // 0 이 되면 다시 읽는다. 읽기가 실패하면 데이터가 그대로라 분이 계속 줄고, 그때마다 다시 시도한다.
+  // 한 번의 읽기는 client 요청 제한(REQUEST_TIMEOUT_MS 15s, 401 갱신 재시도까지 합쳐 최대 45s)이라 60s 틱 전에 끝난다 — 틱이 읽기를 가로채지 않는다.
   useEffect(() => {
     if (data && minutes <= 0) setNonce((n) => n + 1);
   }, [data, minutes]);

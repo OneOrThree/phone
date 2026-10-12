@@ -43,6 +43,8 @@ jest.mock('react-native-safe-area-context', () => ({
 
 const mockGet = getTelescope as jest.Mock;
 const mockArrive = arriveAtIsland as jest.Mock;
+// Idempotency-Key 형식(client.uuid): 하이픈 포함 36자 UUID v4
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -327,6 +329,33 @@ describe('가입', () => {
     await act(async () => finish());
     expect(screen.getByLabelText('바로 가입')).toBeTruthy();
   });
+
+  test('한 섬의 가입 요청 중 다른 섬을 열면 그 섬의 가입 버튼은 «처리 중»이 아니라 평소 글자(비활성)이고 요청도 나가지 않는다', async () => {
+    const e = env();
+    let finish!: () => void;
+    e.islands!.join.mockReturnValue(
+      new Promise<{ status: string }>((r) => (finish = () => r({ status: 'active' }))),
+    );
+    const { screen } = await open([item('r1'), item('r2')], e);
+    await press(screen, 'r1');
+    await fireEvent.press(screen.getByLabelText('바로 가입'));
+    expect(disabled(screen, '처리 중이에요')).toBe(true); // 요청 중인 r1 의 버튼
+    await fireEvent.press(screen.getByLabelText('닫기'));
+    await press(screen, 'r2');
+    // r2 는 «처리 중»이 아니다 — 한 번에 한 가입 요청만 나가므로 막혀 있을 뿐이다
+    expect(screen.queryByLabelText('처리 중이에요')).toBeNull();
+    expect(disabled(screen, '바로 가입')).toBe(true);
+    await fireEvent.press(screen.getByLabelText('바로 가입'));
+    expect(e.islands!.join).toHaveBeenCalledTimes(1);
+    expect(e.islands!.join).toHaveBeenCalledWith('r1', {
+      showApproval: false,
+      origin: 'telescope',
+    });
+    // r1 요청이 끝나면 r2 의 버튼이 다시 열린다
+    await act(async () => finish());
+    expect(disabled(screen, '바로 가입')).toBe(false);
+    expect(screen.queryByLabelText('처리 중이에요')).toBeNull();
+  });
 });
 
 describe('항해하기', () => {
@@ -335,7 +364,7 @@ describe('항해하기', () => {
     const { screen, e } = await open([item('r1')]);
     await press(screen, 'r1');
     await fireEvent.press(screen.getByLabelText('항해하기'));
-    expect(mockArrive).toHaveBeenCalledWith('r1');
+    expect(mockArrive).toHaveBeenCalledWith('r1', expect.stringMatching(UUID_V4));
     expect(e.islands!.visit).toHaveBeenCalledWith('r1');
     // 출발지는 지금 섬, 목적지는 그 섬 — 연출이 끝나기 전엔 화면을 옮기지 않는다
     expect((await screen.findByTestId('sailing-to')).props.children).toBe('섬 r1');
@@ -438,6 +467,56 @@ describe('항해하기', () => {
     expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
     await act(async () => fail(new ApiError('NOT_FOUND', '없어요', 404)));
     expect(e.backOverride.current).toBeNull();
+  });
+
+  describe('도착 기록의 Idempotency-Key(switchCurrent 와 같은 의도 키 풀)', () => {
+    const keyOf = (n: number) => mockArrive.mock.calls[n][1];
+    const sail = async (screen: any, id: string) => {
+      await press(screen, id);
+      await fireEvent.press(screen.getByLabelText('항해하기'));
+      await act(async () => {});
+    };
+
+    test('같은 섬으로 실패 뒤 다시 시도하면 같은 키, 다른 섬은 다른 키로 나간다', async () => {
+      mockArrive.mockRejectedValue(new ApiError('NOT_FOUND', '없어요', 404));
+      const { screen } = await open([item('r1'), item('r2')]);
+      await sail(screen, 'r1');
+      await sail(screen, 'r1');
+      await sail(screen, 'r2');
+      expect(mockArrive).toHaveBeenCalledTimes(3);
+      expect(keyOf(0)).toMatch(UUID_V4);
+      expect(keyOf(1)).toBe(keyOf(0));
+      expect(keyOf(2)).toMatch(UUID_V4);
+      expect(keyOf(2)).not.toBe(keyOf(0));
+    });
+
+    test('응답을 잃고 서버도 안 옮겼으면(결과 불명) 다시 시도해도 같은 키다', async () => {
+      mockArrive.mockRejectedValue(new ApiError('CLIENT_TIMEOUT', '유실', 0));
+      const e = env();
+      e.islands!.sync.mockResolvedValue({ currentIslandId: 'j1', items: [] });
+      const { screen } = await open([item('r1')], e);
+      await sail(screen, 'r1');
+      await sail(screen, 'r1');
+      expect(mockArrive).toHaveBeenCalledTimes(2);
+      expect(keyOf(1)).toBe(keyOf(0));
+    });
+
+    test('도착이 확정되면 키를 해제한다 — 뒤 단계(구경 진입)가 실패한 뒤 다시 시도하면 새 키다', async () => {
+      mockArrive.mockResolvedValue({ membershipStatus: 'none', currentIslandId: 'j1' });
+      const e = env();
+      e.islands!.visit.mockRejectedValueOnce(
+        new ApiError('NOT_FOUND', '없어요', 404),
+      ).mockResolvedValue(undefined);
+      const { screen } = await open([item('r1')], e);
+      await sail(screen, 'r1');
+      expect(screen.queryByTestId('sailing')).toBeNull();
+      await sail(screen, 'r1');
+      expect(mockArrive).toHaveBeenCalledTimes(2);
+      expect(keyOf(0)).toMatch(UUID_V4);
+      expect(keyOf(1)).toMatch(UUID_V4);
+      expect(keyOf(1)).not.toBe(keyOf(0));
+      await screen.findByTestId('sailing');
+    });
   });
 
   describe('도착 응답을 잃었을 때(결과 불명 — switchCurrent 와 같은 분류)', () => {
