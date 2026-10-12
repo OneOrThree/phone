@@ -118,6 +118,33 @@ test('허용 앱은 빈 선택을 저장해서 모두 해제할 수 있다', asy
   expect(native.setAndroidSelection).not.toHaveBeenCalled();
 });
 
+test.each(['measured', 'allowed'] as const)(
+  '%s 피커는 마지막 저장 선택을 복원한 뒤 수정한다',
+  async (mode) => {
+    native.getAndroidSelection.mockResolvedValue({
+      configured: true,
+      allApps: false,
+      packages: ['video.app'],
+      pending: true,
+    });
+    native.getAllowedPackages.mockResolvedValue(['video.app']);
+    const screen = await render(
+      <AndroidAppPicker mode={mode} notify={jest.fn()} onDone={jest.fn()} />,
+    );
+    await screen.findByText('동영상');
+    expect(screen.getByLabelText('동영상 선택').props.accessibilityState.checked).toBe(true);
+    expect(screen.getByLabelText('음악 선택').props.accessibilityState.checked).toBe(false);
+    await fireEvent.press(screen.getByLabelText('동영상 선택'));
+    await fireEvent.press(screen.getByLabelText('음악 선택'));
+    await fireEvent.press(screen.getByLabelText('선택 저장'));
+    await waitFor(() => {
+      if (mode === 'allowed')
+        expect(native.setAndroidAllowedPackages).toHaveBeenCalledWith('owner', ['music.app']);
+      else expect(native.setAndroidSelection).toHaveBeenCalledWith('owner', ['music.app'], false);
+    });
+  },
+);
+
 test('피커가 열린 뒤 계정이 바뀌면 이전 선택을 저장하지 않는다', async () => {
   const screen = await render(
     <AndroidAppPicker mode="allowed" notify={jest.fn()} onDone={jest.fn()} />,

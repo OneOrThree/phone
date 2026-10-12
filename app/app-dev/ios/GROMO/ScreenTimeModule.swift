@@ -96,13 +96,24 @@ final class ScreenTimeModule: NSObject {
             return
         }
         let defaults = UserDefaults(suiteName: appGroupID)
-        guard let data = defaults?.data(forKey: "gromo:goal:selection"),
-              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data)
-        else {
+        let selection = defaults?.data(forKey: "gromo:goal:selection").flatMap {
+            try? JSONDecoder().decode(FamilyActivitySelection.self, from: $0)
+        }
+        let pending = defaults?.data(forKey: "gromo:goal:selectionPending").flatMap {
+            try? JSONDecoder().decode(FamilyActivitySelection.self, from: $0)
+        }
+        guard selection != nil || pending != nil else {
             resolve(nil)
             return
         }
-        resolve(counts(selection))
+        // 루트 값은 실제 측정 대상이다. 편집 화면만 마지막 저장 선택을 따로 읽는다.
+        var value = counts(selection ?? FamilyActivitySelection())
+        if let pending {
+            var saved = counts(pending)
+            saved["pending"] = defaults?.string(forKey: "gromo:goal:selectionApplyDate") != nil
+            value["pendingSelection"] = saved
+        }
+        resolve(value)
     }
 
     @objc func presentAppPicker(
@@ -153,6 +164,7 @@ final class ScreenTimeModule: NSObject {
                         var value = self.counts(selection)
                         value["dismissed"] = true
                         value["appliesImmediately"] = appliesImmediately
+                        value["pending"] = !appliesImmediately
                         resolve(value)
                     }
                 },

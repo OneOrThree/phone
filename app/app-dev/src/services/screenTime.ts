@@ -24,6 +24,10 @@ export const screenTime = {
     nativeModule?.getAuthorizationStatus?.() ?? Promise.resolve(unavailable()),
   getMeasurementSelectionCounts: () =>
     nativeModule?.getMeasurementSelectionCounts?.() ?? Promise.resolve(null),
+  getMeasurementSelectionForEditing: async () => {
+    const selection = await nativeModule?.getMeasurementSelectionCounts?.();
+    return selection?.pendingSelection ?? selection ?? null;
+  },
   presentAppPicker: () => nativeModule?.presentAppPicker?.() ?? Promise.resolve(null),
   promoteSelection: () => nativeModule?.promoteSelection?.() ?? Promise.resolve(false),
   promotePendingSelectionIfDue: () =>

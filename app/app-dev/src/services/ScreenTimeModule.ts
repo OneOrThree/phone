@@ -13,6 +13,8 @@ export type ScreenTimeSelection = {
   appliesImmediately?: boolean;
   allApps?: boolean;
   pending?: boolean;
+  /** 편집 화면용 마지막 저장 선택. 루트의 현재 측정 대상과 구분한다. */
+  pendingSelection?: ScreenTimeSelection;
 };
 
 export type PreviousUsageBucket = {
