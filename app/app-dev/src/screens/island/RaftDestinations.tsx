@@ -4,7 +4,8 @@ import { Group } from '@/design-system/patterns';
 import { IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
 import { Sailing } from '@/screens/world/WorldViews';
 import { islandErrorMessage } from '@/services/islandErrors';
-import { currentIsland, type State } from '@/services/model';
+import { sessionGeneration } from '@/services/api/session';
+import { canSwitchIsland, currentIsland, viewIsland, type State } from '@/services/model';
 
 /** 뗏목 행선지 시트(GROMO-2261) — 소속 섬 이동·낚시섬·망원경·내 뗏목. 방문 중에는 소속 섬만 보인다. */
 export function RaftDestinations({ e }: { e: any }) {
@@ -13,6 +14,13 @@ export function RaftDestinations({ e }: { e: any }) {
   const [sailingTo, setSailingTo] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // 이동 요청 중·항해 중 뒤로가기는 삼킨다 — 전환이 이미 방문 상태를 지워서 이전 방문 화면을
   // 복원하면 깨진 지도가 뜨고, 언마운트된 화면은 항해·홈 전환을 못 한다.
@@ -43,33 +51,40 @@ export function RaftDestinations({ e }: { e: any }) {
   // 떠나기 동작은 이 함수 하나 — 가입 안내 확인창(GROMO-2259)이 이 함수를 감싼다.
   const leaveTo = async (island: { id: string; name: string }) => {
     if (pendingRef.current) return;
-    // 목업은 SWITCH_ISLAND 리듀서가 거절하는 조건(진행 중 세션·전망대 미완공)이면 항해를 띄우지 않는다.
-    if (
-      !e.islands &&
-      (s.session ||
-        (s.onboarded && island.id !== currentId && !currentIsland(s).buildings.includes('tower')))
-    )
-      return e.notify(t('home.raft.moveBlocked'));
+    // 목업은 SWITCH_ISLAND 리듀서가 거절하는 조건이면 항해를 띄우지 않는다.
+    if (!e.islands && !canSwitchIsland(s, island.id)) return e.notify(t('home.raft.moveBlocked'));
+    const gen = sessionGeneration();
+    const alive = () => mounted.current && sessionGeneration() === gen;
     pendingRef.current = true;
     setPending(true);
     try {
       if (e.islands) await e.islands.switchCurrent(island.id);
       else e.dispatch({ type: 'SWITCH_ISLAND', id: island.id });
-      setSailingTo(island.name);
+      // 요청 중 화면이 사라졌어도 전환은 서버에 반영됐으니 홈으로만 정리한다(ServerVisit 과 같은 세대 가드).
+      if (alive()) setSailingTo(island.name);
+      else if (mounted.current === false) e.reset('home');
     } catch (thrown) {
       const message = islandErrorMessage(thrown);
-      if (message) e.notify(message);
+      if (message && alive()) e.notify(message);
     } finally {
       pendingRef.current = false;
-      setPending(false);
+      if (mounted.current) setPending(false);
     }
   };
+
+  // 출발지 = 방문 중이면 방문 섬, 아니면 현재 섬 이름(이름을 못 얻으면 「우리 섬」).
+  const from =
+    (visiting
+      ? (s.serverIslands?.visit?.island.name ?? viewIsland(s, s.visitingIslandId)?.name)
+      : e.islands
+        ? s.serverIslands?.memberships.find((m) => m.id === currentId)?.name
+        : currentIsland(s).name) ?? t('home.raft.from');
 
   if (sailingTo !== null)
     return (
       <Sailing
         state={s}
-        from={t('home.raft.from')}
+        from={from}
         destination={sailingTo}
         duration={1900}
         onArrive={() => {

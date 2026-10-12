@@ -826,6 +826,15 @@ export function demoState(): State {
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
+/** 목업 섬 전환 가능 여부 — 진행 중 세션이 없고, 소속 섬이며, 온보딩 뒤에는 현재 섬에 전망대가 있어야 한다. */
+export const canSwitchIsland = (s: State, id: string) => {
+  const target = s.islands.find((x) => x.id === id);
+  return (
+    !s.session &&
+    !!target?.joined &&
+    !(s.onboarded && target.id !== s.islandId && !currentIsland(s).buildings.includes('tower'))
+  );
+};
 export const mainIsland = (s: State) =>
   s.islands.find((i) => i.id === s.mainIslandId && i.joined && !i.closed) ??
   s.islands.find((i) => i.joined && !i.closed);
@@ -1697,11 +1706,8 @@ export function reducer(state: State, a: Action): State {
       s.visitingIslandId = null;
       break;
     case 'SWITCH_ISLAND': {
-      if (s.session) return state;
-      const target = s.islands.find((x) => x.id === a.id);
-      if (!target?.joined || (!i.buildings.includes('tower') && s.onboarded && target.id !== i.id))
-        return state;
-      s.islandId = target.id;
+      if (!canSwitchIsland(s, a.id)) return state;
+      s.islandId = a.id as string;
       s.visitingIslandId = null;
       break;
     }

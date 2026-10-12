@@ -19,11 +19,12 @@ jest.mock('@/screens/island/IslandSheet', () => ({
   },
 }));
 jest.mock('@/screens/world/WorldViews', () => ({
-  Sailing: ({ destination, onArrive }: any) => {
+  Sailing: ({ destination, from, onArrive }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
       <Pressable testID="sailing" onPress={onArrive}>
         <Text>{destination}</Text>
+        <Text testID="sailing-from">{from}</Text>
       </Pressable>
     );
   },
@@ -141,4 +142,26 @@ test('이동 요청 중에는 닫기·뒤로가기·다른 행이 막히고 완�
   expect(e.replace).not.toHaveBeenCalled();
   await act(async () => finish());
   expect(await screen.findByTestId('sailing')).toBeTruthy();
+});
+
+test('방문 중 항해 출발지는 방문 섬 이름이다', async () => {
+  const e = env('b');
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  expect((await screen.findByTestId('sailing-from')).props.children).toBe('둘');
+});
+
+test('요청 중 언마운트돼도 상태를 건드리지 않고 홈으로 한 번만 reset 한다', async () => {
+  const e = env('b');
+  let finish!: () => void;
+  e.islands.switchCurrent.mockReturnValue(new Promise<void>((r) => (finish = r)));
+  const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  await screen.unmount();
+  await act(async () => finish());
+  expect(e.reset).toHaveBeenCalledTimes(1);
+  expect(e.reset).toHaveBeenCalledWith('home');
+  expect(err).not.toHaveBeenCalled();
+  err.mockRestore();
 });
