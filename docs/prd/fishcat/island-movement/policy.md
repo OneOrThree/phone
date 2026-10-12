@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | 사용자 요구 | 100×100 절대 기준, 클라이언트·서버 A*, 서버 맵·경로·좌표, 전용 서버, UDP 약 20Hz, 양방향 보호·작은 바이너리 검토 | 설계 입력 |
 | 좌표 해석 | 좌표 범위 `[0,100]²` **이고** 통행 격자도 정확히 100×100 셀(셀 = 1 world unit) | **확정**(MV-D01, 조재영 2026-10-07). 현행 96×64 통행 맵은 100×100 으로 재생성하고 좁은 길(다리·부두) 회귀를 검증한다 |
-| 전송 | **1단계(확정 2026-10-07)**: 기존 Realtime STOMP/WebSocket(TCP), 20Hz 이하, 본문은 Snapshot v1 바이너리 또는 JSON · 2단계: QUIC + DATAGRAM, 명령은 reliable stream | 1단계 확정. 2단계는 1단계 측정과 모바일·부하 POC 통과 뒤 |
-| 구현 스택 | **1단계**: Realtime JVM 안의 Java 이동 코어(틱 실행기는 STOMP 브로커 스레드와 분리) · 2단계: 별도 Java worker + Netty QUIC, 모바일 quiche 네이티브 어댑터 | 1단계 확정(2026-10-07). 2단계는 측정 뒤 |
-| 서비스 경계 | **1단계**: 기존 경계 그대로(앱→Nginx→Realtime WSS, 인증·인가는 현행) · 2단계: Business 입장 티켓, Movement 직접 UDP | 1단계는 예외 없음. 2단계에서 직접 연결 예외(MV-D02) 검토 |
+| 전송 | **1단계(확정 2026-10-07)**: 기존 Realtime STOMP/WebSocket(TCP), 20Hz 이하, 1단계 본문은 JSON(바이너리 Snapshot v1 은 2단계 1차 후보, 티켓 2272) · 2단계 QUIC: QUIC + DATAGRAM, 명령은 reliable stream | 1단계 확정. 2단계는 1단계 측정과 모바일·부하 POC 통과 뒤 |
+| 구현 스택 | **1단계**: Realtime JVM 안의 Java 이동 코어(틱 실행기는 STOMP 브로커 스레드와 분리) · 2단계 QUIC: 별도 Java worker + Netty QUIC, 모바일 quiche 네이티브 어댑터 | 1단계 확정(2026-10-07). 2단계는 측정 뒤 |
+| 서비스 경계 | **1단계**: 기존 경계 그대로(앱→Nginx→Realtime WSS, 인증·인가는 현행) · 2단계 QUIC: Business 입장 티켓, Movement 직접 UDP | 1단계는 예외 없음. 2단계에서 직접 연결 예외(MV-D02) 검토 |
 | 제품 영향 | 방문자 실시간 위치 미제공, 주민 충돌 없음, 장애 시 입구 복귀 | 1차 범위 추천. 기능 활성화 전에 제품 확인 |
 
 Java·Kafka·Realtime 선택 이유는 [아키텍처 §7](architecture.md#7-java--kafka--realtime-선택-검토)에 기록한다. 직접 연결과 서버 구현 언어는 별도 선택이며, C++ 서비스 분리는 선행 조건이 아니다.
@@ -60,6 +60,6 @@ Java·Kafka·Realtime 선택 이유는 [아키텍처 §7](architecture.md#7-java
 | MV-D08 | 제품 | **확정(2026-10-07)**: 이번 전환은 홈 섬만, 집중섬·휴식은 후속 단계에서 같은 타일 스키마로 전환 | 홈 섬 전환 뒤 |
 | MV-D09 | 조재영 | **확정(2026-10-07)**: 정적 에셋은 호스트 Nginx 가 직접 내려준다(해시 URL·immutable). 담당 조재영, 팀 논의 불필요. 정적 에셋 A 결정 등록은 후속 | 닫힘. A 결정 등록만 남음 |
 | MV-D10 | 아키텍처·제품(조재영) | **제안(2026-10-12, 확정 전)**: 2단계 1차 범위 = 전송 계층 유지 + 페이로드 축소(바이너리 Snapshot·송신 주기 저감·PathAccepted 축소). QUIC 직접 연결은 보류, 재검토 조건은 [아키텍처 §7 2단계 판단](architecture.md#7-java--kafka--realtime-선택-검토). 축소안 실측 비교는 티켓 2272 | 2단계 1차 착수(전송 유지 범위) |
-| MV-D11 | 조재영 | **확정(2026-10-12)**: 1단계 actorId = userId(앱·서버 계약). 이동 토픽은 섬 멤버만 받고 앱이 actor 를 주민과 맞춰야 하므로 계정 ID 노출을 1단계에서 허용한다. protocol.md 의 「세션 교체 시 새 actorId」 규칙은 2단계 계약에서 적용(1단계는 같은 사용자의 기존 actor 를 새 세션으로 교체하고 FullState 를 다시 보낸다). 진단 로그의 actorId 도 userId 값(내부 UUID — 티켓·토큰·개인정보가 아니다). 별칭 id 로 바꾸면 FullState·Snapshot·PathAccepted 의 actorId 의미와 앱의 주민 매칭(actor ↔ 멤버 목록)이 함께 바뀌므로 2단계 계약 설계 때 ActorJoined 의 표시 정보와 묶어 재검토 | 닫힘(1단계). 2단계 계약 설계 때 재검토 |
+| MV-D11 | 조재영 | **확정(2026-10-12)**: 1단계 actorId = userId(앱·서버 계약). 이동 토픽은 섬 멤버만 받고 앱이 actor 를 주민과 맞춰야 하므로 계정 ID 노출을 1단계에서 허용한다. protocol.md 의 「세션 교체 시 새 actorId」 규칙은 2단계 계약에서 적용(1단계는 기존 actor 를 유지한 채 세션 키 교체·commandSeq 리셋 뒤 FullState 를 다시 보낸다 — protocol §4 예외 문장). 진단 로그의 actorId 도 userId 값(내부 UUID — 티켓·토큰·개인정보가 아니다). 별칭 id 로 바꾸면 FullState·Snapshot·PathAccepted 의 actorId 의미와 앱의 주민 매칭(actor ↔ 멤버 목록)이 함께 바뀌므로 2단계 계약 설계 때 ActorJoined 의 표시 정보와 묶어 재검토 | 닫힘(1단계). 2단계 계약 설계 때 재검토 |
 
 결정이 바뀌면 제품 항목은 제품 결정 로그, 서비스 경계·인증·저장소 항목은 아키텍처 결정 장부를 먼저 갱신하고 이 문서에 전파한다.
