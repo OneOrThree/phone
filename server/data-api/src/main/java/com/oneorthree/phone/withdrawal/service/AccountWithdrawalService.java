@@ -1,6 +1,7 @@
 package com.oneorthree.phone.withdrawal.service;
 
 import com.oneorthree.phone.appearance.service.AppearanceService;
+import com.oneorthree.phone.appearance.service.SeaFocusRewardService;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.character.service.CharacterGenerationService;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
@@ -86,6 +87,7 @@ public class AccountWithdrawalService {
     private final EquipmentService equipmentService;
     private final PublicCommandService publicCommandService;
     private final AppearanceService appearanceService;
+    private final SeaFocusRewardService seaFocusRewardService;
     private final IslandQuestService islandQuestService;
 
     /**
@@ -171,6 +173,9 @@ public class AccountWithdrawalService {
         // 섬 소유 보유품·정산 행·퀘스트 정의는 섬 자산·원장 근거라 남는다. 섬 잠금은 위 그룹 선점에서 이미 쥐었다.
         // 상점 주문(shop_orders)은 payer_user_id 를 CHECK 가 NULL 로 강제해 탈퇴자 연결이 없다 — 파기 단계가 없다.
         appearanceService.eraseWithdrawnUser(userId);
+        // 바다 집중 누적(GROMO-2274 · 계약 §0 N42) — 개인 이력이라 지운다. 유저 행은 익명화만 되고 삭제되지 않아
+        // 테이블의 ON DELETE CASCADE 가 돌지 않는다. 지급된 상품은 바로 위 appearanceService 가 이미 지웠다.
+        seaFocusRewardService.eraseWithdrawnUser(userId);
         islandQuestService.eraseWithdrawnUser(userId);
 
         // 제약 ①의 오른쪽 — 위 내기 해제 환불이 이미 입금된 뒤여야 한다.

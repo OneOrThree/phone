@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.appearance.service.SeaFocusRewardService;
 import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.common.port.FocusPresenceState;
 import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
@@ -112,6 +113,7 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private FocusSettlementRepository focusSettlementRepository;
     @Mock private FocusRewardAccrualRepository focusRewardAccrualRepository;
     @Mock private FocusRewardAccrualService rewardAccruals;
+    @Mock private SeaFocusRewardService seaFocusRewards;
     @Mock private User caller;
     @Mock private GroupMember membership;
 
@@ -125,6 +127,7 @@ class FocusSessionLifecycleGuardsTest {
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands,
                 focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
+                new SeaSessionPredicate(), seaFocusRewards,
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
                 Clock.fixed(wallClock, ZoneOffset.UTC));
     }

@@ -966,6 +966,25 @@ Table island_news [note: '섬 소식 — 주민 전원이 같은 글을 읽는 �
   }
 }
 
+Table sea_focus_totals [note: '바다 집중 누적 — 유저 한 명당 한 행. 평생 누적은 줄지 않고, 이번 달 누적은 month_key 가 달라지면 정산 서비스가 가산 직전에 0 으로 되돌린다(월초 크론 없음). 섬·도착 여부와 무관한 «바다에서 집중한 시간»이다. 바다 집중이 끝날 때마다 SeaFocusRewardService 가 가산한다(서버에 바다 세션이 생기기 전에는 행이 없다). GROMO-2274, V112'] {
+  user_id          uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 익명화만 되고 삭제되지 않아 사실상 발동하지 않는다. 탈퇴 TX 가 SeaFocusRewardService.eraseWithdrawnUser 로 먼저 지운다(개인 이력)']
+  lifetime_seconds bigint      [not null, default: 0, note: '평생 누적 순수 집중 초 — 단계표 set_key=base 의 기준']
+  month_key        character   [not null, note: 'char(7) — 마지막 가산이 속한 달, 정산 시각을 KST 로 본 YYYY-MM. 다음 가산의 달이 다르면 month_seconds 를 0 으로 되돌린 뒤 더한다']
+  month_seconds    bigint      [not null, default: 0, note: 'month_key 달의 누적 순수 집중 초 — 단계표 set_key=YYYY-MM(시즌) 의 기준']
+  updated_at       timestamptz [not null, default: `now()`, note: '마지막 가산 시각']
+}
+
+Table sea_reward_tiers [note: '바다 보상 단계표 — 「set_key 세트의 누적이 threshold_minutes 분을 넘으면 product_id 를 개인 인벤토리에 준다」. 운영이 SQL 로 행을 넣고 바꾸는 데이터라 마이그레이션에 시드가 없다(바다 전용 상품이 아직 없다). 다음 달 시즌은 set_key=YYYY-MM 행을 넣으면 코드 배포 없이 열린다. 운영 카탈로그라 계정 탈퇴 정리 대상이 아니다. GROMO-2274, V112'] {
+  id                bigint      [pk, increment]
+  set_key           varchar(20) [not null, note: 'base(평생 누적 기준 상시 세트) 또는 YYYY-MM(그 달 누적 기준 시즌 세트). CHECK 없음 — 철자가 틀리면 조용히 평가되지 않는다']
+  threshold_minutes integer     [not null, note: 'CHECK > 0. 누적이 이 분 «이상»이 되는 정산에서 한 번 넘는다(이전 < 기준 ≤ 이후) — 이미 지나간 단계는 행이 나중에 생겨도 소급 지급하지 않는다']
+  product_id        varchar(80) [not null, note: 'FK → catalog_assets.product_id (같은 80자). clothes·decor 만 지급하고 그 밖의 종류는 건너뛴다(결정 N4 — hull 은 후속). 이미 가진 상품도 건너뛴다(owned_products 유일 인덱스가 1회 보장)']
+
+  indexes {
+    (set_key, threshold_minutes, product_id) [unique]
+  }
+}
+
 Table user_main_islands [note: '사용자가 고른 메인 섬 (users 1:1) — 행이 없으면 «가장 먼저 가입한 활성 섬»으로 도출한다(그래서 백필이 없다). 현재 섬(user_island_contexts.current_island_id)과 다른 축이다. GROMO-1971, V81'] {
   user_id    uuid [pk, note: 'FK → users.id (1:1). users 컬럼이 아니라 별도 테이블인 이유는 User 엔티티에 @Version·@DynamicUpdate 가 없어 더티 갱신이 전 컬럼 UPDATE 를 내기 때문이다 — 이탈/탈퇴 TX 의 PII 파기와 순서를 다투지 않게 자기 행을 준다']
   island_id  uuid [not null, note: 'FK → groups.id. 이 행이 있는 동안 사용자는 그 섬의 활성 주민이다 — 이탈·강퇴·계정탈퇴가 같은 TX 에서 가장 최근 가입 섬으로 옮기거나 행을 지운다']
@@ -1926,6 +1945,8 @@ Ref: letters.island_id > groups.id [delete: set null]
 Ref: island_guestbook_entries.island_id > groups.id [delete: cascade]
 Ref: island_guestbook_entries.author_id > users.id [delete: cascade]
 Ref: island_news.island_id > groups.id [delete: cascade]
+Ref: sea_focus_totals.user_id - users.id [delete: cascade]
+Ref: sea_reward_tiers.product_id > catalog_assets.product_id
 
 // 초대 링크 (V21)
 Ref: group_invite_links.group_id > groups.id

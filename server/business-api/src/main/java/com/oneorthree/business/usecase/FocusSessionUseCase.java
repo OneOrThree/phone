@@ -191,7 +191,8 @@ public class FocusSessionUseCase {
             @JsonProperty(required = true) AllocationView allocation,
             @JsonProperty(required = true) String completedAt,
             List<QuestProgressView> questProgress,
-            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals,
+            SeaRewardView seaReward) {
         private static FinishView from(FocusFinish source) {
             if (source == null) {
                 return null;
@@ -202,7 +203,21 @@ public class FocusSessionUseCase {
                     source.activeSeconds(), source.goalAchieved(), source.earnedFish(),
                     new AllocationView(source.allocation().personalFishAdded(),
                             source.allocation().constructionFishAdded()),
-                    source.completedAt(), progress, ActiveIntervalView.fromAll(source.activeIntervals()));
+                    source.completedAt(), progress, ActiveIntervalView.fromAll(source.activeIntervals()),
+                    SeaRewardView.from(source.seaReward()));
+        }
+    }
+
+    /**
+     * 바다 집중 보상 (GROMO-2274) — {@link FinishView#seaReward()} 로만 나간다. 섬 세션은 그 필드가 {@code null}
+     * (키는 있다)이고, 바다 세션은 아무것도 못 받았어도 이 객체다.
+     */
+    public record SeaRewardView(
+            @JsonProperty(required = true) List<String> grantedProductIds,
+            Integer minutesToNextTier) {
+        private static SeaRewardView from(FocusFinish.SeaReward source) {
+            return source == null ? null
+                    : new SeaRewardView(source.grantedProductIds(), source.minutesToNextTier());
         }
     }
 

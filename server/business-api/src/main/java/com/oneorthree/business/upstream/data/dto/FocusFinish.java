@@ -28,6 +28,8 @@ import java.util.UUID;
  * @param activeIntervals ACTIVE 구간 실제 시간(GROMO-2131) — finish 시점엔 전부 닫혀 있다.
  *                      구버전 Data 가 안 보내면 {@code null} 로 두어 공개 응답에서도 빠지게 한다 —
  *                      빈 목록으로 채우면 앱이 «구간 0건»으로 읽어 같은 날 집중이 사라진다
+ * @param seaReward     바다 집중 보상(GROMO-2274) — 이번에 받은 상품과 다음 단계까지 남은 분. 섬 세션은 {@code null}
+ *                      이고, 이 필드를 모르는 구버전 Data 도 안 보내 {@code null} 이다(필수가 아니다)
  */
 public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID recordId,
@@ -40,7 +42,8 @@ public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) Allocation allocation,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String completedAt,
         @JsonSetter(nulls = Nulls.AS_EMPTY) List<QuestProgress> questProgress,
-        List<ActiveIntervalState> activeIntervals) {
+        List<ActiveIntervalState> activeIntervals,
+        SeaReward seaReward) {
 
     /**
      * @param personalFishAdded     개인 지갑 반영
@@ -58,5 +61,14 @@ public record FocusFinish(
     public record QuestProgress(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) double myRate) {
+    }
+
+    /**
+     * @param grantedProductIds 이번에 새로 개인 인벤토리에 들어간 상품 id — 없으면 빈 목록
+     * @param minutesToNextTier 다음 단계까지 남은 분 — 더 받을 단계가 없으면 {@code null}
+     */
+    public record SeaReward(
+            @JsonSetter(nulls = Nulls.AS_EMPTY) List<String> grantedProductIds,
+            Integer minutesToNextTier) {
     }
 }
