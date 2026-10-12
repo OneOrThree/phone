@@ -68,23 +68,45 @@ test('진행 중인 수치는 중간 관측으로 보고하고 닫힌 하루만 
     Date.parse('2026-10-09T01:00:00Z'),
   );
   expect(
-    result.map(({ date, minutes, measurementStatus }) => ({ date, minutes, measurementStatus })),
+    result
+      .filter((o) => o.timezone === 'UTC')
+      .map(({ date, minutes, measurementStatus }) => ({ date, minutes, measurementStatus })),
   ).toEqual([
     { date: '2026-10-08', minutes: 75, measurementStatus: 'authorized' },
     { date: '2026-10-09', minutes: 15, measurementStatus: 'authorized' },
   ]);
-  expect(result.map((o) => o.finalized)).toEqual([true, false]);
+  expect(result.filter((o) => o.timezone === 'UTC').map((o) => o.finalized)).toEqual([true, false]);
 });
 test('권한 철회는 숫자를 보내지 않고 마감 지난 날짜는 제외한다', () => {
   const now = Date.parse('2026-10-09T12:00:00.001Z');
   expect(reportDeadline('2026-10-08')).toBe(now - 1);
-  expect(buildScreenTimeObservations('denied', timeline(), now)).toEqual([
+  expect(
+    buildScreenTimeObservations('denied', timeline(), now).filter((o) => o.timezone === 'UTC'),
+  ).toEqual([
     {
       date: '2026-10-09',
       minutes: null,
       measurementStatus: 'denied',
       measuredAt: new Date(now).toISOString(),
       finalized: false,
+      timezone: 'UTC',
+      windowStart: '2026-10-09T00:00:00.000Z',
+      windowEnd: '2026-10-10T00:00:00.000Z',
     },
   ]);
+});
+
+test('같은 날짜의 UTC 일계와 KST 일계를 독립 집계하고 UTC 경계를 보낸다', () => {
+  const result = buildScreenTimeObservations(
+    'approved',
+    timeline(),
+    Date.parse('2026-10-09T01:00:00Z'),
+  );
+  expect(result.find((o) => o.date === '2026-10-08' && o.timezone === 'UTC')?.minutes).toBe(75);
+  expect(result.find((o) => o.date === '2026-10-08' && o.timezone === 'Asia/Seoul')).toMatchObject({
+    minutes: 90,
+    finalized: true,
+    windowStart: '2026-10-07T15:00:00.000Z',
+    windowEnd: '2026-10-08T15:00:00.000Z',
+  });
 });

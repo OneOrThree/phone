@@ -68,6 +68,10 @@ class AndroidStateTest {
     assertEquals("authorized", (observations[1] as Map<*, *>)["measurementStatus"])
     assertEquals(false, (observations[1] as Map<*, *>)["finalized"])
     assertEquals(true, closed["finalized"])
+    val kst = observations[2] as Map<*, *>
+    assertEquals("Asia/Seoul", kst["timezone"])
+    assertEquals("2026-10-10T15:00:00Z", kst["windowStart"])
+    assertEquals("2026-10-11T15:00:00Z", kst["windowEnd"])
   }
   @Test fun selectionChangeIsScheduledAtKstMidnightAndInvalidatesCrossingUtcWindow() {
     var time = Instant.parse("2026-10-11T10:00:00Z").toEpochMilli()

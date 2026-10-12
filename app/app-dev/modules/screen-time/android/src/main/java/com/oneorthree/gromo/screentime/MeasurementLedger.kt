@@ -8,7 +8,6 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZoneOffset
 
 /** 계정별 측정 기준·권한 공백·확정 이력. 날짜만 바꾸지 않고 UTC 구간을 직접 조회한다. */
 internal class MeasurementLedger(
@@ -139,13 +138,17 @@ internal class MeasurementLedger(
     }
     val current = measure(start(today), time, false)
     if (measure(start(today), time, true) == null) invalid.add(today.toString())
-    val utc = Instant.ofEpochMilli(time).atOffset(ZoneOffset.UTC).toLocalDate()
-    val observations = listOf(utc.minusDays(1), utc).map { date ->
-      val from = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-      val minutes = measure(from, minOf(from + dayMs, time), true)
-      mapOf("date" to date.toString(), "minutes" to minutes, "measuredAt" to Instant.ofEpochMilli(time).toString(),
-        "finalized" to (date < utc),
-        "measurementStatus" to if (!approved) "denied" else if (minutes != null) "authorized" else if (date == utc) "pending" else "unavailable")
+    val observations = listOf("UTC", "Asia/Seoul").flatMap { timezone ->
+      val zone = ZoneId.of(timezone)
+      val calendarToday = Instant.ofEpochMilli(time).atZone(zone).toLocalDate()
+      listOf(calendarToday.minusDays(1), calendarToday).map { date ->
+        val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val minutes = measure(from, minOf(from + dayMs, time), true)
+        mapOf("date" to date.toString(), "minutes" to minutes, "measuredAt" to Instant.ofEpochMilli(time).toString(),
+          "timezone" to timezone, "windowStart" to Instant.ofEpochMilli(from).toString(),
+          "windowEnd" to Instant.ofEpochMilli(from + dayMs).toString(), "finalized" to (date < calendarToday),
+          "measurementStatus" to if (!approved) "denied" else if (minutes != null) "authorized" else if (date == calendarToday) "pending" else "unavailable")
+      }
     }
     val historyDates = history.keys().asSequence().toList().filter { it >= today.minusDays(90).toString() }
     val retained = JSONObject()

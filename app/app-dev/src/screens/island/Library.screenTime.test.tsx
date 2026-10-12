@@ -83,7 +83,7 @@ test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초�
 
 test('이번 주 진입 집계를 재사용하고 진행 중 집중만 있는 날은 시간대 미제공을 표시한다', async () => {
   const e = { ...environment(), tab: '', islands: [], now: Date.now() };
-  const date = new Date(e.now).toISOString().slice(0, 10);
+  const date = new Date(e.now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const focus = {
     scope: 'me' as const,
     totalSeconds: 600,

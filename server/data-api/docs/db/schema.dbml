@@ -1453,13 +1453,14 @@ Table screen_time_observations [note: 'GROMO-1769 (V79): 기기별 스크린타�
   device_id          uuid        [not null, note: '서명된 로그인 세션 id(AT sid) — 2026-09-19 결정 RC-D02-기기']
   measured_date      date        [not null, note: 'UTC 날짜 버킷(2026-09-19 결정 RC-축)']
   measured_at        timestamptz [not null]
+  timezone varchar(32) [not null, default: 'UTC', note: 'UTC 퀘스트 / Asia/Seoul 도서관 집계 경계']
   finalized boolean [not null, default: false, note: '하루 전체 측정 완료. 중간 수치로 보상하지 않음']
   minutes            integer     [note: 'authorized 일 때만 0~1440, 나머지 상태는 NULL(CHECK)']
   measurement_status varchar(12) [not null, note: 'authorized / denied / unavailable / pending (CHECK)']
   created_at         timestamptz [not null, default: `now()`]
 
   indexes {
-    (user_id, device_id, measured_date, measured_at) [unique, name: 'uq_screen_time_observation']
+    (user_id, device_id, measured_date, timezone, measured_at) [unique, name: 'uq_screen_time_observation']
     (user_id, measured_date) [name: 'idx_screen_time_observations_user_date']
   }
 }

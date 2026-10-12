@@ -4,8 +4,8 @@
  * 데이터는 전부 서버다 — 로컬 `s.records`·`screenDays`·`earnedBy` 예시값과 로컬 합산을
  * 쓰지 않는다:
  *  - 진입 시 `GET /screens/library` 한 번으로 서버 섬 id·`statisticsAvailability`·
- *    이번 UTC 주 scope=me 두 통계 조각·`fishEarnings` 를 받는다.
- *  - 기간(일·주·월)·offset 이 이번 UTC 주를 벗어나거나 이웃 장이면 도메인 GET
+ *    이번 KST 주 scope=me 두 통계 조각·`fishEarnings` 를 받는다.
+ *  - 기간(일·주·월)·offset 이 이번 KST 주를 벗어나거나 이웃 장이면 도메인 GET
  *    (`…/statistics/focus` · `…/statistics/screen-time`)을 `from`·`to` UTC 날짜로 부른다.
  *  - scope=island 는 주민 배열 한 번에 온다 — 주민 탭 전환은 다시 부르지 않는다.
  *  - focus 의 `nextCursor` 는 끝까지 잇는다(scope=me records·scope=island members).
@@ -21,7 +21,7 @@ import {
   getFocusStatistics,
   getLibraryScreen,
   getScreenTimeStatistics,
-  utcPeriodRange,
+  libraryPeriodRange,
   type FocusStatsIsland,
   type FocusStatsMe,
   type LibraryScreen,
@@ -102,7 +102,7 @@ export function useLibraryDiary({
     screen: LibraryScreen;
   } | null>(null);
   const session = sessionGeneration();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const from = rangeOverride?.from;
   const to = rangeOverride?.to;
 
@@ -147,8 +147,8 @@ export function useLibraryDiary({
           setStatus('locked');
           return;
         }
-        const range = from && to ? { from, to } : utcPeriodRange(period, offset);
-        // 이번 UTC 주·scope=me 는 진입 집계의 조각을 그대로 쓴다(같은 축·같은 관측).
+        const range = from && to ? { from, to } : libraryPeriodRange(period, offset);
+        // 이번 KST 주·scope=me 는 진입 집계의 조각을 그대로 쓴다(같은 축·같은 관측).
         // missingFragments 에 든 조각은 서버가 아직 만들지 않은 것 — 다시 묻지 않고
         // null 로 둬서 UI 가 「준비 중」을 그리게 한다.
         const firstWeek = !from && period === '주' && offset === 0;

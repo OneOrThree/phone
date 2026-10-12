@@ -36,7 +36,7 @@ APNs 종료 메시지는 일시 오프라인 기기를 위해 최대 8시간 보
 
 ## 배포 설정
 
-- Data API: Flyway V106 적용. Business API와 Data API의 새 등록 경로를 함께 배포한다.
+- Data API: Flyway V107 적용(10/12 후속 커밋에서 V106을 V107로 이동), Android 전송은 V108도 적용한다. Business API와 Data API의 새 등록 경로를 함께 배포한다.
 - Data API 환경변수:
   - `FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID`: Apple 팀 ID
   - `FOCUS_LIVE_ACTIVITY_APNS_KEY_ID`: 해당 APNs 인증 키 ID

@@ -52,7 +52,7 @@ public class IslandRecordsController {
     private static final Set<String> LEDGER_QUERY = Set.of("month", "direction", "cursor");
     private static final Set<String> DIRECTIONS = Set.of("earn", "spend");
     private static final Set<String> UPLOAD_KEYS = Set.of("minutes", "measurementStatus", "timezone",
-            "measuredAt", "deviceId", "finalized");
+            "measuredAt", "deviceId", "finalized", "windowStart", "windowEnd");
     private static final Set<String> SCOPES = Set.of(IslandRecordsUseCase.SCOPE_ME, IslandRecordsUseCase.SCOPE_ISLAND);
     private static final Set<String> STATUSES = Set.of("authorized", "denied", "unavailable", "pending");
     private static final String UTC = "UTC";
@@ -75,7 +75,7 @@ public class IslandRecordsController {
         AccessTokenClaims claims = sessions.requireSession(request);
         Query query = query(request, FOCUS_QUERY);
         return records.focus(claims, islandId(islandId), query.from(), query.to(), query.scope(),
-                request.getParameter("cursor"), properties.deadline());
+                request.getParameter("cursor"), properties.deadline(), query.timezone());
     }
 
     /** 스크린타임 통계 — 원본 계약에 커서가 없어 목록을 자르지 않는다. */
@@ -84,7 +84,7 @@ public class IslandRecordsController {
         AccessTokenClaims claims = sessions.requireSession(request);
         Query query = query(request, SCREEN_QUERY);
         return records.screenTime(claims, islandId(islandId), query.from(), query.to(), query.scope(),
-                properties.deadline());
+                properties.deadline(), query.timezone());
     }
 
     /**
@@ -160,7 +160,7 @@ public class IslandRecordsController {
         }
         Integer minutes = minutes(body, "authorized".equals(status));
         JsonNode timezone = body.get("timezone");
-        if (timezone != null && !(timezone.isString() && UTC.equals(timezone.stringValue()))) {
+        if (timezone != null && !(timezone.isString() && Set.of(UTC, "Asia/Seoul").contains(timezone.stringValue()))) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "timezone");
         }
         JsonNode finalized = body.get("finalized");
@@ -177,7 +177,16 @@ public class IslandRecordsController {
         Map<String, Object> command = new LinkedHashMap<>();
         command.put("minutes", minutes);
         command.put("measurementStatus", status);
-        command.put("timezone", UTC);
+        command.put("timezone", timezone == null ? UTC : timezone.stringValue());
+        for (String boundary : new String[]{"windowStart", "windowEnd"}) {
+            if (body.has(boundary)) {
+                try {
+                    command.put(boundary, Instant.parse(text(body, boundary)).toString());
+                } catch (DateTimeParseException e) {
+                    throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, boundary);
+                }
+            }
+        }
         if (finalized != null) {
             command.put("finalized", finalized.booleanValue());
         }
@@ -205,14 +214,14 @@ public class IslandRecordsController {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "to");
         }
         String timezone = request.getParameter("timezone");
-        if (timezone != null && !UTC.equals(timezone)) {
+        if (timezone != null && !Set.of(UTC, "Asia/Seoul").contains(timezone)) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "timezone");
         }
         String scope = required(request, "scope");
         if (!SCOPES.contains(scope)) {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "scope");
         }
-        return new Query(from, to, scope);
+        return new Query(from, to, scope, timezone == null ? UTC : timezone);
     }
 
     private static String required(HttpServletRequest request, String name) {
@@ -284,6 +293,6 @@ public class IslandRecordsController {
         return PublicIds.uuid(value, "islandId");
     }
 
-    private record Query(LocalDate from, LocalDate to, String scope) {
+    private record Query(LocalDate from, LocalDate to, String scope, String timezone) {
     }
 }

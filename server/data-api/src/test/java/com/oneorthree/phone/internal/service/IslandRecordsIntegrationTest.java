@@ -327,6 +327,29 @@ class IslandRecordsIntegrationTest {
                 .series().get(0).finalized()).isTrue();
     }
 
+    @Test
+    @DisplayName("UTC 퀘스트와 KST 도서관 일계를 분리하고 클라이언트 UTC 창 경계를 검증한다")
+    void calendarWindowsNeverMix() {
+        Device device = device();
+        at(D, "16:00:00");
+        service.putScreenTime(device.userId, device.sessionId, 0L, D,
+                new ScreenTimeUpload(20, "authorized", "UTC", t(D, "16:00:00"), device.sessionId, false),
+                UUID.randomUUID());
+        service.putScreenTime(device.userId, device.sessionId, 0L, D,
+                new ScreenTimeUpload(90, "authorized", "Asia/Seoul", t(D, "16:00:00"), device.sessionId,
+                        true, t(D.minusDays(1), "15:00:00"), t(D, "15:00:00")), UUID.randomUUID());
+        assertThat(service.screenTime(device.userId, device.island.id, D, D, "me", "UTC")
+                .totalMinutes()).isEqualTo(20);
+        assertThat(service.screenTime(device.userId, device.island.id, D, D, "me", "Asia/Seoul")
+                .totalMinutes()).isEqualTo(90);
+        assertThat(observations.findByUserIdInAndMeasuredDate(List.of(device.userId), D))
+                .hasSize(1).allMatch(row -> row.getTimezone().equals("UTC") && row.getMinutes() == 20);
+        assertStatsError(() -> service.putScreenTime(device.userId, device.sessionId, 0L, D,
+                new ScreenTimeUpload(90, "authorized", "Asia/Seoul", t(D, "16:00:00"), device.sessionId,
+                        true, t(D, "00:00:00"), t(D.plusDays(1), "00:00:00")), UUID.randomUUID()),
+                StatsErrorCode.SCREEN_TIME_INVALID_MEASUREMENT);
+    }
+
     // ---------------------------------------------------------------- 스크린타임 조회
 
     @Test

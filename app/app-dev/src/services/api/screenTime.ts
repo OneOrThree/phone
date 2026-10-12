@@ -10,7 +10,7 @@ export function putScreenTime(
   const { date, ...body } = observation;
   return request(`/me/screen-time/${encodeURIComponent(date)}`, {
     method: 'PUT',
-    body: { ...body, timezone: 'UTC', deviceId },
+    body: { ...body, timezone: observation.timezone ?? 'UTC', deviceId },
     idempotencyKey,
     generation,
   });

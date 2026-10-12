@@ -36,7 +36,7 @@ test('응답 유실 뒤 같은 관측 시각·본문·멱등키로 재시도한�
   await reportScreenTime('approved', null, 1, now + 60000);
   expect(put.mock.calls[1]).toEqual(first);
   await reportScreenTime('approved', null, 1, now + 120000);
-  expect(put).toHaveBeenCalledTimes(2);
+  expect(put).toHaveBeenCalledTimes(3);
 });
 test('동의 철회 후 이전 대기 보고를 버리고 denied만 전송한다', async () => {
   await setScreenTimeReportingConsent(session.userId, true);

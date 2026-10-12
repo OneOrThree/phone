@@ -4,7 +4,12 @@ import type { MeasurementStatus } from './api/records';
 const DAY = 86_400_000;
 const KST = 9 * 60 * 60 * 1000;
 export const utcDay = (time: number) => new Date(time).toISOString().slice(0, 10);
-export const reportDeadline = (date: string) => Date.parse(`${date}T00:00:00Z`) + DAY * 1.5;
+export type MeasurementTimezone = 'UTC' | 'Asia/Seoul';
+export const windowStart = (date: string, timezone: MeasurementTimezone = 'UTC') =>
+  Date.parse(`${date}T00:00:00Z`) - (timezone === 'Asia/Seoul' ? KST : 0);
+export const reportDeadline = (date: string, timezone: MeasurementTimezone = 'UTC') =>
+  windowStart(date, timezone) + DAY * 1.5;
+export const observationKey = (o: ScreenTimeObservation) => `${o.timezone ?? 'UTC'}|${o.date}`;
 
 export type ScreenTimeObservation = {
   date: string;
@@ -12,6 +17,9 @@ export type ScreenTimeObservation = {
   measurementStatus: MeasurementStatus;
   measuredAt: string;
   finalized?: boolean;
+  timezone?: MeasurementTimezone;
+  windowStart?: string;
+  windowEnd?: string;
 };
 
 /** 레거시 구간 차분 방식. 네이티브의 KST 날짜마다 누적값이 다시 0부터 시작한다. */
@@ -80,27 +88,39 @@ export function buildScreenTimeObservations(
   now = Date.now(),
 ): ScreenTimeObservation[] {
   const measuredAt = new Date(now).toISOString();
-  return [utcDay(now - DAY), utcDay(now)]
-    .filter((date) => now <= reportDeadline(date))
-    .map((date) => {
-      const finalized = date !== utcDay(now);
-      const base = { date, measuredAt, minutes: null, finalized };
-      if (authorization === 'denied') return { ...base, measurementStatus: 'denied' as const };
-      if (authorization !== 'approved')
-        return { ...base, measurementStatus: 'unavailable' as const };
-      const start = Date.parse(`${date}T00:00:00Z`);
-      const minutes = timeline
-        ? measureUsageWindow(start, Math.min(start + DAY, now), timeline)
-        : null;
-      return {
-        ...base,
-        minutes,
-        measurementStatus:
-          minutes === null
-            ? finalized
-              ? ('unavailable' as const)
-              : ('pending' as const)
-            : ('authorized' as const),
-      };
-    });
+  return (['UTC', 'Asia/Seoul'] as const).flatMap((timezone) => {
+    const today = utcDay(now + (timezone === 'Asia/Seoul' ? KST : 0));
+    const yesterday = utcDay(Date.parse(today + 'T00:00:00Z') - DAY);
+    return [yesterday, today]
+      .filter((date) => now <= reportDeadline(date, timezone))
+      .map((date) => {
+        const start = windowStart(date, timezone);
+        const finalized = now >= start + DAY;
+        const base = {
+          date,
+          measuredAt,
+          minutes: null,
+          finalized,
+          timezone,
+          windowStart: new Date(start).toISOString(),
+          windowEnd: new Date(start + DAY).toISOString(),
+        };
+        if (authorization === 'denied') return { ...base, measurementStatus: 'denied' as const };
+        if (authorization !== 'approved')
+          return { ...base, measurementStatus: 'unavailable' as const };
+        const minutes = timeline
+          ? measureUsageWindow(start, Math.min(start + DAY, now), timeline)
+          : null;
+        return {
+          ...base,
+          minutes,
+          measurementStatus:
+            minutes === null
+              ? finalized
+                ? ('unavailable' as const)
+                : ('pending' as const)
+              : ('authorized' as const),
+        };
+      });
+  });
 }

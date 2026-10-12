@@ -10,7 +10,7 @@ import {
   getFocusStatistics,
   getLibraryScreen,
   getScreenTimeStatistics,
-  utcPeriodRange,
+  libraryPeriodRange,
   type FocusStatsIsland,
   type FocusStatsMe,
   type LibraryScreen,
@@ -103,7 +103,7 @@ test('스크린타임 장도 진입 집계 조각을 그대로 쓴다', async ()
   assert.equal(result.current.screenMe?.totalMinutes, 45);
 });
 
-test('이번 주가 아닌 기간은 UTC from/to 로 도메인 GET 을 부른다', async () => {
+test('이번 주가 아닌 기간은 KST from/to 로 도메인 GET 을 부른다', async () => {
   libMock.mockResolvedValue(lib());
   focusMock.mockResolvedValue({ ...FOCUS_ME, records: [], totalSeconds: 0 });
   const { result } = await mount({ period: '월' });
@@ -111,7 +111,7 @@ test('이번 주가 아닌 기간은 UTC from/to 로 도메인 GET 을 부른다
   await waitFor(() => assert.equal(result.current.status, 'ready'));
   assert.equal(focusMock.mock.calls.length, 1);
   const [islandId, query] = focusMock.mock.calls[0];
-  const range = utcPeriodRange('월', 0);
+  const range = libraryPeriodRange('월', 0);
   assert.equal(islandId, 'isl-1');
   assert.deepEqual(query, { scope: 'me', from: range.from, to: range.to });
 });

@@ -39,7 +39,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const island = currentIsland(state);
   const server = !!e.islands;
   const neighbors = e.detail === 'residents';
-  const today = dateKey(e.now, server);
+  const today = dateKey(e.now, false);
   const [period, setPeriod] = useState<Period>(e.tab === 'screen' ? '일' : '주');
   const [offset, setOffset] = useState(0);
   const [tab, setTab] = useState<'집중' | '폰 사용'>(e.tab === 'screen' ? '폰 사용' : '집중');
@@ -48,7 +48,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const scroll = useRef<ScrollView>(null);
   const range = neighbors
     ? { from: shiftDate(today, -6), to: today }
-    : diaryRange(period, offset, e.now, server);
+    : diaryRange(period, offset, e.now, false);
   const srv = useLibraryDiary({
     active: server,
     nb: neighbors,
@@ -267,7 +267,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
               onPress={selectedDayStats.retry}
             />
           ) : (
-            <SessionList records={dayRecords} utc={server} />
+            <SessionList records={dayRecords} utc={false} />
           )}
         </>
       );
@@ -395,7 +395,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
             <T style={styles.metricValue}>{hm(seconds)}</T>
           </View>
         ))}
-        <Timetable records={dayRecords} day={activeDay} utc={server} />
+        <Timetable records={dayRecords} day={activeDay} utc={false} />
       </>
     );
   };

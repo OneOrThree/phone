@@ -7,6 +7,7 @@ import type { ScreenTimeAuthorization, UsageTimeline } from './ScreenTimeModule'
 import {
   buildScreenTimeObservations,
   reportDeadline,
+  observationKey,
   type ScreenTimeObservation,
 } from './screenTimeWindow';
 
@@ -77,24 +78,36 @@ export function reportScreenTime(
     const revoked = !consent.enabled || authorization !== 'approved';
     journal.pending = journal.pending.filter(
       (p) =>
-        now <= reportDeadline(p.observation.date) &&
+        now <= reportDeadline(p.observation.date, p.observation.timezone) &&
         (!revoked || p.observation.measurementStatus === 'denied'),
     );
-    for (const observation of observations.filter((o) => now <= reportDeadline(o.date))) {
-      if (journal.sent[observation.date] === fingerprint(observation)) {
-        journal.pending = journal.pending.filter((p) => p.observation.date !== observation.date);
+    for (const observation of observations.filter(
+      (o) => now <= reportDeadline(o.date, o.timezone),
+    )) {
+      if (journal.sent[observationKey(observation)] === fingerprint(observation)) {
+        journal.pending = journal.pending.filter(
+          (p) => observationKey(p.observation) !== observationKey(observation),
+        );
         continue;
       }
-      if (journal.rejected?.[observation.date] === fingerprint(observation))
+      if (journal.rejected?.[observationKey(observation)] === fingerprint(observation))
         throw new Error('스크린타임 보고가 서버에서 거절됐어요.');
-      const pending = journal.pending.find((p) => p.observation.date === observation.date);
+      const pending = journal.pending.find(
+        (p) => observationKey(p.observation) === observationKey(observation),
+      );
       if (pending && fingerprint(pending.observation) === fingerprint(observation)) continue;
       // 상태가 달라졌으면 과거 숫자를 먼저 보내지 않고 최신 상태로 대체한다.
-      journal.pending = journal.pending.filter((p) => p.observation.date !== observation.date);
+      journal.pending = journal.pending.filter(
+        (p) => observationKey(p.observation) !== observationKey(observation),
+      );
       journal.pending.push({ observation, key: uuid() });
     }
     journal.sent = Object.fromEntries(
-      Object.entries(journal.sent).filter(([date]) => now <= reportDeadline(date)),
+      Object.entries(journal.sent).filter(
+        ([date]) =>
+          now <=
+          reportDeadline(date.slice(-10), date.startsWith('Asia/Seoul|') ? 'Asia/Seoul' : 'UTC'),
+      ),
     );
     await AsyncStorage.setItem(key, JSON.stringify(journal));
     for (const pending of [...journal.pending]) {
@@ -112,13 +125,15 @@ export function reportScreenTime(
           throw error;
         // 영구 오류는 같은 관측의 무한 재시도를 막고 UI에 실패를 전달한다.
         journal.pending = journal.pending.filter((p) => p.key !== pending.key);
-        (journal.rejected ??= {})[pending.observation.date] = fingerprint(pending.observation);
+        (journal.rejected ??= {})[observationKey(pending.observation)] = fingerprint(
+          pending.observation,
+        );
         await AsyncStorage.setItem(key, JSON.stringify(journal));
         throw error;
       }
       if (!current()) return;
       journal.pending = journal.pending.filter((p) => p.key !== pending.key);
-      journal.sent[pending.observation.date] = fingerprint(pending.observation);
+      journal.sent[observationKey(pending.observation)] = fingerprint(pending.observation);
       await AsyncStorage.setItem(key, JSON.stringify(journal));
       if (current()) screenTimeObservationReported();
     }

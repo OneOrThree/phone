@@ -47,6 +47,11 @@ public class ScreenTimeObservation {
     @Column(name = "measured_date", nullable = false)
     private LocalDate measuredDate;
 
+    /** 집계 날짜의 경계. 측정 시각과 창 경계는 UTC instant로 처리한다. */
+    @Builder.Default
+    @Column(nullable = false, length = 32)
+    private String timezone = "UTC";
+
     @Column(name = "measured_at", nullable = false)
     private Instant measuredAt;
 
