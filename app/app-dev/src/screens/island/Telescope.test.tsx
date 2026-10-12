@@ -1,26 +1,44 @@
 // 망원경 화면(GROMO-2266 · 2273) — 파노라마·말풍선·버튼 상태·가입·항해·돌아가기·카운트다운·핀 표시(찜 리본·잡지 칸 미리보기·빼기).
-// API(getTelescope·arriveAtIsland·unpinFromTelescope)와 항해 연출(Sailing)은 목이다.
+// API(getTelescope·arriveAtIsland)와 항해 연출(Sailing)은 목이다. 빼기는 실제 unpinFromTelescope 를 거치고 서버 요청(request)만 목이다 —
+// 성공하면 실제처럼 onTelescopeChanged 구독자에게 알려, 화면이 따로 부르지 않아도 열린 목록이 구독으로 다시 읽는다(useTelescope 는 실제).
 import React from 'react';
 import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { Telescope } from '@/screens/island/Telescope';
 import { applyLocalePref } from '@/i18n';
-import { ApiError } from '@/services/api/client';
-import {
-  arriveAtIsland,
-  getTelescope,
-  unpinFromTelescope,
-  type TelescopeItem,
-} from '@/services/api/telescope';
+import { ApiError, request } from '@/services/api/client';
+import { arriveAtIsland, getTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { initialState, reducer } from '@/services/model';
 
+jest.mock('@/services/api/client', () => ({
+  ...jest.requireActual('@/services/api/client'),
+  request: jest.fn(),
+}));
 jest.mock('@/services/api/telescope', () => ({
   ...jest.requireActual('@/services/api/telescope'),
   getTelescope: jest.fn(),
   arriveAtIsland: jest.fn(),
-  unpinFromTelescope: jest.fn(),
 }));
+// 화면이 직접 부른 reload 만 센다(알림 구독이 읽는 건 훅 안쪽 reload 라 걸리지 않는다). 구독의 읽기와 화면의 reload 는 같은 틱에 합쳐져
+// getTelescope 호출 횟수만으로는 이중 조회가 보이지 않기 때문이다. 그 밖에는 실제 useTelescope 그대로다.
+const mockScreenReload = jest.fn();
+jest.mock('@/screens/island/useTelescope', () => {
+  const actual = jest.requireActual('@/screens/island/useTelescope');
+  return {
+    ...actual,
+    useTelescope: (options: { active: boolean }) => {
+      const state = actual.useTelescope(options);
+      return {
+        ...state,
+        reload: () => {
+          mockScreenReload();
+          state.reload();
+        },
+      };
+    },
+  };
+});
 jest.mock('@/screens/world/WorldViews', () => ({
   Sailing: ({ destination, from, onArrive }: any) => {
     const { Pressable, Text } = require('react-native');
@@ -56,7 +74,9 @@ jest.mock('react-native-safe-area-context', () => ({
 
 const mockGet = getTelescope as jest.Mock;
 const mockArrive = arriveAtIsland as jest.Mock;
-const mockUnpin = unpinFromTelescope as jest.Mock;
+// 이 화면이 보내는 서버 요청은 빼기(DELETE) 뿐이다 — 가입·도착은 e.islands 와 arriveAtIsland 목이 맡는다
+const mockUnpin = request as jest.Mock;
+const deleteCall = (id: string) => [`/me/telescope/pins/${id}`, { method: 'DELETE' }];
 // Idempotency-Key 형식(client.uuid): 하이픈 포함 36자 UUID v4
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -1045,7 +1065,7 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
   );
 
   test.each(['p1', 'p2'])(
-    '[빼기](%s) → unpinFromTelescope → 목록을 다시 읽어 그 자리에 무작위 섬이 뜨고 말풍선이 닫힌다',
+    '[빼기](%s) → 성공 알림으로 목록을 다시 읽어 그 자리에 무작위 섬이 뜨고 말풍선이 닫힌다',
     async (pinned) => {
       mockUnpin.mockResolvedValue({ deleted: true });
       // 서버가 빈 자리를 그 시간대의 무작위 섬으로 채운 다음 목록
@@ -1057,7 +1077,7 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       await press(screen, pinned);
       await fireEvent.press(removeButton(screen));
       expect(mockUnpin).toHaveBeenCalledTimes(1);
-      expect(mockUnpin).toHaveBeenCalledWith(pinned);
+      expect(mockUnpin).toHaveBeenCalledWith(...deleteCall(pinned));
       await screen.findByTestId('telescope-island-r9');
       // 복귀 로직은 없다 — 빼기가 끝난 뒤 목록을 다시 읽을 뿐이다
       expect(mockGet).toHaveBeenCalledTimes(2);
@@ -1074,6 +1094,48 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       expect(e.reset).not.toHaveBeenCalled();
     },
   );
+
+  // 서버가 빈 자리를 그 시간대의 무작위 섬으로 채운 다음 목록
+  const afterUnpin = (id: string) => EIGHT().map((i) => (i.islandId === id ? item('r9') : i));
+
+  test('빼기 성공 뒤 목록은 알림 구독이 정확히 한 번 더 읽는다 — 화면은 reload 를 따로 부르지 않는다(이중 조회 없음)', async () => {
+    mockUnpin.mockResolvedValue({ deleted: true });
+    const { screen } = await open(EIGHT());
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    mockGet.mockImplementation(async () => wire(afterUnpin('p1')));
+    await press(screen, 'p1');
+    await fireEvent.press(removeButton(screen));
+    await screen.findByTestId('telescope-island-r9');
+    await act(async () => {}); // 늦게 나가는 읽기가 있다면 여기서 드러난다
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(mockScreenReload).not.toHaveBeenCalled();
+  });
+
+  test('빼기 요청 중에 망원경을 나갔다 다시 열어 «빼기 전» 목록을 받아도, 빼기가 끝나면 새 화면이 다시 읽어 핀이 사라진다', async () => {
+    let finish!: () => void;
+    mockUnpin.mockReturnValue(
+      new Promise<{ deleted: true }>((resolve) => (finish = () => resolve({ deleted: true }))),
+    );
+    const first = env();
+    const { screen: old } = await open(EIGHT(), first);
+    await press(old, 'p1');
+    await fireEvent.press(removeButton(old));
+    await old.unmount(); // 요청이 느려 끝나기 전에 망원경을 나갔다
+    // 다시 열면 서버는 아직 «빼기 전» 목록을 준다
+    const second = env();
+    const { screen: reopened } = await open(EIGHT(), second);
+    reopened.getByTestId('telescope-island-p1');
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    // 빼기가 끝나면 서버가 빈 자리를 채운 목록을 준다 — 요청을 낸 옛 화면은 이미 없지만 새 화면은 알림으로 다시 읽는다
+    mockGet.mockImplementation(async () => wire(afterUnpin('p1')));
+    await act(async () => finish());
+    await reopened.findByTestId('telescope-island-r9');
+    expect(reopened.queryByTestId('telescope-island-p1')).toBeNull();
+    expect(mockGet).toHaveBeenCalledTimes(3);
+    // 알리는 건 요청을 낸 화면의 몫이다 — 떠난 화면도 다시 연 화면도 토스트를 띄우지 않는다
+    expect(first.notify).not.toHaveBeenCalled();
+    expect(second.notify).not.toHaveBeenCalled();
+  });
 
   test('빼기에 실패하면 오류만 알리고 말풍선을 둔 채 목록을 다시 읽지 않는다 — 다시 누를 수 있다', async () => {
     mockUnpin
@@ -1215,7 +1277,7 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       await fireEvent.press(removeButton(screen));
       await act(async () => e.confirm.mock.calls[0][2]());
       expect(mockUnpin).toHaveBeenCalledTimes(1);
-      expect(mockUnpin).toHaveBeenCalledWith('p1');
+      expect(mockUnpin).toHaveBeenCalledWith(...deleteCall('p1'));
       expect(e.dispatch).toHaveBeenCalledTimes(1);
       expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
       expect(e.reset).toHaveBeenCalledTimes(1);
@@ -1224,8 +1286,8 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
         e.dispatch.mock.invocationCallOrder[0],
       );
       expect(e.notify).toHaveBeenCalledWith('망원경에서 뺐어요');
-      // 화면을 떠나므로 목록을 다시 읽지 않는다
-      expect(mockGet).toHaveBeenCalledTimes(1);
+      // 빼기 성공 알림이 목록을 한 번 다시 읽게 한다 — 곧 reset 이 화면을 내려 그 응답은 버려지고, 화면이 따로 더 읽지는 않는다(이중 조회 없음)
+      expect(mockGet).toHaveBeenCalledTimes(2);
       expect(e.confirm).toHaveBeenCalledTimes(1);
     });
 
@@ -1249,7 +1311,7 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       expect(removeButton(screen).props.accessibilityHint).toBeUndefined();
       await fireEvent.press(removeButton(screen));
       expect(e.confirm).not.toHaveBeenCalled();
-      expect(mockUnpin).toHaveBeenCalledWith('p1');
+      expect(mockUnpin).toHaveBeenCalledWith(...deleteCall('p1'));
       await act(async () => {});
       expect(e.dispatch).not.toHaveBeenCalled();
     });
@@ -1261,7 +1323,7 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       await press(screen, 'p1');
       await fireEvent.press(removeButton(screen));
       expect(e.confirm).not.toHaveBeenCalled();
-      expect(mockUnpin).toHaveBeenCalledWith('p1');
+      expect(mockUnpin).toHaveBeenCalledWith(...deleteCall('p1'));
       await act(async () => {});
     });
   });

@@ -364,8 +364,8 @@ function IslandBubble({
  * - 소속 섬: 한 번 가 봤으면 [돌아가기] 로 항해 없이 현재 섬을 옮겨 홈으로, 망원경으로 가입만 하고 안 가 봤으면 [항해하기].
  * - 그 밖의 섬: [항해하기] 로 구경하고(`full` 이어도 된다), 가입은 [바로 가입]/[가입 신청](`origin: 'telescope'` —
  *   즉시 가입이어도 현재 섬을 옮기지 않는다. 처음 한 번은 항해해서 가야 한다).
- * - 직접 넣은 섬(`slot=pinned`, GROMO-2273): 말풍선에 [망원경에서 빼기] — `DELETE` 뒤 목록을 다시 읽기만 하면 서버가 그 자리를
- *   무작위 섬으로 채운다. 잡지에서 넣은 섬(`pinnedFrom=magazine`)에만 「찜」 리본과 잡지 칸 미리보기 자리표시가 붙는다.
+ * - 직접 넣은 섬(`slot=pinned`, GROMO-2273): 말풍선에 [망원경에서 빼기] — `DELETE` 가 성공하면 열린 목록이 알림(`onTelescopeChanged`)으로
+ *   다시 읽고 서버가 그 자리를 무작위 섬으로 채운다. 잡지에서 넣은 섬(`pinnedFrom=magazine`)에만 「찜」 리본과 잡지 칸 미리보기 자리표시가 붙는다.
  *   지금 구경 중인 섬은 «항해 중»이라(서버에는 항해 상태가 없어 앱이 거친다) 「항해를 그만둘까요?」 확인 뒤에 빼고 구경도 끝낸다.
  *   리본·[빼기]는 목록의 `slot` 만 본다 — 넣었다는 상태를 로컬에 따로 들지 않는다(목록이 정본).
  */
@@ -472,8 +472,10 @@ export function Telescope({ e }: { e: any }) {
     }
   };
 
-  // 직접 넣은 섬을 뺀다. 성공하면 말풍선을 닫고 — 항해 중이던 섬이면 구경도 끝내고(2259 「구경 끝내기」와 같은 종료),
-  // 아니면 목록을 다시 읽는다(서버가 빈 자리를 무작위 섬으로 채운다). 실패하면 말풍선을 둔 채 오류만 알린다.
+  // 직접 넣은 섬을 뺀다. 성공하면 말풍선을 닫고 — 항해 중이던 섬이면 구경도 끝낸다(2259 「구경 끝내기」와 같은 종료).
+  // 목록은 여기서 읽지 않는다: unpinFromTelescope 가 성공을 알리면 useTelescope 구독이 다시 읽고 서버가 빈 자리를 무작위 섬으로 채운다.
+  // 요청 중 이 화면을 나갔다 다시 열어 «빼기 전» 목록을 받은 새 화면도 같은 알림으로 갱신된다(이 함수는 alive() 에서 일찍 끝난다).
+  // 실패하면 말풍선을 둔 채 오류만 알린다.
   const unpin = async (item: TelescopeItem, endVisit: boolean) => {
     if (unpinningRef.current) return;
     unpinningRef.current = true;
@@ -494,7 +496,6 @@ export function Telescope({ e }: { e: any }) {
     e.notify(t('telescope.unpinned'));
     setSelectedId(null);
     if (endVisit) endServerVisit(e);
-    else list.reload();
   };
 
   const askUnpin = (item: TelescopeItem) => {

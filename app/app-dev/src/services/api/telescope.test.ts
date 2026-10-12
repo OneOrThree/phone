@@ -235,7 +235,7 @@ test('unpinFromTelescope — 서버 거절 코드는 그대로 오류로 올라�
   });
 });
 
-describe('onTelescopeChanged — 열린 망원경 목록이 다시 읽도록 넣기 성공을 알린다', () => {
+describe('onTelescopeChanged — 열린 망원경 목록이 다시 읽도록 넣기·빼기 성공을 알린다', () => {
   const pinned = {
     status: 201,
     body: { data: { item: wireItem({ slot: 'pinned' }), evicted: null } },
@@ -285,5 +285,34 @@ describe('onTelescopeChanged — 열린 망원경 목록이 다시 읽도록 넣
     } finally {
       offs.forEach((off) => off());
     }
+  });
+
+  test('빼기가 성공하면 구독자에게 한 번 알리고, 실패한 요청이나 해제한 구독자에게는 알리지 않는다', async () => {
+    const changed = jest.fn();
+    const off = onTelescopeChanged(changed);
+    try {
+      stub([
+        {
+          status: 503,
+          body: {
+            error: {
+              code: 'SERVICE_UNAVAILABLE',
+              message: '잠시 뒤 다시 시도해 주세요',
+              field: null,
+              retryable: true,
+            },
+          },
+        },
+        { status: 200, body: { data: { deleted: true } } },
+      ]);
+      await assert.rejects(unpinFromTelescope('p1'));
+      expect(changed).not.toHaveBeenCalled();
+      assert.deepEqual(await unpinFromTelescope('p1'), { deleted: true });
+      expect(changed).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+    }
+    await unpinFromTelescope('p1'); // 이미 뺀 섬의 재시도(200) — 해제한 구독자에게는 불리지 않는다
+    expect(changed).toHaveBeenCalledTimes(1);
   });
 });
