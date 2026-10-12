@@ -299,3 +299,11 @@ test('localized — 현재 언어 값을 고르고, 없으면 en 값', () => {
   applyLocalePref('ko');
   expect(localized<string | undefined>({ ko: undefined, en: 'English art' })).toBe('English art');
 });
+
+test('errorText — ISLAND_NOT_ARRIVED 는 영어 로케일에서도 번역된 문구를 쓴다', () => {
+  applyLocalePref('en');
+  expect(errorText(new ApiError('ISLAND_NOT_ARRIVED', '아직 가 본 적 없는 섬이에요.', 403))).toBe(
+    "You haven't been to this island yet. Sail there from the telescope.",
+  );
+  applyLocalePref('system');
+});

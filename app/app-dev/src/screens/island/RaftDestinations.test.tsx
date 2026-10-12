@@ -9,10 +9,10 @@ jest.mock('@/screens/island/IslandSheet', () => ({
     const { View } = require('react-native');
     return <View>{children}</View>;
   },
-  SheetRow: ({ title, onPress }: any) => {
+  SheetRow: ({ title, onPress, disabled }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
-      <Pressable accessibilityRole="button" onPress={onPress}>
+      <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress}>
         <Text>{title}</Text>
       </Pressable>
     );
@@ -127,4 +127,18 @@ test('방문 중 시트를 닫으면 방문 섬 지도로, 항해 중 뒤로가�
   await screen.findByTestId('sailing');
   expect(e.backOverride.current?.()).toBe(true);
   expect(e.home).not.toHaveBeenCalled();
+});
+
+test('이동 요청 중에는 닫기·뒤로가기·다른 행이 막히고 완료 뒤 항해로 간다', async () => {
+  const e = env('b');
+  let finish!: () => void;
+  e.islands.switchCurrent.mockReturnValue(new Promise<void>((r) => (finish = r)));
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  expect(e.backOverride.current?.()).toBe(true);
+  await fireEvent.press(screen.getByText('넷섬으로'));
+  expect(e.islands.switchCurrent).toHaveBeenCalledTimes(1);
+  expect(e.replace).not.toHaveBeenCalled();
+  await act(async () => finish());
+  expect(await screen.findByTestId('sailing')).toBeTruthy();
 });
