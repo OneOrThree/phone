@@ -543,8 +543,9 @@ public class ScreenReadUseCase {
                         return focusMembers.focusToday(claims, islandId, context.deadline());
                     } catch (UpstreamDomainException | PublicApiException | UpstreamContractMismatchException
                              | UpstreamCredentialRejectedException e) {
-                        log.warn("visit focusToday 조각 생략 — islandId={} reason={}", islandId,
-                                e.getClass().getSimpleName());
+                        // 구 data-api 가 붙은 동안은 요청마다 나는 의도된 호환 상태라 info 다 — 형식은 조합기 줄과 같다.
+                        log.info("screen_optional_unavailable request_id={} fragment=focusToday reason={}",
+                                context.requestId(), e.getClass().getSimpleName());
                         return null;
                     }
                 });

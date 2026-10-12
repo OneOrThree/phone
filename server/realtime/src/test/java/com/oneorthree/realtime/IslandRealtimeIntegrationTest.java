@@ -525,15 +525,23 @@ class IslandRealtimeIntegrationTest {
     }
 
     @Test
-    @DisplayName("방문자가 세션 없이 보낸 응원이 visitor 표시와 함께 진행 중 주민에게 간다 (GROMO-2258)")
+    @DisplayName("방문자가 세션 없이 보낸 응원이 visitor 표시와 함께 진행 중 주민에게만 간다 — 수신 집합 밖 구독자는 못 받는다 (GROMO-2258)")
     void visitorEmoteReachesProgressingResidents() throws Exception {
         // 방문자는 그 섬의 진행 세션이 없다 — 정본은 그를 «집중 중» 으로 보지 않는다.
         willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
                 .given(focusSessions).requireActiveSession(any(), eq(visitor), any());
+        // 수신 집합은 focusing 뿐이다 — resting 은 같은 토픽을 구독하지만 이 응원의 수신 대상이 아니다.
         given(focusSessions.progressingRecipients(island, visitor)).willReturn(Set.of(focusing));
         StompSession receiver = connect(focusing);
         BlockingQueue<Map<String, Object>> received = subscribe(receiver, "emotes");
+        StompSession bystander = connect(resting);
+        BlockingQueue<Map<String, Object>> overheard = subscribe(bystander, "emotes");
+        // 두 구독이 브로커에 등록됐음을 먼저 관측한다 — 안 그러면 아래 «안 옴»이 구독 실패와 구분되지 않는다.
         awaitEmoteSubscription(receiver, UUID.randomUUID(), received);
+        awaitEmoteSubscription(bystander, UUID.randomUUID(), overheard, resting);
+        // 확인용 응원은 givenProgressing 집합(둘 다)으로 나가 서로의 큐에도 남는다 — 단언 전에 비운다.
+        drain(received);
+        drain(overheard);
 
         StompSession sender = connect(visitor);
         subscribe(sender, "emotes");
@@ -551,7 +559,8 @@ class IslandRealtimeIntegrationTest {
         assertThat(payload.get("userId")).isEqualTo(visitor.toString());
         assertThat(payload.get("visitor")).isEqualTo(true);
         assertThat(payload.get("type")).isEqualTo("cheer");
-        Thread.sleep(500);
+        assertThat(overheard.poll(3, TimeUnit.SECONDS))
+                .as("수신 집합 밖의 구독자는 방문자 응원을 받지 않는다 — 섬 전원 방송이 아니다").isNull();
         assertThat(sender.isConnected()).as("비주민의 emotes 구독은 거절되지 않는다").isTrue();
     }
 
@@ -717,6 +726,13 @@ class IslandRealtimeIntegrationTest {
             }
         }
         throw new AssertionError("응원 구독이 끝내 등록되지 않았다 — 허용목록·아웃바운드 가드를 의심할 것");
+    }
+
+    /** 늦게 도착하는 확인용 응원까지 비운다 — 다음 단언이 그것을 본 메시지로 착각하지 않게(awaitEmoteSubscription 과 같은 방식). */
+    private static void drain(BlockingQueue<Map<String, Object>> queue) throws InterruptedException {
+        while (queue.poll(300, TimeUnit.MILLISECONDS) != null) {
+            continue;
+        }
     }
 
     /** 같은 이유의 focus 채널 버전 — Data 사건을 도착할 때까지 다시 보낸다(eventId 는 매번 새로). */
