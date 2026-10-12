@@ -151,7 +151,7 @@ public class IslandJoinService {
                     if (prior.isPresent() && !prior.get().isLeft()) {
                         if (normalizeToken(body == null ? null : body.invitationToken()) != null
                                 && islandId.equals(context.getCurrentIslandId())) {
-                            // 초대 해석이 가입·이동까지 마친다(GROMO-2264). 그 뒤 초대 토큰을 들고 오는 가입(해석 뒤 가입을
+                            // 초대 해석이 누구나 가입 섬의 가입·이동까지 마친다(GROMO-2264). 그 뒤 초대 토큰을 들고 오는 가입(해석 뒤 가입을
                             // 따로 부르던 앱 흐름)은 끝난 가입의 재시도라 열린 pending 처럼 같은 자원을 돌려준다(사건 없음).
                             // 그 섬에 서 있지 않은 주민은 해석이 옮겨 준 자리가 아니므로 종전대로 409 다.
                             return new PublicCommandResult(200, InternalJson.tree(JoinIslandResultView.active(
@@ -389,11 +389,15 @@ public class IslandJoinService {
                         requireCapacity(island);
                         GroupMember membership = admit(applicant, island, prior);
                         request.approve();
-                        // 승인 안내 편지(GROMO-2260) — 승인은 현재 섬을 옮기지 않으니 항해 시간을 함께 알린다.
+                        // 승인 안내 편지(GROMO-2260) — 승인은 현재 섬을 옮기지 않으니 항해 시간을 함께 알린다. 이미 도착한
+                        // 섬(초대 도착 등, GROMO-2264)은 즉시 이동 대상이라 항해 대신 바로 갈 수 있다고 알린다.
                         int minutes = SailingTimes.minutes(applicant.getId(), islandId,
                                 clock.instant().truncatedTo(ChronoUnit.HOURS));
-                        letters.sendSystem(applicant, LetterKind.JOIN_APPROVED, islandId, island.getName()
-                                + "섬 가입이 승인됐어요. 망원경에서 출발해 보세요 — 지금 출발하면 " + minutes + "분 뒤 도착해요");
+                        letters.sendSystem(applicant, LetterKind.JOIN_APPROVED, islandId,
+                                arrivals.existsByUserIdAndIslandId(applicant.getId(), islandId)
+                                        ? island.getName() + "섬 가입이 승인됐어요. 이미 도착한 섬이라 뗏목에서 바로 갈 수 있어요"
+                                        : island.getName() + "섬 가입이 승인됐어요. 망원경에서 출발해 보세요 — 지금 출발하면 "
+                                                + minutes + "분 뒤 도착해요");
                         // memberUserId 는 신청자(applicant)다 — actorId(userId) 는 승인한 방장이라, 방장 id 를
                         // 주면 Realtime 이 엉뚱한 사람의 캐시를 지운다(GROMO-2140).
                         events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED", applicant.getId()));

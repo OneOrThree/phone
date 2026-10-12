@@ -15,6 +15,8 @@ import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.InvitationResolveCommandRequest;
 import com.oneorthree.phone.internal.dto.InvitationResolvedView;
 import com.oneorthree.phone.internal.dto.IslandSummaryView;
+import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
+import com.oneorthree.phone.internal.dto.JoinIslandResultView;
 import com.oneorthree.phone.internal.service.IslandInvitationService;
 import com.oneorthree.phone.internal.service.IslandJoinService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
@@ -40,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -62,7 +65,7 @@ class IslandInvitationArrivalIntegrationTest {
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"POST /internal/users/*/invitations/resolve",
-            "POST /internal/users/*/islands/*/memberships"};
+            "POST /internal/users/*/islands/*/memberships", "PUT /internal/users/*/current-island"};
         for (int i = 0; i < allow.length; i++) {
             String entry = allow[i];
             registry.add("internal.api.callers.business.allow[" + i + "]", () -> entry);
@@ -140,8 +143,8 @@ class IslandInvitationArrivalIntegrationTest {
     }
 
     @Test
-    @DisplayName("승인제 섬 — 해석은 신청 1건과 도착을 남기고 현재 섬은 그대로, 승인되면 처음부터 즉시 이동 대상이다")
-    void approvalIslandInviteAppliesAndTheApprovedIslandIsAnInstantMoveTarget() {
+    @DisplayName("승인제 섬 — 해석은 도착만 남기고 신청하지 않는다. 방문자가 신청해 승인되면 바로 이동 대상이고 편지도 «이미 도착»이다")
+    void approvalIslandInviteOnlyArrivesAndTheVisitorApplies() throws Exception {
         UUID host = newUser();
         UUID islandId = island("승인초대섬", false, true);
         joinAs(host, islandId, GroupMemberRole.OWNER);
@@ -152,22 +155,64 @@ class IslandInvitationArrivalIntegrationTest {
 
         InvitationResolvedView resolved = resolve(user, code);
 
-        assertThat(resolved.arrival().membershipStatus()).isEqualTo("pending");
+        assertThat(resolved.arrival().membershipStatus()).isEqualTo("none");
         assertThat(resolved.arrival().reason()).isNull();
-        assertThat(resolved.island().membershipStatus()).isEqualTo("pending");
-        UUID requestId = resolved.island().joinRequestId();
-        assertThat(count("select count(*) from island_join_requests where island_id=? and applicant_id=?"
-                + " and status='PENDING' and invite_link_id is not null", islandId, user)).isEqualTo(1);
+        assertThat(resolved.island().membershipStatus()).isEqualTo("none");
+        assertThat(resolved.island().arrivedBefore()).isTrue();
         assertThat(arrived(user, islandId)).isTrue();
-        assertThat(currentIsland(user)).as("신청은 옮기지 않는다").isEqualTo(home);
+        assertThat(count("select count(*) from island_join_requests where applicant_id=?", user))
+                .as("링크를 연 것만으로 섬장의 신청 목록이 차지 않는다").isZero();
+        assertThat(currentIsland(user)).as("방문자는 옮기지 않는다").isEqualTo(home);
 
-        joins.answer(host, islandId, requestId, true, UUID.randomUUID());
+        // 방문자가 [가입 신청] 을 직접 누른다 — 초대 토큰을 실은 가입이 신청 1건과 초대 근거를 남기고,
+        // 다시 눌러도 같은 신청이다.
+        JoinIslandResultView applied = joins.join(user, islandId, new JoinIslandCommandRequest(code),
+                UUID.randomUUID());
+        assertThat(applied.status()).isEqualTo("pending");
+        assertThat(joins.join(user, islandId, new JoinIslandCommandRequest(code), UUID.randomUUID()).requestId())
+                .isEqualTo(applied.requestId());
+        assertThat(count("select count(*) from island_join_requests where applicant_id=?", user)).isEqualTo(1);
+        assertThat(count("select count(*) from island_join_requests where id=? and status='PENDING'"
+                + " and invite_link_id is not null", applied.requestId())).isEqualTo(1);
+
+        // 열린 신청이 있으면 다시 해석해도 그 신청을 그대로 보여 주고 사건을 만들지 않는다.
+        long requestEvents = count("select count(*) from event_outbox where type='join.request.updated'");
+        InvitationResolvedView again = resolve(user, code);
+        assertThat(again.arrival().membershipStatus()).isEqualTo("pending");
+        assertThat(again.island().joinRequestId()).isEqualTo(applied.requestId());
+        assertThat(count("select count(*) from event_outbox where type='join.request.updated'"))
+                .isEqualTo(requestEvents);
+
+        joins.answer(host, islandId, applied.requestId(), true, UUID.randomUUID());
 
         IslandSummaryView approved = islands.myIslands(user).items().stream()
                 .filter(item -> item.id().equals(islandId)).findFirst().orElseThrow();
         assertThat(approved.arrivedBefore()).as("초대로 이미 도착했다 — 처음 한 번의 항해가 없다").isTrue();
-        assertThat(islands.switchCurrentIsland(user, islandId, UUID.randomUUID()).currentIslandId())
-                .isEqualTo(islandId);
+        mvc.perform(put("/internal/users/" + user + "/current-island")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType("application/json").content("{\"islandId\":\"" + islandId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentIslandId").value(islandId.toString()));
+        assertThat(approvalLetter(user))
+                .isEqualTo("승인초대섬섬 가입이 승인됐어요. 이미 도착한 섬이라 뗏목에서 바로 갈 수 있어요");
+    }
+
+    @Test
+    @DisplayName("도착 없이(망원경) 승인된 섬의 승인 편지는 종전대로 항해 시간을 알린다")
+    void telescopeApprovalLetterKeepsTheSailingTime() {
+        UUID host = newUser();
+        UUID islandId = island("망원승인섬", false, true);
+        joinAs(host, islandId, GroupMemberRole.OWNER);
+        UUID user = newUser();
+        UUID requestId = joins.join(user, islandId, new JoinIslandCommandRequest(null, "telescope"),
+                UUID.randomUUID()).requestId();
+
+        joins.answer(host, islandId, requestId, true, UUID.randomUUID());
+
+        assertThat(arrived(user, islandId)).isFalse();
+        assertThat(approvalLetter(user)).matches(
+                "망원승인섬섬 가입이 승인됐어요\\. 망원경에서 출발해 보세요 — 지금 출발하면 (30|60|90)분 뒤 도착해요");
     }
 
     @Test
@@ -244,7 +289,7 @@ class IslandInvitationArrivalIntegrationTest {
     }
 
     @Test
-    @DisplayName("같은 초대를 두 번 해석해도 도착 1행(last 갱신)·멤버십 1건·신청 1건이다")
+    @DisplayName("같은 초대를 두 번 해석해도 도착 1행(last 갱신)·멤버십 1건이고, 승인제 섬은 신청이 생기지 않는다")
     void resolvingTwiceIsIdempotent() {
         UUID host = newUser();
         UUID open = island("두번섬", false, false);
@@ -267,14 +312,12 @@ class IslandInvitationArrivalIntegrationTest {
         assertThat(activeMemberships(user, open)).isEqualTo(1);
         assertThat(memberEvents(open)).isEqualTo(1);
 
-        UUID requestId = resolve(user, approvalCode).island().joinRequestId();
-        long requestEvents = count("select count(*) from event_outbox where type='join.request.updated'");
-        InvitationResolvedView pendingAgain = resolve(user, approvalCode);
-        assertThat(pendingAgain.arrival().membershipStatus()).isEqualTo("pending");
-        assertThat(pendingAgain.island().joinRequestId()).isEqualTo(requestId);
-        assertThat(count("select count(*) from island_join_requests where applicant_id=?", user)).isEqualTo(1);
-        assertThat(count("select count(*) from event_outbox where type='join.request.updated'"))
-                .isEqualTo(requestEvents);
+        for (int i = 0; i < 2; i++) {
+            assertThat(resolve(user, approvalCode).arrival().membershipStatus()).isEqualTo("none");
+        }
+        assertThat(count("select count(*) from island_arrivals where user_id=? and island_id=?", user, approval))
+                .isEqualTo(1);
+        assertThat(count("select count(*) from island_join_requests where applicant_id=?", user)).isZero();
     }
 
     @Test
@@ -315,6 +358,11 @@ class IslandInvitationArrivalIntegrationTest {
 
     private InvitationResolvedView resolve(UUID userId, String code) {
         return invitations.resolve(userId, new InvitationResolveCommandRequest(code));
+    }
+
+    private String approvalLetter(UUID userId) {
+        return jdbc.queryForObject("select content from letters where receiver_id=? and kind='JOIN_APPROVED'",
+                String.class, userId);
     }
 
     private boolean arrived(UUID userId, UUID islandId) {

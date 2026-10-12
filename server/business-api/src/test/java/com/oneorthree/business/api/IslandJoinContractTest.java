@@ -205,10 +205,10 @@ class IslandJoinContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("해석은 상류의 초대 도착을 싣는다 — 사유가 없으면 reason 키가 없고, 구 Data 서버면 arrival 이 null 이다")
+    @DisplayName("해석은 상류의 초대 도착을 싣는다 — 사유 없는 도착(승인제 섬 방문)은 reason 키가 없고, 구 Data 서버면 arrival 이 null 이다")
     void resolveCarriesTheArrival() throws Exception {
         DATA.on(DATA_RESOLVE, request -> ok("{\"island\":" + SUMMARY + ",\"invitationToken\":\"opaque-token\","
-                + "\"arrival\":{\"islandId\":\"" + ISLAND + "\",\"arrived\":true,\"membershipStatus\":\"pending\","
+                + "\"arrival\":{\"islandId\":\"" + ISLAND + "\",\"arrived\":true,\"membershipStatus\":\"none\","
                 + "\"reason\":null}}"));
         var result = mockMvc.perform(auth(post("/invitations/resolve"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"abcd2345\"}"))
@@ -217,7 +217,7 @@ class IslandJoinContractTest extends UpstreamTestBase {
         var json = new tools.jackson.databind.ObjectMapper();
         assertThat(json.readTree(result.getResponse().getContentAsString()).path("data").path("arrival"))
                 .isEqualTo(json.readTree("{\"islandId\":\"" + ISLAND
-                        + "\",\"arrived\":true,\"membershipStatus\":\"pending\"}"));
+                        + "\",\"arrived\":true,\"membershipStatus\":\"none\"}"));
 
         DATA.reset();
         DATA.on(DATA_RESOLVE, request -> ok("{\"island\":" + SUMMARY + ",\"invitationToken\":\"opaque-token\"}"));

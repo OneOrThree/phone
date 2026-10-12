@@ -23,7 +23,7 @@ public record InvitationResolved(
     /**
      * Data {@code InvitationResolvedView.Arrival} 와 같은 필드다.
      *
-     * @param reason 가입·신청을 하지 않은 사유({@code ISLAND_LIMIT}·{@code KICKED}), 없으면 null
+     * @param reason 이 섬에 가입·신청을 할 수 없는 사유({@code ISLAND_LIMIT}·{@code KICKED}), 없으면 null
      */
     public record Arrival(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID islandId,

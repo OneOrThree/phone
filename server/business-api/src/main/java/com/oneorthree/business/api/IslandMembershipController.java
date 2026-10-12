@@ -233,8 +233,8 @@ public class IslandMembershipController {
     }
 
     /**
-     * 초대 코드 해석 (GROMO-1760, LLD §3.10) — 그 섬에 항해 없이 도착하고 가입·신청까지 한다(GROMO-2264).
-     * 다시 불러도 같은 상태(이미 주민·이미 신청)로 수렴해 멱등키를 요구하지 않는다.
+     * 초대 코드 해석 (GROMO-1760, LLD §3.10) — 그 섬에 항해 없이 도착하고, 누구나 가입 섬이면 가입까지 한다(GROMO-2264).
+     * 승인제 섬은 도착만이다(가입 신청은 방문자가 직접). 다시 불러도 같은 상태로 수렴해 멱등키를 요구하지 않는다.
      * 형식·폐기 판정(422/410)은 상류 몫이다 — 여기서 미리 걸러 의미를 갉아먹지 않는다.
      */
     @PostMapping(value = "/invitations/resolve", consumes = "application/json")

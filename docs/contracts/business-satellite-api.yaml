@@ -436,10 +436,11 @@ paths:
       description: |
         공개 `POST /invitations/resolve` 의 상류. 코드가 가리키는 섬의 공개 요약(본인 기준
         membershipStatus·joinRequestId 포함)과 가입 명령에 실을 불투명 토큰을 돌려준다.
-        GROMO-2264 부터 그 섬에 항해 없이 도착을 남기고 가입(누구나 가입)·신청(승인제)까지
-        한다 — 강퇴된 섬·소속 섬 3개는 도착만 남기고 arrival.reason 으로 알린다. 그 밖의 가입
-        거절은 같은 오류로 실패한다. 다시 불러도 같은 상태로 수렴해 멱등 키를 받지 않는다.
-        초대 검증은 가입 커밋이 다시 한다.
+        GROMO-2264 부터 그 섬에 항해 없이 도착을 남기고, 누구나 가입 섬이면 가입까지 한다.
+        승인제 섬은 도착만이다(membershipStatus none) — 가입 신청은 방문자가 가입 명령으로 직접
+        한다. 강퇴된 섬·소속 섬 3개는 도착만 남기고 arrival.reason 으로 알린다. 누구나 가입
+        섬의 그 밖의 가입 거절은 같은 오류로 실패한다. 다시 불러도 같은 상태로 수렴해 멱등 키를
+        받지 않는다. 초대 검증은 가입 커밋이 다시 한다.
       parameters:
         - $ref: '#/components/parameters/UserIdPath'
         - $ref: '#/components/parameters/XUserId'
@@ -466,7 +467,7 @@ paths:
                 properties:
                   island:
                     type: object
-                    description: PublicIslandSummary — 본인 기준 membershipStatus·joinRequestId 포함(도착·가입 뒤 값)
+                    description: PublicIslandSummary — 본인 기준 membershipStatus·joinRequestId 포함(도착 뒤 값)
                   invitationToken: { type: string }
                   arrival:
                     type: object
@@ -478,7 +479,7 @@ paths:
                       reason:
                         type: [string, 'null']
                         enum: [ISLAND_LIMIT, KICKED, null]
-                        description: 가입·신청을 하지 않은 사유 — 강퇴된 섬 · 소속 섬 3개
+                        description: 이 섬에 가입·신청을 할 수 없는 사유 — 강퇴된 섬 · 소속 섬 3개
         '404':
           description: SLUG_NOT_FOUND — 형식은 맞지만 없는 코드
         '410':

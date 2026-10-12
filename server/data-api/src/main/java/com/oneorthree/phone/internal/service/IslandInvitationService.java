@@ -52,8 +52,9 @@ import java.util.UUID;
  * 세대가 어긋난 코드는 영구히 410 이다.
  *
  * <h2>해석은 도착이고, 초대 검증은 가입 커밋이 다시 한다</h2>
- * resolve 는 그 섬에 항해 없이 도착을 남기고 가입·신청까지 이어간다(GROMO-2264). 해석의 초대 검증은 사전
- * 판정일 뿐이고, 실제 가입·신청 커밋이 발급자 멤버십 잠금 아래에서 다시 대조한다({@code IslandJoinService}).
+ * resolve 는 그 섬에 항해 없이 도착을 남기고, 누구나 가입 섬이면 가입까지 이어간다(GROMO-2264). 승인제 섬은 도착만이다 —
+ * 가입 신청은 방문자가 직접 한다. 해석의 초대 검증은 사전 판정일 뿐이고, 실제 가입·신청 커밋이 발급자 멤버십 잠금
+ * 아래에서 다시 대조한다({@code IslandJoinService}).
  */
 @Service
 @Slf4j
@@ -91,11 +92,11 @@ public class IslandInvitationService {
      * 재발급·세대 변화가 옛 토큰을 자연히 무효화한다. 가입 커밋이 그 참조를 다시 검증한다.
      *
      * <p><b>도착</b>은 그 섬 1곳에만 남는다(비주민도 = 방문 도착). 그래서 승인제 섬이 나중에 승인돼도 처음 한 번의
-     * 항해 없이 즉시 이동 대상이다. 이어서 가입을 시도한다 — {@link #arriveByInvitation} 참고. 계약에 사유가 없는 가입
-     * 거절(만원·진행 중 집중 등)은 그대로 전파하고 도착도 함께 롤백된다.
+     * 항해 없이 즉시 이동 대상이다. 누구나 가입 섬은 이어서 가입한다 — {@link #arriveByInvitation} 참고. 계약에 사유가
+     * 없는 가입 거절(만원·진행 중 집중 등)은 그대로 전파하고 도착도 함께 롤백된다.
      *
-     * <p><b>멱등</b>: 명령 키가 없다. 다시 불러도 도착은 upsert 이고 «이미 주민·이미 신청» 판정이 같은 상태를
-     * 돌려준다 — 멤버십·신청은 1건이다.
+     * <p><b>멱등</b>: 명령 키가 없다. 다시 불러도 도착은 upsert 이고 «이미 주민» 판정이 같은 상태를 돌려준다 —
+     * 멤버십은 1건이고, 가입 신청은 해석이 만들지 않는다.
      */
     @Transactional
     public InvitationResolvedView resolve(UUID userId, InvitationResolveCommandRequest body) {
@@ -121,12 +122,13 @@ public class IslandInvitationService {
     }
 
     /**
-     * 초대 도착 (GROMO-2264) — 가입을 시도하고 그 섬에 도착을 남긴다.
+     * 초대 도착 (GROMO-2264) — 그 섬에 도착을 남기고, 누구나 가입 섬이면 가입한다.
      *
      * <p>판정 순서는 {@link IslandJoinService#join} 과 같다(이미 주민 → 강퇴 → 열린 신청 → 소속 상한). 이미 주민이면
      * 도착만, 열린 신청이 있으면 그대로다. 강퇴·상한은 가입이 던질 거절을 <b>미리</b> 걸러 사유로 바꾼다 — 가입 안에서
-     * 던져진 예외는 이 트랜잭션을 롤백 전용으로 만들어 잡아서 바꿀 수 없다. 나머지는 가입(origin=visit)을 그대로
-     * 쓴다: 누구나 가입 섬은 가입·이동·도착, 승인제는 신청이다.
+     * 던져진 예외는 이 트랜잭션을 롤백 전용으로 만들어 잡아서 바꿀 수 없다. 그다음 누구나 가입 섬은 가입(origin=visit)을
+     * 그대로 써서 가입·이동·도착한다. <b>승인제 섬은 도착만</b>이다(기획 정본 «항해 단축 티켓») — 승인 전까지 방문자이고
+     * [가입 신청] 은 방문자가 직접 누른다. 링크 하나가 오픈채팅에 퍼져도 섬장의 신청 목록이 저절로 차지 않는다.
      */
     private InvitationResolvedView.Arrival arriveByInvitation(User caller, Group island, String token) {
         UUID userId = caller.getId();
@@ -143,7 +145,7 @@ public class IslandInvitationService {
             status = IslandSummaries.STATUS_PENDING;
         } else if (movementGuards.atJoinedIslandLimit(caller)) {
             reason = REASON_ISLAND_LIMIT;
-        } else {
+        } else if (!island.isApprovalRequired()) {
             // 해석에는 명령 키가 없어 이번 호출용 키를 만든다 — 재시도 멱등은 receipt 가 아니라 위의 판정이 준다.
             status = joins.join(userId, islandId, new JoinIslandCommandRequest(token), UUID.randomUUID()).status();
         }
