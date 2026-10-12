@@ -47,6 +47,11 @@ const aliveGuard = (scope: { current: object | null }) => {
   return () => mine !== null && scope.current === mine && gen === sessionGeneration();
 };
 
+/** 다시 눌러도 같은 거절이 나는 쓰기 오류 — 하루 1개 규칙(409)과 게시판 없음(403). */
+const isBlocking = (error: unknown): error is ApiError =>
+  error instanceof ApiError &&
+  (error.code === 'GUESTBOOK_ALREADY_WRITTEN_TODAY' || error.code === 'FACILITY_LOCKED');
+
 const writeErrorText = (error: unknown): string => {
   const code = error instanceof ApiError ? error.code : '';
   if (code === 'FACILITY_LOCKED') return t('guestbook.error.boardLocked');
@@ -75,6 +80,8 @@ export function Guestbook({
   const [reload, setReload] = useState(0);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  // 쓰기가 위와 같은 이유로 거절되면 그 오류를 들고 있다가 칸 아래 안내로 남기고 칸을 끈다 — 섬이 바뀌거나 다시 불러오면 풀린다
+  const [blocked, setBlocked] = useState<ApiError | null>(null);
   const [reporting, setReporting] = useState<GuestbookEntry | null>(null);
   const scope = useRef<object | null>(null);
   // 연타로 같은 글이 두 번 나가지 않게(둘째는 하루 1개 규칙에 걸려 409 가 된다) state 가 아니라 ref 로 막는다
@@ -88,6 +95,7 @@ export function Guestbook({
     setFailed(false);
     setDraft('');
     setBusy(false);
+    setBlocked(null);
     writing.current = false;
     getGuestbook(islandId)
       .then((page) => {
@@ -124,6 +132,8 @@ export function Guestbook({
       if (e?.conversion?.offer(error)) return;
       const text = writeErrorText(error);
       if (text) e?.notify?.(text);
+      // 토스트는 금방 사라지고 다시 눌러도 같은 거절이다 — 안내를 남기고 칸과 버튼을 끈다
+      if (isBlocking(error)) setBlocked(error);
     } finally {
       // 섬이 바뀌었으면 효과가 이미 새로 시작하며 잠금을 풀었다 — 옛 쓰기가 새 섬의 잠금을 풀지 않게 살아 있을 때만
       if (alive()) {
@@ -174,7 +184,9 @@ export function Guestbook({
           />
         </>
       ) : !loaded ? (
-        <Txt kind="meta">{t('guestbook.loading')}</Txt>
+        <Txt kind="meta" accessibilityLiveRegion="polite">
+          {t('guestbook.loading')}
+        </Txt>
       ) : (
         <>
           {/* 한 줄 20 코드포인트 — TextInput maxLength 는 UTF-16 이라 🐟 가 2로 세어 onChange 에서 자른다 */}
@@ -183,51 +195,69 @@ export function Guestbook({
             placeholder={t('guestbook.inputPlaceholder', { max: GUESTBOOK_CONTENT_MAX })}
             value={draft}
             onChange={(value: string) => setDraft(clampCodePoints(value, GUESTBOOK_CONTENT_MAX))}
+            disabled={!!blocked}
           />
           <CharCount value={draft} max={GUESTBOOK_CONTENT_MAX} codePoints />
+          {!!blocked && (
+            <Txt
+              kind="meta"
+              accessibilityLiveRegion="polite"
+              style={{ color: semanticTokens.color.danger }}
+            >
+              {writeErrorText(blocked)}
+            </Txt>
+          )}
           <Btn
             title={busy ? t('guestbook.writing') : t('guestbook.write')}
-            disabled={busy || !draft.trim()}
+            disabled={busy || !draft.trim() || !!blocked}
             onPress={() => void submit()}
             id="guestbook-submit"
           />
           {loaded.items.length ? (
             <Group>
-              {loaded.items.map((entry) => (
-                <Row
-                  key={entry.id}
-                  title={entry.content}
-                  sub={
-                    <View style={styles.entry}>
-                      <Txt kind="meta">{entry.authorName ?? t('guestbook.formerResident')}</Txt>
-                      {host && (
-                        <View style={styles.actions}>
-                          <Btn
-                            small
-                            kind="sec"
-                            title={t('guestbook.delete')}
-                            onPress={() => askDelete(entry)}
-                            id={`guestbook-delete-${entry.id}`}
-                          />
-                          {/* 섬장 본인이 쓴 글은 신고·차단할 대상이 아니다 */}
-                          {!entry.mine && (
+              {loaded.items.map((entry) => {
+                const author = entry.authorName ?? t('guestbook.formerResident');
+                return (
+                  <Row
+                    key={entry.id}
+                    title={entry.content}
+                    sub={
+                      <View style={styles.entry}>
+                        <Txt kind="meta">{author}</Txt>
+                        {host && (
+                          <View style={styles.actions}>
+                            {/* 같은 제목의 버튼이 항목마다 되풀이된다 — 읽는 이름에 어느 글·누구인지 담는다 */}
                             <Btn
                               small
                               kind="sec"
-                              title={t('guestbook.report')}
-                              onPress={() => setReporting(entry)}
-                              id={`guestbook-report-${entry.id}`}
+                              title={t('guestbook.delete')}
+                              accessibilityLabel={`${t('guestbook.delete')}: ${entry.content}`}
+                              onPress={() => askDelete(entry)}
+                              id={`guestbook-delete-${entry.id}`}
                             />
-                          )}
-                        </View>
-                      )}
-                    </View>
-                  }
-                />
-              ))}
+                            {/* 섬장 본인이 쓴 글은 신고·차단할 대상이 아니다 */}
+                            {!entry.mine && (
+                              <Btn
+                                small
+                                kind="sec"
+                                title={t('guestbook.report')}
+                                accessibilityLabel={`${t('guestbook.report')}: ${author}`}
+                                onPress={() => setReporting(entry)}
+                                id={`guestbook-report-${entry.id}`}
+                              />
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    }
+                  />
+                );
+              })}
             </Group>
           ) : (
-            <Txt kind="meta">{t('guestbook.empty')}</Txt>
+            <Txt kind="meta" accessibilityLiveRegion="polite">
+              {t('guestbook.empty')}
+            </Txt>
           )}
         </>
       )}
