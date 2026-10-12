@@ -92,6 +92,9 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
 
     private static final long SWEEP_PERIOD_SECONDS = 5;
 
+    /** 재검사 세대 항목의 보관 한도 — bump 가 이만큼 없으면 워치독이 지울 후보로 본다. */
+    private static final long GENERATION_TTL_NANOS = TimeUnit.MINUTES.toNanos(10);
+
     private static final CloseStatus UNVERIFIED = CloseStatus.SERVER_ERROR.withReason("MEMBERSHIP_UNVERIFIED");
 
     private final MovementRooms rooms;
@@ -113,11 +116,13 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     private final ConcurrentHashMap<MovementOutbox, Recheck> rechecks = new ConcurrentHashMap<>();
 
     /**
-     * 섬별 재검사 세대 — 강퇴 재검사({@link #recheckMembership})를 시작할 때마다 1 오른다. 관문 판정과 등록 사이에
-     * 재검사가 지나가 색인 순회에서 빠진 세션을 등록 때 가려낸다. 지우지 않는다(되돌아간 세대가 판정 도장과 겹치면
-     * 안 된다). ponytail: 강퇴가 한 번이라도 난 섬마다 항목 하나 — 섬 수만큼만 자란다.
+     * 섬별 재검사 세대 — 강퇴 재검사({@link #recheckMembership})를 시작할 때마다 1 오르고 bump 시각(나노)도 함께
+     * 찍는다. 관문 판정과 등록 사이에 재검사가 지나가 색인 순회에서 빠진 세션을 등록 때 가려낸다. 10분 넘게 bump 가
+     * 없고 그 섬에 살아 있는 outbox 가 없는 항목은 워치독({@link #sweep})이 지운다 — 판정~등록이 수 초라 되돌아간
+     * 세대가 옛 판정 스탬프와 겹치지 않는다(지운 뒤 첫 강퇴는 1, 진행 중이던 판정의 스탬프는 0 → 불일치 → 재판정 =
+     * 안전한 쪽).
      */
-    private final ConcurrentHashMap<UUID, Long> recheckGenerations = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Generation> recheckGenerations = new ConcurrentHashMap<>();
 
     /**
      * 강퇴 사건의 멤버십 캐시 삭제가 실패한 (섬, 사용자) → 표시가 풀리는 시각(nanoTime). 그 사람 outbox 가 없으면 재검사도
@@ -182,11 +187,24 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
 
     private void sweep() {
         try {
-            publisher.sweep(System.nanoTime());
+            long now = System.nanoTime();
+            publisher.sweep(now);
+            pruneRecheckGenerations(now);
         } catch (RuntimeException e) {
             // 주기 작업은 예외 한 번에 영구 취소된다 — 다음 주기를 살린다.
             log.warn("이동 송신 워치독 실패 — reason={}", e.getClass().getSimpleName());
         }
+    }
+
+    /**
+     * 워치독이 5초마다 부른다 — 10분 넘게 bump 가 없고 그 섬에 살아 있는 outbox 가 없는 재검사 세대 항목을
+     * 지운다. 패키지 전용 — 테스트가 시각을 직접 넣어 돌린다.
+     */
+    void pruneRecheckGenerations(long nowNanos) {
+        recheckGenerations.entrySet().removeIf(entry -> {
+            long idleNanos = nowNanos - entry.getValue().bumpedAtNanos();
+            return idleNanos > GENERATION_TTL_NANOS && publisher.outboxes(entry.getKey()).isEmpty();
+        });
     }
 
     /** 관문이 통과시킨 SUBSCRIBE·UNSUBSCRIBE 만 여기 온다(관문이 null 을 돌려주면 체인이 멈춘다). */
@@ -320,7 +338,8 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
 
     /** 그 섬의 재검사 세대 — 관문이 판정 직전에 읽어 {@link #JUDGED} 에 찍는다. */
     public long recheckGeneration(UUID islandId) {
-        return recheckGenerations.getOrDefault(islandId, 0L);
+        Generation generation = recheckGenerations.get(islandId);
+        return generation == null ? 0L : generation.value();
     }
 
     /**
@@ -371,7 +390,10 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     public void recheckMembership(UUID islandId, UUID memberUserId) {
         try {
             // 세대부터 올리고 순회한다 — 판정은 끝났지만 아직 등록 전인 세션은 등록 때 이 세대를 보고 스스로 재판정한다.
-            recheckGenerations.merge(islandId, 1L, Long::sum);
+            recheckGenerations.compute(islandId, (id, generation) -> {
+                long value = generation == null ? 0 : generation.value();
+                return new Generation(value + 1, System.nanoTime());
+            });
             for (MovementOutbox outbox : publisher.outboxes(islandId)) {
                 if (memberUserId == null || memberUserId.equals(outbox.userId())) {
                     restart(outbox, islandId);
@@ -558,6 +580,9 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     }
 
     private enum Verdict { ALLOWED, NOT_A_MEMBER, UNAUTHORIZED, UNKNOWN, GONE }
+
+    /** 섬 재검사 세대 한 칸 — {@code bumpedAtNanos} 는 마지막으로 1 올린 시각(나노), 워치독 정리 판단용. */
+    private static record Generation(long value, long bumpedAtNanos) { }
 
     /** 멤버십 캐시를 믿지 않을 (섬, 사용자). */
     private record StaleMembership(UUID islandId, UUID userId) { }

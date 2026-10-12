@@ -669,6 +669,43 @@ class MovementSubscriptionListenerTest {
         assertThat(actorIds(first)).contains(b.userId().toString());
     }
 
+    // ── 재검사 세대 정리(워치독) ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("살아 있는 outbox 가 없고 10분 넘게 지난 섬의 재검사 세대 항목은 워치독이 지운다")
+    void pruneDropsIdleGenerationWithNoLiveOutbox() {
+        listener.recheckMembership(island, null);
+        listener.recheckMembership(island, null);
+        assertThat(listener.recheckGeneration(island)).isEqualTo(2);
+
+        listener.pruneRecheckGenerations(System.nanoTime() + TimeUnit.MINUTES.toNanos(11));
+
+        assertThat(listener.recheckGeneration(island)).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("10분이 안 지났으면 재검사 세대 항목을 남긴다")
+    void pruneKeepsGenerationBeforeTenMinutes() {
+        listener.recheckMembership(island, null);
+        listener.recheckMembership(island, null);
+
+        listener.pruneRecheckGenerations(System.nanoTime() + TimeUnit.MINUTES.toNanos(9));
+
+        assertThat(listener.recheckGeneration(island)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("살아 있는 outbox 가 있으면 10분이 지나도 재검사 세대 항목을 남긴다")
+    void pruneKeepsGenerationWithALiveOutbox() {
+        ChatPrincipal stays = connect("a");
+        join("a", stays);
+        listener.recheckMembership(island, null);
+
+        listener.pruneRecheckGenerations(System.nanoTime() + TimeUnit.MINUTES.toNanos(11));
+
+        assertThat(listener.recheckGeneration(island)).isEqualTo(1);
+    }
+
     private MovementPublisher publisher() {
         MovementOutboundInterceptor completion = new MovementOutboundInterceptor();
         MessageChannel channel = (message, timeout) -> {
