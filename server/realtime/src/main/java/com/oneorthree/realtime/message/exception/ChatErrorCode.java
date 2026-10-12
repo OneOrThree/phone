@@ -108,7 +108,13 @@ public enum ChatErrorCode implements ErrorCode {
      * <p>{@link #NOT_FOCUSING} 과 갈라 주는 이유: 그건 «보내는 사람»의 상태 충돌이고, 이건 «받을 사람»이
      * 없다는 뜻이다 — 방문자는 집중을 시작해 풀 수 없으니 앱이 다른 안내를 띄워야 한다.
      */
-    NO_ONE_FOCUSING(HttpStatus.CONFLICT, "지금 집중 중인 주민이 없어요");
+    NO_ONE_FOCUSING(HttpStatus.CONFLICT, "지금 집중 중인 주민이 없어요"),
+
+    /**
+     * 이동 토픽 구독을 너무 자주 시도했다(GROMO-2247, 사용자 축 600ms 창). 정상 앱은 접속마다 한 번만 판정받으므로
+     * 이 코드는 관문 위반과 같이 ERROR 프레임 + 연결 종료로 나간다.
+     */
+    MOVEMENT_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

@@ -1,12 +1,15 @@
 // 타일 섬 로컬 A*: 탭(이미지 px) → 월드 → 100×100 통행 격자 → 셀 중심 월드 경로.
 // 규칙 정본: docs/prd/fishcat/island-movement/high-level-design.md §3.
+// 서버 Pathfinder(server/realtime …/movement/nav)와 같은 정수 연산을 같은 순서로 한다 —
+// 공통 fixture docs/prd/fishcat/island-movement/fixtures/paths.json 을 양쪽 테스트가 같이 통과해야 한다.
+// 전제: JS 엔진이 Math.sqrt 를 근사하지 않는다(V8·Hermes 는 하드웨어 sqrt) — 휴리스틱 h 가 서버와 비트까지 같다.
 import {
   CellIndex,
   ImageSize,
   WorldPoint,
   cellCenterToWorld,
   imageToWorld,
-  worldToCell,
+  isInsideWorld,
   worldToImage,
 } from './worldCoords';
 
@@ -19,6 +22,10 @@ export type NavJson = {
   buildingCells?: Record<string, number[]>;
   /** 간선 중점이 막혀 직교 이동이 불가한 인접 셀 쌍 [a, b] (a < b). */
   blockedEdges?: [number, number][];
+  /** 건물 입구 셀. 격자 밖 좌표는 거부. */
+  entrances?: Record<string, CellIndex>;
+  /** 스폰 셀. 격자 밖 좌표는 거부. */
+  spawns?: Record<string, CellIndex>;
 };
 export type NavGrid = {
   cols: number;
@@ -26,16 +33,35 @@ export type NavGrid = {
   walkable: Uint8Array;
   cost: Uint8Array; // ×10 정수 (길 8, 잔디 27)
   blockedEdges: Set<number>; // edgeKey(a, b)
-  minCost: number; // 통행 셀 최소 비용 (휴리스틱 계수, 8/10)
+  minCostTenths: number; // 통행 셀 최소 비용 ×10 정수 (휴리스틱 계수, 길 8)
   region: Int32Array; // 연결 영역 라벨 (비통행 -1)
 };
+/** A* 결과. 셀은 전부 index(`cy*cols+cx`), cells 는 출발 셀을 뺀 순서, cost 는 고정소수점 정수. */
+export type NavPathDetail = { start: number; goal: number; cost: number; cells: number[] };
 
 // 근거: 기존 걷기는 16px 셀 한 칸에 95ms. 격자 셀 1칸 = 1 world unit 이므로 95ms / 1.04unit ≈ 91ms/unit.
 export const MS_PER_UNIT = 91;
 
+// 고정소수점(HLD §3.6): 월드 1 unit = SCALE. 대각 한 칸은 ceil(√2 × 10⁶) 리터럴 — sqrt 결과에 기대지 않는다.
+const SCALE = 1_000_000;
+const STEP_STRAIGHT = SCALE;
+const STEP_DIAG = 1_414_214;
+// 값이 2^53 보다 한참 작은 음 아닌 정수라 double 나눗셈 + floor 가 정수 나눗셈과 같다(서버는 long 나눗셈).
+const ceilDiv10 = (a: number) => Math.floor((a + 9) / 10);
+
 const edgeKey = (a: number, b: number, n: number) => (a < b ? a * n + b : b * n + a);
 const idx = (g: NavGrid, cx: number, cy: number) => cy * g.cols + cx;
+// 내부 nav 인덱싱용 — 범위는 이 격자의 cols·rows 로 clamp 한다(worldToCell 의 100×100 규칙과 같되 상한은
+// 격자 기준). 100×100 격자에서는 worldToCell 과 결과가 같다. 리뷰: 격자 크기 ≠ 100 이면 worldToCell 의 고정
+// 상한(99) 때문에 index 가 틀린 셀(열이 적으면 줄바뀜 꼴)이나 배열 밖을 가리킬 수 있다.
+const clampCell = (v: number, max: number) =>
+  Math.max(0, Math.min(max, Math.floor(Number.isFinite(v) ? v : 0)));
+// 합성 격자는 셀 1칸 = 1 unit 전제라 clampCell 은 크래시만 막을 뿐 좌표 의미는 100×100 에서만 맞다.
+const cellIndexOf = (g: NavGrid, p: WorldPoint) =>
+  idx(g, clampCell(p.x, g.cols - 1), clampCell(p.y, g.rows - 1));
 const dist = (a: WorldPoint, b: WorldPoint) => Math.hypot(a.x - b.x, a.y - b.y);
+// 이웃 순서 (-1,-1) (0,-1) (1,-1) (-1,0) (1,0) (-1,1) (0,1) (1,1) — 서버와 같게 둔다(계약 §1).
+// 결과는 이 순서에 기대지 않는다: 꺼내는 순서는 항목마다 유일한 (f, h, index) 가 정한다.
 const DIRS = [-1, 0, 1]
   .flatMap((dy) => [-1, 0, 1].map((dx) => [dx, dy]))
   .filter(([dx, dy]) => dx || dy);
@@ -57,7 +83,6 @@ const cache = new WeakMap<NavJson, Map<string, NavGrid>>();
 export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): NavGrid {
   const key = completedBuildings ? [...completedBuildings].sort().join(',') : '*';
   const byKey = cache.get(nav) ?? new Map<string, NavGrid>();
-  cache.set(nav, byKey);
   const hit = byKey.get(key);
   if (hit) return hit;
   const { columns, rows } = nav;
@@ -71,9 +96,44 @@ export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): N
   if (nav.traversalCost.length !== n)
     throw new Error(`nav.traversalCost 길이 ${nav.traversalCost.length} != columns*rows ${n}`);
   // 미완공 건물 자리가 켜질 수 있어 차단 셀도 비용이 있어야 한다.
-  for (let i = 0; i < n; i++)
-    if (!(nav.traversalCost[i] > 0))
-      throw new Error(`nav.traversalCost[${i}] 가 ${nav.traversalCost[i]} (0 이하 불가)`);
+  // 앱은 비용을 Uint8Array 에 담는다 — 256 이상이면 조용히 0 이, 정수가 아니면 조용히 잘린 값이 되므로 거부한다(서버와 동일).
+  for (let i = 0; i < n; i++) {
+    const c = nav.traversalCost[i];
+    if (!(Number.isInteger(c) && c >= 1 && c <= 255))
+      throw new Error(`nav.traversalCost[${i}] 가 ${c} (1~255 정수만)`);
+  }
+  // 리뷰: entrances/spawns 가 격자 밖이거나 blockedEdges 가 범위·순서(a<b)를 어기면 조용히 틀린 셀로 쓰이지 않게 거부한다.
+  // 계약: entrances 는 비통행이어도 resolveTarget 의 목적지 보정이 출발 영역 안 최근접 셀로 바로잡는다 — spawns 는
+  // 출발 영역 자체를 정하는 기준점이라 비통행이면 nearestCell(region=-1) 전역 보정이 다른 섬으로 튈 수 있어 거부한다.
+  for (const field of ['entrances', 'spawns'] as const)
+    for (const [id, c] of Object.entries(nav[field] ?? {})) {
+      if (!(
+        Number.isInteger(c.cx) &&
+        c.cx >= 0 &&
+        c.cx < columns &&
+        Number.isInteger(c.cy) &&
+        c.cy >= 0 &&
+        c.cy < rows
+      ))
+        throw new Error(`nav.${field}.${id} 가 격자 밖 (${c.cx},${c.cy})`);
+      if (field === 'spawns' && nav.walkable[c.cy * columns + c.cx] !== '1')
+        throw new Error(`nav.spawns.${id} 가 비통행 셀이다: (${c.cx},${c.cy})`);
+    }
+  for (const [b, cells] of Object.entries(nav.buildingCells ?? {}))
+    for (const c of cells)
+      if (!(Number.isInteger(c) && c >= 0 && c < n))
+        throw new Error(`nav.buildingCells.${b} 의 index 가 올바르지 않다(0≤i<${n}): ${c}`);
+  for (const [a, b] of nav.blockedEdges ?? [])
+    if (!(
+      Number.isInteger(a) &&
+      a >= 0 &&
+      a < n &&
+      Number.isInteger(b) &&
+      b >= 0 &&
+      b < n &&
+      a < b
+    ))
+      throw new Error(`nav.blockedEdges 원소가 올바르지 않다(0≤a<b<n): [${a}, ${b}]`);
   const walkable = new Uint8Array(n),
     cost = new Uint8Array(n);
   let min = Infinity;
@@ -91,7 +151,7 @@ export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): N
     walkable,
     cost,
     blockedEdges: new Set((nav.blockedEdges ?? []).map(([a, b]) => edgeKey(a, b, n))),
-    minCost: (Number.isFinite(min) ? min : 10) / 10,
+    minCostTenths: Number.isFinite(min) ? min : 10,
     region: new Int32Array(n).fill(-1),
   };
   let label = 0;
@@ -109,6 +169,8 @@ export function loadNav(nav: NavJson, completedBuildings?: readonly string[]): N
       }
     label++;
   }
+  // 검증을 통과한 뒤에만 캐시에 연결한다 — 실패하면 빈 Map 을 WeakMap 에 남기지 않는다.
+  cache.set(nav, byKey);
   byKey.set(key, g);
   return g;
 }
@@ -120,7 +182,10 @@ function nearestCell(g: NavGrid, p: WorldPoint, region: number): number {
   for (let i = 0; i < g.walkable.length; i++) {
     if (!g.walkable[i] || (region >= 0 && g.region[i] !== region)) continue;
     // 루프 안 객체 할당을 피한다 — 셀 중심(cx+0.5, cy+0.5, cellCenterToWorld 와 동일)을 직접 계산해 index 로 비교한다.
-    const d = Math.hypot(p.x - ((i % g.cols) + 0.5), p.y - (Math.floor(i / g.cols) + 0.5));
+    // 제곱 거리로 비교한다: hypot 은 엔진(V8·JVM)마다 마지막 비트가 다를 수 있지만 뺄셈·곱셈·덧셈은 IEEE 로 같다.
+    const dx = p.x - ((i % g.cols) + 0.5),
+      dy = p.y - (Math.floor(i / g.cols) + 0.5);
+    const d = dx * dx + dy * dy;
     if (d < bestD) {
       bestD = d;
       best = i;
@@ -131,40 +196,53 @@ function nearestCell(g: NavGrid, p: WorldPoint, region: number): number {
 
 const cellOf = (c: CellIndex, g: NavGrid) => idx(g, c.cx, c.cy);
 const startCell = (g: NavGrid, from: WorldPoint) => {
-  const i = cellOf(worldToCell(from), g);
+  const i = cellIndexOf(g, from);
   return g.walkable[i] ? i : nearestCell(g, from, -1);
 };
 
 // 규칙 ③: 목적지 셀이 출발 영역 밖이면 출발 영역 안의 최근접 통행 셀로 보정.
-// 출발 셀 index 도 함께 돌려 navPath 가 다시 계산하지 않게 한다.
+// 출발 셀 index 도 함께 돌려 navPathDetailed 가 다시 계산하지 않게 한다.
 export function resolveTarget(
   g: NavGrid,
   from: WorldPoint,
   to: WorldPoint,
 ): { start: number; target: CellIndex } | null {
-  if (!Number.isFinite(to.x) || !Number.isFinite(to.y)) return null;
+  // 좌표 계약(HLD §2): 서버는 범위 밖 입력을 거부한다 — 앱은 탭이 이미지 안이라 실제로는 못 만들지만 계약을 맞춘다.
+  if (!isInsideWorld(to)) return null;
   const s = startCell(g, from);
   if (s < 0) return null;
-  const t = cellOf(worldToCell(to), g);
+  const t = cellIndexOf(g, to);
   const e = g.walkable[t] && g.region[t] === g.region[s] ? t : nearestCell(g, to, g.region[s]);
   return e < 0 ? null : { start: s, target: { cx: e % g.cols, cy: Math.floor(e / g.cols) } };
 }
 
-// 규칙 ⑤⑥: 8방향 A*. edge = 월드 거리 × 대상 셀 비용/10, h = 월드 직선 거리 × minCost. 동률 (f, h, index).
-export function navPath(g: NavGrid, from: WorldPoint, to: WorldPoint): WorldPoint[] {
+// 규칙 ⑤⑥: 8방향 A*, 비용은 전부 정수(고정소수점).
+//   edge = ceil(step × cost[q] / 10)       step = 직교 10⁶ · 대각 1,414,214, cost = 대상 셀 ×10
+//   h    = floor(floor(√(dx²+dy²) × 10⁶) × minCostTenths / 10)   — sqrt·곱·floor 만 double(IEEE 로 엔진 무관)
+// 우선순위 (f, h, index) 오름차순, 개선은 strict < (같은 비용이면 먼저 찾은 부모 유지).
+// 출발 보정 실패·도달 불가면 null, 같은 셀이면 cells 가 빈 결과.
+export function navPathDetailed(
+  g: NavGrid,
+  from: WorldPoint,
+  to: WorldPoint,
+): NavPathDetail | null {
   const r = resolveTarget(g, from, to);
-  if (!r) return [];
+  if (!r) return null;
   const s = r.start,
     e = cellOf(r.target, g);
-  if (s === e) return [];
+  if (s === e) return { start: s, goal: e, cost: 0, cells: [] };
   const gx = e % g.cols,
     gy = Math.floor(e / g.cols);
-  const h = (p: number) => Math.hypot((p % g.cols) - gx, Math.floor(p / g.cols) - gy) * g.minCost;
+  const h = (p: number) => {
+    const dx = (p % g.cols) - gx,
+      dy = Math.floor(p / g.cols) - gy;
+    return Math.floor((Math.floor(Math.sqrt(dx * dx + dy * dy) * SCALE) * g.minCostTenths) / 10);
+  };
+  // 정수만 담는다(최대 경로 비용도 2^53 아래) — Float64Array 는 Infinity 초기값 때문에 쓴다.
   const best = new Float64Array(g.walkable.length).fill(Infinity),
     parent = new Int32Array(g.walkable.length).fill(-1);
   type Node = { f: number; h: number; id: number };
-  // 동률 비교가 부동소수 동치(a.f - b.f)에 기댄다. 지금은 클라이언트 단독이라 유지하지만,
-  // 서버 A* 와 비트 단위 일치가 필요해지면 고정소수점(HLD §3 초안 10⁶)으로 비교·연산 순서를 fixture 로 고정한다.
+  // 같은 셀은 더 작은 f 로만 다시 들어가 (f, h, id) 가 항목마다 유일하다 — 어떤 우선순위 큐든 꺼내는 순서가 같다.
   const less = (a: Node, b: Node) => a.f - b.f || a.h - b.h || a.id - b.id;
   const heap: Node[] = [];
   const push = (n: Node) => {
@@ -195,27 +273,35 @@ export function navPath(g: NavGrid, from: WorldPoint, to: WorldPoint): WorldPoin
     return top;
   };
   best[s] = 0;
-  push({ f: h(s), h: h(s), id: s });
+  const hs = h(s);
+  push({ f: hs, h: hs, id: s });
   while (heap.length) {
-    const { f, id: p } = pop();
-    if (f > best[p] + h(p) + 1e-9) continue; // 낡은 항목
+    const { f, h: hp, id: p } = pop();
+    if (f > best[p] + hp) continue; // 낡은 항목
     if (p === e) break;
     for (const [dx, dy] of DIRS) {
       const q = neighbor(g, p, dx, dy);
       if (q < 0) continue;
-      const c = best[p] + Math.hypot(dx, dy) * (g.cost[q] / 10);
+      const c = best[p] + ceilDiv10((dx && dy ? STEP_DIAG : STEP_STRAIGHT) * g.cost[q]);
       if (c < best[q]) {
         best[q] = c;
         parent[q] = p;
-        push({ f: c + h(q), h: h(q), id: q });
+        const hq = h(q);
+        push({ f: c + hq, h: hq, id: q });
       }
     }
   }
-  if (parent[e] < 0) return [];
-  const out: WorldPoint[] = [];
-  for (let p = e; p !== s; p = parent[p])
-    out.push(cellCenterToWorld({ cx: p % g.cols, cy: Math.floor(p / g.cols) }));
-  return out.reverse();
+  if (parent[e] < 0) return null;
+  const cells: number[] = [];
+  for (let p = e; p !== s; p = parent[p]) cells.push(p);
+  return { start: s, goal: e, cost: best[e], cells: cells.reverse() };
+}
+
+// 출발 셀을 뺀 셀 중심(월드) 경로. 같은 셀·도달 불가는 [].
+export function navPath(g: NavGrid, from: WorldPoint, to: WorldPoint): WorldPoint[] {
+  const d = navPathDetailed(g, from, to);
+  if (!d) return [];
+  return d.cells.map((p) => cellCenterToWorld({ cx: p % g.cols, cy: Math.floor(p / g.cols) }));
 }
 
 // Pressable 의 locationX/Y(웹은 clientX - rect.left) = 확대된 이미지 위 px → 이미지 px → 월드.
@@ -238,10 +324,9 @@ export function tilePath(
   to: { x: number; y: number },
   size: ImageSize,
 ): { x: number; y: number }[] {
-  const wf = imageToWorld(from, size),
-    wt = imageToWorld(to, size);
-  const nodes = navPath(g, wf, wt);
-  if (nodes.length) return [from, ...nodes.map((n) => worldToImage(n, size))];
-  const r = resolveTarget(g, wf, wt);
-  return r && r.start === cellOf(r.target, g) ? [from] : [];
+  const d = navPathDetailed(g, imageToWorld(from, size), imageToWorld(to, size));
+  if (!d) return [];
+  const toImage = (p: number) =>
+    worldToImage(cellCenterToWorld({ cx: p % g.cols, cy: Math.floor(p / g.cols) }), size);
+  return [from, ...d.cells.map(toImage)];
 }
