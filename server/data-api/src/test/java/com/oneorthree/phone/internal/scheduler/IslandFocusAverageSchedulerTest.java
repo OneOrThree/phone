@@ -110,7 +110,7 @@ class IslandFocusAverageSchedulerTest {
     }
 
     @Test
-    @DisplayName("다시 돌려도 끊기면 더 돌리지 않는다 — KST 날짜와 함께 error 로그를 남기고 그 예외를 그대로 던진다")
+    @DisplayName("다시 돌려도 끊기면 더 돌리지 않는다 — KST 날짜와 함께 error 로그를 남기고 첫 실패를 붙인 그 예외를 던진다")
     void stopsAfterOneRetryAndLogsTheKstDate() {
         CannotAcquireLockException first = new CannotAcquireLockException("첫 교착");
         CannotAcquireLockException second = new CannotAcquireLockException("두 번째 교착");
@@ -119,24 +119,42 @@ class IslandFocusAverageSchedulerTest {
         assertThatThrownBy(scheduler::snapshotToday).isSameAs(second);
 
         verify(service, times(2)).snapshot(KST_DATE);
+        assertThat(second.getSuppressed()).as("첫 실패가 두 번째에 붙는다").containsExactly(first);
         assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.ERROR).singleElement()
                 .satisfies(event -> {
                     assertThat(event.getFormattedMessage()).contains(KST_DATE.toString());
                     assertThat(event.getThrowableProxy().getMessage()).isEqualTo("두 번째 교착");
+                    assertThat(event.getThrowableProxy().getSuppressed()).as("error 로그 하나에 두 원인이 다 보인다")
+                            .singleElement()
+                            .satisfies(suppressed -> assertThat(suppressed.getMessage()).isEqualTo("첫 교착"));
                 });
     }
 
     @Test
     @DisplayName("재시도에서 잠금 경합이 아닌 예외가 나도 error 로그를 남기고 그대로 던진다 — 세 번째 호출은 없다")
     void aNonLockFailureOnTheRetryIsLoggedAndRethrown() {
+        CannotAcquireLockException first = new CannotAcquireLockException("교착");
         IllegalStateException boom = new IllegalStateException("재시도에서 터졌다");
-        when(service.snapshot(KST_DATE)).thenThrow(new CannotAcquireLockException("교착")).thenThrow(boom);
+        when(service.snapshot(KST_DATE)).thenThrow(first).thenThrow(boom);
 
         assertThatThrownBy(scheduler::snapshotToday).isSameAs(boom);
 
         verify(service, times(2)).snapshot(KST_DATE);
+        assertThat(boom.getSuppressed()).as("첫 실패가 재시도의 예외에 붙는다").containsExactly(first);
         assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.ERROR).singleElement()
                 .satisfies(event -> assertThat(event.getFormattedMessage()).contains(KST_DATE.toString()));
+    }
+
+    @Test
+    @DisplayName("두 시도가 같은 예외 인스턴스를 던져도 자기 자신을 붙이다 터지지 않는다 — 원래 예외가 그대로 나간다")
+    void aSharedExceptionInstanceIsNotSuppressedIntoItself() {
+        CannotAcquireLockException same = new CannotAcquireLockException("같은 인스턴스");
+        when(service.snapshot(KST_DATE)).thenThrow(same);
+
+        assertThatThrownBy(scheduler::snapshotToday).isSameAs(same);
+
+        verify(service, times(2)).snapshot(KST_DATE);
+        assertThat(same.getSuppressed()).isEmpty();
     }
 
     @Test

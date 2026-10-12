@@ -29,8 +29,9 @@ import java.time.LocalDate;
  * 다른 순서로 잠그는 쪽(계정 탈퇴 등)과 겹치면 PostgreSQL 이 이쪽을 교착 희생자로 끊을 수 있다. 서비스 트랜잭션은 통째로
  * 롤백되고 {@code ON CONFLICT} 라 같은 날을 다시 돌려도 안전하다. 교착(40P01)은 Hibernate {@code LockAcquisitionException}
  * → Spring {@code CannotAcquireLockException} 으로 번역되고 JDBC 경로는 {@code DeadlockLoserDataAccessException} 이 되므로,
- * 둘의 상위인 {@link PessimisticLockingFailureException} 을 잡는다. 두 번째도 끊기면 KST 날짜와 함께 error 로그를 남기고
- * 예외를 그대로 던진다(그날 행은 없고 읽는 쪽은 전날 값을 준다). 다른 예외는 다시 시도하지 않는다.
+ * 둘의 상위인 {@link PessimisticLockingFailureException} 을 잡는다. 두 번째도 끊기면 첫 실패를 suppressed 로 붙여 error
+ * 로그 하나(KST 날짜 포함)에 두 원인이 다 보이게 하고 그 예외를 그대로 던진다(그날 행은 없고 읽는 쪽은 전날 값을 준다).
+ * 다른 예외는 다시 시도하지 않는다.
  */
 @Slf4j
 @Component
@@ -49,14 +50,18 @@ public class IslandFocusAverageScheduler {
             snapshots.snapshot(today);
         } catch (PessimisticLockingFailureException lockFailure) {
             log.warn("섬별 7일 평균 집계가 잠금 경합으로 끊겨 한 번 다시 시도한다 date={}", today, lockFailure);
-            retryOnce(today);
+            retryOnce(today, lockFailure);
         }
     }
 
-    private void retryOnce(LocalDate today) {
+    private void retryOnce(LocalDate today, RuntimeException firstFailure) {
         try {
             snapshots.snapshot(today);
         } catch (RuntimeException failure) {
+            // error 로그 하나에 두 원인이 보이게 첫 실패를 붙인다. 같은 인스턴스는 addSuppressed 가 거부한다.
+            if (failure != firstFailure) {
+                failure.addSuppressed(firstFailure);
+            }
             log.error("섬별 7일 평균 집계 재시도도 실패 — 그날 행이 없다 date={}", today, failure);
             throw failure;
         }

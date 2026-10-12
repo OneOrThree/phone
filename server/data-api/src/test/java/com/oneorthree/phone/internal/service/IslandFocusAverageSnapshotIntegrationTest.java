@@ -370,13 +370,6 @@ class IslandFocusAverageSnapshotIntegrationTest {
     @DisplayName("적는 문장이 교착 희생자 오류(40P01)로 끊기면 Spring 이 PessimisticLockingFailureException 으로 번역하고 스케줄러의 재시도가 이어 받는다")
     void aDeadlockVictimInsertIsTranslatedAndRetriedByTheScheduler() {
         Island island = island(false);
-        // 실제 교착은 deadlock_timeout 타이밍에 기대 불안정하다 — 같은 SQLSTATE(40P01)를 INSERT 문장 시작에서 낸다.
-        // 오류는 드라이버부터 Hibernate·Spring 번역·@Transactional 롤백까지 운영과 같은 경로로 올라온다.
-        jdbc.execute("CREATE OR REPLACE FUNCTION island_focus_averages_deadlock_probe() RETURNS trigger "
-                + "LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'deadlock detected (test)' USING ERRCODE = '40P01'; "
-                + "END $$");
-        jdbc.execute("CREATE TRIGGER island_focus_averages_deadlock_probe BEFORE INSERT ON island_focus_averages "
-                + "FOR EACH STATEMENT EXECUTE FUNCTION island_focus_averages_deadlock_probe()");
         List<Throwable> failures = new ArrayList<>();
         // 진짜 서비스(트랜잭션 프록시)에 위임하되 실패를 기록하고, 첫 실패 직후 트리거를 치워 재시도는 정상 경로를 타게 한다.
         IslandFocusAverageSnapshotService probed = mock(IslandFocusAverageSnapshotService.class, invocation -> {
@@ -389,6 +382,14 @@ class IslandFocusAverageSnapshotIntegrationTest {
             }
         });
         try {
+            // 실제 교착은 deadlock_timeout 타이밍에 기대 불안정하다 — 같은 SQLSTATE(40P01)를 INSERT 문장 시작에서 낸다.
+            // 오류는 드라이버부터 Hibernate·Spring 번역·@Transactional 롤백까지 운영과 같은 경로로 올라온다.
+            // 생성은 try 안이다 — 어디서 터져도 finally 가 치운다. 남으면 같은 컨테이너의 뒤 테스트가 전부 40P01 로 실패한다.
+            jdbc.execute("CREATE OR REPLACE FUNCTION island_focus_averages_deadlock_probe() RETURNS trigger "
+                    + "LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'deadlock detected (test)' "
+                    + "USING ERRCODE = '40P01'; END $$");
+            jdbc.execute("CREATE TRIGGER island_focus_averages_deadlock_probe BEFORE INSERT ON island_focus_averages "
+                    + "FOR EACH STATEMENT EXECUTE FUNCTION island_focus_averages_deadlock_probe()");
             new IslandFocusAverageScheduler(probed, Clock.fixed(kst(date, 7, 0), ZoneOffset.UTC)).snapshotToday();
         } finally {
             dropDeadlockProbe();
