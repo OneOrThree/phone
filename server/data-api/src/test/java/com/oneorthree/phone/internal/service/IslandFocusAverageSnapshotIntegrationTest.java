@@ -16,7 +16,9 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.internal.scheduler.IslandFocusAverageScheduler;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import com.oneorthree.phone.outbox.support.PostgresLockWaits;
 import com.oneorthree.phone.ranking.repository.IslandFocusAverageRepository;
 import com.oneorthree.phone.ranking.repository.domain.IslandFocusAverage;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -26,8 +28,10 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.AdditionalAnswers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -38,9 +42,12 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
@@ -52,6 +59,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * 섬별 7일 평균 스냅샷 (GROMO-2257) — 실 Flyway(V109 포함)·{@code ddl-auto=validate} 스키마 위에서 운영 엔티티·
@@ -354,6 +364,43 @@ class IslandFocusAverageSnapshotIntegrationTest {
         }
     }
 
+    // ---------------------------------------------------------------- 교착 희생자 재시도
+
+    @Test
+    @DisplayName("적는 문장이 교착 희생자 오류(40P01)로 끊기면 Spring 이 PessimisticLockingFailureException 으로 번역하고 스케줄러의 재시도가 이어 받는다")
+    void aDeadlockVictimInsertIsTranslatedAndRetriedByTheScheduler() {
+        Island island = island(false);
+        // 실제 교착은 deadlock_timeout 타이밍에 기대 불안정하다 — 같은 SQLSTATE(40P01)를 INSERT 문장 시작에서 낸다.
+        // 오류는 드라이버부터 Hibernate·Spring 번역·@Transactional 롤백까지 운영과 같은 경로로 올라온다.
+        jdbc.execute("CREATE OR REPLACE FUNCTION island_focus_averages_deadlock_probe() RETURNS trigger "
+                + "LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'deadlock detected (test)' USING ERRCODE = '40P01'; "
+                + "END $$");
+        jdbc.execute("CREATE TRIGGER island_focus_averages_deadlock_probe BEFORE INSERT ON island_focus_averages "
+                + "FOR EACH STATEMENT EXECUTE FUNCTION island_focus_averages_deadlock_probe()");
+        List<Throwable> failures = new ArrayList<>();
+        // 진짜 서비스(트랜잭션 프록시)에 위임하되 실패를 기록하고, 첫 실패 직후 트리거를 치워 재시도는 정상 경로를 타게 한다.
+        IslandFocusAverageSnapshotService probed = mock(IslandFocusAverageSnapshotService.class, invocation -> {
+            try {
+                return AdditionalAnswers.delegatesTo(service).answer(invocation);
+            } catch (Throwable failure) {
+                failures.add(failure);
+                dropDeadlockProbe();
+                throw failure;
+            }
+        });
+        try {
+            new IslandFocusAverageScheduler(probed, Clock.fixed(kst(date, 7, 0), ZoneOffset.UTC)).snapshotToday();
+        } finally {
+            dropDeadlockProbe();
+        }
+
+        assertThat(failures).as("첫 시도만 끊긴다").singleElement()
+                .isInstanceOf(PessimisticLockingFailureException.class)
+                .satisfies(failure -> assertThat(PostgresLockWaits.sqlStateOf(failure)).isEqualTo("40P01"));
+        verify(probed, times(2)).snapshot(date);
+        assertThat(rowCount(island.id)).as("재시도가 적었다").isEqualTo(1);
+    }
+
     // ---------------------------------------------------------------- 멱등·읽기
 
     @Test
@@ -516,6 +563,11 @@ class IslandFocusAverageSnapshotIntegrationTest {
             throw new IllegalStateException(interrupted);
         }
         throw new AssertionError("pid " + holderPid + " 가 쥔 잠금에 막힌 백엔드가 없다 — 경합 창에 들어가지 못했다");
+    }
+
+    private void dropDeadlockProbe() {
+        jdbc.execute("DROP TRIGGER IF EXISTS island_focus_averages_deadlock_probe ON island_focus_averages");
+        jdbc.execute("DROP FUNCTION IF EXISTS island_focus_averages_deadlock_probe()");
     }
 
     private int rowCount(UUID islandId) {
