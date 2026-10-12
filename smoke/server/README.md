@@ -75,8 +75,10 @@ bash smoke/server/tests/api-runner.sh
 bash smoke/server/tests/seed-guards.sh
 # 내부 health/Redis 실패·정리·자격 비노출
 python3 smoke/server/tests/test_internal.py
-# Actions 결과 보고·누락 검사 (GitHub 요청은 mock)
-python3 .github/scripts/test_smoke_report.py
+# Actions 결과 보고·누락, main 주기·배지·무배포 판정, 배포 대기 회귀 검사
+# 기존 Satellite CI의 test_*.py 수집 대상 중 스모크 검사만 실행한다. GitHub 요청은 mock.
+python3 -m pip install 'pyyaml==6.0.2'
+python3 -m unittest discover -s .github/scripts -p 'test_*smoke*.py' -v
 ```
 
 mock 검사는 실행기 자체의 회귀를 검증한다. GCP dev의 실제 검사 결과와는 구분하며 [검증 기록](verification.md)에 실행일·TC 결과·차단 조건을 남긴다.
