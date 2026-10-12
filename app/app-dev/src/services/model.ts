@@ -1019,6 +1019,7 @@ export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
           ? 'apply'
           : 'join';
 // 읽는 시점에 번역한다 — 모듈 최상위에서 t() 를 부르면 import 시점 언어로 굳는다(i18n/index.ts)
+// 게터 객체다 — 펼치거나 직렬화하면 그 시점 로케일로 굳는다(펼치지 말 것).
 export const visitorJoinLabel: Record<VisitorJoin, string> = {
   get join() {
     return t('islandVisit.visitorJoin.join');
