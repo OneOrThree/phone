@@ -40,10 +40,21 @@ import java.util.UUID;
  * 없어 같이 계산한다. 세션이나 멤버십에서 출발하면 집중이 0인 섬과 주민이 0명인 섬이 행에서 빠진다. 주민이
  * 0명이면 평균은 <b>null</b>(분모 0), 주민이 있고 집중이 없으면 <b>0</b> 이다.
  *
+ * <p>그 목록은 읽은 뒤 낡을 수 있다 — 마지막 주민의 이탈·계정 탈퇴가 그사이 섬을 닫고 공동 데이터를 지울 수 있다.
+ * 지운 뒤에 행이 적히면 닫힌 섬의 행이 영영 남는다(묘비 섬은 FK CASCADE 가 안 돌고 다음 배치는 죽은 섬을 건너뛴다).
+ * 그래서 적는 문장({@link IslandFocusAverageRepository#insertIfAbsent})이 섬 행을 {@code FOR SHARE} 로 잠그며
+ * 살아 있는지를 <b>다시</b> 확인한다 — 그사이 죽은 섬은 행이 적히지 않고 반환값에도 세지 않는다.
+ *
  * <p>ponytail: 07시에 인스턴스가 모두 죽어 있으면 그날 행이 없다 — 읽는 쪽이 «가장 최근 행» 을 주므로 하루 묵은
  * 값이 나갈 뿐이라 보정 잡을 두지 않는다. 행은 섬 × 일 1건씩 쌓이고 정리 잡도 없다(섬 1천 개면 1년 36만 행) —
  * 부담이 되면 N일 지난 행을 지우는 잡을 더한다. {@code countByGroupIdIn} 에 섬 id 전부를 한 번에 넘기므로 살아
  * 있는 섬이 3만을 넘으면 바인드 파라미터 상한(32767)에 걸린다 — 그때 청크로 쪼갠다.
+ *
+ * <p>ponytail: 적는 문장은 살아 있는 섬의 행을 한 문장에서 id 오름차순으로 {@code FOR SHARE} 잠근다. 섬 행을
+ * 잠그는 쪽(가입·이탈·삭제)이 여러 섬을 <b>다른 순서</b>로 잠그면 07시에 겹칠 때 교착할 수 있다 — 계정 탈퇴의
+ * {@code GroupMembershipMutationLocks#lockGroups} 는 Java {@code UUID} 순서, 여기는 PostgreSQL uuid 순서라 최상위
+ * 비트가 선 옛 id 에서 순서가 갈린다. PostgreSQL 이 한쪽을 끊고, 끊긴 쪽이 배치면 그날 행이 통째로 없다 — 읽는 쪽은 전날
+ * 행을 준다(재시도 잡 없음). 잦아지면 배치를 한 번 다시 돌리는 재시도를 건다.
  */
 @Slf4j
 @Service
@@ -67,7 +78,8 @@ public class IslandFocusAverageSnapshotService {
      * 이라 같은 날 두 번 돌아도 처음 적힌 값이 남는다(그 사이 주민·집중이 바뀌어도).
      *
      * @param kstDate 실행일(KST 날짜)
-     * @return 새로 적힌 행 수. 같은 날 재실행이면 0 이다(그 사이 새로 생긴 섬은 센다)
+     * @return 새로 적힌 행 수. 같은 날 재실행이면 0 이다(그 사이 새로 생긴 섬은 센다). 읽어 둔 목록에서 그사이 죽은
+     *     섬은 세지 않으므로 대상 섬 수보다 작을 수 있다
      */
     @Transactional
     public int snapshot(LocalDate kstDate) {

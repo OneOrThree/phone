@@ -21,6 +21,8 @@ import com.oneorthree.phone.ranking.repository.IslandFocusAverageRepository;
 import com.oneorthree.phone.ranking.repository.domain.IslandFocusAverage;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
+import jakarta.persistence.EntityManager;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,6 +34,10 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -39,6 +45,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,6 +57,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 섬별 7일 평균 스냅샷 (GROMO-2257) — 실 Flyway(V109 포함)·{@code ddl-auto=validate} 스키마 위에서 운영 엔티티·
  * 저장소로 섬·주민·집중 구간을 심고, 배치 서비스와 읽기 창구를 <b>실제 경로로</b> 부른다. seam 을 대역으로
  * 덮지 않는다 — 합계·주민 수 질의는 운영 질의 그대로 돈다.
+ *
+ * <p>닫히는 섬과의 경합은 실제 PostgreSQL 의 행 잠금으로 재현한다 — 한쪽이 섬 행을 쥔 채 멈추면 상대가 그 뒤에서
+ * 기다리는 것을 {@code pg_blocking_pids} 로 확인한 다음에야 풀어 준다(타이밍 추측 없음).
  *
  * <p>배치가 «모든 섬»을 가로지르므로 테스트마다 <b>다른 실행일</b>을 쓴다 — 같은 날을 공유하면 앞선 테스트가
  * 적은 행이 뒤 테스트의 「새로 적은 수」·행 단정에 섞인다. 창이 7일이라 14일씩 건너뛴다.
@@ -87,6 +100,10 @@ class IslandFocusAverageSnapshotIntegrationTest {
     IslandPurgePort purge;
     @Autowired
     PlatformTransactionManager transactionManager;
+    @Autowired
+    EntityManager entityManager;
+    @Autowired
+    DataSource dataSource;
     @Autowired
     JdbcTemplate jdbc;
 
@@ -250,6 +267,93 @@ class IslandFocusAverageSnapshotIntegrationTest {
         assertThat(rowCount(staying.id)).isEqualTo(2);
     }
 
+    // ---------------------------------------------------------------- 닫히는 섬과의 경합
+
+    @Test
+    @DisplayName("적는 문장은 넘겨받은 목록이 낡았어도 그사이 죽은 섬(종료·삭제)의 행을 적지 않는다 — 살아 있는 섬만 적는다")
+    void insertSkipsIslandsThatDiedAfterTheListWasRead() {
+        Island alive = island(false);
+        Island ended = island(false);
+        ended.group.close();
+        groups.save(ended.group);
+        Island deleted = island(false);
+        deleted.group.markDeleted(kst(date.minusDays(1), 9, 0));
+        groups.save(deleted.group);
+
+        // snapshot() 이 «살아 있는 섬 목록» 을 읽은 뒤 두 섬이 죽은 상황 — 낡은 목록 그대로 세 섬을 다 넘긴다.
+        UUID[] ids = {alive.id, ended.id, deleted.id};
+        Integer[] memberCounts = {1, 1, 1};
+        Integer[] averages = {5, 5, 5};
+        Integer inserted = new TransactionTemplate(transactionManager)
+                .execute(status -> snapshots.insertIfAbsent(date, ids, memberCounts, averages));
+
+        assertThat(inserted).as("죽은 섬은 새로 적힌 행 수에 세지 않는다").isEqualTo(1);
+        assertThat(rowCount(alive.id)).isEqualTo(1);
+        assertThat(rowCount(ended.id)).isZero();
+        assertThat(rowCount(deleted.id)).isZero();
+    }
+
+    @Test
+    @DisplayName("삭제가 섬 행을 먼저 쥐고 스냅샷이 그 뒤에서 기다리면, 풀려난 스냅샷은 닫힌 섬의 행을 되살리지 않는다")
+    void aSnapshotWaitingOnAClosingIslandDoesNotResurrectItsRow() throws Exception {
+        Island closing = island(false);
+        Island staying = island(false);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            // 운영의 삭제 경로(GroupMemberService)와 같은 순서 — 섬 행 FOR UPDATE → 종료 → 공동 데이터 정리 → 커밋.
+            Future<Integer> snapshot = new TransactionTemplate(transactionManager).execute(status -> {
+                Group locked = groups.findByIdForUpdate(closing.id).orElseThrow();
+                int holder = backendPid();
+                // 이 시점의 closing 은 아직 살아 있다 — 스냅샷은 그 섬을 목록에 넣고 INSERT 에서 잠금을 기다린다.
+                Future<Integer> inFlight = pool.submit(() -> service.snapshot(date));
+                awaitBlockedBy(holder);
+                locked.close();
+                purge.purgeIsland(closing.id);
+                return inFlight;
+            });
+
+            int inserted = snapshot.get(60, TimeUnit.SECONDS);
+
+            assertThat(rowCount(closing.id))
+                    .as("삭제가 지운 뒤에 행이 적히면 묘비 섬이라 FK CASCADE 도, 다음 배치도 치우지 않는다").isZero();
+            assertThat(rowCount(staying.id)).isEqualTo(1);
+            assertThat(inserted).as("나머지 살아 있는 섬은 전부 적혔다").isEqualTo(aliveIslandCount());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("스냅샷이 섬 행을 먼저 쥐면 삭제는 스냅샷 커밋까지 기다렸다가 적힌 행을 함께 지운다")
+    void aPurgeWaitingOnASnapshotDeletesTheRowItWrote() throws Exception {
+        Island closing = island(false);
+        Island staying = island(false);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            TransactionTemplate tx = new TransactionTemplate(transactionManager);
+            Future<?> purging = tx.execute(status -> {
+                UUID[] ids = {closing.id, staying.id};
+                snapshots.insertIfAbsent(date, ids, new Integer[] {1, 1}, new Integer[] {7, 7});
+                int holder = backendPid();
+                // 스냅샷은 아직 커밋 전 — 섬 행 잠금과 적은 행을 쥐고 있다. 삭제가 그 뒤에서 기다린다.
+                Future<?> inFlight = pool.submit(() -> tx.executeWithoutResult(inner -> {
+                    Group locked = groups.findByIdForUpdate(closing.id).orElseThrow();
+                    locked.close();
+                    purge.purgeIsland(closing.id);
+                }));
+                awaitBlockedBy(holder);
+                return inFlight;
+            });
+
+            purging.get(60, TimeUnit.SECONDS);
+
+            assertThat(rowCount(closing.id)).as("커밋된 행을 삭제가 이어서 지웠다").isZero();
+            assertThat(rowCount(staying.id)).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     // ---------------------------------------------------------------- 멱등·읽기
 
     @Test
@@ -373,6 +477,45 @@ class IslandFocusAverageSnapshotIntegrationTest {
     /** 이 테스트 실행일의 그 섬 스냅샷 행. */
     private IslandFocusAverage row(UUID islandId) {
         return snapshots.findById(new IslandFocusAverage.Key(date, islandId)).orElseThrow();
+    }
+
+    /** 살아 있는(미삭제·미종료) 섬 수 — 이 DB 의 전부다. */
+    private int aliveIslandCount() {
+        return jdbc.queryForObject("SELECT count(*) FROM groups WHERE deleted_at IS NULL AND status <> 'ENDED'",
+                Integer.class);
+    }
+
+    /** 지금 트랜잭션이 쥔 커넥션의 PostgreSQL 백엔드 pid. */
+    private int backendPid() {
+        return ((Number) entityManager.createNativeQuery("SELECT pg_backend_pid()").getSingleResult()).intValue();
+    }
+
+    /**
+     * {@code holderPid} 백엔드가 쥔 잠금에 막힌 백엔드가 생길 때까지 기다린다 — 스레드 타이밍을 추측하지 않고 서버
+     * 상태로 순서를 맞춘다(관찰은 당사자가 아닌 별도 연결로 한다). 트랜잭션 콜백 안에서 부르므로 검사 예외를 던지지 않는다.
+     */
+    private void awaitBlockedBy(int holderPid) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+        try (Connection observer = dataSource.getConnection();
+                PreparedStatement query = observer.prepareStatement(
+                        "SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))")) {
+            while (System.nanoTime() < deadline) {
+                query.setInt(1, holderPid);
+                try (ResultSet row = query.executeQuery()) {
+                    row.next();
+                    if (row.getInt(1) > 0) {
+                        return;
+                    }
+                }
+                TimeUnit.MILLISECONDS.sleep(20);
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException(failure);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
+        }
+        throw new AssertionError("pid " + holderPid + " 가 쥔 잠금에 막힌 백엔드가 없다 — 경합 창에 들어가지 못했다");
     }
 
     private int rowCount(UUID islandId) {
