@@ -215,3 +215,31 @@ test.each([true, false])(
     await screen.unmount();
   },
 );
+
+test('로컬 방문 중에도 뗏목 라우트는 막히지 않고 행선지 시트를 연다', async () => {
+  const state = initialState(true);
+  state.visitingIslandId = 'cloud';
+  const screen = await render(
+    <CurrentScreens
+      e={{
+        state,
+        route: 'raft',
+        now: Date.now(),
+        dispatch: jest.fn(),
+        go: jest.fn(),
+        replace: jest.fn(),
+        reset: jest.fn(),
+        home: jest.fn(),
+        back: jest.fn(),
+        backOverride: { current: null },
+        notify: jest.fn(),
+        text: '',
+        setText: jest.fn(),
+        setGuideStep: jest.fn(),
+      }}
+    />,
+  );
+  expect(screen.queryByText('주민만 이용할 수 있어요')).toBeNull();
+  expect(screen.getByText('뗏목')).toBeTruthy();
+  await screen.unmount();
+});

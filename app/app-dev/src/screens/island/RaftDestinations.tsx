@@ -1,9 +1,9 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { Group } from '@/design-system/patterns';
 import { IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
 import { Sailing } from '@/screens/world/WorldViews';
-import { ApiError } from '@/services/api/client';
+import { islandErrorMessage } from '@/services/islandErrors';
 import { currentIsland, type State } from '@/services/model';
 
 /** 뗏목 행선지 시트(GROMO-2261) — 소속 섬 이동·낚시섬·망원경·내 뗏목. 방문 중에는 소속 섬만 보인다. */
@@ -12,6 +12,18 @@ export function RaftDestinations({ e }: { e: any }) {
   const visiting = !!s.visitingIslandId;
   const [sailingTo, setSailingTo] = useState<string | null>(null);
   const pending = useRef(false);
+
+  // 항해 중 뒤로가기는 삼킨다 — 전환이 이미 방문 상태를 지워서 이전 방문 화면을 복원하면 깨진 지도가 뜬다.
+  useEffect(() => {
+    if (sailingTo === null || !e.backOverride) return;
+    e.backOverride.current = () => true;
+    return () => {
+      e.backOverride.current = null;
+    };
+  }, [sailingTo, e.backOverride]);
+  // 서버 방문 중 e.home() 은 방문 상태를 둔 채 home 으로 가 막히므로 방문 섬 지도로 돌아간다.
+  const close = () =>
+    e.islands && visiting ? e.replace('visitIsland', s.visitingIslandId) : e.home();
 
   const currentId = e.islands ? s.serverIslands?.currentIslandId : currentIsland(s).id;
   const members: { id: string; name: string; arrivedBefore?: boolean }[] = e.islands
@@ -31,7 +43,8 @@ export function RaftDestinations({ e }: { e: any }) {
       else e.dispatch({ type: 'SWITCH_ISLAND', id: island.id });
       setSailingTo(island.name);
     } catch (thrown) {
-      if (thrown instanceof ApiError && thrown.message) e.notify(thrown.message);
+      const message = islandErrorMessage(thrown);
+      if (message) e.notify(message);
     } finally {
       pending.current = false;
     }
@@ -56,8 +69,8 @@ export function RaftDestinations({ e }: { e: any }) {
       bg="dock"
       sign="boat/raft"
       title={t('home.raft.title')}
-      onBack={e.back}
-      onClose={e.home}
+      onBack={close}
+      onClose={close}
     >
       <Group>
         {!visiting && (

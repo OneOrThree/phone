@@ -63,6 +63,8 @@ function env(visitingId: string | null = null) {
     back: jest.fn(),
     home: jest.fn(),
     notify: jest.fn(),
+    replace: jest.fn(),
+    backOverride: { current: null as null | (() => boolean) },
     islands: { switchCurrent: jest.fn().mockResolvedValue(undefined) },
   };
 }
@@ -97,7 +99,7 @@ test('거절되면 서버 문구를 알리고 연출하지 않는다', async () 
   const screen = await render(<RaftDestinations e={e} />);
   await fireEvent.press(screen.getByText('둘섬으로'));
   await act(async () => {});
-  expect(e.notify).toHaveBeenCalledWith('아직 가 본 적 없는 섬이에요.');
+  expect(e.notify).toHaveBeenCalledWith('아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.');
   expect(screen.queryByTestId('sailing')).toBeNull();
 });
 
@@ -115,4 +117,14 @@ test('방문 중에는 소속 섬 전부(방문 섬 포함, 미도착 제외)만
   await fireEvent.press(await screen.findByTestId('sailing'));
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
   expect(e.reset).toHaveBeenCalledWith('home');
+});
+
+test('방문 중 시트를 닫으면 방문 섬 지도로, 항해 중 뒤로가기는 삼킨다', async () => {
+  const e = env('b');
+  const screen = await render(<RaftDestinations e={e} />);
+  expect(e.backOverride.current).toBeNull();
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  await screen.findByTestId('sailing');
+  expect(e.backOverride.current?.()).toBe(true);
+  expect(e.home).not.toHaveBeenCalled();
 });

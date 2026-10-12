@@ -401,6 +401,7 @@ function CurrentScreensContent({ e }: any) {
             'travel',
             'visitIsland',
             'visitIslandFocus',
+            'raft',
             'permission',
             'screenTimeApps',
           ]
