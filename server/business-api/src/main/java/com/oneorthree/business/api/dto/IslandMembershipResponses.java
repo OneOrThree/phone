@@ -13,8 +13,10 @@ import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
 import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
 import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
+import com.oneorthree.business.upstream.data.dto.Telescope;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /** 공개 필드만 명시적으로 조립한다. 내부 전송 DTO의 확장이 응답에 섞이지 않도록 분리한다. */
@@ -240,6 +242,64 @@ public final class IslandMembershipResponses {
                     value.status(),
                     value.version(),
                     value.createdAt());
+        }
+    }
+
+    /**
+     * 망원경 목록 (GROMO-2265) — {@code GET /me/telescope}. 같은 1시간 안에 다시 부르면 같은 목록이다.
+     *
+     * @param bucketStart        이 목록의 1시간 버킷 시작
+     * @param nextRefreshMinutes 다음 목록까지 남은 분(1~60)
+     * @param items              {@code joined} → {@code nearby} → {@code random} 순
+     */
+    public record TelescopeView(
+            @JsonProperty(required = true) Instant bucketStart,
+            @JsonProperty(required = true) int nextRefreshMinutes,
+            @JsonProperty(required = true) List<TelescopeItemView> items) {
+        public static TelescopeView from(Telescope value) {
+            return new TelescopeView(value.bucketStart(), value.nextRefreshMinutes(),
+                    value.items().stream().map(TelescopeItemView::from).toList());
+        }
+    }
+
+    /**
+     * 망원경 한 칸.
+     *
+     * @param slot                      {@code joined|nearby|random}
+     * @param sailingMinutes            항해 분 — {@code nearby} 는 15, 나머지는 30·60·90 중 하나
+     * @param averageFocusMinutesPerDay 주민 1인당 하루 평균 집중(분). 아직 집계 전이면 null
+     * @param full                      정원이 찼다 — 구경만 할 수 있다
+     */
+    public record TelescopeItemView(
+            @JsonProperty(required = true) UUID islandId,
+            @JsonProperty(required = true) String name,
+            @JsonProperty(required = true) String intro,
+            @JsonProperty(required = true) int memberCount,
+            @JsonProperty(required = true) int maxMembers,
+            @JsonProperty(required = true) boolean approvalRequired,
+            @JsonProperty(required = true) String membershipStatus,
+            @JsonProperty(required = true) String slot,
+            @JsonProperty(required = true) int sailingMinutes,
+            Integer averageFocusMinutesPerDay,
+            @JsonProperty(required = true) boolean full,
+            @JsonProperty(required = true) boolean arrivedBefore) {
+        public static TelescopeItemView from(Telescope.Item value) {
+            if (value == null) {
+                return null;
+            }
+            return new TelescopeItemView(
+                    value.islandId(),
+                    value.name(),
+                    value.intro(),
+                    value.memberCount(),
+                    value.maxMembers(),
+                    value.approvalRequired(),
+                    value.membershipStatus(),
+                    value.slot(),
+                    value.sailingMinutes(),
+                    value.averageFocusMinutesPerDay(),
+                    value.full(),
+                    value.arrivedBefore());
         }
     }
 }

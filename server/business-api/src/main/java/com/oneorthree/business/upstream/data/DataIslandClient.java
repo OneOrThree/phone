@@ -28,6 +28,7 @@ import com.oneorthree.business.upstream.data.dto.MessageAuthors;
 import com.oneorthree.business.upstream.data.dto.MessageCreatedAck;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
 import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
+import com.oneorthree.business.upstream.data.dto.Telescope;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
@@ -89,6 +90,8 @@ public class DataIslandClient {
     private static final String PATH_ISLAND_JOIN_REQUESTS = "/internal/islands/{islandId}/join-requests";
     private static final String PATH_ISLAND_JOIN_REQUEST = "/internal/islands/{islandId}/join-requests/{requestId}";
     private static final String PATH_ISLAND_MEMBERSHIP = "/internal/users/{userId}/islands/{islandId}/membership";
+    // GROMO-2265 망원경 목록 — 사용자 축 조회 1종.
+    private static final String PATH_TELESCOPE = "/internal/users/{userId}/telescope";
 
     private final InternalHttpClient http;
 
@@ -178,6 +181,16 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<MyIslands>() { });
+    }
+
+    /** 망원경 목록 (GROMO-2265, 섬 외부 계약 §5). */
+    public Telescope fetchTelescope(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_TELESCOPE, userId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<Telescope>() { });
     }
 
     /**

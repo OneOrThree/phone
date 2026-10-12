@@ -196,6 +196,52 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             @Param("limit") int limit);
 
     /**
+     * 망원경 후보 (GROMO-2265, 섬 외부 계약 §5) — {@link #findDiscoverableIslandIds} 와 같은 공개·생존·미소속·
+     * 강퇴 이력 없음 조건이되 <b>정원 조건이 없다</b>. 정원 찬 섬도 «구경만» 칸을 채우므로 주민 수·정원을 함께 준다.
+     *
+     * <p>순서는 «정원 남은 섬 먼저, 그 안에서 {@code md5(seed || id)}» 다. 조립이 가까운 섬·무작위 칸을 정원 남은
+     * 섬부터 채우고 모자랄 때만 찬 섬을 쓰므로, 앞의 몇 행만 읽어도 해시 순 전체를 훑은 것과 같은 결과다 — 해시
+     * 순으로만 자르면 찬 섬이 앞에 몰린 버킷에서 뒤의 가입 가능한 섬을 놓친다. seed 가 같으면 순서도 같다.
+     *
+     * <p>주민 수는 {@link GroupMemberRepository#countByGroupIdIn} 과 같은 모수(탈퇴 계정 제외)다 — 응답의
+     * 「주민 수/정원」과 «정원 찬 섬» 판정이 가입 경로의 정원 판정과 같아야 한다. discover 의 인라인 집계는 탈퇴
+     * 계정까지 세므로 따라 하지 않는다.
+     *
+     * @param userId 망원경을 보는 사용자 id 문자열
+     * @param seed   1시간 버킷 시드
+     * @param limit  읽을 행 수
+     * @return 정원 남은 섬 → 정원 찬 섬 순, 각 묶음 안은 시드 해시 순
+     */
+    @Query(value = "SELECT c.id AS \"id\", c.member_count AS \"memberCount\", c.max_members AS \"maxMembers\" "
+            + "FROM (SELECT g.id, g.max_members, "
+            + "             (SELECT count(*) FROM group_members m JOIN users u ON u.id = m.user_id "
+            + "              WHERE m.group_id = g.id AND m.is_left = false AND u.is_deleted = false) "
+            + "             AS member_count "
+            + "      FROM groups g "
+            + "      WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
+            + "      AND NOT EXISTS (SELECT 1 FROM group_members k WHERE k.group_id = g.id "
+            + "                      AND k.user_id = CAST(:userId AS uuid) "
+            + "                      AND (k.is_left = false OR k.left_reason = 'KICKED'))) c "
+            + "ORDER BY c.member_count >= c.max_members, md5(CAST(:seed AS text) || CAST(c.id AS text)) "
+            + "LIMIT :limit", nativeQuery = true)
+    List<TelescopeCandidate> findTelescopeCandidates(@Param("userId") String userId,
+            @Param("seed") String seed,
+            @Param("limit") int limit);
+
+    /** {@link #findTelescopeCandidates} 결과 한 행. */
+    interface TelescopeCandidate {
+
+        /** @return 섬 id */
+        UUID getId();
+
+        /** @return 활성·미탈퇴 주민 수 */
+        long getMemberCount();
+
+        /** @return 정원 */
+        int getMaxMembers();
+    }
+
+    /**
      * 살아 있는 섬(소프트 삭제도 종료도 아닌)의 id 전부 — 섬별 7일 평균 배치의 모집단이다 (GROMO-2257).
      * {@code IslandMovementGuards.isAlive} 와 같은 두 축이고, 공개·비공개를 가리지 않는다. 주민이 0명인 섬도
      * 포함한다 — 그 섬은 «평균 없음» 행이 돼야 하므로 세션·멤버십이 아니라 <b>이 표에서 출발</b>해야 한다.

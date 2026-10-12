@@ -11,6 +11,7 @@ import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryVi
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestCancelView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.MyJoinRequestView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.TelescopeView;
 import com.oneorthree.business.api.dto.IslandPage;
 import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
@@ -33,6 +34,7 @@ import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
 import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
 import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
+import com.oneorthree.business.upstream.data.dto.Telescope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -130,6 +132,18 @@ public class IslandMembershipUseCase {
         return new MyIslandsResponse(islands.items().stream().map(IslandSummaryView::from).toList(), null,
             islands.currentIslandId(),
                 islands.lossReason());
+    }
+
+    /**
+     * 망원경 목록 (GROMO-2265, 섬 외부 계약 §5). 페이지가 없다 — 1시간 버킷마다 통째로 바뀐다. 조립·게이트(없음)는
+     * 전부 Data 몫이고 여기서는 공개 필드만 옮긴다.
+     */
+    public TelescopeView telescope(AccessTokenClaims claims, Deadline deadline) {
+        Telescope telescope = relay(() -> data.fetchTelescope(claims.userId(), deadline));
+        if (telescope == null) {
+            throw new UpstreamContractMismatchException("망원경 응답이 없습니다");
+        }
+        return TelescopeView.from(telescope);
     }
 
     /**

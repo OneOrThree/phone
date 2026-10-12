@@ -8,7 +8,9 @@ import com.oneorthree.phone.internal.dto.IslandDiscoverPageView;
 import com.oneorthree.phone.internal.dto.IslandSearchPageView;
 import com.oneorthree.phone.internal.dto.MyIslandsView;
 import com.oneorthree.phone.internal.dto.SwitchCurrentIslandCommandRequest;
+import com.oneorthree.phone.internal.dto.TelescopeView;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.internal.service.TelescopeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -28,7 +30,7 @@ import java.util.UUID;
 /**
  * 섬 소속·탐색의 <b>사용자 축</b> 내부 표면 (GROMO-1759) — 공개 {@code POST /islands}·
  * {@code GET /islands}·{@code GET /islands/discover}·{@code GET /me/islands}·
- * {@code PUT /me/current-island} 의 상류다.
+ * {@code PUT /me/current-island}·{@code GET /me/telescope}(GROMO-2265) 의 상류다.
  *
  * <p>경로 규칙은 GROMO-1764 가 세운 「사용자 축 공개 경로는 {@code /internal/users/{userId}/…}」다 —
  * {@code InternalAuthFilter} 가 그 접두어를 읽어 경로의 userId 와 {@code X-User-Id} 헤더의 일치를
@@ -48,6 +50,7 @@ import java.util.UUID;
 public class InternalIslandMembershipController {
 
     private final IslandMembershipService islandMembershipService;
+    private final TelescopeService telescopeService;
 
     /** 섬 생성 (LLD §3.1). */
     @PostMapping("/islands")
@@ -91,6 +94,15 @@ public class InternalIslandMembershipController {
                                            @RequestParam(required = false) String afterHandle,
                                            @RequestParam int limit) {
         return islandMembershipService.discover(userId, seed, afterHandle, limit);
+    }
+
+    /**
+     * 망원경 목록 (GROMO-2265, 섬 외부 계약 §5) — 1시간 버킷마다 사람별로 고정되는 섬 목록이다. 전망대 게이트가
+     * 없고(망원경은 바다용) 게스트도 읽는다.
+     */
+    @GetMapping("/telescope")
+    public TelescopeView telescope(@PathVariable UUID userId) {
+        return telescopeService.list(userId);
     }
 
     /**
