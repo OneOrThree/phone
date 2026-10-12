@@ -6,11 +6,12 @@
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { BackHandler, Keyboard, StyleSheet, View } from 'react-native';
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { art } from '@/constants/art';
+import { componentTokens } from '@/design-system/tokens';
 import { buildingNames, initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import { createRouteTransitionShield } from '@/services/routeTransition';
@@ -2736,6 +2737,34 @@ test('전망대 순위는 소속 섬이 여럿이어도(현재 섬이 아니어�
   expect(screen.getAllByRole('button', { name: /^\d위 / })).toHaveLength(1);
   screen.getByRole('button', { name: /^2위 남의 섬/ });
 });
+
+test.each([
+  [1, false],
+  [componentTokens.telescope.largeTextThreshold - 0.01, false],
+  [componentTokens.telescope.largeTextThreshold, true],
+  [3, true],
+])(
+  '전망대 순위 «소속됨» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',
+  async (scale, stacked) => {
+    mockFontScale = scale;
+    const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+    mockRankings.mockReturnValue({
+      status: 'ready',
+      data: { items: [ranked(mine, 1)], myRank: 1 },
+    });
+    const screen = await render(
+      <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+    );
+    // 이름 글자의 부모가 본문(이름·평균) 칸이다. 고정 폭 순위·썸네일 옆 오른쪽에 배지를 두면 큰 글자에서 배지가
+    // 행 폭을 다 차지해 이 칸이 0 으로 줄어든다 — 큰 글자에서는 배지가 이 칸 안으로 내려온다.
+    const body = screen.getByText('우리 섬').parent!;
+    expect(StyleSheet.flatten(body.props.style)).toMatchObject({ flex: 1, minWidth: 0 });
+    screen.getByText('평균 1시간'); // 평균 집중 줄은 어느 쪽이든 같은 칸에 있다
+    expect(within(body).queryByText('소속됨') !== null).toBe(stacked);
+    // 보통 글자에서는 지금 자리 그대로 — 같은 행의 오른쪽 끝(본문 칸 밖)
+    within(body.parent!).getByText('소속됨');
+  },
+);
 
 test('전망대의 «섬 찾기» 는 explore 로 가고, 전망대가 서버 모드에서 부르는 API 는 랭킹뿐이다', async () => {
   const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });

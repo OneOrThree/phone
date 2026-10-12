@@ -16,6 +16,7 @@ import {
 import { initialState, reducer } from '@/services/model';
 
 jest.mock('@/services/api/telescope', () => ({
+  ...jest.requireActual('@/services/api/telescope'),
   getTelescope: jest.fn(),
   arriveAtIsland: jest.fn(),
   unpinFromTelescope: jest.fn(),

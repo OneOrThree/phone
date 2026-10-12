@@ -15,6 +15,9 @@
  *                                    없는 섬도 200 `{ deleted: true }` 라 재시도가 안전하다. 뺀 자리는 서버가 목록을 조립할 때
  *                                    그 시간대의 무작위 섬으로 채우므로 호출부는 목록을 다시 읽기만 한다.
  *
+ * 망원경 목록을 서버에서 바꾸는 요청(지금은 넣기)이 성공하면 `onTelescopeChanged` 구독자에게 알린다. 열려 있는 목록이 다시 읽는 데
+ * 쓴다 — 요청이 느려 끝나기 전에 망원경을 열어 옛 목록을 받아 둔 경우를 메운다.
+ *
  * 가입의 `origin: 'telescope'` 는 `islands.ts joinIsland` 가 맡는다 — 즉시 가입이어도 현재 섬을 옮기지 않는다.
  */
 import { ApiError, request } from './client';
@@ -66,6 +69,27 @@ export type PinResult = {
   evicted: { islandId: string; name: string } | null;
 };
 
+const telescopeListeners = new Set<() => void>();
+
+/**
+ * 망원경 목록이 서버에서 바뀌면(넣기 성공 — 목록을 바꾸는 다른 요청도 같은 신호를 쓴다) 불릴 구독자를 등록하고 해제 함수를 돌려준다.
+ * 화면을 떠난 뒤 끝난 요청도 알림은 나간다 — 구독자가 없으면 아무 일도 없고, 다음에 열 때 새로 읽는다.
+ */
+export function onTelescopeChanged(listener: () => void): () => void {
+  telescopeListeners.add(listener);
+  return () => telescopeListeners.delete(listener);
+}
+
+function notifyTelescopeChanged(): void {
+  telescopeListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // 구독자 하나의 실패가 이미 서버에 반영된 요청을 실패로 보이게 하거나 다른 구독자를 막지 않는다(subscribeSession 과 같다).
+    }
+  });
+}
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 
 const contractError = (field: string) =>
@@ -109,11 +133,13 @@ export function arriveAtIsland(islandId: string, idempotencyKey: string): Promis
  * 거절은 공개 오류 코드 그대로 올라간다: 없는·종료·비공개 섬 `GROUP_NOT_FOUND`, 강퇴 섬 `FORBIDDEN`(일반 권한 오류와 코드로는
  * 구분되지 않는다), 내 소속 섬 `STATE_CONFLICT`. 게스트도 넣을 수 있다.
  */
-export function pinToTelescope(islandId: string, source: PinSource): Promise<PinResult> {
-  return request<PinResult>('/me/telescope/pins', {
+export async function pinToTelescope(islandId: string, source: PinSource): Promise<PinResult> {
+  const result = await request<PinResult>('/me/telescope/pins', {
     method: 'POST',
     body: { islandId, source },
   });
+  notifyTelescopeChanged();
+  return result;
 }
 
 /**

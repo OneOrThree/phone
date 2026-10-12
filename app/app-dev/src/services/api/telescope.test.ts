@@ -7,6 +7,7 @@ import { ApiError } from '@/services/api/client';
 import {
   arriveAtIsland,
   getTelescope,
+  onTelescopeChanged,
   pinToTelescope,
   unpinFromTelescope,
 } from '@/services/api/telescope';
@@ -231,5 +232,58 @@ test('unpinFromTelescope — 서버 거절 코드는 그대로 오류로 올라�
     assert.equal(e.code, 'SERVICE_UNAVAILABLE');
     assert.equal(e.status, 503);
     return true;
+  });
+});
+
+describe('onTelescopeChanged — 열린 망원경 목록이 다시 읽도록 넣기 성공을 알린다', () => {
+  const pinned = {
+    status: 201,
+    body: { data: { item: wireItem({ slot: 'pinned' }), evicted: null } },
+  };
+
+  test('넣기가 성공하면 구독자에게 한 번 알리고, 실패한 요청이나 해제한 구독자에게는 알리지 않는다', async () => {
+    const changed = jest.fn();
+    const off = onTelescopeChanged(changed);
+    try {
+      stub([
+        {
+          status: 409,
+          body: {
+            error: {
+              code: 'STATE_CONFLICT',
+              message: '내 섬이에요',
+              field: null,
+              retryable: false,
+            },
+          },
+        },
+        pinned,
+      ]);
+      await assert.rejects(pinToTelescope('mine', 'observatory'));
+      expect(changed).not.toHaveBeenCalled();
+      await pinToTelescope('i1', 'observatory');
+      expect(changed).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+    }
+    await pinToTelescope('i1', 'observatory');
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  test('구독자가 던져도 넣기는 성공으로 돌아오고 다른 구독자에게도 알린다', async () => {
+    const bad = jest.fn(() => {
+      throw new Error('boom');
+    });
+    const good = jest.fn();
+    const offs = [onTelescopeChanged(bad), onTelescopeChanged(good)];
+    try {
+      stub([pinned]);
+      const result = await pinToTelescope('i1', 'observatory');
+      assert.equal(result.item.slot, 'pinned');
+      expect(bad).toHaveBeenCalledTimes(1);
+      expect(good).toHaveBeenCalledTimes(1);
+    } finally {
+      offs.forEach((off) => off());
+    }
   });
 });

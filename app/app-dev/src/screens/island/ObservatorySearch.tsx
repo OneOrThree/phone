@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { Badge, Btn, Txt } from '@/design-system/patterns';
-import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
 import {
   IslandSheet,
@@ -14,6 +14,7 @@ import {
 import { useIslandSearch } from '@/screens/island/useIslandSearch';
 import { useTelescopePin } from '@/screens/island/useTelescopePin';
 import type { IslandSummary } from '@/services/api/islands';
+import { useAppLayout } from '@/utils/layout';
 
 const { space } = primitiveTokens;
 
@@ -41,10 +42,12 @@ const stateText = (island: IslandSummary) =>
  * - 검색어는 300ms 멈추면 서버를 부른다(`useIslandSearch`). 비면 부르지 않고 안내만 보인다. 서버 검색은 이름만 본다 —
  *   초대 코드는 초대 링크 흐름이 맡는다.
  * - 행: 이름 · 소개 · 주민 {n}/{max}. 소속 섬은 «소속됨» 배지로 누를 수 없고(뗏목으로 바로 간다), 신청 중인 섬은 «신청 중» 배지가
- *   붙지만 넣을 수 있다. 그 밖의 섬을 누르면 확인창 → [망원경에 넣기](`useTelescopePin`).
+ *   붙지만 넣을 수 있다. 배지는 행 오른쪽에 두되 큰 글자에서는 이름 아래 줄로 내린다. 그 밖의 섬을 누르면 확인창 → [망원경에 넣기](`useTelescopePin`).
  * - 로딩 · 빈 결과 · 오류(다시 시도)를 따로 그린다. 결과는 첫 페이지뿐이라 더 있으면 검색어를 좁히라고 알린다.
  */
 export function ObservatorySearch({ e }: { e: any }) {
+  // 큰 글자(망원경과 같은 판정)에서는 상태 배지를 이름 아래 줄로 내린다 — 고정 폭 썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·소개 칸이 0 으로 준다
+  const largeText = (useAppLayout().fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
   const [text, setText] = useState('');
   const search = useIslandSearch(text);
   const pin = useTelescopePin(e);
@@ -78,9 +81,8 @@ export function ObservatorySearch({ e }: { e: any }) {
       {search.status === 'loading' && (
         <View testID="observatory-search-loading" style={styles.panel}>
           <ActivityIndicator color={semanticTokens.color.outline} />
-          <Txt kind="meta" accessibilityLiveRegion="polite">
-            {t('telescope.loading')}
-          </Txt>
+          {/* 로딩 문구엔 live region 을 두지 않는다 — 입력마다 패널이 새로 떠서 TalkBack 이 키마다 되풀이해 읽는다 */}
+          <Txt kind="meta">{t('telescope.loading')}</Txt>
         </View>
       )}
       {search.status === 'error' && (
@@ -119,6 +121,11 @@ export function ObservatorySearch({ e }: { e: any }) {
               ]
                 .filter(Boolean)
                 .join(' · ');
+              const badge = !!state && (
+                <Badge soft style={largeText ? undefined : styles.badge}>
+                  {state}
+                </Badge>
+              );
               return (
                 <SheetRow
                   key={island.id}
@@ -126,13 +133,10 @@ export function ObservatorySearch({ e }: { e: any }) {
                   sub={sub}
                   label={[island.name, sub, state].filter(Boolean).join(', ')}
                   chevron={!joined}
+                  below={largeText ? badge : undefined}
                   tail={
                     <>
-                      {!!state && (
-                        <Badge soft style={styles.badge}>
-                          {state}
-                        </Badge>
-                      )}
+                      {!largeText && badge}
                       <IslandThumb />
                     </>
                   }
