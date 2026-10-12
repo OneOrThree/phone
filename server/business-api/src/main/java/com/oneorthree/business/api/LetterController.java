@@ -40,6 +40,9 @@ import tools.jackson.databind.JsonNode;
 @RequiredArgsConstructor
 public class LetterController {
 
+    /** 시스템 편지함을 여는 {@code kind} 값 (GROMO-2260). */
+    private static final String KIND_SYSTEM = "system";
+
     private final LetterUseCase letters;
     private final SettingsSessionGuard sessions;
     private final UpstreamConfigProperties properties;
@@ -72,19 +75,26 @@ public class LetterController {
      * 파라미터 없이 부른다. {@code cursor}·{@code size} 의 <b>형식</b>만 여기서 거른다 — 그대로
      * 넘기면 Data 의 UUID/Integer 변환 실패가 매핑표에 없는 400 이라 공개 502 로 번역된다.
      * 범위·기본값·알 수 없는 {@code type} 의 400 판정은 계속 Data 가 한다.
+     *
+     * <p>{@code kind=system} 은 시스템 편지함(강퇴·가입 승인 안내, GROMO-2260)이다 — 명시적으로 요청할 때만 열린다.
+     * 생략하면 친구 편지함 그대로이고 응답도 그 전과 같다. 허용 값은 {@code system} 하나뿐이다.
      */
     @GetMapping("/letters")
     public LetterPageView letters(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         String cursor = request.getParameter("cursor");
         String size = request.getParameter("size");
+        String kind = request.getParameter("kind");
         if (cursor != null) {
             PublicIds.uuid(cursor, "cursor");
         }
         if (size != null) {
             integer(size, "size");
         }
-        return letters.letters(claims, request.getParameter("type"), cursor, size, properties.deadline());
+        if (kind != null && (!KIND_SYSTEM.equals(kind) || request.getParameterValues("kind").length != 1)) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "kind");
+        }
+        return letters.letters(claims, request.getParameter("type"), kind, cursor, size, properties.deadline());
     }
 
     /** 편지 상세 (LLD §1.14). 수신자의 첫 조회는 읽음을 박는다 — 행은 지워지지 않는다. */

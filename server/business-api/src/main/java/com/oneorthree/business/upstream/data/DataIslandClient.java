@@ -69,6 +69,11 @@ public class DataIslandClient {
             "/internal/users/{userId}/invitations/resolve";
     private static final String PATH_ISLAND_INVITATIONS =
             "/internal/users/{userId}/islands/{islandId}/invitations";
+    /**
+     * 나가기·강퇴 응답에 다음 위치를 싣게 하는 opt-in (GROMO-2260). Data 는 이 파라미터가 없으면 GROMO-2260 이전의
+     * 한 키 응답을 준다 — Data 가 먼저 배포돼도 구 Business 가 깨지지 않게 하려는 장치다.
+     */
+    private static final String INCLUDE_NEXT_LOCATION = "nextLocation";
     // GROMO-2260 섬 도착 기록 — upsert 라 멱등이어서 명령 키가 없다.
     private static final String PATH_ISLAND_ARRIVALS =
             "/internal/users/{userId}/islands/{islandId}/arrivals";
@@ -592,6 +597,7 @@ public class DataIslandClient {
                 InternalCall.to(HttpMethod.DELETE, islandPath(PATH_ISLAND_MEMBER, islandId)
                                 .replace("{targetUserId}", targetUserId.toString()))
                         .onBehalfOf(userId)
+                        .query("include", INCLUDE_NEXT_LOCATION)
                         .idempotencyKey(key.toString())
                         .idempotentCommand()
                         .build(),
@@ -604,6 +610,7 @@ public class DataIslandClient {
         return http.exchange(
                 InternalCall.to(HttpMethod.DELETE, islandPath(userPath(PATH_ISLAND_MEMBERSHIP, userId), islandId))
                         .onBehalfOf(userId)
+                        .query("include", INCLUDE_NEXT_LOCATION)
                         .idempotencyKey(key.toString())
                         .idempotentCommand()
                         .build(),

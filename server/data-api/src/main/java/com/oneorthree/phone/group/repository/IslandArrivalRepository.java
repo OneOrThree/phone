@@ -30,6 +30,17 @@ public interface IslandArrivalRepository extends JpaRepository<IslandArrival, Is
 
     boolean existsByUserIdAndIslandId(UUID userId, UUID islandId);
 
+    /**
+     * 탈퇴자의 도착 기록을 전부 지운다 (GROMO-2260). 그 사람의 이동·방문 이력일 뿐 남의 판정 근거가 아니라
+     * 남길 이유가 없다 — 화면 시간 관측·스냅샷 파기와 같은 결이다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 지운 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM IslandArrival a WHERE a.userId = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
+
     /** 후보 중 도착 기록이 있는 섬 — 목록의 {@code arrivedBefore} 를 한 번에 채운다. 빈 후보는 호출자가 거른다. */
     @Query("SELECT a.islandId FROM IslandArrival a WHERE a.userId = :userId AND a.islandId IN :islandIds")
     List<UUID> findArrivedIslandIdsAmong(@Param("userId") UUID userId,
