@@ -42,12 +42,14 @@ export function VisitorBoard({
   };
   useEffect(() => {
     if (!backOverride) return;
-    backOverride.current = () => {
+    const own = () => {
       back();
       return true;
     };
+    backOverride.current = own;
     return () => {
-      backOverride.current = null;
+      // 이미 다른 화면이 자기 처리를 걸었으면 건드리지 않는다
+      if (backOverride.current === own) backOverride.current = null;
     };
   });
   useEffect(() => {

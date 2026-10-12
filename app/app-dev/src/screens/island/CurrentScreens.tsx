@@ -1661,9 +1661,11 @@ function FocusFlow({ e: environment }: any) {
   // 안드로이드 뒤로가기는 App.back 보다 먼저 이 화면이 처리한다
   useEffect(() => {
     if (!e.backOverride) return;
-    e.backOverride.current = () => backRef.current();
+    const own = () => backRef.current();
+    e.backOverride.current = own;
     return () => {
-      e.backOverride.current = null;
+      // 이미 다른 화면이 자기 처리를 걸었으면 건드리지 않는다
+      if (e.backOverride.current === own) e.backOverride.current = null;
     };
   }, [e.backOverride]);
   // 휴식·결과로 전환하는 순간의 당첨은 유지한다. 집중 흐름을 완전히 떠날 때만 지운다.

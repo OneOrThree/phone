@@ -772,6 +772,20 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   jest.useRealTimers();
 });
 
+test('집중 화면이 사라질 때 자기가 건 뒤로 가기 처리만 걷고 다른 화면이 건 것은 건드리지 않는다', async () => {
+  const backOverride: { current: (() => boolean) | null } = { current: null };
+  const mine = await mount(focusedState(), backOverride);
+  expect(typeof backOverride.current).toBe('function');
+  await mine.unmount();
+  expect(backOverride.current).toBeNull();
+
+  const other = jest.fn(() => true);
+  const screen = await mount(focusedState(), backOverride);
+  backOverride.current = other; // 다른 화면이 자기 처리를 걸었다
+  await screen.unmount();
+  expect(backOverride.current).toBe(other);
+});
+
 test('동작 줄이기에서는 컷신 대신 음성 안내하고 황금 물고기 더미를 반영한다', async () => {
   const announce = jest
     .spyOn(AccessibilityInfo, 'announceForAccessibility')

@@ -4,20 +4,23 @@
  * 뒤로 가기 처리(e.backOverride)를 본다 — back() 의 앞 세 검사와 같은 순서다. 핸들러는 App 하나뿐이라 팝업·모달이
  * 따로 리스너를 달지 않아도 되고, 등록 순서에 기대지 않는다.
  *
- * 방문 화면(visitIsland)만 실제 CurrentScreens(실제 VisitIsland·IslandPopup)로 그리고, 나머지 라우트는 비운다.
+ * 방문 화면(visitIsland)과 집중 화면(focus)만 실제 CurrentScreens(실제 VisitIsland·IslandPopup·FocusFlow)로 그리고,
+ * 나머지 라우트는 비운다.
  */
 import assert from 'node:assert/strict';
 import React from 'react';
 import { BackHandler } from 'react-native';
 import { act, render, waitFor } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from '@/App';
 import { clearSession } from '@/services/api/session';
+import { initialState } from '@/services/model';
 import {
   createBuildingTransitionController,
   isBuildingTransitionActive,
 } from '@/services/buildingTransition';
 
-// 첫 마운트는 App 과 방문 화면 모듈을 처음 읽어 느리다 — 바쁜 머신에서도 기본 5초에 걸리지 않게 넉넉히 둔다
+// 첫 마운트는 App 과 화면 모듈을 처음 읽어 느리다 — 바쁜 머신에서도 기본 5초에 걸리지 않게 넉넉히 둔다
 jest.setTimeout(30_000);
 
 let captured: any;
@@ -27,11 +30,40 @@ jest.mock('@/screens/island/CurrentScreens', () => ({
     const actual = jest.requireActual('@/screens/island/CurrentScreens');
     captured = props.e;
     // 앱은 오프라인이라 e.islands 가 없다 — 서버 방문 화면을 그리도록 빈 명령 묶음만 끼운다
-    return props.e.route === 'visitIsland' ? (
-      <actual.CurrentScreens e={{ ...props.e, islands: { join: jest.fn(), cancel: jest.fn() } }} />
-    ) : null;
+    if (props.e.route === 'visitIsland')
+      return (
+        <actual.CurrentScreens
+          e={{ ...props.e, islands: { join: jest.fn(), cancel: jest.fn() } }}
+        />
+      );
+    return props.e.route === 'focus' ? <actual.CurrentScreens e={props.e} /> : null;
   },
 }));
+
+// 집중 화면의 무거운 월드·참가자 훅은 CurrentScreens.routing.test.tsx 와 같은 가짜로 바꾼다
+jest.mock('@/screens/focus/useFishingPeerActors', () => ({
+  fishingSpotsForActors: (actors: any[]) => actors.map((actor) => actor.spot),
+  useFishingPeerActors: () => ({
+    actors: [],
+    onTransition: jest.fn(),
+    entered: jest.fn(),
+    cast: jest.fn(),
+    leftForPause: jest.fn(),
+    stretched: jest.fn(),
+    leftForComplete: jest.fn(),
+  }),
+}));
+jest.mock('@/screens/focus/FishingIsland', () => {
+  const actual = jest.requireActual('@/screens/focus/FishingIsland');
+  const { View } = require('react-native');
+  return {
+    ...actual,
+    FishingIsland: ({ children }: any) => <View>{children(640, 640 / 1.5, 1)}</View>,
+    FishingActor: () => <View />,
+    FishingPeerActorView: () => <View />,
+    FishingWalker: () => <View />,
+  };
+});
 
 jest.mock('@/screens/focus/useIslandPresence', () => ({
   catColor: (color: string) => color,
@@ -98,7 +130,10 @@ beforeEach(async () => {
   });
   await clearSession();
 });
-afterEach(() => addSpy.mockRestore());
+afterEach(async () => {
+  addSpy.mockRestore();
+  await AsyncStorage.removeItem('gromo-r61-user-v2');
+});
 
 const GREETING = '어서 와요, 같이 집중해요 🐟';
 
@@ -299,4 +334,60 @@ test('방문이 아닌 화면에서도 override·확인창이 먼저이고 overr
   captured.backOverride.current = null;
   assert.equal(await back(), true); // 기존대로 이전 화면
   assert.equal(captured.route, 'login');
+});
+
+test('홈에서는 진행 중인 건물 전환만 취소하고, 없으면 뒤로 가기를 앱이 받지 않는다', async () => {
+  await mount();
+  await act(async () => captured.reset('home'));
+  assert.equal(captured.route, 'home');
+  assert.equal(pressBack(), false); // 받을 게 없다 — OS 몫
+
+  const controller = createBuildingTransitionController();
+  try {
+    await act(async () => {
+      controller.start('board', 'enter', false, jest.fn(), 10_000);
+    });
+    assert.equal(await back(), true); // 건물로 들어가던 전환을 취소한다
+    assert.equal(isBuildingTransitionActive(), false);
+    assert.equal(captured.route, 'home');
+    assert.equal(pressBack(), false); // 그다음은 다시 앱이 받지 않는다
+  } finally {
+    await act(async () => {
+      controller.cancel();
+      controller.dispose();
+    });
+  }
+});
+
+test('집중 중 휴식으로 들어가는 전환 동안 뒤로 가기는 전환만 취소하고, 그다음에야 집중 종료 확인을 연다', async () => {
+  // 소속 섬이 있는 로컬 상태여야 집중 화면이 가입 안내 대신 그려진다
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(initialState(true)));
+  const screen = await mount();
+  await act(async () => {
+    // 휴식 진입은 일시정지가 끝난 뒤에 전환을 시작한다
+    captured.dispatch({ type: 'START', subject: '집중' });
+    captured.dispatch({ type: 'PAUSE' });
+    captured.go('focus');
+  });
+  await waitFor(() => assert.equal(captured.route, 'focus'));
+  // 집중 화면이 뒤로 가기 처리를 건다
+  await waitFor(() => assert.equal(typeof captured.backOverride.current, 'function'));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400)); // 화면 전환 가림막이 걷힌다
+  });
+  await act(async () => captured.go('rest'));
+  assert.equal(isBuildingTransitionActive(), true);
+
+  // 전환 취소가 집중 화면의 종료 확인보다 먼저다 — 취소하면 일시정지한 집중이 다시 시작된다
+  assert.equal(await back(), true);
+  assert.equal(isBuildingTransitionActive(), false);
+  await waitFor(() => assert.equal(captured.state.session?.status, 'active'));
+  assert.equal(captured.route, 'focus');
+  expect(screen.queryByText('이번 집중을 마칠까요?')).toBeNull();
+  expect(screen.queryByText('집중을 마칠까요?')).toBeNull();
+
+  // 전환이 없으면 집중 화면이 종료 확인을 연다
+  assert.equal(await back(), true);
+  expect(await screen.findByText('이번 집중을 마칠까요?')).toBeTruthy();
+  assert.equal(captured.route, 'focus');
 });
