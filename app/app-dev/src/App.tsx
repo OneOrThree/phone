@@ -2126,7 +2126,7 @@ function Gromo() {
                     title={modal.cancel ?? t('common.cancel')}
                     kind="glass"
                     onPress={() => {
-                      const onCancel = modal?.onCancel;
+                      const onCancel = modal.onCancel;
                       setModal(null);
                       onCancel?.();
                     }}

@@ -1053,11 +1053,16 @@ function EmoteFab({
   setFan,
   emote,
   onSend,
+  disabled = false,
+  onDisabledPress,
 }: {
   fan: boolean;
   setFan: (v: boolean) => void;
   emote: string | null;
   onSend: (id: string) => void;
+  /** 보낼 수 없는 상태 — 흐리게 그리고, 누르면 부채꼴 대신 onDisabledPress(안내)만 부른다. */
+  disabled?: boolean;
+  onDisabledPress?: () => void;
 }) {
   const circle = (d: number, bg: string) => ({
     width: d,
@@ -1072,7 +1077,7 @@ function EmoteFab({
   });
   return (
     <>
-      {fan && (
+      {fan && !disabled && (
         <View style={{ position: 'absolute', left: 0, bottom: 64, flexDirection: 'row', gap: 6 }}>
           {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((id) => (
             <Pressable
@@ -1092,9 +1097,12 @@ function EmoteFab({
         testID="emote-fab"
         accessibilityRole="button"
         accessibilityLabel={t('focusFlow.hud.emoteFab')}
-        accessibilityState={{ expanded: fan }}
-        onPress={() => setFan(!fan)}
-        style={circle(52, C.butter)}
+        accessibilityState={{ expanded: fan, disabled }}
+        onPress={() => (disabled ? onDisabledPress?.() : setFan(!fan))}
+        style={[
+          circle(52, C.butter),
+          disabled && { opacity: componentTokens.button.disabledOpacity, boxShadow: 'none' },
+        ]}
       >
         <Image source={art[`emote/${emote ?? 'hello'}`]} style={{ width: 32, height: 32 }} />
       </Pressable>
@@ -1118,14 +1126,22 @@ function FocusVisit({ e, islandId, onBack }: any) {
     : null;
   const transitionHandler = useRef<(transition: any) => void>(() => {});
   const [fan, setFan] = useState(false);
+  // 구경하는 섬의 비주민은 세션 없이 응원을 보낸다(GROMO-2259). 그 섬의 주민(내 다른 소속 섬)은
+  // 세션이 없으면 보낼 수 없고 emotes 구독도 서버가 거절하므로 방문자 모드·이모트 버튼을 끈다.
+  const visitorEmote =
+    visiting &&
+    liveIslandId !== null &&
+    s.serverIslands?.visit?.island.membershipStatus !== 'active';
   const live = useIslandPresence({
     active: liveIslandId !== null,
     islandId: liveIslandId,
-    // 구경하는 섬의 비주민은 세션 없이 응원을 보낸다(GROMO-2259)
-    visitor: visiting && liveIslandId !== null,
+    visitor: visitorEmote,
     onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
+  // focus 에는 집중·일시정지 주민만 있다. 받을 주민이 없으면 서버가 NO_ONE_FOCUSING 으로 거절하고
+  // 그때마다 상류 조회가 나가므로, 스냅숏이 온 뒤 0명이면 요청 없이 안내만 한다.
+  const nobodyFocusing = live.status === 'ready' && live.focus.length === 0;
   const myId = getSession()?.userId;
   const peerMembers: FishingPeer[] = liveIslandId
     ? live.focus
@@ -1233,7 +1249,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
           onPress={close}
         />
       </View>
-      {visiting && liveIslandId && (
+      {visitorEmote && (
         <View
           style={{
             position: 'absolute',
@@ -1246,6 +1262,8 @@ function FocusVisit({ e, islandId, onBack }: any) {
             fan={fan}
             setFan={setFan}
             emote={null}
+            disabled={nobodyFocusing}
+            onDisabledPress={() => e.notify(t('focusFlow.hud.emoteNoOneFocusing'))}
             onSend={(id) => {
               setFan(false);
               if (!live.sendEmote(id)) e.notify(t('focusFlow.hud.emoteSendFailed'));
