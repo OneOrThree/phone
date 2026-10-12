@@ -148,11 +148,13 @@ public class GroupService {
      */
     @Transactional
     public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
-        // 1) 활성 검증 + 공유 락 (GROMO-1226) — 락 없는 findById 면 계정 탈퇴(유저 행 배타 락)의
+        // 1) 활성 검증 + 배타 락 (GROMO-1226 → GROMO-2260) — 락 없는 findById 면 계정 탈퇴(유저 행 배타 락)의
         //    정리 스캔(멤버십 0 확인) 이후·커밋 이전에 낀 생성이 정리를 빠져나가, 탈퇴자가 OWNER 인
         //    is_left=false 그룹이 영구 잔존한다(재탈퇴·위임 모두 불가 = 복구 불능). 유저 부재를
         //    GUEST_FORBIDDEN(403)으로 오분류하던 것도 형제 경로(joinGroup)와 같은 404 로 정정(D9).
-        User user = requireActiveUser(userId);
+        //    공유가 아니라 «배타» 인 이유는 소속 상한(3)이다 — 공유 락이면 같은 사람의 동시 생성·참여 둘이
+        //    나란히 상한 검사를 통과해 4개가 된다. 2.0 가입·생성({@code getCallerForUpdate})과 같은 잠금이다.
+        User user = userQueryService.getCallerForUpdate(userId);
 
         // 1-1) 소속 그룹 수 상한 — 생성도 곧 가입이므로 참가와 같은 기준으로 막는다
         ensureJoinedGroupLimit(user);
@@ -309,9 +311,10 @@ public class GroupService {
      */
     @Transactional
     public void joinGroup(UUID groupId, UUID userId, JoinGroupRequest request) {
-        // 1. 활성 검증 + 공유 락 (GROMO-801, codex 리뷰) — 근거는 requireActiveUser Javadoc.
-        //    탈퇴의 정리 스캔 이후·커밋 이전에 낀 가입(재가입 포함)이 유령 멤버십으로 남는 것을 막는다.
-        User user = requireActiveUser(userId);
+        // 1. 활성 검증 + 배타 락 (GROMO-801 → GROMO-2260) — 탈퇴의 정리 스캔 이후·커밋 이전에 낀
+        //    가입(재가입 포함)이 유령 멤버십으로 남는 것을 막고, 같은 사람의 동시 참여·생성을 직렬화해 소속
+        //    상한(3)을 지킨다(createGroup 과 같은 이유). 잠금 순서는 users → groups 그대로다.
+        User user = userQueryService.getCallerForUpdate(userId);
 
         // 2. 그룹 조회 → NOT_FOUND
         membershipLocks.lockGroup(groupId);
@@ -816,10 +819,10 @@ public class GroupService {
      * 유저가 이미 {@link #MAX_JOINED_GROUPS} 개 그룹에 소속돼 있으면 409({@code GROUP_LIMIT_EXCEEDED}).
      * 모수는 getMyGroups 와 같은 group_members 행 수다(탈퇴는 행 삭제라 자연 제외).
      *
-     * <p>동시성: count → insert 사이에 <b>이 상한만</b> 락이 없어 동시 요청이 1~2 개 넘길 수 있다
-     * (TOCTOU). 이 상한은 보안 경계가 아니라 응답 크기를 묶는 소프트 캡이라 의도적으로 수용한다 —
-     * 버그가 아니라 결정이다. 엄격히 막으려면 유저 행 잠금이나 DB 제약이 필요한데, 그 비용(유저 행
-     * 경합)이 초과 1~2 개보다 크다고 봤다.
+     * <p>동시성: 호출자({@link #createGroup}·{@link #joinGroup})가 유저 행을 <b>배타</b>로 잡은 뒤에 센다
+     * (GROMO-2260) — 소속 섬 3개가 정책 상한이 되면서 종전의 «소프트 캡이라 1~2 개 초과는 수용» 결정을
+     * 뒤집었다. 같은 사람의 동시 생성·참여는 이 잠금으로 직렬화되고, 2.0 가입·생성·승인도 같은 유저 행을
+     * 배타로 잡으므로 경로를 섞어도 상한을 넘지 않는다.
      *
      * <p><b>바로 아래 ROOM_FULL 은 여기에 해당하지 않는다</b>(GROMO-1993 정정). 이 메서드보다 앞서
      * {@code membershipLocks.lockGroup} 이 groups 행을 {@code FOR UPDATE} 로 잡고, 그 섬에 멤버십을

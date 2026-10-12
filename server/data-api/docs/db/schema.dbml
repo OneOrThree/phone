@@ -472,6 +472,7 @@ Table letters [note: '친구 사이 1:1 편지 (GROMO-1933, friend-letter LLD §
   indexes {
     (receiver_id, id) [note: '받은 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_receiver_cursor)']
     (sender_id, id)   [note: '보낸 편지함 커서 — 실제는 (sender_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_sender_cursor)']
+    (receiver_id, id) [name: 'letters_receiver_system_idx', note: "시스템 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL AND kind <> 'FRIEND' 부분 인덱스. GROMO-2260, V107"]
   }
 }
 

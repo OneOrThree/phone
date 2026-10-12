@@ -49,9 +49,17 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -244,6 +252,31 @@ class IslandArrivalIntegrationTest {
         assertThat(arrivedBefore(islands.myIslands(joiner), created)).isTrue();
         assertThat(islands.switchCurrentIsland(joiner, created, UUID.randomUUID()).currentIslandId())
                 .as("ISLAND_NOT_ARRIVED 로 막히지 않는다").isEqualTo(created);
+    }
+
+    @Test
+    @DisplayName("소속 2개인 사람의 1.x 동시 참여 둘은 상한 3을 넘지 못한다 — 한쪽만 성공, 다른 쪽은 409")
+    void concurrentLegacyJoinsRespectTheCap() throws Exception {
+        UUID user = newUser();
+        joinAs(user, island("하나섬", false, false), GroupMemberRole.MEMBER);
+        joinAs(user, island("둘섬", false, false), GroupMemberRole.MEMBER);
+        UUID left = island("왼섬", false, false);
+        UUID right = island("오른섬", false, false);
+
+        List<Throwable> failures = race(
+                () -> {
+                    legacyGroups.joinGroup(left, user, JoinGroupRequest.builder().build());
+                    return null;
+                },
+                () -> {
+                    legacyGroups.joinGroup(right, user, JoinGroupRequest.builder().build());
+                    return null;
+                });
+
+        assertThat(failures).hasSize(1);
+        assertThat(failures.get(0)).hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_LIMIT_EXCEEDED);
+        assertThat(count("select count(*) from group_members where user_id=? and is_left=false", user))
+                .isEqualTo(3);
     }
 
     @Test
@@ -566,6 +599,33 @@ class IslandArrivalIntegrationTest {
     }
 
     // ---------------------------------------------------------------- 도구
+
+    /** 두 명령을 동시에 출발시키고 실패만 모은다 — {@code IslandManagementIntegrationTest.race} 와 같은 도구다. */
+    private List<Throwable> race(Callable<?> first, Callable<?> second) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (Callable<?> task : List.of(first, second)) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    return task.call();
+                }));
+            }
+            start.countDown();
+            List<Throwable> failures = new ArrayList<>();
+            for (Future<?> future : futures) {
+                try {
+                    future.get(30, TimeUnit.SECONDS);
+                } catch (ExecutionException e) {
+                    failures.add(e.getCause());
+                }
+            }
+            return failures;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
 
     private static String jsonPathOf(String json, String path) {
         return JsonPath.read(json, path);

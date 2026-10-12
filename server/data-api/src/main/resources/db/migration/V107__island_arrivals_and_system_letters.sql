@@ -42,3 +42,7 @@ ALTER TABLE letters ALTER COLUMN sender_id DROP NOT NULL;
 ALTER TABLE letters ADD COLUMN kind varchar(20) NOT NULL DEFAULT 'FRIEND'
     CHECK (kind IN ('FRIEND', 'KICK', 'JOIN_APPROVED'));
 ALTER TABLE letters ADD COLUMN island_id uuid REFERENCES groups (id) ON DELETE SET NULL;
+-- 시스템 편지함 조회(LetterRepository.findSystemReceivedByCursor) 전용 부분 인덱스 — 친구 편지함 커서
+-- 인덱스(idx_letters_receiver_cursor, V61)는 kind 를 몰라, 몇 통 안 되는 시스템 편지를 찾으려 친구 편지를 훑는다.
+CREATE INDEX letters_receiver_system_idx ON letters (receiver_id, id DESC)
+    WHERE deleted_at IS NULL AND kind <> 'FRIEND';

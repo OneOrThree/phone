@@ -119,7 +119,7 @@ public class IslandJoinService {
      * 방장에게 보내지 않는다. 승인 시점에도 다시 본다.
      *
      * <p>{@code origin=telescope}(GROMO-2260)이면 즉시 가입이어도 현재 섬을 옮기지도 도착을 기록하지도
-     * 않는다 — 처음 한 번은 항해해서 가야 한다. {@code visit}(기본)이면 그 섬에 서 있으므로 옮기고
+     * 않는다 — 처음 한 번은 항해해서 가야 한다. 옮기지 않으므로 이동 가드(집중 세션·출발 섬 전망대)도 걸지 않는다. {@code visit}(기본)이면 그 섬에 서 있으므로 옮기고
      * 도착을 기록한다.
      *
      * <p><b>정원만은 신청에도 건다</b>(GROMO-1993) — 정책 「승인 필요 섬이 가득 차면 새 가입 신청을
@@ -197,8 +197,12 @@ public class IslandJoinService {
                                 InternalJson.tree(events));
                     }
 
-                    movementGuards.requireNoLiveFocusSession(user);
-                    movementGuards.requireDepartureUnlocked(context);
+                    if (!telescope) {
+                        // 이동 가드는 실제로 옮길 때만 건다(GROMO-2260) — 망원경 가입은 현재 섬을 바꾸지 않으므로
+                        // 집중 중이어도, 출발 섬 전망대가 잠겨 있어도 막을 이유가 없다. 상한·정원은 그대로 본다.
+                        movementGuards.requireNoLiveFocusSession(user);
+                        movementGuards.requireDepartureUnlocked(context);
+                    }
                     movementGuards.requireJoinedIslandLimit(user);
                     requireCapacity(island);
 
