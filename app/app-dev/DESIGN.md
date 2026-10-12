@@ -397,7 +397,7 @@ Semantic spacing:
 - 뒤로가기, 설정, chevron은 Brown/Ink 선형 아이콘을 사용한다.
 - 탭·세그먼트·칩은 선택 상태를 `accessibilityState`에도 반영한다.
 - 오버레이 뒤 콘텐츠는 스크린 리더 탐색에서 숨긴다.
-- 섬 위 팝업(`IslandPopup`)은 열려 있는 동안 모달이다. 팝업 자신이 iOS `accessibilityViewIsModal` 이고 Android 뒤로 가기를 팝업 닫기로 받는다(화면 이동이 아니다). 형제를 가릴 수 없는 Android 스크린리더용 숨김(`importantForAccessibility="no-hide-descendants"`)은 팝업 뒤 장면을 감싸는 쪽이 건다(방문 지도 `visit-scene`).
+- 섬 위 팝업(`IslandPopup`)은 표현만 한다. 열려 있는 동안 모달이라는 것은 iOS `accessibilityViewIsModal` 로만 알리고, Android 뒤로 가기와 Android 스크린리더용 숨김(`importantForAccessibility="no-hide-descendants"`)은 호출자가 맡는다. 뒤로 가기는 `e.backOverride` 로 팝업 닫기를 건다(App 의 뒤로 가기 핸들러는 방문 분기보다 먼저 열린 확인창·건물 전환·`backOverride` 를 본다). 숨김은 팝업 뒤 장면을 감싸는 쪽이 건다(방문 지도 `visit-scene`).
 - 키보드가 열린 상태에서도 입력과 CTA가 가려지지 않아야 한다.
 
 #### 몽돌 튜토리얼 스포트라이트

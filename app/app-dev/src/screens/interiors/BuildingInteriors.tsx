@@ -6169,14 +6169,19 @@ export function Board({
     quest: questBox,
     blueprint: blueprintBox,
     // 위쪽 공지·청사진 터치 영역은 큰 글자에서 커진다 — 방명록은 그 1px 아래로 밀어 서로 겹치지 않게 하고(위 영역의
-    // 터치를 가로채지 않게), 넓어진 영역이 장면 밖으로 나가지 않게 가로를 맞춘다.
+    // 터치를 가로채지 않게), 넓어진 영역이 장면 밖으로 나가지 않게 가로·세로를 장면 안으로 맞춘다.
+    // 퀘스트 상자는 직접 비교하지 않는다 — 청사진 상자가 그 아래에 있어 청사진 아래면 퀘스트 아래이기도 하다.
+    // 아주 작은 창에서 눌려 남는 겹침은 zIndex(1 < 공지·청사진 2)로 위 영역이 이긴다.
     guestbook: {
       ...guestbookBase,
       left: Math.min(Math.max(0, guestbookBase.left), scene.width - guestbookBase.width),
-      top: Math.max(
-        guestbookBase.top,
-        noticeBox.top + noticeBox.height + 1,
-        blueprintBox.top + blueprintBox.height + 1,
+      top: Math.min(
+        Math.max(
+          guestbookBase.top,
+          noticeBox.top + noticeBox.height + 1,
+          blueprintBox.top + blueprintBox.height + 1,
+        ),
+        scene.height - guestbookBase.height,
       ),
     },
   };

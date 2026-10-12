@@ -2453,6 +2453,42 @@ test.each(
   },
 );
 
+// 아주 작은 창(분할 화면 등)에서는 공지·청사진 아래로 밀면 장면 아래로 넘친다 — 장면 안으로 눌러 두고,
+// 그래서 남는 겹침은 zIndex 로 공지·청사진이 이기게 한다(방명록이 윗 영역의 터치를 가로채지 않는다).
+test.each([
+  [100, 150, 1],
+  [80, 120, 1],
+  [80, 120, 3],
+])(
+  '방명록 터치 영역은 아주 작은 %i×%i · 글자 %i배에서도 장면 안에 있고 공지·청사진이 위에 있다',
+  async (width, height, scale) => {
+    const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(scale);
+    try {
+      getBoardMock.mockResolvedValue(page([], null, 'member'));
+      const screen = await renderBoard(makeE({ tab: '' }), concept({ boardView: 'list' }), {
+        width,
+        height,
+      });
+      await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      const style = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style);
+      const guestbook = style('board-guestbook-area');
+      assert.ok(guestbook.height >= 44 && guestbook.width >= 44);
+      assert.ok(guestbook.top >= 0, `방명록 영역이 장면 위로 나감: ${guestbook.top}`);
+      assert.ok(
+        guestbook.top + guestbook.height <= scene.height + 0.01,
+        `방명록 영역이 장면 아래로 나감: ${guestbook.top + guestbook.height} > ${scene.height}`,
+      );
+      assert.ok(guestbook.left >= -0.01 && guestbook.left + guestbook.width <= scene.width + 0.01);
+      assert.ok(guestbook.zIndex < style('board-notice-area').zIndex);
+      assert.ok(guestbook.zIndex < style('board-blueprint-area').zIndex);
+      await screen.unmount();
+    } finally {
+      fontScale.mockRestore();
+    }
+  },
+);
+
 test('방명록 종이는 게시판 정보를 받는 동안 불러오는 중을 보이고, 받으면 방명록을 연다', async () => {
   const board = deferred<any>();
   getBoardMock.mockReturnValue(board.promise);
