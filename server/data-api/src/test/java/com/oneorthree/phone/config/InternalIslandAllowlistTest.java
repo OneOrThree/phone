@@ -45,8 +45,9 @@ class InternalIslandAllowlistTest {
         routes.addAll(routesOf(InternalIslandMembershipController.class));
         routes.addAll(routesOf(InternalIslandController.class));
 
-        assertThat(routes).as("6종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
-                .hasSize(6);
+        // GROMO-2260 이 섬 도착(POST …/islands/{islandId}/arrivals) 1종을 더해 7종이다.
+        assertThat(routes).as("7종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
+                .hasSize(7);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }

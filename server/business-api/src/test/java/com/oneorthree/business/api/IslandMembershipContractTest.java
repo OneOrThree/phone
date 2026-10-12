@@ -56,7 +56,7 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     private static final String SUMMARY = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,"
             + "\"membershipStatus\":\"none\",\"joinRequestId\":null,"
-            + "\"growthStage\":null,\"themeId\":null}";
+            + "\"growthStage\":null,\"themeId\":null,\"arrivedBefore\":true}";
     private static final String DETAIL = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,"
             + "\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
@@ -342,7 +342,8 @@ class IslandMembershipContractTest extends UpstreamTestBase {
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
             "400,INVALID_REQUEST,400,INVALID_REQUEST,",
             "409,SESSION_IN_PROGRESS,409,STATE_CONFLICT,",
-            "409,GROUP_LIMIT_EXCEEDED,409,STATE_CONFLICT,",
+            "409,GROUP_LIMIT_EXCEEDED,409,ISLAND_LIMIT_EXCEEDED,",
+            "403,ISLAND_NOT_ARRIVED,403,ISLAND_NOT_ARRIVED,islandId",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
             "409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,",
             "403,SESSION_IN_PROGRESS,400,UPSTREAM_CONTRACT_ERROR,",
@@ -505,9 +506,9 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     @CsvSource(delimiter = '|', value = {
             "/islands|post|200||id membershipStatus role currentIslandId|id membershipStatus role currentIslandId",
             "/me/current-island|put|200||currentIslandId|currentIslandId",
-            "/me/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
-            "/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
-            "/islands/discover|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/me/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands/discover|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
             "/me/join-requests|get|200|items|id islandId islandName memberCount maxMembers status version createdAt|id islandId memberCount maxMembers status version createdAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {

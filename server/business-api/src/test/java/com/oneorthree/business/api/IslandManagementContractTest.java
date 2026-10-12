@@ -207,17 +207,20 @@ class IslandManagementContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- kick / leave
 
     @Test
-    @DisplayName("강퇴·나가기는 본문 없이 멱등키만 전달하고 최소 결과만 돌려준다 — 나가기는 사용자 축 경로다")
+    @DisplayName("강퇴·나가기는 본문 없이 멱등키만 전달하고 결과와 다음 위치를 돌려준다 — 나가기는 사용자 축 경로다")
     void kickAndLeaveForwardKeysAndReturnMinimalEvidence() throws Exception {
-        DATA.on(DATA_KICK, request -> ok("{\"removed\":true}"));
-        DATA.on(DATA_LEAVE, request -> ok("{\"left\":true}"));
+        DATA.on(DATA_KICK, request -> ok("{\"removed\":true,\"nextLocation\":{\"islandId\":\"" + ISLAND + "\"}}"));
+        DATA.on(DATA_LEAVE, request -> ok("{\"left\":true,\"nextLocation\":{\"islandId\":null}}"));
 
         mockMvc.perform(auth(delete("/islands/" + ISLAND + "/members/" + TARGET)).header("Idempotency-Key", KEY))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.removed").value(true));
+                .andExpect(jsonPath("$.data.removed").value(true))
+                .andExpect(jsonPath("$.data.nextLocation.islandId").value(ISLAND.toString()));
         mockMvc.perform(auth(delete("/islands/" + ISLAND + "/memberships/me")).header("Idempotency-Key", KEY))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.left").value(true));
+                .andExpect(jsonPath("$.data.left").value(true))
+                .andExpect(jsonPath("$.data.nextLocation").exists())
+                .andExpect(jsonPath("$.data.nextLocation.islandId").value(nullValue()));
 
         assertThat(DATA.receivedFor(DATA_KICK).get(0).header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(DATA.receivedFor(DATA_LEAVE).get(0).header("X-User-Id")).isEqualTo(USER.toString());
@@ -283,6 +286,8 @@ class IslandManagementContractTest extends UpstreamTestBase {
         "PATCH_ANSWER,409,JOIN_REQUEST_TERMINAL,409,STATE_CONFLICT",
         "PATCH_ANSWER,409,ROOM_FULL,409,STATE_CONFLICT",
         "PATCH_ANSWER,403,KICKED_CANNOT_REJOIN,409,STATE_CONFLICT",
+        // 신청자의 소속 섬 상한 3 (GROMO-2260) — 전용 코드로 옮긴다.
+        "PATCH_ANSWER,409,GROUP_LIMIT_EXCEEDED,409,ISLAND_LIMIT_EXCEEDED",
         "PATCH_ANSWER,404,JOIN_REQUEST_NOT_FOUND,404,NOT_FOUND",
         "PATCH_ANSWER,410,INVITATION_EXPIRED,410,INVITATION_EXPIRED",
         "PATCH_MANAGE,400,INVALID_REQUEST,400,INVALID_REQUEST",

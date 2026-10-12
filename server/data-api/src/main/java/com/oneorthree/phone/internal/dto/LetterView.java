@@ -1,5 +1,7 @@
 package com.oneorthree.phone.internal.dto;
 
+import com.oneorthree.phone.letter.repository.domain.LetterKind;
+
 import java.time.Instant;
 import java.util.UUID;
 
@@ -12,7 +14,10 @@ import java.util.UUID;
  *
  * @param senderNickname 발신자 닉네임. <b>탈퇴자는 null</b> — {@code erasePersonalData} 가 닉네임만 지우고
  *     유저 행은 남기므로(LLD §3) 조회 시점에 자연히 null 이 된다
+ * @param senderId       발신자. <b>시스템 편지는 null</b> (GROMO-2260)
  * @param readAt         수신자가 처음 상세를 연 시각. 안 읽었으면 null. 발송 직후는 항상 null 이다
+ * @param kind           편지 종류 (GROMO-2260)
+ * @param islandId       시스템 편지가 가리키는 섬. 친구 편지는 null
  */
 public record LetterView(
         UUID id,
@@ -21,5 +26,7 @@ public record LetterView(
         UUID receiverId,
         String content,
         Instant createdAt,
-        Instant readAt) {
+        Instant readAt,
+        LetterKind kind,
+        UUID islandId) {
 }

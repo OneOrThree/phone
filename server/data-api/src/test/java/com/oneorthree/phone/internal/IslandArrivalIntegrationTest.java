@@ -1,0 +1,378 @@
+package com.oneorthree.phone.internal;
+
+import com.oneorthree.phone.auth.service.AuthService;
+import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.group.exception.GroupErrorCode;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.GroupStatus;
+import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
+import com.oneorthree.phone.internal.dto.IslandLeftView;
+import com.oneorthree.phone.internal.dto.IslandSummaryView;
+import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
+import com.oneorthree.phone.internal.dto.LetterItemView;
+import com.oneorthree.phone.internal.dto.LetterView;
+import com.oneorthree.phone.internal.dto.MyIslandsView;
+import com.oneorthree.phone.internal.service.InternalLetterService;
+import com.oneorthree.phone.internal.service.IslandJoinService;
+import com.oneorthree.phone.internal.service.IslandManagementService;
+import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.letter.repository.domain.LetterKind;
+import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.User;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * 소속 섬 3개 상한·도착 상태·나가기/강퇴 다음 위치·시스템 편지 (GROMO-2260, 섬 외부 계약 §1)를 <b>실제 Flyway
+ * PostgreSQL</b> 위에서 생산 진입점으로 검증한다. 시드는 생산 서비스와 엔티티로만 만든다.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+class IslandArrivalIntegrationTest {
+
+    private static final String TOKEN = "test-island-arrival-business";
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        OutboxTestPostgres.applyProductionMigrationWiring(registry);
+        registry.add("island-management.commands-enabled", () -> true);
+        registry.add("notification.dispatch.mode", () -> "OUTBOX");
+        registry.add("internal.api.enabled", () -> true);
+        registry.add("internal.api.callers.business.token", () -> TOKEN);
+        String[] allow = {"POST /internal/users/*/islands/*/memberships", "PUT /internal/users/*/current-island",
+            "POST /internal/users/*/islands/*/arrivals", "DELETE /internal/islands/*/members/*",
+            "DELETE /internal/users/*/islands/*/membership"};
+        for (int i = 0; i < allow.length; i++) {
+            String entry = allow[i];
+            registry.add("internal.api.callers.business.allow[" + i + "]", () -> entry);
+        }
+    }
+
+    @Autowired
+    IslandMembershipService islands;
+    @Autowired
+    IslandJoinService joins;
+    @Autowired
+    IslandManagementService management;
+    @Autowired
+    InternalLetterService letters;
+    @Autowired
+    GroupRepository groups;
+    @Autowired
+    GroupMemberRepository members;
+    @Autowired
+    UserQueryService users;
+    @Autowired
+    AuthService auth;
+    @Autowired
+    JwtProvider jwt;
+    @Autowired
+    JdbcTemplate jdbc;
+    @Autowired
+    MockMvc mvc;
+
+    // ---------------------------------------------------------------- 상한 3
+
+    @Test
+    @DisplayName("소속 3개면 4번째 즉시 가입·승인제 신청·섬 만들기가 전부 409 GROUP_LIMIT_EXCEEDED 다")
+    void fourthMembershipIsRejectedOnEveryPath() throws Exception {
+        UUID loaded = newUser();
+        for (int i = 0; i < 3; i++) {
+            joinAs(loaded, island("상한섬" + i, false, false), GroupMemberRole.MEMBER);
+        }
+        UUID open = island("네번째섬", false, false);
+        mvc.perform(post("/internal/users/" + loaded + "/islands/" + open + "/memberships")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", loaded)
+                        .header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("GROUP_LIMIT_EXCEEDED"))
+                .andExpect(jsonPath("$.message").value("소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요"));
+
+        UUID approval = island("승인섬", false, true);
+        assertThatThrownBy(() -> joins.join(loaded, approval, null, UUID.randomUUID()))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_LIMIT_EXCEEDED);
+        assertThatThrownBy(() -> islands.create(loaded,
+                new CreateIslandCommandRequest("만들섬", null, false, null), UUID.randomUUID()))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_LIMIT_EXCEEDED);
+
+        assertThat(count("select count(*) from group_members where user_id=? and is_left=false", loaded))
+                .isEqualTo(3);
+        assertThat(count("select count(*) from island_join_requests where applicant_id=?", loaded))
+                .as("가득 찬 사람의 신청은 방장에게 가지 않는다").isZero();
+    }
+
+    // ---------------------------------------------------------------- 망원경 가입 · 도착
+
+    @Test
+    @DisplayName("망원경 가입은 옮기지 않고 도착도 남기지 않는다 — 도착 전 즉시 이동은 403, 도착 뒤엔 된다")
+    void telescopeJoinNeedsAnArrivalBeforeInstantMove() throws Exception {
+        UUID user = newUser();
+        UUID home = islands.create(user, new CreateIslandCommandRequest("본섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID target = island("망원경섬", false, false);
+        joinAs(newUser(), target, GroupMemberRole.OWNER);
+
+        mvc.perform(post("/internal/users/" + user + "/islands/" + target + "/memberships")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType("application/json").content("{\"origin\":\"telescope\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("active"))
+                .andExpect(jsonPath("$.currentIslandId").value(home.toString()));
+        assertThat(currentIsland(user)).as("망원경 가입은 옮기지 않는다").isEqualTo(home);
+        assertThat(arrived(user, target)).isFalse();
+        assertThat(arrivedBefore(islands.myIslands(user), target)).isFalse();
+        assertThat(arrivedBefore(islands.myIslands(user), home)).as("만든 섬은 처음부터 가 본 섬").isTrue();
+
+        mvc.perform(put("/internal/users/" + user + "/current-island")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType("application/json").content("{\"islandId\":\"" + target + "\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ISLAND_NOT_ARRIVED"));
+        assertThat(currentIsland(user)).isEqualTo(home);
+
+        for (int i = 0; i < 2; i++) {
+            // 멱등 — 두 번째 도착도 같은 결과다.
+            mvc.perform(post("/internal/users/" + user + "/islands/" + target + "/arrivals")
+                            .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.islandId").value(target.toString()))
+                    .andExpect(jsonPath("$.arrivedBefore").value(true))
+                    .andExpect(jsonPath("$.membershipStatus").value("active"))
+                    .andExpect(jsonPath("$.currentIslandId").value(target.toString()));
+        }
+        assertThat(currentIsland(user)).isEqualTo(target);
+        assertThat(arrivedBefore(islands.myIslands(user), target)).isTrue();
+        assertThat(count("select count(*) from island_arrivals where user_id=? and island_id=?", user, target))
+                .isEqualTo(1);
+        // 가 본 섬끼리는 즉시 이동이 된다.
+        assertThat(islands.switchCurrentIsland(user, home, UUID.randomUUID()).currentIslandId()).isEqualTo(home);
+
+        mvc.perform(post("/internal/users/" + user + "/islands/" + island("엉뚱섬", false, false) + "/memberships")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType("application/json").content("{\"origin\":\"boat\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("방문 중 즉시 가입(기본 origin)은 옮기고 도착을 남긴다")
+    void visitJoinMovesAndRecordsArrival() {
+        UUID user = newUser();
+        UUID target = island("방문섬", false, false);
+        joinAs(newUser(), target, GroupMemberRole.OWNER);
+
+        assertThat(joins.join(user, target, new JoinIslandCommandRequest(null, "visit"), UUID.randomUUID())
+                .currentIslandId()).isEqualTo(target);
+        assertThat(currentIsland(user)).isEqualTo(target);
+        assertThat(arrived(user, target)).isTrue();
+    }
+
+    @Test
+    @DisplayName("비주민 도착은 기록만 남기고 현재 섬을 바꾸지 않는다 — 비공개 섬은 404 로 숨긴다")
+    void visitorArrivalOnlyRecords() throws Exception {
+        UUID visitor = newUser();
+        UUID open = island("구경섬", false, false);
+        mvc.perform(post("/internal/users/" + visitor + "/islands/" + open + "/arrivals")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", visitor))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.membershipStatus").value("none"))
+                .andExpect(jsonPath("$.currentIslandId").value(nullValue()));
+        assertThat(arrived(visitor, open)).isTrue();
+        assertThat(currentIsland(visitor)).isNull();
+
+        UUID hidden = island("숨은섬", true, false);
+        mvc.perform(post("/internal/users/" + visitor + "/islands/" + hidden + "/arrivals")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", visitor))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+        assertThat(arrived(visitor, hidden)).isFalse();
+    }
+
+    // ---------------------------------------------------------------- 나가기 · 강퇴 다음 위치
+
+    @Test
+    @DisplayName("나가기의 nextLocation 은 남은 소속 중 최근 머문 섬이고 컨텍스트와 같다 — 가 본 섬이 없으면 null")
+    void leaveReportsTheMostRecentlyVisitedRemainingIsland() throws Exception {
+        UUID user = newUser();
+        UUID first = islands.create(user, new CreateIslandCommandRequest("첫섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID second = island("둘째섬", false, false);
+        joinAs(newUser(), second, GroupMemberRole.OWNER);
+        joins.join(user, second, null, UUID.randomUUID());
+        UUID scoped = island("망원섬", false, false);
+        joinAs(newUser(), scoped, GroupMemberRole.OWNER);
+        // 가장 최근 «가입» 은 망원섬이지만 가 본 적이 없다 — 종전 메인 섬 규칙이면 여기로 갔다.
+        joins.join(user, scoped, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+        islands.switchCurrentIsland(user, first, UUID.randomUUID());
+
+        mvc.perform(delete("/internal/users/" + user + "/islands/" + first + "/membership")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                        .header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.left").value(true))
+                .andExpect(jsonPath("$.nextLocation.islandId").value(second.toString()));
+        assertThat(currentIsland(user)).isEqualTo(second);
+
+        IslandLeftView last = management.leave(user, second, UUID.randomUUID());
+        assertThat(last.nextLocation().islandId()).as("남은 망원섬은 가 본 적 없어 먼바다").isNull();
+        assertThat(currentIsland(user)).isNull();
+        assertThat(islands.myIslands(user).lossReason()).isEqualTo(GroupLeaveReason.LEFT);
+    }
+
+    @Test
+    @DisplayName("현재 섬이 아닌 섬을 나가면 컨텍스트는 그대로고 nextLocation 은 현재 섬이다")
+    void leavingAnotherIslandKeepsTheCurrentOne() {
+        UUID user = newUser();
+        UUID home = islands.create(user, new CreateIslandCommandRequest("머무는섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID other = island("곁섬", false, false);
+        joinAs(newUser(), other, GroupMemberRole.OWNER);
+        joins.join(user, other, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+
+        assertThat(management.leave(user, other, UUID.randomUUID()).nextLocation().islandId()).isEqualTo(home);
+        assertThat(currentIsland(user)).isEqualTo(home);
+    }
+
+    @Test
+    @DisplayName("강퇴 — nextLocation 은 대상의 다음 위치, 강퇴 편지 1건(발신자 없음), 같은 섬 재가입은 403")
+    void kickSendsALetterAndBlocksRejoin() throws Exception {
+        UUID host = newUser();
+        UUID islandId = island("강퇴섬", false, false);
+        joinAs(host, islandId, GroupMemberRole.OWNER);
+        UUID target = newUser();
+        UUID home = islands.create(target, new CreateIslandCommandRequest("대상집", null, false, null),
+                UUID.randomUUID()).id();
+        joins.join(target, islandId, null, UUID.randomUUID());
+        assertThat(currentIsland(target)).isEqualTo(islandId);
+
+        UUID key = UUID.randomUUID();
+        for (int i = 0; i < 2; i++) {
+            // 같은 키 재생은 원 응답을 돌려주고 편지를 다시 만들지 않는다.
+            mvc.perform(delete("/internal/islands/" + islandId + "/members/" + target)
+                            .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", host)
+                            .header("Idempotency-Key", key))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.removed").value(true))
+                    .andExpect(jsonPath("$.nextLocation.islandId").value(home.toString()));
+        }
+        assertThat(currentIsland(target)).isEqualTo(home);
+
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select sender_id, kind, island_id, content from letters where receiver_id=?", target);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0))
+                .containsEntry("sender_id", null)
+                .containsEntry("kind", "KICK")
+                .containsEntry("island_id", islandId)
+                .containsEntry("content", "강퇴섬섬에서 더 이상 함께할 수 없게 되었어요");
+
+        // 받은 편지함·상세가 발신자 없는 편지를 그대로 읽는다(LEFT JOIN).
+        List<LetterItemView> inbox = letters.list(target, null, null, null).content();
+        assertThat(inbox).hasSize(1);
+        assertThat(inbox.get(0).counterpartUserId()).isNull();
+        assertThat(inbox.get(0).kind()).isEqualTo(LetterKind.KICK);
+        assertThat(inbox.get(0).islandId()).isEqualTo(islandId);
+        LetterView detail = letters.detail(target, inbox.get(0).id());
+        assertThat(detail.senderId()).isNull();
+        assertThat(detail.kind()).isEqualTo(LetterKind.KICK);
+
+        mvc.perform(post("/internal/users/" + target + "/islands/" + islandId + "/memberships")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", target)
+                        .header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("KICKED_CANNOT_REJOIN"));
+    }
+
+    // ---------------------------------------------------------------- 승인 편지
+
+    @Test
+    @DisplayName("가입 승인은 항해 시간이 적힌 JOIN_APPROVED 편지를 남기고, 승인된 섬은 아직 가 본 섬이 아니다")
+    void approvalSendsALetterWithSailingTime() {
+        UUID host = newUser();
+        UUID islandId = island("승인섬", false, true);
+        joinAs(host, islandId, GroupMemberRole.OWNER);
+        UUID applicant = newUser();
+        UUID request = joins.join(applicant, islandId, null, UUID.randomUUID()).requestId();
+
+        joins.answer(host, islandId, request, true, UUID.randomUUID());
+
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select sender_id, kind, island_id, content from letters where receiver_id=?", applicant);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0))
+                .containsEntry("sender_id", null)
+                .containsEntry("kind", "JOIN_APPROVED")
+                .containsEntry("island_id", islandId);
+        assertThat((String) rows.get(0).get("content")).matches(
+                "승인섬섬 가입이 승인됐어요\\. 망원경에서 출발해 보세요 — 지금 출발하면 (30|60|90)분 뒤 도착해요");
+        assertThat(arrivedBefore(islands.myIslands(applicant), islandId)).isFalse();
+    }
+
+    // ---------------------------------------------------------------- 도구
+
+    private static boolean arrivedBefore(MyIslandsView view, UUID islandId) {
+        return view.items().stream().filter(item -> item.id().equals(islandId))
+                .map(IslandSummaryView::arrivedBefore).findFirst().orElseThrow();
+    }
+
+    private boolean arrived(UUID userId, UUID islandId) {
+        return count("select count(*) from island_arrivals where user_id=? and island_id=?", userId, islandId) == 1;
+    }
+
+    private UUID newUser() {
+        return jwt.extractUserId(auth.guestLogin().accessToken());
+    }
+
+    private UUID island(String name, boolean isPrivate, boolean approvalRequired) {
+        return groups.save(Group.builder().name(name).description(null).maxMembers(10)
+                .isPrivate(isPrivate).approvalRequired(approvalRequired)
+                .status(GroupStatus.WAITING).build()).getId();
+    }
+
+    private void joinAs(UUID userId, UUID islandId, GroupMemberRole role) {
+        User user = users.getCaller(userId);
+        Group island = groups.findById(islandId).orElseThrow();
+        members.save(GroupMember.builder().user(user).group(island).role(role).build());
+    }
+
+    private UUID currentIsland(UUID userId) {
+        List<UUID> rows = jdbc.queryForList(
+                "select current_island_id from user_island_contexts where user_id=?", UUID.class, userId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private long count(String sql, Object... args) {
+        Long value = jdbc.queryForObject(sql, Long.class, args);
+        return value == null ? 0L : value;
+    }
+}

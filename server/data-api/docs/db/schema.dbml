@@ -459,13 +459,15 @@ Table pinned_users [note: '친구 핀 (방향성: user_id가 friend_user_id를 �
 Table letters [note: '친구 사이 1:1 편지 (GROMO-1933, friend-letter LLD §1.12~1.14 · §2, V61). 섬 공개 우체통 메시지(island-mailbox, Realtime gromo_chat)와 다른 도메인 — 화면에 나란히 떠도 저장소·권한이 갈린다'] {
   id          uuid        [pk]
 
-  sender_id   uuid        [not null, note: '보낸 유저 (FK → users.id, ON DELETE RESTRICT — «주고받은 사실»의 기록이라 유저 삭제에 따라가지 않는다. 운영 탈퇴는 소프트 삭제라 닿지 않음)']
+  sender_id   uuid        [note: '보낸 유저 (FK → users.id, ON DELETE RESTRICT — «주고받은 사실»의 기록이라 유저 삭제에 따라가지 않는다. 운영 탈퇴는 소프트 삭제라 닿지 않음). 시스템 편지(kind != FRIEND)는 NULL — V107 이 NOT NULL 을 풀었다(GROMO-2260)']
   receiver_id uuid        [not null, note: '받는 유저 (FK → users.id, ON DELETE RESTRICT — sender 와 동일)']
 
   content     varchar(500) [not null, note: '본문 상한 500 — 재영님 확정(2026-09-18). LLD·HLD 의 1000 은 폐기된 제안']
   read_at     timestamptz [note: '수신자가 처음 상세 조회한 시각. NULL = 안 읽음. status enum 없이 이 컬럼 하나가 유일한 전이']
   created_at  timestamptz [not null, default: `now()`, note: '발송 시각. 커서 정렬 축은 이 컬럼이 아니라 id(UUID v7, 시간순)']
   deleted_at  timestamptz [note: '시스템 소프트 삭제 필드 — 지금 쓰는 경로 없음. 친구 삭제 후 편지 처리(LLD §4 결정 3)가 «삭제»로 결정되면 그 실행에 쓸 자리. 읽기는 전부 deleted_at IS NULL']
+  kind        varchar(20) [not null, default: 'FRIEND', note: '편지 종류 — FRIEND|KICK|JOIN_APPROVED (CHECK). FRIEND 만 사람이 보내고 나머지는 시스템 편지(강퇴·가입 승인 안내, sender_id NULL). GROMO-2260, V107']
+  island_id   uuid        [note: '시스템 편지가 가리키는 섬 (FK → groups.id, ON DELETE SET NULL). 친구 편지는 NULL. GROMO-2260, V107']
 
   indexes {
     (receiver_id, id) [note: '받은 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_receiver_cursor)']
@@ -910,6 +912,17 @@ Table user_island_contexts [note: '사용자의 현재 섬 컨텍스트 (users 1
 
   created_at  timestamptz [not null, default: `now()`]
   updated_at  timestamptz
+}
+
+Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «가 본 적» 이 있는가. 즉시 이동(PUT /me/current-island)은 기록이 있는 소속 섬만 받고, 나가기·강퇴 뒤 다음 위치는 남은 소속 중 last_arrived_at 최신 섬이다(없으면 먼바다). V107 이 기존 활성 소속을 COALESCE(rejoined_at, created_at) 로 백필. GROMO-2260'] {
+  user_id          uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE)']
+  island_id        uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE)']
+  first_arrived_at timestamptz [not null, note: '처음 도착한 시각']
+  last_arrived_at  timestamptz [not null, note: '최근 머문 시각 — 도착·섬 생성·방문 중 가입·즉시 이동 성공마다 갱신']
+
+  indexes {
+    (user_id, island_id) [pk]
+  }
 }
 
 Table user_main_islands [note: '사용자가 고른 메인 섬 (users 1:1) — 행이 없으면 «가장 먼저 가입한 활성 섬»으로 도출한다(그래서 백필이 없다). 현재 섬(user_island_contexts.current_island_id)과 다른 축이다. GROMO-1971, V81'] {
@@ -1866,6 +1879,9 @@ Ref: user_island_contexts.current_island_id > groups.id [delete: set null]
 // 메인 섬 (V81). island_id 는 NOT NULL 이라 set null 을 쓸 수 없다 — 「행 없음 = 도출」이 계약이므로 섬이 사라지면 행째 사라진다.
 Ref: user_main_islands.user_id - users.id [delete: cascade]
 Ref: user_main_islands.island_id > groups.id [delete: cascade]
+Ref: island_arrivals.user_id > users.id [delete: cascade]
+Ref: island_arrivals.island_id > groups.id [delete: cascade]
+Ref: letters.island_id > groups.id [delete: set null]
 
 // 초대 링크 (V21)
 Ref: group_invite_links.group_id > groups.id

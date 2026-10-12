@@ -1206,12 +1206,13 @@ class FocusSessionActivationIntegrationTest {
         return jwt.extractUserId(auth.guestLogin().accessToken());
     }
 
-    /** 이미 있는 섬에 주민으로 넣고 현재 섬을 옮긴다 — 가입 승인 흐름은 이 테스트의 관심이 아니다. */
+    /** 이미 있는 섬에 주민으로 넣고 도착해 현재 섬을 옮긴다 — 가입 승인 흐름은 이 테스트의 관심이 아니다. */
     void joinAndMoveTo(UUID userId, UUID islandId) {
         User user = users.getCaller(userId);
         Group island = groups.findById(islandId).orElseThrow();
         members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.MEMBER).build());
-        islands.switchCurrentIsland(userId, islandId, UUID.randomUUID());
+        // 처음 가는 섬은 즉시 이동이 아니라 도착으로 옮긴다(GROMO-2260 — 가 본 섬만 즉시 이동 대상).
+        islands.arrive(userId, islandId);
     }
 
     /** 방금 시작한 세션을 {@code seconds} 전에 시작한 것으로 옮긴다 — 실제 시계를 기다리지 않고 정산 값을 본다. */

@@ -4,6 +4,8 @@ import com.oneorthree.phone.common.id.GeneratedUuidV7;
 import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -61,8 +63,9 @@ public class Letter {
     @GeneratedUuidV7
     private UUID id;
 
+    /** 보낸 사람. <b>시스템 편지({@code kind != FRIEND})는 null</b> 이다 (GROMO-2260, V107). */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "sender_id", nullable = false)
+    @JoinColumn(name = "sender_id")
     private User sender;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -84,14 +87,29 @@ public class Letter {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    /** 편지 종류 (GROMO-2260). 친구 편지가 기본값이다. */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "kind", nullable = false, length = 20)
+    private LetterKind kind = LetterKind.FRIEND;
+
+    /**
+     * 시스템 편지가 가리키는 섬 (GROMO-2260). 친구 편지는 null. 섬 엔티티가 아니라 id 만 둔다 — 편지(L2)가
+     * 섬(L5)을 참조하면 높이 규칙을 거스른다({@code DomainLayerRulesTest}).
+     */
+    @Column(name = "island_id")
+    private UUID islandId;
+
     /**
      * 이 편지의 상대 — 내가 받은 편지면 발신자, 내가 보낸 편지면 수신자.
      *
      * @param me 편지함 주인
-     * @return 상대 유저. 목록 DTO 의 {@code counterpartUserId}·{@code counterpartNickname} 이 이 값을 읽는다
+     * @return 상대 유저 — 시스템 편지를 받은 쪽이면 null. 목록 DTO 의 {@code counterpartUserId}·
+     *     {@code counterpartNickname} 이 이 값을 읽는다
      */
     public User counterpartOf(UUID me) {
-        return sender.getId().equals(me) ? receiver : sender;
+        // 시스템 편지는 발신자가 없다 — 받은 편지함의 상대는 null 이다.
+        return sender != null && sender.getId().equals(me) ? receiver : sender;
     }
 
     /**
@@ -101,6 +119,7 @@ public class Letter {
      * @return 둘 중 어느 쪽도 아니면 true
      */
     public boolean isNotParticipant(UUID userId) {
-        return !sender.getId().equals(userId) && !receiver.getId().equals(userId);
+        boolean isSender = sender != null && sender.getId().equals(userId);
+        return !isSender && !receiver.getId().equals(userId);
     }
 }

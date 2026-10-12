@@ -1582,18 +1582,18 @@ class GroupServiceTest {
                 .isInstanceOf(UserException.class);
     }
 
-    // ── 멀티 그룹 상한 (MAX_JOINED_GROUPS = 10) ─────────────────────────────
+    // ── 멀티 그룹 상한 (MAX_JOINED_GROUPS = 3, GROMO-2260) ─────────────────────────────
 
     @Test
-    @DisplayName("소속 9개에서 참가 → 10번째까지는 허용(경계)")
-    void joinGroupAllowedAtNinthGroup() {
-        // given: 이미 9개 소속 → 이번 참가로 10개
+    @DisplayName("소속 2개에서 참가 → 3번째까지는 허용(경계)")
+    void joinGroupAllowedAtSecondGroup() {
+        // given: 이미 2개 소속 → 이번 참가로 3개
         User user = normalUser();
         Group group = openGroup();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
-        given(groupMemberRepository.countByUser(user)).willReturn(9L);
+        given(groupMemberRepository.countByUser(user)).willReturn(2L);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
 
         // when
@@ -1604,15 +1604,15 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("소속 10개에서 참가 → GROUP_LIMIT_EXCEEDED(409)")
+    @DisplayName("소속 3개에서 참가 → GROUP_LIMIT_EXCEEDED(409)")
     void joinGroupRejectedAtLimit() {
-        // given: 상한(10) 도달
+        // given: 상한(3) 도달
         User user = normalUser();
         Group group = openGroup();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
         given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
-        given(groupMemberRepository.countByUser(user)).willReturn(10L);
+        given(groupMemberRepository.countByUser(user)).willReturn(3L);
 
         // when & then: 앱이 code 문자열로 분기하므로 에러 코드까지 고정한다
         assertThatThrownBy(() -> groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest()))
@@ -1625,7 +1625,7 @@ class GroupServiceTest {
     @Test
     @DisplayName("이미 멤버인 그룹은 상한과 무관하게 ALREADY_MEMBER 로 끝난다")
     void joinGroupAlreadyMemberTakesPrecedenceOverLimit() {
-        // given: 10개 소속이면서 그중 한 곳에 다시 참가 시도 — 소속 수가 늘지 않으므로 상한 사유가 아니다
+        // given: 3개 소속이면서 그중 한 곳에 다시 참가 시도 — 소속 수가 늘지 않으므로 상한 사유가 아니다
         User user = normalUser();
         Group group = openGroup();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
@@ -1641,12 +1641,12 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("소속 10개에서 그룹 생성 → GROUP_LIMIT_EXCEEDED (생성도 곧 가입이므로 같은 상한)")
+    @DisplayName("소속 3개에서 그룹 생성 → GROUP_LIMIT_EXCEEDED (생성도 곧 가입이므로 같은 상한)")
     void createGroupRejectedAtLimit() {
         // given
         User user = normalUser();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupMemberRepository.countByUser(user)).willReturn(10L);
+        given(groupMemberRepository.countByUser(user)).willReturn(3L);
 
         // when & then
         assertThatThrownBy(() -> groupService.createGroup(USER_ID, durationRequest(null, 5, 30)))

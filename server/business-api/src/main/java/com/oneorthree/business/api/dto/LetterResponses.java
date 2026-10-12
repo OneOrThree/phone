@@ -1,5 +1,6 @@
 package com.oneorthree.business.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.upstream.data.dto.LetterItem;
 import com.oneorthree.business.upstream.data.dto.LetterSlice;
@@ -16,12 +17,14 @@ public final class LetterResponses {
 
     public record LetterDetailView(
             @JsonProperty(required = true) UUID id,
-            @JsonProperty(required = true) UUID senderId,
+            @JsonInclude(JsonInclude.Include.ALWAYS) UUID senderId,
             String senderNickname,
             @JsonProperty(required = true) UUID receiverId,
             @JsonProperty(required = true) String content,
             @JsonProperty(required = true) String createdAt,
-            String readAt) {
+            String readAt,
+            String kind,
+            UUID islandId) {
         public static LetterDetailView from(LetterView value) {
             if (value == null) {
                 return null;
@@ -33,7 +36,9 @@ public final class LetterResponses {
                     value.receiverId(),
                     value.content(),
                     value.createdAt(),
-                    value.readAt());
+                    value.readAt(),
+                    value.kind(),
+                    value.islandId());
         }
     }
 
@@ -56,11 +61,13 @@ public final class LetterResponses {
 
     public record LetterItemView(
             @JsonProperty(required = true) UUID id,
-            @JsonProperty(required = true) UUID counterpartUserId,
+            @JsonInclude(JsonInclude.Include.ALWAYS) UUID counterpartUserId,
             String counterpartNickname,
             @JsonProperty(required = true) String content,
             @JsonProperty(value = "isRead", required = true) boolean isRead,
-            @JsonProperty(required = true) String createdAt) {
+            @JsonProperty(required = true) String createdAt,
+            String kind,
+            UUID islandId) {
         public static LetterItemView from(LetterItem value) {
             if (value == null) {
                 return null;
@@ -71,7 +78,9 @@ public final class LetterResponses {
                     value.counterpartNickname(),
                     value.content(),
                     value.isRead(),
-                    value.createdAt());
+                    value.createdAt(),
+                    value.kind(),
+                    value.islandId());
         }
     }
 }

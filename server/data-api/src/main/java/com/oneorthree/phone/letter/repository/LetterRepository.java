@@ -33,18 +33,19 @@ public interface LetterRepository extends JpaRepository<Letter, UUID> {
      * @return 살아 있는 편지 1건. empty 는 {@code LETTER_NOT_FOUND} 이고, 「내 것이 아님」과 구분하지 않는다
      *     — 구분해 주면 남의 편지 id 로 「그런 편지가 있는가」가 샌다
      */
-    @Query("SELECT l FROM Letter l JOIN FETCH l.sender WHERE l.id = :id AND l.deletedAt IS NULL")
+    @Query("SELECT l FROM Letter l LEFT JOIN FETCH l.sender WHERE l.id = :id AND l.deletedAt IS NULL")
     Optional<Letter> findActiveWithSender(@Param("id") UUID id);
 
     /**
      * 받은 편지함 한 페이지 — 상대(발신자)를 함께 로드해 닉네임 N+1 을 막는다.
+     * 발신자는 {@code LEFT} 로 붙인다 — 시스템 편지(GROMO-2260)는 발신자가 없어 내부 조인이면 사라진다.
      *
      * @param userId   편지함 주인. 쿼리에 박혀 있어 남의 편지함을 가리킬 입력이 없다
      * @param cursor   직전 페이지의 마지막 편지 id. {@code null} 이면 첫 페이지
      * @param pageable size 만 쓴다 — 정렬은 쿼리에 박혀 있고 offset 은 커서가 대신한다
      * @return 최신순 한 페이지. {@code Slice} 라 count 쿼리가 나가지 않는다(편지함은 전체 개수를 안 쓴다)
      */
-    @Query("SELECT l FROM Letter l JOIN FETCH l.sender "
+    @Query("SELECT l FROM Letter l LEFT JOIN FETCH l.sender "
             + "WHERE l.receiver.id = :userId AND l.deletedAt IS NULL "
             + "AND NOT EXISTS (SELECT 1 FROM UserBlock b WHERE b.blocker.id = :userId AND b.blocked = l.sender) "
             + "AND (:cursor IS NULL OR l.id < :cursor) "

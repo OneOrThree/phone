@@ -204,12 +204,12 @@ class IslandJoinIntegrationTest {
         assertThatThrownBy(() -> joins.join(member, islandId, null, UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.ALREADY_MEMBER);
 
-        // 소속 상한 10
+        // 소속 상한 3 (GROMO-2260)
         UUID loaded = newUser();
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 3; i++) {
             joinAs(loaded, publicIsland("상한섬" + i), GroupMemberRole.MEMBER);
         }
-        assertThatThrownBy(() -> joins.join(loaded, publicIsland("열한번째"), null, UUID.randomUUID()))
+        assertThatThrownBy(() -> joins.join(loaded, publicIsland("네번째"), null, UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_LIMIT_EXCEEDED);
 
         // password 잠긴 기존 그룹 — IM-D04 미결 분기를 활성화하지 않는다

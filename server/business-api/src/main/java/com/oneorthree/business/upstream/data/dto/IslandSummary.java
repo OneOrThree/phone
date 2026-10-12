@@ -22,6 +22,9 @@ import java.util.UUID;
  * <p>{@code maxMembers} 는 방문자에게도 필수다 (GROMO-1993) — 2026-09-19 결정 V-읽기가 「주민 수/정원」을
  * 한 쌍으로 공개하도록 확정했다. 주민 상세({@link IslandDetail})의 같은 필드와 <b>한 커밋에서</b>
  * 움직여야 한다: 한쪽만 고치면 상세→요약 축소({@code ScreenReadUseCase#publicSummary})가 계약을 깬다.
+ *
+ * <p>{@code arrivedBefore} 는 본인이 이 섬에 가 본 적 있는가다 (GROMO-2260). 필수로 걸지 않는다 — 구 Data
+ * 서버는 내려보내지 않으므로 null 이다.
  */
 public record IslandSummary(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
@@ -34,5 +37,6 @@ public record IslandSummary(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String membershipStatus,
         @JsonProperty(required = true) UUID joinRequestId,
         String growthStage,
-        String themeId) {
+        String themeId,
+        Boolean arrivedBefore) {
 }

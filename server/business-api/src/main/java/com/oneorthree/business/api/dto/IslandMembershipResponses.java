@@ -1,8 +1,10 @@
 package com.oneorthree.business.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
+import com.oneorthree.business.upstream.data.dto.IslandArrival;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDetail;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
@@ -32,7 +34,8 @@ public final class IslandMembershipResponses {
             @JsonProperty(required = true) String membershipStatus,
             @JsonProperty(required = true) UUID joinRequestId,
             String growthStage,
-            String themeId) {
+            String themeId,
+            Boolean arrivedBefore) {
         public static IslandSummaryView from(IslandSummary value) {
             if (value == null) {
                 return null;
@@ -48,7 +51,24 @@ public final class IslandMembershipResponses {
                     value.membershipStatus(),
                     value.joinRequestId(),
                     value.growthStage(),
-                    value.themeId());
+                    value.themeId(),
+                    value.arrivedBefore());
+        }
+    }
+
+    /**
+     * 섬 도착 결과 (GROMO-2260) — {@code POST /islands/{islandId}/arrivals}.
+     *
+     * @param currentIslandId 도착 처리 뒤 현재 섬. 방문(비주민)이면 그대로이고 없으면 null
+     */
+    public record IslandArrivalView(
+            @JsonProperty(required = true) UUID islandId,
+            @JsonProperty(required = true) boolean arrivedBefore,
+            @JsonProperty(required = true) String membershipStatus,
+            @JsonInclude(JsonInclude.Include.ALWAYS) UUID currentIslandId) {
+        public static IslandArrivalView from(IslandArrival value) {
+            return new IslandArrivalView(value.islandId(), value.arrivedBefore(), value.membershipStatus(),
+                    value.currentIslandId());
         }
     }
 

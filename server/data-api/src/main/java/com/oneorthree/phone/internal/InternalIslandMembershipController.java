@@ -2,6 +2,7 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.CurrentIslandView;
+import com.oneorthree.phone.internal.dto.IslandArrivalView;
 import com.oneorthree.phone.internal.dto.IslandCreatedView;
 import com.oneorthree.phone.internal.dto.IslandDiscoverPageView;
 import com.oneorthree.phone.internal.dto.IslandSearchPageView;
@@ -90,6 +91,15 @@ public class InternalIslandMembershipController {
                                            @RequestParam(required = false) String afterHandle,
                                            @RequestParam int limit) {
         return islandMembershipService.discover(userId, seed, afterHandle, limit);
+    }
+
+    /**
+     * 섬 도착 (GROMO-2260, 섬 외부 계약 §1) — 항해·방문이 끝난 자리에서 부른다. 도착 기록이 upsert 라
+     * 멱등이어서 명령 키를 받지 않는다.
+     */
+    @PostMapping("/islands/{islandId}/arrivals")
+    public IslandArrivalView arrive(@PathVariable UUID userId, @PathVariable UUID islandId) {
+        return islandMembershipService.arrive(userId, islandId);
     }
 
     /** 현재 섬 이동 (LLD §3.6). */

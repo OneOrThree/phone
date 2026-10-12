@@ -16,6 +16,7 @@ import com.oneorthree.phone.letter.exception.LetterErrorCode;
 import com.oneorthree.phone.letter.exception.LetterException;
 import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.letter.repository.domain.Letter;
+import com.oneorthree.phone.letter.repository.domain.LetterKind;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.service.UserBlockService;
@@ -24,6 +25,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -152,7 +154,31 @@ public class InternalLetterService {
                 .content(content)
                 .build());
         return new LetterView(saved.getId(), sender.getId(), sender.getNickname(),
-                receiver.getId(), saved.getContent(), saved.getCreatedAt(), null);
+                receiver.getId(), saved.getContent(), saved.getCreatedAt(), null, LetterKind.FRIEND, null);
+    }
+
+    /**
+     * 시스템 편지를 넣는다 (GROMO-2260) — 강퇴·가입 승인 안내. 발신자가 없고 친구·차단·한도·금칙어 판정을
+     * 타지 않는다: 본문은 사람이 쓴 것이 아니라 서버 문구이고, 받는 사람은 그 섬의 당사자다.
+     *
+     * <p>호출 트랜잭션 안에서만 쓴다 — 강퇴·승인이 롤백되면 편지도 남지 않아야 한다.
+     *
+     * @param receiver 받는 사람. 호출자가 같은 TX 에서 이미 잠근 활성 유저다
+     * @param kind     {@code FRIEND} 가 아닌 종류
+     * @param islandId 편지가 가리키는 섬
+     * @param content  서버 문구
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void sendSystem(User receiver, LetterKind kind, UUID islandId, String content) {
+        if (kind == LetterKind.FRIEND) {
+            throw new IllegalArgumentException("친구 편지는 send 로 보낸다");
+        }
+        letters.save(Letter.builder()
+                .receiver(receiver)
+                .kind(kind)
+                .islandId(islandId)
+                .content(content)
+                .build());
     }
 
     /**
@@ -222,19 +248,23 @@ public class InternalLetterService {
         boolean masked = isCounterpartBlocked(letter, userId);
 
         // 아래 조건부 UPDATE 가 영속성 컨텍스트를 비우므로 응답 값을 «먼저» 꺼내 둔다.
-        UUID senderId = letter.getSender().getId();
-        String senderNickname = letter.getSender().getNickname();
+        User sender = letter.getSender();
+        UUID senderId = sender == null ? null : sender.getId();
+        String senderNickname = sender == null ? null : sender.getNickname();
         UUID receiverId = letter.getReceiver().getId();
         String content = masked ? BLOCKED_CONTENT_PLACEHOLDER : letter.getContent();
         Instant createdAt = letter.getCreatedAt();
         Instant readAt = letter.getReadAt();
+        LetterKind kind = letter.getKind();
+        UUID islandId = letter.getIslandId();
 
         // 발신자 본인이 다시 봐도 읽음이 아니다 — 「상대가 읽었다」는 신호가 아니기 때문이다(HLD §2.2).
         // 본문을 가린 열람도 읽음이 아니다 — 수신자는 내용을 보지 못했다(GROMO-2185).
         if (!masked && readAt == null && receiverId.equals(userId)) {
             readAt = markRead(letterId);
         }
-        return new LetterView(letterId, senderId, senderNickname, receiverId, content, createdAt, readAt);
+        return new LetterView(letterId, senderId, senderNickname, receiverId, content, createdAt, readAt,
+                kind, islandId);
     }
 
     /**
@@ -320,15 +350,18 @@ public class InternalLetterService {
      * 통보가 된다(D3 「따로 알리지 않는다」).
      */
     private boolean isCounterpartBlocked(Letter letter, UUID me) {
-        return userBlockService.blockedIds(me).contains(letter.counterpartOf(me).getId());
+        User counterpart = letter.counterpartOf(me);
+        // 시스템 편지는 상대가 없다 — 가릴 사람이 없다.
+        return counterpart != null && userBlockService.blockedIds(me).contains(counterpart.getId());
     }
 
     private static LetterItemView item(Letter letter, UUID me, boolean sent) {
         User counterpart = letter.counterpartOf(me);
         // 보낸 편지함의 isRead 는 항상 false 로 고정한다 (LLD §1.13) — 상대의 열람 여부를 노출하지 않는다.
         boolean read = !sent && letter.getReadAt() != null;
-        return new LetterItemView(letter.getId(), counterpart.getId(), counterpart.getNickname(),
-                letter.getContent(), read, letter.getCreatedAt());
+        return new LetterItemView(letter.getId(), counterpart == null ? null : counterpart.getId(),
+                counterpart == null ? null : counterpart.getNickname(),
+                letter.getContent(), read, letter.getCreatedAt(), letter.getKind(), letter.getIslandId());
     }
 
     /**

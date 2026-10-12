@@ -78,7 +78,10 @@ public enum GroupErrorCode implements ErrorCode {
     // 새 규칙(GROMO-1422)에 맞춰 카피만 정정해 잔존시킨다(코드 문자열 호환 관례).
     ACTIVE_CHALLENGE_EXISTS(HttpStatus.CONFLICT, "해당 카테고리에 이미 활성 하루형 챌린지가 존재합니다."),
     // 앱이 응답의 code 문자열(GROUP_LIMIT_EXCEEDED)로 분기한다 — 이름 변경 금지.
-    GROUP_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "참여할 수 있는 그룹 수를 초과했어요"),
+    // 문구는 소속 섬 상한 3 (GROMO-2260) 기준이다.
+    GROUP_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요"),
+    // 즉시 이동은 가 본 섬으로만 된다 (GROMO-2260) — 망원경에서 가입만 하고 아직 항해하지 않은 소속 섬.
+    ISLAND_NOT_ARRIVED(HttpStatus.FORBIDDEN, "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요"),
     NOTICE_FORBIDDEN(HttpStatus.FORBIDDEN, "공지 작성/수정/삭제 권한이 없습니다."),
     // 섬 게시판 댓글 삭제 전용(GROMO-2136, 2026-09-25 결정) — 작성자 본인 또는 방장만. 메시지가 가리키는
     // 대상이 달라 NOTICE_FORBIDDEN 과 코드를 나눈다(NOTICE_BODY_TOO_LONG/NOTICE_COMMENT_TOO_LONG 과 같은 결).

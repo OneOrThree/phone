@@ -3,6 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -39,10 +40,11 @@ class LetterContractTest extends UpstreamTestBase {
     private static final String SEND_BODY = "{\"receiverId\":\"" + PEER + "\",\"content\":\"안녕\"}";
     private static final String VIEW = "{\"id\":\"" + LETTER + "\",\"senderId\":\"" + USER + "\","
             + "\"senderNickname\":\"나\",\"receiverId\":\"" + PEER + "\",\"content\":\"안녕\","
-            + "\"createdAt\":\"2026-09-18T01:00:00Z\",\"readAt\":null}";
+            + "\"createdAt\":\"2026-09-18T01:00:00Z\",\"readAt\":null,\"kind\":\"FRIEND\",\"islandId\":null}";
     private static final String SLICE = "{\"content\":[{\"id\":\"" + LETTER + "\","
             + "\"counterpartUserId\":\"" + PEER + "\",\"counterpartNickname\":\"짝꿍\","
-            + "\"content\":\"안녕\",\"isRead\":false,\"createdAt\":\"2026-09-18T01:00:00Z\"}],"
+            + "\"content\":\"안녕\",\"isRead\":false,\"createdAt\":\"2026-09-18T01:00:00Z\","
+            + "\"kind\":\"FRIEND\",\"islandId\":null}],"
             + "\"size\":20,\"hasNext\":false,\"nextCursor\":null}";
 
     @Test
@@ -114,6 +116,28 @@ class LetterContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.content[0].isRead").value(false))
                 .andExpect(jsonPath("$.data.hasNext").value(false));
         assertThat(DATA.received().get(0).query()).isNull();
+    }
+
+    @Test
+    @DisplayName("시스템 편지(GROMO-2260)는 발신자 없이도 통과하고 kind·islandId 를 그대로 싣는다")
+    void systemLetterWithoutSenderPassesThrough() throws Exception {
+        DATA.on(DATA_LIST, request -> ok("{\"content\":[{\"id\":\"" + LETTER + "\",\"counterpartUserId\":null,"
+                + "\"counterpartNickname\":null,\"content\":\"안내\",\"isRead\":false,"
+                + "\"createdAt\":\"2026-09-18T01:00:00Z\",\"kind\":\"KICK\",\"islandId\":\"" + PEER + "\"}],"
+                + "\"size\":20,\"hasNext\":false,\"nextCursor\":null}"));
+        mockMvc.perform(auth(get("/letters")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[0].counterpartUserId").value(nullValue()))
+                .andExpect(jsonPath("$.data.content[0].kind").value("KICK"))
+                .andExpect(jsonPath("$.data.content[0].islandId").value(PEER.toString()));
+
+        DATA.on(DATA_DETAIL, request -> ok("{\"id\":\"" + LETTER + "\",\"senderId\":null,\"senderNickname\":null,"
+                + "\"receiverId\":\"" + USER + "\",\"content\":\"안내\",\"createdAt\":\"2026-09-18T01:00:00Z\","
+                + "\"readAt\":null,\"kind\":\"JOIN_APPROVED\",\"islandId\":\"" + PEER + "\"}"));
+        mockMvc.perform(auth(get("/letters/" + LETTER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.senderId").value(nullValue()))
+                .andExpect(jsonPath("$.data.kind").value("JOIN_APPROVED"));
     }
 
     @Test
@@ -363,10 +387,10 @@ class LetterContractTest extends UpstreamTestBase {
     }
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "/letters|post|200||id senderId senderNickname receiverId content createdAt readAt|id senderId receiverId content createdAt",
-            "/letters/{letterId}|get|200||id senderId senderNickname receiverId content createdAt readAt|id senderId receiverId content createdAt",
+            "/letters|post|200||id senderId senderNickname receiverId content createdAt readAt kind islandId|id receiverId content createdAt",
+            "/letters/{letterId}|get|200||id senderId senderNickname receiverId content createdAt readAt kind islandId|id receiverId content createdAt",
             "/letters|get|200||content size hasNext nextCursor|content size hasNext",
-            "/letters|get|200|content|id counterpartUserId counterpartNickname content isRead createdAt|id counterpartUserId content isRead createdAt"})
+            "/letters|get|200|content|id counterpartUserId counterpartNickname content isRead createdAt kind islandId|id content isRead createdAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {
         var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();

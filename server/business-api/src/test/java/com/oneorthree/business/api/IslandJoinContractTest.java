@@ -47,7 +47,7 @@ class IslandJoinContractTest extends UpstreamTestBase {
     private static final String SUMMARY = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":true,\"memberCount\":3,\"maxMembers\":15,"
             + "\"membershipStatus\":\"none\",\"joinRequestId\":null,"
-            + "\"growthStage\":null,\"themeId\":null}";
+            + "\"growthStage\":null,\"themeId\":null,\"arrivedBefore\":false}";
     private static final String JOINED = "{\"status\":\"active\",\"requestId\":null,\"islandId\":\""
             + ISLAND + "\",\"currentIslandId\":\"" + ISLAND + "\",\"version\":3}";
     private static final String PENDING = "{\"status\":\"pending\",\"requestId\":\"" + REQUEST
@@ -95,6 +95,52 @@ class IslandJoinContractTest extends UpstreamTestBase {
 
         assertThat(DATA.receivedFor(DATA_JOIN).get(0).body())
                 .isEqualTo("{\"invitationToken\":null}");
+    }
+
+    @Test
+    @DisplayName("망원경 가입은 origin 을 그대로 전달하고, 옮기지 않은 active 의 current 가 null 이어도 정상이다")
+    void telescopeJoinForwardsOriginAndAllowsNoCurrent() throws Exception {
+        DATA.on(DATA_JOIN, request -> ok("{\"status\":\"active\",\"requestId\":null,\"islandId\":\""
+                + ISLAND + "\",\"currentIslandId\":null,\"version\":3}"));
+
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{\"origin\":\"telescope\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("active"));
+        assertThat(DATA.receivedFor(DATA_JOIN).get(0).body())
+                .isEqualTo("{\"invitationToken\":null,\"origin\":\"telescope\"}");
+
+        DATA.reset();
+        DATA.on(DATA_JOIN, request -> ok("{\"status\":\"active\",\"requestId\":null,\"islandId\":\""
+                + ISLAND + "\",\"currentIslandId\":null,\"version\":3}"));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{\"origin\":\"visit\"}"))
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @Test
+    @DisplayName("origin 은 visit·telescope 둘뿐이고 다른 값은 네트워크 전에 400 이다")
+    void unknownOriginIsRejectedBeforeTheNetwork() throws Exception {
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{\"origin\":\"boat\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.field").value("origin"));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{\"origin\":\"visit\",\"x\":1}"))
+                .andExpect(status().isBadRequest());
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("도착은 명령 키 없이 서명 주체로 상류에 전달하고 결과를 그대로 돌려준다")
+    void arrivalForwardsTheSignedSubject() throws Exception {
+        String dataArrive = "POST " + INTERNAL + "/islands/" + ISLAND + "/arrivals";
+        DATA.on(dataArrive, request -> ok("{\"islandId\":\"" + ISLAND
+                + "\",\"arrivedBefore\":true,\"membershipStatus\":\"none\",\"currentIslandId\":null}"));
+
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/arrivals")).header("X-User-Id", OTHER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.islandId").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.arrivedBefore").value(true))
+                .andExpect(jsonPath("$.data.membershipStatus").value("none"))
+                .andExpect(jsonPath("$.data.currentIslandId").value(nullValue()));
+        assertThat(DATA.receivedFor(dataArrive).get(0).header("X-User-Id")).isEqualTo(USER.toString());
     }
 
     @Test
@@ -405,7 +451,7 @@ class IslandJoinContractTest extends UpstreamTestBase {
             "/me/join-requests/{requestId}|get|200||id islandId status version|id islandId status version",
             "/me/join-requests/{requestId}|delete|200||id status|id status",
             "/invitations/resolve|post|200||island invitationToken|island invitationToken",
-            "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
             "/islands/{islandId}/invitations|post|200||code url expiresAt|code url expiresAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {

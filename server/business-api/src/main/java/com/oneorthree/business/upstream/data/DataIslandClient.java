@@ -1,10 +1,12 @@
 package com.oneorthree.business.upstream.data;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
+import com.oneorthree.business.upstream.data.dto.IslandArrival;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
@@ -65,6 +67,9 @@ public class DataIslandClient {
             "/internal/users/{userId}/invitations/resolve";
     private static final String PATH_ISLAND_INVITATIONS =
             "/internal/users/{userId}/islands/{islandId}/invitations";
+    // GROMO-2260 섬 도착 기록 — upsert 라 멱등이어서 명령 키가 없다.
+    private static final String PATH_ISLAND_ARRIVALS =
+            "/internal/users/{userId}/islands/{islandId}/arrivals";
     // GROMO-1771 섬 게시판 6종 + 댓글 삭제(GROMO-2136)
     private static final String PATH_NOTICES = "/internal/islands/{islandId}/notices";
     private static final String PATH_NOTICE = "/internal/islands/{islandId}/notices/{noticeId}";
@@ -236,7 +241,7 @@ public class DataIslandClient {
      * 섬 가입 (GROMO-1760, LLD §3.7). 즉시 가입이면 {@code active}+새 current, 승인제면
      * {@code pending} 요청을 만든다 — 판정은 전부 상류 몫이고 결과는 receipt 로 재생된다.
      */
-    public JoinIslandResult joinIsland(UUID userId, UUID islandId, String invitationToken,
+    public JoinIslandResult joinIsland(UUID userId, UUID islandId, String invitationToken, String origin,
             UUID key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST,
@@ -244,11 +249,22 @@ public class DataIslandClient {
                                         .replace("{islandId}", islandId.toString()))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
-                        .body(new JoinIslandCommand(invitationToken))
+                        .body(new JoinIslandCommand(invitationToken, origin))
                         .idempotentCommand()
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<JoinIslandResult>() { });
+    }
+
+    /** 섬 도착 기록 (GROMO-2260) — 멱등이라 명령 키 없이 보낸다. */
+    public IslandArrival arriveAtIsland(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_ISLAND_ARRIVALS, userId).replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandArrival>() { });
     }
 
     /**
@@ -561,7 +577,8 @@ public class DataIslandClient {
     }
 
     /** 섬 가입 요청 본문 (GROMO-1760). {@code invitationToken} 은 없으면 null 그대로다. */
-    record JoinIslandCommand(String invitationToken) {
+    record JoinIslandCommand(String invitationToken,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String origin) {
     }
 
     /** 초대 코드 해석 요청 본문 (GROMO-1760). */
