@@ -1729,8 +1729,8 @@ function Gromo() {
         go('travel', island.id);
         return true;
       }
-      if (route === 'home') return cancelBuildingTransition();
-      if (route === 'login') return false;
+      // 홈·로그인의 뒤로가기는 앱이 받지 않는다(OS 몫) — 홈에서 진행 중인 건물 전환은 위에서 이미 취소했다
+      if (route === 'home' || route === 'login') return false;
       back();
       return true;
     });

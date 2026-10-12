@@ -106,6 +106,19 @@ test('시스템 뒤로가기도 상세에서 목록, 목록에서 방문 화면 
   expect(backOverride.current).toBeNull();
 });
 
+test('게시판이 사라질 때 다른 화면이 건 뒤로 가기 처리는 걷어 내지 않는다', async () => {
+  list.mockResolvedValue({ items: [], nextCursor: null });
+  const backOverride = { current: null as (() => boolean) | null };
+  const screen = await render(
+    <VisitorBoard islandId="visitor" onClose={jest.fn()} backOverride={backOverride} />,
+  );
+  expect(typeof backOverride.current).toBe('function');
+  const other = () => true;
+  backOverride.current = other; // 다른 화면이 자기 처리를 걸었다
+  await screen.unmount();
+  expect(backOverride.current).toBe(other);
+});
+
 test('다른 방문 섬으로 바뀌면 이전 섬의 늦은 공지 응답을 버린다', async () => {
   let finish!: (value: unknown) => void;
   list
