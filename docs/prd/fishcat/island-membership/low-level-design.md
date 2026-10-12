@@ -52,7 +52,7 @@ PublicIslandSummary의 공통 표시 필드에 `role:host|member`, `buildings:Bu
 
 - 신규 create는 `name:string`, `approvalRequired:boolean` 필수, `intro:string` 선택(누락 시 빈 소개). 이름·소개는 기존 검증값 50/200과 이름 안전 문자 규칙을 재사용한다. 명시 null은400, 빈 이름/도메인 범위 위반은422. 저장 전 임의로 잘라 성공시키지 않는다.
 - 초대 코드는 `InviteCode`라는 정책 value object로 다룬다. 구체 형식/대소문자 정규화/기간은 IM-D01~03 미정이다. 형식이 확정되기 전 샘플 `SODA`를 고정 길이4로 구현하지 않는다.
-- 이 11종 중 create/join/switch/invite/join-cancel 변경 명령은 Idempotency-Key 필수. invite-resolve는 조회 성격이며 범용 명령 키 대상이 아니다. GET에도 변경 키를 요구하지 않는다.
+- 이 11종 중 create/join/switch/invite/join-cancel 변경 명령은 Idempotency-Key 필수. invite-resolve는 범용 명령 키 대상이 아니다 — GROMO-2264 부터 도착·가입을 하지만 다시 불러도 같은 상태로 수렴한다(§3.10). GET에도 변경 키를 요구하지 않는다.
 - 원본에 없는 expectedVersion을 일괄 추가하지 않는다. 서버의 조건부 전이·DB 유일성·receipt가 동시성을 담당한다. 공개 version을 반환하는 것과 client expectedVersion을 받는 것은 별개다.
 
 ## 3. 계약 12종
@@ -146,7 +146,9 @@ IM-D03의 승인 유지 추천안이 채택될 경우, JoinRequest에는 `admiss
 
 ### 3.10 invite-resolve — POST /invitations/resolve
 
-입력 `{code:InviteCode}`, 성공200 `{data:{island:PublicIslandSummary,invitationToken:string}}`. 인증된 요청자의 초대 해석이며 가입·현재 섬 변경·클릭 귀속 확정을 하지 않는다. 토큰은 불투명한 전달값으로 표시하고 로그/URL/query에 복사하지 않는다.
+입력 `{code:InviteCode}`, 성공200 `{data:{island:PublicIslandSummary,invitationToken:string,arrival:{islandId,arrived:true,membershipStatus,reason?}}}`. 인증된 요청자의 초대 해석이며 클릭 귀속 확정을 하지 않는다. 토큰은 불투명한 전달값으로 표시하고 로그/URL/query에 복사하지 않는다.
+
+**초대 도착 (GROMO-2264, 섬 외부 계약 §4).** 해석은 그 섬 1곳에 항해 없이 도착(`island_arrivals`)을 남기고 가입까지 잇는다 — 이미 주민이면 도착만, 열린 신청이 있으면 그대로, 강퇴된 섬은 `reason:KICKED`·소속 섬 3개는 `reason:ISLAND_LIMIT` 로 도착만 남긴다. 나머지는 §3.7 가입(origin=visit)과 같다: 누구나 가입 섬은 가입·현재 섬 이동, 승인제는 신청 1건. 그 밖의 가입 거절(만원·진행 중 집중 등)은 해석 실패로 그대로 돌려주고 도착도 남기지 않는다. 도착이 먼저 남으므로 승인된 섬은 처음 한 번의 항해 없이 즉시 이동 대상이다. 해석 뒤 초대 토큰을 들고 따로 오는 가입(구 앱 흐름)은 그 섬에 서 있는 주민이면 같은 활성 멤버십을 돌려준다(409 아님, 사건 없음). 토큰 없는 가입·그 섬에 서 있지 않은 주민은 종전대로 409 `ALREADY_MEMBER`.
 
 기존 링크 아키텍처의 서명 자격을 재사용한다: slug/groupId/inviterId/membershipEpoch/만료 등 정본 필드를 검증한 evidence를 Business가 Data 가입 명령에 싣는다. token에 client가 적은 islandId로 가입할 수 없고 group 일치·issuer 활성·epoch·만료를 Data TX에서 다시 확인한다. 구체 서명 format/audience/linkVersion 규칙은 내부 링크 계약과 일치시켜 중복 서명 체계를 만들지 않는다.
 

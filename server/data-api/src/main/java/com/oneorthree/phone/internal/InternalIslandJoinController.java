@@ -78,7 +78,7 @@ public class InternalIslandJoinController {
         return islandJoinService.cancel(userId, requestId, idempotencyKey);
     }
 
-    /** 초대 코드 해석 (LLD §3.10). 조회 성격이라 멱등 키를 받지 않는다. */
+    /** 초대 코드 해석·도착 (LLD §3.10 · GROMO-2264). 다시 불러도 같은 상태로 수렴해 멱등 키를 받지 않는다. */
     @PostMapping("/invitations/resolve")
     public InvitationResolvedView resolve(@PathVariable UUID userId,
                                           @Valid @RequestBody InvitationResolveCommandRequest body) {

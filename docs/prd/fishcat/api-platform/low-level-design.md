@@ -79,7 +79,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |PATCH|`/me/settings`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/islands/{islandId}/memberships`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증. 초대 기반은 아래 가입 TX 자격 검증 정본 적용|
-|POST|`/invitations/resolve`|불필요|초대 해석 조회. 키로 조회 결과를 영구 고정하지 않음. claim/가입은 별도 명령|
+|POST|`/invitations/resolve`|불필요|초대 해석 + 그 섬 도착·가입/신청(GROMO-2264, 섬 소속 LLD §3.10). 키 없이 같은 상태로 수렴하므로 키로 결과를 고정하지 않음. claim 은 별도 명령|
 |PUT|`/me/current-island`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/focus-sessions`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |POST|`/focus-sessions/{sessionId}/pause`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|

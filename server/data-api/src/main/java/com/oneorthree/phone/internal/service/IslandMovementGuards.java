@@ -48,9 +48,14 @@ public class IslandMovementGuards {
     }
 
     public void requireJoinedIslandLimit(User user) {
-        if (groupMemberRepository.countByUser(user) >= MAX_JOINED_ISLANDS) {
+        if (atJoinedIslandLimit(user)) {
             throw new GroupException(GroupErrorCode.GROUP_LIMIT_EXCEEDED);
         }
+    }
+
+    /** 소속 상한에 닿았는가 — 초대 도착(GROMO-2264)은 거절 대신 사유로 알리므로 판정만 따로 쓴다. */
+    public boolean atJoinedIslandLimit(User user) {
+        return groupMemberRepository.countByUser(user) >= MAX_JOINED_ISLANDS;
     }
 
     /**

@@ -57,7 +57,8 @@ class IslandJoinContractTest extends UpstreamTestBase {
             + "\",\"status\":\"pending\",\"version\":0}";
     private static final String CANCELLED = "{\"id\":\"" + REQUEST + "\",\"status\":\"cancelled\"}";
     private static final String RESOLVED = "{\"island\":" + SUMMARY
-            + ",\"invitationToken\":\"opaque-token\"}";
+            + ",\"invitationToken\":\"opaque-token\",\"arrival\":{\"islandId\":\"" + ISLAND
+            + "\",\"arrived\":true,\"membershipStatus\":\"none\",\"reason\":\"ISLAND_LIMIT\"}}";
     private static final String ISSUED = "{\"code\":\"abcd2345\",\"url\":\"https://example.test/i/abcd2345\","
             + "\"expiresAt\":null}";
 
@@ -201,6 +202,30 @@ class IslandJoinContractTest extends UpstreamTestBase {
 
         assertThat(DATA.receivedFor(DATA_RESOLVE).get(0).header("Idempotency-Key")).isNull();
         assertThat(DATA.receivedFor(DATA_RESOLVE).get(0).body()).isEqualTo("{\"code\":\"abcd2345\"}");
+    }
+
+    @Test
+    @DisplayName("해석은 상류의 초대 도착을 싣는다 — 사유가 없으면 reason 키가 없고, 구 Data 서버면 arrival 이 null 이다")
+    void resolveCarriesTheArrival() throws Exception {
+        DATA.on(DATA_RESOLVE, request -> ok("{\"island\":" + SUMMARY + ",\"invitationToken\":\"opaque-token\","
+                + "\"arrival\":{\"islandId\":\"" + ISLAND + "\",\"arrived\":true,\"membershipStatus\":\"pending\","
+                + "\"reason\":null}}"));
+        var result = mockMvc.perform(auth(post("/invitations/resolve"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"abcd2345\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data").path("arrival"))
+                .isEqualTo(json.readTree("{\"islandId\":\"" + ISLAND
+                        + "\",\"arrived\":true,\"membershipStatus\":\"pending\"}"));
+
+        DATA.reset();
+        DATA.on(DATA_RESOLVE, request -> ok("{\"island\":" + SUMMARY + ",\"invitationToken\":\"opaque-token\"}"));
+        mockMvc.perform(auth(post("/invitations/resolve"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"abcd2345\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.arrival").value(nullValue()));
     }
 
     // ---------------------------------------------------------------- 상태·취소·발급
@@ -451,7 +476,8 @@ class IslandJoinContractTest extends UpstreamTestBase {
             "/islands/{islandId}/memberships|post|200||status requestId islandId currentIslandId version|status requestId islandId currentIslandId version",
             "/me/join-requests/{requestId}|get|200||id islandId status version|id islandId status version",
             "/me/join-requests/{requestId}|delete|200||id status|id status",
-            "/invitations/resolve|post|200||island invitationToken|island invitationToken",
+            "/invitations/resolve|post|200||island invitationToken arrival|island invitationToken",
+            "/invitations/resolve|post|200|arrival|islandId arrived membershipStatus reason|islandId arrived membershipStatus",
             "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore greeting greetingIsDefault|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
             "/islands/{islandId}/invitations|post|200||code url expiresAt|code url expiresAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
