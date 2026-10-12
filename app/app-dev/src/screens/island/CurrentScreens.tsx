@@ -1012,6 +1012,7 @@ function Travel({ e }: any) {
     />
   );
 }
+const visitScene = StyleSheet.create({ fill: { flex: 1 } });
 function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
@@ -1030,37 +1031,52 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
     setGreetingOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- e 는 매 렌더 새 객체다. 방문 여부(visitGreeted)만 본다
   }, [greeting, s.visitGreeted]);
+  const showGreeting = greetingOpen && !!greeting;
   return (
     <>
-      <FinalIsland
-        state={s}
-        go={e.go}
-        build={e.build}
-        boardStatus={e.boardStatus}
-        viewingIslandId={s.visitingIslandId ? undefined : islandId}
-        notify={e.notify}
-        dispatch={e.dispatch}
-        onReturnFromVisit={onReturnFromVisit}
-        visitHud={
-          visit
-            ? {
-                // HUD 는 지금 집중 중(active)만 센다. 응원 수신자는 서버 기준 진행 중(active·paused)이라 FocusVisit 와 다르다
-                focusCount:
-                  live.status === 'ready'
-                    ? live.focus.filter((m) => m.status === 'active').length
-                    : null,
-                onFocusPress: () => e.go('visitIslandFocus', visit.island.id),
-                todayMinutes: visit.focusToday?.minutes,
-              }
-            : undefined
-        }
-        visitJoin={
-          visit
-            ? { label: join.label, disabled: join.disabled, onPress: () => void join.serverJoin() }
-            : undefined
-        }
-      />
-      {greetingOpen && !!greeting && (
+      {/* 인사말 팝업이 열려 있는 동안 뒤 지도·가입 버튼은 스크린리더에서 숨긴다(DESIGN.md §11). iOS 는 팝업이 모달이라
+          VoiceOver 가 이미 무시하고, 형제를 못 가리는 Android(TalkBack)를 이 래퍼가 맡는다. 팝업 뒤로가기 처리는 IslandPopup 몫이다 */}
+      <View
+        testID="visit-scene"
+        style={visitScene.fill}
+        accessibilityElementsHidden={showGreeting}
+        importantForAccessibility={showGreeting ? 'no-hide-descendants' : 'auto'}
+        aria-hidden={showGreeting}
+      >
+        <FinalIsland
+          state={s}
+          go={e.go}
+          build={e.build}
+          boardStatus={e.boardStatus}
+          viewingIslandId={s.visitingIslandId ? undefined : islandId}
+          notify={e.notify}
+          dispatch={e.dispatch}
+          onReturnFromVisit={onReturnFromVisit}
+          visitHud={
+            visit
+              ? {
+                  // HUD 는 지금 집중 중(active)만 센다. 응원 수신자는 서버 기준 진행 중(active·paused)이라 FocusVisit 와 다르다
+                  focusCount:
+                    live.status === 'ready'
+                      ? live.focus.filter((m) => m.status === 'active').length
+                      : null,
+                  onFocusPress: () => e.go('visitIslandFocus', visit.island.id),
+                  todayMinutes: visit.focusToday?.minutes,
+                }
+              : undefined
+          }
+          visitJoin={
+            visit
+              ? {
+                  label: join.label,
+                  disabled: join.disabled,
+                  onPress: () => void join.serverJoin(),
+                }
+              : undefined
+          }
+        />
+      </View>
+      {showGreeting && (
         <IslandPopup onClose={() => setGreetingOpen(false)}>
           <Txt kind="meta">{t('islandVisit.greetingTitle')}</Txt>
           <Txt testID="visit-greeting" kind="h17">
