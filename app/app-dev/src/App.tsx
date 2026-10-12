@@ -347,6 +347,9 @@ function Gromo() {
       // 확인 버튼 글자(기본 '확인') · 파괴적 확인이면 빨간 버튼
       ok?: string;
       destructive?: boolean;
+      // 취소 버튼 글자(기본 '취소')와 그 버튼을 눌렀을 때의 동작(GROMO-2259). 바깥·뒤로가기로 닫을 때는 부르지 않는다
+      cancel?: string;
+      onCancel?: () => void;
     } | null>(null),
     // 회원 전환(GROMO-2005) — 게이트 거절(403 SOCIAL_LOGIN_REQUIRED)이 여는 공통 시트.
     // busy 는 진행 중인 제공자, error 는 시트 안에 보여 줄 마지막 실패다.
@@ -598,7 +601,7 @@ function Gromo() {
     title: string,
     txt: string,
     action: () => void,
-    opts: { ok?: string; destructive?: boolean } = {},
+    opts: { ok?: string; destructive?: boolean; cancel?: string; onCancel?: () => void } = {},
   ) => setModal({ title, text: txt, action, ...opts });
   // ── 섬 서버 명령(GROMO-2006) ──
   // 오케스트레이션은 services/islandCommands.ts — 멱등 키·초대 token은 거기 세대 격리
@@ -2120,9 +2123,13 @@ function Gromo() {
                 <View style={[S.row, { justifyContent: 'flex-end', gap: 8, marginTop: 8 }]}>
                   <NativeButton
                     dialog
-                    title={t('common.cancel')}
+                    title={modal.cancel ?? t('common.cancel')}
                     kind="glass"
-                    onPress={() => setModal(null)}
+                    onPress={() => {
+                      const onCancel = modal?.onCancel;
+                      setModal(null);
+                      onCancel?.();
+                    }}
                   />
                   <NativeButton
                     dialog

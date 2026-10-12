@@ -4,6 +4,7 @@ import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet'
 import { Sailing } from '@/screens/world/WorldViews';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { sessionGeneration } from '@/services/api/session';
+import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { canSwitchIsland, currentIsland, viewIsland, type State } from '@/services/model';
 
 /** 뗏목 행선지 시트(GROMO-2261) — 소속 섬 이동·낚시섬·망원경·내 뗏목. 방문 중에는 소속 섬과 구경 끝내기만 보인다. */
@@ -73,16 +74,29 @@ export function RaftDestinations({ e }: { e: any }) {
 
   // 가입하지 않은 섬을 구경하다 떠나면 가입 안내를 방문당 1번 묻는다(GROMO-2259).
   // 물었는지는 리듀서 상태(visitLeaveAsked)에 둔다 — 새 방문·구경 끝에서만 지워지고, 사이의 다른 액션에 영향받지 않는다.
+  // 확인창의 [가입] 은 회관·지도 하단의 가입 버튼과 같은 함수(useVisitorJoin)를 쓴다.
   const serverVisiting = !!e.islands && visiting;
   const visit = serverVisiting ? s.serverIslands?.visit : null;
+  const visitorJoin = useVisitorJoin(e, s, viewIsland(s, s.visitingIslandId), e.notify);
   const confirmLeave = (action: () => void) => {
     if (visit && visit.island.membershipStatus === 'none' && !s.visitLeaveAsked) {
       e.dispatch({ type: 'VISIT_LEAVE_ASKED' });
+      // 가입할 수 있는 섬이면 취소 자리에 가입 버튼을 둬 떠나는 순간 한 번에 가입하게 한다.
+      // 즉시 가입이면 훅이 구경을 끝내고 홈으로 보내므로 떠나기 동작(action)은 돌리지 않는다.
+      // 정원이 찼거나 막혔거나 이미 신청 중이면 기본 「취소」다.
+      const canJoin =
+        !visitorJoin.disabled && (visitorJoin.join === 'join' || visitorJoin.join === 'apply');
       e.confirm(
         t('islandVisit.leaveWithoutJoinTitle'),
         t('islandVisit.leaveWithoutJoinBody'),
         action,
-        { ok: t('islandVisit.leaveWithoutJoinLeave') },
+        {
+          ok: t('islandVisit.leaveWithoutJoinLeave'),
+          ...(canJoin && {
+            cancel: visitorJoin.label,
+            onCancel: () => void visitorJoin.serverJoin(),
+          }),
+        },
       );
       return;
     }
