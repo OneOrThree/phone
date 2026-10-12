@@ -139,6 +139,21 @@ const MOVEMENT_SYNC = TILE_ISLAND && process.env.EXPO_PUBLIC_MOVEMENT_SYNC === '
 // 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
 const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
+/**
+ * 화면 마운트 때 쓸 맵 에셋 스냅샷(GROMO-2244, codex 지적 — 서버 `MovementRooms.java:46` 기준).
+ * 서버 이동 엔진은 1단계에서 번들 nav.json 만 쓰므로, movementSync 빌드는 캐시 승격(promote)을
+ * 건너뛰고 항상 번들(타일·레이아웃 포함)을 스냅샷으로 써 서버와 같은 nav 아티팩트를 보장한다 —
+ * 아니면 맵 업데이트 뒤 앱 캐시 nav 와 서버 번들 nav 가 달라도 둘 다 navRevision=1 이라 불일치가
+ * 안 잡혀 로컬 고양이가 서버 기준 통행 불가 지형을 지나거나 서버 경로로 강제 보정된다.
+ */
+export function initialMapAssets(
+  tileIsland: boolean,
+  movementSync: boolean,
+  promote: () => MapAssetSource,
+): MapAssetSource {
+  if (movementSync) return BUNDLE_ASSETS;
+  return tileIsland ? promote() : BUNDLE_ASSETS;
+}
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
   for (let idx = 1; idx < pts.length; idx++) {
@@ -2341,14 +2356,16 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
   // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 스냅샷으로 고정해 렌더러·nav·layout 에
   // 내려준다(렌더 중 교체 금지). 백그라운드 동기화는 완료돼도 다음 홈 진입부터 반영된다.
   // 플래그 off 면 캐시를 읽지 않고 항상 번들이다.
-  const [mapAssets, setMapAssets] = useState<MapAssetSource>(() =>
-    TILE_ISLAND ? promoteMapAssets('home') : BUNDLE_ASSETS,
+  const [mapAssets, setMapAssets] = useState(() =>
+    initialMapAssets(TILE_ISLAND, MOVEMENT_SYNC, () => promoteMapAssets('home')),
   );
   // 캐시 이미지 디코드 실패 → 전역도, 이 화면의 스냅샷도 번들로 내린다(빈 섬 방지).
   const failMapAssets = useCallback((file: TilesetFile) => {
     demoteToBundle('home', undefined, file);
     setMapAssets(BUNDLE_ASSETS);
   }, []);
+  // 동기화 빌드(MOVEMENT_SYNC)에서도 그대로 돈다 — 캐시는 갱신되지만 initialMapAssets 가 항상 번들로
+  // 고정하므로(위) 이 화면·다음 마운트 모두 반영되지 않는다(서버와 같은 nav 아티팩트를 유지하는 트레이드오프).
   useEffect(() => {
     if (TILE_ISLAND) void syncMapAssets('home');
   }, []);

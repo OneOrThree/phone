@@ -94,7 +94,7 @@ jest.mock('@/services/movementSync', () => {
 // 플래그는 모듈 로드 때 상수로 굳는다 — env 를 먼저 세우고 require 한다(import 는 호이스팅된다).
 process.env.EXPO_PUBLIC_TILE_ISLAND = '1';
 process.env.EXPO_PUBLIC_MOVEMENT_SYNC = '1';
-const { FinalIsland } = require('./WorldMap') as typeof import('./WorldMap');
+const { FinalIsland, initialMapAssets } = require('./WorldMap') as typeof import('./WorldMap');
 
 const ME = 'a0000000-0000-4000-8000-000000000001';
 const U1 = 'a0000000-0000-4000-8000-000000000002';
@@ -1131,5 +1131,28 @@ describe('플래그 off·서버 홈 아님', () => {
       if (savedDev === undefined) delete (globalThis as { __DEV__?: boolean }).__DEV__;
       else (globalThis as { __DEV__?: boolean }).__DEV__ = savedDev;
     }
+  });
+});
+
+// initialMapAssets(GROMO-2244, codex 지적) — movementSync 빌드는 서버와 같은 nav 아티팩트(번들)만 쓴다.
+// 순수 함수라 TILE_ISLAND·MOVEMENT_SYNC env 격리 없이 인자로 바로 검증한다.
+describe('initialMapAssets (GROMO-2244)', () => {
+  const cache = { kind: 'cache' as const, mapVersion: 1, dir: 'file:///v1', path: 'maps/home/v1' };
+
+  it('movementSync 면 promote 를 부르지 않고 BUNDLE_ASSETS(번들)다', () => {
+    const promote = jest.fn(() => cache);
+    expect(initialMapAssets(true, true, promote)).toEqual({ kind: 'bundle' });
+    expect(promote).not.toHaveBeenCalled();
+  });
+
+  it('타일 섬 + movementSync off 면 promote() 결과를 그대로 쓴다', () => {
+    const promote = jest.fn(() => cache);
+    expect(initialMapAssets(true, false, promote)).toBe(cache);
+  });
+
+  it('타일 섬이 아니면 movementSync 와 무관하게 BUNDLE_ASSETS(번들)다', () => {
+    const promote = jest.fn(() => cache);
+    expect(initialMapAssets(false, false, promote)).toEqual({ kind: 'bundle' });
+    expect(promote).not.toHaveBeenCalled();
   });
 });
