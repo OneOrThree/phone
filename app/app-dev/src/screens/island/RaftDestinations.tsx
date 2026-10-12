@@ -5,7 +5,13 @@ import { Sailing } from '@/screens/world/WorldViews';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { sessionGeneration } from '@/services/api/session';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
-import { canSwitchIsland, currentIsland, viewIsland, type State } from '@/services/model';
+import {
+  canSwitchIsland,
+  currentIsland,
+  serverVisit,
+  viewIsland,
+  type State,
+} from '@/services/model';
 
 /** 뗏목 행선지 시트(GROMO-2261) — 소속 섬 이동·낚시섬·망원경·내 뗏목. 방문 중에는 소속 섬과 구경 끝내기만 보인다. */
 export function RaftDestinations({ e }: { e: any }) {
@@ -75,9 +81,15 @@ export function RaftDestinations({ e }: { e: any }) {
   // 가입하지 않은 섬을 구경하다 떠나면 가입 안내를 방문당 1번 묻는다(GROMO-2259).
   // 물었는지는 리듀서 상태(visitLeaveAsked)에 둔다 — 새 방문·구경 끝에서만 지워지고, 사이의 다른 액션에 영향받지 않는다.
   // 확인창의 [가입] 은 회관·지도 하단의 가입 버튼과 같은 함수(useVisitorJoin)를 쓴다.
+  // 방문 스냅샷이 아직 없거나 다른 섬의 것인 프레임에는 가입 여부를 알 수 없으므로 확인 없이 끝낸다(의도).
   const serverVisiting = !!e.islands && visiting;
-  const visit = serverVisiting ? s.serverIslands?.visit : null;
-  const visitorJoin = useVisitorJoin(e, s, viewIsland(s, s.visitingIslandId), e.notify);
+  const visit = serverVisiting ? serverVisit(s) : null;
+  const visitorJoin = useVisitorJoin(
+    e,
+    s,
+    viewIsland(s, visit?.island.id ?? s.visitingIslandId),
+    e.notify,
+  );
   const confirmLeave = (action: () => void) => {
     if (visit && visit.island.membershipStatus === 'none' && !s.visitLeaveAsked) {
       e.dispatch({ type: 'VISIT_LEAVE_ASKED' });

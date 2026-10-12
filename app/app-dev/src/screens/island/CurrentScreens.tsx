@@ -34,6 +34,7 @@ import {
   displayIsland as currentIsland,
   viewIsland,
   serverHome,
+  serverVisit,
   canVisit,
   buildingNames,
   costs,
@@ -1014,9 +1015,10 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
   // 서버 방문(GROMO-2259) — 구경하는 섬의 집중 중 인원·오늘 집중·하단 가입 버튼. 목업은 기존 화면 그대로.
-  const visit = e.islands && s.visitingIslandId ? s.serverIslands?.visit : null;
+  // 방문 스냅샷이 visitingIslandId 와 같은 섬의 것일 때만 쓴다 — HUD·presence·가입이 같은 섬을 본다.
+  const visit = e.islands ? serverVisit(s) : null;
   const live = useIslandPresence({ active: !!visit, islandId: visit?.island.id ?? null });
-  const join = useVisitorJoin(e, s, viewIsland(s, islandId), e.notify);
+  const join = useVisitorJoin(e, s, viewIsland(s, visit?.island.id ?? islandId), e.notify);
   return (
     <FinalIsland
       state={s}
@@ -1030,6 +1032,7 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
       visitHud={
         visit
           ? {
+              // HUD 는 지금 집중 중(active)만 센다. 응원 수신자는 서버 기준 진행 중(active·paused)이라 FocusVisit 와 다르다
               focusCount:
                 live.status === 'ready'
                   ? live.focus.filter((m) => m.status === 'active').length
@@ -1097,6 +1100,7 @@ function EmoteFab({
         testID="emote-fab"
         accessibilityRole="button"
         accessibilityLabel={t('focusFlow.hud.emoteFab')}
+        accessibilityHint={disabled ? t('focusFlow.hud.emoteNoOneFocusing') : undefined}
         accessibilityState={{ expanded: fan, disabled }}
         onPress={() => (disabled ? onDisabledPress?.() : setFan(!fan))}
         style={[
@@ -1139,8 +1143,9 @@ function FocusVisit({ e, islandId, onBack }: any) {
     onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
-  // focus 에는 집중·일시정지 주민만 있다. 받을 주민이 없으면 서버가 NO_ONE_FOCUSING 으로 거절하고
-  // 그때마다 상류 조회가 나가므로, 스냅숏이 온 뒤 0명이면 요청 없이 안내만 한다.
+  // 응원 수신자는 서버 기준 진행 중(active·paused) 주민 — live.focus 가 곧 그 집합이다(HUD 인원은 active 만).
+  // 받을 주민이 없으면 서버가 NO_ONE_FOCUSING 으로 거절하고 그때마다 상류 조회가 나가므로,
+  // 스냅숏이 온 뒤 0명이면 요청 없이 안내만 한다.
   const nobodyFocusing = live.status === 'ready' && live.focus.length === 0;
   const myId = getSession()?.userId;
   const peerMembers: FishingPeer[] = liveIslandId

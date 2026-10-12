@@ -319,6 +319,26 @@ test('현재 섬이 있으면 「구경 끝내기」는 home 으로 간다(이�
   expect(e.reset).toHaveBeenCalledWith('home');
 });
 
+test('방문 스냅샷이 구경 중인 섬과 다르면 가입 여부를 알 수 없어 확인 없이 떠난다(구경 끝내기도 막히지 않는다)', async () => {
+  const e = visitEnv({
+    items: [isl('a', '하나', { arrivedBefore: true })],
+    currentIslandId: 'a',
+  });
+  // ISLAND_VISIT 가 visit 만 바꾸고 visitingIslandId 는 그대로인 구간 — visit 는 v, 구경 중인 섬은 other
+  e.state = { ...e.state, visitingIslandId: 'other' };
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  expect(e.confirm).not.toHaveBeenCalled();
+  expect(e.islands.switchCurrent).toHaveBeenCalledWith('a');
+  await screen.unmount();
+
+  const again = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(again.getByText('구경 끝내기'));
+  expect(e.confirm).not.toHaveBeenCalled();
+  expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
+  expect(e.reset).toHaveBeenCalledWith('home');
+});
+
 test('「구경 끝내기」는 방문 중에만 보인다', async () => {
   const screen = await render(<RaftDestinations e={env()} />);
   expect(screen.queryByText('구경 끝내기')).toBeNull();

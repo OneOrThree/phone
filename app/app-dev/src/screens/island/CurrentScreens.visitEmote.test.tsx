@@ -166,6 +166,8 @@ test('받을 주민이 0명이면 이모트 버튼은 비활성이고 누르면 
   const fab = screen.getByTestId('emote-fab');
   expect(fab.props.accessibilityState.disabled).toBe(true);
   expect(StyleSheet.flatten(fab.props.style)).toMatchObject({ opacity: 0.45, boxShadow: 'none' });
+  // 비활성인 이유를 스크린리더가 읽는다
+  expect(fab.props.accessibilityHint).toBe('지금 집중 중인 주민이 없어요.');
   await fireEvent.press(fab);
   expect(notify).toHaveBeenCalledWith('지금 집중 중인 주민이 없어요.');
   expect(mockSendEmote).not.toHaveBeenCalled();
@@ -177,6 +179,7 @@ test('집중·일시정지 주민이 있으면 이모트를 보낸다', async ()
   const { screen, notify } = await mount(visitState('none'));
   const fab = screen.getByTestId('emote-fab');
   expect(fab.props.accessibilityState.disabled).toBe(false);
+  expect(fab.props.accessibilityHint).toBeUndefined();
   await fireEvent.press(fab);
   await fireEvent.press(screen.getByTestId('emote-cheer'));
   expect(mockSendEmote).toHaveBeenCalledTimes(1);

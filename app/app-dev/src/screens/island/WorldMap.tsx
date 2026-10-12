@@ -31,6 +31,7 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
+import { formatDuration } from '@/i18n/format';
 import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
@@ -2193,13 +2194,7 @@ function FinalIslandScene({
                 {visitHud?.todayMinutes != null && (
                   <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
                     {t('home.hud.todayFocusVisitor', {
-                      time:
-                        visitHud.todayMinutes < 60
-                          ? t('time.minutes', { m: visitHud.todayMinutes })
-                          : t('time.hoursMinutes', {
-                              h: Math.floor(visitHud.todayMinutes / 60),
-                              m: visitHud.todayMinutes % 60,
-                            }),
+                      time: formatDuration(visitHud.todayMinutes * 60),
                     })}
                   </Txt>
                 )}
@@ -2237,6 +2232,7 @@ function FinalIslandScene({
             <Pressable
               testID="visit-focus-count"
               accessibilityRole="button"
+              accessibilityHint={t('home.hud.focusingNowHint')}
               onPress={visitHud.onFocusPress}
               style={{
                 marginTop: componentTokens.homeQuestIndicator.hudGap,
