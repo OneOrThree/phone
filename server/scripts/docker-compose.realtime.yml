@@ -40,7 +40,7 @@ services:
   # 여러 번 돌려도 안전하다(이미 있으면 아무 일도 하지 않는다).
   realtime-db-init:
     logging: *infra-logging
-    image: postgres:16-alpine
+    image: postgres:16.14-alpine
     container_name: phone-realtime-db-init
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD}
@@ -62,12 +62,10 @@ services:
 
   realtime:
     logging: *app-logging
-    # 이 이미지는 main push 때 realtime-ci.dev.yml 의 docker-build 잡이 올린다(:<sha> 와 :latest 둘 다).
-    # 경로가 그쪽 REALTIME_IMAGE_REPOSITORY 와 «같아야» 한다 — 어긋나면 「올렸는데 안 뜬다」가 된다.
-    #
-    # 되돌릴 때는 REALTIME_IMAGE 로 sha 를 못 박는다: REALTIME_IMAGE=…/chat:<sha> docker compose … up -d
-    # :latest 는 움직이는 태그라 「지금 뭐가 떠 있는지」를 사후에 알 수 없다.
-    image: ${REALTIME_IMAGE:-asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/realtime:latest}
+    # 이미지는 main push 때 realtime-ci.dev.yml 이 realtime/realtime:<sha> 로 올리고 realtime-cd.dev.yml 이 digest 로 넘김.
+    # 기본값 없음 — 예전 기본값(ci-cache/realtime:latest)은 올리는 곳과 다른 옛 저장소라 비면 옛 이미지로 조용히 떴음.
+    # 수동 실행·되돌리기: REALTIME_IMAGE=asia-northeast3-docker.pkg.dev/oneorthree2/realtime/realtime:<sha> docker compose … up -d
+    image: ${REALTIME_IMAGE:?Realtime 이미지 필요 — REALTIME_IMAGE=…/realtime/realtime:<sha> 또는 @digest}
     container_name: phone-realtime
     ports:
       # 8081 — data-api(8080)와 같은 호스트에 뜨므로 겹치지 않게 잡았다.

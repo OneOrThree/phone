@@ -2,9 +2,8 @@
 #
 # app 이미지는 여기서 빌드하지 않는다. 빌드는 CI 러너(gromo-dev-build)가 하고
 # GAR(data-api 저장소, GROMO-2224)로 올린 것을 data-api-cd.dev.yml의 deploy job이 받아 띄운다(GROMO-953).
-# APP_IMAGE는 그 job이 .env에 써준다. 기본값을 둔 이유는 오버레이 때문이다 —
-# dev-monitor·dev-datadog는 이 파일을 -f로 함께 읽는데, 값이 비면 app 서비스를
-# 건드리지 않는 실행에서도 compose 파싱이 깨진다.
+# APP_IMAGE는 dev-env.sh 가 dev.env 에 씀 — data-api 가 내려가 있어도 자리표시 값을 넣어 오버레이 파싱 안 깨짐.
+# 기본값 없음: 비면 옛 ci-cache :latest(또는 VM 캐시)로 조용히 뜨던 것을 실패로 바꿈.
 
 # 프로젝트명 고정 — 파일이 server/scripts/로 이사한 뒤에도 기존 볼륨·네트워크
 # (phone_* 프리픽스, dev 서버의 DB 데이터 포함)에 그대로 붙게 한다.
@@ -21,7 +20,7 @@ x-infra-logging: &infra-logging
 services:
   data-api:
     logging: *app-logging
-    image: ${APP_IMAGE:-asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest}
+    image: ${APP_IMAGE:?Data 이미지 digest 필요 — dev-env.sh 로 만든 env 를 --env-file 로 넘길 것}
     container_name: phone-data-api
     ports:
       - "127.0.0.1:8080:8080"
@@ -77,7 +76,7 @@ services:
 
   db:
     logging: *infra-logging
-    image: postgres:16-alpine
+    image: postgres:16.14-alpine
     container_name: phone-db
     # 통합 서비스 태그 (GROMO-1489). Datadog 오버레이가 아니라 **여기**에 둔다 —
     # 오버레이에만 두면 datadog 을 켤 때 라벨 추가로, 끌 때 라벨 제거로 compose 가 db 를 매번
@@ -86,7 +85,7 @@ services:
     labels:
       com.datadoghq.tags.env: "dev"
       com.datadoghq.tags.service: "gromo-db-dev"
-      com.datadoghq.tags.version: "16-alpine"
+      com.datadoghq.tags.version: "16.14-alpine"
     ports:
       - "127.0.0.1:5432:5432"
     environment:
@@ -109,12 +108,12 @@ services:
   # ACL 없이 뜨고, ACL 적용은 채팅 dev 배포와 함께 온다(그때까지 이 Redis 는 프레즌스 전용이다).
   redis:
     logging: *infra-logging
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: phone-redis
     labels:
       com.datadoghq.tags.env: "dev"
       com.datadoghq.tags.service: "gromo-redis-dev"
-      com.datadoghq.tags.version: "7-alpine"
+      com.datadoghq.tags.version: "7.4.11-alpine"
       com.datadoghq.ad.checks: >-
         {"redisdb":{"instances":[{"host":"%%host%%","port":6379,"tags":["env:dev","service:gromo-redis-dev","redis_instance:shared"]}]}}
     networks:

@@ -11,7 +11,7 @@ x-infra-logging: &infra-logging
 services:
   business-redis:
     logging: *infra-logging
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     command:
     - redis-server
     - --aclfile

@@ -6,14 +6,14 @@
 # 기본값은 기존 소스 빌드. CI는 같은 실행에서 검증한 JAR를 prebuilt로 전달한다.
 ARG JAR_SOURCE=builder
 
-FROM eclipse-temurin:17-jdk-jammy AS test
+FROM eclipse-temurin:17.0.20.1_1-jdk-jammy AS test
 RUN apt-get update \
     && apt-get install -y --no-install-recommends poppler-utils util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # builder 는 $BUILDPLATFORM(빌드 머신 네이티브)에서 돌려 gradle 을 QEMU 에뮬레이션 없이 실행한다.
 # 산출 JAR 는 아키텍처 무관이라 최종 스테이지만 타깃 아키텍처의 JRE 로 조립한다.
-FROM --platform=$BUILDPLATFORM eclipse-temurin:17-jdk-jammy AS builder
+FROM --platform=$BUILDPLATFORM eclipse-temurin:17.0.20.1_1-jdk-jammy AS builder
 WORKDIR /app
 COPY gradlew build.gradle settings.gradle ./
 COPY gradle gradle
@@ -30,9 +30,9 @@ COPY ci-artifact/app.jar /app/app.jar
 
 FROM ${JAR_SOURCE} AS artifact
 
-FROM eclipse-temurin:17-jre-jammy
-# curl — compose 헬스체크가 쓴다. 이 베이스에 지금은 들어 있지만 «보장»된 것이 아니다: 17-jre-jammy 는
-#        움직이는 태그라 베이스가 한 번 슬림해지는 것만으로 매 검사가 `curl: not found` 가 되어 앱이
+FROM eclipse-temurin:17.0.20.1_1-jre-jammy
+# curl — compose 헬스체크가 쓴다. 이 베이스에 지금은 들어 있지만 «보장»된 것이 아니다: 베이스 태그를
+#        올릴 때 베이스가 한 번 슬림해지는 것만으로 매 검사가 `curl: not found` 가 되어 앱이
 #        멀쩡한데도 컨테이너가 계속 unhealthy 로 판정된다. 그 의존을 이미지 안에 못 박는다.
 # poppler-utils·util-linux — PDF 썸네일은 prlimit 으로 제한한 별도 pdftoppm 프로세스에서 처리한다.
 # fonts-noto-cjk — 한글이 들어간 PDF 첫 페이지가 두부(□)로 렌더되지 않게 한다.

@@ -26,6 +26,9 @@ on:
       - 'server/scripts/nginx-satellites*.example'
       - 'server/scripts/nginx-dev-2.0-routes.conf.example'
       - 'server/scripts/provision-notification-db.*'
+      # 외부 이미지 버전 고정 검사(test_image_versions)가 모든 compose·Dockerfile 을 봄 — PR 에서만 (GROMO-2224)
+      - 'server/scripts/docker-compose*.yml'
+      - 'server/realtime/Dockerfile'
       - '.github/scripts/**'
       - '.github/actions/ci-jar/**'
       - '.github/actions/gar-login/**'
