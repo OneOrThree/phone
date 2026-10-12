@@ -26,7 +26,12 @@ public enum IslandWalletTransactionType {
      * 누적 획득은 {@code focus_reward_accruals.golden_fish}, 건설 각자 몫은
      * {@code island_construction_contributions} 다. 그래서 {@code CONTRIBUTION} 과 다른 사유다.
      */
-    GOLDEN_FISH(true);
+    GOLDEN_FISH(true),
+    /**
+     * 고양이 잡지 홍보비 차감(GROMO-2267) — 섬장이 홍보를 신청하면 고정 60마리를 섬 통장에서 뺀다. 하루(KST)
+     * 한 번이라 멱등 키가 {@code promotion:<섬 id>:<KST 날짜>} 다. 홍보 «내용»은 잡지 도메인의 몫이고 여기엔 돈만 있다.
+     */
+    PROMOTION_FEE(false);
 
     private final boolean earning;
 

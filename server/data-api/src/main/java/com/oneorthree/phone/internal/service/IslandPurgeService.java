@@ -50,6 +50,9 @@ import java.util.UUID;
  *   <li>{@code island_guestbook_entries} — 지운다(GROMO-2262, V108 이 22개 위에 더한 하나). 방명록은 섬의 공동
  *       기록이고 글마다 작성자 id 가 달려 있다. 섬 행이 소프트 삭제라 {@code ON DELETE CASCADE} 는 돌지 않으므로
  *       여기서 직접 지운다. 다른 테이블이 이 표를 참조하지 않아 목록 안의 순서는 자유롭다.</li>
+ *   <li>{@code island_news} — 지운다(GROMO-2267, V111 이 더한 또 하나). 섬 소식은 주민 전원이 읽는 공동 피드다. 섬 행이
+ *       소프트 삭제라 {@code ON DELETE CASCADE} 는 돌지 않으므로 직접 지운다. 유저 컬럼이 없어 계정 탈퇴가 건드릴
+ *       행도 없다. 홍보비의 원장 행은 아래 통장 원장 줄이 이미 지운다.</li>
  *   <li>{@code user_main_islands} — 안 지운다. 마지막 주민이 나가는 순간
  *       {@code MainIslandService#onMembershipRevoked} 가 같은 트랜잭션에서 옮기거나 지워, 여기 닿을
  *       때 이 섬을 가리키는 행은 이미 없다. 여기서 또 지우면 같은 사실의 장부가 둘이 된다.</li>
@@ -103,7 +106,10 @@ public class IslandPurgeService implements IslandPurgePort {
             // 방명록 (V108, GROMO-2262) — 방문자·주민이 남긴 글과 작성자 id. 섬 행은 소프트 삭제라 V108 의
             // ON DELETE CASCADE 는 돌지 않는다. 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다.
             "DELETE FROM island_guestbook_entries WHERE island_id = :islandId",
-            // 공동 잔액·원장 (V62) — 원장이 통장의 자식이라 가장 마지막이다.
+            // 섬 소식 (V111, GROMO-2267) — 주민 전원이 읽던 공동 피드. 섬 행은 소프트 삭제라 V111 의 ON DELETE CASCADE 는
+            // 돌지 않는다. 유저 컬럼이 없어 탈퇴 정리는 없고, 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다.
+            "DELETE FROM island_news WHERE island_id = :islandId",
+            // 공동 잔액·원장 (V62) — 원장이 통장의 자식이라 가장 마지막이다. 홍보비 원장 행(PROMOTION_FEE)도 여기서 지워진다.
             "DELETE FROM island_wallet_transactions WHERE island_id = :islandId",
             "DELETE FROM island_wallets WHERE island_id = :islandId");
 

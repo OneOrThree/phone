@@ -178,7 +178,11 @@ public enum GroupErrorCode implements ErrorCode {
     BATCH_KEY_INVALID(HttpStatus.FORBIDDEN, "관리자 키가 올바르지 않습니다."),
 
     // 섬 방명록(GROMO-2262) — 방문 1회 = 유저·섬·KST 하루(결정 N6). 앱이 이 코드로 «오늘은 이미 남겼어요» 를 띄운다.
-    GUESTBOOK_ALREADY_WRITTEN_TODAY(HttpStatus.CONFLICT, "오늘은 이미 방명록을 남겼어요");
+    GUESTBOOK_ALREADY_WRITTEN_TODAY(HttpStatus.CONFLICT, "오늘은 이미 방명록을 남겼어요"),
+
+    // 고양이 잡지 홍보 신청(GROMO-2267) — 섬장이 같은 KST 날 두 번째로 신청했다. 앱이 이 코드로 «오늘은 이미 신청했어요» 를
+    // 띄우므로 일반 STATE_CONFLICT 로 접지 않는다. 잔액 부족은 건설·상점과 같은 INSUFFICIENT_FUNDS(409)다.
+    PROMOTION_ALREADY_REQUESTED_TODAY(HttpStatus.CONFLICT, "오늘은 이미 잡지 홍보를 신청했어요");
 
     private final HttpStatus status;
     private final String message;
