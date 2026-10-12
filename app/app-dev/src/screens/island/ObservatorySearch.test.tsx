@@ -435,6 +435,13 @@ test('안드로이드는 직접 읽지 않고 live region 에만 맡긴다', asy
   }
 });
 
+test('로딩 안내에는 live region 을 걸지 않는다 — 입력마다 패널이 새로 떠서 TalkBack 이 키마다 되풀이해 읽는다', async () => {
+  searchMock.mockReturnValue(new Promise(() => {})); // 응답이 오지 않아 로딩이 이어진다
+  const { screen } = await search('단');
+  const panel = within(screen.getByTestId('observatory-search-loading'));
+  expect(panel.getByText('섬을 찾고 있어요').props.accessibilityLiveRegion).toBeUndefined();
+});
+
 test('영어 로케일 — 안내·배지·확인창·토스트가 모두 번역된다', async () => {
   applyLocalePref('en');
   searchMock.mockResolvedValue(

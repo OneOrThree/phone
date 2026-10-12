@@ -81,9 +81,8 @@ export function ObservatorySearch({ e }: { e: any }) {
       {search.status === 'loading' && (
         <View testID="observatory-search-loading" style={styles.panel}>
           <ActivityIndicator color={semanticTokens.color.outline} />
-          <Txt kind="meta" accessibilityLiveRegion="polite">
-            {t('telescope.loading')}
-          </Txt>
+          {/* 로딩 문구엔 live region 을 두지 않는다 — 입력마다 패널이 새로 떠서 TalkBack 이 키마다 되풀이해 읽는다 */}
+          <Txt kind="meta">{t('telescope.loading')}</Txt>
         </View>
       )}
       {search.status === 'error' && (
