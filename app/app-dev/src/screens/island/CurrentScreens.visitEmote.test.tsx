@@ -129,7 +129,8 @@ const visitState = (membershipStatus: string): State => {
 
 const mount = async (state: State) => {
   const notify = jest.fn();
-  const screen = await render(
+  // 같은 element 를 다시 넘기면 React 가 다시 그리지 않는다 — 재렌더가 필요하면 새로 만든다
+  const element = () => (
     <CurrentScreens
       e={{
         state,
@@ -148,9 +149,10 @@ const mount = async (state: State) => {
         setText: jest.fn(),
         islands: {},
       }}
-    />,
+    />
   );
-  return { screen, notify };
+  const screen = await render(element());
+  return { screen, notify, element };
 };
 
 beforeEach(async () => {
@@ -185,6 +187,27 @@ test('집중·일시정지 주민이 있으면 이모트를 보낸다', async ()
   expect(mockSendEmote).toHaveBeenCalledTimes(1);
   expect(mockSendEmote).toHaveBeenCalledWith('cheer');
   expect(notify).not.toHaveBeenCalled();
+});
+
+test('펼쳐 둔 채 주민이 모두 떠나 비활성이 되면 접히고, 다시 생겨도 저절로 펼쳐지지 않는다', async () => {
+  mockFocusMembers = [resident];
+  const { screen, element } = await mount(visitState('none'));
+  await fireEvent.press(screen.getByTestId('emote-fab'));
+  expect(screen.getByTestId('emote-cheer')).toBeTruthy();
+
+  mockFocusMembers = [];
+  await screen.rerender(element());
+  expect(screen.getByTestId('emote-fab').props.accessibilityState.disabled).toBe(true);
+  expect(screen.queryByTestId('emote-cheer')).toBeNull();
+
+  mockFocusMembers = [resident];
+  await screen.rerender(element());
+  const fab = screen.getByTestId('emote-fab');
+  expect(fab.props.accessibilityState).toMatchObject({ disabled: false, expanded: false });
+  expect(screen.queryByTestId('emote-cheer')).toBeNull();
+  // 누르면 그때 펼쳐진다
+  await fireEvent.press(fab);
+  expect(screen.getByTestId('emote-cheer')).toBeTruthy();
 });
 
 test('주민 목록을 아직 못 받았으면(loading) 막지 않는다', async () => {

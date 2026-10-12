@@ -260,21 +260,36 @@ test('승인제 섬이면 가입 버튼 글자는 「가입 신청」이고 신�
   expect(e.islands.switchCurrent).not.toHaveBeenCalled();
 });
 
-test('정원이 찬 섬이거나 이미 신청 중이면 취소 자리는 기본 「취소」다(가입 버튼 없음)', async () => {
+test('정원이 찬 섬이면 취소 자리는 기본 「취소」다(가입 버튼 없음)', async () => {
   const full = visitEnv({ island: { maxMembers: 1, memberCount: 1 } });
-  const fullScreen = await render(<RaftDestinations e={full} />);
-  await fireEvent.press(fullScreen.getByText('구경 끝내기'));
+  const screen = await render(<RaftDestinations e={full} />);
+  await fireEvent.press(screen.getByText('구경 끝내기'));
   expect(full.confirm).toHaveBeenCalledTimes(1);
   expect(full.confirm.mock.calls[0][3]).toEqual({ ok: '떠나기' });
-  await fullScreen.unmount();
+});
 
-  const requested = visitEnv({
-    joinRequest: { id: 'r1', islandId: 'v', status: 'pending', version: 1 },
+test('가입 신청을 이미 낸 사람은 membershipStatus 가 아직 none 이어도 확인 없이 떠난다', async () => {
+  const request = { id: 'r1', islandId: 'v', status: 'pending', version: 1 };
+  // 소속 섬으로 이동
+  const move = visitEnv({
+    items: [isl('a', '하나', { arrivedBefore: true })],
+    currentIslandId: 'a',
+    joinRequest: request,
   });
-  const requestedScreen = await render(<RaftDestinations e={requested} />);
-  await fireEvent.press(requestedScreen.getByText('구경 끝내기'));
-  expect(requested.confirm).toHaveBeenCalledTimes(1);
-  expect(requested.confirm.mock.calls[0][3]).toEqual({ ok: '떠나기' });
+  const moveScreen = await render(<RaftDestinations e={move} />);
+  await fireEvent.press(moveScreen.getByText('하나섬으로'));
+  expect(move.confirm).not.toHaveBeenCalled();
+  expect(move.dispatch).not.toHaveBeenCalledWith({ type: 'VISIT_LEAVE_ASKED' });
+  expect(move.islands.switchCurrent).toHaveBeenCalledWith('a');
+  await moveScreen.unmount();
+
+  // 구경 끝내기
+  const end = visitEnv({ joinRequest: request });
+  const endScreen = await render(<RaftDestinations e={end} />);
+  await fireEvent.press(endScreen.getByText('구경 끝내기'));
+  expect(end.confirm).not.toHaveBeenCalled();
+  expect(end.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
+  expect(end.reset).toHaveBeenCalledWith('chooseIsland');
 });
 
 test.each(['pending', 'active'])(

@@ -1078,6 +1078,10 @@ function EmoteFab({
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
   });
+  // 비활성이 되는 순간 접는다 — 부채꼴은 숨겨도 fan 이 true 로 남으면 다시 활성이 될 때 저절로 펼쳐진다.
+  useEffect(() => {
+    if (disabled) setFan(false);
+  }, [disabled, setFan]);
   return (
     <>
       {fan && !disabled && (
