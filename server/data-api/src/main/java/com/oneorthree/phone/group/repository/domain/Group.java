@@ -44,7 +44,7 @@ public class Group {
      * 흩어 놓으면 한 곳만 고쳐져 「검증은 통과하는데 저장은 거절」이 된다.
      *
      * <p><b>계정당 소속 섬 상한(3, GROMO-2260)과는 다른 축이다</b> — 그쪽은
-     * {@code IslandMovementGuards.MAX_JOINED_ISLANDS} 이고 이 값과 함께 움직이지 않는다.
+     * {@code GroupService.MAX_JOINED_GROUPS}(정본 — {@code IslandMovementGuards} 가 참조)이고 이 값과 함께 움직이지 않는다.
      */
     public static final int MAX_MEMBERS_CEILING = 15;
 
