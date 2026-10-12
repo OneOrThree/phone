@@ -730,6 +730,68 @@ class TelescopePinIntegrationTest {
     }
 
     @Test
+    @DisplayName("보이는 핀이 6개(잘린 핀 둘)일 때 가장 오래된 0번을 다시 넣으면 0번은 남고 그다음 오래된 1·2번이 함께 지워진다 — evicted 는 지운 것 중 가장 최근인 2번이다")
+    void reAddingTheOldestOfSixVisiblePinsEvictsTheNextTwoOldest() throws Exception {
+        UUID viewer = newUser();
+        List<Group> islands = truncatedTwoOldestPins(viewer);
+        UUID truncated = islands.get(0).getId();
+        assertThat(telescope.visiblePins(viewer, NOW.get())).as("보이는 핀은 여섯이다 — 넘침이 둘")
+                .extracting(entry -> entry.row().getId())
+                .containsExactlyElementsOf(islands.stream().map(Group::getId).toList());
+        assertThat(pinnedIds(viewer)).as("그래도 목록은 최근 넷(2~5번)만 보여 준다 — 가장 오래된 0·1번은 잘려 있다")
+                .containsExactly(islands.get(2).getId(), islands.get(3).getId(), islands.get(4).getId(),
+                        islands.get(5).getId());
+
+        NOW.set(BASE.plusSeconds(8));
+        postPin(viewer, truncated, "observatory")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(false))
+                // 지운 것은 1·2번 둘이고 알림은 그중 가장 최근인 2번 하나다 — 1번은 사용자가 목록에서 못 본 핀이다.
+                .andExpect(jsonPath("$.evicted.islandId").value(islands.get(2).getId().toString()))
+                .andExpect(jsonPath("$.evicted.name").value(islands.get(2).getName()))
+                .andExpect(jsonPath("$.item.islandId").value(truncated.toString()))
+                .andExpect(jsonPath("$.item.slot").value("pinned"))
+                .andExpect(jsonPath("$.item.pinnedFrom").value("magazine"))
+                .andExpect(jsonPath("$.item.pinnedAt").value("2026-10-12T05:23:41Z"));
+
+        assertThat(pinnedIds(viewer)).as("넣은 0번은 넣은 시각 그대로 남아 목록 맨 앞이다")
+                .containsExactly(truncated, islands.get(3).getId(), islands.get(4).getId(), islands.get(5).getId());
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(4);
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer,
+                islands.get(1).getId())).as("알림에 안 나온 1번도 행째 지운다 — 넘친 만큼 모두 지운다").isZero();
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer,
+                islands.get(2).getId())).as("알림에 나온 2번도 행째 지운다").isZero();
+    }
+
+    @Test
+    @DisplayName("목록에 있는 핀을 다시 넣어도 넘침은 가장 오래된 핀부터 지운다 — 잘려 있던 0번이 지워져 evicted 로 알린다(사용자가 목록에서 못 본 핀일 수 있다)")
+    void reAddingAPinOnTheListEvictsTheTruncatedOldestPin() throws Exception {
+        UUID viewer = newUser();
+        List<Group> islands = truncatedOldestPin(viewer);
+        Group onTheList = islands.get(2);
+
+        NOW.set(BASE.plusSeconds(7));
+        postPin(viewer, onTheList.getId(), "magazine")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(false))
+                // 현재 동작을 고정한다: 지워지는 것은 목록에서 잘려 있던 0번 하나뿐이고 evicted 는 그 0번이다. 다시 넣은 핀이
+                // 목록에 있어도 사용자는 한 번도 못 본 핀이 «밀려났다» 는 알림을 받을 수 있다.
+                .andExpect(jsonPath("$.evicted.islandId").value(islands.get(0).getId().toString()))
+                .andExpect(jsonPath("$.evicted.name").value(islands.get(0).getName()))
+                .andExpect(jsonPath("$.item.islandId").value(onTheList.getId().toString()))
+                .andExpect(jsonPath("$.item.slot").value("pinned"))
+                .andExpect(jsonPath("$.item.pinnedFrom").value("observatory"))
+                .andExpect(jsonPath("$.item.pinnedAt").value("2026-10-12T05:23:43Z"));
+
+        assertThat(pinnedIds(viewer)).as("목록은 그대로다 — 1~4번, 같은 순서")
+                .containsExactly(islands.get(1).getId(), islands.get(2).getId(), islands.get(3).getId(),
+                        islands.get(4).getId());
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(4);
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer,
+                islands.get(0).getId())).as("잘려 있던 0번이 행째 지워졌다").isZero();
+    }
+
+    @Test
     @DisplayName("목록에서 잘려 있는 핀은 가까운 섬·무작위 칸에도 나오지 않는다 — 후보가 그 섬 하나뿐이어도 «찜» 표시 없는 일반 칸으로 나오지 않는다")
     void aTruncatedPinNeverShowsUpInAnotherSlot() {
         UUID viewer = newUser();
@@ -743,6 +805,31 @@ class TelescopePinIntegrationTest {
                 islands.get(2).getId(), islands.get(3).getId(), islands.get(4).getId());
         assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer,
                 islands.get(0).getId())).as("잘린 핀 행은 다음 넣기가 정리할 때까지 남는다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("목록에서 잘려 있는 핀이 정원 찬 섬이어도 random 폴백으로 새지 않는다 — 정원 남은 후보가 없을 때 찬 섬이 채우는 «구경만» 칸에도 나오지 않는다")
+    void aTruncatedFullPinNeverLeaksIntoTheRandomFallback() {
+        UUID viewer = newUser();
+        // 공개 섬은 이 다섯뿐이고 0번 말고는 전부 핀이다. 0번이 정원까지 차면 후보에서 안 빠질 때 가까운 섬이 아니라 찬 섬을
+        // 채우는 random 폴백으로 나온다.
+        List<Group> islands = truncatedOldestPin(viewer);
+        UUID truncated = islands.get(0).getId();
+        jdbc.update("update groups set max_members = 1 where id = ?", truncated);
+        join(newUser(), islands.get(0));
+        assertThat(telescope.visiblePins(viewer, NOW.get())).as("잘린 0번도 «보이는 핀» 이고 정원이 찼다")
+                .anySatisfy(entry -> {
+                    assertThat(entry.row().getId()).isEqualTo(truncated);
+                    assertThat(entry.row().getMemberCount()).isEqualTo(entry.row().getMaxMembers());
+                });
+
+        List<TelescopeItemView> items = telescope.list(viewer).items();
+
+        assertThat(items).extracting(TelescopeItemView::slot).containsExactly("pinned", "pinned", "pinned", "pinned");
+        assertThat(items).extracting(TelescopeItemView::islandId).containsExactly(islands.get(1).getId(),
+                islands.get(2).getId(), islands.get(3).getId(), islands.get(4).getId());
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer, truncated))
+                .as("잘린 핀 행은 다음 넣기가 정리할 때까지 남는다").isEqualTo(1);
     }
 
     @Test
@@ -854,6 +941,27 @@ class TelescopePinIntegrationTest {
         joined.leave(BASE.plusSeconds(5));
         members.save(joined);
         NOW.set(BASE.plusSeconds(6));
+        return islands;
+    }
+
+    /**
+     * 가장 오래된 핀 <b>둘</b>이 목록에서 «잘린» 상태 — 0·1번 섬을 넣자마자 가입해 가린 채 2~5번을 넣은 뒤 0·1번을 자진해서
+     * 떠나 핀을 되살린다. 보이는 핀은 0~5번(0번이 가장 오래됨)의 여섯이고 목록은 최근 넷(2~5번)만 보여 준다. 시계는 BASE+7 이다.
+     */
+    private List<Group> truncatedTwoOldestPins(UUID viewer) {
+        List<Group> islands = islandEntities(6);
+        List<GroupMember> joined = new ArrayList<>();
+        for (int i = 0; i < islands.size(); i++) {
+            pin(viewer, islands.get(i).getId(), i == 0 ? "magazine" : "observatory", BASE.plusSeconds(i));
+            if (i < 2) {
+                joined.add(join(viewer, islands.get(i)));
+            }
+        }
+        for (GroupMember member : joined) {
+            member.leave(BASE.plusSeconds(6));
+            members.save(member);
+        }
+        NOW.set(BASE.plusSeconds(7));
         return islands;
     }
 
