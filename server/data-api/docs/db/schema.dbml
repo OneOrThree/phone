@@ -954,6 +954,19 @@ Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루
   }
 }
 
+Table telescope_pins [note: '망원경 핀 — 이 사람이 잡지·전망대로 «직접 넣은 섬». 한 사람의 만료 안 된 핀은 보이는 것 기준 최대 4개이고 5번째를 넣으면 pinned_at 이 가장 오래된 핀이 같은 트랜잭션에서 빠진다(서비스 몫 — 표는 개수를 제한하지 않는다). 만료는 읽을 때 거른다(expires_at > now, 정리 잡 없음 — 같은 사람이 핀을 넣을 때 그 사람의 만료 행만 함께 지운다). 목록 조립(TelescopeService)이 핀을 nearby 다음·random 앞 slot=pinned 로 끼운다. GROMO-2268, V110, 섬 외부 계약 §6'] {
+  user_id    uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 지운다(TelescopePinRepository.deleteAllOfUser, GroupMemberService.eraseWithdrawnUserRecords) — 개인 목록이라 남길 이유가 없다']
+  island_id  uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다. 핀 섬이 그사이 비공개·종료·강퇴·내 소속이 되면 행은 남고 목록에서만 빠진다']
+  source     varchar(20) [not null, note: "CHECK IN ('magazine','observatory') — 잡지(찜 리본·잡지 칸) / 전망대 검색·랭킹"]
+  pinned_at  timestamptz [not null, note: '넣은 시각 — 5번째를 넣을 때 가장 오래된 핀을 고르는 축. 이미 있는 핀을 다시 넣어도 갱신하지 않는다(멱등)']
+  expires_at timestamptz [not null, note: '다음 07:00 KST(지금이 07:00 전이면 오늘, 정각 포함 이후면 내일) — 이 시각 이후엔 목록에 나오지 않는다']
+
+  indexes {
+    (user_id, island_id) [pk]
+    (user_id, pinned_at) [name: 'telescope_pins_user_pinned_idx', note: '한 사람의 핀을 오래된 순으로 읽는다(목록·5번째 밀어내기). PK 는 섬이 둘째라 정렬을 돕지 못한다']
+  }
+}
+
 Table island_news [note: '섬 소식 — 주민 전원이 같은 글을 읽는 섬 공동 피드(수신자별 행·읽음 표시 없음). 지금은 잡지 홍보 신청 한 종류(kind=PROMOTION)뿐이고, 홍보 «내용»(글·틀·스티커)은 잡지 도메인의 몫이라 여기엔 없다. GROMO-2267, V111'] {
   id         uuid         [pk]
   island_id  uuid         [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 지운다(유저 컬럼이 없어 계정 탈퇴 정리는 없다)']
@@ -1925,6 +1938,8 @@ Ref: island_arrivals.island_id > groups.id [delete: cascade]
 Ref: letters.island_id > groups.id [delete: set null]
 Ref: island_guestbook_entries.island_id > groups.id [delete: cascade]
 Ref: island_guestbook_entries.author_id > users.id [delete: cascade]
+Ref: telescope_pins.user_id > users.id [delete: cascade]  // GROMO-2268 — 사용자 행은 소프트 삭제라 탈퇴 때 애플리케이션이 지운다
+Ref: telescope_pins.island_id > groups.id [delete: cascade]  // GROMO-2268 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
 Ref: island_news.island_id > groups.id [delete: cascade]
 
 // 초대 링크 (V21)

@@ -113,6 +113,14 @@ public class Letter {
     }
 
     /**
+     * 시스템 편지(강퇴·가입 승인 안내)인가 (GROMO-2260) — 친구 편지함 목록에는 나가지 않고, 수신자 본인만
+     * 시스템 편지함과 상세로 읽는다.
+     */
+    public boolean isSystem() {
+        return kind != LetterKind.FRIEND;
+    }
+
+    /**
      * 이 유저가 발신자도 수신자도 아닌가 — 상세 조회 인가 판정 (LLD §1.14).
      *
      * @param userId 조회를 시도한 유저

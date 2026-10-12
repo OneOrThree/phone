@@ -40,12 +40,17 @@ class LetterContractTest extends UpstreamTestBase {
     private static final String SEND_BODY = "{\"receiverId\":\"" + PEER + "\",\"content\":\"안녕\"}";
     private static final String VIEW = "{\"id\":\"" + LETTER + "\",\"senderId\":\"" + USER + "\","
             + "\"senderNickname\":\"나\",\"receiverId\":\"" + PEER + "\",\"content\":\"안녕\","
-            + "\"createdAt\":\"2026-09-18T01:00:00Z\",\"readAt\":null,\"kind\":\"FRIEND\",\"islandId\":null}";
+            + "\"createdAt\":\"2026-09-18T01:00:00Z\",\"readAt\":null}";
     private static final String SLICE = "{\"content\":[{\"id\":\"" + LETTER + "\","
             + "\"counterpartUserId\":\"" + PEER + "\",\"counterpartNickname\":\"짝꿍\","
-            + "\"content\":\"안녕\",\"isRead\":false,\"createdAt\":\"2026-09-18T01:00:00Z\","
-            + "\"kind\":\"FRIEND\",\"islandId\":null}],"
+            + "\"content\":\"안녕\",\"isRead\":false,\"createdAt\":\"2026-09-18T01:00:00Z\"}],"
             + "\"size\":20,\"hasNext\":false,\"nextCursor\":null}";
+
+    /** 시스템 편지함 한 페이지 — 발신자 없이 kind·islandId·readAt 이 실린다 (GROMO-2260). */
+    private static final String SYSTEM_SLICE = "{\"content\":[{\"id\":\"" + LETTER + "\",\"counterpartUserId\":null,"
+            + "\"counterpartNickname\":null,\"content\":\"안내\",\"isRead\":true,"
+            + "\"createdAt\":\"2026-09-18T01:00:00Z\",\"kind\":\"KICK\",\"islandId\":\"" + PEER + "\","
+            + "\"readAt\":\"2026-09-18T02:00:00Z\"}],\"size\":20,\"hasNext\":false,\"nextCursor\":null}";
 
     @Test
     void sendForwardsSignedActorAndReturnsCreatedLetter() throws Exception {
@@ -119,17 +124,16 @@ class LetterContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("시스템 편지(GROMO-2260)는 발신자 없이도 통과하고 kind·islandId 를 그대로 싣는다")
-    void systemLetterWithoutSenderPassesThrough() throws Exception {
-        DATA.on(DATA_LIST, request -> ok("{\"content\":[{\"id\":\"" + LETTER + "\",\"counterpartUserId\":null,"
-                + "\"counterpartNickname\":null,\"content\":\"안내\",\"isRead\":false,"
-                + "\"createdAt\":\"2026-09-18T01:00:00Z\",\"kind\":\"KICK\",\"islandId\":\"" + PEER + "\"}],"
-                + "\"size\":20,\"hasNext\":false,\"nextCursor\":null}"));
-        mockMvc.perform(auth(get("/letters")))
+    @DisplayName("시스템 편지함(GROMO-2260)은 kind=system 으로만 열리고 발신자 없이 kind·islandId·readAt 을 싣는다")
+    void systemMailboxIsOptInAndCarriesNullSender() throws Exception {
+        DATA.on(DATA_LIST, request -> ok(SYSTEM_SLICE));
+        mockMvc.perform(auth(get("/letters")).queryParam("kind", "system"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.content[0].counterpartUserId").value(nullValue()))
                 .andExpect(jsonPath("$.data.content[0].kind").value("KICK"))
-                .andExpect(jsonPath("$.data.content[0].islandId").value(PEER.toString()));
+                .andExpect(jsonPath("$.data.content[0].islandId").value(PEER.toString()))
+                .andExpect(jsonPath("$.data.content[0].readAt").value("2026-09-18T02:00:00Z"));
+        assertThat(DATA.received().get(0).query()).isEqualTo("kind=system");
 
         DATA.on(DATA_DETAIL, request -> ok("{\"id\":\"" + LETTER + "\",\"senderId\":null,\"senderNickname\":null,"
                 + "\"receiverId\":\"" + USER + "\",\"content\":\"안내\",\"createdAt\":\"2026-09-18T01:00:00Z\","
@@ -138,6 +142,31 @@ class LetterContractTest extends UpstreamTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.senderId").value(nullValue()))
                 .andExpect(jsonPath("$.data.kind").value("JOIN_APPROVED"));
+    }
+
+    @Test
+    @DisplayName("친구 편지함·상세에 발신자 없는 친구 편지가 오면 구 앱을 지키려 계약 불일치로 끊는다")
+    void friendMailboxNeverPassesANullSender() throws Exception {
+        DATA.on(DATA_LIST, request -> ok(SYSTEM_SLICE));
+        mockMvc.perform(auth(get("/letters")))
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+
+        DATA.on(DATA_DETAIL, request -> ok("{\"id\":\"" + LETTER + "\",\"senderId\":null,\"senderNickname\":null,"
+                + "\"receiverId\":\"" + USER + "\",\"content\":\"안녕\",\"createdAt\":\"2026-09-18T01:00:00Z\","
+                + "\"readAt\":null}"));
+        mockMvc.perform(auth(get("/letters/" + LETTER)))
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"friend", "SYSTEM", "", "KICK"})
+    @DisplayName("kind 는 system 하나만 받고 다른 값은 네트워크 전에 400 이다")
+    void unknownKindIsRejectedBeforeTheNetwork(String kind) throws Exception {
+        mockMvc.perform(auth(get("/letters")).queryParam("kind", kind))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.error.field").value("kind"));
+        assertThat(DATA.received()).isEmpty();
     }
 
     @Test
@@ -390,7 +419,7 @@ class LetterContractTest extends UpstreamTestBase {
             "/letters|post|200||id senderId senderNickname receiverId content createdAt readAt kind islandId|id receiverId content createdAt",
             "/letters/{letterId}|get|200||id senderId senderNickname receiverId content createdAt readAt kind islandId|id receiverId content createdAt",
             "/letters|get|200||content size hasNext nextCursor|content size hasNext",
-            "/letters|get|200|content|id counterpartUserId counterpartNickname content isRead createdAt kind islandId|id content isRead createdAt"})
+            "/letters|get|200|content|id counterpartUserId counterpartNickname content isRead createdAt kind islandId readAt|id content isRead createdAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {
         var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
