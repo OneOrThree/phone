@@ -7,6 +7,7 @@ import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
@@ -128,6 +129,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final IslandFocusSessions focusSessions;
     private final StringRedisTemplate redis;
     private final MovementSubscriptionListener movementSubscriptions;
+    private final MembershipService membershipService;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -217,11 +219,14 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 // 관전(focus·rest)과 달리 응원 수신은 「그 섬에서 지금 진행 중인 사람」의 것이다.
                 // 다만 비주민(방문자)은 세션 없이도 연다(GROMO-2258) — 주민인데 세션이 없으면 그대로 거절.
                 // 멤버십은 캐시가 아니라 상류에 직접 묻는다(갓 가입한 주민의 위장 방지). 세션이 있으면 묻지 않고,
-                // 비용 상한은 위의 구독 시도 창(600ms)이다.
+                // 비용 상한은 위의 구독 시도 창(600ms)이다. «방문자»는 성공한 그룹 조회로 확인된 비주민뿐이다 —
+                // 인가 판정(ChatAccessGuard·엄격 모드 verifier)의 NOT_A_MEMBER 는 세션 철회·세대 불일치로 실제 주민에게도
+                // 나오므로 소속 부재로 읽지 않는다(realtime CLAUDE.md 현재 인가 계약). 조회 거절·형식 불량은 예외로 올라온다.
                 try {
                     focusSessions.requireActiveSession(islandId, principal.userId(), null);
                 } catch (ChatException e) {
-                    if (e.getErrorCode() != ChatErrorCode.NOT_FOCUSING || isResident(islandId, principal)) {
+                    if (e.getErrorCode() != ChatErrorCode.NOT_FOCUSING
+                            || membershipService.isMemberUncached(islandId, principal.userId(), principal.bearer())) {
                         throw e;
                     }
                 }
@@ -284,22 +289,6 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             movementSubscriptions.clearMembershipCacheStale(islandId, principal.userId());
         }
         accessor.setHeader(MovementSubscriptionListener.JUDGED, generation);
-    }
-
-    /**
-     * 비캐시 멤버 판정 — 이동 구독과 같은 프리미티브({@link ChatAccessGuard#requireMemberUncached})를 쓴다.
-     * 비주민({@code NOT_A_MEMBER})만 false 이고, 판정 불가 등 다른 실패는 그대로 올린다(fail-closed).
-     */
-    private boolean isResident(UUID islandId, ChatPrincipal principal) {
-        try {
-            accessGuard.requireMemberUncached(islandId, principal.userId(), principal.bearer());
-            return true;
-        } catch (ChatException e) {
-            if (e.getErrorCode() == ChatErrorCode.NOT_A_MEMBER) {
-                return false;
-            }
-            throw e;
-        }
     }
 
     /**

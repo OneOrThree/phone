@@ -9,6 +9,7 @@ import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.dto.SendFailureResponse;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
+import com.sun.net.httpserver.HttpServer;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.AfterEach;
@@ -40,6 +41,7 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
 import java.lang.reflect.Type;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -608,6 +610,35 @@ class IslandRealtimeIntegrationTest {
         assertThat(failure).isNotNull();
         assertThat(failure.getCode()).isEqualTo(CommonErrorCode.UPSTREAM_UNAVAILABLE.name());
         verify(focusSessions, org.mockito.Mockito.never()).progressingRecipients(island, focusing);
+    }
+
+    @Test
+    @DisplayName("그룹 조회가 본문 없는 200 이면 세션 없는 응원은 방문자로 통과하지 않는다 — UPSTREAM_UNAVAILABLE")
+    void emptyGroupsBodyIsNotAVisitor() throws Exception {
+        // 실 GroupClient 가 실제 HTTP 응답(본문 없는 200)을 해석하게 한다 — 목 스텁으로는 «형식 불량» 판정이 검증되지 않는다.
+        HttpServer upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        upstream.createContext("/api/v1/groups", exchange -> {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        upstream.start();
+        try {
+            GroupClient real = new GroupClient("http://127.0.0.1:" + upstream.getAddress().getPort(), 1000);
+            given(groupClient.fetchMyGroupIds(bearerOf(focusing)))
+                    .willAnswer(invocation -> real.fetchMyGroupIds(invocation.getArgument(0)));
+            given(focusSessions.progressingRecipients(island, focusing)).willReturn(Set.of(resting));
+            StompSession sender = connect(focusing);
+            BlockingQueue<SendFailureResponse> errors = subscribeToErrors(sender);
+            awaitErrorQueueRegistered(sender, errors, focusing);
+
+            sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+            SendFailureResponse failure = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            assertThat(failure).isNotNull();
+            assertThat(failure.getCode()).isEqualTo(CommonErrorCode.UPSTREAM_UNAVAILABLE.name());
+            verify(focusSessions, org.mockito.Mockito.never()).progressingRecipients(island, focusing);
+        } finally {
+            upstream.stop(0);
+        }
     }
 
     @Test

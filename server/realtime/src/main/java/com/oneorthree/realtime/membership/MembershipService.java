@@ -101,12 +101,13 @@ public class MembershipService {
      * <p>방문자 응원(GROMO-2258)도 같은 이유로 이걸 쓴다 — 가입 직후 남은 «비주민» 캐시를 믿으면 세션 없는 주민이
      * 방문자로 위장해 {@code NOT_FOCUSING} 을 비켜 간다.
      *
-     * <p><b>«비주민»은 성공한 조회로만 확정한다</b>(GROMO-2258). 상류가 403 으로 거절한 빈 답({@code rejected})은
-     * 이 사람의 소속에 대한 사실이 아니라 판정 불가다 — {@code false} 로 접으면 조회가 거절된 주민이 방문자로
-     * 승인된다. 그래서 fail-closed 로 올린다(401 은 이미 {@code UpstreamRejectedCredentialException} 으로 올라온다).
+     * <p><b>«비주민»은 성공한 조회로만 확정한다</b>(GROMO-2258). 상류가 403 으로 거절했거나 형식이 깨진(본문 없음·
+     * groupId 없는 항목) 빈 답({@code rejected})은 이 사람의 소속에 대한 사실이 아니라 판정 불가다 — {@code false} 로
+     * 접으면 조회가 거절된 주민이 방문자로 승인된다. 그래서 fail-closed 로 올린다(401 은 이미
+     * {@code UpstreamRejectedCredentialException} 으로 올라온다).
      *
-     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류가 답하지 않거나 403 으로
-     *         거절했을 때
+     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류가 답하지 않거나, 403 으로
+     *         거절했거나, 형식이 깨진 성공 응답을 줬을 때
      */
     public boolean isMemberUncached(UUID groupId, UUID userId, String bearerToken) {
         GroupClient.Membership fresh = fetchAndStore(RedisKeys.memberCache(userId), bearerToken);
