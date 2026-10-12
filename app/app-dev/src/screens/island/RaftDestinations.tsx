@@ -92,6 +92,7 @@ export function RaftDestinations({ e }: { e: any }) {
           <SheetRow
             title={t('home.raft.fishingIsland')}
             chevron
+            disabled={pending}
             onPress={() => e.go('focusTravel')}
           />
         )}
@@ -108,10 +109,20 @@ export function RaftDestinations({ e }: { e: any }) {
         ))}
         {!visiting && (
           // TODO E1-4 먼바다 화면이 생기면 이 행은 바다 담당이 치운다 (임시 망원경 입구, N5)
-          <SheetRow title={t('home.raft.telescope')} chevron onPress={() => e.go('telescope')} />
+          <SheetRow
+            title={t('home.raft.telescope')}
+            chevron
+            disabled={pending}
+            onPress={() => e.go('telescope')}
+          />
         )}
         {!visiting && (
-          <SheetRow title={t('home.raft.myRaft')} chevron onPress={() => e.go('boat')} />
+          <SheetRow
+            title={t('home.raft.myRaft')}
+            chevron
+            disabled={pending}
+            onPress={() => e.go('boat')}
+          />
         )}
       </Group>
     </IslandSheet>
