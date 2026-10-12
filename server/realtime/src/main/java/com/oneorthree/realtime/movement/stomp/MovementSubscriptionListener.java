@@ -34,6 +34,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 
 /**
@@ -124,10 +125,13 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
      */
     private final ConcurrentHashMap<UUID, Generation> recheckGenerations = new ConcurrentHashMap<>();
 
+    /** 세대 값은 리스너 전역 단조 증가 — 정리로 항목이 사라진 뒤 같은 값이 다시 나오지 않아(ABA 방지) 스탬프와 겹칠 수 없다. */
+    private final AtomicLong recheckGenerationSeq = new AtomicLong();
+
     /**
      * 강퇴 사건의 멤버십 캐시 삭제가 실패한 (섬, 사용자) → 표시가 풀리는 시각(nanoTime). 그 사람 outbox 가 없으면 재검사도
      * 잡을 게 없고 옛 「멤버」 캐시가 남으므로, 그동안 관문의 이동 구독 판정이 캐시를 건너뛴다. 남은 캐시가 저절로 만료되는
-     * TTL 만큼만 기억한다.
+     * TTL 만큼만 기억한다. 만료된 항목은 워치독({@link #sweep})이 지운다.
      */
     private final ConcurrentHashMap<StaleMembership, Long> staleMemberships = new ConcurrentHashMap<>();
     private final long membershipCacheTtlNanos;
@@ -190,6 +194,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             long now = System.nanoTime();
             publisher.sweep(now);
             pruneRecheckGenerations(now);
+            pruneStaleMemberships(now);
         } catch (RuntimeException e) {
             // 주기 작업은 예외 한 번에 영구 취소된다 — 다음 주기를 살린다.
             log.warn("이동 송신 워치독 실패 — reason={}", e.getClass().getSimpleName());
@@ -205,6 +210,16 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             long idleNanos = nowNanos - entry.getValue().bumpedAtNanos();
             return idleNanos > GENERATION_TTL_NANOS && publisher.outboxes(entry.getKey()).isEmpty();
         });
+    }
+
+    /** 워치독이 5초마다 부른다 — 만료된 멤버십 캐시 무시 표시를 지운다. 패키지 전용 — 테스트가 시각을 직접 넣어 돌린다. */
+    void pruneStaleMemberships(long nowNanos) {
+        staleMemberships.values().removeIf(until -> until - nowNanos <= 0);
+    }
+
+    /** 패키지 전용 — 테스트가 정리 뒤 맵에 남은 표시 수를 확인한다. */
+    int staleMembershipCount() {
+        return staleMemberships.size();
     }
 
     /** 관문이 통과시킨 SUBSCRIBE·UNSUBSCRIBE 만 여기 온다(관문이 null 을 돌려주면 체인이 멈춘다). */
@@ -391,8 +406,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         try {
             // 세대부터 올리고 순회한다 — 판정은 끝났지만 아직 등록 전인 세션은 등록 때 이 세대를 보고 스스로 재판정한다.
             recheckGenerations.compute(islandId, (id, generation) -> {
-                long value = generation == null ? 0 : generation.value();
-                return new Generation(value + 1, System.nanoTime());
+                return new Generation(recheckGenerationSeq.incrementAndGet(), System.nanoTime());
             });
             for (MovementOutbox outbox : publisher.outboxes(islandId)) {
                 if (memberUserId == null || memberUserId.equals(outbox.userId())) {

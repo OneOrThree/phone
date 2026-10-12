@@ -630,6 +630,19 @@ class MovementSubscriptionListenerTest {
     }
 
     @Test
+    @DisplayName("만료된 staleMemberships 항목은 워치독이 지운다")
+    void pruneDropsExpiredStaleMembership() {
+        UUID user = UUID.randomUUID();
+        listener.markMembershipCacheStale(island, user);
+        assertThat(listener.membershipCacheStale(island, user)).isTrue();
+
+        listener.pruneStaleMemberships(System.nanoTime() + TimeUnit.SECONDS.toNanos(120) + TimeUnit.SECONDS.toNanos(1));
+
+        assertThat(listener.staleMembershipCount()).as("만료된 표시는 맵에서도 지워진다").isZero();
+        assertThat(listener.membershipCacheStale(island, user)).isFalse();
+    }
+
+    @Test
     @DisplayName("③ 교체됐던 기기가 같은 구독 id 로 돌아오면 첫 reliable 은 자기 FullState 다 — 그 사이 나간 다른 사건은 버린다")
     void supersededDeviceReturningWithTheSameIdStartsFromItsOwnFullState() {
         ChatPrincipal phone = connect("phone");
@@ -704,6 +717,25 @@ class MovementSubscriptionListenerTest {
         listener.pruneRecheckGenerations(System.nanoTime() + TimeUnit.MINUTES.toNanos(11));
 
         assertThat(listener.recheckGeneration(island)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("정리로 재검사 세대 항목이 사라진 뒤 새 강퇴가 와도 지워지기 전 스탬프와 겹치지 않는다(ABA) — 늦게 등록되는 구독은 캐시 판정을 못 믿고 재판정한다")
+    void pruneThenNewKickNeverReusesTheOldGenerationStamp() {
+        listener.recheckMembership(island, null); // 첫 강퇴 — 관문이 이 세대를 스탬프로 들고 판정을 시작한다
+        long stamp = listener.recheckGeneration(island);
+        ChatPrincipal late = connect("b");
+        Message<byte[]> judged = subscribe("b", "m", StompTopics.movementTopic(island), late); // 스탬프를 실어 둔다
+
+        listener.pruneRecheckGenerations(System.nanoTime() + TimeUnit.MINUTES.toNanos(11)); // 워치독이 항목을 지운다
+        listener.recheckMembership(island, null); // 같은 구간의 새 강퇴 — 지워진 뒤라 없는 항목에서 다시 돈다
+
+        assertThat(listener.recheckGeneration(island)).as("전역 시퀀스라 지운 뒤에도 옛 스탬프 %d 가 재사용되지 않는다", stamp)
+                .isEqualTo(2L)
+                .isNotEqualTo(stamp);
+
+        listener.preSend(judged, null); // 옛 스탬프를 든 등록이 이제 도착한다
+        assertThat(scheduled).as("세대가 안 겹치니 캐시 판정을 못 믿고 재판정(restart)한다").hasSize(1);
     }
 
     private MovementPublisher publisher() {
