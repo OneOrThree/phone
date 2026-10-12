@@ -3,6 +3,7 @@ import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
 import { isDemoMode } from '@/services/demoMode';
 import {
   Animated,
+  AppState,
   Easing,
   Image,
   PanResponder,
@@ -48,7 +49,14 @@ import legacyDoorCoords from '@/constants/legacy-doors.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
-import { TileTerrainCanvas, navDebugText, type NavDebug, type NavWalk } from './TileTerrainCanvas';
+import {
+  TileTerrainCanvas,
+  navDebugText,
+  type NavDebug,
+  type NavServerDebug,
+  type NavWalk,
+} from './TileTerrainCanvas';
+import { debugClockPeriod } from './navDebugClock';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import {
   demoteToBundle,
@@ -59,8 +67,28 @@ import {
   type TilesetFile,
 } from '@/services/mapAssets';
 import { applyLayout, legacyLayoutOffsets } from '@/utils/island-layout';
-import { loadNav, navPath, stepDurationMs, tapToWorld, tilePath } from '@/utils/nav-path';
-import { imageToWorld, worldToImage } from '@/utils/worldCoords';
+import {
+  loadNav,
+  MS_PER_UNIT,
+  navPath,
+  stepDurationMs,
+  tapToWorld,
+  tilePath,
+} from '@/utils/nav-path';
+import { imageToWorld, worldToCell, worldToImage, type WorldPoint } from '@/utils/worldCoords';
+import {
+  publishMoveIntent,
+  stompIslandChannel,
+  type IslandChannel,
+} from '@/services/islandRealtime';
+import {
+  createMovementController,
+  remainingPath,
+  sameCells,
+  type MovementActor,
+  type MovementCallbacks,
+  type MovementController,
+} from '@/services/movementSync';
 import { villageAssets } from '@/constants/village-assets';
 import {
   villageScene,
@@ -105,10 +133,28 @@ import { VillageNotificationBadge } from '@/components/village-motion/VillageNot
 // 새 마을 미리보기(layered)는 플래그와 무관하게 자기 지형 이미지·villagePath 를 그대로 쓴다.
 // 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
 const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
+// 이동 동기화(GROMO-2248): 타일 섬 + 이 플래그 + 서버 홈일 때만 이동 채널을 열어 서버 확정 경로를 따른다.
+// 서버가 없거나 거절하면 지금처럼 로컬로 걷고 주민은 Wanderer 로 돌아다닌다.
+const MOVEMENT_SYNC = TILE_ISLAND && process.env.EXPO_PUBLIC_MOVEMENT_SYNC === '1';
 // 타일 섬 = 플래그 + 기존 마을 홈 섬(새 마을 미리보기·낚시가 아님). 지형(WorldMap)과 걷기(FinalIslandScene)가
 // 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
 const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
+/**
+ * 화면 마운트 때 쓸 맵 에셋 스냅샷(GROMO-2244, codex 지적 — 서버 `MovementRooms.java:46` 기준).
+ * 서버 이동 엔진은 1단계에서 번들 nav.json 만 쓰므로, movementSync 빌드는 캐시 승격(promote)을
+ * 건너뛰고 항상 번들(타일·레이아웃 포함)을 스냅샷으로 써 서버와 같은 nav 아티팩트를 보장한다 —
+ * 아니면 맵 업데이트 뒤 앱 캐시 nav 와 서버 번들 nav 가 달라도 둘 다 navRevision=1 이라 불일치가
+ * 안 잡혀 로컬 고양이가 서버 기준 통행 불가 지형을 지나거나 서버 경로로 강제 보정된다.
+ */
+export function initialMapAssets(
+  tileIsland: boolean,
+  movementSync: boolean,
+  promote: () => MapAssetSource,
+): MapAssetSource {
+  if (movementSync) return BUNDLE_ASSETS;
+  return tileIsland ? promote() : BUNDLE_ASSETS;
+}
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
   for (let idx = 1; idx < pts.length; idx++) {
@@ -360,6 +406,71 @@ function Wanderer({
     </Animated.View>
   );
 }
+type RemoteListener = (p: Point, moving: boolean, durationMs: number) => void;
+// 다른 주민(GROMO-2248): 배회 대신 서버가 정한 위치(100ms 늦춰 경로 위로 보간한 값)만 받아 그린다.
+// 위치는 React state 가 아니라 Animated 값으로만 옮긴다(20Hz setState 금지) — 자세·방향만 바뀔 때 state.
+function RemoteResident({
+  userId,
+  color,
+  start,
+  s,
+  reduce,
+  subscribe,
+}: {
+  userId: string;
+  color: Color;
+  start: Point;
+  s: number;
+  reduce: boolean;
+  subscribe: (userId: string, listener: RemoteListener) => () => void;
+}) {
+  const xy = useRef(new Animated.ValueXY(start)).current,
+    at = useRef(start);
+  const [walking, setWalking] = useState(false),
+    [left, setLeft] = useState(false);
+  useEffect(() => {
+    let stop: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = subscribe(userId, (p, moving, durationMs) => {
+      if (Math.abs(p.x - at.current.x) > 0.5) setLeft(p.x < at.current.x);
+      at.current = p;
+      setWalking(moving);
+      // 위치가 300ms 넘게 안 오면 제자리걸음을 멈춘다(계약 §3 — 끊기면 마지막 위치에 정지).
+      clearTimeout(stop);
+      if (moving) stop = setTimeout(() => setWalking(false), 300);
+      // durationMs 는 보간에 쓴 두 샘플의 틱 간격 기반 — 저주기 스냅샷도 다음 호출까지 매끄럽게 잇는다.
+      Animated.timing(xy, {
+        toValue: p,
+        duration: reduce ? 0 : durationMs,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      }).start();
+    });
+    return () => {
+      unsubscribe();
+      clearTimeout(stop);
+      xy.stopAnimation();
+    };
+  }, [userId, subscribe, reduce, xy]);
+  return (
+    <Animated.View
+      testID={`remote-resident-${userId}`}
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: Animated.multiply(xy.x, s),
+        top: Animated.multiply(xy.y, s),
+      }}
+    >
+      <CatSprite
+        color={color}
+        size={70 * s}
+        motion={walking ? 'walking' : 'blink'}
+        left={left}
+        reduce={reduce}
+      />
+    </Animated.View>
+  );
+}
 export type VillageDayNight = 'day' | 'night';
 
 const localDayNight = (): VillageDayNight => {
@@ -411,6 +522,7 @@ export function WorldMap({
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug,
+  debugNow,
   buildingOffsets,
   children,
 }: {
@@ -442,6 +554,10 @@ export function WorldMap({
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기(타일 섬만). */
   navDebug?: NavDebug | null;
+  /** 틱 지연·대기 readout 시계 — FinalIslandScene 이 serverDebug flush 와 같은 동기 구간에서
+   * 갱신한다(GROMO-2249 보완8 항목 2). navDebug 없이 호출하는 쪽(WorldMap.test.tsx)은 readout 자체를
+   * 안 그리니 안 넘겨도 된다. */
+  debugNow?: number;
   /** 타일 섬 서버 배치 — 기존 마을 건물 레이어·모션·알림을 이만큼 옮겨 그린다. */
   buildingOffsets?: BuildingOffsets;
   children?:
@@ -635,10 +751,12 @@ export function WorldMap({
           assets={mapAssets}
           onAssetsFail={onMapAssetsFail}
           navDebug={navDebug}
+          reduceMotion={state.settings.reduceMotion}
         />
       )}
       {tileTerrain && navDebug && (
         <Txt
+          testID="nav-debug-text"
           pointerEvents="none"
           kind="meta"
           style={{
@@ -649,7 +767,7 @@ export function WorldMap({
             backgroundColor: 'rgba(0,0,0,0.6)',
           }}
         >
-          {navDebugText(navDebug.walk, mapAssets.kind)}
+          {navDebugText(navDebug.walk, mapAssets.kind, navDebug.server, debugNow)}
         </Txt>
       )}
       <Pressable
@@ -928,6 +1046,45 @@ export function WorldMap({
     </View>
   );
 }
+// 이동 보기 오버레이(GROMO-2249) flush 결과 비교용 — 같으면 이전 state 를 그대로 써 TileTerrainCanvas
+// 리렌더를 건너뛴다(보완 3). waitingSince·snapshotReceivedAt 도 비교에 넣는다(보완4 지적 1) — 둘 다
+// 이벤트 때만 바뀌는 절대 시각이라 250ms 재시도 인터벌만으론 새 객체가 안 생기고, intent 전송으로
+// sentAt 만 바뀌거나 정지 상태에서 같은 좌표의 새 Snapshot 으로 receivedAt 만 바뀌는 경우를 놓치지 않는다.
+const sameImagePoint = (a: Point | null, b: Point | null) =>
+  a === b || (!!a && !!b && a.x === b.x && a.y === b.y);
+// 모든 점을 깊이 비교한다(보완4 지적 3) — 점 ≤ 100개라 비용은 무시한다(보완5 지적 1).
+const samePathPoints = (a: Point[], b: Point[]) =>
+  a.length === b.length && a.every((p, i) => sameImagePoint(p, b[i]));
+// path 는 flush 마다 새 배열이라 참조가 다르면 비교가 필요하다. pathId(서버 경로 식별자)가 같아도 서버
+// 재시작 뒤 재사용된 값일 수 있다(movementSync 가 pathId 역행을 허용) — 길이만 보고 "같다"고 끝내던
+// pathId 지름길은 그 경우 중간 waypoint 가 달라져도 옛 경로를 그대로 남겼다(보완5 지적 1). 지름길 없이
+// pathId 와 전 지점을 항상 함께 비교한다.
+const sameImagePath = (
+  a: Point[] | null,
+  b: Point[] | null,
+  aPathId: number | null,
+  bPathId: number | null,
+) => a === b || (!!a && !!b && aPathId === bPathId && samePathPoints(a, b));
+const sameServerDebug = (a: NavServerDebug, b: NavServerDebug) =>
+  a.status === b.status &&
+  a.correctedAt === b.correctedAt &&
+  a.waitingSince === b.waitingSince &&
+  a.snapshotReceivedAt === b.snapshotReceivedAt &&
+  sameImagePoint(a.predicted, b.predicted) &&
+  sameImagePoint(a.snapshot, b.snapshot) &&
+  sameImagePath(a.path, b.path, a.pathId, b.pathId);
+// NavServerDebug 에 필드를 추가하면(또는 빼면) 이 타입이 깨진다 — sameServerDebug 도 같이 고치라는
+// 컴파일 타임 잠금이다(GROMO-2249 보완8 항목 4).
+export const SERVER_DEBUG_KEYS: Record<keyof NavServerDebug, true> = {
+  status: true,
+  path: true,
+  pathId: true,
+  snapshot: true,
+  predicted: true,
+  correctedAt: true,
+  snapshotReceivedAt: true,
+  waitingSince: true,
+};
 function FinalIslandScene({
   state,
   go,
@@ -1268,35 +1425,80 @@ function FinalIslandScene({
   // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
   const tileNav = isTileIsland(scene);
   const [navWalk, setNavWalk] = useState<NavWalk | null>(null);
-  const walk = (target: Point, done?: () => void) => {
-    if (tiltTimer.current) clearTimeout(tiltTimer.current);
-    if (transitionTimer.current) clearTimeout(transitionTimer.current);
-    setInteractiveMotion(null);
-    const path = tileNav
-      ? tilePath(activeNav(mapAssets, navBuildings), location.current, target, sizeOf(grid))
-      : scene
-        ? villagePath(scene, location.current, target)
-        : landPath(grid, location.current, nearestLand(grid, target));
-    if (tileNav && navDebug) setNavWalk({ tap: target, path });
+  // background 전환(codex 지적, PR #1111 — WorldMap.tsx:1625) — 홈이 마운트된 채 background 로 가도
+  // 언마운트·syncIslandId/me 변경 때만 채널 effect 가 정리돼 channel.close() 가 안 불린다. 서버는 소켓
+  // 종료에서만 rooms.leave 하므로 OS 가 WebSocket 을 유지하면 다른 주민에게 내 actor 가 계속 남는다.
+  // appActive 를 아래 syncIslandId 에 섞어 background 에서 null 로 만들면 채널 effect 의 기존 cleanup 이
+  // close() 를 불러 방을 나가고, active 복귀 때 effect 가 다시 돌아 새로 구독·FullState 로 맞춘다.
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
+    return () => subscription.remove();
+  }, []);
+  // 이동 동기화(GROMO-2248) — 플래그·타일 섬·서버 홈일 때만 켠다. 꺼져 있으면 movement 가 null 이라 걷기는 이전과 같다.
+  // 배경으로 깔린 홈(showActions=false — 집중 준비·잠금 안내·우체통 안내 뒤)은 조작이 없으니 열지 않는다(구독 = 방 입장).
+  const syncIslandId =
+    MOVEMENT_SYNC && tileNav && facts && showActions && appActive ? facts.islandId : null;
+  // 채널 effect 의존성에 넣어 로그인 세션이 바뀌면(계정 전환 등) 묵은 me 로 연 채널을 그대로 쓰지 않는다.
+  const me = getSession()?.userId;
+  const movement = useRef<MovementController | null>(null),
+    // 걷기 사슬이 도는 중인지 · 그 걷기의 done(서버 경로로 갈아타도 넘겨 준다) · 로컬 경로 셀(월드) · 걷는 중 받은 도착
+    stepping = useRef(false),
+    walkDone = useRef<(() => void) | undefined>(undefined),
+    walkCells = useRef<WorldPoint[]>([]),
+    arrival = useRef<Point | null>(null);
+  const [remoteActors, setRemoteActors] = useState<MovementActor[] | null>(null);
+  const remoteListeners = useRef(new Map<string, RemoteListener>()).current;
+  const subscribeRemote = useCallback(
+    (userId: string, listener: RemoteListener) => {
+      remoteListeners.set(userId, listener);
+      return () => {
+        if (remoteListeners.get(userId) === listener) remoteListeners.delete(userId);
+      };
+    },
+    [remoteListeners],
+  );
+  const moving = (value: boolean) => {
+    stepping.current = value;
+    setWalking(value);
+  };
+  // 멈춘 상태에서 서버 위치로 맞춘다(FullState 채택·보정·도착).
+  const place = (p: Point) => {
+    xy.setValue(p);
+    location.current = p;
+    setPos(p);
+    homePositions[positionKey] = p;
+  };
+  // 주어진 이미지 px 경로(출발점 포함)를 걷는다. 반환값·done 계약은 walk 그대로다(buildingTransition 이 의존).
+  // msPerUnit 은 서버 경로를 걸을 때 서버 속도(1000/speed), 없으면 로컬 MS_PER_UNIT.
+  const walkPath = (path: Point[], done?: () => void, msPerUnit?: number) => {
     const run = ++token.current;
     xy.stopAnimation();
+    arrival.current = null;
+    // false 를 돌려준 걷기의 done 은 호출부가 이미 포기했다 — 서버 경로로 갈아탈 때 되살리지 않는다.
+    walkDone.current = path.length ? done : undefined;
     if (!path.length) {
-      setWalking(false);
+      moving(false);
       return false;
     }
     if (path.length > 1) {
       setLeft(path[path.length - 1].x < location.current.x);
     }
-    setWalking(true);
+    moving(true);
     let idx = 1;
     const next = () => {
       if (run !== token.current) return;
       if (idx >= path.length) {
-        setWalking(false);
+        moving(false);
+        // 걷는 중에 서버 Arrived 가 왔으면 마지막 세그먼트를 마친 뒤 그 자리에 선다.
+        if (arrival.current) place(arrival.current);
+        arrival.current = null;
         if (pathDistance(path) >= 180) {
           triggerMotion('stretch');
         }
+        walkDone.current = undefined;
         done?.();
+        movement.current?.settle();
         return;
       }
       const p = path[idx++];
@@ -1309,7 +1511,11 @@ function FinalIslandScene({
         duration: state.settings.reduceMotion
           ? 0
           : tileNav
-            ? stepDurationMs(imageToWorld(prev, sizeOf(grid)), imageToWorld(p, sizeOf(grid)))
+            ? stepDurationMs(
+                imageToWorld(prev, sizeOf(grid)),
+                imageToWorld(p, sizeOf(grid)),
+                msPerUnit,
+              )
             : 95,
         useNativeDriver: false,
       }).start(({ finished }) => {
@@ -1325,15 +1531,257 @@ function FinalIslandScene({
     next();
     return true;
   };
+  const walk = (target: Point, done?: () => void) => {
+    if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    setInteractiveMotion(null);
+    const path = tileNav
+      ? tilePath(activeNav(mapAssets, navBuildings), location.current, target, sizeOf(grid))
+      : scene
+        ? villagePath(scene, location.current, target)
+        : landPath(grid, location.current, nearestLand(grid, target));
+    if (tileNav && navDebug) setNavWalk({ tap: target, path });
+    // 로컬 A* 로 곧장 걷고 같은 목적지를 서버에 보낸다(바닥·문·뗏목이 전부 여기로 온다).
+    // path 가 비었으면(도달 불가) 로컬도 걷지 않는다 — intend 를 보내면 서버가 최근접 경로를 내려 걷게 돼
+    // walkPath 의 "무시"와 동작이 갈린다.
+    if (movement.current && path.length) {
+      walkCells.current = path.slice(1).map((p) => imageToWorld(p, sizeOf(grid)));
+      movement.current.intend(imageToWorld(target, sizeOf(grid)));
+    }
+    return walkPath(path, done);
+  };
+  // 이동 채널 콜백 — 렌더마다 최신 클로저로 갈아 끼운다(채널은 섬이 바뀔 때만 다시 연다).
+  const sync = useRef<Required<MovementCallbacks> & { position: () => WorldPoint }>(null!);
+  sync.current = {
+    position: () => imageToWorld(location.current, sizeOf(grid)),
+    onMyPath: (waypoints, speed, _pathId, start) => {
+      const msPerUnit = 1000 / speed;
+      // 셀 열이 같고 속도도 로컬과 같으면 지금 걷기를 그대로 둔다. 속도만 다르면(서버 속도 채택 계약) 같은
+      // 갈아타기 경로 계산을 재사용해 남은 구간만 그 속도로 다시 걷는다.
+      if (sameCells(walkCells.current, waypoints) && Math.abs(msPerUnit - MS_PER_UNIT) <= 1e-6)
+        return;
+      const size = sizeOf(grid);
+      let here = location.current;
+      xy.stopAnimation((value) => (here = value));
+      location.current = here;
+      walkCells.current = waypoints;
+      const hereWorld = imageToWorld(here, size);
+      const rest = remainingPath([start, ...waypoints], hereWorld);
+      // 연결 구간(지금 자리 → 갈아탄 경로의 첫 꼭짓점)도 통행 가능한 경로여야 한다 — 직선은
+      // 장애물의 다른 쪽을 지날 수 있어(로컬 예측과 서버 경로가 반대편일 때) 로컬 A* 로 잇는다.
+      const target = rest[0] ?? waypoints[waypoints.length - 1] ?? start;
+      const connect = navPath(activeNav(mapAssets, navBuildings), hereWorld, target);
+      // connect 가 비었는데 같은 셀도 아니면(같은 셀이라 비는 정상 경우와 구분) 로컬 예측과 서버 경로가 다른
+      // 통행 영역·맵 버전이라 이을 수 없다는 뜻이다 — 직선으로 장애물을 뚫지 않고 서버 출발점(정본)으로
+      // 즉시 맞춘 뒤 서버 경로를 그대로 걷는다.
+      if (!connect.length && !cellEq(hereWorld, target)) {
+        const startImage = worldToImage(start, size);
+        place(startImage);
+        walkPath(
+          [startImage, ...waypoints.map((p) => worldToImage(p, size))],
+          walkDone.current,
+          msPerUnit,
+        );
+        return;
+      }
+      const worldPath = connect.length ? [...connect, ...rest.slice(1)] : rest;
+      walkPath([here, ...worldPath.map((p) => worldToImage(p, size))], walkDone.current, msPerUnit);
+    },
+    onMyArrived: (p) => {
+      const at = worldToImage(p, sizeOf(grid));
+      if (stepping.current) arrival.current = at;
+      else {
+        place(at);
+        moving(false);
+      }
+    },
+    onMyCorrection: (p) => place(worldToImage(p, sizeOf(grid))),
+    onActors: setRemoteActors,
+    onRemotePosition: (userId, p, durationMs) =>
+      remoteListeners.get(userId)?.(worldToImage(p, sizeOf(grid)), p.moving, durationMs),
+  };
+  useEffect(() => {
+    if (!syncIslandId || !me) return;
+    let channel: IslandChannel | null = null;
+    const controller = createMovementController({
+      me,
+      send: (intent) => !!channel && publishMoveIntent(channel, syncIslandId, intent),
+      position: () => sync.current.position(),
+      walking: () => stepping.current,
+      onMyPath: (...args) => sync.current.onMyPath(...args),
+      onMyArrived: (p) => sync.current.onMyArrived(p),
+      onMyCorrection: (p) => sync.current.onMyCorrection(p),
+      onActors: (actors) => sync.current.onActors(actors),
+      onRemotePosition: (userId, p, durationMs) =>
+        sync.current.onRemotePosition(userId, p, durationMs),
+    });
+    movement.current = controller;
+    channel = stompIslandChannel({
+      islandId: syncIslandId,
+      presence: false,
+      emote: false,
+      movement: true,
+      onEvent: controller.onMessage,
+      onOpen: () => {},
+      // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
+      // 돌아간다 — 토스트는 없다. 그 외 오류 큐 코드(예: 속도 제한)는 onError 로만 오고 동기화는 그대로 둔다.
+      onMovementDenied: () => {
+        // 섬 전환으로 이미 해제된 옛 채널의 늦은 거절일 수 있다 — 소유권을 먼저 확인해 새 컨트롤러를 끄지 않는다.
+        if (movement.current !== controller) return;
+        controller.deny();
+        movement.current = null;
+        setRemoteActors(null);
+        channel?.close();
+      },
+      onError: () => {},
+    });
+    return () => {
+      // close() 의 deactivate() 는 비동기라 닫히는 중 도착한 메시지가 옛 controller.onMessage 로 들어가
+      // sync.current(이미 새 섬 클로저로 바뀌어 있을 수 있다) 를 건드릴 수 있다 — deny 를 먼저 불러 막는다.
+      controller.deny();
+      movement.current = null;
+      channel?.close();
+      setRemoteActors(null);
+    };
+  }, [syncIslandId, me]);
+  // 이동 보기 오버레이(GROMO-2249) — 서버 확정 경로·스냅샷·예측 오차. navDebug 가 꺼져 있으면 아무것도 계산·구독하지 않는다(비용 0).
+  const [serverDebug, setServerDebug] = useState<NavServerDebug | null>(null);
+  // flush 가 비교·배칭에 쓰는 최신값 거울(GROMO-2249 보완8 항목 2) — setState 는 비동기라 같은 tick
+  // 안에서 state 클로저가 묵을 수 있다. ref 는 항상 바로 갱신해 다음 flush 가 최신값과 비교한다.
+  const serverDebugRef = useRef<NavServerDebug | null>(null);
+  // 틱 지연·대기 readout 시계(GROMO-2249 보완4 지적 2 · 보완8 항목 2) — serverDebug 가 flush 로 실제
+  // 바뀔 때는 그 flush 와 같은 동기 구간에서 Date.now() 로 맞춰(아래 flush, React 18 자동 배칭) 렌더가
+  // 1번만 늘어난다. 그 뒤는 아래 별도 effect 의 navDebugClock.debugClockPeriod 규칙대로 이어간다.
+  const [debugNow, setDebugNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!navDebug || !tileNav) {
+      setServerDebug(null);
+      serverDebugRef.current = null;
+      return;
+    }
+    const controller = movement.current;
+    const size = sizeOf(grid);
+    // 걷는 동안 화면에 보이는 고양이 위치를 ref 로 샘플링한다 — location.current 는 구간이 끝나야
+    // 갱신돼 걷는 중엔 전 꼭짓점에 머문다. 오버레이 화살표·서버 Δ 가 긴 구간에서 예측 오차를 잘못
+    // 보여준다(GROMO-2249 보완7 지적 2). xy 는 location.current 와 같은 1x 이미지 px 공간이라
+    // px→world 변환이 필요 없다(둘 다 image px — worldCoords 의 WorldPoint 가 아니다). 컨트롤러가
+    // 없으면(동기화 off) predicted 자체를 안 그리니(아래 flush) 리스너도 걸지 않는다 — 기존 off 동작
+    // 그대로(MOVEMENT_SYNC 가 꺼지면 controller 는 항상 null).
+    const livePos = { current: location.current };
+    const listenerId = controller
+      ? xy.addListener((v) => {
+          livePos.current = v;
+        })
+      : null;
+    // 100ms 쓰로틀 — controller.subscribe() 는 스냅샷마다(최대 20Hz) 올 수 있어 마지막 반영 이후 100ms 안이면 미뤄서 합친다.
+    let lastFlush = 0,
+      timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      lastFlush = Date.now();
+      timer = null;
+      // 컨트롤러가 없으면(동기화 off·비홈이거나 아직 안 열렸다) 동기화 자체가 꺼진 것과 같다 — "전부 null"
+      // 객체 대신 server 자체를 비워 TileTerrainCanvas 쪽 판정이 상시 켜지지 않게 한다(GROMO-2249 보완 — 항목 2).
+      // movement.current(살아있는 ref)가 아니라 캡처한 controller 로 판정한다 — 거절·언마운트 정리는 항상
+      // controller.deny() 를 먼저 부르고서 movement.current 를 null 로 비우므로, 거절은 아래 st.denied 로 이미
+      // 갈린다. 산 ref 로 판정하면 거절 직후 movement.current 가 비는 순간 off 로 오판한다.
+      if (!controller) {
+        setServerDebug(null);
+        serverDebugRef.current = null;
+        return;
+      }
+      const st = controller.state();
+      const next: NavServerDebug = st.denied
+        ? // 거절(controller.deny())되면 lastPath·lastSnapshot 은 컨트롤러 안에 그대로 남는다 — 오버레이까지
+          // 묵은 경로·스냅샷을 계속 그리지 않게 통째로 비운다(지적 3). status 로 "서버 없음"과 구분한다(보완 5).
+          {
+            status: 'denied',
+            path: null,
+            pathId: null,
+            snapshot: null,
+            predicted: null,
+            correctedAt: null,
+            snapshotReceivedAt: null,
+            waitingSince: null,
+          }
+        : {
+            status: 'live',
+            path: st.lastPath
+              ? [st.lastPath.start, ...st.lastPath.waypoints].map((p) => worldToImage(p, size))
+              : null,
+            // 경로 비교 1순위(보완4 지적 3) — 서버 경로 식별자. lastPath 가 없으면(아직 PathAccepted 전) null.
+            pathId: st.lastPath?.pathId ?? null,
+            snapshot: st.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
+            // 걷는 중엔 xy 의 애니메이션 중간값(livePos) — 멈춰 있으면 location.current 와 같다(폴백, 지적 2).
+            predicted: livePos.current,
+            correctedAt: st.lastCorrectionAt,
+            // state() 가 수신 시각을 그대로 준다(GROMO-2249 보완) — 틱 지연(now - 이 값)은 readout 이 그릴 때
+            // 계산해, 절대 시각이라 메시지가 안 와도 값이 그대로다(아래 shallow 비교가 매번 새 객체를 안 만든다).
+            snapshotReceivedAt: st.lastSnapshot?.receivedAt ?? null,
+            waitingSince: st.sentAt,
+          };
+      // path·snapshot·predicted·correctedAt·status 가 이전과 같으면 아무것도 하지 않아 리렌더를
+      // 건너뛴다 — 시간값은 비교하지 않는다(보완 3). ref 는 항상 최신이라 효과 클로저가 묵어도 최신값과
+      // 비교한다. 바뀐 경우에만 serverDebug 와 debugNow 를 같은 동기 구간에서 함께 올려 React 18 자동
+      // 배칭으로 렌더가 1번만 늘어난다(보완8 항목 2) — 전에는 debugNow 를 WorldMap 쪽 참조 deps effect 가
+      // 따로 뒤쫓아 flush 마다 렌더가 1번 더 늘었다.
+      if (!serverDebugRef.current || !sameServerDebug(serverDebugRef.current, next)) {
+        serverDebugRef.current = next;
+        setServerDebug(next);
+        setDebugNow(Date.now());
+      }
+    };
+    const schedule = () => {
+      const wait = 100 - (Date.now() - lastFlush);
+      if (wait <= 0) flush();
+      else if (!timer) timer = setTimeout(flush, wait);
+    };
+    schedule();
+    const unsubscribe = controller?.subscribe(schedule) ?? (() => {});
+    // 서버 응답·스냅샷이 끊겨 구독 콜백이 안 와도 오버레이가 켜진 동안은 250ms 마다 같은 flush 를 다시
+    // 돌려 거절(deny) 처럼 콜백 없는 상태 변화도 집어 든다. 내용이 그대로면 위 shallow 비교가 리렌더까진
+    // 만들지 않는다(지적 2·보완 3). 컨트롤러가 없으면(동기화 off) flush 는 매번 같은 early-return 뿐이라
+    // 인터벌을 만들지 않는다 — 나중에 컨트롤러가 생기는(교체) 경우는 deps(syncIslandId·me) 로 이 effect
+    // 가 다시 돌며 새로 잡는다(보완9 항목 2).
+    const interval = controller ? setInterval(flush, 250) : null;
+    return () => {
+      if (listenerId) xy.removeListener(listenerId);
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+      if (interval) clearInterval(interval);
+    };
+    // me: 컨트롤러 교체(계정 전환 등)를 추적해 effect 를 다시 돌려 새 controller 를 다시 캡처한다(보완 4).
+  }, [navDebug, tileNav, grid, syncIslandId, me]);
+  // 깜빡임·readout 시계 체인(GROMO-2249 보완4 지적 2 · 보완8 항목 2 · 보완9 항목 1) — flush 효과와는
+  // 별도다. navDebugClock.debugClockPeriod 가 이제 live 여부만 보므로(보정 창 50ms 분기 제거, 보완9
+  // 항목 1) deps 도 debugLive 하나면 된다 — 보정이 와도(correctedAt 변경) 주기가 안 바뀌니 이 effect 를
+  // 다시 돌릴 이유가 없다. serverDebug 참조 전체를 deps 로 두면(이전 버전의 WorldMap 쪽 effect 가
+  // 그랬다) flush 마다 이 effect 도 다시 돌아 debugNow 를 또 갱신해 렌더가 1번 더 늘었다(위 flush 가
+  // 이미 같은 동기 구간에서 처리한다).
+  const debugLive = serverDebug?.status === 'live';
+  useEffect(() => {
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setDebugNow(Date.now());
+      const period = debugClockPeriod(serverDebugRef.current);
+      if (period === null) return;
+      id = setTimeout(tick, period);
+    };
+    const period0 = debugClockPeriod(serverDebugRef.current);
+    if (period0 === null) return;
+    id = setTimeout(tick, period0);
+    return () => clearTimeout(id);
+  }, [debugLive]);
   useEffect(() => {
     const p = initial();
     location.current = p;
     xy.setValue(p);
     setPos(p);
     setWalking(false);
+    stepping.current = false;
     return () => {
       token.current++;
       xy.stopAnimation();
+      walkDone.current = undefined;
     };
   }, [positionKey, scene]);
   useEffect(() => {
@@ -1510,19 +1958,35 @@ function FinalIslandScene({
             );
           })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
-        {wanderColors.map((color, n) => (
-          <Wanderer
-            key={color + n}
-            color={color}
-            start={nearestLand(grid, WANDER_STARTS[n])}
-            scene={scene}
-            assets={mapAssets}
-            buildings={navBuildings}
-            s={s}
-            reduce={state.settings.reduceMotion}
-            delay={1200 + n * 2500}
-          />
-        ))}
+        {!remoteActors &&
+          wanderColors.map((color, n) => (
+            <Wanderer
+              key={color + n}
+              color={color}
+              start={nearestLand(grid, WANDER_STARTS[n])}
+              scene={scene}
+              assets={mapAssets}
+              buildings={navBuildings}
+              s={s}
+              reduce={state.settings.reduceMotion}
+              delay={1200 + n * 2500}
+            />
+          ))}
+        {/* 이동 동기화 중이면 Wanderer 대신 서버가 정한 주민 — 색을 고른 주민만(catColor null·명단 밖은 그리지 않는다) */}
+        {remoteActors?.map((a) => {
+          const color = facts?.members.find((m) => m.id === a.userId)?.catColor;
+          return color ? (
+            <RemoteResident
+              key={a.userId}
+              userId={a.userId}
+              color={catColor(color)}
+              start={worldToImage(a, sizeOf(grid))}
+              s={s}
+              reduce={state.settings.reduceMotion}
+              subscribe={subscribeRemote}
+            />
+          ) : null;
+        })}
         {/* 구경 중에는 내 고양이가 이 섬에 없다 */}
         {!visiting && (
           <Animated.View
@@ -1641,8 +2105,11 @@ function FinalIslandScene({
         mapAssets={mapAssets}
         onMapAssetsFail={onMapAssetsFail}
         navDebug={
-          tileNav && navDebug ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk } : null
+          tileNav && navDebug
+            ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk, server: serverDebug }
+            : null
         }
+        debugNow={debugNow}
         islandId={i.id}
         hallMotionActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
@@ -1888,6 +2355,12 @@ function FinalIslandScene({
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
+// 두 월드 점이 같은 통행 셀인지 — 연결 경로(navPath)가 비어도 되는 정상 경우(같은 셀)를 가려낸다.
+const cellEq = (a: WorldPoint, b: WorldPoint) => {
+  const ca = worldToCell(a),
+    cb = worldToCell(b);
+  return ca.cx === cb.cx && ca.cy === cb.cy;
+};
 // 화면 스냅샷(GROMO-2233)의 nav.json 을 완공 목록별로(미완공 건물 자리는 통행). 같은 소스면 같은 JSON 객체라 loadNav 의 캐시가 맞는다.
 const activeNav = (assets: MapAssetSource, completed: readonly string[]) =>
   loadNav(readMapJson('nav.json', bundledNavJson, assets) as any, completed);
@@ -1896,14 +2369,16 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
   // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 스냅샷으로 고정해 렌더러·nav·layout 에
   // 내려준다(렌더 중 교체 금지). 백그라운드 동기화는 완료돼도 다음 홈 진입부터 반영된다.
   // 플래그 off 면 캐시를 읽지 않고 항상 번들이다.
-  const [mapAssets, setMapAssets] = useState<MapAssetSource>(() =>
-    TILE_ISLAND ? promoteMapAssets('home') : BUNDLE_ASSETS,
+  const [mapAssets, setMapAssets] = useState(() =>
+    initialMapAssets(TILE_ISLAND, MOVEMENT_SYNC, () => promoteMapAssets('home')),
   );
   // 캐시 이미지 디코드 실패 → 전역도, 이 화면의 스냅샷도 번들로 내린다(빈 섬 방지).
   const failMapAssets = useCallback((file: TilesetFile) => {
     demoteToBundle('home', undefined, file);
     setMapAssets(BUNDLE_ASSETS);
   }, []);
+  // 동기화 빌드(MOVEMENT_SYNC)에서도 그대로 돈다 — 캐시는 갱신되지만 initialMapAssets 가 항상 번들로
+  // 고정하므로(위) 이 화면·다음 마운트 모두 반영되지 않는다(서버와 같은 nav 아티팩트를 유지하는 트레이드오프).
   useEffect(() => {
     if (TILE_ISLAND) void syncMapAssets('home');
   }, []);

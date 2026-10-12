@@ -31,6 +31,8 @@
     "serve:map-assets": "node scripts/serve-map-assets.cjs",
     "gen:nav-fixture": "node scripts/build-nav-fixture.cjs",
     "gen:nav-fixture:check": "node scripts/build-nav-fixture.cjs --check",
+    "gen:path-fixture": "WRITE_PATH_FIXTURE=1 jest src/utils/nav-path.fixture.test.ts",
+    "gen:path-fixture:check": "jest src/utils/nav-path.fixture.test.ts",
     "gen:tile-atlas": "python3 scripts/build-tile-atlas.py",
     "gen:tile-atlas:check": "python3 scripts/build-tile-atlas.py --check",
     "gen:localized-stamp": "python3 scripts/gen-localized-stamp.py",

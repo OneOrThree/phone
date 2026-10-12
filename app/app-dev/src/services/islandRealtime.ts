@@ -12,10 +12,15 @@
  *  - `aggregateVersion` 이 알고 있는 버전 이하이면 중복·역순으로 버린다.
  *  - `schemaVersion !== 1`, 모르는 type, 다른 섬 이벤트는 버리고 워터마크도 진행하지 않는다.
  *  - 응원은 `eventId` 중복 제거와 `expiresAt` TTL만 적용한다(버전 없음).
+ *
+ * 홈 섬 이동(GROMO-2248)은 같은 채널 함수로 **이동 전용 연결**을 따로 연다(`movement: true`) —
+ * `SUB /topic/islands/{id}/movement`·`/movement/snapshot`, `SEND /app/islands/{id}/movement/intent`.
+ * 메시지 해석은 `movementSync.ts` 가 맡는다.
  */
 import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
 import { API_URL, ApiError } from '@/services/api/client';
 import { getAccessToken } from '@/services/api/session';
+import type { MoveIntent } from '@/services/movementSync';
 import {
   focusMembers,
   restMembers,
@@ -418,12 +423,22 @@ export type IslandChannelOpts = {
   presence?: boolean;
   /** 공용 재생 전체 상태 채널. */
   playback?: boolean;
+  /**
+   * 홈 섬 이동 채널(GROMO-2248) — movement·movement/snapshot 을 구독한다. 거절(STOMP ERROR, 오류 큐의
+   * `NOT_A_MEMBER`)을 한 번 받으면 이 채널은 재접속해도 다시 구독하지 않는다.
+   */
+  movement?: boolean;
   /** 내 진행 세션이 있을 때만 emotes 채널을 구독한다 — 없으면 서버가 구독을 거절한다. */
   emote: boolean;
   onEvent: (body: unknown) => void;
   /** (재)연결됐다 — 호출부가 최신 스냅숏으로 재동기화한다. */
   onOpen: () => void;
   onError: (message: string) => void;
+  /**
+   * 이동 채널이 영구 거절됐다(STOMP ERROR, 오류 큐의 `NOT_A_MEMBER`) — `onError` 는 그 외 오류 큐 코드로도
+   * 불리므로, 동기화를 끄는 판단은 이 콜백으로만 한다(`movement: true` 일 때만 불린다).
+   */
+  onMovementDenied?: () => void;
 };
 
 export function realtimeWsUrl(apiUrl: string = API_URL): string {
@@ -442,6 +457,19 @@ export function friendlyRealtimeErrorMessage(raw: string): string | null {
   return raw;
 }
 
+/**
+ * 이동 채널 STOMP ERROR 코드 중 영구 차단 대상 — 그 외(일시 상류 장애·시도 창 초과 등)는 재접속에서 다시 구독한다.
+ * INVALID_REQUEST 는 같은 요청이면 항상 같은 거절이라 재시도로도 풀리지 않는다 — 영구 차단.
+ */
+const PERMANENT_MOVEMENT_DENY = new Set([
+  'NOT_A_MEMBER',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'INVALID_REQUEST',
+]);
+/** 일시 오류가 이 횟수만큼 쌓이면 그때부터 영구 차단한다 — 무한 재접속·재거절 루프 방지. */
+const MOVEMENT_TRANSIENT_ERROR_LIMIT = 3;
+
 export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   const id = encodeURIComponent(opts.islandId);
   const emitError = (raw: string) => {
@@ -452,12 +480,24 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   let emoteDenied = false;
   let emoteEnabled = opts.emote;
   let emoteSubscription: { unsubscribe(): void } | null = null;
+  // 이동 구독이 거절되면 서버가 소켓을 닫고 stompjs 가 5초마다 재접속·재거절한다 — 같은 방식으로 끊는다.
+  let movementDenied = false;
+  let movementTransientErrors = 0;
+  // 코덱스 지적(에픽 PR #1111 4라운드): 첫 ERROR 뒤 소켓이 닫히기 전 같은 접속의 둘째 구독이 600ms 시도
+  // 창에 걸려 ERROR 를 한 번 더 낼 수 있다 — 접속당 1회만 센다. onConnect 에서 false 로 리셋.
+  let movementErrorCountedSinceConnect = false;
   const onMsg = (msg: IMessage) => {
     try {
       opts.onEvent(JSON.parse(msg.body));
     } catch {
       // 깨진 프레임은 무시한다.
     }
+  };
+  // 이동 토픽의 첫 정상 메시지(FullState 포함)를 받으면 연속 실패가 끊긴 것 — 일시 오류 카운터를 되돌린다.
+  // onConnect(구독 송신)는 성공 신호가 아니므로 여기서만 리셋한다(리뷰어 지적).
+  const onMovementMsg = (msg: IMessage) => {
+    movementTransientErrors = 0;
+    onMsg(msg);
   };
   const client = new Client({
     brokerURL: realtimeWsUrl(),
@@ -473,9 +513,14 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     },
     onConnect: () => {
       emoteSubscription = null;
+      movementErrorCountedSinceConnect = false;
       if (opts.presence !== false) {
         client.subscribe(`/topic/islands/${id}/focus`, onMsg);
         client.subscribe(`/topic/islands/${id}/rest`, onMsg);
+      }
+      if (opts.movement && !movementDenied) {
+        client.subscribe(`/topic/islands/${id}/movement`, onMovementMsg);
+        client.subscribe(`/topic/islands/${id}/movement/snapshot`, onMovementMsg);
       }
       if (opts.playback) client.subscribe(`/topic/islands/${id}/playback`, onMsg);
       client.subscribe('/user/queue/errors', (msg: IMessage) => {
@@ -485,6 +530,11 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
           if (typeof b?.message === 'string' && b.message) text = b.message;
           // 서버 오류 봉투는 code 와 message 를 따로 싣는다 — 코드로 기대된 잡음을 거른다.
           if (b?.code === 'NOT_FOCUSING') text = 'NOT_FOCUSING';
+          // 이동 의도가 멤버 아님으로 거절됐다 — 이 채널은 다시 구독하지 않는다. 호출부는 조용히 로컬로 폴백한다.
+          if (b?.code === 'NOT_A_MEMBER' && opts.movement) {
+            movementDenied = true;
+            opts.onMovementDenied?.();
+          }
         } catch {
           // 기본 문구로 둔다.
         }
@@ -496,6 +546,31 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     },
     onStompError: (frame: IFrame) => {
       if (emoteEnabled) emoteDenied = true;
+      if (opts.movement) {
+        let code = str(frame.headers.message) ?? '';
+        if (!code) {
+          try {
+            code = str((JSON.parse(frame.body) as { code?: unknown }).code) ?? '';
+          } catch {
+            // 본문도 JSON 이 아니면 빈 코드로 둔다.
+          }
+        }
+        // 코덱스 지적(에픽 PR #1111): 서버 관문은 일시 상류 장애·시도 창 초과(MOVEMENT_TOO_FREQUENT)에도
+        // ERROR 프레임을 보낸다 — 멤버 아님·인증 오류만 영구 차단하고, 그 외는 재접속에서 다시 구독하게
+        // 두되 상한(3)에 닿으면 그때 차단해 무한 재접속·재거절 루프를 막는다.
+        if (PERMANENT_MOVEMENT_DENY.has(code)) {
+          movementDenied = true;
+          opts.onMovementDenied?.();
+        } else if (!movementErrorCountedSinceConnect) {
+          // 같은 접속에서 온 둘째 ERROR(위 600ms 시도 창 중복)는 다시 세지 않는다.
+          movementErrorCountedSinceConnect = true;
+          movementTransientErrors += 1;
+          if (movementTransientErrors >= MOVEMENT_TRANSIENT_ERROR_LIMIT) {
+            movementDenied = true;
+            opts.onMovementDenied?.();
+          }
+        }
+      }
       emitError(frame.headers.message ?? '실시간 연결이 거절됐어요.');
     },
   });
@@ -523,6 +598,18 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       void client.deactivate();
     },
   };
+}
+
+/**
+ * `SEND /app/islands/{islandId}/movement/intent` (GROMO-2248). 미연결이면 false.
+ * islandId 는 인코딩하지 않는다 — 서버가 소문자 UUID 36자 그대로만 받는다(응원 send 와 같다).
+ */
+export function publishMoveIntent(
+  channel: IslandChannel,
+  islandId: string,
+  intent: MoveIntent,
+): boolean {
+  return channel.send(`/app/islands/${islandId}/movement/intent`, intent);
 }
 
 export type IslandRealtime = {
