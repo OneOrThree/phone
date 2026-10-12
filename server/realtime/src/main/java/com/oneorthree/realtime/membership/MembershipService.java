@@ -87,7 +87,20 @@ public class MembershipService {
         if (cached != null) {
             return parse(cached);
         }
+        return fetchAndStore(key, bearerToken);
+    }
 
+    /**
+     * {@link #isMember} 와 같은 판정을 <b>캐시를 읽지 않고</b> 상류에 묻는다 (GROMO-2258).
+     *
+     * <p>방문자 응원처럼 «비주민이면 더 열어 주는» 최종 인가용이다 — 가입 직후 남은 «비주민» 캐시(최대 TTL)를
+     * 믿으면 세션 없는 주민이 방문자로 위장해 {@code NOT_FOCUSING} 을 비켜 간다. 받은 답으로 캐시를 갱신한다.
+     */
+    public boolean isMemberUncached(UUID groupId, UUID userId, String bearerToken) {
+        return fetchAndStore(RedisKeys.memberCache(userId), bearerToken).contains(groupId);
+    }
+
+    private Set<UUID> fetchAndStore(String key, String bearerToken) {
         GroupClient.Membership fresh = groupClient.fetchMyGroupIds(bearerToken);
         // 상류가 «이 토큰»을 거절해서 나온 빈 집합은 캐시하지 않는다. 캐시는 userId 로만 조회되므로,
         // 만료 토큰의 401 을 적재하면 유저가 곧바로 토큰을 갱신해 새로 붙어도 그 새 토큰이 상류에

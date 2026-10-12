@@ -575,6 +575,26 @@ class IslandRealtimeIntegrationTest {
     }
 
     @Test
+    @DisplayName("캐시가 «비주민»이라 해도 상류가 주민이라 하면 세션 없는 응원은 NOT_FOCUSING 이다 — 방문자 위장 불가")
+    void staleNonMemberCacheCannotBypassNotFocusing() throws Exception {
+        // 가입 직전에 적재된 «아무 섬에도 없음» 캐시 — 상류(GroupClient 스텁)는 이미 주민이라고 답한다.
+        redis.opsForValue().set(RedisKeys.memberCache(focusing), "", Duration.ofMinutes(2));
+        given(focusSessions.progressingRecipients(island, focusing)).willReturn(Set.of(resting));
+        try {
+            StompSession sender = connect(focusing);
+            BlockingQueue<SendFailureResponse> errors = subscribeToErrors(sender);
+            awaitErrorQueueRegistered(sender, errors, focusing);
+            sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+            SendFailureResponse failure = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            assertThat(failure).isNotNull();
+            assertThat(failure.getCode()).isEqualTo(ChatErrorCode.NOT_FOCUSING.name());
+            verify(focusSessions, org.mockito.Mockito.never()).progressingRecipients(island, focusing);
+        } finally {
+            redis.delete(RedisKeys.memberCache(focusing));
+        }
+    }
+
+    @Test
     @DisplayName("비소속 방문자도 focus·rest 를 구독하고 Data 사건을 받는다 — 관전 개방")
     void visitorWatchesFocusAndRest() throws Exception {
         StompSession watcher = connect(visitor);

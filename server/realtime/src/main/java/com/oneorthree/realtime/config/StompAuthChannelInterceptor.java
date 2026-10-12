@@ -198,11 +198,13 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 }
                 // 관전(focus·rest)과 달리 응원 수신은 「그 섬에서 지금 진행 중인 사람」의 것이다.
                 // 다만 비주민(방문자)은 세션 없이도 연다(GROMO-2258) — 주민인데 세션이 없으면 그대로 거절.
+                // 멤버십은 캐시가 아니라 상류에 직접 묻는다(갓 가입한 주민의 위장 방지). 세션이 있으면 묻지 않고,
+                // 비용 상한은 위의 구독 시도 창(600ms)이다.
                 try {
                     focusSessions.requireActiveSession(islandId, principal.userId(), null);
                 } catch (ChatException e) {
                     if (e.getErrorCode() != ChatErrorCode.NOT_FOCUSING
-                            || membershipService.isMember(islandId, principal.userId(), principal.bearer())) {
+                            || membershipService.isMemberUncached(islandId, principal.userId(), principal.bearer())) {
                         throw e;
                     }
                 }

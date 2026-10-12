@@ -337,7 +337,7 @@ class StompAuthChannelInterceptorTest {
         // 주민인데 진행 세션이 없으면 거절한다 — 방문자 예외(GROMO-2258)는 비주민에게만 열린다.
         org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
                 .given(focusSessions).requireActiveSession(groupId, userId, null);
-        given(membershipService.isMember(groupId, userId, BEARER)).willReturn(true);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(true);
         assertThatThrownBy(() -> interceptor.preSend(message(frame), null))
                 .isInstanceOf(DomainException.class)
                 .extracting(e -> ((DomainException) e).getErrorCode())
@@ -350,13 +350,13 @@ class StompAuthChannelInterceptorTest {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
         org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
                 .given(focusSessions).requireActiveSession(groupId, userId, null);
-        given(membershipService.isMember(groupId, userId, BEARER)).willReturn(false);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(false);
         StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
         frame.setUser(new ChatPrincipal(userId, BEARER));
         frame.setDestination("/topic/islands/" + groupId + "/emotes");
 
         assertThatCode(() -> interceptor.preSend(message(frame), null)).doesNotThrowAnyException();
-        verify(membershipService).isMember(groupId, userId, BEARER);
+        verify(membershipService).isMemberUncached(groupId, userId, BEARER);
     }
 
     @Test

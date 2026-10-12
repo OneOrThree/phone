@@ -69,6 +69,8 @@ import java.util.UUID;
  * 주민의 응원은 여전히 「본인 진행 세션」이 전제다. <b>비주민(방문자)</b>이면 그 섬의 진행 중 주민
  * 전원에게 {@code visitor: true} 를 붙여 보낸다(세션이 없으니 {@code sessionId} 는 싣지 않는다).
  * 받을 주민이 없으면 {@code NO_ONE_FOCUSING}. 빈도 제한·만료는 주민과 같다.
+ * 방문자 판정은 TTL 캐시가 아니라 <b>상류 직접 조회</b>({@code isMemberUncached})다 — 캐시면 갓 가입한 주민이
+ * 방문자로 위장한다. 그 조회는 세션 없는 발신에만 붙고(주민 핫패스엔 없다), 비용 상한은 시도 창(사용자당 600ms)이다.
  */
 @Slf4j
 @Service
@@ -96,7 +98,7 @@ public class FocusEmoteService {
         // 같은 조회가 발신 인가와 «수신 자격»을 함께 준다 — 전달 직전 판정이 구독자마다 다시 묻지
         // 않아도 되는 이유다(LLD §4.2 배치 권한조회).
         boolean visitor = request.sessionId() == null;
-        if (visitor && membershipService.isMember(islandId, userId, bearerToken)) {
+        if (visitor && membershipService.isMemberUncached(islandId, userId, bearerToken)) {
             // 주민은 세션 없이 응원할 수 없다 — 종전 거절 그대로.
             throw new ChatException(ChatErrorCode.NOT_FOCUSING);
         }
