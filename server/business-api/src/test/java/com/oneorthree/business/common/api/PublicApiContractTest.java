@@ -99,7 +99,9 @@ class PublicApiContractTest extends UpstreamTestBase {
                 "GUEST_ALREADY_PROMOTED",
                 // GROMO-2260 소속 섬 상한(409)·도착 전 즉시 이동(403): 앱이 일반 STATE_CONFLICT·FORBIDDEN 과
                 // 갈라 「섬을 하나 나가세요」·「망원경에서 항해하세요」를 띄운다.
-                "ISLAND_LIMIT_EXCEEDED", "ISLAND_NOT_ARRIVED");
+                "ISLAND_LIMIT_EXCEEDED", "ISLAND_NOT_ARRIVED",
+                // GROMO-2262 방명록 하루 1개(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 남겼어요」를 띄운다.
+                "GUESTBOOK_ALREADY_WRITTEN_TODAY");
     }
 
     /**

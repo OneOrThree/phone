@@ -35,7 +35,9 @@ public final class IslandMembershipResponses {
             @JsonProperty(required = true) UUID joinRequestId,
             String growthStage,
             String themeId,
-            Boolean arrivedBefore) {
+            Boolean arrivedBefore,
+            String greeting,
+            Boolean greetingIsDefault) {
         public static IslandSummaryView from(IslandSummary value) {
             if (value == null) {
                 return null;
@@ -52,7 +54,9 @@ public final class IslandMembershipResponses {
                     value.joinRequestId(),
                     value.growthStage(),
                     value.themeId(),
-                    value.arrivedBefore());
+                    value.arrivedBefore(),
+                    value.greeting(),
+                    value.greetingIsDefault());
         }
     }
 
@@ -84,7 +88,9 @@ public final class IslandMembershipResponses {
             String growthStage,
             String themeId,
             @JsonProperty(required = true) String role,
-            @JsonProperty(required = true) long version) {
+            @JsonProperty(required = true) long version,
+            String greeting,
+            Boolean greetingIsDefault) {
         public static IslandDetailView from(IslandDetail value) {
             if (value == null) {
                 return null;
@@ -101,7 +107,9 @@ public final class IslandMembershipResponses {
                     value.growthStage(),
                     value.themeId(),
                     value.role(),
-                    value.version());
+                    value.version(),
+                    value.greeting(),
+                    value.greetingIsDefault());
         }
     }
 

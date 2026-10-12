@@ -14,6 +14,7 @@ import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.IslandManaged;
 import com.oneorthree.business.upstream.data.dto.IslandMembersPage;
+import com.oneorthree.business.upstream.data.dto.IslandGuestbooks;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
@@ -76,6 +77,9 @@ public class DataIslandClient {
     private static final String PATH_NOTICE_COMMENTS = "/internal/islands/{islandId}/notices/{noticeId}/comments";
     private static final String PATH_NOTICE_COMMENT =
             "/internal/islands/{islandId}/notices/{noticeId}/comments/{commentId}";
+    // GROMO-2262 섬 방명록 3종 — 하루 1개 유니크가 멱등을 대신해 명령 키가 없다.
+    private static final String PATH_GUESTBOOK = "/internal/islands/{islandId}/guestbook";
+    private static final String PATH_GUESTBOOK_ENTRY = "/internal/islands/{islandId}/guestbook/{entryId}";
     // GROMO-1765 같이 낚시 초기 스냅샷 2종 — 공개 경로와 이름이 같다.
     private static final String PATH_FOCUS_MEMBERS = "/internal/islands/{islandId}/focus-members";
     private static final String PATH_REST_MEMBERS = "/internal/islands/{islandId}/rest-members";
@@ -381,6 +385,36 @@ public class DataIslandClient {
                 new ParameterizedTypeReference<IslandNotices.Detail>() { });
     }
 
+    /** 방명록 목록 (GROMO-2262) — 방문자도 읽는다. 멱등 GET 이라 재시도한다. */
+    public IslandGuestbooks.Page fetchGuestbook(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_GUESTBOOK, islandId)).onBehalfOf(userId).build(),
+                deadline,
+                new ParameterizedTypeReference<IslandGuestbooks.Page>() { });
+    }
+
+    /** 방명록 쓰기 (GROMO-2262) — 재시도하지 않는다(두 번째는 어차피 «오늘 이미 씀» 이다). */
+    public IslandGuestbooks.Item writeGuestbook(UUID userId, UUID islandId, String content, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, islandPath(PATH_GUESTBOOK, islandId))
+                        .onBehalfOf(userId)
+                        .body(new GuestbookWriteCommand(content))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandGuestbooks.Item>() { });
+    }
+
+    /** 방명록 삭제 (GROMO-2262) — 섬장만. 응답은 공지 삭제와 같은 {@code {deleted:true}} 다. */
+    public IslandNotices.Deleted deleteGuestbookEntry(UUID userId, UUID islandId, UUID entryId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.DELETE,
+                                islandPath(PATH_GUESTBOOK_ENTRY, islandId).replace("{entryId}", entryId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandNotices.Deleted>() { });
+    }
+
     /** 공지 작성 (GROMO-1771). 응답 유실 복구는 같은 앱 키의 Data receipt 재생이다. */
     public IslandNotices.Notice createNotice(UUID userId, UUID islandId, String title, String body, UUID key,
             Deadline deadline) {
@@ -583,6 +617,10 @@ public class DataIslandClient {
 
     /** 초대 코드 해석 요청 본문 (GROMO-1760). */
     record InvitationResolveCommand(String code) {
+    }
+
+    /** 방명록 쓰기 본문 (GROMO-2262). 작성자는 X-User-Id 로 간다. */
+    record GuestbookWriteCommand(String content) {
     }
 
     /** 공지 작성 본문 (GROMO-1771). 작성자는 X-User-Id 로 간다. */

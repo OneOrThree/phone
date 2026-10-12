@@ -157,6 +157,10 @@ internal:
           - 'DELETE /internal/islands/*/notices/*'
           - 'POST /internal/islands/*/notices/*/comments'
           - 'DELETE /internal/islands/*/notices/*/comments/*'
+          # GROMO-2262 섬 방명록 3종. 위 notices 와 세그먼트 이름이 달라 서로를 열지 않는다.
+          - 'GET /internal/islands/*/guestbook'
+          - 'POST /internal/islands/*/guestbook'
+          - 'DELETE /internal/islands/*/guestbook/*'
           # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
           - 'GET /internal/islands/*/focus-members'
           - 'GET /internal/islands/*/rest-members'

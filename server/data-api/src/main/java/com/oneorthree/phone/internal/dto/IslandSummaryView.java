@@ -25,6 +25,9 @@ import java.util.UUID;
  * @param joinRequestId 본인의 최신 가입 요청 식별자 — 요청을 한 번도 한 적 없으면 null (LLD §2)
  * @param arrivedBefore 본인이 이 섬에 가 본 적 있는가({@code island_arrivals} 존재, GROMO-2260). 망원경에서
  *     가입하고 아직 항해하지 않은 소속 섬은 false 라 즉시 이동 대상이 아니다
+ * @param greeting 섬장 인사말 — 항상 채워진다. 섬장이 안 썼으면 «{name}섬에 온 걸 환영해요! 같이 집중해요 🐟» 를
+ *     읽을 때 합성한다(GROMO-2262)
+ * @param greetingIsDefault 합성된 기본 문구인가
  */
 public record IslandSummaryView(
         UUID id,
@@ -38,5 +41,7 @@ public record IslandSummaryView(
         String growthStage,
         String themeId,
         UUID joinRequestId,
-        boolean arrivedBefore) {
+        boolean arrivedBefore,
+        String greeting,
+        boolean greetingIsDefault) {
 }

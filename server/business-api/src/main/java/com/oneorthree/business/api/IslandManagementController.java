@@ -41,7 +41,9 @@ public class IslandManagementController {
     private static final int MEMBERS_MIN = 1;
     private static final int MEMBERS_MAX = 15;
     private static final Set<String> MANAGE_KEYS =
-            Set.of("name", "intro", "approvalRequired", "maxMembers");
+            Set.of("name", "intro", "approvalRequired", "maxMembers", "greeting");
+    /** 인사말 상한 — 코드포인트 40자(GROMO-2262, 🐟 = 1). */
+    private static final int GREETING_MAX = 40;
 
     private final IslandManagementUseCase management;
     private final SettingsSessionGuard sessions;
@@ -76,6 +78,14 @@ public class IslandManagementController {
         }
         if (body.has("intro")) {
             fields.put("intro", text(body, "intro", INTRO_MAX));
+        }
+        if (body.has("greeting")) {
+            // 빈 문자열은 기본 문구로 되돌리는 값이라 그대로 통과시킨다 — Data 가 null 로 저장한다.
+            String greeting = text(body, "greeting", Integer.MAX_VALUE);
+            if (greeting.codePointCount(0, greeting.length()) > GREETING_MAX) {
+                throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "greeting");
+            }
+            fields.put("greeting", greeting);
         }
         if (body.has("approvalRequired")) {
             if (!body.get("approvalRequired").isBoolean()) {

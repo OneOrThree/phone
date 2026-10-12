@@ -27,13 +27,22 @@ import java.util.Set;
  * @param intro            새 소개 — null 이면 미변경
  * @param approvalRequired 새 가입 방식 — null 이면 미변경
  * @param maxMembers       새 정원(1~15) — null 이면 미변경
+ * @param greeting         새 인사말(GROMO-2262, 코드포인트 40자 이하) — null 이면 미변경, 빈 문자열·공백은
+ *                         기본 문구로 되돌린다(서비스가 null 로 저장)
  */
 public record IslandManageCommandRequest(String name, String intro, Boolean approvalRequired,
-                                         Integer maxMembers) {
+                                         Integer maxMembers, String greeting) {
 
-    private static final Set<String> KEYS = Set.of("name", "intro", "approvalRequired", "maxMembers");
+    private static final Set<String> KEYS =
+            Set.of("name", "intro", "approvalRequired", "maxMembers", "greeting");
+    private static final int GREETING_MAX = 40;
     private static final int NAME_MAX = 50;
     private static final int INTRO_MAX = 200;
+
+    /** 인사말 없는 호출(GROMO-2262 이전 시그니처) — 미변경이다. */
+    public IslandManageCommandRequest(String name, String intro, Boolean approvalRequired, Integer maxMembers) {
+        this(name, intro, approvalRequired, maxMembers, null);
+    }
 
     @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
     public static IslandManageCommandRequest fromJson(Map<String, Object> fields) {
@@ -48,6 +57,10 @@ public record IslandManageCommandRequest(String name, String intro, Boolean appr
         String intro = text(fields, "intro");
         if (intro != null && intro.length() > INTRO_MAX) {
             throw new IllegalArgumentException("섬 소개가 너무 깁니다.");
+        }
+        String greeting = text(fields, "greeting");
+        if (greeting != null && greeting.codePointCount(0, greeting.length()) > GREETING_MAX) {
+            throw new IllegalArgumentException("섬 인사말이 너무 깁니다.");
         }
         Boolean approvalRequired = null;
         if (fields.containsKey("approvalRequired")) {
@@ -64,7 +77,7 @@ public record IslandManageCommandRequest(String name, String intro, Boolean appr
             }
             maxMembers = value;
         }
-        return new IslandManageCommandRequest(name, intro, approvalRequired, maxMembers);
+        return new IslandManageCommandRequest(name, intro, approvalRequired, maxMembers, greeting);
     }
 
     private static String text(Map<String, Object> fields, String key) {

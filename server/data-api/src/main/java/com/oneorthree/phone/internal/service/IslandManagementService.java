@@ -49,6 +49,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -125,6 +126,9 @@ public class IslandManagementService {
         if (body.maxMembers() != null) {
             fingerprint.put("maxMembers", body.maxMembers());
         }
+        if (body.greeting() != null) {
+            fingerprint.put("greeting", body.greeting());
+        }
         PublicCommandRequest command = new PublicCommandRequest(userId, "PATCH:/islands/" + islandId, key,
                 InternalJson.tree(fingerprint));
         JsonNode data = publicCommands.run(command,
@@ -139,6 +143,11 @@ public class IslandManagementService {
                     Group island = lockIslandAsHost(userQueryService.getCallerForShare(userId), islandId);
                     boolean renamed = body.name() != null && !body.name().equals(island.getName());
                     boolean introChanged = body.intro() != null && !body.intro().equals(intro(island));
+                    // 빈 문자열·공백 = 기본 문구로 복귀(null 저장) — 인사말 비교도 저장값(null 가능) 기준이다.
+                    String newGreeting = body.greeting() == null ? island.getGreeting()
+                            : (body.greeting().isBlank() ? null : body.greeting().strip());
+                    boolean greetingChanged = body.greeting() != null
+                            && !Objects.equals(newGreeting, island.getGreeting());
                     boolean approvalChanged = body.approvalRequired() != null
                             && body.approvalRequired() != island.isApprovalRequired();
                     if (renamed) {
@@ -147,6 +156,9 @@ public class IslandManagementService {
                     }
                     if (introChanged) {
                         island.updateDescription(body.intro());
+                    }
+                    if (greetingChanged) {
+                        island.updateGreeting(newGreeting);
                     }
                     if (approvalChanged) {
                         island.updateApprovalRequired(body.approvalRequired());
@@ -162,7 +174,8 @@ public class IslandManagementService {
                         }
                         island.updateMaxMembers(body.maxMembers());
                     }
-                    List<EventEnvelope> events = renamed || introChanged || approvalChanged || capacityChanged
+                    List<EventEnvelope> events = renamed || introChanged || greetingChanged || approvalChanged
+                            || capacityChanged
                             ? List.of(islandStateEvents.changed(islandId, userId, "UPDATED"))
                             : List.of();
                     long version = events.isEmpty()

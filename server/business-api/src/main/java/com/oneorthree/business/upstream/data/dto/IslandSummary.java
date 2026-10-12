@@ -25,6 +25,8 @@ import java.util.UUID;
  *
  * <p>{@code arrivedBefore} 는 본인이 이 섬에 가 본 적 있는가다 (GROMO-2260). 필수로 걸지 않는다 — 구 Data
  * 서버는 내려보내지 않으므로 null 이다.
+ *
+ * <p>{@code greeting}·{@code greetingIsDefault} 는 섬장 인사말이다 (GROMO-2262). 같은 이유로 필수가 아니다.
  */
 public record IslandSummary(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
@@ -38,5 +40,7 @@ public record IslandSummary(
         @JsonProperty(required = true) UUID joinRequestId,
         String growthStage,
         String themeId,
-        Boolean arrivedBefore) {
+        Boolean arrivedBefore,
+        String greeting,
+        Boolean greetingIsDefault) {
 }

@@ -873,6 +873,7 @@ Table groups [note: '스터디/챌린지 그룹'] {
   id               uuid                  [pk]
   name             varchar(50)           [not null, default: '', note: '그룹 이름']
   description      varchar(200)          [note: '그룹 소개']
+  greeting         varchar(160)          [note: '섬장 환영 인사말(≤40 코드포인트). NULL = 기본 문구 — 읽을 때 «{name}섬에 온 걸 환영해요! 같이 집중해요 🐟» 로 합성한다. GROMO-2262, V108']
 
   password         varchar(100)          [note: '레거시 BCrypt 해시(참여 시 확인). 공개/비공개와 무관 — 공개 여부는 is_private 가 결정']
 
@@ -922,6 +923,21 @@ Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «�
 
   indexes {
     (user_id, island_id) [pk]
+  }
+}
+
+Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루 1개(결정 N6), 섬당 최근 30개만 살리고 나머지는 deleted_at. GROMO-2262, V108'] {
+  id         uuid        [pk]
+  island_id  uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE)']
+  author_id  uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE)']
+  content    varchar(80) [not null, note: '≤20 코드포인트(서비스 검증)']
+  written_on date        [not null, note: 'KST 날짜 — (island_id, author_id, written_on) 유일']
+  created_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz [note: '섬장 삭제 또는 31번째 이후 정리']
+
+  indexes {
+    (island_id, author_id, written_on) [unique]
+    (island_id, created_at) [name: 'island_guestbook_island_created_idx']
   }
 }
 
@@ -1882,6 +1898,8 @@ Ref: user_main_islands.island_id > groups.id [delete: cascade]
 Ref: island_arrivals.user_id > users.id [delete: cascade]
 Ref: island_arrivals.island_id > groups.id [delete: cascade]
 Ref: letters.island_id > groups.id [delete: set null]
+Ref: island_guestbook_entries.island_id > groups.id [delete: cascade]
+Ref: island_guestbook_entries.author_id > users.id [delete: cascade]
 
 // 초대 링크 (V21)
 Ref: group_invite_links.group_id > groups.id

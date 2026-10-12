@@ -8,6 +8,7 @@ import com.oneorthree.phone.internal.dto.IslandMemberRemovedView;
 import com.oneorthree.phone.internal.dto.IslandMembersPageView;
 import com.oneorthree.phone.internal.dto.JoinRequestAnswerCommandRequest;
 import com.oneorthree.phone.internal.dto.JoinRequestAnswerView;
+import com.oneorthree.phone.internal.service.GuestAccountGuards;
 import com.oneorthree.phone.internal.service.IslandJoinService;
 import com.oneorthree.phone.internal.service.IslandManagementService;
 import jakarta.validation.Valid;
@@ -44,13 +45,17 @@ public class InternalIslandManagementController {
 
     private final IslandManagementService islandManagementService;
     private final IslandJoinService islandJoinService;
+    private final GuestAccountGuards guestAccountGuards;
 
-    /** 섬 정보 수정 (LLD §3.1). */
+    /** 섬 정보 수정 (LLD §3.1). 인사말(GROMO-2262)을 건드리는 요청만 게스트를 403 으로 막는다. */
     @PatchMapping("/internal/islands/{islandId}")
     public IslandManageView manage(@PathVariable UUID islandId,
                                    @RequestHeader("X-User-Id") UUID userId,
                                    @RequestHeader("Idempotency-Key") UUID idempotencyKey,
                                    @RequestBody IslandManageCommandRequest body) {
+        if (body.greeting() != null) {
+            guestAccountGuards.requireMember(userId);
+        }
         return islandManagementService.manage(userId, islandId, body, idempotencyKey);
     }
 

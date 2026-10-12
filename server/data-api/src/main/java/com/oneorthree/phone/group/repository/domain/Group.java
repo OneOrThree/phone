@@ -68,6 +68,10 @@ public class Group {
     @Column(length = 200)
     private String description;
 
+    /** 섬장 환영 인사말(GROMO-2262, V108) — null 이면 기본 문구를 읽을 때 합성한다. */
+    @Column(length = 160)
+    private String greeting;
+
     @Column(nullable = false)
     private int maxMembers;
 
@@ -178,6 +182,11 @@ public class Group {
      */
     public void updateDescription(String description) {
         this.description = description;
+    }
+
+    /** 인사말 교체 — null 이면 기본 문구로 되돌린다(GROMO-2262). */
+    public void updateGreeting(String greeting) {
+        this.greeting = greeting;
     }
 
     /**
