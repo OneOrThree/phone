@@ -589,27 +589,26 @@ export function Bar({ value }: any) {
     </View>
   );
 }
-export function Badge({ children, soft = false, small = false }: any) {
+// numberOfLines: 글자를 이 줄 수에서 말줄임으로 자른다(기본은 제한 없음). style: 바깥 알약에 얹는 배치(maxWidth·alignSelf 등).
+export function Badge({ children, soft = false, small = false, numberOfLines, style }: any) {
+  const base = {
+    alignSelf: 'flex-start',
+    minHeight: small ? 22 : 28,
+    paddingHorizontal: small ? 7 : 12,
+    paddingVertical: small ? 1 : 3,
+    borderRadius: componentTokens.badge.radius,
+    borderWidth: componentTokens.badge.borderWidth,
+    borderColor: soft ? componentTokens.badge.soft.border : componentTokens.badge.default.border,
+    backgroundColor: soft
+      ? componentTokens.badge.soft.background
+      : componentTokens.badge.default.background,
+    justifyContent: 'center',
+  } as const;
   return (
-    <View
-      style={{
-        alignSelf: 'flex-start',
-        minHeight: small ? 22 : 28,
-        paddingHorizontal: small ? 7 : 12,
-        paddingVertical: small ? 1 : 3,
-        borderRadius: componentTokens.badge.radius,
-        borderWidth: componentTokens.badge.borderWidth,
-        borderColor: soft
-          ? componentTokens.badge.soft.border
-          : componentTokens.badge.default.border,
-        backgroundColor: soft
-          ? componentTokens.badge.soft.background
-          : componentTokens.badge.default.background,
-        justifyContent: 'center',
-      }}
-    >
+    <View style={style ? [base, style] : base}>
       {/* v2 .badge.soft: 보통 굵기 · 옅은 글자 */}
       <Txt
+        numberOfLines={numberOfLines}
         style={{
           fontSize: small ? 12 : 13,
           lineHeight: small ? 17.4 : 18.85,

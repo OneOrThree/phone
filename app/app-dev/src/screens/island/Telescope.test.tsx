@@ -1,7 +1,9 @@
 // 망원경 화면(GROMO-2266) — 파노라마·말풍선·버튼 상태·가입·항해·돌아가기·카운트다운.
 // API(getTelescope·arriveAtIsland)와 항해 연출(Sailing)은 목이다.
 import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
+import { act, fireEvent, render, within } from '@testing-library/react-native';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { Telescope } from '@/screens/island/Telescope';
 import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
@@ -23,11 +25,13 @@ jest.mock('@/screens/world/WorldViews', () => ({
     );
   },
 }));
+// 시스템 글자 배율 — 큰 글자 테스트가 바꾸고 beforeEach 가 1 로 되돌린다
+let mockFontScale = 1;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
-    fontScale: 1,
+    fontScale: mockFontScale,
     compact: false,
     landscape: false,
     tablet: false,
@@ -47,6 +51,7 @@ const mockArrive = arriveAtIsland as jest.Mock;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 beforeEach(() => {
+  mockFontScale = 1;
   jest.clearAllMocks();
   // 쓰이지 않고 남은 mockResolvedValueOnce 가 다음 테스트로 새지 않게 구현까지 비운다
   mockGet.mockReset();
@@ -775,4 +780,128 @@ test('영어 — 말풍선 정보·버튼·카운트다운이 번역된다', asy
   screen.getByText('Sailing 30 min');
   screen.getByLabelText('Set sail');
   screen.getByLabelText('Join now');
+});
+
+describe('큰 글자·배치', () => {
+  const flat = (node: any) => StyleSheet.flatten(node.props.style);
+  // Btn 의 dynamicHeight — 높이를 고정(height)하지 않고 최소 높이만 둬 글자가 늘면 같이 늘어난다
+  const dynamic = (node: any) => {
+    const style = flat(node);
+    expect(style.height).toBeUndefined();
+    expect(style.minHeight).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  };
+  const networkError = () =>
+    new ApiError('CLIENT_NETWORK_ERROR', '네트워크에 연결할 수 없어요.', 0);
+
+  test('위 막대와 파노라마는 같은 세로 스크롤 안에 흐름으로 쌓여 서로 겹치지 않는다', async () => {
+    const { screen } = await open([item('r1')]);
+    const scroll = screen.getByTestId('telescope-scroll');
+    // 가로가 아닌 세로 스크롤 — 큰 글자·가로 화면에서 화면보다 길어져도 끝까지 닿는다. 아래는 홈 인디케이터만큼 비운다
+    expect(scroll.props.horizontal).toBeFalsy();
+    expect(StyleSheet.flatten(scroll.props.contentContainerStyle).paddingBottom).toBeGreaterThan(
+      32,
+    );
+    const parts = within(scroll).getAllByTestId(/^telescope-(top-bar|band)$/);
+    expect(parts.map((n: any) => n.props.testID)).toEqual(['telescope-top-bar', 'telescope-band']);
+    // 절대 위치였다면 서로의 높이를 모른 채 겹쳤다 — 흐름 배치라야 아래가 위의 높이만큼 밀린다
+    for (const part of parts) expect(flat(part).position).not.toBe('absolute');
+    within(parts[0]).getByLabelText('뒤로');
+    within(parts[1]).getByTestId('telescope-island-r1');
+  });
+
+  test('말풍선 버튼 4종(항해하기 둘 · 돌아가기 · 가입)은 글자 크기와 상관없이 높이가 늘어난다', async () => {
+    const { screen } = await open([item('r1'), mine('j2', { arrivedBefore: true }), mine('j3')]);
+    await press(screen, 'r1');
+    dynamic(screen.getByLabelText('항해하기'));
+    dynamic(screen.getByLabelText('바로 가입'));
+    await fireEvent.press(screen.getByLabelText('닫기'));
+    await press(screen, 'j2');
+    dynamic(screen.getByLabelText('돌아가기'));
+    await fireEvent.press(screen.getByLabelText('닫기'));
+    await press(screen, 'j3');
+    dynamic(screen.getByLabelText('항해하기'));
+  });
+
+  test.each([
+    [1, false],
+    [componentTokens.telescope.largeTextThreshold - 0.01, false],
+    [componentTokens.telescope.largeTextThreshold, true],
+    [3, true],
+  ])('글자 배율 %s — 뒤로·다시 시도 작은 버튼의 높이 가변은 %s', async (scale, grows) => {
+    mockFontScale = scale;
+    mockGet.mockRejectedValueOnce(networkError());
+    const screen = await render(<Telescope e={env()} />);
+    await screen.findByText('네트워크에 연결할 수 없어요.');
+    for (const label of ['뒤로', '다시 시도']) {
+      const button = screen.getByLabelText(label);
+      // 보통 글자에서는 작은 버튼의 38pt 모양을 그대로 둔다(터치 영역은 부모 44pt)
+      if (grows) dynamic(button);
+      else expect(flat(button).height).toBe(38);
+    }
+  });
+
+  test.each([
+    [1, 1],
+    [3, 2],
+  ])(
+    '섬 이름 알약은 공용 Badge soft 이고 글자 배율 %s 에서 %s줄까지 보인다',
+    async (scale, lines) => {
+      mockFontScale = scale;
+      const name = '아주아주아주 긴 이름을 가진 섬이에요 정말로';
+      const { screen } = await open([item('r1', { name })]);
+      const text = screen.getByText(name);
+      expect(text.props.numberOfLines).toBe(lines);
+      // 공용 Badge soft 의 토큰 모양에, 섬 칸 안 가운데 · 칸 폭을 넘지 않는 배치만 얹는다
+      const pill = flat(text.parent);
+      expect(pill.backgroundColor).toBe(componentTokens.badge.soft.background);
+      expect(pill.borderColor).toBe(componentTokens.badge.soft.border);
+      expect(pill.alignSelf).toBe('center');
+      expect(pill.maxWidth).toBe(flat(screen.getByTestId('telescope-island-r1')).width);
+    },
+  );
+
+  test('읽기가 실패해 오류 안내로 바뀌면 iOS 는 한 번 읽어 주고, 같은 상태로 다시 그려도 또 읽지 않는다', async () => {
+    const announce = jest
+      .spyOn(AccessibilityInfo, 'announceForAccessibility')
+      .mockImplementation(() => {});
+    try {
+      mockGet.mockRejectedValueOnce(networkError()).mockRejectedValueOnce(networkError());
+      const e = env();
+      const screen = await render(<Telescope e={e} />);
+      const text = await screen.findByText('네트워크에 연결할 수 없어요.');
+      // 안드로이드용 live region 도 같이 걸려 있다
+      expect(text.props.accessibilityLiveRegion).toBe('polite');
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(announce).toHaveBeenLastCalledWith('네트워크에 연결할 수 없어요.');
+      await screen.rerender(<Telescope e={e} />);
+      expect(announce).toHaveBeenCalledTimes(1);
+      // 다시 시도가 또 실패하면 오류 상태로 새로 바뀐 것이라 한 번 더 읽는다
+      await fireEvent.press(screen.getByLabelText('다시 시도'));
+      await screen.findByText('네트워크에 연결할 수 없어요.');
+      expect(announce).toHaveBeenCalledTimes(2);
+    } finally {
+      announce.mockRestore();
+    }
+  });
+
+  test('안드로이드는 직접 읽지 않고 live region 에만 맡기며, 읽기가 성공하면 아무것도 읽지 않는다', async () => {
+    const announce = jest
+      .spyOn(AccessibilityInfo, 'announceForAccessibility')
+      .mockImplementation(() => {});
+    const os = jest.replaceProperty(Platform, 'OS', 'android');
+    try {
+      mockGet.mockRejectedValueOnce(networkError());
+      const failed = await render(<Telescope e={env()} />);
+      const text = await failed.findByText('네트워크에 연결할 수 없어요.');
+      expect(text.props.accessibilityLiveRegion).toBe('polite');
+      await failed.unmount();
+      os.restore();
+      // 정상 목록(iOS)에서도 읽지 않는다
+      await open([item('r1')]);
+      expect(announce).not.toHaveBeenCalled();
+    } finally {
+      os.restore();
+      announce.mockRestore();
+    }
+  });
 });

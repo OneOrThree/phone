@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
   type ImageStyle,
 } from 'react-native';
-import { Badge, Btn, Pic, Txt, art, C } from '@/design-system/patterns';
+import { Badge, Btn, Pic, Txt, art } from '@/design-system/patterns';
 import { Card } from '@/design-system/primitives';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
@@ -26,7 +28,7 @@ import { intentKeyPool, type State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 
 const { space } = primitiveTokens;
-const { stroke, size, typography } = semanticTokens;
+const { color, stroke, size } = semanticTokens;
 /** 파노라마 섬 그림 지름. 한 화면에 두세 섬이 보이고 다음 섬이 삐져나와 가로로 밀 수 있다는 걸 알린다. */
 const ISLAND = space[16] * 2;
 /** 소속 섬 깃발 크기. 깃대 끝이 그림 높이의 88% 라(Flag 도형) 그만큼 올려 섬 꼭대기에 꽂는다. */
@@ -38,19 +40,16 @@ const PRESSED_OPACITY = 0.7;
 const FILL: ImageStyle = { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' };
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.sky },
+  root: { flex: 1, backgroundColor: color.secondary },
   topBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: space[2],
   },
   chip: { flexShrink: 1 },
-  band: { position: 'absolute', left: 0, right: 0, top: '18%' },
+  // 위 막대 아래에 흐름으로 쌓는다 — 예전 절대 위치(top: 18%)는 큰 글자·가로 화면에서 위 막대와 겹쳤다. 보통 크기 폰에서는 그 자리(뗏목 위)와 거의 같다.
+  band: { marginTop: space[10] },
   panel: { marginHorizontal: semanticTokens.spacing.page, alignItems: 'center' },
   panelText: { textAlign: 'center' },
   cell: { width: ISLAND, alignItems: 'center', gap: space[2] },
@@ -59,24 +58,14 @@ const styles = StyleSheet.create({
     height: ISLAND,
     borderRadius: ISLAND / 2,
     borderWidth: stroke.strong,
-    borderColor: C.brown,
-    backgroundColor: C.sky,
+    borderColor: color.outline,
+    backgroundColor: color.secondary,
     overflow: 'hidden',
-    boxShadow: `0px ${space[1]}px 0px ${C.brown}`,
+    boxShadow: `0px ${space[1]}px 0px ${color.outline}`,
   },
   flag: { position: 'absolute', top: -FLAG_POLE_BASE, right: space[8] },
-  // Badge soft 의 모양(componentTokens.badge.soft) — 긴 이름을 한 줄 말줄임으로 자르려고 Badge 대신 같은 토큰으로 그린다
-  pill: {
-    maxWidth: ISLAND,
-    paddingHorizontal: space[3],
-    paddingVertical: space[1],
-    borderRadius: componentTokens.badge.radius,
-    borderWidth: componentTokens.badge.borderWidth,
-    borderColor: componentTokens.badge.soft.border,
-    backgroundColor: componentTokens.badge.soft.background,
-  },
-  // 글자는 공용 Meta(13/18, Muted = badge.soft.foreground)에 Badge soft 의 굵기만 얹는다
-  pillText: { fontWeight: typography.semibold },
+  // 이름 알약(Badge soft)을 섬 아래 가운데에 두고 칸 폭을 넘지 않게 한다(Badge 기본 배치는 왼쪽 정렬)
+  pill: { alignSelf: 'center', maxWidth: ISLAND },
   // 말풍선 이름이 오른쪽 위 닫기(×) 밑으로 들어가지 않게 비운다
   bubbleName: { paddingRight: space[10] },
 });
@@ -133,11 +122,14 @@ function Panel({ children }: { children: React.ReactNode }) {
 function IslandCell({
   item,
   index,
+  largeText,
   disabled,
   onPress,
 }: {
   item: TelescopeItem;
   index: number;
+  /** 큰 글자 — 이름 알약이 두 줄까지 늘어난다(보통은 한 줄 말줄임). */
+  largeText: boolean;
   /** 항해·이동 요청 중에는 눌리지 않는다 — 말풍선을 열었다 닫으며 뒤로가기 삼킴을 흩트리지 않게. */
   disabled: boolean;
   onPress: () => void;
@@ -172,11 +164,9 @@ function IslandCell({
           <Flag size={FLAG} />
         </View>
       )}
-      <View style={styles.pill}>
-        <Txt kind="meta" numberOfLines={1} style={styles.pillText}>
-          {item.name}
-        </Txt>
-      </View>
+      <Badge soft numberOfLines={largeText ? 2 : 1} style={styles.pill}>
+        {item.name}
+      </Badge>
     </Pressable>
   );
 }
@@ -232,14 +222,20 @@ function IslandBubble({
       </SheetGroup>
       {isJoined(item) ? (
         item.arrivedBefore ? (
-          <Btn title={t('telescope.returnHome')} disabled={locked} onPress={onReturn} />
+          <Btn
+            dynamicHeight
+            title={t('telescope.returnHome')}
+            disabled={locked}
+            onPress={onReturn}
+          />
         ) : (
-          <Btn title={t('telescope.sail')} disabled={locked} onPress={onSail} />
+          <Btn dynamicHeight title={t('telescope.sail')} disabled={locked} onPress={onSail} />
         )
       ) : (
         <>
-          <Btn title={t('telescope.sail')} disabled={locked} onPress={onSail} />
+          <Btn dynamicHeight title={t('telescope.sail')} disabled={locked} onPress={onSail} />
           <Btn
+            dynamicHeight
             kind="sec"
             title={joinLabel}
             disabled={locked || pending || item.full}
@@ -262,7 +258,15 @@ function IslandBubble({
 export function Telescope({ e }: { e: any }) {
   const s: State = e.state;
   const L = useAppLayout();
+  // 시스템 글자가 크면 이름 알약은 두 줄까지, 작은 버튼은 높이를 콘텐츠에 맞춘다(보통 크기의 38pt 모양은 그대로)
+  const largeText = (L.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
   const list = useTelescope({ active: !!e.islands });
+  // 읽기가 실패해 오류 안내로 바뀌면 한 번 알린다 — 안드로이드는 아래 오류 문구의 live region 이, iOS 는 여기서 직접(IslandSheet.SheetToast 와 같은 방식)
+  const errorText =
+    list.status === 'error' ? errorTextOr(list.error, 'telescope.loadFailed') : null;
+  useEffect(() => {
+    if (errorText && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(errorText);
+  }, [errorText]);
   const sail = useIslandSailing(e);
   // 풀은 이 화면 수명 — 결과 불명 뒤 화면을 나갔다 오면 새 키다(도착은 같은 섬이면 결과가 같아 무해). 세션 세대 동안 유지하려면 islandCommands.arrive + scoped().keys 로 옮긴다(후속).
   const keyPool = useRef<IntentKeys | null>(null);
@@ -365,62 +369,85 @@ export function Telescope({ e }: { e: any }) {
           importantForAccessibility="no"
           style={FILL}
         />
-        <View
-          style={[
-            styles.topBar,
-            {
-              paddingTop: L.insets.top + space[2],
-              paddingLeft: L.insets.left + semanticTokens.spacing.page,
-              paddingRight: L.insets.right + semanticTokens.spacing.page,
-            },
-          ]}
+        {/* 위 막대와 파노라마를 세로로 쌓는다 — 큰 글자·가로 화면에서도 겹치지 않고, 화면보다 길면 세로로 밀어 끝까지 닿는다 */}
+        <ScrollView
+          testID="telescope-scroll"
+          alwaysBounceVertical={false}
+          contentContainerStyle={{ paddingBottom: L.insets.bottom + space[4] }}
         >
-          {/* 바다 위 보조 버튼 — 공용 Btn glass(DESIGN §7.2), 실제 터치 영역은 44 이상 */}
-          <Btn small kind="glass" title={t('telescope.back')} onPress={e.back} />
-          {list.minutes !== null && (
-            <View style={styles.chip}>
-              <Badge>{t('telescope.nextIslands', { minutes: list.minutes })}</Badge>
-            </View>
-          )}
-        </View>
-        <View style={styles.band}>
-          {list.status === 'loading' ? (
-            <Panel>
-              <ActivityIndicator color={C.brown} />
-              <Txt kind="meta">{t('telescope.loading')}</Txt>
-            </Panel>
-          ) : list.status === 'error' ? (
-            <Panel>
-              <Txt style={styles.panelText}>{errorTextOr(list.error, 'telescope.loadFailed')}</Txt>
-              <Btn small kind="sec" title={t('common.retry')} onPress={list.reload} />
-            </Panel>
-          ) : list.items.length === 0 ? (
-            <Panel>
-              <Txt style={styles.panelText}>{t('telescope.empty')}</Txt>
-            </Panel>
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{
-                paddingTop: FLAG_POLE_BASE,
+          <View
+            testID="telescope-top-bar"
+            style={[
+              styles.topBar,
+              {
+                paddingTop: L.insets.top + space[2],
                 paddingLeft: L.insets.left + semanticTokens.spacing.page,
                 paddingRight: L.insets.right + semanticTokens.spacing.page,
-                gap: space[4],
-              }}
-            >
-              {list.items.map((item, index) => (
-                <IslandCell
-                  key={item.islandId}
-                  item={item}
-                  index={index}
-                  disabled={sail.busy}
-                  onPress={() => setSelectedId(item.islandId)}
+              },
+            ]}
+          >
+            {/* 바다 위 보조 버튼 — 공용 Btn glass(DESIGN §7.2), 실제 터치 영역은 44 이상. 큰 글자에서는 높이가 글자를 따라 늘어난다 */}
+            <Btn
+              small
+              kind="glass"
+              dynamicHeight={largeText}
+              title={t('telescope.back')}
+              onPress={e.back}
+            />
+            {list.minutes !== null && (
+              <View style={styles.chip}>
+                <Badge>{t('telescope.nextIslands', { minutes: list.minutes })}</Badge>
+              </View>
+            )}
+          </View>
+          <View testID="telescope-band" style={styles.band}>
+            {list.status === 'loading' ? (
+              <Panel>
+                <ActivityIndicator color={color.outline} />
+                <Txt kind="meta">{t('telescope.loading')}</Txt>
+              </Panel>
+            ) : list.status === 'error' ? (
+              <Panel>
+                <Txt accessibilityLiveRegion="polite" style={styles.panelText}>
+                  {errorText}
+                </Txt>
+                <Btn
+                  small
+                  kind="sec"
+                  dynamicHeight={largeText}
+                  title={t('common.retry')}
+                  onPress={list.reload}
                 />
-              ))}
-            </ScrollView>
-          )}
-        </View>
+              </Panel>
+            ) : list.items.length === 0 ? (
+              <Panel>
+                <Txt style={styles.panelText}>{t('telescope.empty')}</Txt>
+              </Panel>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingTop: FLAG_POLE_BASE,
+                  paddingLeft: L.insets.left + semanticTokens.spacing.page,
+                  paddingRight: L.insets.right + semanticTokens.spacing.page,
+                  gap: space[4],
+                }}
+              >
+                {list.items.map((item, index) => (
+                  <IslandCell
+                    key={item.islandId}
+                    item={item}
+                    index={index}
+                    largeText={largeText}
+                    disabled={sail.busy}
+                    onPress={() => setSelectedId(item.islandId)}
+                  />
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </ScrollView>
       </View>
       {selected && (
         <IslandBubble

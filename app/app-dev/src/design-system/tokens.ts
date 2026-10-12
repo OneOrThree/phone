@@ -340,6 +340,10 @@ export const componentTokens = {
     rowMinHeight: semanticTokens.size.tapMin,
     largeTextThreshold: 1.3,
   },
+  // 망원경(GROMO-2266) — 시스템 글자 배율이 이 값 이상이면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다
+  telescope: {
+    largeTextThreshold: 1.3,
+  },
   divider: {
     color: semanticTokens.color.divider,
     width: semanticTokens.stroke.subtle,
