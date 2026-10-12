@@ -49,7 +49,7 @@ import {
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
-import { localized, t } from '@/i18n';
+import { errorTextOr, localized, t } from '@/i18n';
 import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useConstruction } from '@/screens/island/useConstruction';
@@ -6147,12 +6147,38 @@ export function Board({
       2 * (scene.height * (blueprintCenterY - questCenterY) - questLabelHitHeight / 2 - 1),
     ),
   );
+  const noticeBox = sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height);
+  const questBox = sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height);
+  const blueprintBox = sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight);
+  // 방명록 = 선반 위 펜꽂이(그림 비율 1024×1536 기준 중심 0.54, 0.535). 알약 라벨이 큰 글자에서도 한 줄로 들어가도록
+  // 터치 영역을 글자 수·글자 배율로 키운다(글자 한 칸을 1em 으로 넉넉히 잡아 어떤 글꼴에서도 줄바꿈이 없다).
+  const guestbookPillHeight =
+    13 * 1.3 * fontScale * labelScale +
+    2 * (primitiveTokens.space[1] + semanticTokens.stroke.default);
+  const guestbookPillWidth =
+    Array.from(t('guestbook.title')).length * 13 * fontScale * labelScale +
+    2 * (primitiveTokens.space[3] + semanticTokens.stroke.default);
+  const guestbookBase = sceneHitbox(
+    0.54,
+    0.535,
+    Math.min(1, Math.max(0.2, guestbookPillWidth / scene.width)),
+    Math.max(0.07, guestbookPillHeight / scene.height),
+  );
   const boardHitboxes = {
-    notice: sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height),
-    quest: sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height),
-    blueprint: sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight),
-    // 선반 위 펜꽂이 — 그림 비율(1024×1536) 기준 중심 (0.54, 0.535). 청사진 터치 영역 아래에 겹치지 않게 놓는다
-    guestbook: sceneHitbox(0.54, 0.535, 0.2, 0.07),
+    notice: noticeBox,
+    quest: questBox,
+    blueprint: blueprintBox,
+    // 위쪽 공지·청사진 터치 영역은 큰 글자에서 커진다 — 방명록은 그 1px 아래로 밀어 서로 겹치지 않게 하고(위 영역의
+    // 터치를 가로채지 않게), 넓어진 영역이 장면 밖으로 나가지 않게 가로를 맞춘다.
+    guestbook: {
+      ...guestbookBase,
+      left: Math.min(Math.max(0, guestbookBase.left), scene.width - guestbookBase.width),
+      top: Math.max(
+        guestbookBase.top,
+        noticeBox.top + noticeBox.height + 1,
+        blueprintBox.top + blueprintBox.height + 1,
+      ),
+    },
   };
   // 상세 패널은 원본 874px 가로 시안의 화면 폭 비율을 유지한다.
   const landScale = land ? width / 874 : 1;
@@ -6425,7 +6451,8 @@ export function Board({
                 style={[
                   {
                     position: 'absolute',
-                    zIndex: 2,
+                    // 공지·청사진(zIndex 2)보다 낮게 — 어떤 글자 배율에서 겹침이 남아도 그쪽 터치가 먼저다
+                    zIndex: 1,
                     ...boardHitboxes.guestbook,
                     alignItems: 'center',
                     justifyContent: 'flex-end',
@@ -6599,10 +6626,28 @@ export function Board({
         {s.panel === 'quest' && (
           <Scroll style={{ maxHeight: paperScroll }}>{questContent(questDetailOpen)}</Scroll>
         )}
-        {/* 섬 id·섬장 여부는 공지와 같은 getBoard 응답이 정본이다 */}
-        {s.panel === 'guestbook' && serverBoard && !!board.islandId && (
+        {/* 섬 id·섬장 여부는 공지와 같은 getBoard 응답이 정본이다 — 그 첫 조회가 끝나기 전·실패했을 때는 빈 종이가
+            아니라 공지·퀘스트와 같은 불러오는 중·오류+다시 시도를 보인다(다시 시도 = board.retry). */}
+        {s.panel === 'guestbook' && serverBoard && (
           <Scroll style={{ maxHeight: paperScroll }}>
-            <Guestbook islandId={board.islandId} host={owner} e={e} />
+            {board.islandId ? (
+              <Guestbook islandId={board.islandId} host={owner} e={e} />
+            ) : board.error && !board.loading ? (
+              <View>
+                <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
+                  {errorTextOr(board.error, 'guestbook.loadFailed')}
+                </Text>
+                <PaperAction
+                  testID="board-guestbook-retry"
+                  label={t('common.retry')}
+                  onPress={() => board.retry().catch(() => {})}
+                />
+              </View>
+            ) : (
+              <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
+                {t('guestbook.loading')}
+              </Text>
+            )}
           </Scroll>
         )}
         {s.panel === 'blueprint' && (

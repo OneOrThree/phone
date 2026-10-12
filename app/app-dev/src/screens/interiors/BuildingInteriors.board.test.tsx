@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import React, { useState } from 'react';
 import { PixelRatio, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -2385,43 +2386,132 @@ test('목업·갤러리 게시판(서버 없음)에는 방명록 입구도 API �
   assert.equal(getGuestbookMock.mock.calls.length, 0);
 });
 
-test.each([
-  [402, 874],
-  [375, 667],
-  [320, 480],
-  [290, 400],
-  [874, 402],
-  [1024, 1180],
-])(
-  '방명록 펜꽂이 터치 영역은 %i×%i 에서 44px 이상이고 다른 세 종이와 겹치지 않는다',
-  async (width, height) => {
-    getBoardMock.mockResolvedValue(page([], null, 'member'));
-    const screen = await renderBoard(makeE({ tab: '' }), concept({ boardView: 'list' }), {
-      width,
-      height,
-    });
-    await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
-    const box = (id: string) => {
-      const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
-      return {
-        left: style.left,
-        top: style.top,
-        right: style.left + style.width,
-        bottom: style.top + style.height,
-        width: style.width,
-        height: style.height,
+// 글자 배율 1배와 3배(접근성 최대) × 화면 크기. 3배에서는 공지 터치 영역이 커져 고정 위치의 방명록과 겹쳤다.
+test.each(
+  [
+    [402, 874],
+    [375, 667],
+    [320, 480],
+    [290, 400],
+    [874, 402],
+    [1024, 1180],
+  ].flatMap(([width, height]) => [
+    [width, height, 1],
+    [width, height, 3],
+  ]),
+)(
+  '방명록 펜꽂이 터치 영역은 %i×%i · 글자 %i배에서 44px 이상이고 장면 안에서 다른 세 종이와 겹치지 않는다',
+  async (width, height, scale) => {
+    const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(scale);
+    try {
+      getBoardMock.mockResolvedValue(page([], null, 'member'));
+      const screen = await renderBoard(makeE({ tab: '' }), concept({ boardView: 'list' }), {
+        width,
+        height,
+      });
+      await waitFor(() => assert.ok(screen.getByTestId('board-guestbook-area')));
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      const labelScale = Math.min(1, scene.width / 402);
+      const box = (id: string) => {
+        const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
+        return {
+          left: style.left,
+          top: style.top,
+          right: style.left + style.width,
+          bottom: style.top + style.height,
+          width: style.width,
+          height: style.height,
+        };
       };
-    };
-    const guestbook = box('board-guestbook-area');
-    assert.ok(guestbook.width >= 44 && guestbook.height >= 44);
-    for (const other of ['board-notice-area', 'board-quest-area', 'board-blueprint-area']) {
-      const o = box(other);
-      const separated =
-        guestbook.right <= o.left ||
-        o.right <= guestbook.left ||
-        guestbook.bottom <= o.top ||
-        o.bottom <= guestbook.top;
-      assert.ok(separated, `${other} 와 방명록 영역이 ${width}×${height} 에서 겹침`);
+      const guestbook = box('board-guestbook-area');
+      assert.ok(guestbook.width >= 44 && guestbook.height >= 44);
+      // 공지·퀘스트·청사진 터치 영역은 큰 글자에서 커진다 — 어느 것과도 겹치면 윗 영역의 터치를 가로챈다
+      for (const other of ['board-notice-area', 'board-quest-area', 'board-blueprint-area']) {
+        const o = box(other);
+        const separated =
+          guestbook.right <= o.left ||
+          o.right <= guestbook.left ||
+          guestbook.bottom <= o.top ||
+          o.bottom <= guestbook.top;
+        assert.ok(
+          separated,
+          `${other} 와 방명록 영역이 ${width}×${height} 글자 ${scale}배에서 겹침`,
+        );
+      }
+      // 알약 라벨(글자 13 × 줄 1.3 × 글자 배율 + 위아래 패딩·테두리)이 터치 영역 안에 들어간다
+      assert.ok(
+        guestbook.height >= 13 * 1.3 * scale * labelScale + 2 * (4 + 1.5) - 0.01,
+        `알약이 터치 영역 ${guestbook.height}px 에 안 들어감`,
+      );
+      // 큰 글자에서 영역이 넓어져도 장면 밖으로 나가지 않는다
+      assert.ok(guestbook.left >= -0.01 && guestbook.right <= scene.width + 0.01);
+      assert.ok(guestbook.top >= 0 && guestbook.bottom <= scene.height + 0.01);
+      await screen.unmount();
+    } finally {
+      fontScale.mockRestore();
     }
   },
 );
+
+test('방명록 종이는 게시판 정보를 받는 동안 불러오는 중을 보이고, 받으면 방명록을 연다', async () => {
+  const board = deferred<any>();
+  getBoardMock.mockReturnValue(board.promise);
+  getGuestbookMock.mockResolvedValue({ boardBuilt: true, items: [guestbookEntry('g1')] });
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+  assert.ok(screen.getByText('불러오고 있어요.'));
+  assert.equal(getGuestbookMock.mock.calls.length, 0); // 섬을 모르니 방명록은 아직 안 부른다
+
+  await act(async () => board.resolve(page([], null, 'member')));
+  await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
+  assert.equal(getGuestbookMock.mock.calls[0][0], ISLAND);
+});
+
+test('방명록 종이는 첫 getBoard 가 실패하면 오류와 다시 시도를 보이고, 재시도가 성공하면 방명록이 열린다', async () => {
+  getBoardMock
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0))
+    .mockResolvedValue(page([], null, 'host'));
+  getGuestbookMock.mockResolvedValue({ boardBuilt: true, items: [guestbookEntry('g1')] });
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+
+  // 빈 종이가 아니라 오류와 다시 시도 — 방명록은 섬을 모르니 아직 안 뜬다
+  const retry = await screen.findByTestId('board-guestbook-retry');
+  assert.ok(screen.getByText('방명록을 불러오지 못했어요.'));
+  assert.ok(screen.getByText('다시 시도'));
+  assert.equal(getGuestbookMock.mock.calls.length, 0);
+  assert.equal(getBoardMock.mock.calls.length, 1);
+
+  await fireEvent.press(retry);
+  await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
+  assert.equal(getBoardMock.mock.calls.length, 2);
+  assert.equal(getGuestbookMock.mock.calls[0][0], ISLAND);
+  assert.ok(screen.getByTestId('guestbook-delete-g1')); // 재시도한 getBoard 의 섬장 역할
+  expect(screen.queryByTestId('board-guestbook-retry')).toBeNull();
+});
+
+test('방명록 종이의 다시 시도가 또 실패하면 오류를 그대로 두고 다시 누를 수 있다', async () => {
+  getBoardMock.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+  await fireEvent.press(await screen.findByTestId('board-guestbook-retry'));
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 2));
+  assert.ok(await screen.findByTestId('board-guestbook-retry'));
+  assert.ok(screen.getByText('방명록을 불러오지 못했어요.'));
+  assert.equal(getGuestbookMock.mock.calls.length, 0);
+});
+
+test('영어에서도 방명록 종이의 오류와 다시 시도를 번역해 보인다', async () => {
+  applyLocalePref('en');
+  try {
+    getBoardMock.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', '연결 실패', 0));
+    const screen = await renderBoard(makeE({ tab: '' }));
+    await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+    await screen.findByTestId('board-guestbook-retry');
+    assert.ok(screen.getByText('Retry'));
+    expect(screen.queryByText('다시 시도')).toBeNull();
+    expect(screen.queryByText('연결 실패')).toBeNull(); // 서버·클라이언트 한글 문구가 영어 화면에 새지 않는다
+  } finally {
+    applyLocalePref('system');
+  }
+});
