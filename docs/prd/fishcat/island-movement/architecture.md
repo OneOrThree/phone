@@ -37,7 +37,7 @@
 | Business → Movement 제어 어댑터 | 내부 HTTPS + 서비스 인증 | 입장 준비, 권한 갱신/취소, layoutRevision 스냅샷. 틱과 독립 |
 | Business → 소유권 저장소 | 내부 인증 연결 | 방 배정·주소 조회. 위치 쓰기 없음 |
 | worker → 소유권 저장소 | 내부 인증 연결 | 배정된 방의 lease 갱신·해제 |
-| 앱 ↔ Movement | **1단계: 기존 Realtime STOMP/WSS(`/ws/realtime`)** · 2단계: 신규 공개 QUIC/UDP, Java/Netty 후보 | 1단계는 기존 CONNECT 인증·섬 구독 인가로 입장, 목적지·경로·좌표를 STOMP 프레임으로. 2단계는 scope가 해당 방인 티켓. Kafka를 좌표 전달 경로에 넣지 않음 |
+| 앱 ↔ Movement | **1단계: 기존 Realtime STOMP/WSS(`/ws/realtime`)** · 2단계 QUIC(보류 — §7 「2단계 판단」): 신규 공개 QUIC/UDP, Java/Netty 후보 | 1단계는 기존 CONNECT 인증·섬 구독 인가로 입장, 목적지·경로·좌표를 STOMP 프레임으로. 2단계는 scope가 해당 방인 티켓. Kafka를 좌표 전달 경로에 넣지 않음 |
 | 앱·worker → 맵 저장소 | HTTPS, worker 쓰기는 서비스 자격 | 승인 manifest의 hash가 일치하는 산출물만 사용 |
 | 도메인 이벤트 → 기존 Realtime → 앱 | 현행 경로 | 집중·휴식·감정·재생 등 기존 이벤트. 위치 팬아웃 아님 |
 
@@ -61,6 +61,8 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 
 ## 5. 배포·확장
 
+이 절의 worker·UDP endpoint·lease 설계는 **2단계 QUIC(보류 — §7 「2단계 판단」)** 전제다. 1단계는 Realtime 단일 인스턴스 안에서 돈다.
+
 ![배포와 소유권](diagrams/02-deployment.svg)
 
 [Mermaid 원본](diagrams/02-deployment.mmd)
@@ -78,7 +80,7 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 | 항목 | 제안 |
 | --- | --- |
 | 구현/레포 | Java 코어 + Netty QUIC 어댑터. A17의 JVM 대상 레포 `oneorthree/server` 내 `services/movement/` 후보로 등록하고 기존 서버 이관 계획과 맞춘다. 이 PR은 레포·서비스를 생성하지 않음 |
-| 공개 포트 | shard endpoint UDP 443 후보. **Cloudflare 프록시 밖의 별도 공개 호스트·IP** — prod 오리진은 결정 ㊾(→ A23 대체문: `set_real_ip_from` = Cloudflare CIDR + 오리진 방화벽)로 HTTP 오리진을 Cloudflare 뒤에만 두는데, 그 전제는 HTTP 오리진에만 해당하므로 별도 UDP 호스트는 이 전제 밖이며 신규 A 결정으로 규정한다(MV-D06 기록 때 ㊾ 옆에 「UDP 별도 호스트 예외」 각주). Cloudflare 밖이라 `CF-Connecting-IP` 처리가 적용되지 않으므로 요청 제한은 직접 출발지 IP 기준이다. QUIC 주소 검증(Retry)·핸드셰이크 요청 제한·DDoS 노출을 함께 승인. **2단계(분리 서버) 항목** |
+| 공개 포트 | shard endpoint UDP 443 후보. **Cloudflare 프록시 밖의 별도 공개 호스트·IP** — prod 오리진은 결정 ㊾(→ A23 대체문: `set_real_ip_from` = Cloudflare CIDR + 오리진 방화벽)로 HTTP 오리진을 Cloudflare 뒤에만 두는데, 그 전제는 HTTP 오리진에만 해당하므로 별도 UDP 호스트는 이 전제 밖이며 신규 A 결정으로 규정한다(MV-D06 기록 때 ㊾ 옆에 「UDP 별도 호스트 예외」 각주). Cloudflare 밖이라 `CF-Connecting-IP` 처리가 적용되지 않으므로 요청 제한은 직접 출발지 IP 기준이다. QUIC 주소 검증(Retry)·핸드셰이크 요청 제한·DDoS 노출을 함께 승인. **2단계 QUIC(분리 서버) 항목 — 보류, §7 「2단계 판단」** |
 | 내부 포트 | 제어 HTTPS 8443·관측 9090 후보, 외부 차단 |
 | 프로세스 예산 | 초기 부하 측정은 worker 4 vCPU / 8GiB. 운영 인스턴스·복제 수는 실측 후 자원표에 반영 |
 | 시크릿 | **공개 CA 인증서**(Cloudflare Origin Cert 는 앱이 신뢰하지 않음)와 자동 갱신, Business 티켓 서명 키 쌍(Business 비밀키·worker 공개키), 내부 서비스 자격은 A11 에 따라 caller(Business→Movement, worker→소유권 저장소) 별로 분리, 저장소 권한. 앱에 공유 비밀을 넣지 않음 |
@@ -106,11 +108,11 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 
 **2026-09-23 Plannotator 피드백:** Java로 좌표를 계산하고 Kafka를 앱이 소비할지, 직접 통신과 C++ 분리가 필요한지, 이미 연결된 Realtime에 합칠지 비교해 달라는 질문이다.
 
-**결정(2026-10-07, 조재영): 1단계는 A 안 — Realtime JVM 에 이동 엔진을 넣고 기존 STOMP/WebSocket 연결·기존 JWT·멤버십 인가를 재사용한다. 분리된 Java worker + 앱 직접 QUIC(C 안)은 1단계 측정(틱 p99·송신 큐·GC pause·배터리) 뒤 2단계로 간다.** 최초 초안의 Go/quic-go 출발안은 기존 JVM 운영 기반을 우선한 Java/Netty 후보로 대체했고, 그 후보는 2단계의 출발안으로 남는다. 1단계의 알려진 단점: TCP 라 손실 때 앞선 패킷을 기다린다(head-of-line), 채팅과 CPU·GC·장애를 공유한다, 20Hz×15명 팬아웃이 Realtime 송신 큐를 지난다 — 이 셋의 측정값이 2단계로 가는 판단 기준이다.
+**결정(2026-10-07, 조재영): 1단계는 A 안 — Realtime JVM 에 이동 엔진을 넣고 기존 STOMP/WebSocket 연결·기존 JWT·멤버십 인가를 재사용한다. 분리된 Java worker + 앱 직접 QUIC(C 안)은 1단계 측정(틱 p99·송신 큐·GC pause·배터리) 뒤 2단계로 간다.** 최초 초안의 Go/quic-go 출발안은 기존 JVM 운영 기반을 우선한 Java/Netty 후보로 대체했고, 그 후보는 2단계의 출발안으로 남는다. 1단계의 알려진 단점: TCP 라 손실 때 앞선 패킷을 기다린다(head-of-line), 채팅과 CPU·GC·장애를 공유한다, 20Hz×15명 팬아웃이 Realtime 송신 큐를 지난다 — 이 셋의 측정값이 2단계로 가는 판단 기준이다. → 측정 결과와 판단은 아래 「2단계 판단」.
 
 **측정 결과 2026-10-09(로컬, 서버 측만 — [검증 §7](validation.md#7-1단계-측정-2026-10-09-로컬))**. 측정 범위: 왕복·Snapshot 간격·거절은 목표 안, **틱 p99 는 히스토그램 미노출로 측정 불가**(후속 chore), **데이터 예산은 N=15 세션당 197 MB/시간으로 목표 30 의 6.6배**(헤더·reliable 사건 몫 포함 — validation §7 데이터 예산). 재검토 조건: 실기기 측정 후(배터리·dev 서버 RTT·보정 점프·체감은 실기기 잔여, 티켓 2250).
 
-**2단계 판단(2026-10-12, 제안 — 조재영 확정 전, 티켓 2251):** QUIC 직접 연결(C 안)은 **보류**한다. 로컬 측정에서 1단계 전송(STOMP/WSS)이 지연·안정성 목표를 만족했고(왕복 p99 ≤ 58.6 ms · Snapshot 간격 p99 ≤ 57.2 ms · 100 ms 초과 0 · 끊김 0 · 송신 큐 최대 13/256 · GC pause 최대 13 ms), 2단계로 가야 할 근거였던 셋 중 둘(채팅과 CPU·GC 공유, 20Hz×15 팬아웃이 송신 큐를 지남)은 로컬에서 문제가 아니었다. 셋째(head-of-line)는 손실 있는 망에서만 보이므로 실기기 측정(티켓 2250 잔여) 뒤에 판단한다. 대신 **2단계 1차 범위는 전송 계층을 유지한 페이로드 축소**로 제안한다 — 데이터 예산이 목표의 6.6배인데 분해상 Snapshot 본문 ≈ 150 · STOMP 헤더 ≈ 13 · reliable 사건 ≈ 33 MB/시간이라([검증 §7 데이터 예산](validation.md#데이터-예산)) 바이너리 Snapshot·송신 주기 저감·PathAccepted 축소를 함께 봐야 하고, 이 셋은 전송을 바꾸지 않아도 된다. 축소안 실측 비교는 티켓 2272. **QUIC 재검토 조건**: ① 실기기(Wi-Fi·LTE)에서 Snapshot 간격 p99 가 정책 §3 보간·외삽 한도 100 ms 를 넘거나 왕복 p99 가 체감(MV-D05)을 깨뜨린다 ② 페이로드 축소 뒤에도 세션당 30 MB/시간을 못 맞춘다 ③ 배터리·재접속 비용이 실기기에서 확인된다(기준값은 실기기 측정 뒤 확정). 조건이 하나라도 열리면 MV-D02·D03·D06 을 그때 닫고 모바일·부하 POC 로 간다.
+**2단계 판단(2026-10-12, 제안 — 조재영 확정 전, 티켓 2251):** 용어 — **2단계 1차** = 전송 계층 유지 + 페이로드 축소, **2단계 QUIC** = 분리 worker + 앱 직접 QUIC(C 안, §5 와 7.3 표가 전제하던 것). **2단계 QUIC 은 보류**한다. 로컬 측정에서 1단계 전송(STOMP/WSS)이 지연·안정성 목표를 만족했고(왕복 p99 ≤ 58.6 ms · Snapshot 간격 p99 ≤ 57.2 ms · 100 ms 이상 0건 · 끊김 0 · 송신 큐 최대 13/256(N=15) · GC pause 최대 13 ms), 2단계로 가야 할 근거였던 셋 중 둘(채팅과 CPU·GC 공유, 20Hz×15 팬아웃이 송신 큐를 지남)은 로컬에서 문제가 아니었다. 셋째(head-of-line)는 손실 있는 망에서만 보이므로 실기기 측정(티켓 2250 잔여) 뒤에 판단한다. **2단계 1차 범위는 페이로드 축소**로 제안한다 — 데이터 예산이 N=15 세션당 197 MB/시간(목표 30 의 6.6배)인데 분해상 Snapshot 본문 ≈ 150 · STOMP 헤더 ≈ 13 · reliable 사건 ≈ 33 MB/시간이라([검증 §7 데이터 예산](validation.md#데이터-예산)) 바이너리 Snapshot·송신 주기 저감·PathAccepted 축소를 함께 봐야 하고, 이 셋은 전송을 바꾸지 않아도 된다. 축소안은 protocol.md 의 DATAGRAM entity 레이아웃(24 B)을 STOMP 바이너리 프레임에 그대로 싣는 것을 기본 후보로 비교해(티켓 2272) 2단계 QUIC 으로 가도 버려지지 않게 한다. **2단계 QUIC 재검토 조건**(판정은 오너가 실기기 측정 결과로 한다): ① 실기기(Wi-Fi·LTE)에서 Snapshot 간격 p99 가 100 ms 를 넘는다 — 정책 §3 보간·외삽 한도와 같은 값이라 넘으면 앱 외삽이 끊겨 주민이 멈춘다 — 또는 체감(MV-D05)이 깨진다(체감 기준값은 실기기 측정 뒤 정한다) ② 2단계 1차 뒤에도 N=15 기준 세션당 30 MB/시간을 못 맞춘다(상한 자체는 정책 §3 「실측 후 조정」 대상) ③ 배터리·재접속 비용이 실기기에서 확인된다(기준값은 실기기 측정 뒤 확정). 조건이 하나라도 열리면 MV-D02·D03·D06 을 그때 닫고 모바일·부하 POC 로 간다 — POC 의 망 매트릭스는 [검증 §3](validation.md#3-구현-순서와-완료-증거)(Wi-Fi·LTE/5G·3G 대역 제한·UDP 443 차단망)과 T17 폴백을 그대로 쓴다. 이 제안이 확정되면 이 문단과 정책 MV-D10 의 「제안 — 확정 전」을 「확정(날짜)」로 바꾸는 한 줄 커밋이 뒤따른다.
 
 ### 7.1 언어·연결·서비스 분리는 각각 선택한다
 
@@ -146,4 +148,4 @@ Kafka의 일반 consumer group은 레코드를 그룹 내 소비자 중 하나�
 
 [현재 앱 연결](../../../../app/app-dev/src/services/islandRealtime.ts)은 `startIslandRealtime`에서 열고 `dispose()`에서 닫는다. 앱 전역에 단 하나의 영구 소켓이 항상 있다는 전제로 설계하지 않는다. 같은 연결을 재사용할 때도 섬 구독·배경 전환·재접속의 수명을 확인해야 한다.
 
-직접 연결 추천안에서는 기존 Realtime은 채팅·도메인 이벤트를 맡고, Movement 연결은 섬에서 실제 이동을 표시하는 동안 유지한다. 추가 연결의 배터리·재접속 비용은 iOS/Android 실기기로 측정한다. 개발용 WebSocket/mock 어댑터로 Java 코어를 먼저 검증할 수 있지만, 해당 결과는 QUIC/UDP 수용 시험을 대신하지 않는다.
+직접 연결안(2단계 QUIC — 2026-10-12 보류 제안)에서는 기존 Realtime은 채팅·도메인 이벤트를 맡고, Movement 연결은 섬에서 실제 이동을 표시하는 동안 유지한다. 추가 연결의 배터리·재접속 비용은 iOS/Android 실기기로 측정한다. 개발용 WebSocket/mock 어댑터로 Java 코어를 먼저 검증할 수 있지만, 해당 결과는 QUIC/UDP 수용 시험을 대신하지 않는다.
