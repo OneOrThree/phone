@@ -316,7 +316,8 @@ public final class IslandMembershipResponses {
      * 같은 항목을 돌려준다.
      *
      * @param item    넣은 섬 — 목록에서 보이는 그대로({@code slot=pinned}, {@code pinnedFrom}·{@code pinnedAt} 포함)
-     * @param evicted 이 핀이 5번째라 밀려난 가장 오래된 핀. 밀려난 핀이 없으면 null 이고 키는 항상 있다
+     * @param evicted 넣기로 보이는 핀이 4개를 넘어 정리된 핀(지운 것 중 가장 최근 — 넣는 섬은 밀려나지 않는다). 이미 있던
+     *     핀을 다시 넣어도 넘침이 있으면 실린다. 정리된 핀이 없으면 null 이고 키는 항상 있다
      */
     public record TelescopePinView(
             @JsonProperty(required = true) TelescopeItemView item,
