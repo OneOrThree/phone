@@ -184,6 +184,44 @@ test('네트워크 오류 같은 일시 실패는 토스트로만 알리고 칸�
   expect(writeMock).toHaveBeenCalledTimes(2);
 });
 
+test('응답을 잃은 쓰기를 다시 보내 409 가 나면 목록을 다시 받아 내 글이 보이게 하고 칸은 막은 채 둔다', async () => {
+  const { screen, e } = await mount(false);
+  expect(getMock).toHaveBeenCalledTimes(1);
+  // ① 서버엔 저장됐지만 응답이 끊겼다 — 목록엔 내 글이 아직 없다
+  writeMock.mockRejectedValueOnce(new ApiError('CLIENT_TIMEOUT', 'timeout', 0));
+  await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await waitFor(() => expect(e.notify).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText('안녕')).toBeNull();
+  expect(getMock).toHaveBeenCalledTimes(1); // 일시 실패는 목록을 다시 받지 않는다
+
+  // ② 다시 보내면 오늘 이미 남겼다(409) — 서버 목록으로 맞추면 내 글이 보인다
+  writeMock.mockRejectedValueOnce(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', 'x', 409));
+  getMock.mockResolvedValue(
+    page([entry('g9', { content: '안녕', mine: true }), entry('g1'), entry('g2')]),
+  );
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await screen.findByText('오늘은 이미 남겼어요');
+  await screen.findByText('안녕'); // 내 글이 목록에 나타난다
+  expect(getMock).toHaveBeenCalledTimes(2);
+  expect(screen.getByTestId(INPUT).props.editable).toBe(false); // 막힌 채다
+  expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(true);
+  expect(e.notify).toHaveBeenCalledTimes(1); // 409 는 토스트가 없다(첫 실패의 토스트뿐)
+});
+
+test('목록을 다시 받다 실패해도 지금 화면과 막은 칸은 그대로다', async () => {
+  const { screen } = await mount(false);
+  writeMock.mockRejectedValue(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', 'x', 409));
+  getMock.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
+  await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await screen.findByText('오늘은 이미 남겼어요');
+  await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
+  expect(screen.getByText('g1 놀러 왔어요')).toBeTruthy(); // 목록은 그대로
+  expect(screen.queryByText('방명록을 불러오지 못했어요.')).toBeNull(); // 불러오기 실패 화면으로 바뀌지 않는다
+  expect(screen.getByTestId(INPUT).props.editable).toBe(false);
+});
+
 test('막았던 칸은 섬이 바뀌어 다시 불러오면 다시 열린다', async () => {
   const { screen } = await mount(false);
   writeMock.mockRejectedValue(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', 'x', 409));
@@ -211,6 +249,7 @@ test('게시판이 사라진 섬(403 FACILITY_LOCKED)은 토스트 없이 칸 �
   expect(e.notify).not.toHaveBeenCalled();
   expect(screen.getByTestId(INPUT).props.editable).toBe(false);
   expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(true);
+  expect(getMock).toHaveBeenCalledTimes(1); // 403 은 목록을 다시 받지 않는다(409 만)
 });
 
 const BLOCKING: [string, number, string][] = [
@@ -324,6 +363,59 @@ test('섬장이 지우기를 누르면 확인창을 거쳐 지우고 목록에�
   await waitFor(() => expect(screen.queryByText('g1 놀러 왔어요')).toBeNull());
   expect(screen.getByText('g2 놀러 왔어요')).toBeTruthy();
   expect(e.notify).toHaveBeenCalledWith('방명록 글을 지웠어요');
+});
+
+test('지우는 중에는 같은 확인을 또 눌러도 요청은 한 번만 나가고 오류 토스트도 없다', async () => {
+  const { screen, e } = await mount(true);
+  let release!: (value: unknown) => void;
+  deleteMock.mockReturnValue(new Promise((resolve) => (release = resolve)));
+  await fireEvent.press(screen.getByTestId('guestbook-delete-g1'));
+  const confirmDelete = e.confirm.mock.calls[0][2];
+  await act(async () => confirmDelete());
+  await act(async () => confirmDelete()); // 느린 망에서 확인을 또 눌렀다
+  expect(deleteMock).toHaveBeenCalledTimes(1);
+
+  await act(async () => release({ deleted: true }));
+  await waitFor(() => expect(screen.queryByText('g1 놀러 왔어요')).toBeNull());
+  expect(screen.getByText('g2 놀러 왔어요')).toBeTruthy();
+  expect(e.notify).toHaveBeenCalledTimes(1);
+  expect(e.notify).toHaveBeenCalledWith('방명록 글을 지웠어요');
+});
+
+test('지우는 중에는 그 글의 [지우기]만 꺼지고 다시 눌러도 확인창이 뜨지 않으며, 실패하면 다시 켜진다', async () => {
+  const { screen, e } = await mount(true);
+  let fail!: (error: unknown) => void;
+  deleteMock.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)));
+  await fireEvent.press(screen.getByTestId('guestbook-delete-g1'));
+  await act(async () => e.confirm.mock.calls[0][2]());
+  expect(screen.getByTestId('guestbook-delete-g1').props.accessibilityState.disabled).toBe(true);
+  expect(screen.getByTestId('guestbook-delete-g2').props.accessibilityState.disabled).toBe(false);
+  await fireEvent.press(screen.getByTestId('guestbook-delete-g1'));
+  expect(e.confirm).toHaveBeenCalledTimes(1); // 꺼진 버튼은 확인창을 다시 열지 않는다
+
+  await act(async () => fail(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0)));
+  expect(screen.getByTestId('guestbook-delete-g1').props.accessibilityState.disabled).toBe(false);
+  expect(screen.getByText('g1 놀러 왔어요')).toBeTruthy(); // 실패하면 글은 남는다
+  expect(e.notify).toHaveBeenCalledTimes(1); // 오류 토스트
+
+  deleteMock.mockResolvedValue({ deleted: true });
+  await fireEvent.press(screen.getByTestId('guestbook-delete-g1'));
+  await act(async () => e.confirm.mock.calls[1][2]());
+  expect(deleteMock).toHaveBeenCalledTimes(2); // 다시 지울 수 있다
+  await waitFor(() => expect(screen.queryByText('g1 놀러 왔어요')).toBeNull());
+});
+
+test('지우는 중에 섬이 바뀌면 지우는 중 표시도 풀린다', async () => {
+  const { screen, e } = await mount(true);
+  deleteMock.mockReturnValue(new Promise(() => {})); // 끝나지 않는 요청
+  await fireEvent.press(screen.getByTestId('guestbook-delete-g1'));
+  await act(async () => e.confirm.mock.calls[0][2]());
+  expect(screen.getByTestId('guestbook-delete-g1').props.accessibilityState.disabled).toBe(true);
+
+  getMock.mockResolvedValue(page([entry('g1', { content: '다른 섬 글' })]));
+  await screen.rerender(<Guestbook islandId="i2" host={true} e={env()} />);
+  await screen.findByText('다른 섬 글');
+  expect(screen.getByTestId('guestbook-delete-g1').props.accessibilityState.disabled).toBe(false);
 });
 
 test('이미 지워진 글(404)을 지우면 목록에서도 빼고 안내한다', async () => {

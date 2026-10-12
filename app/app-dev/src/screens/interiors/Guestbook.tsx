@@ -86,6 +86,14 @@ export function Guestbook({
   const scope = useRef<object | null>(null);
   // 연타로 같은 글이 두 번 나가지 않게(둘째는 하루 1개 규칙에 걸려 409 가 된다) state 가 아니라 ref 로 막는다
   const writing = useRef(false);
+  // 지우는 중인 글 id — ref 는 두 번 확인을 바로 막고, state 는 그 글의 [지우기]를 끄려고 둔다(같이 바뀐다)
+  const deleting = useRef(new Set<string>());
+  const [deletingIds, setDeletingIds] = useState<ReadonlySet<string>>(() => new Set());
+  const markDeleting = (id: string, on: boolean) => {
+    if (on) deleting.current.add(id);
+    else deleting.current.delete(id);
+    setDeletingIds(new Set(deleting.current));
+  };
 
   // 섬이 바뀌거나 화면을 떠난 뒤 늦게 온 응답·쓰기 결과는 버린다(세션 세대 포함).
   useEffect(() => {
@@ -97,6 +105,8 @@ export function Guestbook({
     setBusy(false);
     setBlocked(null);
     writing.current = false;
+    deleting.current.clear();
+    setDeletingIds(new Set());
     getGuestbook(islandId)
       .then((page) => {
         if (!alive()) return;
@@ -110,6 +120,16 @@ export function Guestbook({
       scope.current = null;
     };
   }, [islandId, reload]);
+
+  // 서버 목록으로 조용히 다시 맞춘다 — 화면을 비우지 않고 막은 칸·쓰던 글도 그대로 둔다. 실패하면 지금 화면을 둔다
+  const refetch = () => {
+    const alive = aliveGuard(scope);
+    getGuestbook(islandId)
+      .then((page) => {
+        if (alive() && Array.isArray(page?.items)) setLoaded(page);
+      })
+      .catch(() => {});
+  };
 
   const submit = async () => {
     const content = draft.trim();
@@ -136,6 +156,8 @@ export function Guestbook({
         // 안드로이드가 같은 문장을 두 번 읽는다. 안내의 live region 은 안드로이드 전용이라 iOS 는 한 번 직접 읽어 준다
         setBlocked(error);
         if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(text);
+        // 응답을 잃은 쓰기도 서버엔 저장됐을 수 있다(재시도가 409) — 서버 목록으로 맞춰 내 글이 보이게 한다
+        if (error.code === 'GUESTBOOK_ALREADY_WRITTEN_TODAY') refetch();
       } else if (text) e?.notify?.(text);
     } finally {
       // 섬이 바뀌었으면 효과가 이미 새로 시작하며 잠금을 풀었다 — 옛 쓰기가 새 섬의 잠금을 풀지 않게 살아 있을 때만
@@ -150,7 +172,9 @@ export function Guestbook({
     setLoaded((page) => page && { ...page, items: page.items.filter((item) => item.id !== id) });
 
   const remove = async (entry: GuestbookEntry) => {
+    if (deleting.current.has(entry.id)) return; // 이미 지우는 중 — 두 번째 확인은 무시한다
     const alive = aliveGuard(scope);
+    markDeleting(entry.id, true);
     try {
       await deleteGuestbookEntry(islandId, entry.id);
       if (!alive()) return;
@@ -162,6 +186,9 @@ export function Guestbook({
       if (error instanceof ApiError && error.code === 'NOT_FOUND') drop(entry.id);
       const text = islandErrorMessage(error);
       if (text) e?.notify?.(text);
+    } finally {
+      // 섬이 바뀌었으면 효과가 이미 표시를 비웠다
+      if (alive()) markDeleting(entry.id, false);
     }
   };
 
@@ -235,6 +262,7 @@ export function Guestbook({
                               kind="sec"
                               title={t('guestbook.delete')}
                               accessibilityLabel={`${t('guestbook.delete')}: ${entry.content}`}
+                              disabled={deletingIds.has(entry.id)}
                               onPress={() => askDelete(entry)}
                               id={`guestbook-delete-${entry.id}`}
                             />
