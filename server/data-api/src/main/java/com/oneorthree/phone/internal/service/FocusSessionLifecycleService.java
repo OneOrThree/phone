@@ -594,11 +594,12 @@ public class FocusSessionLifecycleService {
     /**
      * finish·자동 종료의 공통 정산 — 호출측이 사용자·섬·멤버십·상세를 잠갔다.
      *
-     * <p><b>바다 집중(GROMO-2274).</b> {@link SeaSessionPredicate} 가 참이면 섬 통장 적립({@code accrue})을 건너뛰고
-     * {@link SeaFocusRewardService#settle} 이 누적 가산·단계표 지급을 한다. 응답의 {@code seaReward} 는 그때만
-     * 채워진다. 자동 종료도 같은 경로라 지급은 되지만 받은 상품은 정산 행에 저장하지 않으므로, 그 결과를 다시 보여 주는
-     * 경로({@link #pendingResult}·이미 끝난 세션의 finish)는 {@code seaReward} 가 {@code null} 이다 — 바다 세션을 여는
-     * E1-1 이 자동 종료 결과에도 상품을 보여 주려면 저장 자리를 정해야 한다.
+     * <p><b>바다 집중(GROMO-2274).</b> {@link SeaSessionPredicate} 가 참이면 {@link SeaFocusRewardService#settle} 이
+     * 누적 가산·단계표 지급을 하고, 섬 통장 적립은 하지 않는다 — 그 판정은 {@code accrue} 안에 있다(매분 크론도 같은
+     * 메서드를 지나므로 한 곳). 응답의 {@code seaReward} 는 이 분기에서만 채워진다. 자동 종료도 같은 경로라 지급은 되지만
+     * 받은 상품은 정산 행에 저장하지 않으므로, 그 결과를 다시 보여 주는 경로({@link #pendingResult}·이미 끝난 세션의
+     * finish)는 {@code seaReward} 가 {@code null} 이다 — 바다 세션을 여는 E1-1 이 자동 종료 결과에도 상품을 보여 주려면
+     * 저장 자리를 정해야 한다.
      *
      * @param autoClosed 서버가 끝냈는가(GROMO-1998). 정산 행의 표지 하나만 갈리고 나머지는 전부 같다 —
      *                   정책이 「정상 종료와 같게」라고 정했기 때문이다
@@ -616,16 +617,16 @@ public class FocusSessionLifecycleService {
         FocusSession marker = focusSessionRepository.findByIdAndUserForUpdate(sessionId, user)
                 .orElseThrow(() -> new IllegalStateException("상세는 있는데 기본 마커가 없습니다 — session=" + sessionId));
 
-        // 바다 집중은 섬 통장에 적립하지 않는다(GROMO-2274) — 보상은 아래 누적·단계표 엔진이 정한다.
-        // 판정은 seam 이고 지금은 늘 false 라 이 분기는 종전 경로 그대로다.
+        // 바다 집중이면 보상은 아래 누적·단계표 엔진이 정한다(GROMO-2274). 판정은 seam 이고 지금은 늘 false 라 이 분기는
+        // 종전 경로 그대로다. «섬 통장에 적립하지 않는다» 는 accrue 가 같은 판정으로 스스로 지킨다 — 크론과 이 호출이 같은
+        // 한 곳을 지나므로 여기서 따로 가르지 않는다(가르면 판정이 두 곳이 된다).
         boolean sea = seaSessions.isSea(detail);
         // 마지막 틱 이후에 «찬» 분을 여기서 확정한다 — 구간을 닫은 뒤라 activeSeconds 와 같은 값을 본다.
         // 「종료 시 추가 지급 없음」은 자투리(1분이 안 찬 초)를 주지 않는다는 뜻이지, 이미 찬 분을 버린다는
         // 뜻이 아니다. 크론 게이트가 닫혀 있는 동안에는 이 호출이 그 세션의 «유일한» 지급 경로다.
-        if (!sea) {
-            rewardAccruals.accrue(sessionId);
-        }
-        // 그렇게 확정된 적립 합을 그대로 옮겨 적는다(GROMO-1990 — 여기서 새로 계산하지 않는다).
+        rewardAccruals.accrue(sessionId);
+        // 그렇게 확정된 적립 합을 그대로 옮겨 적는다(GROMO-1990 — 여기서 새로 계산하지 않는다). 바다 세션은 틱도 이
+        // 호출도 적립하지 않았으므로 0 이다.
         int earned = Math.toIntExact(focusRewardAccrualRepository.sumEarnedFishOfSession(sessionId));
 
         // 일 집계는 KST 날짜 축(date-axis 규약)의 순수 초 — 목표 코인·스트릭 같은 레거시 부수효과는 붙이지

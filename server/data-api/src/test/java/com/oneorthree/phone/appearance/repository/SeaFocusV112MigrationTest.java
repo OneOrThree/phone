@@ -110,9 +110,12 @@ class SeaFocusV112MigrationTest {
         assertThat(jdbc.queryForObject("SELECT pg_get_constraintdef(oid) FROM pg_constraint "
                 + "WHERE conrelid = 'sea_reward_tiers'::regclass AND contype = 'u'", String.class))
                 .isEqualTo("UNIQUE (set_key, threshold_minutes, product_id)");
-        assertThat(jdbc.queryForObject("SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+        // CHECK 는 둘이다 — 0분 이하 거부, 세트 키는 'base' 또는 'YYYY-MM'(월 01~12) 형식만.
+        assertThat(jdbc.queryForList("SELECT pg_get_constraintdef(oid) FROM pg_constraint "
                 + "WHERE conrelid = 'sea_reward_tiers'::regclass AND contype = 'c'", String.class))
-                .contains("threshold_minutes > 0");
+                .hasSize(2)
+                .anyMatch(definition -> definition.contains("threshold_minutes > 0"))
+                .anyMatch(definition -> definition.contains("set_key") && definition.contains("base"));
     }
 
     @Test
@@ -166,7 +169,15 @@ class SeaFocusV112MigrationTest {
                 .as("카탈로그에 없는 상품").isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update(INSERT_TIER, "S".repeat(21), 30, "scarf"))
                 .as("세트 키 20자 상한").isInstanceOf(DataIntegrityViolationException.class);
+        // 세트 키 형식 — 철자가 틀린 키는 «조용히 평가되지 않는» 대신 insert 에서 거부된다.
+        for (String malformed : List.of("2026-1", "2026/11", "2026-13", "2026-00", "2026-11-01", "BASE", "base ", "")) {
+            assertThatThrownBy(() -> jdbc.update(INSERT_TIER, malformed, 30, "scarf"))
+                    .as("형식이 틀린 세트 키 '" + malformed + "'").isInstanceOf(DataIntegrityViolationException.class);
+        }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM sea_reward_tiers", Integer.class)).isEqualTo(3);
+        // 허용되는 형식 — 위의 'base'·'2026-11' 과 달 경계 '2026-01'(12월은 아래 시즌 예시가 넣는다).
+        jdbc.update(INSERT_TIER, "2026-01", 30, "scarf");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sea_reward_tiers", Integer.class)).isEqualTo(4);
         assertThatThrownBy(() -> jdbc.update("DELETE FROM catalog_assets WHERE product_id = 'scarf'"))
                 .as("단계표가 가리키는 카탈로그 행은 지울 수 없다").isInstanceOf(DataIntegrityViolationException.class);
 

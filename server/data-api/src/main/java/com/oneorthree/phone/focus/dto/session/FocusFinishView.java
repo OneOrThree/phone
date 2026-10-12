@@ -19,10 +19,11 @@ import java.util.UUID;
  * @param completedAt    정산을 확정한 서버 시각
  * @param questProgress  이 세션이 기여한 퀘스트 진행률(1772/1773 계약). 퀘스트 계약이 아직 없어 늘 빈 목록이다
  * @param activeIntervals ACTIVE 구간 실제 시간(GROMO-2131, LLD §1) — finish 시점엔 전부 닫혀 있다. 없으면 빈 목록
- * @param seaReward      바다 집중이 끝났을 때 이번에 받은 상품과 다음 단계까지 남은 분(GROMO-2274). <b>섬 세션은 늘
- *                       {@code null}</b> 이다 — 키는 있고 값만 null. 바다 세션은 아무것도 못 받았어도 객체다.
- *                       자동 종료 결과({@code pending-result})와 이미 끝난 세션의 재조회는 정산 행에서 응답을
- *                       다시 만들어 늘 {@code null} 이다(받은 상품은 저장하지 않는다)
+ * @param seaReward      바다 집중을 방금 정산한 응답에서만 값이 있다(GROMO-2274) — 이번에 받은 상품과 다음 단계까지 남은
+ *                       분. 바다 세션은 아무것도 못 받았어도 객체다(키는 늘 있다). <b>{@code null} 은 «받은 것 없음» 이
+ *                       아니라 «모름»</b> 이다: 섬 세션이거나, 바다 세션이라도 이 응답이 정산 직후가 아닌 경우(새 키로
+ *                       다시 끝낸 요청·{@code pending-result}·휴식 자동 종료 뒤 조회 — 정산 행에서 응답을 다시 만들 뿐
+ *                       받은 상품은 저장하지 않는다). 지급 여부의 정본은 인벤토리({@code owned_products})다
  */
 public record FocusFinishView(
         UUID recordId,

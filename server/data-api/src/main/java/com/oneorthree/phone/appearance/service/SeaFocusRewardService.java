@@ -21,8 +21,10 @@ import java.time.Instant;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -39,12 +41,16 @@ import java.util.stream.Collectors;
  * 단계표({@code sea_reward_tiers})는 운영이 SQL 로 넣는다. 세트는 둘이다 — {@code base}(평생 누적 기준, 상시)와
  * {@code YYYY-MM}(그 달 누적 기준, 시즌). 다음 달 시즌은 그 달 키로 행을 넣으면 열린다. 코드 배포가 없다.
  * 단계는 {@code 이전 누적 < 기준 ≤ 이후 누적} 일 때 «넘은» 것이다 — 이미 지나간 단계는 행이 나중에 생겨도
- * 소급해 주지 않고, 한 번 넘은 단계가 다시 넘어지는 일도 없다(누적은 줄지 않고, 월 누적은 달이 갈릴 때만 0 이 된다).
- * 달 경계를 걸친 세션은 정산 시각의 달에 «전부» 센다 — 구간별로 쪼개지 않는다.
+ * 소급해 주지 않고, 한 번 넘은 단계가 다시 넘어지는 일도 없다(누적은 줄지 않고, 월 누적은 정산 달이 저장된 달보다
+ * <b>늦어질 때만</b> 0 이 된다 — 시계가 뒤로 가 이전 달이 계산돼도 되돌리지 않고 저장된 달의 누적에 더하며, 시즌
+ * 세트도 그 저장된 달의 것을 본다). 달 경계를 걸친 세션은 정산 시각의 달에 «전부» 센다 — 구간별로 쪼개지 않는다.
  *
  * <h2>1회 보장</h2>
  * 이미 가진 상품은 건너뛴다 — {@code (user_id, product_id)} 부분 유일 인덱스(V64)가 최후 방어선이고, 이 서비스는
- * 그 앞에서 확인한다. 상점 구매와는 사용자 행 잠금(정산은 공유, 구매는 배타)이 줄을 세워 서로를 앞지르지 못한다.
+ * 그 앞에서 확인한다. 확인은 단계표 상품 전체에 대한 조회 한 번이고, 이번 정산에서 받은 상품도 «가진 것» 으로 쳐서
+ * 같은 상품이 상시·시즌 세트에 같이 있어도 한 번만 받는다. 상점 구매와는 사용자 행 잠금(정산은 공유, 구매는 배타)이
+ * 줄을 세워 서로를 앞지르지 못한다. «다음 단계» 안내도 같은 집합으로 거른다 — 넘어도 아무것도 안 주는 단계를 남은
+ * 분으로 보여 주지 않는다.
  *
  * <h2>지급하지 않는 종류</h2>
  * 개인 인벤토리는 {@code clothes}·{@code decor} 만 받는다. 그 밖의 종류가 단계표에 와도 건너뛰고 경고를 남긴다
@@ -74,7 +80,8 @@ public class SeaFocusRewardService {
      *
      * @param userId        정산 대상
      * @param activeSeconds 이번 세션의 순수 집중 초(휴식 제외). 0 이어도 된다
-     * @param now           정산 시각 — KST 로 본 달이 {@code month_key} 가 되고, 지급 시각이 된다
+     * @param now           정산 시각 — KST 로 본 달이 정산 달이다(저장된 달보다 늦을 때만 {@code month_key} 가 된다). 지급
+     *                      시각이기도 하다
      * @return 이번에 새로 받은 상품과 다음 단계까지 남은 분
      */
     @Transactional(propagation = Propagation.MANDATORY)
@@ -82,24 +89,31 @@ public class SeaFocusRewardService {
         if (activeSeconds < 0) {
             throw new IllegalArgumentException("순수 집중 초는 음수일 수 없습니다: " + activeSeconds);
         }
-        String monthKey = YearMonth.from(now.atZone(ZonePolicy.KST)).toString();
+        String settleMonth = YearMonth.from(now.atZone(ZonePolicy.KST)).toString();
         // 행이 없으면 0 누적으로 만들고 잠근다 — 첫 정산 둘이 겹쳐도 PK 위반으로 종료가 실패하지 않는다.
-        totals.insertIfAbsent(userId, monthKey, now);
+        totals.insertIfAbsent(userId, settleMonth, now);
         SeaFocusTotal total = totals.findForUpdate(userId)
                 .orElseThrow(() -> new IllegalStateException("바다 누적 행을 잠글 수 없습니다 — user=" + userId));
         long lifetimeBefore = total.getLifetimeSeconds();
-        long monthBefore = total.monthSecondsIn(monthKey);
-        total.add(activeSeconds, monthKey, now);
+        total.add(activeSeconds, settleMonth, now);
         long lifetimeAfter = total.getLifetimeSeconds();
         long monthAfter = total.getMonthSeconds();
+        // 가산 «전» 월 누적 — 달이 앞으로 넘어가 0 에서 시작했어도, 같은 달에 더했어도 «가산 후 − 이번 초» 다.
+        long monthBefore = monthAfter - activeSeconds;
+        // 시즌 세트는 누적이 쌓이는 달의 것이다 — 시계가 뒤로 가 이전 달이 계산돼도 저장된 달의 누적으로 그 달 세트를 본다.
+        String monthKey = total.getMonthKey();
 
         // ponytail: 두 세트의 단계를 전부 읽어 메모리에서 거른다 — 세트당 수십 행인 운영 카탈로그라 충분하다.
         // 수천 행이 되면 «넘은 단계»와 «다음 단계»를 SQL 두 문장으로 나눈다.
         List<SeaRewardTier> rows = tiers.findBySetKeys(List.of(SeaRewardTier.BASE_SET, monthKey));
-        Map<String, String> kinds = kindsOf(rows);
+        List<String> productIds = rows.stream().map(SeaRewardTier::getProductId).distinct().toList();
+        Map<String, String> kinds = kindsOf(productIds);
+        // 이미 가진 상품 — 단계표 상품 전체를 조회 한 번으로 모은다. 아래에서 받는 상품도 여기에 더해 가므로 같은 상품이
+        // 두 세트에 있어도 한 번만 받고, «다음 단계» 후보를 거르는 데에도 같은 집합을 쓴다.
+        Set<String> owned = ownedOf(userId, productIds);
         List<String> granted = new ArrayList<>();
         List<EventEnvelope> events = new ArrayList<>();
-        long remainingSeconds = Long.MAX_VALUE;
+        List<SeaRewardTier> upcoming = new ArrayList<>();
         for (SeaRewardTier tier : rows) {
             long before = tier.isBase() ? lifetimeBefore : monthBefore;
             long after = tier.isBase() ? lifetimeAfter : monthAfter;
@@ -115,20 +129,27 @@ public class SeaFocusRewardService {
                 continue;
             }
             if (crossed) {
-                if (ownedProducts.existsByUserIdAndProductId(userId, tier.getProductId())) {
+                if (owned.contains(tier.getProductId())) {
                     log.debug("바다 보상 단계의 상품을 이미 가지고 있어 건너뜁니다 — set={}, threshold={}분, product={}",
                             tier.getSetKey(), tier.getThresholdMinutes(), tier.getProductId());
                     continue;
                 }
                 ownedProducts.save(OwnedProduct.granted(CatalogAsset.OWNER_USER, userId, tier.getProductId(),
                         "sea:" + tier.getSetKey() + ":" + tier.getThresholdMinutes(), now));
+                owned.add(tier.getProductId());
                 events.add(appearanceEvents.inventoryChanged(CatalogAsset.OWNER_USER, userId, userId,
                         tier.getProductId()));
                 granted.add(tier.getProductId());
             } else if (threshold > after) {
-                remainingSeconds = Math.min(remainingSeconds, threshold - after);
+                upcoming.add(tier);
             }
         }
+        // 다음 단계 — 넘어도 아무것도 주지 않는 단계(이미 가진 상품·이번 정산에서 받은 상품)는 뺀다. 단계 순서에 기대지
+        // 않게 루프가 끝난 뒤에 거른다.
+        long remainingSeconds = upcoming.stream()
+                .filter(tier -> !owned.contains(tier.getProductId()))
+                .mapToLong(tier -> tier.thresholdSeconds() - (tier.isBase() ? lifetimeAfter : monthAfter))
+                .min().orElse(Long.MAX_VALUE);
         // 남은 초를 올림해 분으로 — 1초가 남아도 「0분 남음」으로 보이지 않는다.
         Integer minutesToNextTier = remainingSeconds == Long.MAX_VALUE ? null
                 : Math.toIntExact((remainingSeconds + 59) / 60);
@@ -147,13 +168,20 @@ public class SeaFocusRewardService {
     }
 
     /** 단계표가 가리키는 상품들의 종류 — 상품 id → kind. FK 가 있어 빠지는 상품은 없다. */
-    private Map<String, String> kindsOf(List<SeaRewardTier> rows) {
-        List<String> productIds = rows.stream().map(SeaRewardTier::getProductId).distinct().toList();
+    private Map<String, String> kindsOf(List<String> productIds) {
         if (productIds.isEmpty()) {
             return new HashMap<>();
         }
         return catalogAssets.findAllById(productIds).stream()
                 .collect(Collectors.toMap(CatalogAsset::getProductId, CatalogAsset::getKind));
+    }
+
+    /** 단계표가 가리키는 상품 중 유저가 개인 인벤토리에 이미 가진 것 — 상품마다 묻지 않고 한 번에 모은다. */
+    private Set<String> ownedOf(UUID userId, List<String> productIds) {
+        if (productIds.isEmpty()) {
+            return new HashSet<>();
+        }
+        return new HashSet<>(ownedProducts.findProductIdsByUserIdAndProductIdIn(userId, productIds));
     }
 
     private static boolean isGrantable(String kind) {

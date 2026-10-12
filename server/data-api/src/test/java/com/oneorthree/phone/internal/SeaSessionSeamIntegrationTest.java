@@ -6,11 +6,19 @@ import com.oneorthree.phone.focus.dto.session.FocusFinishView;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
+import com.oneorthree.phone.internal.service.FocusRewardAccrualService;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
+import com.oneorthree.phone.internal.service.GoldenFishService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.SeaSessionPredicate;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,10 +31,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 
 /**
@@ -39,7 +49,9 @@ import static org.mockito.Mockito.doReturn;
  * seaReward 는 null» 을 고정한다.
  *
  * <p>분당 적립 크론({@code focus.reward.accrual-enabled})은 기본값(꺼짐)으로 둔다 — 지급 경로를 finish 의
- * 마지막 확정 하나로 좁혀, 통장 잔액 단언이 크론 시각에 흔들리지 않게 한다.
+ * 마지막 확정 하나로 좁혀, 통장 잔액 단언이 크론 시각에 흔들리지 않게 한다. 크론·황금 물고기 스케줄러가 부르는
+ * {@code FocusRewardAccrualService.accrue}·{@code GoldenFishService.drawAndCredit} 는 테스트가 직접 부른다(스케줄러는
+ * 그 한 줄만 부른다) — 판정을 쓰는 «공유 지점» 이 그 둘이다.
  */
 @SpringBootTest
 class SeaSessionSeamIntegrationTest {
@@ -55,7 +67,17 @@ class SeaSessionSeamIntegrationTest {
     @Autowired
     FocusSessionLifecycleService focus;
     @Autowired
+    FocusRewardAccrualService rewardAccruals;
+    @Autowired
+    GoldenFishService goldenFish;
+    @Autowired
     IslandMembershipService islands;
+    @Autowired
+    GroupRepository groups;
+    @Autowired
+    GroupMemberRepository members;
+    @Autowired
+    UserQueryService users;
     @Autowired
     AuthService auth;
     @Autowired
@@ -155,7 +177,93 @@ class SeaSessionSeamIntegrationTest {
                 .as("단계표 상품을 주지 않는다").isZero();
     }
 
+    @Test
+    @DisplayName("바다 판정이면 매분 적립 틱도 섬 통장에 넣지 않는다 — 워터마크를 밀지 않고, 종료가 읽는 적립 합도 0 이다")
+    void minuteTickLeavesSeaSessionsAlone() {
+        doReturn(true).when(seaSessions).isSea(any());
+        UUID user = newUser();
+        UUID island = newIsland(user, "틱판정섬");
+        long balanceBefore = islandBalance(island);
+        long ledgerBefore = ledgerRows(island);
+        FocusSessionView started = start(user, island);
+        backdate(started.id(), 40 * 60);
+
+        assertThat(rewardAccruals.accrue(started.id())).as("틱이 와도 바다 세션은 0마리").isZero();
+
+        assertThat(islandBalance(island)).isEqualTo(balanceBefore);
+        assertThat(ledgerRows(island)).isEqualTo(ledgerBefore);
+        assertThat(count("select count(*) from focus_reward_accruals where session_id=?", started.id())).isZero();
+        assertThat(count("select rewarded_seconds from focus_session_details where session_id=?", started.id()))
+                .as("워터마크를 밀지 않는다").isZero();
+
+        // 종료가 «이미 틱이 넣은 적립 합» 으로 읽는 값도 0 이다 — 바다 세션은 통장에 한 마리도 들어가지 않았다.
+        FocusFinishView finished = focus.finish(user, started.id(),
+                new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+        assertThat(finished.seaReward()).isNotNull();
+        assertThat(finished.earnedFish()).isZero();
+        assertThat(finished.allocation().constructionFishAdded()).isZero();
+        assertThat(islandBalance(island)).isEqualTo(balanceBefore);
+        assertThat(ledgerRows(island)).isEqualTo(ledgerBefore);
+
+        // 대조: 판정이 false 인 같은 길이의 섬 세션은 같은 틱이 40마리를 넣는다 — 위 0 은 가드 덕이다.
+        doReturn(false).when(seaSessions).isSea(any());
+        UUID controlUser = newUser();
+        UUID controlIsland = newIsland(controlUser, "틱대조섬");
+        FocusSessionView control = start(controlUser, controlIsland);
+        backdate(control.id(), 40 * 60);
+        assertThat(rewardAccruals.accrue(control.id())).isEqualTo(40);
+        assertThat(islandBalance(controlIsland)).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("황금 물고기 추첨은 바다 세션을 참여자로 세지 않는다 — 후보가 바다뿐이거나 섬 하나에 바다 하나(혼자)면 확률 100% 여도 나타나지 않는다")
+    void goldenFishDrawSkipsSeaSessions() {
+        UUID owner = newUser();
+        UUID island = newIsland(owner, "황금판정섬");
+        UUID guest = newUser();
+        joinAndMoveTo(guest, island);
+        FocusSessionView ownerSession = start(owner, island);
+        FocusSessionView guestSession = start(guest, island);
+        alwaysWin();
+        Instant minute = Instant.now().truncatedTo(ChronoUnit.MINUTES);
+        long balanceBefore = islandBalance(island);
+        long ledgerBefore = ledgerRows(island);
+
+        // 후보가 바다 세션 둘뿐이다.
+        doReturn(true).when(seaSessions).isSea(any());
+        assertThat(goldenFish.drawAndCredit(island, minute)).isFalse();
+        // 섬 세션 하나와 바다 세션 하나 — 섬 쪽은 혼자라 나타나지 않는다.
+        doAnswer(call -> ownerSession.id().equals(((FocusSessionDetail) call.getArgument(0)).getSessionId()))
+                .when(seaSessions).isSea(any());
+        assertThat(goldenFish.drawAndCredit(island, minute)).isFalse();
+
+        assertThat(islandBalance(island)).isEqualTo(balanceBefore);
+        assertThat(ledgerRows(island)).isEqualTo(ledgerBefore);
+        assertThat(count("select coalesce(sum(golden_fish),0) from focus_reward_accruals "
+                + "where session_id in (?, ?)", ownerSession.id(), guestSession.id())).isZero();
+
+        // 대조: 둘 다 섬 세션이면 같은 분의 같은 추첨이 당첨된다 — 위 false 는 판정 덕이다.
+        doReturn(false).when(seaSessions).isSea(any());
+        assertThat(goldenFish.drawAndCredit(island, minute)).isTrue();
+        assertThat(islandBalance(island)).isEqualTo(balanceBefore + 50);
+    }
+
     // ---------------------------------------------------------------- 도우미
+
+    /** 확률표를 100%로 올린 새 revision — 현재 정책은 가장 큰 revision 이고 세션은 시작할 때 자기 revision 을 고정한다. */
+    private void alwaysWin() {
+        jdbc.update("INSERT INTO focus_reward_policies (revision, seconds_per_fish, daily_cap_fish, "
+                + "personal_share_percent, golden_fish_reward, golden_max_members, golden_chance_ppm) "
+                + "SELECT COALESCE(MAX(revision), 0) + 1, 60, 480, 0, 50, 5, '1000000,1000000,1000000,1000000' "
+                + "FROM focus_reward_policies");
+    }
+
+    /** 이미 있는 섬에 주민으로 넣고 도착해 현재 섬을 옮긴다 — 가입 승인 흐름은 이 테스트의 관심이 아니다. */
+    private void joinAndMoveTo(UUID userId, UUID islandId) {
+        members.save(GroupMember.builder().user(users.getCaller(userId)).group(groups.findById(islandId).orElseThrow())
+                .role(GroupMemberRole.MEMBER).build());
+        islands.arrive(userId, islandId);
+    }
 
     private FocusSessionView start(UUID user, UUID island) {
         return focus.start(user, new FocusSessionStartCommandRequest(island, "알고리즘", 25), UUID.randomUUID());

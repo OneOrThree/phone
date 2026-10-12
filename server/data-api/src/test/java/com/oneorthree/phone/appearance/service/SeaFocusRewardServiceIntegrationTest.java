@@ -5,6 +5,9 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.oneorthree.phone.appearance.dto.SeaRewardResult;
+import com.oneorthree.phone.appearance.repository.OwnedProductRepository;
+import com.oneorthree.phone.appearance.repository.domain.CatalogAsset;
+import com.oneorthree.phone.appearance.repository.domain.OwnedProduct;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -48,6 +51,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Transactional
 class SeaFocusRewardServiceIntegrationTest {
 
+    /** KST 2026-09-20 12:00 — 10월 앞의 달이다. */
+    private static final Instant SEP_20 = Instant.parse("2026-09-20T03:00:00Z");
     /** KST 2026-10-12 12:00 — 10월이다. */
     private static final Instant OCT_12 = Instant.parse("2026-10-12T03:00:00Z");
     /** KST 2026-10-31 23:59:59 — 아직 10월. */
@@ -65,6 +70,8 @@ class SeaFocusRewardServiceIntegrationTest {
     SeaFocusRewardService sea;
     @Autowired
     UserRepository users;
+    @Autowired
+    OwnedProductRepository ownedProducts;
     @Autowired
     JdbcTemplate jdbc;
     @Autowired
@@ -120,6 +127,28 @@ class SeaFocusRewardServiceIntegrationTest {
                 .containsEntry("lifetime_seconds", 2400L);
     }
 
+    @Test
+    @DisplayName("시계가 뒤로 가 이전 달로 계산된 정산은 저장된 달의 누적에 더한다 — 새 달 누적을 지우지 않고, 지난 달 시즌 세트를 새 달 누적으로 넘기지도 않는다")
+    void clockGoingBackwardNeverResetsTheStoredMonth() {
+        UUID user = newUser();
+        String october = product("clothes");
+        tier("2026-10", 20, october);
+        sea.settle(user, 600, NOV_3);
+        assertThat(total(user)).containsEntry("month_key", "2026-11").containsEntry("month_seconds", 600L);
+
+        SeaRewardResult backward = sea.settle(user, 1800, OCT_12);
+
+        assertThat(total(user)).as("달 키는 뒤로 가지 않고, 월 누적은 지워지지 않고 이어진다")
+                .containsEntry("month_key", "2026-11").containsEntry("month_seconds", 2400L)
+                .containsEntry("lifetime_seconds", 2400L);
+        assertThat(backward.grantedProductIds()).as("11월 누적 40분으로 10월 시즌 20분 단계를 넘기지 않는다").isEmpty();
+        assertThat(owned(user)).isEmpty();
+
+        sea.settle(user, 600, NOV_3.plusSeconds(3600));
+        assertThat(total(user)).as("시계가 돌아오면 11월 누적이 그대로 이어진다").containsEntry("month_key", "2026-11")
+                .containsEntry("month_seconds", 3000L).containsEntry("lifetime_seconds", 3000L);
+    }
+
     // ---------------------------------------------------------------- 단계표 지급
 
     @Test
@@ -167,6 +196,23 @@ class SeaFocusRewardServiceIntegrationTest {
         assertThat(second.grantedProductIds()).as("시즌 20분 단계 둘 중 scarf 는 이미 가졌다").containsExactly(hat);
         assertThat(second.events()).hasSize(1);
         assertThat(owned(user)).containsExactlyInAnyOrder(scarf, hat);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM owned_products WHERE user_id = ? AND product_id = ?",
+                Integer.class, user, scarf)).as("(user, product) 한 행").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("같은 상품이 상시·시즌 세트에 같이 있어 한 정산에서 둘 다 넘어도 한 번만 지급한다")
+    void sameProductInBothSetsCrossedTogetherGrantsOnce() {
+        UUID user = newUser();
+        String scarf = product("clothes");
+        tier("base", 10, scarf);
+        tier("2026-10", 10, scarf);
+
+        SeaRewardResult result = sea.settle(user, 600, OCT_12);
+
+        assertThat(result.grantedProductIds()).as("지급 1회").containsExactly(scarf);
+        assertThat(result.events()).as("인벤토리 사건도 1건").hasSize(1);
+        assertThat(owned(user)).containsExactly(scarf);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM owned_products WHERE user_id = ? AND product_id = ?",
                 Integer.class, user, scarf)).as("(user, product) 한 행").isEqualTo(1);
     }
@@ -291,6 +337,45 @@ class SeaFocusRewardServiceIntegrationTest {
         sea.settle(user, 301, OCT_12.plusSeconds(7200));
         assertThat(sea.settle(user, 0, OCT_12.plusSeconds(7300)).minutesToNextTier())
                 .as("시즌 50분을 넘은 뒤 가장 가까운 것은 상시 100분 — 누적 50분 → 50").isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("다음 단계 안내는 이미 가진 상품의 단계를 건너뛴다 — 넘어도 아무것도 안 주는 단계를 «N분 남음» 으로 보이지 않는다")
+    void minutesToNextTierSkipsTiersWhoseProductIsAlreadyOwned() {
+        UUID user = newUser();
+        String bought = product("decor");
+        String scarf = product("clothes");
+        // 상점에서 이미 산 상품 — 이 정산이 주지 않았다.
+        ownedProducts.save(OwnedProduct.granted(CatalogAsset.OWNER_USER, user, bought, "shop:test", OCT_12));
+        tier("base", 30, bought);
+        tier("base", 60, scarf);
+
+        SeaRewardResult result = sea.settle(user, 600, OCT_12);
+
+        assertThat(result.grantedProductIds()).isEmpty();
+        assertThat(result.minutesToNextTier()).as("30분 단계는 이미 가진 상품이라 건너뛰고 60분 단계까지 50분").isEqualTo(50);
+        // 더 받을 것이 없으면 안내도 없다 — 남은 단계가 전부 이미 가진 상품이다.
+        tier("base", 90, bought);
+        assertThat(sea.settle(user, 60 * 60, OCT_12.plusSeconds(3600)).grantedProductIds()).containsExactly(scarf);
+        assertThat(sea.settle(user, 60, OCT_12.plusSeconds(7200)).minutesToNextTier())
+                .as("90분 단계도 이미 가진 상품 — 안내할 다음 단계가 없다").isNull();
+    }
+
+    @Test
+    @DisplayName("이번 정산에서 받은 상품을 향한 다른 세트의 단계도 안내하지 않는다 — 단계 순서와 무관하게")
+    void minutesToNextTierSkipsProductsGrantedInTheSameSettle() {
+        UUID user = newUser();
+        String scarf = product("clothes");
+        tier("base", 80, scarf);
+        tier("2026-10", 60, scarf);
+        // 9월에 40분을 쌓아 평생 누적이 월 누적보다 앞서게 한다 — 이번 정산(10월 50분)은 상시 80분 단계만 넘는다.
+        sea.settle(user, 40 * 60, SEP_20);
+
+        SeaRewardResult result = sea.settle(user, 50 * 60, OCT_12);
+
+        assertThat(result.grantedProductIds()).as("평생 90분 → 상시 80분 단계를 넘었다").containsExactly(scarf);
+        assertThat(result.minutesToNextTier()).as("월 50분인 시즌 60분 단계(10분 남음)도 같은 상품이라 안내하지 않는다")
+                .isNull();
     }
 
     // ---------------------------------------------------------------- 트랜잭션 · 경합 · 탈퇴

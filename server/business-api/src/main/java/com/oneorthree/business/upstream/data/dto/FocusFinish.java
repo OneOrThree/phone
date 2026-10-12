@@ -28,8 +28,10 @@ import java.util.UUID;
  * @param activeIntervals ACTIVE 구간 실제 시간(GROMO-2131) — finish 시점엔 전부 닫혀 있다.
  *                      구버전 Data 가 안 보내면 {@code null} 로 두어 공개 응답에서도 빠지게 한다 —
  *                      빈 목록으로 채우면 앱이 «구간 0건»으로 읽어 같은 날 집중이 사라진다
- * @param seaReward     바다 집중 보상(GROMO-2274) — 이번에 받은 상품과 다음 단계까지 남은 분. 섬 세션은 {@code null}
- *                      이고, 이 필드를 모르는 구버전 Data 도 안 보내 {@code null} 이다(필수가 아니다)
+ * @param seaReward     바다 집중 보상(GROMO-2274) — 이번에 받은 상품과 다음 단계까지 남은 분. {@code null} 은 «받은 것
+ *                      없음» 이 아니라 «모름» 이다: 섬 세션이거나, 바다 세션이라도 정산 직후 응답이 아닌 경우(새 키
+ *                      재종료·pending-result·휴식 자동 종료 뒤 조회)이며, 이 필드를 모르는 구버전 Data 도 안 보내
+ *                      {@code null} 이다(필수가 아니다). 지급 여부의 정본은 인벤토리다
  */
 public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID recordId,
