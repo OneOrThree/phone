@@ -194,13 +194,16 @@ public class IslandMembershipController {
     }
 
     /**
-     * 섬 도착 (GROMO-2260, 섬 외부 계약 §1) — 항해·방문이 끝난 자리에서 부른다. 도착 기록이 upsert 라
-     * 멱등이어서 명령 키를 받지 않는다. 본문은 없다.
+     * 섬 도착 (GROMO-2260, 섬 외부 계약 §1) — 항해·방문이 끝난 자리에서 부른다. 본문은 없다.
+     *
+     * <p>현재 섬을 옮기는 명령이라 {@code PUT /me/current-island} 처럼 {@code Idempotency-Key}(UUID)가 필수다 —
+     * 같은 키의 재시도는 처음 결과를 재생할 뿐, 그 사이 다른 섬으로 간 사람을 되돌리지 않는다.
      */
     @PostMapping("/islands/{islandId}/arrivals")
     public IslandArrivalView arrive(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return islands.arrive(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
+        UUID key = CommandKeys.required(request);
+        return islands.arrive(claims, PublicIds.uuid(islandId, "islandId"), key, properties.deadline());
     }
 
     /**

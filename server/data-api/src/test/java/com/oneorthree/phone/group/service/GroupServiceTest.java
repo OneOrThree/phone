@@ -115,6 +115,10 @@ class GroupServiceTest {
     @Mock
     private IslandJoinRequestEvents joinRequestEvents;
 
+    // 1.x 생성·참여도 도착을 남긴다(GROMO-2260) — 스텁 없이 호출만 받는다.
+    @Mock
+    private com.oneorthree.phone.group.repository.IslandArrivalRepository islandArrivalRepository;
+
     /**
      * 재가입 시각을 찍는 시계 (GROMO-2050). {@code lenient} 로 고정한다 — 재가입을 밟지 않는 경로가
      * 훨씬 많아 strict stub 이면 「쓰지 않은 stub」으로 떨어진다.

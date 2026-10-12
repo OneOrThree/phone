@@ -43,7 +43,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class InternalIslandManagementController {
 
-    /** 나가기·강퇴 응답에 다음 위치를 싣는 opt-in 값 (GROMO-2260) — 허용 값은 이것 하나다. */
+    /** 나가기 응답에 다음 위치를 싣는 opt-in 값 (GROMO-2260) — 허용 값은 이것 하나다. 강퇴에는 없다. */
     private static final String INCLUDE_NEXT_LOCATION = "nextLocation";
 
     private final IslandManagementService islandManagementService;
@@ -92,18 +92,15 @@ public class InternalIslandManagementController {
     }
 
     /**
-     * 주민 강퇴 (LLD §3.6). {@code include=nextLocation} 일 때만 대상의 다음 위치를 싣는다(GROMO-2260) —
-     * 나가기와 같은 이유다({@link #leave}).
+     * 주민 강퇴 (LLD §3.6). 응답은 {@code {"removed":true}} 뿐이다 — 대상의 다음 위치는 받는 사람(방장)에게
+     * 주지 않는다({@link IslandMemberRemovedView}, GROMO-2260).
      */
     @DeleteMapping("/internal/islands/{islandId}/members/{targetUserId}")
     public IslandMemberRemovedView kick(@PathVariable UUID islandId,
                                         @PathVariable UUID targetUserId,
                                         @RequestHeader("X-User-Id") UUID userId,
-                                        @RequestHeader("Idempotency-Key") UUID idempotencyKey,
-                                        @RequestParam(required = false) @Pattern(regexp = INCLUDE_NEXT_LOCATION)
-                                        String include) {
-        IslandMemberRemovedView view = islandManagementService.kick(userId, islandId, targetUserId, idempotencyKey);
-        return include == null ? new IslandMemberRemovedView(view.removed(), null) : view;
+                                        @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
+        return islandManagementService.kick(userId, islandId, targetUserId, idempotencyKey);
     }
 
     /**

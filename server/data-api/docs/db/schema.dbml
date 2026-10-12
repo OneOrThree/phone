@@ -922,6 +922,7 @@ Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «�
 
   indexes {
     (user_id, island_id) [pk]
+    island_id [name: 'island_arrivals_island_idx', note: '섬 purge 의 DELETE·섬별 조회 — PK 는 user_id 가 앞이라 이 축을 받지 못한다']
   }
 }
 

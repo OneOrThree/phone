@@ -118,6 +118,10 @@ class IslandArrivalV107MigrationTest {
                 + " WHERE table_name = 'letters' AND column_name = 'sender_id'", String.class)).isEqualTo("YES");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.columns"
                 + " WHERE table_name = 'island_arrivals'", Long.class)).isEqualTo(4L);
+        // 섬 purge 의 DELETE·섬별 조회가 받을 인덱스 — PK(user_id, island_id)는 이 축을 받지 못한다.
+        assertThat(jdbc.queryForObject("SELECT indexdef FROM pg_indexes WHERE schemaname = 'public'"
+                + " AND tablename = 'island_arrivals' AND indexname = 'island_arrivals_island_idx'", String.class))
+                .contains("(island_id)");
         assertThat(jdbc.queryForObject("SELECT success::text FROM flyway_schema_history WHERE version = '107'",
                 String.class)).isEqualTo("true");
     }

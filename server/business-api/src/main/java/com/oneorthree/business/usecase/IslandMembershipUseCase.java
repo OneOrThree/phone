@@ -225,10 +225,11 @@ public class IslandMembershipUseCase {
     }
 
     /**
-     * 섬 도착 (GROMO-2260) — 항해·방문이 끝난 자리에서 부른다. 멱등이라 명령 키가 없다.
+     * 섬 도착 (GROMO-2260) — 항해·방문이 끝난 자리에서 부른다. 앱의 명령 키를 그대로 전달한다 — 재생 판정은
+     * Data 의 receipt 다.
      */
-    public IslandArrivalView arrive(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
-        var arrival = relay(() -> data.arriveAtIsland(claims.userId(), islandId, deadline));
+    public IslandArrivalView arrive(AccessTokenClaims claims, UUID islandId, UUID key, Deadline deadline) {
+        var arrival = relay(() -> data.arriveAtIsland(claims.userId(), islandId, key, deadline));
         if (arrival == null || !islandId.equals(arrival.islandId())) {
             throw new UpstreamContractMismatchException("도착 응답의 섬이 요청과 다릅니다");
         }

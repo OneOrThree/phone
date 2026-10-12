@@ -128,19 +128,35 @@ class IslandJoinContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("도착은 명령 키 없이 서명 주체로 상류에 전달하고 결과를 그대로 돌려준다")
+    @DisplayName("도착은 앱의 명령 키와 서명 주체를 상류에 전달하고 결과를 그대로 돌려준다")
     void arrivalForwardsTheSignedSubject() throws Exception {
         String dataArrive = "POST " + INTERNAL + "/islands/" + ISLAND + "/arrivals";
         DATA.on(dataArrive, request -> ok("{\"islandId\":\"" + ISLAND
                 + "\",\"arrivedBefore\":true,\"membershipStatus\":\"none\",\"currentIslandId\":null}"));
 
-        mockMvc.perform(auth(post("/islands/" + ISLAND + "/arrivals")).header("X-User-Id", OTHER))
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/arrivals")).header("X-User-Id", OTHER)
+                        .header("Idempotency-Key", KEY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.islandId").value(ISLAND.toString()))
                 .andExpect(jsonPath("$.data.arrivedBefore").value(true))
                 .andExpect(jsonPath("$.data.membershipStatus").value("none"))
                 .andExpect(jsonPath("$.data.currentIslandId").value(nullValue()));
         assertThat(DATA.receivedFor(dataArrive).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+        assertThat(DATA.receivedFor(dataArrive).get(0).header("Idempotency-Key")).isEqualTo(KEY);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "not-a-uuid"})
+    @DisplayName("도착은 현재 섬을 옮기는 명령이라 UUID 명령 키가 없으면 상류에 닿지 않는다")
+    void arrivalRequiresAUuidKey(String key) throws Exception {
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/arrivals")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_IDEMPOTENCY_KEY"));
+        mockMvc.perform(auth(post("/islands/" + ISLAND + "/arrivals")).header("Idempotency-Key", key))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_IDEMPOTENCY_KEY"))
+                .andExpect(jsonPath("$.error.field").value("Idempotency-Key"));
+        assertThat(DATA.received()).isEmpty();
     }
 
     @Test

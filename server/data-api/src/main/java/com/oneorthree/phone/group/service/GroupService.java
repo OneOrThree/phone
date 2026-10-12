@@ -37,6 +37,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.IslandArrivalRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -98,6 +99,7 @@ public class GroupService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
+    private final IslandArrivalRepository islandArrivalRepository;
     /**
      * 재가입 시각을 찍는 시계 (GROMO-2050) — 근거는 {@code GroupMember.leftAt} Javadoc(Hibernate 의
      * 시각 애너테이션은 주입 {@link Clock} 을 타지 않는다).
@@ -181,6 +183,9 @@ public class GroupService {
                 .group(group)
                 .role(GroupMemberRole.OWNER)
                 .build());
+        // 동결된 1.x 앱의 생성도 «가 본 섬» 으로 남긴다 (GROMO-2260) — 안 남기면 2.0 의 즉시 이동이 이 섬을
+        // 가 본 적 없는 섬(ISLAND_NOT_ARRIVED)으로 막는다. 2.0 생성({@code IslandMembershipService.create})과 같다.
+        islandArrivalRepository.recordArrival(userId, group.getId(), clock.instant());
 
         membershipEvents.changed(group.getId(), userId, "MEMBER_ADDED", userId);
 
@@ -359,6 +364,8 @@ public class GroupService {
                     .build();
             groupMemberRepository.save(membership);
         }
+        // 1.x 참여도 «가 본 섬» 이다 (GROMO-2260) — 생성과 같은 이유다.
+        islandArrivalRepository.recordArrival(userId, groupId, clock.instant());
 
         membershipEvents.changed(groupId, userId, "MEMBER_ADDED", userId);
 

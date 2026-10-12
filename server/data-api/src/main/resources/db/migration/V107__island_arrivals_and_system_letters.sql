@@ -11,6 +11,8 @@ CREATE TABLE island_arrivals (
     last_arrived_at  timestamptz NOT NULL,
     PRIMARY KEY (user_id, island_id)
 );
+-- 섬 축 조회 — 섬 purge 의 DELETE 와 섬별 훑기. PK 는 user_id 가 앞이라 이 조회를 받지 못한다.
+CREATE INDEX island_arrivals_island_idx ON island_arrivals (island_id);
 
 -- 기존 활성 소속은 전부 «가 본 섬» 으로 채운다 — V107 이전의 가입·생성은 전부 그 섬으로 바로
 -- 옮겼다(즉시 가입·생성의 moveTo). 채우지 않으면 배포 순간 기존 주민 전원의 섬 이동이 403 이 된다.
