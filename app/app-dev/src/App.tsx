@@ -1,3 +1,4 @@
+import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
 import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
 import { syncFocusShield } from '@/services/focusShield';
@@ -41,7 +42,6 @@ import {
   shouldReconcileExpiredRest,
   syncLiveActivity,
 } from '@/services/liveActivity';
-import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import { reconcileTutorial } from '@/services/tutorial';
 import { syncIOSScreenTime } from '@/services/iosScreenTimeSync';
@@ -475,6 +475,7 @@ function Gromo() {
   const performGo = (r: Route, id = '', options: { sessionIsAlreadyPaused?: boolean } = {}) => {
     const gateBoard = shouldGateScreenTimeBoard(r, {
       isIOS: Platform.OS === 'ios',
+      isAndroid: Platform.OS === 'android',
       promptSeen: !!state.settings.screenTimeBoardPromptSeen,
       visiting: !!state.visitingIslandId,
     });
@@ -716,7 +717,7 @@ function Gromo() {
     };
   }, [loaded, serverCurrent, onHome, homeReload]);
   useEffect(() => {
-    if (Platform.OS !== 'ios' || !loaded || REVIEW || DEMO) return;
+    if ((Platform.OS !== 'ios' && Platform.OS !== 'android') || !loaded || REVIEW || DEMO) return;
     const initialOwner = getSession()?.userId;
     let active = true;
     let pending = false;
@@ -1543,13 +1544,16 @@ function Gromo() {
     let request = 0;
     const syncPermission = async () => {
       if (Platform.OS === 'android') {
+        if (!storageOwnerReadyRef.current || !getSession() || REVIEW || DEMO) return;
         const current = ++request;
         const generation = sessionGeneration();
         dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
         try {
-          const snapshot = await syncAndroidScreenTime();
-          if (active && current === request && generation === sessionGeneration())
+          const snapshot = await syncAndroidMeasurement();
+          if (active && current === request && generation === sessionGeneration()) {
             dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
+            dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: snapshot.reportFailed });
+          }
         } catch {
           const status = await screenTime.getAuthorizationStatus().catch(() => 'unavailable');
           if (active && current === request && generation === sessionGeneration())
@@ -1625,10 +1629,15 @@ function Gromo() {
     };
   }, [loaded, hasServerSession, storageOwnerReady]);
   useEffect(() => {
-    if (!loaded || Platform.OS !== 'ios') return;
+    if (!loaded || !storageOwnerReady || (Platform.OS !== 'ios' && Platform.OS !== 'android'))
+      return;
     const sync = () => {
       const session = hasServerSession ? stateRef.current.session : null;
-      void syncFocusShield(session)
+      void (
+        Platform.OS === 'android'
+          ? syncAndroidFocus(session, stateRef.current.color, true)
+          : syncFocusShield(session)
+      )
         .then((applied) => {
           if (!applied && session?.status === 'active')
             notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
@@ -1640,7 +1649,15 @@ function Gromo() {
       if (next === 'active') sync();
     });
     return () => subscription.remove();
-  }, [loaded, hasServerSession, state.session?.id, state.session?.status, state.session?.subject]);
+  }, [
+    loaded,
+    storageOwnerReady,
+    hasServerSession,
+    state.session?.id,
+    state.session?.version,
+    state.session?.status,
+    state.session?.subject,
+  ]);
   const liveActivityOwner = getSession()?.userId;
   useEffect(() => {
     if (!loaded || !hasServerSession || !storageOwnerReady || REVIEW || DEMO) return;

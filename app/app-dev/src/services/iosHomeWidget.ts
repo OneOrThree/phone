@@ -1,4 +1,5 @@
 import { NativeModules, Platform } from 'react-native';
+import { requireOptionalNativeModule } from 'expo';
 import { getSession, sessionGeneration } from './api/session';
 import type { Color } from './model';
 
@@ -9,7 +10,14 @@ export type HomeWidgetSnapshot = {
   catColor: Color;
   observedAt: number;
 };
-const native = Platform.OS === 'ios' ? NativeModules.LiveActivityModule : undefined;
+const native =
+  Platform.OS === 'ios'
+    ? NativeModules.LiveActivityModule
+    : Platform.OS === 'android'
+      ? requireOptionalNativeModule<{ updateHomeWidget(payload: string | null): Promise<void> }>(
+          'StudyWidgetModule',
+        )
+      : undefined;
 let queue: Promise<unknown> = Promise.resolve();
 let revision = 0;
 

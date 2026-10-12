@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- scripts/generate-report-palette.cjs로 생성 -->
+<resources>
+  <color name="widget_paper">#FFFDFA</color>
+  <color name="widget_ink">#493B39</color>
+  <color name="widget_ink_sub">#796256</color>
+  <color name="widget_chip_bg">#FFF7EB</color>
+  <color name="widget_chip_border">#8B6956</color>
+  <color name="widget_accent">#493B39</color>
+</resources>

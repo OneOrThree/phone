@@ -1,3 +1,4 @@
+jest.mock('expo', () => ({ requireOptionalNativeModule: jest.fn(() => null) }));
 import type { Session } from './model';
 
 const focus: Session = {
@@ -16,7 +17,7 @@ const deferred = () => {
   });
   return { promise, resolve };
 };
-function setup() {
+function setup(os = 'ios') {
   jest.resetModules();
   const activity = {
     sync: jest.fn().mockResolvedValue(true),
@@ -33,9 +34,10 @@ function setup() {
     getSession: jest.fn(() => ({ userId: 'owner' })),
   };
   jest.doMock('react-native', () => ({
-    Platform: { OS: 'ios' },
+    Platform: { OS: os },
     NativeModules: { LiveActivityModule: activity },
   }));
+  jest.doMock('expo', () => ({ requireOptionalNativeModule: () => activity }));
   jest.doMock('./screenTime', () => ({ screenTime: shield }));
   jest.doMock('./api/session', () => auth);
   return {
@@ -91,20 +93,23 @@ test('Activity의 이전 버전과 계정 세대가 지난 대기 작업은 적�
   await stale;
   expect(activity.sync).toHaveBeenCalledTimes(1);
 });
-test('위젯 저장 도중 로그아웃하면 지우기가 마지막 쓰기다', async () => {
-  const { activity, widget } = setup();
-  const pending = deferred();
-  activity.updateHomeWidget.mockReturnValueOnce(pending.promise);
-  const first = widget.updateIOSHomeWidget({
-    owner: 'owner',
-    day: '2026-10-08',
-    totalSeconds: 120,
-    catColor: 'black',
-    observedAt: 1000,
-  });
-  await Promise.resolve();
-  const clear = widget.updateIOSHomeWidget(null);
-  pending.resolve(true);
-  await Promise.all([first, clear]);
-  expect(activity.updateHomeWidget.mock.calls.at(-1)).toEqual([null]);
-});
+test.each(['ios', 'android'])(
+  '%s 위젯 저장 도중 로그아웃하면 지우기가 마지막 쓰기다',
+  async (os) => {
+    const { activity, widget } = setup(os);
+    const pending = deferred();
+    activity.updateHomeWidget.mockReturnValueOnce(pending.promise);
+    const first = widget.updateIOSHomeWidget({
+      owner: 'owner',
+      day: '2026-10-08',
+      totalSeconds: 120,
+      catColor: 'black',
+      observedAt: 1000,
+    });
+    await Promise.resolve();
+    const clear = widget.updateIOSHomeWidget(null);
+    pending.resolve(true);
+    await Promise.all([first, clear]);
+    expect(activity.updateHomeWidget.mock.calls.at(-1)).toEqual([null]);
+  },
+);

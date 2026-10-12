@@ -26,6 +26,18 @@ import android.app.usage.UsageStatsManager
 // (리그 랭킹에서 유저에게 유리) 위험이 있어 채택하지 않았다(코드리뷰 반영).
 internal object UsageSessionCalculator {
 
+  // 보상 보고에는 일별 통계의 근삿값을 쓰지 않는다. 원본이 불완전하면 0 대신 null이다.
+  fun confirmedForegroundMillis(manager: UsageStatsManager, selection: Set<String>?, begin: Long, end: Long): Long? {
+    return confirmedBreakdown(manager, selection, begin, end)?.totalMillis
+  }
+
+  fun confirmedBreakdown(manager: UsageStatsManager, selection: Set<String>?, begin: Long, end: Long): Breakdown? {
+    if (end <= begin) return null
+    val result = scan(manager, selection, begin, end)
+    if (!result.sawLifecycleEventInRange || result.sawUnmatchedTerminalInRange || result.sawMissingPause) return null
+    return Breakdown(result.byPackage.values.sum(), result.byPackage)
+  }
+
   // 자정 걸친 구간 소급용 조회 여유 — 구간 시작 전에 RESUMED된 채 이어지는 사용을 잡는다.
   // 24시간이면 구간 시작 전 하루 전체를 덮어, 종료 이벤트조차 없이 계속 열려 있는 장시간
   // 세션(스플릿 스크린 한쪽 등)의 시작 RESUMED도 놓치지 않는다(코드리뷰 반영. 이벤트
@@ -43,6 +55,7 @@ internal object UsageSessionCalculator {
     val byPackage: Map<String, Long>,
     val sawLifecycleEventInRange: Boolean,
     val sawUnmatchedTerminalInRange: Boolean,
+    val sawMissingPause: Boolean,
   )
 
   // [begin, end) 구간의 포그라운드 사용시간(ms) 합계.
@@ -172,6 +185,7 @@ internal object UsageSessionCalculator {
     // 조회 범위 밖이라 close가 더할 구간이 없어 그 세션의 오늘분이 통째로 빠진다. 이때는
     // 커버리지 불완전으로 보고 근사 폴백과 비교한다(코드리뷰 반영).
     var sawUnmatchedTerminalInRange = false
+    var sawMissingPause = false
     val event = UsageEvents.Event()
 
     // 구간 마감 — [begin, end)로 클리핑해(자정 걸친 구간의 날짜별 분할) 패키지별 목록에 적재.
@@ -206,6 +220,7 @@ internal object UsageSessionCalculator {
           if (!selection.isNullOrEmpty() && pkg !in selection) continue
           // 덮어쓰기 — 닫힘 이벤트 결측 후 재-RESUMED된 경우 과대 계상보다 보수적 계산을 택한다.
           val key = "$pkg/${event.className}"
+          if (key in openedAt && event.timeStamp >= begin) sawMissingPause = true
           openedAt[key] = event.timeStamp
           everOpened.add(key)
         }
@@ -263,7 +278,7 @@ internal object UsageSessionCalculator {
       if (pkgMs > 0L) byPackage[pkg] = pkgMs
     }
 
-    return ScanResult(byPackage, sawLifecycleEventInRange, sawUnmatchedTerminalInRange)
+    return ScanResult(byPackage, sawLifecycleEventInRange, sawUnmatchedTerminalInRange, sawMissingPause)
   }
 
   // queryUsageStats(INTERVAL_DAILY) 근사 폴백 — 대상 구간과 겹치는 일 버킷의 앱별

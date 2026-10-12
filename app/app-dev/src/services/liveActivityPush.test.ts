@@ -19,14 +19,17 @@ const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 
-function setup() {
+function setup(os = 'ios') {
   jest.resetModules();
   jest.useFakeTimers();
   let tokenListener!: (value: typeof token) => void;
   let appListener!: (value: string) => void;
   const request = jest.fn().mockResolvedValue(undefined);
   const generation = jest.fn(() => 1);
-  const native = { getPushTokens: jest.fn().mockResolvedValue([token]) };
+  const native = {
+    getPushTokens: jest.fn().mockResolvedValue([token]),
+    getFocusPushToken: jest.fn().mockResolvedValue('android-token-' + 'x'.repeat(40)),
+  };
   const remove = jest.fn();
   const appState = {
     currentState: 'active',
@@ -36,7 +39,7 @@ function setup() {
     }),
   };
   jest.doMock('react-native', () => ({
-    Platform: { OS: 'ios' },
+    Platform: { OS: os },
     AppState: appState,
     NativeModules: { LiveActivityModule: native },
     NativeEventEmitter: jest.fn(() => ({
@@ -46,6 +49,7 @@ function setup() {
       }),
     })),
   }));
+  jest.doMock('./ScreenTimeModule', () => ({ screenTimeNative: native }));
   jest.doMock('./api/client', () => ({ request }));
   jest.doMock('./api/session', () => ({
     sessionGeneration: generation,
@@ -74,6 +78,7 @@ afterEach(() => {
   jest.dontMock('react-native');
   jest.dontMock('./api/client');
   jest.dontMock('./api/session');
+  jest.dontMock('./ScreenTimeModule');
 });
 
 test('기존 토큰을 복구 등록하고 같은 토큰은 중복 전송하지 않으며 회전은 등록한다', async () => {
@@ -132,5 +137,38 @@ test('백그라운드에서는 조회 폴링을 멈춘다', async () => {
   jest.advanceTimersByTime(30_000);
   await settle();
   expect(test.native.getPushTokens).toHaveBeenCalledTimes(1);
+  test.stop();
+});
+
+test('Android FCM 토큰을 별도 환경으로 등록하고 회전 뒤 재등록한다', async () => {
+  const test = setup('android');
+  await settle();
+  expect(test.request).toHaveBeenCalledWith(
+    '/focus-sessions/session-1/live-activity',
+    expect.objectContaining({
+      body: {
+        activityId: 'session-1',
+        pushToken: 'android-token-' + 'x'.repeat(40),
+        environment: 'android',
+        catColor: 'black',
+      },
+    }),
+  );
+  expect(test.native.getPushTokens).not.toHaveBeenCalled();
+  test.foreground();
+  await settle();
+  expect(test.request).toHaveBeenCalledTimes(1);
+  test.native.getFocusPushToken.mockResolvedValue('rotated-' + 'x'.repeat(40));
+  test.foreground();
+  await settle();
+  expect(test.request).toHaveBeenCalledTimes(2);
+  test.stop();
+});
+
+test('Android 토큰 조회 중 세션이 끝나면 등록하지 않는다', async () => {
+  const test = setup('android');
+  test.end();
+  await settle();
+  expect(test.request).not.toHaveBeenCalled();
   test.stop();
 });

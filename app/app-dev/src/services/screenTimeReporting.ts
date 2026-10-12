@@ -48,6 +48,7 @@ export function reportScreenTime(
   timeline: UsageTimeline | null,
   expectedGeneration: number,
   now = Date.now(),
+  androidObservations?: ScreenTimeObservation[],
 ): Promise<void> {
   const session = getSession();
   const deviceId = session && screenTimeDeviceId(session.accessToken);
@@ -68,18 +69,17 @@ export function reportScreenTime(
     const raw = await AsyncStorage.getItem(key);
     const journal: Journal = raw ? JSON.parse(raw) : { pending: [], sent: {} };
     if (!current()) return;
-    const observations = buildScreenTimeObservations(
-      consent.enabled ? authorization : 'denied',
-      timeline,
-      now,
-    );
+    const observations =
+      consent.enabled && authorization === 'approved' && androidObservations
+        ? androidObservations
+        : buildScreenTimeObservations(consent.enabled ? authorization : 'denied', timeline, now);
     const revoked = !consent.enabled || authorization !== 'approved';
     journal.pending = journal.pending.filter(
       (p) =>
         now <= reportDeadline(p.observation.date) &&
         (!revoked || p.observation.measurementStatus === 'denied'),
     );
-    for (const observation of observations) {
+    for (const observation of observations.filter((o) => now <= reportDeadline(o.date))) {
       if (journal.sent[observation.date] === fingerprint(observation)) {
         journal.pending = journal.pending.filter((p) => p.observation.date !== observation.date);
         continue;

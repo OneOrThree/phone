@@ -2,12 +2,13 @@ import { AppState, NativeEventEmitter, NativeModules, Platform } from 'react-nat
 import { request } from './api/client';
 import { getSession, sessionGeneration } from './api/session';
 import type { Color, Session } from './model';
+import { screenTimeNative } from './ScreenTimeModule';
 
 type PushToken = {
   sessionId: string;
   activityId: string;
   pushToken: string;
-  environment: 'development' | 'production';
+  environment: 'development' | 'production' | 'android';
 };
 
 /** 토큰 회전은 즉시 등록하고 누락 이벤트·일시 실패는 포그라운드에서 재확인한다. */
@@ -15,7 +16,8 @@ export function startLiveActivityPushSync(
   current: () => { session: Session | null; color: Color },
 ): () => void {
   const native = Platform.OS === 'ios' ? NativeModules.LiveActivityModule : undefined;
-  if (!native?.getPushTokens) return () => {};
+  if (!native?.getPushTokens && !(Platform.OS === 'android' && screenTimeNative?.getFocusPushToken))
+    return () => {};
   const generation = sessionGeneration();
   let stopped = false;
   const registered = new Map<string, string>();
@@ -51,14 +53,28 @@ export function startLiveActivityPushSync(
   const refresh = async () => {
     if (!active() || AppState.currentState !== 'active') return;
     try {
-      const tokens: PushToken[] = await native.getPushTokens();
+      const session = current().session;
+      const tokens: PushToken[] =
+        Platform.OS === 'android'
+          ? session
+            ? [
+                {
+                  sessionId: session.id,
+                  activityId: session.id,
+                  pushToken: await screenTimeNative!.getFocusPushToken!(),
+                  environment: 'android',
+                },
+              ]
+            : []
+          : await native.getPushTokens();
       if (active()) tokens.forEach(register);
     } catch {
       // 네이티브 조회 실패도 다음 포그라운드/타이머에서 재시도한다.
     }
   };
-  const emitter = new NativeEventEmitter(native);
-  const tokenSubscription = emitter.addListener('LiveActivityPushToken', register);
+  const tokenSubscription = native
+    ? new NativeEventEmitter(native).addListener('LiveActivityPushToken', register)
+    : null;
   const appSubscription = AppState.addEventListener('change', (next) => {
     if (next === 'active') void refresh();
   });
@@ -67,7 +83,7 @@ export function startLiveActivityPushSync(
   return () => {
     stopped = true;
     clearInterval(timer);
-    tokenSubscription.remove();
+    tokenSubscription?.remove();
     appSubscription.remove();
   };
 }

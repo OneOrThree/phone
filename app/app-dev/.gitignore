@@ -87,3 +87,6 @@ android/*.jsbundle
 android/app/src/main/java/inline/
 # hot-updater
 .env.hotupdater
+
+# Kotlin 컴파일 세션 캐시
+android/.kotlin/

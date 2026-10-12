@@ -11,6 +11,18 @@ import expo.modules.kotlin.modules.ModuleDefinition
 class StudyWidgetModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("StudyWidgetModule")
+    AsyncFunction("updateHomeWidget") { payload: String? ->
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      val prefs = context.getSharedPreferences(StudyWidgetProvider.PREFS_NAME, Context.MODE_PRIVATE)
+      if (payload != null) {
+        val data = org.json.JSONObject(payload)
+        require(data.getString("owner").isNotBlank())
+        require(StudyWidgetProvider.isDateString(data.getString("day")))
+        require(data.getDouble("totalSeconds").isFinite() && data.getDouble("totalSeconds") >= 0)
+      }
+      check(prefs.edit().putString("home_snapshot_v2", payload).commit())
+      StudyWidgetProvider.updateAll(context)
+    }
 
     // subjectsJson: [{"name","seconds","color"}] (1.x와 같은 형태), totalSeconds: 오늘 총 집중(초),
     // day: JS 가 스냅샷을 계산한 KST 날짜(yyyy-MM-dd). 이 날짜를 함께 기록해, KST 자정이 지나면

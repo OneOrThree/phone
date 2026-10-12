@@ -34,6 +34,7 @@ import android.os.UserManager
 //    'notDetermined' 개념이 없어 "설정에 보낸 적" 로컬 플래그로 denied와 구분한다.
 class ScreenTimeModule : Module() {
   companion object {
+    const val CHARACTER_FILE = "focus_character.png"
     private const val PREFS_NAME = "gromo_screen_time"
 
     // '설정 보낸 적' 플래그 — notDetermined(안 보냄)/denied(보냈는데 미허용) 구분(§2).
@@ -87,11 +88,68 @@ class ScreenTimeModule : Module() {
   private val prefs: SharedPreferences
     get() = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+  private val ledger by lazy { MeasurementLedger(context) }
+
   // 설정 복귀를 기다리는 requestAuthorization — 복귀(OnActivityEntersForeground) 시 재확인 후 resolve.
   private var pendingAuthPromise: Promise? = null
 
   override fun definition() = ModuleDefinition {
     Name("ScreenTimeModule")
+    AsyncFunction("getFocusPushToken") { promise: Promise ->
+      try {
+        check(com.google.firebase.FirebaseApp.initializeApp(context) != null) { "FIREBASE_NOT_CONFIGURED" }
+        com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+          .addOnSuccessListener { promise.resolve(it) }
+          .addOnFailureListener { promise.reject("FCM_TOKEN_UNAVAILABLE", "집중 알림 연결을 확인해 주세요.", null) }
+      } catch (_: Exception) { promise.reject("FCM_NOT_CONFIGURED", "집중 알림 설정을 확인해 주세요.", null) }
+    }
+
+    AsyncFunction("bindMeasurementOwner") { owner: String ->
+      ledger.bind(owner)
+      FocusSessionState(context).bind(owner)
+    }
+    AsyncFunction("getAndroidMeasurement") {
+      val granted = isUsageAccessGranted()
+      val snapshot = ledger.snapshot(granted)
+      if (granted && !isUsageAccessGranted()) ledger.snapshot(false) else snapshot
+    }
+    AsyncFunction("getAndroidSelection") { ledger.selection() }
+    AsyncFunction("getAndroidUsageBreakdown") { owner: String, dayOffset: Int ->
+      check(isUsageAccessGranted()) { "USAGE_ACCESS_DENIED" }
+      val breakdown = ledger.breakdown(owner, dayOffset)
+      check(isUsageAccessGranted()) { "USAGE_ACCESS_DENIED" }
+      breakdown
+    }
+    AsyncFunction("setAndroidSelection") { owner: String, packages: List<String>, allApps: Boolean ->
+      ledger.select(owner, packages, allApps)
+    }
+    AsyncFunction("setAndroidAllowedPackages") { owner: String, packages: List<String> -> ledger.allow(owner, packages) }
+    AsyncFunction("getMeasurementSelectionCounts") { ledger.selection() }
+    AsyncFunction("canDrawOverlays") { Settings.canDrawOverlays(context) }
+    AsyncFunction("requestOverlayPermission") {
+      val activity = appContext.currentActivity ?: throw Exceptions.ReactContextLost()
+      activity.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+    }
+    AsyncFunction("syncAndroidFocus") { payload: String, promise: Promise ->
+      val requestId = java.util.UUID.randomUUID().toString()
+      FocusSessionState.await(requestId, promise)
+      try {
+        check(appContext.currentActivity != null) { "FOREGROUND_REQUIRED" }
+        val intent = Intent(context, FocusShieldService::class.java).apply {
+          action = FocusShieldService.ACTION_SYNC
+          putExtra(FocusShieldService.EXTRA_STATE, payload)
+          putExtra("requestId", requestId)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent) else context.startService(intent)
+      } catch (_: Exception) { FocusSessionState.resolve(requestId, false) }
+    }
+    AsyncFunction("endAndroidFocus") {
+      FocusSessionState(context).end()
+      context.stopService(Intent(context, FocusShieldService::class.java))
+    }
+    AsyncFunction("getAllowedSelectionCounts") {
+      mapOf("applications" to (prefs.getStringSet(KEY_ALLOWED_PACKAGES, emptySet())?.size ?: 0), "categories" to 0, "webDomains" to 0)
+    }
 
     // 2.0 퀘스트·기록과 같은 KST 날짜로 한 시점의 오늘/어제 값을 반환한다.
     // null/권한 오류를 실제 0분으로 바꾸지 않는다. JS가 측정 시작일과 확정 기록을 보존한다.
@@ -120,6 +178,9 @@ class ScreenTimeModule : Module() {
     }
 
     AsyncFunction("resetScreenTimeData") {
+      FocusSessionState(context).clear()
+      context.stopService(Intent(context, FocusShieldService::class.java))
+      ledger.reset()
       prefs.edit().clear().apply()
     }
 
@@ -305,8 +366,7 @@ class ScreenTimeModule : Module() {
     }
 
     // ── 집중 중 허용앱 (GROMO-1603) ──────────────────────────────────────────────
-    // 목록을 고르고 저장하는 것까지가 여기 범위다. **실제 차단(집중 실드)은 아직 없다**
-    // (티켓 996) — 저장된 값은 실드가 붙는 순간 예외 목록으로 쓰인다.
+    // 이전 바이너리 호환 API. 2.0 피커는 계정 경계를 검사하는 setAndroidAllowedPackages를 쓴다.
     //
     // 측정 대상(KEY_SELECTION_PACKAGES)과 키를 나눈 이유: 두 목록은 뜻이 정반대다.
     // 측정 대상은 "재는 앱", 허용앱은 "집중 중에도 열어둘 앱"이라 같은 값을 공유하면 안 된다.

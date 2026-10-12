@@ -701,3 +701,10 @@ import { Page, Group, Row, Btn } from '@/design-system/patterns';
 - 기존 6색 고양이의 idle·loaf·reading·tilt 정지 그림을 사용하고 시간별 타임라인에 포즈를 고정한다.
 - 날짜가 만료되거나 서버 합계가 없으면 숫자는 `—`이다. 한국어/영어는 위젯 Localizable.strings로 제공한다.
 - 화면 내 서버 전송 동의·허용 앱 설정은 기존 Group·Row·Toggle·Txt를 재사용한다.
+
+### Android 집중·스크린타임 네이티브 표면
+
+측정 앱·허용 앱 선택은 기존 `Group`, `Row`, `Toggle`, `Field`, `Btn`을 사용한다.
+네이티브 차단 화면·알림·홈 위젯의 색상은 `scripts/generate-report-palette.cjs`가
+semantic token에서 생성한다. 고양이는 iOS 위젯과 같은 기존 6색 정지 에셋을 사용한다.
+홈 위젯은 고양이와 오늘 총 집중시간만 표시하고, 미확인 값은 `—`로 표시한다.
