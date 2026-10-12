@@ -457,6 +457,11 @@ export function friendlyRealtimeErrorMessage(raw: string): string | null {
   return raw;
 }
 
+/** 이동 채널 STOMP ERROR 코드 중 영구 차단 대상 — 그 외(일시 상류 장애·시도 창 초과 등)는 재접속에서 다시 구독한다. */
+const PERMANENT_MOVEMENT_DENY = new Set(['NOT_A_MEMBER', 'UNAUTHORIZED', 'FORBIDDEN']);
+/** 일시 오류가 이 횟수만큼 쌓이면 그때부터 영구 차단한다 — 무한 재접속·재거절 루프 방지. */
+const MOVEMENT_TRANSIENT_ERROR_LIMIT = 3;
+
 export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   const id = encodeURIComponent(opts.islandId);
   const emitError = (raw: string) => {
@@ -469,6 +474,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   let emoteSubscription: { unsubscribe(): void } | null = null;
   // 이동 구독이 거절되면 서버가 소켓을 닫고 stompjs 가 5초마다 재접속·재거절한다 — 같은 방식으로 끊는다.
   let movementDenied = false;
+  let movementTransientErrors = 0;
   const onMsg = (msg: IMessage) => {
     try {
       opts.onEvent(JSON.parse(msg.body));
@@ -523,8 +529,27 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     onStompError: (frame: IFrame) => {
       if (emoteEnabled) emoteDenied = true;
       if (opts.movement) {
-        movementDenied = true;
-        opts.onMovementDenied?.();
+        let code = str(frame.headers.message) ?? '';
+        if (!code) {
+          try {
+            code = str((JSON.parse(frame.body) as { code?: unknown }).code) ?? '';
+          } catch {
+            // 본문도 JSON 이 아니면 빈 코드로 둔다.
+          }
+        }
+        // 코덱스 지적(에픽 PR #1111): 서버 관문은 일시 상류 장애·시도 창 초과(MOVEMENT_TOO_FREQUENT)에도
+        // ERROR 프레임을 보낸다 — 멤버 아님·인증 오류만 영구 차단하고, 그 외는 재접속에서 다시 구독하게
+        // 두되 상한(3)에 닿으면 그때 차단해 무한 재접속·재거절 루프를 막는다.
+        if (PERMANENT_MOVEMENT_DENY.has(code)) {
+          movementDenied = true;
+          opts.onMovementDenied?.();
+        } else {
+          movementTransientErrors += 1;
+          if (movementTransientErrors >= MOVEMENT_TRANSIENT_ERROR_LIMIT) {
+            movementDenied = true;
+            opts.onMovementDenied?.();
+          }
+        }
       }
       emitError(frame.headers.message ?? '실시간 연결이 거절됐어요.');
     },

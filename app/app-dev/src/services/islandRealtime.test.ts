@@ -1406,6 +1406,47 @@ describe('이동 채널 (GROMO-2248)', () => {
     assert.deepEqual(errors, ['명령이 낡았어요. 다시 시도해주세요.']);
     assert.equal(denied.length, 0);
   });
+
+  test('일시 오류(MOVEMENT_TOO_FREQUENT) STOMP ERROR 는 onMovementDenied 를 부르지 않고 재접속에서 이동 토픽을 다시 구독한다', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    assert.equal(denied.length, 0);
+    c.subs.length = 0;
+    c.activate(); // stompjs 의 5초 재접속
+    assert.deepEqual(
+      c.subs.map((s: { dest: string }) => s.dest),
+      [MOVEMENT, SNAPSHOT, '/user/queue/errors'],
+    );
+  });
+
+  test('일시 오류가 3번 쌓이면 그때 deny 한다(루프 가드)', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'INTERNAL_ERROR' } });
+    assert.equal(denied.length, 1);
+    c.subs.length = 0;
+    c.activate();
+    assert.deepEqual(
+      c.subs.map((s: { dest: string }) => s.dest),
+      ['/user/queue/errors'],
+    );
+  });
+
+  test('헤더가 없고 본문 JSON 에 code 가 있으면 그 코드로 판정한다', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    const c = client();
+    c.opts.onStompError({ headers: {}, body: JSON.stringify({ code: 'NOT_A_MEMBER' }) });
+    assert.equal(denied.length, 1);
+  });
 });
 
 describe('friendlyRealtimeErrorMessage', () => {
