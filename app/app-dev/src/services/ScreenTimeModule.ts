@@ -51,6 +51,7 @@ export type ScreenTimeNativeModule = {
   getAllowedSelectionCounts(): Promise<ScreenTimeSelection | null>;
   setFocusAllowSafariWeb(allowed: boolean): Promise<void>;
   getFocusAllowSafariWeb(): Promise<boolean>;
+  startFocusShieldWithAppearance(subjectName: string, catColor: string): Promise<boolean>;
   startFocusShield(subjectName: string): Promise<boolean>;
   stopFocusShield(): Promise<void>;
 };

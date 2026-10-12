@@ -52,8 +52,10 @@ export const screenTime = {
   setFocusAllowSafariWeb: (allowed: boolean) =>
     nativeModule?.setFocusAllowSafariWeb?.(allowed) ?? Promise.resolve(),
   getFocusAllowSafariWeb: () => nativeModule?.getFocusAllowSafariWeb?.() ?? Promise.resolve(false),
-  startFocusShield: (subjectName: string) =>
-    nativeModule?.startFocusShield?.(subjectName) ?? Promise.resolve(false),
+  startFocusShield: (subjectName: string, catColor = 'black') =>
+    nativeModule?.startFocusShieldWithAppearance?.(subjectName, catColor) ??
+    nativeModule?.startFocusShield?.(subjectName) ??
+    Promise.resolve(false),
   stopFocusShield: () => nativeModule?.stopFocusShield?.() ?? Promise.resolve(),
 };
 

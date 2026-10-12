@@ -43,6 +43,10 @@ RCT_EXTERN_METHOD(setFocusAllowSafariWeb:(BOOL)allowed
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(getFocusAllowSafariWeb:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(startFocusShieldWithAppearance:(NSString *)subjectName
+                  catColor:(NSString *)catColor
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(startFocusShield:(NSString *)subjectName
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)

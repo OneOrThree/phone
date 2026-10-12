@@ -1636,7 +1636,7 @@ function Gromo() {
       void (
         Platform.OS === 'android'
           ? syncAndroidFocus(session, stateRef.current.color, true)
-          : syncFocusShield(session)
+          : syncFocusShield(session, stateRef.current.color)
       )
         .then((applied) => {
           if (!applied && session?.status === 'active')
@@ -1657,6 +1657,7 @@ function Gromo() {
     state.session?.version,
     state.session?.status,
     state.session?.subject,
+    state.color,
   ]);
   const liveActivityOwner = getSession()?.userId;
   useEffect(() => {

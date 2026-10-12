@@ -510,6 +510,7 @@ final class ScreenTimeModule: NSObject {
             "gromo:focus:allowSafariWeb",
             "gromo:focus:shieldActive",
             "gromo:focus:shieldSubject",
+            "gromo:focus:shieldCatColor",
         ].forEach { defaults?.removeObject(forKey: $0) }
         resolve(nil)
     }
@@ -585,6 +586,19 @@ final class ScreenTimeModule: NSObject {
         rejecter _: @escaping RCTPromiseRejectBlock
     ) {
         resolve(UserDefaults(suiteName: appGroupID)?.bool(forKey: "gromo:focus:allowSafariWeb") ?? false)
+    }
+
+    @objc func startFocusShieldWithAppearance(
+        _ subjectName: String,
+        catColor: String,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let colors = ["black", "ginger", "cream", "gray", "white", "calico"]
+        UserDefaults(suiteName: appGroupID)?.set(
+            colors.contains(catColor) ? catColor : "black", forKey: "gromo:focus:shieldCatColor"
+        )
+        startFocusShield(subjectName, resolver: resolve, rejecter: reject)
     }
 
     @objc func startFocusShield(

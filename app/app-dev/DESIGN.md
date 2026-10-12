@@ -688,7 +688,7 @@ import { Page, Group, Row, Btn } from '@/design-system/patterns';
 ### Android 사용량 측정
 
 - 설정의 측정 권한에서 시스템 사용 정보 접근 화면을 열고, 복귀하면 실제 권한을 다시 확인한다. 승인 후에도 같은 화면에서 철회할 수 있다.
-- 측정 범위는 전체 앱이다. 앱 선택·앱 잠금 UI는 제공하지 않는다.
+- 측정 앱과 집중 중 허용 앱을 별도로 선택한다. 전체 앱 측정은 명시적으로 선택하며, 기존 측정 대상 변경은 다음 KST 자정에 적용한다.
 - 내 오늘 사용량은 네이티브 조회값을 분 단위로 표시하고, iOS의 15분 단위 기록과 문구를 구분한다.
 - 조회 실패·권한 철회·복원할 수 없는 날짜는 실제 0분과 구분하고 미확인 날짜를 퀘스트 달성에 사용하지 않는다.
 
@@ -708,3 +708,10 @@ import { Page, Group, Row, Btn } from '@/design-system/patterns';
 네이티브 차단 화면·알림·홈 위젯의 색상은 `scripts/generate-report-palette.cjs`가
 semantic token에서 생성한다. 고양이는 iOS 위젯과 같은 기존 6색 정지 에셋을 사용한다.
 홈 위젯은 고양이와 오늘 총 집중시간만 표시하고, 미확인 값은 `—`로 표시한다.
+
+### iOS 집중 차단 화면
+
+- iOS `ShieldConfiguration`의 시스템 배치를 사용하며 크림 배경, Ink 제목, Muted 설명, Pink 버튼과 Ink 버튼 글씨로 구성한다. 다크 모드에서도 이 표면은 주간 팔레트를 유지한다.
+- `ios/Shared/ShieldPalette.swift`는 공통 생성 스크립트로 semantic token에서 만든다. 아이콘 크기는 `componentTokens.focusShield.iconSize`를 사용한다.
+- 위젯의 기존 6색 고양이 focus PNG를 재사용하고, 집중 시작 시 선택한 고양이 색을 App Group으로 전달한다. 계정 초기화 시 이 값도 지운다.
+- 제목은 “지금은 집중 시간이에요”, 설명은 현재 집중 주제를 안내한다. 주제가 비어 있으면 일반 집중 안내를 사용한다. “닫기”는 차단된 앱을 닫으며 차단을 해제하지 않는다.

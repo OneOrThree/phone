@@ -58,7 +58,7 @@ test('차단 적용 응답이 늦어도 휴식·종료 해제가 마지막에 �
   const { shield, focusShield } = setup();
   const pending = deferred();
   shield.startFocusShield.mockReturnValueOnce(pending.promise);
-  const start = focusShield.syncFocusShield(focus);
+  const start = focusShield.syncFocusShield(focus, 'calico');
   await Promise.resolve();
   await Promise.resolve();
   const resume = focusShield.syncFocusShield(focus);
@@ -66,6 +66,7 @@ test('차단 적용 응답이 늦어도 휴식·종료 해제가 마지막에 �
   pending.resolve(true);
   await Promise.all([start, resume, end]);
   expect(shield.startFocusShield).toHaveBeenCalledTimes(1);
+  expect(shield.startFocusShield).toHaveBeenCalledWith('수학', 'calico');
   expect(shield.stopFocusShield).toHaveBeenCalledTimes(1);
 });
 test('Activity 종료 요청 뒤 대기 중인 갱신과 같은 세션의 늦은 갱신을 폐기한다', async () => {
