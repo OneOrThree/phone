@@ -36,6 +36,8 @@ export type IslandSummary = {
   joinRequestId: string | null;
   growthStage: string | null;
   themeId: string | null;
+  /** 도착한 적 있는 섬인지(GROMO-2260). 구서버는 필드가 없으니 undefined 는 true 로 본다. */
+  arrivedBefore?: boolean;
 };
 
 export type IslandDetail = Omit<IslandSummary, 'joinRequestId'> & {

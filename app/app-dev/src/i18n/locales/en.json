@@ -429,6 +429,15 @@
       "raft": "Raft",
       "viewFishingIsland": "View the Fishing Island",
       "mailboxNewLetter": "You have a new letter from a friend."
+    },
+    "raft": {
+      "title": "Raft",
+      "from": "Our island",
+      "fishingIsland": "Fishing Island",
+      "toIsland": "To {{name}}",
+      "telescope": "Telescope",
+      "myRaft": "My Raft",
+      "comingSoon": "Coming soon"
     }
   },
   "focusFlow": {

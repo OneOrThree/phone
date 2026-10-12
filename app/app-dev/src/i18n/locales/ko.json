@@ -414,6 +414,15 @@
       "raft": "뗏목",
       "viewFishingIsland": "낚시섬 구경하기",
       "mailboxNewLetter": "친구에게 받은 새 편지가 있습니다"
+    },
+    "raft": {
+      "title": "뗏목",
+      "from": "우리 섬",
+      "fishingIsland": "앞바다 낚시섬",
+      "toIsland": "{{name}}섬으로",
+      "telescope": "망원경",
+      "myRaft": "내 뗏목",
+      "comingSoon": "준비 중이에요"
     }
   },
   "focusFlow": {

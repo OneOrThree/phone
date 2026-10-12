@@ -49,6 +49,8 @@ export type Route =
   | 'product'
   | 'orders'
   | 'boat'
+  | 'raft'
+  | 'telescope'
   | 'mainIsland'
   | 'currentIsland'
   | 'profile'
