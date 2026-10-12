@@ -7,6 +7,7 @@ import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
@@ -64,7 +65,9 @@ import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
  *       본다.</li>
  *   <li>{@code /topic/islands/{id}/emotes} — <b>그 섬의 본인 active 집중 세션</b>. 응원은 관전자가
  *       아니라 같이 집중하는 사람들 사이의 신호다(realtime-events LLD §3.1). 판정은 TTL 캐시가 아니라
- *       Data 정본({@link IslandFocusSessions})이다.</li>
+ *       Data 정본({@link IslandFocusSessions})이다. <b>예외: 비주민(방문자)</b>은 세션 없이 구독한다
+ *       (GROMO-2258) — 방문자 응원의 거절·안내를 받는 자리다. 주민인데 세션이 없으면 그대로 거절한다.
+ *       방문자가 실제로 받는 응원은 없다 — 전달은 사건의 수신 집합(진행 중 주민)으로만 간다.</li>
  *   <li>{@code /app/islands/{id}/focus/emotes}(SEND) — 인증과 <b>시도 창</b>만 본다. 창을 여기서
  *       잡는 이유는 <b>본문 변환보다 앞</b>이어야 하기 때문이다({@code authorizeSend} 참고).
  *       「본인 진행 세션인가」는 {@code FocusEmoteService} 한 곳이고, 두 곳에서 검사하면 언젠가
@@ -116,6 +119,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final RealtimeSessionRegistry sessions;
     private final IslandFocusSessions focusSessions;
     private final StringRedisTemplate redis;
+    private final MembershipService membershipService;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -193,7 +197,15 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                     throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
                 }
                 // 관전(focus·rest)과 달리 응원 수신은 「그 섬에서 지금 진행 중인 사람」의 것이다.
-                focusSessions.requireActiveSession(islandId, principal.userId(), null);
+                // 다만 비주민(방문자)은 세션 없이도 연다(GROMO-2258) — 주민인데 세션이 없으면 그대로 거절.
+                try {
+                    focusSessions.requireActiveSession(islandId, principal.userId(), null);
+                } catch (ChatException e) {
+                    if (e.getErrorCode() != ChatErrorCode.NOT_FOCUSING
+                            || membershipService.isMember(islandId, principal.userId(), principal.bearer())) {
+                        throw e;
+                    }
+                }
             }
             return;
         }

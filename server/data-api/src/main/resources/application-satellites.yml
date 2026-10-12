@@ -158,6 +158,8 @@ internal:
           # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
           - 'GET /internal/islands/*/focus-members'
           - 'GET /internal/islands/*/rest-members'
+          # GROMO-2258 방문 화면 오늘 집중 분 — 방문자도 읽는다(focus-members 와 같은 문).
+          - 'GET /internal/islands/*/focus-today'
           # GROMO-1894 친구 7종 (friend-letter LLD §1.15 조회 2 + 명령 5). 조회와 생성은 메서드로만 갈리므로
           # 줄을 합치지 않는다.
           - 'GET /internal/users/*/friends'

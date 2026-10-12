@@ -8,6 +8,7 @@ import com.oneorthree.business.upstream.data.dto.InvitationResolved;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
+import com.oneorthree.business.upstream.data.dto.IslandFocusToday;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.IslandManaged;
@@ -74,6 +75,8 @@ public class DataIslandClient {
     // GROMO-1765 같이 낚시 초기 스냅샷 2종 — 공개 경로와 이름이 같다.
     private static final String PATH_FOCUS_MEMBERS = "/internal/islands/{islandId}/focus-members";
     private static final String PATH_REST_MEMBERS = "/internal/islands/{islandId}/rest-members";
+    // GROMO-2258 방문 화면 오늘 집중 분 — 공개 단독 경로 없이 visit 화면 조각으로만 쓴다.
+    private static final String PATH_FOCUS_TODAY = "/internal/islands/{islandId}/focus-today";
     // GROMO-1802 섬 관리·주민 6종 — 섬 자원은 `/internal` + 공개 경로, 본인 나가기만 사용자 축(B26).
     private static final String PATH_ISLAND_MEMBERS = "/internal/islands/{islandId}/members";
     private static final String PATH_ISLAND_MEMBER = "/internal/islands/{islandId}/members/{targetUserId}";
@@ -461,6 +464,16 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandRestMembers>() { });
+    }
+
+    /** 섬의 오늘(KST) 집중 분 (GROMO-2258). 방문자도 읽는다. 멱등 GET 이라 재시도한다. */
+    public IslandFocusToday fetchFocusToday(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_FOCUS_TODAY, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandFocusToday>() { });
     }
 
     /**

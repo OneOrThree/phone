@@ -26,6 +26,8 @@ class VisitScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_ISLAND = "GET /internal/islands/" + ISLAND;
     private static final String DATA_REQUEST = "GET " + USERS + "/join-requests/" + REQUEST;
     private static final String DATA_MEMBERS = DATA_ISLAND + "/members";
+    private static final String DATA_FOCUS_TODAY = DATA_ISLAND + "/focus-today";
+    private static final String FOCUS_TODAY = "{\"islandId\":\"" + ISLAND + "\",\"date\":\"2026-10-12\",\"minutes\":95}";
     private static final String MEMBERS = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"방장\","
             + "\"role\":\"host\",\"appearance\":{\"clothes\":\"scarf\",\"decor\":null,"
             + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}}],"
@@ -43,6 +45,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
     void ownPendingRequestIsReadAfterThePublicSummary() throws Exception {
         DATA.on(DATA_ISLAND, request -> ok(visitor(REQUEST)));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        DATA.on(DATA_FOCUS_TODAY, request -> ok(FOCUS_TODAY));
         DATA.on(DATA_REQUEST, request -> ok(requestView(ISLAND)));
         MvcResult result = mockMvc.perform(auth(get(PATH)))
                 .andExpect(status().isOk())
@@ -52,12 +55,14 @@ class VisitScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.members.items[0].role").value("host"))
                 .andExpect(jsonPath("$.data.members.items[0].appearance.clothes").value("scarf"))
                 .andExpect(jsonPath("$.data.members.version").value(4))
+                .andExpect(jsonPath("$.data.focusToday.minutes").value(95))
                 .andExpect(jsonPath("$.data.island.joinRequestId").value(REQUEST.toString()))
                 .andExpect(jsonPath("$.data.joinRequestAvailability").value("available"))
                 .andExpect(jsonPath("$.data.joinRequest.status").value("pending"))
                 .andExpect(jsonPath("$.data.joinRequest.version").value(1))
                 .andReturn();
-        assertKeys(result, "island", "buildings", "members", "joinRequestAvailability", "joinRequest");
+        assertKeys(result, "island", "buildings", "members", "focusToday", "joinRequestAvailability",
+                "joinRequest");
         assertThat(DATA.receivedFor(DATA_MEMBERS).get(0).query()).contains("limit=30");
     }
 
@@ -65,6 +70,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
     void membersCarryOnlyNameCatColorAppearanceAndRole() throws Exception {
         DATA.on(DATA_ISLAND, request -> ok(visitor(null)));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        DATA.on(DATA_FOCUS_TODAY, request -> ok(FOCUS_TODAY));
         MvcResult result = mockMvc.perform(auth(get(PATH))).andExpect(status().isOk()).andReturn();
         Map<String, Object> member = JsonPath.read(result.getResponse().getContentAsString(),
                 "$.data.members.items[0]");
@@ -76,14 +82,16 @@ class VisitScreenContractTest extends ScreenContractTestBase {
     void noOwnRequestSkipsTheCallAndReportsNone() throws Exception {
         DATA.on(DATA_ISLAND, request -> ok(visitor(null)));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        DATA.on(DATA_FOCUS_TODAY, request -> ok(FOCUS_TODAY));
         MvcResult result = mockMvc.perform(auth(get(PATH)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.joinRequestAvailability").value("none"))
                 .andExpect(jsonPath("$.data.joinRequest").value(nullValue()))
                 .andReturn();
-        assertKeys(result, "island", "buildings", "members", "joinRequestAvailability", "joinRequest");
+        assertKeys(result, "island", "buildings", "members", "focusToday", "joinRequestAvailability",
+                "joinRequest");
         assertThat(DATA.hits(DATA_REQUEST)).isZero();
-        assertThat(DATA.received()).hasSize(2);
+        assertThat(DATA.received()).hasSize(3);
     }
 
     @Test
@@ -93,6 +101,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
                 + "\"growthStage\":null,\"themeId\":null,\"role\":\"host\",\"version\":3}";
         DATA.on(DATA_ISLAND, request -> ok("{\"scope\":\"member\",\"visitor\":null,\"member\":" + detail + "}"));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        DATA.on(DATA_FOCUS_TODAY, request -> ok(FOCUS_TODAY));
         mockMvc.perform(auth(get(PATH)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.island.membershipStatus").value("active"))
@@ -113,6 +122,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
 
         // 주민 목록 실패도 화면 전체 실패다 — 빈 목록으로 접지 않는다.
         DATA.on(DATA_ISLAND, request -> ok(visitor(null)));
+        DATA.on(DATA_FOCUS_TODAY, request -> ok(FOCUS_TODAY));
         DATA.on(DATA_MEMBERS, request -> domainError(404, "GROUP_NOT_FOUND"));
         mockMvc.perform(auth(get(PATH)))
                 .andExpect(status().isNotFound())
@@ -120,6 +130,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
 
         // 요청 조회의 404 를 none 으로 접지 않는다.
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        DATA.on(DATA_FOCUS_TODAY, request -> ok(FOCUS_TODAY));
         DATA.on(DATA_ISLAND, request -> ok(visitor(REQUEST)));
         DATA.on(DATA_REQUEST, request -> domainError(404, "JOIN_REQUEST_NOT_FOUND"));
         mockMvc.perform(auth(get(PATH)))
@@ -138,6 +149,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_ISLAND, request -> ok(visitor(null).replace("\"member\":null",
                 "\"member\":null,\"buildings\":[\"hall\",\"board\"]")));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        DATA.on(DATA_FOCUS_TODAY, request -> ok(FOCUS_TODAY));
         mockMvc.perform(auth(get(PATH)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.buildings[0]").value("hall"))
@@ -146,13 +158,14 @@ class VisitScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.island.role").doesNotExist())
                 .andExpect(jsonPath("$.data.wallets").doesNotExist());
         assertThat(DATA.hits(DATA_ISLAND)).isEqualTo(1);
-        assertThat(DATA.received()).hasSize(2);
+        assertThat(DATA.received()).hasSize(3);
     }
 
     @Test
     void missingAndEmptyBuildingsRemainDistinctDuringRollout() throws Exception {
         DATA.on(DATA_ISLAND, request -> ok(visitor(null)));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        DATA.on(DATA_FOCUS_TODAY, request -> ok(FOCUS_TODAY));
         mockMvc.perform(auth(get(PATH))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.buildings").value(nullValue()));
         DATA.on(DATA_ISLAND, request -> ok(visitor(null).replace("\"member\":null",
@@ -170,6 +183,26 @@ class VisitScreenContractTest extends ScreenContractTestBase {
                     .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         }
         assertThat(DATA.hits(DATA_MEMBERS)).isZero();
+    }
+
+    @Test
+    void focusTodayCarriesOnlyMinutesAndItsFailureFailsTheScreen() throws Exception {
+        // GROMO-2258 — 방문 화면의 오늘 집중 분. 공개 조각은 minutes 하나뿐이다(섬 id·날짜는 싣지 않는다).
+        DATA.on(DATA_ISLAND, request -> ok(visitor(null)));
+        DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        DATA.on(DATA_FOCUS_TODAY, request -> ok(FOCUS_TODAY));
+        MvcResult result = mockMvc.perform(auth(get(PATH))).andExpect(status().isOk()).andReturn();
+        Map<String, Object> focusToday = JsonPath.read(result.getResponse().getContentAsString(),
+                "$.data.focusToday");
+        assertThat(focusToday).containsExactly(Map.entry("minutes", 95));
+        assertThat(DATA.receivedFor(DATA_FOCUS_TODAY).get(0).header("X-User-Id"))
+                .isEqualTo(USER.toString());
+
+        // 다른 조각처럼 실패를 0분으로 접지 않는다.
+        DATA.on(DATA_FOCUS_TODAY, request -> domainError(403, "MEMBER_ONLY"));
+        mockMvc.perform(auth(get(PATH)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
     @Test

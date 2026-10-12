@@ -100,7 +100,15 @@ public enum ChatErrorCode implements ErrorCode {
      * 응원을 너무 자주 보냈다. 창은 표시 TTL 과 같은 3초이고, 한 창에 한 번이다 —
      * 근거는 {@code FocusEmoteService} 에 있다.
      */
-    EMOTE_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 응원해 주세요.");
+    EMOTE_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 응원해 주세요."),
+
+    /**
+     * 방문자가 응원했는데 그 섬에 지금 집중 중(active·paused)인 주민이 한 명도 없다 (GROMO-2258).
+     *
+     * <p>{@link #NOT_FOCUSING} 과 갈라 주는 이유: 그건 «보내는 사람»의 상태 충돌이고, 이건 «받을 사람»이
+     * 없다는 뜻이다 — 방문자는 집중을 시작해 풀 수 없으니 앱이 다른 안내를 띄워야 한다.
+     */
+    NO_ONE_FOCUSING(HttpStatus.CONFLICT, "지금 집중 중인 주민이 없어요");
 
     private final HttpStatus status;
     private final String message;

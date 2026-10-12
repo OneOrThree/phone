@@ -130,6 +130,10 @@ class IslandRealtimeIntegrationTest {
         stompClient.setMessageConverter(new CompositeMessageConverter(
                 List.of(new JacksonJsonMessageConverter(), new SimpleMessageConverter())));
         givenProgressing(focusing, resting);
+        // 멤버십(방문자 판정, GROMO-2258) — 주민 둘은 그 섬 소속, 방문자는 아무 섬에도 없다.
+        given(groupClient.fetchMyGroupIds(bearerOf(focusing))).willReturn(GroupClient.Membership.of(Set.of(island)));
+        given(groupClient.fetchMyGroupIds(bearerOf(resting))).willReturn(GroupClient.Membership.of(Set.of(island)));
+        given(groupClient.fetchMyGroupIds(bearerOf(visitor))).willReturn(GroupClient.Membership.of(Set.of()));
     }
 
     @AfterEach
@@ -137,6 +141,7 @@ class IslandRealtimeIntegrationTest {
         redis.delete(RedisKeys.focusPresence(focusing));
         clearWindows(focusing);
         clearWindows(resting);
+        clearWindows(visitor);
         stompClient.stop();
     }
 
@@ -341,8 +346,8 @@ class IslandRealtimeIntegrationTest {
         awaitEmoteSubscription(sender, sessionId, emotes);
         clearWindows(focusing);
 
-        // sessionId 가 없어 @Valid 가 «메서드 진입 전»에 죽이는 프레임이다.
-        sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+        // type 이 없어 @Valid 가 «메서드 진입 전»에 죽이는 프레임이다(sessionId 누락은 방문자 응원이라 정상 — GROMO-2258).
+        sender.send(emoteDestination(), new FocusEmoteRequest(sessionId, null));
 
         // 그 프레임이 창을 먹었다면, 곧바로 이어지는 «정상» 응원이 창에 막혀 나가지 못한다.
         sender.send(emoteDestination(), new FocusEmoteRequest(sessionId, "cheer"));
@@ -359,10 +364,11 @@ class IslandRealtimeIntegrationTest {
         awaitErrorQueueRegistered(sender, errors, focusing);
 
         clearWindows(focusing);
-        sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
-        SendFailureResponse missingSession = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertThat(missingSession).isNotNull();
-        assertThat(missingSession.getCode()).isEqualTo(CommonErrorCode.INVALID_REQUEST.name());
+        // sessionId 누락은 방문자 응원 경로다(GROMO-2258) — 형식 오류의 대표는 type 누락이다.
+        sender.send(emoteDestination(), new FocusEmoteRequest(UUID.randomUUID(), null));
+        SendFailureResponse missingType = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(missingType).isNotNull();
+        assertThat(missingType.getCode()).isEqualTo(CommonErrorCode.INVALID_REQUEST.name());
         assertThat(sender.isConnected()).as("필드 하나를 빠뜨렸다고 세션이 죽으면 안 된다").isTrue();
 
         clearWindows(focusing);
@@ -492,7 +498,7 @@ class IslandRealtimeIntegrationTest {
     }
 
     @Test
-    @DisplayName("소속을 잃으면 응원 구독도 발신도 막힌다")
+    @DisplayName("진행 세션이 없는 주민은 응원 구독도 발신도 막힌다 — 방문자 예외는 비주민에게만 열린다")
     void membershipLossBlocksEmoteSubscribeAndSend() throws Exception {
         UUID sessionId = UUID.randomUUID();
         StompSession sender = connect(focusing);
@@ -514,6 +520,58 @@ class IslandRealtimeIntegrationTest {
         assertThat(emotes.poll(1, TimeUnit.SECONDS)).isNull();
         postFocusMemberEvent("active", 1);
         assertThat(emotes.poll(2, TimeUnit.SECONDS)).isNull();
+    }
+
+    @Test
+    @DisplayName("방문자가 세션 없이 보낸 응원이 visitor 표시와 함께 진행 중 주민에게 간다 (GROMO-2258)")
+    void visitorEmoteReachesProgressingResidents() throws Exception {
+        // 방문자는 그 섬의 진행 세션이 없다 — 정본은 그를 «집중 중» 으로 보지 않는다.
+        willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(any(), eq(visitor), any());
+        given(focusSessions.progressingRecipients(island, visitor)).willReturn(Set.of(focusing));
+        StompSession receiver = connect(focusing);
+        BlockingQueue<Map<String, Object>> received = subscribe(receiver, "emotes");
+        awaitEmoteSubscription(receiver, UUID.randomUUID(), received);
+
+        StompSession sender = connect(visitor);
+        subscribe(sender, "emotes");
+        Map<String, Object> envelope = null;
+        for (int attempt = 0; attempt < 30 && envelope == null; attempt++) {
+            clearWindows(visitor);
+            sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+            envelope = received.poll(500, TimeUnit.MILLISECONDS);
+        }
+
+        assertThat(envelope).as("방문자의 응원이 진행 중 주민에게 도착해야 한다").isNotNull();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) envelope.get("payload");
+        assertThat(payload).containsOnlyKeys("userId", "visitor", "type", "expiresAt");
+        assertThat(payload.get("userId")).isEqualTo(visitor.toString());
+        assertThat(payload.get("visitor")).isEqualTo(true);
+        assertThat(payload.get("type")).isEqualTo("cheer");
+        Thread.sleep(500);
+        assertThat(sender.isConnected()).as("비주민의 emotes 구독은 거절되지 않는다").isTrue();
+    }
+
+    @Test
+    @DisplayName("주민이 세션 없이 응원하면 NOT_FOCUSING · 진행 주민이 없는 섬의 방문자 응원은 NO_ONE_FOCUSING")
+    void sessionlessEmoteRejections() throws Exception {
+        StompSession resident = connect(focusing);
+        BlockingQueue<SendFailureResponse> residentErrors = subscribeToErrors(resident);
+        awaitErrorQueueRegistered(resident, residentErrors, focusing);
+        resident.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+        SendFailureResponse notFocusing = residentErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(notFocusing).isNotNull();
+        assertThat(notFocusing.getCode()).isEqualTo(ChatErrorCode.NOT_FOCUSING.name());
+
+        given(focusSessions.progressingRecipients(island, visitor)).willReturn(Set.of());
+        StompSession guest = connect(visitor);
+        BlockingQueue<SendFailureResponse> guestErrors = subscribeToErrors(guest);
+        awaitErrorQueueRegistered(guest, guestErrors, visitor);
+        guest.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+        SendFailureResponse noOne = guestErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(noOne).isNotNull();
+        assertThat(noOne.getCode()).isEqualTo(ChatErrorCode.NO_ONE_FOCUSING.name());
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
@@ -64,6 +65,9 @@ class StompAuthChannelInterceptorTest {
     private org.springframework.data.redis.core.StringRedisTemplate redis;
 
     @Mock
+    private MembershipService membershipService;
+
+    @Mock
     private org.springframework.data.redis.core.ValueOperations<String, String> valueOps;
 
     private StompAuthChannelInterceptor interceptor;
@@ -75,7 +79,8 @@ class StompAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         registry = new RealtimeSessionRegistry();
-        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis);
+        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
+                membershipService);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         given(redis.opsForValue()).willReturn(valueOps);
@@ -329,12 +334,29 @@ class StompAuthChannelInterceptorTest {
         // sessionId 는 null 이다 — 구독은 「진행 세션이 있기만 하면」이고 어느 세션인지는 발신이 본다.
         verify(focusSessions).requireActiveSession(groupId, userId, null);
 
+        // 주민인데 진행 세션이 없으면 거절한다 — 방문자 예외(GROMO-2258)는 비주민에게만 열린다.
         org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
                 .given(focusSessions).requireActiveSession(groupId, userId, null);
+        given(membershipService.isMember(groupId, userId, BEARER)).willReturn(true);
         assertThatThrownBy(() -> interceptor.preSend(message(frame), null))
                 .isInstanceOf(DomainException.class)
                 .extracting(e -> ((DomainException) e).getErrorCode())
                 .isEqualTo(ChatErrorCode.NOT_FOCUSING);
+    }
+
+    @Test
+    @DisplayName("emote 구독 — 비주민(방문자)은 진행 세션 없이도 구독된다 (GROMO-2258)")
+    void visitorMaySubscribeToEmotesWithoutSession() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(groupId, userId, null);
+        given(membershipService.isMember(groupId, userId, BEARER)).willReturn(false);
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId + "/emotes");
+
+        assertThatCode(() -> interceptor.preSend(message(frame), null)).doesNotThrowAnyException();
+        verify(membershipService).isMember(groupId, userId, BEARER);
     }
 
     @Test
