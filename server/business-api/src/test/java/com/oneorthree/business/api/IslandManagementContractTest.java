@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -224,6 +225,30 @@ class IslandManagementContractTest extends UpstreamTestBase {
 
         assertThat(DATA.receivedFor(DATA_KICK).get(0).header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(DATA.receivedFor(DATA_LEAVE).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+    }
+
+    @Test
+    @DisplayName("배포 전 receipt·구버전 Data 의 한 키 응답도 200 이고 nextLocation 은 null(모름)이다 — 먼바다와 다르다")
+    void legacyLeaveAndKickResponsesPassWithUnknownNextLocation() throws Exception {
+        DATA.on(DATA_KICK, request -> ok("{\"removed\":true}"));
+        DATA.on(DATA_LEAVE, request -> ok("{\"left\":true,\"nextLocation\":null}"));
+
+        mockMvc.perform(auth(delete("/islands/" + ISLAND + "/members/" + TARGET)).header("Idempotency-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.removed").value(true))
+                .andExpect(jsonPath("$.data", hasKey("nextLocation")))
+                .andExpect(jsonPath("$.data.nextLocation").value(nullValue()));
+        mockMvc.perform(auth(delete("/islands/" + ISLAND + "/memberships/me")).header("Idempotency-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.left").value(true))
+                .andExpect(jsonPath("$.data", hasKey("nextLocation")))
+                .andExpect(jsonPath("$.data.nextLocation").value(nullValue()));
+
+        // 키가 둘인데 다른 키면 여전히 계약 불일치다.
+        DATA.reset();
+        DATA.on(DATA_LEAVE, request -> ok("{\"left\":true,\"other\":1}"));
+        mockMvc.perform(auth(delete("/islands/" + ISLAND + "/memberships/me")).header("Idempotency-Key", KEY))
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
     @Test
