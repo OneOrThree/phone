@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import tools.jackson.databind.ObjectMapper;
 
@@ -72,6 +73,35 @@ class TelescopeContractTest extends UpstreamTestBase {
 
         DATA.reset();
         DATA.on(DATA_TELESCOPE, request -> ok(LIST.replace("\"slot\":\"nearby\",", "")));
+        mockMvc.perform(auth(get(TELESCOPE)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    /**
+     * 상류 DTO 규약 — 필수 키는 {@code @JsonProperty(required = true)}, null 금지는 {@code @JsonSetter(nulls = FAIL)},
+     * 목록 원소 null 금지는 {@code contentNulls = FAIL} 이다. 어기면 {@code InternalHttpClient} 가 변환 실패를 계약 불일치로
+     * 올리고, 내부 502 {@code UPSTREAM_CONTRACT_ERROR} 는 공개 경로에서 {@code ApiResponses.transportStatus} 가 400 으로
+     * 내보낸다. 평균은 «키 필수·값 null 허용»(MyIslands.currentIslandId 와 같은 모양)이라 null 은 통과하고(위 첫 테스트)
+     * 키 누락만 계약 오류다.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"items 누락", "items:[null]", "bucketStart 누락", "bucketStart:null",
+        "averageFocusMinutesPerDay 누락"})
+    @DisplayName("상류 응답의 필수 키 누락·null·null 칸은 공개 목록 대신 계약 오류다")
+    void malformedUpstreamListsAreContractErrors(String shape) throws Exception {
+        String body = switch (shape) {
+            case "items 누락" -> "{\"bucketStart\":\"2026-10-12T05:00:00Z\",\"nextRefreshMinutes\":37}";
+            case "items:[null]" ->
+                    "{\"bucketStart\":\"2026-10-12T05:00:00Z\",\"nextRefreshMinutes\":37,\"items\":[null]}";
+            case "bucketStart 누락" -> "{\"nextRefreshMinutes\":37,\"items\":[]}";
+            case "bucketStart:null" -> "{\"bucketStart\":null,\"nextRefreshMinutes\":37,\"items\":[]}";
+            case "averageFocusMinutesPerDay 누락" -> LIST.replace("\"averageFocusMinutesPerDay\":null,", "");
+            default -> throw new IllegalArgumentException(shape);
+        };
+        assertThat(body).isNotEqualTo(LIST);
+        DATA.on(DATA_TELESCOPE, request -> ok(body));
+
         mockMvc.perform(auth(get(TELESCOPE)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
