@@ -122,6 +122,7 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
             "403,BOARD_LOCKED,403,FACILITY_LOCKED,",
             "403,SOCIAL_LOGIN_REQUIRED,403,SOCIAL_LOGIN_REQUIRED,",
             "409,GUESTBOOK_ALREADY_WRITTEN_TODAY,409,GUESTBOOK_ALREADY_WRITTEN_TODAY,",
+            "400,BANNED_WORD,400,BANNED_WORD,",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
             "409,BOARD_LOCKED,400,UPSTREAM_CONTRACT_ERROR,"})
@@ -187,9 +188,10 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
     @ParameterizedTest
     @CsvSource({
             "403,NOT_OWNER,403,FORBIDDEN",
-            "403,SOCIAL_LOGIN_REQUIRED,403,SOCIAL_LOGIN_REQUIRED"})
-    void greetingEditRelaysOwnerAndGuestVerdicts(int upstreamStatus, String upstreamCode, int status, String code)
-            throws Exception {
+            "403,SOCIAL_LOGIN_REQUIRED,403,SOCIAL_LOGIN_REQUIRED",
+            "400,BANNED_WORD,400,BANNED_WORD"})
+    void greetingEditRelaysOwnerGuestAndBannedWordVerdicts(int upstreamStatus, String upstreamCode, int status,
+            String code) throws Exception {
         DATA.on(DATA_MANAGE, request -> error(upstreamStatus, upstreamCode));
         mockMvc.perform(write(patch("/islands/" + ISLAND), "{\"greeting\":\"안녕\"}"))
                 .andExpect(status().is(status))
