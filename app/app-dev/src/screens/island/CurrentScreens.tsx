@@ -1,4 +1,5 @@
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
+import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
@@ -1012,6 +1013,10 @@ function Travel({ e }: any) {
 function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
+  // 서버 방문(GROMO-2259) — 구경하는 섬의 집중 중 인원·오늘 집중·하단 가입 버튼. 목업은 기존 화면 그대로.
+  const visit = e.islands && s.visitingIslandId ? s.serverIslands?.visit : null;
+  const live = useIslandPresence({ active: !!visit, islandId: visit?.island.id ?? null });
+  const join = useVisitorJoin(e, s, viewIsland(s, islandId), e.notify);
   return (
     <FinalIsland
       state={s}
@@ -1022,7 +1027,78 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
       notify={e.notify}
       dispatch={e.dispatch}
       onReturnFromVisit={onReturnFromVisit}
+      visitHud={
+        visit
+          ? {
+              focusCount:
+                live.status === 'ready'
+                  ? live.focus.filter((m) => m.status === 'active').length
+                  : null,
+              onFocusPress: () => e.go('visitIslandFocus', visit.island.id),
+              todayMinutes: visit.focusToday?.minutes,
+            }
+          : undefined
+      }
+      visitJoin={
+        visit
+          ? { label: join.label, disabled: join.disabled, onPress: () => void join.serverJoin() }
+          : undefined
+      }
     />
+  );
+}
+/** 응원 이모트 부채꼴 + 버튼 — 주민 집중 화면과 낚시 구경 화면(방문자, GROMO-2259)이 같이 쓴다. 부모가 위치를 잡는다. */
+function EmoteFab({
+  fan,
+  setFan,
+  emote,
+  onSend,
+}: {
+  fan: boolean;
+  setFan: (v: boolean) => void;
+  emote: string | null;
+  onSend: (id: string) => void;
+}) {
+  const circle = (d: number, bg: string) => ({
+    width: d,
+    height: d,
+    borderRadius: d / 2,
+    borderWidth: 2,
+    borderColor: OUTLINE,
+    backgroundColor: bg,
+    boxShadow: `0px 4px 0px ${OUTLINE}`,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  });
+  return (
+    <>
+      {fan && (
+        <View style={{ position: 'absolute', left: 0, bottom: 64, flexDirection: 'row', gap: 6 }}>
+          {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((id) => (
+            <Pressable
+              key={id}
+              testID={`emote-${id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t(`focusFlow.hud.emote.${id}`)}
+              onPress={() => onSend(id)}
+              style={circle(46, C.paper)}
+            >
+              <Image source={art[`emote/${id}`]} style={{ width: 30, height: 30 }} />
+            </Pressable>
+          ))}
+        </View>
+      )}
+      <Pressable
+        testID="emote-fab"
+        accessibilityRole="button"
+        accessibilityLabel={t('focusFlow.hud.emoteFab')}
+        accessibilityState={{ expanded: fan }}
+        onPress={() => setFan(!fan)}
+        style={circle(52, C.butter)}
+      >
+        <Image source={art[`emote/${emote ?? 'hello'}`]} style={{ width: 32, height: 32 }} />
+      </Pressable>
+    </>
   );
 }
 function FocusVisit({ e, islandId, onBack }: any) {
@@ -1041,9 +1117,13 @@ function FocusVisit({ e, islandId, onBack }: any) {
       : (s.serverIslands?.currentIslandId ?? null)
     : null;
   const transitionHandler = useRef<(transition: any) => void>(() => {});
+  const [fan, setFan] = useState(false);
   const live = useIslandPresence({
     active: liveIslandId !== null,
     islandId: liveIslandId,
+    // 구경하는 섬의 비주민은 세션 없이 응원을 보낸다(GROMO-2259)
+    visitor: visiting && liveIslandId !== null,
+    onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
   const myId = getSession()?.userId;
@@ -1153,6 +1233,26 @@ function FocusVisit({ e, islandId, onBack }: any) {
           onPress={close}
         />
       </View>
+      {visiting && liveIslandId && (
+        <View
+          style={{
+            position: 'absolute',
+            zIndex: 30,
+            bottom: Math.max(36, safe.bottom + 4),
+            left: Math.max(18, safe.left + 8),
+          }}
+        >
+          <EmoteFab
+            fan={fan}
+            setFan={setFan}
+            emote={null}
+            onSend={(id) => {
+              setFan(false);
+              if (!live.sendEmote(id)) e.notify(t('focusFlow.hud.emoteSendFailed'));
+            }}
+          />
+        </View>
+      )}
       {liveIslandId && live.status === 'loading' ? (
         <View
           pointerEvents="none"
@@ -1346,6 +1446,8 @@ function FocusFlow({ e: environment }: any) {
     islandId: liveIslandId,
     emoteSessionId,
     onSendError: e.notify,
+    // 방문자가 보낸 응원은 말풍선 대신 알림으로 — 이름은 서버가 주지 않는다
+    onVisitorEmote: () => e.notify(t('focusFlow.visitorCheered')),
     onTransition: (transition) => transitionHandler.current(transition),
     onGoldenFish: (event) => goldenHandler.current(event),
   });
@@ -2838,51 +2940,7 @@ function FocusFlow({ e: environment }: any) {
                 gap: 8,
               }}
             >
-              {fan && (
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    bottom: 64,
-                    flexDirection: 'row',
-                    gap: 6,
-                  }}
-                >
-                  {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((id, n) => (
-                    <Pressable
-                      key={id}
-                      testID={`emote-${id}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        [
-                          t('focusFlow.hud.emote.hello'),
-                          t('focusFlow.hud.emote.cheer'),
-                          t('focusFlow.hud.emote.sleepy'),
-                          t('focusFlow.hud.emote.laugh'),
-                          t('focusFlow.hud.emote.hearts'),
-                        ][n]
-                      }
-                      onPress={() => sendEmote(id)}
-                      style={circle(46, C.paper)}
-                    >
-                      <Image source={art[`emote/${id}`]} style={{ width: 30, height: 30 }} />
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-              <Pressable
-                testID="emote-fab"
-                accessibilityRole="button"
-                accessibilityLabel={t('focusFlow.hud.emoteFab')}
-                accessibilityState={{ expanded: fan }}
-                onPress={() => setFan(!fan)}
-                style={circle(52, C.butter)}
-              >
-                <Image
-                  source={art[`emote/${emote ?? 'hello'}`]}
-                  style={{ width: 32, height: 32 }}
-                />
-              </Pressable>
+              <EmoteFab fan={fan} setFan={setFan} emote={emote} onSend={sendEmote} />
               <View
                 ref={pauseTarget.ref}
                 collapsable={false}

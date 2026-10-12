@@ -142,3 +142,21 @@ test('이동 요청 중에는 닫기·뒤로가기·다른 행이 막히고 완�
   await act(async () => finish());
   expect(await screen.findByTestId('sailing')).toBeTruthy();
 });
+
+test('가입하지 않은 섬을 구경하다 떠날 때 확인창은 방문당 1번만 뜬다', async () => {
+  const e: any = env('b');
+  e.confirm = jest.fn();
+  const visit = { island: { id: 'b', membershipStatus: 'none' } };
+  e.state = { ...e.state, serverIslands: { ...e.state.serverIslands, visit } };
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  expect(e.confirm).toHaveBeenCalledTimes(1);
+  expect(e.confirm.mock.calls[0][0]).toBe('가입하지 않고 떠날까요?');
+  expect(e.islands.switchCurrent).not.toHaveBeenCalled();
+  // 시트를 닫았다 다시 열어도(같은 방문) 두 번째는 바로 떠난다
+  await screen.unmount();
+  const again = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(again.getByText('하나섬으로'));
+  expect(e.confirm).toHaveBeenCalledTimes(1);
+  expect(e.islands.switchCurrent).toHaveBeenCalledWith('a');
+});

@@ -357,7 +357,10 @@
   "home": {
     "hud": {
       "todayFocus": "Focus today",
-      "visiting": "Visiting {{name}}"
+      "visiting": "Visiting {{name}}",
+      "focusingNow": "{{count}} focusing on Fishing Island now",
+      "quietNow": "Fishing Island is quiet right now",
+      "todayFocusVisitor": "Focus today {{time}}"
     },
     "build": "Build {{building}}",
     "buildProgress": "{{current}}/{{total}} fish",
@@ -443,6 +446,7 @@
     }
   },
   "focusFlow": {
+    "visitorCheered": "A visitor cheered you on 🎉",
     "common": {
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
@@ -485,6 +489,7 @@
     "hud": {
       "emoteFab": "Emote",
       "emoteSendFailed": "Couldn't send the cheer. Please try again in a moment.",
+      "emoteNoOneFocusing": "No one is focusing right now.",
       "residentsReloadA11y": "Reload resident status",
       "residentsLoadFailed": "Couldn't load resident status · Retry",
       "endConfirmTitle": "End this focus session?",
@@ -574,6 +579,9 @@
     "enterJoined": "Enter an Island You Joined"
   },
   "islandVisit": {
+    "leaveWithoutJoinTitle": "Leave without joining?",
+    "leaveWithoutJoinBody": "Become a resident to focus together here.",
+    "leaveWithoutJoinLeave": "Leave",
     "title": "Island Across the Sea",
     "loading": "Loading island details…",
     "residents": "Residents {{count}}/{{max}} · {{status}}",

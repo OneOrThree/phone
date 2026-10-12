@@ -6,6 +6,9 @@ import { Sailing } from '@/screens/world/WorldViews';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { currentIsland, type State } from '@/services/model';
 
+// 이번 방문에서 가입 안내를 이미 물었는지 — 방문마다 새로 생기는 visit 객체로 구분한다(시트를 닫았다 열어도 1번).
+const askedLeave = new WeakSet<object>();
+
 /** 뗏목 행선지 시트(GROMO-2261) — 소속 섬 이동·낚시섬·망원경·내 뗏목. 방문 중에는 소속 섬만 보인다. */
 export function RaftDestinations({ e }: { e: any }) {
   const s: State = e.state;
@@ -65,6 +68,22 @@ export function RaftDestinations({ e }: { e: any }) {
     }
   };
 
+  // 가입하지 않은 섬을 구경하다 떠나면 가입 안내를 방문당 1번 묻는다(GROMO-2259).
+  const visit = e.islands && visiting ? s.serverIslands?.visit : null;
+  const leave = (island: { id: string; name: string }) => {
+    if (visit && visit.island.membershipStatus === 'none' && !askedLeave.has(visit)) {
+      askedLeave.add(visit);
+      e.confirm(
+        t('islandVisit.leaveWithoutJoinTitle'),
+        t('islandVisit.leaveWithoutJoinBody'),
+        () => void leaveTo(island),
+        { ok: t('islandVisit.leaveWithoutJoinLeave') },
+      );
+      return;
+    }
+    void leaveTo(island);
+  };
+
   if (sailingTo !== null)
     return (
       <Sailing
@@ -102,9 +121,7 @@ export function RaftDestinations({ e }: { e: any }) {
             title={t('home.raft.toIsland', { name: m.name })}
             chevron
             disabled={pending}
-            onPress={() => {
-              void leaveTo(m);
-            }}
+            onPress={() => leave(m)}
           />
         ))}
         {!visiting && (

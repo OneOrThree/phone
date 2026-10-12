@@ -348,7 +348,10 @@
   "home": {
     "hud": {
       "todayFocus": "오늘 집중",
-      "visiting": "{{name}} 구경 중"
+      "visiting": "{{name}} 구경 중",
+      "focusingNow": "지금 {{count}}명이 낚시섬에서 집중 중",
+      "quietNow": "지금 낚시섬은 조용해요",
+      "todayFocusVisitor": "오늘 집중 {{time}}"
     },
     "build": "{{building}} 짓기",
     "buildProgress": "{{current}}/{{total}} 마리",
@@ -428,6 +431,7 @@
     }
   },
   "focusFlow": {
+    "visitorCheered": "방문자가 응원했어요 🎉",
     "common": {
       "ourIsland": "우리 섬",
       "fishingIsland": "낚시섬",
@@ -470,6 +474,7 @@
     "hud": {
       "emoteFab": "이모티콘",
       "emoteSendFailed": "응원을 보내지 못했어요. 잠시 후 다시 시도해 주세요.",
+      "emoteNoOneFocusing": "지금 집중 중인 주민이 없어요.",
       "residentsReloadA11y": "주민 상태 다시 불러오기",
       "residentsLoadFailed": "주민 상태를 불러오지 못했어요 · 다시 시도",
       "endConfirmTitle": "이번 집중을 마칠까요?",
@@ -559,6 +564,9 @@
     "enterJoined": "가입한 섬으로 들어가기"
   },
   "islandVisit": {
+    "leaveWithoutJoinTitle": "가입하지 않고 떠날까요?",
+    "leaveWithoutJoinBody": "이 섬의 주민이 되면 함께 집중할 수 있어요.",
+    "leaveWithoutJoinLeave": "떠나기",
     "title": "바다 건너 섬",
     "loading": "섬 정보를 불러오고 있어요.",
     "residents": "주민 {{count}}/{{max}}명 · {{status}}",
