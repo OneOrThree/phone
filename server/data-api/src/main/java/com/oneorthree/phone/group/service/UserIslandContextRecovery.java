@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,6 +59,8 @@ public class UserIslandContextRecovery {
     private final UserMainIslandRepository mainIslands;
     private final GroupMemberRepository groupMembers;
     private final IslandArrivalRepository arrivals;
+    /** 복구 이동의 도착 시각 (GROMO-2260) — 테스트가 {@code @MockitoBean Clock} 으로 고정한다. */
+    private final Clock clock;
 
     /**
      * 멤버십이 끝났다 — 그 섬이 «지금 접속한 섬»이었으면 옮기거나 비운다.
@@ -82,6 +85,8 @@ public class UserIslandContextRecovery {
             context.release(reasonOf(member));
         } else {
             context.moveTo(next);
+            // 다시 머물게 된 섬이다 — «최근 머문» 축을 함께 갱신해야 다음 복구가 이 섬을 오래된 섬으로 보지 않는다.
+            arrivals.recordArrival(userId, next, clock.instant());
         }
     }
 

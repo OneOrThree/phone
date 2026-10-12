@@ -16,6 +16,7 @@ import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.IslandArrivalRepository;
 import com.oneorthree.phone.group.repository.IslandGuestbookEntryRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
@@ -70,6 +71,7 @@ public class GroupMemberService {
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final GroupChallengeBetParticipantRepository betParticipantRepository;
     private final IslandJoinRequestRepository joinRequestRepository;
+    private final IslandArrivalRepository islandArrivalRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
     /**
      * 탈퇴자의 댓글 벌크 삭제도 다른 공지·댓글 writer 와 같은 축으로 {@code notice.updated} 를 낸다
@@ -439,6 +441,8 @@ public class GroupMemberService {
         // 사건·섬 잠금은 필요 없다: 방명록에는 aggregate version 도 notice.updated 같은 사건도 없고, 섬 쓰기(삽입 →
         // 31번째 이후 정리)와 겹쳐도 지우는 쪽은 활성 글을 «줄이기만» 해 상한 30 을 넘기지 않는다.
         guestbookEntryRepository.deleteAllOfUser(userId);
+        // 섬 도착 기록(GROMO-2260) — 개인 이동·방문 이력이다. 남의 판정 근거가 아니라 원문째 지운다.
+        islandArrivalRepository.deleteAllOfUser(userId);
         // 링크 서버로 나간·나갈 닉네임 변경 봉투 속 이름 사본(GROMO-1946)
         linkMembershipEventService.eraseWithdrawnDisplayName(userId);
     }
