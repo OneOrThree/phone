@@ -1422,13 +1422,19 @@ describe('이동 채널 (GROMO-2248)', () => {
     );
   });
 
-  test('일시 오류가 3번 쌓이면 그때 deny 한다(루프 가드)', () => {
+  test('일시 오류가 3번 쌓이면 그때 deny 한다(루프 가드, 접속당 1회만 센다)', () => {
     const errors: string[] = [];
     const denied: number[] = [];
     open(undefined, errors, denied);
     const c = client();
     c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    // 같은 접속의 둘째 ERROR는 카운트되지 않는다 — 재접속해야 다음 1회가 센다.
     c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.activate();
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    assert.equal(denied.length, 0);
+    c.activate();
     c.opts.onStompError({ headers: { message: 'INTERNAL_ERROR' } });
     assert.equal(denied.length, 1);
     c.subs.length = 0;
@@ -1445,6 +1451,78 @@ describe('이동 채널 (GROMO-2248)', () => {
     open(undefined, errors, denied);
     const c = client();
     c.opts.onStompError({ headers: {}, body: JSON.stringify({ code: 'NOT_A_MEMBER' }) });
+    assert.equal(denied.length, 1);
+  });
+
+  test('이동 토픽의 정상 메시지를 받으면 일시 오류 카운터가 0 으로 돌아간다', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.activate();
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    // FullState 수신 — 연속 실패가 끊겨 카운터가 0으로 돌아간다.
+    sub(MOVEMENT).cb({
+      body: JSON.stringify({
+        type: 'FullState',
+        navRevision: 1,
+        serverTick: 1,
+        tickMs: 50,
+        speed: 10.989,
+        actors: [],
+      }),
+    });
+    c.activate();
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    c.activate();
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    assert.equal(denied.length, 0);
+    c.activate();
+    c.opts.onStompError({ headers: { message: 'INTERNAL_ERROR' } });
+    assert.equal(denied.length, 1);
+  });
+
+  test('INVALID_REQUEST 는 영구 차단이다 — 같은 요청은 항상 같은 거절', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    assert.equal(denied.length, 1);
+    c.subs.length = 0;
+    c.activate();
+    assert.deepEqual(
+      c.subs.map((s: { dest: string }) => s.dest),
+      ['/user/queue/errors'],
+    );
+  });
+
+  test('헤더가 없고 본문이 깨진 JSON 이면 예외 없이 일시 오류로 센다', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    const c = client();
+    assert.doesNotThrow(() => c.opts.onStompError({ headers: {}, body: '{not json' }));
+    assert.equal(denied.length, 0);
+    c.activate();
+    c.opts.onStompError({ headers: {}, body: '{not json' });
+    c.activate();
+    c.opts.onStompError({ headers: {}, body: '{not json' });
+    assert.equal(denied.length, 1);
+  });
+
+  test('헤더가 없고 본문이 "null" 이면 예외 없이 일시 오류로 센다', () => {
+    const errors: string[] = [];
+    const denied: number[] = [];
+    open(undefined, errors, denied);
+    const c = client();
+    assert.doesNotThrow(() => c.opts.onStompError({ headers: {}, body: 'null' }));
+    assert.equal(denied.length, 0);
+    c.activate();
+    c.opts.onStompError({ headers: {}, body: 'null' });
+    c.activate();
+    c.opts.onStompError({ headers: {}, body: 'null' });
     assert.equal(denied.length, 1);
   });
 });
