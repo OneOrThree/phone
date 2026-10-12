@@ -15,12 +15,25 @@ CREATE TABLE island_arrivals (
 -- 기존 활성 소속은 전부 «가 본 섬» 으로 채운다 — V107 이전의 가입·생성은 전부 그 섬으로 바로
 -- 옮겼다(즉시 가입·생성의 moveTo). 채우지 않으면 배포 순간 기존 주민 전원의 섬 이동이 403 이 된다.
 -- 시각은 멤버십 시작 축(COALESCE(rejoined_at, created_at), V97 주석)이다.
+-- 살아 있는 섬만이다(삭제 묘비·종결 제외, IslandMovementGuards.isAlive 와 같은 술어) — 닫힌 섬은
+-- purge 가 도착 기록을 지우는 대상이라, 여기서 채우면 지울 주인 없는 행이 남는다.
 INSERT INTO island_arrivals (user_id, island_id, first_arrived_at, last_arrived_at)
 SELECT gm.user_id, gm.group_id,
        COALESCE(gm.rejoined_at, gm.created_at, now()),
        COALESCE(gm.rejoined_at, gm.created_at, now())
 FROM group_members gm
-WHERE gm.is_left = false;
+JOIN groups g ON g.id = gm.group_id
+WHERE gm.is_left = false
+  AND g.deleted_at IS NULL
+  AND g.status <> 'ENDED';
+
+-- 지금 서 있는 섬을 «최근 머문 섬» 으로 올린다 — 위 시각은 가입 시각이라 그대로 두면 배포 직후
+-- 나가기·강퇴의 다음 위치가 실제로 머물던 섬이 아니라 가장 최근에 가입한 섬이 된다.
+UPDATE island_arrivals a
+SET last_arrived_at = now()
+FROM user_island_contexts c
+WHERE a.user_id = c.user_id
+  AND a.island_id = c.current_island_id;
 
 -- 시스템 편지 — 강퇴·가입 승인 안내. 발신자가 사람이 아니라 sender_id 가 NULL 이다.
 ALTER TABLE letters ALTER COLUMN sender_id DROP NOT NULL;

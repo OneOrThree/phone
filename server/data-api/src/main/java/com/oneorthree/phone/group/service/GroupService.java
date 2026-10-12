@@ -121,10 +121,11 @@ public class GroupService {
      * 한 유저가 동시에 소속될 수 있는 그룹 수 상한.
      *
      * <p>내 그룹 목록(getMyGroups)이 무페이지네이션이라 무제한 가입은 그대로 abuse 표면이 된다.
-     * 섬 외부 정책(GROMO-2260)으로 소속 섬은 3개까지다 — {@code IslandMovementGuards.MAX_JOINED_ISLANDS} 와
-     * 같은 값이어야 레거시 {@code /api/v1/groups} 로 우회하지 못한다.
+     * 섬 외부 정책(GROMO-2260)으로 소속 섬은 3개까지다. <b>값의 정본은 여기 하나다</b> — 2.0 경로의
+     * {@code IslandMovementGuards.MAX_JOINED_ISLANDS} 가 이 상수를 그대로 가리켜, 레거시 {@code /api/v1/groups}
+     * 와 2.0 가입·생성의 상한이 갈라질 수 없다.
      */
-    private static final int MAX_JOINED_GROUPS = 3;
+    public static final int MAX_JOINED_GROUPS = 3;
 
     /**
      * 계약(스펙 §4-2)에 정의된 join_method 전량 — 앱 {@code GroupJoinMethod} 타입과 1:1.

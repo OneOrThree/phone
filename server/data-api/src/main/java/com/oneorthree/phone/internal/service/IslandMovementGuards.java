@@ -10,6 +10,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
+import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -27,8 +28,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class IslandMovementGuards {
 
-    /** 계정당 소속 상한 (GROMO-2260) — 레거시 {@code GroupService.MAX_JOINED_GROUPS} 와 같은 값이다. */
-    private static final int MAX_JOINED_ISLANDS = 3;
+    /** 계정당 소속 상한 (GROMO-2260) — 정본은 레거시 {@link GroupService#MAX_JOINED_GROUPS} 하나다. */
+    private static final int MAX_JOINED_ISLANDS = GroupService.MAX_JOINED_GROUPS;
 
     private final FocusSessionRepository focusSessionRepository;
     private final GroupMemberRepository groupMemberRepository;

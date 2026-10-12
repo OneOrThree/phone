@@ -914,7 +914,7 @@ Table user_island_contexts [note: '사용자의 현재 섬 컨텍스트 (users 1
   updated_at  timestamptz
 }
 
-Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «가 본 적» 이 있는가. 즉시 이동(PUT /me/current-island)은 기록이 있는 소속 섬만 받고, 나가기·강퇴 뒤 다음 위치는 남은 소속 중 last_arrived_at 최신 섬이다(없으면 먼바다). V107 이 기존 활성 소속을 COALESCE(rejoined_at, created_at) 로 백필. GROMO-2260'] {
+Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «가 본 적» 이 있는가. 즉시 이동(PUT /me/current-island)은 기록이 있는 소속 섬만 받고, 나가기·강퇴 뒤 다음 위치는 남은 소속 중 last_arrived_at 최신 섬이다(없으면 먼바다). V107 이 살아 있는 섬(deleted_at IS NULL·status<>ENDED)의 기존 활성 소속을 COALESCE(rejoined_at, created_at) 로 백필하고, 지금 서 있는 섬(user_island_contexts.current_island_id)의 last_arrived_at 만 now() 로 올림. GROMO-2260'] {
   user_id          uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE)']
   island_id        uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE)']
   first_arrived_at timestamptz [not null, note: '처음 도착한 시각']

@@ -66,6 +66,37 @@ class IslandArrivalV107MigrationTest {
     }
 
     @Test
+    @DisplayName("백필은 살아 있는 섬만 채우고, 지금 서 있는 섬을 «최근 머문 섬» 으로 올린다")
+    void v107BackfillsOnlyAliveIslandsAndLiftsTheCurrentIsland() {
+        migrate(MigrationVersion.fromVersion("106"));
+        JdbcTemplate jdbc = jdbc();
+        UUID resident = user(jdbc, "주민");
+        UUID standing = island(jdbc, "서있는섬", "ACTIVE");
+        UUID newest = island(jdbc, "최근가입섬", "ACTIVE");
+        UUID tombstoned = island(jdbc, "묘비섬", "ACTIVE");
+        jdbc.update("UPDATE groups SET deleted_at = now() WHERE id = ?", tombstoned);
+        UUID ended = island(jdbc, "끝난섬", "ENDED");
+        // 서 있는 섬은 가장 «오래전» 에 가입했고, 가장 최근 가입은 다른 섬이다.
+        membershipAt(jdbc, resident, standing, "3 days");
+        membershipAt(jdbc, resident, newest, "1 day");
+        membershipAt(jdbc, resident, tombstoned, "2 days");
+        membershipAt(jdbc, resident, ended, "2 days");
+        jdbc.update("INSERT INTO user_island_contexts (user_id, current_island_id) VALUES (?, ?)",
+                resident, standing);
+
+        migrate(MigrationVersion.LATEST);
+
+        assertThat(jdbc.queryForList("SELECT island_id FROM island_arrivals WHERE user_id = ?", UUID.class, resident))
+                .as("묘비·종결 섬은 백필하지 않는다").containsExactlyInAnyOrder(standing, newest);
+        assertThat(jdbc.queryForObject("SELECT island_id FROM island_arrivals WHERE user_id = ?"
+                        + " ORDER BY last_arrived_at DESC, island_id LIMIT 1", UUID.class, resident))
+                .as("최근 머문 섬 = 지금 서 있는 섬").isEqualTo(standing);
+        assertThat(jdbc.queryForObject("SELECT first_arrived_at < last_arrived_at FROM island_arrivals"
+                        + " WHERE user_id = ? AND island_id = ?", Boolean.class, resident, standing))
+                .as("처음 도착은 가입 시각 그대로, 최근 머문 시각만 올린다").isTrue();
+    }
+
+    @Test
     @DisplayName("시스템 편지는 발신자 없이 들어가고, kind 는 세 값만 받는다")
     void v107AllowsSystemLettersAndChecksKind() {
         migrate(MigrationVersion.LATEST);
@@ -96,6 +127,20 @@ class IslandArrivalV107MigrationTest {
         jdbc.update("INSERT INTO users (id, created_at, is_guest, nickname, is_deleted)"
                 + " VALUES (?, now(), false, ?, false)", id, nickname);
         return id;
+    }
+
+    private static UUID island(JdbcTemplate jdbc, String name, String status) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO groups (id, is_chat_enabled, invite_permission, max_members, name, status)"
+                + " VALUES (?, false, 'OWNER_ONLY', 10, ?, ?)", id, name, status);
+        return id;
+    }
+
+    /** {@code ago} 전에 가입한 활성 멤버십 — 백필 시각(COALESCE(rejoined_at, created_at))을 가른다. */
+    private static void membershipAt(JdbcTemplate jdbc, UUID userId, UUID groupId, String ago) {
+        jdbc.update("INSERT INTO group_members (id, user_id, group_id, role, notification_enabled,"
+                + " is_left, created_at, updated_at) VALUES (?, ?, ?, 'MEMBER', true, false,"
+                + " now() - CAST(? AS interval), now())", UUID.randomUUID(), userId, groupId, ago);
     }
 
     private static void membership(JdbcTemplate jdbc, UUID userId, UUID groupId, boolean left) {
