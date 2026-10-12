@@ -90,12 +90,13 @@ type IntentKeys = ReturnType<typeof intentKeyPool>;
  * (그대로 두면 로컬은 옛 현재 섬을 들고 있어 이후 [돌아가기]가 «이미 서 있는 섬»으로 착각해 요청 없이 홈만 연다.)
  * 확정된 4xx 는 서버가 바꾼 게 없으니 다시 읽지 않는다.
  * `Idempotency-Key` 는 현재 섬 이동(switchCurrent)과 같은 의도 키 풀·UUID 생성기로 만든다 — 섬당 의도 하나, 실패(결과 불명 포함)로
- * 끝나면 키를 그대로 둬 같은 섬으로의 재시도가 같은 키로 나가고, 도착이 확정되면 해제한다.
+ * 끝나면 키를 그대로 둬 같은 섬으로의 재시도가 같은 키로 나가고, 도착 POST 응답을 받으면 바로 해제한다(아래 주석).
  */
 async function arrive(e: any, keys: IntentKeys, islandId: string): Promise<boolean> {
   const key = keys.key('arrive', islandId);
   try {
     const { membershipStatus } = await arriveAtIsland(islandId, key);
+    // 도착 POST 응답을 받은 직후 해제한다(switchCurrent 는 소속 재조회로 currentIslandId 일치까지 확인한 뒤 해제 — 여기는 재조회 실패 시 다음 [항해하기]가 새 키로 가지만, 서버 도착은 같은 섬이면 결과가 같아 안전하다)
     keys.release('arrive', islandId);
     if (membershipStatus !== 'active') return false;
     await e.islands.sync();
@@ -263,7 +264,7 @@ export function Telescope({ e }: { e: any }) {
   const L = useAppLayout();
   const list = useTelescope({ active: !!e.islands });
   const sail = useIslandSailing(e);
-  // 도착 의도 키 풀 — 세션이 바뀌면 App 이 route 를 reset 해 이 화면이 언마운트되므로 풀도 함께 사라진다.
+  // 풀은 이 화면 수명 — 결과 불명 뒤 화면을 나갔다 오면 새 키다(도착은 같은 섬이면 결과가 같아 무해). 세션 세대 동안 유지하려면 islandCommands.arrive + scoped().keys 로 옮긴다(후속).
   const keyPool = useRef<IntentKeys | null>(null);
   const keys = (keyPool.current ??= intentKeyPool(uuid));
   const [selectedId, setSelectedId] = useState<string | null>(null);
