@@ -3,8 +3,9 @@
  * 확인창 → 망원경에 넣기 → 토스트(+밀려난 섬 한 줄) · 실패 문구. searchIslands·pinToTelescope 는 목, 타이머는 가짜다.
  */
 import React from 'react';
-import { AccessibilityInfo, Platform } from 'react-native';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
+import { act, fireEvent, render, within } from '@testing-library/react-native';
+import { componentTokens } from '@/design-system/tokens';
 import { ObservatorySearch } from '@/screens/island/ObservatorySearch';
 import { SEARCH_DEBOUNCE_MS } from '@/screens/island/useIslandSearch';
 import { applyLocalePref } from '@/i18n';
@@ -22,11 +23,13 @@ jest.mock('@/services/api/telescope', () => ({
   arriveAtIsland: jest.fn(),
   pinToTelescope: jest.fn(),
 }));
+// 시스템 글자 배율 — 큰 글자 테스트가 바꾸고 beforeEach 가 되돌린다
+let mockFontScale = 1;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
-    fontScale: 1,
+    fontScale: mockFontScale,
     compact: false,
     landscape: false,
     tablet: false,
@@ -45,6 +48,7 @@ const discoverMock = discoverIslands as jest.Mock;
 const pinMock = pinToTelescope as jest.Mock;
 
 beforeEach(() => {
+  mockFontScale = 1;
   jest.useFakeTimers();
   jest.clearAllMocks();
   searchMock.mockReset();
@@ -227,6 +231,37 @@ test('가입 신청 중인 섬은 «신청 중» 배지가 붙지만 망원경�
   await fireEvent.press(screen.getByRole('button', { name: /^신청섬/ }));
   expect(e.confirm).toHaveBeenCalledTimes(1);
 });
+
+test.each([
+  [1, false],
+  [componentTokens.telescope.largeTextThreshold - 0.01, false],
+  [componentTokens.telescope.largeTextThreshold, true],
+  [3, true],
+])(
+  '검색 행 «소속됨»·«신청 중» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',
+  async (scale, stacked) => {
+    mockFontScale = scale;
+    searchMock.mockResolvedValue(
+      page([
+        island('mine', { name: '우리섬', membershipStatus: 'active' }),
+        island('req', { name: '신청섬', membershipStatus: 'pending', approvalRequired: true }),
+      ]),
+    );
+    const { screen } = await search('섬');
+    for (const [name, badge] of [
+      ['우리섬', '소속됨'],
+      ['신청섬', '신청 중'],
+    ]) {
+      // 이름 글자의 부모가 본문(이름·소개) 칸이다. 고정 폭 썸네일 옆 오른쪽에 배지를 두면 큰 글자에서 배지가
+      // 행 폭을 다 차지해 이 칸이 0 으로 줄어든다 — 큰 글자에서는 배지가 이 칸 안으로 내려온다.
+      const body = screen.getByText(name).parent!;
+      expect(StyleSheet.flatten(body.props.style)).toMatchObject({ flex: 1, minWidth: 0 });
+      expect(within(body).queryByText(badge) !== null).toBe(stacked);
+      // 보통 글자에서는 지금 자리 그대로 — 같은 행의 오른쪽 끝(본문 칸 밖)
+      within(body.parent!).getByText(badge);
+    }
+  },
+);
 
 test('결과 행을 누르면 확인창이 뜨고, 확인하기 전에는 서버에 보내지 않는다', async () => {
   searchMock.mockResolvedValue(page([island('i1', { name: '단풍섬' })]));

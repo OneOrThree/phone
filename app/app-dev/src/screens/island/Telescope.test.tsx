@@ -11,6 +11,7 @@ import { arriveAtIsland, getTelescope, type TelescopeItem } from '@/services/api
 import { initialState, reducer } from '@/services/model';
 
 jest.mock('@/services/api/telescope', () => ({
+  ...jest.requireActual('@/services/api/telescope'),
   getTelescope: jest.fn(),
   arriveAtIsland: jest.fn(),
 }));

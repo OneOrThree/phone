@@ -4672,7 +4672,9 @@ export function RedesignScreens({ e }: any) {
       const rk = islandRankings,
         myIslandId = snap?.currentIslandId,
         // 소속 섬은 뗏목으로 바로 간다 — 망원경에 넣을 일이 없어 행을 누를 수 없다(GROMO-2269)
-        joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id));
+        joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id)),
+        // 큰 글자(망원경과 같은 판정)에서는 «소속됨» 배지를 이름 아래 줄로 내린다 — 고정 폭 순위·썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·평균 칸이 0 으로 준다
+        largeText = (layout.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
       return (
         <IslandSheet
           bg="tower"
@@ -4714,6 +4716,11 @@ export function RedesignScreens({ e }: any) {
                 {rk.data.items.map((item) => {
                   const joined = joinedIds.has(item.islandId);
                   const label = `${item.rank}위 ${item.name}, 평균 ${hoursMinutes(item.averageFocusSeconds)}`;
+                  const joinedBadge = joined && (
+                    <Badge soft style={largeText ? undefined : rankJoinedBadge}>
+                      {t('observatory.joined')}
+                    </Badge>
+                  );
                   return (
                     <SheetRow
                       key={item.islandId}
@@ -4734,13 +4741,10 @@ export function RedesignScreens({ e }: any) {
                           {item.rank}
                         </Txt>
                       }
+                      below={largeText ? joinedBadge : undefined}
                       tail={
                         <>
-                          {joined && (
-                            <Badge soft style={rankJoinedBadge}>
-                              {t('observatory.joined')}
-                            </Badge>
-                          )}
+                          {!largeText && joinedBadge}
                           <IslandThumb />
                         </>
                       }

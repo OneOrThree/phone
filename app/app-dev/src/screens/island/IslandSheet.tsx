@@ -1016,6 +1016,9 @@ export function Avatar({
   );
 }
 
+// SheetRow 의 `below` 줄 — 본문 칸 안 sub 아래에 왼쪽 정렬
+const rowBelow: ViewStyle = { alignItems: 'flex-start', marginTop: 4 };
+
 // 리스트 행(.row). tone = on(분홍) · butter(노랑). dense = 가로 축음기 시트의 낮은 행
 export function SheetRow({
   title,
@@ -1023,6 +1026,7 @@ export function SheetRow({
   right,
   lead,
   tail,
+  below,
   chevron = false,
   onPress,
   tone,
@@ -1037,6 +1041,8 @@ export function SheetRow({
   right?: React.ReactNode;
   lead?: React.ReactNode;
   tail?: React.ReactNode;
+  // 본문 칸(제목·sub) 안 sub 아래에 한 줄 더 놓는 내용. 큰 글자에서 tail 의 배지를 이리로 내려, 고정 폭 lead·tail 옆에서 본문 칸이 줄지 않게 한다
+  below?: React.ReactNode;
   chevron?: boolean;
   onPress?: () => void;
   tone?: 'on' | 'butter';
@@ -1075,6 +1081,7 @@ export function SheetRow({
             {sub}
           </Txt>
         )}
+        {!!below && <View style={rowBelow}>{below}</View>}
       </View>
       {typeof rightText === 'string' ? (
         <Txt
