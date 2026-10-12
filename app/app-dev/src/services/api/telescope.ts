@@ -7,6 +7,10 @@
  *  - `POST /islands/{id}/arrivals`   도착 기록(멱등, 본문 없음). `Idempotency-Key` 필수 — `PUT /me/current-island` 와
  *                                    같다: 키는 호출부가 의도당 한 번 만들고, 응답 유실 재시도는 같은 키로 보낸다.
  *                                    주민이면 서버가 현재 섬도 옮기고, 비주민은 기록만 한다(방문). 미존재·비공개 비주민은 404.
+ *  - `POST /me/telescope/pins`       섬을 망원경에 넣는다(GROMO-2269 전망대 · 서버 GROMO-2268). `{ islandId, source }`,
+ *                                    `Idempotency-Key` 불필요(이미 넣은 섬이면 200 으로 같은 본문). 5번째면 가장 오래된
+ *                                    핀이 빠지고 `evicted` 로 온다. 없는·비공개 섬 404 `GROUP_NOT_FOUND` · 강퇴 섬 403
+ *                                    `FORBIDDEN` · 내 소속 섬 409 `STATE_CONFLICT`.
  *
  * 가입의 `origin: 'telescope'` 는 `islands.ts joinIsland` 가 맡는다 — 즉시 가입이어도 현재 섬을 옮기지 않는다.
  */
@@ -49,6 +53,16 @@ export type Arrival = {
   currentIslandId: string | null;
 };
 
+/** 망원경에 넣은 곳 — 전망대(검색·랭킹)는 `observatory`, 잡지는 `magazine`(E4-5). */
+export type PinSource = 'observatory' | 'magazine';
+
+export type PinResult = {
+  /** 목록의 핀 칸(`slot === 'pinned'`)에 들어간 섬. */
+  item: TelescopeItem;
+  /** 핀이 가득 차 빠진 가장 오래된 섬. 안 빠졌으면 null. */
+  evicted: { islandId: string; name: string } | null;
+};
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 
 const contractError = (field: string) =>
@@ -84,5 +98,17 @@ export function arriveAtIsland(islandId: string, idempotencyKey: string): Promis
   return request<Arrival>(`/islands/${encodeURIComponent(islandId)}/arrivals`, {
     method: 'POST',
     idempotencyKey,
+  });
+}
+
+/**
+ * 섬을 망원경에 넣는다(GROMO-2269). 응답 유실 재시도가 안전하다 — 이미 넣은 섬은 서버가 같은 본문으로 답한다(첫 `source` 유지).
+ * 거절은 공개 오류 코드 그대로 올라간다: 없는·종료·비공개 섬 `GROUP_NOT_FOUND`, 강퇴 섬 `FORBIDDEN`(일반 권한 오류와 코드로는
+ * 구분되지 않는다), 내 소속 섬 `STATE_CONFLICT`. 게스트도 넣을 수 있다.
+ */
+export function pinToTelescope(islandId: string, source: PinSource): Promise<PinResult> {
+  return request<PinResult>('/me/telescope/pins', {
+    method: 'POST',
+    body: { islandId, source },
   });
 }

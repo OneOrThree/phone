@@ -1,10 +1,10 @@
 /**
- * 망원경 API (GROMO-2266 · 서버 계약 GROMO-2260·2265) — 무접두 공개 경로, `{data}` 언랩.
+ * 망원경 API (GROMO-2266·2269 · 서버 계약 GROMO-2260·2265·2268) — 무접두 공개 경로, `{data}` 언랩.
  * 서버가 아직 없어 계약 모양의 응답을 fetch 스텁으로 흘려 본다.
  */
 import assert from 'node:assert/strict';
 import { ApiError } from '@/services/api/client';
-import { arriveAtIsland, getTelescope } from '@/services/api/telescope';
+import { arriveAtIsland, getTelescope, pinToTelescope } from '@/services/api/telescope';
 import { clearSession, saveSession } from '@/services/api/session';
 
 type Call = { url: string; init: RequestInit };
@@ -135,6 +135,58 @@ test('arriveAtIsland — 서버 거절 코드는 그대로 오류로 올라간�
     assert.ok(e instanceof ApiError);
     assert.equal(e.code, 'NOT_FOUND');
     assert.equal(e.status, 404);
+    return true;
+  });
+});
+
+test('pinToTelescope — POST /me/telescope/pins 에 {islandId, source} 를 싣고(멱등 키 없음) item·evicted 를 그대로 돌려준다', async () => {
+  const data = {
+    item: wireItem({
+      islandId: 'i 1',
+      slot: 'pinned',
+      pinnedFrom: 'observatory',
+      pinnedAt: '2026-10-12T05:10:00Z',
+    }),
+    evicted: { islandId: 'old', name: '옛섬' },
+  };
+  stub([{ status: 201, body: { data } }]);
+  const result = await pinToTelescope('i 1', 'observatory');
+  assert.equal(path(calls[0]), '/me/telescope/pins');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
+    islandId: 'i 1',
+    source: 'observatory',
+  });
+  assert.equal(header(calls[0], 'Authorization'), 'Bearer AT');
+  assert.equal(header(calls[0], 'Idempotency-Key'), undefined);
+  assert.deepEqual(result, data);
+});
+
+test('pinToTelescope — 빠진 섬이 없으면 evicted 는 null 이고, 이미 넣은 섬(200)도 같은 모양이다', async () => {
+  const data = { item: wireItem({ slot: 'pinned', pinnedFrom: 'magazine' }), evicted: null };
+  stub([{ status: 200, body: { data } }]);
+  const result = await pinToTelescope('i1', 'magazine');
+  assert.equal(JSON.parse(String(calls[0].init.body)).source, 'magazine');
+  assert.equal(result.evicted, null);
+  assert.equal(result.item.pinnedFrom, 'magazine');
+});
+
+test.each([
+  [404, 'GROUP_NOT_FOUND'],
+  [403, 'FORBIDDEN'],
+  [409, 'STATE_CONFLICT'],
+])('pinToTelescope — 서버 거절(%s %s)은 공개 코드 그대로 오류로 올라간다', async (status, code) => {
+  stub([
+    {
+      status,
+      body: { error: { code, message: '넣을 수 없어요', field: 'islandId', retryable: false } },
+    },
+  ]);
+  await assert.rejects(pinToTelescope('gone', 'observatory'), (e: unknown) => {
+    assert.ok(e instanceof ApiError);
+    assert.equal(e.code, code);
+    assert.equal(e.status, status);
+    assert.equal(e.field, 'islandId');
     return true;
   });
 });

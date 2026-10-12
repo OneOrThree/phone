@@ -61,7 +61,8 @@
     "CLIENT_NETWORK_ERROR": "Can't connect to the network. Please check your connection.",
     "ISLAND_NOT_ARRIVED": "You haven't been to this island yet. Sail there from the telescope.",
     "ISLAND_LIMIT_EXCEEDED": "Your islands are full (3/3). Leave one to join a new island.",
-    "GUESTBOOK_ALREADY_WRITTEN_TODAY": "You've already left a guestbook note today."
+    "GUESTBOOK_ALREADY_WRITTEN_TODAY": "You've already left a guestbook note today.",
+    "PROMOTION_ALREADY_REQUESTED_TODAY": "You've already requested a magazine promotion today."
   },
   "time": {
     "minutes": "{{m}}m",
@@ -674,5 +675,20 @@
     "pending": "Request sent",
     "full": "Island is full",
     "joined": "You're a resident now — set sail to visit for the first time"
+  },
+  "observatory": {
+    "searchTitle": "Find islands",
+    "searchPlaceholder": "Island name",
+    "searchGuide": "Type an island name. Islands you've joined are marked Joined; add any other island to your telescope to sail there again.",
+    "searchEmpty": "No islands found. Check the island name and try again.",
+    "searchFailed": "Couldn't search for islands.",
+    "searchMore": "There are more islands. Type more of the name to narrow it down.",
+    "joined": "Joined",
+    "pin": "Add to telescope",
+    "pinBody": "You'll see this island in your raft's telescope. When the islands you've added are full, the one you added first drops out.",
+    "pinned": "Added to your telescope — see it in your raft's telescope",
+    "pinnedEvicted": "{{name}} was removed from your telescope",
+    "pinForbidden": "You can't add this island",
+    "pinAlreadyMember": "This is already one of your islands"
   }
 }

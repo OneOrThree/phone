@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { initialState, reducer } from '@/services/model';
+import { t } from '@/i18n';
+import { buildingNames, initialState, reducer } from '@/services/model';
 
 jest.mock('@/screens/island/useFriendsScreen', () => ({
   useFriendsScreen: () => ({ data: null }),
@@ -32,6 +33,12 @@ jest.mock('@/screens/island/Library', () => ({
     return <View testID="library-open" />;
   },
 }));
+// 전망대 화면(랭킹·섬 이름 검색) 자체는 Screens.test.tsx 가 본다 — 여기서는 입구(시설 잠금)만 본다.
+jest.mock('@/screens/island/Screens', () => {
+  const actual = jest.requireActual('@/screens/island/Screens');
+  const { View } = require('react-native');
+  return { ...actual, RedesignScreens: ({ e }: any) => <View testID={`redesign-${e.route}`} /> };
+});
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
@@ -134,3 +141,40 @@ test('방문 시설이 미완공이면 내 섬의 완공 여부와 무관하게 
   await fireEvent.press(screen.getByText('확인'));
   expect(e.replace).toHaveBeenCalledWith('visitIsland', 'visitor');
 });
+
+// 전망대(GROMO-2269) — 주간 랭킹(tower)과 섬 이름 검색(explore)은 전망대를 지은 주민에게만 열린다.
+const withBuildings = (built: string[]) =>
+  reducer(state(), {
+    type: 'SERVER_HOME',
+    facts: {
+      islandId: 'server',
+      completedBuildings: built,
+      home: { island: { id: 'server', role: 'member' }, wallets: { villagePoints: 0 } },
+    },
+  });
+
+test.each(['tower', 'explore'])(
+  '전망대를 짓지 않은 섬에서는 %s 입구가 잠겨 있다',
+  async (route) => {
+    const screen = await render(
+      <CurrentScreens e={env(withBuildings(['hall', 'board']), route)} />,
+    );
+    screen.getByText(t('home.lock.missing', { building: buildingNames.tower }));
+    assert.equal(screen.queryByTestId(`redesign-${route}`), null);
+  },
+);
+
+test.each(['tower', 'explore'])('전망대를 지은 섬에서는 %s 가 열린다', async (route) => {
+  const screen = await render(<CurrentScreens e={env(withBuildings(['hall', 'tower']), route)} />);
+  screen.getByTestId(`redesign-${route}`);
+  assert.equal(screen.queryByText(t('home.lock.missing', { building: buildingNames.tower })), null);
+});
+
+test.each(['tower', 'explore'])(
+  '전망대는 남의 섬을 방문 중이면 %s 가 열리지 않는다',
+  async (route) => {
+    const screen = await render(<CurrentScreens e={env(visiting(), route)} />);
+    screen.getByText('주민만 이용할 수 있어요');
+    assert.equal(screen.queryByTestId(`redesign-${route}`), null);
+  },
+);

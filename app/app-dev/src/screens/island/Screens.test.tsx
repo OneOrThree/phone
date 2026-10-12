@@ -23,13 +23,27 @@ import {
   rememberLocalDataOwner,
   saveSession,
 } from '@/services/api/session';
-import type { IslandSummary } from '@/services/api/islands';
+import { discoverIslands, searchIslands, type IslandSummary } from '@/services/api/islands';
+import { pinToTelescope } from '@/services/api/telescope';
 import { applyLocalePref } from '@/i18n';
 
 const mockRankings = jest.fn();
 jest.mock('@/screens/island/useIslandRankings', () => ({
   useIslandRankings: (...args: unknown[]) => mockRankings(...args),
 }));
+// 전망대(GROMO-2269) — 섬 이름 서버 검색과 망원경에 넣기. discover 는 전망대가 부르지 않는다는 것을 고정하려고 같이 목으로 둔다.
+jest.mock('@/services/api/islands', () => ({
+  ...jest.requireActual('@/services/api/islands'),
+  searchIslands: jest.fn(),
+  discoverIslands: jest.fn(),
+}));
+jest.mock('@/services/api/telescope', () => ({
+  ...jest.requireActual('@/services/api/telescope'),
+  pinToTelescope: jest.fn(),
+}));
+const mockSearch = searchIslands as jest.Mock;
+const mockDiscover = discoverIslands as jest.Mock;
+const mockPin = pinToTelescope as jest.Mock;
 let mockFontScale = 1;
 jest.mock('@/services/api/account', () => ({
   updateProfile: jest.fn(),
@@ -70,6 +84,9 @@ const notifyMock = jest.fn();
 const backMock = jest.fn();
 beforeEach(() => {
   mockRankings.mockReturnValue({ status: 'idle', data: null, error: null, retry: jest.fn() });
+  mockSearch.mockReset();
+  mockDiscover.mockReset();
+  mockPin.mockReset();
   mockUpdateProfile.mockReset();
   mockWithdrawAccount.mockReset();
   mockClearStudyWidget.mockClear();
@@ -2630,45 +2647,150 @@ test.each(['mainIsland', 'currentIsland'] as const)(
   },
 );
 
-test('전망대 순위에서 방문 상세로 이동하면 상세 조회는 한 번만 실행한다', async () => {
-  const island = islandSummary({ id: 'ranked-island', name: '순위에 오른 섬' });
+// 전망대(GROMO-2269) — 서버 모드의 랭킹 행·섬 이름 검색은 방문 화면 대신 «망원경에 넣기» 로 이어진다.
+const ranked = (island: IslandSummary, rank: number) => ({
+  islandId: island.id,
+  name: island.name,
+  rank,
+  averageFocusSeconds: 3600,
+});
+const toweredState = (mine: IslandSummary) =>
+  reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: { items: [mine], currentIslandId: mine.id, nextCursor: null, lossReason: null },
+  });
+
+test('전망대 순위의 섬 행은 방문 화면 대신 [망원경에 넣기] 확인창으로 이어지고, 확인하면 망원경에 넣는다', async () => {
+  const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+  const other = islandSummary({ id: 'ranked-island', name: '순위에 오른 섬' });
   mockRankings.mockReturnValue({
     status: 'ready',
-    data: {
-      items: [{ islandId: island.id, name: island.name, rank: 1, averageFocusSeconds: 3600 }],
-      myRank: null,
-    },
+    data: { items: [ranked(mine, 1), ranked(other, 2)], myRank: 1 },
   });
-  const visit = jest.fn();
+  mockPin.mockResolvedValue({
+    item: { islandId: other.id, slot: 'pinned' },
+    evicted: { islandId: 'old', name: '바람' },
+  });
+  let exposed: any;
   const screen = await render(
     <Harness
       route="tower"
-      detail={island.id}
-      flow
-      full
-      api={(dispatch: any) => {
-        visit
-          .mockImplementationOnce(async () => {
-            dispatch({
-              type: 'ISLAND_VISIT',
-              visit: {
-                island,
-                buildings: ['hall', 'board'],
-                members: { items: [], nextCursor: null },
-                joinRequest: null,
-              },
-            });
-          })
-          .mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
-        return { visit };
-      }}
+      initial={toweredState(mine)}
+      api={() => ({})}
+      expose={(value: any) => (exposed = value)}
     />,
   );
-  await fireEvent.press(await screen.findByText('순위에 오른 섬'));
-  await screen.findByText('섬 둘러보기');
-  expect(visit).toHaveBeenCalledTimes(1);
-  expect(visit).toHaveBeenCalledWith(island.id);
-  expect(screen.queryByText('다시 불러오기')).toBeNull();
+  // 소속 섬 행은 «소속됨» 배지로 누를 수 없다 — 소속 섬은 뗏목으로 바로 간다
+  screen.getByText('소속됨');
+  await fireEvent.press(screen.getByText('우리 섬'));
+  expect(exposed.confirm).not.toHaveBeenCalled();
+  expect(exposed.go).not.toHaveBeenCalled();
+
+  // 다른 섬 행 → 확인창(제목 = 섬 이름, 확인 = 망원경에 넣기). 하네스의 확인창은 바로 확인한다.
+  await fireEvent.press(screen.getByText('순위에 오른 섬'));
+  expect(exposed.confirm).toHaveBeenCalledTimes(1);
+  expect(exposed.confirm).toHaveBeenCalledWith(
+    '순위에 오른 섬',
+    expect.stringContaining('망원경'),
+    expect.any(Function),
+    { ok: '망원경에 넣기' },
+  );
+  await waitFor(() => expect(mockPin).toHaveBeenCalledWith('ranked-island', 'observatory'));
+  await waitFor(() =>
+    expect(notifyMock).toHaveBeenCalledWith(
+      '망원경에 넣었어요 — 뗏목의 망원경에서 볼 수 있어요\n바람섬이 망원경에서 빠졌어요',
+    ),
+  );
+  // 방문 화면(go('visit'))으로 보내지 않는다 · 공개 섬 탐색(discover)도 부르지 않는다
+  expect(exposed.go).not.toHaveBeenCalled();
+  expect(mockDiscover).not.toHaveBeenCalled();
+  expect(mockSearch).not.toHaveBeenCalled();
+});
+
+test('전망대 순위는 소속 섬이 여럿이어도(현재 섬이 아니어도) 모두 «소속됨» 으로 막는다', async () => {
+  const current = islandSummary({ id: 'cur', name: '지금 섬', membershipStatus: 'active' });
+  const second = islandSummary({ id: 'second', name: '두번째 섬', membershipStatus: 'active' });
+  const stranger = islandSummary({ id: 'stranger', name: '남의 섬' });
+  mockRankings.mockReturnValue({
+    status: 'ready',
+    data: { items: [ranked(second, 1), ranked(stranger, 2), ranked(current, 3)], myRank: 3 },
+  });
+  const initial = reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [current, second],
+      currentIslandId: current.id,
+      nextCursor: null,
+      lossReason: null,
+    },
+  });
+  let exposed: any;
+  const screen = await render(
+    <Harness route="tower" initial={initial} api={() => ({})} expose={(v: any) => (exposed = v)} />,
+  );
+  assert.equal(screen.getAllByText('소속됨').length, 2);
+  await fireEvent.press(screen.getByText('두번째 섬'));
+  await fireEvent.press(screen.getByText('지금 섬'));
+  expect(exposed.confirm).not.toHaveBeenCalled();
+  // 순위 행 중 버튼은 소속이 아닌 섬 하나뿐이다
+  expect(screen.getAllByRole('button', { name: /^\d위 / })).toHaveLength(1);
+  screen.getByRole('button', { name: /^2위 남의 섬/ });
+});
+
+test('전망대의 «섬 찾기» 는 explore 로 가고, 전망대가 서버 모드에서 부르는 API 는 랭킹뿐이다', async () => {
+  const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+  mockRankings.mockReturnValue({ status: 'ready', data: { items: [], myRank: null } });
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="tower"
+      initial={toweredState(mine)}
+      api={() => ({})}
+      expose={(v: any) => (exposed = v)}
+    />,
+  );
+  await fireEvent.press(screen.getByLabelText('섬 찾기'));
+  expect(exposed.go).toHaveBeenCalledWith('explore');
+  expect(mockSearch).not.toHaveBeenCalled();
+  expect(mockDiscover).not.toHaveBeenCalled();
+  expect(mockPin).not.toHaveBeenCalled();
+});
+
+test('서버 모드 explore 는 로컬 목업 섬이 아니라 서버 이름 검색 결과를 그리고, discover 는 부르지 않는다', async () => {
+  jest.useFakeTimers();
+  try {
+    mockSearch.mockResolvedValue({
+      items: [islandSummary({ id: 'srv', name: '단풍섬', intro: '서버가 찾은 섬' })],
+      nextCursor: null,
+    });
+    const screen = await render(<Harness route="explore" api={() => ({})} />);
+    // 검색 칸은 섬 이름만 받는다(초대 코드는 초대 링크 흐름)
+    expect(screen.queryByLabelText('섬 이름이나 초대 코드')).toBeNull();
+    // 로컬 목업 섬은 검색 전에도 보이지 않는다
+    expect(screen.queryByText('딸기 섬')).toBeNull();
+    await fireEvent.changeText(screen.getByLabelText('섬 이름'), '딸기');
+    await act(async () => {
+      jest.advanceTimersByTime(300);
+    });
+    expect(mockSearch).toHaveBeenCalledTimes(1);
+    expect(mockSearch).toHaveBeenCalledWith('딸기', { limit: 20 });
+    screen.getByText('단풍섬');
+    expect(screen.queryByText('딸기 섬')).toBeNull();
+    expect(mockDiscover).not.toHaveBeenCalled();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('서버가 없는 모드의 explore 는 로컬 목업 필터 그대로다(서버 검색을 부르지 않는다)', async () => {
+  const screen = await render(<Harness route="explore" />);
+  screen.getByLabelText('섬 이름이나 초대 코드');
+  screen.getByText('딸기 섬');
+  await fireEvent.changeText(screen.getByLabelText('섬 이름이나 초대 코드'), '구름');
+  screen.getByText('구름 섬');
+  expect(screen.queryByText('딸기 섬')).toBeNull();
+  expect(mockSearch).not.toHaveBeenCalled();
+  expect(mockDiscover).not.toHaveBeenCalled();
 });
 
 test.each([true, false])(
