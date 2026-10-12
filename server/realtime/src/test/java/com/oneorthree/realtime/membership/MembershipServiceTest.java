@@ -178,6 +178,20 @@ class MembershipServiceTest {
     }
 
     @Test
+    @DisplayName("isMemberUncached — 캐시에 옛 «멤버» 답이 남아 있어도 상류에 묻고, 그 새 답으로 캐시를 덮는다(GROMO-2247)")
+    void uncachedLookupIgnoresAStaleCacheAndRefreshesIt() {
+        // 사건의 캐시 삭제가 실패해 강퇴 전 답이 남은 상황 — 재검사가 이걸 읽으면 강퇴된 사람이 통과한다.
+        redis.opsForValue().set(RedisKeys.memberCache(userId), groupId.toString());
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.of(Set.of()));
+
+        assertThat(membershipService.isMemberUncached(groupId, userId, BEARER)).isFalse();
+
+        assertThat(redis.opsForValue().get(RedisKeys.memberCache(userId))).as("새 답으로 덮였다").isEmpty();
+        assertThat(membershipService.isMember(groupId, userId, BEARER)).isFalse();
+        verify(groupClient, times(1)).fetchMyGroupIds(BEARER);
+    }
+
+    @Test
     @DisplayName("evict — 캐시가 애초에 없어도 조용히 끝난다")
     void evictIsANoOpWhenNothingIsCached() {
         assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isFalse();

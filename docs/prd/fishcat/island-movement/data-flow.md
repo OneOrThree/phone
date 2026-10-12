@@ -10,7 +10,7 @@
 
 1. Business가 현재 섬·활성 소속을 Data 정본으로 검사한다. 클라이언트가 보낸 userId로 다른 주민을 선택하지 않는다.
 2. Business가 방 소유자·epoch를 확보하고, 최신 권한·배치를 worker(제어 어댑터)에 push한다. worker 준비 ack 전에는 사용 가능한 티켓을 응답하지 않는다.
-3. (2단계) 앱은 암호화 연결을 연 뒤 티켓을 제출한다. worker는 jti를 원자 소비하고 현재 권한 버전을 재검사한다. **1단계**는 기존 STOMP CONNECT 와 `/topic/islands/{id}/movement` 구독 인가가 이 단계를 대신한다.
+3. (2단계 QUIC) 앱은 암호화 연결을 연 뒤 티켓을 제출한다. worker는 jti를 원자 소비하고 현재 권한 버전을 재검사한다. **1단계**는 기존 STOMP CONNECT 와 `/topic/islands/{id}/movement` 구독 인가가 이 단계를 대신한다.
 4. 앱이 manifest의 hash로 통행 파일을 검증한 뒤 MapReady를 보낸다. worker 는 전체 상태·경로·시간 기준을 보내고, 앱은 그것이 준비되면 입력을 연다.
 5. 입장 준비 이후 강퇴되는 경합은 권한 version/취소 tombstone이 우선한다. 뒤늦은 낮은 버전 push와 그 티켓은 다시 활성화시키지 못한다.
 
@@ -45,7 +45,7 @@
 | 짧은 패킷 손실 | 다음 최신 snapshot 전송. 오래된 좌표 재전송 안 함 | 경로 위 한정 외삽 후 정지 |
 | Wi-Fi↔셀룰러 전환 | 검증된 QUIC migration이면 유지, 실패면 liveness 만료 | 기존 연결 복구 시도 후 새 티켓·전체 동기화 |
 | 배경 전환·강제 종료 | Leave 또는 3초 liveness 만료 시 정지·퇴장 | 복귀 시 새 세션. 오래된 명령 재전송 안 함 |
-| 같은 방 재접속 | 같은 사용자 기존 actor를 퇴장시키고 새 actorId/generation | 기존 예측·패킷·경로 캐시 폐기 |
+| 같은 방 재접속 | 같은 사용자 기존 actor를 퇴장시키고 새 actorId/generation (2단계 QUIC 계약. **1단계는 MV-D11** — actor 유지·세션 키 교체·commandSeq 리셋, FullState 를 방 전원에 재전송) | 기존 예측·패킷·경로 캐시 폐기 |
 | worker 장애 | lease 만료 후 다른 worker에 새 epoch. 영속 위치 복구 없음 | 새 티켓·맵 확인 후 입구로 복귀 |
 | 소유권 저장소 단절 | lease 연장 불가면 만료 전에 틱·송신 중단 | 정지하고 재입장 대기 |
 | Business 제어 경로 단절 | 현재 권한 lease까지만 유지. 이후 위치 송수신·이동 종료 | 연결 상태 표시, 권한 재확인 후 입장 |
