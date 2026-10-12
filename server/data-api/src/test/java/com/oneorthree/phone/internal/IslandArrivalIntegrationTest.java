@@ -32,6 +32,7 @@ import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -93,6 +94,8 @@ class IslandArrivalIntegrationTest {
     IslandManagementService management;
     @Autowired
     InternalLetterService letters;
+    @Autowired
+    AccountWithdrawalService withdrawal;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -327,6 +330,26 @@ class IslandArrivalIntegrationTest {
                 .as("삭제 묘비 — 하드 삭제가 아니라 CASCADE 가 돌지 않는다").isEqualTo(1);
         assertThat(count("select count(*) from island_arrivals where island_id=?", islandId)).isZero();
         assertThat(arrived(visitor, other)).as("다른 섬의 기록은 그대로").isTrue();
+    }
+
+    @Test
+    @DisplayName("계정 탈퇴는 그 사람의 도착 기록만 지운다 — 같은 섬의 다른 사람 기록은 남는다")
+    void withdrawalErasesOnlyTheWithdrawnUsersArrivals() {
+        UUID host = newUser();
+        UUID islandId = island("탈퇴섬", false, false);
+        joinAs(host, islandId, GroupMemberRole.OWNER);
+        UUID leaving = newUser();
+        joins.join(leaving, islandId, null, UUID.randomUUID());
+        UUID visited = island("들른섬", false, false);
+        islands.arrive(leaving, visited);
+        UUID staying = newUser();
+        islands.arrive(staying, islandId);
+        assertThat(count("select count(*) from island_arrivals where user_id=?", leaving)).isEqualTo(2);
+
+        withdrawal.withdraw(leaving);
+
+        assertThat(count("select count(*) from island_arrivals where user_id=?", leaving)).isZero();
+        assertThat(arrived(staying, islandId)).as("다른 사람의 같은 섬 기록").isTrue();
     }
 
     @Test
