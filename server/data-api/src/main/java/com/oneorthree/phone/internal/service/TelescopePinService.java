@@ -38,10 +38,12 @@ import java.util.UUID;
  * 항해 중인 섬을 빼는 것을 막는 검사는 없다 — 서버에 항해 상태가 없다(앱이 확인창으로 처리한다).
  *
  * <h2>잠금 — users 배타</h2>
- * 넣기는 먼저 사용자 행을 배타로 잡는다. 개수 판정(«5번째면 밀어낸다»)이 같은 사람의 동시 요청에 뚫리지 않게 하고,
- * 가입({@code IslandJoinService.join})·계정 탈퇴가 같은 행을 먼저 잡으므로 «내 소속이면 409» 가 낡은 값으로 통과하지
- * 않고 탈퇴 뒤에 핀이 새로 남지 않는다. 섬 행은 잠그지 않는다 — 비공개·종료·강퇴는 읽을 때 목록에서 빠지므로 그 사이에
- * 낀 변경은 «보이지 않는 핀» 하나로 끝난다.
+ * 넣기와 빼기는 둘 다 먼저 사용자 행을 배타로 잡는다. 개수 판정(«5번째면 밀어낸다»)이 같은 사람의 동시 요청에 뚫리지
+ * 않게 하고, 가입({@code IslandJoinService.join})·계정 탈퇴가 같은 행을 먼저 잡으므로 «내 소속이면 409» 가 낡은 값으로
+ * 통과하지 않고 탈퇴 뒤에 핀이 새로 남지 않는다. <b>빼기가 줄을 서야</b> 하는 이유는 «이미 있는 핀 다시 넣기» 다 — 그 넣기는
+ * INSERT(0행)를 한 뒤 목록을 다시 읽어 항목을 만드는데, 그 사이에 빼기가 커밋되면 멀쩡한 공개 섬에 404 가 나간다. 같은
+ * 잠금 뒤에 서면 넣기는 자기 핀을 보거나(빼기가 뒤), 빼기가 먼저였다면 핀을 다시 넣는다. 섬 행은 잠그지 않는다 —
+ * 비공개·종료·강퇴는 읽을 때 목록에서 빠지므로 그 사이에 낀 변경은 «보이지 않는 핀» 하나로 끝난다.
  */
 @Service
 @RequiredArgsConstructor
@@ -103,7 +105,7 @@ public class TelescopePinService {
 
     /**
      * 섬을 망원경에서 뺀다 — 핀이 없어도(만료되어 이미 사라졌어도) 성공이다. 빈 자리는 목록 조립이 같은 버킷의 다음
-     * 무작위 섬으로 채운다.
+     * 무작위 섬으로 채운다. 넣기와 같은 사용자 행 배타 잠금을 <b>가장 먼저</b> 잡는다 — 클래스 주석의 «잠금» 참조.
      *
      * @param userId   핀의 주인
      * @param islandId 뺄 섬
@@ -111,7 +113,7 @@ public class TelescopePinService {
      */
     @Transactional
     public IslandNoticeViews.Deleted unpin(UUID userId, UUID islandId) {
-        userQueryService.getCaller(userId);
+        userQueryService.getCallerForUpdate(userId);
         pins.deletePin(userId, islandId);
         return new IslandNoticeViews.Deleted(true);
     }

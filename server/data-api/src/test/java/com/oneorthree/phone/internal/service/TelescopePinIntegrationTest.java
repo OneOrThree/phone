@@ -35,6 +35,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import javax.sql.DataSource;
+
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -49,7 +54,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
@@ -80,6 +87,8 @@ class TelescopePinIntegrationTest {
     private static final Instant BUCKET = Instant.parse("2026-10-12T05:00:00Z");
     private static final Instant NEXT_RESET = Instant.parse("2026-10-12T22:00:00Z");
     private static final AtomicReference<Instant> NOW = new AtomicReference<>();
+    /** 테스트가 쥐었다 놓는 어드바이저리 락 번호 — 어드바이저리 락은 database 마다 따로라 다른 컨텍스트와 겹치지 않는다. */
+    private static final long GATE_KEY = 2268L;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -119,6 +128,8 @@ class TelescopePinIntegrationTest {
     JwtProvider jwt;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    DataSource dataSource;
     @Autowired
     MockMvc mvc;
 
@@ -284,6 +295,87 @@ class TelescopePinIntegrationTest {
                     .singleElement().satisfies(view -> assertThat(view.evicted().islandId())
                             .isEqualTo(islands.get(0).getId()));
             assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(4);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("이미 있는 핀을 다시 넣는 도중 같은 핀 빼기가 끼어들어도 넣기는 404 가 되지 않는다 — 빼기가 사용자 행 잠금 뒤에 줄을 선다")
+    void reAddingAnExistingPinNeverFailsWhenADeleteOverlaps() throws Exception {
+        UUID viewer = newUser();
+        UUID island = islandIds(1).get(0);
+        pin(viewer, island, "magazine", BASE);
+        NOW.set(BASE.plusSeconds(10));
+
+        // 다시 넣기를 «INSERT 가 0행으로 끝난 직후, 목록을 다시 읽기 전» 에 세워 둔다. 핀 INSERT 문장이 끝나면 도는 문장 단위
+        // 트리거가 어드바이저리 락을 기다리게 하고(충돌로 0행이어도 문장 단위 트리거는 돈다), 락은 테스트가 쥐었다 놓는다.
+        jdbc.execute("CREATE OR REPLACE FUNCTION telescope_pins_test_gate() RETURNS trigger AS $$ BEGIN "
+                + "PERFORM pg_advisory_lock(" + GATE_KEY + "); PERFORM pg_advisory_unlock(" + GATE_KEY + "); "
+                + "RETURN NULL; END $$ LANGUAGE plpgsql");
+        jdbc.execute("CREATE TRIGGER telescope_pins_test_gate AFTER INSERT ON telescope_pins "
+                + "FOR EACH STATEMENT EXECUTE FUNCTION telescope_pins_test_gate()");
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try (Connection gate = dataSource.getConnection()) {
+            try {
+                execute(gate, "select pg_advisory_lock(" + GATE_KEY + ")");
+                Future<TelescopePinView> add = pool.submit(() -> pinService.pin(viewer, island, "observatory"));
+                awaitUntil("다시 넣기가 INSERT 직후 트리거에서 멈춘다", () -> waitingOnGate() == 1);
+
+                Future<?> remove = pool.submit(() -> pinService.unpin(viewer, island));
+                try {
+                    remove.get(1, TimeUnit.SECONDS);
+                } catch (TimeoutException queued) {
+                    // 사용자 행 잠금에서 기다리는 중이다 — 기대한 길. 잠금이 없으면 빼기는 여기서 이미 커밋되고,
+                    // 아래 add.get 이 목록에서 자기 핀을 못 찾은 넣기의 404 로 터진다.
+                }
+                execute(gate, "select pg_advisory_unlock(" + GATE_KEY + ")");
+
+                TelescopePinView view = add.get(30, TimeUnit.SECONDS);
+                remove.get(30, TimeUnit.SECONDS);
+                assertThat(view.created()).as("이미 있던 핀이다 — 빼기는 넣기가 끝난 뒤에 돈다").isFalse();
+                assertThat(view.item().islandId()).isEqualTo(island);
+                assertThat(view.item().slot()).isEqualTo("pinned");
+                assertThat(count("select count(*) from telescope_pins where user_id=?", viewer))
+                        .as("빼기는 넣기 뒤에 실행돼 핀이 없다").isZero();
+            } finally {
+                execute(gate, "select pg_advisory_unlock_all()");
+                jdbc.execute("DROP TRIGGER IF EXISTS telescope_pins_test_gate ON telescope_pins");
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("사용자 행 잠금 앞에서 함께 기다리던 다시 넣기와 빼기는 어느 쪽이 먼저든 넣기가 404 가 되지 않는다")
+    void reAddAndDeleteQueuedOnTheUserLockEndInEitherOrder() throws Exception {
+        UUID viewer = newUser();
+        UUID island = islandIds(1).get(0);
+        pin(viewer, island, "magazine", BASE);
+        NOW.set(BASE.plusSeconds(10));
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try (Connection holder = dataSource.getConnection()) {
+            holder.setAutoCommit(false);
+            Future<TelescopePinView> add;
+            Future<?> remove;
+            try {
+                execute(holder, "select id from users where id = '" + viewer + "' for update");
+                add = pool.submit(() -> pinService.pin(viewer, island, "observatory"));
+                remove = pool.submit(() -> pinService.unpin(viewer, island));
+                // 둘 다 사용자 행 잠금에서 기다린다 — 빼기가 잠금 없이 먼저 끝나 버리면 여기서 걸린다.
+                awaitUntil("다시 넣기와 빼기가 사용자 행 잠금에서 함께 기다린다", () -> waitingOnLock() == 2);
+            } finally {
+                holder.commit();
+            }
+
+            TelescopePinView view = add.get(30, TimeUnit.SECONDS);
+            remove.get(30, TimeUnit.SECONDS);
+            assertThat(view.item().islandId()).isEqualTo(island);
+            // 빼기가 뒤였다면 넣기가 자기 핀을 봤고(created=false) 핀은 지워졌다. 빼기가 먼저였다면 넣기가 핀을 다시 넣었다(created=true).
+            assertThat(count("select count(*) from telescope_pins where user_id=?", viewer))
+                    .isEqualTo(view.created() ? 1L : 0L);
         } finally {
             pool.shutdownNow();
         }
@@ -722,6 +814,34 @@ class TelescopePinIntegrationTest {
     private long count(String sql, Object... args) {
         Long value = jdbc.queryForObject(sql, Long.class, args);
         return value == null ? 0L : value;
+    }
+
+    private static void execute(Connection connection, String sql) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
+    }
+
+    /** 테스트가 쥔 어드바이저리 락 때문에 기다리는 세션 수 — 핀 INSERT 직후 트리거에 선 다시 넣기를 센다. */
+    private long waitingOnGate() {
+        return count("select count(*) from pg_locks where locktype = 'advisory' and objid = " + GATE_KEY
+                + " and not granted and database = (select oid from pg_database where datname = current_database())");
+    }
+
+    /** 이 database 에서 행·트랜잭션 잠금을 기다리는 세션 수. */
+    private long waitingOnLock() {
+        return count("select count(*) from pg_stat_activity where wait_event_type = 'Lock' "
+                + "and datname = current_database()");
+    }
+
+    private static void awaitUntil(String what, BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("제때 일어나지 않았다: " + what);
+            }
+            Thread.sleep(20);
+        }
     }
 
     /** 서비스와 같은 시드의 셔플 순서 — SQL 의 {@code md5(seed || id)} 와 같은 값으로 정렬한다. */
