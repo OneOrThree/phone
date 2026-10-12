@@ -361,6 +361,14 @@
             }
           },
           {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -5527,6 +5535,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "nextLocation"
+            }
           }
         ],
         "responses": {
@@ -5724,6 +5741,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "nextLocation"
             }
           }
         ],
@@ -7810,6 +7836,10 @@
           "islandId": {
             "type": "string",
             "format": "uuid"
+          },
+          "readAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

@@ -5261,6 +5261,9 @@
           "islandId": {
             "type": "string",
             "format": "uuid"
+          },
+          "readAt": {
+            "type": "string"
           }
         },
         "required": [
