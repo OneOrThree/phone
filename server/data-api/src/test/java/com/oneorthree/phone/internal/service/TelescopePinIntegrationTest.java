@@ -23,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -407,11 +408,30 @@ class TelescopePinIntegrationTest {
                 pinned.get(1), pinned.get(2), pinned.get(3), order.get(1));
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(3);
 
-        // 이미 빠진 핀·넣은 적 없는 섬·없는 섬도 200 이다.
+        // 이미 빠진 핀·넣은 적 없는 섬·없는 섬도 200 이다 — «핀이 없어도» 의 뜻이다. 호출자(users 행)가 없는 빼기는 별개로 404 다
+        // (unpinOfAMissingCallerIs404UserNotFound).
         deletePin(viewer, pinned.get(0)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
         deletePin(viewer, order.get(0)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
         deletePin(viewer, UUID.randomUUID()).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("없는·탈퇴한 사용자의 빼기는 200 이 아니라 404 USER_NOT_FOUND 다 — «핀이 없어도 200» 과 별개로 호출자 잠금이 먼저다")
+    void unpinOfAMissingCallerIs404UserNotFound() throws Exception {
+        UUID viewer = newUser();
+        UUID island = islandIds(1).get(0);
+
+        // 현재 동작을 고정한다. «빼기는 늘 200» 은 «핀이 없어도(만료됐거나 넣은 적 없어도)» 의 뜻일 뿐 «호출자가 없어도» 가 아니다 —
+        // unpin 은 getCallerForUpdate 를 가장 먼저 부르므로 활성 users 행이 없으면(없는 id·탈퇴) 핀 삭제까지 가지 못하고
+        // UserException(USER_NOT_FOUND) 이 404 로 나간다. 요청자 본인의 부재라 TARGET_USER_NOT_FOUND 가 아니다(앱은 재로그인).
+        deletePin(viewer, island).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
+        deletePin(UUID.randomUUID(), island).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+        UUID withdrawn = newUser();
+        withdrawal.withdraw(withdrawn);
+        deletePin(withdrawn, island).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
     }
 
     // ---------------------------------------------------------------- ④ 버킷·만료
@@ -577,6 +597,39 @@ class TelescopePinIntegrationTest {
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isZero();
     }
 
+    @ParameterizedTest(name = "비공개 섬 + 본인이 {0} → {1} {2}")
+    @CsvSource({"kicked,403,KICKED_CANNOT_REJOIN", "member,409,ALREADY_MEMBER", "left,404,GROUP_NOT_FOUND",
+            "none,404,GROUP_NOT_FOUND"})
+    @DisplayName("비공개 섬에서도 판정 순서는 내 소속 409 → 강퇴 403 → 비공개 404 다 — 비공개 섬의 응답은 본인 관계에 따라 갈린다")
+    void aPrivateIslandAnswersByTheCallersRelationBeforeHidingItself(String relation, int httpStatus, String code)
+            throws Exception {
+        UUID viewer = newUser();
+        Group secret = groups.save(Group.builder().name("비공개섬").maxMembers(10).isPrivate(true).build());
+        // kicked = 강퇴 이력, member = 활성 주민, left = 자진 탈퇴 마킹(운영에서는 다른 주민이 남아 섬이 살아 있을 때의 상태),
+        // none = 관계 없음. 멤버십 행은 직접 마킹한다.
+        switch (relation) {
+            case "kicked" -> {
+                GroupMember kicked = join(viewer, secret);
+                kicked.kick(BASE);
+                members.save(kicked);
+            }
+            case "member" -> join(viewer, secret);
+            case "left" -> {
+                GroupMember left = join(viewer, secret);
+                left.leave(BASE);
+                members.save(left);
+            }
+            case "none" -> { }
+            default -> throw new IllegalArgumentException(relation);
+        }
+
+        // 본인이 아는 사실(소속·강퇴)은 비공개 판정보다 먼저다 — 비공개 판정이 앞서면 kicked 도 member 도 404 로 바뀐다. 그 밖에는
+        // (자진해서 나간 옛 주민 포함) 존재를 숨겨 관계 없는 사람과 같은 404 다.
+        postPin(viewer, secret.getId(), "magazine").andExpect(status().is(httpStatus))
+                .andExpect(jsonPath("$.code").value(code));
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isZero();
+    }
+
     @Test
     @DisplayName("본문이 모양을 어기면 400 이고 핀 행은 만들지 않는다 — 출처는 magazine·observatory 뿐이다")
     void malformedBodiesAre400() throws Exception {
@@ -667,7 +720,8 @@ class TelescopePinIntegrationTest {
         for (int i = 0; i < 4; i++) {
             pin(viewer, islands.get(i).getId(), "observatory", BASE.plusSeconds(i));
         }
-        // 가장 오래된 핀 섬에 가입해 그 핀을 가린 채 다섯 번째를 넣고, 그 섬을 자진해서 떠나 핀을 되살린다.
+        // 가장 오래된 핀 섬에 가입해 그 핀을 가린 채 다섯 번째를 넣고, 그 섬의 멤버십을 자진 탈퇴로 마킹해 핀을 되살린다 — 운영
+        // 나가기 API 가 아니라 멤버십 마킹만 같은 상태를 직접 만든 것이다(truncatedOldestPin 주석 참조).
         GroupMember joined = join(viewer, islands.get(0));
         pin(viewer, islands.get(4).getId(), "observatory", BASE.plusSeconds(4));
         joined.leave(BASE.plusSeconds(5));
@@ -928,8 +982,14 @@ class TelescopePinIntegrationTest {
     }
 
     /**
-     * 가장 오래된 핀이 목록에서 «잘린» 상태 — 0번 섬을 넣고 그 섬에 가입해 가린 채 1~4번을 넣은 뒤 0번을 자진해서 떠나 핀을
-     * 되살린다. 보이는 핀은 0~4번(0번이 가장 오래됨)의 다섯이고 목록은 최근 넷(1~4번)만 보여 준다. 시계는 BASE+6 이다.
+     * 가장 오래된 핀이 목록에서 «잘린» 상태 — 0번 섬을 넣고 그 섬에 가입해 가린 채 1~4번을 넣은 뒤 0번의 멤버십을 자진 탈퇴로
+     * 마킹해 핀을 되살린다. 보이는 핀은 0~4번(0번이 가장 오래됨)의 다섯이고 목록은 최근 넷(1~4번)만 보여 준다. 시계는
+     * BASE+6 이다.
+     *
+     * <p><b>운영 나가기 API 가 만든 상태가 아니다.</b> 멤버십 마킹({@code GroupMember.leave} 의 {@code is_left=true}·
+     * {@code left_reason=LEFT})만 같은 상태를 직접 만든다. 이 섬의 주민은 viewer 한 명뿐이라 운영의 «마지막 1인 나가기» 는
+     * 섬을 닫고 purge 하며 핀도 함께 지운다({@link #closingTheIslandPurgesItsPins} 가 그쪽을 덮는다). 운영에서 핀이
+     * 되살아나려면 방장이 남아 섬이 살아 있어야 한다.
      */
     private List<Group> truncatedOldestPin(UUID viewer) {
         List<Group> islands = islandEntities(5);
@@ -945,8 +1005,13 @@ class TelescopePinIntegrationTest {
     }
 
     /**
-     * 가장 오래된 핀 <b>둘</b>이 목록에서 «잘린» 상태 — 0·1번 섬을 넣자마자 가입해 가린 채 2~5번을 넣은 뒤 0·1번을 자진해서
-     * 떠나 핀을 되살린다. 보이는 핀은 0~5번(0번이 가장 오래됨)의 여섯이고 목록은 최근 넷(2~5번)만 보여 준다. 시계는 BASE+7 이다.
+     * 가장 오래된 핀 <b>둘</b>이 목록에서 «잘린» 상태 — 0·1번 섬을 넣자마자 가입해 가린 채 2~5번을 넣은 뒤 0·1번의 멤버십을
+     * 자진 탈퇴로 마킹해 핀을 되살린다. 보이는 핀은 0~5번(0번이 가장 오래됨)의 여섯이고 목록은 최근 넷(2~5번)만 보여 준다.
+     * 시계는 BASE+7 이다.
+     *
+     * <p>{@link #truncatedOldestPin} 처럼 <b>운영 나가기 API 가 만든 상태가 아니다</b> — 멤버십 마킹만 같은 상태를 직접
+     * 만든다. 섬마다 주민이 viewer 한 명뿐이라 운영의 «마지막 1인 나가기» 는 섬을 닫으며 핀도 지운다
+     * ({@link #closingTheIslandPurgesItsPins} 가 그쪽을 덮는다).
      */
     private List<Group> truncatedTwoOldestPins(UUID viewer) {
         List<Group> islands = islandEntities(6);
