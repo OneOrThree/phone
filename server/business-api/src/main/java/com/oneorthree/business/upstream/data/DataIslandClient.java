@@ -29,6 +29,8 @@ import com.oneorthree.business.upstream.data.dto.MessageAuthors;
 import com.oneorthree.business.upstream.data.dto.MessageCreatedAck;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
 import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
+import com.oneorthree.business.upstream.data.dto.Telescope;
+import com.oneorthree.business.upstream.data.dto.TelescopePin;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
@@ -69,6 +71,11 @@ public class DataIslandClient {
             "/internal/users/{userId}/invitations/resolve";
     private static final String PATH_ISLAND_INVITATIONS =
             "/internal/users/{userId}/islands/{islandId}/invitations";
+    /**
+     * 나가기·강퇴 응답에 다음 위치를 싣게 하는 opt-in (GROMO-2260). Data 는 이 파라미터가 없으면 GROMO-2260 이전의
+     * 한 키 응답을 준다 — Data 가 먼저 배포돼도 구 Business 가 깨지지 않게 하려는 장치다.
+     */
+    private static final String INCLUDE_NEXT_LOCATION = "nextLocation";
     // GROMO-2260 섬 도착 기록 — upsert 라 멱등이어서 명령 키가 없다.
     private static final String PATH_ISLAND_ARRIVALS =
             "/internal/users/{userId}/islands/{islandId}/arrivals";
@@ -94,6 +101,11 @@ public class DataIslandClient {
     private static final String PATH_ISLAND_JOIN_REQUESTS = "/internal/islands/{islandId}/join-requests";
     private static final String PATH_ISLAND_JOIN_REQUEST = "/internal/islands/{islandId}/join-requests/{requestId}";
     private static final String PATH_ISLAND_MEMBERSHIP = "/internal/users/{userId}/islands/{islandId}/membership";
+    // GROMO-2265 망원경 목록 — 사용자 축 조회 1종.
+    private static final String PATH_TELESCOPE = "/internal/users/{userId}/telescope";
+    // GROMO-2268 망원경 핀 2종 — 같은 핀을 다시 넣어도 아무것도 바뀌지 않아 명령 키가 없다.
+    private static final String PATH_TELESCOPE_PINS = "/internal/users/{userId}/telescope/pins";
+    private static final String PATH_TELESCOPE_PIN = "/internal/users/{userId}/telescope/pins/{islandId}";
 
     private final InternalHttpClient http;
 
@@ -183,6 +195,38 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<MyIslands>() { });
+    }
+
+    /** 망원경 목록 (GROMO-2265, 섬 외부 계약 §5). */
+    public Telescope fetchTelescope(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_TELESCOPE, userId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<Telescope>() { });
+    }
+
+    /** 망원경에 섬 넣기 (GROMO-2268) — 재시도하지 않는다(재시도하면 밀려난 핀 알림이 사라진다). */
+    public TelescopePin pinTelescope(UUID userId, UUID islandId, String source, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_TELESCOPE_PINS, userId))
+                        .onBehalfOf(userId)
+                        .body(new TelescopePinCommand(islandId, source))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<TelescopePin>() { });
+    }
+
+    /** 망원경에서 섬 빼기 (GROMO-2268) — 응답은 공지와 같은 {@code {deleted:true}} 다. */
+    public IslandNotices.Deleted unpinTelescope(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.DELETE,
+                                userPath(PATH_TELESCOPE_PIN, userId).replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandNotices.Deleted>() { });
     }
 
     /**
@@ -612,6 +656,7 @@ public class DataIslandClient {
                 InternalCall.to(HttpMethod.DELETE, islandPath(PATH_ISLAND_MEMBER, islandId)
                                 .replace("{targetUserId}", targetUserId.toString()))
                         .onBehalfOf(userId)
+                        .query("include", INCLUDE_NEXT_LOCATION)
                         .idempotencyKey(key.toString())
                         .idempotentCommand()
                         .build(),
@@ -624,6 +669,7 @@ public class DataIslandClient {
         return http.exchange(
                 InternalCall.to(HttpMethod.DELETE, islandPath(userPath(PATH_ISLAND_MEMBERSHIP, userId), islandId))
                         .onBehalfOf(userId)
+                        .query("include", INCLUDE_NEXT_LOCATION)
                         .idempotencyKey(key.toString())
                         .idempotentCommand()
                         .build(),
@@ -654,6 +700,10 @@ public class DataIslandClient {
 
     /** 방명록 쓰기 본문 (GROMO-2262). 작성자는 X-User-Id 로 간다. */
     record GuestbookWriteCommand(String content) {
+    }
+
+    /** 망원경 핀 넣기 본문 (GROMO-2268). 주인은 X-User-Id 로 간다. */
+    record TelescopePinCommand(UUID islandId, String source) {
     }
 
     /** 공지 작성 본문 (GROMO-1771). 작성자는 X-User-Id 로 간다. */

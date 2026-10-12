@@ -9,7 +9,12 @@ import com.oneorthree.business.upstream.data.dto.LetterView;
 import java.util.List;
 import java.util.UUID;
 
-/** 공개 필드만 명시적으로 조립한다. 내부 전송 DTO의 확장이 응답에 섞이지 않도록 분리한다. */
+/**
+ * 공개 필드만 명시적으로 조립한다. 내부 전송 DTO의 확장이 응답에 섞이지 않도록 분리한다.
+ *
+ * <p>{@code kind}·{@code islandId}·(목록의) {@code readAt} 은 시스템 편지(GROMO-2260)에만 값이 있고, 친구 편지는
+ * null 이라 키째 빠진다 — 친구 편지함 응답은 GROMO-2260 이전과 같은 모양이다.
+ */
 public final class LetterResponses {
 
     private LetterResponses() {
@@ -23,8 +28,8 @@ public final class LetterResponses {
             @JsonProperty(required = true) String content,
             @JsonProperty(required = true) String createdAt,
             String readAt,
-            String kind,
-            UUID islandId) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) String kind,
+            @JsonInclude(JsonInclude.Include.NON_NULL) UUID islandId) {
         public static LetterDetailView from(LetterView value) {
             if (value == null) {
                 return null;
@@ -66,8 +71,9 @@ public final class LetterResponses {
             @JsonProperty(required = true) String content,
             @JsonProperty(value = "isRead", required = true) boolean isRead,
             @JsonProperty(required = true) String createdAt,
-            String kind,
-            UUID islandId) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) String kind,
+            @JsonInclude(JsonInclude.Include.NON_NULL) UUID islandId,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String readAt) {
         public static LetterItemView from(LetterItem value) {
             if (value == null) {
                 return null;
@@ -80,7 +86,8 @@ public final class LetterResponses {
                     value.isRead(),
                     value.createdAt(),
                     value.kind(),
-                    value.islandId());
+                    value.islandId(),
+                    value.readAt());
         }
     }
 }

@@ -132,7 +132,11 @@ public class IslandJoinService {
         Map<String, Object> fingerprint = new HashMap<>();
         fingerprint.put("invitationToken", normalizeToken(body == null ? null : body.invitationToken()));
         boolean telescope = body != null && body.fromTelescope();
-        fingerprint.put("origin", telescope ? JoinIslandCommandRequest.ORIGIN_TELESCOPE : "visit");
+        if (telescope) {
+            // 망원경 가입만 지문에 남긴다(GROMO-2260) — 생략·visit 은 종전 지문 그대로라, 배포 전에 성공한
+            // 요청을 같은 키로 재시도해도 키 충돌이 아니라 원래 결과의 재생이다.
+            fingerprint.put("origin", JoinIslandCommandRequest.ORIGIN_TELESCOPE);
+        }
         PublicCommandRequest command = new PublicCommandRequest(userId,
                 "POST:/islands/" + islandId + "/memberships:" + userId,
                 idempotencyKey, InternalJson.tree(fingerprint));
