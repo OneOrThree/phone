@@ -225,6 +225,9 @@ class IslandManagementContractTest extends UpstreamTestBase {
 
         assertThat(DATA.receivedFor(DATA_KICK).get(0).header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(DATA.receivedFor(DATA_LEAVE).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+        // 다음 위치는 명시적 opt-in 이다 (GROMO-2260) — 파라미터가 없으면 Data 가 구 Business 용 한 키 응답을 준다.
+        assertThat(DATA.receivedFor(DATA_KICK).get(0).query()).isEqualTo("include=nextLocation");
+        assertThat(DATA.receivedFor(DATA_LEAVE).get(0).query()).isEqualTo("include=nextLocation");
     }
 
     @Test

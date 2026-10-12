@@ -54,6 +54,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -244,6 +245,7 @@ class IslandArrivalIntegrationTest {
         islands.switchCurrentIsland(user, first, UUID.randomUUID());
 
         mvc.perform(delete("/internal/users/" + user + "/islands/" + first + "/membership")
+                        .param("include", "nextLocation")
                         .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
                         .header("Idempotency-Key", UUID.randomUUID()))
                 .andExpect(status().isOk())
@@ -255,6 +257,76 @@ class IslandArrivalIntegrationTest {
         assertThat(last.nextLocation().islandId()).as("남은 망원섬은 가 본 적 없어 먼바다").isNull();
         assertThat(currentIsland(user)).isNull();
         assertThat(islands.myIslands(user).lossReason()).isEqualTo(GroupLeaveReason.LEFT);
+    }
+
+    @Test
+    @DisplayName("include 없는 나가기는 GROMO-2260 이전 바이트({\"left\":true})다 — 구 Business 호환, 잘못된 include 는 400")
+    void leaveWithoutIncludeKeepsTheLegacyBytes() throws Exception {
+        UUID user = newUser();
+        islands.create(user, new CreateIslandCommandRequest("남는섬", null, false, null), UUID.randomUUID());
+        UUID other = island("떠날섬", false, false);
+        joinAs(newUser(), other, GroupMemberRole.OWNER);
+        joins.join(user, other, null, UUID.randomUUID());
+
+        mvc.perform(delete("/internal/users/" + user + "/islands/" + other + "/membership")
+                        .param("include", "everything")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                        .header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        assertThat(count("select count(*) from group_members where group_id=? and user_id=? and is_left=false",
+                other, user)).as("거절된 요청은 나가지 않는다").isEqualTo(1);
+
+        mvc.perform(delete("/internal/users/" + user + "/islands/" + other + "/membership")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                        .header("Idempotency-Key", UUID.randomUUID()))
+                .andExpect(status().isOk())
+                .andExpect(content().string("{\"left\":true}"));
+    }
+
+    @Test
+    @DisplayName("자동 복구로 옮긴 섬은 다시 머문 섬이다 — 그 뒤의 복구가 오래된 도착 기록의 섬을 고르지 않는다")
+    void recoveryMoveRefreshesTheArrival() {
+        UUID user = newUser();
+        UUID a = islands.create(user, new CreateIslandCommandRequest("에이섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID b = island("비섬", false, false);
+        joinAs(newUser(), b, GroupMemberRole.OWNER);
+        UUID c = island("씨섬", false, false);
+        joinAs(newUser(), c, GroupMemberRole.OWNER);
+        joins.join(user, b, null, UUID.randomUUID());
+        joins.join(user, c, null, UUID.randomUUID());
+
+        // C 를 나가면 남은 A·B 중 최근 머문 B 로 복구된다 — 그 복구가 B 의 도착 시각을 새로 찍어야 한다.
+        management.leave(user, c, UUID.randomUUID());
+        assertThat(currentIsland(user)).isEqualTo(b);
+        // C 에 망원경으로 다시 가입한다 — 도착 기록은 예전(B 보다 나중) 그대로 남는다.
+        joins.join(user, c, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+        islands.switchCurrentIsland(user, a, UUID.randomUUID());
+
+        // A 를 나가면 «최근 머문» 섬은 복구로 다시 머문 B 다. 복구가 도착을 안 찍으면 C 가 뽑힌다.
+        assertThat(management.leave(user, a, UUID.randomUUID()).nextLocation().islandId()).isEqualTo(b);
+        assertThat(currentIsland(user)).isEqualTo(b);
+    }
+
+    @Test
+    @DisplayName("마지막 주민이 나가 섬이 purge 되면 그 섬의 도착 기록(주민·방문자)이 함께 사라진다")
+    void purgingAnIslandRemovesItsArrivals() {
+        UUID host = newUser();
+        UUID islandId = islands.create(host, new CreateIslandCommandRequest("닫힐섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID visitor = newUser();
+        islands.arrive(visitor, islandId);
+        UUID other = islands.create(visitor, new CreateIslandCommandRequest("남을섬", null, false, null),
+                UUID.randomUUID()).id();
+        assertThat(count("select count(*) from island_arrivals where island_id=?", islandId)).isEqualTo(2);
+
+        management.leave(host, islandId, UUID.randomUUID());
+
+        assertThat(count("select count(*) from groups where id=? and deleted_at is not null", islandId))
+                .as("삭제 묘비 — 하드 삭제가 아니라 CASCADE 가 돌지 않는다").isEqualTo(1);
+        assertThat(count("select count(*) from island_arrivals where island_id=?", islandId)).isZero();
+        assertThat(arrived(visitor, other)).as("다른 섬의 기록은 그대로").isTrue();
     }
 
     @Test
@@ -287,12 +359,19 @@ class IslandArrivalIntegrationTest {
         for (int i = 0; i < 2; i++) {
             // 같은 키 재생은 원 응답을 돌려주고 편지를 다시 만들지 않는다.
             mvc.perform(delete("/internal/islands/" + islandId + "/members/" + target)
+                            .param("include", "nextLocation")
                             .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", host)
                             .header("Idempotency-Key", key))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.removed").value(true))
                     .andExpect(jsonPath("$.nextLocation.islandId").value(home.toString()));
         }
+        // 같은 키를 구 Business(파라미터 없음)가 재시도해도 충돌 없이 GROMO-2260 이전 바이트로 재생된다.
+        mvc.perform(delete("/internal/islands/" + islandId + "/members/" + target)
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", host)
+                        .header("Idempotency-Key", key))
+                .andExpect(status().isOk())
+                .andExpect(content().string("{\"removed\":true}"));
         assertThat(currentIsland(target)).isEqualTo(home);
 
         List<Map<String, Object>> rows = jdbc.queryForList(
