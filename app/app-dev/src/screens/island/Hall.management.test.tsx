@@ -698,6 +698,24 @@ test('인사말은 앞뒤 공백만 달라졌으면 바뀐 것으로 보지 않�
   expect(edited.saveSettings.mock.calls[0][0].greeting).toBe('어서 와요!');
 });
 
+test('인사말 저장이 실패하면 쓰던 글을 그대로 두고 패널도 닫지 않아 같은 글로 다시 저장할 수 있다', async () => {
+  const api = withGreeting('어서 와요', false);
+  api.saveSettings.mockRejectedValueOnce(new ApiError('INTERNAL_ERROR', 'boom', 500));
+  managementMock.mockReturnValue(api);
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  await fireEvent.changeText(screen.getByTestId('hall-greeting'), '새 인사말');
+  await fireEvent.press(screen.getByTestId('hall-save'));
+  await screen.findByText('처리하지 못했어요. 잠시 후 다시 시도해 주세요.'); // 실패 토스트
+  expect(screen.getByTestId('hall-greeting').props.value).toBe('새 인사말'); // 쓰던 글이 남아 있다
+  expect(screen.getByTestId('hall-save')).toBeTruthy(); // 패널은 열린 채다
+
+  await fireEvent.press(screen.getByTestId('hall-save'));
+  await waitFor(() => expect(api.saveSettings).toHaveBeenCalledTimes(2));
+  expect(api.saveSettings.mock.calls[1][0].greeting).toBe('새 인사말');
+  await waitFor(() => expect(screen.queryByTestId('hall-save')).toBeNull()); // 성공하면 닫힌다
+});
+
 test('목업(비서버) 로컬 관리 패널에는 인사말 칸이 없다', async () => {
   const os = Object.getOwnPropertyDescriptor(Platform, 'OS');
   const target: any = globalThis;

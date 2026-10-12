@@ -132,6 +132,8 @@ export function Btn({
   dynamicHeight = false,
   style,
   id,
+  // 목록 항목마다 같은 제목(지우기·신고)이 되풀이되면 어느 항목인지 덧붙인 읽는 이름을 따로 줄 수 있다. 기본은 title
+  accessibilityLabel,
 }: any) {
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
@@ -149,7 +151,7 @@ export function Btn({
       <Pressable
         testID={id}
         accessibilityRole="button"
-        accessibilityLabel={title}
+        accessibilityLabel={accessibilityLabel || title}
         // small은 시각 높이 38pt를 유지하되 실제 누름 영역은 최소 44pt로 확장한다.
         hitSlop={small ? 3 : undefined}
         // 누를 동작이 없는 버튼(적용됨 같은 상태 표시)은 모양은 그대로 두고 비활성으로 읽는다(흐림은 disabled일 때만)
