@@ -441,6 +441,7 @@
       "toIsland": "To {{name}}",
       "telescope": "Telescope",
       "myRaft": "My Raft",
+      "endVisit": "End visit",
       "comingSoon": "Coming soon",
       "moveBlocked": "You can't move to another island right now."
     }

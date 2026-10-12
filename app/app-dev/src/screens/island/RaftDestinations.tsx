@@ -1,16 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
-import { Group } from '@/design-system/patterns';
-import { IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
+import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { Sailing } from '@/screens/world/WorldViews';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { sessionGeneration } from '@/services/api/session';
 import { canSwitchIsland, currentIsland, viewIsland, type State } from '@/services/model';
 
-// 이번 방문에서 가입 안내를 이미 물었는지 — 방문마다 새로 생기는 visit 객체로 구분한다(시트를 닫았다 열어도 1번).
-const askedLeave = new WeakSet<object>();
-
-/** 뗏목 행선지 시트(GROMO-2261) — 소속 섬 이동·낚시섬·망원경·내 뗏목. 방문 중에는 소속 섬만 보인다. */
+/** 뗏목 행선지 시트(GROMO-2261) — 소속 섬 이동·낚시섬·망원경·내 뗏목. 방문 중에는 소속 섬과 구경 끝내기만 보인다. */
 export function RaftDestinations({ e }: { e: any }) {
   const s: State = e.state;
   const visiting = !!s.visitingIslandId;
@@ -76,19 +72,26 @@ export function RaftDestinations({ e }: { e: any }) {
   };
 
   // 가입하지 않은 섬을 구경하다 떠나면 가입 안내를 방문당 1번 묻는다(GROMO-2259).
-  const visit = e.islands && visiting ? s.serverIslands?.visit : null;
-  const leave = (island: { id: string; name: string }) => {
-    if (visit && visit.island.membershipStatus === 'none' && !askedLeave.has(visit)) {
-      askedLeave.add(visit);
+  // 물었는지는 리듀서 상태(visitLeaveAsked)에 둔다 — 새 방문·구경 끝에서만 지워지고, 사이의 다른 액션에 영향받지 않는다.
+  const serverVisiting = !!e.islands && visiting;
+  const visit = serverVisiting ? s.serverIslands?.visit : null;
+  const confirmLeave = (action: () => void) => {
+    if (visit && visit.island.membershipStatus === 'none' && !s.visitLeaveAsked) {
+      e.dispatch({ type: 'VISIT_LEAVE_ASKED' });
       e.confirm(
         t('islandVisit.leaveWithoutJoinTitle'),
         t('islandVisit.leaveWithoutJoinBody'),
-        () => void leaveTo(island),
+        action,
         { ok: t('islandVisit.leaveWithoutJoinLeave') },
       );
       return;
     }
-    void leaveTo(island);
+    action();
+  };
+  // 소속 섬 이동 없이 구경만 끝낸다 — CurrentScreens 의 endServerVisit 와 같다(소속 섬이 없으면 섬 선택으로).
+  const endVisit = () => {
+    e.dispatch({ type: 'END_VISIT' });
+    e.reset(s.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
   };
 
   // 출발지 = 방문 중이면 방문 섬, 아니면 현재 섬 이름(이름을 못 얻으면 「우리 섬」).
@@ -121,7 +124,7 @@ export function RaftDestinations({ e }: { e: any }) {
       onBack={close}
       onClose={close}
     >
-      <Group>
+      <SheetGroup>
         {!visiting && (
           <SheetRow
             title={t('home.raft.fishingIsland')}
@@ -136,9 +139,19 @@ export function RaftDestinations({ e }: { e: any }) {
             title={t('home.raft.toIsland', { name: m.name })}
             chevron
             disabled={pending}
-            onPress={() => leave(m)}
+            onPress={() => confirmLeave(() => void leaveTo(m))}
           />
         ))}
+        {serverVisiting && (
+          // 이동할 소속 섬이 없어도(온보딩 중 구경 등) 구경을 끝낼 길이 남도록 방문 중에는 항상 둔다.
+          // TODO E1-4 먼바다로 행선지가 생기면 이 행을 대체한다
+          <SheetRow
+            title={t('home.raft.endVisit')}
+            chevron
+            disabled={pending}
+            onPress={() => confirmLeave(endVisit)}
+          />
+        )}
         {!visiting && (
           // TODO E1-4 먼바다 화면이 생기면 이 행은 바다 담당이 치운다 (임시 망원경 입구, N5)
           <SheetRow
@@ -156,7 +169,7 @@ export function RaftDestinations({ e }: { e: any }) {
             onPress={() => e.go('boat')}
           />
         )}
-      </Group>
+      </SheetGroup>
     </IslandSheet>
   );
 }

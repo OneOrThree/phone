@@ -973,6 +973,33 @@ test('방문자는 다른 섬을 구경만 하고 쓰기는 막히며, 가입하
   assert.equal(viewIsland(s).id, 'strawberry');
 });
 
+test('가입 안내 확인 여부(visitLeaveAsked)는 다른 액션이 끼어도 유지되고 새 방문·구경 끝에서 지워진다', () => {
+  let s = act(initialState(true), 'VISIT', { id: 'cloud' });
+  assert.equal(s.visitLeaveAsked, undefined);
+  s = act(s, 'VISIT_LEAVE_ASKED');
+  assert.equal(s.visitLeaveAsked, true);
+  // 리듀서는 매 액션에서 상태를 깊은 복사한다 — 그 사이에도 플래그는 남는다
+  s = act(s, 'TRAVEL_FROM', { name: '구름 섬' });
+  assert.equal(s.visitLeaveAsked, true);
+  s = act(s, 'END_VISIT');
+  assert.equal(s.visitLeaveAsked, undefined);
+  // 구경을 끝내지 않고 다른 방문을 시작해도 새 방문이다
+  s = act(act(s, 'VISIT', { id: 'cloud' }), 'VISIT_LEAVE_ASKED');
+  assert.equal(act(s, 'VISIT', { id: 'cloud' }).visitLeaveAsked, undefined);
+  // 앱을 다시 켜면 구경과 함께 지워진다
+  assert.equal(act(s, 'LOAD', { state: s }).visitLeaveAsked, undefined);
+
+  // 서버 방문
+  const island = { id: 'v1', name: '구경섬', membershipStatus: 'none' };
+  let server = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+  });
+  server = act(server, 'ISLAND_VISIT', { visit: { island } });
+  server = act(act(server, 'SERVER_VISITING', { islandId: 'v1' }), 'VISIT_LEAVE_ASKED');
+  assert.equal(server.visitLeaveAsked, true);
+  assert.equal(act(server, 'SERVER_VISITING', { islandId: 'v1' }).visitLeaveAsked, undefined);
+});
+
 test('방문자 가입 버튼 라벨은 다섯 가지다', () => {
   assert.deepEqual(visitorJoinLabel, {
     join: '이 섬에 가입',

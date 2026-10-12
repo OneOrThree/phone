@@ -426,6 +426,7 @@
       "toIsland": "{{name}}섬으로",
       "telescope": "망원경",
       "myRaft": "내 뗏목",
+      "endVisit": "구경 끝내기",
       "comingSoon": "준비 중이에요",
       "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요."
     }

@@ -2239,11 +2239,14 @@ function FinalIslandScene({
               accessibilityRole="button"
               onPress={visitHud.onFocusPress}
               style={{
-                marginTop: 6,
-                backgroundColor: '#FFFDFAB3',
-                borderRadius: 999,
-                paddingVertical: 6,
-                paddingHorizontal: 14,
+                marginTop: componentTokens.homeQuestIndicator.hudGap,
+                minHeight: semanticTokens.size.tapMin,
+                justifyContent: 'center',
+                // 위 HUD 알약과 같은 반투명 Paper 표면
+                backgroundColor: `${semanticTokens.color.surface}B3`,
+                borderRadius: semanticTokens.radius.full,
+                paddingVertical: primitiveTokens.space[2],
+                paddingHorizontal: semanticTokens.spacing.component,
               }}
             >
               <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
