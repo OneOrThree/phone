@@ -15,6 +15,7 @@ import {
   TextStyle,
   Platform,
   AccessibilityInfo,
+  BackHandler,
 } from 'react-native';
 import Svg, {
   Path,
@@ -420,7 +421,10 @@ function SheetToast({ text, bottom, right = 0 }: { text: string; bottom: number;
   );
 }
 
-// 섬 위 작은 팝업(.gpop). 가로 폰에서는 children | side 를 2단(.land .gpop)으로 눕힌다
+// 섬 위 작은 팝업(.gpop). 가로 폰에서는 children | side 를 2단(.land .gpop)으로 눕힌다.
+// 열려 있는 동안은 모달이다(DESIGN.md §11): 이 View 가 iOS accessibilityViewIsModal 이라 VoiceOver 는 형제 장면을 무시하고,
+// 안드로이드 뒤로 가기는 화면 이동 대신 팝업을 닫는다(열려 있는 동안만 등록해 App 전역 리스너보다 나중이라 먼저 불린다).
+// 형제를 가릴 수 없는 Android 스크린리더는 팝업 뒤 장면을 감싸는 쪽이 importantForAccessibility="no-hide-descendants" 로 숨긴다.
 export function IslandPopup({
   bg,
   onClose,
@@ -436,8 +440,15 @@ export function IslandPopup({
   const ins = L.insets;
   const two = L.compact;
   const col: ViewStyle = { flex: 1, gap: 10, minWidth: 0 };
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [onClose]);
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View style={StyleSheet.absoluteFill} accessibilityViewIsModal>
       <Backdrop bg={bg} onClose={onClose} />
       <View
         style={[

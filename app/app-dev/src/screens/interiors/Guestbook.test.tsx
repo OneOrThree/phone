@@ -174,6 +174,34 @@ test('남기기를 연타해도 요청은 한 번만 나간다', async () => {
   await screen.findByText('안녕');
 });
 
+test('보내는 동안에도 칸은 고칠 수 있고, 응답이 와도 그새 더 쓴 글은 지우지 않는다', async () => {
+  const { screen } = await mount(false);
+  let release!: (value: unknown) => void;
+  writeMock.mockReturnValue(new Promise((resolve) => (release = resolve)));
+  await fireEvent.changeText(screen.getByTestId(INPUT), '첫 글');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  expect(writeMock).toHaveBeenCalledWith('i1', '첫 글');
+  expect(screen.getByTestId(INPUT).props.editable).toBe(true); // 보내는 중에도 막지 않는다
+
+  await fireEvent.changeText(screen.getByTestId(INPUT), '첫 글 그리고 더');
+  await act(async () => release(entry('g9', { content: '첫 글', mine: true })));
+  await screen.findByText('첫 글'); // 보낸 글은 목록에 올라가고
+  expect(screen.getByTestId(INPUT).props.value).toBe('첫 글 그리고 더'); // 새로 쓰던 글은 그대로다
+  expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(false);
+});
+
+test('보내는 동안 칸을 안 고쳤으면 응답이 오자 비운다', async () => {
+  const { screen } = await mount(false);
+  let release!: (value: unknown) => void;
+  writeMock.mockReturnValue(new Promise((resolve) => (release = resolve)));
+  await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  expect(screen.getByTestId(INPUT).props.value).toBe('안녕'); // 응답 전에는 그대로
+  await act(async () => release(entry('g9', { content: '안녕', mine: true })));
+  await screen.findByText('안녕');
+  expect(screen.getByTestId(INPUT).props.value).toBe('');
+});
+
 test('섬장이 지우기를 누르면 확인창을 거쳐 지우고 목록에서 뺀다', async () => {
   const { screen, e } = await mount(true);
   deleteMock.mockResolvedValue({ deleted: true });

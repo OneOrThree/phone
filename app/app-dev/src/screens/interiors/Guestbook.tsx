@@ -107,12 +107,14 @@ export function Guestbook({
     const content = draft.trim();
     if (!content || writing.current) return;
     const alive = aliveGuard(scope);
+    const sent = draft;
     writing.current = true;
     setBusy(true);
     try {
       const entry = await writeGuestbook(islandId, content);
       if (!alive()) return;
-      setDraft('');
+      // 칸은 보내는 동안에도 고칠 수 있다 — 보낸 그대로일 때만 비우고, 그새 더 쓴 글은 남긴다
+      setDraft((current) => (current === sent ? '' : current));
       setLoaded(
         (page) => page && { ...page, items: [entry, ...page.items].slice(0, GUESTBOOK_LIST_MAX) },
       );
