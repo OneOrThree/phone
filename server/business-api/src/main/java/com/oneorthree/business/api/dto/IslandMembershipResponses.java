@@ -14,6 +14,7 @@ import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
 import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.Telescope;
+import com.oneorthree.business.upstream.data.dto.TelescopePin;
 
 import java.time.Instant;
 import java.util.List;
@@ -250,7 +251,7 @@ public final class IslandMembershipResponses {
      *
      * @param bucketStart        이 목록의 1시간 버킷 시작
      * @param nextRefreshMinutes 다음 목록까지 남은 분(1~60)
-     * @param items              {@code joined} → {@code nearby} → {@code random} 순
+     * @param items              {@code joined} → {@code nearby} → {@code pinned} → {@code random} 순
      */
     public record TelescopeView(
             @JsonProperty(required = true) Instant bucketStart,
@@ -265,10 +266,13 @@ public final class IslandMembershipResponses {
     /**
      * 망원경 한 칸.
      *
-     * @param slot                      {@code joined|nearby|random}
+     * @param slot                      {@code joined|nearby|pinned|random}
      * @param sailingMinutes            항해 분 — {@code nearby} 는 15, 나머지는 30·60·90 중 하나
      * @param averageFocusMinutesPerDay 주민 1인당 하루 평균 집중(분). 아직 집계 전이면 null
      * @param full                      정원이 찼다 — 구경만 할 수 있다
+     * @param pinnedFrom                {@code magazine|observatory} — 직접 넣은 섬({@code slot=pinned})에만 있다. 나머지 칸에서는
+     *                                  키가 없다(GROMO-2268)
+     * @param pinnedAt                  핀을 넣은 시각 — {@code pinnedFrom} 과 함께 있거나 함께 없다
      */
     public record TelescopeItemView(
             @JsonProperty(required = true) UUID islandId,
@@ -282,7 +286,9 @@ public final class IslandMembershipResponses {
             @JsonProperty(required = true) int sailingMinutes,
             Integer averageFocusMinutesPerDay,
             @JsonProperty(required = true) boolean full,
-            @JsonProperty(required = true) boolean arrivedBefore) {
+            @JsonProperty(required = true) boolean arrivedBefore,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String pinnedFrom,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Instant pinnedAt) {
         public static TelescopeItemView from(Telescope.Item value) {
             if (value == null) {
                 return null;
@@ -299,7 +305,33 @@ public final class IslandMembershipResponses {
                     value.sailingMinutes(),
                     value.averageFocusMinutesPerDay(),
                     value.full(),
-                    value.arrivedBefore());
+                    value.arrivedBefore(),
+                    value.pinnedFrom(),
+                    value.pinnedAt());
+        }
+    }
+
+    /**
+     * 망원경에 섬을 넣은 결과 (GROMO-2268) — {@code POST /me/telescope/pins}. 새 핀이면 201, 이미 있던 핀이면 200 으로
+     * 같은 항목을 돌려준다.
+     *
+     * @param item    넣은 섬 — 목록에서 보이는 그대로({@code slot=pinned}, {@code pinnedFrom}·{@code pinnedAt} 포함)
+     * @param evicted 이 핀이 5번째라 밀려난 가장 오래된 핀. 밀려난 핀이 없으면 null 이고 키는 항상 있다
+     */
+    public record TelescopePinView(
+            @JsonProperty(required = true) TelescopeItemView item,
+            @JsonInclude(JsonInclude.Include.ALWAYS) EvictedPinView evicted) {
+        public static TelescopePinView from(TelescopePin value) {
+            return new TelescopePinView(TelescopeItemView.from(value.item()), EvictedPinView.from(value.evicted()));
+        }
+    }
+
+    /** 밀려난 핀의 섬 — 앱이 「{name}섬이 망원경에서 빠져요」를 띄운다. */
+    public record EvictedPinView(
+            @JsonProperty(required = true) UUID islandId,
+            @JsonProperty(required = true) String name) {
+        public static EvictedPinView from(TelescopePin.Evicted value) {
+            return value == null ? null : new EvictedPinView(value.islandId(), value.name());
         }
     }
 }

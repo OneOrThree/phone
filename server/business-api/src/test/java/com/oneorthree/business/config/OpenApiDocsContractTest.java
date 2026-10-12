@@ -55,7 +55,7 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/islands/{islandId}/quests/{questId}/progress|members|userId name rate measurementStatus achieved claimed|userId name rate measurementStatus achieved claimed",
             "/islands/{islandId}/statistics/fish-earnings|members|userId name earnedFish|",
             "/me/join-requests|items|id islandId islandName memberCount maxMembers status version createdAt|id islandId memberCount maxMembers status version createdAt",
-            "/me/telescope|items|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes averageFocusMinutesPerDay full arrivedBefore|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes full arrivedBefore"})
+            "/me/telescope|items|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes averageFocusMinutesPerDay full arrivedBefore pinnedFrom pinnedAt|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes full arrivedBefore"})
     @DisplayName("동명 중첩 DTO가 있어도 각 도메인의 공개 필드와 required를 문서화한다")
     void nestedSchemasRemainSpecificToTheirDomain(String path, String collection, String fields,
             String requiredFields) throws Exception {

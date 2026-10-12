@@ -8,7 +8,9 @@ import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandInvitatio
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandJoinResultView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestCancelView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.TelescopePinView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.TelescopeView;
+import com.oneorthree.business.api.dto.IslandNoticeResponses.NoticeDeletedView;
 import com.oneorthree.business.api.dto.IslandPage;
 import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
@@ -66,6 +68,8 @@ public class IslandMembershipController {
     /** 가입 본문의 화이트리스트 — {@code origin} 은 GROMO-2260 에서 열었다. */
     private static final Set<String> JOIN_KEYS = Set.of("invitationToken", "origin");
     private static final Set<String> JOIN_ORIGINS = Set.of("visit", "telescope");
+    /** 망원경 핀 넣기 본문의 출처 — 정확히 이 둘이다(GROMO-2268). Data 의 V110 CHECK 와 같다. */
+    private static final Set<String> PIN_SOURCES = Set.of("magazine", "observatory");
     /**
      * 정원 범위 — 정책 「정원은 1~15명」(GROMO-1993). 길이 상한과 같은 «모양» 판정이라 Business 가
      * 네트워크 전에 먼저 거른다. Data 의 {@code @Min}/{@code @Max} 가 여전히 최종 경계다.
@@ -154,6 +158,42 @@ public class IslandMembershipController {
     @GetMapping("/me/telescope")
     public TelescopeView telescope(HttpServletRequest request) {
         return islands.telescope(sessions.requireSession(request), properties.deadline());
+    }
+
+    /**
+     * 망원경에 섬 넣기 (GROMO-2268, 섬 외부 계약 §6). 본문은 정확히 {@code {islandId, source}} 둘이고 {@code source} 는
+     * {@code magazine}·{@code observatory} 뿐이다. 새 핀이면 201, 이미 있던 핀이면 200 으로 같은 항목을 돌려준다.
+     * 게스트도 쓴다. 같은 핀을 다시 넣어도 아무것도 바뀌지 않아 {@code Idempotency-Key} 는 받지 않는다.
+     */
+    @PostMapping(value = "/me/telescope/pins", consumes = "application/json")
+    public ResponseEntity<TelescopePinView> pinTelescope(@RequestBody JsonNode body, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        if (body == null || !body.isObject()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+        }
+        JsonNode islandId = body.get("islandId");
+        if (islandId == null || !islandId.isString()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "islandId");
+        }
+        JsonNode source = body.get("source");
+        if (source == null || !source.isString() || !PIN_SOURCES.contains(source.stringValue())) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "source");
+        }
+        // 위 둘 말고 다른 키가 섞여 있으면 거절한다 — 주체는 서명된 세션에서만 온다.
+        if (body.size() != 2) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+        }
+        IslandMembershipUseCase.TelescopePinned pinned = islands.pinTelescope(claims,
+                PublicIds.uuid(islandId.stringValue(), "islandId"), source.stringValue(), properties.deadline());
+        return ResponseEntity.status(pinned.created() ? HttpStatus.CREATED : HttpStatus.OK).body(pinned.view());
+    }
+
+    /** 망원경에서 섬 빼기 (GROMO-2268). 핀이 없어도 200 {@code {deleted:true}} 다. */
+    @DeleteMapping("/me/telescope/pins/{islandId}")
+    public NoticeDeletedView unpinTelescope(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return NoticeDeletedView.from(islands.unpinTelescope(claims, PublicIds.uuid(islandId, "islandId"),
+                properties.deadline()));
     }
 
     /** 현재 섬 이동 (LLD §3.6). */

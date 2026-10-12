@@ -11,6 +11,7 @@ import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryVi
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestCancelView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.MyJoinRequestView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.TelescopePinView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.TelescopeView;
 import com.oneorthree.business.api.dto.IslandPage;
 import com.oneorthree.business.api.dto.MyIslandsResponse;
@@ -27,6 +28,7 @@ import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
+import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
 import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
@@ -35,6 +37,7 @@ import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
 import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.Telescope;
+import com.oneorthree.business.upstream.data.dto.TelescopePin;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -144,6 +147,28 @@ public class IslandMembershipUseCase {
             throw new UpstreamContractMismatchException("망원경 응답이 없습니다");
         }
         return TelescopeView.from(telescope);
+    }
+
+    /**
+     * 망원경에 섬 넣기 (GROMO-2268, 섬 외부 계약 §6). 비공개·없는 섬 404 · 강퇴 403 · 이미 내 소속 409 · 5번째 밀어내기 ·
+     * 멱등·만료는 전부 Data 몫이고(404·403·409 는 위 표가 공개 코드로 옮긴다) 여기서는 응답이 요청과 맞는지만 본다.
+     */
+    public TelescopePinned pinTelescope(AccessTokenClaims claims, UUID islandId, String source, Deadline deadline) {
+        TelescopePin pinned = relay(() -> data.pinTelescope(claims.userId(), islandId, source, deadline));
+        if (pinned == null || pinned.item() == null || !islandId.equals(pinned.item().islandId())
+                || !"pinned".equals(pinned.item().slot())) {
+            throw new UpstreamContractMismatchException("망원경 핀 응답의 항목이 요청과 다릅니다");
+        }
+        return new TelescopePinned(pinned.created(), TelescopePinView.from(pinned));
+    }
+
+    /** 망원경에서 섬 빼기 (GROMO-2268). 핀이 없어도 Data 가 {@code deleted:true} 로 답한다. */
+    public IslandNotices.Deleted unpinTelescope(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        IslandNotices.Deleted deleted = relay(() -> data.unpinTelescope(claims.userId(), islandId, deadline));
+        if (deleted == null || !deleted.deleted()) {
+            throw new UpstreamContractMismatchException("망원경 핀 삭제 응답이 계약과 다릅니다");
+        }
+        return deleted;
     }
 
     /**
@@ -437,5 +462,12 @@ public class IslandMembershipUseCase {
 
     /** 공개 「신청 중」 목록 한 페이지 — {@code nextCursor} 는 서명 토큰이다(GROMO-2047). */
     public record MyJoinRequests(List<MyJoinRequestView> items, String nextCursor) {
+    }
+
+    /**
+     * 망원경에 섬을 넣은 결과 — {@code created} 는 새 핀(201)과 이미 있던 핀(200)을 가르는 값이라 공개 본문({@code view})에는
+     * 싣지 않는다(GROMO-2268).
+     */
+    public record TelescopePinned(boolean created, TelescopePinView view) {
     }
 }

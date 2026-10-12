@@ -255,9 +255,9 @@ class TelescopeIntegrationTest {
 
         assertThat(telescope.list(viewer.getId()).items()).containsExactly(
                 new TelescopeItemView(home.getId(), "윤슬", "같이 집중해요", 2, 5, false, "active", "joined",
-                        SailingTimes.minutes(viewer.getId(), home.getId(), BUCKET), 83, false, true),
+                        SailingTimes.minutes(viewer.getId(), home.getId(), BUCKET), 83, false, true, null, null),
                 new TelescopeItemView(applied.getId(), "물결", "", 1, 10, true, "pending", "nearby", 15, null,
-                        false, false));
+                        false, false, null, null));
     }
 
     // ---------------------------------------------------------------- ⑥ 다음 목록까지
