@@ -281,12 +281,6 @@ export const componentTokens = {
     color: '#d7829b',
     opacity: 0.3,
   },
-  villageBuildingNameTag: {
-    minHeight: 24,
-    paddingHorizontal: space[2],
-    radius: 12,
-    borderWidth: semanticTokens.stroke.subtle,
-  },
   villageNotificationTooltip: {
     maxWidth: 180,
     paddingVertical: space[2],

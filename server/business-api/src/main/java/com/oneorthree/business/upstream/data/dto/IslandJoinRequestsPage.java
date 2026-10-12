@@ -17,11 +17,15 @@ public record IslandJoinRequestsPage(
         Instant nextCreatedAt,
         UUID nextRequestId) {
 
-    /** 신청 한 건 — {@code version} 은 그 요청 자원 축이다. */
+    /**
+     * 신청 한 건 — {@code version} 은 그 요청 자원 축이다. {@code catColor} 는 신청자 고양이 색(미선택 null)이고
+     * 필수가 아니다 — 이 필드를 싣기 전의 Data 가 먼저 떠 있어도 역직렬화가 깨지지 않는다.
+     */
     public record Item(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID applicantId,
             String name,
+            String catColor,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String status,
             @JsonProperty(required = true) long version) {
     }

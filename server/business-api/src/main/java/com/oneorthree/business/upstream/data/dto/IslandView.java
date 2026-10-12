@@ -3,6 +3,7 @@ package com.oneorthree.business.upstream.data.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import java.util.List;
 
 /**
  * {@code GET /internal/islands/{islandId}} 의 두 갈래 응답 (GROMO-1759, LLD §3.4).
@@ -16,5 +17,6 @@ import com.fasterxml.jackson.annotation.Nulls;
 public record IslandView(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String scope,
         IslandSummary visitor,
-        IslandDetail member) {
+        IslandDetail member,
+        List<String> buildings) {
 }

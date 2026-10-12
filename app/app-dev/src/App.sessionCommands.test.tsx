@@ -22,6 +22,7 @@ import {
 } from '@/services/buildingTransition';
 
 let captured: any;
+let mockLoadHomeSnapshot: jest.Mock | undefined;
 const mockApiLogin = jest.fn();
 const mockSocialCredential = jest.fn();
 const mockGuestLogin = jest.fn();
@@ -54,6 +55,15 @@ jest.mock('@/screens/island/CurrentScreens', () => ({
     return null;
   },
 }));
+
+jest.mock('@/services/homeSnapshot', () => {
+  const actual = jest.requireActual('@/services/homeSnapshot');
+  return {
+    ...actual,
+    loadHomeSnapshot: (...args: unknown[]) =>
+      mockLoadHomeSnapshot ? mockLoadHomeSnapshot(...args) : actual.loadHomeSnapshot(...args),
+  };
+});
 
 jest.mock('@/services/api/auth', () => ({
   checkSession: (...args: unknown[]) => mockCheckSession(...args),
@@ -161,6 +171,7 @@ jest.mock('react-native-safe-area-context', () => ({
 beforeEach(async () => {
   process.env.EXPO_PUBLIC_TERMS_VERSION = 'test-terms-v1';
   captured = undefined;
+  mockLoadHomeSnapshot = undefined;
   jest.clearAllMocks();
   // clearAllMocks는 *Once 큐를 비우지 않는다. 소비되지 않은 응답이 다음 테스트로 새지 않게 비운다.
   mockApiLogin.mockReset();
@@ -1985,4 +1996,50 @@ test('en 로케일 — 게스트→회원 시트는 영문 제목을 보여주�
     await AsyncStorage.multiRemove(['gromo.locale']);
     applyLocalePref(null);
   }
+});
+
+test('관리 화면에서 홈으로 복귀하면 같은 섬의 이름·인원·역할도 새로 읽는다', async () => {
+  mockBootRoute = 'home';
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(initialState(true)));
+  let island = {
+    id: 'managed-island',
+    name: '수정 전',
+    role: 'host',
+    memberCount: 3,
+    maxMembers: 15,
+  };
+  mockLoadHomeSnapshot = jest.fn(async () => ({
+    status: 'loaded',
+    facts: {
+      islandId: island.id,
+      home: { island: { ...island }, wallets: { villagePoints: 0 } },
+      completedBuildings: ['hall'],
+      members: [],
+    },
+  }));
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    captured.dispatch({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ ...island }],
+        currentIslandId: island.id,
+        nextCursor: null,
+        lossReason: null,
+      },
+      requests: [],
+    });
+    captured.reset('home');
+  });
+  await waitFor(() => expect(captured.state.serverIslands?.home?.home.island.name).toBe('수정 전'));
+  await act(async () => captured.reset('manage'));
+  await waitFor(() => expect(captured.route).toBe('manage'));
+  const reads = mockLoadHomeSnapshot.mock.calls.length;
+  island = { ...island, name: '수정 후', role: 'member', memberCount: 2 };
+  await act(async () => captured.reset('home'));
+  await waitFor(() => expect(captured.state.serverIslands?.home?.home.island).toEqual(island));
+  expect(mockLoadHomeSnapshot.mock.calls.length).toBeGreaterThan(reads);
+  await app.unmount();
 });

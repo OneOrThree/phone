@@ -1,5 +1,6 @@
 package com.oneorthree.phone.construction.dto;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -15,5 +16,11 @@ public record ConstructionOptionsView(
         String selectedBuildingId,
         int villagePoints,
         long walletVersion,
-        List<ConstructionOptionItem> items) {
+        List<ConstructionOptionItem> items,
+        ConstructionResidentProgress residentProgress,
+        ActiveConstruction activeConstruction) {
+
+    /** 다른 기기에서도 진행 중인 공사를 식별하고 완공 여부를 재조회할 수 있는 구간. */
+    public record ActiveConstruction(String buildingId, Instant startedAt, Instant completesAt) {
+    }
 }

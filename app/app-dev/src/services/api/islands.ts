@@ -21,7 +21,8 @@
  * 같은 body** 로 보낸다. 키는 호출부가 의도당 한 번 만들어 넘긴다. 어댑터가 기본값을 만들면
  * 유실 재호출 때 키가 바뀌어 멱등이 깨지므로 필수 인자다.
  */
-import { request } from './client';
+import { ApiError, request } from './client';
+import { CANONICAL_BUILDINGS, CLIENT_CONTRACT_ERROR, type BuildingId } from './home';
 
 export type IslandSummary = {
   id: string;
@@ -86,6 +87,8 @@ export type ExploreScreen = {
 };
 
 export type VisitScreen = {
+  /** 실제 완공 시설. 이전 서버의 누락과 실제 빈 목록을 구분한다. */
+  buildings?: BuildingId[] | null;
   island: IslandSummary;
   members: {
     items: {
@@ -156,8 +159,19 @@ export function searchIslands(
   return request<IslandPage>(`/islands${query({ q, cursor, limit })}`);
 }
 
-export function visitIsland(islandId: string): Promise<VisitScreen> {
-  return request<VisitScreen>(`/screens/visit/${encodeURIComponent(islandId)}`);
+export async function visitIsland(islandId: string): Promise<VisitScreen> {
+  const screen = await request<VisitScreen>(`/screens/visit/${encodeURIComponent(islandId)}`);
+  const buildings = screen?.buildings;
+  if (
+    screen?.island?.id !== islandId ||
+    (buildings != null &&
+      (!Array.isArray(buildings) ||
+        buildings.some((id) => !CANONICAL_BUILDINGS.includes(id)) ||
+        new Set(buildings).size !== buildings.length))
+  ) {
+    throw new ApiError(CLIENT_CONTRACT_ERROR, '방문할 섬 정보를 확인하지 못했어요.', 0);
+  }
+  return screen;
 }
 
 /**

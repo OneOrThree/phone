@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
 import type PostHog from 'posthog-react-native';
+import { isMockMode } from '@/services/demoMode';
 
 // PostHog project tokens are public client identifiers. Keep this fallback so release builds
 // collect events even when the build pipeline has no EXPO_PUBLIC_POSTHOG_* variables.
@@ -15,13 +15,8 @@ let client: PostHog | null = null;
 export function initPostHog(): void {
   if (client || !projectToken || !host) return;
   if (__DEV__ && process.env.EXPO_PUBLIC_POSTHOG_DEV_ENABLED !== '1') return;
-  if (
-    Platform.OS === 'web' &&
-    typeof window !== 'undefined' &&
-    (new URLSearchParams(window.location.search).has('review') ||
-      new URLSearchParams(window.location.search).has('demo'))
-  )
-    return;
+  // review·demo 목업(웹 ?review/?demo, 네이티브 EXPO_PUBLIC_DEMO=1)은 계측하지 않는다
+  if (isMockMode()) return;
 
   try {
     const PostHogClient = require('posthog-react-native').default as typeof PostHog;

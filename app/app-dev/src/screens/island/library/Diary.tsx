@@ -4,7 +4,7 @@ import { art, Seg } from '@/design-system/patterns';
 import { Button } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { currentIsland, dayKey, earnedBy, type State } from '@/services/model';
+import { displayIsland, dayKey, earnedBy, type State } from '@/services/model';
 import { getSession } from '@/services/api/session';
 import { useLibraryDiary } from '@/screens/island/useLibraryDiary';
 import { T, fill, hm } from '@/screens/island/sceneKit';
@@ -36,7 +36,7 @@ const F = semanticTokens.typography;
 // 기존 장면 엔진의 경로 계약을 유지한다. 서버 통계와 로컬 시연 데이터를 섞지 않는다.
 export function Diary({ e, font }: { e: any; font?: string }) {
   const state: State = e.state;
-  const island = currentIsland(state);
+  const island = displayIsland(state);
   const server = !!e.islands;
   const neighbors = e.detail === 'residents';
   const today = dateKey(e.now, server);
@@ -58,7 +58,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     combined: neighbors || period === '월',
     focusSummaryOnly: !neighbors && period === '월',
     rangeOverride: !neighbors && period === '주' && offset === 0 ? undefined : range,
-    islandKey: state.islandId,
+    islandKey: island.id,
   });
   // 도서관 새 읽을거리 배지는 이 화면이 실제로 표시한 /screens/library 응답으로만 확인 처리한다.
   const markLibrarySeen = e.buildingIndicators?.markLibrarySeen;
@@ -84,7 +84,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     period: '일',
     offset: 0,
     rangeOverride: { from: selectedDate, to: selectedDate },
-    islandKey: state.islandId,
+    islandKey: island.id,
   });
   const localRecords = state.records.filter((r) => r.islandId === island.id);
   const me = getSession()?.userId;

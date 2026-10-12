@@ -50,6 +50,7 @@ export type Route =
   | 'orders'
   | 'boat'
   | 'mainIsland'
+  | 'currentIsland'
   | 'profile'
   | 'settings'
   | 'language'
@@ -142,6 +143,9 @@ export type Message = {
   readAt?: number;
 };
 export type Island = {
+  /** 서버 표시용 읽기 모델. 미조회 역할은 null이며 방장으로 추론하지 않는다. */
+  serverRole?: 'host' | 'member' | null;
+  serverMemberCount?: number;
   visibility?: 'public' | 'private';
   // 이 사용자가 강퇴된 섬. 일반 탐색·가입 경로에서는 다시 노출하거나 가입시키지 않는다.
   kicked?: boolean;
@@ -320,6 +324,7 @@ export type State = {
     requestStatus: RequestStatusEntry[];
     // 서버 모드 홈이 직접 그리는 스냅샷(GROMO-2138). 읽을 때는 serverHome() 으로 current 와 대조한다
     home?: HomeWorldFacts | null;
+    playback?: PlaybackState | null;
     /** 착공 POST 응답을 클라이언트가 보관하는 공사 구간. 서버 GET 계약에는 포함하지 않는다. */
     clientConstruction?: {
       islandId: string;
@@ -412,7 +417,11 @@ function completeAllBuildings(i: Island, now = Date.now()) {
   delete i.completed;
 }
 export const balance = (i: Island) => i.fish ?? i.contribution + i.points;
-export const isHost = (i: Island) => i.joined && !i.members.some((m) => m.role === 'host');
+export const isHost = (i: Island) =>
+  i.joined &&
+  (i.serverRole !== undefined
+    ? i.serverRole === 'host'
+    : !i.members.some((m) => m.role === 'host'));
 export const targetIds = (i: Island) => [
   ...(i.joined ? ['me'] : []),
   ...i.members.map((m) => m.id),
@@ -824,24 +833,45 @@ export const serverHome = (s: State) => {
   return snap?.home && snap.home.islandId === snap.currentIslandId ? snap.home : null;
 };
 // 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
-export const viewIsland = (s: State) =>
-  (s.visitingIslandId && s.islands.find((i) => i.id === s.visitingIslandId)) || currentIsland(s);
+export const viewIsland = (s: State, islandId = s.visitingIslandId) =>
+  s.serverIslands
+    ? displayIsland(s, islandId ?? s.serverIslands.currentIslandId)
+    : (islandId && s.islands.find((i) => i.id === islandId)) || currentIsland(s);
 // 서버 모드 홈이 그릴 섬(GROMO-2138) — 스냅샷에 있는 값만 채우고 퀘스트·공사·꾸미기·주민 기록처럼
 // 스냅샷에 없는 것은 비운다(로컬 목업 섬 값으로 메우지 않는다). 구경 중이거나 스냅샷이 없으면 viewIsland.
-export const homeIsland = (s: State): Island => {
-  const facts = serverHome(s);
-  if (!facts || s.visitingIslandId) return viewIsland(s);
-  const { island, wallets } = facts.home;
+export const homeIsland = (s: State): Island => viewIsland(s);
+
+/** 화면 전용 읽기 모델. 서버에 없는 목록·권한을 로컬 목업으로 채우지 않는다. */
+export const displayIsland = (s: State, id = s.serverIslands?.currentIslandId): Island => {
+  const snap = s.serverIslands;
+  if (!snap) return currentIsland(s);
+  const facts = id === snap.currentIslandId && id !== s.visitingIslandId ? serverHome(s) : null;
+  const visit = snap.visit?.island.id === id ? snap.visit : null;
+  const island =
+    facts?.home.island ??
+    snap.memberships?.find((item) => item.id === id) ??
+    (snap.visit && snap.visit.island.id === id ? snap.visit.island : undefined) ??
+    snap.candidates?.find((item) => item.id === id);
+  const homePlayback = facts?.home.playback;
+  const playback = !facts
+    ? null
+    : snap.playback && snap.playback.version >= (homePlayback?.version ?? -1)
+      ? snap.playback
+      : homePlayback;
   return {
-    id: island.id,
-    name: island.name,
-    intro: island.intro,
-    approval: island.approvalRequired,
-    capacity: island.maxMembers,
-    joined: true,
-    buildings: [...facts.completedBuildings],
-    points: wallets.villagePoints,
-    contribution: wallets.villagePoints,
+    id: id ?? '',
+    name: island?.name ?? '',
+    intro: island?.intro ?? '',
+    approval: island?.approvalRequired ?? false,
+    capacity: island?.maxMembers,
+    joined:
+      !!id && (id === snap.currentIslandId || !!snap.memberships?.some((item) => item.id === id)),
+    serverRole: facts?.home.island.role ?? null,
+    serverMemberCount: island?.memberCount,
+    buildings: facts ? [...facts.completedBuildings] : [...(visit?.buildings ?? [])],
+    fish: facts?.home.wallets.villagePoints ?? 0,
+    points: facts?.home.wallets.villagePoints ?? 0,
+    contribution: facts?.home.wallets.villagePoints ?? 0,
     members: [],
     quests: [],
     notices: [],
@@ -849,8 +879,9 @@ export const homeIsland = (s: State): Island => {
     sharedOwned: [],
     theme: 'default',
     buildingTheme: 'default',
-    track: null,
-    playing: false,
+    track: playback?.trackId ?? null,
+    playing: playback?.playing ?? false,
+    serverPlayback: playback ?? undefined,
     ledger: [],
   };
 };
@@ -931,15 +962,35 @@ export const newChatCount = (i: Island) =>
 export const CAPACITY_MIN = 1,
   CAPACITY_MAX = 15;
 // 주민 수 = 다른 주민 + (내가 가입했으면) 나
-export const residentCount = (i: Island) => i.members.length + (i.joined ? 1 : 0);
+export const residentCount = (i: Island) =>
+  i.serverMemberCount ?? i.members.length + (i.joined ? 1 : 0);
 export const capacityOf = (i: Island) => i.capacity ?? CAPACITY_MAX;
 export const isFull = (i: Island) => residentCount(i) >= capacityOf(i);
 // 방문자 등록증의 가입 버튼 상태. 집중 중에는 배 이동부터 막혀 방문 화면에 올 수 없으므로 집중 상태는 없다
 export type VisitorJoin = 'join' | 'apply' | 'cancel' | 'full' | 'blocked';
+export const pendingVisitRequest = (s: State, islandId: string) => {
+  const snap = s.serverIslands;
+  if (!snap) return undefined;
+  const requests = [
+    ...(snap.requestStatus ?? []),
+    ...(snap.joinRequests ?? []),
+    ...(snap.visit?.island.id === islandId && snap.visit.joinRequest
+      ? [snap.visit.joinRequest]
+      : []),
+  ];
+  const terminalIds = new Set(requests.filter((r) => r.status !== 'pending').map((r) => r.id));
+  return requests.find(
+    (r) => r.islandId === islandId && r.status === 'pending' && !terminalIds.has(r.id),
+  );
+};
 export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
   i.kicked
     ? 'blocked'
-    : (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
+    : (
+          s.serverIslands
+            ? !!pendingVisitRequest(s, i.id)
+            : (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
+        )
       ? 'cancel'
       : isFull(i)
         ? 'full'
@@ -1461,10 +1512,11 @@ export function reducer(state: State, a: Action): State {
       screenDays: loaded.screenDays ?? {},
       screenTimeUnconfirmedDays: loaded.screenTimeUnconfirmedDays ?? [],
       profileNames: loaded.profileNames ?? [loaded.name],
-      mainIslandId:
-        loadedMainIsland?.id ??
-        loaded.islands.find((island) => island.joined && !island.closed)?.id ??
-        null,
+      mainIslandId: loaded.serverIslands
+        ? (loaded.mainIslandId ?? null)
+        : (loadedMainIsland?.id ??
+          loaded.islands.find((island) => island.joined && !island.closed)?.id ??
+          null),
       // 받은 편지 읽음 기준이 없던 저장본은 이미 받은 편지를 모두 읽은 것으로 본다
       lettersReadAt:
         loaded.lettersReadAt ??
@@ -1473,7 +1525,9 @@ export function reducer(state: State, a: Action): State {
       pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
       // 재실행 복구용 서버 온보딩 스냅샷 — 공개 요약·신청만 담겨 있어 저장해도 안전하다
       // 홈 스냅샷은 저장본에서 되살리지 않는다 — 재실행마다 서버에서 새로 받는다(GROMO-2138)
-      serverIslands: loaded.serverIslands ? { ...loaded.serverIslands, home: null } : null,
+      serverIslands: loaded.serverIslands
+        ? { ...loaded.serverIslands, home: null, playback: null }
+        : null,
       settings: {
         ...loaded.settings,
         publicRecords: true,
@@ -1655,6 +1709,9 @@ export function reducer(state: State, a: Action): State {
       s.mainIslandId = target.id;
       break;
     }
+    case 'SERVER_MAIN_ISLAND':
+      s.mainIslandId = a.islandId as string | null;
+      break;
     // ── 섬 — 서버 동기화(GROMO-2006) ──
     // 서버 응답만 serverIslands 스냅샷에 반영한다. CREATE_ISLAND·JOIN·CANCEL_JOIN 의
     // 로컬 성공 경로는 REVIEW·DEMO fixture 용이며 일반 실행의 성공 경로에서 부르지 않는다.
@@ -1683,7 +1740,10 @@ export function reducer(state: State, a: Action): State {
       // 옛 방장 여부·완공 건물이 새 스냅샷 전에 그려지지 않게 한다(GROMO-2138)
       if (snap.currentIslandId !== my.currentIslandId) {
         snap.home = null;
+        snap.playback = null;
         snap.clientConstruction = null;
+        snap.visit = null;
+        s.visitingIslandId = null;
       }
       snap.currentIslandId = my.currentIslandId;
       snap.lossReason = my.lossReason;
@@ -1701,7 +1761,8 @@ export function reducer(state: State, a: Action): State {
       for (const island of s.islands)
         if (island.joined && !ids.has(island.id)) island.joined = false;
       if (s.session && !ids.has(s.session.islandId)) s.session = null;
-      if (s.visitingIslandId && !ids.has(s.visitingIslandId)) s.visitingIslandId = null;
+      if (s.visitingIslandId && snap.visit?.island.id !== s.visitingIslandId)
+        s.visitingIslandId = null;
       // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
       s.onboarded = my.currentIslandId != null;
       // /me 정본의 메인 섬 — 실렸을 때만 갈아 끼운다(explore 등 안 싣는 발신자는 현재 값 유지).
@@ -1712,6 +1773,7 @@ export function reducer(state: State, a: Action): State {
     case 'SERVER_HOME': {
       const snap = serverSnap(s);
       const facts = a.facts as HomeWorldFacts;
+      if (facts.islandId !== snap.currentIslandId) return state;
       snap.home = facts;
       if (
         snap.clientConstruction &&
@@ -1800,6 +1862,19 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     case 'PLAYBACK_SYNC': {
+      if (s.serverIslands) {
+        const snap = s.serverIslands;
+        const playback = a.playback as PlaybackState;
+        if (
+          snap.currentIslandId !== a.islandId ||
+          !playback ||
+          !Number.isSafeInteger(playback.version) ||
+          playback.version < (snap.playback?.version ?? -1)
+        )
+          return state;
+        snap.playback = playback;
+        break;
+      }
       const target = s.islands.find((island) => island.id === a.islandId);
       if (!target) return state;
       const playback = a.playback as PlaybackState;
@@ -1828,6 +1903,10 @@ export function reducer(state: State, a: Action): State {
     }
     case 'ISLAND_VISIT':
       serverSnap(s).visit = a.visit as VisitScreen;
+      break;
+    case 'SERVER_VISITING':
+      if (s.serverIslands?.visit?.island.id !== a.islandId) return state;
+      s.visitingIslandId = a.islandId as string;
       break;
     case 'ISLAND_REQUEST': {
       // 단건 상태는 표시 필드가 없다 — requestStatus에만 두고, 목록에 있는 항목은 status/version만 갱신한다.

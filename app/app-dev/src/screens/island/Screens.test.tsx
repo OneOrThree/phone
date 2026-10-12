@@ -26,6 +26,10 @@ import {
 import type { IslandSummary } from '@/services/api/islands';
 import { applyLocalePref } from '@/i18n';
 
+const mockRankings = jest.fn();
+jest.mock('@/screens/island/useIslandRankings', () => ({
+  useIslandRankings: (...args: unknown[]) => mockRankings(...args),
+}));
 let mockFontScale = 1;
 jest.mock('@/services/api/account', () => ({
   updateProfile: jest.fn(),
@@ -65,6 +69,7 @@ jest.mock('@/screens/island/useShop', () => ({ useShop: () => mockShopState }));
 const notifyMock = jest.fn();
 const backMock = jest.fn();
 beforeEach(() => {
+  mockRankings.mockReturnValue({ status: 'idle', data: null, error: null, retry: jest.fn() });
   mockUpdateProfile.mockReset();
   mockWithdrawAccount.mockReset();
   mockClearStudyWidget.mockClear();
@@ -2239,7 +2244,185 @@ test('서버 모드 home 은 스냅샷의 완공 건물과 오늘 집중을 그�
   assert.equal(s.queryByText(/짓기$/), null);
 });
 
+test('섬 만들기 이름·소개 입력은 서버 계약 50/200자로 막는다(2-19 H24)', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  assert.equal(s.getByLabelText('섬 이름').props.maxLength, 50);
+  assert.equal(s.getByLabelText('섬 소개').props.maxLength, 200);
+});
+
+test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으면 안내한다(2-15)', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  assert.ok(s.getByText('0/50'));
+  await fireEvent.changeText(s.getByLabelText('섬 이름'), '가'.repeat(50));
+  assert.ok(s.getByText('50자까지 쓸 수 있어요 · 50/50'));
+});
+
+test('대표 섬 선택은 서버 소속만 표시하고 저장 성공 뒤에 닫는다', async () => {
+  const initial = reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [
+        islandSummary({ id: 'a', name: '서버 A' }),
+        islandSummary({ id: 'b', name: '서버 B' }),
+      ],
+      currentIslandId: 'a',
+      nextCursor: null,
+      lossReason: null,
+    },
+    mainIslandId: 'a',
+  });
+  let finish!: () => void;
+  const save = jest.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const screen = await render(
+    <Harness
+      route="mainIsland"
+      initial={initial}
+      api={() => ({ sync: async () => {}, setMain: save })}
+    />,
+  );
+  await screen.findByText('서버 B');
+  assert.equal(screen.queryByText('소다 섬'), null);
+  await fireEvent.press(screen.getByLabelText('서버 B'));
+  await fireEvent.press(screen.getByText('대표 섬으로 저장하기'));
+  assert.equal(save.mock.calls.length, 1);
+  assert.equal(backMock.mock.calls.length, 0);
+  await act(async () => finish());
+  assert.equal(backMock.mock.calls.length, 1);
+});
+
+test('대표 섬 저장 실패는 화면에 남아 재시도할 수 있다', async () => {
+  const initial = reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [
+        islandSummary({ id: 'a', name: '서버 A' }),
+        islandSummary({ id: 'b', name: '서버 B' }),
+      ],
+      currentIslandId: 'a',
+      nextCursor: null,
+      lossReason: null,
+    },
+    mainIslandId: 'a',
+  });
+  const save = jest
+    .fn()
+    .mockRejectedValueOnce(new ApiError('CLIENT_TIMEOUT', 'lost', 0))
+    .mockResolvedValue(undefined);
+  const screen = await render(
+    <Harness
+      route="mainIsland"
+      initial={initial}
+      api={() => ({ sync: async () => {}, setMain: save })}
+    />,
+  );
+  await screen.findByText('서버 B');
+  await fireEvent.press(screen.getByLabelText('서버 B'));
+  await fireEvent.press(screen.getByText('대표 섬으로 저장하기'));
+  await screen.findByText('연결을 확인한 뒤 다시 시도해 주세요.');
+  assert.equal(backMock.mock.calls.length, 0);
+  await fireEvent.press(screen.getByText('대표 섬으로 저장하기'));
+  await waitFor(() => assert.equal(backMock.mock.calls.length, 1));
+});
+
+test('승인 완료·현재 섬 없음에서도 명시적으로 입장하고 서버 성공을 기다린다', async () => {
+  let initial = reducer(initialState(false), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [islandSummary({ id: 'approved', name: '승인된 섬' })],
+      currentIslandId: null,
+      nextCursor: null,
+      lossReason: null,
+    },
+  });
+  initial = reducer(initial, {
+    type: 'ISLAND_REQUEST',
+    request: { id: 'req-approved', islandId: 'approved', status: 'approved', version: 2 },
+  });
+  let finish!: () => void;
+  const switchCurrent = jest.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="approval"
+      detail="approved"
+      initial={initial}
+      expose={(value: any) => {
+        exposed = value;
+      }}
+      api={() => ({ explore: async () => {}, switchCurrent })}
+    />,
+  );
+  await act(async () => {});
+  await fireEvent.press(screen.getByTestId('enter-home'));
+  await waitFor(() => assert.equal(switchCurrent.mock.calls.length, 1));
+  assert.equal(exposed.reset.mock.calls.length, 0);
+  await act(async () => finish());
+  assert.equal(exposed.reset.mock.calls[0][0], 'guide');
+});
+
+test('현재 섬 없이 재실행한 기존 주민도 가입한 섬 선택으로 갈 수 있다', async () => {
+  const initial = reducer(initialState(false), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [islandSummary({ id: 'approved' })],
+      currentIslandId: null,
+      nextCursor: null,
+      lossReason: null,
+    },
+  });
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="chooseIsland"
+      initial={initial}
+      expose={(value: any) => {
+        exposed = value;
+      }}
+      api={() => ({})}
+    />,
+  );
+  await fireEvent.press(screen.getByText('가입한 섬으로 들어가기'));
+  assert.equal(exposed.go.mock.calls[0][0], 'currentIsland');
+});
+
 describe('en', () => {
+  test.each(['mainIsland', 'currentIsland'] as const)(
+    'en 섬 선택은 제목·버튼·오류를 번역한다: %s',
+    async (route) => {
+      mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+      applyLocalePref('system');
+      const screen = await render(
+        <Harness
+          route={route}
+          api={() => ({
+            sync: async () => {
+              throw new ApiError('CLIENT_TIMEOUT', '한국어 서버 오류', 0);
+            },
+          })}
+        />,
+      );
+      await screen.findByText('Reload');
+      assert.ok(
+        screen.getByText(route === 'mainIsland' ? 'Change Main Island' : 'Change Current Island'),
+      );
+      assert.ok(
+        screen.getByText(route === 'mainIsland' ? 'Save as Main Island' : 'Go to Selected Island'),
+      );
+      assert.equal(screen.queryByText('한국어 서버 오류'), null);
+      assert.equal(screen.queryByText('연결을 확인한 뒤 다시 시도해 주세요.'), null);
+    },
+  );
+
   const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
 
   afterEach(() => {
@@ -2384,3 +2567,135 @@ describe('en', () => {
     );
   });
 });
+
+test.each(['mainIsland', 'currentIsland'] as const)(
+  '%s 최초 동기화의 선택을 따르고 직접 고른 뒤에는 선택을 유지한다',
+  async (route) => {
+    const membership = {
+      items: [
+        islandSummary({ id: 'a', name: '서버 A' }),
+        islandSummary({ id: 'b', name: '서버 B' }),
+      ],
+      currentIslandId: 'a',
+      nextCursor: null,
+      lossReason: null,
+    };
+    const initial = reducer(initialState(true), {
+      type: 'ISLAND_SYNC',
+      memberships: membership,
+      mainIslandId: 'a',
+    });
+    let exposed: any;
+    const save = jest.fn(async () => {});
+    const screen = await render(
+      <Harness
+        route={route}
+        initial={initial}
+        expose={(value: any) => {
+          exposed = value;
+        }}
+        api={(dispatch: any) => ({
+          sync: async () => {
+            dispatch({
+              type: 'ISLAND_SYNC',
+              memberships: { ...membership, currentIslandId: 'b' },
+              mainIslandId: 'b',
+            });
+          },
+          setMain: save,
+          switchCurrent: save,
+        })}
+      />,
+    );
+    const b = await screen.findByLabelText('서버 B');
+    assert.equal(b.props.accessibilityState.selected, true);
+    if (route === 'mainIsland') {
+      await fireEvent.press(screen.getByText('대표 섬으로 저장하기'));
+      assert.equal(save.mock.calls.length, 0);
+    }
+    await fireEvent.press(screen.getByLabelText('서버 A'));
+    await act(async () =>
+      exposed.dispatch({
+        type: 'ISLAND_SYNC',
+        memberships: { ...membership, currentIslandId: 'b' },
+        mainIslandId: 'b',
+      }),
+    );
+    assert.equal(screen.getByLabelText('서버 A').props.accessibilityState.selected, true);
+    await fireEvent.press(
+      screen.getByText(route === 'mainIsland' ? '대표 섬으로 저장하기' : '선택한 섬으로 가기'),
+    );
+    assert.equal(save.mock.calls.length, 1);
+    expect(save).toHaveBeenCalledWith('a');
+  },
+);
+
+test('전망대 순위에서 방문 상세로 이동하면 상세 조회는 한 번만 실행한다', async () => {
+  const island = islandSummary({ id: 'ranked-island', name: '순위에 오른 섬' });
+  mockRankings.mockReturnValue({
+    status: 'ready',
+    data: {
+      items: [{ islandId: island.id, name: island.name, rank: 1, averageFocusSeconds: 3600 }],
+      myRank: null,
+    },
+  });
+  const visit = jest.fn();
+  const screen = await render(
+    <Harness
+      route="tower"
+      detail={island.id}
+      flow
+      full
+      api={(dispatch: any) => {
+        visit
+          .mockImplementationOnce(async () => {
+            dispatch({
+              type: 'ISLAND_VISIT',
+              visit: {
+                island,
+                buildings: ['hall', 'board'],
+                members: { items: [], nextCursor: null },
+                joinRequest: null,
+              },
+            });
+          })
+          .mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
+        return { visit };
+      }}
+    />,
+  );
+  await fireEvent.press(await screen.findByText('순위에 오른 섬'));
+  await screen.findByText('섬 둘러보기');
+  expect(visit).toHaveBeenCalledTimes(1);
+  expect(visit).toHaveBeenCalledWith(island.id);
+  expect(screen.queryByText('다시 불러오기')).toBeNull();
+});
+
+test.each([true, false])(
+  '영어 계정의 현재 섬 설명은 소속 %s 상태에서도 번역한다',
+  async (joined) => {
+    applyLocalePref('en');
+    const initial = initialState(false);
+    initial.serverIslands = {
+      memberships: joined ? [islandSummary({ id: 'current', name: 'Current Island' })] : [],
+      currentIslandId: joined ? 'current' : null,
+      lossReason: null,
+      candidates: [],
+      nextCursor: null,
+      visit: null,
+      joinRequests: [],
+      requestStatus: [],
+    };
+    const screen = await render(
+      <Harness
+        route="boat"
+        initial={initial}
+        api={() => ({})}
+        friendsScreen={{ status: 'loading', data: null }}
+      />,
+    );
+    screen.getByText('Change Current Island');
+    screen.getByText(joined ? 'Currently on: Current Island' : 'Choose an island you joined');
+    expect(screen.queryByText(/현재 접속:|가입한 섬 선택/)).toBeNull();
+  },
+);

@@ -1158,6 +1158,26 @@ test('컷신을 마친 황금 물고기 더미를 정상 결과 화면에서도 
   await screen.unmount();
 });
 
+test('땅을 직접 눌러야 하는 튜토리얼 5단계에는 「다음」 버튼이 없고 그만 보기만 왼쪽에 있다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const setGuideStep = jest.fn();
+  const screen = await render(
+    screenElement(state, 'fishingArrival', undefined, undefined, undefined, undefined, {
+      guideStep: 5,
+      setGuideStep,
+    }),
+  );
+  expect(
+    screen.getByText('집중하고 싶은 빈 땅을 눌러 자리를 골라 봐.', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  // 「다음」으로 건너뛸 수 없다 — 땅을 눌러야 7단계(할 일 입력)로 넘어간다
+  expect(screen.queryByText('다음', { includeHiddenElements: true })).toBeNull();
+  expect(screen.getByTestId('guide-skip', { includeHiddenElements: true })).toBeTruthy();
+  assert.equal(setGuideStep.mock.calls.length, 0);
+  await screen.unmount();
+});
+
 // en 스모크 — GROMO-2252: 집중 흐름 튜토리얼·준비 화면이 영문으로도 나오는지 최소 확인(패턴은 Screens.test.tsx 의 describe('en')).
 describe('en', () => {
   const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;

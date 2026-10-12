@@ -308,11 +308,13 @@ class IslandManagementIntegrationTest {
         UUID first = pendingRequest(f.islandId());
         UUID second = pendingRequest(f.islandId());
         UUID applicant = applicantOf(second);
+        jdbc.update("update users set cat_color = 'white' where id = ?", applicant);
         joins.answer(f.host(), f.islandId(), first, false, UUID.randomUUID());
 
         IslandJoinRequestsPageView page = management.joinRequests(f.host(), f.islandId(), null, null, 30);
         assertThat(page.items()).extracting(IslandJoinRequestsPageView.Item::id).containsExactly(second);
         assertThat(page.items().get(0).applicantId()).isEqualTo(applicant);
+        assertThat(page.items().get(0).catColor()).isEqualTo("white");
         assertThat(page.items().get(0).status()).isEqualTo("pending");
 
         UUID otherHost = newUser();

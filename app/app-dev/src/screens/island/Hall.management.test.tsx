@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Platform } from 'react-native';
-import { currentIsland, initialState, joinRequests, viewIsland } from '@/services/model';
+import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
 import { Hall } from '@/screens/island/Hall';
+import { ApiError } from '@/services/api/client';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 
-jest.mock('@/screens/interiors/useIslandManagement', () => ({ useIslandManagement: jest.fn() }));
+jest.mock('@/screens/interiors/useIslandManagement', () => ({
+  ...jest.requireActual('@/screens/interiors/useIslandManagement'),
+  useIslandManagement: jest.fn(),
+}));
 let mockSessionGeneration = 0;
 jest.mock('@/services/api/session', () => ({ sessionGeneration: () => mockSessionGeneration }));
 jest.mock('@/screens/island/useLedgerScreen', () => ({
@@ -160,6 +164,7 @@ test('방문자 관리 카드는 비활성 management snapshot 대신 기존 정
   await waitFor(() => assert.ok(visitor.getByText(visiting.name)));
   assert.ok(visitor.getByText(visiting.intro));
   assert.equal(managementMock.mock.calls.at(-1)?.[0].active, false);
+  assert.equal(visitor.queryByTestId('hall-leave'), null);
 });
 
 test('review/demo 로컬 관리는 hook을 비활성화하고 기존 reducer 저장·위임·승인을 사용한다', async () => {
@@ -266,4 +271,291 @@ test('서버 current 섬이 있으면 관리 hook 에 로컬 목업 섬 대신 �
   const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
   await render(<Hall e={e('manage', state)} />);
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
+});
+
+test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave 를 보낸다(4-06)', async () => {
+  managementMock.mockReturnValue(management({ role: 'member', requests: null }));
+  const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: null }));
+  const env = { ...e('manage', state), islands: { leave } };
+  const screen = await render(<Hall e={env} />);
+
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  // 목업 '소다 섬'이 아니라 서버 섬 이름으로 묻는다(H2)
+  assert.ok(screen.getByText('서버 섬을 떠날까요?'));
+  await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+  await waitFor(() => assert.equal(leave.mock.calls[0]?.[0], 'srv-1'));
+  // 로컬 reducer LEAVE 로 끝내지 않는다(H1)
+  assert.ok(!env.dispatch.mock.calls.some(([a]: any) => a.type === 'LEAVE'));
+  await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
+  assert.equal(env.home.mock.calls.length, 0); // current 가 비면 App 이 섬 선택으로 보낸다
+});
+
+test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 서버로 탈퇴한다', async () => {
+  const api = management();
+  // 로컬 목업 주민과 승인 대기 신청자가 남아 있어도 서버의 활성 주민만 센다.
+  managementMock.mockReturnValue({ ...api, members: [api.members[0]] });
+  const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: null }));
+  const env = { ...e('manage', state), islands: { leave } };
+  const screen = await render(<Hall e={env} />);
+
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  await waitFor(() => assert.ok(screen.getByText('삭제하고 나가기')));
+  assert.ok(
+    screen.getByText(
+      '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.',
+    ),
+  );
+  assert.equal(leave.mock.calls.length, 0); // 삭제 영향에 동의한 뒤에만 탈퇴한다
+  await fireEvent.press(screen.getByTestId('hall-dialog-cancel'));
+  assert.equal(leave.mock.calls.length, 0);
+  assert.equal(screen.queryByTestId('hall-dialog-ok'), null);
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+  await waitFor(() => assert.equal(leave.mock.calls[0]?.[0], 'srv-1'));
+  assert.equal(env.home.mock.calls.length, 0);
+  assert.ok(!env.dispatch.mock.calls.some(([action]: any[]) => action.type === 'LEAVE'));
+});
+
+test('다른 주민이 있는 방장은 기본 섬 정보에서 탈퇴를 누르면 위임부터 안내한다', async () => {
+  const leave = asyncCommand();
+  const screen = await render(<Hall e={{ ...e(), islands: { leave } }} />);
+
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  await waitFor(() => assert.ok(screen.getByText('방장을 위임할 주민을 골라요.')));
+  assert.equal(screen.queryByTestId('hall-dialog-ok'), null);
+  assert.equal(leave.mock.calls.length, 0);
+});
+
+test('정보 수정 실패는 수정 패널 안에 사용자 문구 토스트로 보인다(H5·H18)', async () => {
+  const api = management({
+    saveSettings: jest.fn(async () => {
+      throw new ApiError(
+        'ISLAND_MANAGEMENT_NOT_READY',
+        '섬 관리 기능을 아직 사용할 수 없습니다.',
+        503,
+      );
+    }),
+  });
+  managementMock.mockReturnValue(api);
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  await fireEvent.press(screen.getByTestId('hall-save'));
+  await waitFor(() =>
+    assert.ok(
+      screen.getByText('섬 관리 기능을 아직 사용할 수 없어요.\n잠시 후 다시 시도해 주세요.'),
+    ),
+  );
+  assert.ok(screen.getByTestId('hall-name')); // 패널은 그대로 열려 있다
+});
+
+test('정원이 찬 뒤 승인하면 정원을 늘리라고 안내한다(H7)', async () => {
+  const api = management({
+    answerRequest: jest.fn(async () => {
+      throw new ApiError('STATE_CONFLICT', '그룹 정원이 가득 찼습니다.', 409, {
+        field: 'islandId',
+      });
+    }),
+  });
+  managementMock.mockReturnValue(api);
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-approve-r1'));
+  await waitFor(() =>
+    assert.ok(screen.getByText('정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.')),
+  );
+  assert.equal(screen.queryByText('그룹 정원이 가득 찼습니다.'), null);
+});
+
+test('재조회 중에도 확정된 관리 카드를 유지하고 이름 없는 신청자는 "신청자"로 읽는다(H6·H19)', async () => {
+  managementMock.mockReturnValue(
+    management({
+      loading: true,
+      requests: [{ id: 'r2', applicantId: 'a2', name: null, status: 'pending', version: 1 }],
+    }),
+  );
+  const screen = await render(<Hall e={e()} />);
+  assert.equal(screen.queryByTestId('hall-management-loading'), null);
+  assert.ok(screen.getByText('서버 섬'));
+  assert.ok(screen.getByLabelText('신청자 가입 승인'));
+  assert.ok(screen.getByLabelText('신청자 가입 거절'));
+});
+
+test('승인 처리 중에는 승인·거절을 다시 누를 수 없다(H20)', async () => {
+  let finish: () => void = () => {};
+  const api = management({
+    answerRequest: jest.fn(() => new Promise<void>((resolve) => (finish = resolve))),
+  });
+  managementMock.mockReturnValue(api);
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-approve-r1'));
+  await fireEvent.press(screen.getByTestId('hall-approve-r1'));
+  await fireEvent.press(screen.getByTestId('hall-reject-r1'));
+  assert.equal(api.answerRequest.mock.calls.length, 1);
+  await act(async () => finish());
+});
+
+test('확인 버튼 위험색은 강퇴·탈퇴에만 쓴다(H23)', async () => {
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-member-u2'));
+  await fireEvent.press(screen.getByTestId('hall-member-transfer'));
+  const transferOk = screen.getByTestId('hall-dialog-ok');
+  assert.notEqual(transferOk.props.style.backgroundColor, '#e9a49d');
+  await fireEvent.press(screen.getByTestId('hall-dialog-cancel'));
+  await fireEvent.press(screen.getByTestId('hall-member-u2'));
+  await fireEvent.press(screen.getByTestId('hall-member-kick'));
+  assert.equal(screen.getByTestId('hall-dialog-ok').props.style.backgroundColor, '#e9a49d');
+});
+
+test('신청자·주민 아바타는 각자의 고양이 색이고 색이 없으면 내 색을 빌리지 않는다(H21)', async () => {
+  const state = initialState(true);
+  managementMock.mockReturnValue(
+    management({
+      members: [
+        { id: 'host', name: '방장', catColor: 'cream', role: 'host', appearance: {} },
+        { id: 'u2', name: '주민', catColor: null, role: 'member', appearance: {} },
+      ],
+      requests: [
+        {
+          id: 'r1',
+          applicantId: 'a1',
+          name: '신청자',
+          catColor: 'calico',
+          status: 'pending',
+          version: 1,
+        },
+      ],
+    }),
+  );
+  const screen = await render(<Hall e={e('manage', state)} />);
+  // RNTL 14 에는 UNSAFE 쿼리가 없다 — 렌더 트리를 훑어 Image source 를 모은다
+  const all: unknown[] = [];
+  const walk = (node: any) => {
+    if (!node) return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node.type === 'Image') all.push(node.props.source);
+    walk(node.children);
+  };
+  walk(screen.toJSON());
+  const { art } = require('@/design-system/patterns');
+  assert.ok(all.includes(art['avatar/calico'])); // 신청자 본인 색
+  assert.ok(all.includes(art['avatar/cream'])); // 방장 색
+  // 색 없는 주민 칸이 내 색(state.color)으로 칠해지지 않는다 — 내 색 그림은 어디에도 없다
+  if (state.color !== 'cream' && state.color !== 'calico')
+    assert.ok(!all.includes(art[`avatar/${state.color}`]));
+});
+
+test('섬 이름·소개 입력 길이는 서버 계약 50/200자와 같다(H24)', async () => {
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  assert.equal(screen.getByTestId('hall-name').props.maxLength, 50);
+  assert.equal(screen.getByTestId('hall-intro').props.maxLength, 200);
+});
+
+test('섬 이름·소개 칸은 현재 글자 수를 보여 주고 한도에 닿으면 안내한다(2-15)', async () => {
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  assert.ok(screen.getByText('4/50')); // '서버 섬' 은 4자
+  await fireEvent.changeText(screen.getByTestId('hall-name'), '가'.repeat(50));
+  assert.ok(screen.getByText('50자까지 쓸 수 있어요 · 50/50'));
+});
+
+function serverVisitor(approval = false, pending = false) {
+  const own = { id: 'own', name: '내 섬' };
+  let state = reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [own],
+      currentIslandId: own.id,
+      nextCursor: null,
+      lossReason: null,
+    },
+  });
+  state = reducer(state, {
+    type: 'ISLAND_VISIT',
+    visit: {
+      island: {
+        id: 'other',
+        name: '실제 방문 섬',
+        intro: '방문 섬 소개',
+        memberCount: 1,
+        maxMembers: 15,
+        approvalRequired: approval,
+        membershipStatus: 'none',
+      },
+      buildings: ['hall', 'board'],
+      members: {
+        items: [{ id: 'other-host', name: '방문 섬 방장', catColor: 'orange', role: 'host' }],
+        nextCursor: null,
+        version: 1,
+      },
+      joinRequest: pending
+        ? { id: 'request', islandId: 'other', status: 'pending', version: 1 }
+        : null,
+    },
+  });
+  state = reducer(state, { type: 'SERVER_VISITING', islandId: 'other' });
+  return {
+    ...e('manage', state),
+    islands: {
+      join: jest.fn().mockResolvedValue({ status: approval ? 'pending' : 'active' }),
+      cancel: asyncCommand(),
+    },
+  };
+}
+
+test('방문 회관은 서버 주민을 보여주고 즉시 가입 확정 후 방문을 종료한다', async () => {
+  const env = serverVisitor();
+  const screen = await render(<Hall e={env} />);
+  screen.getByText('실제 방문 섬');
+  screen.getByText('방문 섬 방장');
+  expect(screen.queryByTestId('hall-edit')).toBeNull();
+  expect(screen.queryByTestId('hall-leave')).toBeNull();
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  await waitFor(() => expect(env.reset).toHaveBeenCalledWith('home'));
+  expect(env.islands.join).toHaveBeenCalledWith('other', { showApproval: false });
+  expect(env.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
+  expect(env.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'JOIN' }));
+});
+
+test('회관의 승인제 신청은 중복 탭을 막고 회관에 남는다', async () => {
+  const env = serverVisitor(true);
+  let finish!: (result: object) => void;
+  env.islands.join.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const screen = await render(<Hall e={env} />);
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  expect(env.islands.join).toHaveBeenCalledTimes(1);
+  await act(async () => finish({ status: 'pending' }));
+  await screen.findByText('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+  expect(env.reset).not.toHaveBeenCalled();
+  expect(env.dispatch).not.toHaveBeenCalled();
+});
+
+test('방문 응답으로 복구한 신청도 회관에서 서버 취소를 호출한다', async () => {
+  const env = serverVisitor(true, true);
+  const screen = await render(<Hall e={env} />);
+  screen.getByText('신청 취소');
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  await screen.findByText('가입 신청을 취소했어요.');
+  expect(env.islands.cancel).toHaveBeenCalledWith('request');
+  expect(env.dispatch).not.toHaveBeenCalled();
+});
+
+test('방문 가입 실패는 회관에서 오류를 알리고 이동하지 않는다', async () => {
+  const env = serverVisitor();
+  env.islands.join.mockRejectedValue(new ApiError('GROUP_FULL', '가득 찼어요', 409));
+  const screen = await render(<Hall e={env} />);
+  await fireEvent.press(screen.getByTestId('hall-join'));
+  await screen.findByText('섬의 정원이 찼어요. 다른 섬을 선택해 주세요.');
+  await waitFor(() =>
+    expect(screen.getByTestId('hall-join').props.accessibilityState.disabled).toBe(false),
+  );
+  expect(env.reset).not.toHaveBeenCalled();
+  expect(env.dispatch).not.toHaveBeenCalled();
 });

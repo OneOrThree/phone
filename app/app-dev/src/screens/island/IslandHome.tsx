@@ -20,7 +20,7 @@ import {
   State,
   Building,
   Route,
-  currentIsland,
+  displayIsland as currentIsland,
   todayFocusSeconds,
   buildingNames,
   costs,

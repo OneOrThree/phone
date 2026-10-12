@@ -1,6 +1,9 @@
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
+import { ServerVisit } from '@/screens/island/ServerVisit';
+import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
+import { islandErrorMessage } from '@/services/islandErrors';
 import { LoginScreen } from '@/screens/LoginScreen';
-import { getSession } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import {
   beginWithdrawal,
   confirmWithdrawal,
@@ -11,6 +14,7 @@ import { clearStudyWidget } from '@/services/studyWidget';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  AppState,
   View,
   Image,
   Pressable,
@@ -34,7 +38,7 @@ import {
   shouldShowShopGuide,
   Building,
   Color,
-  currentIsland,
+  displayIsland as currentIsland,
   mainIsland,
   serverHome,
   isHost,
@@ -78,6 +82,7 @@ import {
 } from '@/i18n';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
+import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
 import { CatSprite } from '@/components/CatSprite';
@@ -821,6 +826,7 @@ export function RedesignScreens({ e }: any) {
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    serverWriting = useRef(false),
     characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
     routeNowRef = useRef(route),
@@ -851,10 +857,26 @@ export function RedesignScreens({ e }: any) {
   // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
   // stale 세션의 늦은 응답(CLIENT_STALE_SESSION)은 문구 없이 버린다.
   const server = e.islands;
-  // ko 출력은 i18n/index.test.ts 의 errorText 테스트가 보증한다(GROMO-2238)
-  const serverErrorText = errorText;
+  const serverErrorText = (thrown: unknown) => {
+    if (!(thrown instanceof ApiError) || getLocale() !== 'ko') return errorText(thrown);
+    const code = thrown.code;
+    if (
+      [
+        'SESSION_IN_PROGRESS',
+        'OBSERVATORY_LOCKED',
+        'FACILITY_LOCKED',
+        'MEMBER_ONLY',
+        'GROUP_NOT_FOUND',
+        'GROUP_FULL',
+        'GROUP_LIMIT_EXCEEDED',
+      ].includes(code)
+    )
+      return islandErrorMessage(thrown, 'tower');
+    return errorText(thrown);
+  };
   const run = (fn: () => Promise<unknown>, fail: (m: string) => void = setServerError) => {
-    if (serverBusy) return;
+    if (serverWriting.current) return;
+    serverWriting.current = true;
     setServerBusy(true);
     fail('');
     Promise.resolve()
@@ -863,7 +885,10 @@ export function RedesignScreens({ e }: any) {
         const m = serverErrorText(thrown);
         if (m) fail(m);
       })
-      .finally(() => setServerBusy(false));
+      .finally(() => {
+        serverWriting.current = false;
+        setServerBusy(false);
+      });
   };
   /**
    * 탈퇴 뒤 기기 정리. 로컬 데이터 소유자 삭제(또는 다음 부팅이 이어 갈 내구 삭제 표식)가 확정돼야만
@@ -952,18 +977,31 @@ export function RedesignScreens({ e }: any) {
     detail
       ? reqList.find((r) => r.status === 'pending' && r.islandId === detail)
       : reqList.find((r) => r.status === 'pending');
-  // 서버 current 가 정해졌을 때만 홈으로 들어간다(GROMO-2138) — 승인만 되고 current 가 null 이면
-  // 홈이 chooseIsland 로 되돌리므로 버튼을 띄우지 않는다. 홈은 서버 스냅샷을 직접 그린다
-  const enterHome = snap?.currentIslandId ? (
-    <Btn
-      id="enter-home"
-      title={t('onboarding.enterHome')}
-      style={{ marginTop: 6 }}
-      onPress={() => reset(state.tutorial && state.tutorial.step <= 3 ? 'guide' : 'home')}
-    />
-  ) : null;
+  // 승인은 소속만 만든다. 입장 버튼을 눌렀을 때 별도 현재 섬 변경을 확정한다.
+  const enterHome = (islandId = snap?.currentIslandId) =>
+    islandId ? (
+      <Btn
+        id="enter-home"
+        title={t('onboarding.enterHome')}
+        style={{ marginTop: 6 }}
+        disabled={serverBusy}
+        onPress={() =>
+          run(async () => {
+            const gen = sessionGeneration();
+            if (islandId !== snap?.currentIslandId) await server.switchCurrent(islandId);
+            if (routeNowRef.current !== route || gen !== sessionGeneration()) return;
+            reset(
+              state.tutorialEnrollment === 'awaiting-first-island' ||
+                (state.tutorial && state.tutorial.step <= 3)
+                ? 'guide'
+                : 'home',
+            );
+          })
+        }
+      />
+    ) : null;
   // 서버 소속 확인 카드 — 최초 소속은 몽돌 안내, 기존 소속은 홈으로 들어간다.
-  const doneCard = (title: string, sub: string) => (
+  const doneCard = (title: string, sub: string, islandId = snap?.currentIslandId) => (
     <View
       style={{
         gap: 4,
@@ -979,7 +1017,7 @@ export function RedesignScreens({ e }: any) {
       <Txt kind="meta" style={META}>
         {sub}
       </Txt>
-      {enterHome}
+      {enterHome(islandId)}
     </View>
   );
   // 섬 찾기·승인 대기 진입 시 첫 페이지와 pending 목록을 서버에서 가져온다(재실행 복구 포함).
@@ -994,14 +1032,37 @@ export function RedesignScreens({ e }: any) {
     serverTried.current = route;
     run(() => server.explore());
   }, [route, server]);
-  // 승인 대기 중엔 4초마다 신청 상태를 폴링 — 다른 기기의 승인·거절을 반영한다
+  // 승인 상태는 즉시·4초 주기·포그라운드 복귀 때 확인한다. 느린 요청은 겹치지 않는다.
   const pendingId = pendingReq()?.id;
   useEffect(() => {
     if (!server || route !== 'approval' || !pendingId) return;
+    let live = true,
+      polling = false;
+    const poll = async () => {
+      if (!live || polling || AppState.currentState === 'background' || serverWriting.current)
+        return;
+      polling = true;
+      try {
+        await server.status(pendingId);
+        if (live) setServerError('');
+      } catch (thrown) {
+        if (live) setServerError(serverErrorText(thrown));
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
     const timer = setInterval(() => {
-      Promise.resolve(server.status(pendingId)).catch(() => {});
+      void poll();
     }, 4000);
-    return () => clearInterval(timer);
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void poll();
+    });
+    return () => {
+      live = false;
+      clearInterval(timer);
+      subscription.remove();
+    };
   }, [server, route, pendingId]);
   useEffect(() => {
     if (!invite) return;
@@ -1540,6 +1601,19 @@ export function RedesignScreens({ e }: any) {
         />
       </Onboard>
     );
+  if (server && route === 'visit') return <ServerVisit key={detail} e={e} />;
+  if (server && (route === 'mainIsland' || route === 'currentIsland'))
+    return (
+      <ServerIslandPicker
+        key={route}
+        mode={route === 'mainIsland' ? 'main' : 'current'}
+        state={state}
+        islands={server}
+        back={back}
+        home={home}
+        reset={reset}
+      />
+    );
   if (route === 'chooseIsland')
     return (
       <View style={{ flex: 1 }}>
@@ -1578,6 +1652,9 @@ export function RedesignScreens({ e }: any) {
               </View>
             )}
             <Txt style={H22}>{t('onboarding.chooseIsland.whereStart')}</Txt>
+            {server && !!snap?.memberships.length && (
+              <Btn title={t('islandPicker.enterJoined')} onPress={() => go('currentIsland')} />
+            )}
             <Group>
               <Row
                 title={t('onboarding.chooseIsland.createAlone.title')}
@@ -1936,7 +2013,7 @@ export function RedesignScreens({ e }: any) {
             <Txt kind="meta" style={META}>
               {t('onboarding.createIsland.doneSub', { island: serverDone })}
             </Txt>
-            {enterHome}
+            {enterHome()}
           </View>
         ) : null}
         {serverError ? (
@@ -1948,6 +2025,7 @@ export function RedesignScreens({ e }: any) {
           <>
             <Field
               label={t('onboarding.createIsland.nameLabel')}
+              maxLength={ISLAND_NAME_MAX}
               value={text}
               onChange={setText}
               inputStyle={INP}
@@ -1956,6 +2034,7 @@ export function RedesignScreens({ e }: any) {
               label={t('onboarding.createIsland.introLabel')}
               value={body}
               onChange={setBody}
+              maxLength={ISLAND_INTRO_MAX}
               multiline={!layout.compact}
               inputStyle={layout.compact ? INP : INP_TA}
             />
@@ -2042,8 +2121,12 @@ export function RedesignScreens({ e }: any) {
         <Spinner reduce={state.settings.reduceMotion} />
       </View>
     );
-    const joinedCard = (name: string) =>
-      doneCard(t('onboarding.joinedCard.title'), t('onboarding.joinedCard.sub', { island: name }));
+    const joinedCard = (name: string, id?: string) =>
+      doneCard(
+        t('onboarding.joinedCard.title'),
+        t('onboarding.joinedCard.sub', { island: name }),
+        id,
+      );
     return (
       <Onboard
         title={
@@ -2128,7 +2211,12 @@ export function RedesignScreens({ e }: any) {
           !req &&
           closed &&
           (closed.status === 'approved' ? (
-            joinedCard(closed.islandName ?? t('onboarding.joinIsland.thatIslandFallback'))
+            joinedCard(
+              closed.islandName ??
+                snap?.memberships.find((m) => m.id === closed.islandId)?.name ??
+                t('onboarding.joinIsland.thatIslandFallback'),
+              closed.islandId,
+            )
           ) : (
             <View style={{ gap: 4 }}>
               <Txt style={H17}>
@@ -2475,27 +2563,12 @@ export function RedesignScreens({ e }: any) {
             // v2 가로 guidebox는 아래 18px
             bottom: layout.compact ? 18 : ins.bottom + 12,
           }}
+          onSkip={() => {
+            setGuideStep(99);
+            home();
+          }}
+          skipTitle={t('onboarding.guide.skip')}
         >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('onboarding.guide.skip')}
-            hitSlop={12}
-            onPress={() => {
-              setGuideStep(99);
-              home();
-            }}
-          >
-            <Txt
-              kind="meta"
-              style={{
-                fontSize: 12,
-                lineHeight: 16.8,
-                textDecorationLine: 'underline',
-              }}
-            >
-              {t('onboarding.guide.skip')}
-            </Txt>
-          </Pressable>
           <Btn
             title={last ? t('onboarding.guide.last') : t('onboarding.guide.next')}
             small
@@ -3659,8 +3732,19 @@ export function RedesignScreens({ e }: any) {
           >
             {editing ? (
               <>
-                <Field label="섬 이름" value={text} onChange={setText} />
-                <Field label="섬 소개" value={body} onChange={setBody} multiline />
+                <Field
+                  label="섬 이름"
+                  value={text}
+                  onChange={setText}
+                  maxLength={ISLAND_NAME_MAX}
+                />
+                <Field
+                  label="섬 소개"
+                  value={body}
+                  onChange={setBody}
+                  multiline
+                  maxLength={ISLAND_INTRO_MAX}
+                />
               </>
             ) : (
               <>
@@ -4642,9 +4726,7 @@ export function RedesignScreens({ e }: any) {
                     tail={<IslandThumb />}
                     chevron={item.islandId !== myIslandId}
                     onPress={
-                      item.islandId === myIslandId
-                        ? undefined
-                        : () => run(() => server.visit(item.islandId))
+                      item.islandId === myIslandId ? undefined : () => go('visit', item.islandId)
                     }
                   />
                 ))}
@@ -5454,7 +5536,7 @@ export function RedesignScreens({ e }: any) {
           snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
           t('account.boat.myIslandFallback'))
         : primaryIsland.name,
-      canChangeMainIsland = joinedIslands.length > 1;
+      canChangeMainIsland = (server ? (snap?.memberships.length ?? 0) : joinedIslands.length) > 1;
     const mainIslandCard = (
       <>
         <IslandCircle size={112} />
@@ -5536,6 +5618,18 @@ export function RedesignScreens({ e }: any) {
           </View>
         )}
         <SheetGroup>
+          {server && (
+            <SheetRow
+              title={t('islandPicker.currentTitle')}
+              sub={
+                island.name
+                  ? t('islandPicker.currentIslandName', { name: island.name })
+                  : t('islandPicker.chooseJoined')
+              }
+              chevron
+              onPress={() => go('currentIsland')}
+            />
+          )}
           <SheetRow
             title={t('account.boat.wardrobeTitle')}
             sub={t('account.boat.wardrobeSub')}
