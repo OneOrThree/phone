@@ -1,6 +1,7 @@
 package com.oneorthree.business.api;
 
 import com.jayway.jsonpath.JsonPath;
+import com.oneorthree.business.support.MockUpstream;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -186,7 +187,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
-    void focusTodayCarriesOnlyMinutesAndItsFailureFailsTheScreen() throws Exception {
+    void focusTodayCarriesOnlyMinutes() throws Exception {
         // GROMO-2258 — 방문 화면의 오늘 집중 분. 공개 조각은 minutes 하나뿐이다(섬 id·날짜는 싣지 않는다).
         DATA.on(DATA_ISLAND, request -> ok(visitor(null)));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
@@ -197,12 +198,28 @@ class VisitScreenContractTest extends ScreenContractTestBase {
         assertThat(focusToday).containsExactly(Map.entry("minutes", 95));
         assertThat(DATA.receivedFor(DATA_FOCUS_TODAY).get(0).header("X-User-Id"))
                 .isEqualTo(USER.toString());
+    }
 
-        // 다른 조각처럼 실패를 0분으로 접지 않는다.
-        DATA.on(DATA_FOCUS_TODAY, request -> domainError(403, "MEMBER_ONLY"));
-        mockMvc.perform(auth(get(PATH)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    @Test
+    void focusTodayIsOptionalSoAnOlderDataApiDoesNotBreakTheScreen() throws Exception {
+        // business 선배포 — 구 data 의 allowlist 거절(코드 없는 403)·도메인 403·5xx·라우트 부재 404 모두
+        // focusToday 만 null 이고 나머지 화면은 200 이다. 앱은 값이 없으면 숨긴다.
+        DATA.on(DATA_ISLAND, request -> ok(visitor(null)));
+        DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
+        for (MockUpstream.Response failure : List.of(
+                new MockUpstream.Response(403, "{\"error\":\"call not in allowlist\"}"),
+                domainError(403, "MEMBER_ONLY"),
+                new MockUpstream.Response(500, "{}"),
+                new MockUpstream.Response(404, "{\"code\":null,\"message\":\"no route\"}"))) {
+            DATA.on(DATA_FOCUS_TODAY, request -> failure);
+            MvcResult result = mockMvc.perform(auth(get(PATH)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.focusToday").value(nullValue()))
+                    .andExpect(jsonPath("$.data.members.items[0].name").value("방장"))
+                    .andReturn();
+            assertKeys(result, "island", "buildings", "members", "focusToday", "joinRequestAvailability",
+                    "joinRequest");
+        }
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.oneorthree.realtime.membership;
 
+import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import lombok.RequiredArgsConstructor;
@@ -87,7 +88,7 @@ public class MembershipService {
         if (cached != null) {
             return parse(cached);
         }
-        return fetchAndStore(key, bearerToken);
+        return fetchAndStore(key, bearerToken).groupIds();
     }
 
     /**
@@ -100,13 +101,22 @@ public class MembershipService {
      * <p>방문자 응원(GROMO-2258)도 같은 이유로 이걸 쓴다 — 가입 직후 남은 «비주민» 캐시를 믿으면 세션 없는 주민이
      * 방문자로 위장해 {@code NOT_FOCUSING} 을 비켜 간다.
      *
-     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류가 답하지 않을 때
+     * <p><b>«비주민»은 성공한 조회로만 확정한다</b>(GROMO-2258). 상류가 403 으로 거절한 빈 답({@code rejected})은
+     * 이 사람의 소속에 대한 사실이 아니라 판정 불가다 — {@code false} 로 접으면 조회가 거절된 주민이 방문자로
+     * 승인된다. 그래서 fail-closed 로 올린다(401 은 이미 {@code UpstreamRejectedCredentialException} 으로 올라온다).
+     *
+     * @throws com.oneorthree.realtime.common.exception.UpstreamUnavailableException 상류가 답하지 않거나 403 으로
+     *         거절했을 때
      */
     public boolean isMemberUncached(UUID groupId, UUID userId, String bearerToken) {
-        return fetchAndStore(RedisKeys.memberCache(userId), bearerToken).contains(groupId);
+        GroupClient.Membership fresh = fetchAndStore(RedisKeys.memberCache(userId), bearerToken);
+        if (!fresh.cacheable()) {
+            throw new UpstreamUnavailableException();
+        }
+        return fresh.groupIds().contains(groupId);
     }
 
-    private Set<UUID> fetchAndStore(String key, String bearerToken) {
+    private GroupClient.Membership fetchAndStore(String key, String bearerToken) {
         GroupClient.Membership fresh = groupClient.fetchMyGroupIds(bearerToken);
         // 상류가 «이 토큰»을 거절해서 나온 빈 집합은 캐시하지 않는다. 캐시는 userId 로만 조회되므로,
         // 만료 토큰의 401 을 적재하면 유저가 곧바로 토큰을 갱신해 새로 붙어도 그 새 토큰이 상류에
@@ -114,7 +124,7 @@ public class MembershipService {
         if (fresh.cacheable()) {
             store(key, fresh.groupIds());
         }
-        return fresh.groupIds();
+        return fresh;
     }
 
     /**

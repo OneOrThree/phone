@@ -6,6 +6,8 @@ import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
+import com.oneorthree.business.common.exception.UpstreamCredentialRejectedException;
+import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.ReadFragment;
 import com.oneorthree.business.common.http.ScreenComposer;
@@ -20,6 +22,7 @@ import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.NotificationSettingsView;
 import com.oneorthree.business.upstream.realtime.dto.RealtimeHistory;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 
@@ -48,6 +51,7 @@ import java.util.function.Function;
  * <p>ponytail: 화면 DTO 클래스 없음 — 조각 이름이 계약이다(implementation-business-api §3). OpenAPI 문서가
  * 필요해지면 화면별 record 로 올린다. 유스케이스가 500줄을 넘으면 장소별로 나눈다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ScreenReadUseCase {
@@ -174,7 +178,7 @@ public class ScreenReadUseCase {
         List<ReadFragment<?>> fragments = new ArrayList<>(List.of(fragment("members",
                 deadline -> management.members(claims, islandId, null, IslandManagementUseCase.DEFAULT_LIMIT,
                         deadline)),
-                fragment("focusToday", deadline -> focusMembers.focusToday(claims, islandId, deadline))));
+                focusToday(claims, islandId)));
         if (island.joinRequestId() != null) {
             fragments.add(fragment("joinRequest",
                     deadline -> islands.joinRequest(claims, island.joinRequestId(), deadline)));
@@ -523,6 +527,28 @@ public class ScreenReadUseCase {
     }
 
     // ---------------------------------------------------------------- 조각
+
+    /**
+     * {@code visit.focusToday} — <b>유일한 선택 조각</b>(B04 예외, GROMO-2258). 상류가 실패하면 {@code null} 로 두고
+     * 나머지 화면은 그대로 낸다. business 가 data 보다 먼저 배포되면 구 data 의 allowlist 에 이 경로가 없어 403 이
+     * 나는데, 그게 방문 화면 전체를 깨면 안 된다 — 앱은 값이 없으면 숨긴다. 일시 실패(UNAVAILABLE·TIMEOUT)는
+     * 조합기가(전체 예산·취소 우선), 도메인·자격·계약 실패는 여기서 접는다(home {@code layout} 404 폴백과 같은 자리).
+     */
+    private ReadFragment<?> focusToday(AccessTokenClaims claims, UUID islandId) {
+        return new ReadFragment<>("focusToday", false,
+                new ParameterizedTypeReference<IslandFocusMembersUseCase.FocusTodayView>() { },
+                Set.of(ReadFragment.TransientFailure.UNAVAILABLE, ReadFragment.TransientFailure.TIMEOUT),
+                context -> {
+                    try {
+                        return focusMembers.focusToday(claims, islandId, context.deadline());
+                    } catch (UpstreamDomainException | PublicApiException | UpstreamContractMismatchException
+                             | UpstreamCredentialRejectedException e) {
+                        log.warn("visit focusToday 조각 생략 — islandId={} reason={}", islandId,
+                                e.getClass().getSimpleName());
+                        return null;
+                    }
+                });
+    }
 
     private ReadFragment<?> wallets(AccessTokenClaims claims, UUID islandId) {
         return fragment("wallets", deadline -> shop.wallets(claims, islandId, deadline));

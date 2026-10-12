@@ -595,6 +595,22 @@ class IslandRealtimeIntegrationTest {
     }
 
     @Test
+    @DisplayName("멤버십 조회가 거절(403)되면 세션 없는 응원은 방문자로 통과하지 않는다 — UPSTREAM_UNAVAILABLE")
+    void rejectedMembershipLookupIsNotAVisitor() throws Exception {
+        given(groupClient.fetchMyGroupIds(bearerOf(focusing))).willReturn(GroupClient.Membership.rejected());
+        given(focusSessions.progressingRecipients(island, focusing)).willReturn(Set.of(resting));
+        StompSession sender = connect(focusing);
+        BlockingQueue<SendFailureResponse> errors = subscribeToErrors(sender);
+        awaitErrorQueueRegistered(sender, errors, focusing);
+
+        sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+        SendFailureResponse failure = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(failure).isNotNull();
+        assertThat(failure.getCode()).isEqualTo(CommonErrorCode.UPSTREAM_UNAVAILABLE.name());
+        verify(focusSessions, org.mockito.Mockito.never()).progressingRecipients(island, focusing);
+    }
+
+    @Test
     @DisplayName("비소속 방문자도 focus·rest 를 구독하고 Data 사건을 받는다 — 관전 개방")
     void visitorWatchesFocusAndRest() throws Exception {
         StompSession watcher = connect(visitor);
