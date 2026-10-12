@@ -51,10 +51,10 @@ import java.util.UUID;
  * {@code group_invite_links.issuance_epoch} 와 현재 세대의 대조다 — DB 에 지워지는 행이 없어도
  * 세대가 어긋난 코드는 영구히 410 이다.
  *
- * <h2>해석은 도착이고, 초대 검증은 가입 커밋이 다시 한다</h2>
- * resolve 는 그 섬에 항해 없이 도착을 남기고, 누구나 가입 섬이면 가입까지 이어간다(GROMO-2264). 승인제 섬은 도착만이다 —
- * 가입 신청은 방문자가 직접 한다. 해석의 초대 검증은 사전 판정일 뿐이고, 실제 가입·신청 커밋이 발급자 멤버십 잠금
- * 아래에서 다시 대조한다({@code IslandJoinService}).
+ * <h2>해석은 미리보기이고, 도착은 opt-in 이며, 초대 검증은 가입 커밋이 다시 한다</h2>
+ * resolve 는 기본이 잠금·쓰기 없는 미리보기다. {@code arrive=true} 일 때만 그 섬에 항해 없이 도착을 남기고, 누구나 가입
+ * 섬이면 가입까지 이어간다(GROMO-2264). 승인제 섬은 도착만이다 — 가입 신청은 방문자가 직접 한다. 해석의 초대 검증은
+ * 사전 판정일 뿐이고, 실제 가입·신청 커밋이 발급자 멤버십 잠금 아래에서 다시 대조한다({@code IslandJoinService}).
  */
 @Service
 @Slf4j
@@ -86,10 +86,15 @@ public class IslandInvitationService {
     // ---------------------------------------------------------------- §3.10 resolve
 
     /**
-     * 초대 코드를 해석하고 그 섬에 항해 없이 도착한다 (LLD §3.10 · GROMO-2264, 섬 외부 계약 §4).
+     * 초대 코드를 해석한다 (LLD §3.10). {@code arrive=true} 면 그 섬에 항해 없이 도착까지 한다 (GROMO-2264, 섬 외부 계약 §4).
      *
      * <p>토큰은 코드(slug) 그 자체다 — 코드는 이미 «발급 세대에 묶인» 참조라 별도 서명이 없어도
      * 재발급·세대 변화가 옛 토큰을 자연히 무효화한다. 가입 커밋이 그 참조를 다시 검증한다.
+     *
+     * <p><b>도착은 명시적 opt-in 이다.</b> 지금 앱은 해석을 읽기 전용 미리보기로 쓰고, 미리보기를 닫으면 아무것도 보내지
+     * 않는다 — 해석이 저절로 가입·이동하면 구 앱은 서버만 옮겨진 채 섬 없는 화면에 남는다. 그래서 {@code arrive} 가 없거나
+     * false 면 종전 그대로 잠금·쓰기 없이 지금 상태만 돌려준다({@code arrival=null}). 시스템 편지({@code ?kind=system})·
+     * 나가기·강퇴({@code include=nextLocation})와 같은 혼합 버전 규칙이다.
      *
      * <p><b>도착</b>은 그 섬 1곳에만 남는다(비주민도 = 방문 도착). 그래서 승인제 섬이 나중에 승인돼도 처음 한 번의
      * 항해 없이 즉시 이동 대상이다. 누구나 가입 섬은 이어서 가입한다 — {@link #arriveByInvitation} 참고. 계약에 사유가
@@ -100,13 +105,31 @@ public class IslandInvitationService {
      */
     @Transactional
     public InvitationResolvedView resolve(UUID userId, InvitationResolveCommandRequest body) {
-        // 잠금 순서는 가입과 같다(users → context → groups) — 해석이 가입으로 이어지고 가입이 같은 행을 다시 잠근다.
+        if (!body.arriving()) {
+            // 미리보기(기본) — 종전 그대로다. 잠금도 쓰기도 없다.
+            User caller = userQueryService.getCaller(userId);
+            GroupInviteLink link = findLink(body.code());
+            return new InvitationResolvedView(summaryFor(caller, requireLiveInvitation(link)), link.getSlug(), null);
+        }
+        // 잠금 순서는 가입과 같다(users → context → groups) — 도착이 가입으로 이어지고 가입이 같은 행을 다시 잠근다.
         User caller = userQueryService.getCallerForUpdate(userId);
-        String code = normalizeCode(body.code());
-        GroupInviteLink link = inviteLinkRepository.findBySlug(code)
-                .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.SLUG_NOT_FOUND));
+        GroupInviteLink link = findLink(body.code());
         userIslandContextLockService.lock(caller);
         membershipLocks.lockGroup(link.getGroupId());
+        Group island = requireLiveInvitation(link);
+        InvitationResolvedView.Arrival arrival = arriveByInvitation(caller, island, link.getSlug());
+        // 요약은 도착·가입 «뒤» 의 본인 기준 값이다 — arrival 과 같은 membershipStatus 를 말한다.
+        return new InvitationResolvedView(summaryFor(caller, island), link.getSlug(), arrival);
+    }
+
+    /** 코드로 초대 링크를 찾는다 — 형식 오류는 422, 없는 코드는 404 다. */
+    private GroupInviteLink findLink(String rawCode) {
+        return inviteLinkRepository.findBySlug(normalizeCode(rawCode))
+                .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.SLUG_NOT_FOUND));
+    }
+
+    /** 초대가 가리키는 섬 — 섬이 살아 있고 발급자가 발급 세대 그대로 주민이어야 한다. 아니면 410 이다. */
+    private Group requireLiveInvitation(GroupInviteLink link) {
         Group island = groupQueryService.findGroup(link.getGroupId())
                 .filter(IslandMovementGuards::isAlive)
                 .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.INVITATION_EXPIRED));
@@ -116,9 +139,7 @@ public class IslandInvitationService {
         if (issuer.getMembershipEpoch() != link.getIssuanceEpoch()) {
             throw new InviteLinkException(InviteLinkErrorCode.INVITATION_EXPIRED);
         }
-        InvitationResolvedView.Arrival arrival = arriveByInvitation(caller, island, link.getSlug());
-        // 요약은 도착·가입 «뒤» 의 본인 기준 값이다 — arrival 과 같은 membershipStatus 를 말한다.
-        return new InvitationResolvedView(summaryFor(caller, island), link.getSlug(), arrival);
+        return island;
     }
 
     /**

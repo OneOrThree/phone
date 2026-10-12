@@ -12,8 +12,8 @@ import java.util.UUID;
  * <p>{@code invitationToken} 은 가입 명령에 그대로 실어 보내는 불투명 전달값이다 — Business 가
  * 해석하거나 로그·URL 에 복사하지 않는다. 실제 유효성은 가입 커밋의 Data TX 가 다시 검사한다.
  *
- * <p>{@code arrival} 은 초대 도착 결과다 (GROMO-2264). 필수로 걸지 않는다 — 구 Data 서버는 내려보내지 않으므로
- * null 이다(서비스 독립 배포).
+ * <p>{@code arrival} 은 초대 도착 결과다 (GROMO-2264). 필수로 걸지 않는다 — 도착을 요청({@code arrive=true})하지 않은
+ * 미리보기와 구 Data 서버(서비스 독립 배포)는 null 이다.
  */
 public record InvitationResolved(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) IslandSummary island,

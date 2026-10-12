@@ -9,7 +9,8 @@ import java.util.UUID;
  *     가입 섬은 가입까지)을 마친 <b>뒤</b>의 값이다(GROMO-2264)
  * @param invitationToken 가입 명령에 실어 보낼 불투명 토큰 — 그 자체가 가입 권한은 아니고,
  *     서버는 가입 커밋 안에서 이 참조를 다시 검증한다
- * @param arrival 초대로 그 섬에 도착한 결과 (GROMO-2264, 섬 외부 계약 §4)
+ * @param arrival 초대로 그 섬에 도착한 결과 (GROMO-2264, 섬 외부 계약 §4). 도착을 요청({@code arrive=true})하지 않은
+ *     미리보기면 null 이다
  */
 public record InvitationResolvedView(
         IslandSummaryView island,

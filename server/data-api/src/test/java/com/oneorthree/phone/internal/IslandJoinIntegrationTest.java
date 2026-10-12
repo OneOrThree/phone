@@ -421,8 +421,7 @@ class IslandJoinIntegrationTest {
 
         assertThat(resolved.island().id()).isEqualTo(islandId);
         assertThat(resolved.island().visibility()).isEqualTo("private");
-        // 누구나 가입 섬이라 해석이 가입까지 했다(GROMO-2264) — 신청이 아니므로 요청 id 는 없다.
-        assertThat(resolved.island().membershipStatus()).isEqualTo("active");
+        assertThat(resolved.island().membershipStatus()).isEqualTo("none");
         assertThat(resolved.island().joinRequestId()).isNull();
         assertThat(resolved.invitationToken()).isEqualTo(issued.code());
 
@@ -585,10 +584,8 @@ class IslandJoinIntegrationTest {
                         .content("{\"code\":\"" + code + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.island.id").value(islandId.toString()))
-                .andExpect(jsonPath("$.invitationToken").value(code))
-                .andExpect(jsonPath("$.arrival.membershipStatus").value("active"));
+                .andExpect(jsonPath("$.invitationToken").value(code));
 
-        // 해석이 이미 가입시켰다(GROMO-2264) — 같은 초대로 따로 부르는 가입은 같은 활성 멤버십을 돌려준다.
         mvc.perform(post("/internal/users/" + applicant + "/islands/" + islandId + "/memberships")
                         .header("Authorization", "Bearer " + TOKEN)
                         .header("X-User-Id", applicant.toString())

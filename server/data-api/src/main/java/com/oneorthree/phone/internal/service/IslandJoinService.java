@@ -149,15 +149,6 @@ public class IslandJoinService {
 
                     Optional<GroupMember> prior = groupMemberRepository.findAnyByUserAndGroup(user, island);
                     if (prior.isPresent() && !prior.get().isLeft()) {
-                        if (normalizeToken(body == null ? null : body.invitationToken()) != null
-                                && islandId.equals(context.getCurrentIslandId())) {
-                            // 초대 해석이 누구나 가입 섬의 가입·이동까지 마친다(GROMO-2264). 그 뒤 초대 토큰을 들고 오는 가입(해석 뒤 가입을
-                            // 따로 부르던 앱 흐름)은 끝난 가입의 재시도라 열린 pending 처럼 같은 자원을 돌려준다(사건 없음).
-                            // 그 섬에 서 있지 않은 주민은 해석이 옮겨 준 자리가 아니므로 종전대로 409 다.
-                            return new PublicCommandResult(200, InternalJson.tree(JoinIslandResultView.active(
-                                    islandId, islandId, membershipEvents.currentVersion(islandId))),
-                                    InternalJson.tree(List.of()));
-                        }
                         throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
                     }
                     if (prior.isPresent() && prior.get().isKicked()) {

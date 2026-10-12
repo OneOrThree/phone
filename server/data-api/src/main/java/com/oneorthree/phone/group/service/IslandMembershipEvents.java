@@ -55,11 +55,6 @@ public class IslandMembershipEvents {
         return append(islandId, actorId, Map.of("changeKind", changeKind, "memberUserId", memberUserId.toString()));
     }
 
-    /** 주민 목록의 현재 version — 올리지 않는다. 사건 없이 끝난 가입이 «지금 목록 버전» 을 답할 때 쓴다(GROMO-2264). */
-    public long currentVersion(UUID islandId) {
-        return outbox.currentVersion(new AggregateRef(AGGREGATE_TYPE, islandId.toString()));
-    }
-
     private EventEnvelope append(UUID islandId, UUID actorId, Map<String, Object> details) {
         Map<String, Object> params = new LinkedHashMap<>(details);
         params.put("islandId", islandId.toString());

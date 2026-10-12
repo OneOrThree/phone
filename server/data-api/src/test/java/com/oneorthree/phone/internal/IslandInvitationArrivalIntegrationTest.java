@@ -48,7 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * 초대 링크 도착 (GROMO-2264, 섬 외부 계약 §4)을 <b>실제 Flyway PostgreSQL</b> 위에서 생산 진입점으로 검증한다.
- * 시드는 생산 서비스와 엔티티로만 만든다.
+ * 시드는 생산 서비스와 엔티티로만 만든다. 도착은 {@code arrive=true} opt-in 이다 — 없으면 종전 미리보기다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -96,7 +96,43 @@ class IslandInvitationArrivalIntegrationTest {
     MockMvc mvc;
 
     @Test
-    @DisplayName("누구나 가입 섬 — 해석이 가입·이동·도착까지 하고, 같은 초대로 따로 부르는 가입은 같은 자원을 돌려준다")
+    @DisplayName("arrive 가 없으면 종전 미리보기다 — 도착·가입·신청·이동이 없고 arrival 은 null, 모르는 필드는 무시한다")
+    void resolveWithoutArriveIsTheOldPreview() throws Exception {
+        UUID host = newUser();
+        UUID open = island("미리보기섬", false, false);
+        UUID approval = island("미리보기승인섬", false, true);
+        joinAs(host, open, GroupMemberRole.OWNER);
+        joinAs(host, approval, GroupMemberRole.OWNER);
+        String openCode = invitations.issue(host, open, UUID.randomUUID()).code();
+        String approvalCode = invitations.issue(host, approval, UUID.randomUUID()).code();
+        UUID user = newUser();
+
+        for (String body : List.of("{\"code\":\"" + openCode + "\"}",
+                "{\"code\":\"" + openCode + "\",\"arrive\":false}",
+                // 구 Data 서버가 새 Business 의 arrive 를 받는 상황의 근거 — 모르는 필드는 무시된다(Boot 기본).
+                "{\"code\":\"" + openCode + "\",\"unknownProbe\":true}")) {
+            mvc.perform(post("/internal/users/" + user + "/invitations/resolve")
+                            .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                            .contentType("application/json").content(body))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.invitationToken").value(openCode))
+                    .andExpect(jsonPath("$.island.id").value(open.toString()))
+                    .andExpect(jsonPath("$.island.membershipStatus").value("none"))
+                    .andExpect(jsonPath("$.island.memberCount").value(1))
+                    .andExpect(jsonPath("$.island.arrivedBefore").value(false))
+                    .andExpect(jsonPath("$.arrival").value(nullValue()));
+        }
+        assertThat(resolve(user, approvalCode, null).arrival()).isNull();
+
+        assertThat(count("select count(*) from island_arrivals where user_id=?", user)).isZero();
+        assertThat(count("select count(*) from group_members where user_id=?", user)).isZero();
+        assertThat(count("select count(*) from island_join_requests where applicant_id=?", user)).isZero();
+        assertThat(currentIsland(user)).isNull();
+        assertThat(memberEvents(open)).isZero();
+    }
+
+    @Test
+    @DisplayName("누구나 가입 섬 — arrive=true 면 해석이 가입·이동·도착까지 한다")
     void openIslandInviteJoinsMovesAndArrives() throws Exception {
         UUID host = newUser();
         UUID islandId = island("초대섬", false, false);
@@ -106,7 +142,7 @@ class IslandInvitationArrivalIntegrationTest {
 
         mvc.perform(post("/internal/users/" + user + "/invitations/resolve")
                         .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
-                        .contentType("application/json").content("{\"code\":\"" + code + "\"}"))
+                        .contentType("application/json").content("{\"code\":\"" + code + "\",\"arrive\":true}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.invitationToken").value(code))
                 .andExpect(jsonPath("$.arrival.islandId").value(islandId.toString()))
@@ -122,24 +158,6 @@ class IslandInvitationArrivalIntegrationTest {
                 .as("도착은 초대한 그 섬 1곳에만 남는다").isEqualTo(1);
         assertThat(arrived(user, islandId)).isTrue();
         assertThat(memberEvents(islandId)).isEqualTo(1);
-
-        // 해석 뒤 가입을 따로 부르던 앱 흐름 — 409 가 아니라 같은 활성 멤버십이고 사건·행을 더 만들지 않는다.
-        mvc.perform(post("/internal/users/" + user + "/islands/" + islandId + "/memberships")
-                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
-                        .header("Idempotency-Key", UUID.randomUUID())
-                        .contentType("application/json").content("{\"invitationToken\":\"" + code + "\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("active"))
-                .andExpect(jsonPath("$.currentIslandId").value(islandId.toString()));
-        assertThat(activeMemberships(user, islandId)).isEqualTo(1);
-        assertThat(memberEvents(islandId)).isEqualTo(1);
-
-        // 초대 없이 다시 가입하면 종전대로 409 다 — 같은 자원 응답은 초대 후속에만 있다.
-        mvc.perform(post("/internal/users/" + user + "/islands/" + islandId + "/memberships")
-                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
-                        .header("Idempotency-Key", UUID.randomUUID()))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("ALREADY_MEMBER"));
     }
 
     @Test
@@ -356,8 +374,13 @@ class IslandInvitationArrivalIntegrationTest {
 
     // ---------------------------------------------------------------- 도구
 
+    /** 도착 해석(arrive=true) — 이 클래스의 기본 시나리오다. */
     private InvitationResolvedView resolve(UUID userId, String code) {
-        return invitations.resolve(userId, new InvitationResolveCommandRequest(code));
+        return resolve(userId, code, true);
+    }
+
+    private InvitationResolvedView resolve(UUID userId, String code, Boolean arrive) {
+        return invitations.resolve(userId, new InvitationResolveCommandRequest(code, arrive));
     }
 
     private String approvalLetter(UUID userId) {

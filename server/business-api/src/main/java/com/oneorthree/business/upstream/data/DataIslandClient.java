@@ -322,14 +322,18 @@ public class DataIslandClient {
     }
 
     /**
-     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 조회 성격이라 멱등키를 싣지 않고 재시도한다.
+     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 멱등키를 싣지 않는다(POST 라 자동 재시도 대상도 아니다).
      * code 의 형식/폐기 판정(422/410)은 상류가 한다 — 여기서 미리 걸러 4xx 의미를 갉아먹지 않는다.
+     *
+     * <p>{@code arrive} 는 true 일 때만 본문에 싣는다(GROMO-2264) — 미리보기 요청은 종전 바이트 그대로다. 구 Data 서버는
+     * 모르는 필드를 무시하므로(Boot {@code JacksonAutoConfiguration} 이 FAIL_ON_UNKNOWN_PROPERTIES 를 끈다) 미리보기로
+     * 답하고 {@code arrival} 이 없다.
      */
-    public InvitationResolved resolveInvitation(UUID userId, String code, Deadline deadline) {
+    public InvitationResolved resolveInvitation(UUID userId, String code, boolean arrive, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, userPath(PATH_INVITATION_RESOLVE, userId))
                         .onBehalfOf(userId)
-                        .body(new InvitationResolveCommand(code))
+                        .body(new InvitationResolveCommand(code, arrive ? Boolean.TRUE : null))
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<InvitationResolved>() { });
@@ -615,8 +619,8 @@ public class DataIslandClient {
             @JsonInclude(JsonInclude.Include.NON_NULL) String origin) {
     }
 
-    /** 초대 코드 해석 요청 본문 (GROMO-1760). */
-    record InvitationResolveCommand(String code) {
+    /** 초대 코드 해석 요청 본문 (GROMO-1760). {@code arrive} 는 도착을 요청할 때만 싣는다(GROMO-2264). */
+    record InvitationResolveCommand(String code, @JsonInclude(JsonInclude.Include.NON_NULL) Boolean arrive) {
     }
 
     /** 방명록 쓰기 본문 (GROMO-2262). 작성자는 X-User-Id 로 간다. */

@@ -144,7 +144,8 @@ public final class IslandMembershipResponses {
     /**
      * 초대 해석 결과.
      *
-     * @param arrival 초대로 그 섬에 도착한 결과 (GROMO-2264). 구 Data 서버와 붙은 동안만 null 이다
+     * @param arrival 초대로 그 섬에 도착한 결과 (GROMO-2264). 도착을 요청({@code arrive=true})하지 않은 미리보기와 구 Data
+     *     서버와 붙은 동안은 null 이다
      */
     public record InvitationResolvedView(
             @JsonProperty(required = true) IslandSummaryView island,

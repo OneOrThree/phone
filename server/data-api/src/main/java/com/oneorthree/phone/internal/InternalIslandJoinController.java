@@ -78,7 +78,10 @@ public class InternalIslandJoinController {
         return islandJoinService.cancel(userId, requestId, idempotencyKey);
     }
 
-    /** 초대 코드 해석·도착 (LLD §3.10 · GROMO-2264). 다시 불러도 같은 상태로 수렴해 멱등 키를 받지 않는다. */
+    /**
+     * 초대 코드 해석 (LLD §3.10). 본문 {@code arrive=true} 면 그 섬에 도착까지 한다(GROMO-2264, 기본은 미리보기).
+     * 다시 불러도 같은 상태로 수렴해 멱등 키를 받지 않는다.
+     */
     @PostMapping("/invitations/resolve")
     public InvitationResolvedView resolve(@PathVariable UUID userId,
                                           @Valid @RequestBody InvitationResolveCommandRequest body) {
