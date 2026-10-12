@@ -26,6 +26,16 @@ public interface IslandGuestbookEntryRepository extends JpaRepository<IslandGues
 
     Optional<IslandGuestbookEntry> findByIdAndIslandIdAndDeletedAtIsNull(UUID id, UUID islandId);
 
+    /**
+     * 탈퇴자가 쓴 방명록을 지운 글까지 원문째 지운다 (GROMO-2262 × 계정 LLD §4). 사용자 행은 소프트 삭제라 V108 의
+     * {@code ON DELETE CASCADE} 가 돌지 않는다 — 안 지우면 본문과 작성자 UUID 가 남는다. 공지 댓글과 같은 선례
+     * ({@code GroupAnnouncementCommentRepository#deleteAllOfUser}, 2026-09-25 결정 GROMO-2136)다: 방문자가 남긴
+     * 짧은 글은 다른 사람의 판정·정산 근거가 아니라 작성자 연결만 끊을 이유가 없다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM IslandGuestbookEntry e WHERE e.authorId = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
+
     /** 31번째 이후(오래된 순)를 지운다 — 쓰기 직후 같은 TX 에서 부른다. */
     @Modifying
     @Query(value = "UPDATE island_guestbook_entries SET deleted_at = :now "

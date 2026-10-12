@@ -24,6 +24,7 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeMember;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupMemberStatus;
+import com.oneorthree.phone.group.repository.domain.IslandGuestbookEntry;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.group.service.GroupMemberService;
@@ -402,6 +403,55 @@ class AccountWithdrawalErasureIntegrationTest {
         assertThat(count("select count(*) from event_outbox where type='notice.updated'"
                 + " and aggregate_type='NOTICE' and aggregate_id=? and version=1", seeded.noticeId().toString()))
                 .isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("방명록(GROMO-2262) — 탈퇴자가 남긴 글은 지운 글까지 원문째 지워지고 상대·제3자의 글은 남는다")
+    void erasesGuestbookEntriesOfTheWithdrawnUserOnly() {
+        Actor w = actor();
+        Actor c = actor();
+        Actor t = actor();
+        record Entries(UUID wVisit, UUID wResident, UUID wRemoved, UUID cEntry, UUID tEntry) {
+        }
+        Entries seeded = new TransactionTemplate(transactions).execute(status -> {
+            // C 의 섬 — W 는 방문자다. T 의 섬 — W 는 주민이다.
+            Group visited = Group.builder().name("방문" + suffix()).maxMembers(10).build();
+            Group resided = Group.builder().name("주민" + suffix()).maxMembers(10).build();
+            em.persist(visited);
+            em.persist(resided);
+            em.persist(GroupMember.builder().group(visited).user(em.find(User.class, c.id()))
+                    .role(GroupMemberRole.OWNER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            em.persist(GroupMember.builder().group(resided).user(em.find(User.class, t.id()))
+                    .role(GroupMemberRole.OWNER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            em.persist(GroupMember.builder().group(resided).user(em.find(User.class, w.id()))
+                    .role(GroupMemberRole.MEMBER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            LocalDate day = LocalDate.of(2026, 10, 12);
+            IslandGuestbookEntry wVisit = new IslandGuestbookEntry(visited.getId(), w.id(), "W방문", day);
+            IslandGuestbookEntry wResident = new IslandGuestbookEntry(resided.getId(), w.id(), "W주민", day);
+            IslandGuestbookEntry wRemoved = new IslandGuestbookEntry(visited.getId(), w.id(), "W지움", day.minusDays(1));
+            wRemoved.delete(Instant.now());
+            IslandGuestbookEntry cEntry = new IslandGuestbookEntry(visited.getId(), c.id(), "C글", day);
+            IslandGuestbookEntry tEntry = new IslandGuestbookEntry(resided.getId(), t.id(), "T글", day);
+            for (IslandGuestbookEntry entry : new IslandGuestbookEntry[] {wVisit, wResident, wRemoved, cEntry, tEntry}) {
+                em.persist(entry);
+            }
+            return new Entries(wVisit.getId(), wResident.getId(), wRemoved.getId(), cEntry.getId(), tEntry.getId());
+        });
+
+        withdrawal.withdraw(w.id());
+
+        // 공지 댓글과 같은 선례 — 작성자 연결만 끊지 않고 원문째 지운다(소프트 삭제 계정이라 CASCADE 가 돌지 않는다).
+        assertThat(count("select count(*) from island_guestbook_entries where author_id=?", w.id())).isZero();
+        for (UUID gone : new UUID[] {seeded.wVisit(), seeded.wResident(), seeded.wRemoved()}) {
+            assertThat(count("select count(*) from island_guestbook_entries where id=?", gone)).isZero();
+        }
+        assertThat(uuid("select author_id from island_guestbook_entries where id=?", seeded.cEntry()))
+                .isEqualTo(c.id());
+        assertThat(uuid("select author_id from island_guestbook_entries where id=?", seeded.tEntry()))
+                .isEqualTo(t.id());
     }
 
     @Test

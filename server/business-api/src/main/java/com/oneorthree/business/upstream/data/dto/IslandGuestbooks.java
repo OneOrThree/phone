@@ -20,7 +20,10 @@ public final class IslandGuestbooks {
     private IslandGuestbooks() {
     }
 
-    /** 최근 30개 — {@code boardBuilt=false} 면 {@code items} 는 비어 있다. */
+    /**
+     * 최근 30개. {@code boardBuilt} 는 게시판의 <b>실제 완공 여부</b>다(시설 게이트 플래그와 무관) — 게이트가 켜진
+     * 환경에서 false 면 {@code items} 는 비어 있다.
+     */
     @Schema(name = "IslandGuestbook")
     public record Page(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean boardBuilt,

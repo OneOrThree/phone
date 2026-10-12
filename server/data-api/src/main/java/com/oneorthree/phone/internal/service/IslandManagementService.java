@@ -139,7 +139,8 @@ public class IslandManagementService {
                     // 키를 다른 본문으로 재사용한 요청이 409 멱등 키 충돌 대신 400 으로 나가고 ② 배포 사이에
                     // 목록이 늘면 «같은 본문의 성공 재시도» 가 원 결과 대신 400 이 된다 — 섬 관리 LLD §2 의
                     // 「같은 키 재생은 같은 결과」를 깬다. 생략(null)은 「안 보냄」이라 건너뛴다.
-                    bannedWords.requireClean(body.name(), body.intro());
+                    // 인사말(GROMO-2262)도 같은 입구다 — 빈 값(기본 문구로 복귀)은 정규화하면 비어 판정에 걸리지 않는다.
+                    bannedWords.requireClean(body.name(), body.intro(), body.greeting());
                     Group island = lockIslandAsHost(userQueryService.getCallerForShare(userId), islandId);
                     boolean renamed = body.name() != null && !body.name().equals(island.getName());
                     boolean introChanged = body.intro() != null && !body.intro().equals(intro(island));
