@@ -55,6 +55,12 @@ import java.util.UUID;
  * {@code GroupMembershipMutationLocks#lockGroups} 는 Java {@code UUID} 순서, 여기는 PostgreSQL uuid 순서라 최상위
  * 비트가 선 옛 id 에서 순서가 갈린다. PostgreSQL 이 한쪽을 끊고, 끊긴 쪽이 배치면 그날 행이 통째로 없다 — 읽는 쪽은 전날
  * 행을 준다(재시도 잡 없음). 잦아지면 배치를 한 번 다시 돌리는 재시도를 건다.
+ *
+ * <p>ponytail: 주민 수({@code countByGroupIdIn})와 집중 합({@code sumIslandActiveSeconds})은 READ COMMITTED 문장
+ * 둘이라, 그 사이에 이탈·세션 완료가 겹치면 한 순간에 없던 (분자, 분모) 짝이 그날 값으로 고정된다 —
+ * {@code ON CONFLICT DO NOTHING} 이라 그날은 다시 쓰이지 않는다(ms 창, 표시용 값, 다음 날 재계산으로 풀린다).
+ * 문제가 되면 두 집계를 REPEATABLE READ 읽기 전용 트랜잭션 하나로 읽고 INSERT 는 지금처럼 별도 트랜잭션에서 한다.
+ * 잠금을 먼저 잡는 방식은 07시에 모든 섬의 집중 전이·멤버십 변경을 막으므로 쓰지 않는다.
  */
 @Slf4j
 @Service
