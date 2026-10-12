@@ -426,7 +426,7 @@ public class ScreenReadUseCase {
         UUID islandId = island.id();
         Map<String, Object> parts = composer.compose(context, List.of(
                 fragment("messages", deadline -> mailbox.firstPage(claims, islandId, deadline)),
-                fragment("letters", deadline -> letters.letters(claims, LETTERS_RECEIVED, null, null, deadline)),
+                fragment("letters", deadline -> letters.letters(claims, LETTERS_RECEIVED, null, null, null, deadline)),
                 fragment("friends", deadline -> friends.friends(claims, null, deadline))));
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);

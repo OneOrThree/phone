@@ -20,6 +20,7 @@ import java.util.UUID;
  * @param createdAt           발송 시각 — DB {@code NOT NULL} 이라 누락·null 은 계약 불일치다
  * @param kind                {@code FRIEND|KICK|JOIN_APPROVED} (GROMO-2260). 구 Data 서버는 내려보내지 않는다
  * @param islandId            시스템 편지가 가리키는 섬. 친구 편지는 null
+ * @param readAt              시스템 편지를 처음 연 시각. 친구 편지·안 읽은 편지는 null
  */
 public record LetterItem(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
@@ -29,5 +30,6 @@ public record LetterItem(
         @JsonProperty(value = "isRead", required = true) @JsonSetter(nulls = Nulls.FAIL) boolean isRead,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String createdAt,
         String kind,
-        UUID islandId) {
+        UUID islandId,
+        String readAt) {
 }
