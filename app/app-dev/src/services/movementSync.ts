@@ -378,6 +378,12 @@ export function createMovementController(opts: MovementControllerOpts): Movement
     if (dist(opts.position(), self) <= threshold) return;
     lastCorrectionAt = now();
     opts.onMyCorrection?.({ x: self.x, y: self.y });
+    // settle() 은 다른 호출부(FullState·MoveRejected·Snapshot)처럼 restCheck 뒤에 또 notify() 를 부르지
+    // 않는다 — 보정이 실제로 일어난 이 지점에서 불러야 subscribe(schedule) 가 다음 250ms 인터벌 폴링 전에
+    // lastCorrectionAt 을 반영해 500ms 점멸이 늦게 시작하지 않는다(GROMO-2249 보완10 지적 1). 다른
+    // 호출부는 이 보정 분기 뒤에도 각자 notify() 를 한 번 더 부르지만 중복 호출은 무해하다 — WorldMap 의
+    // schedule 은 같은 100ms 창 안의 재호출을 타이머 하나로 합친다(`!timer` 가드).
+    notify();
   };
 
   const fullState = (m: Record<string, unknown>) => {
