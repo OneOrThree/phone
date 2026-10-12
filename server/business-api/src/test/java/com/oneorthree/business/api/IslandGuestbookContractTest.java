@@ -94,16 +94,23 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("길이는 코드포인트 — 이모지 20 개는 통과하고 21 개는 400 이다")
+    @DisplayName("길이는 앞뒤 공백을 자른 뒤 코드포인트로 센다 — 이모지 20 개는 공백이 붙어도 통과하고 21 개는 400 이다")
     void contentLimitCountsCodePoints() throws Exception {
         DATA.on(DATA_WRITE, request -> ok(ITEM));
 
         mockMvc.perform(write(post(PUBLIC), "{\"content\":\"" + "🐟".repeat(20) + "\"}"))
                 .andExpect(status().isCreated());
+        // 20자에 공백이 붙어도 거절하지 않는다 — 자른 값이 상류로 간다.
+        mockMvc.perform(write(post(PUBLIC), "{\"content\":\" " + "🐟".repeat(20) + " \\u3000\"}"))
+                .andExpect(status().isCreated());
+        assertThat(DATA.receivedFor(DATA_WRITE).get(1).body()).contains("\"content\":\"" + "🐟".repeat(20) + "\"");
         mockMvc.perform(write(post(PUBLIC), "{\"content\":\"" + "🐟".repeat(21) + "\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.field").value("content"));
-        assertThat(DATA.receivedFor(DATA_WRITE)).hasSize(1);
+        mockMvc.perform(write(post(PUBLIC), "{\"content\":\" " + "🐟".repeat(21) + " \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.field").value("content"));
+        assertThat(DATA.receivedFor(DATA_WRITE)).hasSize(2);
     }
 
     @Test
@@ -123,6 +130,8 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
             "403,SOCIAL_LOGIN_REQUIRED,403,SOCIAL_LOGIN_REQUIRED,",
             "409,GUESTBOOK_ALREADY_WRITTEN_TODAY,409,GUESTBOOK_ALREADY_WRITTEN_TODAY,",
             "400,BANNED_WORD,400,BANNED_WORD,",
+            // 한 줄 규칙(줄바꿈·제어문자)은 Data 의 NAME_PATTERN 하나가 판정한다 — 본문 파서 거절 400 을 그대로 옮긴다.
+            "400,INVALID_REQUEST,400,INVALID_REQUEST,",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
             "409,BOARD_LOCKED,400,UPSTREAM_CONTRACT_ERROR,"})
@@ -167,7 +176,7 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 인사말 수정 (PATCH /islands/{id})
 
     @Test
-    @DisplayName("인사말은 PATCH 허용 키다 — 이모지 40 개는 상류로 가고 41 개는 상류 전에 400 INVALID_REQUEST")
+    @DisplayName("인사말은 PATCH 허용 키다 — 앞뒤 공백을 자른 뒤 이모지 40 개는 상류로 가고 41 개는 상류 전에 400 INVALID_REQUEST")
     void greetingIsAllowedKeyWithCodePointLimit() throws Exception {
         DATA.on(DATA_MANAGE, request -> ok("{\"id\":\"" + ISLAND + "\",\"name\":\"모래\",\"intro\":\"\","
                 + "\"approvalRequired\":false,\"maxMembers\":15,\"version\":2}"));
@@ -176,21 +185,30 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
                 .andExpect(status().isOk());
         assertThat(DATA.receivedFor(DATA_MANAGE).get(0).body()).contains("\"greeting\":\"" + "🐟".repeat(40) + "\"");
 
+        // 40자에 공백이 붙어도 거절하지 않는다 — Data 가 공백을 잘라 저장하므로 길이는 자른 뒤로 센다.
+        mockMvc.perform(write(patch("/islands/" + ISLAND), "{\"greeting\":\"  " + "🐟".repeat(40) + " \\u3000\"}"))
+                .andExpect(status().isOk());
+
         mockMvc.perform(write(patch("/islands/" + ISLAND), "{\"greeting\":\"" + "🐟".repeat(41) + "\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.error.field").value("greeting"));
+        mockMvc.perform(write(patch("/islands/" + ISLAND), "{\"greeting\":\" " + "🐟".repeat(41) + " \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.field").value("greeting"));
         mockMvc.perform(write(patch("/islands/" + ISLAND), "{\"greeting\":null}"))
                 .andExpect(status().isBadRequest());
-        assertThat(DATA.receivedFor(DATA_MANAGE)).hasSize(1);
+        assertThat(DATA.receivedFor(DATA_MANAGE)).hasSize(2);
     }
 
     @ParameterizedTest
     @CsvSource({
             "403,NOT_OWNER,403,FORBIDDEN",
             "403,SOCIAL_LOGIN_REQUIRED,403,SOCIAL_LOGIN_REQUIRED",
-            "400,BANNED_WORD,400,BANNED_WORD"})
-    void greetingEditRelaysOwnerGuestAndBannedWordVerdicts(int upstreamStatus, String upstreamCode, int status,
+            "400,BANNED_WORD,400,BANNED_WORD",
+            // 한 줄 규칙(줄바꿈·제어문자)은 Data 의 NAME_PATTERN 하나가 판정한다 — 본문 파서 거절 400 을 그대로 옮긴다.
+            "400,INVALID_REQUEST,400,INVALID_REQUEST"})
+    void greetingEditRelaysOwnerGuestBannedWordAndShapeVerdicts(int upstreamStatus, String upstreamCode, int status,
             String code) throws Exception {
         DATA.on(DATA_MANAGE, request -> error(upstreamStatus, upstreamCode));
         mockMvc.perform(write(patch("/islands/" + ISLAND), "{\"greeting\":\"안녕\"}"))

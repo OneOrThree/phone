@@ -23,12 +23,18 @@ import java.util.Set;
  * <b>빈 이름만은 여기서 거르지 않는다</b> — LLD §2 가 422 로 정했는데 본문 파서 안의 예외는 읽기 실패 400 으로
  * 접힌다. 빈 이름은 서비스가 {@code ISLAND_NAME_BLANK}(422)로 거절한다.
  *
+ * <p><b>인사말(GROMO-2262)</b> — 서비스가 앞뒤 공백을 잘라 저장하므로 길이(코드포인트 40자)와 한 줄 규칙을 모두
+ * «자른 뒤» 값에 건다({@link GuestbookWriteRequest} 와 같다). 한 줄 규칙은 섬 이름과 같은
+ * {@link CreateGroupRequest#NAME_PATTERN} 하나다(복사하지 않는다): 중간의 줄바꿈·탭 같은 제어문자와 양방향
+ * 제어문자는 거절하고, 앞뒤 개행·탭은 공백처럼 잘려 통과한다. 빈 값·공백뿐인 값은 기본 문구로 되돌리는 값이라
+ * 검사하지 않는다.
+ *
  * @param name             새 이름 — null 이면 미변경
  * @param intro            새 소개 — null 이면 미변경
  * @param approvalRequired 새 가입 방식 — null 이면 미변경
  * @param maxMembers       새 정원(1~15) — null 이면 미변경
- * @param greeting         새 인사말(GROMO-2262, 코드포인트 40자 이하) — null 이면 미변경, 빈 문자열·공백은
- *                         기본 문구로 되돌린다(서비스가 null 로 저장)
+ * @param greeting         새 인사말(GROMO-2262, 앞뒤 공백을 자른 코드포인트 40자 이하의 한 줄) — null 이면
+ *                         미변경, 빈 문자열·공백뿐이면 기본 문구로 되돌린다(서비스가 null 로 저장)
  */
 public record IslandManageCommandRequest(String name, String intro, Boolean approvalRequired,
                                          Integer maxMembers, String greeting) {
@@ -59,8 +65,18 @@ public record IslandManageCommandRequest(String name, String intro, Boolean appr
             throw new IllegalArgumentException("섬 소개가 너무 깁니다.");
         }
         String greeting = text(fields, "greeting");
-        if (greeting != null && greeting.codePointCount(0, greeting.length()) > GREETING_MAX) {
-            throw new IllegalArgumentException("섬 인사말이 너무 깁니다.");
+        if (greeting != null) {
+            // 길이와 한 줄 규칙을 «자른 뒤» 값에 건다(방명록 본문과 같다) — 앞뒤 개행·탭은 잘려 통과하고, 공백뿐이면
+            // 비어서 검사하지 않는다(기본 문구로 복귀). 공백이 아닌 제어문자(널·DEL·C1·양방향)는 앞뒤에 붙어도 남아 거절된다.
+            String stripped = greeting.strip();
+            if (!stripped.isEmpty()) {
+                if (stripped.codePointCount(0, stripped.length()) > GREETING_MAX) {
+                    throw new IllegalArgumentException("섬 인사말이 너무 깁니다.");
+                }
+                if (!stripped.matches(CreateGroupRequest.NAME_PATTERN)) {
+                    throw new IllegalArgumentException("섬 인사말은 한 줄이어야 합니다.");
+                }
+            }
         }
         Boolean approvalRequired = null;
         if (fields.containsKey("approvalRequired")) {
