@@ -563,7 +563,7 @@ class IslandRecordsContractTest extends UpstreamTestBase {
         }
         if (operation.startsWith("screen")) {
             var day = json.createObjectNode().put("date", "2026-09-11").putNull("minutes")
-                    .put("measurementStatus", "denied").putNull("updatedAt");
+                    .put("measurementStatus", "denied").put("finalized", false).putNull("updatedAt");
             var series = operation.equals("screen-me") ? upstream.path("series")
                     : upstream.path("members").get(0).path("series");
             ((tools.jackson.databind.node.ArrayNode) series).add(day);

@@ -11,14 +11,23 @@ export type ScreenTimeObservation = {
   minutes: number | null;
   measurementStatus: MeasurementStatus;
   measuredAt: string;
+  finalized?: boolean;
 };
 
 /** 레거시 구간 차분 방식. 네이티브의 KST 날짜마다 누적값이 다시 0부터 시작한다. */
 export function measureUTCWindow(date: string, timeline: UsageTimeline): number | null {
   const start = Date.parse(`${date}T00:00:00Z`);
-  const end = start + DAY;
+  return measureUsageWindow(start, start + DAY, timeline);
+}
+
+export function measureUsageWindow(
+  start: number,
+  end: number,
+  timeline: UsageTimeline,
+): number | null {
   if (
     !Number.isFinite(start) ||
+    end <= start ||
     !Number.isFinite(timeline.startedAt) ||
     !Number.isFinite(timeline.observedAt) ||
     timeline.startedAt * 1000 > start ||
@@ -74,18 +83,24 @@ export function buildScreenTimeObservations(
   return [utcDay(now - DAY), utcDay(now)]
     .filter((date) => now <= reportDeadline(date))
     .map((date) => {
-      const base = { date, measuredAt, minutes: null };
+      const finalized = date !== utcDay(now);
+      const base = { date, measuredAt, minutes: null, finalized };
       if (authorization === 'denied') return { ...base, measurementStatus: 'denied' as const };
       if (authorization !== 'approved')
         return { ...base, measurementStatus: 'unavailable' as const };
-      // 현 서버에는 최종 관측 표식이 없다. 당일 숫자를 authorized로 올리면 앱 미실행으로
-      // 최종 보고가 없어도 자정 뒤 달성으로 판정한다. 닫힌 UTC 하루만 숫자로 보고한다.
-      if (date === utcDay(now)) return { ...base, measurementStatus: 'pending' as const };
-      const minutes = timeline ? measureUTCWindow(date, timeline) : null;
+      const start = Date.parse(`${date}T00:00:00Z`);
+      const minutes = timeline
+        ? measureUsageWindow(start, Math.min(start + DAY, now), timeline)
+        : null;
       return {
         ...base,
         minutes,
-        measurementStatus: minutes === null ? ('unavailable' as const) : ('authorized' as const),
+        measurementStatus:
+          minutes === null
+            ? finalized
+              ? ('unavailable' as const)
+              : ('pending' as const)
+            : ('authorized' as const),
       };
     });
 }

@@ -52,7 +52,7 @@ public class IslandRecordsController {
     private static final Set<String> LEDGER_QUERY = Set.of("month", "direction", "cursor");
     private static final Set<String> DIRECTIONS = Set.of("earn", "spend");
     private static final Set<String> UPLOAD_KEYS = Set.of("minutes", "measurementStatus", "timezone",
-            "measuredAt", "deviceId");
+            "measuredAt", "deviceId", "finalized");
     private static final Set<String> SCOPES = Set.of(IslandRecordsUseCase.SCOPE_ME, IslandRecordsUseCase.SCOPE_ISLAND);
     private static final Set<String> STATUSES = Set.of("authorized", "denied", "unavailable", "pending");
     private static final String UTC = "UTC";
@@ -163,6 +163,10 @@ public class IslandRecordsController {
         if (timezone != null && !(timezone.isString() && UTC.equals(timezone.stringValue()))) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "timezone");
         }
+        JsonNode finalized = body.get("finalized");
+        if (finalized != null && !finalized.isBoolean()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "finalized");
+        }
         Instant measuredAt;
         try {
             measuredAt = Instant.parse(text(body, "measuredAt"));
@@ -174,6 +178,9 @@ public class IslandRecordsController {
         command.put("minutes", minutes);
         command.put("measurementStatus", status);
         command.put("timezone", UTC);
+        if (finalized != null) {
+            command.put("finalized", finalized.booleanValue());
+        }
         // timestamptz 정밀도(마이크로초)로 맞춰 보낸다 — Data 가 저장한 시각과 같은 값으로 비교한다.
         command.put("measuredAt", measuredAt.truncatedTo(ChronoUnit.MICROS).toString());
         command.put("deviceId", deviceId.toString());

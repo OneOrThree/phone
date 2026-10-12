@@ -1453,6 +1453,7 @@ Table screen_time_observations [note: 'GROMO-1769 (V79): 기기별 스크린타�
   device_id          uuid        [not null, note: '서명된 로그인 세션 id(AT sid) — 2026-09-19 결정 RC-D02-기기']
   measured_date      date        [not null, note: 'UTC 날짜 버킷(2026-09-19 결정 RC-축)']
   measured_at        timestamptz [not null]
+  finalized boolean [not null, default: false, note: '하루 전체 측정 완료. 중간 수치로 보상하지 않음']
   minutes            integer     [note: 'authorized 일 때만 0~1440, 나머지 상태는 NULL(CHECK)']
   measurement_status varchar(12) [not null, note: 'authorized / denied / unavailable / pending (CHECK)']
   created_at         timestamptz [not null, default: `now()`]

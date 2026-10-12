@@ -52,6 +52,10 @@ public class ScreenTimeObservation {
 
     private Integer minutes;
 
+    /** 하루 전체 측정이 끝났다는 표식. 중간 관측은 통계에만 사용한다. */
+    @Column(nullable = false)
+    private boolean finalized;
+
     /** {@code authorized|denied|unavailable|pending} — 공개 계약 문자열 그대로. */
     @Column(name = "measurement_status", nullable = false, length = 12)
     private String measurementStatus;
@@ -61,7 +65,8 @@ public class ScreenTimeObservation {
     private Instant createdAt;
 
     /** 같은 시각 관측의 내용 비교 — 같으면 무변경 재전송, 다르면 409(RC-P08). */
-    public boolean sameMeasurement(Integer otherMinutes, String otherStatus) {
-        return Objects.equals(minutes, otherMinutes) && measurementStatus.equals(otherStatus);
+    public boolean sameMeasurement(Integer otherMinutes, String otherStatus, boolean otherFinalized) {
+        return Objects.equals(minutes, otherMinutes) && measurementStatus.equals(otherStatus)
+                && finalized == otherFinalized;
     }
 }

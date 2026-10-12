@@ -61,7 +61,7 @@ test('완전한 측정 구간에서 이벤트가 없을 때만 실제 0분이다
   });
   expect(measureUTCWindow('2026-10-08', value)).toBe(0);
 });
-test('진행 중인 날짜는 pending으로 보고해 중간 숫자로 보상을 확정하지 않는다', () => {
+test('진행 중인 수치는 중간 관측으로 보고하고 닫힌 하루만 최종 관측으로 보낸다', () => {
   const result = buildScreenTimeObservations(
     'approved',
     timeline(),
@@ -71,8 +71,9 @@ test('진행 중인 날짜는 pending으로 보고해 중간 숫자로 보상을
     result.map(({ date, minutes, measurementStatus }) => ({ date, minutes, measurementStatus })),
   ).toEqual([
     { date: '2026-10-08', minutes: 75, measurementStatus: 'authorized' },
-    { date: '2026-10-09', minutes: null, measurementStatus: 'pending' },
+    { date: '2026-10-09', minutes: 15, measurementStatus: 'authorized' },
   ]);
+  expect(result.map((o) => o.finalized)).toEqual([true, false]);
 });
 test('권한 철회는 숫자를 보내지 않고 마감 지난 날짜는 제외한다', () => {
   const now = Date.parse('2026-10-09T12:00:00.001Z');
@@ -83,6 +84,7 @@ test('권한 철회는 숫자를 보내지 않고 마감 지난 날짜는 제외
       minutes: null,
       measurementStatus: 'denied',
       measuredAt: new Date(now).toISOString(),
+      finalized: false,
     },
   ]);
 });

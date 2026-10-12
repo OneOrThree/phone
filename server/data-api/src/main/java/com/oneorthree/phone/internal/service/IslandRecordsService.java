@@ -291,7 +291,7 @@ public class IslandRecordsService {
         List<ScreenDay> series = new ArrayList<>();
         observed.forEach((date, sameDay) -> {
             ScreenTimeDayPick.Day day = ScreenTimeDayPick.of(sameDay);
-            series.add(new ScreenDay(date, day.minutes(), day.measurementStatus(), day.updatedAt()));
+            series.add(new ScreenDay(date, day.minutes(), day.measurementStatus(), day.updatedAt(), day.finalized()));
         });
         if (series.isEmpty()) {
             return new Summary(UNAVAILABLE, null, List.of(), null);
@@ -335,6 +335,7 @@ public class IslandRecordsService {
         semantic.put("minutes", upload.minutes());
         semantic.put("measurementStatus", upload.measurementStatus());
         semantic.put("timezone", upload.timezone());
+        semantic.put("finalized", upload.finalized());
         semantic.put("measuredAt", upload.measuredAt().toString());
         semantic.put("deviceId", upload.deviceId().toString());
         var command = new PublicCommandRequest(userId,
@@ -361,15 +362,21 @@ public class IslandRecordsService {
         if (measuredAt.isBefore(dayStart) || measuredAt.isAfter(now.plus(futureTolerance)) || now.isAfter(closesAt)) {
             throw new StatsException(StatsErrorCode.SCREEN_TIME_OUT_OF_WINDOW);
         }
+        Instant dayEnd = dayStart.plus(Duration.ofDays(1));
+        boolean finalized = upload.finalized() == null
+                ? !measuredAt.isBefore(dayEnd) : upload.finalized();
+        if (finalized && (now.isBefore(dayEnd) || measuredAt.isBefore(dayEnd))) {
+            throw new StatsException(StatsErrorCode.SCREEN_TIME_OUT_OF_WINDOW);
+        }
         UUID deviceId = upload.deviceId();
         observations.findByUserIdAndDeviceIdAndMeasuredDateAndMeasuredAt(userId, deviceId, date, measuredAt)
                 .ifPresentOrElse(same -> {
-                    if (!same.sameMeasurement(upload.minutes(), upload.measurementStatus())) {
+                    if (!same.sameMeasurement(upload.minutes(), upload.measurementStatus(), finalized)) {
                         throw new StatsException(StatsErrorCode.SCREEN_TIME_MEASUREMENT_CONFLICT);
                     }
                 }, () -> observations.save(ScreenTimeObservation.builder().userId(userId).deviceId(deviceId)
                         .measuredDate(date).measuredAt(measuredAt).minutes(upload.minutes())
-                        .measurementStatus(upload.measurementStatus()).build()));
+                        .measurementStatus(upload.measurementStatus()).finalized(finalized).build()));
         ScreenTimeObservation latest = observations
                 .findFirstByUserIdAndDeviceIdAndMeasuredDateOrderByMeasuredAtDesc(userId, deviceId, date)
                 .orElseThrow();

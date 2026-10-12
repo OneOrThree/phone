@@ -142,9 +142,10 @@ internal class MeasurementLedger(
     val utc = Instant.ofEpochMilli(time).atOffset(ZoneOffset.UTC).toLocalDate()
     val observations = listOf(utc.minusDays(1), utc).map { date ->
       val from = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-      val minutes = if (date < utc) measure(from, from + dayMs, true) else null
+      val minutes = measure(from, minOf(from + dayMs, time), true)
       mapOf("date" to date.toString(), "minutes" to minutes, "measuredAt" to Instant.ofEpochMilli(time).toString(),
-        "measurementStatus" to if (!approved) "denied" else if (date == utc) "pending" else if (minutes == null) "unavailable" else "authorized")
+        "finalized" to (date < utc),
+        "measurementStatus" to if (!approved) "denied" else if (minutes != null) "authorized" else if (date == utc) "pending" else "unavailable")
     }
     val historyDates = history.keys().asSequence().toList().filter { it >= today.minusDays(90).toString() }
     val retained = JSONObject()

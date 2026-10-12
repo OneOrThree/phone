@@ -52,7 +52,11 @@ public final class IslandRecordViews {
     }
 
     /** 날짜 하나의 측정 — authorized 가 아니면 {@code minutes} 는 null 이다. */
-    public record ScreenDay(LocalDate date, Integer minutes, String measurementStatus, Instant updatedAt) {
+    public record ScreenDay(LocalDate date, Integer minutes, String measurementStatus, Instant updatedAt,
+                            boolean finalized) {
+        public ScreenDay(LocalDate date, Integer minutes, String measurementStatus, Instant updatedAt) {
+            this(date, minutes, measurementStatus, updatedAt, false);
+        }
     }
 
     /** 섬 주민 한 명의 기간 측정. 기기 목록·deviceId 는 싣지 않는다. */
@@ -62,7 +66,11 @@ public final class IslandRecordViews {
 
     /** {@code PUT /me/screen-time/{date}} 본문 — Business 가 모양을 검증하고 timezone 을 {@code UTC} 로 정규화했다. */
     public record ScreenTimeUpload(Integer minutes, String measurementStatus, String timezone, Instant measuredAt,
-                                   UUID deviceId) {
+                                   UUID deviceId, Boolean finalized) {
+        public ScreenTimeUpload(Integer minutes, String measurementStatus, String timezone, Instant measuredAt,
+                                UUID deviceId) {
+            this(minutes, measurementStatus, timezone, measuredAt, deviceId, null);
+        }
     }
 
     /** PUT 응답 — 그 <b>기기·날짜의 최신 선택 관측</b>이다(계정 전체 병합값이 아니다, LLD §4). */

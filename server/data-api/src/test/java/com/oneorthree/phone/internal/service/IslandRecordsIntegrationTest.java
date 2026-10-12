@@ -305,6 +305,28 @@ class IslandRecordsIntegrationTest {
                 StatsErrorCode.SCREEN_TIME_OUT_OF_WINDOW);
     }
 
+    @Test
+    @DisplayName("진행 중 수치는 통계로 조회되지만 하루 종료 전 최종 표식은 거절한다")
+    void finalObservationRequiresClosedDay() {
+        Device device = device();
+        at(D, "10:00:00");
+        service.putScreenTime(device.userId, device.sessionId, 0L, D,
+                new ScreenTimeUpload(20, "authorized", "UTC", t(D, "10:00:00"), device.sessionId, false),
+                UUID.randomUUID());
+        var stats = service.screenTime(device.userId, device.island.id, D, D, "me");
+        assertThat(stats.totalMinutes()).isEqualTo(20);
+        assertThat(stats.series().get(0).finalized()).isFalse();
+        assertStatsError(() -> service.putScreenTime(device.userId, device.sessionId, 0L, D,
+                new ScreenTimeUpload(20, "authorized", "UTC", t(D, "10:00:00"), device.sessionId, true),
+                UUID.randomUUID()), StatsErrorCode.SCREEN_TIME_OUT_OF_WINDOW);
+        at(D.plusDays(1), "01:00:00");
+        service.putScreenTime(device.userId, device.sessionId, 0L, D,
+                new ScreenTimeUpload(30, "authorized", "UTC", t(D.plusDays(1), "00:30:00"),
+                        device.sessionId, true), UUID.randomUUID());
+        assertThat(service.screenTime(device.userId, device.island.id, D, D, "me")
+                .series().get(0).finalized()).isTrue();
+    }
+
     // ---------------------------------------------------------------- 스크린타임 조회
 
     @Test

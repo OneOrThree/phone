@@ -68,7 +68,7 @@ public final class IslandRecordsResponses {
             String date,
             Integer minutes,
             String measurementStatus,
-            String updatedAt) {
+            boolean finalized, String updatedAt) {
         public static ScreenDayView from(IslandRecordViews.ScreenDay value) {
             if (value == null) {
                 return null;
@@ -77,6 +77,7 @@ public final class IslandRecordsResponses {
                     value.date(),
                     value.minutes(),
                     value.measurementStatus(),
+                    value.finalized(),
                     value.updatedAt());
         }
     }

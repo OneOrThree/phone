@@ -40,7 +40,8 @@ export async function setScreenTimeReportingConsent(userId: string, enabled: boo
   listeners.forEach((listener) => listener());
 }
 
-const fingerprint = (o: ScreenTimeObservation) => `${o.measurementStatus}:${o.minutes}`;
+const fingerprint = (o: ScreenTimeObservation) =>
+  `${o.measurementStatus}:${o.minutes}:${o.finalized ?? false}`;
 
 /** 보고 원장은 사용자·sid별로 격리한다. 실패 요청은 시각·키·본문을 그대로 재전송한다. */
 export function reportScreenTime(

@@ -65,7 +65,9 @@ class AndroidStateTest {
     assertEquals("2026-10-11", closed["date"])
     assertEquals(72, closed["minutes"])
     assertTrue(windows.contains(Instant.parse("2026-10-11T00:00:00Z").toEpochMilli() to Instant.parse("2026-10-12T00:00:00Z").toEpochMilli()))
-    assertEquals("pending", (observations[1] as Map<*, *>)["measurementStatus"])
+    assertEquals("authorized", (observations[1] as Map<*, *>)["measurementStatus"])
+    assertEquals(false, (observations[1] as Map<*, *>)["finalized"])
+    assertEquals(true, closed["finalized"])
   }
   @Test fun selectionChangeIsScheduledAtKstMidnightAndInvalidatesCrossingUtcWindow() {
     var time = Instant.parse("2026-10-11T10:00:00Z").toEpochMilli()

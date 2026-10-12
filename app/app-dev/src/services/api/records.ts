@@ -23,6 +23,7 @@ const MEASUREMENT = new Set<string>(['authorized', 'denied', 'pending', 'unavail
 
 export type FocusSeriesPoint = { date: string; seconds: number };
 export type ScreenSeriesPoint = {
+  finalized?: boolean;
   date: string;
   /** null 은 알려진 미측정 날짜다 — 0으로 읽지 않는다. */
   minutes: number | null;
