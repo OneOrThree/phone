@@ -25,8 +25,10 @@ jest.mock('@/screens/world/WorldViews', () => ({
     );
   },
 }));
-// 시스템 글자 배율 — 큰 글자 테스트가 바꾸고 beforeEach 가 1 로 되돌린다
+// 시스템 글자 배율·안전 영역 — 큰 글자·가로 화면 테스트가 바꾸고 beforeEach 가 되돌린다
 let mockFontScale = 1;
+const PORTRAIT_INSETS = { top: 52, bottom: 32, left: 0, right: 0 };
+let mockInsets = PORTRAIT_INSETS;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
@@ -38,7 +40,7 @@ jest.mock('@/utils/layout', () => ({
     contentWidth: 402,
     gutter: 20,
     modalWidth: 340,
-    insets: { top: 52, bottom: 32, left: 0, right: 0 },
+    insets: mockInsets,
   }),
 }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -52,6 +54,7 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 
 beforeEach(() => {
   mockFontScale = 1;
+  mockInsets = PORTRAIT_INSETS;
   jest.clearAllMocks();
   // 쓰이지 않고 남은 mockResolvedValueOnce 가 다음 테스트로 새지 않게 구현까지 비운다
   mockGet.mockReset();
@@ -808,6 +811,30 @@ describe('큰 글자·배치', () => {
     within(parts[0]).getByLabelText('뒤로');
     within(parts[1]).getByTestId('telescope-island-r1');
   });
+
+  test.each([
+    ['로딩', '섬을 찾고 있어요'],
+    ['빈 목록', '지금은 보이는 섬이 없어요'],
+    ['오류', '네트워크에 연결할 수 없어요.'],
+  ])(
+    '%s 안내 카드는 가로 화면에서 노치 쪽 안전 영역만큼 더 비운다(위 막대와 같은 좌우 여백)',
+    async (state, label) => {
+      // 좌우를 다른 값으로 둬 왼쪽·오른쪽을 따로 확인한다
+      mockInsets = { top: 0, bottom: 21, left: 47, right: 59 };
+      if (state === '로딩') mockGet.mockReturnValue(new Promise(() => {}));
+      else if (state === '빈 목록') mockGet.mockResolvedValue(wire([], 12));
+      else mockGet.mockRejectedValue(networkError());
+      const screen = await render(<Telescope e={env()} />);
+      const card = flat((await screen.findByText(label)).parent);
+      const page = semanticTokens.spacing.page;
+      expect(card.marginLeft).toBe(47 + page);
+      expect(card.marginRight).toBe(59 + page);
+      // 위 막대의 좌우 패딩과 같은 값이다
+      const bar = flat(screen.getByTestId('telescope-top-bar'));
+      expect(card.marginLeft).toBe(bar.paddingLeft);
+      expect(card.marginRight).toBe(bar.paddingRight);
+    },
+  );
 
   test('말풍선 버튼 4종(항해하기 둘 · 돌아가기 · 가입)은 글자 크기와 상관없이 높이가 늘어난다', async () => {
     const { screen } = await open([item('r1'), mine('j2', { arrivedBefore: true }), mine('j3')]);

@@ -50,7 +50,7 @@ const styles = StyleSheet.create({
   chip: { flexShrink: 1 },
   // 위 막대 아래에 흐름으로 쌓는다 — 예전 절대 위치(top: 18%)는 큰 글자·가로 화면에서 위 막대와 겹쳤다. 보통 크기 폰에서는 그 자리(뗏목 위)와 거의 같다.
   band: { marginTop: space[10] },
-  panel: { marginHorizontal: semanticTokens.spacing.page, alignItems: 'center' },
+  panel: { alignItems: 'center' },
   panelText: { textAlign: 'center' },
   cell: { width: ISLAND, alignItems: 'center', gap: space[2] },
   island: {
@@ -113,9 +113,22 @@ const averageText = (minutes: number | null) =>
     ? t('telescope.averageUnknown')
     : t('telescope.averageFocus', { time: formatDuration(minutes * 60) });
 
-/** 로딩·빈 목록·오류 안내 — 공용 Card 를 파노라마 자리에 같은 폭으로 둔다. */
+/** 로딩·빈 목록·오류 안내 — 공용 Card 를 파노라마 자리에 같은 폭으로 둔다. 좌우는 위 막대·파노라마처럼 안전 영역 + 페이지 여백이라 가로 화면에서 노치 쪽에 붙지 않는다. */
 function Panel({ children }: { children: React.ReactNode }) {
-  return <Card style={styles.panel}>{children}</Card>;
+  const { insets } = useAppLayout();
+  return (
+    <Card
+      style={[
+        styles.panel,
+        {
+          marginLeft: insets.left + semanticTokens.spacing.page,
+          marginRight: insets.right + semanticTokens.spacing.page,
+        },
+      ]}
+    >
+      {children}
+    </Card>
+  );
 }
 
 /** 파노라마의 섬 하나 — 둥근 스티커 그림 + 이름 알약. 소속 섬 위에는 깃발. 위아래로 번갈아 어긋나게 둬 한 줄 목록처럼 안 보이게 한다. */
@@ -386,7 +399,7 @@ export function Telescope({ e }: { e: any }) {
               },
             ]}
           >
-            {/* 바다 위 보조 버튼 — 공용 Btn glass(DESIGN §7.2), 실제 터치 영역은 44 이상. 큰 글자에서는 높이가 글자를 따라 늘어난다 */}
+            {/* 바다 위 보조 버튼 — 공용 Btn glass(DESIGN §7.2), 실제 터치 영역은 44 이상. 큰 글자에서는 38pt 에서 최소 52pt 로 커지고 글자를 따라 더 늘어난다 */}
             <Btn
               small
               kind="glass"
