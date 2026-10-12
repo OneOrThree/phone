@@ -32,6 +32,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -40,6 +41,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -260,6 +262,51 @@ class TelescopeIntegrationTest {
                         false, false, null, null));
     }
 
+    // ---------------------------------------------------------------- 칸 순서·소속 섬
+
+    @Test
+    @DisplayName("소속 3 + 새 섬 5 = 8칸 — joined 3(가입 순) → nearby → random 4")
+    void eightSlotsAreJoinedInJoinOrderThenNearbyThenRandom() {
+        User viewer = user();
+        Group first = island("첫째섬", 10);
+        Group second = island("둘째섬", 10);
+        Group third = island("셋째섬", 10);
+        // 가입 순을 섬 생성 순과 다르게 둔다 — joined 는 섬 id 순이 아니라 가입(멤버십) 순이다.
+        join(viewer, third);
+        join(viewer, first);
+        join(viewer, second);
+        List<UUID> open = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            open.add(island("열린섬" + i, 10).getId());
+        }
+
+        List<TelescopeItemView> items = telescope.list(viewer.getId()).items();
+
+        List<UUID> order = byHash(viewer, open);
+        assertThat(items).extracting(TelescopeItemView::islandId).containsExactly(
+                third.getId(), first.getId(), second.getId(),
+                order.get(0), order.get(1), order.get(2), order.get(3), order.get(4));
+        assertThat(items).extracting(TelescopeItemView::slot).containsExactly(
+                "joined", "joined", "joined", "nearby", "random", "random", "random", "random");
+    }
+
+    @Test
+    @DisplayName("삭제·종료된 소속 섬은 멤버십이 남아 있어도 joined 칸에 나오지 않는다")
+    void deadJoinedIslandsAreLeftOut() {
+        User viewer = user();
+        Group alive = island("살아있는섬", 10);
+        Group deleted = island("지운섬", 10);
+        Group ended = groups.save(Group.builder().name("끝난섬").maxMembers(10).status(GroupStatus.ENDED).build());
+        join(viewer, alive);
+        join(viewer, deleted);
+        join(viewer, ended);
+        jdbc.update("update groups set deleted_at = now() where id = ?", deleted.getId());
+
+        assertThat(telescope.list(viewer.getId()).items())
+                .extracting(TelescopeItemView::islandId, TelescopeItemView::slot)
+                .containsExactly(tuple(alive.getId(), "joined"));
+    }
+
     // ---------------------------------------------------------------- ⑥ 다음 목록까지
 
     @ParameterizedTest
@@ -273,6 +320,18 @@ class TelescopeIntegrationTest {
 
         assertThat(view.bucketStart()).isEqualTo(BUCKET);
         assertThat(view.nextRefreshMinutes()).isEqualTo(minutes);
+    }
+
+    @Test
+    @DisplayName("KST 정각(06:00:00)이면 그 시각이 버킷 시작이고 다음 목록까지 60분이다")
+    void exactlyOnTheKstHourGivesSixtyMinutes() {
+        Instant sixAm = OffsetDateTime.parse("2026-10-13T06:00:00+09:00").toInstant();
+        NOW.set(sixAm);
+
+        TelescopeView view = telescope.list(user().getId());
+
+        assertThat(view.bucketStart()).isEqualTo(sixAm);
+        assertThat(view.nextRefreshMinutes()).isEqualTo(60);
     }
 
     // ---------------------------------------------------------------- ⑦ 게이트 없음
