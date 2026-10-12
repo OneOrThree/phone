@@ -60,6 +60,7 @@
     "CLIENT_TIMEOUT": "서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.",
     "CLIENT_NETWORK_ERROR": "네트워크에 연결할 수 없어요. 연결을 확인해 주세요.",
     "ISLAND_NOT_ARRIVED": "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.",
+    "ISLAND_LIMIT_EXCEEDED": "소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요",
     "GUESTBOOK_ALREADY_WRITTEN_TODAY": "오늘은 이미 방명록을 남겼어요"
   },
   "time": {
@@ -429,7 +430,6 @@
       "telescope": "망원경",
       "myRaft": "내 뗏목",
       "endVisit": "구경 끝내기",
-      "comingSoon": "준비 중이에요",
       "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요."
     }
   },
@@ -636,5 +636,25 @@
       "boardLocked": "게시판을 지으면 방명록을 쓸 수 있어요",
       "alreadyWritten": "오늘은 이미 남겼어요"
     }
+  },
+  "telescope": {
+    "back": "뒤로",
+    "nextIslands": "새 섬까지 {{minutes}}분",
+    "loading": "섬을 찾고 있어요",
+    "empty": "지금은 보이는 섬이 없어요",
+    "loadFailed": "섬을 불러오지 못했어요.",
+    "islandHint": "누르면 섬 정보를 볼 수 있어요",
+    "joinedIslandA11y": "{{name}}, 내가 사는 섬",
+    "residents": "주민 {{count}}/{{max}}",
+    "averageFocus": "평균 {{time}}",
+    "averageUnknown": "아직 집계 전",
+    "sailing": "항해 {{minutes}}분",
+    "sail": "항해하기",
+    "returnHome": "돌아가기",
+    "joinNow": "바로 가입",
+    "apply": "가입 신청",
+    "pending": "신청 중",
+    "full": "정원이 찼어요",
+    "joined": "주민이 됐어요 — 항해해서 처음 가 보세요"
   }
 }

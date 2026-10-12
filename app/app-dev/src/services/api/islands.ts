@@ -10,7 +10,8 @@
  *  - `GET    /islands?q&cursor&limit`           이름 검색 — 전망대 완공이 필요한 소속 후 기능.
  *                                               첫 소속 전 대체 경로로 쓰지 않는다.
  *  - `GET    /screens/visit/{islandId}`         방문 화면(공개 요약 + 주민 + 내 신청 상태).
- *  - `POST   /islands/{islandId}/memberships`   가입·가입 신청. `Idempotency-Key` 필수.
+ *  - `POST   /islands/{islandId}/memberships`   가입·가입 신청. `Idempotency-Key` 필수. 본문 `origin` 은 선택 —
+ *                                               `telescope` 면 즉시 가입이어도 현재 섬을 옮기지 않는다(GROMO-2266).
  *  - `GET    /me/join-requests`                 내 pending 신청 목록(재실행 복구용).
  *  - `GET    /me/join-requests/{requestId}`     신청 상태(종결된 것도 조회된다).
  *  - `DELETE /me/join-requests/{requestId}`     신청 취소. `Idempotency-Key` 필수.
@@ -187,18 +188,30 @@ export async function visitIsland(islandId: string): Promise<VisitScreen> {
   return screen;
 }
 
+/** 가입 경로(GROMO-2266). 생략하면 서버 기본 `visit`(가입하면 그 섬이 현재 섬이 된다). */
+export type JoinOrigin = 'visit' | 'telescope';
+
 /**
  * 가입 또는 가입 신청. `invitationToken` 은 초대 resolve 응답을 변형·저장 없이 그대로 넘긴다.
  * `active` 면 `/me/islands` 재조회 뒤 도착으로, `pending` 이면 current 를 바꾸지 않는다.
+ * `origin: 'telescope'` 는 즉시 가입이어도 current 를 옮기지 않고 도착도 기록하지 않는다(처음 한 번은 항해해야 한다).
+ * 둘 다 생략하면 본문이 이전과 같은 `{}` 다 — 서버 멱등 지문이 그대로라 배포 전 요청의 재시도가 충돌하지 않는다.
  */
 export function joinIsland(
   islandId: string,
-  { idempotencyKey, invitationToken }: { idempotencyKey: string; invitationToken?: string },
+  {
+    idempotencyKey,
+    invitationToken,
+    origin,
+  }: { idempotencyKey: string; invitationToken?: string; origin?: JoinOrigin },
 ): Promise<JoinIslandResult> {
   return request<JoinIslandResult>(`/islands/${encodeURIComponent(islandId)}/memberships`, {
     method: 'POST',
     idempotencyKey,
-    body: invitationToken === undefined ? {} : { invitationToken },
+    body: {
+      ...(invitationToken !== undefined && { invitationToken }),
+      ...(origin !== undefined && { origin }),
+    },
   });
 }
 

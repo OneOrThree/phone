@@ -382,6 +382,24 @@ test('방문 중 항해 출발지는 방문 섬 이름이다', async () => {
   expect((await screen.findByTestId('sailing-from')).props.children).toBe('둘');
 });
 
+test('항해 출발지는 누른 시점의 섬 이름이다 — 이동 응답의 소속 동기화가 현재 섬을 바꿔도 목적지로 바뀌지 않는다', async () => {
+  const e = env();
+  e.islands.switchCurrent.mockImplementation(async () => {
+    e.state = reducer(e.state, {
+      type: 'ISLAND_SYNC',
+      memberships: {
+        ...e.state.serverIslands!,
+        currentIslandId: 'b',
+        items: e.state.serverIslands!.memberships,
+      },
+    });
+  });
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('둘섬으로'));
+  expect(e.state.serverIslands!.currentIslandId).toBe('b');
+  expect((await screen.findByTestId('sailing-from')).props.children).toBe('하나');
+});
+
 test('요청 중 언마운트되면 응답이 와도 아무것도 하지 않는다(reset 0·경고 0)', async () => {
   const e = env('b');
   let finish!: () => void;

@@ -307,3 +307,17 @@ test('errorText — ISLAND_NOT_ARRIVED 는 영어 로케일에서도 번역된 �
   );
   applyLocalePref('system');
 });
+
+test('errorText — ISLAND_LIMIT_EXCEEDED(망원경 [바로 가입]의 409) 는 ko 에서 서버 문구, 영어에서 번역된 문구를 쓴다', () => {
+  const full = new ApiError(
+    'ISLAND_LIMIT_EXCEEDED',
+    '소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요',
+    409,
+  );
+  expect(errorText(full)).toBe(
+    '소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요',
+  );
+  applyLocalePref('en');
+  expect(errorText(full)).toBe('Your islands are full (3/3). Leave one to join a new island.');
+  applyLocalePref('system');
+});

@@ -21,6 +21,7 @@ import {
   discoverIslands as apiDiscoverIslands,
   explore as apiExplore,
   joinIsland as apiJoinIsland,
+  type JoinOrigin,
   joinRequest as apiJoinRequest,
   myIslands as apiMyIslands,
   myJoinRequests as apiMyJoinRequests,
@@ -338,12 +339,16 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     // 가입·가입 신청. pending이면 requestId를 스냅샷에 남기고 승인 화면으로,
     // active면 /me/islands 재조회로 current를 확정한다(arrival/home은 CurrentScreens 차단이
     // 풀리기 전까지 열지 않는다). 응답이 확정되면 의도 키를 해제한다 — 취소·거절 뒤 같은 섬
-    // 재신청은 새 키를 쓴다.
-    join: (islandId: string, { showApproval = true }: { showApproval?: boolean } = {}) =>
+    // 재신청은 새 키를 쓴다. origin 은 선택(GROMO-2266 망원경) — 생략하면 본문·키가 이전과 같다.
+    join: (
+      islandId: string,
+      { showApproval = true, origin }: { showApproval?: boolean; origin?: JoinOrigin } = {},
+    ) =>
       call(async () => {
         const g = generation(),
           token = scoped().tokens[islandId],
-          body = token ?? '';
+          // 의도 키는 «본문이 같은 재시도»에만 같다 — origin 이 다르면 서버 지문이 달라 같은 키를 쓰면 충돌한다.
+          body = (token ?? '') + (origin ? `|origin:${origin}` : '');
         // 복구된 활성 소속에는 쓰기 응답의 version이 없으므로 임의로 만들지 않는다.
         let result: Omit<Awaited<ReturnType<IslandApi['join']>>, 'version'> & {
           version?: number;
@@ -352,6 +357,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
           result = await api.join(islandId, {
             idempotencyKey: scoped().keys.key(`join:${islandId}`, body),
             invitationToken: token,
+            ...(origin && { origin }),
           });
           alive(g);
           if (result.status === 'active') await syncIslands();
