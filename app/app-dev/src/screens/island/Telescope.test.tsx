@@ -991,6 +991,10 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
     const ribbon = screen.getByTestId('telescope-ribbon-p1', { includeHiddenElements: true });
     expect(ribbon.props.accessibilityElementsHidden).toBe(true);
     within(ribbon).getByText('찜', { includeHiddenElements: true });
+    // 모양 — 마스킹테이프처럼 섬 테두리 위에 겹쳐(absolute) 토큰의 각도로 기울어 붙는다
+    const ribbonStyle = StyleSheet.flatten(ribbon.props.style);
+    expect(ribbonStyle.position).toBe('absolute');
+    expect(ribbonStyle.transform).toContainEqual({ rotate: componentTokens.telescope.ribbonTilt });
     expect(screen.getByTestId('telescope-island-p1').props.accessibilityLabel).toBe(
       '섬 p1, 잡지에서 찜한 섬',
     );
@@ -1260,8 +1264,10 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       );
       expect(options).toEqual({ ok: '그만두고 빼기' });
       expect(action).toEqual(expect.any(Function));
-      // 취소 = 확인창이 동작을 부르지 않고 닫힌다 — 빼기도 구경 종료도 없다
-      await act(async () => {});
+      // 취소 — App.tsx 확인창의 취소 버튼과 같다: 창을 닫고 opts.onCancel 이 있으면 부르되 action 은 부르지 않는다.
+      // 이 화면은 onCancel 을 넘기지 않아(위 options 단정) 부를 콜백이 없다 — 그래도 부르는 줄을 두어, 나중에 onCancel 이 생겨
+      // 빼기·구경 종료를 하게 되면 아래 단정이 잡는다. 빼기도 구경 종료도 없다.
+      await act(async () => options.onCancel?.());
       expect(mockUnpin).not.toHaveBeenCalled();
       expect(e.dispatch).not.toHaveBeenCalled();
       expect(e.reset).not.toHaveBeenCalled();
@@ -1325,6 +1331,8 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       expect(e.confirm).not.toHaveBeenCalled();
       expect(mockUnpin).toHaveBeenCalledWith(...deleteCall('p1'));
       await act(async () => {});
+      expect(e.dispatch).not.toHaveBeenCalled();
+      expect(e.reset).not.toHaveBeenCalled();
     });
   });
 
