@@ -60,9 +60,9 @@ export function RaftDestinations({ e }: { e: any }) {
     try {
       if (e.islands) await e.islands.switchCurrent(island.id);
       else e.dispatch({ type: 'SWITCH_ISLAND', id: island.id });
-      // 요청 중 화면이 사라졌어도 전환은 서버에 반영됐으니 홈으로만 정리한다(ServerVisit 과 같은 세대 가드).
+      // 화면이 사라졌거나 세션 세대가 바뀌었으면 아무것도 하지 않는다 — ServerVisit 과 같은 세대 가드.
+      // 전환은 서버에 반영돼 ISLAND_SYNC 가 상태를 맞추고, 로그인·딥링크 같은 다른 이동을 홈으로 덮지 않는다.
       if (alive()) setSailingTo(island.name);
-      else if (mounted.current === false) e.reset('home');
     } catch (thrown) {
       const message = islandErrorMessage(thrown);
       if (message && alive()) e.notify(message);

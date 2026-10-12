@@ -4,6 +4,16 @@ import { RaftDestinations } from '@/screens/island/RaftDestinations';
 import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 
+// 세션 세대를 테스트가 바꿀 수 있게 한다(나머지 export 는 실제 구현 유지).
+let mockGeneration = 0;
+jest.mock('@/services/api/session', () => ({
+  ...jest.requireActual('@/services/api/session'),
+  sessionGeneration: () => mockGeneration,
+}));
+beforeEach(() => {
+  mockGeneration = 0;
+});
+
 jest.mock('@/screens/island/IslandSheet', () => ({
   IslandSheet: ({ children }: any) => {
     const { View } = require('react-native');
@@ -151,7 +161,7 @@ test('방문 중 항해 출발지는 방문 섬 이름이다', async () => {
   expect((await screen.findByTestId('sailing-from')).props.children).toBe('둘');
 });
 
-test('요청 중 언마운트돼도 상태를 건드리지 않고 홈으로 한 번만 reset 한다', async () => {
+test('요청 중 언마운트되면 응답이 와도 아무것도 하지 않는다(reset 0·경고 0)', async () => {
   const e = env('b');
   let finish!: () => void;
   e.islands.switchCurrent.mockReturnValue(new Promise<void>((r) => (finish = r)));
@@ -160,8 +170,41 @@ test('요청 중 언마운트돼도 상태를 건드리지 않고 홈으로 한 
   await fireEvent.press(screen.getByText('하나섬으로'));
   await screen.unmount();
   await act(async () => finish());
-  expect(e.reset).toHaveBeenCalledTimes(1);
-  expect(e.reset).toHaveBeenCalledWith('home');
+  expect(e.reset).not.toHaveBeenCalled();
+  expect(e.notify).not.toHaveBeenCalled();
+  expect(err).not.toHaveBeenCalled();
+  err.mockRestore();
+});
+
+test('마운트된 채 세션 세대가 바뀌면 항해·토스트 없이 요청 중 표시만 풀린다', async () => {
+  const e = env('b');
+  let finish!: () => void;
+  e.islands.switchCurrent.mockReturnValueOnce(new Promise<void>((r) => (finish = r)));
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  mockGeneration += 1;
+  await act(async () => finish());
+  expect(screen.queryByTestId('sailing')).toBeNull();
+  expect(e.notify).not.toHaveBeenCalled();
+  expect(e.reset).not.toHaveBeenCalled();
+  expect(e.backOverride.current).toBeNull();
+  // 행이 다시 눌린다(pending 해제)
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  expect(e.islands.switchCurrent).toHaveBeenCalledTimes(2);
+});
+
+test('세대 변경과 언마운트가 겹쳐도 reset 하지 않는다', async () => {
+  const e = env('b');
+  let finish!: () => void;
+  e.islands.switchCurrent.mockReturnValue(new Promise<void>((r) => (finish = r)));
+  const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const screen = await render(<RaftDestinations e={e} />);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  mockGeneration += 1;
+  await screen.unmount();
+  await act(async () => finish());
+  expect(e.reset).not.toHaveBeenCalled();
+  expect(e.notify).not.toHaveBeenCalled();
   expect(err).not.toHaveBeenCalled();
   err.mockRestore();
 });
