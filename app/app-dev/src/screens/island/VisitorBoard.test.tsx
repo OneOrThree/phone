@@ -327,8 +327,9 @@ test('방명록의 쓰기 거절 안내는 앱 셸 알림(e.notify)으로 나간
   const e = { notify: jest.fn() };
   const screen = await render(<VisitorBoard islandId="visitor" onClose={jest.fn()} e={e} />);
   await screen.findByTestId('guestbook-submit');
-  write.mockRejectedValue(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', '오늘은 이미', 409));
+  // 전환 시트가 없는 셸에서 게스트 거절 — 토스트로 알리는 오류(다시 눌러도 같은 거절인 409·403 은 칸 아래 안내로 남는다)
+  write.mockRejectedValue(new ApiError('SOCIAL_LOGIN_REQUIRED', 'x', 403));
   await fireEvent.changeText(screen.getByTestId('field-한마디 남기기'), '또 왔어요');
   await fireEvent.press(screen.getByTestId('guestbook-submit'));
-  await waitFor(() => expect(e.notify).toHaveBeenCalledWith('오늘은 이미 남겼어요'));
+  await waitFor(() => expect(e.notify).toHaveBeenCalledWith('소셜 로그인하면 이용할 수 있어요.'));
 });

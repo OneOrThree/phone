@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, Platform, StyleSheet, View } from 'react-native';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { Btn, CharCount, Field, Group, Row, Txt } from '@/design-system/patterns';
 import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
@@ -131,9 +131,12 @@ export function Guestbook({
       // 게스트는 친구·편지와 같은 길로 회원 전환 시트에 보낸다
       if (e?.conversion?.offer(error)) return;
       const text = writeErrorText(error);
-      if (text) e?.notify?.(text);
-      // 토스트는 금방 사라지고 다시 눌러도 같은 거절이다 — 안내를 남기고 칸과 버튼을 끈다
-      if (isBlocking(error)) setBlocked(error);
+      if (isBlocking(error)) {
+        // 다시 눌러도 같은 거절이다 — 칸 아래 안내만 남기고 칸과 버튼을 끈다. 토스트(전역 live region)를 같이 띄우면
+        // 안드로이드가 같은 문장을 두 번 읽는다. 안내의 live region 은 안드로이드 전용이라 iOS 는 한 번 직접 읽어 준다
+        setBlocked(error);
+        if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(text);
+      } else if (text) e?.notify?.(text);
     } finally {
       // 섬이 바뀌었으면 효과가 이미 새로 시작하며 잠금을 풀었다 — 옛 쓰기가 새 섬의 잠금을 풀지 않게 살아 있을 때만
       if (alive()) {

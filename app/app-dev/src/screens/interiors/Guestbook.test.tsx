@@ -1,5 +1,6 @@
-// 섬 방명록(GROMO-2263): 목록·쓰기 payload·섬장 버튼·게시판 없는 섬 숨김·쓰기 거절 토스트·지우기·신고.
+// 섬 방명록(GROMO-2263): 목록·쓰기 payload·섬장 버튼·게시판 없는 섬 숨김·쓰기 거절 안내(토스트·칸 아래 안내)·지우기·신고.
 import React from 'react';
+import { AccessibilityInfo, Platform } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Guestbook } from '@/screens/interiors/Guestbook';
 import { ApiError } from '@/services/api/client';
@@ -49,11 +50,22 @@ const mount = async (host: boolean, e = env(), items: unknown[] = [entry('g1'), 
   return { screen, e };
 };
 
+// accessibilityLiveRegion 은 안드로이드 전용이다 — iOS 에서 직접 읽어 주는지 보려고 플랫폼과 읽어 주기를 가짜로 둔다
+const originalOS = Platform.OS;
+const setOS = (os: string) =>
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: os });
+let announce: jest.SpyInstance;
+
 beforeEach(() => {
   jest.resetAllMocks();
   mockSafety = null;
+  announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
 });
-afterEach(() => applyLocalePref('system'));
+afterEach(() => {
+  applyLocalePref('system');
+  setOS(originalOS);
+  announce.mockRestore();
+});
 
 test('목록(최신순)을 그리고 쓰기 칸에 쓴 글을 {content} 로 보낸 뒤 맨 위에 올린다', async () => {
   const { screen } = await mount(false);
@@ -134,7 +146,7 @@ test('게시판이 없는 섬(boardBuilt=false)이면 방명록을 통째로 숨
   expect(screen.queryByTestId('guestbook-submit')).toBeNull();
 });
 
-test('오늘 이미 남겼으면(409) 토스트에 더해 칸 아래에 안내를 남기고 칸과 버튼을 끈다(쓰던 글은 그대로)', async () => {
+test('오늘 이미 남겼으면(409) 토스트 없이 칸 아래 안내만 남기고 칸과 버튼을 끈다(쓰던 글은 그대로)', async () => {
   const { screen, e } = await mount(false);
   expect(screen.queryByText('오늘은 이미 남겼어요')).toBeNull(); // 처음엔 안내가 없다
   writeMock.mockRejectedValue(
@@ -142,11 +154,11 @@ test('오늘 이미 남겼으면(409) 토스트에 더해 칸 아래에 안내�
   );
   await fireEvent.changeText(screen.getByTestId(INPUT), '또 쓸래요');
   await fireEvent.press(screen.getByTestId('guestbook-submit'));
-  await waitFor(() => expect(e.notify).toHaveBeenCalledWith('오늘은 이미 남겼어요'));
 
-  // 토스트는 금방 사라진다 — 놓쳐도 남는 안내가 live region 으로 읽힌다
+  // 남는 안내가 live region 으로 읽힌다. 전역 토스트도 live region 이라 같이 띄우면 안드로이드가 같은 문장을 두 번 읽는다
   const notice = await screen.findByText('오늘은 이미 남겼어요');
   expect(notice.props.accessibilityLiveRegion).toBe('polite');
+  expect(e.notify).not.toHaveBeenCalled();
   expect(screen.getByTestId(INPUT).props.editable).toBe(false);
   expect(screen.getByTestId(INPUT).props.value).toBe('또 쓸래요');
   expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(true);
@@ -154,12 +166,14 @@ test('오늘 이미 남겼으면(409) 토스트에 더해 칸 아래에 안내�
   expect(writeMock).toHaveBeenCalledTimes(1); // 눌러도 더 보내지 않는다
 });
 
-test('네트워크 오류 같은 일시 실패는 칸을 막지 않아 같은 글을 다시 보낼 수 있다', async () => {
+test('네트워크 오류 같은 일시 실패는 토스트로만 알리고 칸을 막지 않아 같은 글을 다시 보낼 수 있다', async () => {
+  setOS('ios');
   const { screen, e } = await mount(false);
   writeMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
   await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
   await fireEvent.press(screen.getByTestId('guestbook-submit'));
   await waitFor(() => expect(e.notify).toHaveBeenCalledTimes(1));
+  expect(announce).not.toHaveBeenCalled(); // 토스트로 알린 오류는 따로 읽어 주지 않는다
   expect(screen.getByTestId(INPUT).props.editable).toBe(true);
   expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(false);
   expect(screen.queryByText('오늘은 이미 남겼어요')).toBeNull();
@@ -184,22 +198,53 @@ test('막았던 칸은 섬이 바뀌어 다시 불러오면 다시 열린다', a
   expect(screen.getByTestId(INPUT).props.editable).toBe(true);
 });
 
-test('게시판이 사라진 섬(403 FACILITY_LOCKED)은 짓고 나서 쓰라고 안내한다', async () => {
+test('게시판이 사라진 섬(403 FACILITY_LOCKED)은 토스트 없이 칸 아래 안내로 짓고 나서 쓰라고 알린다', async () => {
   const { screen, e } = await mount(false);
   writeMock.mockRejectedValue(
     new ApiError('FACILITY_LOCKED', '필요한 시설을 먼저 열어 주세요.', 403),
   );
   await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
   await fireEvent.press(screen.getByTestId('guestbook-submit'));
-  await waitFor(() =>
-    expect(e.notify).toHaveBeenCalledWith('게시판을 지으면 방명록을 쓸 수 있어요'),
-  );
-  // 다시 눌러도 같은 거절이다 — 토스트에 더해 칸 아래 안내를 남기고 칸과 버튼을 끈다
+  // 다시 눌러도 같은 거절이다 — 토스트 대신 칸 아래 안내를 남기고 칸과 버튼을 끈다
   const notice = await screen.findByText('게시판을 지으면 방명록을 쓸 수 있어요');
   expect(notice.props.accessibilityLiveRegion).toBe('polite');
+  expect(e.notify).not.toHaveBeenCalled();
   expect(screen.getByTestId(INPUT).props.editable).toBe(false);
   expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(true);
 });
+
+const BLOCKING: [string, number, string][] = [
+  ['GUESTBOOK_ALREADY_WRITTEN_TODAY', 409, '오늘은 이미 남겼어요'],
+  ['FACILITY_LOCKED', 403, '게시판을 지으면 방명록을 쓸 수 있어요'],
+];
+
+test.each(BLOCKING)(
+  'iOS 는 live region 이 없어 막는 거절(%s)의 안내를 한 번 직접 읽어 준다',
+  async (code, status, text) => {
+    setOS('ios');
+    const { screen } = await mount(false);
+    writeMock.mockRejectedValue(new ApiError(code, 'x', status));
+    await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+    await fireEvent.press(screen.getByTestId('guestbook-submit'));
+    await screen.findByText(text);
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(text);
+  },
+);
+
+test.each(BLOCKING)(
+  '안드로이드는 안내의 live region 에 맡기고 따로 읽어 주지 않는다(%s)',
+  async (code, status, text) => {
+    setOS('android');
+    const { screen } = await mount(false);
+    writeMock.mockRejectedValue(new ApiError(code, 'x', status));
+    await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+    await fireEvent.press(screen.getByTestId('guestbook-submit'));
+    const notice = await screen.findByText(text);
+    expect(notice.props.accessibilityLiveRegion).toBe('polite');
+    expect(announce).not.toHaveBeenCalled();
+  },
+);
 
 test('게스트(403 SOCIAL_LOGIN_REQUIRED)는 토스트 대신 회원 전환 시트로 보낸다', async () => {
   const e = env();
@@ -377,5 +422,6 @@ test('영어 로케일에서 제목·입력·버튼·안내를 번역한다', as
   writeMock.mockRejectedValue(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', '오늘은', 409));
   await fireEvent.changeText(screen.getByTestId('field-Leave a note'), 'hi');
   await fireEvent.press(screen.getByTestId('guestbook-submit'));
-  await waitFor(() => expect(e.notify).toHaveBeenCalledWith("You've already left a note today"));
+  await screen.findByText("You've already left a note today"); // 칸 아래 안내(토스트는 없다)
+  expect(e.notify).not.toHaveBeenCalled();
 });
