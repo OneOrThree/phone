@@ -1,30 +1,13 @@
-name: Dev 서버 스모크
+name: 서버 스모크 스냅샷
 
 on:
-  schedule:
-    - cron: '0 20 * * *' # 05:00 KST
+  push:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      run_core_flow:
-        description: 전용 테스트 DB 초기 준비와 핵심 사용자 흐름(014) 실행
-        type: boolean
-        default: false
-  workflow_call:
-    inputs:
-      deploy_revision:
-        type: string
-        default: ''
-      deploy_service:
-        type: string
-        default: ''
-      run_core_flow:
-        type: boolean
-        default: false
 
-# CD 호출자는 이미 dev-vm-deploy를 보유한다. 같은 그룹을 중첩하면 교착된다.
-# 단독 실행만 배포 그룹을 얻고, CD 호출은 부모가 가진 잠금을 유지한다.
+# main 병합당 한 번. 배포 대기는 배포 잠금을 잡지 않아 CD와 교착되지 않는다.
 concurrency:
-  group: ${{ inputs.deploy_service != '' && format('dev-smoke-{0}-{1}', github.run_id, inputs.deploy_service) || 'dev-vm-deploy' }}
+  group: dev-server-smoke
   cancel-in-progress: false
   queue: max
 
@@ -33,115 +16,89 @@ permissions:
 
 env:
   BASE_URL: https://oneorthree.dev.mooo.com
-  SMOKE_DEVICE_ID: ${{ vars.SMOKE_DEVICE_ID }}
 
 jobs:
-  external:
+  wait-deploy:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      actions: read
+      statuses: read
     steps:
       - uses: actions/checkout@v4
         with:
-          # 배포 이미지 SHA는 보고용이다. 검사 코드는 호출한 워크플로 커밋을 사용한다.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: 기존 CI와 같은 YAML 읽기 도구 준비
+        run: python3 -m pip install --quiet 'pyyaml==6.0.2'
+      - name: 해당 main 커밋의 CI·dev 배포 완료 대기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SMOKE_BEFORE_SHA: ${{ github.event.before }}
+        run: python3 .github/scripts/wait-smoke-deploy.py
+
+  execute:
+    needs: wait-deploy
+    if: always() && (needs.wait-deploy.result == 'success' || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted, dev]
+    timeout-minutes: 10
+    # 같은 잠금으로 보호된 dev CD가 끝난 뒤 전체 15개를 한 러너에서 검사한다.
+    concurrency:
+      group: dev-vm-deploy
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v4
+        with:
           ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: 공개 API·실시간 기본 검사
+      - name: 공개 API·실시간·핵심 게스트 흐름·인프라 15개 검사
         env:
-          SMOKE_BASIC_ONLY: '1'
-          RESULTS_FILE: ${{ runner.temp }}/smoke-external/results.tsv
-        run: smoke/server/run.sh
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: smoke-external-${{ inputs.deploy_service || 'standalone' }}
-          path: ${{ runner.temp }}/smoke-external/results.tsv
-          retention-days: 7
-
-  internal:
-    runs-on: [self-hosted, dev]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # 배포 이미지 SHA는 보고용이다. 검사 코드는 호출한 워크플로 커밋을 사용한다.
-          ref: ${{ github.sha }}
-      - name: 컨테이너·공유 Redis·business Redis 검사
-        env:
-          RESULTS_FILE: ${{ runner.temp }}/smoke-internal/results.tsv
-        run: smoke/server/internal.sh
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: smoke-internal-${{ inputs.deploy_service || 'standalone' }}
-          path: ${{ runner.temp }}/smoke-internal/results.tsv
-          retention-days: 7
-
-  core-flow:
-    if: inputs.run_core_flow == true || (github.event_name == 'schedule' && vars.SMOKE_CORE_ENABLED == 'true')
-    needs: [external, internal]
-    runs-on: [self-hosted, dev]
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # 배포 이미지 SHA는 보고용이다. 검사 코드는 호출한 워크플로 커밋을 사용한다.
-          ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      # 로그인·검증·DB 초기 준비·API 시나리오를 한 러너에서 실행한다.
-      # 인증 토큰은 job output이나 artifact로 전달하지 않는다.
-      - name: 전용 섬 초기 준비·집중 적립·건설·게스트 구매 거절
-        env:
-          SMOKE_DEVICE_ID: ''
           SMOKE_CORE_ENABLED: '1'
-          RESULTS_FILE: ${{ runner.temp }}/smoke-core/results.tsv
+          SMOKE_BASIC_ONLY: '0'
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/smoke-results"
           db=$(docker ps -q --filter label=com.docker.compose.project=phone --filter label=com.docker.compose.service=db)
-          test -n "$db"
-          test "$(printf '%s\n' "$db" | wc -l)" -eq 1
+          test -n "$db" && test "$(printf '%s\n' "$db" | wc -l)" -eq 1 || exit 1
           export SMOKE_DB_CONTAINER="$db"
-          SMOKE_DB_USER=$(docker exec "$db" sh -c 'printf "%s" "$POSTGRES_USER"')
-          SMOKE_DB_NAME=$(docker exec "$db" sh -c 'printf "%s" "$POSTGRES_DB"')
+          SMOKE_DB_USER=$(docker exec "$db" sh -c 'printf "%s" "$POSTGRES_USER"') || exit 1
+          SMOKE_DB_NAME=$(docker exec "$db" sh -c 'printf "%s" "$POSTGRES_DB"') || exit 1
           export SMOKE_DB_USER SMOKE_DB_NAME
-          smoke/server/run.sh
+          RESULTS_FILE="$RUNNER_TEMP/smoke-results/internal/results.tsv" smoke/server/internal.sh
+          internal_rc=$?
+          RESULTS_FILE="$RUNNER_TEMP/smoke-results/api/results.tsv" smoke/server/run.sh
+          api_rc=$?
+          exit $((internal_rc || api_rc))
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: smoke-core-${{ inputs.deploy_service || 'standalone' }}
-          path: ${{ runner.temp }}/smoke-core/results.tsv
+          name: smoke-results
+          path: ${{ runner.temp }}/smoke-results/**/results.tsv
           retention-days: 7
+          overwrite: true
 
   report:
     if: always()
-    needs: [external, internal, core-flow]
+    needs: [wait-deploy, execute]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
-          # 배포 이미지 SHA는 보고용이다. 검사 코드는 호출한 워크플로 커밋을 사용한다.
           ref: ${{ github.sha }}
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          pattern: smoke-*-${{ inputs.deploy_service || 'standalone' }}
+          name: smoke-results
           path: smoke-results
-      - name: 결과 요약·실패 알림
+      - name: TC별 결과 요약·배지 판정
         env:
-          GH_TOKEN: ${{ github.token }}
-          SMOKE_EVENT: ${{ github.event_name }}
-          DEPLOY_REVISION: ${{ inputs.deploy_revision }}
-          EXTERNAL_RESULT: ${{ needs.external.result }}
-          INTERNAL_RESULT: ${{ needs.internal.result }}
-          CORE_RESULT: ${{ needs.core-flow.result }}
-          CORE_REQUESTED: ${{ inputs.run_core_flow == true || (github.event_name == 'schedule' && vars.SMOKE_CORE_ENABLED == 'true') }}
+          SMOKE_RUN_RESULT: ${{ needs.execute.result }}
+          DEPLOY_WAIT_RESULT: ${{ needs.wait-deploy.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: python3 .github/scripts/report-smoke.py smoke-results

@@ -112,15 +112,3 @@ jobs:
       - name: 임시 env 삭제
         if: always()
         run: rm -rf "$(dirname "${RUNTIME_ENV_FILE:-/nonexistent/x}")" 2>/dev/null || true
-
-  smoke:
-    name: 배포 후 서버 스모크
-    needs: deploy
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-    uses: ./.github/workflows/ops-smoke.dev.yml
-    with:
-      deploy_revision: ${{ inputs.image_revision }}
-      deploy_service: realtime

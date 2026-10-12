@@ -50,8 +50,10 @@ jobs:
           # jq 프로그램은 작은따옴표 안이므로 JSON 키의 큰따옴표를 escape 하지 않는다.
           # `.\"business-api\"`는 일부 jq 버전에서 backslash가 그대로 전달되어 출력만 비고,
           # command substitution의 실패가 echo에 가려져 Notification만 선택되는 문제가 있었다.
-          business=$(jq -er '.["business-api"] | select(type == "boolean")' <<< "$plan")
-          notification=$(jq -er '.notification | select(type == "boolean")' <<< "$plan")
+          # false도 유효한 무배포 판정이다. jq -e의 false 종료 코드를 값 추출에 사용하지 않는다.
+          jq -e '(.["business-api"] | type) == "boolean" and (.notification | type) == "boolean"' <<< "$plan" > /dev/null
+          business=$(jq -r '.["business-api"]' <<< "$plan")
+          notification=$(jq -r '.notification' <<< "$plan")
           printf 'business=%s\nnotification=%s\n' "$business" "$notification" >> "$GITHUB_OUTPUT"
           # 위성 코드 변경 없는 실행(.github/scripts·docs 만 바뀜)은 배포할 게 없음 → 이후 단계 건너뜀
           if [ "$business" = true ] || [ "$notification" = true ]; then any=true; else any=false; fi
@@ -282,14 +284,31 @@ jobs:
         if: always()
         run: rm -rf "$(dirname "${RUNTIME_ENV_FILE:-/nonexistent/x}")" 2>/dev/null || true
 
-  smoke:
-    name: 배포 후 서버 스모크
-    needs: deploy
+  snapshot:
+    name: 원본 커밋에 위성 배포 완료 기록
+    if: >-
+      always() && github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    needs: [plan, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-    uses: ./.github/workflows/ops-smoke.dev.yml
-    with:
-      deploy_revision: ${{ github.event.workflow_run.head_sha }}
-      deploy_service: satellites
+      statuses: write
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          HAS_DEPLOY: ${{ needs.plan.outputs.any }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+        with:
+          script: |
+            const source = context.payload.workflow_run;
+            const ok = process.env.PLAN_RESULT === 'success' &&
+              (process.env.HAS_DEPLOY === 'false' || process.env.DEPLOY_RESULT === 'success');
+            const state = ok ? 'success' : 'failure';
+            await github.rest.repos.createCommitStatus({
+              ...context.repo, sha: source.head_sha, state,
+              context: 'dev-deploy/satellites',
+              description: `Satellite CI ${source.id}/${source.run_attempt || 1}: ${state}`,
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });

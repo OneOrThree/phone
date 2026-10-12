@@ -76,7 +76,7 @@ bash smoke/server/tests/seed-guards.sh
 # 내부 health/Redis 실패·정리·자격 비노출
 python3 smoke/server/tests/test_internal.py
 # Actions 결과 보고·누락 검사 (GitHub 요청은 mock)
-python3 .github/scripts/test-report-smoke.py
+python3 .github/scripts/test_smoke_report.py
 ```
 
 mock 검사는 실행기 자체의 회귀를 검증한다. GCP dev의 실제 검사 결과와는 구분하며 [검증 기록](verification.md)에 실행일·TC 결과·차단 조건을 남긴다.
@@ -92,3 +92,7 @@ SMOKE_ALLOW_ISOLATED_TEST=1 RESULTS_FILE=/tmp/smoke-isolated-core.tsv \
 ```
 
 격리 스크립트는 loopback 포트만 publish하고 무작위 이름·소유권 라벨이 있는 컨테이너만 정리한다. 임시 DB는 tmpfs이며 실행 종료 시 제거된다. 신규 서비스의 relay와 예약 작업은 꺼 두고, 출력은 TC 결과와 자격을 제거한 시작 진단으로 제한한다. 격리 Business JVM은 cold start 기능 검사용으로 Data read timeout 10초·전체 deadline 20초, curl 25초를 적용한다. 공유 dev 지연 조건을 검증하는 결과는 아니다. 공유 환경의 실제 실패는 별도로 유지한다.
+
+## main 병합 후 결과 배지
+
+자동 실행은 main push당 한 번, 해당 커밋의 필요한 CI·dev 배포 완료 후 전체 15개를 검사한다. 매일 실행·서비스별 중복 호출은 없다. 결과는 [공통 README의 배지](../README.md)로 확인한다. 수동 workflow_dispatch도 전체 15개를 실행하며 main 자동 결과 배지를 바꾸지 않는다.

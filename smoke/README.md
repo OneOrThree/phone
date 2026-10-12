@@ -1,5 +1,7 @@
 # FocusCat 스모크 테스트
 
+[![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml/badge.svg?branch=main&event=push)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml)
+
 [GROMO-2285](https://romance.atlassian.net/browse/GROMO-2285) · Plannotator에서 합의한 서버 스모크 계획과 실행 방법
 
 이번 구현은 서버 TC **001~010·014~018, 총 15개**다. 명세는 [server/TCL.md](server/TCL.md), 명령·환경변수는 [server/README.md](server/README.md)에 둔다. Android·iOS·Web은 추후 같은 플랫폼 폴더에서 관리한다.
@@ -50,18 +52,17 @@ smoke/                      ← 레포 phone. 플랫폼별 폴더. GitHub 없이
   web/
     README.md               ← SMOKE-WEB (대상 미정, 자리만)
 .github/workflows/
-  ops-smoke.dev.yml         ← schedule + workflow_dispatch + workflow_call. smoke/server/ 호출만
+  ops-smoke.dev.yml         ← main push + workflow_dispatch. 배포 완료 뒤 smoke/server/ 호출
 ```
 
 - `.github/` 안에 두지 않는다. `.github/scripts/`는 GitHub 컨텍스트 없이는 못 도는 접착제 전용. 스모크는 로컬 Nginx 프로필(GROMO-2216)에도 때려보는 도구여야 한다.
 - 레포는 phone: 러너가 phone에 등록, CD가 phone에, 검사 대상이 business-api 계약. Infra 레포는 Terraform 전용.
 - 워크플로:
-  - 잡 `external`(001~007·009·010): ubuntu-latest, 시크릿 0. `actions/setup-node`로 Node ≥22 명시.
-  - 잡 `internal`(008·017·018): `[self-hosted, dev]`. 008은 AWS·시크릿 없이 health 검사, 017·018은 기존 Redis 접근 설정으로 전용 임시 키만 검사.
-  - 트리거 ① `schedule: 0 20 * * *`(05:00 KST, UTC cron, 수 분~수십 분 지연 흔함) ② `data-api-cd.dev.yml`·`realtime-cd.dev.yml`·`satellite-cd.dev.yml` 각 deploy 잡 뒤 `needs: deploy` → `uses: ./.github/workflows/ops-smoke.dev.yml` ③ `workflow_dispatch`.
-  - `workflow_run`은 CD skip돼도 발화해서 안 쓴다.
-  - `dev-vm-deploy` 잠금으로 배포와 단독 스모크를 직렬화한다. CD에서 호출할 때는 부모의 잠금을 유지하고 별도 스모크 그룹을 사용해 중첩 잠금 교착을 피한다.
-- 이번 구현에 014~018도 포함한다. 014의 `core-flow` 실행은 별도 opt-in 잡으로 시작한다. 게스트 로그인·섬 확보 → internal seed 완료 → 공개 API 시나리오 순서를 보장한다. DB 접근은 internal 잡에만 두고, 기존 008의 AWS·시크릿 없는 health 검사와 구분한다. API 토큰은 로그·job output·평문 artifact에 남기지 않으며, DB 준비와 API 검증을 같은 internal 러너에서 실행해 잡 간 토큰 전달을 하지 않는다.
+  - main 병합으로 발생한 `push`에서 한 번 실행한다. 매일 정기 실행과 서비스별 중복 호출은 없다. `workflow_dispatch`는 수동 재현용이다.
+  - `wait-deploy`: 해당 push의 실제 변경 파일을 기존 CI의 main paths 필터와 대조한다. 필요한 Data·Realtime CI(내부 CD 포함)와 Satellite CI·별도 CD 완료를 기다린다. Satellite는 원본 CI id/attempt에 연결된 완료 상태를 확인해 옛 결과로 통과하지 않는다.
+  - `execute`: `[self-hosted, dev]` 러너에서 공개 BASE_URL·WS·전용 fixture·health·Redis 전체 15개를 실행한다. 배포 대기는 잠금 없이 하고 검사 중에만 `dev-vm-deploy` 잠금을 잡는다.
+  - `report`: TC 누락·FAIL·SKIP·정리 실패·배포 선행 실패는 비정상 exit으로 판정한다. summary와 TSV를 남기고 workflow 상태로 배지를 표시한다.
+- DB 준비와 API 시나리오는 같은 내부 러너에서 수행한다. 토큰은 잡 output/artifact로 전달하지 않는다. 전용 게스트·섬만 준비하며 앱의 게스트 제한·전역 상품 정책은 변경하지 않는다.
 - 브랜치 `chore/GROMO-####-dev-smoke`, PR `[CHORE]` + `workflow` 라벨.
 
 ---
@@ -105,8 +106,10 @@ smoke/                      ← 레포 phone. 플랫폼별 폴더. GitHub 없이
 
 실행기는 `results.tsv`에 `id`, `status`, `http_code`, `ms`, `reason`을 남긴다. 모든 요청·판정·정리 실패를 FAIL로 처리하며 PASS만 있는 실행은 exit 0, 하나라도 FAIL/SKIP이면 exit 1이다. HTTP 요청 원문·인증 토큰·DB/Redis 접속값을 저장한 임시 디렉터리는 접근 권한 0700으로 만들고 실행 종료 시 제거한다.
 
-GitHub Actions는 TC별 표와 실행 시간을 summary에 남기고 TSV만 7일 보관한다. 배포 후 실패는 CD 결과를 실패로 표시하고 해당 머지 PR에 `smoke-failed:dev` 라벨·실패 표를 남긴다. 배포 자체의 성공 라벨은 유지한다. 정기 실행 실패는 `[smoke] dev 실패` 이슈를 만들거나 기존 이슈에 기록하며 정상 복구 후 닫는다. 이 동작은 `.github/scripts/report-smoke.py`에 있다.
+GitHub Actions는 TC별 표와 실행 시간을 summary에 남기고 TSV만 7일 보관한다. 판정은 README의 `서버 스모크 스냅샷` 배지로 표시한다. `branch=main&event=push`로 main 자동 실행 결과만 사용하며 수동 실행으로 덮어쓰지 않는다. 배지를 클릭하면 원본 workflow와 TC별 결과로 이동한다. PR 실패 라벨·정기 실패 이슈는 만들지 않는다. 배포 선행 실패나 TC 누락도 passing으로 표시하지 않는다.
+
+배지는 main 병합 후 첫 자동 실행부터 실제 passing/failing 상태를 표시한다. 현재 draft 브랜치의 수동 GCP 결과는 [검증 기록](server/verification.md)에서 확인한다. 배지 형식은 [GitHub Actions 상태 배지 문서](https://docs.github.com/ko/actions/how-tos/monitor-workflows/add-a-status-badge)를 따른다.
 
 기본 세트는 2분, 014는 실제 집중 1분을 포함해 3분을 목표로 한다. 단건 HTTP·웹소켓·이벤트 시간 제한과 정리 결과를 함께 기록한다. 실패한 서비스를 자동 재배포하거나 기존 DB를 되돌리지 않는다. 통과 여부뿐 아니라 실패 TC·HTTP 상태·소요 시간·재현 명령·환경 차단 조건을 PR에 남긴다.
 
-전체 초기 준비 TC 014·015·016은 workflow_dispatch/workflow_call의 `run_core_flow=true`로 실행한다. 정기 실행에 포함하려면 최초 수동 반복 검증 후 repo 변수 `SMOKE_CORE_ENABLED=true`를 설정한다. 기본 배포 후·정기 실행은 공개 9개와 내부 3개다. 반복 생성은 기존 게스트 IP 제한(기본 10회/1시간)에 걸릴 수 있으며, 제한을 해제하지 않고 FAIL로 기록한다.
+자동 실행은 항상 전체 15개다. 로컬 명령의 기본 공개 모드는 9개이며 내부 DB 설정이 있으면 전체 모드를 선택한다. 반복 게스트 생성은 기존 IP 제한(기본 10회/1시간)에 걸릴 수 있으며, 제한을 해제하지 않고 FAIL로 기록한다.

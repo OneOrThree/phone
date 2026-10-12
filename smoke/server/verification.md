@@ -60,13 +60,13 @@
 - HTTP·Node native WebSocket mock 5개 시나리오 통과: 전체 성공, health 실패, 집중 이벤트 타임아웃 후 세션 정리, 통계 불일치, BASE_URL 기본 모드 9개 TC.
 - 내부 health·Redis 회귀 6개 통과: 실패 판정·임시 키 정리·자격 비노출.
 - 격리 환경 정리 회귀 3개 통과: opt-in 없으면 Docker 접근 금지, 컨테이너 생성 응답 실패 시 소유 자원 정리, 다른 소유자의 자원 보존.
-- Actions 결과 보고 회귀 6개와 checkout 코드 revision 회귀 1개 통과. GitHub 쓰기는 mock으로 검증했으며 실제 자동 알림 실행은 아직 하지 않았다.
+- Actions 결과 보고 6개·main 주기/배지/실제 무배포 Bash 판정 4개·배포 대기 9개 회귀 검사 통과. 변경 파일 경로 제외·누락 CI·실패·원본 CI attempt와 다른 배포 상태를 passing으로 판정하지 않음을 확인했다. 실제 main 자동 실행·위성 배포 상태 API 기록은 아직 실행하지 않았다.
 - SQL 준비 guard 검사 통과: 비정상 UUID·fixture 이름·모드·친구 준비 대상은 DB 접속 전에 거절.
 - Bash 구문 검사, ShellCheck error 단계, `git diff --check` 통과. 전체 스타일 경고가 없다는 의미는 아니다.
 - 현재 코드의 Data·Business·Realtime·Notification `bootJar` 빌드 통과. 이 로컬 빌드는 GCP에 배포하지 않았다.
 
 ## 자동 실행 검증 범위
 
-수동·정기·재사용 Actions 및 dev CD 호출을 구현했다. 아직 이 브랜치의 실제 GitHub Actions를 실행하거나 공유 dev에 배포하지 않았다. 기본 배포 후·정기 검사는 12개다. 전체 15개는 수동 run_core_flow=true 또는 정기의 repo 변수 SMOKE_CORE_ENABLED=true로 선택한다. 실제 GitHub Actions의 자동 실행까지 운영 검증이 끝났다는 의미는 아니다. PR은 draft로 유지한다.
+사용자 변경 요청에 따라 매일 schedule·서비스별 CD 호출·부분 검사 옵션을 제거했다. main push당 한 번 필요한 CI·dev 배포를 기다린 뒤 전체 15개를 실행하고 README의 main 자동 결과 배지로 판정한다. 이 브랜치의 실제 main 자동 실행은 아직 하지 않았다. GCP 수동 연속 2회·실행기 회귀 검증과 별개이며 PR은 draft로 유지한다.
 
-Actionlint는 구버전 파서가 지원하지 않는 기존 concurrency.queue와 self-hosted dev 라벨 진단만 제외하고 통과했다.
+최신 Actionlint v1.7.12에서 새 main 주기·배포 완료 상태 기록·잠금 문법이 통과했다. 구버전 문법 정의가 아직 지원하지 않는 기존 concurrency.queue와 self-hosted dev 라벨 진단만 제외했다. 나머지 문법은 검사했다. 변경 전 146f5333 커밋의 GitHub PR CI 17개도 통과했다(Data API 전체 테스트 13분 30초 포함).
