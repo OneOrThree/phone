@@ -285,6 +285,34 @@ test.each(BLOCKING)(
   },
 );
 
+test.each(BLOCKING)(
+  '막힌 칸(%s)은 [다시 불러오기]로 풀리고, 서버가 아직 막고 있으면 다음 쓰기에서 다시 막힌다',
+  async (code, status, text) => {
+    const { screen } = await mount(false);
+    writeMock.mockRejectedValue(new ApiError(code, 'x', status));
+    await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+    await fireEvent.press(screen.getByTestId('guestbook-submit'));
+    await screen.findByText(text);
+    expect(screen.getByTestId(INPUT).props.editable).toBe(false);
+
+    // 자정(KST)이 지나 서버가 다시 허용한다 — 막힌 채여도 [다시 불러오기]가 보이고, 목록을 받으면 칸이 열린다(화면을 나가지 않고)
+    getMock.mockResolvedValue(page([entry('g1')]));
+    await fireEvent.press(screen.getByTestId('guestbook-reload'));
+    await waitFor(() => expect(screen.queryByText(text)).toBeNull());
+    await screen.findByTestId(INPUT);
+    expect(screen.getByTestId(INPUT).props.editable).toBe(true);
+    await fireEvent.changeText(screen.getByTestId(INPUT), '새 날 한마디');
+    expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(false);
+
+    // 같은 날이라 서버가 아직 막고 있으면 다시 보낼 때 같은 거절을 받아 다시 막힌다
+    await fireEvent.press(screen.getByTestId('guestbook-submit'));
+    await screen.findByText(text);
+    expect(writeMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId(INPUT).props.editable).toBe(false);
+    expect(screen.getByTestId('guestbook-reload')).toBeTruthy();
+  },
+);
+
 test('게스트(403 SOCIAL_LOGIN_REQUIRED)는 토스트 대신 회원 전환 시트로 보낸다', async () => {
   const e = env();
   e.conversion.offer.mockReturnValue(true);

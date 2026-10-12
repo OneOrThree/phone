@@ -618,7 +618,7 @@
   },
   "visitorBoard": {
     "title": "Notice Board",
-    "readOnly": "Visitors can read notices and comments. Only residents can post.",
+    "readOnly": "Visitors can read notices and comments. Only residents can post notices and comments.",
     "formerResident": "Former resident",
     "moreComments": "More Comments",
     "commentCount": {

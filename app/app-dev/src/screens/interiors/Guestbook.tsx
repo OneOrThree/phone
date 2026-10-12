@@ -80,7 +80,9 @@ export function Guestbook({
   const [reload, setReload] = useState(0);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
-  // 쓰기가 위와 같은 이유로 거절되면 그 오류를 들고 있다가 칸 아래 안내로 남기고 칸을 끈다 — 섬이 바뀌거나 다시 불러오면 풀린다
+  // 쓰기가 위와 같은 이유로 거절되면 그 오류를 들고 있다가 칸 아래 안내로 남기고 칸을 끈다. 섬이 바뀌거나 [다시 불러오기]를
+  // 누르면 풀린다 — 목록 응답엔 «오늘 썼는지»가 없어(mine 은 지운 글·30개 밖을 못 본다) 일단 풀고, 서버가 아직 막고 있으면
+  // 다음 쓰기의 거절이 다시 막는다. 자정(KST)이 지나도 화면을 나갔다 오지 않고 쓸 수 있게 한다
   const [blocked, setBlocked] = useState<ApiError | null>(null);
   const [reporting, setReporting] = useState<GuestbookEntry | null>(null);
   const scope = useRef<object | null>(null);
@@ -243,6 +245,14 @@ export function Guestbook({
             onPress={() => void submit()}
             id="guestbook-submit"
           />
+          {!!blocked && (
+            <Btn
+              title={t('guestbook.reload')}
+              kind="sec"
+              onPress={() => setReload((count) => count + 1)}
+              id="guestbook-reload"
+            />
+          )}
           {loaded.items.length ? (
             <Group>
               {loaded.items.map((entry) => {

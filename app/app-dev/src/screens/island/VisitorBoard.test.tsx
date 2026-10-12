@@ -231,7 +231,10 @@ test('영어 방문 게시판에서 읽기 안내·댓글 수·페이지 버튼�
   const screen = await render(<VisitorBoard islandId="visitor" onClose={jest.fn()} />);
   await screen.findByText('1 comment');
   screen.getByText('2 comments');
-  screen.getByText('Visitors can read notices and comments. Only residents can post.');
+  // 주민 전용은 공지·댓글 작성뿐이다 — 아래 방명록은 방문자도 쓴다
+  screen.getByText(
+    'Visitors can read notices and comments. Only residents can post notices and comments.',
+  );
   screen.getByText('More Notices');
   await fireEvent.press(screen.getByText('첫 공지'));
   await screen.findByText('Former resident');
@@ -269,6 +272,10 @@ test('공지 목록 아래에 방명록이 있고 방문자도 쓸 수 있지만
   await screen.findByText('놀러 왔어요');
   expect(guestbook).toHaveBeenCalledWith('visitor');
   expect(screen.getByText('방명록')).toBeTruthy();
+  // 안내문이 「작성은 주민만」이라고만 하면 바로 아래 방명록을 방문자도 쓰는 것과 어긋난다 — 주민 전용은 공지·댓글 작성이다
+  screen.getByText(
+    '방문 중에는 공지와 댓글을 읽을 수 있어요. 공지와 댓글 작성은 주민만 할 수 있어요.',
+  );
   expect(screen.queryByText('지우기')).toBeNull();
   expect(screen.queryByText('신고')).toBeNull();
 

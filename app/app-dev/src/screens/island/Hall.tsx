@@ -2457,7 +2457,8 @@ export function Hall({ e }: any) {
           placeholder={key === 'greeting' ? t('hall.greetingPlaceholder') : undefined}
           placeholderTextColor={componentTokens.input.placeholder}
           style={{
-            height: key === 'intro' ? (land ? 57 : 62) : land ? 39 : 44,
+            // 이름·인사말 한 줄 칸은 가로에서도 실제 터치 높이 44 — 접근성 최소 터치 영역(DESIGN.md)
+            height: key === 'intro' ? (land ? 57 : 62) : 44,
             paddingVertical: land ? 7 : 10,
             paddingHorizontal: land ? 9 : 11,
             borderWidth: 1.5,

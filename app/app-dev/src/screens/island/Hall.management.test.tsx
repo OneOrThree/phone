@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
 import { Hall } from '@/screens/island/Hall';
 import { ApiError } from '@/services/api/client';
@@ -37,12 +37,13 @@ jest.mock('@/screens/island/useLedgerScreen', () => ({
     refresh: jest.fn(),
   }),
 }));
+let mockLandscape = false;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
-    width: 402,
-    height: 874,
+    width: mockLandscape ? 874 : 402,
+    height: mockLandscape ? 402 : 874,
     insets: { top: 52, bottom: 32, left: 0, right: 0 },
-    landscape: false,
+    landscape: mockLandscape,
   }),
 }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -93,6 +94,7 @@ const e = (route = 'manage', state = initialState(true)) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockSessionGeneration = 0;
+  mockLandscape = false;
   managementMock.mockReturnValue(management());
 });
 afterEach(cleanup);
@@ -582,6 +584,19 @@ test('인사말 입력은 섬장 편집 패널에만 있고 41번째 코드포�
   // 이름·소개 칸은 기존 maxLength 그대로
   expect(screen.getByTestId('hall-name').props.maxLength).toBe(50);
   expect(screen.getByTestId('hall-intro').props.maxLength).toBe(200);
+});
+
+test.each([
+  ['가로', true],
+  ['세로', false],
+])('%s 편집 패널의 이름·인사말 칸은 실제 터치 높이가 44pt 이상이다', async (_name, landscape) => {
+  mockLandscape = landscape;
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  for (const id of ['hall-name', 'hall-greeting']) {
+    const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
+    expect(Math.max(style.height ?? 0, style.minHeight ?? 0)).toBeGreaterThanOrEqual(44);
+  }
 });
 
 test('방장이 아닌 주민에게는 편집 연필도 인사말 칸도 없다', async () => {

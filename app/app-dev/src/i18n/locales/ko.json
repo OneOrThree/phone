@@ -603,7 +603,7 @@
   },
   "visitorBoard": {
     "title": "게시판",
-    "readOnly": "방문 중에는 공지와 댓글을 읽을 수 있어요. 작성은 주민만 할 수 있어요.",
+    "readOnly": "방문 중에는 공지와 댓글을 읽을 수 있어요. 공지와 댓글 작성은 주민만 할 수 있어요.",
     "formerResident": "떠난 주민",
     "moreComments": "댓글 더 보기",
     "commentCount": "댓글 {{count}}개",
