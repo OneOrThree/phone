@@ -3,6 +3,7 @@ import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
 import { isDemoMode } from '@/services/demoMode';
 import {
   Animated,
+  AppState,
   Easing,
   Image,
   PanResponder,
@@ -1423,9 +1424,20 @@ function FinalIslandScene({
   // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
   const tileNav = isTileIsland(scene);
   const [navWalk, setNavWalk] = useState<NavWalk | null>(null);
+  // background 전환(codex 지적, PR #1111 — WorldMap.tsx:1625) — 홈이 마운트된 채 background 로 가도
+  // 언마운트·syncIslandId/me 변경 때만 채널 effect 가 정리돼 channel.close() 가 안 불린다. 서버는 소켓
+  // 종료에서만 rooms.leave 하므로 OS 가 WebSocket 을 유지하면 다른 주민에게 내 actor 가 계속 남는다.
+  // appActive 를 아래 syncIslandId 에 섞어 background 에서 null 로 만들면 채널 effect 의 기존 cleanup 이
+  // close() 를 불러 방을 나가고, active 복귀 때 effect 가 다시 돌아 새로 구독·FullState 로 맞춘다.
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
+    return () => subscription.remove();
+  }, []);
   // 이동 동기화(GROMO-2248) — 플래그·타일 섬·서버 홈일 때만 켠다. 꺼져 있으면 movement 가 null 이라 걷기는 이전과 같다.
   // 배경으로 깔린 홈(showActions=false — 집중 준비·잠금 안내·우체통 안내 뒤)은 조작이 없으니 열지 않는다(구독 = 방 입장).
-  const syncIslandId = MOVEMENT_SYNC && tileNav && facts && showActions ? facts.islandId : null;
+  const syncIslandId =
+    MOVEMENT_SYNC && tileNav && facts && showActions && appActive ? facts.islandId : null;
   // 채널 effect 의존성에 넣어 로그인 세션이 바뀌면(계정 전환 등) 묵은 me 로 연 채널을 그대로 쓰지 않는다.
   const me = getSession()?.userId;
   const movement = useRef<MovementController | null>(null),

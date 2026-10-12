@@ -360,9 +360,17 @@ export function createMovementController(opts: MovementControllerOpts): Movement
 
   const send = (goal: WorldPoint) => {
     const intent = { commandSeq: seq + 1, navRevision, goalX: goal.x, goalY: goal.y };
-    if (!opts.send(intent)) return false;
+    if (!opts.send(intent)) {
+      // 재연결 창에 탭하면 미연결로 false — ready 전과 같은 deferred 에 들고 있다가 재연결 뒤 오는
+      // FullState 에서 다시 보낸다(지적 2, PR #1111 codex, movementSync.ts:363).
+      deferred = goal;
+      return false;
+    }
     seq = intent.commandSeq;
     sentAt = now();
+    // 막 보냈으니 재시도 대기 중이던 묵은 목적지(있었다면)는 더 유효하지 않다 — 다음 FullState 가 그걸
+    // 되살려 지금 보낸 것보다 먼저 탭한 자리로 덮어쓰지 않게 비운다.
+    deferred = null;
     notify();
     return true;
   };
@@ -421,7 +429,6 @@ export function createMovementController(opts: MovementControllerOpts): Movement
       if (a.state === 'MOVING' && waypoints?.length)
         buffer.addPath(a.userId, a.pathId, [{ x: a.x, y: a.y }, ...waypoints]);
     }
-    const wasReady = ready;
     // 내 actor 가 빠졌으면(강퇴 등) 목적지를 더 보내지 않는다 — 로컬 걷기로 폴백.
     ready = !!mine;
     if (mine) {
@@ -441,8 +448,10 @@ export function createMovementController(opts: MovementControllerOpts): Movement
         { x: a.x, y: a.y, moving: a.state === 'MOVING' },
         REMOTE_TICK_MS,
       );
-    if (ready && !wasReady && deferred) {
-      // ready 전에 누른 마지막 목적지를 이제 보낸다 — 서버가 경로를 내면 PathAccepted 로 갈아탄다.
+    if (ready && deferred) {
+      // ready 전이거나(최초) 재연결 창에 탭해 못 보낸(지적 2) 마지막 목적지를 이제 보낸다 — 서버가
+      // 경로를 내면 PathAccepted 로 갈아탄다. 첫 FullState 뿐 아니라 매 FullState 뒤 검사해야 재연결
+      // 뒤 다시 오는 FullState 도 잡는다.
       const goal = deferred;
       deferred = null;
       send(goal);

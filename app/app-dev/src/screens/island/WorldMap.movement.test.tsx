@@ -4,7 +4,7 @@
  * 플래그 off·목업 섬·채널 거절이면 이 PR 이전과 같다(채널 없음·로컬 걷기·Wanderer).
  */
 import React from 'react';
-import { Animated } from 'react-native';
+import { Animated, AppState } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { initialState } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -266,6 +266,9 @@ const renderHome = (islandId: string, props: object = {}) =>
 beforeEach(async () => {
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: ME });
+  // 테스트 네이티브 모듈 mock 은 AppState.currentState 기본값이 없다(RN 소스는 null) — appActive 게이트가
+  // 막 마운트한 화면에서 채널을 열려면 'active' 로 보이게 한다(RaftWaterMotion.test.tsx 와 같은 패턴, 지적 1).
+  (AppState as { currentState: string | null }).currentState = 'active';
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -293,6 +296,44 @@ it('바닥을 탭하면 로컬로 곧장 걷고 같은 목적지를 intent 1건�
   const opened = channel();
   await screen.unmount();
   expect(opened.close).toHaveBeenCalled();
+});
+
+it('앱이 background 로 가면 이동 채널을 닫고 active 복귀 때 다시 연다(codex 지적 1, PR #1111, WorldMap.tsx:1625)', async () => {
+  jest.useFakeTimers();
+  // AppState 리스너는 이 장면 말고도 FireMotion·RaftWaterMotion 등 다른 모션이 건다 — 전부 모아 한꺼번에 흘린다.
+  // jest.spyOn/mockRestore 대신 GoldenFishCutscene.test.tsx 와 같은 defineProperty 패턴을 쓴다 — addEventListener 는
+  // AppState 인스턴스의 own property 가 아니라(프로토타입) mockRestore 뒤 복귀 호출이 깨진다(실측).
+  const listeners: ((state: string) => void)[] = [];
+  const originalAddEventListener = Object.getOwnPropertyDescriptor(AppState, 'addEventListener');
+  Object.defineProperty(AppState, 'addEventListener', {
+    configurable: true,
+    value: ((_type: string, listener: (state: string) => void) => {
+      listeners.push(listener);
+      return { remove: jest.fn() };
+    }) as typeof AppState.addEventListener,
+  });
+  try {
+    const screen = await renderHome(nextIsland());
+    await emit(fullState([actor(ME, SPAWN)]));
+    const opened = channel();
+    const openedCount = mockChannels.length;
+
+    // background — 기존 채널 effect 의 cleanup(섬 전환·언마운트와 같은 cleanup)이 close() 를 부른다.
+    await act(async () => listeners.forEach((listener) => listener('background')));
+    expect(opened.close).toHaveBeenCalledTimes(1);
+
+    // active 복귀 — effect 가 다시 돌아 새 채널을 열고, FullState 로 다시 맞춘다.
+    await act(async () => listeners.forEach((listener) => listener('active')));
+    expect(mockChannels.length).toBe(openedCount + 1);
+    await emit(fullState([actor(ME, SPAWN)]));
+    expect(channel()).not.toBe(opened);
+
+    await screen.unmount();
+  } finally {
+    if (originalAddEventListener) {
+      Object.defineProperty(AppState, 'addEventListener', originalAddEventListener);
+    }
+  }
 });
 
 it('섬 전환 뒤 옛 채널로 FullState 를 흘려도 새 섬의 위치·주민 목록이 안 바뀐다(닫히는 중 도착한 메시지)', async () => {

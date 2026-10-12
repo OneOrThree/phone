@@ -94,10 +94,12 @@ const setup = (start: WorldPoint = SPAWN) => {
   const arrivals: WorldPoint[] = [];
   const corrections: WorldPoint[] = [];
   const remote: [string, RemotePosition][] = [];
-  const env = { here: start, walking: false, clock: 0 };
+  // connected — 재연결 창 흉내용(지적 2). 기본 true 라 다른 테스트는 그대로다.
+  const env = { here: start, walking: false, clock: 0, connected: true };
   const controller = createMovementController({
     me: ME,
     send: (intent) => {
+      if (!env.connected) return false;
       sent.push(intent);
       return true;
     },
@@ -127,6 +129,19 @@ describe('명령(MoveIntent)', () => {
     t.controller.onMessage(fullState([actor(ME, SPAWN)]));
     assert.deepEqual(t.sent, [{ commandSeq: 1, navRevision: 1, goalX: 60.12, goalY: 40.46 }]);
     assert.equal(t.controller.state().ready, true);
+  });
+
+  test('ready 뒤 재연결 창에 탭해 send 가 false 를 돌리면 목적지를 보관하고 다음 FullState 뒤 보낸다(지적 2)', () => {
+    const t = ready();
+    t.env.connected = false;
+    // 미연결(STOMP 재연결 창) — intend 는 false, 목적지는 버려지지 않고 deferred 에 보관된다.
+    assert.equal(t.controller.intend({ x: 42.5, y: 45.5 }), false);
+    assert.deepEqual(t.sent, [], '미연결 동안은 보내지 못한다');
+    t.env.connected = true;
+    // 재연결 뒤 서버가 다시 보낸 FullState — ready 는 이미 true 였지만(wasReady 게이트였다면 안 탔다)
+    // deferred 가 있으니 이제 보낸다.
+    t.controller.onMessage(fullState([actor(ME, SPAWN)]));
+    assert.deepEqual(t.sent, [{ commandSeq: 1, navRevision: 1, goalX: 42.5, goalY: 45.5 }]);
   });
 
   test('commandSeq 는 1부터 늘고 목적지는 소수 2자리, navRevision 은 FullState 값을 되돌려 보낸다', () => {
