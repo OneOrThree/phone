@@ -63,61 +63,7 @@ test('SheetRow는 selected를 accessibilityState.selected로 반영한다(언어
   expect(getByLabelText('기기 언어 따름').props.accessibilityState.selected).toBeUndefined();
 });
 
-// 안드로이드 하드웨어 뒤로 가기 흉내 — RN 처럼 나중에 등록한 리스너가 먼저 불리고, true 를 돌려주면 거기서 멈춘다.
-describe('IslandPopup 은 모달이다(GROMO-2263)', () => {
-  const backListeners: (() => boolean | null | undefined)[] = [];
-  const pressBack = () => {
-    for (const listener of [...backListeners].reverse()) if (listener()) return true;
-    return false;
-  };
-  let backSpy: jest.SpyInstance;
-  beforeEach(() => {
-    backListeners.length = 0;
-    backSpy = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, handler) => {
-      backListeners.push(handler as () => boolean);
-      return {
-        remove: () => {
-          const index = backListeners.indexOf(handler as () => boolean);
-          if (index >= 0) backListeners.splice(index, 1);
-        },
-      };
-    });
-  });
-  afterEach(() => backSpy.mockRestore());
-
-  test('열려 있는 동안 안드로이드 뒤로 가기는 App 리스너 앞에서 팝업을 닫고, 닫히면 리스너를 걷는다', async () => {
-    // App 전역 리스너(방문 화면의 뒤로 가기 = 방문 종료)가 먼저 등록돼 있다
-    const appBack = jest.fn(() => true);
-    BackHandler.addEventListener('hardwareBackPress', appBack);
-    const onClose = jest.fn();
-    const screen = await render(
-      <IslandPopup onClose={onClose}>
-        <Text>안내</Text>
-      </IslandPopup>,
-    );
-    expect(backListeners).toHaveLength(2);
-
-    expect(pressBack()).toBe(true);
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(appBack).not.toHaveBeenCalled();
-
-    await screen.unmount();
-    expect(backListeners).toHaveLength(1);
-    pressBack();
-    expect(appBack).toHaveBeenCalledTimes(1); // 팝업이 없으면 App 이 그대로 받는다
-  });
-
-  test('onClose 가 바뀌면 최신 onClose 로 닫는다', async () => {
-    const first = jest.fn();
-    const second = jest.fn();
-    const screen = await render(<IslandPopup onClose={first} />);
-    await screen.rerender(<IslandPopup onClose={second} />);
-    expect(backListeners).toHaveLength(1);
-    pressBack();
-    expect(first).not.toHaveBeenCalled();
-    expect(second).toHaveBeenCalledTimes(1);
-  });
-
+describe('IslandPopup 은 모달 표시만 한다(GROMO-2263)', () => {
   test('형제 장면은 스크린리더에서 빠지고 팝업 안은 그대로 읽힌다', async () => {
     const screen = await render(
       <>
@@ -138,5 +84,19 @@ describe('IslandPopup 은 모달이다(GROMO-2263)', () => {
     ).toBe(true);
     expect(isHiddenFromAccessibility(screen.getByLabelText('닫기'))).toBe(false);
     expect(isHiddenFromAccessibility(screen.getByText('안내'))).toBe(false);
+  });
+
+  test('안드로이드 뒤로 가기 리스너를 직접 달지 않는다 — 호출자가 e.backOverride 로 닫기를 건다', async () => {
+    const backSpy = jest.spyOn(BackHandler, 'addEventListener');
+    try {
+      await render(
+        <IslandPopup onClose={() => {}}>
+          <Text>안내</Text>
+        </IslandPopup>,
+      );
+      expect(backSpy).not.toHaveBeenCalled();
+    } finally {
+      backSpy.mockRestore();
+    }
   });
 });

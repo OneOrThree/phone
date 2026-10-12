@@ -654,6 +654,50 @@ test('인사말은 바꾼 때만 저장 body 에 싣고, 지우면 빈 문자열
   expect(clearing.saveSettings.mock.calls[0][0].greeting).toBe('');
 });
 
+test('인사말은 앞뒤 공백만 달라졌으면 바뀐 것으로 보지 않아 저장 body 에 싣지 않는다', async () => {
+  // 쓴 인사말 뒤에 공백만 덧붙인 경우
+  const own = withGreeting('어서 와요', false);
+  managementMock.mockReturnValue(own);
+  const first = await render(<Hall e={e()} />);
+  await fireEvent.press(first.getByTestId('hall-edit'));
+  await fireEvent.changeText(first.getByTestId('hall-greeting'), '  어서 와요  ');
+  await fireEvent.press(first.getByTestId('hall-save'));
+  await waitFor(() => expect(own.saveSettings).toHaveBeenCalledTimes(1));
+  expect('greeting' in own.saveSettings.mock.calls[0][0]).toBe(false);
+  await first.unmount();
+
+  // 안 쓴(기본) 상태에서 공백만 입력한 경우
+  const unset = withGreeting(DEFAULT_GREETING, true);
+  managementMock.mockReturnValue(unset);
+  const second = await render(<Hall e={e()} />);
+  await fireEvent.press(second.getByTestId('hall-edit'));
+  await fireEvent.changeText(second.getByTestId('hall-greeting'), '   ');
+  await fireEvent.press(second.getByTestId('hall-save'));
+  await waitFor(() => expect(unset.saveSettings).toHaveBeenCalledTimes(1));
+  expect('greeting' in unset.saveSettings.mock.calls[0][0]).toBe(false);
+  await second.unmount();
+
+  // 서버가 앞뒤 공백이 붙은 인사말을 줘도(편집 칸엔 그대로 채워진다) 손대지 않고 저장하면 안 바뀐 것이다
+  const padded = withGreeting('  어서 와요  ', false);
+  managementMock.mockReturnValue(padded);
+  const kept = await render(<Hall e={e()} />);
+  await fireEvent.press(kept.getByTestId('hall-edit'));
+  await fireEvent.press(kept.getByTestId('hall-save'));
+  await waitFor(() => expect(padded.saveSettings).toHaveBeenCalledTimes(1));
+  expect('greeting' in padded.saveSettings.mock.calls[0][0]).toBe(false);
+  await kept.unmount();
+
+  // 글자가 달라지면 공백이 섞여 있어도 앞뒤를 뗀 글을 싣는다
+  const edited = withGreeting('어서 와요', false);
+  managementMock.mockReturnValue(edited);
+  const third = await render(<Hall e={e()} />);
+  await fireEvent.press(third.getByTestId('hall-edit'));
+  await fireEvent.changeText(third.getByTestId('hall-greeting'), ' 어서 와요! ');
+  await fireEvent.press(third.getByTestId('hall-save'));
+  await waitFor(() => expect(edited.saveSettings).toHaveBeenCalledTimes(1));
+  expect(edited.saveSettings.mock.calls[0][0].greeting).toBe('어서 와요!');
+});
+
 test('목업(비서버) 로컬 관리 패널에는 인사말 칸이 없다', async () => {
   const os = Object.getOwnPropertyDescriptor(Platform, 'OS');
   const target: any = globalThis;

@@ -1,6 +1,5 @@
 // 방문자 화면(GROMO-2263): 섬장 인사말 말풍선은 방문마다 한 번만 뜬다.
 import React, { useReducer } from 'react';
-import { BackHandler } from 'react-native';
 import { act, fireEvent, isHiddenFromAccessibility, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { initialState, reducer, type State } from '@/services/model';
@@ -72,6 +71,10 @@ const visitState = (island: Record<string, unknown> = {}) => {
   return reducer(state, { type: 'SERVER_VISITING', islandId: 'v1' } as any) as State;
 };
 
+// 안드로이드 뒤로 가기 처리 칸 — App 이 들고 있는 e.backOverride 를 흉내 낸다. App 의 하드웨어 뒤로 가기 핸들러가
+// 방문 분기(END_VISIT)보다 먼저 이 칸을 본다(그 쪽은 App.hardwareBack.test.tsx 가 실제 App 으로 확인한다).
+const backOverride: { current: (() => boolean) | null } = { current: null };
+
 // 리듀서에 실제로 연결한 하네스 — 화면이 다시 마운트돼도(key) 상태는 이어진다. 보낸 액션 종류도 적어 둔다.
 let latest: { state: State; dispatch: (action: any) => void };
 let actionTypes: string[] = [];
@@ -96,7 +99,7 @@ function Harness({ initial, mounts = 0 }: { initial: State; mounts?: number }) {
         reset: jest.fn(),
         home: jest.fn(),
         back: jest.fn(),
-        backOverride: { current: null },
+        backOverride,
         notify: jest.fn(),
         text: '',
         setText: jest.fn(),
@@ -108,31 +111,13 @@ function Harness({ initial, mounts = 0 }: { initial: State; mounts?: number }) {
 
 const GREETING = '어서 와요, 같이 집중해요 🐟';
 
-// 안드로이드 하드웨어 뒤로 가기 흉내 — RN 처럼 나중에 등록한 리스너가 먼저 불리고, true 를 돌려주면 거기서 멈춘다.
-const backListeners: (() => boolean | null | undefined)[] = [];
-const pressBack = () => {
-  for (const listener of [...backListeners].reverse()) if (listener()) return true;
-  return false;
-};
-let backSpy: jest.SpyInstance;
-
 beforeEach(async () => {
   jest.clearAllMocks();
   actionTypes = [];
-  backListeners.length = 0;
-  backSpy = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, handler) => {
-    backListeners.push(handler as () => boolean);
-    return {
-      remove: () => {
-        const index = backListeners.indexOf(handler as () => boolean);
-        if (index >= 0) backListeners.splice(index, 1);
-      },
-    };
-  });
+  backOverride.current = null;
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
 });
-afterEach(() => backSpy.mockRestore());
 
 test('방문 모드에 들어가면 섬장 인사말이 한 번 뜨고, 닫으면 재렌더·재마운트에도 다시 안 뜬다', async () => {
   const initial = visitState({ greeting: GREETING, greetingIsDefault: false });
@@ -192,30 +177,59 @@ test('구서버(greeting 없음)나 빈 인사말이면 말풍선도 방문 표�
   expect(latest.state.visitGreeted).toBeUndefined();
 });
 
-test('인사말이 떠 있는 동안 안드로이드 뒤로 가기는 방문을 끝내지 않고 팝업만 닫는다', async () => {
-  // App 의 전역 리스너가 먼저 등록돼 있다 — 방문 화면에서 뒤로 가기는 END_VISIT 다
-  const appBack = jest.fn(() => true);
-  BackHandler.addEventListener('hardwareBackPress', appBack);
+test('인사말이 떠 있는 동안 뒤로 가기 처리가 걸리고, 부르면 방문을 끝내지 않고 팝업만 닫는다', async () => {
   const screen = await render(
     <Harness initial={visitState({ greeting: GREETING, greetingIsDefault: false })} />,
   );
   await screen.findByTestId('visit-greeting');
-  expect(backListeners).toHaveLength(2);
+  expect(typeof backOverride.current).toBe('function');
 
+  let handled: boolean | undefined;
   await act(async () => {
-    expect(pressBack()).toBe(true);
+    handled = backOverride.current?.();
   });
+  expect(handled).toBe(true); // 처리했다 — App 이 방문 종료로 넘어가지 않는다
   expect(screen.queryByTestId('visit-greeting')).toBeNull(); // 팝업이 닫혔다
-  expect(appBack).not.toHaveBeenCalled(); // App 의 방문 종료로 가지 않았다
   expect(actionTypes).not.toContain('END_VISIT');
   expect(latest.state.visitingIslandId).toBe('v1');
-  expect(backListeners).toHaveLength(1); // 닫힌 팝업의 리스너는 걷혔다
+  expect(backOverride.current).toBeNull(); // 닫힌 팝업의 처리는 걷혔다 — 다음 뒤로 가기는 App 이 평소처럼 받는다
+});
 
-  // 팝업이 없으면 평소처럼 App 이 받는다
+test('화면이 다시 그려져도(새 now·새 env) 걸린 뒤로 가기 처리는 그대로 팝업을 닫는다', async () => {
+  const initial = visitState({ greeting: GREETING, greetingIsDefault: false });
+  const screen = await render(<Harness initial={initial} />);
+  await screen.findByTestId('visit-greeting');
+  const installed = backOverride.current;
+  expect(installed).not.toBeNull();
+
+  await screen.rerender(<Harness initial={initial} />);
+  await screen.rerender(<Harness initial={initial} />);
+  expect(backOverride.current).toBe(installed); // 다시 그려도 같은 처리가 그대로 걸려 있다
+  expect(screen.getAllByTestId('visit-greeting')).toHaveLength(1);
+
   await act(async () => {
-    pressBack();
+    expect(backOverride.current?.()).toBe(true);
   });
-  expect(appBack).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId('visit-greeting')).toBeNull();
+});
+
+test('방문 화면이 사라지면 걸어 둔 처리도 걷히지만, 그 사이 다른 화면이 건 처리는 건드리지 않는다', async () => {
+  const gone = await render(
+    <Harness initial={visitState({ greeting: GREETING, greetingIsDefault: false })} />,
+  );
+  await gone.findByTestId('visit-greeting');
+  expect(backOverride.current).not.toBeNull();
+  await gone.unmount();
+  expect(backOverride.current).toBeNull();
+
+  const other = jest.fn(() => true);
+  const screen = await render(
+    <Harness initial={visitState({ greeting: GREETING, greetingIsDefault: false })} />,
+  );
+  await screen.findByTestId('visit-greeting');
+  backOverride.current = other; // 다른 화면이 자기 처리를 걸었다
+  await screen.unmount();
+  expect(backOverride.current).toBe(other);
 });
 
 test('인사말이 떠 있는 동안 뒤 지도·가입 버튼은 스크린리더에서 숨고, 닫으면 다시 보인다', async () => {
@@ -244,11 +258,11 @@ test('인사말이 떠 있는 동안 뒤 지도·가입 버튼은 스크린리�
   expect(isHiddenFromAccessibility(join())).toBe(false);
 });
 
-test('인사말이 없는 방문은 뒤 장면을 숨기지 않고 뒤로 가기 리스너도 달지 않는다', async () => {
+test('인사말이 없는 방문은 뒤 장면을 숨기지 않고 뒤로 가기 처리도 걸지 않는다', async () => {
   const screen = await render(<Harness initial={visitState()} />);
   const scene = screen.getByTestId('visit-scene');
   expect(scene.props.accessibilityElementsHidden).toBe(false);
   expect(scene.props.importantForAccessibility).toBe('auto');
   expect(isHiddenFromAccessibility(screen.getByTestId('visit-join'))).toBe(false);
-  expect(backListeners).toHaveLength(0);
+  expect(backOverride.current).toBeNull();
 });

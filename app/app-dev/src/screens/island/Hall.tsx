@@ -2579,8 +2579,9 @@ export function Hall({ e }: any) {
                   approvalRequired: draft.approval,
                   maxMembers: draft.capacity,
                   // 인사말은 바꾼 때만 싣는다 — 안 바꾼 저장이 구서버(모르는 키 400)·게스트(403)에 걸리지 않게.
+                  // 앞뒤 공백만 다른 것은 안 바꾼 것이다(서버에 보내는 값도 앞뒤를 뗀 글이다).
                   // 빈 값은 기본 문구로 되돌리는 값이라 그대로 보낸다
-                  ...(draft.greeting !== ownGreeting(management.detail) && {
+                  ...(draft.greeting.trim() !== ownGreeting(management.detail).trim() && {
                     greeting: draft.greeting.trim(),
                   }),
                 }),

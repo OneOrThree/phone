@@ -1032,10 +1032,24 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- e 는 매 렌더 새 객체다. 방문 여부(visitGreeted)만 본다
   }, [greeting, s.visitGreeted]);
   const showGreeting = greetingOpen && !!greeting;
+  // 안드로이드 뒤로 가기: 인사말 팝업이 떠 있는 동안은 방문 종료(App 의 visitIsland 분기) 대신 팝업만 닫는다.
+  // App 의 뒤로 가기 핸들러가 방문 분기보다 먼저 e.backOverride 를 본다(VisitorBoard 와 같은 방식).
+  useEffect(() => {
+    if (!showGreeting || !e.backOverride) return;
+    const close = () => {
+      setGreetingOpen(false);
+      return true;
+    };
+    e.backOverride.current = close;
+    return () => {
+      // 이미 다른 화면이 자기 처리를 걸었으면 건드리지 않는다
+      if (e.backOverride.current === close) e.backOverride.current = null;
+    };
+  }, [showGreeting, e.backOverride]);
   return (
     <>
       {/* 인사말 팝업이 열려 있는 동안 뒤 지도·가입 버튼은 스크린리더에서 숨긴다(DESIGN.md §11). iOS 는 팝업이 모달이라
-          VoiceOver 가 이미 무시하고, 형제를 못 가리는 Android(TalkBack)를 이 래퍼가 맡는다. 팝업 뒤로가기 처리는 IslandPopup 몫이다 */}
+          VoiceOver 가 이미 무시하고, 형제를 못 가리는 Android(TalkBack)를 이 래퍼가 맡는다. */}
       <View
         testID="visit-scene"
         style={visitScene.fill}
