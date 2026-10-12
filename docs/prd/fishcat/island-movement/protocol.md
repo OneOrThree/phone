@@ -9,7 +9,7 @@
 | 메시지 | destination | 본문 |
 | --- | --- | --- |
 | MoveIntent | `/app/islands/{islandId}/movement/intent` | JSON `{commandSeq, navRevision, goalX, goalY}` |
-| FullState · PathAccepted · MoveRejected · Arrived | `/topic/islands/{islandId}/movement` | JSON, §3 과 같은 필드. **Relocated·MapChanged 는 1단계 미구현(2단계)** — 서버 `MovementEvent` 는 이 4종 + Snapshot 의 5종뿐이고, actor 집합 변화는 FullState 재전송으로 알린다 수신자: PathAccepted·Arrived 는 방 전원, **MoveRejected 는 요청자 세션에만**(앱은 자기 commandSeq 로 맞춘다), FullState 는 구독 직후 그 세션에 1회 + actor 집합 변화 때 전원 |
+| FullState · PathAccepted · MoveRejected · Arrived | `/topic/islands/{islandId}/movement` | JSON — 식별자 필드명은 §3 의 `actorId` 가 아니라 **`userId`**(서버 `MovementEvent`·앱 `movementSync.ts` 의 wire 키, 정책 MV-D11), 나머지는 §3 과 같은 필드. **Relocated·MapChanged 는 1단계 미구현(2단계 이후 — 어느 범위에 들어갈지는 §7 「2단계 판단」 확정 뒤)** — 서버 `MovementEvent` 는 이 4종 + Snapshot 의 5종뿐이고, actor 집합 변화는 FullState 재전송으로 알린다 수신자: PathAccepted·Arrived 는 방 전원, **MoveRejected 는 요청자 세션에만**(앱은 자기 commandSeq 로 맞춘다), FullState 는 구독 직후 그 세션에 1회 + actor 집합 변화 때 전원 |
 | Snapshot | `/topic/islands/{islandId}/movement/snapshot` | **1단계는 JSON**, 20Hz 이하. 바이너리 본문(§4 Snapshot v1 레이아웃)은 2단계 1차 후보(티켓 2272) |
 
 Join/Welcome 은 구독 성공 뒤 첫 FullState 로 대체하고, 티켓·jti·roomEpoch 는 2단계 QUIC 항목이다(단일 Realtime 인스턴스 가정; 다중 인스턴스 소유권은 2단계 QUIC). TCP 라 손실 시 앞선 프레임을 기다리므로 §4 의 「최신만 보낸다」 규칙을 서버 송신 큐에서 구현한다(수신자별 최신 스냅샷으로 덮어쓰기). 아래 §1~§6 은 2단계(분리 서버·QUIC) 계약이다. §3·§4 의 actorGeneration·epoch 규칙 전체도 2단계 QUIC 계약이다 — 1단계 메시지에는 두 필드가 없다.
@@ -99,7 +99,7 @@ stream 메시지는 `length:u32 + version:u8 + type:u8 + flags:u16 + payload` �
 | 21 | state | uint8 enum | 1 |
 | 22 | flags | uint16 | 2 |
 
-`payloadBytes=entityCount×24`, 전체 길이 `32+payloadBytes`와 수신 길이가 정확히 같아야 한다. 인증이 성공해도 범위·enum·count·예약 필드·path segment를 검증한다. actorId는 epoch 안에서 재사용하지 않으며, 세션 교체 시 새 actorId를 배정한다. 같은 ID에 이전 세션 좌표가 붙는 일을 막는다. **1단계(STOMP, 정책 MV-D11)는 이 규칙 밖이다**: actorId = userId 라 세션이 바뀌어도 값이 같다. 서버는 같은 사용자의 기존 actor 를 **유지**(위치·경로 그대로)한 채 세션 키만 새 세션으로 바꾸고 commandSeq 를 0 으로 리셋해 이전 세션의 명령 번호·intent 가 새 세션에 이어지지 않게 하며, FullState 를 방 전원에 다시 보낸다. 1단계 메시지에는 actorGeneration·epoch 가 없다. 별칭 actorId 와 이 규칙은 2단계 QUIC 계약에서 적용한다.
+`payloadBytes=entityCount×24`, 전체 길이 `32+payloadBytes`와 수신 길이가 정확히 같아야 한다. 인증이 성공해도 범위·enum·count·예약 필드·path segment를 검증한다. actorId는 epoch 안에서 재사용하지 않으며, 세션 교체 시 새 actorId를 배정한다. 같은 ID에 이전 세션 좌표가 붙는 일을 막는다. **1단계(STOMP, 정책 MV-D11)는 이 규칙 밖이다**: actorId = userId(JSON 키도 `userId`)라 세션이 바뀌어도 값이 같다. 서버는 같은 사용자의 기존 actor 를 **유지**(위치·경로 그대로)한 채 세션 키만 새 세션으로 바꾸고 commandSeq 를 0 으로 리셋해 이전 세션의 명령 번호·intent 가 새 세션에 이어지지 않게 하며, FullState 를 방 전원에 다시 보낸다. 1단계 메시지에는 actorGeneration·epoch 가 없다. 별칭 actorId 와 이 규칙은 2단계 QUIC 계약에서 적용한다.
 
 ### 크기·전송 예산
 
