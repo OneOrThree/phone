@@ -87,8 +87,8 @@ const staleError = () =>
 
 // 결과 불명 — 쓰기가 서버에 닿았는지·커밋됐는지 알 수 없다. SERVICE_UNAVAILABLE은 서킷 오픈(미발송)뿐
 // 아니라 Data 응답 수신 중 연결이 끊긴 경우에도 나온다. 둘 다 공개 응답에선 HTTP 400으로 접히므로
-// (티켓 2088) 상태가 아니라 code로 가른다.
-const unknownOutcome = (e: unknown) =>
+// (티켓 2088) 상태가 아니라 code로 가른다. 망원경의 도착 기록(Telescope)도 같은 분류를 쓴다.
+export const unknownOutcome = (e: unknown) =>
   e instanceof ApiError &&
   ['UPSTREAM_TIMEOUT', 'SERVICE_UNAVAILABLE', CLIENT_TIMEOUT, CLIENT_NETWORK_ERROR].includes(
     e.code,

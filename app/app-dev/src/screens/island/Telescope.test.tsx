@@ -208,6 +208,16 @@ test('말풍선이 열려 있는 동안 뒤 화면은 스크린리더에서 숨�
   expect(screen.getByTestId('telescope-island-r2')).toBeTruthy();
 });
 
+test('말풍선을 닫아도 그 사이 다른 곳이 걸어 둔 뒤로가기 처리는 지우지 않는다', async () => {
+  const { screen, e } = await open([item('r1')]);
+  await press(screen, 'r1');
+  const other = () => false;
+  e.backOverride.current = other;
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
+  expect(e.backOverride.current).toBe(other);
+});
+
 describe('버튼 상태', () => {
   test('가입 안 한 공개 섬 — [항해하기] + [바로 가입]', async () => {
     const { screen } = await open([item('r1')]);
@@ -372,6 +382,8 @@ describe('항해하기', () => {
     expect(e.notify).toHaveBeenCalledWith('더 이상 볼 수 없는 내용이에요. 다시 불러와 주세요.');
     expect(screen.queryByTestId('sailing')).toBeNull();
     expect(e.islands!.visit).not.toHaveBeenCalled();
+    // 확정된 4xx 는 서버가 바꾼 게 없다 — 소속을 다시 읽지 않는다(switchCurrent 와 같은 규칙)
+    expect(e.islands!.sync).not.toHaveBeenCalled();
     screen.getByTestId('telescope-island-r1');
   });
 
@@ -390,6 +402,107 @@ describe('항해하기', () => {
     await fireEvent.press(screen.getByLabelText('항해하기'));
     await screen.findByTestId('sailing');
     expect(e.backOverride.current?.()).toBe(true);
+  });
+
+  test('요청 중에는 섬이 눌리지 않아 말풍선이 열리지 않고 뒤로가기는 계속 삼킨다', async () => {
+    let arrived!: (v: unknown) => void;
+    mockArrive.mockReturnValue(new Promise((r) => (arrived = r)));
+    const { screen, e } = await open([item('r1'), item('r2')]);
+    await press(screen, 'r1');
+    await fireEvent.press(screen.getByLabelText('항해하기'));
+    // 요청 중 — 말풍선은 닫혔고 뒤로가기는 삼킨다
+    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
+    expect(e.backOverride.current?.()).toBe(true);
+    // 다른 섬을 눌러도 말풍선이 열리지 않고 삼킴이 그대로다(열었다 닫으면 삼킴이 지워지던 결함)
+    expect(screen.getByTestId('telescope-island-r2').props.accessibilityState.disabled).toBe(true);
+    await press(screen, 'r2');
+    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
+    expect(e.backOverride.current?.()).toBe(true);
+    // 요청이 끝나 연출로 넘어가도 계속 삼키고, 화면이 떠나면 풀린다
+    await act(async () => arrived({ membershipStatus: 'none', currentIslandId: 'j1' }));
+    await screen.findByTestId('sailing');
+    expect(e.backOverride.current?.()).toBe(true);
+    await screen.unmount();
+    expect(e.backOverride.current).toBeNull();
+  });
+
+  test('말풍선을 연 채 항해를 시작해도 뒤로가기는 요청이 끝날 때까지 삼키고, 실패로 끝나면 풀린다', async () => {
+    let fail!: (error: Error) => void;
+    mockArrive.mockReturnValue(new Promise((_, reject) => (fail = reject)));
+    const { screen, e } = await open([item('r1')]);
+    await press(screen, 'r1');
+    expect(e.backOverride.current).not.toBeNull(); // 말풍선의 뒤로가기(닫기)
+    await fireEvent.press(screen.getByLabelText('항해하기'));
+    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
+    expect(e.backOverride.current?.()).toBe(true); // 이제는 요청을 삼키는 처리다
+    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
+    await act(async () => fail(new ApiError('NOT_FOUND', '없어요', 404)));
+    expect(e.backOverride.current).toBeNull();
+  });
+
+  describe('도착 응답을 잃었을 때(결과 불명 — switchCurrent 와 같은 분류)', () => {
+    test.each([
+      'CLIENT_TIMEOUT',
+      'CLIENT_NETWORK_ERROR',
+      'UPSTREAM_TIMEOUT',
+      'SERVICE_UNAVAILABLE',
+    ])('%s — 서버가 이미 그 섬으로 옮겼으면 소속을 다시 읽어 성공으로 홈에 간다', async (code) => {
+      mockArrive.mockRejectedValue(new ApiError(code, '유실', 0));
+      const e = env();
+      e.islands!.sync.mockImplementation(async () => ({ currentIslandId: 'j3', items: [] }));
+      const { screen } = await open([mine('j3')], e);
+      await press(screen, 'j3');
+      await fireEvent.press(screen.getByLabelText('항해하기'));
+      await screen.findByTestId('sailing');
+      expect(e.islands!.sync).toHaveBeenCalledTimes(1);
+      expect(e.notify).not.toHaveBeenCalled();
+      expect(e.islands!.visit).not.toHaveBeenCalled();
+      await fireEvent.press(screen.getByTestId('sailing'));
+      expect(e.reset).toHaveBeenCalledWith('home');
+    });
+
+    test('서버가 옮기지 않았으면 소속을 다시 읽고 원래 오류를 알린다(연출·구경 진입 없음)', async () => {
+      mockArrive.mockRejectedValue(new ApiError('CLIENT_TIMEOUT', '유실', 0));
+      const e = env();
+      e.islands!.sync.mockResolvedValue({ currentIslandId: 'j1', items: [] });
+      const { screen } = await open([item('r1')], e);
+      await press(screen, 'r1');
+      await fireEvent.press(screen.getByLabelText('항해하기'));
+      await act(async () => {});
+      expect(e.islands!.sync).toHaveBeenCalledTimes(1);
+      expect(e.notify).toHaveBeenCalledWith('연결을 확인한 뒤 다시 시도해 주세요.');
+      expect(screen.queryByTestId('sailing')).toBeNull();
+      expect(e.islands!.visit).not.toHaveBeenCalled();
+    });
+
+    test('소속 재조회마저 실패하면 원래 오류를 알린다', async () => {
+      mockArrive.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0));
+      const e = env();
+      e.islands!.sync.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', '또 유실', 0));
+      const { screen } = await open([mine('j3')], e);
+      await press(screen, 'j3');
+      await fireEvent.press(screen.getByLabelText('항해하기'));
+      await act(async () => {});
+      expect(e.islands!.sync).toHaveBeenCalledTimes(1);
+      expect(e.notify).toHaveBeenCalledWith('연결을 확인한 뒤 다시 시도해 주세요.');
+      expect(screen.queryByTestId('sailing')).toBeNull();
+    });
+
+    test('도착은 성공했는데 소속 재조회 응답을 잃어도 한 번 더 읽어 성공으로 확정한다', async () => {
+      mockArrive.mockResolvedValue({ membershipStatus: 'active', currentIslandId: 'j3' });
+      const e = env();
+      e.islands!.sync.mockRejectedValueOnce(
+        new ApiError('CLIENT_TIMEOUT', '유실', 0),
+      ).mockResolvedValueOnce({ currentIslandId: 'j3', items: [] });
+      const { screen } = await open([mine('j3')], e);
+      await press(screen, 'j3');
+      await fireEvent.press(screen.getByLabelText('항해하기'));
+      await screen.findByTestId('sailing');
+      expect(e.islands!.sync).toHaveBeenCalledTimes(2);
+      expect(e.notify).not.toHaveBeenCalled();
+      await fireEvent.press(screen.getByTestId('sailing'));
+      expect(e.reset).toHaveBeenCalledWith('home');
+    });
   });
 });
 

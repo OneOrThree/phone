@@ -38,12 +38,15 @@ export function useIslandSailing(e: any) {
 
   // 이동 요청 중·항해 중 뒤로가기는 삼킨다 — 전환이 이미 방문 상태를 지워서 이전 방문 화면을
   // 복원하면 깨진 지도가 뜨고, 언마운트된 화면은 항해·홈 전환을 못 한다.
+  // 정리는 «내 함수가 아직 걸려 있을 때만» 지운다 — 그 사이 다른 곳(말풍선 등)이 갈아 끼운 처리를 지우면
+  // busy 가 그대로인데 삼킴이 사라진다.
   const busy = pending || voyage !== null;
   useEffect(() => {
     if (!busy || !e.backOverride) return;
-    e.backOverride.current = () => true;
+    const swallow = () => true;
+    e.backOverride.current = swallow;
     return () => {
-      e.backOverride.current = null;
+      if (e.backOverride.current === swallow) e.backOverride.current = null;
     };
   }, [busy, e.backOverride]);
 

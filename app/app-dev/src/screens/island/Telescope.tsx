@@ -19,6 +19,7 @@ import { useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';
 import { sessionGeneration } from '@/services/api/session';
 import { arriveAtIsland, type TelescopeItem } from '@/services/api/telescope';
+import { unknownOutcome } from '@/services/islandCommands';
 import { islandErrorMessage } from '@/services/islandErrors';
 import type { State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
@@ -82,6 +83,32 @@ const styles = StyleSheet.create({
   bubbleName: { paddingRight: space[10] },
 });
 
+/**
+ * 도착 기록. 내 소속 섬이면(`true`) 서버가 현재 섬도 옮겼고 소속은 다시 읽어 둔 상태다.
+ * 응답을 잃어 결과를 모르면(타임아웃·연결 끊김) 서버는 이미 도착을 기록하고 현재 섬까지 옮겼을 수 있다 —
+ * islandCommands.switchCurrent 와 같은 분류·규칙으로 소속을 다시 읽어 그 섬이 현재 섬이면 성공으로, 아니면 원래 오류를 올린다.
+ * (그대로 두면 로컬은 옛 현재 섬을 들고 있어 이후 [돌아가기]가 «이미 서 있는 섬»으로 착각해 요청 없이 홈만 연다.)
+ * 확정된 4xx 는 서버가 바꾼 게 없으니 다시 읽지 않는다.
+ */
+async function arrive(e: any, islandId: string): Promise<boolean> {
+  try {
+    const { membershipStatus } = await arriveAtIsland(islandId);
+    if (membershipStatus !== 'active') return false;
+    await e.islands.sync();
+    return true;
+  } catch (thrown) {
+    if (!unknownOutcome(thrown)) throw thrown;
+    let my;
+    try {
+      my = await e.islands.sync();
+    } catch {
+      my = null;
+    }
+    if (my?.currentIslandId !== islandId) throw thrown;
+    return true;
+  }
+}
+
 /** 내 소속 섬 — 서버가 joined 칸에 두거나 이미 활성 멤버십이면(핀이 남은 섬 등) 가입 버튼 없이 깃발을 꽂는다. */
 const isJoined = (item: TelescopeItem) =>
   item.slot === 'joined' || item.membershipStatus === 'active';
@@ -101,10 +128,13 @@ function Panel({ children }: { children: React.ReactNode }) {
 function IslandCell({
   item,
   index,
+  disabled,
   onPress,
 }: {
   item: TelescopeItem;
   index: number;
+  /** 항해·이동 요청 중에는 눌리지 않는다 — 말풍선을 열었다 닫으며 뒤로가기 삼킴을 흩트리지 않게. */
+  disabled: boolean;
   onPress: () => void;
 }) {
   const joined = isJoined(item);
@@ -114,6 +144,7 @@ function IslandCell({
       accessibilityRole="button"
       accessibilityLabel={joined ? t('telescope.joinedIslandA11y', { name: item.name }) : item.name}
       accessibilityHint={t('telescope.islandHint')}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.cell,
@@ -242,15 +273,17 @@ export function Telescope({ e }: { e: any }) {
   const selected = list.items.find((item) => item.islandId === selectedId) ?? null;
   const popupOpen = !!selected;
   // 말풍선이 열려 있으면 뒤로가기는 말풍선만 닫는다. 항해 중 뒤로가기 삼킴(useIslandSailing)과 겹치지 않게
-  // 항해·이동을 시작할 때 말풍선을 먼저 닫는다.
+  // 항해·이동을 시작할 때 말풍선을 먼저 닫고, 요청 중에는 섬이 눌리지 않아 말풍선이 열리지 않는다.
+  // 정리는 «내 함수가 아직 걸려 있을 때만» 지운다 — 남이 갈아 끼운 삼킴을 지우지 않는다.
   useEffect(() => {
     if (!popupOpen || !e.backOverride) return;
-    e.backOverride.current = () => {
+    const closePopup = () => {
       setSelectedId(null);
       return true;
     };
+    e.backOverride.current = closePopup;
     return () => {
-      e.backOverride.current = null;
+      if (e.backOverride.current === closePopup) e.backOverride.current = null;
     };
   }, [popupOpen, e.backOverride]);
 
@@ -259,12 +292,8 @@ export function Telescope({ e }: { e: any }) {
     if (s.session) return e.notify(t('islandVisit.sessionBlocksBrowse'));
     setSelectedId(null);
     return sail.sail(item.name, async () => {
-      const arrival = await arriveAtIsland(item.islandId);
-      if (arrival.membershipStatus === 'active') {
-        // 망원경으로 가입한 소속 섬의 첫 도착 — 서버가 현재 섬을 옮겼다. 소속을 다시 읽고 새 섬 홈으로 간다.
-        await e.islands.sync();
-        return () => e.reset('home');
-      }
+      // 망원경으로 가입한 소속 섬의 첫 도착이면 서버가 현재 섬을 옮겼다 — 소속을 다시 읽고 새 섬 홈으로 간다.
+      if (await arrive(e, item.islandId)) return () => e.reset('home');
       // 비주민은 구경(방문 모드)으로 들어간다 — ServerVisit 의 [섬 둘러보기]와 같은 길이다.
       // TODO E1-5 항해 집중이 생기면 바다 담당이 이 구경 진입을 항해 집중으로 교체한다
       await e.islands.visit(item.islandId);
@@ -375,6 +404,7 @@ export function Telescope({ e }: { e: any }) {
                   key={item.islandId}
                   item={item}
                   index={index}
+                  disabled={sail.busy}
                   onPress={() => setSelectedId(item.islandId)}
                 />
               ))}
