@@ -1,10 +1,15 @@
 /**
- * 망원경 API (GROMO-2266·2269 · 서버 계약 GROMO-2260·2265·2268) — 무접두 공개 경로, `{data}` 언랩.
+ * 망원경 API (GROMO-2266·2269·2273 · 서버 계약 GROMO-2260·2265·2268) — 무접두 공개 경로, `{data}` 언랩.
  * 서버가 아직 없어 계약 모양의 응답을 fetch 스텁으로 흘려 본다.
  */
 import assert from 'node:assert/strict';
 import { ApiError } from '@/services/api/client';
-import { arriveAtIsland, getTelescope, pinToTelescope } from '@/services/api/telescope';
+import {
+  arriveAtIsland,
+  getTelescope,
+  pinToTelescope,
+  unpinFromTelescope,
+} from '@/services/api/telescope';
 import { clearSession, saveSession } from '@/services/api/session';
 
 type Call = { url: string; init: RequestInit };
@@ -187,6 +192,44 @@ test.each([
     assert.equal(e.code, code);
     assert.equal(e.status, status);
     assert.equal(e.field, 'islandId');
+    return true;
+  });
+});
+
+test('unpinFromTelescope — DELETE /me/telescope/pins/{id} 를 본문·멱등 키 없이 보내고 {deleted:true} 를 그대로 돌려준다(이미 없는 섬도 200)', async () => {
+  stub([
+    { status: 200, body: { data: { deleted: true } } },
+    { status: 200, body: { data: { deleted: true } } },
+  ]);
+  const result = await unpinFromTelescope('i 1');
+  const retry = await unpinFromTelescope('i 1'); // 응답 유실 재시도·이미 뺀 섬 — 같은 200
+  assert.equal(path(calls[0]), '/me/telescope/pins/i%201');
+  assert.equal(calls[0].init.method, 'DELETE');
+  assert.equal(calls[0].init.body, undefined);
+  assert.equal(header(calls[0], 'Authorization'), 'Bearer AT');
+  assert.equal(header(calls[0], 'Idempotency-Key'), undefined);
+  assert.deepEqual(result, { deleted: true });
+  assert.deepEqual(retry, { deleted: true });
+});
+
+test('unpinFromTelescope — 서버 거절 코드는 그대로 오류로 올라간다', async () => {
+  stub([
+    {
+      status: 503,
+      body: {
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: '잠시 뒤 다시 시도해 주세요',
+          field: null,
+          retryable: true,
+        },
+      },
+    },
+  ]);
+  await assert.rejects(unpinFromTelescope('i1'), (e: unknown) => {
+    assert.ok(e instanceof ApiError);
+    assert.equal(e.code, 'SERVICE_UNAVAILABLE');
+    assert.equal(e.status, 503);
     return true;
   });
 });

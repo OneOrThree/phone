@@ -674,7 +674,19 @@
     "apply": "Request to join",
     "pending": "Request sent",
     "full": "Island is full",
-    "joined": "You're a resident now — set sail to visit for the first time"
+    "joined": "You're a resident now — set sail to visit for the first time",
+    "ribbon": "Saved",
+    "pinnedIslandA11y": "{{name}}, saved from the magazine",
+    "magazinePreview": "Magazine panel preview",
+    "magazinePreviewA11y": "{{name}}, magazine panel preview",
+    "unpin": "Remove from telescope",
+    "unpinVoyagingHint": "You're sailing to this island, so you need to stop sailing to remove it",
+    "unpinned": "Removed from your telescope",
+    "stopSailing": {
+      "title": "Stop sailing?",
+      "body": "You can't remove an island while you're sailing to it. If you stop sailing and remove it, you'll head back to your island.",
+      "ok": "Stop and remove"
+    }
   },
   "observatory": {
     "searchTitle": "Find islands",

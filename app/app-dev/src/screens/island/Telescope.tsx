@@ -17,14 +17,14 @@ import { errorTextOr, t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
 import { Flag } from '@/screens/cosmetics/Cosmetics';
 import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
-import { useIslandSailing } from '@/screens/island/useIslandSailing';
+import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';
 import { uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
-import { arriveAtIsland, type TelescopeItem } from '@/services/api/telescope';
+import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { unknownOutcome } from '@/services/islandCommands';
 import { islandErrorMessage } from '@/services/islandErrors';
-import { intentKeyPool, type State } from '@/services/model';
+import { intentKeyPool, serverVisit, type State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 
 const { space } = primitiveTokens;
@@ -68,6 +68,33 @@ const styles = StyleSheet.create({
   pill: { alignSelf: 'center', maxWidth: ISLAND },
   // 말풍선 이름이 오른쪽 위 닫기(×) 밑으로 들어가지 않게 비운다
   bubbleName: { paddingRight: space[10] },
+  // 「찜」 리본 — 공용 Badge(Butter + Brown)를 마스킹테이프처럼 살짝 기울여 섬 왼쪽 위 테두리에 붙인다
+  ribbon: {
+    position: 'absolute',
+    top: space[2],
+    left: space[1],
+    transform: [{ rotate: componentTokens.telescope.ribbonTilt }],
+  },
+  // 테이프답게 끝이 각지게 — Badge 의 알약 반경만 덮어쓴다
+  tape: { borderRadius: space[1] },
+  // 잡지 칸 미리보기 자리표시 — 종이 틀(Paper + Brown) 안에 섬 그림과 라벨
+  magazine: {
+    gap: space[2],
+    padding: space[2],
+    borderWidth: stroke.strong,
+    borderColor: color.outline,
+    borderRadius: semanticTokens.radius.control,
+    backgroundColor: color.surface,
+  },
+  magazinePicture: {
+    height: ISLAND,
+    borderRadius: space[2],
+    overflow: 'hidden',
+    backgroundColor: color.secondary,
+  },
+  magazineCaption: { textAlign: 'center' },
+  // 항해 중인 섬의 [망원경에서 빼기] — 흐리게 보이지만 누를 수는 있다(누르면 항해를 그만둘지 묻는다)
+  voyaging: { opacity: componentTokens.button.disabledOpacity },
 });
 
 type IntentKeys = ReturnType<typeof intentKeyPool>;
@@ -107,6 +134,10 @@ async function arrive(e: any, keys: IntentKeys, islandId: string): Promise<boole
 const isJoined = (item: TelescopeItem) =>
   item.slot === 'joined' || item.membershipStatus === 'active';
 
+/** 잡지에서 넣은 섬 — 「찜」 리본과 잡지 칸 미리보기가 붙는다. 전망대에서 넣은 섬은 같은 핀이어도 붙지 않는다(정본 170행). */
+const isMagazinePin = (item: TelescopeItem) =>
+  item.slot === 'pinned' && item.pinnedFrom === 'magazine';
+
 /** 평균 집중 — 서버가 «집계 전»이면 null 이라 0분과 구분한다. */
 const averageText = (minutes: number | null) =>
   minutes == null
@@ -131,7 +162,10 @@ function Panel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** 파노라마의 섬 하나 — 둥근 스티커 그림 + 이름 알약. 소속 섬 위에는 깃발. 위아래로 번갈아 어긋나게 둬 한 줄 목록처럼 안 보이게 한다. */
+/**
+ * 파노라마의 섬 하나 — 둥근 스티커 그림 + 이름 알약. 소속 섬 위에는 깃발, 잡지에서 넣은 섬 위에는 「찜」 리본.
+ * 위아래로 번갈아 어긋나게 둬 한 줄 목록처럼 안 보이게 한다.
+ */
 function IslandCell({
   item,
   index,
@@ -148,11 +182,18 @@ function IslandCell({
   onPress: () => void;
 }) {
   const joined = isJoined(item);
+  const magazine = isMagazinePin(item);
   return (
     <Pressable
       testID={`telescope-island-${item.islandId}`}
       accessibilityRole="button"
-      accessibilityLabel={joined ? t('telescope.joinedIslandA11y', { name: item.name }) : item.name}
+      accessibilityLabel={
+        joined
+          ? t('telescope.joinedIslandA11y', { name: item.name })
+          : magazine
+            ? t('telescope.pinnedIslandA11y', { name: item.name })
+            : item.name
+      }
       accessibilityHint={t('telescope.islandHint')}
       disabled={disabled}
       onPress={onPress}
@@ -177,6 +218,18 @@ function IslandCell({
           <Flag size={FLAG} />
         </View>
       )}
+      {magazine && (
+        // 장식 — 잡지에서 넣은 섬이라는 뜻은 위 접근성 라벨이 말한다.
+        <View
+          testID={`telescope-ribbon-${item.islandId}`}
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={styles.ribbon}
+        >
+          <Badge style={styles.tape}>{t('telescope.ribbon')}</Badge>
+        </View>
+      )}
       <Badge soft numberOfLines={largeText ? 2 : 1} style={styles.pill}>
         {item.name}
       </Badge>
@@ -185,27 +238,57 @@ function IslandCell({
 }
 
 /**
+ * 잡지 칸 미리보기 자리표시 — 잡지 도메인이 아직 없어(E4) 그 섬장이 꾸민 칸 그림을 받을 수 없다. 기존 섬 그림을 잡지 칸 틀(종이 +
+ * 갈색 테두리)에 넣고 라벨을 붙여 둔다. 그림과 라벨이 한 덩어리로 읽히도록 접근성 요소 하나로 묶는다.
+ */
+function MagazinePreview({ name }: { name: string }) {
+  return (
+    <View
+      testID="telescope-magazine-preview"
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={t('telescope.magazinePreviewA11y', { name })}
+      style={styles.magazine}
+    >
+      <View style={styles.magazinePicture}>
+        {/* TODO E4-5 잡지 도메인이 칸 이미지를 주면 이 섬 그림을 그 이미지로 바꾼다 */}
+        <Pic id="island/whole" w="100%" h="100%" cover />
+      </View>
+      <Txt kind="meta" style={styles.magazineCaption}>
+        {t('telescope.magazinePreview')}
+      </Txt>
+    </View>
+  );
+}
+
+/**
  * 섬 말풍선(`IslandPopup`) — 이름 · 소개 · 주민 · 평균 집중 · 항해 시간 아래에 행동 버튼.
  * 소속 섬은 가 봤으면 [돌아가기]·안 가 봤으면 [항해하기] 하나, 그 밖의 섬은 [항해하기] + 가입 버튼 하나.
+ * 직접 넣은 섬(`slot=pinned`)은 맨 아래에 [망원경에서 빼기]가 더 붙고, 잡지에서 넣은 섬은 소개 아래에 잡지 칸 미리보기가 붙는다.
  */
 function IslandBubble({
   item,
   locked,
   joining,
+  voyaging,
   onClose,
   onSail,
   onReturn,
   onJoin,
+  onUnpin,
 }: {
   item: TelescopeItem;
-  /** 요청 중(항해·이동, 어느 섬의 가입이든) — 모든 버튼을 막아 항해·가입이 겹쳐 나가지 않게 한다. */
+  /** 요청 중(항해·이동, 어느 섬의 가입·빼기든) — 모든 버튼을 막아 항해·가입·빼기가 겹쳐 나가지 않게 한다. */
   locked: boolean;
   /** 이 섬의 가입 요청 중 — 가입 버튼만 «처리 중»으로 보인다(다른 섬의 요청은 이 섬 버튼을 처리 중으로 보이게 하지 않는다). */
   joining: boolean;
+  /** 지금 구경(항해) 중인 섬 — [망원경에서 빼기]가 흐리게 보이고, 누르면 항해를 그만둘지 먼저 묻는다. */
+  voyaging: boolean;
   onClose: () => void;
   onSail: () => void;
   onReturn: () => void;
   onJoin: () => void;
+  onUnpin: () => void;
 }) {
   const pending = item.membershipStatus === 'pending';
   const joinLabel = joining
@@ -226,6 +309,7 @@ function IslandBubble({
         {item.name}
       </Txt>
       {!!item.intro && <Txt>{item.intro}</Txt>}
+      {isMagazinePin(item) && <MagazinePreview name={item.name} />}
       <SheetGroup>
         <SheetRow
           title={t('telescope.residents', { count: item.memberCount, max: item.maxMembers })}
@@ -256,6 +340,19 @@ function IslandBubble({
           />
         </>
       )}
+      {item.slot === 'pinned' && (
+        <Btn
+          dynamicHeight
+          kind="ghost"
+          title={t('telescope.unpin')}
+          disabled={locked}
+          // 항해 중인 섬은 흐리게만 보이게 하고 disabled 로 막지 않는다 — 막으면 스크린리더 사용자는 «왜 안 되는지»를 알려 주는
+          // 확인창에 닿지 못한다. 대신 힌트로 이유를 말하고, 누르면 항해를 그만둘지 묻는다. 요청 중(locked)에는 진짜 비활성이다.
+          style={voyaging && !locked ? styles.voyaging : undefined}
+          accessibilityHint={voyaging ? t('telescope.unpinVoyagingHint') : undefined}
+          onPress={onUnpin}
+        />
+      )}
     </IslandPopup>
   );
 }
@@ -267,6 +364,10 @@ function IslandBubble({
  * - 소속 섬: 한 번 가 봤으면 [돌아가기] 로 항해 없이 현재 섬을 옮겨 홈으로, 망원경으로 가입만 하고 안 가 봤으면 [항해하기].
  * - 그 밖의 섬: [항해하기] 로 구경하고(`full` 이어도 된다), 가입은 [바로 가입]/[가입 신청](`origin: 'telescope'` —
  *   즉시 가입이어도 현재 섬을 옮기지 않는다. 처음 한 번은 항해해서 가야 한다).
+ * - 직접 넣은 섬(`slot=pinned`, GROMO-2273): 말풍선에 [망원경에서 빼기] — `DELETE` 뒤 목록을 다시 읽기만 하면 서버가 그 자리를
+ *   무작위 섬으로 채운다. 잡지에서 넣은 섬(`pinnedFrom=magazine`)에만 「찜」 리본과 잡지 칸 미리보기 자리표시가 붙는다.
+ *   지금 구경 중인 섬은 «항해 중»이라(서버에는 항해 상태가 없어 앱이 거친다) 「항해를 그만둘까요?」 확인 뒤에 빼고 구경도 끝낸다.
+ *   리본·[빼기]는 목록의 `slot` 만 본다 — 넣었다는 상태를 로컬에 따로 들지 않는다(목록이 정본).
  */
 export function Telescope({ e }: { e: any }) {
   const s: State = e.state;
@@ -288,6 +389,9 @@ export function Telescope({ e }: { e: any }) {
   // 가입 요청 중인 섬 — 그 섬의 버튼만 «처리 중»으로 보인다. joiningRef 는 서버 중복 호출 방지(한 번에 한 가입 요청만 나간다).
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const joiningRef = useRef(false);
+  // 빼기 요청 중 — 가입처럼 한 번에 하나만 나가고, 그동안 말풍선의 모든 버튼이 막힌다.
+  const [unpinning, setUnpinning] = useState(false);
+  const unpinningRef = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -298,6 +402,9 @@ export function Telescope({ e }: { e: any }) {
 
   // 목록이 다시 읽히면 같은 섬의 최신 값으로 말풍선을 갱신한다. 목록에서 사라진 섬이면 말풍선도 닫힌다.
   const selected = list.items.find((item) => item.islandId === selectedId) ?? null;
+  // 지금 구경(방문) 중인 섬 — 이 섬이 «항해 중인 섬»이다. [항해하기] 요청·연출 중에는 섬 칸이 막히고 연출이 화면을 덮어
+  // 말풍선이 열리지 않으므로 따로 보지 않는다.
+  const voyagingId = serverVisit(s)?.island.id;
   const popupOpen = !!selected;
   // 말풍선이 열려 있으면 뒤로가기는 말풍선만 닫는다. 항해 중 뒤로가기 삼킴(useIslandSailing)과 겹치지 않게
   // 항해·이동을 시작할 때 말풍선을 먼저 닫고, 요청 중에는 섬이 눌리지 않아 말풍선이 열리지 않는다.
@@ -363,6 +470,47 @@ export function Telescope({ e }: { e: any }) {
       joiningRef.current = false;
       if (mounted.current) setJoiningId(null);
     }
+  };
+
+  // 직접 넣은 섬을 뺀다. 성공하면 말풍선을 닫고 — 항해 중이던 섬이면 구경도 끝내고(2259 「구경 끝내기」와 같은 종료),
+  // 아니면 목록을 다시 읽는다(서버가 빈 자리를 무작위 섬으로 채운다). 실패하면 말풍선을 둔 채 오류만 알린다.
+  const unpin = async (item: TelescopeItem, endVisit: boolean) => {
+    if (unpinningRef.current) return;
+    unpinningRef.current = true;
+    setUnpinning(true);
+    const gen = sessionGeneration();
+    const alive = () => mounted.current && sessionGeneration() === gen;
+    try {
+      await unpinFromTelescope(item.islandId);
+    } catch (thrown) {
+      const message = islandErrorMessage(thrown);
+      if (message && alive()) e.notify(message);
+      return;
+    } finally {
+      unpinningRef.current = false;
+      if (mounted.current) setUnpinning(false);
+    }
+    if (!alive()) return;
+    e.notify(t('telescope.unpinned'));
+    setSelectedId(null);
+    if (endVisit) endServerVisit(e);
+    else list.reload();
+  };
+
+  const askUnpin = (item: TelescopeItem) => {
+    if (item.islandId === voyagingId) {
+      e.confirm(
+        t('telescope.stopSailing.title'),
+        t('telescope.stopSailing.body'),
+        () => {
+          // 핸들러는 Promise 를 돌려주지 않는다 — 확인창 닫기가 요청을 기다리지 않게
+          unpin(item, true);
+        },
+        { ok: t('telescope.stopSailing.ok') },
+      );
+      return;
+    }
+    unpin(item, false);
   };
 
   if (sail.sailing) return sail.sailing;
@@ -465,8 +613,9 @@ export function Telescope({ e }: { e: any }) {
       {selected && (
         <IslandBubble
           item={selected}
-          locked={sail.pending || joiningId !== null}
+          locked={sail.pending || joiningId !== null || unpinning}
           joining={joiningId === selected.islandId}
+          voyaging={selected.islandId === voyagingId}
           onClose={() => setSelectedId(null)}
           // 핸들러는 Promise 를 돌려주지 않는다 — 테스트의 fireEvent 가 돌려준 Promise 를 기다리며 멈추지 않게
           onSail={() => {
@@ -477,6 +626,9 @@ export function Telescope({ e }: { e: any }) {
           }}
           onJoin={() => {
             join(selected);
+          }}
+          onUnpin={() => {
+            askUnpin(selected);
           }}
         />
       )}

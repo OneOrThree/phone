@@ -11,6 +11,9 @@
  *                                    `Idempotency-Key` 불필요(이미 넣은 섬이면 200 으로 같은 본문). 5번째면 가장 오래된
  *                                    핀이 빠지고 `evicted` 로 온다. 없는·비공개 섬 404 `GROUP_NOT_FOUND` · 강퇴 섬 403
  *                                    `FORBIDDEN` · 내 소속 섬 409 `STATE_CONFLICT`.
+ *  - `DELETE /me/telescope/pins/{id}` 직접 넣은 섬을 뺀다(GROMO-2273 · 서버 GROMO-2268). `Idempotency-Key` 불필요 — 이미
+ *                                    없는 섬도 200 `{ deleted: true }` 라 재시도가 안전하다. 뺀 자리는 서버가 목록을 조립할 때
+ *                                    그 시간대의 무작위 섬으로 채우므로 호출부는 목록을 다시 읽기만 한다.
  *
  * 가입의 `origin: 'telescope'` 는 `islands.ts joinIsland` 가 맡는다 — 즉시 가입이어도 현재 섬을 옮기지 않는다.
  */
@@ -111,4 +114,12 @@ export function pinToTelescope(islandId: string, source: PinSource): Promise<Pin
     method: 'POST',
     body: { islandId, source },
   });
+}
+
+/**
+ * 직접 넣은 섬(잡지·전망대 핀)을 망원경에서 뺀다(GROMO-2273). 본문도 멱등 키도 없다 — 이미 없는 섬도 200 `{ deleted: true }` 라
+ * 응답 유실 재시도가 안전하다. 항해 중인 섬을 막는 검사는 서버에 없다(항해 상태가 없다) — 앱이 확인창으로 거친다.
+ */
+export function unpinFromTelescope(islandId: string): Promise<{ deleted: true }> {
+  return request(`/me/telescope/pins/${encodeURIComponent(islandId)}`, { method: 'DELETE' });
 }

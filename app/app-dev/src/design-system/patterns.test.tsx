@@ -95,6 +95,19 @@ test('Btn 의 읽는 이름은 기본이 title 이고, accessibilityLabel 을 �
   expect(getByText('신고')).toBeTruthy();
 });
 
+test('Btn 은 accessibilityHint 를 안 주면 비워 두고, 주면 그대로 읽게 한다(비활성 상태는 따로 켜지 않는다)', async () => {
+  const { getByLabelText } = await render(
+    <>
+      <Btn title="평범" onPress={() => {}} />
+      <Btn title="흐림" accessibilityHint="왜 흐린지" onPress={() => {}} />
+    </>,
+  );
+  expect(getByLabelText('평범').props.accessibilityHint).toBeUndefined();
+  const hinted = getByLabelText('흐림');
+  expect(hinted.props.accessibilityHint).toBe('왜 흐린지');
+  expect(hinted.props.accessibilityState.disabled).toBe(false);
+});
+
 test('작은 배지는 글자 크기 확대 시 늘어날 수 있도록 최소 높이와 세로 패딩을 쓴다', async () => {
   const { getByText } = await render(<Badge small>1</Badge>);
   const badge = StyleSheet.flatten(getByText('1').parent?.props.style);

@@ -340,9 +340,11 @@ export const componentTokens = {
     rowMinHeight: semanticTokens.size.tapMin,
     largeTextThreshold: 1.3,
   },
-  // 망원경(GROMO-2266) — 시스템 글자 배율이 이 값 이상이면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다
+  // 망원경(GROMO-2266) — 시스템 글자 배율이 이 값 이상이면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다.
+  // ribbonTilt(GROMO-2273) — 잡지에서 넣은 섬에 붙이는 「찜」 리본이 마스킹테이프처럼 살짝 기울어 붙은 각도
   telescope: {
     largeTextThreshold: 1.3,
+    ribbonTilt: '-12deg',
   },
   divider: {
     color: semanticTokens.color.divider,
