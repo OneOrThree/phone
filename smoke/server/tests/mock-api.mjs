@@ -20,7 +20,7 @@ const server=http.createServer(async(req,res)=>{
     current={id:session,version:1,status:'active'};data=current;status=201;
     if(subscription&&!process.env.MOCK_NO_EVENT)sendFrame('MESSAGE\nsubscription:smoke-focus\n\n'+JSON.stringify({type:'focus.member.updated',payload:{userId:user,sessionId:session,status:'active'}})+'\0');
   }else if(p.pathname.endsWith('/finish')){current=null;data={recordId:session};}
-  else if(p.pathname==='/api/v1/users/me/device-token'){if(b.deviceBootstrap!=='secret-bootstrap')status=400;data={ownershipToken:'secret-ownership'};}
+  else if(p.pathname==='/api/v1/users/me/device-token'){if(b.deviceBootstrap!=='secret-bootstrap')status=400;data={ownershipToken:process.env.MOCK_OWNERSHIP_TOKEN??'66666666-6666-4666-8666-666666666666'};}
   else if(p.pathname.endsWith('/memberships'))data={status:'active'};
   else if(p.pathname.endsWith('/members'))data={items:[{id:peer}]};
   else if(p.pathname.endsWith('/focus-members'))data={items:[{userId:user,sessionId:session,status:'active'}]};

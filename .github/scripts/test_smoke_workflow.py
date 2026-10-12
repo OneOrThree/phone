@@ -22,7 +22,8 @@ class SmokeWorkflowTests(unittest.TestCase):
             self.assertNotIn('uses: ./.github/workflows/ops-smoke.dev.yml', (ROOT / '.github/workflows' / filename).read_text())
         self.assertNotEqual(workflow['concurrency']['group'], 'dev-vm-deploy')
         self.assertEqual(workflow['jobs']['execute']['concurrency']['group'], 'dev-vm-deploy')
-        self.assertEqual(workflow['jobs']['execute']['needs'], 'wait-deploy')
+        self.assertEqual(workflow['jobs']['execute']['needs'], ['wait-deploy', 'guest-budget'])
+        self.assertNotIn('concurrency', workflow['jobs']['guest-budget'])
         self.assertTrue(all(step.get('with', {}).get('ref', '${{ github.sha }}') == '${{ github.sha }}'
             for job in workflow['jobs'].values() for step in job['steps'] if step.get('uses') == 'actions/checkout@v4'))
 

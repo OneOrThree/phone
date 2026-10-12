@@ -21,6 +21,12 @@ smoke_record() {
 smoke_request() {
   local method=$1 path=$2 body=${3:-} token=${4:-${SMOKE_TOKEN:-}} device=${5:-}
   local cfg="$SMOKE_TMP_DIR/curl.cfg" output
+  if [[ "$method" == POST && "$path" == /auth/sessions/guest && -n "${SMOKE_GUEST_LAST_REQUEST_FILE:-}" ]]; then
+    # 성공·거절 모두 서버 카운터에 포함되므로 요청 직전에 기록한다. 자식 실행기도 공유한다.
+    local marker
+    marker=$(mktemp "${SMOKE_GUEST_LAST_REQUEST_FILE}.XXXXXX") || return 1
+    date +%s > "$marker" && mv "$marker" "$SMOKE_GUEST_LAST_REQUEST_FILE" || { rm -f "$marker"; return 1; }
+  fi
   # 비밀은 argv / stdout / curl 진단으로 노출하지 않는다.
   printf 'silent\nshow-error\n' > "$cfg"
   if [[ -n "$token" ]]; then printf 'header = "Authorization: Bearer %s"\n' "$token" >> "$cfg"; fi

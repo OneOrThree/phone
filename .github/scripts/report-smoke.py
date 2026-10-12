@@ -23,8 +23,10 @@ def report(directory):
     rows = read_rows(directory)
     result = os.environ.get('SMOKE_RUN_RESULT', 'failure')
     wait = os.environ.get('DEPLOY_WAIT_RESULT', 'skipped')
+    event = os.environ.get('SMOKE_EVENT_NAME', 'push')
+    wait_ok = wait == 'success' or (event == 'workflow_dispatch' and wait == 'skipped')
     missing = EXPECTED - {tc for tc, _, _, _ in rows}
-    failed = result != 'success' or wait not in ('success', 'skipped') or bool(missing)
+    failed = result != 'success' or not wait_ok or bool(missing)
     failed = failed or any(status != 'PASS' for _, status, _, _ in rows)
     rows.extend((tc, 'FAIL', '', '배포 선행 실패 또는 실행 결과 누락') for tc in sorted(missing))
     table = ['| TC | 결과 | ms | 사유 |', '|---|---|---|---|']

@@ -59,8 +59,10 @@ smoke/                      ← 레포 phone. 플랫폼별 폴더. GitHub 없이
 - 레포는 phone: 러너가 phone에 등록, CD가 phone에, 검사 대상이 business-api 계약. Infra 레포는 Terraform 전용.
 - 워크플로:
   - main 병합으로 발생한 `push`에서 한 번 실행한다. 매일 정기 실행과 서비스별 중복 호출은 없다. `workflow_dispatch`는 수동 재현용이다.
-  - `wait-deploy`: 해당 push의 실제 변경 파일을 기존 CI의 main paths 필터와 대조한다. 필요한 Data·Realtime CI(내부 CD 포함)와 Satellite CI·별도 CD 완료를 기다린다. Satellite는 원본 CI id/attempt에 연결된 완료 상태를 확인해 옛 결과로 통과하지 않는다.
+  - `wait-deploy`: 해당 SHA의 실제 GitHub main push 실행 기록에서 Data·Realtime CI(내부 CD 포함)와 Satellite CI·별도 CD 완료를 기다린다. 경로 필터를 자체 재현하지 않으며, 실행 등록을 최소 120초 관찰하고 신규 대상이 나타나면 관찰 시간을 다시 센다. 배포 대기 제한은 180분이다. Satellite는 원본 CI id/attempt에 연결된 완료 상태를 확인해 옛 결과로 통과하지 않는다.
+  - `guest-budget`: 동일 러너에 기록한 마지막 스모크 게스트 생성 요청부터 3,601초가 지난 뒤 다음 검사를 허용한다. 자동·수동 실행에 동일하게 적용하며, 이 대기는 배포 잠금을 잡지 않는다. 제한 창 안의 연속 병합은 대기열에 남는다.
   - `execute`: `[self-hosted, dev]` 러너에서 공개 BASE_URL·WS·전용 fixture·health·Redis 전체 15개를 실행한다. 배포 대기는 잠금 없이 하고 검사 중에만 `dev-vm-deploy` 잠금을 잡는다.
+  - 검사 대상은 실행 시점에 배포된 dev 버전이다. 선행 배포 완료 후 실행 잠금을 얻기 전에 다음 병합의 배포가 완료될 수 있으므로, 특정 커밋만 격리해 검증하는 결과는 아니다. Data·Realtime의 현재 deploy 조건은 main push이며 정상 CI에서 배포를 선택적으로 생략하지 않는다.
   - `report`: TC 누락·FAIL·SKIP·정리 실패·배포 선행 실패는 비정상 exit으로 판정한다. summary와 TSV를 남기고 workflow 상태로 배지를 표시한다.
 - DB 준비와 API 시나리오는 같은 내부 러너에서 수행한다. 토큰은 잡 output/artifact로 전달하지 않는다. 전용 게스트·섬만 준비하며 앱의 게스트 제한·전역 상품 정책은 변경하지 않는다.
 - 브랜치 `chore/GROMO-####-dev-smoke`, PR `[CHORE]` + `workflow` 라벨.
@@ -104,12 +106,14 @@ smoke/                      ← 레포 phone. 플랫폼별 폴더. GitHub 없이
 
 ## 4. 수행 후
 
-실행기는 `results.tsv`에 `id`, `status`, `http_code`, `ms`, `reason`을 남긴다. 모든 요청·판정·정리 실패를 FAIL로 처리하며 PASS만 있는 실행은 exit 0, 하나라도 FAIL/SKIP이면 exit 1이다. HTTP 요청 원문·인증 토큰·DB/Redis 접속값을 저장한 임시 디렉터리는 접근 권한 0700으로 만들고 실행 종료 시 제거한다.
+실행기는 `results.tsv`에 `id`, `status`, `http_code`, `ms`, `reason`을 남긴다. 모든 요청·판정·정리 실패를 FAIL로 처리하며 PASS만 있는 실행은 exit 0, 하나라도 FAIL/SKIP이면 exit 1이다. HTTP 요청 원문·인증 토큰·DB/Redis 접속값을 저장한 임시 디렉터리는 접근 권한 0700으로 만들고 실행 종료 시 제거한다. Actions에서는 `TMPDIR=runner.temp`를 사용해 프로세스가 강제 종료돼도 job 종료 시 러너가 임시 파일을 정리한다.
 
 GitHub Actions는 TC별 표와 실행 시간을 summary에 남기고 TSV만 7일 보관한다. 판정은 README의 `서버 스모크 스냅샷` 배지로 표시한다. `branch=main&event=push`로 main 자동 실행 결과만 사용하며 수동 실행으로 덮어쓰지 않는다. 배지를 클릭하면 원본 workflow와 TC별 결과로 이동한다. PR 실패 라벨·정기 실패 이슈는 만들지 않는다. 배포 선행 실패나 TC 누락도 passing으로 표시하지 않는다.
 
-배지는 main 병합 후 첫 자동 실행부터 실제 passing/failing 상태를 표시한다. 현재 draft 브랜치의 수동 GCP 결과는 [검증 기록](server/verification.md)에서 확인한다. 배지 형식은 [GitHub Actions 상태 배지 문서](https://docs.github.com/ko/actions/how-tos/monitor-workflows/add-a-status-badge)를 따른다.
+배지는 main 병합 후 첫 자동 실행부터 실제 passing/failing 상태를 표시한다. 병합 전 브랜치의 수동 GCP 결과는 [검증 기록](server/verification.md)에서 확인한다. 배지 형식은 [GitHub Actions 상태 배지 문서](https://docs.github.com/ko/actions/how-tos/monitor-workflows/add-a-status-badge)를 따른다.
+
+CD만 재실행해 성공해도 이미 종료된 스모크는 자동 재실행되지 않는다. 실패 원인을 고친 뒤 원래 main push 스모크 실행을 Actions에서 재실행하거나 다음 main 병합 결과를 확인한다. 수동 `workflow_dispatch`는 재현용이며 main 자동 실행 배지를 갱신하지 않는다.
 
 기본 세트는 2분, 014는 실제 집중 1분을 포함해 3분을 목표로 한다. 단건 HTTP·웹소켓·이벤트 시간 제한과 정리 결과를 함께 기록한다. 실패한 서비스를 자동 재배포하거나 기존 DB를 되돌리지 않는다. 통과 여부뿐 아니라 실패 TC·HTTP 상태·소요 시간·재현 명령·환경 차단 조건을 PR에 남긴다.
 
-자동 실행은 항상 전체 15개다. 로컬 명령의 기본 공개 모드는 9개이며 내부 DB 설정이 있으면 전체 모드를 선택한다. 반복 게스트 생성은 기존 IP 제한(기본 10회/1시간)에 걸릴 수 있으며, 제한을 해제하지 않고 FAIL로 기록한다.
+자동 실행은 항상 전체 15개다. 로컬 명령의 기본 공개 모드는 9개이며 내부 DB 설정이 있으면 전체 모드를 선택한다. 성공한 전체 실행은 게스트 생성 4회, 014 실패 후 015 독립 준비까지 최대 5회다. Actions는 실행 사이에 마지막 생성 요청부터 기존 IP 제한 창(기본 1시간)을 기다려 스모크끼리 한도를 소진하지 않게 한다. 로컬 직접 실행은 이 대기를 자동 적용하지 않으며 같은 IP의 다른 트래픽이나 변경된 제한 설정으로 429가 발생하면 FAIL로 기록한다. 공개 제한을 해제하거나 우회하지 않는다. 요청 시각 파일은 `runner.tool_cache/phone-smoke/guest-last-request`에 보존한다(자격 정보 없음).

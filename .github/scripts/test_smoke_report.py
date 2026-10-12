@@ -18,7 +18,7 @@ class SmokeReportTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / 'results.tsv'
         env = patch.dict(os.environ, {'SMOKE_RUN_RESULT': 'success', 'DEPLOY_WAIT_RESULT': 'success',
-            'RUN_URL': 'https://example.test/run', 'GITHUB_STEP_SUMMARY': os.devnull})
+            'SMOKE_EVENT_NAME': 'push', 'RUN_URL': 'https://example.test/run', 'GITHUB_STEP_SUMMARY': os.devnull})
         env.start(); self.addCleanup(env.stop)
         self.results('PASS')
 
@@ -46,8 +46,13 @@ class SmokeReportTests(unittest.TestCase):
         self.assertEqual(report.report(self.temp.name), 1)
 
     def test_manual_execution_without_deploy_wait(self):
+        os.environ['SMOKE_EVENT_NAME'] = 'workflow_dispatch'
         os.environ['DEPLOY_WAIT_RESULT'] = 'skipped'
         self.assertEqual(report.report(self.temp.name), 0)
+
+    def test_automatic_execution_requires_successful_deploy_wait(self):
+        os.environ['DEPLOY_WAIT_RESULT'] = 'skipped'
+        self.assertEqual(report.report(self.temp.name), 1)
 
 
 if __name__ == '__main__':

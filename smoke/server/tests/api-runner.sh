@@ -20,8 +20,8 @@ export PATH="$TMP/bin:$PATH"
 
 trap '[[ -z "$PID" ]] || kill "$PID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 run_case() {
-  local name=$1 health=$2 no_event=$3 bad_screen=$4 expected=$5 basic=${6:-0}
-  MOCK_HEALTH_FAIL="$health" MOCK_NO_EVENT="$no_event" MOCK_BAD_SCREEN="$bad_screen" node "$HERE/tests/mock-api.mjs" "$TMP/port" & PID=$!
+  local name=$1 health=$2 no_event=$3 bad_screen=$4 expected=$5 basic=${6:-0} ownership=${7-66666666-6666-4666-8666-666666666666}
+  MOCK_OWNERSHIP_TOKEN="$ownership" MOCK_HEALTH_FAIL="$health" MOCK_NO_EVENT="$no_event" MOCK_BAD_SCREEN="$bad_screen" node "$HERE/tests/mock-api.mjs" "$TMP/port" & PID=$!
   for ((i=0;i<100;i++));do [[ -s "$TMP/port" ]] && break; sleep .02;done
   local port;port=$(cat "$TMP/port")
   node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({accessToken:"header."+Buffer.from(JSON.stringify({sid:"55555555-5555-4555-8555-555555555555"})).toString("base64url")+".signature",islandId:"33333333-3333-4333-8333-333333333333"}))' "$TMP/context.json"
@@ -39,6 +39,8 @@ run_case() {
   elif [[ "$name" == event ]];then
     awk -F '\t' '$1=="SMOKE-SERVER-010" && $2=="FAIL"{ok=1} END{exit !ok}' "$TMP/$name.tsv"
     awk -F '\t' '$1=="SMOKE-SERVER-006" && $2=="PASS"{ok=1} END{exit !ok}' "$TMP/$name.tsv"
+  elif [[ "$name" == ownership* ]];then
+    awk -F '\t' '$1=="SMOKE-SERVER-009" && $2=="FAIL"{ok=1} END{exit !ok}' "$TMP/$name.tsv"
   else
     awk -F '\t' '$1=="SMOKE-SERVER-015" && $2=="FAIL"{ok=1} END{exit !ok}' "$TMP/$name.tsv"
   fi
@@ -51,3 +53,7 @@ run_case health 1 '' '' 1
 run_case event '' 1 '' 1
 run_case statistics '' '' 1 1
 run_case basic '' '' '' 0 1
+
+run_case ownership-invalid '' '' '' 1 1 not-a-uuid
+run_case ownership-empty '' '' '' 1 1 ''
+run_case ownership-short '' '' '' 1 1 1-1-1-1-1

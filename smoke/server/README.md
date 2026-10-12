@@ -97,4 +97,4 @@ SMOKE_ALLOW_ISOLATED_TEST=1 RESULTS_FILE=/tmp/smoke-isolated-core.tsv \
 
 ## main 병합 후 결과 배지
 
-자동 실행은 main push당 한 번, 해당 커밋의 필요한 CI·dev 배포 완료 후 전체 15개를 검사한다. 매일 실행·서비스별 중복 호출은 없다. 결과는 [공통 README의 배지](../README.md)로 확인한다. 수동 workflow_dispatch도 전체 15개를 실행하며 main 자동 결과 배지를 바꾸지 않는다.
+자동 실행은 main push당 한 번, 해당 SHA의 실제 생성된 CI·dev 배포 완료 후 전체 15개를 검사한다. 실행 등록 관찰은 최소 120초, 배포 대기 제한은 180분이다. 자동·수동 실행 모두 이전 스모크의 마지막 게스트 생성 요청부터 3,601초를 기다리며, 대기 중에는 배포 잠금을 잡지 않는다. 연속 병합은 즉시 검사하지 않고 이 제한 창 이후 차례로 검사한다. 매일 실행·서비스별 중복 호출은 없다. 결과는 [공통 README의 배지](../README.md)로 확인한다. 수동 workflow_dispatch도 전체 15개를 실행하며 main 자동 결과 배지를 바꾸지 않는다.

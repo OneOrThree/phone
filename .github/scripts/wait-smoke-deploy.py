@@ -2,9 +2,7 @@
 """main 커밋에 필요한 CI·dev 배포만 기다린다. 배포 잠금은 대기 중 잡지 않는다."""
 import json
 import os
-from pathlib import Path
 import re
-import subprocess
 import time
 import urllib.parse
 import urllib.request
@@ -13,44 +11,12 @@ WORKFLOWS = ('data-api-ci.dev.yml', 'realtime-ci.dev.yml', 'satellite-ci.dev.yml
 SATELLITE_CONTEXT = 'dev-deploy/satellites'
 
 
-def glob_match(path, pattern):
-    parts = []
-    i = 0
-    while i < len(pattern):
-        if pattern[i:i + 3] == '**/':
-            parts.append('(?:.*/)?'); i += 3
-        elif pattern[i:i + 2] == '**':
-            parts.append('.*'); i += 2
-        elif pattern[i] == '*':
-            parts.append('[^/]*'); i += 1
-        elif pattern[i] == '?':
-            parts.append('[^/]'); i += 1
-        else:
-            parts.append(re.escape(pattern[i])); i += 1
-    return re.fullmatch(''.join(parts), path) is not None
-
-
-def selected(path, patterns):
-    matched = False
-    for pattern in patterns:
-        negative = pattern.startswith('!')
-        if glob_match(path, pattern[1:] if negative else pattern):
-            matched = not negative
-    return matched
-
-
-def expected_workflows(root, files):
-    import yaml  # repository CI와 같은 pinned PyYAML, 이 대기 잡에서만 사용
-    expected = set()
-    for name in WORKFLOWS:
-        workflow = yaml.load((root / '.github/workflows' / name).read_text(), Loader=yaml.BaseLoader)
-        push = workflow['on']['push']
-        if 'main' not in push.get('branches', []):
-            raise RuntimeError('CI main 트리거 계약 변경: ' + name)
-        patterns = push.get('paths', ['**'])
-        if any(selected(file, patterns) for file in files):
-            expected.add(name)
-    return expected
+def observed_workflows(runs, revision):
+    # GitHub 자체 경로 필터·대규모 push 제한을 재현하지 않는다.
+    return {run.get('path', '').split('@')[0].rsplit('/', 1)[-1]
+            for run in runs if run.get('event') == 'push'
+            and run.get('head_branch') == 'main' and run.get('head_sha') == revision
+            and run.get('path', '').split('@')[0].rsplit('/', 1)[-1] in WORKFLOWS}
 
 
 def api(path):
@@ -103,24 +69,30 @@ def verdict(expected, runs, statuses, revision):
 
 def main():
     revision = os.environ['GITHUB_SHA']
-    before = os.environ['SMOKE_BEFORE_SHA']
-    if not all(re.fullmatch('[0-9a-f]{40}', value) for value in (revision, before)):
+    if not re.fullmatch('[0-9a-f]{40}', revision):
         raise RuntimeError('커밋 SHA 형식 오류')
-    args = ['git', 'ls-tree', '-r', '--name-only', revision] if before == '0' * 40 else ['git', 'diff', '--name-only', before, revision]
-    files = subprocess.check_output(args, text=True).splitlines()
-    root = Path(__file__).resolve().parents[2]
-    expected = expected_workflows(root, files)
-    print('대기 대상: ' + (', '.join(sorted(expected)) or '서비스 배포 변경 없음'), flush=True)
-    deadline = time.monotonic() + int(os.environ.get('SMOKE_DEPLOY_WAIT_SECONDS', '3600'))
+    deadline = time.monotonic() + int(os.environ.get('SMOKE_DEPLOY_WAIT_SECONDS', '10800'))
+    # 등록 지연을 기다린 뒤 실제 생성된 run만 대상으로 삼는다. 신규 대상 발견 시
+    # 안정화 시간을 다시 센다. pending/queued run도 등록된 즉시 대기에 포함한다.
+    quiet_seconds = int(os.environ.get('SMOKE_DEPLOY_DISCOVERY_SECONDS', '120'))
+    quiet_since = time.monotonic()
+    expected = set()
     previous = None
     while True:
-        runs = pages('/actions/runs?head_sha=' + urllib.parse.quote(revision), 'workflow_runs') if expected else []
+        runs = pages('/actions/runs?head_sha=' + urllib.parse.quote(revision), 'workflow_runs')
+        discovered = observed_workflows(runs, revision)
+        if discovered - expected:
+            expected |= discovered
+            quiet_since = time.monotonic()
+            print('실제 생성된 대기 대상: ' + ', '.join(sorted(expected)), flush=True)
         statuses = pages('/commits/' + revision + '/statuses') if 'satellite-ci.dev.yml' in expected else []
         state, reason = verdict(expected, runs, statuses, revision)
         if reason != previous:
             print(reason, flush=True); previous = reason
-        if state != 'waiting':
-            return 0 if state == 'success' else 1
+        if state == 'failure':
+            return 1
+        if state == 'success' and time.monotonic() - quiet_since >= quiet_seconds:
+            return 0
         if time.monotonic() >= deadline:
             print('CI·배포 대기 시간 초과', flush=True)
             return 1

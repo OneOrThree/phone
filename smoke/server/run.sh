@@ -75,7 +75,7 @@ main() {
   else
     printf '%s' "$bootstrap" > "$SMOKE_TMP_DIR/bootstrap-secret"
     body=$(jq -nc --arg t "smoke-$USER_ID" --rawfile b "$SMOKE_TMP_DIR/bootstrap-secret" '{deviceToken:$t,deviceBootstrap:$b}')
-    if smoke_request PUT /api/v1/users/me/device-token "$body" "$TOKEN" && [[ "$SMOKE_HTTP_CODE" == 200 ]] && jq -e 'has("ownershipToken") and (.ownershipToken|type)=="string"' "$SMOKE_BODY_FILE" >/dev/null; then record 009 PASS '가짜 기기 토큰 등록'; else record 009 FAIL '기기 등록 실패'; fi
+    if smoke_request PUT /api/v1/users/me/device-token "$body" "$TOKEN" && [[ "$SMOKE_HTTP_CODE" == 200 ]] && jq -e '.ownershipToken | type=="string" and test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")' "$SMOKE_BODY_FILE" >/dev/null; then record 009 PASS '가짜 기기 토큰 등록·소유권 UUID'; else record 009 FAIL '기기 등록/소유권 UUID 계약 실패'; fi
   fi
   if [[ "${SMOKE_BASIC_ONLY:-0}" != 1 ]]; then
     if [[ "${SMOKE_CORE_ENABLED:-0}" == 1 ]]; then
