@@ -1,7 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.oneorthree.phone.appearance.repository.CatalogAssetRepository;
 import com.oneorthree.phone.appearance.repository.OwnedProductRepository;
 import com.oneorthree.phone.appearance.repository.domain.CatalogAsset;
 import com.oneorthree.phone.common.support.BannedWords;
@@ -106,7 +105,6 @@ public class IslandPromotionService {
     private final PublicCommandService publicCommands;
     private final IslandPromotionRepository promotions;
     private final MagazineAssetMetaRepository assetMetas;
-    private final CatalogAssetRepository catalogAssets;
     private final OwnedProductRepository ownedProducts;
     private final BannedWords bannedWords;
     private final Clock clock;
@@ -217,26 +215,23 @@ public class IslandPromotionService {
      */
     public IslandPromotionViews.Assets assets(UUID userId) {
         users.getCaller(userId);
-        List<CatalogEntry> catalog = catalog();
-        Set<String> owned = ownedOf(userId, catalog.stream().map(CatalogEntry::productId).toList());
+        List<MagazineAssetMeta> catalog = assetMetas.findAll(Sort.by("sortOrder", "productId"));
+        Set<String> owned = ownedOf(userId, catalog.stream().map(MagazineAssetMeta::getProductId).toList());
         List<IslandPromotionViews.Asset> frames = new ArrayList<>();
         List<IslandPromotionViews.Sticker> stickers = new ArrayList<>();
         List<IslandPromotionViews.Asset> tapes = new ArrayList<>();
-        for (CatalogEntry entry : catalog) {
-            MagazineAssetMeta meta = entry.meta();
-            boolean hasRow = owned.contains(entry.productId());
+        for (MagazineAssetMeta meta : catalog) {
+            boolean hasRow = owned.contains(meta.getProductId());
             if (meta.getRetiredAt() != null && !hasRow) {
                 continue;
             }
             boolean usable = meta.isFreeForAll() || hasRow;
-            switch (entry.kind()) {
+            switch (meta.getKind()) {
                 case CatalogAsset.KIND_AD_FRAME ->
-                        frames.add(new IslandPromotionViews.Asset(entry.productId(), meta.getBundle(), usable));
+                        frames.add(new IslandPromotionViews.Asset(meta.getProductId(), meta.getBundle(), usable));
                 case CatalogAsset.KIND_AD_STICKER -> stickers.add(new IslandPromotionViews.Sticker(
-                        entry.productId(), meta.getDrawerTab(), meta.getBundle(), usable));
-                case CatalogAsset.KIND_AD_TAPE ->
-                        tapes.add(new IslandPromotionViews.Asset(entry.productId(), meta.getBundle(), usable));
-                default -> { }   // 잡지 재료가 아닌 카탈로그 행에 붙은 부가 정보 — 운영 실수라 보여 주지 않는다
+                        meta.getProductId(), meta.getDrawerTab(), meta.getBundle(), usable));
+                default -> tapes.add(new IslandPromotionViews.Asset(meta.getProductId(), meta.getBundle(), usable));
             }
         }
         return new IslandPromotionViews.Assets(frames, stickers, tapes);
@@ -271,8 +266,9 @@ public class IslandPromotionService {
         PromotionContent valid = content.validated();
         bannedWords.requireClean(valid.body());
         PromotionContent.Layout layout = valid.layout();
-        Map<String, CatalogEntry> catalog = catalog().stream()
-                .collect(Collectors.toMap(CatalogEntry::productId, Function.identity()));
+        // ponytail: 수십 행짜리 운영 카탈로그를 통째로 읽어 메모리에서 찾는다. 수천 행이 되면 쓰인 id 만 IN 으로 읽는다.
+        Map<String, MagazineAssetMeta> catalog = assetMetas.findAll().stream()
+                .collect(Collectors.toMap(MagazineAssetMeta::getProductId, Function.identity()));
         requireKind(catalog, layout.frameId(), CatalogAsset.KIND_AD_FRAME);
         layout.stickers().forEach(sticker -> requireKind(catalog, sticker.assetId(), CatalogAsset.KIND_AD_STICKER));
         if (layout.tape() != null) {
@@ -281,7 +277,7 @@ public class IslandPromotionService {
         Map<String, Integer> counts = PromotionContent.assetCounts(layout);
         Set<String> owned = ownedOf(userId, List.copyOf(counts.keySet()));
         counts.forEach((assetId, count) -> {
-            boolean usable = catalog.get(assetId).meta().isFreeForAll() || owned.contains(assetId)
+            boolean usable = catalog.get(assetId).isFreeForAll() || owned.contains(assetId)
                     || retained.getOrDefault(assetId, 0) >= count;
             if (!usable) {
                 throw new MagazineException(MagazineErrorCode.PROMOTION_ASSET_NOT_OWNED);
@@ -290,27 +286,11 @@ public class IslandPromotionService {
         return valid;
     }
 
-    private static void requireKind(Map<String, CatalogEntry> catalog, String assetId, String kind) {
-        CatalogEntry entry = catalog.get(assetId);
-        if (entry == null || !kind.equals(entry.kind())) {
+    private static void requireKind(Map<String, MagazineAssetMeta> catalog, String assetId, String kind) {
+        MagazineAssetMeta meta = catalog.get(assetId);
+        if (meta == null || !kind.equals(meta.getKind())) {
             throw new MagazineException(MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
         }
-    }
-
-    /**
-     * 잡지 재료 전체 — 부가 정보(정렬 순서)와 카탈로그 종류를 맞붙인다.
-     *
-     * <p>ponytail: 수십 행짜리 운영 카탈로그를 통째로 읽어 메모리에서 거른다. 수천 행이 되면 쓰인 id 만 {@code IN} 으로
-     * 읽는다.
-     */
-    private List<CatalogEntry> catalog() {
-        List<MagazineAssetMeta> metas = assetMetas.findAll(Sort.by("sortOrder", "productId"));
-        Map<String, String> kinds = catalogAssets.findAllById(metas.stream().map(MagazineAssetMeta::getProductId)
-                        .toList()).stream()
-                .collect(Collectors.toMap(CatalogAsset::getProductId, CatalogAsset::getKind));
-        return metas.stream()
-                .map(meta -> new CatalogEntry(meta.getProductId(), kinds.get(meta.getProductId()), meta))
-                .toList();
     }
 
     private Set<String> ownedOf(UUID userId, List<String> productIds) {
@@ -345,9 +325,5 @@ public class IslandPromotionService {
                 .filter(member -> member.getRole() == GroupMemberRole.OWNER)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
         return island;
-    }
-
-    /** 잡지 재료 한 종 — 카탈로그 종류와 부가 정보. */
-    private record CatalogEntry(String productId, String kind, MagazineAssetMeta meta) {
     }
 }

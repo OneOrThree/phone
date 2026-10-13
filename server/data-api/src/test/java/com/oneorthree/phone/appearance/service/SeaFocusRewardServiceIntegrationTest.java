@@ -478,8 +478,9 @@ class SeaFocusRewardServiceIntegrationTest {
     /** 잡지 재료 — 카탈로그 행과 부가 정보를 함께 넣는다. */
     private String magazineProduct(String kind, String bundle, boolean retired) {
         String productId = product(kind);
-        jdbc.update("INSERT INTO magazine_asset_meta (product_id, bundle, sort_order, retired_at) VALUES (?, ?, 1, "
-                + (retired ? "now()" : "NULL") + ")", productId, bundle);
+        jdbc.update("INSERT INTO magazine_asset_meta (product_id, kind, bundle, drawer_tab, sort_order, retired_at) "
+                + "VALUES (?, ?, ?, ?, 1, " + (retired ? "now()" : "NULL") + ")", productId, kind, bundle,
+                "ad_sticker".equals(kind) ? "sea" : null);
         return productId;
     }
 

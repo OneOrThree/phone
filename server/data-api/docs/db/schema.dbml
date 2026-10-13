@@ -1183,9 +1183,10 @@ Table catalog_assets [note: '카탈로그 불변 자산 정의 (GROMO-1783, isla
 }
 
 Table magazine_asset_meta [note: '고양이 잡지 꾸미기 재료(ad_frame·ad_sticker·ad_tape)의 부가 정보 — catalog_assets 와 1:1. 카탈로그 행이 불변이라 서랍 탭·묶음·정렬·퇴역을 옆 표에 둔다. 시드 64행(틀 11 · 스티커 45 · 테이프 8, 10/14 에셋 id 표)은 전부 free 다. 운영 카탈로그라 탈퇴·섬 정리 대상이 아니다. GROMO-2289, V113'] {
-  product_id varchar(80) [pk, note: 'FK → catalog_assets.product_id ON DELETE RESTRICT']
+  product_id varchar(80) [pk, note: '(product_id, kind) 복합 FK → catalog_assets(product_id, kind) ON DELETE RESTRICT — 대상 유일 제약 catalog_assets_product_kind_key']
+  kind       varchar(20) [not null, note: "ad_frame / ad_sticker / ad_tape — CHECK. 카탈로그 종류의 사본(복합 FK 로 어긋나지 못한다) — 이 표의 CHECK 가 종류별 규칙을 보려고 둔다"]
   bundle     varchar(10) [not null, note: "free / season — CHECK. free = 모든 계정이 가진 것(소유 행을 만들지 않는다), season = 바다 시즌 보상으로 owned_products 행이 생겨야 가진 것"]
-  drawer_tab varchar(10) [note: "cat / sea / friends / deco — CHECK. 스티커 서랍 탭, 틀·테이프는 NULL"]
+  drawer_tab varchar(10) [note: "cat / sea / friends / deco — CHECK. 스티커 서랍 탭 — CHECK magazine_asset_meta_tab_check: 스티커는 NOT NULL, 틀·테이프는 NULL"]
   sort_order integer     [not null, note: '종류 안의 정렬 순서(1부터)']
   retired_at timestamptz [note: '서랍에서 내린 시각 — 이미 붙인 칸은 그대로 그린다. 퇴역한 재료는 free 라도 보유 행이 있거나 직전 칸에 있던 것만 다시 실을 수 있다']
 }
@@ -2024,7 +2025,7 @@ Ref: telescope_pins.island_id > groups.id [delete: cascade]  // GROMO-2268 — �
 Ref: island_news.island_id > groups.id [delete: cascade]
 Ref: sea_focus_totals.user_id - users.id [delete: cascade]
 Ref: sea_reward_tiers.product_id > catalog_assets.product_id
-Ref: magazine_asset_meta.product_id - catalog_assets.product_id  // GROMO-2289 V113 — ON DELETE RESTRICT
+Ref: magazine_asset_meta.(product_id, kind) - catalog_assets.(product_id, kind)  // GROMO-2289 V113 — 복합 FK, ON DELETE RESTRICT
 Ref: island_promotions.island_id > groups.id [delete: cascade]  // GROMO-2289 V114 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
 Ref: island_promotions.applied_by > users.id  // GROMO-2289 V114 — 사용자 행은 익명화만 되고 지워지지 않는다
 Ref: magazine_receipts.user_id > users.id [delete: cascade]  // GROMO-2289 V115 — 사용자 행은 익명화만 되고 지워지지 않아 탈퇴 TX 가 지운다

@@ -12,7 +12,7 @@ import java.time.Instant;
 
 /**
  * 잡지 꾸미기 재료(틀·스티커·테이프)의 부가 정보 (GROMO-2289, V113) — {@code catalog_assets} 행과 1:1 이다. 카탈로그 행은
- * 불변이라 서랍 탭·묶음·정렬·퇴역을 이 옆 표에 둔다. 행은 마이그레이션 시드와 운영 SQL 로만 생긴다 — 이 도메인은 읽기만
+ * 불변이라 종류 사본·서랍 탭·묶음·정렬·퇴역을 이 옆 표에 둔다. 행은 마이그레이션 시드와 운영 SQL 로만 생긴다 — 이 도메인은 읽기만
  * 한다.
  */
 @Entity
@@ -28,11 +28,18 @@ public class MagazineAssetMeta {
     @Column(name = "product_id", length = 80)
     private String productId;
 
+    /**
+     * 카탈로그 종류의 사본 — {@code ad_frame} · {@code ad_sticker} · {@code ad_tape}. {@code (product_id, kind)} 복합 FK 가
+     * 카탈로그와 어긋나지 못하게 한다.
+     */
+    @Column(nullable = false, length = 20)
+    private String kind;
+
     /** {@code free} · {@code season}(바다 시즌 보상으로 owned_products 행이 생겨야 가진 것). */
     @Column(nullable = false, length = 10)
     private String bundle;
 
-    /** 스티커 서랍 탭 — {@code cat} · {@code sea} · {@code friends} · {@code deco}. 틀·테이프는 null. */
+    /** 스티커 서랍 탭 — {@code cat} · {@code sea} · {@code friends} · {@code deco}. 스티커는 늘 있고 틀·테이프는 null(CHECK). */
     @Column(name = "drawer_tab", length = 10)
     private String drawerTab;
 

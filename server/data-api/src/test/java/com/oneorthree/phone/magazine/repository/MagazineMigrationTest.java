@@ -68,6 +68,8 @@ class MagazineMigrationTest {
                 + "AND product_id NOT LIKE 'mag.%'", Integer.class)).as("잡지 재료 id 는 모두 mag. 접두어").isZero();
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM magazine_asset_meta", Integer.class)).isEqualTo(64);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM magazine_asset_meta m JOIN catalog_assets c "
+                + "ON c.product_id = m.product_id WHERE c.kind <> m.kind", Integer.class)).as("종류 사본").isZero();
         assertThat(jdbc.queryForList("SELECT DISTINCT bundle FROM magazine_asset_meta", String.class))
                 .as("10/14 확정 — 지금 에셋은 전부 무료").containsExactly("free");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM magazine_asset_meta WHERE retired_at IS NOT NULL",
@@ -87,7 +89,7 @@ class MagazineMigrationTest {
     }
 
     @Test
-    @DisplayName("V113 카탈로그 CHECK — 잡지 재료는 개인 소유로만, 모르는 종류는 여전히 거부, 부가 정보는 묶음·탭 CHECK 와 카탈로그 FK")
+    @DisplayName("V113 카탈로그 CHECK — 잡지 재료는 개인 소유로만, 모르는 종류는 여전히 거부, 부가 정보는 묶음·탭 CHECK·스티커만 탭·종류 복합 FK")
     void catalogAndMetaConstraints() {
         migrate(MigrationVersion.fromVersion("113"));
         JdbcTemplate jdbc = jdbc();
@@ -100,10 +102,26 @@ class MagazineMigrationTest {
         assertThatThrownBy(() -> product(jdbc, "theme-x", "island_theme", "user"))
                 .as("기존 조합 규칙도 그대로다").isInstanceOf(DataIntegrityViolationException.class);
 
-        jdbc.update("INSERT INTO magazine_asset_meta (product_id, bundle, drawer_tab, sort_order) "
-                + "VALUES ('mag.test-sticker', 'season', 'sea', 99)");
-        assertThatThrownBy(() -> jdbc.update("INSERT INTO magazine_asset_meta (product_id, bundle, sort_order) "
-                + "VALUES ('mag.no-such', 'free', 1)")).as("카탈로그에 없는 재료")
+        String insertMeta = "INSERT INTO magazine_asset_meta (product_id, kind, bundle, drawer_tab, sort_order) "
+                + "VALUES (?, ?, ?, ?, 99)";
+        jdbc.update(insertMeta, "mag.test-sticker", "ad_sticker", "season", "sea");
+        assertThatThrownBy(() -> jdbc.update(insertMeta, "mag.no-such", "ad_frame", "free", null))
+                .as("카탈로그에 없는 재료").isInstanceOf(DataIntegrityViolationException.class);
+        product(jdbc, "mag.test-frame", "ad_frame", "user");
+        product(jdbc, "mag.test-sticker-2", "ad_sticker", "user");
+        product(jdbc, "scarf", "clothes", "user");
+        assertThatThrownBy(() -> jdbc.update(insertMeta, "mag.test-sticker-2", "ad_sticker", "season", null))
+                .as("스티커는 서랍 탭이 있어야 한다 — 빠지면 재료 목록 전체가 깨진다")
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertMeta, "mag.test-frame", "ad_frame", "season", "cat"))
+                .as("틀·테이프는 서랍 탭이 없다").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertMeta, "mag.test-frame", "ad_sticker", "season", "cat"))
+                .as("종류 사본이 카탈로그와 다르면 복합 FK 가 막는다").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertMeta, "scarf", "clothes", "season", null))
+                .as("잡지 재료가 아닌 상품에는 부가 정보가 없다").isInstanceOf(DataIntegrityViolationException.class);
+        jdbc.update(insertMeta, "mag.test-frame", "ad_frame", "season", null);
+        assertThatThrownBy(() -> jdbc.update("UPDATE magazine_asset_meta SET drawer_tab = NULL "
+                + "WHERE product_id = 'mag.test-sticker'")).as("고쳐도 스티커 탭은 지울 수 없다")
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("UPDATE magazine_asset_meta SET bundle = 'paid' "
                 + "WHERE product_id = 'mag.test-sticker'")).as("유료 묶음은 없다(10/14)")
