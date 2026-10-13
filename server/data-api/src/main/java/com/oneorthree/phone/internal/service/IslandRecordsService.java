@@ -53,6 +53,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -156,7 +157,7 @@ public class IslandRecordsService {
         TreeMap<LocalDate, Long> series = new TreeMap<>();
         List<FocusRecord> records = new ArrayList<>();
         for (Contribution contribution : contributions(details.findOverlapping(List.of(userId), COUNTED, start, end),
-                from, to, asOf)) {
+                from, to, asOf, UTC)) {
             contribution.byDate().forEach((date, seconds) -> series.merge(date, seconds.longValue(), Long::sum));
             FocusSessionDetail session = contribution.session();
             if (session.getLifecycle() == FocusSessionLifecycle.COMPLETED && contribution.total() > 0) {
@@ -183,7 +184,7 @@ public class IslandRecordsService {
         List<User> residents = residents(island);
         Map<UUID, TreeMap<LocalDate, Long>> byUser = new LinkedHashMap<>();
         for (Contribution contribution : contributions(details.findOverlappingOnIsland(island.getId(),
-                residents.stream().map(User::getId).toList(), COUNTED, start, end), from, to, asOf)) {
+                residents.stream().map(User::getId).toList(), COUNTED, start, end), from, to, asOf, UTC)) {
             TreeMap<LocalDate, Long> series = byUser.computeIfAbsent(contribution.session().getUserId(),
                     ignored -> new TreeMap<>());
             contribution.byDate().forEach((date, seconds) -> series.merge(date, seconds.longValue(), Long::sum));
@@ -196,11 +197,27 @@ public class IslandRecordsService {
     }
 
     /**
+     * 섬 하나에서 주민들이 {@code date}({@code zone} 날짜 축) 하루 동안 한 순수 집중 초 — 진행 중 세션은 지금까지 센다
+     * (GROMO-2258 방문 화면 오늘 집중). scope=island 와 같은 세션 선택({@link #COUNTED})·같은 합산이다. 가드는 없다 —
+     * 부르는 쪽이 섬 접근을 이미 가렸다.
+     */
+    @Transactional(readOnly = true)
+    public long islandActiveSecondsOn(UUID islandId, List<UUID> residents, LocalDate date, ZoneId zone) {
+        if (residents.isEmpty()) {
+            return 0;
+        }
+        Instant start = date.atStartOfDay(zone).toInstant();
+        Instant end = date.plusDays(1).atStartOfDay(zone).toInstant();
+        return contributions(details.findOverlappingOnIsland(islandId, residents, COUNTED, start, end),
+                date, date, clock.instant(), zone).stream().mapToLong(Contribution::total).sum();
+    }
+
+    /**
      * 세션마다 <b>세션 전체의 정본 날짜 기여</b>를 먼저 만들고 요청 날짜를 고른다 — 요청 구간부터 반올림하면 같은
      * 날짜가 주/월 화면에서 달라진다(LLD §3). 진행 중 세션의 열린 구간은 {@code asOf} 로 임시로 닫는다.
      */
     private List<Contribution> contributions(List<FocusSessionDetail> found, LocalDate from, LocalDate to,
-                                             Instant asOf) {
+                                             Instant asOf, ZoneId zone) {
         if (found.isEmpty()) {
             return List.of();
         }
@@ -209,7 +226,7 @@ public class IslandRecordsService {
                 .collect(Collectors.groupingBy(FocusSessionInterval::getSessionId));
         return found.stream().map(session -> {
             NavigableMap<LocalDate, Integer> byDate = FocusIntervalMath.activeSecondsByDate(
-                    bySession.getOrDefault(session.getSessionId(), List.of()), UTC, asOf).subMap(from, true, to, true);
+                    bySession.getOrDefault(session.getSessionId(), List.of()), zone, asOf).subMap(from, true, to, true);
             long total = byDate.values().stream().mapToLong(Integer::longValue).sum();
             return new Contribution(session, byDate, total);
         }).toList();

@@ -7,6 +7,7 @@ import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
@@ -66,6 +67,10 @@ class StompAuthChannelInterceptorTest {
     @Mock
     private org.springframework.data.redis.core.StringRedisTemplate redis;
 
+    /** 방문자 판정(GROMO-2258) — 성공한 그룹 조회만이 «비주민»을 확정한다. 기본 false(목)는 쓰는 테스트가 덮는다. */
+    @Mock
+    private MembershipService membershipService;
+
     @Mock
     private org.springframework.data.redis.core.ValueOperations<String, String> valueOps;
 
@@ -83,7 +88,7 @@ class StompAuthChannelInterceptorTest {
     void setUp() {
         registry = new RealtimeSessionRegistry();
         interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
-                movementSubscriptions);
+                movementSubscriptions, membershipService);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         given(redis.opsForValue()).willReturn(valueOps);
@@ -337,12 +342,71 @@ class StompAuthChannelInterceptorTest {
         // sessionId 는 null 이다 — 구독은 「진행 세션이 있기만 하면」이고 어느 세션인지는 발신이 본다.
         verify(focusSessions).requireActiveSession(groupId, userId, null);
 
+        // 주민인데 진행 세션이 없으면 거절한다 — 방문자 예외(GROMO-2258)는 비주민에게만 열린다.
         org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
                 .given(focusSessions).requireActiveSession(groupId, userId, null);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(true);
         assertThatThrownBy(() -> interceptor.preSend(message(frame), null))
                 .isInstanceOf(DomainException.class)
                 .extracting(e -> ((DomainException) e).getErrorCode())
                 .isEqualTo(ChatErrorCode.NOT_FOCUSING);
+    }
+
+    @Test
+    @DisplayName("emote 구독 — 비주민(방문자)은 진행 세션 없이도 구독된다 (GROMO-2258)")
+    void visitorMaySubscribeToEmotesWithoutSession() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(groupId, userId, null);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(false);
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId + "/emotes");
+
+        assertThatCode(() -> interceptor.preSend(message(frame), null)).doesNotThrowAnyException();
+        verify(membershipService).isMemberUncached(groupId, userId, BEARER);
+    }
+
+    @Test
+    @DisplayName("emote 구독 — 엄격 모드 인가의 NOT_A_MEMBER 를 «비주민»으로 읽지 않는다: 그룹 조회가 주민이면 세션 없는 구독은 거절")
+    void authorizationDenialIsNotNonMembership() {
+        // 엄격 모드 verifier 는 세션 철회·auth_generation 불일치로 «실제 주민»에게도 NOT_A_MEMBER 를 준다.
+        // 방문자 예외가 그 거절을 소속 부재로 읽으면 세션 없는 주민의 응원 구독이 열린다(realtime CLAUDE.md 현재 인가 계약).
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(groupId, userId, null);
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMemberUncached(groupId, userId, BEARER);
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(groupId, userId, BEARER);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(true);
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId + "/emotes");
+
+        assertThatThrownBy(() -> interceptor.preSend(message(frame), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_FOCUSING);
+        verifyNoInteractions(accessGuard);
+    }
+
+    @Test
+    @DisplayName("emote 구독 — 그룹 조회가 판정 불가(거절·형식 불량)면 방문자로 열지 않고 그대로 거절한다")
+    void undecidableMembershipLookupFailsClosed() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(groupId, userId, null);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER))
+                .willThrow(new com.oneorthree.realtime.common.exception.UpstreamUnavailableException());
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId + "/emotes");
+
+        assertThatThrownBy(() -> interceptor.preSend(message(frame), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(com.oneorthree.realtime.common.exception.CommonErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     @Test

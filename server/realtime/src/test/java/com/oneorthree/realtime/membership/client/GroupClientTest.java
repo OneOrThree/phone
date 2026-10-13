@@ -85,6 +85,24 @@ class GroupClientTest {
     }
 
     @Test
+    @DisplayName("본문 없음(204·빈 200)·groupId 없는 항목은 «소속 없음»이 아니다 — 캐시 불가로 돌린다(GROMO-2258)")
+    void malformedSuccessIsNotAnEmptyMembership() {
+        // 빈 배열 [] 만이 정상 «아무 섬에도 없음»이다. 나머지를 빈 집합으로 캐시하면 주민이 «방문자»가 된다.
+        UUID groupId = UUID.randomUUID();
+        for (Responder malformed : new Responder[] {
+                exchange -> exchange.sendResponseHeaders(204, -1),
+                exchange -> exchange.sendResponseHeaders(200, -1),
+                json(200, "[{\"name\":\"이름만\"},{\"groupId\":\"" + groupId + "\"}]"),
+                json(200, "[null]")}) {
+            respondWith(malformed);
+
+            GroupClient.Membership membership = groupClient.fetchMyGroupIds(BEARER);
+            assertThat(membership.groupIds()).isEmpty();
+            assertThat(membership.cacheable()).isFalse();
+        }
+    }
+
+    @Test
     @DisplayName("401 은 «비멤버»가 아니다 — UNAUTHORIZED 로 올려 앱이 토큰을 갱신하게 한다")
     void unauthorizedSurfacesAsUnauthorized() {
         // 이 본문이 핵심이다. List<GroupRef> 로 읽으려 들면 변환이 터지고, 그러면 503 으로 뒤집힌다.
@@ -177,14 +195,18 @@ class GroupClientTest {
     // ── helpers ──────────────────────────────────────────────────────────
 
     private void respondWith(int status, String body) {
-        respondWith(exchange -> {
+        respondWith(json(status, body));
+    }
+
+    private static Responder json(int status, String body) {
+        return exchange -> {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(status, bytes.length);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(bytes);
             }
-        });
+        };
     }
 
     private void respondWith(Responder r) {

@@ -10,6 +10,7 @@ import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
+import com.oneorthree.business.upstream.data.dto.IslandFocusToday;
 import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.upstream.data.dto.MemberWatermark;
 import lombok.RequiredArgsConstructor;
@@ -64,6 +65,15 @@ public class IslandFocusMembersUseCase {
                 members.serverNow(), members.watermarks().stream().map(MemberWatermarkView::from).toList());
     }
 
+    /** 방문 화면 {@code focusToday} 조각 (GROMO-2258) — 오늘(KST) 이 섬 주민들의 집중 분. 실패 표는 스냅샷과 같다. */
+    public FocusTodayView focusToday(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        IslandFocusToday today = relay(() -> data.fetchFocusToday(claims.userId(), islandId, deadline));
+        if (today == null) {
+            throw new UpstreamContractMismatchException("오늘 집중 응답이 없습니다");
+        }
+        return new FocusTodayView(today.minutes());
+    }
+
     private static <T> T relay(Supplier<T> upstream) {
         try {
             return upstream.get();
@@ -82,6 +92,9 @@ public class IslandFocusMembersUseCase {
             @JsonProperty(required = true) List<FocusMemberView> items,
             @JsonProperty(required = true) String serverNow,
             @JsonProperty(required = true) List<MemberWatermarkView> watermarks) {
+    }
+
+    public record FocusTodayView(@JsonProperty(required = true) long minutes) {
     }
 
     public record RestMembersView(
