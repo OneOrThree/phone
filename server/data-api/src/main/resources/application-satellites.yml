@@ -219,6 +219,10 @@ internal:
           - 'GET /internal/islands/*/shop/orders'
           # GROMO-2265 망원경 목록 — 사용자 축 조회 1종. `*` 는 세그먼트 하나라 그 아래 경로를 열지 않는다.
           - 'GET /internal/users/*/telescope'
+          # GROMO-2268 망원경 핀 2종 — 위 `GET …/telescope` 줄이 덮지 못하는 더 깊은 경로라 따로 연다. 넣기와 빼기는
+          # 메서드도 세그먼트 수도 달라 합치지 않는다.
+          - 'POST /internal/users/*/telescope/pins'
+          - 'DELETE /internal/users/*/telescope/pins/*'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:
