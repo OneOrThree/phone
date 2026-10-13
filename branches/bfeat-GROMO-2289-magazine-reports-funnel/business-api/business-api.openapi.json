@@ -6910,6 +6910,10 @@
           "body": {
             "type": "string"
           },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
           "status": {
             "type": "string"
           },
@@ -6932,6 +6936,7 @@
           "issueDate",
           "issueNo",
           "joined",
+          "layout",
           "pinned",
           "promotionId",
           "status"

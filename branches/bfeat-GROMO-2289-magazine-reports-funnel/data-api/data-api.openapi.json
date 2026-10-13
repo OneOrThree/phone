@@ -9145,6 +9145,9 @@
           "body": {
             "type": "string"
           },
+          "layout": {
+            "$ref": "#/components/schemas/Layout"
+          },
           "status": {
             "type": "string",
             "enum": [
