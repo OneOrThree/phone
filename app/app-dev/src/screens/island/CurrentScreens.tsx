@@ -1,4 +1,5 @@
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
+import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
@@ -33,6 +34,7 @@ import {
   displayIsland as currentIsland,
   viewIsland,
   serverHome,
+  serverVisit,
   canVisit,
   buildingNames,
   costs,
@@ -1012,6 +1014,11 @@ function Travel({ e }: any) {
 function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
+  // 서버 방문(GROMO-2259) — 구경하는 섬의 집중 중 인원·오늘 집중·하단 가입 버튼. 목업은 기존 화면 그대로.
+  // 방문 스냅샷이 visitingIslandId 와 같은 섬의 것일 때만 쓴다 — HUD·presence·가입이 같은 섬을 본다.
+  const visit = e.islands ? serverVisit(s) : null;
+  const live = useIslandPresence({ active: !!visit, islandId: visit?.island.id ?? null });
+  const join = useVisitorJoin(e, s, viewIsland(s, visit?.island.id ?? islandId), e.notify);
   return (
     <FinalIsland
       state={s}
@@ -1022,7 +1029,92 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
       notify={e.notify}
       dispatch={e.dispatch}
       onReturnFromVisit={onReturnFromVisit}
+      visitHud={
+        visit
+          ? {
+              // HUD 는 지금 집중 중(active)만 센다. 응원 수신자는 서버 기준 진행 중(active·paused)이라 FocusVisit 와 다르다
+              focusCount:
+                live.status === 'ready'
+                  ? live.focus.filter((m) => m.status === 'active').length
+                  : null,
+              onFocusPress: () => e.go('visitIslandFocus', visit.island.id),
+              todayMinutes: visit.focusToday?.minutes,
+            }
+          : undefined
+      }
+      visitJoin={
+        visit
+          ? { label: join.label, disabled: join.disabled, onPress: () => void join.serverJoin() }
+          : undefined
+      }
     />
+  );
+}
+/** 응원 이모트 부채꼴 + 버튼 — 주민 집중 화면과 낚시 구경 화면(방문자, GROMO-2259)이 같이 쓴다. 부모가 위치를 잡는다. */
+function EmoteFab({
+  fan,
+  setFan,
+  emote,
+  onSend,
+  disabled = false,
+  onDisabledPress,
+}: {
+  fan: boolean;
+  setFan: (v: boolean) => void;
+  emote: string | null;
+  onSend: (id: string) => void;
+  /** 보낼 수 없는 상태 — 흐리게 그리고, 누르면 부채꼴 대신 onDisabledPress(안내)만 부른다. */
+  disabled?: boolean;
+  onDisabledPress?: () => void;
+}) {
+  const circle = (d: number, bg: string) => ({
+    width: d,
+    height: d,
+    borderRadius: d / 2,
+    borderWidth: 2,
+    borderColor: OUTLINE,
+    backgroundColor: bg,
+    boxShadow: `0px 4px 0px ${OUTLINE}`,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  });
+  // 비활성이 되는 순간 접는다 — 부채꼴은 숨겨도 fan 이 true 로 남으면 다시 활성이 될 때 저절로 펼쳐진다.
+  useEffect(() => {
+    if (disabled) setFan(false);
+  }, [disabled, setFan]);
+  return (
+    <>
+      {fan && !disabled && (
+        <View style={{ position: 'absolute', left: 0, bottom: 64, flexDirection: 'row', gap: 6 }}>
+          {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((id) => (
+            <Pressable
+              key={id}
+              testID={`emote-${id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t(`focusFlow.hud.emote.${id}`)}
+              onPress={() => onSend(id)}
+              style={circle(46, C.paper)}
+            >
+              <Image source={art[`emote/${id}`]} style={{ width: 30, height: 30 }} />
+            </Pressable>
+          ))}
+        </View>
+      )}
+      <Pressable
+        testID="emote-fab"
+        accessibilityRole="button"
+        accessibilityLabel={t('focusFlow.hud.emoteFab')}
+        accessibilityHint={disabled ? t('focusFlow.hud.emoteNoOneFocusing') : undefined}
+        accessibilityState={{ expanded: fan, disabled }}
+        onPress={() => (disabled ? onDisabledPress?.() : setFan(!fan))}
+        style={[
+          circle(52, C.butter),
+          disabled && { opacity: componentTokens.button.disabledOpacity, boxShadow: 'none' },
+        ]}
+      >
+        <Image source={art[`emote/${emote ?? 'hello'}`]} style={{ width: 32, height: 32 }} />
+      </Pressable>
+    </>
   );
 }
 function FocusVisit({ e, islandId, onBack }: any) {
@@ -1041,11 +1133,24 @@ function FocusVisit({ e, islandId, onBack }: any) {
       : (s.serverIslands?.currentIslandId ?? null)
     : null;
   const transitionHandler = useRef<(transition: any) => void>(() => {});
+  const [fan, setFan] = useState(false);
+  // 구경하는 섬의 비주민은 세션 없이 응원을 보낸다(GROMO-2259). 그 섬의 주민(내 다른 소속 섬)은
+  // 세션이 없으면 보낼 수 없고 emotes 구독도 서버가 거절하므로 방문자 모드·이모트 버튼을 끈다.
+  const visitorEmote =
+    visiting &&
+    liveIslandId !== null &&
+    s.serverIslands?.visit?.island.membershipStatus !== 'active';
   const live = useIslandPresence({
     active: liveIslandId !== null,
     islandId: liveIslandId,
+    visitor: visitorEmote,
+    onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
+  // 응원 수신자는 서버 기준 진행 중(active·paused) 주민 — live.focus 가 곧 그 집합이다(HUD 인원은 active 만).
+  // 받을 주민이 없으면 서버가 NO_ONE_FOCUSING 으로 거절하고 그때마다 상류 조회가 나가므로,
+  // 스냅숏이 온 뒤 0명이면 요청 없이 안내만 한다.
+  const nobodyFocusing = live.status === 'ready' && live.focus.length === 0;
   const myId = getSession()?.userId;
   const peerMembers: FishingPeer[] = liveIslandId
     ? live.focus
@@ -1153,6 +1258,28 @@ function FocusVisit({ e, islandId, onBack }: any) {
           onPress={close}
         />
       </View>
+      {visitorEmote && (
+        <View
+          style={{
+            position: 'absolute',
+            zIndex: 30,
+            bottom: Math.max(36, safe.bottom + 4),
+            left: Math.max(18, safe.left + 8),
+          }}
+        >
+          <EmoteFab
+            fan={fan}
+            setFan={setFan}
+            emote={null}
+            disabled={nobodyFocusing}
+            onDisabledPress={() => e.notify(t('focusFlow.hud.emoteNoOneFocusing'))}
+            onSend={(id) => {
+              setFan(false);
+              if (!live.sendEmote(id)) e.notify(t('focusFlow.hud.emoteSendFailed'));
+            }}
+          />
+        </View>
+      )}
       {liveIslandId && live.status === 'loading' ? (
         <View
           pointerEvents="none"
@@ -1346,6 +1473,8 @@ function FocusFlow({ e: environment }: any) {
     islandId: liveIslandId,
     emoteSessionId,
     onSendError: e.notify,
+    // 방문자가 보낸 응원은 말풍선 대신 알림으로 — 이름은 서버가 주지 않는다
+    onVisitorEmote: () => e.notify(t('focusFlow.visitorCheered')),
     onTransition: (transition) => transitionHandler.current(transition),
     onGoldenFish: (event) => goldenHandler.current(event),
   });
@@ -2838,51 +2967,7 @@ function FocusFlow({ e: environment }: any) {
                 gap: 8,
               }}
             >
-              {fan && (
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    bottom: 64,
-                    flexDirection: 'row',
-                    gap: 6,
-                  }}
-                >
-                  {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((id, n) => (
-                    <Pressable
-                      key={id}
-                      testID={`emote-${id}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        [
-                          t('focusFlow.hud.emote.hello'),
-                          t('focusFlow.hud.emote.cheer'),
-                          t('focusFlow.hud.emote.sleepy'),
-                          t('focusFlow.hud.emote.laugh'),
-                          t('focusFlow.hud.emote.hearts'),
-                        ][n]
-                      }
-                      onPress={() => sendEmote(id)}
-                      style={circle(46, C.paper)}
-                    >
-                      <Image source={art[`emote/${id}`]} style={{ width: 30, height: 30 }} />
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-              <Pressable
-                testID="emote-fab"
-                accessibilityRole="button"
-                accessibilityLabel={t('focusFlow.hud.emoteFab')}
-                accessibilityState={{ expanded: fan }}
-                onPress={() => setFan(!fan)}
-                style={circle(52, C.butter)}
-              >
-                <Image
-                  source={art[`emote/${emote ?? 'hello'}`]}
-                  style={{ width: 32, height: 32 }}
-                />
-              </Pressable>
+              <EmoteFab fan={fan} setFan={setFan} emote={emote} onSend={sendEmote} />
               <View
                 ref={pauseTarget.ref}
                 collapsable={false}

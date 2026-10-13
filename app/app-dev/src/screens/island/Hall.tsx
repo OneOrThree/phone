@@ -18,9 +18,6 @@ import {
   State,
   Building,
   viewIsland,
-  visitorJoinState,
-  pendingVisitRequest,
-  visitorJoinLabel,
   buildingNames,
   costs,
   buildMinutes,
@@ -54,7 +51,8 @@ import {
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
-import { islandErrorMessage } from '@/services/islandErrors';
+import { t } from '@/i18n';
+import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
@@ -220,15 +218,6 @@ export function Hall({ e }: any) {
   const [managementError, setManagementError] = useState('');
   const [managementBusy, setManagementBusy] = useState(false);
   const managementRun = useRef(0);
-  const visitorJoinPending = useRef(false);
-  const visitorJoinMounted = useRef(true);
-  const [visitorJoinBusy, setVisitorJoinBusy] = useState(false);
-  useEffect(() => {
-    visitorJoinMounted.current = true;
-    return () => {
-      visitorJoinMounted.current = false;
-    };
-  }, []);
   // 같은 섬의 관리 화면이라도 route 또는 인증 세대가 바뀌면 이전 요청의 UI 완료를 버린다.
   // 세대는 렌더 때 snapshot으로 잡아 effect dependency에 넣는다.
   const managementSessionGeneration = sessionGeneration();
@@ -370,6 +359,13 @@ export function Hall({ e }: any) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(''), 2400);
   };
+  const {
+    join,
+    disabled: joinDisabled,
+    label: joinLabel,
+    busy: visitorJoinBusy,
+    serverJoin,
+  } = useVisitorJoin(e, s, i, notify);
   // .hl 글자: 고운돋움, 자간 −0.15
   const g = (size: number, lh: number, extra?: object) => ({
     fontFamily: font,
@@ -2659,41 +2655,6 @@ export function Hall({ e }: any) {
     : host
       ? joinRequests(i)
       : [];
-  const join = visitorJoinState(s, i);
-  const joinDisabled = visitorJoinBusy || join === 'full' || join === 'blocked';
-  const joinLabel = visitorJoinBusy ? '처리 중이에요' : visitorJoinLabel[join];
-  const serverJoin = async () => {
-    if (visitorJoinPending.current || joinDisabled) return;
-    if (s.session) return notify('집중이나 휴식을 마친 뒤 가입해 주세요.');
-    visitorJoinPending.current = true;
-    setVisitorJoinBusy(true);
-    const generation = sessionGeneration();
-    // 즉시 가입의 재조회가 current/방문 상태를 바꿔도, 같은 화면·인증의 성공 처리는 마친다.
-    const alive = () => visitorJoinMounted.current && generation === sessionGeneration();
-    try {
-      if (join === 'cancel') {
-        const request = pendingVisitRequest(s, i.id);
-        if (!request) return;
-        await e.islands.cancel(request.id);
-        if (alive()) notify('가입 신청을 취소했어요.');
-      } else {
-        const result = await e.islands.join(i.id, { showApproval: false });
-        if (!alive()) return;
-        if (result.status === 'pending') {
-          notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
-        } else {
-          e.dispatch({ type: 'END_VISIT' });
-          e.reset('home');
-          e.notify(`${i.name} 주민이 됐어요`);
-        }
-      }
-    } catch (error) {
-      if (alive()) notify(islandErrorMessage(error));
-    } finally {
-      visitorJoinPending.current = false;
-      if (alive()) setVisitorJoinBusy(false);
-    }
-  };
   const section = (title: string, children: React.ReactNode, right?: string) => (
     <View
       style={{
@@ -2987,10 +2948,10 @@ export function Hall({ e }: any) {
               return;
             }
             e.dispatch({ type: 'JOIN', id: i.id });
-            if (join === 'apply') notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+            if (join === 'apply') notify(t('islandVisit.visitorJoin.requested'));
             else {
               // 바로 가입: 이 섬 주민이 되어 구경이 끝나므로 새 섬 홈으로 간다
-              e.notify(`${i.name} 주민이 됐어요`);
+              e.notify(t('islandVisit.visitorJoin.joined', { name: i.name }));
               e.home();
             }
           }}

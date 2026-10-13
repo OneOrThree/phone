@@ -357,7 +357,11 @@
   "home": {
     "hud": {
       "todayFocus": "Focus today",
-      "visiting": "Visiting {{name}}"
+      "visiting": "Visiting {{name}}",
+      "focusingNow": "{{count}} focusing on Fishing Island now",
+      "quietNow": "Fishing Island is quiet right now",
+      "focusingNowHint": "Tap to watch Fishing Island.",
+      "todayFocusVisitor": "Focus today {{time}}"
     },
     "build": "Build {{building}}",
     "buildProgress": "{{current}}/{{total}} fish",
@@ -438,11 +442,13 @@
       "toIsland": "To {{name}}",
       "telescope": "Telescope",
       "myRaft": "My Raft",
+      "endVisit": "End visit",
       "comingSoon": "Coming soon",
       "moveBlocked": "You can't move to another island right now."
     }
   },
   "focusFlow": {
+    "visitorCheered": "A visitor cheered you on 🎉",
     "common": {
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
@@ -485,6 +491,7 @@
     "hud": {
       "emoteFab": "Emote",
       "emoteSendFailed": "Couldn't send the cheer. Please try again in a moment.",
+      "emoteNoOneFocusing": "No one is focusing right now.",
       "residentsReloadA11y": "Reload resident status",
       "residentsLoadFailed": "Couldn't load resident status · Retry",
       "endConfirmTitle": "End this focus session?",
@@ -574,6 +581,21 @@
     "enterJoined": "Enter an Island You Joined"
   },
   "islandVisit": {
+    "leaveWithoutJoinTitle": "Leave without joining?",
+    "leaveWithoutJoinBody": "Become a resident to focus together here.",
+    "leaveWithoutJoinLeave": "Leave",
+    "visitorJoin": {
+      "join": "Join This Island",
+      "apply": "Request to Join",
+      "cancel": "Cancel Join Request",
+      "full": "This island is full",
+      "blocked": "You can't rejoin this island",
+      "busy": "Updating…",
+      "sessionActive": "Finish your focus session or break before joining.",
+      "cancelled": "Your join request was cancelled.",
+      "requested": "Request sent. We'll let you know once the host responds.",
+      "joined": "You're now a resident of {{name}}"
+    },
     "title": "Island Across the Sea",
     "loading": "Loading island details…",
     "residents": "Residents {{count}}/{{max}} · {{status}}",

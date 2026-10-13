@@ -1,13 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
-import { Group } from '@/design-system/patterns';
-import { IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
+import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { Sailing } from '@/screens/world/WorldViews';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { sessionGeneration } from '@/services/api/session';
-import { canSwitchIsland, currentIsland, viewIsland, type State } from '@/services/model';
+import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import {
+  canSwitchIsland,
+  currentIsland,
+  serverVisit,
+  viewIsland,
+  type State,
+} from '@/services/model';
 
-/** 뗏목 행선지 시트(GROMO-2261) — 소속 섬 이동·낚시섬·망원경·내 뗏목. 방문 중에는 소속 섬만 보인다. */
+/** 뗏목 행선지 시트(GROMO-2261) — 소속 섬 이동·낚시섬·망원경·내 뗏목. 방문 중에는 소속 섬과 구경 끝내기만 보인다. */
 export function RaftDestinations({ e }: { e: any }) {
   const s: State = e.state;
   const visiting = !!s.visitingIslandId;
@@ -72,6 +78,54 @@ export function RaftDestinations({ e }: { e: any }) {
     }
   };
 
+  // 가입하지 않은 섬을 구경하다 떠나면 가입 안내를 방문당 1번 묻는다(GROMO-2259).
+  // 물었는지는 리듀서 상태(visitLeaveAsked)에 둔다 — 새 방문·구경 끝에서만 지워지고, 사이의 다른 액션에 영향받지 않는다.
+  // 확인창의 [가입] 은 회관·지도 하단의 가입 버튼과 같은 함수(useVisitorJoin)를 쓴다.
+  // 방문 스냅샷이 아직 없거나 다른 섬의 것인 프레임에는 가입 여부를 알 수 없으므로 확인 없이 끝낸다(의도).
+  const serverVisiting = !!e.islands && visiting;
+  const visit = serverVisiting ? serverVisit(s) : null;
+  const visitorJoin = useVisitorJoin(
+    e,
+    s,
+    viewIsland(s, visit?.island.id ?? s.visitingIslandId),
+    e.notify,
+  );
+  const confirmLeave = (action: () => void) => {
+    // 이미 가입 신청을 낸 사람(join === 'cancel')은 「가입하지 않고 떠나는」 사람이 아니므로 묻지 않는다.
+    // membershipStatus 가 아직 'none' 인 프레임에도 확인창의 「취소」가 하단 「신청 취소」와 헷갈리지 않게 한다.
+    if (
+      visit &&
+      visit.island.membershipStatus === 'none' &&
+      visitorJoin.join !== 'cancel' &&
+      !s.visitLeaveAsked
+    ) {
+      e.dispatch({ type: 'VISIT_LEAVE_ASKED' });
+      // 가입할 수 있는 섬이면 취소 자리에 가입 버튼을 둬 떠나는 순간 한 번에 가입하게 한다.
+      // 즉시 가입이면 훅이 구경을 끝내고 홈으로 보내므로 떠나기 동작(action)은 돌리지 않는다.
+      // 정원이 찼거나 막혔으면 기본 「취소」다.
+      const canJoin = !visitorJoin.disabled;
+      e.confirm(
+        t('islandVisit.leaveWithoutJoinTitle'),
+        t('islandVisit.leaveWithoutJoinBody'),
+        action,
+        {
+          ok: t('islandVisit.leaveWithoutJoinLeave'),
+          ...(canJoin && {
+            cancel: visitorJoin.label,
+            onCancel: () => void visitorJoin.serverJoin(),
+          }),
+        },
+      );
+      return;
+    }
+    action();
+  };
+  // 소속 섬 이동 없이 구경만 끝낸다 — CurrentScreens 의 endServerVisit 와 같다(소속 섬이 없으면 섬 선택으로).
+  const endVisit = () => {
+    e.dispatch({ type: 'END_VISIT' });
+    e.reset(s.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
+  };
+
   // 출발지 = 방문 중이면 방문 섬, 아니면 현재 섬 이름(이름을 못 얻으면 「우리 섬」).
   const from =
     (visiting
@@ -102,7 +156,7 @@ export function RaftDestinations({ e }: { e: any }) {
       onBack={close}
       onClose={close}
     >
-      <Group>
+      <SheetGroup>
         {!visiting && (
           <SheetRow
             title={t('home.raft.fishingIsland')}
@@ -117,11 +171,19 @@ export function RaftDestinations({ e }: { e: any }) {
             title={t('home.raft.toIsland', { name: m.name })}
             chevron
             disabled={pending}
-            onPress={() => {
-              void leaveTo(m);
-            }}
+            onPress={() => confirmLeave(() => void leaveTo(m))}
           />
         ))}
+        {serverVisiting && (
+          // 이동할 소속 섬이 없어도(온보딩 중 구경 등) 구경을 끝낼 길이 남도록 방문 중에는 항상 둔다.
+          // TODO E1-4 먼바다로 행선지가 생기면 이 행을 대체한다
+          <SheetRow
+            title={t('home.raft.endVisit')}
+            chevron
+            disabled={pending}
+            onPress={() => confirmLeave(endVisit)}
+          />
+        )}
         {!visiting && (
           // TODO E1-4 먼바다 화면이 생기면 이 행은 바다 담당이 치운다 (임시 망원경 입구, N5)
           <SheetRow
@@ -139,7 +201,7 @@ export function RaftDestinations({ e }: { e: any }) {
             onPress={() => e.go('boat')}
           />
         )}
-      </Group>
+      </SheetGroup>
     </IslandSheet>
   );
 }

@@ -105,6 +105,8 @@ export type VisitScreen = {
   };
   joinRequestAvailability: 'available' | 'none';
   joinRequest: JoinRequestStatus | null;
+  /** 오늘(KST) 이 섬의 집중 분(GROMO-2259). 구서버는 필드가 없다. */
+  focusToday?: { minutes: number };
 };
 
 export type CreateIslandInput = {
