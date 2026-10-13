@@ -44,7 +44,7 @@ test('줄마다 날짜·호 · 상태 칩 · 글 · 숫자 — 한 줄이 스크
   expect(screen.getByTestId('promotion-record-p1').props.accessibilityLabel).toBe(
     '10월 15일 · 20호, 실림, ‘같이 아침 공부해요’, 망원경에 넣음 12명, 도착 4명, 가입 1명',
   );
-  // 서버가 꾸미기를 주지 않으면 칸 썸네일 없이 글만
+  // 꾸미기가 어긋나 읽지 못했으면(layout null) 칸 썸네일 없이 글만
   expect(screen.queryByTestId('promotion-record-cell-p1')).toBeNull();
 });
 

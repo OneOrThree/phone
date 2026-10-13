@@ -465,7 +465,7 @@ export type PromotionRecord = {
   pinned: number;
   arrived: number;
   joined: number;
-  /** 칸 꾸미기 — 서버가 실어 줄 때만 있다(없으면 기록판에 칸 그림 없이 글만) */
+  /** 섬장이 꾸민 칸(서버가 늘 싣는다) — 모양이 어긋나면 null 이고 기록판은 칸 그림 없이 글만 보인다 */
   layout: PromotionLayout | null;
 };
 
