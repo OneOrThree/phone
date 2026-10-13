@@ -8047,13 +8047,13 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           accessibilityLabel={t('magazine.editor.title')}
           onPress={() => e.go('promotionEditor')}
           style={{
-            marginTop: 7,
+            marginTop: componentTokens.mailboxAction.gap,
             minHeight: semanticTokens.size.tapMin,
-            paddingHorizontal: 10,
+            paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
             justifyContent: 'center',
             borderWidth: componentTokens.mailboxAction.borderWidth,
             borderColor: componentTokens.mailboxAction.border,
-            borderRadius: 5,
+            borderRadius: componentTokens.mailboxAction.radius,
             backgroundColor: componentTokens.mailboxAction.background,
             boxShadow: componentTokens.mailboxAction.shadow,
           }}

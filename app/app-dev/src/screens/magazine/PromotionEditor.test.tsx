@@ -22,6 +22,12 @@ jest.mock('@/services/api/magazine', () => ({
   applyPromotion: jest.fn(),
   updatePromotion: jest.fn(),
 }));
+// 글자 배율만 바꿔 끼운다(나머지는 실제 화면 치수)
+let mockFontScale = 1;
+jest.mock('@/utils/layout', () => {
+  const actual = jest.requireActual('@/utils/layout');
+  return { useAppLayout: () => ({ ...actual.useAppLayout(), fontScale: mockFontScale }) };
+});
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
@@ -124,6 +130,68 @@ describe('여닫기', () => {
     const screen = await render(<PromotionEditor e={env({ conversion: { offer } })} />);
     await waitFor(() => expect(offer).toHaveBeenCalledWith(gate));
     expect(screen.getByText('소셜 로그인을 하면 우리 섬을 잡지에 실을 수 있어요')).toBeTruthy();
+  });
+});
+
+describe('작은 화면·큰 글자·고르기', () => {
+  it('서랍 탭은 44pt 이고 좁은 화면에서는 감긴다', async () => {
+    const { screen } = await open();
+    for (const tab of ['고양이', '바다', '친구들', '꾸미기'])
+      expect(StyleSheet.flatten(screen.getByLabelText(tab).props.style).height).toBe(44);
+  });
+
+  it('아래 고정 줄 버튼은 문구가 감기면 높이가 늘고, 큰 글자에서는 세로로 쌓인다', async () => {
+    const actions = (screen: any) =>
+      StyleSheet.flatten(screen.getByTestId('promotion-actions').props.style).flexDirection;
+    const submitHeight = (screen: any) =>
+      StyleSheet.flatten(screen.getByTestId('promotion-submit').props.style).height;
+    const normal = await open();
+    expect(actions(normal.screen)).toBe('row');
+    expect(submitHeight(normal.screen)).toBeUndefined(); // 고정 52 가 아니라 최소 52 에서 늘어난다
+    await normal.screen.unmount();
+    mockFontScale = 1.6;
+    try {
+      const large = await open();
+      expect(actions(large.screen)).toBe('column-reverse');
+      // 고른 꾸미기 버튼 줄도 글자에 맞춰 높이가 는다
+      await fireEvent(large.screen.getByTestId('canvas-sticker-0'), 'accessibilityAction', {
+        nativeEvent: { actionName: 'activate' },
+      });
+      expect(
+        StyleSheet.flatten(large.screen.getByTestId('op-bigger').props.style).height,
+      ).toBeUndefined();
+    } finally {
+      mockFontScale = 1;
+    }
+  });
+
+  it('다시 읽어 서버 칸으로 바뀌면 고르기가 풀린다 — 없는 스티커 번호로 그리지 않는다', async () => {
+    const { screen } = await open();
+    await fireEvent(screen.getByTestId('canvas-sticker-1'), 'accessibilityAction', {
+      nativeEvent: { actionName: 'activate' },
+    });
+    expect(screen.getByTestId('op-delete')).toBeTruthy();
+    // 다른 기기에서 먼저 신청 — 다시 읽으면 스티커 1장짜리 서버 칸이 온다
+    apply.mockRejectedValueOnce(new ApiError('PROMOTION_ALREADY_REQUESTED_TODAY', '이미', 409));
+    const server = { ...LAYOUT, stickers: [LAYOUT.stickers[0]] };
+    getEditor.mockResolvedValueOnce(
+      editorResponse({
+        next: {
+          promotionId: 'p8',
+          issueDate: '2026-10-15',
+          body: '다른 기기 글',
+          layout: server,
+          appliedAt: 'x',
+          editable: true,
+        },
+      }),
+    );
+    await fireEvent.press(screen.getByTestId('promotion-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('promotion-body').props.value).toBe('다른 기기 글'),
+    );
+    expect(stickerStyles(screen)).toHaveLength(1);
+    expect(screen.queryByTestId('op-delete')).toBeNull();
   });
 });
 

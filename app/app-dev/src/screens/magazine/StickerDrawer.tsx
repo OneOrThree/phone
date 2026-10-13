@@ -36,7 +36,10 @@ export function StickerDrawer({
   const stickers = Object.entries(MAGAZINE_STICKERS).filter(([, s]) => s.tab === tab);
   return (
     <View style={{ flex: 1, gap: semanticTokens.spacing.control }}>
+      {/* 탭은 44pt(large), 좁은 화면(320pt)에서는 두 줄로 감긴다 */}
       <Chips
+        large
+        wrap
         items={labels}
         value={labels[TABS.indexOf(tab)]}
         onChange={(label: string) => onTab(TABS[labels.indexOf(label)])}
@@ -45,13 +48,16 @@ export function StickerDrawer({
         testID="sticker-drawer"
         // 쓰기 화면 본문도 세로 스크롤이라 Android 에서는 안쪽 서랍이 제스처를 받게 따로 켠다
         nestedScrollEnabled
-        contentContainerStyle={{ gap: semanticTokens.spacing.control, paddingBottom: 8 }}
+        contentContainerStyle={{
+          gap: semanticTokens.spacing.control,
+          paddingBottom: primitiveTokens.space[2],
+        }}
         showsVerticalScrollIndicator={false}
       >
         {tab === 'deco' && (
           <>
             <Txt kind="meta">{t('magazine.editor.tapes')}</Txt>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: primitiveTokens.space[2] }}>
               {Object.entries(MAGAZINE_TAPES).map(([id, tape]) => (
                 <Tile
                   key={id}
@@ -66,7 +72,7 @@ export function StickerDrawer({
             </View>
           </>
         )}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: primitiveTokens.space[2] }}>
           {stickers.map(([id, s]) => (
             <Tile
               key={id}
@@ -101,6 +107,7 @@ function Tile({
   onPress: () => void;
 }) {
   const name = assetName(id);
+  const tile = componentTokens.promotionEditor;
   return (
     <Pressable
       testID={`drawer-${id}`}
@@ -110,8 +117,8 @@ function Tile({
       disabled={locked}
       onPress={onPress}
       style={{
-        width: wide ? 84 : 72,
-        height: wide ? semanticTokens.size.tapMin : 72,
+        width: wide ? tile.tapeTileWidth : tile.stickerTile,
+        height: wide ? semanticTokens.size.tapMin : tile.stickerTile,
         borderRadius: semanticTokens.radius.control,
         borderWidth: selected ? semanticTokens.stroke.strong : semanticTokens.stroke.default,
         borderColor: selected ? semanticTokens.color.outline : primitiveTokens.color.controlIdle,
@@ -124,7 +131,7 @@ function Tile({
       <Image
         source={source}
         resizeMode="contain"
-        style={{ width: wide ? 70 : 56, height: wide ? 30 : 56 }}
+        style={wide ? tile.tapeArt : { width: tile.stickerArt, height: tile.stickerArt }}
       />
     </Pressable>
   );
