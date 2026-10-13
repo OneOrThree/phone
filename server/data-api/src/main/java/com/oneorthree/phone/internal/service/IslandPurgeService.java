@@ -95,6 +95,9 @@ public class IslandPurgeService implements IslandPurgePort {
             "DELETE FROM group_announcement_comments WHERE notice_id IN "
                     + "(SELECT id FROM group_announcements WHERE group_id = :islandId)",
             "DELETE FROM group_announcements WHERE group_id = :islandId",
+            // 섬 도착 기록 (V107, GROMO-2260) — 다른 표의 부모가 아니다. 섬은 묘비만 남고 하드 삭제되지 않아
+            // FK 의 ON DELETE CASCADE 가 돌지 않으므로 여기서 지운다. 닫힌 섬은 즉시 이동·다음 위치 후보가 아니다.
+            "DELETE FROM island_arrivals WHERE island_id = :islandId",
             // 공동 잔액·원장 (V62) — 원장이 통장의 자식이라 가장 마지막이다.
             "DELETE FROM island_wallet_transactions WHERE island_id = :islandId",
             "DELETE FROM island_wallets WHERE island_id = :islandId");

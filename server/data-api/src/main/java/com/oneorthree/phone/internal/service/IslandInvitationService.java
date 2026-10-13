@@ -5,6 +5,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.group.repository.IslandArrivalRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -62,6 +63,7 @@ public class IslandInvitationService {
     private final GroupMembershipMutationLocks membershipLocks;
     private final GroupMemberRepository groupMemberRepository;
     private final IslandJoinRequestRepository joinRequestRepository;
+    private final IslandArrivalRepository arrivals;
     private final GroupInviteLinkRepository inviteLinkRepository;
     private final IslandMovementGuards movementGuards;
     private final SlugGenerator slugGenerator;
@@ -164,7 +166,8 @@ public class IslandInvitationService {
                 : latest != null && latest.isPending()
                         ? IslandSummaries.STATUS_PENDING : IslandSummaries.STATUS_NONE;
         return IslandSummaries.of(island, memberCount, status,
-                latest == null ? null : latest.getId());
+                latest == null ? null : latest.getId(),
+                arrivals.existsByUserIdAndIslandId(caller.getId(), island.getId()));
     }
 
     private String uniqueSlug() {

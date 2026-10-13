@@ -426,7 +426,7 @@ public class ScreenReadUseCase {
         UUID islandId = island.id();
         Map<String, Object> parts = composer.compose(context, List.of(
                 fragment("messages", deadline -> mailbox.firstPage(claims, islandId, deadline)),
-                fragment("letters", deadline -> letters.letters(claims, LETTERS_RECEIVED, null, null, deadline)),
+                fragment("letters", deadline -> letters.letters(claims, LETTERS_RECEIVED, null, null, null, deadline)),
                 fragment("friends", deadline -> friends.friends(claims, null, deadline))));
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
@@ -553,7 +553,7 @@ public class ScreenReadUseCase {
         if (view instanceof IslandDetailView detail) {
             return new IslandSummaryView(detail.id(), detail.name(), detail.intro(), detail.visibility(),
                     detail.approvalRequired(), detail.memberCount(), detail.maxMembers(),
-                    detail.membershipStatus(), null, detail.growthStage(), detail.themeId());
+                    detail.membershipStatus(), null, detail.growthStage(), detail.themeId(), null);
         }
         throw new UpstreamContractMismatchException("섬 조회 응답을 판별할 수 없습니다");
     }

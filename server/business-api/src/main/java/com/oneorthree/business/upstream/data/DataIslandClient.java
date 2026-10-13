@@ -1,10 +1,12 @@
 package com.oneorthree.business.upstream.data;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
+import com.oneorthree.business.upstream.data.dto.IslandArrival;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
@@ -65,6 +67,15 @@ public class DataIslandClient {
             "/internal/users/{userId}/invitations/resolve";
     private static final String PATH_ISLAND_INVITATIONS =
             "/internal/users/{userId}/islands/{islandId}/invitations";
+    /**
+     * 나가기 응답에 다음 위치를 싣게 하는 opt-in (GROMO-2260). Data 는 이 파라미터가 없으면 GROMO-2260 이전의
+     * 한 키 응답을 준다 — Data 가 먼저 배포돼도 구 Business 가 깨지지 않게 하려는 장치다. 강퇴에는 다음 위치가
+     * 없다 — 그 응답은 방장이 받는다.
+     */
+    private static final String INCLUDE_NEXT_LOCATION = "nextLocation";
+    // GROMO-2260 섬 도착 기록 — 현재 섬을 옮기므로 명령 키 receipt 로 묶인다.
+    private static final String PATH_ISLAND_ARRIVALS =
+            "/internal/users/{userId}/islands/{islandId}/arrivals";
     // GROMO-1771 섬 게시판 6종 + 댓글 삭제(GROMO-2136)
     private static final String PATH_NOTICES = "/internal/islands/{islandId}/notices";
     private static final String PATH_NOTICE = "/internal/islands/{islandId}/notices/{noticeId}";
@@ -236,7 +247,7 @@ public class DataIslandClient {
      * 섬 가입 (GROMO-1760, LLD §3.7). 즉시 가입이면 {@code active}+새 current, 승인제면
      * {@code pending} 요청을 만든다 — 판정은 전부 상류 몫이고 결과는 receipt 로 재생된다.
      */
-    public JoinIslandResult joinIsland(UUID userId, UUID islandId, String invitationToken,
+    public JoinIslandResult joinIsland(UUID userId, UUID islandId, String invitationToken, String origin,
             UUID key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST,
@@ -244,11 +255,24 @@ public class DataIslandClient {
                                         .replace("{islandId}", islandId.toString()))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
-                        .body(new JoinIslandCommand(invitationToken))
+                        .body(new JoinIslandCommand(invitationToken, origin))
                         .idempotentCommand()
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<JoinIslandResult>() { });
+    }
+
+    /** 섬 도착 기록 (GROMO-2260) — 현재 섬을 옮기는 명령이라 앱의 명령 키를 싣는다(즉시 이동과 같다). */
+    public IslandArrival arriveAtIsland(UUID userId, UUID islandId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_ISLAND_ARRIVALS, userId).replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandArrival>() { });
     }
 
     /**
@@ -541,6 +565,7 @@ public class DataIslandClient {
         return http.exchange(
                 InternalCall.to(HttpMethod.DELETE, islandPath(userPath(PATH_ISLAND_MEMBERSHIP, userId), islandId))
                         .onBehalfOf(userId)
+                        .query("include", INCLUDE_NEXT_LOCATION)
                         .idempotencyKey(key.toString())
                         .idempotentCommand()
                         .build(),
@@ -561,7 +586,8 @@ public class DataIslandClient {
     }
 
     /** 섬 가입 요청 본문 (GROMO-1760). {@code invitationToken} 은 없으면 null 그대로다. */
-    record JoinIslandCommand(String invitationToken) {
+    record JoinIslandCommand(String invitationToken,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String origin) {
     }
 
     /** 초대 코드 해석 요청 본문 (GROMO-1760). */

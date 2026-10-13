@@ -2,6 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.api.dto.IslandMembershipResponses.CurrentIslandView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.InvitationResolvedView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandArrivalView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandCreatedView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandDetailView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandInvitationView;
@@ -70,7 +71,10 @@ public class IslandMembershipUseCase {
             Map.entry("OBSERVATORY_LOCKED", new PublicFailure(ApiErrorCode.FACILITY_LOCKED, null)),
             // 진행 중 집중 세션이 있어 이동/생성을 거절했다(LLD §3.1·§3.6).
             Map.entry("SESSION_IN_PROGRESS", new PublicFailure(ApiErrorCode.STATE_CONFLICT, null)),
-            Map.entry("GROUP_LIMIT_EXCEEDED", new PublicFailure(ApiErrorCode.STATE_CONFLICT, null)),
+            // 소속 섬 상한 3 (GROMO-2260) — 앱이 「섬을 하나 나가세요」를 띄우도록 전용 코드로 옮긴다.
+            Map.entry("GROUP_LIMIT_EXCEEDED", new PublicFailure(ApiErrorCode.ISLAND_LIMIT_EXCEEDED, null)),
+            // 가 본 적 없는 소속 섬으로 즉시 이동 (GROMO-2260).
+            Map.entry("ISLAND_NOT_ARRIVED", new PublicFailure(ApiErrorCode.ISLAND_NOT_ARRIVED, "islandId")),
             Map.entry("CONCURRENT_UPDATE", new PublicFailure(ApiErrorCode.VERSION_CONFLICT, null)),
             // ── GROMO-1760 섬 가입·초대. 422/410 의 원본 의미를 유지한다 — 형식 오류는 범위
             // 초과, 폐기·만료는 전용 코드(ApiErrorCode 의 동명 상수가 registeredUpstream 으로 붙는다).
@@ -221,13 +225,28 @@ public class IslandMembershipUseCase {
     }
 
     /**
+     * 섬 도착 (GROMO-2260) — 항해·방문이 끝난 자리에서 부른다. 앱의 명령 키를 그대로 전달한다 — 재생 판정은
+     * Data 의 receipt 다.
+     */
+    public IslandArrivalView arrive(AccessTokenClaims claims, UUID islandId, UUID key, Deadline deadline) {
+        var arrival = relay(() -> data.arriveAtIsland(claims.userId(), islandId, key, deadline));
+        if (arrival == null || !islandId.equals(arrival.islandId())) {
+            throw new UpstreamContractMismatchException("도착 응답의 섬이 요청과 다릅니다");
+        }
+        return IslandArrivalView.from(arrival);
+    }
+
+    /**
      * 섬 가입 (GROMO-1760, LLD §3.7). 즉시 가입이면 {@code active}+새 current, 승인제면
      * {@code pending} — 어느 쪽인지는 상류 판정이고 응답 형태로만 구분한다.
+     *
+     * <p>{@code origin=telescope}(GROMO-2260)이면 즉시 가입이어도 현재 섬이 옮겨지지 않는다 — 그래서
+     * {@code active} 의 {@code currentIslandId} 가 null(먼바다)일 수 있다.
      */
     public IslandJoinResultView join(AccessTokenClaims claims, UUID islandId, String invitationToken,
-            UUID key, Deadline deadline) {
+            String origin, UUID key, Deadline deadline) {
         JoinIslandResult result = relay(() ->
-                data.joinIsland(claims.userId(), islandId, invitationToken, key, deadline));
+                data.joinIsland(claims.userId(), islandId, invitationToken, origin, key, deadline));
         if (result == null || result.islandId() == null || result.status() == null) {
             throw new UpstreamContractMismatchException("가입 응답이 완전하지 않습니다");
         }
@@ -236,7 +255,8 @@ public class IslandMembershipUseCase {
         }
         // 형태 불변식 — pending 에는 requestId 가, active 에는 currentIslandId 가 있어야 한다.
         if (("pending".equals(result.status()) && result.requestId() == null)
-                || ("active".equals(result.status()) && result.currentIslandId() == null)) {
+                || ("active".equals(result.status()) && result.currentIslandId() == null
+                        && !"telescope".equals(origin))) {
             throw new UpstreamContractMismatchException("가입 응답의 상태와 필드가 어긋납니다");
         }
         return IslandJoinResultView.from(result);

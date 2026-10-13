@@ -575,6 +575,9 @@ class IslandMembershipIntegrationTest {
         User user = users.getCaller(userId);
         Group island = groups.findById(islandId).orElseThrow();
         members.save(GroupMember.builder().user(user).group(island).role(role).build());
+        // V107 이전부터 있던 소속처럼 «가 본 섬» 으로 둔다 — V107 백필과 같은 상태(GROMO-2260).
+        jdbc.update("insert into island_arrivals (user_id, island_id, first_arrived_at, last_arrived_at)"
+                + " values (?, ?, now(), now()) on conflict do nothing", userId, islandId);
     }
 
     /** 검색 가드를 통과시키려고 현재 섬 하나를 쥐여 준다. */

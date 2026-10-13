@@ -8,7 +8,7 @@ import java.util.UUID;
 /**
  * {@code GET /internal/users/{userId}/islands} 응답 (GROMO-1759, LLD §3.5).
  *
- * <p>페이지가 없다 — 현재 소속 상한이 10 이라 목록은 전량이다. 공개 계약의 {@code nextCursor} 는
+ * <p>페이지가 없다 — 현재 소속 상한이 3 이라(GROMO-2260) 목록은 전량이다. 공개 계약의 {@code nextCursor} 는
  * 항상 null 이고 그 상수는 Business 가 채운다.
  *
  * <p>{@code currentIslandId} 는 <b>지금도 활성 소속인 섬이거나 null</b> 이다(LLD §3.5). 저장된 컨텍스트가

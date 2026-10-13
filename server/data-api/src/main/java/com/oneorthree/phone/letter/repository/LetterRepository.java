@@ -22,22 +22,28 @@ import java.util.UUID;
  * <p>정렬·커서 축은 {@code id} 다 — UUID v7 이 이미 생성 시간순이라 별도 정렬 컬럼이 필요 없다
  * ({@code FocusSessionRepository.findSessionsByCursor} 선례와 같은 이유). {@code created_at} 으로
  * 정렬하면 같은 밀리초의 두 편지가 페이지 경계에서 중복·누락된다.
+ *
+ * <p><b>친구 편지함 목록은 {@code kind = FRIEND} 만 본다</b> (GROMO-2260). 시스템 편지(강퇴·가입 승인 안내)는
+ * 발신자가 없어서, 그것이 기존 목록에 섞이면 발신자 id 를 필수로 다루는 구 앱이 깨진다. 시스템 편지는
+ * {@link #findSystemReceivedByCursor} 로만, 명시적으로 요청할 때 읽는다.
  */
 public interface LetterRepository extends JpaRepository<Letter, UUID> {
 
     /**
      * 상세 조회용 — 발신자를 함께 로드한다({@code senderNickname} 이 응답에 실린다, LLD §1.14).
      * 수신자는 {@code receiver.id} 만 읽으므로 LAZY 프록시로 충분하다(추가 SELECT 가 나가지 않는다).
+     * 종류를 거르지 않는다 — 발신자를 {@code LEFT} 로 붙여 시스템 편지(발신자 없음)도 찾고, 시스템 편지를
+     * 수신자 본인에게만 보여 주는 판정은 {@code InternalLetterService} 가 한다(GROMO-2260).
      *
      * @param id 편지 id
      * @return 살아 있는 편지 1건. empty 는 {@code LETTER_NOT_FOUND} 이고, 「내 것이 아님」과 구분하지 않는다
      *     — 구분해 주면 남의 편지 id 로 「그런 편지가 있는가」가 샌다
      */
-    @Query("SELECT l FROM Letter l JOIN FETCH l.sender WHERE l.id = :id AND l.deletedAt IS NULL")
+    @Query("SELECT l FROM Letter l LEFT JOIN FETCH l.sender WHERE l.id = :id AND l.deletedAt IS NULL")
     Optional<Letter> findActiveWithSender(@Param("id") UUID id);
 
     /**
-     * 받은 편지함 한 페이지 — 상대(발신자)를 함께 로드해 닉네임 N+1 을 막는다.
+     * 받은 편지함 한 페이지 — 상대(발신자)를 함께 로드해 닉네임 N+1 을 막는다. 친구 편지만이다(클래스 주석).
      *
      * @param userId   편지함 주인. 쿼리에 박혀 있어 남의 편지함을 가리킬 입력이 없다
      * @param cursor   직전 페이지의 마지막 편지 id. {@code null} 이면 첫 페이지
@@ -46,6 +52,7 @@ public interface LetterRepository extends JpaRepository<Letter, UUID> {
      */
     @Query("SELECT l FROM Letter l JOIN FETCH l.sender "
             + "WHERE l.receiver.id = :userId AND l.deletedAt IS NULL "
+            + "AND l.kind = com.oneorthree.phone.letter.repository.domain.LetterKind.FRIEND "
             + "AND NOT EXISTS (SELECT 1 FROM UserBlock b WHERE b.blocker.id = :userId AND b.blocked = l.sender) "
             + "AND (:cursor IS NULL OR l.id < :cursor) "
             + "ORDER BY l.id DESC")
@@ -65,12 +72,31 @@ public interface LetterRepository extends JpaRepository<Letter, UUID> {
      */
     @Query("SELECT l FROM Letter l JOIN FETCH l.receiver "
             + "WHERE l.sender.id = :userId AND l.deletedAt IS NULL "
+            + "AND l.kind = com.oneorthree.phone.letter.repository.domain.LetterKind.FRIEND "
             + "AND NOT EXISTS (SELECT 1 FROM UserBlock b WHERE b.blocker.id = :userId AND b.blocked = l.receiver) "
             + "AND (:cursor IS NULL OR l.id < :cursor) "
             + "ORDER BY l.id DESC")
     Slice<Letter> findSentByCursor(@Param("userId") UUID userId,
                                    @Param("cursor") UUID cursor,
                                    Pageable pageable);
+
+    /**
+     * 시스템 편지함 한 페이지 (GROMO-2260) — 내가 받은 강퇴·가입 승인 안내. 발신자가 없어 조인할 상대도,
+     * 차단으로 거를 상대도 없다. 정렬·커서는 받은 편지함과 같다.
+     *
+     * @param userId   편지함 주인
+     * @param cursor   직전 페이지의 마지막 편지 id. {@code null} 이면 첫 페이지
+     * @param pageable size 만 쓴다
+     * @return 최신순 한 페이지
+     */
+    @Query("SELECT l FROM Letter l "
+            + "WHERE l.receiver.id = :userId AND l.deletedAt IS NULL "
+            + "AND l.kind <> com.oneorthree.phone.letter.repository.domain.LetterKind.FRIEND "
+            + "AND (:cursor IS NULL OR l.id < :cursor) "
+            + "ORDER BY l.id DESC")
+    Slice<Letter> findSystemReceivedByCursor(@Param("userId") UUID userId,
+                                             @Param("cursor") UUID cursor,
+                                             Pageable pageable);
 
     /**
      * 최초 열람 시각을 <b>원자적으로</b> 박는다 (LLD §1.14 부수효과).

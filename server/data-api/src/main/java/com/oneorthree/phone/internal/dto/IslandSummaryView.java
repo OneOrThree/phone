@@ -23,6 +23,8 @@ import java.util.UUID;
  * @param membershipStatus {@code none|pending|active} — 본인 기준 값이다. {@code pending} 은
  *     그 섬에 대한 본인의 열린 가입 요청이 있다는 뜻이다 (GROMO-1760)
  * @param joinRequestId 본인의 최신 가입 요청 식별자 — 요청을 한 번도 한 적 없으면 null (LLD §2)
+ * @param arrivedBefore 본인이 이 섬에 가 본 적 있는가({@code island_arrivals} 존재, GROMO-2260). 망원경에서
+ *     가입하고 아직 항해하지 않은 소속 섬은 false 라 즉시 이동 대상이 아니다
  */
 public record IslandSummaryView(
         UUID id,
@@ -35,5 +37,6 @@ public record IslandSummaryView(
         String membershipStatus,
         String growthStage,
         String themeId,
-        UUID joinRequestId) {
+        UUID joinRequestId,
+        boolean arrivedBefore) {
 }

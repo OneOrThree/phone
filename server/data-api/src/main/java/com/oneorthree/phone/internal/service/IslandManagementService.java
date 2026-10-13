@@ -9,11 +9,13 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
+import com.oneorthree.phone.group.repository.UserIslandContextRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
 import com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus;
+import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.IslandMembershipEvents;
@@ -25,6 +27,8 @@ import com.oneorthree.phone.internal.dto.IslandManageCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandManageView;
 import com.oneorthree.phone.internal.dto.IslandMemberRemovedView;
 import com.oneorthree.phone.internal.dto.IslandMembersPageView;
+import com.oneorthree.phone.internal.dto.NextLocationView;
+import com.oneorthree.phone.letter.repository.domain.LetterKind;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
@@ -83,6 +87,8 @@ public class IslandManagementService {
     private final PublicCommandService publicCommands;
     private final AppearanceService appearances;
     private final BannedWords bannedWords;
+    private final UserIslandContextRepository userIslandContexts;
+    private final InternalLetterService letters;
 
     @Value("${island-management.commands-enabled:false}")
     private boolean enabled;
@@ -240,6 +246,9 @@ public class IslandManagementService {
      * 강퇴 — 판정·잠금·이탈 마킹·링크 폐기·주민 사건은 legacy 강퇴({@code GroupMemberService.kickMember})와
      * 한 경로다. 대상의 진행 중 집중 강제 종료(FR-D03)와 미수령 퀘스트 보상은 이 명령이 다루지 않는다 —
      * 전자는 참고 티켓 1924, 후자는 정책 대기다(LLD §5). 기존 내기 판돈은 그대로 둔다.
+     *
+     * <p>대상에게 강퇴 편지(KICK)를 같은 TX 에서 남긴다(GROMO-2260). 응답에는 대상의 다음 위치를 싣지 않는다 —
+     * 받는 사람이 방장이라 대상이 속한 다른 섬이 샌다.
      */
     @Transactional
     public IslandMemberRemovedView kick(UUID userId, UUID islandId, UUID targetUserId, UUID key) {
@@ -251,6 +260,9 @@ public class IslandManagementService {
                 ignored -> requireHostNow(userId, islandId),
                 () -> {
                     EventEnvelope event = membershipCommands.kickMemberAndRecord(islandId, targetUserId, userId);
+                    // 강퇴 안내 편지(GROMO-2260) — 강퇴와 같은 TX 라 receipt 재생은 편지를 다시 만들지 않는다.
+                    letters.sendSystem(userQueryService.getTargetForShare(targetUserId), LetterKind.KICK, islandId,
+                            groupQueryService.getGroup(islandId).getName() + "섬에서 더 이상 함께할 수 없게 되었어요");
                     return new PublicCommandResult(200, InternalJson.tree(new IslandMemberRemovedView(true)),
                             InternalJson.tree(List.of(event)));
                 }).value().data();
@@ -265,8 +277,8 @@ public class IslandManagementService {
      * pending 전건 cancelled, OPEN 내기 정리·환불이 같은 트랜잭션이다.
      *
      * <p>집중 가드는 사용자 공유 잠금 아래에서 본다 — 집중 시작은 같은 users 행을 배타로 잡으므로 둘 중
-     * 하나만 먼저 커밋된다. 현재 섬 context 초기화(IM-D06)와 «마지막 섬은 못 나간다»(참고 티켓 1867)는
-     * 승인 전이라 넣지 않는다. 같은 키 재생은 이미 주민이 아닌 본인에게 {@code left:true} 만 돌려준다.
+     * 하나만 먼저 커밋된다. 현재 섬 복구는 {@code UserIslandContextRecovery} 가 같은 TX 에서 하고, 응답의
+     * {@code nextLocation} 은 그 결과를 그대로 읽는다(GROMO-2260). 같은 키 재생은 원 응답을 돌려준다.
      */
     @Transactional
     public IslandLeftView leave(UUID userId, UUID islandId, UUID key) {
@@ -279,13 +291,24 @@ public class IslandManagementService {
                 () -> {
                     movementGuards.requireNoLiveFocusSession(userQueryService.getCallerForShare(userId));
                     EventEnvelope event = membershipCommands.withdrawGroupAndRecord(islandId, userId);
-                    return new PublicCommandResult(200, InternalJson.tree(new IslandLeftView(true)),
+                    return new PublicCommandResult(200,
+                            InternalJson.tree(new IslandLeftView(true, nextLocationOf(userId))),
                             InternalJson.tree(List.of(event)));
                 }).value().data();
         return InternalJson.decode(data, IslandLeftView.class);
     }
 
     // ---------------------------------------------------------------- 내부
+
+    /**
+     * 나가기 «뒤» 본인의 현재 섬 — {@code UserIslandContextRecovery} 가 같은 TX 에서 이미 옮겼거나
+     * 비웠으므로 응답과 컨텍스트가 어긋나지 않는다(GROMO-2260). 잃은 섬이 현재 섬이 아니었으면 그대로다.
+     * 강퇴 응답에는 쓰지 않는다 — 그 응답은 방장이 받는다({@code IslandMemberRemovedView}).
+     */
+    private NextLocationView nextLocationOf(UUID userId) {
+        return new NextLocationView(userIslandContexts.findById(userId)
+                .map(UserIslandContext::getCurrentIslandId).orElse(null));
+    }
 
     private void requireEnabled() {
         if (!enabled) {

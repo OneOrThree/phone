@@ -2,6 +2,7 @@ package com.oneorthree.business.api;
 
 import com.oneorthree.business.api.dto.IslandMembershipResponses.CurrentIslandView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.InvitationResolvedView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandArrivalView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandCreatedView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandInvitationView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandJoinResultView;
@@ -61,6 +62,9 @@ public class IslandMembershipController {
     private static final int TOKEN_MAX = 64;
     /** 섬 생성 본문의 화이트리스트 — password 는 없다(LLD §1). maxMembers 는 GROMO-1993 에서 열었다. */
     private static final Set<String> CREATE_KEYS = Set.of("name", "intro", "approvalRequired", "maxMembers");
+    /** 가입 본문의 화이트리스트 — {@code origin} 은 GROMO-2260 에서 열었다. */
+    private static final Set<String> JOIN_KEYS = Set.of("invitationToken", "origin");
+    private static final Set<String> JOIN_ORIGINS = Set.of("visit", "telescope");
     /**
      * 정원 범위 — 정책 「정원은 1~15명」(GROMO-1993). 길이 상한과 같은 «모양» 판정이라 Business 가
      * 네트워크 전에 먼저 거른다. Data 의 {@code @Min}/{@code @Max} 가 여전히 최종 경계다.
@@ -164,8 +168,9 @@ public class IslandMembershipController {
     /**
      * 섬 가입 (GROMO-1760, LLD §3.7).
      *
-     * <p>본문은 선택이다 — 없음·빈 객체·{@code {invitationToken}} 셋만 받고 그 밖의 키는 거절한다.
-     * 즉시 가입이면 {@code active}+새 current, 승인제면 {@code pending} 이다.
+     * <p>본문은 선택이다 — 없음·빈 객체·{@code {invitationToken?, origin?}} 만 받고 그 밖의 키는 거절한다.
+     * 즉시 가입이면 {@code active}+새 current, 승인제면 {@code pending} 이다. {@code origin} 은
+     * {@code visit}(기본)·{@code telescope} 둘뿐이다(GROMO-2260) — 망원경 가입은 그 섬으로 옮기지 않는다.
      */
     @PostMapping("/islands/{islandId}/memberships")
     public IslandJoinResultView join(@PathVariable String islandId,
@@ -173,14 +178,32 @@ public class IslandMembershipController {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         String invitationToken = null;
+        String origin = null;
         if (body != null && !body.isNull()) {
-            if (!body.isObject() || body.size() > 1
-                    || (body.size() == 1 && !body.has("invitationToken"))) {
+            if (!body.isObject() || !JOIN_KEYS.containsAll(body.propertyNames())) {
                 throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
             }
             invitationToken = optionalText(body, "invitationToken", TOKEN_MAX);
+            origin = optionalText(body, "origin", TOKEN_MAX);
+            if (origin != null && !JOIN_ORIGINS.contains(origin)) {
+                throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "origin");
+            }
         }
-        return islands.join(claims, PublicIds.uuid(islandId, "islandId"), invitationToken, key, properties.deadline());
+        return islands.join(claims, PublicIds.uuid(islandId, "islandId"), invitationToken, origin, key,
+                properties.deadline());
+    }
+
+    /**
+     * 섬 도착 (GROMO-2260, 섬 외부 계약 §1) — 항해·방문이 끝난 자리에서 부른다. 본문은 없다.
+     *
+     * <p>현재 섬을 옮기는 명령이라 {@code PUT /me/current-island} 처럼 {@code Idempotency-Key}(UUID)가 필수다 —
+     * 같은 키의 재시도는 처음 결과를 재생할 뿐, 그 사이 다른 섬으로 간 사람을 되돌리지 않는다.
+     */
+    @PostMapping("/islands/{islandId}/arrivals")
+    public IslandArrivalView arrive(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        return islands.arrive(claims, PublicIds.uuid(islandId, "islandId"), key, properties.deadline());
     }
 
     /**
