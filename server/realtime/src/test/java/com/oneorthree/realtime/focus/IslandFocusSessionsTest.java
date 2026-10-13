@@ -135,6 +135,22 @@ class IslandFocusSessionsTest {
                 .requireActiveSession(ISLAND, USER, SESSION)).isInstanceOf(UpstreamUnavailableException.class);
     }
 
+    @Test
+    @DisplayName("방문자 수신자 조회는 호출자 본인 행을 요구하지 않고 진행 중 주민만 돌려준다 (GROMO-2258)")
+    void progressingRecipientsSkipsTheSelfCheck() {
+        UUID resident = UUID.randomUUID();
+        UUID working = UUID.randomUUID();
+        UUID done = UUID.randomUUID();
+        respondWith(member(resident, SESSION, "paused") + "," + member(working, UUID.randomUUID(), "active") + ","
+                + member(done, UUID.randomUUID(), "completed"));
+
+        assertThat(focusSessions.progressingRecipients(ISLAND, USER)).containsExactlyInAnyOrder(resident, working);
+        assertThat(lastSubject.get()).isEqualTo(USER.toString());
+
+        respondWith("");
+        assertThat(focusSessions.progressingRecipients(ISLAND, USER)).isEmpty();
+    }
+
     private void assertNotFocusing(UUID sessionId) {
         assertThatThrownBy(() -> focusSessions.requireActiveSession(ISLAND, USER, sessionId))
                 .isInstanceOf(ChatException.class)

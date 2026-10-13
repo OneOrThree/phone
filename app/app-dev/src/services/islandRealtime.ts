@@ -18,6 +18,7 @@
  * 메시지 해석은 `movementSync.ts` 가 맡는다.
  */
 import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
+import { t } from '@/i18n';
 import { API_URL, ApiError } from '@/services/api/client';
 import { getAccessToken } from '@/services/api/session';
 import type { MoveIntent } from '@/services/movementSync';
@@ -48,7 +49,13 @@ export type LiveFocusMember = FocusMember & {
   anchorMs: number;
 };
 export type LiveRestMember = RestMember & { anchorMs: number };
-export type LiveEmote = { eventId: string; userId: string; type: string; expiresAtMs: number };
+export type LiveEmote = {
+  eventId: string;
+  userId: string;
+  type: string;
+  expiresAtMs: number;
+  visitor?: boolean;
+};
 
 export type GoldenFishMember = { userId: string; sessionId: string };
 export type GoldenFishEvent = {
@@ -363,6 +370,9 @@ export class IslandProjection {
     };
   }
 
+  /** 방문자가 보낸 응원(GROMO-2259) — 머리 위 말풍선 대신 호출부가 알림으로 보인다. */
+  onVisitorEmote: ((emote: LiveEmote) => void) | null = null;
+
   private applyEmote(env: RealtimeEnvelope): boolean {
     const eventId = str(env.eventId);
     if (!eventId || this.seenEmotes.has(eventId)) return false;
@@ -376,6 +386,10 @@ export class IslandProjection {
     // ponytail: 최근 200개까지만 기억 — 3초짜리 임시 이벤트라 넘어간 id 재도착은 사실상 없다.
     if (this.emoteQueue.length > 200) this.seenEmotes.delete(this.emoteQueue.shift()!);
     if (expiresAtMs <= this.serverNowMs()) return false;
+    if (p?.visitor === true) {
+      this.onVisitorEmote?.({ eventId, userId, type, expiresAtMs, visitor: true });
+      return false;
+    }
     this.emoteMap.set(userId, { eventId, userId, type, expiresAtMs });
     return true;
   }
@@ -453,6 +467,7 @@ export function realtimeWsUrl(apiUrl: string = API_URL): string {
  */
 export function friendlyRealtimeErrorMessage(raw: string): string | null {
   if (raw === 'NOT_FOCUSING') return null;
+  if (raw === 'NO_ONE_FOCUSING') return t('focusFlow.hud.emoteNoOneFocusing');
   if (/^[A-Z][A-Z0-9_]*$/.test(raw)) return '실시간 요청이 거절됐어요.';
   return raw;
 }
@@ -628,6 +643,10 @@ export type IslandRealtimeDeps = {
   islandId: string;
   /** 응원 구독·발신 자격이 되는 내 진행 중 서버 세션 id. 없으면 emotes 채널을 구독하지 않는다. */
   emoteSessionId?: string | null;
+  /** 방문자 모드(GROMO-2259) — 세션 없이도 emotes 를 구독하고 `{ type }` 만 보낸다. */
+  visitor?: boolean;
+  /** 방문자가 보낸 응원을 받았다(주민 화면). eventId 로 중복 제거된 뒤 1번만 불린다. */
+  onVisitorEmote?: (emote: LiveEmote) => void;
   onView: (view: PresenceView) => void;
   /** 검증된 포커스/휴식 상태 경계 변화. 새 화면 상태를 발행한 뒤 호출한다. */
   onTransition?: (transition: IslandPresenceTransition) => void;
@@ -657,6 +676,9 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   const connect = deps.connect ?? stompIslandChannel;
   const alive = deps.alive ?? (() => true);
   const projection = new IslandProjection(islandId);
+  projection.onVisitorEmote = (emote) => {
+    if (!disposed && alive()) deps.onVisitorEmote?.(emote);
+  };
   let disposed = false;
   let resyncing = false;
   let resyncAfter: 'reconnect' | 'manual' | 'event-gap' | null = null;
@@ -877,7 +899,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
 
   const conn = connect({
     islandId,
-    emote: !!emoteSessionId,
+    emote: !!emoteSessionId || !!deps.visitor,
     onEvent: (raw) => {
       if (disposed || !alive()) return;
       const golden = parseGoldenFishEvent(raw, islandId);
@@ -921,12 +943,16 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     reopen: () => conn.reopen(),
     sendEmote: (type) => {
       const sessionId = emoteSessionId;
-      if (!sessionId || !EMOTE_TYPES.has(type)) return false;
-      return conn.send(`/app/islands/${islandId}/focus/emotes`, { sessionId, type });
+      if (!EMOTE_TYPES.has(type)) return false;
+      if (!sessionId && !deps.visitor) return false;
+      return conn.send(
+        `/app/islands/${islandId}/focus/emotes`,
+        sessionId ? { sessionId, type } : { type },
+      );
     },
     setEmoteSessionId: (sessionId) => {
       emoteSessionId = sessionId;
-      conn.setEmoteEnabled(!!sessionId);
+      conn.setEmoteEnabled(!!sessionId || !!deps.visitor);
     },
     dispose: () => {
       disposed = true;

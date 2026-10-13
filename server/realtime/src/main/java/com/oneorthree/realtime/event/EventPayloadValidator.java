@@ -91,7 +91,12 @@ final class EventPayloadValidator {
      */
     private static void validateEmote(JsonNode payload) {
         uuidField(payload, "userId");
-        uuidField(payload, "sessionId");
+        // 방문자 응원(GROMO-2258)은 세션이 없다 — visitor 가 정확히 true 일 때만 sessionId 를 면제한다.
+        JsonNode visitor = payload.get("visitor");
+        boolean visitorEmote = visitor != null && visitor.isBoolean() && visitor.booleanValue();
+        if (!visitorEmote || payload.has("sessionId")) {
+            uuidField(payload, "sessionId");
+        }
         if (!FocusEmoteType.isAllowed(textField(payload, "type"))) {
             throw new IllegalArgumentException("보낼 수 없는 응원 종류입니다.");
         }

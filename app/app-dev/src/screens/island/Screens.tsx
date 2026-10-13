@@ -138,6 +138,8 @@ import {
   SearchField,
 } from '@/screens/island/IslandSheet';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
+import { ObservatorySearch } from '@/screens/island/ObservatorySearch';
+import { useTelescopePin } from '@/screens/island/useTelescopePin';
 import { useShop } from '@/screens/island/useShop';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import {
@@ -183,6 +185,8 @@ const buildingArt: Record<string, string> = {
   mail: 'mailbox',
   shop: 'shop',
 };
+// 전망대 순위 행의 «소속됨» 배지 — Badge 는 기본이 왼쪽 위 정렬(DESIGN §7.5)이라 행 안 세로 가운데에 둔다
+const rankJoinedBadge = { alignSelf: 'center' } as const;
 const pad = (n: number) => String(n).padStart(2, '0');
 // 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
 const md = kstMonthDay;
@@ -924,6 +928,8 @@ export function RedesignScreens({ e }: any) {
   const snap = state.serverIslands;
   // 전망대 주간 섬 랭킹(GROMO-2018) — 서버 모드이고 tower route 일 때만 조회한다
   const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
+  // 전망대에서 섬을 망원경에 넣는 확인창·요청(GROMO-2269) — 랭킹 행이 쓴다. 섬 이름 검색(explore)은 자기 인스턴스를 쓴다.
+  const telescopePin = useTelescopePin(e);
   // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
   // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
   const shopApi = useShop({
@@ -4664,7 +4670,11 @@ export function RedesignScreens({ e }: any) {
       // 서버 주간 랭킹이 정본(GROMO-2018) — rank(동점 공동)·myRank(전체 모집단 기준)는
       // 서버 값 그대로고, 앱이 순번을 다시 매기거나 0위를 지어내지 않는다.
       const rk = islandRankings,
-        myIslandId = snap?.currentIslandId;
+        myIslandId = snap?.currentIslandId,
+        // 소속 섬은 뗏목으로 바로 간다 — 망원경에 넣을 일이 없어 행을 누를 수 없다(GROMO-2269)
+        joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id)),
+        // 큰 글자(망원경과 같은 판정)에서는 «소속됨» 배지를 이름 아래 줄로 내린다 — 고정 폭 순위·썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·평균 칸이 0 으로 준다
+        largeText = (layout.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
       return (
         <IslandSheet
           bg="tower"
@@ -4703,33 +4713,52 @@ export function RedesignScreens({ e }: any) {
           {rk.status === 'ready' && rk.data && rk.data.items.length > 0 && (
             <>
               <SheetGroup>
-                {rk.data.items.map((item) => (
-                  <SheetRow
-                    key={item.islandId}
-                    title={item.name}
-                    sub={`평균 ${hoursMinutes(item.averageFocusSeconds)}`}
-                    label={`${item.rank}위 ${item.name}, 평균 ${hoursMinutes(item.averageFocusSeconds)}`}
-                    tone={item.islandId === myIslandId ? 'butter' : undefined}
-                    lead={
-                      <Txt
-                        style={{
-                          width: 26,
-                          fontSize: 18,
-                          lineHeight: 26.1,
-                          fontWeight: '800',
-                          textAlign: 'center',
-                        }}
-                      >
-                        {item.rank}
-                      </Txt>
-                    }
-                    tail={<IslandThumb />}
-                    chevron={item.islandId !== myIslandId}
-                    onPress={
-                      item.islandId === myIslandId ? undefined : () => go('visit', item.islandId)
-                    }
-                  />
-                ))}
+                {rk.data.items.map((item) => {
+                  const joined = joinedIds.has(item.islandId);
+                  const label = `${item.rank}위 ${item.name}, 평균 ${hoursMinutes(item.averageFocusSeconds)}`;
+                  const joinedBadge = joined && (
+                    <Badge soft style={largeText ? undefined : rankJoinedBadge}>
+                      {t('observatory.joined')}
+                    </Badge>
+                  );
+                  return (
+                    <SheetRow
+                      key={item.islandId}
+                      title={item.name}
+                      sub={`평균 ${hoursMinutes(item.averageFocusSeconds)}`}
+                      label={joined ? `${label}, ${t('observatory.joined')}` : label}
+                      tone={item.islandId === myIslandId ? 'butter' : undefined}
+                      lead={
+                        <Txt
+                          style={{
+                            width: 26,
+                            fontSize: 18,
+                            lineHeight: 26.1,
+                            fontWeight: '800',
+                            textAlign: 'center',
+                          }}
+                        >
+                          {item.rank}
+                        </Txt>
+                      }
+                      below={largeText ? joinedBadge : undefined}
+                      tail={
+                        <>
+                          {!largeText && joinedBadge}
+                          <IslandThumb />
+                        </>
+                      }
+                      chevron={!joined}
+                      disabled={telescopePin.busy}
+                      // 소속이 아닌 섬은 확인창 → 망원경에 넣기(방문 화면으로 보내지 않는다)
+                      onPress={
+                        joined
+                          ? undefined
+                          : () => telescopePin.ask({ id: item.islandId, name: item.name })
+                      }
+                    />
+                  );
+                })}
               </SheetGroup>
               {rk.data.myRank !== null && (
                 <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingTop: 10 }]}>
@@ -4808,6 +4837,8 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'explore') {
+    // 서버 모드는 섬 이름을 서버에서 검색하고 고른 섬을 망원경에 넣는다(GROMO-2269) — 아래 로컬 필터는 서버 없는 모드의 목업이다
+    if (server) return <ObservatorySearch e={e} />;
     const query = search.trim();
     const codeTarget = findIslandByInviteCode(state.islands, query)?.id;
     // 이름 검색 결과에서 정원이 찬 섬(내가 가입하지 않은)은 뺀다. 초대 코드로 찾은 섬은 보여 주고 가입할 때 막는다

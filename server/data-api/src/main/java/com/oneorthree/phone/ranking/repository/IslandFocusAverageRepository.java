@@ -39,9 +39,9 @@ public interface IslandFocusAverageRepository
      *       {@code alive} 에서 뺀다 — 그 섬의 행은 적히지 않는다.</li>
      *   <li>이 문장이 먼저면 삭제가 이쪽 커밋까지 기다렸다가 적힌 행을 지운다.</li>
      * </ul>
-     * 잠금 절을 가진 CTE 는 PostgreSQL 이 본문에 녹이지 않고 따로 실행한다 — INSERT 에 닿는 행은 모두 그 섬의 잠금과
-     * 생존 재확인을 거친 행이다. 잠금은 트랜잭션 끝까지 쥐므로 호출부({@code IslandFocusAverageSnapshotService})의
-     * 커밋이 곧 해제다.
+     * 잠금 절을 가진 CTE 는 PostgreSQL 이 본문에 녹이지 않고 따로 실행한다 — {@code AS MATERIALIZED}(PostgreSQL 12+)로
+     * 그것을 명시했을 뿐 동작은 같다. INSERT 에 닿는 행은 모두 그 섬의 잠금과 생존 재확인을 거친 행이다. 잠금은
+     * 트랜잭션 끝까지 쥐므로 호출부({@code IslandFocusAverageSnapshotService})의 커밋이 곧 해제다.
      *
      * <p>트랜잭션 경계는 여기서 열지 않는다(규약 §4·§5) — 호출부인 {@code IslandFocusAverageSnapshotService} 가
      * 소유한다.
@@ -54,7 +54,7 @@ public interface IslandFocusAverageRepository
      *     넘긴 섬 수보다 작을 수 있다
      */
     @Modifying
-    @Query(value = "WITH alive AS ("
+    @Query(value = "WITH alive AS MATERIALIZED ("
             + "SELECT g.id FROM groups g "
             + "WHERE g.id = ANY(CAST(:islandIds AS uuid[])) "
             + "AND g.deleted_at IS NULL AND g.status <> 'ENDED' "

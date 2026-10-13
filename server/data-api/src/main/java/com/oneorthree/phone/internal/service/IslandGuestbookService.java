@@ -62,6 +62,11 @@ public class IslandGuestbookService {
      * 근거({@code completedBuildings})라 시설 게이트 플래그({@code construction.facility-gates.enforce})와
      * 무관하다. 목록 공개 여부는 쓰기와 같은 게이트({@code hasBoard}, 플래그 존중)다: 게이트가 켜진 환경에서
      * 게시판이 없으면 빈 목록이다.
+     *
+     * <p>게이트가 꺼진 기본 배포({@code enforce=false})에서는 게시판이 없어도 목록·쓰기가 열려 있고 응답은
+     * {@code boardBuilt=false} 다 — <b>의도다</b>. 앱은 {@code boardBuilt} 로 방명록 탭을 숨기고, API 를 직접 불러
+     * 쓰는 길이 열려 있는 것은 게이트가 꺼진 환경(개발)에 한정된 틈이다. 게이트가 켜지면 {@link #write} 가 403
+     * {@code BOARD_LOCKED} 로 닫는다.
      */
     @Transactional(readOnly = true)
     public IslandGuestbookViews.Page list(UUID islandId, UUID callerId) {

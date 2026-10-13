@@ -7,6 +7,7 @@ import com.oneorthree.realtime.event.RealtimeAudience;
 import com.oneorthree.realtime.event.RealtimeEventEnvelope;
 import com.oneorthree.realtime.event.RealtimeEventType;
 import com.oneorthree.realtime.focus.dto.FocusEmoteRequest;
+import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import lombok.RequiredArgsConstructor;
@@ -62,6 +63,14 @@ import java.util.UUID;
  * 못 보낸다</b> — {@code MembershipService} 가 SET 대신 문자열 하나를 쓰는 것과 같은 이유다.
  *
  * <p>순서: <b>시도 창(관문) → 형식 → 인가 → 성공 창</b>.
+ *
+ * <h2>방문자 응원 (GROMO-2258)</h2>
+ * {@code sessionId} 가 비어 오면 멤버십으로 가른다. <b>주민</b>이면 지금처럼 {@code NOT_FOCUSING} —
+ * 주민의 응원은 여전히 「본인 진행 세션」이 전제다. <b>비주민(방문자)</b>이면 그 섬의 진행 중 주민
+ * 전원에게 {@code visitor: true} 를 붙여 보낸다(세션이 없으니 {@code sessionId} 는 싣지 않는다).
+ * 받을 주민이 없으면 {@code NO_ONE_FOCUSING}. 빈도 제한·만료는 주민과 같다.
+ * 방문자 판정은 TTL 캐시가 아니라 <b>상류 직접 조회</b>({@code isMemberUncached})다 — 캐시면 갓 가입한 주민이
+ * 방문자로 위장한다. 그 조회는 세션 없는 발신에만 붙고(주민 핫패스엔 없다), 비용 상한은 시도 창(사용자당 600ms)이다.
  */
 @Slf4j
 @Service
@@ -69,6 +78,7 @@ import java.util.UUID;
 public class FocusEmoteService {
 
     private final IslandFocusSessions focusSessions;
+    private final MembershipService membershipService;
     private final EventRouter eventRouter;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -77,14 +87,27 @@ public class FocusEmoteService {
     @Value("${realtime.focus.emote-ttl:3s}")
     private Duration emoteTtl;
 
-    public void publish(UUID islandId, UUID userId, FocusEmoteRequest request) {
+    /**
+     * @param bearerToken 발신자의 {@code Authorization} 헤더 통째로 — 방문자 판정(멤버십 캐시 미스)에만 쓰인다
+     */
+    public void publish(UUID islandId, UUID userId, String bearerToken, FocusEmoteRequest request) {
         // 시도 창은 이 메서드에 «들어오기 전»에 이미 소모됐다({@code StompAuthChannelInterceptor}).
         // 여기서 또 재면 한 프레임이 창을 두 번 먹어, 두 번째 정상 응원이 자기 자신 때문에 막힌다.
         FocusEmoteType type = FocusEmoteType.of(request.type())
                 .orElseThrow(() -> new ChatException(ChatErrorCode.INVALID_EMOTE_TYPE));
         // 같은 조회가 발신 인가와 «수신 자격»을 함께 준다 — 전달 직전 판정이 구독자마다 다시 묻지
         // 않아도 되는 이유다(LLD §4.2 배치 권한조회).
-        Set<UUID> recipients = focusSessions.requireActiveSession(islandId, userId, request.sessionId());
+        boolean visitor = request.sessionId() == null;
+        if (visitor && membershipService.isMemberUncached(islandId, userId, bearerToken)) {
+            // 주민은 세션 없이 응원할 수 없다 — 종전 거절 그대로.
+            throw new ChatException(ChatErrorCode.NOT_FOCUSING);
+        }
+        Set<UUID> recipients = visitor
+                ? focusSessions.progressingRecipients(islandId, userId)
+                : focusSessions.requireActiveSession(islandId, userId, request.sessionId());
+        if (visitor && recipients.isEmpty()) {
+            throw new ChatException(ChatErrorCode.NO_ONE_FOCUSING);
+        }
         if (!acquire(RedisKeys.emoteRateLimit(islandId, userId), emoteTtl)) {
             throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
         }
@@ -92,7 +115,11 @@ public class FocusEmoteService {
         Instant now = clock.instant();
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("userId", userId.toString());
-        payload.put("sessionId", request.sessionId().toString());
+        if (visitor) {
+            payload.put("visitor", true);
+        } else {
+            payload.put("sessionId", request.sessionId().toString());
+        }
         payload.put("type", type.wireName());
         payload.put("expiresAt", now.plus(emoteTtl).toString());
 

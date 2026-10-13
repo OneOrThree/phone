@@ -1,7 +1,7 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
-import { render } from '@testing-library/react-native';
-import { IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
+import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { isHiddenFromAccessibility, render } from '@testing-library/react-native';
+import { IslandPopup, IslandSheet, SheetRow } from '@/screens/island/IslandSheet';
 
 let mockLayout = {
   width: 874,
@@ -61,4 +61,42 @@ test('SheetRow는 selected를 accessibilityState.selected로 반영한다(언어
   expect(getByLabelText('한국어').props.accessibilityState.selected).toBe(true);
   expect(getByLabelText('English').props.accessibilityState.selected).toBe(false);
   expect(getByLabelText('기기 언어 따름').props.accessibilityState.selected).toBeUndefined();
+});
+
+describe('IslandPopup 은 모달 표시만 한다(GROMO-2263)', () => {
+  test('형제 장면은 스크린리더에서 빠지고 팝업 안은 그대로 읽힌다', async () => {
+    const screen = await render(
+      <>
+        <View>
+          <Pressable accessibilityLabel="뒤 버튼" />
+        </View>
+        <IslandPopup onClose={() => {}}>
+          <Text>안내</Text>
+        </IslandPopup>
+      </>,
+    );
+    // iOS: 팝업이 accessibilityViewIsModal — 형제 View 안은 VoiceOver 가 무시한다
+    let node: any = screen.getByText('안내');
+    while (node && !node.props.accessibilityViewIsModal) node = node.parent;
+    expect(node?.props.accessibilityViewIsModal).toBe(true);
+    expect(
+      isHiddenFromAccessibility(screen.getByLabelText('뒤 버튼', { includeHiddenElements: true })),
+    ).toBe(true);
+    expect(isHiddenFromAccessibility(screen.getByLabelText('닫기'))).toBe(false);
+    expect(isHiddenFromAccessibility(screen.getByText('안내'))).toBe(false);
+  });
+
+  test('안드로이드 뒤로 가기 리스너를 직접 달지 않는다 — 호출자가 e.backOverride 로 닫기를 건다', async () => {
+    const backSpy = jest.spyOn(BackHandler, 'addEventListener');
+    try {
+      await render(
+        <IslandPopup onClose={() => {}}>
+          <Text>안내</Text>
+        </IslandPopup>,
+      );
+      expect(backSpy).not.toHaveBeenCalled();
+    } finally {
+      backSpy.mockRestore();
+    }
+  });
 });

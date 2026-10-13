@@ -206,6 +206,33 @@ class FocusSessionLifecycleGuardsTest {
         order.verify(groupMemberRepository).findActiveByUserIdAndGroupIdForShare(USER, ISLAND);
     }
 
+    @Test
+    @DisplayName("방문자(현재 섬이 자기 섬)가 방문 중인 섬에서 start 하면 403 ISLAND_NOT_CURRENT 다 (GROMO-2258)")
+    void visitorCannotStartOnTheVisitedIsland() {
+        when(userQueryService.getCallerForUpdate(USER)).thenReturn(caller);
+        when(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(caller))
+                .thenReturn(Optional.empty());
+        when(focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(eq(USER), any()))
+                .thenReturn(Optional.empty());
+        // 방문은 현재 섬을 옮기지 않는다 — 방문자의 현재 섬은 자기 섬 그대로다.
+        UserIslandContext context = UserIslandContext.newFor(USER);
+        context.moveTo(UUID.fromString("eeeeeeee-0000-0000-0000-000000000001"));
+        when(userIslandContextLockService.lock(caller)).thenReturn(context);
+        when(publicCommands.run(any(), any(), any(), any())).thenAnswer(invocation -> {
+            PublicCommandRequest request = invocation.getArgument(0);
+            Supplier<PublicCommandResult> command = invocation.getArgument(3);
+            return new IdempotentOutcome<>(PublicCommandReceipt.completed(request, command.get()), false);
+        });
+
+        assertThatThrownBy(() -> service(NOW, true).start(USER,
+                new FocusSessionStartCommandRequest(ISLAND, "알고리즘", 25), KEY))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.ISLAND_NOT_CURRENT);
+        assertThat(FocusErrorCode.ISLAND_NOT_CURRENT.getStatus().value()).isEqualTo(403);
+        verify(focusSessionRepository, never()).save(any(FocusSession.class));
+    }
+
     // ── 2. 구간 전환 순서(flush) ──────────────────────────────────────────────
 
     @Test

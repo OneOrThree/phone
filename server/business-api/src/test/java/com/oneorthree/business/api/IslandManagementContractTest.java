@@ -210,13 +210,16 @@ class IslandManagementContractTest extends UpstreamTestBase {
     @Test
     @DisplayName("강퇴·나가기는 본문 없이 멱등키만 전달하고 결과와 다음 위치를 돌려준다 — 나가기는 사용자 축 경로다")
     void kickAndLeaveForwardKeysAndReturnMinimalEvidence() throws Exception {
-        DATA.on(DATA_KICK, request -> ok("{\"removed\":true,\"nextLocation\":{\"islandId\":\"" + ISLAND + "\"}}"));
+        DATA.on(DATA_KICK, request -> ok("{\"removed\":true}"));
         DATA.on(DATA_LEAVE, request -> ok("{\"left\":true,\"nextLocation\":{\"islandId\":null}}"));
 
-        mockMvc.perform(auth(delete("/islands/" + ISLAND + "/members/" + TARGET)).header("Idempotency-Key", KEY))
+        // 강퇴 응답은 방장이 받으므로 대상의 다음 위치가 없다 — 정확히 {removed:true} 다 (GROMO-2260).
+        MvcResult kicked = mockMvc.perform(auth(delete("/islands/" + ISLAND + "/members/" + TARGET))
+                        .header("Idempotency-Key", KEY))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.removed").value(true))
-                .andExpect(jsonPath("$.data.nextLocation.islandId").value(ISLAND.toString()));
+                .andReturn();
+        assertThat(new tools.jackson.databind.ObjectMapper().readTree(kicked.getResponse().getContentAsString())
+                .path("data").toString()).isEqualTo("{\"removed\":true}");
         mockMvc.perform(auth(delete("/islands/" + ISLAND + "/memberships/me")).header("Idempotency-Key", KEY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.left").value(true))
@@ -225,13 +228,14 @@ class IslandManagementContractTest extends UpstreamTestBase {
 
         assertThat(DATA.receivedFor(DATA_KICK).get(0).header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(DATA.receivedFor(DATA_LEAVE).get(0).header("X-User-Id")).isEqualTo(USER.toString());
-        // 다음 위치는 명시적 opt-in 이다 (GROMO-2260) — 파라미터가 없으면 Data 가 구 Business 용 한 키 응답을 준다.
-        assertThat(DATA.receivedFor(DATA_KICK).get(0).query()).isEqualTo("include=nextLocation");
+        // 나가기의 다음 위치는 명시적 opt-in 이다 (GROMO-2260) — 파라미터가 없으면 Data 가 구 Business 용 한 키
+        // 응답을 준다. 강퇴는 다음 위치 자체가 없어 파라미터를 붙이지 않는다.
+        assertThat(DATA.receivedFor(DATA_KICK).get(0).query()).isNull();
         assertThat(DATA.receivedFor(DATA_LEAVE).get(0).query()).isEqualTo("include=nextLocation");
     }
 
     @Test
-    @DisplayName("배포 전 receipt·구버전 Data 의 한 키 응답도 200 이고 nextLocation 은 null(모름)이다 — 먼바다와 다르다")
+    @DisplayName("배포 전 receipt·구버전 Data 의 한 키 나가기 응답도 200 이고 nextLocation 은 null(모름)이다 — 먼바다와 다르다")
     void legacyLeaveAndKickResponsesPassWithUnknownNextLocation() throws Exception {
         DATA.on(DATA_KICK, request -> ok("{\"removed\":true}"));
         DATA.on(DATA_LEAVE, request -> ok("{\"left\":true,\"nextLocation\":null}"));
@@ -239,8 +243,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
         mockMvc.perform(auth(delete("/islands/" + ISLAND + "/members/" + TARGET)).header("Idempotency-Key", KEY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.removed").value(true))
-                .andExpect(jsonPath("$.data", hasKey("nextLocation")))
-                .andExpect(jsonPath("$.data.nextLocation").value(nullValue()));
+                .andExpect(jsonPath("$.data.nextLocation").doesNotExist());
         mockMvc.perform(auth(delete("/islands/" + ISLAND + "/memberships/me")).header("Idempotency-Key", KEY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.left").value(true))

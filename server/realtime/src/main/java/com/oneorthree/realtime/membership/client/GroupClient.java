@@ -16,7 +16,6 @@ import org.springframework.web.client.RestClientException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -114,11 +113,15 @@ public class GroupClient {
                             throw new UpstreamUnavailableException();
                         }
                         List<GroupRef> groups = response.bodyTo(new ParameterizedTypeReference<List<GroupRef>>() { });
-                        return Membership.of(groups == null ? Set.of()
-                                : groups.stream()
-                                        .map(GroupRef::groupId)
-                                        .filter(Objects::nonNull)
-                                        .collect(Collectors.toSet()));
+                        // «아무 섬에도 없음»은 빈 배열 [] 뿐이다(GROMO-2258). 본문 없음(204·빈 200)·groupId 없는
+                        // 항목은 판정이 아니라 형식 불량이라, 빈 집합으로 캐시하면 주민이 «비주민»(방문자)이 된다 —
+                        // 403 과 같이 캐시 불가로 돌린다. 캐시 경로는 여전히 «빈 집합 = 거부»다.
+                        if (groups == null
+                                || groups.stream().anyMatch(group -> group == null || group.groupId() == null)) {
+                            log.warn("그룹 조회 응답 형식 불량 — status={}", status.value());
+                            return Membership.rejected();
+                        }
+                        return Membership.of(groups.stream().map(GroupRef::groupId).collect(Collectors.toSet()));
                     });
         } catch (UpstreamUnavailableException | UpstreamRejectedCredentialException e) {
             // 둘 다 «우리가 내린 판정»이다 — 아래 RestClientException 그물에 걸려 503 으로 뒤집히면 안 된다.
@@ -150,7 +153,8 @@ public class GroupClient {
         }
 
         /**
-     * 상류가 403 으로 거절했다 — 답은 비었지만 «이 사람의 소속»에 대한 사실이 아니다.
+     * 상류가 403 으로 거절했거나 형식이 깨진 성공 응답(본문 없음·groupId 없는 항목)을 줬다 — 답은 비었지만
+     * «이 사람의 소속»에 대한 사실이 아니다(캐시 불가 = 비캐시 판정에서는 fail-closed).
      *
      * <p>401 은 여기 오지 않는다. 그건 {@code UpstreamRejectedCredentialException} 으로 올라가
      * 앱에 「토큰을 갱신하라」가 전달된다.
