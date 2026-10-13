@@ -156,6 +156,7 @@ export function PromotionEditor({
 }) {
   const state: State = e.state;
   const L = useAppLayout();
+  const largeText = L.fontScale >= componentTokens.promotionEditor.largeTextThreshold;
   const reduceMotion = useContext(MotionContext);
   const mock = isMockMode();
   const base = editorIsland(state, !!e.islands);
@@ -168,7 +169,12 @@ export function PromotionEditor({
 
   const [body, setBody] = useState('');
   const [layout, setLayout] = useState<PromotionLayout>(emptyLayout(DEFAULT_FRAME_ID));
-  const [selection, setSelection] = useState<EditTarget | null>(null);
+  const [picked, setSelection] = useState<EditTarget | null>(null);
+  // 고른 것이 지금 칸에 없으면(지워졌거나 칸이 바뀜) 고르지 않은 것으로 본다 — 없는 스티커 번호로 그리지 않게
+  const selection =
+    picked && (picked.kind === 'tape' ? !!layout.tape : picked.index < layout.stickers.length)
+      ? picked
+      : null;
   const [tab, setTab] = useState<StickerTab>('cat');
   const [problem, setProblem] = useState<EditorProblem | null>(null);
   const [done, setDone] = useState(false);
@@ -187,10 +193,9 @@ export function PromotionEditor({
     const from = editor.next ?? editor.latest;
     setBody(from?.body ?? '');
     setLayout(from?.layout ?? emptyLayout(DEFAULT_FRAME_ID));
-    if (locked) {
-      touched.current = false;
-      setSelection(null);
-    }
+    // 서버 칸으로 바꾸면 스티커 수가 달라질 수 있다 — 고르기는 늘 푼다
+    setSelection(null);
+    if (locked) touched.current = false;
   }, [editor]);
 
   const edit = (next: PromotionLayout) => {
@@ -212,7 +217,7 @@ export function PromotionEditor({
   };
 
   // 칸 크기: 화면 폭에서 스티커가 걸칠 둘레(8%)를 뺀 만큼. 태블릿·가로에서는 너무 커지지 않게 묶는다
-  const frameW = Math.min(L.width - L.insets.left - L.insets.right, 520) - 16;
+  const frameW = Math.min(L.width - L.insets.left - L.insets.right, 520) - primitiveTokens.space[4];
   const cellW = Math.floor(frameW / (1 + 2 * CANVAS_PAD));
   const cellH = cellW * CELL_ASPECT;
   const pad = { x: CANVAS_PAD * cellW, y: CANVAS_PAD * cellH };
@@ -303,12 +308,12 @@ export function PromotionEditor({
   const header = (
     <View
       style={{
-        height: 52,
+        height: componentTokens.promotionEditor.headerHeight,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
-        paddingLeft: 8,
-        paddingRight: 12,
+        gap: primitiveTokens.space[2],
+        paddingLeft: primitiveTokens.space[2],
+        paddingRight: semanticTokens.spacing.control,
       }}
     >
       <Pressable
@@ -336,7 +341,15 @@ export function PromotionEditor({
   );
 
   const center = (children: React.ReactNode) => (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 14 }}>
+    <View
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: semanticTokens.spacing.section,
+        gap: semanticTokens.spacing.control,
+      }}
+    >
       {children}
     </View>
   );
@@ -503,15 +516,24 @@ export function PromotionEditor({
       alwaysBounceVertical={false}
       scrollEnabled={!canvasTouch}
     >
-      <View style={{ flex: 1, width: Math.min(L.contentWidth, 560), alignSelf: 'center', gap: 10 }}>
-        <View style={{ paddingHorizontal: 20, gap: 6 }}>
+      <View
+        style={{
+          flex: 1,
+          width: Math.min(L.contentWidth, 560),
+          alignSelf: 'center',
+          gap: semanticTokens.spacing.control,
+        }}
+      >
+        <View
+          style={{ paddingHorizontal: semanticTokens.spacing.page, gap: primitiveTokens.space[2] }}
+        >
           <Txt kind="meta" style={{ fontWeight: '600' }}>
             {t('magazine.editor.frames')}
           </Txt>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 8 }}
+            contentContainerStyle={{ gap: primitiveTokens.space[2] }}
           >
             {Object.entries(MAGAZINE_FRAMES).map(([id, frame]) => {
               const on = layout.frameId === id;
@@ -525,10 +547,10 @@ export function PromotionEditor({
                   disabled={!canEdit || !owned(id)}
                   onPress={() => edit({ ...layout, frameId: id })}
                   style={{
-                    width: 64,
+                    width: componentTokens.promotionEditor.frameTileWidth,
                     height: semanticTokens.size.tapMin,
-                    padding: 3,
-                    borderRadius: 10,
+                    padding: primitiveTokens.space[1],
+                    borderRadius: semanticTokens.radius.control,
                     borderWidth: on ? semanticTokens.stroke.strong : semanticTokens.stroke.subtle,
                     borderColor: on
                       ? semanticTokens.color.outline
@@ -549,7 +571,9 @@ export function PromotionEditor({
             })}
           </ScrollView>
         </View>
-        <View style={{ paddingHorizontal: 20, gap: 4 }}>
+        <View
+          style={{ paddingHorizontal: semanticTokens.spacing.page, gap: primitiveTokens.space[1] }}
+        >
           <TextInput
             testID="promotion-body"
             accessibilityLabel={t('magazine.editor.body')}
@@ -565,7 +589,13 @@ export function PromotionEditor({
               !canEdit && { opacity: 0.7 },
             ]}
           />
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              gap: primitiveTokens.space[2],
+            }}
+          >
             <Txt
               kind="meta"
               accessibilityLiveRegion="polite"
@@ -596,11 +626,11 @@ export function PromotionEditor({
               pointerEvents="none"
               style={{
                 position: 'absolute',
-                left: pad.x + box.cx - box.hw - 3,
-                top: pad.y + box.cy - box.hh - 3,
-                width: box.hw * 2 + 6,
-                height: box.hh * 2 + 6,
-                borderRadius: 6,
+                left: pad.x + box.cx - box.hw - componentTokens.promotionEditor.selectionInset,
+                top: pad.y + box.cy - box.hh - componentTokens.promotionEditor.selectionInset,
+                width: box.hw * 2 + componentTokens.promotionEditor.selectionInset * 2,
+                height: box.hh * 2 + componentTokens.promotionEditor.selectionInset * 2,
+                borderRadius: componentTokens.promotionEditor.selectionRadius,
                 borderWidth: semanticTokens.stroke.default,
                 borderStyle: 'dashed',
                 borderColor: semanticTokens.color.outline,
@@ -614,11 +644,11 @@ export function PromotionEditor({
               pointerEvents="none"
               style={{
                 position: 'absolute',
-                left: pad.x + handle.x - 9,
-                top: pad.y + handle.y - 9,
-                width: 18,
-                height: 18,
-                borderRadius: 9,
+                left: pad.x + handle.x - componentTokens.promotionEditor.handleSize / 2,
+                top: pad.y + handle.y - componentTokens.promotionEditor.handleSize / 2,
+                width: componentTokens.promotionEditor.handleSize,
+                height: componentTokens.promotionEditor.handleSize,
+                borderRadius: componentTokens.promotionEditor.handleSize / 2,
                 borderWidth: semanticTokens.stroke.strong,
                 borderColor: semanticTokens.color.outline,
                 backgroundColor: semanticTokens.color.surface,
@@ -656,7 +686,10 @@ export function PromotionEditor({
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 6, paddingHorizontal: 20 }}
+              contentContainerStyle={{
+                gap: primitiveTokens.space[2],
+                paddingHorizontal: semanticTokens.spacing.page,
+              }}
             >
               {opsFor(selection, OPS).map((op) => (
                 <Btn
@@ -664,6 +697,7 @@ export function PromotionEditor({
                   id={`op-${op}`}
                   small
                   kind="sec"
+                  dynamicHeight={largeText}
                   title={OP_GLYPH[op] ?? t(`magazine.editor.op.${op}`)}
                   accessibilityLabel={`${t(`magazine.editor.op.${op}`)}: ${itemLabel(selection)}`}
                   onPress={() => doEdit(selection, op)}
@@ -671,7 +705,10 @@ export function PromotionEditor({
               ))}
             </ScrollView>
           ) : (
-            <Txt kind="meta" style={{ textAlign: 'center', paddingHorizontal: 20 }}>
+            <Txt
+              kind="meta"
+              style={{ textAlign: 'center', paddingHorizontal: semanticTokens.spacing.page }}
+            >
               {readOnly ? t('magazine.editor.locked') : t('magazine.editor.hint')}
             </Txt>
           )}
@@ -681,9 +718,9 @@ export function PromotionEditor({
             pointerEvents={canEdit ? 'auto' : 'none'}
             style={{
               flex: 1,
-              minHeight: 140,
-              paddingTop: 12,
-              paddingHorizontal: 20,
+              minHeight: componentTokens.promotionEditor.drawerMinHeight,
+              paddingTop: semanticTokens.spacing.control,
+              paddingHorizontal: semanticTokens.spacing.page,
               borderTopLeftRadius: componentTokens.modal.sheetRadius,
               borderTopRightRadius: componentTokens.modal.sheetRadius,
               borderWidth: semanticTokens.stroke.default,
@@ -713,10 +750,10 @@ export function PromotionEditor({
   const footer = (
     <View
       style={{
-        paddingHorizontal: 20,
-        paddingTop: 10,
-        paddingBottom: L.insets.bottom + 12,
-        gap: 8,
+        paddingHorizontal: semanticTokens.spacing.page,
+        paddingTop: semanticTokens.spacing.control,
+        paddingBottom: L.insets.bottom + semanticTokens.spacing.control,
+        gap: primitiveTokens.space[2],
         backgroundColor: editable ? semanticTokens.color.surface : semanticTokens.color.canvas,
       }}
     >
@@ -729,11 +766,19 @@ export function PromotionEditor({
           {problem.message}
         </Txt>
       ) : null}
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      {/* 큰 글자에서는 [새로 꾸미기]·주 행동을 세로로 쌓아 주 행동이 화면 폭을 다 쓴다 */}
+      <View
+        testID="promotion-actions"
+        style={{
+          flexDirection: largeText ? 'column-reverse' : 'row',
+          gap: primitiveTokens.space[2],
+        }}
+      >
         {editable && (
           <Btn
             id="promotion-fresh"
             kind="sec"
+            dynamicHeight
             title={t('magazine.editor.reset')}
             disabled={!canEdit}
             onPress={fresh}
@@ -741,7 +786,9 @@ export function PromotionEditor({
         )}
         <Btn
           id="promotion-submit"
-          style={{ flex: 1 }}
+          style={largeText ? undefined : { flex: 1 }}
+          // 좁은 화면(320pt)·영문에서 주 행동 문구가 두 줄이 되어도 버튼이 같이 늘어난다(기본 높이 52 는 그대로)
+          dynamicHeight
           title={ctaTitle}
           // canEdit = 불러온 상태(다시 읽는 중 아님) · 저장 중 아님
           disabled={blocked || !canEdit}
