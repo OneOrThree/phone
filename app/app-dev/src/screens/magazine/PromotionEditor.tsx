@@ -102,10 +102,29 @@ export function editorIsland(
 
 // 서버 PromotionContent.breaksTheLine 과 같은 문자 — ISO 제어 문자(U+0000~001F · U+007F~009F)와 줄·문단 구분자
 const LINE_BREAKERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
-const OPS: EditOp[] = ['smaller', 'bigger', 'rotateLeft', 'rotateRight', 'front', 'delete'];
+// 손가락 대안 — 옮기기·크기·돌리기·겹침·지우기를 모두 버튼으로도 한다(DESIGN.md 8.19)
+const OPS: EditOp[] = [
+  'left',
+  'up',
+  'down',
+  'right',
+  'smaller',
+  'bigger',
+  'rotateLeft',
+  'rotateRight',
+  'front',
+  'delete',
+];
 /** 꾸미기마다 둔 접근성 요소의 반치수 하한 — 44pt 터치 영역 */
 const A11Y_HALF = semanticTokens.size.tapMin / 2;
-const OP_GLYPH: Partial<Record<EditOp, string>> = { rotateLeft: '↺', rotateRight: '↻' };
+const OP_GLYPH: Partial<Record<EditOp, string>> = {
+  left: '←',
+  up: '↑',
+  down: '↓',
+  right: '→',
+  rotateLeft: '↺',
+  rotateRight: '↻',
+};
 /** 테이프는 크기·겹침 순서가 없다(applyEdit 가 그대로 둔다) — 버튼 줄·스크린리더 동작에서 뺀다. */
 const TAPE_OFF: EditOp[] = ['bigger', 'smaller', 'front'];
 const opsFor = (target: EditTarget, ops: EditOp[]) =>
@@ -716,7 +735,7 @@ export function PromotionEditor({
             id="promotion-fresh"
             kind="sec"
             title={t('magazine.editor.reset')}
-            disabled={submitting}
+            disabled={!canEdit}
             onPress={fresh}
           />
         )}
@@ -724,7 +743,8 @@ export function PromotionEditor({
           id="promotion-submit"
           style={{ flex: 1 }}
           title={ctaTitle}
-          disabled={blocked || submitting}
+          // canEdit = 불러온 상태(다시 읽는 중 아님) · 저장 중 아님
+          disabled={blocked || !canEdit}
           onPress={send}
         />
       </View>

@@ -74,3 +74,15 @@ it('소식을 못 읽어도 조용히 넘어간다', async () => {
   await waitFor(() => expect(getNews).toHaveBeenCalled());
   expect(notify).not.toHaveBeenCalled();
 });
+
+it('소식을 기다리는 사이 홈을 떠나면 띄우지도, 본 것으로 적지도 않는다', async () => {
+  let deliver: (v: unknown) => void = () => {};
+  getNews.mockReturnValueOnce(new Promise((resolve) => (deliver = resolve)));
+  const notify = jest.fn();
+  const screen = await render(<Probe active notify={notify} />);
+  await screen.rerender(<Probe active={false} notify={notify} />);
+  deliver([item('n9', 1)]);
+  await new Promise((r) => setTimeout(r, 10));
+  expect(notify).not.toHaveBeenCalled();
+  expect(await AsyncStorage.getItem(newsSeenKey('i1'))).toBeNull();
+});

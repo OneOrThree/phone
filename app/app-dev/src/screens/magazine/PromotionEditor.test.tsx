@@ -11,7 +11,7 @@ import type { PromotionEditor as EditorResponse } from '@/services/api/magazine'
 import { initialState } from '@/services/model';
 import { saveSession } from '@/services/api/session';
 import { CELL_ASPECT, PromotionLayout } from './layout';
-import { PromotionEditor } from './PromotionEditor';
+import { EditorDriver, PromotionEditor } from './PromotionEditor';
 import { CANVAS_PAD } from './useStickerGestures';
 import { createTouchDriver } from './touchDriver';
 
@@ -195,6 +195,14 @@ describe('스티커·테이프·틀·글', () => {
       driver.down(at(0.5, 0.5));
       driver.up();
     });
+    // 옮기기도 버튼으로 — 끌 수 없어도 위치를 바꾼다
+    const left = stickerStyles(screen)[0].left;
+    const top = stickerStyles(screen)[0].top;
+    await fireEvent.press(screen.getByTestId('op-right'));
+    await fireEvent.press(screen.getByTestId('op-down'));
+    expect(stickerStyles(screen)[0].left).toBeGreaterThan(left);
+    expect(stickerStyles(screen)[0].top).toBeGreaterThan(top);
+    expect(screen.getByTestId('op-left').props.accessibilityLabel).toMatch(/^왼쪽으로/);
     const before = stickerStyles(screen)[0].width;
     await fireEvent.press(screen.getByTestId('op-bigger'));
     const bigger = stickerStyles(screen)[0].width;
@@ -417,6 +425,60 @@ describe('신청 창·잔액·비공개', () => {
     const { screen } = await open({ privateIsland: true });
     expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(true);
     expect(screen.getByText(/비공개 섬은 잡지에 실을 수 없어요/)).toBeTruthy();
+  });
+
+  it('다시 읽는 동안에는 신청·새로 꾸미기 버튼이 꺼진다', async () => {
+    const { screen } = await open();
+    apply.mockRejectedValueOnce(new ApiError('INSUFFICIENT_FUNDS', '부족', 409));
+    getEditor.mockReturnValueOnce(new Promise(() => {})); // 다시 읽기가 끝나지 않는다
+    await fireEvent.press(screen.getByTestId('promotion-submit'));
+    await waitFor(() => expect(getEditor).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('자정 직전 신청 응답이 늦게 와도, 그 사이 다시 읽어 받은 마감(읽기 전용)을 덮지 않는다', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:30Z') }); // KST 23:59:30
+    try {
+      let succeed: (v: unknown) => void = () => {};
+      apply.mockReturnValueOnce(new Promise((resolve) => (succeed = resolve)));
+      const next = {
+        promotionId: 'p1',
+        issueDate: '2026-10-15',
+        body: '같이 공부해요!',
+        layout: LAYOUT,
+      };
+      getEditor.mockResolvedValueOnce(editorResponse()).mockResolvedValueOnce(
+        editorResponse({
+          window: { ...editorResponse().window, open: false },
+          next: { ...next, appliedAt: 'x', editable: false },
+        }),
+      );
+      const driver: { current: EditorDriver | null } = { current: null };
+      const screen = await render(<PromotionEditor e={env()} driver={driver} />);
+      await waitFor(() => expect(screen.getByTestId('promotion-canvas')).toBeTruthy());
+      // 신청을 보내고 응답은 기다리지 않는다(누르기 act 가 겹치지 않게 대본 손잡이로 보낸다)
+      await act(async () => {
+        void driver.current!.submit();
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(31_000); // 00:00:01 — 자정 다시 읽기가 먼저 끝난다
+      });
+      await waitFor(() => expect(screen.queryByTestId('sticker-drawer')).toBeNull());
+      await act(async () => {
+        succeed({
+          promotionId: 'p1',
+          issueDate: '2026-10-15',
+          feeFish: 60,
+          balanceAfter: 1180,
+          newsId: 'n',
+        });
+      });
+      // 늦은 성공 뒤에도 읽기 전용 그대로 — 서랍이 다시 열리거나 저장 버튼이 켜지지 않는다
+      expect(screen.queryByTestId('sticker-drawer')).toBeNull();
+      expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('열어 둔 채 자정(closesAt)이 지나면 다시 읽어 읽기 전용이 된다', async () => {
