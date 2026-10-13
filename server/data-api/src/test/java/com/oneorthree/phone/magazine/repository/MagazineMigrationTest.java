@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V113 꾸미기 재료 카탈로그·V114 홍보 칸의 실 SQL 검증 (GROMO-2289). 검증 방식은 {@code SeaFocusV112MigrationTest} 선례 —
+ * V113 꾸미기 재료 카탈로그·V114 홍보 칸·V115 호와 받음 상태의 실 SQL 검증 (GROMO-2289). 검증 방식은 {@code SeaFocusV112MigrationTest} 선례 —
  * 전용 컨테이너에 Flyway 체인을 실제로 돌린다. CI 프로필은 엔티티로 표를 만들어 CHECK·시드를 보지 못하므로 여기서 본다.
  *
  * <p>보는 것: ① 카탈로그 종류 CHECK 가 잡지 재료 3종을 개인 소유로만 받는다 ② 시드 64행(틀 11 · 스티커 45 · 테이프 8)이
@@ -184,13 +184,54 @@ class MagazineMigrationTest {
                 island)).as("groups FK 는 ON DELETE CASCADE").isZero();
     }
 
+    // ---------------------------------------------------------------- V115
+
     @Test
-    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V113·V114 가 성공으로 기록된다")
+    @DisplayName("V115 — 하루 한 호(날짜·조간 유일, 호수 유일), 조간만, 받음 상태 한 사람 한 호 한 행·받은 곳 CHECK·연쇄 삭제, 편집부 소식 80자")
+    void issuesReceiptsAndNotes() {
+        migrate(MigrationVersion.fromVersion("115"));
+        JdbcTemplate jdbc = jdbc();
+        String insertIssue = "INSERT INTO magazine_issues (id, issue_date, slot, issue_no, published_at, editorial, "
+                + "promotion_count) VALUES (?, ?::date, ?, ?, now(), '{}'::jsonb, ?)";
+        UUID first = UUID.randomUUID();
+        jdbc.update(insertIssue, first, "2026-10-15", "MORNING", 1, 0);
+        assertThat(jdbc.queryForObject("SELECT slot FROM magazine_issues WHERE id = ?", String.class, first))
+                .isEqualTo("MORNING");
+        assertThatThrownBy(() -> jdbc.update(insertIssue, UUID.randomUUID(), "2026-10-15", "MORNING", 2, 0))
+                .as("같은 날 두 번째 조간").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertIssue, UUID.randomUUID(), "2026-10-16", "MORNING", 1, 0))
+                .as("같은 호수").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertIssue, UUID.randomUUID(), "2026-10-16", "EVENING", 2, 0))
+                .as("석간은 아직 없다").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertIssue, UUID.randomUUID(), "2026-10-16", "MORNING", 0, 0))
+                .as("호수는 1부터").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertIssue, UUID.randomUUID(), "2026-10-16", "MORNING", 2, -1))
+                .as("음수 홍보 수").isInstanceOf(DataIntegrityViolationException.class);
+
+        String insertReceipt = "INSERT INTO magazine_receipts (user_id, issue_id, received_place, received_at) "
+                + "VALUES (?, ?, ?, now())";
+        UUID reader = user(jdbc);
+        jdbc.update(insertReceipt, reader, first, "ISLAND");
+        assertThatThrownBy(() -> jdbc.update(insertReceipt, reader, first, "SEA"))
+                .as("한 사람 한 호 한 행").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertReceipt, user(jdbc), first, "SKY"))
+                .as("받은 곳은 바다·섬뿐").isInstanceOf(DataIntegrityViolationException.class);
+        jdbc.update("DELETE FROM magazine_issues WHERE id = ?", first);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM magazine_receipts", Integer.class))
+                .as("호 FK 는 ON DELETE CASCADE").isZero();
+
+        jdbc.update("INSERT INTO magazine_editorial_notes (issue_date, body) VALUES ('2026-10-15', ?)", "가".repeat(80));
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO magazine_editorial_notes (issue_date, body) "
+                + "VALUES ('2026-10-16', ?)", "가".repeat(81))).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V113~V115 가 성공으로 기록된다")
     void appliesOnEmptyDatabase() {
         migrate(MigrationVersion.LATEST);
 
         assertThat(jdbc().queryForList("SELECT success::text FROM flyway_schema_history "
-                + "WHERE version IN ('113', '114')", String.class)).containsExactly("true", "true");
+                + "WHERE version IN ('113', '114', '115')", String.class)).containsExactly("true", "true", "true");
     }
 
     private static Map<String, Long> counts(JdbcTemplate jdbc, String sql) {

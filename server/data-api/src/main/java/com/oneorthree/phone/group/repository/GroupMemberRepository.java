@@ -422,4 +422,12 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
             + " AND (COALESCE(gm.rejoinedAt, gm.createdAt) IS NOT NULL OR gm.id > :membershipId)")
     long countActiveOutrankingNullStart(@Param("userId") UUID userId,
                                         @Param("membershipId") UUID membershipId);
+
+    /**
+     * 이 유저가 강퇴돼 지금 나가 있는 섬 id — 고양이 잡지가 칸마다 「강퇴된 섬」 을 표시할 때 한 번에 읽는다(GROMO-2289).
+     * {@link GroupMember#isKicked()} 와 같은 판정(이탈 마킹 + 사유 KICKED)이다.
+     */
+    @Query("SELECT gm.group.id FROM GroupMember gm WHERE gm.user.id = :userId AND gm.isLeft = true "
+            + "AND gm.leftReason = com.oneorthree.phone.group.repository.domain.GroupLeaveReason.KICKED")
+    List<UUID> findKickedGroupIdsByUserId(@Param("userId") UUID userId);
 }

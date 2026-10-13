@@ -36,6 +36,9 @@ public enum MagazineErrorCode implements ErrorCode {
     /** 없는 홍보, 또는 다른 섬의 홍보. */
     PROMOTION_NOT_FOUND(HttpStatus.NOT_FOUND, "홍보를 찾을 수 없어요"),
 
+    /** 없는 호, 또는 최근 7호보다 오래된 호(MAG-07 — 지난 호는 최근 7호까지만). */
+    MAGAZINE_ISSUE_NOT_FOUND(HttpStatus.NOT_FOUND, "잡지 호를 찾을 수 없어요"),
+
     /** 기능 스위치 {@code magazine.enabled} 가 꺼져 있다 — 쓰기(신청·고치기)가 receipt·잠금보다 먼저 막힌다. */
     MAGAZINE_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "고양이 잡지는 아직 준비 중이에요");
 
