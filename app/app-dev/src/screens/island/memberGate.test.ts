@@ -23,7 +23,8 @@ test('서버 current 가 있으면 로컬 목업 섬과 무관하게 주민이�
   const gate = memberGate(synced('srv1'), true);
   assert.equal(gate.joined, true);
   assert.equal(gate.built, undefined);
-  assert.equal(gate.host, false);
+  // 섬장인지도 아직 모른다 — 주민(false)과 구분한다
+  assert.equal(gate.host, undefined);
 });
 
 test('스냅샷이 오면 완공 건물과 방장 여부를 서버 값으로 판정한다', () => {

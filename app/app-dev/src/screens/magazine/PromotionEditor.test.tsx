@@ -253,9 +253,31 @@ describe('칸 위 손가락', () => {
     expect(tape.left + tape.width / 2).toBeCloseTo(0.4 * cellW, 0);
   });
 
+  it('작은 화면·키보드에서 본문을 세로로 밀 수 있고, 칸 위에 손가락이 있는 동안은 스크롤을 잠근다', async () => {
+    const { screen } = await canvas();
+    const scroll = () => screen.getByTestId('promotion-scroll');
+    expect(scroll().props.scrollEnabled).toBe(true);
+    await fireEvent(screen.getByTestId('promotion-canvas'), 'touchStart');
+    expect(scroll().props.scrollEnabled).toBe(false);
+    // 두 손가락 중 하나만 떼면 아직 잠겨 있다
+    await fireEvent(screen.getByTestId('promotion-canvas'), 'touchEnd', {
+      nativeEvent: { touches: [{}] },
+    });
+    expect(scroll().props.scrollEnabled).toBe(false);
+    await fireEvent(screen.getByTestId('promotion-canvas'), 'touchEnd', {
+      nativeEvent: { touches: [] },
+    });
+    expect(scroll().props.scrollEnabled).toBe(true);
+  });
+
   it('스크린리더 동작으로도 고른다·크게·지운다', async () => {
     const { screen } = await canvas();
     const item = screen.getByTestId('canvas-sticker-0');
+    // 작은 스티커(하트)도 접근성 요소는 44pt 이상이다
+    for (const i of [0, 1]) {
+      const frame = StyleSheet.flatten(screen.getByTestId(`canvas-sticker-${i}`).props.style);
+      expect(Math.min(frame.width, frame.height)).toBeGreaterThanOrEqual(44);
+    }
     const before = stickerStyles(screen)[0].width;
     await fireEvent(item, 'accessibilityAction', { nativeEvent: { actionName: 'bigger' } });
     expect(stickerStyles(screen)[0].width).toBeGreaterThan(before);
@@ -299,7 +321,7 @@ describe('싣기·고치기', () => {
   });
 
   it.each([
-    ['INSUFFICIENT_FUNDS', '섬 통장 물고기가 모자라요', false],
+    ['INSUFFICIENT_FUNDS', '섬 통장 물고기가 모자라요', true],
     ['PROMOTION_PRIVATE_ISLAND', '비공개 섬은 잡지에 실을 수 없어요', true],
     ['PROMOTION_WINDOW_CLOSED', '지금은 신청할 수 없어요. 아침 7시에 다시 열려요', true],
     ['PROMOTION_LAYOUT_INVALID', '꾸미기를 다시 확인해 주세요', true],

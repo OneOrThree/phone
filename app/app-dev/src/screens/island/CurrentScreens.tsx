@@ -316,7 +316,8 @@ export function memberGate(state: State, server: boolean) {
         ? (visit.buildings ?? undefined)
         : undefined
       : facts?.completedBuildings,
-    host: facts?.home.island.role === 'host',
+    // 스냅샷 전에는 섬장인지 모른다 — false(주민)와 구분해 undefined 로 둔다(주민 소식 토스트가 섬장에게 새지 않게)
+    host: facts ? facts.home.island.role === 'host' : undefined,
   };
 }
 function CurrentScreensContent({ e }: any) {
@@ -380,13 +381,14 @@ function CurrentScreensContent({ e }: any) {
     'promotionEditor',
   ];
   const { joined, built, host } = memberGate(state, !!e.islands);
-  // 주민 소식 토스트(C3) — 내 섬 홈에 들어올 때, 섬장이 아닌 주민에게만(목업 QA 는 EXPO_PUBLIC_MAGAZINE_MOCK=member)
+  // 주민 소식 토스트(C3) — 내 섬 홈에 들어올 때, 섬장이 아닌 주민에게만(목업 QA 는 EXPO_PUBLIC_MAGAZINE_MOCK=member).
+  // 서버 홈 스냅샷이 오기 전에는 host 가 undefined 라 섬장인지 모른다 — 주민으로 확인된(false) 뒤에만 읽는다
   usePromotionNewsToast({
     active:
       r === 'home' &&
       joined &&
       !state.visitingIslandId &&
-      (!host || (isMockMode() && mockFlags().has('member'))),
+      (host === false || (isMockMode() && mockFlags().has('member'))),
     islandId: e.islands ? (state.serverIslands?.currentIslandId ?? null) : i.id,
     notify: e.notify,
   });

@@ -103,6 +103,8 @@ export function editorIsland(
 // 서버 PromotionContent.breaksTheLine 과 같은 문자 — ISO 제어 문자(U+0000~001F · U+007F~009F)와 줄·문단 구분자
 const LINE_BREAKERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
 const OPS: EditOp[] = ['smaller', 'bigger', 'rotateLeft', 'rotateRight', 'front', 'delete'];
+/** 꾸미기마다 둔 접근성 요소의 반치수 하한 — 44pt 터치 영역 */
+const A11Y_HALF = semanticTokens.size.tapMin / 2;
 const OP_GLYPH: Partial<Record<EditOp, string>> = { rotateLeft: '↺', rotateRight: '↻' };
 const A11Y_OPS: EditOp[] = [
   'up',
@@ -148,6 +150,8 @@ export function PromotionEditor({
   const [problem, setProblem] = useState<EditorProblem | null>(null);
   const [done, setDone] = useState(false);
   const [stamped, setStamped] = useState(false);
+  // 칸 위에 손가락이 있는 동안은 화면 세로 스크롤을 잠근다(끌기·두 손가락 조작이 스크롤에 뺏기지 않게)
+  const [canvasTouch, setCanvasTouch] = useState(false);
   const touched = useRef(false);
   const stamp = useRef(new Animated.Value(0)).current;
 
@@ -444,215 +448,233 @@ export function PromotionEditor({
           if (name === 'activate') return setSelection(target);
           if ((A11Y_OPS as string[]).includes(name)) doEdit(target, name as EditOp);
         }}
+        // 스크린리더 터치 탐색 대상 — 작은 스티커도 최소 44pt(손가락 hitTest 와 같은 하한)
         style={{
           position: 'absolute',
-          left: pad.x + b.cx - Math.max(b.hw, 11),
-          top: pad.y + b.cy - Math.max(b.hh, 11),
-          width: Math.max(b.hw, 11) * 2,
-          height: Math.max(b.hh, 11) * 2,
+          left: pad.x + b.cx - Math.max(b.hw, A11Y_HALF),
+          top: pad.y + b.cy - Math.max(b.hh, A11Y_HALF),
+          width: Math.max(b.hw, A11Y_HALF) * 2,
+          height: Math.max(b.hh, A11Y_HALF) * 2,
         }}
       />
     );
   };
 
+  // 작은 화면(320×568)·키보드·큰 글자에서 넘치면 본문 전체를 세로로 민다. 넉넉하면 늘 그렇듯 서랍이 남은 높이를 채운다
   const content = (
-    <View style={{ flex: 1, width: Math.min(L.contentWidth, 560), alignSelf: 'center', gap: 10 }}>
-      <View style={{ paddingHorizontal: 20, gap: 6 }}>
-        <Txt kind="meta" style={{ fontWeight: '600' }}>
-          {t('magazine.editor.frames')}
-        </Txt>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 8 }}
-        >
-          {Object.entries(MAGAZINE_FRAMES).map(([id, frame]) => {
-            const on = layout.frameId === id;
-            return (
-              <Pressable
-                key={id}
-                testID={`frame-${id}`}
-                accessibilityRole="button"
-                accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
-                accessibilityState={{ selected: on, disabled: !canEdit || !owned(id) }}
-                disabled={!canEdit || !owned(id)}
-                onPress={() => edit({ ...layout, frameId: id })}
-                style={{
-                  width: 64,
-                  height: semanticTokens.size.tapMin,
-                  padding: 3,
-                  borderRadius: 10,
-                  borderWidth: on ? semanticTokens.stroke.strong : semanticTokens.stroke.subtle,
-                  borderColor: on
-                    ? semanticTokens.color.outline
-                    : primitiveTokens.color.controlIdle,
-                  backgroundColor: on
-                    ? semanticTokens.color.selected
-                    : semanticTokens.color.surface,
-                  opacity: owned(id) ? 1 : componentTokens.button.disabledOpacity,
-                }}
-              >
-                <Image
-                  source={frame.source}
-                  resizeMode="contain"
-                  style={{ width: '100%', height: '100%' }}
-                />
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-      <View style={{ paddingHorizontal: 20, gap: 4 }}>
-        <TextInput
-          testID="promotion-body"
-          accessibilityLabel={t('magazine.editor.body')}
-          value={body}
-          editable={canEdit}
-          placeholder={t('magazine.editor.bodyPlaceholder')}
-          placeholderTextColor={componentTokens.input.placeholder}
-          returnKeyType="done"
-          onChangeText={changeBody}
-          style={[k.field, { minHeight: semanticTokens.size.tapMin }, !canEdit && { opacity: 0.7 }]}
-        />
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-          <Txt
-            kind="meta"
-            accessibilityLiveRegion="polite"
-            style={{ flex: 1, color: semanticTokens.color.danger }}
-          >
-            {problem?.field === 'body' ? problem.message : ''}
+    <ScrollView
+      testID="promotion-scroll"
+      style={{ flex: 1 }}
+      contentContainerStyle={{ flexGrow: 1 }}
+      keyboardShouldPersistTaps="handled"
+      alwaysBounceVertical={false}
+      scrollEnabled={!canvasTouch}
+    >
+      <View style={{ flex: 1, width: Math.min(L.contentWidth, 560), alignSelf: 'center', gap: 10 }}>
+        <View style={{ paddingHorizontal: 20, gap: 6 }}>
+          <Txt kind="meta" style={{ fontWeight: '600' }}>
+            {t('magazine.editor.frames')}
           </Txt>
-          <CharCount value={body} max={BODY_MAX} codePoints />
-        </View>
-      </View>
-      <View
-        testID="promotion-canvas"
-        {...gestures}
-        style={{ width: cellW + pad.x * 2, height: cellH + pad.y * 2, alignSelf: 'center' }}
-      >
-        <View pointerEvents="none" style={{ position: 'absolute', left: pad.x, top: pad.y }}>
-          <AdCell
-            testID="promotion-cell"
-            width={cellW}
-            cell={{ ...facts, body: body.trim(), layout }}
-          />
-        </View>
-        {box && canEdit && (
-          <View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left: pad.x + box.cx - box.hw - 3,
-              top: pad.y + box.cy - box.hh - 3,
-              width: box.hw * 2 + 6,
-              height: box.hh * 2 + 6,
-              borderRadius: 6,
-              borderWidth: semanticTokens.stroke.default,
-              borderStyle: 'dashed',
-              borderColor: semanticTokens.color.outline,
-              transform: [{ rotate: `${box.rotation}deg` }],
-            }}
-          />
-        )}
-        {handle && (
-          <View
-            testID="promotion-handle"
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left: pad.x + handle.x - 9,
-              top: pad.y + handle.y - 9,
-              width: 18,
-              height: 18,
-              borderRadius: 9,
-              borderWidth: semanticTokens.stroke.strong,
-              borderColor: semanticTokens.color.outline,
-              backgroundColor: semanticTokens.color.surface,
-            }}
-          />
-        )}
-        {stamped && (
-          // 판의 손가락 기준점이 흔들리지 않게 도장은 터치를 받지 않는다
-          <View
-            pointerEvents="none"
-            style={{ position: 'absolute', left: pad.x + cellW * 0.6, top: pad.y + cellH * 0.3 }}
-          >
-            <Animated.Image
-              testID="promotion-stamp"
-              accessibilityLabel={t('magazine.editor.stampA11y')}
-              source={MAGAZINE_STAMP}
-              resizeMode="contain"
-              style={{
-                width: cellW * 0.38,
-                height: cellW * 0.38,
-                opacity: stamp,
-                transform: [
-                  { scale: stamp.interpolate({ inputRange: [0, 1], outputRange: [1.8, 1] }) },
-                  { rotate: '-10deg' },
-                ],
-              }}
-            />
-          </View>
-        )}
-        {layout.stickers.map((_, i) => a11yItem({ kind: 'sticker', index: i }, `sticker-${i}`))}
-        {layout.tape && a11yItem({ kind: 'tape' }, 'tape')}
-      </View>
-      <View style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}>
-        {selection && canEdit ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 6, paddingHorizontal: 20 }}
+            contentContainerStyle={{ gap: 8 }}
           >
-            {OPS.map((op) => (
-              <Btn
-                key={op}
-                id={`op-${op}`}
-                small
-                kind="sec"
-                title={OP_GLYPH[op] ?? t(`magazine.editor.op.${op}`)}
-                accessibilityLabel={`${t(`magazine.editor.op.${op}`)}: ${itemLabel(selection)}`}
-                onPress={() => doEdit(selection, op)}
-              />
-            ))}
+            {Object.entries(MAGAZINE_FRAMES).map(([id, frame]) => {
+              const on = layout.frameId === id;
+              return (
+                <Pressable
+                  key={id}
+                  testID={`frame-${id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
+                  accessibilityState={{ selected: on, disabled: !canEdit || !owned(id) }}
+                  disabled={!canEdit || !owned(id)}
+                  onPress={() => edit({ ...layout, frameId: id })}
+                  style={{
+                    width: 64,
+                    height: semanticTokens.size.tapMin,
+                    padding: 3,
+                    borderRadius: 10,
+                    borderWidth: on ? semanticTokens.stroke.strong : semanticTokens.stroke.subtle,
+                    borderColor: on
+                      ? semanticTokens.color.outline
+                      : primitiveTokens.color.controlIdle,
+                    backgroundColor: on
+                      ? semanticTokens.color.selected
+                      : semanticTokens.color.surface,
+                    opacity: owned(id) ? 1 : componentTokens.button.disabledOpacity,
+                  }}
+                >
+                  <Image
+                    source={frame.source}
+                    resizeMode="contain"
+                    style={{ width: '100%', height: '100%' }}
+                  />
+                </Pressable>
+              );
+            })}
           </ScrollView>
+        </View>
+        <View style={{ paddingHorizontal: 20, gap: 4 }}>
+          <TextInput
+            testID="promotion-body"
+            accessibilityLabel={t('magazine.editor.body')}
+            value={body}
+            editable={canEdit}
+            placeholder={t('magazine.editor.bodyPlaceholder')}
+            placeholderTextColor={componentTokens.input.placeholder}
+            returnKeyType="done"
+            onChangeText={changeBody}
+            style={[
+              k.field,
+              { minHeight: semanticTokens.size.tapMin },
+              !canEdit && { opacity: 0.7 },
+            ]}
+          />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+            <Txt
+              kind="meta"
+              accessibilityLiveRegion="polite"
+              style={{ flex: 1, color: semanticTokens.color.danger }}
+            >
+              {problem?.field === 'body' ? problem.message : ''}
+            </Txt>
+            <CharCount value={body} max={BODY_MAX} codePoints />
+          </View>
+        </View>
+        <View
+          testID="promotion-canvas"
+          {...gestures}
+          onTouchStart={() => setCanvasTouch(true)}
+          onTouchEnd={(ev) => ev.nativeEvent.touches.length === 0 && setCanvasTouch(false)}
+          onTouchCancel={() => setCanvasTouch(false)}
+          style={{ width: cellW + pad.x * 2, height: cellH + pad.y * 2, alignSelf: 'center' }}
+        >
+          <View pointerEvents="none" style={{ position: 'absolute', left: pad.x, top: pad.y }}>
+            <AdCell
+              testID="promotion-cell"
+              width={cellW}
+              cell={{ ...facts, body: body.trim(), layout }}
+            />
+          </View>
+          {box && canEdit && (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: pad.x + box.cx - box.hw - 3,
+                top: pad.y + box.cy - box.hh - 3,
+                width: box.hw * 2 + 6,
+                height: box.hh * 2 + 6,
+                borderRadius: 6,
+                borderWidth: semanticTokens.stroke.default,
+                borderStyle: 'dashed',
+                borderColor: semanticTokens.color.outline,
+                transform: [{ rotate: `${box.rotation}deg` }],
+              }}
+            />
+          )}
+          {handle && (
+            <View
+              testID="promotion-handle"
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: pad.x + handle.x - 9,
+                top: pad.y + handle.y - 9,
+                width: 18,
+                height: 18,
+                borderRadius: 9,
+                borderWidth: semanticTokens.stroke.strong,
+                borderColor: semanticTokens.color.outline,
+                backgroundColor: semanticTokens.color.surface,
+              }}
+            />
+          )}
+          {stamped && (
+            // 판의 손가락 기준점이 흔들리지 않게 도장은 터치를 받지 않는다
+            <View
+              pointerEvents="none"
+              style={{ position: 'absolute', left: pad.x + cellW * 0.6, top: pad.y + cellH * 0.3 }}
+            >
+              <Animated.Image
+                testID="promotion-stamp"
+                accessibilityLabel={t('magazine.editor.stampA11y')}
+                source={MAGAZINE_STAMP}
+                resizeMode="contain"
+                style={{
+                  width: cellW * 0.38,
+                  height: cellW * 0.38,
+                  opacity: stamp,
+                  transform: [
+                    { scale: stamp.interpolate({ inputRange: [0, 1], outputRange: [1.8, 1] }) },
+                    { rotate: '-10deg' },
+                  ],
+                }}
+              />
+            </View>
+          )}
+          {layout.stickers.map((_, i) => a11yItem({ kind: 'sticker', index: i }, `sticker-${i}`))}
+          {layout.tape && a11yItem({ kind: 'tape' }, 'tape')}
+        </View>
+        <View style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}>
+          {selection && canEdit ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 6, paddingHorizontal: 20 }}
+            >
+              {OPS.map((op) => (
+                <Btn
+                  key={op}
+                  id={`op-${op}`}
+                  small
+                  kind="sec"
+                  title={OP_GLYPH[op] ?? t(`magazine.editor.op.${op}`)}
+                  accessibilityLabel={`${t(`magazine.editor.op.${op}`)}: ${itemLabel(selection)}`}
+                  onPress={() => doEdit(selection, op)}
+                />
+              ))}
+            </ScrollView>
+          ) : (
+            <Txt kind="meta" style={{ textAlign: 'center', paddingHorizontal: 20 }}>
+              {readOnly ? t('magazine.editor.locked') : t('magazine.editor.hint')}
+            </Txt>
+          )}
+        </View>
+        {editable ? (
+          <View
+            pointerEvents={canEdit ? 'auto' : 'none'}
+            style={{
+              flex: 1,
+              minHeight: 140,
+              paddingTop: 12,
+              paddingHorizontal: 20,
+              borderTopLeftRadius: componentTokens.modal.sheetRadius,
+              borderTopRightRadius: componentTokens.modal.sheetRadius,
+              borderWidth: semanticTokens.stroke.default,
+              borderBottomWidth: 0,
+              borderColor: semanticTokens.color.outline,
+              backgroundColor: semanticTokens.color.surface,
+            }}
+          >
+            <StickerDrawer
+              tab={tab}
+              onTab={setTab}
+              full={layout.stickers.length >= 10}
+              owned={owned}
+              tapeId={layout.tape?.assetId ?? null}
+              onSticker={addOne}
+              onTape={putTape}
+              onFull={() => e.notify(t('magazine.editor.stickersFull'))}
+            />
+          </View>
         ) : (
-          <Txt kind="meta" style={{ textAlign: 'center', paddingHorizontal: 20 }}>
-            {readOnly ? t('magazine.editor.locked') : t('magazine.editor.hint')}
-          </Txt>
+          <View style={{ flex: 1 }} />
         )}
       </View>
-      {editable ? (
-        <View
-          pointerEvents={canEdit ? 'auto' : 'none'}
-          style={{
-            flex: 1,
-            minHeight: 140,
-            paddingTop: 12,
-            paddingHorizontal: 20,
-            borderTopLeftRadius: componentTokens.modal.sheetRadius,
-            borderTopRightRadius: componentTokens.modal.sheetRadius,
-            borderWidth: semanticTokens.stroke.default,
-            borderBottomWidth: 0,
-            borderColor: semanticTokens.color.outline,
-            backgroundColor: semanticTokens.color.surface,
-          }}
-        >
-          <StickerDrawer
-            tab={tab}
-            onTab={setTab}
-            full={layout.stickers.length >= 10}
-            owned={owned}
-            tapeId={layout.tape?.assetId ?? null}
-            onSticker={addOne}
-            onTape={putTape}
-            onFull={() => e.notify(t('magazine.editor.stickersFull'))}
-          />
-        </View>
-      ) : (
-        <View style={{ flex: 1 }} />
-      )}
-    </View>
+    </ScrollView>
   );
 
   const footer = (
