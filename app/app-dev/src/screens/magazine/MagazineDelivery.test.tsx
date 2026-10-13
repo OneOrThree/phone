@@ -5,6 +5,7 @@ import React from 'react';
 import { Text } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import * as api from '@/services/api/magazine';
+import { saveSession } from '@/services/api/session';
 import type { MagazineToday } from '@/services/api/magazine';
 import { MagazineHomeLayer } from './MagazineDelivery';
 import {
@@ -98,9 +99,37 @@ test('우체통이 없는 섬 — [잡지 펼치기] 는 오늘 호를, [나중�
   expect(screen.queryByText('고양이 잡지 왔어요!')).toBeNull();
   await screen.unmount();
 
+  // 같은 세션에서 홈에 다시 와도(받음 기록이 아직 안 왔어도) 같은 호를 또 알리지 않는다
+  const back = await render(layer({ go, hasMailbox: false }));
+  expect(back.queryByText('고양이 잡지 왔어요!')).toBeNull();
+  expect(putReceipt).toHaveBeenCalledTimes(2);
+  await back.unmount();
+
+  resetMagazineToday(); // 앱을 다시 켠 것처럼
   const again = await render(layer({ go, hasMailbox: false }));
   await fireEvent.press(again.getByTestId('magazine-delivery-open'));
   expect(go).toHaveBeenCalledWith('magazine', 'iss-19');
+});
+
+test('받음을 보내는 사이 세션이 바뀌면 그 기록을 새 세션의 오늘 호 캐시에 넣지 않는다', async () => {
+  getToday.mockResolvedValue({ issue, receipt: null });
+  const probe = await render(<Probe active />);
+  await waitFor(() => expect(cachedMagazineToday()?.issue?.issueId).toBe('iss-19'));
+  let finish: (v: unknown) => void = () => {};
+  putReceipt.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+  const sending = sendReceipt('iss-19', { place: 'ISLAND', opened: true });
+  // 다른 계정으로 바뀌고, 새 세션이 같은 호를 읽어 둔다
+  await act(async () => {
+    await saveSession({ accessToken: 'B', refreshToken: 'B', userId: 'other' });
+  });
+  await probe.rerender(<Probe active={false} />);
+  await probe.rerender(<Probe active />);
+  await waitFor(() => expect(cachedMagazineToday()?.receipt).toBeNull());
+  await act(async () => {
+    finish(receipt({ openedAt: 'old-account' }));
+    await sending;
+  });
+  expect(cachedMagazineToday()?.receipt).toBeNull();
 });
 
 test('우체통이 없는 섬의 잡지 물건 — 안 읽었으면 빨간 점, 누르면 오늘 호, 길게 누르면 꽂이', async () => {

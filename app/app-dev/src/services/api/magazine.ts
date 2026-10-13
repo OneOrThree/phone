@@ -317,15 +317,15 @@ function readCell(raw: unknown): MagazineCell | null {
   }
 }
 
+/** 편집부 지면 — 모양이 어긋나면 편집부만 빼고(null) 칸은 그대로 보인다. */
 function readEditorial(raw: unknown): MagazineEditorial | null {
-  if (raw == null) return null;
   if (
     !isRecord(raw) ||
     !Array.isArray(raw.ranking) ||
     !Array.isArray(raw.newIslands) ||
     !isRecord(raw.note)
   )
-    throw contractError('editorial');
+    return null;
   const note = raw.note;
   return {
     ranking: raw.ranking.flatMap((row) => {
@@ -359,24 +359,25 @@ export async function getMagazineToday(): Promise<MagazineToday> {
 export async function getMagazineIssues(): Promise<MagazineIssueSummary[]> {
   const raw = await request<unknown>('/me/magazine/issues');
   if (!isRecord(raw) || !Array.isArray(raw.items)) throw contractError('items');
-  return raw.items.map((item) => {
-    if (
-      !isRecord(item) ||
-      !str(item.issueId) ||
-      !num(item.issueNo) ||
-      !str(item.issueDate) ||
-      !str(item.publishedAt) ||
-      typeof item.opened !== 'boolean'
-    )
-      throw contractError('items');
-    return {
-      issueId: item.issueId,
-      issueNo: item.issueNo as number,
-      issueDate: item.issueDate,
-      publishedAt: item.publishedAt,
-      opened: item.opened,
-    };
-  });
+  // 모양이 어긋난 줄은 그 줄만 뺀다(칸·섬과 같은 원칙)
+  return raw.items.flatMap((item) =>
+    isRecord(item) &&
+    str(item.issueId) &&
+    num(item.issueNo) &&
+    str(item.issueDate) &&
+    str(item.publishedAt) &&
+    typeof item.opened === 'boolean'
+      ? [
+          {
+            issueId: item.issueId,
+            issueNo: item.issueNo as number,
+            issueDate: item.issueDate,
+            publishedAt: item.publishedAt,
+            opened: item.opened,
+          },
+        ]
+      : [],
+  );
 }
 
 /** 호 한 페이지 — 첫 페이지(cursor 없음)에만 편집부 지면이 온다. 7호 밖이면 404 MAGAZINE_ISSUE_NOT_FOUND. */
@@ -395,7 +396,8 @@ export async function getMagazineIssue(
       const read = readCell(cell);
       return read ? [read] : [];
     }),
-    nextCursor: str(raw.nextCursor) ? raw.nextCursor : null,
+    // 빈 문자열도 끝으로 본다
+    nextCursor: str(raw.nextCursor) && raw.nextCursor ? raw.nextCursor : null,
   };
 }
 

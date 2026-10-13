@@ -7,7 +7,8 @@ import { ApiError } from '@/services/api/client';
 import * as api from '@/services/api/magazine';
 import type { MagazineCell, MagazineIssuePage } from '@/services/api/magazine';
 import { initialState } from '@/services/model';
-import { MagazineReader, magazinePages } from './MagazineReader';
+import { FlatList, StyleSheet } from 'react-native';
+import { MagazineReader, magazinePages, readerGeometry } from './MagazineReader';
 import { resetMagazineToday } from './useMagazineToday';
 
 jest.mock('@/services/api/magazine', () => ({
@@ -15,6 +16,12 @@ jest.mock('@/services/api/magazine', () => ({
   getMagazineIssue: jest.fn(),
   putMagazineReceipt: jest.fn(),
 }));
+// 화면 크기·글자 배율만 바꿔 끼운다(회전·큰 글자)
+let mockScreen: { width?: number; height?: number; fontScale?: number } = {};
+jest.mock('@/utils/layout', () => {
+  const actual = jest.requireActual('@/utils/layout');
+  return { useAppLayout: () => ({ ...actual.useAppLayout(), fontScale: 1, ...mockScreen }) };
+});
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
@@ -171,6 +178,80 @@ test('이어 읽기가 실패하면 같은 쪽에서는 다시 부르지 않고,
   await fireEvent.press(screen.getByTestId('magazine-next'));
   await waitFor(() => expect(screen.getByTestId('magazine-cell-p4')).toBeTruthy());
   expect(getIssue).toHaveBeenCalledTimes(3);
+});
+
+test('끝 쪽에서 이어 읽기가 실패하면 쪽 번호 자리에 「더 불러오지 못했어요 · 다시」 — 누르면 다시 읽는다', async () => {
+  getIssue
+    .mockResolvedValueOnce(page({ cells: [cell(1), cell(2), cell(3)], nextCursor: 'c1' }))
+    .mockRejectedValueOnce(new ApiError('NETWORK', '오프라인', 0))
+    .mockResolvedValueOnce(page({ editorial: null, cells: [cell(4)], nextCursor: null }));
+  const screen = await render(<MagazineReader e={env()} />);
+  await waitFor(() => expect(screen.getByTestId('magazine-more-retry')).toBeTruthy());
+  expect(screen.getByText('더 불러오지 못했어요 · 다시')).toBeTruthy();
+  await fireEvent.press(screen.getByTestId('magazine-more-retry'));
+  await waitFor(() => expect(screen.getByTestId('magazine-cell-p4')).toBeTruthy());
+  expect(screen.queryByTestId('magazine-more-retry')).toBeNull();
+});
+
+test('이어 읽는 중에는 쪽 번호를 「N쪽 넘게 중」으로 읽는다', async () => {
+  getIssue
+    .mockResolvedValueOnce(page({ cells: [cell(1), cell(2), cell(3)], nextCursor: 'c1' }))
+    .mockReturnValueOnce(new Promise(() => {})); // 다음 칸은 아직 오는 중
+  const screen = await render(<MagazineReader e={env()} />);
+  await waitFor(() => expect(screen.getByText('1 / 2+')).toBeTruthy());
+  await waitFor(() => expect(getIssue).toHaveBeenCalledTimes(2));
+  expect(screen.getByTestId('magazine-page').props.accessibilityLabel).toBe('2쪽 넘게 중 1쪽');
+});
+
+test('큰 글자에서는 편집부 섬 줄의 숫자(평균·주민)를 이름 아래로 내린다', async () => {
+  const lineOf = (screen: any) =>
+    StyleSheet.flatten(screen.getByTestId('magazine-rank-1').props.children[2].props.style)
+      .flexDirection;
+  const normal = await open();
+  expect(lineOf(normal.screen)).toBe('row');
+  await normal.screen.unmount();
+  mockScreen = { fontScale: 1.6 };
+  try {
+    const large = await open();
+    expect(lineOf(large.screen)).toBe('column');
+  } finally {
+    mockScreen = {};
+  }
+});
+
+test('회전으로 쪽 폭이 바뀌면 보던 쪽 위치로 다시 맞춘다', async () => {
+  const scroll = jest.spyOn(FlatList.prototype, 'scrollToOffset');
+  try {
+    mockScreen = { width: 402, height: 874 };
+    const { screen } = await open();
+    await fireEvent.press(screen.getByTestId('magazine-next'));
+    scroll.mockClear();
+    mockScreen = { width: 874, height: 402 };
+    await screen.rerender(<MagazineReader e={env()} />);
+    const { innerW } = readerGeometry({
+      width: 874,
+      height: 402,
+      insets: { top: 0, bottom: 0, left: 0, right: 0 },
+    });
+    expect(scroll).toHaveBeenCalledWith({ offset: innerW, animated: false });
+  } finally {
+    mockScreen = {};
+    scroll.mockRestore();
+  }
+});
+
+test('가로처럼 낮은 화면에서도 지면(칸 3개)이 쪽 넘김 줄보다 위에서 끝난다', () => {
+  for (const [width, height] of [
+    [874, 402],
+    [667, 375],
+    [402, 874],
+    [320, 568],
+  ]) {
+    const g = readerGeometry({ width, height, insets: { top: 0, bottom: 0, left: 0, right: 0 } });
+    expect(g.contentBottom).toBeLessThanOrEqual(g.navTop);
+    // 칸 3개 + 사이 간격이 지면 안에 들어간다
+    expect(g.cellW * 3 * (199 / 338) + 16).toBeLessThanOrEqual(g.innerH + 0.01);
+  }
 });
 
 test('섬장에게만 끝 쪽 「우리 섬 홍보 쓰기」 — 누르면 쓰기 화면', async () => {

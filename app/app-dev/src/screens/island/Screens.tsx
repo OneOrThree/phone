@@ -2658,7 +2658,8 @@ export function RedesignScreens({ e }: any) {
             hallGuide ||
             guideStep === 4 ||
             !!state.session ||
-            !!state.visitingIslandId
+            !!state.visitingIslandId ||
+            !!e.routeTransitionShielded
           }
           go={go}
         />

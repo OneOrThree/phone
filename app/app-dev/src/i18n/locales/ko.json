@@ -781,6 +781,8 @@
       "page": "{{page}} / {{total}}",
       "pageMore": "{{page}} / {{total}}+",
       "pageA11y": "{{total}}쪽 중 {{page}}쪽",
+      "pageA11yMore": "{{total}}쪽 넘게 중 {{page}}쪽",
+      "moreFailed": "더 불러오지 못했어요 · 다시",
       "prev": "앞 쪽",
       "next": "다음 쪽",
       "ranking": "이번 주 랭킹",

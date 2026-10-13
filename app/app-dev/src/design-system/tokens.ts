@@ -368,6 +368,10 @@ export const componentTokens = {
     gap: 7,
     paddingHorizontal: 10,
     radius: 5,
+    // 잡지 보기·꽂이 알약과 안 읽음 점(점 테두리는 편지 종이색)
+    pillRadius: 22,
+    dotSize: 14,
+    dotBorder: '#fff8e8',
     border: '#684434',
     borderWidth: 1.5,
     shadow: 'inset 0 -6px #c99870,0 3px 0 #3f1d18',
@@ -409,6 +413,9 @@ export const componentTokens = {
     navHeight: 30,
     // 표지 띠·쪽 번호는 속지 그림의 정해진 자리에 놓여 큰 글자에서도 이 배율까지만 키운다(칸 글자 P12 와 같은 이유)
     fixedTextMaxScale: 1.3,
+    // 글자 배율이 이 값 이상이면 편집부 섬 줄의 숫자(평균·주민)를 이름 아래로 내린다
+    largeTextThreshold: 1.3,
+    pageNumberMinWidth: 56,
     closeArt: 36,
     // 닫기 버튼(44)이 속지 오른쪽 위 모서리에 걸치는 만큼
     closeOffset: -6,

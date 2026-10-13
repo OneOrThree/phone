@@ -8,7 +8,7 @@ import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { GuideBox } from '@/screens/island/NpcGuide';
 import { useAppLayout } from '@/utils/layout';
 import { MagazineRack } from './MagazineRack';
-import { magazineUnread, sendReceipt } from './useMagazineToday';
+import { magazineUnread, markDelivered, sendReceipt, wasDelivered } from './useMagazineToday';
 
 const O = componentTokens.magazineReader.object;
 
@@ -33,18 +33,19 @@ export function MagazineHomeLayer({
   go: (route: string, id?: string) => void;
 }) {
   const L = useAppLayout();
-  // 이번에 알린 호 — 닫은 뒤 받음 기록이 실패해 receipt 가 비어 있어도 같은 호를 다시 띄우지 않는다
+  // 지금 띄운 호. 한 번 알린 호는 세션 동안(markDelivered) 다시 띄우지 않는다 — 받음 기록이 실패해 receipt 가 비어도
   const [delivered, setDelivered] = useState<string | null>(null);
   const [showing, setShowing] = useState(false);
   const [rack, setRack] = useState(false);
   const issue = today?.issue?.current ? today.issue : null;
 
   useEffect(() => {
-    if (blocked || !issue || today?.receipt || delivered === issue.issueId) return;
+    if (blocked || !issue || today?.receipt || wasDelivered(issue.issueId)) return;
+    markDelivered(issue.issueId);
     setDelivered(issue.issueId);
     setShowing(true);
     sendReceipt(issue.issueId, { place: 'ISLAND' }).catch(() => {});
-  }, [blocked, delivered, issue, today?.receipt]);
+  }, [blocked, issue, today?.receipt]);
 
   const later = () => {
     setShowing(false);

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   FlatList,
   Image,
@@ -49,6 +50,27 @@ type Loaded = {
   cells: MagazineCell[];
   nextCursor: string | null;
 };
+
+/**
+ * 속지 배치 — 속지는 그림 비율 그대로 화면 안에 가장 크게. 지면(표지 띠 아래 ~ 쪽 넘김 줄 위)은 쪽 넘김 줄과 겹치지 않는다:
+ * 가로 화면처럼 속지가 낮으면 아래 여백(insetBottom)보다 넘김 줄이 먼저 닿으므로 둘 중 위쪽에서 끝낸다. 칸 3개는 지면 높이에 맞춘다.
+ */
+export function readerGeometry(L: {
+  width: number;
+  height: number;
+  insets: { top: number; bottom: number; left: number; right: number };
+}) {
+  const availW = L.width - L.insets.left - L.insets.right - R.screenMargin * 2;
+  const availH = L.height - L.insets.top - L.insets.bottom - R.screenMargin * 2;
+  const W = Math.min(availW, availH * R.pageAspect, R.maxPageWidth);
+  const H = W / R.pageAspect;
+  const innerW = W * (1 - R.insetX * 2);
+  const navTop = H * (1 - R.navBottom) - NAV_H;
+  const contentBottom = Math.min(H * (1 - R.insetBottom), navTop - R.cellGap);
+  const innerH = contentBottom - H * R.insetTop - COVER_H;
+  const cellW = Math.min(innerW, (innerH - R.cellGap * 2) / (PER_PAGE * CELL_ASPECT));
+  return { W, H, innerW, innerH, cellW, navTop, contentBottom };
+}
 
 /** 「2026-10-14」 → 「10월 14일」 */
 export const issueDateText = (date: string) => {
@@ -151,14 +173,8 @@ export function MagazineReader({
       .finally(() => setMore(false));
   }, [issueId, cursor, more, index, pages.length, failedAt]);
 
-  // 속지는 그림 비율 그대로 화면 안에 가장 크게
-  const availW = L.width - L.insets.left - L.insets.right - R.screenMargin * 2;
-  const availH = L.height - L.insets.top - L.insets.bottom - R.screenMargin * 2;
-  const W = Math.min(availW, availH * R.pageAspect, R.maxPageWidth);
-  const H = W / R.pageAspect;
-  const innerW = W * (1 - R.insetX * 2);
-  const innerH = H * (1 - R.insetTop - R.insetBottom) - COVER_H;
-  const cellW = Math.min(innerW, (innerH - R.cellGap * 2) / (PER_PAGE * CELL_ASPECT));
+  const { W, H, innerW, innerH, cellW } = readerGeometry(L);
+  const largeText = L.fontScale >= R.largeTextThreshold;
   const text = (size: number, color: string = semanticTokens.color.text) => ({
     fontFamily: font,
     fontSize: size,
@@ -176,6 +192,26 @@ export function MagazineReader({
   );
   const onScrollEnd = (ev: NativeSyntheticEvent<NativeScrollEvent>) =>
     setIndex(Math.round(ev.nativeEvent.contentOffset.x / innerW));
+  // 회전 등으로 쪽 폭이 바뀌면 보던 쪽에 다시 맞춘다(옛 폭의 오프셋이 남아 쪽 사이에 걸리지 않게)
+  const indexRef = useRef(index);
+  indexRef.current = index;
+  useEffect(() => {
+    list.current?.scrollToOffset({ offset: indexRef.current * innerW, animated: false });
+  }, [innerW]);
+  // 쪽이 바뀌면 스크린리더에 알린다(처음 펼칠 때는 표지 띠를 읽으므로 건너뛴다)
+  const announced = useRef(false);
+  const pageLabel = t(cursor ? 'magazine.reader.pageA11yMore' : 'magazine.reader.pageA11y', {
+    page: index + 1,
+    total: pages.length,
+  });
+  useEffect(() => {
+    if (!announced.current) {
+      announced.current = true;
+      return;
+    }
+    AccessibilityInfo.announceForAccessibility(pageLabel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 쪽이 바뀔 때만 알린다(이어 읽어 전체 쪽 수가 늘 때는 알리지 않는다)
+  }, [index]);
 
   const avatar = (island: MagazineIsland, size: number) => (
     <View
@@ -196,6 +232,22 @@ export function MagazineReader({
         resizeMode="contain"
         style={{ width: size * 1.3, height: size * 1.3 }}
       />
+    </View>
+  );
+  // 섬 이름(두 줄까지) + 오른쪽 숫자. 큰 글자에서는 숫자를 이름 아래 줄로 내려 속지 밖으로 밀리지 않게 한다
+  const islandLine = (name: string, meta: string) => (
+    <View
+      style={{
+        flex: 1,
+        flexDirection: largeText ? 'column' : 'row',
+        alignItems: largeText ? 'flex-start' : 'center',
+        gap: largeText ? 0 : primitiveTokens.space[2],
+      }}
+    >
+      <T numberOfLines={2} style={[text(14), largeText ? null : { flex: 1 }]}>
+        {name}
+      </T>
+      <T style={text(11, semanticTokens.color.textMuted)}>{meta}</T>
     </View>
   );
   const average = (island: MagazineIsland) =>
@@ -251,7 +303,7 @@ export function MagazineReader({
           />
           <T
             accessibilityRole="header"
-            allowFontScaling={false}
+            maxFontSizeMultiplier={R.fixedTextMaxScale}
             style={[
               text(15),
               { position: 'absolute', left: 0, right: 0, top: '34%', textAlign: 'center' },
@@ -292,10 +344,7 @@ export function MagazineReader({
                     </T>
                   )}
                   {avatar(row, R.rankAvatar)}
-                  <T numberOfLines={1} style={[text(14), { flex: 1 }]}>
-                    {islandTitle(row.name)}
-                  </T>
-                  <T style={text(11, semanticTokens.color.textMuted)}>{average(row)}</T>
+                  {islandLine(islandTitle(row.name), average(row))}
                 </View>
               ))
             : emptyLine('magazine.reader.rankingEmpty'),
@@ -329,15 +378,13 @@ export function MagazineReader({
                   }}
                 >
                   {avatar(island, R.newAvatar)}
-                  <T numberOfLines={1} style={[text(14), { flex: 1 }]}>
-                    {islandTitle(island.name)}
-                  </T>
-                  <T style={text(11, semanticTokens.color.textMuted)}>
-                    {t('magazine.cell.residents', {
+                  {islandLine(
+                    islandTitle(island.name),
+                    t('magazine.cell.residents', {
                       count: island.memberCount,
                       max: island.maxMembers,
-                    })}
-                  </T>
+                    }),
+                  )}
                 </View>
               ))
             : emptyLine('magazine.reader.newIslandsEmpty'),
@@ -432,6 +479,8 @@ export function MagazineReader({
     page: index + 1,
     total,
   });
+  // 이어 읽기가 실패해 멈춘 끝 쪽 — 쪽 번호 자리에 「더 불러오지 못했어요 · 다시」를 둔다
+  const moreFailed = !!cursor && failedAt?.cursor === cursor && !more;
   const arrow = (dir: -1 | 1) => {
     const disabled = dir < 0 ? index <= 0 : index >= total - 1;
     return (
@@ -583,7 +632,7 @@ export function MagazineReader({
               </View>
             )}
           </View>
-          {status === 'ready' && total > 1 && (
+          {status === 'ready' && (total > 1 || moreFailed) && (
             <View
               style={{
                 position: 'absolute',
@@ -597,17 +646,35 @@ export function MagazineReader({
               }}
             >
               {arrow(-1)}
-              <T
-                testID="magazine-page"
-                maxFontSizeMultiplier={R.fixedTextMaxScale}
-                accessibilityLabel={t('magazine.reader.pageA11y', { page: index + 1, total })}
-                style={[
-                  text(13, semanticTokens.color.textMuted),
-                  { minWidth: 56, textAlign: 'center' },
-                ]}
-              >
-                {pageText}
-              </T>
+              {moreFailed ? (
+                <Pressable
+                  testID="magazine-more-retry"
+                  accessibilityRole="button"
+                  onPress={() => setFailedAt(null)}
+                  hitSlop={8}
+                  style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}
+                >
+                  <T
+                    maxFontSizeMultiplier={R.fixedTextMaxScale}
+                    style={text(12, semanticTokens.color.danger)}
+                  >
+                    {t('magazine.reader.moreFailed')}
+                  </T>
+                </Pressable>
+              ) : (
+                <T
+                  testID="magazine-page"
+                  maxFontSizeMultiplier={R.fixedTextMaxScale}
+                  accessibilityLabel={pageLabel}
+                  accessibilityLiveRegion="polite"
+                  style={[
+                    text(13, semanticTokens.color.textMuted),
+                    { minWidth: R.pageNumberMinWidth, textAlign: 'center' },
+                  ]}
+                >
+                  {pageText}
+                </T>
+              )}
               {arrow(1)}
             </View>
           )}
@@ -650,7 +717,12 @@ export function MagazineReader({
         >
           {zoom && (
             <AdCell
-              width={Math.min(L.width - semanticTokens.spacing.component * 2, R.maxPageWidth)}
+              width={Math.min(
+                L.width - semanticTokens.spacing.component * 2,
+                (L.height - L.insets.top - L.insets.bottom - semanticTokens.spacing.component * 2) /
+                  CELL_ASPECT,
+                R.maxPageWidth,
+              )}
               cell={zoom}
               corner={zoom.relation === 'MEMBER' ? 'ours' : null}
             />

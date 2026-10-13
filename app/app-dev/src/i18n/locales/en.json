@@ -799,6 +799,8 @@
       "page": "{{page}} / {{total}}",
       "pageMore": "{{page}} / {{total}}+",
       "pageA11y": "Page {{page}} of {{total}}",
+      "pageA11yMore": "Page {{page}} of {{total}}+",
+      "moreFailed": "Couldn't load more · Retry",
       "prev": "Previous page",
       "next": "Next page",
       "ranking": "This week's ranking",

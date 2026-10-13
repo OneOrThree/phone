@@ -37,21 +37,38 @@ function publish(next: MagazineToday | null) {
 /** 지금 들고 있는 오늘 호 — 다른 세션(로그아웃·계정 전환)에서 읽은 값은 버린다. */
 export const cachedMagazineToday = () => (cacheSession === sessionGeneration() ? cache : null);
 
-/** 받음·나중에·읽음을 보내고 성공하면 캐시(오늘 호면)를 고쳐 홈·우체통·꽂이에 알린다. */
+/**
+ * 받음·나중에·읽음을 보내고 성공하면 캐시(오늘 호면)를 고쳐 홈·우체통·꽂이에 알린다. 보내는 사이 세션이 바뀌었으면(로그아웃·계정 전환)
+ * 호 id 가 같아도 다른 사람의 기록이라 캐시에 넣지 않는다.
+ */
 export async function sendReceipt(
   issueId: string,
   update: ReceiptUpdate,
 ): Promise<MagazineReceipt> {
+  const session = sessionGeneration();
   const receipt = await magazineApi().putMagazineReceipt(issueId, update);
+  if (session !== sessionGeneration()) return receipt;
   const today = cachedMagazineToday();
   publish(today?.issue?.issueId === issueId ? { ...today, receipt } : today);
   return receipt;
+}
+
+/** 이번 세션에 펠리컨으로 알린 호 — 받음 기록이 실패해도 홈에 다시 들어올 때마다 또 띄우지 않는다(앱을 다시 켜면 다시 알린다). */
+let delivered: { session: number; issues: Set<string> } = { session: -1, issues: new Set() };
+export function wasDelivered(issueId: string): boolean {
+  return delivered.session === sessionGeneration() && delivered.issues.has(issueId);
+}
+export function markDelivered(issueId: string) {
+  if (delivered.session !== sessionGeneration())
+    delivered = { session: sessionGeneration(), issues: new Set() };
+  delivered.issues.add(issueId);
 }
 
 /** 테스트에서 모듈 캐시를 비운다. */
 export function resetMagazineToday() {
   cache = null;
   cacheSession = -1;
+  delivered = { session: -1, issues: new Set() };
 }
 
 export function useMagazineToday(active: boolean): {
