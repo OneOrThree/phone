@@ -11,4 +11,13 @@ initializeKakaoSDK('1280641e9b639a279b7406f24b059703');
 initDatadog();
 initPostHog();
 
-registerRootComponent(App);
+// 개발 빌드에서 EXPO_PUBLIC_MAGAZINE_PREVIEW=1(또는 auto) 로 Metro 를 띄우면 잡지 칸 미리보기만 띄운다(글 넘침 확인용).
+// __DEV__ 분기 안에서 require 해야 운영 번들에 미리보기가 실리지 않는다(Metro 는 쓰지 않는 import 도 번들에 넣는다)
+const magazinePreview = ['1', 'auto'].includes(process.env.EXPO_PUBLIC_MAGAZINE_PREVIEW ?? '');
+registerRootComponent(
+  __DEV__ && magazinePreview
+    ? (
+        require('@/screens/magazine/MagazinePreview') as typeof import('@/screens/magazine/MagazinePreview')
+      ).MagazinePreview
+    : App,
+);

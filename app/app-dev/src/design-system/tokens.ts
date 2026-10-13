@@ -346,6 +346,21 @@ export const componentTokens = {
     largeTextThreshold: 1.3,
     ribbonTilt: '-12deg',
   },
+  // 고양이 잡지 칸(GROMO-2289) — Figma A안 C1 편집 칸 338×199 를 기준으로 잰 치수다. AdCell 이 실제 칸 너비 ÷
+  // referenceWidth 를 곱해 그리므로 쓰기 화면·잡지 지면·망원경 미리보기에서 같은 모양이 된다.
+  // aspect = 높이 ÷ 너비(고정). 스티커 좌표가 칸 비율(0~1)이라 비율이 바뀌면 모든 칸의 모양이 바뀐다.
+  magazineCell: {
+    referenceWidth: 338,
+    aspect: 199 / 338,
+    profileDiameter: 40,
+    nameSize: 17,
+    bodySize: 13,
+    metaSize: 11,
+    lineHeight: 1.4,
+    gap: 6,
+    cornerSize: 44,
+    tapeWidthRatio: 0.26,
+  },
   divider: {
     color: semanticTokens.color.divider,
     width: semanticTokens.stroke.subtle,
