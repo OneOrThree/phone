@@ -122,6 +122,8 @@ public class MagazineIssueService {
         // 404 USER_NOT_FOUND 로 끝나고, 이쪽이 먼저면 탈퇴가 이 커밋 뒤에 지운다 — 지워진 열람 기록이 되살아나지 않는다.
         users.getCallerForShare(userId);
         Instant now = clock.instant();
+        // 7호 밖 정리(배타)와 줄을 선다 — 정리가 돌면 그 뒤에 새 호를 보고, 이쪽이 먼저면 정리가 이 행까지 지운다.
+        receipts.lockForReceipt(MagazineReceiptRepository.LOCK_KEY);
         // 「최근 7호인가」 와 삽입을 한 문장으로 묶는다 — 7호 밖이 된 호에는 행을 만들지 않는다.
         receipts.insertIfAbsent(userId, issueId, request.place().name(), now);
         MagazineReceipt receipt = receipts.findForUpdate(userId, issueId)

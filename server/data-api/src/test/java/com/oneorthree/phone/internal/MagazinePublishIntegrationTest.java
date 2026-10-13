@@ -17,7 +17,10 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.internal.dto.MagazineViews;
+import com.oneorthree.phone.internal.service.IslandFocusAverageReader;
 import com.oneorthree.phone.internal.service.IslandFocusAverageSnapshotService;
+import com.oneorthree.phone.internal.service.MagazineIssueService;
 import com.oneorthree.phone.internal.service.MagazinePublishService;
 import com.oneorthree.phone.magazine.repository.IslandPromotionRepository;
 import com.oneorthree.phone.magazine.repository.domain.IslandPromotion;
@@ -37,6 +40,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -62,6 +66,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -124,6 +130,10 @@ class MagazinePublishIntegrationTest {
     MockMvc mvc;
     @Autowired
     IslandPromotionRepository promotions;
+    @Autowired
+    MagazineIssueService magazine;
+    @MockitoSpyBean
+    IslandFocusAverageReader averageReader;
     @Autowired
     PlatformTransactionManager transactionManager;
 
@@ -247,6 +257,39 @@ class MagazinePublishIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MAGAZINE_ISSUE_NOT_FOUND"));
         shelf(reader.getId()).andExpect(jsonPath("$.items.length()").value(7))
                 .andExpect(jsonPath("$.items[0].issueNo").value(8));
+    }
+
+    @Test
+    @DisplayName("8호 발행이 스냅샷을 잡은 뒤 1호 받음이 커밋돼도, 발행 뒤 정리가 그 행까지 지운다 — 7호 밖 행이 남지 않는다")
+    void receiptCommittedDuringPublishingIsStillForgotten() throws Exception {
+        User reader = user();
+        UUID firstIssue = publisher.publish(date).orElseThrow().getId();
+        for (int day = 1; day < 7; day++) {
+            now.set(kst(date.plusDays(day), 7, 0));
+            publisher.publish(date.plusDays(day)).orElseThrow();
+        }
+        Island island = island("여덟째섬", false);
+        promotion(island.id, date.plusDays(7), kst(date.plusDays(6), 8, 0), "8호 홍보");
+        ExecutorService other = Executors.newSingleThreadExecutor();
+        AtomicReference<Integer> inserted = new AtomicReference<>();
+        // 발행 트랜잭션 안(첫 조회 뒤 — REPEATABLE READ 스냅샷이 잡힌 뒤)에서, 다른 스레드가 아직 최근 7호인 1호의 받음을 커밋한다.
+        doAnswer(invocation -> {
+            await(other.submit(() -> magazine.receive(reader.getId(), firstIssue,
+                    new MagazineViews.ReceiptRequest(MagazineViews.Place.ISLAND, null, true))));
+            // 이 스레드의 조회는 발행 트랜잭션의 스냅샷이라 그 행이 안 보인다 — 다른 스레드에서 센다.
+            inserted.set(other.submit(() -> receiptRows(firstIssue)).get(30, TimeUnit.SECONDS));
+            return invocation.callRealMethod();
+        }).when(averageReader).latest(any());
+        try {
+            now.set(kst(date.plusDays(7), 7, 0));
+            publisher.publish(date.plusDays(7)).orElseThrow();
+        } finally {
+            other.shutdownNow();
+            reset(averageReader);
+        }
+
+        assertThat(inserted.get()).as("발행 도중 받음은 커밋됐다(그때는 1호가 아직 최근 7호)").isEqualTo(1);
+        assertThat(receiptRows(firstIssue)).as("발행 뒤 정리가 그 행까지 지운다").isZero();
     }
 
     @Test
