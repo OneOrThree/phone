@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
@@ -16,6 +17,7 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.internal.dto.IslandFocusMembersView;
+import com.oneorthree.phone.internal.dto.IslandFocusTodayView;
 import com.oneorthree.phone.internal.dto.IslandRestMembersView;
 import com.oneorthree.phone.internal.dto.MemberWatermark;
 import com.oneorthree.phone.outbox.repository.AggregateVersionRepository;
@@ -30,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -83,6 +86,7 @@ public class IslandFocusMembersService {
     private final FocusSessionDetailRepository details;
     private final FocusSessionIntervalRepository intervals;
     private final AggregateVersionRepository aggregateVersions;
+    private final IslandRecordsService records;
     private final Clock clock;
 
     /** focus 목록 — 진행 중(active/paused) 주민. completed·abandoned 는 없다. */
@@ -109,6 +113,18 @@ public class IslandFocusMembersService {
                 .toList();
         return new IslandFocusMembersView(items, now, watermarks(MemberWatermark.FOCUS_MEMBER,
                 FocusMemberEvents.FOCUS_AGGREGATE_TYPE, islandId, rows));
+    }
+
+    /**
+     * 오늘(KST) 이 섬 주민들의 집중 분 (GROMO-2258) — 방문 화면용이라 focus 목록과 같은 문({@link #requireVisitableIsland})을
+     * 쓴다. 합산은 회관 기록 scope=island 와 같은 {@link IslandRecordsService#islandActiveSecondsOn} 이다.
+     */
+    @Transactional(readOnly = true)
+    public IslandFocusTodayView focusToday(UUID islandId, UUID userId) {
+        List<UUID> residents = requireVisitableIsland(islandId, userId);
+        LocalDate today = LocalDate.ofInstant(clock.instant(), ZonePolicy.KST);
+        return new IslandFocusTodayView(islandId, today,
+                records.islandActiveSecondsOn(islandId, residents, today, ZonePolicy.KST) / 60);
     }
 
     /** rest 목록 — paused 주민만, 자리 번호 순. */

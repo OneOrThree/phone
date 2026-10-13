@@ -31,6 +31,7 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
+import { formatDuration } from '@/i18n/format';
 import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
@@ -237,11 +238,12 @@ export const legacyDoors: Record<string, Door> = (() => {
       x: d.raft.x,
       y: d.raft.y,
       hitbox: d.raft.hitbox,
-      r: 'boat',
+      r: 'raft',
       get label() {
         return t('home.a11y.raft');
       },
       memberOnly: true,
+      visitorRoute: 'raft',
     },
     fishingIsland: {
       x: d.fishingIsland.x,
@@ -1105,6 +1107,8 @@ function FinalIslandScene({
   layeredPreview = false,
   onServerBuilt,
   onReturnFromVisit,
+  visitHud,
+  visitJoin,
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug = false,
@@ -1132,6 +1136,10 @@ function FinalIslandScene({
   onServerBuilt?: () => void;
   /** 서버 방문은 현재 소속 섬을 변경하지 않고 구경만 끝낸다. */
   onReturnFromVisit?: () => void;
+  /** 서버 방문 HUD(GROMO-2259) — 집중 중 인원(null 이면 줄을 숨긴다)·오늘 집중 분(없으면 숨긴다). */
+  visitHud?: { focusCount: number | null; onFocusPress: () => void; todayMinutes?: number };
+  /** 서버 방문 하단 가입 버튼(GROMO-2259) — 있으면 「원래 섬으로」 자리를 대신한다. */
+  visitJoin?: { label: string; disabled: boolean; onPress: () => void };
   mapAssets?: MapAssetSource;
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기 — 켜진 동안만 마지막 걷기를 기록한다. */
@@ -1848,7 +1856,7 @@ function FinalIslandScene({
           // 방문 카드에서 연 읽기 전용 화면은 낚시섬 관전만 연다. 기존 방문자 홈은 회관·게시판도 열 수 있다.
           .filter(([, d]) =>
             explicitVisit
-              ? !!d.visitorRoute
+              ? !!d.visitorRoute && d.visitorRoute !== 'raft'
               : d.building && !i.buildings.includes(d.building)
                 ? false
                 : d.memberOnly
@@ -2179,9 +2187,18 @@ function FinalIslandScene({
           >
             {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
             {visiting ? (
-              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
-                {t('home.hud.visiting', { name: i.name })}
-              </Txt>
+              <View>
+                <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                  {t('home.hud.visiting', { name: i.name })}
+                </Txt>
+                {visitHud?.todayMinutes != null && (
+                  <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                    {t('home.hud.todayFocusVisitor', {
+                      time: formatDuration(visitHud.todayMinutes * 60),
+                    })}
+                  </Txt>
+                )}
+              </View>
             ) : (
               <>
                 {/* 어느 섬의 홈인지 — 서버 모드는 스냅샷의 섬 이름(GROMO-2138) */}
@@ -2211,6 +2228,30 @@ function FinalIslandScene({
               </>
             )}
           </View>
+          {visiting && visitHud && visitHud.focusCount !== null && (
+            <Pressable
+              testID="visit-focus-count"
+              accessibilityRole="button"
+              accessibilityHint={t('home.hud.focusingNowHint')}
+              onPress={visitHud.onFocusPress}
+              style={{
+                marginTop: componentTokens.homeQuestIndicator.hudGap,
+                minHeight: semanticTokens.size.tapMin,
+                justifyContent: 'center',
+                // 위 HUD 알약과 같은 반투명 Paper 표면
+                backgroundColor: `${semanticTokens.color.surface}B3`,
+                borderRadius: semanticTokens.radius.full,
+                paddingVertical: primitiveTokens.space[2],
+                paddingHorizontal: semanticTokens.spacing.component,
+              }}
+            >
+              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                {visitHud.focusCount > 0
+                  ? t('home.hud.focusingNow', { count: visitHud.focusCount })
+                  : t('home.hud.quietNow')}
+              </Txt>
+            </Pressable>
+          )}
           {showQuestIndicator && (
             <HomeQuestIndicator
               quests={i.quests}
@@ -2316,7 +2357,15 @@ function FinalIslandScene({
                 : Math.max(44, L.insets.bottom + 10),
             }}
           >
-            {visiting ? (
+            {visiting && visitJoin ? (
+              <Btn
+                kind="butter"
+                title={visitJoin.label}
+                id="visit-join"
+                disabled={visitJoin.disabled}
+                onPress={visitJoin.onPress}
+              />
+            ) : visiting ? (
               <Btn
                 kind="butter"
                 title={t('home.returnToMyIsland')}

@@ -9,6 +9,7 @@ import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.dto.SendFailureResponse;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
+import com.sun.net.httpserver.HttpServer;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.AfterEach;
@@ -40,6 +41,7 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 
 import java.lang.reflect.Type;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -130,6 +132,10 @@ class IslandRealtimeIntegrationTest {
         stompClient.setMessageConverter(new CompositeMessageConverter(
                 List.of(new JacksonJsonMessageConverter(), new SimpleMessageConverter())));
         givenProgressing(focusing, resting);
+        // 멤버십(방문자 판정, GROMO-2258) — 주민 둘은 그 섬 소속, 방문자는 아무 섬에도 없다.
+        given(groupClient.fetchMyGroupIds(bearerOf(focusing))).willReturn(GroupClient.Membership.of(Set.of(island)));
+        given(groupClient.fetchMyGroupIds(bearerOf(resting))).willReturn(GroupClient.Membership.of(Set.of(island)));
+        given(groupClient.fetchMyGroupIds(bearerOf(visitor))).willReturn(GroupClient.Membership.of(Set.of()));
     }
 
     @AfterEach
@@ -137,6 +143,7 @@ class IslandRealtimeIntegrationTest {
         redis.delete(RedisKeys.focusPresence(focusing));
         clearWindows(focusing);
         clearWindows(resting);
+        clearWindows(visitor);
         stompClient.stop();
     }
 
@@ -341,8 +348,8 @@ class IslandRealtimeIntegrationTest {
         awaitEmoteSubscription(sender, sessionId, emotes);
         clearWindows(focusing);
 
-        // sessionId 가 없어 @Valid 가 «메서드 진입 전»에 죽이는 프레임이다.
-        sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+        // type 이 없어 @Valid 가 «메서드 진입 전»에 죽이는 프레임이다(sessionId 누락은 방문자 응원이라 정상 — GROMO-2258).
+        sender.send(emoteDestination(), new FocusEmoteRequest(sessionId, null));
 
         // 그 프레임이 창을 먹었다면, 곧바로 이어지는 «정상» 응원이 창에 막혀 나가지 못한다.
         sender.send(emoteDestination(), new FocusEmoteRequest(sessionId, "cheer"));
@@ -359,10 +366,11 @@ class IslandRealtimeIntegrationTest {
         awaitErrorQueueRegistered(sender, errors, focusing);
 
         clearWindows(focusing);
-        sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
-        SendFailureResponse missingSession = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        assertThat(missingSession).isNotNull();
-        assertThat(missingSession.getCode()).isEqualTo(CommonErrorCode.INVALID_REQUEST.name());
+        // sessionId 누락은 방문자 응원 경로다(GROMO-2258) — 형식 오류의 대표는 type 누락이다.
+        sender.send(emoteDestination(), new FocusEmoteRequest(UUID.randomUUID(), null));
+        SendFailureResponse missingType = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(missingType).isNotNull();
+        assertThat(missingType.getCode()).isEqualTo(CommonErrorCode.INVALID_REQUEST.name());
         assertThat(sender.isConnected()).as("필드 하나를 빠뜨렸다고 세션이 죽으면 안 된다").isTrue();
 
         clearWindows(focusing);
@@ -492,7 +500,7 @@ class IslandRealtimeIntegrationTest {
     }
 
     @Test
-    @DisplayName("소속을 잃으면 응원 구독도 발신도 막힌다")
+    @DisplayName("진행 세션이 없는 주민은 응원 구독도 발신도 막힌다 — 방문자 예외는 비주민에게만 열린다")
     void membershipLossBlocksEmoteSubscribeAndSend() throws Exception {
         UUID sessionId = UUID.randomUUID();
         StompSession sender = connect(focusing);
@@ -514,6 +522,132 @@ class IslandRealtimeIntegrationTest {
         assertThat(emotes.poll(1, TimeUnit.SECONDS)).isNull();
         postFocusMemberEvent("active", 1);
         assertThat(emotes.poll(2, TimeUnit.SECONDS)).isNull();
+    }
+
+    @Test
+    @DisplayName("방문자가 세션 없이 보낸 응원이 visitor 표시와 함께 진행 중 주민에게만 간다 — 수신 집합 밖 구독자는 못 받는다 (GROMO-2258)")
+    void visitorEmoteReachesProgressingResidents() throws Exception {
+        // 방문자는 그 섬의 진행 세션이 없다 — 정본은 그를 «집중 중» 으로 보지 않는다.
+        willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(any(), eq(visitor), any());
+        // 수신 집합은 focusing 뿐이다 — resting 은 같은 토픽을 구독하지만 이 응원의 수신 대상이 아니다.
+        given(focusSessions.progressingRecipients(island, visitor)).willReturn(Set.of(focusing));
+        StompSession receiver = connect(focusing);
+        BlockingQueue<Map<String, Object>> received = subscribe(receiver, "emotes");
+        StompSession bystander = connect(resting);
+        BlockingQueue<Map<String, Object>> overheard = subscribe(bystander, "emotes");
+        // 두 구독이 브로커에 등록됐음을 먼저 관측한다 — 안 그러면 아래 «안 옴»이 구독 실패와 구분되지 않는다.
+        awaitEmoteSubscription(receiver, UUID.randomUUID(), received);
+        awaitEmoteSubscription(bystander, UUID.randomUUID(), overheard, resting);
+        // 확인용 응원은 givenProgressing 집합(둘 다)으로 나가 서로의 큐에도 남는다 — 단언 전에 비운다.
+        drain(received);
+        drain(overheard);
+
+        StompSession sender = connect(visitor);
+        subscribe(sender, "emotes");
+        Map<String, Object> envelope = null;
+        for (int attempt = 0; attempt < 30 && envelope == null; attempt++) {
+            clearWindows(visitor);
+            sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+            envelope = received.poll(500, TimeUnit.MILLISECONDS);
+        }
+
+        assertThat(envelope).as("방문자의 응원이 진행 중 주민에게 도착해야 한다").isNotNull();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) envelope.get("payload");
+        assertThat(payload).containsOnlyKeys("userId", "visitor", "type", "expiresAt");
+        assertThat(payload.get("userId")).isEqualTo(visitor.toString());
+        assertThat(payload.get("visitor")).isEqualTo(true);
+        assertThat(payload.get("type")).isEqualTo("cheer");
+        assertThat(overheard.poll(3, TimeUnit.SECONDS))
+                .as("수신 집합 밖의 구독자는 방문자 응원을 받지 않는다 — 섬 전원 방송이 아니다").isNull();
+        assertThat(sender.isConnected()).as("비주민의 emotes 구독은 거절되지 않는다").isTrue();
+    }
+
+    @Test
+    @DisplayName("주민이 세션 없이 응원하면 NOT_FOCUSING · 진행 주민이 없는 섬의 방문자 응원은 NO_ONE_FOCUSING")
+    void sessionlessEmoteRejections() throws Exception {
+        StompSession resident = connect(focusing);
+        BlockingQueue<SendFailureResponse> residentErrors = subscribeToErrors(resident);
+        awaitErrorQueueRegistered(resident, residentErrors, focusing);
+        resident.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+        SendFailureResponse notFocusing = residentErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(notFocusing).isNotNull();
+        assertThat(notFocusing.getCode()).isEqualTo(ChatErrorCode.NOT_FOCUSING.name());
+
+        given(focusSessions.progressingRecipients(island, visitor)).willReturn(Set.of());
+        StompSession guest = connect(visitor);
+        BlockingQueue<SendFailureResponse> guestErrors = subscribeToErrors(guest);
+        awaitErrorQueueRegistered(guest, guestErrors, visitor);
+        guest.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+        SendFailureResponse noOne = guestErrors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(noOne).isNotNull();
+        assertThat(noOne.getCode()).isEqualTo(ChatErrorCode.NO_ONE_FOCUSING.name());
+    }
+
+    @Test
+    @DisplayName("캐시가 «비주민»이라 해도 상류가 주민이라 하면 세션 없는 응원은 NOT_FOCUSING 이다 — 방문자 위장 불가")
+    void staleNonMemberCacheCannotBypassNotFocusing() throws Exception {
+        // 가입 직전에 적재된 «아무 섬에도 없음» 캐시 — 상류(GroupClient 스텁)는 이미 주민이라고 답한다.
+        redis.opsForValue().set(RedisKeys.memberCache(focusing), "", Duration.ofMinutes(2));
+        given(focusSessions.progressingRecipients(island, focusing)).willReturn(Set.of(resting));
+        try {
+            StompSession sender = connect(focusing);
+            BlockingQueue<SendFailureResponse> errors = subscribeToErrors(sender);
+            awaitErrorQueueRegistered(sender, errors, focusing);
+            sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+            SendFailureResponse failure = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            assertThat(failure).isNotNull();
+            assertThat(failure.getCode()).isEqualTo(ChatErrorCode.NOT_FOCUSING.name());
+            verify(focusSessions, org.mockito.Mockito.never()).progressingRecipients(island, focusing);
+        } finally {
+            redis.delete(RedisKeys.memberCache(focusing));
+        }
+    }
+
+    @Test
+    @DisplayName("멤버십 조회가 거절(403)되면 세션 없는 응원은 방문자로 통과하지 않는다 — UPSTREAM_UNAVAILABLE")
+    void rejectedMembershipLookupIsNotAVisitor() throws Exception {
+        given(groupClient.fetchMyGroupIds(bearerOf(focusing))).willReturn(GroupClient.Membership.rejected());
+        given(focusSessions.progressingRecipients(island, focusing)).willReturn(Set.of(resting));
+        StompSession sender = connect(focusing);
+        BlockingQueue<SendFailureResponse> errors = subscribeToErrors(sender);
+        awaitErrorQueueRegistered(sender, errors, focusing);
+
+        sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+        SendFailureResponse failure = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertThat(failure).isNotNull();
+        assertThat(failure.getCode()).isEqualTo(CommonErrorCode.UPSTREAM_UNAVAILABLE.name());
+        verify(focusSessions, org.mockito.Mockito.never()).progressingRecipients(island, focusing);
+    }
+
+    @Test
+    @DisplayName("그룹 조회가 본문 없는 200 이면 세션 없는 응원은 방문자로 통과하지 않는다 — UPSTREAM_UNAVAILABLE")
+    void emptyGroupsBodyIsNotAVisitor() throws Exception {
+        // 실 GroupClient 가 실제 HTTP 응답(본문 없는 200)을 해석하게 한다 — 목 스텁으로는 «형식 불량» 판정이 검증되지 않는다.
+        HttpServer upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        upstream.createContext("/api/v1/groups", exchange -> {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        upstream.start();
+        try {
+            GroupClient real = new GroupClient("http://127.0.0.1:" + upstream.getAddress().getPort(), 1000);
+            given(groupClient.fetchMyGroupIds(bearerOf(focusing)))
+                    .willAnswer(invocation -> real.fetchMyGroupIds(invocation.getArgument(0)));
+            given(focusSessions.progressingRecipients(island, focusing)).willReturn(Set.of(resting));
+            StompSession sender = connect(focusing);
+            BlockingQueue<SendFailureResponse> errors = subscribeToErrors(sender);
+            awaitErrorQueueRegistered(sender, errors, focusing);
+
+            sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+            SendFailureResponse failure = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            assertThat(failure).isNotNull();
+            assertThat(failure.getCode()).isEqualTo(CommonErrorCode.UPSTREAM_UNAVAILABLE.name());
+            verify(focusSessions, org.mockito.Mockito.never()).progressingRecipients(island, focusing);
+        } finally {
+            upstream.stop(0);
+        }
     }
 
     @Test
@@ -592,6 +726,13 @@ class IslandRealtimeIntegrationTest {
             }
         }
         throw new AssertionError("응원 구독이 끝내 등록되지 않았다 — 허용목록·아웃바운드 가드를 의심할 것");
+    }
+
+    /** 늦게 도착하는 확인용 응원까지 비운다 — 다음 단언이 그것을 본 메시지로 착각하지 않게(awaitEmoteSubscription 과 같은 방식). */
+    private static void drain(BlockingQueue<Map<String, Object>> queue) throws InterruptedException {
+        while (queue.poll(300, TimeUnit.MILLISECONDS) != null) {
+            continue;
+        }
     }
 
     /** 같은 이유의 focus 채널 버전 — Data 사건을 도착할 때까지 다시 보낸다(eventId 는 매번 새로). */

@@ -49,6 +49,8 @@ export type Route =
   | 'product'
   | 'orders'
   | 'boat'
+  | 'raft'
+  | 'telescope'
   | 'mainIsland'
   | 'currentIsland'
   | 'profile'
@@ -336,6 +338,10 @@ export type State = {
   travelOrigin?: string;
   // 다른 섬을 방문자로 구경 중이면 그 섬 ID(GROMO-1904). 내 현재 섬(islandId)은 그대로 둔다
   visitingIslandId?: string | null;
+  // 이번 방문에서 「가입하지 않고 떠날까요?」를 이미 물었는지(GROMO-2259). 새 방문(VISIT·SERVER_VISITING)·구경 끝(END_VISIT)에서 지운다
+  visitLeaveAsked?: boolean;
+  // 이번 방문에서 섬장 인사말 말풍선을 이미 띄웠는지(GROMO-2263). visitLeaveAsked 와 같은 시점에 지운다
+  visitGreeted?: boolean;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
   // 최초 우체통 안내를 마친 계정. 섬을 옮겨도 반복하지 않고 계정 간에는 분리한다.
@@ -824,6 +830,15 @@ export function demoState(): State {
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
+/** 목업 섬 전환 가능 여부 — 진행 중 세션이 없고, 소속 섬이며, 온보딩 뒤에는 현재 섬에 전망대가 있어야 한다. */
+export const canSwitchIsland = (s: State, id: string) => {
+  const target = s.islands.find((x) => x.id === id);
+  return (
+    !s.session &&
+    !!target?.joined &&
+    !(s.onboarded && target.id !== s.islandId && !currentIsland(s).buildings.includes('tower'))
+  );
+};
 export const mainIsland = (s: State) =>
   s.islands.find((i) => i.id === s.mainIslandId && i.joined && !i.closed) ??
   s.islands.find((i) => i.joined && !i.closed);
@@ -832,6 +847,12 @@ export const serverHome = (s: State) => {
   const snap = s.serverIslands;
   return snap?.home && snap.home.islandId === snap.currentIslandId ? snap.home : null;
 };
+// 서버 방문 화면 스냅샷 — 지금 구경 중인 섬의 것일 때만 돌려준다. ISLAND_VISIT 가 visit 만 바꾸고
+// visitingIslandId 는 그대로인 구간에 HUD·가입·떠나기 확인이 서로 다른 섬을 보지 않게 한다(GROMO-2259).
+export const serverVisit = (s: State): VisitScreen | null =>
+  s.visitingIslandId && s.serverIslands?.visit?.island.id === s.visitingIslandId
+    ? s.serverIslands.visit
+    : null;
 // 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
 export const viewIsland = (s: State, islandId = s.visitingIslandId) =>
   s.serverIslands
@@ -997,12 +1018,24 @@ export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
         : i.approval
           ? 'apply'
           : 'join';
+// 읽는 시점에 번역한다 — 모듈 최상위에서 t() 를 부르면 import 시점 언어로 굳는다(i18n/index.ts)
+// 게터 객체다 — 펼치거나 직렬화하면 그 시점 로케일로 굳는다(펼치지 말 것).
 export const visitorJoinLabel: Record<VisitorJoin, string> = {
-  join: '이 섬에 가입',
-  apply: '가입 신청',
-  cancel: '신청 취소',
-  full: '정원이 가득 찼어요',
-  blocked: '다시 가입할 수 없어요',
+  get join() {
+    return t('islandVisit.visitorJoin.join');
+  },
+  get apply() {
+    return t('islandVisit.visitorJoin.apply');
+  },
+  get cancel() {
+    return t('islandVisit.visitorJoin.cancel');
+  },
+  get full() {
+    return t('islandVisit.visitorJoin.full');
+  },
+  get blocked() {
+    return t('islandVisit.visitorJoin.blocked');
+  },
 };
 export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
 export const findIslandByInviteCode = (islands: Island[], code: string) =>
@@ -1467,6 +1500,8 @@ export function reducer(state: State, a: Action): State {
     const loaded = JSON.parse(JSON.stringify(a.state)) as State;
     // 앱을 다시 켜면 구경을 끝내고 내 섬에서 시작한다
     delete loaded.visitingIslandId;
+    delete loaded.visitLeaveAsked;
+    delete loaded.visitGreeted;
     const retired = ['flag', 'sailboat', 'cabinboat'];
     const loadedAt = a.now ?? Date.now();
     loaded.islands.forEach((i) => {
@@ -1690,16 +1725,23 @@ export function reducer(state: State, a: Action): State {
     case 'VISIT':
       if (!canVisit(state, a.id)) return state;
       s.visitingIslandId = a.id;
+      delete s.visitLeaveAsked;
+      delete s.visitGreeted;
       break;
     case 'END_VISIT':
       s.visitingIslandId = null;
+      delete s.visitLeaveAsked;
+      delete s.visitGreeted;
+      break;
+    case 'VISIT_LEAVE_ASKED':
+      s.visitLeaveAsked = true;
+      break;
+    case 'VISIT_GREETED':
+      s.visitGreeted = true;
       break;
     case 'SWITCH_ISLAND': {
-      if (s.session) return state;
-      const target = s.islands.find((x) => x.id === a.id);
-      if (!target?.joined || (!i.buildings.includes('tower') && s.onboarded && target.id !== i.id))
-        return state;
-      s.islandId = target.id;
+      if (!canSwitchIsland(s, a.id)) return state;
+      s.islandId = a.id as string;
       s.visitingIslandId = null;
       break;
     }
@@ -1907,6 +1949,8 @@ export function reducer(state: State, a: Action): State {
     case 'SERVER_VISITING':
       if (s.serverIslands?.visit?.island.id !== a.islandId) return state;
       s.visitingIslandId = a.islandId as string;
+      delete s.visitLeaveAsked;
+      delete s.visitGreeted;
       break;
     case 'ISLAND_REQUEST': {
       // 단건 상태는 표시 필드가 없다 — requestStatus에만 두고, 목록에 있는 항목은 status/version만 갱신한다.

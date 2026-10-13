@@ -2,7 +2,7 @@ import React from 'react';
 import { applyLocalePref } from '@/i18n';
 import { StyleSheet, ScrollView } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
-import { Page, Badge, Btn, Field, Wheel, Seg } from './patterns';
+import { Page, Badge, Btn, CharCount, Field, Wheel, Seg } from './patterns';
 import { componentTokens, semanticTokens } from './tokens';
 
 jest.mock('@/utils/layout', () => ({
@@ -82,12 +82,64 @@ test('작은 버튼은 시각 높이와 별개로 부모 터치 경계 44pt를 �
   expect(wrapper.justifyContent).toBe('center');
 });
 
+test('Btn 의 읽는 이름은 기본이 title 이고, accessibilityLabel 을 주면 그것으로 바뀐다(보이는 글자는 그대로)', async () => {
+  const { getByText, getByLabelText, queryByLabelText } = await render(
+    <>
+      <Btn title="지우기" onPress={() => {}} />
+      <Btn title="신고" accessibilityLabel="신고: 수아" onPress={() => {}} />
+    </>,
+  );
+  expect(getByLabelText('지우기')).toBeTruthy();
+  expect(getByLabelText('신고: 수아')).toBeTruthy();
+  expect(queryByLabelText('신고')).toBeNull();
+  expect(getByText('신고')).toBeTruthy();
+});
+
+test('Btn 은 accessibilityHint 를 안 주면 비워 두고, 주면 그대로 읽게 한다(비활성 상태는 따로 켜지 않는다)', async () => {
+  const { getByLabelText } = await render(
+    <>
+      <Btn title="평범" onPress={() => {}} />
+      <Btn title="흐림" accessibilityHint="왜 흐린지" onPress={() => {}} />
+    </>,
+  );
+  expect(getByLabelText('평범').props.accessibilityHint).toBeUndefined();
+  const hinted = getByLabelText('흐림');
+  expect(hinted.props.accessibilityHint).toBe('왜 흐린지');
+  expect(hinted.props.accessibilityState.disabled).toBe(false);
+});
+
 test('작은 배지는 글자 크기 확대 시 늘어날 수 있도록 최소 높이와 세로 패딩을 쓴다', async () => {
   const { getByText } = await render(<Badge small>1</Badge>);
   const badge = StyleSheet.flatten(getByText('1').parent?.props.style);
   expect(badge.height).toBeUndefined();
   expect(badge.minHeight).toBe(22);
   expect(badge.paddingVertical).toBeGreaterThan(0);
+});
+
+test('Badge 는 numberOfLines·style 을 안 넘기면 예전 그대로이고, 넘기면 줄 수와 배치만 바뀐다', async () => {
+  const { getByText } = await render(
+    <>
+      <Badge soft>평범</Badge>
+      <Badge soft numberOfLines={2} style={{ alignSelf: 'center', maxWidth: 128 }}>
+        긴 이름
+      </Badge>
+    </>,
+  );
+  const plain = getByText('평범');
+  // 안 넘기면: 줄 수 제한 없음 · 바깥 스타일은 배열이 아닌 단일 객체 · 왼쪽 정렬
+  expect(plain.props.numberOfLines).toBeUndefined();
+  expect(Array.isArray(plain.parent?.props.style)).toBe(false);
+  const base = StyleSheet.flatten(plain.parent?.props.style);
+  expect(base.alignSelf).toBe('flex-start');
+  expect(base.maxWidth).toBeUndefined();
+  // 넘기면: 글자가 그 줄 수에서 잘리고, style 이 배치를 덮어쓰되 색·테두리 토큰은 그대로다
+  const capped = getByText('긴 이름');
+  expect(capped.props.numberOfLines).toBe(2);
+  const over = StyleSheet.flatten(capped.parent?.props.style);
+  expect(over.alignSelf).toBe('center');
+  expect(over.maxWidth).toBe(128);
+  expect(over.backgroundColor).toBe(componentTokens.badge.soft.background);
+  expect(over.borderColor).toBe(componentTokens.badge.soft.border);
 });
 
 test('Field placeholder는 대비 기준을 넘는 input.placeholder 토큰을 쓴다', async () => {
@@ -167,4 +219,17 @@ test.each([50, 200])('영어 Field는 %i자 한도 도달 안내도 영어로 �
   const limit = screen.getByText(`Up to ${max} characters · ${max}/${max}`);
   expect(limit.props.accessibilityLiveRegion).toBe('polite');
   expect(screen.queryByText(/자까지 쓸 수 있어요/)).toBeNull();
+});
+
+test('CharCount codePoints 는 🐟 를 1글자로 세고 기본은 UTF-16 길이 그대로다', async () => {
+  const screen = await render(
+    <>
+      <CharCount value={'🐟'.repeat(3)} max={40} codePoints />
+      <CharCount value={'🐟'.repeat(3)} max={40} />
+    </>,
+  );
+  screen.getByText('3/40');
+  screen.getByText('6/40');
+  await screen.rerender(<CharCount value={'🐟'.repeat(40)} max={40} codePoints />);
+  screen.getByText('40자까지 쓸 수 있어요 · 40/40');
 });

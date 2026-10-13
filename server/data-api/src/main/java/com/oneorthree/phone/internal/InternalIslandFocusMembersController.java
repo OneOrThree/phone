@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.IslandFocusMembersView;
+import com.oneorthree.phone.internal.dto.IslandFocusTodayView;
 import com.oneorthree.phone.internal.dto.IslandRestMembersView;
 import com.oneorthree.phone.internal.service.IslandFocusMembersService;
 import lombok.RequiredArgsConstructor;
@@ -35,5 +36,12 @@ public class InternalIslandFocusMembersController {
     public IslandRestMembersView restMembers(@PathVariable UUID islandId,
                                              @RequestHeader("X-User-Id") UUID userId) {
         return islandFocusMembersService.restMembers(islandId, userId);
+    }
+
+    /** 방문 화면의 「오늘 이 섬 집중 시간」 (GROMO-2258) — 방문자도 본다. */
+    @GetMapping("/internal/islands/{islandId}/focus-today")
+    public IslandFocusTodayView focusToday(@PathVariable UUID islandId,
+                                           @RequestHeader("X-User-Id") UUID userId) {
+        return islandFocusMembersService.focusToday(islandId, userId);
     }
 }

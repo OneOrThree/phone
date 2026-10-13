@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
 import { Hall } from '@/screens/island/Hall';
 import { ApiError } from '@/services/api/client';
@@ -37,12 +37,13 @@ jest.mock('@/screens/island/useLedgerScreen', () => ({
     refresh: jest.fn(),
   }),
 }));
+let mockLandscape = false;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
-    width: 402,
-    height: 874,
+    width: mockLandscape ? 874 : 402,
+    height: mockLandscape ? 402 : 874,
     insets: { top: 52, bottom: 32, left: 0, right: 0 },
-    landscape: false,
+    landscape: mockLandscape,
   }),
 }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -93,6 +94,7 @@ const e = (route = 'manage', state = initialState(true)) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockSessionGeneration = 0;
+  mockLandscape = false;
   managementMock.mockReturnValue(management());
 });
 afterEach(cleanup);
@@ -558,4 +560,206 @@ test('방문 가입 실패는 회관에서 오류를 알리고 이동하지 않�
   );
   expect(env.reset).not.toHaveBeenCalled();
   expect(env.dispatch).not.toHaveBeenCalled();
+});
+
+// ─── 섬장 인사말(GROMO-2263) ───
+const withGreeting = (greeting: string, greetingIsDefault: boolean) =>
+  management({ detail: { ...management().detail, greeting, greetingIsDefault } });
+const DEFAULT_GREETING = '서버 섬에 온 걸 환영해요! 같이 집중해요 🐟';
+
+test('인사말 입력은 섬장 편집 패널에만 있고 41번째 코드포인트는 입력되지 않는다(이모지 포함)', async () => {
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  const input = screen.getByTestId('hall-greeting');
+  expect(screen.getByText('인사말')).toBeTruthy();
+
+  await fireEvent.changeText(input, 'a'.repeat(41));
+  expect(screen.getByTestId('hall-greeting').props.value).toBe('a'.repeat(40));
+  // 🐟 는 UTF-16 으로 2 — maxLength 로 막으면 20마리에서 멈춘다. 코드포인트 40마리까지 받는다.
+  await fireEvent.changeText(screen.getByTestId('hall-greeting'), '🐟'.repeat(41));
+  expect(screen.getByTestId('hall-greeting').props.value).toBe('🐟'.repeat(40));
+  expect(screen.getByTestId('hall-greeting').props.maxLength).toBeUndefined();
+  // 글자 수도 코드포인트로 센다(UTF-16 이면 80/40)
+  expect(screen.getByText('40자까지 쓸 수 있어요 · 40/40')).toBeTruthy();
+  // 이름·소개 칸은 기존 maxLength 그대로
+  expect(screen.getByTestId('hall-name').props.maxLength).toBe(50);
+  expect(screen.getByTestId('hall-intro').props.maxLength).toBe(200);
+});
+
+test.each([
+  ['가로', true],
+  ['세로', false],
+])('%s 편집 패널의 이름·인사말 칸은 실제 터치 높이가 44pt 이상이다', async (_name, landscape) => {
+  mockLandscape = landscape;
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  for (const id of ['hall-name', 'hall-greeting']) {
+    const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
+    expect(Math.max(style.height ?? 0, style.minHeight ?? 0)).toBeGreaterThanOrEqual(44);
+  }
+});
+
+test('방장이 아닌 주민에게는 편집 연필도 인사말 칸도 없다', async () => {
+  managementMock.mockReturnValue(management({ role: 'member', requests: null }));
+  const screen = await render(<Hall e={e()} />);
+  expect(screen.queryByTestId('hall-edit')).toBeNull();
+  expect(screen.queryByTestId('hall-greeting')).toBeNull();
+});
+
+test('섬장이 쓴 인사말은 칸에 채우고, 합성된 기본 문구는 빈 칸에 힌트만 둔다', async () => {
+  managementMock.mockReturnValue(withGreeting('어서 와요 🐟', false));
+  const own = await render(<Hall e={e()} />);
+  await fireEvent.press(own.getByTestId('hall-edit'));
+  expect(own.getByTestId('hall-greeting').props.value).toBe('어서 와요 🐟');
+  await own.unmount();
+
+  managementMock.mockReturnValue(withGreeting(DEFAULT_GREETING, true));
+  const synthesized = await render(<Hall e={e()} />);
+  await fireEvent.press(synthesized.getByTestId('hall-edit'));
+  // 합성 문구를 채워 저장하면 이름이 바뀌어도 안 따라가고 길면 40 을 넘는다 — 빈 칸 + 힌트
+  expect(synthesized.getByTestId('hall-greeting').props.value).toBe('');
+  expect(synthesized.getByTestId('hall-greeting').props.placeholder).toBe(
+    '비워 두면 기본 인사말이 나가요',
+  );
+});
+
+test('구서버(인사말 필드 없음)도 칸은 빈 채로 열린다', async () => {
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  expect(screen.getByTestId('hall-greeting').props.value).toBe('');
+});
+
+test('인사말은 바꾼 때만 저장 body 에 싣고, 지우면 빈 문자열로 기본 문구로 되돌린다', async () => {
+  // ① 안 바꾸면 키 자체가 없다 — 구서버(400)·게스트(403)에 걸리지 않는다
+  const untouched = management();
+  managementMock.mockReturnValue(untouched);
+  const first = await render(<Hall e={e()} />);
+  await fireEvent.press(first.getByTestId('hall-edit'));
+  await fireEvent.changeText(first.getByTestId('hall-name'), '이름만 수정');
+  await fireEvent.press(first.getByTestId('hall-save'));
+  await waitFor(() => expect(untouched.saveSettings).toHaveBeenCalledTimes(1));
+  expect('greeting' in untouched.saveSettings.mock.calls[0][0]).toBe(false);
+  await first.unmount();
+
+  // ② 새로 쓰면 앞뒤 공백을 뗀 글을 싣는다
+  const writing = withGreeting(DEFAULT_GREETING, true);
+  managementMock.mockReturnValue(writing);
+  const second = await render(<Hall e={e()} />);
+  await fireEvent.press(second.getByTestId('hall-edit'));
+  await fireEvent.changeText(second.getByTestId('hall-greeting'), '  어서 와요 🐟  ');
+  await fireEvent.press(second.getByTestId('hall-save'));
+  await waitFor(() => expect(writing.saveSettings).toHaveBeenCalledTimes(1));
+  expect(writing.saveSettings.mock.calls[0][0]).toEqual({
+    name: '서버 섬',
+    intro: '서버 소개',
+    approvalRequired: true,
+    maxMembers: 10,
+    greeting: '어서 와요 🐟',
+  });
+  await second.unmount();
+
+  // ③ 쓴 인사말을 비우면 null 이 아니라 빈 문자열
+  const clearing = withGreeting('어서 와요', false);
+  managementMock.mockReturnValue(clearing);
+  const third = await render(<Hall e={e()} />);
+  await fireEvent.press(third.getByTestId('hall-edit'));
+  await fireEvent.changeText(third.getByTestId('hall-greeting'), '');
+  await fireEvent.press(third.getByTestId('hall-save'));
+  await waitFor(() => expect(clearing.saveSettings).toHaveBeenCalledTimes(1));
+  expect(clearing.saveSettings.mock.calls[0][0].greeting).toBe('');
+});
+
+test('인사말은 앞뒤 공백만 달라졌으면 바뀐 것으로 보지 않아 저장 body 에 싣지 않는다', async () => {
+  // 쓴 인사말 뒤에 공백만 덧붙인 경우
+  const own = withGreeting('어서 와요', false);
+  managementMock.mockReturnValue(own);
+  const first = await render(<Hall e={e()} />);
+  await fireEvent.press(first.getByTestId('hall-edit'));
+  await fireEvent.changeText(first.getByTestId('hall-greeting'), '  어서 와요  ');
+  await fireEvent.press(first.getByTestId('hall-save'));
+  await waitFor(() => expect(own.saveSettings).toHaveBeenCalledTimes(1));
+  expect('greeting' in own.saveSettings.mock.calls[0][0]).toBe(false);
+  await first.unmount();
+
+  // 안 쓴(기본) 상태에서 공백만 입력한 경우
+  const unset = withGreeting(DEFAULT_GREETING, true);
+  managementMock.mockReturnValue(unset);
+  const second = await render(<Hall e={e()} />);
+  await fireEvent.press(second.getByTestId('hall-edit'));
+  await fireEvent.changeText(second.getByTestId('hall-greeting'), '   ');
+  await fireEvent.press(second.getByTestId('hall-save'));
+  await waitFor(() => expect(unset.saveSettings).toHaveBeenCalledTimes(1));
+  expect('greeting' in unset.saveSettings.mock.calls[0][0]).toBe(false);
+  await second.unmount();
+
+  // 서버가 앞뒤 공백이 붙은 인사말을 줘도(편집 칸엔 그대로 채워진다) 손대지 않고 저장하면 안 바뀐 것이다
+  const padded = withGreeting('  어서 와요  ', false);
+  managementMock.mockReturnValue(padded);
+  const kept = await render(<Hall e={e()} />);
+  await fireEvent.press(kept.getByTestId('hall-edit'));
+  await fireEvent.press(kept.getByTestId('hall-save'));
+  await waitFor(() => expect(padded.saveSettings).toHaveBeenCalledTimes(1));
+  expect('greeting' in padded.saveSettings.mock.calls[0][0]).toBe(false);
+  await kept.unmount();
+
+  // 글자가 달라지면 공백이 섞여 있어도 앞뒤를 뗀 글을 싣는다
+  const edited = withGreeting('어서 와요', false);
+  managementMock.mockReturnValue(edited);
+  const third = await render(<Hall e={e()} />);
+  await fireEvent.press(third.getByTestId('hall-edit'));
+  await fireEvent.changeText(third.getByTestId('hall-greeting'), ' 어서 와요! ');
+  await fireEvent.press(third.getByTestId('hall-save'));
+  await waitFor(() => expect(edited.saveSettings).toHaveBeenCalledTimes(1));
+  expect(edited.saveSettings.mock.calls[0][0].greeting).toBe('어서 와요!');
+});
+
+test('인사말 저장이 실패하면 쓰던 글을 그대로 두고 패널도 닫지 않아 같은 글로 다시 저장할 수 있다', async () => {
+  const api = withGreeting('어서 와요', false);
+  api.saveSettings.mockRejectedValueOnce(new ApiError('INTERNAL_ERROR', 'boom', 500));
+  managementMock.mockReturnValue(api);
+  const screen = await render(<Hall e={e()} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  await fireEvent.changeText(screen.getByTestId('hall-greeting'), '새 인사말');
+  await fireEvent.press(screen.getByTestId('hall-save'));
+  await screen.findByText('처리하지 못했어요. 잠시 후 다시 시도해 주세요.'); // 실패 토스트
+  expect(screen.getByTestId('hall-greeting').props.value).toBe('새 인사말'); // 쓰던 글이 남아 있다
+  expect(screen.getByTestId('hall-save')).toBeTruthy(); // 패널은 열린 채다
+
+  await fireEvent.press(screen.getByTestId('hall-save'));
+  await waitFor(() => expect(api.saveSettings).toHaveBeenCalledTimes(2));
+  expect(api.saveSettings.mock.calls[1][0].greeting).toBe('새 인사말');
+  await waitFor(() => expect(screen.queryByTestId('hall-save')).toBeNull()); // 성공하면 닫힌다
+});
+
+test('목업(비서버) 로컬 관리 패널에는 인사말 칸이 없다', async () => {
+  const os = Object.getOwnPropertyDescriptor(Platform, 'OS');
+  const target: any = globalThis;
+  const previousWindow = target.window;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
+  target.window = { location: { search: '?demo' } };
+  try {
+    const screen = await render(<Hall e={e()} />);
+    await fireEvent.press(screen.getByTestId('hall-edit'));
+    expect(screen.getByTestId('hall-name')).toBeTruthy();
+    expect(screen.queryByTestId('hall-greeting')).toBeNull();
+  } finally {
+    target.window = previousWindow;
+    if (os) Object.defineProperty(Platform, 'OS', os);
+  }
+});
+
+test('게스트 섬장의 인사말 저장(403 SOCIAL_LOGIN_REQUIRED)은 권한 없음 대신 회원 전환 시트로 보낸다', async () => {
+  const gate = new ApiError('SOCIAL_LOGIN_REQUIRED', '소셜 로그인하면 이용할 수 있어요.', 403);
+  const api = management({ saveSettings: jest.fn(async () => Promise.reject(gate)) });
+  managementMock.mockReturnValue(api);
+  const env = { ...e(), conversion: { offer: jest.fn((error: unknown) => error === gate) } };
+  const screen = await render(<Hall e={env} />);
+  await fireEvent.press(screen.getByTestId('hall-edit'));
+  await fireEvent.changeText(screen.getByTestId('hall-greeting'), '어서 와요');
+  await fireEvent.press(screen.getByTestId('hall-save'));
+  await waitFor(() => expect(env.conversion.offer).toHaveBeenCalledWith(gate));
+  // 패널은 닫지 않고, 오류 토스트도 띄우지 않는다
+  expect(env.notify).not.toHaveBeenCalled();
+  expect(screen.queryByText('이 작업을 할 권한이 없어요.')).toBeNull();
+  expect(screen.getByTestId('hall-greeting').props.value).toBe('어서 와요');
 });

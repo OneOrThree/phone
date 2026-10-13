@@ -20,6 +20,7 @@ import { componentTokens, primitiveTokens, semanticTokens } from '@/design-syste
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
+import { codePointLength } from '@/utils/codePoints';
 import { t } from '@/i18n';
 export { C, art };
 export const k = StyleSheet.create({
@@ -131,6 +132,10 @@ export function Btn({
   dynamicHeight = false,
   style,
   id,
+  // 목록 항목마다 같은 제목(지우기·신고)이 되풀이되면 어느 항목인지 덧붙인 읽는 이름을 따로 줄 수 있다. 기본은 title
+  accessibilityLabel,
+  // 제목만으로 안 읽히는 «누르면 일어날 일»을 덧붙인다(예: 흐리게 보이지만 누를 수 있는 버튼이 왜 확인창을 여는지)
+  accessibilityHint,
 }: any) {
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
@@ -148,7 +153,8 @@ export function Btn({
       <Pressable
         testID={id}
         accessibilityRole="button"
-        accessibilityLabel={title}
+        accessibilityLabel={accessibilityLabel || title}
+        accessibilityHint={accessibilityHint}
         // small은 시각 높이 38pt를 유지하되 실제 누름 영역은 최소 44pt로 확장한다.
         hitSlop={small ? 3 : undefined}
         // 누를 동작이 없는 버튼(적용됨 같은 상태 표시)은 모양은 그대로 두고 비활성으로 읽는다(흐림은 disabled일 때만)
@@ -447,8 +453,18 @@ export function Chips({
  * 글자 수 제한 칸 아래의 「현재/최대」 표시. 한도에 닿으면 더 쓸 수 없다는 안내로 바꾼다 —
  * maxLength 로 입력이 소리 없이 멈추거나 붙여 넣은 글이 잘려도 사용자가 알 수 있게.
  */
-export function CharCount({ value, max }: { value: string; max: number }) {
-  const full = value.length >= max;
+export function CharCount({
+  value,
+  max,
+  codePoints = false,
+}: {
+  value: string;
+  max: number;
+  /** 서버가 코드포인트로 세는 칸(🐟 = 1, GROMO-2263)이면 켠다. 기본은 기존 UTF-16 길이. */
+  codePoints?: boolean;
+}) {
+  const length = codePoints ? codePointLength(value) : value.length;
+  const full = length >= max;
   return (
     <Txt
       kind="meta"
@@ -461,7 +477,7 @@ export function CharCount({ value, max }: { value: string; max: number }) {
         ...(full ? { color: semanticTokens.color.danger, fontWeight: '700' } : null),
       }}
     >
-      {full ? t('common.characterLimit', { max, count: value.length }) : `${value.length}/${max}`}
+      {full ? t('common.characterLimit', { max, count: length }) : `${length}/${max}`}
     </Txt>
   );
 }
@@ -578,27 +594,26 @@ export function Bar({ value }: any) {
     </View>
   );
 }
-export function Badge({ children, soft = false, small = false }: any) {
+// numberOfLines: 글자를 이 줄 수에서 말줄임으로 자른다(기본은 제한 없음). style: 바깥 알약에 얹는 배치(maxWidth·alignSelf 등).
+export function Badge({ children, soft = false, small = false, numberOfLines, style }: any) {
+  const base = {
+    alignSelf: 'flex-start',
+    minHeight: small ? 22 : 28,
+    paddingHorizontal: small ? 7 : 12,
+    paddingVertical: small ? 1 : 3,
+    borderRadius: componentTokens.badge.radius,
+    borderWidth: componentTokens.badge.borderWidth,
+    borderColor: soft ? componentTokens.badge.soft.border : componentTokens.badge.default.border,
+    backgroundColor: soft
+      ? componentTokens.badge.soft.background
+      : componentTokens.badge.default.background,
+    justifyContent: 'center',
+  } as const;
   return (
-    <View
-      style={{
-        alignSelf: 'flex-start',
-        minHeight: small ? 22 : 28,
-        paddingHorizontal: small ? 7 : 12,
-        paddingVertical: small ? 1 : 3,
-        borderRadius: componentTokens.badge.radius,
-        borderWidth: componentTokens.badge.borderWidth,
-        borderColor: soft
-          ? componentTokens.badge.soft.border
-          : componentTokens.badge.default.border,
-        backgroundColor: soft
-          ? componentTokens.badge.soft.background
-          : componentTokens.badge.default.background,
-        justifyContent: 'center',
-      }}
-    >
+    <View style={style ? [base, style] : base}>
       {/* v2 .badge.soft: 보통 굵기 · 옅은 글자 */}
       <Txt
+        numberOfLines={numberOfLines}
         style={{
           fontSize: small ? 12 : 13,
           lineHeight: small ? 17.4 : 18.85,

@@ -10,6 +10,7 @@ import com.oneorthree.business.upstream.data.dto.IslandArrival;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
+import com.oneorthree.business.upstream.data.dto.IslandFocusToday;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.IslandManaged;
@@ -72,11 +73,12 @@ public class DataIslandClient {
     private static final String PATH_ISLAND_INVITATIONS =
             "/internal/users/{userId}/islands/{islandId}/invitations";
     /**
-     * 나가기·강퇴 응답에 다음 위치를 싣게 하는 opt-in (GROMO-2260). Data 는 이 파라미터가 없으면 GROMO-2260 이전의
-     * 한 키 응답을 준다 — Data 가 먼저 배포돼도 구 Business 가 깨지지 않게 하려는 장치다.
+     * 나가기 응답에 다음 위치를 싣게 하는 opt-in (GROMO-2260). Data 는 이 파라미터가 없으면 GROMO-2260 이전의
+     * 한 키 응답을 준다 — Data 가 먼저 배포돼도 구 Business 가 깨지지 않게 하려는 장치다. 강퇴에는 다음 위치가
+     * 없다 — 그 응답은 방장이 받는다.
      */
     private static final String INCLUDE_NEXT_LOCATION = "nextLocation";
-    // GROMO-2260 섬 도착 기록 — upsert 라 멱등이어서 명령 키가 없다.
+    // GROMO-2260 섬 도착 기록 — 현재 섬을 옮기므로 명령 키 receipt 로 묶인다.
     private static final String PATH_ISLAND_ARRIVALS =
             "/internal/users/{userId}/islands/{islandId}/arrivals";
     // GROMO-2267 잡지 홍보 신청·섬 소식 — 본인 명령이라 사용자 축이다(B26).
@@ -95,6 +97,8 @@ public class DataIslandClient {
     // GROMO-1765 같이 낚시 초기 스냅샷 2종 — 공개 경로와 이름이 같다.
     private static final String PATH_FOCUS_MEMBERS = "/internal/islands/{islandId}/focus-members";
     private static final String PATH_REST_MEMBERS = "/internal/islands/{islandId}/rest-members";
+    // GROMO-2258 방문 화면 오늘 집중 분 — 공개 단독 경로 없이 visit 화면 조각으로만 쓴다.
+    private static final String PATH_FOCUS_TODAY = "/internal/islands/{islandId}/focus-today";
     // GROMO-1802 섬 관리·주민 6종 — 섬 자원은 `/internal` + 공개 경로, 본인 나가기만 사용자 축(B26).
     private static final String PATH_ISLAND_MEMBERS = "/internal/islands/{islandId}/members";
     private static final String PATH_ISLAND_MEMBER = "/internal/islands/{islandId}/members/{targetUserId}";
@@ -309,12 +313,14 @@ public class DataIslandClient {
                 new ParameterizedTypeReference<JoinIslandResult>() { });
     }
 
-    /** 섬 도착 기록 (GROMO-2260) — 멱등이라 명령 키 없이 보낸다. */
-    public IslandArrival arriveAtIsland(UUID userId, UUID islandId, Deadline deadline) {
+    /** 섬 도착 기록 (GROMO-2260) — 현재 섬을 옮기는 명령이라 앱의 명령 키를 싣는다(즉시 이동과 같다). */
+    public IslandArrival arriveAtIsland(UUID userId, UUID islandId, UUID key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST,
                                 userPath(PATH_ISLAND_ARRIVALS, userId).replace("{islandId}", islandId.toString()))
                         .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandArrival>() { });
@@ -399,14 +405,18 @@ public class DataIslandClient {
     }
 
     /**
-     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 조회 성격이라 멱등키를 싣지 않고 재시도한다.
+     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 멱등키를 싣지 않는다(POST 라 자동 재시도 대상도 아니다).
      * code 의 형식/폐기 판정(422/410)은 상류가 한다 — 여기서 미리 걸러 4xx 의미를 갉아먹지 않는다.
+     *
+     * <p>{@code arrive} 는 true 일 때만 본문에 싣는다(GROMO-2264) — 미리보기 요청은 종전 바이트 그대로다. 구 Data 서버는
+     * 모르는 필드를 무시하므로(Boot {@code JacksonAutoConfiguration} 이 FAIL_ON_UNKNOWN_PROPERTIES 를 끈다) 미리보기로
+     * 답하고 {@code arrival} 이 없다.
      */
-    public InvitationResolved resolveInvitation(UUID userId, String code, Deadline deadline) {
+    public InvitationResolved resolveInvitation(UUID userId, String code, boolean arrive, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, userPath(PATH_INVITATION_RESOLVE, userId))
                         .onBehalfOf(userId)
-                        .body(new InvitationResolveCommand(code))
+                        .body(new InvitationResolveCommand(code, arrive ? Boolean.TRUE : null))
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<InvitationResolved>() { });
@@ -590,6 +600,16 @@ public class DataIslandClient {
                 new ParameterizedTypeReference<IslandRestMembers>() { });
     }
 
+    /** 섬의 오늘(KST) 집중 분 (GROMO-2258). 방문자도 읽는다. 멱등 GET 이라 재시도한다. */
+    public IslandFocusToday fetchFocusToday(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_FOCUS_TODAY, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandFocusToday>() { });
+    }
+
     /**
      * 섬 정보 수정 (GROMO-1802, 섬 관리 LLD §3.1). 본문은 앱이 보낸 필드만 담는다 — 키 부재가 «미변경» 이라
      * null 로 채워내면 상류가 명시 null 로 읽고 거절한다.
@@ -656,7 +676,6 @@ public class DataIslandClient {
                 InternalCall.to(HttpMethod.DELETE, islandPath(PATH_ISLAND_MEMBER, islandId)
                                 .replace("{targetUserId}", targetUserId.toString()))
                         .onBehalfOf(userId)
-                        .query("include", INCLUDE_NEXT_LOCATION)
                         .idempotencyKey(key.toString())
                         .idempotentCommand()
                         .build(),
@@ -694,8 +713,8 @@ public class DataIslandClient {
             @JsonInclude(JsonInclude.Include.NON_NULL) String origin) {
     }
 
-    /** 초대 코드 해석 요청 본문 (GROMO-1760). */
-    record InvitationResolveCommand(String code) {
+    /** 초대 코드 해석 요청 본문 (GROMO-1760). {@code arrive} 는 도착을 요청할 때만 싣는다(GROMO-2264). */
+    record InvitationResolveCommand(String code, @JsonInclude(JsonInclude.Include.NON_NULL) Boolean arrive) {
     }
 
     /** 방명록 쓰기 본문 (GROMO-2262). 작성자는 X-User-Id 로 간다. */

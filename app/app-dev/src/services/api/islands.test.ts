@@ -246,6 +246,30 @@ test('joinIsland — 멱등 키 필수, 토큰 없으면 빈 body, 있으면 inv
   assert.equal(active.currentIslandId, 'i2');
 });
 
+test('joinIsland — origin 은 선택이다: 생략하면 이전과 같은 본문, telescope 면 origin 이 본문에 실린다(토큰과 함께도)', async () => {
+  const joined = {
+    status: 'active',
+    requestId: null,
+    islandId: 'i1',
+    currentIslandId: 'i0',
+    version: 1,
+  };
+  stub([{ status: 200, body: { data: joined } }]);
+
+  await joinIsland('i1', { idempotencyKey: 'k-0' });
+  await joinIsland('i1', { idempotencyKey: 'k-1', origin: 'telescope' });
+  await joinIsland('i1', { idempotencyKey: 'k-2', invitationToken: 'tok', origin: 'telescope' });
+  await joinIsland('i1', { idempotencyKey: 'k-3', invitationToken: 'tok' });
+
+  assert.deepEqual(body(calls[0]), {});
+  assert.deepEqual(body(calls[1]), { origin: 'telescope' });
+  assert.deepEqual(body(calls[2]), { invitationToken: 'tok', origin: 'telescope' });
+  assert.deepEqual(body(calls[3]), { invitationToken: 'tok' });
+  assert.deepEqual(
+    calls.map((c) => header(c, 'Idempotency-Key')),
+    ['k-0', 'k-1', 'k-2', 'k-3'],
+  );
+});
 test('응답 유실 재호출은 같은 키와 같은 body 를 다시 보낸다 — 어댑터는 키를 바꾸지 않는다', async () => {
   (global as any).fetch = jest
     .fn(async (url: string, init: RequestInit) => {

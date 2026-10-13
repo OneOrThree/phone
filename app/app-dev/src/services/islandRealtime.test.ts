@@ -252,6 +252,18 @@ describe('IslandProjection', () => {
     assert.equal(p.apply(focusEvent('u1', 2)), true);
   });
 
+  test('방문자 응원은 말풍선 상태에 넣지 않고 콜백으로만, eventId 당 1번 전한다', () => {
+    const p = new IslandProjection('i1');
+    p.loadFocus(focusSnap([], [wm('focus.member', 'u1', 1)]));
+    const got: string[] = [];
+    p.onVisitorEmote = (emote) => got.push(`${emote.eventId}:${emote.visitor}`);
+    const ev = emoteEvent('v1', { userId: 'guest', visitor: true, sessionId: undefined });
+    assert.equal(p.apply(ev), false);
+    assert.equal(p.apply(ev), false);
+    assert.deepEqual(got, ['v1:true']);
+    assert.equal(p.emotes().length, 0);
+  });
+
   test('응원은 eventId 중복을 거르고 만료된 것은 띄우지 않는다', () => {
     const p = new IslandProjection('i1');
     p.loadFocus(focusSnap([], [wm('focus.member', 'u1', 1)]));
@@ -403,6 +415,7 @@ function start(
   deps: {
     islandId: string;
     emoteSessionId?: string | null;
+    visitor?: boolean;
     snapshots?: { focus: ReturnType<typeof focusSnap>; rest: ReturnType<typeof restSnap> };
     loadSnapshots?: () => Promise<{
       focus: ReturnType<typeof focusSnap>;
@@ -420,6 +433,7 @@ function start(
   const rt = startIslandRealtime({
     islandId: deps.islandId,
     emoteSessionId: deps.emoteSessionId,
+    visitor: deps.visitor,
     onView: (v) => deps.views?.push(v),
     onTransition: (transition) => deps.transitions?.push(transition),
     onGoldenFish: (event) => deps.golden?.push(event),
@@ -1000,6 +1014,15 @@ describe('startIslandRealtime', () => {
     assert.deepEqual(channel.sent[0].body, { sessionId: 's-me', type: 'cheer' });
     assert.equal(rt.sendEmote('bogus'), false);
     assert.equal(channel.sent.length, 1);
+  });
+
+  test('방문자 모드는 세션 없이 {type} 만 보내고 emotes 를 구독한다', async () => {
+    const channel = fakeChannel();
+    const { rt } = start({ islandId: 'i1', visitor: true }, channel);
+    assert.equal(channel.opts?.emote, true);
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.equal(channel.sent[0].destination, '/app/islands/i1/focus/emotes');
+    assert.deepEqual(channel.sent[0].body, { type: 'cheer' });
   });
 
   test('세션 없이는 응원을 보내지 않고, 끊기면 false 를 돌린다 — 가짜 성공 없음', async () => {

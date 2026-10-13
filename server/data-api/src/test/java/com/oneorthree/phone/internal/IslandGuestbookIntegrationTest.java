@@ -164,6 +164,61 @@ class IslandGuestbookIntegrationTest {
     }
 
     @Test
+    @DisplayName("인사말 길이는 앞뒤 공백을 자른 뒤 코드포인트로 센다 — 40자에 공백이 붙어도 200(공백은 잘려 저장), 41자는 400, 공백뿐이면 기본 문구")
+    void greetingLengthIsCountedAfterStrip() throws Exception {
+        Island island = island(false);
+        String forty = "🐟".repeat(40);
+
+        // 반각 공백 + 전각 공백(U+3000) + EM SPACE(U+2003)가 앞뒤에 붙은 40자 — 자르면 40자라 통과한다.
+        patchGreeting(island.host, island.id, "  \\u3000" + forty + "\\u2003 ").andExpect(status().isOk());
+        assertThat(storedGreeting(island.id)).as("공백은 잘려 저장된다").isEqualTo(forty);
+        IslandSummaryView view = islands.view(island.id, newUser()).visitor();
+        assertThat(view.greeting()).isEqualTo(forty);
+        assertThat(view.greetingIsDefault()).isFalse();
+
+        // 자른 뒤 41자는 공백과 무관하게 400 이고 이전 값이 남는다.
+        patchGreeting(island.host, island.id, "  " + forty + "🐟 ").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        assertThat(storedGreeting(island.id)).isEqualTo(forty);
+
+        // 공백뿐이면 «빈 값» 이다 — 400 이 아니라 기본 문구로 되돌린다.
+        patchGreeting(island.host, island.id, "   ").andExpect(status().isOk());
+        assertThat(storedGreeting(island.id)).isNull();
+        assertThat(islands.view(island.id, newUser()).visitor().greetingIsDefault()).isTrue();
+    }
+
+    @Test
+    @DisplayName("인사말은 한 줄이다 — 중간의 줄바꿈·탭·널·DEL·C1·줄/문단 구분자·양방향 제어문자는 400 INVALID_REQUEST 이고 값이 남지 않으며, 앞뒤 개행·탭은 잘려 200")
+    void greetingMustBeSingleLine() throws Exception {
+        Island island = island(false);
+
+        // JSON 이스케이프로 넘긴다 — 본문 파서가 실제 제어문자로 풀어 섬 이름과 같은 NAME_PATTERN 에 걸린다.
+        for (String escaped : List.of("줄1\\n줄2", "줄1\\r\\n줄2", "탭\\t탭", "널\\u0000널", "삭제\\u007f삭제", "C1\\u0085제어",
+                "줄\\u2028구분", "문단\\u2029구분", "방향\\u202e뒤집기")) {
+            patchGreeting(island.host, island.id, escaped).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+        // 공백이 아닌 제어문자(널·DEL·C1·양방향)는 앞뒤에 붙어도 잘리지 않아 거절된다.
+        for (String escaped : List.of("끝널\\u0000", "\\u007f앞DEL", "끝C1\\u0085", "\\u202e앞방향")) {
+            patchGreeting(island.host, island.id, escaped).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+        assertThat(storedGreeting(island.id)).as("거절된 인사말은 저장되지 않는다").isNull();
+
+        // 앞뒤 개행·탭·줄 구분자는 공백처럼 잘려 통과하고 저장값은 잘린 한 줄이다(방명록 본문과 같다).
+        patchGreeting(island.host, island.id, "끝줄바꿈\\n").andExpect(status().isOk());
+        assertThat(storedGreeting(island.id)).isEqualTo("끝줄바꿈");
+        patchGreeting(island.host, island.id, "\\n앞줄바꿈").andExpect(status().isOk());
+        assertThat(storedGreeting(island.id)).isEqualTo("앞줄바꿈");
+        patchGreeting(island.host, island.id, "\\n\\t 함께해요 \\r\\n\\u2028").andExpect(status().isOk());
+        assertThat(storedGreeting(island.id)).isEqualTo("함께해요");
+
+        // 이모지·문장부호가 든 한 줄은 그대로 통과한다.
+        patchGreeting(island.host, island.id, "함께 집중해요! 🐟 (환영)").andExpect(status().isOk());
+        assertThat(storedGreeting(island.id)).isEqualTo("함께 집중해요! 🐟 (환영)");
+    }
+
+    @Test
     @DisplayName("인사말 수정 — 섬장이 아니면 403 NOT_OWNER, 게스트는 403 SOCIAL_LOGIN_REQUIRED")
     void greetingEditIsHostAndMemberOnly() throws Exception {
         Island island = island(false);
@@ -266,9 +321,54 @@ class IslandGuestbookIntegrationTest {
 
         write(island.member, island.id, "🐟".repeat(21)).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        write(island.member, island.id, "   ").andExpect(status().isBadRequest());
+        // 공백뿐인 본문은 strip 뒤 비어 400 이다 — trim 이 아니라 strip 이라 탭·개행·전각 공백(U+3000)·EM SPACE 도 같다.
+        for (String blank : List.of("", " ", "   ", "\\t", "\\n", "\\u3000", " \\u2003\\u3000 ")) {
+            write(island.member, island.id, blank).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
         write(newGuest(), island.id, "게스트").andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+        assertThat(count("select count(*) from island_guestbook_entries where island_id=?", island.id)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("방명록 본문은 한 줄이다 — 중간 줄바꿈·CRLF·탭·NUL·U+2028·U+202E 는 400 INVALID_REQUEST 이고 저장되지 않으며, 이모지·문장부호 한 줄은 201")
+    void guestbookContentMustBeSingleLine() throws Exception {
+        Island island = island(true);
+
+        // JSON 이스케이프로 넘긴다 — 본문 파서가 실제 제어문자로 풀어 섬 이름·인사말과 같은 NAME_PATTERN 에 걸린다.
+        // 같은 작성자로 계속 시도해도 된다: 거절은 «오늘 썼다» 로 치지 않으므로 마지막 정상 글이 201 이다.
+        for (String escaped : List.of("줄1\\n줄2", "줄1\\r\\n줄2", "탭\\t탭", "널\\u0000널", "줄\\u2028구분",
+                "방향\\u202e뒤집기")) {
+            write(island.visitor, island.id, escaped).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+        assertThat(count("select count(*) from island_guestbook_entries where island_id=?", island.id))
+                .as("거절된 본문은 저장되지 않는다").isZero();
+
+        // 이모지·문장부호가 든 한 줄은 그대로 통과한다.
+        write(island.visitor, island.id, "안녕! 🐟 (환영)").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.content").value("안녕! 🐟 (환영)"));
+
+        // 판정은 자른 뒤 값에 한다 — 앞뒤 개행·탭은 잘려 통과하고 저장값은 잘린 한 줄이다. 공백·개행뿐이면 400 이다
+        // (contentValidationAndGuestGuard).
+        write(island.member, island.id, "\\n\\t 반가워요 \\r\\n").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.content").value("반가워요"));
+        assertThat(count("select count(*) from island_guestbook_entries where island_id=?", island.id)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("본문 길이는 앞뒤 공백을 자른 뒤 코드포인트로 센다 — 20자에 공백이 붙어도 201(공백은 잘려 저장), 21자는 400")
+    void guestbookContentLengthIsCountedAfterStrip() throws Exception {
+        Island island = island(true);
+        String twenty = "🐟".repeat(20);
+
+        write(island.visitor, island.id, "  " + twenty + "\\u3000 ").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.content").value(twenty));
+        write(island.member, island.id, " " + twenty + "🐟 ").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        assertThat(count("select count(*) from island_guestbook_entries where island_id=? and content=?", island.id,
+                twenty)).isEqualTo(1);
         assertThat(count("select count(*) from island_guestbook_entries where island_id=?", island.id)).isEqualTo(1);
     }
 
@@ -527,6 +627,10 @@ class IslandGuestbookIntegrationTest {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         }
+    }
+
+    private String storedGreeting(UUID islandId) {
+        return jdbc.queryForObject("select greeting from groups where id=?", String.class, islandId);
     }
 
     private long count(String sql, Object... args) {

@@ -1212,7 +1212,7 @@ class FocusSessionActivationIntegrationTest {
         Group island = groups.findById(islandId).orElseThrow();
         members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.MEMBER).build());
         // 처음 가는 섬은 즉시 이동이 아니라 도착으로 옮긴다(GROMO-2260 — 가 본 섬만 즉시 이동 대상).
-        islands.arrive(userId, islandId);
+        islands.arrive(userId, islandId, UUID.randomUUID());
     }
 
     /** 방금 시작한 세션을 {@code seconds} 전에 시작한 것으로 옮긴다 — 실제 시계를 기다리지 않고 정산 값을 본다. */
