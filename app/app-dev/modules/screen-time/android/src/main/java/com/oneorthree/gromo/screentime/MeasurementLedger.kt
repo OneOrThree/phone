@@ -67,9 +67,13 @@ internal class MeasurementLedger(
     val all = entries(selections(value))
     val active = all.lastOrNull { it.getLong("at") <= now() }
     val chosen = all.lastOrNull()
+    val pending = chosen != null && chosen.getLong("at") > now()
+    val pendingSelection = if (pending) mapOf(
+      "applications" to (chosen?.let { packages(it)?.size ?: 1 } ?: 0), "categories" to 0,
+      "webDomains" to 0, "allApps" to chosen?.optBoolean("all"), "pending" to true) else null
     return mapOf("configured" to (active != null), "allApps" to (chosen?.optBoolean("all") ?: false),
       "packages" to (chosen?.let { packages(it)?.sorted() } ?: emptyList<String>()),
-      "pending" to (chosen != null && chosen.getLong("at") > now()),
+      "pending" to pending, "pendingSelection" to pendingSelection,
       "applications" to (active?.let { packages(it)?.size ?: 1 } ?: 0), "categories" to 0, "webDomains" to 0)
   }
 

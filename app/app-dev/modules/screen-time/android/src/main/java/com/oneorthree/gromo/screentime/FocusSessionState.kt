@@ -58,6 +58,14 @@ internal class FocusSessionState(context: Context) {
     val state = prefs.getString("state", null)?.let { JSONObject(it) } ?: return@synchronized null
     state.takeIf { it.optString("owner") == prefs.getString("owner", null) }
   }
+  fun restorableSnapshot(now: Long = System.currentTimeMillis()): JSONObject? {
+    val state = snapshot() ?: return null
+    val phase = state.optString("phase")
+    if (phase != "focus" && phase != "rest") return null
+    if (state.optLong("anchorMs") !in 1..(now + 60_000)) return null
+    val deadline = state.optLong("validUntilMs", -1)
+    return state.takeIf { (phase == "focus" && deadline == 0L) || deadline > now }
+  }
   fun end() { synchronized(lock) {
     val state = prefs.getString("state", null)?.let { JSONObject(it) } ?: return
     state.put("phase", "ended")

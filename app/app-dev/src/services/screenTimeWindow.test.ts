@@ -147,3 +147,16 @@ test.each([
     });
   },
 );
+
+test('iOS 900분 포화는 UTC·KST 최종 관측에서 측정 불가로 보내고 확정 900분으로 보고하지 않는다', () => {
+  const value = timeline();
+  value.days[0].events[2].bucket = 900;
+  const result = buildScreenTimeObservations('approved', value, value.observedAt * 1000);
+  for (const timezone of ['UTC', 'Asia/Seoul']) {
+    expect(result.find((o) => o.date === '2026-10-08' && o.timezone === timezone)).toMatchObject({
+      minutes: null,
+      measurementStatus: 'unavailable',
+      finalized: true,
+    });
+  }
+});

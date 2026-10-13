@@ -147,4 +147,33 @@ class AndroidStateTest {
     assertTrue(gaps.getJSONObject(0).getLong("until") < gaps.getJSONObject(1).getLong("from"))
   }
 
+  @Test fun rebootRestoresOnlyCurrentOwnerAndUnexpiredOngoingState() {
+    val store = FocusSessionState(context)
+    store.bind("owner")
+    assertNull(store.restorableSnapshot())
+    store.accept(state().put("validUntilMs", 0), false)
+    assertEquals("focus", FocusSessionState(context).restorableSnapshot()!!.getString("phase"))
+    store.accept(state(version = 2, phase = "rest"), true)
+    assertEquals("rest", FocusSessionState(context).restorableSnapshot()!!.getString("phase"))
+    assertNull(store.restorableSnapshot(System.currentTimeMillis() + 120_000))
+    store.accept(state(version = 3, phase = "ended"), true)
+    assertNull(FocusSessionState(context).restorableSnapshot())
+    store.bind("other-owner")
+    assertNull(store.restorableSnapshot())
+  }
+
+  @Test fun pendingSelectionCountsLastSavedAppsAndKeepsActiveCountsUntilMidnight() {
+    var time = Instant.parse("2026-10-11T10:00:00Z").toEpochMilli()
+    strings["ledger"] = """{"owner":"owner","selections":[{"at":${time - 3 * 86400000L},"all":false,"packages":["old1","old2"]}]}"""
+    val ledger = ledger({ time }) { _, _, _ -> 0 }
+    val chosen = listOf("one", "two", "three", "four", "five")
+    val saved = ledger.select("owner", chosen, false)
+    assertEquals(2, saved["applications"])
+    assertEquals(5, (saved["pendingSelection"] as Map<*, *>)["applications"])
+    assertEquals(chosen.sorted(), ledger.selection()["packages"])
+    time = Instant.parse("2026-10-11T15:00:00Z").toEpochMilli()
+    assertEquals(5, ledger.selection()["applications"])
+    assertNull(ledger.selection()["pendingSelection"])
+  }
+
 }
