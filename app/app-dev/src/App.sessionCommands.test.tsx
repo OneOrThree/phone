@@ -22,6 +22,10 @@ import {
 } from '@/services/buildingTransition';
 
 let captured: any;
+const mockStartLiveActivityPushSync = jest.fn(() => jest.fn());
+jest.mock('@/services/liveActivityPush', () => ({
+  startLiveActivityPushSync: () => mockStartLiveActivityPushSync(),
+}));
 let mockLoadHomeSnapshot: jest.Mock | undefined;
 const mockApiLogin = jest.fn();
 const mockSocialCredential = jest.fn();
@@ -2041,5 +2045,33 @@ test('관리 화면에서 홈으로 복귀하면 같은 섬의 이름·인원·�
   await act(async () => captured.reset('home'));
   await waitFor(() => expect(captured.state.serverIslands?.home?.home.island).toEqual(island));
   expect(mockLoadHomeSnapshot.mock.calls.length).toBeGreaterThan(reads);
+  await app.unmount();
+});
+
+test('인증 후 집중 세션이 시작되면 푸시 토큰 동기화를 즉시 다시 시작한다', async () => {
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeDefined());
+  await act(async () => {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  });
+  await waitFor(() => expect(mockStartLiveActivityPushSync).toHaveBeenCalled());
+  const before = mockStartLiveActivityPushSync.mock.calls.length;
+  const stop = mockStartLiveActivityPushSync.mock.results[before - 1].value;
+  await act(async () => {
+    mockAppDispatch!({
+      type: 'SESSION_SYNC',
+      session: {
+        id: 'new-server-session',
+        version: 1,
+        status: 'active',
+        subject: '수학',
+        islandId: 'island-1',
+        startedAt: Date.now(),
+        seconds: 0,
+      },
+    });
+  });
+  expect(stop).toHaveBeenCalled();
+  expect(mockStartLiveActivityPushSync).toHaveBeenCalledTimes(before + 1);
   await app.unmount();
 });

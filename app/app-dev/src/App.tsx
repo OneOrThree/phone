@@ -1714,7 +1714,7 @@ function Gromo() {
       session: stateRef.current.session,
       color: stateRef.current.color,
     }));
-  }, [loaded, hasServerSession, storageOwnerReady, liveActivityOwner]);
+  }, [loaded, hasServerSession, storageOwnerReady, liveActivityOwner, state.session?.id]);
   useEffect(() => {
     if (!loaded || Platform.OS !== 'ios') return;
     const session = REVIEW || DEMO || hasServerSession ? state.session : null;

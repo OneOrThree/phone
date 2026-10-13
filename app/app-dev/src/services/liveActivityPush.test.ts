@@ -19,7 +19,7 @@ const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 
-function setup(os = 'ios') {
+function setup(os = 'ios', initialAppState = 'active') {
   jest.resetModules();
   jest.useFakeTimers();
   let tokenListener!: (value: typeof token) => void;
@@ -32,7 +32,7 @@ function setup(os = 'ios') {
   };
   const remove = jest.fn();
   const appState = {
-    currentState: 'active',
+    currentState: initialAppState,
     addEventListener: jest.fn((_name, listener) => {
       appListener = listener;
       return { remove };
@@ -170,5 +170,18 @@ test('Android 토큰 조회 중 세션이 끝나면 등록하지 않는다', asy
   test.end();
   await settle();
   expect(test.request).not.toHaveBeenCalled();
+  test.stop();
+});
+
+test('Android 세션 시작 직후 이미 백그라운드여도 최초 토큰은 즉시 등록한다', async () => {
+  const test = setup('android', 'background');
+  await settle();
+  expect(test.request).toHaveBeenCalledWith(
+    '/focus-sessions/session-1/live-activity',
+    expect.objectContaining({ method: 'PUT' }),
+  );
+  jest.advanceTimersByTime(30_000);
+  await settle();
+  expect(test.native.getFocusPushToken).toHaveBeenCalledTimes(1);
   test.stop();
 });

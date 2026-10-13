@@ -50,8 +50,8 @@ export function startLiveActivityPushSync(
     // 실패가 집중을 중단하지 않는다. 다음 조회에서 같은 토큰을 재시도한다.
     void queue.catch(() => undefined);
   };
-  const refresh = async () => {
-    if (!active() || AppState.currentState !== 'active') return;
+  const refresh = async (initial = false) => {
+    if (!active() || (!initial && AppState.currentState !== 'active')) return;
     try {
       const session = current().session;
       const tokens: PushToken[] =
@@ -79,7 +79,8 @@ export function startLiveActivityPushSync(
     if (next === 'active') void refresh();
   });
   const timer = setInterval(() => void refresh(), 15_000);
-  void refresh();
+  // 세션 시작 응답 직후 배경으로 이동해도 최초 등록은 타이머를 기다리지 않는다.
+  void refresh(true);
   return () => {
     stopped = true;
     clearInterval(timer);
