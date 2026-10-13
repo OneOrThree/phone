@@ -12,7 +12,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { Btn } from '@/design-system/patterns';
-import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { ApiError } from '@/services/api/client';
 import type {
   MagazineCell,
@@ -33,8 +33,8 @@ import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
 
 const R = componentTokens.magazineReader;
 const PER_PAGE = 3;
-const NAV_H = 30;
-const COVER_H = 24;
+const NAV_H = R.navHeight;
+const COVER_H = R.coverHeight;
 const TIP_COUNT = 14;
 
 type Page =
@@ -152,9 +152,9 @@ export function MagazineReader({
   }, [issueId, cursor, more, index, pages.length, failedAt]);
 
   // 속지는 그림 비율 그대로 화면 안에 가장 크게
-  const availW = L.width - L.insets.left - L.insets.right - 16;
-  const availH = L.height - L.insets.top - L.insets.bottom - 16;
-  const W = Math.min(availW, availH * R.pageAspect, 520);
+  const availW = L.width - L.insets.left - L.insets.right - R.screenMargin * 2;
+  const availH = L.height - L.insets.top - L.insets.bottom - R.screenMargin * 2;
+  const W = Math.min(availW, availH * R.pageAspect, R.maxPageWidth);
   const H = W / R.pageAspect;
   const innerW = W * (1 - R.insetX * 2);
   const innerH = H * (1 - R.insetTop - R.insetBottom) - COVER_H;
@@ -208,9 +208,9 @@ export function MagazineReader({
         backgroundColor: tint,
         borderWidth: 1.5,
         borderColor: semanticTokens.color.outline,
-        borderRadius: 14,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
+        borderRadius: R.cardRadius,
+        paddingVertical: primitiveTokens.space[2],
+        paddingHorizontal: semanticTokens.spacing.control,
       }}
     >
       {children}
@@ -220,7 +220,7 @@ export function MagazineReader({
     <T
       style={[
         text(13, semanticTokens.color.textMuted),
-        { paddingVertical: 8, textAlign: 'center' },
+        { paddingVertical: primitiveTokens.space[2], textAlign: 'center' },
       ]}
     >
       {t(key)}
@@ -231,13 +231,16 @@ export function MagazineReader({
     const tip = ed.note.tipNo != null && ed.note.tipNo >= 0 ? ed.note.tipNo % TIP_COUNT : 0;
     const note =
       ed.note.type === 'EDITOR' && ed.note.body ? ed.note.body : t(`magazine.tips.${tip}`);
-    const bannerW = Math.min(innerW, 250);
+    const bannerW = Math.min(innerW, R.bannerMaxWidth);
     const bannerH = bannerW * (175 / 630);
     return (
       <ScrollView
         testID="magazine-editorial"
         style={{ width: innerW }}
-        contentContainerStyle={{ gap: 8, paddingBottom: 6 }}
+        contentContainerStyle={{
+          gap: primitiveTokens.space[2],
+          paddingBottom: primitiveTokens.space[2],
+        }}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ alignSelf: 'center', width: bannerW, height: bannerH }}>
@@ -270,18 +273,25 @@ export function MagazineReader({
                     name: islandTitle(row.name),
                     average: average(row),
                   })}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 38 }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: primitiveTokens.space[2],
+                    minHeight: R.rowMinHeight,
+                  }}
                 >
                   {row.rank <= 3 ? (
                     <Image
                       source={MAGAZINE_UI.medals[row.rank - 1]}
                       resizeMode="contain"
-                      style={{ width: 24, height: 28 }}
+                      style={R.medal}
                     />
                   ) : (
-                    <T style={[text(14), { width: 24, textAlign: 'center' }]}>{row.rank}</T>
+                    <T style={[text(14), { width: R.medal.width, textAlign: 'center' }]}>
+                      {row.rank}
+                    </T>
                   )}
-                  {avatar(row, 28)}
+                  {avatar(row, R.rankAvatar)}
                   <T numberOfLines={1} style={[text(14), { flex: 1 }]}>
                     {islandTitle(row.name)}
                   </T>
@@ -290,12 +300,15 @@ export function MagazineReader({
               ))
             : emptyLine('magazine.reader.rankingEmpty'),
         )}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-          <Image
-            source={MAGAZINE_UI.tagNew}
-            resizeMode="contain"
-            style={{ width: 58, height: 22 }}
-          />
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: primitiveTokens.space[2],
+            marginTop: primitiveTokens.space[1],
+          }}
+        >
+          <Image source={MAGAZINE_UI.tagNew} resizeMode="contain" style={R.tagNew} />
           <T accessibilityRole="header" style={text(14)}>
             {t('magazine.reader.newIslands')}
           </T>
@@ -308,9 +321,14 @@ export function MagazineReader({
                   key={island.islandId}
                   testID="magazine-new-island"
                   accessible
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 34 }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: primitiveTokens.space[2],
+                    minHeight: R.rowMinHeight,
+                  }}
                 >
-                  {avatar(island, 26)}
+                  {avatar(island, R.newAvatar)}
                   <T numberOfLines={1} style={[text(14), { flex: 1 }]}>
                     {islandTitle(island.name)}
                   </T>
@@ -329,14 +347,10 @@ export function MagazineReader({
           <View
             testID="magazine-note"
             accessible
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: primitiveTokens.space[2] }}
           >
-            <Image
-              source={MAGAZINE_UI.editorCat}
-              resizeMode="contain"
-              style={{ width: 54, height: 68 }}
-            />
-            <View style={{ flex: 1, gap: 2 }}>
+            <Image source={MAGAZINE_UI.editorCat} resizeMode="contain" style={R.noteCat} />
+            <View style={{ flex: 1, gap: primitiveTokens.space[1] }}>
               <T style={text(14)}>
                 {t(
                   ed.note.type === 'EDITOR' && ed.note.body
@@ -381,13 +395,14 @@ export function MagazineReader({
     return (
       <View
         testID={item.kind === 'empty' ? 'magazine-empty' : 'magazine-end'}
-        style={{ width: innerW, alignItems: 'center', justifyContent: 'center', gap: 10 }}
+        style={{
+          width: innerW,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: semanticTokens.spacing.control,
+        }}
       >
-        <Image
-          source={MAGAZINE_UI.editorCat}
-          resizeMode="contain"
-          style={{ width: 96, height: 120 }}
-        />
+        <Image source={MAGAZINE_UI.editorCat} resizeMode="contain" style={R.emptyCat} />
         <T style={[text(16), { textAlign: 'center' }]}>
           {t(item.kind === 'empty' ? 'magazine.reader.noCells' : 'magazine.reader.endTitle')}
         </T>
@@ -436,7 +451,9 @@ export function MagazineReader({
           opacity: disabled ? 0.3 : 1,
         }}
       >
-        <T style={text(18)}>{dir < 0 ? '‹' : '›'}</T>
+        <T maxFontSizeMultiplier={R.fixedTextMaxScale} style={text(18)}>
+          {dir < 0 ? '‹' : '›'}
+        </T>
       </Pressable>
     );
   };
@@ -498,6 +515,7 @@ export function MagazineReader({
             {issue && (
               <T
                 testID="magazine-cover"
+                maxFontSizeMultiplier={R.fixedTextMaxScale}
                 accessibilityLabel={t('magazine.reader.coverA11y', {
                   no: issue.issueNo,
                   date: issueDateText(issue.issueDate),
@@ -533,7 +551,7 @@ export function MagazineReader({
                   flex: 1,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 10,
+                  gap: semanticTokens.spacing.control,
                   marginTop: issue ? 0 : COVER_H,
                 }}
               >
@@ -581,6 +599,7 @@ export function MagazineReader({
               {arrow(-1)}
               <T
                 testID="magazine-page"
+                maxFontSizeMultiplier={R.fixedTextMaxScale}
                 accessibilityLabel={t('magazine.reader.pageA11y', { page: index + 1, total })}
                 style={[
                   text(13, semanticTokens.color.textMuted),
@@ -600,8 +619,8 @@ export function MagazineReader({
             hitSlop={6}
             style={{
               position: 'absolute',
-              right: -6,
-              top: -6,
+              right: R.closeOffset,
+              top: R.closeOffset,
               width: semanticTokens.size.tapMin,
               height: semanticTokens.size.tapMin,
               alignItems: 'center',
@@ -611,7 +630,7 @@ export function MagazineReader({
             <Image
               source={MAGAZINE_UI.close}
               resizeMode="contain"
-              style={{ width: 36, height: 36 }}
+              style={{ width: R.closeArt, height: R.closeArt }}
             />
           </Pressable>
         </View>
@@ -631,7 +650,7 @@ export function MagazineReader({
         >
           {zoom && (
             <AdCell
-              width={Math.min(L.width - 32, 520)}
+              width={Math.min(L.width - semanticTokens.spacing.component * 2, R.maxPageWidth)}
               cell={zoom}
               corner={zoom.relation === 'MEMBER' ? 'ours' : null}
             />

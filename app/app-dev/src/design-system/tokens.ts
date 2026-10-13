@@ -402,6 +402,29 @@ export const componentTokens = {
     rankingTint: semanticTokens.color.subtle,
     newTint: semanticTokens.color.secondary,
     noteTint: semanticTokens.color.accent,
+    // 화면 둘레 여유 · 속지 최대 폭(태블릿) · 표지 띠 · 쪽 넘김 줄 · 닫기 그림
+    screenMargin: 8,
+    maxPageWidth: 520,
+    coverHeight: 24,
+    navHeight: 30,
+    // 표지 띠·쪽 번호는 속지 그림의 정해진 자리에 놓여 큰 글자에서도 이 배율까지만 키운다(칸 글자 P12 와 같은 이유)
+    fixedTextMaxScale: 1.3,
+    closeArt: 36,
+    // 닫기 버튼(44)이 속지 오른쪽 위 모서리에 걸치는 만큼
+    closeOffset: -6,
+    // 편집부 페이지 — 랭킹 리본 최대 폭 · 메달 · 섬 동그라미 · NEW 꼬리표 · 편집냥(소식 칸 / 빈 장)
+    bannerMaxWidth: 250,
+    medal: { width: 24, height: 28 },
+    rankAvatar: 28,
+    newAvatar: 26,
+    rowMinHeight: 38,
+    tagNew: { width: 58, height: 22 },
+    noteCat: { width: 54, height: 68 },
+    emptyCat: { width: 96, height: 120 },
+    cardRadius: 14,
+    // 우체통 없는 섬의 홈 잡지 물건 · 안 읽음 점
+    object: { width: 60, height: 70, art: { width: 56, height: 66 } },
+    unreadDot: 14,
   },
   divider: {
     color: semanticTokens.color.divider,

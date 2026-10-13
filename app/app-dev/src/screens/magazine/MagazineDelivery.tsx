@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import { Btn } from '@/design-system/patterns';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import type { MagazineToday } from '@/services/api/magazine';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
@@ -9,6 +9,8 @@ import { GuideBox } from '@/screens/island/NpcGuide';
 import { useAppLayout } from '@/utils/layout';
 import { MagazineRack } from './MagazineRack';
 import { magazineUnread, sendReceipt } from './useMagazineToday';
+
+const O = componentTokens.magazineReader.object;
 
 /**
  * 섬 홈의 잡지 배달(GROMO-2289 · B2, 구현계획 5-6).
@@ -75,17 +77,13 @@ export function MagazineHomeLayer({
             position: 'absolute',
             left: L.insets.left + 16,
             bottom: L.insets.bottom + 24,
-            width: 60,
-            height: 70,
+            width: O.width,
+            height: O.height,
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <Image
-            source={MAGAZINE_UI.cover}
-            resizeMode="contain"
-            style={{ width: 56, height: 66 }}
-          />
+          <Image source={MAGAZINE_UI.cover} resizeMode="contain" style={O.art} />
           {unread && (
             <View
               testID="magazine-home-object-dot"
@@ -93,9 +91,9 @@ export function MagazineHomeLayer({
                 position: 'absolute',
                 top: 0,
                 right: 0,
-                width: 14,
-                height: 14,
-                borderRadius: 7,
+                width: componentTokens.magazineReader.unreadDot,
+                height: componentTokens.magazineReader.unreadDot,
+                borderRadius: componentTokens.magazineReader.unreadDot / 2,
                 borderWidth: 2,
                 borderColor: semanticTokens.color.surface,
                 backgroundColor: semanticTokens.color.danger,

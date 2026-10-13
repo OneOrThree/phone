@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, View } from 'react-native';
 import { Btn, Overlay } from '@/design-system/patterns';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import type { MagazineIssueSummary } from '@/services/api/magazine';
 import { T, useGowun } from '@/screens/island/sceneKit';
@@ -57,14 +57,20 @@ export function MagazineRack({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Overlay sheet close={onClose}>
-        <View testID="magazine-rack" style={{ gap: 2 }}>
+        <View testID="magazine-rack" style={{ gap: primitiveTokens.space[1] }}>
           <T accessibilityRole="header" style={text(20)}>
             {t('magazine.rack.title')}
           </T>
           <T style={text(12, semanticTokens.color.textMuted)}>{t('magazine.rack.sub')}</T>
         </View>
         {failed ? (
-          <View style={{ alignItems: 'center', gap: 8, paddingVertical: 16 }}>
+          <View
+            style={{
+              alignItems: 'center',
+              gap: primitiveTokens.space[2],
+              paddingVertical: semanticTokens.spacing.component,
+            }}
+          >
             <T style={text(14)}>{t('magazine.rack.loadFailed')}</T>
             <Btn
               small
@@ -74,9 +80,17 @@ export function MagazineRack({
             />
           </View>
         ) : !items ? (
-          <ActivityIndicator color={semanticTokens.color.outline} style={{ padding: 16 }} />
+          <ActivityIndicator
+            color={semanticTokens.color.outline}
+            style={{ padding: semanticTokens.spacing.component }}
+          />
         ) : !items.length ? (
-          <T style={[text(14), { textAlign: 'center', paddingVertical: 16 }]}>
+          <T
+            style={[
+              text(14),
+              { textAlign: 'center', paddingVertical: semanticTokens.spacing.component },
+            ]}
+          >
             {t('magazine.rack.empty')}
           </T>
         ) : (
@@ -84,7 +98,7 @@ export function MagazineRack({
             style={{
               borderWidth: 1.5,
               borderColor: semanticTokens.color.outline,
-              borderRadius: 14,
+              borderRadius: componentTokens.magazineReader.cardRadius,
               overflow: 'hidden',
             }}
           >
@@ -105,11 +119,11 @@ export function MagazineRack({
                   onPress={() => onOpen(item.issueId)}
                   style={{
                     minHeight: 56,
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
+                    paddingHorizontal: semanticTokens.spacing.component,
+                    paddingVertical: primitiveTokens.space[2],
                     flexDirection: 'row',
                     alignItems: 'center',
-                    gap: 8,
+                    gap: primitiveTokens.space[2],
                     backgroundColor: today
                       ? semanticTokens.color.subtle
                       : semanticTokens.color.surface,
@@ -131,8 +145,8 @@ export function MagazineRack({
                   {today && (
                     <View
                       style={{
-                        paddingHorizontal: 10,
-                        paddingVertical: 2,
+                        paddingHorizontal: semanticTokens.spacing.control,
+                        paddingVertical: primitiveTokens.space[1],
                         borderRadius: 12,
                         borderWidth: 1,
                         borderColor: semanticTokens.color.outline,
