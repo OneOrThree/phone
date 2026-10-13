@@ -1,0 +1,73 @@
+package com.oneorthree.business.usecase;
+
+import com.oneorthree.business.auth.AccessTokenClaims;
+import com.oneorthree.business.common.api.ApiErrorCode;
+import com.oneorthree.business.common.api.PublicApiException;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
+import com.oneorthree.business.common.exception.UpstreamDomainException;
+import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.upstream.data.DataIslandClient;
+import com.oneorthree.business.upstream.data.dto.IslandPromotions;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Supplier;
+
+/**
+ * 잡지 홍보 신청·섬 소식의 공개 유스케이스 (GROMO-2267, 섬 외부 계약 §7). 섬장·게스트·잔액·하루 1회는 전부 Data 가
+ * 판정하고 여기서는 코드만 옮긴다. 상태까지 대조해 Data 가 같은 코드의 상태를 바꾸면 502 로 드러난다.
+ */
+@Service
+@RequiredArgsConstructor
+public class IslandPromotionUseCase {
+
+    /**
+     * 상류 (status, code) → 공개 코드·필드. {@code SOCIAL_LOGIN_REQUIRED}·{@code PROMOTION_ALREADY_REQUESTED_TODAY}
+     * 는 동명 {@link ApiErrorCode} 라 여기 없이 전역 핸들러가 옮긴다(멱등 키 충돌·처리 중도 마찬가지).
+     */
+    private static final Map<String, PublicFailure> DOMAIN_FAILURES = Map.of(
+            "USER_NOT_FOUND", new PublicFailure(404, ApiErrorCode.USER_NOT_FOUND, null),
+            "GROUP_NOT_FOUND", new PublicFailure(404, ApiErrorCode.GROUP_NOT_FOUND, "islandId"),
+            // 섬장이 아닌 신청 — 일반 주민·방문자 모두.
+            "NOT_OWNER", new PublicFailure(403, ApiErrorCode.FORBIDDEN, null),
+            // 소식은 주민만 읽는다.
+            "MEMBER_ONLY", new PublicFailure(403, ApiErrorCode.FORBIDDEN, "islandId"),
+            // 섬 통장이 홍보비(60)보다 적다 — 차감 0, 소식 0.
+            "INSUFFICIENT_FUNDS", new PublicFailure(409, ApiErrorCode.INSUFFICIENT_FUNDS, null));
+
+    private final DataIslandClient data;
+
+    /** 신청. 같은 키·같은 요청은 Data 의 원 201 재생이다. */
+    public IslandPromotions.Created promote(AccessTokenClaims claims, UUID islandId, UUID key, Deadline deadline) {
+        return required(relay(() -> data.requestPromotion(claims.userId(), islandId, key, deadline)));
+    }
+
+    public IslandPromotions.NewsPage news(AccessTokenClaims claims, UUID islandId, int limit, Deadline deadline) {
+        return required(relay(() -> data.fetchIslandNews(claims.userId(), islandId, limit, deadline)));
+    }
+
+    private static <T> T required(T value) {
+        if (value == null) {
+            throw new UpstreamContractMismatchException("섬 소식·홍보 응답이 없습니다");
+        }
+        return value;
+    }
+
+    private static <T> T relay(Supplier<T> upstream) {
+        try {
+            return upstream.get();
+        } catch (UpstreamDomainException e) {
+            PublicFailure failure = DOMAIN_FAILURES.get(e.getCode());
+            if (failure == null || failure.upstreamStatus() != e.getStatus()) {
+                throw e;
+            }
+            throw new PublicApiException(failure.code(), failure.field());
+        }
+    }
+
+    /** 상류 (status, code) 한 쌍 → 공개 코드와 입력 필드. */
+    private record PublicFailure(int upstreamStatus, ApiErrorCode code, String field) {
+    }
+}

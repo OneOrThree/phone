@@ -101,7 +101,9 @@ class PublicApiContractTest extends UpstreamTestBase {
                 // 갈라 「섬을 하나 나가세요」·「망원경에서 항해하세요」를 띄운다.
                 "ISLAND_LIMIT_EXCEEDED", "ISLAND_NOT_ARRIVED",
                 // GROMO-2262 방명록 하루 1개(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 남겼어요」를 띄운다.
-                "GUESTBOOK_ALREADY_WRITTEN_TODAY");
+                "GUESTBOOK_ALREADY_WRITTEN_TODAY",
+                // GROMO-2267 잡지 홍보 하루 1회(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 신청했어요」를 띄운다.
+                "PROMOTION_ALREADY_REQUESTED_TODAY");
     }
 
     /**

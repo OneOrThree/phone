@@ -969,6 +969,18 @@ Table telescope_pins [note: '망원경 핀 — 이 사람이 잡지·전망대�
   }
 }
 
+Table island_news [note: '섬 소식 — 주민 전원이 같은 글을 읽는 섬 공동 피드(수신자별 행·읽음 표시 없음). 지금은 잡지 홍보 신청 한 종류(kind=PROMOTION)뿐이고, 홍보 «내용»(글·틀·스티커)은 잡지 도메인의 몫이라 여기엔 없다. GROMO-2267, V111'] {
+  id         uuid         [pk]
+  island_id  uuid         [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 지운다(유저 컬럼이 없어 계정 탈퇴 정리는 없다)']
+  kind       varchar(20)  [not null, note: '소식 종류 — 지금은 PROMOTION. CHECK 없음(다음 종류가 마이그레이션 없이 들어온다). 읽는 쪽은 모르는 kind 도 그대로 내려보낸다']
+  body       varchar(200) [not null, note: '완성된 한 줄 문구. PROMOTION 은 「섬장이 오늘 잡지 홍보에 60마리를 썼어요」(보낸 사람을 싣지 않는다)']
+  created_at timestamptz  [not null, default: `now()`, note: '주입 Clock 의 시각을 서비스가 채운다']
+
+  indexes {
+    (island_id, created_at) [name: 'island_news_island_created_idx', note: '최신순 목록 읽기용. 실제 인덱스는 created_at DESC']
+  }
+}
+
 Table user_main_islands [note: '사용자가 고른 메인 섬 (users 1:1) — 행이 없으면 «가장 먼저 가입한 활성 섬»으로 도출한다(그래서 백필이 없다). 현재 섬(user_island_contexts.current_island_id)과 다른 축이다. GROMO-1971, V81'] {
   user_id    uuid [pk, note: 'FK → users.id (1:1). users 컬럼이 아니라 별도 테이블인 이유는 User 엔티티에 @Version·@DynamicUpdate 가 없어 더티 갱신이 전 컬럼 UPDATE 를 내기 때문이다 — 이탈/탈퇴 TX 의 PII 파기와 순서를 다투지 않게 자기 행을 준다']
   island_id  uuid [not null, note: 'FK → groups.id. 이 행이 있는 동안 사용자는 그 섬의 활성 주민이다 — 이탈·강퇴·계정탈퇴가 같은 TX 에서 가장 최근 가입 섬으로 옮기거나 행을 지운다']
@@ -1018,7 +1030,7 @@ Table island_wallet_transactions [note: '섬 공동 원장 — user 지갑의 cu
   id              uuid        [pk]
   island_id       uuid        [not null, note: 'FK → island_wallets.island_id ON DELETE RESTRICT']
   amount          integer     [not null, note: 'CHECK amount > 0 — 항상 양수, 부호는 type']
-  type            varchar(40) [not null, note: 'CONTRIBUTION / CONSTRUCTION_DEBIT / QUEST_SETTLEMENT(V71 코드 추가 — 퀘스트 정산 적립, 건설 기여를 쌓지 않는다) (IslandWalletTransactionType, DB CHECK 없음)']
+  type            varchar(40) [not null, note: 'CONTRIBUTION / CONSTRUCTION_DEBIT / QUEST_SETTLEMENT(V71 코드 추가 — 퀘스트 정산 적립, 건설 기여를 쌓지 않는다) / PROMOTION_FEE(V111/GROMO-2267 코드 추가 — 잡지 홍보비 차감, 스키마 무변경. 멱등 키 promotion:{섬 id}:{KST 날짜}) (IslandWalletTransactionType, DB CHECK 없음)']
   idempotency_key varchar(200) [note: '중복 기입 방어 — 명령 멱등키를 그대로 심는다']
   created_at      timestamptz [not null, default: `now()`]
 
@@ -1930,6 +1942,7 @@ Ref: island_guestbook_entries.island_id > groups.id [delete: cascade]
 Ref: island_guestbook_entries.author_id > users.id [delete: cascade]
 Ref: telescope_pins.user_id > users.id [delete: cascade]  // GROMO-2268 — 사용자 행은 소프트 삭제라 탈퇴 때 애플리케이션이 지운다
 Ref: telescope_pins.island_id > groups.id [delete: cascade]  // GROMO-2268 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
+Ref: island_news.island_id > groups.id [delete: cascade]
 
 // 초대 링크 (V21)
 Ref: group_invite_links.group_id > groups.id

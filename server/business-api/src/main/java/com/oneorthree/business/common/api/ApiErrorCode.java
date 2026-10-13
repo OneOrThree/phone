@@ -58,6 +58,9 @@ public enum ApiErrorCode implements ErrorCode {
     // GROMO-2262. Data 의 GroupErrorCode.GUESTBOOK_ALREADY_WRITTEN_TODAY 와 이름·상태가 같다 — 같은 KST 날의
     // 두 번째 방명록. 앱이 이 코드에만 「오늘은 이미 남겼어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
     GUESTBOOK_ALREADY_WRITTEN_TODAY(HttpStatus.CONFLICT, "오늘은 이미 방명록을 남겼어요", false),
+    // GROMO-2267. Data 의 GroupErrorCode.PROMOTION_ALREADY_REQUESTED_TODAY 와 이름·상태가 같다 — 같은 KST 날의 두 번째
+    // 잡지 홍보 신청. 앱이 이 코드에만 「오늘은 이미 신청했어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+    PROMOTION_ALREADY_REQUESTED_TODAY(HttpStatus.CONFLICT, "오늘은 이미 잡지 홍보를 신청했어요", false),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "잔액이 부족합니다.", false),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.", false),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 요청에 사용한 명령 키입니다.", false),

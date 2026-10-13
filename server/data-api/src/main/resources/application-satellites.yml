@@ -161,6 +161,10 @@ internal:
           - 'GET /internal/islands/*/guestbook'
           - 'POST /internal/islands/*/guestbook'
           - 'DELETE /internal/islands/*/guestbook/*'
+          # GROMO-2267 잡지 홍보 신청·섬 소식 읽기 2종. 본인 명령이라 사용자 축이다(B26) — 위 memberships·arrivals 와
+          # 마지막 세그먼트가 달라 서로를 열지 않는다. 신청(POST)은 통장에서 홍보비를 빼므로 소식(GET)과 줄을 합치지 않는다.
+          - 'POST /internal/users/*/islands/*/promotions'
+          - 'GET /internal/users/*/islands/*/news'
           # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
           - 'GET /internal/islands/*/focus-members'
           - 'GET /internal/islands/*/rest-members'

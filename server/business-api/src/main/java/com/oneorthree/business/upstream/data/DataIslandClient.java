@@ -17,6 +17,7 @@ import com.oneorthree.business.upstream.data.dto.IslandManaged;
 import com.oneorthree.business.upstream.data.dto.IslandMembersPage;
 import com.oneorthree.business.upstream.data.dto.IslandGuestbooks;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
+import com.oneorthree.business.upstream.data.dto.IslandPromotions;
 import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
@@ -80,6 +81,10 @@ public class DataIslandClient {
     // GROMO-2260 섬 도착 기록 — 현재 섬을 옮기므로 명령 키 receipt 로 묶인다.
     private static final String PATH_ISLAND_ARRIVALS =
             "/internal/users/{userId}/islands/{islandId}/arrivals";
+    // GROMO-2267 잡지 홍보 신청·섬 소식 — 본인 명령이라 사용자 축이다(B26).
+    private static final String PATH_ISLAND_PROMOTIONS =
+            "/internal/users/{userId}/islands/{islandId}/promotions";
+    private static final String PATH_ISLAND_NEWS = "/internal/users/{userId}/islands/{islandId}/news";
     // GROMO-1771 섬 게시판 6종 + 댓글 삭제(GROMO-2136)
     private static final String PATH_NOTICES = "/internal/islands/{islandId}/notices";
     private static final String PATH_NOTICE = "/internal/islands/{islandId}/notices/{noticeId}";
@@ -319,6 +324,34 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandArrival>() { });
+    }
+
+    /**
+     * 잡지 홍보 신청 (GROMO-2267) — 섬 통장에서 홍보비를 뺀다. 앱 키를 그대로 전달해 응답 유실 복구는 Data 의 receipt
+     * 재생이다. 본문은 없다(홍보 내용은 잡지 담당 범위).
+     */
+    public IslandPromotions.Created requestPromotion(UUID userId, UUID islandId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_ISLAND_PROMOTIONS, userId).replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.Created>() { });
+    }
+
+    /** 섬 소식 (GROMO-2267) — 주민만 읽는다. 멱등 GET 이라 재시도한다. */
+    public IslandPromotions.NewsPage fetchIslandNews(UUID userId, UUID islandId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET,
+                                userPath(PATH_ISLAND_NEWS, userId).replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.NewsPage>() { });
     }
 
     /**

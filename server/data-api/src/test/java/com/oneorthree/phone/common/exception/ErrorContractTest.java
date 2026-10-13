@@ -141,7 +141,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 227개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 228개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -243,8 +243,11 @@ class ErrorContractTest {
         // 아직 항해하지 않은 소속 섬으로의 즉시 이동이다. 일반 MEMBER_ONLY 와 앱 안내(망원경 항해)가 달라 코드를 가른다.
         // GROMO-2262 가 방명록 코드 1개(GroupErrorCode.GUESTBOOK_ALREADY_WRITTEN_TODAY, 409)를 더했다 — 같은 KST 날의
         // 두 번째 쓰기다. 앱이 이 코드로 «오늘은 이미 남겼어요» 를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
-        assertThat(tests).as("실측 기준 도메인 상수 209개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류·섬 도착 전 이동·방명록 하루 1개 포함")
-                .hasSize(227);
+        // GROMO-2267 이 잡지 홍보 코드 1개(GroupErrorCode.PROMOTION_ALREADY_REQUESTED_TODAY, 409)를 더했다 — 같은 KST 날의
+        // 두 번째 신청이다. 앱이 이 코드로 «오늘은 이미 신청했어요» 를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+        // 잔액 부족은 새 코드가 아니라 건설·상점이 이미 쓰는 INSUFFICIENT_FUNDS(409)를 그대로 쓴다.
+        assertThat(tests).as("실측 기준 도메인 상수 210개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류·섬 도착 전 이동·방명록 하루 1개·잡지 홍보 하루 1회 포함")
+                .hasSize(228);
         return tests;
     }
 
