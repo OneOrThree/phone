@@ -300,6 +300,10 @@ class MagazineContractTest extends UpstreamTestBase {
     @ValueSource(strings = {
             // editorial 키 자체가 빠졌다 — null 과 다르다.
             "{\"issue\":{i},\"cells\":[],\"nextAppliedAt\":null,\"nextPromotionId\":null}",
+            // 다음 경계 키 둘이 다 빠졌다 — 마지막 페이지(null 쌍)로 오인하면 다음 칸을 잃는다.
+            "{\"issue\":{i},\"editorial\":null,\"cells\":[]}",
+            // 다음 경계 키 하나만 빠졌다.
+            "{\"issue\":{i},\"editorial\":null,\"cells\":[],\"nextAppliedAt\":null}",
             // averageFocusMinutesPerDay 키가 빠졌다.
             "{\"issue\":{i},\"editorial\":null,\"cells\":[{\"promotionId\":\"01990000-2289-7000-8000-00000000b001\","
                     + "\"islandId\":\"cccccccc-2289-0000-0000-000000000001\",\"name\":\"x\",\"buildingCount\":1,"
