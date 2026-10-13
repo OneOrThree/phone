@@ -27,6 +27,7 @@ export function islandErrorMessage(error: unknown, facility?: 'board' | 'tower')
     STATE_CONFLICT: '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.',
     VERSION_CONFLICT: '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.',
     REQUEST_IN_PROGRESS: '처리 중이에요. 잠시 뒤 다시 시도해 주세요.',
+    ISLAND_NOT_ARRIVED: '아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.',
     FORBIDDEN: '이 작업을 할 권한이 없어요. 소속을 다시 확인해 주세요.',
   };
   return messages[error.code] ?? '연결을 확인한 뒤 다시 시도해 주세요.';

@@ -237,11 +237,12 @@ export const legacyDoors: Record<string, Door> = (() => {
       x: d.raft.x,
       y: d.raft.y,
       hitbox: d.raft.hitbox,
-      r: 'boat',
+      r: 'raft',
       get label() {
         return t('home.a11y.raft');
       },
       memberOnly: true,
+      visitorRoute: 'raft',
     },
     fishingIsland: {
       x: d.fishingIsland.x,
@@ -1848,7 +1849,7 @@ function FinalIslandScene({
           // 방문 카드에서 연 읽기 전용 화면은 낚시섬 관전만 연다. 기존 방문자 홈은 회관·게시판도 열 수 있다.
           .filter(([, d]) =>
             explicitVisit
-              ? !!d.visitorRoute
+              ? !!d.visitorRoute && d.visitorRoute !== 'raft'
               : d.building && !i.buildings.includes(d.building)
                 ? false
                 : d.memberOnly

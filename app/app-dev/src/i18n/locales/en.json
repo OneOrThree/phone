@@ -58,7 +58,8 @@
     "SERVICE_UNAVAILABLE": "Please try again in a moment.",
     "UPSTREAM_TIMEOUT": "The request timed out. Please try again in a moment.",
     "CLIENT_TIMEOUT": "The server is taking a while to respond. Please try again in a moment.",
-    "CLIENT_NETWORK_ERROR": "Can't connect to the network. Please check your connection."
+    "CLIENT_NETWORK_ERROR": "Can't connect to the network. Please check your connection.",
+    "ISLAND_NOT_ARRIVED": "You haven't been to this island yet. Sail there from the telescope."
   },
   "time": {
     "minutes": "{{m}}m",
@@ -429,6 +430,16 @@
       "raft": "Raft",
       "viewFishingIsland": "View the Fishing Island",
       "mailboxNewLetter": "You have a new letter from a friend."
+    },
+    "raft": {
+      "title": "Raft",
+      "from": "Our island",
+      "fishingIsland": "Fishing Island",
+      "toIsland": "To {{name}}",
+      "telescope": "Telescope",
+      "myRaft": "My Raft",
+      "comingSoon": "Coming soon",
+      "moveBlocked": "You can't move to another island right now."
     }
   },
   "focusFlow": {

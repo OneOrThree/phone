@@ -122,6 +122,7 @@ import {
   Overlay,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
+import { RaftDestinations } from '@/screens/island/RaftDestinations';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
@@ -389,7 +390,7 @@ function CurrentScreensContent({ e }: any) {
     state.visitingIslandId &&
     !(
       e.islands
-        ? ['visitIsland', 'manage', 'members', 'board', 'notice', 'visitIslandFocus']
+        ? ['visitIsland', 'manage', 'members', 'board', 'notice', 'visitIslandFocus', 'raft']
         : [
             'home',
             'manage',
@@ -400,6 +401,7 @@ function CurrentScreensContent({ e }: any) {
             'travel',
             'visitIsland',
             'visitIslandFocus',
+            'raft',
             'permission',
             'screenTimeApps',
           ]
@@ -541,6 +543,20 @@ function CurrentScreensContent({ e }: any) {
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
+  if (r === 'raft') return <RaftDestinations e={e} />;
+  if (r === 'telescope')
+    // TODO E1-4·2266 망원경 화면이 생기면 이 자리표시를 바꾼다
+    return (
+      <IslandSheet
+        bg="dock"
+        sign="boat/raft"
+        title={t('home.raft.telescope')}
+        onBack={e.back}
+        onClose={e.home}
+      >
+        <Txt kind="meta">{t('home.raft.comingSoon')}</Txt>
+      </IslandSheet>
+    );
   if (['boat', 'mainIsland', 'currentIsland', 'friends', 'friendSearch'].includes(r))
     return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;

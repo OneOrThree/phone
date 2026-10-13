@@ -1098,7 +1098,7 @@ test('뗏목 탭 영역은 부두 끝이 아니라 배경에 그려진 뗏목 �
     expect((raft.top + raft.height) / s).toBeGreaterThanOrEqual(920);
 
     await fireEvent.press(screen.getByLabelText('뗏목'));
-    expect(go).toHaveBeenCalledWith('boat');
+    expect(go).toHaveBeenCalledWith('raft');
   } finally {
     timing.mockRestore();
   }
@@ -1184,4 +1184,18 @@ describe('en', () => {
 
     expect(screen.getByLabelText("Notice Board, there's a new comment.")).toBeTruthy();
   });
+});
+
+test('방문 중에도 뗏목이 그려지고 누르면 행선지 시트(raft)로 간다', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id !== state.islandId)!;
+  const go = jest.fn();
+  const screen = await render(
+    <FinalIsland state={state} go={go} build={jest.fn()} viewingIslandId={visited.id} />,
+  );
+  expect(screen.queryByLabelText('뗏목')).toBeNull(); // 방문 카드(explicit)는 낚시섬 관전만 연다
+  state.visitingIslandId = visited.id;
+  const visiting = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+  await fireEvent.press(visiting.getByLabelText('뗏목'));
+  expect(go).toHaveBeenCalledWith('raft', visited.id);
 });

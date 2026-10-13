@@ -58,7 +58,8 @@
     "SERVICE_UNAVAILABLE": "잠시 후 다시 시도해 주세요.",
     "UPSTREAM_TIMEOUT": "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
     "CLIENT_TIMEOUT": "서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.",
-    "CLIENT_NETWORK_ERROR": "네트워크에 연결할 수 없어요. 연결을 확인해 주세요."
+    "CLIENT_NETWORK_ERROR": "네트워크에 연결할 수 없어요. 연결을 확인해 주세요.",
+    "ISLAND_NOT_ARRIVED": "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요."
   },
   "time": {
     "minutes": "{{m}}분",
@@ -414,6 +415,16 @@
       "raft": "뗏목",
       "viewFishingIsland": "낚시섬 구경하기",
       "mailboxNewLetter": "친구에게 받은 새 편지가 있습니다"
+    },
+    "raft": {
+      "title": "뗏목",
+      "from": "우리 섬",
+      "fishingIsland": "앞바다 낚시섬",
+      "toIsland": "{{name}}섬으로",
+      "telescope": "망원경",
+      "myRaft": "내 뗏목",
+      "comingSoon": "준비 중이에요",
+      "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요."
     }
   },
   "focusFlow": {
