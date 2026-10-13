@@ -77,6 +77,8 @@ public class IslandPurgeService implements IslandPurgePort {
      * <p>새 섬 테이블을 만들면 여기에 한 줄을 더한다. 빠뜨리면 닫힌 섬의 공동 데이터가 남는다.
      */
     private static final List<String> PURGE_STATEMENTS = List.of(
+            // 섬별 7일 평균 일 스냅샷 (V109, GROMO-2257) — 파생 통계라 닫힌 섬을 읽는 곳이 없다. 자식이 없는 독립 표다.
+            "DELETE FROM island_focus_averages WHERE island_id = :islandId",
             // 건설 퀘스트·일일 퀘스트 (V71) — 청구·코호트가 회차의 자식이고 회차가 퀘스트의 자식이다.
             "DELETE FROM island_quest_claims WHERE island_id = :islandId",
             "DELETE FROM island_quest_cohort_members WHERE occurrence_id IN "
