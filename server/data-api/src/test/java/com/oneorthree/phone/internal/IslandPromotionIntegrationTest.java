@@ -243,7 +243,7 @@ class IslandPromotionIntegrationTest {
     }
 
     @Test
-    @DisplayName("글·배치가 틀리면 아무것도 남지 않는다 — 61자 422 · 금칙어 400 · 줄바꿈 400 · 스티커 11개 400 · 없는 재료 400 · 자리에 맞지 않는 종류 400")
+    @DisplayName("글·배치가 틀리면 아무것도 남지 않는다 — 61자 422 · 금칙어 400 · 줄바꿈(앞뒤 포함) 400 · 스티커 11개 400 · 없는 재료 400 · 자리에 맞지 않는 종류 400 · 모르는 키·틀린 타입 400")
     void invalidContentLeavesNoTrace() throws Exception {
         Island island = island(100);
         String ok = layout(FRAME, List.of(STICKER), TAPE);
@@ -259,6 +259,13 @@ class IslandPromotionIntegrationTest {
         expectRejected(island, content(BODY, layout(FRAME, List.of(TAPE), null)), 400, "PROMOTION_LAYOUT_INVALID");
         expectRejected(island, content(BODY, layout(FRAME, List.of(), STICKER)), 400, "PROMOTION_LAYOUT_INVALID");
         expectRejected(island, "{\"body\":\"" + BODY + "\"}", 400, "PROMOTION_LAYOUT_INVALID");
+        expectRejected(island, content(BODY + "\n", ok), 400, "PROMOTION_LAYOUT_INVALID");
+        // 스티커 목록 키의 오타는 빈 칸으로 실리지 않고 거절된다 — 60마리가 빠지지 않는다.
+        expectRejected(island, content(BODY, ok.replace("\"stickers\"", "\"sticker\"")), 400,
+                "PROMOTION_LAYOUT_INVALID");
+        expectRejected(island, content(BODY, ok.replace("\"scale\"", "\"size\"")), 400, "PROMOTION_LAYOUT_INVALID");
+        expectRejected(island, content(BODY, ok.replace("\"x\":0.1", "\"x\":\"left\"")), 400,
+                "PROMOTION_LAYOUT_INVALID");
 
         assertNothingWritten(island, 100);
         // 경계값은 통과한다 — 60자, 스티커 10개.

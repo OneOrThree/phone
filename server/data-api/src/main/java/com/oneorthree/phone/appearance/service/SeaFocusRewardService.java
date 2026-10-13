@@ -54,8 +54,10 @@ import java.util.stream.Collectors;
  *
  * <h2>지급하지 않는 종류</h2>
  * 개인 인벤토리는 {@code clothes}·{@code decor} 와 고양이 잡지의 시즌 재료 {@code ad_sticker}·{@code ad_frame}
- * (GROMO-2289 — 정본의 시즌 세트 「잡지 스티커·칸 틀」)만 받는다. 잡지 테이프({@code ad_tape})는 지금 전부 무료라 주지
- * 않는다. 그 밖의 종류가 단계표에 와도 건너뛰고 경고를 남긴다(결정 N4 — hull 은 B23/GROMO-1851 번복이 필요해 후속이다).
+ * (GROMO-2289 — 정본의 시즌 세트 「잡지 스티커·칸 틀」)만 받는다. 잡지 재료는 부가 정보({@code magazine_asset_meta})가
+ * 퇴역하지 않은 {@code season} 일 때만 준다 — 무료 재료는 모두가 이미 가진 것이고, 부가 정보가 없으면 꾸미기 서랍에 보이지
+ * 않는다. 잡지 테이프({@code ad_tape})는 지금 전부 무료라 주지 않는다. 그 밖의 종류가 단계표에 와도 건너뛰고 경고를
+ * 남긴다(결정 N4 — hull 은 B23/GROMO-1851 번복이 필요해 후속이다).
  * 건너뛴 행은 «다음 단계» 안내에도 넣지 않는다 — 받지 못할 상품을 향해 남은 분을 보여 주지 않는다. 잡지 재료는 개인
  * 인벤토리 조회({@code AppearanceService.myInventory})가 내려보내지 않아 옷장에 섞이지 않는다.
  *
@@ -110,6 +112,7 @@ public class SeaFocusRewardService {
         List<SeaRewardTier> rows = tiers.findBySetKeys(List.of(SeaRewardTier.BASE_SET, monthKey));
         List<String> productIds = rows.stream().map(SeaRewardTier::getProductId).distinct().toList();
         Map<String, String> kinds = kindsOf(productIds);
+        Set<String> magazineSeason = magazineSeasonOf(kinds);
         // 이미 가진 상품 — 단계표 상품 전체를 조회 한 번으로 모은다. 아래에서 받는 상품도 여기에 더해 가므로 같은 상품이
         // 두 세트에 있어도 한 번만 받고, «다음 단계» 후보를 거르는 데에도 같은 집합을 쓴다.
         Set<String> owned = ownedOf(userId, productIds);
@@ -121,9 +124,10 @@ public class SeaFocusRewardService {
             long after = tier.isBase() ? lifetimeAfter : monthAfter;
             long threshold = tier.thresholdSeconds();
             boolean crossed = before < threshold && threshold <= after;
-            if (!isGrantable(kinds.get(tier.getProductId()))) {
+            if (!isGrantable(kinds.get(tier.getProductId()), magazineSeason.contains(tier.getProductId()))) {
                 if (crossed) {
-                    log.warn("바다 보상 단계의 상품은 개인 인벤토리에 지급하지 않습니다(clothes·decor·잡지 스티커·틀만, 결정 N4) — "
+                    log.warn("바다 보상 단계의 상품은 개인 인벤토리에 지급하지 않습니다(clothes·decor, 시즌 잡지 스티커·틀만, "
+                                    + "결정 N4) — "
                                     + "set={}, threshold={}분, product={}, kind={}, user={}",
                             tier.getSetKey(), tier.getThresholdMinutes(), tier.getProductId(),
                             kinds.get(tier.getProductId()), userId);
@@ -186,8 +190,20 @@ public class SeaFocusRewardService {
         return new HashSet<>(ownedProducts.findProductIdsByUserIdAndProductIdIn(userId, productIds));
     }
 
-    private static boolean isGrantable(String kind) {
+    /** 단계표 상품 중 지급할 수 있는 잡지 시즌 재료 — 잡지 재료가 없으면 묻지 않는다. */
+    private Set<String> magazineSeasonOf(Map<String, String> kinds) {
+        List<String> magazine = kinds.entrySet().stream()
+                .filter(entry -> isMagazineReward(entry.getValue()))
+                .map(Map.Entry::getKey).toList();
+        return magazine.isEmpty() ? Set.of() : new HashSet<>(catalogAssets.findGrantableMagazineSeasonIds(magazine));
+    }
+
+    private static boolean isGrantable(String kind, boolean magazineSeason) {
         return CatalogAsset.KIND_CLOTHES.equals(kind) || CatalogAsset.KIND_DECOR.equals(kind)
-                || CatalogAsset.KIND_AD_STICKER.equals(kind) || CatalogAsset.KIND_AD_FRAME.equals(kind);
+                || (isMagazineReward(kind) && magazineSeason);
+    }
+
+    private static boolean isMagazineReward(String kind) {
+        return CatalogAsset.KIND_AD_STICKER.equals(kind) || CatalogAsset.KIND_AD_FRAME.equals(kind);
     }
 }

@@ -46,6 +46,10 @@ class PromotionContentTest {
         assertCode(content("첫 줄\n둘째 줄", layout(List.of())), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
         assertCode(content("첫 줄\r둘째 줄", layout(List.of())), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
         assertCode(content("탭\t글", layout(List.of())), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
+        // 앞뒤에 붙은 금지 문자도 거절한다 — strip 이 지워 버리기 전에 원문에서 본다.
+        assertCode(content("홍보 문구\n", layout(List.of())), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
+        assertCode(content("\t홍보 문구", layout(List.of())), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
+        assertCode(content("홍보 문구" + (char) 0x2029, layout(List.of())), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
         assertCode(content("줄" + (char) 0x2028 + "구분", layout(List.of())), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
     }
 
@@ -99,6 +103,29 @@ class PromotionContentTest {
     }
 
     @Test
+    @DisplayName("요청 본문 변환 — 본문·배치·스티커·테이프 어디든 모르는 키나 틀린 타입은 400, 정상 본문은 그대로 바뀐다")
+    void fromRejectsUnknownKeysAndWrongTypes() {
+        Map<String, Object> sticker = Map.of("assetId", "mag.fish", "x", 0.5, "y", 0.5, "scale", 0.2, "rotation", 0);
+        Map<String, Object> layout = Map.of("v", 1, "frameId", "mag.frame-scallop", "stickers", List.of(sticker));
+
+        PromotionContent parsed = PromotionContent.from(Map.of("body", "안녕", "layout", layout));
+        assertThat(parsed.layout().stickers()).singleElement()
+                .isEqualTo(new PromotionContent.Sticker("mag.fish", 0.5, 0.5, 0.2, 0.0));
+
+        assertFromRejected(Map.of("body", "안녕", "layout", Map.of("v", 1, "frameId", "mag.frame-scallop",
+                "sticker", List.of(sticker))));
+        assertFromRejected(Map.of("body", "안녕", "layout", Map.of("v", 1, "frameId", "mag.frame-scallop",
+                "stickers", List.of(Map.of("assetId", "mag.fish", "x", 0.5, "y", 0.5, "scale", 0.2, "rotation", 0,
+                        "z", 3)))));
+        assertFromRejected(Map.of("body", "안녕", "layout", Map.of("v", 1, "frameId", "mag.frame-scallop",
+                "tape", Map.of("assetId", "mag.tape-cream", "x", 0.5, "y", 0.0, "rotation", 0, "color", "red"))));
+        assertFromRejected(Map.of("body", "안녕", "layout", layout, "extra", true));
+        assertFromRejected(Map.of("body", "안녕", "layout", Map.of("v", 1, "frameId", "mag.frame-scallop",
+                "stickers", "mag.fish")));
+        assertFromRejected(Map.of("body", List.of("안녕"), "layout", layout));
+    }
+
+    @Test
     @DisplayName("재료 장수 — 틀·스티커·테이프를 id 별로 센다")
     void assetCounts() {
         PromotionContent.Layout layout = new PromotionContent.Layout(1, "mag.frame-scallop",
@@ -123,6 +150,11 @@ class PromotionContentTest {
 
     private static PromotionContent.Tape tape(double x, double y) {
         return new PromotionContent.Tape("mag.tape-pink", x, y, 0.0);
+    }
+
+    private static void assertFromRejected(Map<String, Object> requestBody) {
+        assertThatThrownBy(() -> PromotionContent.from(requestBody)).isInstanceOfSatisfying(MagazineException.class,
+                e -> assertThat(e.getErrorCode()).isEqualTo(MagazineErrorCode.PROMOTION_LAYOUT_INVALID));
     }
 
     private static void assertCode(PromotionContent content, MagazineErrorCode code) {

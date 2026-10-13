@@ -1,5 +1,6 @@
 package com.oneorthree.phone.magazine.support;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.magazine.exception.MagazineErrorCode;
 import com.oneorthree.phone.magazine.exception.MagazineException;
 
@@ -18,7 +19,8 @@ import java.util.Map;
  * 위에 있어야 한다.
  *
  * <p>여기서는 «모양» 만 본다. 재료가 카탈로그의 어떤 종류인지, 섬장이 가졌는지는 카탈로그를 읽는 서비스가 본다.
- * 숫자가 빠진 것을 0 으로 받아들이지 않으려고 숫자 필드는 박싱 타입이다.
+ * 숫자가 빠진 것을 0 으로 받아들이지 않으려고 숫자 필드는 박싱 타입이다. 요청 본문은 {@link #from} 으로만 만든다 —
+ * 모르는 키를 거절해야 {@code stickers} 오타 같은 꾸미기가 조용히 빈 칸으로 실리지 않는다.
  *
  * @param body   한 줄 글 — 앞뒤 공백을 뗀 뒤 1~60자(코드 포인트), 줄바꿈·제어 문자 없음
  * @param layout 틀·스티커·테이프 배치
@@ -39,6 +41,11 @@ public record PromotionContent(String body, Layout layout) {
     private static final double MAX_ROTATION = 180;
     private static final int LINE_SEPARATOR = 0x2028;
     private static final int PARAGRAPH_SEPARATOR = 0x2029;
+    /**
+     * 요청 본문 변환기 — 기본값 그대로라 모르는 키에서 실패한다. 스프링 MVC 의 변환기는 모르는 키를 무시하므로 본문을
+     * 맵으로 받아 이것으로 바꾼다.
+     */
+    private static final ObjectMapper STRICT = new ObjectMapper();
 
     /**
      * @param v        형식 버전(1)
@@ -56,14 +63,30 @@ public record PromotionContent(String body, Layout layout) {
     }
 
     /**
+     * 요청 본문(맵)을 내용으로 바꾼다 — 본문·배치·스티커·테이프 어디든 모르는 키가 있거나 타입이 틀리면 400
+     * {@code PROMOTION_LAYOUT_INVALID} 다.
+     */
+    public static PromotionContent from(Map<String, ?> requestBody) {
+        try {
+            return STRICT.convertValue(requestBody, PromotionContent.class);
+        } catch (IllegalArgumentException malformed) {
+            throw invalid();
+        }
+    }
+
+    /**
      * 모양 규칙을 확인하고 정규형을 돌려준다 — 글은 앞뒤 공백을 떼고, 빠진 스티커 목록은 빈 목록으로 채운다.
      *
      * @throws MagazineException 60자 초과는 422 {@code PROMOTION_TEXT_TOO_LONG}, 그 밖의 위반은 400
      *                           {@code PROMOTION_LAYOUT_INVALID}
      */
     public PromotionContent validated() {
-        String text = body == null ? "" : body.strip();
-        if (text.isEmpty() || text.codePoints().anyMatch(PromotionContent::breaksTheLine)) {
+        // 금지 문자는 원문에서 본다 — strip 이 앞뒤의 줄바꿈·탭·줄 구분자를 먼저 지워 검사를 빠져나가지 않게.
+        if (body == null || body.codePoints().anyMatch(PromotionContent::breaksTheLine)) {
+            throw invalid();
+        }
+        String text = body.strip();
+        if (text.isEmpty()) {
             throw invalid();
         }
         if (text.codePointCount(0, text.length()) > MAX_BODY_LENGTH) {
