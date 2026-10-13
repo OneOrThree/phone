@@ -10,6 +10,7 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -19,8 +20,15 @@ import java.util.UUID;
 
 /**
  * 섬장이 신청한 잡지 홍보 한 건 (GROMO-2289, V114) — 한 섬은 한 호에 한 칸이다({@code UNIQUE (island_id, issue_date)}).
+ *
+ * <h2>{@code @DynamicUpdate} 가 붙어 있는 이유</h2>
+ * 이 행에는 서로 다른 트랜잭션이 고치는 열이 함께 산다 — 발행 배치는 {@code snapshot} 을, 신고는 {@code moderation}·
+ * {@code hidden_at} 을, 섬장은 글·배치를 고친다. 기본 더티 체킹은 전 열 UPDATE 를 내므로, 발행이 칸을 읽은 뒤 신고가
+ * 숨김을 커밋하면 발행의 UPDATE 가 읽어 둔 {@code moderation} 으로 숨김을 되돌릴 수 있다. 바뀐 열만 쓰게 해 서로의 열을
+ * 덮지 않는다({@code GroupMember} 와 같은 이유).
  */
 @Entity
+@DynamicUpdate
 @Table(name = "island_promotions")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

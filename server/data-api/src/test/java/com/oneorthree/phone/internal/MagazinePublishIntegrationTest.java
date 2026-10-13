@@ -19,7 +19,10 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.internal.service.IslandFocusAverageSnapshotService;
 import com.oneorthree.phone.internal.service.MagazinePublishService;
+import com.oneorthree.phone.magazine.repository.IslandPromotionRepository;
+import com.oneorthree.phone.magazine.repository.domain.IslandPromotion;
 import com.oneorthree.phone.magazine.repository.domain.MagazineIssue;
+import com.oneorthree.phone.magazine.support.IslandCard;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -38,6 +41,8 @@ import org.springframework.test.util.AopTestUtils;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
@@ -47,6 +52,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -113,6 +122,10 @@ class MagazinePublishIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     MockMvc mvc;
+    @Autowired
+    IslandPromotionRepository promotions;
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     private final AtomicReference<Instant> now = new AtomicReference<>();
     /** 이 테스트의 첫 호 날짜(KST). */
@@ -226,6 +239,9 @@ class MagazinePublishIntegrationTest {
         publisher.publish(date.plusDays(7)).orElseThrow();
 
         assertThat(receiptRows(firstIssue)).as("7호 밖의 받음 상태").isZero();
+        receipt(reader.getId(), firstIssue, "{\"place\":\"ISLAND\",\"opened\":true}").andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("MAGAZINE_ISSUE_NOT_FOUND"));
+        assertThat(receiptRows(firstIssue)).as("7호 밖이 된 호에는 받음 행을 다시 만들지 않는다").isZero();
         assertThat(jdbc.queryForObject("select count(*) from magazine_issues", Integer.class)).isEqualTo(8);
         issue(reader.getId(), firstIssue, "").andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MAGAZINE_ISSUE_NOT_FOUND"));
@@ -345,6 +361,37 @@ class MagazinePublishIntegrationTest {
         receipt(reader.getId(), issueId, "{\"opened\":true}").andExpect(status().isBadRequest());
         receipt(reader.getId(), UUID.randomUUID(), "{\"place\":\"SEA\"}").andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MAGAZINE_ISSUE_NOT_FOUND"));
+
+        // 탈퇴한 계정은 받음 상태를 새로 만들 수 없다 — 사용자 행 공유 잠금 아래에서 활성 여부를 본다.
+        User withdrawn = user();
+        jdbc.update("update users set is_deleted = true where id = ?", withdrawn.getId());
+        receipt(withdrawn.getId(), issueId, "{\"place\":\"ISLAND\"}").andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+        assertThat(jdbc.queryForObject("select count(*) from magazine_receipts where user_id = ?", Integer.class,
+                withdrawn.getId())).isZero();
+    }
+
+    @Test
+    @DisplayName("발행이 칸을 읽은 뒤 신고 숨김이 커밋돼도 발행의 UPDATE 는 숫자(snapshot)만 써서 숨김을 되돌리지 않는다")
+    void publishingDoesNotOverwriteAConcurrentHide() throws Exception {
+        Island island = island("겹친섬", false);
+        UUID promotionId = promotion(island.id, date, kst(date.minusDays(1), 8, 0), "겹친 홍보");
+        ExecutorService other = Executors.newSingleThreadExecutor();
+        try {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                IslandPromotion loaded = promotions.findById(promotionId).orElseThrow();
+                // 다른 트랜잭션(다른 스레드의 자동 커밋)이 그사이 숨긴다.
+                await(other.submit(() -> jdbc.update(
+                        "update island_promotions set moderation = 'HIDDEN' where id = ?", promotionId)));
+                loaded.publish(new IslandCard(island.id, "겹친섬", 0, 1, 10, null));
+            });
+        } finally {
+            other.shutdownNow();
+        }
+
+        assertThat(jdbc.queryForObject("select moderation from island_promotions where id = ?", String.class,
+                promotionId)).isEqualTo("HIDDEN");
+        assertThat(snapshotOf(promotionId).path("name").asText()).isEqualTo("겹친섬");
     }
 
     // ---------------------------------------------------------------- 도구
@@ -415,6 +462,14 @@ class MagazinePublishIntegrationTest {
     private int receiptRows(UUID issueId) {
         return jdbc.queryForObject("select count(*) from magazine_receipts where issue_id = ?", Integer.class,
                 issueId);
+    }
+
+    private static void await(Future<?> future) {
+        try {
+            future.get(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static Instant kst(LocalDate day, int hour, int minute) {

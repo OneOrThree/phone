@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
@@ -100,7 +101,12 @@ public class MagazinePublishService {
         }
         averageSnapshots.snapshot(issueDate);
         // 평균 스냅샷(위)은 자기 트랜잭션으로 먼저 커밋한다 — 그 문장이 쥐는 섬 행 공유 잠금을 발행 내내 들고 있지 않게.
-        return Optional.ofNullable(new TransactionTemplate(transactionManager).execute(status -> compose(issueDate)));
+        // 발행은 한 스냅샷에서 읽는다(REPEATABLE READ) — 랭킹의 집중 합과 주민 수, 칸 숫자가 서로 다른 순간을 보면 어느
+        // 순간에도 없던 값이 그 호에 영구히 고정된다. 그사이 같은 행이 다른 트랜잭션에서 바뀌면(신고 숨김 등) PostgreSQL 이
+        // 직렬화 실패로 이 발행을 롤백하고, 10분 뒤 틱이 다시 낸다.
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        transaction.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        return Optional.ofNullable(transaction.execute(status -> compose(issueDate)));
     }
 
     private MagazineIssue compose(LocalDate issueDate) {
