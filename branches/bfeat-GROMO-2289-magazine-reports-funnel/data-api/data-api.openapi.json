@@ -7096,16 +7096,7 @@
         "properties": {
           "reason": {
             "type": "string",
-            "enum": [
-              "HARASSMENT",
-              "HATE",
-              "SPAM_FRAUD",
-              "SEXUAL",
-              "CHILD_SAFETY",
-              "THREAT",
-              "PRIVACY_IMPERSONATION",
-              "OTHER"
-            ]
+            "pattern": "HARASSMENT|HATE|SPAM_FRAUD|SEXUAL|CHILD_SAFETY|THREAT|PRIVACY_IMPERSONATION|OTHER"
           }
         },
         "required": [
