@@ -65,8 +65,11 @@ test('이전 계정의 큐와 동의를 새 계정에 적용하지 않는다', a
 test('마감 초과·소유권 오류는 같은 관측을 무한 재시도하지 않는다', async () => {
   await setScreenTimeReportingConsent(session.userId, true);
   put.mockRejectedValueOnce(new ApiError('SCREEN_TIME_OUT_OF_WINDOW', 'closed', 422));
-  await expect(reportScreenTime('approved', null, 1, now)).rejects.toThrow('closed');
-  await expect(reportScreenTime('approved', null, 1, now + 60000)).rejects.toThrow('거절');
+  const observations = buildScreenTimeObservations('approved', null, now);
+  await expect(reportScreenTime('approved', null, 1, now, observations)).rejects.toThrow('closed');
+  await expect(reportScreenTime('approved', null, 1, now + 60000, observations)).rejects.toThrow(
+    '거절',
+  );
   expect(put).toHaveBeenCalledTimes(2);
 });
 
@@ -102,3 +105,30 @@ test('전날 UTC만 영구 거절되어도 다른 세 관측과 다음 당일 �
   expect(put).toHaveBeenCalledTimes(1);
   expect(put.mock.calls[0][0]).toMatchObject({ timezone: 'UTC', date: '2026-10-09', minutes: 5 });
 });
+
+test.each(['measuredAt', 'windowStart', 'windowEnd'] as const)(
+  '거절 이후 %s가 보정되면 같은 분·상태·최종성도 새 키로 재전송한다',
+  async (field) => {
+    await setScreenTimeReportingConsent(session.userId, true);
+    const time = Date.parse('2026-10-09T02:00:00Z');
+    const correct = {
+      ...buildScreenTimeObservations('approved', null, time)[0],
+      minutes: 75,
+      measurementStatus: 'authorized' as const,
+    };
+    const invalid = {
+      ...correct,
+      [field]: new Date(Date.parse(correct[field]!) + 3_600_000).toISOString(),
+    };
+    put.mockRejectedValueOnce(new ApiError('SCREEN_TIME_OUT_OF_WINDOW', 'clock', 422));
+    await expect(
+      reportScreenTime('approved', null, 1, time + 3_600_000, [invalid]),
+    ).rejects.toThrow('clock');
+    await expect(reportScreenTime('approved', null, 1, time, [invalid])).rejects.toThrow('거절');
+    expect(put).toHaveBeenCalledTimes(1);
+    await reportScreenTime('approved', null, 1, time, [correct]);
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(put.mock.calls[1][0]).toEqual(correct);
+    expect(put.mock.calls[1][2]).not.toBe(put.mock.calls[0][2]);
+  },
+);

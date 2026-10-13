@@ -43,6 +43,9 @@ export async function setScreenTimeReportingConsent(userId: string, enabled: boo
 
 const fingerprint = (o: ScreenTimeObservation) =>
   `${o.measurementStatus}:${o.minutes}:${o.finalized ?? false}`;
+// 성공한 같은 수치는 생략하지만, 서버가 거절한 시각·측정 창이 보정되면 새 관측으로 재시도한다.
+const rejectedFingerprint = (o: ScreenTimeObservation) =>
+  JSON.stringify([fingerprint(o), o.measuredAt, o.windowStart, o.windowEnd]);
 
 /** 보고 원장은 사용자·sid별로 격리한다. 실패 요청은 시각·키·본문을 그대로 재전송한다. */
 export function reportScreenTime(
@@ -91,7 +94,7 @@ export function reportScreenTime(
         );
         continue;
       }
-      if (journal.rejected?.[observationKey(observation)] === fingerprint(observation)) {
+      if (journal.rejected?.[observationKey(observation)] === rejectedFingerprint(observation)) {
         permanentError ??= new Error('스크린타임 보고가 서버에서 거절됐어요.');
         continue;
       }
@@ -128,7 +131,7 @@ export function reportScreenTime(
           throw error;
         // 영구 오류는 같은 관측의 무한 재시도를 막고 UI에 실패를 전달한다.
         journal.pending = journal.pending.filter((p) => p.key !== pending.key);
-        (journal.rejected ??= {})[observationKey(pending.observation)] = fingerprint(
+        (journal.rejected ??= {})[observationKey(pending.observation)] = rejectedFingerprint(
           pending.observation,
         );
         await AsyncStorage.setItem(key, JSON.stringify(journal));
