@@ -55,4 +55,10 @@ class MagazineCalendarTest {
         assertThat(MagazineCalendar.opensAt(issue)).isEqualTo(SEVEN);
         assertThat(MagazineCalendar.closesAt(issue)).isEqualTo(MIDNIGHT);
     }
+
+    @Test
+    @DisplayName("호가 현재 호인 마지막 순간은 다음 날 07:00 KST 다 — 다음 호가 나오는 시각")
+    void currentUntilNextMorning() {
+        assertThat(MagazineCalendar.currentUntil(LocalDate.parse("2026-10-14"))).isEqualTo(SEVEN.plusSeconds(86_400));
+    }
 }

@@ -1,6 +1,7 @@
 package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.internal.InternalIslandPromotionController;
+import com.oneorthree.phone.internal.InternalMagazineController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -42,6 +43,23 @@ class InternalIslandPromotionAllowlistTest {
         assertThat(routes).as("5종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(5);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
+    }
+
+    @Test
+    @DisplayName("잡지 읽기·받음 내부 컨트롤러의 4종도 배포되는 허용목록을 통과하고, 이웃 경로는 열리지 않는다(GROMO-2289)")
+    void everyMagazineInternalRouteIsAllowedAndNothingMore() throws IOException {
+        List<String> allow = shippedBusinessAllowlist();
+        List<String> routes = routesOf(InternalMagazineController.class);
+        String base = "/internal/users/" + ID + "/magazine";
+
+        assertThat(routes).as("4종이 모두 잡혔는지").hasSize(4);
+        assertThat(routes).allSatisfy(route ->
+                assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
+        assertThat(allows(allow, "POST " + base + "/issues")).isFalse();
+        assertThat(allows(allow, "PUT " + base + "/issues/" + ID)).isFalse();
+        assertThat(allows(allow, "GET " + base + "/issues/" + ID + "/receipt")).isFalse();
+        assertThat(allows(allow, "PUT " + base + "/today")).isFalse();
+        assertThat(allows(allow, "GET " + base + "/issues/" + ID + "/" + ID)).isFalse();
     }
 
     @Test

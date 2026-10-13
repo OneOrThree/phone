@@ -990,7 +990,7 @@ Table island_promotions [note: '고양이 잡지 홍보 칸 — 섬장이 신청
   updated_at timestamptz [not null, note: '마지막으로 고친 시각']
   body       varchar(60) [not null, note: '한 줄 글(신고 대상) — 앞뒤 공백을 뗀 1~60자(코드 포인트), 줄바꿈 없음. 금칙어 검사를 거친다']
   layout     jsonb       [not null, note: '{v:1, frameId, stickers:[{assetId,x,y,scale,rotation}] ≤10, tape:{assetId,x,y,rotation}|null} — 칸 기준 정규화 좌표(-0.08~1.08), 배열 뒤쪽이 위에 그려진다. 서비스가 검증한 정규형만 들어온다']
-  snapshot   jsonb       [note: '발행 때 고정하는 섬 이름·건물 수·주민 수·정원·평균. 발행 전 NULL']
+  snapshot   jsonb       [note: '발행 때 고정하는 섬 숫자 {islandId, name, buildingCount, memberCount, maxMembers, averageFocusMinutesPerDay}. 발행 전 NULL — 호가 나온 뒤에도 NULL 이면 그 순간 비공개·닫힌 섬이라 싣지 않은 칸이다(V115 발행 배치)']
   moderation varchar(10) [not null, default: 'NONE', note: 'NONE / HIDDEN / REMOVED / CLEARED — CHECK. 신고 3건이면 HIDDEN, 운영이 REMOVED(내림·환불 없음) 또는 CLEARED(되살림)']
   hidden_at  timestamptz [note: '신고로 숨긴 시각']
 
@@ -998,6 +998,39 @@ Table island_promotions [note: '고양이 잡지 홍보 칸 — 섬장이 신청
     (island_id, issue_date) [unique, note: '한 섬은 한 호에 한 칸 — 「지난번에 실은 칸」(섬별 최신 호)도 이 인덱스를 거꾸로 탄다']
     (issue_date, applied_at, id) [name: 'island_promotions_issue_order_idx', note: '지면 순서(같은 호 안에서 먼저 신청한 순) 읽기용']
   }
+}
+
+Table magazine_issues [note: '고양이 잡지 한 호 — 하루 한 행. 발행 배치가 07:00~23:50 KST 10분마다 «그날 호가 없으면» 만든다(magazine.enabled 가 꺼져 있으면 돌지 않는다). 지우지 않는다. GROMO-2289, V115'] {
+  id              uuid        [pk, note: 'UUID v7']
+  issue_date      date        [not null, note: '호의 KST 날짜']
+  slot            varchar(10) [not null, default: 'MORNING', note: 'CHECK MORNING — 조간·석간 전환(OPS-03) 때 EVENING 을 더한다']
+  issue_no        integer     [not null, unique, note: '호수(1호부터, CHECK > 0) — 유일 제약이 중복 발행을 한 번 더 막는다']
+  published_at    timestamptz [not null]
+  editorial       jsonb       [not null, note: '편집부 페이지 고정값 {ranking:[{rank, island}], newIslands:[island], note:{type EDITOR|TIP, body, tipNo}} — island 는 island_promotions.snapshot 과 같은 모양. 읽는 순간 비공개·닫힌 섬은 뺀다']
+  promotion_count integer     [not null, note: '실린 홍보 수(CHECK >= 0) — 조간·석간 전환 판단용']
+
+  indexes {
+    (issue_date, slot) [unique]
+  }
+}
+
+Table magazine_receipts [note: '계정당 1부의 받음·나중에·읽음 — 행이 없으면 아직 안 받음. 앱이 처음 알릴 때 생기고(07시에 미리 만들지 않는다) 받은 곳·시각은 처음 값으로 고정된다. 최근 7호보다 오래된 호의 행은 발행 배치가 지운다. GROMO-2289, V115'] {
+  user_id        uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 지워지지 않아 탈퇴 TX(AccountWithdrawalService)가 직접 지운다']
+  issue_id       uuid        [pk, note: 'FK → magazine_issues.id (ON DELETE CASCADE)']
+  received_place varchar(10) [not null, note: 'SEA / ISLAND — CHECK. 바다 화면 전에는 늘 ISLAND']
+  received_at    timestamptz [not null]
+  deferred_at    timestamptz [note: '[나중에 읽기] 를 처음 누른 시각']
+  opened_at      timestamptz [note: '처음 펼친 시각 — NULL 이면 안 읽음(빨간 점)']
+
+  indexes {
+    issue_id [name: 'magazine_receipts_issue_idx', note: '7호 정리용']
+  }
+}
+
+Table magazine_editorial_notes [note: '편집부 소식 — 운영이 SQL 로 날짜별 문구를 넣는다. 없는 날은 몽돌 팁(번호 = 호수 % 14). GROMO-2289, V115'] {
+  issue_date date        [pk]
+  body       varchar(80) [not null, note: '칸 실측 전 임시 80자']
+  created_at timestamptz [not null, default: `now()`]
 }
 
 Table sea_focus_totals [note: '바다 집중 누적 — 유저 한 명당 한 행. 평생 누적은 줄지 않고, 이번 달 누적은 정산 달이 month_key 보다 늦어질 때만 정산 서비스가 가산 직전에 0 으로 되돌린다(월초 크론 없음. 앞으로만 — 시계가 뒤로 가 이전 달이 계산돼도 되돌리지 않고 저장된 달의 누적에 더한다). 섬·도착 여부와 무관한 «바다에서 집중한 시간»이다. 바다 집중이 끝날 때마다 SeaFocusRewardService 가 가산한다(서버에 바다 세션이 생기기 전에는 행이 없다). GROMO-2274, V112'] {
@@ -1994,6 +2027,8 @@ Ref: sea_reward_tiers.product_id > catalog_assets.product_id
 Ref: magazine_asset_meta.product_id - catalog_assets.product_id  // GROMO-2289 V113 — ON DELETE RESTRICT
 Ref: island_promotions.island_id > groups.id [delete: cascade]  // GROMO-2289 V114 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
 Ref: island_promotions.applied_by > users.id  // GROMO-2289 V114 — 사용자 행은 익명화만 되고 지워지지 않는다
+Ref: magazine_receipts.user_id > users.id [delete: cascade]  // GROMO-2289 V115 — 사용자 행은 익명화만 되고 지워지지 않아 탈퇴 TX 가 지운다
+Ref: magazine_receipts.issue_id > magazine_issues.id [delete: cascade]  // GROMO-2289 V115
 
 // 초대 링크 (V21)
 Ref: group_invite_links.group_id > groups.id

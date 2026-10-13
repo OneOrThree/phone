@@ -106,7 +106,9 @@ class PublicApiContractTest extends UpstreamTestBase {
                 "PROMOTION_ALREADY_REQUESTED_TODAY",
                 // GROMO-2289 고양이 잡지 홍보 7종: Data 와 이름·상태가 같아야 신청 창·비공개 섬·꾸미기 판정이 502 로 접히지 않는다.
                 "PROMOTION_WINDOW_CLOSED", "PROMOTION_PRIVATE_ISLAND", "PROMOTION_TEXT_TOO_LONG",
-                "PROMOTION_LAYOUT_INVALID", "PROMOTION_ASSET_NOT_OWNED", "PROMOTION_LOCKED", "PROMOTION_NOT_FOUND");
+                "PROMOTION_LAYOUT_INVALID", "PROMOTION_ASSET_NOT_OWNED", "PROMOTION_LOCKED", "PROMOTION_NOT_FOUND",
+                // GROMO-2289 잡지 발행: 없는 호·7호 밖(404)이 502 로 접히지 않게 Data 와 이름·상태를 맞춘다.
+                "MAGAZINE_ISSUE_NOT_FOUND");
     }
 
     /**

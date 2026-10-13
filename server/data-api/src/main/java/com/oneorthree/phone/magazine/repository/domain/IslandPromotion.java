@@ -1,6 +1,7 @@
 package com.oneorthree.phone.magazine.repository.domain;
 
 import com.oneorthree.phone.common.id.GeneratedUuidV7;
+import com.oneorthree.phone.magazine.support.IslandCard;
 import com.oneorthree.phone.magazine.support.PromotionContent;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,7 +19,7 @@ import java.util.UUID;
 
 /**
  * 섬장이 신청한 잡지 홍보 한 건 (GROMO-2289, V114) — 한 섬은 한 호에 한 칸이다({@code UNIQUE (island_id, issue_date)}).
- * 발행 때 채우는 {@code snapshot}·신고 숨김 시각 {@code hidden_at} 은 발행·신고 쪽이 매핑한다.
+ * 신고 숨김 시각 {@code hidden_at} 은 신고 쪽이 매핑한다.
  */
 @Entity
 @Table(name = "island_promotions")
@@ -58,6 +59,13 @@ public class IslandPromotion {
     @Column(nullable = false)
     private PromotionContent.Layout layout;
 
+    /**
+     * 발행 때 고정한 섬 숫자. 발행 전 null — 발행 배치가 이 칸을 싣지 않았으면(그 순간 비공개·닫힌 섬) 호가 나온 뒤에도
+     * null 로 남는다(기록판의 「실리지 않음」).
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    private IslandCard snapshot;
+
     /** 신고 숨김 상태 — NONE · HIDDEN · REMOVED · CLEARED(V114 CHECK). */
     @Column(nullable = false, length = 10)
     private String moderation = "NONE";
@@ -79,6 +87,11 @@ public class IslandPromotion {
         this.body = content.body();
         this.layout = content.layout();
         this.updatedAt = now;
+    }
+
+    /** 발행 — 그 순간의 섬 숫자를 칸에 고정한다. 글·배치는 00시 마감으로 이미 굳어 있다. */
+    public void publish(IslandCard card) {
+        this.snapshot = card;
     }
 
     public boolean isRemoved() {

@@ -56,6 +56,14 @@ public final class MagazineCalendar {
         return issueDate.atStartOfDay(ZonePolicy.KST).toInstant();
     }
 
+    /**
+     * {@code issueDate} 호가 «현재 호» 인 마지막 순간 — 다음 날 07:00 KST(다음 호가 나오는 시각). 발행이 늦어져 어제 호가
+     * 계속 보이는 동안에도 이 시각이 지나면 현재 호가 아니다(지난 호는 보기만 — MAG-07).
+     */
+    public static Instant currentUntil(LocalDate issueDate) {
+        return issueDate.plusDays(1).atTime(OPENS).atZone(ZonePolicy.KST).toInstant();
+    }
+
     private static ZonedDateTime kst(Instant now) {
         return now.atZone(ZonePolicy.KST);
     }

@@ -53,6 +53,8 @@ public enum ApiErrorCode implements ErrorCode {
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다. 다시 로그인해 주세요.", false),
     GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "섬을 찾을 수 없습니다.", false),
     PROMOTION_NOT_FOUND(HttpStatus.NOT_FOUND, "홍보를 찾을 수 없어요", false),
+    // GROMO-2289 잡지 발행. Data 의 MagazineErrorCode 와 이름·상태가 같다 — 없는 호이거나 최근 7호보다 오래된 호.
+    MAGAZINE_ISSUE_NOT_FOUND(HttpStatus.NOT_FOUND, "잡지 호를 찾을 수 없어요", false),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청 경로를 찾을 수 없습니다.", false),
     PRODUCT_NOT_FOUND(HttpStatus.NOT_FOUND, "상품을 찾을 수 없습니다.", false),
     SLUG_NOT_FOUND(HttpStatus.NOT_FOUND, "초대 링크를 찾을 수 없습니다.", false),
