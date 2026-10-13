@@ -2,12 +2,12 @@ import { currentFocusSession } from './api/focusSessions';
 import { screenTimeNative } from './ScreenTimeModule';
 import { getSession, sessionGeneration } from './api/session';
 import { reportScreenTime } from './screenTimeReporting';
-import { utcDay } from './screenTimeWindow';
+import { observationKey, utcDay, windowStart } from './screenTimeWindow';
 import type { Session, Color } from './model';
 import { buildLiveActivityPayload, REST_AUTO_CLOSE_MS } from './liveActivity';
 
 let measurementQueue: Promise<unknown> = Promise.resolve();
-/** 원장 소유자 변경과 조회·보고를 순서대로 수행한다. 네이티브의 UTC 관측만 보고한다. */
+/** 원장 소유자 변경과 조회·보고를 순서대로 수행한다. 네이티브의 UTC·KST 관측을 각각 보고한다. */
 export function syncAndroidMeasurement() {
   const owner = getSession()?.userId;
   const generation = sessionGeneration();
@@ -21,23 +21,38 @@ export function syncAndroidMeasurement() {
     const measurement = await screenTimeNative.getAndroidMeasurement();
     if (!current() || measurement.owner !== owner) throw new Error('STALE_ACCOUNT');
     const now = Date.now();
-    const today = utcDay(now);
-    const yesterday = utcDay(now - 86400000);
     // 구 바이너리·잘못된 응답을 그대로 판정 서버에 보내지 않는다.
     const observations = measurement.observations;
+    const measuredAt = Date.parse(observations[0]?.measuredAt ?? '');
+    const expected = new Set(
+      (['UTC', 'Asia/Seoul'] as const).flatMap((timezone) => {
+        if (!Number.isFinite(measuredAt)) return [];
+        const today = utcDay(measuredAt + (timezone === 'Asia/Seoul' ? 9 * 60 * 60 * 1000 : 0));
+        const yesterday = utcDay(Date.parse(`${today}T00:00:00Z`) - 86400000);
+        return [today, yesterday].map((date) => `${timezone}|${date}`);
+      }),
+    );
     if (
-      observations.length !== 2 ||
-      new Set(observations.map((o) => o.date)).size !== 2 ||
-      observations.some(
-        (o) =>
-          ![today, yesterday].includes(o.date) ||
+      observations.length !== 4 ||
+      new Set(observations.map(observationKey)).size !== 4 ||
+      !Number.isFinite(measuredAt) ||
+      measuredAt > now + 60_000 ||
+      observations.some((o) => {
+        const start = windowStart(o.date, o.timezone);
+        const end = start + 86400000;
+        return (
+          !expected.has(observationKey(o)) ||
+          !o.timezone ||
+          Date.parse(o.measuredAt) !== measuredAt ||
+          Date.parse(o.windowStart ?? '') !== start ||
+          Date.parse(o.windowEnd ?? '') !== end ||
+          o.finalized !== measuredAt >= end ||
           !['authorized', 'denied', 'unavailable', 'pending'].includes(o.measurementStatus) ||
-          !Number.isFinite(Date.parse(o.measuredAt)) ||
-          Date.parse(o.measuredAt) > now + 60_000 ||
           (o.measurementStatus === 'authorized'
-            ? o.date === today || !Number.isInteger(o.minutes) || o.minutes! < 0
-            : o.minutes !== null),
-      )
+            ? !Number.isInteger(o.minutes) || o.minutes! < 0
+            : o.minutes !== null)
+        );
+      })
     )
       throw new Error('INVALID_ANDROID_OBSERVATION');
     let reportFailed = false;

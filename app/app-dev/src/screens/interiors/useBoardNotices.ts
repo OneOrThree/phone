@@ -299,7 +299,9 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
       if (!alive(e, generation)) throw stale();
       const seq = ++refreshSeq.current;
       const board = await getBoard();
-      if (!alive(e, generation) || seq !== refreshSeq.current) throw stale();
+      if (!alive(e, generation)) throw stale();
+      // 같은 화면의 최신 조회가 대체한 응답만 버린다. 성공한 쓰기는 유지한다.
+      if (seq !== refreshSeq.current) return;
       proven.current = { epoch: e, generation };
       set({
         islandId: board.island.id,
@@ -364,7 +366,8 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
       if (open?.id !== questId) return;
       const seq = ++questSeq.current;
       const next = await getAllQuestProgress(islandId, questId, open.occurrenceId);
-      if (!alive(e, generation) || seq !== questSeq.current) throw stale();
+      if (!alive(e, generation)) throw stale();
+      if (seq !== questSeq.current) return;
       if (stateRef.current.questDetail?.id === questId) set({ questDetail: next });
     },
     [alive, set],

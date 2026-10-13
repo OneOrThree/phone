@@ -87,15 +87,20 @@ export function buildScreenTimeObservations(
   timeline: UsageTimeline | null,
   now = Date.now(),
 ): ScreenTimeObservation[] {
-  const measuredAt = new Date(now).toISOString();
+  // 브리지 전달 지연이 자정을 넘어도 실제로 관측한 시각과 날짜를 유지한다.
+  const observedAt =
+    authorization === 'approved' && timeline && Number.isFinite(timeline.observedAt)
+      ? Math.min(now, timeline.observedAt * 1000)
+      : now;
+  const measuredAt = new Date(observedAt).toISOString();
   return (['UTC', 'Asia/Seoul'] as const).flatMap((timezone) => {
-    const today = utcDay(now + (timezone === 'Asia/Seoul' ? KST : 0));
+    const today = utcDay(observedAt + (timezone === 'Asia/Seoul' ? KST : 0));
     const yesterday = utcDay(Date.parse(today + 'T00:00:00Z') - DAY);
     return [yesterday, today]
       .filter((date) => now <= reportDeadline(date, timezone))
       .map((date) => {
         const start = windowStart(date, timezone);
-        const finalized = now >= start + DAY;
+        const finalized = observedAt >= start + DAY;
         const base = {
           date,
           measuredAt,
@@ -109,7 +114,7 @@ export function buildScreenTimeObservations(
         if (authorization !== 'approved')
           return { ...base, measurementStatus: 'unavailable' as const };
         const minutes = timeline
-          ? measureUsageWindow(start, Math.min(start + DAY, now), timeline)
+          ? measureUsageWindow(start, Math.min(start + DAY, observedAt), timeline)
           : null;
         return {
           ...base,

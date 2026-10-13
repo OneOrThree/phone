@@ -1143,3 +1143,27 @@ test('최초 게시판 조회 중 보고가 끝나면 보고 이전의 늦은 �
   expect(result.current.quests[0].myRate).toBe(100);
   expect(getBoardMock).toHaveBeenCalledTimes(2);
 });
+
+test('쓰기 후속 조회를 측정 갱신이 대체해도 저장 성공을 유지하고 최신 목록을 보인다', async () => {
+  const hook = await mountActive();
+  const slow = deferred<ReturnType<typeof board>>();
+  const created = { id: 'n9', title: 't', body: 'b' };
+  postNoticeMock.mockResolvedValue(created);
+  getBoardMock.mockReturnValueOnce(slow.promise);
+  let saving!: ReturnType<typeof hook.result.current.createNotice>;
+  await act(async () => {
+    saving = hook.result.current.createNotice({ title: 't', body: 'b' });
+  });
+  getBoardMock.mockResolvedValue(board([{ id: 'n9', title: '최신 목록' }]));
+  await act(async () => {
+    screenTimeObservationReported();
+  });
+  await waitFor(() => expect(hook.result.current.items[0]?.title).toBe('최신 목록'));
+  await act(async () => {
+    slow.resolve(board([{ id: 'n9', title: '이전 목록' }]));
+    await expect(saving).resolves.toEqual(created);
+  });
+  expect(hook.result.current.items[0]?.title).toBe('최신 목록');
+  expect(postNoticeMock).toHaveBeenCalledTimes(1);
+  await hook.unmount();
+});

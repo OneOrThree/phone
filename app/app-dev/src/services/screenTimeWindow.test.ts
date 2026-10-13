@@ -110,3 +110,40 @@ test('같은 날짜의 UTC 일계와 KST 일계를 독립 집계하고 UTC 경�
     windowEnd: '2026-10-08T15:00:00.000Z',
   });
 });
+
+test('브리지 전달이 늦어져도 당일 관측을 비우지 않고 실제 측정 시각을 보고한다', () => {
+  const value = timeline();
+  const result = buildScreenTimeObservations('approved', value, value.observedAt * 1000 + 250);
+  expect(result.find((o) => o.timezone === 'UTC' && !o.finalized)).toMatchObject({
+    minutes: 15,
+    measurementStatus: 'authorized',
+    measuredAt: '2026-10-09T01:00:00.000Z',
+  });
+  expect(result.find((o) => o.timezone === 'Asia/Seoul' && !o.finalized)).toMatchObject({
+    minutes: 30,
+    measurementStatus: 'authorized',
+    measuredAt: '2026-10-09T01:00:00.000Z',
+  });
+});
+
+test.each([
+  ['2026-10-09T14:59:59.999Z', 'Asia/Seoul'],
+  ['2026-10-09T23:59:59.999Z', 'UTC'],
+])(
+  '%s 자정 직전 스냅샷은 전달 중 자정이 지나도 최종 관측으로 바뀌지 않는다',
+  (instant, timezone) => {
+    const value = timeline();
+    value.observedAt = sec(instant);
+    value.days.push({
+      date: '2026-10-10',
+      startedAt: sec('2026-10-10T00:00:00+09:00'),
+      events: [],
+    });
+    const result = buildScreenTimeObservations('approved', value, value.observedAt * 1000 + 2);
+    expect(result.find((o) => o.date === '2026-10-09' && o.timezone === timezone)).toMatchObject({
+      finalized: false,
+      measurementStatus: 'authorized',
+      measuredAt: instant,
+    });
+  },
+);

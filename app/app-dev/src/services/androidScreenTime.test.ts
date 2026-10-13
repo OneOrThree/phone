@@ -1,8 +1,9 @@
 import type { Session } from './model';
+import { utcDay, windowStart } from './screenTimeWindow';
 
-function setup() {
+function setup(now = '2026-10-12T02:00:00Z') {
   jest.resetModules();
-  jest.useFakeTimers().setSystemTime(new Date('2026-10-12T02:00:00Z'));
+  jest.useFakeTimers().setSystemTime(new Date(now));
   const native = {
     bindMeasurementOwner: jest.fn().mockResolvedValue(undefined),
     getAndroidMeasurement: jest.fn(),
@@ -14,23 +15,30 @@ function setup() {
     sessionGeneration: jest.fn(() => 1),
   };
   const report = jest.fn().mockResolvedValue(undefined);
-  const observation = {
-    date: '2026-10-11',
-    minutes: 72,
-    measurementStatus: 'authorized',
-    measuredAt: '2026-10-12T02:00:00Z',
-  };
   const measurement = {
     owner: 'owner',
     approved: true,
-    date: '2026-10-12',
+    date: utcDay(Date.now() + 9 * 60 * 60 * 1000),
     minutes: 15,
     history: [],
     unconfirmedDays: [],
-    observations: [
-      observation,
-      { ...observation, date: '2026-10-12', minutes: null, measurementStatus: 'pending' },
-    ],
+    observations: (['UTC', 'Asia/Seoul'] as const).flatMap((timezone) => {
+      const today = utcDay(Date.now() + (timezone === 'Asia/Seoul' ? 9 * 60 * 60 * 1000 : 0));
+      return [-1, 0].map((offset) => {
+        const date = utcDay(Date.parse(`${today}T00:00:00Z`) + offset * 86400000);
+        const start = windowStart(date, timezone);
+        return {
+          date,
+          timezone,
+          minutes: offset === -1 ? 72 : 15,
+          measurementStatus: 'authorized',
+          measuredAt: new Date().toISOString(),
+          finalized: offset === -1,
+          windowStart: new Date(start).toISOString(),
+          windowEnd: new Date(start + 86400000).toISOString(),
+        };
+      });
+    }),
   };
   native.getAndroidMeasurement.mockResolvedValue(measurement);
   jest.doMock('./ScreenTimeModule', () => ({ screenTimeNative: native }));
@@ -59,13 +67,16 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-test('KST 화면 합계 대신 네이티브가 UTC 구간으로 집계한 관측을 보고한다', async () => {
-  const { mod, report, measurement } = setup();
-  const result = await mod.syncAndroidMeasurement();
-  expect(result.minutes).toBe(15);
-  expect(report).toHaveBeenCalledWith('approved', null, 1, Date.now(), measurement.observations);
-  expect(report.mock.calls[0][4][0].minutes).toBe(72);
-});
+test.each(['2026-10-12T02:00:00Z', '2026-10-12T16:00:00Z'])(
+  '%s UTC·KST의 오늘·어제 관측 네 개를 모두 보고한다',
+  async (now) => {
+    const { mod, report, measurement } = setup(now);
+    const result = await mod.syncAndroidMeasurement();
+    expect(result.minutes).toBe(15);
+    expect(report).toHaveBeenCalledWith('approved', null, 1, Date.now(), measurement.observations);
+    expect(report.mock.calls[0][4][0].minutes).toBe(72);
+  },
+);
 test('전송 실패가 성공한 로컬 측정값을 지우지 않는다', async () => {
   const { mod, report } = setup();
   report.mockRejectedValue(new Error('OFFLINE'));
@@ -83,19 +94,27 @@ test('조회 도중 계정이 바뀌면 이전 계정 기록을 보고하지 않
   await expect(mod.syncAndroidMeasurement()).rejects.toThrow('STALE_ACCOUNT');
   expect(report).not.toHaveBeenCalled();
 });
-test.each(['current-number', 'negative', 'duplicate', 'future-time'])(
-  '%s 잘못된 관측은 서버로 보내지 않는다',
-  async (kind) => {
-    const { mod, measurement, report } = setup();
-    if (kind === 'current-number')
-      Object.assign(measurement.observations[1], { minutes: 10, measurementStatus: 'authorized' });
-    if (kind === 'negative') measurement.observations[0].minutes = -1;
-    if (kind === 'duplicate') measurement.observations[1].date = '2026-10-11';
-    if (kind === 'future-time') measurement.observations[0].measuredAt = '2026-10-13T00:00:00Z';
-    await expect(mod.syncAndroidMeasurement()).rejects.toThrow('INVALID_ANDROID_OBSERVATION');
-    expect(report).not.toHaveBeenCalled();
-  },
-);
+test.each([
+  'wrong-finalized',
+  'negative',
+  'duplicate',
+  'future-time',
+  'missing-zone',
+  'wrong-window',
+  'legacy-two',
+])('%s 잘못된 관측은 서버로 보내지 않는다', async (kind) => {
+  const { mod, measurement, report } = setup();
+  if (kind === 'wrong-finalized') measurement.observations[1].finalized = true;
+  if (kind === 'missing-zone') Object.assign(measurement.observations[0], { timezone: undefined });
+  if (kind === 'wrong-window')
+    measurement.observations[2].windowStart = measurement.observations[0].windowStart;
+  if (kind === 'legacy-two') measurement.observations.splice(2);
+  if (kind === 'negative') measurement.observations[0].minutes = -1;
+  if (kind === 'duplicate') measurement.observations[1].date = '2026-10-11';
+  if (kind === 'future-time') measurement.observations[0].measuredAt = '2026-10-13T00:00:00Z';
+  await expect(mod.syncAndroidMeasurement()).rejects.toThrow('INVALID_ANDROID_OBSERVATION');
+  expect(report).not.toHaveBeenCalled();
+});
 test('집중 적용을 기다리는 동안 종료되면 과거 적용을 폐기한다', async () => {
   const { mod, native } = setup();
   let release!: () => void;
@@ -155,4 +174,14 @@ test('네이티브 원장이 다른 계정으로 바뀌면 관측을 보고하�
   measurement.owner = 'previous-owner';
   await expect(mod.syncAndroidMeasurement()).rejects.toThrow('STALE_ACCOUNT');
   expect(report).not.toHaveBeenCalled();
+});
+
+test('브리지 전달 중 자정이 지나도 네이티브 관측 날짜를 유지한다', async () => {
+  const { mod, report, native, measurement } = setup('2026-10-12T23:59:59.999Z');
+  native.getAndroidMeasurement.mockImplementation(async () => {
+    jest.setSystemTime(new Date('2026-10-13T00:00:00.010Z'));
+    return measurement;
+  });
+  await expect(mod.syncAndroidMeasurement()).resolves.toMatchObject({ reportFailed: false });
+  expect(report).toHaveBeenCalledWith('approved', null, 1, Date.now(), measurement.observations);
 });
