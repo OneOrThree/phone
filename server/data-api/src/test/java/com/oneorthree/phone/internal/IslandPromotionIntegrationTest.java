@@ -894,8 +894,8 @@ class IslandPromotionIntegrationTest {
         String productId = "mag.test-" + UUID.randomUUID().toString().substring(0, 8);
         jdbc.update("insert into catalog_assets (product_id, title, kind, owner_type) values (?, ?, ?, 'user')",
                 productId, productId, kind);
-        jdbc.update("insert into magazine_asset_meta (product_id, bundle, drawer_tab, sort_order, retired_at) "
-                + "values (?, ?, ?, 1000, " + (retired ? "now()" : "null") + ")", productId, bundle, tab);
+        jdbc.update("insert into magazine_asset_meta (product_id, kind, bundle, drawer_tab, sort_order, retired_at) "
+                + "values (?, ?, ?, ?, 1000, " + (retired ? "now()" : "null") + ")", productId, kind, bundle, tab);
         return productId;
     }
 

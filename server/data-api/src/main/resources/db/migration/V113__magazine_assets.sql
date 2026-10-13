@@ -5,7 +5,10 @@
 --    개인 인벤토리 조회(AppearanceService.myInventory)는 clothes·decor 만 내려보내 옷장 화면에 섞이지 않는다.
 -- 2) magazine_asset_meta: 잡지 재료의 부가 정보. 카탈로그 행은 불변이라 서랍 탭·묶음·정렬·퇴역은 옆 표에 둔다.
 --    bundle: free = 모든 계정이 가진 것으로 본다(소유 행을 만들지 않는다) · season = owned_products 행이 있어야 가진 것.
---    drawer_tab: 스티커 서랍 탭(cat · sea · friends · deco). 틀·테이프는 NULL.
+--    kind: 카탈로그 종류의 사본 — (product_id, kind) 복합 FK 로 카탈로그와 어긋나지 못하고, 이 표의 CHECK 가 종류별 규칙을
+--    직접 볼 수 있게 한다(CHECK 는 다른 표를 못 본다). 잡지 재료 3종만 받는다.
+--    drawer_tab: 스티커 서랍 탭(cat · sea · friends · deco). 스티커는 반드시 있고 틀·테이프는 반드시 NULL 이다(CHECK) —
+--    운영 SQL 이 시즌 스티커의 탭을 빠뜨리면 재료 목록 전체가 깨지므로 넣는 순간 막는다.
 --    retired_at: 서랍에서 내린 시각. 이미 붙인 칸은 그대로 그린다 — 퇴역한 재료는 소유 행이 있거나 직전 칸에 있던
 --    것만 다시 실을 수 있다(free 라도 퇴역하면 «모두가 가진 것» 에서 빠진다).
 --    운영 카탈로그라 계정 탈퇴·섬 정리 대상이 아니다.
@@ -21,12 +24,19 @@ ALTER TABLE catalog_assets ADD CONSTRAINT catalog_assets_kind_owner_check
     CHECK ((kind IN ('clothes', 'decor', 'ad_frame', 'ad_sticker', 'ad_tape') AND owner_type = 'user')
         OR (kind IN ('island_theme', 'building_theme', 'audio') AND owner_type = 'island'));
 
+-- 복합 FK 의 대상 — product_id 가 이미 PK 라 (product_id, kind) 도 당연히 유일하다.
+ALTER TABLE catalog_assets ADD CONSTRAINT catalog_assets_product_kind_key UNIQUE (product_id, kind);
+
 CREATE TABLE magazine_asset_meta (
-    product_id varchar(80) PRIMARY KEY REFERENCES catalog_assets (product_id) ON DELETE RESTRICT,
+    product_id varchar(80) PRIMARY KEY,
+    kind       varchar(20) NOT NULL CHECK (kind IN ('ad_frame', 'ad_sticker', 'ad_tape')),
     bundle     varchar(10) NOT NULL CHECK (bundle IN ('free', 'season')),
     drawer_tab varchar(10) CHECK (drawer_tab IN ('cat', 'sea', 'friends', 'deco')),
     sort_order integer     NOT NULL,
-    retired_at timestamptz
+    retired_at timestamptz,
+    CONSTRAINT magazine_asset_meta_catalog_fk FOREIGN KEY (product_id, kind)
+        REFERENCES catalog_assets (product_id, kind) ON DELETE RESTRICT,
+    CONSTRAINT magazine_asset_meta_tab_check CHECK ((kind = 'ad_sticker') = (drawer_tab IS NOT NULL))
 );
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES
@@ -95,68 +105,68 @@ INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES
     ('mag.clock', '알람시계', 'ad_sticker', 'user'),
     ('mag.tomato-timer', '토마토 타이머', 'ad_sticker', 'user');
 
-INSERT INTO magazine_asset_meta (product_id, bundle, drawer_tab, sort_order) VALUES
-    ('mag.frame-scallop', 'free', NULL, 1),
-    ('mag.frame-ticket', 'free', NULL, 2),
-    ('mag.frame-grid', 'free', NULL, 3),
-    ('mag.frame-polaroid', 'free', NULL, 4),
-    ('mag.frame-catear', 'free', NULL, 5),
-    ('mag.frame-cloud', 'free', NULL, 6),
-    ('mag.frame-envelope', 'free', NULL, 7),
-    ('mag.frame-woodsign', 'free', NULL, 8),
-    ('mag.frame-lifering', 'free', NULL, 9),
-    ('mag.frame-notebook', 'free', NULL, 10),
-    ('mag.frame-wave', 'free', NULL, 11),
-    ('mag.tape-cream', 'free', NULL, 1),
-    ('mag.tape-pink', 'free', NULL, 2),
-    ('mag.tape-blue', 'free', NULL, 3),
-    ('mag.tape-pinkdots', 'free', NULL, 4),
-    ('mag.tape-bluestripe', 'free', NULL, 5),
-    ('mag.tape-yellowcheck', 'free', NULL, 6),
-    ('mag.tape-mint', 'free', NULL, 7),
-    ('mag.tape-paw', 'free', NULL, 8),
-    ('mag.cat-black-book', 'free', 'cat', 1),
-    ('mag.cat-white-sleep', 'free', 'cat', 2),
-    ('mag.cat-ginger-fish', 'free', 'cat', 3),
-    ('mag.cat-calico-wave', 'free', 'cat', 4),
-    ('mag.cat-cream-heart', 'free', 'cat', 5),
-    ('mag.cat-gray-cheer', 'free', 'cat', 6),
-    ('mag.cat-black-peek', 'free', 'cat', 7),
-    ('mag.cat-ginger-face', 'free', 'cat', 8),
-    ('mag.cat-calico-raft', 'free', 'cat', 9),
-    ('mag.cat-white-pencil', 'free', 'cat', 10),
-    ('mag.cat-cream-coffee', 'free', 'cat', 11),
-    ('mag.cat-gray-bottle', 'free', 'cat', 12),
-    ('mag.cat-gray-headphone', 'free', 'cat', 13),
-    ('mag.cat-cream-booknap', 'free', 'cat', 14),
-    ('mag.fish', 'free', 'sea', 15),
-    ('mag.fish-basket', 'free', 'sea', 16),
-    ('mag.bottle', 'free', 'sea', 17),
-    ('mag.map', 'free', 'sea', 18),
-    ('mag.palm-island', 'free', 'sea', 19),
-    ('mag.shell', 'free', 'sea', 20),
-    ('mag.sailboat', 'free', 'sea', 21),
-    ('mag.lighthouse', 'free', 'sea', 22),
-    ('mag.lantern', 'free', 'sea', 23),
-    ('mag.whale', 'free', 'sea', 24),
-    ('mag.seagull', 'free', 'sea', 25),
-    ('mag.turtle', 'free', 'sea', 26),
-    ('mag.telescope', 'free', 'sea', 27),
-    ('mag.campfire', 'free', 'sea', 28),
-    ('mag.pelican', 'free', 'friends', 29),
-    ('mag.dog', 'free', 'friends', 30),
-    ('mag.mongdol', 'free', 'friends', 31),
-    ('mag.mailbox', 'free', 'friends', 32),
-    ('mag.star', 'free', 'deco', 33),
-    ('mag.heart', 'free', 'deco', 34),
-    ('mag.cloud', 'free', 'deco', 35),
-    ('mag.pencil', 'free', 'deco', 36),
-    ('mag.book', 'free', 'deco', 37),
-    ('mag.paw', 'free', 'deco', 38),
-    ('mag.bow', 'free', 'deco', 39),
-    ('mag.sparkle', 'free', 'deco', 40),
-    ('mag.crown', 'free', 'deco', 41),
-    ('mag.drink', 'free', 'deco', 42),
-    ('mag.moon', 'free', 'deco', 43),
-    ('mag.clock', 'free', 'deco', 44),
-    ('mag.tomato-timer', 'free', 'deco', 45);
+INSERT INTO magazine_asset_meta (product_id, kind, bundle, drawer_tab, sort_order) VALUES
+    ('mag.frame-scallop', 'ad_frame', 'free', NULL, 1),
+    ('mag.frame-ticket', 'ad_frame', 'free', NULL, 2),
+    ('mag.frame-grid', 'ad_frame', 'free', NULL, 3),
+    ('mag.frame-polaroid', 'ad_frame', 'free', NULL, 4),
+    ('mag.frame-catear', 'ad_frame', 'free', NULL, 5),
+    ('mag.frame-cloud', 'ad_frame', 'free', NULL, 6),
+    ('mag.frame-envelope', 'ad_frame', 'free', NULL, 7),
+    ('mag.frame-woodsign', 'ad_frame', 'free', NULL, 8),
+    ('mag.frame-lifering', 'ad_frame', 'free', NULL, 9),
+    ('mag.frame-notebook', 'ad_frame', 'free', NULL, 10),
+    ('mag.frame-wave', 'ad_frame', 'free', NULL, 11),
+    ('mag.tape-cream', 'ad_tape', 'free', NULL, 1),
+    ('mag.tape-pink', 'ad_tape', 'free', NULL, 2),
+    ('mag.tape-blue', 'ad_tape', 'free', NULL, 3),
+    ('mag.tape-pinkdots', 'ad_tape', 'free', NULL, 4),
+    ('mag.tape-bluestripe', 'ad_tape', 'free', NULL, 5),
+    ('mag.tape-yellowcheck', 'ad_tape', 'free', NULL, 6),
+    ('mag.tape-mint', 'ad_tape', 'free', NULL, 7),
+    ('mag.tape-paw', 'ad_tape', 'free', NULL, 8),
+    ('mag.cat-black-book', 'ad_sticker', 'free', 'cat', 1),
+    ('mag.cat-white-sleep', 'ad_sticker', 'free', 'cat', 2),
+    ('mag.cat-ginger-fish', 'ad_sticker', 'free', 'cat', 3),
+    ('mag.cat-calico-wave', 'ad_sticker', 'free', 'cat', 4),
+    ('mag.cat-cream-heart', 'ad_sticker', 'free', 'cat', 5),
+    ('mag.cat-gray-cheer', 'ad_sticker', 'free', 'cat', 6),
+    ('mag.cat-black-peek', 'ad_sticker', 'free', 'cat', 7),
+    ('mag.cat-ginger-face', 'ad_sticker', 'free', 'cat', 8),
+    ('mag.cat-calico-raft', 'ad_sticker', 'free', 'cat', 9),
+    ('mag.cat-white-pencil', 'ad_sticker', 'free', 'cat', 10),
+    ('mag.cat-cream-coffee', 'ad_sticker', 'free', 'cat', 11),
+    ('mag.cat-gray-bottle', 'ad_sticker', 'free', 'cat', 12),
+    ('mag.cat-gray-headphone', 'ad_sticker', 'free', 'cat', 13),
+    ('mag.cat-cream-booknap', 'ad_sticker', 'free', 'cat', 14),
+    ('mag.fish', 'ad_sticker', 'free', 'sea', 15),
+    ('mag.fish-basket', 'ad_sticker', 'free', 'sea', 16),
+    ('mag.bottle', 'ad_sticker', 'free', 'sea', 17),
+    ('mag.map', 'ad_sticker', 'free', 'sea', 18),
+    ('mag.palm-island', 'ad_sticker', 'free', 'sea', 19),
+    ('mag.shell', 'ad_sticker', 'free', 'sea', 20),
+    ('mag.sailboat', 'ad_sticker', 'free', 'sea', 21),
+    ('mag.lighthouse', 'ad_sticker', 'free', 'sea', 22),
+    ('mag.lantern', 'ad_sticker', 'free', 'sea', 23),
+    ('mag.whale', 'ad_sticker', 'free', 'sea', 24),
+    ('mag.seagull', 'ad_sticker', 'free', 'sea', 25),
+    ('mag.turtle', 'ad_sticker', 'free', 'sea', 26),
+    ('mag.telescope', 'ad_sticker', 'free', 'sea', 27),
+    ('mag.campfire', 'ad_sticker', 'free', 'sea', 28),
+    ('mag.pelican', 'ad_sticker', 'free', 'friends', 29),
+    ('mag.dog', 'ad_sticker', 'free', 'friends', 30),
+    ('mag.mongdol', 'ad_sticker', 'free', 'friends', 31),
+    ('mag.mailbox', 'ad_sticker', 'free', 'friends', 32),
+    ('mag.star', 'ad_sticker', 'free', 'deco', 33),
+    ('mag.heart', 'ad_sticker', 'free', 'deco', 34),
+    ('mag.cloud', 'ad_sticker', 'free', 'deco', 35),
+    ('mag.pencil', 'ad_sticker', 'free', 'deco', 36),
+    ('mag.book', 'ad_sticker', 'free', 'deco', 37),
+    ('mag.paw', 'ad_sticker', 'free', 'deco', 38),
+    ('mag.bow', 'ad_sticker', 'free', 'deco', 39),
+    ('mag.sparkle', 'ad_sticker', 'free', 'deco', 40),
+    ('mag.crown', 'ad_sticker', 'free', 'deco', 41),
+    ('mag.drink', 'ad_sticker', 'free', 'deco', 42),
+    ('mag.moon', 'ad_sticker', 'free', 'deco', 43),
+    ('mag.clock', 'ad_sticker', 'free', 'deco', 44),
+    ('mag.tomato-timer', 'ad_sticker', 'free', 'deco', 45);
