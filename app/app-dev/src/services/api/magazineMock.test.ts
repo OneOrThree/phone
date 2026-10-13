@@ -14,7 +14,13 @@ afterEach(() => jest.useRealTimers());
 it('07~24시는 내일 호에 신청 · 같은 호 두 번은 거절 · 잔액에서 60', async () => {
   const now = at('2026-10-14T10:00:00');
   const editor = await magazineMock.getPromotionEditor('i', now);
-  expect(editor.window).toMatchObject({ open: true, issueDate: '2026-10-15' });
+  // 서버 MagazineCalendar 와 같은 값 — 창이 향하는 호는 내일, 그 호의 창은 오늘 07:00 ~ 내일 00:00(KST)
+  expect(editor.window).toEqual({
+    open: true,
+    issueDate: '2026-10-15',
+    opensAt: '2026-10-13T22:00:00.000Z',
+    closesAt: '2026-10-14T15:00:00.000Z',
+  });
   const applied = await magazineMock.applyPromotion('i', { body: '안녕', layout }, 'k', now);
   expect(applied.balanceAfter).toBe(editor.balance - 60);
   await expect(
@@ -28,8 +34,18 @@ it('07~24시는 내일 호에 신청 · 같은 호 두 번은 거절 · 잔액�
   ).resolves.toMatchObject({ body: '고침' });
   const night = at('2026-10-15T00:30:00');
   const locked = await magazineMock.getPromotionEditor('i', night);
-  expect(locked.window.open).toBe(false);
-  expect(locked.next).toMatchObject({ promotionId: applied.promotionId, editable: false });
+  // 00~07시: 창은 다음 날 호를 향하고 오늘 07시에 열린다, next 는 오늘 07시에 나갈 호(읽기 전용)
+  expect(locked.window).toEqual({
+    open: false,
+    issueDate: '2026-10-16',
+    opensAt: '2026-10-14T22:00:00.000Z',
+    closesAt: '2026-10-15T15:00:00.000Z',
+  });
+  expect(locked.next).toMatchObject({
+    promotionId: applied.promotionId,
+    issueDate: '2026-10-15',
+    editable: false,
+  });
   await expect(
     magazineMock.updatePromotion('i', applied.promotionId, { body: '밤', layout }, night),
   ).rejects.toMatchObject({ code: 'PROMOTION_LOCKED' });

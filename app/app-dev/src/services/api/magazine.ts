@@ -21,7 +21,10 @@ export type MagazineAssets = {
   tapes: MagazineAsset[];
 };
 
-/** 신청 창 — 07~24시 KST 면 open, issueDate = 실릴 호(내일). 00~07시는 닫혀 opensAt(07시)에 다시 열린다. */
+/**
+ * 신청 창 — issueDate 는 늘 KST 내일 호이고, opensAt~closesAt 은 그 호의 창(오늘 07:00 ~ 내일 00:00)이다. open 이 false 면
+ * 00~07시라 opensAt(오늘 07시)에 열린다(서버 MagazineCalendar).
+ */
 export type PromotionWindow = {
   open: boolean;
   issueDate: string;

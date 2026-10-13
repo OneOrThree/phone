@@ -137,6 +137,9 @@ describe('스티커·테이프·틀·글', () => {
     expect(Array.from(screen.getByTestId('promotion-body').props.value)).toHaveLength(60);
     await fireEvent.changeText(screen.getByTestId('promotion-body'), '첫 줄\n둘째 줄');
     expect(screen.getByTestId('promotion-body').props.value).toBe('첫 줄 둘째 줄');
+    // 서버가 거절하는 제어 문자(탭 등)와 U+2028·U+2029 도 띄어쓰기로
+    await fireEvent.changeText(screen.getByTestId('promotion-body'), '탭\t글\u2028끝\u0085!');
+    expect(screen.getByTestId('promotion-body').props.value).toBe('탭 글 끝 !');
   });
 
   it('고른 스티커를 버튼으로 크게·맨 앞으로·지우기', async () => {

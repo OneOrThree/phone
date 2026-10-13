@@ -100,6 +100,8 @@ export function editorIsland(
   };
 }
 
+// 서버 PromotionContent.breaksTheLine 과 같은 문자 — ISO 제어 문자(U+0000~001F · U+007F~009F)와 줄·문단 구분자
+const LINE_BREAKERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
 const OPS: EditOp[] = ['smaller', 'bigger', 'rotateLeft', 'rotateRight', 'front', 'delete'];
 const OP_GLYPH: Partial<Record<EditOp, string>> = { rotateLeft: '↺', rotateRight: '↻' };
 const A11Y_OPS: EditOp[] = [
@@ -213,10 +215,11 @@ export function PromotionEditor({
   };
 
   const changeBody = (text: string) => {
-    // 한 줄 글 — 붙여 넣은 줄바꿈은 띄어쓰기로, 길이는 서버처럼 코드포인트로 자른다
+    // 한 줄 글 — 서버는 줄바꿈·탭 같은 제어 문자와 U+2028·U+2029 를 거절한다(400). 붙여 넣은 것은 띄어쓰기로 바꾸고,
+    // 길이는 서버처럼 코드포인트로 자른다
     touched.current = true;
     setStamped(false);
-    setBody(clampCodePoints(text.replace(/[\r\n]+/g, ' '), BODY_MAX));
+    setBody(clampCodePoints(text.replace(LINE_BREAKERS, ' '), BODY_MAX));
     if (problem?.field === 'body') setProblem(null);
   };
   const send = async () => {

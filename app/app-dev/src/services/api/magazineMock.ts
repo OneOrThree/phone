@@ -50,18 +50,21 @@ const reject = (code: string, status: number, message: string) => {
   throw new ApiError(code, message, status);
 };
 
+/**
+ * 서버 MagazineCalendar 와 같은 셈. 신청 창이 향하는 호(window.issueDate)는 늘 KST 내일이고, 그 호의 창은 오늘 07:00~내일 00:00 이다
+ * (00~07시에는 아직 안 열렸고 07시에 열린다). 아직 발행 안 된 가장 가까운 호(upcoming)는 열려 있으면 내일 호, 00~07시면 오늘 07시 호다.
+ */
 function windowAt(now: number) {
   const flags = mockFlags();
   const hour = new Date(now + KST).getUTCHours();
   const open = flags.has('open') ? true : flags.has('closed') ? false : hour >= 7;
-  // 열려 있으면 내일 호, 닫혀 있으면(00~07시) 오늘 07시 호가 다음 호다
-  const today = kstDay(now);
-  const issueDate = open ? kstDay(now, 1) : today;
+  const issueDate = kstDay(now, 1);
   return {
     open,
     issueDate,
-    closesAt: kstAt(open ? kstDay(now, 1) : today, 0),
-    opensAt: kstAt(open ? kstDay(now, 1) : today, 7),
+    opensAt: kstAt(kstDay(now), 7),
+    closesAt: kstAt(issueDate, 0),
+    upcoming: open ? issueDate : kstDay(now),
   };
 }
 
@@ -72,7 +75,7 @@ function seed(now: number) {
     const w = windowAt(now);
     store.promotions.push({
       promotionId: 'mock-promotion',
-      issueDate: flags.has('applied') ? w.issueDate : kstDay(now, -2),
+      issueDate: flags.has('applied') ? w.upcoming : kstDay(now, -2),
       appliedAt: new Date(now - 3600_000).toISOString(),
       body: '같이 집중할 새 친구를 기다려요! 도서관도 놀러 와요',
       layout: {
@@ -113,14 +116,14 @@ export const magazineMock = {
       reject('SOCIAL_LOGIN_REQUIRED', 403, '소셜 로그인 후 이용할 수 있어요.');
     seed(now);
     const w = windowAt(now);
-    const next = store.promotions.find((p) => p.issueDate === w.issueDate) ?? null;
+    const next = store.promotions.find((p) => p.issueDate === w.upcoming) ?? null;
     const latest =
       [...store.promotions]
         .filter((p) => p !== next)
         .sort((a, b) => b.issueDate.localeCompare(a.issueDate))[0] ?? null;
     return {
-      window: w,
-      next: next && { ...next, editable: w.open },
+      window: { open: w.open, issueDate: w.issueDate, opensAt: w.opensAt, closesAt: w.closesAt },
+      next: next && { ...next, editable: w.open && next.issueDate === w.issueDate },
       latest,
       feeFish: 60,
       balance: store.balance!,
