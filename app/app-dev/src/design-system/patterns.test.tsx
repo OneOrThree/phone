@@ -2,7 +2,7 @@ import React from 'react';
 import { applyLocalePref } from '@/i18n';
 import { StyleSheet, ScrollView } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
-import { Page, Badge, Btn, Field, Wheel, Seg } from './patterns';
+import { Page, Badge, Btn, CharCount, Field, Wheel, Seg } from './patterns';
 import { componentTokens, semanticTokens } from './tokens';
 
 jest.mock('@/utils/layout', () => ({
@@ -80,6 +80,19 @@ test('작은 버튼은 시각 높이와 별개로 부모 터치 경계 44pt를 �
   const wrapper = StyleSheet.flatten(button.parent?.props.style);
   expect(wrapper.minHeight).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
   expect(wrapper.justifyContent).toBe('center');
+});
+
+test('Btn 의 읽는 이름은 기본이 title 이고, accessibilityLabel 을 주면 그것으로 바뀐다(보이는 글자는 그대로)', async () => {
+  const { getByText, getByLabelText, queryByLabelText } = await render(
+    <>
+      <Btn title="지우기" onPress={() => {}} />
+      <Btn title="신고" accessibilityLabel="신고: 수아" onPress={() => {}} />
+    </>,
+  );
+  expect(getByLabelText('지우기')).toBeTruthy();
+  expect(getByLabelText('신고: 수아')).toBeTruthy();
+  expect(queryByLabelText('신고')).toBeNull();
+  expect(getByText('신고')).toBeTruthy();
 });
 
 test('작은 배지는 글자 크기 확대 시 늘어날 수 있도록 최소 높이와 세로 패딩을 쓴다', async () => {
@@ -167,4 +180,17 @@ test.each([50, 200])('영어 Field는 %i자 한도 도달 안내도 영어로 �
   const limit = screen.getByText(`Up to ${max} characters · ${max}/${max}`);
   expect(limit.props.accessibilityLiveRegion).toBe('polite');
   expect(screen.queryByText(/자까지 쓸 수 있어요/)).toBeNull();
+});
+
+test('CharCount codePoints 는 🐟 를 1글자로 세고 기본은 UTF-16 길이 그대로다', async () => {
+  const screen = await render(
+    <>
+      <CharCount value={'🐟'.repeat(3)} max={40} codePoints />
+      <CharCount value={'🐟'.repeat(3)} max={40} />
+    </>,
+  );
+  screen.getByText('3/40');
+  screen.getByText('6/40');
+  await screen.rerender(<CharCount value={'🐟'.repeat(40)} max={40} codePoints />);
+  screen.getByText('40자까지 쓸 수 있어요 · 40/40');
 });

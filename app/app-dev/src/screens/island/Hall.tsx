@@ -53,11 +53,20 @@ import {
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { t } from '@/i18n';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
-import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
+import {
+  ISLAND_GREETING_MAX,
+  ISLAND_INTRO_MAX,
+  ISLAND_NAME_MAX,
+} from '@/services/api/islandManagement';
+import { clampCodePoints } from '@/utils/codePoints';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
 // App.tsx 의 REVIEW/DEMO 와 같은 판정(services/demoMode) — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
 const ledgerMockMode = () => isMockMode();
+// 편집 칸에 미리 채울 인사말 — 섬장이 쓴 것만. 안 썼으면(기본 문구가 합성돼 온다) 빈 칸이고, 기본 문구는 힌트로만 보인다.
+// 합성 문구를 그대로 채워 저장하면 섬 이름이 바뀌어도 안 따라가고, 이름이 길면 40 코드포인트를 넘을 수 있다.
+const ownGreeting = (detail?: { greeting?: string; greetingIsDefault?: boolean } | null) =>
+  detail?.greetingIsDefault === false ? (detail.greeting ?? '') : '';
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
@@ -214,6 +223,7 @@ export function Hall({ e }: any) {
     intro: i.intro,
     approval: i.approval,
     capacity: capacityOf(i),
+    greeting: '',
   });
   const [managementError, setManagementError] = useState('');
   const [managementBusy, setManagementBusy] = useState(false);
@@ -249,6 +259,8 @@ export function Hall({ e }: any) {
       notify(success);
     } catch (error) {
       if (run !== managementRun.current) return;
+      // 게스트 섬장이 인사말을 저장하면 서버가 403 SOCIAL_LOGIN_REQUIRED 로 거절한다 — 회원 전환 시트로 보낸다(GROMO-2005)
+      if (e.conversion?.offer(error)) return;
       const message = managementErrorMessage(error, operation);
       setManagementError(message);
       // 정보 수정·위임 패널에는 주민 카드의 오류 줄이 안 보인다 — 패널에서는 토스트로 알린다(H5)
@@ -2424,18 +2436,29 @@ export function Hall({ e }: any) {
         {tail}
       </Pressable>
     );
-    const input = (label: string, key: 'name' | 'intro') => (
+    const input = (label: string, key: 'name' | 'intro' | 'greeting') => (
       <View style={{ gap: 5 }}>
         <T style={g(13, 20.8, { color: '#6d5b4a', fontWeight: '700' })}>{label}</T>
         <TextInput
-          testID={key === 'name' ? 'hall-name' : 'hall-intro'}
+          testID={`hall-${key}`}
           accessibilityLabel={label}
           value={draft[key]}
-          onChangeText={(v) => setDraft((d) => ({ ...d, [key]: v }))}
+          // 인사말은 코드포인트 40 — TextInput maxLength 는 UTF-16 이라 🐟 가 2로 세어 여기서 자른다
+          onChangeText={(v) =>
+            setDraft((d) => ({
+              ...d,
+              [key]: key === 'greeting' ? clampCodePoints(v, ISLAND_GREETING_MAX) : v,
+            }))
+          }
           multiline={key === 'intro'}
-          maxLength={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX}
+          maxLength={
+            key === 'name' ? ISLAND_NAME_MAX : key === 'intro' ? ISLAND_INTRO_MAX : undefined
+          }
+          placeholder={key === 'greeting' ? t('hall.greetingPlaceholder') : undefined}
+          placeholderTextColor={componentTokens.input.placeholder}
           style={{
-            height: key === 'intro' ? (land ? 57 : 62) : land ? 39 : 44,
+            // 이름·인사말 한 줄 칸은 가로에서도 실제 터치 높이 44 — 접근성 최소 터치 영역(DESIGN.md)
+            height: key === 'intro' ? (land ? 57 : 62) : 44,
             paddingVertical: land ? 7 : 10,
             paddingHorizontal: land ? 9 : 11,
             borderWidth: 1.5,
@@ -2450,7 +2473,17 @@ export function Hall({ e }: any) {
             textAlignVertical: 'top',
           }}
         />
-        <CharCount value={draft[key]} max={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX} />
+        <CharCount
+          value={draft[key]}
+          max={
+            key === 'name'
+              ? ISLAND_NAME_MAX
+              : key === 'intro'
+                ? ISLAND_INTRO_MAX
+                : ISLAND_GREETING_MAX
+          }
+          codePoints={key === 'greeting'}
+        />
       </View>
     );
     const approval = setting(
@@ -2546,6 +2579,12 @@ export function Hall({ e }: any) {
                   intro: draft.intro,
                   approvalRequired: draft.approval,
                   maxMembers: draft.capacity,
+                  // 인사말은 바꾼 때만 싣는다 — 안 바꾼 저장이 구서버(모르는 키 400)·게스트(403)에 걸리지 않게.
+                  // 앞뒤 공백만 다른 것은 안 바꾼 것이다(서버에 보내는 값도 앞뒤를 뗀 글이다).
+                  // 빈 값은 기본 문구로 되돌리는 값이라 그대로 보낸다
+                  ...(draft.greeting.trim() !== ownGreeting(management.detail).trim() && {
+                    greeting: draft.greeting.trim(),
+                  }),
                 }),
               '섬 정보를 저장했어요.',
               () => setPanel(''),
@@ -2597,6 +2636,8 @@ export function Hall({ e }: any) {
       <View style={{ gap: land ? 7 : 10 }}>
         {input('섬 이름', 'name')}
         {input('섬 소개', 'intro')}
+        {/* 인사말은 서버 모드(실제 섬)에서만 — 목업 로컬 섬에는 필드가 없다 */}
+        {liveManagement && input(t('hall.greeting'), 'greeting')}
       </View>
     );
     return shell(
@@ -2723,6 +2764,7 @@ export function Hall({ e }: any) {
                   capacity: liveManagement
                     ? (management.detail?.maxMembers ?? CAPACITY_MIN)
                     : capacityOf(i),
+                  greeting: liveManagement ? ownGreeting(management.detail) : '',
                 });
                 setPanel('edit');
               }}

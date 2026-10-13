@@ -168,6 +168,32 @@ test('manageIsland — 부분 수정은 넘긴 키만 body 에 실린다', async
   assert.deepEqual(body(calls[0]), { intro: '소개만' });
 });
 
+test('manageIsland — 인사말(greeting)은 허용 키이고 지우기는 null 이 아니라 빈 문자열이다', async () => {
+  stub([
+    {
+      status: 200,
+      body: {
+        data: {
+          id: 'i1',
+          name: '구름 섬',
+          intro: '',
+          approvalRequired: true,
+          maxMembers: 15,
+          version: 7,
+        },
+      },
+    },
+  ]);
+
+  await manageIsland('i1', { greeting: '어서 와요 🐟' }, 'idem-greeting');
+  await manageIsland('i1', { greeting: '' }, 'idem-greeting-reset');
+  // @ts-expect-error — 명시 null 은 계약 위반이라 타입이 거부한다
+  void manageIsland('i1', { greeting: null }, 'k-null');
+
+  assert.deepEqual(body(calls[0]), { greeting: '어서 와요 🐟' });
+  assert.deepEqual(body(calls[1]), { greeting: '' });
+});
+
 test('manageIsland — 계약 밖 키는 타입이 막는다 (expectedVersion·password)', async () => {
   stub([
     {

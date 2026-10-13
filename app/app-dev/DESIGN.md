@@ -279,6 +279,7 @@ Semantic spacing:
 - 한 화면에서 Primary 버튼을 경쟁시키지 않는다.
 - Small의 시각 높이는 38이지만 실제 터치 영역은 최소 44가 되도록 `hitSlop` 또는 컨테이너를 보장해야 한다.
 - 아이콘만 있는 버튼은 접근성 라벨을 반드시 제공한다.
+- 목록 항목마다 같은 제목(지우기·신고)이 되풀이되면 `accessibilityLabel` 에 어느 글·누구인지 덧붙인다(`지우기: 글 내용`). 기본은 `title` 이다.
 
 **소셜 로그인 버튼** — Apple·Google 은 한 틀로 그린다(`componentTokens.loginButton`). 최소 높이 54(큰 글자에서 늘어난다), pill, 로고 20 상자를 왼쪽 20 에 고정하고 라벨은 가운데 Body semibold. 색만 브랜드별이다 — Apple 은 Black 바탕·흰 로고·글자, Google 은 White 바탕·Google Border 1px·Google Text. 로고는 `components/ProviderLogo` 의 SVG 를 쓴다(iOS 네이티브 Apple 버튼은 글꼴·로고를 시스템이 정해 다른 버튼과 맞출 수 없어 쓰지 않는다).
 
@@ -331,8 +332,10 @@ Semantic spacing:
 - 좌우 padding 14, 세로 padding 12–13, 입력 글자 16.
 - placeholder는 Muted Brown(`#796256`, 본문 대비 4.5 이상)을 쓴다.
 - multiline은 최소 높이 96–100, 위쪽 정렬.
+- 글자 수 제한은 칸 아래 `CharCount`(`현재/최대`, 한도에 닿으면 안내 문구)로 보여 준다. 서버가 길이를 **코드포인트**로 세는 칸(인사말 40·방명록 20, 🐟 = 1)은 `TextInput maxLength`(UTF-16)를 쓰지 않고 `onChangeText` 에서 `utils/codePoints.clampCodePoints` 로 자르며 `CharCount codePoints` 로 센다.
 - 숫자 입력은 적절한 키보드 타입을 사용한다.
 - 오류는 색만 바꾸지 않고 원인과 해결 행동을 텍스트로 제공한다.
+- 다시 눌러도 서버가 같은 이유로 거절할 쓰기(방명록 하루 1개·게시판 없음)는 토스트에 더해 칸 아래에 `accessibilityLiveRegion="polite"` 안내를 남기고 칸과 제출 버튼을 끈다. 쓰던 글은 지우지 않고, 섬이 바뀌거나 다시 불러오면 풀린다.
 
 ### 7.7 Toggle
 
@@ -396,6 +399,7 @@ Semantic spacing:
 - 뒤로가기, 설정, chevron은 Brown/Ink 선형 아이콘을 사용한다.
 - 탭·세그먼트·칩은 선택 상태를 `accessibilityState`에도 반영한다.
 - 오버레이 뒤 콘텐츠는 스크린 리더 탐색에서 숨긴다.
+- 섬 위 팝업(`IslandPopup`)은 표현만 한다. 열려 있는 동안 모달이라는 것은 iOS `accessibilityViewIsModal` 로만 알리고, Android 뒤로 가기와 Android 스크린리더용 숨김(`importantForAccessibility="no-hide-descendants"`)은 호출자가 맡는다. 뒤로 가기는 `e.backOverride` 로 팝업 닫기를 건다(App 의 뒤로 가기 핸들러는 방문 분기보다 먼저 열린 확인창·건물 전환·`backOverride` 를 본다). 숨김은 팝업 뒤 장면을 감싸는 쪽이 건다(방문 지도 `visit-scene`).
 - 키보드가 열린 상태에서도 입력과 CTA가 가려지지 않아야 한다.
 
 #### 몽돌 튜토리얼 스포트라이트

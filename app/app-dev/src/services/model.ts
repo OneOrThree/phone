@@ -340,6 +340,8 @@ export type State = {
   visitingIslandId?: string | null;
   // 이번 방문에서 「가입하지 않고 떠날까요?」를 이미 물었는지(GROMO-2259). 새 방문(VISIT·SERVER_VISITING)·구경 끝(END_VISIT)에서 지운다
   visitLeaveAsked?: boolean;
+  // 이번 방문에서 섬장 인사말 말풍선을 이미 띄웠는지(GROMO-2263). visitLeaveAsked 와 같은 시점에 지운다
+  visitGreeted?: boolean;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
   // 최초 우체통 안내를 마친 계정. 섬을 옮겨도 반복하지 않고 계정 간에는 분리한다.
@@ -1499,6 +1501,7 @@ export function reducer(state: State, a: Action): State {
     // 앱을 다시 켜면 구경을 끝내고 내 섬에서 시작한다
     delete loaded.visitingIslandId;
     delete loaded.visitLeaveAsked;
+    delete loaded.visitGreeted;
     const retired = ['flag', 'sailboat', 'cabinboat'];
     const loadedAt = a.now ?? Date.now();
     loaded.islands.forEach((i) => {
@@ -1723,13 +1726,18 @@ export function reducer(state: State, a: Action): State {
       if (!canVisit(state, a.id)) return state;
       s.visitingIslandId = a.id;
       delete s.visitLeaveAsked;
+      delete s.visitGreeted;
       break;
     case 'END_VISIT':
       s.visitingIslandId = null;
       delete s.visitLeaveAsked;
+      delete s.visitGreeted;
       break;
     case 'VISIT_LEAVE_ASKED':
       s.visitLeaveAsked = true;
+      break;
+    case 'VISIT_GREETED':
+      s.visitGreeted = true;
       break;
     case 'SWITCH_ISLAND': {
       if (!canSwitchIsland(s, a.id)) return state;
@@ -1942,6 +1950,7 @@ export function reducer(state: State, a: Action): State {
       if (s.serverIslands?.visit?.island.id !== a.islandId) return state;
       s.visitingIslandId = a.islandId as string;
       delete s.visitLeaveAsked;
+      delete s.visitGreeted;
       break;
     case 'ISLAND_REQUEST': {
       // 단건 상태는 표시 필드가 없다 — requestStatus에만 두고, 목록에 있는 항목은 status/version만 갱신한다.

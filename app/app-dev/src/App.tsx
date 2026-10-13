@@ -1696,6 +1696,15 @@ function Gromo() {
   }, [route, loaded, reviewEpoch]);
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      // 열린 확인창·진행 중인 건물 전환·화면이 건 뒤로 가기(backOverride)를 방문 분기보다 먼저 본다 — back() 의 앞 세
+      // 검사와 같은 순서다. 그래서 방문 화면에서도 확인창이나 팝업이 END_VISIT 보다 먼저 닫히고, 집중→휴식 전환 취소처럼
+      // override 보다 전환 취소가 앞서던 기존 순서도 그대로다(back() 는 그대로 둔다).
+      if (modal) {
+        setModal(null);
+        return true;
+      }
+      if (cancelBuildingTransition()) return true;
+      if (backOverride.current?.()) return true;
       // 서버 방문은 현재 섬을 바꾸지 않으므로 방문 상태만 지우고 내 섬으로 돌아간다.
       if (
         ['home', 'visitIsland'].includes(route) &&
@@ -1720,8 +1729,8 @@ function Gromo() {
         go('travel', island.id);
         return true;
       }
-      if (route === 'home') return cancelBuildingTransition();
-      if (route === 'login') return false;
+      // 홈·로그인의 뒤로가기는 앱이 받지 않는다(OS 몫) — 홈에서 진행 중인 건물 전환은 위에서 이미 취소했다
+      if (route === 'home' || route === 'login') return false;
       back();
       return true;
     });

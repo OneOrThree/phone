@@ -1001,6 +1001,26 @@ test('가입 안내 확인 여부(visitLeaveAsked)는 다른 액션이 끼어도
   assert.equal(act(server, 'SERVER_VISITING', { islandId: 'v1' }).visitLeaveAsked, undefined);
 });
 
+test('인사말 말풍선 여부(visitGreeted)는 방문 중 유지되고 새 방문·구경 끝·재실행에서 지워진다', () => {
+  let s = act(initialState(true), 'VISIT', { id: 'cloud' });
+  assert.equal(s.visitGreeted, undefined);
+  s = act(act(s, 'VISIT_GREETED'), 'TRAVEL_FROM', { name: '구름 섬' });
+  assert.equal(s.visitGreeted, true);
+  assert.equal(act(s, 'END_VISIT').visitGreeted, undefined);
+  assert.equal(act(s, 'VISIT', { id: 'cloud' }).visitGreeted, undefined);
+  assert.equal(act(s, 'LOAD', { state: s }).visitGreeted, undefined);
+
+  // 서버 방문
+  const island = { id: 'v1', name: '구경섬', membershipStatus: 'none' };
+  let server = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+  });
+  server = act(server, 'ISLAND_VISIT', { visit: { island } });
+  server = act(act(server, 'SERVER_VISITING', { islandId: 'v1' }), 'VISIT_GREETED');
+  assert.equal(server.visitGreeted, true);
+  assert.equal(act(server, 'SERVER_VISITING', { islandId: 'v1' }).visitGreeted, undefined);
+});
+
 test('방문자 가입 버튼 라벨은 다섯 가지다', () => {
   assert.deepEqual(visitorJoinLabel, {
     join: '이 섬에 가입',
