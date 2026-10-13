@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Modal, Platform, View } from 'react-native';
 import { Btn, C, Chips, Overlay, Txt } from '@/design-system/patterns';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { REASONS } from '@/components/UserSafetySheet';
 import { t } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import type { MagazineCell } from '@/services/api/magazine';
 import { isMemberGateError } from '@/services/memberConversion';
 import type { ReportReason } from '@/services/api/safety';
+import { useAppLayout } from '@/utils/layout';
 import { islandTitle } from './islandTitle';
 import { magazineApi } from './usePromotionEditor';
 
@@ -35,6 +36,8 @@ export function PromotionReportSheet({
   /** e.conversion?.offer — 게이트 거절이면 회원 전환 시트를 열고 true */
   offerConversion?: (err: unknown) => boolean;
 }) {
+  // 큰 글자에서는 [취소]·[신고하기]를 세로로 쌓는다(나란히 두면 글이 두 줄로 꺾인다)
+  const stacked = useAppLayout().fontScale >= componentTokens.magazineReader.largeTextThreshold;
   const [reason, setReason] = useState<ReportReason>(REASONS[0].value);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -121,13 +124,18 @@ export function PromotionReportSheet({
           large
           wrap
         />
-        <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+        <View
+          style={{
+            flexDirection: stacked ? 'column-reverse' : 'row',
+            gap: semanticTokens.spacing.control,
+          }}
+        >
           <Btn
             kind="sec"
             dynamicHeight
             title={t('common.cancel')}
             disabled={busy}
-            style={{ flex: 1 }}
+            style={stacked ? null : { flex: 1 }}
             onPress={close}
           />
           <Btn
@@ -135,7 +143,7 @@ export function PromotionReportSheet({
             dynamicHeight
             title={t(busy ? 'magazine.report.busy' : 'magazine.report.submit')}
             disabled={busy}
-            style={{ flex: 1 }}
+            style={stacked ? null : { flex: 1 }}
             onPress={send}
           />
         </View>
