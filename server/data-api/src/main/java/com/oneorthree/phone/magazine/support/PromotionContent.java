@@ -1,6 +1,12 @@
 package com.oneorthree.phone.magazine.support;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.CoercionAction;
+import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.type.LogicalType;
 import com.oneorthree.phone.magazine.exception.MagazineErrorCode;
 import com.oneorthree.phone.magazine.exception.MagazineException;
 
@@ -42,10 +48,11 @@ public record PromotionContent(String body, Layout layout) {
     private static final int LINE_SEPARATOR = 0x2028;
     private static final int PARAGRAPH_SEPARATOR = 0x2029;
     /**
-     * 요청 본문 변환기 — 기본값 그대로라 모르는 키에서 실패한다. 스프링 MVC 의 변환기는 모르는 키를 무시하므로 본문을
-     * 맵으로 받아 이것으로 바꾼다.
+     * 요청 본문 변환기 — 모르는 키에서 실패하고(기본값), 타입을 바꿔 주지 않는다: 문자열 {@code "1"}·{@code "0.5"} 를 숫자로,
+     * 숫자·불리언을 글자로, {@code 1.0} 을 정수로 받지 않는다. 스프링 MVC 의 변환기는 모르는 키를 무시하므로 본문을 맵으로
+     * 받아 이것으로 바꾼다.
      */
-    private static final ObjectMapper STRICT = new ObjectMapper();
+    private static final ObjectMapper STRICT = strictMapper();
 
     /**
      * @param v        형식 버전(1)
@@ -129,6 +136,18 @@ public record PromotionContent(String body, Layout layout) {
     /** 한 줄 글을 깨는 문자 — 줄바꿈·탭 같은 제어 문자와 유니코드 줄·문단 구분자. */
     private static boolean breaksTheLine(int codePoint) {
         return Character.isISOControl(codePoint) || codePoint == LINE_SEPARATOR || codePoint == PARAGRAPH_SEPARATOR;
+    }
+
+    private static ObjectMapper strictMapper() {
+        JsonMapper mapper = JsonMapper.builder()
+                .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
+                .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
+                .build();
+        mapper.coercionConfigFor(LogicalType.Textual)
+                .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail);
+        return mapper;
     }
 
     private static boolean inCell(Double value) {

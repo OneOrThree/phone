@@ -123,6 +123,15 @@ class PromotionContentTest {
         assertFromRejected(Map.of("body", "안녕", "layout", Map.of("v", 1, "frameId", "mag.frame-scallop",
                 "stickers", "mag.fish")));
         assertFromRejected(Map.of("body", List.of("안녕"), "layout", layout));
+        // 타입을 바꿔 주지 않는다 — 문자열 숫자·소수 정수·숫자 글자는 모두 거절이다.
+        assertFromRejected(Map.of("body", "안녕", "layout", Map.of("v", "1", "frameId", "mag.frame-scallop")));
+        assertFromRejected(Map.of("body", "안녕", "layout", Map.of("v", 1.0, "frameId", "mag.frame-scallop")));
+        assertFromRejected(Map.of("body", "안녕", "layout", Map.of("v", 1, "frameId", "mag.frame-scallop",
+                "stickers", List.of(Map.of("assetId", "mag.fish", "x", "0.5", "y", 0.5, "scale", 0.2,
+                        "rotation", 0)))));
+        assertFromRejected(Map.of("body", "안녕", "layout", Map.of("v", 1, "frameId", 7)));
+        assertFromRejected(Map.of("body", 60, "layout", layout));
+        assertFromRejected(Map.of("body", true, "layout", layout));
     }
 
     @Test
