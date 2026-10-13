@@ -168,7 +168,8 @@ export function usePromotionEditor({
                 promotionId: applied.promotionId,
                 issueDate: applied.issueDate,
                 appliedAt: new Date(now()).toISOString(),
-                editable: true,
+                // 응답이 늦는 사이 자정 재조회가 창 닫힘을 받아 왔으면 그대로 잠근다(늦은 성공이 마감을 덮지 않게)
+                editable: cur.window.open && cur.next?.editable !== false,
               },
             },
         );

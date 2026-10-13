@@ -36,8 +36,9 @@ export function usePromotionNewsToast({
         if (!alive || !news || nowRef.current() - Date.parse(news.createdAt) > DAY) return;
         const seen = await AsyncStorage.getItem(newsSeenKey(islandId)).catch(() => null);
         if (!alive || seen === news.id) return;
-        await AsyncStorage.setItem(newsSeenKey(islandId), news.id).catch(() => {});
+        // 띄운 뒤에 본 것으로 적는다 — 기다리는 사이 홈을 떠나면 띄우지도, 본 것으로 적지도 않는다
         notifyRef.current(t('magazine.news.promotion'));
+        await AsyncStorage.setItem(newsSeenKey(islandId), news.id).catch(() => {});
       } catch {
         // 소식은 덤이다 — 못 읽으면 조용히 넘어간다(홈 화면을 막지 않는다)
       }
