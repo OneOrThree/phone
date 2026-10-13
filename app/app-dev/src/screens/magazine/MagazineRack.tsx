@@ -96,7 +96,7 @@ export function MagazineRack({
         ) : (
           <View
             style={{
-              borderWidth: 1.5,
+              borderWidth: semanticTokens.stroke.default,
               borderColor: semanticTokens.color.outline,
               borderRadius: componentTokens.magazineReader.cardRadius,
               overflow: 'hidden',
@@ -118,7 +118,7 @@ export function MagazineRack({
                   })}
                   onPress={() => onOpen(item.issueId)}
                   style={{
-                    minHeight: 56,
+                    minHeight: componentTokens.magazineReader.rackRowMinHeight,
                     paddingHorizontal: semanticTokens.spacing.component,
                     paddingVertical: primitiveTokens.space[2],
                     flexDirection: 'row',
@@ -147,8 +147,8 @@ export function MagazineRack({
                       style={{
                         paddingHorizontal: semanticTokens.spacing.control,
                         paddingVertical: primitiveTokens.space[1],
-                        borderRadius: 12,
-                        borderWidth: 1,
+                        borderRadius: semanticTokens.radius.full,
+                        borderWidth: semanticTokens.stroke.subtle,
                         borderColor: semanticTokens.color.outline,
                         backgroundColor: semanticTokens.color.accent,
                       }}

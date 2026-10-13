@@ -8044,7 +8044,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 justifyContent: 'center',
                 borderWidth: componentTokens.mailboxAction.borderWidth,
                 borderColor: componentTokens.mailboxAction.border,
-                borderRadius: 22,
+                borderRadius: componentTokens.mailboxAction.pillRadius,
                 backgroundColor: semanticTokens.color.primary,
                 boxShadow: componentTokens.mailboxAction.shadow,
               }}
@@ -8057,13 +8057,13 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                   testID="mail-home-magazine-dot"
                   style={{
                     position: 'absolute',
-                    top: -4,
-                    right: 6,
-                    width: 14,
-                    height: 14,
-                    borderRadius: 7,
-                    borderWidth: 2,
-                    borderColor: '#fff8e8',
+                    top: -componentTokens.mailboxAction.dotSize / 3,
+                    right: componentTokens.mailboxAction.dotSize / 2,
+                    width: componentTokens.mailboxAction.dotSize,
+                    height: componentTokens.mailboxAction.dotSize,
+                    borderRadius: componentTokens.mailboxAction.dotSize / 2,
+                    borderWidth: semanticTokens.stroke.strong,
+                    borderColor: componentTokens.mailboxAction.dotBorder,
                     backgroundColor: semanticTokens.color.danger,
                   }}
                 />
@@ -8082,7 +8082,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               justifyContent: 'center',
               borderWidth: componentTokens.mailboxAction.borderWidth,
               borderColor: componentTokens.mailboxAction.border,
-              borderRadius: 22,
+              borderRadius: componentTokens.mailboxAction.pillRadius,
               backgroundColor: semanticTokens.color.surface,
               boxShadow: componentTokens.mailboxAction.shadow,
             }}

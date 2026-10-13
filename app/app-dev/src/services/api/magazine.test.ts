@@ -211,6 +211,39 @@ describe('잡지 읽기', () => {
     expect(next.nextCursor).toBeNull();
   });
 
+  test('편집부 모양이 어긋나면 편집부만 빼고 칸은 보인다 · 빈 커서는 끝 · 꽂이의 깨진 줄은 그 줄만 뺀다', async () => {
+    stub(200, {
+      issue: issueWire,
+      editorial: { ranking: 'x', newIslands: [], note: null },
+      cells: [{ ...island('소다'), promotionId: 'p1', body: '안녕', layout }],
+      nextCursor: '',
+    });
+    const page = await getMagazineIssue('iss-19');
+    expect(page.editorial).toBeNull();
+    expect(page.cells).toHaveLength(1);
+    expect(page.nextCursor).toBeNull();
+
+    const { current: _current, ...head } = issueWire;
+    stub(200, { items: [{ ...head, opened: true }, { issueId: 'broken' }] });
+    await expect(getMagazineIssues()).resolves.toEqual([{ ...head, opened: true }]);
+  });
+
+  test.each([
+    ['모르는 유형', { type: 'NEWS', body: '?', tipNo: null }],
+    ['번호 없는 팁', { type: 'TIP', body: null, tipNo: null }],
+    ['글 없는 편집부 소식', { type: 'EDITOR', body: '', tipNo: null }],
+  ])('편집부 한마디가 %s 이면 편집부를 빼고(팁을 지어내지 않는다) 칸은 보인다', async (_, note) => {
+    stub(200, {
+      issue: issueWire,
+      editorial: { ranking: [], newIslands: [], note },
+      cells: [{ ...island('소다'), promotionId: 'p1', body: '안녕', layout }],
+      nextCursor: null,
+    });
+    const page = await getMagazineIssue('iss-19');
+    expect(page.editorial).toBeNull();
+    expect(page.cells).toHaveLength(1);
+  });
+
   test('7호 밖이면 404 MAGAZINE_ISSUE_NOT_FOUND 를 그대로 던진다', async () => {
     stub(404, { code: 'MAGAZINE_ISSUE_NOT_FOUND', message: '잡지 호를 찾을 수 없어요' });
     await expect(getMagazineIssue('old')).rejects.toMatchObject({

@@ -21,6 +21,7 @@ import com.oneorthree.business.upstream.data.dto.IslandPromotions;
 import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
+import com.oneorthree.business.upstream.data.dto.Magazines;
 import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
 import com.oneorthree.business.upstream.data.dto.JoinRequestAnswer;
 import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
@@ -91,6 +92,12 @@ public class DataIslandClient {
     private static final String PATH_ISLAND_PROMOTION =
             "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}";
     private static final String PATH_MAGAZINE_ASSETS = "/internal/users/{userId}/magazine/assets";
+    // GROMO-2289 고양이 잡지 읽기 — 오늘 호·최근 7호·한 호 펼치기·받기 기록, 모두 사용자 축이다.
+    private static final String PATH_MAGAZINE_TODAY = "/internal/users/{userId}/magazine/today";
+    private static final String PATH_MAGAZINE_ISSUES = "/internal/users/{userId}/magazine/issues";
+    private static final String PATH_MAGAZINE_ISSUE = "/internal/users/{userId}/magazine/issues/{issueId}";
+    private static final String PATH_MAGAZINE_RECEIPT =
+            "/internal/users/{userId}/magazine/issues/{issueId}/receipt";
     // GROMO-1771 섬 게시판 6종 + 댓글 삭제(GROMO-2136)
     private static final String PATH_NOTICES = "/internal/islands/{islandId}/notices";
     private static final String PATH_NOTICE = "/internal/islands/{islandId}/notices/{noticeId}";
@@ -387,6 +394,53 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandPromotions.Assets>() { });
+    }
+
+    /** 오늘 호와 내 받기 기록 (GROMO-2289) — 게스트도 읽는다. 멱등 GET 이라 재시도한다. */
+    public Magazines.Today fetchMagazineToday(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_MAGAZINE_TODAY, userId)).onBehalfOf(userId).build(),
+                deadline,
+                new ParameterizedTypeReference<Magazines.Today>() { });
+    }
+
+    /** 최근 7호 (GROMO-2289) — 개수는 Data 가 정한다. 멱등 GET 이라 재시도한다. */
+    public Magazines.Issues fetchMagazineIssues(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_MAGAZINE_ISSUES, userId)).onBehalfOf(userId).build(),
+                deadline,
+                new ParameterizedTypeReference<Magazines.Issues>() { });
+    }
+
+    /**
+     * 한 호 펼치기 한 페이지 (GROMO-2289). 경계는 Business 가 서명 커서에서 꺼낸 평문이고 첫 페이지는 싣지 않는다.
+     * 멱등 GET 이라 재시도한다.
+     */
+    public Magazines.IssuePage fetchMagazineIssue(UUID userId, UUID issueId, Instant afterAppliedAt,
+            UUID afterPromotionId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET,
+                                userPath(PATH_MAGAZINE_ISSUE, userId).replace("{issueId}", issueId.toString()))
+                        .onBehalfOf(userId)
+                        .query("afterAppliedAt", afterAppliedAt == null ? null : afterAppliedAt.toString())
+                        .query("afterPromotionId", afterPromotionId == null ? null : afterPromotionId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<Magazines.IssuePage>() { });
+    }
+
+    /** 받기·미루기·펼치기 기록 (GROMO-2289). 홍보 고치기와 같이 명령 키 없는 PUT 이라 재시도하지 않는다. */
+    public Magazines.Receipt recordMagazineReceipt(UUID userId, UUID issueId, String place, Boolean deferred,
+            Boolean opened, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PUT,
+                                userPath(PATH_MAGAZINE_RECEIPT, userId).replace("{issueId}", issueId.toString()))
+                        .onBehalfOf(userId)
+                        .body(new MagazineReceiptCommand(place, deferred, opened))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<Magazines.Receipt>() { });
     }
 
     /** 섬 소식 (GROMO-2267) — 주민만 읽는다. 멱등 GET 이라 재시도한다. */
@@ -782,5 +836,9 @@ public class DataIslandClient {
 
     /** 홍보 신청·고치기 본문 (GROMO-2289) — {@code layout} 은 앱이 보낸 JSON 객체 그대로다. */
     record PromotionCommand(String body, JsonNode layout) {
+    }
+
+    /** 잡지 받기 기록 본문 (GROMO-2289). {@code deferred}·{@code opened} 는 앱이 보내지 않았으면 null 이다. */
+    record MagazineReceiptCommand(String place, Boolean deferred, Boolean opened) {
     }
 }
