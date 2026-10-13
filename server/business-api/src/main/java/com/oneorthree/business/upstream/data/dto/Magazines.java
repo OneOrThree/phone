@@ -67,13 +67,17 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean opened) {
     }
 
-    /** Data 의 한 호 한 페이지 — 다음 경계 두 값은 둘 다 있거나 둘 다 null 이다(어긋나면 유스케이스가 계약 위반으로 접는다). */
+    /**
+     * Data 의 한 호 한 페이지 — 다음 경계 두 값은 둘 다 있거나 둘 다 null 이다(어긋나면 유스케이스가 계약 위반으로 접는다).
+     * 두 키는 마지막 페이지에도 null 로 늘 실린다 — 키가 빠지면 null 과 구분해 계약 위반이다(마지막 페이지로 오인해 다음
+     * 칸을 조용히 잃지 않게).
+     */
     public record IssuePage(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) Issue issue,
             @JsonProperty(required = true) Editorial editorial,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<Cell> cells,
-            Instant nextAppliedAt,
-            UUID nextPromotionId) {
+            @JsonProperty(required = true) Instant nextAppliedAt,
+            @JsonProperty(required = true) UUID nextPromotionId) {
     }
 
     /** 공개 한 호 한 페이지 — {@code editorial} 은 첫 페이지에만 있고, {@code nextCursor} 는 서명 토큰이다. */
