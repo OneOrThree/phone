@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.UUID;
 
-/** 홍보 칸 신고 (GROMO-2289, V116). */
+/** 홍보 칸 신고 (GROMO-2289, V121). */
 public interface IslandPromotionReportRepository
         extends JpaRepository<IslandPromotionReport, IslandPromotionReport.Key> {
 

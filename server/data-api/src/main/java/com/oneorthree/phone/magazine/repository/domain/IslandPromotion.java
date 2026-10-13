@@ -19,7 +19,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * 섬장이 신청한 잡지 홍보 한 건 (GROMO-2289, V114) — 한 섬은 한 호에 한 칸이다({@code UNIQUE (island_id, issue_date)}).
+ * 섬장이 신청한 잡지 홍보 한 건 (GROMO-2289, V119) — 한 섬은 한 호에 한 칸이다({@code UNIQUE (island_id, issue_date)}).
  *
  * <h2>{@code @DynamicUpdate} 가 붙어 있는 이유</h2>
  * 이 행에는 서로 다른 트랜잭션이 고치는 열이 함께 산다 — 발행 배치는 {@code snapshot} 을, 신고는 {@code moderation}·
@@ -79,7 +79,7 @@ public class IslandPromotion {
     @JdbcTypeCode(SqlTypes.JSON)
     private IslandCard snapshot;
 
-    /** 신고 숨김 상태 — NONE · HIDDEN · REMOVED · CLEARED(V114 CHECK). */
+    /** 신고 숨김 상태 — NONE · HIDDEN · REMOVED · CLEARED(V119 CHECK). */
     @Column(nullable = false, length = 10)
     private String moderation = MODERATION_NONE;
 

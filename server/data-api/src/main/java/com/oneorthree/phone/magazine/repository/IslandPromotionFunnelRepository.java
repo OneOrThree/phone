@@ -11,7 +11,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-/** 잡지 경유 행동 (GROMO-2289, V117). */
+/** 잡지 경유 행동 (GROMO-2289, V122). */
 public interface IslandPromotionFunnelRepository
         extends JpaRepository<IslandPromotionFunnel, IslandPromotionFunnel.Key> {
 

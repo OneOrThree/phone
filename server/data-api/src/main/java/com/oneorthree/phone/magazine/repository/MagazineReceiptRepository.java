@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 계정당 1부의 받음 상태 (GROMO-2289, V115). */
+/** 계정당 1부의 받음 상태 (GROMO-2289, V120). */
 public interface MagazineReceiptRepository extends JpaRepository<MagazineReceipt, MagazineReceipt.Key> {
 
     /** 받음 기록 삽입과 7호 밖 정리가 함께 쓰는 advisory 잠금 축. */
@@ -62,7 +62,7 @@ public interface MagazineReceiptRepository extends JpaRepository<MagazineReceipt
             + "(SELECT id FROM magazine_issues ORDER BY issue_no DESC LIMIT 7)", nativeQuery = true)
     int deleteOutsideLatestSeven();
 
-    /** 계정 탈퇴 파기 — 유저 행은 익명화만 되고 지워지지 않아 V115 의 ON DELETE CASCADE 가 돌지 않는다. */
+    /** 계정 탈퇴 파기 — 유저 행은 익명화만 되고 지워지지 않아 V120 의 ON DELETE CASCADE 가 돌지 않는다. */
     @Modifying(flushAutomatically = true)
     @Query("DELETE FROM MagazineReceipt r WHERE r.userId = :userId")
     int deleteAllOfUser(@Param("userId") UUID userId);

@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 잡지 홍보 칸 (GROMO-2289, V114). */
+/** 잡지 홍보 칸 (GROMO-2289, V119). */
 public interface IslandPromotionRepository extends JpaRepository<IslandPromotion, UUID> {
 
     Optional<IslandPromotion> findByIdAndIslandId(UUID id, UUID islandId);

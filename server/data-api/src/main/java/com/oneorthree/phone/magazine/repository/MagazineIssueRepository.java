@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 고양이 잡지 호 (GROMO-2289, V115). */
+/** 고양이 잡지 호 (GROMO-2289, V120). */
 public interface MagazineIssueRepository extends JpaRepository<MagazineIssue, UUID> {
 
     boolean existsByIssueDate(LocalDate issueDate);

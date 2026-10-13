@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 잡지 경유 행동 한 건 (GROMO-2289, V117) — 넣음·도착·가입. 같은 사람의 같은 단계는 한 번만 센다. 행은 리포지토리의
+ * 잡지 경유 행동 한 건 (GROMO-2289, V122) — 넣음·도착·가입. 같은 사람의 같은 단계는 한 번만 센다. 행은 리포지토리의
  * {@code insertIfAbsent} 로만 생긴다.
  */
 @Entity

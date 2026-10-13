@@ -17,7 +17,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * 고양이 잡지 한 호 (GROMO-2289, V115) — 하루 한 행, 발행 배치만 만든다. 만든 뒤 바뀌지 않는다.
+ * 고양이 잡지 한 호 (GROMO-2289, V120) — 하루 한 행, 발행 배치만 만든다. 만든 뒤 바뀌지 않는다.
  */
 @Entity
 @Table(name = "magazine_issues")

@@ -29,7 +29,7 @@ public class CatalogAsset {
     public static final String KIND_ISLAND_THEME = "island_theme";
     public static final String KIND_BUILDING_THEME = "building_theme";
     public static final String KIND_AUDIO = "audio";
-    /** 고양이 잡지 홍보 칸의 꾸미기 재료(GROMO-2289, V113) — 틀·스티커·테이프. 셋 다 개인 소유다. */
+    /** 고양이 잡지 홍보 칸의 꾸미기 재료(GROMO-2289, V118) — 틀·스티커·테이프. 셋 다 개인 소유다. */
     public static final String KIND_AD_FRAME = "ad_frame";
     public static final String KIND_AD_STICKER = "ad_sticker";
     public static final String KIND_AD_TAPE = "ad_tape";

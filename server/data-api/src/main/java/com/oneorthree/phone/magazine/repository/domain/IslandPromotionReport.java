@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 홍보 칸 신고 한 건 (GROMO-2289, V116) — 한 사람은 한 칸을 한 번만 신고한다. 행은 리포지토리의 {@code insertIfAbsent} 로만
+ * 홍보 칸 신고 한 건 (GROMO-2289, V121) — 한 사람은 한 칸을 한 번만 신고한다. 행은 리포지토리의 {@code insertIfAbsent} 로만
  * 생긴다.
  */
 @Entity
@@ -34,7 +34,7 @@ public class IslandPromotionReport {
     @Column(name = "reporter_id")
     private UUID reporterId;
 
-    /** 유저 신고 창과 같은 8종(V116 CHECK). */
+    /** 유저 신고 창과 같은 8종(V121 CHECK). */
     @Column(nullable = false, length = 30)
     private String reason;
 

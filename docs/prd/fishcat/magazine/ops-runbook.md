@@ -2,7 +2,7 @@
 
 GROMO-2289 고양이 잡지(냐옹)를 운영할 때 쓰는 SQL·설정 절차다. 운영 화면은 따로 만들지 않았다. 운영 사전 검토가 없어서(10/14 확정) 운영 일은 아래 몇 가지뿐이라 SQL 로 충분하다고 봤다.
 
-- 대상 스키마: Data DB 의 V113~V117 (`magazine_asset_meta` · `island_promotions` · `magazine_issues` · `magazine_receipts` · `magazine_editorial_notes` · `island_promotion_reports` · `island_promotion_funnel`).
+- 대상 스키마: Data DB 의 V118~V122 (`magazine_asset_meta` · `island_promotions` · `magazine_issues` · `magazine_receipts` · `magazine_editorial_notes` · `island_promotion_reports` · `island_promotion_funnel`).
 - SQL 은 `psql` 기준이다. `\set 이름 '값'` 으로 값을 넣고 본문에서는 `:'이름'` 으로 쓴다. 꺾쇠(`<…>`) 자리를 실제 값으로 바꾼다.
 - 바꾸는 문장은 `BEGIN;` 안에서 돌린다. 영향받은 행 수(`UPDATE 1` 등)를 확인한 뒤 `COMMIT;`, 다르면 `ROLLBACK;` 한다.
 - 시각은 DB 에 UTC 로 저장된다. 「며칠 호」는 KST 날짜(`issue_date`)다. 07:00 KST = 전날 22:00 UTC 다.
@@ -164,7 +164,7 @@ LIMIT 20;
 
 ## 6. 꾸미기 재료
 
-지금 에셋 64종(틀 11 · 스티커 45 · 테이프 8)은 모두 무료(`free`)이고 V113 이 시드했다. 아래는 앞으로 새로 그리는 시즌 재료를 다룰 때 쓴다. 앱이 그림을 가진 id 만 넣는다 — id 는 `mag.` + 그림 id 다.
+지금 에셋 64종(틀 11 · 스티커 45 · 테이프 8)은 모두 무료(`free`)이고 V118 이 시드했다. 아래는 앞으로 새로 그리는 시즌 재료를 다룰 때 쓴다. 앱이 그림을 가진 id 만 넣는다 — id 는 `mag.` + 그림 id 다.
 
 ### 6-1. 시즌 재료 추가와 바다 보상 단계
 
