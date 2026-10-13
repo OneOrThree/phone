@@ -150,6 +150,22 @@ describe('스티커·테이프·틀·글', () => {
     expect(screen.getByTestId('drawer-mag.tape-mint').props.accessibilityState.selected).toBe(true);
   });
 
+  it('테이프에는 크기·맨 앞으로가 없다 — 버튼 줄과 스크린리더 동작 모두 실제로 되는 것만', async () => {
+    const { screen } = await open({ latest: null });
+    await fireEvent.press(screen.getByText('꾸미기'));
+    await fireEvent.press(screen.getByTestId('drawer-mag.tape-pink'));
+    const tape = screen.getByTestId('canvas-tape');
+    const names = tape.props.accessibilityActions.map((a: { name: string }) => a.name);
+    expect(names).toEqual(
+      expect.arrayContaining(['activate', 'up', 'down', 'left', 'right', 'rotateLeft', 'delete']),
+    );
+    expect(names.filter((n: string) => ['bigger', 'smaller', 'front'].includes(n))).toEqual([]);
+    await fireEvent(tape, 'accessibilityAction', { nativeEvent: { actionName: 'activate' } });
+    expect(screen.getByTestId('op-rotateLeft')).toBeTruthy();
+    expect(screen.queryByTestId('op-bigger')).toBeNull();
+    expect(screen.queryByTestId('op-front')).toBeNull();
+  });
+
   it('틀을 고르면 칸 틀이 바뀌고, 글은 코드포인트 60자에서 자르고 줄바꿈은 띄어쓰기로', async () => {
     const { screen } = await open();
     await fireEvent.press(screen.getByTestId('frame-mag.frame-ticket'));
@@ -423,11 +439,15 @@ describe('신청 창·잔액·비공개', () => {
       );
       const screen = await render(<PromotionEditor e={env()} />);
       await waitFor(() => expect(screen.getByText('고친 내용 저장')).toBeTruthy());
+      // 고치다가 저장하지 않고 자정을 넘긴다
+      await fireEvent.changeText(screen.getByTestId('promotion-body'), '저장 안 한 글');
       await act(async () => {
         jest.advanceTimersByTime(61_000); // 00:00:01
       });
       await waitFor(() => expect(screen.queryByTestId('sticker-drawer')).toBeNull());
       expect(getEditor).toHaveBeenCalledTimes(2);
+      // 실릴 것은 서버에 남은 칸이다 — 저장 안 한 글은 보이지 않는다
+      expect(screen.getByTestId('promotion-body').props.value).toBe('다음 호 글');
     } finally {
       jest.useRealTimers();
     }

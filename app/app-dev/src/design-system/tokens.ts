@@ -346,6 +346,14 @@ export const componentTokens = {
     largeTextThreshold: 1.3,
     ribbonTilt: '-12deg',
   },
+  // 우체통 첫 화면의 행동 버튼(잡지 홍보 쓰기 · 잡지 보기 · 잡지 꽂이, GROMO-2289) — 편지 칸과 같은 짙은 나무 테·바닥 그림자를
+  // 쓰고 바탕만 역할 색이다. 우체통 장면 팔레트가 바뀌면 여기 한 곳을 고친다.
+  mailboxAction: {
+    border: '#684434',
+    borderWidth: 1.5,
+    shadow: 'inset 0 -6px #c99870,0 3px 0 #3f1d18',
+    background: semanticTokens.color.accent,
+  },
   // 고양이 잡지 칸(GROMO-2289) — Figma A안 C1 편집 칸 338×199 를 기준으로 잰 치수다. AdCell 이 실제 칸 너비 ÷
   // referenceWidth 를 곱해 그리므로 쓰기 화면·잡지 지면·망원경 미리보기에서 같은 모양이 된다.
   // aspect = 높이 ÷ 너비(고정). 스티커 좌표가 칸 비율(0~1)이라 비율이 바뀌면 모든 칸의 모양이 바뀐다.

@@ -106,6 +106,10 @@ const OPS: EditOp[] = ['smaller', 'bigger', 'rotateLeft', 'rotateRight', 'front'
 /** 꾸미기마다 둔 접근성 요소의 반치수 하한 — 44pt 터치 영역 */
 const A11Y_HALF = semanticTokens.size.tapMin / 2;
 const OP_GLYPH: Partial<Record<EditOp, string>> = { rotateLeft: '↺', rotateRight: '↻' };
+/** 테이프는 크기·겹침 순서가 없다(applyEdit 가 그대로 둔다) — 버튼 줄·스크린리더 동작에서 뺀다. */
+const TAPE_OFF: EditOp[] = ['bigger', 'smaller', 'front'];
+const opsFor = (target: EditTarget, ops: EditOp[]) =>
+  target.kind === 'tape' ? ops.filter((op) => !TAPE_OFF.includes(op)) : ops;
 const A11Y_OPS: EditOp[] = [
   'up',
   'down',
@@ -155,12 +159,19 @@ export function PromotionEditor({
   const touched = useRef(false);
   const stamp = useRef(new Animated.Value(0)).current;
 
-  // 처음 불러온 칸(다음 호 → 지난번 칸 → 빈 칸)으로 연다. 사용자가 고치기 시작한 뒤 다시 읽어도 고친 것은 두고 모드만 바꾼다
+  // 처음 불러온 칸(다음 호 → 지난번 칸 → 빈 칸)으로 연다. 사용자가 고치기 시작한 뒤 다시 읽어도 고친 것은 두고 모드만 바꾼다.
+  // 단 마감(자정)으로 읽기 전용이 되면 저장 안 한 고친 것은 실리지 않는다 — 서버에 남은(잡지에 실릴) 칸으로 되돌린다
   useEffect(() => {
-    if (!editor || touched.current) return;
+    if (!editor) return;
+    const locked = !!editor.next && !editor.next.editable;
+    if (touched.current && !locked) return;
     const from = editor.next ?? editor.latest;
     setBody(from?.body ?? '');
     setLayout(from?.layout ?? emptyLayout(DEFAULT_FRAME_ID));
+    if (locked) {
+      touched.current = false;
+      setSelection(null);
+    }
   }, [editor]);
 
   const edit = (next: PromotionLayout) => {
@@ -439,14 +450,17 @@ export function PromotionEditor({
           canEdit
             ? [
                 { name: 'activate', label: t('magazine.editor.op.select') },
-                ...A11Y_OPS.map((op) => ({ name: op, label: t(`magazine.editor.op.${op}`) })),
+                ...opsFor(target, A11Y_OPS).map((op) => ({
+                  name: op,
+                  label: t(`magazine.editor.op.${op}`),
+                })),
               ]
             : undefined
         }
         onAccessibilityAction={(event: AccessibilityActionEvent) => {
           const name = event.nativeEvent.actionName;
           if (name === 'activate') return setSelection(target);
-          if ((A11Y_OPS as string[]).includes(name)) doEdit(target, name as EditOp);
+          if ((opsFor(target, A11Y_OPS) as string[]).includes(name)) doEdit(target, name as EditOp);
         }}
         // 스크린리더 터치 탐색 대상 — 작은 스티커도 최소 44pt(손가락 hitTest 와 같은 하한)
         style={{
@@ -625,7 +639,7 @@ export function PromotionEditor({
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 6, paddingHorizontal: 20 }}
             >
-              {OPS.map((op) => (
+              {opsFor(selection, OPS).map((op) => (
                 <Btn
                   key={op}
                   id={`op-${op}`}

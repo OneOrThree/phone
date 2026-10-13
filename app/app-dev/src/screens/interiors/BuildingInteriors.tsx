@@ -50,7 +50,7 @@ import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { errorTextOr, localized, t } from '@/i18n';
-import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { MagazineRack } from '@/screens/magazine/MagazineRack';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import type { MagazineToday } from '@/services/api/magazine';
@@ -8036,11 +8036,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 minHeight: semanticTokens.size.tapMin,
                 paddingHorizontal: 10,
                 justifyContent: 'center',
-                borderWidth: 1.5,
-                borderColor: '#684434',
+                borderWidth: componentTokens.mailboxAction.borderWidth,
+                borderColor: componentTokens.mailboxAction.border,
                 borderRadius: 22,
                 backgroundColor: semanticTokens.color.primary,
-                boxShadow: '0 3px 0 #3f1d18',
+                boxShadow: componentTokens.mailboxAction.shadow,
               }}
             >
               <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
@@ -8074,11 +8074,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               minHeight: semanticTokens.size.tapMin,
               paddingHorizontal: 12,
               justifyContent: 'center',
-              borderWidth: 1.5,
-              borderColor: '#684434',
+              borderWidth: componentTokens.mailboxAction.borderWidth,
+              borderColor: componentTokens.mailboxAction.border,
               borderRadius: 22,
-              backgroundColor: '#fff8e8',
-              boxShadow: '0 3px 0 #3f1d18',
+              backgroundColor: semanticTokens.color.surface,
+              boxShadow: componentTokens.mailboxAction.shadow,
             }}
           >
             <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
@@ -8134,11 +8134,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             minHeight: semanticTokens.size.tapMin,
             paddingHorizontal: 10,
             justifyContent: 'center',
-            borderWidth: 1.5,
-            borderColor: '#684434',
+            borderWidth: componentTokens.mailboxAction.borderWidth,
+            borderColor: componentTokens.mailboxAction.border,
             borderRadius: 5,
-            backgroundColor: '#f6dd8f',
-            boxShadow: 'inset 0 -6px #c99870,0 3px 0 #3f1d18',
+            backgroundColor: componentTokens.mailboxAction.background,
+            boxShadow: componentTokens.mailboxAction.shadow,
           }}
         >
           <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
