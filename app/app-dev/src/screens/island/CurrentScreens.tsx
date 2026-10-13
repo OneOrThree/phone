@@ -126,7 +126,9 @@ import {
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
 import { Telescope } from '@/screens/island/Telescope';
+import { MagazineReader } from '@/screens/magazine/MagazineReader';
 import { PromotionEditor } from '@/screens/magazine/PromotionEditor';
+import { useMagazineToday } from '@/screens/magazine/useMagazineToday';
 import { usePromotionNewsToast } from '@/screens/magazine/usePromotionNewsToast';
 import { mockFlags } from '@/services/api/magazineMock';
 import { isMockMode } from '@/services/demoMode';
@@ -388,6 +390,8 @@ function CurrentScreensContent({ e }: any) {
     islandId: e.islands ? (state.serverIslands?.currentIslandId ?? null) : i.id,
     notify: e.notify,
   });
+  // 오늘 고양이 잡지(GROMO-2289) — 섬 홈(펠리컨 배달·우체통 빨간 점)과 우체통(잡지 보기 버튼)이 같이 본다. 구경 중에는 읽지 않는다
+  const magazine = useMagazineToday(['home', 'mail'].includes(r) && !state.visitingIslandId);
   const endServerVisit = () => {
     e.dispatch({ type: 'END_VISIT' });
     e.reset(state.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
@@ -560,12 +564,30 @@ function CurrentScreensContent({ e }: any) {
         {!state.visitingIslandId && <RewardModal e={e} rewardIslandId={rewardIslandId} />}
       </>
     );
-  if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
+  if (['mail', 'chat', 'friendMail'].includes(r))
+    return <InteriorRoute e={{ ...e, magazineToday: magazine.today }} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (r === 'raft') return <RaftDestinations e={e} />;
   // TODO E1-4 먼바다 화면이 생기면 바다 담당이 이 임시 입구(뗏목 행선지 「망원경」)와 함께 정리한다
   if (r === 'telescope') return <Telescope e={e} />;
   if (r === 'promotionEditor') return <PromotionEditor e={e} />;
+  // 섬에서 펼친 잡지 — 배경은 섬 홈(A4). 끝 쪽 「우리 섬 홍보 쓰기」는 내 섬 섬장만(P3)
+  if (r === 'magazine')
+    return (
+      <MagazineReader
+        e={e}
+        host={host && !state.visitingIslandId}
+        background={
+          <FinalIsland
+            state={state}
+            go={e.go}
+            build={e.build}
+            showActions={false}
+            boardStatus={boardStatus}
+          />
+        }
+      />
+    );
   if (['boat', 'mainIsland', 'currentIsland', 'friends', 'friendSearch'].includes(r))
     return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
@@ -577,7 +599,7 @@ function CurrentScreensContent({ e }: any) {
     );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
   if (r === 'blockedUsers' && e.islands) return <BlockedUsersScreen e={e} />;
-  return <RedesignScreens e={screenE} />;
+  return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today }} />;
 }
 
 function AppPermissionManager({ e }: any) {

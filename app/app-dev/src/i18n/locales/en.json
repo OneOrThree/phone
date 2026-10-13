@@ -69,7 +69,8 @@
     "PROMOTION_LAYOUT_INVALID": "Please check your decorations",
     "PROMOTION_ASSET_NOT_OWNED": "Some decorations aren't yours yet",
     "PROMOTION_LOCKED": "It's past midnight, so the promotion can't be edited",
-    "PROMOTION_NOT_FOUND": "Couldn't find the promotion"
+    "PROMOTION_NOT_FOUND": "Couldn't find the promotion",
+    "MAGAZINE_ISSUE_NOT_FOUND": "This magazine issue is no longer available"
   },
   "time": {
     "minutes": "{{m}}m",
@@ -419,6 +420,7 @@
     },
     "door": {
       "mailNewLetter": "Mailbox, you have a new letter from a friend.",
+      "mailNewMagazine": "Mailbox, a new cat magazine arrived.",
       "newComment": "{{label}}, there's a new comment.",
       "unreadNotice": "{{label}}, there's an unread notice.",
       "newProduct": "{{label}}, there's a new item.",
@@ -443,7 +445,8 @@
       "todayFocusClock": "{{name}}, focus today {{clock}}",
       "raft": "Raft",
       "viewFishingIsland": "View the Fishing Island",
-      "mailboxNewLetter": "You have a new letter from a friend."
+      "mailboxNewLetter": "You have a new letter from a friend.",
+      "mailboxNewMagazine": "A new cat magazine arrived."
     },
     "raft": {
       "title": "Raft",
@@ -783,6 +786,76 @@
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue"
     },
+    "reader": {
+      "title": "Nyaong",
+      "date": "{{m}}/{{d}}",
+      "cover": "{{date}} · No. {{no}}",
+      "coverA11y": "Cat Magazine No. {{no}}, {{date}}",
+      "close": "Close magazine",
+      "loading": "Opening the magazine…",
+      "loadFailed": "Couldn't open the magazine",
+      "gone": "This issue is no longer available",
+      "page": "{{page}} / {{total}}",
+      "pageMore": "{{page}} / {{total}}+",
+      "pageA11y": "Page {{page}} of {{total}}",
+      "prev": "Previous page",
+      "next": "Next page",
+      "ranking": "This week's ranking",
+      "rankingEmpty": "No ranking yet this week",
+      "rankA11y": "No. {{rank}} {{name}}, {{average}}",
+      "newIslands": "New islands yesterday",
+      "newIslandsEmpty": "No new islands yesterday",
+      "editorNote": "From the editors",
+      "tipNote": "Editor cat's tip",
+      "noCells": "No promotions in this issue",
+      "endTitle": "Want to feature your island?",
+      "endBody": "Apply between 7 AM and midnight to be in the next morning's issue",
+      "write": "Write an island promotion",
+      "zoomClose": "Close large view"
+    },
+    "rack": {
+      "open": "Magazine rack",
+      "title": "Nyaong magazine rack",
+      "sub": "You can reread the last 7 issues",
+      "row": "No. {{no}} · {{date}}",
+      "today": "Today",
+      "opened": "Read",
+      "unread": "Unread",
+      "empty": "No magazines yet",
+      "loadFailed": "Couldn't load the magazine rack",
+      "rowA11y": "No. {{no}}, {{date}}, {{state}}"
+    },
+    "mail": {
+      "open": "Read Cat Magazine · No. {{no}}",
+      "unreadA11y": "Read Cat Magazine No. {{no}}, unread"
+    },
+    "delivery": {
+      "mailbox": "A cat magazine arrived in your mailbox!",
+      "noMailbox": "Your cat magazine is here!",
+      "later": "Later",
+      "readLater": "Read later",
+      "openMailbox": "Open mailbox",
+      "open": "Open magazine",
+      "object": "Cat Magazine No. {{no}}",
+      "objectUnread": "Cat Magazine No. {{no}}, unread",
+      "objectHint": "Long-press to open the magazine rack"
+    },
+    "tips": [
+      "Focus 25 minutes, rest 5, and you can keep going. One step at a time!",
+      "Starting is the hardest part. Try just 10 minutes first.",
+      "Keep your phone out of reach and focusing gets much easier.",
+      "Write down just one task and your mind feels lighter.",
+      "Drink a glass of water before you start. Cats like water too.",
+      "On breaks, look out the window instead of at a screen.",
+      "Start at the same time each day and your body remembers.",
+      "One more minute than yesterday is already great.",
+      "Do the hard things when you have the most energy.",
+      "Focusing with your islanders helps you last longer than alone.",
+      "When you finish, write one line about what you did. It adds up.",
+      "Sleepy? Stand up and stretch for a moment, like a cat.",
+      "A clear desk helps clear your head too.",
+      "Didn't make it today? That's okay. Another issue comes tomorrow morning."
+    ],
     "asset": {
       "frame-scallop": "Pink scallop",
       "frame-ticket": "Blue ticket",

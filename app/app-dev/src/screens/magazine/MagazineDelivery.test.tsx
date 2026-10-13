@@ -1,0 +1,152 @@
+// 섬 홈 잡지 배달(GROMO-2289 · B2) — 한 번만 뜸 · 뜨는 순간 받음 PUT · 구경·집중·다른 안내 중이면 안 뜸 · 우체통 있는 섬은
+// [우체통 열어보기], 없는 섬은 [잡지 펼치기]/[나중에 읽기](deferred) · 우체통 없는 섬의 잡지 물건(누르기·길게 누르기·빨간 점).
+// 오늘 호 캐시(useMagazineToday)도 같이 본다. 서버 API(magazine.ts)는 목이다.
+import React from 'react';
+import { Text } from 'react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import * as api from '@/services/api/magazine';
+import type { MagazineToday } from '@/services/api/magazine';
+import { MagazineHomeLayer } from './MagazineDelivery';
+import {
+  cachedMagazineToday,
+  magazineUnread,
+  resetMagazineToday,
+  sendReceipt,
+  useMagazineToday,
+} from './useMagazineToday';
+
+jest.mock('@/services/api/magazine', () => ({
+  ...jest.requireActual('@/services/api/magazine'),
+  getMagazineToday: jest.fn(),
+  getMagazineIssues: jest.fn(),
+  putMagazineReceipt: jest.fn(),
+}));
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+}));
+const getToday = api.getMagazineToday as jest.Mock;
+const getIssues = api.getMagazineIssues as jest.Mock;
+const putReceipt = api.putMagazineReceipt as jest.Mock;
+
+const issue = {
+  issueId: 'iss-19',
+  issueNo: 19,
+  issueDate: '2026-10-14',
+  publishedAt: '2026-10-13T22:00:00Z',
+  current: true,
+};
+const receipt = (over = {}) => ({
+  place: 'ISLAND' as const,
+  receivedAt: '2026-10-13T23:00:00Z',
+  deferredAt: null,
+  openedAt: null,
+  ...over,
+});
+const fresh: MagazineToday = { issue, receipt: null };
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  resetMagazineToday();
+  putReceipt.mockImplementation(async (_id: string, body: { deferred?: boolean }) =>
+    receipt(body.deferred ? { deferredAt: 'later' } : {}),
+  );
+  getIssues.mockResolvedValue([]);
+});
+
+const layer = (over: Partial<React.ComponentProps<typeof MagazineHomeLayer>> = {}) => (
+  <MagazineHomeLayer today={fresh} hasMailbox blocked={false} go={jest.fn()} {...over} />
+);
+
+test('오늘 호를 아직 안 받았으면 펠리컨이 한 번 뜨고, 뜨는 순간 받음(ISLAND)을 보낸다', async () => {
+  const go = jest.fn();
+  const screen = await render(layer({ go }));
+  expect(screen.getByText('우체통에 고양이 잡지가 왔어요!')).toBeTruthy();
+  expect(putReceipt).toHaveBeenCalledWith('iss-19', { place: 'ISLAND' });
+  // 받음이 적혀 receipt 가 생겨도 사용자가 고를 때까지 안내는 남는다
+  await screen.rerender(layer({ go, today: { issue, receipt: receipt() } }));
+  expect(screen.getByText('우체통에 고양이 잡지가 왔어요!')).toBeTruthy();
+  await fireEvent.press(screen.getByTestId('magazine-delivery-open'));
+  expect(go).toHaveBeenCalledWith('mail');
+  expect(screen.queryByText('우체통에 고양이 잡지가 왔어요!')).toBeNull();
+  expect(putReceipt).toHaveBeenCalledTimes(1);
+  // 우체통이 있는 섬에는 홈 잡지 물건이 없다
+  expect(screen.queryByTestId('magazine-home-object')).toBeNull();
+});
+
+test('이미 받았거나 · 지난 호뿐이거나 · 구경·집중·다른 안내 중이면 뜨지 않는다', async () => {
+  for (const over of [
+    { today: { issue, receipt: receipt() } },
+    { today: { issue: { ...issue, current: false }, receipt: null } },
+    { today: null },
+    { blocked: true },
+  ]) {
+    const screen = await render(layer(over));
+    expect(screen.queryByText('우체통에 고양이 잡지가 왔어요!')).toBeNull();
+    await screen.unmount();
+  }
+  expect(putReceipt).not.toHaveBeenCalled();
+});
+
+test('우체통이 없는 섬 — [잡지 펼치기] 는 오늘 호를, [나중에 읽기] 는 나중에(deferred)를 적는다', async () => {
+  const go = jest.fn();
+  const screen = await render(layer({ go, hasMailbox: false }));
+  expect(screen.getByText('고양이 잡지 왔어요!')).toBeTruthy();
+  await fireEvent.press(screen.getByText('나중에 읽기'));
+  expect(putReceipt).toHaveBeenLastCalledWith('iss-19', { place: 'ISLAND', deferred: true });
+  // 받음 기록이 아직 화면에 안 왔어도(receipt null) 같은 호를 다시 띄우지 않는다
+  expect(putReceipt).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText('고양이 잡지 왔어요!')).toBeNull();
+  await screen.unmount();
+
+  const again = await render(layer({ go, hasMailbox: false }));
+  await fireEvent.press(again.getByTestId('magazine-delivery-open'));
+  expect(go).toHaveBeenCalledWith('magazine', 'iss-19');
+});
+
+test('우체통이 없는 섬의 잡지 물건 — 안 읽었으면 빨간 점, 누르면 오늘 호, 길게 누르면 꽂이', async () => {
+  const go = jest.fn();
+  const today = { issue, receipt: receipt() };
+  const screen = await render(layer({ go, hasMailbox: false, today }));
+  const object = screen.getByTestId('magazine-home-object');
+  expect(object.props.accessibilityLabel).toBe('고양이 잡지 19호, 아직 안 읽음');
+  expect(screen.getByTestId('magazine-home-object-dot')).toBeTruthy();
+  await fireEvent.press(object);
+  expect(go).toHaveBeenCalledWith('magazine', 'iss-19');
+  await fireEvent(object, 'longPress');
+  await waitFor(() => expect(screen.getByTestId('magazine-rack')).toBeTruthy());
+  expect(getIssues).toHaveBeenCalled();
+
+  await screen.rerender(
+    layer({ go, hasMailbox: false, today: { issue, receipt: receipt({ openedAt: 'x' }) } }),
+  );
+  expect(screen.queryByTestId('magazine-home-object-dot')).toBeNull();
+  // 구경·집중 중에는 물건도 감춘다
+  await screen.rerender(layer({ go, hasMailbox: false, today, blocked: true }));
+  expect(screen.queryByTestId('magazine-home-object')).toBeNull();
+});
+
+function Probe({ active }: { active: boolean }) {
+  const { today } = useMagazineToday(active);
+  return <Text testID="probe">{magazineUnread(today) ? 'unread' : 'read'}</Text>;
+}
+
+test('useMagazineToday — 보일 때 읽고, 읽음을 보내면 같은 캐시를 보는 화면이 바로 바뀐다', async () => {
+  getToday.mockResolvedValue({ issue, receipt: receipt() });
+  const screen = await render(<Probe active={false} />);
+  expect(getToday).not.toHaveBeenCalled();
+  await screen.rerender(<Probe active />);
+  await waitFor(() => expect(screen.getByTestId('probe').props.children).toBe('unread'));
+  putReceipt.mockResolvedValueOnce(receipt({ openedAt: 'now' }));
+  await act(async () => {
+    await sendReceipt('iss-19', { place: 'ISLAND', opened: true });
+  });
+  expect(screen.getByTestId('probe').props.children).toBe('read');
+  expect(cachedMagazineToday()?.receipt?.openedAt).toBe('now');
+});
+
+test('오늘 호를 못 읽으면 아무것도 띄우지 않는다(서버에 잡지가 아직 없음)', async () => {
+  getToday.mockRejectedValue(new Error('404'));
+  const screen = await render(<Probe active />);
+  await act(async () => {});
+  expect(screen.getByTestId('probe').props.children).toBe('read');
+});

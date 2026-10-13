@@ -51,6 +51,9 @@ import { sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { errorTextOr, localized, t } from '@/i18n';
 import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { MagazineRack } from '@/screens/magazine/MagazineRack';
+import { magazineUnread } from '@/screens/magazine/useMagazineToday';
+import type { MagazineToday } from '@/services/api/magazine';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
@@ -7623,6 +7626,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const [letterText, setLetterText] = useState('섬에 새 꽃이 피었어. 다음에 놀러 와서 같이 보자.');
   const [deletedLetters, setDeletedLetters] = useState<string[]>([]);
   const [letterSafetyTarget, setLetterSafetyTarget] = useState<LetterView | null>(null);
+  const [magazineRack, setMagazineRack] = useState(false);
   const [reactTransform, react] = useReact(reduceMotion);
   // 앱에서는 안내를 앱 알림으로 띄운다 (장면 토스트는 동작 줄이기에서 그려지지 않는다)
   const say = (message: string) => (e ? e.notify(message) : showToast(message));
@@ -7941,6 +7945,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         ? letters.length
         : 3;
   const promotionHost = !!e && !!island && !state?.visitingIslandId && isHost(island);
+  // 고양이 잡지(GROMO-2289 · C4) — 오늘 호가 나와 있으면 「고양이 잡지 보기 · N호」(안 읽었으면 빨간 점), 지난 호는 꽂이(C5)
+  const magazineToday: MagazineToday | null = e?.magazineToday ?? null;
+  const magazineIssue = magazineToday?.issue?.current ? magazineToday.issue : null;
+  const magazineUnreadDot = magazineUnread(magazineToday);
   const homeItems: [string, string][] = [
     ['우리 섬 채팅방', newChat ? `새 글 ${newChat}개` : ''],
     ['받은 편지', newLetters ? `새 편지 ${newLetters}통` : ''],
@@ -8012,6 +8020,81 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
 
   const home = (
     <>
+      {e && magazineToday?.issue && (
+        <View style={{ flexDirection: 'row', columnGap: 7, marginBottom: 7 }}>
+          {magazineIssue && (
+            <Pressable
+              testID="mail-home-magazine"
+              accessibilityRole="button"
+              accessibilityLabel={t(
+                magazineUnreadDot ? 'magazine.mail.unreadA11y' : 'magazine.mail.open',
+                { no: magazineIssue.issueNo },
+              )}
+              onPress={() => e.go('magazine', magazineIssue.issueId)}
+              style={{
+                flex: 1,
+                minHeight: semanticTokens.size.tapMin,
+                paddingHorizontal: 10,
+                justifyContent: 'center',
+                borderWidth: 1.5,
+                borderColor: '#684434',
+                borderRadius: 22,
+                backgroundColor: semanticTokens.color.primary,
+                boxShadow: '0 3px 0 #3f1d18',
+              }}
+            >
+              <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
+                {t('magazine.mail.open', { no: magazineIssue.issueNo })}
+              </Text>
+              {magazineUnreadDot && (
+                <View
+                  testID="mail-home-magazine-dot"
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: 6,
+                    width: 14,
+                    height: 14,
+                    borderRadius: 7,
+                    borderWidth: 2,
+                    borderColor: '#fff8e8',
+                    backgroundColor: semanticTokens.color.danger,
+                  }}
+                />
+              )}
+            </Pressable>
+          )}
+          <Pressable
+            testID="mail-home-rack"
+            accessibilityRole="button"
+            accessibilityLabel={t('magazine.rack.open')}
+            onPress={() => setMagazineRack(true)}
+            style={{
+              flex: magazineIssue ? 0 : 1,
+              minHeight: semanticTokens.size.tapMin,
+              paddingHorizontal: 12,
+              justifyContent: 'center',
+              borderWidth: 1.5,
+              borderColor: '#684434',
+              borderRadius: 22,
+              backgroundColor: '#fff8e8',
+              boxShadow: '0 3px 0 #3f1d18',
+            }}
+          >
+            <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
+              {t('magazine.rack.open')}
+            </Text>
+          </Pressable>
+          <MagazineRack
+            visible={magazineRack}
+            onClose={() => setMagazineRack(false)}
+            onOpen={(id) => {
+              setMagazineRack(false);
+              e.go('magazine', id);
+            }}
+          />
+        </View>
+      )}
       <View
         style={[
           {
@@ -8040,7 +8123,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         )}
       </View>
       {promotionHost && (
-        // 고양이 잡지 홍보 쓰기 입구(GROMO-2289 · P3) — 섬장만, 내 섬일 때만. 잡지 보기 버튼은 잡지 읽기 PR 에서 옆에 붙는다
+        // 고양이 잡지 홍보 쓰기 입구(GROMO-2289 · P3) — 섬장만, 내 섬일 때만. 잡지 보기 버튼은 위 칸 줄에 있다
         <Pressable
           testID="mail-home-promotion"
           accessibilityRole="button"

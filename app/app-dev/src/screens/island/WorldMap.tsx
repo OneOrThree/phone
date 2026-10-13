@@ -505,6 +505,7 @@ export function WorldMap({
   onSpot,
   emote,
   showMailboxLetters,
+  showMailboxMagazine = false,
   hallMotionActive = false,
   hallMotionGeneration = 0,
   boardStatus = null,
@@ -533,6 +534,8 @@ export function WorldMap({
   onSpot?: (p: Point) => void;
   emote?: string | null;
   showMailboxLetters?: boolean;
+  /** 안 읽은 오늘 고양이 잡지(GROMO-2289) — 친구 편지 표시가 없을 때만 우체통 위 빨간 점. */
+  showMailboxMagazine?: boolean;
   hallMotionActive?: boolean;
   hallMotionGeneration?: number;
   boardStatus?: 'unread' | 'new-comment' | null;
@@ -859,6 +862,14 @@ export function WorldMap({
               style={{ left: at('mail').left + 348 * scale, top: at('mail').top + 520 * scale }}
             />
           )}
+          {!mailboxLetters && showMailboxMagazine && island.buildings.includes('mail') && (
+            <VillageNotificationBadge
+              testID="mailbox-magazine-indicator"
+              accessibilityLabel={t('home.a11y.mailboxNewMagazine')}
+              scale={scale}
+              style={{ left: at('mail').left + 348 * scale, top: at('mail').top + 520 * scale }}
+            />
+          )}
           {/* 모션 좌표는 placement.json rect 와 같다. 밤 프레임도 같은 rect 로 잘라 정지 밤 레이어와 픽셀이 일치한다. */}
           {island.buildings.includes('hall') && (
             <VillageHallMotion
@@ -1099,6 +1110,7 @@ function FinalIslandScene({
   focusTutorial,
   motion,
   showMailboxLetters,
+  showMailboxMagazine = false,
   boardStatus = null,
   observatoryRankState = 'normal',
   shopState = 'normal',
@@ -1125,6 +1137,8 @@ function FinalIslandScene({
   focusTutorial?: { text: string; onPress: () => void; onSkip: () => void };
   motion?: CatMotionInput;
   showMailboxLetters?: boolean;
+  /** 안 읽은 오늘 고양이 잡지 — 우체통 위 빨간 점(구경 중에는 끈다). */
+  showMailboxMagazine?: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
   shopState?: ShopMotionState;
@@ -1158,6 +1172,12 @@ function FinalIslandScene({
   const focusTutorialLatest = useRef(focusTutorial);
   focusTutorialLatest.current = focusTutorial;
   const mailboxLetters = !visiting && (showMailboxLetters ?? hasMailboxLetters(state, i.id));
+  const mailboxMagazine = !visiting && showMailboxMagazine;
+  const mailLabel = mailboxLetters
+    ? t('home.door.mailNewLetter')
+    : mailboxMagazine
+      ? t('home.door.mailNewMagazine')
+      : null;
   const serverConstruction = state.serverIslands?.clientConstruction;
   const trackedConstruction = facts
     ? serverConstruction?.islandId === facts.islandId
@@ -1870,8 +1890,8 @@ function FinalIslandScene({
                 key={id}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  id === 'mail' && mailboxLetters
-                    ? t('home.door.mailNewLetter')
+                  id === 'mail' && mailLabel
+                    ? mailLabel
                     : d.building === 'board' && boardStatus === 'new-comment'
                       ? t('home.door.newComment', { label: d.label })
                       : d.building === 'board' && boardStatus === 'unread'
@@ -2139,6 +2159,7 @@ function FinalIslandScene({
         }
         shopArrivalGeneration={buildingTransition.generation}
         showMailboxLetters={mailboxLetters}
+        showMailboxMagazine={mailboxMagazine}
         hiddenVillageBuilding={activeBuilding}
         dayNight={dayNight}
         onSpot={

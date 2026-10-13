@@ -67,3 +67,51 @@ it('상황 깃발 — guest 는 403, poor 는 잔액 30, private 는 신청 거�
     code: 'PROMOTION_PRIVATE_ISLAND',
   });
 });
+
+describe('잡지 읽기 목업', () => {
+  const now = at('2026-10-14T10:00:00');
+
+  it('기본은 오늘 호(19호)를 받았고 아직 안 읽었다 — 07시 전에는 어제 호가 오늘 호', async () => {
+    const today = await magazineMock.getMagazineToday(now);
+    expect(today.issue).toMatchObject({ issueNo: 19, issueDate: '2026-10-14', current: true });
+    expect(today.receipt).toMatchObject({ place: 'ISLAND', openedAt: null });
+    resetMagazineMock();
+    const early = await magazineMock.getMagazineToday(at('2026-10-14T06:59:00'));
+    expect(early.issue?.issueDate).toBe('2026-10-13');
+  });
+
+  it('deliver 면 아직 받지 않았고, 받음·읽음을 보내면 처음 시각이 남는다', async () => {
+    process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'deliver';
+    const today = await magazineMock.getMagazineToday(now);
+    expect(today.receipt).toBeNull();
+    const id = today.issue!.issueId;
+    const got = await magazineMock.putMagazineReceipt(id, { place: 'ISLAND' }, now);
+    expect(got).toMatchObject({ place: 'ISLAND', deferredAt: null, openedAt: null });
+    const read = await magazineMock.putMagazineReceipt(
+      id,
+      { place: 'SEA', opened: true },
+      now + 60_000,
+    );
+    // 받은 곳은 처음 값(ISLAND) 그대로
+    expect(read).toMatchObject({ place: 'ISLAND', openedAt: new Date(now + 60_000).toISOString() });
+  });
+
+  it('꽂이는 최근 7호 최신순 · 7호 밖은 404', async () => {
+    const items = await magazineMock.getMagazineIssues(now);
+    expect(items.map((i) => i.issueNo)).toEqual([19, 18, 17, 16, 15, 14, 13]);
+    await expect(
+      magazineMock.getMagazineIssue('mock-issue-12', null, 30, now),
+    ).rejects.toMatchObject({ code: 'MAGAZINE_ISSUE_NOT_FOUND' });
+  });
+
+  it('paged 면 칸 8개를 4개씩 커서로 — 편집부 지면은 첫 페이지에만', async () => {
+    process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'paged';
+    const first = await magazineMock.getMagazineIssue('mock-issue-19', null, 30, now);
+    expect(first.editorial).not.toBeNull();
+    expect(first.cells).toHaveLength(4);
+    const second = await magazineMock.getMagazineIssue('mock-issue-19', first.nextCursor, 30, now);
+    expect(second.editorial).toBeNull();
+    expect(second.cells).toHaveLength(4);
+    expect(second.nextCursor).toBeNull();
+  });
+});

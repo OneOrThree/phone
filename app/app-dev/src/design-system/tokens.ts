@@ -361,6 +361,21 @@ export const componentTokens = {
     cornerSize: 44,
     tapeWidthRatio: 0.26,
   },
+  // 고양이 잡지 속지(GROMO-2289 A1~A4) — 속지 그림(page.png, 폭:높이 502:900) 비율 그대로 늘리고,
+  // 아래 비율(속지 폭·높이 대비)만큼 안쪽에 글·칸을 둔다. 리본 = 위 제호 자리, nav = 아래 쪽 넘김 줄.
+  magazineReader: {
+    pageAspect: 502 / 900,
+    insetX: 0.115,
+    insetTop: 0.125,
+    insetBottom: 0.14,
+    ribbonTop: 0.024,
+    ribbonHeight: 0.064,
+    navBottom: 0.095,
+    cellGap: 8,
+    rankingTint: semanticTokens.color.subtle,
+    newTint: semanticTokens.color.secondary,
+    noteTint: semanticTokens.color.accent,
+  },
   divider: {
     color: semanticTokens.color.divider,
     width: semanticTokens.stroke.subtle,

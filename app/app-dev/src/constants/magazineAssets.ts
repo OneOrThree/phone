@@ -140,3 +140,21 @@ export const MAGAZINE_TELESCOPE_ICON: ImageSourcePropType = require('@/assets/ot
 
 /** 홍보 접수 발도장(C2) — 다음 호 미리보기 칸 위에 찍힌다. */
 export const MAGAZINE_STAMP: ImageSourcePropType = require('@/assets/ota/magazine/ui/stamp.png');
+
+/**
+ * 잡지 읽기 그림(A1~A4·C4·C5). page 는 속지(모눈 + 별·물고기·발자국·하트 테두리, 위 리본에 제호)로 비율 502:900 을
+ * 그대로 늘려 쓰고, 글·칸은 componentTokens.magazineReader 의 안쪽 여백 안에 둔다. cover 는 우체통 없는 섬의 잡지 물건.
+ */
+export const MAGAZINE_UI = {
+  page: require('@/assets/ota/magazine/ui/page.png'),
+  close: require('@/assets/ota/magazine/ui/close.png'),
+  cover: require('@/assets/ota/magazine/ui/cover.png'),
+  bannerRanking: require('@/assets/ota/magazine/ui/banner-ranking.png'),
+  tagNew: require('@/assets/ota/magazine/ui/tag-new.png'),
+  editorCat: require('@/assets/ota/magazine/ui/editor-cat.png'),
+  medals: [
+    require('@/assets/ota/magazine/ui/medal-1.png'),
+    require('@/assets/ota/magazine/ui/medal-2.png'),
+    require('@/assets/ota/magazine/ui/medal-3.png'),
+  ],
+} as const satisfies Record<string, ImageSourcePropType | readonly ImageSourcePropType[]>;

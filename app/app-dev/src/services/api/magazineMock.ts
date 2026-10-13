@@ -10,11 +10,25 @@
  *  - `poor` 섬 통장 30마리 · `private` 비공개 섬 · `guest` 게스트 섬장(403 SOCIAL_LOGIN_REQUIRED)
  *  - `member`   섬장이 아닌 주민으로 본다(쓰기 화면은 섬장만 · 주민 소식 토스트는 주민에게만)
  *  - `news`     방금 섬장이 홍보한 섬 소식이 있다
+ *
+ * 잡지 읽기(오늘 호·꽂이·호 펼치기·받음)는 최근 7호(13~19호)를 메모리에 둔다. 기본은 오늘 호를 이미 받았고 아직 안 읽은 상태다.
+ *  - `deliver`  오늘 호를 아직 받지 않았다(섬 홈에 펠리컨 배달이 뜬다)
+ *  - `opened`   오늘 호를 이미 읽었다(빨간 점 없음)
+ *  - `noissue`  아직 낸 호가 없다 · `emptyissue` 오늘 호에 홍보 칸·랭킹·새 섬이 없다
+ *  - `paged`    오늘 호 칸 8개를 4개씩 커서로 나눠 준다
  */
 import { ApiError, uuid } from './client';
 import type {
   IslandNewsItem,
   MagazineAssets,
+  MagazineCell,
+  MagazineEditorial,
+  MagazineIssue,
+  MagazineIssuePage,
+  MagazineIssueSummary,
+  MagazineReceipt,
+  MagazineToday,
+  ReceiptUpdate,
   PromotionApplied,
   PromotionDraft,
   PromotionEditor,
@@ -98,7 +112,179 @@ function seed(now: number) {
     });
 }
 
+const HOUR = 3600_000;
+const ISSUES = 7;
+const TODAY_NO = 19;
+// 07시 전에는 어제 07시 호가 오늘 호다
+const issueOf = (no: number, now: number): MagazineIssue => {
+  const date = kstDay(now - 7 * HOUR, no - TODAY_NO);
+  return {
+    issueId: `mock-issue-${no}`,
+    issueNo: no,
+    issueDate: date,
+    publishedAt: kstAt(date, 7),
+    current: no === TODAY_NO,
+  };
+};
+const card = (
+  name: string,
+  buildingCount: number,
+  memberCount: number,
+  averageFocusMinutesPerDay: number | null,
+  relation: MagazineCell['relation'] = 'NONE',
+) => ({
+  islandId: `mock-island-${name}`,
+  name,
+  buildingCount,
+  memberCount,
+  maxMembers: 15,
+  averageFocusMinutesPerDay,
+  relation,
+});
+const sticker = (assetId: string, x: number, y: number, scale: number, rotation = 0) => ({
+  assetId,
+  x,
+  y,
+  scale,
+  rotation,
+});
+// prettier-ignore
+const MOCK_CELLS: MagazineCell[] = [
+  { ...card('소다', 7, 8, 130, 'MEMBER'), promotionId: 'mock-cell-1', body: '같이 집중할 새 친구를 기다려요!',
+    layout: { v: 1, frameId: 'mag.frame-cloud', stickers: [sticker('mag.cat-ginger-fish', 0.86, 0.2, 0.18, -6), sticker('mag.heart', 0.84, 0.74, 0.08, 12)], tape: null } },
+  { ...card('별고래섬', 5, 12, 185), promotionId: 'mock-cell-2', body: '밤에 같이 공부할 고양이 모여라~',
+    layout: { v: 1, frameId: 'mag.frame-ticket', stickers: [sticker('mag.cat-black-book', 0.82, 0.18, 0.17), sticker('mag.star', 0.8, 0.78, 0.07)], tape: null } },
+  { ...card('노을', 3, 5, 100), promotionId: 'mock-cell-3', body: '노을을 보면서 천천히, 꾸준히 해요',
+    layout: { v: 1, frameId: 'mag.frame-grid', stickers: [sticker('mag.cat-calico-wave', 0.86, 0.17, 0.16)], tape: { assetId: 'mag.tape-yellowcheck', x: 0.4, y: 0, rotation: -8 } } },
+  { ...card('달빛섬', 2, 2, null, 'KICKED'), promotionId: 'mock-cell-4', body: '누구나 환영! 조용히 책 읽는 섬이에요',
+    layout: { v: 1, frameId: 'mag.frame-notebook', stickers: [sticker('mag.moon', 0.86, 0.22, 0.12), sticker('mag.book', 0.82, 0.74, 0.1, 8)], tape: null } },
+  { ...card('모래톱', 1, 1, 45), promotionId: 'mock-cell-5', body: '아침 7시 집중 메이트 구해요',
+    layout: { v: 1, frameId: 'mag.frame-wave', stickers: [sticker('mag.palm-island', 0.85, 0.24, 0.16), sticker('mag.shell', 0.9, 0.76, 0.07)], tape: null } },
+  { ...card('조약돌섬', 4, 6, 75), promotionId: 'mock-cell-6', body: '모닥불 앞에서 같이 공부해요',
+    layout: { v: 1, frameId: 'mag.frame-woodsign', stickers: [sticker('mag.campfire', 0.86, 0.3, 0.14)], tape: null } },
+  { ...card('구름섬', 6, 9, 150), promotionId: 'mock-cell-7', body: '시험 기간 같이 버텨요 화이팅',
+    layout: { v: 1, frameId: 'mag.frame-polaroid', stickers: [sticker('mag.cat-gray-cheer', 0.84, 0.22, 0.17)], tape: { assetId: 'mag.tape-mint', x: 0.5, y: 0, rotation: 4 } } },
+  { ...card('등대섬', 2, 3, 60), promotionId: 'mock-cell-8', body: '등대 불빛처럼 오래오래 같이 가요',
+    layout: { v: 1, frameId: 'mag.frame-envelope', stickers: [sticker('mag.lighthouse', 0.86, 0.3, 0.13)], tape: null } },
+];
+const MOCK_EDITORIAL: MagazineEditorial = {
+  ranking: [
+    { ...card('별고래섬', 5, 12, 185), rank: 1 },
+    { ...card('소다', 7, 8, 130, 'MEMBER'), rank: 2 },
+    { ...card('조약돌섬', 4, 6, 115), rank: 3 },
+  ],
+  newIslands: [card('달빛섬', 1, 2, null), card('모래톱', 0, 1, null)],
+  note: { type: 'TIP', body: null, tipNo: 0 },
+};
+
+/** 받음 기록(issueId → 기록). 처음 읽을 때 플래그대로 채운다. */
+const receipts = new Map<string, MagazineReceipt>();
+function seedReceipts(now: number) {
+  if (receipts.size) return;
+  const flags = mockFlags();
+  for (let no = TODAY_NO - ISSUES + 1; no <= TODAY_NO; no++) {
+    const issue = issueOf(no, now);
+    const today = no === TODAY_NO;
+    if (today && flags.has('deliver')) continue;
+    // 지난 호는 하나 걸러 읽음
+    const opened = today ? flags.has('opened') : no % 2 === 0;
+    receipts.set(issue.issueId, {
+      place: 'ISLAND',
+      receivedAt: issue.publishedAt,
+      deferredAt: null,
+      openedAt: opened ? issue.publishedAt : null,
+    });
+  }
+}
+const mockIssues = (now: number) =>
+  mockFlags().has('noissue')
+    ? []
+    : Array.from({ length: ISSUES }, (_, i) => issueOf(TODAY_NO - i, now));
+const cellsOf = (no: number) =>
+  mockFlags().has('emptyissue') && no === TODAY_NO
+    ? []
+    : no === TODAY_NO
+      ? MOCK_CELLS.slice(0, mockFlags().has('paged') ? 8 : 5)
+      : MOCK_CELLS.slice(TODAY_NO - no, TODAY_NO - no + 1 + (no % 3));
+
+const magazineReaderMock = {
+  async getMagazineToday(now = Date.now()): Promise<MagazineToday> {
+    await wait();
+    seedReceipts(now);
+    const issue = mockIssues(now)[0] ?? null;
+    return { issue, receipt: (issue && receipts.get(issue.issueId)) ?? null };
+  },
+
+  async getMagazineIssues(now = Date.now()): Promise<MagazineIssueSummary[]> {
+    await wait();
+    seedReceipts(now);
+    return mockIssues(now).map(({ current: _current, ...issue }) => ({
+      ...issue,
+      opened: !!receipts.get(issue.issueId)?.openedAt,
+    }));
+  },
+
+  async getMagazineIssue(
+    issueId: string,
+    cursor: string | null = null,
+    limit = 30,
+    now = Date.now(),
+  ): Promise<MagazineIssuePage> {
+    await wait();
+    const issue = mockIssues(now).find((i) => i.issueId === issueId);
+    if (!issue) return reject('MAGAZINE_ISSUE_NOT_FOUND', 404, '잡지 호를 찾을 수 없어요');
+    const all = cellsOf(issue.issueNo);
+    const size = mockFlags().has('paged') ? 4 : limit;
+    const from = cursor ? Number(cursor) : 0;
+    const empty = mockFlags().has('emptyissue') && issue.current;
+    return {
+      issue,
+      editorial: cursor
+        ? null
+        : empty
+          ? {
+              ranking: [],
+              newIslands: [],
+              note: {
+                type: 'EDITOR',
+                body: '오늘은 조용한 바다예요. 내일 또 만나요!',
+                tipNo: null,
+              },
+            }
+          : { ...MOCK_EDITORIAL, note: { ...MOCK_EDITORIAL.note, tipNo: issue.issueNo % 14 } },
+      cells: all.slice(from, from + size),
+      nextCursor: from + size < all.length ? String(from + size) : null,
+    };
+  },
+
+  async putMagazineReceipt(
+    issueId: string,
+    update: ReceiptUpdate,
+    now = Date.now(),
+  ): Promise<MagazineReceipt> {
+    await wait();
+    seedReceipts(now);
+    if (!mockIssues(now).some((i) => i.issueId === issueId))
+      return reject('MAGAZINE_ISSUE_NOT_FOUND', 404, '잡지 호를 찾을 수 없어요');
+    const at = new Date(now).toISOString();
+    const prev = receipts.get(issueId) ?? {
+      place: update.place,
+      receivedAt: at,
+      deferredAt: null,
+      openedAt: null,
+    };
+    const next = {
+      ...prev,
+      deferredAt: prev.deferredAt ?? (update.deferred ? at : null),
+      openedAt: prev.openedAt ?? (update.opened ? at : null),
+    };
+    receipts.set(issueId, next);
+    return next;
+  },
+};
 export const magazineMock = {
+  ...magazineReaderMock,
+
   async getMagazineAssets(): Promise<MagazineAssets> {
     await wait();
     const free = (assetId: string) => ({ assetId, bundle: 'free' as const, owned: true });
@@ -198,4 +384,5 @@ export function resetMagazineMock() {
   store.promotions = [];
   store.balance = null;
   store.news = [];
+  receipts.clear();
 }

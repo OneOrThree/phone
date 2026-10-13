@@ -10,6 +10,10 @@ import { EditorDriver, PromotionEditor } from './PromotionEditor';
 import { createTouchDriver } from './touchDriver';
 import { CANVAS_PAD } from './useStickerGestures';
 import { demoState } from '@/services/model';
+import { FinalIsland } from '@/screens/island/WorldMap';
+import { MagazineHomeLayer } from './MagazineDelivery';
+import { MagazineReader } from './MagazineReader';
+import { useMagazineToday } from './useMagazineToday';
 
 /**
  * 개발 전용 — 틀 11개 × 글(짧은 글 · 60자 한글 · 띄어쓰기 없는 60자 · 이모지 섞인 60자) × 스티커·테이프를
@@ -240,6 +244,46 @@ export function MagazineEditorPreview() {
               {toast}
             </T>
           </View>
+        )}
+      </View>
+    </SafeAreaProvider>
+  );
+}
+
+/**
+ * 개발 전용 — 우체통이 없는 섬의 잡지 배달(B2 「잡지 펼치기」/「나중에 읽기」)과 홈 잡지 물건(누르기 = 오늘 호, 길게 누르기 = 꽂이)을
+ * 목업 서버로 띄운다. 데모 섬에는 우체통이 있어 실제 앱으로는 이 경우를 볼 수 없다. 물건·버튼은 진짜 Pressable 이라
+ * maestro 로 누를 수 있다. `EXPO_PUBLIC_MAGAZINE_PREVIEW=home` 로 Metro 를 띄운다(EXPO_PUBLIC_MAGAZINE_MOCK=deliver 면 펠리컨부터).
+ */
+export function MagazineHomePreview() {
+  const [route, setRoute] = useState<{ name: string; id?: string }>({ name: 'home' });
+  const [state] = useState(() => {
+    const s = demoState();
+    return {
+      ...s,
+      islands: s.islands.map((i) =>
+        i.id === s.islandId ? { ...i, buildings: i.buildings.filter((b) => b !== 'mail') } : i,
+      ),
+    };
+  });
+  const { today } = useMagazineToday(route.name === 'home');
+  const go = (name: string, id?: string) => setRoute({ name, id });
+  const background = (
+    <FinalIsland state={state} go={() => {}} build={() => {}} showActions={false} />
+  );
+  return (
+    <SafeAreaProvider>
+      <View style={{ flex: 1 }}>
+        {route.name === 'magazine' ? (
+          <MagazineReader
+            e={{ state, detail: route.id, go, back: () => go('home') }}
+            background={background}
+          />
+        ) : (
+          <>
+            {background}
+            <MagazineHomeLayer today={today} hasMailbox={false} blocked={false} go={go} />
+          </>
         )}
       </View>
     </SafeAreaProvider>
