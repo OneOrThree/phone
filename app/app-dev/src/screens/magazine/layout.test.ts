@@ -21,7 +21,7 @@ import {
   updateSticker,
 } from './layout';
 
-const FRAME = 'mag.frame.catear';
+const FRAME = 'mag.frame-catear';
 
 describe('비율 좌표 ↔ 픽셀', () => {
   it.each([360, 300, 120])('너비 %ipx 에서 가운데 점이 같은 비율로 돌아온다', (width) => {
@@ -68,9 +68,9 @@ describe('범위 자르기', () => {
 describe('스티커', () => {
   it('11번째 스티커는 붙지 않는다(같은 스티커 여러 장은 된다)', () => {
     let layout = emptyLayout(FRAME);
-    for (let i = 0; i < MAX_STICKERS; i++) layout = addSticker(layout, 'mag.sticker.heart')!;
+    for (let i = 0; i < MAX_STICKERS; i++) layout = addSticker(layout, 'mag.heart')!;
     expect(layout.stickers).toHaveLength(10);
-    expect(addSticker(layout, 'mag.sticker.star')).toBeNull();
+    expect(addSticker(layout, 'mag.star')).toBeNull();
   });
 
   it('[맨 앞으로]는 배열 끝으로 옮긴다', () => {
@@ -81,34 +81,34 @@ describe('스티커', () => {
   });
 
   it('붙이기 → 옮기기 → 키우기 → 돌리기 → 지우기 뒤 저장 JSON 이 서버 요청 모양과 같다', () => {
-    let layout = emptyLayout('mag.frame.scallop');
-    layout = addSticker(layout, 'mag.sticker.cat-black-book')!;
-    layout = addSticker(layout, 'mag.sticker.fish')!;
-    layout = addSticker(layout, 'mag.sticker.star')!;
+    let layout = emptyLayout('mag.frame-scallop');
+    layout = addSticker(layout, 'mag.cat-black-book')!;
+    layout = addSticker(layout, 'mag.fish')!;
+    layout = addSticker(layout, 'mag.star')!;
     layout = updateSticker(layout, 0, { x: 0.82, y: 0.3 });
     layout = updateSticker(layout, 0, { scale: 0.22 });
     layout = updateSticker(layout, 0, { rotation: -12 });
     layout = updateSticker(layout, 1, { x: 0.151, y: 0.7804, scale: 0.15, rotation: 368 });
     layout = removeSticker(layout, 2);
-    layout = setTape(layout, 'mag.tape.yellowcheck');
+    layout = setTape(layout, 'mag.tape-yellowcheck');
     expect(JSON.parse(JSON.stringify(layout))).toEqual({
       v: 1,
-      frameId: 'mag.frame.scallop',
+      frameId: 'mag.frame-scallop',
       stickers: [
-        { assetId: 'mag.sticker.cat-black-book', x: 0.82, y: 0.3, scale: 0.22, rotation: -12 },
-        { assetId: 'mag.sticker.fish', x: 0.151, y: 0.78, scale: 0.15, rotation: 8 },
+        { assetId: 'mag.cat-black-book', x: 0.82, y: 0.3, scale: 0.22, rotation: -12 },
+        { assetId: 'mag.fish', x: 0.151, y: 0.78, scale: 0.15, rotation: 8 },
       ],
-      tape: { assetId: 'mag.tape.yellowcheck', x: 0.5, y: 0.04, rotation: -4 },
+      tape: { assetId: 'mag.tape-yellowcheck', x: 0.5, y: 0.04, rotation: -4 },
     });
   });
 });
 
 describe('테이프', () => {
   it('하나만 — 다른 테이프를 고르면 같은 자리에서 바꿔 끼우고 null 이면 뗀다', () => {
-    let layout = setTape(emptyLayout(FRAME), 'mag.tape.pink');
+    let layout = setTape(emptyLayout(FRAME), 'mag.tape-pink');
     layout = moveTape(layout, 0.97, 0.4, 85);
-    layout = setTape(layout, 'mag.tape.mint');
-    expect(layout.tape).toEqual({ assetId: 'mag.tape.mint', x: 0.97, y: 0.4, rotation: 85 });
+    layout = setTape(layout, 'mag.tape-mint');
+    expect(layout.tape).toEqual({ assetId: 'mag.tape-mint', x: 0.97, y: 0.4, rotation: 85 });
     expect(setTape(layout, null).tape).toBeNull();
   });
 

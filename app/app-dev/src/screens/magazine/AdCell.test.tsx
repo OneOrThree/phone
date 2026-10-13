@@ -16,12 +16,12 @@ const cell = (over: Partial<AdCellData> = {}): AdCellData => ({
   body: '같이 집중할 새 친구를 기다려요!',
   layout: {
     v: 1,
-    frameId: 'mag.frame.catear',
+    frameId: 'mag.frame-catear',
     stickers: [
-      { assetId: 'mag.sticker.cat-ginger-fish', x: 0.85, y: 0.2, scale: 0.2, rotation: -10 },
-      { assetId: 'mag.sticker.heart', x: 0.9, y: 0.8, scale: 0.08, rotation: 0 },
+      { assetId: 'mag.cat-ginger-fish', x: 0.85, y: 0.2, scale: 0.2, rotation: -10 },
+      { assetId: 'mag.heart', x: 0.9, y: 0.8, scale: 0.08, rotation: 0 },
     ],
-    tape: { assetId: 'mag.tape.pink', x: 0.5, y: 0.04, rotation: -4 },
+    tape: { assetId: 'mag.tape-pink', x: 0.5, y: 0.04, rotation: -4 },
   },
   ...over,
 });
@@ -32,7 +32,7 @@ describe('AdCell', () => {
   it('스티커 수만큼 그리고, 이 앱이 모르는 재료(새 시즌)는 건너뛴다', async () => {
     const data = cell();
     data.layout.stickers.push({
-      assetId: 'mag.sticker.season-2027',
+      assetId: 'mag.season-2027',
       x: 0.5,
       y: 0.5,
       scale: 0.2,
@@ -45,7 +45,7 @@ describe('AdCell', () => {
 
   it('모르는 틀도 기본 틀로 그려 죽지 않는다', async () => {
     const data = cell();
-    data.layout.frameId = 'mag.frame.season-2027';
+    data.layout.frameId = 'mag.frame-season-2027';
     const screen = await render(<AdCell testID="c" width={200} cell={data} />);
     expect(screen.getByTestId('c')).toBeTruthy();
   });

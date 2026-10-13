@@ -22,9 +22,9 @@ const TEXTS = [
 ];
 const NAMES = ['소다', '별고래섬', '아주아주길고긴이름을가진고양이들의작은섬마을'];
 const STICKERS: PromotionLayout['stickers'] = [
-  { assetId: 'mag.sticker.cat-ginger-fish', x: 0.85, y: 0.22, scale: 0.2, rotation: -10 },
-  { assetId: 'mag.sticker.heart', x: 0.9, y: 0.82, scale: 0.09, rotation: 12 },
-  { assetId: 'mag.sticker.star', x: 0.08, y: 0.1, scale: 0.08, rotation: -8 },
+  { assetId: 'mag.cat-ginger-fish', x: 0.85, y: 0.22, scale: 0.2, rotation: -10 },
+  { assetId: 'mag.heart', x: 0.9, y: 0.82, scale: 0.09, rotation: 12 },
+  { assetId: 'mag.star', x: 0.08, y: 0.1, scale: 0.08, rotation: -8 },
 ];
 const cellOf = (frameId: string, i: number): AdCellData => ({
   name: NAMES[i % NAMES.length],
@@ -37,7 +37,7 @@ const cellOf = (frameId: string, i: number): AdCellData => ({
     v: 1,
     frameId,
     stickers: i % 2 ? STICKERS : STICKERS.slice(0, 1),
-    tape: i % 4 === 0 ? { assetId: 'mag.tape.yellowcheck', x: 0.5, y: 0.04, rotation: -4 } : null,
+    tape: i % 4 === 0 ? { assetId: 'mag.tape-yellowcheck', x: 0.5, y: 0.04, rotation: -4 } : null,
   },
 });
 
@@ -66,7 +66,7 @@ export function MagazinePreview() {
           <T style={{ fontSize: 18, fontWeight: '700' }}>잡지 칸 미리보기 · 같은 칸 너비 4가지</T>
           <View style={{ gap: 16, alignItems: 'flex-start' }}>
             {[W, 300, 200, 120].map((w) => (
-              <AdCell key={w} width={w} cell={cellOf('mag.frame.catear', 1)} corner="scope" />
+              <AdCell key={w} width={w} cell={cellOf('mag.frame-catear', 1)} corner="scope" />
             ))}
           </View>
           {frames.map((frameId, f) => (

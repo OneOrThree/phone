@@ -23,14 +23,14 @@ const fileOf = (id: string) => {
 };
 
 describe('재료 표', () => {
-  it('틀 11 · 스티커 45 · 테이프 8 이고 id 는 mag.<종류>.<이름> 이다', () => {
+  it('틀 11 · 스티커 45 · 테이프 8 이고 id 는 "mag." + 카탈로그 id 다', () => {
     expect(Object.keys(MAGAZINE_FRAMES)).toHaveLength(11);
     expect(Object.keys(MAGAZINE_STICKERS)).toHaveLength(45);
     expect(Object.keys(MAGAZINE_TAPES)).toHaveLength(8);
-    for (const id of Object.keys(MAGAZINE_FRAMES)) expect(id).toMatch(/^mag\.frame\.[a-z0-9-]+$/);
+    for (const id of Object.keys(MAGAZINE_FRAMES)) expect(id).toMatch(/^mag\.frame-[a-z0-9-]+$/);
     for (const id of Object.keys(MAGAZINE_STICKERS))
-      expect(id).toMatch(/^mag\.sticker\.[a-z0-9-]+$/);
-    for (const id of Object.keys(MAGAZINE_TAPES)) expect(id).toMatch(/^mag\.tape\.[a-z0-9-]+$/);
+      expect(id).toMatch(/^mag\.(?!frame-|tape-)[a-z0-9-]+$/);
+    for (const id of Object.keys(MAGAZINE_TAPES)) expect(id).toMatch(/^mag\.tape-[a-z0-9-]+$/);
   });
 
   it('스티커는 서랍 탭 넷(고양이·바다·친구들·꾸미기) 중 하나에 든다', () => {
