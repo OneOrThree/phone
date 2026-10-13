@@ -1,5 +1,7 @@
 package com.oneorthree.phone.internal;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.common.util.ZonePolicy;
@@ -28,6 +30,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -38,12 +42,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -57,19 +63,24 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 고양이 잡지 홍보비와 섬 소식 (GROMO-2267)을 <b>실제 Flyway PostgreSQL</b> 위에서 생산 진입점(내부 표면)으로 검증한다.
- * 시계는 고정한다(KST 하루 경계). 시드는 전부 생산 엔티티·서비스이고, 섬 통장 잔액만 SQL 로 맞춘다.
+ * 고양이 잡지 홍보 칸·홍보비·섬 소식 (GROMO-2267 · GROMO-2289)을 <b>실제 Flyway PostgreSQL</b> 위에서 생산 진입점(내부
+ * 표면)으로 검증한다. 시계는 고정한다(KST 07시·자정 경계). 시드는 전부 생산 엔티티·서비스와 V113 재료 시드이고, 섬 통장
+ * 잔액·시즌 재료·보유 행만 SQL 로 맞춘다.
  *
- * <p>보는 것: 신청의 차감·원장·소식·이벤트, 하루 1회(KST 자정 경계), 잔액 부족의 무흔적 실패, 섬장·게스트 가드,
- * 같은 키 재생(재생 인가 포함), 동시 두 신청, 소식 읽기, 섬이 닫힐 때의 정리, 지갑 계층 계약과 공동 가계부 반영.
+ * <p>보는 것: 신청의 차감·원장·칸·소식·이벤트, 한 호에 한 번과 신청 창(07~24시), 비공개 섬, 글·배치·보유 검증(직전 칸에
+ * 있던 재료 포함), 잔액 부족의 무흔적 실패, 섬장·게스트 가드, 같은 키 재생(재생 인가·다른 본문 포함), 동시 두 신청,
+ * 고치기(창 안에서만·돈·지면 순서 불변), 쓰기 화면 불러오기, 꾸미기 재료 목록, 기능 스위치, 소식 읽기, 섬이 닫힐 때의
+ * 정리, 지갑 계층 계약과 공동 가계부 반영.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -77,8 +88,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class IslandPromotionIntegrationTest {
 
     private static final String TOKEN = "test-island-promotion-business";
-    private static final Instant DAY1 = Instant.parse("2026-10-12T05:00:00Z"); // KST 14:00
+    private static final Instant DAY1 = Instant.parse("2026-10-12T05:00:00Z"); // KST 10/12 14:00 → 10/13 호
     private static final String NEWS_BODY = "섬장이 오늘 잡지 홍보에 60마리를 썼어요";
+    private static final String BODY = "같이 아침 공부해요";
+    private static final String FRAME = "mag.frame-scallop";
+    private static final String STICKER = "mag.cat-black-book";
+    private static final String TAPE = "mag.tape-cream";
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -87,7 +103,10 @@ class IslandPromotionIntegrationTest {
         registry.add("island-management.commands-enabled", () -> true);
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
-        String[] allow = {"POST /internal/users/*/islands/*/promotions", "GET /internal/users/*/islands/*/news"};
+        registry.add("magazine.enabled", () -> true);
+        String[] allow = {"POST /internal/users/*/islands/*/promotions", "GET /internal/users/*/islands/*/news",
+            "PUT /internal/users/*/islands/*/promotions/*", "GET /internal/users/*/islands/*/promotions/editor",
+            "GET /internal/users/*/magazine/assets"};
         for (int i = 0; i < allow.length; i++) {
             String entry = allow[i];
             registry.add("internal.api.callers.business.allow[" + i + "]", () -> entry);
@@ -120,6 +139,8 @@ class IslandPromotionIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     MockMvc mvc;
+    @Autowired
+    IslandPromotionService promotionService;
 
     private final AtomicReference<Instant> now = new AtomicReference<>(DAY1);
 
@@ -134,12 +155,15 @@ class IslandPromotionIntegrationTest {
     // ---------------------------------------------------------------- 신청
 
     @Test
-    @DisplayName("섬장이 신청하면 통장에서 60마리가 빠지고(100→40) 원장 1건·섬 소식 1건·wallet.updated 1건이 생긴다")
+    @DisplayName("섬장이 신청하면 통장에서 60마리가 빠지고(100→40) 내일 호 칸 1건·원장 1건·섬 소식 1건·wallet.updated 1건이 생긴다")
     void hostPaysSixtyAndNewsIsPublished() throws Exception {
         Island island = island(100);
 
-        String body = promote(island.host, island.id, UUID.randomUUID())
+        String body = promote(island.host, island.id, UUID.randomUUID(),
+                content("  " + BODY + " ", layout(FRAME, List.of(STICKER, STICKER), TAPE)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.promotionId").isString())
+                .andExpect(jsonPath("$.issueDate").value("2026-10-13"))
                 .andExpect(jsonPath("$.feeFish").value(60))
                 .andExpect(jsonPath("$.balanceAfter").value(40))
                 .andExpect(jsonPath("$.newsId").isString())
@@ -150,7 +174,17 @@ class IslandPromotionIntegrationTest {
                 + "from island_wallet_transactions where island_id = ?", island.id);
         assertThat(ledger).hasSize(1);
         assertThat(ledger.get(0)).containsEntry("type", "PROMOTION_FEE").containsEntry("amount", 60)
-                .containsEntry("idempotency_key", "promotion:" + island.id + ":2026-10-12");
+                .as("원장 키는 신청한 날이 아니라 실릴 호의 날짜다")
+                .containsEntry("idempotency_key", "promotion:" + island.id + ":2026-10-13");
+        Map<String, Object> row = jdbc.queryForMap("select id, issue_date::text as issue_date, applied_by, body, "
+                + "layout::text as layout, moderation, applied_at, updated_at from island_promotions "
+                + "where island_id = ?", island.id);
+        assertThat(body).contains(row.get("id").toString());
+        assertThat(row).containsEntry("issue_date", "2026-10-13").containsEntry("applied_by", island.host)
+                .as("앞뒤 공백을 뗀 정규형").containsEntry("body", BODY).containsEntry("moderation", "NONE");
+        assertThat(JSON.readTree((String) row.get("layout"))).isEqualTo(JSON.readTree(
+                layout(FRAME, List.of(STICKER, STICKER), TAPE)));
+        assertThat(((Timestamp) row.get("applied_at")).toInstant()).isEqualTo(DAY1);
 
         List<Map<String, Object>> news = jdbc.queryForList("select id, kind, body from island_news "
                 + "where island_id = ?", island.id);
@@ -163,28 +197,122 @@ class IslandPromotionIntegrationTest {
     }
 
     @Test
-    @DisplayName("같은 KST 날 다른 키로 두 번째 신청은 409 PROMOTION_ALREADY_REQUESTED_TODAY 이고 자정(KST)을 넘기면 다시 된다")
-    void oneRequestPerKstDay() throws Exception {
+    @DisplayName("같은 호에 다른 키로 두 번째 신청은 409 PROMOTION_ALREADY_REQUESTED_TODAY, 자정~07시는 409 PROMOTION_WINDOW_CLOSED, 07시부터 다음 호가 된다")
+    void oneRequestPerIssueInsideTheWindow() throws Exception {
         Island island = island(200);
         promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isCreated());
 
         promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PROMOTION_ALREADY_REQUESTED_TODAY"));
-        // 같은 UTC 날이라도 KST 자정(= 15:00Z) 전이면 같은 날이다.
-        now.set(Instant.parse("2026-10-12T14:59:00Z"));
+        // 같은 UTC 날이라도 KST 자정(= 15:00Z) 전이면 같은 창이다.
+        now.set(Instant.parse("2026-10-12T14:59:59Z"));
         promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PROMOTION_ALREADY_REQUESTED_TODAY"));
+        for (String closed : List.of("2026-10-12T15:00:00Z", "2026-10-12T18:30:00Z", "2026-10-12T21:59:59Z")) {
+            now.set(Instant.parse(closed)); // KST 10/13 00:00 · 03:30 · 06:59:59
+            promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("PROMOTION_WINDOW_CLOSED"));
+        }
         assertThat(balance(island.id)).as("거절된 신청은 잔액을 건드리지 않는다").isEqualTo(140);
         assertThat(ledgerRows(island.id)).isEqualTo(1);
         assertThat(newsRows(island.id)).isEqualTo(1);
+        assertThat(promotionRows(island.id)).isEqualTo(1);
 
-        now.set(Instant.parse("2026-10-12T15:01:00Z")); // KST 10/13 00:01
+        now.set(Instant.parse("2026-10-12T22:00:00Z")); // KST 10/13 07:00 — 10/13 호 발행, 10/14 호 창 열림
         promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.issueDate").value("2026-10-14"))
                 .andExpect(jsonPath("$.balanceAfter").value(80));
         assertThat(jdbc.queryForList("select idempotency_key from island_wallet_transactions where island_id = ? "
                 + "order by idempotency_key", String.class, island.id))
-                .containsExactly("promotion:" + island.id + ":2026-10-12", "promotion:" + island.id + ":2026-10-13");
+                .containsExactly("promotion:" + island.id + ":2026-10-13", "promotion:" + island.id + ":2026-10-14");
+        assertThat(jdbc.queryForList("select issue_date::text from island_promotions where island_id = ? "
+                + "order by issue_date", String.class, island.id)).containsExactly("2026-10-13", "2026-10-14");
         assertThat(newsRows(island.id)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("비공개 섬은 409 PROMOTION_PRIVATE_ISLAND — 차감·칸·소식·receipt 가 없다")
+    void privateIslandCannotPromote() throws Exception {
+        Island island = island(100);
+        jdbc.update("update groups set is_private = true where id = ?", island.id);
+
+        promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PROMOTION_PRIVATE_ISLAND"));
+
+        assertNothingWritten(island, 100);
+    }
+
+    @Test
+    @DisplayName("글·배치가 틀리면 아무것도 남지 않는다 — 61자 422 · 금칙어 400 · 줄바꿈 400 · 스티커 11개 400 · 없는 재료 400 · 자리에 맞지 않는 종류 400")
+    void invalidContentLeavesNoTrace() throws Exception {
+        Island island = island(100);
+        String ok = layout(FRAME, List.of(STICKER), TAPE);
+
+        expectRejected(island, content("가".repeat(61), ok), 422, "PROMOTION_TEXT_TOO_LONG");
+        expectRejected(island, content("씨발 섬", ok), 400, "BANNED_WORD");
+        expectRejected(island, content("첫 줄\n둘째 줄", ok), 400, "PROMOTION_LAYOUT_INVALID");
+        expectRejected(island, content(BODY, layout(FRAME, Collections.nCopies(11, STICKER), null)), 400,
+                "PROMOTION_LAYOUT_INVALID");
+        expectRejected(island, content(BODY, layout("mag.no-such-frame", List.of(), null)), 400,
+                "PROMOTION_LAYOUT_INVALID");
+        expectRejected(island, content(BODY, layout(STICKER, List.of(), null)), 400, "PROMOTION_LAYOUT_INVALID");
+        expectRejected(island, content(BODY, layout(FRAME, List.of(TAPE), null)), 400, "PROMOTION_LAYOUT_INVALID");
+        expectRejected(island, content(BODY, layout(FRAME, List.of(), STICKER)), 400, "PROMOTION_LAYOUT_INVALID");
+        expectRejected(island, "{\"body\":\"" + BODY + "\"}", 400, "PROMOTION_LAYOUT_INVALID");
+
+        assertNothingWritten(island, 100);
+        // 경계값은 통과한다 — 60자, 스티커 10개.
+        promote(island.host, island.id, UUID.randomUUID(),
+                content("가".repeat(60), layout(FRAME, Collections.nCopies(10, STICKER), TAPE)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("재료 보유 — 안 가진 시즌 재료·퇴역한 무료 재료는 403, 보유 행이 생기면 통과한다")
+    void unownedAssetsAreRejected() throws Exception {
+        Island island = island(200);
+        String season = magazineAsset("ad_sticker", "sea", "season", false);
+        String retiredFrame = magazineAsset("ad_frame", null, "free", true);
+
+        expectRejected(island, content(BODY, layout(FRAME, List.of(season), null)), 403,
+                "PROMOTION_ASSET_NOT_OWNED");
+        expectRejected(island, content(BODY, layout(retiredFrame, List.of(), null)), 403,
+                "PROMOTION_ASSET_NOT_OWNED");
+        // 다른 사람(일반 주민)이 가진 것은 섬장의 것이 아니다.
+        grant(island.member, season);
+        expectRejected(island, content(BODY, layout(FRAME, List.of(season), null)), 403,
+                "PROMOTION_ASSET_NOT_OWNED");
+        assertNothingWritten(island, 200);
+
+        grant(island.host, season);
+        grant(island.host, retiredFrame);
+        promote(island.host, island.id, UUID.randomUUID(),
+                content(BODY, layout(retiredFrame, List.of(season, season), null))).andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("직전 칸에 있던 재료는 보유를 잃어도 그 장수까지 다시 실을 수 있다 — 한 장 더 늘리면 403")
+    void assetsOfThePreviousCellStayUsableUpToTheirCount() throws Exception {
+        Island island = island(300);
+        String season = magazineAsset("ad_sticker", "cat", "season", false);
+        grant(island.host, season);
+        promote(island.host, island.id, UUID.randomUUID(),
+                content(BODY, layout(FRAME, List.of(season, season), null))).andExpect(status().isCreated());
+        jdbc.update("delete from owned_products where user_id = ? and product_id = ?", island.host, season);
+
+        now.set(Instant.parse("2026-10-13T05:00:00Z")); // 다음 날 14:00 → 10/14 호
+        expectRejected(island, content(BODY, layout(FRAME, List.of(season, season, season), null)), 403,
+                "PROMOTION_ASSET_NOT_OWNED");
+        promote(island.host, island.id, UUID.randomUUID(),
+                content(BODY, layout(FRAME, List.of(STICKER, season, season), null))).andExpect(status().isCreated());
+        // 섬장이 바뀌어도 새 섬장이 불러온 칸을 그대로 실을 수 있다(계획 P27).
+        jdbc.update("update group_members set role = 'MEMBER' where user_id = ? and group_id = ?",
+                island.host, island.id);
+        jdbc.update("update group_members set role = 'OWNER' where user_id = ? and group_id = ?",
+                island.member, island.id);
+        now.set(Instant.parse("2026-10-14T05:00:00Z")); // → 10/15 호
+        promote(island.member, island.id, UUID.randomUUID(),
+                content(BODY, layout(FRAME, List.of(season, season), null))).andExpect(status().isCreated());
     }
 
     @Test
@@ -202,6 +330,7 @@ class IslandPromotionIntegrationTest {
         assertThat(events("wallet.updated", island.id)).isZero();
         assertThat(count("select count(*) from command_idempotency where user_id = ?", island.host))
                 .as("실패는 receipt 를 남기지 않는다").isZero();
+        assertThat(promotionRows(island.id)).as("돈이 모자라면 칸도 없다").isZero();
 
         setBalance(island.id, 60);
         promote(island.host, island.id, key).andExpect(status().isCreated())
@@ -257,6 +386,13 @@ class IslandPromotionIntegrationTest {
         assertThat(ledgerRows(island.id)).isEqualTo(1);
         assertThat(newsRows(island.id)).isEqualTo(1);
         assertThat(events("wallet.updated", island.id)).as("재생은 사건을 다시 적지 않는다").isEqualTo(1);
+        assertThat(promotionRows(island.id)).isEqualTo(1);
+
+        // 같은 키·다른 본문은 재생이 아니라 충돌이다 — 의미 요청에 본문이 실린다.
+        promote(island.host, island.id, key, content("다른 글", layout(FRAME, List.of(), null)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_CONFLICT"));
+        assertThat(balance(island.id)).isEqualTo(40);
 
         // 위임·강등 뒤의 옛 섬장은 같은 키로 결과를 다시 받을 수 없다.
         jdbc.update("update group_members set role = 'MEMBER' where user_id = ? and group_id = ?",
@@ -350,6 +486,10 @@ class IslandPromotionIntegrationTest {
                 .as("닫힌 섬의 소식").isZero();
         assertThat(ledgerRows(closing))
                 .as("닫힌 섬의 홍보비 원장").isZero();
+        assertThat(promotionRows(closing))
+                .as("닫힌 섬의 홍보 칸").isZero();
+        assertThat(promotionRows(staying.id))
+                .as("다른 섬의 홍보 칸").isEqualTo(1);
         assertThat(newsRows(staying.id))
                 .as("다른 섬의 소식").isEqualTo(1);
         assertThat(ledgerRows(staying.id))
@@ -359,6 +499,215 @@ class IslandPromotionIntegrationTest {
                 .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
         readNews(host, closing, "").andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+    }
+
+    // ---------------------------------------------------------------- 고치기
+
+    @Test
+    @DisplayName("신청 창 안의 고치기는 글·틀·스티커를 바꾸고 돈을 다시 빼지 않으며 지면 순서(applied_at)는 그대로다")
+    void editingInsideTheWindow() throws Exception {
+        Island island = island(100);
+        String promotionId = promotionIdOf(promote(island.host, island.id, UUID.randomUUID()));
+
+        now.set(Instant.parse("2026-10-12T14:59:59Z")); // KST 23:59:59 — 마감 직전
+        String edited = layout("mag.frame-cloud", List.of("mag.fish", "mag.fish"), null);
+        update(island.host, island.id, promotionId, content(" 고친 글 ", edited)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.promotionId").value(promotionId))
+                .andExpect(jsonPath("$.issueDate").value("2026-10-13"))
+                .andExpect(jsonPath("$.body").value("고친 글"))
+                .andExpect(jsonPath("$.layout.frameId").value("mag.frame-cloud"))
+                .andExpect(jsonPath("$.layout.stickers.length()").value(2))
+                .andExpect(jsonPath("$.layout.tape").doesNotExist())
+                .andExpect(jsonPath("$.updatedAt").value("2026-10-12T14:59:59Z"));
+
+        Map<String, Object> row = jdbc.queryForMap("select body, layout::text as layout, applied_at, updated_at "
+                + "from island_promotions where id = ?::uuid", promotionId);
+        assertThat(row).containsEntry("body", "고친 글");
+        assertThat(JSON.readTree((String) row.get("layout"))).isEqualTo(JSON.readTree(edited));
+        assertThat(((Timestamp) row.get("applied_at")).toInstant()).as("지면 순서 불변").isEqualTo(DAY1);
+        assertThat(((Timestamp) row.get("updated_at")).toInstant())
+                .isEqualTo(Instant.parse("2026-10-12T14:59:59Z"));
+        assertThat(balance(island.id)).as("고치기는 무료").isEqualTo(40);
+        assertThat(ledgerRows(island.id)).isEqualTo(1);
+        assertThat(newsRows(island.id)).as("고치기는 소식을 남기지 않는다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("자정(00:00:00 KST)부터는 409 PROMOTION_LOCKED — 글·틀·스티커 모두, 07시 뒤(발행 뒤)에도 그대로다")
+    void editingAfterMidnightIsLocked() throws Exception {
+        Island island = island(100);
+        String promotionId = promotionIdOf(promote(island.host, island.id, UUID.randomUUID()));
+        String original = jdbc.queryForObject("select layout::text from island_promotions where id = ?::uuid",
+                String.class, promotionId);
+
+        for (String locked : List.of("2026-10-12T15:00:00Z", "2026-10-12T21:59:59Z", "2026-10-12T22:00:00Z",
+                "2026-10-13T05:00:00Z")) {
+            now.set(Instant.parse(locked));
+            update(island.host, island.id, promotionId, content(BODY, layout(FRAME, List.of(), null)))
+                    .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROMOTION_LOCKED"));
+            update(island.host, island.id, promotionId, content("글만 바꾸기", original))
+                    .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROMOTION_LOCKED"));
+        }
+        assertThat(jdbc.queryForObject("select body from island_promotions where id = ?::uuid", String.class,
+                promotionId)).isEqualTo(BODY);
+    }
+
+    @Test
+    @DisplayName("고치기 가드 — 다른 섬의 홍보·없는 홍보 404, 섬장 아님 403 NOT_OWNER, 게스트 403, 틀린 내용 400")
+    void editingGuards() throws Exception {
+        Island island = island(100);
+        Island other = island(100);
+        String promotionId = promotionIdOf(promote(island.host, island.id, UUID.randomUUID()));
+        String otherPromotion = promotionIdOf(promote(other.host, other.id, UUID.randomUUID()));
+        String fine = content("고친 글", layout(FRAME, List.of(), null));
+
+        update(island.host, island.id, otherPromotion, fine).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PROMOTION_NOT_FOUND"));
+        update(island.host, island.id, UUID.randomUUID().toString(), fine).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PROMOTION_NOT_FOUND"));
+        update(island.member, island.id, promotionId, fine).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_OWNER"));
+        jdbc.update("update users set is_guest = true where id = ?", island.host);
+        update(island.host, island.id, promotionId, fine).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+        jdbc.update("update users set is_guest = false where id = ?", island.host);
+        update(island.host, island.id, promotionId, content("가".repeat(61), layout(FRAME, List.of(), null)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("PROMOTION_TEXT_TOO_LONG"));
+        assertThat(jdbc.queryForObject("select body from island_promotions where id = ?::uuid", String.class,
+                promotionId)).isEqualTo(BODY);
+    }
+
+    // ---------------------------------------------------------------- 쓰기 화면 불러오기
+
+    @Test
+    @DisplayName("불러오기 — 처음엔 next·latest 가 없고, 신청하면 next(고칠 수 있음), 자정 뒤엔 next(못 고침), 다음 날 07시 뒤엔 latest 다")
+    void editorFollowsTheWindow() throws Exception {
+        Island island = island(100);
+
+        editor(island.host, island.id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.window.open").value(true))
+                .andExpect(jsonPath("$.window.issueDate").value("2026-10-13"))
+                .andExpect(jsonPath("$.window.opensAt").value("2026-10-11T22:00:00Z"))
+                .andExpect(jsonPath("$.window.closesAt").value("2026-10-12T15:00:00Z"))
+                .andExpect(jsonPath("$.next").value(nullValue()))
+                .andExpect(jsonPath("$.latest").value(nullValue()))
+                .andExpect(jsonPath("$.feeFish").value(60))
+                .andExpect(jsonPath("$.balance").value(100))
+                .andExpect(jsonPath("$.privateIsland").value(false));
+
+        String promotionId = promotionIdOf(promote(island.host, island.id, UUID.randomUUID()));
+        editor(island.host, island.id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.next.promotionId").value(promotionId))
+                .andExpect(jsonPath("$.next.issueDate").value("2026-10-13"))
+                .andExpect(jsonPath("$.next.body").value(BODY))
+                .andExpect(jsonPath("$.next.layout.frameId").value(FRAME))
+                .andExpect(jsonPath("$.next.layout.stickers[0].assetId").value(STICKER))
+                .andExpect(jsonPath("$.next.layout.tape.assetId").value(TAPE))
+                .andExpect(jsonPath("$.next.appliedAt").value("2026-10-12T05:00:00Z"))
+                .andExpect(jsonPath("$.next.editable").value(true))
+                .andExpect(jsonPath("$.balance").value(40));
+
+        now.set(Instant.parse("2026-10-12T18:00:00Z")); // KST 10/13 03:00 — 창 닫힘, 10/13 호 발행 전
+        editor(island.host, island.id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.window.open").value(false))
+                .andExpect(jsonPath("$.window.issueDate").value("2026-10-14"))
+                .andExpect(jsonPath("$.window.opensAt").value("2026-10-12T22:00:00Z"))
+                .andExpect(jsonPath("$.next.promotionId").value(promotionId))
+                .andExpect(jsonPath("$.next.editable").value(false))
+                .andExpect(jsonPath("$.latest").value(nullValue()));
+
+        now.set(Instant.parse("2026-10-12T22:30:00Z")); // KST 10/13 07:30 — 10/13 호는 발행됐다
+        editor(island.host, island.id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.window.open").value(true))
+                .andExpect(jsonPath("$.next").value(nullValue()))
+                .andExpect(jsonPath("$.latest.promotionId").value(promotionId))
+                .andExpect(jsonPath("$.latest.body").value(BODY))
+                .andExpect(jsonPath("$.latest.layout.frameId").value(FRAME));
+
+        // 운영이 내린 칸은 글을 비우고 꾸미기만 불러온다.
+        jdbc.update("update island_promotions set moderation = 'REMOVED' where id = ?::uuid", promotionId);
+        editor(island.host, island.id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.latest.body").value(""))
+                .andExpect(jsonPath("$.latest.layout.frameId").value(FRAME));
+    }
+
+    @Test
+    @DisplayName("불러오기 가드 — 일반 주민·비주민 403 NOT_OWNER, 게스트 섬장 403 SOCIAL_LOGIN_REQUIRED(꾸미기 전에), 비공개 섬은 표시만")
+    void editorGuards() throws Exception {
+        Island island = island(100);
+
+        editor(island.member, island.id).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_OWNER"));
+        editor(island.visitor, island.id).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_OWNER"));
+        jdbc.update("update groups set is_private = true where id = ?", island.id);
+        editor(island.host, island.id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.privateIsland").value(true));
+
+        UUID guestHost = newGuest();
+        UUID guestIsland = newIsland();
+        join(guestHost, guestIsland, GroupMemberRole.OWNER);
+        editor(guestHost, guestIsland).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+    }
+
+    // ---------------------------------------------------------------- 꾸미기 재료 목록
+
+    @Test
+    @DisplayName("재료 목록 — 시드 64종(틀 11 · 스티커 45 · 테이프 8)은 누구에게나 owned, 시즌은 보유 행이 있어야, 퇴역은 보유자에게만 남는다")
+    void assetCatalog() throws Exception {
+        UUID user = newUser();
+        UUID guest = newGuest();
+        String season = magazineAsset("ad_sticker", "friends", "season", false);
+        String retired = magazineAsset("ad_tape", null, "free", true);
+        String retiredOwned = magazineAsset("ad_frame", null, "season", true);
+        grant(user, retiredOwned);
+
+        Map<String, Object> mine = JSON.readValue(assets(user).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8), Map.class);
+        assertThat(seeded(mine, "frames")).hasSize(11).allSatisfy(item -> assertThat(item)
+                .containsEntry("bundle", "free").containsEntry("owned", true).doesNotContainKey("tab"));
+        assertThat(seeded(mine, "stickers")).hasSize(45).allSatisfy(item -> assertThat(item)
+                .containsEntry("bundle", "free").containsEntry("owned", true).containsKey("tab"));
+        assertThat(seeded(mine, "tapes")).hasSize(8);
+        assertThat(seeded(mine, "frames").get(0)).containsEntry("assetId", FRAME);
+        assertThat(seeded(mine, "stickers").get(0)).containsEntry("assetId", STICKER).containsEntry("tab", "cat");
+        assertThat(item(mine, "stickers", season)).containsEntry("bundle", "season").containsEntry("owned", false)
+                .containsEntry("tab", "friends");
+        assertThat(item(mine, "tapes", retired)).as("보유 행 없는 퇴역 재료는 빠진다").isNull();
+        assertThat(item(mine, "frames", retiredOwned)).as("보유한 퇴역 재료는 남는다").containsEntry("owned", true);
+
+        grant(user, season);
+        assets(user).andExpect(status().isOk());
+        assertThat(item(JSON.readValue(assets(user).andReturn().getResponse()
+                .getContentAsString(StandardCharsets.UTF_8), Map.class), "stickers", season))
+                .containsEntry("owned", true);
+        assets(guest).andExpect(status().isOk()).andExpect(jsonPath("$.frames.length()").isNumber());
+    }
+
+    // ---------------------------------------------------------------- 기능 스위치
+
+    @Test
+    @DisplayName("magazine.enabled 가 꺼져 있으면 신청·고치기는 503 MAGAZINE_NOT_READY 이고 아무것도 남지 않는다 — 읽기는 열려 있다")
+    void featureSwitchClosesWrites() throws Exception {
+        Island island = island(100);
+        String promotionId = promotionIdOf(promote(island.host, island.id, UUID.randomUUID()));
+        Object target = AopTestUtils.getUltimateTargetObject(promotionService);
+        ReflectionTestUtils.setField(target, "enabled", false);
+        try {
+            Island fresh = island(100);
+            promote(fresh.host, fresh.id, UUID.randomUUID()).andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("MAGAZINE_NOT_READY"));
+            update(island.host, island.id, promotionId, content("고친 글", layout(FRAME, List.of(), null)))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("MAGAZINE_NOT_READY"));
+            assertNothingWritten(fresh, 100);
+            editor(island.host, island.id).andExpect(status().isOk());
+            assets(island.host).andExpect(status().isOk());
+        } finally {
+            ReflectionTestUtils.setField(target, "enabled", true);
+        }
     }
 
     // ---------------------------------------------------------------- 지갑 계층 · 가계부
@@ -451,10 +800,115 @@ class IslandPromotionIntegrationTest {
         return jwt.extractUserId(auth.guestLogin().accessToken());
     }
 
+    /** 기본 칸 — 틀·스티커 하나·테이프. */
     private ResultActions promote(UUID actor, UUID islandId, UUID key) throws Exception {
+        return promote(actor, islandId, key, content(BODY, layout(FRAME, List.of(STICKER), TAPE)));
+    }
+
+    private ResultActions promote(UUID actor, UUID islandId, UUID key, String json) throws Exception {
         return mvc.perform(post("/internal/users/" + actor + "/islands/" + islandId + "/promotions")
                 .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor)
-                .header("Idempotency-Key", key));
+                .header("Idempotency-Key", key).contentType("application/json").content(json));
+    }
+
+    private ResultActions update(UUID actor, UUID islandId, String promotionId, String json) throws Exception {
+        return mvc.perform(put("/internal/users/" + actor + "/islands/" + islandId + "/promotions/" + promotionId)
+                .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor)
+                .contentType("application/json").content(json));
+    }
+
+    private ResultActions editor(UUID actor, UUID islandId) throws Exception {
+        return mvc.perform(get("/internal/users/" + actor + "/islands/" + islandId + "/promotions/editor")
+                .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor));
+    }
+
+    private ResultActions assets(UUID actor) throws Exception {
+        return mvc.perform(get("/internal/users/" + actor + "/magazine/assets")
+                .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor));
+    }
+
+    private static String promotionIdOf(ResultActions created) throws Exception {
+        return JSON.readTree(created.andExpect(status().isCreated()).andReturn().getResponse()
+                .getContentAsString(StandardCharsets.UTF_8)).get("promotionId").asText();
+    }
+
+    /** 요청 본문 {@code {body, layout}} — 배치는 이미 만든 JSON 문자열이다. */
+    private static String content(String body, String layoutJson) throws JsonProcessingException {
+        return "{\"body\":" + JSON.writeValueAsString(body) + ",\"layout\":" + layoutJson + "}";
+    }
+
+    /** 배치 JSON — 스티커는 칸 안 여기저기에, 테이프는 위 테두리에 붙인다. */
+    private static String layout(String frameId, List<String> stickerIds, String tapeId)
+            throws JsonProcessingException {
+        Map<String, Object> layout = new LinkedHashMap<>();
+        layout.put("v", 1);
+        layout.put("frameId", frameId);
+        List<Map<String, Object>> stickers = new ArrayList<>();
+        for (int i = 0; i < stickerIds.size(); i++) {
+            Map<String, Object> sticker = new LinkedHashMap<>();
+            sticker.put("assetId", stickerIds.get(i));
+            sticker.put("x", 0.1 + 0.08 * i);
+            sticker.put("y", 0.5);
+            sticker.put("scale", 0.2);
+            sticker.put("rotation", -12.0 + i);
+            stickers.add(sticker);
+        }
+        layout.put("stickers", stickers);
+        if (tapeId != null) {
+            Map<String, Object> tape = new LinkedHashMap<>();
+            tape.put("assetId", tapeId);
+            tape.put("x", 0.5);
+            tape.put("y", 0.0);
+            tape.put("rotation", -4.0);
+            layout.put("tape", tape);
+        } else {
+            layout.put("tape", null);
+        }
+        return JSON.writeValueAsString(layout);
+    }
+
+    private void expectRejected(Island island, String json, int status, String code) throws Exception {
+        promote(island.host, island.id, UUID.randomUUID(), json).andExpect(status().is(status))
+                .andExpect(jsonPath("$.code").value(code));
+    }
+
+    /** 거절된 신청의 무흔적 — 잔액·원장·칸·소식·사건·receipt. */
+    private void assertNothingWritten(Island island, int balance) {
+        assertThat(balance(island.id)).isEqualTo(balance);
+        assertThat(ledgerRows(island.id)).isZero();
+        assertThat(promotionRows(island.id)).isZero();
+        assertThat(newsRows(island.id)).isZero();
+        assertThat(events("wallet.updated", island.id)).isZero();
+        assertThat(count("select count(*) from command_idempotency where user_id = ?", island.host)).isZero();
+    }
+
+    /** 이 테스트만의 잡지 재료 — 카탈로그 행과 부가 정보를 함께 넣는다. 시드와 섞이지 않게 {@code mag.test-} 로 시작한다. */
+    private String magazineAsset(String kind, String tab, String bundle, boolean retired) {
+        String productId = "mag.test-" + UUID.randomUUID().toString().substring(0, 8);
+        jdbc.update("insert into catalog_assets (product_id, title, kind, owner_type) values (?, ?, ?, 'user')",
+                productId, productId, kind);
+        jdbc.update("insert into magazine_asset_meta (product_id, bundle, drawer_tab, sort_order, retired_at) "
+                + "values (?, ?, ?, 1000, " + (retired ? "now()" : "null") + ")", productId, bundle, tab);
+        return productId;
+    }
+
+    private void grant(UUID userId, String productId) {
+        jdbc.update("insert into owned_products (id, owner_type, user_id, product_id) values (?, 'user', ?, ?)",
+                UUID.randomUUID(), userId, productId);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> seeded(Map<String, Object> assets, String group) {
+        return ((List<Map<String, Object>>) assets.get(group)).stream()
+                .filter(item -> !((String) item.get("assetId")).startsWith("mag.test-"))
+                .toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> item(Map<String, Object> assets, String group, String assetId) {
+        return ((List<Map<String, Object>>) assets.get(group)).stream()
+                .filter(item -> assetId.equals(item.get("assetId")))
+                .findFirst().orElse(null);
     }
 
     private ResultActions readNews(UUID actor, UUID islandId, String query) throws Exception {
@@ -493,6 +947,10 @@ class IslandPromotionIntegrationTest {
 
     private long ledgerRows(UUID islandId) {
         return count("select count(*) from island_wallet_transactions where island_id = ?", islandId);
+    }
+
+    private long promotionRows(UUID islandId) {
+        return count("select count(*) from island_promotions where island_id = ?", islandId);
     }
 
     private long newsRows(UUID islandId) {

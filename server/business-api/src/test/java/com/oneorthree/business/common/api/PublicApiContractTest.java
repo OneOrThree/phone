@@ -103,7 +103,10 @@ class PublicApiContractTest extends UpstreamTestBase {
                 // GROMO-2262 방명록 하루 1개(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 남겼어요」를 띄운다.
                 "GUESTBOOK_ALREADY_WRITTEN_TODAY",
                 // GROMO-2267 잡지 홍보 하루 1회(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 신청했어요」를 띄운다.
-                "PROMOTION_ALREADY_REQUESTED_TODAY");
+                "PROMOTION_ALREADY_REQUESTED_TODAY",
+                // GROMO-2289 고양이 잡지 홍보 7종: Data 와 이름·상태가 같아야 신청 창·비공개 섬·꾸미기 판정이 502 로 접히지 않는다.
+                "PROMOTION_WINDOW_CLOSED", "PROMOTION_PRIVATE_ISLAND", "PROMOTION_TEXT_TOO_LONG",
+                "PROMOTION_LAYOUT_INVALID", "PROMOTION_ASSET_NOT_OWNED", "PROMOTION_LOCKED", "PROMOTION_NOT_FOUND");
     }
 
     /**

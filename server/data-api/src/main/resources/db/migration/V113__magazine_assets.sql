@@ -1,0 +1,162 @@
+-- GROMO-2289 고양이 잡지 꾸미기 재료 카탈로그 (잡지 구현 계획 §2-2 V113) — 홍보 칸의 틀·스티커·테이프 정의.
+--
+-- 1) catalog_assets 종류에 잡지 재료 3종(ad_frame · ad_sticker · ad_tape)을 더한다. 셋 다 개인(user) 소유다 —
+--    앞으로 그릴 시즌 재료는 바다 보상(SeaFocusRewardService)이 개인 인벤토리(owned_products)에 넣는다.
+--    개인 인벤토리 조회(AppearanceService.myInventory)는 clothes·decor 만 내려보내 옷장 화면에 섞이지 않는다.
+-- 2) magazine_asset_meta: 잡지 재료의 부가 정보. 카탈로그 행은 불변이라 서랍 탭·묶음·정렬·퇴역은 옆 표에 둔다.
+--    bundle: free = 모든 계정이 가진 것으로 본다(소유 행을 만들지 않는다) · season = owned_products 행이 있어야 가진 것.
+--    drawer_tab: 스티커 서랍 탭(cat · sea · friends · deco). 틀·테이프는 NULL.
+--    retired_at: 서랍에서 내린 시각. 이미 붙인 칸은 그대로 그린다 — 퇴역한 재료는 소유 행이 있거나 직전 칸에 있던
+--    것만 다시 실을 수 있다(free 라도 퇴역하면 «모두가 가진 것» 에서 빠진다).
+--    운영 카탈로그라 계정 탈퇴·섬 정리 대상이 아니다.
+-- 3) 시드 64행(틀 11 · 스티커 45 · 테이프 8) — 10/14 에셋 id 표(catalog.json version 2026-10-14) 그대로이고, 전부 free 다
+--    (10/14 확정 — 유료 스티커 없음, 기본 묶음 규칙 폐기). product_id 는 «mag.» + 앱 그림 id 다: catalog_assets 는
+--    옷·꾸미기와 같은 전역 키라 'star'·'cloud' 같은 맨 이름은 충돌할 수 있다. sort_order 는 종류 안에서 1부터다.
+ALTER TABLE catalog_assets DROP CONSTRAINT catalog_assets_kind_check;
+ALTER TABLE catalog_assets ADD CONSTRAINT catalog_assets_kind_check
+    CHECK (kind IN ('clothes', 'decor', 'island_theme', 'building_theme', 'audio',
+                    'ad_frame', 'ad_sticker', 'ad_tape'));
+ALTER TABLE catalog_assets DROP CONSTRAINT catalog_assets_kind_owner_check;
+ALTER TABLE catalog_assets ADD CONSTRAINT catalog_assets_kind_owner_check
+    CHECK ((kind IN ('clothes', 'decor', 'ad_frame', 'ad_sticker', 'ad_tape') AND owner_type = 'user')
+        OR (kind IN ('island_theme', 'building_theme', 'audio') AND owner_type = 'island'));
+
+CREATE TABLE magazine_asset_meta (
+    product_id varchar(80) PRIMARY KEY REFERENCES catalog_assets (product_id) ON DELETE RESTRICT,
+    bundle     varchar(10) NOT NULL CHECK (bundle IN ('free', 'season')),
+    drawer_tab varchar(10) CHECK (drawer_tab IN ('cat', 'sea', 'friends', 'deco')),
+    sort_order integer     NOT NULL,
+    retired_at timestamptz
+);
+
+INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES
+    ('mag.frame-scallop', '분홍 물결', 'ad_frame', 'user'),
+    ('mag.frame-ticket', '파란 티켓', 'ad_frame', 'user'),
+    ('mag.frame-grid', '노란 모눈 메모', 'ad_frame', 'user'),
+    ('mag.frame-polaroid', '폴라로이드', 'ad_frame', 'user'),
+    ('mag.frame-catear', '고양이 귀', 'ad_frame', 'user'),
+    ('mag.frame-cloud', '구름', 'ad_frame', 'user'),
+    ('mag.frame-envelope', '편지 봉투', 'ad_frame', 'user'),
+    ('mag.frame-woodsign', '나무 간판', 'ad_frame', 'user'),
+    ('mag.frame-lifering', '구명 튜브', 'ad_frame', 'user'),
+    ('mag.frame-notebook', '스프링 노트', 'ad_frame', 'user'),
+    ('mag.frame-wave', '파도', 'ad_frame', 'user'),
+    ('mag.tape-cream', '크림 테이프', 'ad_tape', 'user'),
+    ('mag.tape-pink', '분홍 테이프', 'ad_tape', 'user'),
+    ('mag.tape-blue', '하늘 테이프', 'ad_tape', 'user'),
+    ('mag.tape-pinkdots', '분홍 물방울 테이프', 'ad_tape', 'user'),
+    ('mag.tape-bluestripe', '파란 줄무늬 테이프', 'ad_tape', 'user'),
+    ('mag.tape-yellowcheck', '노란 체크 테이프', 'ad_tape', 'user'),
+    ('mag.tape-mint', '민트 테이프', 'ad_tape', 'user'),
+    ('mag.tape-paw', '발자국 테이프', 'ad_tape', 'user'),
+    ('mag.cat-black-book', '책 읽는 까만 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-white-sleep', '잠자는 흰 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-ginger-fish', '낚시하는 치즈 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-calico-wave', '손 흔드는 삼색 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-cream-heart', '하트 안은 크림 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-gray-cheer', '응원하는 회색 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-black-peek', '빼꼼 까만 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-ginger-face', '치즈 고양이 얼굴', 'ad_sticker', 'user'),
+    ('mag.cat-calico-raft', '뗏목 탄 삼색 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-white-pencil', '연필 든 흰 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-cream-coffee', '커피 마시는 크림 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-gray-bottle', '유리병 든 회색 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-gray-headphone', '헤드폰 낀 회색 고양이', 'ad_sticker', 'user'),
+    ('mag.cat-cream-booknap', '책 위에서 자는 크림 고양이', 'ad_sticker', 'user'),
+    ('mag.fish', '물고기', 'ad_sticker', 'user'),
+    ('mag.fish-basket', '물고기 바구니', 'ad_sticker', 'user'),
+    ('mag.bottle', '유리병 편지', 'ad_sticker', 'user'),
+    ('mag.map', '보물 지도', 'ad_sticker', 'user'),
+    ('mag.palm-island', '야자수 섬', 'ad_sticker', 'user'),
+    ('mag.shell', '조개', 'ad_sticker', 'user'),
+    ('mag.sailboat', '돛단배', 'ad_sticker', 'user'),
+    ('mag.lighthouse', '등대', 'ad_sticker', 'user'),
+    ('mag.lantern', '등불', 'ad_sticker', 'user'),
+    ('mag.whale', '별고래', 'ad_sticker', 'user'),
+    ('mag.seagull', '갈매기', 'ad_sticker', 'user'),
+    ('mag.turtle', '리본 거북이', 'ad_sticker', 'user'),
+    ('mag.telescope', '망원경', 'ad_sticker', 'user'),
+    ('mag.campfire', '모닥불', 'ad_sticker', 'user'),
+    ('mag.pelican', '펠리컨', 'ad_sticker', 'user'),
+    ('mag.dog', '강아지', 'ad_sticker', 'user'),
+    ('mag.mongdol', '몽돌', 'ad_sticker', 'user'),
+    ('mag.mailbox', '우체통', 'ad_sticker', 'user'),
+    ('mag.star', '별', 'ad_sticker', 'user'),
+    ('mag.heart', '하트', 'ad_sticker', 'user'),
+    ('mag.cloud', '구름', 'ad_sticker', 'user'),
+    ('mag.pencil', '연필', 'ad_sticker', 'user'),
+    ('mag.book', '책', 'ad_sticker', 'user'),
+    ('mag.paw', '발자국', 'ad_sticker', 'user'),
+    ('mag.bow', '리본', 'ad_sticker', 'user'),
+    ('mag.sparkle', '반짝', 'ad_sticker', 'user'),
+    ('mag.crown', '왕관', 'ad_sticker', 'user'),
+    ('mag.drink', '딸기 음료', 'ad_sticker', 'user'),
+    ('mag.moon', '졸린 달', 'ad_sticker', 'user'),
+    ('mag.clock', '알람시계', 'ad_sticker', 'user'),
+    ('mag.tomato-timer', '토마토 타이머', 'ad_sticker', 'user');
+
+INSERT INTO magazine_asset_meta (product_id, bundle, drawer_tab, sort_order) VALUES
+    ('mag.frame-scallop', 'free', NULL, 1),
+    ('mag.frame-ticket', 'free', NULL, 2),
+    ('mag.frame-grid', 'free', NULL, 3),
+    ('mag.frame-polaroid', 'free', NULL, 4),
+    ('mag.frame-catear', 'free', NULL, 5),
+    ('mag.frame-cloud', 'free', NULL, 6),
+    ('mag.frame-envelope', 'free', NULL, 7),
+    ('mag.frame-woodsign', 'free', NULL, 8),
+    ('mag.frame-lifering', 'free', NULL, 9),
+    ('mag.frame-notebook', 'free', NULL, 10),
+    ('mag.frame-wave', 'free', NULL, 11),
+    ('mag.tape-cream', 'free', NULL, 1),
+    ('mag.tape-pink', 'free', NULL, 2),
+    ('mag.tape-blue', 'free', NULL, 3),
+    ('mag.tape-pinkdots', 'free', NULL, 4),
+    ('mag.tape-bluestripe', 'free', NULL, 5),
+    ('mag.tape-yellowcheck', 'free', NULL, 6),
+    ('mag.tape-mint', 'free', NULL, 7),
+    ('mag.tape-paw', 'free', NULL, 8),
+    ('mag.cat-black-book', 'free', 'cat', 1),
+    ('mag.cat-white-sleep', 'free', 'cat', 2),
+    ('mag.cat-ginger-fish', 'free', 'cat', 3),
+    ('mag.cat-calico-wave', 'free', 'cat', 4),
+    ('mag.cat-cream-heart', 'free', 'cat', 5),
+    ('mag.cat-gray-cheer', 'free', 'cat', 6),
+    ('mag.cat-black-peek', 'free', 'cat', 7),
+    ('mag.cat-ginger-face', 'free', 'cat', 8),
+    ('mag.cat-calico-raft', 'free', 'cat', 9),
+    ('mag.cat-white-pencil', 'free', 'cat', 10),
+    ('mag.cat-cream-coffee', 'free', 'cat', 11),
+    ('mag.cat-gray-bottle', 'free', 'cat', 12),
+    ('mag.cat-gray-headphone', 'free', 'cat', 13),
+    ('mag.cat-cream-booknap', 'free', 'cat', 14),
+    ('mag.fish', 'free', 'sea', 15),
+    ('mag.fish-basket', 'free', 'sea', 16),
+    ('mag.bottle', 'free', 'sea', 17),
+    ('mag.map', 'free', 'sea', 18),
+    ('mag.palm-island', 'free', 'sea', 19),
+    ('mag.shell', 'free', 'sea', 20),
+    ('mag.sailboat', 'free', 'sea', 21),
+    ('mag.lighthouse', 'free', 'sea', 22),
+    ('mag.lantern', 'free', 'sea', 23),
+    ('mag.whale', 'free', 'sea', 24),
+    ('mag.seagull', 'free', 'sea', 25),
+    ('mag.turtle', 'free', 'sea', 26),
+    ('mag.telescope', 'free', 'sea', 27),
+    ('mag.campfire', 'free', 'sea', 28),
+    ('mag.pelican', 'free', 'friends', 29),
+    ('mag.dog', 'free', 'friends', 30),
+    ('mag.mongdol', 'free', 'friends', 31),
+    ('mag.mailbox', 'free', 'friends', 32),
+    ('mag.star', 'free', 'deco', 33),
+    ('mag.heart', 'free', 'deco', 34),
+    ('mag.cloud', 'free', 'deco', 35),
+    ('mag.pencil', 'free', 'deco', 36),
+    ('mag.book', 'free', 'deco', 37),
+    ('mag.paw', 'free', 'deco', 38),
+    ('mag.bow', 'free', 'deco', 39),
+    ('mag.sparkle', 'free', 'deco', 40),
+    ('mag.crown', 'free', 'deco', 41),
+    ('mag.drink', 'free', 'deco', 42),
+    ('mag.moon', 'free', 'deco', 43),
+    ('mag.clock', 'free', 'deco', 44),
+    ('mag.tomato-timer', 'free', 'deco', 45);

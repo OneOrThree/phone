@@ -53,9 +53,11 @@ import java.util.stream.Collectors;
  * 분으로 보여 주지 않는다.
  *
  * <h2>지급하지 않는 종류</h2>
- * 개인 인벤토리는 {@code clothes}·{@code decor} 만 받는다. 그 밖의 종류가 단계표에 와도 건너뛰고 경고를 남긴다
- * (결정 N4 — hull 은 B23/GROMO-1851 번복이 필요해 후속이다). 건너뛴 행은 «다음 단계» 안내에도 넣지 않는다 —
- * 받지 못할 상품을 향해 남은 분을 보여 주지 않는다.
+ * 개인 인벤토리는 {@code clothes}·{@code decor} 와 고양이 잡지의 시즌 재료 {@code ad_sticker}·{@code ad_frame}
+ * (GROMO-2289 — 정본의 시즌 세트 「잡지 스티커·칸 틀」)만 받는다. 잡지 테이프({@code ad_tape})는 지금 전부 무료라 주지
+ * 않는다. 그 밖의 종류가 단계표에 와도 건너뛰고 경고를 남긴다(결정 N4 — hull 은 B23/GROMO-1851 번복이 필요해 후속이다).
+ * 건너뛴 행은 «다음 단계» 안내에도 넣지 않는다 — 받지 못할 상품을 향해 남은 분을 보여 주지 않는다. 잡지 재료는 개인
+ * 인벤토리 조회({@code AppearanceService.myInventory})가 내려보내지 않아 옷장에 섞이지 않는다.
  *
  * <h2>잠금 순서</h2>
  * 호출자가 쥔 사용자(공유)·섬·멤버십·상세 뒤에 이 유저의 누적 행(배타) → 보유 행 삽입 → 인벤토리 사건
@@ -121,7 +123,7 @@ public class SeaFocusRewardService {
             boolean crossed = before < threshold && threshold <= after;
             if (!isGrantable(kinds.get(tier.getProductId()))) {
                 if (crossed) {
-                    log.warn("바다 보상 단계의 상품은 개인 인벤토리에 지급하지 않습니다(clothes·decor 만, 결정 N4) — "
+                    log.warn("바다 보상 단계의 상품은 개인 인벤토리에 지급하지 않습니다(clothes·decor·잡지 스티커·틀만, 결정 N4) — "
                                     + "set={}, threshold={}분, product={}, kind={}, user={}",
                             tier.getSetKey(), tier.getThresholdMinutes(), tier.getProductId(),
                             kinds.get(tier.getProductId()), userId);
@@ -185,6 +187,7 @@ public class SeaFocusRewardService {
     }
 
     private static boolean isGrantable(String kind) {
-        return CatalogAsset.KIND_CLOTHES.equals(kind) || CatalogAsset.KIND_DECOR.equals(kind);
+        return CatalogAsset.KIND_CLOTHES.equals(kind) || CatalogAsset.KIND_DECOR.equals(kind)
+                || CatalogAsset.KIND_AD_STICKER.equals(kind) || CatalogAsset.KIND_AD_FRAME.equals(kind);
     }
 }
