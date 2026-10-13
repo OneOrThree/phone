@@ -25,7 +25,8 @@ export function promotionProblem(err: unknown): EditorProblem & { reload?: boole
   const code = err instanceof ApiError ? err.code : '';
   switch (code) {
     case 'INSUFFICIENT_FUNDS':
-      return { message: t('magazine.editor.problem.poor') };
+      // 연 뒤에 다른 주민·기기가 섬 통장을 써서 줄었을 수 있다 — 다시 읽어 실제 잔액과 꺼진 버튼을 보인다
+      return { message: t('magazine.editor.problem.poor'), reload: true };
     case 'PROMOTION_WINDOW_CLOSED':
       return { message: t('magazine.editor.problem.windowClosed'), reload: true };
     case 'PROMOTION_ALREADY_REQUESTED_TODAY':

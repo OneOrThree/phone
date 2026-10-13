@@ -40,10 +40,13 @@ const kstAt = (day: string, hour: number) =>
   new Date(Date.parse(`${day}T00:00:00Z`) - KST + hour * 3600_000).toISOString();
 
 type Stored = SavedPromotion & { appliedAt: string };
-const store: { promotions: Stored[]; balance: number | null; news: IslandNewsItem[] } = {
-  promotions: [],
-  balance: null,
-  news: [],
+type IslandStore = { promotions: Stored[]; balance: number | null; news: IslandNewsItem[] };
+/** 섬마다 따로 — 데모에서 다른 소속 섬으로 바꾸면 그 섬의 홍보·통장·소식만 보인다. */
+const islands = new Map<string, IslandStore>();
+const storeOf = (islandId: string): IslandStore => {
+  let store = islands.get(islandId);
+  if (!store) islands.set(islandId, (store = { promotions: [], balance: null, news: [] }));
+  return store;
 };
 const wait = () => new Promise((resolve) => setTimeout(resolve, 250));
 const reject = (code: string, status: number, message: string) => {
@@ -68,7 +71,7 @@ function windowAt(now: number) {
   };
 }
 
-function seed(now: number) {
+function seed(store: IslandStore, now: number) {
   const flags = mockFlags();
   if (store.balance == null) store.balance = flags.has('poor') ? 30 : 1240;
   if (!store.promotions.length && (flags.has('applied') || flags.has('latest'))) {
@@ -109,12 +112,13 @@ export const magazineMock = {
     };
   },
 
-  async getPromotionEditor(_islandId: string, now = Date.now()): Promise<PromotionEditor> {
+  async getPromotionEditor(islandId: string, now = Date.now()): Promise<PromotionEditor> {
     await wait();
+    const store = storeOf(islandId);
     const flags = mockFlags();
     if (flags.has('guest'))
       reject('SOCIAL_LOGIN_REQUIRED', 403, '소셜 로그인 후 이용할 수 있어요.');
-    seed(now);
+    seed(store, now);
     const w = windowAt(now);
     const next = store.promotions.find((p) => p.issueDate === w.upcoming) ?? null;
     const latest =
@@ -132,13 +136,14 @@ export const magazineMock = {
   },
 
   async applyPromotion(
-    _islandId: string,
+    islandId: string,
     draft: PromotionDraft,
     _key: string,
     now = Date.now(),
   ): Promise<PromotionApplied> {
     await wait();
-    seed(now);
+    const store = storeOf(islandId);
+    seed(store, now);
     const w = windowAt(now);
     if (mockFlags().has('private'))
       reject('PROMOTION_PRIVATE_ISLAND', 409, '비공개 섬은 잡지에 실을 수 없어요.');
@@ -171,12 +176,13 @@ export const magazineMock = {
   },
 
   async updatePromotion(
-    _islandId: string,
+    islandId: string,
     promotionId: string,
     draft: PromotionDraft,
     now = Date.now(),
   ): Promise<PromotionUpdated> {
     await wait();
+    const store = storeOf(islandId);
     const w = windowAt(now);
     const saved = store.promotions.find((p) => p.promotionId === promotionId);
     if (!saved) return reject('PROMOTION_NOT_FOUND', 404, '홍보를 찾지 못했어요.');
@@ -186,16 +192,15 @@ export const magazineMock = {
     return { ...saved, updatedAt: new Date(now).toISOString() };
   },
 
-  async getIslandNews(_islandId: string, limit = 5, now = Date.now()): Promise<IslandNewsItem[]> {
+  async getIslandNews(islandId: string, limit = 5, now = Date.now()): Promise<IslandNewsItem[]> {
     await wait();
-    seed(now);
+    const store = storeOf(islandId);
+    seed(store, now);
     return store.news.slice(0, limit);
   },
 };
 
 /** 테스트에서 목업 서버를 처음 상태로 되돌린다. */
 export function resetMagazineMock() {
-  store.promotions = [];
-  store.balance = null;
-  store.news = [];
+  islands.clear();
 }

@@ -67,3 +67,18 @@ it('상황 깃발 — guest 는 403, poor 는 잔액 30, private 는 신청 거�
     code: 'PROMOTION_PRIVATE_ISLAND',
   });
 });
+
+it('섬마다 홍보·통장·소식이 따로다 — 다른 소속 섬으로 바꿔도 앞 섬의 홍보가 보이지 않는다', async () => {
+  const now = at('2026-10-14T10:00:00');
+  await magazineMock.applyPromotion('a', { body: '에이 섬', layout }, 'k', now);
+  const a = await magazineMock.getPromotionEditor('a', now);
+  const b = await magazineMock.getPromotionEditor('b', now);
+  expect(a.next?.body).toBe('에이 섬');
+  expect(b.next).toBeNull();
+  expect(b.balance).toBe(a.balance + 60);
+  expect(await magazineMock.getIslandNews('b', 5, now)).toEqual([]);
+  // 같은 날 다른 섬은 따로 신청할 수 있다
+  await expect(
+    magazineMock.applyPromotion('b', { body: '비 섬', layout }, 'k2', now),
+  ).resolves.toMatchObject({ balanceAfter: b.balance - 60 });
+});
