@@ -131,9 +131,9 @@ public final class IslandPromotions {
     }
 
     /**
-     * 홍보 기록 한 건 — {@code issueNo} 는 아직 호가 나오지 않았으면 null 이고 키는 늘 실린다. {@code status} 는
-     * {@code SCHEDULED}·{@code PUBLISHED}·{@code SKIPPED}·{@code HIDDEN}·{@code REMOVED}, 숫자 셋은 그 홍보를 거쳐
-     * 망원경에 넣은·도착한·가입한 사람 수다.
+     * 홍보 기록 한 건 — {@code issueNo} 는 아직 호가 나오지 않았으면 null 이고 키는 늘 실린다. {@code layout} 은 섬장이
+     * 꾸민 칸 그대로(기록판의 작은 칸 그림용, 늘 있다). {@code status} 는 {@code SCHEDULED}·{@code PUBLISHED}·
+     * {@code SKIPPED}·{@code HIDDEN}·{@code REMOVED}, 숫자 셋은 그 홍보를 거쳐 망원경에 넣은·도착한·가입한 사람 수다.
      */
     @Schema(name = "IslandPromotionRecord")
     public record RecordItem(
@@ -141,6 +141,8 @@ public final class IslandPromotions {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String issueDate,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer issueNo,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String body,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL)
+            @Schema(implementation = Map.class) ObjectNode layout,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String status,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int pinned,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int arrived,

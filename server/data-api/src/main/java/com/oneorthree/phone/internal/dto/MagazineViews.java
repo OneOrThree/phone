@@ -113,11 +113,12 @@ public final class MagazineViews {
 
     /**
      * @param issueNo 실린 호의 호수 — 호가 아직 없으면 null
+     * @param layout  섬장이 꾸민 칸(기록판의 작은 칸 그림용)
      * @param pinned  잡지 칸에서 망원경에 넣은 사람 수
      * @param arrived 그중 현재 호 동안 항해해 도착한 사람 수
      * @param joined  그중 현재 호 동안 가입이 성립한 사람 수
      */
-    public record RecordItem(UUID promotionId, LocalDate issueDate, Integer issueNo, String body, RecordStatus status,
-                             int pinned, int arrived, int joined) {
+    public record RecordItem(UUID promotionId, LocalDate issueDate, Integer issueNo, String body,
+                             PromotionContent.Layout layout, RecordStatus status, int pinned, int arrived, int joined) {
     }
 }

@@ -118,7 +118,7 @@ public class MagazineFunnelService {
         return new MagazineViews.RecordPage(rows.stream().map(promotion -> {
             Map<String, Long> steps = counts.getOrDefault(promotion.getId(), Map.of());
             return new MagazineViews.RecordItem(promotion.getId(), promotion.getIssueDate(),
-                    issueNos.get(promotion.getIssueDate()), promotion.getBody(),
+                    issueNos.get(promotion.getIssueDate()), promotion.getBody(), promotion.getLayout(),
                     status(promotion, issueNos.containsKey(promotion.getIssueDate()), today),
                     Math.toIntExact(steps.getOrDefault(IslandPromotionFunnel.PIN, 0L)),
                     Math.toIntExact(steps.getOrDefault(IslandPromotionFunnel.ARRIVE, 0L)),

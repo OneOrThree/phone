@@ -75,9 +75,10 @@ class IslandPromotionContractTest extends UpstreamTestBase {
 
     /** 기록판 — 아직 나오지 않은 호는 {@code issueNo} 가 null 이고 키는 남는다. */
     private static final String RECORDS = "{\"items\":[{\"promotionId\":\"" + PROMOTION + "\",\"issueDate\":\"2026-10-15\","
-            + "\"issueNo\":null,\"body\":\"" + TEXT + "\",\"status\":\"SCHEDULED\",\"pinned\":0,\"arrived\":0,"
-            + "\"joined\":0},{\"promotionId\":\"" + LATEST + "\",\"issueDate\":\"2026-10-12\",\"issueNo\":12,"
-            + "\"body\":\"지난 호\",\"status\":\"PUBLISHED\",\"pinned\":3,\"arrived\":1,\"joined\":0}]}";
+            + "\"issueNo\":null,\"body\":\"" + TEXT + "\",\"layout\":" + LAYOUT + ",\"status\":\"SCHEDULED\","
+            + "\"pinned\":0,\"arrived\":0,\"joined\":0},{\"promotionId\":\"" + LATEST + "\",\"issueDate\":\"2026-10-12\","
+            + "\"issueNo\":12,\"body\":\"지난 호\",\"layout\":{\"v\":1},\"status\":\"PUBLISHED\",\"pinned\":3,"
+            + "\"arrived\":1,\"joined\":0}]}";
 
     // ---------------------------------------------------------------- 신청
 
@@ -677,13 +678,15 @@ class IslandPromotionContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"issueNo 누락", "status:null", "items:[null]"})
+    @ValueSource(strings = {"issueNo 누락", "status:null", "items:[null]", "layout 누락", "layout:문자열"})
     @DisplayName("기록판 응답의 필수 키 누락·null 은 계약 위반이다")
     void recordsRejectADriftingUpstreamBody(String shape) throws Exception {
         String body = switch (shape) {
             case "issueNo 누락" -> RECORDS.replace("\"issueNo\":null,", "");
             case "status:null" -> RECORDS.replace("\"status\":\"SCHEDULED\"", "\"status\":null");
             case "items:[null]" -> "{\"items\":[null]}";
+            case "layout 누락" -> RECORDS.replace("\"layout\":{\"v\":1},", "");
+            case "layout:문자열" -> RECORDS.replace("\"layout\":{\"v\":1}", "\"layout\":\"v1\"");
             default -> throw new IllegalArgumentException(shape);
         };
         assertThat(body).isNotEqualTo(RECORDS);
@@ -712,7 +715,7 @@ class IslandPromotionContractTest extends UpstreamTestBase {
             "/islands/{islandId}/news|get|200|items|id kind body createdAt|id kind body createdAt",
             "/islands/{islandId}/promotions/{promotionId}/reports|post|200||reported|reported",
             "/islands/{islandId}/promotions/records|get|200||items|items",
-            "/islands/{islandId}/promotions/records|get|200|items|promotionId issueDate issueNo body status pinned arrived joined|promotionId issueDate issueNo body status pinned arrived joined"})
+            "/islands/{islandId}/promotions/records|get|200|items|promotionId issueDate issueNo body layout status pinned arrived joined|promotionId issueDate issueNo body layout status pinned arrived joined"})
     @DisplayName("공개 문서가 각 경로의 응답 필드와 필수 여부를 그대로 담는다")
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {
