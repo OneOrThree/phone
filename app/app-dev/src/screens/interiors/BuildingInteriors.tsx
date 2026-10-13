@@ -8021,7 +8021,13 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const home = (
     <>
       {e && magazineToday?.issue && (
-        <View style={{ flexDirection: 'row', columnGap: 7, marginBottom: 7 }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            columnGap: componentTokens.mailboxAction.gap,
+            marginBottom: componentTokens.mailboxAction.gap,
+          }}
+        >
           {magazineIssue && (
             <Pressable
               testID="mail-home-magazine"
@@ -8034,7 +8040,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               style={{
                 flex: 1,
                 minHeight: semanticTokens.size.tapMin,
-                paddingHorizontal: 10,
+                paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
                 justifyContent: 'center',
                 borderWidth: componentTokens.mailboxAction.borderWidth,
                 borderColor: componentTokens.mailboxAction.border,
@@ -8072,7 +8078,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             style={{
               flex: magazineIssue ? 0 : 1,
               minHeight: semanticTokens.size.tapMin,
-              paddingHorizontal: 12,
+              paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
               justifyContent: 'center',
               borderWidth: componentTokens.mailboxAction.borderWidth,
               borderColor: componentTokens.mailboxAction.border,
