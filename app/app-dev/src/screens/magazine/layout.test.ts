@@ -5,7 +5,10 @@ import { MAGAZINE_FRAMES } from '@/constants/magazineAssets';
 import {
   CELL_ASPECT,
   MAX_STICKERS,
+  PromotionLayout,
+  SCALE_MIN as SCALE_MIN_FOR_TEST,
   addSticker,
+  applyEdit,
   bringToFront,
   cellTextFit,
   clampSticker,
@@ -192,5 +195,48 @@ describe('틀마다 글자 배율', () => {
     const fit = cellTextFit(MAGAZINE_FRAMES['mag.frame-catear']);
     expect(fit.bodyLines).toBe(2);
     expect(fit.bodyScale).toBeLessThan(fit.scale);
+  });
+});
+
+describe('버튼·스크린리더 고치기(applyEdit)', () => {
+  const base = (): PromotionLayout => ({
+    v: 1,
+    frameId: FRAME,
+    stickers: [
+      { assetId: 'a', x: 0.5, y: 0.5, scale: 0.2, rotation: 0 },
+      { assetId: 'b', x: 0.3, y: 0.3, scale: 0.2, rotation: 0 },
+    ],
+    tape: { assetId: 't', x: 0.5, y: 0.04, rotation: 0 },
+  });
+  const first = { kind: 'sticker', index: 0 } as const;
+
+  it('옮기기·크게·작게·돌리기는 같은 범위 자르기를 거친다', () => {
+    expect(applyEdit(base(), first, 'up').layout.stickers[0].y).toBeCloseTo(0.47);
+    expect(applyEdit(base(), first, 'right').layout.stickers[0].x).toBeCloseTo(0.53);
+    expect(applyEdit(base(), first, 'bigger').layout.stickers[0].scale).toBeCloseTo(0.23);
+    expect(applyEdit(base(), first, 'rotateLeft').layout.stickers[0].rotation).toBe(-15);
+    let l = base();
+    for (let i = 0; i < 30; i++) l = applyEdit(l, first, 'smaller').layout;
+    expect(l.stickers[0].scale).toBe(SCALE_MIN_FOR_TEST);
+  });
+
+  it('맨 앞으로는 고른 대상을 배열 끝으로 따라가고, 지우면 고르기가 풀린다', () => {
+    const front = applyEdit(base(), first, 'front');
+    expect(front.layout.stickers.map((s) => s.assetId)).toEqual(['b', 'a']);
+    expect(front.target).toEqual({ kind: 'sticker', index: 1 });
+    const del = applyEdit(base(), first, 'delete');
+    expect(del.layout.stickers).toHaveLength(1);
+    expect(del.target).toBeNull();
+  });
+
+  it('테이프는 옮기면 띠에 붙고 돌릴 수 있고, 크기·겹침은 그대로, 지우면 없다', () => {
+    const tape = { kind: 'tape' } as const;
+    expect(applyEdit(base(), tape, 'down').layout.tape).toMatchObject({ x: 0.5, y: 0.07 });
+    expect(applyEdit(base(), tape, 'rotateRight').layout.tape?.rotation).toBe(15);
+    expect(applyEdit(base(), tape, 'bigger').layout).toEqual(base());
+    expect(applyEdit(base(), tape, 'delete')).toEqual({
+      layout: { ...base(), tape: null },
+      target: null,
+    });
   });
 });

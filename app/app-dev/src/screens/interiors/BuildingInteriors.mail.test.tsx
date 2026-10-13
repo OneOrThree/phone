@@ -527,3 +527,22 @@ test('목업 ?review — e 가 있어도 우체통 API 는 0건이다', async ()
     restore();
   }
 });
+
+test('우체통 첫 화면 — 섬장에게만 「우리 섬 홍보 쓰기」 입구가 있고 누르면 쓰기 화면으로 간다(GROMO-2289)', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const host = makeE({ tab: '' });
+    const ui = await renderMail(host);
+    await fireEvent.press(ui.getByTestId('mail-home-promotion'));
+    expect(host.go).toHaveBeenCalledWith('promotionEditor');
+    await ui.unmount();
+
+    const state = initialState(true);
+    state.islands[0].members[0].role = 'host';
+    const member = await renderMail(makeE({ tab: '', state }));
+    expect(member.queryByTestId('mail-home-promotion')).toBeNull();
+    await member.unmount();
+  } finally {
+    restore();
+  }
+});

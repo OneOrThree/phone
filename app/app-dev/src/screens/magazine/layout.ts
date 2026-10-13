@@ -245,3 +245,76 @@ export function cellTextFit(frame: {
   }
   return result;
 }
+
+/** 고른 꾸미기 — 스티커(배열 위치) 또는 테이프. */
+export type EditTarget = { kind: 'sticker'; index: number } | { kind: 'tape' };
+/** 버튼·스크린리더 동작 하나로 하는 고치기 — 제스처(끌기·두 손가락)의 대안이다. */
+export type EditOp =
+  | 'up'
+  | 'down'
+  | 'left'
+  | 'right'
+  | 'bigger'
+  | 'smaller'
+  | 'rotateLeft'
+  | 'rotateRight'
+  | 'front'
+  | 'delete';
+const STEP_MOVE = 0.03;
+const STEP_SCALE = 1.15;
+const STEP_ROTATE = 15;
+
+/**
+ * 고른 꾸미기에 버튼 동작 하나를 적용한다. 바뀐 레이아웃과 그 뒤 고른 대상(지우면 null, 맨 앞으로면 배열 끝)을 돌려준다.
+ * 테이프는 크기·겹침이 없어 크게·작게·맨 앞으로는 그대로 두고, 옮기면 가장 가까운 테두리 띠에 붙는다.
+ */
+export function applyEdit(
+  layout: PromotionLayout,
+  target: EditTarget,
+  op: EditOp,
+): { layout: PromotionLayout; target: EditTarget | null } {
+  const move = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] } as const;
+  if (target.kind === 'tape') {
+    const tape = layout.tape;
+    if (!tape) return { layout, target: null };
+    if (op === 'delete') return { layout: setTape(layout, null), target: null };
+    if (op in move) {
+      const [dx, dy] = move[op as keyof typeof move];
+      return {
+        layout: moveTape(layout, tape.x + dx * STEP_MOVE, tape.y + dy * STEP_MOVE),
+        target,
+      };
+    }
+    if (op === 'rotateLeft' || op === 'rotateRight')
+      return {
+        layout: moveTape(
+          layout,
+          tape.x,
+          tape.y,
+          tape.rotation + (op === 'rotateLeft' ? -STEP_ROTATE : STEP_ROTATE),
+        ),
+        target,
+      };
+    return { layout, target };
+  }
+  const s = layout.stickers[target.index];
+  if (!s) return { layout, target: null };
+  if (op === 'delete') return { layout: removeSticker(layout, target.index), target: null };
+  if (op === 'front')
+    return {
+      layout: bringToFront(layout, target.index),
+      target: { kind: 'sticker', index: layout.stickers.length - 1 },
+    };
+  const patch =
+    op in move
+      ? {
+          x: s.x + move[op as keyof typeof move][0] * STEP_MOVE,
+          y: s.y + move[op as keyof typeof move][1] * STEP_MOVE,
+        }
+      : op === 'bigger'
+        ? { scale: s.scale * STEP_SCALE }
+        : op === 'smaller'
+          ? { scale: s.scale / STEP_SCALE }
+          : { rotation: s.rotation + (op === 'rotateLeft' ? -STEP_ROTATE : STEP_ROTATE) };
+  return { layout: updateSticker(layout, target.index, patch), target };
+}
