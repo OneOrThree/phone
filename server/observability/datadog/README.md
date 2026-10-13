@@ -13,14 +13,14 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 | `docker-compose.prod.yml` | **prod** — 같은 배선을 app·nginx·datadog-agent 로 상시 포함 |
 | `server/data-api/Dockerfile` | `dd-java-agent.jar` 내장 + **OpenMetrics AD 라벨**(아래 참고) |
 | `server/data-api/src/main/resources/application-{dev,prod}.yml` | 관리 포트 9091 에 `/actuator/prometheus` 노출 |
-| `.github/workflows/dev-datadog.yml` | dev up/down/restart 토글 + **수집 검증 게이트** |
+| `.github/workflows/ops-datadog.dev.yml` | dev up/down/restart 토글 + **수집 검증 게이트** |
 | `dashboards/gromo-dev-architecture.json` | dev 아키텍처 클릭 탐색 + Docker·Kafka·Redis 부하 통합 대시보드 |
 
 ### OpenMetrics 브리지가 이미지 라벨에 있는 이유 (GROMO-1489)
 
 앱 커스텀 메트릭(RED·HikariCP·JVM)은 Agent 의 `conf.d/openmetrics.d/conf.yaml` 로 설정할 수도 있지만,
-**prod 호스트에는 레포가 체크아웃되지 않는다** — `prod-cd.yml` 은 `docker-compose.prod.yml` 한 장만 S3 로
-올린다. 그래서 마운트 방식으로는 prod 에 브리지를 놓을 수 없었고, 결과적으로 커스텀 메트릭이 dev 에만 있었다.
+**prod 호스트에는 레포가 체크아웃되지 않는다** — (옛) `prod-cd.yml` 은 `docker-compose.prod.yml` 한 장만 S3 로
+올린다. 그래서 마운트 방식으로는 prod 에 브리지를 놓을 수 없었고, 결과적으로 커스텀 메트릭이 dev 에만 있었다. `prod-cd.yml` 은 GROMO-2224 에서 삭제됐다.
 
 지금은 `server/data-api/Dockerfile` 의 `com.datadoghq.ad.checks` 라벨에 스크레이프 설정을 구워, **같은 이미지가 어느
 환경에서든 같은 배선**을 갖는다. 메트릭 목록을 바꾸려면 그 라벨 한 곳만 고치면 된다.
@@ -50,7 +50,7 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 - `down` — Datadog Agent 제거 + `app` 을 dev 파일 단독으로 재생성(평문, javaagent 없음) 복원.
 
 > `cd.yml`이 OIDC·AWS Secrets Manager로 만든 checkout 외부 `0600` runtime env를
-> `dev-monitor.yml`과 함께 재사용한다. 수동 관측 워크플로는 AWS 롤을 직접 인계하거나 시크릿을 다시 조회하지 않는다.
+> `ops-monitor.dev.yml`과 함께 재사용한다. 수동 관측 워크플로는 AWS 롤을 직접 인계하거나 시크릿을 다시 조회하지 않는다.
 
 ## 시크릿
 
@@ -59,8 +59,8 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 - DB/app 시크릿(`POSTGRES_*`·`JWT_SECRET` 등) — 신 AWS 계정(`808715036056`), 서울 리전(`ap-northeast-2`)의 Secrets Manager `gromo/dev/env` 사용.
 
 `cd.yml`은 장기 AWS 키를 저장하지 않고 OIDC로 `gromo-dev-github-actions` 롤을 인계한다. 이 롤의
-Secrets Manager 권한은 `gromo/dev/env` 조회로 제한한다. Datadog·monitor 워크플로는 AWS 자격증명 없이
-그 결과 파일만 읽는다. VM 부트스트랩용 `gromo/dev/app-server`와 `gromo/dev/ci-runner`는 각 호스트의
+Secrets Manager 권한은 dev 시크릿 조회로 제한한다. Datadog·monitor 워크플로도 같은 롤로 SM 을 읽어
+job 마다 임시 env 를 만들고 지운다(`.github/scripts/dev-env.sh`, GROMO-2224). VM 부트스트랩용 `gromo/dev/app-server`와 `gromo/dev/ci-runner`는 각 호스트의
 인스턴스 롤만 읽으며 배포·관측 워크플로의 입력이 아니다. dev 이미지는 ECR이 아니라
 GAR(`asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache`)을 사용한다.
 
@@ -91,7 +91,7 @@ docker exec gromo-datadog-agent agent status | grep -E 'LogsProcessed|Instance I
 - `LogsProcessed: 0` → 로그 tailer 가 하나도 안 붙었다.
 - `Instance ID: container|docker ... [ERROR]` → 컨테이너별 메트릭이 통째로 빈다.
 
-dev 는 `dev-datadog.yml` 의 **수집 검증** 스텝이 이 둘을 자동으로 어서션한다(0이면 워크플로 실패).
+dev 는 `ops-datadog.dev.yml` 의 **수집 검증** 스텝이 이 둘을 자동으로 어서션한다(0이면 워크플로 실패).
 
 ### 로그↔트레이스 상관 (미완, 알려진 한계 — dev·prod 공통)
 
@@ -110,4 +110,4 @@ tail 하는 stdout 로그에는 Datadog 이 상관에 쓰는 `dd.trace_id` 가 �
 
 ## 다음 (Phase 3 — 별도 결정)
 
-만족 시 cd.yml 상시 내장으로 승격 + Prometheus/Grafana/Loki 스택 폐기(`dev-monitor.yml` down).
+만족 시 cd.yml 상시 내장으로 승격 + Prometheus/Grafana/Loki 스택 폐기(`ops-monitor.dev.yml` down).

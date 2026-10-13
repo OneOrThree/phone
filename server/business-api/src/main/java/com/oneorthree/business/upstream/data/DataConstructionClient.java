@@ -6,6 +6,7 @@ import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
 import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
+import com.oneorthree.business.upstream.data.dto.IslandLayout;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 
@@ -19,6 +20,7 @@ public class DataConstructionClient {
     private static final String PATH_CONSTRUCTION_OPTIONS = "/internal/islands/{islandId}/construction-options";
     private static final String PATH_CONSTRUCTION_TARGET = "/internal/islands/{islandId}/construction-target";
     private static final String PATH_CONSTRUCTIONS = "/internal/islands/{islandId}/constructions";
+    private static final String PATH_LAYOUT = "/internal/islands/{islandId}/layout";
 
     private final InternalHttpClient http;
 
@@ -37,6 +39,19 @@ public class DataConstructionClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<ConstructionOptions>() { });
+    }
+
+    /**
+     * 섬 배치 정본 (GROMO-2232). 행이 없으면 Data 가 첫 조회 때 기본 템플릿으로 만들지만 같은 결과를
+     * 돌려주는 멱등 GET 이라 재시도해도 된다. 활성 주민 판정은 상류 몫이다.
+     */
+    public IslandLayout fetchIslandLayout(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_LAYOUT, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandLayout>() { });
     }
 
     /**

@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -27,6 +28,7 @@ public class IslandFacilityCompletionService {
 
     private final IslandFacilityRepository facilities;
     private final IslandStateEvents islandStateEvents;
+    private final IslandLayoutService layouts;
     private final IslandAppearancePort islandAppearance;
     private final Clock clock;
 
@@ -45,8 +47,11 @@ public class IslandFacilityCompletionService {
             return false;
         }
         facility.complete(now);
+        // 완공은 배치를 바꾼다 — 같은 TX 에서 layout_revision 을 올리고 island.updated 에 싣는다(GROMO-2232).
+        long layoutRevision = layouts.bumpRevision(islandId);
         // 시설 완공은 island.updated — 실제 공동 차감의 wallet.updated 는 착공 TX 가 이미 냈다.
-        islandStateEvents.changed(islandId, facility.getStartedBy(), "FACILITY_COMPLETED");
+        islandStateEvents.changed(islandId, facility.getStartedBy(), "FACILITY_COMPLETED",
+                Map.of("layoutRevision", layoutRevision));
         // 완공된 건물은 공동 외양 대상이다 — 같은 TX 에 default 로 시드해 「완공됐는데 테마를
         // 못 받는 창」을 없앤다(GROMO-1783). 멱등 — 이미 키가 있으면 아무 일도 하지 않는다.
         islandAppearance.buildingCompleted(islandId, buildingId, facility.getStartedBy());

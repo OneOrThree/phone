@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import React, { useState } from 'react';
 import { PixelRatio, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
@@ -26,6 +27,12 @@ import {
   type Concept,
 } from '@/screens/interiors/BuildingInteriors';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
+import {
+  getConstructionOptions,
+  startConstruction,
+  type ConstructionOptions,
+} from '@/services/api/home';
+import { myIslands } from '@/services/api/islands';
 
 import {
   claimQuest as postClaim,
@@ -34,6 +41,7 @@ import {
   updateQuest as patchQuest,
 } from '@/services/api/quests';
 
+jest.mock('@/services/homeSnapshot', () => ({ loadHomeSnapshot: jest.fn() }));
 jest.mock('@/services/api/notices', () => ({
   getBoard: jest.fn(),
   listNotices: jest.fn(),
@@ -49,6 +57,15 @@ jest.mock('@/services/api/quests', () => ({
   createQuest: jest.fn(),
   updateQuest: jest.fn(),
   claimQuest: jest.fn(),
+}));
+jest.mock('@/services/api/home', () => ({
+  ...jest.requireActual('@/services/api/home'),
+  getConstructionOptions: jest.fn(),
+  startConstruction: jest.fn(),
+}));
+jest.mock('@/services/api/islands', () => ({
+  ...jest.requireActual('@/services/api/islands'),
+  myIslands: jest.fn(),
 }));
 
 const ISLAND = 'island-1';
@@ -139,6 +156,28 @@ const getQuestProgressMock = getQuestProgress as jest.Mock;
 const postQuestMock = postQuest as jest.Mock;
 const patchQuestMock = patchQuest as jest.Mock;
 const postClaimMock = postClaim as jest.Mock;
+const getConstructionOptionsMock = getConstructionOptions as jest.Mock;
+const startConstructionMock = startConstruction as jest.Mock;
+const myIslandsMock = myIslands as jest.Mock;
+const constructionOptions = (over: Partial<ConstructionOptions> = {}): ConstructionOptions => ({
+  islandVersion: 2,
+  costPolicyVersion: 3,
+  selectedBuildingId: null,
+  villagePoints: 21,
+  walletVersion: 4,
+  items: [
+    {
+      id: 'library',
+      name: '도서관',
+      cost: 37,
+      currency: 'village_points',
+      selectable: true,
+      buildable: false,
+      blockedReason: 'INSUFFICIENT_FUNDS',
+    },
+  ],
+  ...over,
+});
 
 /** App.tsx 가 넘기는 라우트 문맥의 최소 복제 — go/back 이 e 를 바꾸고 _tick 으로 리렌더한다. */
 const makeE = (over: Record<string, unknown> = {}) => {
@@ -586,8 +625,233 @@ test('공지 상세 모달이 열리면 형제 scene-back 버튼을 비활성화
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  myIslandsMock.mockResolvedValue({ currentIslandId: ISLAND, items: [{ id: ISLAND }] });
+  getConstructionOptionsMock.mockResolvedValue(constructionOptions());
+  startConstructionMock.mockReset();
+  (loadHomeSnapshot as jest.Mock).mockReset();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('게시판 청사진은 회관이 서버에 저장한 목표·가격·잔액을 읽는다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  const e = makeE({ route: 'quest', detail: 'building' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+  assert.ok(screen.getByText('21 / 37마리'));
+  assert.equal(getConstructionOptionsMock.mock.calls[0][0], ISLAND);
+  assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+  assert.equal(screen.queryByTestId('board-build-start'), null);
+  assert.equal(screen.queryByText('주민 준비량'), null);
+  assert.equal(screen.queryByText('공사 15분'), null);
+});
+
+test.each(['host', 'member'] as const)(
+  '모든 건물이 완공되면 %s의 청사진에 전체 완공 안내를 보여준다',
+  async (role) => {
+    getBoardMock.mockResolvedValue(page([], null, role));
+    getConstructionOptionsMock.mockResolvedValue(constructionOptions({ items: [] }));
+    const screen = await renderBoard(makeE({ tab: '' }));
+
+    await waitFor(() => assert.ok(screen.getByLabelText('모든 건물 완공 현황 보기')));
+    assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
+    await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+    await waitFor(() => assert.ok(screen.getByText('모든 건물을 완공했어요.')));
+    assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+    assert.equal(screen.queryByTestId('board-build-start'), null);
+  },
+);
+
+test('미완공 건물이 남아 있고 목표만 없으면 다음 건물을 고르도록 안내한다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(constructionOptions());
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+
+  await waitFor(() => assert.ok(screen.getByText('회관에서 다음 건물을 골라 주세요.')));
+  assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
+});
+
+test('게시판 장면에는 건물 그림을 덧붙이지 않고 청사진을 연 뒤에만 미리보기를 보여준다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await waitFor(() =>
+    assert.equal(
+      screen.getByTestId('board-blueprint-area').props.accessibilityLabel,
+      '도서관 건설 현황 보기',
+    ),
+  );
+  assert.equal(screen.queryByLabelText('도서관'), null);
+  assert.equal(screen.queryByLabelText('도서관 건물 미리보기'), null);
+  await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+  await waitFor(() => assert.ok(screen.getByLabelText('도서관 건물 미리보기')));
+});
+
+test('일반 주민도 서버 목표를 보지만 게시판에서 착공할 수 없다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'member'));
+  const options = constructionOptions({ selectedBuildingId: 'library' });
+  options.items[0] = { ...options.items[0], selectable: false, blockedReason: 'FORBIDDEN' };
+  getConstructionOptionsMock.mockResolvedValue(options);
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+
+  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+  assert.ok(screen.getByText('방장이 건설을 진행할 수 있어요.'));
+  assert.equal(screen.queryByTestId('board-build-start'), null);
+  assert.equal(startConstructionMock.mock.calls.length, 0);
+});
+
+test.each(['host', 'member'] as const)(
+  '청사진 상세에서 %s도 총액 1마리와 두 주민의 각자 몫을 구분한다',
+  async (role) => {
+    getBoardMock.mockResolvedValue(page([], null, role));
+    const options = constructionOptions({
+      selectedBuildingId: 'library',
+      villagePoints: 1,
+      residentProgress: {
+        buildingId: 'library',
+        requiredPerResident: 1,
+        residents: [
+          { userId: 'u1', name: '방장', contributed: 1, remaining: 0 },
+          { userId: 'u2', name: '주민 둘', contributed: 0, remaining: 1 },
+        ],
+      },
+    });
+    options.items[0] = {
+      ...options.items[0],
+      cost: 1,
+      buildable: false,
+      selectable: role === 'host',
+      blockedReason: role === 'host' ? 'INSUFFICIENT_FUNDS' : 'FORBIDDEN',
+    };
+    getConstructionOptionsMock.mockResolvedValue(options);
+    const e = makeE({ tab: '' });
+    // 실제 뒤로 가기는 청사진을 열기 전 라우트의 빈 탭도 복원한다.
+    e.back = jest.fn(() => {
+      e.route = 'board';
+      e.detail = '';
+      e.setTab('');
+    });
+    const screen = await renderBoard(e);
+    await waitFor(() =>
+      assert.equal(
+        screen.getByTestId('board-blueprint-area').props.accessibilityLabel,
+        '도서관 건설 현황 보기',
+      ),
+    );
+    assert.equal(screen.queryByTestId('board-resident-progress'), null);
+    await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+    await waitFor(() => assert.ok(screen.getByText('대상 주민 2명 · 각자 1마리')));
+    assert.ok(screen.getByText('총 1마리'));
+    assert.ok(screen.getByText('주민 둘'));
+    assert.ok(screen.getByText('1마리 남음'));
+    assert.ok(screen.getByText('건설할 때 섬 잔액에서 총 1마리를 차감해요.'));
+    assert.equal(screen.queryByTestId('board-build-start'), null);
+
+    getConstructionOptionsMock.mockResolvedValue({
+      ...options,
+      villagePoints: 2,
+      residentProgress: {
+        ...options.residentProgress!,
+        residents: options.residentProgress!.residents.map((resident) => ({
+          ...resident,
+          contributed: 1,
+          remaining: 0,
+        })),
+      },
+      items: options.items.map((item) => ({
+        ...item,
+        buildable: role === 'host',
+        blockedReason: role === 'host' ? null : 'FORBIDDEN',
+      })),
+    });
+    assert.equal(screen.queryByTestId('board-contribution-refresh'), null);
+    await fireEvent.press(screen.getByTestId('board-drawer-close'));
+    await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+    await waitFor(() => assert.equal(screen.getAllByText('달성').length, 2));
+    assert.equal(screen.queryByText('1마리 남음'), null);
+    assert.equal(!!screen.queryByTestId('board-build-start'), role === 'host');
+  },
+);
+
+test('게시판 건설하기는 서버 착공 후 재조회하고 홈에 착공 시각을 전달한다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const options = constructionOptions({ selectedBuildingId: 'library', villagePoints: 100 });
+  options.items[0] = { ...options.items[0], buildable: true, blockedReason: null };
+  getConstructionOptionsMock.mockResolvedValue(options);
+  const e = makeE({ route: 'quest', detail: 'building' });
+  const receipt = {
+    buildingId: 'library',
+    status: 'BUILDING',
+    spent: { currency: 'village_points', amount: 37 },
+    version: 3,
+    villagePoints: 63,
+    walletVersion: 5,
+    startedAt: new Date(e.now).toISOString(),
+    completesAt: new Date(e.now + 60000).toISOString(),
+  };
+  startConstructionMock.mockImplementation(async () => {
+    getConstructionOptionsMock.mockResolvedValue({
+      ...options,
+      selectedBuildingId: null, // 실제 서버는 착공하면서 선택 목표를 해제한다.
+      villagePoints: 63,
+      items: [
+        { ...options.items[0], selectable: false, buildable: false, blockedReason: 'IN_PROGRESS' },
+      ],
+    });
+    return receipt;
+  });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-build-start')));
+  await fireEvent.press(screen.getByTestId('board-build-start'));
+  await waitFor(() => assert.ok(screen.getByText('도서관을 짓고 있어요')));
+  expect(startConstructionMock).toHaveBeenCalledWith(ISLAND, 'library', 2, 3, expect.any(String));
+  assert.equal(e.build.mock.calls.length, 0);
+  assert.ok(
+    e.dispatch.mock.calls.some(
+      ([action]: any[]) =>
+        action.type === 'SERVER_CONSTRUCTION_STARTED' && action.islandId === ISLAND,
+    ),
+  );
+});
+
+test('건설 목표 조회 실패는 목표 없음으로 숨기지 않고 재시도로 복구한다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오류', 0));
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+  await waitFor(() => assert.ok(screen.getByText('건설 목표를 불러오지 못했어요.')));
+  assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  await fireEvent.press(screen.getByTestId('board-construction-retry'));
+  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+});
+
+test('청사진을 열 때 목표를 다시 읽어 다른 기기에서 변경한 건물을 표시한다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await waitFor(() =>
+    assert.equal(
+      screen.getByTestId('board-blueprint-area').props.accessibilityLabel,
+      '도서관 건설 현황 보기',
+    ),
+  );
+  const next = constructionOptions({ selectedBuildingId: 'mail' });
+  next.items[0] = { ...next.items[0], id: 'mail', name: '우체통', cost: 81 };
+  getConstructionOptionsMock.mockResolvedValue(next);
+  await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+  await waitFor(() => assert.ok(screen.getByText('총 81마리')));
+  assert.ok(screen.getByText('우체통'));
+  assert.equal(screen.queryByText('총 37마리'), null);
 });
 
 test('게시판 장면 배율을 종이와 내용에 함께 적용해 종횡비가 달라도 정렬한다', async () => {
@@ -1990,3 +2254,65 @@ test('퀘스트 만들기 — 서버 실패 시 초안·문구를 보존하고 �
   assert.equal(e.text, '저녁 집중');
   await screen.unmount();
 });
+
+test.each(['success', 'failure', 'stale'] as const)(
+  '다른 기기 공사 완료 뒤 시설 진입은 홈 정본을 확인한다: %s',
+  async (outcome) => {
+    getBoardMock.mockResolvedValue(page([], null, 'member'));
+    const e = makeE({ route: 'quest', detail: 'building' });
+    e.state.serverIslands = { ...e.state.serverIslands, currentIslandId: ISLAND };
+    const activeConstruction = {
+      buildingId: 'library' as const,
+      startedAt: new Date(e.now - 30000).toISOString(),
+      completesAt: new Date(e.now + 30000).toISOString(),
+    };
+    getConstructionOptionsMock.mockResolvedValue(
+      constructionOptions({
+        activeConstruction,
+        items: constructionOptions().items.map((item) => ({
+          ...item,
+          blockedReason: 'IN_PROGRESS',
+        })),
+      }),
+    );
+    const screen = await renderBoard(e);
+    await waitFor(() => assert.ok(screen.getByText('도서관을 짓고 있어요')));
+    assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+    getConstructionOptionsMock.mockResolvedValue(
+      constructionOptions({
+        items: [{ ...constructionOptions().items[0], id: 'mail', name: '우체통' }],
+      }),
+    );
+    await act(async () => {
+      e.now += 31000;
+      e._tick();
+    });
+    await waitFor(() => assert.ok(screen.getByTestId('board-open-library')));
+    const response = deferred<any>();
+    (loadHomeSnapshot as jest.Mock).mockReturnValue(response.promise);
+    await fireEvent.press(screen.getByTestId('board-open-library'));
+    await fireEvent.press(screen.getByTestId('board-open-library'));
+    assert.equal((loadHomeSnapshot as jest.Mock).mock.calls.length, 1);
+    assert.equal(e.go.mock.calls.length, 0);
+    if (outcome === 'stale') await act(async () => e.go('home'));
+    const before = e.go.mock.calls.length;
+    const facts = {
+      islandId: ISLAND,
+      completedBuildings: ['hall', 'board', 'library'],
+      home: {},
+      members: [],
+    };
+    await act(async () => {
+      if (outcome === 'failure') response.reject(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
+      else response.resolve({ status: 'loaded', facts });
+    });
+    const homeActions = e.dispatch.mock.calls.filter(([a]: any[]) => a.type === 'SERVER_HOME');
+    assert.equal(homeActions.length, outcome === 'success' ? 1 : 0);
+    assert.equal(e.go.mock.calls.length, before + (outcome === 'success' ? 1 : 0));
+    if (outcome === 'success') {
+      assert.equal(e.go.mock.calls.at(-1)[0], 'library');
+      assert.ok(e.dispatch.mock.invocationCallOrder.at(-1) < e.go.mock.invocationCallOrder.at(-1));
+    }
+    if (outcome === 'failure') assert.ok(screen.getByText('lost'));
+  },
+);

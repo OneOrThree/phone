@@ -2,6 +2,7 @@ import React from 'react';
 import * as ReactNative from 'react-native';
 import { StyleSheet } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import {
   claimableQuestRewardCount,
   claimableQuestRewards,
@@ -145,4 +146,26 @@ test('보상 개수는 현재 섬의 미수령 개인 보상만 센다', () => {
     'bonus-open',
     'other-island',
   ]);
+});
+
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  test('완료한 퀘스트 개수는 en 에서 단수·복수를 구분한다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+
+    const screen = await render(
+      <HomeQuestIndicator quests={[]} rewardCount={1} onPress={jest.fn()} />,
+    );
+    expect(screen.getByText('1 quest completed')).toBeTruthy();
+
+    await screen.rerender(<HomeQuestIndicator quests={[]} rewardCount={3} onPress={jest.fn()} />);
+    expect(screen.getByText('3 quests completed')).toBeTruthy();
+  });
 });

@@ -78,3 +78,17 @@ test('withdrawAccount — DELETE /me 에 확인 본문과 멱등 키를 싣는�
   assert.equal(header(calls[0], 'Authorization'), 'Bearer AT');
   assert.deepEqual(result, { deleted: true });
 });
+
+test('대표 섬 변경은 PATCH /me의 mainIslandId만 보내고 재시도 키를 유지한다', async () => {
+  stub([
+    {
+      status: 200,
+      body: { data: { id: 'u1', name: '수빈', catColor: 'black', mainIslandId: 'i2' } },
+    },
+  ]);
+  await updateProfile({ mainIslandId: 'i2' }, 'main-key');
+  await updateProfile({ mainIslandId: 'i2' }, 'main-key');
+  assert.deepEqual(body(calls[0]), { mainIslandId: 'i2' });
+  assert.equal(path(calls[0]), '/me');
+  assert.equal(header(calls[0], 'Idempotency-Key'), header(calls[1], 'Idempotency-Key'));
+});

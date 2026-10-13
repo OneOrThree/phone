@@ -1,0 +1,114 @@
+name: Realtime Dev CD
+
+on:
+  workflow_call:
+    inputs:
+      image_digest:
+        required: true
+        type: string
+      image_revision:
+        required: true
+        type: string
+
+concurrency:
+  group: dev-vm-deploy
+  cancel-in-progress: false
+  # 기본(queue: single)은 대기 실행을 하나만 남기고 취소 → 머지 한 번에 CD 3개가 겹치면 하나가 사라짐
+  queue: max
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/realtime/realtime
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, dev]
+    environment:
+      name: dev-server/realtime
+      url: https://oneorthree.dev.mooo.com
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write # 배포 결과 PR 표시
+      issues: write # 라벨은 이슈 API
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS 자격증명 (OIDC, keyless)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-realtime-dev-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
+
+      # job 마다 SM 에서 임시로 만들고 마지막에 지움. Data 이미지는 떠 있는 컨테이너에서 읽음 (GROMO-2224)
+      - name: 임시 dev.env 생성
+        run: .github/scripts/dev-env.sh > /dev/null
+
+      - name: 배포 입력·런타임 계약 검증
+        env:
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$IMAGE_REVISION" = "$GITHUB_SHA"
+          export REALTIME_IMAGE="$REALTIME_IMAGE_REPOSITORY@$IMAGE_DIGEST" IMAGE_REVISION
+          rendered=$(docker compose --env-file "$RUNTIME_ENV_FILE" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml \
+            config --format json)
+          printf '%s' "$rendered" | jq -e '
+            .services.realtime.environment as $e |
+            ["JWT_SECRET", "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME"] |
+            all(.[]; ($e[.] // "") | length > 0) and
+            (($e.SVC_TOKEN_DATA_TO_REALTIME) != ($e.SVC_TOKEN_BIZ_TO_REALTIME)) and
+            (($e.KAFKA_BOOTSTRAP_SERVERS // "") | length > 0)' >/dev/null
+
+      - name: GAR 인증
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
+
+      - name: Realtime 배포
+        env:
+          REALTIME_IMAGE: ${{ env.REALTIME_IMAGE_REPOSITORY }}@${{ inputs.image_digest }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          # 이 시각 이후 시작한 컨테이너만 «이번에 재생성됨» 으로 보고 기동 시간을 잼 (wait-healthy.sh)
+          echo "DEPLOY_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml)
+          "${compose[@]}" pull realtime
+          "${compose[@]}" up -d realtime
+          "${compose[@]}" ps realtime
+
+      - name: Realtime readiness
+        id: health
+        env:
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        # compose healthcheck 가 /actuator/health/readiness 를 봄 → 컨테이너 상태로 판정(GROMO-2224).
+        run: .github/scripts/wait-healthy.sh phone-realtime 900
+
+      - name: 배포 결과 PR 표시
+        if: always() && (steps.health.outcome == 'success' || failure())
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ steps.health.outcome == 'success' && 'success' || 'failure' }}
+        run: .github/scripts/mark-deploy.sh "$RESULT" realtime "${{ inputs.image_revision }}"
+
+      - name: 실패 로그
+        if: failure()
+        run: docker logs --tail=100 phone-realtime 2>&1 || true
+
+      - name: 임시 env 삭제
+        if: always()
+        run: rm -rf "$(dirname "${RUNTIME_ENV_FILE:-/nonexistent/x}")" 2>/dev/null || true

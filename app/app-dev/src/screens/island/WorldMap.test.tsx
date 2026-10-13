@@ -15,14 +15,15 @@ import {
   useVillageDayNight,
   WorldMap,
 } from '@/screens/island/WorldMap';
-import { buildingNames, initialState } from '@/services/model';
+import { applyLocalePref } from '@/i18n';
+import { buildingNames, initialState, reducer } from '@/services/model';
 import {
   BUILDING_ENTRY_DURATION_MS,
   BUILDING_TRANSITION_DURATION_MS,
 } from '@/services/buildingTransition';
-import { semanticTokens } from '@/design-system/tokens';
 import { villageScene } from '@/utils/village-world';
 import { assets } from '@/constants/assets';
+import { semanticTokens } from '@/design-system/tokens';
 
 // 건물 모션·알림 배지는 장식 레이어라 스크린리더에서 숨긴다. 배치 검증을 위해 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
@@ -307,7 +308,7 @@ test.each([
   ['new-product', 'rank-changed'],
   ['normal', 'normal'],
 ] as const)(
-  '상점 %s와 전망대 %s의 이름표는 상태에 맞게 강조한다',
+  '상점 %s와 전망대 %s는 이름표 없이 상태를 접근성 문구로 안내한다',
   async (shopState, observatoryRankState) => {
     const state = initialState(true);
     const island = state.islands.find((item) => item.id === state.islandId)!;
@@ -323,12 +324,7 @@ test.each([
       />,
     );
     for (const building of ['shop', 'tower']) {
-      const label = screen.getByTestId(`building-name-${building}`).children[0];
-      expect(typeof label).not.toBe('string');
-      if (typeof label !== 'string')
-        expect(label.props.style.backgroundColor).toBe(
-          shopState === 'normal' ? semanticTokens.color.surface : semanticTokens.color.accent,
-        );
+      expect(screen.queryByTestId(`building-name-${building}`)).toBeNull();
     }
     // 장식 모션은 스크린리더에서 숨기므로 순위 변동은 실제 전망대 버튼이 읽어 준다.
     const rankText =
@@ -444,8 +440,8 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   );
   expect(screen.getByTestId('world-shop-motion').props.accessibilityLabel).toBe('상점');
   expect(screen.queryByTestId('shop-motion-tooltip')).toBeNull();
-  expect(screen.getByTestId('building-name-shop')).toBeTruthy();
-  expect(screen.getByText(buildingNames.shop)).toBeTruthy();
+  expect(screen.queryByTestId('building-name-shop')).toBeNull();
+  expect(screen.queryByText(buildingNames.shop)).toBeNull();
 
   await screen.rerender(
     <FinalIsland state={state} go={jest.fn()} build={jest.fn()} shopState="purchasable" />,
@@ -456,55 +452,25 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   jest.useRealTimers();
 });
 
-test('완공된 각 건물에 상태와 무관한 건물명 라벨을 표시한다', async () => {
+test('완공된 건물은 이름표 없이 접근성 이름으로 식별한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
 
   for (const building of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const) {
-    expect(screen.getByTestId(`building-name-${building}`)).toBeTruthy();
-    expect(screen.getByText(buildingNames[building])).toBeTruthy();
+    expect(screen.queryByTestId(`building-name-${building}`)).toBeNull();
+    expect(screen.queryByText(buildingNames[building])).toBeNull();
+    expect(screen.getByRole('button', { name: buildingNames[building] })).toBeTruthy();
   }
-  for (const building of ['hall', 'library', 'shop'] as const) {
-    expect(screen.getByTestId(`building-name-${building}`).props.style).toEqual(
-      expect.objectContaining({ alignItems: 'flex-end' }),
-    );
-  }
-  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
-  expect(screen.getByTestId('building-name-shop').props.style).toEqual(
-    expect.objectContaining({
-      right: (577 - 60 + 120 - (456 + 262)) * worldScale,
-      top: (603 - (783 - 95)) * worldScale,
-      alignItems: 'flex-end',
-    }),
-  );
-  expect(screen.getByTestId('building-name-tower').props.style).toEqual(
-    expect.objectContaining({
-      left: (150 - 12 - (272 - 60)) * worldScale,
-      top: (52 - (200 - 95)) * worldScale,
-      alignItems: 'flex-start',
-    }),
-  );
   await screen.unmount();
 });
 
-test('부두의 뗏목 이름표는 터치 영역을 넓혀도 원래 위치를 유지한다', async () => {
+test('뗏목은 이름표 없이 접근성 이름으로 식별한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
-  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
 
-  expect(screen.getByText('뗏목')).toBeTruthy();
-  const label = screen.getByTestId('building-name-raft').props.style;
-  const raft = screen.getByLabelText('뗏목').props.style;
-  expect(label).toEqual(
-    expect.objectContaining({
-      width: 180 * worldScale,
-      alignItems: 'center',
-    }),
-  );
-  expect(label.left).toBeGreaterThanOrEqual(0);
-  expect(label.left + label.width).toBeLessThanOrEqual(raft.width);
-  expect(raft.left + label.left).toBeCloseTo(200 * worldScale);
-  expect(raft.top + label.top).toBeCloseTo(815 * worldScale - 30);
+  expect(screen.queryByText('뗏목')).toBeNull();
+  expect(screen.queryByTestId('building-name-raft')).toBeNull();
+  expect(screen.getByRole('button', { name: '뗏목' })).toBeTruthy();
   await screen.unmount();
 });
 
@@ -601,6 +567,61 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
   await screen.unmount();
   jest.useRealTimers();
 });
+
+test.each([false, true])(
+  '홈 모닥불을 누르면 휴식 화면을 연다 (레이어드: %s)',
+  async (layeredPreview) => {
+    jest.useFakeTimers();
+    jest.spyOn(Animated, 'timing').mockImplementation(
+      () =>
+        ({
+          start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+          stop: jest.fn(),
+          reset: jest.fn(),
+        }) as unknown as Animated.CompositeAnimation,
+    );
+    const state = initialState(true);
+    state.settings.reduceMotion = true;
+    state.islands.find((island) => island.id === state.islandId)!.buildings = [];
+    const go = jest.fn();
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={go}
+        build={jest.fn()}
+        layeredPreview={layeredPreview}
+        showHud={false}
+        showActions={false}
+      />,
+    );
+
+    await fireEvent.press(screen.getByRole('button', { name: '모닥불' }));
+    expect(go).toHaveBeenCalledWith('rest');
+    expect(state.session).toBeFalsy();
+    expect(screen.queryByText('모닥불')).toBeNull();
+    await screen.unmount();
+  },
+);
+
+test.each([false, true])(
+  '방문 중에는 모닥불 휴식 진입을 노출하지 않는다 (방문 카드: %s)',
+  async (explicitVisit) => {
+    const state = initialState(true);
+    const visitingIslandId = state.islands.find((island) => island.id !== state.islandId)!.id;
+    if (!explicitVisit) state.visitingIslandId = visitingIslandId;
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={jest.fn()}
+        build={jest.fn()}
+        viewingIslandId={explicitVisit ? visitingIslandId : undefined}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: '모닥불' })).toBeNull();
+    await screen.unmount();
+  },
+);
 
 test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
   jest.useFakeTimers();
@@ -1123,4 +1144,86 @@ test('뗏목 탭 영역은 부두 끝이 아니라 배경에 그려진 뗏목 �
   } finally {
     timing.mockRestore();
   }
+});
+
+test('서버 방문 지도는 대상 건물만 열고 귀환도 서버 경로를 사용한다', async () => {
+  let state = reducer(initialState(true), {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [{ id: 'own', name: '원래 섬' }],
+      currentIslandId: 'own',
+      nextCursor: null,
+      lossReason: null,
+    },
+  });
+  state = reducer(state, {
+    type: 'ISLAND_VISIT',
+    visit: {
+      island: { id: 'visitor', name: '구경할 섬', memberCount: 1, maxMembers: 15 },
+      buildings: ['hall', 'board', 'library'],
+      members: { items: [], nextCursor: null, version: 1 },
+    },
+  });
+  state = reducer(state, { type: 'SERVER_VISITING', islandId: 'visitor' });
+  const go = jest.fn(),
+    notify = jest.fn(),
+    dispatch = jest.fn(),
+    onReturn = jest.fn();
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={go}
+      build={jest.fn()}
+      notify={notify}
+      dispatch={dispatch}
+      onReturnFromVisit={onReturn}
+    />,
+  );
+  expect(screen.queryByTestId('home-cat-sprite')).toBeNull();
+  expect(screen.queryByText('집중 시작')).toBeNull();
+  expect(screen.queryByLabelText(buildingNames.tower)).toBeNull();
+  await fireEvent.press(screen.getByLabelText(buildingNames.hall));
+  expect(go).toHaveBeenLastCalledWith('manage');
+  await fireEvent.press(screen.getByLabelText(buildingNames.board));
+  expect(go).toHaveBeenLastCalledWith('board');
+  await fireEvent.press(screen.getByLabelText(buildingNames.library));
+  expect(notify).toHaveBeenCalledWith('주민만 이용할 수 있어요');
+  await fireEvent.press(screen.getByText('원래 섬으로'));
+  expect(onReturn).toHaveBeenCalledTimes(1);
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(go).not.toHaveBeenCalledWith('travel', expect.anything());
+});
+
+describe('en', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  test('en 로케일 — 홈 HUD·건물 문 라벨을 영문으로 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const state = initialState(true);
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+
+    expect(screen.getByText('Focus today')).toBeTruthy();
+    expect(screen.getByLabelText('Raft')).toBeTruthy();
+  });
+
+  // legacyDoors 의 label 게터 + home.door.* 템플릿이 한 번에 걸리는 조합 — 게터가 import
+  // 시점에 다시 굳는 회귀(건물명이 ko 로 멈추는 것)를 잡는다.
+  test('en 로케일 — 게시판 새 댓글 문 배지는 영문 건물명을 합친 라벨을 보여준다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const state = initialState(true);
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    if (!island.buildings.includes('board')) island.buildings.push('board');
+    const screen = await render(
+      <FinalIsland state={state} go={jest.fn()} build={jest.fn()} boardStatus="new-comment" />,
+    );
+
+    expect(screen.getByLabelText("Notice Board, there's a new comment.")).toBeTruthy();
+  });
 });

@@ -83,7 +83,7 @@ class PlanTest(unittest.TestCase):
 
     def test_common_and_unknown_inputs_fail_open_to_full_validation(self):
         for path in ('.github/scripts/ci-jar.py', '.github/actions/ci-jar/action.yml',
-                     '.github/workflows/satellite-ci.yml', 'server/scripts/docker-compose.satellites.yml',
+                     '.github/workflows/satellite-check.yml', 'server/scripts/docker-compose.satellites.yml',
                      'new-shared-build-input'):
             with self.subTest(path=path):
                 self.assertTrue(all(planner.plan([path]).values()))

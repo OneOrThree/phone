@@ -44,8 +44,11 @@ export function useIslandPresence(
 ): IslandPresence {
   const { active, islandId, emoteSessionId } = opts;
   const generation = sessionGeneration();
-  const [view, setView] = useState<PresenceView>(EMPTY_PRESENCE);
   const [nonce, setNonce] = useState(0);
+  const scope = `${generation}:${active ? islandId : ''}:${nonce}`;
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const [snapshot, setSnapshot] = useState({ scope, view: EMPTY_PRESENCE });
   const rt = useRef<IslandRealtime | null>(null);
   const onSendError = useRef(opts.onSendError);
   onSendError.current = opts.onSendError;
@@ -56,16 +59,18 @@ export function useIslandPresence(
 
   useEffect(() => {
     if (!active || !islandId) {
-      setView(EMPTY_PRESENCE);
       return;
     }
     const gen = generation;
-    const alive = () => gen === sessionGeneration();
+    let live = true;
+    const alive = () => live && scopeRef.current === scope && gen === sessionGeneration();
     const session = start({
       islandId,
       emoteSessionId,
       alive,
-      onView: setView,
+      onView: (view) => {
+        if (alive()) setSnapshot({ scope, view });
+      },
       onTransition: (transition) => {
         if (alive()) onTransition.current?.(transition);
       },
@@ -85,19 +90,20 @@ export function useIslandPresence(
       }
     });
     return () => {
+      live = false;
       appSub.remove();
       session.dispose();
       rt.current = null;
     };
     // nonce: retry — 채널을 통째로 버리고 새로 연다.
-  }, [active, islandId, generation, nonce, start]);
+  }, [active, islandId, generation, nonce, start, scope]);
 
   useEffect(() => {
     rt.current?.setEmoteSessionId(emoteSessionId ?? null);
   }, [emoteSessionId]);
 
   return {
-    ...view,
+    ...(snapshot.scope === scope ? snapshot.view : EMPTY_PRESENCE),
     sendEmote: useCallback((type: string) => rt.current?.sendEmote(type) ?? false, []),
     retry: useCallback(() => setNonce((n) => n + 1), []),
   };

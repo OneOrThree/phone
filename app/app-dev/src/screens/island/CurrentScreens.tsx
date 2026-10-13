@@ -5,9 +5,11 @@ import {
   getScreenTimeReportingConsent,
   setScreenTimeReportingConsent,
 } from '@/services/screenTimeReporting';
+import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
+import { errorTextOr, t } from '@/i18n';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
   isTutorialExperience,
@@ -35,7 +37,7 @@ import {
   Building,
   Color,
   Route,
-  currentIsland,
+  displayIsland as currentIsland,
   viewIsland,
   serverHome,
   canVisit,
@@ -295,15 +297,22 @@ export function friendsSnapshotForSync(data: FriendsScreenState['data']) {
 }
 
 // 주민 화면 가드 판정(GROMO-2138). 서버 모드는 로컬 목업 섬 대신 서버 current 로 소속을,
-// 스냅샷의 완공 건물로 잠금을 본다. 스냅샷이 오기 전(built undefined)에는 잠그지 않는다 —
-// 각 건물 화면이 서버에서 다시 확인한다.
+// 스냅샷의 완공 건물로 잠금을 본다. 미조회는 undefined로 유지해 아래 진입 가드가 기다리게 한다.
+// 방문자는 현재 섬 주민 여부를 이어받지 않고 공개 읽기 API로 완공 여부를 확인한다.
 export function memberGate(state: State, server: boolean) {
-  const i = currentIsland(state);
-  if (!server) return { joined: i.joined, built: viewIsland(state).buildings, host: isHost(i) };
+  if (!server) {
+    const i = currentIsland(state);
+    return { joined: i.joined, built: viewIsland(state).buildings, host: isHost(i) };
+  }
   const facts = state.visitingIslandId ? null : serverHome(state);
+  const visit = state.serverIslands?.visit;
   return {
-    joined: state.serverIslands?.currentIslandId != null,
-    built: state.visitingIslandId ? viewIsland(state).buildings : facts?.completedBuildings,
+    joined: !state.visitingIslandId && state.serverIslands?.currentIslandId != null,
+    built: state.visitingIslandId
+      ? visit?.island.id === state.visitingIslandId
+        ? (visit.buildings ?? undefined)
+        : undefined
+      : facts?.completedBuildings,
     host: facts?.home.island.role === 'host',
   };
 }
@@ -367,7 +376,13 @@ function CurrentScreensContent({ e }: any) {
     'sound',
   ];
   const { joined, built, host } = memberGate(state, !!e.islands);
-  if (!joined && memberRoutes.includes(r))
+  const endServerVisit = () => {
+    e.dispatch({ type: 'END_VISIT' });
+    e.reset(state.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
+  };
+  const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
+  const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
+  if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
         <Txt kind="h17">가입한 섬이 없어요</Txt>
@@ -379,23 +394,27 @@ function CurrentScreensContent({ e }: any) {
   // 나머지는 내 섬 화면이 섞이거나 섬 상태가 꼬이지 않게 모두 막는다
   if (
     state.visitingIslandId &&
-    ![
-      'home',
-      'manage',
-      'members',
-      'board',
-      'notice',
-      'quest',
-      'travel',
-      'visitIsland',
-      'visitIslandFocus',
-      'permission',
-      'screenTimeApps',
-    ].includes(r)
+    !(
+      e.islands
+        ? ['visitIsland', 'manage', 'members', 'board', 'notice', 'visitIslandFocus']
+        : [
+            'home',
+            'manage',
+            'members',
+            'board',
+            'notice',
+            'quest',
+            'travel',
+            'visitIsland',
+            'visitIslandFocus',
+            'permission',
+            'screenTimeApps',
+          ]
+    ).includes(r)
   )
     return (
       <Overlay
-        close={e.home}
+        close={closeFacility}
         background={
           <FinalIsland
             state={state}
@@ -407,7 +426,14 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Txt kind="h17">주민만 이용할 수 있어요</Txt>
-        <Btn title="확인" onPress={e.home} />
+        <Btn title="확인" onPress={closeFacility} />
+      </Overlay>
+    );
+  if (e.islands && state.visitingIslandId && !built)
+    return (
+      <Overlay close={endServerVisit}>
+        <Txt>섬 모습을 불러오지 못했어요. 다시 방문해 주세요.</Txt>
+        <Btn title="원래 섬으로" onPress={endServerVisit} />
       </Overlay>
     );
   const locked: Partial<Record<Route, Building>> = {
@@ -430,13 +456,22 @@ function CurrentScreensContent({ e }: any) {
     chat: 'mail',
     friendMail: 'mail',
     shop: 'shop',
+    product: 'shop',
+    orders: 'shop',
     sound: 'gram',
   };
   const required = locked[r];
+  if (required && e.islands && !state.visitingIslandId && !serverHome(state))
+    return (
+      <Overlay close={e.home}>
+        <Txt>{e.homeError ? '시설 정보를 불러오지 못했어요' : '시설 정보를 확인하고 있어요.'}</Txt>
+        {e.homeError && <Btn title="다시 시도" onPress={e.retryHome} />}
+      </Overlay>
+    );
   if (required && built && !built.includes(required))
     return (
       <Overlay
-        close={e.home}
+        close={closeFacility}
         background={
           <FinalIsland
             state={state}
@@ -448,24 +483,40 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Pic id={`bld/${buildingArt[required]}`} w={100} />
-        <Txt kind="h17">아직 {buildingNames[required]}이 없어요</Txt>
+        <Txt kind="h17">{t('home.lock.missing', { building: buildingNames[required] })}</Txt>
         <Txt kind="meta">
-          {required === 'library'
-            ? '도서관을 짓기 전에는 지난 기록을 볼 수 없어요.'
-            : '완공 후 이용할 수 있어요.'}
+          {required === 'library' ? t('home.lock.libraryLocked') : t('home.lock.lockedGeneric')}
         </Txt>
         <Btn
-          title={host && built.includes('hall') ? '회관에서 다음 건물 보기' : '확인'}
-          onPress={() => (host && built.includes('hall') ? e.go('construction') : e.home())}
+          title={host && built.includes('hall') ? t('home.lock.viewNext') : t('common.ok')}
+          onPress={() => (host && built.includes('hall') ? e.go('construction') : closeFacility())}
         />
       </Overlay>
     );
+  if (e.islands && state.visitingIslandId && ['board', 'notice'].includes(r)) {
+    const islandId = state.visitingIslandId;
+    return (
+      <VisitorBoard
+        key={islandId}
+        islandId={islandId}
+        backOverride={e.backOverride}
+        onClose={visitMap}
+      />
+    );
+  }
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
   if (r === 'focusVisit') return <FocusVisit e={e} />;
-  if (r === 'visitIsland') return <VisitIsland e={screenE} />;
+  if (r === 'visitIsland')
+    return <VisitIsland e={screenE} onReturnFromVisit={e.islands ? endServerVisit : undefined} />;
   if (r === 'visitIslandFocus')
-    return <FocusVisit e={e} islandId={e.detail || state.visitingIslandId} onBack={e.back} />;
+    return (
+      <FocusVisit
+        e={e}
+        islandId={e.detail || state.visitingIslandId}
+        onBack={e.islands ? visitMap : e.back}
+      />
+    );
   if (
     [
       'focusTravel',
@@ -480,7 +531,12 @@ function CurrentScreensContent({ e }: any) {
     return <FocusFlow e={e} />;
   if (['library', 'diary', 'stats'].includes(r)) return <Library e={e} />;
   if (['hall', 'manage', 'members', 'ledger', 'construction'].includes(r))
-    return <Hall key={r} e={e} />;
+    return (
+      <Hall
+        key={r}
+        e={e.islands && state.visitingIslandId ? { ...e, back: visitMap, home: visitMap } : e}
+      />
+    );
   // 게시판·우체통은 건물 안 장면(BuildingInteriors)으로 그린다
   if (['board', 'notice', 'noticeEdit', 'quest', 'questEdit'].includes(r))
     return (
@@ -492,7 +548,8 @@ function CurrentScreensContent({ e }: any) {
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
-  if (['boat', 'mainIsland', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
+  if (['boat', 'mainIsland', 'currentIsland', 'friends', 'friendSearch'].includes(r))
+    return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
   if (r === 'permission')
     return e.detail === 'settings' ? (
@@ -1204,7 +1261,7 @@ function Travel({ e }: any) {
   return (
     <Sailing
       state={s}
-      from={first ? '나의 작은 배' : (s.travelOrigin ?? currentIsland(s).name)}
+      from={first ? t('focusFlow.common.myLittleBoat') : (s.travelOrigin ?? currentIsland(s).name)}
       destination={target.name}
       duration={1900}
       onArrive={() => {
@@ -1223,7 +1280,7 @@ function Travel({ e }: any) {
     />
   );
 }
-function VisitIsland({ e }: any) {
+function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
   return (
@@ -1235,12 +1292,13 @@ function VisitIsland({ e }: any) {
       viewingIslandId={s.visitingIslandId ? undefined : islandId}
       notify={e.notify}
       dispatch={e.dispatch}
+      onReturnFromVisit={onReturnFromVisit}
     />
   );
 }
 function FocusVisit({ e, islandId, onBack }: any) {
   const s: State = e.state,
-    i = s.islands.find((island) => island.id === islandId) ?? currentIsland(s),
+    i = viewIsland(s, islandId ?? s.serverIslands?.currentIslandId ?? s.islandId),
     L = useAppLayout(),
     safe = useSafeAreaInsets(),
     reduce = s.settings.reduceMotion,
@@ -1304,7 +1362,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
         focus={{ x: 50, y: 50 }}
         spots={spots}
         onRaft={close}
-        raftLabel={visiting ? '뗏목 · 메인 섬으로 돌아가기' : undefined}
+        raftLabel={visiting ? t('focusFlow.common.raftLabelVisiting') : undefined}
         gram={i.buildings.includes('gram')}
       >
         {(size, sizeY, zoom) => {
@@ -1601,13 +1659,13 @@ function FocusFlow({ e: environment }: any) {
       return;
     }
     goldenAnnouncementPendingRef.current = false;
-    AccessibilityInfo.announceForAccessibility('황금 물고기를 잡았어요.');
+    AccessibilityInfo.announceForAccessibility(t('focusFlow.fish.goldenCaughtA11y'));
   };
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState !== 'active' || !goldenAnnouncementPendingRef.current) return;
       goldenAnnouncementPendingRef.current = false;
-      AccessibilityInfo.announceForAccessibility('황금 물고기를 잡았어요.');
+      AccessibilityInfo.announceForAccessibility(t('focusFlow.fish.goldenCaughtA11y'));
     });
     return () => subscription.remove();
   }, []);
@@ -1791,7 +1849,7 @@ function FocusFlow({ e: environment }: any) {
           if (!stillHere()) return;
           tutorialRequest.current = null;
           tutorialRetryAt.current = latest.current.now + 5000;
-          e.notify(error?.message ?? '물고기 보상을 확인하지 못했어요. 다시 시도할게요.');
+          e.notify(errorTextOr(error, 'focusFlow.fish.rewardCheckFailed'));
         });
       return;
     }
@@ -1819,7 +1877,7 @@ function FocusFlow({ e: environment }: any) {
         if (!stillHere()) return;
         tutorialRequest.current = null;
         tutorialRetryAt.current = latest.current.now + 5000;
-        e.notify(error?.message ?? '물고기 보상을 확인하지 못했어요. 다시 시도할게요.');
+        e.notify(errorTextOr(error, 'focusFlow.fish.rewardCheckFailed'));
       });
   }, [
     e.focus,
@@ -1884,7 +1942,7 @@ function FocusFlow({ e: environment }: any) {
   // 완료 이벤트는 정상 종료와 사유가 같아 강퇴로 단정하지 않는 문구를 쓴다.
   const leaveAfterServerEnd = () => {
     e.dispatch({ type: 'SESSION_SYNC', session: null });
-    e.notify('집중이 종료됐어요. 섬 소속을 확인해 주세요.');
+    e.notify(t('focusFlow.hud.endedByServer'));
     e.home();
   };
   const finish = () => {
@@ -1926,7 +1984,7 @@ function FocusFlow({ e: environment }: any) {
           // 응답만 유실돼 서버는 종료를 반영했을 수 있다 — 표식을 풀어 뒤늦게 오는 완료 이벤트가
           // 무시되지 않고 종료 처리되게 한다.
           endedByMeSessionIdRef.current = null;
-          e.notify(error?.message ?? '집중을 마치지 못했어요.');
+          e.notify(errorTextOr(error, 'focus.finishFailed'));
         })
         .finally(() => {
           finishInFlightRef.current = false;
@@ -1951,7 +2009,7 @@ function FocusFlow({ e: environment }: any) {
         .map((m) => ({
           userId: m.userId,
           sessionId: m.sessionId,
-          name: m.name ?? '주민',
+          name: m.name ?? t('focusFlow.common.resident'),
           color: catColor(m.catColor),
           subject: m.subject,
           seconds:
@@ -1966,7 +2024,7 @@ function FocusFlow({ e: environment }: any) {
         .map((m: any) => ({
           userId: m.id,
           sessionId: m.sessionId ?? m.id,
-          name: m.name ?? '주민',
+          name: m.name ?? t('focusFlow.common.resident'),
           color: m.color,
           subject: m.subject ?? null,
           seconds: m.seconds ?? 0,
@@ -2122,7 +2180,7 @@ function FocusFlow({ e: environment }: any) {
           // 15단계는 실제 rest 화면 도착 후 App의 복구 로직에서 연다.
           go();
         })
-        .catch((error: any) => e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'));
+        .catch((error: any) => e.notify(errorTextOr(error, 'focusFlow.hud.pauseFailed')));
       return;
     }
     e.dispatch({ type: 'PAUSE' });
@@ -2168,7 +2226,7 @@ function FocusFlow({ e: environment }: any) {
         })
         .catch(async (error: any) => {
           if (await e.recoverExpiredRestConflict?.(error, session)) return;
-          e.notify(error?.message ?? '집중을 이어가지 못했어요.');
+          e.notify(errorTextOr(error, 'focus.resumeFailed'));
         });
       return;
     }
@@ -2200,7 +2258,7 @@ function FocusFlow({ e: environment }: any) {
       done();
       return true;
     }
-    if (r === 'rest' && s.session) {
+    if (r === 'rest' && s.session?.status === 'paused') {
       resume();
       return true;
     }
@@ -2214,22 +2272,36 @@ function FocusFlow({ e: environment }: any) {
     return (
       <Sailing
         state={s}
-        from="우리 섬"
-        destination="낚시섬"
+        from={t('focusFlow.common.ourIsland')}
+        destination={t('focusFlow.common.fishingIsland')}
         duration={1900}
         onArrive={() => e.replace('fishingArrival')}
       />
     );
   if (r === 'returnTravel')
     return (
-      <Sailing state={s} from="낚시섬" destination="우리 섬" duration={1900} onArrive={e.home} />
+      <Sailing
+        state={s}
+        from={t('focusFlow.common.fishingIsland')}
+        destination={t('focusFlow.common.ourIsland')}
+        duration={1900}
+        onArrive={e.home}
+      />
     );
   if (r === 'rest' && voyage)
     return (
       <Sailing
         state={s}
-        from={voyage === 'toRest' ? '낚시섬' : '우리 섬'}
-        destination={voyage === 'toRest' ? '우리 섬 모닥불' : '낚시섬 내 자리'}
+        from={
+          voyage === 'toRest'
+            ? t('focusFlow.common.fishingIsland')
+            : t('focusFlow.common.ourIsland')
+        }
+        destination={
+          voyage === 'toRest'
+            ? t('focusFlow.travel.restCampfire')
+            : t('focusFlow.travel.fishingSpot')
+        }
         duration={1900}
         onArrive={() => {
           setVoyage(null);
@@ -2262,7 +2334,7 @@ function FocusFlow({ e: environment }: any) {
         tutorial={
           tutorialStep === 15
             ? {
-                text: '같은 섬에서 쉬고 있는 주민이 있다면 이 모닥불에서 함께 볼 수 있어.\n충분히 쉬었다면 집중 이어가기를 눌러 봐.',
+                text: t('focusFlow.tutorial.step15'),
                 onSkip: () => e.setGuideStep(99),
               }
             : undefined
@@ -2271,11 +2343,10 @@ function FocusFlow({ e: environment }: any) {
     );
   // 정해진 자리 없음: 누른 땅까지 걸어가 앉고 그 자리 위에 집중 준비. 물·닿을 수 없는 곳·다른 주민 자리는 안 됨.
   const spotError = (p: Point): string | null => {
-    if (!onLand(fishingGrid, p)) return '물 위에는 앉을 수 없어요.';
-    if (occupied(p, peerSpots)) return '여기는 주민이 앉아 있어요. 조금 옆에 앉아 주세요.';
-    if (i.buildings.includes('gram') && nearGram(p))
-      return '여기는 축음기가 있어 앉을 수 없어요. 조금 옆에 앉아 주세요.';
-    if (nearRaft(p)) return '여기는 뗏목을 대는 곳이에요. 조금 옆에 앉아 주세요.';
+    if (!onLand(fishingGrid, p)) return t('focusFlow.spot.onWater');
+    if (occupied(p, peerSpots)) return t('focusFlow.spot.occupied');
+    if (i.buildings.includes('gram') && nearGram(p)) return t('focusFlow.spot.nearGram');
+    if (nearRaft(p)) return t('focusFlow.spot.nearRaft');
     const catchSpot = castSpot(p);
     if (p.x === DEFAULT_SPOT.x && p.y === DEFAULT_SPOT.y)
       catchSpot.catchPlacement = DEFAULT_CATCH_PLACEMENT;
@@ -2288,7 +2359,7 @@ function FocusFlow({ e: environment }: any) {
         PEER_SPOTS,
       )
     )
-      return '여기에는 물고기를 둘 자리가 없어요. 조금 옆에 앉아 주세요.';
+      return t('focusFlow.spot.noCatchRoom');
     return null;
   };
   const selectSpot = (p: Point) => {
@@ -2300,11 +2371,12 @@ function FocusFlow({ e: environment }: any) {
     const walked = walkTo(p, () => {
       if (latest.current.r !== 'fishingArrival') return;
       e.dispatch({ type: 'FOCUS_SPOT', spot: p });
+      advanceTutorial(5, 7);
       advanceTutorial(6, 7);
       e.go('focusSetup');
     });
     // 연못 가운데 섬처럼 뗏목 쪽 땅과 이어지지 않은 곳
-    if (!walked) e.notify('이곳까지 이어지는 땅을 골라 주세요.');
+    if (!walked) e.notify(t('focusFlow.spot.unreachable'));
   };
   const selectAccessibleSpot = () => {
     const spot = findReachableTutorialSpot(
@@ -2314,7 +2386,7 @@ function FocusFlow({ e: environment }: any) {
       (p) => !spotError(p),
     );
     if (spot) selectSpot(spot);
-    else e.notify('빈 자리를 찾지 못했어요. 잠시 후 다시 시도해 주세요.');
+    else e.notify(t('focusFlow.spot.noneFound'));
   };
   // 뗏목: 자리 고르기에서는 뗏목까지 걸어가 본인만 우리 섬으로, 집중 중에는 집중 종료 확인.
   const raft = () => {
@@ -2326,11 +2398,11 @@ function FocusFlow({ e: environment }: any) {
   };
   const start = () => {
     if (!e.text.trim()) {
-      setError('집중할 과목이나 할 일을 적어주세요.');
+      setError(t('focusFlow.setup.subjectRequired'));
       return;
     }
     if (!e.focus && !i.joined) {
-      e.notify('섬에 가입한 뒤 집중할 수 있어요.');
+      e.notify(t('focusFlow.setup.needsIsland'));
       e.replace('chooseIsland');
       return;
     }
@@ -2343,7 +2415,7 @@ function FocusFlow({ e: environment }: any) {
           advanceTutorial(8, 9);
           e.go('focus');
         })
-        .catch((error: any) => setError(error?.message ?? '집중을 시작하지 못했어요.'));
+        .catch((error: any) => setError(errorTextOr(error, 'focusFlow.setup.startFailed')));
       return;
     }
     e.dispatch({ type: 'START', subject: e.text });
@@ -2352,7 +2424,7 @@ function FocusFlow({ e: environment }: any) {
   };
   const finishInput = () => {
     if (!e.text.trim()) {
-      setError('집중할 과목이나 할 일을 적어주세요.');
+      setError(t('focusFlow.setup.subjectRequired'));
       return;
     }
     Keyboard.dismiss();
@@ -2379,9 +2451,11 @@ function FocusFlow({ e: environment }: any) {
     achieved = focusQuests.filter((q) => q.rounds?.[resultDay]?.achieved.includes('me'));
   const resultModal = (
     <FiModal hidden={dialog === 'reward'}>
-      <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>이번 집중 결과</Text>
+      <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
+        {t('focusFlow.result.title')}
+      </Text>
       <Text style={{ fontSize: 19, lineHeight: 30.4, fontWeight: '900', color: INK }}>
-        {result?.subject ?? '이번 집중'}
+        {result?.subject ?? t('focusFlow.result.defaultSubject')}
       </Text>
       <View style={{ gap: 8, marginVertical: wide ? 12 : 18 }}>
         <View
@@ -2408,7 +2482,9 @@ function FocusFlow({ e: environment }: any) {
           >
             {hms(result?.seconds ?? 0)}
           </Text>
-          <Text style={{ fontSize: 11, lineHeight: 22.4, color: INK }}>이번 집중 시간</Text>
+          <Text style={{ fontSize: 11, lineHeight: 22.4, color: INK }}>
+            {t('focusFlow.result.durationLabel')}
+          </Text>
         </View>
         <View
           style={{
@@ -2426,7 +2502,7 @@ function FocusFlow({ e: environment }: any) {
         >
           <Image source={art.fish} style={{ width: 26, height: 26 }} />
           <Text style={{ fontSize: 15, lineHeight: 19.5, fontWeight: '900', color: INK }}>
-            +{result?.fish ?? 0}마리
+            {t('focusFlow.result.fishCount', { count: result?.fish ?? 0 })}
           </Text>
         </View>
       </View>
@@ -2442,28 +2518,42 @@ function FocusFlow({ e: environment }: any) {
         }}
       >
         <Text style={{ fontSize: 11, lineHeight: 17.6, fontWeight: '700', color: '#7C6857' }}>
-          달성한 일일 퀘스트
+          {t('focusFlow.result.questsAchievedTitle')}
         </Text>
         <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
           {serverQuests
             ? // 서버 회차 — 달성은 claimable·claimed 플래그가 정본이다(rate 추정 금지).
               boardQ.loading
-              ? '확인 중…'
+              ? t('focusFlow.result.checking')
               : boardQ.error
-                ? '퀘스트를 확인하지 못했어요'
+                ? t('focusFlow.result.checkFailed')
                 : boardQ.quests.filter((q) => q.claimable || q.claimed).length
                   ? boardQ.quests
                       .filter((q) => q.claimable || q.claimed)
                       .map((q) => '✓ ' + q.title)
                       .join('\n')
                   : boardQ.quests[0]
-                    ? `아직 없어요 · ${boardQ.quests[0].title} ${boardQ.quests[0].myRate == null ? '측정 전' : `${boardQ.quests[0].myRate}%`}`
-                    : '아직 없어요'
+                    ? t('focusFlow.result.notYetServerRate', {
+                        title: boardQ.quests[0].title,
+                        rate:
+                          boardQ.quests[0].myRate == null
+                            ? t('focusFlow.result.notMeasuredYet')
+                            : `${boardQ.quests[0].myRate}%`,
+                      })
+                    : t('focusFlow.result.notYet')
             : achieved.length
               ? achieved.map((q) => '✓ ' + q.title).join('\n')
               : focusQuests[0]
-                ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
-                : '아직 없어요'}
+                ? t('focusFlow.result.notYetLocalRate', {
+                    title: focusQuests[0].title,
+                    current: Math.floor(
+                      ((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) *
+                        focusQuests[0].target) /
+                        100,
+                    ),
+                    target: focusQuests[0].target,
+                  })
+                : t('focusFlow.result.notYet')}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
@@ -2477,7 +2567,9 @@ function FocusFlow({ e: environment }: any) {
             primary
             id="result-done"
             title={
-              s.resultFromRest || tutorialStep === 21 ? '섬으로 돌아가기' : '배 타고 우리 섬으로'
+              s.resultFromRest || tutorialStep === 21
+                ? t('focusFlow.common.backToIsland')
+                : t('focusFlow.result.backByBoat')
             }
             onPress={finishResult}
           />
@@ -2494,25 +2586,24 @@ function FocusFlow({ e: environment }: any) {
     ));
   const tutorialNext = (text: string, next: number) => (
     <TutorialSpotlight text={text}>
-      <Btn title="다음" small onPress={() => e.setGuideStep(next)} />
+      <Btn title={t('focusFlow.tutorial.next')} small onPress={() => e.setGuideStep(next)} />
     </TutorialSpotlight>
   );
   const tutorialOverlay = (() => {
     if (leg || voyage || goldenCutscene || goldenReeling) return null;
-    if (r === 'fishingArrival' && tutorialStep === 5)
-      return tutorialNext('집중하고 싶은 빈 땅을 눌러 자리를 골라 봐.', 6);
-    if (r === 'fishingArrival' && tutorialStep === 6) {
+    // 5·6단계는 땅을 직접 눌러야 넘어간다 — 「다음」 없이 지도를 열어 두고 안내만 띄운다
+    if (r === 'fishingArrival' && (tutorialStep === 5 || tutorialStep === 6)) {
       const width = Math.min(L.floatingWidth, 414);
       return (
         <GuideBox
           accessibilityViewIsModal
-          text={
-            '물 위나 다른 주민이 앉아 있는 곳은 고를 수 없어.\n마음에 드는 자리를 직접 누르면 돼.'
-          }
+          text={t(tutorialStep === 5 ? 'focusFlow.tutorial.step5' : 'focusFlow.tutorial.step6')}
           style={{ zIndex: 100, left: (L.width - width) / 2, width, bottom: safe.bottom + 16 }}
+          onSkip={skipTutorial}
         >
-          {screenReader && <Btn title="빈 땅에 자리 잡기" onPress={selectAccessibleSpot} />}
-          <Btn title="안내 그만 보기" kind="ghost" onPress={skipTutorial} />
+          {screenReader && (
+            <Btn title={t('focusFlow.spot.sitEmptyButton')} onPress={selectAccessibleSpot} />
+          )}
         </GuideBox>
       );
     }
@@ -2523,7 +2614,7 @@ function FocusFlow({ e: environment }: any) {
           error={error}
           accessibleInput={
             <TextInput
-              accessibilityLabel="오늘의 할 일"
+              accessibilityLabel={t('focusFlow.common.todayTodo')}
               value={e.text}
               onChangeText={(value) => {
                 e.setText(value);
@@ -2535,11 +2626,14 @@ function FocusFlow({ e: environment }: any) {
               style={{ minHeight: componentTokens.input.minHeight, width: '100%', color: C.ink }}
             />
           }
-          text={
-            '이번 집중에서 할 일을 하나 적어 봐.\n“영어 단어 외우기”처럼 지금 바로 시작할 수 있는 일이 좋아.'
-          }
+          text={t('focusFlow.tutorial.step7')}
         >
-          <Btn title="입력 완료" small disabled={!e.text.trim()} onPress={finishInput} />
+          <Btn
+            title={t('focusFlow.tutorial.step7Done')}
+            small
+            disabled={!e.text.trim()}
+            onPress={finishInput}
+          />
         </TutorialSpotlight>
       );
     if (r === 'focusSetup' && tutorialStep === 8)
@@ -2547,72 +2641,57 @@ function FocusFlow({ e: environment }: any) {
         <TutorialSpotlight
           target={setupStartTarget.rect}
           error={error}
-          text="좋아. 이제 집중 시작을 눌러 봐."
-          action={{ title: '집중 시작', onPress: start }}
+          text={t('focusFlow.tutorial.step8')}
+          action={{ title: t('focus.start'), onPress: start }}
         />
       );
-    if (r === 'focus' && tutorialStep === 9)
-      return tutorialNext(
-        '집중이 시작됐어.\n위에는 방금 적은 할 일과 실제 집중 시간이 표시돼.',
-        10,
-      );
+    if (r === 'focus' && tutorialStep === 9) return tutorialNext(t('focusFlow.tutorial.step9'), 10);
     if (r === 'focus' && tutorialStep === 10)
-      return tutorialNext(
-        `네가 집중하는 동안 ${s.name}이가 낚시를 할 거야.\n많은 사람들과 동시에 집중할수록 희귀한 물고기를 낚을 확률이 높아지니 참고해.`,
-        11,
-      );
+      return tutorialNext(t('focusFlow.tutorial.step10', { name: s.name }), 11);
     if (r === 'focus' && tutorialStep === 12)
-      return tutorialNext(
-        '첫 물고기를 낚았어!\n이 물고기는 섬을 발전시키는 데 사용할 수 있어!',
-        14,
-      );
+      return tutorialNext(t('focusFlow.tutorial.step12'), 14);
     if (r === 'focus' && tutorialStep === 14)
       return (
         <TutorialSpotlight
           target={pauseTarget.rect}
-          action={{ title: '휴식하기', onPress: pause }}
-          text={'이번에는 잠깐 쉬어 보자.\n아래의 휴식하기를 눌러 봐.'}
+          action={{ title: t('focusFlow.common.pauseFocus'), onPress: pause }}
+          text={t('focusFlow.tutorial.step14')}
         />
       );
     if (r === 'focus' && tutorialStep === 16)
-      return tutorialNext(
-        '아까 골랐던 자리로 돌아왔어.\n할 일과 집중 시간도 쉬기 전 그대로 이어졌지?',
-        17,
-      );
+      return tutorialNext(t('focusFlow.tutorial.step16'), 17);
     if (r === 'focus' && tutorialStep === 17)
       return (
         <TutorialSpotlight
           target={endTarget.rect}
-          action={{ title: '집중 종료', onPress: openEnd }}
-          text={
-            '이렇게 쉬었다가 돌아와도 처음부터 다시 시작할 필요는 없어.\n이제 집중을 마쳐 보자.'
-          }
+          action={{ title: t('focusFlow.common.endFocus'), onPress: openEnd }}
+          text={t('focusFlow.tutorial.step17')}
         />
       );
     if (r === 'focus' && tutorialStep === 18)
       return (
         <TutorialSpotlight
           target={confirmEndTarget.rect}
-          text="집중 종료를 눌러 마쳐 봐."
-          action={{ title: '집중 종료', onPress: finish }}
+          text={t('focusFlow.tutorial.step18')}
+          action={{ title: t('focusFlow.common.endFocus'), onPress: finish }}
         >
-          <Btn title="계속하기" kind="ghost" onPress={cancelEnd} />
+          <Btn title={t('focusFlow.common.continueAction')} kind="ghost" onPress={cancelEnd} />
         </TutorialSpotlight>
       );
     if (r === 'focusResult' && tutorialStep === 19)
       return tutorialNext(
-        '방금 집중한 시간이 기록됐어.\n쉬었던 시간은 집중 시간에 포함되지 않아.',
+        t('focusFlow.tutorial.step19'),
         // 서버는 유효 집중 60초당 1마리라 0마리일 수 있다 — 없는 물고기를 확인하라고 안내하지 않는다.
         (result?.fish ?? 0) > 0 ? 20 : 21,
       );
     if (r === 'focusResult' && tutorialStep === 20)
-      return tutorialNext('집중해서 낚은 물고기도 여기에서 확인할 수 있어.', 21);
+      return tutorialNext(t('focusFlow.tutorial.step20'), 21);
     if (r === 'focusResult' && tutorialStep === 21)
       return (
         <TutorialSpotlight
           target={resultTarget.rect}
-          action={{ title: '섬으로 돌아가기', onPress: finishResult }}
-          text={'이제 섬으로 돌아가기를 눌러 봐.\n돌아가면 섬을 되살릴 첫 번째 퀘스트를 줄게.'}
+          action={{ title: t('focusFlow.common.backToIsland'), onPress: finishResult }}
+          text={t('focusFlow.tutorial.step21')}
         />
       );
     return null;
@@ -2709,7 +2788,7 @@ function FocusFlow({ e: environment }: any) {
               marginBottom: 4,
             }}
           >
-            <Text style={fiTitle(18)}>집중 준비</Text>
+            <Text style={fiTitle(18)}>{t('focusFlow.setup.title')}</Text>
             <View style={{ width: 44, height: 44, position: 'relative' }}>
               <View style={{ position: 'absolute', left: 22, top: 36 }}>
                 <CatSprite
@@ -2731,19 +2810,19 @@ function FocusFlow({ e: environment }: any) {
               marginBottom: 4,
             }}
           >
-            오늘의 할 일
+            {t('focusFlow.common.todayTodo')}
           </Text>
           <View ref={setupInputTarget.ref} collapsable={false} onLayout={setupInputTarget.measure}>
             <TextInput
               testID="focus-subject"
-              accessibilityLabel="오늘의 할 일"
+              accessibilityLabel={t('focusFlow.common.todayTodo')}
               value={e.text}
-              onChangeText={(t: string) => {
-                e.setText(t);
+              onChangeText={(tx: string) => {
+                e.setText(tx);
                 setError('');
               }}
               maxLength={40}
-              placeholder="예: 영어 단어 외우기"
+              placeholder={t('focusFlow.setup.placeholder')}
               placeholderTextColor="#9C8B80"
               returnKeyType="done"
               onSubmitEditing={tutorialStep === 7 ? finishInput : start}
@@ -2767,14 +2846,18 @@ function FocusFlow({ e: environment }: any) {
             </Text>
           )}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <FiButton title="다른 곳 고르기" style={{ flex: 1 }} onPress={e.back} />
+            <FiButton
+              title={t('focusFlow.setup.pickAnotherSpot')}
+              style={{ flex: 1 }}
+              onPress={e.back}
+            />
             <View
               ref={setupStartTarget.ref}
               collapsable={false}
               onLayout={setupStartTarget.measure}
               style={{ flex: 1 }}
             >
-              <FiButton primary title="집중 시작" id="start-focus" onPress={start} />
+              <FiButton primary title={t('focus.start')} id="start-focus" onPress={start} />
             </View>
           </View>
         </View>
@@ -2785,7 +2868,7 @@ function FocusFlow({ e: environment }: any) {
     setFan(false);
     if (liveIslandId) {
       // 서버 모드는 STOMP SEND 가 유일한 경로 — 브로드캐스트가 돌아올 때만 화면에 뜬다.
-      if (!live.sendEmote(id)) e.notify('응원을 보내지 못했어요. 잠시 후 다시 시도해 주세요.');
+      if (!live.sendEmote(id)) e.notify(t('focusFlow.hud.emoteSendFailed'));
       return;
     }
     setEmote(id);
@@ -2814,7 +2897,7 @@ function FocusFlow({ e: environment }: any) {
       style={{ flex: 1 }}
       onLayout={(ev) => setBoxHeight(ev.nativeEvent.layout.height)}
       overlay={tutorialOverlay}
-      isolateAccessibility={tutorialStep === 6 && !!tutorialOverlay}
+      isolateAccessibility={(tutorialStep === 5 || tutorialStep === 6) && !!tutorialOverlay}
       onSkip={skipTutorial}
     >
       <View testID="golden-background" style={{ flex: 1 }} {...a11yHidden(!!goldenCutscene)}>
@@ -2891,7 +2974,7 @@ function FocusFlow({ e: environment }: any) {
                     size={size}
                     sizeY={sizeY}
                     color={s.color}
-                    name="나"
+                    name={t('focusFlow.common.me')}
                     me
                     subject={shown.has('me') ? mySubject : null}
                     seconds={
@@ -2959,7 +3042,7 @@ function FocusFlow({ e: environment }: any) {
           >
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="주민 상태 다시 불러오기"
+              accessibilityLabel={t('focusFlow.hud.residentsReloadA11y')}
               onPress={live.retry}
               style={{
                 minHeight: 44,
@@ -2972,7 +3055,7 @@ function FocusFlow({ e: environment }: any) {
               }}
             >
               <Text style={{ fontSize: 12, lineHeight: 19.2, fontWeight: '800', color: INK }}>
-                주민 상태를 불러오지 못했어요 · 다시 시도
+                {t('focusFlow.hud.residentsLoadFailed')}
               </Text>
             </Pressable>
           </View>
@@ -3041,7 +3124,15 @@ function FocusFlow({ e: environment }: any) {
                       key={id}
                       testID={`emote-${id}`}
                       accessibilityRole="button"
-                      accessibilityLabel={['인사', '응원', '졸림', '웃음', '하트뿅뿅'][n]}
+                      accessibilityLabel={
+                        [
+                          t('focusFlow.hud.emote.hello'),
+                          t('focusFlow.hud.emote.cheer'),
+                          t('focusFlow.hud.emote.sleepy'),
+                          t('focusFlow.hud.emote.laugh'),
+                          t('focusFlow.hud.emote.hearts'),
+                        ][n]
+                      }
                       onPress={() => sendEmote(id)}
                       style={circle(46, C.paper)}
                     >
@@ -3053,7 +3144,7 @@ function FocusFlow({ e: environment }: any) {
               <Pressable
                 testID="emote-fab"
                 accessibilityRole="button"
-                accessibilityLabel="이모티콘"
+                accessibilityLabel={t('focusFlow.hud.emoteFab')}
                 accessibilityState={{ expanded: fan }}
                 onPress={() => setFan(!fan)}
                 style={circle(52, C.butter)}
@@ -3069,7 +3160,12 @@ function FocusFlow({ e: environment }: any) {
                 onLayout={pauseTarget.measure}
                 style={{ flex: 1 }}
               >
-                <FiButton primary title="휴식하기" id="pause-focus" onPress={pause} />
+                <FiButton
+                  primary
+                  title={t('focusFlow.common.pauseFocus')}
+                  id="pause-focus"
+                  onPress={pause}
+                />
               </View>
               <View
                 ref={endTarget.ref}
@@ -3077,28 +3173,39 @@ function FocusFlow({ e: environment }: any) {
                 onLayout={endTarget.measure}
                 style={{ flex: 1 }}
               >
-                <FiButton title="집중 종료" id="end-focus" onPress={openEnd} />
+                <FiButton title={t('focusFlow.common.endFocus')} id="end-focus" onPress={openEnd} />
               </View>
             </View>
             {dialog === 'end' && !goldenReeling && (
               <FiModal>
-                <Text style={fiTitle(wide ? 19 : 22)}>이번 집중을 마칠까요?</Text>
+                <Text style={fiTitle(wide ? 19 : 22)}>{t('focusFlow.hud.endConfirmTitle')}</Text>
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
-                  <FiButton title="계속하기" style={{ flex: 1 }} onPress={cancelEnd} />
+                  <FiButton
+                    title={t('focusFlow.common.continueAction')}
+                    style={{ flex: 1 }}
+                    onPress={cancelEnd}
+                  />
                   <View
                     ref={confirmEndTarget.ref}
                     collapsable={false}
                     onLayout={confirmEndTarget.measure}
                     style={{ flex: 1 }}
                   >
-                    <FiButton primary title="집중 종료" id="confirm-finish" onPress={finish} />
+                    <FiButton
+                      primary
+                      title={t('focusFlow.common.endFocus')}
+                      id="confirm-finish"
+                      onPress={finish}
+                    />
                   </View>
                 </View>
               </FiModal>
             )}
             {dialog === 'music' && !goldenReeling && (
               <FiModal>
-                <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>축음기 음악</Text>
+                <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
+                  {t('focusFlow.music.title')}
+                </Text>
                 <Text
                   style={{
                     fontSize: 13,
@@ -3107,7 +3214,7 @@ function FocusFlow({ e: environment }: any) {
                     marginBottom: wide ? 10 : 15,
                   }}
                 >
-                  보유한 음원 중에서 골라요.
+                  {t('focusFlow.music.subtitle')}
                 </Text>
                 <View style={{ gap: 8 }}>
                   {i.sharedOwned.filter(hasBundledAudio).map((id) => (
@@ -3122,11 +3229,7 @@ function FocusFlow({ e: environment }: any) {
                           e.playback
                             .update({ trackId: id, playing: true })
                             .catch((thrown: unknown) =>
-                              e.notify(
-                                thrown instanceof Error
-                                  ? thrown.message
-                                  : '음악을 바꾸지 못했어요.',
-                              ),
+                              e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed')),
                             );
                       }}
                     />
@@ -3135,7 +3238,7 @@ function FocusFlow({ e: environment }: any) {
                 <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
                   <FiButton
                     primary
-                    title="자리로 돌아가기"
+                    title={t('focusFlow.music.backToSpot')}
                     style={{ flex: 1 }}
                     onPress={() => setDialog(null)}
                   />
@@ -3314,7 +3417,7 @@ function Social({ e }: any) {
     r = e.route,
     [query, setQuery] = useState(''),
     friends = s.friends ?? [];
-  if (r === 'boat' || r === 'mainIsland')
+  if (r === 'boat' || r === 'mainIsland' || r === 'currentIsland')
     return (
       // 내 뗏목·메인 섬 변경·친구 관리는 v2 시트 구현(Screens.tsx)이 그린다
       <RedesignScreens e={e} />

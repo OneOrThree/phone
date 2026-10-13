@@ -1,0 +1,116 @@
+# GROMO dev 서버 — CD (main CI digest → 앱 서버 배포)
+#
+# PR CI는 build/cache만 검증한다. squash merge 후 main CI가 최종 main SHA를
+# build·push하고, build-push-action이 반환한 불변 digest를 이 workflow에 직접 넘긴다.
+# CD는 registry tag를 다시 찾거나 이미지를 재빌드하지 않는다.
+
+name: Data API Dev CD
+
+on:
+  workflow_call:
+    inputs:
+      image_digest:
+        description: main CI가 push한 이미지의 sha256 digest
+        required: true
+        type: string
+      image_revision:
+        description: 이미지를 만든 main commit SHA
+        required: true
+        type: string
+
+concurrency:
+  group: dev-vm-deploy
+  cancel-in-progress: false
+  # 기본(queue: single)은 대기 실행을 하나만 남기고 취소 → 머지 한 번에 CD 3개가 겹치면 하나가 사라짐
+  queue: max
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/data-api/data-api
+
+jobs:
+  deploy:
+    name: Data API 배포
+    runs-on: [self-hosted, dev]
+    environment:
+      name: dev-server/data-api
+      url: https://oneorthree.dev.mooo.com
+    timeout-minutes: 40
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write # 배포 결과 PR 표시
+      issues: write # 라벨은 이슈 API
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS 자격증명 (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-dev-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
+
+      # dev.env(compose 보간)·data-api.env(Data 컨테이너 env)를 job 마다 SM 에서 임시로 만들고 마지막에 지움 (GROMO-2224)
+      - name: 임시 dev.env 생성
+        run: .github/scripts/dev-env.sh "$APP_IMAGE_REPOSITORY@${{ inputs.image_digest }}" > /dev/null
+
+      - name: GAR 인증
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
+
+      # 켜져 있는 오버레이(datadog·kafka)는 유지. data 오버레이는 data-api.env 로 env 통째 교체 → 마지막 -f
+      - name: 배포
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ inputs.image_revision }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+          DEPLOY_ENV: dev
+        run: |
+          set -euo pipefail
+          # 이 시각 이후 시작한 컨테이너만 «이번에 재생성됨» 으로 보고 기동 시간을 잼 (wait-healthy.sh)
+          echo "DEPLOY_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" -f server/scripts/docker-compose.dev.yml)
+          java_opts="-Djava.security.egd=file:/dev/./urandom"
+          if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
+            compose+=(-f server/scripts/docker-compose.datadog.yml)
+            java_opts+=" -javaagent:/opt/datadog/dd-java-agent.jar"
+          fi
+          if docker ps --format '{{.Names}}' | grep -Fxq phone-kafka; then
+            compose+=(-f server/scripts/docker-compose.kafka.yml)
+          fi
+          # DATA_API_ENV_FILE·DATA_API_PROFILES 는 dev-env.sh 가 넘김
+          export DATA_API_JAVA_OPTS=$java_opts
+          compose+=(-f server/scripts/docker-compose.satellites.data.dev.yml)
+          echo "- 이미지: \`${{ inputs.image_digest }}\` · 커밋 \`${IMAGE_REVISION:0:8}\` · 프로파일 \`$DATA_API_PROFILES\`" >> "$GITHUB_STEP_SUMMARY"
+          "${compose[@]}" pull data-api
+          "${compose[@]}" up -d --no-deps data-api
+
+      - name: 헬스체크
+        id: health
+        env:
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        # 컨테이너 상태로 판정. 종료·재시작·unhealthy 는 즉시 실패, starting 이면 최대 900초 대기
+        run: .github/scripts/wait-healthy.sh phone-data-api 900
+
+      - name: 배포 결과 PR 표시
+        if: always() && (steps.health.outcome == 'success' || failure())
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ steps.health.outcome == 'success' && 'success' || 'failure' }}
+        run: .github/scripts/mark-deploy.sh "$RESULT" data-api "${{ inputs.image_revision }}"
+
+      - name: 임시 env 삭제
+        if: always()
+        run: rm -rf "$(dirname "${RUNTIME_ENV_FILE:-/nonexistent/x}")" 2>/dev/null || true

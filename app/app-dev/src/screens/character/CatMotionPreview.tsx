@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { CatSprite } from '@/components/CatSprite';
 import { Text } from '@/design-system/typography';
 import { semanticTokens } from '@/design-system/tokens';
-import { colors, colorNames } from '@/services/model';
+import { colorName, colors } from '@/services/model';
 
 const motions = [
   ['idle', '자동 대기'],
@@ -88,7 +88,7 @@ export function CatMotionPreview() {
                 />
               </View>
             </View>
-            <Text style={styles.name}>{colorNames[index]}</Text>
+            <Text style={styles.name}>{colorName(index)}</Text>
             <Text style={styles.caption}>{motions.find(([v]) => v === motion)?.[1]}</Text>
           </View>
         ))}

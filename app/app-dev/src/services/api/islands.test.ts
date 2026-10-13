@@ -163,6 +163,7 @@ test('searchIslands — cursor 가 q·limit 과 함께 query 로 정확히 전�
 test('visitIsland — 공개 요약·주민·내 신청 상태를 그대로 돌려준다', async () => {
   const screen = {
     island: summary('i7'),
+    buildings: ['hall', 'board'],
     members: {
       items: [{ id: 'm1', name: '민지', catColor: 'ginger', role: 'host', appearance: null }],
       nextCursor: null,
@@ -177,6 +178,28 @@ test('visitIsland — 공개 요약·주민·내 신청 상태를 그대로 돌�
 
   assert.equal(path(calls[0]), '/screens/visit/i7');
   assert.equal(result.joinRequestAvailability, 'available');
+  assert.deepEqual(result.buildings, ['hall', 'board']);
+});
+
+test.each([undefined, null, []].map((value) => [value]))(
+  '방문 완공 시설의 누락·빈 목록을 구분한다: %p',
+  async (buildings) => {
+    stub([{ status: 200, body: { data: { island: summary('i7'), buildings } } }]);
+    assert.deepEqual((await visitIsland('i7')).buildings, buildings);
+  },
+);
+
+test.each([['unknown'], ['hall', 'hall'], 'hall', [null]].map((value) => [value]))(
+  '잘못된 방문 시설 목록은 거절한다: %p',
+  async (buildings) => {
+    stub([{ status: 200, body: { data: { island: summary('i7'), buildings } } }]);
+    await assert.rejects(visitIsland('i7'), { code: 'CLIENT_CONTRACT_ERROR' });
+  },
+);
+
+test('다른 섬의 방문 응답은 거절한다', async () => {
+  stub([{ status: 200, body: { data: { island: summary('other'), buildings: [] } } }]);
+  await assert.rejects(visitIsland('i7'), { code: 'CLIENT_CONTRACT_ERROR' });
 });
 
 test('joinIsland — 멱등 키 필수, 토큰 없으면 빈 body, 있으면 invitationToken 만', async () => {

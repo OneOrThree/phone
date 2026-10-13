@@ -586,3 +586,42 @@ test('응답 도착 전 세션 세대가 바뀌면 옛 계정 데이터를 싣�
   assert.equal(gets('/me/islands').length, 2);
   await h.unmount();
 });
+
+test('다른 기기의 착공도 서버 구간으로 진행률을 표시하고 완공 확인 뒤 재조회를 멈춘다', async () => {
+  let complete = false;
+  serve({
+    ...live(),
+    'GET /islands/srv1/construction-options': () =>
+      data(
+        options(
+          complete
+            ? [item('mail')]
+            : [item('library', { blockedReason: 'IN_PROGRESS' }), item('mail')],
+          { activeConstruction: complete ? null : startedBody },
+        ),
+      ),
+  });
+  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  assert.equal(h.result.current.started, null);
+  assert.equal(h.result.current.timing?.buildingId, 'library');
+  assert.ok(h.result.current.progress > 0);
+  complete = true;
+  await h.rerender({ active: true, islandId: 'local1', now: Date.parse(startedBody.completesAt) });
+  await flush();
+  assert.equal(
+    h.result.current.options?.items.some((i) => i.id === 'library'),
+    false,
+  );
+  assert.equal(h.result.current.timing?.buildingId, 'library');
+  const reads = gets('/islands/srv1/construction-options').length;
+  await h.rerender({
+    active: true,
+    islandId: 'local1',
+    now: Date.parse(startedBody.completesAt) + 10000,
+  });
+  await flush();
+  assert.equal(gets('/islands/srv1/construction-options').length, reads);
+  await h.rerender({ active: false, islandId: null, now: NOW });
+  assert.equal(h.result.current.timing, null);
+});

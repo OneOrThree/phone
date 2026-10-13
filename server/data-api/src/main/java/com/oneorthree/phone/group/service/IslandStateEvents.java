@@ -38,7 +38,7 @@ public class IslandStateEvents {
 
     /** 섬이 새로 생겼다. 정보 변경도 같은 사건 이름을 쓰되 {@code changeKind} 로 가른다. */
     public EventEnvelope created(UUID islandId, UUID actorId) {
-        return append(islandId, actorId, "CREATED");
+        return append(islandId, actorId, "CREATED", Map.of());
     }
 
     /**
@@ -47,11 +47,19 @@ public class IslandStateEvents {
      * {@code IslandMembershipEvents#changed} 와 같다 — 멱등 명령이 receipt 에 같은 사건을 저장한다.
      */
     public EventEnvelope changed(UUID islandId, UUID actorId, String changeKind) {
-        return append(islandId, actorId, changeKind);
+        return append(islandId, actorId, changeKind, Map.of());
     }
 
-    private EventEnvelope append(UUID islandId, UUID actorId, String changeKind) {
-        Map<String, Object> params = new LinkedHashMap<>();
+    /**
+     * {@link #changed(UUID, UUID, String)} 에 변경 축의 값을 더 싣는다 — 시설 완공의
+     * {@code layoutRevision}(GROMO-2232) 처럼. 기본 키({@code changeKind}·{@code islandId})는 덮지 않는다.
+     */
+    public EventEnvelope changed(UUID islandId, UUID actorId, String changeKind, Map<String, Object> extra) {
+        return append(islandId, actorId, changeKind, extra);
+    }
+
+    private EventEnvelope append(UUID islandId, UUID actorId, String changeKind, Map<String, Object> extra) {
+        Map<String, Object> params = new LinkedHashMap<>(extra);
         params.put("changeKind", changeKind);
         params.put("islandId", islandId.toString());
         // version 은 append 가 잠금 아래 한 번만 발급한다. params 에 추정 버전을 중복 저장하지 않는다.

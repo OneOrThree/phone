@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI와 동일한 검사를 로컬에서 실행 (satellite-ci.yml 의 notification 잡)
+# CI와 동일한 검사를 로컬에서 실행 (satellite-check.yml 의 notification 잡)
 #
 # CI 는 `./gradlew build --stacktrace` 한 번으로 checkstyle · spotbugs · test · bootJar 를
 # 전부 돈다. 여기서도 같은 한 줄을 쓴다 — 태스크를 나눠 부르면 CI 와 달라진다.

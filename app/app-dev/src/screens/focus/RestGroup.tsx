@@ -1,4 +1,5 @@
 import { Text } from '@/design-system/typography';
+import { t } from '@/i18n';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
@@ -173,10 +174,13 @@ export function RestGroup({
 }) {
   const layout = useAppLayout(),
     wide = layout.width >= 600,
-    safe = useSafeAreaInsets(),
-    resumeTarget = useSpotlightTarget(!!tutorial);
+    safe = useSafeAreaInsets();
   const ended = result ? state.lastResult : null;
-  const pausedSession = result ? null : state.session;
+  const pausedSession = !result && state.session?.status === 'paused' ? state.session : null;
+  // 홈 모닥불은 열되 세션 없는 구경을 공유 휴식으로 표시하지 않는다(FR-P01·FR-P20).
+  const browsing = !result && !pausedSession;
+  const restTutorial = pausedSession ? tutorial : undefined;
+  const resumeTarget = useSpotlightTarget(!!restTutorial);
   const [own, setOwn] = useState(false),
     confirming = confirm.confirming ?? own,
     setConfirming = confirm.setConfirming ?? setOwn;
@@ -196,22 +200,40 @@ export function RestGroup({
       ? live.rest
           .filter((m) => m.userId !== getSession()?.userId)
           .map((m) => ({
-            name: m.name ?? '주민',
+            name: m.name ?? t('focusFlow.common.resident'),
             color: catColor(m.catColor),
             restStartedAt: m.restStartedAt
               ? Date.parse(m.restStartedAt) - live.clockOffset
               : Date.now(),
-            restSeat: m.restSeat,
+            // 서버 restSeat는 1부터 시작하고 화면 배열은 0부터 시작한다.
+            restSeat:
+              typeof m.restSeat === 'number' &&
+              Number.isInteger(m.restSeat) &&
+              m.restSeat >= 1 &&
+              m.restSeat <= 15
+                ? m.restSeat - 1
+                : null,
           }))
-      : currentIsland(state).members.filter((m) => !m.focusing && m.restStartedAt);
+      : live
+        ? []
+        : currentIsland(state).members.filter((m) => !m.focusing && m.restStartedAt);
   // 자리 배정: 나는 뒤 가운데(1번), 주민은 서버 restSeat(있고 겹치지 않으면) 아니면 0·2·3·4·5번, 7명부터는 바깥 줄(6번~)
-  const taken = new Set<number>([1]);
+  const taken = new Set<number>(browsing ? [] : [1]);
   const actors = [
-    { seat: 1, me: true, name: '나', color: state.color, restStartedAt: started },
-    ...others.map((m, n) => {
+    ...(!browsing
+      ? [
+          {
+            seat: 1,
+            me: true,
+            name: t('focusFlow.common.me'),
+            color: state.color,
+            restStartedAt: started,
+          },
+        ]
+      : []),
+    ...others.map((m) => {
       let seat = (m as { restSeat?: number | null }).restSeat;
-      if (typeof seat !== 'number' || seat < 0 || seat === 1 || taken.has(seat))
-        seat = n < 5 ? [0, 2, 3, 4, 5][n] : n + 1;
+      if (typeof seat !== 'number' || seat < 0 || taken.has(seat)) seat = 0;
       while (taken.has(seat)) seat += 1;
       taken.add(seat);
       return { ...m, me: false, seat };
@@ -219,10 +241,12 @@ export function RestGroup({
   ].sort((a, b) => a.seat - b.seat);
   const { width: W, height: H } = layout,
     { top: it, bottom: ib, left: il, right: ir } = layout.insets;
-  // 자리 계산은 인원·화면 크기가 바뀔 때만(1초마다 도는 휴식 시간 갱신과 무관)
+  // 중간 주민이 떠나 높은 번호만 남아도 그 좌석까지 배치를 생성한다.
+  const seatCount = Math.max(actors.length, ...actors.map((actor) => actor.seat + 1));
+  // 자리 계산은 좌석 범위·화면 크기가 바뀔 때만(1초마다 도는 휴식 시간 갱신과 무관)
   const { x0, y0, s, seats } = useMemo(
-    () => restSeats(actors.length, W, H, { top: it, bottom: ib, left: il, right: ir }),
-    [actors.length, W, H, it, ib, il, ir],
+    () => restSeats(seatCount, W, H, { top: it, bottom: ib, left: il, right: ir }),
+    [seatCount, W, H, it, ib, il, ir],
   );
   // 자리가 없는 인원은 건너뛴다(restSeats 는 인원수만큼 돌려주지만 렌더링이 죽지 않게 한 번 더 막는다)
   const placed = actors.flatMap((a) => {
@@ -244,13 +268,13 @@ export function RestGroup({
     <TutorialScene
       testID="rest-group"
       style={{ flex: 1, overflow: clip }}
-      onSkip={tutorial?.onSkip}
+      onSkip={restTutorial?.onSkip}
       overlay={
-        tutorial && (
+        restTutorial && (
           <TutorialSpotlight
             target={resumeTarget.rect}
-            text={tutorial.text}
-            action={{ title: '집중 이어가기', onPress: resume }}
+            text={restTutorial.text}
+            action={{ title: t('focus.resume'), onPress: resume }}
           />
         )
       }
@@ -277,7 +301,7 @@ export function RestGroup({
               key={a.seat}
               pointerEvents="none"
               testID="rest-golden-reel"
-              accessibilityLabel="황금 물고기를 낚아 올리는 중"
+              accessibilityLabel={t('focusFlow.fish.goldenReelingA11y')}
               style={{ position: 'absolute', left: a.x, top: a.foot }}
             >
               <CatSprite
@@ -401,7 +425,7 @@ export function RestGroup({
             }}
           >
             <Text style={[fiTitle(wide ? 17 : 19), { lineHeight: (wide ? 17 : 19) * 1.3 }]}>
-              휴식 중...
+              {t(browsing ? 'focusFlow.rest.browsing' : 'focusFlow.rest.resting')}
             </Text>
           </View>
           {pausedSession && (
@@ -436,7 +460,10 @@ export function RestGroup({
                 {pausedSession.subject}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={{ flexDirection: 'row', gap: 4 }} accessibilityLabel="멈춤">
+                <View
+                  style={{ flexDirection: 'row', gap: 4 }}
+                  accessibilityLabel={t('focusFlow.rest.pausedA11y')}
+                >
                   {[0, 1].map((bar) => (
                     <View
                       key={bar}
@@ -494,30 +521,34 @@ export function RestGroup({
             <FiButton
               primary
               id="resume-focus"
-              title={state.session ? '집중 이어가기' : '섬으로 돌아가기'}
-              onPress={state.session ? resume : home}
+              title={pausedSession ? t('focus.resume') : t('focusFlow.common.backToIsland')}
+              onPress={pausedSession ? resume : home}
             />
           </View>
-          {state.session && (
+          {pausedSession && (
             <FiButton
               style={{ flex: 1 }}
               id="end-rest"
-              title="휴식 종료하기"
+              title={t('focusFlow.rest.endButton')}
               onPress={() => setConfirming(true)}
             />
           )}
         </View>
       )}
       {/* 휴식 종료는 집중이 통째로 끝나므로 한 번 묻는다. 계속 쉬기는 창만 닫고 휴식 시간은 계속 흐른다 */}
-      {confirming && !result && (
+      {confirming && !!pausedSession && (
         <FiModal>
-          <Text style={fiTitle(wide ? 19 : 22)}>휴식을 끝내고 이번 집중을 마칠까요?</Text>
+          <Text style={fiTitle(wide ? 19 : 22)}>{t('focusFlow.rest.endConfirmTitle')}</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
-            <FiButton title="계속 쉬기" style={{ flex: 1 }} onPress={() => setConfirming(false)} />
+            <FiButton
+              title={t('focusFlow.rest.keepResting')}
+              style={{ flex: 1 }}
+              onPress={() => setConfirming(false)}
+            />
             <FiButton
               primary
               id="confirm-end-rest"
-              title="집중 종료"
+              title={t('focusFlow.common.endFocus')}
               style={{ flex: 1 }}
               onPress={() => {
                 setConfirming(false);

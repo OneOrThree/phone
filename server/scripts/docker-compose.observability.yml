@@ -4,7 +4,7 @@
 # 중지:  docker compose -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml down
 #
 # 반드시 overlay 로 실행(-f 두 개) — 그래야 dev 의 app-network·app·db 와 같은 프로젝트/네트워크를
-# 공유해 서비스명(app:9091, db:5432)으로 스크레이프한다. dev-cd.yml 은 `up -d app` 만 하므로 간섭 없음.
+# 공유해 서비스명(app:9091, db:5432)으로 스크레이프한다. data-api-cd.dev.yml 은 `up -d app` 만 하므로 간섭 없음.
 # 설정 마운트(../observability/*)는 compose 파일 위치(server/scripts/) 기준 상대경로다.
 
 # 컨테이너 로그 보존(계정 정책 L09) — Docker json-file 은 «크기»로만 회전한다. 값의 근거는 README §로그 보존.

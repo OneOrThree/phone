@@ -3,7 +3,7 @@
  *
  * 계약:
  *  - `PATCH /me`  프로필 수정. `Idempotency-Key` 필수. 부분 수정 — 허용 키는
- *                 name/catColor 뿐이고, 명시 null·미지 필드는 400. 응답은 저장된
+ *                 name/catColor/mainIslandId이고, 명시 null·미지 필드는 400. 응답은 저장된
  *                 계정 스냅샷 {id,name,catColor,mainIslandId} 이다.
  *  - `DELETE /me` 회원 탈퇴. 확인 문자열과 `Idempotency-Key`를 보내며 서버가
  *                 계정과 세션 삭제를 완료한 뒤 {deleted:true}를 돌려준다.
@@ -23,6 +23,7 @@ export type AccountProfile = {
 export type ProfilePatch = {
   name?: string;
   catColor?: string;
+  mainIslandId?: string;
 };
 
 export function updateProfile(

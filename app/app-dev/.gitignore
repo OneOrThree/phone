@@ -1,6 +1,8 @@
 # 같이숲 v2 앱의 로컬 의존성·빌드·검증 산출물
 
 node_modules/
+# 디렉터리 패턴(node_modules/)은 심링크를 무시하지 않는다 — 워크트리에서 심링크로 공유할 때 add 되는 것을 막는다.
+node_modules
 .expo/
 .omc/
 .env*
@@ -20,6 +22,9 @@ npm-debug.*
 *.orig.*
 .docs
 expo-env.d.ts
+
+# 글꼴 없이 폴백 생성한 언어별 이미지 미리보기(scripts/gen-localized-stamp.py --allow-fallback-font) — 커밋 대상 아님
+src/assets/ota/interiors/ui/blueprint-ready-stamp-v3.en.fallback-preview.png
 
 # Expo·hot-updater·supabase 로컬 산출물
 .hot-updater/output

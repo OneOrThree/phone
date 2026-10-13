@@ -47,14 +47,20 @@
 
 업로드는 빌드 파이프라인(기획 작업실 `export-village-world` 류)이 해시 파일을 만들고, 배포 스크립트가 `v{mapVersion}/` 디렉터리에 복사한 뒤 manifest 를 마지막에 바꾼다(manifest 가 가리키기 전까지 새 파일은 보이지 않는다).
 
+- manifest 는 `/static/` 의 `expires 1y` location 을 타면 안 된다 — `location = /static/maps/<mapId>/manifest.json` 을 따로 두고 `add_header Cache-Control "public, max-age=60"` + `etag on`.
+- 큰 파일은 `expires` 대신 `add_header Cache-Control "public, max-age=31536000, immutable"` 한 줄로 쓴다.
+- 앱은 manifest 요청에 `Cache-Control: no-cache` 요청 헤더를 붙여 중간 캐시가 오래된 manifest 를 주는 것을 막는다(`services/mapAssets.ts`).
+
 ## 5. 앱 로딩 순서와 캐시
 
 ```text
 /screens/home ─┐
-                ├─ manifest(mapId, mapVersion) ─ 해시 비교 ─ tileset + nav + objects ─┐
+                ├─ manifest(mapId, mapVersion) ─ 해시 비교 ─ tileset + nav ─┐
 layoutRevision ─┘                                                                      ├─ 원자 교체 ─ 렌더
                                               bundled fallback(설치 시 포함 1벌) ───────┘
 ```
+
+캐시 manifest 는 6개 파일이다: tileset@2x.png·tileset-night@2x.png·tileset·tilemap·nav·home.map. 타일 섬이 기존 마을로 바뀌면서(2026-10-08) 소품이 바닥 원화에 그려져 있어 오브젝트 카탈로그(`objects.json`)는 없앴다.
 
 - 의존 순서: manifest → 타일셋·통행·오브젝트 카탈로그(병렬) → 배치(layoutRevision) → 렌더. 배치가 먼저 와도 타일셋 없이 그리지 않는다. 캐릭터·UI·폰트는 독립 경로.
 - 원자 교체: 새 `mapVersion` 디렉터리의 파일이 전부 검증되기 전에는 이전 버전(없으면 번들)으로 그린다. 준비 완료 표식 파일을 마지막에 쓴다. HLD §2 의 맵 전환 원칙과 같다.
@@ -64,14 +70,24 @@ layoutRevision ─┘                                                           
 
 ## 6. `layoutRevision` — 지금과 다음
 
-- **지금(결정 2026-10-07, 조재영):** 서버에 배치 정본을 **바로** 만든다 — `island_layouts(island_id PK, layout_revision bigint, layout jsonb, updated_at)`. `layout` 은 `{ "schemaVersion": 1, "mapId": "home", "buildings": [ { "id": "hall", "cell": { "x": 71, "y": 31 }, "anchor": "bottom-center", "footprint": [ [x, y], ... ] } ] }` 처럼 **좌표를 JSON 으로 저장**한다. `cell`·`footprint` 는 모두 100×100 통행 셀 좌표(월드 단위 정수)이며 타일 격자(24×16)가 아니다. `mapVersion` 은 manifest 가 정본이라 layout 에 넣지 않고, `mapId` 는 참조일 뿐이다. `/screens/home` 에 `layoutRevision` 과 `layout` 을 노출하고, 완공·철거·이동이 `layout_revision` 을 올린다. 서버 변경이 앱보다 늦으면 그 사이에만 앱 로컬 카탈로그로 그린다(임시).
+- **지금(결정 2026-10-07, 조재영):** 서버에 배치 정본을 **바로** 만든다 — `island_layouts(island_id PK, layout_revision bigint, layout jsonb, updated_at)`. `layout` 은 `{ "schemaVersion": 1, "templateVersion": 2, "mapId": "home", "buildings": [ { "id": "hall", "cell": { "x": 69, "y": 25 }, "anchor": "bottom-center", "footprint": [ [x, y], ... ] } ] }` 처럼 **좌표를 JSON 으로 저장**한다. `cell`·`footprint` 는 모두 100×100 통행 셀 좌표(월드 단위 정수)이며 타일 격자(24×16)가 아니다. `schemaVersion` 진화 규칙은 §8 참조. `mapVersion` 은 manifest 가 정본이라 layout 에 넣지 않고, `mapId` 는 참조일 뿐이다. `/screens/home` 에 `layoutRevision` 과 `layout` 을 노출하고, 완공·철거·이동이 `layout_revision` 을 올린다. 서버 변경이 앱보다 늦으면 그 사이에만 앱 로컬 카탈로그로 그린다(임시).
 - **다음(섬 꾸미기 피처 4):** 같은 `island_layouts.layout` 을 방장이 편집하는 API(건물 이동·장식 배치)를 붙인다. `layoutRevision` 은 섬 단위 단조 정수이며, Movement 는 이 값으로 NavArtifact 를 컴파일한다.
 - 전파: Data 는 `island.updated` 에 `layoutRevision` 을 싣는다. realtime 이 앱 쪽 `events` 구독을 열기 전까지 앱은 홈 재진입·포그라운드 복귀·건설 카드 완료 콜백에서 `/screens/home` 을 다시 읽는다. 감소하는 revision 은 버리고, 공백은 전체 재조회로 수렴한다(PRD data-flow §3 과 같은 규칙).
+
+- **`templateVersion` — 생성 세대 표식(2026-10-08, GROMO-2243).** 기존 마을 좌표로 만든 템플릿 행에는 `"templateVersion": 2` 가 있다. 그 전 템플릿(새 마을 `map.json` 좌표)으로 만든 행에는 이 키가 없고, 앱은 표식이 없는 행의 칸을 건물 이동에 쓰지 않는다(기본 위치로 그림). 형식 버전 `schemaVersion` 과 별개다. 예시 칸 값은 서버 `IslandLayoutTemplate` 에서 복사했다.
+- **기본 템플릿은 생성 시점 스냅샷이다(2026-10-08, GROMO-2243).** 행이 없는 섬의 첫 조회 때만 템플릿으로 만들고, 그 뒤 템플릿을 바꿔도 기존 행은 그대로다. 에픽이 main 에 들어가기 **전**에는 행을 지우고 다시 만들어도 된다(개발 데이터뿐). 들어간 **뒤**에는 행 삭제를 쓰지 않는다 — `layoutRevision` 단조 계약이 깨지고 방장 편집(피처 4)이 사라진다. 그때는 데이터 마이그레이션으로 고치고, `layoutRevision` 을 올려 `island.updated` 를 보내야 하므로 앱 배포와 순서를 맞춘다.
+- **`footprint` 는 시각 외곽 상자이지 충돌체가 아니다.** 지금은 시설 rect 를 덮는 상자다. 통행 정본은 `nav.json` 이고, 2단계 Movement 컴파일러가 이 값을 충돌 입력으로 쓰려면 먼저 정밀 기단으로 바꾸거나 충돌 전용 필드를 둔다(§8).
 
 ### 6.1 확정 사항 (2026-10-07, 조재영)
 
 - 렌더러: **Skia Atlas**(`@shopify/react-native-skia`)로 타일 384장을 한 텍스처에서 단일 드로우콜로 그린다. 소품은 발밑 앵커·zIndex=y, 카메라는 캔버스 transform 하나. 플래그 `EXPO_PUBLIC_TILE_ISLAND`.
-- 타일 소스: **원화 자르기** — `terrain.png` 를 Lanczos 2배(3072×2048)로 올려 128px 384조각으로 자르고 아틀라스(≤4096, 1px extrusion) 한 장으로. 재사용 타일셋은 평면적(3/4 시점 입체감 손실)이라 보류했다. 기획 작업실 v3 시연이 근거(정합 오차 0.313/255, 기준점 이동 0px). 원화 자르기 단계에서는 `terrain` 한 층만 쓰고 `terrain-detail`·`roads` 는 비워 둔다.
+지금 타일 섬(2026-10-08, 기존 마을 2배 업스케일 — 빨간 선이 64px 타일 경계 24×16):
+
+![타일 섬 낮 — 타일 경계 표시](diagrams/08-tile-island-day.png)
+
+![타일 섬 밤](diagrams/08-tile-island-night.png)
+
+- 타일 소스: **원화 자르기** — 기존 마을 바닥 `backgrounds/island/base/day.png`·`night.png` 를 각각 Lanczos 2배(3072×2048)로 올려 128px 384조각으로 자르고 아틀라스(≤4096, 1px extrusion) 낮·밤 한 장씩으로(2026-10-08 재영님 결정: 새 마을 미리보기 `terrain.png` 에서 기존 마을로 교체). 길·나무·부두는 원화에 그려져 있어 통행 비용은 균일하고(길 우선 없음), 건물은 서버 `layout` 의 칸과 기본 칸의 차이만큼 시설 레이어·모션·문을 평행이동해 그린다(`legacyLayoutOffsets`, 기본 배치면 0px). 앱에서 위치를 바꾸는 기능은 없고, 통행 칸은 서버 NavArtifact 전까지 정적이다. 재사용 타일셋은 평면적(3/4 시점 입체감 손실)이라 보류했다. 기획 작업실 v3 시연이 근거(정합 오차 0.313/255, 기준점 이동 0px). 원화 자르기 단계에서는 `terrain` 한 층만 쓰고 `terrain-detail`·`roads` 는 비워 둔다.
 - 배치 전파: 10/9 는 재조회만(홈 재진입·포그라운드 복귀·건설 완료 콜백). `events` 토픽 개방은 이동 서버와 함께.
 - 기준 기기: 1차 측정은 단일 기기.
 
@@ -91,4 +107,7 @@ layoutRevision ─┘                                                           
 - 업로드 주체·스크립트(§4). 10/9 는 인프라 없이 로컬에서 전부 동작하는 것이 목표라 Nginx location 은 그 뒤에 넣는다.
 - 타일셋 배율 사본(@2x 하나 vs 밀도별)과 WebP 채택 — 실기기 메모리·디코드 측정 뒤.
 - `island_layouts` 의 jsonb 스키마 버전 관리(`layout.schemaVersion`)와 섬 꾸미기(피처 4)에서의 편집 API.
+- **`layout.schemaVersion` 진화 규칙(제안):** 2 가 되는 시점에 읽기는 하위 호환(모르는 필드는 무시), 쓰기는 항상 최신 버전, 기존 행은 읽을 때 변환한다(lazy upgrade). Flyway 데이터 마이그레이션으로 jsonb 를 일괄 변환하지 않는다.
+- **기본 템플릿 갱신 수단:** 생성 세대 표식 `templateVersion` 은 2(기존 마을 좌표)로 들어갔다(아래 §6). 남은 것은 다음 템플릿 변경 때 표식별 일괄 보정 규칙과, 피처 4 이후 방장이 편집한 건물을 빼고 덮는 규칙. prod 첫 행이 만들어지기 전에 정하는 편이 싸다.
+- **`footprint` 의 2단계 쓰임:** (a) 지금 정밀 기단 폴리곤으로 교체 (b) 충돌 전용 필드를 따로 두고 `footprint` 는 표시용 (c) 상자 유지·컴파일러가 별도 기단 사용 — 2단계 설계 전에 하나를 고른다. 어느 쪽이든 「기본 템플릿에서 모든 입구 도달」 fixture 를 둔다.
 - realtime `events` 토픽의 앱 개방 여부 — 열지 않으면 재조회가 정본 경로로 남는다.

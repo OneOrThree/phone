@@ -9,10 +9,11 @@ import {
 } from 'react-native';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 import { semanticTokens } from '@/design-system/tokens';
+import { t } from '@/i18n';
 
 const policies = {
-  terms: { title: '이용약관', url: TERMS_URL },
-  privacy: { title: '개인정보처리방침', url: PRIVACY_URL },
+  terms: { titleKey: 'login.policy.terms', url: TERMS_URL },
+  privacy: { titleKey: 'login.policy.privacy', url: PRIVACY_URL },
 } as const;
 
 /**
@@ -29,13 +30,14 @@ export function PolicyLinks({
   return (
     <View style={[{ flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' }, style]}>
       {(Object.keys(policies) as (keyof typeof policies)[]).map((policy) => {
-        const { title, url } = policies[policy];
+        const { titleKey, url } = policies[policy];
+        const title = t(titleKey);
         return (
           <Pressable
             key={policy}
             testID={`policy-link-${policy}`}
             accessibilityRole="link"
-            accessibilityLabel={`${title} 원문 보기`}
+            accessibilityLabel={t('login.policy.viewOriginalA11y', { title })}
             onPress={() => openPolicy(url)}
             style={{
               minHeight: semanticTokens.size.tapMin,
@@ -44,7 +46,9 @@ export function PolicyLinks({
               justifyContent: 'center',
             }}
           >
-            <Text style={[{ textDecorationLine: 'underline' }, textStyle]}>{title} 보기</Text>
+            <Text style={[{ textDecorationLine: 'underline' }, textStyle]}>
+              {t('login.policy.view', { title })}
+            </Text>
           </Pressable>
         );
       })}

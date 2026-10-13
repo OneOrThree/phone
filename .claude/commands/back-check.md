@@ -4,7 +4,7 @@ argument-hint: "[optional: extra gradle test args, e.g. --tests *CurrencyService
 allowed-tools: Bash, Read, Grep
 ---
 
-Run the same checks CI runs (`.github/workflows/dev-ci.yml`) locally so I catch what CI
+Run the same checks CI runs (`.github/workflows/data-api-ci.dev.yml`) locally so I catch what CI
 would reject, before pushing.
 
 Steps:

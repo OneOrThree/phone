@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import type { Provider } from '@/services/api/auth';
 import { ApiError } from '@/services/api/client';
+import { t } from '@/i18n';
 
 const UNAVAILABLE = 'CLIENT_PROVIDER_UNAVAILABLE';
 // GROMO-2215 — 구글 로그인을 2.0 전용 프로젝트(263851348176)로 옮겼다. 구 프로젝트(899365616896)는
@@ -36,7 +37,7 @@ export async function socialCredential(
   provider: Provider,
   loaders: SocialModuleLoaders = defaultLoaders,
 ): Promise<string> {
-  if (Platform.OS === 'web') unavailable('앱에서 소셜 로그인을 이용해 주세요.');
+  if (Platform.OS === 'web') unavailable(t('login.error.webUnavailable'));
 
   switch (provider) {
     case 'kakao': {
@@ -45,7 +46,7 @@ export async function socialCredential(
       return token.accessToken;
     }
     case 'apple': {
-      if (Platform.OS !== 'ios') unavailable('Apple 로그인은 iPhone과 iPad에서 이용할 수 있어요.');
+      if (Platform.OS !== 'ios') unavailable(t('login.error.appleIosOnly'));
       const AppleAuthentication = await loaders.apple();
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
@@ -53,8 +54,7 @@ export async function socialCredential(
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
         ],
       });
-      if (!credential.identityToken)
-        unavailable('Apple 로그인 정보를 받지 못했어요. 다시 시도해 주세요.');
+      if (!credential.identityToken) unavailable(t('login.error.appleNoCredential'));
       return credential.identityToken;
     }
     case 'google': {
@@ -72,12 +72,11 @@ export async function socialCredential(
       }
       const response = await Google.GoogleSignin.signIn();
       if (!Google.isSuccessResponse(response)) {
-        throw Object.assign(new Error('Google 로그인 취소'), {
+        throw Object.assign(new Error(t('login.error.googleCancelled')), {
           code: 'SIGN_IN_CANCELLED',
         });
       }
-      if (!response.data.idToken)
-        unavailable('Google 로그인 정보를 받지 못했어요. 다시 시도해 주세요.');
+      if (!response.data.idToken) unavailable(t('login.error.googleNoCredential'));
       return response.data.idToken;
     }
     case 'line': {

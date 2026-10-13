@@ -8,6 +8,8 @@ import type {
 import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
 import type { PlaybackState } from '@/services/api/playback';
 import type { HomeWorldFacts } from '@/services/homeSnapshot';
+import { formatDuration } from '@/i18n/format';
+import { t } from '@/i18n';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -48,8 +50,10 @@ export type Route =
   | 'orders'
   | 'boat'
   | 'mainIsland'
+  | 'currentIsland'
   | 'profile'
   | 'settings'
+  | 'language'
   | 'blockedUsers'
   | 'wardrobe'
   | 'sound'
@@ -139,6 +143,9 @@ export type Message = {
   readAt?: number;
 };
 export type Island = {
+  /** 서버 표시용 읽기 모델. 미조회 역할은 null이며 방장으로 추론하지 않는다. */
+  serverRole?: 'host' | 'member' | null;
+  serverMemberCount?: number;
   visibility?: 'public' | 'private';
   // 이 사용자가 강퇴된 섬. 일반 탐색·가입 경로에서는 다시 노출하거나 가입시키지 않는다.
   kicked?: boolean;
@@ -318,6 +325,7 @@ export type State = {
     requestStatus: RequestStatusEntry[];
     // 서버 모드 홈이 직접 그리는 스냅샷(GROMO-2138). 읽을 때는 serverHome() 으로 current 와 대조한다
     home?: HomeWorldFacts | null;
+    playback?: PlaybackState | null;
     /** 착공 POST 응답을 클라이언트가 보관하는 공사 구간. 서버 GET 계약에는 포함하지 않는다. */
     clientConstruction?: {
       islandId: string;
@@ -341,15 +349,35 @@ export type State = {
   lettersReadAt?: number;
 };
 export const colors: Color[] = ['black', 'ginger', 'cream', 'gray', 'white', 'calico'];
-export const colorNames = ['검정', '치즈', '크림', '회색', '흰색', '삼색'];
+// colorNames 배열은 게터로 못 만든다 — 호출 시점에 해석하는 함수로 둔다(GROMO-2238)
+// 범위 밖 index 는 원래 colorNames[i] 처럼 undefined 였다 — "color.undefined" 키 문자열이
+// 그대로 노출되지 않게 빈 문자열로 막는다.
+export function colorName(index: number): string {
+  return colors[index] ? t(`color.${colors[index]}`) : '';
+}
+// 프로퍼티 게터 — 호출부는 색인·점 접근 그대로 쓰고, 값은 호출 시점 언어로 해석된다(GROMO-2238)
 export const buildingNames: Record<Building, string> = {
-  hall: '마을회관',
-  board: '게시판',
-  tower: '전망대',
-  mail: '우체통',
-  gram: '축음기',
-  library: '도서관',
-  shop: '상점',
+  get hall() {
+    return t('building.hall');
+  },
+  get board() {
+    return t('building.board');
+  },
+  get tower() {
+    return t('building.tower');
+  },
+  get mail() {
+    return t('building.mail');
+  },
+  get gram() {
+    return t('building.gram');
+  },
+  get library() {
+    return t('building.library');
+  },
+  get shop() {
+    return t('building.shop');
+  },
 };
 // 유효 집중 이 초만큼마다 물고기 1마리 (GROMO-1830, 2026-09-15)
 export const SECONDS_PER_FISH = 60;
@@ -390,7 +418,11 @@ function completeAllBuildings(i: Island, now = Date.now()) {
   delete i.completed;
 }
 export const balance = (i: Island) => i.fish ?? i.contribution + i.points;
-export const isHost = (i: Island) => i.joined && !i.members.some((m) => m.role === 'host');
+export const isHost = (i: Island) =>
+  i.joined &&
+  (i.serverRole !== undefined
+    ? i.serverRole === 'host'
+    : !i.members.some((m) => m.role === 'host'));
 export const targetIds = (i: Island) => [
   ...(i.joined ? ['me'] : []),
   ...i.members.map((m) => m.id),
@@ -434,10 +466,18 @@ export const kstDayStart = (day: string) => {
   return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;
 };
 export const trackNames: Record<string, string> = {
-  waves: '잔잔한 파도',
-  campfire: '모닥불 소리',
-  'forest-wind': '숲바람',
-  rain: '빗방울 소리',
+  get waves() {
+    return t('track.waves');
+  },
+  get campfire() {
+    return t('track.campfire');
+  },
+  get 'forest-wind'() {
+    return t('track.forestWind');
+  },
+  get rain() {
+    return t('track.rain');
+  },
 };
 export const products: Product[] = [
   {
@@ -483,15 +523,21 @@ export const products: Product[] = [
     description: '창가에 톡톡 떨어지는 빗방울 소리예요.',
   },
 ];
+// title·description 은 프로퍼티 게터 — buildingNames 처럼 호출 시점 언어로 건물 이름을 읽는다.
+// 접미사("딸기 테마"·"한 곳에만 적용하는 외양이에요.")는 그대로 둔다 — 상점 문구 번역은 1840 몫.
 for (const building of ['board', 'tower', 'mail', 'shop'] as Building[])
   products.push({
     id: 'strawberry-' + building,
-    title: buildingNames[building] + ' 딸기 테마',
+    get title() {
+      return buildingNames[building] + ' 딸기 테마';
+    },
     building,
     kind: 'building',
     price: 300,
     currency: 'fish',
-    description: buildingNames[building] + ' 한 곳에만 적용하는 외양이에요.',
+    get description() {
+      return buildingNames[building] + ' 한 곳에만 적용하는 외양이에요.';
+    },
   });
 const uuid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const peers = (): Member[] => [
@@ -788,24 +834,45 @@ export const serverHome = (s: State) => {
   return snap?.home && snap.home.islandId === snap.currentIslandId ? snap.home : null;
 };
 // 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
-export const viewIsland = (s: State) =>
-  (s.visitingIslandId && s.islands.find((i) => i.id === s.visitingIslandId)) || currentIsland(s);
+export const viewIsland = (s: State, islandId = s.visitingIslandId) =>
+  s.serverIslands
+    ? displayIsland(s, islandId ?? s.serverIslands.currentIslandId)
+    : (islandId && s.islands.find((i) => i.id === islandId)) || currentIsland(s);
 // 서버 모드 홈이 그릴 섬(GROMO-2138) — 스냅샷에 있는 값만 채우고 퀘스트·공사·꾸미기·주민 기록처럼
 // 스냅샷에 없는 것은 비운다(로컬 목업 섬 값으로 메우지 않는다). 구경 중이거나 스냅샷이 없으면 viewIsland.
-export const homeIsland = (s: State): Island => {
-  const facts = serverHome(s);
-  if (!facts || s.visitingIslandId) return viewIsland(s);
-  const { island, wallets } = facts.home;
+export const homeIsland = (s: State): Island => viewIsland(s);
+
+/** 화면 전용 읽기 모델. 서버에 없는 목록·권한을 로컬 목업으로 채우지 않는다. */
+export const displayIsland = (s: State, id = s.serverIslands?.currentIslandId): Island => {
+  const snap = s.serverIslands;
+  if (!snap) return currentIsland(s);
+  const facts = id === snap.currentIslandId && id !== s.visitingIslandId ? serverHome(s) : null;
+  const visit = snap.visit?.island.id === id ? snap.visit : null;
+  const island =
+    facts?.home.island ??
+    snap.memberships?.find((item) => item.id === id) ??
+    (snap.visit && snap.visit.island.id === id ? snap.visit.island : undefined) ??
+    snap.candidates?.find((item) => item.id === id);
+  const homePlayback = facts?.home.playback;
+  const playback = !facts
+    ? null
+    : snap.playback && snap.playback.version >= (homePlayback?.version ?? -1)
+      ? snap.playback
+      : homePlayback;
   return {
-    id: island.id,
-    name: island.name,
-    intro: island.intro,
-    approval: island.approvalRequired,
-    capacity: island.maxMembers,
-    joined: true,
-    buildings: [...facts.completedBuildings],
-    points: wallets.villagePoints,
-    contribution: wallets.villagePoints,
+    id: id ?? '',
+    name: island?.name ?? '',
+    intro: island?.intro ?? '',
+    approval: island?.approvalRequired ?? false,
+    capacity: island?.maxMembers,
+    joined:
+      !!id && (id === snap.currentIslandId || !!snap.memberships?.some((item) => item.id === id)),
+    serverRole: facts?.home.island.role ?? null,
+    serverMemberCount: island?.memberCount,
+    buildings: facts ? [...facts.completedBuildings] : [...(visit?.buildings ?? [])],
+    fish: facts?.home.wallets.villagePoints ?? 0,
+    points: facts?.home.wallets.villagePoints ?? 0,
+    contribution: facts?.home.wallets.villagePoints ?? 0,
     members: [],
     quests: [],
     notices: [],
@@ -813,8 +880,9 @@ export const homeIsland = (s: State): Island => {
     sharedOwned: [],
     theme: 'default',
     buildingTheme: 'default',
-    track: null,
-    playing: false,
+    track: playback?.trackId ?? null,
+    playing: playback?.playing ?? false,
+    serverPlayback: playback ?? undefined,
     ledger: [],
   };
 };
@@ -895,15 +963,35 @@ export const newChatCount = (i: Island) =>
 export const CAPACITY_MIN = 1,
   CAPACITY_MAX = 15;
 // 주민 수 = 다른 주민 + (내가 가입했으면) 나
-export const residentCount = (i: Island) => i.members.length + (i.joined ? 1 : 0);
+export const residentCount = (i: Island) =>
+  i.serverMemberCount ?? i.members.length + (i.joined ? 1 : 0);
 export const capacityOf = (i: Island) => i.capacity ?? CAPACITY_MAX;
 export const isFull = (i: Island) => residentCount(i) >= capacityOf(i);
 // 방문자 등록증의 가입 버튼 상태. 집중 중에는 배 이동부터 막혀 방문 화면에 올 수 없으므로 집중 상태는 없다
 export type VisitorJoin = 'join' | 'apply' | 'cancel' | 'full' | 'blocked';
+export const pendingVisitRequest = (s: State, islandId: string) => {
+  const snap = s.serverIslands;
+  if (!snap) return undefined;
+  const requests = [
+    ...(snap.requestStatus ?? []),
+    ...(snap.joinRequests ?? []),
+    ...(snap.visit?.island.id === islandId && snap.visit.joinRequest
+      ? [snap.visit.joinRequest]
+      : []),
+  ];
+  const terminalIds = new Set(requests.filter((r) => r.status !== 'pending').map((r) => r.id));
+  return requests.find(
+    (r) => r.islandId === islandId && r.status === 'pending' && !terminalIds.has(r.id),
+  );
+};
 export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
   i.kicked
     ? 'blocked'
-    : (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
+    : (
+          s.serverIslands
+            ? !!pendingVisitRequest(s, i.id)
+            : (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
+        )
       ? 'cancel'
       : isFull(i)
         ? 'full'
@@ -993,10 +1081,9 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
     residents
   );
 }
-// "N시간 M분", 1시간 미만은 "M분", 딱 떨어지는 시간은 "N시간"
+// "N시간 M분", 1시간 미만은 "M분", 딱 떨어지는 시간은 "N시간" — 언어별 표기는 formatDuration 이 맡는다
 export function hoursMinutes(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  return m < 60 ? `${m}분` : m % 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m / 60}시간`;
+  return formatDuration(seconds);
 }
 export const sessionSeconds = (session: Session | null, now = Date.now()) =>
   !session
@@ -1037,22 +1124,21 @@ export function questRate(s: State, q: Quest, islandId = s.islandId): number | n
 }
 export function canBuild(s: State, b: Building): string | null {
   const i = currentIsland(s);
-  if (!isHost(i)) return '방장만 건설할 수 있어요.';
-  if (i.construction) return '공사가 끝난 뒤 다음 건물을 지을 수 있어요.';
-  if (i.buildings.includes(b)) return '이미 완성한 시설이에요.';
-  if (b === 'board' && !i.buildings.includes('hall')) return '마을회관을 먼저 지어요.';
+  if (!isHost(i)) return t('app.build.blocked.notHost');
+  if (i.construction) return t('app.build.blocked.underConstruction');
+  if (i.buildings.includes(b)) return t('app.build.blocked.alreadyBuilt');
+  if (b === 'board' && !i.buildings.includes('hall')) return t('app.build.blocked.hallRequired');
   if (b !== 'hall' && b !== 'board') {
-    if (!i.buildings.includes('board')) return '게시판 완공 후 선택할 수 있어요.';
-    if (i.buildingQuest?.building !== b) return '회관에서 다음 건물을 먼저 선택해 주세요.';
+    if (!i.buildings.includes('board')) return t('app.build.blocked.boardRequired');
+    if (i.buildingQuest?.building !== b) return t('app.build.blocked.selectNextBuilding');
     if (
       !i.buildingQuest.targets.length ||
       !i.buildingQuest.targets.every((id) => collectedBy(i, id) >= buildingShare(i, b))
     )
-      return '대상 주민 모두가 물고기 목표를 달성해야 해요.';
-    if (b === 'shop' && !shopPrerequisitesMet(i))
-      return '상점은 다른 모든 건물을 완공한 뒤 지을 수 있어요.';
+      return t('app.build.blocked.targetNotMet');
+    if (b === 'shop' && !shopPrerequisitesMet(i)) return t('app.build.blocked.shopPrerequisite');
   }
-  return balance(i) < buildingCost(i, b) ? '섬 물고기 잔액이 부족해요.' : null;
+  return balance(i) < buildingCost(i, b) ? t('app.build.blocked.insufficientBalance') : null;
 }
 // 상점은 도서관·전망대·우체통·축음기를 모두 완공한 뒤 고른다 (정책-결정-2026-09-14)
 export const shopPrerequisitesMet = (i: Island) =>
@@ -1178,12 +1264,12 @@ function focusTotal(records: RecordItem[], islandId: string, day: string, q: Que
       (n, r) =>
         n +
         (r.intervals ?? [{ start: r.at - r.seconds * 1000, end: r.at }]).reduce(
-          (sum, t) =>
+          (sum, iv) =>
             sum +
             Math.max(
               0,
-              Math.min(t.end, until, q.windowEnd ? clock(q.windowEnd) : until) -
-                Math.max(t.start, from, q.windowStart ? clock(q.windowStart) : from),
+              Math.min(iv.end, until, q.windowEnd ? clock(q.windowEnd) : until) -
+                Math.max(iv.start, from, q.windowStart ? clock(q.windowStart) : from),
             ) /
               1000,
           0,
@@ -1427,10 +1513,11 @@ export function reducer(state: State, a: Action): State {
       screenDays: loaded.screenDays ?? {},
       screenTimeUnconfirmedDays: loaded.screenTimeUnconfirmedDays ?? [],
       profileNames: loaded.profileNames ?? [loaded.name],
-      mainIslandId:
-        loadedMainIsland?.id ??
-        loaded.islands.find((island) => island.joined && !island.closed)?.id ??
-        null,
+      mainIslandId: loaded.serverIslands
+        ? (loaded.mainIslandId ?? null)
+        : (loadedMainIsland?.id ??
+          loaded.islands.find((island) => island.joined && !island.closed)?.id ??
+          null),
       // 받은 편지 읽음 기준이 없던 저장본은 이미 받은 편지를 모두 읽은 것으로 본다
       lettersReadAt:
         loaded.lettersReadAt ??
@@ -1439,7 +1526,9 @@ export function reducer(state: State, a: Action): State {
       pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
       // 재실행 복구용 서버 온보딩 스냅샷 — 공개 요약·신청만 담겨 있어 저장해도 안전하다
       // 홈 스냅샷은 저장본에서 되살리지 않는다 — 재실행마다 서버에서 새로 받는다(GROMO-2138)
-      serverIslands: loaded.serverIslands ? { ...loaded.serverIslands, home: null } : null,
+      serverIslands: loaded.serverIslands
+        ? { ...loaded.serverIslands, home: null, playback: null }
+        : null,
       settings: {
         ...loaded.settings,
         publicRecords: true,
@@ -1621,6 +1710,9 @@ export function reducer(state: State, a: Action): State {
       s.mainIslandId = target.id;
       break;
     }
+    case 'SERVER_MAIN_ISLAND':
+      s.mainIslandId = a.islandId as string | null;
+      break;
     // ── 섬 — 서버 동기화(GROMO-2006) ──
     // 서버 응답만 serverIslands 스냅샷에 반영한다. CREATE_ISLAND·JOIN·CANCEL_JOIN 의
     // 로컬 성공 경로는 REVIEW·DEMO fixture 용이며 일반 실행의 성공 경로에서 부르지 않는다.
@@ -1649,7 +1741,10 @@ export function reducer(state: State, a: Action): State {
       // 옛 방장 여부·완공 건물이 새 스냅샷 전에 그려지지 않게 한다(GROMO-2138)
       if (snap.currentIslandId !== my.currentIslandId) {
         snap.home = null;
+        snap.playback = null;
         snap.clientConstruction = null;
+        snap.visit = null;
+        s.visitingIslandId = null;
       }
       snap.currentIslandId = my.currentIslandId;
       snap.lossReason = my.lossReason;
@@ -1667,7 +1762,8 @@ export function reducer(state: State, a: Action): State {
       for (const island of s.islands)
         if (island.joined && !ids.has(island.id)) island.joined = false;
       if (s.session && !ids.has(s.session.islandId)) s.session = null;
-      if (s.visitingIslandId && !ids.has(s.visitingIslandId)) s.visitingIslandId = null;
+      if (s.visitingIslandId && snap.visit?.island.id !== s.visitingIslandId)
+        s.visitingIslandId = null;
       // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
       s.onboarded = my.currentIslandId != null;
       // /me 정본의 메인 섬 — 실렸을 때만 갈아 끼운다(explore 등 안 싣는 발신자는 현재 값 유지).
@@ -1678,6 +1774,7 @@ export function reducer(state: State, a: Action): State {
     case 'SERVER_HOME': {
       const snap = serverSnap(s);
       const facts = a.facts as HomeWorldFacts;
+      if (facts.islandId !== snap.currentIslandId) return state;
       snap.home = facts;
       if (
         snap.clientConstruction &&
@@ -1766,6 +1863,19 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     case 'PLAYBACK_SYNC': {
+      if (s.serverIslands) {
+        const snap = s.serverIslands;
+        const playback = a.playback as PlaybackState;
+        if (
+          snap.currentIslandId !== a.islandId ||
+          !playback ||
+          !Number.isSafeInteger(playback.version) ||
+          playback.version < (snap.playback?.version ?? -1)
+        )
+          return state;
+        snap.playback = playback;
+        break;
+      }
       const target = s.islands.find((island) => island.id === a.islandId);
       if (!target) return state;
       const playback = a.playback as PlaybackState;
@@ -1794,6 +1904,10 @@ export function reducer(state: State, a: Action): State {
     }
     case 'ISLAND_VISIT':
       serverSnap(s).visit = a.visit as VisitScreen;
+      break;
+    case 'SERVER_VISITING':
+      if (s.serverIslands?.visit?.island.id !== a.islandId) return state;
+      s.visitingIslandId = a.islandId as string;
       break;
     case 'ISLAND_REQUEST': {
       // 단건 상태는 표시 필드가 없다 — requestStatus에만 두고, 목록에 있는 항목은 status/version만 갱신한다.

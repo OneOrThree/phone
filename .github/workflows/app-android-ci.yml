@@ -2,7 +2,7 @@ name: Android CI
 
 # Android release AAB 빌드 (GROMO-2223). CD 짝: app-android-cd.yml.
 #
-# 흐름 (dev-ci → dev-cd 와 같은 모양):
+# 흐름 (data-api-ci → data-api-cd 와 같은 모양):
 # - PR: build 잡만. AAB 끝까지 빌드(JS 번들·Hermes·리소스·서명). 키 안 씀. 일회용 키 서명, 결과 버림.
 # - main: version → build → sign → deploy. CD 는 재빌드 안 함.
 #

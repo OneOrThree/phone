@@ -50,3 +50,28 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 - 재생성: `python3 -m pip install -r scripts/requirements-night-motion.txt` 후
   `python3 scripts/generate-night-village-motion.py` (건설 밤 아틀라스까지 다시 만들 때만 `--atlas-source`).
 - `WorldMap`은 네 모션을 `placement.json` rect 좌표에 그린다. 밤 프레임도 같은 rect로 잘라 정지 밤 레이어와 픽셀 위치가 같다.
+
+### 타일 지형 (10/9) — 에셋·재생성(GROMO-2229)
+
+- 원천은 새 마을이 아니라 **기존 마을** 바닥 원화 `backgrounds/island/base/{day,night}.png`(1536×1024, 길·나무·모닥불·부두·뗏목·다리가 그려져 있다)다.
+- `v1/`: 낮 원화를 Lanczos 2배로 올려 128px 로 자른 `tileset@2x.png`, 밤 원화로 같은 기하의 `tileset-night@2x.png`(`tileset.json` 의 `nightImage`), 둘이 같이 쓰는 `tilemap.json`, `nav.json`·`home.map.json`. 오브젝트 카탈로그(`objects.json`)는 없앴다. 아틀라스·타일맵은 `npm run gen:tile-atlas` 로 만들고 `npm run gen:tile-atlas:check` 가 최신 여부를 검증한다. 확인 컷 `v1/checks/dock-raft@1x.png` 은 재조립 낮 원화에 뗏목 탭 영역(200,815,180,110)을 빨간 테두리로 그린 것이다.
+- `nav.json`·`home.map.json` 은 `npm run gen:nav-fixture`(`scripts/build-nav-fixture.cjs`)가 기존 마을 통행 격자 `src/constants/world-v2.json` 의 `home`(96×64)에서 만든다. 100×100 셀 중심을 `onLand` 로 판정하고, 길이 원화에 그려져 있어 길 데이터가 없으므로 비용은 전 셀 잔디 27 하나다(기존 `landPath` 도 균일 BFS). 입구는 `WorldMap` 의 `legacyDoors`, 스폰은 기존 첫 자리 (585,470)에 가장 가까운 통행 셀이고, `buildingCells` 는 건물별 빈 배열이다(기존 격자는 건설로 바뀌지 않는다).
+- 재생성 환경: `python3 -m venv .venv-tile-atlas` 로 **별도 venv** 를 만들어 `scripts/requirements-tile-atlas.txt`(pillow 12.2.0·numpy 2.4.4)를 설치한다. `requirements-night-motion.txt`(pillow 11.3.0·numpy 2.5.1)와는 버전이 달라 한 venv 에 공존할 수 없다. 아틀라스 픽셀이 pillow 구현에 의존하므로 버전은 고정이 재현성이다.
+- `tilemap.json` 의 `terrain-detail`·`roads` 는 `data: []` 다. Tiled 규격상 비표준(원래 길이 384 의 0 배열)이며, 로더(`TileTerrainCanvas`)가 `[]` 를 빈 레이어로 다룬다는 전제다.
+
+### 타일 지형 (10/9) — 렌더러(GROMO-2230)
+
+- `EXPO_PUBLIC_TILE_ISLAND=1`(iOS·Android) 이면 기존 마을 홈 섬의 바닥 원화 한 장 대신 `v1/tileset@2x.png`(밤은 `tileset-night@2x.png`) 384 조각을 `TileTerrainCanvas`(Skia `<Atlas>`, 드로우콜 1)로 그린다. 웹은 플래그를 무시하고 기존 Image.
+- 배열은 `v1/tilemap.json` terrain 레이어 + `v1/tileset.json`(margin 1·spacing 2·31열·scale 2)에서 한 번 만든다. 목적지는 1x 이미지 좌표(64px 격자)라 기존 카메라 투영(`base·z`)을 Group transform 하나로 그대로 쓴다.
+- 건물은 지금처럼 기존 레이어 이미지(`backgrounds/island/layers/{day,night}`)·모션이 그린다. 새 마을 미리보기 토글은 플래그와 무관하게 자기 지형 이미지와 `VillageScenery` 를 쓴다. 한 캔버스로 합치기·Reanimated 카메라는 실기기 프레임 측정(p95 ≤ 16.7ms) 뒤 다음 단계.
+- 서버 배치(`/screens/home` 의 `layout.buildings[].cell`)는 새 마을 미리보기에서는 `applyLayout` 이 건물 발밑을 셀 중심 px 로 덮어쓴다. 타일 섬(기존 마을)은 건물 레이어가 전체 캔버스 이미지라 자르지 않고 `legacyLayoutOffsets` 로 건물별 평행이동(`셀 중심(서버 cell) − 셀 중심(placement.json rect 발밑에서 유도한 기본 cell)`)을 구해 그 건물의 레이어·모션·알림·공사 스프라이트·문(탭 영역·걷기 목표)·이름표를 같이 옮긴다. 서버 기본 템플릿이면 이동량이 전부 0 이라 화면은 픽셀 동일하다. 앱에서 배치를 편집하는 UI 는 없고, 통행 셀은 정적 `v1/nav.json` 그대로다(서버가 nav 산출물을 가질 때까지 옮긴 건물이 막는 칸은 바뀌지 않는다).
+- 탭·이동(GROMO-2231, 같은 플래그, 기존 마을 홈 섬에서만): 탭(`locationX/scale`=이미지 px) → `imageToWorld`(0~100) → `v1/nav.json` 100×100 위 A*(`utils/nav-path.ts`, HLD §3) → 셀 중심을 `worldToImage` 로 px 로 되돌려 기존 `Animated.timing` 루프에 태운다.
+- 목적지가 다른 연결 영역·바다면 출발 영역 안 최근접 통행 셀(동률 index 작은 쪽)로 보정한다. 대각은 양옆 직교 셀이 모두 통행일 때만.
+- 속도는 world unit/초(가로·세로 동일, 화면 px 비율 보정 없음): 한 칸 `MS_PER_UNIT`=91ms. `homePositions` 저장은 px 그대로.
+- 로컬 맵 에셋 서버(GROMO-2233): `npm run serve:map-assets`(기본 4300, `--fail manifest,tileset,layout` 으로 실패 재현) 가 `/static/maps/home/manifest.json`(max-age=60+ETag)·`v1/<file>`(immutable)을 Nginx 계약 그대로 내준다.
+- 갱신 시나리오 재현: `cp -r src/assets/village-world/v1 /tmp/v2` 로 복사해 `tileset.json` 의 `scale` 등 한 파일만 고친 뒤 `npm run serve:map-assets -- --root /tmp/v2 --map-version 2` 로 띄운다.
+- 앱은 먼저 `--map-version` 없이 띄운 서버로 v1 을 받아 두고, 서버를 위 명령으로 바꿔 다시 홈에 들어가면 바뀐 파일만 받는다(다음 홈 진입부터 v2 반영). `--root` 내용이 같으면 해시가 같아 파일은 다시 받지 않는다.
+- 캐시된 PNG 가 디코드에 실패하거나 JSON 검증에 실패하면 그 해시를 `state.json` 의 `bad` 에 남겨 같은 해시는 다시 채택하지 않는다. 해시가 바뀐 새 버전이 오면 풀린다.
+- 앱은 `.env` 의 `EXPO_PUBLIC_MAP_ASSETS_URL`(시뮬레이터 `http://localhost:4300`, 실기기는 맥 LAN IP)이 있을 때만 받는다. 비우면 번들(`v1/`)만 쓴다.
+- 캐시 위치: 앱 캐시 디렉터리 `maps/home/{state.json, v<n>/}`(최근 2개 버전). 임시 디렉터리에 받아 sha256 검증 후 `v<n>` 으로 rename(원자 교체), 새 버전은 다음 홈 진입부터 쓴다.
+- 서버 꺼짐·해시 불일치·일부 실패 → 이전 캐시, 없으면 번들로 그린다(`services/mapAssets.ts`, 테스트 `mapAssets.test.ts`).

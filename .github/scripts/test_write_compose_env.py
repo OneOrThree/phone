@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -19,12 +20,28 @@ SPEC.loader.exec_module(MODULE)
 
 
 def secret(**overrides: object) -> dict[str, object]:
-    base: dict[str, object] = {key: f"value-{key}" for key in MODULE.REQUIRED_KEYS}
+    base: dict[str, object] = {key: f"value-{key}" for key in MODULE.LEGACY_REQUIRED_KEYS}
     base.update(overrides)
     return base
 
 
 class WriteComposeEnvTest(unittest.TestCase):
+    def test_live_activity_키는_compose와_data_api에_전달되고_다른_서비스에는_없다(self) -> None:
+        keys = ("FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
+                "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64")
+        values = {key: f"test-{key}" for key in keys}
+        for service in ("legacy", "data-api"):
+            required = (MODULE.LEGACY_REQUIRED_KEYS if service == "legacy"
+                        else MODULE.SERVICE_REQUIRED_KEYS[service])
+            base = secret(**{key: f"test-{key}" for key in required})
+            rendered = MODULE.render({**base, **values}, "example/data:1", service)
+            without = MODULE.render(base, "example/data:1", service)
+            for key in keys:
+                self.assertIn(f"{key}='test-{key}'", rendered)
+                self.assertNotIn(f"{key}=", without)
+        for service in ("business-api", "notification"):
+            self.assertTrue(set(keys).isdisjoint(MODULE.allowed_keys(service)))
+
     def test_compose가_메타문자와_줄바꿈을_원문으로_복원한다(self) -> None:
         password = "p$WORD # literal\\path'quote\nnext"
         with tempfile.TemporaryDirectory() as directory:
@@ -101,6 +118,65 @@ class WriteComposeEnvTest(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(env_file.read_text(encoding="utf-8"), "previous")
+
+    def test_legacy_Origin_허용목록이_없거나_공백이면_출력_전에_실패한다(self) -> None:
+        # GROMO-2224 — 비면 realtime 이 앱 접속까지 403 (GROMO-2175 사고). 배포 전에 막는다.
+        for value in (None, "", "  "):
+            with self.subTest(value=value):
+                values = secret()
+                if value is None:
+                    values.pop("CHAT_WS_ALLOWED_ORIGINS")
+                else:
+                    values["CHAT_WS_ALLOWED_ORIGINS"] = value
+                with self.assertRaisesRegex(ValueError, "CHAT_WS_ALLOWED_ORIGINS"):
+                    MODULE.render(values, "example/app@sha256:abc")
+        self.assertIn("CHAT_WS_ALLOWED_ORIGINS='value-CHAT_WS_ALLOWED_ORIGINS'",
+                      MODULE.render(secret(), "example/app@sha256:abc"))
+
+    def test_허용목록에_금지_키가_섞이면_출력_전에_실패한다(self) -> None:
+        # GROMO-2224 — 허용목록을 실수로 넓혀도 다른 서버 자격은 못 나가게 하는 2차 방어선
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
+        baseline["SVC_TOKEN_CONSOLE_TO_NOTI"] = "member-1:console"
+        original = MODULE.SERVICE_OPTIONAL_KEYS["notification"]
+        MODULE.SERVICE_OPTIONAL_KEYS["notification"] = original + ("JWT_SECRET",)
+        try:
+            with self.assertRaisesRegex(ValueError, "JWT_SECRET"):
+                MODULE.render({**baseline, "JWT_SECRET": "leak"}, "noti:test", "notification")
+        finally:
+            MODULE.SERVICE_OPTIONAL_KEYS["notification"] = original
+
+    def test_Data_프로파일이_환경과_어긋나면_실패한다(self) -> None:
+        # GROMO-2224 — dev 배포에 prod 프로파일이 섞이면 운영 설정으로 뜬다
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["data-api"] + MODULE.TRANSITION_KEYS}
+        for profiles in ("prod,satellites", "dev,satellites,prod", "satellites"):
+            with self.subTest(profiles=profiles), self.assertRaisesRegex(ValueError, "프로파일"):
+                MODULE.render(baseline, "example/data:1", "data-api", "transition", "dev", data_profiles=profiles)
+        self.assertIn("SPRING_PROFILES_ACTIVE='dev,satellites,realtime-authorization'",
+                      MODULE.render({**baseline, "SVC_TOKEN_REALTIME_TO_DATA": "t"}, "example/data:1", "data-api",
+                                    "transition", "dev", data_profiles="dev,satellites,realtime-authorization"))
+
+    def test_켠_프로파일이_요구하는_토큰이_없으면_실패한다(self) -> None:
+        # GROMO-2224 — realtime-authorization 을 켜고 토큰이 비면 Data 가 기동 실패
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["data-api"] + MODULE.TRANSITION_KEYS}
+        with self.assertRaisesRegex(ValueError, "SVC_TOKEN_REALTIME_TO_DATA"):
+            MODULE.render(baseline, "x", "data-api", "transition", "dev",
+                          data_profiles="dev,satellites,realtime-authorization")
+        MODULE.render(baseline, "x", "data-api", "transition", "dev", data_profiles="dev,satellites")
+        MODULE.render({**baseline, "SVC_TOKEN_REALTIME_TO_DATA": "t"}, "x", "data-api", "transition", "dev",
+                      data_profiles="dev,satellites,realtime-authorization")
+
+    def test_어느_허용목록에도_없는_SM_키만_이름으로_보고한다(self) -> None:
+        unused = MODULE.unused_secret_keys({**secret(), "Team_ID": "x", "JWT_SECRET": "y", "STALE_KEY": "z"})
+        self.assertEqual(unused, ["STALE_KEY", "Team_ID"])
+
+    def test_check_모드는_파일을_쓰지_않고_빠진_키를_잡는다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "never.env"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--check", "--output", str(env_file), "--app-image", "x@sha256:abc"],
+                input=json.dumps(secret()), text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0, "서비스 필수 키가 없으면 실패해야 함")
+            self.assertFalse(env_file.exists())
 
     def test_공유_secret의_서비스별_자격이_실제_compose에서_격리된다(self) -> None:
         combined = secret(
@@ -357,7 +433,9 @@ class WriteComposeEnvTest(unittest.TestCase):
                 configured = subprocess.run(
                     ["docker", "compose", "--env-file", str(env_file),
                      "-f", str(scripts / "docker-compose.dev.yml"), "-f", str(scripts / "docker-compose.realtime.yml"),
-                     "config", "--format", "json"], text=True, check=True, capture_output=True)
+                     "config", "--format", "json"], text=True, check=True, capture_output=True,
+                    env={**{k: v for k, v in os.environ.items() if k != "APP_IMAGE"},  # 셸 APP_IMAGE 가 env 파일 덮지 않게
+                         "REALTIME_IMAGE": "example/realtime@sha256:def"})  # realtime-cd 처럼 셸 env 로
                 services = json.loads(configured.stdout)["services"]
                 realtime, app = services["realtime"]["environment"], services["data-api"]["environment"]
                 self.assertEqual(realtime["SVC_TOKEN_DATA_TO_REALTIME"], "data-rt" if present else "")
@@ -378,6 +456,24 @@ class WriteComposeEnvTest(unittest.TestCase):
                 for service in services.values():
                     self.assertEqual(service["logging"]["driver"], "json-file")
 
+
+    def test_앱_이미지_변수가_비면_compose가_latest로_뜨지_않고_실패한다(self) -> None:
+        # 기본값(옛 ci-cache :latest) 제거 회귀 방지 — 비면 옛 이미지·VM 캐시로 조용히 떴음
+        scripts = Path(__file__).resolve().parents[2] / "server" / "scripts"
+        base = {k: v for k, v in os.environ.items() if k not in ("APP_IMAGE", "REALTIME_IMAGE")}
+        cases = (("APP_IMAGE", "", ["docker-compose.dev.yml"]),
+                 ("REALTIME_IMAGE", "APP_IMAGE=example/app@sha256:abc\n",
+                  ["docker-compose.dev.yml", "docker-compose.realtime.yml"]))
+        for variable, content, files in cases:
+            with self.subTest(variable=variable), tempfile.TemporaryDirectory() as directory:
+                env_file = Path(directory) / "dev.env"
+                env_file.write_text(content, encoding="utf-8")
+                argv = ["docker", "compose", "--env-file", str(env_file)]
+                for name in files:
+                    argv += ["-f", str(scripts / name)]
+                result = subprocess.run([*argv, "config", "--quiet"], text=True, capture_output=True, env=base)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(variable, result.stderr)
 
     def test_Realtime_caller_토큰이_같으면_모든_모드에서_출력_전에_실패한다(self) -> None:
         same = secret(SVC_TOKEN_DATA_TO_REALTIME="same-token", SVC_TOKEN_BIZ_TO_REALTIME="same-token")

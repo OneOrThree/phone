@@ -226,7 +226,7 @@ confirm "동시에 실행 중인 dev 배포가 없습니까?" || exit 1
 
 stage "Kafka 브로커 기동"
 say "Dev Kafka workflow가 메모리 1024 MiB 게이트를 검사하고 broker만 기동합니다."
-dispatch_and_wait dev-kafka.yml up
+dispatch_and_wait ops-kafka.dev.yml up
 step "실행 요약에서 broker health=healthy를 확인하세요."
 confirm "Kafka가 healthy입니까?" || exit 1
 
@@ -257,7 +257,7 @@ confirm "Notification 수신기가 healthy이고 발송 gate는 닫혀 있습니
 
 stage "DLT와 토픽 준비·검증"
 say "원본 토픽과 DLT는 파티션 수가 같아야 원본 파티션의 실패 사건을 보존합니다."
-dispatch_and_wait dev-kafka.yml prepare
+dispatch_and_wait ops-kafka.dev.yml prepare
 step "실행 로그에서 notification-events와 notification-events.DLT가 각각 3 partitions인지 확인하세요."
 step "consumer group notification-v1의 lag와 DLT 적재 건수가 0인지 확인하세요."
 confirm "토픽 2개가 3 partitions이고 DLT/lag가 0입니까?" || exit 1

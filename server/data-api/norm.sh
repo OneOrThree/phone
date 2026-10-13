@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI와 동일한 검사를 로컬에서 실행 (dev-ci.yml → be-check-style · be-spot-bugs · be-test)
+# CI와 동일한 검사를 로컬에서 실행 (data-api-ci.dev.yml → be-check-style · be-spot-bugs · be-test)
 #
 # ci 프로파일은 `jdbc:postgresql://localhost:5432/tt_db` (ci/ci) 를 가리킨다. CI 에서는
 # GitHub Actions 의 services: postgres 가 그 자리에 있다. 로컬엔 없으므로 여기서 같은

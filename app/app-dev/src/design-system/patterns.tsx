@@ -20,6 +20,7 @@ import { componentTokens, primitiveTokens, semanticTokens } from '@/design-syste
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
+import { t } from '@/i18n';
 export { C, art };
 export const k = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -442,6 +443,28 @@ export function Chips({
     </View>
   );
 }
+/**
+ * 글자 수 제한 칸 아래의 「현재/최대」 표시. 한도에 닿으면 더 쓸 수 없다는 안내로 바꾼다 —
+ * maxLength 로 입력이 소리 없이 멈추거나 붙여 넣은 글이 잘려도 사용자가 알 수 있게.
+ */
+export function CharCount({ value, max }: { value: string; max: number }) {
+  const full = value.length >= max;
+  return (
+    <Txt
+      kind="meta"
+      accessibilityLiveRegion={full ? 'polite' : 'none'}
+      style={{
+        alignSelf: 'flex-end',
+        fontSize: 12,
+        lineHeight: 17.4,
+        fontVariant: ['tabular-nums'],
+        ...(full ? { color: semanticTokens.color.danger, fontWeight: '700' } : null),
+      }}
+    >
+      {full ? t('common.characterLimit', { max, count: value.length }) : `${value.length}/${max}`}
+    </Txt>
+  );
+}
 export function Field({
   label,
   value,
@@ -453,6 +476,7 @@ export function Field({
   placeholderColor,
   tabletScale,
   disabled = false,
+  maxLength,
 }: any) {
   return (
     <View style={{ gap: 6 }}>
@@ -469,6 +493,7 @@ export function Field({
         value={String(value ?? '')}
         onChangeText={onChange}
         editable={!disabled}
+        maxLength={maxLength}
         placeholder={placeholder}
         placeholderTextColor={placeholderColor || componentTokens.input.placeholder}
         multiline={multiline}
@@ -478,6 +503,7 @@ export function Field({
         keyboardType={numeric ? 'numeric' : 'default'}
         style={[k.field, multiline && { minHeight: 96, textAlignVertical: 'top' }, inputStyle]}
       />
+      {maxLength ? <CharCount value={String(value ?? '')} max={maxLength} /> : null}
     </View>
   );
 }
@@ -694,7 +720,7 @@ export function Page({
         {action && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={action === '⚙' ? '섬 관리' : action}
+            accessibilityLabel={action === '⚙' ? t('common.manageIsland') : action}
             onPress={actionPress}
             style={{ padding: 8 }}
           >

@@ -167,6 +167,46 @@ test('options 검증 — 모르는 ID·중복·빠진 필수 필드를 fake 건�
   }
 });
 
+test('건설 주민별 준비량은 서버 값을 보존하고 다른 목표·누락·잘못된 남은 수량은 거절한다', async () => {
+  const progress = {
+    buildingId: 'gram',
+    requiredPerResident: 1,
+    residents: [
+      { userId: 'u1', name: '방장', contributed: 1, remaining: 0 },
+      { userId: 'u2', name: null, contributed: 0, remaining: 1 },
+    ],
+  };
+  const option = (residentProgress: unknown) =>
+    options([item('gram')], { selectedBuildingId: 'gram', residentProgress });
+  const invalid = [
+    { ...progress, buildingId: 'library' },
+    { ...progress, residents: [{ userId: 'u1', name: '방장' }] },
+    { ...progress, residents: [{ ...progress.residents[0], remaining: -1 }] },
+    { ...progress, residents: [{ ...progress.residents[0], remaining: 1 }] },
+    { ...progress, requiredPerResident: 0.5 },
+    { ...progress, requiredPerResident: null },
+    { ...progress, residents: [progress.residents[0], progress.residents[0]] },
+  ];
+  stub([
+    { status: 200, body: { data: option(progress) } },
+    ...invalid.map((value) => ({ status: 200, body: { data: option(value) } })),
+    {
+      status: 200,
+      body: { data: option({ ...progress, requiredPerResident: null, residents: [] }) },
+    },
+    { status: 200, body: { data: option(null) } },
+  ]);
+  const received = await getConstructionOptions('i1');
+  assert.equal(received.residentProgress?.requiredPerResident, 1);
+  assert.equal(received.residentProgress?.residents[1].remaining, 1);
+  for (let i = 0; i < invalid.length; i++) {
+    const error = await getConstructionOptions('i1').catch((e) => e);
+    assert.equal(error.code, CLIENT_CONTRACT_ERROR);
+  }
+  assert.equal((await getConstructionOptions('i1')).residentProgress?.requiredPerResident, null);
+  assert.equal((await getConstructionOptions('i1')).residentProgress, null);
+});
+
 test('getMembers — cursor·limit 인코딩, null catColor 와 nextCursor 를 그대로 보존한다', async () => {
   stub([
     {
@@ -298,4 +338,31 @@ test('서버 오류는 코드를 그대로 올린다 — 성공으로 접지 않
   const forbidden = await leaveIsland('i1', 'k').catch((e) => e);
   assert.equal(forbidden.code, 'FORBIDDEN');
   assert.equal(forbidden.status, 403);
+});
+
+const activeConstruction = {
+  buildingId: 'library',
+  startedAt: '2026-10-09T00:00:00Z',
+  completesAt: '2026-10-09T00:01:00Z',
+};
+test('공사 조회는 건물과 시간을 보존하고 잘못된 공사 구간은 거절한다', async () => {
+  const values = [
+    activeConstruction,
+    null,
+    undefined,
+    { ...activeConstruction, buildingId: 'mail' },
+    { ...activeConstruction, startedAt: 'invalid' },
+    { ...activeConstruction, completesAt: activeConstruction.startedAt },
+  ];
+  stub(
+    values.map((activeConstruction) => ({
+      status: 200,
+      body: { data: options([item('library')], { activeConstruction }) },
+    })),
+  );
+  assert.deepEqual((await getConstructionOptions('i1')).activeConstruction, activeConstruction);
+  assert.equal((await getConstructionOptions('i1')).activeConstruction, null);
+  assert.equal((await getConstructionOptions('i1')).activeConstruction, undefined);
+  for (let n = 0; n < 3; n++)
+    await assert.rejects(getConstructionOptions('i1'), { code: CLIENT_CONTRACT_ERROR });
 });

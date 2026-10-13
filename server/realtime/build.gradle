@@ -79,6 +79,12 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:junit-jupiter:1.20.1'
 	testImplementation 'org.testcontainers:postgresql:1.20.1'
+
+	// 아키텍처 규칙 검증 (GROMO-2246) — movement 코어가 Fishcat 도메인·Spring Messaging 을 참조하지
+	// 않는다는 것을 빌드 실패로 잡는다. core 만 쓴다: MovementArchitectureTest 는 data-api 의
+	// DomainLayerRulesTest 와 같은 방식(@AnalyzeClasses/@ArchTest 확장 없이 평범한 @Test +
+	// ClassFileImporter)으로 쓰여 있어 archunit-junit5 러너가 필요 없다.
+	testImplementation 'com.tngtech.archunit:archunit:1.3.0'
 	testCompileOnly 'org.projectlombok:lombok'
 	testAnnotationProcessor 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -87,6 +93,12 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 	finalizedBy jacocoTestReport
+	// movement/nav 테스트가 레포의 다른 곳을 읽는다(앱 nav.json 원본·앱과 공유하는 A* fixture).
+	// 입력으로 알려야 그 파일만 바뀌었을 때 test 가 UP-TO-DATE 로 건너뛰어지지 않는다.
+	inputs.files('../../app/app-dev/src/assets/village-world/v1/nav.json',
+			'../../docs/prd/fishcat/island-movement/fixtures/paths.json')
+			.withPropertyName('movementParityFiles')
+			.withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // ── Checkstyle ────────────────────────────────────────────────────────────

@@ -4,11 +4,13 @@ import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -66,6 +69,10 @@ class StompAuthChannelInterceptorTest {
     @Mock
     private org.springframework.data.redis.core.ValueOperations<String, String> valueOps;
 
+    /** 이동 처리기의 색인 — 짝 토픽 판정 이어받기의 근거({@code holdsLiveOutbox}). 기본은 «들고 있는 outbox 없음». */
+    @Mock
+    private MovementSubscriptionListener movementSubscriptions;
+
     private StompAuthChannelInterceptor interceptor;
     private RealtimeSessionRegistry registry;
 
@@ -75,7 +82,8 @@ class StompAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         registry = new RealtimeSessionRegistry();
-        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis);
+        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
+                movementSubscriptions);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         given(redis.opsForValue()).willReturn(valueOps);
@@ -463,6 +471,129 @@ class StompAuthChannelInterceptorTest {
 
         assertThat(registry.subscriptionCount(SESSION))
                 .isLessThan(RealtimeSessionRegistry.MAX_SUBSCRIPTIONS_PER_SESSION);
+    }
+
+    // ── GROMO-2247 이동 채널 ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("이동 두 토픽 구독은 섬 멤버십만 본다 — 집중 검사가 섞인 채팅 관문은 부르지 않고, 짝 토픽은 살아 있는 판정을 이어받는다(N1)")
+    void movementSubscriptionsRequireMembershipOnly() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        // 첫 구독이 통과하면 처리기가 outbox 를 연다 — 둘째 구독 때는 살아 있다.
+        given(movementSubscriptions.holdsLiveOutbox(SESSION, groupId)).willReturn(false, true);
+        Message<byte[]> movement = message(movementSubscribe("movement", groupId));
+        Message<byte[]> snapshot = message(movementSubscribe("movement/snapshot", groupId));
+        assertThatCode(() -> interceptor.preSend(movement, null)).doesNotThrowAnyException();
+        assertThatCode(() -> interceptor.preSend(snapshot, null)).doesNotThrowAnyException();
+        assertThat(movement.getHeaders().get(MovementSubscriptionListener.JUDGED))
+                .as("직접 판정한 구독에만 표식 — 값은 판정 직전의 그 섬 재검사 세대").isEqualTo(0L);
+        assertThat(snapshot.getHeaders().get(MovementSubscriptionListener.JUDGED)).as("이어받은 구독엔 표식이 없다")
+                .isNull();
+        // 앱은 접속마다 두 토픽을 연달아 구독한다 — 판정·시도 창은 세션×섬에 한 번이다.
+        verify(accessGuard, org.mockito.Mockito.times(1)).requireMember(groupId, userId, BEARER);
+        verify(valueOps, org.mockito.Mockito.times(1))
+                .setIfAbsent(eq(RedisKeys.movementSubscribeAttempt(userId)), any(String.class),
+                        any(java.time.Duration.class));
+        verify(accessGuard, org.mockito.Mockito.never()).requireCanChat(any(), any(), any());
+        verify(accessGuard, org.mockito.Mockito.never()).requireNotFocusing(any());
+        verifyNoInteractions(focusSessions);
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/movement"))
+                .isEqualTo("movement");
+    }
+
+    @Test
+    @DisplayName("이동 토픽 구독 — 비멤버는 NOT_A_MEMBER, 열거 밖 모양·대문자 UUID 는 INVALID_REQUEST 로 거절한다")
+    void movementSubscriptionRejectsNonMembersAndMalformedTopics() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(groupId, userId, BEARER);
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("movement", groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+        // 거절된 구독은 자리를 돌려준다 — 남으면 짝 토픽·intent 관문이 «판정받은 구독»으로 오인한다.
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/movement")).isNull();
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("movement/snapshot", groupId)), null))
+                .as("짝 토픽도 판정을 이어받지 못한다").isInstanceOf(DomainException.class);
+
+        UUID other = UUID.randomUUID();
+        for (String topic : new String[] {"movement/", "movement/snapshot/x", "movement/*", "movements"}) {
+            assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe(topic, other)), null))
+                    .describedAs("목적지 %s", topic)
+                    .isInstanceOf(DomainException.class)
+                    .extracting(e -> ((DomainException) e).getErrorCode())
+                    .isEqualTo(CommonErrorCode.INVALID_REQUEST);
+        }
+        StompHeaderAccessor upper = movementSubscribe("movement", other);
+        upper.setDestination("/topic/islands/" + other.toString().toUpperCase(Locale.ROOT) + "/movement");
+        assertThatThrownBy(() -> interceptor.preSend(message(upper), null)).isInstanceOf(DomainException.class);
+    }
+
+    @Test
+    @DisplayName("이동 intent SEND — 그 섬 movement 를 구독 중일 때만 통과하고 멤버십은 다시 묻지 않는다(N2) · 재검사로 멈춘 동안은 조용히 버린다")
+    void movementIntentRequiresTheMovementSubscription() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        assertThatThrownBy(() -> interceptor.preSend(message(intentSend(groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+
+        // snapshot 구독만으로는 방에 들어간 것이 아니다.
+        interceptor.preSend(message(movementSubscribe("movement/snapshot", groupId)), null);
+        assertThatThrownBy(() -> interceptor.preSend(message(intentSend(groupId)), null))
+                .isInstanceOf(DomainException.class);
+
+        interceptor.preSend(message(movementSubscribe("movement", groupId)), null);
+        org.mockito.Mockito.clearInvocations(accessGuard);
+        given(movementSubscriptions.acceptsIntents(SESSION, groupId)).willReturn(true);
+        assertThat(interceptor.preSend(message(intentSend(groupId)), null)).as("컨트롤러로 흘려보낸다").isNotNull();
+        verifyNoInteractions(accessGuard);
+
+        // 강퇴 재검사로 그 세션 송신이 멈춘 동안은 조용히 버린다 — ERROR 도 내지 않는다(멤버십이 아직 미정).
+        given(movementSubscriptions.acceptsIntents(SESSION, groupId)).willReturn(false);
+        assertThat(interceptor.preSend(message(intentSend(groupId)), null)).as("버린다(null)").isNull();
+
+        // 다른 섬 intent 는 그 섬 구독이 없다 — 구독은 섬별이다.
+        assertThatThrownBy(() -> interceptor.preSend(message(intentSend(UUID.randomUUID())), null))
+                .isInstanceOf(DomainException.class);
+        // 만료 토큰은 구독이 있어도 UNAUTHORIZED.
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.empty());
+        assertThatThrownBy(() -> interceptor.preSend(message(intentSend(groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("이동 구독 시도 창(사용자 축 600ms)을 넘기면 상류에 묻기 전에 ERROR 로 끊고 자리를 돌려준다")
+    void movementSubscribeAttemptWindowRejectsBeforeUpstream() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(valueOps.setIfAbsent(eq(RedisKeys.movementSubscribeAttempt(userId)), any(String.class),
+                any(java.time.Duration.class))).willReturn(false);
+
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("movement", groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
+        verify(accessGuard, org.mockito.Mockito.never()).requireMember(any(), any(), any());
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/movement")).isNull();
+    }
+
+    private StompHeaderAccessor movementSubscribe(String topic, UUID island) {
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setSessionId(SESSION);
+        frame.setSubscriptionId(topic);
+        frame.setDestination("/topic/islands/" + island + "/" + topic);
+        return frame;
+    }
+
+    private StompHeaderAccessor intentSend(UUID island) {
+        StompHeaderAccessor frame = accessor(StompCommand.SEND);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setSessionId(SESSION);
+        frame.setDestination("/app/islands/" + island + "/movement/intent");
+        return frame;
     }
 
     private StompHeaderAccessor islandSubscribe(String subscriptionId, UUID island) {

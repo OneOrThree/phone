@@ -28,8 +28,10 @@ import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.IslandStateEvents;
 import com.oneorthree.phone.construction.dto.ConstructionOptionItem;
 import com.oneorthree.phone.construction.dto.ConstructionOptionsView;
+import com.oneorthree.phone.construction.dto.ConstructionResidentProgress;
 import com.oneorthree.phone.construction.dto.ConstructionStartedView;
 import com.oneorthree.phone.construction.dto.ConstructionTargetView;
+import com.oneorthree.phone.construction.dto.IslandLayoutView;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
@@ -91,11 +93,27 @@ public class IslandConstructionService {
     private final ConstructionCostPolicyRepository policies;
     private final CostPolicyPublicationRepository publication;
     private final IslandWalletService walletService;
+    private final IslandLayoutService layouts;
     private final AggregateVersionRepository aggregateVersions;
     private final IslandStateEvents islandStateEvents;
     private final IslandWalletEvents walletEvents;
     private final PublicCommandService publicCommands;
     private final Clock clock;
+
+    // ---------------------------------------------------------------- GET layout
+
+    /**
+     * 섬 배치 정본 조회 (GROMO-2232) — 옵션 조회와 같은 활성 주민 게이트다. 행이 없는 섬은 이 조회가
+     * 기본 템플릿으로 만들므로 읽기 전용이 아닌 쓰기 트랜잭션이다.
+     */
+    @Transactional
+    public IslandLayoutView layout(UUID islandId, UUID userId) {
+        User viewer = userQueryService.getCaller(userId);
+        Group island = aliveIsland(islandId);
+        groupMemberRepository.findByUserAndGroup(viewer, island)
+                .orElseThrow(() -> new ConstructionException(ConstructionErrorCode.CONSTRUCTION_FORBIDDEN));
+        return layouts.current(islandId);
+    }
 
     // ---------------------------------------------------------------- GET options
 
@@ -153,7 +171,36 @@ public class IslandConstructionService {
                 state == null ? null : state.getTargetBuildingId(),
                 balance,
                 aggregateVersion(IslandWalletEvents.AGGREGATE_TYPE, islandId),
-                items);
+                items,
+                residentProgress(targetBuildingId, priceBook, targetIds, contributed),
+                facilityByBuilding.values().stream()
+                        .filter(f -> f.getStatus() == FacilityStatus.BUILDING)
+                        .map(f -> new ConstructionOptionsView.ActiveConstruction(
+                                f.getBuildingId(), f.getStartedAt(), f.getCompletesAt()))
+                        .findFirst().orElse(null));
+    }
+
+    /** 착공 판정과 같은 스냅샷·대상·가격으로 읽는다. 일반 주민에게도 진행량을 제공한다. */
+    private ConstructionResidentProgress residentProgress(String targetBuildingId,
+            Map<String, ConstructionCostPolicy> priceBook, List<UUID> targetIds,
+            Map<UUID, Integer> contributed) {
+        ConstructionBuilding building = ConstructionBuilding.byId(targetBuildingId).orElse(null);
+        if (building == null || building.funding() != ConstructionBuilding.Funding.RESIDENT_SPLIT) {
+            return null;
+        }
+        if (targetIds.isEmpty()) {
+            return new ConstructionResidentProgress(targetBuildingId, null, List.of());
+        }
+        int quota = (requirePrice(priceBook, building).getCost() - 1) / targetIds.size() + 1;
+        Map<UUID, User> users = userQueryService.findAllActive(targetIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+        List<ConstructionResidentProgress.Resident> residents = targetIds.stream().sorted().map(id -> {
+            User user = users.get(id);
+            int amount = contributed.getOrDefault(id, 0);
+            return new ConstructionResidentProgress.Resident(id, user == null ? null : user.getNickname(),
+                    amount, Math.max(0, quota - amount));
+        }).toList();
+        return new ConstructionResidentProgress(targetBuildingId, quota, residents);
     }
 
     // ---------------------------------------------------------------- PUT target
