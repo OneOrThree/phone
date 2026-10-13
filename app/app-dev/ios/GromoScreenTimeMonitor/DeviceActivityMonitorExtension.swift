@@ -53,7 +53,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             defaults?.removeObject(forKey: "gromo:goal:selectionPending")
             defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
             defaults?.set(today, forKey: "gromo:goal:selectionPromotedOkDate")
-            markUnconfirmed(day: today)
+            if markRecoveryDayUnconfirmed { markUnconfirmed(day: today) }
             return true
         } catch {
             var restored = false

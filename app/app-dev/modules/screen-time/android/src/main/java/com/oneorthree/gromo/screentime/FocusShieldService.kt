@@ -12,6 +12,7 @@ import android.os.*
 import android.provider.Settings
 import android.widget.RemoteViews
 import org.json.JSONObject
+import java.util.concurrent.Executors
 
 /** PR #686의 앱 감지·시스템 예외·오버레이를 2.0 서버 세션 수명에 연결한다. */
 class FocusShieldService : Service() {
@@ -40,6 +41,11 @@ class FocusShieldService : Service() {
   private var launchableCache: Set<String>? = null
   private var exemptCache: Set<String>? = null
   private var lastForeground: String? = null
+  private var foregroundTracker = ForegroundAppTracker()
+  private val foregroundWorker = Executors.newSingleThreadExecutor()
+  private var lookupPending = false
+  private var lookupFailures = 0
+  private var wasLocked = false
   private var anchorElapsed = 0L
   private var expiresAt = 0L
   private var failures = 0
@@ -113,9 +119,15 @@ class FocusShieldService : Service() {
     }
     val power = getSystemService(POWER_SERVICE) as PowerManager
     val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-    if (!power.isInteractive || keyguard.isKeyguardLocked) { hideOverlay(); lastForeground = null; return }
+    if (!power.isInteractive || keyguard.isKeyguardLocked) {
+      hideOverlay()
+      lastForeground = null
+      wasLocked = true
+      return
+    }
+    if (wasLocked) { foregroundTracker = ForegroundAppTracker(); wasLocked = false }
     allowed = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getStringSet("allowedPackages", emptySet())!!.toSet()
-    latestResumedPackage()?.let { lastForeground = it }
+    refreshForegroundPackage()
     val front = lastForeground ?: return
     if (shouldBlock(front)) {
       val shield = overlay ?: ShieldOverlay(this).also { overlay = it }
@@ -132,19 +144,40 @@ class FocusShieldService : Service() {
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
   }
-  override fun onDestroy() { instance = null; stopShield(); super.onDestroy() }
+  override fun onDestroy() { instance = null; stopShield(); foregroundWorker.shutdownNow(); super.onDestroy() }
 
-  private fun latestResumedPackage(): String? {
-    val manager = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
-    val time = System.currentTimeMillis()
-    val events = checkNotNull(manager.queryEvents(time - 10_000, time))
-    val event = UsageEvents.Event()
-    var latest: String? = null
-    while (events.hasNextEvent()) {
-      events.getNextEvent(event)
-      if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) latest = event.packageName
+  private fun refreshForegroundPackage() {
+    if (lookupPending) return
+    lookupPending = true
+    val tracker = foregroundTracker
+    // 복구 시 긴 이력은 메인 스레드를 막지 않고 한 번만 읽는다.
+    foregroundWorker.execute {
+      val result = runCatching {
+        val manager = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
+        tracker.read(System.currentTimeMillis(), SystemClock.elapsedRealtime()) { from, until ->
+          val events = checkNotNull(manager.queryEvents(from, until))
+          val event = UsageEvents.Event()
+          var latest: String? = null
+          while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) latest = event.packageName
+          }
+          latest
+        }
+      }
+      handler.post {
+        lookupPending = false
+        if (!running || foregroundTracker !== tracker || wasLocked) return@post
+        if (result.isSuccess) {
+          lookupFailures = 0
+          result.getOrNull()?.let { lastForeground = it }
+        } else if (++lookupFailures >= 5) {
+          blocking = false
+          hideOverlay()
+          startForeground(NOTIFICATION_ID, buildNotification())
+        }
+      }
     }
-    return latest
   }
   private fun usageAccessGranted(): Boolean {
     val appOps = getSystemService(APP_OPS_SERVICE) as AppOpsManager

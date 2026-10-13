@@ -176,4 +176,19 @@ class AndroidStateTest {
     assertNull(ledger.selection()["pendingSelection"])
   }
 
+  @Test fun restoredServiceFindsAppOpenedBeforeTenSecondsAndThenReadsIncrementally() {
+    val tracker = ForegroundAppTracker()
+    val now = 1_000_000L
+    val opened = now - 120_000
+    val windows = mutableListOf<Pair<Long, Long>>()
+    fun query(from: Long, until: Long): String? {
+      windows.add(from to until)
+      return if (opened in from..until) "blocked.app" else null
+    }
+    assertEquals("blocked.app", tracker.read(now, 600_000, ::query))
+    assertEquals(400_000L to now, windows[0])
+    assertNull(tracker.read(now + 1000, 601_000, ::query))
+    assertEquals(now - 1000 to now + 1000, windows[1])
+  }
+
 }
