@@ -9,6 +9,7 @@ import { ApiError } from '@/services/api/client';
 import * as api from '@/services/api/magazine';
 import type { PromotionEditor as EditorResponse } from '@/services/api/magazine';
 import { initialState } from '@/services/model';
+import { saveSession } from '@/services/api/session';
 import { CELL_ASPECT, PromotionLayout } from './layout';
 import { PromotionEditor } from './PromotionEditor';
 import { CANVAS_PAD } from './useStickerGestures';
@@ -96,6 +97,26 @@ describe('여닫기', () => {
     expect(getEditor).not.toHaveBeenCalled();
   });
 
+  it('회원 전환을 마치면(새 세션) 그 자리에서 다시 읽어 쓰기 화면이 열린다', async () => {
+    getEditor
+      .mockRejectedValueOnce(new ApiError('SOCIAL_LOGIN_REQUIRED', '로그인', 403))
+      .mockResolvedValueOnce(editorResponse());
+    const screen = await render(<PromotionEditor e={env({ conversion: { offer: () => true } })} />);
+    await waitFor(() =>
+      expect(screen.getByText('소셜 로그인을 하면 우리 섬을 잡지에 실을 수 있어요')).toBeTruthy(),
+    );
+    await act(async () => {
+      await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'me' });
+    });
+    await waitFor(() => expect(screen.getByTestId('promotion-canvas')).toBeTruthy());
+    expect(getEditor).toHaveBeenCalledTimes(2);
+  });
+
+  it('재료 목록이 늦어도 편집기 응답만으로 먼저 열린다', async () => {
+    getAssets.mockReturnValueOnce(new Promise(() => {}));
+    await open();
+  });
+
   it('게스트 섬장이면 들어가는 순간 회원 전환 시트를 연다', async () => {
     const gate = new ApiError('SOCIAL_LOGIN_REQUIRED', '로그인', 403);
     getEditor.mockRejectedValue(gate);
@@ -115,6 +136,8 @@ describe('스티커·테이프·틀·글', () => {
     await fireEvent.press(screen.getByTestId('drawer-mag.cat-black-book'));
     expect(stickerStyles(screen)).toHaveLength(10);
     expect(e.notify).toHaveBeenCalledWith('스티커는 10개까지 붙일 수 있어요');
+    // 본문도 세로 스크롤이라 Android 에서 안쪽 서랍이 제스처를 받는다
+    expect(screen.getByTestId('sticker-drawer').props.nestedScrollEnabled).toBe(true);
   });
 
   it('테이프는 하나 — 다른 테이프를 고르면 바꿔 끼운다', async () => {
@@ -378,6 +401,36 @@ describe('신청 창·잔액·비공개', () => {
     const { screen } = await open({ privateIsland: true });
     expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(true);
     expect(screen.getByText(/비공개 섬은 잡지에 실을 수 없어요/)).toBeTruthy();
+  });
+
+  it('열어 둔 채 자정(closesAt)이 지나면 다시 읽어 읽기 전용이 된다', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:00Z') }); // KST 23:59
+    try {
+      const next = {
+        promotionId: 'p9',
+        issueDate: '2026-10-15',
+        body: '다음 호 글',
+        layout: LAYOUT,
+      };
+      getEditor.mockResolvedValueOnce(
+        editorResponse({ next: { ...next, appliedAt: 'x', editable: true } }),
+      );
+      getEditor.mockResolvedValueOnce(
+        editorResponse({
+          window: { ...editorResponse().window, open: false },
+          next: { ...next, appliedAt: 'x', editable: false },
+        }),
+      );
+      const screen = await render(<PromotionEditor e={env()} />);
+      await waitFor(() => expect(screen.getByText('고친 내용 저장')).toBeTruthy());
+      await act(async () => {
+        jest.advanceTimersByTime(61_000); // 00:00:01
+      });
+      await waitFor(() => expect(screen.queryByTestId('sticker-drawer')).toBeNull());
+      expect(getEditor).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('00~07시에 열어 두면 버튼 자리에 「아침 7시에 다시 열려요」, 07시가 되면 다시 읽어 연다', async () => {

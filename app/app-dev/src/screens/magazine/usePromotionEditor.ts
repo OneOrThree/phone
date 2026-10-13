@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorText, t } from '@/i18n';
 import { ApiError, uuid } from '@/services/api/client';
+import { sessionGeneration, subscribeSession } from '@/services/api/session';
 import * as live from '@/services/api/magazine';
 import type { MagazineAssets, PromotionDraft, PromotionEditor } from '@/services/api/magazine';
 import { magazineMock } from '@/services/api/magazineMock';
@@ -83,15 +84,16 @@ export function usePromotionEditor({
     const mine = ++generation.current;
     setStatus('loading');
     const api = magazineApi();
+    // 재료 목록은 따로 읽는다 — 늦거나 실패해도 쓰기 화면은 편집기 응답만으로 먼저 열린다.
+    // 지금 재료는 전부 무료라 목록이 오기 전에는 앱 표를 그대로 쓴다(보유 검사는 서버가 한다)
+    api
+      .getMagazineAssets()
+      .then((nextAssets) => mine === generation.current && setAssets(nextAssets))
+      .catch(() => {});
     try {
-      // 재료 목록은 실패해도 쓰기는 된다 — 지금 재료는 전부 무료라 앱 표를 그대로 쓴다(보유 검사는 서버가 한다)
-      const [nextEditor, nextAssets] = await Promise.all([
-        api.getPromotionEditor(islandId),
-        api.getMagazineAssets().catch(() => null),
-      ]);
+      const nextEditor = await api.getPromotionEditor(islandId);
       if (mine !== generation.current) return;
       setEditor(nextEditor);
-      setAssets(nextAssets);
       setError(null);
       setStatus('ready');
     } catch (err) {
@@ -113,13 +115,28 @@ export function usePromotionEditor({
     };
   }, [reload]);
 
-  // 00~07시에 열어 둔 화면은 07시(opensAt)에 다시 읽어 신청 창을 연다
-  const opensAt = editor && !editor.window.open ? Date.parse(editor.window.opensAt) : NaN;
+  // 신청 창이 바뀌는 시각에 다시 읽는다 — 열려 있으면 자정(closesAt)에 읽기 전용으로, 00~07시면 07시(opensAt)에 다시 연다
+  const switchAt = editor
+    ? Date.parse(editor.window.open ? editor.window.closesAt : editor.window.opensAt)
+    : NaN;
   useEffect(() => {
-    if (!Number.isFinite(opensAt)) return;
-    const id = setTimeout(reload, Math.max(0, Math.min(opensAt - now() + 1000, DAY)));
+    // 이미 지난 시각이면(기기 시계가 서버보다 빠름) 바로 다시 읽기를 되풀이하지 않는다 — 서버 거절 코드가 다시 읽게 한다
+    if (!Number.isFinite(switchAt) || switchAt <= now()) return;
+    const id = setTimeout(reload, Math.min(switchAt - now() + 1000, DAY));
     return () => clearTimeout(id);
-  }, [opensAt, reload, now]);
+  }, [switchAt, reload, now]);
+
+  // 게스트 섬장이 회원 전환을 마치면(새 세션) 그 자리에서 다시 읽는다 — 화면을 나갔다 들어오지 않아도 된다
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  useEffect(() => {
+    let seen = sessionGeneration();
+    return subscribeSession(() => {
+      if (sessionGeneration() === seen) return;
+      seen = sessionGeneration();
+      if (statusRef.current === 'guest') reload();
+    });
+  }, [reload]);
 
   /**
    * 신청(다음 호에 아직 안 냈을 때) 또는 고치기(신청 창 안에서 이미 냈을 때). 성공하면 'applied' · 'updated',
