@@ -1052,6 +1052,46 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
     }
   });
 
+  test('서버가 그 섬의 오늘 호 칸(magazineCell)을 주면 자리표시 대신 섬장이 꾸민 칸(AdCell)을 그린다', async () => {
+    const cell = {
+      promotionId: 'pr1',
+      islandId: 'p1',
+      name: '별고래',
+      buildingCount: 5,
+      memberCount: 12,
+      maxMembers: 15,
+      averageFocusMinutesPerDay: 185,
+      relation: 'NONE' as const,
+      body: '밤에 같이 공부할 고양이 모여라~',
+      layout: {
+        v: 1 as const,
+        frameId: 'mag.frame-ticket',
+        stickers: [{ assetId: 'mag.star', x: 0.8, y: 0.2, scale: 0.1, rotation: 0 }],
+        tape: null,
+      },
+    };
+    const { screen } = await open([
+      item('p1', { slot: 'pinned', pinnedFrom: 'magazine', magazineCell: cell }),
+      item('p3', { slot: 'pinned', pinnedFrom: 'magazine', magazineCell: null }),
+    ]);
+    await press(screen, 'p1');
+    const preview = screen.getByTestId('telescope-magazine-cell');
+    expect(screen.queryByTestId('telescope-magazine-preview')).toBeNull();
+    // 폭은 말풍선 안 자리를 재고 나서 정한다
+    await fireEvent(preview, 'layout', { nativeEvent: { layout: { width: 280, height: 0 } } });
+    // 칸이 스스로 섬 이름·주민·평균·글을 읽는다(신고 동작은 없다)
+    const read = within(preview).getByLabelText(
+      /^별고래섬, 주민 12\/15, 평균 3시간 5분, ‘밤에 같이/,
+    );
+    expect(read.props.accessibilityActions).toBeUndefined();
+    within(preview).getByText('잡지 칸 미리보기');
+    await fireEvent.press(screen.getByLabelText('닫기'));
+    // 칸이 없는 잡지 찜(편집부 칸·숨겨진 칸)은 예전 자리표시 그대로
+    await press(screen, 'p3');
+    expect(screen.getByTestId('telescope-magazine-preview')).toBeTruthy();
+    expect(screen.queryByTestId('telescope-magazine-cell')).toBeNull();
+  });
+
   test.each([
     ['p1', '잡지 핀', true],
     ['p2', '전망대 핀', true],

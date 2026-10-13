@@ -108,17 +108,25 @@ describe('AdCell', () => {
     expect(screen.getByLabelText(/, 우리 섬이에요$/)).toBeTruthy();
   });
 
-  it('누르기·길게 누르기를 칸이 받는다', async () => {
+  it('누르기는 크게 보기, 길게 누르기·스크린리더 「신고하기」 동작은 신고', async () => {
     const onPress = jest.fn();
-    const onLongPress = jest.fn();
+    const onReport = jest.fn();
     const screen = await render(
-      <AdCell width={300} cell={cell()} onPress={onPress} onLongPress={onLongPress} />,
+      <AdCell width={300} cell={cell()} onPress={onPress} onReport={onReport} />,
     );
     const target = screen.getByRole('button');
     await fireEvent.press(target);
     await fireEvent(target, 'longPress');
     expect(onPress).toHaveBeenCalledTimes(1);
-    expect(onLongPress).toHaveBeenCalledTimes(1);
+    expect(onReport).toHaveBeenCalledTimes(1);
+    expect(target.props.accessibilityActions).toEqual([{ name: 'report', label: '신고하기' }]);
+    await fireEvent(target, 'accessibilityAction', { nativeEvent: { actionName: 'report' } });
+    expect(onReport).toHaveBeenCalledTimes(2);
+  });
+
+  it('신고를 받지 않는 칸(쓰기 화면·망원경)에는 신고 동작이 없다', async () => {
+    const screen = await render(<AdCell testID="c" width={300} cell={cell()} onPress={() => {}} />);
+    expect(screen.getByRole('button').props.accessibilityActions).toBeUndefined();
   });
 
   it('섬 프로필은 건물 수에 맞는 섬 그림 단계(5~6 → s5)', async () => {

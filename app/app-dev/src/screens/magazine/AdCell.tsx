@@ -47,7 +47,7 @@ export function AdCell({
   corner = null,
   onScope,
   onPress,
-  onLongPress,
+  onReport,
   testID,
 }: {
   width: number;
@@ -55,7 +55,8 @@ export function AdCell({
   corner?: 'scope' | 'ours' | null;
   onScope?: () => void;
   onPress?: () => void;
-  onLongPress?: () => void;
+  /** 신고 — 칸 길게 누르기와 스크린리더 「신고하기」 동작이 부른다. */
+  onReport?: () => void;
   testID?: string;
 }) {
   const font = useGowun();
@@ -94,7 +95,7 @@ export function AdCell({
     color: semanticTokens.color.text,
     ...(lines ? { maxHeight: size * scale * m.lineHeight * lines } : null),
   });
-  const Body = onPress || onLongPress ? Pressable : View;
+  const Body = onPress || onReport ? Pressable : View;
 
   return (
     <View testID={testID} style={{ width: W, height: H }}>
@@ -104,7 +105,13 @@ export function AdCell({
         accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={label}
         onPress={onPress}
-        onLongPress={onLongPress}
+        onLongPress={onReport}
+        accessibilityActions={
+          onReport ? [{ name: 'report', label: t('magazine.report.action') }] : undefined
+        }
+        onAccessibilityAction={
+          onReport && ((ev) => ev.nativeEvent.actionName === 'report' && onReport())
+        }
       >
         <Image
           source={frame.source}

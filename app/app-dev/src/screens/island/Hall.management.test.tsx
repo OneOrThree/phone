@@ -169,6 +169,21 @@ test('방문자 관리 카드는 비활성 management snapshot 대신 기존 정
   assert.equal(visitor.queryByTestId('hall-leave'), null);
 });
 
+test('홍보 기록판 입구 — 주민 회관 관리 카드에 있고 누르면 기록판으로 간다(AD-11)', async () => {
+  const env = e();
+  const screen = await render(<Hall e={env} />);
+  await fireEvent.press(await screen.findByTestId('hall-promotion-records'));
+  assert.equal(env.go.mock.calls.at(-1)?.[0], 'promotionRecords');
+});
+
+test('홍보 기록판 입구 — 방문자에게는 입구 자체가 없다', async () => {
+  const visitorState = initialState(true);
+  visitorState.visitingIslandId = visitorState.islands.find((island) => !island.joined)?.id;
+  const visitor = await render(<Hall e={e('manage', visitorState)} />);
+  await waitFor(() => assert.ok(visitor.getByText(viewIsland(visitorState).name)));
+  assert.equal(visitor.queryByTestId('hall-promotion-records'), null);
+});
+
 test('review/demo 로컬 관리는 hook을 비활성화하고 기존 reducer 저장·위임·승인을 사용한다', async () => {
   const os = Object.getOwnPropertyDescriptor(Platform, 'OS');
   const target: any = globalThis;

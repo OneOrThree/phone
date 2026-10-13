@@ -11,7 +11,9 @@ import {
   getMagazineIssues,
   getMagazineToday,
   getPromotionEditor,
+  getPromotionRecords,
   putMagazineReceipt,
+  reportPromotion,
   updatePromotion,
 } from '@/services/api/magazine';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -231,5 +233,70 @@ describe('잡지 읽기', () => {
     expect(path(calls[0])).toBe('/me/magazine/issues/iss-19/receipt');
     expect(calls[0].init.method).toBe('PUT');
     expect(JSON.parse(calls[0].init.body as string)).toEqual({ place: 'ISLAND', opened: true });
+  });
+});
+
+describe('신고·기록판', () => {
+  test('신고 — POST {reason}, 키 없이. 새 신고 201 은 created, 이미 한 신고 200 은 created=false', async () => {
+    stub(201, { reported: true });
+    await expect(reportPromotion('i 1', 'p/1', 'SPAM_FRAUD')).resolves.toEqual({ created: true });
+    expect(path(calls[0])).toBe('/islands/i%201/promotions/p%2F1/reports');
+    expect(calls[0].init.method).toBe('POST');
+    expect(header(calls[0], 'Idempotency-Key')).toBeUndefined();
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ reason: 'SPAM_FRAUD' });
+
+    stub(200, { reported: true });
+    await expect(reportPromotion('i1', 'p1', 'OTHER')).resolves.toEqual({ created: false });
+  });
+
+  test('신고 — 게스트 403 은 코드 그대로, 계약과 다른 성공은 CLIENT_CONTRACT_ERROR', async () => {
+    stub(403, { error: { code: 'SOCIAL_LOGIN_REQUIRED', message: 'x' } });
+    await expect(reportPromotion('i1', 'p1', 'HATE')).rejects.toMatchObject({
+      code: 'SOCIAL_LOGIN_REQUIRED',
+      status: 403,
+    });
+    stub(201, { reported: false });
+    await expect(reportPromotion('i1', 'p1', 'HATE')).rejects.toMatchObject({
+      code: 'CLIENT_CONTRACT_ERROR',
+    });
+  });
+
+  test('기록판 — GET …/promotions/records?limit=20, 어긋난 줄·모르는 상태만 빼고 꾸미기는 있을 때만', async () => {
+    const record = {
+      promotionId: 'p1',
+      issueDate: '2026-10-15',
+      issueNo: 20,
+      body: '놀러 와요',
+      status: 'PUBLISHED',
+      pinned: 12,
+      arrived: 4,
+      joined: 1,
+    };
+    stub(200, {
+      items: [
+        record,
+        { ...record, promotionId: 'p2', issueNo: null, status: 'SCHEDULED', layout },
+        { ...record, promotionId: 'p3', status: 'NEW_STATUS' },
+        { ...record, promotionId: 'p4', pinned: '3' },
+        { ...record, promotionId: 'p5', layout: 'broken' },
+      ],
+    });
+    const items = await getPromotionRecords('i 1');
+    expect(path(calls[0])).toBe('/islands/i%201/promotions/records?limit=20');
+    expect(items.map((r) => r.promotionId)).toEqual(['p1', 'p2', 'p5']);
+    expect(items[0]).toEqual({ ...record, layout: null });
+    expect(items[1]).toMatchObject({ issueNo: null, status: 'SCHEDULED' });
+    expect(items[1].layout?.stickers).toHaveLength(1);
+    // 꾸미기만 어긋나면 글·숫자는 그대로
+    expect(items[2].layout).toBeNull();
+  });
+
+  test('기록판 — 주민이 아니면 403 FORBIDDEN 그대로, items 가 없으면 CLIENT_CONTRACT_ERROR', async () => {
+    stub(403, { error: { code: 'FORBIDDEN', message: 'x', field: 'islandId' } });
+    await expect(getPromotionRecords('i1')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    stub(200, {});
+    await expect(getPromotionRecords('i1')).rejects.toMatchObject({
+      code: 'CLIENT_CONTRACT_ERROR',
+    });
   });
 });

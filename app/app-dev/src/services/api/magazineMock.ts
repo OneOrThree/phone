@@ -16,6 +16,11 @@
  *  - `opened`   오늘 호를 이미 읽었다(빨간 점 없음)
  *  - `noissue`  아직 낸 호가 없다 · `emptyissue` 오늘 호에 홍보 칸·랭킹·새 섬이 없다
  *  - `paged`    오늘 호 칸 8개를 4개씩 커서로 나눠 준다
+ *
+ * 신고(칸 길게 누르기)는 칸마다 처음은 새 신고, 두 번째부터 「이미 신고」다. `guest` 면 403 SOCIAL_LOGIN_REQUIRED.
+ * 회관 홍보 기록판은 지난 홍보 6건(발행 전·실림·숨김·안 실림·내려감)을 준다.
+ *  - `norecords` 기록이 없다 · `recordsfail` 기록판 읽기가 실패한다
+ *  - `telescope` 목업에서도 망원경 목록을 보인다(잡지에서 찜한 섬 — 칸 미리보기 있음·없음 — 과 전망대 찜·무작위 섬)
  */
 import { ApiError, uuid } from './client';
 import type {
@@ -32,9 +37,12 @@ import type {
   PromotionApplied,
   PromotionDraft,
   PromotionEditor,
+  PromotionRecord,
   PromotionUpdated,
   SavedPromotion,
 } from './magazine';
+import type { Telescope } from './telescope';
+import { isMockMode } from '@/services/demoMode';
 import { MAGAZINE_FRAMES, MAGAZINE_STICKERS, MAGAZINE_TAPES } from '@/constants/magazineAssets';
 
 export const mockFlags = (): Set<string> =>
@@ -295,8 +303,68 @@ const magazineReaderMock = {
     return next;
   },
 };
+/** 이 기기에서 신고한 칸 — 같은 칸 두 번째 신고는 서버처럼 「이미 신고」(created: false)다. */
+const reported = new Set<string>();
+
+/** 지난 홍보 기록 — 상태마다 하나씩, 칸 꾸미기는 잡지 칸 목업에서 빌린다. */
+function mockRecords(now: number): PromotionRecord[] {
+  const day = (plus: number) => kstDay(now - 7 * HOUR, plus);
+  const row = (
+    i: number,
+    issueDate: string,
+    issueNo: number | null,
+    status: PromotionRecord['status'],
+    pinned = 0,
+    arrived = 0,
+    joined = 0,
+  ): PromotionRecord => ({
+    promotionId: `mock-record-${i}`,
+    issueDate,
+    issueNo,
+    body: MOCK_CELLS[i].body,
+    status,
+    pinned,
+    arrived,
+    joined,
+    layout: MOCK_CELLS[i].layout,
+  });
+  return [
+    row(0, day(1), null, 'SCHEDULED'),
+    row(1, day(0), TODAY_NO, 'PUBLISHED', 12, 4, 1),
+    row(2, day(-1), TODAY_NO - 1, 'HIDDEN', 3, 0, 0),
+    row(3, day(-2), null, 'SKIPPED'),
+    row(4, day(-3), TODAY_NO - 3, 'PUBLISHED', 5, 2, 0),
+    row(5, day(-5), TODAY_NO - 5, 'REMOVED', 1, 0, 0),
+  ];
+}
+
 export const magazineMock = {
   ...magazineReaderMock,
+
+  async reportPromotion(
+    _islandId: string,
+    promotionId: string,
+    _reason: string,
+  ): Promise<{ created: boolean }> {
+    await wait();
+    if (mockFlags().has('guest'))
+      reject('SOCIAL_LOGIN_REQUIRED', 403, '소셜 로그인 후 이용할 수 있어요.');
+    const created = !reported.has(promotionId);
+    reported.add(promotionId);
+    return { created };
+  },
+
+  async getPromotionRecords(
+    _islandId: string,
+    _limit = 20,
+    now = Date.now(),
+  ): Promise<PromotionRecord[]> {
+    await wait();
+    const flags = mockFlags();
+    if (flags.has('recordsfail'))
+      reject('CLIENT_NETWORK_ERROR', 0, '네트워크에 연결할 수 없어요. 연결을 확인해 주세요.');
+    return flags.has('norecords') ? [] : mockRecords(now);
+  },
 
   async getMagazineAssets(): Promise<MagazineAssets> {
     await wait();
@@ -404,8 +472,49 @@ export const magazineMock = {
   },
 };
 
+/** `telescope` 플래그일 때만 쓰는 망원경 목록 — 잡지 찜 리본·칸 미리보기(SCOPE-09)를 서버 없이 본다. */
+export const isTelescopeMock = () => isMockMode() && mockFlags().has('telescope');
+export async function getTelescopeMock(now = Date.now()): Promise<Telescope> {
+  await wait();
+  const item = (
+    c: MagazineCell,
+    slot: Telescope['items'][number]['slot'],
+    extra: Partial<Telescope['items'][number]> = {},
+  ): Telescope['items'][number] => ({
+    islandId: c.islandId,
+    name: c.name,
+    intro: c.body,
+    memberCount: c.memberCount,
+    maxMembers: c.maxMembers,
+    approvalRequired: false,
+    membershipStatus: slot === 'joined' ? 'active' : 'none',
+    slot,
+    sailingMinutes: 15,
+    averageFocusMinutesPerDay: c.averageFocusMinutesPerDay,
+    full: false,
+    arrivedBefore: slot === 'joined',
+    magazineCell: null,
+    ...extra,
+  });
+  const pinnedAt = new Date(now - HOUR).toISOString();
+  const magazine = { pinnedFrom: 'magazine' as const, pinnedAt };
+  return {
+    bucketStart: new Date(now - (now % HOUR)).toISOString(),
+    nextRefreshMinutes: 30,
+    items: [
+      item(MOCK_CELLS[0], 'joined'),
+      item(MOCK_CELLS[1], 'pinned', { ...magazine, magazineCell: MOCK_CELLS[1] }),
+      // 편집부 칸에서 넣었거나 칸이 숨겨진 섬 — 미리보기는 자리표시 그대로
+      item(MOCK_CELLS[2], 'pinned', magazine),
+      item(MOCK_CELLS[4], 'pinned', { pinnedFrom: 'observatory', pinnedAt }),
+      item(MOCK_CELLS[5], 'random'),
+    ],
+  };
+}
+
 /** 테스트에서 목업 서버를 처음 상태로 되돌린다. */
 export function resetMagazineMock() {
   islands.clear();
   receipts.clear();
+  reported.clear();
 }

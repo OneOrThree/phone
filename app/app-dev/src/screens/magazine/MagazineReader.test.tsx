@@ -14,12 +14,14 @@ jest.mock('@/services/api/magazine', () => ({
   ...jest.requireActual('@/services/api/magazine'),
   getMagazineIssue: jest.fn(),
   putMagazineReceipt: jest.fn(),
+  reportPromotion: jest.fn(),
 }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
 const getIssue = api.getMagazineIssue as jest.Mock;
 const putReceipt = api.putMagazineReceipt as jest.Mock;
+const report = api.reportPromotion as jest.Mock;
 
 const issue = {
   issueId: 'iss-19',
@@ -210,6 +212,100 @@ test('칸을 누르면 화면 폭으로 크게 보고, 누르면 닫힌다 · �
   expect(screen.queryByTestId('magazine-zoom')).toBeNull();
   await fireEvent.press(screen.getByTestId('magazine-close'));
   expect(e.back).toHaveBeenCalled();
+});
+
+// 지금 열린 맨 위 Modal 이 iOS 에서 «다 닫혔다» 고 알릴 함수 — 테스트 렌더러는 닫힌 Modal 을 바로 지우므로 열려 있을 때 잡아 둔다
+const topModalDismiss = (screen: Awaited<ReturnType<typeof render>>): (() => void) =>
+  screen.container.queryAll((node) => node.type === 'Modal').at(-1)!.props.onDismiss;
+
+describe('신고(SAFE-04)', () => {
+  test('칸을 길게 누르면 신고 시트 — 사유를 골라 보내면 닫히고 알림, 칸은 다음에 읽을 때까지 그대로', async () => {
+    report.mockResolvedValueOnce({ created: true });
+    const notify = jest.fn();
+    const { screen } = await open(page(), env({ notify }));
+    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    expect(screen.getByText('홍보 칸 신고하기')).toBeTruthy();
+    expect(screen.getByText(/섬2섬 홍보 칸을 신고하는 이유/)).toBeTruthy();
+    // 유저 신고 창과 같은 사유 8종
+    expect(screen.getByLabelText('개인정보·사칭')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('스팸·사기'));
+    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
+    await waitFor(() => expect(notify).toHaveBeenCalledWith('신고했어요. 운영팀이 살펴볼게요.'));
+    expect(report).toHaveBeenCalledWith('is-섬2', 'p2', 'SPAM_FRAUD');
+    expect(screen.queryByTestId('magazine-report')).toBeNull();
+    expect(screen.getByTestId('magazine-cell-p2')).toBeTruthy();
+  });
+
+  test('이미 신고한 칸(서버 200)은 「이미 신고」 안내', async () => {
+    report.mockResolvedValueOnce({ created: false });
+    const notify = jest.fn();
+    const { screen } = await open(page(), env({ notify }));
+    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledWith('이미 신고한 칸이에요. 운영팀이 살펴보고 있어요.'),
+    );
+    expect(report).toHaveBeenCalledWith('is-섬2', 'p2', 'HARASSMENT');
+  });
+
+  test('스크린리더는 칸의 「신고하기」 동작으로 연다 · 취소하면 닫힌다', async () => {
+    const { screen } = await open();
+    await fireEvent(screen.getByLabelText(/^섬4섬,/), 'accessibilityAction', {
+      nativeEvent: { actionName: 'report' },
+    });
+    expect(screen.getByTestId('magazine-report')).toBeTruthy();
+    await fireEvent.press(screen.getByText('취소'));
+    expect(screen.queryByTestId('magazine-report')).toBeNull();
+    expect(report).not.toHaveBeenCalled();
+  });
+
+  test('크게 보기에서 길게 누르면 크게 보기를 닫고, 다 닫힌 뒤(iOS onDismiss) 신고 시트', async () => {
+    const { screen } = await open();
+    await fireEvent.press(screen.getByTestId('magazine-cell-p2'));
+    const zoomDismissed = topModalDismiss(screen);
+    const zoomed = screen.getAllByLabelText(/^섬2섬,/);
+    await fireEvent(zoomed[zoomed.length - 1], 'longPress');
+    expect(screen.queryByTestId('magazine-zoom')).toBeNull();
+    // 닫히는 중에는 아직 열지 않는다 — iOS 는 Modal 이 닫히는 중에 다른 Modal 을 띄우면 실패한다
+    expect(screen.queryByTestId('magazine-report')).toBeNull();
+    await act(async () => zoomDismissed());
+    expect(screen.getByTestId('magazine-report')).toBeTruthy();
+    expect(screen.getByText(/섬2섬 홍보 칸을 신고하는 이유/)).toBeTruthy();
+  });
+
+  test('게스트(403) — 회원 전환 시트를 열 수 있으면 열고 닫는다, 없으면 시트 안에 안내', async () => {
+    const gate = new ApiError('SOCIAL_LOGIN_REQUIRED', '소셜', 403);
+    report.mockRejectedValueOnce(gate);
+    const offer = jest.fn(() => true);
+    const { screen } = await open(page(), env({ conversion: { offer } }));
+    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    const sheetDismissed = topModalDismiss(screen);
+    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
+    // 시트를 먼저 닫고, 다 닫힌 뒤(iOS onDismiss) 회원 전환 시트를 연다
+    await waitFor(() => expect(screen.queryByTestId('magazine-report')).toBeNull());
+    expect(offer).not.toHaveBeenCalled();
+    await act(async () => sheetDismissed());
+    expect(offer).toHaveBeenCalledWith(gate);
+
+    report.mockRejectedValueOnce(gate);
+    const mock = await open();
+    await fireEvent(mock.screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(mock.screen.getByTestId('magazine-report-submit'));
+    await waitFor(() =>
+      expect(mock.screen.getByTestId('magazine-report-error')).toHaveTextContent(
+        '소셜 로그인하면 신고할 수 있어요.',
+      ),
+    );
+  });
+
+  test('그 밖의 실패는 시트에 남아 다시 보낼 수 있다', async () => {
+    report.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오프라인', 0));
+    const { screen } = await open();
+    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
+    await waitFor(() => expect(screen.getByTestId('magazine-report-error')).toBeTruthy());
+    expect(screen.getByTestId('magazine-report')).toBeTruthy();
+  });
 });
 
 test('magazinePages — 커서가 남아 있으면 빈 장·끝 장을 아직 붙이지 않는다', () => {

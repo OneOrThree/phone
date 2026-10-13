@@ -223,6 +223,7 @@ const titles: Record<Route, string> = {
   raft: '뗏목',
   telescope: '망원경',
   promotionEditor: '우리 섬 홍보 쓰기',
+  promotionRecords: '우리 섬 홍보 기록판',
   magazine: '고양이 잡지',
   mainIsland: '내 메인 섬 변경하기',
   currentIsland: '현재 섬 변경하기',

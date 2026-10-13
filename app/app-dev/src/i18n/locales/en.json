@@ -922,6 +922,55 @@
       "moon": "Sleepy moon",
       "clock": "Alarm clock",
       "tomato-timer": "Tomato timer"
+    },
+    "report": {
+      "action": "Report",
+      "title": "Report this ad",
+      "sub": "Tell us why you are reporting the {{name}} ad. If several people report it, the ad is hidden and our team reviews it.",
+      "submit": "Report",
+      "busy": "Sending…",
+      "done": "Reported. Our team will take a look.",
+      "already": "You already reported this ad. Our team is looking into it.",
+      "guest": "Sign in with a social account to report.",
+      "gone": "This ad is no longer available, so it can’t be reported.",
+      "failed": "Couldn’t send the report. Check your connection and try again.",
+      "reasons": {
+        "HARASSMENT": "Abuse · harassment",
+        "HATE": "Hate · discrimination",
+        "SPAM_FRAUD": "Spam · scam",
+        "SEXUAL": "Sexual content",
+        "CHILD_SAFETY": "Child safety",
+        "THREAT": "Threats",
+        "PRIVACY_IMPERSONATION": "Privacy · impersonation",
+        "OTHER": "Other"
+      }
+    },
+    "records": {
+      "entry": "Our island ad log",
+      "title": "Our island ad log",
+      "sub": "Counts people who saw the magazine and added us to their telescope, sailed here, or joined — from 7 AM on the issue day to 7 AM the next day.",
+      "loading": "Loading the log",
+      "loadFailed": "Couldn’t load the ad log.",
+      "forbidden": "Only residents of this island can see it.",
+      "empty": "No ads in the magazine yet.",
+      "issue": "{{date}} · No. {{no}}",
+      "issueUnpublished": "{{date}} issue",
+      "status": {
+        "SCHEDULED": "Upcoming",
+        "PUBLISHED": "Published",
+        "SKIPPED": "Not published",
+        "HIDDEN": "Hidden",
+        "REMOVED": "Removed"
+      },
+      "note": {
+        "SCHEDULED": "It goes into that day’s 7 AM magazine.",
+        "SKIPPED": "The island was private or closed, or the issue didn’t go out, so it wasn’t published.",
+        "HIDDEN": "Hidden after several reports. Our team is reviewing it.",
+        "REMOVED": "Removed for breaking our policy."
+      },
+      "counts": "Added {{pinned}} · Arrived {{arrived}} · Joined {{joined}}",
+      "countsA11y": "Added to telescope {{pinned}}, arrived {{arrived}}, joined {{joined}}",
+      "rowA11y": "{{issue}}, {{status}}, ‘{{body}}’"
     }
   }
 }

@@ -128,6 +128,7 @@ import { RaftDestinations } from '@/screens/island/RaftDestinations';
 import { Telescope } from '@/screens/island/Telescope';
 import { MagazineReader } from '@/screens/magazine/MagazineReader';
 import { PromotionEditor } from '@/screens/magazine/PromotionEditor';
+import { PromotionRecords } from '@/screens/island/PromotionRecords';
 import { useMagazineToday } from '@/screens/magazine/useMagazineToday';
 import { usePromotionNewsToast } from '@/screens/magazine/usePromotionNewsToast';
 import { mockFlags } from '@/services/api/magazineMock';
@@ -379,6 +380,7 @@ function CurrentScreensContent({ e }: any) {
     'orders',
     'sound',
     'promotionEditor',
+    'promotionRecords',
   ];
   const { joined, built, host } = memberGate(state, !!e.islands);
   // 주민 소식 토스트(C3) — 내 섬 홈에 들어올 때, 섬장이 아닌 주민에게만(목업 QA 는 EXPO_PUBLIC_MAGAZINE_MOCK=member).
@@ -573,6 +575,8 @@ function CurrentScreensContent({ e }: any) {
   // TODO E1-4 먼바다 화면이 생기면 바다 담당이 이 임시 입구(뗏목 행선지 「망원경」)와 함께 정리한다
   if (r === 'telescope') return <Telescope e={e} />;
   if (r === 'promotionEditor') return <PromotionEditor e={e} />;
+  // 회관 홍보 기록판(AD-11) — 주민 전용(구경 중 허용 목록에 없다)
+  if (r === 'promotionRecords') return <PromotionRecords e={e} />;
   // 섬에서 펼친 잡지 — 배경은 섬 홈(A4). 끝 쪽 「우리 섬 홍보 쓰기」는 내 섬 섬장만(P3)
   if (r === 'magazine')
     return (
