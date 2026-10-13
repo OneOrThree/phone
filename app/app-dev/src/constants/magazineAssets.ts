@@ -137,3 +137,6 @@ export function islandStage(memberCount: number, buildingCount: number): IslandS
 
 /** 바다판 칸 오른쪽 아래 망원경 동그라미 안 그림(A5). */
 export const MAGAZINE_TELESCOPE_ICON: ImageSourcePropType = require('@/assets/ota/magazine/ui/icon-telescope.png');
+
+/** 홍보 접수 발도장(C2) — 다음 호 미리보기 칸 위에 찍힌다. */
+export const MAGAZINE_STAMP: ImageSourcePropType = require('@/assets/ota/magazine/ui/stamp.png');

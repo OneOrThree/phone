@@ -50,7 +50,7 @@ import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { errorTextOr, localized, t } from '@/i18n';
-import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
@@ -7940,6 +7940,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       : state
         ? letters.length
         : 3;
+  const promotionHost = !!e && !!island && !state?.visitingIslandId && isHost(island);
   const homeItems: [string, string][] = [
     ['우리 섬 채팅방', newChat ? `새 글 ${newChat}개` : ''],
     ['받은 편지', newLetters ? `새 편지 ${newLetters}통` : ''],
@@ -8038,6 +8039,30 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           </>
         )}
       </View>
+      {promotionHost && (
+        // 고양이 잡지 홍보 쓰기 입구(GROMO-2289 · P3) — 섬장만, 내 섬일 때만. 잡지 보기 버튼은 잡지 읽기 PR 에서 옆에 붙는다
+        <Pressable
+          testID="mail-home-promotion"
+          accessibilityRole="button"
+          accessibilityLabel={t('magazine.editor.title')}
+          onPress={() => e.go('promotionEditor')}
+          style={{
+            marginTop: componentTokens.mailboxAction.gap,
+            minHeight: semanticTokens.size.tapMin,
+            paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
+            justifyContent: 'center',
+            borderWidth: componentTokens.mailboxAction.borderWidth,
+            borderColor: componentTokens.mailboxAction.border,
+            borderRadius: componentTokens.mailboxAction.radius,
+            backgroundColor: componentTokens.mailboxAction.background,
+            boxShadow: componentTokens.mailboxAction.shadow,
+          }}
+        >
+          <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
+            {t('magazine.editor.title')}
+          </Text>
+        </Pressable>
+      )}
     </>
   );
 

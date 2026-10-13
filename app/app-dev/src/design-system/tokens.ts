@@ -346,6 +346,33 @@ export const componentTokens = {
     largeTextThreshold: 1.3,
     ribbonTilt: '-12deg',
   },
+  // 우리 섬 홍보 쓰기(GROMO-2289 C1) — 칸 틀 견본·스티커 서랍 칸·고른 꾸미기 손잡이·서랍 최소 높이. 글자 배율이 largeTextThreshold
+  // 이상이면 아래 고정 줄의 [새로 꾸미기]·[잡지에 싣기]를 세로로 쌓고 버튼 높이를 글자에 맞춘다(망원경과 같은 판정).
+  promotionEditor: {
+    headerHeight: 52,
+    frameTileWidth: 64,
+    stickerTile: 72,
+    stickerArt: 56,
+    tapeTileWidth: 84,
+    tapeArt: { width: 70, height: 30 },
+    selectionInset: 3,
+    selectionRadius: 6,
+    handleSize: 18,
+    drawerMinHeight: 140,
+    largeTextThreshold: 1.3,
+  },
+  // 우체통 첫 화면의 행동 버튼(잡지 홍보 쓰기 · 잡지 보기 · 잡지 꽂이, GROMO-2289) — 편지 칸과 같은 짙은 나무 테·바닥 그림자를
+  // 쓰고 바탕만 역할 색이다. 우체통 장면 팔레트가 바뀌면 여기 한 곳을 고친다.
+  mailboxAction: {
+    // 편지 칸 사이 간격과 같은 7 — 칸 줄 아래·위에 붙는다
+    gap: 7,
+    paddingHorizontal: 10,
+    radius: 5,
+    border: '#684434',
+    borderWidth: 1.5,
+    shadow: 'inset 0 -6px #c99870,0 3px 0 #3f1d18',
+    background: semanticTokens.color.accent,
+  },
   // 고양이 잡지 칸(GROMO-2289) — Figma A안 C1 편집 칸 338×199 를 기준으로 잰 치수다. AdCell 이 실제 칸 너비 ÷
   // referenceWidth 를 곱해 그리므로 쓰기 화면·잡지 지면·망원경 미리보기에서 같은 모양이 된다.
   // aspect = 높이 ÷ 너비(고정). 스티커 좌표가 칸 비율(0~1)이라 비율이 바뀌면 모든 칸의 모양이 바뀐다.

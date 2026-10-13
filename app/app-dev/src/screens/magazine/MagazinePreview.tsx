@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { semanticTokens } from '@/design-system/tokens';
@@ -6,6 +6,10 @@ import { T } from '@/screens/island/sceneKit';
 import { MAGAZINE_FRAMES } from '@/constants/magazineAssets';
 import { AdCell, AdCellData } from './AdCell';
 import { CELL_ASPECT, PromotionLayout } from './layout';
+import { EditorDriver, PromotionEditor } from './PromotionEditor';
+import { createTouchDriver } from './touchDriver';
+import { CANVAS_PAD } from './useStickerGestures';
+import { demoState } from '@/services/model';
 
 /**
  * 개발 전용 — 틀 11개 × 글(짧은 글 · 60자 한글 · 띄어쓰기 없는 60자 · 이모지 섞인 60자) × 스티커·테이프를
@@ -90,6 +94,154 @@ export function MagazinePreview() {
           ))}
         </ScrollView>
       </SafeAreaView>
+    </SafeAreaProvider>
+  );
+}
+
+/**
+ * 개발 전용 — 홍보 쓰기 화면(PromotionEditor)을 목업 서버(EXPO_PUBLIC_DEMO=1 · EXPO_PUBLIC_MAGAZINE_MOCK)로 띄우고, 손가락 없이
+ * 대본대로 판의 PanResponder 에 진짜 터치 모양 이벤트(touchDriver)와 버튼 동작을 5초마다 하나씩 넣는다. 위 띠에 단계 이름이
+ * 보여 시뮬레이터 캡처만으로 끌기 · 두 손가락 크기·회전 · 손잡이 · 맨 앞으로 · 지우기 · 10개 제한 · 테이프 · 접수 완료를 훑는다.
+ * `EXPO_PUBLIC_MAGAZINE_PREVIEW=editor` 로 Metro 를 띄운다.
+ */
+export function MagazineEditorPreview() {
+  const driver = useRef<EditorDriver | null>(null);
+  const [step, setStep] = useState('불러오는 중');
+  const [toast, setToast] = useState<string | null>(null);
+  const [e] = useState(() => ({
+    state: demoState(),
+    back: () => {},
+    go: () => {},
+    notify: (message: string) => {
+      setToast(message);
+      setTimeout(() => setToast(null), 4500);
+    },
+  }));
+  useEffect(() => {
+    let alive = true;
+    const at = (x: number, y: number) => {
+      const w = driver.current!.cellW;
+      return { x: (CANVAS_PAD + x) * w, y: (CANVAS_PAD + y) * w * CELL_ASPECT };
+    };
+    const touch = () => createTouchDriver(driver.current!.canvas);
+    const steps: [string, () => void | Promise<void>][] = [
+      ['1 지난번 칸으로 열림', () => {}],
+      [
+        '2 한 줄 글 60자',
+        () =>
+          driver.current!.body(
+            '같이 아침 공부하실 분 환영해요! 조용한 섬이라 집중이 잘 되고 저녁엔 모닥불에서 다 같이 쉬어요 놀러 와요',
+          ),
+      ],
+      ['3 틀 고르기 · 파란 티켓', () => driver.current!.frame('mag.frame-ticket')],
+      ['4 스티커 붙이기(가운데·골라짐)', () => driver.current!.sticker('mag.cat-gray-cheer')],
+      ['5 한 손가락 끌기 → 왼쪽 아래', () => touch().drag(at(0.5, 0.5), at(0.22, 0.68))],
+      [
+        '6 두 손가락 벌리고 30도 돌리기',
+        () => {
+          const d = touch();
+          d.down(at(0.17, 0.68));
+          d.second(at(0.27, 0.68));
+          for (let i = 1; i <= 6; i++) {
+            const a = (Math.PI / 6) * (i / 6);
+            const r = 0.05 + 0.04 * (i / 6);
+            d.move(
+              {
+                x: at(0.22, 0.68).x - Math.cos(a) * r * driver.current!.cellW,
+                y: at(0.22, 0.68).y - Math.sin(a) * r * driver.current!.cellW,
+              },
+              {
+                x: at(0.22, 0.68).x + Math.cos(a) * r * driver.current!.cellW,
+                y: at(0.22, 0.68).y + Math.sin(a) * r * driver.current!.cellW,
+              },
+            );
+          }
+          d.up();
+        },
+      ],
+      ['7 다른 스티커 위로 겹치기(별)', () => driver.current!.sticker('mag.star')],
+      ['8 별을 고양이 위로 끌기', () => touch().drag(at(0.5, 0.5), at(0.26, 0.62))],
+      [
+        '9 고양이 고르고 맨 앞으로',
+        () => {
+          const d = touch();
+          d.down(at(0.17, 0.74));
+          d.up();
+          driver.current!.op('front');
+        },
+      ],
+      [
+        '10 손잡이로 크기·회전(한 손가락)',
+        () => {
+          const h = driver.current!.handle();
+          if (h) touch().drag(h, { x: h.x + 26, y: h.y - 18 });
+        },
+      ],
+      ['11 고른 것 지우기', () => driver.current!.op('delete')],
+      [
+        '12 스티커 10개 채우고 11번째(안내)',
+        async () => {
+          // 실제 탭처럼 한 번 붙일 때마다 화면이 다시 그려지게 사이를 둔다
+          for (let i = 0; i < 9; i++) {
+            driver.current!.sticker(i % 2 ? 'mag.heart' : 'mag.fish');
+            await new Promise((r) => setTimeout(r, 60));
+          }
+        },
+      ],
+      ['13 테이프 붙이기(분홍)', () => driver.current!.tape('mag.tape-pink')],
+      [
+        '14 테이프 끌어 놓기 → 오른쪽 테두리에 붙음',
+        () => touch().drag(at(0.5, 0.04), at(0.8, 0.45)),
+      ],
+      ['15 다른 테이프로 바꿔 끼우기(민트)', () => driver.current!.tape('mag.tape-mint')],
+      ['16 잡지에 싣기 → 접수 완료', () => driver.current!.submit()],
+      ['17 확인 → 고치기 모드', () => driver.current!.closeDone()],
+    ];
+    (async () => {
+      await new Promise((r) => setTimeout(r, 3000));
+      for (const [name, run] of steps) {
+        if (!alive || !driver.current) return;
+        setStep(name);
+        try {
+          await run();
+        } catch (err) {
+          setStep(`${name} — 실패 ${String(err)}`);
+        }
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <SafeAreaProvider>
+      <View style={{ flex: 1 }}>
+        <PromotionEditor e={e} driver={driver} />
+        <View
+          pointerEvents="none"
+          style={{ position: 'absolute', left: 0, right: 0, top: 44, alignItems: 'center' }}
+        >
+          <T style={{ fontSize: 12, backgroundColor: '#ffffffdd', paddingHorizontal: 8 }}>{step}</T>
+        </View>
+        {toast && (
+          <View
+            pointerEvents="none"
+            style={{ position: 'absolute', left: 20, right: 20, bottom: 140, alignItems: 'center' }}
+          >
+            <T
+              style={{
+                color: semanticTokens.color.surface,
+                backgroundColor: semanticTokens.color.text,
+                padding: 10,
+                borderRadius: 12,
+              }}
+            >
+              {toast}
+            </T>
+          </View>
+        )}
+      </View>
     </SafeAreaProvider>
   );
 }
