@@ -2372,10 +2372,8 @@ function FinalIslandScene({
               position: 'absolute',
               ...(visiting
                 ? { left: 0, right: 0, alignItems: 'center' }
-                : { right: L.landscape ? Math.max(56, L.insets.right + 4) : 20 }),
-              bottom: L.landscape
-                ? Math.max(22, L.insets.bottom)
-                : Math.max(44, L.insets.bottom + 10),
+                : { right: focusButtonInset(L).right }),
+              bottom: focusButtonInset(L).bottom,
             }}
           >
             {visiting && visitJoin ? (
@@ -2433,6 +2431,18 @@ const cellEq = (a: WorldPoint, b: WorldPoint) => {
 // 화면 스냅샷(GROMO-2233)의 nav.json 을 완공 목록별로(미완공 건물 자리는 통행). 같은 소스면 같은 JSON 객체라 loadNav 의 캐시가 맞는다.
 const activeNav = (assets: MapAssetSource, completed: readonly string[]) =>
   loadNav(readMapJson('nav.json', bundledNavJson, assets) as any, completed);
+/** 홈 오른쪽 아래 「집중 시작」 동그라미 버튼(지름 88)의 자리 — 그 위에 붙는 홈 물건(잡지)도 같은 값을 쓴다. */
+export const FOCUS_BUTTON_SIZE = 88;
+export function focusButtonInset(L: {
+  landscape: boolean;
+  insets: { right: number; bottom: number };
+}) {
+  return {
+    right: L.landscape ? Math.max(56, L.insets.right + 4) : 20,
+    bottom: L.landscape ? Math.max(22, L.insets.bottom) : Math.max(44, L.insets.bottom + 10),
+  };
+}
+
 export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
   const L = useAppLayout();
   // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 스냅샷으로 고정해 렌더러·nav·layout 에

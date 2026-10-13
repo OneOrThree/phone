@@ -2,7 +2,7 @@
 // [우체통 열어보기], 없는 섬은 [잡지 펼치기]/[나중에 읽기](deferred) · 우체통 없는 섬의 잡지 물건(누르기·길게 누르기·빨간 점).
 // 오늘 호 캐시(useMagazineToday)도 같이 본다. 서버 API(magazine.ts)는 목이다.
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import * as api from '@/services/api/magazine';
 import { saveSession } from '@/services/api/session';
@@ -138,6 +138,10 @@ test('우체통이 없는 섬의 잡지 물건 — 안 읽었으면 빨간 점, 
   const screen = await render(layer({ go, hasMailbox: false, today }));
   const object = screen.getByTestId('magazine-home-object');
   expect(object.props.accessibilityLabel).toBe('고양이 잡지 19호, 아직 안 읽음');
+  // 왼쪽 아래 건설 카드와 겹치지 않게 「집중 시작」 버튼 위(오른쪽)에 둔다
+  const place = StyleSheet.flatten(object.props.style);
+  expect(place.left).toBeUndefined();
+  expect(place.right).toBeGreaterThan(0);
   expect(screen.getByTestId('magazine-home-object-dot')).toBeTruthy();
   await fireEvent.press(object);
   expect(go).toHaveBeenCalledWith('magazine', 'iss-19');

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Pressable, View } from 'react-native';
 import { Btn } from '@/design-system/patterns';
-import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import type { MagazineToday } from '@/services/api/magazine';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { GuideBox } from '@/screens/island/NpcGuide';
+import { FOCUS_BUTTON_SIZE, focusButtonInset } from '@/screens/island/WorldMap';
 import { useAppLayout } from '@/utils/layout';
 import { MagazineRack } from './MagazineRack';
 import { magazineUnread, markDelivered, sendReceipt, wasDelivered } from './useMagazineToday';
@@ -76,8 +77,9 @@ export function MagazineHomeLayer({
           onLongPress={() => setRack(true)}
           style={{
             position: 'absolute',
-            left: L.insets.left + 16,
-            bottom: L.insets.bottom + 24,
+            // 「집중 시작」 버튼 바로 위 — 왼쪽 아래는 우체통 없는 이른 섬에 늘 있는 건설 카드 자리라 겹친다
+            right: focusButtonInset(L).right + (FOCUS_BUTTON_SIZE - O.width) / 2,
+            bottom: focusButtonInset(L).bottom + FOCUS_BUTTON_SIZE + primitiveTokens.space[2],
             width: O.width,
             height: O.height,
             alignItems: 'center',
