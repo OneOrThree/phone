@@ -18,13 +18,15 @@ import java.util.UUID;
 public interface MagazineReceiptRepository extends JpaRepository<MagazineReceipt, MagazineReceipt.Key> {
 
     /**
-     * 처음 받음을 적는다 — 이미 있으면 아무것도 하지 않는다. 같은 사람의 두 요청이 겹쳐도 PK 위반으로 실패하지 않고, 받은
-     * 곳·시각은 먼저 들어온 값으로 고정된다.
+     * 처음 받음을 적는다 — 그 호가 지금 최근 7호 안일 때만, 이미 있으면 아무것도 하지 않는다. 같은 사람의 두 요청이 겹쳐도
+     * PK 위반으로 실패하지 않고, 받은 곳·시각은 먼저 들어온 값으로 고정된다. 7호 판정과 삽입이 한 문장이라 7호 밖이 된 호의
+     * 행을 새로 만들지 않는다(커밋 전인 발행과 겹친 드문 행은 다음 발행의 정리가 지운다).
      */
     @Modifying
     @Query(value = "INSERT INTO magazine_receipts (user_id, issue_id, received_place, received_at) "
-            + "VALUES (:userId, :issueId, :place, :receivedAt) ON CONFLICT (user_id, issue_id) DO NOTHING",
-            nativeQuery = true)
+            + "SELECT :userId, i.id, :place, :receivedAt FROM magazine_issues i WHERE i.id = :issueId "
+            + "AND i.id IN (SELECT id FROM magazine_issues ORDER BY issue_no DESC LIMIT 7) "
+            + "ON CONFLICT (user_id, issue_id) DO NOTHING", nativeQuery = true)
     int insertIfAbsent(@Param("userId") UUID userId, @Param("issueId") UUID issueId, @Param("place") String place,
                        @Param("receivedAt") Instant receivedAt);
 

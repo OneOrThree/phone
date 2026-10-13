@@ -118,12 +118,16 @@ public class MagazineIssueService {
      */
     @Transactional
     public MagazineViews.Receipt receive(UUID userId, UUID issueId, MagazineViews.ReceiptRequest request) {
-        users.getCaller(userId);
-        MagazineIssue issue = recent(issues.findTop7ByOrderByIssueNoDesc(), issueId);
+        // 사용자 행 공유 잠금 — 계정 탈퇴(배타 잠금 뒤 받음 상태 삭제)와 줄을 세운다. 탈퇴가 먼저면 여기서 기다렸다가
+        // 404 USER_NOT_FOUND 로 끝나고, 이쪽이 먼저면 탈퇴가 이 커밋 뒤에 지운다 — 지워진 열람 기록이 되살아나지 않는다.
+        users.getCallerForShare(userId);
         Instant now = clock.instant();
-        receipts.insertIfAbsent(userId, issue.getId(), request.place().name(), now);
-        MagazineReceipt receipt = receipts.findForUpdate(userId, issue.getId())
-                .orElseThrow(() -> new IllegalStateException("받음 상태 행을 잠글 수 없습니다 — issue=" + issueId));
+        // 「최근 7호인가」 와 삽입을 한 문장으로 묶는다 — 7호 밖이 된 호에는 행을 만들지 않는다.
+        receipts.insertIfAbsent(userId, issueId, request.place().name(), now);
+        MagazineReceipt receipt = receipts.findForUpdate(userId, issueId)
+                .filter(row -> issues.findTop7ByOrderByIssueNoDesc().stream()
+                        .anyMatch(issue -> issue.getId().equals(issueId)))
+                .orElseThrow(() -> new MagazineException(MagazineErrorCode.MAGAZINE_ISSUE_NOT_FOUND));
         if (Boolean.TRUE.equals(request.deferred())) {
             receipt.markDeferred(now);
         }
