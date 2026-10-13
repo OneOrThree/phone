@@ -38,7 +38,10 @@ export function MagazineHomeLayer({
   const [delivered, setDelivered] = useState<string | null>(null);
   const [showing, setShowing] = useState(false);
   const [rack, setRack] = useState(false);
-  const issue = today?.issue?.current ? today.issue : null;
+  // 펠리컨은 지금 나와 있는 호만 알린다. 잡지 물건은 가장 최근 호가 있는 동안 늘 둔다 — 발행이 늦어 어제 호뿐이어도
+  // 우체통 없는 섬에서는 물건 길게 누르기가 꽂이로 가는 유일한 길이다
+  const latest = today?.issue ?? null;
+  const issue = latest?.current ? latest : null;
 
   useEffect(() => {
     if (blocked || !issue || today?.receipt || wasDelivered(issue.issueId)) return;
@@ -62,18 +65,18 @@ export function MagazineHomeLayer({
 
   return (
     <>
-      {!hasMailbox && issue && !blocked && (
+      {!hasMailbox && latest && !blocked && (
         <Pressable
           testID="magazine-home-object"
           accessibilityRole="button"
           accessibilityLabel={t(
             unread ? 'magazine.delivery.objectUnread' : 'magazine.delivery.object',
-            { no: issue.issueNo },
+            { no: latest.issueNo },
           )}
           accessibilityHint={t('magazine.delivery.objectHint')}
           accessibilityActions={[{ name: 'longpress', label: t('magazine.rack.open') }]}
           onAccessibilityAction={(ev) => ev.nativeEvent.actionName === 'longpress' && setRack(true)}
-          onPress={() => go('magazine', issue.issueId)}
+          onPress={() => go('magazine', latest.issueId)}
           onLongPress={() => setRack(true)}
           style={{
             position: 'absolute',
@@ -97,7 +100,7 @@ export function MagazineHomeLayer({
                 width: componentTokens.magazineReader.unreadDot,
                 height: componentTokens.magazineReader.unreadDot,
                 borderRadius: componentTokens.magazineReader.unreadDot / 2,
-                borderWidth: 2,
+                borderWidth: semanticTokens.stroke.strong,
                 borderColor: semanticTokens.color.surface,
                 backgroundColor: semanticTokens.color.danger,
               }}

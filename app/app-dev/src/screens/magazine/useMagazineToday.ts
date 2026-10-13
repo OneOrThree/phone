@@ -64,6 +64,27 @@ export function markDelivered(issueId: string) {
   delivered.issues.add(issueId);
 }
 
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const KST = 9 * HOUR;
+const DAY = 24 * HOUR;
+
+/**
+ * 오늘 호를 다시 읽을 시각 — 화면을 켜 둔 채 07시 발행을 넘겨도 새 호(펠리컨·안 읽음 점)가 뜨게 한다. 서버 발행은 KST 07:00 부터
+ * 23:50 까지 10분마다 다시 시도하므로(MagazinePublishScheduler), 지금 들고 있는 호가 오늘 07시 호가 아니면 그 사이에는 10분 뒤,
+ * 오늘 호를 이미 들고 있으면(또는 00~07시) 다음 07시 조금 뒤(발행이 끝날 여유 1분)에 다시 읽는다.
+ */
+export function nextMagazineCheck(now: number, today: MagazineToday | null): number {
+  const kstNow = now + KST;
+  const dayStart = kstNow - (kstNow % DAY); // KST 오늘 00:00(KST 시계 기준 ms)
+  const sevenToday = dayStart + 7 * HOUR + MINUTE;
+  const nextSeven = (kstNow < sevenToday ? sevenToday : sevenToday + DAY) - KST;
+  const kstToday = new Date(dayStart).toISOString().slice(0, 10);
+  const hasToday = today?.issue?.issueDate === kstToday;
+  const publishing = kstNow >= sevenToday && kstNow < dayStart + 24 * HOUR;
+  return publishing && !hasToday ? now + 10 * MINUTE : nextSeven;
+}
+
 /** 테스트에서 모듈 캐시를 비운다. */
 export function resetMagazineToday() {
   cache = null;
@@ -101,8 +122,18 @@ export function useMagazineToday(active: boolean): {
     });
     return () => sub.remove();
   }, [active, reload]);
+  // 07시 발행 경계(아직 오늘 호가 없으면 10분 뒤)에 다시 읽는다 — 켜 둔 화면도 새 호를 받는다
+  const today = cachedMagazineToday();
+  const issueDate = today?.issue?.issueDate ?? null;
+  useEffect(() => {
+    if (!active) return;
+    const now = Date.now();
+    const at = nextMagazineCheck(now, cachedMagazineToday());
+    const id = setTimeout(reload, Math.min(Math.max(0, at - now), DAY));
+    return () => clearTimeout(id);
+  }, [active, issueDate, nonce, reload]);
 
-  return { today: cachedMagazineToday(), reload };
+  return { today, reload };
 }
 
 /** 안 읽은 오늘 호가 있나 — 우체통 빨간 점·잡지 보기 버튼 점. */

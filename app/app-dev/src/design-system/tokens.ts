@@ -432,6 +432,8 @@ export const componentTokens = {
     // 우체통 없는 섬의 홈 잡지 물건 · 안 읽음 점
     object: { width: 60, height: 70, art: { width: 56, height: 66 } },
     unreadDot: 14,
+    // 잡지 꽂이 한 줄(호 · 날짜 + 읽음 상태 두 줄)
+    rackRowMinHeight: 56,
   },
   divider: {
     color: semanticTokens.color.divider,

@@ -326,7 +326,11 @@ function readEditorial(raw: unknown): MagazineEditorial | null {
     !isRecord(raw.note)
   )
     return null;
+  // 한마디는 유형별 필수 값이 있어야 한다 — EDITOR 는 글, TIP 은 팁 번호. 모르는 유형·빠진 값으로 팁을 지어내지 않는다
   const note = raw.note;
+  const editorNote = note.type === 'EDITOR' && str(note.body) && note.body.trim() !== '';
+  const tipNote = note.type === 'TIP' && num(note.tipNo) && Number.isInteger(note.tipNo);
+  if (!editorNote && !tipNote) return null;
   return {
     ranking: raw.ranking.flatMap((row) => {
       const island = readIsland(row);
@@ -338,11 +342,9 @@ function readEditorial(raw: unknown): MagazineEditorial | null {
       const island = readIsland(card);
       return island ? [island] : [];
     }),
-    note: {
-      type: note.type === 'EDITOR' ? 'EDITOR' : 'TIP',
-      body: str(note.body) ? note.body : null,
-      tipNo: num(note.tipNo) ? (note.tipNo as number) : null,
-    },
+    note: editorNote
+      ? { type: 'EDITOR', body: note.body as string, tipNo: null }
+      : { type: 'TIP', body: null, tipNo: note.tipNo as number },
   };
 }
 

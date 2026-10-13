@@ -8062,7 +8062,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                     width: componentTokens.mailboxAction.dotSize,
                     height: componentTokens.mailboxAction.dotSize,
                     borderRadius: componentTokens.mailboxAction.dotSize / 2,
-                    borderWidth: 2,
+                    borderWidth: semanticTokens.stroke.strong,
                     borderColor: componentTokens.mailboxAction.dotBorder,
                     backgroundColor: semanticTokens.color.danger,
                   }}

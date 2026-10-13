@@ -220,7 +220,7 @@ export function MagazineReader({
         height: size,
         borderRadius: size / 2,
         backgroundColor: semanticTokens.color.secondary,
-        borderWidth: 1,
+        borderWidth: semanticTokens.stroke.subtle,
         borderColor: semanticTokens.color.outline,
         alignItems: 'center',
         justifyContent: 'center',
@@ -258,7 +258,7 @@ export function MagazineReader({
     <View
       style={{
         backgroundColor: tint,
-        borderWidth: 1.5,
+        borderWidth: semanticTokens.stroke.default,
         borderColor: semanticTokens.color.outline,
         borderRadius: R.cardRadius,
         paddingVertical: primitiveTokens.space[2],

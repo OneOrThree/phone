@@ -11,6 +11,7 @@ import { MagazineHomeLayer } from './MagazineDelivery';
 import {
   cachedMagazineToday,
   magazineUnread,
+  nextMagazineCheck,
   resetMagazineToday,
   sendReceipt,
   useMagazineToday,
@@ -182,4 +183,57 @@ test('오늘 호를 못 읽으면 아무것도 띄우지 않는다(서버에 잡
   const screen = await render(<Probe active />);
   await act(async () => {});
   expect(screen.getByTestId('probe').props.children).toBe('read');
+});
+
+test('nextMagazineCheck — 오늘 호를 들고 있으면 다음 07시 조금 뒤, 07시가 지났는데 아직 없으면 10분 뒤', () => {
+  const kst = (s: string) => Date.parse(`${s}+09:00`);
+  const yesterday = { issue: { ...issue, issueDate: '2026-10-13' }, receipt: null };
+  const todays = { issue: { ...issue, issueDate: '2026-10-14' }, receipt: null };
+  // 06:50 · 어제 호 → 오늘 07:01
+  expect(nextMagazineCheck(kst('2026-10-14T06:50:00'), yesterday)).toBe(kst('2026-10-14T07:01:00'));
+  // 07:30 · 아직 어제 호(발행 지연) → 10분 뒤
+  expect(nextMagazineCheck(kst('2026-10-14T07:30:00'), yesterday)).toBe(kst('2026-10-14T07:40:00'));
+  expect(nextMagazineCheck(kst('2026-10-14T07:30:00'), null)).toBe(kst('2026-10-14T07:40:00'));
+  // 07:30 · 오늘 호 → 내일 07:01
+  expect(nextMagazineCheck(kst('2026-10-14T07:30:00'), todays)).toBe(kst('2026-10-15T07:01:00'));
+});
+
+test('홈을 켜 둔 채 07시를 넘기면 다시 읽어 새 호 펠리컨이 뜬다', async () => {
+  jest.useFakeTimers({ now: Date.parse('2026-10-14T06:59:00+09:00') });
+  try {
+    getToday
+      .mockResolvedValueOnce({
+        issue: { ...issue, issueDate: '2026-10-13', issueId: 'iss-18', issueNo: 18 },
+        receipt: receipt(),
+      })
+      .mockResolvedValueOnce({ issue, receipt: null });
+    function Home() {
+      const { today } = useMagazineToday(true);
+      return <MagazineHomeLayer today={today} hasMailbox blocked={false} go={jest.fn()} />;
+    }
+    const screen = await render(<Home />);
+    await act(async () => {});
+    expect(screen.queryByText('우체통에 고양이 잡지가 왔어요!')).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(2 * 60_000 + 1000); // 07:01:01
+    });
+    await waitFor(() => expect(screen.getByText('우체통에 고양이 잡지가 왔어요!')).toBeTruthy());
+    expect(getToday).toHaveBeenCalledTimes(2);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('우체통 없는 섬은 발행이 늦어 지난 호만 있어도 잡지 물건을 두고 길게 누르면 꽂이 — 펠리컨·점은 없다', async () => {
+  const go = jest.fn();
+  const stale = { issue: { ...issue, current: false }, receipt: null };
+  const screen = await render(layer({ go, hasMailbox: false, today: stale }));
+  expect(screen.queryByText('고양이 잡지 왔어요!')).toBeNull();
+  expect(screen.queryByTestId('magazine-home-object-dot')).toBeNull();
+  const object = screen.getByTestId('magazine-home-object');
+  await fireEvent(object, 'longPress');
+  await waitFor(() => expect(screen.getByTestId('magazine-rack')).toBeTruthy());
+  await fireEvent.press(object);
+  expect(go).toHaveBeenCalledWith('magazine', 'iss-19');
+  expect(putReceipt).not.toHaveBeenCalled();
 });
