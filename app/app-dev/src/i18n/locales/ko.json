@@ -61,7 +61,8 @@
     "CLIENT_NETWORK_ERROR": "네트워크에 연결할 수 없어요. 연결을 확인해 주세요.",
     "ISLAND_NOT_ARRIVED": "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.",
     "ISLAND_LIMIT_EXCEEDED": "소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요",
-    "GUESTBOOK_ALREADY_WRITTEN_TODAY": "오늘은 이미 방명록을 남겼어요"
+    "GUESTBOOK_ALREADY_WRITTEN_TODAY": "오늘은 이미 방명록을 남겼어요",
+    "PROMOTION_ALREADY_REQUESTED_TODAY": "오늘은 이미 잡지 홍보를 신청했어요"
   },
   "time": {
     "minutes": "{{m}}분",
@@ -656,5 +657,20 @@
     "pending": "신청 중",
     "full": "정원이 찼어요",
     "joined": "주민이 됐어요 — 항해해서 처음 가 보세요"
+  },
+  "observatory": {
+    "searchTitle": "섬 찾기",
+    "searchPlaceholder": "섬 이름",
+    "searchGuide": "섬 이름을 입력해요. 소속된 섬은 소속됨으로 표시되고, 다른 섬은 망원경에 넣어 두고 다시 항해할 수 있어요.",
+    "searchEmpty": "찾는 섬이 없어요. 섬 이름을 다시 확인해 주세요.",
+    "searchFailed": "섬을 찾지 못했어요.",
+    "searchMore": "더 많은 섬이 있어요. 섬 이름을 더 자세히 입력해 주세요.",
+    "joined": "소속됨",
+    "pin": "망원경에 넣기",
+    "pinBody": "뗏목의 망원경에서 이 섬을 볼 수 있어요. 직접 넣은 섬이 가득 차면 가장 먼저 넣은 섬이 빠져요.",
+    "pinned": "망원경에 넣었어요 — 뗏목의 망원경에서 볼 수 있어요",
+    "pinnedEvicted": "{{name}}섬이 망원경에서 빠졌어요",
+    "pinForbidden": "이 섬에는 넣을 수 없어요",
+    "pinAlreadyMember": "이미 내가 속한 섬이에요"
   }
 }

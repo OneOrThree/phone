@@ -463,6 +463,19 @@ test('완공된 건물은 이름표 없이 접근성 이름으로 식별한다',
   await screen.unmount();
 });
 
+test('전망대를 짓지 않은 섬에는 전망대 입구(랭킹·섬 이름 검색)가 없고, 지은 섬에는 있다', async () => {
+  const state = initialState(true);
+  serverConstructionState(state, null, ['hall', 'board']);
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(screen.queryByRole('button', { name: buildingNames.tower })).toBeNull();
+  // 같은 섬의 지은 건물 입구는 그대로 있다
+  expect(screen.getByRole('button', { name: buildingNames.board })).toBeTruthy();
+  serverConstructionState(state, null, ['hall', 'board', 'tower']);
+  await screen.rerender(<FinalIsland state={{ ...state }} go={jest.fn()} build={jest.fn()} />);
+  expect(screen.getByRole('button', { name: buildingNames.tower })).toBeTruthy();
+  await screen.unmount();
+});
+
 test('뗏목은 이름표 없이 접근성 이름으로 식별한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
