@@ -684,5 +684,16 @@
     "pinnedEvicted": "{{name}}섬이 망원경에서 빠졌어요",
     "pinForbidden": "이 섬에는 넣을 수 없어요",
     "pinAlreadyMember": "이미 내가 속한 섬이에요"
+  },
+  "magazine": {
+    "islandTitle": "{{name}}섬",
+    "cell": {
+      "residents": "주민 {{count}}/{{max}}",
+      "average": "평균 {{time}}",
+      "averageUnknown": "평균 집계 전",
+      "ours": "우리 섬이에요",
+      "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
+      "scope": "{{name}} 망원경에 넣기"
+    }
   }
 }

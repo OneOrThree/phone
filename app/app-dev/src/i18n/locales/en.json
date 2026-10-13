@@ -702,5 +702,16 @@
     "pinnedEvicted": "{{name}} was removed from your telescope",
     "pinForbidden": "You can't add this island",
     "pinAlreadyMember": "This is already one of your islands"
+  },
+  "magazine": {
+    "islandTitle": "{{name}} Island",
+    "cell": {
+      "residents": "Residents {{count}}/{{max}}",
+      "average": "Avg {{time}}",
+      "averageUnknown": "Avg not tallied yet",
+      "ours": "Our island",
+      "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
+      "scope": "Add {{name}} to the telescope"
+    }
   }
 }
