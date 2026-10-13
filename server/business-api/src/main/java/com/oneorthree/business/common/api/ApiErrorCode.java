@@ -55,6 +55,9 @@ public enum ApiErrorCode implements ErrorCode {
     // GROMO-2260 소속 섬 상한(3). Data 의 GROUP_LIMIT_EXCEEDED 를 섬 사용 사례가 이 코드로 옮긴다 — 앱이
     // 일반 STATE_CONFLICT 와 갈라 「섬을 하나 나가세요」 안내를 띄워야 한다.
     ISLAND_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요", false),
+    // GROMO-2262. Data 의 GroupErrorCode.GUESTBOOK_ALREADY_WRITTEN_TODAY 와 이름·상태가 같다 — 같은 KST 날의
+    // 두 번째 방명록. 앱이 이 코드에만 「오늘은 이미 남겼어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+    GUESTBOOK_ALREADY_WRITTEN_TODAY(HttpStatus.CONFLICT, "오늘은 이미 방명록을 남겼어요", false),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "잔액이 부족합니다.", false),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.", false),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 요청에 사용한 명령 키입니다.", false),

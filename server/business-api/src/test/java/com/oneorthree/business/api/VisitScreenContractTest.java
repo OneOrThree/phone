@@ -90,7 +90,8 @@ class VisitScreenContractTest extends ScreenContractTestBase {
     void residentStillGetsOnlyThePublicSummaryProjection() throws Exception {
         String detail = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\",\"visibility\":\"public\","
                 + "\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,\"membershipStatus\":\"active\","
-                + "\"growthStage\":null,\"themeId\":null,\"role\":\"host\",\"version\":3}";
+                + "\"growthStage\":null,\"themeId\":null,\"role\":\"host\",\"version\":3,"
+                + "\"greeting\":\"함께 집중해요 🐟\",\"greetingIsDefault\":false}";
         DATA.on(DATA_ISLAND, request -> ok("{\"scope\":\"member\",\"visitor\":null,\"member\":" + detail + "}"));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
         mockMvc.perform(auth(get(PATH)))
@@ -98,6 +99,9 @@ class VisitScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.island.membershipStatus").value("active"))
                 .andExpect(jsonPath("$.data.island.role").doesNotExist())
                 .andExpect(jsonPath("$.data.island.version").doesNotExist())
+                // 인사말은 방문자에게도 보이는 공개 필드라 요약으로 좁혀도 따라간다(GROMO-2262).
+                .andExpect(jsonPath("$.data.island.greeting").value("함께 집중해요 🐟"))
+                .andExpect(jsonPath("$.data.island.greetingIsDefault").value(false))
                 .andExpect(jsonPath("$.data.joinRequestAvailability").value("none"));
         assertThat(DATA.hits(DATA_REQUEST)).isZero();
     }

@@ -49,6 +49,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -125,6 +126,9 @@ public class IslandManagementService {
         if (body.maxMembers() != null) {
             fingerprint.put("maxMembers", body.maxMembers());
         }
+        if (body.greeting() != null) {
+            fingerprint.put("greeting", body.greeting());
+        }
         PublicCommandRequest command = new PublicCommandRequest(userId, "PATCH:/islands/" + islandId, key,
                 InternalJson.tree(fingerprint));
         JsonNode data = publicCommands.run(command,
@@ -135,10 +139,16 @@ public class IslandManagementService {
                     // 키를 다른 본문으로 재사용한 요청이 409 멱등 키 충돌 대신 400 으로 나가고 ② 배포 사이에
                     // 목록이 늘면 «같은 본문의 성공 재시도» 가 원 결과 대신 400 이 된다 — 섬 관리 LLD §2 의
                     // 「같은 키 재생은 같은 결과」를 깬다. 생략(null)은 「안 보냄」이라 건너뛴다.
-                    bannedWords.requireClean(body.name(), body.intro());
+                    // 인사말(GROMO-2262)도 같은 입구다 — 빈 값(기본 문구로 복귀)은 정규화하면 비어 판정에 걸리지 않는다.
+                    bannedWords.requireClean(body.name(), body.intro(), body.greeting());
                     Group island = lockIslandAsHost(userQueryService.getCallerForShare(userId), islandId);
                     boolean renamed = body.name() != null && !body.name().equals(island.getName());
                     boolean introChanged = body.intro() != null && !body.intro().equals(intro(island));
+                    // 빈 문자열·공백 = 기본 문구로 복귀(null 저장) — 인사말 비교도 저장값(null 가능) 기준이다.
+                    String newGreeting = body.greeting() == null ? island.getGreeting()
+                            : (body.greeting().isBlank() ? null : body.greeting().strip());
+                    boolean greetingChanged = body.greeting() != null
+                            && !Objects.equals(newGreeting, island.getGreeting());
                     boolean approvalChanged = body.approvalRequired() != null
                             && body.approvalRequired() != island.isApprovalRequired();
                     if (renamed) {
@@ -147,6 +157,9 @@ public class IslandManagementService {
                     }
                     if (introChanged) {
                         island.updateDescription(body.intro());
+                    }
+                    if (greetingChanged) {
+                        island.updateGreeting(newGreeting);
                     }
                     if (approvalChanged) {
                         island.updateApprovalRequired(body.approvalRequired());
@@ -162,7 +175,8 @@ public class IslandManagementService {
                         }
                         island.updateMaxMembers(body.maxMembers());
                     }
-                    List<EventEnvelope> events = renamed || introChanged || approvalChanged || capacityChanged
+                    List<EventEnvelope> events = renamed || introChanged || greetingChanged || approvalChanged
+                            || capacityChanged
                             ? List.of(islandStateEvents.changed(islandId, userId, "UPDATED"))
                             : List.of();
                     long version = events.isEmpty()

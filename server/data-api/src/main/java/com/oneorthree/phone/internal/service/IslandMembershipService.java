@@ -309,7 +309,8 @@ public class IslandMembershipService {
                 IslandSummaries.visibilityOf(island),
                 island.isApprovalRequired(), memberCount, island.getMaxMembers(),
                 IslandSummaries.STATUS_ACTIVE, null, null,
-                roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion()),
+                roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion(),
+                IslandSummaries.greetingOf(island), island.getGreeting() == null),
                 facilityQueries.completedBuildings(islandId));
     }
 

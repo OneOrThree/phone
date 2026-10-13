@@ -29,7 +29,14 @@ final class IslandSummaries {
                                 UUID joinRequestId, boolean arrivedBefore) {
         return new IslandSummaryView(island.getId(), island.getName(), introOf(island),
                 visibilityOf(island), island.isApprovalRequired(), memberCount, island.getMaxMembers(),
-                membershipStatus, null, null, joinRequestId, arrivedBefore);
+                membershipStatus, null, null, joinRequestId, arrivedBefore,
+                greetingOf(island), island.getGreeting() == null);
+    }
+
+    /** 인사말 — 저장값이 없으면 섬 이름으로 기본 문구를 합성한다(GROMO-2262). 이름이 바뀌면 따라간다. */
+    static String greetingOf(Group island) {
+        return island.getGreeting() != null ? island.getGreeting()
+                : island.getName() + "섬에 온 걸 환영해요! 같이 집중해요 🐟";
     }
 
     /** 기존 nullable {@code description} 의 공개 projection — DB 값은 바꾸지 않는다(LLD §2). */

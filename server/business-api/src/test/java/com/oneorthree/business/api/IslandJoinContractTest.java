@@ -47,7 +47,8 @@ class IslandJoinContractTest extends UpstreamTestBase {
     private static final String SUMMARY = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":true,\"memberCount\":3,\"maxMembers\":15,"
             + "\"membershipStatus\":\"none\",\"joinRequestId\":null,"
-            + "\"growthStage\":null,\"themeId\":null,\"arrivedBefore\":false}";
+            + "\"growthStage\":null,\"themeId\":null,\"arrivedBefore\":false,"
+            + "\"greeting\":\"모래섬에 온 걸 환영해요! 같이 집중해요 🐟\",\"greetingIsDefault\":true}";
     private static final String JOINED = "{\"status\":\"active\",\"requestId\":null,\"islandId\":\""
             + ISLAND + "\",\"currentIslandId\":\"" + ISLAND + "\",\"version\":3}";
     private static final String PENDING = "{\"status\":\"pending\",\"requestId\":\"" + REQUEST
@@ -467,7 +468,7 @@ class IslandJoinContractTest extends UpstreamTestBase {
             "/me/join-requests/{requestId}|get|200||id islandId status version|id islandId status version",
             "/me/join-requests/{requestId}|delete|200||id status|id status",
             "/invitations/resolve|post|200||island invitationToken|island invitationToken",
-            "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore greeting greetingIsDefault|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
             "/islands/{islandId}/invitations|post|200||code url expiresAt|code url expiresAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {

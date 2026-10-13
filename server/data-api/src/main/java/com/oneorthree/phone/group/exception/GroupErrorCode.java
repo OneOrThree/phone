@@ -175,7 +175,10 @@ public enum GroupErrorCode implements ErrorCode {
 
     // 수동 배치 트리거 관리자 키 (local/dev/staging 전용 — GroupBetBatchController)
     BATCH_KEY_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "관리자 키가 설정되지 않아 수동 트리거를 사용할 수 없습니다."),
-    BATCH_KEY_INVALID(HttpStatus.FORBIDDEN, "관리자 키가 올바르지 않습니다.");
+    BATCH_KEY_INVALID(HttpStatus.FORBIDDEN, "관리자 키가 올바르지 않습니다."),
+
+    // 섬 방명록(GROMO-2262) — 방문 1회 = 유저·섬·KST 하루(결정 N6). 앱이 이 코드로 «오늘은 이미 남겼어요» 를 띄운다.
+    GUESTBOOK_ALREADY_WRITTEN_TODAY(HttpStatus.CONFLICT, "오늘은 이미 방명록을 남겼어요");
 
     private final HttpStatus status;
     private final String message;

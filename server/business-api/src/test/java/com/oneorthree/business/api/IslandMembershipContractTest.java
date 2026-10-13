@@ -56,11 +56,13 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     private static final String SUMMARY = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,"
             + "\"membershipStatus\":\"none\",\"joinRequestId\":null,"
-            + "\"growthStage\":null,\"themeId\":null,\"arrivedBefore\":true}";
+            + "\"growthStage\":null,\"themeId\":null,\"arrivedBefore\":true,"
+            + "\"greeting\":\"모래섬에 온 걸 환영해요! 같이 집중해요 🐟\",\"greetingIsDefault\":true}";
     private static final String DETAIL = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,"
             + "\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
-            + "\"role\":\"host\",\"version\":3}";
+            + "\"role\":\"host\",\"version\":3,"
+            + "\"greeting\":\"함께 집중해요 🐟\",\"greetingIsDefault\":false}";
 
     // ---------------------------------------------------------------- 주체
 
@@ -506,9 +508,9 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     @CsvSource(delimiter = '|', value = {
             "/islands|post|200||id membershipStatus role currentIslandId|id membershipStatus role currentIslandId",
             "/me/current-island|put|200||currentIslandId|currentIslandId",
-            "/me/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
-            "/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
-            "/islands/discover|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/me/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore greeting greetingIsDefault|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore greeting greetingIsDefault|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands/discover|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore greeting greetingIsDefault|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
             "/me/join-requests|get|200|items|id islandId islandName memberCount maxMembers status version createdAt|id islandId memberCount maxMembers status version createdAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {

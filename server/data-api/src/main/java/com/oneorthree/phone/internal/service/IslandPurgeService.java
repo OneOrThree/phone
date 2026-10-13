@@ -47,6 +47,9 @@ import java.util.UUID;
  *   <li>{@code group_announcements}·{@code group_announcement_comments} — 지운다(아래). 게시판은
  *       공동 기록이다. 댓글의 FK 는 {@code ON DELETE SET NULL}(V66, BQ02 미결)이라 공지만 지우면
  *       댓글이 {@code notice_id=null} 로 <b>남는다</b> — 그래서 댓글을 먼저 지운다.</li>
+ *   <li>{@code island_guestbook_entries} — 지운다(GROMO-2262, V108 이 22개 위에 더한 하나). 방명록은 섬의 공동
+ *       기록이고 글마다 작성자 id 가 달려 있다. 섬 행이 소프트 삭제라 {@code ON DELETE CASCADE} 는 돌지 않으므로
+ *       여기서 직접 지운다. 다른 테이블이 이 표를 참조하지 않아 목록 안의 순서는 자유롭다.</li>
  *   <li>{@code user_main_islands} — 안 지운다. 마지막 주민이 나가는 순간
  *       {@code MainIslandService#onMembershipRevoked} 가 같은 트랜잭션에서 옮기거나 지워, 여기 닿을
  *       때 이 섬을 가리키는 행은 이미 없다. 여기서 또 지우면 같은 사실의 장부가 둘이 된다.</li>
@@ -95,6 +98,9 @@ public class IslandPurgeService implements IslandPurgePort {
             "DELETE FROM group_announcement_comments WHERE notice_id IN "
                     + "(SELECT id FROM group_announcements WHERE group_id = :islandId)",
             "DELETE FROM group_announcements WHERE group_id = :islandId",
+            // 방명록 (V108, GROMO-2262) — 방문자·주민이 남긴 글과 작성자 id. 섬 행은 소프트 삭제라 V108 의
+            // ON DELETE CASCADE 는 돌지 않는다. 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다.
+            "DELETE FROM island_guestbook_entries WHERE island_id = :islandId",
             // 섬 도착 기록 (V107, GROMO-2260) — 다른 표의 부모가 아니다. 섬은 묘비만 남고 하드 삭제되지 않아
             // FK 의 ON DELETE CASCADE 가 돌지 않으므로 여기서 지운다. 닫힌 섬은 즉시 이동·다음 위치 후보가 아니다.
             "DELETE FROM island_arrivals WHERE island_id = :islandId",
