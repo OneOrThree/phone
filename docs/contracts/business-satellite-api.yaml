@@ -432,12 +432,17 @@ paths:
     post:
       tags: [data-섬가입]
       operationId: resolveInvitation
-      summary: 초대 코드 해석 — 섬 공개 요약 + 가입용 토큰 (GROMO-1760 · LLD §3.10)
+      summary: 초대 코드 해석 — 섬 공개 요약 + 가입용 토큰 + 초대 도착 (GROMO-1760 · GROMO-2264 · LLD §3.10)
       description: |
         공개 `POST /invitations/resolve` 의 상류. 코드가 가리키는 섬의 공개 요약(본인 기준
         membershipStatus·joinRequestId 포함)과 가입 명령에 실을 불투명 토큰을 돌려준다.
-        조회 성격이라 멱등 키를 받지 않고, 해석 결과를 가입 승인 근거로 쓰지 않는다 —
-        실제 검증은 가입 커밋이 다시 한다.
+        기본(arrive 없음·false)은 종전 그대로 읽기 전용 미리보기다 — 쓰기·잠금이 없고 arrival 은
+        null 이다. GROMO-2264 부터 arrive=true 일 때만 그 섬에 항해 없이 도착을 남기고, 누구나 가입
+        섬이면 가입까지 한다(명시적 opt-in — 미리보기만 하는 구 앱 호환). 승인제 섬은 도착만이다
+        (membershipStatus none) — 가입 신청은 방문자가 가입 명령으로 직접 한다. 강퇴된 섬·소속 섬
+        3개는 도착만 남기고 arrival.reason 으로 알린다. 누구나 가입 섬의 그 밖의 가입 거절은 같은
+        오류로 실패한다. 다시 불러도 같은 상태로 수렴해 멱등 키를 받지 않는다. 초대 검증은 가입
+        커밋이 다시 한다. 구 Data 서버는 모르는 arrive 를 무시하고 미리보기로 답한다.
       parameters:
         - $ref: '#/components/parameters/UserIdPath'
         - $ref: '#/components/parameters/XUserId'
@@ -453,6 +458,9 @@ paths:
                 code:
                   type: string
                   description: 사용자가 입력한 8자 초대 코드(공유 형식)
+                arrive:
+                  type: boolean
+                  description: true 면 그 섬에 도착까지 한다(GROMO-2264). 없거나 false 면 미리보기
       responses:
         '200':
           description: 해석 결과
@@ -460,12 +468,24 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [island, invitationToken]
+                required: [island, invitationToken, arrival]
                 properties:
                   island:
                     type: object
-                    description: PublicIslandSummary — 본인 기준 membershipStatus·joinRequestId 포함
+                    description: PublicIslandSummary — 본인 기준 membershipStatus·joinRequestId 포함(도착 뒤 값)
                   invitationToken: { type: string }
+                  arrival:
+                    type: [object, 'null']
+                    description: arrive=true 일 때의 도착 결과. 미리보기면 null
+                    required: [islandId, arrived, membershipStatus, reason]
+                    properties:
+                      islandId: { type: string, format: uuid }
+                      arrived: { type: boolean, const: true }
+                      membershipStatus: { type: string, enum: [active, pending, none] }
+                      reason:
+                        type: [string, 'null']
+                        enum: [ISLAND_LIMIT, KICKED, null]
+                        description: 이 섬에 가입·신청을 할 수 없는 사유 — 강퇴된 섬 · 소속 섬 3개
         '404':
           description: SLUG_NOT_FOUND — 형식은 맞지만 없는 코드
         '410':

@@ -23,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -407,11 +408,30 @@ class TelescopePinIntegrationTest {
                 pinned.get(1), pinned.get(2), pinned.get(3), order.get(1));
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(3);
 
-        // 이미 빠진 핀·넣은 적 없는 섬·없는 섬도 200 이다.
+        // 이미 빠진 핀·넣은 적 없는 섬·없는 섬도 200 이다 — «핀이 없어도» 의 뜻이다. 호출자(users 행)가 없는 빼기는 별개로 404 다
+        // (unpinOfAMissingCallerIs404UserNotFound).
         deletePin(viewer, pinned.get(0)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
         deletePin(viewer, order.get(0)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
         deletePin(viewer, UUID.randomUUID()).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("없는·탈퇴한 사용자의 빼기는 200 이 아니라 404 USER_NOT_FOUND 다 — «핀이 없어도 200» 과 별개로 호출자 잠금이 먼저다")
+    void unpinOfAMissingCallerIs404UserNotFound() throws Exception {
+        UUID viewer = newUser();
+        UUID island = islandIds(1).get(0);
+
+        // 현재 동작을 고정한다. «빼기는 늘 200» 은 «핀이 없어도(만료됐거나 넣은 적 없어도)» 의 뜻일 뿐 «호출자가 없어도» 가 아니다 —
+        // unpin 은 getCallerForUpdate 를 가장 먼저 부르므로 활성 users 행이 없으면(없는 id·탈퇴) 핀 삭제까지 가지 못하고
+        // UserException(USER_NOT_FOUND) 이 404 로 나간다. 요청자 본인의 부재라 TARGET_USER_NOT_FOUND 가 아니다(앱은 재로그인).
+        deletePin(viewer, island).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
+        deletePin(UUID.randomUUID(), island).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+        UUID withdrawn = newUser();
+        withdrawal.withdraw(withdrawn);
+        deletePin(withdrawn, island).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
     }
 
     // ---------------------------------------------------------------- ④ 버킷·만료
@@ -577,6 +597,39 @@ class TelescopePinIntegrationTest {
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isZero();
     }
 
+    @ParameterizedTest(name = "비공개 섬 + 본인이 {0} → {1} {2}")
+    @CsvSource({"kicked,403,KICKED_CANNOT_REJOIN", "member,409,ALREADY_MEMBER", "left,404,GROUP_NOT_FOUND",
+            "none,404,GROUP_NOT_FOUND"})
+    @DisplayName("비공개 섬에서도 판정 순서는 내 소속 409 → 강퇴 403 → 비공개 404 다 — 비공개 섬의 응답은 본인 관계에 따라 갈린다")
+    void aPrivateIslandAnswersByTheCallersRelationBeforeHidingItself(String relation, int httpStatus, String code)
+            throws Exception {
+        UUID viewer = newUser();
+        Group secret = groups.save(Group.builder().name("비공개섬").maxMembers(10).isPrivate(true).build());
+        // kicked = 강퇴 이력, member = 활성 주민, left = 자진 탈퇴 마킹(운영에서는 다른 주민이 남아 섬이 살아 있을 때의 상태),
+        // none = 관계 없음. 멤버십 행은 직접 마킹한다.
+        switch (relation) {
+            case "kicked" -> {
+                GroupMember kicked = join(viewer, secret);
+                kicked.kick(BASE);
+                members.save(kicked);
+            }
+            case "member" -> join(viewer, secret);
+            case "left" -> {
+                GroupMember left = join(viewer, secret);
+                left.leave(BASE);
+                members.save(left);
+            }
+            case "none" -> { }
+            default -> throw new IllegalArgumentException(relation);
+        }
+
+        // 본인이 아는 사실(소속·강퇴)은 비공개 판정보다 먼저다 — 비공개 판정이 앞서면 kicked 도 member 도 404 로 바뀐다. 그 밖에는
+        // (자진해서 나간 옛 주민 포함) 존재를 숨겨 관계 없는 사람과 같은 404 다.
+        postPin(viewer, secret.getId(), "magazine").andExpect(status().is(httpStatus))
+                .andExpect(jsonPath("$.code").value(code));
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isZero();
+    }
+
     @Test
     @DisplayName("본문이 모양을 어기면 400 이고 핀 행은 만들지 않는다 — 출처는 magazine·observatory 뿐이다")
     void malformedBodiesAre400() throws Exception {
@@ -667,7 +720,8 @@ class TelescopePinIntegrationTest {
         for (int i = 0; i < 4; i++) {
             pin(viewer, islands.get(i).getId(), "observatory", BASE.plusSeconds(i));
         }
-        // 가장 오래된 핀 섬에 가입해 그 핀을 가린 채 다섯 번째를 넣고, 그 섬을 자진해서 떠나 핀을 되살린다.
+        // 가장 오래된 핀 섬에 가입해 그 핀을 가린 채 다섯 번째를 넣고, 그 섬의 멤버십을 자진 탈퇴로 마킹해 핀을 되살린다 — 운영
+        // 나가기 API 가 아니라 멤버십 마킹만 같은 상태를 직접 만든 것이다(truncatedOldestPin 주석 참조).
         GroupMember joined = join(viewer, islands.get(0));
         pin(viewer, islands.get(4).getId(), "observatory", BASE.plusSeconds(4));
         joined.leave(BASE.plusSeconds(5));
@@ -688,6 +742,148 @@ class TelescopePinIntegrationTest {
                 islands.get(4).getId(), islands.get(5).getId());
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer))
                 .as("넘친 두 개(0번·1번)를 지웠다").isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("목록에서 잘려 있던 핀을 다시 넣으면 404 가 아니라 200 이다 — 넣은 섬은 남고 다른 가장 오래된 핀이 밀려나 evicted 로 알린다")
+    void reAddingATruncatedPinKeepsItAndEvictsTheOldestOtherPin() throws Exception {
+        UUID viewer = newUser();
+        List<Group> islands = truncatedOldestPin(viewer);
+        UUID truncated = islands.get(0).getId();
+        assertThat(pinnedIds(viewer)).as("보이는 핀은 다섯이지만 목록은 최근 넷만 보여 준다 — 가장 오래된 0번은 잘려 있다")
+                .containsExactly(islands.get(1).getId(), islands.get(2).getId(), islands.get(3).getId(),
+                        islands.get(4).getId());
+
+        NOW.set(BASE.plusSeconds(7));
+        postPin(viewer, truncated, "observatory")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(false))
+                .andExpect(jsonPath("$.evicted.islandId").value(islands.get(1).getId().toString()))
+                .andExpect(jsonPath("$.evicted.name").value(islands.get(1).getName()))
+                .andExpect(jsonPath("$.item.islandId").value(truncated.toString()))
+                .andExpect(jsonPath("$.item.slot").value("pinned"))
+                .andExpect(jsonPath("$.item.pinnedFrom").value("magazine"))
+                .andExpect(jsonPath("$.item.pinnedAt").value("2026-10-12T05:23:41Z"));
+
+        assertThat(pinnedIds(viewer)).as("넣은 섬은 넣은 시각 그대로 남고, 넣은 섬을 뺀 가장 오래된 1번이 밀려났다")
+                .containsExactly(truncated, islands.get(2).getId(), islands.get(3).getId(), islands.get(4).getId());
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(4);
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer,
+                islands.get(1).getId())).as("밀려난 핀은 행도 지운다").isZero();
+
+        // 같은 다시 넣기를 한 번 더 — 넘침은 이미 정리됐으니 evicted 는 null 이고 상태는 그대로다(멱등).
+        postPin(viewer, truncated, "observatory")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(false))
+                .andExpect(jsonPath("$.evicted").value(nullValue()))
+                .andExpect(jsonPath("$.item.islandId").value(truncated.toString()))
+                .andExpect(jsonPath("$.item.pinnedAt").value("2026-10-12T05:23:41Z"));
+        assertThat(pinnedIds(viewer)).containsExactly(truncated, islands.get(2).getId(), islands.get(3).getId(),
+                islands.get(4).getId());
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("보이는 핀이 6개(잘린 핀 둘)일 때 가장 오래된 0번을 다시 넣으면 0번은 남고 그다음 오래된 1·2번이 함께 지워진다 — evicted 는 지운 것 중 가장 최근인 2번이다")
+    void reAddingTheOldestOfSixVisiblePinsEvictsTheNextTwoOldest() throws Exception {
+        UUID viewer = newUser();
+        List<Group> islands = truncatedTwoOldestPins(viewer);
+        UUID truncated = islands.get(0).getId();
+        assertThat(telescope.visiblePins(viewer, NOW.get())).as("보이는 핀은 여섯이다 — 넘침이 둘")
+                .extracting(entry -> entry.row().getId())
+                .containsExactlyElementsOf(islands.stream().map(Group::getId).toList());
+        assertThat(pinnedIds(viewer)).as("그래도 목록은 최근 넷(2~5번)만 보여 준다 — 가장 오래된 0·1번은 잘려 있다")
+                .containsExactly(islands.get(2).getId(), islands.get(3).getId(), islands.get(4).getId(),
+                        islands.get(5).getId());
+
+        NOW.set(BASE.plusSeconds(8));
+        postPin(viewer, truncated, "observatory")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(false))
+                // 지운 것은 1·2번 둘이고 알림은 그중 가장 최근인 2번 하나다 — 1번은 사용자가 목록에서 못 본 핀이다.
+                .andExpect(jsonPath("$.evicted.islandId").value(islands.get(2).getId().toString()))
+                .andExpect(jsonPath("$.evicted.name").value(islands.get(2).getName()))
+                .andExpect(jsonPath("$.item.islandId").value(truncated.toString()))
+                .andExpect(jsonPath("$.item.slot").value("pinned"))
+                .andExpect(jsonPath("$.item.pinnedFrom").value("magazine"))
+                .andExpect(jsonPath("$.item.pinnedAt").value("2026-10-12T05:23:41Z"));
+
+        assertThat(pinnedIds(viewer)).as("넣은 0번은 넣은 시각 그대로 남아 목록 맨 앞이다")
+                .containsExactly(truncated, islands.get(3).getId(), islands.get(4).getId(), islands.get(5).getId());
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(4);
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer,
+                islands.get(1).getId())).as("알림에 안 나온 1번도 행째 지운다 — 넘친 만큼 모두 지운다").isZero();
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer,
+                islands.get(2).getId())).as("알림에 나온 2번도 행째 지운다").isZero();
+    }
+
+    @Test
+    @DisplayName("목록에 있는 핀을 다시 넣어도 넘침은 가장 오래된 핀부터 지운다 — 잘려 있던 0번이 지워져 evicted 로 알린다(사용자가 목록에서 못 본 핀일 수 있다)")
+    void reAddingAPinOnTheListEvictsTheTruncatedOldestPin() throws Exception {
+        UUID viewer = newUser();
+        List<Group> islands = truncatedOldestPin(viewer);
+        Group onTheList = islands.get(2);
+
+        NOW.set(BASE.plusSeconds(7));
+        postPin(viewer, onTheList.getId(), "magazine")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(false))
+                // 현재 동작을 고정한다: 지워지는 것은 목록에서 잘려 있던 0번 하나뿐이고 evicted 는 그 0번이다. 다시 넣은 핀이
+                // 목록에 있어도 사용자는 한 번도 못 본 핀이 «밀려났다» 는 알림을 받을 수 있다.
+                .andExpect(jsonPath("$.evicted.islandId").value(islands.get(0).getId().toString()))
+                .andExpect(jsonPath("$.evicted.name").value(islands.get(0).getName()))
+                .andExpect(jsonPath("$.item.islandId").value(onTheList.getId().toString()))
+                .andExpect(jsonPath("$.item.slot").value("pinned"))
+                .andExpect(jsonPath("$.item.pinnedFrom").value("observatory"))
+                .andExpect(jsonPath("$.item.pinnedAt").value("2026-10-12T05:23:43Z"));
+
+        assertThat(pinnedIds(viewer)).as("목록은 그대로다 — 1~4번, 같은 순서")
+                .containsExactly(islands.get(1).getId(), islands.get(2).getId(), islands.get(3).getId(),
+                        islands.get(4).getId());
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(4);
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer,
+                islands.get(0).getId())).as("잘려 있던 0번이 행째 지워졌다").isZero();
+    }
+
+    @Test
+    @DisplayName("목록에서 잘려 있는 핀은 가까운 섬·무작위 칸에도 나오지 않는다 — 후보가 그 섬 하나뿐이어도 «찜» 표시 없는 일반 칸으로 나오지 않는다")
+    void aTruncatedPinNeverShowsUpInAnotherSlot() {
+        UUID viewer = newUser();
+        // 공개 섬은 이 다섯뿐이고 0번 말고는 전부 핀이다 — 0번이 후보에서 안 빠지면 가까운 섬으로 나온다.
+        List<Group> islands = truncatedOldestPin(viewer);
+
+        List<TelescopeItemView> items = telescope.list(viewer).items();
+
+        assertThat(items).extracting(TelescopeItemView::slot).containsExactly("pinned", "pinned", "pinned", "pinned");
+        assertThat(items).extracting(TelescopeItemView::islandId).containsExactly(islands.get(1).getId(),
+                islands.get(2).getId(), islands.get(3).getId(), islands.get(4).getId());
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer,
+                islands.get(0).getId())).as("잘린 핀 행은 다음 넣기가 정리할 때까지 남는다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("목록에서 잘려 있는 핀이 정원 찬 섬이어도 random 폴백으로 새지 않는다 — 정원 남은 후보가 없을 때 찬 섬이 채우는 «구경만» 칸에도 나오지 않는다")
+    void aTruncatedFullPinNeverLeaksIntoTheRandomFallback() {
+        UUID viewer = newUser();
+        // 공개 섬은 이 다섯뿐이고 0번 말고는 전부 핀이다. 0번이 정원까지 차면 후보에서 안 빠질 때 가까운 섬이 아니라 찬 섬을
+        // 채우는 random 폴백으로 나온다.
+        List<Group> islands = truncatedOldestPin(viewer);
+        UUID truncated = islands.get(0).getId();
+        jdbc.update("update groups set max_members = 1 where id = ?", truncated);
+        join(newUser(), islands.get(0));
+        assertThat(telescope.visiblePins(viewer, NOW.get())).as("잘린 0번도 «보이는 핀» 이고 정원이 찼다")
+                .anySatisfy(entry -> {
+                    assertThat(entry.row().getId()).isEqualTo(truncated);
+                    assertThat(entry.row().getMemberCount()).isEqualTo(entry.row().getMaxMembers());
+                });
+
+        List<TelescopeItemView> items = telescope.list(viewer).items();
+
+        assertThat(items).extracting(TelescopeItemView::slot).containsExactly("pinned", "pinned", "pinned", "pinned");
+        assertThat(items).extracting(TelescopeItemView::islandId).containsExactly(islands.get(1).getId(),
+                islands.get(2).getId(), islands.get(3).getId(), islands.get(4).getId());
+        assertThat(count("select count(*) from telescope_pins where user_id=? and island_id=?", viewer, truncated))
+                .as("잘린 핀 행은 다음 넣기가 정리할 때까지 남는다").isEqualTo(1);
     }
 
     @Test
@@ -783,6 +979,55 @@ class TelescopePinIntegrationTest {
     private GroupMember join(UUID userId, Group island) {
         return members.save(GroupMember.builder().user(users.getCaller(userId)).group(island)
                 .role(GroupMemberRole.MEMBER).build());
+    }
+
+    /**
+     * 가장 오래된 핀이 목록에서 «잘린» 상태 — 0번 섬을 넣고 그 섬에 가입해 가린 채 1~4번을 넣은 뒤 0번의 멤버십을 자진 탈퇴로
+     * 마킹해 핀을 되살린다. 보이는 핀은 0~4번(0번이 가장 오래됨)의 다섯이고 목록은 최근 넷(1~4번)만 보여 준다. 시계는
+     * BASE+6 이다.
+     *
+     * <p><b>운영 나가기 API 가 만든 상태가 아니다.</b> 멤버십 마킹({@code GroupMember.leave} 의 {@code is_left=true}·
+     * {@code left_reason=LEFT})만 같은 상태를 직접 만든다. 이 섬의 주민은 viewer 한 명뿐이라 운영의 «마지막 1인 나가기» 는
+     * 섬을 닫고 purge 하며 핀도 함께 지운다({@link #closingTheIslandPurgesItsPins} 가 그쪽을 덮는다). 운영에서 핀이
+     * 되살아나려면 방장이 남아 섬이 살아 있어야 한다.
+     */
+    private List<Group> truncatedOldestPin(UUID viewer) {
+        List<Group> islands = islandEntities(5);
+        pin(viewer, islands.get(0).getId(), "magazine", BASE);
+        GroupMember joined = join(viewer, islands.get(0));
+        for (int i = 1; i < islands.size(); i++) {
+            pin(viewer, islands.get(i).getId(), "observatory", BASE.plusSeconds(i));
+        }
+        joined.leave(BASE.plusSeconds(5));
+        members.save(joined);
+        NOW.set(BASE.plusSeconds(6));
+        return islands;
+    }
+
+    /**
+     * 가장 오래된 핀 <b>둘</b>이 목록에서 «잘린» 상태 — 0·1번 섬을 넣자마자 가입해 가린 채 2~5번을 넣은 뒤 0·1번의 멤버십을
+     * 자진 탈퇴로 마킹해 핀을 되살린다. 보이는 핀은 0~5번(0번이 가장 오래됨)의 여섯이고 목록은 최근 넷(2~5번)만 보여 준다.
+     * 시계는 BASE+7 이다.
+     *
+     * <p>{@link #truncatedOldestPin} 처럼 <b>운영 나가기 API 가 만든 상태가 아니다</b> — 멤버십 마킹만 같은 상태를 직접
+     * 만든다. 섬마다 주민이 viewer 한 명뿐이라 운영의 «마지막 1인 나가기» 는 섬을 닫으며 핀도 지운다
+     * ({@link #closingTheIslandPurgesItsPins} 가 그쪽을 덮는다).
+     */
+    private List<Group> truncatedTwoOldestPins(UUID viewer) {
+        List<Group> islands = islandEntities(6);
+        List<GroupMember> joined = new ArrayList<>();
+        for (int i = 0; i < islands.size(); i++) {
+            pin(viewer, islands.get(i).getId(), i == 0 ? "magazine" : "observatory", BASE.plusSeconds(i));
+            if (i < 2) {
+                joined.add(join(viewer, islands.get(i)));
+            }
+        }
+        for (GroupMember member : joined) {
+            member.leave(BASE.plusSeconds(6));
+            members.save(member);
+        }
+        NOW.set(BASE.plusSeconds(7));
+        return islands;
     }
 
     /** 시계를 {@code at} 으로 옮기고 운영 서비스로 핀을 넣는다. */

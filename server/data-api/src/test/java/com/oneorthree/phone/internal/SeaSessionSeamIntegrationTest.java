@@ -262,7 +262,7 @@ class SeaSessionSeamIntegrationTest {
     private void joinAndMoveTo(UUID userId, UUID islandId) {
         members.save(GroupMember.builder().user(users.getCaller(userId)).group(groups.findById(islandId).orElseThrow())
                 .role(GroupMemberRole.MEMBER).build());
-        islands.arrive(userId, islandId);
+        islands.arrive(userId, islandId, UUID.randomUUID());
     }
 
     private FocusSessionView start(UUID user, UUID island) {

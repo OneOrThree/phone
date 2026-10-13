@@ -192,6 +192,16 @@ class MembershipServiceTest {
     }
 
     @Test
+    @DisplayName("isMemberUncached — 상류가 403 으로 거절한 빈 답은 «비주민»이 아니라 판정 불가다(GROMO-2258, fail-closed)")
+    void uncachedLookupDoesNotFlattenARejectionIntoNonMember() {
+        given(groupClient.fetchMyGroupIds(BEARER)).willReturn(GroupClient.Membership.rejected());
+
+        assertThatThrownBy(() -> membershipService.isMemberUncached(groupId, userId, BEARER))
+                .isInstanceOf(UpstreamUnavailableException.class);
+        assertThat(redis.hasKey(RedisKeys.memberCache(userId))).as("거절은 캐시하지 않는다").isFalse();
+    }
+
+    @Test
     @DisplayName("evict — 캐시가 애초에 없어도 조용히 끝난다")
     void evictIsANoOpWhenNothingIsCached() {
         assertThat(redis.hasKey(RedisKeys.memberCache(userId))).isFalse();

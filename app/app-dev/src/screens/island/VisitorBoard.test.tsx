@@ -1,16 +1,22 @@
 import assert from 'node:assert/strict';
 import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { ApiError } from '@/services/api/client';
 import { applyLocalePref } from '@/i18n';
 import { getBoard, getNotice, listNotices, createNoticeComment } from '@/services/api/notices';
+import { getGuestbook, writeGuestbook } from '@/services/api/islands';
 
 jest.mock('@/services/api/notices', () => ({
   listNotices: jest.fn(),
   getNotice: jest.fn(),
   getBoard: jest.fn(),
   createNoticeComment: jest.fn(),
+}));
+jest.mock('@/services/api/islands', () => ({
+  ...jest.requireActual('@/services/api/islands'),
+  getGuestbook: jest.fn(),
+  writeGuestbook: jest.fn(),
 }));
 jest.mock('@/screens/island/IslandSheet', () => ({
   IslandSheet: ({ children }: any) => {
@@ -20,7 +26,13 @@ jest.mock('@/screens/island/IslandSheet', () => ({
 }));
 const list = listNotices as jest.Mock;
 const detail = getNotice as jest.Mock;
-beforeEach(() => jest.resetAllMocks());
+const guestbook = getGuestbook as jest.Mock;
+const write = writeGuestbook as jest.Mock;
+beforeEach(() => {
+  jest.resetAllMocks();
+  // 방명록은 게시판이 없는 섬으로 두어(숨김) 아래 공지 테스트가 방명록 UI 에 흔들리지 않게 한다
+  guestbook.mockResolvedValue({ boardBuilt: false, items: [] });
+});
 afterEach(() => applyLocalePref('system'));
 
 test('방문 섬의 공지·댓글을 읽고 주민 화면 조회와 쓰기 API를 호출하지 않는다', async () => {
@@ -92,6 +104,19 @@ test('시스템 뒤로가기도 상세에서 목록, 목록에서 방문 화면 
   expect(onClose).toHaveBeenCalledTimes(1);
   await screen.unmount();
   expect(backOverride.current).toBeNull();
+});
+
+test('게시판이 사라질 때 다른 화면이 건 뒤로 가기 처리는 걷어 내지 않는다', async () => {
+  list.mockResolvedValue({ items: [], nextCursor: null });
+  const backOverride = { current: null as (() => boolean) | null };
+  const screen = await render(
+    <VisitorBoard islandId="visitor" onClose={jest.fn()} backOverride={backOverride} />,
+  );
+  expect(typeof backOverride.current).toBe('function');
+  const other = () => true;
+  backOverride.current = other; // 다른 화면이 자기 처리를 걸었다
+  await screen.unmount();
+  expect(backOverride.current).toBe(other);
 });
 
 test('다른 방문 섬으로 바뀌면 이전 섬의 늦은 공지 응답을 버린다', async () => {
@@ -206,7 +231,10 @@ test('영어 방문 게시판에서 읽기 안내·댓글 수·페이지 버튼�
   const screen = await render(<VisitorBoard islandId="visitor" onClose={jest.fn()} />);
   await screen.findByText('1 comment');
   screen.getByText('2 comments');
-  screen.getByText('Visitors can read notices and comments. Only residents can post.');
+  // 주민 전용은 공지·댓글 작성뿐이다 — 아래 방명록은 방문자도 쓴다
+  screen.getByText(
+    'Visitors can read notices and comments. Only residents can post notices and comments.',
+  );
   screen.getByText('More Notices');
   await fireEvent.press(screen.getByText('첫 공지'));
   await screen.findByText('Former resident');
@@ -223,4 +251,92 @@ test('영어 방문 게시판에서 조회 오류를 재시도하면 빈 상태�
   await fireEvent.press(screen.getByText('Reload'));
   await screen.findByText('No notices yet.');
   expect(screen.queryByText('아직 공지가 없어요.')).toBeNull();
+});
+
+const gbEntry = {
+  id: 'g1',
+  authorId: 'u2',
+  authorName: '수아',
+  content: '놀러 왔어요',
+  createdAt: '2026-10-12T01:00:00Z',
+  mine: false,
+};
+
+test('공지 목록 아래에 방명록이 있고 방문자도 쓸 수 있지만 지우기·신고는 없다(GROMO-2263)', async () => {
+  list.mockResolvedValue({
+    items: [{ id: 'n1', title: '공지', commentCount: 0 }],
+    nextCursor: null,
+  });
+  guestbook.mockResolvedValue({ boardBuilt: true, items: [gbEntry] });
+  const screen = await render(<VisitorBoard islandId="visitor" onClose={jest.fn()} />);
+  await screen.findByText('놀러 왔어요');
+  expect(guestbook).toHaveBeenCalledWith('visitor');
+  expect(screen.getByText('방명록')).toBeTruthy();
+  // 안내문이 「작성은 주민만」이라고만 하면 바로 아래 방명록을 방문자도 쓰는 것과 어긋난다 — 주민 전용은 공지·댓글 작성이다
+  screen.getByText(
+    '방문 중에는 공지와 댓글을 읽을 수 있어요. 공지와 댓글 작성은 주민만 할 수 있어요.',
+  );
+  expect(screen.queryByText('지우기')).toBeNull();
+  expect(screen.queryByText('신고')).toBeNull();
+
+  write.mockResolvedValue({ ...gbEntry, id: 'g2', content: '안녕하세요', mine: true });
+  await fireEvent.changeText(screen.getByTestId('field-한마디 남기기'), '안녕하세요');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await screen.findByText('안녕하세요');
+  expect(write).toHaveBeenCalledWith('visitor', '안녕하세요');
+  // 공지 쓰기·댓글 API 는 여전히 0회
+  assert.equal((createNoticeComment as jest.Mock).mock.calls.length, 0);
+});
+
+test('게시판이 없는 섬의 방문 게시판에는 방명록이 안 보인다', async () => {
+  list.mockResolvedValue({
+    items: [{ id: 'n1', title: '공지', commentCount: 0 }],
+    nextCursor: null,
+  });
+  const screen = await render(<VisitorBoard islandId="visitor" onClose={jest.fn()} />);
+  await screen.findByText('공지');
+  await waitFor(() => expect(guestbook).toHaveBeenCalled());
+  await waitFor(() => expect(screen.queryByText('불러오고 있어요.')).toBeNull());
+  expect(screen.queryByText('방명록')).toBeNull();
+  assert.equal(screen.queryByRole('textbox'), null);
+});
+
+test('공지 상세를 열면 방명록은 접히고 목록으로 돌아오면 다시 보인다', async () => {
+  list.mockResolvedValue({
+    items: [{ id: 'n1', title: '공지', commentCount: 0 }],
+    nextCursor: null,
+  });
+  detail.mockResolvedValue({
+    id: 'n1',
+    title: '공지',
+    body: '본문',
+    comments: [],
+    nextCommentsCursor: null,
+  });
+  guestbook.mockResolvedValue({ boardBuilt: true, items: [gbEntry] });
+  const backOverride = { current: null as (() => boolean) | null };
+  const screen = await render(
+    <VisitorBoard islandId="visitor" onClose={jest.fn()} backOverride={backOverride} />,
+  );
+  await screen.findByText('놀러 왔어요');
+  await fireEvent.press(screen.getByText('공지'));
+  await screen.findByText('본문');
+  expect(screen.queryByText('방명록')).toBeNull();
+  await act(async () => {
+    backOverride.current?.();
+  });
+  await screen.findByText('놀러 왔어요');
+});
+
+test('방명록의 쓰기 거절 안내는 앱 셸 알림(e.notify)으로 나간다', async () => {
+  list.mockResolvedValue({ items: [], nextCursor: null });
+  guestbook.mockResolvedValue({ boardBuilt: true, items: [] });
+  const e = { notify: jest.fn() };
+  const screen = await render(<VisitorBoard islandId="visitor" onClose={jest.fn()} e={e} />);
+  await screen.findByTestId('guestbook-submit');
+  // 전환 시트가 없는 셸에서 게스트 거절 — 토스트로 알리는 오류(다시 눌러도 같은 거절인 409·403 은 칸 아래 안내로 남는다)
+  write.mockRejectedValue(new ApiError('SOCIAL_LOGIN_REQUIRED', 'x', 403));
+  await fireEvent.changeText(screen.getByTestId('field-한마디 남기기'), '또 왔어요');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await waitFor(() => expect(e.notify).toHaveBeenCalledWith('소셜 로그인하면 이용할 수 있어요.'));
 });

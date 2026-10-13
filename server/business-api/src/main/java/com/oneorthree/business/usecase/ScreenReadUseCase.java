@@ -6,6 +6,8 @@ import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
+import com.oneorthree.business.common.exception.UpstreamCredentialRejectedException;
+import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.ReadFragment;
 import com.oneorthree.business.common.http.ScreenComposer;
@@ -20,6 +22,7 @@ import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.NotificationSettingsView;
 import com.oneorthree.business.upstream.realtime.dto.RealtimeHistory;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 
@@ -48,6 +51,7 @@ import java.util.function.Function;
  * <p>ponytail: 화면 DTO 클래스 없음 — 조각 이름이 계약이다(implementation-business-api §3). OpenAPI 문서가
  * 필요해지면 화면별 record 로 올린다. 유스케이스가 500줄을 넘으면 장소별로 나눈다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ScreenReadUseCase {
@@ -158,7 +162,8 @@ public class ScreenReadUseCase {
     }
 
     /**
-     * {@code visit/{islandId}} — 공개 요약 뒤 주민 목록 첫 페이지와 본인 최신 가입 요청을 병렬로 읽는다. 요청이 없으면
+     * {@code visit/{islandId}} — 공개 요약 뒤 주민 목록 첫 페이지·오늘 집중 분({@code focusToday}, GROMO-2258)·본인 최신
+     * 가입 요청을 병렬로 읽는다. 요청이 없으면
      * 조회하지 않고 {@code joinRequestAvailability:none} 이다. 호출자가 주민이어도 공개 요약 projection 만 싣는다
      * (LLD §1 조각 타입). 주민 목록은 2026-09-19 결정 V-읽기(GROMO-1904·1937)로 방문자에게 열렸다 — 닉네임·
      * 고양이 외형·방장 여부뿐이고, 커서는 도메인 {@code GET /islands/{islandId}/members} 가 이어받는다(B10).
@@ -172,7 +177,8 @@ public class ScreenReadUseCase {
         IslandSummaryView island = publicSummary(scene.island());
         List<ReadFragment<?>> fragments = new ArrayList<>(List.of(fragment("members",
                 deadline -> management.members(claims, islandId, null, IslandManagementUseCase.DEFAULT_LIMIT,
-                        deadline))));
+                        deadline)),
+                focusToday(claims, islandId)));
         if (island.joinRequestId() != null) {
             fragments.add(fragment("joinRequest",
                     deadline -> islands.joinRequest(claims, island.joinRequestId(), deadline)));
@@ -182,6 +188,7 @@ public class ScreenReadUseCase {
         screen.put("island", island);
         screen.put("buildings", scene.buildings());
         screen.put("members", second.get("members"));
+        screen.put("focusToday", second.get("focusToday"));
         if (island.joinRequestId() == null) {
             screen.put("joinRequestAvailability", NONE);
             screen.put("joinRequest", null);
@@ -520,6 +527,29 @@ public class ScreenReadUseCase {
     }
 
     // ---------------------------------------------------------------- 조각
+
+    /**
+     * {@code visit.focusToday} — <b>유일한 선택 조각</b>(B04 예외, GROMO-2258). 상류가 실패하면 {@code null} 로 두고
+     * 나머지 화면은 그대로 낸다. business 가 data 보다 먼저 배포되면 구 data 의 allowlist 에 이 경로가 없어 403 이
+     * 나는데, 그게 방문 화면 전체를 깨면 안 된다 — 앱은 값이 없으면 숨긴다. 일시 실패(UNAVAILABLE·TIMEOUT)는
+     * 조합기가(전체 예산·취소 우선), 도메인·자격·계약 실패는 여기서 접는다(home {@code layout} 404 폴백과 같은 자리).
+     */
+    private ReadFragment<?> focusToday(AccessTokenClaims claims, UUID islandId) {
+        return new ReadFragment<>("focusToday", false,
+                new ParameterizedTypeReference<IslandFocusMembersUseCase.FocusTodayView>() { },
+                Set.of(ReadFragment.TransientFailure.UNAVAILABLE, ReadFragment.TransientFailure.TIMEOUT),
+                context -> {
+                    try {
+                        return focusMembers.focusToday(claims, islandId, context.deadline());
+                    } catch (UpstreamDomainException | PublicApiException | UpstreamContractMismatchException
+                             | UpstreamCredentialRejectedException e) {
+                        // 구 data-api 가 붙은 동안은 요청마다 나는 의도된 호환 상태라 info 다 — 형식은 조합기 줄과 같다.
+                        log.info("screen_optional_unavailable request_id={} fragment=focusToday reason={}",
+                                context.requestId(), e.getClass().getSimpleName());
+                        return null;
+                    }
+                });
+    }
 
     private ReadFragment<?> wallets(AccessTokenClaims claims, UUID islandId) {
         return fragment("wallets", deadline -> shop.wallets(claims, islandId, deadline));

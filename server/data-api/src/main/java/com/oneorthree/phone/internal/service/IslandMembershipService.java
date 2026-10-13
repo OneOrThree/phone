@@ -223,38 +223,50 @@ public class IslandMembershipService {
     /**
      * 섬에 도착했다 — 항해(망원경)·방문이 끝난 자리에서 앱이 부른다 (섬 외부 계약 §1).
      *
-     * <p><b>멱등</b>이다: 도착 기록은 upsert 이고(처음이면 first=last, 아니면 last 만), 이미 그 섬에 서 있는
-     * 주민이면 다시 옮기지 않는다. 그래서 명령 키 receipt 없이 재시도해도 같은 상태에 닿는다.
-     *
      * <p>주민이면 현재 섬도 옮긴다 — 다른 섬으로 옮기는 것이라 즉시 이동과 같은 이동 가드(집중 세션·출발 섬
      * 전망대)를 건다. 비주민(방문)은 기록만 남긴다. 비공개 섬의 비주민은 존재를 숨겨 404 다.
+     *
+     * <p><b>명령 키 receipt 로 묶는다</b> — {@link #switchCurrentIsland} 와 같은 흐름이다. 도착은 현재 섬을
+     * 옮기므로, 늦게 도착한 옛 요청의 재시도가 그 사이 다른 섬으로 간 사람을 지난 목적지로 되돌리거나 집중 중
+     * 409 로 실패하면 안 된다. 같은 키의 재시도는 처음 결과를 그대로 재생하고 다시 옮기지 않는다.
      */
     @Transactional
-    public IslandArrivalView arrive(UUID userId, UUID islandId) {
-        User user = userQueryService.getCallerForUpdate(userId);
-        UserIslandContext context = userIslandContextLockService.lock(user);
-        membershipLocks.lockGroup(islandId);
-        Group island = groupQueryService.findGroup(islandId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
-        IslandMovementGuards.requireAlive(island);
-        boolean member = groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId).isPresent();
-        if (!member && island.isPrivate()) {
-            throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
-        }
-        if (member && !islandId.equals(context.getCurrentIslandId())) {
-            movementGuards.requireNoLiveFocusSession(user);
-            movementGuards.requireDepartureUnlocked(context);
-            context.moveTo(islandId);
-        }
-        arrivals.recordArrival(userId, islandId, clock.instant());
+    public IslandArrivalView arrive(UUID userId, UUID islandId, UUID idempotencyKey) {
+        PublicCommandRequest command = new PublicCommandRequest(userId,
+                "POST:/islands/" + islandId + "/arrivals:" + userId, idempotencyKey, InternalJson.tree(Map.of()));
+        JsonNode data = publicCommands.run(command,
+                () -> userQueryService.getCallerForUpdate(userId),
+                ignored -> userQueryService.getCallerForUpdate(userId),
+                () -> {
+                    User user = userQueryService.getCallerForUpdate(userId);
+                    UserIslandContext context = userIslandContextLockService.lock(user);
+                    membershipLocks.lockGroup(islandId);
+                    Group island = groupQueryService.findGroup(islandId)
+                            .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
+                    IslandMovementGuards.requireAlive(island);
+                    boolean member = groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId)
+                            .isPresent();
+                    if (!member && island.isPrivate()) {
+                        throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
+                    }
+                    if (member && !islandId.equals(context.getCurrentIslandId())) {
+                        movementGuards.requireNoLiveFocusSession(user);
+                        movementGuards.requireDepartureUnlocked(context);
+                        context.moveTo(islandId);
+                    }
+                    arrivals.recordArrival(userId, islandId, clock.instant());
 
-        String membershipStatus = IslandSummaries.STATUS_ACTIVE;
-        if (!member) {
-            JoinRequestRef latest = latestRequests(userId, List.of(islandId)).get(islandId);
-            membershipStatus = IslandSummaries.statusOf(false, latest);
-        }
-        return new IslandArrivalView(islandId, true, membershipStatus,
-                member ? islandId : liveCurrentIsland(userId));
+                    String membershipStatus = IslandSummaries.STATUS_ACTIVE;
+                    if (!member) {
+                        JoinRequestRef latest = latestRequests(userId, List.of(islandId)).get(islandId);
+                        membershipStatus = IslandSummaries.statusOf(false, latest);
+                    }
+                    IslandArrivalView view = new IslandArrivalView(islandId, true, membershipStatus,
+                            member ? islandId : liveCurrentIsland(userId));
+                    // 도착은 가입·이탈이 아니다 — island.members.updated 로 방송하지 않는다(switch 와 같다).
+                    return new PublicCommandResult(200, InternalJson.tree(view), InternalJson.tree(List.of()));
+                }).value().data();
+        return InternalJson.decode(data, IslandArrivalView.class);
     }
 
     // ---------------------------------------------------------------- §3.4 island

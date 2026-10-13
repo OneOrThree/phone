@@ -65,7 +65,7 @@ public class LetterUseCase {
      *
      * <p>{@code kind} 가 null 이면 친구 편지함이고, 그 항목에는 반드시 상대가 있어야 한다 — 발신자 없는 시스템
      * 편지(GROMO-2260)가 섞이면 상대 id 를 필수로 다루는 구 앱이 깨지므로 그런 응답은 계약 불일치로 끊는다.
-     * {@code kind=system} 만 발신자 없는 항목을 받는다.
+     * {@code kind=system} 만 발신자 없는 항목을 받고, 그 항목에는 반드시 {@code kind} 가 있어야 한다.
      */
     public LetterPageView letters(AccessTokenClaims claims, String type, String kind, String cursor, String size,
             Deadline deadline) {
@@ -76,6 +76,11 @@ public class LetterUseCase {
         if (kind == null && slice.content() != null
                 && slice.content().stream().anyMatch(item -> item != null && item.counterpartUserId() == null)) {
             throw new UpstreamContractMismatchException("친구 편지함에 상대 없는 편지가 섞였습니다");
+        }
+        // 반대 방향도 막는다 — kind 쿼리를 모르는 구 Data 는 시스템 편지함 요청에 친구 편지를 돌려준다.
+        if (kind != null && slice.content() != null
+                && slice.content().stream().anyMatch(item -> item != null && item.kind() == null)) {
+            throw new UpstreamContractMismatchException("시스템 편지함에 종류 없는 편지가 섞였습니다");
         }
         return LetterPageView.from(slice);
     }

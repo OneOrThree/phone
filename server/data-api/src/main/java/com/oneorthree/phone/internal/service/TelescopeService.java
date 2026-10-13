@@ -51,9 +51,9 @@ import java.util.stream.Stream;
  *       가까운 섬은 가입할 수 있는 섬 중에서만 고르므로 정원 남은 후보가 없으면 이 라벨은 붙지 않는다. 핀 섬은 후보에서
  *       빠지므로 핀으로 넣은 섬이 가까운 섬이 되는 일은 없다.</li>
  *   <li>{@code pinned} — 직접 넣은 섬(핀). 만료(다음 07:00 KST) 전인 핀을 넣은 순서(오래된 것 먼저)로 보여 주고, 최대
- *       {@value #MAX_PINS}개다(그보다 많으면 가장 오래된 것부터 감춘다). 정원 찬 섬도 넣을 수 있다({@code full=true},
- *       구경만). 핀 섬이 그사이 비공개·종료·강퇴·내 소속이 되면 이 칸에서 빠지고 그 칸은 random 이 채운다(핀 행은 만료까지
- *       남는다).</li>
+ *       {@value #MAX_PINS}개다(그보다 많으면 가장 오래된 것부터 감춘다 — 감춘 핀은 후보에서도 빠져 어느 칸에도 나오지 않고
+ *       다음 핀 넣기가 정리한다). 정원 찬 섬도 넣을 수 있다({@code full=true}, 구경만). 핀 섬이 그사이 비공개·종료·강퇴·내
+ *       소속이 되면 이 칸에서 빠지고 그 칸은 random 이 채운다(핀 행은 만료까지 남는다).</li>
  *   <li>{@code random} — 나머지 새 섬 칸. 새 섬 칸은 가까운 섬 1 + 무작위 {@value #RANDOM_SLOTS} − 핀 수이고 정원 남은
  *       섬부터, 모자라면 정원 찬 섬({@code full=true}, 구경만)으로 채우고, 그래도 모자라면 칸 수가 준다. 정원 남은
  *       섬이 하나도 없으면 새 섬 칸 전부가 정원 찬 {@code random} 섬이다.</li>
@@ -126,9 +126,11 @@ public class TelescopeService {
         // 새 섬 칸(가까운 섬 1 + 무작위 4)에서 핀 수만큼 무작위 칸이 준다. 핀이 MAX_PINS 로 막혀 1 아래로 가지 않는다.
         int newIslandSlots = 1 + RANDOM_SLOTS - pinned.size();
         Assert.state(newIslandSlots >= 1, () -> "핀이 무작위 칸 수를 넘었다: " + pinned.size());
-        // 정원 남은 섬이 앞이고, 모자라면 찬 섬이 뒤를 채운다. 핀 섬은 후보에서 뺀다 — 안 빼면 한 섬이 두 번 나온다.
+        // 정원 남은 섬이 앞이고, 모자라면 찬 섬이 뒤를 채운다. 핀 섬은 후보에서 뺀다 — 안 빼면 한 섬이 두 번 나온다. 화면에 나오는
+        // 핀(pinned)이 아니라 보이는 핀 전부(visible)를 뺀다 — 감춘(잘린) 핀이 «찜» 표시 없이 일반 칸으로 나오면 안 된다.
+        List<UUID> visibleIds = visible.stream().map(pin -> pin.row().getId()).toList();
         List<TelescopeCandidate> shown = groupRepository.findTelescopeCandidates(userId.toString(),
-                userId + ":" + bucketStart.getEpochSecond(), newIslandSlots, uuidArray(pinnedIds));
+                userId + ":" + bucketStart.getEpochSecond(), newIslandSlots, uuidArray(visibleIds));
         // 첫 후보(핀이 아닌 후보 중 첫 섬)가 찬 섬이면 열린 섬이 하나도 없다 — 가까운 섬 라벨 없이 전부 random 이다.
         boolean hasNearby = !shown.isEmpty() && !isFull(shown.get(0));
 
@@ -197,8 +199,8 @@ public class TelescopeService {
      * 만료 전 핀 중 지금도 보여 줄 수 있는 섬 — 넣은 순서(오래된 것 먼저), 개수 제한 없음. 비공개·종료·강퇴·내 소속이 된
      * 섬은 후보와 같은 술어({@code GroupRepository#TELESCOPE_VISIBLE_SQL})에서 빠진다.
      *
-     * <p>개수를 자르는 일은 호출자 몫이다. 목록은 가장 최근의 {@value #MAX_PINS} 개만 보여 주고, 핀을 넣는 쪽은 그 수를
-     * 넘은 만큼 가장 오래된 것부터 밀어낸다.
+     * <p>개수를 자르는 일은 호출자 몫이다. 목록은 가장 최근의 {@value #MAX_PINS} 개만 보여 주되 후보에서는 여기 있는 핀을
+     * 전부 빼고, 핀을 넣는 쪽은 그 수를 넘은 만큼 (지금 넣는 섬을 뺀) 가장 오래된 것부터 밀어낸다.
      *
      * @param userId 핀의 주인
      * @param now    «만료 전» 의 기준 시각 — {@code expires_at > now}

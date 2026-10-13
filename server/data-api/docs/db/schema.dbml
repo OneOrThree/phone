@@ -472,6 +472,7 @@ Table letters [note: '친구 사이 1:1 편지 (GROMO-1933, friend-letter LLD §
   indexes {
     (receiver_id, id) [note: '받은 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_receiver_cursor)']
     (sender_id, id)   [note: '보낸 편지함 커서 — 실제는 (sender_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_sender_cursor)']
+    (receiver_id, id) [name: 'letters_receiver_system_idx', note: "시스템 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL AND kind <> 'FRIEND' 부분 인덱스. GROMO-2260, V107"]
   }
 }
 
@@ -928,7 +929,7 @@ Table user_island_contexts [note: '사용자의 현재 섬 컨텍스트 (users 1
   updated_at  timestamptz
 }
 
-Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «가 본 적» 이 있는가. 즉시 이동(PUT /me/current-island)은 기록이 있는 소속 섬만 받고, 나가기·강퇴 뒤 다음 위치는 남은 소속 중 last_arrived_at 최신 섬이다(없으면 먼바다). V107 이 기존 활성 소속을 COALESCE(rejoined_at, created_at) 로 백필. GROMO-2260'] {
+Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «가 본 적» 이 있는가. 즉시 이동(PUT /me/current-island)은 기록이 있는 소속 섬만 받고, 나가기·강퇴 뒤 다음 위치는 남은 소속 중 last_arrived_at 최신 섬이다(없으면 먼바다). V107 이 살아 있는 섬(deleted_at IS NULL·status<>ENDED)의 기존 활성 소속을 COALESCE(rejoined_at, created_at) 로 백필하고, 지금 서 있는 섬(user_island_contexts.current_island_id)의 last_arrived_at 만 now() 로 올림. GROMO-2260'] {
   user_id          uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE)']
   island_id        uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE)']
   first_arrived_at timestamptz [not null, note: '처음 도착한 시각']
@@ -936,6 +937,7 @@ Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «�
 
   indexes {
     (user_id, island_id) [pk]
+    island_id [name: 'island_arrivals_island_idx', note: '섬 purge 의 DELETE·섬별 조회 — PK 는 user_id 가 앞이라 이 축을 받지 못한다']
   }
 }
 

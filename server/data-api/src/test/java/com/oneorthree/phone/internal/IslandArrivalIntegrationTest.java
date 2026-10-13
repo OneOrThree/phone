@@ -13,7 +13,11 @@ import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
+import com.oneorthree.phone.group.dto.CreateGroupRequest;
+import com.oneorthree.phone.group.dto.JoinGroupRequest;
+import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
+import com.oneorthree.phone.internal.dto.IslandArrivalView;
 import com.oneorthree.phone.internal.dto.IslandLeftView;
 import com.oneorthree.phone.internal.dto.IslandSummaryView;
 import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
@@ -44,9 +48,18 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -96,6 +109,8 @@ class IslandArrivalIntegrationTest {
     InternalLetterService letters;
     @Autowired
     AccountWithdrawalService withdrawal;
+    @Autowired
+    GroupService legacyGroups;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -172,10 +187,12 @@ class IslandArrivalIntegrationTest {
                 .andExpect(jsonPath("$.code").value("ISLAND_NOT_ARRIVED"));
         assertThat(currentIsland(user)).isEqualTo(home);
 
+        UUID arrivalKey = UUID.randomUUID();
         for (int i = 0; i < 2; i++) {
-            // 멱등 — 두 번째 도착도 같은 결과다.
+            // 같은 키의 두 번째 도착은 처음 결과의 재생이다.
             mvc.perform(post("/internal/users/" + user + "/islands/" + target + "/arrivals")
-                            .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user))
+                            .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                            .header("Idempotency-Key", arrivalKey))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.islandId").value(target.toString()))
                     .andExpect(jsonPath("$.arrivedBefore").value(true))
@@ -197,6 +214,72 @@ class IslandArrivalIntegrationTest {
     }
 
     @Test
+    @DisplayName("도착은 명령 키가 필수이고, 늦게 온 같은 키 재시도는 다른 섬으로 간 사람을 되돌리지 않는다")
+    void arrivalReplayNeverMovesBack() throws Exception {
+        UUID user = newUser();
+        UUID home = islands.create(user, new CreateIslandCommandRequest("집섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID target = island("목적섬", false, false);
+        joinAs(newUser(), target, GroupMemberRole.OWNER);
+        joins.join(user, target, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+
+        mvc.perform(post("/internal/users/" + user + "/islands/" + target + "/arrivals")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user))
+                .andExpect(status().isBadRequest());
+        assertThat(arrived(user, target)).as("키 없는 도착은 아무것도 남기지 않는다").isFalse();
+
+        UUID key = UUID.randomUUID();
+        IslandArrivalView first = islands.arrive(user, target, key);
+        assertThat(currentIsland(user)).isEqualTo(target);
+        Timestamp arrivedAt = lastArrivedAt(user, target);
+        islands.switchCurrentIsland(user, home, UUID.randomUUID());
+
+        assertThat(islands.arrive(user, target, key)).as("처음 결과의 재생").isEqualTo(first);
+        assertThat(currentIsland(user)).as("지난 목적지로 되돌리지 않는다").isEqualTo(home);
+        assertThat(lastArrivedAt(user, target)).as("재생은 도착을 다시 찍지 않는다").isEqualTo(arrivedAt);
+    }
+
+    @Test
+    @DisplayName("동결된 1.x 경로(/api/v1/groups)의 생성·참여도 «가 본 섬» 이다 — 2.0 즉시 이동이 막히지 않는다")
+    void legacyCreateAndJoinRecordArrivals() {
+        UUID creator = newUser();
+        UUID created = legacyGroups.createGroup(creator,
+                CreateGroupRequest.builder().name("옛날섬").maxMembers(10).build()).groupId();
+        assertThat(arrivedBefore(islands.myIslands(creator), created)).isTrue();
+
+        UUID joiner = newUser();
+        legacyGroups.joinGroup(created, joiner, JoinGroupRequest.builder().build());
+        assertThat(arrivedBefore(islands.myIslands(joiner), created)).isTrue();
+        assertThat(islands.switchCurrentIsland(joiner, created, UUID.randomUUID()).currentIslandId())
+                .as("ISLAND_NOT_ARRIVED 로 막히지 않는다").isEqualTo(created);
+    }
+
+    @Test
+    @DisplayName("소속 2개인 사람의 1.x 동시 참여 둘은 상한 3을 넘지 못한다 — 한쪽만 성공, 다른 쪽은 409")
+    void concurrentLegacyJoinsRespectTheCap() throws Exception {
+        UUID user = newUser();
+        joinAs(user, island("하나섬", false, false), GroupMemberRole.MEMBER);
+        joinAs(user, island("둘섬", false, false), GroupMemberRole.MEMBER);
+        UUID left = island("왼섬", false, false);
+        UUID right = island("오른섬", false, false);
+
+        List<Throwable> failures = race(
+                () -> {
+                    legacyGroups.joinGroup(left, user, JoinGroupRequest.builder().build());
+                    return null;
+                },
+                () -> {
+                    legacyGroups.joinGroup(right, user, JoinGroupRequest.builder().build());
+                    return null;
+                });
+
+        assertThat(failures).hasSize(1);
+        assertThat(failures.get(0)).hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_LIMIT_EXCEEDED);
+        assertThat(count("select count(*) from group_members where user_id=? and is_left=false", user))
+                .isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("방문 중 즉시 가입(기본 origin)은 옮기고 도착을 남긴다")
     void visitJoinMovesAndRecordsArrival() {
         UUID user = newUser();
@@ -215,7 +298,8 @@ class IslandArrivalIntegrationTest {
         UUID visitor = newUser();
         UUID open = island("구경섬", false, false);
         mvc.perform(post("/internal/users/" + visitor + "/islands/" + open + "/arrivals")
-                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", visitor))
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", visitor)
+                        .header("Idempotency-Key", UUID.randomUUID()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.membershipStatus").value("none"))
                 .andExpect(jsonPath("$.currentIslandId").value(nullValue()));
@@ -224,7 +308,8 @@ class IslandArrivalIntegrationTest {
 
         UUID hidden = island("숨은섬", true, false);
         mvc.perform(post("/internal/users/" + visitor + "/islands/" + hidden + "/arrivals")
-                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", visitor))
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", visitor)
+                        .header("Idempotency-Key", UUID.randomUUID()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
         assertThat(arrived(visitor, hidden)).isFalse();
@@ -319,7 +404,7 @@ class IslandArrivalIntegrationTest {
         UUID islandId = islands.create(host, new CreateIslandCommandRequest("닫힐섬", null, false, null),
                 UUID.randomUUID()).id();
         UUID visitor = newUser();
-        islands.arrive(visitor, islandId);
+        islands.arrive(visitor, islandId, UUID.randomUUID());
         UUID other = islands.create(visitor, new CreateIslandCommandRequest("남을섬", null, false, null),
                 UUID.randomUUID()).id();
         assertThat(count("select count(*) from island_arrivals where island_id=?", islandId)).isEqualTo(2);
@@ -341,9 +426,9 @@ class IslandArrivalIntegrationTest {
         UUID leaving = newUser();
         joins.join(leaving, islandId, null, UUID.randomUUID());
         UUID visited = island("들른섬", false, false);
-        islands.arrive(leaving, visited);
+        islands.arrive(leaving, visited, UUID.randomUUID());
         UUID staying = newUser();
-        islands.arrive(staying, islandId);
+        islands.arrive(staying, islandId, UUID.randomUUID());
         assertThat(count("select count(*) from island_arrivals where user_id=?", leaving)).isEqualTo(2);
 
         withdrawal.withdraw(leaving);
@@ -367,7 +452,7 @@ class IslandArrivalIntegrationTest {
     }
 
     @Test
-    @DisplayName("강퇴 — nextLocation 은 대상의 다음 위치, 강퇴 편지 1건(발신자 없음), 같은 섬 재가입은 403")
+    @DisplayName("강퇴 — 응답은 {removed:true} 뿐(방장에게 대상의 위치를 주지 않는다), 강퇴 편지 1건, 같은 섬 재가입은 403")
     void kickSendsALetterAndBlocksRejoin() throws Exception {
         UUID host = newUser();
         UUID islandId = island("강퇴섬", false, false);
@@ -380,22 +465,15 @@ class IslandArrivalIntegrationTest {
 
         UUID key = UUID.randomUUID();
         for (int i = 0; i < 2; i++) {
-            // 같은 키 재생은 원 응답을 돌려주고 편지를 다시 만들지 않는다.
+            // 같은 키 재생은 원 응답을 돌려주고 편지를 다시 만들지 않는다. 응답은 방장이 받으므로 대상의 다음
+            // 위치를 싣지 않는다 — GROMO-2260 이전과 같은 바이트다.
             mvc.perform(delete("/internal/islands/" + islandId + "/members/" + target)
-                            .param("include", "nextLocation")
                             .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", host)
                             .header("Idempotency-Key", key))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.removed").value(true))
-                    .andExpect(jsonPath("$.nextLocation.islandId").value(home.toString()));
+                    .andExpect(content().string("{\"removed\":true}"));
         }
-        // 같은 키를 구 Business(파라미터 없음)가 재시도해도 충돌 없이 GROMO-2260 이전 바이트로 재생된다.
-        mvc.perform(delete("/internal/islands/" + islandId + "/members/" + target)
-                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", host)
-                        .header("Idempotency-Key", key))
-                .andExpect(status().isOk())
-                .andExpect(content().string("{\"removed\":true}"));
-        assertThat(currentIsland(target)).isEqualTo(home);
+        assertThat(currentIsland(target)).as("대상의 현재 섬은 서버가 복구한다").isEqualTo(home);
 
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select sender_id, kind, island_id, content from letters where receiver_id=?", target);
@@ -445,8 +523,8 @@ class IslandArrivalIntegrationTest {
         UUID target = newUser();
         joins.join(target, islandId, null, UUID.randomUUID());
 
-        assertThat(management.kick(host, islandId, target, UUID.randomUUID()).nextLocation().islandId())
-                .as("남은 섬이 없어 먼바다").isNull();
+        management.kick(host, islandId, target, UUID.randomUUID());
+        assertThat(currentIsland(target)).as("남은 섬이 없어 먼바다").isNull();
 
         assertThatThrownBy(() -> letters.list(target, null, null, null, null))
                 .hasFieldOrPropertyWithValue("errorCode", LetterErrorCode.LETTER_MAILBOX_LOCKED);
@@ -522,6 +600,33 @@ class IslandArrivalIntegrationTest {
 
     // ---------------------------------------------------------------- 도구
 
+    /** 두 명령을 동시에 출발시키고 실패만 모은다 — {@code IslandManagementIntegrationTest.race} 와 같은 도구다. */
+    private List<Throwable> race(Callable<?> first, Callable<?> second) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (Callable<?> task : List.of(first, second)) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    return task.call();
+                }));
+            }
+            start.countDown();
+            List<Throwable> failures = new ArrayList<>();
+            for (Future<?> future : futures) {
+                try {
+                    future.get(30, TimeUnit.SECONDS);
+                } catch (ExecutionException e) {
+                    failures.add(e.getCause());
+                }
+            }
+            return failures;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     private static String jsonPathOf(String json, String path) {
         return JsonPath.read(json, path);
     }
@@ -529,6 +634,11 @@ class IslandArrivalIntegrationTest {
     private static boolean arrivedBefore(MyIslandsView view, UUID islandId) {
         return view.items().stream().filter(item -> item.id().equals(islandId))
                 .map(IslandSummaryView::arrivedBefore).findFirst().orElseThrow();
+    }
+
+    private Timestamp lastArrivedAt(UUID userId, UUID islandId) {
+        return jdbc.queryForObject("select last_arrived_at from island_arrivals where user_id=? and island_id=?",
+                Timestamp.class, userId, islandId);
     }
 
     private boolean arrived(UUID userId, UUID islandId) {

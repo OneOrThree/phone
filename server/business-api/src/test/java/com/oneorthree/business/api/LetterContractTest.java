@@ -158,6 +158,14 @@ class LetterContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
+    @Test
+    @DisplayName("kind 쿼리를 모르는 구 Data 가 시스템 편지함 요청에 친구 편지를 돌려주면 계약 불일치로 끊는다")
+    void systemMailboxNeverPassesAFriendLetter() throws Exception {
+        DATA.on(DATA_LIST, request -> ok(SLICE));
+        mockMvc.perform(auth(get("/letters")).queryParam("kind", "system"))
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"friend", "SYSTEM", "", "KICK"})
     @DisplayName("kind 는 system 하나만 받고 다른 값은 네트워크 전에 400 이다")

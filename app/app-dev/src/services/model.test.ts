@@ -10,6 +10,7 @@ import {
   canVisit,
   visitorJoinState,
   visitorJoinLabel,
+  serverVisit,
   canBuild,
   canBuy,
   products,
@@ -973,6 +974,53 @@ test('방문자는 다른 섬을 구경만 하고 쓰기는 막히며, 가입하
   assert.equal(viewIsland(s).id, 'strawberry');
 });
 
+test('가입 안내 확인 여부(visitLeaveAsked)는 다른 액션이 끼어도 유지되고 새 방문·구경 끝에서 지워진다', () => {
+  let s = act(initialState(true), 'VISIT', { id: 'cloud' });
+  assert.equal(s.visitLeaveAsked, undefined);
+  s = act(s, 'VISIT_LEAVE_ASKED');
+  assert.equal(s.visitLeaveAsked, true);
+  // 리듀서는 매 액션에서 상태를 깊은 복사한다 — 그 사이에도 플래그는 남는다
+  s = act(s, 'TRAVEL_FROM', { name: '구름 섬' });
+  assert.equal(s.visitLeaveAsked, true);
+  s = act(s, 'END_VISIT');
+  assert.equal(s.visitLeaveAsked, undefined);
+  // 구경을 끝내지 않고 다른 방문을 시작해도 새 방문이다
+  s = act(act(s, 'VISIT', { id: 'cloud' }), 'VISIT_LEAVE_ASKED');
+  assert.equal(act(s, 'VISIT', { id: 'cloud' }).visitLeaveAsked, undefined);
+  // 앱을 다시 켜면 구경과 함께 지워진다
+  assert.equal(act(s, 'LOAD', { state: s }).visitLeaveAsked, undefined);
+
+  // 서버 방문
+  const island = { id: 'v1', name: '구경섬', membershipStatus: 'none' };
+  let server = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+  });
+  server = act(server, 'ISLAND_VISIT', { visit: { island } });
+  server = act(act(server, 'SERVER_VISITING', { islandId: 'v1' }), 'VISIT_LEAVE_ASKED');
+  assert.equal(server.visitLeaveAsked, true);
+  assert.equal(act(server, 'SERVER_VISITING', { islandId: 'v1' }).visitLeaveAsked, undefined);
+});
+
+test('인사말 말풍선 여부(visitGreeted)는 방문 중 유지되고 새 방문·구경 끝·재실행에서 지워진다', () => {
+  let s = act(initialState(true), 'VISIT', { id: 'cloud' });
+  assert.equal(s.visitGreeted, undefined);
+  s = act(act(s, 'VISIT_GREETED'), 'TRAVEL_FROM', { name: '구름 섬' });
+  assert.equal(s.visitGreeted, true);
+  assert.equal(act(s, 'END_VISIT').visitGreeted, undefined);
+  assert.equal(act(s, 'VISIT', { id: 'cloud' }).visitGreeted, undefined);
+  assert.equal(act(s, 'LOAD', { state: s }).visitGreeted, undefined);
+
+  // 서버 방문
+  const island = { id: 'v1', name: '구경섬', membershipStatus: 'none' };
+  let server = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+  });
+  server = act(server, 'ISLAND_VISIT', { visit: { island } });
+  server = act(act(server, 'SERVER_VISITING', { islandId: 'v1' }), 'VISIT_GREETED');
+  assert.equal(server.visitGreeted, true);
+  assert.equal(act(server, 'SERVER_VISITING', { islandId: 'v1' }).visitGreeted, undefined);
+});
+
 test('방문자 가입 버튼 라벨은 다섯 가지다', () => {
   assert.deepEqual(visitorJoinLabel, {
     join: '이 섬에 가입',
@@ -981,6 +1029,37 @@ test('방문자 가입 버튼 라벨은 다섯 가지다', () => {
     full: '정원이 가득 찼어요',
     blocked: '다시 가입할 수 없어요',
   });
+});
+
+test('방문자 가입 버튼 라벨은 읽는 시점의 언어를 따른다(모듈 로드 때 굳지 않는다)', () => {
+  applyLocalePref('en');
+  try {
+    assert.deepEqual(visitorJoinLabel, {
+      join: 'Join This Island',
+      apply: 'Request to Join',
+      cancel: 'Cancel Join Request',
+      full: 'This island is full',
+      blocked: "You can't rejoin this island",
+    });
+  } finally {
+    applyLocalePref('system');
+  }
+  assert.equal(visitorJoinLabel.join, '이 섬에 가입');
+});
+
+test('serverVisit — 방문 스냅샷은 지금 구경 중인 섬의 것일 때만 돌려준다', () => {
+  const island = { id: 'v1', name: '구경섬', membershipStatus: 'none' };
+  let s = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+  });
+  s = act(s, 'ISLAND_VISIT', { visit: { island } });
+  assert.equal(serverVisit(s), null);
+  s = act(s, 'SERVER_VISITING', { islandId: 'v1' });
+  assert.equal(serverVisit(s)?.island.id, 'v1');
+  // visit 만 다른 섬 것으로 바뀌고 visitingIslandId 는 그대로인 구간
+  s = act(s, 'ISLAND_VISIT', { visit: { island: { ...island, id: 'v2' } } });
+  assert.equal(serverVisit(s), null);
+  assert.equal(serverVisit(act(initialState(true), 'END_VISIT')), null);
 });
 
 test('승인 대기 신청은 섬별로 보존하고 선택한 신청만 취소한다', () => {

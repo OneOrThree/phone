@@ -85,7 +85,7 @@ class IslandGuestbookGateDefaultsTest {
     }
 
     @Test
-    @DisplayName("쓰기 게이트는 종전대로 플래그를 따른다 — 게이트가 꺼진 기본 배포에서는 게시판 없는 섬에도 쓸 수 있다")
+    @DisplayName("쓰기 게이트는 종전대로 플래그를 따른다 — 게이트가 꺼진 기본 배포에서는 게시판 없는 섬에도 쓰고 읽을 수 있다")
     void writeGateStillFollowsTheFlag() throws Exception {
         UUID owner = newMember();
         UUID islandId = island(owner);
@@ -94,6 +94,13 @@ class IslandGuestbookGateDefaultsTest {
                         .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", newMember())
                         .contentType("application/json").content("{\"content\":\"안녕\"}"))
                 .andExpect(status().isCreated());
+
+        // 의도다: 게이트가 꺼진 환경에서는 게시판이 없어도 목록·쓰기가 열려 있고 응답은 boardBuilt=false 다. 앱은
+        // boardBuilt 로 방명록 탭을 숨기고, API 를 직접 불러 쓰는 길은 게이트가 꺼진 환경(개발)에 한정된 틈이다.
+        read(owner, islandId).andExpect(status().isOk())
+                .andExpect(jsonPath("$.boardBuilt").value(false))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].content").value("안녕"));
     }
 
     private ResultActions read(UUID actor, UUID islandId) throws Exception {
