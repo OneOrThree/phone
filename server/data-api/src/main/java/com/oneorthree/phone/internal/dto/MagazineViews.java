@@ -3,6 +3,7 @@ package com.oneorthree.phone.internal.dto;
 import com.oneorthree.phone.magazine.support.MagazineEditorial;
 import com.oneorthree.phone.magazine.support.PromotionContent;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -87,8 +88,16 @@ public final class MagazineViews {
         HARASSMENT, HATE, SPAM_FRAUD, SEXUAL, CHILD_SAFETY, THREAT, PRIVACY_IMPERSONATION, OTHER
     }
 
-    public record ReportRequest(@NotNull ReportReason reason) {
+    /**
+     * 신고 본문 — 사유는 8종 글자 그대로만 받는다. 열거형으로 바로 받으면 숫자({@code 0})가 순서 번호로 사유가 되어 버려
+     * 글자로 받고 패턴으로 거른다(어긋나면 400 {@code INVALID_REQUEST}).
+     */
+    public record ReportRequest(@NotNull @Pattern(regexp = REPORT_REASONS) String reason) {
     }
+
+    /** {@link ReportReason} 8종 그대로 — 신고 본문 검증 패턴. */
+    private static final String REPORT_REASONS =
+            "HARASSMENT|HATE|SPAM_FRAUD|SEXUAL|CHILD_SAFETY|THREAT|PRIVACY_IMPERSONATION|OTHER";
 
     /** @param created 이번에 새로 남긴 신고인가 — 컨트롤러가 201·200 을 고른다(공개 응답에는 {@code reported} 만 나간다) */
     public record Reported(boolean reported, boolean created) {

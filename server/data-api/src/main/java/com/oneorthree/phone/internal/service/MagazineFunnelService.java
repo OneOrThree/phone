@@ -18,6 +18,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -93,7 +94,11 @@ public class MagazineFunnelService {
     /**
      * 회관 홍보 기록판 — 이 섬의 홍보, 최신 호 먼저. 주민만 본다(게스트 주민 포함, 비주민 403 {@code MEMBER_ONLY}). 숫자는
      * 읽을 때마다 센다(「실시간」). 「회관 안에서만」은 앱 화면 위치 규칙이다.
+     *
+     * <p>한 스냅샷에서 읽는다(REPEATABLE READ) — 칸·호·숫자를 따로 읽는 사이에 발행이 커밋되면 「호는 있는데 칸은 실리지
+     * 않음」 처럼 어느 순간에도 없던 상태(SKIPPED)가 섞인다.
      */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public MagazineViews.RecordPage records(UUID userId, UUID islandId, int limit) {
         if (limit < 1 || limit > MAX_RECORDS) {
             throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
@@ -145,6 +150,10 @@ public class MagazineFunnelService {
                 : MagazineViews.RecordStatus.SCHEDULED;
     }
 
+    /**
+     * 그 섬의 현재 호 칸에 PIN 을 남긴 사람의 다음 단계를 센다. 칸이 그 뒤 신고로 숨겨지거나 내려가도 센다 — 넣은 순간에는
+     * 보이는 칸이었고(PIN 은 보이는 칸에서만 남는다), 그 뒤의 도착·가입은 그 홍보를 거쳐 온 행동이다.
+     */
     private void recordAfterPin(UUID userId, UUID islandId, String step, Instant now) {
         currentIssue(now).flatMap(issue -> promotions.findByIslandIdAndIssueDate(islandId, issue.getIssueDate()))
                 .filter(promotion -> funnel.existsByPromotionIdAndUserIdAndStep(promotion.getId(), userId,

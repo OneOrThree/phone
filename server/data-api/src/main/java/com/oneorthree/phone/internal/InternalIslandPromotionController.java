@@ -6,8 +6,8 @@ import com.oneorthree.phone.internal.service.GuestAccountGuards;
 import com.oneorthree.phone.internal.service.IslandPromotionReportService;
 import com.oneorthree.phone.internal.service.IslandPromotionService;
 import com.oneorthree.phone.internal.service.MagazineFunnelService;
-import jakarta.validation.Valid;
 import com.oneorthree.phone.magazine.support.PromotionContent;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -74,7 +74,8 @@ public class InternalIslandPromotionController {
     public ResponseEntity<MagazineViews.Reported> report(@PathVariable UUID userId, @PathVariable UUID islandId,
             @PathVariable UUID promotionId, @Valid @RequestBody MagazineViews.ReportRequest body) {
         guestAccountGuards.requireMember(userId);
-        MagazineViews.Reported reported = reports.report(userId, islandId, promotionId, body.reason());
+        MagazineViews.Reported reported = reports.report(userId, islandId, promotionId,
+                MagazineViews.ReportReason.valueOf(body.reason()));
         return ResponseEntity.status(reported.created() ? HttpStatus.CREATED : HttpStatus.OK).body(reported);
     }
 

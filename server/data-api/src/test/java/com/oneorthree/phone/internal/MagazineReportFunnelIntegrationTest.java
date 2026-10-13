@@ -166,7 +166,7 @@ class MagazineReportFunnelIntegrationTest {
     }
 
     @Test
-    @DisplayName("신고 대상은 실린 칸뿐이다 — 아직 발행 전·실리지 않은 칸·다른 섬 경로·없는 칸은 404, 사유가 틀리면 400")
+    @DisplayName("신고 대상은 실린 칸뿐이다 — 아직 발행 전·실리지 않은 칸·다른 섬 경로·없는 칸은 404, 사유가 8종 글자가 아니면(소문자·숫자 포함) 400")
     void onlyPublishedCellsCanBeReported() throws Exception {
         Island island = island("대상섬", false);
         Island other = island("다른섬", false);
@@ -183,6 +183,12 @@ class MagazineReportFunnelIntegrationTest {
         report(reporter, other, published, "OTHER").andExpect(status().isNotFound());
         report(reporter, island, UUID.randomUUID(), "OTHER").andExpect(status().isNotFound());
         report(reporter, island, published, "BORING").andExpect(status().isBadRequest());
+        report(reporter, island, published, "hate").andExpect(status().isBadRequest());
+        // 열거형 순서 번호(0 = HARASSMENT)로 사유가 되지 않는다.
+        mvc.perform(post("/internal/users/" + reporter.getId() + "/islands/" + island.id + "/promotions/" + published
+                        + "/reports").header("Authorization", "Bearer " + TOKEN).header("X-User-Id", reporter.getId())
+                        .contentType("application/json").content("{\"reason\":0}"))
+                .andExpect(status().isBadRequest());
         assertThat(jdbc.queryForObject("select count(*) from island_promotion_reports", Integer.class)).isZero();
     }
 
