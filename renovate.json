@@ -1,0 +1,42 @@
+ {
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "GROMO-2224 — 고정한 외부 이미지(Postgres·Redis·Temurin)만 감시. PR 은 자동으로 안 만들고 대시보드 이슈 1개에 목록만, 체크해야 PR 생성",
+  "timezone": "Asia/Seoul",
+  "schedule": ["* 0-8 1 * *"],
+  "enabledManagers": ["docker-compose", "dockerfile"],
+  "ignorePaths": ["server/scripts/docker-compose.local.yml"],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "외부 이미지 업데이트 대시보드 (Renovate)",
+  "dependencyDashboardApproval": true,
+  "pinDigests": false,
+  "packageRules": [
+    {
+      "description": "기본은 전부 끔 — 아래에서 고정 대상 3개만 켬",
+      "matchPackageNames": ["*"],
+      "enabled": false
+    },
+    {
+      "description": "Postgres·Redis — compose (dev·realtime·satellites·business). local 제외",
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["postgres", "redis"],
+      "enabled": true
+    },
+    {
+      "description": "Temurin — server/*/Dockerfile. 17.0.20.1_1-jre-jammy 형식",
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["eclipse-temurin"],
+      "enabled": true,
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:\\.(?<build>\\d+))?_(?<revision>\\d+)-(?<compatibility>.+)$"
+    },
+    {
+      "description": "메이저(Postgres 17·Redis 8·Java 21)는 목록에도 안 올림 — 데이터·런타임 이전이라 별도 결정",
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "같은 이미지는 PR 하나로 묶음",
+      "matchPackageNames": ["postgres", "redis", "eclipse-temurin"],
+      "groupName": "{{depName}}"
+    }
+  ]
+}

@@ -1,11 +1,14 @@
 # GROMO
 
+[![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml/badge.svg?branch=main&event=push)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml)
+
 집중한 시간을 캐릭터의 성장과 섬 활동으로 이어 주는 시간 관리 앱입니다.
 React Native(Expo) 앱과 네 개의 Spring Boot 서버를 한 저장소에서 관리합니다.
 
 | 바로 시작하기 | 문서 |
 | --- | --- |
 | 앱을 실행하고 싶어요 | [2.0 앱 시작하기](app/app-dev/README.md#로컬-실행) |
+| 서버 스모크 결과·실행 방법을 알고 싶어요 | [스모크 문서](smoke/README.md) |
 | 서버 구성을 알고 싶어요 | [서버 전체 문서](server/README.md) |
 | 기능 정책·설계를 찾고 싶어요 | [문서 인덱스](docs/README.md) |
 | 시스템의 목표 구조를 보고 싶어요 | [서비스 아키텍처](docs/architecture/service-architecture.md) |
