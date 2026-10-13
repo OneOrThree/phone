@@ -186,6 +186,49 @@
         }
       }
     },
+    "/internal/users/{userId}/focus-sessions/{sessionId}/live-activity": {
+      "put": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "registerLiveActivity",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveActivityRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/current-island": {
       "put": {
         "tags": [
@@ -4429,6 +4472,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "UTC"
+            }
           }
         ],
         "responses": {
@@ -4512,6 +4564,15 @@
             "schema": {
               "type": "integer",
               "format": "int32"
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "UTC"
             }
           }
         ],
@@ -5605,6 +5666,17 @@
           "deviceId": {
             "type": "string",
             "format": "uuid"
+          },
+          "finalized": {
+            "type": "boolean"
+          },
+          "windowStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "windowEnd": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -5668,6 +5740,23 @@
           "params": {
             "type": "object",
             "additionalProperties": {}
+          }
+        }
+      },
+      "LiveActivityRegistration": {
+        "type": "object",
+        "properties": {
+          "activityId": {
+            "type": "string"
+          },
+          "pushToken": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "catColor": {
+            "type": "string"
           }
         }
       },
@@ -8021,6 +8110,9 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "finalized": {
+            "type": "boolean"
           }
         }
       },

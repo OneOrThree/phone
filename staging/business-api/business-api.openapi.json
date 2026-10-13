@@ -122,6 +122,39 @@
         }
       }
     },
+    "/focus-sessions/{sessionId}/live-activity": {
+      "put": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "registerLiveActivity",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/users/me/notification-settings": {
       "get": {
         "tags": [
