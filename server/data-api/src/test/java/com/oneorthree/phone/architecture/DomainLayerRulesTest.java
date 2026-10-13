@@ -88,6 +88,10 @@ class DomainLayerRulesTest {
         LAYERS.put("notification", 7);      // 전 도메인 구독
         // shop 은 섬 통장(construction)을 차감하고 보유품(appearance)을 지급한다(GROMO-1781) — 둘 위.
         LAYERS.put("shop", 8);
+        // magazine 은 고양이 잡지(GROMO-2289)의 홍보 칸·꾸미기 재료 엔티티·리포지토리·순수 규칙뿐이다. 홍보비는 섬 통장
+        // (construction 6)에서 빠지고 재료는 카탈로그·보유품(appearance 7)을 읽으므로 둘 위다 — shop 과 같은 높이.
+        // 그 조합(신청·고치기·불러오기)은 internal(10)의 IslandPromotionService 가 한다.
+        LAYERS.put("magazine", 8);
         LAYERS.put("auth", 8);              // 진입·부가
         LAYERS.put("character", 8);
         LAYERS.put("bot", 8);

@@ -9,6 +9,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.io.IOException;
@@ -19,13 +20,13 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 잡지 홍보 신청·섬 소식 내부 경로 2종이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을
- * 통과하는지 검증한다 (GROMO-2267, {@code InternalIslandGuestbookAllowlistTest} 와 같은 방식). 허용목록에 없으면
- * 운영에서 403 이라 통합 테스트(자기 허용목록을 따로 등록한다)로는 오타를 못 잡는다.
+ * 잡지 홍보 신청·고치기·쓰기 화면·꾸미기 재료·섬 소식 내부 경로 5종이 <b>실제</b> {@code application-satellites.yml} 의
+ * business 허용목록을 통과하는지 검증한다 (GROMO-2267 · GROMO-2289, {@code InternalIslandGuestbookAllowlistTest} 와 같은
+ * 방식). 허용목록에 없으면 운영에서 403 이라 통합 테스트(자기 허용목록을 따로 등록한다)로는 오타를 못 잡는다.
  *
  * <p>경로는 컨트롤러 애노테이션에서, 허용목록은 배포되는 yml 에서 읽는다. 겨냥하는 실패는 «세그먼트 수»와 «메서드» 다:
  * 신청(POST, 통장에서 돈을 뺀다)과 소식(GET)은 마지막 세그먼트가 달라 한 줄로 합칠 수 없고, 합치면 조회 권한이
- * 신청을 연다.
+ * 신청을 연다. 고치기(PUT)는 홍보 id 세그먼트가 하나 더 깊다.
  */
 class InternalIslandPromotionAllowlistTest {
 
@@ -38,7 +39,7 @@ class InternalIslandPromotionAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalIslandPromotionController.class);
 
-        assertThat(routes).as("2종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(2);
+        assertThat(routes).as("5종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(5);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
@@ -55,16 +56,27 @@ class InternalIslandPromotionAllowlistTest {
         assertThat(allows(allow, "DELETE " + base + "/news")).isFalse();
         assertThat(allows(allow, "GET " + base + "/news/" + ID)).isFalse();
         assertThat(allows(allow, "POST " + base + "/promotions/" + ID)).isFalse();
+        assertThat(allows(allow, "DELETE " + base + "/promotions/" + ID)).isFalse();
+        assertThat(allows(allow, "PUT " + base + "/promotions")).isFalse();
+        assertThat(allows(allow, "PUT " + base + "/promotions/" + ID + "/" + ID)).isFalse();
+        assertThat(allows(allow, "POST " + base + "/promotions/editor")).isFalse();
+        assertThat(allows(allow, "PUT /internal/users/" + ID + "/magazine/assets")).isFalse();
+        assertThat(allows(allow, "GET /internal/users/" + ID + "/magazine/assets/" + ID)).isFalse();
+        // 섬 축(userId 없는) 고치기도 열리지 않는다.
+        assertThat(allows(allow, "PUT /internal/islands/" + ID + "/promotions/" + ID)).isFalse();
         // 섬 축(userId 없는) 경로로는 열리지 않는다 — 본인 명령은 사용자 축뿐이다.
         assertThat(allows(allow, "POST /internal/islands/" + ID + "/promotions")).isFalse();
         assertThat(allows(allow, "GET /internal/islands/" + ID + "/news")).isFalse();
     }
 
     @Test
-    @DisplayName("두 계약은 메서드·경로가 각각 달라 두 줄로 등록돼 있다")
-    void twoContractsAreSeparateEntries() throws IOException {
+    @DisplayName("다섯 계약은 메서드·경로가 각각 달라 다섯 줄로 등록돼 있다")
+    void fiveContractsAreSeparateEntries() throws IOException {
         assertThat(shippedBusinessAllowlist()).contains(
                 "POST /internal/users/*/islands/*/promotions",
+                "PUT /internal/users/*/islands/*/promotions/*",
+                "GET /internal/users/*/islands/*/promotions/editor",
+                "GET /internal/users/*/magazine/assets",
                 "GET /internal/users/*/islands/*/news");
     }
 
@@ -94,10 +106,13 @@ class InternalIslandPromotionAllowlistTest {
         for (Method method : controller.getDeclaredMethods()) {
             GetMapping get = method.getAnnotation(GetMapping.class);
             PostMapping post = method.getAnnotation(PostMapping.class);
+            PutMapping put = method.getAnnotation(PutMapping.class);
             if (get != null) {
                 routes.add("GET " + fill(prefix + first(get.value())));
             } else if (post != null) {
                 routes.add("POST " + fill(prefix + first(post.value())));
+            } else if (put != null) {
+                routes.add("PUT " + fill(prefix + first(put.value())));
             }
         }
         return routes;
