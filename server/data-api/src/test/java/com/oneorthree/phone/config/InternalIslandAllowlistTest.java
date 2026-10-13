@@ -45,9 +45,10 @@ class InternalIslandAllowlistTest {
         routes.addAll(routesOf(InternalIslandMembershipController.class));
         routes.addAll(routesOf(InternalIslandController.class));
 
-        // GROMO-2260 이 섬 도착(POST …/islands/{islandId}/arrivals) 1종을 더해 7종이다.
-        assertThat(routes).as("7종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
-                .hasSize(7);
+        // GROMO-2260 이 섬 도착(POST …/islands/{islandId}/arrivals), GROMO-2265 가 망원경(GET …/telescope)
+        // 1종씩을 더해 8종이다.
+        assertThat(routes).as("8종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
+                .hasSize(8);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
@@ -59,6 +60,7 @@ class InternalIslandAllowlistTest {
 
         assertThat(allows(allow, "POST /internal/users/" + ID + "/islands/" + ID)).isFalse();
         assertThat(allows(allow, "GET /internal/users/" + ID + "/islands/" + ID)).isFalse();
+        assertThat(allows(allow, "GET /internal/users/" + ID + "/telescope/" + ID)).isFalse();
         // GROMO-1802 가 `GET /internal/islands/*/members` 를 따로 열었다 — 그 아래 한 칸은 여전히 닫혀 있다.
         assertThat(allows(allow, "GET /internal/islands/" + ID + "/members/" + ID)).isFalse();
     }

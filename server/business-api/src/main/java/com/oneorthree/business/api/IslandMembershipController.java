@@ -8,6 +8,7 @@ import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandInvitatio
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandJoinResultView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestCancelView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.TelescopeView;
 import com.oneorthree.business.api.dto.IslandPage;
 import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
@@ -149,6 +150,12 @@ public class IslandMembershipController {
     @GetMapping("/me/islands")
     public MyIslandsResponse myIslands(HttpServletRequest request) {
         return islands.myIslands(sessions.requireSession(request), properties.deadline());
+    }
+
+    /** 망원경 목록 (GROMO-2265, 섬 외부 계약 §5). 전망대 게이트가 없고 게스트도 읽는다. */
+    @GetMapping("/me/telescope")
+    public TelescopeView telescope(HttpServletRequest request) {
+        return islands.telescope(sessions.requireSession(request), properties.deadline());
     }
 
     /** 현재 섬 이동 (LLD §3.6). */

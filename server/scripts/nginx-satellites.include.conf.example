@@ -95,6 +95,8 @@ location = /actuator { return 404; }
 # POST /islands/{islandId}/arrivals. 나가기·강퇴의 ?include=nextLocation, 편지의 ?kind=system 은 기존 경로의 쿼리다.
 # 섬장 인사말·방명록(GROMO-2262)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET·POST /islands/{islandId}/guestbook · DELETE /islands/{islandId}/guestbook/{entryId}. 인사말은 기존 PATCH /islands/{islandId} 의 필드다.
+# 망원경 목록(GROMO-2265)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /me/telescope.
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;
