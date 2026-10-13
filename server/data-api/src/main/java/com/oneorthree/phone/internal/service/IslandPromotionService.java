@@ -36,6 +36,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -188,7 +189,11 @@ public class IslandPromotionService {
     /**
      * 쓰기 화면 불러오기 — 섬장만(게스트 섬장은 컨트롤러가 403 {@code SOCIAL_LOGIN_REQUIRED} 로 막아 꾸민 뒤에 막히지
      * 않게 한다). {@code next} 는 아직 발행되지 않은 이 섬의 칸, {@code latest} 는 그보다 앞선 가장 최근 칸이다.
+     *
+     * <p>한 스냅샷에서 읽도록 REPEATABLE READ 다 — 칸 조회와 잔액 조회 사이에 신청이 커밋돼도 「next 없음 + 이미 60마리
+     * 빠진 잔액」 처럼 서로 다른 순간이 섞이지 않는다(주간 랭킹 {@code IslandRankingsService.islands} 와 같은 이유).
      */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public IslandPromotionViews.Editor editor(UUID userId, UUID islandId) {
         Group island = requireHost(userId, islandId);
         Instant now = clock.instant();
