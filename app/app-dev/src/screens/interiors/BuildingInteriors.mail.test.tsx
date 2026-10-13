@@ -4,7 +4,7 @@ import { Linking, Platform } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
-import { initialState } from '@/services/model';
+import { initialState, reducer } from '@/services/model';
 import {
   markUserBlocked,
   replaceBlockedUsers,
@@ -526,4 +526,55 @@ test('목업 ?review — e 가 있어도 우체통 API 는 0건이다', async ()
   } finally {
     restore();
   }
+});
+
+test('우체통 첫 화면 — 섬장에게만 「우리 섬 홍보 쓰기」 입구가 있고 누르면 쓰기 화면으로 간다(GROMO-2289)', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const host = makeE({ tab: '' });
+    const ui = await renderMail(host);
+    await fireEvent.press(ui.getByTestId('mail-home-promotion'));
+    expect(host.go).toHaveBeenCalledWith('promotionEditor');
+    await ui.unmount();
+
+    const state = initialState(true);
+    state.islands[0].members[0].role = 'host';
+    const member = await renderMail(makeE({ tab: '', state }));
+    expect(member.queryByTestId('mail-home-promotion')).toBeNull();
+    await member.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('서버 모드 — 홍보 입구는 로컬 목업 섬이 아니라 서버 홈 스냅샷의 역할로 판정한다(GROMO-2289)', async () => {
+  screenMock.mockResolvedValue(screen([]));
+  // ISLAND_SYNC 는 서버 id 와 다른 로컬 목업 섬의 가입을 내린다 — 로컬 섬으로 판정하면 실제 섬장도 입구를 못 본다
+  const serverState = (role: 'host' | 'member') =>
+    reducer(
+      reducer(initialState(true), {
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: ISLAND, name: '소다 섬' }],
+          currentIslandId: ISLAND,
+          nextCursor: null,
+          lossReason: null,
+        },
+      }),
+      {
+        type: 'SERVER_HOME',
+        facts: {
+          islandId: ISLAND,
+          completedBuildings: ['hall', 'mail'],
+          home: { island: { id: ISLAND, role }, wallets: { villagePoints: 0 } },
+        },
+      },
+    );
+  const host = await renderMail(makeE({ tab: '', state: serverState('host') }));
+  await waitFor(() => assert.ok(host.getByTestId('mail-home-promotion')));
+  await host.unmount();
+  const member = await renderMail(makeE({ tab: '', state: serverState('member') }));
+  await waitFor(() => assert.ok(member.getByTestId('mail-home-0')));
+  assert.equal(member.queryByTestId('mail-home-promotion'), null);
+  await member.unmount();
 });
