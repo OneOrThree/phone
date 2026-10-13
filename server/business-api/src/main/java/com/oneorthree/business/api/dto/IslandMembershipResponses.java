@@ -141,16 +141,46 @@ public final class IslandMembershipResponses {
         }
     }
 
+    /**
+     * 초대 해석 결과.
+     *
+     * @param arrival 초대로 그 섬에 도착한 결과 (GROMO-2264). 도착을 요청({@code arrive=true})하지 않은 미리보기와 구 Data
+     *     서버와 붙은 동안은 null 이다
+     */
     public record InvitationResolvedView(
             @JsonProperty(required = true) IslandSummaryView island,
-            @JsonProperty(required = true) String invitationToken) {
+            @JsonProperty(required = true) String invitationToken,
+            InvitationArrivalView arrival) {
         public static InvitationResolvedView from(InvitationResolved value) {
             if (value == null) {
                 return null;
             }
             return new InvitationResolvedView(
                     IslandSummaryView.from(value.island()),
-                    value.invitationToken());
+                    value.invitationToken(),
+                    InvitationArrivalView.from(value.arrival()));
+        }
+    }
+
+    /**
+     * 초대 도착 결과 (GROMO-2264, 섬 외부 계약 §4) — 해석은 그 섬에 항해 없이 도착하고, 누구나 가입 섬이면 가입까지 한다.
+     * 승인제 섬은 도착만이다 — 승인 전까지 방문자이고 가입 신청은 방문자가 직접 한다.
+     *
+     * @param membershipStatus {@code active|pending|none} — 해석 뒤 본인 기준. {@code pending} 은 이미 열려 있던 신청이다
+     * @param reason 이 섬에 가입·신청을 할 수 없는 사유 {@code ISLAND_LIMIT}(소속 섬 3개)·{@code KICKED}(강퇴된 섬). 없으면 키가
+     *     없다
+     */
+    public record InvitationArrivalView(
+            @JsonProperty(required = true) UUID islandId,
+            @JsonProperty(required = true) boolean arrived,
+            @JsonProperty(required = true) String membershipStatus,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String reason) {
+        public static InvitationArrivalView from(InvitationResolved.Arrival value) {
+            if (value == null) {
+                return null;
+            }
+            return new InvitationArrivalView(value.islandId(), value.arrived(), value.membershipStatus(),
+                    value.reason());
         }
     }
 

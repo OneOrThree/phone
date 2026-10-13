@@ -65,6 +65,8 @@ public class IslandMembershipController {
     /** 가입 본문의 화이트리스트 — {@code origin} 은 GROMO-2260 에서 열었다. */
     private static final Set<String> JOIN_KEYS = Set.of("invitationToken", "origin");
     private static final Set<String> JOIN_ORIGINS = Set.of("visit", "telescope");
+    /** 초대 해석 본문의 화이트리스트 — {@code arrive} 는 GROMO-2264 에서 열었다(도착 opt-in). */
+    private static final Set<String> RESOLVE_KEYS = Set.of("code", "arrive");
     /**
      * 정원 범위 — 정책 「정원은 1~15명」(GROMO-1993). 길이 상한과 같은 «모양» 판정이라 Business 가
      * 네트워크 전에 먼저 거른다. Data 의 {@code @Min}/{@code @Max} 가 여전히 최종 경계다.
@@ -236,17 +238,27 @@ public class IslandMembershipController {
     }
 
     /**
-     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 조회 성격이라 멱등키를 요구하지 않는다.
+     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 본문은 {@code {code, arrive?}} 다.
+     *
+     * <p>기본은 읽기 전용 미리보기다. {@code arrive=true} 일 때만 그 섬에 항해 없이 도착하고, 누구나 가입 섬이면 가입까지
+     * 한다(GROMO-2264) — 승인제 섬은 도착만이다(가입 신청은 방문자가 직접). 도착은 명시적 opt-in 이라 미리보기만 하는 앱은
+     * 아무것도 바뀌지 않는다. 다시 불러도 같은 상태로 수렴해 멱등키를 요구하지 않는다.
      * 형식·폐기 판정(422/410)은 상류 몫이다 — 여기서 미리 걸러 의미를 갉아먹지 않는다.
      */
     @PostMapping(value = "/invitations/resolve", consumes = "application/json")
     public InvitationResolvedView resolveInvitation(@RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        if (body == null || !body.isObject() || body.size() != 1) {
+        if (body == null || !body.isObject() || body.size() == 0 || !RESOLVE_KEYS.containsAll(body.propertyNames())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
-        return islands.resolveInvitation(claims, requiredText(body, "code", CODE_MAX), properties.deadline());
+        JsonNode arrive = body.get("arrive");
+        // 명시된 null·문자열·숫자는 400 이다 — 「안 보냄」(미리보기)과 구분한다.
+        if (arrive != null && !arrive.isBoolean()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "arrive");
+        }
+        return islands.resolveInvitation(claims, requiredText(body, "code", CODE_MAX),
+                arrive != null && arrive.booleanValue(), properties.deadline());
     }
 
     /** 섬 초대 발급 (GROMO-1760, LLD §3.11). 본문 없음, 활성 주민만 발급된다. */

@@ -57,7 +57,8 @@ class IslandJoinContractTest extends UpstreamTestBase {
             + "\",\"status\":\"pending\",\"version\":0}";
     private static final String CANCELLED = "{\"id\":\"" + REQUEST + "\",\"status\":\"cancelled\"}";
     private static final String RESOLVED = "{\"island\":" + SUMMARY
-            + ",\"invitationToken\":\"opaque-token\"}";
+            + ",\"invitationToken\":\"opaque-token\",\"arrival\":{\"islandId\":\"" + ISLAND
+            + "\",\"arrived\":true,\"membershipStatus\":\"none\",\"reason\":\"ISLAND_LIMIT\"}}";
     private static final String ISSUED = "{\"code\":\"abcd2345\",\"url\":\"https://example.test/i/abcd2345\","
             + "\"expiresAt\":null}";
 
@@ -217,6 +218,62 @@ class IslandJoinContractTest extends UpstreamTestBase {
 
         assertThat(DATA.receivedFor(DATA_RESOLVE).get(0).header("Idempotency-Key")).isNull();
         assertThat(DATA.receivedFor(DATA_RESOLVE).get(0).body()).isEqualTo("{\"code\":\"abcd2345\"}");
+    }
+
+    @Test
+    @DisplayName("arrive 는 true 일 때만 상류에 싣는다 — 기본·false 는 종전 미리보기 바이트이고 arrival 은 null 이다")
+    void resolveForwardsArriveOnlyWhenRequested() throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String preview = "{\"island\":" + SUMMARY + ",\"invitationToken\":\"opaque-token\"}";
+        DATA.on(DATA_RESOLVE, request -> ok(preview));
+        for (String body : new String[] {"{\"code\":\"abcd2345\"}", "{\"code\":\"abcd2345\",\"arrive\":false}"}) {
+            mockMvc.perform(auth(post("/invitations/resolve"))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
+                    .andExpect(jsonPath("$.data.arrival").value(nullValue()));
+        }
+        assertThat(DATA.receivedFor(DATA_RESOLVE)).extracting(MockUpstream.RecordedRequest::body)
+                .containsExactly("{\"code\":\"abcd2345\"}", "{\"code\":\"abcd2345\"}");
+
+        // 도착 요청 — 상류의 도착 결과를 싣고, 사유가 없으면 reason 키가 없다.
+        DATA.reset();
+        DATA.on(DATA_RESOLVE, request -> ok("{\"island\":" + SUMMARY + ",\"invitationToken\":\"opaque-token\","
+                + "\"arrival\":{\"islandId\":\"" + ISLAND + "\",\"arrived\":true,\"membershipStatus\":\"none\","
+                + "\"reason\":null}}"));
+        var result = mockMvc.perform(auth(post("/invitations/resolve"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"abcd2345\",\"arrive\":true}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data").path("arrival"))
+                .isEqualTo(json.readTree("{\"islandId\":\"" + ISLAND
+                        + "\",\"arrived\":true,\"membershipStatus\":\"none\"}"));
+        assertThat(json.readTree(DATA.receivedFor(DATA_RESOLVE).get(0).body()))
+                .isEqualTo(json.readTree("{\"code\":\"abcd2345\",\"arrive\":true}"));
+
+        // 구 Data 서버 — arrive 를 모르는 필드로 무시하고 미리보기로 답한다. 실패가 아니라 arrival=null 이다.
+        DATA.reset();
+        DATA.on(DATA_RESOLVE, request -> ok(preview));
+        mockMvc.perform(auth(post("/invitations/resolve"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"abcd2345\",\"arrive\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.arrival").value(nullValue()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"code\":\"abcd2345\",\"arrive\":\"true\"}", "{\"code\":\"abcd2345\",\"arrive\":1}",
+            "{\"code\":\"abcd2345\",\"arrive\":null}"})
+    @DisplayName("arrive 가 boolean 이 아니면(명시된 null 포함) 네트워크 전에 400 field=arrive 다")
+    void nonBooleanArriveIsRejectedBeforeTheNetwork(String body) throws Exception {
+        DATA.on(DATA_RESOLVE, request -> ok(RESOLVED));
+
+        mockMvc.perform(auth(post("/invitations/resolve"))
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.field").value("arrive"));
+        assertThat(DATA.received()).isEmpty();
     }
 
     // ---------------------------------------------------------------- 상태·취소·발급
@@ -467,7 +524,8 @@ class IslandJoinContractTest extends UpstreamTestBase {
             "/islands/{islandId}/memberships|post|200||status requestId islandId currentIslandId version|status requestId islandId currentIslandId version",
             "/me/join-requests/{requestId}|get|200||id islandId status version|id islandId status version",
             "/me/join-requests/{requestId}|delete|200||id status|id status",
-            "/invitations/resolve|post|200||island invitationToken|island invitationToken",
+            "/invitations/resolve|post|200||island invitationToken arrival|island invitationToken",
+            "/invitations/resolve|post|200|arrival|islandId arrived membershipStatus reason|islandId arrived membershipStatus",
             "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId arrivedBefore greeting greetingIsDefault|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
             "/islands/{islandId}/invitations|post|200||code url expiresAt|code url expiresAt"})
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
