@@ -1,11 +1,16 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.IslandPromotionViews;
+import com.oneorthree.phone.internal.dto.MagazineViews;
 import com.oneorthree.phone.internal.service.GuestAccountGuards;
+import com.oneorthree.phone.internal.service.IslandPromotionReportService;
 import com.oneorthree.phone.internal.service.IslandPromotionService;
+import com.oneorthree.phone.internal.service.MagazineFunnelService;
+import jakarta.validation.Valid;
 import com.oneorthree.phone.magazine.support.PromotionContent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,6 +41,8 @@ import java.util.UUID;
 public class InternalIslandPromotionController {
 
     private final IslandPromotionService promotions;
+    private final IslandPromotionReportService reports;
+    private final MagazineFunnelService funnel;
     private final GuestAccountGuards guestAccountGuards;
 
     @PostMapping("/islands/{islandId}/promotions")
@@ -57,6 +64,25 @@ public class InternalIslandPromotionController {
     public IslandPromotionViews.Editor editor(@PathVariable UUID userId, @PathVariable UUID islandId) {
         guestAccountGuards.requireMember(userId);
         return promotions.editor(userId, islandId);
+    }
+
+    /**
+     * 홍보 칸 신고 (GROMO-2289) — 새 신고 201, 이미 신고함 200, 본문은 같다. 소셜 로그인 계정만 — 게스트 계정으로 경쟁 섬 칸을
+     * 숨기는 악용을 막는다(계획 P10).
+     */
+    @PostMapping("/islands/{islandId}/promotions/{promotionId}/reports")
+    public ResponseEntity<MagazineViews.Reported> report(@PathVariable UUID userId, @PathVariable UUID islandId,
+            @PathVariable UUID promotionId, @Valid @RequestBody MagazineViews.ReportRequest body) {
+        guestAccountGuards.requireMember(userId);
+        MagazineViews.Reported reported = reports.report(userId, islandId, promotionId, body.reason());
+        return ResponseEntity.status(reported.created() ? HttpStatus.CREATED : HttpStatus.OK).body(reported);
+    }
+
+    /** 회관 홍보 기록판 (GROMO-2289) — 주민만, 게스트 주민도 읽는다. */
+    @GetMapping("/islands/{islandId}/promotions/records")
+    public MagazineViews.RecordPage records(@PathVariable UUID userId, @PathVariable UUID islandId,
+            @RequestParam(defaultValue = "20") int limit) {
+        return funnel.records(userId, islandId, limit);
     }
 
     @GetMapping("/magazine/assets")

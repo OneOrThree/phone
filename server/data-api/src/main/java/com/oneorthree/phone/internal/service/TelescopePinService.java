@@ -53,12 +53,15 @@ import java.util.UUID;
 public class TelescopePinService {
 
     private static final LocalTime RESET_TIME = LocalTime.of(7, 0);
+    /** 잡지 칸에서 넣은 핀의 출처. */
+    private static final String SOURCE_MAGAZINE = "magazine";
 
     private final UserQueryService userQueryService;
     private final GroupQueryService groupQueryService;
     private final GroupMemberRepository groupMemberRepository;
     private final TelescopePinRepository pins;
     private final TelescopeService telescope;
+    private final MagazineFunnelService magazineFunnel;
     private final Clock clock;
 
     /**
@@ -74,12 +77,13 @@ public class TelescopePinService {
      * @param userId   핀의 주인 — 게스트도 된다
      * @param islandId 넣을 섬
      * @param source   {@code magazine|observatory}
+     * @param promotionId 잡지 칸에서 넣었으면 그 홍보(없으면 null) — 잡지 경유 집계(PIN)만 남기고 핀 넣기 자체에는 영향이 없다
      * @return 목록에서 보이는 그대로의 항목과 밀려난 핀(없으면 null)
      * @throws GroupException 없는·종료·비공개 섬 {@code GROUP_NOT_FOUND}(404) · 강퇴된 섬 {@code KICKED_CANNOT_REJOIN}(403) ·
      *                        이미 내 소속인 섬 {@code ALREADY_MEMBER}(409)
      */
     @Transactional
-    public TelescopePinView pin(UUID userId, UUID islandId, String source) {
+    public TelescopePinView pin(UUID userId, UUID islandId, String source, UUID promotionId) {
         User caller = userQueryService.getCallerForUpdate(userId);
         Instant now = clock.instant();
         Group island = groupQueryService.findGroup(islandId).filter(IslandMovementGuards::isAlive)
@@ -97,6 +101,9 @@ public class TelescopePinService {
 
         pins.deleteExpiredOf(userId, now);
         boolean created = pins.insertIfAbsent(userId, islandId, source, now, nextReset(now)) == 1;
+        if (promotionId != null && SOURCE_MAGAZINE.equals(source)) {
+            magazineFunnel.recordPin(userId, islandId, promotionId, now);
+        }
         // 새 핀이든 이미 있던 핀이든 민다 — 되살아난 핀 때문에 보이는 핀이 이미 한도를 넘어 있을 수 있다. 넣는 섬은 빼고 민다.
         TelescopePinView.Evicted evicted = evictOverflow(userId, now, islandId);
         // 응답의 항목은 목록이 이 핀을 내는 바로 그 항목이다 — 같은 시각으로 조립해 GET 과 어긋나지 않는다.

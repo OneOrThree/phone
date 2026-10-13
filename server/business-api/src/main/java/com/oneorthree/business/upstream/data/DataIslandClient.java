@@ -92,6 +92,11 @@ public class DataIslandClient {
     private static final String PATH_ISLAND_PROMOTION =
             "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}";
     private static final String PATH_MAGAZINE_ASSETS = "/internal/users/{userId}/magazine/assets";
+    // GROMO-2289 홍보 칸 신고·우리 섬 홍보 기록판 — 사용자 축이다.
+    private static final String PATH_ISLAND_PROMOTION_REPORTS =
+            "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}/reports";
+    private static final String PATH_ISLAND_PROMOTION_RECORDS =
+            "/internal/users/{userId}/islands/{islandId}/promotions/records";
     // GROMO-2289 고양이 잡지 읽기 — 오늘 호·최근 7호·한 호 펼치기·받기 기록, 모두 사용자 축이다.
     private static final String PATH_MAGAZINE_TODAY = "/internal/users/{userId}/magazine/today";
     private static final String PATH_MAGAZINE_ISSUES = "/internal/users/{userId}/magazine/issues";
@@ -224,12 +229,16 @@ public class DataIslandClient {
                 new ParameterizedTypeReference<Telescope>() { });
     }
 
-    /** 망원경에 섬 넣기 (GROMO-2268) — 재시도하지 않는다(재시도하면 밀려난 핀 알림이 사라진다). */
-    public TelescopePin pinTelescope(UUID userId, UUID islandId, String source, Deadline deadline) {
+    /**
+     * 망원경에 섬 넣기 (GROMO-2268) — 재시도하지 않는다(재시도하면 밀려난 핀 알림이 사라진다). {@code promotionId} 는
+     * 잡지 홍보 칸에서 넣었을 때 그 홍보다(GROMO-2289, 「잡지 경유」 집계) — 없으면 본문에 싣지 않는다.
+     */
+    public TelescopePin pinTelescope(UUID userId, UUID islandId, String source, UUID promotionId,
+            Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, userPath(PATH_TELESCOPE_PINS, userId))
                         .onBehalfOf(userId)
-                        .body(new TelescopePinCommand(islandId, source))
+                        .body(new TelescopePinCommand(islandId, source, promotionId))
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<TelescopePin>() { });
@@ -441,6 +450,38 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<Magazines.Receipt>() { });
+    }
+
+    /**
+     * 홍보 칸 신고 (GROMO-2289) — 명령 키가 없고 재시도하지 않는다(POST). 같은 사람의 두 번째 신고는 Data 가 200 으로
+     * 받아 주므로 앱이 다시 눌러도 안전하다.
+     */
+    public IslandPromotions.Report reportPromotion(UUID userId, UUID islandId, UUID promotionId, String reason,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_ISLAND_PROMOTION_REPORTS, userId)
+                                        .replace("{islandId}", islandId.toString())
+                                        .replace("{promotionId}", promotionId.toString()))
+                        .onBehalfOf(userId)
+                        .body(new PromotionReportCommand(reason))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.Report>() { });
+    }
+
+    /** 우리 섬 홍보 기록판 (GROMO-2289) — 주민만 읽는다. 멱등 GET 이라 재시도한다. */
+    public IslandPromotions.RecordPage fetchPromotionRecords(UUID userId, UUID islandId, int limit,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET,
+                                userPath(PATH_ISLAND_PROMOTION_RECORDS, userId)
+                                        .replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.RecordPage>() { });
     }
 
     /** 섬 소식 (GROMO-2267) — 주민만 읽는다. 멱등 GET 이라 재시도한다. */
@@ -822,8 +863,9 @@ public class DataIslandClient {
     record GuestbookWriteCommand(String content) {
     }
 
-    /** 망원경 핀 넣기 본문 (GROMO-2268). 주인은 X-User-Id 로 간다. */
-    record TelescopePinCommand(UUID islandId, String source) {
+    /** 망원경 핀 넣기 본문 (GROMO-2268). 주인은 X-User-Id 로 간다. {@code promotionId} 는 잡지 경유일 때만 싣는다(GROMO-2289). */
+    record TelescopePinCommand(UUID islandId, String source,
+            @JsonInclude(JsonInclude.Include.NON_NULL) UUID promotionId) {
     }
 
     /** 공지 작성 본문 (GROMO-1771). 작성자는 X-User-Id 로 간다. */
@@ -836,6 +878,10 @@ public class DataIslandClient {
 
     /** 홍보 신청·고치기 본문 (GROMO-2289) — {@code layout} 은 앱이 보낸 JSON 객체 그대로다. */
     record PromotionCommand(String body, JsonNode layout) {
+    }
+
+    /** 홍보 칸 신고 본문 (GROMO-2289). 신고자는 X-User-Id 로 간다. */
+    record PromotionReportCommand(String reason) {
     }
 
     /** 잡지 받기 기록 본문 (GROMO-2289). {@code deferred}·{@code opened} 는 앱이 보내지 않았으면 null 이다. */

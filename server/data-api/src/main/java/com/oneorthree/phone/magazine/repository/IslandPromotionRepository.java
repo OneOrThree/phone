@@ -1,13 +1,16 @@
 package com.oneorthree.phone.magazine.repository;
 
 import com.oneorthree.phone.magazine.repository.domain.IslandPromotion;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,4 +45,15 @@ public interface IslandPromotionRepository extends JpaRepository<IslandPromotion
     List<IslandPromotion> findVisiblePage(@Param("issueDate") LocalDate issueDate,
                                           @Param("afterAppliedAt") Instant afterAppliedAt,
                                           @Param("afterId") UUID afterId, Pageable page);
+
+    /** 이 섬의 칸, 최신 호 먼저 {@code limit} 건 — 회관 홍보 기록판. */
+    List<IslandPromotion> findByIslandIdOrderByIssueDateDesc(UUID islandId, Pageable page);
+
+    /** 그 호에 신청된 섬들의 칸 — 망원경의 잡지 칸 미리보기가 한 번에 읽는다. */
+    List<IslandPromotion> findByIssueDateAndIslandIdIn(LocalDate issueDate, Collection<UUID> islandIds);
+
+    /** 신고가 숨김 판정 전에 잡는 배타 잠금 — 같은 칸의 신고를 줄 세워 3건째를 놓치지 않게 한다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM IslandPromotion p WHERE p.id = :id")
+    Optional<IslandPromotion> findForUpdate(@Param("id") UUID id);
 }

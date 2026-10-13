@@ -81,4 +81,43 @@ public final class MagazineViews {
                        int maxMembers, Integer averageFocusMinutesPerDay, String body, PromotionContent.Layout layout,
                        Relation relation) {
     }
+
+    /** 홍보 칸 신고 사유 — 앱의 유저 신고 창과 같은 8종. */
+    public enum ReportReason {
+        HARASSMENT, HATE, SPAM_FRAUD, SEXUAL, CHILD_SAFETY, THREAT, PRIVACY_IMPERSONATION, OTHER
+    }
+
+    public record ReportRequest(@NotNull ReportReason reason) {
+    }
+
+    /** @param created 이번에 새로 남긴 신고인가 — 컨트롤러가 201·200 을 고른다(공개 응답에는 {@code reported} 만 나간다) */
+    public record Reported(boolean reported, boolean created) {
+    }
+
+    /** 회관 홍보 기록판의 상태. */
+    public enum RecordStatus {
+        /** 아직 발행 전. */
+        SCHEDULED,
+        PUBLISHED,
+        /** 홍보비는 냈지만 실리지 않음 — 발행 순간 비공개·닫힌 섬, 또는 그날 발행 실패. */
+        SKIPPED,
+        /** 신고 3건으로 숨김(운영 확인 대기). */
+        HIDDEN,
+        /** 운영이 내림. */
+        REMOVED
+    }
+
+    /** 최신 호 먼저. */
+    public record RecordPage(List<RecordItem> items) {
+    }
+
+    /**
+     * @param issueNo 실린 호의 호수 — 호가 아직 없으면 null
+     * @param pinned  잡지 칸에서 망원경에 넣은 사람 수
+     * @param arrived 그중 현재 호 동안 항해해 도착한 사람 수
+     * @param joined  그중 현재 호 동안 가입이 성립한 사람 수
+     */
+    public record RecordItem(UUID promotionId, LocalDate issueDate, Integer issueNo, String body, RecordStatus status,
+                             int pinned, int arrived, int joined) {
+    }
 }
