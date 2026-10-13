@@ -176,6 +176,12 @@ internal:
           - 'PUT /internal/users/*/islands/*/promotions/*'
           - 'GET /internal/users/*/islands/*/promotions/editor'
           - 'GET /internal/users/*/magazine/assets'
+          # GROMO-2289 잡지 읽기·받음 4종 — 게스트도 읽는 본인 조회·기록. 호 목록(…/issues)과 호 한 권(…/issues/*)은
+          # 세그먼트 수가 달라 줄을 합치지 않고, 받음(PUT …/receipt)은 한 세그먼트 더 깊다.
+          - 'GET /internal/users/*/magazine/today'
+          - 'GET /internal/users/*/magazine/issues'
+          - 'GET /internal/users/*/magazine/issues/*'
+          - 'PUT /internal/users/*/magazine/issues/*/receipt'
           # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
           - 'GET /internal/islands/*/focus-members'
           - 'GET /internal/islands/*/rest-members'

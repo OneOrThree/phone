@@ -14,6 +14,7 @@ import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.invitelink.service.InviteLinkMatchService;
 import com.oneorthree.phone.item.service.EquipmentService;
 import com.oneorthree.phone.league.service.LeagueService;
+import com.oneorthree.phone.magazine.repository.MagazineReceiptRepository;
 import com.oneorthree.phone.notification.service.RankOvertakeNotificationService;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.quest.service.IslandQuestService;
@@ -73,6 +74,7 @@ public class AccountWithdrawalService {
     private final FocusSessionIntervalRepository focusSessionIntervalRepository;
     private final FocusStatisticsSnapshotRepository focusStatisticsSnapshotRepository;
     private final ScreenTimeObservationRepository screenTimeObservationRepository;
+    private final MagazineReceiptRepository magazineReceiptRepository;
     private final StatsService statsService;
     private final ScreenTimeService screenTimeService;
     private final UserService userService;
@@ -176,6 +178,8 @@ public class AccountWithdrawalService {
         // 바다 집중 누적(GROMO-2274 · 계약 §0 N42) — 개인 이력이라 지운다. 유저 행은 익명화만 되고 삭제되지 않아
         // 테이블의 ON DELETE CASCADE 가 돌지 않는다. 지급된 상품은 바로 위 appearanceService 가 이미 지웠다.
         seaFocusRewardService.eraseWithdrawnUser(userId);
+        // 고양이 잡지 받음 상태(GROMO-2289 V115) — 개인 열람 기록이라 지운다. 유저 행이 지워지지 않아 CASCADE 가 돌지 않는다.
+        magazineReceiptRepository.deleteAllOfUser(userId);
         islandQuestService.eraseWithdrawnUser(userId);
 
         // 제약 ①의 오른쪽 — 위 내기 해제 환불이 이미 입금된 뒤여야 한다.

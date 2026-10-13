@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -52,4 +53,20 @@ public interface IslandFacilityRepository extends JpaRepository<IslandFacility, 
             + "AND f.status = 'COMPLETED' AND f.islandId IN :islandIds")
     boolean existsCompletedInAny(@Param("buildingId") String buildingId,
                                  @Param("islandIds") List<UUID> islandIds);
+
+    /**
+     * 섬마다 완공 시설 수 — 고양이 잡지 발행이 칸·편집부 섬의 그림 단계용 숫자를 한 번에 센다(GROMO-2289). 완공 시설이 없는
+     * 섬은 행이 없다(호출측이 0 으로 본다).
+     */
+    @Query("SELECT f.islandId AS islandId, COUNT(f) AS buildingCount FROM IslandFacility f "
+            + "WHERE f.status = 'COMPLETED' AND f.islandId IN :islandIds GROUP BY f.islandId")
+    List<CompletedCount> countCompletedByIslandIdIn(@Param("islandIds") Collection<UUID> islandIds);
+
+    /** {@link #countCompletedByIslandIdIn} 결과 한 행. */
+    interface CompletedCount {
+
+        UUID getIslandId();
+
+        long getBuildingCount();
+    }
 }
