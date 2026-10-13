@@ -125,6 +125,7 @@ import {
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
+import { Telescope } from '@/screens/island/Telescope';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
@@ -547,19 +548,8 @@ function CurrentScreensContent({ e }: any) {
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (r === 'raft') return <RaftDestinations e={e} />;
-  if (r === 'telescope')
-    // TODO E1-4·2266 망원경 화면이 생기면 이 자리표시를 바꾼다
-    return (
-      <IslandSheet
-        bg="dock"
-        sign="boat/raft"
-        title={t('home.raft.telescope')}
-        onBack={e.back}
-        onClose={e.home}
-      >
-        <Txt kind="meta">{t('home.raft.comingSoon')}</Txt>
-      </IslandSheet>
-    );
+  // TODO E1-4 먼바다 화면이 생기면 바다 담당이 이 임시 입구(뗏목 행선지 「망원경」)와 함께 정리한다
+  if (r === 'telescope') return <Telescope e={e} />;
   if (['boat', 'mainIsland', 'currentIsland', 'friends', 'friendSearch'].includes(r))
     return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;

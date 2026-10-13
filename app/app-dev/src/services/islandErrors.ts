@@ -1,5 +1,5 @@
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
-import { errorText, getLocale } from '@/i18n';
+import { errorText, getLocale, t } from '@/i18n';
 
 /** 섬 진입·가입·선택에서 사용하는 사용자 안내. 서버 내부 문구는 그대로 노출하지 않는다. */
 export function islandErrorMessage(error: unknown, facility?: 'board' | 'tower'): string {
@@ -28,6 +28,8 @@ export function islandErrorMessage(error: unknown, facility?: 'board' | 'tower')
     VERSION_CONFLICT: '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.',
     REQUEST_IN_PROGRESS: '처리 중이에요. 잠시 뒤 다시 시도해 주세요.',
     ISLAND_NOT_ARRIVED: '아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.',
+    // 망원경 [바로 가입]의 409(GROMO-2266) — 서버 문구와 같은 글을 JSON 한 곳에서 가져온다.
+    ISLAND_LIMIT_EXCEEDED: t('errors.ISLAND_LIMIT_EXCEEDED'),
     FORBIDDEN: '이 작업을 할 권한이 없어요. 소속을 다시 확인해 주세요.',
   };
   return messages[error.code] ?? '연결을 확인한 뒤 다시 시도해 주세요.';

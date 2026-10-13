@@ -103,6 +103,32 @@ test('작은 배지는 글자 크기 확대 시 늘어날 수 있도록 최소 �
   expect(badge.paddingVertical).toBeGreaterThan(0);
 });
 
+test('Badge 는 numberOfLines·style 을 안 넘기면 예전 그대로이고, 넘기면 줄 수와 배치만 바뀐다', async () => {
+  const { getByText } = await render(
+    <>
+      <Badge soft>평범</Badge>
+      <Badge soft numberOfLines={2} style={{ alignSelf: 'center', maxWidth: 128 }}>
+        긴 이름
+      </Badge>
+    </>,
+  );
+  const plain = getByText('평범');
+  // 안 넘기면: 줄 수 제한 없음 · 바깥 스타일은 배열이 아닌 단일 객체 · 왼쪽 정렬
+  expect(plain.props.numberOfLines).toBeUndefined();
+  expect(Array.isArray(plain.parent?.props.style)).toBe(false);
+  const base = StyleSheet.flatten(plain.parent?.props.style);
+  expect(base.alignSelf).toBe('flex-start');
+  expect(base.maxWidth).toBeUndefined();
+  // 넘기면: 글자가 그 줄 수에서 잘리고, style 이 배치를 덮어쓰되 색·테두리 토큰은 그대로다
+  const capped = getByText('긴 이름');
+  expect(capped.props.numberOfLines).toBe(2);
+  const over = StyleSheet.flatten(capped.parent?.props.style);
+  expect(over.alignSelf).toBe('center');
+  expect(over.maxWidth).toBe(128);
+  expect(over.backgroundColor).toBe(componentTokens.badge.soft.background);
+  expect(over.borderColor).toBe(componentTokens.badge.soft.border);
+});
+
 test('Field placeholder는 대비 기준을 넘는 input.placeholder 토큰을 쓴다', async () => {
   const { getByLabelText } = await render(
     <Field label="이름" value="" onChange={() => {}} placeholder="입력" />,
