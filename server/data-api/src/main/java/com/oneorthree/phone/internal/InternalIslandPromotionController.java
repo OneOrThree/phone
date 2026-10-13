@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -40,16 +41,16 @@ public class InternalIslandPromotionController {
     @PostMapping("/islands/{islandId}/promotions")
     @ResponseStatus(HttpStatus.CREATED)
     public IslandPromotionViews.Created promote(@PathVariable UUID userId, @PathVariable UUID islandId,
-            @RequestHeader("Idempotency-Key") UUID idempotencyKey, @RequestBody PromotionContent content) {
+            @RequestHeader("Idempotency-Key") UUID idempotencyKey, @RequestBody Map<String, Object> body) {
         guestAccountGuards.requireMember(userId);
-        return promotions.promote(userId, islandId, idempotencyKey, content);
+        return promotions.promote(userId, islandId, idempotencyKey, PromotionContent.from(body));
     }
 
     @PutMapping("/islands/{islandId}/promotions/{promotionId}")
     public IslandPromotionViews.Updated update(@PathVariable UUID userId, @PathVariable UUID islandId,
-            @PathVariable UUID promotionId, @RequestBody PromotionContent content) {
+            @PathVariable UUID promotionId, @RequestBody Map<String, Object> body) {
         guestAccountGuards.requireMember(userId);
-        return promotions.update(userId, islandId, promotionId, content);
+        return promotions.update(userId, islandId, promotionId, PromotionContent.from(body));
     }
 
     @GetMapping("/islands/{islandId}/promotions/editor")

@@ -320,22 +320,25 @@ class SeaFocusRewardServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("고양이 잡지 시즌 재료 — 스티커·칸 틀은 개인 인벤토리에 들어가고 테이프는 건너뛴다(GROMO-2289)")
-    void magazineStickersAndFramesAreGrantedButTapesAreNot() {
+    @DisplayName("고양이 잡지 재료는 퇴역하지 않은 season 부가 정보가 있는 스티커·칸 틀만 준다 — 무료·부가 정보 없음·퇴역·테이프는 건너뛴다(GROMO-2289)")
+    void magazineSeasonStickersAndFramesOnly() {
         UUID user = newUser();
-        String sticker = product("ad_sticker");
-        String frame = product("ad_frame");
-        String tape = product("ad_tape");
-        tier("2026-10", 10, sticker);
-        tier("2026-10", 10, frame);
-        tier("2026-10", 10, tape);
-        tier("2026-10", 20, tape);
+        String sticker = magazineProduct("ad_sticker", "season", false);
+        String frame = magazineProduct("ad_frame", "season", false);
+        String freeSticker = magazineProduct("ad_sticker", "free", false);
+        String retired = magazineProduct("ad_sticker", "season", true);
+        String tape = magazineProduct("ad_tape", "season", false);
+        String noMeta = product("ad_frame");
+        for (String productId : List.of(sticker, frame, freeSticker, retired, tape, noMeta)) {
+            tier("2026-10", 10, productId);
+        }
+        tier("2026-10", 20, noMeta);
 
         SeaRewardResult result = sea.settle(user, 10 * 60, OCT_12);
 
         assertThat(result.grantedProductIds()).containsExactlyInAnyOrder(sticker, frame);
         assertThat(owned(user)).containsExactlyInAnyOrder(sticker, frame);
-        assertThat(result.minutesToNextTier()).as("20분 단계는 받지 못할 테이프라 안내하지 않는다").isNull();
+        assertThat(result.minutesToNextTier()).as("20분 단계는 받지 못할 재료라 안내하지 않는다").isNull();
         assertThat(inventoryEvents(user)).isEqualTo(2);
     }
 
@@ -469,6 +472,14 @@ class SeaFocusRewardServiceIntegrationTest {
         String ownerType = kind.equals("clothes") || kind.equals("decor") || kind.startsWith("ad_") ? "user" : "island";
         jdbc.update("INSERT INTO catalog_assets (product_id, title, kind, owner_type, created_at) "
                 + "VALUES (?, ?, ?, ?, now())", productId, productId, kind, ownerType);
+        return productId;
+    }
+
+    /** 잡지 재료 — 카탈로그 행과 부가 정보를 함께 넣는다. */
+    private String magazineProduct(String kind, String bundle, boolean retired) {
+        String productId = product(kind);
+        jdbc.update("INSERT INTO magazine_asset_meta (product_id, bundle, sort_order, retired_at) VALUES (?, ?, 1, "
+                + (retired ? "now()" : "NULL") + ")", productId, bundle);
         return productId;
     }
 
