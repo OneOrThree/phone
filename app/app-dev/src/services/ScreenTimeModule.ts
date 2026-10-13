@@ -11,11 +11,26 @@ export type ScreenTimeSelection = {
   selectionSignature?: string;
   dismissed?: boolean;
   appliesImmediately?: boolean;
+  allApps?: boolean;
+  pending?: boolean;
+  /** 편집 화면용 마지막 저장 선택. 루트의 현재 측정 대상과 구분한다. */
+  pendingSelection?: ScreenTimeSelection;
 };
 
 export type PreviousUsageBucket = {
   date: string;
   minutes: number;
+};
+
+export type UsageTimeline = {
+  startedAt: number;
+  observedAt: number;
+  days: {
+    date: string;
+    startedAt: number;
+    events: { bucket: number; firedAt: number }[];
+  }[];
+  unconfirmedDays: string[];
 };
 
 export type ScreenTimeNativeModule = {
@@ -29,6 +44,8 @@ export type ScreenTimeNativeModule = {
   getTodayUsageBucketMinutes(): Promise<number>;
   getPreviousUsageBucket(): Promise<PreviousUsageBucket | null>;
   getUsageBucketHistory(): Promise<PreviousUsageBucket[]>;
+  bindMeasurementOwner(owner: string): Promise<void>;
+  getUsageTimeline(): Promise<UsageTimeline | null>;
   markCurrentUsageBucketUnconfirmed(): Promise<string[]>;
   getUnconfirmedUsageBucketDays(): Promise<string[]>;
   resetScreenTimeData(): Promise<void>;
@@ -36,6 +53,7 @@ export type ScreenTimeNativeModule = {
   getAllowedSelectionCounts(): Promise<ScreenTimeSelection | null>;
   setFocusAllowSafariWeb(allowed: boolean): Promise<void>;
   getFocusAllowSafariWeb(): Promise<boolean>;
+  startFocusShieldWithAppearance(subjectName: string, catColor: string): Promise<boolean>;
   startFocusShield(subjectName: string): Promise<boolean>;
   stopFocusShield(): Promise<void>;
 };
@@ -47,9 +65,46 @@ export type AndroidUsageSnapshot = {
   previousMinutes: number;
 };
 
+export type AndroidSelection = {
+  configured: boolean;
+  allApps: boolean;
+  packages: string[];
+  pending: boolean;
+};
+export type InstalledApp = { packageName: string; label: string };
+export type AndroidMeasurement = import('./screentimeSync').ScreenTimeSnapshot & {
+  owner: string;
+  observations: import('./screenTimeWindow').ScreenTimeObservation[];
+};
 type AndroidMethods = {
   openUsageAccessSettings(): Promise<boolean>;
   getUsageSnapshot(): Promise<AndroidUsageSnapshot>;
+  getAndroidMeasurement(): Promise<AndroidMeasurement>;
+  getAndroidSelection(): Promise<AndroidSelection>;
+  setAndroidSelection(
+    owner: string,
+    packages: string[],
+    allApps: boolean,
+  ): Promise<AndroidSelection>;
+  getInstalledApps(): Promise<InstalledApp[]>;
+  getAppIcon(packageName: string): Promise<string | null>;
+  setAndroidAllowedPackages(owner: string, packages: string[]): Promise<void>;
+  getAllowedPackages(): Promise<string[]>;
+  setAllowedPackages(packages: string[]): Promise<void>;
+  canDrawOverlays(): Promise<boolean>;
+  requestOverlayPermission(): Promise<void>;
+  syncAndroidFocus(payload: string): Promise<boolean>;
+  endAndroidFocus(): Promise<void>;
+  getFocusPushToken(): Promise<string>;
+  getUsageBreakdown(dayOffset: number): Promise<{
+    totalSeconds: number;
+    otherSeconds: number;
+    apps: { packageName: string; label: string; seconds: number }[];
+  }>;
+  getAndroidUsageBreakdown(
+    owner: string,
+    dayOffset: number,
+  ): ReturnType<AndroidMethods['getUsageBreakdown']>;
 };
 
 export const screenTimeNative = (

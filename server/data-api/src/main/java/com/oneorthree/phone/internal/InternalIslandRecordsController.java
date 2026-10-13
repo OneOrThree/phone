@@ -38,8 +38,9 @@ public class InternalIslandRecordsController {
                                                    LocalDate to,
                                                    @RequestParam String scope,
                                                    @RequestParam(required = false) UUID snapshotId,
-                                                   @RequestParam(required = false) Integer offset) {
-        return records.focus(userId, islandId, from, to, scope, snapshotId, snapshotId == null ? 0 : offset);
+                                                   @RequestParam(required = false) Integer offset,
+                                                   @RequestParam(defaultValue = "UTC") String timezone) {
+        return records.focus(userId, islandId, from, to, scope, snapshotId, snapshotId == null ? 0 : offset, timezone);
     }
 
     @GetMapping("/internal/islands/{islandId}/statistics/screen-time")
@@ -47,8 +48,8 @@ public class InternalIslandRecordsController {
             @PathVariable UUID islandId, @RequestHeader("X-User-Id") UUID userId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam String scope) {
-        return records.screenTime(userId, islandId, from, to, scope);
+            @RequestParam String scope, @RequestParam(defaultValue = "UTC") String timezone) {
+        return records.screenTime(userId, islandId, from, to, scope, timezone);
     }
 
     /** 세션·세대는 서명된 AT 에서만 오고, 측정 기기 = 이 세션인지 Data 가 판정한다. */

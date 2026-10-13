@@ -381,6 +381,29 @@ class IslandQuestIntegrationTest {
     }
 
     @Test
+    @DisplayName("중간 관측은 자정 뒤에도 보상하지 않고 최종 관측이 도착해야 달성한다")
+    void partialObservationNeverEarnsReward() {
+        Island a = island(true);
+        QuestViews.Created created = service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null, null,
+                "UTC", UUID.randomUUID());
+        UUID occurrenceId = occurrenceOf(created);
+        UUID device = UUID.randomUUID();
+        observations.save(ScreenTimeObservation.builder().userId(a.owner.getId()).deviceId(device)
+                .measuredDate(D).measuredAt(Instant.parse(D + "T12:00:00Z"))
+                .minutes(0).measurementStatus("authorized").finalized(false).build());
+        at(D.plusDays(1), "01:00:00");
+        assertThat(member(service.progress(a.id, a.owner.getId(), created.id(), occurrenceId), a.owner)
+                .achieved()).isFalse();
+        assertQuestError(() -> service.claim(a.id, a.owner.getId(), created.id(), occurrenceId, 1,
+                UUID.randomUUID()), QuestErrorCode.QUEST_STATE_CONFLICT);
+        observations.save(ScreenTimeObservation.builder().userId(a.owner.getId()).deviceId(device)
+                .measuredDate(D).measuredAt(Instant.parse(D.plusDays(1) + "T00:30:00Z"))
+                .minutes(10).measurementStatus("authorized").finalized(true).build());
+        assertThat(member(service.progress(a.id, a.owner.getId(), created.id(), occurrenceId), a.owner)
+                .achieved()).isTrue();
+    }
+
+    @Test
     @DisplayName("정정 업로드는 대체이지 합산이 아니고, 같은 날 기기가 둘이면 병합 보류라 측정 불가다")
     void correctionsReplaceAndMultipleDevicesStayUnavailable() {
         Island a = island(true);
@@ -738,7 +761,7 @@ class IslandQuestIntegrationTest {
     private void observe(User user, UUID deviceId, LocalDate date, String time, Integer minutes, String status) {
         observations.save(ScreenTimeObservation.builder().userId(user.getId()).deviceId(deviceId)
                 .measuredDate(date).measuredAt(Instant.parse(date + "T" + time + "Z"))
-                .minutes(minutes).measurementStatus(status)
+                .minutes(minutes).measurementStatus(status).finalized(true)
                 .build());
     }
 

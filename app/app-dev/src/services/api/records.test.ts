@@ -1,3 +1,4 @@
+import { libraryPeriodRange } from './records';
 import assert from 'node:assert/strict';
 import { API_URL, ApiError } from '@/services/api/client';
 import { CLIENT_CONTRACT_ERROR } from '@/services/api/home';
@@ -106,7 +107,7 @@ test('getLibraryScreen — 도서관 미완공이면 조각 셋이 null 이고 f
   assert.equal(screen.fishEarnings, null);
 });
 
-test('getFocusStatistics — from·to·timezone=UTC·scope·cursor 만 보낸다', async () => {
+test('getFocusStatistics — from·to·timezone=Asia/Seoul·scope·cursor 만 보낸다', async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   stub(200, { data: focusMe });
 
@@ -118,7 +119,7 @@ test('getFocusStatistics — from·to·timezone=UTC·scope·cursor 만 보낸다
   assert.deepEqual([...params.keys()].sort(), ['cursor', 'from', 'scope', 'timezone', 'to']);
   assert.equal(params.get('from'), '2026-09-13');
   assert.equal(params.get('to'), '2026-09-19');
-  assert.equal(params.get('timezone'), 'UTC');
+  assert.equal(params.get('timezone'), 'Asia/Seoul');
   assert.equal(params.get('scope'), 'me');
   assert.equal(stats.scope, 'me');
   assert.equal(stats.totalSeconds, 1500);
@@ -257,5 +258,16 @@ test('utcPeriodRange 월 — UTC 달력 월 전체다(말일·월 경계 포함)
   assert.deepEqual(utcPeriodRange('월', -1, Date.UTC(2026, 0, 15)), {
     from: '2025-12-01',
     to: '2025-12-31',
+  });
+});
+
+test('도서관 오늘은 KST 자정에 바뀌고 일요일에 주간이 바뀐다', () => {
+  assert.deepEqual(libraryPeriodRange('일', 0, Date.parse('2026-10-10T15:00:00Z')), {
+    from: '2026-10-11',
+    to: '2026-10-11',
+  });
+  assert.deepEqual(libraryPeriodRange('주', 0, Date.parse('2026-10-10T15:00:00Z')), {
+    from: '2026-10-11',
+    to: '2026-10-17',
   });
 });

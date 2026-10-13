@@ -5,7 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MvcResult;
 
-import com.oneorthree.business.common.time.WeekAxis;
+import java.time.ZoneId;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -19,7 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * {@code GET /screens/library} 계약 (GROMO-1898·1769) — 섬 문맥 뒤 도서관 완공 판정(건설 옵션). 미완공은 기록 조각만
- * N({@code statisticsAvailability:facility_locked})이고 화면은 200 이다. 완공이면 이번 UTC 주(일~토, 랭킹과 같은 7일)·scope=me 의 집중·스크린타임
+ * N({@code statisticsAvailability:facility_locked})이고 화면은 200 이다. 완공이면 이번 KST 주(일~토, 랭킹과 같은 7일)·scope=me 의 집중·스크린타임
  * 통계 조각을 싣는다.
  */
 class LibraryScreenContractTest extends ScreenContractTestBase {
@@ -29,8 +29,9 @@ class LibraryScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_FOCUS = DATA_ISLAND + "/statistics/focus";
     private static final String DATA_SCREEN = DATA_ISLAND + "/statistics/screen-time";
     private static final String DATA_FISH = DATA_ISLAND + "/statistics/fish-earnings";
-    /** 주 경계 정본은 {@link WeekAxis} 한 곳뿐이다 — 랭킹과 같은 UTC 일요일 시작이다(GROMO-2048). */
-    private static final LocalDate WEEK_START = WeekAxis.weekStart(Instant.now());
+    /** 주 경계 정본은 KST 달력 한 곳뿐이다 — 랭킹과 같은 UTC 일요일 시작이다(GROMO-2048). */
+    private static final LocalDate WEEK_START = LocalDate.now(ZoneId.of("Asia/Seoul"))
+            .minusDays(LocalDate.now(ZoneId.of("Asia/Seoul")).getDayOfWeek().getValue() % 7);
 
     @BeforeEach
     void island() {
@@ -40,7 +41,7 @@ class LibraryScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
-    @DisplayName("도서관 완공: 이번 UTC 주(일요일 시작)·scope=me 집중·스크린타임 통계를 병렬로 싣고 availability 는 available")
+    @DisplayName("도서관 완공: 이번 KST 주(일요일 시작)·scope=me 집중·스크린타임 통계를 병렬로 싣고 availability 는 available")
     void libraryBuiltCarriesStatistics() throws Exception {
         DATA.on(DATA_OPTIONS, request -> ok(FacilityFixtures.options("mail")));
         DATA.on(DATA_FOCUS, request -> ok("{\"scope\":\"me\",\"totalSeconds\":1500,\"series\":[{\"date\":\""
@@ -65,7 +66,7 @@ class LibraryScreenContractTest extends ScreenContractTestBase {
 
         assertKeys(result, "island", "focusStatistics", "screenTimeStatistics", "fishEarnings",
                 "statisticsAvailability");
-        String[] week = {"from=" + WEEK_START, "to=" + WEEK_START.plusDays(6), "scope=me"};
+        String[] week = {"from=" + WEEK_START, "to=" + WEEK_START.plusDays(6), "scope=me", "timezone=Asia/Seoul"};
         assertThat(DATA.receivedFor(DATA_FOCUS).get(0).query().split("&")).containsExactlyInAnyOrder(week);
         assertThat(DATA.receivedFor(DATA_SCREEN).get(0).query().split("&")).containsExactlyInAnyOrder(week);
         // 물고기 장은 전 기간 누적이라 주 경계를 안 탄다.

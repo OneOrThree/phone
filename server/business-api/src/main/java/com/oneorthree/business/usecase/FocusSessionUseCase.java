@@ -47,6 +47,7 @@ public class FocusSessionUseCase {
      * 여기서는 둘을 구분할 수 없다. 구분이 필요해지면 Data 가 코드를 먼저 나눠야 한다.
      */
     private static final Map<String, PublicFailure> DOMAIN_FAILURES = Map.ofEntries(
+            Map.entry("INVALID_LIVE_ACTIVITY", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)),
             Map.entry("INVALID_SUBJECT", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "subject")),
             Map.entry("INVALID_TARGET_MINUTES",
                     new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "targetMinutes")),
@@ -67,6 +68,14 @@ public class FocusSessionUseCase {
             Map.entry("INVALID_SUMMARY_TIMEZONE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "timezone")));
 
     private final DataFocusClient data;
+
+    public void registerLiveActivity(AccessTokenClaims claims, UUID sessionId, Map<String, String> body,
+                                     Deadline deadline) {
+        relay(() -> {
+            data.registerLiveActivity(claims.userId(), sessionId, body, deadline);
+            return null;
+        });
+    }
 
     public TutorialRewardView claimTutorialReward(AccessTokenClaims claims, UUID sessionId, Deadline deadline) {
         var reward = relay(() -> data.claimTutorialReward(claims.userId(), sessionId, deadline));

@@ -21,12 +21,16 @@ function load(os: string, nativeModule: unknown) {
   const resolve = jest.fn(() => nativeModule);
   jest.doMock('react-native', () => ({ Platform: { OS: os } }));
   jest.doMock('expo', () => ({ requireOptionalNativeModule: resolve }));
+  jest.doMock('./iosHomeWidget', () => ({
+    updateIOSHomeWidget: jest.fn().mockResolvedValue(undefined),
+  }));
   return { mod: require('./studyWidget') as typeof import('./studyWidget'), resolve };
 }
 
 afterEach(() => {
   jest.dontMock('react-native');
   jest.dontMock('expo');
+  jest.dontMock('./iosHomeWidget');
   jest.useRealTimers();
 });
 

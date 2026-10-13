@@ -1,3 +1,4 @@
+import { screenTimeObservationReported } from '@/services/screenTimeEvents';
 /**
  * useLibraryDiary (GROMO-2018) — `/screens/library` 진입 집계 + 도메인 통계 조합.
  * empty(locked·미집계)·error·retry·페이지 합치기를 검증한다.
@@ -9,7 +10,7 @@ import {
   getFocusStatistics,
   getLibraryScreen,
   getScreenTimeStatistics,
-  utcPeriodRange,
+  libraryPeriodRange,
   type FocusStatsIsland,
   type FocusStatsMe,
   type LibraryScreen,
@@ -102,7 +103,7 @@ test('스크린타임 장도 진입 집계 조각을 그대로 쓴다', async ()
   assert.equal(result.current.screenMe?.totalMinutes, 45);
 });
 
-test('이번 주가 아닌 기간은 UTC from/to 로 도메인 GET 을 부른다', async () => {
+test('이번 주가 아닌 기간은 KST from/to 로 도메인 GET 을 부른다', async () => {
   libMock.mockResolvedValue(lib());
   focusMock.mockResolvedValue({ ...FOCUS_ME, records: [], totalSeconds: 0 });
   const { result } = await mount({ period: '월' });
@@ -110,7 +111,7 @@ test('이번 주가 아닌 기간은 UTC from/to 로 도메인 GET 을 부른다
   await waitFor(() => assert.equal(result.current.status, 'ready'));
   assert.equal(focusMock.mock.calls.length, 1);
   const [islandId, query] = focusMock.mock.calls[0];
-  const range = utcPeriodRange('월', 0);
+  const range = libraryPeriodRange('월', 0);
   assert.equal(islandId, 'isl-1');
   assert.deepEqual(query, { scope: 'me', from: range.from, to: range.to });
 });
@@ -215,4 +216,16 @@ test('API 오류는 error 상태로 두고 retry 가 진입 집계부터 다시 
   await waitFor(() => assert.equal(result.current.status, 'ready'));
   assert.equal(libMock.mock.calls.length, 2);
   assert.equal(result.current.focusMe?.totalSeconds, 3600);
+});
+
+test('스크린타임 PUT 성공 뒤 진입 집계 캐시를 비우고 통계를 재조회한다', async () => {
+  libMock.mockResolvedValue(lib());
+  const { result } = await mount({ page: 1 });
+  await waitFor(() => expect(result.current.status).toBe('ready'));
+  libMock.mockResolvedValue(lib({ screenTimeStatistics: { ...SCREEN_ME, totalMinutes: 75 } }));
+  await act(async () => {
+    screenTimeObservationReported();
+  });
+  await waitFor(() => expect(result.current.screenMe?.totalMinutes).toBe(75));
+  expect(libMock).toHaveBeenCalledTimes(2);
 });

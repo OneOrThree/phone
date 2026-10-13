@@ -10,7 +10,6 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.ReadFragment;
 import com.oneorthree.business.common.http.ScreenComposer;
 import com.oneorthree.business.common.http.UpstreamRequestContext;
-import com.oneorthree.business.common.time.WeekAxis;
 import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandDetailView;
 import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryView;
@@ -23,7 +22,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
@@ -329,10 +327,9 @@ public class ScreenReadUseCase {
     /**
      * {@code library} — 섬 문맥 뒤 도서관 완공을 판정한다. 미완공이면 기록 조각을 부르지 않고 셋 다 null +
      * {@code statisticsAvailability:facility_locked}(B03 N, 화면은 200)다. 완공이면 집중·스크린타임 통계(GROMO-1769)와
-     * 주민별 누적 물고기(GROMO-2046)를 병렬로 읽는다 — 화면에는 query 가 없으므로 통계 둘은 <b>이번 UTC 주(일~토)·
-     * scope=me</b> 첫 페이지다. 주 경계는 주간 섬 랭킹과 <b>같은 7일</b>이다({@link WeekAxis}, 결정 RK-주 —
-     * GROMO-2048 이 종전의 월요일 시작을 고쳤다. 도서관과 전망대가 서로 다른 7일을 「이번 주」라고 부르면
-     * 두 화면의 숫자가 대조되지 않는다). 집중 기록 커서는 도메인 GET 과 같은 서명 커서라 다음 페이지는
+     * 주민별 누적 물고기(GROMO-2046)를 병렬로 읽는다 — 화면에는 query 가 없으므로 통계 둘은 <b>이번 KST 주(일~토)·
+     * scope=me</b> 첫 페이지다. 도서관 달력의 날짜 경계는 KST 이며 UTC 퀘스트 일계와 구분한다.
+     * 집중 기록 커서는 도메인 GET 과 같은 서명 커서라 다음 페이지는
      * {@code GET /islands/{islandId}/statistics/focus} 가 이어받는다(B10).
      *
      * <p>물고기 장만 <b>기간 축이 없다</b> — 이 섬 전 기간 누적이라 주 경계와 무관하다. 그래서 세 조각이 같은
@@ -352,14 +349,15 @@ public class ScreenReadUseCase {
             return screen;
         }
         UUID islandId = island.id();
-        // 주 경계는 주간 섬 랭킹과 «같은 7일» 이어야 한다 — 계산은 WeekAxis 한 곳뿐이다(GROMO-2048).
-        LocalDate from = WeekAxis.weekStart(Instant.now());
+        // 도서관 달력은 KST 자정 경계로 조회한다. 저장 시각은 UTC를 유지한다.
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        LocalDate from = today.minusDays(today.getDayOfWeek().getValue() % 7);
         LocalDate to = from.plusDays(6);
         screen.putAll(composer.compose(context, List.of(
                 fragment("focusStatistics", deadline -> records.focus(claims, islandId, from, to,
-                        IslandRecordsUseCase.SCOPE_ME, null, deadline)),
+                        IslandRecordsUseCase.SCOPE_ME, null, deadline, "Asia/Seoul")),
                 fragment("screenTimeStatistics", deadline -> records.screenTime(claims, islandId, from, to,
-                        IslandRecordsUseCase.SCOPE_ME, deadline)),
+                        IslandRecordsUseCase.SCOPE_ME, deadline, "Asia/Seoul")),
                 fragment("fishEarnings", deadline -> records.fishEarnings(claims, islandId, deadline)))));
         screen.put("statisticsAvailability", AVAILABLE);
         return screen;

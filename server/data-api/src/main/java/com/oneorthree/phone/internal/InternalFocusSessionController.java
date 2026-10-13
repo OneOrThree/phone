@@ -1,6 +1,9 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.focus.dto.session.CurrentFocusSessionResponse;
+import com.oneorthree.phone.focus.dto.session.LiveActivityRegistration;
+import com.oneorthree.phone.focus.service.FocusLiveActivityService;
+import org.springframework.web.bind.annotation.PutMapping;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
@@ -43,6 +46,14 @@ import java.util.UUID;
 public class InternalFocusSessionController {
 
     private final FocusSessionLifecycleService focusSessionLifecycleService;
+    private final FocusLiveActivityService liveActivities;
+
+    @PutMapping("/focus-sessions/{sessionId}/live-activity")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void registerLiveActivity(@PathVariable UUID userId, @PathVariable UUID sessionId,
+                                     @RequestBody LiveActivityRegistration body) {
+        liveActivities.register(userId, sessionId, body);
+    }
 
     @PostMapping("/focus-sessions")
     @ResponseStatus(HttpStatus.CREATED)

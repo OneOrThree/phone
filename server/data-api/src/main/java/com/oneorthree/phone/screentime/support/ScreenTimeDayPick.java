@@ -52,10 +52,10 @@ public final class ScreenTimeDayPick {
         Instant updatedAt = latest.values().stream().map(ScreenTimeObservation::getMeasuredAt)
                 .max(Comparator.naturalOrder()).orElseThrow();
         if (latest.size() > 1) {
-            return new Day(null, UNAVAILABLE, updatedAt, latest.size());
+            return new Day(null, UNAVAILABLE, updatedAt, latest.size(), false);
         }
         ScreenTimeObservation only = latest.values().iterator().next();
-        return new Day(only.getMinutes(), only.getMeasurementStatus(), updatedAt, 1);
+        return new Day(only.getMinutes(), only.getMeasurementStatus(), updatedAt, 1, only.isFinalized());
     }
 
     /**
@@ -66,7 +66,7 @@ public final class ScreenTimeDayPick {
      * @param updatedAt         그날 고른 관측들의 가장 늦은 측정 시각
      * @param devices           그날 값을 보낸 기기 수 — {@link #conflicted()} 의 근거다
      */
-    public record Day(Integer minutes, String measurementStatus, Instant updatedAt, int devices) {
+    public record Day(Integer minutes, String measurementStatus, Instant updatedAt, int devices, boolean finalized) {
 
         /** 숫자를 판정에 쓸 수 있는가 — 권한 있음이고 값이 있다. */
         public boolean measured() {

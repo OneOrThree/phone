@@ -1,3 +1,4 @@
+import { syncAndroidMeasurement } from './androidScreenTime';
 import { getSession } from './api/session';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -159,7 +160,7 @@ export function createAndroidScreenTimeSync(deps: Dependencies) {
   });
 }
 
-export const syncAndroidScreenTime = createAndroidScreenTimeSync({
+const legacyAndroidScreenTime = createAndroidScreenTimeSync({
   status: () => screenTimeNative?.getAuthorizationStatus?.() ?? Promise.resolve('unavailable'),
   read: () => screenTimeNative?.getUsageSnapshot?.() ?? Promise.reject(new Error('UNAVAILABLE')),
   owner: () => (getSession()?.userId ? `user:${getSession()!.userId}` : 'local'),
@@ -168,3 +169,9 @@ export const syncAndroidScreenTime = createAndroidScreenTimeSync({
   now: () => Date.now(),
   clear: (owner) => AsyncStorage.removeItem(`${ANDROID_SCREEN_TIME_KEY}:${owner}`),
 });
+
+export const syncAndroidScreenTime = Object.assign(
+  () =>
+    screenTimeNative?.getAndroidMeasurement ? syncAndroidMeasurement() : legacyAndroidScreenTime(),
+  { reset: legacyAndroidScreenTime.reset },
+);

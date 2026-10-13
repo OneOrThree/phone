@@ -142,7 +142,17 @@ gradle.taskGraph.whenReady { taskGraph ->
     }
 }
 
+// FCM 공개 클라이언트 설정은 해당 빌드 환경에서만 읽는다. 다른 환경 파일로 폴백하지 않는다.
+def focusFirebaseAudience = System.getenv("GROMO_ANDROID_AUDIENCE") ?: "prod"
+def focusFirebaseFile = new File(rootProject.projectDir, "credentials/${focusFirebaseAudience}/google-services.json")
+def focusFirebase = focusFirebaseFile.exists() ? new groovy.json.JsonSlurper().parse(focusFirebaseFile) : null
+def focusFirebaseClient = focusFirebase?.client?.find { it.client_info.android_client_info.package_name == 'com.oneorthree.gromo' }
+if (focusFirebase != null && focusFirebaseClient == null) {
+    throw new GradleException("Firebase 클라이언트 설정의 Android 패키지가 앱과 다릅니다.")
+}
+
 android {
+  compileOptions { coreLibraryDesugaringEnabled true }
     ndkVersion rootProject.ext.ndkVersion
 
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -151,6 +161,12 @@ android {
     namespace 'com.oneorthree.gromo'
     defaultConfig {
         applicationId 'com.oneorthree.gromo'
+        if (focusFirebaseClient != null) {
+            resValue "string", "google_app_id", focusFirebaseClient.client_info.mobilesdk_app_id
+            resValue "string", "gcm_defaultSenderId", focusFirebase.project_info.project_number
+            resValue "string", "google_api_key", focusFirebaseClient.api_key[0].current_key
+            resValue "string", "project_id", focusFirebase.project_info.project_id
+        }
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 4
@@ -216,6 +232,7 @@ android {
 }
 
 dependencies {
+  coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

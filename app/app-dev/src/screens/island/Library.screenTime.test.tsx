@@ -83,7 +83,7 @@ test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초�
 
 test('이번 주 진입 집계를 재사용하고 진행 중 집중만 있는 날은 시간대 미제공을 표시한다', async () => {
   const e = { ...environment(), tab: '', islands: [], now: Date.now() };
-  const date = new Date(e.now).toISOString().slice(0, 10);
+  const date = new Date(e.now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const focus = {
     scope: 'me' as const,
     totalSeconds: 600,
@@ -129,39 +129,46 @@ test.each(
   ).flatMap(([status, title]) =>
     [true, false].map((permission) => ({ status, title, permission })),
   ),
-)('서버 측정 상태를 로컬 권한보다 우선한다: %j', async ({ status, title, permission }) => {
-  const e = { ...environment({ permission, ready: permission }), tab: '', islands: [] };
-  const usage = status
-    ? {
-        scope: 'me' as const,
-        measurementStatus: status as MeasurementStatus,
-        totalMinutes: null,
-        series: [],
-        updatedAt: null,
-      }
-    : null;
-  jest.mocked(getLibraryScreen).mockResolvedValue({
-    island: { id: e.state.islandId, name: '섬', role: 'owner' },
-    statisticsAvailability: 'available',
-    focusStatistics: null,
-    screenTimeStatistics: usage,
-    fishEarnings: { members: [] },
-    missingFragments: usage ? ['focusStatistics'] : ['focusStatistics', 'screenTimeStatistics'],
-  });
-  if (usage) (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
-  const screen = await render(<Library e={e} />);
-  await fireEvent.press(screen.getByLabelText('일'));
-  await fireEvent.press(screen.getByLabelText('폰 사용'));
-  await waitFor(() => expect(screen.getByText(title)).toBeTruthy());
-  if (status === 'denied') {
-    await fireEvent.press(screen.getByText('측정 설정 열기'));
-    expect(e.go).toHaveBeenCalledWith('permission');
-  } else {
-    expect(screen.queryByText('측정 설정 열기')).toBeNull();
-    expect(e.go).not.toHaveBeenCalled();
-  }
-  expect(screen.queryByTestId('today-screen-time-report')).toBeNull();
-});
+)(
+  '권한 철회는 숨기되 서버 대기 상태에서도 오늘의 기기 측정값을 표시한다: %j',
+  async ({ status, title, permission }) => {
+    const e = { ...environment({ permission, ready: permission }), tab: '', islands: [] };
+    const usage = status
+      ? {
+          scope: 'me' as const,
+          measurementStatus: status as MeasurementStatus,
+          totalMinutes: null,
+          series: [],
+          updatedAt: null,
+        }
+      : null;
+    jest.mocked(getLibraryScreen).mockResolvedValue({
+      island: { id: e.state.islandId, name: '섬', role: 'owner' },
+      statisticsAvailability: 'available',
+      focusStatistics: null,
+      screenTimeStatistics: usage,
+      fishEarnings: { members: [] },
+      missingFragments: usage ? ['focusStatistics'] : ['focusStatistics', 'screenTimeStatistics'],
+    });
+    if (usage) (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
+    const screen = await render(<Library e={e} />);
+    await fireEvent.press(screen.getByLabelText('일'));
+    await fireEvent.press(screen.getByLabelText('폰 사용'));
+    if (permission && status !== 'denied') {
+      await waitFor(() => expect(screen.getByTestId('today-screen-time-report')).toBeTruthy());
+      return;
+    }
+    await waitFor(() => expect(screen.getByText(title)).toBeTruthy());
+    if (status === 'denied') {
+      await fireEvent.press(screen.getByText('측정 설정 열기'));
+      expect(e.go).toHaveBeenCalledWith('permission');
+    } else {
+      expect(screen.queryByText('측정 설정 열기')).toBeNull();
+      expect(e.go).not.toHaveBeenCalled();
+    }
+    expect(screen.queryByTestId('today-screen-time-report')).toBeNull();
+  },
+);
 
 test.each(['pending', 'unavailable'] as const)(
   '기간 상태가 %s여도 주·월의 과거 허용 측정값은 표시한다',
@@ -219,7 +226,7 @@ test.each(['pending', 'unavailable'] as const)(
 );
 
 test.each(['ios', 'android'] as const)(
-  '월간 %s는 서버 측정 상태가 허용된 경우에만 오늘 네이티브 값을 표시한다',
+  '월간 %s는 서버에 아직 수치가 없어도 권한이 있는 기기의 오늘 수치를 표시한다',
   async (os) => {
     Platform.OS = os;
     for (const status of ['denied', 'pending', 'unavailable', 'authorized'] as const) {
@@ -263,7 +270,7 @@ test.each(['ios', 'android'] as const)(
         os === 'ios'
           ? screen.queryByTestId('today-screen-time-report')
           : screen.queryByText('12시간 57분');
-      if (status === 'authorized') expect(native).toBeTruthy();
+      if (status !== 'denied') expect(native).toBeTruthy();
       else expect(native).toBeNull();
       await cleanup();
     }

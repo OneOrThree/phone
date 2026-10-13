@@ -7,7 +7,7 @@ import {
   render,
   renderHook,
 } from '@testing-library/react-native';
-import { Animated, Platform } from 'react-native';
+import { Animated, PanResponder, Platform } from 'react-native';
 import {
   constructionPlacement,
   createWorldProjector,
@@ -23,6 +23,7 @@ import {
 } from '@/services/buildingTransition';
 import { villageScene } from '@/utils/village-world';
 import { assets } from '@/constants/assets';
+import { semanticTokens } from '@/design-system/tokens';
 
 // 건물 모션·알림 배지는 장식 레이어라 스크린리더에서 숨긴다. 배치 검증을 위해 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
@@ -471,6 +472,47 @@ test('뗏목은 이름표 없이 접근성 이름으로 식별한다', async () 
   expect(screen.queryByTestId('building-name-raft')).toBeNull();
   expect(screen.getByRole('button', { name: '뗏목' })).toBeTruthy();
   await screen.unmount();
+});
+
+test('홈을 최대로 축소해도 뗏목 터치 영역은 44pt 이상이며 그림 중앙에 맞는다', async () => {
+  const createPanResponder = jest.spyOn(PanResponder, 'create');
+  const screen = await render(
+    <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const pan = createPanResponder.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  await act(async () => {
+    pan.onPanResponderGrant!(pinch(200), {} as any);
+    pan.onPanResponderMove!(pinch(70), {} as any);
+  });
+  const scale = (((874 / 874) * 402) / 1536) * 2.8 * 0.35;
+  const raft = screen.getByLabelText('뗏목').props.style;
+  expect(raft.width).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  expect(raft.height).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  expect(raft.left + raft.width / 2).toBeCloseTo(290 * scale);
+  expect(raft.top + raft.height / 2).toBeCloseTo(870 * scale);
+  expect(raft.top).toBeLessThanOrEqual(815 * scale);
+  expect(raft.top + raft.height).toBeGreaterThanOrEqual(925 * scale);
+});
+
+test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다리지 않고 배 메뉴를 연다', async () => {
+  const go = jest.fn();
+  const state = initialState(true);
+  state.settings.reduceMotion = false;
+  const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+
+  await fireEvent.press(screen.getByLabelText('뗏목'));
+
+  expect(go).toHaveBeenCalledTimes(1);
+  expect(go).toHaveBeenCalledWith('boat');
 });
 
 test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생한다', async () => {

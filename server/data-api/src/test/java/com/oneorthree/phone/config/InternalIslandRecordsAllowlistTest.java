@@ -1,6 +1,9 @@
 package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.internal.InternalIslandRecordsController;
+import com.oneorthree.phone.internal.InternalFocusSessionController;
+import com.oneorthree.phone.focus.dto.session.LiveActivityRegistration;
+import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -48,6 +51,20 @@ class InternalIslandRecordsAllowlistTest {
         assertThat(allows(allow, "GET /internal/users/" + ID + "/screen-time/2031-03-10")).isFalse();
         assertThat(allows(allow, "PUT /internal/users/" + ID + "/screen-time")).isFalse();
         assertThat(allows(allow, "PUT /internal/users/" + ID + "/screen-time/2031-03-10/x")).isFalse();
+    }
+
+    @Test
+    void liveActivityRegistrationAllowsOnlyItsExactPutRoute() throws Exception {
+        var controller = InternalFocusSessionController.class;
+        var mapping = controller.getMethod("registerLiveActivity", UUID.class, UUID.class,
+                LiveActivityRegistration.class).getAnnotation(PutMapping.class);
+        String route = fill(controller.getAnnotation(RequestMapping.class).value()[0] + mapping.value()[0]);
+        var allow = shippedBusinessAllowlist();
+        assertThat(allows(allow, "PUT " + route)).isTrue();
+        assertThat(allows(allow, "GET " + route)).isFalse();
+        assertThat(allows(allow, "POST " + route)).isFalse();
+        assertThat(allows(allow, "PUT " + route + "/extra")).isFalse();
+        assertThat(allows(allow, "PUT /internal/users/" + ID + "/focus-sessions/live-activity")).isFalse();
     }
 
     // ---------------------------------------------------------------- 도구

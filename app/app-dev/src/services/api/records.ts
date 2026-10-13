@@ -23,6 +23,7 @@ const MEASUREMENT = new Set<string>(['authorized', 'denied', 'pending', 'unavail
 
 export type FocusSeriesPoint = { date: string; seconds: number };
 export type ScreenSeriesPoint = {
+  finalized?: boolean;
   date: string;
   /** null 은 알려진 미측정 날짜다 — 0으로 읽지 않는다. */
   minutes: number | null;
@@ -255,7 +256,7 @@ export async function getFocusStatistics(
 export async function getFocusStatistics(islandId: string, q: StatisticsQuery) {
   const raw = await request<unknown>(
     `/islands/${encodeURIComponent(islandId)}/statistics/focus` +
-      query({ from: q.from, to: q.to, timezone: 'UTC', scope: q.scope, cursor: q.cursor }),
+      query({ from: q.from, to: q.to, timezone: 'Asia/Seoul', scope: q.scope, cursor: q.cursor }),
   );
   const stats = validateFocusStats(raw);
   if (stats.scope !== q.scope) throw contractError('scope');
@@ -274,7 +275,7 @@ export async function getScreenTimeStatistics(
 export async function getScreenTimeStatistics(islandId: string, q: StatisticsQuery) {
   const raw = await request<unknown>(
     `/islands/${encodeURIComponent(islandId)}/statistics/screen-time` +
-      query({ from: q.from, to: q.to, timezone: 'UTC', scope: q.scope }),
+      query({ from: q.from, to: q.to, timezone: 'Asia/Seoul', scope: q.scope }),
   );
   const stats = validateScreenStats(raw);
   if (stats.scope !== q.scope) throw contractError('scope');
@@ -307,4 +308,9 @@ export function utcPeriodRange(
   }
   const start = Date.UTC(y, m + offset, 1);
   return { from: utcDay(start), to: utcDay(Date.UTC(y, m + offset + 1, 0)) };
+}
+
+/** 도서관 달력의 KST 자정 경계. 서버 저장은 UTC instant를 유지한다. */
+export function libraryPeriodRange(period: '일' | '주' | '월', offset: number, at = Date.now()) {
+  return utcPeriodRange(period, offset, at + 9 * 60 * 60 * 1000);
 }

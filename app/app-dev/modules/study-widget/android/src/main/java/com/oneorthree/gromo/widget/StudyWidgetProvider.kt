@@ -7,7 +7,6 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.view.View
 import android.widget.RemoteViews
 import java.text.SimpleDateFormat
@@ -15,7 +14,6 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import org.json.JSONArray
 
 // 홈 화면 위젯 — 1.x(GROMO-1006) StudyWidgetProvider를 2.0으로 이식했다.
 //
@@ -23,12 +21,9 @@ import org.json.JSONArray
 //    2.0은 같은 패키지로 1.x를 제자리 업데이트한다. 런처는 배치된 위젯을 이 컴포넌트 이름으로
 //    기억하므로, 이름이 바뀌면 사용자가 이미 둔 위젯이 업데이트 직후 깨진다.
 //
-// 데이터는 JS(services/studyWidget.ts)가 StudyWidgetModule로 SharedPreferences에 저장한 스냅샷이다.
-// 저장소 이름·키·JSON 형태는 1.x와 같게 둬, 업데이트 직후(2.0이 아직 새 값을 쓰기 전)에도
-// 1.x가 남긴 오늘 스냅샷을 그대로 그린다. 2.0에서 추가된 총합 키가 없으면 과목 합으로 대신한다.
-// 누적시간은 KST 자정에 리셋되므로(JS 의 '오늘'이 Asia/Seoul 기준이다), 스냅샷 날짜가 KST 오늘이
-// 아니면 빈 상태로 그린다. 기기 시간대를 쓰지 않는다 — 해외 시간대 기기에서 JS 가 저장한 KST 날짜와
-// 어긋나 오늘 스냅샷을 버리거나 지난 스냅샷을 오늘로 그리게 된다.
+// 서버 홈 스냅샷의 계정·KST 날짜·총 집중시간을 사용한다.
+// 이전 과목별 저장 키는 구 바이너리 호환을 위해 유지하지만 새 위젯은 home_snapshot_v2만 그린다.
+// 계정 없음·날짜 만료는 미확인(—)으로 표시하며 다음 앱 동기화에서 갱신한다.
 class StudyWidgetProvider : AppWidgetProvider() {
 
   override fun onUpdate(
@@ -129,10 +124,6 @@ class StudyWidgetProvider : AppWidgetProvider() {
     // JS 가 넘긴 날짜가 스냅샷 날짜 포맷(yyyy-MM-dd)인지
     fun isDateString(value: String): Boolean = DATE_PATTERN.matches(value)
 
-    private data class SubjectEntry(val name: String, val seconds: Int, val color: String)
-
-    private data class Snapshot(val totalSeconds: Int, val subjects: List<SubjectEntry>)
-
     private fun buildRemoteViews(context: Context): RemoteViews {
       val views = RemoteViews(context.packageName, R.layout.widget_study)
 
@@ -140,6 +131,7 @@ class StudyWidgetProvider : AppWidgetProvider() {
       // 런처 인텐트로 연다(1.x와 같은 동작 — 앱의 LAUNCHER 액티비티가 열린다).
       context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launch ->
         launch.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        launch.data = android.net.Uri.parse("com.oneorthree.focuscat://widget")
         val pending = PendingIntent.getActivity(
           context,
           0,
@@ -149,66 +141,20 @@ class StudyWidgetProvider : AppWidgetProvider() {
         views.setOnClickPendingIntent(R.id.widget_root, pending)
       }
 
-      val snapshot = loadTodaySnapshot(context)
-      if (snapshot.totalSeconds <= 0 && snapshot.subjects.isEmpty()) {
-        views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
-        views.setViewVisibility(R.id.widget_rows, View.GONE)
-        views.setViewVisibility(R.id.widget_total, View.GONE)
-      } else {
-        views.setViewVisibility(R.id.widget_empty, View.GONE)
-        views.setViewVisibility(R.id.widget_total, View.VISIBLE)
-        views.setTextViewText(R.id.widget_total, hms(snapshot.totalSeconds))
-        val subjects = snapshot.subjects
-        views.setViewVisibility(R.id.widget_rows, if (subjects.isEmpty()) View.GONE else View.VISIBLE)
-        bindRow(views, subjects.getOrNull(0), R.id.widget_row1, R.id.widget_dot1, R.id.widget_name1, R.id.widget_time1)
-        bindRow(views, subjects.getOrNull(1), R.id.widget_row2, R.id.widget_dot2, R.id.widget_name2, R.id.widget_time2)
-      }
+      val snapshot = runCatching {
+        val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString("home_snapshot_v2", null)
+        raw?.let { org.json.JSONObject(it) }
+      }.getOrNull()
+      val valid = snapshot != null && snapshot.optString("day") == kstDateString() && snapshot.optString("owner").isNotBlank()
+      views.setViewVisibility(R.id.widget_rows, View.GONE)
+      views.setViewVisibility(R.id.widget_empty, View.GONE)
+      views.setViewVisibility(R.id.widget_total, View.VISIBLE)
+      views.setTextViewText(R.id.widget_total, if (valid) hms(snapshot!!.optInt("totalSeconds", 0)) else "—")
+      val color = snapshot?.optString("catColor")?.takeIf { it in setOf("black", "white", "cream", "ginger", "gray", "calico") } ?: "black"
+      val pose = listOf("idle", "loaf", "reading", "tilt")[Calendar.getInstance(KST).get(Calendar.HOUR_OF_DAY) % 4]
+      val drawable = context.resources.getIdentifier("cat_${color}_${pose}", "drawable", context.packageName)
+      if (drawable != 0) views.setImageViewResource(R.id.widget_cat, drawable)
       return views
-    }
-
-    // 저장된 스냅샷 중 'KST 오늘' 것만 읽는다. 없음·과거 날짜·파싱 실패·전부 0초면 빈 스냅샷.
-    // JS 래퍼가 이미 내림차순 상위 2개만 저장하지만, 방어적으로 여기서도 정렬·절단한다.
-    private fun loadTodaySnapshot(context: Context): Snapshot {
-      val empty = Snapshot(0, emptyList())
-      val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-      if (prefs.getString(KEY_DATE, null) != kstDateString()) return empty
-      val all = try {
-        val arr = JSONArray(prefs.getString(KEY_SUBJECTS_JSON, null) ?: "[]")
-        (0 until arr.length())
-          .mapNotNull { i ->
-            val obj = arr.optJSONObject(i) ?: return@mapNotNull null
-            val seconds = obj.optInt("seconds", 0)
-            if (seconds <= 0) return@mapNotNull null
-            SubjectEntry(obj.optString("name"), seconds, obj.optString("color"))
-          }
-          .sortedByDescending { it.seconds }
-      } catch (e: Exception) {
-        emptyList()
-      }
-      // 1.x 스냅샷에는 총합 키가 없다 — 그때는 과목 합으로 대신한다
-      val total =
-        if (prefs.contains(KEY_TOTAL_SECONDS)) prefs.getInt(KEY_TOTAL_SECONDS, 0)
-        else all.sumOf { it.seconds }
-      return Snapshot(maxOf(0, total), all.take(2))
-    }
-
-    private fun bindRow(
-      views: RemoteViews,
-      entry: SubjectEntry?,
-      rowId: Int,
-      dotId: Int,
-      nameId: Int,
-      timeId: Int,
-    ) {
-      if (entry == null) {
-        views.setViewVisibility(rowId, View.GONE)
-        return
-      }
-      views.setViewVisibility(rowId, View.VISIBLE)
-      views.setTextViewText(nameId, entry.name)
-      views.setTextViewText(timeId, hms(entry.seconds))
-      // 과목 대표색 점 — ImageView.setColorFilter(int)는 RemoteViews에서 호출 가능
-      views.setInt(dotId, "setColorFilter", parseColor(entry.color))
     }
 
     // 초 → "00:00:00" — iOS 잠금화면 위젯(hmsString)과 같은 포맷
@@ -217,12 +163,5 @@ class StudyWidgetProvider : AppWidgetProvider() {
       return String.format(Locale.US, "%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
     }
 
-    // "#RRGGBB" → 색 (파싱 실패 시 위젯 포인트색 — 1.x·iOS colorFromHex 폴백과 동일)
-    private fun parseColor(hex: String): Int =
-      try {
-        Color.parseColor(hex)
-      } catch (e: Exception) {
-        0xFF5E6AD2.toInt()
-      }
   }
 }

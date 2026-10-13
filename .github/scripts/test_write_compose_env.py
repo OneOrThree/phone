@@ -26,6 +26,22 @@ def secret(**overrides: object) -> dict[str, object]:
 
 
 class WriteComposeEnvTest(unittest.TestCase):
+    def test_live_activity_키는_compose와_data_api에_전달되고_다른_서비스에는_없다(self) -> None:
+        keys = ("FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
+                "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64")
+        values = {key: f"test-{key}" for key in keys}
+        for service in ("legacy", "data-api"):
+            required = (MODULE.LEGACY_REQUIRED_KEYS if service == "legacy"
+                        else MODULE.SERVICE_REQUIRED_KEYS[service])
+            base = secret(**{key: f"test-{key}" for key in required})
+            rendered = MODULE.render({**base, **values}, "example/data:1", service)
+            without = MODULE.render(base, "example/data:1", service)
+            for key in keys:
+                self.assertIn(f"{key}='test-{key}'", rendered)
+                self.assertNotIn(f"{key}=", without)
+        for service in ("business-api", "notification"):
+            self.assertTrue(set(keys).isdisjoint(MODULE.allowed_keys(service)))
+
     def test_compose가_메타문자와_줄바꿈을_원문으로_복원한다(self) -> None:
         password = "p$WORD # literal\\path'quote\nnext"
         with tempfile.TemporaryDirectory() as directory:
@@ -252,10 +268,12 @@ class WriteComposeEnvTest(unittest.TestCase):
         )
         transition = MODULE.render(combined, "example/data:1", "data-api")
         final = MODULE.render(combined, "example/data:2", "data-api", "final", "prod")
-        for key in ("JWT_SECRET", "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "FCM_PROJECT_ID",
-                    "FCM_SERVICE_ACCOUNT_JSON"):
+        for key in ("JWT_SECRET", "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID"):
             self.assertIn(f"{key}=", transition)
             self.assertNotIn(f"{key}=", final)
+        for key in ("FCM_PROJECT_ID", "FCM_SERVICE_ACCOUNT_JSON"):
+            self.assertIn(f"{key}=", transition)
+            self.assertIn(f"{key}=", final)
         self.assertIn("SVC_TOKEN_DATA_TO_LINK='dl'", final)
         # GROMO-1954 — Data relay 의 REALTIME HTTP 목적지·전용 토큰
         self.assertIn("SVC_TOKEN_DATA_TO_REALTIME='data-realtime'", final)

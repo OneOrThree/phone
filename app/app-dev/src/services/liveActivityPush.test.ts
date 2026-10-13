@@ -1,0 +1,187 @@
+import type { Session } from './model';
+
+const session: Session = {
+  id: 'session-1',
+  islandId: 'island-1',
+  subject: '수학',
+  status: 'active',
+  startedAt: 1000,
+  seconds: 0,
+  version: 1,
+};
+const token = {
+  sessionId: session.id,
+  activityId: 'activity-1',
+  pushToken: 'ab'.repeat(32),
+  environment: 'development',
+};
+const settle = async () => {
+  for (let i = 0; i < 12; i++) await Promise.resolve();
+};
+
+function setup(os = 'ios', initialAppState = 'active') {
+  jest.resetModules();
+  jest.useFakeTimers();
+  let tokenListener!: (value: typeof token) => void;
+  let appListener!: (value: string) => void;
+  const request = jest.fn().mockResolvedValue(undefined);
+  const generation = jest.fn(() => 1);
+  const native = {
+    getPushTokens: jest.fn().mockResolvedValue([token]),
+    getFocusPushToken: jest.fn().mockResolvedValue('android-token-' + 'x'.repeat(40)),
+  };
+  const remove = jest.fn();
+  const appState = {
+    currentState: initialAppState,
+    addEventListener: jest.fn((_name, listener) => {
+      appListener = listener;
+      return { remove };
+    }),
+  };
+  jest.doMock('react-native', () => ({
+    Platform: { OS: os },
+    AppState: appState,
+    NativeModules: { LiveActivityModule: native },
+    NativeEventEmitter: jest.fn(() => ({
+      addListener: jest.fn((_name, listener) => {
+        tokenListener = listener;
+        return { remove };
+      }),
+    })),
+  }));
+  jest.doMock('./ScreenTimeModule', () => ({ screenTimeNative: native }));
+  jest.doMock('./api/client', () => ({ request }));
+  jest.doMock('./api/session', () => ({
+    sessionGeneration: generation,
+    getSession: () => ({ userId: 'owner' }),
+  }));
+  const { startLiveActivityPushSync } = require('./liveActivityPush');
+  let current: Session | null = session;
+  const stop = startLiveActivityPushSync(() => ({ session: current, color: 'black' }));
+  return {
+    request,
+    generation,
+    native,
+    stop,
+    remove,
+    appState,
+    event: (value: typeof token) => tokenListener(value),
+    foreground: () => appListener('active'),
+    end: () => {
+      current = null;
+    },
+  };
+}
+
+afterEach(() => {
+  jest.useRealTimers();
+  jest.dontMock('react-native');
+  jest.dontMock('./api/client');
+  jest.dontMock('./api/session');
+  jest.dontMock('./ScreenTimeModule');
+});
+
+test('기존 토큰을 복구 등록하고 같은 토큰은 중복 전송하지 않으며 회전은 등록한다', async () => {
+  const test = setup();
+  await settle();
+  expect(test.request).toHaveBeenCalledWith('/focus-sessions/session-1/live-activity', {
+    method: 'PUT',
+    generation: 1,
+    body: {
+      activityId: token.activityId,
+      pushToken: token.pushToken,
+      environment: 'development',
+      catColor: 'black',
+    },
+  });
+  test.event(token);
+  await settle();
+  expect(test.request).toHaveBeenCalledTimes(1);
+  test.event({ ...token, pushToken: 'cd'.repeat(32) });
+  await settle();
+  expect(test.request).toHaveBeenCalledTimes(2);
+  test.stop();
+});
+
+test('실패한 등록은 복귀 시 재시도하고 종료 세션·다른 계정의 늦은 토큰은 버린다', async () => {
+  const test = setup();
+  test.request.mockRejectedValueOnce(new Error('offline'));
+  await settle();
+  test.foreground();
+  await settle();
+  expect(test.request).toHaveBeenCalledTimes(2);
+  test.event({ ...token, sessionId: 'other-session', pushToken: 'cd'.repeat(32) });
+  test.generation.mockReturnValue(2);
+  test.event({ ...token, pushToken: 'ef'.repeat(32) });
+  await settle();
+  expect(test.request).toHaveBeenCalledTimes(2);
+  test.stop();
+  expect(test.remove).toHaveBeenCalledTimes(2);
+});
+
+test('끝난 세션의 이벤트와 정리 후 조회 응답은 등록하지 않는다', async () => {
+  const test = setup();
+  test.end();
+  await settle();
+  expect(test.request).not.toHaveBeenCalled();
+  test.stop();
+  test.event(token);
+  await settle();
+  expect(test.request).not.toHaveBeenCalled();
+});
+
+test('백그라운드에서는 조회 폴링을 멈춘다', async () => {
+  const test = setup();
+  await settle();
+  test.appState.currentState = 'background';
+  jest.advanceTimersByTime(30_000);
+  await settle();
+  expect(test.native.getPushTokens).toHaveBeenCalledTimes(1);
+  test.stop();
+});
+
+test('Android FCM 토큰을 별도 환경으로 등록하고 회전 뒤 재등록한다', async () => {
+  const test = setup('android');
+  await settle();
+  expect(test.request).toHaveBeenCalledWith(
+    '/focus-sessions/session-1/live-activity',
+    expect.objectContaining({
+      body: {
+        activityId: 'session-1',
+        pushToken: 'android-token-' + 'x'.repeat(40),
+        environment: 'android',
+        catColor: 'black',
+      },
+    }),
+  );
+  expect(test.native.getPushTokens).not.toHaveBeenCalled();
+  test.foreground();
+  await settle();
+  expect(test.request).toHaveBeenCalledTimes(1);
+  test.native.getFocusPushToken.mockResolvedValue('rotated-' + 'x'.repeat(40));
+  test.foreground();
+  await settle();
+  expect(test.request).toHaveBeenCalledTimes(2);
+  test.stop();
+});
+
+test('Android 토큰 조회 중 세션이 끝나면 등록하지 않는다', async () => {
+  const test = setup('android');
+  test.end();
+  await settle();
+  expect(test.request).not.toHaveBeenCalled();
+  test.stop();
+});
+
+test('Android 세션 시작 직후 이미 백그라운드여도 최초 토큰은 즉시 등록한다', async () => {
+  const test = setup('android', 'background');
+  await settle();
+  expect(test.request).toHaveBeenCalledWith(
+    '/focus-sessions/session-1/live-activity',
+    expect.objectContaining({ method: 'PUT' }),
+  );
+  jest.advanceTimersByTime(30_000);
+  await settle();
+  expect(test.native.getFocusPushToken).toHaveBeenCalledTimes(1);
+  test.stop();
+});

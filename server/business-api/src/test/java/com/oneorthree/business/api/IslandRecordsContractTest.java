@@ -136,10 +136,10 @@ class IslandRecordsContractTest extends UpstreamTestBase {
             "from=2026-09-01&to=2026-10-02&scope=me,422,OUT_OF_RANGE,to",
             "from=2026-09-01&to=2026-10-01&scope=all,422,OUT_OF_RANGE,scope",
             "from=2026-09-01&to=2026-09-07,400,INVALID_PARAMETER,scope",
-            "from=2026-09-01&to=2026-09-07&scope=me&timezone=Asia/Seoul,400,INVALID_PARAMETER,timezone",
+            "from=2026-09-01&to=2026-09-07&scope=me&timezone=Europe/Paris,400,INVALID_PARAMETER,timezone",
             "from=2026-09-01&to=2026-09-07&scope=me&limit=10,400,INVALID_PARAMETER,limit",
             "from=2026-09-01&from=2026-09-02&to=2026-09-07&scope=me,400,INVALID_PARAMETER,from"})
-    @DisplayName("query 모양·범위 — 형식은 400, 없는 날짜·31일 초과·모르는 scope 는 422, UTC 외 timezone 은 400. 상류 호출 없음")
+    @DisplayName("query 모양·범위 — 형식은 400, 없는 날짜·31일 초과·모르는 scope 는 422, 지원하지 않는 timezone 은 400. 상류 호출 없음")
     void rejectsQueries(String query, int status, String code, String field) throws Exception {
         MockHttpServletRequestBuilder request = get(SCREEN + "?" + query);
         mockMvc.perform(auth(request))
@@ -465,7 +465,7 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     @CsvSource(delimiter = '|', value = {
             "/me/screen-time/2026-09-11|{\"minutes\":-1,\"measurementStatus\":\"authorized\",\"measuredAt\":\"2026-09-11T09:10:00Z\",\"deviceId\":\"%s\"}|422|OUT_OF_RANGE|minutes",
             "/me/screen-time/2026-09-11|{\"minutes\":null,\"measurementStatus\":\"blocked\",\"measuredAt\":\"2026-09-11T09:10:00Z\",\"deviceId\":\"%s\"}|422|OUT_OF_RANGE|measurementStatus",
-            "/me/screen-time/2026-09-11|{\"minutes\":1,\"measurementStatus\":\"authorized\",\"timezone\":\"Asia/Seoul\",\"measuredAt\":\"2026-09-11T09:10:00Z\",\"deviceId\":\"%s\"}|400|INVALID_PARAMETER|timezone",
+            "/me/screen-time/2026-09-11|{\"minutes\":1,\"measurementStatus\":\"authorized\",\"timezone\":\"Europe/Paris\",\"measuredAt\":\"2026-09-11T09:10:00Z\",\"deviceId\":\"%s\"}|400|INVALID_PARAMETER|timezone",
             "/me/screen-time/2026-09-11|{\"minutes\":1,\"measurementStatus\":\"authorized\",\"timezone\":null,\"measuredAt\":\"2026-09-11T09:10:00Z\",\"deviceId\":\"%s\"}|400|INVALID_PARAMETER|timezone",
             "/me/screen-time/2026-02-30|{\"minutes\":1,\"measurementStatus\":\"authorized\",\"measuredAt\":\"2026-09-11T09:10:00Z\",\"deviceId\":\"%s\"}|422|OUT_OF_RANGE|date",
             "/me/screen-time/20260911|{\"minutes\":1,\"measurementStatus\":\"authorized\",\"measuredAt\":\"2026-09-11T09:10:00Z\",\"deviceId\":\"%s\"}|400|INVALID_PARAMETER|date"})
@@ -563,7 +563,7 @@ class IslandRecordsContractTest extends UpstreamTestBase {
         }
         if (operation.startsWith("screen")) {
             var day = json.createObjectNode().put("date", "2026-09-11").putNull("minutes")
-                    .put("measurementStatus", "denied").putNull("updatedAt");
+                    .put("measurementStatus", "denied").put("finalized", false).putNull("updatedAt");
             var series = operation.equals("screen-me") ? upstream.path("series")
                     : upstream.path("members").get(0).path("series");
             ((tools.jackson.databind.node.ArrayNode) series).add(day);
