@@ -43,6 +43,8 @@ export function StickerDrawer({
       />
       <ScrollView
         testID="sticker-drawer"
+        // 쓰기 화면 본문도 세로 스크롤이라 Android 에서는 안쪽 서랍이 제스처를 받게 따로 켠다
+        nestedScrollEnabled
         contentContainerStyle={{ gap: semanticTokens.spacing.control, paddingBottom: 8 }}
         showsVerticalScrollIndicator={false}
       >

@@ -54,12 +54,22 @@ const kstAt = (day: string, hour: number) =>
   new Date(Date.parse(`${day}T00:00:00Z`) - KST + hour * 3600_000).toISOString();
 
 type Stored = SavedPromotion & { appliedAt: string };
-type IslandStore = { promotions: Stored[]; balance: number | null; news: IslandNewsItem[] };
+type IslandStore = {
+  promotions: Stored[];
+  balance: number | null;
+  news: IslandNewsItem[];
+  /** 멱등 키 → (본문, 첫 응답) — 같은 키 재시도는 첫 응답 그대로, 다른 본문이면 409 IDEMPOTENCY_KEY_REUSED(서버와 같다) */
+  applied: Map<string, { draft: string; response: PromotionApplied }>;
+};
 /** 섬마다 따로 — 데모에서 다른 소속 섬으로 바꾸면 그 섬의 홍보·통장·소식만 보인다. */
 const islands = new Map<string, IslandStore>();
 const storeOf = (islandId: string): IslandStore => {
   let store = islands.get(islandId);
-  if (!store) islands.set(islandId, (store = { promotions: [], balance: null, news: [] }));
+  if (!store)
+    islands.set(
+      islandId,
+      (store = { promotions: [], balance: null, news: [], applied: new Map() }),
+    );
   return store;
 };
 const wait = () => new Promise((resolve) => setTimeout(resolve, 250));
@@ -324,11 +334,17 @@ export const magazineMock = {
   async applyPromotion(
     islandId: string,
     draft: PromotionDraft,
-    _key: string,
+    key: string,
     now = Date.now(),
   ): Promise<PromotionApplied> {
     await wait();
     const store = storeOf(islandId);
+    const replay = store.applied.get(key);
+    if (replay) {
+      if (replay.draft !== JSON.stringify(draft))
+        reject('IDEMPOTENCY_KEY_REUSED', 409, '다른 요청에 사용한 명령 키입니다.');
+      return replay.response;
+    }
     seed(store, now);
     const w = windowAt(now);
     if (mockFlags().has('private'))
@@ -352,13 +368,15 @@ export const magazineMock = {
       body: '섬장이 오늘 잡지 홍보에 60마리를 썼어요',
       createdAt: new Date(now).toISOString(),
     });
-    return {
+    const response = {
       promotionId,
       issueDate: w.issueDate,
       feeFish: 60,
       balanceAfter: store.balance!,
       newsId,
     };
+    store.applied.set(key, { draft: JSON.stringify(draft), response });
+    return response;
   },
 
   async updatePromotion(

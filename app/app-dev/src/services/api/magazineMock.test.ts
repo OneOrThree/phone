@@ -130,3 +130,16 @@ it('섬마다 홍보·통장·소식이 따로다 — 다른 소속 섬으로 �
     magazineMock.applyPromotion('b', { body: '비 섬', layout }, 'k2', now),
   ).resolves.toMatchObject({ balanceAfter: b.balance - 60 });
 });
+
+it('같은 멱등 키 재시도는 첫 응답을 그대로 돌려주고, 같은 키·다른 본문은 IDEMPOTENCY_KEY_REUSED', async () => {
+  const now = at('2026-10-14T10:00:00');
+  const first = await magazineMock.applyPromotion('i', { body: '안녕', layout }, 'k', now);
+  // 응답을 잃고 같은 키로 다시 보내도 두 번 빠지지 않는다
+  await expect(
+    magazineMock.applyPromotion('i', { body: '안녕', layout }, 'k', now),
+  ).resolves.toEqual(first);
+  expect((await magazineMock.getPromotionEditor('i', now)).balance).toBe(first.balanceAfter);
+  await expect(
+    magazineMock.applyPromotion('i', { body: '다른 글', layout }, 'k', now),
+  ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED', status: 409 });
+});
