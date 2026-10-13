@@ -11,9 +11,12 @@
  *                                    `Idempotency-Key` 불필요(이미 넣은 섬이면 200 으로 같은 본문). 5번째면 가장 오래된
  *                                    핀이 빠지고 `evicted` 로 온다. 없는·비공개 섬 404 `GROUP_NOT_FOUND` · 강퇴 섬 403
  *                                    `FORBIDDEN` · 내 소속 섬 409 `STATE_CONFLICT`.
+ *  - `DELETE /me/telescope/pins/{id}` 직접 넣은 섬을 뺀다(GROMO-2273 · 서버 GROMO-2268). `Idempotency-Key` 불필요 — 이미
+ *                                    없는 섬도 200 `{ deleted: true }` 라 재시도가 안전하다. 뺀 자리는 서버가 목록을 조립할 때
+ *                                    그 시간대의 무작위 섬으로 채우므로 호출부는 목록을 따로 읽지 않는다 — 성공 알림(아래)으로 다시 읽는다.
  *
- * 망원경 목록을 서버에서 바꾸는 요청(지금은 넣기)이 성공하면 `onTelescopeChanged` 구독자에게 알린다. 열려 있는 목록이 다시 읽는 데
- * 쓴다 — 요청이 느려 끝나기 전에 망원경을 열어 옛 목록을 받아 둔 경우를 메운다.
+ * 망원경 목록을 서버에서 바꾸는 요청(넣기·빼기)이 성공하면 `onTelescopeChanged` 구독자에게 알린다. 열려 있는 목록이 다시 읽는 데
+ * 쓴다 — 요청이 느려 끝나기 전에 망원경을 열어(빼기는 나갔다 다시 열어) 옛 목록을 받아 둔 경우를 메운다.
  *
  * 가입의 `origin: 'telescope'` 는 `islands.ts joinIsland` 가 맡는다 — 즉시 가입이어도 현재 섬을 옮기지 않는다.
  */
@@ -69,7 +72,7 @@ export type PinResult = {
 const telescopeListeners = new Set<() => void>();
 
 /**
- * 망원경 목록이 서버에서 바뀌면(넣기 성공 — 목록을 바꾸는 다른 요청도 같은 신호를 쓴다) 불릴 구독자를 등록하고 해제 함수를 돌려준다.
+ * 망원경 목록이 서버에서 바뀌면(넣기·빼기 성공) 불릴 구독자를 등록하고 해제 함수를 돌려준다.
  * 화면을 떠난 뒤 끝난 요청도 알림은 나간다 — 구독자가 없으면 아무 일도 없고, 다음에 열 때 새로 읽는다.
  */
 export function onTelescopeChanged(listener: () => void): () => void {
@@ -135,6 +138,21 @@ export async function pinToTelescope(islandId: string, source: PinSource): Promi
     method: 'POST',
     body: { islandId, source },
   });
+  notifyTelescopeChanged();
+  return result;
+}
+
+/**
+ * 직접 넣은 섬(잡지·전망대 핀)을 망원경에서 뺀다(GROMO-2273). 본문도 멱등 키도 없다 — 이미 없는 섬도 200 `{ deleted: true }` 라
+ * 응답 유실 재시도가 안전하다. 항해 중인 섬을 막는 검사는 서버에 없다(항해 상태가 없다) — 앱이 확인창으로 거친다.
+ * 성공하면 `onTelescopeChanged` 구독자에게 알린다(`pinToTelescope` 와 같다) — 빼기 요청 중 망원경을 나갔다 다시 열어 «빼기 전»
+ * 목록을 받은 화면도 이 알림으로 다시 읽는다. 요청을 낸 화면이 이미 떠났어도 알림은 나간다.
+ */
+export async function unpinFromTelescope(islandId: string): Promise<{ deleted: true }> {
+  const result = await request<{ deleted: true }>(
+    `/me/telescope/pins/${encodeURIComponent(islandId)}`,
+    { method: 'DELETE' },
+  );
   notifyTelescopeChanged();
   return result;
 }

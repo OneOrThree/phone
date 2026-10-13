@@ -1,7 +1,7 @@
 import React from 'react';
 import { t } from '@/i18n';
 import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
-import { useIslandSailing } from '@/screens/island/useIslandSailing';
+import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { currentIsland, serverVisit, viewIsland, type State } from '@/services/model';
 
@@ -70,11 +70,6 @@ export function RaftDestinations({ e }: { e: any }) {
     }
     action();
   };
-  // 소속 섬 이동 없이 구경만 끝낸다 — CurrentScreens 의 endServerVisit 와 같다(소속 섬이 없으면 섬 선택으로).
-  const endVisit = () => {
-    e.dispatch({ type: 'END_VISIT' });
-    e.reset(s.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
-  };
 
   if (sail.sailing) return sail.sailing;
 
@@ -111,7 +106,7 @@ export function RaftDestinations({ e }: { e: any }) {
             title={t('home.raft.endVisit')}
             chevron
             disabled={sail.pending}
-            onPress={() => confirmLeave(endVisit)}
+            onPress={() => confirmLeave(() => endServerVisit(e))}
           />
         )}
         {!visiting && (

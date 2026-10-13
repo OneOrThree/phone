@@ -1,5 +1,5 @@
 /**
- * 망원경 API (GROMO-2266·2269 · 서버 계약 GROMO-2260·2265·2268) — 무접두 공개 경로, `{data}` 언랩.
+ * 망원경 API (GROMO-2266·2269·2273 · 서버 계약 GROMO-2260·2265·2268) — 무접두 공개 경로, `{data}` 언랩.
  * 서버가 아직 없어 계약 모양의 응답을 fetch 스텁으로 흘려 본다.
  */
 import assert from 'node:assert/strict';
@@ -9,6 +9,7 @@ import {
   getTelescope,
   onTelescopeChanged,
   pinToTelescope,
+  unpinFromTelescope,
 } from '@/services/api/telescope';
 import { clearSession, saveSession } from '@/services/api/session';
 
@@ -196,7 +197,45 @@ test.each([
   });
 });
 
-describe('onTelescopeChanged — 열린 망원경 목록이 다시 읽도록 넣기 성공을 알린다', () => {
+test('unpinFromTelescope — DELETE /me/telescope/pins/{id} 를 본문·멱등 키 없이 보내고 {deleted:true} 를 그대로 돌려준다(이미 없는 섬도 200)', async () => {
+  stub([
+    { status: 200, body: { data: { deleted: true } } },
+    { status: 200, body: { data: { deleted: true } } },
+  ]);
+  const result = await unpinFromTelescope('i 1');
+  const retry = await unpinFromTelescope('i 1'); // 응답 유실 재시도·이미 뺀 섬 — 같은 200
+  assert.equal(path(calls[0]), '/me/telescope/pins/i%201');
+  assert.equal(calls[0].init.method, 'DELETE');
+  assert.equal(calls[0].init.body, undefined);
+  assert.equal(header(calls[0], 'Authorization'), 'Bearer AT');
+  assert.equal(header(calls[0], 'Idempotency-Key'), undefined);
+  assert.deepEqual(result, { deleted: true });
+  assert.deepEqual(retry, { deleted: true });
+});
+
+test('unpinFromTelescope — 서버 거절 코드는 그대로 오류로 올라간다', async () => {
+  stub([
+    {
+      status: 503,
+      body: {
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: '잠시 뒤 다시 시도해 주세요',
+          field: null,
+          retryable: true,
+        },
+      },
+    },
+  ]);
+  await assert.rejects(unpinFromTelescope('i1'), (e: unknown) => {
+    assert.ok(e instanceof ApiError);
+    assert.equal(e.code, 'SERVICE_UNAVAILABLE');
+    assert.equal(e.status, 503);
+    return true;
+  });
+});
+
+describe('onTelescopeChanged — 열린 망원경 목록이 다시 읽도록 넣기·빼기 성공을 알린다', () => {
   const pinned = {
     status: 201,
     body: { data: { item: wireItem({ slot: 'pinned' }), evicted: null } },
@@ -246,5 +285,34 @@ describe('onTelescopeChanged — 열린 망원경 목록이 다시 읽도록 넣
     } finally {
       offs.forEach((off) => off());
     }
+  });
+
+  test('빼기가 성공하면 구독자에게 한 번 알리고, 실패한 요청이나 해제한 구독자에게는 알리지 않는다', async () => {
+    const changed = jest.fn();
+    const off = onTelescopeChanged(changed);
+    try {
+      stub([
+        {
+          status: 503,
+          body: {
+            error: {
+              code: 'SERVICE_UNAVAILABLE',
+              message: '잠시 뒤 다시 시도해 주세요',
+              field: null,
+              retryable: true,
+            },
+          },
+        },
+        { status: 200, body: { data: { deleted: true } } },
+      ]);
+      await assert.rejects(unpinFromTelescope('p1'));
+      expect(changed).not.toHaveBeenCalled();
+      assert.deepEqual(await unpinFromTelescope('p1'), { deleted: true });
+      expect(changed).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+    }
+    await unpinFromTelescope('p1'); // 이미 뺀 섬의 재시도(200) — 해제한 구독자에게는 불리지 않는다
+    expect(changed).toHaveBeenCalledTimes(1);
   });
 });

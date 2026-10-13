@@ -134,6 +134,8 @@ export function Btn({
   id,
   // 목록 항목마다 같은 제목(지우기·신고)이 되풀이되면 어느 항목인지 덧붙인 읽는 이름을 따로 줄 수 있다. 기본은 title
   accessibilityLabel,
+  // 제목만으로 안 읽히는 «누르면 일어날 일»을 덧붙인다(예: 흐리게 보이지만 누를 수 있는 버튼이 왜 확인창을 여는지)
+  accessibilityHint,
 }: any) {
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
@@ -152,6 +154,7 @@ export function Btn({
         testID={id}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel || title}
+        accessibilityHint={accessibilityHint}
         // small은 시각 높이 38pt를 유지하되 실제 누름 영역은 최소 44pt로 확장한다.
         hitSlop={small ? 3 : undefined}
         // 누를 동작이 없는 버튼(적용됨 같은 상태 표시)은 모양은 그대로 두고 비활성으로 읽는다(흐림은 disabled일 때만)

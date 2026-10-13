@@ -656,7 +656,19 @@
     "apply": "가입 신청",
     "pending": "신청 중",
     "full": "정원이 찼어요",
-    "joined": "주민이 됐어요 — 항해해서 처음 가 보세요"
+    "joined": "주민이 됐어요 — 항해해서 처음 가 보세요",
+    "ribbon": "찜",
+    "pinnedIslandA11y": "{{name}}, 잡지에서 찜한 섬",
+    "magazinePreview": "잡지 칸 미리보기",
+    "magazinePreviewA11y": "{{name}}, 잡지 칸 미리보기",
+    "unpin": "망원경에서 빼기",
+    "unpinVoyagingHint": "항해 중이라 빼려면 항해를 그만둬야 해요",
+    "unpinned": "망원경에서 뺐어요",
+    "stopSailing": {
+      "title": "항해를 그만둘까요?",
+      "body": "항해 중인 섬은 바로 뺄 수 없어요. 항해를 그만두고 망원경에서 빼면 원래 섬으로 돌아가요.",
+      "ok": "그만두고 빼기"
+    }
   },
   "observatory": {
     "searchTitle": "섬 찾기",

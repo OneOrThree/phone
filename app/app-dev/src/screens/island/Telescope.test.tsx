@@ -1,20 +1,44 @@
-// 망원경 화면(GROMO-2266) — 파노라마·말풍선·버튼 상태·가입·항해·돌아가기·카운트다운.
-// API(getTelescope·arriveAtIsland)와 항해 연출(Sailing)은 목이다.
+// 망원경 화면(GROMO-2266 · 2273) — 파노라마·말풍선·버튼 상태·가입·항해·돌아가기·카운트다운·핀 표시(찜 리본·잡지 칸 미리보기·빼기).
+// API(getTelescope·arriveAtIsland)와 항해 연출(Sailing)은 목이다. 빼기는 실제 unpinFromTelescope 를 거치고 서버 요청(request)만 목이다 —
+// 성공하면 실제처럼 onTelescopeChanged 구독자에게 알려, 화면이 따로 부르지 않아도 열린 목록이 구독으로 다시 읽는다(useTelescope 는 실제).
 import React from 'react';
 import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { Telescope } from '@/screens/island/Telescope';
 import { applyLocalePref } from '@/i18n';
-import { ApiError } from '@/services/api/client';
+import { ApiError, request } from '@/services/api/client';
 import { arriveAtIsland, getTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { initialState, reducer } from '@/services/model';
 
+jest.mock('@/services/api/client', () => ({
+  ...jest.requireActual('@/services/api/client'),
+  request: jest.fn(),
+}));
 jest.mock('@/services/api/telescope', () => ({
   ...jest.requireActual('@/services/api/telescope'),
   getTelescope: jest.fn(),
   arriveAtIsland: jest.fn(),
 }));
+// 화면이 직접 부른 reload 만 센다(알림 구독이 읽는 건 훅 안쪽 reload 라 걸리지 않는다). 구독의 읽기와 화면의 reload 는 같은 틱에 합쳐져
+// getTelescope 호출 횟수만으로는 이중 조회가 보이지 않기 때문이다. 그 밖에는 실제 useTelescope 그대로다.
+const mockScreenReload = jest.fn();
+jest.mock('@/screens/island/useTelescope', () => {
+  const actual = jest.requireActual('@/screens/island/useTelescope');
+  return {
+    ...actual,
+    useTelescope: (options: { active: boolean }) => {
+      const state = actual.useTelescope(options);
+      return {
+        ...state,
+        reload: () => {
+          mockScreenReload();
+          state.reload();
+        },
+      };
+    },
+  };
+});
 jest.mock('@/screens/world/WorldViews', () => ({
   Sailing: ({ destination, from, onArrive }: any) => {
     const { Pressable, Text } = require('react-native');
@@ -50,6 +74,9 @@ jest.mock('react-native-safe-area-context', () => ({
 
 const mockGet = getTelescope as jest.Mock;
 const mockArrive = arriveAtIsland as jest.Mock;
+// 이 화면이 보내는 서버 요청은 빼기(DELETE) 뿐이다 — 가입·도착은 e.islands 와 arriveAtIsland 목이 맡는다
+const mockUnpin = request as jest.Mock;
+const deleteCall = (id: string) => [`/me/telescope/pins/${id}`, { method: 'DELETE' }];
 // Idempotency-Key 형식(client.uuid): 하이픈 포함 36자 UUID v4
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -60,6 +87,7 @@ beforeEach(() => {
   // 쓰이지 않고 남은 mockResolvedValueOnce 가 다음 테스트로 새지 않게 구현까지 비운다
   mockGet.mockReset();
   mockArrive.mockReset();
+  mockUnpin.mockReset();
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -131,6 +159,7 @@ function env(over: { session?: boolean; islands?: boolean } = {}) {
     back: jest.fn(),
     home: jest.fn(),
     notify: jest.fn(),
+    confirm: jest.fn(),
     backOverride: { current: null as null | (() => boolean) },
     islands:
       over.islands === false
@@ -931,5 +960,405 @@ describe('큰 글자·배치', () => {
       os.restore();
       announce.mockRestore();
     }
+  });
+});
+
+// ── GROMO-2273 — 망원경 핀 표시: 「찜」 리본(잡지만) · 잡지 칸 미리보기 자리표시 · [망원경에서 빼기] · 항해 중 확인 ──
+describe('핀 표시 · 빼기 (GROMO-2273)', () => {
+  const REMOVE = '망원경에서 빼기';
+  const removeButton = (screen: any) => screen.getByLabelText(REMOVE);
+  // 목록의 칸은 서버가 정한다 — 앱은 slot·pinnedFrom 만 보고 그린다
+  const ribbonIds = (screen: any) =>
+    screen
+      .queryAllByTestId(/^telescope-ribbon-/, { includeHiddenElements: true })
+      .map((n: any) => n.props.testID);
+
+  // 구경(서버 방문) 중인 상태 — 실제 리듀서로 만든다(RaftDestinations 테스트와 같다). dispatch 는 목이라 상태는 그대로 남는다.
+  function visiting(e: ReturnType<typeof env>, id: string, { entered = true } = {}) {
+    let state = reducer(e.state, {
+      type: 'ISLAND_VISIT',
+      visit: { island: isl(id, `섬 ${id}`), joinRequest: null },
+    });
+    if (entered) state = reducer(state, { type: 'SERVER_VISITING', islandId: id });
+    e.state = state;
+    return e;
+  }
+
+  test('「찜」 리본은 잡지로 넣은 섬에만 1개 — 전망대 핀·무작위·가까운·소속 섬에는 없다', async () => {
+    const { screen } = await open(EIGHT());
+    expect(ribbonIds(screen)).toEqual(['telescope-ribbon-p1']);
+    // 장식이라 스크린리더에서 숨는다 — 읽는 이름이 «잡지에서 찜한 섬»임을 대신 말한다
+    const ribbon = screen.getByTestId('telescope-ribbon-p1', { includeHiddenElements: true });
+    expect(ribbon.props.accessibilityElementsHidden).toBe(true);
+    within(ribbon).getByText('찜', { includeHiddenElements: true });
+    // 모양 — 마스킹테이프처럼 섬 테두리 위에 겹쳐(absolute) 토큰의 각도로 기울어 붙는다
+    const ribbonStyle = StyleSheet.flatten(ribbon.props.style);
+    expect(ribbonStyle.position).toBe('absolute');
+    expect(ribbonStyle.transform).toContainEqual({ rotate: componentTokens.telescope.ribbonTilt });
+    expect(screen.getByTestId('telescope-island-p1').props.accessibilityLabel).toBe(
+      '섬 p1, 잡지에서 찜한 섬',
+    );
+    for (const id of ['p2', 'n1', 'r1', 'r2'])
+      expect(screen.getByTestId(`telescope-island-${id}`).props.accessibilityLabel).toBe(
+        `섬 ${id}`,
+      );
+    // 소속 섬은 깃발만이다
+    expect(screen.getByTestId('telescope-island-j1').props.accessibilityLabel).toBe(
+      '섬 j1, 내가 사는 섬',
+    );
+  });
+
+  test('출처를 모르는 핀(pinnedFrom 없음)에는 리본이 없다 — 잡지로 넣었다고 확정할 수 없다', async () => {
+    const { screen } = await open([item('x1', { slot: 'pinned' }), item('r1')]);
+    expect(ribbonIds(screen)).toEqual([]);
+  });
+
+  test('목록이 바뀌면 리본도 따라 바뀐다 — 로컬에 «넣었다» 상태를 들지 않는다(목록이 정본)', async () => {
+    mockGet
+      .mockResolvedValueOnce(wire([item('p1', { slot: 'pinned', pinnedFrom: 'magazine' })], 1))
+      .mockResolvedValueOnce(
+        wire(
+          [item('p1', { slot: 'random' }), item('p9', { slot: 'pinned', pinnedFrom: 'magazine' })],
+          30,
+        ),
+      );
+    jest.useFakeTimers();
+    const screen = await render(<Telescope e={env()} />);
+    await screen.findByTestId('telescope-island-p1');
+    expect(ribbonIds(screen)).toEqual(['telescope-ribbon-p1']);
+    await act(async () => {
+      jest.advanceTimersByTime(60_000);
+    });
+    await screen.findByTestId('telescope-island-p9');
+    // 06:59:59 에 넣은 핀이 1초 뒤 만료되듯 목록에서 핀이 아니게 된 섬(p1)의 리본은 곧바로 사라진다
+    expect(ribbonIds(screen)).toEqual(['telescope-ribbon-p9']);
+  });
+
+  test('잡지로 넣은 섬의 말풍선에는 잡지 칸 미리보기가 1장 — 전망대 핀·무작위·가까운·소속 섬에는 없다', async () => {
+    const { screen } = await open(EIGHT());
+    await press(screen, 'p1');
+    const cards = screen.getAllByTestId('telescope-magazine-preview');
+    expect(cards).toHaveLength(1);
+    // 그림과 라벨이 한 덩어리로 읽힌다
+    expect(cards[0].props.accessible).toBe(true);
+    expect(cards[0].props.accessibilityLabel).toBe('섬 p1, 잡지 칸 미리보기');
+    within(cards[0]).getByText('잡지 칸 미리보기');
+    await fireEvent.press(screen.getByLabelText('닫기'));
+    for (const id of ['p2', 'n1', 'r1', 'j1']) {
+      await press(screen, id);
+      screen.getByTestId('telescope-bubble-name');
+      expect(screen.queryByTestId('telescope-magazine-preview')).toBeNull();
+      await fireEvent.press(screen.getByLabelText('닫기'));
+    }
+  });
+
+  test.each([
+    ['p1', '잡지 핀', true],
+    ['p2', '전망대 핀', true],
+    ['r1', '무작위 섬', false],
+    ['n1', '가까운 섬', false],
+    ['j1', '소속 섬', false],
+    ['j3', '미도착 소속 섬', false],
+  ])(
+    '[망원경에서 빼기]는 직접 넣은 섬(pinned)의 말풍선에만 있다 — %s (%s)',
+    async (id, _kind, has) => {
+      const { screen } = await open(EIGHT());
+      await press(screen, id);
+      expect(!!screen.queryByLabelText(REMOVE)).toBe(has);
+    },
+  );
+
+  test.each(['p1', 'p2'])(
+    '[빼기](%s) → 성공 알림으로 목록을 다시 읽어 그 자리에 무작위 섬이 뜨고 말풍선이 닫힌다',
+    async (pinned) => {
+      mockUnpin.mockResolvedValue({ deleted: true });
+      // 서버가 빈 자리를 그 시간대의 무작위 섬으로 채운 다음 목록
+      const after = EIGHT().map((i) => (i.islandId === pinned ? item('r9') : i));
+      mockGet.mockResolvedValueOnce(wire(EIGHT())).mockResolvedValueOnce(wire(after));
+      const e = env();
+      const screen = await render(<Telescope e={e} />);
+      await screen.findByTestId('telescope-island-p1');
+      await press(screen, pinned);
+      await fireEvent.press(removeButton(screen));
+      expect(mockUnpin).toHaveBeenCalledTimes(1);
+      expect(mockUnpin).toHaveBeenCalledWith(...deleteCall(pinned));
+      await screen.findByTestId('telescope-island-r9');
+      // 복귀 로직은 없다 — 빼기가 끝난 뒤 목록을 다시 읽을 뿐이다
+      expect(mockGet).toHaveBeenCalledTimes(2);
+      expect(mockUnpin.mock.invocationCallOrder[0]).toBeLessThan(
+        mockGet.mock.invocationCallOrder[1],
+      );
+      expect(screen.queryByTestId(`telescope-island-${pinned}`)).toBeNull();
+      expect(screen.getAllByTestId(/^telescope-island-/)).toHaveLength(8);
+      expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
+      expect(e.notify).toHaveBeenCalledWith('망원경에서 뺐어요');
+      // 구경 중이 아니니 확인창도 구경 종료도 없다
+      expect(e.confirm).not.toHaveBeenCalled();
+      expect(e.dispatch).not.toHaveBeenCalled();
+      expect(e.reset).not.toHaveBeenCalled();
+    },
+  );
+
+  // 서버가 빈 자리를 그 시간대의 무작위 섬으로 채운 다음 목록
+  const afterUnpin = (id: string) => EIGHT().map((i) => (i.islandId === id ? item('r9') : i));
+
+  test('빼기 성공 뒤 목록은 알림 구독이 정확히 한 번 더 읽는다 — 화면은 reload 를 따로 부르지 않는다(이중 조회 없음)', async () => {
+    mockUnpin.mockResolvedValue({ deleted: true });
+    const { screen } = await open(EIGHT());
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    mockGet.mockImplementation(async () => wire(afterUnpin('p1')));
+    await press(screen, 'p1');
+    await fireEvent.press(removeButton(screen));
+    await screen.findByTestId('telescope-island-r9');
+    await act(async () => {}); // 늦게 나가는 읽기가 있다면 여기서 드러난다
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(mockScreenReload).not.toHaveBeenCalled();
+  });
+
+  test('빼기 요청 중에 망원경을 나갔다 다시 열어 «빼기 전» 목록을 받아도, 빼기가 끝나면 새 화면이 다시 읽어 핀이 사라진다', async () => {
+    let finish!: () => void;
+    mockUnpin.mockReturnValue(
+      new Promise<{ deleted: true }>((resolve) => (finish = () => resolve({ deleted: true }))),
+    );
+    const first = env();
+    const { screen: old } = await open(EIGHT(), first);
+    await press(old, 'p1');
+    await fireEvent.press(removeButton(old));
+    await old.unmount(); // 요청이 느려 끝나기 전에 망원경을 나갔다
+    // 다시 열면 서버는 아직 «빼기 전» 목록을 준다
+    const second = env();
+    const { screen: reopened } = await open(EIGHT(), second);
+    reopened.getByTestId('telescope-island-p1');
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    // 빼기가 끝나면 서버가 빈 자리를 채운 목록을 준다 — 요청을 낸 옛 화면은 이미 없지만 새 화면은 알림으로 다시 읽는다
+    mockGet.mockImplementation(async () => wire(afterUnpin('p1')));
+    await act(async () => finish());
+    await reopened.findByTestId('telescope-island-r9');
+    expect(reopened.queryByTestId('telescope-island-p1')).toBeNull();
+    expect(mockGet).toHaveBeenCalledTimes(3);
+    // 알리는 건 요청을 낸 화면의 몫이다 — 떠난 화면도 다시 연 화면도 토스트를 띄우지 않는다
+    expect(first.notify).not.toHaveBeenCalled();
+    expect(second.notify).not.toHaveBeenCalled();
+  });
+
+  test('빼기에 실패하면 오류만 알리고 말풍선을 둔 채 목록을 다시 읽지 않는다 — 다시 누를 수 있다', async () => {
+    mockUnpin
+      .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', 'x', 0))
+      .mockResolvedValueOnce({ deleted: true });
+    const { screen, e } = await open(EIGHT());
+    await press(screen, 'p1');
+    await fireEvent.press(removeButton(screen));
+    await act(async () => {});
+    expect(e.notify).toHaveBeenCalledWith('연결을 확인한 뒤 다시 시도해 주세요.');
+    expect(e.notify).not.toHaveBeenCalledWith('망원경에서 뺐어요');
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('telescope-bubble-name').props.children).toBe('섬 p1');
+    expect(disabled(screen, REMOVE)).toBe(false);
+    await fireEvent.press(removeButton(screen));
+    await act(async () => {});
+    expect(mockUnpin).toHaveBeenCalledTimes(2);
+    expect(mockGet).toHaveBeenCalledTimes(2);
+  });
+
+  test('빼기 요청 중에는 말풍선의 버튼이 모두 막혀 중복 요청이 나가지 않는다', async () => {
+    let finish!: () => void;
+    mockUnpin.mockReturnValue(
+      new Promise<{ deleted: true }>((resolve) => (finish = () => resolve({ deleted: true }))),
+    );
+    const { screen } = await open(EIGHT());
+    await press(screen, 'p1');
+    await fireEvent.press(removeButton(screen));
+    expect(disabled(screen, REMOVE)).toBe(true);
+    expect(disabled(screen, '항해하기')).toBe(true);
+    expect(disabled(screen, '바로 가입')).toBe(true);
+    await fireEvent.press(removeButton(screen));
+    expect(mockUnpin).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    await screen.findByTestId('telescope-island-p1');
+    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
+  });
+
+  test('화면이 다시 그려지기 전에 같은 틱에 두 번 불려도 요청은 한 번만 나간다(확인창 동작도 마찬가지)', async () => {
+    mockUnpin.mockReturnValue(new Promise(() => {}));
+    const e = visiting(env(), 'p1');
+    const { screen } = await open(EIGHT(), e);
+    await press(screen, 'p1');
+    await fireEvent.press(removeButton(screen));
+    const confirmed = e.confirm.mock.calls[0][2];
+    // 한 act 안에서 연달아 부르면 첫 호출의 상태 갱신(비활성)이 반영되기 전에 둘째 호출이 들어간다
+    await act(async () => {
+      confirmed();
+      confirmed();
+    });
+    expect(mockUnpin).toHaveBeenCalledTimes(1);
+  });
+
+  test('화면을 떠난 뒤에 응답이 와도 알리거나 목록을 읽거나 구경을 끝내지 않는다', async () => {
+    let finish!: () => void;
+    mockUnpin.mockReturnValue(
+      new Promise<{ deleted: true }>((resolve) => (finish = () => resolve({ deleted: true }))),
+    );
+    const e = env();
+    const { screen } = await open(EIGHT(), e);
+    await press(screen, 'p1');
+    await fireEvent.press(removeButton(screen));
+    await screen.unmount();
+    await act(async () => finish());
+    expect(e.notify).not.toHaveBeenCalled();
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    // 항해 중이던 섬도 마찬가지 — 이미 다른 화면에 있는 사람을 홈으로 끌고 가지 않는다
+    mockUnpin.mockReturnValue(
+      new Promise<{ deleted: true }>((resolve) => (finish = () => resolve({ deleted: true }))),
+    );
+    const voyaging = visiting(env(), 'p1');
+    const again = await open(EIGHT(), voyaging);
+    await press(again.screen, 'p1');
+    await fireEvent.press(removeButton(again.screen));
+    await act(async () => voyaging.confirm.mock.calls[0][2]());
+    await again.screen.unmount();
+    await act(async () => finish());
+    expect(voyaging.dispatch).not.toHaveBeenCalled();
+    expect(voyaging.reset).not.toHaveBeenCalled();
+    expect(voyaging.notify).not.toHaveBeenCalled();
+  });
+
+  test('가입 요청 중에는 [빼기]도 막힌다', async () => {
+    const e = env();
+    e.islands!.join.mockReturnValue(new Promise(() => {}));
+    const { screen } = await open(EIGHT(), e);
+    await press(screen, 'p1');
+    await fireEvent.press(screen.getByLabelText('바로 가입'));
+    expect(disabled(screen, REMOVE)).toBe(true);
+    await fireEvent.press(removeButton(screen));
+    expect(mockUnpin).not.toHaveBeenCalled();
+  });
+
+  describe('항해 중인 섬(지금 구경 중인 섬)', () => {
+    test('[빼기]는 흐리게 보이되 막히지 않고, 이유를 접근성 힌트로 말한다', async () => {
+      const { screen } = await open(EIGHT(), visiting(env(), 'p1'));
+      await press(screen, 'p1');
+      const button = removeButton(screen);
+      // 화면 읽기 사용자도 확인창에 닿도록 disabled 로 막지 않는다 — 흐림은 모양일 뿐이다
+      expect(button.props.accessibilityState.disabled).toBe(false);
+      expect(button.props.accessibilityHint).toBe('항해 중이라 빼려면 항해를 그만둬야 해요');
+      expect(StyleSheet.flatten(button.parent.props.style).opacity).toBe(
+        componentTokens.button.disabledOpacity,
+      );
+      // 구경 중이 아닌 핀 섬은 평소 모양이다
+      await fireEvent.press(screen.getByLabelText('닫기'));
+      await press(screen, 'p2');
+      expect(removeButton(screen).props.accessibilityHint).toBeUndefined();
+      expect(StyleSheet.flatten(removeButton(screen).parent.props.style).opacity).toBeUndefined();
+    });
+
+    test('누르면 「항해를 그만둘까요?」 확인창이 1번 뜨고, 확인 전에는 아무것도 하지 않는다(취소해도 마찬가지)', async () => {
+      const e = visiting(env(), 'p1');
+      const { screen } = await open(EIGHT(), e);
+      await press(screen, 'p1');
+      await fireEvent.press(removeButton(screen));
+      expect(e.confirm).toHaveBeenCalledTimes(1);
+      const [title, body, action, options] = e.confirm.mock.calls[0];
+      expect(title).toBe('항해를 그만둘까요?');
+      expect(body).toBe(
+        '항해 중인 섬은 바로 뺄 수 없어요. 항해를 그만두고 망원경에서 빼면 원래 섬으로 돌아가요.',
+      );
+      expect(options).toEqual({ ok: '그만두고 빼기' });
+      expect(action).toEqual(expect.any(Function));
+      // 취소 — App.tsx 확인창의 취소 버튼과 같다: 창을 닫고 opts.onCancel 이 있으면 부르되 action 은 부르지 않는다.
+      // 이 화면은 onCancel 을 넘기지 않아(위 options 단정) 부를 콜백이 없다 — 그래도 부르는 줄을 두어, 나중에 onCancel 이 생겨
+      // 빼기·구경 종료를 하게 되면 아래 단정이 잡는다. 빼기도 구경 종료도 없다.
+      await act(async () => options.onCancel?.());
+      expect(mockUnpin).not.toHaveBeenCalled();
+      expect(e.dispatch).not.toHaveBeenCalled();
+      expect(e.reset).not.toHaveBeenCalled();
+      expect(e.notify).not.toHaveBeenCalled();
+      expect(screen.getByTestId('telescope-bubble-name').props.children).toBe('섬 p1');
+    });
+
+    test('확인하면 빼고 구경도 끝낸다 — 빼기 → END_VISIT → 홈(「구경 끝내기」와 같은 종료)', async () => {
+      mockUnpin.mockResolvedValue({ deleted: true });
+      const e = visiting(env(), 'p1');
+      const { screen } = await open(EIGHT(), e);
+      await press(screen, 'p1');
+      await fireEvent.press(removeButton(screen));
+      await act(async () => e.confirm.mock.calls[0][2]());
+      expect(mockUnpin).toHaveBeenCalledTimes(1);
+      expect(mockUnpin).toHaveBeenCalledWith(...deleteCall('p1'));
+      expect(e.dispatch).toHaveBeenCalledTimes(1);
+      expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
+      expect(e.reset).toHaveBeenCalledTimes(1);
+      expect(e.reset).toHaveBeenCalledWith('home');
+      expect(mockUnpin.mock.invocationCallOrder[0]).toBeLessThan(
+        e.dispatch.mock.invocationCallOrder[0],
+      );
+      expect(e.notify).toHaveBeenCalledWith('망원경에서 뺐어요');
+      // 빼기 성공 알림이 목록을 한 번 다시 읽게 한다 — 곧 reset 이 화면을 내려 그 응답은 버려지고, 화면이 따로 더 읽지는 않는다(이중 조회 없음)
+      expect(mockGet).toHaveBeenCalledTimes(2);
+      expect(e.confirm).toHaveBeenCalledTimes(1);
+    });
+
+    test('빼기에 실패하면 구경을 끝내지 않는다 — 오류만 알린다', async () => {
+      mockUnpin.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', 'x', 0));
+      const e = visiting(env(), 'p1');
+      const { screen } = await open(EIGHT(), e);
+      await press(screen, 'p1');
+      await fireEvent.press(removeButton(screen));
+      await act(async () => e.confirm.mock.calls[0][2]());
+      expect(e.notify).toHaveBeenCalledWith('연결을 확인한 뒤 다시 시도해 주세요.');
+      expect(e.dispatch).not.toHaveBeenCalled();
+      expect(e.reset).not.toHaveBeenCalled();
+    });
+
+    test('구경 중이어도 다른 섬을 빼는 데는 확인창이 없다', async () => {
+      mockUnpin.mockResolvedValue({ deleted: true });
+      const e = visiting(env(), 'r1');
+      const { screen } = await open(EIGHT(), e);
+      await press(screen, 'p1');
+      expect(removeButton(screen).props.accessibilityHint).toBeUndefined();
+      await fireEvent.press(removeButton(screen));
+      expect(e.confirm).not.toHaveBeenCalled();
+      expect(mockUnpin).toHaveBeenCalledWith(...deleteCall('p1'));
+      await act(async () => {});
+      expect(e.dispatch).not.toHaveBeenCalled();
+    });
+
+    test('방문 스냅샷만 남고 구경 중이 아니면 «항해 중»이 아니다', async () => {
+      mockUnpin.mockResolvedValue({ deleted: true });
+      const e = visiting(env(), 'p1', { entered: false });
+      const { screen } = await open(EIGHT(), e);
+      await press(screen, 'p1');
+      await fireEvent.press(removeButton(screen));
+      expect(e.confirm).not.toHaveBeenCalled();
+      expect(mockUnpin).toHaveBeenCalledWith(...deleteCall('p1'));
+      await act(async () => {});
+      expect(e.dispatch).not.toHaveBeenCalled();
+      expect(e.reset).not.toHaveBeenCalled();
+    });
+  });
+
+  test('영어 — 리본·미리보기·빼기·확인창이 번역된다', async () => {
+    applyLocalePref('en');
+    const e = visiting(env(), 'p1');
+    const { screen } = await open(EIGHT(), e);
+    within(screen.getByTestId('telescope-ribbon-p1', { includeHiddenElements: true })).getByText(
+      'Saved',
+      { includeHiddenElements: true },
+    );
+    expect(screen.getByTestId('telescope-island-p1').props.accessibilityLabel).toBe(
+      '섬 p1, saved from the magazine',
+    );
+    await press(screen, 'p1');
+    screen.getByText('Magazine panel preview');
+    expect(screen.getByTestId('telescope-magazine-preview').props.accessibilityLabel).toBe(
+      '섬 p1, magazine panel preview',
+    );
+    const button = screen.getByLabelText('Remove from telescope');
+    expect(button.props.accessibilityHint).toBe(
+      "You're sailing to this island, so you need to stop sailing to remove it",
+    );
+    await fireEvent.press(button);
+    const [title, , , options] = e.confirm.mock.calls[0];
+    expect(title).toBe('Stop sailing?');
+    expect(options).toEqual({ ok: 'Stop and remove' });
   });
 });
