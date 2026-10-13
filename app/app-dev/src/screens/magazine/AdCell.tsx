@@ -16,6 +16,9 @@ import {
 import { CELL_ASPECT, PromotionLayout, cellTextFit, stickerRect } from './layout';
 import { islandTitle } from './islandTitle';
 
+/** 섬 프로필 원 지름 대비 섬 그림 상자 크기. 가로로 긴 그림(비율 ~1.9)이 원을 거의 채운다. */
+const ISLAND_ZOOM = 1.3;
+
 /** 칸 하나에 그리는 값 — 서버 홍보 칸(snapshot + body + layout)과 같은 모양. */
 export type AdCellData = {
   name: string;
@@ -62,10 +65,15 @@ export function AdCell({
   const k = W / m.referenceWidth;
   const frame = MAGAZINE_FRAMES[cell.layout.frameId] ?? MAGAZINE_FRAMES[DEFAULT_FRAME_ID];
   const [l, top, r, b] = frame.inset;
-  const fit = cellTextFit(frame.inset);
+  const fit = cellTextFit(frame);
   const s = k * fit.scale;
   const d = m.profileDiameter * s;
   const cornerSize = m.cornerSize * k;
+  const scopeTouch = Math.max(cornerSize, semanticTokens.size.tapMin);
+  const ours = t('magazine.cell.ours');
+  const oursFont = m.metaSize * s;
+  // 배지 폭 어림(한글 0.92em) — 주민/평균 줄이 배지 밑으로 들어가지 않게 그만큼 비운다
+  const oursWidth = ours.length * 0.92 * oursFont + 14 * k;
 
   const name = islandTitle(cell.name);
   const residents = t('magazine.cell.residents', {
@@ -78,13 +86,13 @@ export function AdCell({
       : t('magazine.cell.average', { time: formatDuration(cell.averageFocusMinutesPerDay * 60) });
   const label =
     t('magazine.cell.a11y', { name, residents, average, body: cell.body }) +
-    (corner === 'ours' ? `, ${t('magazine.cell.ours')}` : '');
-  const text = (size: number, lines?: number) => ({
+    (corner === 'ours' ? `, ${ours}` : '');
+  const text = (size: number, scale = s, lines?: number) => ({
     fontFamily: font,
-    fontSize: size * s,
-    lineHeight: size * s * m.lineHeight,
+    fontSize: size * scale,
+    lineHeight: size * scale * m.lineHeight,
     color: semanticTokens.color.text,
-    ...(lines ? { maxHeight: size * s * m.lineHeight * lines } : null),
+    ...(lines ? { maxHeight: size * scale * m.lineHeight * lines } : null),
   });
   const Body = onPress || onLongPress ? Pressable : View;
 
@@ -112,6 +120,8 @@ export function AdCell({
             width: (1 - l - r) * W,
             height: (1 - top - b) * H,
             justifyContent: 'space-between',
+            // 글 맞춤이 빗나가도 틀 밖으로는 그리지 않는다
+            overflow: 'hidden',
           }}
         >
           <View>
@@ -129,11 +139,12 @@ export function AdCell({
                   overflow: 'hidden',
                 }}
               >
+                {/* 섬 그림이 가로로 길어 원 안에 그대로 넣으면 위아래가 빈다 — 원보다 크게 그려 가운데를 채운다(양옆 물은 잘림) */}
                 <Image
                   testID={testID && `${testID}-island`}
                   source={ISLAND_STAGE_ART[islandStage(cell.memberCount, cell.buildingCount)]}
                   resizeMode="contain"
-                  style={{ width: d * 0.86, height: d * 0.86 }}
+                  style={{ width: d * ISLAND_ZOOM, height: d * ISLAND_ZOOM }}
                 />
               </View>
               <T
@@ -151,7 +162,7 @@ export function AdCell({
               numberOfLines={fit.bodyLines}
               adjustsFontSizeToFit
               minimumFontScale={0.7}
-              style={[text(m.bodySize, fit.bodyLines), { marginTop: m.gap * s }]}
+              style={[text(m.bodySize, k * fit.bodyScale, fit.bodyLines), { marginTop: m.gap * s }]}
             >
               {cell.body}
             </T>
@@ -163,7 +174,12 @@ export function AdCell({
             minimumFontScale={0.7}
             style={[
               text(m.metaSize),
-              { color: semanticTokens.color.textMuted, marginRight: corner ? cornerSize * 0.6 : 0 },
+              {
+                color: semanticTokens.color.textMuted,
+                marginLeft: (frame.metaLeft ?? 0) * W,
+                marginRight:
+                  corner === 'ours' ? oursWidth : corner === 'scope' ? cornerSize * 0.6 : 0,
+              },
             ]}
           >
             {`${residents} · ${average}`}
@@ -206,35 +222,47 @@ export function AdCell({
         </View>
       </Body>
       {corner === 'scope' && (
+        // 누르는 상자는 칸 안 오른쪽 아래에 44pt 이상으로 둔다 — 부모(칸) 밖으로 나간 부분은 hitSlop 으로도
+        // 터치가 오지 않는다. 동그라미 그림만 상자보다 작게 그려 칸 모서리에 살짝 걸친다
         <Pressable
           testID={testID && `${testID}-scope`}
           accessibilityRole="button"
           accessibilityLabel={t('magazine.cell.scope', { name })}
           onPress={onScope}
-          hitSlop={Math.max(0, (semanticTokens.size.tapMin - cornerSize) / 2)}
           style={{
             position: 'absolute',
-            right: -cornerSize * 0.15,
-            bottom: -cornerSize * 0.15,
-            width: cornerSize,
-            height: cornerSize,
-            borderRadius: cornerSize / 2,
-            backgroundColor: semanticTokens.color.surface,
-            borderWidth: Math.max(1, semanticTokens.stroke.strong * k),
-            borderColor: semanticTokens.color.outline,
-            alignItems: 'center',
-            justifyContent: 'center',
+            right: 0,
+            bottom: 0,
+            width: scopeTouch,
+            height: scopeTouch,
           }}
         >
-          <Image
-            source={MAGAZINE_TELESCOPE_ICON}
-            resizeMode="contain"
-            style={{ width: cornerSize * 0.66, height: cornerSize * 0.66 }}
-          />
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              right: -cornerSize * 0.15,
+              bottom: -cornerSize * 0.15,
+              width: cornerSize,
+              height: cornerSize,
+              borderRadius: cornerSize / 2,
+              backgroundColor: semanticTokens.color.surface,
+              borderWidth: Math.max(1, semanticTokens.stroke.strong * k),
+              borderColor: semanticTokens.color.outline,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Image
+              source={MAGAZINE_TELESCOPE_ICON}
+              resizeMode="contain"
+              style={{ width: cornerSize * 0.66, height: cornerSize * 0.66 }}
+            />
+          </View>
         </Pressable>
       )}
       {corner === 'ours' && (
-        // 배지는 장식 — 읽는 이름에 「우리 섬이에요」가 이미 들어 있다
+        // 배지는 장식 — 읽는 이름에 「우리 섬이에요」가 이미 들어 있다. 칸 안 글 상자 오른쪽 아래(주민 줄 높이)에 둔다
         <View
           testID={testID && `${testID}-ours`}
           pointerEvents="none"
@@ -242,27 +270,27 @@ export function AdCell({
           importantForAccessibility="no-hide-descendants"
           style={{
             position: 'absolute',
-            right: -4 * k,
-            bottom: -6 * k,
-            paddingHorizontal: 8 * k,
-            paddingVertical: 2 * k,
+            right: r * W,
+            bottom: b * H,
+            paddingHorizontal: 6 * k,
             borderRadius: semanticTokens.radius.full,
             borderWidth: Math.max(1, componentTokens.badge.borderWidth * k),
             borderColor: componentTokens.badge.default.border,
             backgroundColor: componentTokens.badge.default.background,
-            transform: [{ rotate: '-4deg' }],
+            transform: [{ rotate: '-3deg' }],
           }}
         >
           <T
             allowFontScaling={false}
+            numberOfLines={1}
             style={{
               fontFamily: font,
-              fontSize: 12 * k,
-              lineHeight: 12 * k * m.lineHeight,
+              fontSize: oursFont,
+              lineHeight: oursFont * m.lineHeight,
               color: componentTokens.badge.default.foreground,
             }}
           >
-            {t('magazine.cell.ours')}
+            {ours}
           </T>
         </View>
       )}

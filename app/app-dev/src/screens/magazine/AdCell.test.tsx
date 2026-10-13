@@ -1,6 +1,7 @@
 // 잡지 칸 공용 렌더러(GROMO-2289) — 스티커 수만큼 그리기·모르는 재료 건너뛰기, 오른쪽 아래 corner 세 가지,
 // 평균 집계 전, 칸 전체 접근성 이름, 섬 이름 표기(「…섬섬」 방지), 섬 그림 단계.
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
 import { applyLocalePref } from '@/i18n';
 import { ISLAND_STAGE_ART } from '@/constants/magazineAssets';
@@ -89,6 +90,15 @@ describe('AdCell', () => {
     await fireEvent.press(screen.getByLabelText('소다섬 망원경에 넣기'));
     expect(onScope).toHaveBeenCalledTimes(1);
     expect(onPress).not.toHaveBeenCalled();
+  });
+
+  it('작은 칸에서도 망원경 버튼은 칸 안에 44pt 이상으로 눌린다(칸 밖 hitSlop 은 터치가 안 온다)', async () => {
+    const screen = await render(<AdCell testID="c" width={150} cell={cell()} corner="scope" />);
+    const style = StyleSheet.flatten(screen.getByTestId('c-scope').props.style);
+    expect(style.width).toBeGreaterThanOrEqual(44);
+    expect(style.height).toBeGreaterThanOrEqual(44);
+    expect(style.right).toBe(0);
+    expect(style.bottom).toBe(0);
   });
 
   it('corner ours — 「우리 섬이에요」 배지와 읽는 이름', async () => {

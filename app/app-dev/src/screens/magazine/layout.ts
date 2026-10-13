@@ -40,13 +40,16 @@ export const NEW_STICKER = { x: 0.5, y: 0.5, scale: 0.2, rotation: 0 } as const;
 export const NEW_TAPE = { x: 0.5, y: EDGE_BAND / 2, rotation: -4 } as const;
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+// 제스처 계산이 0 으로 나눠 NaN·Infinity 가 들어와도 JSON 에 null 이 실리지 않게 기본값으로 바꾼다
+const finite = (n: number, fallback: number) => (Number.isFinite(n) ? n : fallback);
 // 저장 JSON 을 짧고 안정적으로 — 360pt 칸에서 0.001 = 0.36pt 라 눈에 띄지 않는다
 const round3 = (n: number) => Math.round(n * 1000) / 1000 + 0; // + 0: -0 을 0 으로
 export function normalizeRotation(deg: number) {
+  if (!Number.isFinite(deg)) return 0;
   const r = ((((deg + 180) % 360) + 360) % 360) - 180;
   return round3(r === -180 ? 180 : r);
 }
-const clampPos = (n: number) => round3(clamp(n, POS_MIN, POS_MAX));
+const clampPos = (n: number) => round3(clamp(finite(n, 0.5), POS_MIN, POS_MAX));
 
 export function emptyLayout(frameId: string): PromotionLayout {
   return { v: 1, frameId, stickers: [], tape: null };
@@ -57,7 +60,7 @@ export function clampSticker(s: StickerPlacement): StickerPlacement {
     assetId: s.assetId,
     x: clampPos(s.x),
     y: clampPos(s.y),
-    scale: round3(clamp(s.scale, SCALE_MIN, SCALE_MAX)),
+    scale: round3(clamp(finite(s.scale, NEW_STICKER.scale), SCALE_MIN, SCALE_MAX)),
     rotation: normalizeRotation(s.rotation),
   };
 }
@@ -164,15 +167,16 @@ export function layoutProblem(
   if (layout.v !== 1) return 'layout.v';
   if (!layout.frameId || (knownIds && !knownIds('frame', layout.frameId))) return 'layout.frameId';
   if (layout.stickers.length > MAX_STICKERS) return `layout.stickers[${MAX_STICKERS}]`;
+  // NaN 은 어떤 비교도 거짓이라 「범위 안」을 참으로 묻는다
   const inPos = (n: number) => n >= POS_MIN && n <= POS_MAX;
+  const inRotation = (n: number) => n >= -180 && n <= 180;
   const bad = layout.stickers.findIndex(
     (s) =>
+      !s.assetId ||
       !inPos(s.x) ||
       !inPos(s.y) ||
-      s.scale < SCALE_MIN ||
-      s.scale > SCALE_MAX ||
-      s.rotation < -180 ||
-      s.rotation > 180 ||
+      !(s.scale >= SCALE_MIN && s.scale <= SCALE_MAX) ||
+      !inRotation(s.rotation) ||
       (knownIds != null && !knownIds('sticker', s.assetId)),
   );
   if (bad >= 0) return `layout.stickers[${bad}]`;
@@ -180,42 +184,64 @@ export function layoutProblem(
   if (t) {
     const onBand =
       t.x <= EDGE_BAND || t.x >= 1 - EDGE_BAND || t.y <= EDGE_BAND || t.y >= 1 - EDGE_BAND;
-    if (!onBand || !inPos(t.x) || !inPos(t.y) || (knownIds && !knownIds('tape', t.assetId)))
+    if (
+      !t.assetId ||
+      !onBand ||
+      !inPos(t.x) ||
+      !inPos(t.y) ||
+      !inRotation(t.rotation) ||
+      (knownIds && !knownIds('tape', t.assetId))
+    )
       return 'layout.tape';
   }
   return null;
 }
 
-// 고운돋움 한글 한 글자 폭 ≈ 0.92em(글꼴 파일 실측: 가·같 = 91/100). 띄어쓰기 단위 줄바꿈·이모지(≈1.2em)로
-// 줄 끝이 비는 몫을 WRAP_SLACK 으로 더 잡는다.
+// 고운돋움 한글 한 글자 폭 ≈ 0.92em(글꼴 파일 실측: 가·같 = 91/100). 띄어쓰기 단위 줄바꿈으로 줄 끝이 비는 몫을
+// WRAP_SLACK 으로 더 잡는다(시뮬레이터 실측: 띄어쓰기 없는 한글 60자는 추정과 같은 줄 수, 띄어 쓴 글은 그보다 적다).
+// 이모지(≈1.2em)처럼 더 넓은 글자는 AdCell 의 adjustsFontSizeToFit 가 마지막으로 줄인다.
 const HANGUL_EM = 0.92;
-const WRAP_SLACK = 1.12;
+const WRAP_SLACK = 1.05;
+const MIN_SCALE = 0.6;
 
 /**
- * 틀의 글 상자(inset)에 60자 글이 넘치지 않게 들어가는 글자 배율과 한 줄 글 최대 줄 수.
- * 배율은 칸 너비에 비례하는 기준 크기(componentTokens.magazineCell)에 곱한다 — 틀마다 한 번 정해지는 값이고
- * 칸 너비와 무관하다(모든 치수가 너비에 비례하므로). 섬 프로필·이름 줄 + 한 줄 글 + 주민/평균 줄이 상자 높이 안에 든다.
- * 예상보다 넓은 글자(영문 대문자·이모지)는 AdCell 의 adjustsFontSizeToFit 가 마지막으로 줄인다.
+ * 틀의 글 상자(inset)에 60자 글이 넘치지 않게 들어가는 글자 배율.
+ * - scale: 섬 프로필·이름·주민 줄 배율. bodyScale: 한 줄 글 배율(줄 수 상한이 있는 틀만 scale 보다 작다).
+ * - maxBodyLines: 틀 그림에 인쇄된 장식(고양이 귀 틀 아래쪽 하트)을 피하려고 글 줄 수를 묶는 틀만 준다.
+ * 배율은 칸 너비에 비례하는 기준 크기(componentTokens.magazineCell)에 곱한다 — 모든 치수가 너비에 비례하므로
+ * 틀마다 한 번 정해지는 값이고 칸 너비와 무관하다. 프로필·이름 줄 + 한 줄 글 + 주민/평균 줄이 상자 높이 안에 든다.
  */
-export function cellTextFit(inset: readonly [number, number, number, number]): {
-  scale: number;
-  bodyLines: number;
-} {
+export function cellTextFit(frame: {
+  inset: readonly [number, number, number, number];
+  maxBodyLines?: number;
+}): { scale: number; bodyScale: number; bodyLines: number } {
   const m = componentTokens.magazineCell;
-  const [l, t, r, b] = inset;
+  const [l, t, r, b] = frame.inset;
   const boxW = (1 - l - r) * m.referenceWidth;
   const boxH = (1 - t - b) * m.referenceWidth * m.aspect;
-  let fallback = { scale: 0.6, bodyLines: 1 };
-  for (let s = 1; s >= 0.6 - 1e-9; s -= 0.02) {
-    const body = m.bodySize * s;
-    const lines = Math.max(1, Math.ceil((BODY_MAX * HANGUL_EM * body * WRAP_SLACK) / boxW));
+  // 글자 크기 size 로 60자가 차지하는 줄 수
+  const linesAt = (size: number) =>
+    Math.max(1, Math.ceil((BODY_MAX * HANGUL_EM * size * WRAP_SLACK) / boxW));
+  let result = { scale: MIN_SCALE, bodyScale: MIN_SCALE, bodyLines: 1 };
+  for (let s = 1; s >= MIN_SCALE - 1e-9; s -= 0.02) {
+    let body = m.bodySize * s;
+    let lines = linesAt(body);
+    if (frame.maxBodyLines && lines > frame.maxBodyLines) {
+      lines = frame.maxBodyLines;
+      body = Math.min(body, (boxW * lines) / (BODY_MAX * HANGUL_EM * WRAP_SLACK));
+    }
     const need =
       m.profileDiameter * s +
       m.gap * s * 2 +
       lines * body * m.lineHeight +
       m.metaSize * s * m.lineHeight;
-    fallback = { scale: Math.round(s * 100) / 100, bodyLines: lines };
-    if (need <= boxH) return fallback;
+    // 글 배율은 내림 — 반올림으로 0.01 커지면 줄이 하나 넘칠 수 있다
+    result = {
+      scale: Math.round(s * 100) / 100,
+      bodyScale: Math.floor((body / m.bodySize) * 100) / 100,
+      bodyLines: lines,
+    };
+    if (need <= boxH) return result;
   }
-  return fallback;
+  return result;
 }

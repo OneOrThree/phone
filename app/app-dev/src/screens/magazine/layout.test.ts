@@ -140,6 +140,23 @@ describe('보내기 전 검사', () => {
     expect(layoutProblem({ ...ok, frameId: '' })).toBe('layout.frameId');
   });
 
+  it('NaN·Infinity·빈 id 는 통과시키지 않고, 자르기는 기본값으로 바꾼다', () => {
+    const nan = { ...ok.stickers[0], scale: NaN };
+    expect(layoutProblem({ ...ok, stickers: [nan] })).toBe('layout.stickers[0]');
+    expect(layoutProblem({ ...ok, stickers: [{ ...ok.stickers[0], rotation: NaN }] })).toBe(
+      'layout.stickers[0]',
+    );
+    expect(layoutProblem({ ...ok, stickers: [{ ...ok.stickers[0], assetId: '' }] })).toBe(
+      'layout.stickers[0]',
+    );
+    expect(
+      layoutProblem({ ...ok, tape: { assetId: 't', x: 0.5, y: 0.04, rotation: Infinity } }),
+    ).toBe('layout.tape');
+    expect(
+      clampSticker({ assetId: 'a', x: NaN, y: Infinity, scale: NaN, rotation: Infinity }),
+    ).toEqual({ assetId: 'a', x: 0.5, y: 0.5, scale: 0.2, rotation: 0 });
+  });
+
   it('knownIds 를 주면 이 앱이 모르는 재료를 거른다', () => {
     const known = (_: string, id: string) => id !== 's';
     expect(layoutProblem(ok, known)).toBe('layout.stickers[0]');
@@ -149,19 +166,31 @@ describe('보내기 전 검사', () => {
 describe('틀마다 글자 배율', () => {
   const m = componentTokens.magazineCell;
   it.each(Object.keys(MAGAZINE_FRAMES))(
-    '%s — 60자 글·이름·주민 줄이 글 상자 높이 안에 든다',
+    '%s — 60자 글·이름·주민 줄이 글 상자 높이·너비 안에 든다(하한 0.6 폴백에 걸리지 않음)',
     (id) => {
-      const inset = MAGAZINE_FRAMES[id].inset;
-      const { scale, bodyLines } = cellTextFit(inset);
+      const frame = MAGAZINE_FRAMES[id];
+      const { scale, bodyScale, bodyLines } = cellTextFit(frame);
       expect(scale).toBeGreaterThanOrEqual(0.7);
       expect(scale).toBeLessThanOrEqual(1);
+      expect(bodyScale).toBeGreaterThanOrEqual(0.7);
+      expect(bodyScale).toBeLessThanOrEqual(scale);
       expect(bodyLines).toBeGreaterThanOrEqual(2);
-      const [, t, , b] = inset;
+      if (frame.maxBodyLines) expect(bodyLines).toBeLessThanOrEqual(frame.maxBodyLines);
+      const [l, t, r, b] = frame.inset;
+      const boxW = (1 - l - r) * m.referenceWidth;
       const boxH = (1 - t - b) * m.referenceWidth * m.aspect;
       const need =
         (m.profileDiameter + m.gap * 2 + m.metaSize * m.lineHeight) * scale +
-        bodyLines * m.bodySize * scale * m.lineHeight;
+        bodyLines * m.bodySize * bodyScale * m.lineHeight;
       expect(need).toBeLessThanOrEqual(boxH);
+      // 띄어쓰기 없는 한글 60자(0.92em)가 정한 줄 수 안에 든다
+      expect(60 * 0.92 * m.bodySize * bodyScale).toBeLessThanOrEqual(boxW * bodyLines);
     },
   );
+
+  it('고양이 귀 틀은 아래쪽 인쇄 하트를 피해 글을 2줄까지만 쓴다', () => {
+    const fit = cellTextFit(MAGAZINE_FRAMES['mag.frame-catear']);
+    expect(fit.bodyLines).toBe(2);
+    expect(fit.bodyScale).toBeLessThan(fit.scale);
+  });
 });

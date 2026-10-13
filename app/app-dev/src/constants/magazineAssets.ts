@@ -16,22 +16,27 @@ export type MagazineFrame = {
   source: ImageSourcePropType;
   aspect: number;
   inset: readonly [number, number, number, number];
+  /** 틀에 인쇄된 장식 위로 글이 내려가지 않게 한 줄 글을 이 줄 수까지만(글자를 줄여 맞춘다). */
+  maxBodyLines?: number;
+  /** 주민/평균 줄만 글 상자 왼쪽에서 칸 너비의 이 비율만큼 더 들인다(왼쪽 아래 인쇄 장식 피하기). */
+  metaLeft?: number;
 };
+type FrameTune = Pick<MagazineFrame, 'maxBodyLines' | 'metaLeft'>;
 export type StickerTab = 'cat' | 'sea' | 'friends' | 'deco';
 export type MagazineSticker = { source: ImageSourcePropType; aspect: number; tab: StickerTab };
 export type MagazineTape = { source: ImageSourcePropType; aspect: number };
 
 // prettier-ignore
-const FRAME_ROWS: [string, ImageSourcePropType, number, readonly [number, number, number, number]][] = [
+const FRAME_ROWS: [string, ImageSourcePropType, number, readonly [number, number, number, number], FrameTune?][] = [
   ['mag.frame-scallop', require('@/assets/ota/magazine/frame/frame-scallop.png'), 1.861, [0.08, 0.16, 0.08, 0.16]],
   ['mag.frame-ticket', require('@/assets/ota/magazine/frame/frame-ticket.png'), 1.933, [0.17, 0.11, 0.17, 0.11]],
   ['mag.frame-grid', require('@/assets/ota/magazine/frame/frame-grid.png'), 1.669, [0.07, 0.22, 0.07, 0.1]],
   ['mag.frame-polaroid', require('@/assets/ota/magazine/frame/frame-polaroid.png'), 1.698, [0.12, 0.14, 0.12, 0.31]],
-  ['mag.frame-catear', require('@/assets/ota/magazine/frame/frame-catear.png'), 1.701, [0.08, 0.24, 0.08, 0.13]],
-  ['mag.frame-cloud', require('@/assets/ota/magazine/frame/frame-cloud.png'), 1.741, [0.14, 0.32, 0.12, 0.2]],
+  ['mag.frame-catear', require('@/assets/ota/magazine/frame/frame-catear.png'), 1.701, [0.08, 0.24, 0.08, 0.13], { maxBodyLines: 2, metaLeft: 0.19 }],
+  ['mag.frame-cloud', require('@/assets/ota/magazine/frame/frame-cloud.png'), 1.741, [0.14, 0.32, 0.27, 0.2]],
   ['mag.frame-envelope', require('@/assets/ota/magazine/frame/frame-envelope.png'), 2.064, [0.1, 0.32, 0.1, 0.14]],
   ['mag.frame-woodsign', require('@/assets/ota/magazine/frame/frame-woodsign.png'), 2.108, [0.08, 0.3, 0.07, 0.12]],
-  ['mag.frame-lifering', require('@/assets/ota/magazine/frame/frame-lifering.png'), 2.05, [0.19, 0.25, 0.19, 0.25]],
+  ['mag.frame-lifering', require('@/assets/ota/magazine/frame/frame-lifering.png'), 2.05, [0.22, 0.26, 0.22, 0.26]],
   ['mag.frame-notebook', require('@/assets/ota/magazine/frame/frame-notebook.png'), 2.2, [0.11, 0.12, 0.05, 0.12]],
   ['mag.frame-wave', require('@/assets/ota/magazine/frame/frame-wave.png'), 2.32, [0.09, 0.15, 0.09, 0.17]],
 ];
@@ -97,7 +102,7 @@ const STICKER_ROWS: [string, StickerTab, ImageSourcePropType, number][] = [
 
 /** 순서 = 틀 고르기 줄·서랍의 순서(카탈로그 순). */
 export const MAGAZINE_FRAMES: Record<string, MagazineFrame> = Object.fromEntries(
-  FRAME_ROWS.map(([id, source, aspect, inset]) => [id, { source, aspect, inset }]),
+  FRAME_ROWS.map(([id, source, aspect, inset, tune]) => [id, { source, aspect, inset, ...tune }]),
 );
 export const MAGAZINE_TAPES: Record<string, MagazineTape> = Object.fromEntries(
   TAPE_ROWS.map(([id, source, aspect]) => [id, { source, aspect }]),
