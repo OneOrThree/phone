@@ -731,6 +731,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -5423,6 +5432,46 @@
         }
       }
     },
+    "/internal/islands/{islandId}/focus-today": {
+      "get": {
+        "tags": [
+          "internal-island-focus-members-controller"
+        ],
+        "operationId": "focusToday",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandFocusTodayView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/focus-members": {
       "get": {
         "tags": [
@@ -5822,15 +5871,6 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
-          },
-          {
-            "name": "include",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "pattern": "nextLocation"
             }
           }
         ],
@@ -6389,11 +6429,32 @@
             "type": "string",
             "maxLength": 32,
             "minLength": 0
+          },
+          "arrive": {
+            "type": "boolean"
           }
         },
         "required": [
           "code"
         ]
+      },
+      "Arrival": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrived": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       },
       "InvitationResolvedView": {
         "type": "object",
@@ -6403,6 +6464,9 @@
           },
           "invitationToken": {
             "type": "string"
+          },
+          "arrival": {
+            "$ref": "#/components/schemas/Arrival"
           }
         }
       },
@@ -9215,6 +9279,23 @@
           }
         }
       },
+      "IslandFocusTodayView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "IslandFocusMembersView": {
         "type": "object",
         "properties": {
@@ -9493,9 +9574,6 @@
         "properties": {
           "removed": {
             "type": "boolean"
-          },
-          "nextLocation": {
-            "$ref": "#/components/schemas/NextLocationView"
           }
         }
       }

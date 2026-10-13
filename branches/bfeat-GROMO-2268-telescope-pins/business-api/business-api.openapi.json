@@ -4468,6 +4468,29 @@
           "membershipStatus"
         ]
       },
+      "InvitationArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrived": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "arrived",
+          "islandId",
+          "membershipStatus"
+        ]
+      },
       "InvitationResolvedView": {
         "type": "object",
         "properties": {
@@ -4476,6 +4499,9 @@
           },
           "invitationToken": {
             "type": "string"
+          },
+          "arrival": {
+            "$ref": "#/components/schemas/InvitationArrivalView"
           }
         },
         "required": [
@@ -6706,14 +6732,8 @@
         "properties": {
           "removed": {
             "type": "boolean"
-          },
-          "nextLocation": {
-            "$ref": "#/components/schemas/NextLocation"
           }
-        },
-        "required": [
-          "nextLocation"
-        ]
+        }
       },
       "SessionLogoutResult": {
         "type": "object",
