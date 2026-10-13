@@ -368,6 +368,10 @@ export const componentTokens = {
     gap: 7,
     paddingHorizontal: 10,
     radius: 5,
+    // 잡지 보기·꽂이 알약과 안 읽음 점(점 테두리는 편지 종이색)
+    pillRadius: 22,
+    dotSize: 14,
+    dotBorder: '#fff8e8',
     border: '#684434',
     borderWidth: 1.5,
     shadow: 'inset 0 -6px #c99870,0 3px 0 #3f1d18',
@@ -387,6 +391,49 @@ export const componentTokens = {
     gap: 6,
     cornerSize: 44,
     tapeWidthRatio: 0.26,
+  },
+  // 고양이 잡지 속지(GROMO-2289 A1~A4) — 속지 그림(page.png, 폭:높이 502:900) 비율 그대로 늘리고,
+  // 아래 비율(속지 폭·높이 대비)만큼 안쪽에 글·칸을 둔다. 리본 = 위 제호 자리, nav = 아래 쪽 넘김 줄.
+  magazineReader: {
+    pageAspect: 502 / 900,
+    insetX: 0.115,
+    insetTop: 0.125,
+    insetBottom: 0.14,
+    ribbonTop: 0.024,
+    ribbonHeight: 0.064,
+    navBottom: 0.095,
+    cellGap: 8,
+    rankingTint: semanticTokens.color.subtle,
+    newTint: semanticTokens.color.secondary,
+    noteTint: semanticTokens.color.accent,
+    // 화면 둘레 여유 · 속지 최대 폭(태블릿) · 표지 띠 · 쪽 넘김 줄 · 닫기 그림
+    screenMargin: 8,
+    maxPageWidth: 520,
+    coverHeight: 24,
+    navHeight: 30,
+    // 표지 띠·쪽 번호는 속지 그림의 정해진 자리에 놓여 큰 글자에서도 이 배율까지만 키운다(칸 글자 P12 와 같은 이유)
+    fixedTextMaxScale: 1.3,
+    // 글자 배율이 이 값 이상이면 편집부 섬 줄의 숫자(평균·주민)를 이름 아래로 내린다
+    largeTextThreshold: 1.3,
+    pageNumberMinWidth: 56,
+    closeArt: 36,
+    // 닫기 버튼(44)이 속지 오른쪽 위 모서리에 걸치는 만큼
+    closeOffset: -6,
+    // 편집부 페이지 — 랭킹 리본 최대 폭 · 메달 · 섬 동그라미 · NEW 꼬리표 · 편집냥(소식 칸 / 빈 장)
+    bannerMaxWidth: 250,
+    medal: { width: 24, height: 28 },
+    rankAvatar: 28,
+    newAvatar: 26,
+    rowMinHeight: 38,
+    tagNew: { width: 58, height: 22 },
+    noteCat: { width: 54, height: 68 },
+    emptyCat: { width: 96, height: 120 },
+    cardRadius: 14,
+    // 우체통 없는 섬의 홈 잡지 물건 · 안 읽음 점
+    object: { width: 60, height: 70, art: { width: 56, height: 66 } },
+    unreadDot: 14,
+    // 잡지 꽂이 한 줄(호 · 날짜 + 읽음 상태 두 줄)
+    rackRowMinHeight: 56,
   },
   divider: {
     color: semanticTokens.color.divider,

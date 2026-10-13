@@ -505,6 +505,7 @@ export function WorldMap({
   onSpot,
   emote,
   showMailboxLetters,
+  showMailboxMagazine = false,
   hallMotionActive = false,
   hallMotionGeneration = 0,
   boardStatus = null,
@@ -533,6 +534,8 @@ export function WorldMap({
   onSpot?: (p: Point) => void;
   emote?: string | null;
   showMailboxLetters?: boolean;
+  /** 안 읽은 오늘 고양이 잡지(GROMO-2289) — 친구 편지 표시가 없을 때만 우체통 위 빨간 점. */
+  showMailboxMagazine?: boolean;
   hallMotionActive?: boolean;
   hallMotionGeneration?: number;
   boardStatus?: 'unread' | 'new-comment' | null;
@@ -859,6 +862,14 @@ export function WorldMap({
               style={{ left: at('mail').left + 348 * scale, top: at('mail').top + 520 * scale }}
             />
           )}
+          {!mailboxLetters && showMailboxMagazine && island.buildings.includes('mail') && (
+            <VillageNotificationBadge
+              testID="mailbox-magazine-indicator"
+              accessibilityLabel={t('home.a11y.mailboxNewMagazine')}
+              scale={scale}
+              style={{ left: at('mail').left + 348 * scale, top: at('mail').top + 520 * scale }}
+            />
+          )}
           {/* 모션 좌표는 placement.json rect 와 같다. 밤 프레임도 같은 rect 로 잘라 정지 밤 레이어와 픽셀이 일치한다. */}
           {island.buildings.includes('hall') && (
             <VillageHallMotion
@@ -1099,6 +1110,7 @@ function FinalIslandScene({
   focusTutorial,
   motion,
   showMailboxLetters,
+  showMailboxMagazine = false,
   boardStatus = null,
   observatoryRankState = 'normal',
   shopState = 'normal',
@@ -1125,6 +1137,8 @@ function FinalIslandScene({
   focusTutorial?: { text: string; onPress: () => void; onSkip: () => void };
   motion?: CatMotionInput;
   showMailboxLetters?: boolean;
+  /** 안 읽은 오늘 고양이 잡지 — 우체통 위 빨간 점(구경 중에는 끈다). */
+  showMailboxMagazine?: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
   shopState?: ShopMotionState;
@@ -1158,6 +1172,12 @@ function FinalIslandScene({
   const focusTutorialLatest = useRef(focusTutorial);
   focusTutorialLatest.current = focusTutorial;
   const mailboxLetters = !visiting && (showMailboxLetters ?? hasMailboxLetters(state, i.id));
+  const mailboxMagazine = !visiting && showMailboxMagazine;
+  const mailLabel = mailboxLetters
+    ? t('home.door.mailNewLetter')
+    : mailboxMagazine
+      ? t('home.door.mailNewMagazine')
+      : null;
   const serverConstruction = state.serverIslands?.clientConstruction;
   const trackedConstruction = facts
     ? serverConstruction?.islandId === facts.islandId
@@ -1870,8 +1890,8 @@ function FinalIslandScene({
                 key={id}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  id === 'mail' && mailboxLetters
-                    ? t('home.door.mailNewLetter')
+                  id === 'mail' && mailLabel
+                    ? mailLabel
                     : d.building === 'board' && boardStatus === 'new-comment'
                       ? t('home.door.newComment', { label: d.label })
                       : d.building === 'board' && boardStatus === 'unread'
@@ -2139,6 +2159,7 @@ function FinalIslandScene({
         }
         shopArrivalGeneration={buildingTransition.generation}
         showMailboxLetters={mailboxLetters}
+        showMailboxMagazine={mailboxMagazine}
         hiddenVillageBuilding={activeBuilding}
         dayNight={dayNight}
         onSpot={
@@ -2351,10 +2372,8 @@ function FinalIslandScene({
               position: 'absolute',
               ...(visiting
                 ? { left: 0, right: 0, alignItems: 'center' }
-                : { right: L.landscape ? Math.max(56, L.insets.right + 4) : 20 }),
-              bottom: L.landscape
-                ? Math.max(22, L.insets.bottom)
-                : Math.max(44, L.insets.bottom + 10),
+                : { right: focusButtonInset(L).right }),
+              bottom: focusButtonInset(L).bottom,
             }}
           >
             {visiting && visitJoin ? (
@@ -2412,6 +2431,18 @@ const cellEq = (a: WorldPoint, b: WorldPoint) => {
 // 화면 스냅샷(GROMO-2233)의 nav.json 을 완공 목록별로(미완공 건물 자리는 통행). 같은 소스면 같은 JSON 객체라 loadNav 의 캐시가 맞는다.
 const activeNav = (assets: MapAssetSource, completed: readonly string[]) =>
   loadNav(readMapJson('nav.json', bundledNavJson, assets) as any, completed);
+/** 홈 오른쪽 아래 「집중 시작」 동그라미 버튼(지름 88)의 자리 — 그 위에 붙는 홈 물건(잡지)도 같은 값을 쓴다. */
+export const FOCUS_BUTTON_SIZE = 88;
+export function focusButtonInset(L: {
+  landscape: boolean;
+  insets: { right: number; bottom: number };
+}) {
+  return {
+    right: L.landscape ? Math.max(56, L.insets.right + 4) : 20,
+    bottom: L.landscape ? Math.max(22, L.insets.bottom) : Math.max(44, L.insets.bottom + 10),
+  };
+}
+
 export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
   const L = useAppLayout();
   // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 스냅샷으로 고정해 렌더러·nav·layout 에

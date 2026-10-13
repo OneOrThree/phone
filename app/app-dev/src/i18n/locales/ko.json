@@ -69,7 +69,8 @@
     "PROMOTION_LAYOUT_INVALID": "꾸미기를 다시 확인해 주세요",
     "PROMOTION_ASSET_NOT_OWNED": "아직 없는 꾸미기 재료가 있어요",
     "PROMOTION_LOCKED": "자정이 지나 홍보를 고칠 수 없어요",
-    "PROMOTION_NOT_FOUND": "홍보를 찾지 못했어요"
+    "PROMOTION_NOT_FOUND": "홍보를 찾지 못했어요",
+    "MAGAZINE_ISSUE_NOT_FOUND": "잡지 호를 찾을 수 없어요"
   },
   "time": {
     "minutes": "{{m}}분",
@@ -404,6 +405,7 @@
     },
     "door": {
       "mailNewLetter": "우체통, 친구에게 받은 새 편지가 있어요",
+      "mailNewMagazine": "우체통, 새 고양이 잡지가 왔어요",
       "newComment": "{{label}}, 새 댓글이 있어요",
       "unreadNotice": "{{label}}, 읽지 않은 새 소식이 있어요",
       "newProduct": "{{label}}, 새 상품이 있어요",
@@ -428,7 +430,8 @@
       "todayFocusClock": "{{name}} 오늘 집중 {{clock}}",
       "raft": "뗏목",
       "viewFishingIsland": "낚시섬 구경하기",
-      "mailboxNewLetter": "친구에게 받은 새 편지가 있습니다"
+      "mailboxNewLetter": "친구에게 받은 새 편지가 있습니다",
+      "mailboxNewMagazine": "새 고양이 잡지가 왔어요"
     },
     "raft": {
       "title": "뗏목",
@@ -766,6 +769,78 @@
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",
       "promotionYesterday": "섬장이 어제 잡지 홍보에 60마리를 썼어요 · 오늘 아침 잡지에 실려요"
     },
+    "reader": {
+      "title": "냐옹",
+      "date": "{{m}}월 {{d}}일",
+      "cover": "{{date}} · {{no}}호",
+      "coverA11y": "고양이 잡지 {{no}}호, {{date}}",
+      "close": "잡지 닫기",
+      "loading": "잡지를 펼치는 중이에요…",
+      "loadFailed": "잡지를 펼치지 못했어요",
+      "gone": "이 호는 이제 볼 수 없어요",
+      "page": "{{page}} / {{total}}",
+      "pageMore": "{{page}} / {{total}}+",
+      "pageA11y": "{{total}}쪽 중 {{page}}쪽",
+      "pageA11yMore": "{{total}}쪽 넘게 중 {{page}}쪽",
+      "moreFailed": "더 불러오지 못했어요 · 다시",
+      "prev": "앞 쪽",
+      "next": "다음 쪽",
+      "ranking": "이번 주 랭킹",
+      "rankingEmpty": "이번 주 순위는 아직 없어요",
+      "rankA11y": "{{rank}}위 {{name}}, {{average}}",
+      "newIslands": "어제 새로 생긴 섬",
+      "newIslandsEmpty": "어제는 새 섬이 없었어요",
+      "editorNote": "편집부 소식",
+      "tipNote": "편집냥의 조언",
+      "noCells": "오늘은 실린 홍보가 없어요",
+      "endTitle": "우리 섬도 실어 볼까요?",
+      "endBody": "아침 7시부터 자정까지 신청하면 다음 날 아침 호에 실려요",
+      "write": "우리 섬 홍보 쓰기",
+      "zoomClose": "크게 보기 닫기"
+    },
+    "rack": {
+      "open": "잡지 꽂이",
+      "title": "냐옹 잡지 꽂이",
+      "sub": "최근 7호까지 다시 볼 수 있어요",
+      "row": "{{no}}호 · {{date}}",
+      "today": "오늘",
+      "opened": "읽음",
+      "unread": "안 읽음",
+      "empty": "아직 잡지가 없어요",
+      "loadFailed": "잡지 꽂이를 불러오지 못했어요",
+      "rowA11y": "{{no}}호, {{date}}, {{state}}"
+    },
+    "mail": {
+      "open": "고양이 잡지 보기 · {{no}}호",
+      "unreadA11y": "고양이 잡지 보기 {{no}}호, 아직 안 읽음"
+    },
+    "delivery": {
+      "mailbox": "우체통에 고양이 잡지가 왔어요!",
+      "noMailbox": "고양이 잡지 왔어요!",
+      "later": "나중에",
+      "readLater": "나중에 읽기",
+      "openMailbox": "우체통 열어보기",
+      "open": "잡지 펼치기",
+      "object": "고양이 잡지 {{no}}호",
+      "objectUnread": "고양이 잡지 {{no}}호, 아직 안 읽음",
+      "objectHint": "길게 누르면 잡지 꽂이가 열려요"
+    },
+    "tips": [
+      "25분 집중하고 5분 쉬면 오래 가요. 오늘도 한 칸씩!",
+      "시작이 제일 어려워요. 딱 10분만 해 보고 정해요.",
+      "폰을 손이 안 닿는 곳에 두면 집중이 훨씬 쉬워져요.",
+      "할 일을 하나만 골라 적어 두면 마음이 가벼워져요.",
+      "물 한 잔 마시고 시작해요. 고양이도 물을 좋아해요.",
+      "쉬는 시간엔 화면 말고 창밖을 봐 주세요.",
+      "같은 시간에 시작하면 몸이 먼저 기억해요.",
+      "어제보다 1분만 더 해도 충분히 잘한 거예요.",
+      "어려운 일은 기운이 많은 시간에 먼저 해 봐요.",
+      "주민과 같이 집중하면 혼자보다 오래 버틸 수 있어요.",
+      "끝나면 한 일을 한 줄로 적어 보세요. 뿌듯함이 쌓여요.",
+      "졸리면 잠깐 일어나 기지개를 켜요. 고양이처럼요.",
+      "책상 위를 비우면 머릿속도 같이 정리돼요.",
+      "오늘 못 했어도 괜찮아요. 내일 아침 잡지가 또 와요."
+    ],
     "asset": {
       "frame-scallop": "분홍 물결",
       "frame-ticket": "파란 티켓",

@@ -9,6 +9,12 @@
  *  - `POST /islands/{id}/promotions`                신청 `{ body, layout }` — `Idempotency-Key` 필수(같은 의도 = 같은 키).
  *  - `PUT  /islands/{id}/promotions/{promotionId}`  고치기 — 신청 창(전날 07~24시) 안에서만, 돈은 다시 빼지 않는다. 키 없음.
  *  - `GET  /islands/{id}/news?limit=`               섬 소식(주민만) — 홍보를 내면 `PROMOTION` 소식이 생긴다.
+ *
+ * 읽기(서버 `bfeat/GROMO-2289-magazine-publish` 의 business-api `Magazines` DTO 가 정본) — 게스트도 읽는다.
+ *  - `GET  /me/magazine/today`                       오늘 호(가장 최근 호)와 내 받음 기록. 아직 호가 없으면 둘 다 null.
+ *  - `GET  /me/magazine/issues`                      최근 7호, 최신순(잡지 꽂이).
+ *  - `GET  /me/magazine/issues/{id}?cursor=&limit=`  호 한 페이지 — 편집부 지면은 첫 페이지에만, 칸은 신청 순서.
+ *  - `PUT  /me/magazine/issues/{id}/receipt`         받음·나중에·읽음 `{ place, deferred?, opened? }` — true 만 적히고 되돌리지 않는다.
  */
 import { ApiError, request } from './client';
 import { CLIENT_CONTRACT_ERROR } from './home';
@@ -181,5 +187,235 @@ export async function getIslandNews(islandId: string, limit = 5): Promise<Island
       typeof n.id === 'string' &&
       typeof n.kind === 'string' &&
       typeof n.createdAt === 'string',
+  );
+}
+
+export type MagazinePlace = 'SEA' | 'ISLAND';
+/** 읽는 사람과 그 섬의 관계 — 주민이면 칸에 「우리 섬이에요」, 강퇴된 섬은 바다판 동그라미도 없다. */
+export type MagazineRelation = 'NONE' | 'MEMBER' | 'KICKED';
+/** 호 머리 — current 는 지금 나와 있는 호(다음 날 07시 전의 가장 최근 호)인가. */
+export type MagazineIssue = {
+  issueId: string;
+  issueNo: number;
+  issueDate: string;
+  publishedAt: string;
+  current: boolean;
+};
+/** 받음 기록 — 받은 곳·시각은 처음 값으로 고정, 나중에·읽음은 처음 true 로 온 시각. */
+export type MagazineReceipt = {
+  place: MagazinePlace;
+  receivedAt: string;
+  deferredAt: string | null;
+  openedAt: string | null;
+};
+export type MagazineToday = { issue: MagazineIssue | null; receipt: MagazineReceipt | null };
+export type MagazineIssueSummary = Omit<MagazineIssue, 'current'> & { opened: boolean };
+export type MagazineIsland = {
+  islandId: string;
+  name: string;
+  buildingCount: number;
+  memberCount: number;
+  maxMembers: number;
+  averageFocusMinutesPerDay: number | null;
+  relation: MagazineRelation;
+};
+/** 주간 랭킹 한 줄 — rank 는 비공개 섬을 뺀 순위(동점은 공동 순위). */
+export type MagazineRanked = MagazineIsland & { rank: number };
+/** 편집부 한마디 — EDITOR 면 운영 문구(body), TIP 이면 앱 번역 파일의 몽돌 팁 번호(tipNo). */
+export type MagazineNote = { type: 'EDITOR' | 'TIP'; body: string | null; tipNo: number | null };
+export type MagazineEditorial = {
+  ranking: MagazineRanked[];
+  newIslands: MagazineIsland[];
+  note: MagazineNote;
+};
+/** 홍보 칸 — AdCell 이 그리는 값(섬 요약 + 글 + layout)에 홍보 id·관계를 더한 모양. */
+export type MagazineCell = MagazineIsland & {
+  promotionId: string;
+  body: string;
+  layout: PromotionLayout;
+};
+export type MagazineIssuePage = {
+  issue: MagazineIssue;
+  /** 첫 페이지에만 있다. */
+  editorial: MagazineEditorial | null;
+  cells: MagazineCell[];
+  /** 다음 칸이 있으면 서명 커서, 끝이면 null. */
+  nextCursor: string | null;
+};
+export type ReceiptUpdate = { place: MagazinePlace; deferred?: boolean; opened?: boolean };
+
+const str = (v: unknown): v is string => typeof v === 'string';
+const optionalTime = (v: unknown) => (str(v) ? v : null);
+
+function readIssue(raw: unknown, field: string): MagazineIssue {
+  if (
+    !isRecord(raw) ||
+    !str(raw.issueId) ||
+    !num(raw.issueNo) ||
+    !str(raw.issueDate) ||
+    !str(raw.publishedAt) ||
+    typeof raw.current !== 'boolean'
+  )
+    throw contractError(field);
+  return {
+    issueId: raw.issueId,
+    issueNo: raw.issueNo as number,
+    issueDate: raw.issueDate,
+    publishedAt: raw.publishedAt,
+    current: raw.current,
+  };
+}
+
+function readReceipt(raw: unknown, field: string): MagazineReceipt {
+  if (!isRecord(raw) || (raw.place !== 'SEA' && raw.place !== 'ISLAND') || !str(raw.receivedAt))
+    throw contractError(field);
+  return {
+    place: raw.place,
+    receivedAt: raw.receivedAt,
+    deferredAt: optionalTime(raw.deferredAt),
+    openedAt: optionalTime(raw.openedAt),
+  };
+}
+
+/** 섬 한 장 — 모양이 어긋나면 null 이라 그 섬만 빠진다(한 섬 때문에 호 전체가 오류가 되지 않게). */
+function readIsland(raw: unknown): MagazineIsland | null {
+  if (
+    !isRecord(raw) ||
+    !str(raw.islandId) ||
+    !str(raw.name) ||
+    !num(raw.buildingCount) ||
+    !num(raw.memberCount) ||
+    !num(raw.maxMembers)
+  )
+    return null;
+  return {
+    islandId: raw.islandId,
+    name: raw.name,
+    buildingCount: raw.buildingCount as number,
+    memberCount: raw.memberCount as number,
+    maxMembers: raw.maxMembers as number,
+    averageFocusMinutesPerDay: num(raw.averageFocusMinutesPerDay)
+      ? (raw.averageFocusMinutesPerDay as number)
+      : null,
+    // 모르는 관계 값은 아무 표시도 없는 NONE 으로 본다
+    relation: raw.relation === 'MEMBER' || raw.relation === 'KICKED' ? raw.relation : 'NONE',
+  };
+}
+
+function readCell(raw: unknown): MagazineCell | null {
+  const island = readIsland(raw);
+  if (!island || !isRecord(raw) || !str(raw.promotionId) || !str(raw.body)) return null;
+  try {
+    return {
+      ...island,
+      promotionId: raw.promotionId,
+      body: raw.body,
+      layout: readLayout(raw.layout, 'layout'),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 편집부 지면 — 모양이 어긋나면 편집부만 빼고(null) 칸은 그대로 보인다. */
+function readEditorial(raw: unknown): MagazineEditorial | null {
+  if (
+    !isRecord(raw) ||
+    !Array.isArray(raw.ranking) ||
+    !Array.isArray(raw.newIslands) ||
+    !isRecord(raw.note)
+  )
+    return null;
+  // 한마디는 유형별 필수 값이 있어야 한다 — EDITOR 는 글, TIP 은 팁 번호. 모르는 유형·빠진 값으로 팁을 지어내지 않는다
+  const note = raw.note;
+  const editorNote = note.type === 'EDITOR' && str(note.body) && note.body.trim() !== '';
+  const tipNote = note.type === 'TIP' && num(note.tipNo) && Number.isInteger(note.tipNo);
+  if (!editorNote && !tipNote) return null;
+  return {
+    ranking: raw.ranking.flatMap((row) => {
+      const island = readIsland(row);
+      return island && isRecord(row) && num(row.rank)
+        ? [{ ...island, rank: row.rank as number }]
+        : [];
+    }),
+    newIslands: raw.newIslands.flatMap((card) => {
+      const island = readIsland(card);
+      return island ? [island] : [];
+    }),
+    note: editorNote
+      ? { type: 'EDITOR', body: note.body as string, tipNo: null }
+      : { type: 'TIP', body: null, tipNo: note.tipNo as number },
+  };
+}
+
+export async function getMagazineToday(): Promise<MagazineToday> {
+  const raw = await request<unknown>('/me/magazine/today');
+  if (!isRecord(raw)) throw contractError('today');
+  return {
+    issue: raw.issue == null ? null : readIssue(raw.issue, 'issue'),
+    receipt: raw.receipt == null ? null : readReceipt(raw.receipt, 'receipt'),
+  };
+}
+
+/** 잡지 꽂이 — 최근 7호, 최신 호가 먼저. */
+export async function getMagazineIssues(): Promise<MagazineIssueSummary[]> {
+  const raw = await request<unknown>('/me/magazine/issues');
+  if (!isRecord(raw) || !Array.isArray(raw.items)) throw contractError('items');
+  // 모양이 어긋난 줄은 그 줄만 뺀다(칸·섬과 같은 원칙)
+  return raw.items.flatMap((item) =>
+    isRecord(item) &&
+    str(item.issueId) &&
+    num(item.issueNo) &&
+    str(item.issueDate) &&
+    str(item.publishedAt) &&
+    typeof item.opened === 'boolean'
+      ? [
+          {
+            issueId: item.issueId,
+            issueNo: item.issueNo as number,
+            issueDate: item.issueDate,
+            publishedAt: item.publishedAt,
+            opened: item.opened,
+          },
+        ]
+      : [],
+  );
+}
+
+/** 호 한 페이지 — 첫 페이지(cursor 없음)에만 편집부 지면이 온다. 7호 밖이면 404 MAGAZINE_ISSUE_NOT_FOUND. */
+export async function getMagazineIssue(
+  issueId: string,
+  cursor: string | null = null,
+  limit = 30,
+): Promise<MagazineIssuePage> {
+  const query = `limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+  const raw = await request<unknown>(`/me/magazine/issues/${encodeURIComponent(issueId)}?${query}`);
+  if (!isRecord(raw) || !Array.isArray(raw.cells)) throw contractError('cells');
+  return {
+    issue: readIssue(raw.issue, 'issue'),
+    editorial: readEditorial(raw.editorial),
+    cells: raw.cells.flatMap((cell) => {
+      const read = readCell(cell);
+      return read ? [read] : [];
+    }),
+    // 빈 문자열도 끝으로 본다
+    nextCursor: str(raw.nextCursor) && raw.nextCursor ? raw.nextCursor : null,
+  };
+}
+
+/** 받음·나중에·읽음 — 서버가 허용하는 키(place·deferred·opened)만 보낸다. 몇 번 보내도 결과가 같아 키가 없다. */
+export async function putMagazineReceipt(
+  issueId: string,
+  update: ReceiptUpdate,
+): Promise<MagazineReceipt> {
+  const body: ReceiptUpdate = { place: update.place };
+  if (update.deferred) body.deferred = true;
+  if (update.opened) body.opened = true;
+  return readReceipt(
+    await request<unknown>(`/me/magazine/issues/${encodeURIComponent(issueId)}/receipt`, {
+      method: 'PUT',
+      body,
+    }),
+    'receipt',
   );
 }

@@ -7,7 +7,11 @@ import {
   applyPromotion,
   getIslandNews,
   getMagazineAssets,
+  getMagazineIssue,
+  getMagazineIssues,
+  getMagazineToday,
   getPromotionEditor,
+  putMagazineReceipt,
   updatePromotion,
 } from '@/services/api/magazine';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -126,4 +130,139 @@ test('getMagazineAssets · getIslandNews — 경로와 모양', async () => {
   const news = await getIslandNews('i1', 5);
   expect(path(calls[1])).toBe('/islands/i1/news?limit=5');
   expect(news.map((n) => n.id)).toEqual(['n1']);
+});
+
+// ── 잡지 읽기(서버 publish 브랜치 business-api Magazines DTO) ──
+const issueWire = {
+  issueId: 'iss-19',
+  issueNo: 19,
+  issueDate: '2026-10-14',
+  publishedAt: '2026-10-13T22:00:00Z',
+  current: true,
+};
+const island = (name: string, relation = 'NONE') => ({
+  islandId: `is-${name}`,
+  name,
+  buildingCount: 3,
+  memberCount: 4,
+  maxMembers: 15,
+  averageFocusMinutesPerDay: null,
+  relation,
+});
+
+describe('잡지 읽기', () => {
+  test('오늘 호 — 아직 호가 없으면 issue·receipt 둘 다 null', async () => {
+    stub(200, { issue: null, receipt: null });
+    await expect(getMagazineToday()).resolves.toEqual({ issue: null, receipt: null });
+    expect(path(calls[0])).toBe('/me/magazine/today');
+  });
+
+  test('오늘 호와 받음 기록을 읽는다 — 아직 안 읽었으면 openedAt null', async () => {
+    const receipt = {
+      place: 'ISLAND',
+      receivedAt: '2026-10-13T23:00:00Z',
+      deferredAt: null,
+      openedAt: null,
+    };
+    stub(200, { issue: issueWire, receipt });
+    await expect(getMagazineToday()).resolves.toEqual({ issue: issueWire, receipt });
+  });
+
+  test('호 머리가 계약과 다르면 오류로 보낸다', async () => {
+    stub(200, { issue: { ...issueWire, issueNo: '19' }, receipt: null });
+    await expect(getMagazineToday()).rejects.toBeInstanceOf(ApiError);
+  });
+
+  test('잡지 꽂이 — 최근 7호를 그대로 읽는다', async () => {
+    const { current: _current, ...head } = issueWire;
+    stub(200, { items: [{ ...head, opened: true }] });
+    await expect(getMagazineIssues()).resolves.toEqual([{ ...head, opened: true }]);
+    expect(path(calls[0])).toBe('/me/magazine/issues');
+  });
+
+  test('호 펼치기 — 첫 페이지는 limit 만, 다음 페이지는 커서를 붙인다', async () => {
+    stub(200, {
+      issue: issueWire,
+      editorial: {
+        ranking: [{ ...island('별고래섬'), rank: 1, averageFocusMinutesPerDay: 185 }],
+        newIslands: [island('달빛')],
+        note: { type: 'TIP', body: null, tipNo: 5 },
+      },
+      cells: [
+        { ...island('소다', 'MEMBER'), promotionId: 'p1', body: '안녕', layout },
+        // 모양이 어긋난 칸은 그 칸만 빠진다
+        { ...island('깨진섬'), promotionId: 'p2', body: '안녕', layout: { stickers: [] } },
+      ],
+      nextCursor: 'c+1',
+    });
+    const page = await getMagazineIssue('iss 19');
+    expect(path(calls[0])).toBe('/me/magazine/issues/iss%2019?limit=30');
+    expect(page.editorial?.ranking[0]).toMatchObject({ rank: 1, averageFocusMinutesPerDay: 185 });
+    expect(page.editorial?.note).toEqual({ type: 'TIP', body: null, tipNo: 5 });
+    expect(page.cells.map((c) => [c.promotionId, c.relation])).toEqual([['p1', 'MEMBER']]);
+    expect(page.nextCursor).toBe('c+1');
+
+    stub(200, { issue: issueWire, editorial: null, cells: [], nextCursor: null });
+    const next = await getMagazineIssue('iss-19', 'c+1', 3);
+    expect(path(calls[1])).toBe('/me/magazine/issues/iss-19?limit=3&cursor=c%2B1');
+    expect(next.editorial).toBeNull();
+    expect(next.nextCursor).toBeNull();
+  });
+
+  test('편집부 모양이 어긋나면 편집부만 빼고 칸은 보인다 · 빈 커서는 끝 · 꽂이의 깨진 줄은 그 줄만 뺀다', async () => {
+    stub(200, {
+      issue: issueWire,
+      editorial: { ranking: 'x', newIslands: [], note: null },
+      cells: [{ ...island('소다'), promotionId: 'p1', body: '안녕', layout }],
+      nextCursor: '',
+    });
+    const page = await getMagazineIssue('iss-19');
+    expect(page.editorial).toBeNull();
+    expect(page.cells).toHaveLength(1);
+    expect(page.nextCursor).toBeNull();
+
+    const { current: _current, ...head } = issueWire;
+    stub(200, { items: [{ ...head, opened: true }, { issueId: 'broken' }] });
+    await expect(getMagazineIssues()).resolves.toEqual([{ ...head, opened: true }]);
+  });
+
+  test.each([
+    ['모르는 유형', { type: 'NEWS', body: '?', tipNo: null }],
+    ['번호 없는 팁', { type: 'TIP', body: null, tipNo: null }],
+    ['글 없는 편집부 소식', { type: 'EDITOR', body: '', tipNo: null }],
+  ])('편집부 한마디가 %s 이면 편집부를 빼고(팁을 지어내지 않는다) 칸은 보인다', async (_, note) => {
+    stub(200, {
+      issue: issueWire,
+      editorial: { ranking: [], newIslands: [], note },
+      cells: [{ ...island('소다'), promotionId: 'p1', body: '안녕', layout }],
+      nextCursor: null,
+    });
+    const page = await getMagazineIssue('iss-19');
+    expect(page.editorial).toBeNull();
+    expect(page.cells).toHaveLength(1);
+  });
+
+  test('7호 밖이면 404 MAGAZINE_ISSUE_NOT_FOUND 를 그대로 던진다', async () => {
+    stub(404, { code: 'MAGAZINE_ISSUE_NOT_FOUND', message: '잡지 호를 찾을 수 없어요' });
+    await expect(getMagazineIssue('old')).rejects.toMatchObject({
+      code: 'MAGAZINE_ISSUE_NOT_FOUND',
+      status: 404,
+    });
+  });
+
+  test('받음 — 서버가 허용하는 키(place·deferred·opened)만, true 인 것만 보낸다', async () => {
+    const receipt = {
+      place: 'ISLAND',
+      receivedAt: '2026-10-13T23:00:00Z',
+      deferredAt: null,
+      openedAt: '2026-10-13T23:01:00Z',
+    };
+    stub(200, receipt);
+    await expect(
+      putMagazineReceipt('iss-19', { place: 'ISLAND', deferred: false, opened: true }),
+    ).resolves.toEqual(receipt);
+    expect(path(calls[0])).toBe('/me/magazine/issues/iss-19/receipt');
+    expect(calls[0].init.method).toBe('PUT');
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ place: 'ISLAND', opened: true });
+  });
 });
