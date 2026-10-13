@@ -470,7 +470,7 @@ class IslandManagementIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.removed").value(true));
         assertThat(management.kick(f.host(), f.islandId(), f.member(), key))
-                .isEqualTo(new IslandMemberRemovedView(true, new NextLocationView(null)));
+                .isEqualTo(new IslandMemberRemovedView(true));
         assertThat(count("select count(*) from group_members where group_id=? and user_id=?"
                 + " and left_reason='KICKED'", f.islandId(), f.member())).isEqualTo(1);
         assertThat(count("select count(*) from event_outbox where subject_id=?"

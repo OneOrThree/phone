@@ -174,7 +174,7 @@ public class IslandManagementUseCase {
         JsonNode result = relay(() -> data.kickIslandMember(claims.userId(), islandId, targetUserId, key, deadline),
                 KICK);
         requireTrue(result, "removed");
-        return new Removed(true, nextLocationOf(result));
+        return new Removed(true);
     }
 
     /** 본인 나가기 (LLD §3.7). */
@@ -367,11 +367,10 @@ public class IslandManagementUseCase {
     }
 
     /**
-     * 강퇴 결과 {@code {removed:true, nextLocation}} — 다음 위치는 강퇴된 사람의 것이다. {@code nextLocation} 이
-     * null 이면 「모름」(배포 전 receipt 재생)이다.
+     * 강퇴 결과 {@code {removed:true}}. 강퇴된 사람의 다음 위치는 싣지 않는다 (GROMO-2260) — 이 응답을 받는 사람은
+     * 방장이라, 실으면 대상이 속한 다른 섬(비공개 포함)과 먼바다 여부가 샌다.
      */
-    public record Removed(boolean removed,
-            @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) NextLocation nextLocation) {
+    public record Removed(boolean removed) {
     }
 
     /** 나가기 결과 {@code {left:true, nextLocation}}. {@code nextLocation} 이 null 이면 「모름」(배포 전 receipt 재생)이다. */

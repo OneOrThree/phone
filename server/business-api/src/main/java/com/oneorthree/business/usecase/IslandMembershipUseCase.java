@@ -239,10 +239,11 @@ public class IslandMembershipUseCase {
     }
 
     /**
-     * 섬 도착 (GROMO-2260) — 항해·방문이 끝난 자리에서 부른다. 멱등이라 명령 키가 없다.
+     * 섬 도착 (GROMO-2260) — 항해·방문이 끝난 자리에서 부른다. 앱의 명령 키를 그대로 전달한다 — 재생 판정은
+     * Data 의 receipt 다.
      */
-    public IslandArrivalView arrive(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
-        var arrival = relay(() -> data.arriveAtIsland(claims.userId(), islandId, deadline));
+    public IslandArrivalView arrive(AccessTokenClaims claims, UUID islandId, UUID key, Deadline deadline) {
+        var arrival = relay(() -> data.arriveAtIsland(claims.userId(), islandId, key, deadline));
         if (arrival == null || !islandId.equals(arrival.islandId())) {
             throw new UpstreamContractMismatchException("도착 응답의 섬이 요청과 다릅니다");
         }
@@ -337,13 +338,15 @@ public class IslandMembershipUseCase {
     }
 
     /**
-     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 조회 성격이라 멱등키가 없다.
-     * {@code invitationToken} 은 여기서 검증·해석하지 않고 가입 명령에 그대로 전달한다.
+     * 초대 코드 해석 (GROMO-1760, LLD §3.10). {@code arrive} 면 초대 도착까지 한다 (GROMO-2264 — 누구나 가입 섬은
+     * 가입까지, 승인제 섬은 도착만). 상태로 수렴하는 명령이라 멱등키가 없다 — 가입 거절 사유는 같은
+     * {@code DOMAIN_FAILURES} 표로 옮긴다. {@code invitationToken} 은 여기서 검증·해석하지 않고 가입 명령에 그대로
+     * 전달한다. {@code arrival} 은 도착을 요청하지 않았거나 구 Data 서버면 null 이다.
      */
-    public InvitationResolvedView resolveInvitation(AccessTokenClaims claims, String code,
+    public InvitationResolvedView resolveInvitation(AccessTokenClaims claims, String code, boolean arrive,
             Deadline deadline) {
         InvitationResolved resolved = relay(() ->
-                data.resolveInvitation(claims.userId(), code, deadline));
+                data.resolveInvitation(claims.userId(), code, arrive, deadline));
         if (resolved == null || resolved.island() == null
                 || resolved.invitationToken() == null || resolved.invitationToken().isBlank()) {
             throw new UpstreamContractMismatchException("초대 해석 응답이 완전하지 않습니다");
