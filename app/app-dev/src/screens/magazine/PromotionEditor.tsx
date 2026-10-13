@@ -308,7 +308,8 @@ export function PromotionEditor({
   const header = (
     <View
       style={{
-        height: componentTokens.promotionEditor.headerHeight,
+        // 큰 글자에서 제목이 두 줄이 되면 머리도 같이 늘어난다
+        minHeight: componentTokens.promotionEditor.headerHeight,
         flexDirection: 'row',
         alignItems: 'center',
         gap: primitiveTokens.space[2],
@@ -331,8 +332,8 @@ export function PromotionEditor({
         <Chevron back />
       </Pressable>
       <Txt
+        testID="promotion-title"
         accessibilityRole="header"
-        numberOfLines={1}
         style={{ flex: 1, fontSize: 20, fontWeight: '800' }}
       >
         {t('magazine.editor.title')}
@@ -357,9 +358,16 @@ export function PromotionEditor({
     <View
       style={{ flex: 1, backgroundColor: semanticTokens.color.canvas, paddingTop: L.insets.top }}
     >
-      {header}
-      {content}
-      {footer}
+      <View
+        testID="promotion-editor-layer"
+        style={{ flex: 1 }}
+        accessibilityElementsHidden={done}
+        importantForAccessibility={done ? 'no-hide-descendants' : 'auto'}
+      >
+        {header}
+        {content}
+        {footer}
+      </View>
       {done && (
         <Overlay close={() => setDone(false)}>
           <Txt kind="h17">{t('magazine.editor.doneTitle')}</Txt>

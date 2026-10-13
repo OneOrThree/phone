@@ -3,7 +3,7 @@ import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { render, waitFor } from '@testing-library/react-native';
 import * as api from '@/services/api/magazine';
-import { newsSeenKey, usePromotionNewsToast } from './usePromotionNewsToast';
+import { newsSeenKey, promotionNewsKey, usePromotionNewsToast } from './usePromotionNewsToast';
 
 jest.mock('@/services/api/magazine', () => ({
   ...jest.requireActual('@/services/api/magazine'),
@@ -85,4 +85,16 @@ it('소식을 기다리는 사이 홈을 떠나면 띄우지도, 본 것으로 �
   await new Promise((r) => setTimeout(r, 10));
   expect(notify).not.toHaveBeenCalled();
   expect(await AsyncStorage.getItem(newsSeenKey('i1'))).toBeNull();
+});
+
+it('그 홍보가 실릴 호의 발행(다음 날 07시 KST) 전까지만, 자정이 지나면 「어제 · 오늘 아침」 문구', () => {
+  const created = '2026-10-13T14:00:00Z'; // KST 10/13 23:00 신청 → 10/14 07:00 호
+  const kst = (s: string) => Date.parse(`${s}+09:00`);
+  expect(promotionNewsKey(created, kst('2026-10-13T23:30:00'))).toBe('magazine.news.promotion');
+  expect(promotionNewsKey(created, kst('2026-10-14T01:00:00'))).toBe(
+    'magazine.news.promotionYesterday',
+  );
+  expect(promotionNewsKey(created, kst('2026-10-14T07:00:00'))).toBeNull();
+  expect(promotionNewsKey(created, kst('2026-10-14T08:00:00'))).toBeNull();
+  expect(promotionNewsKey('깨진 시각', kst('2026-10-14T08:00:00'))).toBeNull();
 });

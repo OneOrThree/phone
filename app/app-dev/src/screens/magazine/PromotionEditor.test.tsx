@@ -134,6 +134,11 @@ describe('여닫기', () => {
 });
 
 describe('작은 화면·큰 글자·고르기', () => {
+  it('머리 제목은 큰 글자에서 잘리지 않고 여러 줄로 감긴다', async () => {
+    const { screen } = await open();
+    expect(screen.getByTestId('promotion-title').props.numberOfLines).toBeUndefined();
+  });
+
   it('서랍 탭은 44pt 이고 좁은 화면에서는 감긴다', async () => {
     const { screen } = await open();
     for (const tab of ['고양이', '바다', '친구들', '꾸미기'])
@@ -421,11 +426,18 @@ describe('싣기·고치기', () => {
     expect(islandId).toBe('soda');
     expect(draft).toEqual({ body: '같이 공부해요!', layout: LAYOUT });
     expect(apply.mock.calls[1][2]).toBe(key);
-    // 접수 완료: 발도장 + 모달, 버튼은 고치기로
-    expect(screen.getByTestId('promotion-stamp')).toBeTruthy();
+    // 접수 완료: 발도장 + 모달, 버튼은 고치기로(확인창 뒤라 스크린리더에서는 숨은 상태)
+    const hidden = { includeHiddenElements: true };
+    expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
     expect(screen.getByText('내일 07시 호에 실려요. 자정까지 고칠 수 있어요')).toBeTruthy();
-    expect(screen.getByText('고친 내용 저장')).toBeTruthy();
-    expect(screen.getByText(/섬 통장 1,180마리/)).toBeTruthy();
+    expect(screen.getByText('고친 내용 저장', hidden)).toBeTruthy();
+    expect(screen.getByText(/섬 통장 1,180마리/, hidden)).toBeTruthy();
+    // 확인창이 열린 동안 뒤의 편집기는 스크린리더에서 숨는다
+    const layer = () => screen.getByTestId('promotion-editor-layer', hidden).props;
+    expect(layer().accessibilityElementsHidden).toBe(true);
+    expect(layer().importantForAccessibility).toBe('no-hide-descendants');
+    await fireEvent.press(screen.getByTestId('promotion-done-ok'));
+    expect(layer().accessibilityElementsHidden).toBe(false);
   });
 
   it('빈 글은 서버에 보내지 않고 글 칸 아래에 안내한다', async () => {
@@ -542,8 +554,11 @@ describe('신청 창·잔액·비공개', () => {
         });
       });
       // 늦은 성공 뒤에도 읽기 전용 그대로 — 서랍이 다시 열리거나 저장 버튼이 켜지지 않는다
-      expect(screen.queryByTestId('sticker-drawer')).toBeNull();
-      expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(true);
+      const hidden = { includeHiddenElements: true }; // 늦은 성공으로 접수 완료 확인창이 떠 있다
+      expect(screen.queryByTestId('sticker-drawer', hidden)).toBeNull();
+      expect(screen.getByTestId('promotion-submit', hidden).props.accessibilityState.disabled).toBe(
+        true,
+      );
     } finally {
       jest.useRealTimers();
     }
