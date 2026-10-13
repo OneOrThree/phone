@@ -87,6 +87,8 @@ public class FocusRewardAccrualService {
     private final FocusRewardAccrualRepository focusRewardAccrualRepository;
     private final IslandWalletService islandWalletService;
     private final IslandWalletEvents islandWalletEvents;
+    /** 바다 집중 판정 seam (GROMO-2274) — 바다 세션은 섬 통장에 적립하지 않는다. 지금은 늘 {@code false} 다. */
+    private final SeaSessionPredicate seaSessions;
     private final Clock clock;
 
     /**
@@ -105,13 +107,20 @@ public class FocusRewardAccrualService {
      * 크론이 PAUSED 를 훑지 않는 것은 휴식 중에는 {@code activeSeconds} 가 늘지 않아 새로 줄 것이 없기
      * 때문이다(스캔 비용만 늘린다) — 그 분은 resume 뒤 첫 틱이나 finish 가 가져간다.
      *
+     * <p><b>바다 세션은 적립하지 않는다</b>(GROMO-2274) — {@link SeaSessionPredicate} 가 참이면 워터마크도 건드리지
+     * 않고 0 으로 끝낸다. 위 두 호출처가 모두 이 메서드를 지나므로 「바다 세션은 섬 통장에 넣지 않는다」는 판정은
+     * 여기 한 곳이고, 종료가 읽는 적립 합({@code sumEarnedFishOfSession})도 그래서 바다 세션에는 늘 0 이다.
+     *
      * @param sessionId 적립할 세션
-     * @return 이번에 섬 통장에 실제로 넣은 마리 수(0 이면 아직 1마리가 안 찼거나 상한이다)
+     * @return 이번에 섬 통장에 실제로 넣은 마리 수(0 이면 아직 1마리가 안 찼거나 상한이거나 바다 세션이다)
      */
     @Transactional
     public int accrue(UUID sessionId) {
         FocusSessionDetail detail = focusSessionDetailRepository.findBySessionIdForUpdate(sessionId).orElse(null);
         if (detail == null || !PROGRESSING.contains(detail.getLifecycle()) || detail.getUserId() == null) {
+            return 0;
+        }
+        if (seaSessions.isSea(detail)) {
             return 0;
         }
         // 기본 마커가 바깥에서 닫힌 세션(레거시 start 의 autoCloseOpenMarkersOf)은 사용자에게 이미 끝난
