@@ -34,7 +34,7 @@ public final class LiveActivityContent {
         return Map.of("owner", owner.toString(), "sessionId", detail.getSessionId().toString(),
                 "version", detail.getVersion(), "phase", ended(detail) ? "ended" : rest ? "rest" : "focus",
                 "subject", rest ? "" : detail.getSubject(), "catColor", color, "anchorMs", anchor.toEpochMilli(),
-                "validUntilMs", (rest ? anchor.plusSeconds(3600).toEpochMilli() : 0L));
+                "validUntilMs", (rest ? anchor.plusSeconds(3600) : now.plusSeconds(28 * 86400L)).toEpochMilli());
     }
 
     public static Map<String, Object> payload(FocusSessionDetail detail, List<FocusSessionInterval> intervals,

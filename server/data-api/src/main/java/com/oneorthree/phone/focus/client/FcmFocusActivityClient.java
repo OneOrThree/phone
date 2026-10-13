@@ -56,7 +56,7 @@ public class FcmFocusActivityClient {
         try {
             var body = Map.of("message", Map.of("token", token,
                     "data", Map.of("focusActivity", json.writeValueAsString(payload)),
-                    "android", Map.of("priority", "high", "ttl", "28800s",
+                    "android", Map.of("priority", "high", "ttl", "2419200s",
                             "collapse_key", "focus-" + payload.get("sessionId"))));
             var request = HttpRequest.newBuilder(URI.create("https://fcm.googleapis.com/v1/projects/"
                             + projectId + "/messages:send"))

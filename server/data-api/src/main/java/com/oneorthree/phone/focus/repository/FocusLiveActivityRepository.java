@@ -17,13 +17,18 @@ public interface FocusLiveActivityRepository extends JpaRepository<FocusLiveActi
     @Query("SELECT a FROM FocusLiveActivity a WHERE a.sessionId = :sessionId")
     Optional<FocusLiveActivity> findBySessionIdForUpdate(UUID sessionId);
 
-    // 변하지 않은 활성 행은 배치를 점유하지 않는다. 전이 버전·최초 등록·만료만 후보가 된다.
+    // Android는 하루마다 정본을 재전송해 기기 차단 유효기간을 갱신한다. 나머지 동일 버전은 제외한다.
     @Query("""
             SELECT a.sessionId FROM FocusLiveActivity a
             JOIN FocusSessionDetail s ON s.sessionId = a.sessionId
             WHERE a.expiresAt <= :now
-               OR (a.nextAttemptAt <= :now AND (a.sentVersion <> s.version OR s.userId IS NULL))
+               OR (a.nextAttemptAt <= :now AND (a.sentVersion <> s.version OR s.userId IS NULL
+                   OR (a.environment = 'android' AND a.sentTimestamp <= :refreshBefore)))
             ORDER BY a.nextAttemptAt
             """)
-    List<UUID> findDue(Instant now, Pageable page);
+    List<UUID> findDueForRefresh(Instant now, long refreshBefore, Pageable page);
+
+    default List<UUID> findDue(Instant now, Pageable page) {
+        return findDueForRefresh(now, now.minusSeconds(86400).getEpochSecond(), page);
+    }
 }

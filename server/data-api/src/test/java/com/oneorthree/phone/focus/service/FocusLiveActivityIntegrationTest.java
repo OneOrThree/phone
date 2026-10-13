@@ -72,6 +72,10 @@ class FocusLiveActivityIntegrationTest {
         verify(push).send(any(), any(), argThat(payload ->
                 "android".equals(environment) ? "rest".equals(payload.get("phase"))
                         : ((Map<?, ?>) ((Map<?, ?>) payload.get("aps")).get("content-state")).get("phase").equals("rest")));
+        if ("android".equals(environment)) {
+            assertThat(repository.findDue(Instant.now().plusSeconds(86401), PageRequest.of(0, 20)))
+                    .contains(session.id());
+        }
         focus.finish(user, session.id(), new FocusVersionedCommandRequest(paused.version()), UUID.randomUUID());
         assertThat(repository.findDue(Instant.now().plusSeconds(30), PageRequest.of(0, 20))).contains(session.id());
         jdbc.update("update focus_live_activities set next_attempt_at=now()-interval '1 second', "

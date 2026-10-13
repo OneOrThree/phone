@@ -268,10 +268,12 @@ class WriteComposeEnvTest(unittest.TestCase):
         )
         transition = MODULE.render(combined, "example/data:1", "data-api")
         final = MODULE.render(combined, "example/data:2", "data-api", "final", "prod")
-        for key in ("JWT_SECRET", "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "FCM_PROJECT_ID",
-                    "FCM_SERVICE_ACCOUNT_JSON"):
+        for key in ("JWT_SECRET", "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID"):
             self.assertIn(f"{key}=", transition)
             self.assertNotIn(f"{key}=", final)
+        for key in ("FCM_PROJECT_ID", "FCM_SERVICE_ACCOUNT_JSON"):
+            self.assertIn(f"{key}=", transition)
+            self.assertIn(f"{key}=", final)
         self.assertIn("SVC_TOKEN_DATA_TO_LINK='dl'", final)
         # GROMO-1954 — Data relay 의 REALTIME HTTP 목적지·전용 토큰
         self.assertIn("SVC_TOKEN_DATA_TO_REALTIME='data-realtime'", final)

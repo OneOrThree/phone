@@ -862,11 +862,11 @@ function AppPermissionManager({ e }: any) {
         />
         {Platform.OS === 'ios' && (
           <Row
-            title="Safari 웹 사용 허용"
-            sub="집중 중에도 Safari에서 웹을 볼 수 있어요"
+            title="Safari 웹사이트 차단 해제"
+            sub="위 허용 앱에서 Safari도 선택해야 웹을 볼 수 있어요"
             tail={
               <Toggle
-                label="집중 중 Safari 웹 사용 허용"
+                label="집중 중 Safari 웹사이트 차단 해제"
                 value={allowSafari}
                 disabled={busy || !approved}
                 onChange={async (value: boolean) => {

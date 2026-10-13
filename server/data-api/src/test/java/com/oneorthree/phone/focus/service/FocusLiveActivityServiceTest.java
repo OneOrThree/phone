@@ -155,8 +155,26 @@ class FocusLiveActivityServiceTest {
         when(push.send(any(), any(), any())).thenReturn(LiveActivityPushClient.Result.SENT);
         service.deliver(sessionId);
         verify(push).send(any(), eq("android"), argThat(payload ->
-                payload.get("phase").equals("focus") && payload.get("validUntilMs").equals(0L)));
+                payload.get("phase").equals("focus") && payload.get("validUntilMs").equals(now.plusSeconds(28 * 86400L).toEpochMilli())));
         verify(activities, never()).delete(any());
+    }
+
+    @Test
+    void androidSameVersionIsRefreshedDailyButNotOnEveryPoll() {
+        var request = new LiveActivityRegistration("android-activity", "a".repeat(40), "android", "black");
+        var activity = new FocusLiveActivity(sessionId, owner, request, now.minusSeconds(172800));
+        activity.sent(3, now.minusSeconds(86400).getEpochSecond());
+        when(sessions.requireForUpdate(sessionId)).thenReturn(detail(FocusSessionLifecycle.ACTIVE));
+        when(activities.findBySessionIdForUpdate(sessionId)).thenReturn(Optional.of(activity));
+        when(intervals.findBySessionIdOrderByOrdinalAsc(sessionId)).thenReturn(List.of());
+        when(push.enabled()).thenReturn(true);
+        when(push.send(any(), any(), any())).thenReturn(LiveActivityPushClient.Result.SENT);
+        service.deliver(sessionId);
+        assertThat(activity.getSentTimestamp()).isEqualTo(now.getEpochSecond());
+        activity.attempted(now);
+        service.deliver(sessionId);
+        verify(push, times(1)).send(any(), eq("android"), argThat(payload ->
+                payload.get("validUntilMs").equals(now.plusSeconds(28 * 86400L).toEpochMilli())));
     }
 
 }

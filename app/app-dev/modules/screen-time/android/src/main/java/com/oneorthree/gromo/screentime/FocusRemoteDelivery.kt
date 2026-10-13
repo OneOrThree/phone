@@ -10,6 +10,6 @@ internal class FocusRemoteDelivery(context: Context, private val restore: (Boole
     if (payload.length > 8192) return
     val state = runCatching { JSONObject(payload) }.getOrNull() ?: return
     if (!runCatching { store.accept(state, true) }.getOrDefault(false)) return
-    restore(state.getString("phase") == "ended")
+    restore(store.restorableSnapshot() == null)
   }
 }

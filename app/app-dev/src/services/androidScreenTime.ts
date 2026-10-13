@@ -123,7 +123,7 @@ export function syncAndroidFocus(
         validUntilMs:
           confirmed.status === 'paused'
             ? (confirmed.restStartedAt ?? Date.now()) + REST_AUTO_CLOSE_MS
-            : 0, // 집중은 서버 세션 종료까지 유지하고 휴식만 한 시간 뒤 만료한다.
+            : Date.now() + 28 * 24 * 60 * 60 * 1000, // 정본 재동기화로 갱신하며 장기 미수신 시 차단을 해제한다.
       }),
     );
   });

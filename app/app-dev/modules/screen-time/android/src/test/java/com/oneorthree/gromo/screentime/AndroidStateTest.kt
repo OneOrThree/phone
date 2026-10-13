@@ -111,7 +111,7 @@ class AndroidStateTest {
     delivery.receive(state(version = 2, phase = "rest").toString())
     assertEquals("rest", FocusSessionState(context).snapshot()!!.getString("phase"))
     delivery.receive(state(version = 3).put("validUntilMs", 0).toString())
-    assertEquals(0L, FocusSessionState(context).snapshot()!!.getLong("validUntilMs"))
+    assertTrue(FocusSessionState(context).snapshot()!!.getLong("validUntilMs") > System.currentTimeMillis() + 27 * 86400000L)
     delivery.receive(state(version = 4, phase = "ended").toString())
     assertEquals("ended", FocusSessionState(context).snapshot()!!.getString("phase"))
     delivery.receive(state(version = 5).toString())
@@ -120,7 +120,7 @@ class AndroidStateTest {
     assertEquals(listOf(false, false, true), restored)
   }
 
-  @Test fun focusHasNoArtificialExpiryButRestStillNeedsDeadline() {
+  @Test fun legacyFocusGetsBoundedLeaseButRestStillNeedsDeadline() {
     val store = FocusSessionState(context)
     store.bind("owner")
     assertTrue(store.accept(state().put("validUntilMs", 0), false))
@@ -189,6 +189,34 @@ class AndroidStateTest {
     assertEquals(400_000L to now, windows[0])
     assertNull(tracker.read(now + 1000, 601_000, ::query))
     assertEquals(now - 1000 to now + 1000, windows[1])
+  }
+
+  @Test fun delayedExpiredRestClearsPreviousFocusAndPreservesVersionFence() {
+    val store = FocusSessionState(context)
+    store.bind("owner")
+    store.accept(state().put("validUntilMs", 0), false)
+    val stopped = mutableListOf<Boolean>()
+    val delivery = FocusRemoteDelivery(context) { stopped.add(it) }
+    delivery.receive(state(version = 2, phase = "rest").put("validUntilMs", System.currentTimeMillis() - 9 * 3600000L).toString())
+    assertEquals(listOf(true), stopped)
+    assertEquals("rest", store.snapshot()!!.getString("phase"))
+    assertNull(store.restorableSnapshot())
+    assertFalse(store.accept(state(version = 1), true))
+    delivery.receive(state(version = 3).toString())
+    assertEquals(listOf(true, false), stopped)
+  }
+
+  @Test fun undeliveredEndCannotLeaveAnInfiniteFocusAfterRestart() {
+    val store = FocusSessionState(context)
+    store.bind("owner")
+    val focus = state().put("validUntilMs", 0)
+    store.accept(focus, false)
+    val deadline = store.snapshot()!!.getLong("validUntilMs")
+    assertNotNull(store.restorableSnapshot(deadline - 1))
+    assertNull(FocusSessionState(context).restorableSnapshot(deadline))
+    // 같은 버전의 정본 재전송은 온라인 집중의 유효기간을 연장한다.
+    assertTrue(store.accept(state().put("validUntilMs", deadline + 86400000L), true))
+    assertNotNull(store.restorableSnapshot(deadline))
   }
 
 }

@@ -186,7 +186,7 @@ test('브리지 전달 중 자정이 지나도 네이티브 관측 날짜를 유
   expect(report).toHaveBeenCalledWith('approved', null, 1, Date.now(), measurement.observations);
 });
 
-test('집중 상태는 8시간 제한 없이 서버 세션 종료까지 유지한다', async () => {
+test('집중 상태는 8시간을 넘어 유지하되 원격 상태 미수신 시 28일 뒤 만료한다', async () => {
   const { mod, native } = setup();
   await mod.syncAndroidFocus(
     {
@@ -202,7 +202,7 @@ test('집중 상태는 8시간 제한 없이 서버 세션 종료까지 유지�
   );
   expect(JSON.parse(native.syncAndroidFocus.mock.calls[0][0])).toMatchObject({
     phase: 'focus',
-    validUntilMs: 0,
+    validUntilMs: Date.now() + 28 * 24 * 60 * 60 * 1000,
   });
 });
 

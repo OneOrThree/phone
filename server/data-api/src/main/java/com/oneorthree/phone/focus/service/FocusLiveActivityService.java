@@ -67,7 +67,10 @@ public class FocusLiveActivityService {
             return;
         }
         activity.attempted(now.plusSeconds(15));
-        if (activity.getSentVersion() == detail.getVersion() && !LiveActivityContent.ended(detail)) {
+        boolean androidRefresh = "android".equals(activity.getEnvironment())
+                && activity.getSentTimestamp() <= now.minusSeconds(86400).getEpochSecond();
+        if (activity.getSentVersion() == detail.getVersion() && !LiveActivityContent.ended(detail)
+                && !androidRefresh) {
             return;
         }
         if (!push.enabled() || now.getEpochSecond() <= activity.getSentTimestamp()) {

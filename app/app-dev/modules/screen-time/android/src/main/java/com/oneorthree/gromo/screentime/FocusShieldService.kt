@@ -79,15 +79,14 @@ class FocusShieldService : Service() {
     if (phase == "ended") { stopShield(); return true }
     val deadline = state.getLong("validUntilMs")
     val time = System.currentTimeMillis()
-    if (!(phase == "focus" && deadline == 0L) && deadline <= time) { stopShield(); return false }
+    if (deadline <= time) { stopShield(); return false }
     subject = if (phase == "rest") "잠시 쉬는 중" else state.optString("subject", "집중")
     color = state.optString("catColor", "black").takeIf { it in setOf("black", "white", "gray", "cream", "ginger", "calico") } ?: "black"
     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString("catColor", color).apply()
     blocking = phase == "focus" && usageAccessGranted() && Settings.canDrawOverlays(this)
     if (!blocking) hideOverlay()
     anchorElapsed = SystemClock.elapsedRealtime() - (time - state.getLong("anchorMs")).coerceAtLeast(0)
-    expiresAt = if (phase == "focus" && deadline == 0L) Long.MAX_VALUE
-      else SystemClock.elapsedRealtime() + (deadline - time).coerceAtLeast(0L)
+    expiresAt = SystemClock.elapsedRealtime() + (deadline - time).coerceAtLeast(0L)
     failures = 0
     startForeground(NOTIFICATION_ID, buildNotification())
     if (!running) { running = true; handler.post(poll) }
