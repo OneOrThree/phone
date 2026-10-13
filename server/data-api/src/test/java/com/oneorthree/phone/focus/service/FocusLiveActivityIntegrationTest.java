@@ -2,6 +2,9 @@ package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.focus.repository.FocusLiveActivityRepository;
+import org.springframework.data.domain.PageRequest;
+import java.time.Instant;
 import com.oneorthree.phone.focus.client.LiveActivityPushClient;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
@@ -37,6 +40,7 @@ class FocusLiveActivityIntegrationTest {
     @Autowired private FocusSessionLifecycleService focus;
     @Autowired private FocusLiveActivityService activities;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private FocusLiveActivityRepository repository;
     @MockitoBean private LiveActivityPushClient push;
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -54,13 +58,22 @@ class FocusLiveActivityIntegrationTest {
         activities.register(user, session.id(), request);
         assertThat(jdbc.queryForObject("select count(*) from focus_live_activities where session_id=?",
                 Long.class, session.id())).isEqualTo(1);
+        if ("android".equals(environment)) {
+            assertThat(jdbc.queryForObject("select expires_at from focus_live_activities where session_id=?",
+                    java.sql.Timestamp.class, session.id())).isNull();
+        }
         var paused = focus.pause(user, session.id(), new FocusVersionedCommandRequest(session.version()),
                 UUID.randomUUID());
+        assertThat(repository.findDue(Instant.now().plusSeconds(30), PageRequest.of(0, 20))).contains(session.id());
         activities.deliver(session.id());
+        // 전송한 상태가 그대로인 등록은 활성 등록 수가 늘어도 다음 배치를 점유하지 않는다.
+        assertThat(repository.findDue(Instant.now().plusSeconds(30), PageRequest.of(0, 20)))
+                .doesNotContain(session.id());
         verify(push).send(any(), any(), argThat(payload ->
                 "android".equals(environment) ? "rest".equals(payload.get("phase"))
                         : ((Map<?, ?>) ((Map<?, ?>) payload.get("aps")).get("content-state")).get("phase").equals("rest")));
         focus.finish(user, session.id(), new FocusVersionedCommandRequest(paused.version()), UUID.randomUUID());
+        assertThat(repository.findDue(Instant.now().plusSeconds(30), PageRequest.of(0, 20))).contains(session.id());
         jdbc.update("update focus_live_activities set next_attempt_at=now()-interval '1 second', "
                 + "sent_timestamp=0 where session_id=?", session.id());
         activities.deliver(session.id());

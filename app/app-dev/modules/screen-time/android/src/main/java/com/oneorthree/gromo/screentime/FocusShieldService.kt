@@ -16,11 +16,15 @@ import org.json.JSONObject
 /** PR #686의 앱 감지·시스템 예외·오버레이를 2.0 서버 세션 수명에 연결한다. */
 class FocusShieldService : Service() {
   companion object {
+    const val ACTION_RESTORE = "com.oneorthree.focuscat.FOCUS_RESTORE"
     const val ACTION_SYNC = "com.oneorthree.focuscat.FOCUS_SYNC"
     const val EXTRA_STATE = "state"
     const val PREFS_NAME = "gromo_screen_time"
     private const val CHANNEL_ID = "gromo_focus_shield"
     private const val NOTIFICATION_ID = 4201
+    fun clearNotification(context: Context) {
+      (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID)
+    }
     private const val CHARACTER_MAX_PX = 192
     private const val ALPHA_THRESHOLD = 8
     @Volatile var instance: FocusShieldService? = null
@@ -45,29 +49,39 @@ class FocusShieldService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
   override fun onCreate() { super.onCreate(); instance = this }
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    if (intent?.action != ACTION_SYNC) { if (!running) stopSelf(); return START_NOT_STICKY }
-    val applied = runCatching { applySnapshot(intent.getStringExtra(EXTRA_STATE) ?: "{}", false) }
-      .getOrElse { stopShield(); false }
-    FocusSessionState.resolve(intent.getStringExtra("requestId"), applied)
+    val applied = runCatching {
+      when (intent?.action) {
+        ACTION_SYNC -> applySnapshot(intent.getStringExtra(EXTRA_STATE) ?: "{}")
+        ACTION_RESTORE -> applyLatest()
+        else -> false
+      }
+    }.getOrElse { stopShield(); false }
+    FocusSessionState.resolve(intent?.getStringExtra("requestId"), applied)
     if (!running) stopSelf()
     return START_NOT_STICKY
   }
-  fun applyRemote(payload: String) {
-    handler.post { runCatching { applySnapshot(payload, true) } }
+  fun restoreLatest() {
+    handler.post { runCatching { applyLatest() }.onFailure { stopShield() } }
   }
-  private fun applySnapshot(payload: String, remote: Boolean): Boolean {
-    val state = JSONObject(payload)
-    if (!FocusSessionState(this).accept(state, remote)) return false
+  private fun applySnapshot(payload: String): Boolean {
+    if (!FocusSessionState(this).accept(JSONObject(payload), false)) return false
+    return applyLatest()
+  }
+  private fun applyLatest(): Boolean {
+    val state = FocusSessionState(this).snapshot() ?: run { stopShield(); return false }
     phase = state.getString("phase")
     if (phase == "ended") { stopShield(); return true }
+    val deadline = state.getLong("validUntilMs")
+    val time = System.currentTimeMillis()
+    if (!(phase == "focus" && deadline == 0L) && deadline <= time) { stopShield(); return false }
     subject = if (phase == "rest") "잠시 쉬는 중" else state.optString("subject", "집중")
     color = state.optString("catColor", "black").takeIf { it in setOf("black", "white", "gray", "cream", "ginger", "calico") } ?: "black"
     getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString("catColor", color).apply()
     blocking = phase == "focus" && usageAccessGranted() && Settings.canDrawOverlays(this)
     if (!blocking) hideOverlay()
-    val time = System.currentTimeMillis()
     anchorElapsed = SystemClock.elapsedRealtime() - (time - state.getLong("anchorMs")).coerceAtLeast(0)
-    expiresAt = SystemClock.elapsedRealtime() + (state.getLong("validUntilMs") - time).coerceIn(0L, 8 * 3600000L)
+    expiresAt = if (phase == "focus" && deadline == 0L) Long.MAX_VALUE
+      else SystemClock.elapsedRealtime() + (deadline - time).coerceAtLeast(0L)
     failures = 0
     startForeground(NOTIFICATION_ID, buildNotification())
     if (!running) { running = true; handler.post(poll) }

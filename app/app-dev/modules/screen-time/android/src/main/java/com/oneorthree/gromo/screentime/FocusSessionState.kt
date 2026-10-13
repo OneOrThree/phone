@@ -44,7 +44,8 @@ internal class FocusSessionState(context: Context) {
     if (phase != "ended") {
       val time = System.currentTimeMillis()
       require(state.getLong("anchorMs") in 1..(time + 60_000))
-      if (state.getLong("validUntilMs") <= time) return false
+      val until = state.getLong("validUntilMs")
+      if (!(phase == "focus" && until == 0L) && until <= time) return false
     }
     if (previous != null && previous.optString("sessionId") != id) endedIds.add(previous.getString("sessionId"))
     if (phase == "ended") endedIds.add(id)
@@ -52,6 +53,10 @@ internal class FocusSessionState(context: Context) {
       .putString("ended", JSONArray(endedIds.distinct().takeLast(128)).toString()).commit())
     return true
   }
+  }
+  fun snapshot(): JSONObject? = synchronized(lock) {
+    val state = prefs.getString("state", null)?.let { JSONObject(it) } ?: return@synchronized null
+    state.takeIf { it.optString("owner") == prefs.getString("owner", null) }
   }
   fun end() { synchronized(lock) {
     val state = prefs.getString("state", null)?.let { JSONObject(it) } ?: return

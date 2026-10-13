@@ -59,7 +59,7 @@ public class FocusLiveActivityService {
             return;
         }
         Instant now = clock.instant();
-        if (!now.isBefore(activity.getExpiresAt())) {
+        if (activity.getExpiresAt() != null && !now.isBefore(activity.getExpiresAt())) {
             activities.delete(activity);
             return;
         }
@@ -77,7 +77,7 @@ public class FocusLiveActivityService {
         var sessionIntervals = intervals.findBySessionIdOrderByOrdinalAsc(sessionId);
         var payload = "android".equals(activity.getEnvironment())
                 ? LiveActivityContent.androidPayload(detail, sessionIntervals, activity.getUserId(),
-                        activity.getCatColor(), activity.getExpiresAt(), now)
+                        activity.getCatColor(), now)
                 : LiveActivityContent.payload(detail, sessionIntervals, activity.getCatColor(), timestamp, now);
         var result = push.send(activity.getPushToken(), activity.getEnvironment(), payload);
         if (result == LiveActivityPushClient.Result.INVALID_TOKEN

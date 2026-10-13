@@ -39,7 +39,7 @@ public class FocusLiveActivity {
     private long sentTimestamp;
     @Column(nullable = false)
     private Instant nextAttemptAt;
-    @Column(nullable = false)
+    // iOS Activity만 8시간에 만료하며 Android 등록은 세션 종료까지 유지한다.
     private Instant expiresAt;
 
     public FocusLiveActivity(UUID sessionId, UUID userId, LiveActivityRegistration request, Instant now) {
@@ -51,8 +51,8 @@ public class FocusLiveActivity {
     public void register(LiveActivityRegistration request, Instant now) {
         boolean changed = !request.pushToken().equals(pushToken) || !request.catColor().equals(catColor)
                 || !request.environment().equals(environment) || !request.activityId().equals(activityId);
-        if (!request.activityId().equals(activityId)) {
-            expiresAt = now.plusSeconds(8 * 60 * 60);
+        if (!request.activityId().equals(activityId) || !request.environment().equals(environment)) {
+            expiresAt = "android".equals(request.environment()) ? null : now.plusSeconds(8 * 60 * 60);
         }
         activityId = request.activityId();
         pushToken = request.pushToken();

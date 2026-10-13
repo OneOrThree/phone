@@ -1,7 +1,14 @@
 import React from 'react';
+import { screenTimeObservationReported } from '@/services/screenTimeEvents';
 import ScreenTimeReportView from './ScreenTimeReportView';
-import { cleanup, render } from '@testing-library/react-native';
-import { Platform, UIManager, requireNativeComponent } from 'react-native';
+import { act, cleanup, render } from '@testing-library/react-native';
+import {
+  AppState,
+  Platform,
+  UIManager,
+  requireNativeComponent,
+  type AppStateStatus,
+} from 'react-native';
 
 jest.mock('react-native', () => {
   const native = jest.requireActual('react-native');
@@ -23,8 +30,9 @@ jest.mock('@/services/api/session', () => ({
 jest.mock('@/design-system/patterns', () => ({ Txt: 'Text' }));
 
 const originalOS = Platform.OS;
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await cleanup();
+  jest.restoreAllMocks();
   Platform.OS = originalOS;
   jest.clearAllMocks();
 });
@@ -87,4 +95,54 @@ test('Android 조회 실패를 사용량 0분으로 표시하지 않는다', asy
     await screen.findByText('사용량을 확인하지 못했어요. 측정 권한과 앱 선택을 확인해 주세요.'),
   ).toBeTruthy();
   expect(screen.queryByText('총 0분')).toBeNull();
+});
+
+test('Android 리포트는 복귀·측정 이벤트에서 다시 읽고 늦은 이전 응답은 버린다', async () => {
+  Platform.OS = 'android';
+  const { screenTimeNative } = require('@/services/ScreenTimeModule');
+  let foreground!: (state: AppStateStatus) => void;
+  const remove = jest.fn();
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+    foreground = listener;
+    return { remove };
+  });
+  const report = (minutes: number) => ({ totalSeconds: minutes * 60, apps: [] });
+  screenTimeNative.getAndroidUsageBreakdown.mockResolvedValue(report(10));
+  const screen = await render(<ScreenTimeReportView />);
+  expect(await screen.findByText('총 10분')).toBeTruthy();
+  let old!: (value: ReturnType<typeof report>) => void;
+  screenTimeNative.getAndroidUsageBreakdown.mockReturnValueOnce(
+    new Promise((resolve) => {
+      old = resolve;
+    }),
+  );
+  await act(async () => {
+    foreground('active');
+  });
+  screenTimeNative.getAndroidUsageBreakdown.mockResolvedValue(report(30));
+  await act(async () => {
+    screenTimeObservationReported();
+  });
+  expect(await screen.findByText('총 30분')).toBeTruthy();
+  await act(async () => {
+    old(report(20));
+  });
+  expect(screen.getByText('총 30분')).toBeTruthy();
+  screenTimeNative.getAndroidUsageBreakdown.mockRejectedValue(new Error('DENIED'));
+  await act(async () => {
+    foreground('active');
+  });
+  expect(screen.queryByText('총 30분')).toBeNull();
+  screenTimeNative.getAndroidUsageBreakdown.mockResolvedValue(report(40));
+  await act(async () => {
+    foreground('active');
+  });
+  expect(await screen.findByText('총 40분')).toBeTruthy();
+  await screen.unmount();
+  expect(remove).toHaveBeenCalled();
+  screenTimeNative.getAndroidUsageBreakdown.mockClear();
+  await act(async () => {
+    screenTimeObservationReported();
+  });
+  expect(screenTimeNative.getAndroidUsageBreakdown).not.toHaveBeenCalled();
 });

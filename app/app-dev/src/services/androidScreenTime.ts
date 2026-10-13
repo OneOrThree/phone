@@ -119,7 +119,7 @@ export function syncAndroidFocus(
         validUntilMs:
           confirmed.status === 'paused'
             ? (confirmed.restStartedAt ?? Date.now()) + REST_AUTO_CLOSE_MS
-            : Date.now() + 8 * 60 * 60 * 1000,
+            : 0, // 집중은 서버 세션 종료까지 유지하고 휴식만 한 시간 뒤 만료한다.
       }),
     );
   });

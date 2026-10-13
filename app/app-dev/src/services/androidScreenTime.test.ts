@@ -185,3 +185,23 @@ test('브리지 전달 중 자정이 지나도 네이티브 관측 날짜를 유
   await expect(mod.syncAndroidMeasurement()).resolves.toMatchObject({ reportFailed: false });
   expect(report).toHaveBeenCalledWith('approved', null, 1, Date.now(), measurement.observations);
 });
+
+test('집중 상태는 8시간 제한 없이 서버 세션 종료까지 유지한다', async () => {
+  const { mod, native } = setup();
+  await mod.syncAndroidFocus(
+    {
+      id: 's',
+      version: 1,
+      status: 'active',
+      startedAt: 1,
+      seconds: 0,
+      subject: '수학',
+      islandId: 'i',
+    } as Session,
+    'black',
+  );
+  expect(JSON.parse(native.syncAndroidFocus.mock.calls[0][0])).toMatchObject({
+    phase: 'focus',
+    validUntilMs: 0,
+  });
+});

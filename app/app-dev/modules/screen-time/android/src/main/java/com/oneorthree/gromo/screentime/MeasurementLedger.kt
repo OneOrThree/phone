@@ -109,7 +109,15 @@ internal class MeasurementLedger(
     if (!approved || !value.optBoolean("granted", approved) || changedBoot || time < last || time - last > dayMs * 2) {
       gaps.put(JSONObject().put("from", minOf(last, time)).put("until", maxOf(last, time) + 1))
     }
-    value.put("gaps", JSONArray(entries(gaps).filter { it.getLong("until") >= time - dayMs * 92 }))
+    // 연속 거절·겹친 권한 공백은 하나의 구간으로 저장한다. 기존 누적 원장도 함께 압축한다.
+    val merged = mutableListOf<JSONObject>()
+    for (gap in entries(gaps).filter { it.getLong("until") >= time - dayMs * 92 }.sortedBy { it.getLong("from") }) {
+      val previous = merged.lastOrNull()
+      if (previous != null && gap.getLong("from") <= previous.getLong("until")) {
+        previous.put("until", maxOf(previous.getLong("until"), gap.getLong("until")))
+      } else merged.add(gap)
+    }
+    value.put("gaps", JSONArray(merged))
       .put("seen", time).put("boot", boot).put("granted", approved)
     save(value)
     val manager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager

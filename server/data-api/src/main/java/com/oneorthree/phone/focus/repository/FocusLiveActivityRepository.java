@@ -17,6 +17,13 @@ public interface FocusLiveActivityRepository extends JpaRepository<FocusLiveActi
     @Query("SELECT a FROM FocusLiveActivity a WHERE a.sessionId = :sessionId")
     Optional<FocusLiveActivity> findBySessionIdForUpdate(UUID sessionId);
 
-    @Query("SELECT a.sessionId FROM FocusLiveActivity a WHERE a.nextAttemptAt <= :now ORDER BY a.nextAttemptAt")
+    // 변하지 않은 활성 행은 배치를 점유하지 않는다. 전이 버전·최초 등록·만료만 후보가 된다.
+    @Query("""
+            SELECT a.sessionId FROM FocusLiveActivity a
+            JOIN FocusSessionDetail s ON s.sessionId = a.sessionId
+            WHERE a.expiresAt <= :now
+               OR (a.nextAttemptAt <= :now AND (a.sentVersion <> s.version OR s.userId IS NULL))
+            ORDER BY a.nextAttemptAt
+            """)
     List<UUID> findDue(Instant now, Pageable page);
 }

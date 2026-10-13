@@ -1950,7 +1950,7 @@ Table notification_result_bundle_manifests {
 // 주간 섬 랭킹 동결 분모 (V85)
 Ref: island_weekly_member_counts.island_id > groups.id [delete: cascade]  // GROMO-1997 — 섬이 사라지면 그 섬의 동결 분모도 같이 지운다
 
-Table focus_live_activities [note: '집중 상태 APNs·Android FCM 등록·전송 상태, 최대 8시간 보관'] {
+Table focus_live_activities [note: '집중 상태 APNs·Android FCM 등록·전송 상태. iOS 8시간, Android 세션 종료까지 보관'] {
   id uuid [pk]
   session_id uuid [not null, unique, ref: > focus_session_details.session_id]
   user_id uuid [not null, ref: > users.id]
@@ -1961,7 +1961,7 @@ Table focus_live_activities [note: '집중 상태 APNs·Android FCM 등록·전�
   sent_version bigint [not null]
   sent_timestamp bigint [not null]
   next_attempt_at timestamptz [not null]
-  expires_at timestamptz [not null]
+  expires_at timestamptz [note: 'iOS 만료 시각, Android는 NULL']
   indexes {
     next_attempt_at [name: 'focus_live_activities_due_idx']
   }

@@ -102,4 +102,49 @@ class AndroidStateTest {
     assertThrows(IllegalStateException::class.java) { ledger.allow("old-owner", listOf("app")) }
     assertEquals("new-owner", JSONObject(strings["ledger"]!!).getString("owner"))
   }
+  @Test fun remoteStateSurvivesServiceLossAndRestoresOnlyKnownSession() {
+    val store = FocusSessionState(context)
+    store.bind("owner")
+    store.accept(state().put("validUntilMs", 0), false)
+    val restored = mutableListOf<Boolean>()
+    val delivery = FocusRemoteDelivery(context) { restored.add(it) }
+    delivery.receive(state(version = 2, phase = "rest").toString())
+    assertEquals("rest", FocusSessionState(context).snapshot()!!.getString("phase"))
+    delivery.receive(state(version = 3).put("validUntilMs", 0).toString())
+    assertEquals(0L, FocusSessionState(context).snapshot()!!.getLong("validUntilMs"))
+    delivery.receive(state(version = 4, phase = "ended").toString())
+    assertEquals("ended", FocusSessionState(context).snapshot()!!.getString("phase"))
+    delivery.receive(state(version = 5).toString())
+    delivery.receive(state(id = "unknown", version = 6).toString())
+    delivery.receive(state(owner = "other", version = 6).toString())
+    assertEquals(listOf(false, false, true), restored)
+  }
+
+  @Test fun focusHasNoArtificialExpiryButRestStillNeedsDeadline() {
+    val store = FocusSessionState(context)
+    store.bind("owner")
+    assertTrue(store.accept(state().put("validUntilMs", 0), false))
+    assertFalse(store.accept(state(version = 2, phase = "rest").put("validUntilMs", 0), true))
+    assertEquals("focus", store.snapshot()!!.getString("phase"))
+  }
+
+  @Test fun repeatedDeniedSnapshotsMergeGapsWithoutBridgingHealthyIntervals() {
+    var time = Instant.parse("2026-10-12T01:00:00Z").toEpochMilli()
+    strings["ledger"] = """{"owner":"owner","selections":[{"at":${time - 3 * 86400000L},"all":true,"packages":[]}]}"""
+    val ledger = ledger({ time }) { _, _, _ -> 0 }
+    val first = time
+    repeat(2000) { ledger.snapshot(false); time += 60_000 }
+    var gaps = JSONObject(strings["ledger"]!!).getJSONArray("gaps")
+    assertEquals(1, gaps.length())
+    assertEquals(first, gaps.getJSONObject(0).getLong("from"))
+    ledger.snapshot(true)
+    time += 3_600_000
+    ledger.snapshot(true)
+    time += 60_000
+    ledger.snapshot(false)
+    gaps = JSONObject(strings["ledger"]!!).getJSONArray("gaps")
+    assertEquals(2, gaps.length())
+    assertTrue(gaps.getJSONObject(0).getLong("until") < gaps.getJSONObject(1).getLong("from"))
+  }
+
 }

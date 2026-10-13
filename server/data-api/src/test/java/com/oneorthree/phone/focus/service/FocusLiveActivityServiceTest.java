@@ -143,4 +143,20 @@ class FocusLiveActivityServiceTest {
                         && payload.get("validUntilMs").equals(now.plusSeconds(3580).toEpochMilli())));
         assertThat(activity.getSentVersion()).isEqualTo(3);
     }
+    @Test
+    void androidFocusRemainsRegisteredAndBlockingAfterEightHours() {
+        var request = new LiveActivityRegistration("android-activity", "a".repeat(40), "android", "black");
+        var activity = new FocusLiveActivity(sessionId, owner, request, now.minusSeconds(36_000));
+        assertThat(activity.getExpiresAt()).isNull();
+        when(sessions.requireForUpdate(sessionId)).thenReturn(detail(FocusSessionLifecycle.ACTIVE));
+        when(activities.findBySessionIdForUpdate(sessionId)).thenReturn(Optional.of(activity));
+        when(intervals.findBySessionIdOrderByOrdinalAsc(sessionId)).thenReturn(List.of());
+        when(push.enabled()).thenReturn(true);
+        when(push.send(any(), any(), any())).thenReturn(LiveActivityPushClient.Result.SENT);
+        service.deliver(sessionId);
+        verify(push).send(any(), eq("android"), argThat(payload ->
+                payload.get("phase").equals("focus") && payload.get("validUntilMs").equals(0L)));
+        verify(activities, never()).delete(any());
+    }
+
 }
