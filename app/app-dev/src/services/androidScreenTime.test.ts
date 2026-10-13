@@ -205,3 +205,14 @@ test('집중 상태는 8시간 제한 없이 서버 세션 종료까지 유지�
     validUntilMs: 0,
   });
 });
+
+test('동시 앱 사용 합계가 하루를 넘으면 서버 보고만 1440분으로 정규화한다', async () => {
+  const { mod, measurement, report } = setup();
+  measurement.observations[0].minutes = 1800;
+  measurement.observations[2].minutes = 1600;
+  await mod.syncAndroidMeasurement();
+  expect(report.mock.calls[0][4].map((o: { minutes: number }) => o.minutes)).toEqual([
+    1440, 15, 1440, 15,
+  ]);
+  expect(measurement.observations[0].minutes).toBe(1800);
+});

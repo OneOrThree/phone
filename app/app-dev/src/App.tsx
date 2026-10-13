@@ -1684,7 +1684,7 @@ function Gromo() {
       void (
         Platform.OS === 'android'
           ? syncAndroidFocus(session, stateRef.current.color, true)
-          : syncFocusShield(session, stateRef.current.color)
+          : syncFocusShield(session, stateRef.current.color, true)
       )
         .then((applied) => {
           if (!applied && session?.status === 'active')

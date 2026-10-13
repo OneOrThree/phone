@@ -81,6 +81,7 @@ export function reportScreenTime(
         now <= reportDeadline(p.observation.date, p.observation.timezone) &&
         (!revoked || p.observation.measurementStatus === 'denied'),
     );
+    let permanentError: Error | null = null;
     for (const observation of observations.filter(
       (o) => now <= reportDeadline(o.date, o.timezone),
     )) {
@@ -90,8 +91,10 @@ export function reportScreenTime(
         );
         continue;
       }
-      if (journal.rejected?.[observationKey(observation)] === fingerprint(observation))
-        throw new Error('스크린타임 보고가 서버에서 거절됐어요.');
+      if (journal.rejected?.[observationKey(observation)] === fingerprint(observation)) {
+        permanentError ??= new Error('스크린타임 보고가 서버에서 거절됐어요.');
+        continue;
+      }
       const pending = journal.pending.find(
         (p) => observationKey(p.observation) === observationKey(observation),
       );
@@ -129,7 +132,8 @@ export function reportScreenTime(
           pending.observation,
         );
         await AsyncStorage.setItem(key, JSON.stringify(journal));
-        throw error;
+        permanentError ??= error;
+        continue;
       }
       if (!current()) return;
       journal.pending = journal.pending.filter((p) => p.key !== pending.key);
@@ -137,6 +141,8 @@ export function reportScreenTime(
       await AsyncStorage.setItem(key, JSON.stringify(journal));
       if (current()) screenTimeObservationReported();
     }
+    // 항목별 영구 오류는 다른 시간대·날짜의 전송을 마친 뒤 사용자에게 알린다.
+    if (permanentError) throw permanentError;
   });
   queue = run.catch(() => undefined);
   return run;

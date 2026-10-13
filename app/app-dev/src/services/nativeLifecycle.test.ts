@@ -40,8 +40,11 @@ function setup(os = 'ios') {
   jest.doMock('expo', () => ({ requireOptionalNativeModule: () => activity }));
   jest.doMock('./screenTime', () => ({ screenTime: shield }));
   jest.doMock('./api/session', () => auth);
+  const current = jest.fn().mockResolvedValue(null);
+  jest.doMock('./api/focusSessions', () => ({ currentFocusSession: current }));
   return {
     activity,
+    current,
     shield,
     auth,
     live: require('./liveActivity') as typeof import('./liveActivity'),
@@ -53,6 +56,7 @@ afterEach(() => {
   jest.dontMock('react-native');
   jest.dontMock('./screenTime');
   jest.dontMock('./api/session');
+  jest.dontMock('./api/focusSessions');
 });
 test('차단 적용 응답이 늦어도 휴식·종료 해제가 마지막에 실행된다', async () => {
   const { shield, focusShield } = setup();
@@ -114,3 +118,35 @@ test.each(['ios', 'android'])(
     expect(activity.updateHomeWidget.mock.calls.at(-1)).toEqual([null]);
   },
 );
+
+test.each([null, { status: 'paused', subject: '서버 휴식' }])(
+  'iOS 복귀 시 서버가 %s이면 저장된 active 차단을 해제한다',
+  async (server) => {
+    const { shield, current, focusShield } = setup();
+    current.mockResolvedValue(server);
+    await focusShield.syncFocusShield(focus, 'black', true);
+    expect(current).toHaveBeenCalledTimes(1);
+    expect(shield.startFocusShield).not.toHaveBeenCalled();
+    expect(shield.stopFocusShield).toHaveBeenCalledTimes(1);
+  },
+);
+test('iOS는 서버에서 확인한 과목으로만 차단하고 조회 실패 시 기존 차단을 해제한다', async () => {
+  const { shield, current, focusShield } = setup();
+  current.mockResolvedValue({ status: 'active', subject: '영어' });
+  await focusShield.syncFocusShield(focus, 'calico', true);
+  expect(shield.startFocusShield).toHaveBeenCalledWith('영어', 'calico');
+  current.mockRejectedValue(new Error('OFFLINE'));
+  await expect(focusShield.syncFocusShield(focus, 'calico', true)).rejects.toThrow('OFFLINE');
+  expect(shield.startFocusShield).toHaveBeenCalledTimes(1);
+  expect(shield.stopFocusShield).toHaveBeenCalledTimes(1);
+});
+test('iOS 서버 확인 중 계정이 바뀌면 이전 응답으로 차단하지 않는다', async () => {
+  const { shield, current, focusShield, auth } = setup();
+  current.mockImplementation(async () => {
+    auth.sessionGeneration.mockReturnValue(2);
+    return { status: 'active', subject: '과거 계정' };
+  });
+  await focusShield.syncFocusShield(focus, 'black', true);
+  expect(shield.startFocusShield).not.toHaveBeenCalled();
+  expect(shield.stopFocusShield).not.toHaveBeenCalled();
+});

@@ -1,3 +1,4 @@
+import { buildScreenTimeObservations } from './screenTimeWindow';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError } from './api/client';
 import { getSession, sessionGeneration } from './api/session';
@@ -66,5 +67,38 @@ test('마감 초과·소유권 오류는 같은 관측을 무한 재시도하지
   put.mockRejectedValueOnce(new ApiError('SCREEN_TIME_OUT_OF_WINDOW', 'closed', 422));
   await expect(reportScreenTime('approved', null, 1, now)).rejects.toThrow('closed');
   await expect(reportScreenTime('approved', null, 1, now + 60000)).rejects.toThrow('거절');
+  expect(put).toHaveBeenCalledTimes(2);
+});
+
+test('전날 UTC만 영구 거절되어도 다른 세 관측과 다음 당일 갱신을 전송한다', async () => {
+  await setScreenTimeReportingConsent(session.userId, true);
+  const time = Date.parse('2026-10-09T02:00:00Z');
+  const observations = buildScreenTimeObservations('approved', null, time);
+  put.mockRejectedValueOnce(new ApiError('SCREEN_TIME_OUT_OF_WINDOW', 'closed', 422));
+  await expect(reportScreenTime('approved', null, 1, time, observations)).rejects.toThrow('closed');
+  expect(put).toHaveBeenCalledTimes(4);
+  expect(put.mock.calls.map(([o]) => `${o.timezone}|${o.date}`)).toEqual([
+    'UTC|2026-10-08',
+    'UTC|2026-10-09',
+    'Asia/Seoul|2026-10-08',
+    'Asia/Seoul|2026-10-09',
+  ]);
+  put.mockClear();
+  await expect(reportScreenTime('approved', null, 1, time + 1000, observations)).rejects.toThrow(
+    '거절',
+  );
+  expect(put).not.toHaveBeenCalled();
+  const changed = observations.map((o) =>
+    o.timezone === 'UTC' && !o.finalized
+      ? {
+          ...o,
+          minutes: 5,
+          measurementStatus: 'authorized' as const,
+          measuredAt: new Date(time + 2000).toISOString(),
+        }
+      : o,
+  );
+  await expect(reportScreenTime('approved', null, 1, time + 2000, changed)).rejects.toThrow('거절');
   expect(put).toHaveBeenCalledTimes(1);
+  expect(put.mock.calls[0][0]).toMatchObject({ timezone: 'UTC', date: '2026-10-09', minutes: 5 });
 });

@@ -62,7 +62,11 @@ export function syncAndroidMeasurement() {
         null,
         generation,
         now,
-        observations,
+        // 서로 다른 앱의 동시 사용 합계도 서버의 하루 1440분 계약 안으로 정규화한다.
+        observations.map((o) => ({
+          ...o,
+          minutes: o.minutes === null ? null : Math.min(o.minutes, 1440),
+        })),
       );
     } catch {
       reportFailed = true;
