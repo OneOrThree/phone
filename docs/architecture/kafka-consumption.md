@@ -202,8 +202,10 @@ kafka-consumer-groups.sh --bootstrap-server kafka:9092 --describe --group notifi
 4단계 **후**에 일부 토픽만 늘어났다면(예: 정본은 6, `.DLT` 는 3) 되돌릴 수 없으므로 **남은 토픽도 같은 수로
 늘려** 맞춘 뒤 5단계부터 잇는다. 정본과 `.DLT` 의 파티션 수가 다른 채로 relay 를 재개하지 않는다(A12).
 
-⚠️ relay 가 꺼진 Data API 에는 위 가드가 돌지 않는다. 그 상태에서 파티션 설정값만 바꿔 배포하면 `NewTopic`
-빈이 2~3 단계 없이 증설해 버린다. 설정값은 3단계가 끝난 뒤에만 바꾼다(§6).
+⚠️ 지금은 설정값만 바꿔 배포해도 증설되지 않는다. `NewTopic` 빈 넷은 모두 `OutboxRelayConfig` 안에 있고, 이 클래스는
+relay 가 켜졌을 때만 등록되며 생성자에서 가드를 먼저 부른다. 그래서 relay 가 켜져 있으면 가드가 기동을 거부하고,
+꺼져 있으면 빈이 없다. 위험은 **가드를 고친 뒤**부터다 — 그때부터는 설정값 변경이 곧 배포 시 증설이다. 그래서
+가드 변경과 설정값 변경은 3단계가 끝난 뒤 같은 배포로 낸다(§6).
 
 **근거 코드.** `docker-compose.kafka.yml` 의 `KAFKA_NUM_PARTITIONS` · `OutboxRelayConfig.notificationEventsTopic()`
 · `OutboxRelayConfig.notificationEventsDltTopic()` · `realtimeEventsTopic()` · `realtimeEventsDltTopic()` ·
@@ -257,7 +259,8 @@ Data 의 relay 가 그 행을 읽어 한다(A21). 알림 → Data 의 조회 3�
 - **인스턴스를 늘린다** → 합이 파티션 수(3)를 넘지 않는지(§4). 그룹 전략이 `cooperative-sticky` 인지
   `kafka-consumer-groups.sh --describe --state` 로 확인(§2·§4).
 - **파티션을 늘린다** → §4 「파티션 증설」 6단계를 따른다. 네 토픽이 함께 늘고, `validateWhenEnabled()` 의 가드를
-  고치는 코드 변경이 필요하며, 4단계 뒤는 되돌릴 수 없다. 설정값은 relay 정지·drain(두 `.DLT` 포함) 뒤에만 바꾼다.
+  고치는 코드 변경이 필요하며, 4단계 뒤는 되돌릴 수 없다. 가드와 설정값은 relay 정지·drain(두 `.DLT` 포함) 뒤에
+  같은 배포로 바꾼다.
 - **처리가 길어진다**(외부 호출을 소비 트랜잭션 안에 넣고 싶다) → 넣지 말고 알림처럼 행을 적고 워커로 뺀다
   (§1). 정 넣어야 하면 `max.poll.interval.ms` 를 그 상한의 10배 이상으로 두고 여기 근거를 적는다(§2).
 - **새 소비자를 붙인다** → 새 토픽 + 새 그룹(§3), `.DLT` 접미사·원본 파티션 명시(README 「바꾸는 법」),
