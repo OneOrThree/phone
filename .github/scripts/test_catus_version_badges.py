@@ -183,6 +183,36 @@ class VersionBadgeTests(unittest.TestCase):
             diverged = git('rev-parse', 'HEAD')
             with patch.object(version.subprocess, 'check_output', side_effect=output), self.assertRaises(ValueError):
                 version.validate_order(['catus-v2.1.0'], diverged)
+            retry = subprocess.run([sys.executable, version.__file__, '--revision', older,
+                '--plan-file', 'unused.json', '--check-order-only'], cwd=directory, capture_output=True, text=True)
+            self.assertNotEqual(retry.returncode, 0)
+            self.assertIn('최신 Catus 발행보다 오래되거나', retry.stderr)
+
+    def test_SSM_전송의도는_요청검증후_보관하고_재실행에서_복구한다(self):
+        deploy = workflow('prod-cd.yml')['jobs']['deploy']
+        self.assertEqual(deploy['permissions']['actions'], 'read')
+        steps = deploy['steps']
+        prepare = next(i for i, step in enumerate(steps) if step.get('name') == 'SSM 배포 요청 검증')
+        intent = next(i for i, step in enumerate(steps) if step.get('id') == 'intent')
+        upload = next(i for i, step in enumerate(steps) if step.get('uses') == 'actions/upload-artifact@v4')
+        execute = next(i for i, step in enumerate(steps) if step.get('name') == 'Catus 전용 SSM 배포·결과 대기')
+        self.assertLess(intent, prepare)
+        self.assertLess(prepare, upload)
+        self.assertLess(upload, execute)
+        self.assertEqual(steps[upload]['if'], "steps.intent.outputs.exists != 'true'")
+        self.assertEqual(steps[upload]['with']['name'], 'catus-ssm-send-intent')
+        self.assertIn('--previous-intent previous-intent/ssm-request.json', steps[execute]['run'])
+
+    def test_SSM_전송의도와_요청이_다르면_배포하지_않는다(self):
+        deploy = module('deploy_cli', 'catus-deploy.py')
+        with tempfile.TemporaryDirectory() as directory:
+            current, previous = Path(directory, 'current.json'), Path(directory, 'previous.json')
+            current.write_text(json.dumps({'marker': 'catus:1:2'}))
+            previous.write_text(json.dumps({'marker': 'catus:1:3'}))
+            with patch.object(sys, 'argv', ['deploy', 'execute', '--request', str(current), '--previous-intent', str(previous)]), \
+                 patch.object(deploy, 'execute') as execute, self.assertRaisesRegex(ValueError, '전송 의도'):
+                deploy.main()
+            execute.assert_not_called()
 
     def test_digest_재업로드는_같은이름의_이전시도_산출물을_교체한다(self):
         steps = workflow('prod-ci.yml')['jobs']['images']['steps']
@@ -392,13 +422,7 @@ class VersionBadgeTests(unittest.TestCase):
                 self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_수동롤백은_SSM전송과_조회시간초과를_복구하고_성공후에만_기록한다(self):
-        script = workflow('prod-cd.yml')['jobs']['deploy']['steps'][2]['run']
-        script = script.split("<<'PYTHON'\n", 1)[1].rsplit('\nPYTHON', 1)[0]
-        tree = ast.parse(script)
-        tree.body = [item for item in tree.body if not (isinstance(item, ast.Expr) and isinstance(item.value, ast.Call)
-                     and isinstance(item.value.func, ast.Name) and item.value.func.id == 'main')]
-        namespace = {}
-        exec(compile(tree, '<workflow>', 'exec'), namespace)
+        namespace = module('catus_deploy_test', 'catus-deploy.py').__dict__
         envelope = {'version': 'catus-v2.0.0', 'release_id': 'a' * 40 + '-1-1',
                     'source_revision': 'a' * 40, 'infra_revision': 'b' * 40, 'bundle_sha256': 'c' * 64}
         config = {'PRODUCT': 'catus', 'SSM_DOC': 'catus-prod-deploy',
@@ -433,8 +457,12 @@ class VersionBadgeTests(unittest.TestCase):
                      patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(Path(directory, 'summary')),
                          'GITHUB_REPOSITORY_ID': '1', 'GITHUB_RUN_ID': '2', 'GITHUB_RUN_ATTEMPT': '1'}), \
                      patch.object(subprocess, 'run', download), patch.object(namespace['time'], 'sleep') as sleep:
-                    namespace['main']()
-                self.assertEqual([call.args for call in sleep.call_args_list], [(5,)] * 4)
+                    # 이전 시도가 S3 다운로드에서 실패했어도 전송 의도는 아직 없으므로 재시도 가능하다.
+                    with patch.object(subprocess, 'run', side_effect=RuntimeError('S3 download failed')), self.assertRaises(RuntimeError):
+                        namespace['prepare']('catus-v2.0.0', 'rollback')
+                    request = namespace['prepare']('catus-v2.0.0', 'rollback')
+                    namespace['execute'](request)
+                self.assertEqual([call.args for call in sleep.call_args_list], [(5,)] * 3)
                 self.assertEqual(sum(call[1] == 'list-commands' for call in calls), 4)
                 self.assertEqual(sum(call[1] == 'send-command' for call in calls), 1)
                 self.assertEqual(sum(call[1] == 'get-command-invocation' for call in calls), 2)
@@ -447,7 +475,7 @@ class VersionBadgeTests(unittest.TestCase):
                      patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(Path(directory, 'summary')),
                          'GITHUB_REPOSITORY_ID': '1', 'GITHUB_RUN_ID': '2', 'GITHUB_RUN_ATTEMPT': '2'}), \
                      patch.object(subprocess, 'run', download):
-                    namespace['main']()
+                    namespace['execute'](request, already_submitted=True)
                 self.assertEqual(sum(call[1] == 'send-command' for call in calls), 1)
             finally:
                 os.chdir(before)

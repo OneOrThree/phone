@@ -47,12 +47,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--revision', required=True)
     parser.add_argument('--plan-file', type=Path, required=True)
+    parser.add_argument('--check-order-only', action='store_true')
     parser.add_argument("--bump", choices=["major", "minor", "patch"])
     args = parser.parse_args()
     if not re.fullmatch('[0-9a-f]{40}', args.revision):
         raise ValueError('SHA 형식 오류')
     tags = subprocess.check_output(['git', 'tag', '-l', 'catus-v*'], text=True).splitlines()
     validate_order(tags, args.revision)
+    if args.check_order_only:
+        return
     # 조회 실패를 patch로 숨기지 않는다. 머지된 릴리스 PR만 버전 라벨을 공급한다.
     response = subprocess.check_output(['gh', 'api', '--paginate', '--slurp',
         f'repos/{os.environ["GITHUB_REPOSITORY"]}/commits/{args.revision}/pulls'], text=True)

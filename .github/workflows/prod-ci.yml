@@ -260,6 +260,7 @@ jobs:
       - name: 불변 릴리스 생성·업로드
         run: |
           set -euo pipefail
+          python3 .github/scripts/catus-version.py --revision "$GITHUB_SHA" --plan-file plan-input/prod-plan.json --check-order-only
           release_id="$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           version=$(jq -er --arg sha "$GITHUB_SHA" --arg infra "$INFRA_REVISION" --arg run "$GITHUB_RUN_ID" \
             'select(.source_revision == $sha and .infra_revision == $infra and .run_id == $run) | .version' release-version/version.json)

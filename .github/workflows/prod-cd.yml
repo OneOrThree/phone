@@ -26,6 +26,7 @@ jobs:
     environment: catus-production
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -33,120 +34,51 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::808715036056:role/catus-prod-deploy
           aws-region: ap-northeast-2
-      - name: Catus 전용 SSM 배포·결과 대기
+      - name: 기존 SSM 전송 의도 확인
+        id: intent
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner, repo: context.repo.repo, run_id: context.runId, per_page: 100
+            });
+            const matches = artifacts.filter(item => item.name === 'catus-ssm-send-intent');
+            if (matches.length > 1 || matches.some(item => item.expired)) {
+              throw new Error('SSM 전송 의도 산출물 확인 필요');
+            }
+            core.setOutput('exists', matches.length === 1);
+      - uses: actions/download-artifact@v4
+        if: steps.intent.outputs.exists == 'true'
+        with:
+          name: catus-ssm-send-intent
+          path: previous-intent
+      - name: SSM 배포 요청 검증
         env:
           RELEASE_ID: ${{ inputs.release_id }}
           OPERATION: ${{ inputs.operation }}
+          HAS_INTENT: ${{ steps.intent.outputs.exists }}
           AWS_MAX_ATTEMPTS: '1'
         run: |
-          python3 - --release-id "$RELEASE_ID" --operation "$OPERATION" <<'PYTHON'
-          #!/usr/bin/env python3
-          """GitHub 승인 잡에서 Catus의 고정 SSM 문서만 호출하고 최종 상태를 기다린다."""
-          import argparse
-          import json
-          import os
-          import re
-          import subprocess
-          import time
-
-
-          def aws(*arguments):
-              result = subprocess.run(["aws", "--region", "ap-northeast-2", *arguments, "--output", "json"],
-                                      capture_output=True, text=True, timeout=30)
-              if result.returncode:
-                  raise RuntimeError("AWS 요청 실패")
-              return json.loads(result.stdout)
-
-
-          def main():
-              parser = argparse.ArgumentParser()
-              parser.add_argument("--release-id", required=True)
-              parser.add_argument("--operation", choices=["deploy", "bootstrap", "rollback"], default="deploy")
-              args = parser.parse_args()
-              version_input = re.fullmatch(r"catus-v[0-9]+\.[0-9]+\.[0-9]+", args.release_id)
-              if not version_input and not re.fullmatch(r"[0-9a-f]{40}-[0-9]+-[0-9]+", args.release_id):
-                  raise ValueError("릴리스 ID 형식 오류")
-              config = json.loads(aws("secretsmanager", "get-secret-value", "--secret-id", "catus/prod/cicd")["SecretString"])
-              if config.get("PRODUCT") != "catus" or config.get("SSM_DOC") != "catus-prod-deploy" or not config["DEPLOY_BUCKET"].startswith("catus-prod-deploy-artifacts-"):
-                  raise ValueError("Catus 배포 설정 불일치")
-              # 입력·시크릿 값이 shell 명령 문자열에 들어가지 않음.
-              import tempfile
-              from pathlib import Path
-              with tempfile.TemporaryDirectory() as temporary:
-                  path = Path(temporary) / "release.json"
-                  key = f"versions/{args.release_id}.json" if version_input else f"releases/{args.release_id}/release.json"
-                  subprocess.run(["aws", "s3api", "get-object", "--region", "ap-northeast-2", "--bucket", config["DEPLOY_BUCKET"],
-                      "--key", key, str(path)], check=True, stdout=subprocess.DEVNULL)
-                  envelope = json.loads(path.read_text())
-              if version_input:
-                  if envelope.get("version") != args.release_id:
-                      raise ValueError("버전 참조 불일치")
-                  args.release_id = envelope["release_id"]
-              if not re.fullmatch(r"[0-9a-f]{40}-[0-9]+-[0-9]+", args.release_id):
-                  raise ValueError("버전 참조의 릴리스 ID 오류")
-              if not re.fullmatch(r"catus-v[0-9]+\.[0-9]+\.[0-9]+", envelope.get("version", "")):
-                  raise ValueError("버전 메타데이터 오류")
-              if envelope.get("release_id") != args.release_id or not re.fullmatch(r"[0-9a-f]{64}", envelope.get("bundle_sha256", "")):
-                  raise ValueError("릴리스 checksum 메타데이터 오류")
-              parameters = {"ReleaseId": [args.release_id], "BundleSha256": [envelope["bundle_sha256"]], "Operation": [args.operation]}
-              # 같은 Actions 실행의 재시도도 기존 명령을 복구한다. 응답 유실 시 재전송하지 않는다.
-              marker = "catus:" + os.environ["GITHUB_REPOSITORY_ID"] + ":" + os.environ["GITHUB_RUN_ID"]
-              print("Catus SSM 상관관계: " + marker, flush=True)
-              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-                  summary.write("Catus SSM 상관관계: " + marker + "\n")
-              def existing_command():
-                  commands = aws("ssm", "list-commands", "--instance-id", config["INSTANCE_ID"],
-                      "--filters", "Key=DocumentName,Values=" + config["SSM_DOC"])["Commands"]
-                  matches = [command for command in commands if command.get("Comment") == marker]
-                  if len(matches) > 1:
-                      raise ValueError("동일 실행의 SSM 명령이 여러 개다 — 운영자 확인 필요")
-                  if not matches:
-                      return None
-                  command = matches[0]
-                  if command.get("Parameters") != parameters or command.get("InstanceIds") != [config["INSTANCE_ID"]]:
-                      raise ValueError("기존 SSM 명령의 배포 입력 불일치")
-                  return command["CommandId"]
-              identifier = None
-              submitted = os.environ["GITHUB_RUN_ATTEMPT"] != "1"
-              deadline = time.monotonic() + 2500
-              while time.monotonic() < deadline:
-                  try:
-                      if identifier is None:
-                          identifier = existing_command()
-                          if identifier is None and not submitted:
-                              # 전송 전 조회 오류는 재시도하되 전송이 시작되면 재전송하지 않는다.
-                              submitted = True
-                              response = aws("ssm", "send-command", "--document-name", config["SSM_DOC"], "--instance-ids", config["INSTANCE_ID"],
-                                  "--comment", marker, "--parameters", json.dumps(parameters))
-                              identifier = response["Command"]["CommandId"]
-                          if identifier is None:
-                              time.sleep(5)
-                              continue
-                      print("Catus SSM command: " + identifier, flush=True)
-                      result = aws("ssm", "get-command-invocation", "--command-id", identifier, "--instance-id", config["INSTANCE_ID"])
-                  except (RuntimeError, subprocess.TimeoutExpired):
-                      print("SSM 상태 확인 재시도 — 명령 중복 전송 없음", flush=True)
-                      time.sleep(5)
-                      continue
-                  if result["Status"] == "Success":
-                      import datetime
-                      now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                      record = {"environment": "prod", "service": "catus", "result": "success",
-                          "version": envelope["version"], "release_id": args.release_id,
-                          "revision": envelope["source_revision"], "infra_revision": envelope["infra_revision"], "finished_at": now}
-                      Path("deployment-status-prod.json").write_text(json.dumps([record]))
-                      with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-                          summary.write(f"Catus {args.operation} 완료: {envelope['version']} / {args.release_id}\n")
-                      print("Catus 배포 완료")
-                      return
-                  if result["Status"] not in {"Pending", "InProgress", "Delayed"}:
-                      raise RuntimeError("SSM 배포 실패: " + result["Status"])
-                  time.sleep(10)
-              raise RuntimeError("SSM 대기 시간 초과. 새 배포 전에 기존 command 상태를 확인한다.")
-
-
-          main()
-          PYTHON
+          set -euo pipefail
+          args=(prepare --release-id "$RELEASE_ID" --operation "$OPERATION" --output ssm-request.json)
+          if [ "$HAS_INTENT" = true ]; then args+=(--recover); fi
+          python3 .github/scripts/catus-deploy.py "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        if: steps.intent.outputs.exists != 'true'
+        with:
+          name: catus-ssm-send-intent
+          path: ssm-request.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Catus 전용 SSM 배포·결과 대기
+        env:
+          HAS_INTENT: ${{ steps.intent.outputs.exists }}
+          AWS_MAX_ATTEMPTS: '1'
+        run: |
+          set -euo pipefail
+          args=(execute --request ssm-request.json)
+          if [ "$HAS_INTENT" = true ]; then args+=(--previous-intent previous-intent/ssm-request.json); fi
+          python3 .github/scripts/catus-deploy.py "${args[@]}"
       - uses: actions/upload-artifact@v4
         with:
           name: deployment-status-prod-${{ github.run_attempt }}
