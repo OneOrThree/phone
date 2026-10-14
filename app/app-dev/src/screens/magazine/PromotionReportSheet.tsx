@@ -93,7 +93,10 @@ export function PromotionReportSheet({
             ? 'magazine.report.guest'
             : code === 'PROMOTION_NOT_FOUND'
               ? 'magazine.report.gone'
-              : 'magazine.report.failed',
+              : // 지금 주민인 섬의 칸 — 칸을 읽은 뒤 가입해 relation 이 낡았을 때만 온다(우리 섬 칸에는 신고 동작이 없다)
+                code === 'FORBIDDEN'
+                ? 'magazine.report.ours'
+                : 'magazine.report.failed',
         ),
       );
     }

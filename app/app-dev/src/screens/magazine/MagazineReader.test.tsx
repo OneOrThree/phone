@@ -418,6 +418,18 @@ describe('신고(SAFE-04)', () => {
     ]);
   });
 
+  test('읽은 뒤 가입해 우리 섬이 된 칸(서버 403 FORBIDDEN)은 「우리 섬 칸」 안내', async () => {
+    report.mockRejectedValueOnce(new ApiError('FORBIDDEN', '권한 없음', 403));
+    const { screen } = await open();
+    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('magazine-report-error')).toHaveTextContent(
+        '우리 섬 칸은 신고할 수 없어요.',
+      ),
+    );
+  });
+
   test('그 밖의 실패는 시트에 남아 다시 보낼 수 있다', async () => {
     report.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오프라인', 0));
     const { screen } = await open();

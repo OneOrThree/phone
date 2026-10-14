@@ -935,6 +935,7 @@
       "already": "You already reported this ad. Our team is looking into it.",
       "guest": "Sign in with a social account to report.",
       "gone": "This ad is no longer available, so it can’t be reported.",
+      "ours": "You can’t report your own island’s ad.",
       "failed": "Couldn’t send the report. Check your connection and try again.",
       "reasons": {
         "HARASSMENT": "Abuse · harassment",
