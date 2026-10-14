@@ -167,26 +167,47 @@ inbox 멱등이 이미 적용된 것을 걸러 준다. `latest` 였다면 「구
 | 대안 | 왜 아닌가 |
 |---|---|
 | `concurrency: 3` 으로 스레드 확장 | 인스턴스 하나가 파티션을 다 가져가 인스턴스 증설이 무의미해지고, 프로세스 하나가 죽으면 소비 전체가 멈춘다 |
-| 파티션을 처음부터 크게(예: 12) | 단일 노드 브로커(A12)에서 파티션마다 파일·메모리 비용이 들고, 지금 소비자는 1 이다. 3 이면 Target-1 의 인스턴스 계획을 덮는다 |
+| 파티션을 처음부터 크게(예: 12) | 단일 노드 브로커(A12)에서 파티션마다 파일·메모리 비용이 들고, 지금 소비자는 1 이다 |
 
-**증설 순서.** 인스턴스 ≤ 3 까지는 그냥 늘린다(§2 의 협력적 리밸런스가 정지 없이 분담한다). 3 을 넘겨야
-하면 파티션을 늘려야 하고, 그 절차는 decisions.md ⓧ(관리형 브로커 전환)의 컷오버 절차를 **준용**한다.
-실행 전에 이 순서를 별도로 확정한다.
+**인스턴스 증설.** 그룹당 3 까지는 그냥 늘린다(§2 의 협력적 리밸런스가 정지 없이 분담한다). 줄일 때도 같은
+이유로 안전하다. 늘리기 전에 그룹의 전략이 `cooperative-sticky` 인지 확인한다.
+
+```bash
+kafka-consumer-groups.sh --bootstrap-server kafka:9092 --describe --group notification-v1 --state
+# ASSIGNMENT-STRATEGY 열이 cooperative-sticky 여야 한다 (realtime-v1 도 같은 방법)
+```
+
+**파티션 증설.** 3 을 넘겨야 하면 파티션을 늘려야 한다. 절차는 decisions.md ⓧ(관리형 브로커 전환)의 컷오버
+절차를 **준용**하며, 실행 전에 이 순서를 별도로 확정한다. 알아 둘 코드 사실이 둘 있다.
+
+- **파티션 수는 코드가 3 으로 막고 있다.** `OutboxRelayProperties.validateWhenEnabled()` 가 `partitions == 3`
+  이 아니면 relay 가 켜진 Data API 의 기동을 거부한다. 증설은 이 가드를 고치는 코드 변경을 포함한다.
+- **설정값 하나가 토픽 넷을 함께 움직인다.** `outbox.relay.kafka.partitions` 를 `notification-events` ·
+  `notification-events.DLT` · `realtime-events` · `realtime-events.DLT` 의 `NewTopic` 빈이 모두 쓴다(realtime 둘은
+  `realtime-kafka-enabled` 일 때만 빈이 생긴다). 한쪽만 늘리려면 설정부터 나눠야 한다.
 
 1. 소비 lag 로 정말 소비가 병목인지 확인한다. Datadog `kafka_consumer` 체크가 그룹을 자동 발견한다(compose 라벨).
 2. **relay 를 멈춘다.** 멈출 것은 Data API 의 쓰기가 아니라 relay 다 — outbox 가 내구 저장이라 그동안의 사건은
    행으로 남는다.
-3. drain 한다. 두 그룹의 lag 0, 그리고 **`.DLT` 에 쌓인 레코드를 먼저 처리**한다. 증설 뒤에는 같은 `userId`
-   의 재처리분이 다른 파티션에 놓이기 때문이다.
-4. 정본과 `.DLT` 의 파티션을 **같은 수로 함께** 늘린다.
-5. relay 를 재개한다. 소비자 쪽 코드 변경은 없다.
+3. drain 한다. `notification-v1` · `realtime-v1` 의 lag 0, 그리고 **두 `.DLT` 에 쌓인 레코드를 먼저 처리**한다.
+   증설 뒤에는 같은 `userId` 의 재처리분이 다른 파티션에 놓이기 때문이다.
+4. 네 토픽의 파티션을 **같은 수로 함께** 늘린다. 파티션 가드와 설정값을 바꾼 Data API 를 배포하면
+   `NewTopic` 빈이 기동하면서 늘린다(Spring `KafkaAdmin`). **여기가 비가역 지점이다** — 파티션은 줄일 수 없다.
+5. 확인한다. `kafka-topics.sh --describe` 로 네 토픽의 파티션 수가 같은지, 두 그룹의 lag 가 0 이고 새 파티션이
+   할당됐는지 본다.
+6. relay 를 재개한다. 소비자 쪽 코드 변경은 없다. 그룹 커서는 파티션별이라 기존 파티션의 offset 은 그대로
+   이어지고, 새 파티션은 `earliest` 로 처음부터 읽는다.
 
-⚠️ `OutboxRelayConfig` 의 `NewTopic` 빈은 기동할 때 선언된 파티션 수가 기존보다 크면 토픽을 **자동으로
-늘린다**(Spring `KafkaAdmin`). 그래서 파티션 설정값만 바꿔 배포하면 위 2~3 단계 없이 증설이 일어난다. 그 값은
-3단계가 끝난 뒤에 바꾼다(§6).
+**실패하면.** 4단계 **전**에 멈추면 relay 를 재개하면 된다 — 사건은 outbox 행으로 남아 있어 잃는 것이 없다.
+4단계 **후**에 일부 토픽만 늘어났다면(예: 정본은 6, `.DLT` 는 3) 되돌릴 수 없으므로 **남은 토픽도 같은 수로
+늘려** 맞춘 뒤 5단계부터 잇는다. 정본과 `.DLT` 의 파티션 수가 다른 채로 relay 를 재개하지 않는다(A12).
+
+⚠️ relay 가 꺼진 Data API 에는 위 가드가 돌지 않는다. 그 상태에서 파티션 설정값만 바꿔 배포하면 `NewTopic`
+빈이 2~3 단계 없이 증설해 버린다. 설정값은 3단계가 끝난 뒤에만 바꾼다(§6).
 
 **근거 코드.** `docker-compose.kafka.yml` 의 `KAFKA_NUM_PARTITIONS` · `OutboxRelayConfig.notificationEventsTopic()`
-· `OutboxRelayConfig.notificationEventsDltTopic()` · `application.yml` 의 `concurrency`.
+· `OutboxRelayConfig.notificationEventsDltTopic()` · `realtimeEventsTopic()` · `realtimeEventsDltTopic()` ·
+`OutboxRelayProperties.validateWhenEnabled()` 의 파티션 가드 · `application.yml` 의 `concurrency`.
 
 ## 5. 왜 이 경계에 브로커인가 — 트랜잭션 단위의 격차
 
@@ -201,7 +222,7 @@ inbox 멱등이 이미 적용된 것을 걸러 준다. `latest` 였다면 「구
 | Data API | 요청 1건 = DB 트랜잭션 1개, 행 잠금 아래 `version` 발급(A21) | ms | 롤백 — 깨끗하다 |
 | Notification | 사건 1건 → 기기 N대 FCM 호출, 조용한 시간이면 **다음 날 아침까지 보류**, 기기별 부분 성공, 3회 재시도 | 수백 ms ~ 시간 | 부분 성공 — 기기별로 기록해야 한다 |
 | Realtime | 연결 수명(세션) 단위, 사건은 섬 단위 팬아웃 | 연결이 사는 동안 | 끊김 — 재연결이 복구 |
-| Business API | 조합만 한다. 도메인 DB 가 없고, 전용 Redis 에는 다시 만들 수 있는 미리보기 캐시만 둔다 | 요청 1건 | 재시도(멱등 키) |
+| Business API | 앱 요청 조합 + 공개 링크·콘솔 표면(A23). 도메인 DB 가 없고, 전용 Redis 에는 다시 만들 수 있는 미리보기 캐시만 둔다 | 요청 1건 | 재시도(멱등 키) |
 
 집중 세션 종료 하나에 「세션 커밋 + 상대방 푸시 + 섬 화면 갱신」이 걸린다. 이를 동기 호출로 엮으면 세션
 종료 API 의 지연이 FCM 응답에, 성공 여부가 알림 서버의 생존에 묶인다. 그래서 Data 의 커밋 안에는 **outbox
@@ -211,8 +232,8 @@ inbox 멱등이 이미 적용된 것을 걸러 준다. `latest` 였다면 「구
 알림 서버가 1시간 죽어 있어도 Data 는 모르고, 깨어나면 §3 의 커서에서 이어 읽는다.
 
 **반대로 브로커를 두지 않은 곳.** Business → Data 는 동기 HTTP 다 — 요청형이라 **응답이 필요**하다(격차가
-아니라 응답 유무가 기준). 요청형 이벤트도 Business 가 직접 발행하지 않는다 — Data 가 같은 트랜잭션에
-outbox 행으로 내구화하고 relay 가 발행한다(A21). 알림 → Data 의 조회 3종(리컨실·ack 수렴·발송 적격)도 동기다 — 읽기라 트랜잭션
+아니라 응답 유무가 기준). 요청형 이벤트는 Data 가 명령과 같은 트랜잭션에 outbox 행으로 내구화하고, 발행은
+Data 의 relay 가 그 행을 읽어 한다(A21). 알림 → Data 의 조회 3종(리컨실·ack 수렴·발송 적격)도 동기다 — 읽기라 트랜잭션
 격차가 없다. 어드민(콘솔)은 Business 안의 `/console/**` 이고 분석은 Datadog 이라 별도 프로세스가 아니다 —
 분석용 소비자가 필요해지면 **같은 토픽을 새 그룹으로 읽는 것**(§3)이 길이지 Data 에 조회를 더하는 게
 아니다.
@@ -233,9 +254,10 @@ outbox 행으로 내구화하고 relay 가 발행한다(A21). 알림 → Data �
 
 ## 6. 바꿀 때 체크리스트
 
-- **인스턴스를 늘린다** → 합이 파티션 수(3)를 넘지 않는지(§4). 그룹 안의 전략이 전부 cooperative 인지(§2).
-- **파티션을 늘린다** → 정본과 `.DLT` 를 같이(A12), relay 정지·drain(`.DLT` 처리 포함) 뒤에(§4).
-  `OutboxRelayConfig` 의 `NewTopic` 파티션 값도 drain 이 끝난 뒤에 바꾼다 — 먼저 바꾸면 기동이 증설을 해 버린다.
+- **인스턴스를 늘린다** → 합이 파티션 수(3)를 넘지 않는지(§4). 그룹 전략이 `cooperative-sticky` 인지
+  `kafka-consumer-groups.sh --describe --state` 로 확인(§2·§4).
+- **파티션을 늘린다** → §4 「파티션 증설」 6단계를 따른다. 네 토픽이 함께 늘고, `validateWhenEnabled()` 의 가드를
+  고치는 코드 변경이 필요하며, 4단계 뒤는 되돌릴 수 없다. 설정값은 relay 정지·drain(두 `.DLT` 포함) 뒤에만 바꾼다.
 - **처리가 길어진다**(외부 호출을 소비 트랜잭션 안에 넣고 싶다) → 넣지 말고 알림처럼 행을 적고 워커로 뺀다
   (§1). 정 넣어야 하면 `max.poll.interval.ms` 를 그 상한의 10배 이상으로 두고 여기 근거를 적는다(§2).
 - **새 소비자를 붙인다** → 새 토픽 + 새 그룹(§3), `.DLT` 접미사·원본 파티션 명시(README 「바꾸는 법」),
