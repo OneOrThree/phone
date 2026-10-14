@@ -199,6 +199,22 @@ export async function collectPages<T extends { id: string }>(
   }
 }
 
+/**
+ * 회관 「섬 관리」가 마지막으로 확정한 내 역할(관리 API) — 모듈에 하나만 둔다. 홍보 쓰기 화면이 회관 입구(Hall 의 displayHost)와
+ * 같은 근거로 섬장인지 보게 한다(홈 스냅샷은 다른 기기에서 위임받은 것을 늦게 안다). 확정 실패·접근 상실이면 role 이 null 이다.
+ */
+let lastConfirmedRole: {
+  gen: number;
+  islandId: string;
+  role: ManagedIsland['role'] | null;
+} | null = null;
+
+/** 그 섬에서 회관이 이 로그인 세대에 확정한 내 역할. 확정한 적 없거나 확정하지 못했으면 null(호출부는 홈 스냅샷을 쓴다). */
+export function managedIslandRole(islandId: string): ManagedIsland['role'] | null {
+  const last = lastConfirmedRole;
+  return last && last.islandId === islandId && last.gen === sessionGeneration() ? last.role : null;
+}
+
 export function useIslandManagement({
   active,
   islandId,
@@ -247,6 +263,11 @@ export function useIslandManagement({
       const publish = (next: IslandManagementSnapshot) => {
         if (current()) {
           detailRef.current = next.detail; // 캐시는 scope 와 함께 살고 죽는다
+          lastConfirmedRole = {
+            gen: scope.gen,
+            islandId: scope.islandId,
+            role: next.detail?.role ?? null,
+          };
           setSnap(next);
         }
       };

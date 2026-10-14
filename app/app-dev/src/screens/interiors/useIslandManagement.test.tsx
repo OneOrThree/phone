@@ -6,6 +6,7 @@ import {
   CLIENT_FORBIDDEN,
   CLIENT_IN_FLIGHT,
   CLIENT_INACTIVE,
+  managedIslandRole,
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
@@ -165,6 +166,23 @@ test('host 상세 — 주민·신청 첫 페이지를 limit=100 으로 읽고 ro
   assert.equal(h.result.current.accessLost, false);
   assert.equal(calls.length, 3); // 상한 — 무한 effect 회귀 가드
   await h.unmount();
+});
+
+test('회관이 확정한 내 역할을 홍보 쓰기 화면이 읽는다 — 같은 섬 · 같은 로그인 세대에서만', async () => {
+  serve({
+    'GET /islands/i1': data(detail('host')),
+    'GET /islands/i1/members': data(membersPage([member('u1', 'host')])),
+    'GET /islands/i1/join-requests': data(requestsPage([])),
+  });
+  const h = await mount({ active: true, islandId: 'i1' });
+  await flush();
+  assert.equal(managedIslandRole('i1'), 'host');
+  assert.equal(managedIslandRole('i2'), null);
+  await h.unmount();
+  // 회관을 나가도 남는다(쓰기 화면은 회관에서 들어간다) — 로그인 세대가 바뀌면 버린다
+  assert.equal(managedIslandRole('i1'), 'host');
+  await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'u2' });
+  assert.equal(managedIslandRole('i1'), null);
 });
 
 test('member 상세 — 주민만 읽고 방장 전용 신청 GET 은 0건', async () => {

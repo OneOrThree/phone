@@ -20,6 +20,7 @@ import {
   MAGAZINE_STAMP,
   StickerTab,
 } from '@/constants/magazineAssets';
+import { managedIslandRole } from '@/screens/interiors/useIslandManagement';
 import { mockFlags } from '@/services/api/magazineMock';
 import { isMockMode } from '@/services/demoMode';
 import { State, capacityOf, currentIsland, isHost, serverHome } from '@/services/model';
@@ -77,7 +78,9 @@ export function editorIsland(
     const island = facts.home.island;
     return {
       islandId: island.id,
-      host: island.role === 'host',
+      // 회관 「섬 관리」가 확정한 관리 API 역할이 있으면 그것, 없으면 홈 스냅샷 — 회관 입구(displayHost)와 같은 근거라
+      // 다른 기기에서 위임받아 스냅샷이 늦어도 입구와 쓰기 화면이 엇갈리지 않는다
+      host: (managedIslandRole(island.id) ?? island.role) === 'host',
       facts: {
         name: island.name,
         memberCount: island.memberCount,
