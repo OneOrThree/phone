@@ -15,9 +15,15 @@
  *  - `GET  /me/magazine/issues`                      최근 7호, 최신순(잡지 꽂이).
  *  - `GET  /me/magazine/issues/{id}?cursor=&limit=`  호 한 페이지 — 편집부 지면은 첫 페이지에만, 칸은 신청 순서.
  *  - `PUT  /me/magazine/issues/{id}/receipt`         받음·나중에·읽음 `{ place, deferred?, opened? }` — true 만 적히고 되돌리지 않는다.
+ *
+ * 신고·기록판(서버 `bfeat/GROMO-2289-magazine-reports-funnel` 의 business-api `IslandPromotions` DTO 가 정본).
+ *  - `POST /islands/{id}/promotions/{pid}/reports`   홍보 칸 신고 `{ reason }` — 소셜 계정만(게스트 403 SOCIAL_LOGIN_REQUIRED).
+ *                                                   새 신고 201 · 이미 한 신고 200(같은 본문). 서로 다른 3명이면 서버가 칸을 숨긴다.
+ *  - `GET  /islands/{id}/promotions/records?limit=` 우리 섬 홍보 기록판 — 주민만(아니면 403 FORBIDDEN), 최신순.
  */
 import { ApiError, request } from './client';
 import { CLIENT_CONTRACT_ERROR } from './home';
+import type { ReportReason } from './safety';
 import type { PromotionLayout, StickerPlacement, TapePlacement } from '@/screens/magazine/layout';
 
 export type MagazineAsset = { assetId: string; bundle: 'free' | 'season'; owned: boolean };
@@ -302,7 +308,8 @@ function readIsland(raw: unknown): MagazineIsland | null {
   };
 }
 
-function readCell(raw: unknown): MagazineCell | null {
+/** 홍보 칸 한 장 — 모양이 어긋나면 null(망원경 목록의 잡지 칸 미리보기도 이것으로 읽는다). */
+export function readMagazineCell(raw: unknown): MagazineCell | null {
   const island = readIsland(raw);
   if (!island || !isRecord(raw) || !str(raw.promotionId) || !str(raw.body)) return null;
   try {
@@ -395,7 +402,7 @@ export async function getMagazineIssue(
     issue: readIssue(raw.issue, 'issue'),
     editorial: readEditorial(raw.editorial),
     cells: raw.cells.flatMap((cell) => {
-      const read = readCell(cell);
+      const read = readMagazineCell(cell);
       return read ? [read] : [];
     }),
     // 빈 문자열도 끝으로 본다
@@ -418,4 +425,91 @@ export async function putMagazineReceipt(
     }),
     'receipt',
   );
+}
+
+/**
+ * 홍보 칸 신고 — 이미 신고한 칸이면 서버가 200 으로 같은 본문을 준다(`created: false`). 같은 신고를 다시 보내도 늘지 않아
+ * 멱등 키가 없다.
+ */
+export async function reportPromotion(
+  islandId: string,
+  promotionId: string,
+  reason: ReportReason,
+): Promise<{ created: boolean }> {
+  let status = 0;
+  const raw = await request<unknown>(
+    `/islands/${encodeURIComponent(islandId)}/promotions/${encodeURIComponent(promotionId)}/reports`,
+    { method: 'POST', body: { reason }, onStatus: (s) => (status = s) },
+  );
+  if (!isRecord(raw) || raw.reported !== true) throw contractError('reported');
+  return { created: status === 201 };
+}
+
+/** SCHEDULED 발행 전 · PUBLISHED 실림 · SKIPPED 안 실림(비공개·닫힘·발행 실패) · HIDDEN 신고로 숨김 · REMOVED 운영이 내림 */
+export type PromotionRecordStatus = 'SCHEDULED' | 'PUBLISHED' | 'SKIPPED' | 'HIDDEN' | 'REMOVED';
+const RECORD_STATUSES: PromotionRecordStatus[] = [
+  'SCHEDULED',
+  'PUBLISHED',
+  'SKIPPED',
+  'HIDDEN',
+  'REMOVED',
+];
+export type PromotionRecord = {
+  promotionId: string;
+  issueDate: string;
+  /** 아직 호가 나오지 않았으면 null */
+  issueNo: number | null;
+  body: string;
+  status: PromotionRecordStatus;
+  /** 그 홍보를 보고 망원경에 넣은 · 항해해 도착한 · 가입한 사람 수 */
+  pinned: number;
+  arrived: number;
+  joined: number;
+  /** 섬장이 꾸민 칸(서버가 늘 싣는다) — 모양이 어긋나면 null 이고 기록판은 칸 그림 없이 글만 보인다 */
+  layout: PromotionLayout | null;
+};
+
+/** 우리 섬 홍보 기록판 — 최신순. 모양이 어긋난 줄·모르는 상태는 그 줄만 뺀다. */
+export async function getPromotionRecords(
+  islandId: string,
+  limit = 20,
+): Promise<PromotionRecord[]> {
+  const raw = await request<unknown>(
+    `/islands/${encodeURIComponent(islandId)}/promotions/records?limit=${limit}`,
+  );
+  if (!isRecord(raw) || !Array.isArray(raw.items)) throw contractError('items');
+  return raw.items.flatMap((r): PromotionRecord[] => {
+    if (
+      !isRecord(r) ||
+      !str(r.promotionId) ||
+      !str(r.issueDate) ||
+      !str(r.body) ||
+      !RECORD_STATUSES.includes(r.status as PromotionRecordStatus) ||
+      !num(r.pinned) ||
+      !num(r.arrived) ||
+      !num(r.joined) ||
+      // 호 번호는 아직 안 나왔으면 null, 나왔으면 숫자 — 빠졌거나 다른 모양이면 미발행으로 보지 않고 그 줄을 뺀다
+      !(r.issueNo === null || num(r.issueNo))
+    )
+      return [];
+    let layout: PromotionLayout | null = null;
+    try {
+      layout = r.layout == null ? null : readLayout(r.layout, 'layout');
+    } catch {
+      // 꾸미기만 어긋났으면 글·숫자는 그대로 보인다
+    }
+    return [
+      {
+        promotionId: r.promotionId,
+        issueDate: r.issueDate,
+        issueNo: r.issueNo as number | null,
+        body: r.body,
+        status: r.status as PromotionRecordStatus,
+        pinned: r.pinned as number,
+        arrived: r.arrived as number,
+        joined: r.joined as number,
+        layout,
+      },
+    ];
+  });
 }

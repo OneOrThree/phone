@@ -145,7 +145,7 @@ describe('작은 화면·큰 글자·고르기', () => {
   it('서랍 탭은 44pt 이고 좁은 화면에서는 감긴다', async () => {
     const { screen } = await open();
     for (const tab of ['고양이', '바다', '친구들', '꾸미기'])
-      expect(StyleSheet.flatten(screen.getByLabelText(tab).props.style).height).toBe(44);
+      expect(StyleSheet.flatten(screen.getByLabelText(tab).props.style).minHeight).toBe(44);
   });
 
   it('아래 고정 줄 버튼은 문구가 감기면 높이가 늘고, 큰 글자에서는 세로로 쌓인다', async () => {

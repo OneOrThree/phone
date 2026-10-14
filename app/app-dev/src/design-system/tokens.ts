@@ -435,6 +435,19 @@ export const componentTokens = {
     // 잡지 꽂이 한 줄(호 · 날짜 + 읽음 상태 두 줄)
     rackRowMinHeight: 56,
   },
+  // 회관 홍보 기록판(GROMO-2289 AD-11) — 줄마다 칸 썸네일 폭 · 상태 칩 바탕. 글자 배율이 largeTextThreshold 이상이면
+  // 썸네일을 글 위로 올려 세로로 쌓는다(망원경·쓰기 화면과 같은 판정). 숨김·내려감은 위험 바탕으로 눈에 띄게.
+  promotionRecords: {
+    thumbWidth: 120,
+    largeTextThreshold: 1.3,
+    statusTint: {
+      SCHEDULED: semanticTokens.color.surface,
+      PUBLISHED: semanticTokens.color.accent,
+      SKIPPED: semanticTokens.color.secondary,
+      HIDDEN: semanticTokens.color.dangerSoft,
+      REMOVED: semanticTokens.color.dangerSoft,
+    },
+  },
   divider: {
     color: semanticTokens.color.divider,
     width: semanticTokens.stroke.subtle,

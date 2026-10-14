@@ -670,7 +670,6 @@
     "ribbon": "찜",
     "pinnedIslandA11y": "{{name}}, 잡지에서 찜한 섬",
     "magazinePreview": "잡지 칸 미리보기",
-    "magazinePreviewA11y": "{{name}}, 잡지 칸 미리보기",
     "unpin": "망원경에서 빼기",
     "unpinVoyagingHint": "항해 중이라 빼려면 항해를 그만둬야 해요",
     "unpinned": "망원경에서 뺐어요",
@@ -703,6 +702,7 @@
       "averageUnknown": "평균 집계 전",
       "ours": "우리 섬이에요",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
+      "a11yNoMeta": "{{name}}, ‘{{body}}’",
       "scope": "{{name}} 망원경에 넣기"
     },
     "editor": {
@@ -908,6 +908,56 @@
       "moon": "졸린 달",
       "clock": "알람시계",
       "tomato-timer": "토마토 타이머"
+    },
+    "report": {
+      "action": "신고하기",
+      "title": "홍보 칸 신고하기",
+      "sub": "{{name}} 홍보 칸을 신고하는 이유를 골라 주세요. 여러 사람이 신고하면 칸이 숨겨지고 운영팀이 확인해요.",
+      "submit": "신고하기",
+      "busy": "보내는 중…",
+      "done": "신고했어요. 운영팀이 살펴볼게요.",
+      "already": "이미 신고한 칸이에요. 운영팀이 살펴보고 있어요.",
+      "guest": "소셜 로그인하면 신고할 수 있어요.",
+      "gone": "이제 볼 수 없는 칸이라 신고할 수 없어요.",
+      "ours": "우리 섬 칸은 신고할 수 없어요.",
+      "failed": "신고하지 못했어요. 연결을 확인하고 다시 시도해 주세요.",
+      "reasons": {
+        "HARASSMENT": "욕설·괴롭힘",
+        "HATE": "혐오·차별",
+        "SPAM_FRAUD": "스팸·사기",
+        "SEXUAL": "성적 콘텐츠",
+        "CHILD_SAFETY": "아동 안전",
+        "THREAT": "위해 협박",
+        "PRIVACY_IMPERSONATION": "개인정보·사칭",
+        "OTHER": "기타"
+      }
+    },
+    "records": {
+      "entry": "우리 섬 홍보 기록판",
+      "title": "우리 섬 홍보 기록판",
+      "sub": "잡지를 보고 망원경에 넣은 사람, 항해해 온 사람, 가입한 사람을 실린 날 아침 7시부터 다음 날 아침 7시까지 세요.",
+      "loading": "기록을 불러오고 있어요",
+      "loadFailed": "기록판을 불러오지 못했어요.",
+      "forbidden": "이 섬 주민만 볼 수 있어요.",
+      "empty": "아직 잡지에 실은 홍보가 없어요.",
+      "issue": "{{date}} · {{no}}호",
+      "issueUnpublished": "{{date}} 호",
+      "status": {
+        "SCHEDULED": "발행 전",
+        "PUBLISHED": "실림",
+        "SKIPPED": "안 실림",
+        "HIDDEN": "숨김",
+        "REMOVED": "내려감"
+      },
+      "note": {
+        "SCHEDULED": "그날 아침 7시 잡지에 실려요.",
+        "SKIPPED": "섬이 비공개·닫힘이었거나 발행이 안 돼 이 호에는 실리지 않았어요.",
+        "HIDDEN": "신고가 쌓여 숨겨졌어요. 운영팀이 확인하고 있어요.",
+        "REMOVED": "운영 정책에 맞지 않아 내려졌어요."
+      },
+      "counts": "넣음 {{pinned}} · 도착 {{arrived}} · 가입 {{joined}}",
+      "countsA11y": "망원경에 넣음 {{pinned}}명, 도착 {{arrived}}명, 가입 {{joined}}명",
+      "rowA11y": "{{issue}}, {{status}}, ‘{{body}}’"
     }
   }
 }

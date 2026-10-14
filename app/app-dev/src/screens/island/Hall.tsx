@@ -2973,6 +2973,27 @@ export function Hall({ e }: any) {
           </Pressable>
         </View>
       )}
+      {!visitor && (
+        // 우리 섬 홍보 기록판(GROMO-2289 AD-11) — 주민만. 방문자에게는 입구 자체를 그리지 않는다
+        <Pressable
+          testID="hall-promotion-records"
+          accessibilityRole="button"
+          accessibilityLabel={t('magazine.records.entry')}
+          onPress={() => e.go('promotionRecords')}
+          style={{
+            minHeight: semanticTokens.size.tapMin,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: semanticTokens.spacing.control,
+          }}
+        >
+          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
+            {t('magazine.records.entry')}
+          </T>
+          <Icon d={CHEV} size={22} />
+        </Pressable>
+      )}
       {visitor ? (
         // 방문자: 탈퇴 자리에 가입 버튼. 정원이 차면 흐리게만 두고 누를 수 없다
         <Pressable

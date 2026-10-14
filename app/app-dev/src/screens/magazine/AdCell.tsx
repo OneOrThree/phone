@@ -47,7 +47,8 @@ export function AdCell({
   corner = null,
   onScope,
   onPress,
-  onLongPress,
+  onReport,
+  hideMeta = false,
   testID,
 }: {
   width: number;
@@ -55,7 +56,13 @@ export function AdCell({
   corner?: 'scope' | 'ours' | null;
   onScope?: () => void;
   onPress?: () => void;
-  onLongPress?: () => void;
+  /** 신고 — 칸 길게 누르기와 스크린리더 「신고하기」 동작이 부른다. */
+  onReport?: () => void;
+  /**
+   * 「주민 N/정원 · 평균」 줄을 그리지 않는다 — 실린 날 숫자 대신 지금 숫자를 쥔 곳(회관 기록판 썸네일)이나 바로 아래에 지금
+   * 숫자가 따로 있는 곳(망원경 말풍선)에서 서로 다른 숫자가 같이 보이지 않게.
+   */
+  hideMeta?: boolean;
   testID?: string;
 }) {
   const font = useGowun();
@@ -85,7 +92,9 @@ export function AdCell({
       ? t('magazine.cell.averageUnknown')
       : t('magazine.cell.average', { time: formatDuration(cell.averageFocusMinutesPerDay * 60) });
   const label =
-    t('magazine.cell.a11y', { name, residents, average, body: cell.body }) +
+    (hideMeta
+      ? t('magazine.cell.a11yNoMeta', { name, body: cell.body })
+      : t('magazine.cell.a11y', { name, residents, average, body: cell.body })) +
     (corner === 'ours' ? `, ${ours}` : '');
   const text = (size: number, scale = s, lines?: number) => ({
     fontFamily: font,
@@ -94,7 +103,7 @@ export function AdCell({
     color: semanticTokens.color.text,
     ...(lines ? { maxHeight: size * scale * m.lineHeight * lines } : null),
   });
-  const Body = onPress || onLongPress ? Pressable : View;
+  const Body = onPress || onReport ? Pressable : View;
 
   return (
     <View testID={testID} style={{ width: W, height: H }}>
@@ -104,7 +113,13 @@ export function AdCell({
         accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={label}
         onPress={onPress}
-        onLongPress={onLongPress}
+        onLongPress={onReport}
+        accessibilityActions={
+          onReport ? [{ name: 'report', label: t('magazine.report.action') }] : undefined
+        }
+        onAccessibilityAction={
+          onReport && ((ev) => ev.nativeEvent.actionName === 'report' && onReport())
+        }
       >
         <Image
           source={frame.source}
@@ -167,23 +182,25 @@ export function AdCell({
               {cell.body}
             </T>
           </View>
-          <T
-            allowFontScaling={false}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.7}
-            style={[
-              text(m.metaSize),
-              {
-                color: semanticTokens.color.textMuted,
-                marginLeft: (frame.metaLeft ?? 0) * W,
-                marginRight:
-                  corner === 'ours' ? oursWidth : corner === 'scope' ? cornerSize * 0.6 : 0,
-              },
-            ]}
-          >
-            {`${residents} · ${average}`}
-          </T>
+          {!hideMeta && (
+            <T
+              allowFontScaling={false}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              style={[
+                text(m.metaSize),
+                {
+                  color: semanticTokens.color.textMuted,
+                  marginLeft: (frame.metaLeft ?? 0) * W,
+                  marginRight:
+                    corner === 'ours' ? oursWidth : corner === 'scope' ? cornerSize * 0.6 : 0,
+                },
+              ]}
+            >
+              {`${residents} · ${average}`}
+            </T>
+          )}
         </View>
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {cell.layout.stickers.map((st, i) => {

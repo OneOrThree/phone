@@ -1,5 +1,5 @@
 // 목업 잡지 서버(GROMO-2289) — 시뮬레이터 QA 가 믿는 규칙: 07~24시 신청 창 · 하루 한 번 · 홍보비 60 · 자정 뒤 고치기 잠금.
-import { magazineMock, resetMagazineMock } from './magazineMock';
+import { getTelescopeMock, isTelescopeMock, magazineMock, resetMagazineMock } from './magazineMock';
 
 const layout = { v: 1 as const, frameId: 'mag.frame-scallop', stickers: [], tape: null };
 const at = (kst: string) => Date.parse(`${kst}+09:00`);
@@ -142,4 +142,59 @@ it('같은 멱등 키 재시도는 첫 응답을 그대로 돌려주고, 같은 
   await expect(
     magazineMock.applyPromotion('i', { body: '다른 글', layout }, 'k', now),
   ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED', status: 409 });
+});
+
+describe('신고·기록판·망원경', () => {
+  it('신고 — 칸마다 처음은 새 신고, 두 번째는 이미 신고 · guest 는 403', async () => {
+    await expect(magazineMock.reportPromotion('i', 'p1', 'HATE')).resolves.toEqual({
+      created: true,
+    });
+    await expect(magazineMock.reportPromotion('i', 'p1', 'OTHER')).resolves.toEqual({
+      created: false,
+    });
+    await expect(magazineMock.reportPromotion('i', 'p2', 'HATE')).resolves.toEqual({
+      created: true,
+    });
+    process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'guest';
+    await expect(magazineMock.reportPromotion('i', 'p3', 'HATE')).rejects.toMatchObject({
+      code: 'SOCIAL_LOGIN_REQUIRED',
+      status: 403,
+    });
+  });
+
+  it('기록판 — 상태마다 한 건씩(최신순) · norecords 는 빈 목록 · recordsfail 은 실패', async () => {
+    const now = at('2026-10-14T10:00:00');
+    const items = await magazineMock.getPromotionRecords('i', 20, now);
+    expect(items.map((r) => r.status)).toEqual([
+      'SCHEDULED',
+      'PUBLISHED',
+      'HIDDEN',
+      'SKIPPED',
+      'PUBLISHED',
+      'REMOVED',
+    ]);
+    expect(items[0]).toMatchObject({ issueDate: '2026-10-15', issueNo: null });
+    expect(items[1]).toMatchObject({ issueDate: '2026-10-14', pinned: 12, arrived: 4, joined: 1 });
+    process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'norecords';
+    await expect(magazineMock.getPromotionRecords('i')).resolves.toEqual([]);
+    process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'recordsfail';
+    await expect(magazineMock.getPromotionRecords('i')).rejects.toMatchObject({
+      code: 'CLIENT_NETWORK_ERROR',
+    });
+  });
+
+  it('망원경 목업 — 목업 모드 + telescope 플래그에서만, 잡지 찜은 칸 있음·없음 둘 다', async () => {
+    process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'telescope';
+    expect(isTelescopeMock()).toBe(false); // 목업 모드가 아니면 서버 목록 그대로
+    process.env.EXPO_PUBLIC_DEMO = '1';
+    try {
+      expect(isTelescopeMock()).toBe(true);
+    } finally {
+      delete process.env.EXPO_PUBLIC_DEMO;
+    }
+    const magazinePins = (await getTelescopeMock()).items.filter(
+      (item) => item.pinnedFrom === 'magazine',
+    );
+    expect(magazinePins.map((item) => !!item.magazineCell)).toEqual([true, false]);
+  });
 });

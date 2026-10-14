@@ -5,6 +5,7 @@ import {
   FlatList,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,6 +32,7 @@ import { islandTitle } from './islandTitle';
 import { CELL_ASPECT } from './layout';
 import { magazineApi } from './usePromotionEditor';
 import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
+import { PromotionReportSheet } from './PromotionReportSheet';
 
 const R = componentTokens.magazineReader;
 const PER_PAGE = 3;
@@ -98,7 +100,8 @@ export function magazinePages(loaded: Loaded, host: boolean): Page[] {
  * 고양이 잡지 펼치기(GROMO-2289 · A1~A4) — 섬에서 펼친 잡지라 배경은 섬 홈이고 칸에 망원경 동그라미가 없다(10/14 확정).
  * 우리 섬 칸에는 「우리 섬이에요」. 속지 그림 위에 표지 띠(날짜·호)와 쪽을 그리고, 가로로 넘기거나 ‹ › 로 넘긴다.
  * 끝 쪽에 가까워지면 다음 커서를 읽는다. 펼치는 데 성공하면 그 호에 「읽음」을 보낸다(빨간 점이 꺼진다).
- * 칸을 누르면 화면 폭으로 크게 본다. 신고(길게 누르기)는 서버 신고 API(S4) 뒤에 붙는다.
+ * 칸을 누르면 화면 폭으로 크게 본다. 칸을 길게 누르거나(크게 보기에서도) 스크린리더 「신고하기」 동작으로 신고 시트를 연다(SAFE-04) —
+ * 신고한 칸은 다음에 읽을 때까지 그대로 보인다(서버가 3건이면 숨긴다).
  *
  * e.detail = 펼칠 호 id. 비어 있으면 들고 있는 오늘 호를 연다.
  */
@@ -123,7 +126,18 @@ export function MagazineReader({
   const [failedAt, setFailedAt] = useState<{ cursor: string; index: number } | null>(null);
   const [index, setIndex] = useState(0);
   const [zoom, setZoom] = useState<MagazineCell | null>(null);
+  const [report, setReport] = useState<MagazineCell | null>(null);
+  // 크게 보기에서 길게 누른 칸 — iOS 는 크게 보기(Modal)가 다 닫힌 뒤에 신고 시트(Modal)를 연다(닫히는 중에 띄우면 실패한다)
+  const reportAfterZoom = useRef<MagazineCell | null>(null);
   const list = useRef<FlatList<Page>>(null);
+  // 보던 쪽은 라우트의 tab 에 적어 둔다 — 끝 쪽 [우리 섬 홍보 쓰기]로 쓰기 화면에 갔다가 뒤로 오면 App 기록이 tab 을 되돌려 줘
+  // 그 쪽에서 다시 연다. 새로 펼칠 때(go)는 tab 이 비어 있어 첫 쪽부터다. 처음 그릴 때 값만 쓴다.
+  const resumeIndex = useRef(Number(e.tab) || 0);
+  // 다 읽은 순간의 섬장 여부로 끝 쪽(섬장 전용)을 센다 — 의존성에 넣으면 섬장 여부가 바뀔 때마다 호를 다시 읽는다
+  const hostRef = useRef(host);
+  hostRef.current = host;
+  // 다 읽었을 때 펼친 쪽 — FlatList 의 처음 위치로만 쓴다(넘길 때마다 바꾸면 목록이 그리는 범위가 흔들린다)
+  const startIndex = useRef(0);
 
   useEffect(() => {
     if (!issueId) {
@@ -137,7 +151,14 @@ export function MagazineReader({
       .then((page) => {
         if (!alive) return;
         setLoaded(page);
-        setIndex(0);
+        // ponytail: 칸이 한 페이지(30칸)를 넘으면 다시 펼칠 때 끝 쪽이 아직 없어 마지막으로 읽힌 쪽에 선다
+        // 지금 그릴 쪽 수로 자른다 — 쓰기 화면에 간 사이 섬장이 아니게 됐으면 끝 쪽이 없다
+        startIndex.current = Math.max(
+          0,
+          Math.min(resumeIndex.current, magazinePages(page, hostRef.current).length - 1),
+        );
+        resumeIndex.current = 0;
+        setIndex(startIndex.current);
         setStatus('ready');
         // 섬에서 펼쳤다 — 받은 적 없는 호면 받음도 같이 적힌다. 실패해도 읽기는 그대로 둔다(다음에 펼칠 때 다시 보낸다)
         sendReceipt(issueId, { place: 'ISLAND', opened: true }).catch(() => {});
@@ -198,6 +219,11 @@ export function MagazineReader({
   useEffect(() => {
     list.current?.scrollToOffset({ offset: indexRef.current * innerW, animated: false });
   }, [innerW]);
+  // 보던 쪽을 라우트 tab 에 맞춰 둔다(위 resumeIndex) — 다 읽은 뒤에만
+  const setTab = e.setTab;
+  useEffect(() => {
+    if (status === 'ready') setTab?.(String(index));
+  }, [status, index, setTab]);
   // 쪽이 바뀌면 스크린리더에 알린다(처음 펼칠 때는 표지 띠를 읽으므로 건너뛴다)
   const announced = useRef(false);
   const pageLabel = t(cursor ? 'magazine.reader.pageA11yMore' : 'magazine.reader.pageA11y', {
@@ -435,6 +461,8 @@ export function MagazineReader({
               // 섬에서 펼친 잡지에는 망원경 동그라미가 없다(10/14) — 우리 섬 배지만
               corner={cell.relation === 'MEMBER' ? 'ours' : null}
               onPress={() => setZoom(cell)}
+              // 우리 섬 칸은 신고하지 않는다(길게 누르기·스크린리더 동작 모두 없음)
+              onReport={cell.relation === 'MEMBER' ? undefined : () => setReport(cell)}
             />
           ))}
         </View>
@@ -583,6 +611,8 @@ export function MagazineReader({
             {status === 'ready' ? (
               <FlatList
                 ref={list}
+                // 쓰기 화면에서 돌아와 다시 펼치면 보던 쪽에서 시작한다(resumeIndex)
+                initialScrollIndex={startIndex.current || undefined}
                 testID="magazine-pages"
                 style={{ marginTop: issue ? 0 : COVER_H }}
                 data={pages}
@@ -702,7 +732,16 @@ export function MagazineReader({
           </Pressable>
         </View>
       </View>
-      <Modal visible={!!zoom} transparent animationType="fade" onRequestClose={() => setZoom(null)}>
+      <Modal
+        visible={!!zoom}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setZoom(null)}
+        onDismiss={() => {
+          if (reportAfterZoom.current) setReport(reportAfterZoom.current);
+          reportAfterZoom.current = null;
+        }}
+      >
         <Pressable
           testID="magazine-zoom"
           accessibilityRole="button"
@@ -725,10 +764,29 @@ export function MagazineReader({
               )}
               cell={zoom}
               corner={zoom.relation === 'MEMBER' ? 'ours' : null}
+              onPress={() => setZoom(null)}
+              onReport={
+                zoom.relation === 'MEMBER'
+                  ? undefined
+                  : () => {
+                      if (Platform.OS === 'ios') reportAfterZoom.current = zoom;
+                      else setReport(zoom);
+                      setZoom(null);
+                    }
+              }
             />
           )}
         </Pressable>
       </Modal>
+      <PromotionReportSheet
+        cell={report}
+        onClose={() => setReport(null)}
+        onDone={(message) => {
+          setReport(null);
+          e.notify?.(message);
+        }}
+        offerConversion={e.conversion?.offer}
+      />
     </View>
   );
 }

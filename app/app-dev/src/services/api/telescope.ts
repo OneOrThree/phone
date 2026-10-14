@@ -22,6 +22,7 @@
  */
 import { ApiError, request } from './client';
 import { CLIENT_CONTRACT_ERROR } from './home';
+import { readMagazineCell, type MagazineCell } from './magazine';
 
 export type TelescopeItem = {
   islandId: string;
@@ -42,6 +43,11 @@ export type TelescopeItem = {
   arrivedBefore: boolean;
   pinnedFrom?: 'magazine' | 'observatory';
   pinnedAt?: string;
+  /**
+   * 잡지에서 넣은 섬의 오늘 호 홍보 칸(GROMO-2289 SCOPE-09) — 말풍선의 잡지 칸 미리보기를 이것으로 그린다. 편집부 칸에서 넣었거나
+   * 칸이 숨겨졌으면 null.
+   */
+  magazineCell?: MagazineCell | null;
 };
 
 export type Telescope = {
@@ -110,7 +116,15 @@ function validateTelescope(raw: unknown): Telescope {
     )
       throw contractError('items');
   }
-  return raw as unknown as Telescope;
+  // 잡지 칸은 모양이 어긋나도 목록 전체를 오류로 만들지 않고 그 칸만 null(미리보기 자리표시)로 둔다.
+  // 위 루프가 항목마다 객체인지 먼저 확인했으므로 여기서 item.magazineCell 을 읽어도 안전하다(순서를 바꾸지 말 것)
+  return {
+    ...(raw as unknown as Telescope),
+    items: raw.items.map((item) => ({
+      ...item,
+      magazineCell: readMagazineCell(item.magazineCell),
+    })),
+  } as Telescope;
 }
 
 export async function getTelescope(): Promise<Telescope> {
