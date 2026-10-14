@@ -8,10 +8,10 @@ on:
       - '.github/actions/ci-jar/**'
       - '.github/scripts/ci-jar.py'
       - '.dockerignore'
-      - '.github/scripts/focuscat-*'
+      - '.github/scripts/catus-*'
       - '.github/workflows/prod-ci.yml'
       - '.github/workflows/prod-cd.yml'
-      - '.github/scripts/test_focuscat*'
+      - '.github/scripts/test_catus*'
       - '.github/scripts/deployment-badges.py'
       - '.github/workflows/ops-deployment-badges.yml'
       - '.claude/pr-gate.py'
@@ -24,7 +24,7 @@ on:
       - '.github/scripts/**'
       - '.github/workflows/prod-ci.yml'
       - '.github/workflows/prod-cd.yml'
-      - '.github/scripts/test_focuscat*'
+      - '.github/scripts/test_catus*'
       - '.github/scripts/deployment-badges.py'
       - '.github/workflows/ops-deployment-badges.yml'
       - '.claude/pr-gate.py'
@@ -43,7 +43,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: focuscat-prod-build-${{ github.ref }}
+  group: catus-prod-build-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -55,7 +55,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m pip install 'PyYAML==6.0.2'
-      - run: python3 -m unittest discover -s .github/scripts -p 'test_focuscat*.py' -v
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_catus*.py' -v
       - run: python3 .claude/pr-gate.py --selftest
   plan:
     needs: contracts
@@ -64,7 +64,7 @@ jobs:
       contents: read
       id-token: write
     env:
-      INFRA_REVISION: ${{ vars.FOCUSCAT_PROD_INFRA_REVISION }}
+      INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION }}
       PR_BASE: ${{ github.event.pull_request.base.sha }}
       FORCE_REBUILD: ${{ inputs.rebuild_all || false }}
     outputs:
@@ -78,7 +78,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
         with:
-          role-to-assume: arn:aws:iam::808715036056:role/focuscat-prod-publish
+          role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish
           aws-region: ap-northeast-2
       - id: plan
         env:
@@ -92,10 +92,10 @@ jobs:
           fi
           if [ -n "$PR_BASE" ]; then args+=(--pr-base "$PR_BASE"); fi
           if [ "$FORCE_REBUILD" = true ]; then args+=(--force); fi
-          python3 .github/scripts/focuscat-plan.py "${args[@]}"
+          python3 .github/scripts/catus-plan.py "${args[@]}"
       - uses: actions/upload-artifact@v4
         with:
-          name: focuscat-prod-plan
+          name: catus-prod-plan
           path: prod-plan.json
           if-no-files-found: error
           overwrite: true
@@ -122,7 +122,7 @@ jobs:
         run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-${{ matrix.service }}" >> "$GITHUB_ENV"
       - name: Business PDF 도구 이미지
         if: matrix.service == 'business-api'
-        run: docker build --target test -t focuscat-business-test server/business-api
+        run: docker build --target test -t catus-business-test server/business-api
       - name: Business 실제 검사
         if: matrix.service == 'business-api'
         run: |
@@ -133,7 +133,7 @@ jobs:
             -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -v "$GRADLE_USER_HOME:/gradle" \
             -e GRADLE_USER_HOME=/gradle -e SPRING_PROFILES_ACTIVE=ci \
             -e TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1 \
-            -w "$GITHUB_WORKSPACE/server/business-api" focuscat-business-test ./gradlew build --no-daemon
+            -w "$GITHUB_WORKSPACE/server/business-api" catus-business-test ./gradlew build --no-daemon
       - name: JVM 서비스 실제 검사
         if: matrix.service != 'business-api'
         env:
@@ -146,11 +146,11 @@ jobs:
           operation: pack
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
-      - name: FocusCat 발행 역할 (PR 제외)
+      - name: Catus 발행 역할 (PR 제외)
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::808715036056:role/focuscat-prod-publish
+          role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish
           aws-region: ap-northeast-2
       - uses: aws-actions/amazon-ecr-login@v2
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
@@ -162,9 +162,9 @@ jobs:
           platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/release' }}
           provenance: false
-          tags: 808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/focuscat-prod/${{ matrix.service }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          cache-from: type=gha,scope=focuscat-prod-${{ matrix.service }}
-          cache-to: type=gha,scope=focuscat-prod-${{ matrix.service }},mode=max
+          tags: 808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/catus-prod/${{ matrix.service }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          cache-from: type=gha,scope=catus-prod-${{ matrix.service }}
+          cache-to: type=gha,scope=catus-prod-${{ matrix.service }},mode=max
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -179,12 +179,12 @@ jobs:
           service = os.environ['SERVICE']
           pathlib.Path(service + '.json').write_text(json.dumps({
               'revision': os.environ['GITHUB_SHA'], 'platform': 'linux/arm64',
-              'image': f"808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/focuscat-prod/{service}@{os.environ['IMAGE_DIGEST']}"}))
+              'image': f"808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/catus-prod/{service}@{os.environ['IMAGE_DIGEST']}"}))
           PY
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
         with:
-          name: focuscat-${{ matrix.service }}-digest
+          name: catus-${{ matrix.service }}-digest
           path: ${{ matrix.service }}.json
           if-no-files-found: error
 
@@ -200,7 +200,7 @@ jobs:
       pull-requests: read
       id-token: write
     env:
-      INFRA_REVISION: ${{ vars.FOCUSCAT_PROD_INFRA_REVISION }}
+      INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION }}
     steps:
       - name: 고정 Infra 버전 확인
         run: '[[ "$INFRA_REVISION" =~ ^[0-9a-f]{40}$ ]]'
@@ -209,17 +209,17 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: focuscat-prod-plan
+          name: catus-prod-plan
           path: plan-input
       - uses: actions/download-artifact@v4
         if: needs.plan.outputs.build_any == 'true'
         with:
-          pattern: focuscat-*-digest
+          pattern: catus-*-digest
           merge-multiple: true
           path: image-descriptors
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::808715036056:role/focuscat-prod-publish
+          role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish
           aws-region: ap-northeast-2
       - name: 불변 릴리스 생성·업로드
         env:
@@ -230,10 +230,10 @@ jobs:
           release_id="$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           version_args=(--revision "$GITHUB_SHA")
           if [ -n "$BUMP_OVERRIDE" ]; then version_args+=(--bump "$BUMP_OVERRIDE"); fi
-          version=$(python3 .github/scripts/focuscat-version.py "${version_args[@]}")
-          bucket=$(aws secretsmanager get-secret-value --secret-id focuscat/prod/cicd \
+          version=$(python3 .github/scripts/catus-version.py "${version_args[@]}")
+          bucket=$(aws secretsmanager get-secret-value --secret-id catus/prod/cicd \
             --query SecretString --output text | jq -er '.DEPLOY_BUCKET')
-          [[ "$bucket" == focuscat-prod-deploy-artifacts-* ]]
+          [[ "$bucket" == catus-prod-deploy-artifacts-* ]]
           mkdir -p infra-config
           for file in configuration.zip configuration.json; do
             aws s3api get-object --bucket "$bucket" --key "configurations/$INFRA_REVISION/$file" "infra-config/$file" >/dev/null
@@ -242,7 +242,7 @@ jobs:
           import hashlib, json, os, pathlib, re, zipfile
           root = pathlib.Path('infra-config')
           metadata = json.loads((root / 'configuration.json').read_text())
-          assert metadata['product'] == 'focuscat' and metadata['infra_revision'] == os.environ['INFRA_REVISION']
+          assert metadata['product'] == 'catus' and metadata['infra_revision'] == os.environ['INFRA_REVISION']
           assert re.fullmatch('[0-9a-f]{64}', metadata['sha256'])
           assert hashlib.sha256((root / 'configuration.zip').read_bytes()).hexdigest() == metadata['sha256']
           with zipfile.ZipFile(root / 'configuration.zip') as archive:
@@ -290,7 +290,7 @@ jobs:
           pathlib.Path('release-output/images.tsv').write_text(''.join(f'{service}\t{image}\n' for service, image in sorted(manifest['images'].items())))
           PYTHON
           while IFS=$'\t' read -r service image; do
-            repository="focuscat-prod/$service"
+            repository="catus-prod/$service"
             expected="${image##*@}"
             existing=$(aws ecr batch-get-image --repository-name "$repository" --image-ids "imageTag=$version" --query 'images[0].imageId.imageDigest' --output text)
             if [ "$existing" = None ]; then
@@ -303,8 +303,8 @@ jobs:
           done < release-output/images.tsv
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a "$version" "$GITHUB_SHA" -m "FocusCat $version / $release_id / Infra $INFRA_REVISION"
+          git tag -a "$version" "$GITHUB_SHA" -m "Catus $version / $release_id / Infra $INFRA_REVISION"
           git push origin "refs/tags/$version"
           echo "- 버전: $version" >> "$GITHUB_STEP_SUMMARY"
           echo "Infra 구성: $INFRA_REVISION" >> "$GITHUB_STEP_SUMMARY"
-          echo "FocusCat 릴리스: $release_id (배포는 별도 승인)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Catus 릴리스: $release_id (배포는 별도 승인)" >> "$GITHUB_STEP_SUMMARY"

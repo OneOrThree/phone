@@ -9,9 +9,9 @@ import subprocess
 from pathlib import Path
 
 SERVICES = {'data-api', 'realtime', 'business-api', 'notification'}
-SHARED = ('.github/actions/ci-jar/', '.github/scripts/ci-jar.py', '.github/scripts/focuscat-',
+SHARED = ('.github/actions/ci-jar/', '.github/scripts/ci-jar.py', '.github/scripts/catus-',
           '.github/workflows/prod-ci.yml', '.dockerignore', 'server/gradle')
-IMAGE = re.compile(r'^808715036056\.dkr\.ecr\.ap-northeast-2\.amazonaws\.com/focuscat-prod/([^/]+)@sha256:[0-9a-f]{64}$')
+IMAGE = re.compile(r'^808715036056\.dkr\.ecr\.ap-northeast-2\.amazonaws\.com/catus-prod/([^/]+)@sha256:[0-9a-f]{64}$')
 
 
 def fingerprints(root, files):
@@ -37,8 +37,8 @@ def fingerprints(root, files):
 
 def plan(source, migrations, previous, revision, infra_revision, force=False):
     if previous:
-        if previous.get('product') != 'focuscat' or set(previous.get('images', {})) != SERVICES:
-            raise ValueError('FocusCat prod 성공 상태 오류')
+        if previous.get('product') != 'catus' or set(previous.get('images', {})) != SERVICES:
+            raise ValueError('Catus prod 성공 상태 오류')
         if not re.fullmatch('[0-9a-f]{40}-[0-9]+-[0-9]+', previous.get('release_id', '')):
             raise ValueError('기준 릴리스 ID 오류')
         for service, image in previous['images'].items():
@@ -55,10 +55,10 @@ def plan(source, migrations, previous, revision, infra_revision, force=False):
 def fetch_previous(output):
     def aws(*args):
         return subprocess.run(['aws', '--region', 'ap-northeast-2', *args], capture_output=True, text=True, timeout=30)
-    result = aws('secretsmanager', 'get-secret-value', '--secret-id', 'focuscat/prod/cicd', '--query', 'SecretString', '--output', 'text')
+    result = aws('secretsmanager', 'get-secret-value', '--secret-id', 'catus/prod/cicd', '--query', 'SecretString', '--output', 'text')
     if result.returncode: raise RuntimeError('배포 설정 조회 실패')
     config = json.loads(result.stdout)
-    if config.get('PRODUCT') != 'focuscat' or not config['DEPLOY_BUCKET'].startswith('focuscat-prod-deploy-artifacts-'):
+    if config.get('PRODUCT') != 'catus' or not config['DEPLOY_BUCKET'].startswith('catus-prod-deploy-artifacts-'):
         raise ValueError('배포 설정 불일치')
     result = aws('s3api', 'get-object', '--bucket', config['DEPLOY_BUCKET'], '--key', 'deployments/current.json', str(output))
     if result.returncode:

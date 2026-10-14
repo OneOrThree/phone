@@ -9,15 +9,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location('selective_plan', Path(__file__).with_name('focuscat-plan.py'))
+spec = importlib.util.spec_from_file_location('selective_plan', Path(__file__).with_name('catus-plan.py'))
 planner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(planner)
 
 
 def baseline(source):
-    return {'product': 'focuscat', 'release_id': 'a' * 40 + '-1-1', 'infra_revision': 'b' * 40,
+    return {'product': 'catus', 'release_id': 'a' * 40 + '-1-1', 'infra_revision': 'b' * 40,
             'source_fingerprints': source,
-            'images': {service: f'808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/focuscat-prod/{service}@sha256:' + 'c' * 64 for service in planner.SERVICES}}
+            'images': {service: f'808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/catus-prod/{service}@sha256:' + 'c' * 64 for service in planner.SERVICES}}
 
 
 class SelectivePlanTests(unittest.TestCase):
@@ -64,7 +64,7 @@ class SelectivePlanTests(unittest.TestCase):
             self.assertTrue(all(all_changed[service] != changed[service] for service in planner.SERVICES))
 
     def test_상태조회_권한실패를_최초배포로_오인하지_않는다(self):
-        config = SimpleNamespace(returncode=0, stdout=json.dumps({'PRODUCT': 'focuscat', 'DEPLOY_BUCKET': 'focuscat-prod-deploy-artifacts-808715036056'}))
+        config = SimpleNamespace(returncode=0, stdout=json.dumps({'PRODUCT': 'catus', 'DEPLOY_BUCKET': 'catus-prod-deploy-artifacts-808715036056'}))
         denied = SimpleNamespace(returncode=1, stderr='AccessDenied (403)')
         with patch.object(planner.subprocess, 'run', side_effect=[config, denied]), self.assertRaises(RuntimeError):
             planner.fetch_previous(Path('never-created.json'))
@@ -85,6 +85,10 @@ class SelectivePlanTests(unittest.TestCase):
     def test_잘못된_Gromo기준이나_이미지를_재사용하지_않는다(self):
         previous = baseline(self.source)
         previous['images']['data-api'] = 'gromo-prod-back:latest'
+        with self.assertRaises(ValueError):
+            planner.plan(self.source, self.migrations, previous, 'f' * 40, 'b' * 40)
+        previous = baseline(self.source)
+        previous['product'] = 'focuscat'
         with self.assertRaises(ValueError):
             planner.plan(self.source, self.migrations, previous, 'f' * 40, 'b' * 40)
 

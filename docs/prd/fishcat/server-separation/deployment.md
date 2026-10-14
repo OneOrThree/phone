@@ -58,30 +58,31 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 ~~Link/MMP는 `OneOrThree/mmp-custom`의 별도 배포다. 여기서 Vercel·Neon 연결이나 DNS 전환을 수행하지 않는다.~~ → A23(2026-09-13): Link/MMP 는 별도 배포가 아니다 — business-api·data-api 이미지에 포함되며 공개 경로 전환은 nginx 설정 한 번이다([링크 정본](../link-attribution/high-level-design.md) §7).
 
-## FocusCat 2.0 운영 발행·배포
+## Catus 2.0 운영 발행·배포
 
-위의 준비 도구·기존 prod Compose 설명과 별도로, FocusCat 실행 구성·nginx·SSM 배포 문서는 Infra 저장소의 `prod/focuscat/runtime`에서 관리한다. Phone은 네 서비스의 애플리케이션 이미지와 릴리스를 발행한다. 구성은 `FOCUSCAT_PROD_INFRA_REVISION`의 40자리 Infra 커밋 SHA로 고정하며, S3의 `configurations/<Infra SHA>/configuration.zip`·`configuration.json`을 검증한 뒤 사용한다.
+위의 준비 도구·기존 prod Compose 설명과 별도로, Catus 실행 구성·nginx·SSM 배포 문서는 Infra 저장소의 `prod/catus/runtime`에서 관리한다. Phone은 네 서비스의 애플리케이션 이미지와 릴리스를 발행한다. 구성은 `CATUS_PROD_INFRA_REVISION`의 40자리 Infra 커밋 SHA로 고정하며, S3의 `configurations/<Infra SHA>/configuration.zip`·`configuration.json`을 검증한 뒤 사용한다.
 
 ### 운영 선행 조건
 
-- Infra에서 최신 IAM·SSM 변경을 적용하고, 승인된 구성 산출물을 먼저 게시한다. Phone의 `FOCUSCAT_PROD_INFRA_REVISION`에는 **게시된 구성**의 SHA를 설정한다.
-- Phone의 `focuscat-production` 환경에 배포 승인자와 배포 허용 브랜치 `release`를 설정하고, `release` 보호 규칙을 확인한다. 발행 역할은 `focuscat-prod-publish`, 수동 배포 역할은 `focuscat-prod-deploy`다. 대상 설정은 Secrets Manager `focuscat/prod/cicd`에서 읽는다.
-- **2026-10-14 준비 상태**: Infra PR #9는 main에 병합됐지만 최신 IAM·SSM 변경은 미적용이다. Infra의 private GitHub 저장소에서 required reviewers 설정은 API 422, main 보호 설정은 API 403으로 실패해 승인 구성 게시가 보류돼 있다. Phone은 public 저장소이므로 같은 제약이 있다고 가정하지 않고 별도로 설정을 확인한다. Phone의 `FOCUSCAT_PROD_INFRA_REVISION`도 아직 미설정이다. 이 조건을 해결하기 전 운영 발행·배포 완료로 취급하지 않는다.
-- AWS의 Gromo 이름을 FocusCat으로 정리하는 후속 작업은 신규 FocusCat 자원을 대상으로 한다. 기존 Gromo 1.x 자원·시크릿·배포를 보존하며, 관리형 RDS 시크릿의 AWS 자동 생성 이름은 이름 변경 대상이 아니다.
+- Infra에서 최신 IAM·SSM 변경을 적용하고, 승인된 구성 산출물을 먼저 게시한다. Phone의 `CATUS_PROD_INFRA_REVISION`에는 **게시된 구성**의 SHA를 설정한다.
+- Phone의 `catus-production` 환경에 배포 승인자와 배포 허용 브랜치 `release`를 설정하고, `release` 보호 규칙을 확인한다. 발행 역할은 `catus-prod-publish`, 수동 배포 역할은 `catus-prod-deploy`다. 대상 설정은 Secrets Manager `catus/prod/cicd`에서 읽는다.
+- 제품명을 Catus로 정정해 Infra의 `prod/catus`에 새 state·새 AWS 스택을 준비한다. 기존 FocusCat은 전환 검증 후 별도 정리하며, Gromo 1.x는 계속 유지한다. 이전 스택의 성공 상태나 이미지·버전 참조를 Catus로 복사하지 않는다.
+- Infra의 private GitHub 저장소에서 required reviewers 설정은 API 422, main 보호 설정은 API 403으로 실패했다. 사용자는 내장 승인자를 유지하고 지원 플랜 준비 전까지 구성 발행·앱 배포를 보류하기로 결정했다. Phone은 public 저장소이므로 별도 승인 환경·release 제한을 설정한다. `CATUS_PROD_INFRA_REVISION`에는 실제 승인 발행된 구성의 SHA만 등록한다.
+- `catus/prod/env`는 `gromo/dev/env`의 필요한 앱 설정·FCM 등 외부 자격을 그대로 사용한다. DB 접속 키·POSTGRES 관리 값·개발 내부 URL은 제외하며, DB는 `catus/prod/database`와 운영 구성에서 공급한다. 앱의 OAuth audience/bundle ID는 스택 이름 변경으로 바꾸지 않는다. 관리형 RDS 시크릿의 AWS 자동 생성 이름도 변경 대상이 아니다.
 
 ### 발행과 버전
 
 1. `main`·`release` 대상 PR에서 `prod-ci.yml`은 변경 서비스 검사·이미지 빌드를 수행하며 ECR에 발행하지 않는다. 공통 빌드 입력이 바뀌면 전체 서비스가 검사 대상이다.
 2. `release` push 또는 `release`를 선택한 `prod-ci.yml` 수동 실행에서 발행한다. 마지막 prod 성공 상태 `deployments/current.json`의 소스 지문과 비교해 변경 서비스만 `linux/arm64`로 빌드한다. 최초 발행과 수동 `rebuild_all=true`는 전체 빌드이며, Infra SHA만 바뀌면 이미지는 재사용하고 전체 서비스를 배포 대상으로 기록한다.
-3. 이미지 저장소는 `focuscat-prod/<service>`이며 릴리스에는 재사용 이미지를 포함한 네 서비스의 digest 조합을 기록한다. 불변 산출물은 S3 `releases/<소스 SHA>-<실행 ID>-<시도 번호>/bundle.zip`·`release.json`, 버전 참조는 `versions/focuscat-vX.Y.Z.json`이다.
-4. 최초 버전은 `focuscat-v2.0.0`이다. 이후 `release` 대상 릴리스 PR의 `release:major`·`release:minor`·`release:patch` 중 하나로 증가하고, 미지정은 patch다. 수동 발행은 `version_bump` 입력을 사용한다. 같은 버전을 Git 태그와 네 서비스 ECR 태그로 기록한다. 기존 Gromo `vX.Y.Z` 태그는 버전 계산에 포함하지 않는다.
+3. 이미지 저장소는 `catus-prod/<service>`이며 릴리스에는 재사용 이미지를 포함한 네 서비스의 digest 조합을 기록한다. 불변 산출물은 S3 `releases/<소스 SHA>-<실행 ID>-<시도 번호>/bundle.zip`·`release.json`, 버전 참조는 `versions/catus-vX.Y.Z.json`이다.
+4. 최초 버전은 `catus-v2.0.0`이다. 이후 `release` 대상 릴리스 PR의 `release:major`·`release:minor`·`release:patch` 중 하나로 증가하고, 미지정은 patch다. 수동 발행은 `version_bump` 입력을 사용한다. 같은 버전을 Git 태그와 네 서비스 ECR 태그로 기록한다. 기존 Gromo `vX.Y.Z` 태그는 버전 계산에 포함하지 않는다.
 
 ### 배포와 롤백
 
-GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release`, `release_id`는 발행된 `focuscat-vX.Y.Z` 또는 `<소스 SHA>-<실행 ID>-<시도 번호>`를 지정한다. `operation`은 최초 준비 `bootstrap`, 일반 배포 `deploy`, 호환되는 기존 릴리스 복구 `rollback` 중 하나다. `focuscat-production` 승인 후 고정 SSM 문서 `focuscat-prod-deploy`를 호출하고 최종 결과를 기다린다. 발행 성공만으로 자동 배포되지는 않는다. 롤백은 해당 Infra 실행 구성의 호환 조건을 확인한 릴리스만 선택하며, DB 변경을 자동으로 되돌리는 절차로 취급하지 않는다.
+GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release`, `release_id`는 발행된 `catus-vX.Y.Z` 또는 `<소스 SHA>-<실행 ID>-<시도 번호>`를 지정한다. `operation`은 최초 준비 `bootstrap`, 일반 배포 `deploy`, 호환되는 기존 릴리스 복구 `rollback` 중 하나다. `catus-production` 승인 후 고정 SSM 문서 `catus-prod-deploy`를 호출하고 최종 결과를 기다린다. 발행 성공만으로 자동 배포되지는 않는다. 롤백은 해당 Infra 실행 구성의 호환 조건을 확인한 릴리스만 선택하며, DB 변경을 자동으로 되돌리는 절차로 취급하지 않는다.
 
 ### 배포 상태 배지
 
 `ops-deployment-badges.yml`은 신뢰한 원본 워크플로의 결과 산출물을 검증해 `deployment-status` 브랜치에 JSON을 게시한다. dev는 Data·Realtime·Business·Notification의 최근 결과를 합산한다. prod는 마지막 성공 버전을 유지하므로 실패·취소 후에도 이전 성공 버전이 표시된다. 최신 실행 성공 여부는 Actions에서 별도로 확인한다.
 
-2026-10-14 기준 상태 브랜치는 아직 없다. main 반영 후 「서버 배포 상태 배지」 워크플로를 수동 실행하면 초기 JSON을 만들며, 기록이 없는 서비스·환경은 배포 확인 전으로 표시한다. 이미 운영 중인 서버도 기록 전에는 확인 전으로 표시하며, 서버가 미배포되거나 중단됐다는 뜻은 아니다. 이후 실제 배포 완료 결과가 배지를 갱신한다. 검증은 `python3 -m unittest discover -s .github/scripts -p 'test_focuscat*.py' -v`와 `python3 .claude/pr-gate.py --selftest`를 사용한다.
+2026-10-14 기준 상태 브랜치는 아직 없다. main 반영 후 「서버 배포 상태 배지」 워크플로를 수동 실행하면 초기 JSON을 만들며, 기록이 없는 서비스·환경은 배포 확인 전으로 표시한다. 이미 운영 중인 서버도 기록 전에는 확인 전으로 표시하며, 서버가 미배포되거나 중단됐다는 뜻은 아니다. 이후 실제 배포 완료 결과가 배지를 갱신한다. 검증은 `python3 -m unittest discover -s .github/scripts -p 'test_catus*.py' -v`와 `python3 .claude/pr-gate.py --selftest`를 사용한다.

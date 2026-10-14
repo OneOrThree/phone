@@ -21,7 +21,7 @@ def module(name, filename):
     return value
 
 
-version = module('version', 'focuscat-version.py')
+version = module('version', 'catus-version.py')
 badge = module('badge', 'deployment-badges.py')
 
 
@@ -36,12 +36,12 @@ def record(service='data-api', result='success', stamp='2026-01-01T00:00:00+00:0
 
 class VersionBadgeTests(unittest.TestCase):
     def test_초기2_버전과_PR라벨_증가_기존Gromo태그는_제외(self):
-        self.assertEqual(version.next_version(['v9.0.0'], []), 'focuscat-v2.0.0')
-        tags = ['focuscat-v2.9.0', 'focuscat-v2.10.0', 'v99.0.0']
-        for label, expected in [('release:major', 'focuscat-v3.0.0'), ('release:minor', 'focuscat-v2.11.0'),
-                                ('release:patch', 'focuscat-v2.10.1')]:
+        self.assertEqual(version.next_version(['v9.0.0', 'focuscat-v99.0.0'], []), 'catus-v2.0.0')
+        tags = ['catus-v2.9.0', 'catus-v2.10.0', 'v99.0.0']
+        for label, expected in [('release:major', 'catus-v3.0.0'), ('release:minor', 'catus-v2.11.0'),
+                                ('release:patch', 'catus-v2.10.1')]:
             self.assertEqual(version.next_version(tags, [label, 'workflow']), expected)
-        self.assertEqual(version.next_version(tags, []), 'focuscat-v2.10.1')
+        self.assertEqual(version.next_version(tags, []), 'catus-v2.10.1')
         with self.assertRaises(ValueError):
             version.next_version(tags, ['release:major', 'release:minor'])
 
@@ -72,13 +72,13 @@ class VersionBadgeTests(unittest.TestCase):
         self.assertIsNone(badge.trusted_run(event))
 
     def test_prod는_성공버전만_받고_롤백성공시_이전버전을_표시한다(self):
-        prod = {**record('focuscat'), 'environment': 'prod', 'version': 'focuscat-v2.1.0',
+        prod = {**record('catus'), 'environment': 'prod', 'version': 'catus-v2.1.0',
                 'release_id': 'a' * 40 + '-1-1', 'infra_revision': 'b' * 40}
         rule = badge.RULES['.github/workflows/prod-cd.yml']
         state = badge.merge({}, badge.validate([prod], rule))
-        rollback = {**prod, 'version': 'focuscat-v2.0.0', 'finished_at': '2026-01-02T00:00:00+00:00'}
+        rollback = {**prod, 'version': 'catus-v2.0.0', 'finished_at': '2026-01-02T00:00:00+00:00'}
         state = badge.merge(state, badge.validate([rollback], rule))
-        self.assertEqual(badge.badges(state)['prod.json']['message'], 'focuscat-v2.0.0')
+        self.assertEqual(badge.badges(state)['prod.json']['message'], 'catus-v2.0.0')
         with self.assertRaises(ValueError):
             badge.validate([{**prod, 'result': 'failure'}], rule)
 
@@ -174,10 +174,10 @@ class VersionBadgeTests(unittest.TestCase):
                      and isinstance(item.value.func, ast.Name) and item.value.func.id == 'main')]
         namespace = {}
         exec(compile(tree, '<workflow>', 'exec'), namespace)
-        envelope = {'version': 'focuscat-v2.0.0', 'release_id': 'a' * 40 + '-1-1',
+        envelope = {'version': 'catus-v2.0.0', 'release_id': 'a' * 40 + '-1-1',
                     'source_revision': 'a' * 40, 'infra_revision': 'b' * 40, 'bundle_sha256': 'c' * 64}
-        config = {'PRODUCT': 'focuscat', 'SSM_DOC': 'focuscat-prod-deploy',
-                  'DEPLOY_BUCKET': 'focuscat-prod-deploy-artifacts-808715036056', 'INSTANCE_ID': 'i-focuscat'}
+        config = {'PRODUCT': 'catus', 'SSM_DOC': 'catus-prod-deploy',
+                  'DEPLOY_BUCKET': 'catus-prod-deploy-artifacts-808715036056', 'INSTANCE_ID': 'i-catus'}
         calls = []
         def aws(*args):
             calls.append(args)
@@ -185,14 +185,14 @@ class VersionBadgeTests(unittest.TestCase):
             if args[1] == 'send-command': return {'Command': {'CommandId': 'command'}}
             return {'Status': 'Success'}
         def download(args, **kwargs):
-            self.assertIn('versions/focuscat-v2.0.0.json', args)
+            self.assertIn('versions/catus-v2.0.0.json', args)
             Path(args[-1]).write_text(json.dumps(envelope))
         namespace['aws'] = aws
         with tempfile.TemporaryDirectory() as directory:
             before = Path.cwd()
             try:
                 os.chdir(directory)
-                with patch.object(sys, 'argv', ['request', '--release-id', 'focuscat-v2.0.0', '--operation', 'rollback']), \
+                with patch.object(sys, 'argv', ['request', '--release-id', 'catus-v2.0.0', '--operation', 'rollback']), \
                      patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(Path(directory, 'summary'))}), \
                      patch.object(subprocess, 'run', download):
                     namespace['main']()

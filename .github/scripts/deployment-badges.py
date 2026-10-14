@@ -18,7 +18,7 @@ RULES = {
     '.github/workflows/realtime-ci.dev.yml': ('push', 'main', {'realtime'}, 'dev'),
     '.github/workflows/satellite-ci.dev.yml': ('push', 'main', {'business-api', 'notification'}, 'dev'),
     '.github/workflows/satellite-cd.dev.yml': ('workflow_run', 'main', {'business-api', 'notification'}, 'dev'),
-    '.github/workflows/prod-cd.yml': ('workflow_dispatch', 'release', {'focuscat'}, 'prod'),
+    '.github/workflows/prod-cd.yml': ('workflow_dispatch', 'release', {'catus'}, 'prod'),
 }
 BRANCH = 'deployment-status'
 
@@ -54,7 +54,7 @@ def validate(records, rule):
         if rule[3] == 'prod':
             if not re.fullmatch('[0-9a-f]{40}', record.get('infra_revision', '')):
                 raise ValueError('Infra SHA 오류')
-            if record['result'] != 'success' or not re.fullmatch(r'focuscat-v[0-9]+\.[0-9]+\.[0-9]+', record.get('version', '')):
+            if record['result'] != 'success' or not re.fullmatch(r'catus-v[0-9]+\.[0-9]+\.[0-9]+', record.get('version', '')):
                 raise ValueError('prod 성공 버전 오류')
             if not re.fullmatch('[0-9a-f]{40}-[0-9]+-[0-9]+', record.get('release_id', '')):
                 raise ValueError('prod 릴리스 ID 오류')
@@ -91,9 +91,9 @@ def badges(state):
         dev = {'message': '배포 완료 4/4', 'color': 'brightgreen'}
     else:
         dev = {'message': f'배포 확인 {count}/4', 'color': 'lightgrey'}
-    prod = state.get('prod/focuscat')
+    prod = state.get('prod/catus')
     return {'dev.json': {**base, 'label': 'dev 서버', **dev},
-            'prod.json': {**base, 'label': 'FocusCat prod', 'message': prod['version'] if prod else '배포 확인 전',
+            'prod.json': {**base, 'label': 'Catus prod', 'message': prod['version'] if prod else '배포 확인 전',
                           'color': 'brightgreen' if prod else 'lightgrey'},
             'state.json': state}
 
