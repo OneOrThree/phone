@@ -753,6 +753,8 @@
       "saved": "Changes saved",
       "doneTitle": "You're in the magazine!",
       "doneBody": "It appears in tomorrow's 7 AM issue. You can edit it until midnight",
+      "doneBodyLocked": "It appears in today's 7 AM issue. It's past midnight, so it can't be edited anymore",
+      "doneBodyPublished": "The {{date}} 7 AM issue is already out. Check it in the magazine",
       "stampA11y": "Received paw stamp",
       "problem": {
         "poor": "Not enough fish in the island bank",

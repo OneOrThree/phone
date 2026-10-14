@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { GestureResponderEvent, PanResponder, PanResponderGestureState } from 'react-native';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { MAGAZINE_STICKERS, MAGAZINE_TAPES } from '@/constants/magazineAssets';
@@ -153,9 +153,22 @@ export function useStickerGestures({
     if (frame.current == null)
       frame.current = requestAnimationFrame(() => {
         frame.current = null;
-        if (work.current) latest.current.onChange(work.current);
+        if (work.current && latest.current.enabled) latest.current.onChange(work.current);
       });
   };
+  // 하던 손동작을 버린다 — 고치던 배치도, 예약한 그리기도 올려 보내지 않는다
+  const abort = () => {
+    if (frame.current != null) cancelAnimationFrame(frame.current);
+    frame.current = null;
+    work.current = null;
+    // moved = 손을 떼도 「빈 곳 톡」(고르기 풀기)으로 보지 않는다
+    gesture.current = { mode: 'none', moved: true };
+  };
+  // 편집이 꺼지면(자정 다시 읽기로 읽기 전용 · 저장 중) 손가락이 칸 위에 있어도 하던 손동작을 바로 버린다.
+  // 그대로 두면 마감 전 배치가 다음 움직임·손 떼기에서 읽기 전용 화면을 덮는다
+  useEffect(() => {
+    if (!enabled) abort();
+  }, [enabled]);
   // 판 기준 → 칸 기준 좌표(px)
   const toCell = (pageX: number, pageY: number): Pt => {
     const w = latest.current.width;
@@ -251,12 +264,15 @@ export function useStickerGestures({
       },
       // 두 번째 손가락이 닿는 순간을 두 손가락 기준(거리·각도)으로 잡는다 — 첫 움직임까지 기다리면 벌린 만큼을 잃는다
       onPanResponderStart: (evt: GestureResponderEvent) => {
+        if (!latest.current.enabled) return abort();
         const g = gesture.current;
         const touches = evt.nativeEvent.touches;
         if (g.mode !== 'none' && g.target.kind === 'sticker' && touches.length >= 2)
           startPinch(g.target, touches);
       },
       onPanResponderMove: (evt: GestureResponderEvent, gs: PanResponderGestureState) => {
+        // 효과(useEffect)가 돌기 전 같은 그리기 사이에 온 움직임도 버린다
+        if (!latest.current.enabled) return abort();
         const g = gesture.current;
         if (g.mode === 'none') return;
         const w = latest.current.width;
@@ -312,6 +328,7 @@ export function useStickerGestures({
   ).current;
 
   function finish() {
+    if (!latest.current.enabled) return abort();
     const g = gesture.current;
     if (frame.current != null) cancelAnimationFrame(frame.current);
     frame.current = null;
