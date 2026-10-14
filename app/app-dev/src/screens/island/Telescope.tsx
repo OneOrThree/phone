@@ -639,7 +639,8 @@ export function Telescope({ e }: { e: any }) {
       {selected && (
         <IslandBubble
           item={selected}
-          locked={sail.pending || joiningId !== null || unpinning}
+          // 서버 세션이 없는 목업(EXPO_PUBLIC_MAGAZINE_MOCK=telescope)은 보기만 — 행동 버튼은 실제 API 를 부르므로 막는다
+          locked={!e.islands || sail.pending || joiningId !== null || unpinning}
           joining={joiningId === selected.islandId}
           voyaging={selected.islandId === voyagingId}
           onClose={() => setSelectedId(null)}

@@ -487,7 +487,9 @@ export async function getPromotionRecords(
       !RECORD_STATUSES.includes(r.status as PromotionRecordStatus) ||
       !num(r.pinned) ||
       !num(r.arrived) ||
-      !num(r.joined)
+      !num(r.joined) ||
+      // 호 번호는 아직 안 나왔으면 null, 나왔으면 숫자 — 빠졌거나 다른 모양이면 미발행으로 보지 않고 그 줄을 뺀다
+      !(r.issueNo === null || num(r.issueNo))
     )
       return [];
     let layout: PromotionLayout | null = null;
@@ -500,7 +502,7 @@ export async function getPromotionRecords(
       {
         promotionId: r.promotionId,
         issueDate: r.issueDate,
-        issueNo: num(r.issueNo) ? (r.issueNo as number) : null,
+        issueNo: r.issueNo as number | null,
         body: r.body,
         status: r.status as PromotionRecordStatus,
         pinned: r.pinned as number,

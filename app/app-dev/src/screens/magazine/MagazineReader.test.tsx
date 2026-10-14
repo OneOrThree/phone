@@ -285,6 +285,12 @@ test('뒤로 와서 다시 펼치면(App 이 tab 을 되돌려 줌) 그 쪽에�
   expect(screen.getByTestId('magazine-pages').props.initialScrollIndex).toBe(3);
 });
 
+test('쓰기 화면에 간 사이 섬장이 아니게 됐으면(끝 쪽 없음) 남은 마지막 쪽에서 시작한다', async () => {
+  const { screen } = await open(page(), env({ tab: '3' }), false);
+  expect(screen.getByText('3 / 3')).toBeTruthy();
+  expect(screen.getByTestId('magazine-pages').props.initialScrollIndex).toBe(2);
+});
+
 test('되돌린 쪽이 지금 쪽 수보다 크면 끝 쪽에서 시작한다', async () => {
   const { screen } = await open(page(), env({ tab: '9' }), true);
   expect(screen.getByText('4 / 4')).toBeTruthy();

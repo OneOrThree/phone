@@ -1093,6 +1093,21 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
     expect(screen.queryByTestId('telescope-magazine-cell')).toBeNull();
   });
 
+  test('서버 세션 없는 목업(telescope 깃발)은 말풍선 행동 버튼을 막는다 — 실제 API 를 부르지 않게', async () => {
+    process.env.EXPO_PUBLIC_DEMO = '1';
+    process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'telescope';
+    try {
+      const screen = await render(<Telescope e={env({ islands: false })} />);
+      await fireEvent.press(await screen.findByTestId('telescope-island-mock-island-별고래섬'));
+      for (const label of ['항해하기', '바로 가입', '망원경에서 빼기'])
+        expect(disabled(screen, label)).toBe(true);
+      expect(mockGet).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.EXPO_PUBLIC_DEMO;
+      delete process.env.EXPO_PUBLIC_MAGAZINE_MOCK;
+    }
+  });
+
   test.each([
     ['p1', '잡지 핀', true],
     ['p2', '전망대 핀', true],

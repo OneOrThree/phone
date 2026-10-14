@@ -116,7 +116,8 @@ function validateTelescope(raw: unknown): Telescope {
     )
       throw contractError('items');
   }
-  // 잡지 칸은 모양이 어긋나도 목록 전체를 오류로 만들지 않고 그 칸만 null(미리보기 자리표시)로 둔다
+  // 잡지 칸은 모양이 어긋나도 목록 전체를 오류로 만들지 않고 그 칸만 null(미리보기 자리표시)로 둔다.
+  // 위 루프가 항목마다 객체인지 먼저 확인했으므로 여기서 item.magazineCell 을 읽어도 안전하다(순서를 바꾸지 말 것)
   return {
     ...(raw as unknown as Telescope),
     items: raw.items.map((item) => ({

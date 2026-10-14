@@ -133,6 +133,9 @@ export function MagazineReader({
   // 보던 쪽은 라우트의 tab 에 적어 둔다 — 끝 쪽 [우리 섬 홍보 쓰기]로 쓰기 화면에 갔다가 뒤로 오면 App 기록이 tab 을 되돌려 줘
   // 그 쪽에서 다시 연다. 새로 펼칠 때(go)는 tab 이 비어 있어 첫 쪽부터다. 처음 그릴 때 값만 쓴다.
   const resumeIndex = useRef(Number(e.tab) || 0);
+  // 다 읽은 순간의 섬장 여부로 끝 쪽(섬장 전용)을 센다 — 의존성에 넣으면 섬장 여부가 바뀔 때마다 호를 다시 읽는다
+  const hostRef = useRef(host);
+  hostRef.current = host;
   // 다 읽었을 때 펼친 쪽 — FlatList 의 처음 위치로만 쓴다(넘길 때마다 바꾸면 목록이 그리는 범위가 흔들린다)
   const startIndex = useRef(0);
 
@@ -149,10 +152,10 @@ export function MagazineReader({
         if (!alive) return;
         setLoaded(page);
         // ponytail: 칸이 한 페이지(30칸)를 넘으면 다시 펼칠 때 끝 쪽이 아직 없어 마지막으로 읽힌 쪽에 선다
-        // 끝 쪽까지 센다 — 되돌아오는 길(끝 쪽 쓰기 입구)은 섬장만이라 host 를 기다리지 않는다
+        // 지금 그릴 쪽 수로 자른다 — 쓰기 화면에 간 사이 섬장이 아니게 됐으면 끝 쪽이 없다
         startIndex.current = Math.max(
           0,
-          Math.min(resumeIndex.current, magazinePages(page, true).length - 1),
+          Math.min(resumeIndex.current, magazinePages(page, hostRef.current).length - 1),
         );
         resumeIndex.current = 0;
         setIndex(startIndex.current);

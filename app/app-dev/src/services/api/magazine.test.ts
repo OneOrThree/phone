@@ -312,6 +312,9 @@ describe('신고·기록판', () => {
         { ...record, promotionId: 'p3', status: 'NEW_STATUS' },
         { ...record, promotionId: 'p4', pinned: '3' },
         { ...record, promotionId: 'p5', layout: 'broken' },
+        // 호 번호가 문자열이거나 빠졌으면 미발행(null)으로 보지 않고 그 줄을 뺀다
+        { ...record, promotionId: 'p6', issueNo: '20' },
+        { ...record, promotionId: 'p7', issueNo: undefined },
       ],
     });
     const items = await getPromotionRecords('i 1');
