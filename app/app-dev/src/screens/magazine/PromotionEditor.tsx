@@ -188,6 +188,8 @@ export function PromotionEditor({
   // 단 마감(자정)으로 읽기 전용이 되면 저장 안 한 고친 것은 실리지 않는다 — 서버에 남은(잡지에 실릴) 칸으로 되돌린다
   useEffect(() => {
     if (!editor) return;
+    // 신청 창이 새 호로 넘어가면(07시 다시 읽기 — 낸 칸이 실려 next 가 비었다) 지난 접수 발도장을 걷는다
+    if (!editor.next) setStamped(false);
     const locked = !!editor.next && !editor.next.editable;
     if (touched.current && !locked) return;
     const from = editor.next ?? editor.latest;
@@ -371,7 +373,8 @@ export function PromotionEditor({
       {done && (
         <Overlay close={() => setDone(false)}>
           <Txt kind="h17">{t('magazine.editor.doneTitle')}</Txt>
-          <Txt>{t('magazine.editor.doneBody')}</Txt>
+          {/* 자정을 넘겨 받은 성공이면 이미 잠긴 오늘 07시 호다 — 「내일 · 자정까지 고칠 수 있어요」라고 하지 않는다 */}
+          <Txt>{t(readOnly ? 'magazine.editor.doneBodyLocked' : 'magazine.editor.doneBody')}</Txt>
           <Btn id="promotion-done-ok" title={t('common.ok')} onPress={() => setDone(false)} />
         </Overlay>
       )}

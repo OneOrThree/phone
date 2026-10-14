@@ -158,6 +158,8 @@ export function usePromotionEditor({
         }
         const applied = await api.applyPromotion(islandId, draft, keys.key('apply', exact));
         keys.release('apply', exact);
+        // 그 호의 마감(KST 자정)을 넘겨 받은 성공(늦은 응답 · 응답 유실 뒤 같은 키 재시도의 재생)이면 이미 잠긴 칸이다
+        const pastDeadline = now() >= Date.parse(`${applied.issueDate}T00:00:00+09:00`);
         setEditor(
           (cur) =>
             cur && {
@@ -168,8 +170,8 @@ export function usePromotionEditor({
                 promotionId: applied.promotionId,
                 issueDate: applied.issueDate,
                 appliedAt: new Date(now()).toISOString(),
-                // 응답이 늦는 사이 자정 재조회가 창 닫힘을 받아 왔으면 그대로 잠근다(늦은 성공이 마감을 덮지 않게)
-                editable: cur.window.open && cur.next?.editable !== false,
+                // 응답이 늦는 사이 자정 재조회가 창 닫힘을 받아 왔거나 이미 마감이 지났으면 그대로 잠근다(늦은 성공이 마감을 덮지 않게)
+                editable: !pastDeadline && cur.window.open && cur.next?.editable !== false,
               },
             },
         );
