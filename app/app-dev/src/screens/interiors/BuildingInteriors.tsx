@@ -7944,7 +7944,6 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       : state
         ? letters.length
         : 3;
-  const promotionHost = !!e && !!island && !state?.visitingIslandId && isHost(island);
   // 고양이 잡지(GROMO-2289 · C4) — 오늘 호가 나와 있으면 「고양이 잡지 보기 · N호」(안 읽었으면 빨간 점), 지난 호는 꽂이(C5)
   const magazineToday: MagazineToday | null = e?.magazineToday ?? null;
   const magazineIssue = magazineToday?.issue?.current ? magazineToday.issue : null;
@@ -8128,30 +8127,6 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           </>
         )}
       </View>
-      {promotionHost && (
-        // 고양이 잡지 홍보 쓰기 입구(GROMO-2289 · P3) — 섬장만, 내 섬일 때만. 잡지 보기 버튼은 위 칸 줄에 있다
-        <Pressable
-          testID="mail-home-promotion"
-          accessibilityRole="button"
-          accessibilityLabel={t('magazine.editor.title')}
-          onPress={() => e.go('promotionEditor')}
-          style={{
-            marginTop: componentTokens.mailboxAction.gap,
-            minHeight: semanticTokens.size.tapMin,
-            paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
-            justifyContent: 'center',
-            borderWidth: componentTokens.mailboxAction.borderWidth,
-            borderColor: componentTokens.mailboxAction.border,
-            borderRadius: componentTokens.mailboxAction.radius,
-            backgroundColor: componentTokens.mailboxAction.background,
-            boxShadow: componentTokens.mailboxAction.shadow,
-          }}
-        >
-          <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
-            {t('magazine.editor.title')}
-          </Text>
-        </Pressable>
-      )}
     </>
   );
 

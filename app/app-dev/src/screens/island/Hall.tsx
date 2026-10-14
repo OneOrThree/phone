@@ -69,6 +69,14 @@ const ownGreeting = (detail?: { greeting?: string; greetingIsDefault?: boolean }
   detail?.greetingIsDefault === false ? (detail.greeting ?? '') : '';
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
+// 섬 관리 카드의 「우리 섬 홍보 쓰기 ›」·「우리 섬 홍보 기록판 ›」 줄 — 두 줄이 같은 모양이다
+const promotionRow = {
+  minHeight: semanticTokens.size.tapMin,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: semanticTokens.spacing.control,
+} as const;
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
 const final = (word: string) => {
   const c = word.charCodeAt(word.length - 1) - 0xac00;
@@ -2973,6 +2981,22 @@ export function Hall({ e }: any) {
           </Pressable>
         </View>
       )}
+      {!visitor && host && (
+        // 우리 섬 홍보 쓰기(GROMO-2289 · P3) — 홍보는 마을회관에서(10/5 · 10/14 확정). 내 섬 섬장만, 구경 중에는 없다.
+        // 섬장 판정은 쓰기 화면(editorIsland)과 같은 홈 스냅샷 역할이다. 뒤로가기는 App 기록으로 이 카드에 돌아온다
+        <Pressable
+          testID="hall-promotion-editor"
+          accessibilityRole="button"
+          accessibilityLabel={t('magazine.editor.title')}
+          onPress={() => e.go('promotionEditor')}
+          style={promotionRow}
+        >
+          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
+            {t('magazine.editor.title')}
+          </T>
+          <Icon d={CHEV} size={22} />
+        </Pressable>
+      )}
       {!visitor && (
         // 우리 섬 홍보 기록판(GROMO-2289 AD-11) — 주민만. 방문자에게는 입구 자체를 그리지 않는다
         <Pressable
@@ -2980,13 +3004,7 @@ export function Hall({ e }: any) {
           accessibilityRole="button"
           accessibilityLabel={t('magazine.records.entry')}
           onPress={() => e.go('promotionRecords')}
-          style={{
-            minHeight: semanticTokens.size.tapMin,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: semanticTokens.spacing.control,
-          }}
+          style={promotionRow}
         >
           <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
             {t('magazine.records.entry')}
