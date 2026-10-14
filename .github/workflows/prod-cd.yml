@@ -106,25 +106,26 @@ jobs:
                   if command.get("Parameters") != parameters or command.get("InstanceIds") != [config["INSTANCE_ID"]]:
                       raise ValueError("기존 SSM 명령의 배포 입력 불일치")
                   return command["CommandId"]
-              identifier = existing_command()
+              identifier = None
+              submitted = os.environ["GITHUB_RUN_ATTEMPT"] != "1"
               deadline = time.monotonic() + 2500
-              if identifier is None and os.environ["GITHUB_RUN_ATTEMPT"] == "1":
-                  try:
-                      response = aws("ssm", "send-command", "--document-name", config["SSM_DOC"], "--instance-ids", config["INSTANCE_ID"],
-                          "--comment", marker, "--parameters", json.dumps(parameters))
-                      identifier = response["Command"]["CommandId"]
-                  except (RuntimeError, subprocess.TimeoutExpired):
-                      print("SSM 전송 결과 불명 — 재전송 없이 기존 명령 조회", flush=True)
               while time.monotonic() < deadline:
                   try:
                       if identifier is None:
                           identifier = existing_command()
+                          if identifier is None and not submitted:
+                              # 전송 전 조회 오류는 재시도하되 전송이 시작되면 재전송하지 않는다.
+                              submitted = True
+                              response = aws("ssm", "send-command", "--document-name", config["SSM_DOC"], "--instance-ids", config["INSTANCE_ID"],
+                                  "--comment", marker, "--parameters", json.dumps(parameters))
+                              identifier = response["Command"]["CommandId"]
                           if identifier is None:
                               time.sleep(5)
                               continue
                       print("Catus SSM command: " + identifier, flush=True)
                       result = aws("ssm", "get-command-invocation", "--command-id", identifier, "--instance-id", config["INSTANCE_ID"])
                   except (RuntimeError, subprocess.TimeoutExpired):
+                      print("SSM 상태 확인 재시도 — 명령 중복 전송 없음", flush=True)
                       time.sleep(5)
                       continue
                   if result["Status"] == "Success":

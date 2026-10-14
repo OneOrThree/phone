@@ -408,7 +408,11 @@ class VersionBadgeTests(unittest.TestCase):
             calls.append(args)
             if args[0] == 'secretsmanager': return {'SecretString': json.dumps(config)}
             if args[1] == 'list-commands':
-                if sum(call[1] == 'list-commands' for call in calls) < 3:
+                queries = sum(call[1] == 'list-commands' for call in calls)
+                if queries == 1:
+                    self.assertFalse(any(call[1] == 'send-command' for call in calls))
+                    raise subprocess.TimeoutExpired('aws', 30)
+                if queries < 4:
                     return {'Commands': []}
                 sent = next(call for call in calls if call[1] == 'send-command')
                 return {'Commands': [{'CommandId': 'command', 'Comment': 'catus:1:2',
@@ -430,7 +434,8 @@ class VersionBadgeTests(unittest.TestCase):
                          'GITHUB_REPOSITORY_ID': '1', 'GITHUB_RUN_ID': '2', 'GITHUB_RUN_ATTEMPT': '1'}), \
                      patch.object(subprocess, 'run', download), patch.object(namespace['time'], 'sleep') as sleep:
                     namespace['main']()
-                self.assertEqual([call.args for call in sleep.call_args_list], [(5,), (5,)])
+                self.assertEqual([call.args for call in sleep.call_args_list], [(5,)] * 4)
+                self.assertEqual(sum(call[1] == 'list-commands' for call in calls), 4)
                 self.assertEqual(sum(call[1] == 'send-command' for call in calls), 1)
                 self.assertEqual(sum(call[1] == 'get-command-invocation' for call in calls), 2)
                 params = json.loads(next(call for call in calls if call[1] == 'send-command')[-1])
