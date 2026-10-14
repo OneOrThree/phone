@@ -79,7 +79,8 @@ class VersionBadgeTests(unittest.TestCase):
             with patch.object(sys, 'argv', ['version', '--revision', 'a' * 40, '--plan-file', str(plan),
                                           '--bucket', 'catus-prod-deploy-artifacts-test']), \
                  patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
-                 patch.object(version.subprocess, 'check_output', side_effect=['', '', '[]']), \
+                 patch.object(version.subprocess, 'check_output', return_value=''), \
+                 patch.object(version, 'release_labels', return_value=[]), \
                  patch.object(version, 'reserved_versions', return_value=[reserved]), \
                  patch('sys.stdout', new_callable=io.StringIO) as output:
                 version.main()
@@ -91,7 +92,8 @@ class VersionBadgeTests(unittest.TestCase):
             plan.write_text(json.dumps({'previous': {'product': 'catus', 'version': 'catus-v2.0.0'}}))
             with patch.object(sys, 'argv', ['version', '--revision', 'a' * 40, '--plan-file', str(plan), '--bucket', 'catus-prod-deploy-artifacts-test']), \
                  patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
-                 patch.object(version.subprocess, 'check_output', side_effect=['', '[]']), \
+                 patch.object(version.subprocess, 'check_output', return_value=''), \
+                 patch.object(version, 'release_labels', return_value=[]), \
                  patch.object(version, 'reserved_versions', return_value=[]), \
                  patch('sys.stdout', new_callable=io.StringIO) as output:
                 version.main()
@@ -102,6 +104,46 @@ class VersionBadgeTests(unittest.TestCase):
                                 ('release:patch', 'catus-v2.1.1')]:
             self.assertEqual(version.next_version(['catus-v2.1.0'], [label],
                 {'product': 'catus', 'version': 'catus-v2.0.0'}), expected)
+
+    def test_예약전에_실패한_릴리스의_증가의도를_후속커밋이_이월한다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def git(*args):
+                return subprocess.check_output(['git', *args], cwd=directory, text=True).strip()
+            git('init', '-q')
+            revisions = []
+            for message in ['기준', '실패한 릴리스', '후속 릴리스']:
+                git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', message)
+                revisions.append(git('rev-parse', 'HEAD'))
+            base, failed, current = revisions
+            original = subprocess.check_output
+            for bump, expected in [('release:major', 'catus-v3.0.0'), ('release:minor', 'catus-v2.1.0')]:
+                seen = []
+                def output(args, **kwargs):
+                    if args[0] != 'gh': return original(args, cwd=directory, **kwargs)
+                    sha = args[-1].split('/')[-2]
+                    seen.append(sha)
+                    return json.dumps([[{'merged_at': '2026-01-01', 'base': {'ref': 'release'},
+                        'merge_commit_sha': sha, 'labels': [{'name': bump if sha == failed else 'release:patch'}]}]])
+                with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+                     patch.object(version.subprocess, 'check_output', side_effect=output):
+                    labels = version.release_labels(current, base)
+                    self.assertEqual(version.next_version(['catus-v2.0.0'], labels), expected)
+                    self.assertEqual(set(seen), {failed, current})
+                    self.assertEqual(version.release_labels(current, failed), ['release:patch'])
+
+    def test_고정버전은_최신버전보다_커야하며_동일실행_예약만_복구한다(self):
+        previous = {'version': 'catus-v2.0.0'}
+        reserved = {'version': 'catus-v2.1.0', 'source_revision': 'a' * 40,
+                    'infra_revision': 'b' * 40, 'release_id': 'a' * 40 + '-10-1'}
+        for fixed in ['catus-v2.0.1', 'catus-v2.1.0']:
+            with self.assertRaises(ValueError):
+                version.validate_fixed(fixed, ['catus-v2.1.0'], [], previous, 'a' * 40, 'b' * 40, '10')
+        version.validate_fixed('catus-v2.2.0', ['catus-v2.1.0'], [reserved], previous, 'a' * 40, 'b' * 40, '11')
+        version.validate_fixed('catus-v2.1.0', ['catus-v2.1.0'], [reserved], previous, 'a' * 40, 'b' * 40, '10')
+        with self.assertRaises(ValueError):
+            version.validate_fixed('catus-v2.1.0', [], [reserved], previous, 'a' * 40, 'b' * 40, '11')
+        with self.assertRaises(ValueError):
+            version.validate_fixed('catus-v2.1.0', [], [reserved], previous, 'a' * 40, 'c' * 40, '10')
 
     def test_기존annotated태그는_재게시하고_새발행CLI는_버전을_증가시킨다(self):
         script = next(step['run'] for step in workflow('prod-ci.yml')['jobs']['release']['steps']
@@ -166,7 +208,16 @@ class VersionBadgeTests(unittest.TestCase):
             gh.write_text("#!/bin/sh\nprintf '[]\\n'\n")
             gh.chmod(0o755)
             aws_cli = root / 'bin/aws'
-            aws_cli.write_text("#!/bin/sh\nif [ \"$1\" = secretsmanager ]; then printf '{\"DEPLOY_BUCKET\":\"catus-prod-deploy-artifacts-test\"}\\n'; else printf '[]\\n'; fi\n")
+            aws_cli.write_text('#!' + sys.executable + '\n' + """import json, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[0] == 'secretsmanager':
+    print(json.dumps({'DEPLOY_BUCKET': 'catus-prod-deploy-artifacts-test'}))
+elif 'list-objects-v2' in args:
+    print(json.dumps(['versions/catus-v2.0.0.json'] if Path('reserved.json').exists() else []))
+else:
+    Path(args[-1]).write_text(Path('reserved.json').read_text())
+""")
             aws_cli.chmod(0o755)
             env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
                 'GITHUB_SHA': revision, 'GITHUB_REPOSITORY': 'OneOrThree/phone', 'GITHUB_RUN_ID': '1',
@@ -177,6 +228,8 @@ class VersionBadgeTests(unittest.TestCase):
             result = run(allocate['run'])
             self.assertEqual(result.returncode, 0, result.stderr)
             git('tag', 'catus-v2.0.0')
+            (root / 'reserved.json').write_text(json.dumps({'version': 'catus-v2.0.0', 'source_revision': revision,
+                'infra_revision': 'a' * 40, 'release_id': revision + '-1-1'}))
             retry = run(validate, {'GITHUB_RUN_ATTEMPT': '2'})
             self.assertEqual(retry.returncode, 0, retry.stderr)
             self.assertEqual(retry.stdout, 'catus-v2.0.0')

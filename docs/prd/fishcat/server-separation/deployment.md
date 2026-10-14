@@ -82,11 +82,11 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 1. `main`·`release` 대상 PR에서 `prod-ci.yml`은 변경 서비스 검사·이미지 빌드를 수행하며 ECR에 발행하지 않는다. 공통 빌드 입력이 바뀌면 전체 서비스가 검사 대상이다.
 2. `release` push 또는 `release`를 선택한 `prod-ci.yml` 수동 실행에서 발행한다. 마지막 prod 성공 상태 `deployments/current.json`의 소스 지문과 비교해 변경 서비스만 `linux/arm64`로 빌드한다. 최초 발행과 수동 `rebuild_all=true`는 전체 빌드이며, Infra SHA만 바뀌면 이미지는 재사용하고 전체 서비스를 배포 대상으로 기록한다. 발행·배포 실행은 `queue: max`로 대기 실행을 보존한다. 같은 실행을 재시도하면 계획·JAR·이미지 digest 산출물을 교체한다.
 3. 이미지 저장소는 `catus-prod/<service>`이며 릴리스에는 재사용 이미지를 포함한 네 서비스의 digest 조합을 기록한다. 불변 산출물은 S3 `releases/<소스 SHA>-<실행 ID>-<시도 번호>/bundle.zip`·`release.json`, 버전 참조는 `versions/catus-vX.Y.Z.json`이다.
-4. 기존 Catus Git 태그·S3 `versions/`의 불변 예약·실제 운영 성공 상태 `deployments/current.json` 중 가장 큰 버전을 기준으로 `release` 대상 릴리스 PR의 `release:major`·`release:minor`·`release:patch` 중 하나로 증가하고, 미지정은 patch다. 세 기준 모두 없을 때만 최초 버전 `catus-v2.0.0`을 사용한다. 현재 운영자 전환 버전이 `catus-v2.0.0`이므로 정식 Git 태그가 없어도 첫 자동 patch 발행은 `catus-v2.0.1`이다. 수동 발행은 `version_bump` 입력을 사용한다. 같은 버전을 Git 태그와 네 서비스 ECR 태그로 기록한다. 기존 Gromo `vX.Y.Z` 태그는 버전 계산에 포함하지 않는다. 정규 발행 전 Infra PR #11의 `versions/` 경로 한정 `s3:ListBucket` 권한을 적용해야 한다.
+4. 기존 Catus Git 태그·S3 `versions/`의 불변 예약·실제 운영 성공 상태 `deployments/current.json` 중 가장 큰 버전을 기준으로 증가한다. 그 기준 소스 이후 현재 소스까지 포함된 `release` 대상 PR의 `release:major`·`release:minor`·`release:patch`를 누적해 가장 큰 증가폭 하나를 적용하고, 미지정은 patch다. 실패한 실행이 예약 전에 중단돼도 major/minor 의도를 후속 커밋이 이월한다. 수동 `version_bump`도 누적된 증가폭보다 낮추지 않는다. 세 기준 모두 없을 때만 최초 버전 `catus-v2.0.0`을 사용한다. 현재 운영자 전환 버전이 `catus-v2.0.0`이므로 정식 Git 태그가 없어도 첫 자동 patch 발행은 `catus-v2.0.1`이다. 같은 버전을 Git 태그와 네 서비스 ECR 태그로 기록한다. 기존 Gromo `vX.Y.Z` 태그는 버전 계산에 포함하지 않는다. 정규 발행 전 Infra PR #11의 `versions/` 경로 한정 `s3:ListBucket` 권한을 적용해야 한다.
 
 계산한 버전은 S3 발행 전에 `catus-release-version` Actions 산출물에 소스·Infra SHA와 실행 ID를 함께 고정한다. 같은 실행의 재시도는 산출물 존재 여부를 먼저 확인한다. 보관 전 실패로 산출물이 없으면 버전을 새로 고정하고, 있으면 복구해 입력을 검증하고 기존 S3 릴리스 메타데이터와 checksum 확인을 이어간다. Git 태그가 이미 있으면 같은 커밋인지 확인하며 중복 생성하지 않는다. 산출물이 만료됐거나 입력이 달라졌으면 버전을 추측하지 않고 실패한다. 새 수동 실행의 강제 재빌드·Infra 변경은 같은 소스 SHA여도 새 버전을 계산한다.
 
-대기열은 커밋 순서를 보장하지 않으므로 버전 계산 전과 매 시도의 S3 발행 직전에 최신 Catus 태그의 소스가 현재 소스의 조상인지 검사한다. 고정 버전을 복구하는 재시도도 이 검사를 생략하지 않는다. 후속 커밋이 먼저 발행됐다면 뒤늦은 이전 커밋·분기 커밋은 더 높은 버전으로 발행하지 않고 실패한다.
+대기열은 커밋 순서를 보장하지 않으므로 버전 계산 전과 매 시도의 S3 발행 직전에 최신 Catus 태그·예약의 소스가 현재 소스의 조상인지 검사한다. 고정 버전을 복구하는 재시도도 이 검사를 생략하지 않는다. 버전 번호도 최신 태그·예약·운영 버전보다 커야 하며, 동일 소스·Infra·Actions 실행에 이미 예약된 버전만 같은 번호의 복구를 허용한다. 고정 번호가 뒤늦게 낡아졌으면 새 발행 실행이 필요하다. 후속 커밋이 먼저 발행됐다면 뒤늦은 이전 커밋·분기 커밋은 더 높은 버전으로 발행하지 않고 실패한다.
 
 ### 배포와 롤백
 
