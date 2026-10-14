@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 계정당 1부의 받음·나중에·읽음 상태 (GROMO-2289, V115, MAG-02·03). 행은 리포지토리의 {@code insertIfAbsent} 로만 생긴다 —
+ * 계정당 1부의 받음·나중에·읽음 상태 (GROMO-2289, V120, MAG-02·03). 행은 리포지토리의 {@code insertIfAbsent} 로만 생긴다 —
  * 받은 곳·받은 시각은 처음 값으로 고정되고, 나중에·읽음 시각은 처음 한 번만 적힌다(되돌리지 않는다).
  */
 @Entity

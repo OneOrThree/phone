@@ -12,7 +12,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * 편집부 소식 — 운영이 SQL 로 날짜별 문구를 넣는다(GROMO-2289, V115, OPS-04). 발행 배치가 그날 행을 읽기만 한다.
+ * 편집부 소식 — 운영이 SQL 로 날짜별 문구를 넣는다(GROMO-2289, V120, OPS-04). 발행 배치가 그날 행을 읽기만 한다.
  */
 @Entity
 @Table(name = "magazine_editorial_notes")

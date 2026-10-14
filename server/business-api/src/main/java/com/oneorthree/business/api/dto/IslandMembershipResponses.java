@@ -12,6 +12,7 @@ import com.oneorthree.business.upstream.data.dto.IslandSummary;
 import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
 import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
 import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
+import com.oneorthree.business.upstream.data.dto.Magazines;
 import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.Telescope;
 import com.oneorthree.business.upstream.data.dto.TelescopePin;
@@ -303,6 +304,8 @@ public final class IslandMembershipResponses {
      * @param pinnedFrom                {@code magazine|observatory} — 직접 넣은 섬({@code slot=pinned})에만 있다. 나머지 칸에서는
      *                                  키가 없다(GROMO-2268)
      * @param pinnedAt                  핀을 넣은 시각 — {@code pinnedFrom} 과 함께 있거나 함께 없다
+     * @param magazineCell              잡지에서 넣은 섬의 그 잡지 홍보 칸(잡지 한 호의 칸과 같은 모양). 없으면 null 이고 키는
+     *                                  항상 있다(GROMO-2289)
      */
     public record TelescopeItemView(
             @JsonProperty(required = true) UUID islandId,
@@ -318,7 +321,8 @@ public final class IslandMembershipResponses {
             @JsonProperty(required = true) boolean full,
             @JsonProperty(required = true) boolean arrivedBefore,
             @JsonInclude(JsonInclude.Include.NON_NULL) String pinnedFrom,
-            @JsonInclude(JsonInclude.Include.NON_NULL) Instant pinnedAt) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) Instant pinnedAt,
+            @JsonInclude(JsonInclude.Include.ALWAYS) Magazines.Cell magazineCell) {
         public static TelescopeItemView from(Telescope.Item value) {
             if (value == null) {
                 return null;
@@ -337,7 +341,8 @@ public final class IslandMembershipResponses {
                     value.full(),
                     value.arrivedBefore(),
                     value.pinnedFrom(),
-                    value.pinnedAt());
+                    value.pinnedAt(),
+                    value.magazineCell());
         }
     }
 

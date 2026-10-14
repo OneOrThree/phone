@@ -9,7 +9,7 @@
 | 친구·편지 | [`friend-letter/`](friend-letter/) |
 | 신고·차단 | [`character-report/`](character-report/) |
 | 섬 | [`island-membership/`](island-membership/) · [`island-management/`](island-management/) · [`island-construction/`](island-construction/) · [`island-appearance/`](island-appearance/) · [`island-movement/`](island-movement/) (이동 서버 설계안 + 맵·에셋 배포 계약) |
-| 섬 기능 | [`island-board/`](island-board/) · [`island-mailbox/`](island-mailbox/) · [`island-playback/`](island-playback/) · [`island-quests/`](island-quests/) · [`island-rankings/`](island-rankings/) · [`island-records/`](island-records/) · [`island-shop/`](island-shop/) |
+| 섬 기능 | [`island-board/`](island-board/) · [`island-mailbox/`](island-mailbox/) · [`island-playback/`](island-playback/) · [`island-quests/`](island-quests/) · [`island-rankings/`](island-rankings/) · [`island-records/`](island-records/) · [`island-shop/`](island-shop/) · [`magazine/`](magazine/) (고양이 잡지 — 운영 런북) |
 | 플랫폼·전환 | [`link-attribution/`](link-attribution/) · [`realtime-events/`](realtime-events/) · [`server-separation/`](server-separation/) |
 | 앱 공통 | [`l10n/`](l10n/) (다국어 i18n·l10n — 언어 판정·문구 표·언어 전환·서버 오류 문구·언어별 이미지) |
 

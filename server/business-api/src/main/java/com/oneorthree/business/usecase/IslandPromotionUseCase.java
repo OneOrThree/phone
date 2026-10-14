@@ -17,7 +17,8 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * 잡지 홍보 신청·섬 소식(GROMO-2267, 섬 외부 계약 §7)과 고양이 잡지 편집·꾸미기 재료(GROMO-2289)의 공개 유스케이스.
+ * 잡지 홍보 신청·섬 소식(GROMO-2267, 섬 외부 계약 §7)과 고양이 잡지 편집·꾸미기 재료·신고·홍보 기록판(GROMO-2289)의
+ * 공개 유스케이스.
  * 섬장·게스트·잔액·신청 창·호당 1회·layout·재료 보유는 전부 Data 가 판정하고 여기서는 코드만 옮긴다. 상태까지
  * 대조해 Data 가 같은 코드의 상태를 바꾸면 502 로 드러난다.
  */
@@ -35,8 +36,10 @@ public class IslandPromotionUseCase {
             "GROUP_NOT_FOUND", new PublicFailure(404, ApiErrorCode.GROUP_NOT_FOUND, "islandId"),
             // 섬장이 아닌 신청 — 일반 주민·방문자 모두.
             "NOT_OWNER", new PublicFailure(403, ApiErrorCode.FORBIDDEN, null),
-            // 소식은 주민만 읽는다.
+            // 소식·홍보 기록판은 주민만 읽는다.
             "MEMBER_ONLY", new PublicFailure(403, ApiErrorCode.FORBIDDEN, "islandId"),
+            // 지금 주민인 섬의 홍보 칸 신고 — 앱은 우리 섬 칸에 신고 버튼을 두지 않으므로 공개 이름을 따로 만들지 않는다.
+            "PROMOTION_REPORT_OWN_ISLAND", new PublicFailure(403, ApiErrorCode.FORBIDDEN, null),
             // 섬 통장이 홍보비(60)보다 적다 — 차감 0, 소식 0.
             "INSUFFICIENT_FUNDS", new PublicFailure(409, ApiErrorCode.INSUFFICIENT_FUNDS, null),
             // 잡지 기능 스위치가 꺼져 있다(GROMO-2289) — 신청·고치기 모두. 공개 이름은 만들지 않는다.
@@ -63,6 +66,26 @@ public class IslandPromotionUseCase {
 
     public IslandPromotions.Assets assets(AccessTokenClaims claims, Deadline deadline) {
         return required(relay(() -> data.fetchMagazineAssets(claims.userId(), deadline)));
+    }
+
+    /**
+     * 홍보 칸 신고 — 소셜 로그인·없는 홍보·우리 섬 칸(403 {@code FORBIDDEN})·중복 신고·3회 숨김은 전부 Data 가 판정한다. Data 가 {@code reported:true} 가
+     * 아닌 성공을 주면 계약 위반이다.
+     */
+    public IslandPromotions.Report report(AccessTokenClaims claims, UUID islandId, UUID promotionId, String reason,
+            Deadline deadline) {
+        IslandPromotions.Report report = required(relay(() -> data.reportPromotion(claims.userId(), islandId,
+                promotionId, reason, deadline)));
+        if (!report.reported()) {
+            throw new UpstreamContractMismatchException("홍보 신고 응답이 계약과 다릅니다");
+        }
+        return report;
+    }
+
+    /** 우리 섬 홍보 기록판 — 주민만 읽는다(비주민은 Data 의 {@code MEMBER_ONLY} → 공개 403 {@code FORBIDDEN}). */
+    public IslandPromotions.RecordPage records(AccessTokenClaims claims, UUID islandId, int limit,
+            Deadline deadline) {
+        return required(relay(() -> data.fetchPromotionRecords(claims.userId(), islandId, limit, deadline)));
     }
 
     public IslandPromotions.NewsPage news(AccessTokenClaims claims, UUID islandId, int limit, Deadline deadline) {

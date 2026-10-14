@@ -18,9 +18,11 @@ import java.util.UUID;
  * @param arrivedBefore             본인이 이 섬에 가 본 적 있다
  * @param pinnedFrom                {@code magazine|observatory} — 직접 넣은 섬({@code slot=pinned})만 값이 있고 나머지는 null
  * @param pinnedAt                  핀을 넣은 시각 — {@code pinnedFrom} 과 함께 있거나 함께 없다
+ * @param magazineCell              잡지에서 넣은 섬의 현재 호 홍보 칸(말풍선 미리보기, SCOPE-09, GROMO-2289). 잡지 핀이 아니거나,
+ *                                  편집부 칸에서 넣은 섬이거나, 칸이 숨겨졌거나, 현재 호가 아니면 null
  */
 public record TelescopeItemView(UUID islandId, String name, String intro, int memberCount, int maxMembers,
         boolean approvalRequired, String membershipStatus, String slot, int sailingMinutes,
         Integer averageFocusMinutesPerDay, boolean full, boolean arrivedBefore,
-        String pinnedFrom, Instant pinnedAt) {
+        String pinnedFrom, Instant pinnedAt, MagazineViews.Cell magazineCell) {
 }

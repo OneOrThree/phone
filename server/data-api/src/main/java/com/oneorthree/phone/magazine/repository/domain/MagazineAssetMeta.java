@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * 잡지 꾸미기 재료(틀·스티커·테이프)의 부가 정보 (GROMO-2289, V113) — {@code catalog_assets} 행과 1:1 이다. 카탈로그 행은
+ * 잡지 꾸미기 재료(틀·스티커·테이프)의 부가 정보 (GROMO-2289, V118) — {@code catalog_assets} 행과 1:1 이다. 카탈로그 행은
  * 불변이라 종류 사본·서랍 탭·묶음·정렬·퇴역을 이 옆 표에 둔다. 행은 마이그레이션 시드와 운영 SQL 로만 생긴다 — 이 도메인은 읽기만
  * 한다.
  */
