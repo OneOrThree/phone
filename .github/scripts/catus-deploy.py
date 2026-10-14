@@ -67,7 +67,7 @@ def prepare(release_id, operation, recover=False):
 def existing_command(request):
     marker, parameters = request["marker"], request["parameters"]
     commands = aws("ssm", "list-commands", "--instance-id", request["instance_id"],
-        "--filters", "Key=DocumentName,Values=" + request["document"])["Commands"]
+        "--filters", "key=DocumentName,value=" + request["document"])["Commands"]
     matches = [command for command in commands if command.get("Comment") == marker]
     if len(matches) > 1:
         raise ValueError("동일 실행의 SSM 명령이 여러 개다 — 운영자 확인 필요")

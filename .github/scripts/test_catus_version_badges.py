@@ -57,13 +57,42 @@ class VersionBadgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             version.next_version([], [], {'product': 'gromo', 'version': 'v2.0.0'})
 
+    def test_S3_부분발행_예약도_숫자순으로_계산하고_다른제품은_제외한다(self):
+        envelope = {'version': 'catus-v2.10.0', 'source_revision': 'a' * 40, 'release_id': 'a' * 40 + '-2-1'}
+        keys = ['versions/catus-v2.9.0.json', 'versions/catus-v2.10.0.json', 'versions/focuscat-v99.0.0.json']
+        def download(args, **kwargs):
+            self.assertIn('versions/catus-v2.10.0.json', args)
+            Path(args[-1]).write_text(json.dumps(envelope))
+        with patch.object(version.subprocess, 'check_output', return_value=json.dumps(keys)), \
+             patch.object(version.subprocess, 'run', side_effect=download):
+            reserved = version.reserved_versions('catus-prod-deploy-artifacts-test')
+        self.assertEqual(reserved, [envelope])
+        self.assertEqual(version.next_version([r['version'] for r in reserved], []), 'catus-v2.10.1')
+        with patch.object(version.subprocess, 'check_output', side_effect=subprocess.CalledProcessError(1, 'aws')), self.assertRaises(subprocess.CalledProcessError):
+            version.reserved_versions('catus-prod-deploy-artifacts-test')
+
+    def test_버전CLI는_Git태그가_없는_S3예약의_다음버전을_고른다(self):
+        reserved = {'version': 'catus-v2.0.1', 'source_revision': 'a' * 40, 'release_id': 'a' * 40 + '-2-1'}
+        with tempfile.TemporaryDirectory() as directory:
+            plan = Path(directory, 'plan.json')
+            plan.write_text(json.dumps({'previous': {'product': 'catus', 'version': 'catus-v2.0.0'}}))
+            with patch.object(sys, 'argv', ['version', '--revision', 'a' * 40, '--plan-file', str(plan),
+                                          '--bucket', 'catus-prod-deploy-artifacts-test']), \
+                 patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+                 patch.object(version.subprocess, 'check_output', side_effect=['', '', '[]']), \
+                 patch.object(version, 'reserved_versions', return_value=[reserved]), \
+                 patch('sys.stdout', new_callable=io.StringIO) as output:
+                version.main()
+            self.assertEqual(output.getvalue().strip(), 'catus-v2.0.2')
+
     def test_버전CLI는_계획의_실제운영_기준을_읽는다(self):
         with tempfile.TemporaryDirectory() as directory:
             plan = Path(directory, 'prod-plan.json')
             plan.write_text(json.dumps({'previous': {'product': 'catus', 'version': 'catus-v2.0.0'}}))
-            with patch.object(sys, 'argv', ['version', '--revision', 'a' * 40, '--plan-file', str(plan)]), \
+            with patch.object(sys, 'argv', ['version', '--revision', 'a' * 40, '--plan-file', str(plan), '--bucket', 'catus-prod-deploy-artifacts-test']), \
                  patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
                  patch.object(version.subprocess, 'check_output', side_effect=['', '[]']), \
+                 patch.object(version, 'reserved_versions', return_value=[]), \
                  patch('sys.stdout', new_callable=io.StringIO) as output:
                 version.main()
             self.assertEqual(output.getvalue().strip(), 'catus-v2.0.1')
@@ -99,9 +128,10 @@ class VersionBadgeTests(unittest.TestCase):
             def output(args, **kwargs):
                 if args[0] == 'gh': return '[]'
                 return original(args, cwd=root, **kwargs)
-            with patch.object(sys, 'argv', ['version', '--revision', revision, '--plan-file', str(plan)]), \
+            with patch.object(sys, 'argv', ['version', '--revision', revision, '--plan-file', str(plan), '--bucket', 'catus-prod-deploy-artifacts-test']), \
                  patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
                  patch.object(version.subprocess, 'check_output', side_effect=output), \
+                 patch.object(version, 'reserved_versions', return_value=[]), \
                  patch('sys.stdout', new_callable=io.StringIO) as stdout:
                 version.main()
             self.assertEqual(stdout.getvalue().strip(), 'catus-v2.0.1')
@@ -114,11 +144,11 @@ class VersionBadgeTests(unittest.TestCase):
         upload = next(step for step in steps if step.get('uses') == 'actions/upload-artifact@v4')
         download = next(step for step in steps if step.get('with', {}).get('name') == 'catus-release-version'
                         and step.get('uses') == 'actions/download-artifact@v4')
-        self.assertEqual(allocate['if'], 'github.run_attempt == 1')
-        self.assertEqual(upload['if'], 'github.run_attempt == 1')
-        self.assertEqual(download['if'], 'github.run_attempt != 1')
+        self.assertEqual(allocate['if'], "steps.version-record.outputs.exists != 'true'")
+        self.assertEqual(upload['if'], "steps.version-record.outputs.exists != 'true'")
+        self.assertEqual(download['if'], "steps.version-record.outputs.exists == 'true'")
         generate = next(step['run'] for step in steps if step.get('name') == '불변 릴리스 생성·업로드')
-        validate = generate.split('bucket=', 1)[0] + '\nprintf "%s" "$version"\n'
+        validate = generate.split('mkdir -p infra-config', 1)[0] + '\nprintf "%s" "$version"\n'
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             def git(*args):
@@ -135,9 +165,12 @@ class VersionBadgeTests(unittest.TestCase):
             gh = root / 'bin/gh'
             gh.write_text("#!/bin/sh\nprintf '[]\\n'\n")
             gh.chmod(0o755)
+            aws_cli = root / 'bin/aws'
+            aws_cli.write_text("#!/bin/sh\nif [ \"$1\" = secretsmanager ]; then printf '{\"DEPLOY_BUCKET\":\"catus-prod-deploy-artifacts-test\"}\\n'; else printf '[]\\n'; fi\n")
+            aws_cli.chmod(0o755)
             env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
                 'GITHUB_SHA': revision, 'GITHUB_REPOSITORY': 'OneOrThree/phone', 'GITHUB_RUN_ID': '1',
-                'GITHUB_RUN_ATTEMPT': '1', 'INFRA_REVISION': 'a' * 40, 'BUMP_OVERRIDE': ''}
+                'GITHUB_RUN_ATTEMPT': '2', 'INFRA_REVISION': 'a' * 40, 'BUMP_OVERRIDE': ''}
             def run(script, overrides=None):
                 return subprocess.run(['bash', '-euc', script], cwd=root, env={**env, **(overrides or {})},
                     capture_output=True, text=True)
@@ -184,7 +217,7 @@ class VersionBadgeTests(unittest.TestCase):
             with patch.object(version.subprocess, 'check_output', side_effect=output), self.assertRaises(ValueError):
                 version.validate_order(['catus-v2.1.0'], diverged)
             retry = subprocess.run([sys.executable, version.__file__, '--revision', older,
-                '--plan-file', 'unused.json', '--check-order-only'], cwd=directory, capture_output=True, text=True)
+                '--plan-file', 'unused.json', '--bucket', 'catus-prod-deploy-artifacts-test', '--check-order-only'], cwd=directory, capture_output=True, text=True)
             self.assertNotEqual(retry.returncode, 0)
             self.assertIn('최신 Catus 발행보다 오래되거나', retry.stderr)
 
@@ -432,6 +465,7 @@ class VersionBadgeTests(unittest.TestCase):
             calls.append(args)
             if args[0] == 'secretsmanager': return {'SecretString': json.dumps(config)}
             if args[1] == 'list-commands':
+                self.assertEqual(args[-1], 'key=DocumentName,value=catus-prod-deploy')
                 queries = sum(call[1] == 'list-commands' for call in calls)
                 if queries == 1:
                     self.assertFalse(any(call[1] == 'send-command' for call in calls))

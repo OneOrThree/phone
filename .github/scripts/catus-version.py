@@ -5,17 +5,47 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 VERSION = re.compile(r'^catus-v(\d+)\.(\d+)\.(\d+)$')
 
 
-def validate_order(tags, revision):
+def reserved_versions(bucket):
+    if not re.fullmatch(r'catus-prod-deploy-artifacts-[a-z0-9-]+', bucket):
+        raise ValueError('Catus 버전 버킷 오류')
+    response = subprocess.check_output(['aws', '--region', 'ap-northeast-2', 's3api', 'list-objects-v2',
+        '--bucket', bucket, '--prefix', 'versions/', '--query', 'Contents[].Key', '--output', 'json'], text=True)
+    keys = json.loads(response) or []
+    if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
+        raise ValueError('S3 버전 목록 형식 오류')
+    tags = [key[len('versions/'):-len('.json')] for key in keys
+            if re.fullmatch(r'versions/catus-v[0-9]+\.[0-9]+\.[0-9]+\.json', key)]
+    if not tags:
+        return []
+    latest = max(tags, key=lambda tag: tuple(map(int, VERSION.fullmatch(tag).groups())))
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory, 'version.json')
+        subprocess.run(['aws', '--region', 'ap-northeast-2', 's3api', 'get-object', '--bucket', bucket,
+            '--key', f'versions/{latest}.json', str(path)], check=True, stdout=subprocess.DEVNULL)
+        envelope = json.loads(path.read_text())
+    if envelope.get('version') != latest or not re.fullmatch('[0-9a-f]{40}', envelope.get('source_revision', '')):
+        raise ValueError('S3 예약 버전 메타데이터 오류')
+    if not re.fullmatch(envelope['source_revision'] + '-[0-9]+-[0-9]+', envelope.get('release_id', '')):
+        raise ValueError('S3 예약 릴리스 ID 오류')
+    return [envelope]
+
+
+def validate_order(tags, revision, reservations=(), previous=None):
     versions = [(tuple(map(int, match.groups())), tag) for tag in tags if (match := VERSION.fullmatch(tag))]
-    if versions:
-        latest = max(versions)[1]
+    references = [max(versions)[1] + '^{commit}'] if versions else []
+    for reservation in reservations:
+        # Git 태그 없이 운영자 전환한 성공 기준은 소스가 squash merge되기 전 SHA일 수 있다.
+        if reservation['release_id'] != (previous or {}).get('release_id'):
+            references.append(reservation['source_revision'])
+    for reference in references:
         try:
-            subprocess.check_output(['git', 'merge-base', '--is-ancestor', latest + '^{commit}', revision], text=True)
+            subprocess.check_output(['git', 'merge-base', '--is-ancestor', reference, revision], text=True)
         except subprocess.CalledProcessError as error:
             raise ValueError('최신 Catus 발행보다 오래되거나 분기된 소스는 발행할 수 없다') from error
 
@@ -47,6 +77,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--revision', required=True)
     parser.add_argument('--plan-file', type=Path, required=True)
+    parser.add_argument('--bucket', required=True)
     parser.add_argument('--check-order-only', action='store_true')
     parser.add_argument("--bump", choices=["major", "minor", "patch"])
     args = parser.parse_args()
@@ -54,6 +85,9 @@ def main():
         raise ValueError('SHA 형식 오류')
     tags = subprocess.check_output(['git', 'tag', '-l', 'catus-v*'], text=True).splitlines()
     validate_order(tags, args.revision)
+    previous = json.loads(args.plan_file.read_text())['previous']
+    reservations = reserved_versions(args.bucket)
+    validate_order(tags, args.revision, reservations, previous)
     if args.check_order_only:
         return
     # 조회 실패를 patch로 숨기지 않는다. 머지된 릴리스 PR만 버전 라벨을 공급한다.
@@ -62,7 +96,7 @@ def main():
     prs = [pr for page in json.loads(response) for pr in page if pr.get('merged_at') and
            pr['base']['ref'] == 'release' and pr.get('merge_commit_sha') == args.revision]
     labels = [label['name'] for pr in prs for label in pr['labels']]
-    previous = json.loads(args.plan_file.read_text())['previous']
+    tags += [item['version'] for item in reservations]
     print(next_version(tags, ["release:" + args.bump] if args.bump else labels, previous))
 
 
