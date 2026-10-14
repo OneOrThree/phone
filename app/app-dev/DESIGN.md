@@ -237,6 +237,7 @@ Semantic spacing:
 - Small sticker button: 1.5px + `0 3px 0 Brown`
 - Modal: Brown 2px + `0 6px 0 Brown`
 - 비활성 요소와 ghost 버튼에는 스티커 그림자를 쓰지 않는다.
+- `overflow: 'hidden'`과 `boxShadow`를 한 View에 같이 두지 않는다. 그림자는 바깥 View에, 자르기는 안쪽 View에 둔다. 한 View에 같이 두면 iOS Fabric이 그 View를 재사용할 때 「Attempt to unmount a view which is mounted inside a different view」로 앱이 죽는다(망원경 → 마을회관 크래시, GROMO-2289).
 
 그림자는 흐릿한 elevation 표현이 아니라 외곽선과 같은 Brown의 단단한 y축 오프셋이다.
 

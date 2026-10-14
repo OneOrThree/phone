@@ -56,15 +56,22 @@ const styles = StyleSheet.create({
   panel: { alignItems: 'center' },
   panelText: { textAlign: 'center' },
   cell: { width: ISLAND, alignItems: 'center', gap: space[2] },
+  // 그림자(바깥)와 잘라내기(안쪽)를 다른 뷰에 둔다 — 한 뷰에 overflow: hidden + boxShadow 를 같이 주면 iOS 가 그 뷰에 내부
+  // 컨테이너를 만들고, 망원경을 닫아 재활용된 그 뷰가 홈의 다른 부모로 다시 쓰일 때 「Attempt to unmount a view which is mounted
+  // inside a different view」로 앱이 죽는다(RN 0.86 prepareForRecycle 이 컨테이너 상태를 지우지 않음).
   island: {
     width: ISLAND,
     height: ISLAND,
+    borderRadius: ISLAND / 2,
+    boxShadow: `0px ${space[1]}px 0px ${color.outline}`,
+  },
+  islandClip: {
+    flex: 1,
     borderRadius: ISLAND / 2,
     borderWidth: stroke.strong,
     borderColor: color.outline,
     backgroundColor: color.secondary,
     overflow: 'hidden',
-    boxShadow: `0px ${space[1]}px 0px ${color.outline}`,
   },
   flag: { position: 'absolute', top: -FLAG_POLE_BASE, right: space[8] },
   // 이름 알약(Badge soft)을 섬 아래 가운데에 두고 칸 폭을 넘지 않게 한다(Badge 기본 배치는 왼쪽 정렬)
@@ -209,7 +216,9 @@ function IslandCell({
       ]}
     >
       <View style={styles.island}>
-        <Pic id="island/whole" w="100%" h="100%" cover />
+        <View style={styles.islandClip}>
+          <Pic id="island/whole" w="100%" h="100%" cover />
+        </View>
       </View>
       {joined && (
         // 장식 — 소속 여부는 위 접근성 라벨이 말한다.
