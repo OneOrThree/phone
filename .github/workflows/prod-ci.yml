@@ -195,7 +195,8 @@ jobs:
     if: >-
       always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/release' &&
       needs.contracts.result == 'success' && needs.plan.result == 'success' &&
-      needs.plan.outputs.any == 'true' && (needs.images.result == 'success' || needs.images.result == 'skipped')
+      (needs.plan.outputs.any == 'true' || github.event_name == 'workflow_dispatch') &&
+      (needs.images.result == 'success' || needs.images.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write

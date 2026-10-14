@@ -46,6 +46,29 @@ class SelectivePlanTests(unittest.TestCase):
         self.assertEqual(unchanged['build_services'], [])
         self.assertEqual(unchanged['deploy_services'], [])
 
+    def test_변경없는_수동버전발행은_기존이미지를_재사용하며_release잡을_실행한다(self):
+        plan = planner.plan(self.source, self.migrations, baseline(self.source), 'f' * 40, 'b' * 40)
+        self.assertEqual(plan['build_services'], [])
+        self.assertEqual(plan['deploy_services'], [])
+        ci = yaml.load((Path(__file__).parents[1] / 'workflows/prod-ci.yml').read_text(), Loader=yaml.BaseLoader)
+        condition = ci['jobs']['release']['if']
+        cases = [('workflow_dispatch', 'release', False, 'success', 'skipped', True),
+                 ('push', 'release', False, 'success', 'skipped', False),
+                 ('push', 'release', True, 'success', 'success', True),
+                 ('pull_request', 'release', True, 'success', 'success', False),
+                 ('workflow_dispatch', 'main', False, 'success', 'skipped', False),
+                 ('workflow_dispatch', 'release', False, 'failure', 'skipped', False),
+                 ('workflow_dispatch', 'release', True, 'success', 'failure', False)]
+        for event, branch, changed, contracts, images, expected in cases:
+            values = {'github.event_name': event, 'github.ref': 'refs/heads/' + branch,
+                      'needs.contracts.result': contracts, 'needs.plan.result': 'success',
+                      'needs.plan.outputs.any': str(changed).lower(), 'needs.images.result': images}
+            expression = ' '.join(condition.split()).replace('always()', 'True').replace('&&', 'and').replace('||', 'or')
+            for key, value in values.items():
+                expression = expression.replace(key, repr(value))
+            with self.subTest(event=event, branch=branch, changed=changed, contracts=contracts, images=images):
+                self.assertEqual(eval(expression, {'__builtins__': {}}, {}), expected)
+
     def test_실제파일지문은_단일소스_SQL_공용빌드변경을_구분한다(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
