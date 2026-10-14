@@ -534,6 +534,8 @@ test('목업 ?review — e 가 있어도 우체통 API 는 0건이다', async ()
   }
 });
 
+// 「없다」는 expect(...).toBeNull() 로 본다 — assert.equal(인스턴스, null) 은 실패하면 테스트 인스턴스 트리를 통째로
+// 찍다가 jest 가 메모리 부족으로 죽는다(출력 없이 exit 137)
 test('우체통 첫 화면에는 「우리 섬 홍보 쓰기」 입구가 없다 — 섬장이어도(홍보는 마을회관에서, 10/14)', async () => {
   const restore = webMockMode('?review');
   try {

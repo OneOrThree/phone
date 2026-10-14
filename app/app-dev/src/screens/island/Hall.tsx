@@ -2981,9 +2981,10 @@ export function Hall({ e }: any) {
           </Pressable>
         </View>
       )}
-      {!visitor && host && (
+      {!visitor && displayHost && (
         // 우리 섬 홍보 쓰기(GROMO-2289 · P3) — 홍보는 마을회관에서(10/5 · 10/14 확정). 내 섬 섬장만, 구경 중에는 없다.
-        // 섬장 판정은 쓰기 화면(editorIsland)과 같은 홈 스냅샷 역할이다. 뒤로가기는 App 기록으로 이 카드에 돌아온다
+        // 섬장 판정은 이 카드의 다른 섬장 전용 동작과 같은 displayHost 다 — 실서버 관리 화면에서는 관리 API 의 지금 역할이라
+        // 여기서 위임하거나 다른 기기에서 위임받은 것이 바로 반영된다(홈 스냅샷은 늦을 수 있다). 뒤로가기는 App 기록으로 이 카드에 돌아온다
         <Pressable
           testID="hall-promotion-editor"
           accessibilityRole="button"

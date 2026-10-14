@@ -169,6 +169,8 @@ test('방문자 관리 카드는 비활성 management snapshot 대신 기존 정
   assert.equal(visitor.queryByTestId('hall-leave'), null);
 });
 
+// 「없다」는 expect(...).toBeNull() 로 본다 — assert.equal(인스턴스, null) 은 실패하면 테스트 인스턴스 트리를 통째로
+// 찍다가 jest 가 메모리 부족으로 죽는다(출력 없이 exit 137)
 test('홍보 쓰기 입구 — 내 섬 섬장에게만 회관 관리 카드에 있고 누르면 쓰기 화면으로 간다(홍보는 마을회관에서, 10/14)', async () => {
   const env = e();
   const screen = await render(<Hall e={env} />);
@@ -179,6 +181,7 @@ test('홍보 쓰기 입구 — 내 섬 섬장에게만 회관 관리 카드에 �
 test('홍보 쓰기 입구 — 섬장이 아닌 주민 · 방문자에게는 없다(기록판은 주민에게 그대로)', async () => {
   const memberState = initialState(true);
   memberState.islands[0].members[0].role = 'host';
+  managementMock.mockReturnValue(management({ role: 'member' }));
   const member = await render(<Hall e={e('manage', memberState)} />);
   await waitFor(() => assert.ok(member.getByTestId('hall-promotion-records')));
   expect(member.queryByTestId('hall-promotion-editor')).toBeNull();
@@ -191,7 +194,7 @@ test('홍보 쓰기 입구 — 섬장이 아닌 주민 · 방문자에게는 없
   expect(visitor.queryByTestId('hall-promotion-editor')).toBeNull();
 });
 
-test('홍보 쓰기 입구 — 서버 모드는 로컬 목업 섬이 아니라 서버 홈 스냅샷의 역할로 판정한다(쓰기 화면과 같은 기준)', async () => {
+test('홍보 쓰기 입구 — 실서버는 홈 스냅샷이 아니라 관리 API 의 지금 역할로 판정한다(위임 직후 · 다른 기기에서 위임받음)', async () => {
   const ISLAND = 'server-island';
   const serverState = (role: 'host' | 'member') =>
     reducer(
@@ -213,13 +216,16 @@ test('홍보 쓰기 입구 — 서버 모드는 로컬 목업 섬이 아니라 �
         },
       } as any,
     );
-  const host = await render(<Hall e={e('manage', serverState('host'))} />);
-  await waitFor(() => assert.ok(host.getByTestId('hall-promotion-editor')));
-  await host.unmount();
+  // 여기서 방장을 위임했다 — 홈 스냅샷은 아직 host, 관리 API 는 member → 입구가 없다
   managementMock.mockReturnValue(management({ role: 'member' }));
-  const member = await render(<Hall e={e('manage', serverState('member'))} />);
-  await waitFor(() => assert.ok(member.getByTestId('hall-promotion-records')));
-  expect(member.queryByTestId('hall-promotion-editor')).toBeNull();
+  const handedOff = await render(<Hall e={e('manage', serverState('host'))} />);
+  await waitFor(() => assert.ok(handedOff.getByTestId('hall-promotion-records')));
+  expect(handedOff.queryByTestId('hall-promotion-editor')).toBeNull();
+  await handedOff.unmount();
+  // 다른 기기에서 방장을 위임받았다 — 홈 스냅샷은 아직 member, 관리 API 는 host → 입구가 있다
+  managementMock.mockReturnValue(management({ role: 'host' }));
+  const received = await render(<Hall e={e('manage', serverState('member'))} />);
+  await waitFor(() => expect(received.getByTestId('hall-promotion-editor')).toBeTruthy());
 });
 
 test('홍보 기록판 입구 — 주민 회관 관리 카드에 있고 누르면 기록판으로 간다(AD-11)', async () => {
