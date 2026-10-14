@@ -5,14 +5,20 @@ import json
 import os
 import re
 import subprocess
+from pathlib import Path
 
 VERSION = re.compile(r'^catus-v(\d+)\.(\d+)\.(\d+)$')
 
 
-def next_version(tags, labels):
+def next_version(tags, labels, previous=None):
     bumps = set(labels) & {'release:major', 'release:minor', 'release:patch'}
     if len(bumps) > 1:
         raise ValueError('릴리스 버전 라벨은 하나만 선택한다')
+    tags = list(tags)
+    if previous is not None:
+        if previous.get('product') != 'catus' or not VERSION.fullmatch(previous.get('version', '')):
+            raise ValueError('Catus prod 기준 버전 오류')
+        tags.append(previous['version'])
     versions = [tuple(map(int, match.groups())) for tag in tags if (match := VERSION.fullmatch(tag))]
     if not versions:
         return 'catus-v2.0.0'
@@ -30,6 +36,7 @@ def next_version(tags, labels):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--revision', required=True)
+    parser.add_argument('--plan-file', type=Path, required=True)
     parser.add_argument("--bump", choices=["major", "minor", "patch"])
     args = parser.parse_args()
     if not re.fullmatch('[0-9a-f]{40}', args.revision):
@@ -41,7 +48,8 @@ def main():
     prs = [pr for page in json.loads(response) for pr in page if pr.get('merged_at') and
            pr['base']['ref'] == 'release' and pr.get('merge_commit_sha') == args.revision]
     labels = [label['name'] for pr in prs for label in pr['labels']]
-    print(next_version(tags, ["release:" + args.bump] if args.bump else labels))
+    previous = json.loads(args.plan_file.read_text())['previous']
+    print(next_version(tags, ["release:" + args.bump] if args.bump else labels, previous))
 
 
 if __name__ == '__main__':

@@ -117,7 +117,7 @@ jobs:
           PYTHON
       - uses: actions/upload-artifact@v4
         with:
-          name: deployment-status-prod
+          name: deployment-status-prod-${{ github.run_attempt }}
           overwrite: true
           path: deployment-status-prod.json
           if-no-files-found: error

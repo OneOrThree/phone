@@ -4,6 +4,9 @@ import importlib.util
 import unittest
 import tempfile
 import json
+import os
+import subprocess
+import sys
 import yaml
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -71,6 +74,34 @@ class SelectivePlanTests(unittest.TestCase):
         absent = SimpleNamespace(returncode=1, stderr='NoSuchKey')
         with patch.object(planner.subprocess, 'run', side_effect=[config, absent]):
             self.assertIsNone(planner.fetch_previous(Path('never-created.json')))
+
+    def test_서비스밖으로_파일을_이동해도_PR검사가_원본서비스를_포함한다(self):
+        for destination, expected in [('server/realtime/src/App.java', ['data-api', 'realtime']),
+                                      ('docs/App.java', ['data-api'])]:
+            with self.subTest(destination=destination), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                def git(*args):
+                    return subprocess.check_output(['git', *args], cwd=root, text=True).strip()
+                git('init', '-q')
+                source = root / 'server/data-api/src/App.java'
+                source.parent.mkdir(parents=True)
+                source.write_text('class App {}\n')
+                git('add', '.')
+                git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', '기준')
+                base = git('rev-parse', 'HEAD')
+                target = root / destination
+                target.parent.mkdir(parents=True, exist_ok=True)
+                git('mv', str(source), str(target))
+                git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', '이동')
+                revision = git('rev-parse', 'HEAD')
+                # 실제 R100 변경을 만들고 planner CLI가 원본 삭제까지 검사하는지 확인한다.
+                self.assertIn('R100', git('diff', '--name-status', '--find-renames', base, revision))
+                output = root / 'plan.json'
+                result = subprocess.run([sys.executable, planner.__file__, '--output', str(output), '--pr-base', base],
+                    cwd=root, env={**os.environ, 'GITHUB_SHA': revision, 'GITHUB_OUTPUT': str(root / 'outputs')},
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(output.read_text())['build_services'], expected)
 
     def test_release가_유일한_prod자동발행_브랜치다(self):
         workflows = Path(__file__).parents[1] / 'workflows'

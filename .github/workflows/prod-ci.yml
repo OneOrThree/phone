@@ -35,7 +35,7 @@ on:
         type: boolean
         default: false
       version_bump:
-        description: 수동 발행 버전 증가 (최초 발행은 2.0.0)
+        description: 수동 발행 버전 증가 (기존 태그·운영 버전이 없으면 2.0.0)
         type: choice
         default: patch
         options: [patch, minor, major]
@@ -228,7 +228,7 @@ jobs:
         run: |
           set -euo pipefail
           release_id="$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          version_args=(--revision "$GITHUB_SHA")
+          version_args=(--revision "$GITHUB_SHA" --plan-file plan-input/prod-plan.json)
           if [ -n "$BUMP_OVERRIDE" ]; then version_args+=(--bump "$BUMP_OVERRIDE"); fi
           version=$(python3 .github/scripts/catus-version.py "${version_args[@]}")
           bucket=$(aws secretsmanager get-secret-value --secret-id catus/prod/cicd \

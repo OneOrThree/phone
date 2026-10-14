@@ -82,7 +82,7 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 1. `main`·`release` 대상 PR에서 `prod-ci.yml`은 변경 서비스 검사·이미지 빌드를 수행하며 ECR에 발행하지 않는다. 공통 빌드 입력이 바뀌면 전체 서비스가 검사 대상이다.
 2. `release` push 또는 `release`를 선택한 `prod-ci.yml` 수동 실행에서 발행한다. 마지막 prod 성공 상태 `deployments/current.json`의 소스 지문과 비교해 변경 서비스만 `linux/arm64`로 빌드한다. 최초 발행과 수동 `rebuild_all=true`는 전체 빌드이며, Infra SHA만 바뀌면 이미지는 재사용하고 전체 서비스를 배포 대상으로 기록한다.
 3. 이미지 저장소는 `catus-prod/<service>`이며 릴리스에는 재사용 이미지를 포함한 네 서비스의 digest 조합을 기록한다. 불변 산출물은 S3 `releases/<소스 SHA>-<실행 ID>-<시도 번호>/bundle.zip`·`release.json`, 버전 참조는 `versions/catus-vX.Y.Z.json`이다.
-4. 최초 버전은 `catus-v2.0.0`이다. 이후 `release` 대상 릴리스 PR의 `release:major`·`release:minor`·`release:patch` 중 하나로 증가하고, 미지정은 patch다. 수동 발행은 `version_bump` 입력을 사용한다. 같은 버전을 Git 태그와 네 서비스 ECR 태그로 기록한다. 기존 Gromo `vX.Y.Z` 태그는 버전 계산에 포함하지 않는다.
+4. 기존 Catus Git 태그와 실제 운영 성공 상태 `deployments/current.json`의 버전 중 큰 값을 기준으로 `release` 대상 릴리스 PR의 `release:major`·`release:minor`·`release:patch` 중 하나로 증가하고, 미지정은 patch다. 둘 다 없을 때만 최초 버전 `catus-v2.0.0`을 사용한다. 현재 운영자 전환 버전이 `catus-v2.0.0`이므로 정식 Git 태그가 없어도 첫 자동 patch 발행은 `catus-v2.0.1`이다. 수동 발행은 `version_bump` 입력을 사용한다. 같은 버전을 Git 태그와 네 서비스 ECR 태그로 기록한다. 기존 Gromo `vX.Y.Z` 태그는 버전 계산에 포함하지 않는다.
 
 ### 배포와 롤백
 
@@ -91,5 +91,7 @@ GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release
 ### 배포 상태 배지
 
 `ops-deployment-badges.yml`은 신뢰한 원본 워크플로의 결과 산출물을 검증해 `deployment-status` 브랜치에 JSON을 게시한다. dev는 Data·Realtime·Business·Notification의 최근 결과를 합산한다. prod는 마지막 성공 버전을 유지하므로 실패·취소 후에도 이전 성공 버전이 표시된다. 최신 실행 성공 여부는 Actions에서 별도로 확인한다.
+
+결과 산출물 이름은 `deployment-status-<dev|prod>-<run_attempt>`이며 현재 재실행 시도의 결과만 반영한다. dev 실패·취소 시 현재 결과가 없으면 실패로 기록하되, Satellite CD는 `satellite-deploy-record`에 남긴 선택 서비스와 배포 원본 SHA를 사용한다. 대상 기록도 없으면 서비스 범위를 추측하지 않고 기존 배지를 유지한다.
 
 2026-10-14 기준 상태 브랜치는 아직 없다. main 반영 후 「서버 배포 상태 배지」 워크플로를 수동 실행하면 초기 JSON을 만들며, 기록이 없는 서비스·환경은 배포 확인 전으로 표시한다. 이미 운영 중인 서버도 기록 전에는 확인 전으로 표시하며, 서버가 미배포되거나 중단됐다는 뜻은 아니다. 이후 실제 배포 완료 결과가 배지를 갱신한다. 검증은 `python3 -m unittest discover -s .github/scripts -p 'test_catus*.py' -v`와 `python3 .claude/pr-gate.py --selftest`를 사용한다.

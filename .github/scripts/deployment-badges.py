@@ -191,7 +191,8 @@ def main():
         print('허용되지 않은 실행 — 배지 변경 없음')
         return
     run = event['workflow_run']
-    name = 'deployment-status-' + rule[3]
+    # 같은 run_id의 이전 성공 산출물이 재실행 실패를 가리지 않게 시도별 이름을 사용한다.
+    name = f'deployment-status-{rule[3]}-{run["run_attempt"]}'
     available = []
     page = 1
     while True:
@@ -207,6 +208,17 @@ def main():
             if plans:
                 plan = artifact_json(api, max(plans, key=lambda item: item['id']), 'satellite-deploy-plan.json')
                 rule = planned_rule(rule, plan)
+        elif run.get('path', '').split('@')[0] == '.github/workflows/satellite-cd.dev.yml':
+            plans = [item for item in available if item['name'] == 'satellite-deploy-record']
+            if not plans:
+                print('위성 배포 대상 기록 없음 — 배지 유지')
+                return
+            plan = artifact_json(api, max(plans, key=lambda item: item['id']), 'satellite-deploy-record.json')
+            revision = plan.pop('head_sha', '')
+            if not re.fullmatch('[0-9a-f]{40}', revision):
+                raise ValueError('위성 배포 원본 SHA 오류')
+            rule = planned_rule(rule, plan)
+            run = {**run, 'head_sha': revision}
         records = missing_result(run, rule)
         if records:
             publish(api, records)

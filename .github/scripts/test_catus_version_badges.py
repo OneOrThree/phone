@@ -1,12 +1,14 @@
 """버전 증가·버전 지정 롤백·실제 배포 결과와 배지의 연결을 검증한다."""
 import ast
 import importlib.util
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 import yaml
@@ -44,6 +46,105 @@ class VersionBadgeTests(unittest.TestCase):
         self.assertEqual(version.next_version(tags, []), 'catus-v2.10.1')
         with self.assertRaises(ValueError):
             version.next_version(tags, ['release:major', 'release:minor'])
+
+    def test_정식태그가_없어도_운영버전_다음부터_발행한다(self):
+        previous = {'product': 'catus', 'version': 'catus-v2.0.0'}
+        for label, expected in [('release:patch', 'catus-v2.0.1'),
+                                ('release:minor', 'catus-v2.1.0'), ('release:major', 'catus-v3.0.0')]:
+            self.assertEqual(version.next_version([], [label], previous), expected)
+        self.assertEqual(version.next_version(['catus-v2.1.0'], [], previous), 'catus-v2.1.1')
+        with self.assertRaises(ValueError):
+            version.next_version([], [], {'product': 'gromo', 'version': 'v2.0.0'})
+
+    def test_버전CLI는_계획의_실제운영_기준을_읽는다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan = Path(directory, 'prod-plan.json')
+            plan.write_text(json.dumps({'previous': {'product': 'catus', 'version': 'catus-v2.0.0'}}))
+            with patch.object(sys, 'argv', ['version', '--revision', 'a' * 40, '--plan-file', str(plan)]), \
+                 patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+                 patch.object(version.subprocess, 'check_output', side_effect=['', '[]']), \
+                 patch('sys.stdout', new_callable=io.StringIO) as output:
+                version.main()
+            self.assertEqual(output.getvalue().strip(), 'catus-v2.0.1')
+
+    def run_badge(self, path, artifacts, conclusion='failure', attempt=2):
+        rule = badge.RULES[path]
+        event = {'repository': {'id': 1}, 'workflow_run': {
+            'id': 123, 'path': path, 'event': rule[0], 'head_branch': rule[1],
+            'head_repository': {'id': 1}, 'head_sha': 'b' * 40,
+            'updated_at': '2026-01-02T00:00:00Z', 'conclusion': conclusion, 'run_attempt': attempt}}
+        class API:
+            def request(self, path, raw=False):
+                if '/artifacts?' in path:
+                    return {'artifacts': [{'id': i, 'name': name, 'expired': False}
+                                          for i, (name, _) in enumerate(artifacts)]}
+                i = int(path.split('/')[-2])
+                name, payload = artifacts[i]
+                expected = ('satellite-deploy-record.json' if name == 'satellite-deploy-record'
+                            else 'satellite-deploy-plan.json' if name == 'satellite-deploy-plan'
+                            else 'dev.json' if rule[3] == 'dev' else 'deployment-status-prod.json')
+                content = io.BytesIO()
+                with zipfile.ZipFile(content, 'w') as archive:
+                    archive.writestr(expected, json.dumps(payload))
+                return content.getvalue()
+        with tempfile.TemporaryDirectory() as directory:
+            event_file = Path(directory, 'event.json')
+            event_file.write_text(json.dumps(event))
+            with patch.dict(os.environ, {'GITHUB_EVENT_PATH': str(event_file), 'GITHUB_EVENT_NAME': 'workflow_run'}), \
+                 patch.object(badge, 'GitHub', return_value=API()), patch.object(badge, 'publish') as publish:
+                badge.main()
+            return publish.call_args.args[1] if publish.called else []
+
+    def test_재실행_실패와_취소는_이전성공_산출물을_사용하지_않는다(self):
+        for path in ['.github/workflows/data-api-ci.dev.yml', '.github/workflows/realtime-ci.dev.yml']:
+            service = next(iter(badge.RULES[path][2]))
+            for conclusion in ['failure', 'cancelled']:
+                with self.subTest(path=path, conclusion=conclusion):
+                    records = self.run_badge(path, [('deployment-status-dev-1', [record(service)])], conclusion)
+                    self.assertEqual([(r['service'], r['result']) for r in records], [(service, 'failure')])
+
+    def test_현재시도_성공결과는_같은실행의_이전산출물과_구분한다(self):
+        current = {**record(), 'revision': 'b' * 40}
+        records = self.run_badge('.github/workflows/data-api-ci.dev.yml', [
+            ('deployment-status-dev-2', [current]), ('deployment-status-dev-1', [record(result='failure')])], 'success')
+        self.assertEqual(records, [current])
+
+    def test_Satellite_CD는_실패전에_기록한_선택대상과_원본SHA만_실패로_남긴다(self):
+        for service in ['business-api', 'notification']:
+            plan = {s: s == service for s in ['business-api', 'notification']}
+            for conclusion in ['failure', 'cancelled']:
+                with self.subTest(service=service, conclusion=conclusion):
+                    records = self.run_badge('.github/workflows/satellite-cd.dev.yml', [
+                        ('satellite-deploy-record', {**plan, 'head_sha': 'c' * 40}),
+                        ('deployment-status-dev-1', [record(service)])], conclusion)
+                    self.assertEqual([(r['service'], r['result'], r['revision']) for r in records],
+                                     [(service, 'failure', 'c' * 40)])
+                    state = badge.merge({}, [record(s) for s in badge.DEV])
+                    state = badge.merge(state, records)
+                    state = badge.merge(state, [record(service, stamp='2026-01-03T00:00:00+00:00')])
+                    self.assertEqual(badge.badges(state)['dev.json']['color'], 'brightgreen')
+
+    def test_Satellite_대상없음과_대상미확인은_다른서비스를_실패로_만들지_않는다(self):
+        path = '.github/workflows/satellite-cd.dev.yml'
+        self.assertEqual(self.run_badge(path, []), [])
+        self.assertEqual(self.run_badge(path, [('satellite-deploy-record', {
+            'business-api': False, 'notification': False, 'head_sha': 'c' * 40})]), [])
+        self.assertEqual(self.run_badge('.github/workflows/satellite-ci.dev.yml', [
+            ('satellite-deploy-plan', {'business-api': False, 'notification': True})])[0]['service'], 'notification')
+
+    def test_prod_재실행_실패가_이전시도_성공을_게시하지_않는다(self):
+        previous = {**record('catus'), 'environment': 'prod', 'version': 'catus-v2.0.0',
+                    'release_id': 'a' * 40 + '-1-1', 'infra_revision': 'c' * 40}
+        self.assertEqual(self.run_badge('.github/workflows/prod-cd.yml', [
+            ('deployment-status-prod-1', [previous])]), [])
+
+    def test_모든배포_workflow는_시도별_배지산출물을_작성한다(self):
+        for filename in ['data-api-cd.dev.yml', 'realtime-cd.dev.yml', 'satellite-cd.dev.yml', 'prod-cd.yml']:
+            uploads = [step['with']['name'] for job in workflow(filename)['jobs'].values()
+                       for step in job.get('steps', []) if step.get('uses') == 'actions/upload-artifact@v4'
+                       and step['with']['name'].startswith('deployment-status-')]
+            environment = 'prod' if filename == 'prod-cd.yml' else 'dev'
+            self.assertEqual(uploads, ['deployment-status-' + environment + '-${{ github.run_attempt }}'])
 
     def test_네서비스_확인전에_dev전체_배포완료라고_표시하지_않는다(self):
         state = badge.merge({}, [record()])

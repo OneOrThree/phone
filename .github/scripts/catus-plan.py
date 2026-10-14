@@ -80,7 +80,7 @@ def main():
     previous = fetch_previous(args.output.with_name('previous.json')) if args.previous_from_aws else None
     result = plan(source, migrations, previous, os.environ['GITHUB_SHA'], os.environ.get('INFRA_REVISION', ''), args.force)
     if args.pr_base:
-        names = subprocess.check_output(['git', 'diff', '--name-only', args.pr_base, os.environ['GITHUB_SHA']], text=True).splitlines()
+        names = subprocess.check_output(['git', 'diff', '--no-renames', '--name-only', args.pr_base, os.environ['GITHUB_SHA']], text=True).splitlines()
         shared = any(name.startswith(SHARED) for name in names)
         result['build_services'] = sorted(service for service in SERVICES if shared or
             any(name.startswith(f'server/{service}/') and not name.endswith('.md') and '/docs/' not in name for name in names))

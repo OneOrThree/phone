@@ -274,7 +274,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always() && (steps.health.outcome == 'success' || failure())
         with:
-          name: deployment-status-dev
+          name: deployment-status-dev-${{ github.run_attempt }}
           overwrite: true
           path: ${{ runner.temp }}/deployment-status/dev.json
           if-no-files-found: warn
