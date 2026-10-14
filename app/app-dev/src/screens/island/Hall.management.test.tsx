@@ -228,6 +228,34 @@ test('홍보 쓰기 입구 — 실서버는 홈 스냅샷이 아니라 관리 AP
   await waitFor(() => expect(received.getByTestId('hall-promotion-editor')).toBeTruthy());
 });
 
+test('홍보 쓰기 입구 — 방장 위임이 진행 중이면 막는다(끝나 역할이 다시 확정되기 전에 회관을 떠나지 않게)', async () => {
+  let finish: () => void = () => {};
+  const api = management({
+    transferHost: jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    ),
+  });
+  managementMock.mockReturnValue(api);
+  const env = e();
+  const screen = await render(<Hall e={env} />);
+  const row = () => screen.getByTestId('hall-promotion-editor', { includeHiddenElements: true });
+  await waitFor(() => expect(row().props.accessibilityState.disabled).toBe(false));
+  // 카드의 주민 칸에서 바로 위임한다 — 패널 없이 카드에 머무는 길
+  await fireEvent.press(await screen.findByTestId('hall-member-u2'));
+  await fireEvent.press(await screen.findByTestId('hall-member-transfer'));
+  await fireEvent.press(await screen.findByTestId('hall-dialog-ok'));
+  await waitFor(() => expect(api.transferHost).toHaveBeenCalledWith('u2'));
+  // 위임 요청이 끝나지 않았다 — 줄이 꺼져 있고 눌러도 쓰기 화면으로 가지 않는다
+  expect(row().props.accessibilityState.disabled).toBe(true);
+  await fireEvent.press(row());
+  expect(env.go).not.toHaveBeenCalledWith('promotionEditor');
+  await act(async () => finish());
+  await waitFor(() => expect(row().props.accessibilityState.disabled).toBe(false));
+});
+
 test('홍보 기록판 입구 — 주민 회관 관리 카드에 있고 누르면 기록판으로 간다(AD-11)', async () => {
   const env = e();
   const screen = await render(<Hall e={env} />);

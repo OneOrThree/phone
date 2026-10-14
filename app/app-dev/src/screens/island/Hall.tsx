@@ -77,6 +77,11 @@ const promotionRow = {
   justifyContent: 'space-between',
   gap: semanticTokens.spacing.control,
 } as const;
+// 관리 쓰기(위임 · 승인 · 강퇴 · 저장) 중에는 홍보 쓰기 줄을 흐리게 막는다 — 공용 버튼의 꺼짐 투명도
+const promotionRowBusy = {
+  ...promotionRow,
+  opacity: componentTokens.button.disabledOpacity,
+} as const;
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
 const final = (word: string) => {
   const c = word.charCodeAt(word.length - 1) - 0xac00;
@@ -2989,8 +2994,12 @@ export function Hall({ e }: any) {
           testID="hall-promotion-editor"
           accessibilityRole="button"
           accessibilityLabel={t('magazine.editor.title')}
+          // 위임 등 관리 쓰기가 끝나 역할이 다시 확정되기 전에는 못 들어간다 — 그 사이 회관을 떠나면 확정 역할(host)이
+          // 위임 전 값으로 남아 쓰기 화면이 섬장으로 열린다
+          accessibilityState={{ disabled: managementBusy }}
+          disabled={managementBusy}
           onPress={() => e.go('promotionEditor')}
-          style={promotionRow}
+          style={managementBusy ? promotionRowBusy : promotionRow}
         >
           <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
             {t('magazine.editor.title')}
