@@ -7,7 +7,8 @@
 왜 이 경계에 브로커를 뒀는지. 설정값은 전부 두 서비스의 `application.yml` 에 이 문서의 절 번호와
 함께 적혀 있다 — 값을 바꾸면 여기 근거부터 고친다. (출발점: 2026-10-14 멘토링, GROMO-2290)
 
-각 절은 **문제 → 선택 → 버린 대안 → 근거 코드** 순서다.
+§1~§5 는 **문제 → 선택 → 버린 대안 → 근거 코드** 순서다. §3·§4 는 「문제」 자리에 판단 기준이나 사실을
+먼저 두고, §6 은 체크리스트다.
 
 ## 0. 소비자 한 장
 
@@ -69,7 +70,8 @@ outbox 는 이미 발행 성공으로 표시돼 있어 relay 도 다시 보내�
 | Kafka 트랜잭션(EOS) | 소비 결과가 Kafka 가 아니라 PostgreSQL 에 쓰인다. EOS 는 「Kafka→Kafka」만 원자적이고 외부 DB 는 덮지 못한다 — 결국 inbox 멱등이 필요해 얻는 게 없다 |
 
 **근거 코드.** `KafkaInbound` javadoc 첫 줄 · `InboundService.accept()`(알림) · `InboundEventService.accept()`
-(realtime) · `application.yml` 의 `ack-mode` · `application-{dev,prod}.yml` 의 `enable-auto-commit`.
+(realtime) · `application.yml` 의 `ack-mode` · `enable-auto-commit`(notification 은 `application-{dev,prod}.yml`,
+realtime 은 `application.yml`).
 
 ## 2. 리밸런싱 — 언제 나고, 나면 어디까지 다시 받나
 
@@ -111,7 +113,8 @@ outbox 는 이미 발행 성공으로 표시돼 있어 relay 도 다시 보내�
 배포가 보장해야 하고, 단일 인스턴스에선 얻는 게 없다. 인스턴스가 늘고 배포 리밸런스가 지표에 보이면 그때.
 
 **근거 코드.** `application.yml` `spring.kafka.consumer.properties.*` · `KafkaInbound.notificationErrorHandler`
-(`FixedBackOff(1000, 3)`) · `InboundService.enqueue()` 의 `store.lock("device-ownership")`.
+· `KafkaEventInbound.realtimeEventsErrorHandler`(둘 다 `FixedBackOff(1000, 3)`) · `InboundService.enqueue()` 의
+`store.lock("device-ownership")`.
 
 ## 3. 소비 그룹 개수 — 「같은 스트림을 독립된 커서로 끝까지 읽어야 하는 읽는 이」마다 하나
 
@@ -122,10 +125,15 @@ outbox 는 이미 발행 성공으로 표시돼 있어 relay 도 다시 보내�
 떨어지므로 두 입구를 같이 덮으려면 Kafka 그룹을 쪼개는 것으로는 부족하다
 (`server/realtime/CLAUDE.md` §Contracts 4).
 
-**현재 2개**(§0). 토픽도 소비자마다 따로다 — 한 토픽을 두 그룹이 읽고 각자 관심 없는 사건을 버리는 「필터
-소비」를 하지 않는다. 그렇게 하면 lag 지표가 남의 사건까지 세고, 소비자가 남의 스키마에 결합된다. 어느
-토픽으로 갈지는 생산 쪽 `OutboxTarget`(KAFKA · REALTIME)이 정한다. `score-events` 소비자가 생기면 셋째
-그룹·셋째 토픽이다(A20, 미구현).
+**선택.** 현재 2개(§0). 토픽도 소비자마다 따로다. 어느 토픽으로 갈지는 생산 쪽 `OutboxTarget`(KAFKA ·
+REALTIME)이 정한다. `score-events` 소비자가 생기면 셋째 그룹·셋째 토픽이다(A20, 미구현).
+
+**버린 대안.**
+
+| 대안 | 왜 아닌가 |
+|---|---|
+| 한 토픽을 두 그룹이 읽고 관심 없는 사건을 버리는 「필터 소비」 | lag 지표가 남의 사건까지 세고, 소비자가 남의 스키마에 결합된다 |
+| realtime 을 인스턴스별 그룹으로 브로드캐스트 | Kafka 입구만 고친다. HTTP 입구도 한 인스턴스에 떨어지므로 Redis 재분배가 두 입구를 함께 덮는다 |
 
 **`-v1` 접미사.** 소비 의미(멱등 규칙·투영 스키마)가 호환되지 않게 바뀌면 `-v2` **새 그룹**으로 뜬다 — 새
 커서라 `auto-offset-reset: earliest` 에 따라 보존 기간(7일, A12) 안의 사건을 처음부터 다시 읽고, §1 의
@@ -133,8 +141,8 @@ inbox 멱등이 이미 적용된 것을 걸러 준다. `latest` 였다면 「구
 사이의 사건이 조용히 빠진다 — 그래서 두 서비스 모두 `earliest` 다. `.DLT` 를 다시 읽는 재처리 소비자는
 **별도 그룹**이어야 한다(원본 그룹의 커서를 건드리면 안 된다) — A18 과 함께 결정한다.
 
-**근거 코드.** `@KafkaListener(groupId = …)` 두 곳 · `application-{dev,prod}.yml` 의 `auto-offset-reset` ·
-`OutboxTarget`.
+**근거 코드.** `@KafkaListener(groupId = …)` 두 곳 · `auto-offset-reset`(notification 은
+`application-{dev,prod}.yml`, realtime 은 `application.yml`) · `OutboxTarget`.
 
 ## 4. 파티션 수와 소비자 수 — 활성 소비자 ≤ 파티션
 
@@ -153,6 +161,13 @@ inbox 멱등이 이미 적용된 것을 걸러 준다. `latest` 였다면 「구
   **줄일 수 없고**, 늘리면 `key=userId` → 파티션 매핑이 바뀌어 전환 시점에 걸친 같은 유저의 사건이 두
   파티션으로 갈라지고(순서 축 깨짐) `.DLT` 와의 파티션 정렬(A12)도 함께 다시 맞춰야 한다. 그래서 처음부터
   「예상 최대 인스턴스 수」로 잡고 그 안에서만 늘린다.
+
+**버린 대안.**
+
+| 대안 | 왜 아닌가 |
+|---|---|
+| `concurrency: 3` 으로 스레드 확장 | 인스턴스 하나가 파티션을 다 가져가 인스턴스 증설이 무의미해지고, 프로세스 하나가 죽으면 소비 전체가 멈춘다 |
+| 파티션을 처음부터 크게(예: 12) | 단일 노드 브로커(A12)에서 파티션마다 파일·메모리 비용이 들고, 지금 소비자는 1 이다. 3 이면 Target-1 의 인스턴스 계획을 덮는다 |
 
 **증설 순서.** 인스턴스 ≤ 3 까지는 그냥 늘린다(§2 의 협력적 리밸런스가 정지 없이 분담한다). 3 을 넘겨야
 하면 파티션을 늘려야 하고, 그 절차는 decisions.md ⓧ(관리형 브로커 전환)의 컷오버 절차를 **준용**한다.
@@ -186,7 +201,7 @@ inbox 멱등이 이미 적용된 것을 걸러 준다. `latest` 였다면 「구
 | Data API | 요청 1건 = DB 트랜잭션 1개, 행 잠금 아래 `version` 발급(A21) | ms | 롤백 — 깨끗하다 |
 | Notification | 사건 1건 → 기기 N대 FCM 호출, 조용한 시간이면 **다음 날 아침까지 보류**, 기기별 부분 성공, 3회 재시도 | 수백 ms ~ 시간 | 부분 성공 — 기기별로 기록해야 한다 |
 | Realtime | 연결 수명(세션) 단위, 사건은 섬 단위 팬아웃 | 연결이 사는 동안 | 끊김 — 재연결이 복구 |
-| Business API | 무상태 조합, DB 없음 | 요청 1건 | 재시도(멱등 키) |
+| Business API | 조합만 한다. 도메인 DB 가 없고, 전용 Redis 에는 다시 만들 수 있는 미리보기 캐시만 둔다 | 요청 1건 | 재시도(멱등 키) |
 
 집중 세션 종료 하나에 「세션 커밋 + 상대방 푸시 + 섬 화면 갱신」이 걸린다. 이를 동기 호출로 엮으면 세션
 종료 API 의 지연이 FCM 응답에, 성공 여부가 알림 서버의 생존에 묶인다. 그래서 Data 의 커밋 안에는 **outbox
@@ -196,10 +211,22 @@ inbox 멱등이 이미 적용된 것을 걸러 준다. `latest` 였다면 「구
 알림 서버가 1시간 죽어 있어도 Data 는 모르고, 깨어나면 §3 의 커서에서 이어 읽는다.
 
 **반대로 브로커를 두지 않은 곳.** Business → Data 는 동기 HTTP 다 — 요청형이라 **응답이 필요**하다(격차가
-아니라 응답 유무가 기준). 알림 → Data 의 조회 3종(리컨실·ack 수렴·발송 적격)도 동기다 — 읽기라 트랜잭션
+아니라 응답 유무가 기준). 요청형 이벤트도 Business 가 직접 발행하지 않는다 — Data 가 같은 트랜잭션에
+outbox 행으로 내구화하고 relay 가 발행한다(A21). 알림 → Data 의 조회 3종(리컨실·ack 수렴·발송 적격)도 동기다 — 읽기라 트랜잭션
 격차가 없다. 어드민(콘솔)은 Business 안의 `/console/**` 이고 분석은 Datadog 이라 별도 프로세스가 아니다 —
 분석용 소비자가 필요해지면 **같은 토픽을 새 그룹으로 읽는 것**(§3)이 길이지 Data 에 조회를 더하는 게
 아니다.
+
+**버린 대안.**
+
+| 대안 | 왜 아닌가 |
+|---|---|
+| Data 가 커밋 뒤 FCM·STOMP 를 직접 호출 | 세션 종료 API 의 지연·성공이 외부 호출에 묶이고, 커밋 직후 죽으면 호출이 사라진다(A21 이 막으려던 구간) |
+| 서비스를 나누지 않고 한 DB 의 모듈러 모놀리스로 | 발송 워커의 긴 잠금·보류가 코어 DB 커넥션 풀과 잠금을 같이 쓴다. 알림이 별도 DB(A10)를 갖는 이유와 같다 |
+| 브로커 없이 outbox → HTTP 로만 전달 | 지금도 기본 경로로 남아 있다(realtime). 하지만 수신 측이 죽어 있는 동안 relay 가 재시도를 떠안고, 여러 소비자가 같은 사건을 읽을 수 없다 |
+
+**근거 코드.** `KafkaOutboxTransport`(키 = `userId`, 동기 확인 후 표시) · `OutboxTarget` · decisions.md A21(outbox)
+· A23(콘솔은 Business 안).
 
 **남은 것.** 브로커 자체가 죽었을 때 relay 가 얼마나·어떻게 재시도하고 그 뒤 무엇을 하는지는 A18(보류)
 이다 — 이 문서는 소비 쪽만 닫는다.
