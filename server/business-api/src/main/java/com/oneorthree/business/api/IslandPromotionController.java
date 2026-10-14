@@ -101,7 +101,10 @@ public class IslandPromotionController {
                 .body(new IslandPromotions.Reported(true));
     }
 
-    /** 우리 섬 홍보 기록판 — 주민만, 최신순. {@code limit} 은 소식과 같다(기본 20, 1~50). */
+    /**
+     * 우리 섬 홍보 기록판 — 주민만(비주민 403 {@code FORBIDDEN}, field {@code islandId}), 최신순. {@code limit} 은 소식과
+     * 같다(기본 20, 1~50).
+     */
     @GetMapping("/islands/{islandId}/promotions/records")
     public IslandPromotions.RecordPage records(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);

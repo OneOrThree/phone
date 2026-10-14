@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
@@ -75,8 +76,6 @@ public class TelescopeService {
     static final String SLOT_JOINED = "joined";
     static final String SLOT_NEARBY = "nearby";
     static final String SLOT_PINNED = "pinned";
-    /** 잡지 칸에서 넣은 핀의 출처 — 이 핀만 말풍선에 잡지 칸 미리보기를 붙인다. */
-    private static final String MAGAZINE_SOURCE = "magazine";
     static final String SLOT_RANDOM = "random";
     static final int NEARBY_SAILING_MINUTES = 15;
     static final int RANDOM_SLOTS = 4;
@@ -229,19 +228,20 @@ public class TelescopeService {
     }
 
     /**
-     * 잡지에서 넣은 핀의 말풍선 미리보기 — 그 섬의 현재 호 칸 중 보이는 것(SCOPE-09). 숫자는 발행 때 고정한 값이다. 핀 섬은
+     * 잡지에서 넣은 핀의 말풍선 미리보기 — 핀을 넣은 <b>그 홍보 칸</b>이 아직 현재 호에 보일 때만 싣는다(SCOPE-09). 편집부
+     * 무료 칸에서 넣은 핀은 칸이 없으니 그 섬이 같은 호에 홍보를 실었어도 null 이다. 숫자는 발행 때 고정한 값이다. 핀 섬은
      * 내 소속·강퇴 섬이 아니므로 관계는 늘 NONE 이다.
      */
     private Map<UUID, MagazineViews.Cell> magazineCells(Instant now, List<VisiblePin> pinned) {
-        List<UUID> magazinePins = pinned.stream()
-                .filter(entry -> MAGAZINE_SOURCE.equals(entry.pin().getSource()))
-                .map(entry -> entry.row().getId()).toList();
-        if (magazinePins.isEmpty()) {
+        List<UUID> viaPromotions = pinned.stream().map(entry -> entry.pin().getPromotionId())
+                .filter(Objects::nonNull).toList();
+        if (viaPromotions.isEmpty()) {
             return Map.of();
         }
         return magazineFunnel.currentIssue(now)
-                .map(issue -> promotions.findByIssueDateAndIslandIdIn(issue.getIssueDate(), magazinePins).stream()
-                        .filter(IslandPromotion::isShown)
+                .map(issue -> promotions.findAllById(viaPromotions).stream()
+                        .filter(promotion -> promotion.getIssueDate().equals(issue.getIssueDate())
+                                && promotion.isShown())
                         .collect(Collectors.toMap(IslandPromotion::getIslandId, TelescopeService::cell)))
                 .orElse(Map.of());
     }

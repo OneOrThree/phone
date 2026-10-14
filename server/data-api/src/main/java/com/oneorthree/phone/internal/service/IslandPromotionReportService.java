@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.internal.dto.MagazineViews;
 import com.oneorthree.phone.magazine.exception.MagazineErrorCode;
 import com.oneorthree.phone.magazine.exception.MagazineException;
@@ -36,6 +37,7 @@ public class IslandPromotionReportService {
     static final int HIDE_THRESHOLD = 3;
 
     private final UserQueryService users;
+    private final GroupMemberRepository members;
     private final MagazineIssueRepository issues;
     private final IslandPromotionRepository promotions;
     private final IslandPromotionReportRepository reports;
@@ -43,7 +45,8 @@ public class IslandPromotionReportService {
 
     /**
      * 신고 — 소셜 로그인 계정만(게스트는 컨트롤러가 403). 대상은 최근 7호에 실린 칸이고 그 섬의 것이어야 한다(아니면 404
-     * {@code PROMOTION_NOT_FOUND}). 이미 숨겨졌거나 내려간 칸의 신고도 받는다 — 결과는 같다.
+     * {@code PROMOTION_NOT_FOUND}). 지금 그 섬의 주민이면 403 {@code PROMOTION_REPORT_OWN_ISLAND} 다 — 떠난·강퇴된
+     * 사람은 일반 독자라 신고할 수 있다. 이미 숨겨졌거나 내려간 칸의 신고도 받는다 — 결과는 같다.
      *
      * @return {@code created} = 이번에 새로 남긴 신고인가
      */
@@ -54,6 +57,9 @@ public class IslandPromotionReportService {
         IslandPromotion promotion = promotions.findForUpdate(promotionId)
                 .filter(row -> row.getIslandId().equals(islandId) && row.getSnapshot() != null && inLatestSeven(row))
                 .orElseThrow(() -> new MagazineException(MagazineErrorCode.PROMOTION_NOT_FOUND));
+        if (members.existsByGroupIdAndUserId(islandId, userId)) {
+            throw new MagazineException(MagazineErrorCode.PROMOTION_REPORT_OWN_ISLAND);
+        }
         Instant now = clock.instant();
         boolean created = reports.insertIfAbsent(promotion.getId(), userId, reason.name(), now) == 1;
         if (created && reports.countByPromotionId(promotion.getId()) >= HIDE_THRESHOLD

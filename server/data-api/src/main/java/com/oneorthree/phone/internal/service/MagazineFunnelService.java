@@ -69,14 +69,18 @@ public class MagazineFunnelService {
     /**
      * 잡지 칸에서 망원경에 넣었다 — 그 홍보가 이 섬의 것이고 현재 호에 보이는 칸일 때만 남긴다. 틀린 값은 집계만 건너뛴다
      * (정상 경로에서는 오지 않는 값이라 핀 넣기를 실패로 막을 이유가 없다).
+     *
+     * @return 센 홍보 칸이면 true — 핀 행에 그 칸을 남길지(말풍선 미리보기)도 같은 판정을 따른다
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void recordPin(UUID userId, UUID islandId, UUID promotionId, Instant now) {
-        currentIssue(now).flatMap(issue -> promotions.findByIdAndIslandId(promotionId, islandId)
+    public boolean recordPin(UUID userId, UUID islandId, UUID promotionId, Instant now) {
+        Optional<IslandPromotion> counted = currentIssue(now)
+                .flatMap(issue -> promotions.findByIdAndIslandId(promotionId, islandId)
                         .filter(promotion -> promotion.getIssueDate().equals(issue.getIssueDate())
-                                && promotion.isShown()))
-                .ifPresent(promotion -> funnel.insertIfAbsent(promotion.getId(), userId, IslandPromotionFunnel.PIN,
-                        now));
+                                && promotion.isShown()));
+        counted.ifPresent(promotion -> funnel.insertIfAbsent(promotion.getId(), userId, IslandPromotionFunnel.PIN,
+                now));
+        return counted.isPresent();
     }
 
     /** 항해해 도착했다 — 그 섬의 현재 호 칸에 PIN 을 남긴 사람이면 센다. */
@@ -92,7 +96,8 @@ public class MagazineFunnelService {
     }
 
     /**
-     * 회관 홍보 기록판 — 이 섬의 홍보, 최신 호 먼저. 주민만 본다(게스트 주민 포함, 비주민 403 {@code MEMBER_ONLY}). 숫자는
+     * 회관 홍보 기록판 — 이 섬의 홍보, 최신 호 먼저. 주민만 본다(게스트 주민 포함). 비주민은 403 {@code MEMBER_ONLY} 이고 공개 API 에서는 Business 가
+     * 403 {@code FORBIDDEN}(field {@code islandId})으로 옮긴다. 숫자는
      * 읽을 때마다 센다(「실시간」). 「회관 안에서만」은 앱 화면 위치 규칙이다.
      *
      * <p>한 스냅샷에서 읽는다(REPEATABLE READ) — 칸·호·숫자를 따로 읽는 사이에 발행이 커밋되면 「호는 있는데 칸은 실리지

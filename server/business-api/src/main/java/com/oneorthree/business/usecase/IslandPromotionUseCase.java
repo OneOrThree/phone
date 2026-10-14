@@ -38,6 +38,8 @@ public class IslandPromotionUseCase {
             "NOT_OWNER", new PublicFailure(403, ApiErrorCode.FORBIDDEN, null),
             // 소식·홍보 기록판은 주민만 읽는다.
             "MEMBER_ONLY", new PublicFailure(403, ApiErrorCode.FORBIDDEN, "islandId"),
+            // 지금 주민인 섬의 홍보 칸 신고 — 앱은 우리 섬 칸에 신고 버튼을 두지 않으므로 공개 이름을 따로 만들지 않는다.
+            "PROMOTION_REPORT_OWN_ISLAND", new PublicFailure(403, ApiErrorCode.FORBIDDEN, null),
             // 섬 통장이 홍보비(60)보다 적다 — 차감 0, 소식 0.
             "INSUFFICIENT_FUNDS", new PublicFailure(409, ApiErrorCode.INSUFFICIENT_FUNDS, null),
             // 잡지 기능 스위치가 꺼져 있다(GROMO-2289) — 신청·고치기 모두. 공개 이름은 만들지 않는다.
@@ -67,7 +69,7 @@ public class IslandPromotionUseCase {
     }
 
     /**
-     * 홍보 칸 신고 — 소셜 로그인·없는 홍보·중복 신고·3회 숨김은 전부 Data 가 판정한다. Data 가 {@code reported:true} 가
+     * 홍보 칸 신고 — 소셜 로그인·없는 홍보·우리 섬 칸(403 {@code FORBIDDEN})·중복 신고·3회 숨김은 전부 Data 가 판정한다. Data 가 {@code reported:true} 가
      * 아닌 성공을 주면 계약 위반이다.
      */
     public IslandPromotions.Report report(AccessTokenClaims claims, UUID islandId, UUID promotionId, String reason,
@@ -80,7 +82,7 @@ public class IslandPromotionUseCase {
         return report;
     }
 
-    /** 우리 섬 홍보 기록판 — 주민만 읽는다(비주민은 Data 의 {@code MEMBER_ONLY}). */
+    /** 우리 섬 홍보 기록판 — 주민만 읽는다(비주민은 Data 의 {@code MEMBER_ONLY} → 공개 403 {@code FORBIDDEN}). */
     public IslandPromotions.RecordPage records(AccessTokenClaims claims, UUID islandId, int limit,
             Deadline deadline) {
         return required(relay(() -> data.fetchPromotionRecords(claims.userId(), islandId, limit, deadline)));

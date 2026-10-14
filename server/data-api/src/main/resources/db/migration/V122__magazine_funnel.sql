@@ -12,3 +12,11 @@ CREATE TABLE island_promotion_funnel (
     occurred_at  timestamptz NOT NULL,
     PRIMARY KEY (promotion_id, user_id, step)
 );
+
+-- 잡지 핀이 «어느 홍보 칸에서» 넣었는가 — 망원경 말풍선 미리보기(magazineCell)는 이 칸만 싣는다. 편집부 무료 칸·전망대
+-- 핀은 NULL 이다. 넣을 때 그 섬의 현재 호에 보이는 칸인지 확인한 값만 들어가고(PIN 집계와 같은 판정), 이미 있는 핀을 다시
+-- 넣어도 출처·넣은 시각처럼 바꾸지 않는다. 칸이 지워지면 핀은 남고 미리보기만 빠진다.
+-- ponytail: promotion_id 인덱스 없음 — 칸 삭제(SET NULL)가 핀 표를 훑지만 핀은 사람당 몇 행뿐이다. 커지면 인덱스를 단다.
+ALTER TABLE telescope_pins
+    ADD COLUMN promotion_id uuid REFERENCES island_promotions (id) ON DELETE SET NULL,
+    ADD CONSTRAINT telescope_pins_promotion_source_check CHECK (promotion_id IS NULL OR source = 'magazine');

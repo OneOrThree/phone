@@ -229,7 +229,7 @@ class MagazineMigrationTest {
     // ---------------------------------------------------------------- V121 · V122
 
     @Test
-    @DisplayName("V121·V122 — 신고는 한 사람 한 칸 한 번·사유 8종, 경유 행동은 한 사람 한 칸 단계별 한 번·단계 3종, 칸이 지워지면 함께 지워진다")
+    @DisplayName("V121·V122 — 신고는 한 사람 한 칸 한 번·사유 8종, 경유 행동은 한 사람 한 칸 단계별 한 번·단계 3종, 칸이 지워지면 함께 지워진다, 핀의 홍보 칸은 잡지 핀에만·칸이 지워지면 비운다")
     void reportsAndFunnel() {
         migrate(MigrationVersion.fromVersion("122"));
         JdbcTemplate jdbc = jdbc();
@@ -257,9 +257,17 @@ class MagazineMigrationTest {
         assertThatThrownBy(() -> jdbc.update(insertStep, promotion, user(jdbc), "VISIT"))
                 .as("단계는 셋").isInstanceOf(DataIntegrityViolationException.class);
 
+        String insertPin = "INSERT INTO telescope_pins (user_id, island_id, source, promotion_id, pinned_at, expires_at) "
+                + "VALUES (?, ?, ?, ?, now(), now() + interval '1 day')";
+        assertThatThrownBy(() -> jdbc.update(insertPin, reader, island, "observatory", promotion))
+                .as("홍보 칸은 잡지 핀에만").isInstanceOf(DataIntegrityViolationException.class);
+        jdbc.update(insertPin, reader, island, "magazine", promotion);
+
         jdbc.update("DELETE FROM island_promotions WHERE id = ?", promotion);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM island_promotion_reports", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM island_promotion_funnel", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT promotion_id FROM telescope_pins", UUID.class))
+                .as("칸이 지워져도 핀은 남고 칸만 비운다").isNull();
     }
 
     @Test

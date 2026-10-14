@@ -4,6 +4,7 @@ import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
@@ -113,7 +114,7 @@ class MagazineReportFunnelIntegrationTest {
         when(clock.getZone()).thenReturn(ZonePolicy.KST);
         when(clock.withZone(any())).thenAnswer(invocation -> Clock.fixed(now.get(), invocation.getArgument(0)));
         jdbc.execute("TRUNCATE island_promotion_funnel, island_promotion_reports, magazine_receipts, magazine_issues, "
-                + "island_promotions, magazine_editorial_notes");
+                + "island_promotions, magazine_editorial_notes, telescope_pins");
     }
 
     // ---------------------------------------------------------------- 신고
@@ -148,6 +149,28 @@ class MagazineReportFunnelIntegrationTest {
         assertThat(jdbc.queryForObject("select reason from island_promotion_reports where promotion_id = ? "
                 + "and reporter_id = ?", String.class, promotion, first.getId())).as("처음 사유가 남는다")
                 .isEqualTo("SPAM_FRAUD");
+    }
+
+    @Test
+    @DisplayName("지금 주민인 섬의 칸은 신고할 수 없다(403) — 섬장·주민 모두, 떠난·강퇴된 사람은 일반 독자라 신고된다")
+    void residentsCannotReportTheirOwnIsland() throws Exception {
+        Island island = island("우리섬", false);
+        UUID promotion = promotion(island, date);
+        publisher.publish(date).orElseThrow();
+        User resident = member(island, null);
+        User left = member(island, GroupLeaveReason.LEFT);
+        User kicked = member(island, GroupLeaveReason.KICKED);
+
+        report(island.owner, island, promotion, "OTHER").andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PROMOTION_REPORT_OWN_ISLAND"));
+        report(resident, island, promotion, "SPAM_FRAUD").andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PROMOTION_REPORT_OWN_ISLAND"));
+        report(left, island, promotion, "OTHER").andExpect(status().isCreated());
+        report(kicked, island, promotion, "OTHER").andExpect(status().isCreated());
+
+        assertThat(jdbc.queryForList("select reporter_id from island_promotion_reports where promotion_id = ?",
+                UUID.class, promotion)).containsExactlyInAnyOrder(left.getId(), kicked.getId());
+        assertThat(moderation(promotion)).isEqualTo("NONE");
     }
 
     @Test
@@ -277,17 +300,28 @@ class MagazineReportFunnelIntegrationTest {
     // ---------------------------------------------------------------- 망원경 칸 미리보기
 
     @Test
-    @DisplayName("망원경 — 잡지에서 넣은 섬은 현재 호 칸을 미리보기로 싣고, 전망대 핀·숨겨진 칸·현재 호가 아니면 null")
+    @DisplayName("망원경 — 홍보 칸에서 넣은 핀만 그 칸을 미리보기로 싣고, 편집부 칸·다른 섬의 칸·전망대 핀·숨겨진 칸·"
+            + "핀과 다른 칸·현재 호가 아니면 null")
     void telescopeCarriesTheMagazineCell() {
         Island fromMagazine = island("잡지핀섬", false);
         Island fromObservatory = island("전망대핀섬", false);
+        Island fromEditorial = island("편집부핀섬", false);
+        Island wrongCell = island("남의칸핀섬", false);
+        UUID earlier = promotion(fromMagazine, date.minusDays(1));
         UUID promotion = promotion(fromMagazine, date);
         promotion(fromObservatory, date);
+        promotion(fromEditorial, date);
+        promotion(wrongCell, date);
         publisher.publish(date).orElseThrow();
         User viewer = user();
         now.set(kst(date, 8, 0));
         pins.pin(viewer.getId(), fromMagazine.id, "magazine", promotion);
         pins.pin(viewer.getId(), fromObservatory.id, "observatory", null);
+        // 같은 호에 홍보를 실은 섬이라도 편집부 무료 칸(promotionId 없음)이나 다른 섬의 칸으로 넣었으면 미리보기가 없다.
+        pins.pin(viewer.getId(), fromEditorial.id, "magazine", null);
+        pins.pin(viewer.getId(), wrongCell.id, "magazine", promotion);
+        assertThat(pinned(viewer, fromEditorial).magazineCell()).as("편집부 칸").isNull();
+        assertThat(pinned(viewer, wrongCell).magazineCell()).as("다른 섬의 칸").isNull();
 
         TelescopeItemView magazinePin = pinned(viewer, fromMagazine);
         assertThat(magazinePin.magazineCell()).isNotNull();
@@ -300,6 +334,10 @@ class MagazineReportFunnelIntegrationTest {
         jdbc.update("update island_promotions set moderation = 'HIDDEN' where id = ?", promotion);
         assertThat(pinned(viewer, fromMagazine).magazineCell()).as("숨겨진 칸").isNull();
         jdbc.update("update island_promotions set moderation = 'NONE' where id = ?", promotion);
+        jdbc.update("update telescope_pins set promotion_id = ? where island_id = ?", earlier, fromMagazine.id);
+        assertThat(pinned(viewer, fromMagazine).magazineCell()).as("핀은 지난 호 칸 — 섬의 현재 호 칸을 대신 싣지 않는다")
+                .isNull();
+        jdbc.update("update telescope_pins set promotion_id = ? where island_id = ?", promotion, fromMagazine.id);
         now.set(kst(date.plusDays(1), 6, 59));
         assertThat(pinned(viewer, fromMagazine).magazineCell()).isNotNull();
     }
@@ -314,6 +352,19 @@ class MagazineReportFunnelIntegrationTest {
         Group group = groups.save(Group.builder().name(name).maxMembers(10).isPrivate(isPrivate).build());
         members.save(GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build());
         return new Island(group.getId(), group, owner);
+    }
+
+    /** 그 섬의 주민 — {@code left} 가 있으면 그 사유로 떠난 사람이다. */
+    private User member(Island island, GroupLeaveReason left) {
+        User user = user();
+        GroupMember member = GroupMember.builder().user(user).group(island.group).role(GroupMemberRole.MEMBER).build();
+        if (left == GroupLeaveReason.LEFT) {
+            member.leave(kst(date, 8, 0));
+        } else if (left == GroupLeaveReason.KICKED) {
+            member.kick(kst(date, 8, 0));
+        }
+        members.save(member);
+        return user;
     }
 
     private User user() {
