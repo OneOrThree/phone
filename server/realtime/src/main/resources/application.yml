@@ -33,7 +33,7 @@ spring:
       # §1 커밋은 컨테이너가 리스너 반환 뒤에 한다(ack-mode record).
       enable-auto-commit: false
       properties:
-        # §2 협력적 재할당 — 리밸런스 때 옮겨지는 파티션만 멈춘다. 인스턴스 2 이상이 된 뒤 바꿀 땐 2단계 롤링.
+        # §2 협력적 재할당 — 리밸런스 때 옮겨지는 파티션만 멈춘다. 클라이언트 기본 목록에 이미 있어 1단계 배포로 전환된다.
         partition.assignment.strategy: org.apache.kafka.clients.consumer.CooperativeStickyAssignor
         # §2 한 레코드 처리 상한(기본값 명시). 넘기면 쫓겨나 재전달되고 inbox 멱등이 받는다.
         max.poll.interval.ms: 300000

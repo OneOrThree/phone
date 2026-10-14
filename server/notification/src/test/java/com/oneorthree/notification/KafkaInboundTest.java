@@ -123,7 +123,8 @@ class KafkaInboundTest {
     @Test
     void consumerGroupUsesCooperativeAssignorWithOneMemberOwningAllPartitions() throws Exception {
         try (AdminClient admin = AdminClient.create(Map.of("bootstrap.servers", KAFKA.getBootstrapServers()))) {
-            await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+            // 기동 직후엔 코디네이터가 아직 없어 describe 가 예외를 던질 수 있다 — 단언 실패와 같이 재시도한다.
+            await().ignoreExceptions().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
                 var group = admin.describeConsumerGroups(List.of("notification-v1")).all()
                         .get(5, TimeUnit.SECONDS).get("notification-v1");
                 assertThat(group.partitionAssignor()).isEqualTo("cooperative-sticky");

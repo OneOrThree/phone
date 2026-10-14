@@ -10,7 +10,7 @@ spring:
       concurrency: 1
     consumer:
       properties:
-        # §2 협력적 재할당 — 리밸런스 때 옮겨지는 파티션만 멈춘다. 인스턴스 2 이상이 된 뒤 바꿀 땐 2단계 롤링.
+        # §2 협력적 재할당 — 리밸런스 때 옮겨지는 파티션만 멈춘다. 클라이언트 기본 목록에 이미 있어 1단계 배포로 전환된다.
         partition.assignment.strategy: org.apache.kafka.clients.consumer.CooperativeStickyAssignor
         # §2 한 레코드 처리 상한(기본값 명시). 넘기면 쫓겨나 재전달되고 inbox 멱등이 받는다. 발송 워커와의 잠금 대기 때문에 줄이지 않는다.
         max.poll.interval.ms: 300000
