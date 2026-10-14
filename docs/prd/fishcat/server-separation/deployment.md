@@ -67,9 +67,15 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 - Infra에서 최신 IAM·SSM 변경을 적용하고, 승인된 구성 산출물을 먼저 게시한다. Phone의 `CATUS_PROD_INFRA_REVISION`에는 **게시된 구성**의 SHA를 설정한다.
 - Phone의 `catus-production` 환경에 배포 승인자와 배포 허용 브랜치 `release`를 설정하고, `release` 보호 규칙을 확인한다. 발행 역할은 `catus-prod-publish`, 수동 배포 역할은 `catus-prod-deploy`다. 대상 설정은 Secrets Manager `catus/prod/cicd`에서 읽는다.
 - 제품명을 Catus로 정정해 Infra의 `prod/catus`에 새 state·새 AWS 스택을 준비한다. 신규 스택의 적용 완료와 운영 검증을 확인한 뒤 다음 단계로 진행한다. 기존 FocusCat은 전환 검증 후 별도 정리하며, Gromo 1.x는 계속 유지한다. 이전 스택의 성공 상태나 이미지·버전 참조를 Catus로 복사하지 않는다.
-- Infra의 private GitHub 저장소에서 required reviewers 설정은 API 422, main 보호 설정은 API 403으로 실패했다. 사용자는 내장 승인자를 유지하고 지원 플랜 준비 전까지 구성 발행·앱 배포를 보류하기로 결정했다. Phone은 public 저장소이므로 별도 승인 환경·release 제한을 설정한다. `CATUS_PROD_INFRA_REVISION`에는 실제 승인 발행된 구성의 SHA만 등록한다.
+- Infra의 private GitHub 저장소에서 required reviewers 설정은 API 422, main 보호 설정은 API 403으로 실패했다. 사용자는 내장 승인자를 유지하고 지원 플랜 준비 전까지 정규 GitHub 구성 발행 잠금을 유지하기로 결정했다. 이후 FocusCat→Catus 교체 지시로 이번 전환은 운영자 직접 작업으로 수행했다. Phone은 public 저장소이므로 별도 승인 환경·release 제한을 설정한다. `CATUS_PROD_INFRA_REVISION`에는 실제 승인 발행된 구성의 SHA만 등록한다.
 - `catus/prod/env`의 필요한 앱 설정·FCM·Google·Apple·OpenAI·JWT·서비스 caller 자격은 `gromo/dev/env`의 키와 값을 그대로 따른다. DB 접속 키·POSTGRES 관리 값·관리형 서비스 URL·파일 경로 키는 복사 대상에서 제외한다. 운영 DB 자격은 별도로 생성한 `catus/prod/database`에서 공급하고, 개발 env에 없는 채팅 DB 자격도 여기에 따로 준비한다. Redis·프록시·Datadog의 운영 설정과 자격은 Infra에서 별도 보충한다. 앱의 OAuth audience/bundle ID(`com.oneorthree.focuscat`)는 스택 이름 변경으로 바꾸지 않는다. 관리형 RDS 시크릿의 AWS 자동 생성 이름도 변경 대상이 아니다.
-- 링크는 아직 연결하지 않는다. `LINK_BASE_URL`은 `catus-link-unconfigured.invalid`를 유지하며, 구성 준비나 이미지 발행을 링크 연결 완료로 취급하지 않는다.
+- Link는 사용자 지시에 따라 `gromo/dev/env`의 `https://oneorthree.dev.mooo.com`을 사용한다. 실제 dev에는 별도 Link 서비스가 없고 `/internal/links`·`/l/...`가 404이므로 초대 링크 기능은 미연결이다. 닫힌 PR #736의 코드는 가져오지 않았다. DB·로그 장애 알람 수신처도 사용자 요청으로 TODO다.
+
+### 2026-10-14 운영 전환 확인
+
+`https://catus-api.oneorthree.world`에 배포했고 기존 `focuscat-api.oneorthree.world`도 Catus로 연결했다. 기존 Gromo 1.x는 유지한다. 쓰기 중지 후 세 DB를 복원해 앱 시작 전에 모든 public 테이블의 행 수를 대조했고, 컨테이너 9개 health·앱 digest/ARM64·DB 계정 격리·Datadog·로그 아카이브·두 주소 HTTPS health를 확인했다. 세부 AWS 상태와 복구 자료는 Infra의 `prod/catus/cutover-2026-10-14.md`에서 관리한다.
+
+배포 메타데이터 버전과 prod 배지는 `catus-v2.0.0`이며 이번 운영자 작업에서 정식 Git 버전 태그는 만들지 않았다. Phone PR #1139는 draft를 유지한다. 정규 버전 태그·승인 CD는 PR 반영과 `release` 승격 후 위 절차를 따른다. 첫 Catus 릴리스여서 이전 Catus 성공 버전으로의 실제 롤백 검증은 아직 수행할 수 없다.
 
 ### 발행과 버전
 
