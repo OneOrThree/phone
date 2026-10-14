@@ -65,7 +65,7 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 ### 운영 선행 조건
 
 - Infra에서 최신 IAM·SSM 변경을 적용하고, 승인된 구성 산출물을 먼저 게시한다. Phone의 `FOCUSCAT_PROD_INFRA_REVISION`에는 **게시된 구성**의 SHA를 설정한다.
-- Phone의 `focuscat-production` 환경에 배포 승인자를 구성하고, `release` 보호 규칙을 확인한다. 발행 역할은 `focuscat-prod-publish`, 수동 배포 역할은 `focuscat-prod-deploy`다. 대상 설정은 Secrets Manager `focuscat/prod/cicd`에서 읽는다.
+- Phone의 `focuscat-production` 환경에 배포 승인자와 배포 허용 브랜치 `release`를 설정하고, `release` 보호 규칙을 확인한다. 발행 역할은 `focuscat-prod-publish`, 수동 배포 역할은 `focuscat-prod-deploy`다. 대상 설정은 Secrets Manager `focuscat/prod/cicd`에서 읽는다.
 - **2026-10-14 준비 상태**: Infra PR #9는 main에 병합됐지만 최신 IAM·SSM 변경은 미적용이다. Infra의 private GitHub 저장소에서 required reviewers 설정은 API 422, main 보호 설정은 API 403으로 실패해 승인 구성 게시가 보류돼 있다. Phone은 public 저장소이므로 같은 제약이 있다고 가정하지 않고 별도로 설정을 확인한다. Phone의 `FOCUSCAT_PROD_INFRA_REVISION`도 아직 미설정이다. 이 조건을 해결하기 전 운영 발행·배포 완료로 취급하지 않는다.
 - AWS의 Gromo 이름을 FocusCat으로 정리하는 후속 작업은 신규 FocusCat 자원을 대상으로 한다. 기존 Gromo 1.x 자원·시크릿·배포를 보존하며, 관리형 RDS 시크릿의 AWS 자동 생성 이름은 이름 변경 대상이 아니다.
 
@@ -84,4 +84,4 @@ GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release
 
 `ops-deployment-badges.yml`은 신뢰한 원본 워크플로의 결과 산출물을 검증해 `deployment-status` 브랜치에 JSON을 게시한다. dev는 Data·Realtime·Business·Notification의 최근 결과를 합산한다. prod는 마지막 성공 버전을 유지하므로 실패·취소 후에도 이전 성공 버전이 표시된다. 최신 실행 성공 여부는 Actions에서 별도로 확인한다.
 
-2026-10-14 기준 상태 브랜치는 아직 없다. main 반영 후 「서버 배포 상태 배지」 워크플로를 수동 실행하면 초기 JSON을 만들며, 기록이 없는 서비스·환경은 미배포 상태다. 이후 실제 배포 완료 결과가 배지를 갱신한다. 검증은 `python3 -m unittest discover -s .github/scripts -p 'test_focuscat*.py' -v`와 `python3 .claude/pr-gate.py --selftest`를 사용한다.
+2026-10-14 기준 상태 브랜치는 아직 없다. main 반영 후 「서버 배포 상태 배지」 워크플로를 수동 실행하면 초기 JSON을 만들며, 기록이 없는 서비스·환경은 배포 확인 전으로 표시한다. 이미 운영 중인 서버도 기록 전에는 확인 전으로 표시하며, 서버가 미배포되거나 중단됐다는 뜻은 아니다. 이후 실제 배포 완료 결과가 배지를 갱신한다. 검증은 `python3 -m unittest discover -s .github/scripts -p 'test_focuscat*.py' -v`와 `python3 .claude/pr-gate.py --selftest`를 사용한다.
