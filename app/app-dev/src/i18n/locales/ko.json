@@ -670,7 +670,6 @@
     "ribbon": "찜",
     "pinnedIslandA11y": "{{name}}, 잡지에서 찜한 섬",
     "magazinePreview": "잡지 칸 미리보기",
-    "magazinePreviewA11y": "{{name}}, 잡지 칸 미리보기",
     "unpin": "망원경에서 빼기",
     "unpinVoyagingHint": "항해 중이라 빼려면 항해를 그만둬야 해요",
     "unpinned": "망원경에서 뺐어요",
@@ -703,6 +702,7 @@
       "averageUnknown": "평균 집계 전",
       "ours": "우리 섬이에요",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
+      "a11yNoMeta": "{{name}}, ‘{{body}}’",
       "scope": "{{name}} 망원경에 넣기"
     },
     "editor": {

@@ -1037,17 +1037,17 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
   test('잡지로 넣은 섬의 말풍선에는 잡지 칸 미리보기가 1장 — 전망대 핀·무작위·가까운·소속 섬에는 없다', async () => {
     const { screen } = await open(EIGHT());
     await press(screen, 'p1');
-    const cards = screen.getAllByTestId('telescope-magazine-preview');
+    const hidden = { includeHiddenElements: true };
+    const cards = screen.getAllByTestId('telescope-magazine-preview', hidden);
     expect(cards).toHaveLength(1);
-    // 그림과 라벨이 한 덩어리로 읽힌다
-    expect(cards[0].props.accessible).toBe(true);
-    expect(cards[0].props.accessibilityLabel).toBe('섬 p1, 잡지 칸 미리보기');
-    within(cards[0]).getByText('잡지 칸 미리보기');
+    // 칸이 없는 자리표시는 섬 그림 장식뿐 — 「잡지 칸 미리보기」 글이 없고 스크린리더에서도 숨긴다
+    expect(cards[0].props.accessibilityElementsHidden).toBe(true);
+    expect(within(cards[0]).queryByText('잡지 칸 미리보기', hidden)).toBeNull();
     await fireEvent.press(screen.getByLabelText('닫기'));
     for (const id of ['p2', 'n1', 'r1', 'j1']) {
       await press(screen, id);
       screen.getByTestId('telescope-bubble-name');
-      expect(screen.queryByTestId('telescope-magazine-preview')).toBeNull();
+      expect(screen.queryByTestId('telescope-magazine-preview', hidden)).toBeNull();
       await fireEvent.press(screen.getByLabelText('닫기'));
     }
   });
@@ -1079,16 +1079,17 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
     expect(screen.queryByTestId('telescope-magazine-preview')).toBeNull();
     // 폭은 말풍선 안 자리를 재고 나서 정한다
     await fireEvent(preview, 'layout', { nativeEvent: { layout: { width: 280, height: 0 } } });
-    // 칸이 스스로 섬 이름·주민·평균·글을 읽는다(신고 동작은 없다)
-    const read = within(preview).getByLabelText(
-      /^별고래섬, 주민 12\/15, 평균 3시간 5분, ‘밤에 같이/,
-    );
+    // 칸이 스스로 섬 이름·글을 읽는다. 실린 날 「주민·평균」 줄은 빼서 아래 줄(지금 숫자)과 겹치지 않는다(신고 동작도 없다)
+    const read = within(preview).getByLabelText(/^별고래섬, ‘밤에 같이/);
     expect(read.props.accessibilityActions).toBeUndefined();
+    expect(within(preview).queryByText(/주민 12\/15 · /)).toBeNull();
     within(preview).getByText('잡지 칸 미리보기');
     await fireEvent.press(screen.getByLabelText('닫기'));
     // 칸이 없는 잡지 찜(편집부 칸·숨겨진 칸)은 예전 자리표시 그대로
     await press(screen, 'p3');
-    expect(screen.getByTestId('telescope-magazine-preview')).toBeTruthy();
+    expect(
+      screen.getByTestId('telescope-magazine-preview', { includeHiddenElements: true }),
+    ).toBeTruthy();
     expect(screen.queryByTestId('telescope-magazine-cell')).toBeNull();
   });
 
@@ -1388,10 +1389,10 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       '섬 p1, saved from the magazine',
     );
     await press(screen, 'p1');
-    screen.getByText('Magazine panel preview');
-    expect(screen.getByTestId('telescope-magazine-preview').props.accessibilityLabel).toBe(
-      '섬 p1, magazine panel preview',
-    );
+    // 칸이 없는 자리표시에는 글이 없다
+    expect(
+      screen.queryByText('Magazine panel preview', { includeHiddenElements: true }),
+    ).toBeNull();
     const button = screen.getByLabelText('Remove from telescope');
     expect(button.props.accessibilityHint).toBe(
       "You're sailing to this island, so you need to stop sailing to remove it",

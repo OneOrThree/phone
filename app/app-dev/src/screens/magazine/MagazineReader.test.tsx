@@ -266,6 +266,30 @@ test('섬장에게만 끝 쪽 「우리 섬 홍보 쓰기」 — 누르면 쓰�
   expect(member.screen.queryByTestId('magazine-end')).toBeNull();
 });
 
+test('보던 쪽을 라우트 tab 에 적어 둔다 — 끝 쪽에서 쓰기 화면으로 가도 App 기록에 그 쪽이 남는다', async () => {
+  const setTab = jest.fn();
+  const { screen, e } = await open(page(), env({ setTab }), true);
+  expect(setTab).toHaveBeenLastCalledWith('0');
+  await fireEvent.press(screen.getByTestId('magazine-next'));
+  await fireEvent.press(screen.getByTestId('magazine-next'));
+  await fireEvent.press(screen.getByTestId('magazine-next'));
+  expect(screen.getByText('4 / 4')).toBeTruthy();
+  expect(setTab).toHaveBeenLastCalledWith('3');
+  await fireEvent.press(screen.getByTestId('magazine-write'));
+  expect(e.go).toHaveBeenCalledWith('promotionEditor');
+});
+
+test('뒤로 와서 다시 펼치면(App 이 tab 을 되돌려 줌) 그 쪽에서 시작한다', async () => {
+  const { screen } = await open(page(), env({ tab: '3' }), true);
+  expect(screen.getByText('4 / 4')).toBeTruthy();
+  expect(screen.getByTestId('magazine-pages').props.initialScrollIndex).toBe(3);
+});
+
+test('되돌린 쪽이 지금 쪽 수보다 크면 끝 쪽에서 시작한다', async () => {
+  const { screen } = await open(page(), env({ tab: '9' }), true);
+  expect(screen.getByText('4 / 4')).toBeTruthy();
+});
+
 test('7호보다 오래된 호는 「이 호는 이제 볼 수 없어요」 · 닫기', async () => {
   getIssue.mockRejectedValueOnce(new ApiError('MAGAZINE_ISSUE_NOT_FOUND', '없음', 404));
   const e = env({ detail: 'old' });
@@ -377,6 +401,21 @@ describe('신고(SAFE-04)', () => {
         '소셜 로그인하면 신고할 수 있어요.',
       ),
     );
+  });
+
+  test('우리 섬 칸(MEMBER)은 신고할 수 없다 — 길게 누르기·스크린리더 동작 모두 없음(크게 보기도)', async () => {
+    const { screen } = await open();
+    const ours = screen.getByLabelText(/^섬1섬, .*우리 섬이에요$/);
+    expect(ours.props.accessibilityActions).toBeUndefined();
+    await fireEvent(ours, 'longPress');
+    expect(screen.queryByTestId('magazine-report')).toBeNull();
+    await fireEvent.press(ours);
+    const zoomed = screen.getAllByLabelText(/^섬1섬, .*우리 섬이에요$/);
+    expect(zoomed[zoomed.length - 1].props.accessibilityActions).toBeUndefined();
+    // 남의 섬 칸에는 그대로 있다
+    expect(screen.getByLabelText(/^섬2섬,/).props.accessibilityActions).toEqual([
+      { name: 'report', label: '신고하기' },
+    ]);
   });
 
   test('그 밖의 실패는 시트에 남아 다시 보낼 수 있다', async () => {

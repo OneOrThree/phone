@@ -688,7 +688,6 @@
     "ribbon": "Saved",
     "pinnedIslandA11y": "{{name}}, saved from the magazine",
     "magazinePreview": "Magazine panel preview",
-    "magazinePreviewA11y": "{{name}}, magazine panel preview",
     "unpin": "Remove from telescope",
     "unpinVoyagingHint": "You're sailing to this island, so you need to stop sailing to remove it",
     "unpinned": "Removed from your telescope",
@@ -721,6 +720,7 @@
       "averageUnknown": "Avg not tallied yet",
       "ours": "Our island",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
+      "a11yNoMeta": "{{name}}, ‘{{body}}’",
       "scope": "Add {{name}} to the telescope"
     },
     "editor": {

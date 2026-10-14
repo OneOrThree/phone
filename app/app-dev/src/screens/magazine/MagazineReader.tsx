@@ -130,6 +130,11 @@ export function MagazineReader({
   // 크게 보기에서 길게 누른 칸 — iOS 는 크게 보기(Modal)가 다 닫힌 뒤에 신고 시트(Modal)를 연다(닫히는 중에 띄우면 실패한다)
   const reportAfterZoom = useRef<MagazineCell | null>(null);
   const list = useRef<FlatList<Page>>(null);
+  // 보던 쪽은 라우트의 tab 에 적어 둔다 — 끝 쪽 [우리 섬 홍보 쓰기]로 쓰기 화면에 갔다가 뒤로 오면 App 기록이 tab 을 되돌려 줘
+  // 그 쪽에서 다시 연다. 새로 펼칠 때(go)는 tab 이 비어 있어 첫 쪽부터다. 처음 그릴 때 값만 쓴다.
+  const resumeIndex = useRef(Number(e.tab) || 0);
+  // 다 읽었을 때 펼친 쪽 — FlatList 의 처음 위치로만 쓴다(넘길 때마다 바꾸면 목록이 그리는 범위가 흔들린다)
+  const startIndex = useRef(0);
 
   useEffect(() => {
     if (!issueId) {
@@ -143,7 +148,14 @@ export function MagazineReader({
       .then((page) => {
         if (!alive) return;
         setLoaded(page);
-        setIndex(0);
+        // ponytail: 칸이 한 페이지(30칸)를 넘으면 다시 펼칠 때 끝 쪽이 아직 없어 마지막으로 읽힌 쪽에 선다
+        // 끝 쪽까지 센다 — 되돌아오는 길(끝 쪽 쓰기 입구)은 섬장만이라 host 를 기다리지 않는다
+        startIndex.current = Math.max(
+          0,
+          Math.min(resumeIndex.current, magazinePages(page, true).length - 1),
+        );
+        resumeIndex.current = 0;
+        setIndex(startIndex.current);
         setStatus('ready');
         // 섬에서 펼쳤다 — 받은 적 없는 호면 받음도 같이 적힌다. 실패해도 읽기는 그대로 둔다(다음에 펼칠 때 다시 보낸다)
         sendReceipt(issueId, { place: 'ISLAND', opened: true }).catch(() => {});
@@ -204,6 +216,11 @@ export function MagazineReader({
   useEffect(() => {
     list.current?.scrollToOffset({ offset: indexRef.current * innerW, animated: false });
   }, [innerW]);
+  // 보던 쪽을 라우트 tab 에 맞춰 둔다(위 resumeIndex) — 다 읽은 뒤에만
+  const setTab = e.setTab;
+  useEffect(() => {
+    if (status === 'ready') setTab?.(String(index));
+  }, [status, index, setTab]);
   // 쪽이 바뀌면 스크린리더에 알린다(처음 펼칠 때는 표지 띠를 읽으므로 건너뛴다)
   const announced = useRef(false);
   const pageLabel = t(cursor ? 'magazine.reader.pageA11yMore' : 'magazine.reader.pageA11y', {
@@ -441,7 +458,8 @@ export function MagazineReader({
               // 섬에서 펼친 잡지에는 망원경 동그라미가 없다(10/14) — 우리 섬 배지만
               corner={cell.relation === 'MEMBER' ? 'ours' : null}
               onPress={() => setZoom(cell)}
-              onReport={() => setReport(cell)}
+              // 우리 섬 칸은 신고하지 않는다(길게 누르기·스크린리더 동작 모두 없음)
+              onReport={cell.relation === 'MEMBER' ? undefined : () => setReport(cell)}
             />
           ))}
         </View>
@@ -590,6 +608,8 @@ export function MagazineReader({
             {status === 'ready' ? (
               <FlatList
                 ref={list}
+                // 쓰기 화면에서 돌아와 다시 펼치면 보던 쪽에서 시작한다(resumeIndex)
+                initialScrollIndex={startIndex.current || undefined}
                 testID="magazine-pages"
                 style={{ marginTop: issue ? 0 : COVER_H }}
                 data={pages}
@@ -742,11 +762,15 @@ export function MagazineReader({
               cell={zoom}
               corner={zoom.relation === 'MEMBER' ? 'ours' : null}
               onPress={() => setZoom(null)}
-              onReport={() => {
-                if (Platform.OS === 'ios') reportAfterZoom.current = zoom;
-                else setReport(zoom);
-                setZoom(null);
-              }}
+              onReport={
+                zoom.relation === 'MEMBER'
+                  ? undefined
+                  : () => {
+                      if (Platform.OS === 'ios') reportAfterZoom.current = zoom;
+                      else setReport(zoom);
+                      setZoom(null);
+                    }
+              }
             />
           )}
         </Pressable>

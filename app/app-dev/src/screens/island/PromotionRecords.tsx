@@ -105,6 +105,8 @@ export function PromotionRecords({ e }: { e: any }) {
                 testID={`promotion-record-cell-${rec.promotionId}`}
                 width={P.thumbWidth}
                 cell={{ ...facts, body: rec.body, layout: rec.layout }}
+                // 지금 섬 숫자라 실린 날 칸의 숫자와 다르다 — 썸네일에서는 그 줄을 뺀다
+                hideMeta
               />
             )}
             <View style={{ flex: largeText ? undefined : 1, gap: primitiveTokens.space[1] }}>

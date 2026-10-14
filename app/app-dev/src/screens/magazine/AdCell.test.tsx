@@ -124,6 +124,12 @@ describe('AdCell', () => {
     expect(onReport).toHaveBeenCalledTimes(2);
   });
 
+  it('hideMeta — 「주민·평균」 줄을 그리지 않고 읽는 이름에서도 뺀다', async () => {
+    const screen = await render(<AdCell width={300} cell={cell()} hideMeta onPress={() => {}} />);
+    expect(screen.queryByText(/ · /)).toBeNull();
+    expect(screen.getByRole('button').props.accessibilityLabel).not.toMatch(/주민|평균/);
+  });
+
   it('신고를 받지 않는 칸(쓰기 화면·망원경)에는 신고 동작이 없다', async () => {
     const screen = await render(<AdCell testID="c" width={300} cell={cell()} onPress={() => {}} />);
     expect(screen.getByRole('button').props.accessibilityActions).toBeUndefined();

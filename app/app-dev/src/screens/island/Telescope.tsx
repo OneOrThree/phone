@@ -244,10 +244,11 @@ function IslandCell({
 
 /**
  * 잡지 칸 미리보기(SCOPE-09) — 서버가 그 섬의 오늘 호 홍보 칸(`magazineCell`)을 주면 섬장이 꾸민 칸을 잡지와 같은 `AdCell` 로
- * 그린다(칸 이름·주민·평균·글은 칸이 직접 읽는다). 칸이 없으면(편집부 칸에서 넣었거나 칸이 숨겨짐) 섬 그림을 종이 틀에 넣은
- * 자리표시를 둔다 — 그림과 라벨이 한 덩어리로 읽히도록 접근성 요소 하나로 묶는다.
+ * 그린다(칸이 섬 이름·글을 직접 읽는다). 칸의 「주민·평균」 줄은 빼고 그린다 — 실린 날 숫자라, 바로 아래 말풍선 줄의 지금 숫자와
+ * 다르게 겹쳐 보인다. 칸이 없으면(편집부 칸에서 넣었거나 칸이 숨겨짐) 섬 그림만 종이 틀에 둔다 — 미리보기가 아니라 장식이라
+ * 「잡지 칸 미리보기」 글도 없고 스크린리더에서도 숨긴다(섬 이름은 말풍선 제목이 읽는다).
  */
-function MagazinePreview({ name, cell }: { name: string; cell?: MagazineCell | null }) {
+function MagazinePreview({ cell }: { cell?: MagazineCell | null }) {
   const [width, setWidth] = useState(0);
   if (cell)
     return (
@@ -256,7 +257,7 @@ function MagazinePreview({ name, cell }: { name: string; cell?: MagazineCell | n
         style={styles.magazineCell}
         onLayout={(ev) => setWidth(ev.nativeEvent.layout.width)}
       >
-        {width > 0 && <AdCell width={width} cell={cell} />}
+        {width > 0 && <AdCell width={width} cell={cell} hideMeta />}
         <Txt kind="meta" style={styles.magazineCaption}>
           {t('telescope.magazinePreview')}
         </Txt>
@@ -265,17 +266,13 @@ function MagazinePreview({ name, cell }: { name: string; cell?: MagazineCell | n
   return (
     <View
       testID="telescope-magazine-preview"
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={t('telescope.magazinePreviewA11y', { name })}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
       style={styles.magazine}
     >
       <View style={styles.magazinePicture}>
         <Pic id="island/whole" w="100%" h="100%" cover />
       </View>
-      <Txt kind="meta" style={styles.magazineCaption}>
-        {t('telescope.magazinePreview')}
-      </Txt>
     </View>
   );
 }
@@ -328,7 +325,7 @@ function IslandBubble({
         {item.name}
       </Txt>
       {!!item.intro && <Txt>{item.intro}</Txt>}
-      {isMagazinePin(item) && <MagazinePreview name={item.name} cell={item.magazineCell} />}
+      {isMagazinePin(item) && <MagazinePreview cell={item.magazineCell} />}
       <SheetGroup>
         <SheetRow
           title={t('telescope.residents', { count: item.memberCount, max: item.maxMembers })}

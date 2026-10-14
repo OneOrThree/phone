@@ -1,7 +1,7 @@
 // 회관 홍보 기록판(GROMO-2289 · AD-11) — 날짜·호 · 상태 칩 · 칸 썸네일(꾸미기가 올 때만) · 넣음·도착·가입 숫자 · 상태 안내 ·
 // 불러오는 중 · 빈 기록 · 실패와 다시 시도 · 주민이 아니게 됨. 서버 API(magazine.ts)는 목이다.
 import React from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import * as api from '@/services/api/magazine';
 import type { PromotionRecord } from '@/services/api/magazine';
@@ -76,7 +76,9 @@ test('꾸미기가 오면 우리 섬 칸 썸네일을 그린다', async () => {
     record({ layout: { v: 1, frameId: 'mag.frame-ticket', stickers: [], tape: null } }),
   ]);
   const screen = await render(<PromotionRecords e={env()} />);
-  expect(await screen.findByTestId('promotion-record-cell-p1')).toBeTruthy();
+  const thumb = await screen.findByTestId('promotion-record-cell-p1');
+  // 지금 섬 숫자는 실린 날 숫자와 달라 썸네일에서는 「주민·평균」 줄을 뺀다
+  expect(within(thumb).queryByText(/주민 .* · /, { includeHiddenElements: true })).toBeNull();
 });
 
 test('불러오는 중 → 빈 기록', async () => {
