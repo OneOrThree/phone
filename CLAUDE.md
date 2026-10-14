@@ -184,6 +184,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   server: `dev-server/data-api`, `dev-server/realtime`, `dev-server/<business-api|notification|business-api+notification>`. `ops-redeploy.dev.yml` (manual) re-runs a server's last successful deploy job to reload
   secrets without a new image.
 - **Prod**: FocusCat 2.0은 `prod-ci.yml`(release의 변경 서비스 이미지 발행·전체 이미지 조합 기록·PR 라벨 기반 focuscat-vX.Y.Z 태깅)과 `prod-cd.yml`(승인 후 수동 SSM 배포·버전 지정 롤백)으로 관리한다. 운영 실행 구성은 Infra 저장소에 두고 구성 SHA를 고정한다. 기존 Gromo 1.x와 분리하며 `satellite-ci.prod.yml`은 release PR 검사만 수행한다. release push 자동 발행은 `prod-ci.yml` 하나가 담당한다.
+  실행 순서·운영 선행 조건·배지 초기화는 `docs/prd/fishcat/server-separation/deployment.md`의 「FocusCat 2.0 운영 발행·배포」를 따른다. 워크플로 추가 자체가 운영 적용 완료를 뜻하지 않는다.
 - **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
   `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `api-docs-cleanup.yml`
   (cleanup on branch delete — currently a **no-op**: its predicate checks a
