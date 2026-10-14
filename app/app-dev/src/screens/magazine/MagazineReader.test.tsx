@@ -1,5 +1,5 @@
 // 고양이 잡지 펼치기(GROMO-2289 · A1~A4) — 첫 장 편집부(메달·NEW·편집냥) · 다음 장부터 3칸씩 · 끝 쪽 근처에서 다음 커서 ·
-// 섬에서 펼치면 망원경 동그라미 없음(우리 섬 배지만) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 쓰기 입구 · 7호 밖 · 크게 보기.
+// 섬에서 펼치면 망원경 동그라미 없음(우리 섬 배지만) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 · 크게 보기.
 // 서버 API(magazine.ts)는 목이다.
 import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
@@ -256,44 +256,25 @@ test('가로처럼 낮은 화면에서도 지면(칸 3개)이 쪽 넘김 줄보�
   }
 });
 
-test('섬장에게만 끝 쪽 「우리 섬 홍보 쓰기」 — 누르면 쓰기 화면', async () => {
+test('섬장에게만 끝 쪽 「우리 섬도 실어 볼까요?」 — 쓰기 버튼 없이 마을회관에서 쓴다는 안내만(10/14)', async () => {
   const { screen, e } = await open(page(), env(), true);
   expect(screen.getByText('1 / 4')).toBeTruthy();
-  await fireEvent.press(screen.getByTestId('magazine-write'));
-  expect(e.go).toHaveBeenCalledWith('promotionEditor');
+  await fireEvent.press(screen.getByTestId('magazine-next'));
+  await fireEvent.press(screen.getByTestId('magazine-next'));
+  await fireEvent.press(screen.getByTestId('magazine-next'));
+  expect(screen.getByText('4 / 4')).toBeTruthy();
+  expect(screen.getByTestId('magazine-end')).toBeTruthy();
+  expect(screen.getByText('우리 섬도 실어 볼까요?')).toBeTruthy();
+  expect(
+    screen.getByText(
+      '홍보는 마을회관에서 쓸 수 있어요. 아침 7시부터 자정까지 신청하면 다음 날 아침 호에 실려요',
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByTestId('magazine-write')).toBeNull();
+  expect(e.go).not.toHaveBeenCalled();
 
   const member = await open();
   expect(member.screen.queryByTestId('magazine-end')).toBeNull();
-});
-
-test('보던 쪽을 라우트 tab 에 적어 둔다 — 끝 쪽에서 쓰기 화면으로 가도 App 기록에 그 쪽이 남는다', async () => {
-  const setTab = jest.fn();
-  const { screen, e } = await open(page(), env({ setTab }), true);
-  expect(setTab).toHaveBeenLastCalledWith('0');
-  await fireEvent.press(screen.getByTestId('magazine-next'));
-  await fireEvent.press(screen.getByTestId('magazine-next'));
-  await fireEvent.press(screen.getByTestId('magazine-next'));
-  expect(screen.getByText('4 / 4')).toBeTruthy();
-  expect(setTab).toHaveBeenLastCalledWith('3');
-  await fireEvent.press(screen.getByTestId('magazine-write'));
-  expect(e.go).toHaveBeenCalledWith('promotionEditor');
-});
-
-test('뒤로 와서 다시 펼치면(App 이 tab 을 되돌려 줌) 그 쪽에서 시작한다', async () => {
-  const { screen } = await open(page(), env({ tab: '3' }), true);
-  expect(screen.getByText('4 / 4')).toBeTruthy();
-  expect(screen.getByTestId('magazine-pages').props.initialScrollIndex).toBe(3);
-});
-
-test('쓰기 화면에 간 사이 섬장이 아니게 됐으면(끝 쪽 없음) 남은 마지막 쪽에서 시작한다', async () => {
-  const { screen } = await open(page(), env({ tab: '3' }), false);
-  expect(screen.getByText('3 / 3')).toBeTruthy();
-  expect(screen.getByTestId('magazine-pages').props.initialScrollIndex).toBe(2);
-});
-
-test('되돌린 쪽이 지금 쪽 수보다 크면 끝 쪽에서 시작한다', async () => {
-  const { screen } = await open(page(), env({ tab: '9' }), true);
-  expect(screen.getByText('4 / 4')).toBeTruthy();
 });
 
 test('7호보다 오래된 호는 「이 호는 이제 볼 수 없어요」 · 닫기', async () => {

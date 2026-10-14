@@ -81,7 +81,7 @@ export const issueDateText = (date: string) => {
 };
 
 /**
- * 지면 순서 — 첫 장 편집부(있으면) → 홍보 칸 3개씩 → (칸이 하나도 없으면) 「오늘은 실린 홍보가 없어요」 → (섬장만) 쓰기 안내 끝 장.
+ * 지면 순서 — 첫 장 편집부(있으면) → 홍보 칸 3개씩 → (칸이 하나도 없으면) 「오늘은 실린 홍보가 없어요」 → (섬장만) 끝 장(홍보는 마을회관에서 쓴다는 안내).
  * 커서가 남아 있으면 끝 장은 아직 붙이지 않는다(다음 칸을 다 읽은 뒤).
  */
 export function magazinePages(loaded: Loaded, host: boolean): Page[] {
@@ -111,7 +111,7 @@ export function MagazineReader({
   background,
 }: {
   e: any;
-  /** 내 섬 섬장이면 끝 쪽에 「우리 섬 홍보 쓰기」 입구(P3). */
+  /** 내 섬 섬장이면 끝 쪽에 「우리 섬도 실어 볼까요?」 안내 — 쓰기 입구는 마을회관에만 있다(10/14). */
   host?: boolean;
   background?: React.ReactNode;
 }) {
@@ -130,14 +130,6 @@ export function MagazineReader({
   // 크게 보기에서 길게 누른 칸 — iOS 는 크게 보기(Modal)가 다 닫힌 뒤에 신고 시트(Modal)를 연다(닫히는 중에 띄우면 실패한다)
   const reportAfterZoom = useRef<MagazineCell | null>(null);
   const list = useRef<FlatList<Page>>(null);
-  // 보던 쪽은 라우트의 tab 에 적어 둔다 — 끝 쪽 [우리 섬 홍보 쓰기]로 쓰기 화면에 갔다가 뒤로 오면 App 기록이 tab 을 되돌려 줘
-  // 그 쪽에서 다시 연다. 새로 펼칠 때(go)는 tab 이 비어 있어 첫 쪽부터다. 처음 그릴 때 값만 쓴다.
-  const resumeIndex = useRef(Number(e.tab) || 0);
-  // 다 읽은 순간의 섬장 여부로 끝 쪽(섬장 전용)을 센다 — 의존성에 넣으면 섬장 여부가 바뀔 때마다 호를 다시 읽는다
-  const hostRef = useRef(host);
-  hostRef.current = host;
-  // 다 읽었을 때 펼친 쪽 — FlatList 의 처음 위치로만 쓴다(넘길 때마다 바꾸면 목록이 그리는 범위가 흔들린다)
-  const startIndex = useRef(0);
 
   useEffect(() => {
     if (!issueId) {
@@ -151,14 +143,7 @@ export function MagazineReader({
       .then((page) => {
         if (!alive) return;
         setLoaded(page);
-        // ponytail: 칸이 한 페이지(30칸)를 넘으면 다시 펼칠 때 끝 쪽이 아직 없어 마지막으로 읽힌 쪽에 선다
-        // 지금 그릴 쪽 수로 자른다 — 쓰기 화면에 간 사이 섬장이 아니게 됐으면 끝 쪽이 없다
-        startIndex.current = Math.max(
-          0,
-          Math.min(resumeIndex.current, magazinePages(page, hostRef.current).length - 1),
-        );
-        resumeIndex.current = 0;
-        setIndex(startIndex.current);
+        setIndex(0);
         setStatus('ready');
         // 섬에서 펼쳤다 — 받은 적 없는 호면 받음도 같이 적힌다. 실패해도 읽기는 그대로 둔다(다음에 펼칠 때 다시 보낸다)
         sendReceipt(issueId, { place: 'ISLAND', opened: true }).catch(() => {});
@@ -219,11 +204,6 @@ export function MagazineReader({
   useEffect(() => {
     list.current?.scrollToOffset({ offset: indexRef.current * innerW, animated: false });
   }, [innerW]);
-  // 보던 쪽을 라우트 tab 에 맞춰 둔다(위 resumeIndex) — 다 읽은 뒤에만
-  const setTab = e.setTab;
-  useEffect(() => {
-    if (status === 'ready') setTab?.(String(index));
-  }, [status, index, setTab]);
   // 쪽이 바뀌면 스크린리더에 알린다(처음 펼칠 때는 표지 띠를 읽으므로 건너뛴다)
   const announced = useRef(false);
   const pageLabel = t(cursor ? 'magazine.reader.pageA11yMore' : 'magazine.reader.pageA11y', {
@@ -482,20 +462,13 @@ export function MagazineReader({
           {t(item.kind === 'empty' ? 'magazine.reader.noCells' : 'magazine.reader.endTitle')}
         </T>
         {item.kind === 'end' && (
-          <>
-            <T
-              lineBreakStrategyIOS="hangul-word"
-              style={[text(12, semanticTokens.color.textMuted), { textAlign: 'center' }]}
-            >
-              {t('magazine.reader.endBody')}
-            </T>
-            <Btn
-              id="magazine-write"
-              small
-              title={t('magazine.reader.write')}
-              onPress={() => e.go('promotionEditor')}
-            />
-          </>
+          // 쓰기 입구는 마을회관에만 있다(10/14) — 끝 장은 어디서 쓰는지 알려 주기만 한다
+          <T
+            lineBreakStrategyIOS="hangul-word"
+            style={[text(12, semanticTokens.color.textMuted), { textAlign: 'center' }]}
+          >
+            {t('magazine.reader.endBody')}
+          </T>
         )}
       </View>
     );
@@ -611,8 +584,6 @@ export function MagazineReader({
             {status === 'ready' ? (
               <FlatList
                 ref={list}
-                // 쓰기 화면에서 돌아와 다시 펼치면 보던 쪽에서 시작한다(resumeIndex)
-                initialScrollIndex={startIndex.current || undefined}
                 testID="magazine-pages"
                 style={{ marginTop: issue ? 0 : COVER_H }}
                 data={pages}

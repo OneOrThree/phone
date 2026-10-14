@@ -577,7 +577,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'promotionEditor') return <PromotionEditor e={e} />;
   // 회관 홍보 기록판(AD-11) — 주민 전용(구경 중 허용 목록에 없다)
   if (r === 'promotionRecords') return <PromotionRecords e={e} />;
-  // 섬에서 펼친 잡지 — 배경은 섬 홈(A4). 끝 쪽 「우리 섬 홍보 쓰기」는 내 섬 섬장만(P3)
+  // 섬에서 펼친 잡지 — 배경은 섬 홈(A4). 끝 쪽 「우리 섬도 실어 볼까요?」 안내는 내 섬 섬장만(쓰기 입구는 마을회관)
   if (r === 'magazine')
     return (
       <MagazineReader

@@ -8,7 +8,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import * as api from '@/services/api/magazine';
 import type { PromotionEditor as EditorResponse } from '@/services/api/magazine';
-import { initialState } from '@/services/model';
+import { initialState, reducer } from '@/services/model';
 import { saveSession } from '@/services/api/session';
 import { CELL_ASPECT, PromotionLayout } from './layout';
 import { EditorDriver, PromotionEditor } from './PromotionEditor';
@@ -28,6 +28,12 @@ jest.mock('@/utils/layout', () => {
   const actual = jest.requireActual('@/utils/layout');
   return { useAppLayout: () => ({ ...actual.useAppLayout(), fontScale: mockFontScale }) };
 });
+// 회관 「섬 관리」가 확정한 관리 API 역할(없으면 null → 홈 스냅샷)
+let mockLiveRole: 'host' | 'member' | null = null;
+jest.mock('@/screens/interiors/useIslandManagement', () => ({
+  ...jest.requireActual('@/screens/interiors/useIslandManagement'),
+  managedIslandRole: () => mockLiveRole,
+}));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
@@ -75,6 +81,7 @@ const stickerStyles = (screen: any) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockLiveRole = null;
   // 한 번만 쓰는 응답(…Once)이 실패한 테스트에서 남아 다음 테스트로 새지 않게 서버 목은 통째로 비운다
   for (const m of [getEditor, getAssets, apply, update]) m.mockReset();
   getAssets.mockRejectedValue(new Error('offline')); // 재료 목록을 못 읽어도 쓰기는 된다
@@ -124,6 +131,43 @@ describe('여닫기', () => {
   it('재료 목록이 늦어도 편집기 응답만으로 먼저 열린다', async () => {
     getAssets.mockReturnValueOnce(new Promise(() => {}));
     await open();
+  });
+
+  it('실서버 — 다른 기기에서 섬장을 위임받아 홈 스냅샷이 아직 주민이어도, 회관이 확정한 역할(host)로 쓰기 화면이 열린다', async () => {
+    const ISLAND = 'server-island';
+    const state = reducer(
+      reducer(initialState(true), {
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: ISLAND, name: '소다 섬' }],
+          currentIslandId: ISLAND,
+          nextCursor: null,
+          lossReason: null,
+        },
+      } as any),
+      {
+        type: 'SERVER_HOME',
+        facts: {
+          islandId: ISLAND,
+          completedBuildings: ['hall', 'mail'],
+          home: {
+            island: { id: ISLAND, name: '소다 섬', memberCount: 2, maxMembers: 15, role: 'member' },
+            wallets: { villagePoints: 0 },
+          },
+        },
+      } as any,
+    );
+    // 회관 확정 역할이 없으면 홈 스냅샷(주민)대로 안내만 — 서버를 부르지 않는다
+    const stale = await render(<PromotionEditor e={env({ state, islands: {} })} />);
+    expect(stale.getByText('섬장만 홍보를 쓸 수 있어요')).toBeTruthy();
+    expect(getEditor).not.toHaveBeenCalled();
+    await stale.unmount();
+    // 회관 「섬 관리」가 관리 API 로 host 를 확정했다 — 입구와 같은 근거로 섬장이다
+    mockLiveRole = 'host';
+    getEditor.mockResolvedValue(editorResponse());
+    const screen = await render(<PromotionEditor e={env({ state, islands: {} })} />);
+    await waitFor(() => expect(screen.getByTestId('promotion-canvas')).toBeTruthy());
+    expect(getEditor).toHaveBeenCalledWith(ISLAND);
   });
 
   it('게스트 섬장이면 들어가는 순간 회원 전환 시트를 연다', async () => {
