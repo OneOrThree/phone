@@ -44,7 +44,8 @@ permissions:
   contents: read
 concurrency:
   group: catus-prod-build-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   contracts:
@@ -187,6 +188,7 @@ jobs:
           name: catus-${{ matrix.service }}-digest
           path: ${{ matrix.service }}.json
           if-no-files-found: error
+          overwrite: true
 
   release:
     needs: [contracts, plan, images]
@@ -303,7 +305,11 @@ jobs:
           done < release-output/images.tsv
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a "$version" "$GITHUB_SHA" -m "Catus $version / $release_id / Infra $INFRA_REVISION"
+          if git show-ref --verify --quiet "refs/tags/$version"; then
+            test "$(git rev-parse "$version^{commit}")" = "$GITHUB_SHA"
+          else
+            git tag -a "$version" "$GITHUB_SHA" -m "Catus $version / $release_id / Infra $INFRA_REVISION"
+          fi
           git push origin "refs/tags/$version"
           echo "- 버전: $version" >> "$GITHUB_STEP_SUMMARY"
           echo "Infra 구성: $INFRA_REVISION" >> "$GITHUB_STEP_SUMMARY"

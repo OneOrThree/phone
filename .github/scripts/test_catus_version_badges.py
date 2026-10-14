@@ -62,10 +62,63 @@ class VersionBadgeTests(unittest.TestCase):
             plan.write_text(json.dumps({'previous': {'product': 'catus', 'version': 'catus-v2.0.0'}}))
             with patch.object(sys, 'argv', ['version', '--revision', 'a' * 40, '--plan-file', str(plan)]), \
                  patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
-                 patch.object(version.subprocess, 'check_output', side_effect=['', '[]']), \
+                 patch.object(version.subprocess, 'check_output', side_effect=['', '', '[]']), \
                  patch('sys.stdout', new_callable=io.StringIO) as output:
                 version.main()
             self.assertEqual(output.getvalue().strip(), 'catus-v2.0.1')
+
+    def test_같은SHA의_기발행버전은_라벨과_무관하게_재사용한다(self):
+        for label in ['release:major', 'release:minor', 'release:patch']:
+            self.assertEqual(version.next_version(['catus-v2.1.0'], [label],
+                {'product': 'catus', 'version': 'catus-v2.0.0'}, ['v99.0.0', 'catus-v2.1.0']), 'catus-v2.1.0')
+        self.assertEqual(version.next_version(['catus-v2.1.0', 'catus-v2.2.0'], [],
+            published_tags=['catus-v2.1.0', 'catus-v2.2.0']), 'catus-v2.2.0')
+
+    def test_재실행은_현재SHA의_annotated태그를_찾고_같은태그를_다시_push한다(self):
+        script = next(step['run'] for step in workflow('prod-ci.yml')['jobs']['release']['steps']
+                      if step.get('name') == '불변 릴리스 생성·업로드')
+        script = script[script.index("git config user.name"):script.index('echo "- 버전:')]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', *args], cwd=root, text=True, stderr=subprocess.PIPE).strip()
+            git('init', '-q')
+            git('init', '--bare', '-q', 'remote.git')
+            git('remote', 'add', 'origin', str(root / 'remote.git'))
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', '기준')
+            revision = git('rev-parse', 'HEAD')
+            plan = root / 'prod-plan.json'
+            plan.write_text(json.dumps({'previous': None}))
+            env = {**os.environ, 'GITHUB_SHA': revision}
+            for _ in range(2):
+                result = subprocess.run(
+                    ['bash', '-euc', 'version=catus-v2.0.0\nrelease_id=test\nINFRA_REVISION=test\n' + script],
+                    cwd=root, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            original = version.subprocess.check_output
+            def output(args, **kwargs):
+                if args[0] == 'gh': return '[]'
+                return original(args, cwd=root, **kwargs)
+            with patch.object(sys, 'argv', ['version', '--revision', revision, '--plan-file', str(plan)]), \
+                 patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+                 patch.object(version.subprocess, 'check_output', side_effect=output), \
+                 patch('sys.stdout', new_callable=io.StringIO) as stdout:
+                version.main()
+            self.assertEqual(stdout.getvalue().strip(), 'catus-v2.0.0')
+            self.assertEqual(git('tag', '-l'), 'catus-v2.0.0')
+            self.assertIn('refs/tags/catus-v2.0.0', git('ls-remote', '--tags', 'origin'))
+
+    def test_운영실행은_대기중인_발행과_배포를_취소하지_않는다(self):
+        for filename in ['prod-ci.yml', 'prod-cd.yml']:
+            concurrency = workflow(filename)['concurrency']
+            self.assertEqual(concurrency['cancel-in-progress'], 'false')
+            self.assertEqual(concurrency['queue'], 'max')
+
+    def test_digest_재업로드는_같은이름의_이전시도_산출물을_교체한다(self):
+        steps = workflow('prod-ci.yml')['jobs']['images']['steps']
+        upload = next(step['with'] for step in steps if step.get('uses') == 'actions/upload-artifact@v4')
+        self.assertEqual(upload['name'], 'catus-${{ matrix.service }}-digest')
+        self.assertEqual(upload['overwrite'], 'true')
 
     def run_badge(self, path, artifacts, conclusion='failure', attempt=2):
         rule = badge.RULES[path]
@@ -267,7 +320,7 @@ class VersionBadgeTests(unittest.TestCase):
                     env={**env, 'FAILURE_SERVICE': failed}, capture_output=True, text=True)
                 self.assertEqual(result.returncode, expected, result.stderr)
 
-    def test_수동롤백_버전을_릴리스ID로_해석하고_SSM성공후에만_기록한다(self):
+    def test_수동롤백은_SSM조회시간초과를_재시도하고_성공후에만_기록한다(self):
         script = workflow('prod-cd.yml')['jobs']['deploy']['steps'][2]['run']
         script = script.split("<<'PYTHON'\n", 1)[1].rsplit('\nPYTHON', 1)[0]
         tree = ast.parse(script)
@@ -284,6 +337,8 @@ class VersionBadgeTests(unittest.TestCase):
             calls.append(args)
             if args[0] == 'secretsmanager': return {'SecretString': json.dumps(config)}
             if args[1] == 'send-command': return {'Command': {'CommandId': 'command'}}
+            if sum(call[1] == 'get-command-invocation' for call in calls) == 1:
+                raise subprocess.TimeoutExpired('aws', 30)
             return {'Status': 'Success'}
         def download(args, **kwargs):
             self.assertIn('versions/catus-v2.0.0.json', args)
@@ -295,8 +350,11 @@ class VersionBadgeTests(unittest.TestCase):
                 os.chdir(directory)
                 with patch.object(sys, 'argv', ['request', '--release-id', 'catus-v2.0.0', '--operation', 'rollback']), \
                      patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(Path(directory, 'summary'))}), \
-                     patch.object(subprocess, 'run', download):
+                     patch.object(subprocess, 'run', download), patch.object(namespace['time'], 'sleep') as sleep:
                     namespace['main']()
+                sleep.assert_called_once_with(5)
+                self.assertEqual(sum(call[1] == 'send-command' for call in calls), 1)
+                self.assertEqual(sum(call[1] == 'get-command-invocation' for call in calls), 2)
                 params = json.loads(next(call for call in calls if call[1] == 'send-command')[-1])
                 self.assertEqual(params['ReleaseId'], [envelope['release_id']])
                 self.assertEqual(params['Operation'], ['rollback'])

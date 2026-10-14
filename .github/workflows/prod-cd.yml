@@ -17,6 +17,7 @@ permissions:
 concurrency:
   group: catus-prod-deploy
   cancel-in-progress: false
+  queue: max
 jobs:
   deploy:
     if: github.ref == 'refs/heads/release'
@@ -93,7 +94,7 @@ jobs:
               while time.monotonic() < deadline:
                   try:
                       result = aws("ssm", "get-command-invocation", "--command-id", identifier, "--instance-id", config["INSTANCE_ID"])
-                  except RuntimeError:
+                  except (RuntimeError, subprocess.TimeoutExpired):
                       time.sleep(5)
                       continue
                   if result["Status"] == "Success":
