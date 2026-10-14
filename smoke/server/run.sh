@@ -92,7 +92,8 @@ focus_and_event() {
   local origin handshake key
   origin=$(node -e 'process.stdout.write(new URL(process.argv[1]).origin)' "$BASE_URL")
   key=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(16).toString("base64"))')
-  handshake=$(curl -q --silent --max-time 2 --output /dev/null --write-out '%{http_code}' \
+  # Upgrade handshake는 HTTP/1.1이다. Cloudflare에서 HTTP/2로 협상하면 Upgrade 헤더가 전달되지 않는다.
+  handshake=$(curl -q --http1.1 --silent --max-time 2 --output /dev/null --write-out '%{http_code}' \
     -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H "Origin: $origin" \
     -H 'Sec-WebSocket-Version: 13' -H "Sec-WebSocket-Key: $key" \
     "${BASE_URL%/}/ws/realtime" 2> "$SMOKE_TMP_DIR/handshake-error") || true

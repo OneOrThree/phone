@@ -75,7 +75,7 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 `https://catus-api.oneorthree.world`에 배포했고 기존 `focuscat-api.oneorthree.world`도 Catus로 연결했다. 기존 Gromo 1.x는 유지한다. 쓰기 중지 후 세 DB를 복원해 앱 시작 전에 모든 public 테이블의 행 수를 대조했고, 컨테이너 9개 health·앱 digest/ARM64·DB 계정 격리·Datadog·로그 아카이브·두 주소 HTTPS health를 확인했다. 세부 AWS 상태와 복구 자료는 Infra의 `prod/catus/cutover-2026-10-14.md`에서 관리한다.
 
-배포 메타데이터 버전과 prod 배지는 `catus-v2.0.0`이며 이번 운영자 작업에서 정식 Git 버전 태그는 만들지 않았다. Phone PR #1139는 draft를 유지한다. 정규 버전 태그·승인 CD는 PR 반영과 `release` 승격 후 위 절차를 따른다. 첫 Catus 릴리스여서 이전 Catus 성공 버전으로의 실제 롤백 검증은 아직 수행할 수 없다.
+배포 메타데이터 버전과 prod 배지는 `catus-v2.0.0`이며 이번 운영자 작업에서 정식 Git 버전 태그는 만들지 않았다. Phone PR #1139는 draft를 유지한다. 정규 버전 태그·승인 CD는 PR 반영과 `release` 승격 후 위 절차를 따른다. 후속 검증에서 같은 이미지·스키마·Secret의 검증용 릴리스를 배포한 뒤 SSM rollback으로 원래 릴리스 복구를 확인했다. 서로 다른 앱 버전의 동작 복구와 GitHub 승인 CD 검증은 별도다. 운영 스모크 결과는 `smoke/server/verification.md`를 참고한다.
 
 ### 발행과 버전
 
