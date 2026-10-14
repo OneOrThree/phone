@@ -9,9 +9,13 @@ import com.oneorthree.phone.group.repository.IslandJoinRequestRepository.JoinReq
 import com.oneorthree.phone.group.repository.TelescopePinRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.TelescopePin;
+import com.oneorthree.phone.internal.dto.MagazineViews;
 import com.oneorthree.phone.internal.dto.TelescopeItemView;
 import com.oneorthree.phone.internal.dto.TelescopeView;
 import com.oneorthree.phone.internal.support.SailingTimes;
+import com.oneorthree.phone.magazine.repository.IslandPromotionRepository;
+import com.oneorthree.phone.magazine.repository.domain.IslandPromotion;
+import com.oneorthree.phone.magazine.support.IslandCard;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +32,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
@@ -84,6 +89,8 @@ public class TelescopeService {
     private final IslandArrivalRepository arrivals;
     private final TelescopePinRepository pins;
     private final IslandFocusAverageReader averages;
+    private final MagazineFunnelService magazineFunnel;
+    private final IslandPromotionRepository promotions;
     private final Clock clock;
 
     /**
@@ -157,7 +164,7 @@ public class TelescopeService {
             if (island != null && IslandMovementGuards.isAlive(island)) {
                 items.add(item(island, joinedCounts.getOrDefault(id, 0), island.getMaxMembers(),
                         IslandSummaries.STATUS_ACTIVE, SLOT_JOINED, SailingTimes.minutes(userId, id, bucketStart),
-                        averageOf.get(id), arrived.contains(id), null, null));
+                        averageOf.get(id), arrived.contains(id), null, null, null));
             }
         }
         for (int i = 0; i < shown.size(); i++) {
@@ -172,10 +179,11 @@ public class TelescopeService {
             items.add(item(island, candidate.getMemberCount(), candidate.getMaxMembers(),
                     IslandSummaries.statusOf(false, requests.get(id)), nearby ? SLOT_NEARBY : SLOT_RANDOM,
                     nearby ? NEARBY_SAILING_MINUTES : SailingTimes.minutes(userId, id, bucketStart),
-                    averageOf.get(id), arrived.contains(id), null, null));
+                    averageOf.get(id), arrived.contains(id), null, null, null));
         }
         // 핀은 가까운 섬 다음, 무작위 앞이다 — 위에서 joined → nearby → random 순으로 쌓았으니 첫 random 앞에 끼운다.
         List<TelescopeItemView> pinnedItems = new ArrayList<>(pinned.size());
+        Map<UUID, MagazineViews.Cell> magazineCells = magazineCells(now, pinned);
         for (VisiblePin entry : pinned) {
             TelescopeCandidate row = entry.row();
             UUID id = row.getId();
@@ -186,7 +194,7 @@ public class TelescopeService {
             pinnedItems.add(item(island, row.getMemberCount(), row.getMaxMembers(),
                     IslandSummaries.statusOf(false, requests.get(id)), SLOT_PINNED,
                     SailingTimes.minutes(userId, id, bucketStart), averageOf.get(id), arrived.contains(id),
-                    entry.pin().getSource(), entry.pin().getPinnedAt()));
+                    entry.pin().getSource(), entry.pin().getPinnedAt(), magazineCells.get(id)));
         }
         int firstRandom = (int) items.stream().takeWhile(view -> !SLOT_RANDOM.equals(view.slot())).count();
         items.addAll(firstRandom, pinnedItems);
@@ -219,6 +227,32 @@ public class TelescopeService {
                 .map(pin -> new VisiblePin(pin, visible.get(pin.getIslandId()))).toList();
     }
 
+    /**
+     * 잡지에서 넣은 핀의 말풍선 미리보기 — 핀을 넣은 <b>그 홍보 칸</b>이 아직 현재 호에 보일 때만 싣는다(SCOPE-09). 편집부
+     * 무료 칸에서 넣은 핀은 칸이 없으니 그 섬이 같은 호에 홍보를 실었어도 null 이다. 숫자는 발행 때 고정한 값이다. 핀 섬은
+     * 내 소속·강퇴 섬이 아니므로 관계는 늘 NONE 이다.
+     */
+    private Map<UUID, MagazineViews.Cell> magazineCells(Instant now, List<VisiblePin> pinned) {
+        List<UUID> viaPromotions = pinned.stream().map(entry -> entry.pin().getPromotionId())
+                .filter(Objects::nonNull).toList();
+        if (viaPromotions.isEmpty()) {
+            return Map.of();
+        }
+        return magazineFunnel.currentIssue(now)
+                .map(issue -> promotions.findAllById(viaPromotions).stream()
+                        .filter(promotion -> promotion.getIssueDate().equals(issue.getIssueDate())
+                                && promotion.isShown())
+                        .collect(Collectors.toMap(IslandPromotion::getIslandId, TelescopeService::cell)))
+                .orElse(Map.of());
+    }
+
+    private static MagazineViews.Cell cell(IslandPromotion promotion) {
+        IslandCard card = promotion.getSnapshot();
+        return new MagazineViews.Cell(promotion.getId(), promotion.getIslandId(), card.name(), card.buildingCount(),
+                card.memberCount(), card.maxMembers(), card.averageFocusMinutesPerDay(), promotion.getBody(),
+                promotion.getLayout(), MagazineViews.Relation.NONE);
+    }
+
     private static boolean isFull(TelescopeCandidate candidate) {
         return candidate.getMemberCount() >= candidate.getMaxMembers();
     }
@@ -230,10 +264,11 @@ public class TelescopeService {
 
     private static TelescopeItemView item(Group island, long memberCount, int maxMembers, String membershipStatus,
                                           String slot, int sailingMinutes, OptionalInt average,
-                                          boolean arrivedBefore, String pinnedFrom, Instant pinnedAt) {
+                                          boolean arrivedBefore, String pinnedFrom, Instant pinnedAt,
+                                          MagazineViews.Cell magazineCell) {
         return new TelescopeItemView(island.getId(), island.getName(), IslandSummaries.introOf(island),
                 (int) memberCount, maxMembers, island.isApprovalRequired(), membershipStatus, slot, sailingMinutes,
                 average.isPresent() ? average.getAsInt() : null, memberCount >= maxMembers, arrivedBefore,
-                pinnedFrom, pinnedAt);
+                pinnedFrom, pinnedAt, magazineCell);
     }
 }

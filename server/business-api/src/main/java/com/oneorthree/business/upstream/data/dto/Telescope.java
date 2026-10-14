@@ -14,6 +14,8 @@ import java.util.UUID;
  * <p>{@code averageFocusMinutesPerDay} 는 키는 필수지만 값은 null 일 수 있다 — 아직 집계 전이거나 주민이 없다.
  * {@code pinnedFrom}·{@code pinnedAt}(GROMO-2268)은 직접 넣은 섬({@code slot=pinned})에만 값이 있고 나머지 칸에서는
  * 키가 없거나 null 이다 — 그래서 필수가 아니다.
+ * {@code magazineCell}(GROMO-2289)은 잡지에서 넣은 섬의 그 잡지 홍보 칸이다 — 그 밖의 칸은 null 이고, 이 필드를 모르는 옛
+ * Data 는 키를 싣지 않으므로 필수가 아니다(빠지면 null 로 읽는다).
  * {@code items} 의 원소 null 은 계약 위반이다 — 공개 응답으로 {@code null} 칸이 새면 앱이 깨진다.
  */
 public record Telescope(
@@ -36,6 +38,7 @@ public record Telescope(
             @JsonProperty(required = true) boolean full,
             @JsonProperty(required = true) boolean arrivedBefore,
             String pinnedFrom,
-            Instant pinnedAt) {
+            Instant pinnedAt,
+            Magazines.Cell magazineCell) {
     }
 }

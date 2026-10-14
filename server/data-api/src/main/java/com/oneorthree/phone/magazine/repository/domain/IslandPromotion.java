@@ -19,14 +19,13 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * 섬장이 신청한 잡지 홍보 한 건 (GROMO-2289, V114) — 한 섬은 한 호에 한 칸이다({@code UNIQUE (island_id, issue_date)}).
+ * 섬장이 신청한 잡지 홍보 한 건 (GROMO-2289, V119) — 한 섬은 한 호에 한 칸이다({@code UNIQUE (island_id, issue_date)}).
  *
  * <h2>{@code @DynamicUpdate} 가 붙어 있는 이유</h2>
  * 이 행에는 서로 다른 트랜잭션이 고치는 열이 함께 산다 — 발행 배치는 {@code snapshot} 을, 신고는 {@code moderation}·
  * {@code hidden_at} 을, 섬장은 글·배치를 고친다. 기본 더티 체킹은 전 열 UPDATE 를 내므로, 발행이 칸을 읽은 뒤 신고가
  * 숨김을 커밋하면 발행의 UPDATE 가 읽어 둔 {@code moderation} 으로 숨김을 되돌릴 수 있다. 바뀐 열만 쓰게 해 서로의 열을
  * 덮지 않는다({@code GroupMember} 와 같은 이유).
- * 신고 숨김 시각 {@code hidden_at} 은 신고 쪽이 매핑한다.
  */
 @Entity
 @DynamicUpdate
@@ -35,8 +34,14 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class IslandPromotion {
 
+    /** 신고 없음 — 그대로 보인다. */
+    public static final String MODERATION_NONE = "NONE";
+    /** 신고 3건으로 숨김 — 운영 확인을 기다린다. */
+    public static final String MODERATION_HIDDEN = "HIDDEN";
     /** 운영이 신고를 확인하고 내린 칸 — 다시 불러올 때 글을 비운다. */
     public static final String MODERATION_REMOVED = "REMOVED";
+    /** 운영이 되살린 칸 — 다시 자동으로 숨기지 않는다. */
+    public static final String MODERATION_CLEARED = "CLEARED";
 
     @Id
     @GeneratedUuidV7
@@ -74,9 +79,13 @@ public class IslandPromotion {
     @JdbcTypeCode(SqlTypes.JSON)
     private IslandCard snapshot;
 
-    /** 신고 숨김 상태 — NONE · HIDDEN · REMOVED · CLEARED(V114 CHECK). */
+    /** 신고 숨김 상태 — NONE · HIDDEN · REMOVED · CLEARED(V119 CHECK). */
     @Column(nullable = false, length = 10)
-    private String moderation = "NONE";
+    private String moderation = MODERATION_NONE;
+
+    /** 신고로 숨긴 시각. */
+    @Column(name = "hidden_at")
+    private Instant hiddenAt;
 
     /** 신청 — 검증을 마친 내용만 받는다. */
     public IslandPromotion(UUID islandId, LocalDate issueDate, UUID appliedBy, PromotionContent content,
@@ -104,5 +113,24 @@ public class IslandPromotion {
 
     public boolean isRemoved() {
         return MODERATION_REMOVED.equals(moderation);
+    }
+
+    /** 발행됐고 숨김·내림이 아니라 독자에게 보이는 칸인가(섬의 공개 여부는 따로 본다). */
+    public boolean isShown() {
+        return snapshot != null && (MODERATION_NONE.equals(moderation) || MODERATION_CLEARED.equals(moderation));
+    }
+
+    /**
+     * 신고가 쌓였을 때 숨긴다 — 신고 없음 상태에서만. 운영이 되살린 칸(CLEARED)은 다시 자동으로 숨기지 않는다.
+     *
+     * @return 이번에 숨겼으면 true
+     */
+    public boolean hideByReports(Instant now) {
+        if (!MODERATION_NONE.equals(moderation)) {
+            return false;
+        }
+        moderation = MODERATION_HIDDEN;
+        hiddenAt = now;
+        return true;
     }
 }

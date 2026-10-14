@@ -55,7 +55,7 @@ import java.util.UUID;
  *   <li>{@code island_news} — 지운다(GROMO-2267, V111 이 더한 또 하나). 섬 소식은 주민 전원이 읽는 공동 피드다. 섬 행이
  *       소프트 삭제라 {@code ON DELETE CASCADE} 는 돌지 않으므로 직접 지운다. 유저 컬럼이 없어 계정 탈퇴가 건드릴
  *       행도 없다. 홍보비의 원장 행은 아래 통장 원장 줄이 이미 지운다.</li>
- *   <li>{@code island_promotions} — 지운다(GROMO-2289, V114). 섬장이 신청한 잡지 홍보 칸이다. 닫힌 섬의 칸은 잡지에서도
+ *   <li>{@code island_promotions} — 지운다(GROMO-2289, V119). 섬장이 신청한 잡지 홍보 칸이다. 닫힌 섬의 칸은 잡지에서도
  *       읽는 순간 빠지고 기록판을 볼 주민도 없다. 섬 행이 소프트 삭제라 {@code ON DELETE CASCADE} 는 돌지 않는다.
  *       신청자 열({@code applied_by})은 기록이라 계정 탈퇴 정리는 없다. 홍보비 원장 행은 아래 통장 원장 줄이 지운다.</li>
  *   <li>{@code user_main_islands} — 안 지운다. 마지막 주민이 나가는 순간
@@ -120,7 +120,7 @@ public class IslandPurgeService implements IslandPurgePort {
             // 섬 소식 (V111, GROMO-2267) — 주민 전원이 읽던 공동 피드. 섬 행은 소프트 삭제라 V111 의 ON DELETE CASCADE 는
             // 돌지 않는다. 유저 컬럼이 없어 탈퇴 정리는 없고, 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다.
             "DELETE FROM island_news WHERE island_id = :islandId",
-            // 잡지 홍보 칸 (V114, GROMO-2289) — 섬장이 꾸며 신청한 칸. 섬 행은 소프트 삭제라 V114 의 ON DELETE CASCADE 는
+            // 잡지 홍보 칸 (V119, GROMO-2289) — 섬장이 꾸며 신청한 칸. 섬 행은 소프트 삭제라 V119 의 ON DELETE CASCADE 는
             // 돌지 않는다. 지금은 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다(신고·잡지 경유 집계 표가 생기면 그 앞).
             "DELETE FROM island_promotions WHERE island_id = :islandId",
             // 공동 잔액·원장 (V62) — 원장이 통장의 자식이라 가장 마지막이다. 홍보비 원장 행(PROMOTION_FEE)도 여기서 지워진다.

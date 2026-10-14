@@ -30,6 +30,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>망원경 핀(GROMO-2268)의 공개 두 경로도 같은 방식으로 본다 — 본문 모양, 201/200 상태 코드, {@code created} 의 비공개,
  * 밀려난 핀의 {@code evicted}, 핀 칸에만 있는 {@code pinnedFrom}·{@code pinnedAt}, 오류 매핑(404·403→FORBIDDEN·409→STATE_CONFLICT).
  * 넣기·밀어내기·만료 판정은 data-api 의 {@code TelescopePinIntegrationTest} 가 실제 DB 로 본다.
+ *
+ * <p>잡지 경유(GROMO-2289) — 핀 본문의 선택 {@code promotionId} 전달과 모든 칸의 {@code magazineCell}(null 이어도 키 유지,
+ * 이 필드를 모르는 옛 Data 응답은 null 로 읽기)도 여기서 본다.
  */
 class TelescopeContractTest extends UpstreamTestBase {
 
@@ -39,6 +42,7 @@ class TelescopeContractTest extends UpstreamTestBase {
     private static final UUID NEARBY = UUID.fromString("dddddddd-2265-0000-0000-000000000001");
     private static final UUID PINNED = UUID.fromString("eeeeeeee-2268-0000-0000-000000000001");
     private static final UUID EVICTED = UUID.fromString("ffffffff-2268-0000-0000-000000000001");
+    private static final UUID PROMOTION = UUID.fromString("01990000-2289-7000-8000-000000000009");
 
     private static final String DATA_TELESCOPE = "GET /internal/users/" + USER + "/telescope";
     private static final String TELESCOPE = "/me/telescope";
@@ -61,6 +65,14 @@ class TelescopeContractTest extends UpstreamTestBase {
             + "\"slot\":\"pinned\",\"sailingMinutes\":60,\"averageFocusMinutesPerDay\":null,\"full\":false,"
             + "\"arrivedBefore\":false,\"pinnedFrom\":\"magazine\",\"pinnedAt\":\"2026-10-12T05:23:41Z\"}";
 
+    /** 잡지 홍보 칸 — 잡지 한 호의 칸과 같은 모양이고 layout 은 Business 가 속을 보지 않는다. */
+    private static final String CELL = "{\"promotionId\":\"" + PROMOTION + "\",\"islandId\":\"" + PINNED + "\","
+            + "\"name\":\"파도\",\"buildingCount\":4,\"memberCount\":3,\"maxMembers\":15,"
+            + "\"averageFocusMinutesPerDay\":null,\"body\":\"놀러 오세요\",\"layout\":{\"v\":1,\"future\":[1]},"
+            + "\"relation\":\"NONE\"}";
+    /** 잡지에서 넣은 핀 칸 — {@code magazineCell} 이 값으로 있다. */
+    private static final String MAGAZINE_ITEM = PINNED_ITEM.replace("}", ",\"magazineCell\":" + CELL + "}");
+
     @Test
     @DisplayName("상류 목록을 공개 필드 그대로 내리고 상류 내부 필드는 버린다 — 주체는 서명된 세션에서만 온다")
     void mirrorsTheUpstreamListForTheSignedSubject() throws Exception {
@@ -73,7 +85,7 @@ class TelescopeContractTest extends UpstreamTestBase {
 
         ObjectMapper json = new ObjectMapper();
         assertThat(json.readTree(result.getResponse().getContentAsString()).path("data"))
-                .isEqualTo(json.readTree(LIST));
+                .isEqualTo(withNullCells(LIST));
         MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_TELESCOPE).get(0);
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
         assertThat(forwarded.query()).isNullOrEmpty();
@@ -105,7 +117,7 @@ class TelescopeContractTest extends UpstreamTestBase {
      */
     @ParameterizedTest
     @ValueSource(strings = {"items 누락", "items:[null]", "bucketStart 누락", "bucketStart:null",
-        "averageFocusMinutesPerDay 누락"})
+        "averageFocusMinutesPerDay 누락", "magazineCell.layout 누락"})
     @DisplayName("상류 응답의 필수 키 누락·null·null 칸은 공개 목록 대신 계약 오류다")
     void malformedUpstreamListsAreContractErrors(String shape) throws Exception {
         String body = switch (shape) {
@@ -115,6 +127,8 @@ class TelescopeContractTest extends UpstreamTestBase {
             case "bucketStart 누락" -> "{\"nextRefreshMinutes\":37,\"items\":[]}";
             case "bucketStart:null" -> "{\"bucketStart\":null,\"nextRefreshMinutes\":37,\"items\":[]}";
             case "averageFocusMinutesPerDay 누락" -> LIST.replace("\"averageFocusMinutesPerDay\":null,", "");
+            case "magazineCell.layout 누락" -> LIST.replace("]}", ","
+                    + MAGAZINE_ITEM.replace(",\"layout\":{\"v\":1,\"future\":[1]}", "") + "]}");
             default -> throw new IllegalArgumentException(shape);
         };
         assertThat(body).isNotEqualTo(LIST);
@@ -155,7 +169,25 @@ class TelescopeContractTest extends UpstreamTestBase {
         assertThat(items.get(0).has("pinnedFrom")).isFalse();
         assertThat(items.get(0).has("pinnedAt")).isFalse();
         assertThat(items.get(1).has("pinnedFrom")).isFalse();
-        assertThat(items.get(2)).isEqualTo(json.readTree(PINNED_ITEM));
+        assertThat(items.get(2)).isEqualTo(withNullCells("{\"items\":[" + PINNED_ITEM + "]}").path("items").get(0));
+    }
+
+    @Test
+    @DisplayName("잡지에서 넣은 칸은 magazineCell 을 그대로 싣고, 상류가 null 이거나 키를 싣지 않은(옛 Data) 칸은 null 로 키를 유지한다")
+    void magazineCellIsRelayedOrNullOnEveryItem() throws Exception {
+        String list = LIST.replace("\"arrivedBefore\":true}", "\"arrivedBefore\":true,\"magazineCell\":null}")
+                .replace("]}", "," + MAGAZINE_ITEM + "]}");
+        DATA.on(DATA_TELESCOPE, request -> ok(list));
+
+        var result = mockMvc.perform(auth(get(TELESCOPE))).andExpect(status().isOk()).andReturn();
+
+        ObjectMapper json = new ObjectMapper();
+        var items = json.readTree(result.getResponse().getContentAsString()).path("data").path("items");
+        assertThat(items.get(0).has("magazineCell")).as("상류 null").isTrue();
+        assertThat(items.get(0).get("magazineCell").isNull()).isTrue();
+        assertThat(items.get(1).has("magazineCell")).as("옛 Data — 키 없음").isTrue();
+        assertThat(items.get(1).get("magazineCell").isNull()).isTrue();
+        assertThat(items.get(2)).isEqualTo(json.readTree(MAGAZINE_ITEM));
     }
 
     @Test
@@ -181,6 +213,38 @@ class TelescopeContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("잡지 홍보 칸에서 넣으면 promotionId 를 상류로 옮기고, 응답 항목의 magazineCell 을 그대로 싣는다")
+    void pinForwardsPromotionIdAndRelaysTheMagazineCell() throws Exception {
+        DATA.on(DATA_PIN, request -> ok("{\"item\":" + MAGAZINE_ITEM + ",\"evicted\":null,\"created\":true}"));
+        String body = "{\"islandId\":\"" + PINNED + "\",\"source\":\"magazine\",\"promotionId\":\"" + PROMOTION + "\"}";
+
+        var result = mockMvc.perform(write(post(PINS), body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.item.magazineCell.promotionId").value(PROMOTION.toString()))
+                .andReturn();
+
+        ObjectMapper json = new ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data").path("item"))
+                .isEqualTo(json.readTree(MAGAZINE_ITEM));
+        assertThat(json.readTree(DATA.receivedFor(DATA_PIN).get(0).body())).isEqualTo(json.readTree(body));
+    }
+
+    @Test
+    @DisplayName("promotionId 가 null 이면 없는 것과 같다 — 상류 본문에 싣지 않고 응답 항목의 magazineCell 은 null 키로 남는다")
+    void pinTreatsANullPromotionIdAsAbsent() throws Exception {
+        DATA.on(DATA_PIN, request -> ok("{\"item\":" + PINNED_ITEM.replace("}", ",\"magazineCell\":null}")
+                + ",\"evicted\":null,\"created\":true}"));
+
+        mockMvc.perform(write(post(PINS),
+                        "{\"islandId\":\"" + PINNED + "\",\"source\":\"magazine\",\"promotionId\":null}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.item.magazineCell").hasJsonPath())
+                .andExpect(jsonPath("$.data.item.magazineCell").value((Object) null));
+        assertThat(new ObjectMapper().readTree(DATA.receivedFor(DATA_PIN).get(0).body()))
+                .isEqualTo(new ObjectMapper().readTree("{\"islandId\":\"" + PINNED + "\",\"source\":\"magazine\"}"));
+    }
+
+    @Test
     @DisplayName("이미 있던 핀(created=false)은 200 이고 evicted 키는 null 로 항상 있다")
     void pinningAnExistingPinIs200WithNullEvicted() throws Exception {
         DATA.on(DATA_PIN, request -> ok("{\"item\":" + PINNED_ITEM + ",\"evicted\":null,\"created\":false}"));
@@ -189,7 +253,9 @@ class TelescopeContractTest extends UpstreamTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.item.pinnedFrom").value("magazine"))
                 .andExpect(jsonPath("$.data.evicted").hasJsonPath())
-                .andExpect(jsonPath("$.data.evicted").value((Object) null));
+                .andExpect(jsonPath("$.data.evicted").value((Object) null))
+                .andExpect(jsonPath("$.data.item.magazineCell").hasJsonPath())
+                .andExpect(jsonPath("$.data.item.magazineCell").value((Object) null));
     }
 
     @ParameterizedTest
@@ -203,8 +269,12 @@ class TelescopeContractTest extends UpstreamTestBase {
             "{\"islandId\":\"eeeeeeee-2268-0000-0000-000000000001\",\"source\":null}|INVALID_REQUEST|source",
             "{\"islandId\":7,\"source\":\"magazine\"}|INVALID_REQUEST|islandId",
             "{\"islandId\":\"not-a-uuid\",\"source\":\"magazine\"}|INVALID_PARAMETER|islandId",
-            "{\"islandId\":\"eeeeeeee-2268-0000-0000-000000000001\",\"source\":\"magazine\",\"userId\":\"x\"}|INVALID_REQUEST|"})
-    @DisplayName("본문이 {islandId, source} 둘이 아니거나 출처가 magazine·observatory 가 아니면 상류 전에 400 이다")
+            "{\"islandId\":\"eeeeeeee-2268-0000-0000-000000000001\",\"source\":\"magazine\",\"userId\":\"x\"}|INVALID_REQUEST|",
+            "{\"islandId\":\"eeeeeeee-2268-0000-0000-000000000001\",\"source\":\"magazine\",\"promotionId\":7}|INVALID_REQUEST|promotionId",
+            "{\"islandId\":\"eeeeeeee-2268-0000-0000-000000000001\",\"source\":\"magazine\",\"promotionId\":\"not-a-uuid\"}|INVALID_REQUEST|promotionId",
+            "{\"islandId\":\"eeeeeeee-2268-0000-0000-000000000001\",\"source\":\"magazine\",\"promotionId\":{}}|INVALID_REQUEST|promotionId",
+            "{\"islandId\":\"eeeeeeee-2268-0000-0000-000000000001\",\"source\":\"magazine\",\"promotionId\":null,\"userId\":\"x\"}|INVALID_REQUEST|"})
+    @DisplayName("본문이 {islandId, source, promotionId?} 가 아니거나 출처가 magazine·observatory 가 아니거나 promotionId 가 UUID 가 아니면 상류 전에 400 이다")
     void pinRejectsMalformedBodyBeforeUpstream(String body, String code, String field) throws Exception {
         var result = mockMvc.perform(write(post(PINS), body))
                 .andExpect(status().isBadRequest())
@@ -298,6 +368,17 @@ class TelescopeContractTest extends UpstreamTestBase {
 
     private MockHttpServletRequestBuilder write(MockHttpServletRequestBuilder request, String body) {
         return auth(request).contentType(MediaType.APPLICATION_JSON).content(body);
+    }
+
+    /** 공개 응답 기대값 — {@code magazineCell} 을 모르는 상류 칸에는 공개가 null 키를 싣는다. */
+    private static tools.jackson.databind.JsonNode withNullCells(String upstream) {
+        var tree = new ObjectMapper().readTree(upstream);
+        tree.path("items").forEach(item -> {
+            if (!item.has("magazineCell")) {
+                ((tools.jackson.databind.node.ObjectNode) item).putNull("magazineCell");
+            }
+        });
+        return tree;
     }
 
     private static MockUpstream.Response ok(String body) {

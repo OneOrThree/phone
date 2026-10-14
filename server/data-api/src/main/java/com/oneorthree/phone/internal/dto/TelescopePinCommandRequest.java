@@ -13,5 +13,6 @@ import java.util.UUID;
  */
 public record TelescopePinCommandRequest(
         @NotNull UUID islandId,
-        @NotNull @Pattern(regexp = "magazine|observatory") String source) {
+        @NotNull @Pattern(regexp = "magazine|observatory") String source,
+        UUID promotionId) {
 }

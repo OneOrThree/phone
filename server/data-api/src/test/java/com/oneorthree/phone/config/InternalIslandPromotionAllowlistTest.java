@@ -40,7 +40,7 @@ class InternalIslandPromotionAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalIslandPromotionController.class);
 
-        assertThat(routes).as("5종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(5);
+        assertThat(routes).as("7종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(7);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
@@ -80,6 +80,10 @@ class InternalIslandPromotionAllowlistTest {
         assertThat(allows(allow, "POST " + base + "/promotions/editor")).isFalse();
         assertThat(allows(allow, "PUT /internal/users/" + ID + "/magazine/assets")).isFalse();
         assertThat(allows(allow, "GET /internal/users/" + ID + "/magazine/assets/" + ID)).isFalse();
+        assertThat(allows(allow, "GET " + base + "/promotions/" + ID + "/reports")).isFalse();
+        assertThat(allows(allow, "DELETE " + base + "/promotions/" + ID + "/reports")).isFalse();
+        assertThat(allows(allow, "POST " + base + "/promotions/records")).isFalse();
+        assertThat(allows(allow, "POST " + base + "/promotions/" + ID + "/reports/" + ID)).isFalse();
         // 섬 축(userId 없는) 고치기도 열리지 않는다.
         assertThat(allows(allow, "PUT /internal/islands/" + ID + "/promotions/" + ID)).isFalse();
         // 섬 축(userId 없는) 경로로는 열리지 않는다 — 본인 명령은 사용자 축뿐이다.
@@ -88,14 +92,16 @@ class InternalIslandPromotionAllowlistTest {
     }
 
     @Test
-    @DisplayName("다섯 계약은 메서드·경로가 각각 달라 다섯 줄로 등록돼 있다")
-    void fiveContractsAreSeparateEntries() throws IOException {
+    @DisplayName("일곱 계약은 메서드·경로가 각각 달라 일곱 줄로 등록돼 있다")
+    void sevenContractsAreSeparateEntries() throws IOException {
         assertThat(shippedBusinessAllowlist()).contains(
                 "POST /internal/users/*/islands/*/promotions",
                 "PUT /internal/users/*/islands/*/promotions/*",
                 "GET /internal/users/*/islands/*/promotions/editor",
                 "GET /internal/users/*/magazine/assets",
-                "GET /internal/users/*/islands/*/news");
+                "GET /internal/users/*/islands/*/news",
+                "POST /internal/users/*/islands/*/promotions/*/reports",
+                "GET /internal/users/*/islands/*/promotions/records");
     }
 
     // ---------------------------------------------------------------- 도구

@@ -3,6 +3,7 @@ package com.oneorthree.phone.internal.dto;
 import com.oneorthree.phone.magazine.support.MagazineEditorial;
 import com.oneorthree.phone.magazine.support.PromotionContent;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -80,5 +81,53 @@ public final class MagazineViews {
     public record Cell(UUID promotionId, UUID islandId, String name, int buildingCount, int memberCount,
                        int maxMembers, Integer averageFocusMinutesPerDay, String body, PromotionContent.Layout layout,
                        Relation relation) {
+    }
+
+    /** 홍보 칸 신고 사유 — 앱의 유저 신고 창과 같은 8종. */
+    public enum ReportReason {
+        HARASSMENT, HATE, SPAM_FRAUD, SEXUAL, CHILD_SAFETY, THREAT, PRIVACY_IMPERSONATION, OTHER
+    }
+
+    /**
+     * 신고 본문 — 사유는 8종 글자 그대로만 받는다. 열거형으로 바로 받으면 숫자({@code 0})가 순서 번호로 사유가 되어 버려
+     * 글자로 받고 패턴으로 거른다(어긋나면 400 {@code INVALID_REQUEST}).
+     */
+    public record ReportRequest(@NotNull @Pattern(regexp = REPORT_REASONS) String reason) {
+    }
+
+    /** {@link ReportReason} 8종 그대로 — 신고 본문 검증 패턴. */
+    private static final String REPORT_REASONS =
+            "HARASSMENT|HATE|SPAM_FRAUD|SEXUAL|CHILD_SAFETY|THREAT|PRIVACY_IMPERSONATION|OTHER";
+
+    /** @param created 이번에 새로 남긴 신고인가 — 컨트롤러가 201·200 을 고른다(공개 응답에는 {@code reported} 만 나간다) */
+    public record Reported(boolean reported, boolean created) {
+    }
+
+    /** 회관 홍보 기록판의 상태. */
+    public enum RecordStatus {
+        /** 아직 발행 전. */
+        SCHEDULED,
+        PUBLISHED,
+        /** 홍보비는 냈지만 실리지 않음 — 발행 순간 비공개·닫힌 섬, 또는 그날 발행 실패. */
+        SKIPPED,
+        /** 신고 3건으로 숨김(운영 확인 대기). */
+        HIDDEN,
+        /** 운영이 내림. */
+        REMOVED
+    }
+
+    /** 최신 호 먼저. */
+    public record RecordPage(List<RecordItem> items) {
+    }
+
+    /**
+     * @param issueNo 실린 호의 호수 — 호가 아직 없으면 null
+     * @param layout  섬장이 꾸민 칸(기록판의 작은 칸 그림용)
+     * @param pinned  잡지 칸에서 망원경에 넣은 사람 수
+     * @param arrived 그중 현재 호 동안 항해해 도착한 사람 수
+     * @param joined  그중 현재 호 동안 가입이 성립한 사람 수
+     */
+    public record RecordItem(UUID promotionId, LocalDate issueDate, Integer issueNo, String body,
+                             PromotionContent.Layout layout, RecordStatus status, int pinned, int arrived, int joined) {
     }
 }

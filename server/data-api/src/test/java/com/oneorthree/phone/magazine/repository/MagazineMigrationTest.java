@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V113 꾸미기 재료 카탈로그·V114 홍보 칸·V115 호와 받음 상태의 실 SQL 검증 (GROMO-2289). 검증 방식은 {@code SeaFocusV112MigrationTest} 선례 —
+ * V118 꾸미기 재료 카탈로그·V119 홍보 칸·V120 호와 받음 상태·V121 신고·V122 잡지 경유 행동의 실 SQL 검증 (GROMO-2289). 검증 방식은 {@code SeaFocusV112MigrationTest} 선례 —
  * 전용 컨테이너에 Flyway 체인을 실제로 돌린다. CI 프로필은 엔티티로 표를 만들어 CHECK·시드를 보지 못하므로 여기서 본다.
  *
  * <p>보는 것: ① 카탈로그 종류 CHECK 가 잡지 재료 3종을 개인 소유로만 받는다 ② 시드 64행(틀 11 · 스티커 45 · 테이프 8)이
@@ -46,16 +46,17 @@ class MagazineMigrationTest {
         jdbc.execute("CREATE SCHEMA public");
     }
 
-    // ---------------------------------------------------------------- V113
+    // ---------------------------------------------------------------- V118
 
     @Test
-    @DisplayName("V113 은 기존 카탈로그 위에 적용되고 시드 64행(틀 11 · 스티커 45 · 테이프 8)이 전부 개인 소유·무료로 들어간다")
+    @DisplayName("V118 은 기존 카탈로그 위에 적용되고 시드 64행(틀 11 · 스티커 45 · 테이프 8)이 전부 개인 소유·무료로 들어간다")
     void seedsSixtyFourFreeAssetsOverExistingCatalog() {
+        // 잡지 앞의 아무 버전이면 된다(카탈로그 표 V64 만 있으면 된다). Flyway 의 target 은 실제로 있는 버전이어야 한다.
         migrate(MigrationVersion.fromVersion("112"));
         JdbcTemplate jdbc = jdbc();
         product(jdbc, "scarf", "clothes", "user");
 
-        migrate(MigrationVersion.fromVersion("113"));
+        migrate(MigrationVersion.fromVersion("118"));
 
         assertThat(jdbc.queryForObject("SELECT kind FROM catalog_assets WHERE product_id = 'scarf'", String.class))
                 .as("기존 카탈로그 행은 그대로다").isEqualTo("clothes");
@@ -89,9 +90,9 @@ class MagazineMigrationTest {
     }
 
     @Test
-    @DisplayName("V113 카탈로그 CHECK — 잡지 재료는 개인 소유로만, 모르는 종류는 여전히 거부, 부가 정보는 묶음·탭 CHECK·스티커만 탭·종류 복합 FK")
+    @DisplayName("V118 카탈로그 CHECK — 잡지 재료는 개인 소유로만, 모르는 종류는 여전히 거부, 부가 정보는 묶음·탭 CHECK·스티커만 탭·종류 복합 FK")
     void catalogAndMetaConstraints() {
-        migrate(MigrationVersion.fromVersion("113"));
+        migrate(MigrationVersion.fromVersion("118"));
         JdbcTemplate jdbc = jdbc();
 
         product(jdbc, "mag.test-sticker", "ad_sticker", "user");
@@ -133,12 +134,12 @@ class MagazineMigrationTest {
                 .as("부가 정보가 가리키는 카탈로그 행은 지울 수 없다").isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    // ---------------------------------------------------------------- V114
+    // ---------------------------------------------------------------- V119
 
     @Test
-    @DisplayName("V114 island_promotions — 열 타입·nullability·default, 한 섬 한 호 한 칸, moderation CHECK, 글 60자, FK")
+    @DisplayName("V119 island_promotions — 열 타입·nullability·default, 한 섬 한 호 한 칸, moderation CHECK, 글 60자, FK")
     void promotionsTableShape() {
-        migrate(MigrationVersion.fromVersion("114"));
+        migrate(MigrationVersion.fromVersion("119"));
         JdbcTemplate jdbc = jdbc();
 
         Map<String, Map<String, Object>> columns = columnsOf(jdbc, "island_promotions");
@@ -184,12 +185,12 @@ class MagazineMigrationTest {
                 island)).as("groups FK 는 ON DELETE CASCADE").isZero();
     }
 
-    // ---------------------------------------------------------------- V115
+    // ---------------------------------------------------------------- V120
 
     @Test
-    @DisplayName("V115 — 하루 한 호(날짜·조간 유일, 호수 유일), 조간만, 받음 상태 한 사람 한 호 한 행·받은 곳 CHECK·연쇄 삭제, 편집부 소식 80자")
+    @DisplayName("V120 — 하루 한 호(날짜·조간 유일, 호수 유일), 조간만, 받음 상태 한 사람 한 호 한 행·받은 곳 CHECK·연쇄 삭제, 편집부 소식 80자")
     void issuesReceiptsAndNotes() {
-        migrate(MigrationVersion.fromVersion("115"));
+        migrate(MigrationVersion.fromVersion("120"));
         JdbcTemplate jdbc = jdbc();
         String insertIssue = "INSERT INTO magazine_issues (id, issue_date, slot, issue_no, published_at, editorial, "
                 + "promotion_count) VALUES (?, ?::date, ?, ?, now(), '{}'::jsonb, ?)";
@@ -225,13 +226,58 @@ class MagazineMigrationTest {
                 + "VALUES ('2026-10-16', ?)", "가".repeat(81))).isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    // ---------------------------------------------------------------- V121 · V122
+
     @Test
-    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V113~V115 가 성공으로 기록된다")
+    @DisplayName("V121·V122 — 신고는 한 사람 한 칸 한 번·사유 8종, 경유 행동은 한 사람 한 칸 단계별 한 번·단계 3종, 칸이 지워지면 함께 지워진다, 핀의 홍보 칸은 잡지 핀에만·칸이 지워지면 비운다")
+    void reportsAndFunnel() {
+        migrate(MigrationVersion.fromVersion("122"));
+        JdbcTemplate jdbc = jdbc();
+        UUID host = user(jdbc);
+        UUID island = island(jdbc);
+        UUID promotion = UUID.randomUUID();
+        jdbc.update(INSERT_PROMOTION, promotion, island, "2026-10-15", host, "홍보");
+        UUID reader = user(jdbc);
+
+        String insertReport = "INSERT INTO island_promotion_reports (promotion_id, reporter_id, reason, created_at) "
+                + "VALUES (?, ?, ?, now())";
+        jdbc.update(insertReport, promotion, reader, "PRIVACY_IMPERSONATION");
+        assertThatThrownBy(() -> jdbc.update(insertReport, promotion, reader, "HATE"))
+                .as("한 사람 한 칸 한 번").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertReport, promotion, user(jdbc), "BORING"))
+                .as("사유는 8종").isInstanceOf(DataIntegrityViolationException.class);
+
+        String insertStep = "INSERT INTO island_promotion_funnel (promotion_id, user_id, step, occurred_at) "
+                + "VALUES (?, ?, ?, now())";
+        for (String step : List.of("PIN", "ARRIVE", "JOIN")) {
+            jdbc.update(insertStep, promotion, reader, step);
+        }
+        assertThatThrownBy(() -> jdbc.update(insertStep, promotion, reader, "PIN"))
+                .as("같은 사람의 같은 단계").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(insertStep, promotion, user(jdbc), "VISIT"))
+                .as("단계는 셋").isInstanceOf(DataIntegrityViolationException.class);
+
+        String insertPin = "INSERT INTO telescope_pins (user_id, island_id, source, promotion_id, pinned_at, expires_at) "
+                + "VALUES (?, ?, ?, ?, now(), now() + interval '1 day')";
+        assertThatThrownBy(() -> jdbc.update(insertPin, reader, island, "observatory", promotion))
+                .as("홍보 칸은 잡지 핀에만").isInstanceOf(DataIntegrityViolationException.class);
+        jdbc.update(insertPin, reader, island, "magazine", promotion);
+
+        jdbc.update("DELETE FROM island_promotions WHERE id = ?", promotion);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM island_promotion_reports", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM island_promotion_funnel", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT promotion_id FROM telescope_pins", UUID.class))
+                .as("칸이 지워져도 핀은 남고 칸만 비운다").isNull();
+    }
+
+    @Test
+    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V118~V122 이 성공으로 기록된다")
     void appliesOnEmptyDatabase() {
         migrate(MigrationVersion.LATEST);
 
         assertThat(jdbc().queryForList("SELECT success::text FROM flyway_schema_history "
-                + "WHERE version IN ('113', '114', '115')", String.class)).containsExactly("true", "true", "true");
+                + "WHERE version IN ('118', '119', '120', '121', '122')", String.class))
+                .containsExactly("true", "true", "true", "true", "true");
     }
 
     private static Map<String, Long> counts(JdbcTemplate jdbc, String sql) {

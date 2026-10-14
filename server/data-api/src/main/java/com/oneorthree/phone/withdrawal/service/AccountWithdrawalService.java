@@ -178,7 +178,7 @@ public class AccountWithdrawalService {
         // 바다 집중 누적(GROMO-2274 · 계약 §0 N42) — 개인 이력이라 지운다. 유저 행은 익명화만 되고 삭제되지 않아
         // 테이블의 ON DELETE CASCADE 가 돌지 않는다. 지급된 상품은 바로 위 appearanceService 가 이미 지웠다.
         seaFocusRewardService.eraseWithdrawnUser(userId);
-        // 고양이 잡지 받음 상태(GROMO-2289 V115) — 개인 열람 기록이라 지운다. 유저 행이 지워지지 않아 CASCADE 가 돌지 않는다.
+        // 고양이 잡지 받음 상태(GROMO-2289 V120) — 개인 열람 기록이라 지운다. 유저 행이 지워지지 않아 CASCADE 가 돌지 않는다.
         magazineReceiptRepository.deleteAllOfUser(userId);
         islandQuestService.eraseWithdrawnUser(userId);
 

@@ -6,7 +6,8 @@ import org.springframework.http.HttpStatus;
 
 /**
  * 고양이 잡지의 실패 코드 (GROMO-2289, 잡지 구현 계획 §3-1). 상수 이름은 계약이다 — Business 가 같은 이름·같은 상태의
- * 공개 코드로 그대로 옮긴다. {@link #MAGAZINE_NOT_READY} 만 공개 {@code SERVICE_UNAVAILABLE} 로 바뀐다.
+ * 공개 코드로 그대로 옮긴다. {@link #MAGAZINE_NOT_READY} 는 공개 {@code SERVICE_UNAVAILABLE},
+ * {@link #PROMOTION_REPORT_OWN_ISLAND} 는 공개 {@code FORBIDDEN} 으로 바뀐다.
  *
  * <p>그대로 빌려 쓰는 기존 코드: 섬장 아님 {@code NOT_OWNER} · 이 호에 이미 신청 {@code PROMOTION_ALREADY_REQUESTED_TODAY}
  * (그룹) · 잔액 부족 {@code INSUFFICIENT_FUNDS}(건설) · 금칙어 {@code BANNED_WORD}(공통) · 게스트
@@ -32,6 +33,9 @@ public enum MagazineErrorCode implements ErrorCode {
 
     /** 신청 창 밖의 고치기 — 마감(00시)이 지났거나 이미 발행됐다(10/14 확정). */
     PROMOTION_LOCKED(HttpStatus.CONFLICT, "자정이 지나 홍보를 고칠 수 없어요"),
+
+    /** 지금 주민인 섬의 홍보 칸 신고 — 앱은 우리 섬 칸에 신고 버튼을 두지 않는다. 떠난·강퇴된 사람은 일반 독자다. */
+    PROMOTION_REPORT_OWN_ISLAND(HttpStatus.FORBIDDEN, "우리 섬 홍보 칸은 신고할 수 없어요"),
 
     /** 없는 홍보, 또는 다른 섬의 홍보. */
     PROMOTION_NOT_FOUND(HttpStatus.NOT_FOUND, "홍보를 찾을 수 없어요"),

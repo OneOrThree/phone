@@ -10,6 +10,19 @@ import { isMemberGateError } from '@/services/memberConversion';
 import { intentKeyPool } from '@/services/model';
 
 const DAY = 86_400_000;
+/** 호는 그 날짜 KST 07:00 에 나온다 — 마감(KST 00:00)에서 7시간 뒤. */
+const PUBLISH_AFTER_DEADLINE = 7 * 3_600_000;
+
+/**
+ * 신청 성공을 받은 때가 그 호의 어디인가 — 마감(호 날짜 KST 00:00) 전이면 고칠 수 있고, 마감 뒤 발행(07:00) 전이면 잠긴 칸,
+ * 발행 뒤면 이미 나온 호다(늦은 응답 · 응답 유실 뒤 같은 키 재시도의 재생). issueDate 가 어긋난 값이면 고칠 수 있다고 본다.
+ */
+export type AppliedPhase = 'open' | 'locked' | 'published';
+export function appliedPhase(issueDate: string, at: number): AppliedPhase {
+  const deadline = Date.parse(`${issueDate}T00:00:00+09:00`);
+  if (at >= deadline + PUBLISH_AFTER_DEADLINE) return 'published';
+  return at >= deadline ? 'locked' : 'open';
+}
 
 /** 목업 모드면 메모리 서버(magazineMock), 아니면 실제 API — 같은 함수 모양이다. */
 export const magazineApi = () => (isMockMode() ? magazineMock : live);
@@ -145,7 +158,11 @@ export function usePromotionEditor({
   const submit = useCallback(
     async (
       draft: PromotionDraft,
-    ): Promise<{ ok: 'applied' | 'updated' } | { problem: EditorProblem }> => {
+    ): Promise<
+      | { ok: 'updated' }
+      | { ok: 'applied'; issueDate: string; phase: AppliedPhase }
+      | { problem: EditorProblem }
+    > => {
       if (!islandId || !editor || submitting) return { problem: { message: '' } };
       const api = magazineApi();
       const exact = JSON.stringify(draft);
@@ -158,6 +175,23 @@ export function usePromotionEditor({
         }
         const applied = await api.applyPromotion(islandId, draft, keys.key('apply', exact));
         keys.release('apply', exact);
+        const phase = appliedPhase(applied.issueDate, now());
+        if (phase === 'published') {
+          // 이미 나온 호다 — 앞으로 실릴 칸(next)으로 넣지 않고 지난 칸(latest)으로만 둔다. 07시 다시 읽기가 먼저 받아 온
+          // 새 신청 창(window · next · 잔액)은 덮지 않고, 서버 상태는 다시 읽어 맞춘다
+          setEditor(
+            (cur) =>
+              cur && {
+                ...cur,
+                latest:
+                  cur.latest && cur.latest.issueDate >= applied.issueDate
+                    ? cur.latest
+                    : { ...draft, promotionId: applied.promotionId, issueDate: applied.issueDate },
+              },
+          );
+          reload();
+          return { ok: 'applied', issueDate: applied.issueDate, phase };
+        }
         setEditor(
           (cur) =>
             cur && {
@@ -168,12 +202,12 @@ export function usePromotionEditor({
                 promotionId: applied.promotionId,
                 issueDate: applied.issueDate,
                 appliedAt: new Date(now()).toISOString(),
-                // 응답이 늦는 사이 자정 재조회가 창 닫힘을 받아 왔으면 그대로 잠근다(늦은 성공이 마감을 덮지 않게)
-                editable: cur.window.open && cur.next?.editable !== false,
+                // 응답이 늦는 사이 자정 재조회가 창 닫힘을 받아 왔거나 이미 마감이 지났으면 그대로 잠근다(늦은 성공이 마감을 덮지 않게)
+                editable: phase === 'open' && cur.window.open && cur.next?.editable !== false,
               },
             },
         );
-        return { ok: 'applied' };
+        return { ok: 'applied', issueDate: applied.issueDate, phase };
       } catch (err) {
         if (isMemberGateError(err) && offerRef.current?.(err)) return { problem: { message: '' } };
         const problem = promotionProblem(err);
