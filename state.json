@@ -1,0 +1,1 @@
+{"prod/catus": {"environment": "prod", "finished_at": "2026-10-14T09:54:37.790789+00:00", "infra_revision": "b503bd8e4da3e01e83f5902dfd81b0467058c79b", "release_id": "69c7e02dd7d58b72b87187f857285b350cb34d4c-20261014093425-1", "result": "success", "revision": "69c7e02dd7d58b72b87187f857285b350cb34d4c", "service": "catus", "version": "catus-v2.0.0"}}
