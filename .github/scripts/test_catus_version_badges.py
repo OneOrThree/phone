@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -62,19 +63,18 @@ class VersionBadgeTests(unittest.TestCase):
             plan.write_text(json.dumps({'previous': {'product': 'catus', 'version': 'catus-v2.0.0'}}))
             with patch.object(sys, 'argv', ['version', '--revision', 'a' * 40, '--plan-file', str(plan)]), \
                  patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
-                 patch.object(version.subprocess, 'check_output', side_effect=['', '', '[]']), \
+                 patch.object(version.subprocess, 'check_output', side_effect=['', '[]']), \
                  patch('sys.stdout', new_callable=io.StringIO) as output:
                 version.main()
             self.assertEqual(output.getvalue().strip(), 'catus-v2.0.1')
 
-    def test_같은SHA의_기발행버전은_라벨과_무관하게_재사용한다(self):
-        for label in ['release:major', 'release:minor', 'release:patch']:
+    def test_새발행은_같은SHA여도_요청한_버전을_증가시킨다(self):
+        for label, expected in [('release:major', 'catus-v3.0.0'), ('release:minor', 'catus-v2.2.0'),
+                                ('release:patch', 'catus-v2.1.1')]:
             self.assertEqual(version.next_version(['catus-v2.1.0'], [label],
-                {'product': 'catus', 'version': 'catus-v2.0.0'}, ['v99.0.0', 'catus-v2.1.0']), 'catus-v2.1.0')
-        self.assertEqual(version.next_version(['catus-v2.1.0', 'catus-v2.2.0'], [],
-            published_tags=['catus-v2.1.0', 'catus-v2.2.0']), 'catus-v2.2.0')
+                {'product': 'catus', 'version': 'catus-v2.0.0'}), expected)
 
-    def test_재실행은_현재SHA의_annotated태그를_찾고_같은태그를_다시_push한다(self):
+    def test_기존annotated태그는_재게시하고_새발행CLI는_버전을_증가시킨다(self):
         script = next(step['run'] for step in workflow('prod-ci.yml')['jobs']['release']['steps']
                       if step.get('name') == '불변 릴리스 생성·업로드')
         script = script[script.index("git config user.name"):script.index('echo "- 버전:')]
@@ -104,9 +104,57 @@ class VersionBadgeTests(unittest.TestCase):
                  patch.object(version.subprocess, 'check_output', side_effect=output), \
                  patch('sys.stdout', new_callable=io.StringIO) as stdout:
                 version.main()
-            self.assertEqual(stdout.getvalue().strip(), 'catus-v2.0.0')
+            self.assertEqual(stdout.getvalue().strip(), 'catus-v2.0.1')
             self.assertEqual(git('tag', '-l'), 'catus-v2.0.0')
             self.assertIn('refs/tags/catus-v2.0.0', git('ls-remote', '--tags', 'origin'))
+
+    def test_실행별_버전고정으로_복구와_같은SHA_명시적재발행을_구분한다(self):
+        steps = workflow('prod-ci.yml')['jobs']['release']['steps']
+        allocate = next(step for step in steps if step.get('name') == '발행 버전 고정')
+        upload = next(step for step in steps if step.get('uses') == 'actions/upload-artifact@v4')
+        download = next(step for step in steps if step.get('with', {}).get('name') == 'catus-release-version'
+                        and step.get('uses') == 'actions/download-artifact@v4')
+        self.assertEqual(allocate['if'], 'github.run_attempt == 1')
+        self.assertEqual(upload['if'], 'github.run_attempt == 1')
+        self.assertEqual(download['if'], 'github.run_attempt != 1')
+        generate = next(step['run'] for step in steps if step.get('name') == '불변 릴리스 생성·업로드')
+        validate = generate.split('bucket=', 1)[0] + '\nprintf "%s" "$version"\n'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', *args], cwd=root, text=True).strip()
+            git('init', '-q')
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', '기준')
+            revision = git('rev-parse', 'HEAD')
+            helper = root / '.github/scripts/catus-version.py'
+            helper.parent.mkdir(parents=True)
+            shutil.copyfile(version.__file__, helper)
+            (root / 'plan-input').mkdir()
+            (root / 'plan-input/prod-plan.json').write_text(json.dumps({'previous': None}))
+            (root / 'bin').mkdir()
+            gh = root / 'bin/gh'
+            gh.write_text("#!/bin/sh\nprintf '[]\\n'\n")
+            gh.chmod(0o755)
+            env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
+                'GITHUB_SHA': revision, 'GITHUB_REPOSITORY': 'OneOrThree/phone', 'GITHUB_RUN_ID': '1',
+                'GITHUB_RUN_ATTEMPT': '1', 'INFRA_REVISION': 'a' * 40, 'BUMP_OVERRIDE': ''}
+            def run(script, overrides=None):
+                return subprocess.run(['bash', '-euc', script], cwd=root, env={**env, **(overrides or {})},
+                    capture_output=True, text=True)
+            result = run(allocate['run'])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            git('tag', 'catus-v2.0.0')
+            retry = run(validate, {'GITHUB_RUN_ATTEMPT': '2'})
+            self.assertEqual(retry.returncode, 0, retry.stderr)
+            self.assertEqual(retry.stdout, 'catus-v2.0.0')
+            self.assertNotEqual(run(validate, {'INFRA_REVISION': 'b' * 40}).returncode, 0)
+            self.assertNotEqual(run(validate, {'GITHUB_RUN_ID': '2'}).returncode, 0)
+            for i, (bump, expected) in enumerate([('patch', 'catus-v2.0.1'), ('minor', 'catus-v2.1.0')]):
+                shutil.rmtree(root / 'release-version')
+                result = run(allocate['run'], {'GITHUB_RUN_ID': str(i + 2), 'INFRA_REVISION': 'b' * 40,
+                                             'BUMP_OVERRIDE': bump})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads((root / 'release-version/version.json').read_text())['version'], expected)
 
     def test_운영실행은_대기중인_발행과_배포를_취소하지_않는다(self):
         for filename in ['prod-ci.yml', 'prod-cd.yml']:

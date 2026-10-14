@@ -223,16 +223,47 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish
           aws-region: ap-northeast-2
-      - name: 불변 릴리스 생성·업로드
+      - uses: actions/download-artifact@v4
+        if: github.run_attempt != 1
+        with:
+          name: catus-release-version
+          path: release-version
+      - name: 발행 버전 고정
+        if: github.run_attempt == 1
         env:
           GH_TOKEN: ${{ github.token }}
           BUMP_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.version_bump || '' }}
         run: |
           set -euo pipefail
-          release_id="$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           version_args=(--revision "$GITHUB_SHA" --plan-file plan-input/prod-plan.json)
           if [ -n "$BUMP_OVERRIDE" ]; then version_args+=(--bump "$BUMP_OVERRIDE"); fi
-          version=$(python3 .github/scripts/catus-version.py "${version_args[@]}")
+          CATUS_VERSION=$(python3 .github/scripts/catus-version.py "${version_args[@]}")
+          export CATUS_VERSION
+          python3 - <<'PYTHON'
+          import json, os, pathlib, re
+          version = os.environ['CATUS_VERSION']
+          if not re.fullmatch(r'catus-v[0-9]+\.[0-9]+\.[0-9]+', version):
+              raise ValueError('발행 버전 형식 오류')
+          root = pathlib.Path('release-version')
+          root.mkdir()
+          (root / 'version.json').write_text(json.dumps({'version': version,
+              'source_revision': os.environ['GITHUB_SHA'], 'infra_revision': os.environ['INFRA_REVISION'],
+              'run_id': os.environ['GITHUB_RUN_ID']}))
+          PYTHON
+      - uses: actions/upload-artifact@v4
+        if: github.run_attempt == 1
+        with:
+          name: catus-release-version
+          path: release-version/version.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: 불변 릴리스 생성·업로드
+        run: |
+          set -euo pipefail
+          release_id="$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          version=$(jq -er --arg sha "$GITHUB_SHA" --arg infra "$INFRA_REVISION" --arg run "$GITHUB_RUN_ID" \
+            'select(.source_revision == $sha and .infra_revision == $infra and .run_id == $run) | .version' release-version/version.json)
+          [[ "$version" =~ ^catus-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           bucket=$(aws secretsmanager get-secret-value --secret-id catus/prod/cicd \
             --query SecretString --output text | jq -er '.DEPLOY_BUCKET')
           [[ "$bucket" == catus-prod-deploy-artifacts-* ]]

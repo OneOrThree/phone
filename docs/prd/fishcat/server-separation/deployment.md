@@ -84,7 +84,7 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 3. 이미지 저장소는 `catus-prod/<service>`이며 릴리스에는 재사용 이미지를 포함한 네 서비스의 digest 조합을 기록한다. 불변 산출물은 S3 `releases/<소스 SHA>-<실행 ID>-<시도 번호>/bundle.zip`·`release.json`, 버전 참조는 `versions/catus-vX.Y.Z.json`이다.
 4. 기존 Catus Git 태그와 실제 운영 성공 상태 `deployments/current.json`의 버전 중 큰 값을 기준으로 `release` 대상 릴리스 PR의 `release:major`·`release:minor`·`release:patch` 중 하나로 증가하고, 미지정은 patch다. 둘 다 없을 때만 최초 버전 `catus-v2.0.0`을 사용한다. 현재 운영자 전환 버전이 `catus-v2.0.0`이므로 정식 Git 태그가 없어도 첫 자동 patch 발행은 `catus-v2.0.1`이다. 수동 발행은 `version_bump` 입력을 사용한다. 같은 버전을 Git 태그와 네 서비스 ECR 태그로 기록한다. 기존 Gromo `vX.Y.Z` 태그는 버전 계산에 포함하지 않는다.
 
-현재 소스 SHA에 이미 Catus 태그가 있으면 해당 버전을 재사용하고 기존 S3 릴리스 메타데이터의 소스·Infra SHA와 checksum을 검증해 발행을 마무리한다. 이 경우 Git 태그도 같은 커밋인지 확인하며 새 버전을 증가시키지 않는다.
+첫 시도에서 계산한 버전은 S3 발행 전에 `catus-release-version` Actions 산출물에 소스·Infra SHA와 실행 ID를 함께 고정한다. 같은 실행의 재시도는 이 산출물을 복구하고 입력을 검증해 기존 S3 릴리스 메타데이터와 checksum 확인을 이어간다. Git 태그가 이미 있으면 같은 커밋인지 확인하며 중복 생성하지 않는다. 산출물이 없거나 만료됐거나 입력이 달라졌으면 버전을 추측하지 않고 실패한다. 새 수동 실행의 강제 재빌드·Infra 변경은 같은 소스 SHA여도 새 버전을 계산한다.
 
 대기열은 커밋 순서를 보장하지 않으므로 버전 계산 전에 최신 Catus 태그의 소스가 현재 소스의 조상인지 검사한다. 후속 커밋이 먼저 발행됐다면 뒤늦은 이전 커밋·분기 커밋은 더 높은 버전으로 발행하지 않고 실패한다.
 
@@ -92,7 +92,7 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release`, `release_id`는 발행된 `catus-vX.Y.Z` 또는 `<소스 SHA>-<실행 ID>-<시도 번호>`를 지정한다. `operation`은 최초 준비 `bootstrap`, 일반 배포 `deploy`, 호환되는 기존 릴리스 복구 `rollback` 중 하나다. `catus-production` 승인 후 고정 SSM 문서 `catus-prod-deploy`를 호출하고 최종 결과를 기다린다. 발행 성공만으로 자동 배포되지는 않는다. 롤백은 해당 Infra 실행 구성의 호환 조건을 확인한 릴리스만 선택하며, DB 변경을 자동으로 되돌리는 절차로 취급하지 않는다.
 
-Infra PR #10의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD는 `catus:<저장소 ID>:<Actions 실행 ID>`를 SSM Comment와 작업 요약에 기록한다. AWS CLI의 자동 재전송은 끄고, 전송 응답 유실·같은 Actions 실행의 재시도에서는 기존 명령을 조회해 결과 대기를 재개한다. 기존 명령이 확인되지 않는 재시도는 새 명령을 보내지 않고 대기 후 실패하므로, 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다.
+Infra PR #11의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD는 `catus:<저장소 ID>:<Actions 실행 ID>`를 SSM Comment와 작업 요약에 기록한다. AWS CLI의 자동 재전송은 끄고, 전송 응답 유실·같은 Actions 실행의 재시도에서는 기존 명령을 조회해 결과 대기를 재개한다. 기존 명령이 확인되지 않는 재시도는 새 명령을 보내지 않고 대기 후 실패하므로, 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다.
 
 ### 배포 상태 배지
 

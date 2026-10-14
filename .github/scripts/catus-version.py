@@ -20,7 +20,7 @@ def validate_order(tags, revision):
             raise ValueError('최신 Catus 발행보다 오래되거나 분기된 소스는 발행할 수 없다') from error
 
 
-def next_version(tags, labels, previous=None, published_tags=()):
+def next_version(tags, labels, previous=None):
     bumps = set(labels) & {'release:major', 'release:minor', 'release:patch'}
     if len(bumps) > 1:
         raise ValueError('릴리스 버전 라벨은 하나만 선택한다')
@@ -29,10 +29,6 @@ def next_version(tags, labels, previous=None, published_tags=()):
         if previous.get('product') != 'catus' or not VERSION.fullmatch(previous.get('version', '')):
             raise ValueError('Catus prod 기준 버전 오류')
         tags.append(previous['version'])
-    published = [tuple(map(int, match.groups())) for tag in published_tags
-                 if (match := VERSION.fullmatch(tag))]
-    if published:
-        return 'catus-v' + '.'.join(map(str, max(published)))
     versions = [tuple(map(int, match.groups())) for tag in tags if (match := VERSION.fullmatch(tag))]
     if not versions:
         return 'catus-v2.0.0'
@@ -57,7 +53,6 @@ def main():
         raise ValueError('SHA 형식 오류')
     tags = subprocess.check_output(['git', 'tag', '-l', 'catus-v*'], text=True).splitlines()
     validate_order(tags, args.revision)
-    published = subprocess.check_output(['git', 'tag', '--points-at', args.revision, '-l', 'catus-v*'], text=True).splitlines()
     # 조회 실패를 patch로 숨기지 않는다. 머지된 릴리스 PR만 버전 라벨을 공급한다.
     response = subprocess.check_output(['gh', 'api', '--paginate', '--slurp',
         f'repos/{os.environ["GITHUB_REPOSITORY"]}/commits/{args.revision}/pulls'], text=True)
@@ -65,7 +60,7 @@ def main():
            pr['base']['ref'] == 'release' and pr.get('merge_commit_sha') == args.revision]
     labels = [label['name'] for pr in prs for label in pr['labels']]
     previous = json.loads(args.plan_file.read_text())['previous']
-    print(next_version(tags, ["release:" + args.bump] if args.bump else labels, previous, published))
+    print(next_version(tags, ["release:" + args.bump] if args.bump else labels, previous))
 
 
 if __name__ == '__main__':
