@@ -114,6 +114,28 @@ class VersionBadgeTests(unittest.TestCase):
             self.assertEqual(concurrency['cancel-in-progress'], 'false')
             self.assertEqual(concurrency['queue'], 'max')
 
+    def test_후속커밋_발행후_이전커밋과_분기커밋은_발행하지_않는다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def git(*args):
+                return subprocess.check_output(['git', *args], cwd=directory, text=True).strip()
+            git('init', '-q')
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', '이전')
+            older = git('rev-parse', 'HEAD')
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', '후속')
+            newer = git('rev-parse', 'HEAD')
+            git('tag', 'catus-v2.1.0')
+            original = subprocess.check_output
+            def output(args, **kwargs): return original(args, cwd=directory, **kwargs)
+            with patch.object(version.subprocess, 'check_output', side_effect=output):
+                version.validate_order(['catus-v2.1.0'], newer)
+                with self.assertRaisesRegex(ValueError, '오래되거나 분기된'):
+                    version.validate_order(['catus-v2.1.0'], older)
+            git('checkout', '-q', '--detach', older)
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', '분기')
+            diverged = git('rev-parse', 'HEAD')
+            with patch.object(version.subprocess, 'check_output', side_effect=output), self.assertRaises(ValueError):
+                version.validate_order(['catus-v2.1.0'], diverged)
+
     def test_digest_재업로드는_같은이름의_이전시도_산출물을_교체한다(self):
         steps = workflow('prod-ci.yml')['jobs']['images']['steps']
         upload = next(step['with'] for step in steps if step.get('uses') == 'actions/upload-artifact@v4')
@@ -180,6 +202,7 @@ class VersionBadgeTests(unittest.TestCase):
     def test_Satellite_대상없음과_대상미확인은_다른서비스를_실패로_만들지_않는다(self):
         path = '.github/workflows/satellite-cd.dev.yml'
         self.assertEqual(self.run_badge(path, []), [])
+        self.assertEqual(self.run_badge('.github/workflows/satellite-ci.dev.yml', []), [])
         self.assertEqual(self.run_badge(path, [('satellite-deploy-record', {
             'business-api': False, 'notification': False, 'head_sha': 'c' * 40})]), [])
         self.assertEqual(self.run_badge('.github/workflows/satellite-ci.dev.yml', [
@@ -320,7 +343,7 @@ class VersionBadgeTests(unittest.TestCase):
                     env={**env, 'FAILURE_SERVICE': failed}, capture_output=True, text=True)
                 self.assertEqual(result.returncode, expected, result.stderr)
 
-    def test_수동롤백은_SSM조회시간초과를_재시도하고_성공후에만_기록한다(self):
+    def test_수동롤백은_SSM전송과_조회시간초과를_복구하고_성공후에만_기록한다(self):
         script = workflow('prod-cd.yml')['jobs']['deploy']['steps'][2]['run']
         script = script.split("<<'PYTHON'\n", 1)[1].rsplit('\nPYTHON', 1)[0]
         tree = ast.parse(script)
@@ -336,7 +359,13 @@ class VersionBadgeTests(unittest.TestCase):
         def aws(*args):
             calls.append(args)
             if args[0] == 'secretsmanager': return {'SecretString': json.dumps(config)}
-            if args[1] == 'send-command': return {'Command': {'CommandId': 'command'}}
+            if args[1] == 'list-commands':
+                if sum(call[1] == 'list-commands' for call in calls) < 3:
+                    return {'Commands': []}
+                sent = next(call for call in calls if call[1] == 'send-command')
+                return {'Commands': [{'CommandId': 'command', 'Comment': 'catus:1:2',
+                    'Parameters': json.loads(sent[-1]), 'InstanceIds': ['i-catus']}]}
+            if args[1] == 'send-command': raise subprocess.TimeoutExpired('aws', 30)
             if sum(call[1] == 'get-command-invocation' for call in calls) == 1:
                 raise subprocess.TimeoutExpired('aws', 30)
             return {'Status': 'Success'}
@@ -349,16 +378,24 @@ class VersionBadgeTests(unittest.TestCase):
             try:
                 os.chdir(directory)
                 with patch.object(sys, 'argv', ['request', '--release-id', 'catus-v2.0.0', '--operation', 'rollback']), \
-                     patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(Path(directory, 'summary'))}), \
+                     patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(Path(directory, 'summary')),
+                         'GITHUB_REPOSITORY_ID': '1', 'GITHUB_RUN_ID': '2', 'GITHUB_RUN_ATTEMPT': '1'}), \
                      patch.object(subprocess, 'run', download), patch.object(namespace['time'], 'sleep') as sleep:
                     namespace['main']()
-                sleep.assert_called_once_with(5)
+                self.assertEqual([call.args for call in sleep.call_args_list], [(5,), (5,)])
                 self.assertEqual(sum(call[1] == 'send-command' for call in calls), 1)
                 self.assertEqual(sum(call[1] == 'get-command-invocation' for call in calls), 2)
                 params = json.loads(next(call for call in calls if call[1] == 'send-command')[-1])
                 self.assertEqual(params['ReleaseId'], [envelope['release_id']])
                 self.assertEqual(params['Operation'], ['rollback'])
                 self.assertEqual(json.loads(Path('deployment-status-prod.json').read_text())[0]['version'], envelope['version'])
+                # Actions 재실행은 앞선 시도의 명령을 복구하고 send-command를 다시 호출하지 않는다.
+                with patch.object(sys, 'argv', ['request', '--release-id', 'catus-v2.0.0', '--operation', 'rollback']), \
+                     patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(Path(directory, 'summary')),
+                         'GITHUB_REPOSITORY_ID': '1', 'GITHUB_RUN_ID': '2', 'GITHUB_RUN_ATTEMPT': '2'}), \
+                     patch.object(subprocess, 'run', download):
+                    namespace['main']()
+                self.assertEqual(sum(call[1] == 'send-command' for call in calls), 1)
             finally:
                 os.chdir(before)
 

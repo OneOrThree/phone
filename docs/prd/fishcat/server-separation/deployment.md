@@ -86,14 +86,18 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 현재 소스 SHA에 이미 Catus 태그가 있으면 해당 버전을 재사용하고 기존 S3 릴리스 메타데이터의 소스·Infra SHA와 checksum을 검증해 발행을 마무리한다. 이 경우 Git 태그도 같은 커밋인지 확인하며 새 버전을 증가시키지 않는다.
 
+대기열은 커밋 순서를 보장하지 않으므로 버전 계산 전에 최신 Catus 태그의 소스가 현재 소스의 조상인지 검사한다. 후속 커밋이 먼저 발행됐다면 뒤늦은 이전 커밋·분기 커밋은 더 높은 버전으로 발행하지 않고 실패한다.
+
 ### 배포와 롤백
 
 GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release`, `release_id`는 발행된 `catus-vX.Y.Z` 또는 `<소스 SHA>-<실행 ID>-<시도 번호>`를 지정한다. `operation`은 최초 준비 `bootstrap`, 일반 배포 `deploy`, 호환되는 기존 릴리스 복구 `rollback` 중 하나다. `catus-production` 승인 후 고정 SSM 문서 `catus-prod-deploy`를 호출하고 최종 결과를 기다린다. 발행 성공만으로 자동 배포되지는 않는다. 롤백은 해당 Infra 실행 구성의 호환 조건을 확인한 릴리스만 선택하며, DB 변경을 자동으로 되돌리는 절차로 취급하지 않는다.
+
+Infra PR #10의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD는 `catus:<저장소 ID>:<Actions 실행 ID>`를 SSM Comment와 작업 요약에 기록한다. AWS CLI의 자동 재전송은 끄고, 전송 응답 유실·같은 Actions 실행의 재시도에서는 기존 명령을 조회해 결과 대기를 재개한다. 기존 명령이 확인되지 않는 재시도는 새 명령을 보내지 않고 대기 후 실패하므로, 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다.
 
 ### 배포 상태 배지
 
 `ops-deployment-badges.yml`은 신뢰한 원본 워크플로의 결과 산출물을 검증해 `deployment-status` 브랜치에 JSON을 게시한다. dev는 Data·Realtime·Business·Notification의 최근 결과를 합산한다. prod는 마지막 성공 버전을 유지하므로 실패·취소 후에도 이전 성공 버전이 표시된다. 최신 실행 성공 여부는 Actions에서 별도로 확인한다.
 
-결과 산출물 이름은 `deployment-status-<dev|prod>-<run_attempt>`이며 현재 재실행 시도의 결과만 반영한다. dev 실패·취소 시 현재 결과가 없으면 실패로 기록하되, Satellite CD는 `satellite-deploy-record`에 남긴 선택 서비스와 배포 원본 SHA를 사용한다. 대상 기록도 없으면 서비스 범위를 추측하지 않고 기존 배지를 유지한다.
+결과 산출물 이름은 `deployment-status-<dev|prod>-<run_attempt>`이며 현재 재실행 시도의 결과만 반영한다. dev 실패·취소 시 현재 결과가 없으면 실패로 기록하되, Satellite CI는 `satellite-deploy-plan`, CD는 `satellite-deploy-record`에 남긴 선택 서비스를 사용한다. CD의 원본 SHA도 해당 기록에서 복원한다. 계획·대상 기록도 없으면 서비스 범위를 추측하지 않고 기존 배지를 유지한다.
 
 2026-10-14 기준 상태 브랜치는 아직 없다. main 반영 후 「서버 배포 상태 배지」 워크플로를 수동 실행하면 초기 JSON을 만들며, 기록이 없는 서비스·환경은 배포 확인 전으로 표시한다. 이미 운영 중인 서버도 기록 전에는 확인 전으로 표시하며, 서버가 미배포되거나 중단됐다는 뜻은 아니다. 이후 실제 배포 완료 결과가 배지를 갱신한다. 검증은 `python3 -m unittest discover -s .github/scripts -p 'test_catus*.py' -v`와 `python3 .claude/pr-gate.py --selftest`를 사용한다.

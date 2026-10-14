@@ -205,9 +205,11 @@ def main():
     if not artifacts:
         if run.get('path', '').split('@')[0] == '.github/workflows/satellite-ci.dev.yml':
             plans = [item for item in available if item['name'] == 'satellite-deploy-plan']
-            if plans:
-                plan = artifact_json(api, max(plans, key=lambda item: item['id']), 'satellite-deploy-plan.json')
-                rule = planned_rule(rule, plan)
+            if not plans:
+                print('위성 CI 배포 계획 없음 — 배지 유지')
+                return
+            plan = artifact_json(api, max(plans, key=lambda item: item['id']), 'satellite-deploy-plan.json')
+            rule = planned_rule(rule, plan)
         elif run.get('path', '').split('@')[0] == '.github/workflows/satellite-cd.dev.yml':
             plans = [item for item in available if item['name'] == 'satellite-deploy-record']
             if not plans:

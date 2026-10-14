@@ -10,6 +10,16 @@ from pathlib import Path
 VERSION = re.compile(r'^catus-v(\d+)\.(\d+)\.(\d+)$')
 
 
+def validate_order(tags, revision):
+    versions = [(tuple(map(int, match.groups())), tag) for tag in tags if (match := VERSION.fullmatch(tag))]
+    if versions:
+        latest = max(versions)[1]
+        try:
+            subprocess.check_output(['git', 'merge-base', '--is-ancestor', latest + '^{commit}', revision], text=True)
+        except subprocess.CalledProcessError as error:
+            raise ValueError('최신 Catus 발행보다 오래되거나 분기된 소스는 발행할 수 없다') from error
+
+
 def next_version(tags, labels, previous=None, published_tags=()):
     bumps = set(labels) & {'release:major', 'release:minor', 'release:patch'}
     if len(bumps) > 1:
@@ -46,6 +56,7 @@ def main():
     if not re.fullmatch('[0-9a-f]{40}', args.revision):
         raise ValueError('SHA 형식 오류')
     tags = subprocess.check_output(['git', 'tag', '-l', 'catus-v*'], text=True).splitlines()
+    validate_order(tags, args.revision)
     published = subprocess.check_output(['git', 'tag', '--points-at', args.revision, '-l', 'catus-v*'], text=True).splitlines()
     # 조회 실패를 patch로 숨기지 않는다. 머지된 릴리스 PR만 버전 라벨을 공급한다.
     response = subprocess.check_output(['gh', 'api', '--paginate', '--slurp',
