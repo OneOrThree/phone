@@ -39,7 +39,8 @@ import {
   setTape,
 } from './layout';
 import { StickerDrawer, assetName } from './StickerDrawer';
-import { EditorProblem, usePromotionEditor } from './usePromotionEditor';
+import { issueDateText } from './MagazineReader';
+import { AppliedPhase, EditorProblem, usePromotionEditor } from './usePromotionEditor';
 import { CANVAS_PAD, handlePoint, itemBox, useStickerGestures } from './useStickerGestures';
 
 type IslandFacts = Omit<AdCellData, 'body' | 'layout'>;
@@ -177,7 +178,8 @@ export function PromotionEditor({
       : null;
   const [tab, setTab] = useState<StickerTab>('cat');
   const [problem, setProblem] = useState<EditorProblem | null>(null);
-  const [done, setDone] = useState(false);
+  // 접수 완료 확인창 — 열 때의 신청 결과(호 · 시점)로 문구를 고정한다(뒤이은 다시 읽기로 바뀌지 않게). null 이면 닫힘
+  const [done, setDone] = useState<{ issueDate: string; phase: AppliedPhase } | null>(null);
   const [stamped, setStamped] = useState(false);
   // 칸 위에 손가락이 있는 동안은 화면 세로 스크롤을 잠근다(끌기·두 손가락 조작이 스크롤에 뺏기지 않게)
   const [canvasTouch, setCanvasTouch] = useState(false);
@@ -273,8 +275,10 @@ export function PromotionEditor({
     if ('ok' in result) {
       setSelection(null);
       if (result.ok === 'updated') return e.notify(t('magazine.editor.saved'));
+      setDone({ issueDate: result.issueDate, phase: result.phase });
+      // 이미 나온 호면 지금 칸은 새 신청 창의 칸이다 — 접수 도장을 찍지 않는다
+      if (result.phase === 'published') return;
       setStamped(true);
-      setDone(true);
       stamp.setValue(reduceMotion ? 1 : 0);
       if (!reduceMotion)
         Animated.spring(stamp, {
@@ -304,7 +308,7 @@ export function PromotionEditor({
       tape: putTape,
       op: (op) => selection && doEdit(selection, op),
       submit: send,
-      closeDone: () => setDone(false),
+      closeDone: () => setDone(null),
     };
 
   const header = (
@@ -363,7 +367,7 @@ export function PromotionEditor({
       <View
         testID="promotion-editor-layer"
         style={{ flex: 1 }}
-        accessibilityElementsHidden={done}
+        accessibilityElementsHidden={!!done}
         importantForAccessibility={done ? 'no-hide-descendants' : 'auto'}
       >
         {header}
@@ -371,11 +375,19 @@ export function PromotionEditor({
         {footer}
       </View>
       {done && (
-        <Overlay close={() => setDone(false)}>
+        <Overlay close={() => setDone(null)}>
           <Txt kind="h17">{t('magazine.editor.doneTitle')}</Txt>
-          {/* 자정을 넘겨 받은 성공이면 이미 잠긴 오늘 07시 호다 — 「내일 · 자정까지 고칠 수 있어요」라고 하지 않는다 */}
-          <Txt>{t(readOnly ? 'magazine.editor.doneBodyLocked' : 'magazine.editor.doneBody')}</Txt>
-          <Btn id="promotion-done-ok" title={t('common.ok')} onPress={() => setDone(false)} />
+          {/* 성공을 받은 시점으로 고른다 — 마감 전 「내일 · 자정까지」, 자정 뒤 「오늘 · 더는 못 고침」, 발행 뒤 「이미 나옴」 */}
+          <Txt testID="promotion-done-body">
+            {done.phase === 'published'
+              ? t('magazine.editor.doneBodyPublished', { date: issueDateText(done.issueDate) })
+              : t(
+                  done.phase === 'locked'
+                    ? 'magazine.editor.doneBodyLocked'
+                    : 'magazine.editor.doneBody',
+                )}
+          </Txt>
+          <Btn id="promotion-done-ok" title={t('common.ok')} onPress={() => setDone(null)} />
         </Overlay>
       )}
     </View>

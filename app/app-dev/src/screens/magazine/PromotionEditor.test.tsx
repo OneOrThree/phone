@@ -75,6 +75,8 @@ const stickerStyles = (screen: any) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // 한 번만 쓰는 응답(…Once)이 실패한 테스트에서 남아 다음 테스트로 새지 않게 서버 목은 통째로 비운다
+  for (const m of [getEditor, getAssets, apply, update]) m.mockReset();
   getAssets.mockRejectedValue(new Error('offline')); // 재료 목록을 못 읽어도 쓰기는 된다
 });
 
@@ -609,6 +611,111 @@ describe('신청 창·잔액·비공개', () => {
     }
   });
 
+  it('23:59 에 보낸 신청의 응답이 다시 읽기 없이 00:05 에 오면, 잠긴 오늘 07시 호로 안내하고 읽기 전용이 된다', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:00Z') }); // KST 23:59
+    try {
+      let succeed: (v: unknown) => void = () => {};
+      apply.mockReturnValueOnce(new Promise((resolve) => (succeed = resolve)));
+      getEditor.mockResolvedValueOnce(editorResponse());
+      const driver: { current: EditorDriver | null } = { current: null };
+      const screen = await render(<PromotionEditor e={env()} driver={driver} />);
+      await waitFor(() => expect(screen.getByTestId('promotion-canvas')).toBeTruthy());
+      await act(async () => {
+        void driver.current!.submit();
+      });
+      jest.setSystemTime(Date.parse('2026-10-14T15:05:00Z')); // KST 00:05 — 자정 다시 읽기는 아직 돌지 않았다
+      await act(async () => {
+        succeed({
+          promotionId: 'p1',
+          issueDate: '2026-10-15',
+          feeFish: 60,
+          balanceAfter: 1180,
+          newsId: 'n',
+        });
+      });
+      const hidden = { includeHiddenElements: true };
+      expect(screen.getByTestId('promotion-done-body').props.children).toBe(
+        '오늘 07시 호에 실려요. 자정이 지나 더는 고칠 수 없어요',
+      );
+      expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
+      expect(screen.queryByTestId('sticker-drawer', hidden)).toBeNull();
+      expect(getEditor).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('06:59 에 다시 보낸 지난 호 신청의 성공이 07시 다시 읽기 뒤(07:05)에 오면, 새 신청 창을 덮지 않고 이미 나온 호로 안내한다', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:30Z') }); // KST 23:59:30
+    try {
+      const published = {
+        promotionId: 'p1',
+        issueDate: '2026-10-15',
+        body: '같이 공부해요!',
+        layout: LAYOUT,
+      };
+      const morning = editorResponse({
+        window: {
+          open: true,
+          issueDate: '2026-10-16',
+          opensAt: '2026-10-14T22:00:00Z',
+          closesAt: '2026-10-15T15:00:00Z',
+        },
+        next: null,
+        latest: published,
+        balance: 1180,
+      });
+      getEditor
+        .mockResolvedValueOnce(editorResponse())
+        .mockResolvedValueOnce(morning) // 07시 다시 읽기: 낸 칸이 실렸고 10/16 창이 열렸다
+        .mockResolvedValueOnce(morning); // 늦은 성공 뒤 다시 읽기
+      let succeed: (v: unknown) => void = () => {};
+      apply
+        .mockRejectedValueOnce(new ApiError('NETWORK', '연결', 0, { retryable: true }))
+        .mockReturnValueOnce(new Promise((resolve) => (succeed = resolve)));
+      const driver: { current: EditorDriver | null } = { current: null };
+      const screen = await render(<PromotionEditor e={env()} driver={driver} />);
+      await waitFor(() => expect(screen.getByTestId('promotion-canvas')).toBeTruthy());
+      await act(async () => {
+        await driver.current!.submit(); // 23:59:30 — 응답 유실
+      });
+      jest.setSystemTime(Date.parse('2026-10-14T21:59:00Z')); // KST 06:59 — 앱이 밤새 뒤에 있었다
+      await act(async () => {
+        void driver.current!.submit(); // 같은 키로 다시 보낸다
+      });
+      expect(apply.mock.calls[1][2]).toBe(apply.mock.calls[0][2]);
+      jest.setSystemTime(Date.parse('2026-10-14T22:05:00Z')); // KST 07:05
+      await act(async () => {
+        jest.advanceTimersByTime(31_000); // 밀린 다시 읽기가 먼저 돈다 → 10/16 새 신청 창
+      });
+      await waitFor(() => expect(getEditor).toHaveBeenCalledTimes(2));
+      await act(async () => {
+        succeed({
+          promotionId: 'p1',
+          issueDate: '2026-10-15',
+          feeFish: 60,
+          balanceAfter: 1180,
+          newsId: 'n',
+        });
+      });
+      const hidden = { includeHiddenElements: true };
+      expect(screen.getByTestId('promotion-done-body').props.children).toBe(
+        '10월 15일 07시 호가 이미 나왔어요. 잡지에서 확인해 보세요',
+      );
+      // 새 신청 창 그대로 — 지난 호 칸이 next 로 들어가 읽기 전용이 되지 않고, 도장도 찍지 않는다
+      expect(screen.getByText('잡지에 싣기 · 60 물고기', hidden)).toBeTruthy();
+      expect(screen.getByTestId('promotion-submit', hidden).props.accessibilityState.disabled).toBe(
+        false,
+      );
+      expect(screen.getByTestId('sticker-drawer', hidden)).toBeTruthy();
+      expect(screen.queryByTestId('promotion-stamp', hidden)).toBeNull();
+      // 서버 상태(잔액 등)는 다시 읽어 맞춘다
+      await waitFor(() => expect(getEditor).toHaveBeenCalledTimes(3));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('스티커를 끄는 중에 자정 다시 읽기로 읽기 전용이 되면, 계속 움직이거나 손을 떼도 마감 전 배치가 덮이지 않는다', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:00Z') }); // KST 23:59
     try {
@@ -658,7 +765,7 @@ describe('신청 창·잔액·비공개', () => {
     }
   });
 
-  it('접수 뒤 열어 둔 채 다음 날 07시에 새 신청 창으로 다시 읽으면 지난 접수 발도장을 걷는다', async () => {
+  it('접수 확인창을 연 채 자정·다음 날 07시 다시 읽기를 넘겨도 문구는 그대로이고, 07시 새 신청 창에서 지난 발도장을 걷는다', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:58:00Z') }); // KST 23:58
     try {
       const published = {
@@ -704,19 +811,23 @@ describe('신청 창·잔액·비공개', () => {
         await driver.current!.submit();
       });
       const hidden = { includeHiddenElements: true };
+      const doneBody = () => screen.getByTestId('promotion-done-body').props.children;
       expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
-      await act(async () => driver.current!.closeDone());
+      expect(doneBody()).toBe('내일 07시 호에 실려요. 자정까지 고칠 수 있어요');
+      // 확인창은 닫지 않는다 — 문구는 연 때의 신청 결과로 고정이다
       await act(async () => {
         jest.advanceTimersByTime(121_000); // 00:00:01 — 잠김(도장은 그대로: 낸 칸이다)
       });
       await waitFor(() => expect(getEditor).toHaveBeenCalledTimes(2));
       expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
+      expect(doneBody()).toBe('내일 07시 호에 실려요. 자정까지 고칠 수 있어요');
       await act(async () => {
         jest.advanceTimersByTime(7 * 3600_000); // 07:00:01 — 새 신청 창
       });
-      await waitFor(() => expect(screen.getByText('잡지에 싣기 · 60 물고기')).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('잡지에 싣기 · 60 물고기', hidden)).toBeTruthy());
       expect(getEditor).toHaveBeenCalledTimes(3);
       expect(screen.queryByTestId('promotion-stamp', hidden)).toBeNull();
+      expect(doneBody()).toBe('내일 07시 호에 실려요. 자정까지 고칠 수 있어요');
     } finally {
       jest.useRealTimers();
     }
