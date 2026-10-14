@@ -96,6 +96,30 @@ jobs:
         # compose healthcheck 가 /actuator/health/readiness 를 봄 → 컨테이너 상태로 판정(GROMO-2224).
         run: .github/scripts/wait-healthy.sh phone-realtime 900
 
+      - name: README 배포 상태 기록
+        if: always() && (steps.health.outcome == 'success' || failure())
+        env:
+          BADGE_REVISION: ${{ inputs.image_revision }}
+          BADGE_RESULT: ${{ steps.health.outcome == 'success' && 'success' || 'failure' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/deployment-status"
+          python3 - <<'PYTHON'
+          import datetime, json, os, pathlib
+          records = [{'service': 'realtime', 'result': os.environ['BADGE_RESULT']}]
+          now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          for record in records:
+              record.update(environment='dev', revision=os.environ['BADGE_REVISION'], finished_at=now)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'deployment-status', 'dev.json').write_text(json.dumps(records))
+          PYTHON
+      - uses: actions/upload-artifact@v4
+        if: always() && (steps.health.outcome == 'success' || failure())
+        with:
+          name: deployment-status-dev
+          overwrite: true
+          path: ${{ runner.temp }}/deployment-status/dev.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: 배포 결과 PR 표시
         if: always() && (steps.health.outcome == 'success' || failure())
         continue-on-error: true

@@ -1,0 +1,124 @@
+name: prod-cd
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: 릴리스 ID 또는 focuscat-vX.Y.Z (rollback에도 같은 형식 사용)
+        required: true
+        type: string
+      operation:
+        description: 최초 인프라 준비 bootstrap / 일반 deploy / 호환 릴리스 rollback
+        required: true
+        default: deploy
+        type: choice
+        options: [deploy, bootstrap, rollback]
+permissions:
+  contents: read
+concurrency:
+  group: focuscat-prod-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: focuscat-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::808715036056:role/focuscat-prod-deploy
+          aws-region: ap-northeast-2
+      - name: FocusCat 전용 SSM 배포·결과 대기
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          python3 - --release-id "$RELEASE_ID" --operation "$OPERATION" <<'PYTHON'
+          #!/usr/bin/env python3
+          """GitHub 승인 잡에서 FocusCat의 고정 SSM 문서만 호출하고 최종 상태를 기다린다."""
+          import argparse
+          import json
+          import re
+          import subprocess
+          import time
+
+
+          def aws(*arguments):
+              result = subprocess.run(["aws", "--region", "ap-northeast-2", *arguments, "--output", "json"],
+                                      capture_output=True, text=True, timeout=30)
+              if result.returncode:
+                  raise RuntimeError("AWS 요청 실패")
+              return json.loads(result.stdout)
+
+
+          def main():
+              parser = argparse.ArgumentParser()
+              parser.add_argument("--release-id", required=True)
+              parser.add_argument("--operation", choices=["deploy", "bootstrap", "rollback"], default="deploy")
+              args = parser.parse_args()
+              version_input = re.fullmatch(r"focuscat-v[0-9]+\.[0-9]+\.[0-9]+", args.release_id)
+              if not version_input and not re.fullmatch(r"[0-9a-f]{40}-[0-9]+-[0-9]+", args.release_id):
+                  raise ValueError("릴리스 ID 형식 오류")
+              config = json.loads(aws("secretsmanager", "get-secret-value", "--secret-id", "focuscat/prod/cicd")["SecretString"])
+              if config.get("PRODUCT") != "focuscat" or config.get("SSM_DOC") != "focuscat-prod-deploy" or not config["DEPLOY_BUCKET"].startswith("focuscat-prod-deploy-artifacts-"):
+                  raise ValueError("FocusCat 배포 설정 불일치")
+              # 입력·시크릿 값이 shell 명령 문자열에 들어가지 않음.
+              import tempfile
+              from pathlib import Path
+              with tempfile.TemporaryDirectory() as temporary:
+                  path = Path(temporary) / "release.json"
+                  key = f"versions/{args.release_id}.json" if version_input else f"releases/{args.release_id}/release.json"
+                  subprocess.run(["aws", "s3api", "get-object", "--region", "ap-northeast-2", "--bucket", config["DEPLOY_BUCKET"],
+                      "--key", key, str(path)], check=True, stdout=subprocess.DEVNULL)
+                  envelope = json.loads(path.read_text())
+              if version_input:
+                  if envelope.get("version") != args.release_id:
+                      raise ValueError("버전 참조 불일치")
+                  args.release_id = envelope["release_id"]
+              if not re.fullmatch(r"[0-9a-f]{40}-[0-9]+-[0-9]+", args.release_id):
+                  raise ValueError("버전 참조의 릴리스 ID 오류")
+              if not re.fullmatch(r"focuscat-v[0-9]+\.[0-9]+\.[0-9]+", envelope.get("version", "")):
+                  raise ValueError("버전 메타데이터 오류")
+              if envelope.get("release_id") != args.release_id or not re.fullmatch(r"[0-9a-f]{64}", envelope.get("bundle_sha256", "")):
+                  raise ValueError("릴리스 checksum 메타데이터 오류")
+              response = aws("ssm", "send-command", "--document-name", config["SSM_DOC"], "--instance-ids", config["INSTANCE_ID"],
+                  "--parameters", json.dumps({"ReleaseId": [args.release_id], "BundleSha256": [envelope["bundle_sha256"]], "Operation": [args.operation]}))
+              identifier = response["Command"]["CommandId"]
+              print("FocusCat SSM command: " + identifier, flush=True)
+              deadline = time.monotonic() + 2500
+              while time.monotonic() < deadline:
+                  try:
+                      result = aws("ssm", "get-command-invocation", "--command-id", identifier, "--instance-id", config["INSTANCE_ID"])
+                  except RuntimeError:
+                      time.sleep(5)
+                      continue
+                  if result["Status"] == "Success":
+                      import datetime, os
+                      now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                      record = {"environment": "prod", "service": "focuscat", "result": "success",
+                          "version": envelope["version"], "release_id": args.release_id,
+                          "revision": envelope["source_revision"], "infra_revision": envelope["infra_revision"], "finished_at": now}
+                      Path("deployment-status-prod.json").write_text(json.dumps([record]))
+                      with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                          summary.write(f"FocusCat {args.operation} 완료: {envelope['version']} / {args.release_id}\n")
+                      print("FocusCat 배포 완료")
+                      return
+                  if result["Status"] not in {"Pending", "InProgress", "Delayed"}:
+                      raise RuntimeError("SSM 배포 실패: " + result["Status"])
+                  time.sleep(10)
+              raise RuntimeError("SSM 대기 시간 초과. 새 배포 전에 기존 command 상태를 확인한다.")
+
+
+          main()
+          PYTHON
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deployment-status-prod
+          overwrite: true
+          path: deployment-status-prod.json
+          if-no-files-found: error
+          retention-days: 30

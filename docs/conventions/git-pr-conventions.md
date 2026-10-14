@@ -76,7 +76,7 @@ Jira 연동은 `GROMO-####` **전체 키**를 보고 PR 이력을 그 티켓에 
 | `REFACTOR` | `refactoring` |
 | `CHORE` | **내용으로 택1** — `docs/**` 만 → `documentation` · CI·워크플로·스크립트·훅 → `workflow` · 테스트만 → `test` · 그 외 → 라벨 없음 |
 
-`release:*` 라벨은 릴리스 자동화용이라 PR 에 붙이지 않는다.
+`release:*` 라벨은 일반 개발 PR에는 붙이지 않는다. **`release` 대상 릴리스 PR**에는 `release:major` · `release:minor` · `release:patch` 중 하나를 버전 증가 기준으로 추가할 수 있다(미지정은 patch). 릴리스 라벨은 TYPE 라벨과 별도로 허용하며 둘 이상 동시에 선택하지 않는다. FocusCat 태그는 `focuscat-vX.Y.Z`로 기존 Gromo `vX.Y.Z`와 분리한다.
 
 한 줄로:
 

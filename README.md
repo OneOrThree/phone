@@ -1,6 +1,11 @@
 # GROMO
 
 [![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml/badge.svg?branch=main&event=push)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml)
+[![dev 서버 배포](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fdev.json)](https://github.com/OneOrThree/phone/tree/deployment-status)
+[![FocusCat prod 배포 버전](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fprod.json)](https://github.com/OneOrThree/phone/actions/workflows/prod-cd.yml)
+
+
+dev 배지는 네 서비스의 최근 배포 결과를 합산하고, prod 배지는 마지막으로 배포에 성공한 FocusCat 버전을 표시합니다.
 
 집중한 시간을 캐릭터의 성장과 섬 활동으로 이어 주는 시간 관리 앱입니다.
 React Native(Expo) 앱과 네 개의 Spring Boot 서버를 한 저장소에서 관리합니다.

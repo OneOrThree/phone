@@ -249,6 +249,37 @@ jobs:
           # 성공 줄 수 == 서비스 수 — 결과를 쓰기 전에 죽은 검사(OOM 등)도 실패로 잡음
           [ "$(grep -c ' success$' "$results" || true)" = "${#services[@]}" ]
 
+      - name: README 배포 상태 기록
+        if: always() && (steps.health.outcome == 'success' || failure())
+        env:
+          BADGE_REVISION: ${{ github.event.workflow_run.head_sha }}
+          BADGE_RESULT: ${{ steps.health.outcome == 'success' && 'success' || 'failure' }}
+          BUSINESS_SELECTED: ${{ needs.plan.outputs.business }}
+          NOTIFICATION_SELECTED: ${{ needs.plan.outputs.notification }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/deployment-status"
+          python3 - <<'PYTHON'
+          import datetime, json, os, pathlib
+          records = []
+          results = pathlib.Path(os.environ['RUNNER_TEMP'], 'satellite-health.txt')
+          outcomes = dict(line.split() for line in results.read_text().splitlines()) if results.exists() else {}
+          for service, selected in [('business-api', os.environ['BUSINESS_SELECTED']), ('notification', os.environ['NOTIFICATION_SELECTED'])]:
+              if selected == 'true':
+                  records.append({'service': service, 'result': outcomes.get(service, 'failure')})
+          now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          for record in records:
+              record.update(environment='dev', revision=os.environ['BADGE_REVISION'], finished_at=now)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'deployment-status', 'dev.json').write_text(json.dumps(records))
+          PYTHON
+      - uses: actions/upload-artifact@v4
+        if: always() && (steps.health.outcome == 'success' || failure())
+        with:
+          name: deployment-status-dev
+          overwrite: true
+          path: ${{ runner.temp }}/deployment-status/dev.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: 배포 결과 PR 표시
         if: always() && (steps.health.outcome == 'success' || failure())
         continue-on-error: true

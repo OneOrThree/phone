@@ -210,6 +210,12 @@ def _check_one(args, subst, cwd):
     labels = []
     for v in _vals(args, "--label", "-l"):
         labels += [x.strip() for x in v.split(",") if x.strip()]
+    release_labels = [lab for lab in labels if lab.startswith("release:")]
+    bases = _vals(args, "--base", "-B")
+    if release_labels and bases == ["release"]:
+        if len(release_labels) != 1 or release_labels[0] not in {"release:major", "release:minor", "release:patch"}:
+            reasons.append("FocusCat 릴리스 라벨은 major/minor/patch 중 정확히 1개")
+        labels = [lab for lab in labels if not lab.startswith("release:")]
     if len(labels) > 1:
         reasons.append(f"라벨은 정확히 1개 — 지금 {len(labels)}개: {labels}")
     elif not labels:
@@ -290,6 +296,9 @@ _FIXTURES = [
     ("라벨 2개", _OK.replace("--label workflow", "--label workflow,bug"), ["정확히 1개"]),
     ("라벨 -l 두 번", _OK.replace("--label workflow", "-l workflow -l bug"), ["정확히 1개"]),
     ("TYPE↔라벨 불일치", _OK.replace("--label workflow", "--label bug").replace("[CHORE]", "[FEAT]"), ["안 맞는다"]),
+    ("통과 — FocusCat 릴리스 라벨", _OK.replace("--label workflow", "--label workflow,release:minor") + " --base release", []),
+    ("FocusCat 릴리스 라벨 중복", _OK.replace("--label workflow", "--label workflow,release:minor,release:patch") + " --base release", ["정확히 1개"]),
+    ("일반 PR 릴리스 라벨", _OK.replace("--label workflow", "--label workflow,release:minor"), ["정확히 1개"]),
     ("release 라벨", _OK.replace("--label workflow", "--label release:minor"), ["릴리스 라벨"]),
     ("제목 형식", _OK.replace("[CHORE] GROMO-1885", "[GROMO-1885]"), ["제목 형식"]),
     ("세션 링크", _OK.replace("티켓 455 참고", "https://claude.ai/code/session/abc"), ["세션 링크"]),
