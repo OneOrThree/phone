@@ -325,6 +325,10 @@ describe('신고(SAFE-04)', () => {
     expect(screen.getByText(/섬2섬 홍보 칸을 신고하는 이유/)).toBeTruthy();
     // 유저 신고 창과 같은 사유 8종
     expect(screen.getByLabelText('개인정보·사칭')).toBeTruthy();
+    // 이유는 미리 골라 두지 않는다 — 고르기 전에는 [신고하기]가 꺼져 있다
+    expect(screen.getByTestId('magazine-report-submit').props.accessibilityState.disabled).toBe(
+      true,
+    );
     await fireEvent.press(screen.getByLabelText('스팸·사기'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     await waitFor(() => expect(notify).toHaveBeenCalledWith('신고했어요. 운영팀이 살펴볼게요.'));
@@ -338,6 +342,7 @@ describe('신고(SAFE-04)', () => {
     const notify = jest.fn();
     const { screen } = await open(page(), env({ notify }));
     await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     await waitFor(() =>
       expect(notify).toHaveBeenCalledWith('이미 신고한 칸이에요. 운영팀이 살펴보고 있어요.'),
@@ -377,6 +382,7 @@ describe('신고(SAFE-04)', () => {
     const { screen } = await open(page(), env({ conversion: { offer } }));
     await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
     const sheetDismissed = topModalDismiss(screen);
+    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     // 시트를 먼저 닫고, 다 닫힌 뒤(iOS onDismiss) 회원 전환 시트를 연다
     await waitFor(() => expect(screen.queryByTestId('magazine-report')).toBeNull());
@@ -387,6 +393,7 @@ describe('신고(SAFE-04)', () => {
     report.mockRejectedValueOnce(gate);
     const mock = await open();
     await fireEvent(mock.screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(mock.screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(mock.screen.getByTestId('magazine-report-submit'));
     await waitFor(() =>
       expect(mock.screen.getByTestId('magazine-report-error')).toHaveTextContent(
@@ -414,6 +421,7 @@ describe('신고(SAFE-04)', () => {
     report.mockRejectedValueOnce(new ApiError('FORBIDDEN', '권한 없음', 403));
     const { screen } = await open();
     await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     await waitFor(() =>
       expect(screen.getByTestId('magazine-report-error')).toHaveTextContent(
@@ -426,6 +434,7 @@ describe('신고(SAFE-04)', () => {
     report.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오프라인', 0));
     const { screen } = await open();
     await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     await waitFor(() => expect(screen.getByTestId('magazine-report-error')).toBeTruthy());
     expect(screen.getByTestId('magazine-report')).toBeTruthy();

@@ -66,6 +66,18 @@ const editorResponse = (over: Partial<EditorResponse> = {}): EditorResponse => (
   ...over,
 });
 
+// 이미 낸 다음 호 홍보(고치는 중) — 스티커 두 장(큰 고양이 · 작은 하트)이 있는 칸으로 바로 스티커 단계에서 연다
+const EXISTING: Partial<EditorResponse> = {
+  next: {
+    promotionId: 'p9',
+    issueDate: '2026-10-15',
+    body: '같이 공부해요!',
+    layout: LAYOUT,
+    appliedAt: 'x',
+    editable: true,
+  },
+};
+
 const env = (over: object = {}) => ({
   state: initialState(true),
   back: jest.fn(),
@@ -124,19 +136,29 @@ async function open(over: Partial<EditorResponse> = {}, e = env(), step: EditorS
 }
 
 describe('여닫기', () => {
-  it('지난번에 실은 칸(글·틀·스티커)으로 열리고, [새로 꾸미기]는 빈 칸이다', async () => {
-    const { screen } = await open();
+  it('새로 쓰면 빈 종이 고르기부터 — 지난번 글·스티커를 채워 두지 않고, [새로 꾸미기]도 종이 고르기로', async () => {
+    const { screen } = await open({}, env(), 'frame');
     expect(getEditor).toHaveBeenCalledWith('soda');
-    expect(stickerStyles(screen)).toHaveLength(2);
-    expect(await bodyOf(screen)).toBe('같이 공부해요!');
-    await fireEvent.press(screen.getByTestId('promotion-step-stickers'));
+    expect(screen.getByText('종이를 골라주세요.')).toBeTruthy();
+    // 아무 종이도 골라 두지 않는다
+    expect(
+      screen.getAllByTestId(/^frame-mag\./).some((n: any) => n.props.accessibilityState.selected),
+    ).toBe(false);
+    await fireEvent.press(screen.getByTestId('frame-mag.frame-ticket'));
+    expect(screen.getByTestId('promotion-body').props.value).toBe('');
+    await fireEvent.changeText(screen.getByTestId('promotion-body'), '같이 공부해요!');
+    await fireEvent.press(screen.getByTestId('promotion-next'));
+    expect(stickerStyles(screen)).toHaveLength(0);
+    await fireEvent.press(screen.getByTestId('drawer-mag.cat-black-book'));
     await fireEvent.press(screen.getByTestId('promotion-fresh'));
-    // 새로 꾸미기는 틀 단계부터 — 글·스티커가 비고 스티커 단계는 글을 쓰기 전까지 잠긴다
-    expect(screen.getByTestId('frame-mag.frame-catear')).toBeTruthy();
-    expect(screen.getByTestId('promotion-step-stickers').props.accessibilityState.disabled).toBe(
-      true,
+    expect(screen.getByTestId('promotion-frames')).toBeTruthy();
+    expect(screen.getByTestId('frame-mag.frame-ticket').props.accessibilityState.selected).toBe(
+      false,
     );
-    expect(await bodyOf(screen)).toBe('');
+    await fireEvent.press(screen.getByTestId('frame-mag.frame-ticket'));
+    expect(screen.getByTestId('promotion-body').props.value).toBe('');
+    await fireEvent.changeText(screen.getByTestId('promotion-body'), '다시');
+    await fireEvent.press(screen.getByTestId('promotion-next'));
     expect(stickerStyles(screen)).toHaveLength(0);
   });
 
@@ -232,13 +254,13 @@ describe('작은 화면·큰 글자·고르기', () => {
       StyleSheet.flatten(screen.getByTestId('promotion-actions').props.style).flexDirection;
     const submitHeight = (screen: any) =>
       StyleSheet.flatten(screen.getByTestId('promotion-submit').props.style).height;
-    const normal = await open();
+    const normal = await open(EXISTING);
     expect(actions(normal.screen)).toBe('row');
     expect(submitHeight(normal.screen)).toBeUndefined(); // 고정 52 가 아니라 최소 52 에서 늘어난다
     await normal.screen.unmount();
     mockFontScale = 1.6;
     try {
-      const large = await open();
+      const large = await open(EXISTING);
       expect(actions(large.screen)).toBe('column-reverse');
       // 고른 꾸미기 버튼 줄도 글자에 맞춰 높이가 는다
       await fireEvent(large.screen.getByTestId('canvas-sticker-0'), 'accessibilityAction', {
@@ -253,13 +275,14 @@ describe('작은 화면·큰 글자·고르기', () => {
   });
 
   it('다시 읽어 서버 칸으로 바뀌면 고르기가 풀린다 — 없는 스티커 번호로 그리지 않는다', async () => {
-    const { screen } = await open();
+    // 고치지 않은 채(이미 낸 칸) 저장하다 서버 칸이 바뀐 것을 알게 된다
+    const { screen } = await open(EXISTING);
     await fireEvent(screen.getByTestId('canvas-sticker-1'), 'accessibilityAction', {
       nativeEvent: { actionName: 'activate' },
     });
     expect(screen.getByTestId('op-delete')).toBeTruthy();
-    // 다른 기기에서 먼저 신청 — 다시 읽으면 스티커 1장짜리 서버 칸이 온다
-    apply.mockRejectedValueOnce(new ApiError('PROMOTION_ALREADY_REQUESTED_TODAY', '이미', 409));
+    // 다른 기기에서 그 홍보를 고쳤다 — 다시 읽으면 스티커 1장짜리 서버 칸이 온다
+    update.mockRejectedValueOnce(new ApiError('PROMOTION_NOT_FOUND', '없음', 404));
     const server = { ...LAYOUT, stickers: [LAYOUT.stickers[0]] };
     getEditor.mockResolvedValueOnce(
       editorResponse({
@@ -322,13 +345,13 @@ describe('스티커·테이프·틀·글', () => {
   it('틀을 고르면 칸 틀이 바뀌고, 글은 코드포인트 60자에서 자르고 줄바꿈은 띄어쓰기로', async () => {
     const { screen } = await open({}, env(), 'frame');
     await fireEvent.press(screen.getByTestId('frame-mag.frame-ticket'));
-    // 틀을 고르면 바로 글 단계 — 칸 안 글 자리에 커서가 선다
+    // 종이를 고르면 바로 글 단계 — 칸 안 글 자리에 커서가 선다
     expect(screen.getByTestId('promotion-body').props.autoFocus).toBe(true);
-    await fireEvent.press(screen.getByTestId('promotion-step-frame'));
+    await fireEvent.press(screen.getByTestId('promotion-back'));
     expect(screen.getByTestId('frame-mag.frame-ticket').props.accessibilityState.selected).toBe(
       true,
     );
-    await fireEvent.press(screen.getByTestId('promotion-step-text'));
+    await fireEvent.press(screen.getByTestId('frame-mag.frame-ticket'));
     await fireEvent.changeText(screen.getByTestId('promotion-body'), `🐟${'가'.repeat(70)}`);
     expect(Array.from(screen.getByTestId('promotion-body').props.value)).toHaveLength(60);
     await fireEvent.changeText(screen.getByTestId('promotion-body'), '첫 줄\n둘째 줄');
@@ -339,7 +362,7 @@ describe('스티커·테이프·틀·글', () => {
   });
 
   it('고른 스티커 버튼 줄은 맨 앞으로·지우기만 — 옮기기·크기·돌리기는 손가락과 스크린리더 동작으로', async () => {
-    const { screen } = await open();
+    const { screen } = await open(EXISTING);
     const driver = createTouchDriver(screen.getByTestId('promotion-canvas').props);
     const cellW =
       StyleSheet.flatten(screen.getByTestId('promotion-canvas').props.style).width /
@@ -367,7 +390,7 @@ describe('스티커·테이프·틀·글', () => {
 
 describe('칸 위 손가락', () => {
   async function canvas() {
-    const opened = await open();
+    const opened = await open(EXISTING);
     const box = StyleSheet.flatten(opened.screen.getByTestId('promotion-canvas').props.style);
     const cellW = box.width / (1 + 2 * CANVAS_PAD);
     const at = (x: number, y: number) => ({
@@ -508,7 +531,10 @@ describe('싣기·고치기', () => {
       expect(apply).toHaveBeenCalledTimes(2);
       const [islandId, draft, key] = apply.mock.calls[0];
       expect(islandId).toBe('soda');
-      expect(draft).toEqual({ body: '같이 공부해요!', layout: LAYOUT });
+      expect(draft).toEqual({
+        body: '우리 섬에 놀러 와요',
+        layout: { v: 1, frameId: 'mag.frame-scallop', stickers: [], tape: null },
+      });
       expect(apply.mock.calls[1][2]).toBe(key);
       // 접수 완료: 발도장 + 모달, 버튼은 고치기로(확인창 뒤라 스크린리더에서는 숨은 상태)
       const hidden = { includeHiddenElements: true };
@@ -530,9 +556,6 @@ describe('싣기·고치기', () => {
   it('빈 글이면 스티커 단계로 넘어가지 않고 글 칸 아래에 안내한다', async () => {
     const { screen } = await open({ latest: null }, env(), 'text');
     expect(screen.getByTestId('promotion-next').props.accessibilityState.disabled).toBe(true);
-    expect(screen.getByTestId('promotion-step-stickers').props.accessibilityState.disabled).toBe(
-      true,
-    );
     await fireEvent(screen.getByTestId('promotion-body'), 'submitEditing');
     expect(screen.getByText('한 줄 글을 적어 주세요')).toBeTruthy();
     expect(screen.queryByTestId('promotion-canvas')).toBeNull();
@@ -541,7 +564,7 @@ describe('싣기·고치기', () => {
 
   it('틀 → 글 → 스티커 순서이고, 뒤로가기는 한 단계씩 돌아가 틀 단계에서 회관으로 나간다', async () => {
     const { screen, e } = await open({ latest: null }, env(), 'frame');
-    expect(screen.getByText('어떤 틀로 실을까요?')).toBeTruthy();
+    expect(screen.getByText('종이를 골라주세요.')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('frame-mag.frame-cloud'));
     await fireEvent.changeText(screen.getByTestId('promotion-body'), '같이 집중해요');
     await fireEvent.press(screen.getByTestId('promotion-next'));
@@ -606,7 +629,7 @@ describe('신청 창·잔액·비공개', () => {
     ).toBeGreaterThan(0);
     expect(screen.queryByTestId('sticker-drawer')).toBeNull();
     expect(screen.queryByTestId('promotion-body')).toBeNull();
-    expect(screen.queryByTestId('promotion-step-frame')).toBeNull();
+    expect(screen.queryByTestId('promotion-frames')).toBeNull();
     expect(screen.getByText('다음 호 글')).toBeTruthy();
     expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(true);
   });
@@ -968,7 +991,7 @@ describe('신청 창·잔액·비공개', () => {
       const screen = await render(<PromotionEditor e={env()} />);
       await waitFor(() => expect(screen.getByText('고친 내용 저장')).toBeTruthy());
       // 고치다가 저장하지 않고 자정을 넘긴다
-      await fireEvent.press(screen.getByTestId('promotion-step-text'));
+      await fireEvent.press(screen.getByTestId('promotion-back'));
       await fireEvent.changeText(screen.getByTestId('promotion-body'), '저장 안 한 글');
       await act(async () => {
         jest.advanceTimersByTime(61_000); // 00:00:01
