@@ -92,6 +92,8 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 ### 배포와 롤백
 
+운영 승격 PR은 반드시 **head=`main`, base=`release`**로 만든다. 작업 브랜치의 변경과 충돌 해결은 먼저 main 대상 PR로 통합한다. 과거 squash 승격 때문에 release에만 남은 이력이 있다면, 현재 main의 파일을 유지하면서 release 이력을 연결하는 별도 main 대상 PR을 준비한다. 이 이력 동기화 PR은 **Create a merge commit**으로 병합해야 한다. squash/rebase는 release 부모 이력을 잃으므로 충돌 해결 효과가 없다. main 반영 후 release가 main의 조상인지 확인하고, 기존 main → release PR의 충돌·CI·리뷰를 다시 확인한다. 배포를 위해 작업 브랜치를 release로 직접 병합하지 않는다.
+
 GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release`, `release_id`는 발행된 `catus-vX.Y.Z` 또는 `<소스 SHA>-<실행 ID>-<시도 번호>`를 지정한다. `operation`은 최초 준비 `bootstrap`, 일반 배포 `deploy`, 호환되는 기존 릴리스 복구 `rollback` 중 하나다. `catus-production` 승인 후 고정 SSM 문서 `catus-prod-deploy`를 호출하고 최종 결과를 기다린다. 발행 성공만으로 자동 배포되지는 않는다. 롤백은 해당 Infra 실행 구성의 호환 조건을 확인한 릴리스만 선택하며, DB 변경을 자동으로 되돌리는 절차로 취급하지 않는다.
 
 Infra PR #11의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD의 `catus-deploy.py`는 자격·릴리스 메타데이터·사전 명령 조회를 검증한 뒤 `catus-ssm-send-intent` Actions 산출물을 보관하고 명령을 전송한다. 이 준비 단계에서 실패하면 전송 의도가 없으므로 재실행에서 새 명령을 보낼 수 있다. 전송 의도가 있으면 요청이 같은지 검증하고 `catus:<저장소 ID>:<Actions 실행 ID>` Comment로 기존 명령의 결과 대기만 재개한다. AWS CLI의 자동 재전송은 끈다. 전송 응답 유실이나 전송 의도 기록 직후 중단으로 기존 명령이 확인되지 않으면 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 사전·결과 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다.
