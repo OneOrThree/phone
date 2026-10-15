@@ -1,4 +1,4 @@
-// 회관 홍보 기록판(GROMO-2289 · AD-11) — 날짜·호 · 상태 칩 · 칸 썸네일(꾸미기가 올 때만) · 넣음·도착·가입 숫자 · 상태 안내 ·
+// 회관 홍보 기록판(GROMO-2289 · AD-11) — 날짜·호 · 상태 칩 · 칸 썸네일(꾸미기가 올 때만) · 상태 안내(넣음·도착·가입 숫자는 없다) ·
 // 불러오는 중 · 빈 기록 · 실패와 다시 시도 · 주민이 아니게 됨. 서버 API(magazine.ts)는 목이다.
 import React from 'react';
 import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
@@ -33,22 +33,23 @@ const env = () => ({ state: initialState(true), back: jest.fn(), go: jest.fn() }
 
 beforeEach(() => jest.clearAllMocks());
 
-test('줄마다 날짜·호 · 상태 칩 · 글 · 숫자 — 한 줄이 스크린리더 요소 하나', async () => {
+test('줄마다 날짜·호 · 상태 칩 · 글 — 숫자 줄·설명 줄 없이, 한 줄이 스크린리더 요소 하나', async () => {
   getRecords.mockResolvedValueOnce([record()]);
   const e = env();
   const screen = await render(<PromotionRecords e={e} />);
   await screen.findByText('10월 15일 · 20호');
   expect(getRecords).toHaveBeenCalledWith(currentIsland(e.state).id);
   expect(screen.getByText('실림')).toBeTruthy();
-  expect(screen.getByText('넣음 12 · 도착 4 · 가입 1')).toBeTruthy();
+  // 숫자 줄도, 그 숫자를 설명하던 맨 위 줄(「…가입한 사람을 …세요」)도 없다
+  expect(screen.queryByText(/넣음|도착|가입/)).toBeNull();
   expect(screen.getByTestId('promotion-record-p1').props.accessibilityLabel).toBe(
-    '10월 15일 · 20호, 실림, ‘같이 아침 공부해요’, 망원경에 넣음 12명, 도착 4명, 가입 1명',
+    '10월 15일 · 20호, 실림, ‘같이 아침 공부해요’',
   );
   // 꾸미기가 어긋나 읽지 못했으면(layout null) 칸 썸네일 없이 글만
   expect(screen.queryByTestId('promotion-record-cell-p1')).toBeNull();
 });
 
-test('발행 전·안 실림은 셀 사람이 없어 숫자 없이 안내만 · 숨김·내려감도 안내', async () => {
+test('발행 전·안 실림·숨김·내려감은 상태 안내 한 줄', async () => {
   getRecords.mockResolvedValueOnce([
     record({ promotionId: 'a', issueNo: null, issueDate: '2026-10-16', status: 'SCHEDULED' }),
     record({ promotionId: 'b', status: 'SKIPPED', issueNo: null, pinned: 0 }),
@@ -61,11 +62,9 @@ test('발행 전·안 실림은 셀 사람이 없어 숫자 없이 안내만 · 
   expect(screen.getByText('안 실림')).toBeTruthy();
   expect(screen.getByText('신고가 쌓여 숨겨졌어요. 운영팀이 확인하고 있어요.')).toBeTruthy();
   expect(screen.getByText('운영 정책에 맞지 않아 내려졌어요.')).toBeTruthy();
-  // 숫자는 숨김(3)·내려감(12)에만
-  expect(screen.getAllByText(/^넣음 /).map((n) => n.props.children)).toEqual([
-    '넣음 3 · 도착 0 · 가입 0',
-    '넣음 12 · 도착 4 · 가입 1',
-  ]);
+  expect(screen.getByTestId('promotion-record-c').props.accessibilityLabel).toBe(
+    '10월 15일 · 20호, 숨김, ‘같이 아침 공부해요’, 신고가 쌓여 숨겨졌어요. 운영팀이 확인하고 있어요.',
+  );
   expect(screen.getByTestId('promotion-record-b').props.accessibilityLabel).toBe(
     '10월 15일 호, 안 실림, ‘같이 아침 공부해요’, 섬이 비공개·닫힘이었거나 발행이 안 돼 이 호에는 실리지 않았어요.',
   );

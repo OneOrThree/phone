@@ -952,7 +952,6 @@
     "records": {
       "entry": "Our island ad log",
       "title": "Our island ad log",
-      "sub": "Counts people who saw the magazine and added us to their telescope, sailed here, or joined — from 7 AM on the issue day to 7 AM the next day.",
       "loading": "Loading the log",
       "loadFailed": "Couldn’t load the ad log.",
       "forbidden": "Only residents of this island can see it.",
@@ -972,8 +971,6 @@
         "HIDDEN": "Hidden after several reports. Our team is reviewing it.",
         "REMOVED": "Removed for breaking our policy."
       },
-      "counts": "Added {{pinned}} · Arrived {{arrived}} · Joined {{joined}}",
-      "countsA11y": "Added to telescope {{pinned}}, arrived {{arrived}}, joined {{joined}}",
       "rowA11y": "{{issue}}, {{status}}, ‘{{body}}’"
     }
   }

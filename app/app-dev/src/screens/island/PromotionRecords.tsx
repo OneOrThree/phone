@@ -16,8 +16,7 @@ const P = componentTokens.promotionRecords;
 
 /**
  * 우리 섬 홍보 기록판(GROMO-2289 · AD-11) — 회관 「섬 관리」에서 주민만 들어온다(방문자는 입구가 없고 라우트도 주민 전용).
- * 지난 홍보를 최신순으로: 날짜·호, 상태 칩, 칸 썸네일(섬장이 꾸민 칸 + 지금 섬 정보), 글, 잡지를 보고 넣음·도착·가입한 사람 수.
- * 숫자는 서버가 읽을 때마다 센다. 발행 전·안 실림 홍보는 셀 사람이 없어 숫자를 그리지 않는다.
+ * 지난 홍보를 최신순으로: 날짜·호, 상태 칩, 칸 썸네일(섬장이 꾸민 칸 + 지금 섬 정보), 글, 상태 안내.
  * 줄 하나 = 스크린리더 요소 하나.
  */
 export function PromotionRecords({ e }: { e: any }) {
@@ -64,14 +63,8 @@ export function PromotionRecords({ e }: { e: any }) {
         ? t('magazine.records.issueUnpublished', { date })
         : t('magazine.records.issue', { date, no: rec.issueNo });
     const status = t(`magazine.records.status.${rec.status}`);
-    const counted = rec.status !== 'SCHEDULED' && rec.status !== 'SKIPPED';
     const note = rec.status === 'PUBLISHED' ? '' : t(`magazine.records.note.${rec.status}`);
-    const counts = { pinned: rec.pinned, arrived: rec.arrived, joined: rec.joined };
-    const label = [
-      t('magazine.records.rowA11y', { issue, status, body: rec.body }),
-      counted && t('magazine.records.countsA11y', counts),
-      note,
-    ]
+    const label = [t('magazine.records.rowA11y', { issue, status, body: rec.body }), note]
       .filter(Boolean)
       .join(', ');
     return (
@@ -111,11 +104,6 @@ export function PromotionRecords({ e }: { e: any }) {
             )}
             <View style={{ flex: largeText ? undefined : 1, gap: primitiveTokens.space[1] }}>
               <Txt>‘{rec.body}’</Txt>
-              {counted && (
-                <Txt kind="meta" style={{ color: semanticTokens.color.text }}>
-                  {t('magazine.records.counts', counts)}
-                </Txt>
-              )}
               {!!note && <Txt kind="meta">{note}</Txt>}
             </View>
           </View>
@@ -126,7 +114,6 @@ export function PromotionRecords({ e }: { e: any }) {
 
   return (
     <Page title={t('magazine.records.title')} back={e.back}>
-      <Txt kind="meta">{t('magazine.records.sub')}</Txt>
       {problem
         ? center(
             <>
