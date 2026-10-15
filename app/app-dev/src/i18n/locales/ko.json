@@ -782,7 +782,6 @@
     },
     "reader": {
       "title": "냐옹",
-      "date": "{{m}}월 {{d}}일",
       "cover": "{{date}} · {{no}}호",
       "coverA11y": "고양이 잡지 {{no}}호, {{date}}",
       "close": "잡지 닫기",
@@ -939,6 +938,9 @@
         "PRIVACY_IMPERSONATION": "개인정보·사칭",
         "OTHER": "기타"
       }
+    },
+    "ledger": {
+      "promotionFee": "잡지 홍보"
     }
   }
 }

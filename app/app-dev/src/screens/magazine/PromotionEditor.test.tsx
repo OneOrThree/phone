@@ -5,6 +5,7 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import * as api from '@/services/api/magazine';
 import type { PromotionEditor as EditorResponse } from '@/services/api/magazine';
@@ -912,5 +913,54 @@ describe('신청 창·잔액·비공개', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('en 로케일', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+  // 섬 이름은 사용자 데이터 — 영문 이름의 섬으로 본다
+  const enEnv = () => {
+    const state = initialState(true);
+    state.islands.forEach((island, i) => (island.name = `Isle${i}`));
+    return env({ state });
+  };
+  const noHangul = (screen: any) => {
+    expect(screen.queryByText(/[가-힣]/)).toBeNull();
+    expect(screen.queryByLabelText(/[가-힣]/)).toBeNull();
+    expect(screen.queryByPlaceholderText(/[가-힣]/)).toBeNull();
+  };
+
+  test('en — 종이 고르기 → 글 → 스티커 → 싣기 확인창까지 한글이 없다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const { screen } = await open({}, enEnv(), 'frame');
+    expect(screen.getByText('Pick a paper.')).toBeTruthy();
+    noHangul(screen);
+    await fireEvent.press(screen.getByTestId('frame-mag.frame-ticket'));
+    noHangul(screen);
+    await fireEvent.changeText(screen.getByTestId('promotion-body'), 'Come focus with us');
+    await fireEvent.press(screen.getByTestId('promotion-next'));
+    await fireEvent.press(screen.getByTestId('drawer-mag.cat-black-book'));
+    noHangul(screen);
+    await fireEvent.press(screen.getByTestId('promotion-submit'));
+    expect(screen.getByText('Put it in the magazine as is?')).toBeTruthy();
+    noHangul(screen);
+  });
+
+  test('en — 올린 홍보 고치기 확인창에도 한글이 없다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    getEditor.mockResolvedValue(
+      editorResponse({
+        next: { ...EXISTING.next!, body: 'Come focus with us' },
+      }),
+    );
+    const screen = await render(<PromotionEditor e={enEnv()} />);
+    await waitFor(() => expect(screen.getByText('Edit your posted promotion?')).toBeTruthy());
+    noHangul(screen);
   });
 });

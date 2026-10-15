@@ -761,7 +761,7 @@ export function Hall({ e }: any) {
       construction_debit: '건설 사용',
       shop_purchase: '공동 구매',
       golden_fish: '황금 물고기',
-      promotion_fee: '잡지 홍보',
+      promotion_fee: t('magazine.ledger.promotionFee'),
     };
     const shown = ledger.tab === 'balance' ? ledger.items.slice(0, 2) : ledger.items;
     const bookmark = (label: keyof typeof TAB_KEY, n: number) => {

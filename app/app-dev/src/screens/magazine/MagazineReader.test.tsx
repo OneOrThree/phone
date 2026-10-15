@@ -3,6 +3,7 @@
 // 서버 API(magazine.ts)는 목이다.
 import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import * as api from '@/services/api/magazine';
 import type { MagazineCell, MagazineIssuePage } from '@/services/api/magazine';
@@ -448,4 +449,45 @@ test('magazinePages — 커서가 남아 있으면 빈 장·끝 장을 아직 �
     'empty',
     'end',
   ]);
+});
+
+describe('en 로케일', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  // 섬 이름·홍보 글은 사용자 데이터라 번역하지 않는다 — 전수 한글 검사가 이름을 걸러내지 않게 영문 픽스처로 본다
+  test('en — 표지·편집부·칸·신고 창에 한글이 없고 날짜는 영문 형식이다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const layout = { v: 1 as const, frameId: 'mag.frame-scallop', stickers: [], tape: null };
+    const { screen } = await open(
+      page({
+        editorial: {
+          ranking: [
+            { ...island('Whale'), rank: 1 },
+            { ...island('Soda', 'MEMBER'), rank: 2 },
+            { ...island('Pebble'), rank: 3 },
+          ],
+          newIslands: [island('Moon')],
+          note: { type: 'TIP', body: null, tipNo: 0 },
+        },
+        cells: [
+          { ...island('Soda', 'MEMBER'), promotionId: 'p1', body: 'Come focus with us', layout },
+          { ...island('Wave'), promotionId: 'p2', body: 'Study together at night', layout },
+        ],
+      }),
+    );
+    expect(screen.getByText('October 14 · No. 19')).toBeTruthy();
+    const noHangul = () => {
+      expect(screen.queryByText(/[가-힣]/)).toBeNull();
+      expect(screen.queryByLabelText(/[가-힣]/)).toBeNull();
+    };
+    noHangul();
+    await fireEvent(screen.getByLabelText(/^Wave Island,/), 'longPress');
+    expect(screen.getByText('Report this ad')).toBeTruthy();
+    noHangul();
+  });
 });

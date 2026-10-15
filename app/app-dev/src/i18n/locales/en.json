@@ -809,7 +809,6 @@
     },
     "reader": {
       "title": "Nyaong",
-      "date": "{{m}}/{{d}}",
       "cover": "{{date}} · No. {{no}}",
       "coverA11y": "Cat Magazine No. {{no}}, {{date}}",
       "close": "Close magazine",
@@ -966,6 +965,9 @@
         "PRIVACY_IMPERSONATION": "Privacy · impersonation",
         "OTHER": "Other"
       }
+    },
+    "ledger": {
+      "promotionFee": "Magazine promotion"
     }
   }
 }

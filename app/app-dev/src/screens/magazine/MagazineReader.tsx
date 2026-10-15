@@ -23,7 +23,7 @@ import type {
   MagazineIssue,
 } from '@/services/api/magazine';
 import { t } from '@/i18n';
-import { formatDuration } from '@/i18n/format';
+import { formatDate, formatDuration } from '@/i18n/format';
 import { T, useGowun } from '@/screens/island/sceneKit';
 import { ISLAND_STAGE_ART, MAGAZINE_UI, islandStage } from '@/constants/magazineAssets';
 import { useAppLayout } from '@/utils/layout';
@@ -83,10 +83,10 @@ export function readerGeometry(L: {
   return { W, H, innerW, innerH, cellW, cellPad, navTop, contentBottom };
 }
 
-/** 「2026-10-14」 → 「10월 14일」 */
+/** 「2026-10-14」 → ko 「10월 14일」 · en 「October 14」 — 날짜는 언어별 형식(formatDate)으로 */
 export const issueDateText = (date: string) => {
-  const [, m, d] = date.split('-').map(Number);
-  return t('magazine.reader.date', { m, d });
+  const [y, m, d] = date.split('-').map(Number);
+  return formatDate(new Date(y, m - 1, d), { month: 'long', day: 'numeric' });
 };
 
 /**
