@@ -123,6 +123,7 @@ class VersionBadgeTests(unittest.TestCase):
                     sha = args[-1].split('/')[-2]
                     seen.append(sha)
                     return json.dumps([[{'merged_at': '2026-01-01', 'base': {'ref': 'release'},
+                        'head': {'ref': 'main', 'sha': sha},
                         'merge_commit_sha': sha, 'labels': [{'name': bump if sha == failed else 'release:patch'}]}]])
                 with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
                      patch.object(version.subprocess, 'check_output', side_effect=output):
@@ -130,6 +131,82 @@ class VersionBadgeTests(unittest.TestCase):
                     self.assertEqual(version.next_version(['catus-v2.0.0'], labels), expected)
                     self.assertEqual(set(seen), {failed, current})
                     self.assertEqual(version.release_labels(current, failed), ['release:patch'])
+
+    def test_최초_main승격은_과거Gromo라벨을_제외하고_Catus라벨만_반영한다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def git(*args, input=None):
+                return subprocess.check_output(['git', *args], cwd=directory, input=input,
+                                               text=True, stderr=subprocess.PIPE).strip()
+            git('init', '-q')
+            git('config', 'user.name', 'Test')
+            git('config', 'user.email', 'test@example.com')
+            git('checkout', '-qb', 'main')
+            git('commit', '--allow-empty', '-qm', '공통 기준')
+            git('checkout', '-qb', 'release')
+            git('commit', '--allow-empty', '-qm', '과거 Gromo minor 승격')
+            legacy = git('rev-parse', 'HEAD')
+            legacy_source = git('rev-parse', legacy + '^')
+            git('checkout', 'main')
+            git('commit', '--allow-empty', '-qm', 'Catus 준비 기준')
+            boundary = git('rev-parse', 'HEAD')
+            # 수동 전환의 PR 검증 SHA는 squash 후 main의 조상이 아닐 수 있다.
+            feature = git('commit-tree', 'HEAD^{tree}', '-p', boundary, input='검증 소스\n')
+            manual = git('commit-tree', 'HEAD^{tree}', '-p', boundary, '-p', feature, input='PR 검증 병합\n')
+            git('commit', '--allow-empty', '-qm', 'main Catus 소스 통합')
+            git('merge', '-s', 'ours', 'release', '-m', 'main에 release 이력 연결')
+            source = git('rev-parse', 'HEAD')
+            git('checkout', 'release')
+            git('merge', '--no-ff', 'main', '-m', 'main에서 Catus release 승격')
+            current = git('rev-parse', 'HEAD')
+            original = subprocess.check_output
+            for base in [boundary, manual]:
+                for bump, expected in [('release:patch', 'catus-v2.0.1'),
+                                       ('release:minor', 'catus-v2.1.0'), ('release:major', 'catus-v3.0.0')]:
+                    seen = []
+                    def output(args, **kwargs):
+                        if args[0] != 'gh':
+                            return original(args, cwd=directory, **kwargs)
+                        sha = args[-1].split('/')[-2]
+                        seen.append(sha)
+                        return json.dumps([[{'merged_at': '2026-01-01', 'base': {'ref': 'release'},
+                            'head': {'ref': 'main', 'sha': source},
+                            'merge_commit_sha': sha,
+                            'labels': [{'name': 'release:minor' if sha == legacy else bump}]}]])
+                    with self.subTest(base=base, bump=bump), \
+                         patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+                         patch.object(version.subprocess, 'check_output', side_effect=output):
+                        labels = version.release_labels(current, base)
+                        self.assertEqual(version.next_version(['catus-v2.0.0'], labels), expected)
+                        self.assertNotIn(legacy, seen)
+                        self.assertIn(current, seen)
+            git('checkout', '-qb', 'squashed-release', legacy)
+            git('merge', '--squash', 'main')
+            git('commit', '--allow-empty', '-qm', '잘못된 squash 승격')
+            squashed = git('rev-parse', 'HEAD')
+            def squashed_output(args, **kwargs):
+                if args[0] != 'gh':
+                    return original(args, cwd=directory, **kwargs)
+                sha = args[-1].split('/')[-2]
+                return json.dumps([[{'merged_at': '2026-01-01', 'base': {'ref': 'release'},
+                    'head': {'ref': 'main', 'sha': legacy_source if sha == legacy else source},
+                    'merge_commit_sha': sha,
+                    'labels': [{'name': 'release:minor' if sha == legacy else 'release:patch'}]}]])
+            for base in [boundary, manual]:
+                with self.subTest(squashed=True, base=base), \
+                     patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+                     patch.object(version.subprocess, 'check_output', side_effect=squashed_output), \
+                     self.assertRaisesRegex(ValueError, 'main.*merge commit'):
+                    version.release_labels(squashed, base)
+            def wrong_branch_output(args, **kwargs):
+                if args[0] != 'gh':
+                    return original(args, cwd=directory, **kwargs)
+                return json.dumps([[{'merged_at': '2026-01-01', 'base': {'ref': 'release'},
+                    'head': {'ref': 'chore/work', 'sha': source}, 'merge_commit_sha': current,
+                    'labels': [{'name': 'release:patch'}]}]])
+            with patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+                 patch.object(version.subprocess, 'check_output', side_effect=wrong_branch_output), \
+                 self.assertRaisesRegex(ValueError, '소스 브랜치는 main'):
+                version.release_labels(current, boundary)
 
     def test_고정버전은_최신버전보다_커야하며_동일실행_예약만_복구한다(self):
         previous = {'version': 'catus-v2.0.0'}
