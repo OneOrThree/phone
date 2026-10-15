@@ -249,25 +249,11 @@ describe('작은 화면·큰 글자·고르기', () => {
       expect(StyleSheet.flatten(screen.getByLabelText(tab).props.style).minHeight).toBe(44);
   });
 
-  it('종이 아래 [완료]는 문구가 감기면 높이가 늘고, 큰 글자에서는 고른 꾸미기 버튼 줄도 늘어난다', async () => {
-    const submitHeight = (screen: any) =>
-      StyleSheet.flatten(screen.getByTestId('promotion-submit').props.style).height;
-    const normal = await open(EXISTING);
-    expect(submitHeight(normal.screen)).toBeUndefined(); // 고정 52 가 아니라 최소 52 에서 늘어난다
-    await normal.screen.unmount();
-    mockFontScale = 1.6;
-    try {
-      const large = await open(EXISTING);
-      // 고른 꾸미기 버튼 줄도 글자에 맞춰 높이가 는다
-      await fireEvent(large.screen.getByTestId('canvas-sticker-0'), 'accessibilityAction', {
-        nativeEvent: { actionName: 'activate' },
-      });
-      expect(
-        StyleSheet.flatten(large.screen.getByTestId('op-front').props.style).height,
-      ).toBeUndefined();
-    } finally {
-      mockFontScale = 1;
-    }
+  it('종이 아래 [완료]는 문구가 감기면 높이가 는다(고정 52 가 아니라 최소 52)', async () => {
+    const { screen } = await open(EXISTING);
+    expect(
+      StyleSheet.flatten(screen.getByTestId('promotion-submit').props.style).height,
+    ).toBeUndefined();
   });
 
   it('다시 읽어 서버 칸으로 바뀌면 고르기가 풀린다 — 없는 스티커 번호로 그리지 않는다', async () => {
@@ -276,7 +262,7 @@ describe('작은 화면·큰 글자·고르기', () => {
     await fireEvent(screen.getByTestId('canvas-sticker-1'), 'accessibilityAction', {
       nativeEvent: { actionName: 'activate' },
     });
-    expect(screen.getByTestId('op-delete')).toBeTruthy();
+    expect(screen.getByTestId('promotion-delete')).toBeTruthy();
     // 다른 기기에서 그 홍보를 고쳤다 — 다시 읽으면 스티커 1장짜리 서버 칸이 온다
     update.mockRejectedValueOnce(new ApiError('PROMOTION_NOT_FOUND', '없음', 404));
     const server = { ...LAYOUT, stickers: [LAYOUT.stickers[0]] };
@@ -295,7 +281,7 @@ describe('작은 화면·큰 글자·고르기', () => {
     await submit(screen);
     await waitFor(() => expect(screen.getByText('다른 기기 글')).toBeTruthy());
     expect(stickerStyles(screen)).toHaveLength(1);
-    expect(screen.queryByTestId('op-delete')).toBeNull();
+    expect(screen.queryByTestId('promotion-delete')).toBeNull();
   });
 });
 
@@ -323,7 +309,7 @@ describe('스티커·테이프·틀·글', () => {
     expect(screen.getByTestId('drawer-mag.tape-mint').props.accessibilityState.selected).toBe(true);
   });
 
-  it('테이프에는 크기·맨 앞으로가 없다 — 버튼 줄(지우기만)과 스크린리더 동작 모두 실제로 되는 것만', async () => {
+  it('테이프에는 크기·맨 앞으로가 없다 — 스크린리더 동작은 실제로 되는 것만, 지우기는 ✕', async () => {
     const { screen } = await open({ latest: null });
     await fireEvent.press(screen.getByText('꾸미기'));
     await fireEvent.press(screen.getByTestId('drawer-mag.tape-pink'));
@@ -334,8 +320,9 @@ describe('스티커·테이프·틀·글', () => {
     );
     expect(names.filter((n: string) => ['bigger', 'smaller', 'front'].includes(n))).toEqual([]);
     await fireEvent(tape, 'accessibilityAction', { nativeEvent: { actionName: 'activate' } });
-    expect(screen.getByTestId('op-delete')).toBeTruthy();
-    expect(screen.queryByTestId('op-front')).toBeNull();
+    // 고른 테이프도 점선 상자 왼쪽 위 ✕로 지운다
+    await fireEvent.press(screen.getByTestId('promotion-delete'));
+    expect(screen.queryByTestId('canvas-tape')).toBeNull();
   });
 
   it('틀을 고르면 칸 틀이 바뀌고, 글은 코드포인트 60자에서 자르고 줄바꿈은 띄어쓰기로', async () => {
@@ -357,7 +344,7 @@ describe('스티커·테이프·틀·글', () => {
     expect(screen.getByTestId('promotion-body').props.value).toBe('탭 글 끝 !');
   });
 
-  it('고른 스티커 버튼 줄은 맨 앞으로·지우기만 — 옮기기·크기·돌리기는 손가락과 스크린리더 동작으로', async () => {
+  it('스티커를 누르면 맨 앞으로 오고, 버튼 줄 없이 점선 상자 왼쪽 위 ✕로 지운다', async () => {
     const { screen } = await open(EXISTING);
     const driver = createTouchDriver(screen.getByTestId('promotion-canvas').props);
     const cellW =
@@ -367,20 +354,19 @@ describe('스티커·테이프·틀·글', () => {
       x: (CANVAS_PAD + x) * cellW,
       y: (CANVAS_PAD + y) * cellW * CELL_ASPECT,
     });
+    // 큰 고양이(0번)를 누르면 배열 끝(맨 위에 그려짐)으로 간다
+    const picked = stickerStyles(screen)[0].width;
     await act(async () => {
       driver.down(at(0.5, 0.5));
       driver.up();
     });
-    expect(screen.queryAllByTestId(/^op-(left|up|down|right|smaller|bigger|rotate)/)).toEqual([]);
-    expect(screen.getByTestId('op-front').props.accessibilityLabel).toMatch(/^맨 앞으로: /);
-    // 맨 앞으로 = 배열 끝(맨 위에 그려짐) — 고른 것은 큰 스티커(0번)
-    const picked = stickerStyles(screen)[0].width;
-    await fireEvent.press(screen.getByTestId('op-front'));
     expect(stickerStyles(screen)[1].width).toBe(picked);
     expect(stickerStyles(screen)[0].width).toBeLessThan(picked);
-    await fireEvent.press(screen.getByTestId('op-delete'));
+    expect(screen.queryAllByTestId(/^op-/)).toEqual([]);
+    expect(screen.getByTestId('promotion-delete').props.accessibilityLabel).toMatch(/^지우기: /);
+    await fireEvent.press(screen.getByTestId('promotion-delete'));
     expect(stickerStyles(screen)).toHaveLength(1);
-    expect(screen.queryByTestId('op-delete')).toBeNull();
+    expect(screen.queryByTestId('promotion-delete')).toBeNull();
   });
 });
 
@@ -401,7 +387,7 @@ describe('칸 위 손가락', () => {
     const { screen, at, cellW, driver } = await canvas();
     const before = centerOf(stickerStyles(screen)[0]);
     await act(async () => driver().drag(at(0.5, 0.5), at(0.3, 0.35)));
-    const after = centerOf(stickerStyles(screen)[0]);
+    const after = centerOf(stickerStyles(screen).at(-1)); // 누른 스티커는 맨 앞(배열 끝)으로
     expect(after.x - before.x).toBeCloseTo(-0.2 * cellW, 0);
     expect(after.y - before.y).toBeCloseTo(-0.15 * cellW * CELL_ASPECT, 0);
   });
@@ -417,7 +403,7 @@ describe('칸 위 손가락', () => {
       d.move(at(0.5, 0.35), at(0.5, 0.65)); // 90도 돌림(거리는 그대로 2배 정도)
       d.up();
     });
-    const after = stickerStyles(screen)[0];
+    const after = stickerStyles(screen).at(-1); // 누른 스티커는 맨 앞(배열 끝)으로
     expect(after.width / before.width).toBeGreaterThan(1.5);
     expect(after.transform[0].rotate).toMatch(/^(8\d|9\d)(\.\d+)?deg$/);
   });
@@ -431,9 +417,9 @@ describe('칸 위 손가락', () => {
     });
     const handle = StyleSheet.flatten(screen.getByTestId('promotion-handle').props.style);
     const start = { x: handle.left + 9, y: handle.top + 9 };
-    const before = stickerStyles(screen)[0].width;
+    const before = stickerStyles(screen).at(-1).width; // 누른 스티커는 맨 앞(배열 끝)으로 갔다
     await act(async () => driver().drag(start, { x: start.x + 40, y: start.y + 30 }));
-    expect(stickerStyles(screen)[0].width).toBeGreaterThan(before);
+    expect(stickerStyles(screen).at(-1).width).toBeGreaterThan(before);
   });
 
   it('빈 곳을 톡 누르면 고르기가 풀리고(손잡이 사라짐), 아무것도 옮기지 않는다', async () => {

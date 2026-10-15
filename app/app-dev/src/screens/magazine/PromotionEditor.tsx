@@ -908,7 +908,9 @@ export function PromotionEditor({
           {/* 버튼이 꺼진 이유만 한 줄(잔액 부족 · 비공개 섬 · 자정 지나 잠김) */}
           {readOnly || poor || editor.privateIsland ? (
             <Txt kind="meta" style={{ textAlign: 'center' }}>
-              {`${t('magazine.editor.balance', { fish: formatNumber(editor.balance) })} · ${note}`}
+              {readOnly
+                ? note
+                : `${t('magazine.editor.balance', { fish: formatNumber(editor.balance) })} · ${note}`}
             </Txt>
           ) : null}
         </View>,
