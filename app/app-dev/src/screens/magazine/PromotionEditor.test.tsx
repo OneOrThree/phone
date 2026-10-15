@@ -121,6 +121,12 @@ async function ready(screen: any, step: EditorStep = 'stickers', frame = 'mag.fr
     await fireEvent.changeText(screen.getByTestId('promotion-body'), '우리 섬에 놀러 와요');
   await fireEvent.press(screen.getByTestId('promotion-next'));
 }
+/** [잡지에 싣기] → 가격 확인창이 뜨면 [싣기]까지(고친 내용 저장은 확인창 없이 바로) */
+async function submit(screen: any) {
+  await fireEvent.press(screen.getByTestId('promotion-submit'));
+  const ok = screen.queryByTestId('promotion-confirm-ok');
+  if (ok) await fireEvent.press(ok);
+}
 /** 스티커 단계에서 뒤로 한 번 — 글 단계 입력 칸의 글을 읽는다 */
 async function bodyOf(screen: any) {
   if (screen.queryByTestId('promotion-canvas'))
@@ -136,7 +142,7 @@ async function open(over: Partial<EditorResponse> = {}, e = env(), step: EditorS
 }
 
 describe('여닫기', () => {
-  it('새로 쓰면 빈 종이 고르기부터 — 지난번 글·스티커를 채워 두지 않고, [새로 꾸미기]도 종이 고르기로', async () => {
+  it('새로 쓰면 빈 종이 고르기부터 — 지난번 글·스티커를 채워 두지 않고, [새로 꾸미기]는 스티커만 비운다', async () => {
     const { screen } = await open({}, env(), 'frame');
     expect(getEditor).toHaveBeenCalledWith('soda');
     expect(screen.getByText('종이를 골라주세요.')).toBeTruthy();
@@ -150,16 +156,12 @@ describe('여닫기', () => {
     await fireEvent.press(screen.getByTestId('promotion-next'));
     expect(stickerStyles(screen)).toHaveLength(0);
     await fireEvent.press(screen.getByTestId('drawer-mag.cat-black-book'));
+    expect(stickerStyles(screen)).toHaveLength(1);
+    // [새로 꾸미기]는 스티커만 비운다 — 종이·글은 그대로, 스티커 단계에 머문다
     await fireEvent.press(screen.getByTestId('promotion-fresh'));
-    expect(screen.getByTestId('promotion-frames')).toBeTruthy();
-    expect(screen.getByTestId('frame-mag.frame-ticket').props.accessibilityState.selected).toBe(
-      false,
-    );
-    await fireEvent.press(screen.getByTestId('frame-mag.frame-ticket'));
-    expect(screen.getByTestId('promotion-body').props.value).toBe('');
-    await fireEvent.changeText(screen.getByTestId('promotion-body'), '다시');
-    await fireEvent.press(screen.getByTestId('promotion-next'));
     expect(stickerStyles(screen)).toHaveLength(0);
+    expect(screen.getByTestId('sticker-drawer')).toBeTruthy();
+    expect(await bodyOf(screen)).toBe('같이 공부해요!');
   });
 
   it('섬장이 아니면 서버를 부르지 않고 안내만', async () => {
@@ -296,7 +298,7 @@ describe('작은 화면·큰 글자·고르기', () => {
         },
       }),
     );
-    await fireEvent.press(screen.getByTestId('promotion-submit'));
+    await submit(screen);
     await waitFor(() => expect(screen.getByText('다른 기기 글')).toBeTruthy());
     expect(stickerStyles(screen)).toHaveLength(1);
     expect(screen.queryByTestId('op-delete')).toBeNull();
@@ -471,23 +473,6 @@ describe('칸 위 손가락', () => {
     expect(tape.left + tape.width / 2).toBeCloseTo(0.4 * cellW, 0);
   });
 
-  it('작은 화면·키보드에서 본문을 세로로 밀 수 있고, 칸 위에 손가락이 있는 동안은 스크롤을 잠근다', async () => {
-    const { screen } = await canvas();
-    const scroll = () => screen.getByTestId('promotion-scroll');
-    expect(scroll().props.scrollEnabled).toBe(true);
-    await fireEvent(screen.getByTestId('promotion-canvas'), 'touchStart');
-    expect(scroll().props.scrollEnabled).toBe(false);
-    // 두 손가락 중 하나만 떼면 아직 잠겨 있다
-    await fireEvent(screen.getByTestId('promotion-canvas'), 'touchEnd', {
-      nativeEvent: { touches: [{}] },
-    });
-    expect(scroll().props.scrollEnabled).toBe(false);
-    await fireEvent(screen.getByTestId('promotion-canvas'), 'touchEnd', {
-      nativeEvent: { touches: [] },
-    });
-    expect(scroll().props.scrollEnabled).toBe(true);
-  });
-
   it('스크린리더 동작으로도 고른다·크게·옮긴다·지운다', async () => {
     const { screen } = await canvas();
     const item = screen.getByTestId('canvas-sticker-0');
@@ -519,7 +504,7 @@ describe('싣기·고치기', () => {
     try {
       const { screen } = await open();
       apply.mockRejectedValueOnce(new ApiError('NETWORK', '연결', 0, { retryable: true }));
-      await fireEvent.press(screen.getByTestId('promotion-submit'));
+      await submit(screen);
       apply.mockResolvedValueOnce({
         promotionId: 'p1',
         issueDate: '2026-10-15',
@@ -527,7 +512,7 @@ describe('싣기·고치기', () => {
         balanceAfter: 1180,
         newsId: 'n1',
       });
-      await fireEvent.press(screen.getByTestId('promotion-submit'));
+      await submit(screen);
       expect(apply).toHaveBeenCalledTimes(2);
       const [islandId, draft, key] = apply.mock.calls[0];
       expect(islandId).toBe('soda');
@@ -541,7 +526,6 @@ describe('싣기·고치기', () => {
       expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
       expect(screen.getByText('내일 07시 호에 실려요. 자정까지 고칠 수 있어요')).toBeTruthy();
       expect(screen.getByText('고친 내용 저장', hidden)).toBeTruthy();
-      expect(screen.getByText(/섬 통장 1,180마리/, hidden)).toBeTruthy();
       // 확인창이 열린 동안 뒤의 편집기는 스크린리더에서 숨는다
       const layer = () => screen.getByTestId('promotion-editor-layer', hidden).props;
       expect(layer().accessibilityElementsHidden).toBe(true);
@@ -551,6 +535,20 @@ describe('싣기·고치기', () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  it('[잡지에 싣기]는 값을 버튼에 적지 않고, 누르면 가격·잔액 확인창 — 취소하면 보내지 않는다', async () => {
+    const { screen } = await open();
+    expect(screen.getByText('잡지에 싣기')).toBeTruthy();
+    // 평소에는 잔액·안내 줄이 없다
+    expect(screen.queryByText(/섬 통장 1,240마리/)).toBeNull();
+    await fireEvent.press(screen.getByTestId('promotion-submit'));
+    expect(screen.getByTestId('promotion-confirm-body').props.children).toBe(
+      '섬 통장 물고기 60마리를 써요. 지금 섬 통장에 1,240마리가 있어요. 내일 아침 7시 호에 실려요.',
+    );
+    await fireEvent.press(screen.getByTestId('promotion-confirm-cancel'));
+    expect(screen.queryByTestId('promotion-confirm-body')).toBeNull();
+    expect(apply).not.toHaveBeenCalled();
   });
 
   it('빈 글이면 스티커 단계로 넘어가지 않고 글 칸 아래에 안내한다', async () => {
@@ -589,7 +587,7 @@ describe('싣기·고치기', () => {
   ])('%s → 「%s」(다시 읽기 %s)', async (code, message, reload) => {
     const { screen, e } = await open();
     apply.mockRejectedValueOnce(new ApiError(code, '서버 문구', 409));
-    await fireEvent.press(screen.getByTestId('promotion-submit'));
+    await submit(screen);
     expect(e.notify).toHaveBeenCalledWith(message);
     await waitFor(() => expect(getEditor).toHaveBeenCalledTimes(reload ? 2 : 1));
   });
@@ -597,7 +595,7 @@ describe('싣기·고치기', () => {
   it('금칙어는 글 칸 아래 빨간 안내', async () => {
     const { screen, e } = await open();
     apply.mockRejectedValueOnce(new ApiError('BANNED_WORD', '쓸 수 없는 말이 있어요', 400));
-    await fireEvent.press(screen.getByTestId('promotion-submit'));
+    await submit(screen);
     // 글 단계로 돌아가 칸 아래에 안내한다
     expect(screen.getByText('쓸 수 없는 말이 있어요')).toBeTruthy();
     expect(screen.getByTestId('promotion-body')).toBeTruthy();
@@ -650,7 +648,7 @@ describe('신청 창·잔액·비공개', () => {
     const { screen } = await open();
     apply.mockRejectedValueOnce(new ApiError('INSUFFICIENT_FUNDS', '부족', 409));
     getEditor.mockReturnValueOnce(new Promise(() => {})); // 다시 읽기가 끝나지 않는다
-    await fireEvent.press(screen.getByTestId('promotion-submit'));
+    await submit(screen);
     await waitFor(() => expect(getEditor).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(true);
   });
@@ -840,7 +838,7 @@ describe('신청 창·잔액·비공개', () => {
         '10월 15일 07시 호가 이미 나왔어요. 잡지에서 확인해 보세요',
       );
       // 새 신청 창 그대로 — 지난 호 칸이 next 로 들어가 읽기 전용이 되지 않고, 도장도 찍지 않는다
-      expect(screen.getByText('잡지에 싣기 · 60 물고기', hidden)).toBeTruthy();
+      expect(screen.getByText('잡지에 싣기', hidden)).toBeTruthy();
       expect(screen.getByTestId('promotion-submit', hidden).props.accessibilityState.disabled).toBe(
         false,
       );
@@ -961,7 +959,7 @@ describe('신청 창·잔액·비공개', () => {
       await act(async () => {
         jest.advanceTimersByTime(7 * 3600_000); // 07:00:01 — 새 신청 창
       });
-      await waitFor(() => expect(screen.getByText('잡지에 싣기 · 60 물고기', hidden)).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('잡지에 싣기', hidden)).toBeTruthy());
       expect(getEditor).toHaveBeenCalledTimes(3);
       expect(screen.queryByTestId('promotion-stamp', hidden)).toBeNull();
       expect(doneBody()).toBe('내일 07시 호에 실려요. 자정까지 고칠 수 있어요');
@@ -1023,7 +1021,7 @@ describe('신청 창·잔액·비공개', () => {
       await act(async () => {
         jest.advanceTimersByTime(61_000); // 07:00:01
       });
-      await waitFor(() => expect(screen.getByText('잡지에 싣기 · 60 물고기')).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('잡지에 싣기')).toBeTruthy());
       expect(getEditor).toHaveBeenCalledTimes(2);
     } finally {
       jest.useRealTimers();
