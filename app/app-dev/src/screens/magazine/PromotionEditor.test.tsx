@@ -508,7 +508,7 @@ describe('싣기·고치기', () => {
       expect(apply.mock.calls[1][2]).toBe(key);
       // 실리면 토스트 한 줄과 함께 회관으로 돌아간다(접수 확인창·발도장 없음)
       expect(screen.queryByTestId('promotion-stamp')).toBeNull();
-      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
+      expect(e.notify).toHaveBeenCalledWith('잡지에 신청했어요');
       expect(e.back).toHaveBeenCalledTimes(1);
     } finally {
       now.mockRestore();
@@ -672,14 +672,14 @@ describe('신청 창·잔액·비공개', () => {
       });
       // 늦은 성공 — 이미 잠긴 칸이라도 실린 것은 맞다: 토스트 한 줄과 함께 회관으로
       expect(screen.queryByTestId('sticker-drawer')).toBeNull();
-      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
+      expect(e.notify).toHaveBeenCalledWith('잡지에 신청했어요');
       expect(e.back).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('응답 유실 뒤 자정을 넘겨 같은 키로 다시 보내 성공을 받으면 실린 것으로 알리고 회관으로', async () => {
+  it('응답 유실 뒤 자정을 넘겨 같은 키로 다시 보내 성공을 받으면 신청된 것으로 알리고 회관으로', async () => {
     // 앱이 뒤에 있어 자정 다시 읽기가 돌지 않은 채(타이머는 그대로) 시계만 자정을 넘긴 경우
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:30Z') }); // KST 23:59:30
     try {
@@ -706,14 +706,14 @@ describe('신청 창·잔액·비공개', () => {
       });
       expect(apply).toHaveBeenCalledTimes(2);
       expect(apply.mock.calls[1][2]).toBe(apply.mock.calls[0][2]);
-      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
+      expect(e.notify).toHaveBeenCalledWith('잡지에 신청했어요');
       expect(e.back).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('23:59 에 보낸 신청의 응답이 다시 읽기 없이 00:05 에 와도 실린 것으로 알리고 회관으로', async () => {
+  it('23:59 에 보낸 신청의 응답이 다시 읽기 없이 00:05 에 와도 신청된 것으로 알리고 회관으로', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:00Z') }); // KST 23:59
     try {
       let succeed: (v: unknown) => void = () => {};
@@ -736,7 +736,7 @@ describe('신청 창·잔액·비공개', () => {
           newsId: 'n',
         });
       });
-      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
+      expect(e.notify).toHaveBeenCalledWith('잡지에 신청했어요');
       expect(e.back).toHaveBeenCalledTimes(1);
       expect(getEditor).toHaveBeenCalledTimes(1);
     } finally {
@@ -744,7 +744,7 @@ describe('신청 창·잔액·비공개', () => {
     }
   });
 
-  it('06:59 에 다시 보낸 지난 호 신청의 성공이 07시 다시 읽기 뒤(07:05)에 와도 실린 것으로 알리고 회관으로', async () => {
+  it('06:59 에 다시 보낸 지난 호 신청의 성공이 07시 다시 읽기 뒤(07:05)에 와도 신청된 것으로 알리고 회관으로', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:30Z') }); // KST 23:59:30
     try {
       const published = {
@@ -798,7 +798,7 @@ describe('신청 창·잔액·비공개', () => {
           newsId: 'n',
         });
       });
-      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
+      expect(e.notify).toHaveBeenCalledWith('잡지에 신청했어요');
       expect(e.back).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
