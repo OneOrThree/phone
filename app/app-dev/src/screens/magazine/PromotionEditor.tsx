@@ -979,7 +979,6 @@ export function PromotionEditor({
           {
             paddingHorizontal: page,
             paddingTop: semanticTokens.spacing.control,
-            backgroundColor: semanticTokens.color.surface,
           },
         ]}
       >
