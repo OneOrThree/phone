@@ -210,7 +210,7 @@ describe('작은 화면·큰 글자·고르기', () => {
         nativeEvent: { actionName: 'activate' },
       });
       expect(
-        StyleSheet.flatten(large.screen.getByTestId('op-bigger').props.style).height,
+        StyleSheet.flatten(large.screen.getByTestId('op-front').props.style).height,
       ).toBeUndefined();
     } finally {
       mockFontScale = 1;
@@ -270,7 +270,7 @@ describe('스티커·테이프·틀·글', () => {
     expect(screen.getByTestId('drawer-mag.tape-mint').props.accessibilityState.selected).toBe(true);
   });
 
-  it('테이프에는 크기·맨 앞으로가 없다 — 버튼 줄과 스크린리더 동작 모두 실제로 되는 것만', async () => {
+  it('테이프에는 크기·맨 앞으로가 없다 — 버튼 줄(지우기만)과 스크린리더 동작 모두 실제로 되는 것만', async () => {
     const { screen } = await open({ latest: null });
     await fireEvent.press(screen.getByText('꾸미기'));
     await fireEvent.press(screen.getByTestId('drawer-mag.tape-pink'));
@@ -281,8 +281,7 @@ describe('스티커·테이프·틀·글', () => {
     );
     expect(names.filter((n: string) => ['bigger', 'smaller', 'front'].includes(n))).toEqual([]);
     await fireEvent(tape, 'accessibilityAction', { nativeEvent: { actionName: 'activate' } });
-    expect(screen.getByTestId('op-rotateLeft')).toBeTruthy();
-    expect(screen.queryByTestId('op-bigger')).toBeNull();
+    expect(screen.getByTestId('op-delete')).toBeTruthy();
     expect(screen.queryByTestId('op-front')).toBeNull();
   });
 
@@ -301,7 +300,7 @@ describe('스티커·테이프·틀·글', () => {
     expect(screen.getByTestId('promotion-body').props.value).toBe('탭 글 끝 !');
   });
 
-  it('고른 스티커를 버튼으로 크게·맨 앞으로·지우기', async () => {
+  it('고른 스티커 버튼 줄은 맨 앞으로·지우기만 — 옮기기·크기·돌리기는 손가락과 스크린리더 동작으로', async () => {
     const { screen } = await open();
     const driver = createTouchDriver(screen.getByTestId('promotion-canvas').props);
     const cellW =
@@ -315,21 +314,13 @@ describe('스티커·테이프·틀·글', () => {
       driver.down(at(0.5, 0.5));
       driver.up();
     });
-    // 옮기기도 버튼으로 — 끌 수 없어도 위치를 바꾼다
-    const left = stickerStyles(screen)[0].left;
-    const top = stickerStyles(screen)[0].top;
-    await fireEvent.press(screen.getByTestId('op-right'));
-    await fireEvent.press(screen.getByTestId('op-down'));
-    expect(stickerStyles(screen)[0].left).toBeGreaterThan(left);
-    expect(stickerStyles(screen)[0].top).toBeGreaterThan(top);
-    expect(screen.getByTestId('op-left').props.accessibilityLabel).toMatch(/^왼쪽으로/);
-    const before = stickerStyles(screen)[0].width;
-    await fireEvent.press(screen.getByTestId('op-bigger'));
-    const bigger = stickerStyles(screen)[0].width;
-    expect(bigger).toBeGreaterThan(before);
-    // 맨 앞으로 = 배열 끝(맨 위에 그려짐)
+    expect(screen.queryAllByTestId(/^op-(left|up|down|right|smaller|bigger|rotate)/)).toEqual([]);
+    expect(screen.getByTestId('op-front').props.accessibilityLabel).toMatch(/^맨 앞으로: /);
+    // 맨 앞으로 = 배열 끝(맨 위에 그려짐) — 고른 것은 큰 스티커(0번)
+    const picked = stickerStyles(screen)[0].width;
     await fireEvent.press(screen.getByTestId('op-front'));
-    expect(stickerStyles(screen)[1].width).toBe(bigger);
+    expect(stickerStyles(screen)[1].width).toBe(picked);
+    expect(stickerStyles(screen)[0].width).toBeLessThan(picked);
     await fireEvent.press(screen.getByTestId('op-delete'));
     expect(stickerStyles(screen)).toHaveLength(1);
     expect(screen.queryByTestId('op-delete')).toBeNull();
@@ -436,7 +427,7 @@ describe('칸 위 손가락', () => {
     expect(scroll().props.scrollEnabled).toBe(true);
   });
 
-  it('스크린리더 동작으로도 고른다·크게·지운다', async () => {
+  it('스크린리더 동작으로도 고른다·크게·옮긴다·지운다', async () => {
     const { screen } = await canvas();
     const item = screen.getByTestId('canvas-sticker-0');
     // 작은 스티커(하트)도 접근성 요소는 44pt 이상이다
@@ -447,6 +438,12 @@ describe('칸 위 손가락', () => {
     const before = stickerStyles(screen)[0].width;
     await fireEvent(item, 'accessibilityAction', { nativeEvent: { actionName: 'bigger' } });
     expect(stickerStyles(screen)[0].width).toBeGreaterThan(before);
+    // 옮기기는 버튼 줄에 없다 — 스크린리더는 동작으로 옮긴다
+    const left = stickerStyles(screen)[0].left;
+    await fireEvent(screen.getByTestId('canvas-sticker-0'), 'accessibilityAction', {
+      nativeEvent: { actionName: 'right' },
+    });
+    expect(stickerStyles(screen)[0].left).toBeGreaterThan(left);
     await fireEvent(screen.getByTestId('canvas-sticker-0'), 'accessibilityAction', {
       nativeEvent: { actionName: 'delete' },
     });

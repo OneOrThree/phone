@@ -106,29 +106,10 @@ export function editorIsland(
 
 // 서버 PromotionContent.breaksTheLine 과 같은 문자 — ISO 제어 문자(U+0000~001F · U+007F~009F)와 줄·문단 구분자
 const LINE_BREAKERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
-// 손가락 대안 — 옮기기·크기·돌리기·겹침·지우기를 모두 버튼으로도 한다(DESIGN.md 8.19)
-const OPS: EditOp[] = [
-  'left',
-  'up',
-  'down',
-  'right',
-  'smaller',
-  'bigger',
-  'rotateLeft',
-  'rotateRight',
-  'front',
-  'delete',
-];
+// 고른 꾸미기 버튼 줄 — 손가락에 없는 겹침·지우기만(옮기기·크기·돌리기는 끌기·손잡이, 스크린리더는 A11Y_OPS 동작, DESIGN.md 8.19)
+const OPS: EditOp[] = ['front', 'delete'];
 /** 꾸미기마다 둔 접근성 요소의 반치수 하한 — 44pt 터치 영역 */
 const A11Y_HALF = semanticTokens.size.tapMin / 2;
-const OP_GLYPH: Partial<Record<EditOp, string>> = {
-  left: '←',
-  up: '↑',
-  down: '↓',
-  right: '→',
-  rotateLeft: '↺',
-  rotateRight: '↻',
-};
 /** 테이프는 크기·겹침 순서가 없다(applyEdit 가 그대로 둔다) — 버튼 줄·스크린리더 동작에서 뺀다. */
 const TAPE_OFF: EditOp[] = ['bigger', 'smaller', 'front'];
 const opsFor = (target: EditTarget, ops: EditOp[]) =>
@@ -148,7 +129,7 @@ const A11Y_OPS: EditOp[] = [
 
 /**
  * 우리 섬 홍보 쓰기(C1) · 접수 완료(C2) — 섬장만. 칸 틀 고르기 → 한 줄 글(60자) → 칸 위에서 스티커 꾸미기(끌기 · 두 손가락 크기·회전 ·
- * 손잡이 · 버튼) → [잡지에 싣기 · 60 물고기] 또는 신청 창 안이면 [고친 내용 저장]. 자정이 지나면 읽기 전용이다(10/14).
+ * 손잡이 · 맨 앞으로·지우기 버튼) → [잡지에 싣기 · 60 물고기] 또는 신청 창 안이면 [고친 내용 저장]. 자정이 지나면 읽기 전용이다(10/14).
  * 화면을 열면 다음 호에 이미 낸 칸, 없으면 지난번에 실은 칸이 그대로 열린다(AD-08). 임시 저장은 없다.
  */
 export function PromotionEditor({
@@ -724,7 +705,7 @@ export function PromotionEditor({
                   small
                   kind="sec"
                   dynamicHeight={largeText}
-                  title={OP_GLYPH[op] ?? t(`magazine.editor.op.${op}`)}
+                  title={t(`magazine.editor.op.${op}`)}
                   accessibilityLabel={`${t(`magazine.editor.op.${op}`)}: ${itemLabel(selection)}`}
                   onPress={() => doEdit(selection, op)}
                 />
