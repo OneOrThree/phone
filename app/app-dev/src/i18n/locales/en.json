@@ -802,7 +802,8 @@
       "next": "Next",
       "confirmTitle": "Put in the magazine",
       "confirmOk": "Put it in",
-      "confirmA11y": "{{fish}} fish"
+      "confirmA11y": "{{fish}} fish",
+      "done": "Done"
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",

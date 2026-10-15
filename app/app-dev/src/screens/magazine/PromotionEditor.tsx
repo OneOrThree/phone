@@ -292,12 +292,6 @@ export function PromotionEditor({
     edit(setTape(layout, id));
     setSelection({ kind: 'tape' });
   };
-  // [새로 꾸미기] — 스티커·테이프만 비운다(10/15). 고른 종이와 글은 그대로 두고 스티커 단계에 머문다
-  const fresh = () => {
-    edit(emptyLayout(layout.frameId));
-    setSelection(null);
-    setProblem(null);
-  };
 
   const changeBody = (text: string) => {
     // 한 줄 글 — 서버는 줄바꿈·탭 같은 제어 문자와 U+2028·U+2029 를 거절한다(400). 붙여 넣은 것은 띄어쓰기로 바꾸고,
@@ -317,7 +311,7 @@ export function PromotionEditor({
     const trimmed = body.trim();
     if (!trimmed) return setProblem({ message: t('magazine.editor.bodyEmpty'), field: 'body' });
     // 개수·범위만 미리 본다 — 이 앱이 모르는 재료(새 시즌)는 그리지 못해도 지난 칸의 일부로 그대로 보낸다(보유 판정은 서버)
-    if (layoutProblem(layout)) return setProblem({ message: t('magazine.editor.problem.layout') });
+    if (layoutProblem(layout)) return e.notify(t('magazine.editor.problem.layout'));
     setProblem(null);
     const result = await submit({ body: trimmed, layout });
     if ('ok' in result) {
@@ -546,11 +540,8 @@ export function PromotionEditor({
   const poor = !editor.next && editor.balance < fee;
   const closed = !editor.next && !editor.window.open;
   const blocked = readOnly || closed || poor || editor.privateIsland;
-  const ctaTitle = editor.next
-    ? t('magazine.editor.save')
-    : closed
-      ? t('magazine.editor.whenClosed')
-      : t('magazine.editor.apply');
+  // 종이 아래 [완료](10/15) — 처음 싣기면 가격 확인창, 이미 낸 홍보면 바로 저장. 신청 창이 닫힌 00~07시는 그 안내로
+  const ctaTitle = closed ? t('magazine.editor.whenClosed') : t('magazine.editor.done');
   const note = readOnly
     ? t('magazine.editor.locked')
     : editor.privateIsland
@@ -617,9 +608,9 @@ export function PromotionEditor({
   const space = primitiveTokens.space;
   // 1단계 — 종이(칸 틀) 고르기. 잡지 속지 위 가운데에 빈 종이를 한 장씩 크게 두고 세로로 밀어 고른다. 고르면 글 단계로
   // 잡지 속지 한 장(남은 자리 가운데, 잡지와 같은 비율) — 띠에 글, 안쪽에 children. 종이 고르기·글 쓰기가 같이 쓴다
-  const onPage = (ribbon: string, children: React.ReactNode) => (
+  const onPage = (ribbon: string, children: React.ReactNode, height?: number) => (
     <View
-      style={{ flex: 1, overflow: 'hidden' }}
+      style={height ? { height, overflow: 'hidden' } : { flex: 1, overflow: 'hidden' }}
       onLayout={(ev) => setPageBox(ev.nativeEvent.layout)}
     >
       {/* 속지는 자리보다 클 수 있다 — 겹쳐 그려(absolute) 버튼 줄·서랍·[다음]을 밀어내지 않고 아래만 가려지게 */}
@@ -774,11 +765,15 @@ export function PromotionEditor({
   );
 
   // 3단계 — 속지 가운데 칸에 스티커를 붙인다. 아래로 고른 꾸미기 버튼 줄과 서랍(고정 높이)
+  // 속지는 종이와 [완료]가 들어갈 만큼만 보이고, 나머지는 스티커 서랍이 쓴다(10/15 — 서랍을 크게)
+  const doneH = semanticTokens.size.tapMin + primitiveTokens.space[3];
+  const stickerPageH =
+    pageH * R.insetTop + cellH + pad.y * 2 + doneH + primitiveTokens.space[4] * 2;
   const content = (
     <View style={{ flex: 1 }}>
       {onPage(
         t('magazine.reader.title'),
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[2] }}>
           <View
             testID="promotion-canvas"
             {...gestures}
@@ -856,7 +851,25 @@ export function PromotionEditor({
             {layout.stickers.map((_, i) => a11yItem({ kind: 'sticker', index: i }, `sticker-${i}`))}
             {layout.tape && a11yItem({ kind: 'tape' }, 'tape')}
           </View>
+          {editable ? (
+            <Btn
+              id="promotion-submit"
+              style={{ width: cellW }}
+              dynamicHeight
+              title={ctaTitle}
+              // canEdit = 불러온 상태(다시 읽는 중 아님) · 저장 중 아님
+              disabled={blocked || !canEdit}
+              onPress={() => (editor.next ? send() : setConfirming(true))}
+            />
+          ) : null}
+          {/* 버튼이 꺼진 이유만 한 줄(잔액 부족 · 비공개 섬 · 자정 지나 잠김) */}
+          {readOnly || poor || editor.privateIsland ? (
+            <Txt kind="meta" style={{ textAlign: 'center' }}>
+              {`${t('magazine.editor.balance', { fish: formatNumber(editor.balance) })} · ${note}`}
+            </Txt>
+          ) : null}
         </View>,
+        editable ? stickerPageH : undefined,
       )}
       <View style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}>
         {selection && canEdit ? (
@@ -894,7 +907,9 @@ export function PromotionEditor({
         <View
           pointerEvents={canEdit ? 'auto' : 'none'}
           style={{
-            height: componentTokens.promotionEditor.drawerMinHeight,
+            flex: 1,
+            minHeight: componentTokens.promotionEditor.drawerMinHeight,
+            paddingBottom: L.insets.bottom,
             paddingTop: semanticTokens.spacing.control,
             paddingHorizontal: semanticTokens.spacing.page,
             borderTopLeftRadius: componentTokens.modal.sheetRadius,
@@ -916,63 +931,6 @@ export function PromotionEditor({
             onFull={() => e.notify(t('magazine.editor.stickersFull'))}
           />
         </View>
-      ) : null}
-    </View>
-  );
-
-  const footer = (
-    <View
-      style={{
-        paddingHorizontal: semanticTokens.spacing.page,
-        paddingTop: semanticTokens.spacing.control,
-        paddingBottom: L.insets.bottom + semanticTokens.spacing.control,
-        gap: primitiveTokens.space[2],
-        backgroundColor: editable ? semanticTokens.color.surface : semanticTokens.color.canvas,
-      }}
-    >
-      {problem && !problem.field ? (
-        <Txt
-          accessibilityLiveRegion="polite"
-          kind="meta"
-          style={{ textAlign: 'center', color: semanticTokens.color.danger }}
-        >
-          {problem.message}
-        </Txt>
-      ) : null}
-      {/* 큰 글자에서는 [새로 꾸미기]·주 행동을 세로로 쌓아 주 행동이 화면 폭을 다 쓴다 */}
-      <View
-        testID="promotion-actions"
-        style={{
-          flexDirection: largeText ? 'column-reverse' : 'row',
-          gap: primitiveTokens.space[2],
-        }}
-      >
-        {editable && (
-          <Btn
-            id="promotion-fresh"
-            kind="sec"
-            dynamicHeight
-            title={t('magazine.editor.reset')}
-            disabled={!canEdit}
-            onPress={fresh}
-          />
-        )}
-        <Btn
-          id="promotion-submit"
-          style={largeText ? undefined : { flex: 1 }}
-          // 좁은 화면(320pt)·영문에서 주 행동 문구가 두 줄이 되어도 버튼이 같이 늘어난다(기본 높이 52 는 그대로)
-          dynamicHeight
-          title={ctaTitle}
-          // canEdit = 불러온 상태(다시 읽는 중 아님) · 저장 중 아님
-          disabled={blocked || !canEdit}
-          onPress={() => (editor.next ? send() : setConfirming(true))}
-        />
-      </View>
-      {/* 평소에는 잔액·안내 줄을 두지 않는다(10/15 — 가격은 싣기 확인창에서). 버튼이 꺼진 이유만 알린다 */}
-      {readOnly || poor || editor.privateIsland ? (
-        <Txt kind="meta" style={{ textAlign: 'center' }}>
-          {`${t('magazine.editor.balance', { fish: formatNumber(editor.balance) })} · ${note}`}
-        </Txt>
       ) : null}
     </View>
   );
@@ -1000,5 +958,6 @@ export function PromotionEditor({
         />
       </View>,
     );
-  return shell(content, footer);
+  // 스티커 단계는 바닥 줄 없이 서랍이 화면 아래까지 — 신청 거절 같은 안내는 토스트로
+  return shell(content, readOnly ? <View style={bottom} /> : undefined);
 }

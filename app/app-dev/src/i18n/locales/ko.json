@@ -775,7 +775,8 @@
       "next": "다음",
       "confirmTitle": "잡지에 싣기",
       "confirmOk": "싣기",
-      "confirmA11y": "물고기 {{fish}}마리"
+      "confirmA11y": "물고기 {{fish}}마리",
+      "done": "완료"
     },
     "news": {
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",
