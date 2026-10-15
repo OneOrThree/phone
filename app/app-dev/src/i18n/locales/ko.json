@@ -773,7 +773,7 @@
       "lockedAsset": "{{name}}, 아직 없음",
       "framePrompt": "종이를 골라주세요.",
       "next": "다음",
-      "confirmTitle": "잡지에 싣기",
+      "confirmTitle": "잡지에 이대로 실으시겠습니까?",
       "confirmOk": "싣기",
       "confirmA11y": "물고기 {{fish}}마리",
       "done": "완료"

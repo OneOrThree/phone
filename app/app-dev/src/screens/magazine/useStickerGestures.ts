@@ -8,6 +8,7 @@ import {
   POS_MAX,
   POS_MIN,
   PromotionLayout,
+  bringToFront,
   moveTape,
   normalizeRotation,
   updateSticker,
@@ -253,10 +254,16 @@ export function useStickerGestures({
           };
           return;
         }
-        const target = hitTest(l, w, p.x, p.y);
+        let target = hitTest(l, w, p.x, p.y);
         if (!target) {
           gesture.current = { mode: 'none', moved: false };
           return;
+        }
+        // 누른 스티커는 맨 앞으로 온다(10/15) — 이번 손동작은 앞으로 옮긴 배치·번호로 이어 간다
+        const last = l.stickers.length - 1;
+        if (target.kind === 'sticker' && target.index !== last) {
+          push(bringToFront(current(), target.index));
+          target = { kind: 'sticker', index: last };
         }
         latest.current.onSelect(target);
         const v = valuesOf(target)!;

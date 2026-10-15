@@ -800,7 +800,7 @@
       "lockedAsset": "{{name}}, not owned yet",
       "framePrompt": "Pick a paper.",
       "next": "Next",
-      "confirmTitle": "Put in the magazine",
+      "confirmTitle": "Put it in the magazine as is?",
       "confirmOk": "Put it in",
       "confirmA11y": "{{fish}} fish",
       "done": "Done"

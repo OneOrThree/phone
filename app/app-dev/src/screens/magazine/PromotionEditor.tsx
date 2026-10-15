@@ -116,7 +116,8 @@ export function editorIsland(
 // 서버 PromotionContent.breaksTheLine 과 같은 문자 — ISO 제어 문자(U+0000~001F · U+007F~009F)와 줄·문단 구분자
 const LINE_BREAKERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g;
 // 고른 꾸미기 버튼 줄 — 손가락에 없는 겹침·지우기만(옮기기·크기·돌리기는 끌기·손잡이, 스크린리더는 A11Y_OPS 동작, DESIGN.md 8.19)
-const OPS: EditOp[] = ['front', 'delete'];
+/** 고른 꾸미기 왼쪽 위 ✕(지우기) 지름 — 누르는 자리는 hitSlop 으로 44pt */
+const DELETE_SIZE = 26;
 /** 꾸미기마다 둔 접근성 요소의 반치수 하한 — 44pt 터치 영역 */
 const A11Y_HALF = semanticTokens.size.tapMin / 2;
 /** 테이프는 크기·겹침 순서가 없다(applyEdit 가 그대로 둔다) — 버튼 줄·스크린리더 동작에서 뺀다. */
@@ -150,7 +151,6 @@ export function PromotionEditor({
 }) {
   const state: State = e.state;
   const L = useAppLayout();
-  const largeText = L.fontScale >= componentTokens.promotionEditor.largeTextThreshold;
   const reduceMotion = useContext(MotionContext);
   const mock = isMockMode();
   const base = editorIsland(state, !!e.islands);
@@ -553,6 +553,17 @@ export function PromotionEditor({
           : t('magazine.editor.whenOpen');
 
   const box = selection && itemBox(layout, selection, cellW);
+  // 점선 상자의 (sx, sy) 모서리(-1 = 왼쪽·위)를 꾸미기 회전만큼 돌린 자리 — ✕ 버튼 가운데가 그 점에 오게
+  const cornerOf = (b: NonNullable<typeof box>, sx: number, sy: number) => {
+    const inset = componentTokens.promotionEditor.selectionInset;
+    const lx = sx * (b.hw + inset);
+    const ly = sy * (b.hh + inset);
+    const r = (b.rotation * Math.PI) / 180;
+    return {
+      left: pad.x + b.cx + lx * Math.cos(r) - ly * Math.sin(r) - DELETE_SIZE / 2,
+      top: pad.y + b.cy + lx * Math.sin(r) + ly * Math.cos(r) - DELETE_SIZE / 2,
+    };
+  };
   const handle = selection && canEdit && handlePoint(layout, selection, cellW);
   const itemLabel = (target: EditTarget) => {
     if (target.kind === 'tape') return assetName(layout.tape?.assetId ?? '');
@@ -604,7 +615,6 @@ export function PromotionEditor({
     );
   };
 
-  const page = semanticTokens.spacing.page;
   const space = primitiveTokens.space;
   // 1단계 — 종이(칸 틀) 고르기. 잡지 속지 위 가운데에 빈 종이를 한 장씩 크게 두고 세로로 밀어 고른다. 고르면 글 단계로
   // 잡지 속지 한 장(남은 자리 가운데, 잡지와 같은 비율) — 띠에 글, 안쪽에 children. 종이 고르기·글 쓰기가 같이 쓴다
@@ -812,6 +822,30 @@ export function PromotionEditor({
                 }}
               />
             )}
+            {box && canEdit && selection && (
+              // 고른 꾸미기 지우기 — 점선 상자 왼쪽 위(돌린 각도 그대로)의 ✕
+              <Pressable
+                testID="promotion-delete"
+                accessibilityRole="button"
+                accessibilityLabel={`${t('magazine.editor.op.delete')}: ${itemLabel(selection)}`}
+                hitSlop={(semanticTokens.size.tapMin - DELETE_SIZE) / 2}
+                onPress={() => doEdit(selection, 'delete')}
+                style={{
+                  position: 'absolute',
+                  ...cornerOf(box, -1, -1),
+                  width: DELETE_SIZE,
+                  height: DELETE_SIZE,
+                  borderRadius: DELETE_SIZE / 2,
+                  borderWidth: semanticTokens.stroke.strong,
+                  borderColor: semanticTokens.color.outline,
+                  backgroundColor: semanticTokens.color.surface,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Txt style={{ fontSize: 14, lineHeight: 16, fontWeight: '800' }}>✕</Txt>
+              </Pressable>
+            )}
             {handle && (
               <View
                 testID="promotion-handle"
@@ -880,38 +914,6 @@ export function PromotionEditor({
         </View>,
         !readOnly ? stickerPageH : undefined,
       )}
-      <View style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}>
-        {selection && canEdit ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              gap: primitiveTokens.space[2],
-              paddingHorizontal: semanticTokens.spacing.page,
-            }}
-          >
-            {opsFor(selection, OPS).map((op) => (
-              <Btn
-                key={op}
-                id={`op-${op}`}
-                small
-                kind="sec"
-                dynamicHeight={largeText}
-                title={t(`magazine.editor.op.${op}`)}
-                accessibilityLabel={`${t(`magazine.editor.op.${op}`)}: ${itemLabel(selection)}`}
-                onPress={() => doEdit(selection, op)}
-              />
-            ))}
-          </ScrollView>
-        ) : (
-          <Txt
-            kind="meta"
-            style={{ textAlign: 'center', paddingHorizontal: semanticTokens.spacing.page }}
-          >
-            {readOnly ? t('magazine.editor.locked') : null}
-          </Txt>
-        )}
-      </View>
       {!readOnly ? (
         <View
           pointerEvents={canEdit ? 'auto' : 'none'}
