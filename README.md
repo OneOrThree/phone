@@ -1,6 +1,11 @@
 # GROMO
 
 [![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml/badge.svg?branch=main&event=push)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml)
+[![dev 서버 배포](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fdev.json)](https://github.com/OneOrThree/phone/tree/deployment-status)
+[![Catus prod 배포 버전](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fprod.json)](https://github.com/OneOrThree/phone/actions/workflows/prod-cd.yml)
+
+
+dev 배지는 네 서비스의 최근 배포 결과를 합산하고, prod 배지는 마지막으로 배포에 성공한 Catus 버전을 표시합니다. 최초 게시 전에는 배지가 표시되지 않을 수 있습니다. 발행·수동 배포·롤백과 운영 선행 조건은 [Catus 운영 절차](docs/prd/fishcat/server-separation/deployment.md#catus-20-운영-발행배포)를 따릅니다.
 
 집중한 시간을 캐릭터의 성장과 섬 활동으로 이어 주는 시간 관리 앱입니다.
 React Native(Expo) 앱과 네 개의 Spring Boot 서버를 한 저장소에서 관리합니다.
