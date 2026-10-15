@@ -713,6 +713,7 @@
     },
     "editor": {
       "title": "우리 섬 홍보 쓰기",
+      "entry": "냐옹잡지에 섬 홍보하기",
       "frames": "칸 틀",
       "body": "한 줄 글",
       "bodyPlaceholder": "우리 섬을 한 줄로 소개해 주세요",
