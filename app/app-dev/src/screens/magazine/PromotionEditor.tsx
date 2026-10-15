@@ -20,6 +20,7 @@ import {
   DEFAULT_FRAME_ID,
   MAGAZINE_FRAMES,
   MAGAZINE_STAMP,
+  MAGAZINE_UI,
   StickerTab,
 } from '@/constants/magazineAssets';
 import { managedIslandRole } from '@/screens/interiors/useIslandManagement';
@@ -172,6 +173,10 @@ export function PromotionEditor({
   // 처음 열 때만 단계를 정한다(다시 읽기로 보던 단계가 바뀌지 않게) — 마감으로 읽기 전용이 되면 칸 전체 단계로
   const opened = useRef(false);
   const bodyRef = useRef<NativeTextInput>(null);
+  // 고른 종이 — 새로 쓸 때는 아무것도 골라 두지 않는다(기본 틀은 그리기용일 뿐)
+  const [chosenFrame, setChosenFrame] = useState<string | null>(null);
+  // 종이 고르기의 잡지 속지 — 남은 자리에 잡지와 같은 비율로 가장 크게
+  const [pageBox, setPageBox] = useState({ width: 0, height: 0 });
   const [problem, setProblem] = useState<EditorProblem | null>(null);
   // 접수 완료 확인창 — 열 때의 신청 결과(호 · 시점)로 문구를 고정한다(뒤이은 다시 읽기로 바뀌지 않게). null 이면 닫힘
   const [done, setDone] = useState<{ issueDate: string; phase: AppliedPhase } | null>(null);
@@ -189,9 +194,11 @@ export function PromotionEditor({
     if (!editor.next) setStamped(false);
     const locked = !!editor.next && !editor.next.editable;
     if (touched.current && !locked) return;
-    const from = editor.next ?? editor.latest;
+    // 새로 쓰면 빈 종이에서 시작한다(10/15 — 지난번 글·스티커를 채워 두지 않는다). 이미 낸 홍보만 그 칸으로 연다
+    const from = editor.next;
     setBody(from?.body ?? '');
     setLayout(from?.layout ?? emptyLayout(DEFAULT_FRAME_ID));
+    setChosenFrame(from ? from.layout.frameId : null);
     // 서버 칸으로 바꾸면 스티커 수가 달라질 수 있다 — 고르기는 늘 푼다
     setSelection(null);
     if (locked) touched.current = false;
@@ -271,6 +278,7 @@ export function PromotionEditor({
     setBody('');
     setSelection(null);
     setProblem(null);
+    setChosenFrame(null);
     setStep('frame');
   };
 
@@ -557,50 +565,90 @@ export function PromotionEditor({
 
   const page = semanticTokens.spacing.page;
   const space = primitiveTokens.space;
-  // 1단계 — 종이(칸 틀) 고르기. 빈 종이를 2열로 크게 보여 주고, 고르면 글 단계로
-  const tileGap = space[2];
-  const tileW = Math.floor((Math.min(L.contentWidth, 560) - page * 2 - tileGap) / 2);
-  const tileInner = tileW - space[1] * 2 - semanticTokens.stroke.strong * 2;
-  const framePicker = (
-    <View style={{ paddingHorizontal: page, gap: space[2] }}>
-      <Txt kind="h17" accessibilityRole="header">
-        {t('magazine.editor.framePrompt')}
-      </Txt>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: tileGap }}>
-        {Object.keys(MAGAZINE_FRAMES).map((id) => {
-          const on = layout.frameId === id;
-          const lockedFrame = !owned(id);
-          return (
-            <Pressable
-              key={id}
-              testID={`frame-${id}`}
-              accessibilityRole="button"
-              accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
-              accessibilityState={{ selected: on, disabled: !canEdit || lockedFrame }}
-              disabled={!canEdit || lockedFrame}
-              onPress={() => {
-                edit({ ...layout, frameId: id });
-                setStep('text');
-              }}
-              style={{
-                width: tileW,
-                padding: space[1],
-                borderRadius: semanticTokens.radius.control,
-                borderWidth: semanticTokens.stroke.strong,
-                borderColor: on ? semanticTokens.color.outline : 'transparent',
-                backgroundColor: on ? semanticTokens.color.selected : 'transparent',
-                opacity: lockedFrame ? componentTokens.button.disabledOpacity : 1,
-              }}
-            >
-              <Image
-                source={MAGAZINE_FRAMES[id].source}
-                resizeMode="stretch"
-                style={{ width: tileInner, height: tileInner * CELL_ASPECT }}
-              />
-            </Pressable>
-          );
-        })}
-      </View>
+  // 1단계 — 종이(칸 틀) 고르기. 잡지 속지 위 가운데에 빈 종이를 한 장씩 크게 두고 세로로 밀어 고른다. 고르면 글 단계로
+  const R = componentTokens.magazineReader;
+  const pageW = Math.min(pageBox.width, pageBox.height * R.pageAspect, R.maxPageWidth);
+  const pageH = pageW / R.pageAspect;
+  const paperW =
+    Math.floor(pageW * (1 - R.insetX * 2)) - space[1] * 2 - semanticTokens.stroke.strong * 2;
+  const framePage = (
+    <View
+      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+      onLayout={(ev) => setPageBox(ev.nativeEvent.layout)}
+    >
+      {pageW > 0 && (
+        <View style={{ width: pageW, height: pageH }}>
+          <Image
+            source={MAGAZINE_UI.page}
+            resizeMode="stretch"
+            style={{ position: 'absolute', width: pageW, height: pageH }}
+          />
+          <Txt
+            accessibilityRole="header"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: pageH * R.ribbonTop,
+              height: pageH * R.ribbonHeight,
+              lineHeight: pageH * R.ribbonHeight,
+              textAlign: 'center',
+              fontWeight: '700',
+            }}
+          >
+            {t('magazine.editor.framePrompt')}
+          </Txt>
+          <ScrollView
+            testID="promotion-frames"
+            style={{
+              position: 'absolute',
+              left: pageW * R.insetX,
+              right: pageW * R.insetX,
+              top: pageH * R.insetTop,
+              bottom: pageH * R.insetBottom,
+            }}
+            contentContainerStyle={{
+              alignItems: 'center',
+              gap: space[3],
+              paddingVertical: space[2],
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            {Object.keys(MAGAZINE_FRAMES).map((id) => {
+              const on = chosenFrame === id;
+              const lockedFrame = !owned(id);
+              return (
+                <Pressable
+                  key={id}
+                  testID={`frame-${id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
+                  accessibilityState={{ selected: on, disabled: !canEdit || lockedFrame }}
+                  disabled={!canEdit || lockedFrame}
+                  onPress={() => {
+                    setChosenFrame(id);
+                    edit({ ...layout, frameId: id });
+                    setStep('text');
+                  }}
+                  style={{
+                    padding: space[1],
+                    borderRadius: semanticTokens.radius.control,
+                    borderWidth: semanticTokens.stroke.strong,
+                    borderColor: on ? semanticTokens.color.outline : 'transparent',
+                    opacity: lockedFrame ? componentTokens.button.disabledOpacity : 1,
+                  }}
+                >
+                  <Image
+                    source={MAGAZINE_FRAMES[id].source}
+                    resizeMode="stretch"
+                    style={{ width: paperW, height: paperW * CELL_ASPECT }}
+                  />
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
     </View>
   );
 
@@ -678,9 +726,7 @@ export function PromotionEditor({
           gap: semanticTokens.spacing.control,
         }}
       >
-        {step === 'frame' ? (
-          framePicker
-        ) : step === 'text' ? (
+        {step === 'text' ? (
           textStep
         ) : (
           <>
@@ -889,7 +935,7 @@ export function PromotionEditor({
   );
 
   const bottom = { paddingBottom: L.insets.bottom + semanticTokens.spacing.control };
-  if (editable && step === 'frame') return shell(content, <View style={bottom} />);
+  if (editable && step === 'frame') return shell(framePage, <View style={bottom} />);
   if (editable && step === 'text')
     return shell(
       content,
