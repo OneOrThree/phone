@@ -88,6 +88,7 @@ Claude Code 에서는 `.claude/pr-gate.py` 훅이 위 규칙을 어긴 `gh pr cr
 
 ## 6. 리뷰 루프
 
+- 같은 저장소의 **head=`main`, base=`release`** 운영 승격은 `AGENTS.md`의 「main → release 운영 승격」을 따른다. 코드 리뷰 요청 대신 변경 요약 댓글을 확인한다. 아래 코드 리뷰 루프는 그 외 PR에 적용한다.
 - PR 을 열자마자 **`@claude` 리뷰 요청 코멘트**를 단다 — 이 PR 에 맞춘 리뷰 포인트 3~5개. 답글·기록 코멘트에는 `@claude` 를 쓰지 않는다 (워크플로가 다시 돈다).
 - **codex**(`chatgpt-codex-connector`)는 부르지 않아도 ready PR 에 붙고, **push 마다 새 라운드**를 돈다. `@codex` 를 따로 부르지 않는다.
 - 지적은 성격으로 처리한다 — 라운드 수로 자르지 않는다:
@@ -102,6 +103,8 @@ Claude Code 에서는 `.claude/pr-gate.py` 훅이 위 규칙을 어긴 `gh pr cr
 - codex 지적 중 가장 흔한 오탐은 「반대편 절반(앱/서버)이 이 PR 에 없다」다. 반박 전에 형제 PR·머지된 트리를 인용해 확인한다.
 
 ## 7. 머지 조건
+
+같은 저장소의 main → release 운영 승격은 코드 리뷰 판정 대신 `AGENTS.md`의 변경 요약을 확인한다. 적용 대상 CI 전부 통과와 `mergeStateStatus=CLEAN` 조건은 유지하며, 미해결 리뷰 스레드가 있으면 main 대상 PR에서 처리한 근거를 확인한다. 아래 네 조건은 그 외 PR에 적용한다.
 
 네 가지가 **같은 커밋**에서 동시에 성립해야 한다:
 
