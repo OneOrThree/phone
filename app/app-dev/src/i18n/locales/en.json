@@ -800,7 +800,9 @@
       "confirmTitle": "Put it in the magazine as is?",
       "confirmOk": "Put it in",
       "confirmA11y": "{{fish}} fish",
-      "done": "Done"
+      "done": "Done",
+      "editAsk": "Edit your posted promotion?",
+      "editOk": "Edit"
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",

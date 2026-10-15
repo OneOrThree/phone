@@ -177,6 +177,8 @@ export function PromotionEditor({
   // 접수 완료 확인창 — 열 때의 신청 결과(호 · 시점)로 문구를 고정한다(뒤이은 다시 읽기로 바뀌지 않게). null 이면 닫힘
   // 싣기 전 가격 안내창
   const [confirming, setConfirming] = useState(false);
+  // 이미 올린 홍보로 들어오면 고칠지 먼저 묻는다(10/15) — [취소]는 회관으로
+  const [askEdit, setAskEdit] = useState(false);
   const touched = useRef(false);
 
   // 처음 불러온 칸(다음 호 → 지난번 칸 → 빈 칸)으로 연다. 사용자가 고치기 시작한 뒤 다시 읽어도 고친 것은 두고 모드만 바꾼다.
@@ -195,6 +197,8 @@ export function PromotionEditor({
     if (locked) touched.current = false;
     // 이미 낸 홍보를 고치러 오면 틀·글이 정해져 있다 — 바로 칸 전체(스티커) 단계로 연다
     if (!opened.current || locked) setStep(editor.next || locked ? 'stickers' : 'frame');
+    if (!opened.current && editor.next && !locked) setAskEdit(true);
+    if (locked) setAskEdit(false);
     opened.current = true;
   }, [editor]);
 
@@ -396,13 +400,33 @@ export function PromotionEditor({
       <View
         testID="promotion-editor-layer"
         style={{ flex: 1 }}
-        accessibilityElementsHidden={confirming}
-        importantForAccessibility={confirming ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={confirming || askEdit}
+        importantForAccessibility={confirming || askEdit ? 'no-hide-descendants' : 'auto'}
       >
         {header}
         {content}
         {footer}
       </View>
+      {askEdit && (
+        <Overlay close={e.back}>
+          <Txt kind="h17">{t('magazine.editor.editAsk')}</Txt>
+          <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+            <Btn
+              id="promotion-edit-cancel"
+              kind="sec"
+              style={{ flex: 1 }}
+              title={t('common.cancel')}
+              onPress={e.back}
+            />
+            <Btn
+              id="promotion-edit-ok"
+              style={{ flex: 1 }}
+              title={t('magazine.editor.editOk')}
+              onPress={() => setAskEdit(false)}
+            />
+          </View>
+        </Overlay>
+      )}
       {confirming && editor && (
         <Overlay close={() => setConfirming(false)}>
           <Txt kind="h17">{t('magazine.editor.confirmTitle')}</Txt>

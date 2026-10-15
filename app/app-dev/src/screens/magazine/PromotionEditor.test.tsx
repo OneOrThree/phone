@@ -109,6 +109,9 @@ async function ready(screen: any, step: EditorStep = 'stickers', frame = 'mag.fr
       screen.queryByTestId('promotion-canvas') ?? screen.queryByTestId('promotion-frames'),
     ).toBeTruthy(),
   );
+  // 이미 올린 홍보면 「올린 홍보글을 수정하시겠습니까?」 — [수정]으로 들어간다
+  const ask = screen.queryByTestId('promotion-edit-ok');
+  if (ask) await fireEvent.press(ask);
   if (step === 'frame') return;
   if (screen.queryByTestId('promotion-frames'))
     await fireEvent.press(screen.getByTestId(`frame-${frame}`));
