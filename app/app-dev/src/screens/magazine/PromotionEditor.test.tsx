@@ -537,15 +537,13 @@ describe('싣기·고치기', () => {
     }
   });
 
-  it('[잡지에 싣기]는 값을 버튼에 적지 않고, 누르면 가격·잔액 확인창 — 취소하면 보내지 않는다', async () => {
+  it('[잡지에 싣기]는 값을 버튼에 적지 않고, 누르면 가격 확인창 — 취소하면 보내지 않는다', async () => {
     const { screen } = await open();
     expect(screen.getByText('잡지에 싣기')).toBeTruthy();
     // 평소에는 잔액·안내 줄이 없다
     expect(screen.queryByText(/섬 통장 1,240마리/)).toBeNull();
     await fireEvent.press(screen.getByTestId('promotion-submit'));
-    expect(screen.getByTestId('promotion-confirm-body').props.children).toBe(
-      '섬 통장 물고기 60마리를 써요. 지금 섬 통장에 1,240마리가 있어요. 내일 아침 7시 호에 실려요.',
-    );
+    expect(screen.getByTestId('promotion-confirm-body').props.children).toBe('물고기 60마리');
     await fireEvent.press(screen.getByTestId('promotion-confirm-cancel'));
     expect(screen.queryByTestId('promotion-confirm-body')).toBeNull();
     expect(apply).not.toHaveBeenCalled();

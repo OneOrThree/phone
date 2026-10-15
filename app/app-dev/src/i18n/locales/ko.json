@@ -773,9 +773,9 @@
       "lockedAsset": "{{name}}, 아직 없음",
       "framePrompt": "종이를 골라주세요.",
       "next": "다음",
-      "confirmTitle": "잡지에 실을까요?",
-      "confirmBody": "섬 통장 물고기 {{fish}}마리를 써요. 지금 섬 통장에 {{balance}}마리가 있어요. 내일 아침 7시 호에 실려요.",
-      "confirmOk": "싣기 · {{fish}} 물고기"
+      "confirmTitle": "잡지에 싣기",
+      "confirmBody": "물고기 {{fish}}마리",
+      "confirmOk": "싣기"
     },
     "news": {
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",

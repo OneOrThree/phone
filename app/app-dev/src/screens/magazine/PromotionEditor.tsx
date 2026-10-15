@@ -417,10 +417,7 @@ export function PromotionEditor({
         <Overlay close={() => setConfirming(false)}>
           <Txt kind="h17">{t('magazine.editor.confirmTitle')}</Txt>
           <Txt testID="promotion-confirm-body">
-            {t('magazine.editor.confirmBody', {
-              fish: editor.feeFish,
-              balance: formatNumber(editor.balance),
-            })}
+            {t('magazine.editor.confirmBody', { fish: editor.feeFish })}
           </Txt>
           <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
             <Btn
@@ -433,7 +430,7 @@ export function PromotionEditor({
             <Btn
               id="promotion-confirm-ok"
               style={{ flex: 1 }}
-              title={t('magazine.editor.confirmOk', { fish: editor.feeFish })}
+              title={t('magazine.editor.confirmOk')}
               onPress={() => {
                 setConfirming(false);
                 void send();

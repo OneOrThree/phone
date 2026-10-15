@@ -800,9 +800,9 @@
       "lockedAsset": "{{name}}, not owned yet",
       "framePrompt": "Pick a paper.",
       "next": "Next",
-      "confirmTitle": "Put this in the magazine?",
-      "confirmBody": "This uses {{fish}} fish from the island bank. The island bank has {{balance}} now. It will run in tomorrow’s 7 AM issue.",
-      "confirmOk": "Put it in · {{fish}} fish"
+      "confirmTitle": "Put in the magazine",
+      "confirmBody": "{{fish}} fish",
+      "confirmOk": "Put it in"
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
