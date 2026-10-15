@@ -801,8 +801,8 @@
       "framePrompt": "Pick a paper.",
       "next": "Next",
       "confirmTitle": "Put in the magazine",
-      "confirmBody": "{{fish}} fish",
-      "confirmOk": "Put it in"
+      "confirmOk": "Put it in",
+      "confirmA11y": "{{fish}} fish"
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",

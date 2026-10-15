@@ -16,6 +16,7 @@ import { Btn, CharCount, Chevron, Overlay, Txt } from '@/design-system/patterns'
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { formatNumber } from '@/i18n/format';
+import { art } from '@/constants/art';
 import {
   DEFAULT_FRAME_ID,
   MAGAZINE_FRAMES,
@@ -416,9 +417,16 @@ export function PromotionEditor({
       {confirming && editor && (
         <Overlay close={() => setConfirming(false)}>
           <Txt kind="h17">{t('magazine.editor.confirmTitle')}</Txt>
-          <Txt testID="promotion-confirm-body">
-            {t('magazine.editor.confirmBody', { fish: editor.feeFish })}
-          </Txt>
+          {/* 값만 — 섬에서 쓰는 물고기 그림 + 숫자 */}
+          <View
+            testID="promotion-confirm-price"
+            accessible
+            accessibilityLabel={t('magazine.editor.confirmA11y', { fish: editor.feeFish })}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: primitiveTokens.space[1] }}
+          >
+            <Image source={art.fish} style={{ width: 26, height: 26 }} />
+            <Txt style={{ fontWeight: '800' }}>{editor.feeFish}</Txt>
+          </View>
           <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
             <Btn
               id="promotion-confirm-cancel"

@@ -543,9 +543,12 @@ describe('싣기·고치기', () => {
     // 평소에는 잔액·안내 줄이 없다
     expect(screen.queryByText(/섬 통장 1,240마리/)).toBeNull();
     await fireEvent.press(screen.getByTestId('promotion-submit'));
-    expect(screen.getByTestId('promotion-confirm-body').props.children).toBe('물고기 60마리');
+    expect(screen.getByTestId('promotion-confirm-price').props.accessibilityLabel).toBe(
+      '물고기 60마리',
+    );
+    expect(screen.getByText('60')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('promotion-confirm-cancel'));
-    expect(screen.queryByTestId('promotion-confirm-body')).toBeNull();
+    expect(screen.queryByTestId('promotion-confirm-price')).toBeNull();
     expect(apply).not.toHaveBeenCalled();
   });
 
