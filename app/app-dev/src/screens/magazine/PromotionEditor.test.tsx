@@ -88,29 +88,31 @@ beforeEach(() => {
 });
 
 /**
- * 불러오기를 기다린 뒤 그 단계로 간다(틀 → 글 → 스티커, 10/15). 스티커 단계는 글이 있어야 열려 빈 글이면 한 줄 쓰고 간다.
- * 읽기 전용(단계 줄 없음)·이미 낸 홍보(바로 스티커 단계)는 그대로 둔다.
+ * 불러오기를 기다린 뒤 그 단계로 간다(종이 → 글 → 스티커, 10/15). 새로 쓰면 빈 종이에서 시작하므로 종이를 고르고(기본 가리비),
+ * 스티커 단계로 가려면 글이 있어야 해 빈 글이면 한 줄 쓴다. 이미 낸 홍보·읽기 전용은 처음부터 칸 전체(스티커 단계)다.
  */
-async function ready(screen: any, step: EditorStep = 'stickers') {
+async function ready(screen: any, step: EditorStep = 'stickers', frame = 'mag.frame-scallop') {
   await waitFor(() =>
     expect(
-      screen.queryByTestId('promotion-canvas') ?? screen.queryByTestId('promotion-step-frame'),
+      screen.queryByTestId('promotion-canvas') ?? screen.queryByTestId('promotion-frames'),
     ).toBeTruthy(),
   );
-  if (!screen.queryByTestId('promotion-step-frame')) return;
-  if (step === 'stickers' && screen.queryByTestId('promotion-canvas')) return;
-  if (
-    step === 'stickers' &&
-    screen.getByTestId('promotion-step-stickers').props.accessibilityState.disabled
-  ) {
-    await fireEvent.press(screen.getByTestId('promotion-step-text'));
-    await fireEvent.changeText(screen.getByTestId('promotion-body'), '우리 섬에 놀러 와요');
+  if (step === 'frame') return;
+  if (screen.queryByTestId('promotion-frames'))
+    await fireEvent.press(screen.getByTestId(`frame-${frame}`));
+  else if (step === 'text' && screen.queryByTestId('promotion-canvas')) {
+    await fireEvent.press(screen.getByTestId('promotion-back'));
+    return;
   }
-  await fireEvent.press(screen.getByTestId(`promotion-step-${step}`));
+  if (step === 'text' || screen.queryByTestId('promotion-canvas')) return;
+  if (!screen.getByTestId('promotion-body').props.value)
+    await fireEvent.changeText(screen.getByTestId('promotion-body'), '우리 섬에 놀러 와요');
+  await fireEvent.press(screen.getByTestId('promotion-next'));
 }
-/** 글 단계로 가서 입력 칸의 글을 읽는다 */
+/** 스티커 단계에서 뒤로 한 번 — 글 단계 입력 칸의 글을 읽는다 */
 async function bodyOf(screen: any) {
-  await fireEvent.press(screen.getByTestId('promotion-step-text'));
+  if (screen.queryByTestId('promotion-canvas'))
+    await fireEvent.press(screen.getByTestId('promotion-back'));
   return screen.getByTestId('promotion-body').props.value;
 }
 

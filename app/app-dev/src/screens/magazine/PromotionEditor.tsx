@@ -567,7 +567,12 @@ export function PromotionEditor({
   const space = primitiveTokens.space;
   // 1단계 — 종이(칸 틀) 고르기. 잡지 속지 위 가운데에 빈 종이를 한 장씩 크게 두고 세로로 밀어 고른다. 고르면 글 단계로
   const R = componentTokens.magazineReader;
-  const pageW = Math.min(pageBox.width, pageBox.height * R.pageAspect, R.maxPageWidth);
+  // 처음 그릴 때(크기를 재기 전)는 화면 크기로 어림한다
+  const pageW = Math.min(
+    pageBox.width || L.width,
+    (pageBox.height || L.height) * R.pageAspect,
+    R.maxPageWidth,
+  );
   const pageH = pageW / R.pageAspect;
   const paperW =
     Math.floor(pageW * (1 - R.insetX * 2)) - space[1] * 2 - semanticTokens.stroke.strong * 2;
@@ -576,79 +581,77 @@ export function PromotionEditor({
       style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
       onLayout={(ev) => setPageBox(ev.nativeEvent.layout)}
     >
-      {pageW > 0 && (
-        <View style={{ width: pageW, height: pageH }}>
-          <Image
-            source={MAGAZINE_UI.page}
-            resizeMode="stretch"
-            style={{ position: 'absolute', width: pageW, height: pageH }}
-          />
-          <Txt
-            accessibilityRole="header"
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: pageH * R.ribbonTop,
-              height: pageH * R.ribbonHeight,
-              lineHeight: pageH * R.ribbonHeight,
-              textAlign: 'center',
-              fontWeight: '700',
-            }}
-          >
-            {t('magazine.editor.framePrompt')}
-          </Txt>
-          <ScrollView
-            testID="promotion-frames"
-            style={{
-              position: 'absolute',
-              left: pageW * R.insetX,
-              right: pageW * R.insetX,
-              top: pageH * R.insetTop,
-              bottom: pageH * R.insetBottom,
-            }}
-            contentContainerStyle={{
-              alignItems: 'center',
-              gap: space[3],
-              paddingVertical: space[2],
-            }}
-            showsVerticalScrollIndicator={false}
-          >
-            {Object.keys(MAGAZINE_FRAMES).map((id) => {
-              const on = chosenFrame === id;
-              const lockedFrame = !owned(id);
-              return (
-                <Pressable
-                  key={id}
-                  testID={`frame-${id}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
-                  accessibilityState={{ selected: on, disabled: !canEdit || lockedFrame }}
-                  disabled={!canEdit || lockedFrame}
-                  onPress={() => {
-                    setChosenFrame(id);
-                    edit({ ...layout, frameId: id });
-                    setStep('text');
-                  }}
-                  style={{
-                    padding: space[1],
-                    borderRadius: semanticTokens.radius.control,
-                    borderWidth: semanticTokens.stroke.strong,
-                    borderColor: on ? semanticTokens.color.outline : 'transparent',
-                    opacity: lockedFrame ? componentTokens.button.disabledOpacity : 1,
-                  }}
-                >
-                  <Image
-                    source={MAGAZINE_FRAMES[id].source}
-                    resizeMode="stretch"
-                    style={{ width: paperW, height: paperW * CELL_ASPECT }}
-                  />
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
+      <View style={{ width: pageW, height: pageH }}>
+        <Image
+          source={MAGAZINE_UI.page}
+          resizeMode="stretch"
+          style={{ position: 'absolute', width: pageW, height: pageH }}
+        />
+        <Txt
+          accessibilityRole="header"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: pageH * R.ribbonTop,
+            height: pageH * R.ribbonHeight,
+            lineHeight: pageH * R.ribbonHeight,
+            textAlign: 'center',
+            fontWeight: '700',
+          }}
+        >
+          {t('magazine.editor.framePrompt')}
+        </Txt>
+        <ScrollView
+          testID="promotion-frames"
+          style={{
+            position: 'absolute',
+            left: pageW * R.insetX,
+            right: pageW * R.insetX,
+            top: pageH * R.insetTop,
+            bottom: pageH * R.insetBottom,
+          }}
+          contentContainerStyle={{
+            alignItems: 'center',
+            gap: space[3],
+            paddingVertical: space[2],
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          {Object.keys(MAGAZINE_FRAMES).map((id) => {
+            const on = chosenFrame === id;
+            const lockedFrame = !owned(id);
+            return (
+              <Pressable
+                key={id}
+                testID={`frame-${id}`}
+                accessibilityRole="button"
+                accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
+                accessibilityState={{ selected: on, disabled: !canEdit || lockedFrame }}
+                disabled={!canEdit || lockedFrame}
+                onPress={() => {
+                  setChosenFrame(id);
+                  edit({ ...layout, frameId: id });
+                  setStep('text');
+                }}
+                style={{
+                  padding: space[1],
+                  borderRadius: semanticTokens.radius.control,
+                  borderWidth: semanticTokens.stroke.strong,
+                  borderColor: on ? semanticTokens.color.outline : 'transparent',
+                  opacity: lockedFrame ? componentTokens.button.disabledOpacity : 1,
+                }}
+              >
+                <Image
+                  source={MAGAZINE_FRAMES[id].source}
+                  resizeMode="stretch"
+                  style={{ width: paperW, height: paperW * CELL_ASPECT }}
+                />
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
     </View>
   );
 
