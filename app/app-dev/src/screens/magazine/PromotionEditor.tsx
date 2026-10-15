@@ -576,7 +576,8 @@ export function PromotionEditor({
   const pageH = pageW / R.pageAspect;
   const paperW =
     Math.floor(pageW * (1 - R.insetX * 2)) - space[1] * 2 - semanticTokens.stroke.strong * 2;
-  const framePage = (
+  // 잡지 속지 한 장(남은 자리 가운데, 잡지와 같은 비율) — 띠에 글, 안쪽에 children. 종이 고르기·글 쓰기가 같이 쓴다
+  const onPage = (ribbon: string, children: React.ReactNode) => (
     <View
       style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
       onLayout={(ev) => setPageBox(ev.nativeEvent.layout)}
@@ -600,10 +601,9 @@ export function PromotionEditor({
             fontWeight: '700',
           }}
         >
-          {t('magazine.editor.framePrompt')}
+          {ribbon}
         </Txt>
-        <ScrollView
-          testID="promotion-frames"
+        <View
           style={{
             position: 'absolute',
             left: pageW * R.insetX,
@@ -611,62 +611,76 @@ export function PromotionEditor({
             top: pageH * R.insetTop,
             bottom: pageH * R.insetBottom,
           }}
-          contentContainerStyle={{
-            alignItems: 'center',
-            gap: space[3],
-            paddingVertical: space[2],
-          }}
-          showsVerticalScrollIndicator={false}
         >
-          {Object.keys(MAGAZINE_FRAMES).map((id) => {
-            const on = chosenFrame === id;
-            const lockedFrame = !owned(id);
-            return (
-              <Pressable
-                key={id}
-                testID={`frame-${id}`}
-                accessibilityRole="button"
-                accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
-                accessibilityState={{ selected: on, disabled: !canEdit || lockedFrame }}
-                disabled={!canEdit || lockedFrame}
-                onPress={() => {
-                  setChosenFrame(id);
-                  edit({ ...layout, frameId: id });
-                  setStep('text');
-                }}
-                style={{
-                  padding: space[1],
-                  borderRadius: semanticTokens.radius.control,
-                  borderWidth: semanticTokens.stroke.strong,
-                  borderColor: on ? semanticTokens.color.outline : 'transparent',
-                  opacity: lockedFrame ? componentTokens.button.disabledOpacity : 1,
-                }}
-              >
-                <Image
-                  source={MAGAZINE_FRAMES[id].source}
-                  resizeMode="stretch"
-                  style={{ width: paperW, height: paperW * CELL_ASPECT }}
-                />
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+          {children}
+        </View>
       </View>
     </View>
   );
+  const framePage = onPage(
+    t('magazine.editor.framePrompt'),
+    <ScrollView
+      testID="promotion-frames"
+      style={{ flex: 1 }}
+      contentContainerStyle={{
+        // 종이가 적어 속지 안에 다 들어가면 위아래 가운데에 둔다
+        flexGrow: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: space[3],
+        paddingVertical: space[2],
+      }}
+      showsVerticalScrollIndicator={false}
+    >
+      {Object.keys(MAGAZINE_FRAMES).map((id) => {
+        const on = chosenFrame === id;
+        const lockedFrame = !owned(id);
+        return (
+          <Pressable
+            key={id}
+            testID={`frame-${id}`}
+            accessibilityRole="button"
+            accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
+            accessibilityState={{ selected: on, disabled: !canEdit || lockedFrame }}
+            disabled={!canEdit || lockedFrame}
+            onPress={() => {
+              setChosenFrame(id);
+              edit({ ...layout, frameId: id });
+              setStep('text');
+            }}
+            style={{
+              padding: space[1],
+              borderRadius: semanticTokens.radius.control,
+              borderWidth: semanticTokens.stroke.strong,
+              borderColor: on ? semanticTokens.color.outline : 'transparent',
+              opacity: lockedFrame ? componentTokens.button.disabledOpacity : 1,
+            }}
+          >
+            <Image
+              source={MAGAZINE_FRAMES[id].source}
+              resizeMode="stretch"
+              style={{ width: paperW, height: paperW * CELL_ASPECT }}
+            />
+          </Pressable>
+        );
+      })}
+    </ScrollView>,
+  );
 
-  // 2단계 — 칸 안 한 줄 글 자리를 누르면 바로 키보드가 뜬다(Figma C1 원안). 들어오면 바로 쓸 수 있게 커서를 둔다
-  const textStep = (
-    <View style={{ gap: space[2] }}>
+  // 2단계 — 속지 가운데의 고른 종이. 칸 안 한 줄 글 자리를 누르면 바로 키보드가 뜬다(Figma C1 원안). 들어오면 커서를 둔다
+  const textCellW = Math.floor((pageW * (1 - R.insetX * 2)) / (1 + 2 * CANVAS_PAD));
+  const textPage = onPage(
+    t('magazine.reader.title'),
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[2] }}>
       <Pressable
         testID="promotion-text-cell"
         accessible={false}
         onPress={() => bodyRef.current?.focus()}
-        style={{ width: cellW, alignSelf: 'center', marginTop: pad.y }}
+        style={{ width: textCellW }}
       >
         <AdCell
           testID="promotion-cell"
-          width={cellW}
+          width={textCellW}
           hideMeta
           cell={{ ...facts, body: body.trim(), layout }}
           bodyInput={(style) => (
@@ -693,7 +707,7 @@ export function PromotionEditor({
       </Pressable>
       <View
         style={{
-          paddingHorizontal: page,
+          width: textCellW,
           flexDirection: 'row',
           justifyContent: 'space-between',
           gap: space[2],
@@ -708,7 +722,7 @@ export function PromotionEditor({
         </Txt>
         <CharCount value={body} max={BODY_MAX} codePoints />
       </View>
-    </View>
+    </View>,
   );
 
   // 작은 화면(320×568)·키보드·큰 글자에서 넘치면 본문 전체를 세로로 민다. 넉넉하면 늘 그렇듯 서랍이 남은 높이를 채운다
@@ -729,9 +743,7 @@ export function PromotionEditor({
           gap: semanticTokens.spacing.control,
         }}
       >
-        {step === 'text' ? (
-          textStep
-        ) : (
+        {
           <>
             <View
               testID="promotion-canvas"
@@ -878,7 +890,7 @@ export function PromotionEditor({
               <View style={{ flex: 1 }} />
             )}
           </>
-        )}
+        }
       </View>
     </ScrollView>
   );
@@ -941,7 +953,7 @@ export function PromotionEditor({
   if (editable && step === 'frame') return shell(framePage, <View style={bottom} />);
   if (editable && step === 'text')
     return shell(
-      content,
+      textPage,
       <View
         style={[
           bottom,
