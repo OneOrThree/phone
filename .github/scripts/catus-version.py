@@ -87,17 +87,27 @@ def published_base(tags, reservations, previous):
 
 
 def release_labels(revision, base_revision):
-    command = ['git', 'rev-list', '--reverse', '--first-parent', revision]
-    if base_revision:
-        command.append('^' + base_revision)
-    try:
+    def candidates():
+        command = ['git', 'rev-list', '--reverse', '--first-parent', revision]
+        descendants = None
+        if base_revision:
+            # 수동 전환의 PR 검증 SHA가 squash된 경우 실제 통합 이력의 공통 조상을 기준으로 한다.
+            boundary = subprocess.check_output(['git', 'merge-base', base_revision, revision], text=True).strip()
+            command.append('^' + boundary)
+            # first-parent만 보면 기준 이전 Gromo의 별도 release 이력이 다시 포함된다.
+            # 실제 후손 집합은 양쪽 부모를 따라 구하고, 릴리스 라벨은 첫 부모 경로에서만 읽는다.
+            descendants = set(subprocess.check_output(
+                ['git', 'rev-list', '--ancestry-path', revision, '^' + boundary], text=True).splitlines())
         revisions = subprocess.check_output(command, text=True).splitlines()
+        return revisions if descendants is None else [sha for sha in revisions if sha in descendants]
+    try:
+        revisions = candidates()
     except subprocess.CalledProcessError:
         if not base_revision:
             raise
         # 운영자 전환의 원본 SHA가 squash merge 뒤 브랜치 삭제로 로컬에 없을 수 있다.
         subprocess.check_output(['git', 'fetch', '--no-tags', 'origin', base_revision], text=True)
-        revisions = subprocess.check_output(command, text=True).splitlines()
+        revisions = candidates()
     labels = []
     for sha in revisions:
         response = subprocess.check_output(['gh', 'api', '--paginate', '--slurp',
@@ -106,6 +116,14 @@ def release_labels(revision, base_revision):
             for pr in page:
                 if not pr.get('merged_at') or pr['base']['ref'] != 'release' or pr.get('merge_commit_sha') != sha:
                     continue
+                head = pr.get('head') or {}
+                if head.get('ref') != 'main' or not re.fullmatch('[0-9a-f]{40}', head.get('sha', '')):
+                    raise ValueError('release 승격 PR의 소스 브랜치는 main이어야 한다')
+                try:
+                    subprocess.check_output(['git', 'merge-base', '--is-ancestor', head['sha'], revision],
+                                            text=True, stderr=subprocess.DEVNULL)
+                except subprocess.CalledProcessError as error:
+                    raise ValueError('main → release 승격은 main 부모를 보존하는 merge commit으로 병합해야 한다') from error
                 selected = {label['name'] for label in pr['labels']} & BUMP_ORDER.keys()
                 if len(selected) > 1:
                     raise ValueError('릴리스 PR의 버전 라벨은 하나만 선택한다')
