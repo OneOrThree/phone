@@ -567,6 +567,21 @@ else:
             finally:
                 os.chdir(before)
 
+    def test_전송의도만_남은_중단은_접수불명으로_자동재전송하지_않는다(self):
+        deploy = module('deploy_interrupted', 'catus-deploy.py')
+        request = {'marker': 'catus:1:2', 'parameters': {'Operation': ['deploy']}, 'envelope': {}}
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(Path(directory, 'summary'))}), \
+                 patch.object(deploy, 'existing_command', return_value=None) as lookup, \
+                 patch.object(deploy, 'aws') as aws, \
+                 patch.object(deploy.time, 'monotonic', side_effect=[0, 0, 2501]), \
+                 patch.object(deploy.time, 'sleep'), \
+                 self.assertRaisesRegex(RuntimeError, '새 배포 전에 기존 command 상태'):
+                deploy.execute(request, already_submitted=True)
+            lookup.assert_called_once_with(request)
+            aws.assert_not_called()
+            self.assertFalse(Path(directory, 'deployment-status-prod.json').exists())
+
     def test_workflow의_모든_인라인Python은_실행가능한_구문이다(self):
         for filename in ['prod-ci.yml', 'prod-cd.yml', 'data-api-cd.dev.yml',
                          'realtime-cd.dev.yml', 'satellite-cd.dev.yml']:
