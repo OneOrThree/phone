@@ -157,7 +157,10 @@
       "wardrobeSub": "Clothes · Accessories",
       "friendsTitle": "Manage Friends",
       "friendsSub": "Find friends · Requests · Friend list",
-      "friendRequestCount": { "one": "{{count}} request", "other": "{{count}} requests" },
+      "friendRequestCount": {
+        "one": "{{count}} request",
+        "other": "{{count}} requests"
+      },
       "settingsTitle": "App Settings",
       "settingsSub": "Notifications · Sound · App permissions · Replay tutorial"
     },
@@ -264,7 +267,10 @@
     "createIsland": {
       "capacityLabel": "Capacity · up to {{max}}",
       "capacityA11y": "Capacity",
-      "capacityUnit": { "one": "{{count}} resident", "other": "{{count}} residents" },
+      "capacityUnit": {
+        "one": "{{count}} resident",
+        "other": "{{count}} residents"
+      },
       "approvalAfterJoin": "Approval to Join",
       "approvalAfterJoinSub": "Residents join only after the host approves",
       "title": "Create a New Island",
@@ -377,7 +383,10 @@
     "build": "Build {{building}}",
     "buildProgress": "{{current}}/{{total}} fish",
     "buildInProgress": "{{building}} under construction",
-    "buildMinutesLeft": { "one": "{{count}} minute left", "other": "{{count}} minutes left" },
+    "buildMinutesLeft": {
+      "one": "{{count}} minute left",
+      "other": "{{count}} minutes left"
+    },
     "buildAction": "Build",
     "returnToMyIsland": "Back to My Island",
     "quest": {
@@ -386,8 +395,14 @@
       "today": "Today's Quest",
       "claim": "Claim Reward",
       "tapToClaim": "Tap to view your reward",
-      "more": { "one": "+{{count}} more", "other": "+{{count}} more" },
-      "done": { "one": "{{count}} quest completed", "other": "{{count}} quests completed" },
+      "more": {
+        "one": "+{{count}} more",
+        "other": "+{{count}} more"
+      },
+      "done": {
+        "one": "{{count}} quest completed",
+        "other": "{{count}} quests completed"
+      },
       "a11yReward": {
         "one": "{{count}} quest reward to claim. Claim reward",
         "other": "{{count}} quest rewards to claim. Claim reward"
@@ -948,30 +963,6 @@
         "PRIVACY_IMPERSONATION": "Privacy · impersonation",
         "OTHER": "Other"
       }
-    },
-    "records": {
-      "entry": "Our island ad log",
-      "title": "Our island ad log",
-      "loading": "Loading the log",
-      "loadFailed": "Couldn’t load the ad log.",
-      "forbidden": "Only residents of this island can see it.",
-      "empty": "No ads in the magazine yet.",
-      "issue": "{{date}} · No. {{no}}",
-      "issueUnpublished": "{{date}} issue",
-      "status": {
-        "SCHEDULED": "Upcoming",
-        "PUBLISHED": "Published",
-        "SKIPPED": "Not published",
-        "HIDDEN": "Hidden",
-        "REMOVED": "Removed"
-      },
-      "note": {
-        "SCHEDULED": "It goes into that day’s 7 AM magazine.",
-        "SKIPPED": "The island was private or closed, or the issue didn’t go out, so it wasn’t published.",
-        "HIDDEN": "Hidden after several reports. Our team is reviewing it.",
-        "REMOVED": "Removed for breaking our policy."
-      },
-      "rowA11y": "{{issue}}, {{status}}, ‘{{body}}’"
     }
   }
 }

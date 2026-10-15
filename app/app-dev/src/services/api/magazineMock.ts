@@ -18,8 +18,6 @@
  *  - `paged`    오늘 호 칸 8개를 4개씩 커서로 나눠 준다
  *
  * 신고(칸 길게 누르기)는 칸마다 처음은 새 신고, 두 번째부터 「이미 신고」다. `guest` 면 403 SOCIAL_LOGIN_REQUIRED.
- * 회관 홍보 기록판은 지난 홍보 6건(발행 전·실림·숨김·안 실림·내려감)을 준다.
- *  - `norecords` 기록이 없다 · `recordsfail` 기록판 읽기가 실패한다
  *  - `telescope` 목업에서도 망원경 목록을 보인다(잡지에서 찜한 섬 — 칸 미리보기 있음·없음 — 과 전망대 찜·무작위 섬)
  */
 import { ApiError, uuid } from './client';
@@ -37,7 +35,6 @@ import type {
   PromotionApplied,
   PromotionDraft,
   PromotionEditor,
-  PromotionRecord,
   PromotionUpdated,
   SavedPromotion,
 } from './magazine';
@@ -306,38 +303,6 @@ const magazineReaderMock = {
 /** 이 기기에서 신고한 칸 — 같은 칸 두 번째 신고는 서버처럼 「이미 신고」(created: false)다. */
 const reported = new Set<string>();
 
-/** 지난 홍보 기록 — 상태마다 하나씩, 칸 꾸미기는 잡지 칸 목업에서 빌린다. */
-function mockRecords(now: number): PromotionRecord[] {
-  const day = (plus: number) => kstDay(now - 7 * HOUR, plus);
-  const row = (
-    i: number,
-    issueDate: string,
-    issueNo: number | null,
-    status: PromotionRecord['status'],
-    pinned = 0,
-    arrived = 0,
-    joined = 0,
-  ): PromotionRecord => ({
-    promotionId: `mock-record-${i}`,
-    issueDate,
-    issueNo,
-    body: MOCK_CELLS[i].body,
-    status,
-    pinned,
-    arrived,
-    joined,
-    layout: MOCK_CELLS[i].layout,
-  });
-  return [
-    row(0, day(1), null, 'SCHEDULED'),
-    row(1, day(0), TODAY_NO, 'PUBLISHED', 12, 4, 1),
-    row(2, day(-1), TODAY_NO - 1, 'HIDDEN', 3, 0, 0),
-    row(3, day(-2), null, 'SKIPPED'),
-    row(4, day(-3), TODAY_NO - 3, 'PUBLISHED', 5, 2, 0),
-    row(5, day(-5), TODAY_NO - 5, 'REMOVED', 1, 0, 0),
-  ];
-}
-
 export const magazineMock = {
   ...magazineReaderMock,
 
@@ -352,18 +317,6 @@ export const magazineMock = {
     const created = !reported.has(promotionId);
     reported.add(promotionId);
     return { created };
-  },
-
-  async getPromotionRecords(
-    _islandId: string,
-    _limit = 20,
-    now = Date.now(),
-  ): Promise<PromotionRecord[]> {
-    await wait();
-    const flags = mockFlags();
-    if (flags.has('recordsfail'))
-      reject('CLIENT_NETWORK_ERROR', 0, '네트워크에 연결할 수 없어요. 연결을 확인해 주세요.');
-    return flags.has('norecords') ? [] : mockRecords(now);
   },
 
   async getMagazineAssets(): Promise<MagazineAssets> {

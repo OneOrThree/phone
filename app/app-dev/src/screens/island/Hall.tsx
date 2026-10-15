@@ -69,7 +69,7 @@ const ownGreeting = (detail?: { greeting?: string; greetingIsDefault?: boolean }
   detail?.greetingIsDefault === false ? (detail.greeting ?? '') : '';
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
-// 섬 관리 카드의 「우리 섬 홍보 쓰기 ›」·「우리 섬 홍보 기록판 ›」 줄 — 두 줄이 같은 모양이다
+// 섬 관리 카드의 「우리 섬 홍보 쓰기 ›」 줄
 const promotionRow = {
   minHeight: semanticTokens.size.tapMin,
   flexDirection: 'row',
@@ -3003,21 +3003,6 @@ export function Hall({ e }: any) {
         >
           <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
             {t('magazine.editor.title')}
-          </T>
-          <Icon d={CHEV} size={22} />
-        </Pressable>
-      )}
-      {!visitor && (
-        // 우리 섬 홍보 기록판(GROMO-2289 AD-11) — 주민만. 방문자에게는 입구 자체를 그리지 않는다
-        <Pressable
-          testID="hall-promotion-records"
-          accessibilityRole="button"
-          accessibilityLabel={t('magazine.records.entry')}
-          onPress={() => e.go('promotionRecords')}
-          style={promotionRow}
-        >
-          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
-            {t('magazine.records.entry')}
           </T>
           <Icon d={CHEV} size={22} />
         </Pressable>
