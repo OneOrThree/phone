@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Animated,
   BackHandler,
+  Image,
   Keyboard,
   TextInput as NativeTextInput,
   Pressable,
@@ -69,7 +70,6 @@ export type EditorDriver = {
 
 /** 쓰기 단계(10/15) — 칸 틀을 고르고, 칸 안에서 한 줄 글을 쓰고, 글이 있어야 스티커를 붙인다. */
 export type EditorStep = 'frame' | 'text' | 'stickers';
-const STEPS: EditorStep[] = ['frame', 'text', 'stickers'];
 
 /**
  * 쓰기 화면이 칸 미리보기에 쓰는 우리 섬 값 — 서버 모드는 홈 스냅샷, 목업은 로컬 섬. 평균은 07시 발행 때 정해지므로
@@ -209,13 +209,13 @@ export function PromotionEditor({
   // editable = 고칠 수 있는 화면(서랍·버튼을 그린다), canEdit = 지금 손을 댈 수 있다(저장 중에는 잠깐 막는다)
   const editable = status === 'ready' && !readOnly;
   const canEdit = editable && !submitting;
-  // 뒤로가기 — 처음 만드는 중이면 한 단계 앞으로(스티커 → 글 → 틀), 틀 단계·이미 낸 홍보는 회관으로
+  // 뒤로가기 — 한 단계씩 돌아간다(스티커 → 글 → 종이 → 회관). 이미 낸 홍보도 이 길로 글·종이를 고친다
   const backStep: EditorStep | null = !editable
     ? null
-    : step === 'text'
-      ? 'frame'
-      : step === 'stickers' && !editor?.next
-        ? 'text'
+    : step === 'stickers'
+      ? 'text'
+      : step === 'text'
+        ? 'frame'
         : null;
   const goBack = () => (backStep ? setStep(backStep) : e.back());
   // 안드로이드 하드웨어 뒤로가기도 같은 순서 — 나중에 단 리스너가 먼저 받으므로 App 의 처리보다 앞선다
@@ -557,47 +557,7 @@ export function PromotionEditor({
 
   const page = semanticTokens.spacing.page;
   const space = primitiveTokens.space;
-  // 단계 줄 — 지난 단계로는 언제든 돌아가고, 스티커 단계는 글이 있어야 열린다
-  const stepBar = editable ? (
-    <View style={{ flexDirection: 'row', gap: space[2], paddingHorizontal: page }}>
-      {STEPS.map((s, i) => {
-        const on = step === s;
-        const off = s === 'stickers' && !body.trim();
-        return (
-          <Pressable
-            key={s}
-            testID={`promotion-step-${s}`}
-            accessibilityRole="button"
-            accessibilityLabel={t('magazine.editor.stepA11y', {
-              n: i + 1,
-              name: t(`magazine.editor.step.${s}`),
-            })}
-            accessibilityState={{ selected: on, disabled: off || !canEdit }}
-            disabled={off || !canEdit}
-            onPress={() => (s === 'stickers' ? toStickers() : setStep(s))}
-            style={{
-              flex: 1,
-              minHeight: semanticTokens.size.tapMin,
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingHorizontal: space[1],
-              borderRadius: semanticTokens.radius.full,
-              borderWidth: on ? semanticTokens.stroke.strong : semanticTokens.stroke.subtle,
-              borderColor: on ? semanticTokens.color.outline : primitiveTokens.color.controlIdle,
-              backgroundColor: on ? semanticTokens.color.selected : semanticTokens.color.surface,
-              opacity: off ? componentTokens.button.disabledOpacity : 1,
-            }}
-          >
-            <Txt kind="meta" style={{ textAlign: 'center', fontWeight: on ? '800' : '600' }}>
-              {`${i + 1} ${t(`magazine.editor.step.${s}`)}`}
-            </Txt>
-          </Pressable>
-        );
-      })}
-    </View>
-  ) : null;
-
-  // 1단계 — 칸 틀 고르기. 2열로 크게, 틀마다 지금 글·스티커를 얹어 실제 칸 모양으로 보여 준다. 고르면 글 단계로
+  // 1단계 — 종이(칸 틀) 고르기. 빈 종이를 2열로 크게 보여 주고, 고르면 글 단계로
   const tileGap = space[2];
   const tileW = Math.floor((Math.min(L.contentWidth, 560) - page * 2 - tileGap) / 2);
   const tileInner = tileW - space[1] * 2 - semanticTokens.stroke.strong * 2;
@@ -632,21 +592,11 @@ export function PromotionEditor({
                 opacity: lockedFrame ? componentTokens.button.disabledOpacity : 1,
               }}
             >
-              <View
-                pointerEvents="none"
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-              >
-                <AdCell
-                  width={tileInner}
-                  hideMeta
-                  cell={{
-                    ...facts,
-                    body: body.trim() || t('magazine.editor.bodyPlaceholder'),
-                    layout: { ...layout, frameId: id },
-                  }}
-                />
-              </View>
+              <Image
+                source={MAGAZINE_FRAMES[id].source}
+                resizeMode="stretch"
+                style={{ width: tileInner, height: tileInner * CELL_ASPECT }}
+              />
             </Pressable>
           );
         })}
@@ -666,6 +616,7 @@ export function PromotionEditor({
         <AdCell
           testID="promotion-cell"
           width={cellW}
+          hideMeta
           cell={{ ...facts, body: body.trim(), layout }}
           bodyInput={(style) => (
             <NativeTextInput
@@ -677,6 +628,7 @@ export function PromotionEditor({
               autoFocus
               multiline
               allowFontScaling={false}
+              lineBreakStrategyIOS="hangul-word"
               submitBehavior="blurAndSubmit"
               returnKeyType="done"
               onSubmitEditing={toStickers}
@@ -726,7 +678,6 @@ export function PromotionEditor({
           gap: semanticTokens.spacing.control,
         }}
       >
-        {stepBar}
         {step === 'frame' ? (
           framePicker
         ) : step === 'text' ? (
@@ -745,6 +696,7 @@ export function PromotionEditor({
                 <AdCell
                   testID="promotion-cell"
                   width={cellW}
+                  hideMeta
                   cell={{ ...facts, body: body.trim(), layout }}
                 />
               </View>

@@ -38,7 +38,8 @@ export function PromotionReportSheet({
 }) {
   // 큰 글자에서는 [취소]·[신고하기]를 세로로 쌓는다(나란히 두면 글이 두 줄로 꺾인다)
   const stacked = useAppLayout().fontScale >= componentTokens.magazineReader.largeTextThreshold;
-  const [reason, setReason] = useState<ReportReason>(REASONS[0].value);
+  // 이유는 미리 고르지 않는다(10/15) — 골라야 [신고하기]가 켜진다
+  const [reason, setReason] = useState<ReportReason | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const shown = useRef(cell);
@@ -53,7 +54,7 @@ export function PromotionReportSheet({
   const open = !!cell;
   useEffect(() => {
     if (!open) return;
-    setReason(REASONS[0].value);
+    setReason(null);
     setBusy(false);
     setError('');
   }, [open, cell?.promotionId]);
@@ -68,7 +69,7 @@ export function PromotionReportSheet({
   };
   const send = async () => {
     const target = shown.current;
-    if (busy || !target) return;
+    if (busy || !target || !reason) return;
     setBusy(true);
     setError('');
     try {
@@ -119,7 +120,7 @@ export function PromotionReportSheet({
         </Txt>
         <Chips
           items={REASONS.map((r) => label(r.value))}
-          value={label(reason)}
+          value={reason ? label(reason) : null}
           onChange={(picked: string) =>
             setReason(REASONS.find((r) => label(r.value) === picked)!.value)
           }
@@ -145,7 +146,7 @@ export function PromotionReportSheet({
             id="magazine-report-submit"
             dynamicHeight
             title={t(busy ? 'magazine.report.busy' : 'magazine.report.submit')}
-            disabled={busy}
+            disabled={busy || !reason}
             style={stacked ? null : { flex: 1 }}
             onPress={send}
           />

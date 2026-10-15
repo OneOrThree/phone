@@ -798,14 +798,8 @@
       "selectedA11y": "{{name}}, selected",
       "frameA11y": "{{name}} frame",
       "lockedAsset": "{{name}}, not owned yet",
-      "framePrompt": "Pick a frame",
-      "next": "Next",
-      "step": {
-        "frame": "Frame",
-        "text": "Message",
-        "stickers": "Stickers"
-      },
-      "stepA11y": "Step {{n}}: {{name}}"
+      "framePrompt": "Pick a paper.",
+      "next": "Next"
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
