@@ -116,6 +116,14 @@ def release_labels(revision, base_revision):
             for pr in page:
                 if not pr.get('merged_at') or pr['base']['ref'] != 'release' or pr.get('merge_commit_sha') != sha:
                     continue
+                head = pr.get('head') or {}
+                if head.get('ref') != 'main' or not re.fullmatch('[0-9a-f]{40}', head.get('sha', '')):
+                    raise ValueError('release 승격 PR의 소스 브랜치는 main이어야 한다')
+                try:
+                    subprocess.check_output(['git', 'merge-base', '--is-ancestor', head['sha'], revision],
+                                            text=True, stderr=subprocess.DEVNULL)
+                except subprocess.CalledProcessError as error:
+                    raise ValueError('main → release 승격은 main 부모를 보존하는 merge commit으로 병합해야 한다') from error
                 selected = {label['name'] for label in pr['labels']} & BUMP_ORDER.keys()
                 if len(selected) > 1:
                     raise ValueError('릴리스 PR의 버전 라벨은 하나만 선택한다')
