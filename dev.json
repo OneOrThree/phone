@@ -1,1 +1,1 @@
-{"cacheSeconds": 300, "color": "lightgrey", "label": "dev 서버", "message": "배포 확인 0/4", "schemaVersion": 1}
+{"cacheSeconds": 300, "color": "red", "label": "dev 서버", "message": "배포 실패 · 성공 0/4", "schemaVersion": 1}
