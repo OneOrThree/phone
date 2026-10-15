@@ -87,17 +87,27 @@ def published_base(tags, reservations, previous):
 
 
 def release_labels(revision, base_revision):
-    command = ['git', 'rev-list', '--reverse', '--first-parent', revision]
-    if base_revision:
-        command.append('^' + base_revision)
-    try:
+    def candidates():
+        command = ['git', 'rev-list', '--reverse', '--first-parent', revision]
+        descendants = None
+        if base_revision:
+            # 수동 전환의 PR 검증 SHA가 squash된 경우 실제 통합 이력의 공통 조상을 기준으로 한다.
+            boundary = subprocess.check_output(['git', 'merge-base', base_revision, revision], text=True).strip()
+            command.append('^' + boundary)
+            # first-parent만 보면 기준 이전 Gromo의 별도 release 이력이 다시 포함된다.
+            # 실제 후손 집합은 양쪽 부모를 따라 구하고, 릴리스 라벨은 첫 부모 경로에서만 읽는다.
+            descendants = set(subprocess.check_output(
+                ['git', 'rev-list', '--ancestry-path', revision, '^' + boundary], text=True).splitlines())
         revisions = subprocess.check_output(command, text=True).splitlines()
+        return revisions if descendants is None else [sha for sha in revisions if sha in descendants]
+    try:
+        revisions = candidates()
     except subprocess.CalledProcessError:
         if not base_revision:
             raise
         # 운영자 전환의 원본 SHA가 squash merge 뒤 브랜치 삭제로 로컬에 없을 수 있다.
         subprocess.check_output(['git', 'fetch', '--no-tags', 'origin', base_revision], text=True)
-        revisions = subprocess.check_output(command, text=True).splitlines()
+        revisions = candidates()
     labels = []
     for sha in revisions:
         response = subprocess.check_output(['gh', 'api', '--paginate', '--slurp',
