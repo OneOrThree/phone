@@ -314,6 +314,8 @@ export function PromotionEditor({
     }
     if (!result.problem.message) return;
     setProblem(result.problem);
+    // 글 문제(금칙어 · 60자 초과)는 글 단계로 돌려 칸 아래 빨간 안내와 함께 바로 고치게 한다
+    if (result.problem.field === 'body') setStep('text');
     if (!result.problem.field) e.notify(result.problem.message);
   };
 

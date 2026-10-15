@@ -129,15 +129,23 @@ export function MagazineEditorPreview() {
     };
     const touch = () => createTouchDriver(driver.current!.canvas);
     const steps: [string, () => void | Promise<void>][] = [
-      ['1 지난번 칸으로 열림', () => {}],
+      ['1 틀 고르기 단계로 열림', () => {}],
       [
-        '2 한 줄 글 60자',
-        () =>
+        '2 글 단계 · 한 줄 글 60자',
+        () => {
+          driver.current!.step('text');
           driver.current!.body(
             '같이 아침 공부하실 분 환영해요! 조용한 섬이라 집중이 잘 되고 저녁엔 모닥불에서 다 같이 쉬어요 놀러 와요',
-          ),
+          );
+        },
       ],
-      ['3 틀 고르기 · 파란 티켓', () => driver.current!.frame('mag.frame-ticket')],
+      [
+        '3 틀 바꾸기 · 파란 티켓 → 스티커 단계',
+        () => {
+          driver.current!.frame('mag.frame-ticket');
+          driver.current!.step('stickers');
+        },
+      ],
       ['4 스티커 붙이기(가운데·골라짐)', () => driver.current!.sticker('mag.cat-gray-cheer')],
       ['5 한 손가락 끌기 → 왼쪽 아래', () => touch().drag(at(0.5, 0.5), at(0.22, 0.68))],
       [
