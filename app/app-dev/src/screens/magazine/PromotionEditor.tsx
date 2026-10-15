@@ -181,8 +181,8 @@ export function PromotionEditor({
   // 접수 완료 확인창 — 열 때의 신청 결과(호 · 시점)로 문구를 고정한다(뒤이은 다시 읽기로 바뀌지 않게). null 이면 닫힘
   const [done, setDone] = useState<{ issueDate: string; phase: AppliedPhase } | null>(null);
   const [stamped, setStamped] = useState(false);
-  // 칸 위에 손가락이 있는 동안은 화면 세로 스크롤을 잠근다(끌기·두 손가락 조작이 스크롤에 뺏기지 않게)
-  const [canvasTouch, setCanvasTouch] = useState(false);
+  // 싣기 전 가격 안내창
+  const [confirming, setConfirming] = useState(false);
   const touched = useRef(false);
   const stamp = useRef(new Animated.Value(0)).current;
 
@@ -244,8 +244,16 @@ export function PromotionEditor({
   };
 
   // 칸 크기: 화면 폭에서 스티커가 걸칠 둘레(8%)를 뺀 만큼. 태블릿·가로에서는 너무 커지지 않게 묶는다
-  const frameW = Math.min(L.width - L.insets.left - L.insets.right, 520) - primitiveTokens.space[4];
-  const cellW = Math.floor(frameW / (1 + 2 * CANVAS_PAD));
+  // 쓰기 화면은 모든 단계를 잡지 속지 위에서 한다 — 속지는 남은 자리에 잡지와 같은 비율로 가장 크게(처음 그릴 때는
+  // 화면 크기로 어림), 칸은 속지 안쪽 폭에서 스티커가 걸칠 둘레(8%)를 뺀 만큼
+  const R = componentTokens.magazineReader;
+  const pageW = Math.min(
+    pageBox.width || L.width,
+    (pageBox.height || L.height) * R.pageAspect,
+    R.maxPageWidth,
+  );
+  const pageH = pageW / R.pageAspect;
+  const cellW = Math.floor((pageW * (1 - R.insetX * 2)) / (1 + 2 * CANVAS_PAD));
   const cellH = cellW * CELL_ASPECT;
   const pad = { x: CANVAS_PAD * cellW, y: CANVAS_PAD * cellH };
   const gestures = useStickerGestures({
@@ -272,14 +280,11 @@ export function PromotionEditor({
     edit(setTape(layout, id));
     setSelection({ kind: 'tape' });
   };
+  // [새로 꾸미기] — 스티커·테이프만 비운다(10/15). 고른 종이와 글은 그대로 두고 스티커 단계에 머문다
   const fresh = () => {
     edit(emptyLayout(layout.frameId));
-    touched.current = true;
-    setBody('');
     setSelection(null);
     setProblem(null);
-    setChosenFrame(null);
-    setStep('frame');
   };
 
   const changeBody = (text: string) => {
@@ -401,13 +406,42 @@ export function PromotionEditor({
       <View
         testID="promotion-editor-layer"
         style={{ flex: 1 }}
-        accessibilityElementsHidden={!!done}
-        importantForAccessibility={done ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={!!done || confirming}
+        importantForAccessibility={done || confirming ? 'no-hide-descendants' : 'auto'}
       >
         {header}
         {content}
         {footer}
       </View>
+      {confirming && editor && (
+        <Overlay close={() => setConfirming(false)}>
+          <Txt kind="h17">{t('magazine.editor.confirmTitle')}</Txt>
+          <Txt testID="promotion-confirm-body">
+            {t('magazine.editor.confirmBody', {
+              fish: editor.feeFish,
+              balance: formatNumber(editor.balance),
+            })}
+          </Txt>
+          <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+            <Btn
+              id="promotion-confirm-cancel"
+              kind="sec"
+              style={{ flex: 1 }}
+              title={t('common.cancel')}
+              onPress={() => setConfirming(false)}
+            />
+            <Btn
+              id="promotion-confirm-ok"
+              style={{ flex: 1 }}
+              title={t('magazine.editor.confirmOk', { fish: editor.feeFish })}
+              onPress={() => {
+                setConfirming(false);
+                void send();
+              }}
+            />
+          </View>
+        </Overlay>
+      )}
       {done && (
         <Overlay close={() => setDone(null)}>
           <Txt kind="h17">{t('magazine.editor.doneTitle')}</Txt>
@@ -500,7 +534,7 @@ export function PromotionEditor({
     ? t('magazine.editor.save')
     : closed
       ? t('magazine.editor.whenClosed')
-      : t('magazine.editor.apply', { fish: fee });
+      : t('magazine.editor.apply');
   const note = readOnly
     ? t('magazine.editor.locked')
     : editor.privateIsland
@@ -566,14 +600,6 @@ export function PromotionEditor({
   const page = semanticTokens.spacing.page;
   const space = primitiveTokens.space;
   // 1단계 — 종이(칸 틀) 고르기. 잡지 속지 위 가운데에 빈 종이를 한 장씩 크게 두고 세로로 밀어 고른다. 고르면 글 단계로
-  const R = componentTokens.magazineReader;
-  // 처음 그릴 때(크기를 재기 전)는 화면 크기로 어림한다
-  const pageW = Math.min(
-    pageBox.width || L.width,
-    (pageBox.height || L.height) * R.pageAspect,
-    R.maxPageWidth,
-  );
-  const pageH = pageW / R.pageAspect;
   const paperW =
     Math.floor(pageW * (1 - R.insetX * 2)) - space[1] * 2 - semanticTokens.stroke.strong * 2;
   // 잡지 속지 한 장(남은 자리 가운데, 잡지와 같은 비율) — 띠에 글, 안쪽에 children. 종이 고르기·글 쓰기가 같이 쓴다
@@ -668,7 +694,6 @@ export function PromotionEditor({
   );
 
   // 2단계 — 속지 가운데의 고른 종이. 칸 안 한 줄 글 자리를 누르면 바로 키보드가 뜬다(Figma C1 원안). 들어오면 커서를 둔다
-  const textCellW = Math.floor((pageW * (1 - R.insetX * 2)) / (1 + 2 * CANVAS_PAD));
   const textPage = onPage(
     t('magazine.reader.title'),
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[2] }}>
@@ -676,11 +701,11 @@ export function PromotionEditor({
         testID="promotion-text-cell"
         accessible={false}
         onPress={() => bodyRef.current?.focus()}
-        style={{ width: textCellW }}
+        style={{ width: cellW }}
       >
         <AdCell
           testID="promotion-cell"
-          width={textCellW}
+          width={cellW}
           hideMeta
           cell={{ ...facts, body: body.trim(), layout }}
           bodyInput={(style) => (
@@ -707,7 +732,7 @@ export function PromotionEditor({
       </Pressable>
       <View
         style={{
-          width: textCellW,
+          width: cellW,
           flexDirection: 'row',
           justifyContent: 'space-between',
           gap: space[2],
@@ -725,174 +750,151 @@ export function PromotionEditor({
     </View>,
   );
 
-  // 작은 화면(320×568)·키보드·큰 글자에서 넘치면 본문 전체를 세로로 민다. 넉넉하면 늘 그렇듯 서랍이 남은 높이를 채운다
+  // 3단계 — 속지 가운데 칸에 스티커를 붙인다. 아래로 고른 꾸미기 버튼 줄과 서랍(고정 높이)
   const content = (
-    <ScrollView
-      testID="promotion-scroll"
-      style={{ flex: 1 }}
-      contentContainerStyle={{ flexGrow: 1 }}
-      keyboardShouldPersistTaps="handled"
-      alwaysBounceVertical={false}
-      scrollEnabled={!canvasTouch}
-    >
-      <View
-        style={{
-          flex: 1,
-          width: Math.min(L.contentWidth, 560),
-          alignSelf: 'center',
-          gap: semanticTokens.spacing.control,
-        }}
-      >
-        {
-          <>
-            <View
-              testID="promotion-canvas"
-              {...gestures}
-              onTouchStart={() => setCanvasTouch(true)}
-              onTouchEnd={(ev) => ev.nativeEvent.touches.length === 0 && setCanvasTouch(false)}
-              onTouchCancel={() => setCanvasTouch(false)}
-              style={{ width: cellW + pad.x * 2, height: cellH + pad.y * 2, alignSelf: 'center' }}
-            >
-              <View pointerEvents="none" style={{ position: 'absolute', left: pad.x, top: pad.y }}>
-                <AdCell
-                  testID="promotion-cell"
-                  width={cellW}
-                  hideMeta
-                  cell={{ ...facts, body: body.trim(), layout }}
-                />
-              </View>
-              {box && canEdit && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    left: pad.x + box.cx - box.hw - componentTokens.promotionEditor.selectionInset,
-                    top: pad.y + box.cy - box.hh - componentTokens.promotionEditor.selectionInset,
-                    width: box.hw * 2 + componentTokens.promotionEditor.selectionInset * 2,
-                    height: box.hh * 2 + componentTokens.promotionEditor.selectionInset * 2,
-                    borderRadius: componentTokens.promotionEditor.selectionRadius,
-                    borderWidth: semanticTokens.stroke.default,
-                    borderStyle: 'dashed',
-                    borderColor: semanticTokens.color.outline,
-                    transform: [{ rotate: `${box.rotation}deg` }],
-                  }}
-                />
-              )}
-              {handle && (
-                <View
-                  testID="promotion-handle"
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    left: pad.x + handle.x - componentTokens.promotionEditor.handleSize / 2,
-                    top: pad.y + handle.y - componentTokens.promotionEditor.handleSize / 2,
-                    width: componentTokens.promotionEditor.handleSize,
-                    height: componentTokens.promotionEditor.handleSize,
-                    borderRadius: componentTokens.promotionEditor.handleSize / 2,
-                    borderWidth: semanticTokens.stroke.strong,
-                    borderColor: semanticTokens.color.outline,
-                    backgroundColor: semanticTokens.color.surface,
-                  }}
-                />
-              )}
-              {stamped && (
-                // 판의 손가락 기준점이 흔들리지 않게 도장은 터치를 받지 않는다
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    left: pad.x + cellW * 0.6,
-                    top: pad.y + cellH * 0.3,
-                  }}
-                >
-                  <Animated.Image
-                    testID="promotion-stamp"
-                    accessibilityLabel={t('magazine.editor.stampA11y')}
-                    source={MAGAZINE_STAMP}
-                    resizeMode="contain"
-                    style={{
-                      width: cellW * 0.38,
-                      height: cellW * 0.38,
-                      opacity: stamp,
-                      transform: [
-                        { scale: stamp.interpolate({ inputRange: [0, 1], outputRange: [1.8, 1] }) },
-                        { rotate: '-10deg' },
-                      ],
-                    }}
-                  />
-                </View>
-              )}
-              {layout.stickers.map((_, i) =>
-                a11yItem({ kind: 'sticker', index: i }, `sticker-${i}`),
-              )}
-              {layout.tape && a11yItem({ kind: 'tape' }, 'tape')}
+    <View style={{ flex: 1 }}>
+      {onPage(
+        t('magazine.reader.title'),
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <View
+            testID="promotion-canvas"
+            {...gestures}
+            style={{ width: cellW + pad.x * 2, height: cellH + pad.y * 2 }}
+          >
+            <View pointerEvents="none" style={{ position: 'absolute', left: pad.x, top: pad.y }}>
+              <AdCell
+                testID="promotion-cell"
+                width={cellW}
+                hideMeta
+                cell={{ ...facts, body: body.trim(), layout }}
+              />
             </View>
-            <View style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}>
-              {selection && canEdit ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{
-                    gap: primitiveTokens.space[2],
-                    paddingHorizontal: semanticTokens.spacing.page,
-                  }}
-                >
-                  {opsFor(selection, OPS).map((op) => (
-                    <Btn
-                      key={op}
-                      id={`op-${op}`}
-                      small
-                      kind="sec"
-                      dynamicHeight={largeText}
-                      title={t(`magazine.editor.op.${op}`)}
-                      accessibilityLabel={`${t(`magazine.editor.op.${op}`)}: ${itemLabel(selection)}`}
-                      onPress={() => doEdit(selection, op)}
-                    />
-                  ))}
-                </ScrollView>
-              ) : (
-                <Txt
-                  kind="meta"
-                  style={{ textAlign: 'center', paddingHorizontal: semanticTokens.spacing.page }}
-                >
-                  {readOnly ? t('magazine.editor.locked') : null}
-                </Txt>
-              )}
-            </View>
-            {editable ? (
+            {box && canEdit && (
               <View
-                pointerEvents={canEdit ? 'auto' : 'none'}
+                pointerEvents="none"
                 style={{
-                  flex: 1,
-                  minHeight: componentTokens.promotionEditor.drawerMinHeight,
-                  paddingTop: semanticTokens.spacing.control,
-                  paddingHorizontal: semanticTokens.spacing.page,
-                  borderTopLeftRadius: componentTokens.modal.sheetRadius,
-                  borderTopRightRadius: componentTokens.modal.sheetRadius,
+                  position: 'absolute',
+                  left: pad.x + box.cx - box.hw - componentTokens.promotionEditor.selectionInset,
+                  top: pad.y + box.cy - box.hh - componentTokens.promotionEditor.selectionInset,
+                  width: box.hw * 2 + componentTokens.promotionEditor.selectionInset * 2,
+                  height: box.hh * 2 + componentTokens.promotionEditor.selectionInset * 2,
+                  borderRadius: componentTokens.promotionEditor.selectionRadius,
                   borderWidth: semanticTokens.stroke.default,
-                  borderBottomWidth: 0,
+                  borderStyle: 'dashed',
+                  borderColor: semanticTokens.color.outline,
+                  transform: [{ rotate: `${box.rotation}deg` }],
+                }}
+              />
+            )}
+            {handle && (
+              <View
+                testID="promotion-handle"
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  left: pad.x + handle.x - componentTokens.promotionEditor.handleSize / 2,
+                  top: pad.y + handle.y - componentTokens.promotionEditor.handleSize / 2,
+                  width: componentTokens.promotionEditor.handleSize,
+                  height: componentTokens.promotionEditor.handleSize,
+                  borderRadius: componentTokens.promotionEditor.handleSize / 2,
+                  borderWidth: semanticTokens.stroke.strong,
                   borderColor: semanticTokens.color.outline,
                   backgroundColor: semanticTokens.color.surface,
                 }}
+              />
+            )}
+            {stamped && (
+              // 판의 손가락 기준점이 흔들리지 않게 도장은 터치를 받지 않는다
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  left: pad.x + cellW * 0.6,
+                  top: pad.y + cellH * 0.3,
+                }}
               >
-                <StickerDrawer
-                  tab={tab}
-                  onTab={setTab}
-                  full={layout.stickers.length >= MAX_STICKERS}
-                  owned={owned}
-                  tapeId={layout.tape?.assetId ?? null}
-                  onSticker={addOne}
-                  onTape={putTape}
-                  onFull={() => e.notify(t('magazine.editor.stickersFull'))}
+                <Animated.Image
+                  testID="promotion-stamp"
+                  accessibilityLabel={t('magazine.editor.stampA11y')}
+                  source={MAGAZINE_STAMP}
+                  resizeMode="contain"
+                  style={{
+                    width: cellW * 0.38,
+                    height: cellW * 0.38,
+                    opacity: stamp,
+                    transform: [
+                      { scale: stamp.interpolate({ inputRange: [0, 1], outputRange: [1.8, 1] }) },
+                      { rotate: '-10deg' },
+                    ],
+                  }}
                 />
               </View>
-            ) : (
-              <View style={{ flex: 1 }} />
             )}
-          </>
-        }
+            {layout.stickers.map((_, i) => a11yItem({ kind: 'sticker', index: i }, `sticker-${i}`))}
+            {layout.tape && a11yItem({ kind: 'tape' }, 'tape')}
+          </View>
+        </View>,
+      )}
+      <View style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}>
+        {selection && canEdit ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{
+              gap: primitiveTokens.space[2],
+              paddingHorizontal: semanticTokens.spacing.page,
+            }}
+          >
+            {opsFor(selection, OPS).map((op) => (
+              <Btn
+                key={op}
+                id={`op-${op}`}
+                small
+                kind="sec"
+                dynamicHeight={largeText}
+                title={t(`magazine.editor.op.${op}`)}
+                accessibilityLabel={`${t(`magazine.editor.op.${op}`)}: ${itemLabel(selection)}`}
+                onPress={() => doEdit(selection, op)}
+              />
+            ))}
+          </ScrollView>
+        ) : (
+          <Txt
+            kind="meta"
+            style={{ textAlign: 'center', paddingHorizontal: semanticTokens.spacing.page }}
+          >
+            {readOnly ? t('magazine.editor.locked') : null}
+          </Txt>
+        )}
       </View>
-    </ScrollView>
+      {editable ? (
+        <View
+          pointerEvents={canEdit ? 'auto' : 'none'}
+          style={{
+            height: componentTokens.promotionEditor.drawerMinHeight,
+            paddingTop: semanticTokens.spacing.control,
+            paddingHorizontal: semanticTokens.spacing.page,
+            borderTopLeftRadius: componentTokens.modal.sheetRadius,
+            borderTopRightRadius: componentTokens.modal.sheetRadius,
+            borderWidth: semanticTokens.stroke.default,
+            borderBottomWidth: 0,
+            borderColor: semanticTokens.color.outline,
+            backgroundColor: semanticTokens.color.surface,
+          }}
+        >
+          <StickerDrawer
+            tab={tab}
+            onTab={setTab}
+            full={layout.stickers.length >= MAX_STICKERS}
+            owned={owned}
+            tapeId={layout.tape?.assetId ?? null}
+            onSticker={addOne}
+            onTape={putTape}
+            onFull={() => e.notify(t('magazine.editor.stickersFull'))}
+          />
+        </View>
+      ) : null}
+    </View>
   );
 
   const footer = (
@@ -940,12 +942,15 @@ export function PromotionEditor({
           title={ctaTitle}
           // canEdit = 불러온 상태(다시 읽는 중 아님) · 저장 중 아님
           disabled={blocked || !canEdit}
-          onPress={send}
+          onPress={() => (editor.next ? send() : setConfirming(true))}
         />
       </View>
-      <Txt kind="meta" style={{ textAlign: 'center' }}>
-        {`${t('magazine.editor.balance', { fish: formatNumber(editor.balance) })} · ${note}`}
-      </Txt>
+      {/* 평소에는 잔액·안내 줄을 두지 않는다(10/15 — 가격은 싣기 확인창에서). 버튼이 꺼진 이유만 알린다 */}
+      {readOnly || poor || editor.privateIsland ? (
+        <Txt kind="meta" style={{ textAlign: 'center' }}>
+          {`${t('magazine.editor.balance', { fish: formatNumber(editor.balance) })} · ${note}`}
+        </Txt>
+      ) : null}
     </View>
   );
 

@@ -752,7 +752,7 @@
         "friends": "Friends",
         "deco": "Deco"
       },
-      "apply": "Put in the magazine · {{fish}} fish",
+      "apply": "Put in the magazine",
       "save": "Save changes",
       "reset": "Start fresh",
       "balance": "Island bank {{fish}} fish",
@@ -799,7 +799,10 @@
       "frameA11y": "{{name}} frame",
       "lockedAsset": "{{name}}, not owned yet",
       "framePrompt": "Pick a paper.",
-      "next": "Next"
+      "next": "Next",
+      "confirmTitle": "Put this in the magazine?",
+      "confirmBody": "This uses {{fish}} fish from the island bank. The island bank has {{balance}} now. It will run in tomorrow’s 7 AM issue.",
+      "confirmOk": "Put it in · {{fish}} fish"
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
