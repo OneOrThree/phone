@@ -766,7 +766,6 @@
       "loadFailed": "Couldn't load your promotion",
       "saved": "Changes saved",
       "doneTitle": "You're in the magazine!",
-      "doneBodyPublished": "The {{date}} 7 AM issue is already out. Check it in the magazine",
       "problem": {
         "poor": "Not enough fish in the island bank",
         "windowClosed": "You can't apply right now. It opens again at 7 AM",

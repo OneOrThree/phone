@@ -744,7 +744,7 @@ describe('신청 창·잔액·비공개', () => {
     }
   });
 
-  it('06:59 에 다시 보낸 지난 호 신청의 성공이 07시 다시 읽기 뒤(07:05)에 오면 이미 나온 호로 알리고 회관으로', async () => {
+  it('06:59 에 다시 보낸 지난 호 신청의 성공이 07시 다시 읽기 뒤(07:05)에 와도 실린 것으로 알리고 회관으로', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:30Z') }); // KST 23:59:30
     try {
       const published = {
@@ -798,9 +798,7 @@ describe('신청 창·잔액·비공개', () => {
           newsId: 'n',
         });
       });
-      expect(e.notify).toHaveBeenCalledWith(
-        '10월 15일 07시 호가 이미 나왔어요. 잡지에서 확인해 보세요',
-      );
+      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
       expect(e.back).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();

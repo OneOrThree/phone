@@ -42,7 +42,6 @@ import {
   setTape,
 } from './layout';
 import { StickerDrawer, assetName } from './StickerDrawer';
-import { issueDateText } from './MagazineReader';
 import { EditorProblem, usePromotionEditor } from './usePromotionEditor';
 import { CANVAS_PAD, handlePoint, itemBox, useStickerGestures } from './useStickerGestures';
 
@@ -308,15 +307,8 @@ export function PromotionEditor({
     const result = await submit({ body: trimmed, layout });
     if ('ok' in result) {
       setSelection(null);
-      // 싣거나(물고기를 냈으면) 고쳐 저장하면 회관으로 돌아간다(10/15) — 알림은 토스트 한 줄.
-      // 늦은 성공이 이미 나온 호에 들어갔으면(07시 뒤) 그 호를 알려 준다
-      e.notify(
-        result.ok === 'updated'
-          ? t('magazine.editor.saved')
-          : result.phase === 'published'
-            ? t('magazine.editor.doneBodyPublished', { date: issueDateText(result.issueDate) })
-            : t('magazine.editor.doneTitle'),
-      );
+      // 싣거나(물고기를 냈으면) 고쳐 저장하면 회관으로 돌아간다(10/15) — 알림은 토스트 한 줄
+      e.notify(t(result.ok === 'updated' ? 'magazine.editor.saved' : 'magazine.editor.doneTitle'));
       e.back();
       return;
     }
