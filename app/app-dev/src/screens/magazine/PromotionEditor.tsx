@@ -70,8 +70,6 @@ export type EditorDriver = {
   closeDone: () => void;
 };
 
-/** 쓰기 화면 종이(칸) 폭 = 잡지 속지 폭의 이 비율(10/15 — 속지 안쪽 여백보다 크게) */
-const PAPER_RATIO = 0.84;
 /** 쓰기 단계(10/15) — 칸 틀을 고르고, 칸 안에서 한 줄 글을 쓰고, 글이 있어야 스티커를 붙인다. */
 export type EditorStep = 'frame' | 'text' | 'stickers';
 
@@ -247,17 +245,26 @@ export function PromotionEditor({
   };
 
   // 칸 크기: 화면 폭에서 스티커가 걸칠 둘레(8%)를 뺀 만큼. 태블릿·가로에서는 너무 커지지 않게 묶는다
-  // 쓰기 화면은 모든 단계를 잡지 속지 위에서 한다. 속지는 화면 폭에 맞춰 잡지와 같은 비율로 깔고(높이가 모자라면
-  // 아래가 가려진다 — 서랍·키보드 자리), 종이는 보이는 속지 안 가운데에 크게 둔다(처음 그릴 때는 화면 크기로 어림).
-  // 종이는 속지 폭의 PAPER_RATIO 이고, 스티커가 걸칠 둘레(8%)는 속지 테두리 그림 위로 나가도 된다
+  // 쓰기 화면은 모든 단계를 잡지 속지 위에서 한다. 속지는 종이 고르기 화면(머리 아래 ~ 바닥 여백 위) 안에 잡지와 같은
+  // 비율로 가장 크게 — 세 단계가 같은 크기라 종이도 늘 같은 크기다. 글(키보드)·스티커(서랍) 단계에서는 속지 아래가 가려지고,
+  // 종이는 보이는 속지 안 가운데에 둔다. 종이 폭 = 속지 안쪽 폭(스티커가 걸칠 둘레 8% 는 속지 테두리 그림 위로 나가도 된다)
   const R = componentTokens.magazineReader;
-  const pageW = Math.min(pageBox.width || L.width, R.maxPageWidth);
+  const areaH =
+    L.height -
+    L.insets.top -
+    componentTokens.promotionEditor.headerHeight -
+    L.insets.bottom -
+    semanticTokens.spacing.control;
+  const pageW = Math.min(L.width, areaH * R.pageAspect, R.maxPageWidth);
   const pageH = pageW / R.pageAspect;
-  const cellW = Math.floor(pageW * PAPER_RATIO);
+  const cellW =
+    Math.floor(pageW * (1 - R.insetX * 2)) -
+    primitiveTokens.space[1] * 2 -
+    semanticTokens.stroke.strong * 2;
   // 속지 안에서 실제로 보이는 높이(띠 아래 ~ 남은 자리 끝)
   const pageInnerH = Math.min(
     pageH * (1 - R.insetTop - R.insetBottom),
-    (pageBox.height || L.height) - pageH * R.insetTop,
+    (pageBox.height || pageH) - pageH * R.insetTop,
   );
   const cellH = cellW * CELL_ASPECT;
   const pad = { x: CANVAS_PAD * cellW, y: CANVAS_PAD * cellH };
