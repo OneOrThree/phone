@@ -456,34 +456,40 @@ describe('칸 위 손가락', () => {
 
 describe('싣기·고치기', () => {
   it('신청은 멱등 키와 {body, layout} 를 보내고, 같은 글 다시 시도는 같은 키다', async () => {
-    const { screen } = await open();
-    apply.mockRejectedValueOnce(new ApiError('NETWORK', '연결', 0, { retryable: true }));
-    await fireEvent.press(screen.getByTestId('promotion-submit'));
-    apply.mockResolvedValueOnce({
-      promotionId: 'p1',
-      issueDate: '2026-10-15',
-      feeFish: 60,
-      balanceAfter: 1180,
-      newsId: 'n1',
-    });
-    await fireEvent.press(screen.getByTestId('promotion-submit'));
-    expect(apply).toHaveBeenCalledTimes(2);
-    const [islandId, draft, key] = apply.mock.calls[0];
-    expect(islandId).toBe('soda');
-    expect(draft).toEqual({ body: '같이 공부해요!', layout: LAYOUT });
-    expect(apply.mock.calls[1][2]).toBe(key);
-    // 접수 완료: 발도장 + 모달, 버튼은 고치기로(확인창 뒤라 스크린리더에서는 숨은 상태)
-    const hidden = { includeHiddenElements: true };
-    expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
-    expect(screen.getByText('내일 07시 호에 실려요. 자정까지 고칠 수 있어요')).toBeTruthy();
-    expect(screen.getByText('고친 내용 저장', hidden)).toBeTruthy();
-    expect(screen.getByText(/섬 통장 1,180마리/, hidden)).toBeTruthy();
-    // 확인창이 열린 동안 뒤의 편집기는 스크린리더에서 숨는다
-    const layer = () => screen.getByTestId('promotion-editor-layer', hidden).props;
-    expect(layer().accessibilityElementsHidden).toBe(true);
-    expect(layer().importantForAccessibility).toBe('no-hide-descendants');
-    await fireEvent.press(screen.getByTestId('promotion-done-ok'));
-    expect(layer().accessibilityElementsHidden).toBe(false);
+    // 10/15 호 마감 전(KST 10/14 14:00)에 받은 성공 — 실제 시계면 그 호가 나온 뒤 「이미 나옴」이 되어 발도장이 없다
+    const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-14T05:00:00Z'));
+    try {
+      const { screen } = await open();
+      apply.mockRejectedValueOnce(new ApiError('NETWORK', '연결', 0, { retryable: true }));
+      await fireEvent.press(screen.getByTestId('promotion-submit'));
+      apply.mockResolvedValueOnce({
+        promotionId: 'p1',
+        issueDate: '2026-10-15',
+        feeFish: 60,
+        balanceAfter: 1180,
+        newsId: 'n1',
+      });
+      await fireEvent.press(screen.getByTestId('promotion-submit'));
+      expect(apply).toHaveBeenCalledTimes(2);
+      const [islandId, draft, key] = apply.mock.calls[0];
+      expect(islandId).toBe('soda');
+      expect(draft).toEqual({ body: '같이 공부해요!', layout: LAYOUT });
+      expect(apply.mock.calls[1][2]).toBe(key);
+      // 접수 완료: 발도장 + 모달, 버튼은 고치기로(확인창 뒤라 스크린리더에서는 숨은 상태)
+      const hidden = { includeHiddenElements: true };
+      expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
+      expect(screen.getByText('내일 07시 호에 실려요. 자정까지 고칠 수 있어요')).toBeTruthy();
+      expect(screen.getByText('고친 내용 저장', hidden)).toBeTruthy();
+      expect(screen.getByText(/섬 통장 1,180마리/, hidden)).toBeTruthy();
+      // 확인창이 열린 동안 뒤의 편집기는 스크린리더에서 숨는다
+      const layer = () => screen.getByTestId('promotion-editor-layer', hidden).props;
+      expect(layer().accessibilityElementsHidden).toBe(true);
+      expect(layer().importantForAccessibility).toBe('no-hide-descendants');
+      await fireEvent.press(screen.getByTestId('promotion-done-ok'));
+      expect(layer().accessibilityElementsHidden).toBe(false);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('빈 글은 서버에 보내지 않고 글 칸 아래에 안내한다', async () => {
