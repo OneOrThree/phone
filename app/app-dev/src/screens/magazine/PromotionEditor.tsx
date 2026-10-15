@@ -70,6 +70,8 @@ export type EditorDriver = {
   closeDone: () => void;
 };
 
+/** 쓰기 화면 종이(칸) 폭 = 잡지 속지 폭의 이 비율(10/15 — 속지 안쪽 여백보다 크게) */
+const PAPER_RATIO = 0.84;
 /** 쓰기 단계(10/15) — 칸 틀을 고르고, 칸 안에서 한 줄 글을 쓰고, 글이 있어야 스티커를 붙인다. */
 export type EditorStep = 'frame' | 'text' | 'stickers';
 
@@ -245,16 +247,18 @@ export function PromotionEditor({
   };
 
   // 칸 크기: 화면 폭에서 스티커가 걸칠 둘레(8%)를 뺀 만큼. 태블릿·가로에서는 너무 커지지 않게 묶는다
-  // 쓰기 화면은 모든 단계를 잡지 속지 위에서 한다 — 속지는 남은 자리에 잡지와 같은 비율로 가장 크게(처음 그릴 때는
-  // 화면 크기로 어림), 칸은 속지 안쪽 폭에서 스티커가 걸칠 둘레(8%)를 뺀 만큼
+  // 쓰기 화면은 모든 단계를 잡지 속지 위에서 한다. 속지는 화면 폭에 맞춰 잡지와 같은 비율로 깔고(높이가 모자라면
+  // 아래가 가려진다 — 서랍·키보드 자리), 종이는 보이는 속지 안 가운데에 크게 둔다(처음 그릴 때는 화면 크기로 어림).
+  // 종이는 속지 폭의 PAPER_RATIO 이고, 스티커가 걸칠 둘레(8%)는 속지 테두리 그림 위로 나가도 된다
   const R = componentTokens.magazineReader;
-  const pageW = Math.min(
-    pageBox.width || L.width,
-    (pageBox.height || L.height) * R.pageAspect,
-    R.maxPageWidth,
-  );
+  const pageW = Math.min(pageBox.width || L.width, R.maxPageWidth);
   const pageH = pageW / R.pageAspect;
-  const cellW = Math.floor((pageW * (1 - R.insetX * 2)) / (1 + 2 * CANVAS_PAD));
+  const cellW = Math.floor(pageW * PAPER_RATIO);
+  // 속지 안에서 실제로 보이는 높이(띠 아래 ~ 남은 자리 끝)
+  const pageInnerH = Math.min(
+    pageH * (1 - R.insetTop - R.insetBottom),
+    (pageBox.height || L.height) - pageH * R.insetTop,
+  );
   const cellH = cellW * CELL_ASPECT;
   const pad = { x: CANVAS_PAD * cellW, y: CANVAS_PAD * cellH };
   const gestures = useStickerGestures({
@@ -605,12 +609,11 @@ export function PromotionEditor({
   const page = semanticTokens.spacing.page;
   const space = primitiveTokens.space;
   // 1단계 — 종이(칸 틀) 고르기. 잡지 속지 위 가운데에 빈 종이를 한 장씩 크게 두고 세로로 밀어 고른다. 고르면 글 단계로
-  const paperW =
-    Math.floor(pageW * (1 - R.insetX * 2)) - space[1] * 2 - semanticTokens.stroke.strong * 2;
+  const paperW = cellW - space[1] * 2 - semanticTokens.stroke.strong * 2;
   // 잡지 속지 한 장(남은 자리 가운데, 잡지와 같은 비율) — 띠에 글, 안쪽에 children. 종이 고르기·글 쓰기가 같이 쓴다
   const onPage = (ribbon: string, children: React.ReactNode) => (
     <View
-      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+      style={{ flex: 1, alignItems: 'center', overflow: 'hidden' }}
       onLayout={(ev) => setPageBox(ev.nativeEvent.layout)}
     >
       <View style={{ width: pageW, height: pageH }}>
@@ -637,10 +640,10 @@ export function PromotionEditor({
         <View
           style={{
             position: 'absolute',
-            left: pageW * R.insetX,
-            right: pageW * R.insetX,
+            left: 0,
+            right: 0,
             top: pageH * R.insetTop,
-            bottom: pageH * R.insetBottom,
+            height: pageInnerH,
           }}
         >
           {children}
