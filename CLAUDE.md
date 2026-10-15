@@ -79,10 +79,14 @@ rejects a `gh pr create` that breaks them (reason goes back to you, no user prom
   gate needs an explicit title and body). Exactly one existing label matching the TYPE:
   FEAT→`enhancement`, FIX→`bug`, REFACTOR→`refactoring`, CHORE→by content (`documentation`
   docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else no label). `release` 대상 릴리스 PR에서만 버전 라벨 `release:major|minor|patch` 하나를 추가 허용, 그 외 `release:*` 금지,
-  never create labels, no `--reviewer`. In the same turn post an `@claude`
+  never create labels, no `--reviewer`. For same-repository `main` → `release` promotion,
+  follow `AGENTS.md` §「main → release 운영 승격」 and skip code-review requests.
+  For other PRs, in the same turn post an `@claude`
   review-request comment with 3–5 PR-specific points and keep watching the PR; later replies
   never mention `@claude` (it re-triggers the workflow).
-- **Merge**: four-part test at the same commit — zero unanswered root review threads; a
+- **Merge**: for same-repository `main` → `release` promotion, use the change-summary
+  rule in `AGENTS.md` instead of a code-review verdict; still require all applicable CI
+  passed and `mergeStateStatus` CLEAN. For other PRs, four-part test at the same commit — zero unanswered root review threads; a
   reviewer verdict newer than the head push (codex 👍 / "no major issues", or a
   `**Claude finished` comment); CI **all passed** (not merely zero failures);
   `mergeStateStatus` CLEAN. There is no formal APPROVE in this repo. **A human clicks merge**
