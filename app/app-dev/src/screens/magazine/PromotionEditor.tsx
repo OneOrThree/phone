@@ -761,6 +761,14 @@ export function PromotionEditor({
         </Txt>
         <CharCount value={body} max={BODY_MAX} codePoints />
       </View>
+      <Btn
+        id="promotion-next"
+        style={{ width: cellW }}
+        dynamicHeight
+        title={t('magazine.editor.next')}
+        disabled={!canEdit || !body.trim()}
+        onPress={toStickers}
+      />
     </View>,
   );
 
@@ -938,27 +946,8 @@ export function PromotionEditor({
 
   const bottom = { paddingBottom: L.insets.bottom + semanticTokens.spacing.control };
   if (editable && step === 'frame') return shell(framePage, <View style={bottom} />);
-  if (editable && step === 'text')
-    return shell(
-      textPage,
-      <View
-        style={[
-          bottom,
-          {
-            paddingHorizontal: page,
-            paddingTop: semanticTokens.spacing.control,
-          },
-        ]}
-      >
-        <Btn
-          id="promotion-next"
-          dynamicHeight
-          title={t('magazine.editor.next')}
-          disabled={!canEdit || !body.trim()}
-          onPress={toStickers}
-        />
-      </View>,
-    );
+  // 글 단계도 바닥 줄 없이 [다음]은 속지 안 종이 아래(10/15) — 키보드가 뜨면 보이는 속지 안 가운데로 같이 올라간다
+  if (editable && step === 'text') return shell(textPage);
   // 스티커 단계는 바닥 줄 없이 서랍이 화면 아래까지 — 신청 거절 같은 안내는 토스트로
   return shell(content, readOnly ? <View style={bottom} /> : undefined);
 }
