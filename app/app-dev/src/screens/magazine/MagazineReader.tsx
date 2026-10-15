@@ -37,6 +37,8 @@ import { CANVAS_PAD } from './useStickerGestures';
 
 const R = componentTokens.magazineReader;
 const PER_PAGE = 3;
+/** 편집부 쪽을 지면 높이에 맞춰 줄이는 하한 — 이보다 더 줄여야 하면(큰 글자 등) 줄이지 않고 세로로 민다 */
+const EDITORIAL_MIN_SCALE = 0.7;
 const NAV_H = R.navHeight;
 const COVER_H = R.coverHeight;
 const TIP_COUNT = 14;
@@ -129,6 +131,12 @@ export function MagazineReader({
   const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'gone'>('loading');
   const [nonce, setNonce] = useState(0);
   const [more, setMore] = useState(false);
+  // 편집부 쪽(랭킹 · 새 섬 · 조언)이 지면보다 길면 쪽 넘김 줄에 잘려 보인다 — 지면·내용 높이를 재서 맞춰 줄인다
+  const [editorialBox, setEditorialBox] = useState(0);
+  const [editorialContent, setEditorialContent] = useState(0);
+  const editorialScale =
+    editorialBox > 0 && editorialContent > editorialBox ? editorialBox / editorialContent : 1;
+  const editorialFits = editorialScale >= EDITORIAL_MIN_SCALE;
   // 이어 읽기에 실패한 커서 — 같은 쪽에 머무는 동안 다시 부르지 않고, 쪽을 넘기면 다시 시도한다
   const [failedAt, setFailedAt] = useState<{ cursor: string; index: number } | null>(null);
   const [index, setIndex] = useState(0);
@@ -302,9 +310,22 @@ export function MagazineReader({
       <ScrollView
         testID="magazine-editorial"
         style={{ width: innerW }}
+        onLayout={(ev) => setEditorialBox(ev.nativeEvent.layout.height)}
+        onContentSizeChange={(_, h) => setEditorialContent(h)}
+        // 줄여서 다 들어가면 밀지 않는다. 너무 많이 줄여야 하면 그대로 두고 세로로 민다
+        scrollEnabled={!editorialFits}
         contentContainerStyle={{
           gap: primitiveTokens.space[2],
           paddingBottom: primitiveTokens.space[2],
+          // 가운데 기준으로 줄어드니 줄어든 만큼 위로 올려 지면 위에 붙인다(크기는 그대로라 다시 재도 같은 값)
+          ...(editorialFits && editorialScale < 1
+            ? {
+                transform: [
+                  { translateY: (-editorialContent * (1 - editorialScale)) / 2 },
+                  { scale: editorialScale },
+                ],
+              }
+            : null),
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -599,6 +620,7 @@ export function MagazineReader({
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={(page, i) => `${page.kind}-${i}`}
                 renderItem={renderPage}
+                extraData={editorialScale}
                 getItemLayout={(_, i) => ({ length: innerW, offset: innerW * i, index: i })}
                 onMomentumScrollEnd={onScrollEnd}
               />
