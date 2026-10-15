@@ -619,10 +619,19 @@ export function PromotionEditor({
   // 잡지 속지 한 장(남은 자리 가운데, 잡지와 같은 비율) — 띠에 글, 안쪽에 children. 종이 고르기·글 쓰기가 같이 쓴다
   const onPage = (ribbon: string, children: React.ReactNode) => (
     <View
-      style={{ flex: 1, alignItems: 'center', overflow: 'hidden' }}
+      style={{ flex: 1, overflow: 'hidden' }}
       onLayout={(ev) => setPageBox(ev.nativeEvent.layout)}
     >
-      <View style={{ width: pageW, height: pageH }}>
+      {/* 속지는 자리보다 클 수 있다 — 겹쳐 그려(absolute) 버튼 줄·서랍·[다음]을 밀어내지 않고 아래만 가려지게 */}
+      <View
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: ((pageBox.width || L.width) - pageW) / 2,
+          width: pageW,
+          height: pageH,
+        }}
+      >
         <Image
           source={MAGAZINE_UI.page}
           resizeMode="stretch"
