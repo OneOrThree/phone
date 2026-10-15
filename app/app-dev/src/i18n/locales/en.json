@@ -741,7 +741,6 @@
     "editor": {
       "title": "Promote Our Island",
       "entry": "Promote our island in Nyaong",
-      "frames": "Frame",
       "body": "One-line message",
       "bodyPlaceholder": "Introduce your island in one line",
       "bodyEmpty": "Write a one-line message",
@@ -798,7 +797,15 @@
       "stickerA11y": "{{name}} sticker {{n}}",
       "selectedA11y": "{{name}}, selected",
       "frameA11y": "{{name}} frame",
-      "lockedAsset": "{{name}}, not owned yet"
+      "lockedAsset": "{{name}}, not owned yet",
+      "framePrompt": "Pick a frame",
+      "next": "Next",
+      "step": {
+        "frame": "Frame",
+        "text": "Message",
+        "stickers": "Stickers"
+      },
+      "stepA11y": "Step {{n}}: {{name}}"
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",

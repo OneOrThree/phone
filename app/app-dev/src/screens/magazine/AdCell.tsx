@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleProp, StyleSheet, TextStyle, View } from 'react-native';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
@@ -49,6 +49,7 @@ export function AdCell({
   onPress,
   onReport,
   hideMeta = false,
+  bodyInput,
   testID,
 }: {
   width: number;
@@ -63,6 +64,11 @@ export function AdCell({
    * 실린 날 숫자와 지금 숫자가 같이 보이지 않게.
    */
   hideMeta?: boolean;
+  /**
+   * 홍보 쓰기의 글 단계 — 한 줄 글 자리에 글자 크기·줄간격이 같은 입력을 그린다(칸 안에서 바로 고친다).
+   * 주면 칸 전체를 접근성 요소 하나로 묶지 않아 입력이 따로 읽힌다.
+   */
+  bodyInput?: (style: StyleProp<TextStyle>) => React.ReactNode;
   testID?: string;
 }) {
   const font = useGowun();
@@ -109,7 +115,7 @@ export function AdCell({
     <View testID={testID} style={{ width: W, height: H }}>
       <Body
         style={StyleSheet.absoluteFill}
-        accessible
+        accessible={!bodyInput}
         accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={label}
         onPress={onPress}
@@ -127,7 +133,7 @@ export function AdCell({
           style={{ position: 'absolute', left: 0, top: 0, width: W, height: H }}
         />
         <View
-          pointerEvents="none"
+          pointerEvents={bodyInput ? 'box-none' : 'none'}
           style={{
             position: 'absolute',
             left: l * W,
@@ -172,15 +178,25 @@ export function AdCell({
                 {name}
               </T>
             </View>
-            <T
-              allowFontScaling={false}
-              numberOfLines={fit.bodyLines}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-              style={[text(m.bodySize, k * fit.bodyScale, fit.bodyLines), { marginTop: m.gap * s }]}
-            >
-              {cell.body}
-            </T>
+            {bodyInput ? (
+              bodyInput([
+                text(m.bodySize, k * fit.bodyScale, fit.bodyLines),
+                { marginTop: m.gap * s },
+              ])
+            ) : (
+              <T
+                allowFontScaling={false}
+                numberOfLines={fit.bodyLines}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                style={[
+                  text(m.bodySize, k * fit.bodyScale, fit.bodyLines),
+                  { marginTop: m.gap * s },
+                ]}
+              >
+                {cell.body}
+              </T>
+            )}
           </View>
           {!hideMeta && (
             <T

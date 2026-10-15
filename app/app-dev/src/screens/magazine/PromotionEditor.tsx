@@ -3,14 +3,15 @@ import {
   AccessibilityActionEvent,
   ActivityIndicator,
   Animated,
-  Image,
+  BackHandler,
+  Keyboard,
+  TextInput as NativeTextInput,
   Pressable,
   ScrollView,
   View,
 } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
-import { Btn, CharCount, Chevron, Overlay, Txt, k } from '@/design-system/patterns';
-import { TextInput } from '@/design-system/typography';
+import { Btn, CharCount, Chevron, Overlay, Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { formatNumber } from '@/i18n/format';
@@ -32,6 +33,7 @@ import {
   CELL_ASPECT,
   EditOp,
   EditTarget,
+  MAX_STICKERS,
   PromotionLayout,
   addSticker,
   applyEdit,
@@ -60,9 +62,14 @@ export type EditorDriver = {
   sticker: (id: string) => void;
   tape: (id: string) => void;
   op: (op: EditOp) => void;
+  step: (step: EditorStep) => void;
   submit: () => void;
   closeDone: () => void;
 };
+
+/** 쓰기 단계(10/15) — 칸 틀을 고르고, 칸 안에서 한 줄 글을 쓰고, 글이 있어야 스티커를 붙인다. */
+export type EditorStep = 'frame' | 'text' | 'stickers';
+const STEPS: EditorStep[] = ['frame', 'text', 'stickers'];
 
 /**
  * 쓰기 화면이 칸 미리보기에 쓰는 우리 섬 값 — 서버 모드는 홈 스냅샷, 목업은 로컬 섬. 평균은 07시 발행 때 정해지므로
@@ -161,6 +168,10 @@ export function PromotionEditor({
       ? picked
       : null;
   const [tab, setTab] = useState<StickerTab>('cat');
+  const [step, setStep] = useState<EditorStep>('frame');
+  // 처음 열 때만 단계를 정한다(다시 읽기로 보던 단계가 바뀌지 않게) — 마감으로 읽기 전용이 되면 칸 전체 단계로
+  const opened = useRef(false);
+  const bodyRef = useRef<NativeTextInput>(null);
   const [problem, setProblem] = useState<EditorProblem | null>(null);
   // 접수 완료 확인창 — 열 때의 신청 결과(호 · 시점)로 문구를 고정한다(뒤이은 다시 읽기로 바뀌지 않게). null 이면 닫힘
   const [done, setDone] = useState<{ issueDate: string; phase: AppliedPhase } | null>(null);
@@ -184,6 +195,9 @@ export function PromotionEditor({
     // 서버 칸으로 바꾸면 스티커 수가 달라질 수 있다 — 고르기는 늘 푼다
     setSelection(null);
     if (locked) touched.current = false;
+    // 이미 낸 홍보를 고치러 오면 틀·글이 정해져 있다 — 바로 칸 전체(스티커) 단계로 연다
+    if (!opened.current || locked) setStep(editor.next || locked ? 'stickers' : 'frame');
+    opened.current = true;
   }, [editor]);
 
   const edit = (next: PromotionLayout) => {
@@ -195,6 +209,24 @@ export function PromotionEditor({
   // editable = 고칠 수 있는 화면(서랍·버튼을 그린다), canEdit = 지금 손을 댈 수 있다(저장 중에는 잠깐 막는다)
   const editable = status === 'ready' && !readOnly;
   const canEdit = editable && !submitting;
+  // 뒤로가기 — 처음 만드는 중이면 한 단계 앞으로(스티커 → 글 → 틀), 틀 단계·이미 낸 홍보는 회관으로
+  const backStep: EditorStep | null = !editable
+    ? null
+    : step === 'text'
+      ? 'frame'
+      : step === 'stickers' && !editor?.next
+        ? 'text'
+        : null;
+  const goBack = () => (backStep ? setStep(backStep) : e.back());
+  // 안드로이드 하드웨어 뒤로가기도 같은 순서 — 나중에 단 리스너가 먼저 받으므로 App 의 처리보다 앞선다
+  useEffect(() => {
+    if (!backStep) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setStep(backStep);
+      return true;
+    });
+    return () => sub.remove();
+  }, [backStep]);
   // 서버 재료 목록에서 내 것이 아니라고 온 것만 잠근다(목록을 못 읽었으면 지금 재료는 전부 무료라 연다)
   const owned = (id: string) => {
     if (!assets) return true;
@@ -239,6 +271,7 @@ export function PromotionEditor({
     setBody('');
     setSelection(null);
     setProblem(null);
+    setStep('frame');
   };
 
   const changeBody = (text: string) => {
@@ -248,6 +281,12 @@ export function PromotionEditor({
     setStamped(false);
     setBody(clampCodePoints(text.replace(LINE_BREAKERS, ' '), BODY_MAX));
     if (problem?.field === 'body') setProblem(null);
+  };
+  // 글을 다 쓰면 스티커 단계로 — 빈 글이면 넘어가지 않고 글 아래에 안내한다
+  const toStickers = () => {
+    if (!body.trim()) return setProblem({ message: t('magazine.editor.bodyEmpty'), field: 'body' });
+    Keyboard.dismiss();
+    setStep('stickers');
   };
   const send = async () => {
     const trimmed = body.trim();
@@ -291,6 +330,7 @@ export function PromotionEditor({
       sticker: addOne,
       tape: putTape,
       op: (op) => selection && doEdit(selection, op),
+      step: setStep,
       submit: send,
       closeDone: () => setDone(null),
     };
@@ -311,7 +351,7 @@ export function PromotionEditor({
         testID="promotion-back"
         accessibilityRole="button"
         accessibilityLabel={t('telescope.back')}
-        onPress={e.back}
+        onPress={goBack}
         style={{
           width: semanticTokens.size.tapMin,
           height: semanticTokens.size.tapMin,
@@ -513,6 +553,159 @@ export function PromotionEditor({
     );
   };
 
+  const page = semanticTokens.spacing.page;
+  const space = primitiveTokens.space;
+  // 단계 줄 — 지난 단계로는 언제든 돌아가고, 스티커 단계는 글이 있어야 열린다
+  const stepBar = editable ? (
+    <View style={{ flexDirection: 'row', gap: space[2], paddingHorizontal: page }}>
+      {STEPS.map((s, i) => {
+        const on = step === s;
+        const off = s === 'stickers' && !body.trim();
+        return (
+          <Pressable
+            key={s}
+            testID={`promotion-step-${s}`}
+            accessibilityRole="button"
+            accessibilityLabel={t('magazine.editor.stepA11y', {
+              n: i + 1,
+              name: t(`magazine.editor.step.${s}`),
+            })}
+            accessibilityState={{ selected: on, disabled: off || !canEdit }}
+            disabled={off || !canEdit}
+            onPress={() => (s === 'stickers' ? toStickers() : setStep(s))}
+            style={{
+              flex: 1,
+              minHeight: semanticTokens.size.tapMin,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingHorizontal: space[1],
+              borderRadius: semanticTokens.radius.full,
+              borderWidth: on ? semanticTokens.stroke.strong : semanticTokens.stroke.subtle,
+              borderColor: on ? semanticTokens.color.outline : primitiveTokens.color.controlIdle,
+              backgroundColor: on ? semanticTokens.color.selected : semanticTokens.color.surface,
+              opacity: off ? componentTokens.button.disabledOpacity : 1,
+            }}
+          >
+            <Txt kind="meta" style={{ textAlign: 'center', fontWeight: on ? '800' : '600' }}>
+              {`${i + 1} ${t(`magazine.editor.step.${s}`)}`}
+            </Txt>
+          </Pressable>
+        );
+      })}
+    </View>
+  ) : null;
+
+  // 1단계 — 칸 틀 고르기. 2열로 크게, 틀마다 지금 글·스티커를 얹어 실제 칸 모양으로 보여 준다. 고르면 글 단계로
+  const tileGap = space[2];
+  const tileW = Math.floor((Math.min(L.contentWidth, 560) - page * 2 - tileGap) / 2);
+  const tileInner = tileW - space[1] * 2 - semanticTokens.stroke.strong * 2;
+  const framePicker = (
+    <View style={{ paddingHorizontal: page, gap: space[2] }}>
+      <Txt kind="h17" accessibilityRole="header">
+        {t('magazine.editor.framePrompt')}
+      </Txt>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: tileGap }}>
+        {Object.keys(MAGAZINE_FRAMES).map((id) => {
+          const on = layout.frameId === id;
+          const lockedFrame = !owned(id);
+          return (
+            <Pressable
+              key={id}
+              testID={`frame-${id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
+              accessibilityState={{ selected: on, disabled: !canEdit || lockedFrame }}
+              disabled={!canEdit || lockedFrame}
+              onPress={() => {
+                edit({ ...layout, frameId: id });
+                setStep('text');
+              }}
+              style={{
+                width: tileW,
+                padding: space[1],
+                borderRadius: semanticTokens.radius.control,
+                borderWidth: semanticTokens.stroke.strong,
+                borderColor: on ? semanticTokens.color.outline : 'transparent',
+                backgroundColor: on ? semanticTokens.color.selected : 'transparent',
+                opacity: lockedFrame ? componentTokens.button.disabledOpacity : 1,
+              }}
+            >
+              <View
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              >
+                <AdCell
+                  width={tileInner}
+                  hideMeta
+                  cell={{
+                    ...facts,
+                    body: body.trim() || t('magazine.editor.bodyPlaceholder'),
+                    layout: { ...layout, frameId: id },
+                  }}
+                />
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  // 2단계 — 칸 안 한 줄 글 자리를 누르면 바로 키보드가 뜬다(Figma C1 원안). 들어오면 바로 쓸 수 있게 커서를 둔다
+  const textStep = (
+    <View style={{ gap: space[2] }}>
+      <Pressable
+        testID="promotion-text-cell"
+        accessible={false}
+        onPress={() => bodyRef.current?.focus()}
+        style={{ width: cellW, alignSelf: 'center', marginTop: pad.y }}
+      >
+        <AdCell
+          testID="promotion-cell"
+          width={cellW}
+          cell={{ ...facts, body: body.trim(), layout }}
+          bodyInput={(style) => (
+            <NativeTextInput
+              ref={bodyRef}
+              testID="promotion-body"
+              accessibilityLabel={t('magazine.editor.body')}
+              value={body}
+              editable={canEdit}
+              autoFocus
+              multiline
+              allowFontScaling={false}
+              submitBehavior="blurAndSubmit"
+              returnKeyType="done"
+              onSubmitEditing={toStickers}
+              placeholder={t('magazine.editor.bodyPlaceholder')}
+              placeholderTextColor={componentTokens.input.placeholder}
+              onChangeText={changeBody}
+              style={[style, { padding: 0, textAlignVertical: 'top' }]}
+            />
+          )}
+        />
+      </Pressable>
+      <View
+        style={{
+          paddingHorizontal: page,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          gap: space[2],
+        }}
+      >
+        <Txt
+          kind="meta"
+          accessibilityLiveRegion="polite"
+          style={{ flex: 1, color: semanticTokens.color.danger }}
+        >
+          {problem?.field === 'body' ? problem.message : ''}
+        </Txt>
+        <CharCount value={body} max={BODY_MAX} codePoints />
+      </View>
+    </View>
+  );
+
   // 작은 화면(320×568)·키보드·큰 글자에서 넘치면 본문 전체를 세로로 민다. 넉넉하면 늘 그렇듯 서랍이 남은 높이를 채운다
   const content = (
     <ScrollView
@@ -531,224 +724,157 @@ export function PromotionEditor({
           gap: semanticTokens.spacing.control,
         }}
       >
-        <View
-          style={{ paddingHorizontal: semanticTokens.spacing.page, gap: primitiveTokens.space[2] }}
-        >
-          <Txt kind="meta" style={{ fontWeight: '600' }}>
-            {t('magazine.editor.frames')}
-          </Txt>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: primitiveTokens.space[2] }}
-          >
-            {Object.entries(MAGAZINE_FRAMES).map(([id, frame]) => {
-              const on = layout.frameId === id;
-              return (
-                <Pressable
-                  key={id}
-                  testID={`frame-${id}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
-                  accessibilityState={{ selected: on, disabled: !canEdit || !owned(id) }}
-                  disabled={!canEdit || !owned(id)}
-                  onPress={() => edit({ ...layout, frameId: id })}
+        {stepBar}
+        {step === 'frame' ? (
+          framePicker
+        ) : step === 'text' ? (
+          textStep
+        ) : (
+          <>
+            <View
+              testID="promotion-canvas"
+              {...gestures}
+              onTouchStart={() => setCanvasTouch(true)}
+              onTouchEnd={(ev) => ev.nativeEvent.touches.length === 0 && setCanvasTouch(false)}
+              onTouchCancel={() => setCanvasTouch(false)}
+              style={{ width: cellW + pad.x * 2, height: cellH + pad.y * 2, alignSelf: 'center' }}
+            >
+              <View pointerEvents="none" style={{ position: 'absolute', left: pad.x, top: pad.y }}>
+                <AdCell
+                  testID="promotion-cell"
+                  width={cellW}
+                  cell={{ ...facts, body: body.trim(), layout }}
+                />
+              </View>
+              {box && canEdit && (
+                <View
+                  pointerEvents="none"
                   style={{
-                    width: componentTokens.promotionEditor.frameTileWidth,
-                    height: semanticTokens.size.tapMin,
-                    padding: primitiveTokens.space[1],
-                    borderRadius: semanticTokens.radius.control,
-                    borderWidth: on ? semanticTokens.stroke.strong : semanticTokens.stroke.subtle,
-                    borderColor: on
-                      ? semanticTokens.color.outline
-                      : primitiveTokens.color.controlIdle,
-                    backgroundColor: on
-                      ? semanticTokens.color.selected
-                      : semanticTokens.color.surface,
-                    opacity: owned(id) ? 1 : componentTokens.button.disabledOpacity,
+                    position: 'absolute',
+                    left: pad.x + box.cx - box.hw - componentTokens.promotionEditor.selectionInset,
+                    top: pad.y + box.cy - box.hh - componentTokens.promotionEditor.selectionInset,
+                    width: box.hw * 2 + componentTokens.promotionEditor.selectionInset * 2,
+                    height: box.hh * 2 + componentTokens.promotionEditor.selectionInset * 2,
+                    borderRadius: componentTokens.promotionEditor.selectionRadius,
+                    borderWidth: semanticTokens.stroke.default,
+                    borderStyle: 'dashed',
+                    borderColor: semanticTokens.color.outline,
+                    transform: [{ rotate: `${box.rotation}deg` }],
+                  }}
+                />
+              )}
+              {handle && (
+                <View
+                  testID="promotion-handle"
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    left: pad.x + handle.x - componentTokens.promotionEditor.handleSize / 2,
+                    top: pad.y + handle.y - componentTokens.promotionEditor.handleSize / 2,
+                    width: componentTokens.promotionEditor.handleSize,
+                    height: componentTokens.promotionEditor.handleSize,
+                    borderRadius: componentTokens.promotionEditor.handleSize / 2,
+                    borderWidth: semanticTokens.stroke.strong,
+                    borderColor: semanticTokens.color.outline,
+                    backgroundColor: semanticTokens.color.surface,
+                  }}
+                />
+              )}
+              {stamped && (
+                // 판의 손가락 기준점이 흔들리지 않게 도장은 터치를 받지 않는다
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    left: pad.x + cellW * 0.6,
+                    top: pad.y + cellH * 0.3,
                   }}
                 >
-                  <Image
-                    source={frame.source}
+                  <Animated.Image
+                    testID="promotion-stamp"
+                    accessibilityLabel={t('magazine.editor.stampA11y')}
+                    source={MAGAZINE_STAMP}
                     resizeMode="contain"
-                    style={{ width: '100%', height: '100%' }}
+                    style={{
+                      width: cellW * 0.38,
+                      height: cellW * 0.38,
+                      opacity: stamp,
+                      transform: [
+                        { scale: stamp.interpolate({ inputRange: [0, 1], outputRange: [1.8, 1] }) },
+                        { rotate: '-10deg' },
+                      ],
+                    }}
                   />
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-        <View
-          style={{ paddingHorizontal: semanticTokens.spacing.page, gap: primitiveTokens.space[1] }}
-        >
-          <TextInput
-            testID="promotion-body"
-            accessibilityLabel={t('magazine.editor.body')}
-            value={body}
-            editable={canEdit}
-            placeholder={t('magazine.editor.bodyPlaceholder')}
-            placeholderTextColor={componentTokens.input.placeholder}
-            returnKeyType="done"
-            onChangeText={changeBody}
-            style={[
-              k.field,
-              { minHeight: semanticTokens.size.tapMin },
-              !canEdit && { opacity: 0.7 },
-            ]}
-          />
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              gap: primitiveTokens.space[2],
-            }}
-          >
-            <Txt
-              kind="meta"
-              accessibilityLiveRegion="polite"
-              style={{ flex: 1, color: semanticTokens.color.danger }}
-            >
-              {problem?.field === 'body' ? problem.message : ''}
-            </Txt>
-            <CharCount value={body} max={BODY_MAX} codePoints />
-          </View>
-        </View>
-        <View
-          testID="promotion-canvas"
-          {...gestures}
-          onTouchStart={() => setCanvasTouch(true)}
-          onTouchEnd={(ev) => ev.nativeEvent.touches.length === 0 && setCanvasTouch(false)}
-          onTouchCancel={() => setCanvasTouch(false)}
-          style={{ width: cellW + pad.x * 2, height: cellH + pad.y * 2, alignSelf: 'center' }}
-        >
-          <View pointerEvents="none" style={{ position: 'absolute', left: pad.x, top: pad.y }}>
-            <AdCell
-              testID="promotion-cell"
-              width={cellW}
-              cell={{ ...facts, body: body.trim(), layout }}
-            />
-          </View>
-          {box && canEdit && (
-            <View
-              pointerEvents="none"
-              style={{
-                position: 'absolute',
-                left: pad.x + box.cx - box.hw - componentTokens.promotionEditor.selectionInset,
-                top: pad.y + box.cy - box.hh - componentTokens.promotionEditor.selectionInset,
-                width: box.hw * 2 + componentTokens.promotionEditor.selectionInset * 2,
-                height: box.hh * 2 + componentTokens.promotionEditor.selectionInset * 2,
-                borderRadius: componentTokens.promotionEditor.selectionRadius,
-                borderWidth: semanticTokens.stroke.default,
-                borderStyle: 'dashed',
-                borderColor: semanticTokens.color.outline,
-                transform: [{ rotate: `${box.rotation}deg` }],
-              }}
-            />
-          )}
-          {handle && (
-            <View
-              testID="promotion-handle"
-              pointerEvents="none"
-              style={{
-                position: 'absolute',
-                left: pad.x + handle.x - componentTokens.promotionEditor.handleSize / 2,
-                top: pad.y + handle.y - componentTokens.promotionEditor.handleSize / 2,
-                width: componentTokens.promotionEditor.handleSize,
-                height: componentTokens.promotionEditor.handleSize,
-                borderRadius: componentTokens.promotionEditor.handleSize / 2,
-                borderWidth: semanticTokens.stroke.strong,
-                borderColor: semanticTokens.color.outline,
-                backgroundColor: semanticTokens.color.surface,
-              }}
-            />
-          )}
-          {stamped && (
-            // 판의 손가락 기준점이 흔들리지 않게 도장은 터치를 받지 않는다
-            <View
-              pointerEvents="none"
-              style={{ position: 'absolute', left: pad.x + cellW * 0.6, top: pad.y + cellH * 0.3 }}
-            >
-              <Animated.Image
-                testID="promotion-stamp"
-                accessibilityLabel={t('magazine.editor.stampA11y')}
-                source={MAGAZINE_STAMP}
-                resizeMode="contain"
-                style={{
-                  width: cellW * 0.38,
-                  height: cellW * 0.38,
-                  opacity: stamp,
-                  transform: [
-                    { scale: stamp.interpolate({ inputRange: [0, 1], outputRange: [1.8, 1] }) },
-                    { rotate: '-10deg' },
-                  ],
-                }}
-              />
+                </View>
+              )}
+              {layout.stickers.map((_, i) =>
+                a11yItem({ kind: 'sticker', index: i }, `sticker-${i}`),
+              )}
+              {layout.tape && a11yItem({ kind: 'tape' }, 'tape')}
             </View>
-          )}
-          {layout.stickers.map((_, i) => a11yItem({ kind: 'sticker', index: i }, `sticker-${i}`))}
-          {layout.tape && a11yItem({ kind: 'tape' }, 'tape')}
-        </View>
-        <View style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}>
-          {selection && canEdit ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{
-                gap: primitiveTokens.space[2],
-                paddingHorizontal: semanticTokens.spacing.page,
-              }}
-            >
-              {opsFor(selection, OPS).map((op) => (
-                <Btn
-                  key={op}
-                  id={`op-${op}`}
-                  small
-                  kind="sec"
-                  dynamicHeight={largeText}
-                  title={t(`magazine.editor.op.${op}`)}
-                  accessibilityLabel={`${t(`magazine.editor.op.${op}`)}: ${itemLabel(selection)}`}
-                  onPress={() => doEdit(selection, op)}
+            <View style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}>
+              {selection && canEdit ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{
+                    gap: primitiveTokens.space[2],
+                    paddingHorizontal: semanticTokens.spacing.page,
+                  }}
+                >
+                  {opsFor(selection, OPS).map((op) => (
+                    <Btn
+                      key={op}
+                      id={`op-${op}`}
+                      small
+                      kind="sec"
+                      dynamicHeight={largeText}
+                      title={t(`magazine.editor.op.${op}`)}
+                      accessibilityLabel={`${t(`magazine.editor.op.${op}`)}: ${itemLabel(selection)}`}
+                      onPress={() => doEdit(selection, op)}
+                    />
+                  ))}
+                </ScrollView>
+              ) : (
+                <Txt
+                  kind="meta"
+                  style={{ textAlign: 'center', paddingHorizontal: semanticTokens.spacing.page }}
+                >
+                  {readOnly ? t('magazine.editor.locked') : null}
+                </Txt>
+              )}
+            </View>
+            {editable ? (
+              <View
+                pointerEvents={canEdit ? 'auto' : 'none'}
+                style={{
+                  flex: 1,
+                  minHeight: componentTokens.promotionEditor.drawerMinHeight,
+                  paddingTop: semanticTokens.spacing.control,
+                  paddingHorizontal: semanticTokens.spacing.page,
+                  borderTopLeftRadius: componentTokens.modal.sheetRadius,
+                  borderTopRightRadius: componentTokens.modal.sheetRadius,
+                  borderWidth: semanticTokens.stroke.default,
+                  borderBottomWidth: 0,
+                  borderColor: semanticTokens.color.outline,
+                  backgroundColor: semanticTokens.color.surface,
+                }}
+              >
+                <StickerDrawer
+                  tab={tab}
+                  onTab={setTab}
+                  full={layout.stickers.length >= MAX_STICKERS}
+                  owned={owned}
+                  tapeId={layout.tape?.assetId ?? null}
+                  onSticker={addOne}
+                  onTape={putTape}
+                  onFull={() => e.notify(t('magazine.editor.stickersFull'))}
                 />
-              ))}
-            </ScrollView>
-          ) : (
-            <Txt
-              kind="meta"
-              style={{ textAlign: 'center', paddingHorizontal: semanticTokens.spacing.page }}
-            >
-              {readOnly ? t('magazine.editor.locked') : null}
-            </Txt>
-          )}
-        </View>
-        {editable ? (
-          <View
-            pointerEvents={canEdit ? 'auto' : 'none'}
-            style={{
-              flex: 1,
-              minHeight: componentTokens.promotionEditor.drawerMinHeight,
-              paddingTop: semanticTokens.spacing.control,
-              paddingHorizontal: semanticTokens.spacing.page,
-              borderTopLeftRadius: componentTokens.modal.sheetRadius,
-              borderTopRightRadius: componentTokens.modal.sheetRadius,
-              borderWidth: semanticTokens.stroke.default,
-              borderBottomWidth: 0,
-              borderColor: semanticTokens.color.outline,
-              backgroundColor: semanticTokens.color.surface,
-            }}
-          >
-            <StickerDrawer
-              tab={tab}
-              onTab={setTab}
-              full={layout.stickers.length >= 10}
-              owned={owned}
-              tapeId={layout.tape?.assetId ?? null}
-              onSticker={addOne}
-              onTape={putTape}
-              onFull={() => e.notify(t('magazine.editor.stickersFull'))}
-            />
-          </View>
-        ) : (
-          <View style={{ flex: 1 }} />
+              </View>
+            ) : (
+              <View style={{ flex: 1 }} />
+            )}
+          </>
         )}
       </View>
     </ScrollView>
@@ -808,5 +934,29 @@ export function PromotionEditor({
     </View>
   );
 
+  const bottom = { paddingBottom: L.insets.bottom + semanticTokens.spacing.control };
+  if (editable && step === 'frame') return shell(content, <View style={bottom} />);
+  if (editable && step === 'text')
+    return shell(
+      content,
+      <View
+        style={[
+          bottom,
+          {
+            paddingHorizontal: page,
+            paddingTop: semanticTokens.spacing.control,
+            backgroundColor: semanticTokens.color.surface,
+          },
+        ]}
+      >
+        <Btn
+          id="promotion-next"
+          dynamicHeight
+          title={t('magazine.editor.next')}
+          disabled={!canEdit || !body.trim()}
+          onPress={toStickers}
+        />
+      </View>,
+    );
   return shell(content, footer);
 }
