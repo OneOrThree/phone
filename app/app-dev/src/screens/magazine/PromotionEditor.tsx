@@ -609,7 +609,6 @@ export function PromotionEditor({
   const page = semanticTokens.spacing.page;
   const space = primitiveTokens.space;
   // 1단계 — 종이(칸 틀) 고르기. 잡지 속지 위 가운데에 빈 종이를 한 장씩 크게 두고 세로로 밀어 고른다. 고르면 글 단계로
-  const paperW = cellW - space[1] * 2 - semanticTokens.stroke.strong * 2;
   // 잡지 속지 한 장(남은 자리 가운데, 잡지와 같은 비율) — 띠에 글, 안쪽에 children. 종이 고르기·글 쓰기가 같이 쓴다
   const onPage = (ribbon: string, children: React.ReactNode) => (
     <View
@@ -693,7 +692,7 @@ export function PromotionEditor({
             <Image
               source={MAGAZINE_FRAMES[id].source}
               resizeMode="stretch"
-              style={{ width: paperW, height: paperW * CELL_ASPECT }}
+              style={{ width: cellW, height: cellW * CELL_ASPECT }}
             />
           </Pressable>
         );
