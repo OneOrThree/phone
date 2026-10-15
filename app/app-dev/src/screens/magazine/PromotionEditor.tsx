@@ -851,7 +851,8 @@ export function PromotionEditor({
             {layout.stickers.map((_, i) => a11yItem({ kind: 'sticker', index: i }, `sticker-${i}`))}
             {layout.tape && a11yItem({ kind: 'tape' }, 'tape')}
           </View>
-          {editable ? (
+          {/* 다시 읽는 중에도 자리는 그대로(꺼짐) — 읽기 전용이면 버튼 없이 안내만 */}
+          {!readOnly ? (
             <Btn
               id="promotion-submit"
               style={{ width: cellW }}
@@ -869,7 +870,7 @@ export function PromotionEditor({
             </Txt>
           ) : null}
         </View>,
-        editable ? stickerPageH : undefined,
+        !readOnly ? stickerPageH : undefined,
       )}
       <View style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}>
         {selection && canEdit ? (
@@ -903,7 +904,7 @@ export function PromotionEditor({
           </Txt>
         )}
       </View>
-      {editable ? (
+      {!readOnly ? (
         <View
           pointerEvents={canEdit ? 'auto' : 'none'}
           style={{

@@ -142,7 +142,7 @@ async function open(over: Partial<EditorResponse> = {}, e = env(), step: EditorS
 }
 
 describe('여닫기', () => {
-  it('새로 쓰면 빈 종이 고르기부터 — 지난번 글·스티커를 채워 두지 않고, [새로 꾸미기]는 스티커만 비운다', async () => {
+  it('새로 쓰면 빈 종이 고르기부터 — 지난번 글·스티커를 채워 두지 않고, 종이 아래 [완료] 하나', async () => {
     const { screen } = await open({}, env(), 'frame');
     expect(getEditor).toHaveBeenCalledWith('soda');
     expect(screen.getByText('종이를 골라주세요.')).toBeTruthy();
@@ -157,11 +157,9 @@ describe('여닫기', () => {
     expect(stickerStyles(screen)).toHaveLength(0);
     await fireEvent.press(screen.getByTestId('drawer-mag.cat-black-book'));
     expect(stickerStyles(screen)).toHaveLength(1);
-    // [새로 꾸미기]는 스티커만 비운다 — 종이·글은 그대로, 스티커 단계에 머문다
-    await fireEvent.press(screen.getByTestId('promotion-fresh'));
-    expect(stickerStyles(screen)).toHaveLength(0);
-    expect(screen.getByTestId('sticker-drawer')).toBeTruthy();
-    expect(await bodyOf(screen)).toBe('같이 공부해요!');
+    // [새로 꾸미기]는 없다 — 종이 아래 [완료] 하나
+    expect(screen.queryByTestId('promotion-fresh')).toBeNull();
+    expect(screen.getByTestId('promotion-submit')).toBeTruthy();
   });
 
   it('섬장이 아니면 서버를 부르지 않고 안내만', async () => {
@@ -251,19 +249,15 @@ describe('작은 화면·큰 글자·고르기', () => {
       expect(StyleSheet.flatten(screen.getByLabelText(tab).props.style).minHeight).toBe(44);
   });
 
-  it('아래 고정 줄 버튼은 문구가 감기면 높이가 늘고, 큰 글자에서는 세로로 쌓인다', async () => {
-    const actions = (screen: any) =>
-      StyleSheet.flatten(screen.getByTestId('promotion-actions').props.style).flexDirection;
+  it('종이 아래 [완료]는 문구가 감기면 높이가 늘고, 큰 글자에서는 고른 꾸미기 버튼 줄도 늘어난다', async () => {
     const submitHeight = (screen: any) =>
       StyleSheet.flatten(screen.getByTestId('promotion-submit').props.style).height;
     const normal = await open(EXISTING);
-    expect(actions(normal.screen)).toBe('row');
     expect(submitHeight(normal.screen)).toBeUndefined(); // 고정 52 가 아니라 최소 52 에서 늘어난다
     await normal.screen.unmount();
     mockFontScale = 1.6;
     try {
       const large = await open(EXISTING);
-      expect(actions(large.screen)).toBe('column-reverse');
       // 고른 꾸미기 버튼 줄도 글자에 맞춰 높이가 는다
       await fireEvent(large.screen.getByTestId('canvas-sticker-0'), 'accessibilityAction', {
         nativeEvent: { actionName: 'activate' },
@@ -525,7 +519,7 @@ describe('싣기·고치기', () => {
       const hidden = { includeHiddenElements: true };
       expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
       expect(screen.getByText('내일 07시 호에 실려요. 자정까지 고칠 수 있어요')).toBeTruthy();
-      expect(screen.getByText('고친 내용 저장', hidden)).toBeTruthy();
+      expect(screen.getByText('완료', hidden)).toBeTruthy();
       // 확인창이 열린 동안 뒤의 편집기는 스크린리더에서 숨는다
       const layer = () => screen.getByTestId('promotion-editor-layer', hidden).props;
       expect(layer().accessibilityElementsHidden).toBe(true);
@@ -537,9 +531,9 @@ describe('싣기·고치기', () => {
     }
   });
 
-  it('[잡지에 싣기]는 값을 버튼에 적지 않고, 누르면 가격 확인창 — 취소하면 보내지 않는다', async () => {
+  it('[완료]는 값을 버튼에 적지 않고, 누르면 가격 확인창 — 취소하면 보내지 않는다', async () => {
     const { screen } = await open();
-    expect(screen.getByText('잡지에 싣기')).toBeTruthy();
+    expect(screen.getByText('완료')).toBeTruthy();
     // 평소에는 잔액·안내 줄이 없다
     expect(screen.queryByText(/섬 통장 1,240마리/)).toBeNull();
     await fireEvent.press(screen.getByTestId('promotion-submit'));
@@ -603,14 +597,14 @@ describe('싣기·고치기', () => {
     expect(e.notify).not.toHaveBeenCalled();
   });
 
-  it('이미 낸 다음 호 홍보가 있으면 [고친 내용 저장] → PUT', async () => {
+  it('이미 낸 다음 호 홍보가 있으면 [완료] → 확인창 없이 PUT', async () => {
     const next = { promotionId: 'p9', issueDate: '2026-10-15', body: '다음 호 글', layout: LAYOUT };
     const { screen, e } = await open({ next: { ...next, appliedAt: 'x', editable: true } });
     // 이미 낸 홍보는 틀·글이 정해져 있어 바로 칸 전체(스티커) 단계로 연다
     expect(screen.getByTestId('sticker-drawer')).toBeTruthy();
     expect(screen.getByText('다음 호 글')).toBeTruthy();
     update.mockResolvedValueOnce({ ...next, updatedAt: 'y' });
-    await fireEvent.press(screen.getByText('고친 내용 저장'));
+    await fireEvent.press(screen.getByText('완료'));
     expect(update).toHaveBeenCalledWith('soda', 'p9', { body: '다음 호 글', layout: LAYOUT });
     expect(e.notify).toHaveBeenCalledWith('고친 내용을 저장했어요');
   });
@@ -630,7 +624,7 @@ describe('신청 창·잔액·비공개', () => {
     expect(screen.queryByTestId('promotion-body')).toBeNull();
     expect(screen.queryByTestId('promotion-frames')).toBeNull();
     expect(screen.getByText('다음 호 글')).toBeTruthy();
-    expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(true);
+    expect(screen.queryByTestId('promotion-submit')).toBeNull();
   });
 
   it('잔액이 모자라면 버튼이 꺼지고 안내', async () => {
@@ -645,7 +639,7 @@ describe('신청 창·잔액·비공개', () => {
     expect(screen.getByText(/비공개 섬은 잡지에 실을 수 없어요/)).toBeTruthy();
   });
 
-  it('다시 읽는 동안에는 신청·새로 꾸미기 버튼이 꺼진다', async () => {
+  it('다시 읽는 동안에는 [완료]가 꺼진다', async () => {
     const { screen } = await open();
     apply.mockRejectedValueOnce(new ApiError('INSUFFICIENT_FUNDS', '부족', 409));
     getEditor.mockReturnValueOnce(new Promise(() => {})); // 다시 읽기가 끝나지 않는다
@@ -694,9 +688,8 @@ describe('신청 창·잔액·비공개', () => {
       // 늦은 성공 뒤에도 읽기 전용 그대로 — 서랍이 다시 열리거나 저장 버튼이 켜지지 않는다
       const hidden = { includeHiddenElements: true }; // 늦은 성공으로 접수 완료 확인창이 떠 있다
       expect(screen.queryByTestId('sticker-drawer', hidden)).toBeNull();
-      expect(screen.getByTestId('promotion-submit', hidden).props.accessibilityState.disabled).toBe(
-        true,
-      );
+      // 읽기 전용은 [완료] 없이 안내만
+      expect(screen.queryByTestId('promotion-submit', hidden)).toBeNull();
       // 완료 안내도 이미 잠긴 오늘 07시 호로 — 「내일 · 자정까지 고칠 수 있어요」가 아니다
       expect(
         screen.getByText('오늘 07시 호에 실려요. 자정이 지나 더는 고칠 수 없어요'),
@@ -739,9 +732,8 @@ describe('신청 창·잔액·비공개', () => {
       // 화면도 읽기 전용 — 서랍이 없고 저장 버튼이 꺼져 있다
       const hidden = { includeHiddenElements: true };
       expect(screen.queryByTestId('sticker-drawer', hidden)).toBeNull();
-      expect(screen.getByTestId('promotion-submit', hidden).props.accessibilityState.disabled).toBe(
-        true,
-      );
+      // 읽기 전용은 [완료] 없이 안내만
+      expect(screen.queryByTestId('promotion-submit', hidden)).toBeNull();
     } finally {
       jest.useRealTimers();
     }
@@ -839,7 +831,7 @@ describe('신청 창·잔액·비공개', () => {
         '10월 15일 07시 호가 이미 나왔어요. 잡지에서 확인해 보세요',
       );
       // 새 신청 창 그대로 — 지난 호 칸이 next 로 들어가 읽기 전용이 되지 않고, 도장도 찍지 않는다
-      expect(screen.getByText('잡지에 싣기', hidden)).toBeTruthy();
+      expect(screen.getByText('완료', hidden)).toBeTruthy();
       expect(screen.getByTestId('promotion-submit', hidden).props.accessibilityState.disabled).toBe(
         false,
       );
@@ -960,7 +952,7 @@ describe('신청 창·잔액·비공개', () => {
       await act(async () => {
         jest.advanceTimersByTime(7 * 3600_000); // 07:00:01 — 새 신청 창
       });
-      await waitFor(() => expect(screen.getByText('잡지에 싣기', hidden)).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('완료', hidden)).toBeTruthy());
       expect(getEditor).toHaveBeenCalledTimes(3);
       expect(screen.queryByTestId('promotion-stamp', hidden)).toBeNull();
       expect(doneBody()).toBe('내일 07시 호에 실려요. 자정까지 고칠 수 있어요');
@@ -988,7 +980,7 @@ describe('신청 창·잔액·비공개', () => {
         }),
       );
       const screen = await render(<PromotionEditor e={env()} />);
-      await waitFor(() => expect(screen.getByText('고친 내용 저장')).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('완료')).toBeTruthy());
       // 고치다가 저장하지 않고 자정을 넘긴다
       await fireEvent.press(screen.getByTestId('promotion-back'));
       await fireEvent.changeText(screen.getByTestId('promotion-body'), '저장 안 한 글');
@@ -1022,7 +1014,7 @@ describe('신청 창·잔액·비공개', () => {
       await act(async () => {
         jest.advanceTimersByTime(61_000); // 07:00:01
       });
-      await waitFor(() => expect(screen.getByText('잡지에 싣기')).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('완료')).toBeTruthy());
       expect(getEditor).toHaveBeenCalledTimes(2);
     } finally {
       jest.useRealTimers();
