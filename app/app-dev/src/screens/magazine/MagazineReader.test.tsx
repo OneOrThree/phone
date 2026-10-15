@@ -136,6 +136,8 @@ test('다음 장부터 3칸씩 — 섬에서 펼친 잡지는 망원경 동그�
   const { screen } = await open();
   const cells = screen.getAllByTestId('magazine-cells');
   expect(cells).toHaveLength(2);
+  // 첫 칸 위에 꾸미기가 걸치는 둘레만큼 비운다(지면 위 끝에서 잘리지 않게)
+  expect(StyleSheet.flatten(cells[0].props.style).paddingTop).toBeGreaterThan(0);
   const hidden = { includeHiddenElements: true };
   expect(screen.getByTestId('magazine-cell-p1-ours', hidden)).toBeTruthy();
   expect(screen.queryByTestId('magazine-cell-p2-ours', hidden)).toBeNull();
@@ -242,7 +244,7 @@ test('회전으로 쪽 폭이 바뀌면 보던 쪽 위치로 다시 맞춘다', 
   }
 });
 
-test('가로처럼 낮은 화면에서도 지면(칸 3개)이 쪽 넘김 줄보다 위에서 끝난다', () => {
+test('가로처럼 낮은 화면에서도 지면(칸 3개 + 꾸미기가 걸치는 둘레)이 쪽 넘김 줄보다 위에서 끝난다', () => {
   for (const [width, height] of [
     [874, 402],
     [667, 375],
@@ -250,9 +252,12 @@ test('가로처럼 낮은 화면에서도 지면(칸 3개)이 쪽 넘김 줄보�
     [320, 568],
   ]) {
     const g = readerGeometry({ width, height, insets: { top: 0, bottom: 0, left: 0, right: 0 } });
+    const cellH = g.cellW * (199 / 338);
     expect(g.contentBottom).toBeLessThanOrEqual(g.navTop);
-    // 칸 3개 + 사이 간격이 지면 안에 들어간다
-    expect(g.cellW * 3 * (199 / 338) + 16).toBeLessThanOrEqual(g.innerH + 0.01);
+    // 칸 둘레 8% 는 지면(가로로 넘기는 목록 — 그 밖은 잘린다) 안: 첫 칸 위 여백 · 칸 3개 · 사이 간격 · 마지막 칸 아래 둘레 · 좌우
+    expect(g.cellPad).toBeCloseTo(0.08 * cellH, 5);
+    expect(g.cellPad + cellH * 3 + 16 + 0.08 * cellH).toBeLessThanOrEqual(g.innerH + 0.01);
+    expect(g.cellW * 1.16).toBeLessThanOrEqual(g.innerW + 0.01);
   }
 });
 

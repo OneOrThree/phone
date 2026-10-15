@@ -33,6 +33,7 @@ import { CELL_ASPECT } from './layout';
 import { magazineApi } from './usePromotionEditor';
 import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
 import { PromotionReportSheet } from './PromotionReportSheet';
+import { CANVAS_PAD } from './useStickerGestures';
 
 const R = componentTokens.magazineReader;
 const PER_PAGE = 3;
@@ -56,6 +57,8 @@ type Loaded = {
 /**
  * 속지 배치 — 속지는 그림 비율 그대로 화면 안에 가장 크게. 지면(표지 띠 아래 ~ 쪽 넘김 줄 위)은 쪽 넘김 줄과 겹치지 않는다:
  * 가로 화면처럼 속지가 낮으면 아래 여백(insetBottom)보다 넘김 줄이 먼저 닿으므로 둘 중 위쪽에서 끝낸다. 칸 3개는 지면 높이에 맞춘다.
+ * 지면은 가로로 넘기는 목록이라 그 밖은 잘린다 — 꾸미기가 걸치는 칸 둘레(CANVAS_PAD)도 지면 안에 들게 칸을 그만큼 줄이고,
+ * 첫 칸 위에 cellPad 를 비운다(첫 칸 위·마지막 칸 아래·좌우에서 꾸미기가 잘리지 않게).
  */
 export function readerGeometry(L: {
   width: number;
@@ -70,8 +73,12 @@ export function readerGeometry(L: {
   const navTop = H * (1 - R.navBottom) - NAV_H;
   const contentBottom = Math.min(H * (1 - R.insetBottom), navTop - R.cellGap);
   const innerH = contentBottom - H * R.insetTop - COVER_H;
-  const cellW = Math.min(innerW, (innerH - R.cellGap * 2) / (PER_PAGE * CELL_ASPECT));
-  return { W, H, innerW, innerH, cellW, navTop, contentBottom };
+  const cellW = Math.min(
+    innerW / (1 + CANVAS_PAD * 2),
+    (innerH - R.cellGap * 2) / ((PER_PAGE + CANVAS_PAD * 2) * CELL_ASPECT),
+  );
+  const cellPad = CANVAS_PAD * cellW * CELL_ASPECT;
+  return { W, H, innerW, innerH, cellW, cellPad, navTop, contentBottom };
 }
 
 /** 「2026-10-14」 → 「10월 14일」 */
@@ -179,7 +186,7 @@ export function MagazineReader({
       .finally(() => setMore(false));
   }, [issueId, cursor, more, index, pages.length, failedAt]);
 
-  const { W, H, innerW, innerH, cellW } = readerGeometry(L);
+  const { W, H, innerW, innerH, cellW, cellPad } = readerGeometry(L);
   const largeText = L.fontScale >= R.largeTextThreshold;
   const text = (size: number, color: string = semanticTokens.color.text) => ({
     fontFamily: font,
@@ -430,7 +437,7 @@ export function MagazineReader({
       return (
         <View
           testID="magazine-cells"
-          style={{ width: innerW, alignItems: 'center', gap: R.cellGap }}
+          style={{ width: innerW, alignItems: 'center', gap: R.cellGap, paddingTop: cellPad }}
         >
           {item.cells.map((cell) => (
             <AdCell
@@ -726,11 +733,12 @@ export function MagazineReader({
           }}
         >
           {zoom && (
+            // 꾸미기가 걸치는 칸 둘레(CANVAS_PAD)까지 화면 안에 들게 그만큼 작게
             <AdCell
               width={Math.min(
-                L.width - semanticTokens.spacing.component * 2,
+                (L.width - semanticTokens.spacing.component * 2) / (1 + CANVAS_PAD * 2),
                 (L.height - L.insets.top - L.insets.bottom - semanticTokens.spacing.component * 2) /
-                  CELL_ASPECT,
+                  ((1 + CANVAS_PAD * 2) * CELL_ASPECT),
                 R.maxPageWidth,
               )}
               cell={zoom}
