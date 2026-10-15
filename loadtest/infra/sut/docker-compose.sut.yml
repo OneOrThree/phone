@@ -1,4 +1,4 @@
-# SUT — prod 와 같은 back/Dockerfile 을 핀 SHA 로 빌드한 이미지를 loadtest 프로파일로 기동.
+# SUT — prod 와 같은 server/data-api/Dockerfile 을 핀 SHA 로 빌드한 이미지를 loadtest 프로파일로 기동.
 # 실행(관측 VM 아님, SUT VM 에서 — make up 이 수행):
 #   IMAGE=<region>-docker.pkg.dev/<project>/loadtest/gromo-back:<sha> ./fetch-env.sh sut
 #   docker compose -f docker-compose.sut.yml up -d

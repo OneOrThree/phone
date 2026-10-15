@@ -1,0 +1,2318 @@
+import assert from 'node:assert/strict';
+import React, { useState } from 'react';
+import { PixelRatio, Platform, StyleSheet } from 'react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { loadHomeSnapshot } from '@/services/homeSnapshot';
+import { ApiError } from '@/services/api/client';
+import { clearSession, saveSession } from '@/services/api/session';
+import {
+  createNotice as postNotice,
+  createNoticeComment as postComment,
+  deleteNotice as delNotice,
+  getBoard,
+  getNotice,
+  listNotices,
+  updateNotice as patchNotice,
+} from '@/services/api/notices';
+import { initialState } from '@/services/model';
+import {
+  Board,
+  buildings,
+  InteriorScreen,
+  focusBoardModal,
+  handleBoardModalKeydown,
+  restoreBoardModalOpener,
+  setBoardBackgroundInert,
+  syncBoardModalFocus,
+  type Concept,
+} from '@/screens/interiors/BuildingInteriors';
+import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
+import {
+  getConstructionOptions,
+  startConstruction,
+  type ConstructionOptions,
+} from '@/services/api/home';
+import { myIslands } from '@/services/api/islands';
+
+import {
+  claimQuest as postClaim,
+  createQuest as postQuest,
+  getQuestProgress,
+  updateQuest as patchQuest,
+} from '@/services/api/quests';
+
+jest.mock('@/services/homeSnapshot', () => ({ loadHomeSnapshot: jest.fn() }));
+jest.mock('@/services/api/notices', () => ({
+  getBoard: jest.fn(),
+  listNotices: jest.fn(),
+  getNotice: jest.fn(),
+  createNotice: jest.fn(),
+  updateNotice: jest.fn(),
+  deleteNotice: jest.fn(),
+  createNoticeComment: jest.fn(),
+}));
+jest.mock('@/services/api/quests', () => ({
+  getCurrentQuests: jest.fn(),
+  getQuestProgress: jest.fn(),
+  createQuest: jest.fn(),
+  updateQuest: jest.fn(),
+  claimQuest: jest.fn(),
+}));
+jest.mock('@/services/api/home', () => ({
+  ...jest.requireActual('@/services/api/home'),
+  getConstructionOptions: jest.fn(),
+  startConstruction: jest.fn(),
+}));
+jest.mock('@/services/api/islands', () => ({
+  ...jest.requireActual('@/services/api/islands'),
+  myIslands: jest.fn(),
+}));
+
+const ISLAND = 'island-1';
+const page = (
+  items: { id: string; title: string; commentCount?: number }[],
+  nextCursor: string | null = null,
+  role: 'host' | 'member' = 'host',
+  quests: Record<string, unknown>[] = [],
+) => ({
+  island: { id: ISLAND, name: '소다 섬', role },
+  quests: { items: quests },
+  notices: { items: items.map((i) => ({ commentCount: 0, ...i })), nextCursor },
+  wallets: { fish: 0, villagePoints: 50, fishVersion: null, villagePointsVersion: 1 },
+});
+
+const questItem = (over: Record<string, unknown> = {}) => ({
+  id: 'q1',
+  occurrenceId: 'occ-1',
+  title: '저녁 집중',
+  type: 'focus',
+  windowStart: '19:00',
+  windowEnd: '22:00',
+  timezone: 'UTC',
+  date: '2026-09-21',
+  targetMinutes: 50,
+  myRate: 64,
+  reward: { currency: 'village_points', amount: 10 },
+  settlementStatus: 'open',
+  claimable: false,
+  claimBlockedReason: 'NOT_ACHIEVED',
+  claimed: false,
+  bonusAmount: 20,
+  bonusGranted: false,
+  version: 3,
+  ...over,
+});
+
+const questProgress = (over: Record<string, unknown> = {}) => ({
+  ...questItem(),
+  members: [
+    {
+      userId: 'u1',
+      name: '나',
+      rate: 100,
+      measurementStatus: 'measured',
+      achieved: true,
+      claimed: false,
+    },
+    {
+      userId: 'u2',
+      name: null,
+      rate: null,
+      measurementStatus: 'unavailable',
+      achieved: false,
+      claimed: false,
+    },
+  ],
+  nextCursor: null,
+  ...over,
+});
+const detail = (
+  id: string,
+  comments: { id: string; name?: string | null; text?: string }[] = [],
+  nextCommentsCursor: string | null = null,
+) => ({
+  id,
+  title: '공지 제목',
+  body: '공지 본문',
+  version: 1,
+  comments: comments.map((c) => ({
+    userId: 'u',
+    text: '댓글',
+    createdAt: '2026-09-21T00:00:00Z',
+    ...c,
+    name: c.name === undefined ? '민지' : c.name,
+  })),
+  nextCommentsCursor,
+});
+
+const getBoardMock = getBoard as jest.Mock;
+const listNoticesMock = listNotices as jest.Mock;
+const getNoticeMock = getNotice as jest.Mock;
+const postNoticeMock = postNotice as jest.Mock;
+const patchNoticeMock = patchNotice as jest.Mock;
+const delNoticeMock = delNotice as jest.Mock;
+const postCommentMock = postComment as jest.Mock;
+const getQuestProgressMock = getQuestProgress as jest.Mock;
+const postQuestMock = postQuest as jest.Mock;
+const patchQuestMock = patchQuest as jest.Mock;
+const postClaimMock = postClaim as jest.Mock;
+const getConstructionOptionsMock = getConstructionOptions as jest.Mock;
+const startConstructionMock = startConstruction as jest.Mock;
+const myIslandsMock = myIslands as jest.Mock;
+const constructionOptions = (over: Partial<ConstructionOptions> = {}): ConstructionOptions => ({
+  islandVersion: 2,
+  costPolicyVersion: 3,
+  selectedBuildingId: null,
+  villagePoints: 21,
+  walletVersion: 4,
+  items: [
+    {
+      id: 'library',
+      name: '도서관',
+      cost: 37,
+      currency: 'village_points',
+      selectable: true,
+      buildable: false,
+      blockedReason: 'INSUFFICIENT_FUNDS',
+    },
+  ],
+  ...over,
+});
+
+/** App.tsx 가 넘기는 라우트 문맥의 최소 복제 — go/back 이 e 를 바꾸고 _tick 으로 리렌더한다. */
+const makeE = (over: Record<string, unknown> = {}) => {
+  const e: any = {
+    route: 'board',
+    detail: '',
+    tab: '공지',
+    text: '',
+    body: '',
+    windowStart: '',
+    windowEnd: '',
+    now: Date.now(),
+    state: initialState(true),
+    failNext: false,
+    go: jest.fn((r: string, d?: string) => {
+      e.route = r;
+      if (d !== undefined) e.detail = d;
+      e._tick();
+    }),
+    back: jest.fn(() => {
+      if (e.route === 'noticeEdit' && e.detail) e.route = 'notice';
+      else {
+        e.route = 'board';
+        e.detail = '';
+      }
+      e._tick();
+    }),
+    replace: jest.fn((r: string) => {
+      e.route = r;
+      e.detail = '';
+      e._tick();
+    }),
+    setTab: jest.fn((t: string) => {
+      e.tab = t;
+      e._tick();
+    }),
+    setText: jest.fn((v: string) => {
+      e.text = v;
+      e._tick();
+    }),
+    setBody: jest.fn((v: string) => {
+      e.body = v;
+      e._tick();
+    }),
+    setWindowStart: jest.fn((v: string) => {
+      e.windowStart = v;
+      e._tick();
+    }),
+    setWindowEnd: jest.fn((v: string) => {
+      e.windowEnd = v;
+      e._tick();
+    }),
+    dispatch: jest.fn(),
+    setFailNext: jest.fn((v: boolean) => {
+      e.failNext = v;
+    }),
+    build: jest.fn(),
+    home: jest.fn(),
+    reset: jest.fn(),
+    _tick: () => {},
+    ...over,
+  };
+  return e;
+};
+
+const concept = (over: Partial<Concept> = {}): Concept => ({
+  title: '',
+  kind: 'board-notice',
+  position: 'scene',
+  items: [],
+  boardPanel: 'notice',
+  boardRole: 'owner',
+  ...over,
+});
+
+const deferred = <T,>() => {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+type BoardSize = { width: number; height: number; sceneHeight?: number };
+
+const renderBoard = async (
+  e: any,
+  c: Partial<Concept> = {},
+  sizeOrHigherModal: BoardSize | boolean = { width: 402, height: 874 },
+) => {
+  const size: BoardSize =
+    typeof sizeOrHigherModal === 'boolean' ? { width: 402, height: 874 } : sizeOrHigherModal;
+  const initialHigherModalOpen = typeof sizeOrHigherModal === 'boolean' ? sizeOrHigherModal : false;
+  // App 은 렌더마다 e 를 새로 조립한다 — box 로 최신 e 를 주고 setE 가 stale 클로저를 재현한다.
+  const box = { e, higherModalOpen: initialHigherModalOpen };
+  const Harness = () => {
+    const [, setN] = useState(0);
+    if (box.e) box.e._tick = () => setN((n: number) => n + 1);
+    return (
+      <Board
+        building={undefined as never}
+        concept={concept(c)}
+        index={0}
+        width={size.width}
+        height={size.height}
+        sceneHeight={size.sceneHeight}
+        reduceMotion
+        showToast={() => {}}
+        e={box.e}
+        higherModalOpen={box.higherModalOpen}
+      />
+    );
+  };
+  const screen = await render(<Harness />);
+  return Object.assign(screen, {
+    setE: (next: any) => {
+      box.e = next;
+      return screen.rerender(<Harness />);
+    },
+    setSize: (next: Partial<typeof size>) => {
+      Object.assign(size, next);
+      return screen.rerender(<Harness />);
+    },
+    setHigherModalOpen: (open: boolean) => {
+      box.higherModalOpen = open;
+      return screen.rerender(<Harness />);
+    },
+  });
+};
+
+/** 웹 ?review·?demo 쿼리를 흉내 낸다 — Platform.OS·window.location 을 잠깐 바꿨다가 되돌린다. */
+const webMockMode = (search: string) => {
+  const g = globalThis as any;
+  const prevOS = Platform.OS;
+  const prevLoc = g.window?.location;
+  (Platform as any).OS = 'web';
+  Object.defineProperty(g.window, 'location', {
+    value: { search },
+    configurable: true,
+    writable: true,
+  });
+  return () => {
+    (Platform as any).OS = prevOS;
+    Object.defineProperty(g.window, 'location', { value: prevLoc, configurable: true });
+  };
+};
+
+test('웹 공지·퀘스트 상세는 모달 의미를 제공하고 배경을 접근성 트리에서 제외한다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const noticeScreen = await renderBoard(null, concept({ boardView: 'detail' }));
+    const noticeOverlay = noticeScreen.getByTestId('board-notice-overlay');
+    assert.equal(noticeOverlay.props['aria-modal'], true);
+    assert.equal(noticeOverlay.props.tabIndex, -1);
+    assert.equal(noticeOverlay.props.accessibilityRole, 'dialog');
+    assert.equal(
+      (JSON.stringify(noticeScreen.toJSON()).match(/"aria-hidden":true/g) ?? []).length,
+      2,
+    );
+    await noticeScreen.unmount();
+
+    const questScreen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'detail-focus' }),
+    );
+    const questOverlay = questScreen.getByTestId('board-quest-overlay');
+    assert.equal(questOverlay.props['aria-modal'], true);
+    assert.equal(questOverlay.props.tabIndex, -1);
+    assert.equal(questOverlay.props.accessibilityRole, 'dialog');
+    assert.equal(
+      (JSON.stringify(questScreen.toJSON()).match(/"aria-hidden":true/g) ?? []).length,
+      2,
+    );
+    await questScreen.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('웹 모달은 처음 포커스를 안으로 옮기고 Tab 경계를 지키며 Escape 후 opener를 복원한다', () => {
+  const first = { offsetParent: {}, focus: jest.fn() } as unknown as HTMLElement;
+  const last = { offsetParent: {}, focus: jest.fn() } as unknown as HTMLElement;
+  const outside = {} as HTMLElement;
+  const opener = { focus: jest.fn() } as unknown as HTMLElement;
+  const overlay = {
+    querySelectorAll: jest.fn(() => [first, last]),
+    contains: (element: Element | null) => element === first || element === last,
+    focus: jest.fn(),
+  } as unknown as HTMLElement;
+  const modalDocument = { activeElement: first } as unknown as Document;
+
+  focusBoardModal(overlay);
+  expect(first.focus).toHaveBeenCalledTimes(1);
+
+  (modalDocument as any).activeElement = first;
+  const backwards = {
+    key: 'Tab',
+    shiftKey: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(backwards, overlay, modalDocument, jest.fn());
+  expect(backwards.preventDefault).toHaveBeenCalledTimes(1);
+  expect(last.focus).toHaveBeenCalledTimes(1);
+
+  (modalDocument as any).activeElement = last;
+  const forwards = {
+    key: 'Tab',
+    shiftKey: false,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(forwards, overlay, modalDocument, jest.fn());
+  expect(forwards.preventDefault).toHaveBeenCalledTimes(1);
+  expect(first.focus).toHaveBeenCalledTimes(2);
+
+  (modalDocument as any).activeElement = outside;
+  const dismiss = jest.fn();
+  const escape = { key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(escape, overlay, modalDocument, dismiss);
+  expect(escape.preventDefault).toHaveBeenCalledTimes(1);
+  expect(dismiss).toHaveBeenCalledTimes(1);
+
+  const composingEscape = {
+    key: 'Escape',
+    isComposing: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(composingEscape, overlay, modalDocument, dismiss);
+  expect(composingEscape.preventDefault).not.toHaveBeenCalled();
+  expect(dismiss).toHaveBeenCalledTimes(1);
+
+  const composingTab = {
+    key: 'Tab',
+    isComposing: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(composingTab, overlay, modalDocument, dismiss);
+  expect(composingTab.preventDefault).not.toHaveBeenCalled();
+  expect(first.focus).toHaveBeenCalledTimes(2);
+  restoreBoardModalOpener(opener);
+  expect(opener.focus).toHaveBeenCalledTimes(1);
+
+  const background = {
+    inert: false,
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  setBoardBackgroundInert(background, true);
+  expect(background.inert).toBe(true);
+  expect(background.setAttribute).toHaveBeenCalledWith('inert', '');
+  setBoardBackgroundInert(background, false);
+  expect(background.inert).toBe(false);
+  expect(background.removeAttribute).toHaveBeenCalledWith('inert');
+});
+
+test('웹 모달 열기와 닫기는 opener 캡처·초기 포커스·배경 비활성화 순서를 지킨다', () => {
+  const events: string[] = [];
+  const opener = { focus: () => events.push('opener-restored') } as unknown as HTMLElement;
+  const first = {
+    offsetParent: {},
+    focus: () => events.push('modal-focused'),
+  } as unknown as HTMLElement;
+  const overlay = {
+    querySelectorAll: () => [first],
+    focus: jest.fn(),
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  const modalDocument = {
+    get activeElement() {
+      events.push('opener-captured');
+      return opener;
+    },
+  } as unknown as Document;
+  const background = {
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  Object.defineProperty(background, 'inert', {
+    set: (inert: boolean) => events.push(inert ? 'background-inert' : 'background-enabled'),
+  });
+  Object.defineProperty(overlay, 'inert', {
+    set: (inert: boolean) => events.push(inert ? 'overlay-inert' : 'overlay-enabled'),
+  });
+
+  const capturedOpener = syncBoardModalFocus(
+    true,
+    false,
+    true,
+    false,
+    overlay,
+    modalDocument,
+    [background],
+    null,
+  );
+  expect(capturedOpener).toBe(opener);
+  expect(events).toEqual([
+    'opener-captured',
+    'overlay-enabled',
+    'modal-focused',
+    'background-inert',
+  ]);
+
+  expect(
+    syncBoardModalFocus(
+      true,
+      true,
+      false,
+      true,
+      overlay,
+      modalDocument,
+      [background],
+      capturedOpener,
+    ),
+  ).toBe(opener);
+  expect(events[events.length - 1]).toBe('overlay-inert');
+
+  expect(
+    syncBoardModalFocus(
+      true,
+      true,
+      true,
+      false,
+      overlay,
+      modalDocument,
+      [background],
+      capturedOpener,
+    ),
+  ).toBe(opener);
+  expect(events.slice(-2)).toEqual(['overlay-enabled', 'modal-focused']);
+
+  expect(
+    syncBoardModalFocus(false, true, false, true, null, modalDocument, [background], opener),
+  ).toBe(null);
+  expect(events).toEqual([
+    'opener-captured',
+    'overlay-enabled',
+    'modal-focused',
+    'background-inert',
+    'overlay-inert',
+    'overlay-enabled',
+    'modal-focused',
+    'background-enabled',
+    'opener-restored',
+  ]);
+});
+
+test('보상 모달이 위에 열리면 게시판 Escape 트랩을 멈춘다', async () => {
+  const restore = webMockMode('?review');
+  const previousDocument = (globalThis as any).document;
+  const keydownListeners = new Set<(event: KeyboardEvent) => void>();
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      activeElement: null,
+      addEventListener: (type: string, listener: (event: KeyboardEvent) => void) => {
+        if (type === 'keydown') keydownListeners.add(listener);
+      },
+      removeEventListener: (type: string, listener: (event: KeyboardEvent) => void) => {
+        if (type === 'keydown') keydownListeners.delete(listener);
+      },
+    },
+  });
+  try {
+    const screen = await renderBoard(null, concept({ boardView: 'detail' }), true);
+    const overlay = screen.getByTestId('board-notice-overlay', { includeHiddenElements: true });
+    assert.equal(overlay.props['aria-hidden'], true);
+    assert.equal(overlay.props['aria-modal'], false);
+    assert.equal(overlay.props.accessibilityElementsHidden, true);
+    const scrim = screen.getByTestId('board-notice-overlay-scrim', {
+      includeHiddenElements: true,
+    });
+    assert.equal(scrim.props.accessibilityState.disabled, true);
+    assert.equal(scrim.props.accessibilityElementsHidden, true);
+    assert.equal(scrim.props['aria-hidden'], true);
+    assert.equal(scrim.props.inert, true);
+    assert.equal(scrim.props.tabIndex, -1);
+    assert.equal(keydownListeners.size, 0);
+
+    for (const listener of keydownListeners) {
+      listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
+    }
+    assert.ok(screen.getByTestId('board-notice-overlay', { includeHiddenElements: true }));
+
+    await screen.setHigherModalOpen(false);
+    assert.equal(keydownListeners.size, 1);
+    assert.equal(
+      screen.getByTestId('board-notice-overlay', { includeHiddenElements: true }).props[
+        'aria-hidden'
+      ],
+      undefined,
+    );
+    assert.equal(screen.getByTestId('board-notice-overlay').props['aria-modal'], true);
+    const [listener] = [...keydownListeners];
+    await act(async () => {
+      listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
+    });
+    assert.equal(screen.queryByTestId('board-notice-overlay'), null);
+    await screen.unmount();
+
+    const questScreen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'detail-focus' }),
+      true,
+    );
+    const questScrim = questScreen.getByTestId('board-quest-overlay-scrim', {
+      includeHiddenElements: true,
+    });
+    assert.equal(questScrim.props.accessibilityState.disabled, true);
+    assert.equal(questScrim.props.accessibilityElementsHidden, true);
+    assert.equal(questScrim.props['aria-hidden'], true);
+    assert.equal(questScrim.props.inert, true);
+    assert.equal(questScrim.props.tabIndex, -1);
+    await questScreen.unmount();
+  } finally {
+    if (previousDocument === undefined) delete (globalThis as any).document;
+    else
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: previousDocument,
+      });
+    restore();
+  }
+});
+
+test('공지 상세 모달이 열리면 형제 scene-back 버튼을 비활성화하고 접근성 트리에서 숨긴다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const screen = await render(
+      <InteriorScreen buildingIndex={1} conceptIndex={4} width={402} height={874} reduceMotion />,
+    );
+    const back = screen.getByTestId('scene-back', { includeHiddenElements: true });
+    await waitFor(() => {
+      assert.equal(back.props.accessibilityState.disabled, true);
+      assert.equal(back.props.accessibilityElementsHidden, true);
+      assert.equal(back.props['aria-hidden'], true);
+    });
+    await fireEvent.press(back);
+    await screen.unmount();
+  } finally {
+    restore();
+  }
+});
+
+beforeEach(async () => {
+  jest.clearAllMocks();
+  myIslandsMock.mockResolvedValue({ currentIslandId: ISLAND, items: [{ id: ISLAND }] });
+  getConstructionOptionsMock.mockResolvedValue(constructionOptions());
+  startConstructionMock.mockReset();
+  (loadHomeSnapshot as jest.Mock).mockReset();
+  await clearSession();
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('게시판 청사진은 회관이 서버에 저장한 목표·가격·잔액을 읽는다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  const e = makeE({ route: 'quest', detail: 'building' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+  assert.ok(screen.getByText('21 / 37마리'));
+  assert.equal(getConstructionOptionsMock.mock.calls[0][0], ISLAND);
+  assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+  assert.equal(screen.queryByTestId('board-build-start'), null);
+  assert.equal(screen.queryByText('주민 준비량'), null);
+  assert.equal(screen.queryByText('공사 15분'), null);
+});
+
+test.each(['host', 'member'] as const)(
+  '모든 건물이 완공되면 %s의 청사진에 전체 완공 안내를 보여준다',
+  async (role) => {
+    getBoardMock.mockResolvedValue(page([], null, role));
+    getConstructionOptionsMock.mockResolvedValue(constructionOptions({ items: [] }));
+    const screen = await renderBoard(makeE({ tab: '' }));
+
+    await waitFor(() => assert.ok(screen.getByLabelText('모든 건물 완공 현황 보기')));
+    assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
+    await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+    await waitFor(() => assert.ok(screen.getByText('모든 건물을 완공했어요.')));
+    assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+    assert.equal(screen.queryByTestId('board-build-start'), null);
+  },
+);
+
+test('미완공 건물이 남아 있고 목표만 없으면 다음 건물을 고르도록 안내한다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(constructionOptions());
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+
+  await waitFor(() => assert.ok(screen.getByText('회관에서 다음 건물을 골라 주세요.')));
+  assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
+});
+
+test('게시판 장면에는 건물 그림을 덧붙이지 않고 청사진을 연 뒤에만 미리보기를 보여준다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await waitFor(() =>
+    assert.equal(
+      screen.getByTestId('board-blueprint-area').props.accessibilityLabel,
+      '도서관 건설 현황 보기',
+    ),
+  );
+  assert.equal(screen.queryByLabelText('도서관'), null);
+  assert.equal(screen.queryByLabelText('도서관 건물 미리보기'), null);
+  await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+  await waitFor(() => assert.ok(screen.getByLabelText('도서관 건물 미리보기')));
+});
+
+test('일반 주민도 서버 목표를 보지만 게시판에서 착공할 수 없다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'member'));
+  const options = constructionOptions({ selectedBuildingId: 'library' });
+  options.items[0] = { ...options.items[0], selectable: false, blockedReason: 'FORBIDDEN' };
+  getConstructionOptionsMock.mockResolvedValue(options);
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+
+  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+  assert.ok(screen.getByText('방장이 건설을 진행할 수 있어요.'));
+  assert.equal(screen.queryByTestId('board-build-start'), null);
+  assert.equal(startConstructionMock.mock.calls.length, 0);
+});
+
+test.each(['host', 'member'] as const)(
+  '청사진 상세에서 %s도 총액 1마리와 두 주민의 각자 몫을 구분한다',
+  async (role) => {
+    getBoardMock.mockResolvedValue(page([], null, role));
+    const options = constructionOptions({
+      selectedBuildingId: 'library',
+      villagePoints: 1,
+      residentProgress: {
+        buildingId: 'library',
+        requiredPerResident: 1,
+        residents: [
+          { userId: 'u1', name: '방장', contributed: 1, remaining: 0 },
+          { userId: 'u2', name: '주민 둘', contributed: 0, remaining: 1 },
+        ],
+      },
+    });
+    options.items[0] = {
+      ...options.items[0],
+      cost: 1,
+      buildable: false,
+      selectable: role === 'host',
+      blockedReason: role === 'host' ? 'INSUFFICIENT_FUNDS' : 'FORBIDDEN',
+    };
+    getConstructionOptionsMock.mockResolvedValue(options);
+    const e = makeE({ tab: '' });
+    // 실제 뒤로 가기는 청사진을 열기 전 라우트의 빈 탭도 복원한다.
+    e.back = jest.fn(() => {
+      e.route = 'board';
+      e.detail = '';
+      e.setTab('');
+    });
+    const screen = await renderBoard(e);
+    await waitFor(() =>
+      assert.equal(
+        screen.getByTestId('board-blueprint-area').props.accessibilityLabel,
+        '도서관 건설 현황 보기',
+      ),
+    );
+    assert.equal(screen.queryByTestId('board-resident-progress'), null);
+    await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+    await waitFor(() => assert.ok(screen.getByText('대상 주민 2명 · 각자 1마리')));
+    assert.ok(screen.getByText('총 1마리'));
+    assert.ok(screen.getByText('주민 둘'));
+    assert.ok(screen.getByText('1마리 남음'));
+    assert.ok(screen.getByText('건설할 때 섬 잔액에서 총 1마리를 차감해요.'));
+    assert.equal(screen.queryByTestId('board-build-start'), null);
+
+    getConstructionOptionsMock.mockResolvedValue({
+      ...options,
+      villagePoints: 2,
+      residentProgress: {
+        ...options.residentProgress!,
+        residents: options.residentProgress!.residents.map((resident) => ({
+          ...resident,
+          contributed: 1,
+          remaining: 0,
+        })),
+      },
+      items: options.items.map((item) => ({
+        ...item,
+        buildable: role === 'host',
+        blockedReason: role === 'host' ? null : 'FORBIDDEN',
+      })),
+    });
+    assert.equal(screen.queryByTestId('board-contribution-refresh'), null);
+    await fireEvent.press(screen.getByTestId('board-drawer-close'));
+    await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+    await waitFor(() => assert.equal(screen.getAllByText('달성').length, 2));
+    assert.equal(screen.queryByText('1마리 남음'), null);
+    assert.equal(!!screen.queryByTestId('board-build-start'), role === 'host');
+  },
+);
+
+test('게시판 건설하기는 서버 착공 후 재조회하고 홈에 착공 시각을 전달한다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const options = constructionOptions({ selectedBuildingId: 'library', villagePoints: 100 });
+  options.items[0] = { ...options.items[0], buildable: true, blockedReason: null };
+  getConstructionOptionsMock.mockResolvedValue(options);
+  const e = makeE({ route: 'quest', detail: 'building' });
+  const receipt = {
+    buildingId: 'library',
+    status: 'BUILDING',
+    spent: { currency: 'village_points', amount: 37 },
+    version: 3,
+    villagePoints: 63,
+    walletVersion: 5,
+    startedAt: new Date(e.now).toISOString(),
+    completesAt: new Date(e.now + 60000).toISOString(),
+  };
+  startConstructionMock.mockImplementation(async () => {
+    getConstructionOptionsMock.mockResolvedValue({
+      ...options,
+      selectedBuildingId: null, // 실제 서버는 착공하면서 선택 목표를 해제한다.
+      villagePoints: 63,
+      items: [
+        { ...options.items[0], selectable: false, buildable: false, blockedReason: 'IN_PROGRESS' },
+      ],
+    });
+    return receipt;
+  });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-build-start')));
+  await fireEvent.press(screen.getByTestId('board-build-start'));
+  await waitFor(() => assert.ok(screen.getByText('도서관을 짓고 있어요')));
+  expect(startConstructionMock).toHaveBeenCalledWith(ISLAND, 'library', 2, 3, expect.any(String));
+  assert.equal(e.build.mock.calls.length, 0);
+  assert.ok(
+    e.dispatch.mock.calls.some(
+      ([action]: any[]) =>
+        action.type === 'SERVER_CONSTRUCTION_STARTED' && action.islandId === ISLAND,
+    ),
+  );
+});
+
+test('건설 목표 조회 실패는 목표 없음으로 숨기지 않고 재시도로 복구한다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오류', 0));
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
+  await waitFor(() => assert.ok(screen.getByText('건설 목표를 불러오지 못했어요.')));
+  assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  await fireEvent.press(screen.getByTestId('board-construction-retry'));
+  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+});
+
+test('청사진을 열 때 목표를 다시 읽어 다른 기기에서 변경한 건물을 표시한다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  getConstructionOptionsMock.mockResolvedValue(
+    constructionOptions({ selectedBuildingId: 'library' }),
+  );
+  const screen = await renderBoard(makeE({ tab: '' }));
+  await waitFor(() =>
+    assert.equal(
+      screen.getByTestId('board-blueprint-area').props.accessibilityLabel,
+      '도서관 건설 현황 보기',
+    ),
+  );
+  const next = constructionOptions({ selectedBuildingId: 'mail' });
+  next.items[0] = { ...next.items[0], id: 'mail', name: '우체통', cost: 81 };
+  getConstructionOptionsMock.mockResolvedValue(next);
+  await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+  await waitFor(() => assert.ok(screen.getByText('총 81마리')));
+  assert.ok(screen.getByText('우체통'));
+  assert.equal(screen.queryByText('총 37마리'), null);
+});
+
+test('게시판 장면 배율을 종이와 내용에 함께 적용해 종횡비가 달라도 정렬한다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const reference = await renderBoard(null, concept({ boardView: 'list' }), {
+      width: 874,
+      height: 402,
+    });
+    const referenceStyle = StyleSheet.flatten(reference.getByTestId('board-drawer').props.style);
+    assert.equal(referenceStyle.left, 324);
+    assert.equal(referenceStyle.right, 30);
+    assert.equal(referenceStyle.paddingHorizontal, 50);
+    await reference.unmount();
+
+    const wide = await renderBoard(null, concept({ boardView: 'list' }), {
+      width: 1950,
+      height: 1280,
+    });
+    const wideStyle = StyleSheet.flatten(wide.getByTestId('board-drawer').props.style);
+    const scale = 1950 / 874;
+    assert.equal(wideStyle.left, 324 * scale);
+    assert.equal(wideStyle.right, 30 * scale);
+    assert.equal(wideStyle.paddingHorizontal, 50 * scale);
+    assert.equal(wideStyle.height, Math.min(1280 * 0.58, 492 * scale));
+    await wide.unmount();
+
+    const middle = await renderBoard(null, concept({ boardView: 'detail' }), {
+      width: 1280,
+      height: 800,
+    });
+    const middleScale = 1280 / 874;
+    const middleOverlay = StyleSheet.flatten(
+      middle.getByTestId('board-notice-overlay').props.style,
+    );
+    assert.equal(middleOverlay.left, 338 * middleScale);
+    assert.equal(middleOverlay.right, 36 * middleScale);
+    assert.equal(middleOverlay.paddingTop, 48 * middleScale);
+    assert.equal(middleOverlay.paddingHorizontal, 58 * middleScale);
+    assert.equal(middleOverlay.paddingBottom, 40 * middleScale);
+    await middle.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 영역이 같은 2:3 좌표계를 쓴다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const viewports = [
+      [375, 667],
+      [402, 874],
+      [440, 956],
+      [834, 1210],
+      [667, 375],
+      [874, 402],
+      [956, 440],
+      [1210, 834],
+      [1024, 1180],
+      [320, 480],
+      [290, 400],
+    ];
+
+    for (const [width, height] of viewports) {
+      const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      assert.equal(scene.top, 0);
+      const scrollScene = width / height > 2 / 3;
+      assert.equal(scene.height, scrollScene ? width * 1.5 : height);
+      assert.equal(scene.width, scrollScene ? width : (height * 2) / 3);
+      assert.equal(scene.left, scrollScene ? 0 : (width - scene.width) / 2);
+      const labelScale = Math.min(1, scene.width / 402);
+      const fontScale = Math.max(1, PixelRatio.getFontScale());
+      const noticeBaseHeight = Math.max(scene.height * 0.226, 44);
+      const noticeHeight = Math.max(
+        noticeBaseHeight,
+        (28 * 1.1 * fontScale + 9 + 24) * labelScale +
+          (Math.max(scene.width * 0.253, 44) - 24 * labelScale) * 0.7,
+      );
+      const questHeight = Math.max(
+        scene.height * 0.09,
+        (22 * 1.1 * fontScale + 20 + 3 + 6) * labelScale,
+        44,
+      );
+      const questCenterY =
+        noticeHeight > noticeBaseHeight
+          ? Math.max(
+              (questHeight / 2 + 1) / scene.height,
+              Math.min(0.285, 0.348 - (noticeHeight / 2 + questHeight / 2 + 1) / scene.height),
+            )
+          : 0.285;
+      const blueprintCenterY = Math.max(
+        0.406,
+        questCenterY + (questHeight / 2 + 44 / 2 + 1) / scene.height,
+      );
+
+      const labelScene = StyleSheet.flatten(screen.getByTestId('board-label-scene').props.style);
+      assert.equal(labelScene.left, 0);
+      assert.equal(labelScene.top, 0);
+      assert.equal(labelScene.right, 0);
+      assert.equal(labelScene.bottom, 0);
+      const hitboxes = [
+        ['board-notice-area', 0.3495, 0.348],
+        ['board-quest-area', 0.645, questCenterY],
+        ['board-blueprint-area', 0.705, blueprintCenterY],
+      ].map(([testID, centerX, centerY]) => {
+        const area = StyleSheet.flatten(screen.getByTestId(testID as string).props.style);
+        assert.ok(area.width >= 44, `${testID} is at least 44px wide at ${width}x${height}`);
+        assert.ok(area.height >= 44, `${testID} is at least 44px tall at ${width}x${height}`);
+        assert.ok(Math.abs(area.left + area.width / 2 - scene.width * Number(centerX)) < 0.01);
+        assert.ok(Math.abs(area.top + area.height / 2 - scene.height * Number(centerY)) < 0.01);
+        return {
+          testID,
+          left: area.left,
+          top: area.top,
+          right: area.left + area.width,
+          bottom: area.top + area.height,
+        };
+      });
+      for (let first = 0; first < hitboxes.length; first += 1) {
+        for (let second = first + 1; second < hitboxes.length; second += 1) {
+          const a = hitboxes[first];
+          const b = hitboxes[second];
+          const separated =
+            a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+          assert.ok(separated, `${a.testID} and ${b.testID} overlap at ${width}x${height}`);
+        }
+      }
+      const noticeTitle = screen.getByText('공지');
+      const questTitle = screen.getByText('퀘스트');
+      assert.equal(noticeTitle.props.numberOfLines, undefined);
+      assert.equal(questTitle.props.numberOfLines, undefined);
+      assert.equal(noticeTitle.props.allowFontScaling, true);
+      assert.equal(questTitle.props.allowFontScaling, true);
+      assert.equal(StyleSheet.flatten(noticeTitle.props.style).fontSize, 28 * labelScale);
+      assert.equal(StyleSheet.flatten(questTitle.props.style).fontSize, 22 * labelScale);
+      assert.ok(StyleSheet.flatten(noticeTitle.props.style).width >= 112);
+      assert.ok(StyleSheet.flatten(questTitle.props.style).width >= 132 * labelScale);
+      assert.notEqual(StyleSheet.flatten(noticeTitle.props.style).whiteSpace, 'nowrap');
+      assert.notEqual(StyleSheet.flatten(questTitle.props.style).whiteSpace, 'nowrap');
+      await screen.unmount();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('퀘스트 목록 항목의 상세 버튼은 여덟 화면 크기에서 손가락 크기다', async () => {
+  const viewports = [
+    [375, 667],
+    [402, 874],
+    [440, 956],
+    [834, 1210],
+    [667, 375],
+    [874, 402],
+    [956, 440],
+    [1210, 834],
+    [1024, 1180],
+  ];
+
+  for (const [width, height] of viewports) {
+    const screen = await renderBoard(null, concept({ boardPanel: 'quest', boardView: 'list' }), {
+      width,
+      height,
+    });
+    const detail = StyleSheet.flatten(screen.getByTestId('board-quest-detail-0').props.style);
+    assert.ok(detail.minWidth >= 44, `detail button is at least 44px wide at ${width}x${height}`);
+    assert.ok(detail.minHeight >= 44, `detail button is at least 44px tall at ${width}x${height}`);
+    await screen.unmount();
+  }
+});
+
+test('좁은 세로 화면에서도 청사진 패널과 두 열 배치를 유지한다', async () => {
+  const width = 375;
+  const screen = await renderBoard(null, concept({ boardPanel: 'blueprint', boardView: 'list' }), {
+    width,
+    height: 500,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const grid = StyleSheet.flatten(screen.getByTestId('board-blueprint-grid').props.style);
+
+  assert.equal(drawer.left, (324 * width) / 874);
+  assert.equal(drawer.right, (30 * width) / 874);
+  assert.ok(width - drawer.left - drawer.right >= 44);
+  assert.equal(grid.flexDirection, 'row');
+  assert.ok(screen.getByText('예상 모습'));
+  await screen.unmount();
+});
+
+test('작은 320×480·290×400 화면에서 퀘스트와 청사진 터치 영역이 겹치지 않는다', async () => {
+  for (const [width, height] of [
+    [320, 480],
+    [290, 400],
+  ]) {
+    const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+    const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
+    const blueprint = StyleSheet.flatten(screen.getByTestId('board-blueprint-area').props.style);
+    const separated =
+      quest.top + quest.height <= blueprint.top ||
+      blueprint.top + blueprint.height <= quest.top ||
+      quest.left + quest.width <= blueprint.left ||
+      blueprint.left + blueprint.width <= quest.left;
+
+    assert.ok(quest.width >= 44 && quest.height >= 44);
+    assert.ok(blueprint.width >= 44 && blueprint.height >= 44);
+    assert.ok(separated, `터치 영역이 ${width}×${height}에서 겹치지 않음`);
+    await screen.unmount();
+  }
+});
+
+test('3배 접근성 글자에서도 퀘스트 터치 영역에 맞춰 청사진 영역을 재배치한다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(3);
+  try {
+    for (const [width, height] of [
+      [320, 480],
+      [290, 400],
+    ]) {
+      const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      const notice = StyleSheet.flatten(screen.getByTestId('board-notice-area').props.style);
+      const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
+      const blueprint = StyleSheet.flatten(screen.getByTestId('board-blueprint-area').props.style);
+      const noticeText = screen.getByText('공지');
+      const questText = screen.getByText('퀘스트');
+      const labelScale = Math.min(1, scene.width / 402);
+      const requiredNoticeHeight =
+        (28 * 1.1 * 3 + 9 + 24) * labelScale +
+        (Math.max(scene.width * 0.253, 44) - 24 * labelScale) * 0.7;
+      const requiredQuestHeight = (22 * 1.1 * 3 + 20 + 3 + 6) * labelScale;
+      const boxes = [notice, quest, blueprint];
+      const allSeparated = boxes.every((box, index) =>
+        boxes
+          .slice(index + 1)
+          .every(
+            (other) =>
+              box.top + box.height <= other.top ||
+              other.top + other.height <= box.top ||
+              box.left + box.width <= other.left ||
+              other.left + other.width <= box.left,
+          ),
+      );
+
+      assert.ok(noticeText.props.allowFontScaling);
+      assert.ok(StyleSheet.flatten(noticeText.props.style).width >= 56 * 3 * labelScale);
+      assert.ok(notice.width >= 44 && notice.height >= requiredNoticeHeight);
+      assert.ok(questText.props.allowFontScaling);
+      assert.ok(StyleSheet.flatten(questText.props.style).width >= 198 * labelScale);
+      assert.ok(quest.width >= 44 && quest.height >= requiredQuestHeight);
+      assert.ok(blueprint.width >= 44 && blueprint.height >= 44);
+      assert.ok(allSeparated, `3배 글자 터치 영역이 ${width}×${height}에서 겹치지 않음`);
+      await screen.unmount();
+    }
+  } finally {
+    fontScale.mockRestore();
+  }
+});
+
+test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라벨이 같은 좌표계에 놓인다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const buildingIndex = buildings.findIndex(({ id }) => id === 'board');
+    assert.notEqual(buildingIndex, -1);
+    const viewports = [
+      [375, 667],
+      [402, 874],
+      [440, 956],
+      [834, 1210],
+      [667, 375],
+      [874, 402],
+      [956, 440],
+      [1210, 834],
+      [1024, 1180],
+      [320, 480],
+      [290, 400],
+    ];
+
+    for (const [width, height] of viewports) {
+      const screen = await render(
+        <InteriorScreen
+          buildingIndex={buildingIndex}
+          conceptIndex={0}
+          width={width}
+          height={height}
+          reduceMotion
+        />,
+      );
+      const scrollScene = width / height > 2 / 3;
+      const scroll = screen.getByTestId('board-scene-scroll');
+      assert.equal(scroll.props.horizontal, false);
+      assert.equal(scroll.props.scrollEnabled, scrollScene);
+      assert.equal(scroll.props.showsVerticalScrollIndicator, false);
+      assert.equal(scroll.props.showsHorizontalScrollIndicator, false);
+      assert.deepEqual(scroll.props.contentOffset, {
+        x: 0,
+        y: scrollScene ? Math.max(0, width * 1.5 - height) * 0.38 : 0,
+      });
+      const scrollContent = StyleSheet.flatten(scroll.props.contentContainerStyle);
+      assert.equal(scrollContent.width, width);
+      if (scrollScene) {
+        assert.equal(screen.queryByTestId('board-side-fill'), null);
+        assert.equal(scrollContent.height, width * 1.5);
+        const image = screen.getByTestId('board-scene-image', { includeHiddenElements: true });
+        const imageStyle = StyleSheet.flatten(image.props.style);
+        assert.equal(image.props.resizeMode, 'stretch');
+        assert.equal(imageStyle.width, width);
+        assert.equal(imageStyle.height, width * 1.5);
+        const labelScene = StyleSheet.flatten(screen.getByTestId('board-label-scene').props.style);
+        assert.equal(labelScene.position, 'absolute');
+        assert.equal(labelScene.left, 0);
+        assert.equal(labelScene.top, 0);
+        const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
+        const notice = StyleSheet.flatten(screen.getByTestId('board-notice-area').props.style);
+        const sceneHeight = width * 1.5;
+        const noticeBaseHeight = Math.max(sceneHeight * 0.226, 44);
+        const expectedCenterY =
+          notice.height > noticeBaseHeight
+            ? Math.max(
+                (quest.height / 2 + 1) / sceneHeight,
+                Math.min(0.285, 0.348 - (notice.height / 2 + quest.height / 2 + 1) / sceneHeight),
+              )
+            : 0.285;
+        assert.ok(Math.abs(quest.top + quest.height / 2 - sceneHeight * expectedCenterY) < 0.01);
+        assert.ok(quest.width >= 44 && quest.height >= 44);
+      } else {
+        assert.equal(scrollContent.height, height);
+      }
+      await screen.unmount();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('게시판 장면 그라데이션을 웹·네이티브와 세로·가로 모두 이미지 위에 그린다', async () => {
+  const previousOS = Platform.OS;
+  try {
+    for (const platform of ['web', 'ios']) {
+      (Platform as any).OS = platform;
+      for (const [width, height] of [
+        [402, 874],
+        [874, 402],
+      ]) {
+        const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+        const image = screen.getByTestId('board-scene-image', { includeHiddenElements: true });
+        const gradient = screen.getByTestId('board-scene-gradient');
+        const imageStyle = StyleSheet.flatten(image.props.style);
+        const gradientStyle = StyleSheet.flatten(gradient.props.style);
+        const scene = image.parent;
+        assert.ok(scene);
+        const siblings = scene.children;
+
+        assert.equal(imageStyle.zIndex, 0);
+        assert.equal(gradientStyle.zIndex, 1);
+        assert.ok(
+          String(
+            gradientStyle.backgroundImage ?? gradientStyle.experimental_backgroundImage,
+          ).includes('linear-gradient'),
+        );
+        assert.equal(gradient.parent, scene);
+        assert.ok(siblings.indexOf(gradient) > siblings.indexOf(image));
+        await screen.unmount();
+      }
+    }
+  } finally {
+    (Platform as any).OS = previousOS;
+  }
+});
+
+test('874×402 공지 종이는 실제 패딩을 뺀 뒤에도 140px 이상 읽기 영역을 확보한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width: 874,
+    height: 402,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const readableHeight = drawer.height - drawer.paddingTop - drawer.paddingBottom;
+
+  assert.equal(drawer.height, 394);
+  assert.ok(readableHeight >= 140);
+  await screen.unmount();
+});
+
+test('874×450 공지 종이는 내비게이션 높이를 반영해 140px 이상 목록을 보장한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width: 874,
+    height: 450,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const navigation = screen.getByTestId('board-panel-navigation');
+  const noticeScroll = StyleSheet.flatten(screen.getByTestId('board-notice-scroll').props.style);
+  const readableHeight = noticeScroll.maxHeight;
+
+  assert.equal(navigation.props.children.length, 2);
+  assert.equal(drawer.height, 442);
+  assert.equal(drawer.paddingTop, 38);
+  assert.equal(drawer.paddingBottom, 28);
+  assert.ok(readableHeight >= 140);
+  await screen.unmount();
+});
+
+test('667×375 공지 종이는 축소된 패딩을 적용해도 140px 읽기 높이를 보장한다', async () => {
+  const width = 667;
+  const height = 375;
+  const scale = width / 874;
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width,
+    height,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const readableHeight = drawer.height - drawer.paddingTop - drawer.paddingBottom;
+
+  assert.equal(drawer.top, 4);
+  assert.equal(drawer.height, height - 8);
+  assert.equal(drawer.paddingTop, 38 * scale);
+  assert.equal(drawer.paddingBottom, 28 * scale);
+  assert.ok(readableHeight >= 140);
+  await screen.unmount();
+});
+
+test('열린 게시판 패널에서도 스크롤을 막고 배경 라벨은 패널 전환을 허용한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }));
+  const scroll = screen.getByTestId('board-scene-scroll');
+
+  assert.equal(scroll.props.scrollEnabled, false);
+  assert.notEqual(scroll.props.pointerEvents, 'none');
+  fireEvent.press(screen.getByTestId('board-quest-area'));
+  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
+  fireEvent.press(screen.getByTestId('board-notice-area'));
+  await waitFor(() => assert.ok(screen.getByText('소다 섬 게시판')));
+  await screen.unmount();
+});
+
+test('겹쳐진 가로 게시판 패널에서 44px 조작으로 전환·닫기를 할 수 있다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width: 874,
+    height: 402,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const switchButton = screen.getByTestId('board-panel-switch');
+  const closeButton = screen.getByTestId('board-panel-close');
+  const switchStyle = StyleSheet.flatten(switchButton.props.style);
+  const closeStyle = StyleSheet.flatten(closeButton.props.style);
+
+  assert.equal(drawer.left, 324);
+  assert.equal(drawer.right, 30);
+  assert.ok(switchStyle.width >= 44 && switchStyle.height >= 44);
+  assert.ok(closeStyle.width >= 44 && closeStyle.height >= 44);
+  assert.equal(switchButton.props.accessibilityLabel, '퀘스트 패널로 전환');
+
+  fireEvent.press(switchButton);
+  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
+  assert.equal(
+    screen.getByTestId('board-panel-switch').props.accessibilityLabel,
+    '공지 패널로 전환',
+  );
+
+  fireEvent.press(screen.getByTestId('board-panel-switch'));
+  await waitFor(() => assert.ok(screen.getByText('소다 섬 게시판')));
+  fireEvent.press(screen.getByTestId('board-panel-close'));
+  await waitFor(() =>
+    assert.equal(screen.getByTestId('board-scene-scroll').props.scrollEnabled, true),
+  );
+  assert.equal(screen.queryByTestId('board-panel-navigation'), null);
+  await screen.unmount();
+});
+
+test('noartifact 비교 화면에서도 게시판 배경을 그라데이션 아래에 유지한다', async () => {
+  const restore = webMockMode('?interiors=1&noartifact=1');
+  try {
+    const buildingIndex = buildings.findIndex(({ id }) => id === 'board');
+    const screen = await render(
+      <InteriorScreen
+        buildingIndex={buildingIndex}
+        conceptIndex={0}
+        width={1024}
+        height={1180}
+        reduceMotion
+        hideArtifact
+      />,
+    );
+    const background = StyleSheet.flatten(screen.getByTestId('interiors-screen').props.style);
+
+    assert.match(background.backgroundImage, /linear-gradient/);
+    assert.match(background.backgroundImage, /url\(/);
+    assert.match(background.backgroundSize, /1024px 1536px/);
+    assert.match(background.backgroundPosition, /0px -135\.28px/);
+    assert.equal(screen.queryByTestId('artifact-wrap'), null);
+    assert.equal(screen.queryByTestId('board-scene'), null);
+    await screen.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('네이티브 세로 배경에서는 이미지 뒤에 그라데이션을 그린다', async () => {
+  const previousOS = Platform.OS;
+  (Platform as any).OS = 'ios';
+  try {
+    for (const id of ['hall', 'board']) {
+      const buildingIndex = buildings.findIndex((building) => building.id === id);
+      const screen = await render(
+        <InteriorScreen
+          buildingIndex={buildingIndex}
+          conceptIndex={0}
+          width={375}
+          height={667}
+          reduceMotion
+        />,
+      );
+      const image = screen.getByTestId('interior-background-image');
+      const gradient = screen.getByTestId('interior-background-gradient');
+      const imageStyle = StyleSheet.flatten(image.props.style);
+      const backgroundContainer = image.parent;
+      assert.ok(backgroundContainer);
+      const siblings = backgroundContainer.children;
+
+      assert.equal(imageStyle.zIndex, undefined);
+      assert.equal(gradient.parent, backgroundContainer);
+      assert.ok(siblings.indexOf(gradient) > siblings.indexOf(image));
+      await screen.unmount();
+    }
+  } finally {
+    (Platform as any).OS = previousOS;
+  }
+});
+
+test('가로 공지 상세의 스크롤 높이는 종이 패딩을 제외해 긴 본문도 스크롤된다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const height = 402;
+    const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'detail' }), {
+      width: 874,
+      height,
+    });
+    const overlay = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
+    const content = StyleSheet.flatten(
+      screen.getByTestId('board-notice-overlay-content').props.style,
+    );
+    const maximumOverlayHeight = height * 0.65;
+
+    assert.equal(overlay.paddingTop + overlay.paddingBottom, 88);
+    assert.ok(content.maxHeight <= maximumOverlayHeight - 88);
+    assert.equal(content.overflowY, 'auto');
+    await screen.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('키보드로 가시 높이가 줄어든 세로 화면은 고정 장면 높이 기준으로 세로 배치를 유지한다', async () => {
+  const screen = await renderBoard(null, concept({ boardView: 'list' }), {
+    width: 402,
+    height: 350,
+    sceneHeight: 874,
+  });
+  const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+  const scroll = screen.getByTestId('board-scene-scroll');
+
+  assert.equal(scene.width, (874 * 2) / 3);
+  assert.equal(scene.height, 874);
+  assert.equal(scene.top, 0);
+  assert.equal(scroll.props.scrollEnabled, false);
+  assert.deepEqual(scroll.props.contentOffset, { x: 0, y: 0 });
+  assert.equal(StyleSheet.flatten(screen.getByText('공지').props.style).fontSize, 28);
+  await screen.unmount();
+});
+
+test('가로 키보드 전후 게시판 장면 초기 스크롤 오프셋을 고정한다', async () => {
+  const screen = await renderBoard(null, concept({ boardView: 'list' }), {
+    width: 874,
+    height: 402,
+    sceneHeight: 402,
+  });
+  const offsetBefore = screen.getByTestId('board-scene-scroll').props.contentOffset.y;
+
+  await screen.setSize({ height: 250 });
+  const offsetAfter = screen.getByTestId('board-scene-scroll').props.contentOffset.y;
+
+  assert.equal(offsetBefore, (874 * 1.5 - 402) * 0.38);
+  assert.equal(offsetAfter, offsetBefore);
+  await screen.unmount();
+});
+
+test('홈 퀘스트 바로가기는 없는 상세로 치지 않고 퀘스트 목록을 연다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const e = makeE({ route: 'quest', detail: HOME_QUEST_LIST_DETAIL, tab: '퀘스트' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
+  assert.equal(screen.queryByText('주민별 달성률'), null);
+  expect(e.replace).not.toHaveBeenCalled();
+});
+
+test('목록 — getBoard 첫 페이지를 그리고 더 보기는 listNotices 로 붙인다', async () => {
+  getBoardMock.mockResolvedValue(
+    page(
+      [
+        { id: 'n1', title: '첫 공지', commentCount: 2 },
+        { id: 'n2', title: '둘째 공지' },
+      ],
+      'c1',
+    ),
+  );
+  listNoticesMock.mockResolvedValue({
+    items: [{ id: 'n3', title: '셋째 공지', commentCount: 1 }],
+    nextCursor: null,
+  });
+  const screen = await renderBoard(makeE());
+
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-item-0')));
+  assert.ok(screen.getByText('첫 공지'));
+  assert.ok(screen.getByText(/댓글 2/));
+
+  await fireEvent.press(screen.getByTestId('board-notices-more'));
+  await waitFor(() => assert.ok(screen.getByText('셋째 공지')));
+  assert.deepEqual([...listNoticesMock.mock.calls[0]], [ISLAND, 'c1']);
+  await screen.unmount();
+});
+
+test('방문자 — 보호된 GET·쓰기를 하나도 부르지 않고 로컬 공지를 보여 준다', async () => {
+  const state = initialState(true);
+  state.visitingIslandId = 'strawberry';
+  const screen = await renderBoard(makeE({ state }));
+  await act(async () => {});
+  assert.equal(getBoardMock.mock.calls.length, 0);
+  assert.equal(listNoticesMock.mock.calls.length, 0);
+  assert.equal(getNoticeMock.mock.calls.length, 0);
+  assert.equal(postNoticeMock.mock.calls.length, 0);
+  assert.equal(patchNoticeMock.mock.calls.length, 0);
+  assert.equal(delNoticeMock.mock.calls.length, 0);
+  assert.equal(postCommentMock.mock.calls.length, 0);
+  // 로컬 모델의 공지 목록은 방문자에게도 그대로다(공개 방문 계약 안 데이터).
+  assert.ok(screen.getByText('우리 섬에 온 걸 환영해요'));
+  await screen.unmount();
+});
+
+test('목록 실패 — 오류 문구와 다시 시도, 재시도가 다시 읽는다', async () => {
+  getBoardMock.mockRejectedValueOnce(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
+  const screen = await renderBoard(makeE());
+  await waitFor(() => assert.ok(screen.getByTestId('board-notices-retry')));
+  assert.ok(screen.getByText('권한이 없습니다.'));
+
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
+  await fireEvent.press(screen.getByTestId('board-notices-retry'));
+  await waitFor(() => assert.ok(screen.getByText('첫 공지')));
+  assert.equal(getBoardMock.mock.calls.length, 2);
+  await screen.unmount();
+});
+
+test('상세 — getNotice 본문·댓글을 그리고 댓글 삭제 버튼은 없다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
+  getNoticeMock.mockResolvedValue(
+    detail('n1', [
+      { id: 'c1', name: '민지', text: '반가워요' },
+      { id: 'c2', name: null, text: '탈퇴한 댓글' },
+    ]),
+  );
+  const e = makeE({ route: 'notice', detail: 'n1' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByText('공지 본문')));
+  assert.ok(screen.getByText('반가워요'));
+  assert.ok(screen.getByText('탈퇴한 댓글'));
+  // 공개 API 에 댓글 삭제가 없다 — 서버 경로에서는 버튼이 나오지 않는다.
+  assert.equal(screen.queryByTestId('board-comment-delete-0'), null);
+  await screen.unmount();
+});
+
+test('공지 작성 — 성공(쓰기+정본 재조회) 뒤 목록으로 돌아간다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  postNoticeMock.mockResolvedValue({ id: 'n9', title: 't', body: 'b' });
+  const e = makeE({ route: 'noticeEdit' });
+  const screen = await renderBoard(e);
+  // 쓰기 버튼의 owner 판정은 getBoard 의 island.role 이 올 때까지 기다린다.
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-title')));
+
+  await fireEvent.changeText(screen.getByTestId('board-notice-title'), '새 공지');
+  await fireEvent.changeText(screen.getByTestId('board-notice-body'), '본문');
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+
+  await waitFor(() => assert.equal(e.back.mock.calls.length, 1));
+  const [islandId, body, key] = postNoticeMock.mock.calls[0];
+  assert.equal(islandId, ISLAND);
+  assert.deepEqual(body, { title: '새 공지', body: '본문' });
+  assert.equal(typeof key, 'string');
+  assert.equal(getBoardMock.mock.calls.length, 2); // 진입 + 성공 후 정본 재조회
+  await screen.unmount();
+});
+
+test('공지 저장 실패 — 입력 초안을 그대로 두고 오류를 보여 준다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  postNoticeMock.mockRejectedValue(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
+  const e = makeE({ route: 'noticeEdit' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-title')));
+
+  await fireEvent.changeText(screen.getByTestId('board-notice-title'), '새 공지');
+  await fireEvent.changeText(screen.getByTestId('board-notice-body'), '본문');
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+
+  await waitFor(() => assert.ok(screen.getByText('권한이 없습니다.')));
+  assert.equal(e.back.mock.calls.length, 0);
+  assert.equal(e.text, '새 공지');
+  assert.equal(e.body, '본문');
+  await screen.unmount();
+});
+
+test('댓글 작성 — 성공하면 입력을 비우고 닫고, 실패하면 초안이 남는다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1', text: '반가워요' }]));
+  postCommentMock.mockResolvedValue({ id: 'c2', name: null, text: 'x' });
+  const e = makeE({ route: 'notice', detail: 'n1' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByText('반가워요')));
+
+  await fireEvent.press(screen.getByTestId('board-comment-new'));
+  await fireEvent.changeText(screen.getByTestId('board-comment-input'), '같이 해요');
+  await fireEvent.press(screen.getByTestId('board-comment-submit'));
+
+  await waitFor(() => assert.equal(postCommentMock.mock.calls.length, 1));
+  assert.deepEqual(
+    [...postCommentMock.mock.calls[0].slice(0, 3)],
+    [ISLAND, 'n1', { text: '같이 해요' }],
+  );
+  await waitFor(() => assert.equal(screen.queryByTestId('board-comment-input'), null));
+  assert.equal(e.text, '');
+  await screen.unmount();
+});
+
+test.each(['?review', '?demo'])(
+  '목업 %s — e 가 있어도 API 0건, 저장·삭제·댓글은 로컬 dispatch 다',
+  async (query) => {
+    const restore = webMockMode(query);
+    try {
+      // 저장 — publish 가 서버가 아니라 NOTICE_SAVE dispatch 로 간다.
+      const e = makeE({ route: 'noticeEdit', text: '새 공지', body: '본문' });
+      const screen = await renderBoard(e);
+      await act(async () => {});
+      await fireEvent.press(screen.getByTestId('board-notice-submit'));
+      // jest 목업 인자는 realm 이 달라 deepStrictEqual 이 흔들린다 — JSON 으로 비교한다.
+      assert.deepEqual(
+        JSON.parse(JSON.stringify(e.dispatch.mock.calls.map((c: unknown[]) => c[0]))),
+        [{ type: 'NOTICE_SAVE', id: '', title: '새 공지', body: '본문' }],
+      );
+      assert.equal(e.back.mock.calls.length, 1);
+      await screen.unmount();
+
+      // 삭제 — NOTICE_DELETE dispatch.
+      const e2 = makeE({ route: 'notice', detail: 'welcome' });
+      const screen2 = await renderBoard(e2);
+      await act(async () => {});
+      assert.ok(screen2.getByText('우리 섬에 온 걸 환영해요'));
+      await fireEvent.press(screen2.getByTestId('board-notice-delete'));
+      await fireEvent.press(screen2.getByTestId('board-delete-confirm'));
+      assert.deepEqual(
+        JSON.parse(JSON.stringify(e2.dispatch.mock.calls.map((c: unknown[]) => c[0]))),
+        [{ type: 'NOTICE_DELETE', id: 'welcome' }],
+      );
+      assert.equal(e2.back.mock.calls.length, 1);
+      await screen2.unmount();
+
+      // 댓글 — COMMENT dispatch.
+      const e3 = makeE({ route: 'notice', detail: 'welcome' });
+      const screen3 = await renderBoard(e3);
+      await act(async () => {});
+      await fireEvent.press(screen3.getByTestId('board-comment-new'));
+      await fireEvent.changeText(screen3.getByTestId('board-comment-input'), '같이 해요');
+      await fireEvent.press(screen3.getByTestId('board-comment-submit'));
+      assert.deepEqual(
+        JSON.parse(JSON.stringify(e3.dispatch.mock.calls.map((c: unknown[]) => c[0]))),
+        [{ type: 'COMMENT', id: 'welcome', text: '같이 해요' }],
+      );
+      await screen3.unmount();
+
+      // 목업 경로 전체에서 게시판 API 는 한 번도 나가지 않는다.
+      for (const m of [
+        getBoardMock,
+        listNoticesMock,
+        getNoticeMock,
+        postNoticeMock,
+        patchNoticeMock,
+        delNoticeMock,
+        postCommentMock,
+      ])
+        assert.equal(m.mock.calls.length, 0);
+    } finally {
+      restore();
+    }
+  },
+);
+
+test('갤러리 방문자 — e 없는 시안도 목업 공지를 그대로 보여 주고 API 는 0건이다', async () => {
+  const screen = await renderBoard(null, { boardView: 'visitor', boardRole: 'resident' });
+  await act(async () => {});
+  // 목업 공지 첫 장의 제목·댓글이 그대로 보인다.
+  assert.ok(screen.getByText('수아가 소다 섬에 도착했어요'));
+  assert.ok(screen.getByText('수아야, 어서 와!'));
+  for (const m of [
+    getBoardMock,
+    listNoticesMock,
+    getNoticeMock,
+    postNoticeMock,
+    patchNoticeMock,
+    delNoticeMock,
+    postCommentMock,
+  ])
+    assert.equal(m.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('서버 role — 목업이 방장이어도 island.role=member 이면 쓰기 버튼이 없다', async () => {
+  // 로컬 상태는 방장(solo 없음·joined·host 멤버 없음)이지만 서버는 member.
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }], null, 'member'));
+  const e = makeE({ route: 'notice', detail: 'n1' });
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1', text: '반가워요' }]));
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByText('공지 본문')));
+  assert.equal(screen.queryByTestId('board-notice-edit'), null);
+  assert.equal(screen.queryByTestId('board-notice-delete'), null);
+  await screen.unmount();
+});
+
+test('서버 role — 로컬이 비방장이어도 island.role=host 이면 쓰기 버튼이 보인다', async () => {
+  // strawberry 섬(미가입·host 멤버 있음)은 로컬 owner 가 아니다 — 서버 host 가 정본.
+  const state = initialState(true);
+  const island = state.islands.find((i) => i.id === 'soda');
+  if (island) island.members[0].role = 'host';
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }], null, 'host'));
+  const e = makeE({ state, route: 'notice', detail: 'n1' });
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1', text: '반가워요' }]));
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByText('공지 본문')));
+  assert.ok(screen.getByTestId('board-notice-edit'));
+  assert.ok(screen.getByTestId('board-notice-delete'));
+  await screen.unmount();
+});
+
+test('공지 수정 — updateNotice 분기, 성공하면 한 번만 뒤로 간다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
+  patchNoticeMock.mockResolvedValue({ id: 'n1', title: 't', body: 'b' });
+  const e = makeE({ route: 'noticeEdit', detail: 'n1', text: '수정 제목', body: '수정 본문' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-submit')));
+
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+  await waitFor(() => assert.equal(e.back.mock.calls.length, 1));
+  assert.deepEqual(
+    [...patchNoticeMock.mock.calls[0].slice(0, 3)],
+    [ISLAND, 'n1', { title: '수정 제목', body: '수정 본문' }],
+  );
+  assert.equal(postNoticeMock.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('공지 삭제 — deleteNotice 성공 뒤 확인창을 닫고 한 번 뒤로 간다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
+  getNoticeMock.mockResolvedValue(detail('n1', []));
+  delNoticeMock.mockResolvedValue({ id: 'n1' });
+  const e = makeE({ route: 'notice', detail: 'n1' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByText('공지 본문')));
+
+  await fireEvent.press(screen.getByTestId('board-notice-delete'));
+  await fireEvent.press(screen.getByTestId('board-delete-confirm'));
+  await waitFor(() => assert.equal(e.back.mock.calls.length, 1));
+  assert.deepEqual([...delNoticeMock.mock.calls[0].slice(0, 2)], [ISLAND, 'n1']);
+  await screen.unmount();
+});
+
+test('쓰기 진행 중 라우트가 바뀌면 — 옛 작업이 back 도 오류 표시도 하지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const slow = deferred<{ id: string; title: string; body: string }>();
+  postNoticeMock.mockReturnValue(slow.promise);
+  const e1 = makeE({ route: 'noticeEdit', text: '새 공지', body: '본문' });
+  const screen = await renderBoard(e1);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-submit')));
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+  assert.equal(postNoticeMock.mock.calls.length, 1);
+
+  // App 처럼 e 를 새 객체로 갈아 끼우며 목록으로 나갔다 — e1.back 은 옛 history 클로저다.
+  const e2 = makeE({ state: e1.state, route: 'board' });
+  await screen.setE(e2);
+  await act(async () => {
+    slow.resolve({ id: 'n9', title: 't', body: 'b' });
+  });
+  assert.equal(e1.back.mock.calls.length, 0);
+  assert.equal(e2.back.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('나갔다 같은 작성 화면으로 돌아와도 — 옛 쓰기의 성공 효과는 실행되지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const slow = deferred<{ id: string; title: string; body: string }>();
+  postNoticeMock.mockReturnValue(slow.promise);
+  const e1 = makeE({ route: 'noticeEdit', text: '새 공지', body: '본문' });
+  const screen = await renderBoard(e1);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-submit')));
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+
+  await screen.setE(makeE({ state: e1.state, route: 'board' }));
+  // 같은 noticeEdit(빈 detail)로 돌아와도 route 세대가 달라 옛 작업은 무효다.
+  const e3 = makeE({ state: e1.state, route: 'noticeEdit', text: '다른 초안', body: '다른 본문' });
+  await screen.setE(e3);
+  await act(async () => {
+    slow.resolve({ id: 'n9', title: 't', body: 'b' });
+  });
+  assert.equal(e1.back.mock.calls.length, 0);
+  assert.equal(e3.back.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('쓰기 진행 중 라우트가 바뀌면 — 실패 오류도 새 화면에 띄우지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const slow = deferred<{ id: string; title: string; body: string }>();
+  postNoticeMock.mockReturnValue(slow.promise);
+  const e1 = makeE({ route: 'noticeEdit', text: '새 공지', body: '본문' });
+  const screen = await renderBoard(e1);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-submit')));
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+
+  const e2 = makeE({ state: e1.state, route: 'board' });
+  await screen.setE(e2);
+  await act(async () => {
+    slow.reject(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
+    await slow.promise.catch(() => {});
+  });
+  assert.equal(screen.queryByText('권한이 없습니다.'), null);
+  await screen.unmount();
+});
+
+test('댓글 쓰기 진행 중 화면이 바뀌면 — 성공해도 새 화면의 입력을 지우지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1', text: '반가워요' }]));
+  const slow = deferred<{ id: string; name: string | null; text: string }>();
+  postCommentMock.mockReturnValue(slow.promise);
+  const e1 = makeE({ route: 'notice', detail: 'n1' });
+  const screen = await renderBoard(e1);
+  await waitFor(() => assert.ok(screen.getByText('반가워요')));
+
+  await fireEvent.press(screen.getByTestId('board-comment-new'));
+  await fireEvent.changeText(screen.getByTestId('board-comment-input'), '같이 해요');
+  await fireEvent.press(screen.getByTestId('board-comment-submit'));
+  assert.equal(postCommentMock.mock.calls.length, 1);
+
+  // 공지 작성 화면으로 이동 — e.text 는 공지 제목과 댓글이 공유하는 필드다.
+  const e2 = makeE({ state: e1.state, route: 'noticeEdit', text: '새 공지 초안' });
+  await screen.setE(e2);
+  await act(async () => {
+    slow.resolve({ id: 'c9', name: 'n', text: 'x' });
+  });
+  // 옛 댓글 작업이 새 화면의 제목 초안을 지우지 않는다.
+  assert.equal(e2.setText.mock.calls.filter((c: unknown[]) => c[0] === '').length, 0);
+  assert.equal(e2.text, '새 공지 초안');
+  await screen.unmount();
+});
+
+test('저장 더블탭 — 요청은 1건, 성공 효과(back)도 한 번이다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const slow = deferred<{ id: string; title: string; body: string }>();
+  postNoticeMock.mockReturnValue(slow.promise);
+  const e = makeE({ route: 'noticeEdit', text: '새 공지', body: '본문' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-submit')));
+
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+  assert.equal(postNoticeMock.mock.calls.length, 1);
+  await act(async () => {
+    slow.resolve({ id: 'n9', title: 't', body: 'b' });
+  });
+  await waitFor(() => assert.equal(e.back.mock.calls.length, 1));
+  await screen.unmount();
+});
+
+test('언마운트 뒤 resolve 된 쓰기는 어떤 화면 효과도 내지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const slow = deferred<{ id: string; title: string; body: string }>();
+  postNoticeMock.mockReturnValue(slow.promise);
+  const e = makeE({ route: 'noticeEdit', text: '새 공지', body: '본문' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-submit')));
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+  assert.equal(postNoticeMock.mock.calls.length, 1);
+
+  await screen.unmount();
+  await act(async () => {
+    slow.resolve({ id: 'n9', title: 't', body: 'b' });
+  });
+  assert.equal(e.back.mock.calls.length, 0);
+});
+
+test('댓글 A 진행 중 닫고 다시 열어 B 입력 — 옛 성공이 B 초안과 입력창을 건드리지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1', text: '반가워요' }]));
+  const slow = deferred<{ id: string; name: string | null; text: string }>();
+  postCommentMock.mockReturnValue(slow.promise);
+  const e = makeE({ route: 'notice', detail: 'n1' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByText('반가워요')));
+
+  await fireEvent.press(screen.getByTestId('board-comment-new'));
+  await fireEvent.changeText(screen.getByTestId('board-comment-input'), '같이 해요');
+  await fireEvent.press(screen.getByTestId('board-comment-submit'));
+  assert.equal(postCommentMock.mock.calls.length, 1);
+
+  // 같은 라우트다 — 입력창을 닫았다 다시 열고 다른 내용을 친다.
+  await fireEvent.press(screen.getByTestId('board-comment-cancel'));
+  await fireEvent.press(screen.getByTestId('board-comment-new'));
+  await fireEvent.changeText(screen.getByTestId('board-comment-input'), '다른 댓글');
+  await act(async () => {
+    slow.resolve({ id: 'c9', name: 'n', text: 'x' });
+  });
+  // 옛 댓글 성공이 새 초안을 지우거나 다시 연 입력창을 닫지 않는다.
+  assert.ok(screen.getByTestId('board-comment-input'));
+  assert.equal(e.text, '다른 댓글');
+  await screen.unmount();
+});
+
+test('저장 진행 중 초안을 더 고치면 — 옛 저장의 back 이 새 초안을 버리지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const slow = deferred<{ id: string; title: string; body: string }>();
+  postNoticeMock.mockReturnValue(slow.promise);
+  const e = makeE({ route: 'noticeEdit', text: '새 공지', body: '본문' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-submit')));
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+  assert.equal(postNoticeMock.mock.calls.length, 1);
+
+  // 저장이 안 끝났는데 제목을 더 고친다.
+  await fireEvent.changeText(screen.getByTestId('board-notice-title'), '고치는 중');
+  await act(async () => {
+    slow.resolve({ id: 'n9', title: 't', body: 'b' });
+  });
+  assert.equal(e.back.mock.calls.length, 0);
+  assert.equal(e.text, '고치는 중');
+  await screen.unmount();
+});
+
+test('저장 진행 중 다른 내용으로 다시 저장 — 명시 거절 문구가 뜨고 초안이 남는다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const slow = deferred<{ id: string; title: string; body: string }>();
+  postNoticeMock.mockReturnValue(slow.promise);
+  const e = makeE({ route: 'noticeEdit', text: '새 공지', body: '본문' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-submit')));
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+
+  // 내용을 바꿔 다시 저장 — 같은 의도가 아니므로 조용히 삼키지 않고 진행 중 거절을 보여 준다.
+  await fireEvent.changeText(screen.getByTestId('board-notice-title'), '바꾼 제목');
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+  await waitFor(() => assert.ok(screen.getByText('이전 저장이 끝나는 중이에요.')));
+  assert.equal(postNoticeMock.mock.calls.length, 1);
+  assert.equal(e.text, '바꾼 제목');
+
+  await act(async () => {
+    slow.resolve({ id: 'n9', title: 't', body: 'b' });
+  });
+  // 옛 저장이 끝나도 초안이 바뀌어 있으면 back 하지 않는다.
+  assert.equal(e.back.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('저장 진행 중 A→B→A 편집 — 마지막 내용이 같아도 옛 성공은 무효다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const slow = deferred<{ id: string; title: string; body: string }>();
+  postNoticeMock.mockReturnValue(slow.promise);
+  const e = makeE({ route: 'noticeEdit', text: '원안', body: '본문' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-submit')));
+  await fireEvent.press(screen.getByTestId('board-notice-submit'));
+
+  // A→B→A — 값 비교로는 구분할 수 없으므로 세대로만 걸러야 한다.
+  await fireEvent.changeText(screen.getByTestId('board-notice-title'), '임시 수정');
+  await fireEvent.changeText(screen.getByTestId('board-notice-title'), '원안');
+  await act(async () => {
+    slow.resolve({ id: 'n9', title: 't', body: 'b' });
+  });
+  assert.equal(e.back.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('삭제 진행 중 확인창을 취소하면 — 옛 삭제 성공이 back 을 실행하지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
+  getNoticeMock.mockResolvedValue(detail('n1', []));
+  const slow = deferred<{ id: string }>();
+  delNoticeMock.mockReturnValue(slow.promise);
+  const e = makeE({ route: 'notice', detail: 'n1' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByText('공지 본문')));
+
+  await fireEvent.press(screen.getByTestId('board-notice-delete'));
+  await fireEvent.press(screen.getByTestId('board-delete-confirm'));
+  assert.equal(delNoticeMock.mock.calls.length, 1);
+  // 삭제가 안 끝났는데 확인창을 취소한다.
+  await fireEvent.press(screen.getByTestId('board-delete-cancel'));
+  await act(async () => {
+    slow.resolve({ id: 'n1' });
+  });
+  // 강제 back 없이 남은 화면은 영구 스피너가 아니라 종결 상태다.
+  assert.equal(e.back.mock.calls.length, 0);
+  await waitFor(() => assert.ok(screen.getByText('삭제됐거나 더 이상 볼 수 없는 공지예요.')));
+  assert.equal(screen.queryByText('불러오는 중…'), null);
+  await screen.unmount();
+});
+
+test('퀘스트 목록 — getBoard 의 회차 헤더를 그린다(내 달성률·수령 가능 표시)', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [
+      questItem({ claimable: true, claimBlockedReason: null }),
+      questItem({
+        id: 'q2',
+        occurrenceId: 'occ-2',
+        title: '폰 줄이기',
+        type: 'screen',
+        myRate: null,
+      }),
+    ]),
+  );
+  const screen = await renderBoard(makeE({ tab: '퀘스트' }));
+
+  await waitFor(() => assert.ok(screen.getByText('저녁 집중')));
+  assert.ok(screen.getByText('64%'));
+  assert.ok(screen.getByText(/보상 받을 수 있어요 · 10마리/));
+  // 미집계(rate null)는 0% 가 아니라 '측정 전' 이다.
+  assert.ok(screen.getByText('측정 전'));
+  assert.ok(screen.getByText('하루 폰 사용 50분 이하'));
+  await screen.unmount();
+});
+
+test('퀘스트 목록 — 같은 정의의 여러 회차를 occurrenceId로 라우팅한다', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [
+      questItem({ occurrenceId: 'occ-yesterday', date: '2026-09-20' }),
+      questItem({ occurrenceId: 'occ-today', date: '2026-09-21' }),
+    ]),
+  );
+  const e = makeE({ tab: '퀘스트' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-detail-1')));
+
+  await fireEvent.press(screen.getByTestId('board-quest-detail-1'));
+
+  assert.deepEqual([...e.go.mock.calls[0]], ['quest', 'occ-today']);
+  await screen.unmount();
+});
+
+test('퀘스트 상세 — progress 의 주민 목록을 그리고 수령 버튼은 claims API 를 부른다', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [questItem({ claimable: true, claimBlockedReason: null })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByText(/· 달성/)));
+  assert.ok(screen.getByText('측정 전'));
+  assert.ok(screen.getByText('주민')); // name null → 자리표시자
+  assert.deepEqual([...getQuestProgressMock.mock.calls[0]], [ISLAND, 'q1', 'occ-1']);
+
+  postClaimMock.mockResolvedValue({
+    claimId: 'c1',
+    occurrenceId: 'occ-1',
+    villagePointsAdded: 10,
+    bonusAdded: 0,
+    claimed: true,
+  });
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [questItem({ claimable: false, claimed: true })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress({ claimed: true }));
+
+  await fireEvent.press(screen.getByTestId('board-quest-claim'));
+  await waitFor(() => assert.ok(screen.getByText('내 몫은 이미 받았어요.')));
+  assert.deepEqual([...postClaimMock.mock.calls[0]].slice(0, 3), [
+    ISLAND,
+    'q1',
+    { occurrenceId: 'occ-1', expectedVersion: 3 },
+  ]);
+  // 로컬 CLAIM/지갑 가산은 없다 — 갱신은 getBoard 재조회가 맡는다.
+  assert.equal(e.dispatch.mock.calls.filter((c: any[]) => c[0]?.type === 'CLAIM').length, 0);
+  await screen.unmount();
+});
+
+test('퀘스트 상세 — 수령 불가 사유를 서버 코드 그대로 번역해 보여 준다', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'member', [questItem({ claimBlockedReason: 'MEASUREMENT_PENDING' })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' }));
+
+  await waitFor(() => assert.ok(screen.getByText('측정이 끝나야 보상을 받을 수 있어요.')));
+  assert.equal(screen.queryByTestId('board-quest-claim'), null);
+  await screen.unmount();
+});
+
+test('퀘스트 상세 — 수령 실패(409)는 문구를 띄우고 목록을 새 버전으로 다시 읽는다', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [questItem({ claimable: true, claimBlockedReason: null })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-claim')));
+
+  postClaimMock.mockRejectedValueOnce(
+    new ApiError('VERSION_CONFLICT', '다른 기기에서 먼저 바뀌었습니다.', 409),
+  );
+  getBoardMock.mockResolvedValue(page([], null, 'host', [questItem({ version: 5 })]));
+  await fireEvent.press(screen.getByTestId('board-quest-claim'));
+  await waitFor(() => assert.ok(screen.getByText('다른 기기에서 먼저 바뀌었습니다.')));
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 2));
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — POST 에 허용 키만 싣고 24:00 은 23:59 로 내린다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockResolvedValue({ id: 'q9', title: '저녁 집중' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'focus',
+    text: '저녁 집중',
+    windowStart: '19:00',
+    windowEnd: '24:00',
+  });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-title')));
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '50');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '저녁 집중',
+    type: 'focus',
+    targetMinutes: 50,
+    windowStart: '19:00',
+    windowEnd: '23:59',
+    timezone: 'UTC',
+  });
+  await waitFor(() => assert.equal(e.back.mock.calls.length > 0, true));
+  // 로컬 QUEST_SAVE 는 호출되지 않는다.
+  assert.equal(e.dispatch.mock.calls.filter((c: any[]) => c[0]?.type === 'QUEST_SAVE').length, 0);
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 24:00은 실제 전송 시각 23:59 기준으로 목표를 검증한다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'focus',
+    text: '자정 집중',
+    windowStart: '23:00',
+    windowEnd: '24:00',
+  });
+  const screen = await renderBoard(e);
+
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '60');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  assert.equal(postQuestMock.mock.calls.length, 0);
+  assert.ok(screen.getByText('목표 집중 시간은 진행 시간 안으로 정해주세요.'));
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — screen 은 창 필드 없이 간다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockResolvedValue({ id: 'q9', title: '폰 줄이기' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'screen',
+    text: '폰 줄이기',
+  });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '90');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '폰 줄이기',
+    type: 'screen',
+    targetMinutes: 90,
+  });
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — screen 목표 0분을 허용한다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockResolvedValue({ id: 'q0', title: '폰 안 쓰기' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'screen',
+    text: '폰 안 쓰기',
+  });
+  const screen = await renderBoard(e);
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '0');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '폰 안 쓰기',
+    type: 'screen',
+    targetMinutes: 0,
+  });
+  await screen.unmount();
+});
+
+test('퀘스트 저장 중 바꾼 초안은 이전 요청 성공 후에도 닫히지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  const slow = deferred<{ id: string; title: string }>();
+  postQuestMock.mockReturnValue(slow.promise);
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'screen',
+    text: '폰 줄이기',
+  });
+  const screen = await renderBoard(e);
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '30');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+  await fireEvent.changeText(screen.getByTestId('board-quest-title'), '수정한 초안');
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '20');
+
+  await act(async () => {
+    slow.resolve({ id: 'q1', title: '폰 줄이기' });
+  });
+
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length >= 2, true));
+  assert.equal(e.back.mock.calls.length, 0);
+  assert.equal(e.text, '수정한 초안');
+  assert.equal((screen.getByTestId('board-quest-target') as any).props.value, '20');
+  await screen.unmount();
+});
+
+test('퀘스트 수정 — PATCH 에 title/targetMinutes 만 싣는다(창·종류 필드는 읽기 전용)', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', [questItem()]));
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  patchQuestMock.mockResolvedValue({ id: 'q1', title: '저녁 집중', targetMinutes: 60 });
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const screen = await renderBoard(e);
+
+  // 실제 진입은 상세의 수정 버튼이다 — 초안과 목표 분을 서버 목록 값으로 채운다.
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-edit')));
+  await act(async () => {
+    await fireEvent.press(screen.getByTestId('board-quest-edit'));
+  });
+
+  await waitFor(() =>
+    assert.ok(screen.getByText('종류·진행 시간은 바꿀 수 없어요. 수정은 다음 회차부터 적용돼요.')),
+  );
+  assert.equal(screen.queryByTestId('board-quest-type'), null);
+  assert.equal(screen.queryByTestId('board-quest-start'), null);
+  // 목표 분은 서버 목록의 targetMinutes 로 미리 채워진다.
+  assert.equal((screen.getByTestId('board-quest-target') as any).props.value, '50');
+
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '60');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(patchQuestMock.mock.calls.length, 1));
+  assert.deepEqual([...patchQuestMock.mock.calls[0]].slice(0, 3), [
+    ISLAND,
+    'q1',
+    { title: '저녁 집중', targetMinutes: 60 },
+  ]);
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 서버 실패 시 초안·문구를 보존하고 뒤로 가지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockRejectedValue(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'focus',
+    text: '저녁 집중',
+    windowStart: '19:00',
+    windowEnd: '22:00',
+  });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '50');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.ok(screen.getByText('권한이 없습니다.')));
+  assert.equal(e.back.mock.calls.length, 0);
+  assert.equal(e.text, '저녁 집중');
+  await screen.unmount();
+});
+
+test.each(['success', 'failure', 'stale'] as const)(
+  '다른 기기 공사 완료 뒤 시설 진입은 홈 정본을 확인한다: %s',
+  async (outcome) => {
+    getBoardMock.mockResolvedValue(page([], null, 'member'));
+    const e = makeE({ route: 'quest', detail: 'building' });
+    e.state.serverIslands = { ...e.state.serverIslands, currentIslandId: ISLAND };
+    const activeConstruction = {
+      buildingId: 'library' as const,
+      startedAt: new Date(e.now - 30000).toISOString(),
+      completesAt: new Date(e.now + 30000).toISOString(),
+    };
+    getConstructionOptionsMock.mockResolvedValue(
+      constructionOptions({
+        activeConstruction,
+        items: constructionOptions().items.map((item) => ({
+          ...item,
+          blockedReason: 'IN_PROGRESS',
+        })),
+      }),
+    );
+    const screen = await renderBoard(e);
+    await waitFor(() => assert.ok(screen.getByText('도서관을 짓고 있어요')));
+    assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+    getConstructionOptionsMock.mockResolvedValue(
+      constructionOptions({
+        items: [{ ...constructionOptions().items[0], id: 'mail', name: '우체통' }],
+      }),
+    );
+    await act(async () => {
+      e.now += 31000;
+      e._tick();
+    });
+    await waitFor(() => assert.ok(screen.getByTestId('board-open-library')));
+    const response = deferred<any>();
+    (loadHomeSnapshot as jest.Mock).mockReturnValue(response.promise);
+    await fireEvent.press(screen.getByTestId('board-open-library'));
+    await fireEvent.press(screen.getByTestId('board-open-library'));
+    assert.equal((loadHomeSnapshot as jest.Mock).mock.calls.length, 1);
+    assert.equal(e.go.mock.calls.length, 0);
+    if (outcome === 'stale') await act(async () => e.go('home'));
+    const before = e.go.mock.calls.length;
+    const facts = {
+      islandId: ISLAND,
+      completedBuildings: ['hall', 'board', 'library'],
+      home: {},
+      members: [],
+    };
+    await act(async () => {
+      if (outcome === 'failure') response.reject(new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0));
+      else response.resolve({ status: 'loaded', facts });
+    });
+    const homeActions = e.dispatch.mock.calls.filter(([a]: any[]) => a.type === 'SERVER_HOME');
+    assert.equal(homeActions.length, outcome === 'success' ? 1 : 0);
+    assert.equal(e.go.mock.calls.length, before + (outcome === 'success' ? 1 : 0));
+    if (outcome === 'success') {
+      assert.equal(e.go.mock.calls.at(-1)[0], 'library');
+      assert.ok(e.dispatch.mock.invocationCallOrder.at(-1) < e.go.mock.invocationCallOrder.at(-1));
+    }
+    if (outcome === 'failure') assert.ok(screen.getByText('lost'));
+  },
+);

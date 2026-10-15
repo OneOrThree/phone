@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: notification
+  kafka:
+    listener:
+      ack-mode: record
+  flyway:
+    enabled: true
+  datasource:
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 3000
+server:
+  port: ${SERVER_PORT:8082}
+management:
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+notification:
+  scheduling-enabled: ${NOTIFICATION_SCHEDULING_ENABLED:false}
+  kafka-enabled: ${NOTIFICATION_KAFKA_ENABLED:false}
+  generation-required: ${NOTIFICATION_GENERATION_REQUIRED:false}
+  legacy-device-registration: ${NOTIFICATION_LEGACY_DEVICE_REGISTRATION:true}

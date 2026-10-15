@@ -1,0 +1,64 @@
+package com.oneorthree.phone.group.dto;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.oneorthree.phone.group.repository.domain.GroupStatus;
+import com.oneorthree.phone.group.repository.domain.MissionCategory;
+import com.oneorthree.phone.group.repository.domain.MissionType;
+import lombok.Builder;
+import lombok.Getter;
+
+import java.util.UUID;
+
+/**
+ * 초대 링크 프리뷰가 읽는 그룹 요약.
+ *
+ * <p>멤버십을 요구하지 않는 유일한 그룹 조회다 — 그래서 멤버 명단·참가 코드 같은 내부 정보는 빼고
+ * 가입 판단에 필요한 것(정원·현원·잠금 여부·대표 미션)만 담는다. 현원은 탈퇴자를 뺀 활성 멤버 수라
+ * 정원 판정(joinGroup)과 같은 기준이고, 미션 5필드는 대표 챌린지가 없으면 전부 null 이다.
+ */
+@Getter
+@Builder
+public class GroupOverviewResponse {
+    private UUID id;
+    private String name;
+    private String description;
+    private MissionCategory missionCategory;
+    private MissionType missionType;
+    private Integer durationMinutes;
+    /**
+     * 창 시각 — KST 벽시계 "HH:mm:ss" 문자열(GROMO-1206, /challenges 응답과 동일 계약).
+     * 변환은 WindowFocusAggregator.timeOfDayString 단일 출구를 쓴다. 시작 ≥ 종료면 자정 걸침 창.
+     */
+    private String windowStart;
+    private String windowEnd;
+    private int maxMembers;
+    private int memberCount;
+    private GroupStatus status;
+    private boolean hasPassword;
+
+    /**
+     * 링크 프리뷰의 '이미 멤버 → 바로 그룹방' 분기가 읽는 값.
+     * (hasPassword 는 getter 가 isHasPassword() 라 "is" 를 떼도 hasPassword 그대로다 — 고정 불필요)
+     */
+    private boolean isMember;
+
+    /**
+     * {@code isMember} 키를 만드는 유일한 접근자.
+     *
+     * <p>Jackson 은 접근자를 <b>암묵 이름</b>으로 묶는데, is-getter 인 {@code isMember()} 의 암묵 이름은
+     * "is" 를 뗀 {@code member} 다. 그래서 {@code @JsonProperty("isMember")} 를 <i>필드</i>에 달면
+     * 필드(=isMember)와 getter(=member)가 서로 다른 두 프로퍼티가 되어 한 값이 두 키로 나간다.
+     * 앱은 {@code isMember} 만 읽으므로 당장 깨지진 않지만, 엄격한 스키마 검증이나 생성형 클라이언트에서는
+     * 미정의 필드로 실패하거나 별개 속성 두 개로 모델링된다.
+     *
+     * <p>getter 를 직접 선언하고 여기에만 애노테이션을 달면 프로퍼티가 하나로 접힌다 — private 필드는
+     * Jackson 기본 가시성 밖이라 애노테이션이 없으면 잡히지 않기 때문이다. Lombok {@code @Getter} 는
+     * 같은 이름의 메서드가 이미 있으면 생성을 건너뛴다.
+      *
+      * @return 호출자가 이미 이 그룹의 활성 멤버면 true — 프리뷰를 건너뛰고 그룹방으로 바로 보낸다
+     */
+    @JsonProperty("isMember")
+    public boolean isMember() {
+        return isMember;
+    }
+}

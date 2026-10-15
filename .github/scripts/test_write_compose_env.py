@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -19,12 +20,28 @@ SPEC.loader.exec_module(MODULE)
 
 
 def secret(**overrides: object) -> dict[str, object]:
-    base: dict[str, object] = {key: f"value-{key}" for key in MODULE.REQUIRED_KEYS}
+    base: dict[str, object] = {key: f"value-{key}" for key in MODULE.LEGACY_REQUIRED_KEYS}
     base.update(overrides)
     return base
 
 
 class WriteComposeEnvTest(unittest.TestCase):
+    def test_live_activity_키는_compose와_data_api에_전달되고_다른_서비스에는_없다(self) -> None:
+        keys = ("FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
+                "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64")
+        values = {key: f"test-{key}" for key in keys}
+        for service in ("legacy", "data-api"):
+            required = (MODULE.LEGACY_REQUIRED_KEYS if service == "legacy"
+                        else MODULE.SERVICE_REQUIRED_KEYS[service])
+            base = secret(**{key: f"test-{key}" for key in required})
+            rendered = MODULE.render({**base, **values}, "example/data:1", service)
+            without = MODULE.render(base, "example/data:1", service)
+            for key in keys:
+                self.assertIn(f"{key}='test-{key}'", rendered)
+                self.assertNotIn(f"{key}=", without)
+        for service in ("business-api", "notification"):
+            self.assertTrue(set(keys).isdisjoint(MODULE.allowed_keys(service)))
+
     def test_compose가_메타문자와_줄바꿈을_원문으로_복원한다(self) -> None:
         password = "p$WORD # literal\\path'quote\nnext"
         with tempfile.TemporaryDirectory() as directory:
@@ -101,6 +118,371 @@ class WriteComposeEnvTest(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(env_file.read_text(encoding="utf-8"), "previous")
+
+    def test_legacy_Origin_허용목록이_없거나_공백이면_출력_전에_실패한다(self) -> None:
+        # GROMO-2224 — 비면 realtime 이 앱 접속까지 403 (GROMO-2175 사고). 배포 전에 막는다.
+        for value in (None, "", "  "):
+            with self.subTest(value=value):
+                values = secret()
+                if value is None:
+                    values.pop("CHAT_WS_ALLOWED_ORIGINS")
+                else:
+                    values["CHAT_WS_ALLOWED_ORIGINS"] = value
+                with self.assertRaisesRegex(ValueError, "CHAT_WS_ALLOWED_ORIGINS"):
+                    MODULE.render(values, "example/app@sha256:abc")
+        self.assertIn("CHAT_WS_ALLOWED_ORIGINS='value-CHAT_WS_ALLOWED_ORIGINS'",
+                      MODULE.render(secret(), "example/app@sha256:abc"))
+
+    def test_허용목록에_금지_키가_섞이면_출력_전에_실패한다(self) -> None:
+        # GROMO-2224 — 허용목록을 실수로 넓혀도 다른 서버 자격은 못 나가게 하는 2차 방어선
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
+        baseline["SVC_TOKEN_CONSOLE_TO_NOTI"] = "member-1:console"
+        original = MODULE.SERVICE_OPTIONAL_KEYS["notification"]
+        MODULE.SERVICE_OPTIONAL_KEYS["notification"] = original + ("JWT_SECRET",)
+        try:
+            with self.assertRaisesRegex(ValueError, "JWT_SECRET"):
+                MODULE.render({**baseline, "JWT_SECRET": "leak"}, "noti:test", "notification")
+        finally:
+            MODULE.SERVICE_OPTIONAL_KEYS["notification"] = original
+
+    def test_Data_프로파일이_환경과_어긋나면_실패한다(self) -> None:
+        # GROMO-2224 — dev 배포에 prod 프로파일이 섞이면 운영 설정으로 뜬다
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["data-api"] + MODULE.TRANSITION_KEYS}
+        for profiles in ("prod,satellites", "dev,satellites,prod", "satellites"):
+            with self.subTest(profiles=profiles), self.assertRaisesRegex(ValueError, "프로파일"):
+                MODULE.render(baseline, "example/data:1", "data-api", "transition", "dev", data_profiles=profiles)
+        self.assertIn("SPRING_PROFILES_ACTIVE='dev,satellites,realtime-authorization'",
+                      MODULE.render({**baseline, "SVC_TOKEN_REALTIME_TO_DATA": "t"}, "example/data:1", "data-api",
+                                    "transition", "dev", data_profiles="dev,satellites,realtime-authorization"))
+
+    def test_켠_프로파일이_요구하는_토큰이_없으면_실패한다(self) -> None:
+        # GROMO-2224 — realtime-authorization 을 켜고 토큰이 비면 Data 가 기동 실패
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["data-api"] + MODULE.TRANSITION_KEYS}
+        with self.assertRaisesRegex(ValueError, "SVC_TOKEN_REALTIME_TO_DATA"):
+            MODULE.render(baseline, "x", "data-api", "transition", "dev",
+                          data_profiles="dev,satellites,realtime-authorization")
+        MODULE.render(baseline, "x", "data-api", "transition", "dev", data_profiles="dev,satellites")
+        MODULE.render({**baseline, "SVC_TOKEN_REALTIME_TO_DATA": "t"}, "x", "data-api", "transition", "dev",
+                      data_profiles="dev,satellites,realtime-authorization")
+
+    def test_어느_허용목록에도_없는_SM_키만_이름으로_보고한다(self) -> None:
+        unused = MODULE.unused_secret_keys({**secret(), "Team_ID": "x", "JWT_SECRET": "y", "STALE_KEY": "z"})
+        self.assertEqual(unused, ["STALE_KEY", "Team_ID"])
+
+    def test_check_모드는_파일을_쓰지_않고_빠진_키를_잡는다(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "never.env"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--check", "--output", str(env_file), "--app-image", "x@sha256:abc"],
+                input=json.dumps(secret()), text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0, "서비스 필수 키가 없으면 실패해야 함")
+            self.assertFalse(env_file.exists())
+
+    def test_공유_secret의_서비스별_자격이_실제_compose에서_격리된다(self) -> None:
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db:5432/gromo",
+            API_DB_USERNAME="gromo_data", API_DB_PASSWORD="data-only",
+            NOTI_DB_URL="jdbc:postgresql://db:5432/gromo_notification",
+            NOTI_DB_USERNAME="gromo_notification", NOTI_DB_PASSWORD="noti-only",
+            NOTIFICATION_GENERATION_REQUIRED="true", NOTIFICATION_LEGACY_DEVICE_REGISTRATION="false",
+            SVC_TOKEN_BIZ_TO_DATA="biz-data", SVC_TOKEN_BIZ_TO_NOTI="biz-noti",
+            BUSINESS_REDIS_PASSWORD="redis-only-password", GOOGLE_DRIVE_API_KEY="drive-only",
+            BUSINESS_CURSOR_ENABLED="true", BUSINESS_CURSOR_KEY_V1="cursor-only",
+            SVC_TOKEN_BIZ_TO_LINK="biz-link", SVC_TOKEN_DATA_TO_NOTI="data-noti",
+            SVC_TOKEN_DATA_TO_LINK="data-link", SVC_TOKEN_NOTI_TO_DATA="noti-data",
+            SVC_TOKEN_CONSOLE_TO_NOTI="member-1:console-noti", LINK_CAPABILITY_KEY="capability",
+            LINK_IP_SALT="existing-salt", DD_API_KEY="agent-only", CONSOLE_SUDO_PASSWORD_HASH="console-only",
+            DATA_API_BASE_URL="http://app:8080", NOTIFICATION_BASE_URL="http://notification:8082",
+            LINK_BASE_URL="https://link.example.test", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            REALTIME_BASE_URL="http://realtime:8081", SVC_TOKEN_BIZ_TO_REALTIME="biz-realtime",
+            FCM_SERVICE_ACCOUNT_JSON={"project_id": "test", "private_key": "fake$'\\\nkey"},
+            LOGIN_ATTEMPT_DIGEST_SECRET="digest-only-secret",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {}
+            for service in ("data-api", "business-api", "notification"):
+                path = root / service / "service.env"
+                subprocess.run(
+                    [sys.executable, str(SCRIPT), "--output", str(path), "--service", service,
+                     "--image", f"example/{service}:test", "--environment", "dev"],
+                    input=json.dumps(combined), text=True, check=True, capture_output=True,
+                )
+                paths[service] = path
+            compose = SCRIPT.parents[2] / "server/scripts/docker-compose.satellites.yml"
+            interpolation = root / "compose.env"
+            interpolation.write_text(
+                f"BUSINESS_API_IMAGE=example/business-api:test\n"
+                f"NOTIFICATION_IMAGE=example/notification:test\n"
+                f"BUSINESS_API_ENV_FILE={paths['business-api']}\n"
+                f"NOTIFICATION_ENV_FILE={paths['notification']}\n"
+                f"BUSINESS_REDIS_ACL_FILE={root / 'business.acl'}\n",
+            )
+            result = subprocess.run(
+                ["docker", "compose", "--env-file", str(interpolation), "-f", str(compose),
+                 "config", "--format", "json"], check=True, capture_output=True, text=True,
+            )
+            services = json.loads(result.stdout)["services"]
+            biz = services["business-api"]["environment"]
+            noti = services["notification"]["environment"]
+            self.assertEqual(biz["SVC_TOKEN_BIZ_TO_DATA"], "biz-data")
+            self.assertEqual(biz["SVC_TOKEN_BIZ_TO_LINK"], "biz-link")
+            self.assertEqual(biz["JWT_SECRET"], combined["JWT_SECRET"])
+            self.assertEqual(biz["BUSINESS_REDIS_PASSWORD"], "redis-only-password")
+            self.assertEqual(biz["GOOGLE_DRIVE_API_KEY"], "drive-only")
+            self.assertEqual(biz["LOGIN_ATTEMPT_DIGEST_SECRET"], "digest-only-secret")
+            self.assertEqual(biz["BUSINESS_CURSOR_KEY_V1"], "cursor-only")
+            self.assertEqual(biz["BUSINESS_REDIS_USERNAME"], "business")
+            self.assertEqual(biz["SVC_TOKEN_BIZ_TO_REALTIME"], "biz-realtime")
+            self.assertEqual(biz["REALTIME_BASE_URL"], "http://realtime:8081")
+            self.assertNotIn("SVC_TOKEN_BIZ_TO_REALTIME", noti)
+            self.assertEqual(set(services["business-redis"]["networks"]), {"business-cache"})
+            self.assertNotIn("environment", services["business-redis"])
+            self.assertEqual(noti["NOTI_DB_PASSWORD"], "noti-only")
+            self.assertEqual(noti["NOTIFICATION_GENERATION_REQUIRED"], "true")
+            self.assertEqual(noti["NOTIFICATION_LEGACY_DEVICE_REGISTRATION"], "false")
+            self.assertNotIn("NOTIFICATION_LEGACY_DEVICE_REGISTRATION", biz)
+            self.assertEqual(noti["SVC_TOKEN_DATA_TO_NOTI"], "data-noti")
+            self.assertEqual(noti["SVC_TOKEN_CONSOLE_TO_NOTI"], "member-1:console-noti")
+            self.assertEqual(noti["KAFKA_BOOTSTRAP_SERVERS"], "kafka:9092")
+            for key in ("FCM_SERVICE_ACCOUNT_JSON", "NOTI_DB_PASSWORD", "API_DB_PASSWORD",
+                        "SVC_TOKEN_CONSOLE_TO_NOTI", "SVC_TOKEN_DATA_TO_LINK"):
+                self.assertNotIn(key, biz)
+            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY", "BUSINESS_REDIS_PASSWORD", "GOOGLE_DRIVE_API_KEY",
+                        "LOGIN_ATTEMPT_DIGEST_SECRET", "BUSINESS_CURSOR_KEY_V1"):
+                self.assertNotIn(key, noti)
+            for environment in (biz, noti):
+                self.assertNotIn("DD_API_KEY", environment)
+                self.assertNotIn("CONSOLE_SUDO_PASSWORD_HASH", environment)
+            self.assertNotIn("ports", services["business-api"])
+            self.assertNotIn("ports", services["notification"])
+
+    def test_전환용_Data는_구_기동_자격을_보존하고_final은_회수한다(self) -> None:
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",
+            SVC_TOKEN_BIZ_TO_DATA="bd", SVC_TOKEN_NOTI_TO_DATA="nd",
+            SVC_TOKEN_DATA_TO_NOTI="dn", SVC_TOKEN_DATA_TO_LINK="dl", LINK_CAPABILITY_KEY="key",
+            LINK_IP_SALT="existing-salt", LINK_BASE_URL="https://links.example.test",
+            NOTIFICATION_BASE_URL="http://notification:8082", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            REALTIME_BASE_URL="http://realtime:8081", SVC_TOKEN_DATA_TO_REALTIME="data-realtime",
+        )
+        transition = MODULE.render(combined, "example/data:1", "data-api")
+        final = MODULE.render(combined, "example/data:2", "data-api", "final", "prod")
+        for key in ("JWT_SECRET", "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID"):
+            self.assertIn(f"{key}=", transition)
+            self.assertNotIn(f"{key}=", final)
+        for key in ("FCM_PROJECT_ID", "FCM_SERVICE_ACCOUNT_JSON"):
+            self.assertIn(f"{key}=", transition)
+            self.assertIn(f"{key}=", final)
+        self.assertIn("SVC_TOKEN_DATA_TO_LINK='dl'", final)
+        # GROMO-1954 — Data relay 의 REALTIME HTTP 목적지·전용 토큰
+        self.assertIn("SVC_TOKEN_DATA_TO_REALTIME='data-realtime'", final)
+        self.assertIn("REALTIME_BASE_URL='http://realtime:8081'", final)
+        self.assertIn("SPRING_PROFILES_ACTIVE='prod,satellites'", final)
+
+    def test_섬_관리_명령_선택키는_data_api_렌더에서_있으면_나오고_없으면_안_나온다(self) -> None:
+        # GROMO-2156 — PR #1032 리뷰 제안: SERVICE_OPTIONAL_KEYS["data-api"] 경로(위성 오버레이 입력)를
+        # 직접 잠근다. render_service(--service data-api)로 렌더한 env에 섬 관리 명령 2종·게시판 쓰기
+        # 게이트가 있으면 값째로 나오고, 없으면 아예 나오지 않아야 한다. environment=prod로 겸사겸사
+        # 「없으면 prod에서도 안 나온다」까지 같은 호출로 확인한다.
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",
+            SVC_TOKEN_BIZ_TO_DATA="bd", SVC_TOKEN_NOTI_TO_DATA="nd",
+            SVC_TOKEN_DATA_TO_NOTI="dn", SVC_TOKEN_DATA_TO_LINK="dl", LINK_CAPABILITY_KEY="key",
+            LINK_IP_SALT="existing-salt", LINK_BASE_URL="https://links.example.test",
+            NOTIFICATION_BASE_URL="http://notification:8082", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            ISLAND_MANAGEMENT_COMMANDS_ENABLED="true", ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED="true",
+            ISLAND_BOARD_WRITES_ENABLED="true",
+        )
+        with_flags = MODULE.render(combined, "example/data:1", "data-api", "final", "prod")
+        self.assertIn("ISLAND_MANAGEMENT_COMMANDS_ENABLED='true'", with_flags)
+        self.assertIn("ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED='true'", with_flags)
+        self.assertIn("ISLAND_BOARD_WRITES_ENABLED='true'", with_flags)
+
+        without_flags = {key: value for key, value in combined.items()
+                         if key not in ("ISLAND_MANAGEMENT_COMMANDS_ENABLED",
+                                        "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
+                                        "ISLAND_BOARD_WRITES_ENABLED")}
+        without = MODULE.render(without_flags, "example/data:1", "data-api", "final", "prod")
+        self.assertNotIn("ISLAND_MANAGEMENT_COMMANDS_ENABLED=", without)
+        self.assertNotIn("ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED=", without)
+        self.assertNotIn("ISLAND_BOARD_WRITES_ENABLED=", without)
+
+    def test_차단_필터용_선택키는_data_api_렌더에서_있으면_나오고_없으면_안_나온다(self) -> None:
+        # GROMO-2182 — realtime-authorization 프로필이 읽는 realtime caller 자격과 차단 사건 생산 스위치.
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",
+            SVC_TOKEN_BIZ_TO_DATA="bd", SVC_TOKEN_NOTI_TO_DATA="nd",
+            SVC_TOKEN_DATA_TO_NOTI="dn", SVC_TOKEN_DATA_TO_LINK="dl", LINK_CAPABILITY_KEY="key",
+            LINK_IP_SALT="existing-salt", LINK_BASE_URL="https://links.example.test",
+            NOTIFICATION_BASE_URL="http://notification:8082", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            SVC_TOKEN_REALTIME_TO_DATA="rt-data", USER_BLOCKS_REALTIME_EVENTS_ENABLED="true",
+        )
+        rendered = MODULE.render(combined, "example/data:1", "data-api", "final", "dev",
+                                 data_profiles="dev,satellites,realtime-authorization")
+        self.assertIn("SVC_TOKEN_REALTIME_TO_DATA='rt-data'", rendered)
+        self.assertIn("USER_BLOCKS_REALTIME_EVENTS_ENABLED='true'", rendered)
+        self.assertIn("SPRING_PROFILES_ACTIVE='dev,satellites,realtime-authorization'", rendered)
+
+        without = MODULE.render({key: value for key, value in combined.items()
+                                 if key not in ("SVC_TOKEN_REALTIME_TO_DATA", "USER_BLOCKS_REALTIME_EVENTS_ENABLED")},
+                                "example/data:1", "data-api", "final", "dev")
+        self.assertNotIn("SVC_TOKEN_REALTIME_TO_DATA=", without)
+        self.assertNotIn("USER_BLOCKS_REALTIME_EVENTS_ENABLED=", without)
+
+    def test_prod_Business의_프록시_시크릿_누락은_출력_전에_차단한다(self) -> None:
+        baseline = {key: "synthetic-value" for key in MODULE.SERVICE_REQUIRED_KEYS["business-api"]}
+        baseline.pop("LINK_PROXY_SECRET", None)
+        for missing in ({}, {"LINK_PROXY_SECRET": None}, {"LINK_PROXY_SECRET": ""},
+                        {"LINK_PROXY_SECRET": "  "}):
+            with self.subTest(missing=missing):
+                with self.assertRaisesRegex(ValueError, "LINK_PROXY_SECRET"):
+                    MODULE.render({**baseline, **missing}, "example/biz:1", "business-api", "final", "prod")
+        rendered = MODULE.render({**baseline, "LINK_PROXY_SECRET": "synthetic-proxy"},
+                                 "example/biz:1", "business-api", "final", "prod")
+        self.assertIn("LINK_PROXY_SECRET='synthetic-proxy'", rendered)
+        self.assertNotIn("LINK_PROXY_SECRET=", MODULE.render(baseline, "example/biz:1", "business-api"))
+
+    def test_신규_서비스의_필수값_누락_null_공백은_실패한다(self) -> None:
+        baseline = {
+            "JWT_SECRET": "jwt", "SVC_TOKEN_BIZ_TO_DATA": "bd",
+            "SVC_TOKEN_BIZ_TO_NOTI": "bn", "SVC_TOKEN_BIZ_TO_LINK": "bl",
+        }
+        for key in baseline:
+            for value in (None, "", "  "):
+                with self.subTest(key=key, value=value):
+                    with self.assertRaisesRegex(ValueError, key):
+                        MODULE.render({**baseline, key: value}, "example/biz:1", "business-api")
+
+    def test_Business_커서_서명키_누락은_배포_전에_실패한다(self) -> None:
+        # GROMO-1759: 이 키가 없으면 컨테이너는 «정상 부팅» 하고 GET /islands·/islands/discover 만 첫
+        # 요청에서 503 이 된다 — 부팅 로그도 헬스체크도 조용하다. 그래서 env 생성 단계가 막아야 한다.
+        baseline = {key: "synthetic-value" for key in MODULE.SERVICE_REQUIRED_KEYS["business-api"]}
+        for key in ("BUSINESS_CURSOR_ENABLED", "BUSINESS_CURSOR_KEY_V1"):
+            for value in (None, "", "  "):
+                with self.subTest(key=key, value=value):
+                    with self.assertRaisesRegex(ValueError, key):
+                        MODULE.render({**baseline, key: value}, "example/biz:1", "business-api")
+        rendered = MODULE.render({**baseline, "BUSINESS_CURSOR_ACTIVE_KEY": "v2"},
+                                 "example/biz:1", "business-api")
+        self.assertIn("BUSINESS_CURSOR_ENABLED='synthetic-value'", rendered)
+        self.assertIn("BUSINESS_CURSOR_KEY_V1='synthetic-value'", rendered)
+        self.assertIn("BUSINESS_CURSOR_ACTIVE_KEY='v2'", rendered)
+        # 회전 키는 선택값 — 없으면 출력하지 않고 yml 기본값(v1)에 맡긴다.
+        self.assertNotIn("BUSINESS_CURSOR_ACTIVE_KEY=", MODULE.render(baseline, "example/biz:1", "business-api"))
+
+    def test_알림_콘솔_형식과_중복은_실제_소비자_규칙으로_거부한다(self) -> None:
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
+        invalid = ("console-noti", ":secret", "member-4:secret", "member-01:secret",
+                   "member-1:", "member-1: \t", "member-1:\u2028", ",, ,",
+                   "\u2028member-1:secret", "member-1:secret,member-2: secret ",
+                   "member-1:secret,member-1:secret", "${UNRESOLVED}",
+                   {"member-1": "secret"})
+        for console in invalid:
+            with self.subTest(console=console), self.assertRaisesRegex(ValueError, "SVC_TOKEN_CONSOLE_TO_NOTI"):
+                MODULE.render({**baseline, "SVC_TOKEN_CONSOLE_TO_NOTI": console}, "noti:test", "notification")
+        for key in ("SVC_TOKEN_BIZ_TO_NOTI", "SVC_TOKEN_DATA_TO_NOTI"):
+            with self.subTest(collision=key), self.assertRaises(ValueError):
+                MODULE.render({**baseline, "SVC_TOKEN_CONSOLE_TO_NOTI": "member-1: " + baseline[key]},
+                              "noti:test", "notification")
+        with self.assertRaises(ValueError):
+            MODULE.render({**baseline, "SVC_TOKEN_CONSOLE_TO_NOTI": "member-1:console",
+                           "SVC_TOKEN_BIZ_TO_NOTI": "same", "SVC_TOKEN_DATA_TO_NOTI": "same"},
+                          "noti:test", "notification")
+
+    def test_정상_행위자별_토큰은_회전과_구분자_원문을_보존한다(self) -> None:
+        baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
+        # 같은 actor에 다른 토큰은 회전용으로 허용한다. Java trim은 NBSP를 제거하지 않는다.
+        for console in ("member-1:console", " member-1 : one ,member-2:two,member-3:three,",
+                        ",member-1:old, ,member-1:new", "member-1:token:with:colons",
+                        "member-1:\u00a0token,member-2:token", "member-1:\u00a0"):
+            with self.subTest(console=console):
+                rendered = MODULE.render({**baseline, "SVC_TOKEN_CONSOLE_TO_NOTI": console},
+                                         "noti:test", "notification")
+                self.assertIn("SVC_TOKEN_CONSOLE_TO_NOTI=" + MODULE.dotenv_quote(console), rendered)
+
+    def test_잘못된_콘솔_토큰은_기존_env를_덮어쓰지_않는다(self) -> None:
+        payload = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
+        payload["SVC_TOKEN_CONSOLE_TO_NOTI"] = "private-invalid-console-token"
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "notification.env"
+            env_file.write_text("previous")
+            result = subprocess.run([sys.executable, str(SCRIPT), "--output", str(env_file),
+                                     "--service", "notification", "--image", "noti:test"],
+                                    input=json.dumps(payload), text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(env_file.read_text(), "previous")
+            self.assertNotIn(payload["SVC_TOKEN_CONSOLE_TO_NOTI"], result.stdout + result.stderr)
+
+    def test_legacy_dev_env의_선택값이_실제_dev_realtime_compose로_전달된다(self) -> None:
+        # GROMO-1957 — 전에는 legacy 가 9개 키만 써서 realtime 오버레이의 SVC_TOKEN_DATA_TO_REALTIME 이 dev 에서
+        # 늘 비었다(Data relay 의 REALTIME 전달이 401). 값이 있으면 옮기고, 없으면 compose 기본값이 남는다.
+        scripts = Path(__file__).resolve().parents[2] / "server" / "scripts"
+        for present in (True, False):
+            with self.subTest(present=present), tempfile.TemporaryDirectory() as directory:
+                env_file = Path(directory) / "dev.env"
+                values = secret()
+                if present:
+                    values.update(SVC_TOKEN_REALTIME_TO_DATA="rt-data",
+                                  REALTIME_AUTHORIZATION_DATA_URL="http://app:8080",
+                                  REALTIME_BLOCKS_FILTER_ENABLED=True)
+                    values.update(SVC_TOKEN_DATA_TO_REALTIME="data-rt", SVC_TOKEN_BIZ_TO_REALTIME="biz-rt",
+                                  FOCUS_SESSION_START_ENABLED=True, FOCUS_REWARD_ACCRUAL_ENABLED=True,
+                                  ISLAND_BOARD_WRITES_ENABLED=True, ISLAND_MANAGEMENT_COMMANDS_ENABLED=True,
+                                  ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED=True)
+                subprocess.run([sys.executable, str(SCRIPT), "--output", str(env_file), "--app-image",
+                                "example/app@sha256:abc"], input=json.dumps(values), text=True, check=True)
+                configured = subprocess.run(
+                    ["docker", "compose", "--env-file", str(env_file),
+                     "-f", str(scripts / "docker-compose.dev.yml"), "-f", str(scripts / "docker-compose.realtime.yml"),
+                     "config", "--format", "json"], text=True, check=True, capture_output=True,
+                    env={**{k: v for k, v in os.environ.items() if k != "APP_IMAGE"},  # 셸 APP_IMAGE 가 env 파일 덮지 않게
+                         "REALTIME_IMAGE": "example/realtime@sha256:def"})  # realtime-cd 처럼 셸 env 로
+                services = json.loads(configured.stdout)["services"]
+                realtime, app = services["realtime"]["environment"], services["data-api"]["environment"]
+                self.assertEqual(realtime["SVC_TOKEN_DATA_TO_REALTIME"], "data-rt" if present else "")
+                self.assertEqual(realtime["SVC_TOKEN_BIZ_TO_REALTIME"], "biz-rt" if present else "")
+                # GROMO-2182 — Realtime → Data 조회 대상·자격과 차단 필터 스위치도 컨테이너까지 와야 한다.
+                self.assertEqual(realtime["SVC_TOKEN_REALTIME_TO_DATA"], "rt-data" if present else "")
+                self.assertEqual(realtime["REALTIME_AUTHORIZATION_DATA_URL"], "http://app:8080" if present else "")
+                self.assertEqual(realtime["REALTIME_BLOCKS_FILTER_ENABLED"], "True" if present else "false")
+                self.assertEqual(app["FOCUS_SESSION_START_ENABLED"], "True" if present else "false")
+                # 스위치를 만들었는데 컨테이너까지 못 오면 만들지 않은 것과 같다 (GROMO-1990).
+                self.assertEqual(app["FOCUS_REWARD_ACCRUAL_ENABLED"], "True" if present else "false")
+                # 섬 게시판 쓰기 게이트 (GROMO-1771 · GROMO-2136) — 같은 이유로 dev.env → 컨테이너 전달을 고정한다.
+                self.assertEqual(app["ISLAND_BOARD_WRITES_ENABLED"], "True" if present else "false")
+                # 섬 관리 명령·방장 위임 게이트 (GROMO-2156) — 같은 경로로 컨테이너까지 와야 한다.
+                self.assertEqual(app["ISLAND_MANAGEMENT_COMMANDS_ENABLED"], "True" if present else "false")
+                self.assertEqual(app["ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED"], "True" if present else "false")
+                self.assertNotIn("SVC_TOKEN_DATA_TO_REALTIME", app, "legacy Data 는 satellites 프로파일이 없어 읽지 않는다")
+                for service in services.values():
+                    self.assertEqual(service["logging"]["driver"], "json-file")
+
+
+    def test_앱_이미지_변수가_비면_compose가_latest로_뜨지_않고_실패한다(self) -> None:
+        # 기본값(옛 ci-cache :latest) 제거 회귀 방지 — 비면 옛 이미지·VM 캐시로 조용히 떴음
+        scripts = Path(__file__).resolve().parents[2] / "server" / "scripts"
+        base = {k: v for k, v in os.environ.items() if k not in ("APP_IMAGE", "REALTIME_IMAGE")}
+        cases = (("APP_IMAGE", "", ["docker-compose.dev.yml"]),
+                 ("REALTIME_IMAGE", "APP_IMAGE=example/app@sha256:abc\n",
+                  ["docker-compose.dev.yml", "docker-compose.realtime.yml"]))
+        for variable, content, files in cases:
+            with self.subTest(variable=variable), tempfile.TemporaryDirectory() as directory:
+                env_file = Path(directory) / "dev.env"
+                env_file.write_text(content, encoding="utf-8")
+                argv = ["docker", "compose", "--env-file", str(env_file)]
+                for name in files:
+                    argv += ["-f", str(scripts / name)]
+                result = subprocess.run([*argv, "config", "--quiet"], text=True, capture_output=True, env=base)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(variable, result.stderr)
+
+    def test_Realtime_caller_토큰이_같으면_모든_모드에서_출력_전에_실패한다(self) -> None:
+        same = secret(SVC_TOKEN_DATA_TO_REALTIME="same-token", SVC_TOKEN_BIZ_TO_REALTIME="same-token")
+        for service in ("legacy", "business-api"):
+            with self.subTest(service=service), self.assertRaisesRegex(ValueError, "서로 달라야") as raised:
+                MODULE.render(same, "example/app@sha256:abc", service)
+            self.assertNotIn("same-token", str(raised.exception))
 
 
 if __name__ == "__main__":

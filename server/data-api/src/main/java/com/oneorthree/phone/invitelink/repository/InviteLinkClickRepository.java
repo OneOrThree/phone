@@ -1,0 +1,151 @@
+package com.oneorthree.phone.invitelink.repository;
+
+import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
+import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * 초대 링크 클릭 저장소 — deferred 어트리뷰션의 상태 기계가 여기 얹혀 있다.
+ * 한 행은 <b>클릭 → 매치(기기 연결) → claim(유저 연결)</b> 순으로 한 방향으로만 전이한다.
+ *
+ * <p>전이 두 개는 각각 "한 클릭은 한 기기에만", "한 클릭은 한 유저에게만" 이라는 유일성 계약을 갖는데,
+ * DB 제약이 아니라 <b>비관적 락으로</b> 지킨다. 그래서 소진용 조회 두 개는 반드시
+ * {@code PESSIMISTIC_WRITE} + {@code SKIP LOCKED} 로 가져와야 하고, 락 없는 경로로 같은 행을
+ * 읽어 상태를 바꾸면 계약이 조용히 깨진다.
+ */
+public interface InviteLinkClickRepository extends JpaRepository<InviteLinkClick, UUID> {
+
+    /** Hibernate 에서 {@code FOR UPDATE SKIP LOCKED} 를 뜻하는 lock timeout 매직값. */
+    String SKIP_LOCKED = "-2";
+
+    /**
+     * deferred 매치 후보 — 같은 IP해시+OS 로 시간창 안에 찍힌 <b>미소진</b> 클릭 중 가장 최근 1건.
+     *
+     * <p>{@code PESSIMISTIC_WRITE}(SELECT … FOR UPDATE)로 잠근다. 잠그지 않으면 동시에 들어온 두
+     * 매치 요청이 같은 클릭을 읽고 둘 다 소진 처리해, 한 클릭이 두 기기에 매치된다.
+     *
+     * <p>{@code SKIP LOCKED} 를 함께 쓰는 이유는 PostgreSQL 의 {@code FOR UPDATE} + {@code LIMIT}
+     * 조합 때문이다. 그냥 기다리면, 잠금이 풀린 뒤 그 행이 조건에서 탈락했을 때 Postgres 는 다음
+     * 후보를 다시 찾지 않고 <b>빈 결과</b>를 준다. 공유 Wi-Fi(같은 fingerprint)에서 후보가 여러 건
+     * 쌓인 상황이 정확히 그 조건이라, 아직 남은 후보가 있는데도 매치 실패가 된다.
+     *
+     * @param ipHash 원문 IP 가 아니라 솔트 해시. 프록시 헤더 신뢰 규칙이 흔들리면 이 키가 흔들려
+     *               매칭 정확도가 그대로 떨어진다
+     * @param os 기기 OS. IP 만으로는 공유 Wi-Fi 에서 후보가 뭉치므로 축을 하나 더 둔다
+     * @param clickedAfter 시간창의 시작. 이 값이 넓을수록 남의 클릭을 물어 갈 확률이 커지고,
+     *                     좁을수록 스토어를 거치며 지연된 정상 설치를 놓친다
+     * @return 잠긴 채로 돌아온 후보 1건. empty 는 "후보 없음"뿐 아니라
+     *         "남은 후보를 남이 잠그고 있음"(SKIP LOCKED) 도 뜻한다
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = SKIP_LOCKED))
+    Optional<InviteLinkClick> findFirstByIpHashAndOsAndMatchedFalseAndClickedAtAfterOrderByClickedAtDesc(
+            String ipHash, String os, Instant clickedAfter);
+
+    /**
+     * claim 대상 — 해당 링크에서 매치까지 갔지만 한 번도 claim 되지 않은 가장 최근 1건.
+     *
+     * <p>탈퇴 시 claimedUserId 만 익명화하므로 claimedAt 도 null 인 행만 미소진 후보로 취급한다.
+     *
+     * <p>매치 후보 조회와 같은 이유로 {@code PESSIMISTIC_WRITE} + {@code SKIP LOCKED} 다. 잠그지 않으면
+     * 같은 slug 로 거의 동시에 claim 한 두 유저가 둘 다 {@code claimedUserId == null} 을 읽고 각자
+     * 덮어써서, "최초 1회만 기록" 계약이 마지막 커밋 승리(lost update)로 뒤집힌다. SKIP LOCKED 라
+     * 늦게 온 쪽은 기다리지 않고 다음 미claim 행(없으면 no-op)으로 넘어간다.
+     *
+     * @param linkId claim 하려는 초대 링크
+     * @return 잠긴 채로 돌아온 미claim 클릭 1건. empty 면 호출부는 실패가 아니라 no-op 으로 접는다
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = SKIP_LOCKED))
+    Optional<InviteLinkClick>
+            findFirstByLinkIdAndMatchedTrueAndClaimedUserIdIsNullAndClaimedAtIsNullOrderByMatchedAtDesc(UUID linkId);
+
+    /**
+     * 이 기기가 이미 매치해 간 클릭 — 재시도 멱등의 근거.
+     *
+     * <p>{@code /l/match} 응답이 유실되면 앱은 같은 deviceId 로 재시도한다. 이 조회 없이 후보 소진부터
+     * 하면 설치 1건이 클릭을 여러 건 소진하고 호출마다 다른 초대를 받을 수 있다. 읽기만 하므로 락은 없다.
+     *
+     * @param matchedDeviceId 앱이 보고한 설치 식별자. 외부 입력이라 남의 값을 참칭하면 남의 매치 결과를
+     *                        되읽을 수 있으므로, 이 조회 결과로 상태를 바꾸지 않는다(읽기 전용 멱등)
+     * @param matchedAfter 재시도로 인정할 시간창의 시작. 이보다 오래된 매치는 새 설치로 본다
+     * @return 이 기기가 이미 가져간 클릭. 있으면 후보 소진 없이 같은 결과를 그대로 다시 돌려준다
+     */
+    Optional<InviteLinkClick> findFirstByMatchedDeviceIdAndMatchedAtAfterOrderByMatchedAtDesc(
+            String matchedDeviceId, Instant matchedAfter);
+
+    /**
+     * 링크별 클릭 목록 — 지금은 테스트가 상태 전이를 검증하는 데 쓰고, 링크별 집계의 조회 경로이기도 하다.
+     *
+     * @param linkId 대상 초대 링크
+     * @return 그 링크의 모든 클릭. 페이징도 상한도 없으므로 <b>많이 클릭된 링크에 요청 경로에서 쓰면
+     *         행 수만큼 그대로 메모리에 올라온다</b> — 집계가 필요해지면 카운트 쿼리로 바꿔야 한다
+     */
+    List<InviteLinkClick> findByLinkId(UUID linkId);
+
+    /**
+     * 정지 스냅샷의 원재료를 <b>한 쿼리로</b> 읽는다 (서비스 §7.2 · A22 ㋖).
+     *
+     * <p>커서가 시각이 아니라 PK 인 이유는 ㋖ 다 — {@code invite_link_clicks} 에는 {@code updated_at}
+     * 이 없고, 상태 변경 시각은 커밋 순서를 보장하지 않아 늦게 커밋된 전이를 영구히 건너뛴다.
+     * 이 조회는 <b>구 쓰기 정지 이후</b>의 전체 스캔용이라 커서는 페이지를 잇는 용도일 뿐이다.
+     *
+     * @param cursor 직전 페이지의 마지막 클릭 id. 첫 페이지는 「최소값보다 작은 값」을 넘긴다
+     * @param limit  최대 건수
+     * @return 클릭·링크·그룹·발급자·멤버십을 같은 스냅샷으로 읽은 행들
+     */
+    @Query(value = "SELECT c.id AS clickId, c.link_id AS linkId, l.slug AS slug, "
+            + "l.group_id AS groupId, l.inviter_id AS inviterId, l.created_at AS linkCreatedAt, "
+            + "g.name AS groupName, g.status AS groupStatus, g.deleted_at AS groupDeletedAt, "
+            + "u.nickname AS inviterName, m.membership_epoch AS membershipEpoch, "
+            + "m.transition_seq AS transitionSeq, m.snapshot_version AS snapshotVersion, "
+            + "m.is_left AS inviterLeft, "
+            + "m.updated_at AS membershipUpdatedAt, c.ip_hash AS ipHash, c.os AS os, "
+            + "c.user_agent AS userAgent, c.clicked_at AS clickedAt, c.matched AS matched, "
+            + "c.matched_at AS matchedAt, c.matched_device_id AS matchedDeviceId, "
+            + "c.app_instance_id AS appInstanceId, c.claimed_user_id AS claimedUserId, "
+            + "c.claimed_at AS claimedAt "
+            + "FROM invite_link_clicks c "
+            + "JOIN group_invite_links l ON l.id = c.link_id "
+            + "JOIN groups g ON g.id = l.group_id "
+            + "LEFT JOIN users u ON u.id = l.inviter_id AND u.is_deleted = false "
+            + "LEFT JOIN group_members m ON m.group_id = l.group_id AND m.user_id = l.inviter_id "
+            // 탈퇴 파기된 행(발급자·IP 해시 null, V65)은 정지 원본에 싣지 않는다 — 폐기된 링크·클릭이다.
+            + "WHERE c.id > CAST(:cursor AS uuid) AND l.inviter_id IS NOT NULL AND c.ip_hash IS NOT NULL "
+            + "ORDER BY c.id ASC LIMIT :limit",
+            nativeQuery = true)
+    List<FrozenClickProjection> findFrozenSourcePage(
+            @Param("cursor") String cursor, @Param("limit") int limit);
+
+    /**
+     * 탈퇴 유저의 클릭 귀속을 <b>익명화</b>한다 (A22 ⓐ).
+     *
+     * <p>tombstone 은 이후 쓰기만 막는다 — 이미 박힌 {@code claimed_user_id} 는 그대로 남고,
+     * {@code InviteLinkClick.claim} 은 <b>최초 1회만</b> 기록하므로 되돌릴 길이 없다. 그래서 탈퇴
+     * 트랜잭션이 <b>같은 커밋에서</b> 끊어 줘야 한다.
+     *
+     * <p>행을 지우지 않는 이유는 다른 사람의 퍼널 집계 근거이기 때문이다 — 집중·통계 익명화와 같은 규율.
+     *
+     * <p>같은 행의 기기·IP 해시·UA 도 함께 지운다(GROMO-1801 · 계정 LLD §4) — {@code claimed_user_id} 만 끊으면
+     * 설치 device_id 로 다시 이어진다. matched·claimed_at·os·시각·링크는 소진·퍼널 근거로 남는다.
+     * {@code app_instance_id} 는 GA4 삭제 작업의 입력이라 그 작업이 내구 기록되기 전까지 남긴다.
+     *
+     * @param userId 탈퇴한 유저
+     * @return 끊어 낸 행 수
+     */
+    @Modifying(clearAutomatically = false, flushAutomatically = false)
+    @Query("UPDATE InviteLinkClick c SET c.claimedUserId = null, c.matchedDeviceId = null, c.ipHash = null,"
+            + " c.userAgent = null WHERE c.claimedUserId = :userId")
+    int anonymizeClaimedUser(@Param("userId") UUID userId);
+}

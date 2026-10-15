@@ -20,7 +20,7 @@ SQL_INSTANCE="${SQL_INSTANCE:-loadtest-pg}"
 
 SEED_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SEED_DIR/../.." && pwd)"
-MIGRATIONS_DIR="$REPO_ROOT/back/src/main/resources/db/migration"
+MIGRATIONS_DIR="$REPO_ROOT/server/data-api/src/main/resources/db/migration"
 CSV_DIR="$(mktemp -d)/csv"
 PARAMS_DIR="$(mktemp -d)/params"
 STEP_DIR="$(mktemp -d)/steps"

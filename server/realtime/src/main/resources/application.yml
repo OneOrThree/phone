@@ -1,0 +1,139 @@
+# 모든 프로파일이 공유하는 설정.
+#
+# ⚠️ datasource·redis 접속 정보는 여기 두지 않는다. 여기에 ${CHAT_DB_URL} 같은 플레이스홀더를 두면
+#    ci 프로파일에서도 그 바인딩이 일어나 — Testcontainers 는 «속성»이 아니라 ConnectionDetails «빈»으로
+#    접속을 주므로 — 환경변수가 없다며 부팅이 실패한다. 접속은 프로파일별 파일이 각자 채운다.
+spring:
+  application:
+    name: realtime
+
+  jpa:
+    hibernate:
+      # 스키마는 Flyway 가 만든다. validate 라 엔티티와 DDL 이 어긋나면 부팅이 실패한다 —
+      # 그 실패가 배포 게이트다(update 로 두면 운영 스키마가 코드를 따라 조용히 바뀐다).
+      ddl-auto: validate
+    # 뷰 렌더링 중 지연 로딩을 열어 두지 않는다. 커넥션을 요청 끝까지 붙잡아 풀이 마른다.
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+
+  # realtime-events 소비(GROMO-1954). 소비자 자체는 realtime.events.kafka-enabled 로만 뜬다 — 꺼져 있으면
+  # 리스너가 없어 브로커에 붙지 않는다. 기본값이 있어 ci 에서 환경변수 없이도 바인딩이 깨지지 않는다.
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
+
+server:
+  port: 8081
+
+# 관리 포트는 호스트에 publish 하지 않는다 — 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.
+management:
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      # 준비성에 db·redis 를 «명시적으로» 넣는다. 기본 readiness 그룹은 readinessState 하나뿐이라,
+      # Redis 가 죽어도 컨테이너는 healthy 로 보이고 로드밸런서는 트래픽을 계속 보낸다 — 그런데 이
+      # 서비스에서 Redis 는 부속이 아니라 팬아웃·멤버십·프레즌스가 전부 얹힌 «하드 의존성»이라,
+      # Redis 없이 뜬 채팅은 「연결은 되는데 메시지가 안 오는」 더 헷갈리는 상태다.
+      #
+      # ⚠️ data-api 는 정확히 반대로 간다(management.health.redis.enabled=false). 그쪽 Redis 쓰기는
+      #    전부 best-effort 라 Redis 장애가 컨테이너를 unhealthy 로 만들면 멀쩡한 배포가 실패한다.
+      #    같은 Redis 를 두 서비스가 다르게 다루는 게 맞다 — 의존의 성격이 다르기 때문이다.
+      group:
+        readiness:
+          include: readinessState,db,redis
+
+chat:
+  data-api:
+    timeout-ms: 2000
+  membership:
+    # 늘리면 상류 부하가 줄고, 탈퇴·강퇴가 채팅에 반영되기까지의 창이 그만큼 넓어진다.
+    cache-ttl-seconds: 120
+  websocket:
+    # 비워 두면 Spring 은 same-origin(Origin 이 요청 scheme·host·port 와 같음)만 허용한다 — 앞단 프록시 뒤에서는 요청
+    # 주소가 공개 도메인과 달라 사실상 Origin 을 보낸 핸드셰이크 전부 403 이다(Origin 없는 요청은 검사 밖이라 통과). React Native 앱도
+    # WS 접속 URL 기준 `Origin: https://<WS 호스트[:비표준 포트]>` 를 보내므로(iOS SocketRocket · Android WebSocketModule)
+    # 빈 값이면 앱 접속까지 403 이다 — 환경마다 API 도메인을 넣는다(dev 는 SM gromo/dev/env, GROMO-2175).
+    # 기본값을 비워 두는 이유는 WebSocketConfig#allowedOrigins javadoc.
+    allowed-origins: ${CHAT_WS_ALLOWED_ORIGINS:}
+
+# Data 내부 인가를 먼저 켜고(프로필·전용 토큰) sid/gen 없는 AT 소진을 확인한 뒤 명시적으로 켠다.
+# OFF에서는 기존 멤버십 캐시를 유지하며 새 서비스 자격은 필요하지 않다.
+# ⚠️ 스위치 환경변수는 Data 제공자의 REALTIME_MEMBERSHIP_AUTHORIZATION_ENABLED 와 «일부러» 다르다.
+#    같은 이름이면 공유 env 한 줄이 두 서비스를 동시에 켜서 «Data 먼저» 순서가 깨진다.
+# ⚠️ 자리표시자 이름만 바꾸면 부족하다. Spring 완화 바인딩은 env 이름을 속성 키로 «직접» 읽고
+#    (REALTIME_X_Y_Z → realtime.x-y.z) 그 값이 이 yml 자리표시자보다 우선한다. 옛 키
+#    realtime.membership-authorization.* 는 Data 의 env 한 줄로 켜졌다. 그래서 prefix 를 authorization-client 로
+#    옮겼다 — 새 키의 env 형태는 REALTIME_AUTHORIZATION_CLIENT_* 뿐이다(RealtimeAuthorizationConfigTest).
+realtime:
+  authorization-client:
+    enabled: ${REALTIME_AUTHORIZATION_CLIENT_ENABLED:false}
+    base-url: ${REALTIME_AUTHORIZATION_DATA_URL:}
+    service-token: ${SVC_TOKEN_REALTIME_TO_DATA:}
+    connect-timeout: ${REALTIME_AUTHORIZATION_CONNECT_TIMEOUT:500ms}
+    request-timeout: ${REALTIME_AUTHORIZATION_REQUEST_TIMEOUT:1500ms}
+    max-in-flight: ${REALTIME_AUTHORIZATION_MAX_IN_FLIGHT:16}
+
+  # 우체통 내부 어댑터(/internal/islands/{islandId}/messages)의 서비스 자격 — 호출자는 Business 하나다.
+  # Business 가 Data·알림·링크에 쓰는 토큰과 «분리»된 값이어야 한다(A22 ㊀). 비어 있으면 그 표면만
+  # 전량 거절(fail-closed)하고 부팅은 막지 않는다 — 아직 어느 배포에도 배선되지 않은 표면이다.
+  internal:
+    service-token: ${SVC_TOKEN_BIZ_TO_REALTIME:}
+    # Data 의 내구 사건 수신구(POST /internal/events, GROMO-1943)의 서비스 자격 — 호출자는 Data 하나다.
+    # Business 토큰과 «분리»된 값이어야 한다(A22 ㊀). 비어 있으면 그 경로만 전량 거절한다(fail-closed) —
+    # 그러면 Data relay 의 REALTIME HTTP 전달이 401 로 멈춘다(GROMO-1954). 배포 비밀에 먼저 넣는다.
+    data-service-token: ${SVC_TOKEN_DATA_TO_REALTIME:}
+
+  # Data outbox 사건의 Kafka 입구(2026-09-19 R-1 — HTTP 기본 · Kafka 선택). HTTP 와 같은 처리기로 들어가
+  # eventId 로 한 번만 적용된다. 켜는 순서: 여기 먼저, 그다음 Data 의 OUTBOX_RELAY_REALTIME_KAFKA_ENABLED.
+  # ⚠️ env 이름은 Data 쪽과 «일부러» 다르다 — 공유 env 한 줄이 두 서비스를 동시에 켜면 순서가 깨진다.
+  events:
+    kafka-enabled: ${REALTIME_EVENTS_KAFKA_ENABLED:false}
+    kafka-topic: realtime-events
+
+  # 응원(GROMO-1765). 인가 정본은 Data 의 GET /internal/islands/{id}/focus-members 이고, 호출자는
+  # data-api 의 `realtime` caller(application-realtime-authorization.yml)다 — 그 프로필과 토큰이
+  # 배선되지 않은 배포에서는 응원만 전량 거절된다(채팅·주민 관전은 영향 없음).
+  # ⚠️ base-url·token 은 현재 멤버십 client 와 «같은 값»을 기본으로 가리킨다. 대상도 자격도 같은
+  #    Data 내부 표면이라 두 벌로 관리하면 한쪽만 바뀌어 조용히 어긋난다.
+  focus:
+    data-base-url: ${REALTIME_AUTHORIZATION_DATA_URL:}
+    data-service-token: ${SVC_TOKEN_REALTIME_TO_DATA:}
+    data-timeout-ms: ${REALTIME_FOCUS_DATA_TIMEOUT_MS:1500}
+    # 표시 TTL. 앱 목업과 같은 3초이며 빈도 제한 창도 이 값이다(FocusEmoteService 에 근거).
+    emote-ttl: ${REALTIME_FOCUS_EMOTE_TTL:3s}
+
+  # 받는 사람 기준 차단 필터(GROMO-2182). 차단 집합의 정본은 Data 의 GET /internal/users/{id}/blocks 이고
+  # 대상·자격은 위 focus 의 data-base-url·data-service-token 을 그대로 쓴다(같은 realtime caller).
+  # 즉시 무효화는 Data outbox 의 user.blocks.updated 사건이 하고, 이 TTL 은 사건 유실·relay OFF 의 백스톱이다.
+  # 조회 실패·timeout·계약 위반·미배선이면 그 채팅·응원 프레임을 보내지 않는다(fail-closed, 2026-10-01 결정).
+  # ⚠️ 그래서 이 값들이 비어 있는 배포는 섬 채팅·응원 수신이 전부 멈춘다 — Data 의 realtime-authorization
+  #    프로필(GET /internal/users/*/blocks 허용)과 토큰을 먼저 배선한다.
+  blocks:
+    # 켜는 스위치(기본 false). 꺼져 있으면 조회도 필터도 없다. 켜는 순서: Realtime 배포 → Data 에 realtime-authorization
+    # 프로필·SVC_TOKEN_REALTIME_TO_DATA 배선 + USER_BLOCKS_REALTIME_EVENTS_ENABLED → Realtime 에 토큰 배선 확인 → 이 값 true.
+    filter-enabled: ${REALTIME_BLOCKS_FILTER_ENABLED:false}
+    cache-ttl-seconds: ${REALTIME_BLOCKS_CACHE_TTL_SECONDS:120}
+    data-timeout-ms: ${REALTIME_BLOCKS_DATA_TIMEOUT_MS:1500}
+    # Data 동시 호출 상한 — 넘치면 기다리지 않고 그 프레임을 버린다(채널 스레드 고갈 방지).
+    max-in-flight: ${REALTIME_BLOCKS_MAX_IN_FLIGHT:16}
+
+logging:
+  level:
+    com.oneorthree.realtime: INFO

@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/notification_test
+    username: test
+    password: test
+  kafka:
+    bootstrap-servers: localhost:9092
+notification:
+  tokens:
+    business: test-business
+    data: test-data
+    # 행위자별 자격이다. 토큰 하나를 공유하면 감사 원장이 「누가 했는가」를 말하지 못한다.
+    console: member-1:test-console,member-2:test-console-2,member-3:test-console-3
+  data-url: http://localhost:18080
+  data-token: test-noti-to-data

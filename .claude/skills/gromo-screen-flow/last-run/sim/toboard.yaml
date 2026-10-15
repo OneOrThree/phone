@@ -1,0 +1,20 @@
+appId: com.oneorthree.focuscat
+---
+- tapOn: "취소"
+- waitForAnimationToEnd:
+    timeout: 4000
+- tapOn: "닫기"
+- extendedWaitUntil:
+    visible: "집중 시작"
+    timeout: 20000
+- swipe:
+    start: 85%, 60%
+    end: 15%, 45%
+    duration: 700
+- swipe:
+    start: 85%, 60%
+    end: 30%, 50%
+    duration: 700
+- tapOn: "게시판.*"
+- waitForAnimationToEnd:
+    timeout: 12000

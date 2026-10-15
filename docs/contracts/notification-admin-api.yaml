@@ -1,0 +1,994 @@
+openapi: 3.0.3
+info:
+  title: 알림 서버 관리·이관 API (/internal/admin)
+  version: "1.0.0"
+  description: |
+    링크 콘솔(LinkConsole)과 이관 운영이 쓰는 알림 서버의 «유일한» 외부 표면이다.
+    nginx 는 `/internal/admin/**` 만 알림 서버로 보내고(system-architecture.md §62),
+    ServiceAuth 가 이 경로를 console 토큰에게만 연다. 앱 JWT 는 여기서 검증하지 않는다(A22 ㉸).
+
+    ## 이 표면이 지키는 것
+
+    1. **발송은 여기서 일어나지 않는다.** 템플릿 시험 발송(`/templates/{id}/test`)과 수동 재전송
+       (`/deliveries/{id}/resend`)은 `deliveries` 에 «내구 적재»만 한다. FCM 호출은 언제나
+       DispatchService 의 공통 발송 게이트 뒤에서만 일어난다(§7.1.2 · A22 ㋭).
+       게이트가 닫혀 있으면 적재된 행은 `PENDING` 으로 대기하고, 응답의 `dispatchEnabled` 가 false 로 온다.
+    2. **재전송은 원본을 파괴하지 않는다.** 새 `id` · 새 `eventId`(`admin:<sha256>`)로 한 건을 더 만들고
+       원본 행은 그대로 둔다. **`subjectId` 는 원본 값을 그대로 유지한다** — null 로 바꾸면
+       `BET_RESULT` 의 결과 ack 억제(A22 ⓓ)와 상태 의존형 eligibility 가 통째로 우회된다.
+       도메인 사건 키 충돌은 `admin_actor` 가 붙은 행을 부분 UNIQUE 인덱스에서 빼는 방식으로 피한다.
+       묶음 슬롯(`slot_at`)은 비운다 — 원본 슬롯을 복제하면 이월 묶음이 관리자 행과 섞인다.
+    3. **DATA 소유 잡은 바꿀 수 없다.** 코어 이력을 읽어 판정하는 잡(A22 ⓘ·ⓤ)은 Data API 가 소유하므로
+       `PUT /jobs/{id}` 가 `409 JOB_OWNED_BY_DATA` 로 거절한다.
+    4. **개인정보·FCM 토큰은 나가지 않는다.** `GET /deliveries` 는 발송 payload 의 «키 이름»(`paramKeys`)만
+       돌려주고 값은 돌려주지 않으며(표시명이 들어 있다), 기기 토큰은 어떤 응답에도 없다(`deviceCount` 만).
+    5. **모든 쓰기는 `Idempotency-Key` 필수**이고 명령 기록과 부수효과가 «같은 트랜잭션»에 커밋된다
+       (`commands` 테이블). 같은 키 + 다른 본문은 `409 IDEMPOTENCY_KEY_CONFLICT` 다.
+       읽기에는 필요 없다(`preview` 는 아무것도 바꾸지 않으므로 읽기로 분류한다).
+    6. **읽기·쓰기 모두 `admin_audit` 에 남는다.** 실패해 롤백된 쓰기는 감사도 함께 되감긴다 —
+       감사는 «커밋된 조작»의 기록이다.
+
+    ## 인증 헤더 (모든 요청 공통)
+
+    | 헤더 | 값 | 없거나 틀리면 |
+    |---|---|---|
+    | `Authorization` | `Bearer <그 행위자의 콘솔 토큰>` | `401 SERVICE_AUTH_REQUIRED` / 다른 caller 면 `403 SERVICE_ROUTE_FORBIDDEN` |
+    | `X-Console-Actor` | 선택. 보낸다면 **자기 토큰의 주인과 같아야** 한다 | 다르면 `403 CONSOLE_ACTOR_MISMATCH` |
+    | `Idempotency-Key` | 쓰기 요청에만, 1~200자 | `400 IDEMPOTENCY_KEY_REQUIRED` |
+
+    ## 행위자는 자격이 정한다
+
+    `SVC_TOKEN_CONSOLE_TO_NOTI` 는 **행위자별 토큰 목록**이다 — `member-1:<토큰>,member-2:<토큰>,member-3:<토큰>`.
+    감사 원장의 `actor` 는 **어느 토큰으로 인증했는지**에서 나오고, `X-Console-Actor` 헤더는 신원의
+    근거가 아니다.
+
+    토큰 하나를 모두가 공유하면 행위자를 말할 수 있는 것은 요청자 자신뿐이다. 그러면 콘솔 토큰을 가진
+    `member-1` 이 헤더에 `member-2` 를 적는 것만으로 템플릿 수정·시험 발송·재전송이 전부 남의 행위로
+    저장되고, **감사 원장이 「누가 했는가」를 말하지 못한다.** 그래서 토큰 하나짜리 옛 형태는 기동에서
+    거부한다 — 조용히 받아 헤더를 믿는 쪽으로 되돌아가면, 설정만 보고는 감사가 신뢰할 수 있는
+    상태인지 알 수 없다.
+
+    헤더를 **아예 보내지 않는 것은 정상**이다. 보낸다면 자기 자격이 말하는 이름과 같아야 하고, 다르면
+    조용히 무시하지 않고 거절한다 — 무시하면 콘솔은 자기가 보낸 이름으로 기록됐다고 믿는데 원장에는
+    다른 이름이 남아, 둘이 어긋난 사실을 아무도 모른 채 감사가 계속된다.
+
+    ## 페이지네이션
+
+    모든 목록은 `{items, nextCursor}` 다. `limit` 기본 20 · 최대 100(벗어나면 `400 INVALID_LIMIT`).
+    `nextCursor` 가 null 이면 마지막 장이다. 커서는 keyset 이라 장 사이에 행이 들어와도 건너뛰거나 겹치지 않는다.
+    등록부 목록(jobs·templates·deeplinks)의 커서는 `id`, `deliveries` 의 커서는 `"<ISO-8601>|<uuid>"` 다
+    (시각만으로는 같은 밀리초가 장 경계에서 유실된다).
+
+    ## 오류 본문
+
+    `401`·`403` 은 `{"error": "<코드>"}`, 그 밖은 `{"code": "<코드>"}` 다.
+    서비스 인증 오류를 앱 AT 오류로 전달하면 Business 가 사용자 세션을 잘못 끊기 때문에 형태를 나눈다.
+
+servers:
+  - url: https://api.oneorthree.world
+    description: nginx → notification (`/internal/admin` 만 통과)
+
+tags:
+  - name: catalog
+    description: 등록부 조회·수정 (jobs · templates · deeplinks)
+  - name: delivery
+    description: 발송 이력 조회와 수동 재전송
+  - name: template
+    description: 템플릿 미리보기·시험 발송
+  - name: migration
+    description: 이관 적재·검증과 공통 발송 게이트
+
+paths:
+  /internal/admin/jobs:
+    get:
+      tags: [catalog]
+      summary: 잡 등록부 목록
+      description: |
+        `mutable` 은 `owner == NOTIFICATION` 일 때만 true 다. DATA 소유 잡은 콘솔에서 회색 처리한다.
+        `pendingRuns` 는 아직 실행되지 않은 `job_runs` 건수로, 재생(replay)으로 넣은 회차가 여기 잡힌다.
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Job' } }
+
+  /internal/admin/templates:
+    get:
+      tags: [catalog]
+      summary: 템플릿 목록
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Template' } }
+
+  /internal/admin/deeplinks:
+    get:
+      tags: [catalog]
+      summary: 딥링크 등록부 목록
+      description: 앱 라우팅 값은 등록부가 소유한다. `dataTemplate` 의 각 값과 `urlTemplate` 은 ICU 패턴이다.
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Deeplink' } }
+
+  /internal/admin/deliveries:
+    get:
+      tags: [delivery]
+      summary: 발송 이력 목록 (최신순)
+      description: |
+        **payload 값은 절대 나오지 않는다.** `paramKeys` 로 «어떤 인자가 들어 있는지»만 보여준다.
+        기기 토큰도 나오지 않는다 — 몇 대에 나갔는지는 `deviceCount` 로 본다.
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/DeliveryStatus' }
+          description: 허용목록 밖 값은 `400 INVALID_STATUS`
+        - { name: kind, in: query, required: false, schema: { type: string } }
+        - { name: userId, in: query, required: false, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Delivery' } }
+
+  /internal/admin/{resource}/{id}:
+    put:
+      tags: [catalog]
+      summary: 등록부 단건 «전체» 수정
+      description: |
+        `resource` 는 `jobs` · `templates` · `deeplinks` 셋뿐이다(그 밖은 `404 UNKNOWN_ADMIN_RESOURCE`).
+        자원 이름은 허용목록 switch 로만 해석하며 SQL 식별자로 이어 붙이지 않는다.
+        PUT 이므로 **부분 갱신이 아니다** — 스키마의 필드를 전부 보내야 한다.
+
+        - `jobs`: `owner=DATA` 면 `409 JOB_OWNED_BY_DATA`. `cron` 은 Spring 6필드 표현식으로 파싱해 검증한다.
+        - `templates`: `id` 는 반드시 `<kind>.<locale>` 이고 locale 은 `ko`·`en`·`ja`·`zh-Hant` 뿐이다.
+          **`sampleParams` 로 실제 렌더를 돌려 본 뒤에만 저장한다** — 문법 검사만으로는 인자 누락을 못 잡는다.
+          저장될 때마다 `version` 이 1 오른다.
+        - `deeplinks`: `id` 는 `kinds` 에 있어야 하고, `dataTemplate` 의 값과 `urlTemplate` 도 같은 렌더 검증을 거친다.
+      parameters:
+        - { name: resource, in: path, required: true, schema: { type: string, enum: [jobs, templates, deeplinks] } }
+        - { name: id, in: path, required: true, schema: { type: string, maxLength: 200 } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/JobWrite'
+                - $ref: '#/components/schemas/TemplateWrite'
+                - $ref: '#/components/schemas/DeeplinkWrite'
+      responses:
+        '200': { description: 저장됨, content: { application/json: { schema: { type: object } } } }
+        '400':
+          description: |
+            `INVALID_TEMPLATE_SYNTAX`(ICU 문법) · `INVALID_LOCALE` · `TEMPLATE_ID_MISMATCH` ·
+            `INVALID_CRON` · `IDEMPOTENCY_KEY_REQUIRED`
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '404': { description: '`UNKNOWN_ADMIN_RESOURCE` · `UNKNOWN_JOB` · `UNKNOWN_NOTIFICATION_KIND`' }
+        '409': { description: '`JOB_OWNED_BY_DATA` · `IDEMPOTENCY_KEY_CONFLICT`' }
+        '422': { description: '`TEMPLATE_ARGUMENT_MISSING` — sampleParams 로 렌더가 안 된다' }
+
+  /internal/admin/templates/{id}/preview:
+    post:
+      tags: [template]
+      summary: 템플릿 미리보기 (저장하지 않음)
+      description: |
+        저장된 템플릿을 `params` 로 렌더한다. `title`·`body` 를 함께 보내면 **저장 전 초안**을 그대로 미리 본다.
+        딥링크 등록부가 있으면 `data` 에 `link` 와 등록부 키가 함께 채워진다.
+        아무것도 바꾸지 않으므로 `Idempotency-Key` 가 필요 없다(감사는 남는다).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [params]
+              properties:
+                params: { type: object, description: ICU 인자 }
+                title: { type: string, nullable: true, description: 초안 미리보기용 덮어쓰기 }
+                body: { type: string, description: 초안 미리보기용 덮어쓰기 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templateId: { type: string }
+                  kind: { type: string }
+                  locale: { type: string }
+                  title: { type: string, nullable: true, description: null이면 표시 푸시의 FCM title 필드를 생략한다 }
+                  body: { type: string }
+                  data: { type: object, additionalProperties: { type: string } }
+                  silent: { type: boolean }
+        '404': { description: '`UNKNOWN_TEMPLATE`' }
+        '422': { description: '`TEMPLATE_ARGUMENT_MISSING`' }
+
+  /internal/admin/templates/{id}/test:
+    post:
+      tags: [template]
+      summary: 시험 발송 (내구 적재만 — 여기서 보내지 않는다)
+      description: |
+        렌더를 먼저 돌려 보고(적재 후에 터지면 게이트 개방 뒤에야 발견된다) `deliveries` 에 한 건을 적재한다.
+        적재 행에는 `admin_actor` 가 붙고 payload 에 `adminTest: true` 가 들어간다.
+        시험에는 원사건 시각을 요청자가 만들 필요가 없다. 서버가 저장한 `created_at`부터 15분 동안만
+        시험이 유효하다(15분 정각 만료). 알림 서버는 `admin_actor IS NOT NULL AND replay_of IS NULL`인
+        정본 행에서만 그 시각을 Data 적격성 요청의 별도 `adminTestRequestedAt`으로 보낸다.
+        Data는 이 맥락에서 원사건의 날짜·마감 대신 시험 유효기간을 검사한다. 미래 시각은 거절하며,
+        사용자 활성·대상 상태·ack·알림 설정·조용한 시간·발송 게이트는 계속 적용한다.
+        같은 멱등 키 재시도는 최초 행과 생성 시각을 돌려주므로 유효기간을 연장하지 않는다.
+        일반 봉투의 `params.adminTest` 등은 이 권한을 만들지 않으며, 수동 재전송은 원사건 정책을 따른다.
+        게이트가 닫혀 있으면 `PENDING` 으로 대기하며 `dispatchEnabled: false` 로 응답한다.
+        **PushTransport 를 직접 부르는 경로는 없다.**
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, params]
+              properties:
+                userId: { type: string, format: uuid }
+                params: { type: object }
+                subjectId:
+                  type: string
+                  nullable: true
+                  description: 상태 의존형 종류를 시험할 때 도메인 사건 식별자를 그대로 넣는다
+      responses:
+        '200': { description: 적재됨, content: { application/json: { schema: { $ref: '#/components/schemas/Queued' } } } }
+        '404': { description: '`UNKNOWN_TEMPLATE`' }
+        '409':
+          description: '`TEMPLATE_DISABLED` · `NOTIFICATION_KIND_DISABLED` · `USER_WITHDRAWN`(탈퇴 tombstone 은 되살리지 않는다)'
+        '422': { description: '`TEMPLATE_ARGUMENT_MISSING`' }
+
+  /internal/admin/deliveries/{id}/resend:
+    post:
+      tags: [delivery]
+      summary: 수동 재전송 (원본 보존 · subject 보존)
+      description: |
+        원본 행은 건드리지 않고 새 `id` · 새 `eventId`(`admin:<sha256>`)로 한 건을 더 적재한다.
+        `subjectId`·`groupId`·`payload`·`locale` 은 원본 값을 유지하고 `slotAt` 만 비운다.
+        `replayOf` 에 원본 id 가 남는다. payload 에 `adminResend: true` 와 `adminActor` 가 들어간다.
+        게이트가 닫혀 있으면 `PENDING` 으로 대기한다.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object } } }
+      responses:
+        '200': { description: 적재됨, content: { application/json: { schema: { $ref: '#/components/schemas/Queued' } } } }
+        '404': { description: '`UNKNOWN_DELIVERY`' }
+        '409': { description: '`USER_WITHDRAWN` · `DELIVERY_ALREADY_QUEUED` · `IDEMPOTENCY_KEY_CONFLICT`' }
+
+  /internal/admin/migration/{migrationId}:
+    get:
+      tags: [migration]
+      summary: 이관 상태
+      parameters:
+        - { name: migrationId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  migrationId: { type: string }
+                  version: { type: integer, format: int64 }
+                  manifest: { type: object, nullable: true }
+                  verifiedAt: { type: string, nullable: true }
+                  openedAt: { type: string, nullable: true }
+                  imported:
+                    type: array
+                    items: { type: object, properties: { resource: { type: string }, total: { type: integer } } }
+                  dispatch: { $ref: '#/components/schemas/Gate' }
+
+  /internal/admin/migration/{migrationId}/import:
+    post:
+      tags: [migration]
+      summary: 레코드 적재 (게이트 개방 «전»에만)
+      description: |
+        §7.1 ② 백필의 수신구다. `ever_opened` 가 true 면 `409 IMPORT_CLOSED` — 개방 이후는 roll-forward 전용이다.
+
+        **게이트 행을 «먼저» 배타 잠근다.** import·verify·open 이 전부 같은 순서(gate → migration_state → 실제 행)로
+        들어가므로 적재끼리도, 적재와 개방도 직렬화된다 — 개방은 진행 중인 적재가 커밋된 «뒤»에 최종 검사를 시작한다.
+        그 잠금 아래에서 `active_migration_id` 를 이 `migrationId` 로 묶는다. 다른 id 가 이미 묶여 있으면
+        `409 MIGRATION_ID_CONFLICT` 이고, 같은 id 의 재개는 그대로 통과한다.
+
+        **전체 스냅샷 식별자(A22 ㋼).** Data export의 `manifest.snapshot`을 모든 import 청크의 `snapshot`으로
+        전달하고 verify/open에 같은 manifest를 사용한다. 멱등 의도에는 snapshot도 포함되므로 새 export에는
+        새 요청 키를 발급하고 같은 청크 재전송만 기존 키를 유지한다. 빈 전체 집합도 `snapshot`과 `records: []`로
+        등재한다. 부분 청크의 부재만으로 삭제하지 않으며 선택한 전체 집합의 건수·체크섬 검증을 먼저 통과해야 한다.
+        최초 open 직전에 집합 밖의 변경되지 않은 이관 소유 행만 정리하고 라이브 상태는 보존한다.
+
+        **키별 멱등 + 전체 레코드 갱신.** 같은 `recordKey` 의 체크섬이 같으면 건너뛰고(`SKIPPED`),
+        다르면 **레코드 전체를 다시 쓴다**. `ON CONFLICT DO NOTHING` 은 쓰지 않는다 —
+        이중 쓰기로 행이 한 번 생긴 뒤 구 DB 에만 성공한 opt-out 을 영구히 건너뛰기 때문이다(§7.1 ②).
+
+        **보존 규칙(라이브 쓰기가 이기는 방향만 접는다 → `SUPERSEDED`)**
+        | 자원 | 접는 조건 |
+        |---|---|
+        | settings | 대상 version이 더 크거나, 같은 version에서 라이브 소유인 행은 덮지 않는다. 같은 이관이 만든 동일 version 행은 최종 값을 반영한다 |
+        | device | **라이브 흔적이 있는 행은 건드리지 않는다** — 아래 참조 |
+        | delivery | 대상이 `SENT`·`SUPPRESSED` 면 미발송으로 되돌리지 않는다(A22 ⓗ) |
+        | user · participation | 대상 투영의 `version` 이 «더 크면» 덮지 않는다. **같은 version 은 덮는다** — 아래 참조 |
+        | device · delivery · user · participation | `user_fences.withdrawn` 인 유저는 `SKIPPED` |
+        | device | source `authGeneration` 이 현재 `user_fences.auth_generation` 보다 낮으면 `SKIPPED`(A22 ㉴ — 오래된 «등록»도 막는다) |
+
+        ### 기기 토큰: 이관은 «자기가 만든 최초 행»만 갱신한다
+
+        적재는 아래가 **전부** 참일 때만 기존 행을 건드린다.
+
+        ```
+        device_tokens.user_id = <레코드의 userId>     -- 주인이 같을 때만
+        device_tokens.bootstrap_hash IS NULL          -- 라이브 등록 흔적 없음
+        device_tokens.session_epoch  IS NULL
+        device_tokens.ownership_version = 1           -- 라이브 등록·삭제가 올린 적 없음
+        device_tokens.active                          -- tombstone 보존
+        ```
+
+        `ownership_token` 은 충돌 시 **절대 바뀌지 않고** `active` 는 AND 로만 접힌다.
+
+        이 규칙이 없으면 이런 순서가 조용히 깨진다: **A 의 구 export 적재 → 같은 기기가 B 계정으로
+        라이브 재등록(계정 전환) → A 의 export 가 증분 백필로 한 번 더 도착**. 이때 `user_id` 만 A 로
+        되돌아가고 `ownership_token` 은 B 값 그대로 남아, **A 의 알림이 B 의 기기로 나가면서
+        등록 CAS 로도 잡히지 않는다**. 전역 락은 «동시 실행»만 막지 순서 역행을 막지 못한다.
+
+        같은 토큰이 서로 다른 유저로 두 번 들어오면(§7.1 ②″ 의 토큰 중복) 한 배치 안에서는
+        `400 DUPLICATE_RECORD_KEY`, 배치를 나눠 오면 두 번째가 `SUPERSEDED` 가 된 뒤
+        **검증에서 `FIELD_MISMATCH device.userId` 로 실패**한다 — 조용히 넘어가지 않는다.
+
+        ### 투영 bootstrap: 같은 version 의 재적재는 «실제로» 덮는다
+
+        `user`·`participation` 은 `projections` 로만 간다(승인 계획 ②′). 적용 가드가 라이브 수신 경로
+        (`InboundService.project()`)의 `version <` 가 아니라 **`version <=`** 다.
+
+        라이브 이벤트는 같은 version 이면 **이미 적용된 것**이라 건너뛰는 게 맞다. 반면 bootstrap 의
+        재적재는 **운영자가 다시 미는 같은 값**이다 — `<` 로 두면 부분 적재를 이어 붙이는 재시도가
+        조용한 no-op 이 되어 「왜 안 먹지」가 현장에서 보이지 않는다. 같은 version 이면 payload 를 실제로
+        다시 쓰고, **더 높은 라이브 version 은 그대로 보존**해 `SUPERSEDED` 로 보고한다.
+
+        적재는 라이브 투영과 **같은 잠금(`device-ownership` advisory)·같은 탈퇴 펜스**를 지난다.
+        여기서만 빠뜨리면 export~import 사이에 탈퇴한 유저의 PII 투영이 되살아난다(A22 ⓐ) —
+        탈퇴 처리가 지운 바로 그 행이다.
+
+        **이 두 자원은 판정의 근거가 아니다.** 투영을 갱신할 이벤트 producer 가 아직 하나도 없어
+        적재된 값은 그 시점에 박제된다. 발송 판정(적격성·탈퇴·설정)은 계속 Data 정본(§7 조회 3종과
+        Data 명령/outbox)이 소유한다.
+
+        `recordKey` 는 **서버가 레코드에서 유도**한다(`settings`=userId · `device`=sha256hex(deviceToken) ·
+        `delivery`=eventId · `user`=userId · `participation`=`"<userId>:<sessionId>"`). 보내면 대조해서
+        다르면 `400 RECORD_KEY_MISMATCH` 다 — 내보내기 버그를 조용히 통과시키지 않기 위함이고,
+        원장(`imports`)에 FCM 토큰 원문을 한 벌 더 남기지 않기 위함이다.
+
+        **적재는 언제나 이전 검증을 무효화한다**(`verificationCleared: true`). 재검증 없이는 열 수 없다.
+
+        시각은 전부 **epoch 밀리초 정수**다. ISO 문자열은 소수 자릿수 표기가 양쪽에서 갈려 체크섬이 어긋난다.
+      parameters:
+        - { name: migrationId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [records]
+              anyOf:
+                - properties:
+                    records: { minItems: 1 }
+                - required: [snapshot]
+              properties:
+                snapshot:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: 모든 청크와 manifest가 공유하는 Data export 식별자. 빈 records에는 필수다.
+                records:
+                  type: array
+                  minItems: 0
+                  maxItems: 500
+                  items: { $ref: '#/components/schemas/ImportRecord' }
+      responses:
+        '200':
+          description: 적재됨
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  migrationId: { type: string }
+                  total: { type: integer }
+                  outcome:
+                    type: object
+                    description: 상태별 건수 (`IMPORTED` · `SUPERSEDED` · `SKIPPED`)
+                    additionalProperties: { type: integer }
+                  verificationCleared: { type: boolean }
+        '400':
+          description: '`INVALID_records` · `TOO_MANY_RECORDS` · `DUPLICATE_RECORD_KEY` · `RECORD_KEY_MISMATCH` · `UNKNOWN_MIGRATION_RESOURCE`'
+        '409': { description: '`IMPORT_CLOSED` — 게이트가 한 번이라도 열렸다 · `MIGRATION_ID_CONFLICT` — 다른 이관이 활성이다' }
+        '422': { description: '`UNKNOWN_NOTIFICATION_KIND`' }
+
+  /internal/admin/migration/{migrationId}/verify:
+    post:
+      tags: [migration]
+      summary: 검증 (§7.1 ③ · ④″)
+      description: |
+        **매니페스트 태그를 믿지 않고 실제 DB 를 훑는다.** 네 가지를 한 번에 닫는다:
+
+        1. **건수** — manifest.snapshot이 지목한 자원별 `imports` 건수가 매니페스트와 다르면 `COUNT_MISMATCH`.
+        2. **체크섬** — 자원별 접은 값이 다르면 `CHECKSUM_MISMATCH`. **0건 자원도 대조 대상이다** —
+           지원 자원(`settings`·`device`·`delivery`·`user`·`participation`)의 접은 값은 적재 행이 하나도 없어도
+           `SHA256("")` 로 채워진다.
+           Data 내보내기가 다섯 자원을 «언제나» manifest 에 싣기 때문이고(빠뜨린 것과 비어 있는 것을 구분한다),
+           비워 두면 알림 이력이 없는 환경의 정상 export 가 건수 0 은 맞는데도 매번 `CHECKSUM_MISMATCH` 로 막힌다.
+        3. **필드 단위 대조** — `imports.record`(소스 레코드)와 «대상 테이블의 실제 행»을 필드별로 비교한다.
+           존재 여부 검사로 퇴화하지 않는다(§7.1 ②가 명시). 대상 행이 없으면 `TARGET_ROW_MISSING`.
+           라이브 쓰기가 이긴 방향(settings·투영 version 증가 · device 비활성화 · 미발송→종결)은 허용하고
+           **되돌아간 방향**(`VERSION_REGRESSED` · `TOMBSTONE_RESURRECTED` · `STATUS_REGRESSED`)은 실패다.
+           투영 두 자원은 실제 `projections` 행의 payload 를 **필드 단위**로 대조한다 — 같은 version 인데
+           내용이 다르면 `FIELD_MISMATCH`(예: `user.locale`)로, 적재가 도중에 끊겨 옛 payload 가 남은 경우가
+           여기서 잡힌다.
+           기기 소유자 불일치는 **라이브 흔적(bootstrap_hash · session_epoch · ownership_version>1)이 있을 때만**
+           허용한다 — 흔적 없이 주인이 다르면 내보내기 쪽 토큰 중복이므로 `FIELD_MISMATCH` 로 실패다.
+           `SKIPPED`(탈퇴·세대 펜스)로 «일부러» 넣지 않은 레코드는 대상 행이 없는 게 정상이라 비교 대상이 아니고
+           `skippedByFence` 로만 보고된다.
+        4. **렌더 검증** — 대상 상태가 `PENDING`·`DEFERRED` 인 발송 행은 **코어 추가 조회 없이** 렌더돼야 한다
+           (§7.1.1). 안 되면 `RENDER_FAILED` 로 여기서 걸린다 — 게이트 개방 뒤에 터지면 늦다.
+
+        **정지 창 증거가 없으면 fail-closed 다.** `stopWindow` 의 `closedAt`·`cursor`·`queueDepth`·`source` 가
+        전부 있어야 하고 `queueDepth != 0` 이면 `STOP_WINDOW_NOT_DRAINED` 다.
+
+        성공하면 `verified_at` 이 찍히고 매니페스트가 저장된다(버전은 단조 증가 — 낮추면 `409 MANIFEST_VERSION_REGRESSED`).
+        **실패는 200 이 아니라 422 다** — 스크립트가 「통과」로 접지 못하게 한다. 실패 시 `verified_at` 은 지워진다.
+
+        ### 체크섬 계산 (Data 내보내기와 «같은» 식이어야 한다)
+        ```
+        recordChecksum   = sha256hex( 정규화 레코드를 키 정렬해 직렬화한 JSON )
+        resourceChecksum = sha256hex( "<resource>:<bareKey>=<recordChecksum>\n" 을 recordKey 오름차순으로 이어붙인 문자열 )
+        ```
+        정본 구현: `server/notification/src/main/java/com/oneorthree/notification/MigrationRecords.java`
+
+        검증도 import·open 과 «같은 순서»로 게이트 행부터 잡는다(공유 잠금) — 진행 중인 적재와 섞인 스냅샷을
+        「검증 통과」로 남기지 않기 위해서다. 다른 `migrationId` 가 활성이면 `409 MIGRATION_ID_CONFLICT` 다.
+      parameters:
+        - { name: migrationId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [manifest]
+              properties:
+                manifest: { $ref: '#/components/schemas/Manifest' }
+      responses:
+        '200': { description: 검증 통과, content: { application/json: { schema: { $ref: '#/components/schemas/VerifyReport' } } } }
+        '422': { description: 검증 실패 (같은 보고서 본문), content: { application/json: { schema: { $ref: '#/components/schemas/VerifyReport' } } } }
+        '400': { description: '`INVALID_manifest` · `INVALID_stopWindow` · `INVALID_resources`' }
+        '409': { description: '`MANIFEST_VERSION_REGRESSED` · `MIGRATION_ID_CONFLICT`' }
+
+  /internal/admin/migration/{migrationId}/dispatch/open:
+    post:
+      tags: [migration]
+      summary: 발송 게이트 개방 (§7.1 ④‴ · A22 ㋭)
+      description: |
+        **여섯 조건이 «전부» 맞을 때만 연다.** 하나라도 어긋나면 닫힌 채로 둔다.
+
+        | 조건 | 어긋나면 |
+        |---|---|
+        | 활성 이관이 없거나 이 `migrationId` 다 | `409 MIGRATION_ID_CONFLICT` |
+        | `migration_state.verified_at` 이 있다 | `409 MIGRATION_NOT_VERIFIED` |
+        | 들고 온 매니페스트가 «검증 당시»와 같다 | `409 MANIFEST_MISMATCH` |
+        | `notification.generation-required=true` (구 AT 롤아웃 창이 닫혔다) | `409 GENERATION_REQUIRED_FOR_OPEN` |
+        | `verified_at > stopWindow.closedAt` (정지 창이 닫힌 «뒤»에 검증했다) | `409 VERIFICATION_BEFORE_STOP_WINDOW` |
+        | 검증 이후 적재가 없다 | `409 IMPORT_AFTER_VERIFICATION` |
+        | **개방 시점에 전체 검증을 다시 돌려 통과한다** | `409 VERIFICATION_FAILED` (+ `verified_at` 소거) |
+
+        마지막 줄이 핵심이다 — `verified_at` 표시만 보고 열지 않는다. 개방 시점의 실제 DB 가 정답이다.
+
+        **그 최종 검사는 게이트 행을 배타 잠근 «뒤»에 시작한다.** 순서를 뒤집으면(검사 → 잠금) 검사와 개방
+        사이에 커밋된 다른 적재의 미검증 쓰기를 안은 채 열린다 — 그 잠금이 풀릴 때까지 진행 중인 적재는
+        전부 커밋을 끝내므로, 여기 아래의 검사는 그 이후의 DB 만 본다. 같은 이유로 import 와 잠금 순서가
+        같아야 한다(반대 순서면 교착한다).
+
+        같은 키 재시도도 게이트 배타 잠금 아래 현재 개방·실제 검증을 다시 확인한다. 이후 close로
+        닫혔으면 `409 DISPATCH_OPEN_REPLAY_STALE`로 거절한다. 의도적인 재개에는 새 open 키를 사용한다.
+        실제 데이터 재검증 실패는 개방 트랜잭션 종료 후 발송을 닫고 drain하며 검증 태그를 지운다.
+        성공하면 `dispatch_control.enabled=true` · `ever_opened=true` 가 되고 `opened_at` 이 한 번만 찍힌다.
+        **`ever_opened` 는 어떤 경로로도 false 로 돌아가지 않는다** — 이 시점부터 roll-forward 전용이고,
+        이후 중지·재개도 신 경로에서 수행한다. 최초 개방 전에는 이관한 발송 상태 필드까지 일치해야 한다.
+        개방 이후 재개는 미발송 원본의 정상 재시도(attempts 증가·nextAttemptAt 변경)를 허용한다.
+        사건 불변 입력(userId·kind·subjectId·groupId·slotAt·locale·params)과 attempts 비퇴행은 계속 검사한다.
+        필수 다섯 자원을 누락한 manifest는 `REQUIRED_RESOURCE_MISSING`으로 검증 실패한다.
+      parameters:
+        - { name: migrationId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [manifest]
+              properties:
+                manifest: { $ref: '#/components/schemas/Manifest' }
+      responses:
+        '200':
+          description: 열림
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dispatch: { $ref: '#/components/schemas/Gate' }
+                  report: { $ref: '#/components/schemas/VerifyReport' }
+        '409': { description: 위 표의 코드들 }
+
+  /internal/admin/dispatch/close:
+    post:
+      tags: [migration]
+      summary: 발송 게이트 닫기 (인플라이트 drain 보장)
+      description: |
+        `dispatch_control` 행을 UPDATE 한다. DispatchService 는 발송 트랜잭션 내내 그 행에 `FOR SHARE` 를
+        걸고 있으므로, 이 UPDATE 는 **진행 중이던 발송이 전부 커밋될 때까지 대기**한다.
+        같은 키 재시도도 이 UPDATE와 drain을 다시 수행한다.
+        따라서 이 호출이 200 으로 돌아온 시점에는 인플라이트 발송이 남아 있지 않다(`drained: true`).
+
+        닫힌 게이트는 **발송만** 막는다. 알림 설정·기기 등록/삭제·탈퇴 tombstone·결과 ack 억제 같은
+        **상태 변경은 그대로 반영된다**(§7.1.2) — ④″ 의 큐 반영·검증을 계속 진행해야 하기 때문이다.
+        `ever_opened` 는 건드리지 않는다.
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+        '200':
+          description: 닫힘
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dispatch: { $ref: '#/components/schemas/Gate' }
+                  drained: { type: boolean }
+
+  /internal/admin/jobs/{jobId}/replay:
+    post:
+      tags: [migration]
+      summary: 놓친 예약 실행 재생 (§7.1 ④‴)
+      description: |
+        ④′~④‴ 사이에는 **어느 쪽도 잡을 돌리지 않는다**. `NotificationScheduler` 에는 월요일 07:00 주간 결과처럼
+        다음 실행이 «일주일 뒤»인 `@Scheduled` 가 있어, 그대로 두면 그 알림이 영구 누락된다.
+
+        이 엔드포인트는 잡의 cron 으로 `[from, to]` 구간의 예약 시각을 계산해 `job_runs` 에
+        **미완료 회차로 내구화**한다. 실행 자체는 알림 등록부(잡 소유자)가 한다 — 여기서 `completed_at` 을
+        찍지 않으며 응답의 `executed` 는 언제나 false 다.
+
+        - 없는 잡은 `404 UNKNOWN_JOB` 이다. **없는 잡을 성공으로 접지 않는다** — 「재생했다」는 거짓 증거가 남는다.
+        - `owner=DATA` 잡은 `409 JOB_OWNED_BY_DATA` 다(알림 서버가 제어할 수 없다).
+        - 이미 등록된 회차는 다시 만들지 않는다(`queued` 가 0 으로 온다).
+        - `from` 을 생략하면 마지막 «완료» 회차를 쓰고, 그것도 없으면 `400 REPLAY_WINDOW_REQUIRED` 다.
+        - 한 번에 200 회차를 넘으면 `400 REPLAY_WINDOW_TOO_LARGE` 다. cron 해석 시간대는 KST 다.
+      parameters:
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from: { type: integer, format: int64, description: epoch 밀리초. 생략하면 마지막 완료 회차 }
+                to: { type: integer, format: int64, description: epoch 밀리초. 생략하면 지금 }
+      responses:
+        '200':
+          description: 등록됨
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId: { type: string }
+                  from: { type: string }
+                  to: { type: string }
+                  missed: { type: integer, description: 구간 안의 예약 시각 수 }
+                  queued: { type: integer, description: 새로 등록한 수 (이미 있던 회차는 빠진다) }
+                  scheduledAt: { type: array, items: { type: string, format: date-time } }
+                  executed: { type: boolean, description: 언제나 false — 실행은 등록부가 한다 }
+        '400': { description: '`INVALID_REPLAY_WINDOW` · `REPLAY_WINDOW_REQUIRED` · `REPLAY_WINDOW_TOO_LARGE` · `INVALID_CRON`' }
+        '404': { description: '`UNKNOWN_JOB`' }
+        '409': { description: '`JOB_OWNED_BY_DATA`' }
+
+components:
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string, maxLength: 200 }
+      description: 직전 응답의 `nextCursor`. 형식이 깨지면 `400 INVALID_CURSOR`
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: 벗어나면 `400 INVALID_LIMIT`
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
+      description: 없으면 `400 IDEMPOTENCY_KEY_REQUIRED`, 같은 키에 다른 본문이면 `409 IDEMPOTENCY_KEY_CONFLICT`
+
+  schemas:
+    Page:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { type: object } }
+        nextCursor: { type: string, nullable: true, description: null 이면 마지막 장 }
+
+    Error:
+      type: object
+      properties:
+        code: { type: string, description: 400·404·409·422 의 본문 }
+        error: { type: string, description: 401·403 의 본문 }
+
+    Gate:
+      type: object
+      properties:
+        enabled: { type: boolean, description: 지금 발송이 나가는가 }
+        everOpened: { type: boolean, description: 한 번이라도 열렸는가 — false 로 돌아가지 않는다 }
+        activeMigrationId:
+          type: string
+          nullable: true
+          description: |
+            «전역으로 활성인 이관» 하나. 첫 적재(또는 개방)가 묶고, 그 뒤로는 다른 id 의
+            import·verify·open 이 전부 `409 MIGRATION_ID_CONFLICT` 다. settings·device_tokens·deliveries 는
+            이관들 사이에 공유되므로, 두 id 가 같은 저장소에 적재하면 한쪽의 최종 검사 대상과 실제로
+            열리는 데이터가 어긋난다. 같은 id 의 재개는 그대로 이어진다.
+        updatedAt: { type: string, nullable: true }
+
+    Job:
+      type: object
+      properties:
+        id: { type: string }
+        owner: { type: string, enum: [DATA, NOTIFICATION] }
+        cron: { type: string }
+        enabled: { type: boolean }
+        config: { type: object }
+        updatedAt: { type: string, nullable: true }
+        lastCompletedAt: { type: string, nullable: true }
+        pendingRuns: { type: integer }
+        mutable: { type: boolean, description: '`owner == NOTIFICATION` 일 때만 true' }
+
+    JobWrite:
+      type: object
+      required: [enabled, cron, config]
+      properties:
+        enabled: { type: boolean }
+        cron: { type: string, description: Spring 6필드 cron }
+        config: { type: object }
+
+    Template:
+      type: object
+      properties:
+        id: { type: string, description: '`<kind>.<locale>`' }
+        kind: { type: string }
+        locale: { type: string, enum: [ko, en, ja, zh-Hant] }
+        title: { type: string, nullable: true, description: null이면 표시 푸시의 FCM title 필드를 생략한다 }
+        body: { type: string }
+        enabled: { type: boolean }
+        version: { type: integer, format: int64 }
+
+    TemplateWrite:
+      type: object
+      required: [kind, locale, body, enabled, sampleParams]
+      properties:
+        kind: { type: string }
+        locale: { type: string, enum: [ko, en, ja, zh-Hant] }
+        title: { type: string, nullable: true, description: null이면 표시 푸시의 FCM title 필드를 생략한다 }
+        body: { type: string, description: ICU MessageFormat 패턴 }
+        enabled: { type: boolean }
+        sampleParams:
+          type: object
+          description: 저장 전 실제 렌더에 쓰는 표본 인자. 여기서 렌더되지 않으면 저장하지 않는다
+
+    Deeplink:
+      type: object
+      properties:
+        id: { type: string, description: kind 와 같다 }
+        urlTemplate: { type: string, nullable: true }
+        dataTemplate: { type: object, additionalProperties: { type: string } }
+
+    DeeplinkWrite:
+      type: object
+      required: [dataTemplate, sampleParams]
+      properties:
+        urlTemplate: { type: string, nullable: true }
+        dataTemplate: { type: object, additionalProperties: { type: string } }
+        sampleParams: { type: object }
+
+    DeliveryStatus:
+      type: string
+      enum: [PENDING, DEFERRED, SENT, SUPPRESSED, FAILED]
+
+    Delivery:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string }
+        userId: { type: string, format: uuid }
+        kind: { type: string }
+        subjectId: { type: string, nullable: true }
+        groupId: { type: string, format: uuid, nullable: true }
+        slotAt: { type: string, nullable: true }
+        locale: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/DeliveryStatus' }
+        attempts: { type: integer }
+        nextAttemptAt: { type: string, nullable: true }
+        sentAt: { type: string, nullable: true }
+        lastError: { type: string, nullable: true }
+        createdAt: { type: string }
+        adminActor: { type: string, nullable: true, description: 관리자가 만든 행이면 그 계정 }
+        replayOf: { type: string, format: uuid, nullable: true, description: 재전송이면 원본 delivery id }
+        deviceCount: { type: integer, description: 실제로 나간 기기 수 (토큰은 내보내지 않는다) }
+        paramKeys:
+          type: array
+          items: { type: string }
+          description: payload 의 «키 이름»만. 값은 어떤 경우에도 내보내지 않는다
+
+    Queued:
+      type: object
+      properties:
+        deliveryId: { type: string, format: uuid }
+        replayOf: { type: string, format: uuid, nullable: true }
+        status: { type: string, enum: [PENDING] }
+        dispatchEnabled:
+          type: boolean
+          description: false 면 게이트가 닫혀 있어 적재만 됐다는 뜻이다. 「보냈다」가 아니다
+
+    ImportRecord:
+      type: object
+      required: [resource, data]
+      properties:
+        resource: { type: string, enum: [settings, device, delivery, user, participation] }
+        recordKey:
+          type: string
+          description: 선택. 보내면 서버가 유도한 값과 대조해 다르면 `400 RECORD_KEY_MISMATCH`
+        data:
+          oneOf:
+            - $ref: '#/components/schemas/SettingsRecord'
+            - $ref: '#/components/schemas/DeviceRecord'
+            - $ref: '#/components/schemas/DeliveryRecord'
+            - $ref: '#/components/schemas/UserProjectionRecord'
+            - $ref: '#/components/schemas/ParticipationProjectionRecord'
+
+    SettingsRecord:
+      type: object
+      required: [userId, version, notificationEnabled, soundEnabled, nightModeEnabled, nightStartTime, nightEndTime]
+      properties:
+        userId: { type: string, format: uuid }
+        version: { type: integer, format: int64 }
+        notificationEnabled: { type: boolean }
+        soundEnabled: { type: boolean }
+        nightModeEnabled: { type: boolean }
+        nightStartTime:
+          type: string
+          nullable: true
+          pattern: '^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$'
+          description: '`HH:mm:ss` 또는 null. **null 상태 자체가 대조 대상이다**(§7.1 ③)'
+        nightEndTime: { type: string, nullable: true, pattern: '^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$' }
+
+    DeviceRecord:
+      type: object
+      required: [deviceToken, userId, authGeneration, active]
+      properties:
+        deviceToken: { type: string }
+        userId: { type: string, format: uuid }
+        authGeneration: { type: integer, format: int64, nullable: true }
+        active: { type: boolean, description: 적재는 이 값을 AND 로만 접는다 — tombstone 을 되살리지 않는다 }
+
+    DeliveryRecord:
+      type: object
+      required: [eventId, userId, kind, status, attempts, nextAttemptAt, params]
+      properties:
+        eventId: { type: string, description: 이관 키. 종류별 사건 키 변환은 §7.1 ② 참조 }
+        userId: { type: string, format: uuid }
+        kind: { type: string, description: '`kinds` 에 없으면 `422 UNKNOWN_NOTIFICATION_KIND`' }
+        subjectId: { type: string, nullable: true }
+        groupId: { type: string, format: uuid, nullable: true }
+        slotAt: { type: integer, format: int64, nullable: true, description: epoch 밀리초. 묶음 슬롯을 보존한다 }
+        locale: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/DeliveryStatus' }
+        attempts: { type: integer, format: int64 }
+        nextAttemptAt: { type: integer, format: int64, description: epoch 밀리초. 이월 시각을 보존한다 }
+        sentAt: { type: integer, format: int64, nullable: true }
+        params:
+          type: object
+          description: §7.1.1 로 보강한 발송 입력. 미발송 행은 이것만으로 렌더돼야 한다
+
+    UserProjectionRecord:
+      type: object
+      description: |
+        유저 투영 **bootstrap**(승인 계획 ②′ ⓐ). `projections('user.snapshot', userId, '')` 한 행이 된다.
+
+        **정본 테이블이 아니다.** `settings` 자원과 달리 알림 서버의 `settings` 테이블을 건드리지 않는다 —
+        그쪽은 발송 판정이 읽는 정본이고 이쪽은 투영 캐시다. 한 자원으로 합치면 한쪽 보존 규칙이 다른 쪽에 샌다.
+
+        `version` 은 **내보내기와 같은 RR 트랜잭션에서 읽은 그 유저의 유저 축 `aggregate_versions.last_version`**
+        이다(`settings` 자원의 `version` 과 같은 값). 0 을 박으면 스냅샷 이전에 발행돼 백로그에 남아 있던
+        사건(version ≥ 1)이 전부 「더 새것」으로 통과해 **최신 스냅샷 위에 옛 상태를 덮는다**(A22 ㋖·ⓟ).
+      required: [userId, version, displayName, locale, settingsPresent, notificationEnabled, soundEnabled,
+                 nightModeEnabled, nightStartTime, nightEndTime]
+      properties:
+        userId: { type: string, format: uuid }
+        version: { type: integer, format: int64, description: 스냅샷 시점의 유저 축 version. 투영 보존 판정의 축이다 }
+        displayName: { type: string, nullable: true, description: '`users.nickname`. 미설정은 null' }
+        locale: { type: string, nullable: true, description: 미보고는 null (수신 측이 ko 폴백) }
+        settingsPresent:
+          type: boolean
+          description: |
+            설정 행이 실재하는가. `false` 면 아래 5필드는 **전부 null** 이다 — 기본값을 채워 보내면
+            「사용자가 직접 켠 것」과 구분되지 않고, 나중에 기본값이 바뀌어도 옛 값이 박제된다.
+        notificationEnabled: { type: boolean, nullable: true }
+        soundEnabled: { type: boolean, nullable: true }
+        nightModeEnabled: { type: boolean, nullable: true }
+        nightStartTime: { type: string, nullable: true, pattern: '^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$' }
+        nightEndTime: { type: string, nullable: true, pattern: '^[0-2][0-9]:[0-5][0-9]:[0-5][0-9]$' }
+
+    ParticipationProjectionRecord:
+      type: object
+      description: |
+        진행 중·미정산 내기 참가 투영 **bootstrap**(승인 계획 ②′ ⓑ).
+        `projections('participation.updated', userId, sessionId)` 한 행이 된다.
+
+        **컬렉션 투영이라 회차마다 별도 행이다**(A22 ㊂) — 유저 하나로 접으면 회차 B 를 적용한 뒤 도착한
+        회차 A 가 「오래된 것」으로 거부돼 **A 의 참가 행이 영영 안 생기고**, A 가 정산돼도 참가자를 몰라
+        결과 알림이 통째로 누락된다. 그래서 `recordKey` 는 `"<userId>:<sessionId>"` 다.
+
+        **이미 정산돼 발송만 기다리는 건은 이 범위 밖이다** — 그쪽은 `delivery` 자원이 미발송 로그로
+        이미 옮긴다. 여기서 또 실으면 같은 사건이 두 축으로 들어간다.
+      required: [userId, sessionId, version, challengeId, groupId, sessionStatus, stake, joinClosesAt, achieved]
+      properties:
+        userId: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid, description: 회차 = 투영의 subject 축 }
+        version: { type: integer, format: int64, description: 유저 투영과 «같은» 유저 축 version }
+        challengeId: { type: string, format: uuid }
+        groupId: { type: string, format: uuid }
+        sessionStatus: { type: string, description: 범위상 언제나 `OPEN`. 값을 지어내지 않고 그대로 싣는다 }
+        stake: { type: integer, format: int64, description: 회차에 박제된 참가비 }
+        joinClosesAt: { type: integer, format: int64, description: epoch 밀리초 }
+        achieved:
+          type: boolean
+          nullable: true
+          description: |
+            null 은 「아직 판정 없음」이고 `false` 와 **다르다**. 정산 전에도 조기 확정(`confirmWin`)으로
+            true 가 될 수 있어 nullable 이다.
+
+    Manifest:
+      type: object
+      required: [version, resources, stopWindow]
+      properties:
+        snapshot:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Data export 전체 집합의 식별자. 같은 값을 가진 import 청크만 검증한다.
+        version: { type: integer, format: int64, description: 단조 증가. 낮추면 `409 MANIFEST_VERSION_REGRESSED` }
+        resources:
+          type: object
+          additionalProperties:
+            type: object
+            required: [count, checksum]
+            properties:
+              count: { type: integer }
+              checksum:
+                type: string
+                description: |
+                  위 「체크섬 계산」의 resourceChecksum. **빈 자원도 반드시 싣는다** — 0건이면 `SHA256("")`
+                  (`e3b0c442…`) 다. Data 는 `settings`·`device`·`delivery`·`user`·`participation`
+                  다섯 자원을 언제나 선언한다.
+        stopWindow:
+          type: object
+          required: [closedAt, cursor, queueDepth, source]
+          description: 운영 정지 창의 증거. 빠지면 fail-closed 로 검증이 실패한다
+          properties:
+            closedAt: { type: integer, format: int64, description: epoch 밀리초. 검증은 이 시각 «뒤»에 해야 한다 }
+            cursor: { type: string, description: 커밋과 함께 증가하는 단조 커서 (시각이 아니다 — A22 ㋖) }
+            queueDepth: { type: integer, description: 0 이 아니면 `STOP_WINDOW_NOT_DRAINED` }
+            source: { type: string, description: 증거를 만든 주체 (예 `data-api`) }
+
+    VerifyReport:
+      type: object
+      properties:
+        migrationId: { type: string }
+        verified: { type: boolean }
+        records: { type: integer }
+        counts: { type: object, additionalProperties: { type: integer } }
+        checksums:
+          type: object
+          additionalProperties: { type: string }
+          description: 지원 자원 다섯 개가 «항상» 들어 있다. 적재 행이 없는 자원은 `SHA256("")` 이다
+        supersededByLiveWrite:
+          type: object
+          additionalProperties: { type: integer }
+          description: 라이브 쓰기가 이겨 적재가 접힌 건수. 실패가 아니지만 ④″ 에서 설명돼야 한다
+        skippedByFence:
+          type: object
+          additionalProperties: { type: integer }
+          description: 탈퇴 tombstone·세대 펜스로 «일부러» 적재하지 않은 건수. 대상 행이 없는 게 정상이다
+        failureCount: { type: integer }
+        failures:
+          type: array
+          maxItems: 50
+          description: 앞 50건만 싣는다. 총수는 `failureCount` 로 본다
+          items:
+            type: object
+            properties:
+              reason:
+                type: string
+                enum:
+                  - TARGET_ROW_MISSING
+                  - FIELD_MISMATCH
+                  - VERSION_REGRESSED
+                  - GENERATION_REGRESSED
+                  - TOMBSTONE_RESURRECTED
+                  - STATUS_REGRESSED
+                  - RENDER_FAILED
+                  - COUNT_MISMATCH
+                  - CHECKSUM_MISMATCH
+                  - UNDECLARED_RESOURCE
+                  - STOP_WINDOW_NOT_DRAINED
+                  - UNKNOWN_MIGRATION_RESOURCE
+              scope: { type: string, description: '자원 또는 `<자원>.<필드>`' }
+              recordKey: { type: string }
+              expected: {}
+              actual: {}

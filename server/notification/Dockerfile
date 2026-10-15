@@ -1,0 +1,56 @@
+# 알림 서버 이미지 — server/chat/Dockerfile 과 같은 구조다(멀티 스테이지 + jammy 베이스).
+#
+# 아키텍처는 여기 하드코딩하지 않고 파이프라인이 정한다. builder 는 $BUILDPLATFORM(빌드 머신 네이티브)
+# 에서 돌려 gradle 을 QEMU 에뮬레이션 없이 실행하고, 산출 JAR 는 아키텍처 무관이라 최종 스테이지만
+# 타깃 아키텍처의 JRE 로 조립한다.
+# ⚠️ temurin 의 alpine 태그는 amd64 전용(arm64 매니페스트 없음) — t4g·Apple Silicon 대응으로 jammy 를 쓴다.
+# 기본값은 기존 소스 빌드. CI는 같은 실행에서 검증한 JAR를 prebuilt로 전달한다.
+ARG JAR_SOURCE=builder
+
+FROM --platform=$BUILDPLATFORM eclipse-temurin:17.0.20.1_1-jdk-jammy AS builder
+
+WORKDIR /app
+
+COPY gradlew .
+COPY gradle gradle
+COPY build.gradle .
+COPY settings.gradle .
+COPY config config
+
+# 의존성 해석을 소스 COPY 보다 먼저 — 소스만 바뀐 반복 빌드에서 의존성 재다운로드를 건너뛴다.
+RUN chmod +x gradlew && ./gradlew dependencies --no-daemon --quiet || true
+
+COPY src src
+
+RUN ./gradlew bootJar -x test --no-daemon \
+    && cp build/libs/*.jar /app/app.jar
+
+# 별도 경로를 써서 .dockerignore의 build/ 제외와 충돌하지 않는다.
+FROM scratch AS prebuilt
+COPY ci-artifact/app.jar /app/app.jar
+
+FROM ${JAR_SOURCE} AS artifact
+
+FROM eclipse-temurin:17.0.20.1_1-jre-jammy
+
+# 헬스체크가 curl 을 쓴다(docker-compose.satellites.yml 이 /health 를 검사한다). 이 베이스 이미지에
+# 지금은 curl 이 들어 있지만 «보장»된 것이 아니다 — 베이스 태그를 올릴 때 베이스가 한 번
+# 슬림해지는 것만으로 매 검사가 `curl: not found` 가 되어 앱이 멀쩡한데도 컨테이너가 계속 unhealthy
+# 로 판정된다. 그 의존을 이미지 안에 못 박는다.
+ADD --checksum=sha256:aeb74b05314e21211b55af13240723dd9014e18dd70422f8501fa180b1b3113b \
+    https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.64.0/dd-java-agent-1.64.0.jar /opt/dd-java-agent.jar
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+ENV JAVA_OPTS="-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/dd-java-agent.jar"
+
+COPY --from=artifact /app/app.jar app.jar
+
+# 8082 — compose 가 SERVER_PORT=8082 을 주고 /health 를 검사한다.
+# 관리 포트 9091 은 EXPOSE 하지 않는다: 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.
+EXPOSE 8082
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

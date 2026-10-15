@@ -1,0 +1,25 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-system-logs",
+      "Filter": { "Prefix": "system_log/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 90 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    },
+    {
+      "ID": "expire-user-logs",
+      "Filter": { "Prefix": "user_log/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 90 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    },
+    {
+      "ID": "expire-user-activity",
+      "Filter": { "Prefix": "user-activity/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 90 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}

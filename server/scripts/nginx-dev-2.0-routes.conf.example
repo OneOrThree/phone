@@ -1,0 +1,51 @@
+# dev HTTPS server 블록에서 기존 location 두 개를 이 include로 교체한다.
+# Business·Realtime은 호스트 loopback만 듣는다. Data API는 Docker 내부 호출과
+# 127.0.0.1:8080의 CD 헬스 검사에만 쓴다.
+location ^~ /internal/ { return 404; }
+location = /internal { return 404; }
+location ^~ /actuator/ { return 404; }
+location = /actuator { return 404; }
+
+# 앱의 공개 Business API와 현재 필요한 /api/v1 호환 표면만 허용한다.
+location ~ ^(?:/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks)(?:/|$)|/api/v1/(?:users/me/(?:device-token|notification-settings)$|link-previews(?:/|$))) {
+    proxy_pass http://127.0.0.1:8083;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Connection "";
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-User-Id "";
+    proxy_set_header X-Caller "";
+    proxy_set_header X-Caller-Id "";
+    proxy_set_header X-Internal-Caller "";
+    proxy_set_header X-Service-Caller "";
+    proxy_set_header X-Link-Client-IP "";
+    proxy_set_header X-Link-Proxy-Secret "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Real-IP "";
+    proxy_set_header CF-Connecting-IP "";
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 30s;
+    proxy_next_upstream off;
+}
+
+# 2.0 앱의 islandRealtime.ts가 이 WSS 경로로 연결한다. 인증은 STOMP CONNECT에서 검사한다.
+location = /ws/realtime {
+    proxy_pass http://127.0.0.1:8081;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 3600s;
+    proxy_next_upstream off;
+}
+
+# 공개 헬스는 Business만 나타낸다. Data의 /health는 dev 호스트 내부에서만 검사한다.
+location = /health {
+    proxy_pass http://127.0.0.1:8083;
+    proxy_next_upstream off;
+}
+
+# 옛 Data API 기본 프록시는 끝낸다. 미명시 경로는 2.0 서비스에 전달하지 않는다.
+location / { return 404; }

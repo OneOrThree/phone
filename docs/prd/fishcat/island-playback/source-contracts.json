@@ -1,0 +1,52 @@
+[
+  {
+    "id": "playback",
+    "source_method": "GET",
+    "source_path": "/v1/islands/{islandId}/playback",
+    "method": "GET",
+    "path": "/islands/{islandId}/playback",
+    "request_example": {},
+    "response_example": {
+      "data": {
+        "trackId": "waves",
+        "playing": true,
+        "positionSeconds": 12,
+        "effectiveAt": "2026-09-11T09:10:00Z",
+        "changedBy": "minji",
+        "version": 2,
+        "serverNow": "2026-09-11T09:10:00Z"
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1779",
+    "code": [],
+    "tests": []
+  },
+  {
+    "id": "playback-save",
+    "source_method": "PATCH",
+    "source_path": "/v1/islands/{islandId}/playback",
+    "method": "PATCH",
+    "path": "/islands/{islandId}/playback",
+    "request_example": {
+      "trackId": "campfire",
+      "playing": true,
+      "expectedVersion": 2
+    },
+    "response_example": {
+      "data": {
+        "trackId": "campfire",
+        "playing": true,
+        "positionSeconds": 0,
+        "effectiveAt": "2026-09-11T09:10:00Z",
+        "changedBy": "me",
+        "version": 3,
+        "serverNow": "2026-09-11T09:10:00Z"
+      }
+    },
+    "implementation_status": "not_started",
+    "implementation_ticket": "GROMO-1779",
+    "code": [],
+    "tests": []
+  }
+]

@@ -1,0 +1,113 @@
+package com.oneorthree.realtime.message.exception;
+
+import com.oneorthree.realtime.common.exception.ErrorCode;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+
+/**
+ * 채팅이 «의도적으로» 거절하는 이유들. 상수 이름이 앱과의 계약이다.
+ *
+ * <p>이 서비스의 두 규칙이 여기 각각 코드 하나로 서 있다 —
+ * {@link #NOT_A_MEMBER}(같은 섬 안에서만) 와 {@link #FOCUS_IN_PROGRESS}(집중 중엔 못 들어온다).
+ * 앱은 이 둘을 반드시 다르게 그려야 한다: 앞은 «들어갈 수 없는 방», 뒤는 «지금은 안 되는 시간»이다.
+ */
+@Getter
+@RequiredArgsConstructor
+public enum ChatErrorCode implements ErrorCode {
+
+    /**
+     * 그 섬(그룹)의 활성 멤버가 아니다 — <b>탈퇴·강퇴·애초에 남의 섬·존재하지 않는 섬이 전부 이 코드 하나로
+     * 합쳐진다.</b> 일부러 합친 것이다: 갈라 주면 임의의 groupId 를 넣어 보는 것만으로 «그런 그룹이
+     * 있는가»를 알아낼 수 있어 비공개 그룹의 존재가 샌다. 404 가 아니라 403 인 이유도 같다.
+     */
+    NOT_A_MEMBER(HttpStatus.FORBIDDEN, "이 섬의 멤버가 아닙니다."),
+
+    /**
+     * 집중 세션이 진행 중이라 채팅에 들어올 수 없다.
+     *
+     * <p>403 이 아니라 <b>409</b> 인 것은 «권한이 없다»가 아니라 «지금 상태와 충돌한다»이기 때문이다 —
+     * 같은 사람이 같은 방에, 집중을 끝내기만 하면 들어올 수 있다. 앱은 이 코드를 재로그인이나 권한
+     * 오류로 처리하면 안 되고, 「집중이 끝나면 이어서 볼 수 있어요」로 그려야 한다.
+     *
+     * <p>판정 근거는 Redis 프레즌스 리스이고, 그 리스는 사본이다 — 리스 쓰기가 실패해 키가 없으면
+     * 집중 중인데도 통과한다. 이 규칙은 스스로를 위한 규칙이라 그 방향의 실패를 수용한다
+     * ({@code FocusPresenceReader} 참고).
+     */
+    FOCUS_IN_PROGRESS(HttpStatus.CONFLICT, "집중 중에는 채팅을 이용할 수 없습니다."),
+
+    /** 본문이 비었거나 공백뿐이다. 공백만 있는 메시지를 저장하면 방에 빈 말풍선이 남는다. */
+    BLANK_CONTENT(HttpStatus.BAD_REQUEST, "메시지를 입력해 주세요."),
+
+    /** 본문이 상한(2000자)을 넘었다. 상한은 DB 컬럼 길이가 아니라 이 규칙이 정한다. */
+    CONTENT_TOO_LONG(HttpStatus.BAD_REQUEST, "메시지가 너무 깁니다."),
+
+    /**
+     * 본문에 <b>저장할 수 없는 문자</b>가 있다 — 지금은 NUL({@code U+0000}) 하나다.
+     *
+     * <p>NUL 은 JSON 문자열로는 멀쩡히 실려 오지만 PostgreSQL 의 {@code varchar} 가 저장하지 못한다.
+     * 여기서 막지 않으면 INSERT 가 {@code DataIntegrityViolationException} 을 내는데, 그 예외는
+     * 「멱등 재전송」 경로가 기다리는 것과 <b>같은 타입</b>이라 원본을 찾다 실패하고 그대로 올라간다 —
+     * 결과는 400 이 아니라 <b>ERROR 프레임 + 소켓 종료</b>다. 즉 클라이언트가 문자 하나로 자기
+     * 연결을 끊을 수 있다.
+     *
+     * <p>지우지 않고 «거절»하는 이유: 서버가 보관하고 방송할 내용을 조용히 고쳐 쓰지 않는다. 그리고
+     * 정상 클라이언트의 텍스트 입력에서는 NUL 이 나올 수 없어, 이 코드가 보이면 보내는 쪽이 깨진 것이다.
+     */
+    INVALID_CONTENT(HttpStatus.BAD_REQUEST, "메시지에 사용할 수 없는 문자가 있습니다."),
+
+    /**
+     * 커서가 쓸 수 없는 값이다 — 두 경우가 여기로 합쳐진다.
+     *
+     * <ul>
+     *   <li>히스토리 커서가 UUID 로 파싱되지 않음. 조용히 «처음부터»로 떨어뜨리면 무한 스크롤이
+     *       맨 위에서 같은 페이지를 영원히 다시 받는다</li>
+     *   <li>읽음 커서가 <b>그 섬의 메시지가 아님</b>. 검증 없이 저장하면 임의의 큰 UUID 한 번으로
+     *       그 방의 앞으로 올 메시지까지 전부 읽은 것으로 숨길 수 있고, 커서는 뒤로 가지 않으므로
+     *       스스로 풀리지도 않는다</li>
+     * </ul>
+     */
+    INVALID_CURSOR(HttpStatus.BAD_REQUEST, "잘못된 커서입니다."),
+
+    /**
+     * 우체통(내부 어댑터) 전용 — 같은 {@code clientMessageId} 로 <b>다른 본문</b>이 왔다
+     * (island-mailbox policy M05). 409 인 이유는 «키가 이미 다른 말에 쓰였다»는 상태 충돌이라서다.
+     *
+     * <p>legacy STOMP 발신은 이 코드를 <b>내지 않는다</b> — 그쪽은 같은 키면 본문이 달라도 원문을
+     * 되돌리는 동작을 보존한다({@code ChatMessageService#send}). 두 입구의 정책이 «일부러» 다르다.
+     */
+    IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 메시지에 사용한 키입니다."),
+
+    /**
+     * 응원 종류가 5종({@code hello}·{@code cheer}·{@code sleepy}·{@code laugh}·{@code hearts})이 아니다
+     * (GROMO-1765, focus-rest-session LLD §2 emote).
+     *
+     * <p>400 이 아니라 <b>422</b> 인 것은 본문 «형식»은 맞고 값만 계약 밖이기 때문이다 — 앱이 이 둘을
+     * 갈라야 「보내는 코드가 깨졌다」와 「종류 목록이 서버와 어긋났다」를 구분해 고칠 수 있다.
+     */
+    INVALID_EMOTE_TYPE(HttpStatus.UNPROCESSABLE_ENTITY, "보낼 수 없는 응원입니다."),
+
+    /**
+     * 그 섬에서 <b>본인의 active 집중 세션</b>이 아니다 — 휴식 중·이미 끝난 세션·남의 세션·다른 섬이
+     * 전부 이 코드 하나로 합쳐진다({@link #NOT_A_MEMBER} 와 같은 이유로 갈라 주지 않는다).
+     *
+     * <p>409 인 이유는 {@link #FOCUS_IN_PROGRESS} 의 거울상이다 — 권한이 아니라 상태의 충돌이고,
+     * 집중을 다시 시작하면 같은 사람이 같은 섬에서 보낼 수 있다.
+     */
+    NOT_FOCUSING(HttpStatus.CONFLICT, "집중 중일 때만 응원할 수 있습니다."),
+
+    /**
+     * 응원을 너무 자주 보냈다. 창은 표시 TTL 과 같은 3초이고, 한 창에 한 번이다 —
+     * 근거는 {@code FocusEmoteService} 에 있다.
+     */
+    EMOTE_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 응원해 주세요."),
+
+    /**
+     * 이동 토픽 구독을 너무 자주 시도했다(GROMO-2247, 사용자 축 600ms 창). 정상 앱은 접속마다 한 번만 판정받으므로
+     * 이 코드는 관문 위반과 같이 ERROR 프레임 + 연결 종료로 나간다.
+     */
+    MOVEMENT_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 시도해 주세요.");
+
+    private final HttpStatus status;
+    private final String message;
+}

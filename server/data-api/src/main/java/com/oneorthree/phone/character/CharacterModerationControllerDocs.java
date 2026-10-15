@@ -1,0 +1,34 @@
+package com.oneorthree.phone.character;
+
+import com.oneorthree.phone.character.dto.ImageModerationRequest;
+import com.oneorthree.phone.character.dto.ImageModerationResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
+
+import java.util.UUID;
+
+/**
+ * {@code CharacterModerationController} 의 OpenAPI 문서 면(面) — Swagger 애노테이션만 둔다(GROMO-1621).
+ */
+@Tag(name = "character", description = "캐릭터 커스터마이징 API")
+public interface CharacterModerationControllerDocs {
+
+    /**
+     * @param userId  호출자
+     * @param request 검사할 누끼 이미지
+     * @return 검사 결과
+     */
+    @Operation(summary = "누끼 이미지 유해성 검사",
+            description = "누끼 저장 직전 이미지를 OpenAI omni-moderation 으로 검사합니다. 이미지는 저장하지 않고 "
+                    + "검사만 합니다. allowed=false 면 유해로 판정된 것이며, 검사 실패 시 안전하게 차단합니다.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "검사 완료 — allowed 로 통과/거부 구분"),
+        @ApiResponse(responseCode = "400", description = "image 누락, 또는 base64 크기가 @Size(10MiB) 초과(전송방식 무관)"),
+        @ApiResponse(responseCode = "401", description = "인증 없음"),
+        @ApiResponse(responseCode = "413", description = "요청 본문(Content-Length)이 한도 초과 — 역직렬화 전 차단")
+    })
+    ResponseEntity<ImageModerationResponse> moderate(UUID userId, ImageModerationRequest request);
+}

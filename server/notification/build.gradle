@@ -1,0 +1,122 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.6'
+	id 'io.spring.dependency-management' version '1.1.7'
+
+	// CI: 코드 스타일 + 정적 분석 + 커버리지 (server/business-api · server/chat 과 같은 규율)
+	id 'checkstyle'
+	id 'com.github.spotbugs' version '6.0.18'
+	id 'jacoco'
+}
+
+group = 'com.oneorthree'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// REST — 내부 표면(/internal/*)과 관리 표면(/internal/admin/*)뿐이다. 앱이 직접 들어오지 않는다.
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	// 자기 DB — gromo_notification 하나만 본다. 코어 DataSource 를 «절대» 추가하지 않는다(계약 §2).
+	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+	runtimeOnly 'org.postgresql:postgresql'
+
+	// Flyway — Boot 4 는 오토컨피그를 기술별 모듈로 분리했다(data-api 의 같은 주석 참고).
+	// spring-boot-flyway(오토컨피그) + flyway-core(엔진) + flyway-database-postgresql(방언) 셋이 다 필요하다.
+	implementation 'org.springframework.boot:spring-boot-flyway'
+	implementation 'org.flywaydb:flyway-core'
+	runtimeOnly 'org.flywaydb:flyway-database-postgresql'
+
+	// Kafka 소비 — notification-events. Boot 4 에서 오토컨피그(spring-boot-kafka)와 엔진(spring-kafka)이 갈렸다.
+	implementation 'org.springframework.boot:spring-boot-kafka'
+	implementation 'org.springframework.kafka:spring-kafka'
+
+	// 등록부 크론 — 다중 인스턴스 중복 실행은 ShedLock 이 막는다. 락 저장소는 «자기» DB 다.
+	implementation 'net.javacrumbs.shedlock:shedlock-spring:5.16.0'
+	implementation 'net.javacrumbs.shedlock:shedlock-provider-jdbc-template:5.16.0'
+
+	// Data 로 나가는 조회 3종(스냅샷 · ack 정본 · 발송 적격). RestClient 만 쓴다.
+	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+	// FCM HTTP v1 — firebase-admin 미도입(data-api 와 같은 선택). 서비스 계정 토큰만 이 라이브러리로 얻는다.
+	implementation 'com.google.auth:google-auth-library-oauth2-http:1.48.0'
+
+	// ICU 메시지 렌더 — kind × locale 템플릿의 복수형·성별·숫자 서식을 locale 별로 해석한다.
+	// String.format 으로는 ja/zh 의 복수 규칙과 ko 의 조사 분기를 담을 수 없다.
+	implementation 'com.ibm.icu:icu4j:75.1'
+
+	// 관측 — Actuator. 관리 포트(9091)에 격리 노출하고 호스트에 publish 하지 않는다.
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'io.micrometer:micrometer-registry-prometheus'
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	// ⚠️ JWT 라이브러리를 «일부러 넣지 않는다» — 이 서비스는 앱 JWT 를 검증하지 않는다(계약 §2 ·
+	//    A22 ㉸). 인증은 caller 별 서비스 토큰 + 경로 허용목록뿐이다. 의존성이 없으면 나중에 누가
+	//    앱 토큰 검증을 붙이려 할 때 build.gradle 에서 먼저 걸린다.
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.testcontainers:junit-jupiter:1.20.1'
+	testImplementation 'org.testcontainers:postgresql:1.20.1'
+	testImplementation 'org.testcontainers:kafka:1.20.1'
+	testImplementation 'org.springframework.kafka:spring-kafka-test'
+	testCompileOnly 'org.projectlombok:lombok'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	finalizedBy jacocoTestReport
+}
+
+// ── Checkstyle ────────────────────────────────────────────────────────────
+checkstyle {
+	toolVersion = '10.21.4'
+	configFile = file("config/checkstyle/checkstyle.xml")
+	ignoreFailures = false
+}
+
+checkstyleTest.enabled = false
+
+// ── SpotBugs ─────────────────────────────────────────────────────────────
+spotbugs {
+	toolVersion = '4.8.6'
+	effort = 'max'
+	reportLevel = 'high'
+	excludeFilter = file("config/spotbugs/exclude.xml")
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+	reports {
+		xml.required = true
+		html.required = true
+	}
+}
+
+spotbugsTest.enabled = false
+
+// ── JaCoCo ───────────────────────────────────────────────────────────────
+jacoco {
+	toolVersion = '0.8.12'
+}
+
+jacocoTestReport {
+	reports {
+		xml.required = true
+		html.required = true
+	}
+}

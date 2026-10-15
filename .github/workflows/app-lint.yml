@@ -1,0 +1,94 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/app-dev/**'
+      - '.github/workflows/app-lint.yml'
+      # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
+      - 'docs/prd/fishcat/island-movement/fixtures/**'
+  pull_request:
+    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (data-api-ci.dev.yml과 동일 패턴)
+    paths:
+      - 'app/app-dev/**'
+      # 이 워크플로 자신도 트리거에 넣는다 (GROMO-1513). 안 넣으면 app-lint.yml 만 고치는 PR 에서
+      # 검사가 아예 안 돌아, 워크플로 변경이 맞는지 **머지해 봐야** 알 수 있다.
+      # 실제로 이 파일의 NODE_OPTIONS 수정이 그 상황에 걸렸다.
+      - '.github/workflows/app-lint.yml'
+      # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
+      - 'docs/prd/fishcat/island-movement/fixtures/**'
+
+# 중간 푸시분은 어차피 다음 푸시에 무의미해지는데, 그때까지 러너를 물고 있다
+# (GROMO-1797). 그룹 이름은 다른 파이프라인과 달라야 한다 — 같으면 서로를 막는다.
+concurrency:
+  group: app-lint-${{ github.ref }}
+  # PR 의 이전 실행은 취소하되, 통합 브랜치 push 는 중간에 끊지 않는다(data-api-ci·realtime-ci 와 같은 규율).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    # GitHub-hosted 러너에서 돈다 (GROMO-2121). 예전엔 node_modules·Android SDK 를 러너에 두고
+    # 재사용하려고 self-hosted(gromo-dev-build)를 썼지만, 앱 체크는 그 러너를 떠났다 — VM 은
+    # e2-small·러너 1대로 축소돼 push 시 이미지 발행 전용으로만 남는다(decisions.md A25).
+    # 캐시는 setup-node 의 npm 캐시가 맡는다.
+    runs-on: ubuntu-latest
+
+    # NODE_OPTIONS 를 안 주면 Node 가 힙 상한을 자동 산정하는데, 그 값이 tsc 가 필요로 하는
+    # 양보다 낮게 잡혀 Typecheck 가 "Ineffective mark-compacts near heap limit" 으로 죽었다 —
+    # OS OOM killer 가 아니라 V8 자체 상한이다. 앱 PR 3건(#606·#612·#616)이 같은 지점에서
+    # 실패했다 (GROMO-1513). 러너가 바뀌어도 V8 상한은 그대로라 값을 유지한다.
+    #
+    # 2048 인 이유: 로컬 실측 peak RSS 가 880 MB 라 성장 여유까지 충분하다.
+    env:
+      NODE_OPTIONS: --max-old-space-size=2048
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 이 워크플로 자신만 변경된 PR에서도 잡이 실행되므로 앱 디렉터리를 방어적으로 확인한다.
+      # 동결된 1.x 앱은 검사 대상이 아니다.
+      - name: 앱 디렉터리 확인
+        id: app
+        run: |
+          if [ -f app/app-dev/package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::app/app-dev/ 가 없어 앱 검사를 건너뜁니다 — 동결된 1.x 앱(app/legacy/app-dev)은 검사하지 않습니다."
+          fi
+
+      - name: Setup Node.js
+        if: steps.app.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: app/app-dev/package-lock.json
+
+      - name: Install dependencies
+        if: steps.app.outputs.present == 'true'
+        run: npm ci
+        working-directory: app/app-dev
+
+      - name: Run ESLint
+        if: steps.app.outputs.present == 'true'
+        run: npm run lint
+        working-directory: app/app-dev
+
+      - name: Check Prettier formatting
+        if: steps.app.outputs.present == 'true'
+        run: npm run format:check
+        working-directory: app/app-dev
+
+      - name: Typecheck
+        if: steps.app.outputs.present == 'true'
+        run: npm run typecheck
+        working-directory: app/app-dev
+
+      # jest-expo 기반 상태·경로 순수 함수 테스트
+      - name: Run tests
+        if: steps.app.outputs.present == 'true'
+        run: npm test
+        working-directory: app/app-dev

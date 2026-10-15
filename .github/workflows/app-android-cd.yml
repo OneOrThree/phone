@@ -1,0 +1,165 @@
+name: Android CD
+
+# CI(app-android-ci.yml)가 main 에서 만든 AAB → Play 내부 테스트 (GROMO-2223).
+# 트리거 없음. CI deploy 잡이 workflow_call 로 부름. 재빌드 안 함.
+# 업로드 후 internal 트랙 재조회로 확인 → 머지 PR 에 deployed:android-play-internal 라벨·코멘트.
+#
+# 선택 변수 PLAY_INTERNAL_RELEASE_STATUS (기본 completed). "Only releases with status draft may be created
+# on draft app" 나오면 draft 로 바꾸고 콘솔에서 출시. 앱이 검토 통과하면 지움.
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: CI 가 올린 AAB 아티팩트 이름
+        required: true
+        type: string
+      version-code:
+        description: AAB 의 versionCode (릴리스 이름·요약용)
+        required: true
+        type: string
+      revision:
+        description: AAB 를 만든 main commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write # PR 라벨·코멘트
+  issues: write # 라벨은 이슈 API
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-android-github-actions
+  RELEASE_SECRET_ID: gromo/prod/android
+
+jobs:
+  play-internal:
+    name: Play 내부 테스트 업로드
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Deployments 에 play-internal 기록 남음. 배포 브랜치 main 만 (레포 설정)
+    environment:
+      name: play-internal
+    steps:
+      # 표준 라이브러리 스크립트만 (패키지 설치 없음. 키 잡에서 서드파티 코드 안 돌게).
+      # checkout 은 작업 폴더를 비우므로 아티팩트 받기보다 먼저
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/ci
+
+      - name: AAB 받기
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: aab
+
+      - name: 릴리스 이름용 짧은 커밋
+        id: rev
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: echo "short=${REVISION:0:8}" >> "$GITHUB_OUTPUT"
+
+      - name: AWS 인증 (OIDC)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Secrets Manager 에서 Play 키 받기
+        run: |
+          set -euo pipefail
+          umask 077
+          aws secretsmanager get-secret-value --secret-id "$RELEASE_SECRET_ID" --query SecretString --output text \
+            | jq -r '.PLAY_SERVICE_ACCOUNT_JSON // empty' > "$RUNNER_TEMP/play-sa.json"
+          jq -e '.type == "service_account"' "$RUNNER_TEMP/play-sa.json" > /dev/null \
+            || { echo "::error::$RELEASE_SECRET_ID 의 PLAY_SERVICE_ACCOUNT_JSON 이 비었거나 서비스 계정 키가 아니다"; exit 1; }
+          # 이후 스텝(서드파티 액션)이 AWS 자격 증명 못 쓰게 비움
+          for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
+
+      - name: 이미 올라갔는지 확인
+        id: pre
+        # 재실행 대비. 업로드 성공 뒤 후속 단계만 실패했으면 같은 versionCode 재업로드는 Play 가 거부 → 건너뜀
+        env:
+          PLAY_SERVICE_ACCOUNT_FILE: ${{ runner.temp }}/play-sa.json
+          PLAY_PACKAGE_NAME: com.oneorthree.gromo
+          TRACK: internal
+          VERSION_CODE: ${{ inputs.version-code }}
+          EXPECTED_STATUS: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
+          PRESENCE_ONLY: '1'
+        run: python3 .github/ci/play-verify-track.py
+
+      - name: Play 내부 테스트 트랙 업로드
+        if: steps.pre.outputs.present != 'true'
+        # 키 받는 서드파티 액션 → 커밋 SHA 고정 (v1.1.5)
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5
+        with:
+          serviceAccountJson: ${{ runner.temp }}/play-sa.json
+          packageName: com.oneorthree.gromo
+          releaseFiles: aab/app-release.aab
+          track: internal
+          status: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
+          # 릴리스 이름 50자 제한 → 커밋 8자
+          releaseName: dev ${{ inputs.version-code }} (${{ steps.rev.outputs.short }})
+
+      - name: 업로드 확인 (internal 트랙 재조회)
+        id: verify
+        # 액션 성공 ≠ 트랙 반영. Play 재조회. 읽기만, edit 는 지움.
+        env:
+          PLAY_SERVICE_ACCOUNT_FILE: ${{ runner.temp }}/play-sa.json
+          PLAY_PACKAGE_NAME: com.oneorthree.gromo
+          TRACK: internal
+          VERSION_CODE: ${{ inputs.version-code }}
+          EXPECTED_STATUS: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
+        run: |
+          python3 .github/ci/play-verify-track.py
+          echo "status=$EXPECTED_STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Play 키 지우기
+        if: always()
+        run: rm -f "$RUNNER_TEMP/play-sa.json"
+
+      - name: 배포된 PR 에 표시
+        # 커밋의 머지 PR 찾아 표시. PR 없으면 건너뜀.
+        # completed 만 배포 완료(라벨). draft 는 테스터에게 안 감 → 콘솔 출시 필요 코멘트만.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ steps.verify.outputs.status }}
+          REVISION: ${{ inputs.revision }}
+          VERSION_CODE: ${{ inputs.version-code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REVISION/pulls" --jq '[.[] | select(.merged_at != null)][0].number // empty')"
+          if [ -z "$pr" ]; then echo "커밋 $REVISION 에 연결된 머지 PR 이 없어 표시를 건너뛴다"; exit 0; fi
+          if [ "$STATUS" != completed ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/comments" -f body="Play 내부 테스트에 $STATUS 로 업로드 — 콘솔에서 출시해야 테스터에게 감 · versionCode \`$VERSION_CODE\` · [실행 기록]($RUN_URL)" > /dev/null
+            echo "- PR: #$pr 에 $STATUS 업로드 코멘트 (라벨 없음)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          label=deployed:android-play-internal
+          # 부착 API 는 없는 라벨을 안 만듦 → 먼저 확인·생성
+          gh api "repos/$GITHUB_REPOSITORY/labels/$label" > /dev/null 2>&1 \
+            || gh api -X POST "repos/$GITHUB_REPOSITORY/labels" -f name="$label" -f color=0E8A16 \
+                 -f description="Play 내부 테스트 트랙 배포 완료 (Android CD 가 붙임)" > /dev/null
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/labels" -f "labels[]=$label" > /dev/null
+          gh api "repos/$GITHUB_REPOSITORY/issues/$pr/labels" --jq '.[].name' | grep -qx "$label" \
+            || { echo "::error::PR #$pr 에 $label 이 안 붙었다"; exit 1; }
+          # 재실행 때 같은 코멘트 중복 방지
+          marker="Play 내부 테스트 배포 완료 — versionCode \`$VERSION_CODE\`"
+          if gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --paginate --jq '.[].body' | grep -qF "$marker"; then
+            echo "- PR: #$pr 이미 표시됨 (재실행)" >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$pr/comments" -f body="Play 내부 테스트 배포 완료 — versionCode \`$VERSION_CODE\` · 커밋 \`${REVISION:0:8}\` · [실행 기록]($RUN_URL)" > /dev/null
+          echo "- PR: #$pr 에 \`$label\` 표시" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 요약
+        if: always()
+        run: |
+          {
+            echo "## Android CD — Play 내부 테스트"
+            echo "- 패키지: \`com.oneorthree.gromo\` · 트랙: internal"
+            echo "- versionCode: ${{ inputs.version-code }} · 커밋: \`${{ inputs.revision }}\`"
+            echo "- 결과: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

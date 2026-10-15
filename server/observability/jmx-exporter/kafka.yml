@@ -1,0 +1,11 @@
+jmxUrl: service:jmx:rmi:///jndi/rmi://kafka:9999/jmxrmi
+lowercaseOutputName: true
+includeObjectNames:
+  - 'kafka.network:type=RequestMetrics,name=RequestsPerSec,*'
+
+rules:
+  - pattern: 'kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(.+)><>Count'
+    name: kafka_network_requestmetrics_requests_total
+    type: COUNTER
+    labels:
+      request: "$1"

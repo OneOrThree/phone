@@ -1,0 +1,30 @@
+name: 서버 배포 상태 배지
+on:
+  workflow_run:
+    workflows: [Data API CI, Realtime CI, 'Satellite CI (dev)', Satellite Dev CD, prod-cd]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: deployment-status-badges
+  cancel-in-progress: false
+  queue: max
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.head_repository.id == github.event.repository.id &&
+       (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'release'))
+    steps:
+      # 기본 브랜치의 신뢰한 게시 코드만 실행한다. 원본 실행 산출물은 JSON 데이터로만 읽는다.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: 배포 결과 검증·배지 게시
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/deployment-badges.py

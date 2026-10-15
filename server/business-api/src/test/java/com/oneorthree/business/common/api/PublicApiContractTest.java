@@ -1,0 +1,519 @@
+package com.oneorthree.business.common.api;
+
+import com.oneorthree.business.common.exception.CompositionCapacityExceededException;
+import com.oneorthree.business.common.exception.UpstreamCredentialRejectedException;
+import com.oneorthree.business.common.exception.UpstreamDomainException;
+import com.oneorthree.business.common.exception.UpstreamTimeoutException;
+import com.oneorthree.business.linkpreview.exception.PreviewException;
+import com.oneorthree.business.linkpreview.dto.Preview;
+import com.oneorthree.business.linkpreview.service.PreviewService;
+import com.oneorthree.business.support.Tokens;
+import com.oneorthree.business.support.UpstreamTestBase;
+import jakarta.servlet.Filter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/** MVC 단독 스텁이 아니라 Boot가 등록한 두 Servlet 필터를 포함해 외부 와이어를 검증한다. */
+@Import({PublicApiContractTest.ProbeController.class, PublicApiContractTest.UnknownLengthConfig.class})
+class PublicApiContractTest extends UpstreamTestBase {
+
+    private static final UUID USER = UUID.randomUUID();
+    private static final String ROOT = "/me/_contract";
+
+    @MockitoBean
+    private PreviewService previewService;
+
+    @Test
+    void freezesPublishedErrorNames() {
+        assertThat(ApiErrorCode.values()).extracting(Enum::name).containsExactlyInAnyOrder(
+                "INVALID_REQUEST", "INVALID_PARAMETER", "INVALID_IDEMPOTENCY_KEY", "INVALID_CURSOR",
+                "UNSUPPORTED_PROVIDER", "UNAUTHORIZED", "REFRESH_TOKEN", "FORBIDDEN", "FACILITY_LOCKED",
+                "NOT_FOUND", "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "GROUP_NOT_FOUND", "PRODUCT_NOT_FOUND",
+                "SLUG_NOT_FOUND", "METHOD_NOT_ALLOWED", "VERSION_CONFLICT", "STATE_CONFLICT",
+                "INSUFFICIENT_FUNDS", "IDEMPOTENCY_KEY_REUSED", "REQUEST_IN_PROGRESS", "CURSOR_EXPIRED",
+                "INVITATION_EXPIRED", "REQUEST_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "OUT_OF_RANGE",
+                "RATE_LIMITED", "INTERNAL_ERROR", "UPSTREAM_CONTRACT_ERROR", "UPSTREAM_AUTH_FAILED",
+                "SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT",
+                // GROMO-1908: 제공자 자격 실패 6종(계정 LLD §2.1 · 정책 A18). Data 의
+                // InvalidTokenErrorCode 와 «이름이 같아야» 상류 매핑이 붙고, 없으면 잘못된 소셜
+                // 토큰 하나가 401 이 아니라 502 로 나가 서버 장애처럼 보인다.
+                "KAKAO_TOKEN", "APPLE_TOKEN", "GOOGLE_TOKEN", "LINE_TOKEN", "INSTAGRAM_TOKEN",
+                "FACEBOOK_TOKEN",
+                // GROMO-1801 계정 LLD §5: Data 닉네임·방장 탈퇴 판정과 이름이 같아야 502 로 접히지 않는다.
+                "NICKNAME_INVALID", "NICKNAME_DUPLICATE", "HOST_WITHDRAW",
+                // GROMO-1986 금칙어(앱스토어 심사 1.2): Data 의 CommonErrorCode 와 이름·상태가 같아야
+                // 정상적인 400 거절이 502 로 접히지 않는다.
+                "BANNED_WORD",
+                // GROMO-1992 게스트 차단(403)·GROMO-1994 소셜 계정 충돌(409): Data 와 이름·상태가 같아야
+                // registeredUpstream 이 붙는다. 일반 FORBIDDEN·STATE_CONFLICT 로 접으면 앱이 「회원 전환
+                // 안내」와 「기존 계정으로 전환할까요」를 다른 실패와 구분하지 못한다.
+                "SOCIAL_LOGIN_REQUIRED", "SOCIAL_ACCOUNT_ALREADY_LINKED",
+                // GROMO-2053 게스트 승격 경쟁(409): Data AuthErrorCode 와 이름·상태가 같아야
+                // 「이미 승격된 게스트」가 502 UPSTREAM_CONTRACT_ERROR 로 접히지 않는다.
+                "GUEST_ALREADY_PROMOTED");
+    }
+
+    /**
+     * Data 의 AuthErrorCode 전부가 공개 코드로 «나갈 수 있어야» 한다 (GROMO-2053).
+     *
+     * <p>두 프로젝트는 코드를 공유하지 않으므로 상류 표는 여기 베낀 동결 목록이다 —
+     * {@link #freezesPublishedErrorNames} 가 공개 이름을 손으로 열거하듯, 여기선 상수 이름과 상류
+     * 상태를 열거한다. 상류 enum 에 상수가 더해지면 data-api 의 ErrorContractTest 상수 수 단언이
+     * 먼저 깨져 계약 변경을 강제하고, 그때 이 표를 갱신하는 순간 매핑이 없으면 아래가 깨진다.
+     * 이름·상태가 같은 ApiErrorCode 가 있으면 {@code registeredUpstream} 이 붙고, 이름이 다르면
+     * 명시 표가 그 매핑이 «어디» 있는지를 가리킨다. 어느 쪽도 없는 코드는 502 로 나간다.
+     */
+    @Test
+    void everyUpstreamAuthErrorCodeHasAPublicMapping() {
+        // 이름이 공개 계약과 달라 유스케이스가 명시적으로 옮기는 코드들:
+        // AuthSessionUseCase.DOMAIN_FAILURES·mapped, GuestSessionUseCase.
+        // LEGACY_SESSION_NOT_ACTIVE 는 legacy /api/v1/auth/* 전용이라 Business 를 지나지 않는다.
+        Map<String, ApiErrorCode> explicit = Map.of(
+                "SESSION_NOT_ACTIVE", ApiErrorCode.UNAUTHORIZED,
+                "LOGIN_ATTEMPT_IN_PROGRESS", ApiErrorCode.REQUEST_IN_PROGRESS,
+                "LOGIN_ATTEMPT_UNUSABLE", ApiErrorCode.UNAUTHORIZED,
+                "GUEST_CREATION_RATE_LIMITED", ApiErrorCode.RATE_LIMITED,
+                "LEGACY_SESSION_NOT_ACTIVE", ApiErrorCode.UNAUTHORIZED);
+        // 상류 동결 표: AuthErrorCode 상수 이름 → 상류 HTTP 상태.
+        Map<String, Integer> upstream = Map.of(
+                "SOCIAL_ACCOUNT_ALREADY_LINKED", 409,
+                "GUEST_ALREADY_PROMOTED", 409,
+                "GUEST_CREATION_RATE_LIMITED", 429,
+                "UNSUPPORTED_PROVIDER", 400,
+                "SESSION_NOT_ACTIVE", 403,
+                "LEGACY_SESSION_NOT_ACTIVE", 401,
+                "LOGIN_ATTEMPT_IN_PROGRESS", 409,
+                "LOGIN_ATTEMPT_UNUSABLE", 401);
+        List<String> unmapped = new ArrayList<>();
+        for (Map.Entry<String, Integer> code : upstream.entrySet()) {
+            if (explicit.containsKey(code.getKey())) {
+                continue;
+            }
+            ApiErrorCode sameName;
+            try {
+                sameName = ApiErrorCode.valueOf(code.getKey());
+            } catch (IllegalArgumentException e) {
+                sameName = null;
+            }
+            if (sameName == null || sameName.getStatus().value() != code.getValue()) {
+                unmapped.add(code.getKey() + "(" + code.getValue() + ")");
+            }
+        }
+        assertThat(unmapped)
+                .as("Data AuthErrorCode 에 공개 매핑이 없다 — ApiErrorCode 에 동명·동상태 상수를 "
+                        + "등록하거나 유스케이스에 명시 매핑을 추가할 것")
+                .isEmpty();
+    }
+
+    @Test
+    void unauthorizedUsesCurrentServerRequestIdAndFourErrorFields() throws Exception {
+        MvcResult first = mockMvc.perform(get(ROOT).header("X-Request-Id", "caller-controlled"))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.error.message").isString()).andExpect(jsonPath("$.error.length()").value(4))
+                .andExpect(jsonPath("$.error.field").hasJsonPath()).andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(jsonPath("$.current").doesNotExist()).andExpect(jsonPath("$.data").doesNotExist())
+                .andReturn();
+        String id = first.getResponse().getHeader("X-Request-Id");
+        UUID.fromString(id);
+        assertThat(first.getResponse().getContentAsString()).contains("\"requestId\":\"" + id + "\"");
+        assertThat(id).isNotEqualTo("caller-controlled");
+        MvcResult second = mockMvc.perform(get(ROOT)).andReturn();
+        assertThat(second.getResponse().getHeader("X-Request-Id")).isNotEqualTo(id);
+    }
+
+    @Test
+    void wrapsDataExactlyOnceAndHandlesStringAndEmptyConverters() throws Exception {
+        mockMvc.perform(auth(get(ROOT + "/object"))).andExpect(jsonPath("$.data.id").value("one"))
+                .andExpect(jsonPath("$.data.data").doesNotExist());
+        mockMvc.perform(auth(get(ROOT + "/wrapped"))).andExpect(jsonPath("$.data.id").value("one"))
+                .andExpect(jsonPath("$.data.data").doesNotExist());
+        mockMvc.perform(auth(get(ROOT + "/string"))).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.data").value("한글 \"문자열\""));
+        mockMvc.perform(auth(get(ROOT + "/null"))).andExpect(status().isOk())
+                .andExpect(content().json("{\"data\":null}"));
+        mockMvc.perform(auth(get(ROOT + "/empty"))).andExpect(status().isOk())
+                .andExpect(content().json("{\"data\":null}"));
+        mockMvc.perform(auth(post(ROOT + "/created"))).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.id").value("one"));
+        mockMvc.perform(auth(get(ROOT + "/page"))).andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.nextCursor").hasJsonPath());
+    }
+
+    @Test
+    void preservesBinaryAndStreamingBodies() throws Exception {
+        byte[] png = { (byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10 };
+        when(previewService.thumbnail(anyString(), anyString())).thenReturn(png);
+        mockMvc.perform(auth(get("/link-previews/p/thumbnail")).accept(MediaType.IMAGE_PNG))
+                .andExpect(status().isOk()).andExpect(content().contentType(MediaType.IMAGE_PNG))
+                .andExpect(content().bytes(png));
+        MvcResult async = mockMvc.perform(auth(get(ROOT + "/stream")))
+                .andExpect(request().asyncStarted()).andReturn();
+        mockMvc.perform(asyncDispatch(async)).andExpect(content().bytes("raw-stream".getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/link-previews/missing/thumbnail", "/api/v1/link-previews/missing/thumbnail"})
+    void incompatibleThumbnailAcceptReturnsEmpty406(String path) throws Exception {
+        mockMvc.perform(auth(get(path)).accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(content().bytes(new byte[0]))
+                .andExpect(header().doesNotExist("Content-Type"))
+                .andExpect(header().exists("X-Request-Id"));
+        org.mockito.Mockito.verifyNoInteractions(previewService);
+    }
+
+    @Test
+    void previewErrorsUseNewEnvelopeEvenWhenPngWasRequested() throws Exception {
+        when(previewService.thumbnail(anyString(), anyString())).thenThrow(new PreviewException("NOT_FOUND"));
+        mockMvc.perform(auth(get("/link-previews/missing/thumbnail")).accept(MediaType.IMAGE_PNG))
+                .andExpect(status().isNotFound()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
+        mockMvc.perform(auth(get("/api/v1/link-previews/missing/thumbnail")).accept(MediaType.IMAGE_PNG))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("NOT_FOUND"))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void previewAliasKeepsFailureDataAndUsesItsOwnThumbnailPath() throws Exception {
+        Preview failed = new Preview("p", "FAILED", "https://example.com/file", null, null,
+                null, null, null, "FETCH_TIMEOUT");
+        when(previewService.request(anyString(), any(), anyString())).thenReturn(List.of(failed));
+        mockMvc.perform(auth(post("/link-previews")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"urls\":[\"https://example.com/file\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].errorCode").value("FETCH_TIMEOUT"))
+                .andExpect(jsonPath("$.error").doesNotExist());
+        Preview ready = new Preview("p", "READY", "https://example.com/file", "file", "application/pdf",
+                12L, "FILE", "/api/v1/link-previews/p/thumbnail", null);
+        when(previewService.get(anyString(), anyString())).thenReturn(ready);
+        mockMvc.perform(auth(get("/link-previews/p")))
+                .andExpect(jsonPath("$.data.thumbnailUrl").value("/link-previews/p/thumbnail"));
+        mockMvc.perform(auth(get("/api/v1/link-previews/p")))
+                .andExpect(jsonPath("$.thumbnailUrl").value("/api/v1/link-previews/p/thumbnail"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"INVALID_URL", "BLOCKED_ADDRESS", "FETCH_TIMEOUT", "REDIRECT_REJECTED",
+            "NOT_PUBLIC_OR_NOT_FOUND", "UPSTREAM_ERROR", "UNSUPPORTED_CONTENT", "FILE_TOO_LARGE",
+            "DRIVE_NOT_CONFIGURED", "INVALID_IMAGE", "IMAGE_TOO_LARGE", "THUMBNAIL_TOO_LARGE",
+            "RENDER_TIMEOUT", "INVALID_PDF", "UNSUPPORTED_DRIVE_LINK", "FETCH_FAILED", "INVALID_REQUEST"})
+    void previewExceptionCodesRemainSpecific(String code) throws Exception {
+        when(previewService.get(anyString(), anyString())).thenThrow(new PreviewException(code));
+        mockMvc.perform(auth(get("/link-previews/p"))).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value(code)).andExpect(jsonPath("$.error.retryable").value(false));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"timeout,400,UPSTREAM_TIMEOUT,true", "capacity,400,SERVICE_UNAVAILABLE,true",
+            "credentials,400,UPSTREAM_AUTH_FAILED,false", "unknown,400,UPSTREAM_CONTRACT_ERROR,false",
+            "mismatched,400,UPSTREAM_CONTRACT_ERROR,false", "unexpected,400,INTERNAL_ERROR,false",
+            "receipt-version,409,STATE_CONFLICT,false", "key-conflict,409,IDEMPOTENCY_KEY_REUSED,false",
+            "pending,409,REQUEST_IN_PROGRESS,true"})
+    void classifiesErrorsWithoutLeakingUpstreamPayload(String kind, int expectedStatus, String code,
+            boolean retryable) throws Exception {
+        MvcResult result = mockMvc.perform(auth(get(ROOT + "/error/" + kind)))
+                .andExpect(status().is(expectedStatus)).andExpect(jsonPath("$.error.code").value(code))
+                .andExpect(jsonPath("$.error.retryable").value(retryable))
+                .andExpect(jsonPath("$.error.field").hasJsonPath()).andReturn();
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("PRIVATE_RAW_DETAIL");
+        if ("pending".equals(kind)) {
+            assertThat(result.getResponse().getHeader("Retry-After")).isEqualTo("1");
+        }
+        if ("key-conflict".equals(kind)) {
+            assertThat(result.getResponse().getContentAsString()).contains("Idempotency-Key");
+        }
+    }
+
+    @Test
+    void exposesOnlyExplicitPublicConflictState() throws Exception {
+        mockMvc.perform(auth(get(ROOT + "/error/conflict"))).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.field").value("expectedVersion"))
+                .andExpect(jsonPath("$.current.version").value(4))
+                .andExpect(jsonPath("$.current.resource.state").value("paused"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void keepsLegacyAndInternalBodiesAndDomainReasons() throws Exception {
+        mockMvc.perform(auth(get("/api/v1/_contract/object"))).andExpect(jsonPath("$.id").value("one"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+        mockMvc.perform(auth(get("/internal/_contract/object"))).andExpect(jsonPath("$.id").value("one"));
+        mockMvc.perform(auth(get("/api/v1/_contract/error/unknown"))).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("UNREGISTERED_DOMAIN"))
+                .andExpect(jsonPath("$.message").value("PRIVATE_RAW_DETAIL"))
+                .andExpect(jsonPath("$.retryAfterMs").value(1500));
+        mockMvc.perform(auth(get("/api/v1/_contract/error/timeout"))).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("UPSTREAM_UNAVAILABLE"));
+    }
+
+    @Test
+    void mvcFrameworkErrorsAreUniformAndKeepAllowHeader(@Autowired RequestMappingHandlerMapping mapping)
+            throws Exception {
+        // 404 표본의 규약: «PublicApiRoutes.ROOTS 안이면서 컨트롤러가 하나도 없는 뿌리» 여야 한다.
+        // ROOTS 밖은 (아래 두 번째 요청처럼) legacy {code,message} 모양이라 이 균일 봉투 단언을 못 하고,
+        // 컨트롤러가 있는 뿌리는 하위 자원이 붙는 순간 진짜 라우트가 된다(/islands 는 GROMO-1759 가
+        // {islandId} 를 라우트로 만들었고 island-construction 이 더 붙일 뿌리다).
+        // 규약을 사람이 기억하게 두지 않는다 — /statistics 에 컨트롤러가 생기는 순간 여기서 깨져서
+        // «센티넬을 옮기라»고 말한다. 안 그러면 진짜 라우트를 상대로 404 를 «우연히» 검증하게 된다.
+        List<String> statisticsRoutes = mapping.getHandlerMethods().keySet().stream()
+                .flatMap(info -> info.getPatternValues().stream())
+                .filter(pattern -> pattern.startsWith("/statistics"))
+                .toList();
+        org.assertj.core.api.Assertions.assertThat(statisticsRoutes)
+                .as("404 센티넬 뿌리 /statistics 에 컨트롤러가 생겼다 — 컨트롤러 없는 다른 ROOTS 뿌리로 옮길 것")
+                .isEmpty();
+        mockMvc.perform(auth(get("/statistics/not-a-real-route")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+        mockMvc.perform(auth(get("/not-a-real-route")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ENDPOINT_NOT_FOUND"))
+                .andExpect(jsonPath("$.error").doesNotExist());
+        mockMvc.perform(auth(put(ROOT + "/object"))).andExpect(status().isMethodNotAllowed())
+                .andExpect(header().exists("Allow")).andExpect(jsonPath("$.error.code").value("METHOD_NOT_ALLOWED"));
+        mockMvc.perform(auth(post(ROOT + "/body")).contentType(MediaType.TEXT_PLAIN).content("wrong"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.error.code").value("UNSUPPORTED_MEDIA_TYPE"));
+        mockMvc.perform(auth(post(ROOT + "/body")).contentType(MediaType.APPLICATION_JSON).content("{"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        mockMvc.perform(auth(post(ROOT + "/body")).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.field").value("name"));
+        mockMvc.perform(auth(post(ROOT + "/body")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"too long\"}"))
+                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.error.code").value("OUT_OF_RANGE"));
+    }
+
+    @Test
+    void declaredAndUnknownLengthBodiesCannotBypassLimit() throws Exception {
+        String huge = "{\"name\":\"" + "x".repeat(270_000) + "\"}";
+        mockMvc.perform(auth(post(ROOT + "/body")).contentType(MediaType.APPLICATION_JSON).content(huge))
+                .andExpect(status().isPayloadTooLarge()).andExpect(jsonPath("$.error.code").value("REQUEST_TOO_LARGE"));
+        for (String route : List.of("/body", "/reader")) {
+            mockMvc.perform(auth(post(ROOT + route)).contentType(MediaType.APPLICATION_JSON).content(huge)
+                    .header("X-Test-Unknown-Length", "true"))
+                    .andExpect(status().isPayloadTooLarge()).andExpect(jsonPath("$.error.code").value("REQUEST_TOO_LARGE"));
+        }
+    }
+
+    @Test
+    void stripsUserIdentityFromAllHeaderAccessors() throws Exception {
+        mockMvc.perform(auth(get(ROOT + "/headers")).header("X-User-Id", "123", "456"))
+                .andExpect(jsonPath("$.data.headerMissing").value(true))
+                .andExpect(jsonPath("$.data.valuesEmpty").value(true))
+                .andExpect(jsonPath("$.data.nameMissing").value(true))
+                .andExpect(jsonPath("$.data.integer").value(-1))
+                .andExpect(jsonPath("$.data.date").value(-1));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"/auth/sessions", "/auth/sessions/current", "/%6de/_contract", "/me;v=1/_contract"})
+    void responseClassificationNeverOpensAuthentication(String path) throws Exception {
+        mockMvc.perform(get(java.net.URI.create(path))).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "GROUP_NOT_FOUND", "PRODUCT_NOT_FOUND"})
+    void upstreamMissingResourcesKeepRecoveryMeaning(String code) throws Exception {
+        mockMvc.perform(auth(get(ROOT + "/error/" + code))).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value(code))
+                .andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("PRIVATE_RAW_DETAIL"))));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"SLUG_NOT_FOUND,404,code", "UNSUPPORTED_PROVIDER,400,provider"})
+    void upstreamInputErrorsKeepRegisteredStatusAndRecoveryField(String code, int httpStatus, String field)
+            throws Exception {
+        mockMvc.perform(auth(get(ROOT + "/error/" + code))).andExpect(status().is(httpStatus))
+                .andExpect(jsonPath("$.error.code").value(code))
+                .andExpect(jsonPath("$.error.field").value(field))
+                .andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(jsonPath("$.error.length()").value(4))
+                .andExpect(jsonPath("$.requestId").isString())
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("PRIVATE_RAW_DETAIL"))));
+        mockMvc.perform(auth(get("/api/v1/_contract/error/" + code))).andExpect(status().is(httpStatus))
+                .andExpect(jsonPath("$.code").value(code))
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    void inactiveCallerKeepsPublicRecoveryAndLegacyStatus() throws Exception {
+        mockMvc.perform(auth(get(ROOT + "/error/inactive"))).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("USER_NOT_FOUND"));
+        mockMvc.perform(auth(get("/api/v1/_contract/error/inactive"))).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("USER_INACTIVE"));
+    }
+
+    private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder builder) {
+        return builder.header("Authorization", "Bearer " + Tokens.access(USER));
+    }
+
+    /** chunked transport와 같이 선언 길이를 모르는 요청을 실제 본문 필터 앞에 놓는다. */
+    @TestConfiguration(proxyBeanMethods = false)
+    static class UnknownLengthConfig {
+        @Bean
+        FilterRegistrationBean<Filter> unknownLengthTransport() {
+            Filter filter = (request, response, chain) -> {
+                HttpServletRequest http = (HttpServletRequest) request;
+                if (http.getHeader("X-Test-Unknown-Length") == null) {
+                    chain.doFilter(request, response);
+                    return;
+                }
+                chain.doFilter(new HttpServletRequestWrapper(http) {
+                    @Override
+                    public int getContentLength() {
+                        return -1;
+                    }
+
+                    @Override
+                    public long getContentLengthLong() {
+                        return -1;
+                    }
+                }, response);
+            };
+            FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>(filter);
+            registration.setOrder(-10);
+            registration.addUrlPatterns("/*");
+            return registration;
+        }
+    }
+
+    @RestController
+    static class ProbeController {
+        @GetMapping({ROOT + "/object", "/api/v1/_contract/object", "/internal/_contract/object"})
+        Map<String, String> object() {
+            return Map.of("id", "one");
+        }
+
+        @GetMapping(ROOT + "/page")
+        Page page() {
+            return new Page(List.of(), null);
+        }
+
+        @GetMapping(ROOT + "/wrapped")
+        ApiSuccess<Map<String, String>> wrapped() {
+            return new ApiSuccess<>(Map.of("id", "one"));
+        }
+
+        @GetMapping(ROOT + "/string")
+        String string() {
+            return "한글 \"문자열\"";
+        }
+
+        @GetMapping(ROOT + "/null")
+        Object absent() {
+            return null;
+        }
+
+        @GetMapping(ROOT + "/empty")
+        ResponseEntity<Void> empty() {
+            return ResponseEntity.noContent().build();
+        }
+
+        @PostMapping(ROOT + "/created")
+        ResponseEntity<Map<String, String>> created() {
+            return ResponseEntity.status(201).body(Map.of("id", "one"));
+        }
+
+        @GetMapping(ROOT + "/stream")
+        StreamingResponseBody stream() {
+            return output -> output.write("raw-stream".getBytes(StandardCharsets.UTF_8));
+        }
+
+        @PostMapping(value = ROOT + "/body", consumes = MediaType.APPLICATION_JSON_VALUE)
+        Input body(@Valid @RequestBody Input input) {
+            return input;
+        }
+
+        @PostMapping(ROOT + "/reader")
+        String reader(HttpServletRequest request) throws IOException {
+            return request.getReader().readLine();
+        }
+
+        @GetMapping(ROOT + "/headers")
+        Map<String, Object> headers(HttpServletRequest request) {
+            return Map.of("headerMissing", request.getHeader("x-user-id") == null,
+                    "valuesEmpty", !request.getHeaders("X-USER-ID").hasMoreElements(),
+                    "nameMissing", Collections.list(request.getHeaderNames()).stream()
+                            .noneMatch(name -> "x-user-id".equalsIgnoreCase(name)),
+                    "integer", request.getIntHeader("X-User-Id"), "date", request.getDateHeader("X-User-Id"));
+        }
+
+        @GetMapping({ROOT + "/error/{kind}", "/api/v1/_contract/error/{kind}"})
+        Object error(@PathVariable String kind) {
+            throw switch (kind) {
+                case "USER_NOT_FOUND", "RESOURCE_NOT_FOUND", "GROUP_NOT_FOUND", "PRODUCT_NOT_FOUND", "SLUG_NOT_FOUND" ->
+                        new UpstreamDomainException(404, kind, "PRIVATE_RAW_DETAIL", null);
+                case "UNSUPPORTED_PROVIDER" ->
+                        new UpstreamDomainException(400, kind, "PRIVATE_RAW_DETAIL", null);
+                case "inactive" -> new com.oneorthree.business.common.exception.DomainException(
+                        com.oneorthree.business.common.exception.CommonErrorCode.USER_INACTIVE);
+                case "timeout" -> new UpstreamTimeoutException("PRIVATE_RAW_DETAIL");
+                case "capacity" -> new CompositionCapacityExceededException("PRIVATE_RAW_DETAIL");
+                case "credentials" -> new UpstreamCredentialRejectedException("PRIVATE_RAW_DETAIL");
+                case "unknown" -> new UpstreamDomainException(409, "UNREGISTERED_DOMAIN", "PRIVATE_RAW_DETAIL", 1500L);
+                case "mismatched" -> new UpstreamDomainException(404, "VERSION_CONFLICT", "PRIVATE_RAW_DETAIL", null);
+                case "receipt-version" -> new UpstreamDomainException(409, "PUBLIC_COMMAND_CONTRACT_UNSUPPORTED", "x", null);
+                case "key-conflict" -> new UpstreamDomainException(409, "IDEMPOTENCY_KEY_CONFLICT", "x", null);
+                case "pending" -> new PublicApiException(ApiErrorCode.REQUEST_IN_PROGRESS, null);
+                case "conflict" -> new PublicApiException(ApiErrorCode.VERSION_CONFLICT, "expectedVersion",
+                        new PublicCurrentState(4, Map.of("state", "paused")));
+                default -> new IllegalStateException("PRIVATE_RAW_DETAIL");
+            };
+        }
+    }
+
+    record Page(List<String> items, String nextCursor) {
+    }
+
+    record Input(@NotNull @Size(max = 4) String name) {
+    }
+}

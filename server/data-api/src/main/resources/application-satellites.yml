@@ -1,0 +1,374 @@
+# dev/prod와 함께 명시적으로 활성화한다. 전환 기능과 relay는 각각 별도 스위치다.
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+link:
+  capability-key: ${LINK_CAPABILITY_KEY}
+notification:
+  dispatch:
+    mode: ${NOTIFICATION_DISPATCH_MODE:LEGACY}
+
+# 명령 기반만 구현했다. 기본은 OFF — prod 개방은 별도 결정이다. dev 는 2026-09-29 relay ON 뒤 강퇴 직후 채팅
+# 차단(GROMO-2140)까지 검증하고 env 로 켰다(GROMO-2156).
+island-management:
+  host-transfer-enabled: ${ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED:false}
+  # GROMO-1802 섬 관리 명령 4종(정보 수정·가입 승인/거절·강퇴·나가기). 위임과 같은 이유로 기본 비활성이고
+  # 꺼져 있으면 receipt·쓰기보다 먼저 503 ISLAND_MANAGEMENT_NOT_READY 다. 주민·신청자 목록 조회는 게이트가 없다.
+  commands-enabled: ${ISLAND_MANAGEMENT_COMMANDS_ENABLED:false}
+
+# GROMO-1771 섬 게시판. BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정(GROMO-2136)으로
+# 확정됐다(island-board policy) — 공지 작성·수정·삭제는 방장만, 댓글 삭제는 작성자 본인 또는 방장이다.
+# 그래도 기본값은 OFF 로 둔다: prod 개방은 별도 릴리스 결정이고, dev 는 ISLAND_BOARD_WRITES_ENABLED 로 켠다.
+# GROMO-2182 차단 변경 사건(user.blocks.updated → realtime) 생산 스위치. 기본 OFF — 이 type 을 받는 Realtime 이
+# 배포된 것을 확인한 뒤 켠다(옛 Realtime 은 400 → 그 차단자 축이 permanent 로 막힌다).
+user-blocks:
+  realtime-events-enabled: ${USER_BLOCKS_REALTIME_EVENTS_ENABLED:false}
+
+island-board:
+  writes-enabled: ${ISLAND_BOARD_WRITES_ENABLED:false}
+  # UTF-16 단위 — 2026-09-25 결정 GROMO-2136 으로 확정값이다(BQ03).
+  notice-body-max-length: 5000
+  comment-max-length: 500
+
+# 신규 PATCH /me (GROMO-1801). 계정 LLD §2.3 — GROMO-1945 에서 온보딩 판정(Q03/Q04)과 user.onboarded producer 를
+# 모든 프로필 writer 에 연결해 연다.
+account:
+  profile-update-enabled: true
+
+# 섬 퀘스트(GROMO-1773). island-quests policy.md 출시 조건 — 생성(새 생산 데이터)과 정산(claim)은
+# 남은 게이트(집중 시작 게이트 #815 · 보상 설정 revision 등록 QQ05 잔여 · 복수 기기 1806)가 닫힐 때까지 끈다.
+# 보상 값은 D5(1830) 확정값 — 개인 달성 +10, 전원 달성 보너스 대상 주민 수 × 5, 전액 섬 통장(2026-09-19 결정 Q-1).
+island-quest:
+  creation-enabled: false
+  settlement-enabled: false
+  reward:
+    per-achiever: 10
+    all-achieved-bonus-per-member: 5
+
+internal:
+  api:
+    enabled: ${INTERNAL_API_ENABLED:false}
+    callers:
+      business:
+        token: ${SVC_TOKEN_BIZ_TO_DATA}
+        allow:
+          - 'GET /internal/users/*/activation'
+          - 'POST /internal/auth/device-sessions/verify'
+          - 'POST /internal/auth/sessions/verify'
+          - 'POST /internal/auth/sessions/logout'
+          # GROMO-1908 소셜 로그인 세션. 주체 축(`/internal/users/*/…`)이 «아니다» — 로그인 전에는
+          # 검증된 userId 가 없어 InternalAuthFilter 의 X-User-Id ↔ 경로 일치 검사를 탈 수 없다.
+          # 와일드카드가 없는 정확한 두 경로이고, AntPathMatcher 의 `*` 는 세그먼트 하나라
+          # `/login-attempts` 와 `/login-attempts/lookup` 은 서로를 덮지 않는다.
+          - 'POST /internal/auth/login-attempts'
+          - 'POST /internal/auth/login-attempts/lookup'
+          # GROMO-2035·2036 2.0 세션 발급 2종 — AT 재발급과 게스트 시작. 위 로그인과 같은 이유로
+          # 주체 축(`/internal/users/*/…`)이 «아니다»: 갱신의 주체는 RT 서명이 지목하고 게스트 시작의
+          # 주체는 이 요청이 만든다. 와일드카드 없는 정확한 두 경로다.
+          - 'POST /internal/auth/sessions/refresh'
+          - 'POST /internal/auth/guest-sessions'
+          - 'POST /internal/islands/*/host-transfer'
+          - 'POST /internal/users/*/device-token-deletions'
+          - 'PUT /internal/users/*/notification-settings-commands'
+          - 'PATCH /internal/users/*/notification-settings-commands'
+          - 'POST /internal/users/*/notification-settings-snapshot'
+          - 'POST /internal/outbox-commands/*/delivered'
+          - 'GET /internal/groups/*/invite-issue-context'
+          - 'POST /internal/invite-links/claim-intents'
+          - 'GET /internal/invite-links/claim-intents'
+          - 'POST /internal/invite-links/claim-intents/*/lease'
+          - 'POST /internal/invite-links/claim-intents/*/completed'
+          - 'POST /internal/invite-links/claim-intents/*/abandoned'
+          - 'POST /internal/invite-links/claim-confirmations'
+          - 'GET /internal/migrations/*/invite-link-clicks/candidates'
+          - 'POST /internal/users/*/challenge-results/*/claim'
+          - 'POST /internal/users/*/challenge-results/*/ack'
+          # GROMO-1764 집중 세션 수명주기 6종. AntPathMatcher 의 `*` 는 «세그먼트 하나»라
+          # 세그먼트 수를 정확히 맞춘다 — `/focus-sessions/*/pause` 는 sessionId 자리 하나만 받는다.
+          - 'POST /internal/users/*/focus-sessions'
+          - 'GET /internal/users/*/focus-sessions/current'
+          - 'POST /internal/users/*/focus-sessions/*/pause'
+          - 'POST /internal/users/*/focus-sessions/*/resume'
+          - 'POST /internal/users/*/focus-sessions/*/finish'
+          - 'PUT /internal/users/*/focus-sessions/*/live-activity'
+          - 'GET /internal/users/*/focus-summary'
+          # GROMO-1998 휴식 1시간 자동 종료의 결과 1회 제공. `pending-result` 는 리터럴 한 세그먼트라
+          # `/focus-sessions/*/…`(sessionId 자리) 와 겹치지 않는다.
+          - 'GET /internal/users/*/focus-sessions/pending-result'
+          - 'POST /internal/users/*/focus-sessions/*/acknowledge'
+          # GROMO-1981 최초 낚시 보상 — sessionId 자리 하나만 받는다.
+          - 'POST /internal/users/*/focus-sessions/*/tutorial-reward'
+          - 'POST /internal/users/*/islands/*/tutorial-reward'
+          # GROMO-1775 우체통 편지방 — 주민 인가·작성자 표시·message.created 적재. 메시지 정본은 realtime.
+          - 'GET /internal/islands/*/mailbox-access'
+          - 'POST /internal/islands/*/message-authors'
+          - 'POST /internal/islands/*/message-events'
+          # GROMO-1759 섬 소속·탐색 6종. AntPathMatcher 의 `*` 는 «세그먼트 하나» 다.
+          # POST 와 GET 의 `/internal/users/*/islands` 는 «메서드로만» 갈리므로 한 줄로
+          # 합치지 않는다 — 합치면 목록 조회 권한이 생성 권한까지 열어 준다.
+          - 'POST /internal/users/*/islands'
+          - 'GET /internal/users/*/islands'
+          - 'GET /internal/users/*/island-search'
+          - 'GET /internal/users/*/island-discovery'
+          - 'PUT /internal/users/*/current-island'
+          - 'GET /internal/islands/*'
+          # GROMO-1760 섬 가입·가입 요청·초대 코드 5종 — `*` 는 세그먼트 하나다.
+          # GET 과 DELETE 의 `/internal/users/*/join-requests/*` 는 메서드로만 갈린다.
+          - 'POST /internal/users/*/islands/*/memberships'
+          - 'GET /internal/users/*/join-requests/*'
+          # GROMO-1895 본인 대기 요청 목록 — 단건(`…/join-requests/*`)과 세그먼트 수가 달라 서로를 덮지 않는다.
+          - 'GET /internal/users/*/join-requests'
+          - 'DELETE /internal/users/*/join-requests/*'
+          - 'POST /internal/users/*/invitations/resolve'
+          - 'POST /internal/users/*/islands/*/invitations'
+          # GROMO-1802 섬 관리·주민 6종. `*` 는 세그먼트 하나라 `GET /internal/islands/*` 가 아래 경로들을
+          # 덮지 않는다. PATCH 두 줄과 GET 두 줄은 세그먼트 수가 달라 서로를 열지 않는다.
+          # 나가기는 본인 명령이라 사용자 축이다(B26).
+          - 'PATCH /internal/islands/*'
+          - 'GET /internal/islands/*/members'
+          - 'GET /internal/islands/*/join-requests'
+          - 'PATCH /internal/islands/*/join-requests/*'
+          - 'DELETE /internal/islands/*/members/*'
+          - 'DELETE /internal/users/*/islands/*/membership'
+          # GROMO-1767 섬 건설 3종 — `/internal/islands/*` 는 세그먼트 하나라 세 계약을 덮지 않는다.
+          - 'GET /internal/islands/*/construction-options'
+          - 'PUT /internal/islands/*/construction-target'
+          - 'POST /internal/islands/*/constructions'
+          # GROMO-2232 섬 배치 정본 — /screens/home 의 layout 조각.
+          - 'GET /internal/islands/*/layout'
+          # GROMO-1895 섬 공동 경제 읽기 2종 — 공동 가계부·주민별 누적 획득. 둘 다 세그먼트 수를 정확히 적는다.
+          - 'GET /internal/islands/*/resources/ledger'
+          - 'GET /internal/islands/*/statistics/fish-earnings'
+          # GROMO-1769 회관 기록 3종 — 조회 2 는 섬 축, 측정 PUT 은 본인 명령이라 사용자 축(B26).
+          - 'GET /internal/islands/*/statistics/focus'
+          - 'GET /internal/islands/*/statistics/screen-time'
+          - 'PUT /internal/users/*/screen-time/*'
+          # GROMO-1997 주간 섬 랭킹 1종. 경로 섬이 없는 «전체 섬» 순위라 주체 축이다(B26) — 범위를 정하는 것이
+          # 요청자의 현재 섬이라 1759 의 `/island-search`·`/island-discovery` 와 같은 자리다.
+          # 주민 랭킹(`/islands/*/rankings/members`)은 결정 B23·B15 로 폐기돼 여기 줄이 없다.
+          - 'GET /internal/users/*/island-rankings'
+          # GROMO-1771 섬 게시판 7종(댓글 삭제는 GROMO-2136). `*` 는 세그먼트 하나다 — 목록과 작성, 상세·수정·삭제는
+          # 메서드로만 갈리므로 줄을 합치지 않는다(합치면 조회 권한이 쓰기까지 연다).
+          - 'GET /internal/islands/*/notices'
+          - 'POST /internal/islands/*/notices'
+          - 'GET /internal/islands/*/notices/*'
+          - 'PATCH /internal/islands/*/notices/*'
+          - 'DELETE /internal/islands/*/notices/*'
+          - 'POST /internal/islands/*/notices/*/comments'
+          - 'DELETE /internal/islands/*/notices/*/comments/*'
+          # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
+          - 'GET /internal/islands/*/focus-members'
+          - 'GET /internal/islands/*/rest-members'
+          # GROMO-1894 친구 7종 (friend-letter LLD §1.15 조회 2 + 명령 5). 조회와 생성은 메서드로만 갈리므로
+          # 줄을 합치지 않는다.
+          - 'GET /internal/users/*/friends'
+          - 'GET /internal/users/*/friend-requests'
+          # GROMO-1996 친구 검색. 이름이 `friends/search` 가 아닌 이유는 세그먼트 수다 —
+          # `DELETE /internal/users/*/friends/*`(친구 삭제)와 같은 모양이라 메서드로만 갈리게 된다.
+          - 'GET /internal/users/*/friend-search'
+          - 'POST /internal/users/*/friend-requests'
+          - 'POST /internal/users/*/friend-requests/*/accept'
+          - 'POST /internal/users/*/friend-requests/*/reject'
+          - 'POST /internal/users/*/friend-requests/*/cancel'
+          - 'DELETE /internal/users/*/friends/*'
+          # GROMO-1975 사용자 차단 3종. 목록·생성은 같은 경로라도 메서드를 분리한다.
+          - 'GET /internal/users/*/blocks'
+          - 'POST /internal/users/*/blocks'
+          - 'DELETE /internal/users/*/blocks/*'
+          # GROMO-1933 편지 3종 (friend-letter LLD §1.12~1.15). 목록과 상세는 세그먼트 수가 다르고
+          # 목록과 발송은 메서드로만 갈리므로 세 줄을 합치지 않는다 — `*` 는 세그먼트 하나다.
+          - 'POST /internal/users/*/letters'
+          - 'GET /internal/users/*/letters'
+          - 'GET /internal/users/*/letters/*'
+          # GROMO-2002 편지 닫기 — 상세 조회(GET)와 «메서드로만» 갈리므로 줄을 합치지 않는다.
+          - 'DELETE /internal/users/*/letters/*'
+          # GROMO-1801 계정 3종 (계정 LLD §2.2·§2.3·§2.5, B26 사용자 축). `*` 는 세그먼트 하나라
+          # `/internal/users/{id}` 만 받고 하위 경로를 열지 않는다. 같은 패턴이 매칭하는
+          # `GET /internal/users/notification-snapshot` 은 InternalAuthFilter 가 caller 이름으로 막는다(GROMO-1906).
+          - 'GET /internal/users/*'
+          - 'PATCH /internal/users/*'
+          - 'DELETE /internal/users/*'
+          # GROMO-1783 보유품·외양 4종 — 조회와 적용은 메서드로만 갈리므로 합치지 않는다.
+          - 'GET /internal/users/*/inventory'
+          - 'PATCH /internal/users/*/appearance'
+          - 'GET /internal/islands/*/inventory'
+          - 'PATCH /internal/islands/*/appearance'
+          # GROMO-1773 섬 퀘스트 5종 — `*` 는 세그먼트 하나다. `/quests/current` 와 `/quests/*/progress` 는
+          # 세그먼트 수가 달라 서로를 덮지 않고, 목록 생성(POST /quests)과 claim(POST /quests/*/claims)도 그렇다.
+          - 'GET /internal/islands/*/quests/current'
+          - 'GET /internal/islands/*/quests/*/progress'
+          - 'POST /internal/islands/*/quests'
+          - 'PATCH /internal/islands/*/quests/*'
+          - 'POST /internal/islands/*/quests/*/claims'
+          # GROMO-1779 공용 음악(방송기) 2종 — 조회와 변경은 메서드로만 갈리므로 합치지 않는다.
+          - 'GET /internal/islands/*/playback'
+          - 'PATCH /internal/islands/*/playback'
+          # GROMO-1781 섬 상점 5종 — 목록과 상세는 세그먼트 수가 다르고, 내역 조회와 구매는 메서드로만 갈리므로
+          # 줄을 합치지 않는다.
+          - 'GET /internal/islands/*/shop/wallets'
+          - 'GET /internal/islands/*/shop/products'
+          - 'GET /internal/islands/*/shop/products/*'
+          - 'POST /internal/islands/*/shop/orders'
+          - 'GET /internal/islands/*/shop/orders'
+      notification:
+        token: ${SVC_TOKEN_NOTI_TO_DATA}
+        allow:
+          - 'GET /internal/users/notification-snapshot'
+          - 'GET /internal/users/*/result-ack'
+          - 'POST /internal/notifications/eligibility'
+outbox:
+  relay:
+    enabled: ${OUTBOX_RELAY_ENABLED:false}
+    batch-size: ${OUTBOX_RELAY_BATCH_SIZE:}
+    lease-duration: ${OUTBOX_RELAY_LEASE_DURATION:}
+    poll-interval: ${OUTBOX_RELAY_POLL_INTERVAL:}
+    retry:
+      initial-backoff: ${OUTBOX_RELAY_INITIAL_BACKOFF:}
+      max-backoff: ${OUTBOX_RELAY_MAX_BACKOFF:}
+      max-attempts: ${OUTBOX_RELAY_WARNING_ATTEMPTS:}
+    # 2026-09-19 R-1 — REALTIME 은 HTTP 기본 · Kafka 선택. true 면 아래 realtime.* HTTP 키 대신
+    # realtime-events 토픽으로 보낸다(realtime 의 REALTIME_EVENTS_KAFKA_ENABLED 를 먼저 켠다).
+    realtime-kafka-enabled: ${OUTBOX_RELAY_REALTIME_KAFKA_ENABLED:false}
+    endpoints:
+      "[link.revoked]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.claimConfirmed]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.joined]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.groupClosed]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.groupRenamed]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.displayNameChanged]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[link.userWithdrawn]":
+        target: LINK
+        url: ${LINK_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_LINK}
+      "[noti.deviceTokenDeleted]":
+        target: NOTI
+        url: ${NOTIFICATION_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_NOTI}
+      "[noti.settingsApplied]":
+        target: NOTI
+        url: ${NOTIFICATION_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_NOTI}
+      "[noti.sessionRevoked]":
+        target: NOTI
+        url: ${NOTIFICATION_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_NOTI}
+      "[noti.authGenerationBumped]":
+        target: NOTI
+        url: ${NOTIFICATION_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_NOTI}
+      # GROMO-1954 realtime POST /internal/events — 논리 키는 사건 type 그대로(outbox 규약 §2.4). 전부 같은
+      # 목적지·같은 Data 전용 토큰(SVC_TOKEN_DATA_TO_REALTIME, A22 ㊀)이다. 여기 없는 type 의 REALTIME 행은
+      # relay 가 보내지 않는다(permanent) — 새 REALTIME 사건을 만들면 같은 PR 에서 한 줄 늘린다
+      # (RealtimeOutboxEndpointsTest 가 잡는다).
+      "[user.withdrawn]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      # GROMO-2182 차단 관계 변경 — 앱으로 나가지 않는 내부 제어 사건. realtime 이 차단자의 차단 세대를 올린다.
+      # 생산은 user-blocks.realtime-events-enabled(아래)가 켜야 시작된다.
+      "[user.blocks.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[island.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[island.members.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[notice.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[join.request.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[wallet.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[quest.progress.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[message.created]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[focus.member.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      # GROMO-1956 황금 물고기 — 함께 낚은 주민의 3초 컷신 신호. 섬의 focus 채널로 방송된다.
+      "[focus.golden]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[rest.member.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[member.appearance.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[island.appearance.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[playback.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[inventory.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}

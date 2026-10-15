@@ -1,0 +1,279 @@
+package com.oneorthree.phone.architecture;
+
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaPackage;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
+import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * 도메인 사이의 의존 방향을 <b>빌드 실패로</b> 고정한다 (GROMO-1724).
+ *
+ * <p>GROMO-1656 이 도메인 간 순환을 238개 → 0개, 레이어 역행 참조를 15쌍/49건 → 0쌍/0건으로
+ * 만들었다. 그런데 그 상태를 지키는 것이 <b>문서와 사람의 주의력뿐</b>이었다 — 참조 하나만
+ * 거꾸로 추가하면 컴파일도 기존 테스트도 잡지 못한 채 되돌아간다. 이 클래스가 그 자리를 메운다.
+ *
+ * <p><b>규칙의 정본은 {@code docs/conventions/backend-layering.md} §4</b> 이고, 아래
+ * {@link #LAYERS} 가 그것을 코드로 옮긴 것이다. 문서를 고치면 여기도 고쳐야 한다 — 어느 한쪽만
+ * 바뀌면 규칙이 문서와 다른 것을 강제하게 된다.
+ *
+ * <p><b>테스트 소스는 대상이 아니다.</b> 통합 테스트가 여러 도메인을 함께 세우는 것은 정상이므로
+ * {@link ImportOption.DoNotIncludeTests} 로 뺀다. 규칙이 지키려는 것은 <b>배포되는 코드</b>의
+ * 컴파일 단위가 갈라지는가이다.
+ */
+class DomainLayerRulesTest {
+
+    /**
+     * 도메인의 높이 — 「사실은 아래에, 그 사실에 반응·조립하는 것은 위에」.
+     * 참조는 <b>위에서 아래로만</b> 간다(같은 층끼리도 금지).
+     */
+    private static final Map<String, Integer> LAYERS = new LinkedHashMap<>();
+
+    static {
+        // L-1 «아무것도 참조하지 않는다» — 내구 이벤트·명령 기반(GROMO-1659·1660 공통, A21).
+        // user(L0)가 「아무도 참조하지 않는」 바닥이라면 outbox 는 「아무것도 참조하지 않는」 바닥이다:
+        // 탈퇴·로그아웃처럼 L0 의 트랜잭션도 봉투를 적어야 하므로 user 보다 «아래»여야 하고,
+        // 봉투는 도메인 타입을 하나도 모른다(userId 는 UUID, 나머지는 params JSON).
+        // LAYER_FREE 로 두지 않은 것은 의도다 — 그러면 outbox → 도메인 참조가 아무 규칙에도
+        // 안 걸려, 기반이 조용히 도메인을 끌어오기 시작해도 빌드가 초록으로 남는다.
+        LAYERS.put("outbox", -1);
+        LAYERS.put("user", 0);              // 계정 — 아무도 참조하지 않는다
+        LAYERS.put("currency", 1);          // 유저에게 달린 원장·보유
+        LAYERS.put("item", 1);
+        LAYERS.put("focus", 2);             // 유저가 만든 기록
+        LAYERS.put("screentime", 2);
+        // letter 는 users.id 두 개(sender·receiver)만 참조하는 «유저가 만든 기록»이라 여기 둔다.
+        // friend(3) 보다 «아래»인 것이 중요하다 — 친구 삭제 후 편지 정리(friend-letter LLD §4 결정 3)
+        // 가 B 안으로 결정되면 friend 가 letter 를 참조해야 하는데, 같은 층이면 그 참조가 금지된다.
+        // 친구 관계 검증 자체는 letter 가 아니라 internal(10)이 조합한다.
+        LAYERS.put("letter", 2);
+        LAYERS.put("friend", 3);            // 유저 사이의 관계
+        LAYERS.put("stats", 4);             // 기록·관계의 집계
+        LAYERS.put("league", 4);
+        // ranking 은 주간 섬 랭킹의 «동결된 분모» 표와 주 경계 계산기뿐이다(GROMO-1997) —
+        // 도메인 타입을 하나도 참조하지 않는다: 엔티티는 island_id 를 그냥 UUID 열로 들고 있고
+        // (group 엔티티를 매핑하지 않는다), 동결은 네이티브 SQL 한 문장이며 RankingWeek 은 순수 계산기다.
+        // 집중 합(focus 2)·주민 수(group 5)·전망대(construction 6)·현재 섬을 «조합»하는 것은 internal(10)의
+        // IslandRankingsService 다 — 여기에 그 조합을 넣으면 이 표를 단숨에 group 위로 밀어 올린다.
+        LAYERS.put("ranking", 4);
+        LAYERS.put("group", 5);             // 모임·챌린지·내기
+        LAYERS.put("invitelink", 6);        // 그룹을 가리키는 초대
+        // construction 은 섬(group)에 딸린 시설·공동 지갑(GROMO-1767) — group 바로 위다.
+        // 내부 표면 구현은 internal(10)이 이것을 참조하고, 이 도메인이 internal.dto 를 참조하면
+        // 역행이라 계약 view 타입은 자기 dto/ 에 둔다.
+        LAYERS.put("construction", 6);
+        // appearance 는 섬(group)에 딸린 공동 외양 + 유저에 딸린 개인 외양(GROMO-1783) —
+        // 완공 훅은 construction 이 common.port 를 부르므로 도메인 참조는 아래로만 간다.
+        LAYERS.put("appearance", 7);
+        // quest 는 섬 퀘스트(GROMO-1773) — 집중 구간(focus 2)·스크린타임(screentime 2)으로 판정하고
+        // 섬 통장(construction 6)에 정산하므로 construction 보다 위다. 내부 표면은 internal(10)이 참조한다.
+        LAYERS.put("quest", 7);
+        LAYERS.put("notification", 7);      // 전 도메인 구독
+        // shop 은 섬 통장(construction)을 차감하고 보유품(appearance)을 지급한다(GROMO-1781) — 둘 위.
+        LAYERS.put("shop", 8);
+        LAYERS.put("auth", 8);              // 진입·부가
+        LAYERS.put("character", 8);
+        LAYERS.put("bot", 8);
+        LAYERS.put("analytics", 8);
+        LAYERS.put("profile", 9);           // 조립 — 영속성 없음
+        LAYERS.put("withdrawal", 9);
+        // L10 «가장 위» — 서비스 간 내부 표면(GROMO-1659·1660). 이 패키지는 앱 계약이 아니라
+        // Business·알림·링크가 부르는 /internal/* 이고, 그 조합을 위해 auth(8)·group(5)·invitelink(6)·
+        // user(0)·outbox(-1) 을 «아래로» 참조한다. 그래서 표의 맨 위여야 한다 — 아무도 이 패키지를
+        // 참조하지 않아야 한다는 뜻이기도 하다. 도메인 서비스가 internal 을 부르기 시작하면
+        // 그 순간 「내부 표면」이 도메인 로직의 일부가 되어 경계가 사라진다.
+        LAYERS.put("internal", 10);
+    }
+
+    /**
+     * 레이어 밖 — 어느 도메인이 참조해도 된다.
+     *
+     * <p><b>반대 방향({@code common}·{@code config} → 도메인)은 여기서 검사하지 않는다.</b>
+     * 방향 규칙은 소스를 「레이어 표에 있는 도메인」으로 걸러 이 둘을 아예 후보에서 빼고, 순환
+     * 규칙은 이 둘을 오가는 간선을 통째로 무시한다. 그래서 {@code common → 도메인} 참조는 어느
+     * 규칙에도 걸리지 않는다 — 실제로 {@code common/exception/GlobalExceptionHandler} 가 열 개
+     * 도메인의 예외를 직접 알고 있다.
+     *
+     * <p>그 결합은 실재하지만 「도메인끼리 순환하는가」와는 다른 문제이고, 공통 {@code ErrorCode}
+     * 인터페이스로 푸는 일은 GROMO-1657 이 받는다. 그때 이 방향도 규칙으로 세울 수 있다.
+     */
+    private static final Set<String> LAYER_FREE = Set.of("common", "config");
+
+    private static final String ROOT = "com.oneorthree.phone";
+
+    /**
+     * 집중 프레즌스를 «적는» 두 경로 — 공유 Redis 리스와 섬 focus/rest 투영 사건.
+     *
+     * <p>둘은 저장소도 반영 시점도 다르지만(하나는 커밋 이후 Redis, 하나는 같은 트랜잭션의 outbox)
+     * <b>같은 사실</b>을 적는다. 호출부가 둘을 각각 부르면 새 전이를 만들 때 한쪽을 빠뜨리게 되고,
+     * 그 반쪽 기록은 코드를 읽어서는 보이지 않는다 — 두 호출이 서로를 모르기 때문이다.
+     */
+    private static final Set<String> PRESENCE_WRITERS = Set.of(
+            ROOT + ".common.port.FocusPresencePort",
+            ROOT + ".focus.service.FocusMemberEvents");
+
+    /** 그 둘을 부를 수 있는 <b>유일한</b> 자리 (GROMO-2003 · focus-rest-session LLD §6). */
+    private static final String PRESENCE_PROJECTION = ROOT + ".focus.service.FocusPresenceProjection";
+
+    private static JavaClasses productionClasses;
+
+    @BeforeAll
+    static void importProductionClasses() {
+        productionClasses = new ClassFileImporter()
+                .withImportOption(new ImportOption.DoNotIncludeTests())
+                .importPackages(ROOT);
+    }
+
+    /**
+     * 클래스가 속한 도메인 — {@code com.oneorthree.phone.<domain>...} 의 첫 조각.
+     * 최상위({@code com.oneorthree.phone.PhoneApplication})면 {@code null}.
+     */
+    private static String domainOf(JavaClass javaClass) {
+        String name = javaClass.getPackageName();
+        if (!name.startsWith(ROOT + ".")) {
+            return null;
+        }
+        String rest = name.substring(ROOT.length() + 1);
+        int dot = rest.indexOf('.');
+        return dot < 0 ? rest : rest.substring(0, dot);
+    }
+
+    @Test
+    @DisplayName("모든 도메인 패키지가 레이어 표에 등록돼 있다 — 미등록은 침묵이 아니라 실패다")
+    void everyDomainPackageIsRegisteredInTheLayerTable() {
+        // 이 단언이 이 클래스에서 가장 중요하다. 새 도메인이 표에 없으면 아래 두 규칙이 그 도메인을
+        // 통째로 «검사 대상 아님»으로 넘겨 버려, 규칙이 있는데도 위반이 0으로 보고된다.
+        // GROMO-1656 작업 중 실제로 그 일이 있었다 — 측정 스크립트가 새로 만든 profile·withdrawal 을
+        // 조용히 건너뛰어 「위반 0」을 두 번 잘못 보고했다.
+        JavaPackage root = productionClasses.getPackage(ROOT);
+        Set<String> actual = new TreeSet<>();
+        for (JavaPackage sub : root.getSubpackages()) {
+            actual.add(sub.getRelativeName());
+        }
+
+        Set<String> known = new TreeSet<>(LAYERS.keySet());
+        known.addAll(LAYER_FREE);
+
+        assertThat(actual)
+                .as("새 패키지가 생기면 docs/conventions/backend-layering.md §4 의 레이어 표와 "
+                        + "이 클래스의 LAYERS 에 함께 등록해야 한다")
+                .isSubsetOf(known);
+    }
+
+    @Test
+    @DisplayName("참조는 위에서 아래로만 간다 — 같은 층끼리도 금지")
+    void referencesOnlyGoDownwards() {
+        ArchRule rule = classes()
+                .that(new DescribedPredicate<>("도메인에 속한다") {
+                    @Override
+                    public boolean test(JavaClass javaClass) {
+                        return LAYERS.containsKey(domainOf(javaClass));
+                    }
+                })
+                .should(new ArchCondition<>("자기보다 낮은 레이어만 참조한다") {
+                    @Override
+                    public void check(JavaClass source, ConditionEvents events) {
+                        int from = LAYERS.get(domainOf(source));
+                        for (JavaClass target : source.getDirectDependenciesFromSelf().stream()
+                                .map(d -> d.getTargetClass()).toList()) {
+                            String targetDomain = domainOf(target);
+                            Integer to = LAYERS.get(targetDomain);
+                            if (to == null || to < from || targetDomain.equals(domainOf(source))) {
+                                // 레이어 밖(common·config)이거나, 아래쪽이거나, 자기 도메인 안 — 전부 허용.
+                                // 자기 도메인 참조를 빼지 않으면 규칙이 «모든 클래스»를 위반으로 센다.
+                                continue;
+                            }
+                            events.add(SimpleConditionEvent.violated(source, String.format(
+                                    "%s (L%d %s) → %s (L%d %s)",
+                                    source.getName(), from, domainOf(source),
+                                    target.getName(), to, targetDomain)));
+                        }
+                    }
+                });
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    @DisplayName("집중 프레즌스를 적는 클래스는 FocusPresenceProjection 하나뿐이다 (GROMO-2003)")
+    void onlyOneClassRecordsFocusPresence() {
+        // LLD §6 「기존 RedisFocusPresence 와 새 도메인 producer 가 각각 직접 쓰는 이중 배선을 두지 않고
+        // 하나의 Data projection 포트로 통합한다」. 종전 호출부는 FocusService 7곳·
+        // FocusSessionLifecycleService 3곳·FocusPresenceReconciler 2곳·FocusMembershipLossService 1곳이었다.
+        // 메서드 «호출»만 센다 — IslandFocusMembersService 는 FocusMemberEvents 의 집계 타입 상수를
+        // 워터마크 이름으로 읽을 뿐 사건을 적지 않는다.
+        ArchRule rule = classes()
+                .that(new DescribedPredicate<>("그 단일 기록 자리가 아니다") {
+                    @Override
+                    public boolean test(JavaClass javaClass) {
+                        return !javaClass.getName().equals(PRESENCE_PROJECTION);
+                    }
+                })
+                .should(new ArchCondition<>("프레즌스 기록 포트를 직접 부르지 않는다") {
+                    @Override
+                    public void check(JavaClass source, ConditionEvents events) {
+                        for (var call : source.getMethodCallsFromSelf()) {
+                            String owner = call.getTargetOwner().getName();
+                            // 자기 자신의 메서드를 부르는 것은 «적는 자리가 여럿»이 아니다 —
+                            // FocusMemberEvents 의 private append 가 그렇다.
+                            if (!PRESENCE_WRITERS.contains(owner) || owner.equals(source.getName())) {
+                                continue;
+                            }
+                            events.add(SimpleConditionEvent.violated(source, String.format(
+                                    "%s → %s#%s — 프레즌스는 %s 를 거쳐 한 번에 적는다",
+                                    source.getName(), owner, call.getName(), PRESENCE_PROJECTION)));
+                        }
+                    }
+                });
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    @DisplayName("도메인 사이에 순환이 없다 — common·config 는 레이어 밖이라 제외한다")
+    void domainsAreFreeOfCycles() {
+        // common·config 를 오가는 간선은 슬라이스에서 뺀다. 레이어 밖이라 «누가 참조해도 되는» 자리이고,
+        // 실제로 common/exception/GlobalExceptionHandler 가 전 도메인의 예외를 알고 있어(핸들러 19개)
+        // 넣어 두면 모든 도메인이 common 을 거쳐 서로 순환한 것처럼 잡힌다. 그 결합 자체는 실재하지만
+        // 「도메인끼리 순환하는가」와는 다른 문제이고, 공통 ErrorCode 인터페이스로 푸는 일은
+        // GROMO-1657(공통 응답·예외 규약 통일)이 받는다.
+        //
+        // GROMO-1656 의 실측(순환 238 → 0)도 같은 기준이었다 — 그 수와 이 규칙이 같은 것을 세야
+        // 「0을 고정한다」는 말이 성립한다.
+        DescribedPredicate<JavaClass> layerFree = new DescribedPredicate<>("common·config 에 있다") {
+            @Override
+            public boolean test(JavaClass javaClass) {
+                String domain = domainOf(javaClass);
+                // 의존 대상에는 JDK·스프링 클래스도 섞여 온다 — 그쪽은 domain 이 null 이고,
+                // Set.of(...) 는 contains(null) 에서 NPE 를 던진다.
+                return domain != null && LAYER_FREE.contains(domain);
+            }
+        };
+
+        // 패턴이 빗나가 슬라이스가 0개가 되면 조용히 통과하지 않는다 — ArchUnit 기본값
+        // archRule.failOnEmptyShould=true 가 슬라이스 규칙에도 적용된다. 패턴을 일부러
+        // 깨뜨려(com.nonexistent.pkg) 실제로 실패하는 것을 확인했다.
+        slices().matching(ROOT + ".(*)..")
+                .should().beFreeOfCycles()
+                .ignoreDependency(layerFree, DescribedPredicate.alwaysTrue())
+                .ignoreDependency(DescribedPredicate.alwaysTrue(), layerFree)
+                .check(productionClasses);
+    }
+}

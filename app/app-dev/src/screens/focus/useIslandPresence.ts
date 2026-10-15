@@ -1,0 +1,110 @@
+/**
+ * 섬 주민 집중/휴식 실시간 상태 훅 (GROMO-2010).
+ *
+ * `active`+`islandId` 가 있을 때 STOMP 채널을 열고 스냅숏으로 복구한다.
+ * 섬·계정(세션 세대)이 바뀌면 이전 채널을 해제하고 새로 연다.
+ * 응원 자격(세션 id)은 focus/rest 소켓을 끊지 않고 emotes 구독만 갱신한다.
+ * 포그라운드 복귀 때는 소켓을 다시 열고 최신 스냅숏으로 재동기화한다.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+import { sessionGeneration } from '@/services/api/session';
+import type { Color } from '@/services/model';
+import {
+  EMPTY_PRESENCE,
+  startIslandRealtime,
+  type IslandRealtime,
+  type IslandPresenceTransition,
+  type GoldenFishEvent,
+  type PresenceView,
+} from '@/services/islandRealtime';
+
+const COLORS: Color[] = ['black', 'ginger', 'cream', 'gray', 'white', 'calico'];
+/** 서버 catColor → 앱 Color. 모르는 값은 회색으로 둔다. */
+export const catColor = (v: unknown): Color =>
+  COLORS.includes(v as Color) ? (v as Color) : 'gray';
+
+export type IslandPresence = PresenceView & {
+  /** STOMP SEND — 즉시 실패(미연결·세션 없음)면 false. 화면 표시는 브로드캐스트가 돌아올 때다. */
+  sendEmote: (type: string) => boolean;
+  retry: () => void;
+};
+
+export function useIslandPresence(
+  opts: {
+    active: boolean;
+    islandId: string | null;
+    /** 응원 자격이 되는 내 진행 중 서버 세션 id — 없으면 emotes 를 구독·발신하지 않는다. */
+    emoteSessionId?: string | null;
+    onSendError?: (message: string) => void;
+    onTransition?: (transition: IslandPresenceTransition) => void;
+    onGoldenFish?: (event: GoldenFishEvent) => void;
+  },
+  start: typeof startIslandRealtime = startIslandRealtime,
+): IslandPresence {
+  const { active, islandId, emoteSessionId } = opts;
+  const generation = sessionGeneration();
+  const [nonce, setNonce] = useState(0);
+  const scope = `${generation}:${active ? islandId : ''}:${nonce}`;
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const [snapshot, setSnapshot] = useState({ scope, view: EMPTY_PRESENCE });
+  const rt = useRef<IslandRealtime | null>(null);
+  const onSendError = useRef(opts.onSendError);
+  onSendError.current = opts.onSendError;
+  const onTransition = useRef(opts.onTransition);
+  onTransition.current = opts.onTransition;
+  const onGoldenFish = useRef(opts.onGoldenFish);
+  onGoldenFish.current = opts.onGoldenFish;
+
+  useEffect(() => {
+    if (!active || !islandId) {
+      return;
+    }
+    const gen = generation;
+    let live = true;
+    const alive = () => live && scopeRef.current === scope && gen === sessionGeneration();
+    const session = start({
+      islandId,
+      emoteSessionId,
+      alive,
+      onView: (view) => {
+        if (alive()) setSnapshot({ scope, view });
+      },
+      onTransition: (transition) => {
+        if (alive()) onTransition.current?.(transition);
+      },
+      onGoldenFish: (event) => {
+        if (alive()) onGoldenFish.current?.(event);
+      },
+      onSendError: (message) => {
+        if (alive()) onSendError.current?.(message);
+      },
+    });
+    rt.current = session;
+    session.resync();
+    const appSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && alive()) {
+        session.reopen();
+        session.resync('reconnect');
+      }
+    });
+    return () => {
+      live = false;
+      appSub.remove();
+      session.dispose();
+      rt.current = null;
+    };
+    // nonce: retry — 채널을 통째로 버리고 새로 연다.
+  }, [active, islandId, generation, nonce, start, scope]);
+
+  useEffect(() => {
+    rt.current?.setEmoteSessionId(emoteSessionId ?? null);
+  }, [emoteSessionId]);
+
+  return {
+    ...(snapshot.scope === scope ? snapshot.view : EMPTY_PRESENCE),
+    sendEmote: useCallback((type: string) => rt.current?.sendEmote(type) ?? false, []),
+    retry: useCallback(() => setNonce((n) => n + 1), []),
+  };
+}

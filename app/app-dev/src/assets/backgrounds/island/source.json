@@ -1,0 +1,48 @@
+{
+  "status": "final",
+  "confirmedAt": "2026-09-15",
+  "canvas": [1536, 1024],
+  "canonical": {
+    "background": {
+      "day": "enhanced/background/day/background.png",
+      "night": "enhanced/background/night/background.png"
+    },
+    "buildings": {
+      "townHall": {
+        "day": "enhanced/buildings/day/town-hall.png",
+        "night": "enhanced/buildings/night/town-hall.png"
+      },
+      "noticeboard": {
+        "day": "enhanced/buildings/day/noticeboard.png",
+        "night": "enhanced/buildings/night/noticeboard.png"
+      },
+      "gramophone": {
+        "day": "enhanced/buildings/day/gramophone.png",
+        "night": "enhanced/buildings/night/gramophone.png"
+      },
+      "library": {
+        "day": "enhanced/buildings/day/library.png",
+        "night": "enhanced/buildings/night/library.png"
+      },
+      "mailbox": {
+        "day": "enhanced/buildings/day/mailbox.png",
+        "night": "enhanced/buildings/night/mailbox.png"
+      },
+      "observatory": {
+        "day": "enhanced/buildings/day/observatory.png",
+        "night": "enhanced/buildings/night/observatory.png"
+      },
+      "shop": {
+        "day": "enhanced/buildings/day/shop.png",
+        "night": "enhanced/buildings/night/shop.png"
+      }
+    },
+    "placement": "placement.json",
+    "stagePreviews": {
+      "day": "enhanced/stages/day",
+      "night": "enhanced/stages/night",
+      "orderIsPreviewOnly": true
+    }
+  },
+  "excludedFromProduction": ["original", "superseded-lanczos-2x", "night/generated"]
+}

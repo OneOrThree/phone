@@ -1,135 +1,366 @@
-# GROMO prod 서버 — CI (이미지 빌드, release 머지 시 ECR push)
-#
-# main→release PR: 빌드 "검증"만 (ECR push 안 함)
-# release 머지(push)/수동: 빌드 + ECR push (commit SHA 태그만 — latest 없음)
-# 빌드 성공 시 prod-cd가 이어받아 해당 SHA를 자동 배포.
-
+# 1.x release 브랜치·Gromo IAM/ECR을 쓰지 않는 2.0 전용 발행 경로.
 name: prod-ci
-
 on:
   pull_request:
-    branches: [release] # base가 release인 PR만 (= main→release 릴리즈 PR). 검증만
+    branches: [main, release]
     paths:
-      - "back/**"
+      - 'server/**'
+      - '.github/actions/ci-jar/**'
+      - '.github/scripts/ci-jar.py'
+      - '.dockerignore'
+      - '.github/scripts/catus-*'
+      - '.github/workflows/prod-ci.yml'
+      - '.github/workflows/prod-cd.yml'
+      - '.github/scripts/test_catus*'
+      - '.github/scripts/deployment-badges.py'
+      - '.github/workflows/ops-deployment-badges.yml'
+      - '.claude/pr-gate.py'
   push:
-    branches: [release] # release 머지 → 빌드 + ECR push
+    branches: [release]
     paths:
-      - "back/**"
+      - 'server/**'
+      - '.github/actions/ci-jar/**'
+      - '.dockerignore'
+      - '.github/scripts/**'
+      - '.github/workflows/prod-ci.yml'
+      - '.github/workflows/prod-cd.yml'
+      - '.github/scripts/test_catus*'
+      - '.github/scripts/deployment-badges.py'
+      - '.github/workflows/ops-deployment-badges.yml'
+      - '.claude/pr-gate.py'
   workflow_dispatch:
-
-concurrency:
-  group: prod-ci-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      rebuild_all:
+        description: 전체 서비스 강제 재빌드
+        type: boolean
+        default: false
+      version_bump:
+        description: 수동 발행 버전 증가 (기존 태그·운영 버전이 없으면 2.0.0)
+        type: choice
+        default: patch
+        options: [patch, minor, major]
 
 permissions:
-  id-token: write
-  contents: write # SemVer 태그(vX.Y.Z) push용 — 라벨 기반 버전 산정(GROMO-788)
-  pull-requests: read # 머지된 PR의 라벨 조회용
-
-# OIDC 인증 이전에 필요한 부트스트랩 값만 여기 유지.
-# 리소스 식별자(ECR_REPO 등)는 Secrets Manager(gromo/prod/cicd)에서 주입 — terraform이 관리.
-env:
-  AWS_REGION: ap-northeast-2
-  ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-github-actions
-  CICD_SECRET_ID: gromo/prod/cicd
+  contents: read
+concurrency:
+  group: catus-prod-build-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
 
 jobs:
-  build-push:
-    runs-on: [self-hosted, ci, spot]
-    timeout-minutes: 20 # self-hosted 기본 360분 — spot 러너 장기 점유 방지
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install 'PyYAML==6.0.2'
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_catus*.py' -v
+      - run: python3 .claude/pr-gate.py --selftest
+  plan:
+    needs: contracts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION }}
+      PR_BASE: ${{ github.event.pull_request.base.sha }}
+      FORCE_REBUILD: ${{ inputs.rebuild_all || false }}
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      build_any: ${{ steps.plan.outputs.build_any }}
+      any: ${{ steps.plan.outputs.any }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # SemVer 산정에 기존 v* 태그 목록 필요
-
-      - name: AWS 자격증명 (OIDC, keyless)
-        uses: aws-actions/configure-aws-credentials@v4
+          fetch-depth: 0
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
         with:
-          role-to-assume: ${{ env.ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: CI/CD 설정 주입 (Secrets Manager → env)
-        run: |
-          aws secretsmanager get-secret-value --secret-id "$CICD_SECRET_ID" \
-            --query SecretString --output text \
-          | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
-
-      - name: ECR 로그인
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # QEMU: 최종 스테이지에 RUN이 없어 지금은 미사용이지만, 향후 arm64 스테이지에
-      # RUN이 추가돼도 빌드가 깨지지 않게 보험으로 등록
-      - uses: docker/setup-qemu-action@v3
-
-      - uses: docker/setup-buildx-action@v3
-
-      # buildx 캐시는 러너와 같은 리전의 GAR(ci-cache) 사용 — gha 캐시는 크로스 클라우드라
-      # 빌드당 수 분을 먹는다. GCE 러너의 SA 메타데이터 토큰으로 로그인 (gcloud 불필요).
-      - name: GAR 인증 (buildx 캐시 저장소)
+          role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish
+          aws-region: ap-northeast-2
+      - id: plan
+        env:
+          READ_PROD: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/release' }}
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
-            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -er .access_token \
-          | docker login -u oauth2accesstoken --password-stdin asia-northeast3-docker.pkg.dev
+          args=(--output prod-plan.json)
+          if [ "$READ_PROD" = true ]; then
+            [[ "$INFRA_REVISION" =~ ^[0-9a-f]{40}$ ]]
+            args+=(--previous-from-aws)
+          fi
+          if [ -n "$PR_BASE" ]; then args+=(--pr-base "$PR_BASE"); fi
+          if [ "$FORCE_REBUILD" = true ]; then args+=(--force); fi
+          python3 .github/scripts/catus-plan.py "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catus-prod-plan
+          path: prod-plan.json
+          if-no-files-found: error
+          overwrite: true
 
-      - name: 빌드 (push는 release 머지/수동일 때만)
+  images:
+    needs: [contracts, plan]
+    if: needs.plan.outputs.build_any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 서비스 전용 Gradle 홈
+        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle-${{ matrix.service }}" >> "$GITHUB_ENV"
+      - name: Business PDF 도구 이미지
+        if: matrix.service == 'business-api'
+        run: docker build --target test -t catus-business-test server/business-api
+      - name: Business 실제 검사
+        if: matrix.service == 'business-api'
+        run: |
+          mkdir -p "$GRADLE_USER_HOME"
+          docker run --rm --network host --user "$(id -u):$(id -g)" \
+            --group-add "$(stat -c '%g' /var/run/docker.sock)" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -v "$GRADLE_USER_HOME:/gradle" \
+            -e GRADLE_USER_HOME=/gradle -e SPRING_PROFILES_ACTIVE=ci \
+            -e TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1 \
+            -w "$GITHUB_WORKSPACE/server/business-api" catus-business-test ./gradlew build --no-daemon
+      - name: JVM 서비스 실제 검사
+        if: matrix.service != 'business-api'
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+        working-directory: server/${{ matrix.service }}
+        run: ./gradlew build --no-daemon
+      - uses: ./.github/actions/ci-jar
+        with:
+          service: ${{ matrix.service }}
+          operation: pack
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Catus 발행 역할 (PR 제외)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish
+          aws-region: ap-northeast-2
+      - uses: aws-actions/amazon-ecr-login@v2
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
+      - id: image
         uses: docker/build-push-action@v6
         with:
-          context: ./back
-          file: ./back/Dockerfile
-          # prod EC2는 t4g(Graviton/arm64) — GROMO-541. builder 스테이지는 $BUILDPLATFORM
-          # (러너 네이티브 amd64)에서 돌아 gradle이 에뮬레이션을 타지 않는다.
+          context: server/${{ matrix.service }}
+          build-args: JAR_SOURCE=prebuilt
           platforms: linux/arm64
-          push: ${{ github.event_name != 'pull_request' }} # PR(검증)이면 build만
-          provenance: false # attestation 매니페스트(태그 없는 이미지) 생성 방지
-          tags: ${{ env.ECR_REPO }}:${{ github.sha }}
-          # 캐시는 러너 동일 리전 GAR(ci-cache) — gha 크로스 클라우드 왕복 제거.
-          # dev와 저장소는 공유하지만 아키텍처별 태그를 분리해 캐시를 덮어쓰지 않는다.
-          # 프로젝트가 oneorthree → oneorthree2로 이전됐다(GROMO-956). 구 프로젝트의
-          # GAR은 이미 사라져 이 경로로는 캐시 export가 실패한다. 러너(gromo-dev-build)의
-          # SA도 신 프로젝트 저장소에만 writer 권한이 있다.
-          # 캐시는 이관하지 않았으므로 전환 후 첫 빌드 1회는 콜드다.
-          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-arm64
-          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:cache-arm64,mode=max
+          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/release' }}
+          provenance: false
+          tags: 808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/catus-prod/${{ matrix.service }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          cache-from: type=gha,scope=catus-prod-${{ matrix.service }}
+          cache-to: type=gha,scope=catus-prod-${{ matrix.service }},mode=max
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+      - name: 이미지 계약 기록
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          service = os.environ['SERVICE']
+          pathlib.Path(service + '.json').write_text(json.dumps({
+              'revision': os.environ['GITHUB_SHA'], 'platform': 'linux/arm64',
+              'image': f"808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/catus-prod/{service}@{os.environ['IMAGE_DIGEST']}"}))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
+        with:
+          name: catus-${{ matrix.service }}-digest
+          path: ${{ matrix.service }}.json
+          if-no-files-found: error
+          overwrite: true
 
-      # SemVer 자동 산정 (GROMO-788) — release 머지를 만든 PR의 라벨로 범프 결정.
-      #   release:major / release:minor / release:patch (미지정 시 patch)
-      # 새 vX.Y.Z를 git 태그로 push하고, 이미 push된 SHA 이미지에 버전 태그를 재빌드 없이 부착
-      # (imagetools create = 매니페스트 참조 추가). 롤백 시 SHA 대신 vX.Y.Z로도 지정 가능해진다.
-      - name: SemVer 태깅 (release 머지에서만)
-        if: github.event_name == 'push'
+  release:
+    needs: [contracts, plan, images]
+    if: >-
+      always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/release' &&
+      needs.contracts.result == 'success' && needs.plan.result == 'success' &&
+      (needs.plan.outputs.any == 'true' || github.event_name == 'workflow_dispatch') &&
+      (needs.images.result == 'success' || needs.images.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: read
+      id-token: write
+    env:
+      INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION }}
+    steps:
+      - name: 고정 Infra 버전 확인
+        run: '[[ "$INFRA_REVISION" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: catus-prod-plan
+          path: plan-input
+      - uses: actions/download-artifact@v4
+        if: needs.plan.outputs.build_any == 'true'
+        with:
+          pattern: catus-*-digest
+          merge-multiple: true
+          path: image-descriptors
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::808715036056:role/catus-prod-publish
+          aws-region: ap-northeast-2
+      - name: 기존 발행 버전 고정 확인
+        id: version-record
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner, repo: context.repo.repo, run_id: context.runId, per_page: 100
+            });
+            const matches = artifacts.filter(item => item.name === 'catus-release-version');
+            if (matches.length > 1 || matches.some(item => item.expired)) {
+              throw new Error('발행 버전 산출물 확인 필요');
+            }
+            core.setOutput('exists', matches.length === 1);
+      - uses: actions/download-artifact@v4
+        if: steps.version-record.outputs.exists == 'true'
+        with:
+          name: catus-release-version
+          path: release-version
+      - name: 발행 버전 고정
+        if: steps.version-record.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          BUMP_OVERRIDE: ${{ github.event_name == 'workflow_dispatch' && inputs.version_bump || '' }}
         run: |
-          BUMP=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
-            --jq '[.[0].labels[].name] | if index("release:major") then "major" elif index("release:minor") then "minor" else "patch" end' \
-            2>/dev/null || echo patch)
-          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
-          LATEST=${LATEST:-v0.0.0}
-          IFS=. read -r MA MI PA <<< "${LATEST#v}"
-          case "$BUMP" in
-            major) MA=$((MA+1)); MI=0; PA=0 ;;
-            minor) MI=$((MI+1)); PA=0 ;;
-            *)     PA=$((PA+1)) ;;
-          esac
-          NEXT="v$MA.$MI.$PA"
-          git tag "$NEXT" "${{ github.sha }}"
-          git push origin "$NEXT"
-          # ECR 이미지에 버전 태그 부착 — 재빌드 없이 기존 SHA 매니페스트를 참조
-          docker buildx imagetools create -t "$ECR_REPO:$NEXT" "$ECR_REPO:${{ github.sha }}"
-          echo "NEXT_VERSION=$NEXT" >> "$GITHUB_ENV"
-          echo "BUMP=$BUMP" >> "$GITHUB_ENV"
-
-      - name: 결과 요약
+          set -euo pipefail
+          bucket=$(aws secretsmanager get-secret-value --secret-id catus/prod/cicd \
+            --query SecretString --output text | jq -er '.DEPLOY_BUCKET')
+          [[ "$bucket" == catus-prod-deploy-artifacts-* ]]
+          version_args=(--revision "$GITHUB_SHA" --plan-file plan-input/prod-plan.json --bucket "$bucket")
+          if [ -n "$BUMP_OVERRIDE" ]; then version_args+=(--bump "$BUMP_OVERRIDE"); fi
+          CATUS_VERSION=$(python3 .github/scripts/catus-version.py "${version_args[@]}")
+          export CATUS_VERSION
+          python3 - <<'PYTHON'
+          import json, os, pathlib, re
+          version = os.environ['CATUS_VERSION']
+          if not re.fullmatch(r'catus-v[0-9]+\.[0-9]+\.[0-9]+', version):
+              raise ValueError('발행 버전 형식 오류')
+          root = pathlib.Path('release-version')
+          root.mkdir()
+          (root / 'version.json').write_text(json.dumps({'version': version,
+              'source_revision': os.environ['GITHUB_SHA'], 'infra_revision': os.environ['INFRA_REVISION'],
+              'run_id': os.environ['GITHUB_RUN_ID']}))
+          PYTHON
+      - uses: actions/upload-artifact@v4
+        if: steps.version-record.outputs.exists != 'true'
+        with:
+          name: catus-release-version
+          path: release-version/version.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: 불변 릴리스 생성·업로드
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "### prod-ci: 빌드 검증 완료 (ECR push 안 함)" >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          bucket=$(aws secretsmanager get-secret-value --secret-id catus/prod/cicd \
+            --query SecretString --output text | jq -er '.DEPLOY_BUCKET')
+          [[ "$bucket" == catus-prod-deploy-artifacts-* ]]
+          release_id="$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          version=$(jq -er --arg sha "$GITHUB_SHA" --arg infra "$INFRA_REVISION" --arg run "$GITHUB_RUN_ID" \
+            'select(.source_revision == $sha and .infra_revision == $infra and .run_id == $run) | .version' release-version/version.json)
+          [[ "$version" =~ ^catus-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          python3 .github/scripts/catus-version.py --revision "$GITHUB_SHA" --plan-file plan-input/prod-plan.json --bucket "$bucket" --check-order-only --fixed-version "$version" --run-id "$GITHUB_RUN_ID" --infra-revision "$INFRA_REVISION"
+          mkdir -p infra-config
+          for file in configuration.zip configuration.json; do
+            aws s3api get-object --bucket "$bucket" --key "configurations/$INFRA_REVISION/$file" "infra-config/$file" >/dev/null
+          done
+          python3 - <<'PYTHON'
+          import hashlib, json, os, pathlib, re, zipfile
+          root = pathlib.Path('infra-config')
+          metadata = json.loads((root / 'configuration.json').read_text())
+          assert metadata['product'] == 'catus' and metadata['infra_revision'] == os.environ['INFRA_REVISION']
+          assert re.fullmatch('[0-9a-f]{64}', metadata['sha256'])
+          assert hashlib.sha256((root / 'configuration.zip').read_bytes()).hexdigest() == metadata['sha256']
+          with zipfile.ZipFile(root / 'configuration.zip') as archive:
+              names = archive.namelist()
+              assert len(names) == len(set(names)) and set(names) == set(metadata['files'])
+              for name in names:
+                  assert pathlib.PurePosixPath(name).name == name and name not in {'.', '..'}
+                  content = archive.read(name)
+                  assert hashlib.sha256(content).hexdigest() == metadata['files'][name]
+                  (root / name).write_bytes(content)
+          PYTHON
+          mkdir -p image-descriptors
+          python3 infra-config/release.py --source-root "$GITHUB_WORKSPACE" --descriptors image-descriptors \
+            --output release-output --revision "$GITHUB_SHA" --release-id "$release_id" --infra-revision "$INFRA_REVISION" --version "$version" --plan-file plan-input/prod-plan.json
+          for file in bundle.zip release.json; do
+            aws s3api put-object --bucket "$bucket" --key "releases/$release_id/$file" \
+              --body "release-output/$file" --if-none-match '*' >/dev/null
+          done
+          # 같은 버전의 부분 발행이 있으면 기존 릴리스로 마무리한다. 다른 소스/Infra는 거부한다.
+          if aws s3api head-object --bucket "$bucket" --key "versions/$version.json" >/dev/null 2>&1; then
+            aws s3api get-object --bucket "$bucket" --key "versions/$version.json" release-output/version.json >/dev/null
+            jq -e --arg sha "$GITHUB_SHA" --arg infra "$INFRA_REVISION" --arg version "$version" \
+              '.source_revision == $sha and .infra_revision == $infra and .version == $version' release-output/version.json >/dev/null
           else
-            echo "### prod-ci: ECR push :rocket:" >> $GITHUB_STEP_SUMMARY
-            echo "- \`:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-            if [ -n "${NEXT_VERSION:-}" ]; then
-              echo "- 버전: \`$NEXT_VERSION\` ($BUMP — PR 라벨 기준)" >> $GITHUB_STEP_SUMMARY
-            fi
-            echo "- prod-cd가 이 SHA를 이어서 자동 배포" >> $GITHUB_STEP_SUMMARY
+            cp release-output/release.json release-output/version.json
+            aws s3api put-object --bucket "$bucket" --key "versions/$version.json" \
+              --body release-output/version.json --if-none-match '*' >/dev/null
           fi
+          release_id=$(jq -er '.release_id' release-output/version.json)
+          [[ "$release_id" =~ ^[0-9a-f]{40}-[0-9]+-[0-9]+$ ]]
+          aws s3api get-object --bucket "$bucket" --key "releases/$release_id/bundle.zip" release-output/selected.zip >/dev/null
+          python3 - <<'PYTHON'
+          import hashlib, json, pathlib, sys, zipfile
+          sys.path.insert(0, 'infra-config')
+          import release
+          envelope = json.loads(pathlib.Path('release-output/version.json').read_text())
+          if hashlib.sha256(pathlib.Path('release-output/selected.zip').read_bytes()).hexdigest() != envelope['bundle_sha256']:
+              raise ValueError('릴리스 checksum 불일치')
+          with zipfile.ZipFile('release-output/selected.zip') as archive:
+              manifest = json.loads(archive.read('manifest.json'))
+          release.validate(manifest)
+          for key in ['release_id', 'version', 'source_revision', 'infra_revision']:
+              if envelope[key] != manifest[key]:
+                  raise ValueError('버전 참조와 릴리스 불일치')
+          pathlib.Path('release-output/images.tsv').write_text(''.join(f'{service}\t{image}\n' for service, image in sorted(manifest['images'].items())))
+          PYTHON
+          while IFS=$'\t' read -r service image; do
+            repository="catus-prod/$service"
+            expected="${image##*@}"
+            existing=$(aws ecr batch-get-image --repository-name "$repository" --image-ids "imageTag=$version" --query 'images[0].imageId.imageDigest' --output text)
+            if [ "$existing" = None ]; then
+              manifest=$(aws ecr batch-get-image --repository-name "$repository" --image-ids "imageDigest=$expected" --query 'images[0].imageManifest' --output text)
+              test "$manifest" != None
+              aws ecr put-image --repository-name "$repository" --image-tag "$version" --image-digest "$expected" --image-manifest "$manifest" >/dev/null
+            else
+              test "$existing" = "$expected"
+            fi
+          done < release-output/images.tsv
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git show-ref --verify --quiet "refs/tags/$version"; then
+            test "$(git rev-parse "$version^{commit}")" = "$GITHUB_SHA"
+          else
+            git tag -a "$version" "$GITHUB_SHA" -m "Catus $version / $release_id / Infra $INFRA_REVISION"
+          fi
+          git push origin "refs/tags/$version"
+          echo "- 버전: $version" >> "$GITHUB_STEP_SUMMARY"
+          echo "Infra 구성: $INFRA_REVISION" >> "$GITHUB_STEP_SUMMARY"
+          echo "Catus 릴리스: $release_id (배포는 별도 승인)" >> "$GITHUB_STEP_SUMMARY"

@@ -1,36 +1,54 @@
-.claude/*
-!.claude/commands/
-!.claude/agents/
-.vscode/
+# ── 전역 규칙만 둔다 — 앱 전용은 app/legacy/app-dev/.gitignore, 서버 전용은 server/data-api/.gitignore ──
+
+# 에디터·OS·도구 로컬 산출물
 .DS_Store
-.vs_code
 .idea/
+.vscode/
+.vs_code
+.gstack/
 .superpowers/
-# 개인 기획 스크래치(.docs)만 무시 — 팀 공유 문서 /docs 는 추적
-# (back/docs 는 back/.gitignore 가 관리 — GROMO-735)
-/.docs/
-# 앱 아이콘 로컬 스테이징 (레포 루트)
-/assets/
-# 작업 일지 (로컬 전용)
+
+# Claude 하네스 — settings.json·commands/·agents/ 는 추적, 개인 로컬 파일만 무시
+**/.claude/settings.local.json
+.claude/worktrees/
+__pycache__/
+
+# 파이썬 바이트코드 — 레포 어디서 스크립트를 돌리든 생긴다(실제로 두 번 커밋했다)
+__pycache__/
+
+# 개인 기획 스크래치(/doc)·작업 일지(/logs) — 팀 공유 문서 /docs 는 추적
+/doc/
 /logs/
-# 부하테스트 기획 문서는 추적 (GROMO-548)
-!loadtest/docs/
+
+# 환경변수 (.env.local·.env.production 류까지 — 예제 파일만 추적)
 *.env
 .env*
 !.env.example
-*.log
-*.tsbuildinfo
-node_modules
 
-# Expo
-.expo/
-web-build/
-dist/
-
-# 서명 키
-*.keystore
+# 자격 증명·의존성 — 경로와 무관하게 막는다 (GROMO-1890 앱 이동).
+# 앱 전용 무시 규칙이 app/legacy/app-dev/.gitignore 로 함께 옮겨가면서, 기존 체크아웃에
+# 남아 있던 옛 경로(app/app-dev/)의 node_modules·서명 자산이 갑자기 untracked 로 노출된다.
+# 잔재를 지우기 전에 `git add -A` 로 자격 증명이 스테이징되는 사고를 막으려면 경로가 아니라
+# 파일 종류로 걸어야 한다. 새 앱이 app/app-dev/ 로 들어오므로 그 경로 자체는 무시하지 않는다.
+**/node_modules/
+**/android/credentials/
+GoogleService-Info.plist
+GoogleService-Info-*.plist
+google-services.json
+google-services-*.json
 *.jks
+*.keystore
 *.p8
 *.p12
+*.key
 *.mobileprovision
+# Sentry 인증 토큰 — 종전엔 ios/.gitignore·android/.gitignore(플랫폼별 중첩 파일)가 막았다.
+# 그 파일들이 앱과 함께 legacy 로 이동해, 옛 경로에 남은 잔재가 무방비가 된다 (코덱스 리뷰 P1).
+**/sentry.properties
 
+# 옛 앱 경로(app/app-dev/)의 빌드 산출물 잔재는 그 경로의 `app/app-dev/.gitignore` 가 막는다.
+# 규칙을 루트로 한 줄씩 올리면 계속 빠뜨리고 팀 루트 파일도 앱 전용 잡동사니로 오염되므로,
+# 원래 있던 자리에 통째로 복원했다 (코덱스 리뷰). 루트에는 경로와 무관하게 위험한 자격 증명만 둔다.
+
+# 같은 CI 실행에서 검증한 이미지 조립용 JAR
+server/*/ci-artifact/

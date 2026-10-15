@@ -1,0 +1,49 @@
+# OSX
+#
+.DS_Store
+
+# Xcode
+#
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata
+*.xccheckout
+*.moved-aside
+DerivedData
+*.hmap
+*.ipa
+*.xcuserstate
+project.xcworkspace
+.xcode.env.local
+
+# Bundle artifacts
+*.jsbundle
+
+# CocoaPods
+/Pods/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+fastlane/.env
+fastlane/.env.local
+vendor/bundle
+.bundle/
+*.dSYM.zip
+
+# App Store Connect API Key / 서명 비밀 (절대 커밋 금지)
+*.p8
+AuthKey_*.p8
+*.p12
+
+# Sentry 인증 토큰 (소스맵/dSYM 업로드용 — 비밀, 커밋 금지)
+sentry.properties

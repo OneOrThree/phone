@@ -1,0 +1,434 @@
+package com.oneorthree.business.common.http;
+
+import com.oneorthree.business.common.exception.CompositionCapacityExceededException;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
+import com.oneorthree.business.common.exception.UpstreamCredentialRejectedException;
+import com.oneorthree.business.common.exception.UpstreamDomainException;
+import com.oneorthree.business.common.exception.UpstreamTimeoutException;
+import com.oneorthree.business.common.exception.UpstreamUnavailableException;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
+import org.apache.hc.client5.http.config.ConnectionConfig;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
+import org.apache.hc.core5.util.Timeout;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.web.util.UriComponentsBuilder;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.net.SocketTimeoutException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * 내부 HTTP의 유일한 창구. 전체 예산에는 큐·연결·본문·재시도가 모두 포함된다.
+ * Apache 요청 자체를 취소하여 Future만 끝나고 연결은 남는 경우를 막는다.
+ * 대상별 자격·풀을 격리하고 내장 재시도/redirect/cookie는 사용하지 않는다.
+ */
+@Slf4j
+public class InternalHttpClient implements AutoCloseable {
+
+    private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
+    private static final Duration MAX_RETRY_WAIT = Duration.ofSeconds(1);
+
+    /**
+     * {@code endUserAuthErrors} 계약에서 <b>사용자</b> 오류로 인정하는 상류 401 code.
+     *
+     * <p>목록으로 두는 이유는 fail-closed 를 유지하기 위해서다 — 「코드가 있으면 통과」로 넓히면
+     * 상류가 새 401 을 내는 순간 그것이 사용자 오류로 둔갑한다. 여기 없는 401 은 서비스 자격
+     * 거부로 남아 502 {@code UPSTREAM_AUTH_FAILED} 가 된다.
+     *
+     * <p>제공자 6종은 계정 LLD §2.1 · 정책 A18 이 보존을 요구하는 기존 코드다. 빼면 잘못된 소셜
+     * 토큰 하나가 502 로 나가 서버 장애처럼 보인다.
+     */
+    private static final Set<String> END_USER_AUTH_CODES = Set.of(
+            "REFRESH_TOKEN", "UNAUTHORIZED",
+            "KAKAO_TOKEN", "APPLE_TOKEN", "GOOGLE_TOKEN",
+            "LINE_TOKEN", "INSTAGRAM_TOKEN", "FACEBOOK_TOKEN",
+            // 로그인 시도가 더 못 쓰게 됐다(복구 창 종료·폐기·digest 키 교체). 사용자에게는
+            // 「다시 로그인」이고, 서비스 자격 문제가 아니다 — 502 로 올리면 앱이 재인증 대신
+            // 재시도를 하고 대시보드에는 5xx 가 쌓인다.
+            "LOGIN_ATTEMPT_UNUSABLE");
+
+    private final UpstreamTarget target;
+    private final UpstreamProperties properties;
+    private final String serviceToken;
+    private final CloseableHttpClient http;
+    private final ThreadPoolExecutor workers;
+    private final CircuitBreaker circuitBreaker;
+    private final ObjectMapper objectMapper;
+
+    public InternalHttpClient(UpstreamTarget target, UpstreamProperties properties, ObjectMapper objectMapper) {
+        RequiredConfig.require(properties.baseUrl(), target + " base-url");
+        this.serviceToken = RequiredConfig.require(properties.serviceToken(), target + " service-token");
+        URI base = URI.create(properties.baseUrl());
+        if (base.getHost() == null || base.getUserInfo() != null
+                || !("http".equals(base.getScheme()) || "https".equals(base.getScheme()))) {
+            throw new IllegalArgumentException("상류 base-url이 올바르지 않습니다.");
+        }
+        this.target = target;
+        this.properties = properties;
+        this.objectMapper = objectMapper;
+        this.circuitBreaker = new CircuitBreaker(properties.failureThreshold(), properties.openDuration());
+        this.http = HttpClients.custom().disableAutomaticRetries().disableRedirectHandling().disableCookieManagement()
+                .setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
+                        .setMaxConnTotal(properties.maxConnections()).setMaxConnPerRoute(properties.maxConnections())
+                        .setDefaultConnectionConfig(ConnectionConfig.custom()
+                                .setConnectTimeout(timeout(properties.connectTimeout()))
+                                .setSocketTimeout(timeout(properties.readTimeout())).build()).build()).build();
+        this.workers = new ThreadPoolExecutor(properties.maxConnections(), properties.maxConnections(),
+                30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(properties.queueCapacity()), runnable -> {
+                    Thread thread = new Thread(runnable, "internal-http-" + target.name().toLowerCase());
+                    thread.setDaemon(true);
+                    return thread;
+                }, new ThreadPoolExecutor.AbortPolicy());
+        workers.allowCoreThreadTimeOut(true);
+    }
+
+    public UpstreamTarget target() {
+        return target;
+    }
+
+    public void execute(InternalCall call, Deadline deadline) {
+        exchange(call, deadline, null);
+    }
+
+    public void execute(InternalCall call, UpstreamRequestContext context) {
+        exchange(call, context, null);
+    }
+
+    public <T> T exchange(InternalCall call, Deadline deadline, ParameterizedTypeReference<T> responseType) {
+        return exchange(call, UpstreamRequestContext.capture(call.onBehalfOfUserId(), deadline), responseType);
+    }
+
+    public <T> T exchange(InternalCall call, UpstreamRequestContext context,
+            ParameterizedTypeReference<T> responseType) {
+        context.validate(call);
+        for (int attempt = 1; ; attempt++) {
+            context.checkActive();
+            requireStartBudget(call.retryable(), context);
+            if (!circuitBreaker.allowRequest(System.currentTimeMillis())) {
+                throw new UpstreamUnavailableException(target + " 서킷 오픈");
+            }
+            try {
+                T result = attempt(call, context, responseType);
+                context.checkActive();
+                circuitBreaker.recordSuccess();
+                return result;
+            } catch (RetryableFailure | UpstreamTimeoutException failure) {
+                if (failure instanceof InsufficientStartBudgetException) {
+                    // 큐 대기/직렬화 중 줄어든 로컬 예산은 상류 장애가 아니다. 탐침만 반납한다.
+                    circuitBreaker.recordIgnored();
+                    throw failure;
+                }
+                // 부모 취소·인터럽트·전체 예산 소진은 새 시도로 바꾸지 않는다.
+                if (context.cancelled() || Thread.currentThread().isInterrupted()
+                        || context.deadline().remaining().isZero()) {
+                    circuitBreaker.recordIgnored();
+                    context.checkActive();
+                }
+                circuitBreaker.recordFailure(System.currentTimeMillis());
+                if (!call.retryable() || attempt >= properties.maxAttempts()) {
+                    throw exhaustedFailure(failure);
+                }
+                Duration delay = failure instanceof RetryableFailure retry && retry.retryAfter != null
+                        ? retry.retryAfter : properties.retryDelay();
+                if (delay.compareTo(context.deadline().remaining()) >= 0) {
+                    throw new UpstreamTimeoutException("재시도 대기가 전체 요청 예산을 초과합니다.");
+                }
+                // legacy의 unbounded deadline도 상류가 지정한 시간만큼 Tomcat을 붙들 수는 없다.
+                // read timeout과 고정 1초 중 작은 상한을 넘으면 조기 재시도 없이 원 장애로 종결한다.
+                if (delay.compareTo(properties.readTimeout()) > 0 || delay.compareTo(MAX_RETRY_WAIT) > 0) {
+                    throw exhaustedFailure(failure);
+                }
+                log.warn("upstream_retry request_id={} target={} attempt={}",
+                        context.requestId(), target, attempt + 1);
+                pause(delay, context);
+            } catch (UpstreamDomainException | UpstreamCredentialRejectedException
+                    | UpstreamContractMismatchException terminal) {
+                // HTTP 응답이 도착한 종결 판정이다. half-open 탐침도 이 자리에서 닫는다.
+                circuitBreaker.recordSuccess();
+                throw terminal;
+            } catch (RuntimeException terminal) {
+                circuitBreaker.recordIgnored();
+                throw terminal;
+            }
+        }
+    }
+
+    private RuntimeException exhaustedFailure(RuntimeException failure) {
+        if (failure instanceof UpstreamTimeoutException timeout) {
+            return timeout;
+        }
+        if (failure instanceof RetryableFailure retry && retry.timeout) {
+            return new UpstreamTimeoutException(target + " 상류 타임아웃 응답", failure);
+        }
+        return new UpstreamUnavailableException(target + " 일시 응답 실패", failure);
+    }
+
+    private <T> T attempt(InternalCall call, UpstreamRequestContext context,
+            ParameterizedTypeReference<T> responseType) {
+        HttpUriRequestBase request = request(call, context);
+        Duration attemptBudget = properties.connectTimeout().plus(properties.readTimeout());
+        Duration remaining = context.deadline().remaining();
+        long nanos = Math.min(attemptBudget.toNanos(), remaining.toNanos());
+        request.setConfig(RequestConfig.custom().setConnectionRequestTimeout(Timeout.ofNanoseconds(nanos))
+                .setResponseTimeout(timeout(properties.readTimeout())).build());
+        Runnable unregister = context.onCancel(request::cancel);
+        AtomicInteger responseStatus = new AtomicInteger();
+        Future<T> future = null;
+        try {
+            context.checkActive();
+            future = workers.submit(() -> send(request, call, responseType, context, responseStatus));
+            // enqueue 비용도 예산이다. 대기 시작 때 남은 시간을 다시 읽는다.
+            nanos = Math.min(nanos, context.deadline().remaining().toNanos());
+            T result = future.get(nanos, TimeUnit.NANOSECONDS);
+            context.checkActive();
+            return result;
+        } catch (RejectedExecutionException e) {
+            context.checkActive();
+            throw new CompositionCapacityExceededException(target + " HTTP 실행 큐 포화", e);
+        } catch (TimeoutException | CancellationException e) {
+            rejectPartialClientError(responseStatus.get(), context);
+            throw new UpstreamTimeoutException(target + " HTTP 시간 제한 또는 취소", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new UpstreamTimeoutException(target + " 호출 취소", e);
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new UpstreamContractMismatchException(target + " 예상하지 못한 HTTP 처리 실패");
+        } finally {
+            unregister.run();
+            if (future == null || !future.isDone()) {
+                request.cancel();
+                if (future != null) {
+                    future.cancel(true);
+                    workers.remove((Runnable) future);
+                }
+            }
+        }
+    }
+
+    /** 시작 시 설정된 한 시도 예산을 확보한다. 네트워크 실패 뒤 원자적 취소를 보장하는 장치는 아니다. */
+    private void requireStartBudget(boolean retryable, UpstreamRequestContext context) {
+        context.checkActive();
+        if (!retryable && !context.deadline().hasRoomFor(
+                properties.connectTimeout().plus(properties.readTimeout()))) {
+            throw new InsufficientStartBudgetException();
+        }
+    }
+
+    private static final class InsufficientStartBudgetException extends UpstreamTimeoutException {
+        private InsufficientStartBudgetException() {
+            super("재시도 불가능한 상류 명령을 시작할 요청 예산이 부족합니다.");
+        }
+    }
+
+    private HttpUriRequestBase request(InternalCall call, UpstreamRequestContext context) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(properties.baseUrl()).path(call.path());
+        call.query().forEach(builder::queryParam);
+        HttpUriRequestBase request = new HttpUriRequestBase(call.method().name(), builder.build().encode().toUri());
+        request.setHeader("Authorization", "Bearer " + serviceToken);
+        request.setHeader("X-Request-Id", context.requestId());
+        request.setHeader("Accept", "application/json");
+        if (call.onBehalfOfUserId() != null) {
+            request.setHeader("X-User-Id", context.subject().toString());
+        }
+        if (call.idempotencyKey() != null) {
+            request.setHeader("Idempotency-Key", call.idempotencyKey());
+        }
+        call.declaredHeaders().forEach(request::setHeader);
+        return request;
+    }
+
+    private <T> T send(HttpUriRequestBase request, InternalCall call, ParameterizedTypeReference<T> responseType,
+            UpstreamRequestContext context, AtomicInteger responseStatus) {
+        context.checkActive();
+        requireStartBudget(call.retryable(), context);
+        if (call.body() != null) {
+            try {
+                request.setEntity(new ByteArrayEntity(
+                        objectMapper.writeValueAsBytes(call.body()), ContentType.APPLICATION_JSON));
+            } catch (JacksonException e) {
+                throw new UpstreamContractMismatchException(target + " 요청 DTO 변환 실패");
+            }
+        }
+        // 직렬화가 느렸더라도 재시도 불가능한 쓰기를 짧은 남은 예산으로 시작하지 않는다.
+        requireStartBudget(call.retryable(), context);
+        try {
+            return http.execute(request, response -> {
+                int status = response.getCode();
+                responseStatus.set(status);
+                byte[] bytes = response.getEntity() == null ? new byte[0]
+                        : response.getEntity().getContent().readNBytes(MAX_RESPONSE_BYTES + 1);
+                if (bytes.length > MAX_RESPONSE_BYTES) {
+                    throw new UpstreamContractMismatchException(target + " 응답 크기 상한 초과");
+                }
+                context.checkActive();
+                if (status >= 200 && status < 300) {
+                    if (responseType == null) {
+                        // 응답 타입을 요구하지 않은 호출이다 — 본문이 있든 없든 읽지 않는다.
+                        return null;
+                    }
+                    if (bytes.length == 0) {
+                        // 응답 DTO 를 요구한 호출의 빈 본문을 null 로 접으면, 롤링 배포·프록시가 돌려준
+                        // 200/204 빈 응답이 「상류가 그 일을 했다」로 통과한다. 예: ack prepare 의 빈 응답을
+                        // 허용하면 HELD tombstone 없이 Data ack 가 커밋돼 이미 확인한 결과 푸시가 나간다.
+                        throw new UpstreamContractMismatchException(
+                                target + " 응답 본문이 비어 있습니다 status=" + status);
+                    }
+                    try {
+                        return objectMapper.readValue(bytes, objectMapper.constructType(responseType.getType()));
+                    } catch (JacksonException | IllegalArgumentException e) {
+                        throw new UpstreamContractMismatchException(target + " 응답 DTO 변환 실패");
+                    }
+                }
+                String retryAfter = response.getFirstHeader("Retry-After") == null ? null
+                        : response.getFirstHeader("Retry-After").getValue();
+                throw classify(status, new String(bytes, StandardCharsets.UTF_8), retryAfter,
+                        context.strictErrorContract(), call.endUserAuthErrors());
+            });
+        } catch (SocketTimeoutException e) {
+            rejectPartialClientError(responseStatus.get(), context);
+            throw new UpstreamTimeoutException(target + " 연결 또는 읽기 시간 제한", e);
+        } catch (IOException e) {
+            rejectPartialClientError(responseStatus.get(), context);
+            throw new RetryableFailure(null);
+        }
+    }
+
+    /** 이미 받은 4xx는 오류 본문 유실로 재시도/선택 null이 될 수 없다. 전체 취소·예산은 우선한다. */
+    private void rejectPartialClientError(int status, UpstreamRequestContext context) {
+        context.checkActive();
+        if (status >= 400 && status < 500) {
+            throw new UpstreamContractMismatchException(target + " 상류 오류 본문 수신 실패 status=" + status);
+        }
+    }
+
+    private RuntimeException classify(int status, String raw, String retryAfter, boolean strictErrorContract,
+            boolean endUserAuthErrors) {
+        UpstreamError parsed;
+        try {
+            parsed = objectMapper.readValue(raw, UpstreamError.class);
+        } catch (JacksonException e) {
+            parsed = null;
+        }
+        // 코드 없는 내부 필터 거절은 언제나 서비스 인증 오류다. 자격 계약만 사용자 401을 구분한다.
+        if (status == 401) {
+            // ⚠️ parsed.code() 의 null 검사를 빼면 안 된다 — Set.of 는 contains(null) 에서 NPE 다.
+            //    그 NPE 는 여기서 새어 나가 「코드 없는 401」을 502 가 아니라 500 으로 만든다.
+            if (endUserAuthErrors && parsed != null && parsed.code() != null
+                    && END_USER_AUTH_CODES.contains(parsed.code())) {
+                return new UpstreamDomainException(status, parsed.code(), parsed.message(), null);
+            }
+            return new UpstreamCredentialRejectedException(target + " 서비스 자격 거부 status=401");
+        }
+        boolean structured = parsed != null && parsed.code() != null && !parsed.code().isBlank();
+        boolean transientServerError = structured && switch (parsed.code()) {
+            case "SERVICE_UNAVAILABLE", "UPSTREAM_UNAVAILABLE" -> status == 503;
+            case "UPSTREAM_TIMEOUT" -> status == 504;
+            default -> false;
+        };
+        // 공개/화면 계약은 등록된 일시 status+code 쌍만 재시도한다. 불명 구조화 오류는 종결한다.
+        // legacy 동기 호출과 코드 없는 프록시 5xx의 기존 재시도 의미는 유지한다.
+        if (status >= 500 && status <= 599
+                && (!strictErrorContract || !structured || transientServerError)) {
+            return new RetryableFailure(parseRetryAfter(retryAfter), strictErrorContract && status == 504);
+        }
+        if (structured) {
+            Duration wait = parseRetryAfter(retryAfter);
+            Long waitMillis = parsed.retryAfterMs() != null ? parsed.retryAfterMs()
+                    : wait == null ? null : wait.toMillis();
+            return new UpstreamDomainException(status, parsed.code(), parsed.message(), waitMillis);
+        }
+        if (status == 401 || status == 403) {
+            return new UpstreamCredentialRejectedException(target + " 서비스 자격 거부 status=" + status);
+        }
+        return new UpstreamContractMismatchException(target + " 미지원 상류 응답 status=" + status, status);
+    }
+
+    private static Duration parseRetryAfter(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            long seconds = Long.parseLong(value);
+            return seconds < 0 ? null : Duration.ofSeconds(seconds);
+        } catch (NumberFormatException e) {
+            try {
+                Duration duration = Duration.between(Instant.now(),
+                        ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant());
+                return duration.isNegative() ? Duration.ZERO : duration;
+            } catch (RuntimeException ignored) {
+                return null;
+            }
+        }
+    }
+
+    private static void pause(Duration delay, UpstreamRequestContext context) {
+        long remaining = delay.toNanos();
+        while (remaining > 0) {
+            context.checkActive();
+            long chunk = Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(20));
+            try {
+                TimeUnit.NANOSECONDS.sleep(chunk);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new UpstreamTimeoutException("재시도 대기 취소", e);
+            }
+            remaining -= chunk;
+        }
+        context.checkActive();
+    }
+
+    private static Timeout timeout(Duration duration) {
+        return Timeout.ofMilliseconds(Math.max(1, duration.toMillis()));
+    }
+
+    @Override
+    public void close() throws IOException {
+        workers.shutdownNow();
+        http.close();
+    }
+
+    record UpstreamError(String code, String message, Long retryAfterMs) {
+    }
+
+    private static final class RetryableFailure extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private final Duration retryAfter;
+        private final boolean timeout;
+
+        private RetryableFailure(Duration retryAfter) {
+            this(retryAfter, false);
+        }
+
+        private RetryableFailure(Duration retryAfter, boolean timeout) {
+            super("상류 연결 또는 서버 일시 실패");
+            this.retryAfter = retryAfter;
+            this.timeout = timeout;
+        }
+    }
+}

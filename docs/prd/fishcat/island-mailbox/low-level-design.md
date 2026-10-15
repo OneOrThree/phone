@@ -1,0 +1,154 @@
+# 우체통 — LLD
+
+[정책](policy.md) · [HLD](high-level-design.md)
+
+## 1. 공통 입력·인가·응답
+
+신규 공개 ingress는 Business의 아래 exact method/path다. Bearer AT의 서명·access 타입·만료·주체를 검증하고 외부 X-User-Id를 모든 accessor에서 제거한다. Data/Realtime 내부 호출에는 해당 서비스 audience의 서비스 토큰, 검증한 주체, 현재 요청 ID·deadline만 새로 전달한다. 외부 헤더 전체 복사와 임의 내부 URL 입력은 금지한다. 실제 활성 사용자/세션 검증은 선행 인증 계약으로 수행하며 없는 sid/gen을 현재 DB 값으로 합성하지 않는다. 필요한 인증 기반 미통합이면 새 route 활성화가 선행 구현에 의존한다.
+
+Data는 path islandId가 실제 groupId임을 해석하고 현재 사용자 활성·해당 소속·시설 해금·작업별 역할을 확인한다. 다른 섬의 자원 ID는 path로 다시 좁혀 찾는다. 요청 시작 때 확정한 path/context를 사용하며 도중에 current-island가 바뀌어도 다른 섬으로 재해석하지 않는다. 같은 사용자의 다른 섬 자원/방문자 projection을 주민 전용 응답에 섞지 않는다. 원 결과 재생도 현재 인가가 필요하며 이 문서에는 leave/host-transfer 같은 권한 상실 후 최소 성공 증거 예외가 없다.
+
+- UUID는 하이픈 포함36자, v4/v7 생성 권고이며 다른 version 비트를 이유로 거절하지 않는다. 메시지 키 포함 공통 UUID 정규화가 정본이다. 날짜는 YYYY-MM-DD KST, 시각은 서버 UTC ISO-8601 instant. 샘플 문자열 ID는 실제 ID 검증을 대체하지 않는다.
+- JSON object만 수락하고 unknown/duplicate field, 잘못된 타입·명시 null을 거절한다(아래 nullable 출력과 별개). 정수는 JsonNode 정수 토큰으로 검사하여 1.5·문자열을 Long으로 절삭/강제 변환하지 않는다. version은1~9007199254740991이다. legacy ObjectMapper를 전역 변경하지 않는다.
+- 성공은 한 번만 `{data}`로 감싸며 새 작성201, 나머지200이다. 오류는 `{error:{code,message,field,retryable},requestId}`이고 X-Request-Id가 동일하다. 저장 원 결과를 재생해도 현재 requestId를 사용한다. 409의 current는 `{version,resource}`이고 현재 인가된 공개 DTO와 해당 version을 같은 snapshot으로 읽는다. 안전한 공개 상태가 없으면 current를 생략한다.
+- 입력400 INVALID_REQUEST/INVALID_PARAMETER, 키400 INVALID_IDEMPOTENCY_KEY, AT401 UNAUTHORIZED, 비활성 본인404 USER_NOT_FOUND, 비주민/시설/역할403 FORBIDDEN, 해당 경로에 없는 자원404 NOT_FOUND, 승인 범위 위반422 OUT_OF_RANGE가 기본이다. 기존 legacy 상태/코드는 보존하며 신규 어댑터에서 실제 등록한 조합만 변환한다.
+- 같은 키 다른의미409 IDEMPOTENCY_KEY_REUSED, 명시 version충돌409 VERSION_CONFLICT, 판정상충409 STATE_CONFLICT는 retryable=false다. 진행중409 REQUEST_IN_PROGRESS는 retryable=true/Retry-After:1. 불명확 상류계약502 UPSTREAM_CONTRACT_ERROR, 일시필수서비스실패503 SERVICE_UNAVAILABLE, 전체deadline504 UPSTREAM_TIMEOUT은 실패로 드러내며 빈 성공으로 대체하지 않는다.
+- Servlet 인증·용량413·routing404/405/415도 공통 serializer를 사용한다. 지원불가 Accept는 공통 예외406 빈본문. 각 route의 인가/정책/내부 allowlist·DTO가 준비되기 전 공개하지 않는다. legacy의 auth 예외 경로를 새 기능 때문에 넓히지 않는다.
+
+아래는 **변경하지 않은 원본 요청/응답 예시**다. 앞의 source_path에는 원본/v1을 별첨으로 보존하고 표기 경로만 사용자 결정에 맞춘다. 뒤 절의 추가 필드/검증은 원본 JSON을 덮어쓰지 않는다.
+
+### messages — GET `/islands/{islandId}/messages`
+
+요청:
+
+```json
+{
+  "cursor": null,
+  "limit": 30
+}
+```
+
+응답:
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "m1",
+        "userId": "minji",
+        "name": "민지",
+        "catColor": "ginger",
+        "text": "오늘도 힘내!",
+        "createdAt": "2026-09-11T09:10:00Z"
+      }
+    ],
+    "nextCursor": null
+  }
+}
+```
+
+### message — POST `/islands/{islandId}/messages`
+
+요청:
+
+```json
+{
+  "clientMessageId": "local-1",
+  "text": "오늘도 같이 집중하자"
+}
+```
+
+응답:
+
+```json
+{
+  "data": {
+    "id": "m2",
+    "clientMessageId": "local-1",
+    "userId": "me",
+    "name": "수빈",
+    "catColor": "black",
+    "text": "오늘도 같이 집중하자",
+    "createdAt": "2026-09-11T09:10:00Z"
+  }
+}
+```
+
+## 2. 공개 DTO와 기존 코드
+
+기존 ChatController:37은 /api/v1/chat아래방목록/과거메시지/읽음만있고REST메시지POST는없다. ChatMessageService:93이STOMP발신저장, :152가최신부터과거id커서history다. 저장은gromo_chat의ChatMessage, senderId는검증 주체,UUID유일키는(group_id,sender_id,client_message_id)다. GroupMember/프로필DB를Realtime에공유하지않는다.
+
+| 공개 계약 | 타입·규칙 |
+| --- | --- |
+| messages | cursor optional opaque string,limit optional integer default30/max100.0이하/상한초과는신규400 INVALID_PARAMETER(field=limit),legacy clamp는그대로. items배열과nextCursor string/null |
+| message | clientMessageId UUID필수,text string필수. strip후empty/NUL/2000 UTF-16초과는422 OUT_OF_RANGE(field=text);잘못된타입/null400 INVALID_REQUEST. senderId/receiverId/미지 필드거절 |
+| Message | id UUID,userId UUID,name string,text string,createdAt UTC,clientMessageId UUID. 기존messageId/senderId/content/sentAt을명시매핑. **catColor — 미착수**: 외양 도메인(1783 계열)이 소유한다. 그 계약 전엔 응답에 싣지 않는다(키 자체가 없다). null 로 대체하지 않는다 — 이 문서에서 null 은 «탈퇴·비노출»이라 전원 null 은 활성 작성자를 탈퇴자로 그리는 거짓이다. 2026-09-18 실측: 어느 서비스에도 그 컬럼이 없다(users 는 nickname 뿐). 결정: 재영님 2026-09-18 |
+
+**원본 대비 명시 확장:** GETitems에도clientMessageId를필수로반환한다. 원본 GET예시에는없지만응답 유실뒤history와낙관적말풍선을합치려면원클라이언트키가필요하다. POST와message.created에는원본부터존재한다. source JSON은변경하지않는다. UUID36자에임의version비트제한을추가하지않고원본local-1은실제유효 값으로받지않는다.
+
+탈퇴/비노출작성자에대해name을null로허용하는**공개 DTO확장**을명시한다(catColor 는 위 표의 «미착수» — 필드가 없으므로 null 도 없다). name 의 출처는 Data `users.nickname` 하나이고 GROMO-1775 가 그 projection 을 연다. 기존message senderId는보존되는기술 ID이며새personalprofile연결을허가하는증명이아니다. 탈퇴자표시는기존“알 수 없음”의도를따르되새별칭/고양이색을서버가임의합성하지않는다. 활성작성자프로필상류장애는탈퇴자로바꾸지않고502/503으로드러낸다. 현재 주민목록에없는작성자라서삭제된계정이라고추정하지않는다.
+
+## 3. ingress와 인가 경계
+
+Business의공개2경로는인증된내부Realtime어댑터로전달한다. 필요한서버 간추가면은 POST `/internal/islands/{islandId}/messages`와 GET 같은경로다(GROMO-1775 로 realtime 에 구현 — `InternalMailboxController`, 자격은 `SVC_TOKEN_BIZ_TO_REALTIME` 하나, 주체는 `X-User-Id`, 인가는 하지 않는다). Data 쪽은 세 경로다: GET `/internal/islands/{islandId}/mailbox-access`(주민·시설 인가 + 요청자 표시), POST `/internal/islands/{islandId}/message-authors`(페이지 sender 집합의 표시 projection), POST `/internal/islands/{islandId}/message-events`(`message.created` 적재). 셋 다 caller=business 허용목록에만 있다. Realtime 수신용 서비스 자격과 caller=business의exact method/path허용목록과검증 주체위임을사용한다. legacy REST/STOMP 클라이언트는내부 어댑터를직접호출할수없다. 이경로추가시gateway/헬스/기존/api/v1의auth예외를넓히지않는다.
+
+Realtime은Data의신뢰된 권한 조회어댑터에서현재활성 사용자/세션,해당island주민,우체통완공,승인된집중제한상태와revision을확인한다. Data의기존멤버십TTL캐시만으로허용하지않는다. 이권한어댑터는미통합기반과중복신설하지말고기존service auth/session검증을확장한다. legacyBearer를임의내부위임JWT로신뢰하거나없는sid/gen을DB현재값으로보충하지않는다.
+
+- history/POST각각의현재 인가조회가해당행위의선형화경계다. 그검사이후Data에서권한이바뀌어이미허용된chat INSERT가완료될수있는분산경계를명시한다. Data와chat저장을같은 TX라고주장하지않는다. 이보다강한“이탈commit후저장0”제품요구가있으면별도입장리스/해지barrier프로토콜이선행돼야하며현재설계가보장하지않는다.
+- read결과전달직전에도권한을재검증하고실패하면성공본문을반환하지않는다. POST후재검증실패는이미저장된메시지를롤백하지못한다. 성공원 결과를보여줄현재권한이없으면403이며,나중에허가받은원키재시도만중복결과를읽는다.
+- event는소켓프레임전달직전현재 세션/주민/시설/집중정책을검사한다. finalcheck뒤이미네트워크로나간프레임회수를보장하지않는다. 만료/철회후SimpleBroker실제구독을해지하고미지원이면소켓을닫는다.
+- Data membership변경의내구제어/리컨실과모든노드캐시무효화로회수한다. Pub/Sub만믿거나 120초TTL을최종허용근거로사용하지않는다.
+
+신규messages의 목록·과거조회·발신·실시간 수신은 집중·휴식 상태와 무관하게 **서버가 전부 허용한다**(MQ02 결정 — 재영님 2026-09-18, policy M12). 차단은 앱이 화면에서 하며 서버에 집중 분기를 두지 않는다. legacy `/api/v1/chat` 의 집중 차단(M08)은 반대로 그대로 보존한다 — 신규 어댑터가 기존 `ChatAccessGuard` 를 타지 않는 이유가 이것이다. 공통CONNECT는JWT인증만하고message가드를focus/rest/emote/playback/events에적용하지않는다. legacy `/topic/groups/{groupId}`와 `/app/groups/{groupId}/send`의동작/와이어는보존한다. 신규messages STOMP SEND경로는만들지않으며신규발신은REST POST다.
+
+## 4. 중복 저장과 부분 실패
+
+새POST는clientMessageId가기준이며일반Idempotency-Key receipt를추가하지않는다. 두헤더/필드가있어도메시지 유일성정본은actor+island+clientMessageId다. 신규fingerprint는정규화text와contractVersion으로결정한다. text는기존strip정규화규칙을고정하고원문공백차이를새의도로간주하지않는다. 알고리즘/정규화변경은contractVersion 호환검증이필요하며지원불가재생은409 STATE_CONFLICT다.
+
+1. 현재 인가확인뒤text정규화/키검증,동일scope조회또는INSERT를시도한다. 조회만으로유일성을보장하지않고DB UNIQUE가최종 판정한다.
+2. 새 행은메시지ID/client키/정규화본문/서버sentAt를한번저장한다. fingerprint/version은같은행의최소메타데이터또는같은chat TX의sidecar에저장한다. 별도Data receipt로이중권위를만들지않는다.
+3. UNIQUE경쟁이면실패한 INSERT TX를종료한뒤새TX로기존행을조회한다. 기존ChatMessageService가외부@Transactional을사용하지않는이유다. 실패 TX안재조회로PostgreSQL aborted TX를만들지않는다.
+4. 신규 어댑터는기존정규화text와동일하면같은id/createdAt/client키/text원 결과를반환한다. 다른 본문이면409 IDEMPOTENCY_KEY_REUSED(field=clientMessageId,false)이며기존원문/다른 본문을오류에싣지않는다. legacySTOMP는같은 키다른 본문에도원문 반환을보존한다. 저장직접함수를두벌만들지말고중복 처리 정책을어댑터입력으로분리한다.
+5. legacy로먼저저장된행도신규재시도시실제저장text를비교하고일치할때만재생한다. 서버가계산한검증가능한backfill과동일원문비교로전환하고메타데이터없음을무조건새 메시지로취급하지않는다.
+6. legacy/new 어느 입구든 처음 저장한 행의 커밋 후에는 기존 fanout과 신규 event adapter를 연결한다. legacy wire는 유지하고 새 구독자의 현재 인가를 별도로 확인한다. 새 adapter 미활성 상태를 성공 전달로 과장하지 않는다. 새 행 커밋 후만 fanout한다. 중복재시도는방전체재방송없음,HTTP는원 결과201,legacy는발신세션duplicates큐.프로필은현재 인가된표시projection이라이름변경은재조회에반영될수있으며불변메시지결과(id/text/시간/키)와구분한다. 이표시정책을범용 receipt의원비즈니스결과재생보장과혼동하지않는다.
+
+DB저장 성공뒤프로필조합/응답전송/최종 인가실패가있어도저장된행을숨겨다시INSERT하지않는다. 원키재시도가이를복구한다. 실패한fanout은로그/지표에남고history 최신 페이지 재초기화로 확인 가능한 저장 범위를 복구한다. 전체 누락 자동 복구의 한계와 강화 gate는 다음 절을 따른다. message.created 는 **Data 의 outbox 에 적힌다** — Business 가 realtime 저장이 «처음» 성공한 뒤 `POST /internal/islands/{islandId}/message-events` 로 적재하고(eventId=`message.created:<id>`, aggregate=(MESSAGE,id), version 1), Data 는 같은 messageId 를 같은 봉투로 재생한다. **두 서비스 사이에 원자성은 없다** — 저장은 gromo_chat, 봉투는 gromo, 다른 트랜잭션·두 번의 HTTP 다. 「저장은 됐는데 적재는 실패」면 요청은 201 로 성공하고 그 사건은 유실된다(재시도 없음, 로그 한 줄). 지금 그 유실이 무해한 이유는 **전달 자체가 꺼져 있어서**다 — Data relay 에 REALTIME transport 가 없고 realtime 의 `DisabledRealtimeDelivery` 는 항상 예외를 던진다. 전달을 켜기 전 게이트: 적재를 저장과 같은 쪽으로 옮기거나 보상 재시도를 붙인다. params 에 본문 text 는 싣지 않는다 — M02(메시지 정본은 gromo_chat, Data 복제 금지). 전달 소비자는 messageId 로 gromo_chat 에서 읽는다. Data의account/membership파기제어는별도내구경로다.
+
+## 5. 히스토리·프로필·실시간 병합
+
+DB조회는id DESC,과거쪽id<cursor로limit+1을받는다. 초과한1행은 hasMore 판정에만 쓰고 실제 반환 집합은 처음 limit행이다. 초과행이 있을 때 nextCursor anchor는 **실제 반환한 처음 limit행의 최소id**이며, 초과행이 없으면 nextCursor=null이다. cursor를 확정한 뒤 반환 집합만 id ASC로 뒤집는다(앱한묶음오름차순). 클라이언트도서버id순서를우선하고표시createdAt만으로동시노드순서를재정렬하지않는다. 프로필배치정렬이나items반전후잘못된끝값을nextCursor로쓰지않는다.
+
+검증: ID100~70의31행, limit30이면 DESC 선택에서100~71의30행만 반환 대상으로 잡고 nextCursor anchor는71이다. wire items는 그 뒤71~100으로 반전하며, 다음 id<71 조회에70이 포함되어야 한다. 초과행70을 cursor로 쓰면70이 누락되므로 금지한다. 마지막 페이지에 초과행이 없으면 nextCursor=null을 검증한다. 이 숫자는 정렬 경계를 설명하는 예시이며 실제 ID 형식은 기존 UUID 계약을 유지한다.
+
+공통HMAC cursor의actor/island/order/limit/anchor/발급·만료/keyId결박을사용한다. 문자열UUID를직접opaque커서로받지않는다. 잘못된형식/위조/다른 사용자·섬400 INVALID_CURSOR,만료409 CURSOR_EXPIRED. 현재 인가를매페이지검증한다. legacyUUID커서/size clamp는원경로에서유지한다.
+
+Realtime저장DTO에는name/catColor가없다. Business는허가된메시지sender집합으로Data의최소표시projection을한번batch조회한다(`POST /internal/islands/{islandId}/message-authors`, 요청자가 그 섬의 활성 주민일 때만 답한다). 임의userId프로필조회가아니라요청자/섬/실제메시지작성자맥락에결박된내부계약이어야한다. 탈퇴상태와현재접근가능한display만반환하고email/provider/자산/개인 설정은금지한다. 현재 주민이아닌과거작성자의조회범위는 MQ03의보존규칙을따르며목록에서누락됐다고가짜프로필을만들지않는다. 여러서비스응답을동일DB snapshot이라고표현하지않는다.
+
+message.created의7필드(schemaVersion1,eventId,type,islandId,aggregateVersion,occurredAt,payload)를사용한다. payload={messageId,islandId,senderId,sentAt,clientMessageId} — **본문 text 는 싣지 않는다**(M02: 메시지 정본은 gromo_chat 뿐이고 Data 에 복제하지 않는다. 소비자는 messageId 로 gromo_chat 에서 읽는다),aggregateVersion=1,key=(message,id),고정eventId와occurredAt는메시지생성과연결한다. 새topic은`/topic/islands/{islandId}/messages`;legacyChatMessageResponse를이봉투로강제교체하지않는다. event에는name/catColor를몰래추가하지않고필요한profile은허가된GET/BFF정본으로얻는다.
+
+SUBSCRIBE RECEIPT확인→event버퍼→history설치→id 및(userId,clientMessageId)로병합한다. 서로다른메시지를aggregateVersion1로덮어쓰거나다른 사용자의같은client키를접지않는다. POST/이벤트/history가어떤순서여도낙관적말풍선은 1개다. 연결세대가바뀌면이전요청응답과이전페이지캐시를버리고 최신history 조회로 화면을재초기화한다. 현재 조회에서 받은 페이지 범위만 확인된 이력으로 취급하며 과거 탐색은 새 cursor로 이어간다. UUID 발급 순서와 커밋 순서는 다르므로 **마지막 known id에 도달했다고 누락 복구가 끝났다고 판정하지 않는다**. ID100의 늦은 커밋이 이미 본ID101보다 뒤에 보일 수 있다. 한 페이지나 고정N개 overlap은 무손실 복구 근거가 아니다.
+
+현재 history의 id DESC seek는 각 조회 시점에 보이는 저장 행을 탐색하는 계약이며, 여러 페이지가 고정된 하나의 snapshot이거나 모든 지연 커밋을 빠짐없이 읽는 보장은 없다. 새 조회는 최신 페이지에서 다시 시작하고 UI는 실제 읽은 범위만 표시한다. 과거 캐시와 합쳐 완전한 연속 이력이라고 표시하지 않는다. 범위밖 지연 커밋·누락 사건의 완전 자동 복구가 요구되면, 커밋 가시성을 가진 복구 cursor/log 또는 그와 동등하게 검증된 기반을 **모든 legacy/new writer와 함께** 먼저 구현하고1754/1755·앱 계약을 동기화해야 한다. 단순 DB sequence를 커밋순서라고 쓰지 않는다. 이 강화 보장은 현재 미구현이며 검증 전 활성화하지 않는다. 버퍼overflow/복구중단은 표시 범위를 재초기화하며 무한 버퍼를 만들지 않는다.
+
+## 6. 읽음·개인정보·검증
+
+ChatRoomService:58의unreadCount는본인배지, :113의markRead는해당방메시지확인후단조UPSERT다. peer에게읽음event를보내는서비스가아니다. MQ01결정전기존read/API/table유지,신규GET/POST에는read부수효과없음.새GET이자동markRead를호출하면원본“읽음전송없음”을깨므로추가하지않는다.
+
+기존ChatMessage문서는탈퇴후원문/senderId보존의도를갖지만개인정보 파기완료를증명하지않는다. 새이름/외양사본을영구저장하지않고계정 탈퇴제어가Realtime세션/권한/캐시/프로필projection및본인readcursor를정리할범위를명시한다. 원문보존기간/원문내개인정보의삭제요청은 MQ03결정과기존계정 파기정본으로정하며이설계가전체익명화를주장하지않는다. 파기제어는generation/epoch tombstone으로늦은재등록을차단하고중복삭제도멱등이어야한다. 사용자ID를유일키에서바꿔기존client키가새 메시지로재실행되지않게한다.
+
+로그에는requestId,messageId,단계,결과code,인가실패범주,fanout실패/지연·복구건수만남긴다. text/name/catColor/토큰·원키·원 상류 본문금지. broker내부Redis namespace/chatDB를개명때교체하지않는다.
+
+검증: 실제Servlet신규GET/POST와legacySTOMP같은저장소;키UUID/unknown/strictlimit;같은 키같은 본문·다른 본문·legacy먼저저장·두인스턴스경쟁;DB성공뒤응답/프로필/fanout실패;30개초과재연결·ID100지연커밋/ID101선행커밋·캐시무효화/정렬/cursor 및 knownID를완전복구로오인하지않음;historyprofile권한누출·탈퇴자null;Data권한장애failclosed·구독후이탈/강퇴·집중/휴식정책;공통CONNECT가focus/emote를막지않음;기존read/unreadAPI회귀. production권한seam을가짜override한테스트만으로인가완료를주장하지않는다.
+
+## 7. 차단 필터 — REST 조회(2181)
+
+2026-10-01 [결정 로그](../decision-log.md) RP-섬글조회필터(결정자 권태화, QA 2028~2033 후속)의 반영이다. 정책 근거는 [신고센터 정책](../character-report/policy.md) RP-차단.
+
+- **대상:** `GET /islands/{islandId}/messages`(신규 히스토리)의 반환 items. 요청자가 **차단한**(요청자=blocker) 사용자가 보낸 메시지를 뺀다. **한 방향**이다 — 상대가 나를 차단했다는 이유로 내 화면에서 상대 글을 빼지 않는다.
+- **원문은 지우지 않는다.** `gromo_chat` 의 메시지 행과 senderId 는 그대로이며, 차단을 해제하면 다음 조회부터 다시 보인다. 필터는 조회 시점의 차단 관계로만 판정하고 제외 표지를 따로 저장하지 않는다.
+- **실시간은 이 절의 범위가 아니다.** legacy 그룹 채팅 프레임(`/topic/groups/{id}`)과 응원의 차단 필터는 [실시간 LLD §4.3](../realtime-events/low-level-design.md#43-세션-기준-차단-필터2182)(2182)이 맡는다. **신규 섬 채팅 알림 `message.created` 는 2182 가 거르지 않는다** — 본문은 이 절의 REST 필터가 막지만 차단 상대가 새 메시지를 보냈다는 신호는 전달되며, §4.3 미결 목록에 남아 있다. 이 절만으로 「차단 상대의 채팅이 보이지 않는다」를 주장하지 않는다.
+- **페이징 불변식은 유지한다.** 제외 때문에 한 페이지가 limit 보다 짧아질 수 있다. 그래도 제외한 행 때문에 다음 페이지에서 메시지가 빠지거나 겹치면 안 된다.
+- **구현(PR #1054, main 머지).** 메시지 정본이 `gromo_chat` 이라 Data 쿼리로 뺄 수 없으므로 **판정은 Data, 제외는 Business** 가 한다. Data 의 `POST /internal/islands/{islandId}/message-authors`(§5) 응답에 `hiddenUserIds`(요청한 sender 중 요청자가 차단한 사람)를 추가하고 그 사람은 `authors` 에서 뺀다. Business `IslandMailboxUseCase` 가 그 sender 의 메시지를 제외하고, 페이지가 모자라면 같은 요청 안에서 다음 과거 페이지를 더 읽어 채운다(첫 읽기 포함 최대 3회, `MAX_FILL_ROUNDS`). limit 에 닿으면 **마지막으로 담은 메시지 id** 를 다음 anchor 로 쓴다 — Realtime 커서가 「이 id 보다 과거」라서 누락·중복이 없다. 상한에 닿으면 짧은(빈) 페이지와 non-null 커서가 나갈 수 있다.
+- **차단 조회 실패**를 「차단 없음」으로 간주해 전부 내려보내지 않는다. `message-authors` 호출 실패는 기존 공통 오류(503·504 등)로 드러낸다(§1 공통 규칙). 단 PR #1054 는 **`hiddenUserIds` 필드 자체가 없는 옛 Data 응답**을 배포 순서 호환을 위해 「숨길 사람 없음」으로 읽는다 — 호출 실패가 아니라 필드 부재이며, Data 가 먼저 배포되면 사라지는 창이다.
+- 적용 범위 밖: legacy `/api/v1/chat` 히스토리의 차단 필터는 이 결정이 정하지 않았다(결정 로그 미결 목록). 실시간 §4.3 은 legacy 그룹 채팅 프레임까지 거르므로, legacy 히스토리를 다시 읽으면 차단 상대 메시지가 보이는 비대칭이 남는다 — 별도 결정으로 다룬다.

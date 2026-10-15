@@ -1,0 +1,79 @@
+# prod 배포용. dev 와 같은 모양이고 값만 다르다 — 두 파일이 갈라지기 시작하면
+# 「dev 에선 되는데 prod 에서만」이 생긴다.
+#
+# ⚠️ 필수 시크릿에 «기본값을 주지 않는다». 기본값을 두면 시크릿이 안 꽂힌 채 부팅되고, 그 상태는
+#    상류의 401 로만 드러나 「인증 장애」로 오진된다. 아래 플레이스홀더가 비면 부팅이 실패한다 —
+#    그 실패가 배포 게이트다.
+jwt:
+  secret: ${JWT_SECRET}
+
+auth:
+  # 로그인 시도의 자격 digest 전용 비밀 (GROMO-1908 · 계정 LLD §3).
+  # ⚠️ jwt.secret 과 «다른 값»이어야 한다 — 한 키가 여러 용도를 겸하면 한쪽의 수명 정책
+  #    (로그인 복구 창 5분)이 다른 쪽(발급 토큰의 최대 만료)을 끌어내려 멀쩡한 세션이 끊긴다.
+  # ⚠️ 비거나 치환되지 않으면 «부팅이 실패»한다(CredentialDigest 의 RequiredConfig fail-fast).
+  #    비밀 없는 digest 는 「원 자격을 들고 있다」는 증거이기를 그만두는데, 로그인은 «정상 동작하는
+  #    것처럼» 보여서 그 상태가 사고 뒤에야 드러난다. 부팅 실패가 배포 게이트다.
+  login-attempt:
+    digest-secret: ${LOGIN_ATTEMPT_DIGEST_SECRET}
+
+link:
+  ip-salt: ${LINK_IP_SALT}
+  trusted-ip-headers: ${LINK_TRUSTED_IP_HEADERS:X-Link-Client-IP}
+  proxy-secret: ${LINK_PROXY_SECRET}
+
+business:
+  upstream:
+    data:
+      base-url: ${DATA_API_BASE_URL}
+      service-token: ${SVC_TOKEN_BIZ_TO_DATA}
+    notification:
+      base-url: ${NOTIFICATION_BASE_URL}
+      service-token: ${SVC_TOKEN_BIZ_TO_NOTI}
+    # GROMO-1775 우체통 — 실시간 서버. 두 값 모두 write-compose-env.py 의 business-api 필수 목록에 있어
+    # 시크릿에 없으면 env 생성이 배포 «전에» 실패한다(위 ⚠️ 와 같은 절차).
+    realtime:
+      base-url: ${REALTIME_BASE_URL}
+      service-token: ${SVC_TOKEN_BIZ_TO_REALTIME}
+    link:
+      base-url: ${LINK_BASE_URL}
+      service-token: ${SVC_TOKEN_BIZ_TO_LINK}
+  compat:
+    match-handler-enabled: ${COMPAT_MATCH_HANDLER_ENABLED:false}
+    import-contract-ready: ${COMPAT_IMPORT_CONTRACT_READY:false}
+    migration-id: ${COMPAT_MIGRATION_ID:}
+    # ⚠️ 기본 false. 재개 CLI 가 돌지 않는 평상시에 202 를 주면 큐만 쌓이고 아무도 끝내지 않는다.
+    claim-queue-replay-enabled: ${BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED:false}
+
+  # 일회성 재개 CLI. ⚠️ 서빙 컨테이너에서는 false 여야 한다 — 켜지면 부팅 직후 재개가 돌고 실패가
+  # 남으면 프로세스가 비정상 종료한다(그게 「미완료 0」 gate 다). 같은 이미지를 별도 job 으로 띄울
+  # 때만 켠다. 스케줄이 코드가 아니라 런북에 있으므로 서빙 프로세스에는 크론이 없다(§6).
+  claim-replay:
+    enabled: ${BUSINESS_CLAIM_REPLAY_ENABLED:false}
+
+  # 목록 커서 서명(GROMO-1759) — GET /islands·/islands/discover 두 목록만 쓴다.
+  # 자리표시자에 «기본값이 없어도» 리터럴 바인딩 함정(RequiredConfig 참고)에 걸리지 않는다:
+  # 세 변수는 write-compose-env.py 의 business-api 필수 목록에 있어, 시크릿에 없으면 env 생성이
+  # 배포 «전에» 실패한다. 즉 이 파일이 바인딩되는 시점엔 값이 반드시 있다.
+  # 키는 JWT 와 «독립»인 256비트 이상 base64. 회전은 keys 에 v2 를 더하고 active-key 를 옮기는
+  # 순서다 — 이전 키는 커서 만료창(≤15분) 동안 검증용으로 남는다.
+  # ⚠️ 회전 트랩: 아래 keys 블록에는 v1 «하나»만 있다. env 의 BUSINESS_CURSOR_ACTIVE_KEY 만 v2 로
+  # 바꾸면 keys 에 v2 가 없어 부팅이 떨어진다. 회전은 «이 파일에 keys.v2 를 더하는 코드 PR 이
+  # 먼저», 그 다음 env 의 active-key 를 옮기는 순서다 — env 값만으로는 회전할 수 없다.
+  cursor:
+    enabled: ${BUSINESS_CURSOR_ENABLED}
+    active-key: ${BUSINESS_CURSOR_ACTIVE_KEY:v1}
+    keys:
+      v1: ${BUSINESS_CURSOR_KEY_V1}
+
+# 운영에서는 문서 엔드포인트를 끈다 — AccessTokenFilter 의 /v0/api-docs/public 허용은
+# 매핑 자체가 없어 404 로 닫힌다(data-api 의 prod 와 같은 규율).
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+logging:
+  level:
+    com.oneorthree.business: INFO
