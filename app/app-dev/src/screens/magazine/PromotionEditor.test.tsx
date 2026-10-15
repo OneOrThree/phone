@@ -106,7 +106,9 @@ beforeEach(() => {
 async function ready(screen: any, step: EditorStep = 'stickers', frame = 'mag.frame-scallop') {
   await waitFor(() =>
     expect(
-      screen.queryByTestId('promotion-canvas') ?? screen.queryByTestId('promotion-frames'),
+      screen.queryByTestId('promotion-edit-ok') ??
+        screen.queryByTestId('promotion-canvas') ??
+        screen.queryByTestId('promotion-frames'),
     ).toBeTruthy(),
   );
   // 이미 올린 홍보면 「올린 홍보글을 수정하시겠습니까?」 — [수정]으로 들어간다
@@ -485,7 +487,7 @@ describe('싣기·고치기', () => {
     // 10/15 호 마감 전(KST 10/14 14:00)에 받은 성공 — 실제 시계면 그 호가 나온 뒤 「이미 나옴」이 되어 발도장이 없다
     const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-14T05:00:00Z'));
     try {
-      const { screen } = await open();
+      const { screen, e } = await open();
       apply.mockRejectedValueOnce(new ApiError('NETWORK', '연결', 0, { retryable: true }));
       await submit(screen);
       apply.mockResolvedValueOnce({
@@ -504,17 +506,10 @@ describe('싣기·고치기', () => {
         layout: { v: 1, frameId: 'mag.frame-scallop', stickers: [], tape: null },
       });
       expect(apply.mock.calls[1][2]).toBe(key);
-      // 접수 완료: 발도장 + 모달, 버튼은 고치기로(확인창 뒤라 스크린리더에서는 숨은 상태)
-      const hidden = { includeHiddenElements: true };
-      expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
-      expect(screen.getByText('내일 07시 호에 실려요. 자정까지 고칠 수 있어요')).toBeTruthy();
-      expect(screen.getByText('완료', hidden)).toBeTruthy();
-      // 확인창이 열린 동안 뒤의 편집기는 스크린리더에서 숨는다
-      const layer = () => screen.getByTestId('promotion-editor-layer', hidden).props;
-      expect(layer().accessibilityElementsHidden).toBe(true);
-      expect(layer().importantForAccessibility).toBe('no-hide-descendants');
-      await fireEvent.press(screen.getByTestId('promotion-done-ok'));
-      expect(layer().accessibilityElementsHidden).toBe(false);
+      // 실리면 토스트 한 줄과 함께 회관으로 돌아간다(접수 확인창·발도장 없음)
+      expect(screen.queryByTestId('promotion-stamp')).toBeNull();
+      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
+      expect(e.back).toHaveBeenCalledTimes(1);
     } finally {
       now.mockRestore();
     }
@@ -655,7 +650,8 @@ describe('신청 창·잔액·비공개', () => {
         }),
       );
       const driver: { current: EditorDriver | null } = { current: null };
-      const screen = await render(<PromotionEditor e={env()} driver={driver} />);
+      const e = env();
+      const screen = await render(<PromotionEditor e={e} driver={driver} />);
       await ready(screen);
       // 신청을 보내고 응답은 기다리지 않는다(누르기 act 가 겹치지 않게 대본 손잡이로 보낸다)
       await act(async () => {
@@ -674,21 +670,16 @@ describe('신청 창·잔액·비공개', () => {
           newsId: 'n',
         });
       });
-      // 늦은 성공 뒤에도 읽기 전용 그대로 — 서랍이 다시 열리거나 저장 버튼이 켜지지 않는다
-      const hidden = { includeHiddenElements: true }; // 늦은 성공으로 접수 완료 확인창이 떠 있다
-      expect(screen.queryByTestId('sticker-drawer', hidden)).toBeNull();
-      // 읽기 전용은 [완료] 없이 안내만
-      expect(screen.queryByTestId('promotion-submit', hidden)).toBeNull();
-      // 완료 안내도 이미 잠긴 오늘 07시 호로 — 「내일 · 자정까지 고칠 수 있어요」가 아니다
-      expect(
-        screen.getByText('오늘 07시 호에 실려요. 자정이 지나 더는 고칠 수 없어요'),
-      ).toBeTruthy();
+      // 늦은 성공 — 이미 잠긴 칸이라도 실린 것은 맞다: 토스트 한 줄과 함께 회관으로
+      expect(screen.queryByTestId('sticker-drawer')).toBeNull();
+      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
+      expect(e.back).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('응답 유실 뒤 자정을 넘겨 같은 키로 다시 보내 성공을 받으면, 오늘 07시 호 · 고칠 수 없음으로 안내한다', async () => {
+  it('응답 유실 뒤 자정을 넘겨 같은 키로 다시 보내 성공을 받으면 실린 것으로 알리고 회관으로', async () => {
     // 앱이 뒤에 있어 자정 다시 읽기가 돌지 않은 채(타이머는 그대로) 시계만 자정을 넘긴 경우
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:30Z') }); // KST 23:59:30
     try {
@@ -703,7 +694,8 @@ describe('신청 창·잔액·비공개', () => {
           newsId: 'n',
         });
       const driver: { current: EditorDriver | null } = { current: null };
-      const screen = await render(<PromotionEditor e={env()} driver={driver} />);
+      const e = env();
+      const screen = await render(<PromotionEditor e={e} driver={driver} />);
       await ready(screen);
       await act(async () => {
         await driver.current!.submit();
@@ -714,28 +706,22 @@ describe('신청 창·잔액·비공개', () => {
       });
       expect(apply).toHaveBeenCalledTimes(2);
       expect(apply.mock.calls[1][2]).toBe(apply.mock.calls[0][2]);
-      expect(
-        screen.getByText('오늘 07시 호에 실려요. 자정이 지나 더는 고칠 수 없어요'),
-      ).toBeTruthy();
-      expect(screen.queryByText('내일 07시 호에 실려요. 자정까지 고칠 수 있어요')).toBeNull();
-      // 화면도 읽기 전용 — 서랍이 없고 저장 버튼이 꺼져 있다
-      const hidden = { includeHiddenElements: true };
-      expect(screen.queryByTestId('sticker-drawer', hidden)).toBeNull();
-      // 읽기 전용은 [완료] 없이 안내만
-      expect(screen.queryByTestId('promotion-submit', hidden)).toBeNull();
+      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
+      expect(e.back).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('23:59 에 보낸 신청의 응답이 다시 읽기 없이 00:05 에 오면, 잠긴 오늘 07시 호로 안내하고 읽기 전용이 된다', async () => {
+  it('23:59 에 보낸 신청의 응답이 다시 읽기 없이 00:05 에 와도 실린 것으로 알리고 회관으로', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:00Z') }); // KST 23:59
     try {
       let succeed: (v: unknown) => void = () => {};
       apply.mockReturnValueOnce(new Promise((resolve) => (succeed = resolve)));
       getEditor.mockResolvedValueOnce(editorResponse());
       const driver: { current: EditorDriver | null } = { current: null };
-      const screen = await render(<PromotionEditor e={env()} driver={driver} />);
+      const e = env();
+      const screen = await render(<PromotionEditor e={e} driver={driver} />);
       await ready(screen);
       await act(async () => {
         void driver.current!.submit();
@@ -750,19 +736,15 @@ describe('신청 창·잔액·비공개', () => {
           newsId: 'n',
         });
       });
-      const hidden = { includeHiddenElements: true };
-      expect(screen.getByTestId('promotion-done-body').props.children).toBe(
-        '오늘 07시 호에 실려요. 자정이 지나 더는 고칠 수 없어요',
-      );
-      expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
-      expect(screen.queryByTestId('sticker-drawer', hidden)).toBeNull();
+      expect(e.notify).toHaveBeenCalledWith('잡지에 실렸어요');
+      expect(e.back).toHaveBeenCalledTimes(1);
       expect(getEditor).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('06:59 에 다시 보낸 지난 호 신청의 성공이 07시 다시 읽기 뒤(07:05)에 오면, 새 신청 창을 덮지 않고 이미 나온 호로 안내한다', async () => {
+  it('06:59 에 다시 보낸 지난 호 신청의 성공이 07시 다시 읽기 뒤(07:05)에 오면 이미 나온 호로 알리고 회관으로', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:30Z') }); // KST 23:59:30
     try {
       const published = {
@@ -791,7 +773,8 @@ describe('신청 창·잔액·비공개', () => {
         .mockRejectedValueOnce(new ApiError('NETWORK', '연결', 0, { retryable: true }))
         .mockReturnValueOnce(new Promise((resolve) => (succeed = resolve)));
       const driver: { current: EditorDriver | null } = { current: null };
-      const screen = await render(<PromotionEditor e={env()} driver={driver} />);
+      const e = env();
+      const screen = await render(<PromotionEditor e={e} driver={driver} />);
       await ready(screen);
       await act(async () => {
         await driver.current!.submit(); // 23:59:30 — 응답 유실
@@ -815,19 +798,10 @@ describe('신청 창·잔액·비공개', () => {
           newsId: 'n',
         });
       });
-      const hidden = { includeHiddenElements: true };
-      expect(screen.getByTestId('promotion-done-body').props.children).toBe(
+      expect(e.notify).toHaveBeenCalledWith(
         '10월 15일 07시 호가 이미 나왔어요. 잡지에서 확인해 보세요',
       );
-      // 새 신청 창 그대로 — 지난 호 칸이 next 로 들어가 읽기 전용이 되지 않고, 도장도 찍지 않는다
-      expect(screen.getByText('완료', hidden)).toBeTruthy();
-      expect(screen.getByTestId('promotion-submit', hidden).props.accessibilityState.disabled).toBe(
-        false,
-      );
-      expect(screen.getByTestId('sticker-drawer', hidden)).toBeTruthy();
-      expect(screen.queryByTestId('promotion-stamp', hidden)).toBeNull();
-      // 서버 상태(잔액 등)는 다시 읽어 맞춘다
-      await waitFor(() => expect(getEditor).toHaveBeenCalledTimes(3));
+      expect(e.back).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
     }
@@ -882,74 +856,6 @@ describe('신청 창·잔액·비공개', () => {
     }
   });
 
-  it('접수 확인창을 연 채 자정·다음 날 07시 다시 읽기를 넘겨도 문구는 그대로이고, 07시 새 신청 창에서 지난 발도장을 걷는다', async () => {
-    jest.useFakeTimers({ now: Date.parse('2026-10-14T14:58:00Z') }); // KST 23:58
-    try {
-      const published = {
-        promotionId: 'p1',
-        issueDate: '2026-10-15',
-        body: '같이 공부해요!',
-        layout: LAYOUT,
-      };
-      getEditor
-        .mockResolvedValueOnce(editorResponse())
-        // 자정: 낸 칸이 잠긴다
-        .mockResolvedValueOnce(
-          editorResponse({
-            window: { ...editorResponse().window, open: false },
-            next: { ...published, appliedAt: 'x', editable: false },
-          }),
-        )
-        // 07시: 낸 칸이 실려 지난 칸(latest)이 되고 다음 호(10/16) 창이 열린다
-        .mockResolvedValueOnce(
-          editorResponse({
-            window: {
-              open: true,
-              issueDate: '2026-10-16',
-              opensAt: '2026-10-14T22:00:00Z',
-              closesAt: '2026-10-15T15:00:00Z',
-            },
-            next: null,
-            latest: published,
-            balance: 1180,
-          }),
-        );
-      apply.mockResolvedValueOnce({
-        promotionId: 'p1',
-        issueDate: '2026-10-15',
-        feeFish: 60,
-        balanceAfter: 1180,
-        newsId: 'n',
-      });
-      const driver: { current: EditorDriver | null } = { current: null };
-      const screen = await render(<PromotionEditor e={env()} driver={driver} />);
-      await ready(screen);
-      await act(async () => {
-        await driver.current!.submit();
-      });
-      const hidden = { includeHiddenElements: true };
-      const doneBody = () => screen.getByTestId('promotion-done-body').props.children;
-      expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
-      expect(doneBody()).toBe('내일 07시 호에 실려요. 자정까지 고칠 수 있어요');
-      // 확인창은 닫지 않는다 — 문구는 연 때의 신청 결과로 고정이다
-      await act(async () => {
-        jest.advanceTimersByTime(121_000); // 00:00:01 — 잠김(도장은 그대로: 낸 칸이다)
-      });
-      await waitFor(() => expect(getEditor).toHaveBeenCalledTimes(2));
-      expect(screen.getByTestId('promotion-stamp', hidden)).toBeTruthy();
-      expect(doneBody()).toBe('내일 07시 호에 실려요. 자정까지 고칠 수 있어요');
-      await act(async () => {
-        jest.advanceTimersByTime(7 * 3600_000); // 07:00:01 — 새 신청 창
-      });
-      await waitFor(() => expect(screen.getByText('완료', hidden)).toBeTruthy());
-      expect(getEditor).toHaveBeenCalledTimes(3);
-      expect(screen.queryByTestId('promotion-stamp', hidden)).toBeNull();
-      expect(doneBody()).toBe('내일 07시 호에 실려요. 자정까지 고칠 수 있어요');
-    } finally {
-      jest.useRealTimers();
-    }
-  });
-
   it('열어 둔 채 자정(closesAt)이 지나면 다시 읽어 읽기 전용이 된다', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-10-14T14:59:00Z') }); // KST 23:59
     try {
@@ -969,7 +875,7 @@ describe('신청 창·잔액·비공개', () => {
         }),
       );
       const screen = await render(<PromotionEditor e={env()} />);
-      await waitFor(() => expect(screen.getByText('완료')).toBeTruthy());
+      await ready(screen); // 「올린 홍보글을 수정하시겠습니까?」 → [수정]
       // 고치다가 저장하지 않고 자정을 넘긴다
       await fireEvent.press(screen.getByTestId('promotion-back'));
       await fireEvent.changeText(screen.getByTestId('promotion-body'), '저장 안 한 글');
