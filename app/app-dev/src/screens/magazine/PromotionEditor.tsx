@@ -716,7 +716,7 @@ export function PromotionEditor({
               kind="meta"
               style={{ textAlign: 'center', paddingHorizontal: semanticTokens.spacing.page }}
             >
-              {readOnly ? t('magazine.editor.locked') : t('magazine.editor.hint')}
+              {readOnly ? t('magazine.editor.locked') : null}
             </Txt>
           )}
         </View>

@@ -744,8 +744,7 @@
       "body": "One-line message",
       "bodyPlaceholder": "Introduce your island in one line",
       "bodyEmpty": "Write a one-line message",
-      "hint": "Drag to move · two fingers to resize and rotate · up to 10",
-      "stickersFull": "You can add up to 10 stickers",
+      "stickersFull": "You can add up to 5 stickers",
       "tapes": "Masking tape · 1",
       "tabs": {
         "cat": "Cats",

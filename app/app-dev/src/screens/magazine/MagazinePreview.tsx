@@ -105,7 +105,7 @@ export function MagazinePreview() {
 /**
  * 개발 전용 — 홍보 쓰기 화면(PromotionEditor)을 목업 서버(EXPO_PUBLIC_DEMO=1 · EXPO_PUBLIC_MAGAZINE_MOCK)로 띄우고, 손가락 없이
  * 대본대로 판의 PanResponder 에 진짜 터치 모양 이벤트(touchDriver)와 버튼 동작을 5초마다 하나씩 넣는다. 위 띠에 단계 이름이
- * 보여 시뮬레이터 캡처만으로 끌기 · 두 손가락 크기·회전 · 손잡이 · 맨 앞으로 · 지우기 · 10개 제한 · 테이프 · 접수 완료를 훑는다.
+ * 보여 시뮬레이터 캡처만으로 끌기 · 두 손가락 크기·회전 · 손잡이 · 맨 앞으로 · 지우기 · 5개 제한 · 테이프 · 접수 완료를 훑는다.
  * `EXPO_PUBLIC_MAGAZINE_PREVIEW=editor` 로 Metro 를 띄운다.
  */
 export function MagazineEditorPreview() {
@@ -183,10 +183,10 @@ export function MagazineEditorPreview() {
       ],
       ['11 고른 것 지우기', () => driver.current!.op('delete')],
       [
-        '12 스티커 10개 채우고 11번째(안내)',
+        '12 스티커 5개 채우고 6번째(안내)',
         async () => {
           // 실제 탭처럼 한 번 붙일 때마다 화면이 다시 그려지게 사이를 둔다
-          for (let i = 0; i < 9; i++) {
+          for (let i = 0; i < 4; i++) {
             driver.current!.sticker(i % 2 ? 'mag.heart' : 'mag.fish');
             await new Promise((r) => setTimeout(r, 60));
           }

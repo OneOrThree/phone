@@ -1,4 +1,4 @@
-// 우리 섬 홍보 쓰기(GROMO-2289 · C1·C2) — 지난 칸으로 열기 · 새로 꾸미기 · 10개 제한 · 신청(멱등 키·본문) · 오류 코드별 안내 ·
+// 우리 섬 홍보 쓰기(GROMO-2289 · C1·C2) — 지난 칸으로 열기 · 새로 꾸미기 · 5개 제한 · 신청(멱등 키·본문) · 오류 코드별 안내 ·
 // 게스트 → 회원 전환 · 접수 완료 발도장 · 고치기 · 자정 뒤 읽기 전용 · 07시 다시 열림 · 잔액 부족 · 섬장 아님 ·
 // 칸 위 손가락(끌기 · 두 손가락 크기·회전 · 손잡이 · 빈 곳 톡 · 테이프 붙이기) · 스크린리더 동작.
 // 서버 API(magazine.ts)는 목이다. 손가락은 touchDriver 로 판의 PanResponder 에 진짜 터치 모양 이벤트를 넣는다.
@@ -248,14 +248,15 @@ describe('작은 화면·큰 글자·고르기', () => {
 });
 
 describe('스티커·테이프·틀·글', () => {
-  it('서랍에서 붙이면 가운데에 붙고 11번째는 안내만 뜬다', async () => {
+  it('서랍에서 붙이면 가운데에 붙고 6번째는 안내만 뜬다', async () => {
     const { screen, e } = await open({ latest: null });
-    for (let i = 0; i < 10; i++)
+    for (let i = 0; i < 5; i++)
       await fireEvent.press(screen.getByTestId('drawer-mag.cat-black-book'));
-    expect(stickerStyles(screen)).toHaveLength(10);
+    expect(stickerStyles(screen)).toHaveLength(5);
+    expect(e.notify).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByTestId('drawer-mag.cat-black-book'));
-    expect(stickerStyles(screen)).toHaveLength(10);
-    expect(e.notify).toHaveBeenCalledWith('스티커는 10개까지 붙일 수 있어요');
+    expect(stickerStyles(screen)).toHaveLength(5);
+    expect(e.notify).toHaveBeenCalledWith('스티커는 5개까지 붙일 수 있어요');
     // 본문도 세로 스크롤이라 Android 에서 안쪽 서랍이 제스처를 받는다
     expect(screen.getByTestId('sticker-drawer').props.nestedScrollEnabled).toBe(true);
   });

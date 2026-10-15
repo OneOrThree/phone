@@ -1,4 +1,4 @@
-// 잡지 칸 레이아웃 순수 함수(GROMO-2289) — 비율 좌표 ↔ 픽셀 왕복, 범위 자르기, 10개 제한, 테이프 교체·테두리 붙이기,
+// 잡지 칸 레이아웃 순수 함수(GROMO-2289) — 비율 좌표 ↔ 픽셀 왕복, 범위 자르기, 5개 제한, 테이프 교체·테두리 붙이기,
 // 맨 앞으로, 꾸미기 순서 뒤 저장 JSON, 보내기 전 검사, 틀마다 60자 글이 들어가는 글자 배율.
 import { componentTokens } from '@/design-system/tokens';
 import { MAGAZINE_FRAMES } from '@/constants/magazineAssets';
@@ -69,10 +69,10 @@ describe('범위 자르기', () => {
 });
 
 describe('스티커', () => {
-  it('11번째 스티커는 붙지 않는다(같은 스티커 여러 장은 된다)', () => {
+  it('6번째 스티커는 붙지 않는다(같은 스티커 여러 장은 된다)', () => {
     let layout = emptyLayout(FRAME);
     for (let i = 0; i < MAX_STICKERS; i++) layout = addSticker(layout, 'mag.heart')!;
-    expect(layout.stickers).toHaveLength(10);
+    expect(layout.stickers).toHaveLength(5);
     expect(addSticker(layout, 'mag.star')).toBeNull();
   });
 
@@ -132,8 +132,8 @@ describe('보내기 전 검사', () => {
 
   it('정상이면 null, 문제가 있으면 서버 field 와 같은 위치를 준다', () => {
     expect(layoutProblem(ok)).toBeNull();
-    const eleven = { ...ok, stickers: Array.from({ length: 11 }, () => ok.stickers[0]) };
-    expect(layoutProblem(eleven)).toBe('layout.stickers[10]');
+    const six = { ...ok, stickers: Array.from({ length: 6 }, () => ok.stickers[0]) };
+    expect(layoutProblem(six)).toBe('layout.stickers[5]');
     expect(layoutProblem({ ...ok, stickers: [{ ...ok.stickers[0], scale: 0.7 }] })).toBe(
       'layout.stickers[0]',
     );

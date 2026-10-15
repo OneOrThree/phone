@@ -25,7 +25,7 @@ export type PromotionLayout = {
 };
 
 export const CELL_ASPECT = componentTokens.magazineCell.aspect;
-export const MAX_STICKERS = 10;
+export const MAX_STICKERS = 5;
 export const BODY_MAX = 60;
 /** 칸 둘레 8% 까지 걸치기를 허용한다. */
 export const POS_MIN = -0.08;
@@ -65,7 +65,7 @@ export function clampSticker(s: StickerPlacement): StickerPlacement {
   };
 }
 
-/** 10개가 차 있으면 null — 화면이 「스티커는 10개까지」 안내를 띄운다. 같은 스티커 여러 장은 허용(P11). */
+/** 5개가 차 있으면 null — 화면이 「스티커는 5개까지」 안내를 띄운다. 같은 스티커 여러 장은 허용(P11). */
 export function addSticker(layout: PromotionLayout, assetId: string): PromotionLayout | null {
   if (layout.stickers.length >= MAX_STICKERS) return null;
   return { ...layout, stickers: [...layout.stickers, { assetId, ...NEW_STICKER }] };
@@ -157,7 +157,7 @@ export function toNormalized(cx: number, cy: number, width: number) {
 }
 
 /**
- * 보내기 전 검사 — 문제가 있으면 서버 오류의 field 와 같은 모양의 위치(`layout.stickers[10]`)를, 없으면 null.
+ * 보내기 전 검사 — 문제가 있으면 서버 오류의 field 와 같은 모양의 위치(`layout.stickers[5]`)를, 없으면 null.
  * knownIds 를 주면 이 앱이 모르는 재료도 걸러낸다(서버는 보유 여부까지 본다).
  */
 export function layoutProblem(

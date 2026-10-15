@@ -122,7 +122,7 @@ type Gesture =
  *  - 고른 꾸미기 오른쪽 아래 손잡이를 한 손가락으로 끌면 크기·회전(두 손가락이 어려울 때).
  * 범위 자르기는 layout.ts 의 같은 함수를 쓴다. 테이프는 크기가 없고, 손을 떼면 가장 가까운 테두리 띠에 붙는다.
  * 움직이는 동안의 값은 한 화면 그리기(requestAnimationFrame)에 한 번만 올려 보낸다.
- * ponytail: 매 프레임 칸을 다시 그린다(스티커 최대 10장) — 실기기에서 끊기면 고른 스티커만 Animated 로 띄운다.
+ * ponytail: 매 프레임 칸을 다시 그린다(스티커 최대 5장) — 실기기에서 끊기면 고른 스티커만 Animated 로 띄운다.
  */
 export function useStickerGestures({
   width,
