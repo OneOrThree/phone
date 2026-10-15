@@ -1,8 +1,7 @@
-import React, { useContext, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityActionEvent,
   ActivityIndicator,
-  Animated,
   BackHandler,
   Image,
   Keyboard,
@@ -11,7 +10,6 @@ import {
   ScrollView,
   View,
 } from 'react-native';
-import { MotionContext } from '@/design-system/primitives';
 import { Btn, CharCount, Chevron, Overlay, Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
@@ -20,7 +18,6 @@ import { art } from '@/constants/art';
 import {
   DEFAULT_FRAME_ID,
   MAGAZINE_FRAMES,
-  MAGAZINE_STAMP,
   MAGAZINE_UI,
   StickerTab,
 } from '@/constants/magazineAssets';
@@ -46,7 +43,7 @@ import {
 } from './layout';
 import { StickerDrawer, assetName } from './StickerDrawer';
 import { issueDateText } from './MagazineReader';
-import { AppliedPhase, EditorProblem, usePromotionEditor } from './usePromotionEditor';
+import { EditorProblem, usePromotionEditor } from './usePromotionEditor';
 import { CANVAS_PAD, handlePoint, itemBox, useStickerGestures } from './useStickerGestures';
 
 type IslandFacts = Omit<AdCellData, 'body' | 'layout'>;
@@ -67,7 +64,6 @@ export type EditorDriver = {
   op: (op: EditOp) => void;
   step: (step: EditorStep) => void;
   submit: () => void;
-  closeDone: () => void;
 };
 
 /** 쓰기 단계(10/15) — 칸 틀을 고르고, 칸 안에서 한 줄 글을 쓰고, 글이 있어야 스티커를 붙인다. */
@@ -151,7 +147,6 @@ export function PromotionEditor({
 }) {
   const state: State = e.state;
   const L = useAppLayout();
-  const reduceMotion = useContext(MotionContext);
   const mock = isMockMode();
   const base = editorIsland(state, !!e.islands);
   // 목업 QA: EXPO_PUBLIC_MAGAZINE_MOCK=member 면 섬장이 아닌 주민으로 본다
@@ -180,19 +175,14 @@ export function PromotionEditor({
   const [pageBox, setPageBox] = useState({ width: 0, height: 0 });
   const [problem, setProblem] = useState<EditorProblem | null>(null);
   // 접수 완료 확인창 — 열 때의 신청 결과(호 · 시점)로 문구를 고정한다(뒤이은 다시 읽기로 바뀌지 않게). null 이면 닫힘
-  const [done, setDone] = useState<{ issueDate: string; phase: AppliedPhase } | null>(null);
-  const [stamped, setStamped] = useState(false);
   // 싣기 전 가격 안내창
   const [confirming, setConfirming] = useState(false);
   const touched = useRef(false);
-  const stamp = useRef(new Animated.Value(0)).current;
 
   // 처음 불러온 칸(다음 호 → 지난번 칸 → 빈 칸)으로 연다. 사용자가 고치기 시작한 뒤 다시 읽어도 고친 것은 두고 모드만 바꾼다.
   // 단 마감(자정)으로 읽기 전용이 되면 저장 안 한 고친 것은 실리지 않는다 — 서버에 남은(잡지에 실릴) 칸으로 되돌린다
   useEffect(() => {
     if (!editor) return;
-    // 신청 창이 새 호로 넘어가면(07시 다시 읽기 — 낸 칸이 실려 next 가 비었다) 지난 접수 발도장을 걷는다
-    if (!editor.next) setStamped(false);
     const locked = !!editor.next && !editor.next.editable;
     if (touched.current && !locked) return;
     // 새로 쓰면 빈 종이에서 시작한다(10/15 — 지난번 글·스티커를 채워 두지 않는다). 이미 낸 홍보만 그 칸으로 연다
@@ -210,7 +200,6 @@ export function PromotionEditor({
 
   const edit = (next: PromotionLayout) => {
     touched.current = true;
-    setStamped(false);
     setLayout(next);
   };
   const readOnly = !!editor?.next && !editor.next.editable;
@@ -297,7 +286,6 @@ export function PromotionEditor({
     // 한 줄 글 — 서버는 줄바꿈·탭 같은 제어 문자와 U+2028·U+2029 를 거절한다(400). 붙여 넣은 것은 띄어쓰기로 바꾸고,
     // 길이는 서버처럼 코드포인트로 자른다
     touched.current = true;
-    setStamped(false);
     setBody(clampCodePoints(text.replace(LINE_BREAKERS, ' '), BODY_MAX));
     if (problem?.field === 'body') setProblem(null);
   };
@@ -316,19 +304,16 @@ export function PromotionEditor({
     const result = await submit({ body: trimmed, layout });
     if ('ok' in result) {
       setSelection(null);
-      if (result.ok === 'updated') return e.notify(t('magazine.editor.saved'));
-      setDone({ issueDate: result.issueDate, phase: result.phase });
-      // 이미 나온 호면 지금 칸은 새 신청 창의 칸이다 — 접수 도장을 찍지 않는다
-      if (result.phase === 'published') return;
-      setStamped(true);
-      stamp.setValue(reduceMotion ? 1 : 0);
-      if (!reduceMotion)
-        Animated.spring(stamp, {
-          toValue: 1,
-          useNativeDriver: true,
-          speed: 14,
-          bounciness: 9,
-        }).start();
+      // 싣거나(물고기를 냈으면) 고쳐 저장하면 회관으로 돌아간다(10/15) — 알림은 토스트 한 줄.
+      // 늦은 성공이 이미 나온 호에 들어갔으면(07시 뒤) 그 호를 알려 준다
+      e.notify(
+        result.ok === 'updated'
+          ? t('magazine.editor.saved')
+          : result.phase === 'published'
+            ? t('magazine.editor.doneBodyPublished', { date: issueDateText(result.issueDate) })
+            : t('magazine.editor.doneTitle'),
+      );
+      e.back();
       return;
     }
     if (!result.problem.message) return;
@@ -353,7 +338,6 @@ export function PromotionEditor({
       op: (op) => selection && doEdit(selection, op),
       step: setStep,
       submit: send,
-      closeDone: () => setDone(null),
     };
 
   const header = (
@@ -412,8 +396,8 @@ export function PromotionEditor({
       <View
         testID="promotion-editor-layer"
         style={{ flex: 1 }}
-        accessibilityElementsHidden={!!done || confirming}
-        importantForAccessibility={done || confirming ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={confirming}
+        importantForAccessibility={confirming ? 'no-hide-descendants' : 'auto'}
       >
         {header}
         {content}
@@ -450,22 +434,6 @@ export function PromotionEditor({
               }}
             />
           </View>
-        </Overlay>
-      )}
-      {done && (
-        <Overlay close={() => setDone(null)}>
-          <Txt kind="h17">{t('magazine.editor.doneTitle')}</Txt>
-          {/* 성공을 받은 시점으로 고른다 — 마감 전 「내일 · 자정까지」, 자정 뒤 「오늘 · 더는 못 고침」, 발행 뒤 「이미 나옴」 */}
-          <Txt testID="promotion-done-body">
-            {done.phase === 'published'
-              ? t('magazine.editor.doneBodyPublished', { date: issueDateText(done.issueDate) })
-              : t(
-                  done.phase === 'locked'
-                    ? 'magazine.editor.doneBodyLocked'
-                    : 'magazine.editor.doneBody',
-                )}
-          </Txt>
-          <Btn id="promotion-done-ok" title={t('common.ok')} onPress={() => setDone(null)} />
         </Overlay>
       )}
     </View>
@@ -862,33 +830,6 @@ export function PromotionEditor({
                   backgroundColor: semanticTokens.color.surface,
                 }}
               />
-            )}
-            {stamped && (
-              // 판의 손가락 기준점이 흔들리지 않게 도장은 터치를 받지 않는다
-              <View
-                pointerEvents="none"
-                style={{
-                  position: 'absolute',
-                  left: pad.x + cellW * 0.6,
-                  top: pad.y + cellH * 0.3,
-                }}
-              >
-                <Animated.Image
-                  testID="promotion-stamp"
-                  accessibilityLabel={t('magazine.editor.stampA11y')}
-                  source={MAGAZINE_STAMP}
-                  resizeMode="contain"
-                  style={{
-                    width: cellW * 0.38,
-                    height: cellW * 0.38,
-                    opacity: stamp,
-                    transform: [
-                      { scale: stamp.interpolate({ inputRange: [0, 1], outputRange: [1.8, 1] }) },
-                      { rotate: '-10deg' },
-                    ],
-                  }}
-                />
-              </View>
             )}
             {layout.stickers.map((_, i) => a11yItem({ kind: 'sticker', index: i }, `sticker-${i}`))}
             {layout.tape && a11yItem({ kind: 'tape' }, 'tape')}

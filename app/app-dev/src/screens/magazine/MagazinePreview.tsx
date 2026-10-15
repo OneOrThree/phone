@@ -207,7 +207,6 @@ export function MagazineEditorPreview() {
       ],
       ['15 다른 테이프로 바꿔 끼우기(민트)', () => driver.current!.tape('mag.tape-mint')],
       ['16 잡지에 싣기 → 접수 완료', () => driver.current!.submit()],
-      ['17 확인 → 고치기 모드', () => driver.current!.closeDone()],
     ];
     (async () => {
       await new Promise((r) => setTimeout(r, 3000));
