@@ -7554,7 +7554,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const liveApp = !!e && !isMockMode();
   // 서버 우체통(GROMO-2016): 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 목업·갤러리는 0콜이다.
   const serverMail = liveApp && !state?.visitingIslandId;
-  const mail = useMailbox({ active: serverMail, scopeKey: island ? String(island.id) : 'mock' });
+  const mail = useMailbox({
+    active: serverMail,
+    scopeKey: island ? String(island.id) : 'mock',
+    chatActive: e?.route === 'chat',
+  });
   // 서버는 아바타 색을 주지 않는다 — userId 로 deterministic 하게 고른다.
   const mailCat = (id: string): Cat =>
     (['gray', 'cream', 'ginger', 'black', 'calico', 'white'] as Cat[])[
@@ -7979,6 +7983,31 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     setGroupSent(true);
     showToast('소다 섬 주민 모두에게 남겼어요');
   };
+  const mailRetry = (error: ApiError, testID: string, onRetry: () => void) => (
+    <View style={{ paddingVertical: 30, alignItems: 'center', rowGap: 8 }}>
+      <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
+        {error.message}
+      </Text>
+      <Pressable
+        testID={testID}
+        accessibilityRole="button"
+        onPress={onRetry}
+        style={{
+          minHeight: 28,
+          paddingVertical: 5,
+          paddingHorizontal: 12,
+          justifyContent: 'center',
+          borderWidth: 1.2,
+          borderColor: '#795642',
+          borderRadius: 7,
+          backgroundColor: '#fff8e8',
+          boxShadow: '0 2px 0 #795642',
+        }}
+      >
+        <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>다시 시도</Text>
+      </Pressable>
+    </View>
+  );
   const islandRoom = (
     <>
       {header(
@@ -8027,6 +8056,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               아직 남긴 글이 없어요.
             </Text>
           ) : null}
+          {serverMail &&
+            mail.messagesRefreshError &&
+            mailRetry(mail.messagesRefreshError, 'chat-refresh-retry', () =>
+              mail.retry().catch(() => {}),
+            )}
           {serverMail && mail.messagesCursor ? (
             <Pressable
               testID="chat-more"
@@ -8146,31 +8180,6 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const mailStatus = (label: string) => (
     <View style={{ paddingVertical: 30, alignItems: 'center' }}>
       <Text style={mailFont(8, 1.4, '#826c5b', '800')}>{label}</Text>
-    </View>
-  );
-  const mailRetry = (error: ApiError, testID: string, onRetry: () => void) => (
-    <View style={{ paddingVertical: 30, alignItems: 'center', rowGap: 8 }}>
-      <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
-        {error.message}
-      </Text>
-      <Pressable
-        testID={testID}
-        accessibilityRole="button"
-        onPress={onRetry}
-        style={{
-          minHeight: 28,
-          paddingVertical: 5,
-          paddingHorizontal: 12,
-          justifyContent: 'center',
-          borderWidth: 1.2,
-          borderColor: '#795642',
-          borderRadius: 7,
-          backgroundColor: '#fff8e8',
-          boxShadow: '0 2px 0 #795642',
-        }}
-      >
-        <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>다시 시도</Text>
-      </Pressable>
     </View>
   );
   const unreadCount = serverMail ? mail.letters.filter((l) => !l.isRead).length : letters.length;
