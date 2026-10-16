@@ -6,7 +6,6 @@ import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 
 let presenceOpts: any;
-let mockStatus = 'ready';
 let mockFocusMembers: object[] = [];
 const mockSendEmote = jest.fn(() => true);
 
@@ -15,7 +14,7 @@ jest.mock('@/screens/focus/useIslandPresence', () => ({
   useIslandPresence: (opts: any) => {
     presenceOpts = opts;
     return {
-      status: mockStatus,
+      status: 'ready',
       error: null,
       focus: mockFocusMembers,
       rest: [],
@@ -144,7 +143,6 @@ const mount = async (state: State) => {
 
 beforeEach(async () => {
   jest.clearAllMocks();
-  mockStatus = 'ready';
   mockFocusMembers = [];
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
@@ -163,5 +161,23 @@ test('비주민 방문자의 낚시 구경 화면에는 응원 버튼이 없고 
 
 test('내 다른 소속 섬(주민)을 구경해도 같다', async () => {
   const { screen } = await mount(visitState('active'));
+  expectNoEmote(screen);
+});
+
+test('집중 중인 주민이 있어도 방문자 화면에는 응원 버튼이 없다', async () => {
+  mockFocusMembers = [
+    {
+      userId: 'u1',
+      name: '주민',
+      catColor: 'gray',
+      appearance: null,
+      sessionId: 's1',
+      subject: '수학',
+      activeSeconds: 60,
+      status: 'active',
+      anchorMs: 0,
+    },
+  ];
+  const { screen } = await mount(visitState('none'));
   expectNoEmote(screen);
 });
