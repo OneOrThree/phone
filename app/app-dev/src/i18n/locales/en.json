@@ -157,7 +157,10 @@
       "wardrobeSub": "Clothes · Accessories",
       "friendsTitle": "Manage Friends",
       "friendsSub": "Find friends · Requests · Friend list",
-      "friendRequestCount": { "one": "{{count}} request", "other": "{{count}} requests" },
+      "friendRequestCount": {
+        "one": "{{count}} request",
+        "other": "{{count}} requests"
+      },
       "settingsTitle": "App Settings",
       "settingsSub": "Notifications · Sound · App permissions · Replay tutorial"
     },
@@ -264,7 +267,10 @@
     "createIsland": {
       "capacityLabel": "Capacity · up to {{max}}",
       "capacityA11y": "Capacity",
-      "capacityUnit": { "one": "{{count}} resident", "other": "{{count}} residents" },
+      "capacityUnit": {
+        "one": "{{count}} resident",
+        "other": "{{count}} residents"
+      },
       "approvalAfterJoin": "Approval to Join",
       "approvalAfterJoinSub": "Residents join only after the host approves",
       "title": "Create a New Island",
@@ -377,7 +383,10 @@
     "build": "Build {{building}}",
     "buildProgress": "{{current}}/{{total}} fish",
     "buildInProgress": "{{building}} under construction",
-    "buildMinutesLeft": { "one": "{{count}} minute left", "other": "{{count}} minutes left" },
+    "buildMinutesLeft": {
+      "one": "{{count}} minute left",
+      "other": "{{count}} minutes left"
+    },
     "buildAction": "Build",
     "returnToMyIsland": "Back to My Island",
     "quest": {
@@ -386,8 +395,14 @@
       "today": "Today's Quest",
       "claim": "Claim Reward",
       "tapToClaim": "Tap to view your reward",
-      "more": { "one": "+{{count}} more", "other": "+{{count}} more" },
-      "done": { "one": "{{count}} quest completed", "other": "{{count}} quests completed" },
+      "more": {
+        "one": "+{{count}} more",
+        "other": "+{{count}} more"
+      },
+      "done": {
+        "one": "{{count}} quest completed",
+        "other": "{{count}} quests completed"
+      },
       "a11yReward": {
         "one": "{{count}} quest reward to claim. Claim reward",
         "other": "{{count}} quest rewards to claim. Claim reward"
@@ -725,12 +740,11 @@
     },
     "editor": {
       "title": "Promote Our Island",
-      "frames": "Frame",
+      "entry": "Promote our island in Nyaong",
       "body": "One-line message",
       "bodyPlaceholder": "Introduce your island in one line",
       "bodyEmpty": "Write a one-line message",
-      "hint": "Drag to move · two fingers to resize and rotate · up to 10",
-      "stickersFull": "You can add up to 10 stickers",
+      "stickersFull": "You can add up to 5 stickers",
       "tapes": "Masking tape · 1",
       "tabs": {
         "cat": "Cats",
@@ -738,7 +752,7 @@
         "friends": "Friends",
         "deco": "Deco"
       },
-      "apply": "Put in the magazine · {{fish}} fish",
+      "apply": "Put in the magazine",
       "save": "Save changes",
       "reset": "Start fresh",
       "balance": "Island bank {{fish}} fish",
@@ -751,11 +765,7 @@
       "loading": "Loading your promotion",
       "loadFailed": "Couldn't load your promotion",
       "saved": "Changes saved",
-      "doneTitle": "You're in the magazine!",
-      "doneBody": "It appears in tomorrow's 7 AM issue. You can edit it until midnight",
-      "doneBodyLocked": "It appears in today's 7 AM issue. It's past midnight, so it can't be edited anymore",
-      "doneBodyPublished": "The {{date}} 7 AM issue is already out. Check it in the magazine",
-      "stampA11y": "Received paw stamp",
+      "doneTitle": "Sent to the magazine",
       "problem": {
         "poor": "Not enough fish in the island bank",
         "windowClosed": "You can't apply right now. It opens again at 7 AM",
@@ -783,7 +793,15 @@
       "stickerA11y": "{{name}} sticker {{n}}",
       "selectedA11y": "{{name}}, selected",
       "frameA11y": "{{name}} frame",
-      "lockedAsset": "{{name}}, not owned yet"
+      "lockedAsset": "{{name}}, not owned yet",
+      "framePrompt": "Pick a paper.",
+      "next": "Next",
+      "confirmTitle": "Put it in the magazine as is?",
+      "confirmOk": "Put it in",
+      "confirmA11y": "{{fish}} fish",
+      "done": "Done",
+      "editAsk": "Edit your posted promotion?",
+      "editOk": "Edit"
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
@@ -791,7 +809,6 @@
     },
     "reader": {
       "title": "Nyaong",
-      "date": "{{m}}/{{d}}",
       "cover": "{{date}} · No. {{no}}",
       "coverA11y": "Cat Magazine No. {{no}}, {{date}}",
       "close": "Close magazine",
@@ -949,32 +966,8 @@
         "OTHER": "Other"
       }
     },
-    "records": {
-      "entry": "Our island ad log",
-      "title": "Our island ad log",
-      "sub": "Counts people who saw the magazine and added us to their telescope, sailed here, or joined — from 7 AM on the issue day to 7 AM the next day.",
-      "loading": "Loading the log",
-      "loadFailed": "Couldn’t load the ad log.",
-      "forbidden": "Only residents of this island can see it.",
-      "empty": "No ads in the magazine yet.",
-      "issue": "{{date}} · No. {{no}}",
-      "issueUnpublished": "{{date}} issue",
-      "status": {
-        "SCHEDULED": "Upcoming",
-        "PUBLISHED": "Published",
-        "SKIPPED": "Not published",
-        "HIDDEN": "Hidden",
-        "REMOVED": "Removed"
-      },
-      "note": {
-        "SCHEDULED": "It goes into that day’s 7 AM magazine.",
-        "SKIPPED": "The island was private or closed, or the issue didn’t go out, so it wasn’t published.",
-        "HIDDEN": "Hidden after several reports. Our team is reviewing it.",
-        "REMOVED": "Removed for breaking our policy."
-      },
-      "counts": "Added {{pinned}} · Arrived {{arrived}} · Joined {{joined}}",
-      "countsA11y": "Added to telescope {{pinned}}, arrived {{arrived}}, joined {{joined}}",
-      "rowA11y": "{{issue}}, {{status}}, ‘{{body}}’"
+    "ledger": {
+      "promotionFee": "Magazine promotion"
     }
   }
 }

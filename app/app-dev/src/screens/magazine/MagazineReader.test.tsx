@@ -3,12 +3,13 @@
 // 서버 API(magazine.ts)는 목이다.
 import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import * as api from '@/services/api/magazine';
 import type { MagazineCell, MagazineIssuePage } from '@/services/api/magazine';
 import { initialState } from '@/services/model';
 import { FlatList, StyleSheet } from 'react-native';
-import { MagazineReader, magazinePages, readerGeometry } from './MagazineReader';
+import { MagazineReader, issueBleed, magazinePages, readerGeometry } from './MagazineReader';
 import { resetMagazineToday } from './useMagazineToday';
 
 jest.mock('@/services/api/magazine', () => ({
@@ -136,6 +137,8 @@ test('다음 장부터 3칸씩 — 섬에서 펼친 잡지는 망원경 동그�
   const { screen } = await open();
   const cells = screen.getAllByTestId('magazine-cells');
   expect(cells).toHaveLength(2);
+  // 첫 칸 위에 꾸미기가 걸치는 둘레만큼 비운다(지면 위 끝에서 잘리지 않게)
+  expect(StyleSheet.flatten(cells[0].props.style).paddingTop).toBeGreaterThan(0);
   const hidden = { includeHiddenElements: true };
   expect(screen.getByTestId('magazine-cell-p1-ours', hidden)).toBeTruthy();
   expect(screen.queryByTestId('magazine-cell-p2-ours', hidden)).toBeNull();
@@ -242,7 +245,7 @@ test('회전으로 쪽 폭이 바뀌면 보던 쪽 위치로 다시 맞춘다', 
   }
 });
 
-test('가로처럼 낮은 화면에서도 지면(칸 3개)이 쪽 넘김 줄보다 위에서 끝난다', () => {
+test('가로처럼 낮은 화면에서도 지면(칸 3개 + 꾸미기가 걸치는 둘레)이 쪽 넘김 줄보다 위에서 끝난다', () => {
   for (const [width, height] of [
     [874, 402],
     [667, 375],
@@ -250,9 +253,12 @@ test('가로처럼 낮은 화면에서도 지면(칸 3개)이 쪽 넘김 줄보�
     [320, 568],
   ]) {
     const g = readerGeometry({ width, height, insets: { top: 0, bottom: 0, left: 0, right: 0 } });
+    const cellH = g.cellW * (199 / 338);
     expect(g.contentBottom).toBeLessThanOrEqual(g.navTop);
-    // 칸 3개 + 사이 간격이 지면 안에 들어간다
-    expect(g.cellW * 3 * (199 / 338) + 16).toBeLessThanOrEqual(g.innerH + 0.01);
+    // 칸 둘레 8% 는 지면(가로로 넘기는 목록 — 그 밖은 잘린다) 안: 첫 칸 위 여백 · 칸 3개 · 사이 간격 · 마지막 칸 아래 둘레 · 좌우
+    expect(g.cellPad).toBeCloseTo(0.08 * cellH, 5);
+    expect(g.cellPad + cellH * 3 + 16 + 0.08 * cellH).toBeLessThanOrEqual(g.innerH + 0.01);
+    expect(g.cellW * 1.16).toBeLessThanOrEqual(g.innerW + 0.01);
   }
 });
 
@@ -320,6 +326,10 @@ describe('신고(SAFE-04)', () => {
     expect(screen.getByText(/섬2섬 홍보 칸을 신고하는 이유/)).toBeTruthy();
     // 유저 신고 창과 같은 사유 8종
     expect(screen.getByLabelText('개인정보·사칭')).toBeTruthy();
+    // 이유는 미리 골라 두지 않는다 — 고르기 전에는 [신고하기]가 꺼져 있다
+    expect(screen.getByTestId('magazine-report-submit').props.accessibilityState.disabled).toBe(
+      true,
+    );
     await fireEvent.press(screen.getByLabelText('스팸·사기'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     await waitFor(() => expect(notify).toHaveBeenCalledWith('신고했어요. 운영팀이 살펴볼게요.'));
@@ -333,6 +343,7 @@ describe('신고(SAFE-04)', () => {
     const notify = jest.fn();
     const { screen } = await open(page(), env({ notify }));
     await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     await waitFor(() =>
       expect(notify).toHaveBeenCalledWith('이미 신고한 칸이에요. 운영팀이 살펴보고 있어요.'),
@@ -372,6 +383,7 @@ describe('신고(SAFE-04)', () => {
     const { screen } = await open(page(), env({ conversion: { offer } }));
     await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
     const sheetDismissed = topModalDismiss(screen);
+    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     // 시트를 먼저 닫고, 다 닫힌 뒤(iOS onDismiss) 회원 전환 시트를 연다
     await waitFor(() => expect(screen.queryByTestId('magazine-report')).toBeNull());
@@ -382,6 +394,7 @@ describe('신고(SAFE-04)', () => {
     report.mockRejectedValueOnce(gate);
     const mock = await open();
     await fireEvent(mock.screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(mock.screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(mock.screen.getByTestId('magazine-report-submit'));
     await waitFor(() =>
       expect(mock.screen.getByTestId('magazine-report-error')).toHaveTextContent(
@@ -409,6 +422,7 @@ describe('신고(SAFE-04)', () => {
     report.mockRejectedValueOnce(new ApiError('FORBIDDEN', '권한 없음', 403));
     const { screen } = await open();
     await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     await waitFor(() =>
       expect(screen.getByTestId('magazine-report-error')).toHaveTextContent(
@@ -421,6 +435,7 @@ describe('신고(SAFE-04)', () => {
     report.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오프라인', 0));
     const { screen } = await open();
     await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
     await fireEvent.press(screen.getByTestId('magazine-report-submit'));
     await waitFor(() => expect(screen.getByTestId('magazine-report-error')).toBeTruthy());
     expect(screen.getByTestId('magazine-report')).toBeTruthy();
@@ -434,4 +449,71 @@ test('magazinePages — 커서가 남아 있으면 빈 장·끝 장을 아직 �
     'empty',
     'end',
   ]);
+});
+
+describe('en 로케일', () => {
+  const mockLocales = jest.requireMock('expo-localization').getLocales as jest.Mock;
+  afterEach(() => {
+    mockLocales.mockReturnValue([{ languageCode: 'ko', languageTag: 'ko-KR' }]);
+    applyLocalePref('system');
+  });
+
+  // 섬 이름·홍보 글은 사용자 데이터라 번역하지 않는다 — 전수 한글 검사가 이름을 걸러내지 않게 영문 픽스처로 본다
+  test('en — 표지·편집부·칸·신고 창에 한글이 없고 날짜는 영문 형식이다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const layout = { v: 1 as const, frameId: 'mag.frame-scallop', stickers: [], tape: null };
+    const { screen } = await open(
+      page({
+        editorial: {
+          ranking: [
+            { ...island('Whale'), rank: 1 },
+            { ...island('Soda', 'MEMBER'), rank: 2 },
+            { ...island('Pebble'), rank: 3 },
+          ],
+          newIslands: [island('Moon')],
+          note: { type: 'TIP', body: null, tipNo: 0 },
+        },
+        cells: [
+          { ...island('Soda', 'MEMBER'), promotionId: 'p1', body: 'Come focus with us', layout },
+          { ...island('Wave'), promotionId: 'p2', body: 'Study together at night', layout },
+        ],
+      }),
+    );
+    expect(screen.getByText('October 14 · No. 19')).toBeTruthy();
+    const noHangul = () => {
+      expect(screen.queryByText(/[가-힣]/)).toBeNull();
+      expect(screen.queryByLabelText(/[가-힣]/)).toBeNull();
+    };
+    noHangul();
+    await fireEvent(screen.getByLabelText(/^Wave Island,/), 'longPress');
+    expect(screen.getByText('Report this ad')).toBeTruthy();
+    noHangul();
+  });
+});
+
+test('지면은 이 호 칸들이 실제로 걸치는 만큼 비운다 — 위 테두리 테이프가 첫 칸 위에서 잘리지 않게', () => {
+  const L = { width: 402, height: 874, insets: { top: 0, bottom: 0, left: 0, right: 0 } };
+  const taped = {
+    layout: {
+      v: 1 as const,
+      frameId: 'mag.frame-scallop',
+      stickers: [],
+      tape: { assetId: 'mag.tape-pink', x: 0.5, y: 0, rotation: 4 },
+    },
+  };
+  const plain = readerGeometry(L, issueBleed([]));
+  const wide = readerGeometry(L, issueBleed([taped]));
+  expect(issueBleed([]).y).toBe(0.08);
+  expect(wide.cellPad / ((wide.cellW * 199) / 338)).toBeGreaterThan(0.1);
+  expect(wide.cellW).toBeLessThan(plain.cellW);
+  // 아주 크게 걸친 꾸미기도 칸이 너무 작아지지 않게 상한이 있다
+  const huge = {
+    layout: {
+      ...taped.layout,
+      tape: null,
+      stickers: [{ assetId: 'mag.heart', x: 0.5, y: -0.08, scale: 0.6, rotation: 45 }],
+    },
+  };
+  expect(issueBleed([huge]).y).toBeLessThanOrEqual(0.3);
 });

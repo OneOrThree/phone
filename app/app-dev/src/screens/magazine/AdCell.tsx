@@ -1,5 +1,14 @@
-import React from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import {
+  Image,
+  NativeSyntheticEvent,
+  Pressable,
+  StyleProp,
+  StyleSheet,
+  TextLayoutEventData,
+  TextStyle,
+  View,
+} from 'react-native';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
@@ -49,6 +58,7 @@ export function AdCell({
   onPress,
   onReport,
   hideMeta = false,
+  bodyInput,
   testID,
 }: {
   width: number;
@@ -59,10 +69,15 @@ export function AdCell({
   /** 신고 — 칸 길게 누르기와 스크린리더 「신고하기」 동작이 부른다. */
   onReport?: () => void;
   /**
-   * 「주민 N/정원 · 평균」 줄을 그리지 않는다 — 실린 날 숫자 대신 지금 숫자를 쥔 곳(회관 기록판 썸네일)이나 바로 아래에 지금
-   * 숫자가 따로 있는 곳(망원경 말풍선)에서 서로 다른 숫자가 같이 보이지 않게.
+   * 「주민 N/정원 · 평균」 줄을 그리지 않는다 — 바로 아래에 지금 숫자가 따로 있는 곳(망원경 말풍선)에서
+   * 실린 날 숫자와 지금 숫자가 같이 보이지 않게.
    */
   hideMeta?: boolean;
+  /**
+   * 홍보 쓰기의 글 단계 — 한 줄 글 자리에 글자 크기·줄간격이 같은 입력을 그린다(칸 안에서 바로 고친다).
+   * 주면 칸 전체를 접근성 요소 하나로 묶지 않아 입력이 따로 읽힌다.
+   */
+  bodyInput?: (style: StyleProp<TextStyle>) => React.ReactNode;
   testID?: string;
 }) {
   const font = useGowun();
@@ -104,12 +119,16 @@ export function AdCell({
     ...(lines ? { maxHeight: size * scale * m.lineHeight * lines } : null),
   });
   const Body = onPress || onReport ? Pressable : View;
+  // 쓰는 중 겹친 입력 칸의 배율 — 표시용 글자가 자동 축소되면 그 배율(첫 줄 높이 ÷ 원래 줄 높이)로 입력 칸도 줄여
+  // 커서·선택이 보이는 글자와 같은 자리에 오게 한다(축소가 없으면 1)
+  const [inputScale, setInputScale] = useState(1);
+  const bodyLine = m.bodySize * k * fit.bodyScale * m.lineHeight;
 
   return (
     <View testID={testID} style={{ width: W, height: H }}>
       <Body
         style={StyleSheet.absoluteFill}
-        accessible
+        accessible={!bodyInput}
         accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={label}
         onPress={onPress}
@@ -127,7 +146,7 @@ export function AdCell({
           style={{ position: 'absolute', left: 0, top: 0, width: W, height: H }}
         />
         <View
-          pointerEvents="none"
+          pointerEvents={bodyInput ? 'box-none' : 'none'}
           style={{
             position: 'absolute',
             left: l * W,
@@ -172,15 +191,46 @@ export function AdCell({
                 {name}
               </T>
             </View>
-            <T
-              allowFontScaling={false}
-              numberOfLines={fit.bodyLines}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-              style={[text(m.bodySize, k * fit.bodyScale, fit.bodyLines), { marginTop: m.gap * s }]}
+            <View
+              style={{
+                marginTop: m.gap * s,
+                // 쓰는 중에는 글 자리 전체(최대 줄 수)를 눌러 쓸 수 있게 — 비어 있어도 높이가 있다
+                minHeight: bodyInput ? bodyLine * fit.bodyLines : undefined,
+              }}
             >
-              {cell.body}
-            </T>
+              {/* 글은 늘 이 표시용 글자로 그린다 — 쓰는 중에도 실릴 모양(줄바꿈·축소)을 그대로 보인다 */}
+              <T
+                allowFontScaling={false}
+                numberOfLines={fit.bodyLines}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                // 한글이 단어 중간(「친구/들」)에서 꺾이지 않게 — 잡지의 다른 글과 같다
+                lineBreakStrategyIOS="hangul-word"
+                onTextLayout={
+                  bodyInput
+                    ? (ev: NativeSyntheticEvent<TextLayoutEventData>) => {
+                        const first = ev.nativeEvent.lines[0];
+                        const next = first
+                          ? Math.min(1, Math.max(0.7, first.height / bodyLine))
+                          : 1;
+                        if (Math.abs(next - inputScale) > 0.01) setInputScale(next);
+                      }
+                    : undefined
+                }
+                style={text(m.bodySize, k * fit.bodyScale, fit.bodyLines)}
+              >
+                {cell.body}
+              </T>
+              {bodyInput ? (
+                // 입력은 그 위에 겹친 투명 글자(커서·선택만 보인다)
+                <View style={StyleSheet.absoluteFill}>
+                  {bodyInput([
+                    text(m.bodySize, k * fit.bodyScale * inputScale, fit.bodyLines),
+                    { color: 'transparent', height: '100%', maxHeight: undefined },
+                  ])}
+                </View>
+              ) : null}
+            </View>
           </View>
           {!hideMeta && (
             <T

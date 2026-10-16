@@ -8,6 +8,7 @@ import {
   POS_MAX,
   POS_MIN,
   PromotionLayout,
+  bringToFront,
   moveTape,
   normalizeRotation,
   updateSticker,
@@ -87,7 +88,46 @@ export function handlePoint(layout: PromotionLayout, target: EditTarget, width: 
   if (!box) return null;
   const c = Math.cos(rad(box.rotation));
   const s = Math.sin(rad(box.rotation));
-  return { x: box.cx + box.hw * c - box.hh * s, y: box.cy + box.hw * s + box.hh * c };
+  // 가장자리 꾸미기의 모서리는 판 밖일 수 있다 — 판 밖은 터치가 오지 않으니 손잡이의 44pt 판정 범위째 판 안으로 끌어들인다
+  const m = TOUCH_HALF;
+  const height = width * CELL_ASPECT;
+  return {
+    x: clampTo(
+      box.cx + box.hw * c - box.hh * s,
+      -CANVAS_PAD * width + m,
+      (1 + CANVAS_PAD) * width - m,
+    ),
+    y: clampTo(
+      box.cy + box.hw * s + box.hh * c,
+      -CANVAS_PAD * height + m,
+      (1 + CANVAS_PAD) * height - m,
+    ),
+  };
+}
+
+const clampTo = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/**
+ * 꾸미기들이 칸 밖으로 실제로 걸치는 정도 — 돌린 그림의 경계 상자 기준, 칸 너비(x)·높이(y)에 대한 비율.
+ * 중심 좌표 범위(CANVAS_PAD)보다 클 수 있다(예: 위 테두리에 붙은 테이프는 그림 반 높이만큼 더 나간다).
+ */
+export function layoutBleed(layout: PromotionLayout): { x: number; y: number } {
+  const height = CELL_ASPECT;
+  const targets: EditTarget[] = layout.stickers.map((_, index) => ({ kind: 'sticker', index }));
+  if (layout.tape) targets.push({ kind: 'tape' });
+  let x = 0;
+  let y = 0;
+  for (const target of targets) {
+    const b = itemBox(layout, target, 1);
+    if (!b) continue;
+    const c = Math.abs(Math.cos(rad(b.rotation)));
+    const s = Math.abs(Math.sin(rad(b.rotation)));
+    const ex = b.hw * c + b.hh * s;
+    const ey = b.hw * s + b.hh * c;
+    x = Math.max(x, ex - b.cx, b.cx + ex - 1);
+    y = Math.max(y, (ey - b.cy) / height, (b.cy + ey - height) / height);
+  }
+  return { x, y };
 }
 
 type Pt = { x: number; y: number };
@@ -122,7 +162,7 @@ type Gesture =
  *  - 고른 꾸미기 오른쪽 아래 손잡이를 한 손가락으로 끌면 크기·회전(두 손가락이 어려울 때).
  * 범위 자르기는 layout.ts 의 같은 함수를 쓴다. 테이프는 크기가 없고, 손을 떼면 가장 가까운 테두리 띠에 붙는다.
  * 움직이는 동안의 값은 한 화면 그리기(requestAnimationFrame)에 한 번만 올려 보낸다.
- * ponytail: 매 프레임 칸을 다시 그린다(스티커 최대 10장) — 실기기에서 끊기면 고른 스티커만 Animated 로 띄운다.
+ * ponytail: 매 프레임 칸을 다시 그린다(스티커 최대 5장) — 실기기에서 끊기면 고른 스티커만 Animated 로 띄운다.
  */
 export function useStickerGestures({
   width,
@@ -253,10 +293,16 @@ export function useStickerGestures({
           };
           return;
         }
-        const target = hitTest(l, w, p.x, p.y);
+        let target = hitTest(l, w, p.x, p.y);
         if (!target) {
           gesture.current = { mode: 'none', moved: false };
           return;
+        }
+        // 누른 스티커는 맨 앞으로 온다(10/15) — 이번 손동작은 앞으로 옮긴 배치·번호로 이어 간다
+        const last = l.stickers.length - 1;
+        if (target.kind === 'sticker' && target.index !== last) {
+          push(bringToFront(current(), target.index));
+          target = { kind: 'sticker', index: last };
         }
         latest.current.onSelect(target);
         const v = valuesOf(target)!;

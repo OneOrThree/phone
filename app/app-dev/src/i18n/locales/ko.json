@@ -240,8 +240,14 @@
       "title": "첫 섬 선택",
       "firstVoyage": "첫 항해를 떠나요",
       "whereStart": "어디에서 시작할까요?",
-      "createAlone": { "title": "혼자 시작할 섬 만들기", "sub": "내 이름으로 새 섬을 열어요" },
-      "joinExisting": { "title": "기존 섬 참여", "sub": "망원경으로 공개 섬 찾기" },
+      "createAlone": {
+        "title": "혼자 시작할 섬 만들기",
+        "sub": "내 이름으로 새 섬을 열어요"
+      },
+      "joinExisting": {
+        "title": "기존 섬 참여",
+        "sub": "망원경으로 공개 섬 찾기"
+      },
       "bootErrorTitle": "섬 정보를 불러오지 못했어요",
       "pendingResume": "「{{island}}」 가입 신청이 진행 중이에요",
       "pendingIslandFallback": "신청한 섬",
@@ -707,12 +713,11 @@
     },
     "editor": {
       "title": "우리 섬 홍보 쓰기",
-      "frames": "칸 틀",
+      "entry": "냐옹잡지에 섬 홍보하기",
       "body": "한 줄 글",
       "bodyPlaceholder": "우리 섬을 한 줄로 소개해 주세요",
       "bodyEmpty": "한 줄 글을 적어 주세요",
-      "hint": "끌어서 옮기고 두 손가락으로 크기·회전 · 최대 10개",
-      "stickersFull": "스티커는 10개까지 붙일 수 있어요",
+      "stickersFull": "스티커는 5개까지 붙일 수 있어요",
       "tapes": "마스킹테이프 · 1개",
       "tabs": {
         "cat": "고양이",
@@ -720,7 +725,7 @@
         "friends": "친구들",
         "deco": "꾸미기"
       },
-      "apply": "잡지에 싣기 · {{fish}} 물고기",
+      "apply": "잡지에 싣기",
       "save": "고친 내용 저장",
       "reset": "새로 꾸미기",
       "balance": "섬 통장 {{fish}}마리",
@@ -733,11 +738,7 @@
       "loading": "홍보 칸을 불러오고 있어요",
       "loadFailed": "홍보 칸을 불러오지 못했어요",
       "saved": "고친 내용을 저장했어요",
-      "doneTitle": "잡지에 실렸어요",
-      "doneBody": "내일 07시 호에 실려요. 자정까지 고칠 수 있어요",
-      "doneBodyLocked": "오늘 07시 호에 실려요. 자정이 지나 더는 고칠 수 없어요",
-      "doneBodyPublished": "{{date}} 07시 호가 이미 나왔어요. 잡지에서 확인해 보세요",
-      "stampA11y": "접수 발도장",
+      "doneTitle": "잡지에 신청했어요",
       "problem": {
         "poor": "섬 통장 물고기가 모자라요",
         "windowClosed": "지금은 신청할 수 없어요. 아침 7시에 다시 열려요",
@@ -765,7 +766,15 @@
       "stickerA11y": "{{name}} 스티커 {{n}}",
       "selectedA11y": "{{name}}, 고름",
       "frameA11y": "{{name}} 틀",
-      "lockedAsset": "{{name}}, 아직 없음"
+      "lockedAsset": "{{name}}, 아직 없음",
+      "framePrompt": "종이를 골라주세요.",
+      "next": "다음",
+      "confirmTitle": "잡지에 이대로 실으시겠습니까?",
+      "confirmOk": "싣기",
+      "confirmA11y": "물고기 {{fish}}마리",
+      "done": "완료",
+      "editAsk": "올린 홍보글을 수정하시겠습니까?",
+      "editOk": "수정"
     },
     "news": {
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",
@@ -773,7 +782,6 @@
     },
     "reader": {
       "title": "냐옹",
-      "date": "{{m}}월 {{d}}일",
       "cover": "{{date}} · {{no}}호",
       "coverA11y": "고양이 잡지 {{no}}호, {{date}}",
       "close": "잡지 닫기",
@@ -931,32 +939,8 @@
         "OTHER": "기타"
       }
     },
-    "records": {
-      "entry": "우리 섬 홍보 기록판",
-      "title": "우리 섬 홍보 기록판",
-      "sub": "잡지를 보고 망원경에 넣은 사람, 항해해 온 사람, 가입한 사람을 실린 날 아침 7시부터 다음 날 아침 7시까지 세요.",
-      "loading": "기록을 불러오고 있어요",
-      "loadFailed": "기록판을 불러오지 못했어요.",
-      "forbidden": "이 섬 주민만 볼 수 있어요.",
-      "empty": "아직 잡지에 실은 홍보가 없어요.",
-      "issue": "{{date}} · {{no}}호",
-      "issueUnpublished": "{{date}} 호",
-      "status": {
-        "SCHEDULED": "발행 전",
-        "PUBLISHED": "실림",
-        "SKIPPED": "안 실림",
-        "HIDDEN": "숨김",
-        "REMOVED": "내려감"
-      },
-      "note": {
-        "SCHEDULED": "그날 아침 7시 잡지에 실려요.",
-        "SKIPPED": "섬이 비공개·닫힘이었거나 발행이 안 돼 이 호에는 실리지 않았어요.",
-        "HIDDEN": "신고가 쌓여 숨겨졌어요. 운영팀이 확인하고 있어요.",
-        "REMOVED": "운영 정책에 맞지 않아 내려졌어요."
-      },
-      "counts": "넣음 {{pinned}} · 도착 {{arrived}} · 가입 {{joined}}",
-      "countsA11y": "망원경에 넣음 {{pinned}}명, 도착 {{arrived}}명, 가입 {{joined}}명",
-      "rowA11y": "{{issue}}, {{status}}, ‘{{body}}’"
+    "ledger": {
+      "promotionFee": "잡지 홍보"
     }
   }
 }

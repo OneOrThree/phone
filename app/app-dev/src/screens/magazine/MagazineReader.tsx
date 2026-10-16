@@ -23,7 +23,7 @@ import type {
   MagazineIssue,
 } from '@/services/api/magazine';
 import { t } from '@/i18n';
-import { formatDuration } from '@/i18n/format';
+import { formatDate, formatDuration } from '@/i18n/format';
 import { T, useGowun } from '@/screens/island/sceneKit';
 import { ISLAND_STAGE_ART, MAGAZINE_UI, islandStage } from '@/constants/magazineAssets';
 import { useAppLayout } from '@/utils/layout';
@@ -33,9 +33,12 @@ import { CELL_ASPECT } from './layout';
 import { magazineApi } from './usePromotionEditor';
 import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
 import { PromotionReportSheet } from './PromotionReportSheet';
+import { CANVAS_PAD, layoutBleed } from './useStickerGestures';
 
 const R = componentTokens.magazineReader;
 const PER_PAGE = 3;
+/** 편집부 쪽을 지면 높이에 맞춰 줄이는 하한 — 이보다 더 줄여야 하면(큰 글자 등) 줄이지 않고 세로로 민다 */
+const EDITORIAL_MIN_SCALE = 0.7;
 const NAV_H = R.navHeight;
 const COVER_H = R.coverHeight;
 const TIP_COUNT = 14;
@@ -56,12 +59,17 @@ type Loaded = {
 /**
  * 속지 배치 — 속지는 그림 비율 그대로 화면 안에 가장 크게. 지면(표지 띠 아래 ~ 쪽 넘김 줄 위)은 쪽 넘김 줄과 겹치지 않는다:
  * 가로 화면처럼 속지가 낮으면 아래 여백(insetBottom)보다 넘김 줄이 먼저 닿으므로 둘 중 위쪽에서 끝낸다. 칸 3개는 지면 높이에 맞춘다.
+ * 지면은 가로로 넘기는 목록이라 그 밖은 잘린다 — 꾸미기가 칸 밖으로 걸치는 만큼(bleed, 칸 너비·높이에 대한 비율)도 지면 안에
+ * 들게 칸을 그만큼 줄이고, 첫 칸 위에 cellPad 를 비운다(첫 칸 위·마지막 칸 아래·좌우에서 꾸미기가 잘리지 않게).
  */
-export function readerGeometry(L: {
-  width: number;
-  height: number;
-  insets: { top: number; bottom: number; left: number; right: number };
-}) {
+export function readerGeometry(
+  L: {
+    width: number;
+    height: number;
+    insets: { top: number; bottom: number; left: number; right: number };
+  },
+  bleed: { x: number; y: number } = { x: CANVAS_PAD, y: CANVAS_PAD },
+) {
   const availW = L.width - L.insets.left - L.insets.right - R.screenMargin * 2;
   const availH = L.height - L.insets.top - L.insets.bottom - R.screenMargin * 2;
   const W = Math.min(availW, availH * R.pageAspect, R.maxPageWidth);
@@ -70,14 +78,31 @@ export function readerGeometry(L: {
   const navTop = H * (1 - R.navBottom) - NAV_H;
   const contentBottom = Math.min(H * (1 - R.insetBottom), navTop - R.cellGap);
   const innerH = contentBottom - H * R.insetTop - COVER_H;
-  const cellW = Math.min(innerW, (innerH - R.cellGap * 2) / (PER_PAGE * CELL_ASPECT));
-  return { W, H, innerW, innerH, cellW, navTop, contentBottom };
+  const cellW = Math.min(
+    innerW / (1 + bleed.x * 2),
+    (innerH - R.cellGap * 2) / ((PER_PAGE + bleed.y * 2) * CELL_ASPECT),
+  );
+  const cellPad = bleed.y * cellW * CELL_ASPECT;
+  return { W, H, innerW, innerH, cellW, cellPad, navTop, contentBottom };
 }
 
-/** 「2026-10-14」 → 「10월 14일」 */
+/** 칸들이 걸치는 최대 비율 — 중심 범위(CANVAS_PAD) 이상, MAX_BLEED 이하 */
+const MAX_BLEED = 0.3;
+export function issueBleed(cells: { layout: MagazineCell['layout'] }[]) {
+  let x = CANVAS_PAD;
+  let y = CANVAS_PAD;
+  for (const cell of cells) {
+    const b = layoutBleed(cell.layout);
+    x = Math.max(x, b.x);
+    y = Math.max(y, b.y);
+  }
+  return { x: Math.min(x, MAX_BLEED), y: Math.min(y, MAX_BLEED) };
+}
+
+/** 「2026-10-14」 → ko 「10월 14일」 · en 「October 14」 — 날짜는 언어별 형식(formatDate)으로 */
 export const issueDateText = (date: string) => {
-  const [, m, d] = date.split('-').map(Number);
-  return t('magazine.reader.date', { m, d });
+  const [y, m, d] = date.split('-').map(Number);
+  return formatDate(new Date(y, m - 1, d), { month: 'long', day: 'numeric' });
 };
 
 /**
@@ -122,6 +147,12 @@ export function MagazineReader({
   const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'gone'>('loading');
   const [nonce, setNonce] = useState(0);
   const [more, setMore] = useState(false);
+  // 편집부 쪽(랭킹 · 새 섬 · 조언)이 지면보다 길면 쪽 넘김 줄에 잘려 보인다 — 지면·내용 높이를 재서 맞춰 줄인다
+  const [editorialBox, setEditorialBox] = useState(0);
+  const [editorialContent, setEditorialContent] = useState(0);
+  const editorialScale =
+    editorialBox > 0 && editorialContent > editorialBox ? editorialBox / editorialContent : 1;
+  const editorialFits = editorialScale >= EDITORIAL_MIN_SCALE;
   // 이어 읽기에 실패한 커서 — 같은 쪽에 머무는 동안 다시 부르지 않고, 쪽을 넘기면 다시 시도한다
   const [failedAt, setFailedAt] = useState<{ cursor: string; index: number } | null>(null);
   const [index, setIndex] = useState(0);
@@ -179,7 +210,10 @@ export function MagazineReader({
       .finally(() => setMore(false));
   }, [issueId, cursor, more, index, pages.length, failedAt]);
 
-  const { W, H, innerW, innerH, cellW } = readerGeometry(L);
+  // 이 호 칸들이 실제로 걸치는 만큼(돌린 테이프·스티커의 경계 상자) 비운다 — 적어도 중심 범위(CANVAS_PAD), 많아야
+  // MAX_BLEED(그 이상 걸친 드문 꾸미기는 끝이 잘린다 — 칸이 너무 작아지지 않게)
+  const bleed = issueBleed(loaded?.cells ?? []);
+  const { W, H, innerW, innerH, cellW, cellPad } = readerGeometry(L, bleed);
   const largeText = L.fontScale >= R.largeTextThreshold;
   const text = (size: number, color: string = semanticTokens.color.text) => ({
     fontFamily: font,
@@ -295,9 +329,22 @@ export function MagazineReader({
       <ScrollView
         testID="magazine-editorial"
         style={{ width: innerW }}
+        onLayout={(ev) => setEditorialBox(ev.nativeEvent.layout.height)}
+        onContentSizeChange={(_, h) => setEditorialContent(h)}
+        // 줄여서 다 들어가면 밀지 않는다. 너무 많이 줄여야 하면 그대로 두고 세로로 민다
+        scrollEnabled={!editorialFits}
         contentContainerStyle={{
           gap: primitiveTokens.space[2],
           paddingBottom: primitiveTokens.space[2],
+          // 가운데 기준으로 줄어드니 줄어든 만큼 위로 올려 지면 위에 붙인다(크기는 그대로라 다시 재도 같은 값)
+          ...(editorialFits && editorialScale < 1
+            ? {
+                transform: [
+                  { translateY: (-editorialContent * (1 - editorialScale)) / 2 },
+                  { scale: editorialScale },
+                ],
+              }
+            : null),
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -430,7 +477,7 @@ export function MagazineReader({
       return (
         <View
           testID="magazine-cells"
-          style={{ width: innerW, alignItems: 'center', gap: R.cellGap }}
+          style={{ width: innerW, alignItems: 'center', gap: R.cellGap, paddingTop: cellPad }}
         >
           {item.cells.map((cell) => (
             <AdCell
@@ -592,6 +639,7 @@ export function MagazineReader({
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={(page, i) => `${page.kind}-${i}`}
                 renderItem={renderPage}
+                extraData={editorialScale}
                 getItemLayout={(_, i) => ({ length: innerW, offset: innerW * i, index: i })}
                 onMomentumScrollEnd={onScrollEnd}
               />
@@ -726,11 +774,12 @@ export function MagazineReader({
           }}
         >
           {zoom && (
+            // 꾸미기가 걸치는 칸 둘레(CANVAS_PAD)까지 화면 안에 들게 그만큼 작게
             <AdCell
               width={Math.min(
-                L.width - semanticTokens.spacing.component * 2,
+                (L.width - semanticTokens.spacing.component * 2) / (1 + issueBleed([zoom]).x * 2),
                 (L.height - L.insets.top - L.insets.bottom - semanticTokens.spacing.component * 2) /
-                  CELL_ASPECT,
+                  ((1 + issueBleed([zoom]).y * 2) * CELL_ASPECT),
                 R.maxPageWidth,
               )}
               cell={zoom}

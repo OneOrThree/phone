@@ -25,7 +25,9 @@ export type PromotionLayout = {
 };
 
 export const CELL_ASPECT = componentTokens.magazineCell.aspect;
-export const MAX_STICKERS = 10;
+/** 새로 붙일 수 있는 스티커 수(10/15). 서버는 10개까지 받는다 — 이미 낸 6~10개 칸도 고쳐 저장할 수 있게 검사는 서버 상한으로 */
+export const MAX_STICKERS = 5;
+const SERVER_MAX_STICKERS = 10;
 export const BODY_MAX = 60;
 /** 칸 둘레 8% 까지 걸치기를 허용한다. */
 export const POS_MIN = -0.08;
@@ -65,7 +67,7 @@ export function clampSticker(s: StickerPlacement): StickerPlacement {
   };
 }
 
-/** 10개가 차 있으면 null — 화면이 「스티커는 10개까지」 안내를 띄운다. 같은 스티커 여러 장은 허용(P11). */
+/** 5개가 차 있으면 null — 화면이 「스티커는 5개까지」 안내를 띄운다. 같은 스티커 여러 장은 허용(P11). */
 export function addSticker(layout: PromotionLayout, assetId: string): PromotionLayout | null {
   if (layout.stickers.length >= MAX_STICKERS) return null;
   return { ...layout, stickers: [...layout.stickers, { assetId, ...NEW_STICKER }] };
@@ -166,7 +168,8 @@ export function layoutProblem(
 ): string | null {
   if (layout.v !== 1) return 'layout.v';
   if (!layout.frameId || (knownIds && !knownIds('frame', layout.frameId))) return 'layout.frameId';
-  if (layout.stickers.length > MAX_STICKERS) return `layout.stickers[${MAX_STICKERS}]`;
+  if (layout.stickers.length > SERVER_MAX_STICKERS)
+    return `layout.stickers[${SERVER_MAX_STICKERS}]`;
   // NaN 은 어떤 비교도 거짓이라 「범위 안」을 참으로 묻는다
   const inPos = (n: number) => n >= POS_MIN && n <= POS_MAX;
   const inRotation = (n: number) => n >= -180 && n <= 180;

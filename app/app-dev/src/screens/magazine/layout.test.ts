@@ -1,4 +1,4 @@
-// 잡지 칸 레이아웃 순수 함수(GROMO-2289) — 비율 좌표 ↔ 픽셀 왕복, 범위 자르기, 10개 제한, 테이프 교체·테두리 붙이기,
+// 잡지 칸 레이아웃 순수 함수(GROMO-2289) — 비율 좌표 ↔ 픽셀 왕복, 범위 자르기, 5개 제한, 테이프 교체·테두리 붙이기,
 // 맨 앞으로, 꾸미기 순서 뒤 저장 JSON, 보내기 전 검사, 틀마다 60자 글이 들어가는 글자 배율.
 import { componentTokens } from '@/design-system/tokens';
 import { MAGAZINE_FRAMES } from '@/constants/magazineAssets';
@@ -69,10 +69,10 @@ describe('범위 자르기', () => {
 });
 
 describe('스티커', () => {
-  it('11번째 스티커는 붙지 않는다(같은 스티커 여러 장은 된다)', () => {
+  it('6번째 스티커는 붙지 않는다(같은 스티커 여러 장은 된다)', () => {
     let layout = emptyLayout(FRAME);
     for (let i = 0; i < MAX_STICKERS; i++) layout = addSticker(layout, 'mag.heart')!;
-    expect(layout.stickers).toHaveLength(10);
+    expect(layout.stickers).toHaveLength(5);
     expect(addSticker(layout, 'mag.star')).toBeNull();
   });
 
@@ -132,6 +132,9 @@ describe('보내기 전 검사', () => {
 
   it('정상이면 null, 문제가 있으면 서버 field 와 같은 위치를 준다', () => {
     expect(layoutProblem(ok)).toBeNull();
+    // 붙이기는 5개까지지만, 이미 낸 6~10개 칸도 고쳐 저장할 수 있게 검사는 서버 상한(10)이다
+    const ten = { ...ok, stickers: Array.from({ length: 10 }, () => ok.stickers[0]) };
+    expect(layoutProblem(ten)).toBeNull();
     const eleven = { ...ok, stickers: Array.from({ length: 11 }, () => ok.stickers[0]) };
     expect(layoutProblem(eleven)).toBe('layout.stickers[10]');
     expect(layoutProblem({ ...ok, stickers: [{ ...ok.stickers[0], scale: 0.7 }] })).toBe(
@@ -238,5 +241,32 @@ describe('버튼·스크린리더 고치기(applyEdit)', () => {
       layout: { ...base(), tape: null },
       target: null,
     });
+  });
+});
+
+describe('칸 밖 걸침 · 손잡이', () => {
+  const { CANVAS_PAD, handlePoint, layoutBleed } = jest.requireActual('./useStickerGestures');
+  const base = { v: 1 as const, frameId: FRAME, stickers: [], tape: null };
+
+  it('위 테두리에 붙은 테이프는 중심 범위(8%)보다 더 걸친다 — 돌린 그림의 경계 상자로 잰다', () => {
+    const bleed = layoutBleed({
+      ...base,
+      tape: { assetId: 'mag.tape-pink', x: 0.5, y: 0, rotation: 4 },
+    });
+    expect(bleed.y).toBeGreaterThan(CANVAS_PAD);
+    expect(bleed.y).toBeLessThan(0.2);
+    expect(layoutBleed(base)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('가장자리 스티커의 손잡이도 판 안에 둔다(판 밖은 터치가 오지 않는다)', () => {
+    const width = 300;
+    const h = handlePoint(
+      { ...base, stickers: [{ assetId: 'mag.heart', x: 1.08, y: 0.5, scale: 0.6, rotation: 0 }] },
+      { kind: 'sticker', index: 0 },
+      width,
+    )!;
+    // 손잡이 판정 범위(반지름 22pt)째 판 안이다
+    expect(h.x + 22).toBeLessThanOrEqual((1 + CANVAS_PAD) * width);
+    expect(h.y + 22).toBeLessThanOrEqual((1 + CANVAS_PAD) * width * CELL_ASPECT);
   });
 });

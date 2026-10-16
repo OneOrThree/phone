@@ -178,12 +178,12 @@ test('홍보 쓰기 입구 — 내 섬 섬장에게만 회관 관리 카드에 �
   assert.equal(env.go.mock.calls.at(-1)?.[0], 'promotionEditor');
 });
 
-test('홍보 쓰기 입구 — 섬장이 아닌 주민 · 방문자에게는 없다(기록판은 주민에게 그대로)', async () => {
+test('홍보 쓰기 입구 — 섬장이 아닌 주민 · 방문자에게는 없다', async () => {
   const memberState = initialState(true);
   memberState.islands[0].members[0].role = 'host';
   managementMock.mockReturnValue(management({ role: 'member' }));
   const member = await render(<Hall e={e('manage', memberState)} />);
-  await waitFor(() => assert.ok(member.getByTestId('hall-promotion-records')));
+  await waitFor(() => assert.ok(member.getByTestId('hall-invite')));
   expect(member.queryByTestId('hall-promotion-editor')).toBeNull();
   await member.unmount();
 
@@ -219,7 +219,7 @@ test('홍보 쓰기 입구 — 실서버는 홈 스냅샷이 아니라 관리 AP
   // 여기서 방장을 위임했다 — 홈 스냅샷은 아직 host, 관리 API 는 member → 입구가 없다
   managementMock.mockReturnValue(management({ role: 'member' }));
   const handedOff = await render(<Hall e={e('manage', serverState('host'))} />);
-  await waitFor(() => assert.ok(handedOff.getByTestId('hall-promotion-records')));
+  await waitFor(() => assert.ok(handedOff.getByTestId('hall-invite')));
   expect(handedOff.queryByTestId('hall-promotion-editor')).toBeNull();
   await handedOff.unmount();
   // 다른 기기에서 방장을 위임받았다 — 홈 스냅샷은 아직 member, 관리 API 는 host → 입구가 있다
@@ -254,21 +254,6 @@ test('홍보 쓰기 입구 — 방장 위임이 진행 중이면 막는다(끝�
   expect(env.go).not.toHaveBeenCalledWith('promotionEditor');
   await act(async () => finish());
   await waitFor(() => expect(row().props.accessibilityState.disabled).toBe(false));
-});
-
-test('홍보 기록판 입구 — 주민 회관 관리 카드에 있고 누르면 기록판으로 간다(AD-11)', async () => {
-  const env = e();
-  const screen = await render(<Hall e={env} />);
-  await fireEvent.press(await screen.findByTestId('hall-promotion-records'));
-  assert.equal(env.go.mock.calls.at(-1)?.[0], 'promotionRecords');
-});
-
-test('홍보 기록판 입구 — 방문자에게는 입구 자체가 없다', async () => {
-  const visitorState = initialState(true);
-  visitorState.visitingIslandId = visitorState.islands.find((island) => !island.joined)?.id;
-  const visitor = await render(<Hall e={e('manage', visitorState)} />);
-  await waitFor(() => assert.ok(visitor.getByText(viewIsland(visitorState).name)));
-  assert.equal(visitor.queryByTestId('hall-promotion-records'), null);
 });
 
 test('review/demo 로컬 관리는 hook을 비활성화하고 기존 reducer 저장·위임·승인을 사용한다', async () => {
