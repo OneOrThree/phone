@@ -176,6 +176,8 @@ export function PromotionEditor({
   // 접수 완료 확인창 — 열 때의 신청 결과(호 · 시점)로 문구를 고정한다(뒤이은 다시 읽기로 바뀌지 않게). null 이면 닫힘
   // 싣기 전 가격 안내창
   const [confirming, setConfirming] = useState(false);
+  // 칸 위에 손가락이 있는 동안 세로 스크롤을 잠근다(끌기·두 손가락 조작이 스크롤에 뺏기지 않게)
+  const [canvasTouch, setCanvasTouch] = useState(false);
   // 이미 올린 홍보로 들어오면 고칠지 먼저 묻는다(10/15) — [취소]는 회관으로
   const [askEdit, setAskEdit] = useState(false);
   const touched = useRef(false);
@@ -257,9 +259,12 @@ export function PromotionEditor({
     primitiveTokens.space[1] * 2 -
     semanticTokens.stroke.strong * 2;
   // 속지 안에서 실제로 보이는 높이(띠 아래 ~ 남은 자리 끝)
-  const pageInnerH = Math.min(
-    pageH * (1 - R.insetTop - R.insetBottom),
-    (pageBox.height || pageH) - pageH * R.insetTop,
+  const pageInnerH = Math.max(
+    0,
+    Math.min(
+      pageH * (1 - R.insetTop - R.insetBottom),
+      (pageBox.height || pageH) - pageH * R.insetTop,
+    ),
   );
   const cellH = cellW * CELL_ASPECT;
   const pad = { x: CANVAS_PAD * cellW, y: CANVAS_PAD * cellH };
@@ -614,7 +619,7 @@ export function PromotionEditor({
   const space = primitiveTokens.space;
   // 1단계 — 종이(칸 틀) 고르기. 잡지 속지 위 가운데에 빈 종이를 한 장씩 크게 두고 세로로 밀어 고른다. 고르면 글 단계로
   // 잡지 속지 한 장(남은 자리 가운데, 잡지와 같은 비율) — 띠에 글, 안쪽에 children. 종이 고르기·글 쓰기가 같이 쓴다
-  const onPage = (ribbon: string, children: React.ReactNode, height?: number) => (
+  const onPage = (ribbon: string, children: React.ReactNode, height?: number, scroll = false) => (
     <View
       style={height ? { height, overflow: 'hidden' } : { flex: 1, overflow: 'hidden' }}
       onLayout={(ev) => setPageBox(ev.nativeEvent.layout)}
@@ -656,17 +661,36 @@ export function PromotionEditor({
         >
           {ribbon}
         </Txt>
-        <View
-          style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: pageH * R.insetTop,
-            height: pageInnerH,
-          }}
-        >
-          {children}
-        </View>
+        {scroll ? (
+          // 작은 화면·키보드로 보이는 속지가 종이·[다음]보다 낮아지면 세로로 민다
+          <ScrollView
+            testID="promotion-page-scroll"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: pageH * R.insetTop,
+              height: pageInnerH,
+            }}
+            contentContainerStyle={{ flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
+            alwaysBounceVertical={false}
+          >
+            {children}
+          </ScrollView>
+        ) : (
+          <View
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: pageH * R.insetTop,
+              height: pageInnerH,
+            }}
+          >
+            {children}
+          </View>
+        )}
       </View>
     </View>
   );
@@ -784,6 +808,8 @@ export function PromotionEditor({
         onPress={toStickers}
       />
     </View>,
+    undefined,
+    true,
   );
 
   // 3단계 — 속지 가운데 칸에 스티커를 붙인다. 아래로 고른 꾸미기 버튼 줄과 서랍(고정 높이)
@@ -792,13 +818,23 @@ export function PromotionEditor({
   const stickerPageH =
     pageH * R.insetTop + cellH + pad.y * 2 + doneH + primitiveTokens.space[4] * 2;
   const content = (
-    <View style={{ flex: 1 }}>
+    // 낮은 화면(가로 등)에서 속지 + 서랍(최소 높이)이 넘치면 세로로 민다. 칸 위에 손가락이 있는 동안은 잠근다
+    <ScrollView
+      testID="promotion-scroll"
+      style={{ flex: 1 }}
+      contentContainerStyle={{ flexGrow: 1 }}
+      alwaysBounceVertical={false}
+      scrollEnabled={!canvasTouch}
+    >
       {onPage(
         t('magazine.reader.title'),
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: space[2] }}>
           <View
             testID="promotion-canvas"
             {...gestures}
+            onTouchStart={() => setCanvasTouch(true)}
+            onTouchEnd={(ev) => ev.nativeEvent.touches.length === 0 && setCanvasTouch(false)}
+            onTouchCancel={() => setCanvasTouch(false)}
             style={{ width: cellW + pad.x * 2, height: cellH + pad.y * 2 }}
           >
             <View pointerEvents="none" style={{ position: 'absolute', left: pad.x, top: pad.y }}>
@@ -922,7 +958,7 @@ export function PromotionEditor({
           />
         </View>
       ) : null}
-    </View>
+    </ScrollView>
   );
 
   const bottom = { paddingBottom: L.insets.bottom + semanticTokens.spacing.control };

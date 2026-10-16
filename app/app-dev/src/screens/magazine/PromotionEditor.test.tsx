@@ -1018,3 +1018,20 @@ it('속지 띠 문구는 기기 글자 크기를 따르지 않는 고정 크기 
   const style = StyleSheet.flatten(ribbon.props.style);
   expect(style.fontSize).toBeLessThan(style.height);
 });
+
+it('작은 화면·키보드에서도 글 단계는 속지 안을 세로로 밀고, 스티커 단계는 칸 위에 손가락이 있는 동안만 스크롤을 잠근다', async () => {
+  const { screen } = await open({}, env(), 'text');
+  expect(screen.getByTestId('promotion-page-scroll').props.keyboardShouldPersistTaps).toBe(
+    'handled',
+  );
+  await fireEvent.changeText(screen.getByTestId('promotion-body'), '같이 집중해요');
+  await fireEvent.press(screen.getByTestId('promotion-next'));
+  const scroll = () => screen.getByTestId('promotion-scroll');
+  expect(scroll().props.scrollEnabled).toBe(true);
+  await fireEvent(screen.getByTestId('promotion-canvas'), 'touchStart');
+  expect(scroll().props.scrollEnabled).toBe(false);
+  await fireEvent(screen.getByTestId('promotion-canvas'), 'touchEnd', {
+    nativeEvent: { touches: [] },
+  });
+  expect(scroll().props.scrollEnabled).toBe(true);
+});
