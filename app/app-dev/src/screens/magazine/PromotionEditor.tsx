@@ -218,15 +218,18 @@ export function PromotionEditor({
         ? 'frame'
         : null;
   const goBack = () => (backStep ? setStep(backStep) : e.back());
-  // 안드로이드 하드웨어 뒤로가기도 같은 순서 — 나중에 단 리스너가 먼저 받으므로 App 의 처리보다 앞선다
+  // 안드로이드 하드웨어 뒤로가기도 같은 순서 — 나중에 단 리스너가 먼저 받으므로 App 의 처리보다 앞선다.
+  // 확인창이 떠 있으면 단계보다 확인창의 [취소]가 먼저다(고치기 확인창은 회관으로, 싣기 확인창은 닫기)
   useEffect(() => {
-    if (!backStep) return;
+    if (!backStep && !askEdit && !confirming) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      setStep(backStep);
+      if (askEdit) e.back();
+      else if (confirming) setConfirming(false);
+      else if (backStep) setStep(backStep);
       return true;
     });
     return () => sub.remove();
-  }, [backStep]);
+  }, [backStep, askEdit, confirming, e]);
   // 서버 재료 목록에서 내 것이 아니라고 온 것만 잠근다(목록을 못 읽었으면 지금 재료는 전부 무료라 연다)
   const owned = (id: string) => {
     if (!assets) return true;

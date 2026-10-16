@@ -3,7 +3,7 @@
 // 칸 위 손가락(끌기 · 두 손가락 크기·회전 · 손잡이 · 빈 곳 톡 · 테이프 붙이기) · 스크린리더 동작.
 // 서버 API(magazine.ts)는 목이다. 손가락은 touchDriver 로 판의 PanResponder 에 진짜 터치 모양 이벤트를 넣는다.
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { BackHandler, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
@@ -962,5 +962,37 @@ describe('en 로케일', () => {
     const screen = await render(<PromotionEditor e={enEnv()} />);
     await waitFor(() => expect(screen.getByText('Edit your posted promotion?')).toBeTruthy());
     noHangul(screen);
+  });
+});
+
+describe('안드로이드 하드웨어 뒤로가기', () => {
+  // 나중에 단 리스너가 먼저 받는다 — 화면이 단 마지막 리스너를 부른다
+  const pressBack = async () => {
+    const add = BackHandler.addEventListener as jest.Mock;
+    const handler = add.mock.calls.at(-1)?.[1] as () => boolean;
+    let handled = false;
+    await act(async () => {
+      handled = handler();
+    });
+    return handled;
+  };
+  beforeEach(() => jest.spyOn(BackHandler, 'addEventListener'));
+
+  it('싣기 확인창이 떠 있으면 단계를 바꾸지 않고 확인창부터 닫는다', async () => {
+    const { screen } = await open();
+    await fireEvent.press(screen.getByTestId('promotion-submit'));
+    expect(screen.getByTestId('promotion-confirm-price')).toBeTruthy();
+    expect(await pressBack()).toBe(true);
+    expect(screen.queryByTestId('promotion-confirm-price')).toBeNull();
+    expect(screen.getByTestId('sticker-drawer')).toBeTruthy();
+  });
+
+  it('고치기 확인창이 떠 있으면 단계를 바꾸지 않고 회관으로', async () => {
+    getEditor.mockResolvedValue(editorResponse(EXISTING));
+    const e = env();
+    const screen = await render(<PromotionEditor e={e} />);
+    await waitFor(() => expect(screen.getByText('올린 홍보글을 수정하시겠습니까?')).toBeTruthy());
+    expect(await pressBack()).toBe(true);
+    expect(e.back).toHaveBeenCalledTimes(1);
   });
 });
