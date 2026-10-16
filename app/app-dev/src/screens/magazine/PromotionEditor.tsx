@@ -727,7 +727,8 @@ export function PromotionEditor({
           testID="promotion-cell"
           width={cellW}
           hideMeta
-          cell={{ ...facts, body: body.trim(), layout }}
+          // 쓰는 중에는 다듬기 전 글 그대로 — 겹친 입력 칸의 커서와 글자가 어긋나지 않게
+          cell={{ ...facts, body, layout }}
           bodyInput={(style) => (
             <NativeTextInput
               ref={bodyRef}

@@ -178,12 +178,16 @@ export function AdCell({
                 {name}
               </T>
             </View>
-            {bodyInput ? (
-              bodyInput([
-                text(m.bodySize, k * fit.bodyScale, fit.bodyLines),
-                { marginTop: m.gap * s },
-              ])
-            ) : (
+            <View
+              style={{
+                marginTop: m.gap * s,
+                // 쓰는 중에는 글 자리 전체(최대 줄 수)를 눌러 쓸 수 있게 — 비어 있어도 높이가 있다
+                minHeight: bodyInput
+                  ? m.bodySize * k * fit.bodyScale * m.lineHeight * fit.bodyLines
+                  : undefined,
+              }}
+            >
+              {/* 글은 늘 이 표시용 글자로 그린다 — 쓰는 중에도 실릴 모양(줄바꿈·축소)을 그대로 보인다 */}
               <T
                 allowFontScaling={false}
                 numberOfLines={fit.bodyLines}
@@ -191,14 +195,20 @@ export function AdCell({
                 minimumFontScale={0.7}
                 // 한글이 단어 중간(「친구/들」)에서 꺾이지 않게 — 잡지의 다른 글과 같다
                 lineBreakStrategyIOS="hangul-word"
-                style={[
-                  text(m.bodySize, k * fit.bodyScale, fit.bodyLines),
-                  { marginTop: m.gap * s },
-                ]}
+                style={text(m.bodySize, k * fit.bodyScale, fit.bodyLines)}
               >
                 {cell.body}
               </T>
-            )}
+              {bodyInput ? (
+                // 입력은 그 위에 겹친 투명 글자(커서·선택만 보인다)
+                <View style={StyleSheet.absoluteFill}>
+                  {bodyInput([
+                    text(m.bodySize, k * fit.bodyScale, fit.bodyLines),
+                    { color: 'transparent', height: '100%' },
+                  ])}
+                </View>
+              ) : null}
+            </View>
           </View>
           {!hideMeta && (
             <T

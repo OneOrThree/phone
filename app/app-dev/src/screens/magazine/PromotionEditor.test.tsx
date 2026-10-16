@@ -345,6 +345,11 @@ describe('스티커·테이프·틀·글', () => {
     expect(Array.from(screen.getByTestId('promotion-body').props.value)).toHaveLength(60);
     await fireEvent.changeText(screen.getByTestId('promotion-body'), '첫 줄\n둘째 줄');
     expect(screen.getByTestId('promotion-body').props.value).toBe('첫 줄 둘째 줄');
+    // 쓰는 중에도 글은 실릴 칸의 표시용 글자(맞춤·줄바꿈 그대로)로 보이고, 겹친 입력 칸은 글자가 투명하다
+    expect(screen.getByText('첫 줄 둘째 줄')).toBeTruthy();
+    expect(StyleSheet.flatten(screen.getByTestId('promotion-body').props.style).color).toBe(
+      'transparent',
+    );
     // 서버가 거절하는 제어 문자(탭 등)와 U+2028·U+2029 도 띄어쓰기로
     await fireEvent.changeText(screen.getByTestId('promotion-body'), '탭\t글\u2028끝\u0085!');
     expect(screen.getByTestId('promotion-body').props.value).toBe('탭 글 끝 !');
