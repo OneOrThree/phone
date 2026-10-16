@@ -350,6 +350,14 @@ describe('스티커·테이프·틀·글', () => {
     expect(StyleSheet.flatten(screen.getByTestId('promotion-body').props.style).color).toBe(
       'transparent',
     );
+    // 표시용 글자가 자동 축소되면(첫 줄이 낮아짐) 입력 칸도 그 배율로 줄어 커서가 보이는 글자에 맞는다(하한 0.7)
+    const inputSize = () =>
+      StyleSheet.flatten(screen.getByTestId('promotion-body').props.style).fontSize;
+    const full = inputSize();
+    await fireEvent(screen.getByText('첫 줄 둘째 줄'), 'textLayout', {
+      nativeEvent: { lines: [{ height: 1 }] },
+    });
+    expect(inputSize()).toBeCloseTo(full * 0.7, 5);
     // 서버가 거절하는 제어 문자(탭 등)와 U+2028·U+2029 도 띄어쓰기로
     await fireEvent.changeText(screen.getByTestId('promotion-body'), '탭\t글\u2028끝\u0085!');
     expect(screen.getByTestId('promotion-body').props.value).toBe('탭 글 끝 !');

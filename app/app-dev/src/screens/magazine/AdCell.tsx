@@ -1,5 +1,14 @@
-import React from 'react';
-import { Image, Pressable, StyleProp, StyleSheet, TextStyle, View } from 'react-native';
+import React, { useState } from 'react';
+import {
+  Image,
+  NativeSyntheticEvent,
+  Pressable,
+  StyleProp,
+  StyleSheet,
+  TextLayoutEventData,
+  TextStyle,
+  View,
+} from 'react-native';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
@@ -110,6 +119,10 @@ export function AdCell({
     ...(lines ? { maxHeight: size * scale * m.lineHeight * lines } : null),
   });
   const Body = onPress || onReport ? Pressable : View;
+  // 쓰는 중 겹친 입력 칸의 배율 — 표시용 글자가 자동 축소되면 그 배율(첫 줄 높이 ÷ 원래 줄 높이)로 입력 칸도 줄여
+  // 커서·선택이 보이는 글자와 같은 자리에 오게 한다(축소가 없으면 1)
+  const [inputScale, setInputScale] = useState(1);
+  const bodyLine = m.bodySize * k * fit.bodyScale * m.lineHeight;
 
   return (
     <View testID={testID} style={{ width: W, height: H }}>
@@ -182,9 +195,7 @@ export function AdCell({
               style={{
                 marginTop: m.gap * s,
                 // 쓰는 중에는 글 자리 전체(최대 줄 수)를 눌러 쓸 수 있게 — 비어 있어도 높이가 있다
-                minHeight: bodyInput
-                  ? m.bodySize * k * fit.bodyScale * m.lineHeight * fit.bodyLines
-                  : undefined,
+                minHeight: bodyInput ? bodyLine * fit.bodyLines : undefined,
               }}
             >
               {/* 글은 늘 이 표시용 글자로 그린다 — 쓰는 중에도 실릴 모양(줄바꿈·축소)을 그대로 보인다 */}
@@ -195,6 +206,17 @@ export function AdCell({
                 minimumFontScale={0.7}
                 // 한글이 단어 중간(「친구/들」)에서 꺾이지 않게 — 잡지의 다른 글과 같다
                 lineBreakStrategyIOS="hangul-word"
+                onTextLayout={
+                  bodyInput
+                    ? (ev: NativeSyntheticEvent<TextLayoutEventData>) => {
+                        const first = ev.nativeEvent.lines[0];
+                        const next = first
+                          ? Math.min(1, Math.max(0.7, first.height / bodyLine))
+                          : 1;
+                        if (Math.abs(next - inputScale) > 0.01) setInputScale(next);
+                      }
+                    : undefined
+                }
                 style={text(m.bodySize, k * fit.bodyScale, fit.bodyLines)}
               >
                 {cell.body}
@@ -203,8 +225,8 @@ export function AdCell({
                 // 입력은 그 위에 겹친 투명 글자(커서·선택만 보인다)
                 <View style={StyleSheet.absoluteFill}>
                   {bodyInput([
-                    text(m.bodySize, k * fit.bodyScale, fit.bodyLines),
-                    { color: 'transparent', height: '100%' },
+                    text(m.bodySize, k * fit.bodyScale * inputScale, fit.bodyLines),
+                    { color: 'transparent', height: '100%', maxHeight: undefined },
                   ])}
                 </View>
               ) : null}
