@@ -88,7 +88,46 @@ export function handlePoint(layout: PromotionLayout, target: EditTarget, width: 
   if (!box) return null;
   const c = Math.cos(rad(box.rotation));
   const s = Math.sin(rad(box.rotation));
-  return { x: box.cx + box.hw * c - box.hh * s, y: box.cy + box.hw * s + box.hh * c };
+  // 가장자리 꾸미기의 모서리는 판 밖일 수 있다 — 판 밖은 터치가 오지 않으니 손잡이를 판 안으로 끌어들인다
+  const m = componentTokens.promotionEditor.handleSize / 2;
+  const height = width * CELL_ASPECT;
+  return {
+    x: clampTo(
+      box.cx + box.hw * c - box.hh * s,
+      -CANVAS_PAD * width + m,
+      (1 + CANVAS_PAD) * width - m,
+    ),
+    y: clampTo(
+      box.cy + box.hw * s + box.hh * c,
+      -CANVAS_PAD * height + m,
+      (1 + CANVAS_PAD) * height - m,
+    ),
+  };
+}
+
+const clampTo = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/**
+ * 꾸미기들이 칸 밖으로 실제로 걸치는 정도 — 돌린 그림의 경계 상자 기준, 칸 너비(x)·높이(y)에 대한 비율.
+ * 중심 좌표 범위(CANVAS_PAD)보다 클 수 있다(예: 위 테두리에 붙은 테이프는 그림 반 높이만큼 더 나간다).
+ */
+export function layoutBleed(layout: PromotionLayout): { x: number; y: number } {
+  const height = CELL_ASPECT;
+  const targets: EditTarget[] = layout.stickers.map((_, index) => ({ kind: 'sticker', index }));
+  if (layout.tape) targets.push({ kind: 'tape' });
+  let x = 0;
+  let y = 0;
+  for (const target of targets) {
+    const b = itemBox(layout, target, 1);
+    if (!b) continue;
+    const c = Math.abs(Math.cos(rad(b.rotation)));
+    const s = Math.abs(Math.sin(rad(b.rotation)));
+    const ex = b.hw * c + b.hh * s;
+    const ey = b.hw * s + b.hh * c;
+    x = Math.max(x, ex - b.cx, b.cx + ex - 1);
+    y = Math.max(y, (ey - b.cy) / height, (b.cy + ey - height) / height);
+  }
+  return { x, y };
 }
 
 type Pt = { x: number; y: number };

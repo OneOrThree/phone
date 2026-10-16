@@ -9,7 +9,7 @@ import * as api from '@/services/api/magazine';
 import type { MagazineCell, MagazineIssuePage } from '@/services/api/magazine';
 import { initialState } from '@/services/model';
 import { FlatList, StyleSheet } from 'react-native';
-import { MagazineReader, magazinePages, readerGeometry } from './MagazineReader';
+import { MagazineReader, issueBleed, magazinePages, readerGeometry } from './MagazineReader';
 import { resetMagazineToday } from './useMagazineToday';
 
 jest.mock('@/services/api/magazine', () => ({
@@ -490,4 +490,30 @@ describe('en 로케일', () => {
     expect(screen.getByText('Report this ad')).toBeTruthy();
     noHangul();
   });
+});
+
+test('지면은 이 호 칸들이 실제로 걸치는 만큼 비운다 — 위 테두리 테이프가 첫 칸 위에서 잘리지 않게', () => {
+  const L = { width: 402, height: 874, insets: { top: 0, bottom: 0, left: 0, right: 0 } };
+  const taped = {
+    layout: {
+      v: 1 as const,
+      frameId: 'mag.frame-scallop',
+      stickers: [],
+      tape: { assetId: 'mag.tape-pink', x: 0.5, y: 0, rotation: 4 },
+    },
+  };
+  const plain = readerGeometry(L, issueBleed([]));
+  const wide = readerGeometry(L, issueBleed([taped]));
+  expect(issueBleed([]).y).toBe(0.08);
+  expect(wide.cellPad / ((wide.cellW * 199) / 338)).toBeGreaterThan(0.1);
+  expect(wide.cellW).toBeLessThan(plain.cellW);
+  // 아주 크게 걸친 꾸미기도 칸이 너무 작아지지 않게 상한이 있다
+  const huge = {
+    layout: {
+      ...taped.layout,
+      tape: null,
+      stickers: [{ assetId: 'mag.heart', x: 0.5, y: -0.08, scale: 0.6, rotation: 45 }],
+    },
+  };
+  expect(issueBleed([huge]).y).toBeLessThanOrEqual(0.3);
 });

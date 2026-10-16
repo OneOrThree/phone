@@ -33,7 +33,7 @@ import { CELL_ASPECT } from './layout';
 import { magazineApi } from './usePromotionEditor';
 import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
 import { PromotionReportSheet } from './PromotionReportSheet';
-import { CANVAS_PAD } from './useStickerGestures';
+import { CANVAS_PAD, layoutBleed } from './useStickerGestures';
 
 const R = componentTokens.magazineReader;
 const PER_PAGE = 3;
@@ -59,14 +59,17 @@ type Loaded = {
 /**
  * 속지 배치 — 속지는 그림 비율 그대로 화면 안에 가장 크게. 지면(표지 띠 아래 ~ 쪽 넘김 줄 위)은 쪽 넘김 줄과 겹치지 않는다:
  * 가로 화면처럼 속지가 낮으면 아래 여백(insetBottom)보다 넘김 줄이 먼저 닿으므로 둘 중 위쪽에서 끝낸다. 칸 3개는 지면 높이에 맞춘다.
- * 지면은 가로로 넘기는 목록이라 그 밖은 잘린다 — 꾸미기가 걸치는 칸 둘레(CANVAS_PAD)도 지면 안에 들게 칸을 그만큼 줄이고,
- * 첫 칸 위에 cellPad 를 비운다(첫 칸 위·마지막 칸 아래·좌우에서 꾸미기가 잘리지 않게).
+ * 지면은 가로로 넘기는 목록이라 그 밖은 잘린다 — 꾸미기가 칸 밖으로 걸치는 만큼(bleed, 칸 너비·높이에 대한 비율)도 지면 안에
+ * 들게 칸을 그만큼 줄이고, 첫 칸 위에 cellPad 를 비운다(첫 칸 위·마지막 칸 아래·좌우에서 꾸미기가 잘리지 않게).
  */
-export function readerGeometry(L: {
-  width: number;
-  height: number;
-  insets: { top: number; bottom: number; left: number; right: number };
-}) {
+export function readerGeometry(
+  L: {
+    width: number;
+    height: number;
+    insets: { top: number; bottom: number; left: number; right: number };
+  },
+  bleed: { x: number; y: number } = { x: CANVAS_PAD, y: CANVAS_PAD },
+) {
   const availW = L.width - L.insets.left - L.insets.right - R.screenMargin * 2;
   const availH = L.height - L.insets.top - L.insets.bottom - R.screenMargin * 2;
   const W = Math.min(availW, availH * R.pageAspect, R.maxPageWidth);
@@ -76,11 +79,24 @@ export function readerGeometry(L: {
   const contentBottom = Math.min(H * (1 - R.insetBottom), navTop - R.cellGap);
   const innerH = contentBottom - H * R.insetTop - COVER_H;
   const cellW = Math.min(
-    innerW / (1 + CANVAS_PAD * 2),
-    (innerH - R.cellGap * 2) / ((PER_PAGE + CANVAS_PAD * 2) * CELL_ASPECT),
+    innerW / (1 + bleed.x * 2),
+    (innerH - R.cellGap * 2) / ((PER_PAGE + bleed.y * 2) * CELL_ASPECT),
   );
-  const cellPad = CANVAS_PAD * cellW * CELL_ASPECT;
+  const cellPad = bleed.y * cellW * CELL_ASPECT;
   return { W, H, innerW, innerH, cellW, cellPad, navTop, contentBottom };
+}
+
+/** 칸들이 걸치는 최대 비율 — 중심 범위(CANVAS_PAD) 이상, MAX_BLEED 이하 */
+const MAX_BLEED = 0.3;
+export function issueBleed(cells: { layout: MagazineCell['layout'] }[]) {
+  let x = CANVAS_PAD;
+  let y = CANVAS_PAD;
+  for (const cell of cells) {
+    const b = layoutBleed(cell.layout);
+    x = Math.max(x, b.x);
+    y = Math.max(y, b.y);
+  }
+  return { x: Math.min(x, MAX_BLEED), y: Math.min(y, MAX_BLEED) };
 }
 
 /** 「2026-10-14」 → ko 「10월 14일」 · en 「October 14」 — 날짜는 언어별 형식(formatDate)으로 */
@@ -194,7 +210,10 @@ export function MagazineReader({
       .finally(() => setMore(false));
   }, [issueId, cursor, more, index, pages.length, failedAt]);
 
-  const { W, H, innerW, innerH, cellW, cellPad } = readerGeometry(L);
+  // 이 호 칸들이 실제로 걸치는 만큼(돌린 테이프·스티커의 경계 상자) 비운다 — 적어도 중심 범위(CANVAS_PAD), 많아야
+  // MAX_BLEED(그 이상 걸친 드문 꾸미기는 끝이 잘린다 — 칸이 너무 작아지지 않게)
+  const bleed = issueBleed(loaded?.cells ?? []);
+  const { W, H, innerW, innerH, cellW, cellPad } = readerGeometry(L, bleed);
   const largeText = L.fontScale >= R.largeTextThreshold;
   const text = (size: number, color: string = semanticTokens.color.text) => ({
     fontFamily: font,
@@ -758,9 +777,9 @@ export function MagazineReader({
             // 꾸미기가 걸치는 칸 둘레(CANVAS_PAD)까지 화면 안에 들게 그만큼 작게
             <AdCell
               width={Math.min(
-                (L.width - semanticTokens.spacing.component * 2) / (1 + CANVAS_PAD * 2),
+                (L.width - semanticTokens.spacing.component * 2) / (1 + issueBleed([zoom]).x * 2),
                 (L.height - L.insets.top - L.insets.bottom - semanticTokens.spacing.component * 2) /
-                  ((1 + CANVAS_PAD * 2) * CELL_ASPECT),
+                  ((1 + issueBleed([zoom]).y * 2) * CELL_ASPECT),
                 R.maxPageWidth,
               )}
               cell={zoom}

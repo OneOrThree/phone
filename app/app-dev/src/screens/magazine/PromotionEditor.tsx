@@ -543,9 +543,17 @@ export function PromotionEditor({
     const lx = sx * (b.hw + inset);
     const ly = sy * (b.hh + inset);
     const r = (b.rotation * Math.PI) / 180;
+    // 가장자리 꾸미기는 모서리가 판 밖일 수 있다 — 판 밖은 터치가 오지 않으니 판 안으로 끌어들인다
+    const clamp = (n: number, hi: number) => Math.min(hi - DELETE_SIZE, Math.max(0, n));
     return {
-      left: pad.x + b.cx + lx * Math.cos(r) - ly * Math.sin(r) - DELETE_SIZE / 2,
-      top: pad.y + b.cy + lx * Math.sin(r) + ly * Math.cos(r) - DELETE_SIZE / 2,
+      left: clamp(
+        pad.x + b.cx + lx * Math.cos(r) - ly * Math.sin(r) - DELETE_SIZE / 2,
+        cellW + pad.x * 2,
+      ),
+      top: clamp(
+        pad.y + b.cy + lx * Math.sin(r) + ly * Math.cos(r) - DELETE_SIZE / 2,
+        cellH + pad.y * 2,
+      ),
     };
   };
   const handle = selection && canEdit && handlePoint(layout, selection, cellW);

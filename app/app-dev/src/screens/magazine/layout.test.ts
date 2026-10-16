@@ -240,3 +240,29 @@ describe('버튼·스크린리더 고치기(applyEdit)', () => {
     });
   });
 });
+
+describe('칸 밖 걸침 · 손잡이', () => {
+  const { CANVAS_PAD, handlePoint, layoutBleed } = jest.requireActual('./useStickerGestures');
+  const base = { v: 1 as const, frameId: FRAME, stickers: [], tape: null };
+
+  it('위 테두리에 붙은 테이프는 중심 범위(8%)보다 더 걸친다 — 돌린 그림의 경계 상자로 잰다', () => {
+    const bleed = layoutBleed({
+      ...base,
+      tape: { assetId: 'mag.tape-pink', x: 0.5, y: 0, rotation: 4 },
+    });
+    expect(bleed.y).toBeGreaterThan(CANVAS_PAD);
+    expect(bleed.y).toBeLessThan(0.2);
+    expect(layoutBleed(base)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('가장자리 스티커의 손잡이도 판 안에 둔다(판 밖은 터치가 오지 않는다)', () => {
+    const width = 300;
+    const h = handlePoint(
+      { ...base, stickers: [{ assetId: 'mag.heart', x: 1.08, y: 0.5, scale: 0.6, rotation: 0 }] },
+      { kind: 'sticker', index: 0 },
+      width,
+    )!;
+    expect(h.x).toBeLessThanOrEqual((1 + CANVAS_PAD) * width);
+    expect(h.y).toBeLessThanOrEqual((1 + CANVAS_PAD) * width * CELL_ASPECT);
+  });
+});
