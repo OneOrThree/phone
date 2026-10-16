@@ -9,7 +9,7 @@ import { ApiError } from '@/services/api/client';
 import type { Account } from '@/services/api/auth';
 import type { IslandSummary, MyIslands, MyJoinRequest } from '@/services/api/islands';
 
-jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0 }));
+jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0, getSession: () => null }));
 
 const island = (over: Partial<IslandSummary> = {}): IslandSummary => ({
   id: 'i1',

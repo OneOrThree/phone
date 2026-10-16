@@ -43,6 +43,7 @@ import {
   syncLiveActivity,
 } from '@/services/liveActivity';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
+import { saveAccountGuides } from '@/services/accountGuides';
 import { reconcileTutorial } from '@/services/tutorial';
 import { syncIOSScreenTime } from '@/services/iosScreenTimeSync';
 import { reportScreenTime, subscribeScreenTimeReporting } from '@/services/screenTimeReporting';
@@ -367,8 +368,24 @@ function Gromo() {
     [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
-  const setGuideStep = (step: number, expected?: { step: number; revision: number }) =>
+  const tutorialOwner = getSession()?.userId;
+  const tutorialGeneration = sessionGeneration();
+  const setGuideStep = (step: number, expected?: { step: number; revision: number }) => {
+    if (sessionGeneration() !== tutorialGeneration || getSession()?.userId !== tutorialOwner)
+      return;
+    const current = stateRef.current;
+    if (
+      expected &&
+      ((current.tutorial?.step ?? 0) !== expected.step ||
+        (current.tutorialRevision ?? 0) !== expected.revision)
+    )
+      return;
+    const owner = getSession()?.userId;
+    if (step >= 22 && owner && !REVIEW && !DEMO) {
+      void saveAccountGuides(owner, { focusDone: true }).catch(() => notify(t('app.storageCheck')));
+    }
     dispatch({ type: 'GUIDE_STEP', step, expected });
+  };
   const tutorialBootReconciled = useRef(false);
   const previousTutorialRoute = useRef(route);
   const [liveCounts, setLiveCounts] = useState<{
@@ -1995,6 +2012,7 @@ function Gromo() {
           route,
           termsVersion: TERMS_VERSION,
           routeTransitionShielded,
+          accountDataReady: storageOwnerReady,
           dispatch,
           go,
           replace,

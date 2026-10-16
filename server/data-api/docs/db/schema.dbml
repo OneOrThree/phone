@@ -1966,3 +1966,14 @@ Table focus_live_activities [note: '집중 상태 APNs·Android FCM 등록·전�
     next_attempt_at [name: 'focus_live_activities_due_idx']
   }
 }
+
+Table construction_guide_recipients [note: '착공 당시 양수 기여 주민. 완공 후 해당 주민에게만 완료 안내 — 2296'] {
+  island_id uuid [not null]
+  building_id varchar(30) [not null]
+  user_id uuid [not null, ref: > users.id]
+  indexes {
+    (island_id, building_id, user_id) [pk]
+    user_id
+  }
+}
+Ref: construction_guide_recipients.(island_id, building_id) > island_facilities.(island_id, building_id) [delete: cascade]

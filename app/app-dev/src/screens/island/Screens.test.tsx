@@ -1653,32 +1653,10 @@ test('기기 언어가 지원 언어(ko·en)가 아니면 기기 언어 따름 s
   assert.ok(s.getByText(/기기 언어 미지원/));
 });
 
-test('완공된 상점 첫 진입에서 강아지 이야기를 한 번만 보여준다', async () => {
-  let exposed: any;
-  const s = await render(<Harness route="shop" full expose={(value: any) => (exposed = value)} />);
-
-  s.getByText(/드디어 마지막 건물까지 완성됐네/);
-  await fireEvent.press(s.getByText('다음'));
-  s.getByText(/상점이 열릴 날만 기다리면서/);
-  await fireEvent.press(s.getByText('다음'));
-  s.getByText(/이제 이 섬을 너희답게 꾸밀 차례야/);
-  await fireEvent.press(s.getByText('상점 둘러보기'));
-
-  await waitFor(() => {
-    assert.ok(exposed.actions.includes('SHOP_GUIDE_DONE'));
-    assert.equal(s.queryByText(/드디어 마지막 건물까지 완성됐네/), null);
-  });
-  s.getByText('강아지 상점');
-});
-
-test('상점 안내 중 시스템 뒤로가기는 완료 처리 없이 상점을 닫는다', async () => {
-  let exposed: any;
-  const s = await render(<Harness route="shop" full expose={(value: any) => (exposed = value)} />);
-
-  await fireEvent(s.getByTestId('shop-guide'), 'requestClose');
-
-  assert.equal(exposed.home.mock.calls.length, 1);
-  assert.ok(!exposed.actions.includes('SHOP_GUIDE_DONE'));
+test('상점 내용 화면은 완공 축하나 사용 설명을 중복해서 띄우지 않는다', async () => {
+  const screen = await render(<Harness route="shop" full />);
+  expect(screen.queryByTestId('shop-guide')).toBeNull();
+  screen.getByText('강아지 상점');
 });
 
 test('일반 상점 구매의 SOCIAL_LOGIN_REQUIRED는 오류 알림 대신 회원 전환을 연다', async () => {

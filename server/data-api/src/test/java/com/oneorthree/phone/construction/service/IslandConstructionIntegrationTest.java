@@ -161,6 +161,42 @@ class IslandConstructionIntegrationTest {
         assertThat(service.options(f.islandId, f.ownerId).activeConstruction()).isNull();
     }
 
+    @Test
+    @DisplayName("완공 안내는 착공 당시 실제 기여 주민만 대상이며 신규 가입자는 포함하지 않는다")
+    void completionAnnouncementsExcludeNonContributorsAndNewResidents() {
+        Fixture f = fundedIsland(100, "hall");
+        UUID idle = joinNewMember(f.islandId);
+        jdbc.update("INSERT INTO focus_tutorial_rewards(user_id, island_id, claimed_at) VALUES (?, ?, now())",
+                f.ownerId, f.islandId);
+        service.start(f.islandId, f.ownerId, "hall", 0, 1, UUID.randomUUID());
+        assertThat(service.options(f.islandId, f.ownerId).contributedCompletions()).isEmpty();
+        UUID newcomer = joinNewMember(f.islandId);
+        jdbc.update("UPDATE island_facilities SET completes_at = ? WHERE island_id = ?",
+                Timestamp.from(Instant.now().minusSeconds(60)), f.islandId);
+        scheduler.completeDueFacilities();
+        assertThat(service.options(f.islandId, f.ownerId).contributedCompletions()).containsExactly("hall");
+        assertThat(service.options(f.islandId, idle).contributedCompletions()).isEmpty();
+        assertThat(service.options(f.islandId, newcomer).contributedCompletions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("각자 몫 건물은 소비된 목표의 기여 명단을 보존한다")
+    void splitCompletionKeepsConsumedTargetContributors() {
+        Fixture f = fundedIsland(2000, "gram");
+        completeFacility(f, "hall");
+        completeFacility(f, "board");
+        UUID newcomer = joinNewMember(f.islandId);
+        var options = service.options(f.islandId, f.ownerId);
+        service.start(f.islandId, f.ownerId, "gram", options.islandVersion(),
+                options.costPolicyVersion(), UUID.randomUUID());
+        jdbc.update("UPDATE island_facilities SET completes_at = ? WHERE island_id = ? AND building_id = 'gram'",
+                Timestamp.from(Instant.now().minusSeconds(60)), f.islandId);
+        scheduler.completeDueFacilities();
+        assertThat(states.findById(f.islandId).orElseThrow().getTargetBuildingId()).isNull();
+        assertThat(service.options(f.islandId, f.ownerId).contributedCompletions()).containsExactly("gram");
+        assertThat(service.options(f.islandId, newcomer).contributedCompletions()).isEmpty();
+    }
+
     // ---------------------------------------------------------------- 배치 정본 (GROMO-2232)
 
     @Test

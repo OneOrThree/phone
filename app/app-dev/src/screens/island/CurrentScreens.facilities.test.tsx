@@ -1,9 +1,15 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { saveSession, clearSession } from '@/services/api/session';
+import { saveAccountGuides } from '@/services/accountGuides';
+import * as homeApi from '@/services/api/home';
 import assert from 'node:assert/strict';
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { initialState, reducer } from '@/services/model';
 
+jest.mock('@/screens/island/Screens', () => ({ RedesignScreens: () => null }));
+jest.mock('@/screens/interiors/BuildingInteriors', () => ({ InteriorRoute: () => null }));
 jest.mock('@/screens/island/useFriendsScreen', () => ({
   useFriendsScreen: () => ({ data: null }),
 }));
@@ -133,4 +139,74 @@ test('방문 시설이 미완공이면 내 섬의 완공 여부와 무관하게 
   expect(screen.queryByTestId('visitor-board')).toBeNull();
   await fireEvent.press(screen.getByText('확인'));
   expect(e.replace).toHaveBeenCalledWith('visitIsland', 'visitor');
+});
+
+const withBuildings = (buildings: string[], id = 'server') =>
+  reducer(
+    reducer(state(), {
+      type: 'ISLAND_SYNC',
+      memberships: { items: [{ id }], currentIslandId: id, lossReason: null },
+    }),
+    {
+      type: 'SERVER_HOME',
+      facts: {
+        islandId: id,
+        completedBuildings: buildings,
+        home: { island: { id, role: 'member' }, wallets: { villagePoints: 0 } },
+      },
+    },
+  );
+
+async function signInGuideUser() {
+  await AsyncStorage.clear();
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'guide-user' });
+}
+afterEach(async () => {
+  jest.restoreAllMocks();
+  await clearSession();
+});
+
+test('로컬 우체통이 있어도 실제 섬에 없으면 설명이 나오지 않는다', async () => {
+  await signInGuideUser();
+  const screen = await render(<CurrentScreens e={env(withBuildings(['hall']), 'mail')} />);
+  expect(screen.getByText('아직 우체통이 없어요')).toBeTruthy();
+  expect(screen.queryByTestId('building-guide')).toBeNull();
+});
+
+test('미열람 신규 주민은 건물을 눌렀을 때만 설명을 보고 다른 섬에서는 반복하지 않는다', async () => {
+  await signInGuideUser();
+  jest
+    .spyOn(homeApi, 'getConstructionOptions')
+    .mockResolvedValue({ contributedCompletions: [] } as any);
+  const home = env(withBuildings(['hall', 'mail']), 'home');
+  const screen = await render(<CurrentScreens e={home} />);
+  await waitFor(() => expect(homeApi.getConstructionOptions).toHaveBeenCalled());
+  expect(screen.queryByTestId('building-guide')).toBeNull();
+  expect(screen.queryByTestId('building-completion-guide')).toBeNull();
+  await screen.rerender(<CurrentScreens e={{ ...home, route: 'mail' }} />);
+  await waitFor(() =>
+    expect(screen.getByText('난 친구들의 편지를 배달하는 펠리컨이야.')).toBeTruthy(),
+  );
+  await fireEvent.press(screen.getByText('안내 그만 보기'));
+  await waitFor(() => expect(screen.queryByTestId('building-guide')).toBeNull());
+  await screen.rerender(<CurrentScreens e={env(withBuildings(['mail'], 'next-island'), 'mail')} />);
+  expect(screen.queryByTestId('building-guide')).toBeNull();
+});
+
+test('이미 설명을 본 기여자는 완공 안내만 받고 이후 홈에서 반복하지 않는다', async () => {
+  await signInGuideUser();
+  await saveAccountGuides('guide-user', { buildings: ['mail'] });
+  jest
+    .spyOn(homeApi, 'getConstructionOptions')
+    .mockResolvedValue({ contributedCompletions: ['mail'] } as any);
+  const e = env(withBuildings(['hall', 'mail']), 'home');
+  const screen = await render(<CurrentScreens e={e} />);
+  await waitFor(() => expect(screen.getByText(/우체통 공사가 끝났어/)).toBeTruthy());
+  expect(screen.queryByText(/편지를 배달하는/)).toBeNull();
+  await fireEvent.press(screen.getByText('확인'));
+  await waitFor(() => expect(screen.queryByTestId('building-completion-guide')).toBeNull());
+  await screen.rerender(<CurrentScreens e={{ ...e, route: 'mail' }} />);
+  expect(screen.queryByTestId('building-guide')).toBeNull();
+  await screen.rerender(<CurrentScreens e={e} />);
+  expect(screen.queryByTestId('building-completion-guide')).toBeNull();
 });

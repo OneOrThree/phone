@@ -1,4 +1,4 @@
-import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
+import { GuideBox } from '@/screens/island/NpcGuide';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { islandErrorMessage } from '@/services/islandErrors';
@@ -34,8 +34,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   State,
   Friend,
-  shouldShowMailboxGuide,
-  shouldShowShopGuide,
   Building,
   Color,
   displayIsland as currentIsland,
@@ -2608,48 +2606,32 @@ export function RedesignScreens({ e }: any) {
     );
   if (route === 'home') {
     // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
-    const guideUserId = getSession()?.userId ?? 'local';
-    const mailboxGuide = shouldShowMailboxGuide(state, guideUserId);
-    const hallGuide = !mailboxGuide && hallGuideOpen && !island.buildings.includes('hall'),
+    const hallGuide = hallGuideOpen && !island.buildings.includes('hall'),
       w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
     return (
       <View style={{ flex: 1 }}>
-        {mailboxGuide ? (
-          backgroundHome
-        ) : (
-          <IslandHome
-            state={state}
-            go={go}
-            build={build}
-            request={e.walkRequest}
-            notify={notify}
-            dispatch={dispatch}
-            focusTutorial={
-              guideStep === 4
-                ? {
-                    text: t('home.tutorial.focusStart'),
-                    onPress: () =>
-                      setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
-                    onSkip: () => setGuideStep(99),
-                  }
-                : undefined
-            }
-            boardStatus={e.boardStatus}
-            libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
-            showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
-            onServerBuilt={e.islands ? e.retryHome : undefined}
-          />
-        )}
-        {mailboxGuide && (
-          <MailboxGuide
-            blocked={e.routeTransitionShielded}
-            key={`${guideUserId}:${island.id}`}
-            onDone={(openMailbox) => {
-              dispatch({ type: 'MAILBOX_GUIDE_DONE', userId: guideUserId });
-              if (openMailbox) go('mail');
-            }}
-          />
-        )}
+        <IslandHome
+          state={state}
+          go={go}
+          build={build}
+          request={e.walkRequest}
+          notify={notify}
+          dispatch={dispatch}
+          focusTutorial={
+            guideStep === 4
+              ? {
+                  text: t('home.tutorial.focusStart'),
+                  onPress: () =>
+                    setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
+                  onSkip: () => setGuideStep(99),
+                }
+              : undefined
+          }
+          boardStatus={e.boardStatus}
+          libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
+          showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
+          onServerBuilt={e.islands ? e.retryHome : undefined}
+        />
         {hallGuide && (
           <GuideBox
             text={t('home.tutorial.hallGuide', { count: costs.hall })}
@@ -5134,8 +5116,6 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
-    const guideUserId = getSession()?.userId ?? 'local';
-    const shopGuide = shouldShowShopGuide(state, guideUserId);
     return (
       <>
         <IslandSheet
@@ -5195,13 +5175,6 @@ export function RedesignScreens({ e }: any) {
             ))}
           </View>
         </IslandSheet>
-        {shopGuide && (
-          <ShopGuide
-            blocked={e.routeTransitionShielded}
-            onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })}
-            onCancel={home}
-          />
-        )}
       </>
     );
   }
@@ -6484,18 +6457,6 @@ export function RedesignScreens({ e }: any) {
             </SheetGroup>
           </>
         ) : null}
-        {sec(t('settings.helpSection'))}
-        <SheetGroup flat>
-          <SheetRow
-            title={t('settings.replayTutorial')}
-            sub={t('settings.replayTutorialSub')}
-            chevron
-            onPress={() => {
-              setGuideStep(0);
-              go('guide');
-            }}
-          />
-        </SheetGroup>
         {sec(t('settings.appInfoSection'))}
         <SheetGroup flat>
           <SheetRow title={t('settings.version')} sub="R61 · v2" />

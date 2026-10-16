@@ -1,3 +1,6 @@
+import { useAccountGuides } from '@/screens/island/useAccountGuides';
+import { useConstructionAnnouncements } from '@/screens/island/useConstructionAnnouncements';
+import { BuildingGuide, BuildingCompletionGuide } from '@/screens/island/NpcGuide';
 import { AndroidAppPicker } from '@/components/AndroidAppPicker';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { PermissionsAndroid } from 'react-native';
@@ -265,7 +268,84 @@ export function CurrentScreens({ e }: any) {
     if (friends) dispatch({ type: 'FRIENDS_SYNC', friends });
   }, [dispatch, friendsScreen.data, serverIslands]);
 
-  return <CurrentScreensContent e={{ ...e, friendsScreen }} />;
+  const owner =
+    serverIslands && e.accountDataReady !== false ? (getSession()?.userId ?? null) : null;
+  const guides = useAccountGuides(owner, e.state, dispatch);
+  useEffect(() => {
+    if (guides.data?.focusDone && e.route === 'guide') e.reset('home');
+  }, [guides.data?.focusDone, e.route, e.reset]);
+  const { joined, built } = memberGate(e.state, !!serverIslands);
+  const islandId = e.state.serverIslands?.currentIslandId ?? null;
+  const announcements = useConstructionAnnouncements(
+    owner,
+    islandId,
+    built?.join(',') ?? '',
+    !!owner &&
+      joined &&
+      !e.state.visitingIslandId &&
+      !e.state.session &&
+      e.route === 'home' &&
+      (!e.state.tutorial || e.state.tutorial.step >= 22),
+  );
+  const completion =
+    guides.data &&
+    announcements.find((b) => !guides.data!.completions.includes(`${islandId}:${b}`));
+  const routeBuildings: Partial<Record<Route, Building>> = {
+    hall: 'hall',
+    board: 'board',
+    sound: 'gram',
+    library: 'library',
+    mail: 'mail',
+    tower: 'tower',
+    shop: 'shop',
+  };
+  const building = routeBuildings[e.route as Route];
+  const eligible =
+    owner &&
+    joined &&
+    !e.state.visitingIslandId &&
+    !e.state.session &&
+    building &&
+    built?.includes(building);
+  if (
+    owner &&
+    !guides.data &&
+    (eligible ||
+      e.route === 'guide' ||
+      (e.route === 'home' && e.state.tutorial && e.state.tutorial.step < 22))
+  )
+    return (
+      <Overlay close={e.home}>
+        <Txt>{guides.error || '안내 이력을 확인하고 있어요.'}</Txt>
+        {!!guides.error && <Btn title="다시 시도" onPress={guides.retry} />}
+      </Overlay>
+    );
+  if (owner && guides.data?.focusDone && e.route === 'guide') return null;
+  return (
+    <>
+      <CurrentScreensContent e={{ ...e, friendsScreen }} />
+      {completion && (
+        <BuildingCompletionGuide
+          key={`${owner}:${islandId}:${completion}`}
+          building={completion}
+          blocked={e.routeTransitionShielded}
+          saving={guides.saving}
+          error={guides.error}
+          onDone={() => void guides.done({ completions: [`${islandId}:${completion}`] })}
+        />
+      )}
+      {eligible && guides.data && !guides.data.buildings.includes(building) && (
+        <BuildingGuide
+          key={`${owner}:${e.state.serverIslands?.currentIslandId}:${building}`}
+          building={building}
+          blocked={e.routeTransitionShielded}
+          saving={guides.saving}
+          error={guides.error}
+          onDone={() => void guides.done({ buildings: [building] })}
+        />
+      )}
+    </>
+  );
 }
 
 export function friendsSnapshotForSync(data: FriendsScreenState['data']) {
