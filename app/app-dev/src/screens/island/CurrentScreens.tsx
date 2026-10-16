@@ -1091,7 +1091,7 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
     </>
   );
 }
-/** 응원 이모트 부채꼴 + 버튼 — 주민 집중 화면과 낚시 구경 화면(방문자, GROMO-2259)이 같이 쓴다. 부모가 위치를 잡는다. */
+/** 응원 이모트 부채꼴 + 버튼 — 주민 집중 화면(FocusFlow)에서만 쓴다. 부모가 위치를 잡는다. `disabled` 는 지금 넘기는 곳이 없다(방문자 구경 화면에서 쓰던 모양, DESIGN.md §8.3). */
 function EmoteFab({
   fan,
   setFan,
@@ -1174,7 +1174,8 @@ function FocusVisit({ e, islandId, onBack }: any) {
       : (s.serverIslands?.currentIslandId ?? null)
     : null;
   const transitionHandler = useRef<(transition: any) => void>(() => {});
-  // 방문자는 응원을 보내지도 받지도 않는다(2026-10-16 결정) — visitor 를 넘기지 않아 emotes 채널을 열지 않는다. 서버의 방문자 경로(GROMO-2258)는 남아 있지만 앱이 노출하지 않는다.
+  // 방문자는 응원을 보내지도 받지도 않는다(2026-10-16 결정) — visitor 를 넘기지 않아 emotes 채널을 열지 않는다.
+  // 서버의 방문자 경로(GROMO-2258)는 남아 있지만 앱이 노출하지 않는다.
   const live = useIslandPresence({
     active: liveIslandId !== null,
     islandId: liveIslandId,
