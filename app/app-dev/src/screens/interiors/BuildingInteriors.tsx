@@ -47,7 +47,7 @@ import {
   viewIsland,
 } from '@/services/model';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
-import { sessionGeneration } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { localized, t } from '@/i18n';
 import { semanticTokens } from '@/design-system/tokens';
@@ -4034,7 +4034,7 @@ export function Board({
   // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류
   const [ui, setUi] = useState({
     comment: false,
-    confirm: null as null | { target: 'notice' | 'comment'; index: number },
+    confirm: null as null | { target: 'notice' | 'comment'; index: number; commentId?: string },
     target: '',
     error: '',
   });
@@ -4416,7 +4416,7 @@ export function Board({
   const apiWriteMessage = (err: unknown) =>
     err instanceof ApiError && err.code === CLIENT_STALE_SESSION ? '' : apiMessage(err);
   // 서버 상세 — 본문·댓글은 getNotice 만 준다. 탈퇴 작성자의 name 은 null 그대로 두고
-  // (합성 금지) 댓글 삭제는 공개 API 에 없으니 mine 을 붙이지 않는다.
+  // 본인 여부는 서버 작성자 ID와 현재 세션으로 판단한다.
   const serverDetailView: NoticeView | null = board.detail
     ? {
         id: board.detail.id,
@@ -4427,7 +4427,7 @@ export function Board({
           id: c.id,
           name: c.name ?? '',
           text: c.text,
-          mine: false,
+          mine: c.userId != null && c.userId === getSession()?.userId,
         })),
       }
     : null;
@@ -4558,10 +4558,11 @@ export function Board({
     },
     askDelete: (target: 'notice' | 'comment', index = 0) => {
       if (visitor) return;
-      if (target === 'notice' ? !owner : !owner && !notices[s.noticeIndex].comments[index].mine)
-        return;
+      const comment = (serverBoard ? serverDetailView : notices[s.noticeIndex])?.comments[index];
+      if (target === 'notice' ? !owner : !comment || (!owner && !comment.mine)) return;
       draftEpoch.current += 1;
-      if (e) return setUi((prev) => ({ ...prev, confirm: { target, index } }));
+      if (e)
+        return setUi((prev) => ({ ...prev, confirm: { target, index, commentId: comment?.id } }));
       render(
         target === 'notice'
           ? { deleteTarget: 'notice', view: 'confirm' }
@@ -4614,8 +4615,29 @@ export function Board({
         setNotices(mockNotices.filter((_, i) => i !== s.noticeIndex));
         return render({ noticeIndex: 0, view: 'list' });
       }
-      // 댓글 삭제는 공개 API 에 없다 — 서버 경로는 확인창만 닫는다(버튼도 숨겨져 있다).
-      if (e && serverBoard) return setUi((prev) => ({ ...prev, confirm: null }));
+      if (e && serverBoard) {
+        const notice = serverDetailView;
+        const comment = notice?.comments.find((item) => item.id === ui.confirm?.commentId);
+        if (!notice || !comment || (!owner && !comment.mine)) return;
+        const intent = `comment:${notice.id}:${comment.id}`;
+        if (deleteInflight.current === intent) return;
+        deleteInflight.current = intent;
+        const op = routeGen.current;
+        const draftOp = draftEpoch.current;
+        board.deleteComment(notice.id, comment.id).then(
+          () => {
+            if (deleteInflight.current === intent) deleteInflight.current = null;
+            if (!liveE(op) || draftEpoch.current !== draftOp) return;
+            setUi((prev) => ({ ...prev, confirm: null, error: '' }));
+          },
+          (err: unknown) => {
+            if (deleteInflight.current === intent) deleteInflight.current = null;
+            if (!liveE(op) || draftEpoch.current !== draftOp) return;
+            setUi((prev) => ({ ...prev, confirm: null, error: apiWriteMessage(err) }));
+          },
+        );
+        return;
+      }
       const notice = notices[s.noticeIndex];
       if (!notice) return;
       const comment = notice.comments[s.commentIndex];
@@ -5232,8 +5254,7 @@ export function Board({
                   >
                     {text}
                   </Text>
-                  {/* 댓글 삭제는 공개 API 에 없다 — 서버 경로에서는 버튼을 숨긴다 */}
-                  {!visitor && !serverBoard && (owner || mine) && (
+                  {!visitor && (owner || mine) && (
                     <View style={{ flexDirection: 'row', marginTop: 5 }}>
                       <Link
                         testID={`board-comment-delete-${commentIndex}`}

@@ -9,6 +9,7 @@ import {
   createNotice as postNotice,
   createNoticeComment as postComment,
   deleteNotice as delNotice,
+  deleteNoticeComment as delComment,
   getBoard,
   getNotice,
   listNotices,
@@ -49,6 +50,7 @@ jest.mock('@/services/api/notices', () => ({
   createNotice: jest.fn(),
   updateNotice: jest.fn(),
   deleteNotice: jest.fn(),
+  deleteNoticeComment: jest.fn(),
   createNoticeComment: jest.fn(),
 }));
 jest.mock('@/services/api/quests', () => ({
@@ -1500,7 +1502,7 @@ test('목록 실패 — 오류 문구와 다시 시도, 재시도가 다시 읽�
   await screen.unmount();
 });
 
-test('상세 — getNotice 본문·댓글을 그리고 댓글 삭제 버튼은 없다', async () => {
+test('상세 — getNotice 본문·댓글을 그리고 방장에게 댓글 삭제를 제공한다', async () => {
   getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
   getNoticeMock.mockResolvedValue(
     detail('n1', [
@@ -1514,8 +1516,7 @@ test('상세 — getNotice 본문·댓글을 그리고 댓글 삭제 버튼은 �
   await waitFor(() => assert.ok(screen.getByText('공지 본문')));
   assert.ok(screen.getByText('반가워요'));
   assert.ok(screen.getByText('탈퇴한 댓글'));
-  // 공개 API 에 댓글 삭제가 없다 — 서버 경로에서는 버튼이 나오지 않는다.
-  assert.equal(screen.queryByTestId('board-comment-delete-0'), null);
+  assert.ok(screen.getByTestId('board-comment-delete-0'));
   await screen.unmount();
 });
 
@@ -2316,3 +2317,50 @@ test.each(['success', 'failure', 'stale'] as const)(
     if (outcome === 'failure') assert.ok(screen.getByText('lost'));
   },
 );
+
+test.each(['host', 'member'] as const)(
+  '댓글 삭제 — %s가 본인 댓글을 확인 후 삭제하고 상세에 남는다',
+  async (role) => {
+    getBoardMock.mockResolvedValue(
+      page([{ id: 'n1', title: '공지', commentCount: 1 }], null, role),
+    );
+    const initial = detail('n1', [{ id: 'c1', text: '삭제할 댓글' }]);
+    initial.comments[0].userId = 'u1';
+    getNoticeMock.mockResolvedValue(initial);
+    (delComment as jest.Mock).mockResolvedValue({ deleted: true });
+    const e = makeE({ route: 'notice', detail: 'n1' });
+    const ui = await renderBoard(e);
+    await waitFor(() => assert.ok(ui.getByTestId('board-comment-delete-0')));
+    await fireEvent.press(ui.getByTestId('board-comment-delete-0'));
+    assert.equal((delComment as jest.Mock).mock.calls.length, 0);
+    getNoticeMock.mockResolvedValue(detail('n1'));
+    getBoardMock.mockResolvedValue(
+      page([{ id: 'n1', title: '공지', commentCount: 0 }], null, role),
+    );
+    await fireEvent.press(ui.getByTestId('board-delete-confirm'));
+    await waitFor(() => assert.ok(ui.getByText('첫 댓글을 남겨보세요.')));
+    expect((delComment as jest.Mock).mock.calls[0].slice(0, 3)).toEqual([ISLAND, 'n1', 'c1']);
+    assert.equal(e.back.mock.calls.length, 0);
+    await ui.unmount();
+  },
+);
+
+test('주민은 타인 댓글을 삭제할 수 없고 방장의 삭제 실패는 원문을 보존한다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '공지' }], null, 'member'));
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1', text: '남아야 할 댓글' }]));
+  let ui = await renderBoard(makeE({ route: 'notice', detail: 'n1' }));
+  await waitFor(() => assert.ok(ui.getByText('남아야 할 댓글')));
+  assert.equal(ui.queryByTestId('board-comment-delete-0'), null);
+  await ui.unmount();
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '공지' }]));
+  (delComment as jest.Mock).mockRejectedValue(
+    new ApiError('FORBIDDEN', '삭제 권한이 없어요.', 403),
+  );
+  ui = await renderBoard(makeE({ route: 'notice', detail: 'n1' }));
+  await waitFor(() => assert.ok(ui.getByTestId('board-comment-delete-0')));
+  await fireEvent.press(ui.getByTestId('board-comment-delete-0'));
+  await fireEvent.press(ui.getByTestId('board-delete-confirm'));
+  await waitFor(() => assert.ok(ui.getByText('삭제 권한이 없어요.')));
+  assert.ok(ui.getByText('남아야 할 댓글'));
+  await ui.unmount();
+});
