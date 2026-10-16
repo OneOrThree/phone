@@ -37,7 +37,7 @@ export function useIslandPresence(
     islandId: string | null;
     /** 응원 자격이 되는 내 진행 중 서버 세션 id — 없으면 emotes 를 구독·발신하지 않는다. */
     emoteSessionId?: string | null;
-    /** 방문자 모드(GROMO-2259) — 세션 없이 응원을 보낸다. 2026-10-16 부터 앱 화면은 넘기지 않는다(서버 계약 호환용으로만 남김). */
+    /** 서버 계약 호환용 — 앱 화면은 넘기지 않는다(2026-10-16). 방문자 모드(GROMO-2259): 세션 없이 응원을 보낸다. */
     visitor?: boolean;
     /** 방문자가 보낸 응원을 받았다(주민 화면). */
     onVisitorEmote?: (emote: LiveEmote) => void;

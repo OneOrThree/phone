@@ -151,6 +151,7 @@ beforeEach(async () => {
 const expectNoEmote = (screen: any) => {
   expect(screen.queryByTestId('emote-fab')).toBeNull();
   expect(presenceOpts.visitor).toBeFalsy();
+  expect(presenceOpts.emoteSessionId).toBeFalsy();
   expect(mockSendEmote).not.toHaveBeenCalled();
 };
 

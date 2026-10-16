@@ -468,7 +468,7 @@ Semantic spacing:
 | ------ | ---------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | 기본   | 버튼만 보인다                                  | 누르면 펼친다. `accessibilityState.expanded`는 false                                               |
 | 펼침   | 버튼 위에 이모트 5종                           | 하나를 고르면 보내고 접는다. `expanded`는 true, 각 이모트에 이름 라벨                              |
-| 비활성 | 기본 모양, `disabledOpacity` 0.45, 그림자 없음 | `accessibilityState.disabled`와 이유 `accessibilityHint`. 누르면 펼치지 않고 요청 없이 안내 토스트 |
+| 비활성(지원만 — 쓰는 화면 없음) | 기본 모양, `disabledOpacity` 0.45, 그림자 없음 | `accessibilityState.disabled`와 이유 `accessibilityHint`. 누르면 펼치지 않고 요청 없이 안내 토스트 |
 
 - 방문자 모드는 쓰지 않는다: 비주민 방문자의 낚시 구경 화면은 `visitor` 없이 presence 만 열어 emotes 채널을 구독하지 않는다. 서버의 방문자 응원 경로(GROMO-2258)와 받은 주민 화면의 「방문자가 응원했어요」 토스트 처리는 계약 호환으로 남겨 두되 앱 화면에서는 보낼 길이 없다. 표의 「비활성」 상태는 `EmoteFab` 의 `disabled` 가 지원하는 모양이며 지금 쓰는 화면은 없다.
 
