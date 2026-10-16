@@ -1174,24 +1174,13 @@ function FocusVisit({ e, islandId, onBack }: any) {
       : (s.serverIslands?.currentIslandId ?? null)
     : null;
   const transitionHandler = useRef<(transition: any) => void>(() => {});
-  const [fan, setFan] = useState(false);
-  // 구경하는 섬의 비주민은 세션 없이 응원을 보낸다(GROMO-2259). 그 섬의 주민(내 다른 소속 섬)은
-  // 세션이 없으면 보낼 수 없고 emotes 구독도 서버가 거절하므로 방문자 모드·이모트 버튼을 끈다.
-  const visitorEmote =
-    visiting &&
-    liveIslandId !== null &&
-    s.serverIslands?.visit?.island.membershipStatus !== 'active';
+  // 방문자는 응원을 보내지도 받지도 않는다(2026-10-16 결정) — visitor 를 넘기지 않아 emotes 채널을 열지 않는다. 서버의 방문자 경로(GROMO-2258)는 남아 있지만 앱이 노출하지 않는다.
   const live = useIslandPresence({
     active: liveIslandId !== null,
     islandId: liveIslandId,
-    visitor: visitorEmote,
     onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
-  // 응원 수신자는 서버 기준 진행 중(active·paused) 주민 — live.focus 가 곧 그 집합이다(HUD 인원은 active 만).
-  // 받을 주민이 없으면 서버가 NO_ONE_FOCUSING 으로 거절하고 그때마다 상류 조회가 나가므로,
-  // 스냅숏이 온 뒤 0명이면 요청 없이 안내만 한다.
-  const nobodyFocusing = live.status === 'ready' && live.focus.length === 0;
   const myId = getSession()?.userId;
   const peerMembers: FishingPeer[] = liveIslandId
     ? live.focus
@@ -1299,28 +1288,6 @@ function FocusVisit({ e, islandId, onBack }: any) {
           onPress={close}
         />
       </View>
-      {visitorEmote && (
-        <View
-          style={{
-            position: 'absolute',
-            zIndex: 30,
-            bottom: Math.max(36, safe.bottom + 4),
-            left: Math.max(18, safe.left + 8),
-          }}
-        >
-          <EmoteFab
-            fan={fan}
-            setFan={setFan}
-            emote={null}
-            disabled={nobodyFocusing}
-            onDisabledPress={() => e.notify(t('focusFlow.hud.emoteNoOneFocusing'))}
-            onSend={(id) => {
-              setFan(false);
-              if (!live.sendEmote(id)) e.notify(t('focusFlow.hud.emoteSendFailed'));
-            }}
-          />
-        </View>
-      )}
       {liveIslandId && live.status === 'loading' ? (
         <View
           pointerEvents="none"
