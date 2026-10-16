@@ -634,14 +634,21 @@ export function PromotionEditor({
           resizeMode="stretch"
           style={{ position: 'absolute', width: pageW, height: pageH }}
         />
+        {/* 띠 글씨는 띠 그림에 맞춘 고정 크기(잡지 읽기의 「냐옹」 띠와 같다) — 기기 글자 크기를 키워도 띠 밖으로 넘치지 않고,
+            긴 문구는 한 줄 안에서 줄인다 */}
         <Txt
           accessibilityRole="header"
+          allowFontScaling={false}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
           style={{
             position: 'absolute',
-            left: 0,
-            right: 0,
+            left: pageW * R.insetX,
+            right: pageW * R.insetX,
             top: pageH * R.ribbonTop,
             height: pageH * R.ribbonHeight,
+            fontSize: pageH * R.ribbonHeight * 0.5,
             lineHeight: pageH * R.ribbonHeight,
             textAlign: 'center',
             fontWeight: '700',

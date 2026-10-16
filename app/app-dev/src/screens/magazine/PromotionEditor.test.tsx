@@ -1009,3 +1009,12 @@ describe('안드로이드 하드웨어 뒤로가기', () => {
     expect(e.back).toHaveBeenCalledTimes(1);
   });
 });
+
+it('속지 띠 문구는 기기 글자 크기를 따르지 않는 고정 크기 한 줄이다(큰 글자에서 띠 밖으로 넘치지 않게)', async () => {
+  const { screen } = await open({}, env(), 'frame');
+  const ribbon = screen.getByText('종이를 골라주세요.');
+  expect(ribbon.props.allowFontScaling).toBe(false);
+  expect(ribbon.props.numberOfLines).toBe(1);
+  const style = StyleSheet.flatten(ribbon.props.style);
+  expect(style.fontSize).toBeLessThan(style.height);
+});
