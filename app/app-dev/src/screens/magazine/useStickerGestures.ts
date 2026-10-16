@@ -88,8 +88,8 @@ export function handlePoint(layout: PromotionLayout, target: EditTarget, width: 
   if (!box) return null;
   const c = Math.cos(rad(box.rotation));
   const s = Math.sin(rad(box.rotation));
-  // 가장자리 꾸미기의 모서리는 판 밖일 수 있다 — 판 밖은 터치가 오지 않으니 손잡이를 판 안으로 끌어들인다
-  const m = componentTokens.promotionEditor.handleSize / 2;
+  // 가장자리 꾸미기의 모서리는 판 밖일 수 있다 — 판 밖은 터치가 오지 않으니 손잡이의 44pt 판정 범위째 판 안으로 끌어들인다
+  const m = TOUCH_HALF;
   const height = width * CELL_ASPECT;
   return {
     x: clampTo(

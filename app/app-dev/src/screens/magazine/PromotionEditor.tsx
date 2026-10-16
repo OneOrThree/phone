@@ -546,8 +546,9 @@ export function PromotionEditor({
     const lx = sx * (b.hw + inset);
     const ly = sy * (b.hh + inset);
     const r = (b.rotation * Math.PI) / 180;
-    // 가장자리 꾸미기는 모서리가 판 밖일 수 있다 — 판 밖은 터치가 오지 않으니 판 안으로 끌어들인다
-    const clamp = (n: number, hi: number) => Math.min(hi - DELETE_SIZE, Math.max(0, n));
+    // 가장자리 꾸미기는 모서리가 판 밖일 수 있다 — 판 밖은 터치가 오지 않으니 누르는 범위(44pt)째 판 안으로 끌어들인다
+    const slop = (semanticTokens.size.tapMin - DELETE_SIZE) / 2;
+    const clamp = (n: number, hi: number) => Math.min(hi - DELETE_SIZE - slop, Math.max(slop, n));
     return {
       left: clamp(
         pad.x + b.cx + lx * Math.cos(r) - ly * Math.sin(r) - DELETE_SIZE / 2,

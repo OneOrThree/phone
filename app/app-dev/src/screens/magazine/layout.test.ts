@@ -132,8 +132,11 @@ describe('보내기 전 검사', () => {
 
   it('정상이면 null, 문제가 있으면 서버 field 와 같은 위치를 준다', () => {
     expect(layoutProblem(ok)).toBeNull();
-    const six = { ...ok, stickers: Array.from({ length: 6 }, () => ok.stickers[0]) };
-    expect(layoutProblem(six)).toBe('layout.stickers[5]');
+    // 붙이기는 5개까지지만, 이미 낸 6~10개 칸도 고쳐 저장할 수 있게 검사는 서버 상한(10)이다
+    const ten = { ...ok, stickers: Array.from({ length: 10 }, () => ok.stickers[0]) };
+    expect(layoutProblem(ten)).toBeNull();
+    const eleven = { ...ok, stickers: Array.from({ length: 11 }, () => ok.stickers[0]) };
+    expect(layoutProblem(eleven)).toBe('layout.stickers[10]');
     expect(layoutProblem({ ...ok, stickers: [{ ...ok.stickers[0], scale: 0.7 }] })).toBe(
       'layout.stickers[0]',
     );
@@ -262,7 +265,8 @@ describe('칸 밖 걸침 · 손잡이', () => {
       { kind: 'sticker', index: 0 },
       width,
     )!;
-    expect(h.x).toBeLessThanOrEqual((1 + CANVAS_PAD) * width);
-    expect(h.y).toBeLessThanOrEqual((1 + CANVAS_PAD) * width * CELL_ASPECT);
+    // 손잡이 판정 범위(반지름 22pt)째 판 안이다
+    expect(h.x + 22).toBeLessThanOrEqual((1 + CANVAS_PAD) * width);
+    expect(h.y + 22).toBeLessThanOrEqual((1 + CANVAS_PAD) * width * CELL_ASPECT);
   });
 });
