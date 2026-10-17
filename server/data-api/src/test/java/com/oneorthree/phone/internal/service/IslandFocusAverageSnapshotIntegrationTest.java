@@ -64,7 +64,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
- * 섬별 7일 평균 스냅샷 (GROMO-2257) — 실 Flyway(V109 포함)·{@code ddl-auto=validate} 스키마 위에서 운영 엔티티·
+ * 섬별 7일 평균 스냅샷 (GROMO-2257) — 실 Flyway(V114 포함)·{@code ddl-auto=validate} 스키마 위에서 운영 엔티티·
  * 저장소로 섬·주민·집중 구간을 심고, 배치 서비스와 읽기 창구를 <b>실제 경로로</b> 부른다. seam 을 대역으로
  * 덮지 않는다 — 합계·주민 수 질의는 운영 질의 그대로 돈다.
  *

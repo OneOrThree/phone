@@ -47,6 +47,13 @@
 		DCFFF543C6596D90A7ABFC1C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 924CDFF4DCFC00733E587F72 /* Foundation.framework */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 		F755A5248582A9EA6F2F5F48 /* RemainingActivityReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF4B5883AE80A8BA12E190F /* RemainingActivityReport.swift */; };
+		A4BF21E2CE69FEE5CA86DAF7 /* cat-black-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = D0D54597FD0D0441D4DAD113 /* cat-black-focus.png */; };
+		3804D64CC65784C281DE777E /* cat-ginger-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = 7CBE04A35134BD8A020CACF0 /* cat-ginger-focus.png */; };
+		46A505F2CDC4497FE47E9B84 /* cat-cream-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = 4D9454689F5CB01569B5FDAC /* cat-cream-focus.png */; };
+		0C32698D6534E6FB4EE39088 /* cat-gray-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = 8AA60D5986A7C9B4506CEA9C /* cat-gray-focus.png */; };
+		A56FBC8C42C4606163A12EBE /* cat-white-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = 286FF41589D833FDC4D83EA9 /* cat-white-focus.png */; };
+		21915A7E3DCD38AC8B9DAC86 /* cat-calico-focus.png in Resources */ = {isa = PBXBuildFile; fileRef = D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */; };
+		142C5F836FFCBA47F473452F /* ShieldPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -169,6 +176,13 @@
 		F11748442D0722820044C1D9 /* GROMO-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "GROMO-Bridging-Header.h"; path = "GROMO/GROMO-Bridging-Header.h"; sourceTree = "<group>"; };
 		FF1437B48DBA89E0A7BF2D35 /* CompactActivityReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompactActivityReport.swift; sourceTree = "<group>"; };
 		FFF4B5883AE80A8BA12E190F /* RemainingActivityReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemainingActivityReport.swift; sourceTree = "<group>"; };
+		D0D54597FD0D0441D4DAD113 /* cat-black-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-black-focus.png"; sourceTree = SOURCE_ROOT; };
+		7CBE04A35134BD8A020CACF0 /* cat-ginger-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-ginger-focus.png"; sourceTree = SOURCE_ROOT; };
+		4D9454689F5CB01569B5FDAC /* cat-cream-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-cream-focus.png"; sourceTree = SOURCE_ROOT; };
+		8AA60D5986A7C9B4506CEA9C /* cat-gray-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-gray-focus.png"; sourceTree = SOURCE_ROOT; };
+		286FF41589D833FDC4D83EA9 /* cat-white-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-white-focus.png"; sourceTree = SOURCE_ROOT; };
+		D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "FocusWidget/CatArt/cat-calico-focus.png"; sourceTree = SOURCE_ROOT; };
+		D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldPalette.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -349,6 +363,7 @@
 			children = (
 				A19831000000000000000003 /* FocusActivityAttributes.swift */,
 				4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */,
+				D2DEDFC61447D33FB6B5E7B7 /* ShieldPalette.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -367,6 +382,12 @@
 			isa = PBXGroup;
 			children = (
 				A19831000000000000000008 /* ShieldConfigurationExtension.swift */,
+				D0D54597FD0D0441D4DAD113 /* cat-black-focus.png */,
+				7CBE04A35134BD8A020CACF0 /* cat-ginger-focus.png */,
+				4D9454689F5CB01569B5FDAC /* cat-cream-focus.png */,
+				8AA60D5986A7C9B4506CEA9C /* cat-gray-focus.png */,
+				286FF41589D833FDC4D83EA9 /* cat-white-focus.png */,
+				D7F81595AFBFA60C25CA1115 /* cat-calico-focus.png */,
 				A19831000000000000000009 /* Info.plist */,
 				A1983100000000000000000A /* ShieldConfiguration.entitlements */,
 			);
@@ -598,6 +619,12 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A4BF21E2CE69FEE5CA86DAF7 /* cat-black-focus.png in Resources */,
+				3804D64CC65784C281DE777E /* cat-ginger-focus.png in Resources */,
+				46A505F2CDC4497FE47E9B84 /* cat-cream-focus.png in Resources */,
+				0C32698D6534E6FB4EE39088 /* cat-gray-focus.png in Resources */,
+				A56FBC8C42C4606163A12EBE /* cat-white-focus.png in Resources */,
+				21915A7E3DCD38AC8B9DAC86 /* cat-calico-focus.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -866,6 +893,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A19830000000000000000005 /* ShieldConfigurationExtension.swift in Sources */,
+				142C5F836FFCBA47F473452F /* ShieldPalette.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -938,6 +966,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GROMO/GROMO.entitlements;
+				APS_ENVIRONMENT = development;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 9;
@@ -979,6 +1008,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GROMO/GROMO.entitlements;
+				APS_ENVIRONMENT = production;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 9;
@@ -1381,6 +1411,7 @@
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FocusWidget/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = FocusWidget/FocusWidget.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1409,6 +1440,7 @@
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FocusWidget/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = FocusWidget/FocusWidget.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

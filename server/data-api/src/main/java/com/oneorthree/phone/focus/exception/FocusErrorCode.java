@@ -14,6 +14,8 @@ import org.springframework.http.HttpStatus;
 @Getter
 public enum FocusErrorCode implements ErrorCode {
 
+    INVALID_LIVE_ACTIVITY(HttpStatus.BAD_REQUEST, "Live Activity 등록 정보가 올바르지 않습니다."),
+
     TAG_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 태그입니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "권한이 없습니다."),
     INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "유효하지 않은 기간입니다."),

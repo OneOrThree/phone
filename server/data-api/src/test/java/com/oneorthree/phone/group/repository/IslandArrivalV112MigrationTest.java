@@ -17,10 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V107 섬 도착 기록 + 시스템 편지의 실 SQL 검증 (GROMO-2260). {@code LoginAttemptV101MigrationTest} 선례 —
+ * V112 섬 도착 기록 + 시스템 편지의 실 SQL 검증 (GROMO-2260). {@code LoginAttemptV101MigrationTest} 선례 —
  * 전용 컨테이너에 Flyway 체인을 실제로 돌린다.
  */
-class IslandArrivalV107MigrationTest {
+class IslandArrivalV112MigrationTest {
 
     /** 이 클래스 전용 컨테이너 — 공용 TestPostgres 는 스키마 초기화와 함께 쓸 수 없다(V28 테스트 주석). */
     private static final PostgreSQLContainer<?> POSTGRES;
@@ -38,9 +38,9 @@ class IslandArrivalV107MigrationTest {
     }
 
     @Test
-    @DisplayName("V106 의 친구 편지는 kind=FRIEND·island_id NULL 로 남고, 활성 소속만 도착 기록으로 백필된다")
+    @DisplayName("V111 의 친구 편지는 kind=FRIEND·island_id NULL 로 남고, 활성 소속만 도착 기록으로 백필된다")
     void v107KeepsFriendLettersAndBackfillsActiveMemberships() {
-        migrate(MigrationVersion.fromVersion("106"));
+        migrate(MigrationVersion.fromVersion("111"));
         JdbcTemplate jdbc = jdbc();
         UUID sender = user(jdbc, "보낸이");
         UUID receiver = user(jdbc, "받는이");
@@ -68,7 +68,7 @@ class IslandArrivalV107MigrationTest {
     @Test
     @DisplayName("백필은 살아 있는 섬만 채우고, 지금 서 있는 섬을 «최근 머문 섬» 으로 올린다")
     void v107BackfillsOnlyAliveIslandsAndLiftsTheCurrentIsland() {
-        migrate(MigrationVersion.fromVersion("106"));
+        migrate(MigrationVersion.fromVersion("111"));
         JdbcTemplate jdbc = jdbc();
         UUID resident = user(jdbc, "주민");
         UUID standing = island(jdbc, "서있는섬", "ACTIVE");

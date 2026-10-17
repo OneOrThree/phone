@@ -15,6 +15,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -23,6 +24,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code /internal/users/{userId}/…} 로만 나간다는 것을 실제 필터·컨트롤러·HTTP 로 확인한다.
  */
 class FocusSessionContractTest extends UpstreamTestBase {
+
+    @Test
+    void liveActivityRegistrationUsesAuthenticatedOwnerAndRejectsExtraFields() throws Exception {
+        String path = "/focus-sessions/" + FOCUS + "/live-activity";
+        String body = "{\"activityId\":\"activity-1\",\"pushToken\":\"" + "ab".repeat(32)
+                + "\",\"environment\":\"development\",\"catColor\":\"black\"}";
+        DATA.on("PUT " + INTERNAL + path, request -> new MockUpstream.Response(204, ""));
+        mockMvc.perform(auth(put(path)).header("X-User-Id", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data").doesNotExist());
+        assertThat(DATA.received().get(0).header("x-user-id")).isEqualTo(USER.toString());
+        mockMvc.perform(put(path).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(auth(put(path)).contentType(MediaType.APPLICATION_JSON)
+                        .content(body.replace("{", "{\"userId\":\"injected\",")))
+                .andExpect(status().isBadRequest());
+    }
 
     @Test
     void experienceRewardUsesAuthenticatedUserWithoutSessionOrCommandKey() throws Exception {

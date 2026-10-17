@@ -1865,6 +1865,25 @@ function FinalIslandScene({
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
+            // 홈 뗏목 그림 가장자리에 터치 여유를 주고, 축소해도 중심을 유지한다.
+            const raftPadding = primitiveTokens.space[2];
+            const raftTouchWidth = Math.max(
+              semanticTokens.size.tapMin,
+              hitbox.w * s + raftPadding * 2,
+            );
+            const raftTouchHeight = Math.max(
+              semanticTokens.size.tapMin,
+              hitbox.h * s + raftPadding * 2,
+            );
+            const raftTouchBox =
+              id === 'raft' && !scene
+                ? {
+                    left: (hitbox.x + hitbox.w / 2) * s - raftTouchWidth / 2,
+                    top: (hitbox.y + hitbox.h / 2) * s - raftTouchHeight / 2,
+                    width: raftTouchWidth,
+                    height: raftTouchHeight,
+                  }
+                : undefined;
             return (
               <Pressable
                 key={id}
@@ -1909,6 +1928,8 @@ function FinalIslandScene({
                 onPress={() => {
                   if (!visiting) {
                     if (buildingEntryPending.current) return;
+                    // 배 메뉴는 걷기와 갸웃 모션이 끝나기를 기다리지 않고 바로 연다.
+                    if (id === 'raft') return go(d.r);
                     if (d.direct) {
                       return navigateWithTilt(d.r);
                     }
@@ -1960,6 +1981,7 @@ function FinalIslandScene({
                   minWidth: 44,
                   minHeight: 44,
                   zIndex: scene ? 2000 : undefined,
+                  ...raftTouchBox,
                 }}
               />
             );

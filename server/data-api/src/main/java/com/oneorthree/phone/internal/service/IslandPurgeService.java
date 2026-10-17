@@ -47,12 +47,12 @@ import java.util.UUID;
  *   <li>{@code group_announcements}·{@code group_announcement_comments} — 지운다(아래). 게시판은
  *       공동 기록이다. 댓글의 FK 는 {@code ON DELETE SET NULL}(V66, BQ02 미결)이라 공지만 지우면
  *       댓글이 {@code notice_id=null} 로 <b>남는다</b> — 그래서 댓글을 먼저 지운다.</li>
- *   <li>{@code island_guestbook_entries} — 지운다(GROMO-2262, V108 이 22개 위에 더한 하나). 방명록은 섬의 공동
+ *   <li>{@code island_guestbook_entries} — 지운다(GROMO-2262, V113 이 22개 위에 더한 하나). 방명록은 섬의 공동
  *       기록이고 글마다 작성자 id 가 달려 있다. 섬 행이 소프트 삭제라 {@code ON DELETE CASCADE} 는 돌지 않으므로
  *       여기서 직접 지운다. 다른 테이블이 이 표를 참조하지 않아 목록 안의 순서는 자유롭다.</li>
- *   <li>{@code telescope_pins} — 지운다(GROMO-2268, V110). 남의 망원경에 «직접 넣은 섬» 으로 남은 행이다. 섬 행이 소프트
+ *   <li>{@code telescope_pins} — 지운다(GROMO-2268, V115). 남의 망원경에 «직접 넣은 섬» 으로 남은 행이다. 섬 행이 소프트
  *       삭제라 {@code ON DELETE CASCADE} 는 돌지 않는다. 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다.</li>
- *   <li>{@code island_news} — 지운다(GROMO-2267, V111 이 더한 또 하나). 섬 소식은 주민 전원이 읽는 공동 피드다. 섬 행이
+ *   <li>{@code island_news} — 지운다(GROMO-2267, V116 이 더한 또 하나). 섬 소식은 주민 전원이 읽는 공동 피드다. 섬 행이
  *       소프트 삭제라 {@code ON DELETE CASCADE} 는 돌지 않으므로 직접 지운다. 유저 컬럼이 없어 계정 탈퇴가 건드릴
  *       행도 없다. 홍보비의 원장 행은 아래 통장 원장 줄이 이미 지운다.</li>
  *   <li>{@code user_main_islands} — 안 지운다. 마지막 주민이 나가는 순간
@@ -82,7 +82,7 @@ public class IslandPurgeService implements IslandPurgePort {
      * <p>새 섬 테이블을 만들면 여기에 한 줄을 더한다. 빠뜨리면 닫힌 섬의 공동 데이터가 남는다.
      */
     private static final List<String> PURGE_STATEMENTS = List.of(
-            // 섬별 7일 평균 일 스냅샷 (V109, GROMO-2257) — 파생 통계라 닫힌 섬을 읽는 곳이 없다. 자식이 없는 독립 표다.
+            // 섬별 7일 평균 일 스냅샷 (V114, GROMO-2257) — 파생 통계라 닫힌 섬을 읽는 곳이 없다. 자식이 없는 독립 표다.
             "DELETE FROM island_focus_averages WHERE island_id = :islandId",
             // 건설 퀘스트·일일 퀘스트 (V71) — 청구·코호트가 회차의 자식이고 회차가 퀘스트의 자식이다.
             "DELETE FROM island_quest_claims WHERE island_id = :islandId",
@@ -105,16 +105,16 @@ public class IslandPurgeService implements IslandPurgePort {
             "DELETE FROM group_announcement_comments WHERE notice_id IN "
                     + "(SELECT id FROM group_announcements WHERE group_id = :islandId)",
             "DELETE FROM group_announcements WHERE group_id = :islandId",
-            // 방명록 (V108, GROMO-2262) — 방문자·주민이 남긴 글과 작성자 id. 섬 행은 소프트 삭제라 V108 의
+            // 방명록 (V113, GROMO-2262) — 방문자·주민이 남긴 글과 작성자 id. 섬 행은 소프트 삭제라 V113 의
             // ON DELETE CASCADE 는 돌지 않는다. 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다.
             "DELETE FROM island_guestbook_entries WHERE island_id = :islandId",
-            // 섬 도착 기록 (V107, GROMO-2260) — 다른 표의 부모가 아니다. 섬은 묘비만 남고 하드 삭제되지 않아
+            // 섬 도착 기록 (V112, GROMO-2260) — 다른 표의 부모가 아니다. 섬은 묘비만 남고 하드 삭제되지 않아
             // FK 의 ON DELETE CASCADE 가 돌지 않으므로 여기서 지운다. 닫힌 섬은 즉시 이동·다음 위치 후보가 아니다.
             "DELETE FROM island_arrivals WHERE island_id = :islandId",
-            // 망원경 핀 (V110, GROMO-2268) — 다른 표의 부모가 아니다. 이것도 CASCADE 가 돌지 않으므로 여기서 지운다.
+            // 망원경 핀 (V115, GROMO-2268) — 다른 표의 부모가 아니다. 이것도 CASCADE 가 돌지 않으므로 여기서 지운다.
             // 읽기 쪽도 살아 있는 섬만 보여 주지만, 닫힌 섬이 남의 핀 행으로 남을 이유는 없다.
             "DELETE FROM telescope_pins WHERE island_id = :islandId",
-            // 섬 소식 (V111, GROMO-2267) — 주민 전원이 읽던 공동 피드. 섬 행은 소프트 삭제라 V111 의 ON DELETE CASCADE 는
+            // 섬 소식 (V116, GROMO-2267) — 주민 전원이 읽던 공동 피드. 섬 행은 소프트 삭제라 V116 의 ON DELETE CASCADE 는
             // 돌지 않는다. 유저 컬럼이 없어 탈퇴 정리는 없고, 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다.
             "DELETE FROM island_news WHERE island_id = :islandId",
             // 공동 잔액·원장 (V62) — 원장이 통장의 자식이라 가장 마지막이다. 홍보비 원장 행(PROMOTION_FEE)도 여기서 지워진다.

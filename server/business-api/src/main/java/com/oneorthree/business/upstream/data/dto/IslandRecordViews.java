@@ -37,7 +37,11 @@ public final class IslandRecordViews {
             List<ScreenDay> series, String updatedAt, List<ScreenMember> members) {
     }
 
-    public record ScreenDay(String date, Integer minutes, String measurementStatus, String updatedAt) {
+    public record ScreenDay(String date, Integer minutes, String measurementStatus, String updatedAt,
+                            boolean finalized) {
+        public ScreenDay(String date, Integer minutes, String measurementStatus, String updatedAt) {
+            this(date, minutes, measurementStatus, updatedAt, false);
+        }
     }
 
     /** 섬 주민의 기간 측정 — 기기 목록·deviceId 없음. */

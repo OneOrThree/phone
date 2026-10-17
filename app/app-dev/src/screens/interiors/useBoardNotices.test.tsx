@@ -1,3 +1,4 @@
+import { screenTimeObservationReported } from '@/services/screenTimeEvents';
 import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
@@ -1103,5 +1104,66 @@ test('active=false — 퀘스트 쓰기도 CLIENT_INACTIVE 로 거절되고 API 
   assert.equal(patchQuestMock.mock.calls.length, 0);
   assert.equal(postClaimMock.mock.calls.length, 0);
   assert.equal(getQuestProgressMock.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('측정 보고 뒤 서버 퀘스트 판정과 열린 상세를 재조회한다', async () => {
+  getBoardMock.mockResolvedValue(board([], null, 'member', [questItem({ type: 'screen' })]));
+  getQuestProgressMock.mockResolvedValue(questProgress({ type: 'screen', myRate: 0 }));
+  const { result } = await renderHook(() => useBoardNotices({ active: true, scopeKey: 's1' }));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  await act(async () => {
+    await result.current.selectQuest('occ-1');
+  });
+  getBoardMock.mockResolvedValue(
+    board([], null, 'member', [questItem({ type: 'screen', myRate: 100 })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress({ type: 'screen', myRate: 100 }));
+  await act(async () => {
+    screenTimeObservationReported();
+  });
+  await waitFor(() => expect(result.current.questDetail?.myRate).toBe(100));
+  expect(result.current.quests[0].myRate).toBe(100);
+  expect(postClaimMock).not.toHaveBeenCalled();
+});
+
+test('최초 게시판 조회 중 보고가 끝나면 보고 이전의 늦은 응답을 버린다', async () => {
+  const slow = deferred<ReturnType<typeof board>>();
+  getBoardMock.mockReturnValueOnce(slow.promise);
+  const { result } = await renderHook(() => useBoardNotices({ active: true, scopeKey: 's1' }));
+  getBoardMock.mockResolvedValue(board([], null, 'member', [questItem({ myRate: 100 })]));
+  await act(async () => {
+    screenTimeObservationReported();
+  });
+  await waitFor(() => expect(result.current.quests[0]?.myRate).toBe(100));
+  await act(async () => {
+    slow.resolve(board([], null, 'member', [questItem({ myRate: 0 })]));
+    await slow.promise;
+  });
+  expect(result.current.quests[0].myRate).toBe(100);
+  expect(getBoardMock).toHaveBeenCalledTimes(2);
+});
+
+test('쓰기 후속 조회를 측정 갱신이 대체해도 저장 성공을 유지하고 최신 목록을 보인다', async () => {
+  const hook = await mountActive();
+  const slow = deferred<ReturnType<typeof board>>();
+  const created = { id: 'n9', title: 't', body: 'b' };
+  postNoticeMock.mockResolvedValue(created);
+  getBoardMock.mockReturnValueOnce(slow.promise);
+  let saving!: ReturnType<typeof hook.result.current.createNotice>;
+  await act(async () => {
+    saving = hook.result.current.createNotice({ title: 't', body: 'b' });
+  });
+  getBoardMock.mockResolvedValue(board([{ id: 'n9', title: '최신 목록' }]));
+  await act(async () => {
+    screenTimeObservationReported();
+  });
+  await waitFor(() => expect(hook.result.current.items[0]?.title).toBe('최신 목록'));
+  await act(async () => {
+    slow.resolve(board([{ id: 'n9', title: '이전 목록' }]));
+    await expect(saving).resolves.toEqual(created);
+  });
+  expect(hook.result.current.items[0]?.title).toBe('최신 목록');
+  expect(postNoticeMock).toHaveBeenCalledTimes(1);
   await hook.unmount();
 });

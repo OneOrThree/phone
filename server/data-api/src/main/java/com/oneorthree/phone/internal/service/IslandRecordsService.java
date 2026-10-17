@@ -139,15 +139,22 @@ public class IslandRecordsService {
     @Transactional(isolation = Isolation.REPEATABLE_READ)
     public FocusStatistics focus(UUID userId, UUID islandId, LocalDate from, LocalDate to, String scope,
                                  UUID snapshotId, Integer offset) {
+        return focus(userId, islandId, from, to, scope, snapshotId, offset, "UTC");
+    }
+
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    public FocusStatistics focus(UUID userId, UUID islandId, LocalDate from, LocalDate to, String scope,
+                                 UUID snapshotId, Integer offset, String timezone) {
+        ZoneId zone = measurementZone(timezone);
         requireRange(from, to);
         Group island = requireLibraryResident(userId, islandId);
-        Instant start = from.atStartOfDay(UTC).toInstant();
-        Instant end = to.plusDays(1).atStartOfDay(UTC).toInstant();
+        Instant start = from.atStartOfDay(zone).toInstant();
+        Instant end = to.plusDays(1).atStartOfDay(zone).toInstant();
         if (SCOPE_ISLAND.equals(scope)) {
             if (snapshotId != null) {
                 throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
             }
-            return islandFocus(island, from, to, start, end);
+            return islandFocus(island, from, to, start, end, zone);
         }
         requireMe(scope);
         if (snapshotId != null) {
@@ -157,7 +164,7 @@ public class IslandRecordsService {
         TreeMap<LocalDate, Long> series = new TreeMap<>();
         List<FocusRecord> records = new ArrayList<>();
         for (Contribution contribution : contributions(details.findOverlapping(List.of(userId), COUNTED, start, end),
-                from, to, asOf, UTC)) {
+                from, to, asOf, zone)) {
             contribution.byDate().forEach((date, seconds) -> series.merge(date, seconds.longValue(), Long::sum));
             FocusSessionDetail session = contribution.session();
             if (session.getLifecycle() == FocusSessionLifecycle.COMPLETED && contribution.total() > 0) {
@@ -179,12 +186,13 @@ public class IslandRecordsService {
         return page(id, snapshot, 0);
     }
 
-    private FocusStatistics islandFocus(Group island, LocalDate from, LocalDate to, Instant start, Instant end) {
+    private FocusStatistics islandFocus(Group island, LocalDate from, LocalDate to, Instant start, Instant end,
+                                        ZoneId zone) {
         Instant asOf = clock.instant();
         List<User> residents = residents(island);
         Map<UUID, TreeMap<LocalDate, Long>> byUser = new LinkedHashMap<>();
         for (Contribution contribution : contributions(details.findOverlappingOnIsland(island.getId(),
-                residents.stream().map(User::getId).toList(), COUNTED, start, end), from, to, asOf, UTC)) {
+                residents.stream().map(User::getId).toList(), COUNTED, start, end), from, to, asOf, zone)) {
             TreeMap<LocalDate, Long> series = byUser.computeIfAbsent(contribution.session().getUserId(),
                     ignored -> new TreeMap<>());
             contribution.byDate().forEach((date, seconds) -> series.merge(date, seconds.longValue(), Long::sum));
@@ -263,13 +271,21 @@ public class IslandRecordsService {
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ScreenTimeStatistics screenTime(UUID userId, UUID islandId, LocalDate from, LocalDate to, String scope) {
+        return screenTime(userId, islandId, from, to, scope, "UTC");
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ScreenTimeStatistics screenTime(UUID userId, UUID islandId, LocalDate from, LocalDate to, String scope,
+                                           String timezone) {
+        ZoneId zone = measurementZone(timezone);
         requireRange(from, to);
         Group island = requireLibraryResident(userId, islandId);
-        LocalDate today = LocalDate.ofInstant(clock.instant(), UTC);
+        LocalDate today = LocalDate.ofInstant(clock.instant(), zone);
         if (SCOPE_ISLAND.equals(scope)) {
             List<User> residents = residents(island);
-            Map<UUID, List<ScreenTimeObservation>> byUser = observations.findByUserIdInAndMeasuredDateBetween(
-                            residents.stream().map(User::getId).toList(), from, to).stream()
+            Map<UUID, List<ScreenTimeObservation>> byUser = observations
+                    .findByUserIdInAndMeasuredDateBetweenAndTimezone(
+                            residents.stream().map(User::getId).toList(), from, to, timezone).stream()
                     .collect(Collectors.groupingBy(ScreenTimeObservation::getUserId));
             return new ScreenTimeStatistics(SCOPE_ISLAND, null, null, null, null, residents.stream().map(user -> {
                 Summary summary = summarize(byUser.getOrDefault(user.getId(), List.of()), from, to, today);
@@ -278,7 +294,8 @@ public class IslandRecordsService {
             }).toList());
         }
         requireMe(scope);
-        Summary summary = summarize(observations.findByUserIdInAndMeasuredDateBetween(List.of(userId), from, to),
+        Summary summary = summarize(observations.findByUserIdInAndMeasuredDateBetweenAndTimezone(
+                List.of(userId), from, to, timezone),
                 from, to, today);
         return new ScreenTimeStatistics(SCOPE_ME, summary.status(), summary.total(), summary.series(),
                 summary.updatedAt(), null);
@@ -308,7 +325,7 @@ public class IslandRecordsService {
         List<ScreenDay> series = new ArrayList<>();
         observed.forEach((date, sameDay) -> {
             ScreenTimeDayPick.Day day = ScreenTimeDayPick.of(sameDay);
-            series.add(new ScreenDay(date, day.minutes(), day.measurementStatus(), day.updatedAt()));
+            series.add(new ScreenDay(date, day.minutes(), day.measurementStatus(), day.updatedAt(), day.finalized()));
         });
         if (series.isEmpty()) {
             return new Summary(UNAVAILABLE, null, List.of(), null);
@@ -352,6 +369,9 @@ public class IslandRecordsService {
         semantic.put("minutes", upload.minutes());
         semantic.put("measurementStatus", upload.measurementStatus());
         semantic.put("timezone", upload.timezone());
+        semantic.put("finalized", upload.finalized());
+        semantic.put("windowStart", upload.windowStart());
+        semantic.put("windowEnd", upload.windowEnd());
         semantic.put("measuredAt", upload.measuredAt().toString());
         semantic.put("deviceId", upload.deviceId().toString());
         var command = new PublicCommandRequest(userId,
@@ -373,22 +393,36 @@ public class IslandRecordsService {
         Instant now = clock.instant();
         // timestamptz 는 마이크로초까지다 — 저장 뒤 같은 시각으로 다시 찾도록 먼저 자른다.
         Instant measuredAt = upload.measuredAt().truncatedTo(ChronoUnit.MICROS);
-        Instant dayStart = date.atStartOfDay(UTC).toInstant();
+        Instant dayStart = date.atStartOfDay(measurementZone(upload.timezone())).toInstant();
+        if ((upload.windowStart() != null && !dayStart.equals(upload.windowStart()))
+                || (upload.windowEnd() != null && !dayStart.plus(Duration.ofDays(1)).equals(upload.windowEnd()))
+                || (!"UTC".equals(upload.timezone())
+                    && (upload.windowStart() == null || upload.windowEnd() == null))) {
+            throw new StatsException(StatsErrorCode.SCREEN_TIME_INVALID_MEASUREMENT);
+        }
         Instant closesAt = dayStart.plus(Duration.ofDays(1)).plus(reportGrace);
         if (measuredAt.isBefore(dayStart) || measuredAt.isAfter(now.plus(futureTolerance)) || now.isAfter(closesAt)) {
             throw new StatsException(StatsErrorCode.SCREEN_TIME_OUT_OF_WINDOW);
         }
+        Instant dayEnd = dayStart.plus(Duration.ofDays(1));
+        boolean finalized = upload.finalized() == null
+                ? !measuredAt.isBefore(dayEnd) : upload.finalized();
+        if (finalized && (now.isBefore(dayEnd) || measuredAt.isBefore(dayEnd))) {
+            throw new StatsException(StatsErrorCode.SCREEN_TIME_OUT_OF_WINDOW);
+        }
         UUID deviceId = upload.deviceId();
-        observations.findByUserIdAndDeviceIdAndMeasuredDateAndMeasuredAt(userId, deviceId, date, measuredAt)
+        observations.findByUserIdAndDeviceIdAndMeasuredDateAndTimezoneAndMeasuredAt(
+                userId, deviceId, date, upload.timezone(), measuredAt)
                 .ifPresentOrElse(same -> {
-                    if (!same.sameMeasurement(upload.minutes(), upload.measurementStatus())) {
+                    if (!same.sameMeasurement(upload.minutes(), upload.measurementStatus(), finalized)) {
                         throw new StatsException(StatsErrorCode.SCREEN_TIME_MEASUREMENT_CONFLICT);
                     }
                 }, () -> observations.save(ScreenTimeObservation.builder().userId(userId).deviceId(deviceId)
-                        .measuredDate(date).measuredAt(measuredAt).minutes(upload.minutes())
-                        .measurementStatus(upload.measurementStatus()).build()));
+                        .measuredDate(date).timezone(upload.timezone()).measuredAt(measuredAt).minutes(upload.minutes())
+                        .measurementStatus(upload.measurementStatus()).finalized(finalized).build()));
         ScreenTimeObservation latest = observations
-                .findFirstByUserIdAndDeviceIdAndMeasuredDateOrderByMeasuredAtDesc(userId, deviceId, date)
+                .findFirstByUserIdAndDeviceIdAndMeasuredDateAndTimezoneOrderByMeasuredAtDesc(
+                        userId, deviceId, date, upload.timezone())
                 .orElseThrow();
         return new ScreenTimeDay(date, latest.getMinutes(), latest.getMeasurementStatus());
     }
@@ -454,6 +488,13 @@ public class IslandRecordsService {
         if (!valid) {
             throw new StatsException(StatsErrorCode.SCREEN_TIME_INVALID_MEASUREMENT);
         }
+    }
+
+    private static ZoneId measurementZone(String timezone) {
+        if (!"UTC".equals(timezone) && !"Asia/Seoul".equals(timezone)) {
+            throw new StatsException(StatsErrorCode.SCREEN_TIME_INVALID_MEASUREMENT);
+        }
+        return ZoneId.of(timezone);
     }
 
     private static long sum(Map<LocalDate, Long> series) {

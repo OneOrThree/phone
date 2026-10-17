@@ -16,7 +16,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * 섬별 «최근 7일 주민 1명당 하루 평균 집중(분)» 일 스냅샷 한 행 (GROMO-2257, migration V109).
+ * 섬별 «최근 7일 주민 1명당 하루 평균 집중(분)» 일 스냅샷 한 행 (GROMO-2257, migration V114).
  *
  * <p>쓰기는 {@code IslandFocusAverageRepository.insertIfAbsent} 한 문장이 전부다. 이 매핑은 스키마 선언용이자
  * 읽기 결과의 모양이다 — {@code IslandWeeklyMemberCount} 와 같이 {@code island_id} 를 그냥 UUID 열로 들고

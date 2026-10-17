@@ -11,7 +11,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * 바다 보상 단계표의 한 행 (GROMO-2274, V112) — 「{@code setKey} 세트의 누적이 {@code thresholdMinutes} 분을 넘으면
+ * 바다 보상 단계표의 한 행 (GROMO-2274, V117) — 「{@code setKey} 세트의 누적이 {@code thresholdMinutes} 분을 넘으면
  * {@code productId} 를 준다」. 운영이 SQL 로 넣는 <b>데이터</b>라 앱은 읽기만 한다(그래서 생성 팩토리가 없다).
  *
  * <p>{@code setKey} 는 {@link #BASE_SET}(평생 누적 기준) 또는 {@code YYYY-MM}(그 달 누적 기준)이다. 다음 달 시즌은

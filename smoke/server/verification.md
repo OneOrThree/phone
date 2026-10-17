@@ -81,3 +81,13 @@ Codex 첫 리뷰의 4개 항목을 반영했다. 공개 게스트 발급을 유�
 - Python 회귀 37개 PASS: 보고 7·워크플로 4·배포 대기 12·생성 제한 창 5·내부 6·격리 정리 3.
 - HTTP/native WebSocket mock 8개: 기존 5개와 잘못된 UUID·빈 값·축약 UUID 거절 3개.
 - 시간은 테스트 시계로 진행했다. 실제 1시간을 기다리거나 GCP에 새 앱 이미지를 배포한 검증은 아니다. 기존 공유 GCP 전체 15개 연속 통과 기록은 위와 같다.
+
+## Catus prod 추가 실행 — 2026-10-14
+
+사용자의 운영 스모크 요청으로 `https://catus-api.oneorthree.world`에서 공개 기본 검사 9개와 내부 검사 3개를 수행해 **12 PASS / 0 FAIL**을 확인했다. 전용 신규 게스트를 사용했고 진행 중 집중은 종료했다. 테스트 게스트·섬·기기 등록은 남아 있으며 DB 초기화 범위를 별도로 확인 중이다. 실제 FCM 발송·Link 기능·DB fixture가 필요한 014/015/016은 이번 실행에 포함하지 않았다.
+
+- 공개: 001 health, 002 게스트 발급, 003 계정 동일성, 004 섬 확보, 005 홈 조각, 006 집중 저장·종료, 007 STOMP 연결/구독, 009 가짜 기기 토큰 등록, 010 집중 이벤트 사용자·세션 일치 — 모두 PASS.
+- 내부: 008 서비스 5개 running/healthy, 017 공유 Redis SET/GET/TTL/DEL, 018 Business Redis SET/GET/만료/DEL — 모두 PASS. prod Data ACL에 맞춰 별도 실행 사본의 임시 키를 `presence:smoke:<UUID>`로 지정했으며 실제 ACL을 변경하거나 Redis를 FLUSH하지 않았다.
+- 최초 공개 health는 HTTP 200이지만 2244ms로 기존 2000ms 기준을 초과했다. 동일 기준 재실행의 최종 health는 1174ms로 PASS이며 시간 기준을 완화하지 않았다.
+- 최초 curl WebSocket Upgrade는 Cloudflare의 HTTP/2 협상에서 400이었다. HTTP/1.1 요청의 101 응답을 비교 확인하고 실행기에 `--http1.1`을 추가했다. 수정 후 실제 STOMP 연결과 집중 이벤트가 통과했다. 실행기 성공·실패·정리·비밀 비노출 회귀 검사 8개도 통과했다. Java 변경은 없다.
+- 추가 배포/롤백은 같은 앱 digest·스키마 지문·Secret 버전의 별도 검증용 릴리스를 SSM `deploy`로 등록한 뒤 원래 릴리스로 SSM `rollback`했다. 원래 release ID·이미지·Infra SHA·schema fingerprint·Secret 버전 복구와 health 200을 확인했다. 이미지가 동일해 앱 재기동은 없으며 다른 버전 간의 동작 복구나 자동 실패 복구까지 검증한 것은 아니다. GitHub OIDC·승인 CD는 PR 반영과 release 승격 후 별도 검증한다.

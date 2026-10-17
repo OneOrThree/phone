@@ -21,6 +21,11 @@ RCT_EXTERN_METHOD(getTodayUsageBucketMinutes:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(getPreviousUsageBucket:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(bindMeasurementOwner:(NSString *)owner
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(getUsageTimeline:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(getUsageBucketHistory:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(markCurrentUsageBucketUnconfirmed:(RCTPromiseResolveBlock)resolve
@@ -37,6 +42,10 @@ RCT_EXTERN_METHOD(setFocusAllowSafariWeb:(BOOL)allowed
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(getFocusAllowSafariWeb:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(startFocusShieldWithAppearance:(NSString *)subjectName
+                  catColor:(NSString *)catColor
+                  resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(startFocusShield:(NSString *)subjectName
                   resolver:(RCTPromiseResolveBlock)resolve

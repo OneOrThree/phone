@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 섬 방명록 (GROMO-2262, V108). */
+/** 섬 방명록 (GROMO-2262, V113). */
 public interface IslandGuestbookEntryRepository extends JpaRepository<IslandGuestbookEntry, UUID> {
 
     /** 최근 30개 — 목록의 전부다(그 뒤는 쓰기 때 지워진다). */
@@ -27,7 +27,7 @@ public interface IslandGuestbookEntryRepository extends JpaRepository<IslandGues
     Optional<IslandGuestbookEntry> findByIdAndIslandIdAndDeletedAtIsNull(UUID id, UUID islandId);
 
     /**
-     * 탈퇴자가 쓴 방명록을 지운 글까지 원문째 지운다 (GROMO-2262 × 계정 LLD §4). 사용자 행은 소프트 삭제라 V108 의
+     * 탈퇴자가 쓴 방명록을 지운 글까지 원문째 지운다 (GROMO-2262 × 계정 LLD §4). 사용자 행은 소프트 삭제라 V113 의
      * {@code ON DELETE CASCADE} 가 돌지 않는다 — 안 지우면 본문과 작성자 UUID 가 남는다. 공지 댓글과 같은 선례
      * ({@code GroupAnnouncementCommentRepository#deleteAllOfUser}, 2026-09-25 결정 GROMO-2136)다: 방문자가 남긴
      * 짧은 글은 다른 사람의 판정·정산 근거가 아니라 작성자 연결만 끊을 이유가 없다.

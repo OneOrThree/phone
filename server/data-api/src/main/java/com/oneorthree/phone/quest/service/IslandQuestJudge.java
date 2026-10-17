@@ -122,10 +122,8 @@ public class IslandQuestJudge {
     /**
      * screen 판정 (GROMO-2001) — 규칙은 클래스 javadoc 에 있다.
      *
-     * <p>회차 날짜가 <b>끝났는가</b>를 시각으로 본다({@code date+1 00:00Z}). 스크린타임에는 「오늘 보고를
-     * 마쳤다」는 플래그가 없으므로(2.0 관측 모델에는 {@code isFinal} 이 없다) 그것이 유일하게 지어내지 않는
-     * 마감 근거다. 날짜가 끝나기 전에 「상한 이하」를 달성으로 굳히면, 정오에 달성 판정을 받고 저녁에 상한을
-     * 넘긴 주민이 보상을 받는다.
+     * <p>회차가 끝나고 최종 관측이 도착해야 상한 이하를 달성으로 확정한다.
+     * 중간 수치는 진행률·상한 초과 확인에만 쓰며 미확정 기록으로 보상하지 않는다.
      *
      * @param now 판정 시각 — 회차 날짜 종료·유예 판정의 기준이다
      */
@@ -156,9 +154,12 @@ public class IslandQuestJudge {
                 // 사용량은 줄지 않는다 — 날짜가 안 끝났어도 미달성 확정이다.
                 return new Row(user.getId(), user.getNickname(), cap * 100 / used, AUTHORIZED, true, false, false);
             }
-            if (dayOver) {
+            if (dayOver && day.finalized()) {
                 // 측정된 0 도 여기로 온다 — 「실제 0」은 달성이고 「보고 없음」과 구분된다.
                 return new Row(user.getId(), user.getNickname(), 100, AUTHORIZED, true, true, false);
+            }
+            if (graceOver) {
+                return new Row(user.getId(), user.getNickname(), null, UNAVAILABLE, false, false, false);
             }
             return new Row(user.getId(), user.getNickname(), 100, PENDING, true, false, true);
         }

@@ -16,13 +16,13 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * V108 섬 인사말 컬럼 + 방명록 테이블의 실 SQL 검증 (GROMO-2262). 검증 방식은
+ * V113 섬 인사말 컬럼 + 방명록 테이블의 실 SQL 검증 (GROMO-2262). 검증 방식은
  * {@code LoginAttemptV101MigrationTest} 선례 — 전용 컨테이너에 Flyway 체인을 실제로 돌린다.
  *
- * <p>보는 것: ① V107 까지 올린 스키마의 기존 섬이 {@code greeting=null}(= 기본 문구)로 남는다, ② 컬럼 타입·
+ * <p>보는 것: ① V112 까지 올린 스키마의 기존 섬이 {@code greeting=null}(= 기본 문구)로 남는다, ② 컬럼 타입·
  * nullability, ③ 하루 1개 유니크·FK 연쇄 삭제·최근순 인덱스.
  */
-class IslandGuestbookV108MigrationTest {
+class IslandGuestbookV113MigrationTest {
 
     /** 이 클래스 전용 컨테이너 — 공용 TestPostgres 는 스키마 초기화와 함께 쓸 수 없다. */
     private static final PostgreSQLContainer<?> POSTGRES;
@@ -40,9 +40,9 @@ class IslandGuestbookV108MigrationTest {
     }
 
     @Test
-    @DisplayName("V107 의 기존 섬 위에 V108 이 적용되고, 기존 섬의 greeting 은 null(기본 문구)로 남는다")
+    @DisplayName("V112 의 기존 섬 위에 V113 이 적용되고, 기존 섬의 greeting 은 null(기본 문구)로 남는다")
     void existingIslandsKeepNullGreeting() {
-        migrate(MigrationVersion.fromVersion("107"));
+        migrate(MigrationVersion.fromVersion("112"));
         JdbcTemplate jdbc = jdbc();
         UUID islandId = UUID.randomUUID();
         jdbc.update("INSERT INTO groups (id, name, max_members, is_chat_enabled, invite_permission, status) "

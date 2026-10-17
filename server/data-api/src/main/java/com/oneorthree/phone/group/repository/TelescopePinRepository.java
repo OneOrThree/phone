@@ -10,7 +10,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/** 망원경 핀 (GROMO-2268, V110). 쓰기 진입점은 {@code TelescopePinService} 하나다. */
+/** 망원경 핀 (GROMO-2268, V115). 쓰기 진입점은 {@code TelescopePinService} 하나다. */
 public interface TelescopePinRepository extends JpaRepository<TelescopePin, TelescopePin.Key> {
 
     /**
@@ -54,7 +54,7 @@ public interface TelescopePinRepository extends JpaRepository<TelescopePin, Tele
 
     /**
      * 탈퇴자의 핀을 전부 지운다 (GROMO-2268, 계약 §0 N42). 그 사람의 개인 목록일 뿐 남의 판정 근거가 아니라 남길
-     * 이유가 없다 — 사용자 행은 소프트 삭제라 V110 의 {@code ON DELETE CASCADE} 가 돌지 않는다.
+     * 이유가 없다 — 사용자 행은 소프트 삭제라 V115 의 {@code ON DELETE CASCADE} 가 돌지 않는다.
      *
      * @param userId 탈퇴하는 유저
      * @return 지운 행 수

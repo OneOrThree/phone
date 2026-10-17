@@ -24,6 +24,10 @@ export const screenTime = {
     nativeModule?.getAuthorizationStatus?.() ?? Promise.resolve(unavailable()),
   getMeasurementSelectionCounts: () =>
     nativeModule?.getMeasurementSelectionCounts?.() ?? Promise.resolve(null),
+  getMeasurementSelectionForEditing: async () => {
+    const selection = await nativeModule?.getMeasurementSelectionCounts?.();
+    return selection?.pendingSelection ?? selection ?? null;
+  },
   presentAppPicker: () => nativeModule?.presentAppPicker?.() ?? Promise.resolve(null),
   promoteSelection: () => nativeModule?.promoteSelection?.() ?? Promise.resolve(false),
   promotePendingSelectionIfDue: () =>
@@ -34,6 +38,9 @@ export const screenTime = {
     nativeModule?.getTodayUsageBucketMinutes?.() ?? Promise.resolve(0),
   getPreviousUsageBucket: () => nativeModule?.getPreviousUsageBucket?.() ?? Promise.resolve(null),
   getUsageBucketHistory: () => nativeModule?.getUsageBucketHistory?.() ?? Promise.resolve([]),
+  bindMeasurementOwner: (owner: string) =>
+    nativeModule?.bindMeasurementOwner?.(owner) ?? Promise.resolve(),
+  getUsageTimeline: () => nativeModule?.getUsageTimeline?.() ?? Promise.resolve(null),
   markCurrentUsageBucketUnconfirmed: () =>
     nativeModule?.markCurrentUsageBucketUnconfirmed?.() ?? Promise.resolve([]),
   getUnconfirmedUsageBucketDays: () =>
@@ -49,8 +56,10 @@ export const screenTime = {
   setFocusAllowSafariWeb: (allowed: boolean) =>
     nativeModule?.setFocusAllowSafariWeb?.(allowed) ?? Promise.resolve(),
   getFocusAllowSafariWeb: () => nativeModule?.getFocusAllowSafariWeb?.() ?? Promise.resolve(false),
-  startFocusShield: (subjectName: string) =>
-    nativeModule?.startFocusShield?.(subjectName) ?? Promise.resolve(false),
+  startFocusShield: (subjectName: string, catColor = 'black') =>
+    nativeModule?.startFocusShieldWithAppearance?.(subjectName, catColor) ??
+    nativeModule?.startFocusShield?.(subjectName) ??
+    Promise.resolve(false),
   stopFocusShield: () => nativeModule?.stopFocusShield?.() ?? Promise.resolve(),
 };
 

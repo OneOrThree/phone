@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 계정 탈퇴 ↔ 바다 집중 누적 파기 (GROMO-2274 · 계약 §0 N42) — 사용자 행은 익명화만 되고 삭제되지 않아
  * {@code sea_focus_totals.user_id REFERENCES users ON DELETE CASCADE} 가 돌지 않는다. 탈퇴 트랜잭션이 직접 지우는지를
- * 실제 Flyway(V112) 스키마에서 고정한다: 탈퇴자의 누적은 0 행, 같은 시각에 쌓인 남의 누적은 그대로다.
+ * 실제 Flyway(V117) 스키마에서 고정한다: 탈퇴자의 누적은 0 행, 같은 시각에 쌓인 남의 누적은 그대로다.
  *
  * <p>지급된 상품({@code owned_products})은 이 서비스의 파기가 아니라 기존 {@code AppearanceService#eraseWithdrawnUser}
  * 몫이다 — 같은 탈퇴 한 번에 함께 사라지는지도 본다(바다 쪽에서 따로 지우지 않아도 남지 않는다는 근거).

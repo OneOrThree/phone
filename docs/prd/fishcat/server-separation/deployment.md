@@ -57,3 +57,51 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 단독 로컬 실행도 `write-compose-env.py --service business-api --redis-acl-output <경로>`가 생성한 env와 ACL을 사용한다. `BUSINESS_API_ENV_FILE`·`BUSINESS_REDIS_ACL_FILE`을 지정해 `server/business-api/compose.yml`을 실행하면 호스트 `127.0.0.1:8082`가 컨테이너 8080으로 연결된다. 시크릿이 포함된 파일은 커밋하지 않는다.
 
 ~~Link/MMP는 `OneOrThree/mmp-custom`의 별도 배포다. 여기서 Vercel·Neon 연결이나 DNS 전환을 수행하지 않는다.~~ → A23(2026-09-13): Link/MMP 는 별도 배포가 아니다 — business-api·data-api 이미지에 포함되며 공개 경로 전환은 nginx 설정 한 번이다([링크 정본](../link-attribution/high-level-design.md) §7).
+
+## Catus 2.0 운영 발행·배포
+
+위의 준비 도구·기존 prod Compose 설명과 별도로, Catus 실행 구성·nginx·SSM 배포 문서는 Infra 저장소의 `prod/catus/runtime`에서 관리한다. Phone은 네 서비스의 애플리케이션 이미지와 릴리스를 발행한다. 구성은 `CATUS_PROD_INFRA_REVISION`의 40자리 Infra 커밋 SHA로 고정하며, S3의 `configurations/<Infra SHA>/configuration.zip`·`configuration.json`을 검증한 뒤 사용한다.
+
+### 운영 선행 조건
+
+- Infra에서 최신 IAM·SSM 변경을 적용하고, 승인된 구성 산출물을 먼저 게시한다. Phone의 `CATUS_PROD_INFRA_REVISION`에는 **게시된 구성**의 SHA를 설정한다.
+- Phone의 `catus-production` 환경에 배포 승인자와 배포 허용 브랜치 `release`를 설정하고, `release` 보호 규칙을 확인한다. 발행 역할은 `catus-prod-publish`, 수동 배포 역할은 `catus-prod-deploy`다. 대상 설정은 Secrets Manager `catus/prod/cicd`에서 읽는다.
+- 제품명을 Catus로 정정해 Infra의 `prod/catus`에 새 state·새 AWS 스택을 준비한다. 신규 스택의 적용 완료와 운영 검증을 확인한 뒤 다음 단계로 진행한다. 기존 FocusCat은 전환 검증 후 별도 정리하며, Gromo 1.x는 계속 유지한다. 이전 스택의 성공 상태나 이미지·버전 참조를 Catus로 복사하지 않는다.
+- Infra의 private GitHub 저장소에서 required reviewers 설정은 API 422, main 보호 설정은 API 403으로 실패했다. 사용자는 내장 승인자를 유지하고 지원 플랜 준비 전까지 정규 GitHub 구성 발행 잠금을 유지하기로 결정했다. 이후 FocusCat→Catus 교체 지시로 이번 전환은 운영자 직접 작업으로 수행했다. Phone은 public 저장소이므로 별도 승인 환경·release 제한을 설정한다. `CATUS_PROD_INFRA_REVISION`에는 실제 승인 발행된 구성의 SHA만 등록한다.
+- `catus/prod/env`의 필요한 앱 설정·FCM·Google·Apple·OpenAI·JWT·서비스 caller 자격은 `gromo/dev/env`의 키와 값을 그대로 따른다. DB 접속 키·POSTGRES 관리 값·관리형 서비스 URL·파일 경로 키는 복사 대상에서 제외한다. 운영 DB 자격은 별도로 생성한 `catus/prod/database`에서 공급하고, 개발 env에 없는 채팅 DB 자격도 여기에 따로 준비한다. Redis·프록시·Datadog의 운영 설정과 자격은 Infra에서 별도 보충한다. 앱의 OAuth audience/bundle ID(`com.oneorthree.focuscat`)는 스택 이름 변경으로 바꾸지 않는다. 관리형 RDS 시크릿의 AWS 자동 생성 이름도 변경 대상이 아니다.
+- Link는 같은 구성으로 미완 상태를 유지하되 prod `LINK_BASE_URL`은 Catus 운영 주소 `https://catus-api.oneorthree.world`를 사용한다. dev는 기존 주소를 유지한다. 실제 dev에는 별도 Link 서비스가 없고 `/internal/links`·`/l/...`가 404이므로 초대 링크 기능은 미연결이다. 닫힌 PR #736의 코드는 가져오지 않았다. DB·로그 장애 알람 수신처도 사용자 요청으로 TODO다.
+
+### 2026-10-14 운영 전환 확인
+
+`https://catus-api.oneorthree.world`에 배포했고 기존 `focuscat-api.oneorthree.world`도 Catus로 연결했다. 기존 Gromo 1.x는 유지한다. 쓰기 중지 후 세 DB를 복원해 앱 시작 전에 모든 public 테이블의 행 수를 대조했고, 컨테이너 9개 health·앱 digest/ARM64·DB 계정 격리·Datadog·로그 아카이브·두 주소 HTTPS health를 확인했다. 세부 AWS 상태와 복구 자료는 Infra의 `prod/catus/cutover-2026-10-14.md`에서 관리한다.
+
+배포 메타데이터 버전과 prod 배지는 `catus-v2.0.0`이며 이번 운영자 작업에서 정식 Git 버전 태그는 만들지 않았다. Phone PR #1139는 draft를 유지한다. 정규 버전 태그·승인 CD는 PR 반영과 `release` 승격 후 위 절차를 따른다. 후속 검증에서 같은 이미지·스키마·Secret의 검증용 릴리스를 배포한 뒤 SSM rollback으로 원래 릴리스 복구를 확인했다. 서로 다른 앱 버전의 동작 복구와 GitHub 승인 CD 검증은 별도다. 운영 스모크 결과는 `smoke/server/verification.md`를 참고한다.
+
+### 발행과 버전
+
+1. `main`·`release` 대상 PR에서 `prod-ci.yml`은 변경 서비스 검사·이미지 빌드를 수행하며 ECR에 발행하지 않는다. 공통 빌드 입력이 바뀌면 전체 서비스가 검사 대상이다.
+2. `release` push 또는 `release`를 선택한 `prod-ci.yml` 수동 실행에서 발행한다. 마지막 prod 성공 상태 `deployments/current.json`의 소스 지문과 비교해 변경 서비스만 `linux/arm64`로 빌드한다. 최초 발행과 수동 `rebuild_all=true`는 전체 빌드이며, Infra SHA만 바뀌면 이미지는 재사용하고 전체 서비스를 배포 대상으로 기록한다. 발행·배포 실행은 `queue: max`로 대기 실행을 보존한다. 같은 실행을 재시도하면 계획·JAR·이미지 digest 산출물을 교체한다.
+3. 이미지 저장소는 `catus-prod/<service>`이며 릴리스에는 재사용 이미지를 포함한 네 서비스의 digest 조합을 기록한다. 불변 산출물은 S3 `releases/<소스 SHA>-<실행 ID>-<시도 번호>/bundle.zip`·`release.json`, 버전 참조는 `versions/catus-vX.Y.Z.json`이다.
+
+수동 실행은 소스·Infra 변경이 없어도 `version_bump`를 처리하며 기존 이미지 조합을 재사용한 새 버전을 발행한다. 이 경우 빌드·배포 대상은 비어 있고 실제 배포는 별도 승인 CD로 수행한다. 자동 push는 변경이 없으면 발행을 건너뛴다.
+4. 기존 Catus Git 태그·S3 `versions/`의 불변 예약·실제 운영 성공 상태 `deployments/current.json` 중 가장 큰 버전을 기준으로 증가한다. 그 기준 소스 이후 현재 소스까지 포함된 `release` 대상 PR의 `release:major`·`release:minor`·`release:patch`를 누적해 가장 큰 증가폭 하나를 적용하고, 미지정은 patch다. 실패한 실행이 예약 전에 중단돼도 major/minor 의도를 후속 커밋이 이월한다. 수동 `version_bump`도 누적된 증가폭보다 낮추지 않는다. 세 기준 모두 없을 때만 최초 버전 `catus-v2.0.0`을 사용한다. 현재 운영자 전환 버전이 `catus-v2.0.0`이므로 정식 Git 태그가 없어도 첫 자동 patch 발행은 `catus-v2.0.1`이다. 같은 버전을 Git 태그와 네 서비스 ECR 태그로 기록한다. 기존 Gromo `vX.Y.Z` 태그는 버전 계산에 포함하지 않는다. 정규 발행 전 Infra PR #11의 `versions/` 경로 한정 `s3:ListBucket` 권한을 적용해야 한다.
+
+계산한 버전은 S3 발행 전에 `catus-release-version` Actions 산출물에 소스·Infra SHA와 실행 ID를 함께 고정한다. 같은 실행의 재시도는 산출물 존재 여부를 먼저 확인한다. 보관 전 실패로 산출물이 없으면 버전을 새로 고정하고, 있으면 복구해 입력을 검증하고 기존 S3 릴리스 메타데이터와 checksum 확인을 이어간다. Git 태그가 이미 있으면 같은 커밋인지 확인하며 중복 생성하지 않는다. 산출물이 만료됐거나 입력이 달라졌으면 버전을 추측하지 않고 실패한다. 새 수동 실행의 강제 재빌드·Infra 변경은 같은 소스 SHA여도 새 버전을 계산한다.
+
+대기열은 커밋 순서를 보장하지 않으므로 버전 계산 전과 매 시도의 S3 발행 직전에 최신 Catus 태그·예약의 소스가 현재 소스의 조상인지 검사한다. 고정 버전을 복구하는 재시도도 이 검사를 생략하지 않는다. 버전 번호도 최신 태그·예약·운영 버전보다 커야 하며, 동일 소스·Infra·Actions 실행에 이미 예약된 버전만 같은 번호의 복구를 허용한다. 고정 번호가 뒤늦게 낡아졌으면 새 발행 실행이 필요하다. 후속 커밋이 먼저 발행됐다면 뒤늦은 이전 커밋·분기 커밋은 더 높은 버전으로 발행하지 않고 실패한다.
+
+### 배포와 롤백
+
+운영 승격 PR은 반드시 **head=`main`, base=`release`**로 만든다. 작업 브랜치의 변경과 충돌 해결은 먼저 main 대상 PR로 통합한다. 과거 squash 승격 때문에 release에만 남은 이력이 있다면, 현재 main의 파일을 유지하면서 release 이력을 연결하는 별도 main 대상 PR을 준비한다. 이 이력 동기화 PR과 실제 main → release 승격 PR은 모두 **Create a merge commit**으로 병합해야 한다. 동기화 PR의 squash/rebase는 release 부모 이력을 잃으므로 충돌 해결 효과가 없다. 승격 PR의 squash/rebase도 main 부모를 잃으므로 버전 계산에서 거부한다. main 반영 후 release가 main의 조상인지 확인하고, 기존 main → release PR의 충돌·CI·리뷰를 다시 확인한다. 배포를 위해 작업 브랜치를 release로 직접 병합하지 않는다.
+
+GitHub Actions에서 `prod-cd.yml`을 수동 실행한다. 브랜치는 `release`, `release_id`는 발행된 `catus-vX.Y.Z` 또는 `<소스 SHA>-<실행 ID>-<시도 번호>`를 지정한다. `operation`은 최초 준비 `bootstrap`, 일반 배포 `deploy`, 호환되는 기존 릴리스 복구 `rollback` 중 하나다. `catus-production` 승인 후 고정 SSM 문서 `catus-prod-deploy`를 호출하고 최종 결과를 기다린다. 발행 성공만으로 자동 배포되지는 않는다. 롤백은 해당 Infra 실행 구성의 호환 조건을 확인한 릴리스만 선택하며, DB 변경을 자동으로 되돌리는 절차로 취급하지 않는다.
+
+Infra PR #11의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD의 `catus-deploy.py`는 자격·릴리스 메타데이터·사전 명령 조회를 검증한 뒤 `catus-ssm-send-intent` Actions 산출물을 보관하고 명령을 전송한다. 이 준비 단계에서 실패하면 전송 의도가 없으므로 재실행에서 새 명령을 보낼 수 있다. 전송 의도가 있으면 요청이 같은지 검증하고 `catus:<저장소 ID>:<Actions 실행 ID>` Comment로 기존 명령의 결과 대기만 재개한다. AWS CLI의 자동 재전송은 끈다. 전송 응답 유실이나 전송 의도 기록 직후 중단으로 기존 명령이 확인되지 않으면 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 사전·결과 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다.
+
+### 배포 상태 배지
+
+`ops-deployment-badges.yml`은 신뢰한 원본 워크플로의 결과 산출물을 검증해 `deployment-status` 브랜치에 JSON을 게시한다. dev는 Data·Realtime·Business·Notification의 최근 결과를 합산한다. prod는 마지막 성공 버전을 유지하므로 실패·취소 후에도 이전 성공 버전이 표시된다. 최신 실행 성공 여부는 Actions에서 별도로 확인한다.
+
+결과 산출물 이름은 `deployment-status-<dev|prod>-<run_attempt>`이며 현재 재실행 시도의 결과만 반영한다. dev 실패·취소 시 현재 결과가 없으면 실패로 기록하되, Satellite CI는 `satellite-deploy-plan`, CD는 `satellite-deploy-record`에 남긴 선택 서비스를 사용한다. CD의 원본 SHA도 해당 기록에서 복원한다. 계획·대상 기록도 없으면 서비스 범위를 추측하지 않고 기존 배지를 유지한다.
+
+2026-10-14 기준 상태 브랜치는 아직 없다. main 반영 후 「서버 배포 상태 배지」 워크플로를 수동 실행하면 초기 JSON을 만들며, 기록이 없는 서비스·환경은 배포 확인 전으로 표시한다. 이미 운영 중인 서버도 기록 전에는 확인 전으로 표시하며, 서버가 미배포되거나 중단됐다는 뜻은 아니다. 이후 실제 배포 완료 결과가 배지를 갱신한다. 검증은 `python3 -m unittest discover -s .github/scripts -p 'test_catus*.py' -v`와 `python3 .claude/pr-gate.py --selftest`를 사용한다.

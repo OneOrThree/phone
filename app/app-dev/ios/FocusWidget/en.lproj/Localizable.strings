@@ -8,3 +8,8 @@
 "rest.expired.status" = "Break time expired";
 "rest.expired.short" = "Break ended";
 "rest.expired.title" = "Check your result in the app";
+
+"widget.today" = "Today’s focus time";
+"widget.duration" = "%dh %dm";
+"widget.name" = "Cat & focus time";
+"widget.description" = "See your total focus time today with your cat.";

@@ -68,7 +68,7 @@ public class IslandMembershipController {
     /** 가입 본문의 화이트리스트 — {@code origin} 은 GROMO-2260 에서 열었다. */
     private static final Set<String> JOIN_KEYS = Set.of("invitationToken", "origin");
     private static final Set<String> JOIN_ORIGINS = Set.of("visit", "telescope");
-    /** 망원경 핀 넣기 본문의 출처 — 정확히 이 둘이다(GROMO-2268). Data 의 V110 CHECK 와 같다. */
+    /** 망원경 핀 넣기 본문의 출처 — 정확히 이 둘이다(GROMO-2268). Data 의 V115 CHECK 와 같다. */
     private static final Set<String> PIN_SOURCES = Set.of("magazine", "observatory");
     /** 초대 해석 본문의 화이트리스트 — {@code arrive} 는 GROMO-2264 에서 열었다(도착 opt-in). */
     private static final Set<String> RESOLVE_KEYS = Set.of("code", "arrive");

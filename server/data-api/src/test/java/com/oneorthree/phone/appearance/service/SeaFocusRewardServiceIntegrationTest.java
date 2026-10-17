@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 바다 집중 누적·단계표 보상 엔진 (GROMO-2274) — <b>실제 Flyway(V112) PostgreSQL</b> 위에서 본다.
+ * 바다 집중 누적·단계표 보상 엔진 (GROMO-2274) — <b>실제 Flyway(V117) PostgreSQL</b> 위에서 본다.
  *
  * <p>배선이 {@code OutboxTestPostgres.applyProductionMigrationWiring} 이라 컨텍스트가 뜰 때 운영 마이그레이션을 전부
  * 돌리고 {@code ddl-auto=validate} 가 엔티티({@code char(7)} 매핑 포함)와 스키마를 맞댄다. 시각은 호출자가 넘기므로

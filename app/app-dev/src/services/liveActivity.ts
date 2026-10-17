@@ -1,5 +1,6 @@
 import { NativeModules, Platform } from 'react-native';
 import type { Color, Session } from '@/services/model';
+import { sessionGeneration } from './api/session';
 
 // 서버 FocusSessionLifecycleService.REST_AUTO_CLOSE_AFTER 와 같은 1시간 정책.
 export const REST_AUTO_CLOSE_MS = 60 * 60 * 1000;
@@ -43,6 +44,10 @@ const native: NativeLiveActivity | undefined =
 
 // 빠른 휴식·복귀·종료 조작에서도 ActivityKit 상태 변경 순서를 유지한다.
 let queue: Promise<unknown> = Promise.resolve();
+let revision = 0;
+let currentSessionId: string | null = null;
+const ended = new Set<string>();
+const versions = new Map<string, number>();
 function enqueue<T>(work: () => Promise<T>): Promise<T> {
   const result = queue.then(work, work);
   queue = result.catch(() => undefined);
@@ -55,8 +60,20 @@ export function syncLiveActivity(
   counts?: { focus: number; rest: number } | null,
 ): Promise<boolean | void> {
   if (!native) return Promise.resolve();
-  if (!session) return enqueue(() => native.endAll());
-  return enqueue(() => native.sync(buildLiveActivityPayload(session, color, counts)));
+  if (!session) return endLiveActivities();
+  if (ended.has(session.id)) return Promise.resolve();
+  if (session.version != null && session.version < (versions.get(session.id) ?? -1))
+    return Promise.resolve();
+  if (session.version != null) versions.set(session.id, session.version);
+  currentSessionId = session.id;
+  const request = ++revision;
+  const generation = sessionGeneration();
+  const payload = buildLiveActivityPayload(session, color, counts);
+  return enqueue(() =>
+    request === revision && generation === sessionGeneration()
+      ? native.sync(payload)
+      : Promise.resolve(false),
+  );
 }
 
 export function buildLiveActivityPayload(
@@ -77,5 +94,13 @@ export function buildLiveActivityPayload(
   };
 }
 
-export const endLiveActivities = (): Promise<void> =>
-  native ? enqueue(() => native.endAll()) : Promise.resolve();
+export const endLiveActivities = (): Promise<void> => {
+  revision++;
+  if (currentSessionId) {
+    ended.add(currentSessionId);
+    versions.delete(currentSessionId);
+    if (ended.size > 128) ended.delete(ended.values().next().value!);
+  }
+  currentSessionId = null;
+  return native ? enqueue(() => native.endAll()) : Promise.resolve();
+};
