@@ -160,10 +160,13 @@ class MagazinePublishIntegrationTest {
         Island first = island("첫섬", false);
         Island second = island("둘째섬", false);
         Island hidden = island("숨은섬", true);
+        Island closed = island("닫힌섬", false);
+        jdbc.update("update groups set deleted_at = now() where id = ?", closed.id);
         resident(first.group);
         UUID late = promotion(first.id, date, kst(date.minusDays(1), 9, 0), "늦게 신청");
         UUID early = promotion(second.id, date, kst(date.minusDays(1), 8, 0), "먼저 신청");
-        UUID skipped = promotion(hidden.id, date, kst(date.minusDays(1), 8, 30), "비공개");
+        UUID visiblePrivate = promotion(hidden.id, date, kst(date.minusDays(1), 8, 30), "비공개");
+        UUID skipped = promotion(closed.id, date, kst(date.minusDays(1), 8, 40), "닫힌 섬");
         promotion(first.id, date.plusDays(1), kst(date, 7, 30), "내일 호");
 
         MagazineIssue issue = publisher.publish(date).orElseThrow();
@@ -179,7 +182,8 @@ class MagazinePublishIntegrationTest {
         assertThat(snapshotOf(late).path("maxMembers").asInt()).isEqualTo(10);
         assertThat(snapshotOf(late).path("buildingCount").asInt()).isZero();
         assertThat(snapshotOf(early).path("islandId").asText()).isEqualTo(second.id.toString());
-        assertThat(snapshotOf(skipped).path("name").asText()).as("비공개 섬 칸도 싣는다").isEqualTo("숨은섬");
+        assertThat(snapshotOf(visiblePrivate).path("name").asText()).as("비공개 섬 칸도 싣는다").isEqualTo("숨은섬");
+        assertThat(snapshotOf(skipped).isMissingNode()).as("발행 순간 닫힌 섬의 칸은 싣지 않는다").isTrue();
         assertThat(jdbc.queryForObject("select count(*) from island_promotions where snapshot is not null "
                 + "and issue_date <> ?", Integer.class, date)).as("다른 호의 칸은 건드리지 않는다").isZero();
         assertThat(jdbc.queryForObject("select count(*) from island_focus_averages where snapshot_date = ? "
@@ -339,6 +343,7 @@ class MagazinePublishIntegrationTest {
         Island other = island("남의섬", false);
         Island goesPrivate = island("숨을섬", false);
         Island reported = island("신고섬", false);
+        Island ended = island("끝난섬", false);
         join(reader, mine.group);
         GroupMember kicked = join(reader, kickedFrom.group);
         kicked.kick(kst(date.minusDays(2), 9, 0));
@@ -348,10 +353,12 @@ class MagazinePublishIntegrationTest {
         promotion(kickedFrom.id, date, kst(date.minusDays(1), 8, 20), "쫓겨난 섬 홍보");
         UUID hiddenCell = promotion(reported.id, date, kst(date.minusDays(1), 8, 30), "신고된 홍보");
         promotion(other.id, date, kst(date.minusDays(1), 8, 40), "남의 섬 홍보");
+        promotion(ended.id, date, kst(date.minusDays(1), 8, 50), "곧 끝날 섬");
         UUID issueId = publisher.publish(date).orElseThrow().getId();
         // 발행 뒤의 변화 — 주민이 늘고, 한 섬은 비공개가 되고, 한 칸은 신고로 숨겨진다.
         resident(mine.group);
         jdbc.update("update groups set is_private = true where id = ?", goesPrivate.id);
+        jdbc.update("update groups set status = 'ENDED' where id = ?", ended.id);
         jdbc.update("update island_promotions set moderation = 'HIDDEN' where id = ?", hiddenCell);
 
         now.set(kst(date, 9, 0));

@@ -58,6 +58,8 @@ class PromotionContentTest {
     void layoutRules() {
         assertThat(content("안녕", layout(Collections.nCopies(5, CAT))).validated().layout().stickers()).hasSize(5);
 
+        assertThat(content("안녕", new PromotionContent.Layout(1, "mag.frame-scallop", Collections.nCopies(5, CAT), TAPE))
+                .validated().layout().tape()).as("테이프는 스티커 상한에 합산되지 않는다").isNotNull();
         assertCode(content("안녕", layout(Collections.nCopies(6, CAT))), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
         assertCode(content("안녕", null), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
         assertCode(content("안녕", new PromotionContent.Layout(2, "mag.frame-scallop", List.of(), null)),

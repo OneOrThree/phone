@@ -269,7 +269,7 @@ class IslandPromotionIntegrationTest {
         expectRejected(island, content("가".repeat(61), ok), 422, "PROMOTION_TEXT_TOO_LONG");
         expectRejected(island, content("씨발 섬", ok), 400, "BANNED_WORD");
         expectRejected(island, content("첫 줄\n둘째 줄", ok), 400, "PROMOTION_LAYOUT_INVALID");
-        expectRejected(island, content(BODY, layout(FRAME, Collections.nCopies(6, STICKER), null)), 400,
+        expectRejected(island, content(BODY, layout(FRAME, Collections.nCopies(6, STICKER), TAPE)), 400,
                 "PROMOTION_LAYOUT_INVALID");
         expectRejected(island, content(BODY, layout("mag.no-such-frame", List.of(), null)), 400,
                 "PROMOTION_LAYOUT_INVALID");
