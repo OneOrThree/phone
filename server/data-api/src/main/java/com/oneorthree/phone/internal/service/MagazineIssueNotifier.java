@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -81,6 +82,7 @@ public class MagazineIssueNotifier {
     private final NotificationSentLogRepository sentLogs;
     private final PushNotificationService pushNotificationService;
     private final PlatformTransactionManager transactionManager;
+    private final Clock clock;
 
     /** 한 쪽 크기 — 테스트가 쪽 경계를 만들려고 줄인다. */
     int pageSize = 200;
@@ -89,13 +91,15 @@ public class MagazineIssueNotifier {
      * 그날 호가 있고 아직 펼치지 않았으면 이어서 펼친다.
      *
      * @param issueDate 호의 KST 날짜
-     * @param now       선점·표시 시각
+     * @param now       선점·표시 시각(조용한 시간 판정은 사용자마다 발송 직전 시계를 새로 읽는다)
+     * @return 완료(또는 할 일 없음)면 {@code complete=true}, 전송 오류가 남았으면 {@code false} 와 실패 수 — 로그·최종 신호는
+     *         스케줄러가 그날 마지막 틱 여부로 정한다
      * @throws RuntimeException 중간 실패 — {@code notified_at} 은 NULL 로 남아 다음 틱이 이어 간다
      */
-    public void notifyIfPending(LocalDate issueDate, Instant now) {
+    public Result notifyIfPending(LocalDate issueDate, Instant now) {
         MagazineIssue issue = issues.findByIssueDate(issueDate).orElse(null);
         if (issue == null || issue.getNotifiedAt() != null) {
-            return;
+            return Result.DONE;
         }
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         boolean outboxMode = dispatcher.isOutboxMode();
@@ -128,12 +132,21 @@ public class MagazineIssueNotifier {
         }
         if (failed > 0) {
             // 예외로 되돌리지 않고 정상 반환한다 — 이미 나간 FCM 은 되돌릴 수 없다. 완료는 확정하지 않는다.
-            log.warn("고양이 잡지 알림 일시 실패 — 실패 {}건 — 다음 틱 재시도 date={} issueNo={}", failed, issueDate,
-                    issue.getIssueNo());
-            return;
+            return new Result(false, failed);
         }
         transaction.executeWithoutResult(status -> issues.markNotified(issue.getId(), now));
         log.info("고양이 잡지 알림 펼치기 완료 date={} issueNo={} 대상={}", issueDate, issue.getIssueNo(), total);
+        return Result.DONE;
+    }
+
+    /**
+     * 펼치기 결과.
+     *
+     * @param complete 확정했거나 할 일이 없었다
+     * @param failed   남은 전송 오류 수(complete 면 0)
+     */
+    public record Result(boolean complete, int failed) {
+        static final Result DONE = new Result(true, 0);
     }
 
     /** 사용자 한 명의 LEGACY 발송 — 호출한 사용자별 트랜잭션 안에서 돈다. */
@@ -153,8 +166,11 @@ public class MagazineIssueNotifier {
                 Map.of("type", NotificationSentLog.TYPE_MAGAZINE_PUBLISHED));
         // 필터에 걸리는 계정(토큰 없음·알림 끔·조용한 시간)은 영구 미발송이고, 안 걸렸는데 못 나갔으면 전송 오류다
         // (sendIfAllowed 는 타임아웃·서버 오류에서도 예외 대신 false 를 돌려준다).
-        boolean filtered = pushNotificationService.isFilteredOut(user, own, now);
-        if (dispatcher.dispatch(user, own, requestOf(issue, user), message, now).recordsLegacyLog()) {
+        // 조용한 시간은 «발송 직전» 시각으로 본다 — 22:50 에 시작한 전수 발송이 FCM 지연으로 23:00 을 넘겨도 뒤쪽 사용자가
+        // 조용한 시간을 통과하지 않게. 선점·기록 시각은 배치 시각(now)을 쓴다.
+        Instant sendAt = clock.instant();
+        boolean filtered = pushNotificationService.isFilteredOut(user, own, sendAt);
+        if (dispatcher.dispatch(user, own, requestOf(issue, user), message, sendAt).recordsLegacyLog()) {
             sentLogs.updateStatusByIds(List.of(claimId), NotificationSendStatus.SENT, now);
             return Outcome.SENT;
         }

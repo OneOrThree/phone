@@ -2,14 +2,20 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.notification.service.PushNotificationService;
+import com.oneorthree.phone.common.util.ZonePolicy;
+import com.oneorthree.phone.internal.service.MagazineIssueNotifier;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +34,18 @@ class MagazineIssueNotifierLegacyIntegrationTest extends MagazineIssueNotifierTe
 
     @MockitoBean
     PushNotificationService push;
+    @MockitoBean
+    Clock clock;
+
+    private final AtomicReference<Instant> sendClock = new AtomicReference<>(NOW);
+
+    @BeforeEach
+    void fixClock() {
+        sendClock.set(NOW);
+        when(clock.instant()).thenAnswer(invocation -> sendClock.get());
+        when(clock.getZone()).thenReturn(ZonePolicy.KST);
+        when(clock.withZone(any())).thenAnswer(invocation -> Clock.fixed(sendClock.get(), invocation.getArgument(0)));
+    }
 
     private int sentLogs() {
         return jdbc.queryForObject(
@@ -149,6 +167,33 @@ class MagazineIssueNotifierLegacyIntegrationTest extends MagazineIssueNotifierTe
         verify(push, times(4)).sendIfAllowed(any(), any(), any(), any());
         assertThat(sentLogs()).isEqualTo(3);
         assertThat(notifiedAt()).isEqualTo(NOW.plusSeconds(600));
+    }
+
+    @Test
+    @DisplayName("조용한 시간은 발송 직전 시각으로 판정한다 — 22:50 에 시작해 23:00 을 넘기면 뒤쪽 사용자는 폐기된다")
+    void quietHoursAreJudgedAtSendTimeNotBatchStart() {
+        usersFor(3);
+        Instant before = Instant.parse("2034-05-10T13:50:00Z"); // 22:50 KST
+        Instant after = Instant.parse("2034-05-10T14:05:00Z"); // 23:05 KST
+        Instant quietStart = Instant.parse("2034-05-10T14:00:00Z"); // 23:00 KST
+        sendClock.set(before);
+        when(push.isFilteredOut(any(), any(), any()))
+                .thenAnswer(invocation -> !((Instant) invocation.getArgument(2)).isBefore(quietStart));
+        when(push.sendIfAllowed(any(), any(), any(), any())).thenAnswer(invocation -> {
+            Instant at = invocation.getArgument(3);
+            sendClock.set(after); // 첫 FCM 왕복이 느려 23:00 을 넘겼다
+            return at.isBefore(quietStart);
+        });
+
+        MagazineIssueNotifier.Result result = notifier.notifyIfPending(DATE, NOW);
+
+        assertThat(result.complete()).isTrue(); // 폐기는 영구 미발송이라 완료로 접힌다
+        ArgumentCaptor<Instant> times = ArgumentCaptor.forClass(Instant.class);
+        verify(push, times(3)).sendIfAllowed(any(), any(), any(), times.capture());
+        assertThat(times.getAllValues()).containsExactly(before, after, after);
+        assertThat(sentLogs()).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_sent_logs WHERE kind = 'MAGAZINE_PUBLISHED'"
+                + " AND status = 'SENT' AND sent_at IS NULL", Integer.class)).isEqualTo(2);
     }
 
     @Test

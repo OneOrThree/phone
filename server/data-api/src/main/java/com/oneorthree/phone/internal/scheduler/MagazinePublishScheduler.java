@@ -34,6 +34,24 @@ public class MagazinePublishScheduler {
     private final MagazineIssueNotifier notifier;
     private final Clock clock;
 
+    /**
+     * 전송 오류가 남은 결과를 로그로 알린다 — 그날 마지막 틱이면 다음 날은 다른 날짜만 조회해 이 호가 다시 시도되지 않으므로
+     * error(수동 확인 필요)다.
+     *
+     * @return 마지막 틱의 최종 실패(error)면 true
+     */
+    boolean reportNotify(MagazineIssueNotifier.Result result, ZonedDateTime now, LocalDate today) {
+        if (result.complete()) {
+            return false;
+        }
+        if (now.toLocalTime().isBefore(LAST_TICK)) {
+            log.warn("고양이 잡지 알림 일시 실패 — 실패 {}건 — 다음 틱(10분 뒤)에 이어서 한다 date={}", result.failed(), today);
+            return false;
+        }
+        log.error("고양이 잡지 알림이 그날 마지막 틱까지 실패분 {}건을 남겼다 — 수동 확인 필요 date={}", result.failed(), today);
+        return true;
+    }
+
     @Scheduled(cron = "0 0/10 7-23 * * *", zone = ZonePolicy.KST_ID)
     @SchedulerLock(name = "magazine-publish", lockAtMostFor = "PT9M", lockAtLeastFor = "PT1M")
     public void publishToday() {
@@ -51,7 +69,7 @@ public class MagazinePublishScheduler {
         // 발행이 empty 여도(이미 그날 호가 있음) 부른다 — 앞 틱에 호만 만들고 알림 펼치기가 끊겼으면 여기서 잇는다
         // (GROMO-2307). 발행 실패와 별개로 시도한다. 스위치가 꺼져 호가 없으면 아무 일도 없다.
         try {
-            notifier.notifyIfPending(today, clock.instant());
+            reportNotify(notifier.notifyIfPending(today, clock.instant()), now, today);
         } catch (RuntimeException failure) {
             if (now.toLocalTime().isBefore(LAST_TICK)) {
                 log.warn("고양이 잡지 알림 펼치기 실패 — 다음 틱(10분 뒤)에 이어서 한다 date={}", today, failure);
