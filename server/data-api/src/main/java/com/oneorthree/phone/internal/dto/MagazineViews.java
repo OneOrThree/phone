@@ -70,17 +70,29 @@ public final class MagazineViews {
     }
 
     public record RankedIsland(int rank, UUID islandId, String name, int buildingCount, int memberCount,
-                               int maxMembers, Integer averageFocusMinutesPerDay, Relation relation) {
+                               int maxMembers, Integer averageFocusMinutesPerDay, Relation relation,
+                               boolean privateIsland) {
     }
 
     public record Island(UUID islandId, String name, int buildingCount, int memberCount, int maxMembers,
-                         Integer averageFocusMinutesPerDay, Relation relation) {
+                         Integer averageFocusMinutesPerDay, Relation relation, boolean privateIsland) {
     }
 
-    /** 홍보 칸 — 숫자는 발행 때 고정한 값이고, 글·배치는 00시 마감으로 굳은 홍보 행 그대로다. */
+    /**
+     * 홍보 칸 — 숫자는 발행 때 고정한 값이고, 글·배치는 00시 마감으로 굳은 홍보 행 그대로다.
+     * {@code privateIsland} 는 읽는 시점의 섬 공개 여부다 — 비공개 섬은 망원경 핀이 404 라 앱이 동그라미를 숨긴다.
+     */
     public record Cell(UUID promotionId, UUID islandId, String name, int buildingCount, int memberCount,
                        int maxMembers, Integer averageFocusMinutesPerDay, String body, PromotionContent.Layout layout,
-                       Relation relation) {
+                       Relation relation, boolean privateIsland) {
+
+        /** 공개 섬 칸(privateIsland=false) — 망원경 쪽 기존 호출 호환용. */
+        public Cell(UUID promotionId, UUID islandId, String name, int buildingCount, int memberCount, int maxMembers,
+                    Integer averageFocusMinutesPerDay, String body, PromotionContent.Layout layout,
+                    Relation relation) {
+            this(promotionId, islandId, name, buildingCount, memberCount, maxMembers, averageFocusMinutesPerDay,
+                    body, layout, relation, false);
+        }
     }
 
     /** 홍보 칸 신고 사유 — 앱의 유저 신고 창과 같은 8종. */

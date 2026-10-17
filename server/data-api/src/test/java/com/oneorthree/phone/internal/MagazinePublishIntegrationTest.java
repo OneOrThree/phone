@@ -155,15 +155,18 @@ class MagazinePublishIntegrationTest {
     // ---------------------------------------------------------------- 발행
 
     @Test
-    @DisplayName("07시 발행 — 1호가 나오고, 신청한 칸은 신청 순으로 숫자가 고정되며, 비공개 섬 칸은 싣지 않는다. 다시 돌려도 호는 하나다")
+    @DisplayName("07시 발행 — 1호가 나오고, 신청한 칸은 신청 순으로 숫자가 고정되며, 비공개 섬 칸도 싣는다(10/16). 다시 돌려도 호는 하나다")
     void publishesOnceWithFrozenCells() {
         Island first = island("첫섬", false);
         Island second = island("둘째섬", false);
         Island hidden = island("숨은섬", true);
+        Island closed = island("닫힌섬", false);
+        jdbc.update("update groups set deleted_at = now() where id = ?", closed.id);
         resident(first.group);
         UUID late = promotion(first.id, date, kst(date.minusDays(1), 9, 0), "늦게 신청");
         UUID early = promotion(second.id, date, kst(date.minusDays(1), 8, 0), "먼저 신청");
-        UUID skipped = promotion(hidden.id, date, kst(date.minusDays(1), 8, 30), "비공개");
+        UUID visiblePrivate = promotion(hidden.id, date, kst(date.minusDays(1), 8, 30), "비공개");
+        UUID skipped = promotion(closed.id, date, kst(date.minusDays(1), 8, 40), "닫힌 섬");
         promotion(first.id, date.plusDays(1), kst(date, 7, 30), "내일 호");
 
         MagazineIssue issue = publisher.publish(date).orElseThrow();
@@ -171,7 +174,7 @@ class MagazinePublishIntegrationTest {
         assertThat(issue.getIssueNo()).isEqualTo(1);
         assertThat(issue.getIssueDate()).isEqualTo(date);
         assertThat(issue.getPublishedAt()).isEqualTo(kst(date, 7, 0));
-        assertThat(issue.getPromotionCount()).as("비공개 섬 칸은 세지 않는다").isEqualTo(2);
+        assertThat(issue.getPromotionCount()).as("비공개 섬 칸도 센다").isEqualTo(3);
         assertThat(issue.getEditorial().note().type()).isEqualTo("TIP");
         assertThat(issue.getEditorial().note().tipNo()).as("팁 번호 = 호수 % 14").isEqualTo(1);
         assertThat(snapshotOf(late).path("memberCount").asInt()).isEqualTo(2);
@@ -179,7 +182,8 @@ class MagazinePublishIntegrationTest {
         assertThat(snapshotOf(late).path("maxMembers").asInt()).isEqualTo(10);
         assertThat(snapshotOf(late).path("buildingCount").asInt()).isZero();
         assertThat(snapshotOf(early).path("islandId").asText()).isEqualTo(second.id.toString());
-        assertThat(snapshotOf(skipped).isMissingNode()).as("그 순간 비공개 섬은 싣지 않는다").isTrue();
+        assertThat(snapshotOf(visiblePrivate).path("name").asText()).as("비공개 섬 칸도 싣는다").isEqualTo("숨은섬");
+        assertThat(snapshotOf(skipped).isMissingNode()).as("발행 순간 닫힌 섬의 칸은 싣지 않는다").isTrue();
         assertThat(jdbc.queryForObject("select count(*) from island_promotions where snapshot is not null "
                 + "and issue_date <> ?", Integer.class, date)).as("다른 호의 칸은 건드리지 않는다").isZero();
         assertThat(jdbc.queryForObject("select count(*) from island_focus_averages where snapshot_date = ? "
@@ -196,7 +200,7 @@ class MagazinePublishIntegrationTest {
     }
 
     @Test
-    @DisplayName("편집부 칸 — 주간 랭킹 1~3위는 비공개 섬을 빼고 매기고, 어제(KST) 새로 생긴 공개 섬을 먼저 만든 순으로, 운영 소식이 있으면 그 문구다")
+    @DisplayName("편집부 칸 — 주간 랭킹 1~3위는 비공개 섬도 넣어 매기고, 어제(KST) 새로 생긴 공개 섬을 먼저 만든 순으로, 운영 소식이 있으면 그 문구다")
     void editorialPage() {
         Island top = island("일등섬", true);
         Island second = island("이등섬", false);
@@ -221,11 +225,34 @@ class MagazinePublishIntegrationTest {
         MagazineIssue issue = publisher.publish(date).orElseThrow();
 
         assertThat(issue.getEditorial().ranking()).extracting(row -> row.rank() + ":" + row.island().name())
-                .containsExactly("1:이등섬", "2:삼등섬", "3:사등섬");
+                .containsExactly("1:일등섬", "2:이등섬", "3:삼등섬");
         assertThat(issue.getEditorial().newIslands()).extracting(card -> card.name())
                 .containsExactly("어제일찍", "어제늦게");
         assertThat(issue.getEditorial().note().type()).isEqualTo("EDITOR");
         assertThat(issue.getEditorial().note().body()).isEqualTo("오늘은 쉬어 가요");
+    }
+
+    @Test
+    @DisplayName("편집부 랭킹·새 섬 항목도 읽는 시점의 privateIsland 를 싣는다 — 비공개 일등섬 true, 공개 섬 false")
+    void editorialItemsCarryPrivateIsland() throws Exception {
+        User reader = user();
+        Island top = island("일등섬", true);
+        Island second = island("이등섬", false);
+        focus(top, 300);
+        focus(second, 200);
+        Island fresh = island("어제섬", false);
+        created(fresh, kst(date.minusDays(1), 12, 0));
+        UUID issueId = publisher.publish(date).orElseThrow().getId();
+        now.set(kst(date, 9, 0));
+
+        issue(reader.getId(), issueId, "").andExpect(status().isOk())
+                .andExpect(jsonPath("$.editorial.ranking[0].name").value("일등섬"))
+                .andExpect(jsonPath("$.editorial.ranking[0].privateIsland").value(true))
+                .andExpect(jsonPath("$.editorial.ranking[1].privateIsland").value(false))
+                .andExpect(jsonPath("$.editorial.newIslands[0].privateIsland").value(false));
+
+        jdbc.update("update groups set is_private = true where id = ?", fresh.id);
+        issue(reader.getId(), issueId, "").andExpect(jsonPath("$.editorial.newIslands[0].privateIsland").value(true));
     }
 
     @Test
@@ -308,7 +335,7 @@ class MagazinePublishIntegrationTest {
     // ---------------------------------------------------------------- 읽기
 
     @Test
-    @DisplayName("호 읽기 — 숫자는 발행 때 값 그대로, 숨긴 칸·지금 비공개인 섬 칸은 빠지고, 관계는 읽는 순간 MEMBER/KICKED/NONE, 편집부 칸은 첫 페이지에만")
+    @DisplayName("호 읽기 — 숫자는 발행 때 값 그대로, 숨긴 칸만 빠지고(발행 뒤 비공개가 된 섬의 칸은 보이며 privateIsland=true), 관계는 읽는 순간 MEMBER/KICKED/NONE, 편집부 칸은 첫 페이지에만")
     void readingAnIssue() throws Exception {
         User reader = user();
         Island mine = island("우리섬", false);
@@ -316,6 +343,7 @@ class MagazinePublishIntegrationTest {
         Island other = island("남의섬", false);
         Island goesPrivate = island("숨을섬", false);
         Island reported = island("신고섬", false);
+        Island ended = island("끝난섬", false);
         join(reader, mine.group);
         GroupMember kicked = join(reader, kickedFrom.group);
         kicked.kick(kst(date.minusDays(2), 9, 0));
@@ -325,10 +353,12 @@ class MagazinePublishIntegrationTest {
         promotion(kickedFrom.id, date, kst(date.minusDays(1), 8, 20), "쫓겨난 섬 홍보");
         UUID hiddenCell = promotion(reported.id, date, kst(date.minusDays(1), 8, 30), "신고된 홍보");
         promotion(other.id, date, kst(date.minusDays(1), 8, 40), "남의 섬 홍보");
+        promotion(ended.id, date, kst(date.minusDays(1), 8, 50), "곧 끝날 섬");
         UUID issueId = publisher.publish(date).orElseThrow().getId();
         // 발행 뒤의 변화 — 주민이 늘고, 한 섬은 비공개가 되고, 한 칸은 신고로 숨겨진다.
         resident(mine.group);
         jdbc.update("update groups set is_private = true where id = ?", goesPrivate.id);
+        jdbc.update("update groups set status = 'ENDED' where id = ?", ended.id);
         jdbc.update("update island_promotions set moderation = 'HIDDEN' where id = ?", hiddenCell);
 
         now.set(kst(date, 9, 0));
@@ -340,11 +370,12 @@ class MagazinePublishIntegrationTest {
                 .andExpect(jsonPath("$.cells.length()").value(2))
                 .andExpect(jsonPath("$.cells[0].name").value("우리섬"))
                 .andExpect(jsonPath("$.cells[0].memberCount").value(2))
+                .andExpect(jsonPath("$.cells[0].privateIsland").value(false))
                 .andExpect(jsonPath("$.cells[0].relation").value("MEMBER"))
                 .andExpect(jsonPath("$.cells[0].body").value("우리 섬 홍보"))
                 .andExpect(jsonPath("$.cells[0].layout.frameId").value("mag.frame-scallop"))
-                .andExpect(jsonPath("$.cells[1].name").value("쫓겨난섬"))
-                .andExpect(jsonPath("$.cells[1].relation").value("KICKED"))
+                .andExpect(jsonPath("$.cells[1].name").value("숨을섬"))
+                .andExpect(jsonPath("$.cells[1].privateIsland").value(true))
                 .andExpect(jsonPath("$.nextAppliedAt").isString())
                 .andExpect(jsonPath("$.nextPromotionId").isString())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -353,16 +384,18 @@ class MagazinePublishIntegrationTest {
         issue(reader.getId(), issueId, "?limit=2&afterAppliedAt=" + page.get("nextAppliedAt").asText()
                 + "&afterPromotionId=" + page.get("nextPromotionId").asText()).andExpect(status().isOk())
                 .andExpect(jsonPath("$.editorial").value(nullValue()))
-                .andExpect(jsonPath("$.cells.length()").value(1))
-                .andExpect(jsonPath("$.cells[0].name").value("남의섬"))
-                .andExpect(jsonPath("$.cells[0].relation").value("NONE"))
+                .andExpect(jsonPath("$.cells.length()").value(2))
+                .andExpect(jsonPath("$.cells[0].name").value("쫓겨난섬"))
+                .andExpect(jsonPath("$.cells[0].relation").value("KICKED"))
+                .andExpect(jsonPath("$.cells[1].name").value("남의섬"))
+                .andExpect(jsonPath("$.cells[1].relation").value("NONE"))
                 .andExpect(jsonPath("$.nextAppliedAt").value(nullValue()))
                 .andExpect(jsonPath("$.nextPromotionId").value(nullValue()));
 
         // 다음 날 07:00 이 지나면 다음 호가 늦어져도 현재 호가 아니다(동그라미 없음).
         now.set(kst(date.plusDays(1), 7, 0));
         issue(reader.getId(), issueId, "").andExpect(jsonPath("$.issue.current").value(false))
-                .andExpect(jsonPath("$.cells.length()").value(3));
+                .andExpect(jsonPath("$.cells.length()").value(4));
         issue(reader.getId(), issueId, "?limit=0").andExpect(status().isBadRequest());
         issue(reader.getId(), UUID.randomUUID(), "").andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MAGAZINE_ISSUE_NOT_FOUND"));

@@ -54,11 +54,13 @@ class PromotionContentTest {
     }
 
     @Test
-    @DisplayName("배치 — 버전 1·틀 필수, 스티커는 10개까지(같은 스티커 여러 장 허용), 11개는 400")
+    @DisplayName("배치 — 버전 1·틀 필수, 스티커는 5개까지(같은 스티커 여러 장 허용), 6개는 400")
     void layoutRules() {
-        assertThat(content("안녕", layout(Collections.nCopies(10, CAT))).validated().layout().stickers()).hasSize(10);
+        assertThat(content("안녕", layout(Collections.nCopies(5, CAT))).validated().layout().stickers()).hasSize(5);
 
-        assertCode(content("안녕", layout(Collections.nCopies(11, CAT))), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
+        assertThat(content("안녕", new PromotionContent.Layout(1, "mag.frame-scallop", Collections.nCopies(5, CAT), TAPE))
+                .validated().layout().tape()).as("테이프는 스티커 상한에 합산되지 않는다").isNotNull();
+        assertCode(content("안녕", layout(Collections.nCopies(6, CAT))), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
         assertCode(content("안녕", null), MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
         assertCode(content("안녕", new PromotionContent.Layout(2, "mag.frame-scallop", List.of(), null)),
                 MagazineErrorCode.PROMOTION_LAYOUT_INVALID);
