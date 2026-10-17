@@ -1,5 +1,5 @@
-import React from 'react';
-import { Image, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
+import React, { useId } from 'react';
+import { Image, StyleSheet, Text, View, Platform, type ImageSourcePropType } from 'react-native';
 import {
   BlendColor,
   Canvas,
@@ -7,6 +7,14 @@ import {
   Morphology,
   useImage,
 } from '@shopify/react-native-skia';
+import Svg, {
+  Defs,
+  Filter,
+  FeMorphology,
+  FeFlood,
+  FeComposite,
+  Image as SvgImage,
+} from 'react-native-svg';
 import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import { facilityPressStyle, type FacilityRect } from './tileFacilities';
 
@@ -35,16 +43,7 @@ export const tileFacilityOutlineSource = (id: string, night: boolean) =>
   outlineSources[id]?.[night ? 1 : 0];
 
 /** 외곽선은 실제 건물 알파를 확장한다. 사각 보더나 별도 액션 배지는 그리지 않는다. */
-export function TileFacilityOutline({
-  source,
-  rect,
-  left,
-  top,
-  scale,
-  pressed,
-  reduceMotion,
-  cropped = false,
-}: {
+type OutlineProps = {
   source: ImageSourcePropType;
   rect: FacilityRect;
   left: number;
@@ -53,7 +52,26 @@ export function TileFacilityOutline({
   pressed: boolean;
   reduceMotion: boolean;
   cropped?: boolean;
-}) {
+};
+
+export function TileFacilityOutline(props: OutlineProps) {
+  return Platform.OS === 'web' ? (
+    <WebFacilityOutline {...props} />
+  ) : (
+    <NativeFacilityOutline {...props} />
+  );
+}
+
+function NativeFacilityOutline({
+  source,
+  rect,
+  left,
+  top,
+  scale,
+  pressed,
+  reduceMotion,
+  cropped = false,
+}: OutlineProps) {
   const image = useImage(source as Parameters<typeof useImage>[0]);
   const pad = tokens.outlineWidth * 2;
   return (
@@ -89,6 +107,68 @@ export function TileFacilityOutline({
           <BlendColor color={tokens.outline} mode="srcIn" />
         </SkiaImage>
       </Canvas>
+    </View>
+  );
+}
+
+function WebFacilityOutline({
+  source,
+  rect,
+  left,
+  top,
+  scale,
+  pressed,
+  reduceMotion,
+  cropped = false,
+}: OutlineProps) {
+  const uid = useId().replace(/:/g, '');
+  const pad = tokens.outlineWidth * 2;
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: left + rect.x * scale,
+        top: top + rect.y * scale,
+        width: rect.w * scale,
+        height: rect.h * scale,
+        ...facilityPressStyle(pressed, reduceMotion),
+      }}
+    >
+      <Svg
+        width={rect.w * scale + pad * 2}
+        height={rect.h * scale + pad * 2}
+        style={{ position: 'absolute', left: -pad, top: -pad }}
+      >
+        <Defs>
+          <Filter
+            id={uid}
+            x={0}
+            y={0}
+            width={rect.w * scale + pad * 2}
+            height={rect.h * scale + pad * 2}
+            filterUnits="userSpaceOnUse"
+          >
+            <FeMorphology
+              in="SourceAlpha"
+              operator="dilate"
+              radius={tokens.outlineWidth}
+              result="edge"
+            />
+            <FeFlood floodColor={tokens.outline} result="color" />
+            <FeComposite in="color" in2="edge" operator="in" />
+          </Filter>
+        </Defs>
+        <SvgImage
+          href={source}
+          filter={`url(#${uid})`}
+          x={pad - (cropped ? 0 : rect.x * scale)}
+          y={pad - (cropped ? 0 : rect.y * scale)}
+          width={(cropped ? rect.w : 1536) * scale}
+          height={(cropped ? rect.h : 1024) * scale}
+          preserveAspectRatio="none"
+        />
+      </Svg>
     </View>
   );
 }

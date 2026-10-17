@@ -435,7 +435,7 @@ it('타일섬은 완공된 6개 건물과 뗏목·모닥불 팻말을 표시하�
   expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
   expect(state.islands.find((i) => i.id === state.islandId)!.buildings).toContain('gram');
   await fireEvent.press(screen.getByTestId('building-name-raft'));
-  expect(go).toHaveBeenCalledWith('boat');
+  expect(go).toHaveBeenCalledWith('raft');
   await screen.unmount();
 });
 

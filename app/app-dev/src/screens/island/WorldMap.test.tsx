@@ -308,7 +308,7 @@ test.each([
   ['new-product', 'rank-changed'],
   ['normal', 'normal'],
 ] as const)(
-  '상점 %s와 전망대 %s는 이름표 없이 상태를 접근성 문구로 안내한다',
+  '상점 %s와 전망대 %s는 나무 팻말과 접근성 문구로 안내한다',
   async (shopState, observatoryRankState) => {
     const state = initialState(true);
     const island = state.islands.find((item) => item.id === state.islandId)!;
@@ -324,7 +324,7 @@ test.each([
       />,
     );
     for (const building of ['shop', 'tower']) {
-      expect(screen.queryByTestId(`building-name-${building}`)).toBeNull();
+      expect(screen.getByTestId(`building-name-${building}`)).toBeTruthy();
     }
     // 장식 모션은 스크린리더에서 숨기므로 순위 변동은 실제 전망대 버튼이 읽어 준다.
     const rankText =
@@ -440,8 +440,8 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   );
   expect(screen.getByTestId('world-shop-motion').props.accessibilityLabel).toBe('상점');
   expect(screen.queryByTestId('shop-motion-tooltip')).toBeNull();
-  expect(screen.queryByTestId('building-name-shop')).toBeNull();
-  expect(screen.queryByText(buildingNames.shop)).toBeNull();
+  expect(screen.getByTestId('building-name-shop')).toBeTruthy();
+  expect(screen.getByText(buildingNames.shop)).toBeTruthy();
 
   await screen.rerender(
     <FinalIsland state={state} go={jest.fn()} build={jest.fn()} shopState="purchasable" />,
@@ -452,13 +452,13 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   jest.useRealTimers();
 });
 
-test('완공된 건물은 이름표 없이 접근성 이름으로 식별한다', async () => {
+test('완공된 건물은 나무 팻말과 접근성 이름으로 식별하고 홈 축음기는 숨긴다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
 
-  for (const building of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const) {
-    expect(screen.queryByTestId(`building-name-${building}`)).toBeNull();
-    expect(screen.queryByText(buildingNames[building])).toBeNull();
+  for (const building of ['hall', 'board', 'library', 'mail', 'tower', 'shop'] as const) {
+    expect(screen.getByTestId(`building-name-${building}`)).toBeTruthy();
+    expect(screen.getByText(buildingNames[building])).toBeTruthy();
     expect(screen.getByRole('button', { name: buildingNames[building] })).toBeTruthy();
   }
   await screen.unmount();
@@ -477,12 +477,12 @@ test('전망대를 짓지 않은 섬에는 전망대 입구(랭킹·섬 이름 �
   await screen.unmount();
 });
 
-test('뗏목은 이름표 없이 접근성 이름으로 식별한다', async () => {
+test('뗏목은 나무 팻말과 접근성 이름으로 식별한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
 
-  expect(screen.queryByText('뗏목')).toBeNull();
-  expect(screen.queryByTestId('building-name-raft')).toBeNull();
+  expect(screen.getByText('뗏목')).toBeTruthy();
+  expect(screen.getByTestId('building-name-raft')).toBeTruthy();
   expect(screen.getByRole('button', { name: '뗏목' })).toBeTruthy();
   await screen.unmount();
 });
@@ -510,8 +510,8 @@ test('홈을 최대로 축소해도 뗏목 터치 영역은 44pt 이상이며 �
   const raft = screen.getByLabelText('뗏목').props.style;
   expect(raft.width).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
   expect(raft.height).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
-  expect(raft.left + raft.width / 2).toBeCloseTo(290 * scale);
-  expect(raft.top + raft.height / 2).toBeCloseTo(870 * scale);
+  expect(raft.left + raft.width / 2).toBeCloseTo((207 + 169 / 2) * scale);
+  expect(raft.top + raft.height / 2).toBeCloseTo((822 + 103 / 2) * scale);
   expect(raft.top).toBeLessThanOrEqual(815 * scale);
   expect(raft.top + raft.height).toBeGreaterThanOrEqual(925 * scale);
 });
@@ -611,7 +611,7 @@ test.each([false, true])(
     await fireEvent.press(screen.getByRole('button', { name: '모닥불' }));
     expect(go).toHaveBeenCalledWith('rest');
     expect(state.session).toBeFalsy();
-    expect(screen.queryByText('모닥불')).toBeNull();
+    expect(screen.getByText('모닥불')).toBeTruthy();
     await screen.unmount();
   },
 );
@@ -814,7 +814,7 @@ test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는�
   expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
 });
 
-test('내 섬에서는 축음기를 열 수 있다', async () => {
+test('내 섬 홈에서도 축음기는 숨긴다', async () => {
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
   if (!island.buildings.includes('gram')) island.buildings.push('gram');
@@ -829,7 +829,7 @@ test('내 섬에서는 축음기를 열 수 있다', async () => {
     />,
   );
 
-  screen.getByLabelText(buildingNames.gram);
+  expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
 });
 
 test('내 섬에서도 미완공 축음기는 터치 대상으로 노출하지 않는다', async () => {
