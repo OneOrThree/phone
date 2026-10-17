@@ -72,6 +72,22 @@ class IslandPlaybackServiceIntegrationTest {
     @Autowired
     JdbcTemplate jdbc;
 
+    @Test
+    @DisplayName("새 섬도 기본 세 곡은 구매·집중 세션·잔액 없이 바로 재생한다")
+    void defaultTracksPlayWithoutPurchase() {
+        Fixture f = gramIsland();
+        long version = 0;
+        for (String id : List.of("waves", "campfire", "forest-wind")) {
+            PlaybackView view = patch(f.islandId, f.ownerId, UUID.randomUUID(),
+                    Map.of("trackId", id, "playing", true), version++).data();
+            assertThat(view.trackId()).isEqualTo(id);
+            assertThat(view.playing()).isTrue();
+            assertThat(view.durationSeconds()).isEqualTo(90.0);
+        }
+        assertThat(count("SELECT COUNT(*) FROM owned_products WHERE group_id = ?", f.islandId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM shop_orders WHERE island_id = ?", f.islandId)).isZero();
+    }
+
     // ---------------------------------------------------------------- GET
 
     @Test
@@ -110,11 +126,11 @@ class IslandPlaybackServiceIntegrationTest {
     @DisplayName("방송기 미완공 섬은 주민의 GET·PATCH 모두 GRAM_LOCKED (enforce=ON)")
     void gramNotBuiltIsLocked() {
         Fixture f = island();
-        seedTrack("waves", 120_500);
-        grant("waves", f.islandId);
+        seedTrack("test-paid-waves", 120_500);
+        grant("test-paid-waves", f.islandId);
 
         assertCode(() -> service.get(f.islandId, f.ownerId), AppearanceErrorCode.GRAM_LOCKED);
-        assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "waves"), 0L),
+        assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "test-paid-waves"), 0L),
                 AppearanceErrorCode.GRAM_LOCKED);
     }
 
@@ -125,13 +141,13 @@ class IslandPlaybackServiceIntegrationTest {
     void anyResidentMayChange() {
         Fixture f = gramIsland();
         UUID resident = join(f.islandId);
-        seedTrack("waves", 120_500);
-        grant("waves", f.islandId);
+        seedTrack("test-paid-waves", 120_500);
+        grant("test-paid-waves", f.islandId);
 
         PlaybackView view = patch(f.islandId, resident, UUID.randomUUID(),
-                Map.of("trackId", "waves", "playing", true), 0L).data();
+                Map.of("trackId", "test-paid-waves", "playing", true), 0L).data();
 
-        assertThat(view.trackId()).isEqualTo("waves");
+        assertThat(view.trackId()).isEqualTo("test-paid-waves");
         assertThat(view.playing()).isTrue();
         assertThat(view.positionSeconds()).isZero();
         assertThat(view.changedBy()).isEqualTo(resident.toString());
@@ -149,12 +165,12 @@ class IslandPlaybackServiceIntegrationTest {
     @DisplayName("곡 검증 — 미소유 403, 미등록·음원 아님·길이 메타데이터 없음 422")
     void trackValidation() {
         Fixture f = gramIsland();
-        seedTrack("waves", 120_500);   // 등록됐지만 미소유
+        seedTrack("test-paid-waves", 120_500);   // 등록됐지만 미소유
         seedProduct("scarf", "clothes", "user");
         seedProduct("silent", "audio", "island");   // 길이 없는 음원
         grant("silent", f.islandId);
 
-        assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "waves"), 0L),
+        assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "test-paid-waves"), 0L),
                 AppearanceErrorCode.FORBIDDEN);
         assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "ghost"), 0L),
                 AppearanceErrorCode.OUT_OF_RANGE);
@@ -190,13 +206,13 @@ class IslandPlaybackServiceIntegrationTest {
     @DisplayName("낡은 expectedVersion 은 409 이고 무변경 명령이라도 상태를 건드리지 않는다")
     void staleVersionConflicts() {
         Fixture f = gramIsland();
-        seedTrack("waves", 120_500);
-        grant("waves", f.islandId);
-        patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "waves"), 0L);
+        seedTrack("test-paid-waves", 120_500);
+        grant("test-paid-waves", f.islandId);
+        patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "test-paid-waves"), 0L);
 
         assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("playing", true), 0L),
                 AppearanceErrorCode.VERSION_CONFLICT);
-        assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "waves"), 5L),
+        assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "test-paid-waves"), 5L),
                 AppearanceErrorCode.VERSION_CONFLICT);
         PlaybackView read = service.get(f.islandId, f.ownerId);
         assertThat(read.version()).isEqualTo(1);
@@ -210,21 +226,21 @@ class IslandPlaybackServiceIntegrationTest {
     void idempotentReplay() {
         Fixture f = gramIsland();
         UUID resident = join(f.islandId);
-        seedTrack("waves", 120_500);
-        grant("waves", f.islandId);
+        seedTrack("test-paid-waves", 120_500);
+        grant("test-paid-waves", f.islandId);
         UUID key = UUID.randomUUID();
 
-        PlaybackView first = patch(f.islandId, resident, key, Map.of("trackId", "waves"), 0L).data();
-        PlaybackView replay = patch(f.islandId, resident, key, Map.of("trackId", "waves"), 0L).data();
+        PlaybackView first = patch(f.islandId, resident, key, Map.of("trackId", "test-paid-waves"), 0L).data();
+        PlaybackView replay = patch(f.islandId, resident, key, Map.of("trackId", "test-paid-waves"), 0L).data();
 
         assertThat(replay).isEqualTo(first);   // serverNow 까지 원 결과 그대로
         assertThat(service.get(f.islandId, f.ownerId).version()).isEqualTo(1);
-        assertCode(() -> patch(f.islandId, resident, key, Map.of("trackId", "waves", "playing", true), 0L),
+        assertCode(() -> patch(f.islandId, resident, key, Map.of("trackId", "test-paid-waves", "playing", true), 0L),
                 OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
 
         jdbc.update("UPDATE group_members SET is_left = true WHERE group_id = ? AND user_id = ?",
                 f.islandId, resident);
-        assertCode(() -> patch(f.islandId, resident, key, Map.of("trackId", "waves"), 0L),
+        assertCode(() -> patch(f.islandId, resident, key, Map.of("trackId", "test-paid-waves"), 0L),
                 GroupErrorCode.MEMBER_ONLY);
     }
 
@@ -234,8 +250,8 @@ class IslandPlaybackServiceIntegrationTest {
     @DisplayName("곡 없이 재생은 409 STATE_CONFLICT, 곡 없이 정지·같은 곡 재전송·같은 playing 은 무변경")
     void noOpsAndStateConflict() {
         Fixture f = gramIsland();
-        seedTrack("waves", 120_500);
-        grant("waves", f.islandId);
+        seedTrack("test-paid-waves", 120_500);
+        grant("test-paid-waves", f.islandId);
 
         assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("playing", true), 0L),
                 AppearanceErrorCode.STATE_CONFLICT);
@@ -244,14 +260,14 @@ class IslandPlaybackServiceIntegrationTest {
         assertThat(paused.version()).isZero();
         assertThat(paused.changedBy()).as("무변경은 가짜 조작자를 만들지 않는다").isNull();
 
-        PlaybackView chosen = patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "waves"), 0L)
+        PlaybackView chosen = patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "test-paid-waves"), 0L)
                 .data();
         // 곡 변경 + playing 생략 → 기존 playing(초기 false) 유지
         assertThat(chosen.playing()).isFalse();
         assertThat(chosen.version()).isEqualTo(1);
 
         PlaybackView same = patch(f.islandId, f.ownerId, UUID.randomUUID(),
-                Map.of("trackId", "waves", "playing", false), 1L).data();
+                Map.of("trackId", "test-paid-waves", "playing", false), 1L).data();
         assertThat(same.version()).isEqualTo(1);
         assertThat(same.effectiveAt()).isEqualTo(chosen.effectiveAt());
     }
@@ -260,9 +276,9 @@ class IslandPlaybackServiceIntegrationTest {
     @DisplayName("재생 중 pause 는 경과를 더해 곡 길이로 반복한 위치를 정수로 고정하고, resume 은 그 위치부터다")
     void pauseAndResumeUseAnchorMath() {
         Fixture f = gramIsland();
-        seedTrack("waves", 120_500);
-        grant("waves", f.islandId);
-        patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "waves", "playing", true), 0L);
+        seedTrack("test-paid-waves", 120_500);
+        grant("test-paid-waves", f.islandId);
+        patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "test-paid-waves", "playing", true), 0L);
         // anchor 를 129.6초 전으로 — (0 + 129.6+δ) mod 120.5 = 9.1+δ → 내림 9
         jdbc.update("UPDATE island_playbacks SET effective_at = effective_at - interval '129.6 seconds' "
                 + "WHERE island_id = ?", f.islandId);
@@ -299,9 +315,9 @@ class IslandPlaybackServiceIntegrationTest {
     @DisplayName("서버 시계가 이전 anchor 보다 뒤면 t=max(now, anchor) — 역행한 위치·anchor 를 만들지 않는다")
     void clockRegressionKeepsAnchor() {
         Fixture f = gramIsland();
-        seedTrack("waves", 120_500);
-        grant("waves", f.islandId);
-        patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "waves", "playing", true), 0L);
+        seedTrack("test-paid-waves", 120_500);
+        grant("test-paid-waves", f.islandId);
+        patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "test-paid-waves", "playing", true), 0L);
         jdbc.update("UPDATE island_playbacks SET effective_at = effective_at + interval '1 hour', "
                 + "position_seconds = 7 WHERE island_id = ?", f.islandId);
         String futureAnchor = service.get(f.islandId, f.ownerId).effectiveAt();
@@ -317,11 +333,11 @@ class IslandPlaybackServiceIntegrationTest {
     @DisplayName("사건 생산 게이트 OFF(기본) — 실제 변경에도 playback.updated outbox 행이 없고 events 는 빈 배열")
     void eventProducerIsGatedOff() {
         Fixture f = gramIsland();
-        seedTrack("waves", 120_500);
-        grant("waves", f.islandId);
+        seedTrack("test-paid-waves", 120_500);
+        grant("test-paid-waves", f.islandId);
 
         AppearanceCommandView<PlaybackView> changed = patch(f.islandId, f.ownerId, UUID.randomUUID(),
-                Map.of("trackId", "waves", "playing", true), 0L);
+                Map.of("trackId", "test-paid-waves", "playing", true), 0L);
 
         assertThat(changed.data().version()).isEqualTo(1);
         assertThat(changed.events()).isEmpty();
@@ -335,14 +351,14 @@ class IslandPlaybackServiceIntegrationTest {
     void parallelDifferentKeysSameVersionYieldOneChangeAndOneConflict() throws Exception {
         Fixture f = gramIsland();
         UUID resident = join(f.islandId);
-        seedTrack("waves", 120_500);
-        grant("waves", f.islandId);
+        seedTrack("test-paid-waves", 120_500);
+        grant("test-paid-waves", f.islandId);
 
         List<Object> outcomes = race(
                 () -> patch(f.islandId, f.ownerId, UUID.randomUUID(),
-                        Map.of("trackId", "waves", "playing", true), 0L).data(),
+                        Map.of("trackId", "test-paid-waves", "playing", true), 0L).data(),
                 () -> patch(f.islandId, resident, UUID.randomUUID(),
-                        Map.of("trackId", "waves", "playing", false), 0L).data());
+                        Map.of("trackId", "test-paid-waves", "playing", false), 0L).data());
 
         assertThat(outcomes).filteredOn(PlaybackView.class::isInstance).hasSize(1);
         assertThat(outcomes).filteredOn(o -> o instanceof DomainException e

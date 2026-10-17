@@ -1,5 +1,7 @@
 package com.oneorthree.phone.appearance.service;
 
+import com.oneorthree.phone.appearance.support.DefaultIslandAudio;
+
 import static com.oneorthree.phone.appearance.service.AppearanceService.decode;
 import static com.oneorthree.phone.appearance.service.AppearanceService.receiptEvents;
 import static com.oneorthree.phone.appearance.service.AppearanceService.requireCarrier;
@@ -219,7 +221,7 @@ public class IslandPlaybackService {
 
     /**
      * 곡 검증 — 카탈로그에 없거나 음원이 아니거나 길이 메타데이터가 없으면 422(미지원 trackId),
-     * 등록된 음원이지만 섬 미소유면 403. 보유 행은 공유 잠금 — 회수 writer 와 보유 행에서 직렬화된다.
+     * 기본 무료곡 외의 등록 음원이 섬 미소유면 403. 보유 행은 공유 잠금 — 회수 writer 와 보유 행에서 직렬화된다.
      */
     private AudioTrack requireOwnedTrack(UUID islandId, String trackId) {
         CatalogAsset asset = catalogAssets.findById(trackId)
@@ -227,7 +229,8 @@ public class IslandPlaybackService {
                 .orElseThrow(() -> new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE));
         AudioTrack track = audioTracks.findById(asset.getProductId())
                 .orElseThrow(() -> new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE));
-        if (ownedProducts.findIslandProductForShare(islandId, trackId).isEmpty()) {
+        if (!DefaultIslandAudio.includes(trackId)
+                && ownedProducts.findIslandProductForShare(islandId, trackId).isEmpty()) {
             throw new AppearanceException(AppearanceErrorCode.FORBIDDEN);
         }
         return track;

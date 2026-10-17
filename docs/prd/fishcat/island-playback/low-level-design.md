@@ -64,7 +64,7 @@
 
 ## 2. 채택 스키마와 확장 예시
 
-GET은 body/query 없이 UUID36 islandId를 받는다. PATCH는 `expectedVersion` 필수와 `trackId`, `playing` 중 최소 하나를 받는다. 둘 다 생략·명시 null·알 수 없는 volume/mute/positionSeconds/effectiveAt/changedBy는400 INVALID_REQUEST다. 미지원 trackId 값은422 OUT_OF_RANGE, 등록된 곡이지만 섬 미소유면403 FORBIDDEN이다. 타입 검증과 현재 인가는 Data 명령 검증에서 다시 적용한다.
+GET은 body/query 없이 UUID36 islandId를 받는다. PATCH는 `expectedVersion` 필수와 `trackId`, `playing` 중 최소 하나를 받는다. 둘 다 생략·명시 null·알 수 없는 volume/mute/positionSeconds/effectiveAt/changedBy는400 INVALID_REQUEST다. 미지원 trackId 값은422 OUT_OF_RANGE, 기본 무료 세 곡을 제외한 등록 음원이 섬 미소유면403 FORBIDDEN이다. 타입 검증과 현재 인가는 Data 명령 검증에서 다시 적용한다.
 
 | data 필드 | 타입·불변식 |
 | --- | --- |

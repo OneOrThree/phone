@@ -59,7 +59,7 @@ class IslandPlaybackEventsIntegrationTest {
         UUID islandId = island.getId();
         seedOwnedCampfire(islandId);
         UUID key = UUID.randomUUID();
-        Map<String, Object> values = Map.of("trackId", "campfire", "playing", true);
+        Map<String, Object> values = Map.of("trackId", "test-paid-campfire", "playing", true);
 
         List<Object> outcomes = IslandPlaybackServiceIntegrationTest.race(
                 () -> service.patch(islandId, ownerId, key, List.copyOf(values.keySet()), values, 0L),
@@ -75,11 +75,11 @@ class IslandPlaybackEventsIntegrationTest {
 
     private void seedOwnedCampfire(UUID islandId) {
         jdbc.update("INSERT INTO catalog_assets (product_id, title, kind, owner_type, created_at) "
-                + "VALUES ('campfire', 'campfire', 'audio', 'island', now()) ON CONFLICT (product_id) DO NOTHING");
-        jdbc.update("INSERT INTO audio_tracks (product_id, duration_millis) VALUES ('campfire', 120500) "
+                + "VALUES ('test-paid-campfire', 'test-paid-campfire', 'audio', 'island', now()) ON CONFLICT (product_id) DO NOTHING");
+        jdbc.update("INSERT INTO audio_tracks (product_id, duration_millis) VALUES ('test-paid-campfire', 120500) "
                 + "ON CONFLICT (product_id) DO NOTHING");
         jdbc.update("INSERT INTO owned_products (id, owner_type, group_id, product_id, granted_ref, granted_at) "
-                + "VALUES (gen_random_uuid(), 'island', ?, 'campfire', 'test-grant', now())", islandId);
+                + "VALUES (gen_random_uuid(), 'island', ?, 'test-paid-campfire', 'test-grant', now())", islandId);
     }
 
     @Test
@@ -91,7 +91,7 @@ class IslandPlaybackEventsIntegrationTest {
         UUID islandId = island.getId();
         seedOwnedCampfire(islandId);
         UUID key = UUID.randomUUID();
-        Map<String, Object> values = Map.of("trackId", "campfire", "playing", true);
+        Map<String, Object> values = Map.of("trackId", "test-paid-campfire", "playing", true);
 
         AppearanceCommandView<PlaybackView> changed = service.patch(islandId, owner.getId(), key,
                 List.copyOf(values.keySet()), values, 0L);
@@ -109,7 +109,7 @@ class IslandPlaybackEventsIntegrationTest {
         assertThat(((Number) envelope.get("version")).longValue()).isEqualTo(1L);
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) envelope.get("params");
-        assertThat(payload).containsEntry("trackId", "campfire")
+        assertThat(payload).containsEntry("trackId", "test-paid-campfire")
                 .containsEntry("playing", true)
                 .containsEntry("changedBy", owner.getId().toString())
                 .containsEntry("durationSeconds", 120.5)

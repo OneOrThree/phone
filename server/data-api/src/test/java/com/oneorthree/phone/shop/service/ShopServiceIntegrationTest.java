@@ -108,6 +108,20 @@ class ShopServiceIntegrationTest {
     @Autowired
     PlatformTransactionManager transactionManager;
 
+    @Test
+    @DisplayName("기본 무료곡은 과거 유료 판매본이 있어도 보유로 표시하고 중복 결제를 막는다")
+    void defaultTracksCannotBeCharged() {
+        Fixture f = island();
+        fund(f.islandId, 100);
+        publish(entry("waves", 1, 30, null, null, "sound", 1));
+        ShopViews.Item item = shop.products(f.islandId, f.ownerId, "sound", null, null, null, 30).items().get(0);
+        assertThat(item.owned()).isTrue();
+        assertThat(item.available()).isFalse();
+        assertCode(() -> buy(f, f.ownerId, "waves", UUID.randomUUID()), ShopErrorCode.STATE_CONFLICT);
+        assertThat(islandBalance(f.islandId)).isEqualTo(100);
+        assertThat(count("SELECT COUNT(*) FROM shop_orders WHERE island_id = ?", f.islandId)).isZero();
+    }
+
     // ---------------------------------------------------------------- 빈 카탈로그·미승인 가격
 
     @Test

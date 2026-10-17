@@ -321,6 +321,17 @@ class AppearanceServiceIntegrationTest {
     // ---------------------------------------------------------------- GET /islands/{id}/inventory
 
     @Test
+    @DisplayName("기본 음원은 기존·새 섬에 자동 제공되고 과거 보유 행과 중복되지 않는다")
+    void defaultAudioDoesNotRequireOwnedRows() {
+        Fixture f = islandWithOwner();
+        assertThat(service.islandInventory(f.islandId, f.ownerId).audio())
+                .containsExactly("waves", "campfire", "forest-wind");
+        grant("waves", null, f.islandId);
+        assertThat(service.islandInventory(f.islandId, f.ownerId).audio())
+                .containsExactly("waves", "campfire", "forest-wind");
+    }
+
+    @Test
     @DisplayName("공동 인벤토리는 활성 주민만 보고 비주민은 403 이다")
     void islandInventoryIsMemberOnly() {
         Fixture f = islandWithOwner();
@@ -333,7 +344,7 @@ class AppearanceServiceIntegrationTest {
 
         SharedInventoryView view = service.islandInventory(f.islandId, f.ownerId);
 
-        assertThat(view.audio()).containsExactly("bird");
+        assertThat(view.audio()).containsExactly("waves", "campfire", "forest-wind", "bird");
         assertThat(view.islandThemes()).containsExactly("pine");
         assertThat(view.buildingThemes()).containsExactly(
                 new SharedInventoryView.BuildingThemeItem("hall", "hall_theme"));
