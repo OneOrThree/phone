@@ -1,21 +1,29 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionKind;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 
 /**
- * 바다 판정 seam 의 운영 기본값 (GROMO-2274, 결정 N3) — 서버에 바다 집중 세션이 없는 동안 모든 세션은 섬 세션이다.
- * 이 단언이 깨지면(= E1-1 이 판정을 채우면) 그 변경이 의도한 것인지 이 테스트가 먼저 묻는다.
+ * 바다 판정 seam (GROMO-2274 결정 N3 → GROMO-2299) — 판정 근거는 {@code focus_session_details.kind} 하나다.
  */
 class SeaSessionPredicateTest {
 
+    private final SeaSessionPredicate predicate = new SeaSessionPredicate();
+
     @Test
-    @DisplayName("운영 판정은 어떤 세션이든 false 다 — 바다 세션은 아직 존재하지 않는다")
-    void everySessionIsAnIslandSessionForNow() {
-        assertThat(new SeaSessionPredicate().isSea(mock(FocusSessionDetail.class))).isFalse();
+    @DisplayName("kind 가 SEA 인 세션만 바다 세션이다")
+    void onlySeaKindIsSea() {
+        assertThat(predicate.isSea(FocusSessionDetail.builder().kind(FocusSessionKind.SEA).build())).isTrue();
+        assertThat(predicate.isSea(FocusSessionDetail.builder().kind(FocusSessionKind.ISLAND).build())).isFalse();
+    }
+
+    @Test
+    @DisplayName("kind 를 지정하지 않은 세션(이 열이 생기기 전의 행·섬 세션 빌더)은 섬 세션이다")
+    void defaultKindIsIsland() {
+        assertThat(predicate.isSea(FocusSessionDetail.builder().build())).isFalse();
     }
 }

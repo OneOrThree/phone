@@ -8,6 +8,7 @@ import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.FocusStatisticsSnapshotRepository;
 import com.oneorthree.phone.focus.service.FocusService;
+import com.oneorthree.phone.focus.service.SeaRemarkService;
 import com.oneorthree.phone.friend.service.FriendService;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.service.GroupMemberService;
@@ -88,6 +89,7 @@ public class AccountWithdrawalService {
     private final PublicCommandService publicCommandService;
     private final AppearanceService appearanceService;
     private final SeaFocusRewardService seaFocusRewardService;
+    private final SeaRemarkService seaRemarkService;
     private final IslandQuestService islandQuestService;
 
     /**
@@ -176,6 +178,8 @@ public class AccountWithdrawalService {
         // 바다 집중 누적(GROMO-2274 · 계약 §0 N42) — 개인 이력이라 지운다. 유저 행은 익명화만 되고 삭제되지 않아
         // 테이블의 ON DELETE CASCADE 가 돌지 않는다. 지급된 상품은 바로 위 appearanceService 가 이미 지웠다.
         seaFocusRewardService.eraseWithdrawnUser(userId);
+        // 바다 한마디(GROMO-2299) — 같은 이유로 직접 지운다.
+        seaRemarkService.eraseWithdrawnUser(userId);
         islandQuestService.eraseWithdrawnUser(userId);
 
         // 제약 ①의 오른쪽 — 위 내기 해제 환불이 이미 입금된 뒤여야 한다.

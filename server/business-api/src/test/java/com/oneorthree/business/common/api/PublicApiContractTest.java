@@ -103,7 +103,10 @@ class PublicApiContractTest extends UpstreamTestBase {
                 // GROMO-2262 방명록 하루 1개(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 남겼어요」를 띄운다.
                 "GUESTBOOK_ALREADY_WRITTEN_TODAY",
                 // GROMO-2267 잡지 홍보 하루 1회(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 신청했어요」를 띄운다.
-                "PROMOTION_ALREADY_REQUESTED_TODAY");
+                "PROMOTION_ALREADY_REQUESTED_TODAY",
+                // GROMO-2299 바다 항해(409): 앱이 일반 STATE_CONFLICT 와 갈라 「갈 수 없는 섬」·「항해 중 휴식 불가」·
+                // 「한마디 5분 잠금」을 띄운다.
+                "SEA_DESTINATION_UNAVAILABLE", "SEA_SESSION_NO_REST", "SEA_REMARK_LOCKED");
     }
 
     /**

@@ -19,6 +19,8 @@ import java.util.UUID;
  * @param version        낙관 버전 — 다음 pause/resume/finish의 expectedVersion
  * @param activeIntervals ACTIVE 구간 실제 시간(GROMO-2131, LLD §1) — 열린 구간은 {@code serverNow}로
  *                        임시로 닫혀 있다(그래서 구간 길이 합이 activeSeconds와 맞는다). 없으면 빈 목록
+ * @param kind           {@code "island"} 또는 {@code "sea"}(GROMO-2299). 바다 세션이면 {@code islandId} 는 목적지 섬이고
+ *                       {@code targetMinutes} 는 항해 분이다. 이 필드가 없던 시절의 멱등 재생 본문에서는 null
  */
 public record FocusSessionView(
         UUID id,
@@ -31,7 +33,11 @@ public record FocusSessionView(
         Instant startedAt,
         Instant restStartedAt,
         long version,
-        List<ActiveInterval> activeIntervals) {
+        List<ActiveInterval> activeIntervals,
+        String kind) {
+
+    public static final String KIND_ISLAND = "island";
+    public static final String KIND_SEA = "sea";
 
     public static final String STATUS_ACTIVE = "active";
     public static final String STATUS_PAUSED = "paused";

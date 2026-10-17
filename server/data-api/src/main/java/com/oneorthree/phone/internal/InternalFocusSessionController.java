@@ -10,6 +10,7 @@ import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusSummaryView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
 import com.oneorthree.phone.focus.dto.session.PendingFocusResultResponse;
+import com.oneorthree.phone.focus.dto.session.SeaFocusSessionStartCommandRequest;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -61,6 +62,18 @@ public class InternalFocusSessionController {
                                   @RequestBody FocusSessionStartCommandRequest body,
                                   @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
         return focusSessionLifecycleService.start(userId, body, idempotencyKey);
+    }
+
+    /**
+     * 바다 집중 세션 시작 (GROMO-2299). 리터럴 {@code sea} 는 {@code /focus-sessions/{sessionId}/…} 와 세그먼트 수가
+     * 달라 겹치지 않는다.
+     */
+    @PostMapping("/focus-sessions/sea")
+    @ResponseStatus(HttpStatus.CREATED)
+    public FocusSessionView startSea(@PathVariable UUID userId,
+                                     @RequestBody SeaFocusSessionStartCommandRequest body,
+                                     @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
+        return focusSessionLifecycleService.startSea(userId, body, idempotencyKey);
     }
 
     @GetMapping("/focus-sessions/current")

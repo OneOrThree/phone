@@ -61,6 +61,11 @@ public enum ApiErrorCode implements ErrorCode {
     // GROMO-2267. Data 의 GroupErrorCode.PROMOTION_ALREADY_REQUESTED_TODAY 와 이름·상태가 같다 — 같은 KST 날의 두 번째
     // 잡지 홍보 신청. 앱이 이 코드에만 「오늘은 이미 신청했어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
     PROMOTION_ALREADY_REQUESTED_TODAY(HttpStatus.CONFLICT, "오늘은 이미 잡지 홍보를 신청했어요", false),
+    // GROMO-2299. Data 의 FocusErrorCode 와 이름·상태가 같다 — 바다 항해 세 거절. 앱이 일반 STATE_CONFLICT 와 갈라
+    // 「지금은 갈 수 없는 섬이에요」·「항해 중에는 쉴 수 없어요」·「한마디는 5분에 한 번」을 띄운다.
+    SEA_DESTINATION_UNAVAILABLE(HttpStatus.CONFLICT, "지금은 갈 수 없는 섬입니다.", false),
+    SEA_SESSION_NO_REST(HttpStatus.CONFLICT, "항해 중에는 쉴 수 없습니다.", false),
+    SEA_REMARK_LOCKED(HttpStatus.CONFLICT, "한마디는 5분에 한 번만 바꿀 수 있습니다.", false),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "잔액이 부족합니다.", false),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.", false),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 요청에 사용한 명령 키입니다.", false),

@@ -1,11 +1,12 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionKind;
 import org.springframework.stereotype.Component;
 
 /**
- * 「이 세션이 바다 집중인가」를 판정하는 <b>seam</b> (GROMO-2274, 결정 N3) — 지금은 서버에 바다 집중 세션이 없어
- * 늘 {@code false} 다.
+ * 「이 세션이 바다 집중인가」를 판정하는 <b>seam</b> (GROMO-2274, 결정 N3) — GROMO-2299 부터
+ * {@code focus_session_details.kind} 를 읽는다.
  *
  * <p>집중 종료({@code FocusSessionLifecycleService.settle})는 이 판정이 {@code true} 면 섬 통장 적립 대신
  * 바다 누적 엔진({@code SeaFocusRewardService})으로 정산하고, 응답({@code FocusFinishView})의 {@code seaReward}
@@ -25,9 +26,9 @@ public class SeaSessionPredicate {
 
     /**
      * @param detail 정산하려는 세션의 상세
-     * @return 바다 집중이면 {@code true}. 지금은 늘 {@code false}
+     * @return 바다 집중({@code kind=SEA})이면 {@code true}
      */
     public boolean isSea(FocusSessionDetail detail) {
-        return false;
+        return detail.getKind() == FocusSessionKind.SEA;
     }
 }

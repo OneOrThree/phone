@@ -4,9 +4,9 @@ import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
+import com.oneorthree.phone.focus.dto.session.SeaFocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
-import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -16,7 +16,7 @@ import com.oneorthree.phone.internal.service.FocusRewardAccrualService;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.GoldenFishService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
-import com.oneorthree.phone.internal.service.SeaSessionPredicate;
+import com.oneorthree.phone.internal.service.TelescopePinService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,7 +27,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -35,18 +34,14 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
 
 /**
- * 바다 집중 seam (GROMO-2274, 결정 N3) — 집중 종료의 정산이 {@link SeaSessionPredicate} 판정을 따라 갈리는지
+ * 바다 집중 seam (GROMO-2274, 결정 N3) — 집중 종료의 정산이 세션 종류({@code kind})를 따라 갈리는지
  * <b>실제 Flyway PostgreSQL</b> 위에서 본다.
  *
- * <p>서버에는 바다 집중 세션이 없어(E1-1 몫) 판정은 운영에서 늘 {@code false} 다. 그래서 이 클래스가 판정을
- * {@code true} 로 바꾸는 <b>유일한</b> 자리다 — 스파이 한 개로 판정만 뒤집고, 세션·정산·지갑·인벤토리는 전부 진짜
- * 경로를 탄다. 판정이 {@code false} 인 쪽(운영 그대로)은 같은 시나리오를 섬 세션으로 돌려 «섬 통장 적립 그대로,
- * seaReward 는 null» 을 고정한다.
+ * <p>GROMO-2299 부터 판정은 {@code focus_session_details.kind} 이고, 이 클래스는 스파이 없이 <b>실제 바다 세션</b>
+ * ({@code startSea}, 목적지는 핀으로 망원경에 넣은 섬)으로 같은 단언을 건다. 섬 세션을 같은 시나리오로 돌린 쪽은
+ * «섬 통장 적립 그대로, seaReward 는 null» 을 고정한다.
  *
  * <p>분당 적립 크론({@code focus.reward.accrual-enabled})은 기본값(꺼짐)으로 둔다 — 지급 경로를 finish 의
  * 마지막 확정 하나로 좁혀, 통장 잔액 단언이 크론 시각에 흔들리지 않게 한다. 크론·황금 물고기 스케줄러가 부르는
@@ -62,8 +57,8 @@ class SeaSessionSeamIntegrationTest {
         registry.add("focus.session.start-enabled", () -> true);
     }
 
-    @MockitoSpyBean
-    SeaSessionPredicate seaSessions;
+    @Autowired
+    TelescopePinService pins;
     @Autowired
     FocusSessionLifecycleService focus;
     @Autowired
@@ -94,9 +89,8 @@ class SeaSessionSeamIntegrationTest {
     @Test
     @DisplayName("바다 판정이면 섬 통장은 잔액도 원장도 그대로이고, 누적·단계표 보상이 정산돼 seaReward 가 채워진다")
     void seaSessionSettlesThroughTheEngineAndLeavesTheIslandWalletAlone() {
-        doReturn(true).when(seaSessions).isSea(any());
+        UUID island = newIsland(newUser(), "바다판정섬");
         UUID user = newUser();
-        UUID island = newIsland(user, "바다판정섬");
         String scarf = product("clothes");
         String hat = product("decor");
         tier("base", 30, scarf);
@@ -104,7 +98,7 @@ class SeaSessionSeamIntegrationTest {
         long balanceBefore = islandBalance(island);
         long ledgerBefore = ledgerRows(island);
 
-        FocusSessionView started = start(user, island);
+        FocusSessionView started = startSea(user, island);
         backdate(started.id(), 40 * 60);
         UUID key = UUID.randomUUID();
         FocusFinishView finished = focus.finish(user, started.id(),
@@ -180,12 +174,11 @@ class SeaSessionSeamIntegrationTest {
     @Test
     @DisplayName("바다 판정이면 매분 적립 틱도 섬 통장에 넣지 않는다 — 워터마크를 밀지 않고, 종료가 읽는 적립 합도 0 이다")
     void minuteTickLeavesSeaSessionsAlone() {
-        doReturn(true).when(seaSessions).isSea(any());
+        UUID island = newIsland(newUser(), "틱판정섬");
         UUID user = newUser();
-        UUID island = newIsland(user, "틱판정섬");
         long balanceBefore = islandBalance(island);
         long ledgerBefore = ledgerRows(island);
-        FocusSessionView started = start(user, island);
+        FocusSessionView started = startSea(user, island);
         backdate(started.id(), 40 * 60);
 
         assertThat(rewardAccruals.accrue(started.id())).as("틱이 와도 바다 세션은 0마리").isZero();
@@ -206,7 +199,6 @@ class SeaSessionSeamIntegrationTest {
         assertThat(ledgerRows(island)).isEqualTo(ledgerBefore);
 
         // 대조: 판정이 false 인 같은 길이의 섬 세션은 같은 틱이 40마리를 넣는다 — 위 0 은 가드 덕이다.
-        doReturn(false).when(seaSessions).isSea(any());
         UUID controlUser = newUser();
         UUID controlIsland = newIsland(controlUser, "틱대조섬");
         FocusSessionView control = start(controlUser, controlIsland);
@@ -216,34 +208,30 @@ class SeaSessionSeamIntegrationTest {
     }
 
     @Test
-    @DisplayName("황금 물고기 추첨은 바다 세션을 참여자로 세지 않는다 — 후보가 바다뿐이거나 섬 하나에 바다 하나(혼자)면 확률 100% 여도 나타나지 않는다")
+    @DisplayName("황금 물고기 추첨은 바다 세션을 참여자로 세지 않는다 — 섬 세션 하나에 바다 세션 둘(목적지가 같은 섬)이면 확률 100% 여도 나타나지 않는다")
     void goldenFishDrawSkipsSeaSessions() {
         UUID owner = newUser();
         UUID island = newIsland(owner, "황금판정섬");
         UUID guest = newUser();
         joinAndMoveTo(guest, island);
         FocusSessionView ownerSession = start(owner, island);
-        FocusSessionView guestSession = start(guest, island);
+        FocusSessionView seaOne = startSea(newUser(), island);
+        FocusSessionView seaTwo = startSea(newUser(), island);
         alwaysWin();
         Instant minute = Instant.now().truncatedTo(ChronoUnit.MINUTES);
         long balanceBefore = islandBalance(island);
         long ledgerBefore = ledgerRows(island);
 
-        // 후보가 바다 세션 둘뿐이다.
-        doReturn(true).when(seaSessions).isSea(any());
-        assertThat(goldenFish.drawAndCredit(island, minute)).isFalse();
-        // 섬 세션 하나와 바다 세션 하나 — 섬 쪽은 혼자라 나타나지 않는다.
-        doAnswer(call -> ownerSession.id().equals(((FocusSessionDetail) call.getArgument(0)).getSessionId()))
-                .when(seaSessions).isSea(any());
+        // 이 섬을 향한 ACTIVE 세션은 셋이지만 섬 세션은 하나뿐이다 — 바다 둘은 참여자가 아니라 추첨이 열리지 않는다.
         assertThat(goldenFish.drawAndCredit(island, minute)).isFalse();
 
         assertThat(islandBalance(island)).isEqualTo(balanceBefore);
         assertThat(ledgerRows(island)).isEqualTo(ledgerBefore);
         assertThat(count("select coalesce(sum(golden_fish),0) from focus_reward_accruals "
-                + "where session_id in (?, ?)", ownerSession.id(), guestSession.id())).isZero();
+                + "where session_id in (?, ?, ?)", ownerSession.id(), seaOne.id(), seaTwo.id())).isZero();
 
-        // 대조: 둘 다 섬 세션이면 같은 분의 같은 추첨이 당첨된다 — 위 false 는 판정 덕이다.
-        doReturn(false).when(seaSessions).isSea(any());
+        // 대조: 섬 세션이 둘이 되면 같은 분의 같은 추첨이 당첨된다 — 위 false 는 바다 세션을 세지 않은 덕이다.
+        start(guest, island);
         assertThat(goldenFish.drawAndCredit(island, minute)).isTrue();
         assertThat(islandBalance(island)).isEqualTo(balanceBefore + 50);
     }
@@ -263,6 +251,12 @@ class SeaSessionSeamIntegrationTest {
         members.save(GroupMember.builder().user(users.getCaller(userId)).group(groups.findById(islandId).orElseThrow())
                 .role(GroupMemberRole.MEMBER).build());
         islands.arrive(userId, islandId, UUID.randomUUID());
+    }
+
+    /** 목적지 섬을 핀으로 망원경에 넣고(소속 0 계정도 된다) 그 항목의 항해 분으로 바다 세션을 시작한다. */
+    private FocusSessionView startSea(UUID user, UUID island) {
+        pins.pin(user, island, "magazine");
+        return focus.startSea(user, new SeaFocusSessionStartCommandRequest(island), UUID.randomUUID());
     }
 
     private FocusSessionView start(UUID user, UUID island) {

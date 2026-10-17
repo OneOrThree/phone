@@ -207,6 +207,128 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 
+    // ---------------------------------------------------------------- 바다 집중 (GROMO-2299)
+
+    private static final String DATA_SEA_START = "POST " + INTERNAL + "/focus-sessions/sea";
+    private static final String DATA_SEA_REMARK = "PUT " + INTERNAL + "/sea-remark";
+    private static final String SEA_START_BODY = "{\"destinationIslandId\":\"" + ISLAND + "\"}";
+    private static final String SEA_STATE = STATE.replace("\"subject\":\"알고리즘\"", "\"subject\":\"\"")
+            .replace("\"version\":1,", "\"version\":1,\"kind\":\"sea\",");
+
+    /** 본문은 목적지 하나뿐이다 — 상류 경로는 {@code /focus-sessions/sea}, 명령 키와 서명된 주체가 그대로 실린다. */
+    @Test
+    void startSeaForwardsDestinationOnlyAndReturnsKind() throws Exception {
+        DATA.on(DATA_SEA_START, request -> ok(SEA_STATE));
+        mockMvc.perform(write(post("/focus-sessions/sea"), SEA_START_BODY).header("X-User-Id", UUID.randomUUID()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.id").value(FOCUS.toString()))
+                .andExpect(jsonPath("$.data.kind").value("sea"))
+                .andExpect(jsonPath("$.data.targetMinutes").value(60));
+        var sent = DATA.received().get(0);
+        assertThat(sent.header("x-user-id")).isEqualTo(USER.toString());
+        assertThat(sent.header("idempotency-key")).isEqualTo(KEY);
+        assertThat(sent.body()).contains(ISLAND.toString()).doesNotContain("subject");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "null", "[]", "{\"destinationIslandId\":1}",
+            "{\"destinationIslandId\":\"cccccccc-0000-0000-0000-000000000011\",\"sailingMinutes\":30}"})
+    void startSeaRejectsBodyShapeBeforeNetwork(String body) throws Exception {
+        mockMvc.perform(write(post("/focus-sessions/sea"), body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    void startSeaRejectsNonCanonicalDestinationBeforeNetwork() throws Exception {
+        mockMvc.perform(write(post("/focus-sessions/sea"), "{\"destinationIslandId\":\"1-2-3-4-5\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.field").value("destinationIslandId"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    /** 바다 거절 셋은 같은 이름·상태 그대로 나간다 — 일반 STATE_CONFLICT 로 접히지도, 502 가 되지도 않는다. */
+    @ParameterizedTest
+    @CsvSource({"409,SEA_DESTINATION_UNAVAILABLE", "409,SEA_SESSION_NO_REST", "409,SEA_REMARK_LOCKED"})
+    void seaConflictsKeepTheirNames(int status, String code) throws Exception {
+        DATA.on(DATA_SEA_START, request -> error(status, code));
+        DATA.on("POST " + INTERNAL + "/focus-sessions/" + FOCUS + "/pause", request -> error(status, code));
+        DATA.on(DATA_SEA_REMARK, request -> error(status, code));
+        mockMvc.perform(write(post("/focus-sessions/sea"), SEA_START_BODY)).andExpect(status().is(status))
+                .andExpect(jsonPath("$.error.code").value(code));
+        mockMvc.perform(write(post("/focus-sessions/" + FOCUS + "/pause"), "{\"expectedVersion\":1}"))
+                .andExpect(status().is(status)).andExpect(jsonPath("$.error.code").value(code));
+        mockMvc.perform(auth(put("/me/sea-remark")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"안녕\"}"))
+                .andExpect(status().is(status)).andExpect(jsonPath("$.error.code").value(code));
+    }
+
+    @Test
+    void seaRemarkForwardsTrimmedRemarkAndGuestsKeepTheirForbiddenCode() throws Exception {
+        DATA.on(DATA_SEA_REMARK, request -> ok("{\"remark\":\"안녕\",\"changedAt\":\"2026-10-17T00:00:00Z\","
+                + "\"lockedUntil\":\"2026-10-17T00:05:00Z\"}"));
+        mockMvc.perform(auth(put("/me/sea-remark")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"  안녕  \"}").header("X-User-Id", UUID.randomUUID()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.remark").value("안녕"))
+                .andExpect(jsonPath("$.data.lockedUntil").value("2026-10-17T00:05:00Z"));
+        var sent = DATA.received().get(0);
+        assertThat(sent.header("x-user-id")).isEqualTo(USER.toString());
+        assertThat(sent.body()).contains("\"remark\":\"안녕\"");
+
+        DATA.on(DATA_SEA_REMARK, request -> error(403, "SOCIAL_LOGIN_REQUIRED"));
+        mockMvc.perform(auth(put("/me/sea-remark")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"안녕\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("SOCIAL_LOGIN_REQUIRED"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "null", "[]", "{\"remark\":1}", "{\"remark\":null}",
+            "{\"remark\":\"안녕\",\"x\":1}"})
+    void seaRemarkRejectsBodyShapeBeforeNetwork(String body) throws Exception {
+        mockMvc.perform(auth(put("/me/sea-remark")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    void seaRemarkLongerThanTwentyIsRejectedBeforeNetworkAndEmptyClears() throws Exception {
+        mockMvc.perform(auth(put("/me/sea-remark")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"" + "가".repeat(21) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.error.field").value("remark"));
+        assertThat(DATA.received()).isEmpty();
+
+        DATA.on(DATA_SEA_REMARK, request -> ok("{\"remark\":null,\"changedAt\":\"2026-10-17T00:00:00Z\","
+                + "\"lockedUntil\":\"2026-10-17T00:05:00Z\"}"));
+        mockMvc.perform(auth(put("/me/sea-remark")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.remark").doesNotExist());
+        assertThat(DATA.received().get(0).body()).contains("\"remark\":\"\"");
+    }
+
+    /** 섬 세션 응답에 {@code kind}·{@code arrived} 가 없던 구버전 Data 와 섞여도 공개 응답에서 키가 빠진다. */
+    @Test
+    void finishCarriesKindAndArrivedOnlyWhenDataSendsThem() throws Exception {
+        String path = "POST " + INTERNAL + "/focus-sessions/" + FOCUS + "/finish";
+        DATA.on(path, request -> ok(FINISH));
+        String legacy = mockMvc.perform(write(post("/focus-sessions/" + FOCUS + "/finish"),
+                        "{\"expectedVersion\":3}")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(legacy).doesNotContain("\"kind\"").doesNotContain("\"arrived\"");
+
+        DATA.on(path, request -> ok(FINISH.replace("\"questProgress\":[],",
+                "\"questProgress\":[],\"kind\":\"sea\",\"arrived\":true,")));
+        mockMvc.perform(write(post("/focus-sessions/" + FOCUS + "/finish"), "{\"expectedVersion\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.kind").value("sea"))
+                .andExpect(jsonPath("$.data.arrived").value(true));
+    }
+
     /** 시작 게이트가 닫혀 있는 동안 start 는 재시도 가능한 503 이다 — 502 로 접히지 않는다. */
     @Test
     void startRelaysClosedStartGateAsRetryableUnavailable() throws Exception {

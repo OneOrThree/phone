@@ -32,6 +32,8 @@ import java.util.UUID;
  *                      없음» 이 아니라 «모름» 이다: 섬 세션이거나, 바다 세션이라도 정산 직후 응답이 아닌 경우(새 키
  *                      재종료·pending-result·휴식 자동 종료 뒤 조회)이며, 이 필드를 모르는 구버전 Data 도 안 보내
  *                      {@code null} 이다(필수가 아니다). 지급 여부의 정본은 인벤토리다
+ * @param kind          {@code "island"} 또는 {@code "sea"}(GROMO-2299) — 선택이다(구버전 Data 는 안 보낸다)
+ * @param arrived       바다 세션의 도착 여부(항해 시간을 채웠는가). 섬 세션이거나 구버전 Data 면 {@code null}
  */
 public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID recordId,
@@ -45,7 +47,9 @@ public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String completedAt,
         @JsonSetter(nulls = Nulls.AS_EMPTY) List<QuestProgress> questProgress,
         List<ActiveIntervalState> activeIntervals,
-        SeaReward seaReward) {
+        SeaReward seaReward,
+        String kind,
+        Boolean arrived) {
 
     /**
      * @param personalFishAdded     개인 지갑 반영
