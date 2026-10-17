@@ -184,10 +184,10 @@ designed fresh.
 | `SEND /app/islands/{islandId}/movement/intent` | 목적지 전송, body `{commandSeq,navRevision,goalX,goalY}`. movement 구독 보유 세션만; 응답은 PathAccepted/MoveRejected. 사용자당 10/s·순간 20 초과는 조용히 버림 |
 | `SUB /user/queue/sea` | 바다 배정 결과(`sea.room.assigned{roomId}`)·방 스냅샷(`sea.room.snapshot{roomId, members[]}`)은 그 세션 한정(`broadcast=false`). 퇴장 통지 `sea.room.left{roomId, reason}` 는 **이 JVM 의 그 사용자 모든 세션**에 간다 — 방 소속이 사용자 단위라 기기 A 의 leave 가 기기 B 를 같이 빼기 때문(다른 인스턴스의 세션은 못 받는다). 인증만 |
 | `SEND /app/sea/enter` | 먼바다 입장 `{}` → 배정(또는 기존 방 재확인). 사용자 축 시도 창 `lock:chat:sea:enter:{userId}` 600ms, 초과는 `SEA_ENTER_TOO_FREQUENT` |
-| `SEND /app/sea/sync` | 내 방의 스냅샷 요청 `{}` — 답은 그 세션의 `/user/queue/sea`. **그 세션이 방 토픽을 구독한 뒤에만** 받는다(아래 순서를 서버가 강제) — 방이 없거나 구독 전이면 `NOT_IN_SEA_ROOM` 이 `/user/queue/errors` 로(연결 유지) |
+| `SEND /app/sea/sync` | 내 방의 스냅샷 요청 `{}` — 답은 그 세션의 `/user/queue/sea`. **그 세션이 방 토픽을 구독한 뒤에만** 받는다(아래 순서를 서버가 강제) — 방이 없거나 구독 전이면 `NOT_IN_SEA_ROOM` 이 `/user/queue/errors` 로(연결 유지). **앱은 30~60초 주기 또는 재연결 때 sync 를 보내고 `NOT_IN_SEA_ROOM` 이면 재 `enter`** — Redis 장애·flush·JOIN 타임아웃 뒤 서버가 먼저 알릴 수 없는 조용한 구간의 상한(결정 N39) |
 | `SEND /app/sea/leave` | 퇴장 `{}`. 방 토픽 UNSUBSCRIBE·마지막 세션 소켓 종료도 같은 퇴장이다 |
 | `SUB /topic/sea/rooms/{roomId}` | 바다 방 사건(`sea.member.joined`·`left`·`updated`·`sea.emote`). 해시 `sea:user:{me}` 의 `roomId` 가 이 방일 때만, 아니면 `NOT_IN_SEA_ROOM`(403). 전달 직전에도 프레임마다 다시 본다(fail-closed) |
-| `SEND /app/sea/rooms/{roomId}/emotes` | 바다 방 이모트, body `{type}`(5종). 방 소속 + 시도 창 `lock:chat:sea:emote:try:{userId}` 600ms, 성공 창 `lock:chat:sea:emote:{roomId}:{userId}` 3초. 성공은 방 토픽의 `sea.emote{userId, type}` 가 ack, 거절은 `/user/queue/errors`(`NOT_IN_SEA_ROOM`·`INVALID_EMOTE_TYPE`·`EMOTE_TOO_FREQUENT`) |
+| `SEND /app/sea/rooms/{roomId}/emotes` | 바다 방 이모트, body `{type}`(5종). 방 소속 + 시도 창 `lock:chat:sea:emote:try:{userId}` 600ms, 성공 창 `lock:chat:sea:emote:{roomId}:{userId}` 3초. 성공은 방 토픽의 `sea.emote{userId, type}` 가 ack, 거절은 `/user/queue/errors`(`NOT_IN_SEA_ROOM`·`INVALID_EMOTE_TYPE`·성공 창 3초의 `EMOTE_TOO_FREQUENT`). 시도 창 600ms 초과는 관문의 ERROR 프레임 + 연결 종료(응원과 같음) |
 | `GET /api/v1/chat/rooms` | my islands + unread counts |
 | `GET /api/v1/chat/rooms/{groupId}/messages?cursor&size` | history, newest → oldest |
 | `POST /api/v1/chat/rooms/{groupId}/read` | advance the read cursor (forward only) |

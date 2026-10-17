@@ -75,6 +75,9 @@ class SeaEmoteIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private SeaRooms seaRooms;
+
     @MockitoBean
     private SeaStateClient seaState;
 
@@ -165,6 +168,27 @@ class SeaEmoteIntegrationTest {
         assertThat(failure).isNotNull();
         assertThat(failure.getCode()).isEqualTo(ChatErrorCode.EMOTE_TOO_FREQUENT.name());
         assertThat(heard.poll(1, TimeUnit.SECONDS)).as("둘째는 방에 가지 않는다").isNull();
+    }
+
+    @Test
+    @DisplayName("수신자가 방을 나간 뒤 온 이모트는 받지 않는다 — 전달 직전 재검사")
+    void leftMemberDoesNotReceiveLaterEmotes() throws Exception {
+        UUID a = member();
+        UUID b = member();
+        Client bob = connect(b);
+        BlockingQueue<Map<String, Object>> heard = bob.watchRoom();
+        Client alice = connect(a);
+        seaRooms.leaveCurrent(b, SeaRooms.LEFT);
+        while (heard.poll(300, TimeUnit.MILLISECONDS) != null) {
+            continue; // 퇴장 직전·직후 잔여를 비운다
+        }
+
+        alice.send("cheer");
+
+        Map<String, Object> frame;
+        while ((frame = heard.poll(1, TimeUnit.SECONDS)) != null) {
+            assertThat(frame.get("type")).as("나간 사람에게 이모트가 가면 안 된다").isNotEqualTo("sea.emote");
+        }
     }
 
     // ── helpers ──────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ package com.oneorthree.realtime.sea;
 
 import com.oneorthree.realtime.TestcontainersConfiguration;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +13,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
@@ -37,10 +39,20 @@ class SeaAdriftSweeperTest {
     private StringRedisTemplate redis;
 
     @Autowired
+    private SeaRooms seaRooms;
+
+    @Autowired
+    private Clock clock;
+
     private SeaAdriftSweeper sweeper;
 
     @MockitoSpyBean
     private SeaRoomPublisher publisher;
+
+    @BeforeEach
+    void setUp() {
+        sweeper = new SeaAdriftSweeper(redis, seaRooms, clock, 60);
+    }
 
     @Test
     @DisplayName("떠 있은 지 11분 → left{adrift} 발행, 해시·구성원·sea:adrift 제거")
@@ -114,5 +126,23 @@ class SeaAdriftSweeperTest {
         redis.opsForZSet().add(RedisKeys.SEA_ADRIFT, rejoined.toString(), fresh);
         assertThat(sweeper.removeIndexIfUnchanged(rejoined, picked)).isFalse();
         assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, rejoined.toString())).isEqualTo((double) fresh);
+    }
+
+    @Test
+    @DisplayName("해시에 roomId 만 있고 adriftSince 가 없는 깨진 항목 → 색인 잔재를 치우고 해시는 건드리지 않는다")
+    void brokenIndexEntryHealsItself() {
+        UUID room = UUID.randomUUID();
+        UUID user = UUID.randomUUID();
+        long old = System.currentTimeMillis() - Duration.ofMinutes(11).toMillis();
+        redis.opsForSet().add(RedisKeys.seaRoomMembers(room), user.toString());
+        redis.opsForHash().putAll(RedisKeys.seaUser(user), Map.of("roomId", room.toString(), "state", "focusing"));
+        redis.opsForZSet().add(RedisKeys.SEA_ADRIFT, user.toString(), old);
+        reset(publisher);
+
+        sweeper.sweep();
+
+        assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, user.toString())).isNull();
+        assertThat(redis.hasKey(RedisKeys.seaUser(user))).isTrue();
+        verify(publisher, never()).publish(eq(room), any(), any());
     }
 }
