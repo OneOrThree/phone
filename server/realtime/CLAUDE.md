@@ -67,7 +67,11 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 
 - **A sea-room SET ghost is cleaned by the snapshot.** A member whose `sea:user:{id}` hash expired stays in
   `sea:room:{roomId}:members` (a later JOIN keeps extending the SET TTL) and holds capacity forever; `SeaRooms.membersOf`
-  (snapshot) calls LEAVE's no-hash branch to SREM it. No event is emitted.
+  (snapshot) calls LEAVE's no-hash branch to SREM it. No event is emitted. Two small windows remain (both
+  recovered by the app's periodic `sync` → `NOT_IN_SEA_ROOM` → re-`enter`, decision N39): if that user rejoins the same
+  room between the pipeline read and the heal, LEAVE's `cur == roomId` branch evicts them without an event; and a healed
+  room is **not** put back into `sea:rooms:open` by the heal — the freed seat becomes a candidate again only at the next
+  normal JOIN/LEAVE on that room.
 - **Ids must come from `common/id/UuidV7`.** Calling `Generators.…().generate()` directly
   works and produces valid UUID v7s, but loses monotonicity *within a millisecond*
   (measured: ~50% inversions). Cursor paging, `hasMore`, and unread counts all rest on
