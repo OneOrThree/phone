@@ -237,6 +237,23 @@ class TwoInstanceFanoutTest {
                 ((java.util.Map<String, Object>) joined.get("payload")).get("member");
         assertThat(member.get("userId")).isEqualTo(bob.toString());
         assertThat(joined.get("roomId")).isEqualTo(room.toString());
+
+        // 퇴장도 같은 publish 경로(chat:sea:v1)로 건넌다. 반면 bob 의 다른 기기에 가는 /user/queue/sea 의
+        // sea.room.left 는 «의도적으로» 인스턴스를 건너지 않는다(SeaRoomPublisher.publishToUser 의 ceiling) — 여기서 보지 않는다.
+        onB.send("/app/sea/leave", java.util.Map.of());
+        java.util.Map<String, Object> left = null;
+        long deadline = System.currentTimeMillis() + 10_000L;
+        while (left == null && System.currentTimeMillis() < deadline) {
+            java.util.Map<String, Object> frame = heardOnA.poll(200, TimeUnit.MILLISECONDS);
+            if (frame != null && "sea.member.left".equals(frame.get("type"))) {
+                left = frame;
+            }
+        }
+        assertThat(left).as("frameErrors=%s", frameErrors).isNotNull();
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> leftPayload = (java.util.Map<String, Object>) left.get("payload");
+        assertThat(leftPayload.get("userId")).isEqualTo(bob.toString());
+        assertThat(leftPayload.get("reason")).isEqualTo("left");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
