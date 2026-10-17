@@ -1025,6 +1025,7 @@ Table magazine_issues [note: '고양이 잡지 한 호 — 하루 한 행. 발�
   published_at    timestamptz [not null]
   editorial       jsonb       [not null, note: '편집부 페이지 고정값 {ranking:[{rank, island}], newIslands:[island], note:{type EDITOR|TIP, body, tipNo}} — island 는 island_promotions.snapshot 과 같은 모양. 읽는 순간 비공개·닫힌 섬은 뺀다']
   promotion_count integer     [not null, note: '실린 홍보 수(CHECK >= 0) — 조간·석간 전환 판단용']
+  notified_at     timestamptz [note: '알림 펼치기 완료 시각 — NULL 이면 틱마다 재시도(GROMO-2307, V126)']
 
   indexes {
     (issue_date, slot) [unique]

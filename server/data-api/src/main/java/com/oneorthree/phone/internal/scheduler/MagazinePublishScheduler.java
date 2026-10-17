@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal.scheduler;
 
 import com.oneorthree.phone.common.util.ZonePolicy;
+import com.oneorthree.phone.internal.service.MagazineIssueNotifier;
 import com.oneorthree.phone.internal.service.MagazinePublishService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ public class MagazinePublishScheduler {
     private static final LocalTime LAST_TICK = LocalTime.of(23, 50);
 
     private final MagazinePublishService publisher;
+    private final MagazineIssueNotifier notifier;
     private final Clock clock;
 
     @Scheduled(cron = "0 0/10 7-23 * * *", zone = ZonePolicy.KST_ID)
@@ -44,6 +46,17 @@ public class MagazinePublishScheduler {
                 log.warn("고양이 잡지 발행 실패 — 다음 틱(10분 뒤)에 다시 한다 date={}", today, failure);
             } else {
                 log.error("고양이 잡지 발행이 그날 마지막 틱까지 실패했다 — 오늘 호가 없다 date={}", today, failure);
+            }
+        }
+        // 발행이 empty 여도(이미 그날 호가 있음) 부른다 — 앞 틱에 호만 만들고 알림 펼치기가 끊겼으면 여기서 잇는다
+        // (GROMO-2307). 발행 실패와 별개로 시도한다. 스위치가 꺼져 호가 없으면 아무 일도 없다.
+        try {
+            notifier.notifyIfPending(today, clock.instant());
+        } catch (RuntimeException failure) {
+            if (now.toLocalTime().isBefore(LAST_TICK)) {
+                log.warn("고양이 잡지 알림 펼치기 실패 — 다음 틱(10분 뒤)에 이어서 한다 date={}", today, failure);
+            } else {
+                log.error("고양이 잡지 알림 펼치기가 그날 마지막 틱까지 실패했다 date={}", today, failure);
             }
         }
     }

@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.repository;
 
 import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -321,4 +322,15 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             + " AND u.lastActiveAt >= :startInclusive AND u.lastActiveAt < :endExclusive")
     List<User> findInactiveReturnTargets(@Param("startInclusive") Instant startInclusive,
                                          @Param("endExclusive") Instant endExclusive);
+
+    /**
+     * 잡지 발행 알림 대상 한 쪽(GROMO-2307) — 활성 <b>정식</b> 유저를 id 순 키셋으로 훑는다.
+     * {@link #findInactiveReturnTargets} 와 같은 조건(게스트·탈퇴 제외)에 날짜 창이 없다.
+     *
+     * @param after    직전 쪽의 마지막 id(첫 쪽은 nil UUID)
+     * @param pageable 쪽 크기만 쓴다({@code PageRequest.ofSize})
+     * @return id 오름차순 최대 쪽 크기만큼
+     */
+    @Query("SELECT u FROM User u WHERE u.isGuest = false AND u.isDeleted = false AND u.id > :after ORDER BY u.id")
+    List<User> findFormalUsersAfter(@Param("after") UUID after, Pageable pageable);
 }

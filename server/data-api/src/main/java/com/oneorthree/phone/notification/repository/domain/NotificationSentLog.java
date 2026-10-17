@@ -148,6 +148,12 @@ public class NotificationSentLog {
      */
     public static final String TYPE_MAIN_ISLAND_TRANSFERRED = "MAIN_ISLAND_TRANSFERRED";
 
+    /**
+     * 발송 종류 — 오늘의 고양이 잡지 호 발행(GROMO-2307). {@code subject_id} = <b>호 id</b> 라 선점 유니크
+     * {@code (user_id, kind, subject_id)} 가 계정당 호당 한 번을 접는다(구 경로의 유일한 중복 방지).
+     */
+    public static final String TYPE_MAGAZINE_PUBLISHED = "MAGAZINE_PUBLISHED";
+
     @Id
     @GeneratedUuidV7
     private UUID id;
