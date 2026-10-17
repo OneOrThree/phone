@@ -83,10 +83,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class TelescopePinIntegrationTest {
 
     private static final String TOKEN = "test-telescope-pin-business";
-    /** KST 14:23:41 — 버킷 05:00Z 안이고, 다음 07:00 KST 는 2026-10-12T22:00:00Z 다. */
+    /** KST 14:23:41 — 버킷 05:00Z 안이고, 이 버킷의 끝(핀 만료)은 06:00Z 다. */
     private static final Instant BASE = Instant.parse("2026-10-12T05:23:41Z");
     private static final Instant BUCKET = Instant.parse("2026-10-12T05:00:00Z");
-    private static final Instant NEXT_RESET = Instant.parse("2026-10-12T22:00:00Z");
+    private static final Instant BUCKET_END = Instant.parse("2026-10-12T06:00:00Z");
     private static final AtomicReference<Instant> NOW = new AtomicReference<>();
     /** 테스트가 쥐었다 놓는 어드바이저리 락 번호 — 어드바이저리 락은 database 마다 따로라 다른 컨텍스트와 겹치지 않는다. */
     private static final long GATE_KEY = 2268L;
@@ -146,13 +146,15 @@ class TelescopePinIntegrationTest {
     // ---------------------------------------------------------------- ① 넣기 4개
 
     @Test
-    @DisplayName("핀 4개 — 가까운 섬 1 + 핀 4 이고 무작위 칸은 0이다. 핀 섬은 후보에서 빠져 가까운 섬은 «핀이 아닌 첫 후보» 다")
-    void fourPinsLeaveOnlyTheNearbySlot() throws Exception {
+    @DisplayName("핀 4개 — 핀 4 + 새 섬 1칸이고 무작위 칸은 0이다. 핀 섬은 스냅샷 칸에서 감춰지고, 가까운 섬(스냅샷 첫 섬)을 핀으로 "
+            + "넣으면 이 버킷엔 가까운 섬이 없다 — 다음 섬이 가까운 섬으로 올라오지 않는다")
+    void fourPinsLeaveOneNewIslandSlot() throws Exception {
         UUID viewer = newUser();
         Group home = island("소속섬", 10);
         join(viewer, home);
         List<UUID> order = byHash(viewer, islandIds(12));
-        // 해시 순 0·1번(가까운 섬이 될 섬)을 핀으로 넣는다 — 후보에서 안 빼면 한 섬이 두 번 나온다.
+        // 첫 핀(7번)을 넣을 때 스냅샷이 뽑힌다 — 7번을 뺀 해시 순 0~4번이고 0번이 가까운 섬이다. 그다음 0·1번(스냅샷 섬)을
+        // 핀으로 넣는다 — 스냅샷 칸에서 안 감추면 한 섬이 두 번 나온다.
         List<UUID> pinned = List.of(order.get(7), order.get(0), order.get(5), order.get(1));
         for (int i = 0; i < pinned.size(); i++) {
             pin(viewer, pinned.get(i), i % 2 == 0 ? "observatory" : "magazine", BASE.plusSeconds(i));
@@ -163,16 +165,15 @@ class TelescopePinIntegrationTest {
 
         assertThat(TelescopeService.MAX_PINS).as("핀은 무작위 칸을 대신한다 — 새 섬 칸이 1 아래로 내려가면 안 된다")
                 .isLessThanOrEqualTo(TelescopeService.RANDOM_SLOTS);
-        assertThat(items).extracting(TelescopeItemView::islandId).containsExactly(home.getId(), order.get(2),
-                pinned.get(0), pinned.get(1), pinned.get(2), pinned.get(3));
+        assertThat(items).extracting(TelescopeItemView::islandId).containsExactly(home.getId(),
+                pinned.get(0), pinned.get(1), pinned.get(2), pinned.get(3), order.get(2));
         assertThat(items).extracting(TelescopeItemView::slot)
-                .containsExactly("joined", "nearby", "pinned", "pinned", "pinned", "pinned");
+                .containsExactly("joined", "pinned", "pinned", "pinned", "pinned", "random");
         assertThat(items).extracting(TelescopeItemView::pinnedFrom)
-                .containsExactly(null, null, "observatory", "magazine", "observatory", "magazine");
-        assertThat(items).extracting(TelescopeItemView::pinnedAt).containsExactly(null, null, BASE,
-                BASE.plusSeconds(1), BASE.plusSeconds(2), BASE.plusSeconds(3));
-        assertThat(items.get(1).sailingMinutes()).isEqualTo(15);
-        assertThat(items.subList(2, 6)).allSatisfy(item -> {
+                .containsExactly(null, "observatory", "magazine", "observatory", "magazine", null);
+        assertThat(items).extracting(TelescopeItemView::pinnedAt).containsExactly(null, BASE,
+                BASE.plusSeconds(1), BASE.plusSeconds(2), BASE.plusSeconds(3), null);
+        assertThat(items.subList(1, 6)).allSatisfy(item -> {
             assertThat(item.sailingMinutes()).isIn(30, 60, 90)
                     .isEqualTo(SailingTimes.minutes(viewer, item.islandId(), BUCKET));
             assertThat(item.membershipStatus()).isEqualTo("none");
@@ -183,11 +184,11 @@ class TelescopePinIntegrationTest {
         mvc.perform(get("/internal/users/" + viewer + "/telescope")
                         .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", viewer))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[1].slot").value("nearby"))
-                .andExpect(jsonPath("$.items[1].pinnedFrom").value(nullValue()))
-                .andExpect(jsonPath("$.items[2].slot").value("pinned"))
-                .andExpect(jsonPath("$.items[2].pinnedFrom").value("observatory"))
-                .andExpect(jsonPath("$.items[2].pinnedAt").value("2026-10-12T05:23:41Z"));
+                .andExpect(jsonPath("$.items[5].slot").value("random"))
+                .andExpect(jsonPath("$.items[5].pinnedFrom").value(nullValue()))
+                .andExpect(jsonPath("$.items[1].slot").value("pinned"))
+                .andExpect(jsonPath("$.items[1].pinnedFrom").value("observatory"))
+                .andExpect(jsonPath("$.items[1].pinnedAt").value("2026-10-12T05:23:41Z"));
     }
 
     @Test
@@ -385,35 +386,49 @@ class TelescopePinIntegrationTest {
     // ---------------------------------------------------------------- ③ 빼기
 
     @Test
-    @DisplayName("빼기 — 200 {deleted:true}, 그 자리에 같은 버킷 목록의 다음 순서 섬이 random 으로 돌아온다. 없는 핀도 200")
-    void unpinPutsTheNextRandomIslandBack() throws Exception {
+    @DisplayName("빼기 — 200 {deleted:true}, 그 자리에 이번 1시간 스냅샷에서 밀려났던 섬이 스냅샷 순서대로 돌아온다(새로 뽑지 "
+            + "않는다). 없는 핀도 200")
+    void unpinPutsTheDisplacedSnapshotIslandBack() throws Exception {
         UUID viewer = newUser();
         Group home = island("소속섬", 10);
         join(viewer, home);
         List<UUID> order = byHash(viewer, islandIds(12));
-        // 해시 순 뒤쪽 4개를 핀으로 — 빼도 그 섬이 앞 칸으로 되돌아오지 않아 «다음 순서 섬» 만 보인다.
-        List<UUID> pinned = List.of(order.get(8), order.get(9), order.get(10), order.get(11));
+        // 핀 없이 먼저 본다 — 스냅샷은 해시 순 0~4번이다.
+        assertThat(telescope.list(viewer).items()).extracting(TelescopeItemView::islandId)
+                .containsExactly(home.getId(), order.get(0), order.get(1), order.get(2), order.get(3), order.get(4));
+        // 스냅샷 섬 1·2번과 스냅샷 밖 8·9번을 핀으로 — 무작위 칸이 0이 되어 3·4번이 밀려난다.
+        List<UUID> pinned = List.of(order.get(1), order.get(8), order.get(2), order.get(9));
         for (int i = 0; i < pinned.size(); i++) {
             pin(viewer, pinned.get(i), "observatory", BASE.plusSeconds(i));
         }
-        assertThat(telescope.list(viewer).items()).extracting(TelescopeItemView::slot)
-                .containsExactly("joined", "nearby", "pinned", "pinned", "pinned", "pinned");
+        assertThat(telescope.list(viewer).items()).extracting(TelescopeItemView::islandId)
+                .containsExactly(home.getId(), order.get(0), order.get(1), order.get(8), order.get(2), order.get(9));
 
-        deletePin(viewer, pinned.get(0)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
-
+        // 스냅샷 밖 핀을 빼면 밀려났던 3번이 돌아온다 — 해시 순 5번 같은 새 섬이 아니다.
+        deletePin(viewer, order.get(8)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
         List<TelescopeItemView> items = telescope.list(viewer).items();
         assertThat(items).extracting(TelescopeItemView::slot)
                 .containsExactly("joined", "nearby", "pinned", "pinned", "pinned", "random");
         assertThat(items).extracting(TelescopeItemView::islandId).containsExactly(home.getId(), order.get(0),
-                pinned.get(1), pinned.get(2), pinned.get(3), order.get(1));
-        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(3);
+                order.get(1), order.get(2), order.get(9), order.get(3));
+
+        // 스냅샷 섬 핀을 빼면 그 섬이 제 스냅샷 자리(3번 앞)로 random 칸에 돌아온다.
+        deletePin(viewer, order.get(1)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
+        items = telescope.list(viewer).items();
+        assertThat(items).extracting(TelescopeItemView::slot)
+                .containsExactly("joined", "nearby", "pinned", "pinned", "random", "random");
+        assertThat(items).extracting(TelescopeItemView::islandId).containsExactly(home.getId(), order.get(0),
+                order.get(2), order.get(9), order.get(1), order.get(3));
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(2);
+        List<UUID> pinnedLeft = List.of(order.get(2), order.get(9));
 
         // 이미 빠진 핀·넣은 적 없는 섬·없는 섬도 200 이다 — «핀이 없어도» 의 뜻이다. 호출자(users 행)가 없는 빼기는 별개로 404 다
         // (unpinOfAMissingCallerIs404UserNotFound).
-        deletePin(viewer, pinned.get(0)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
+        deletePin(viewer, order.get(8)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
         deletePin(viewer, order.get(0)).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
         deletePin(viewer, UUID.randomUUID()).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
-        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(3);
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(2);
+        assertThat(pinnedIds(viewer)).containsExactlyElementsOf(pinnedLeft);
     }
 
     @Test
@@ -437,57 +452,66 @@ class TelescopePinIntegrationTest {
     // ---------------------------------------------------------------- ④ 버킷·만료
 
     @Test
-    @DisplayName("다음 1시간 버킷이 되어도 핀은 그대로 남는다 — 같은 섬·같은 순서, 항해 분만 새 버킷으로 다시 정해진다")
-    void pinsSurviveTheNextBucket() {
+    @DisplayName("다음 1시간 버킷이 되면 핀은 무작위 섬과 함께 사라지고 새 목록이 나온다 — 핀 행은 다음 핀 넣기가, "
+            + "지난 버킷 스냅샷은 새 버킷 행을 넣는 목록 조립이 지운다")
+    void pinsVanishInTheNextBucket() {
         UUID viewer = newUser();
         List<UUID> order = byHash(viewer, islandIds(8));
         pin(viewer, order.get(5), "magazine", BASE);
         pin(viewer, order.get(6), "observatory", BASE.plusSeconds(1));
-        List<TelescopeItemView> first = pinnedItems(viewer);
+        assertThat(pinnedIds(viewer)).containsExactly(order.get(5), order.get(6));
+        assertThat(count("select count(*) from telescope_buckets where user_id=?", viewer)).isEqualTo(1);
+
+        NOW.set(BUCKET_END);
+        TelescopeView onTheHour = telescope.list(viewer);
+        assertThat(onTheHour.bucketStart()).isEqualTo(BUCKET_END);
+        assertThat(onTheHour.items()).extracting(TelescopeItemView::slot).as("정각부터 핀은 없다").doesNotContain("pinned");
 
         NOW.set(BASE.plus(Duration.ofHours(1)));
         TelescopeView next = telescope.list(viewer);
 
-        assertThat(next.bucketStart()).isEqualTo(BUCKET.plus(Duration.ofHours(1)));
-        List<TelescopeItemView> again = next.items().stream().filter(i -> "pinned".equals(i.slot())).toList();
-        assertThat(again).extracting(TelescopeItemView::islandId)
-                .containsExactlyElementsOf(first.stream().map(TelescopeItemView::islandId).toList());
-        assertThat(again).extracting(TelescopeItemView::pinnedFrom).containsExactly("magazine", "observatory");
-        assertThat(again).extracting(TelescopeItemView::pinnedAt).containsExactly(BASE, BASE.plusSeconds(1));
-        assertThat(again).allSatisfy(item -> assertThat(item.sailingMinutes()).isEqualTo(
-                SailingTimes.minutes(viewer, item.islandId(), BUCKET.plus(Duration.ofHours(1)))));
+        assertThat(next.bucketStart()).isEqualTo(BUCKET_END);
+        assertThat(next.items()).extracting(TelescopeItemView::slot).doesNotContain("pinned")
+                .hasSize(1 + TelescopeService.RANDOM_SLOTS);
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer))
+                .as("핀 행은 정리 잡 없이 남는다 — 읽을 때 거른다").isEqualTo(2);
+        assertThat(jdbc.queryForList("select bucket_start from telescope_buckets where user_id=?",
+                java.sql.Timestamp.class, viewer)).as("새 버킷 행을 넣으며 지난 버킷 행을 지웠다")
+                .extracting(java.sql.Timestamp::toInstant).containsExactly(BUCKET_END);
+
+        // 다음 버킷에 핀을 넣으면 지난(만료) 핀 행도 지운다.
+        pin(viewer, order.get(0), "observatory", BASE.plus(Duration.ofHours(1)).plusSeconds(1));
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("핀은 다음 07:00 KST 에 사라진다 — 06:59:59 까지 보이고 07:00:00 정각부터 안 보이며, 행은 정리 잡 없이 남는다")
-    void aPinExpiresAtTheNextSevenKst() {
+    @DisplayName("핀은 넣은 버킷의 끝(다음 정시)에 사라진다 — 05:59:59 까지 보이고 06:00:00 정각부터 안 보이며, 행은 정리 잡 없이 남는다")
+    void aPinExpiresAtTheEndOfItsBucket() {
         UUID viewer = newUser();
         UUID island = islandIds(1).get(0);
         pin(viewer, island, "magazine", BASE);
         assertThat(jdbc.queryForObject("select expires_at from telescope_pins where user_id=?", java.sql.Timestamp.class,
-                viewer).toInstant()).isEqualTo(NEXT_RESET);
+                viewer).toInstant()).isEqualTo(BUCKET_END);
 
-        NOW.set(NEXT_RESET.minusSeconds(1));
+        NOW.set(BUCKET_END.minusSeconds(1));
         assertThat(pinnedIds(viewer)).containsExactly(island);
-        NOW.set(NEXT_RESET);
+        NOW.set(BUCKET_END);
         assertThat(pinnedIds(viewer)).isEmpty();
-        NOW.set(NEXT_RESET.plus(Duration.ofHours(30)));
+        NOW.set(BUCKET_END.plus(Duration.ofHours(30)));
         assertThat(pinnedIds(viewer)).isEmpty();
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("만료 시각은 07:00 KST 직전이면 오늘, 정각부터는 내일이다 — 06:59:59.999 ↔ 07:00:00.000 경계")
-    void nextResetIsTheComingSevenKst() {
-        // 2026-10-12 07:00 KST = 2026-10-11T22:00:00Z
-        Instant todaySeven = Instant.parse("2026-10-11T22:00:00Z");
-        assertThat(TelescopePinService.nextReset(todaySeven.minusMillis(1))).isEqualTo(todaySeven);
-        assertThat(TelescopePinService.nextReset(todaySeven)).isEqualTo(NEXT_RESET);
-        assertThat(TelescopePinService.nextReset(todaySeven.plusMillis(1))).isEqualTo(NEXT_RESET);
-        assertThat(TelescopePinService.nextReset(Instant.parse("2026-10-11T15:00:00Z"))).as("KST 자정")
-                .isEqualTo(todaySeven);
-        assertThat(TelescopePinService.nextReset(Instant.parse("2026-10-12T14:59:59Z"))).as("KST 23:59:59")
-                .isEqualTo(NEXT_RESET);
+    @DisplayName("만료 시각은 넣은 시각의 다음 정시다 — 정시 정각에 넣으면 1시간 뒤, 정시 1ms 전이면 그 정시")
+    void nextResetIsTheEndOfTheBucket() {
+        assertThat(TelescopePinService.nextReset(BUCKET)).isEqualTo(BUCKET_END);
+        assertThat(TelescopePinService.nextReset(BUCKET.plusMillis(1))).isEqualTo(BUCKET_END);
+        assertThat(TelescopePinService.nextReset(BASE)).isEqualTo(BUCKET_END);
+        assertThat(TelescopePinService.nextReset(BUCKET_END.minusMillis(1))).isEqualTo(BUCKET_END);
+        assertThat(TelescopePinService.nextReset(BUCKET_END)).isEqualTo(BUCKET_END.plus(Duration.ofHours(1)));
+        assertThat(TelescopePinService.nextReset(Instant.parse("2026-10-11T22:00:00Z"))).as("07:00 KST 정각도 1시간")
+                .isEqualTo(Instant.parse("2026-10-11T23:00:00Z"));
     }
 
     // ---------------------------------------------------------------- ⑤ 멱등·덮어쓰기
@@ -521,19 +545,19 @@ class TelescopePinIntegrationTest {
         UUID island = islandIds(1).get(0);
         pin(viewer, island, "magazine", BASE);
 
-        NOW.set(NEXT_RESET);
+        NOW.set(BUCKET_END);
         postPin(viewer, island, "observatory")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.created").value(true))
                 .andExpect(jsonPath("$.item.pinnedFrom").value("observatory"))
-                .andExpect(jsonPath("$.item.pinnedAt").value("2026-10-12T22:00:00Z"));
+                .andExpect(jsonPath("$.item.pinnedAt").value("2026-10-12T06:00:00Z"));
 
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select source from telescope_pins where user_id=?", String.class, viewer))
                 .isEqualTo("observatory");
         assertThat(jdbc.queryForObject("select expires_at from telescope_pins where user_id=?",
-                java.sql.Timestamp.class, viewer).toInstant()).as("07:00:00 정각에 넣으면 내일 07:00")
-                .isEqualTo(NEXT_RESET.plus(Duration.ofDays(1)));
+                java.sql.Timestamp.class, viewer).toInstant()).as("06:00:00 정각에 넣으면 07:00")
+                .isEqualTo(BUCKET_END.plus(Duration.ofHours(1)));
     }
 
     @Test
@@ -545,9 +569,11 @@ class TelescopePinIntegrationTest {
         pin(viewer, ids.get(0), "magazine", BASE);
         pin(other, ids.get(0), "magazine", BASE);
 
-        pin(viewer, ids.get(1), "observatory", NEXT_RESET.plusSeconds(5));
+        pin(viewer, ids.get(1), "observatory", BUCKET_END.plusSeconds(5));
 
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select island_id from telescope_pins where user_id=?", UUID.class, viewer))
+                .as("남은 행은 방금 넣은 새 섬이다").isEqualTo(ids.get(1));
         assertThat(count("select count(*) from telescope_pins where user_id=?", other))
                 .as("남의 만료 행은 그 사람이 넣을 때 지운다").isEqualTo(1);
     }
@@ -731,8 +757,10 @@ class TelescopePinIntegrationTest {
         List<TelescopeItemView> items = telescope.list(viewer).items();
         assertThat(pinnedIds(viewer)).as("보이는 핀은 5개지만 가장 오래된 0번은 감춘다").containsExactly(
                 islands.get(1).getId(), islands.get(2).getId(), islands.get(3).getId(), islands.get(4).getId());
-        assertThat(items).as("새 섬 칸은 1 아래로 내려가지 않는다").extracting(TelescopeItemView::slot)
-                .containsExactly("nearby", "pinned", "pinned", "pinned", "pinned");
+        // 남은 새 섬은 5번 하나다. 가까운 섬 라벨은 5번이 스냅샷 첫 섬일 때만 붙는다(해시 순) — 칸 수만 본다.
+        assertThat(items).as("새 섬 칸은 1 아래로 내려가지 않는다").filteredOn(item -> !"pinned".equals(item.slot()))
+                .extracting(TelescopeItemView::islandId).containsExactly(islands.get(5).getId());
+        assertThat(items).extracting(TelescopeItemView::slot).filteredOn("pinned"::equals).hasSize(4);
 
         NOW.set(BASE.plusSeconds(7));
         postPin(viewer, islands.get(5).getId(), "magazine").andExpect(status().isCreated())
@@ -904,7 +932,7 @@ class TelescopePinIntegrationTest {
 
         TelescopeItemView expected = new TelescopeItemView(island.getId(), "물결", "같이 집중해요", 2, 2, true,
                 "pending", "pinned", SailingTimes.minutes(viewer, island.getId(), BUCKET), 83, true, true,
-                "magazine", BASE, null);
+                "magazine", BASE, null, 0);
         assertThat(view.item()).isEqualTo(expected);
         assertThat(view.evicted()).isNull();
         assertThat(view.created()).isTrue();

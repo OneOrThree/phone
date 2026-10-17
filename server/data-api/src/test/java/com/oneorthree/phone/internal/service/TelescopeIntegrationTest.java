@@ -28,6 +28,11 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import javax.sql.DataSource;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -38,7 +43,14 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -48,7 +60,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 망원경 목록 (GROMO-2265) — 실 Flyway 스키마 위에 운영 엔티티·저장소로 섬·주민·강퇴·도착·평균을 심고 생산
+ * 망원경 목록 (GROMO-2265, 1시간 고정 GROMO-2306) — 실 Flyway 스키마 위에 운영 엔티티·저장소로 섬·주민·강퇴·도착·평균을 심고 생산
  * 진입점(서비스와 내부 HTTP)으로 부른다. 후보 SQL·주민 수·평균 reader 를 대역으로 덮지 않는다.
  *
  * <p>후보가 «DB 의 공개 섬 전부» 라 테스트마다 앞 테스트의 섬을 묘비(소프트 삭제)로 돌려 그 테스트가 심은 섬만 후보로
@@ -81,6 +93,8 @@ class TelescopeIntegrationTest {
     @Autowired
     TelescopeService telescope;
     @Autowired
+    TelescopePinService pinService;
+    @Autowired
     UserRepository users;
     @Autowired
     GroupRepository groups;
@@ -90,6 +104,8 @@ class TelescopeIntegrationTest {
     IslandJoinRequestRepository joinRequests;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    DataSource dataSource;
     @Autowired
     MockMvc mvc;
 
@@ -130,6 +146,289 @@ class TelescopeIntegrationTest {
         TelescopeView next = telescope.list(viewer.getId());
         assertThat(next.bucketStart()).isEqualTo(BUCKET.plus(Duration.ofHours(1)));
         assertThat(next.nextRefreshMinutes()).isEqualTo(37);
+    }
+
+    // ---------------------------------------------------------------- ①-1 1시간 고정 (GROMO-2306)
+
+    @Test
+    @DisplayName("같은 버킷 안에 후보 섬이 정원까지 차도 목록·순서·칸·항해 분이 같고 full 만 true 로 바뀐다 — 가까운 섬도 15분 그대로")
+    void fillingUpCandidatesOnlyFlipsFull() {
+        User viewer = user();
+        List<UUID> open = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            open.add(island("두자리섬" + i, 2).getId());
+        }
+        TelescopeView first = telescope.list(viewer.getId());
+        assertThat(first.items()).extracting(TelescopeItemView::full).containsOnly(false);
+        UUID nearby = first.items().get(0).islandId();
+        UUID random = first.items().get(2).islandId();
+
+        // 가까운 섬과 무작위 섬 하나를 정원(2)까지 채운다 — 다시 뽑는다면 정원 찬 섬은 맨 뒤로 밀린다.
+        for (UUID id : List.of(nearby, random)) {
+            Group island = groups.findById(id).orElseThrow();
+            join(user(), island);
+            join(user(), island);
+        }
+        NOW.set(BASE.plus(Duration.ofMinutes(30)));
+        TelescopeView again = telescope.list(viewer.getId());
+
+        assertThat(again.items()).extracting(TelescopeItemView::islandId, TelescopeItemView::slot,
+                        TelescopeItemView::sailingMinutes)
+                .containsExactlyElementsOf(first.items().stream()
+                        .map(item -> tuple(item.islandId(), item.slot(), item.sailingMinutes())).toList());
+        assertThat(again.items().get(0)).satisfies(item -> {
+            assertThat(item.slot()).isEqualTo("nearby");
+            assertThat(item.sailingMinutes()).isEqualTo(15);
+        });
+        assertThat(again.items()).filteredOn(TelescopeItemView::full).extracting(TelescopeItemView::islandId)
+                .containsExactlyInAnyOrder(nearby, random);
+        assertThat(again.items()).filteredOn(item -> item.islandId().equals(nearby)).singleElement()
+                .satisfies(item -> assertThat(item.memberCount()).isEqualTo(2));
+    }
+
+    @Test
+    @DisplayName("같은 버킷 안에 새 공개 섬이 생겨 시드 순으로 앞에 서도 목록은 그대로다")
+    void aNewPublicIslandDoesNotChangeTheBucket() {
+        User viewer = user();
+        List<UUID> open = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            open.add(island("열린섬" + i, 10).getId());
+        }
+        List<UUID> first = ids(telescope.list(viewer.getId()));
+        assertThat(first).containsExactlyElementsOf(byHash(viewer, open).subList(0, 5));
+
+        // 시드 순으로 지금 다섯 번째 섬보다 앞에 서는 새 섬이 나올 때까지 만든다 — 다시 뽑으면 목록에 들어갈 섬이다.
+        UUID fifth = first.get(4);
+        UUID newcomer = null;
+        for (int i = 0; i < 100 && newcomer == null; i++) {
+            UUID id = island("새섬" + i, 10).getId();
+            if (byHash(viewer, List.of(id, fifth)).get(0).equals(id)) {
+                newcomer = id;
+            }
+        }
+        assertThat(newcomer).as("시드 순으로 앞에 서는 새 섬").isNotNull();
+
+        assertThat(ids(telescope.list(viewer.getId()))).containsExactlyElementsOf(first);
+    }
+
+    @Test
+    @DisplayName("같은 버킷 안에 무작위 섬에 가입하면 그 섬은 joined 로 옮기고 무작위 칸은 새로 채우지 않는다")
+    void joiningARandomIslandMovesItToJoinedWithoutRefill() {
+        User viewer = user();
+        List<UUID> open = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            open.add(island("열린섬" + i, 10).getId());
+        }
+        List<TelescopeItemView> first = telescope.list(viewer.getId()).items();
+        UUID joined = first.get(3).islandId();
+
+        join(viewer, groups.findById(joined).orElseThrow());
+        List<TelescopeItemView> again = telescope.list(viewer.getId()).items();
+
+        List<UUID> rest = first.stream().map(TelescopeItemView::islandId).filter(id -> !id.equals(joined)).toList();
+        assertThat(again).extracting(TelescopeItemView::islandId)
+                .containsExactly(joined, rest.get(0), rest.get(1), rest.get(2), rest.get(3));
+        assertThat(again).extracting(TelescopeItemView::slot)
+                .containsExactly("joined", "nearby", "random", "random", "random");
+        assertThat(again.get(0).membershipStatus()).isEqualTo("active");
+    }
+
+    @Test
+    @DisplayName("같은 버킷 안에 후보 섬이 비공개로 바뀌면 그 칸이 빠지고 새로 채우지 않는다 — 가까운 섬이 빠지면 다음 섬이 가까운 섬이 되지 않는다")
+    void aCandidateTurningPrivateLeavesAHole() {
+        User viewer = user();
+        for (int i = 0; i < 8; i++) {
+            island("열린섬" + i, 10);
+        }
+        List<TelescopeItemView> first = telescope.list(viewer.getId()).items();
+        UUID randomGone = first.get(2).islandId();
+        jdbc.update("update groups set is_private = true where id = ?", randomGone);
+
+        List<TelescopeItemView> afterRandom = telescope.list(viewer.getId()).items();
+        assertThat(afterRandom).extracting(TelescopeItemView::islandId).containsExactly(first.get(0).islandId(),
+                first.get(1).islandId(), first.get(3).islandId(), first.get(4).islandId());
+        assertThat(afterRandom).extracting(TelescopeItemView::slot)
+                .containsExactly("nearby", "random", "random", "random");
+
+        jdbc.update("update groups set is_private = true where id = ?", first.get(0).islandId());
+        List<TelescopeItemView> afterNearby = telescope.list(viewer.getId()).items();
+        assertThat(afterNearby).extracting(TelescopeItemView::islandId).containsExactly(first.get(1).islandId(),
+                first.get(3).islandId(), first.get(4).islandId());
+        assertThat(afterNearby).extracting(TelescopeItemView::slot).containsOnly("random");
+        assertThat(afterNearby.get(0).sailingMinutes()).isEqualTo(first.get(1).sailingMinutes());
+    }
+
+    @Test
+    @DisplayName("다음 버킷에는 새 시드로 새 목록을 뽑고, 그 사람의 지난 버킷 스냅샷 행을 지운다")
+    void theNextBucketDrawsAgainAndDropsTheOldSnapshot() {
+        User viewer = user();
+        User other = user();
+        List<UUID> open = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            open.add(island("열린섬" + i, 10).getId());
+        }
+        telescope.list(viewer.getId());
+        telescope.list(other.getId());
+
+        Instant nextBucket = BUCKET.plus(Duration.ofHours(1));
+        NOW.set(BASE.plus(Duration.ofHours(1)));
+        TelescopeView next = telescope.list(viewer.getId());
+
+        assertThat(next.bucketStart()).isEqualTo(nextBucket);
+        assertThat(ids(next)).containsExactlyElementsOf(byHash(viewer, open, nextBucket).subList(0, 5));
+        assertThat(jdbc.queryForList("select bucket_start from telescope_buckets where user_id = ?",
+                java.sql.Timestamp.class, viewer.getId())).extracting(java.sql.Timestamp::toInstant)
+                .containsExactly(nextBucket);
+        assertThat(jdbc.queryForObject("select count(*) from telescope_buckets where user_id = ?", Long.class,
+                other.getId())).as("남의 지난 행은 그 사람이 볼 때 지운다").isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("다른 기기가 같은 버킷 행을 먼저 넣고 아직 커밋하지 않았으면 목록은 그 커밋을 기다렸다가 자기 뽑기가 아니라 "
+            + "그 행(먼저 넣은 순서)을 다시 읽어 쓴다 — 스냅샷 행은 하나다")
+    void aLosingFirstRequestRereadsTheWinningSnapshot() throws Exception {
+        User viewer = user();
+        List<UUID> open = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            open.add(island("열린섬" + i, 10).getId());
+        }
+        // 이 사람이 뽑을 순서(해시 순 0~4)와 다른 목록 — 해시 순 뒤쪽 다섯을 거꾸로.
+        List<UUID> order = byHash(viewer, open);
+        List<UUID> planted = List.of(order.get(7), order.get(6), order.get(5), order.get(4), order.get(3));
+        String literal = planted.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try (Connection winner = dataSource.getConnection()) {
+            winner.setAutoCommit(false);
+            try (PreparedStatement insert = winner.prepareStatement("insert into telescope_buckets "
+                    + "(user_id, bucket_start, island_ids, has_nearby) values (?, ?, cast(? as uuid[]), true)")) {
+                insert.setObject(1, viewer.getId());
+                insert.setTimestamp(2, Timestamp.from(BUCKET));
+                insert.setString(3, literal);
+                insert.executeUpdate();
+            }
+            Future<TelescopeView> loser = pool.submit(() -> telescope.list(viewer.getId()));
+            awaitUntil("목록의 INSERT 가 먼저 넣은 행의 커밋을 기다린다", () -> waitingOnLock() >= 1);
+            winner.commit();
+
+            TelescopeView view = loser.get(30, TimeUnit.SECONDS);
+            assertThat(ids(view)).as("자기 뽑기(해시 순 0~4)가 아니라 이긴 행의 순서다")
+                    .containsExactlyElementsOf(planted).doesNotContain(order.get(0));
+            assertThat(view.items()).extracting(TelescopeItemView::slot)
+                    .containsExactly("nearby", "random", "random", "random", "random");
+            assertThat(jdbc.queryForObject("select count(*) from telescope_buckets where user_id = ?", Long.class,
+                    viewer.getId())).isEqualTo(1L);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("스냅샷 island_ids 에 없는 섬 id 가 섞여 있어도 목록은 던지지 않고 그 칸만 빠진다")
+    void aMissingIslandInTheSnapshotIsSkipped() {
+        User viewer = user();
+        for (int i = 0; i < 8; i++) {
+            island("열린섬" + i, 10);
+        }
+        List<UUID> first = ids(telescope.list(viewer.getId()));
+        jdbc.update("update telescope_buckets set island_ids = island_ids[1:1] || ?::uuid || island_ids[2:] "
+                + "where user_id = ?", UUID.randomUUID(), viewer.getId());
+        assertThat(jdbc.queryForObject("select cardinality(island_ids) from telescope_buckets where user_id = ?",
+                Integer.class, viewer.getId())).isEqualTo(6);
+
+        assertThat(ids(telescope.list(viewer.getId()))).containsExactlyElementsOf(first);
+    }
+
+    @Test
+    @DisplayName("두 기기가 같은 버킷의 첫 목록을 동시에 불러도 같은 목록이고 스냅샷 행은 하나다")
+    void concurrentFirstRequestsAgreeOnOneSnapshot() throws Exception {
+        User viewer = user();
+        for (int i = 0; i < 8; i++) {
+            island("열린섬" + i, 10);
+        }
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            CountDownLatch go = new CountDownLatch(1);
+            List<Future<TelescopeView>> results = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                results.add(pool.submit(() -> {
+                    go.await();
+                    return telescope.list(viewer.getId());
+                }));
+            }
+            go.countDown();
+            TelescopeView a = results.get(0).get(60, TimeUnit.SECONDS);
+            TelescopeView b = results.get(1).get(60, TimeUnit.SECONDS);
+
+            assertThat(a.items()).hasSize(5).isEqualTo(b.items());
+            assertThat(jdbc.queryForObject("select count(*) from telescope_buckets where user_id = ?", Long.class,
+                    viewer.getId())).isEqualTo(1L);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("스냅샷 섬 다섯이 전부 비공개로 바뀌면 새 섬 칸은 0이고 joined·pinned 만 남는다 — 새로 뽑지 않는다")
+    void aSnapshotEmptiedByPrivacyLeavesOnlyJoinedAndPinned() {
+        User viewer = user();
+        Group home = island("소속섬", 10);
+        join(viewer, home);
+        List<UUID> open = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            open.add(island("열린섬" + i, 10).getId());
+        }
+        UUID pinnedId = open.get(7);
+        // 첫 핀 넣기가 스냅샷을 뽑는다 — 핀 섬을 뺀 다섯이다.
+        pinService.pin(viewer.getId(), pinnedId, "observatory", null);
+        List<UUID> snapshot = telescope.list(viewer.getId()).items().stream()
+                .filter(item -> "nearby".equals(item.slot()) || "random".equals(item.slot()))
+                .map(TelescopeItemView::islandId).toList();
+        assertThat(snapshot).hasSize(TelescopeService.RANDOM_SLOTS);
+
+        String all = jdbc.queryForObject("select array_to_string(island_ids, ',') from telescope_buckets "
+                + "where user_id = ?", String.class, viewer.getId());
+        for (String id : all.split(",")) {
+            jdbc.update("update groups set is_private = true where id = ?::uuid", id);
+        }
+
+        List<TelescopeItemView> items = telescope.list(viewer.getId()).items();
+        assertThat(items).extracting(TelescopeItemView::islandId, TelescopeItemView::slot)
+                .containsExactly(tuple(home.getId(), "joined"), tuple(pinnedId, "pinned"));
+    }
+
+    @Test
+    @DisplayName("공개 섬이 하나도 없어도 빈 스냅샷({})을 저장하고 같은 버킷엔 그 행을 다시 읽는다 — 그사이 섬이 생겨도 빈 목록이다")
+    void anEmptyDrawIsStoredAndReread() {
+        User viewer = user();
+
+        assertThat(telescope.list(viewer.getId()).items()).isEmpty();
+        assertThat(jdbc.queryForObject("select cardinality(island_ids) || ':' || has_nearby from telescope_buckets "
+                + "where user_id = ?", String.class, viewer.getId())).isEqualTo("0:false");
+
+        island("늦게생긴섬", 10);
+        assertThat(telescope.list(viewer.getId()).items()).isEmpty();
+        assertThat(jdbc.queryForObject("select count(*) from telescope_buckets where user_id = ?", Long.class,
+                viewer.getId())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("칸마다 buildingCount 는 완공(COMPLETED) 시설 수다 — 짓는 중(BUILDING)은 세지 않고 시설이 없으면 0")
+    void buildingCountCountsCompletedFacilitiesOnly() {
+        User viewer = user();
+        Group home = island("소속섬", 10);
+        join(viewer, home);
+        facility(home, "hall", "COMPLETED");
+        facility(home, "board", "COMPLETED");
+        facility(home, "gram", "BUILDING");
+        Group built = island("지은섬", 10);
+        facility(built, "hall", "COMPLETED");
+        Group bare = island("빈섬", 10);
+
+        List<TelescopeItemView> items = telescope.list(viewer.getId()).items();
+
+        assertThat(items).extracting(TelescopeItemView::islandId, TelescopeItemView::buildingCount)
+                .containsExactlyInAnyOrder(tuple(home.getId(), 2), tuple(built.getId(), 1), tuple(bare.getId(), 0));
     }
 
     // ---------------------------------------------------------------- ② 항해 분
@@ -257,9 +556,9 @@ class TelescopeIntegrationTest {
 
         assertThat(telescope.list(viewer.getId()).items()).containsExactly(
                 new TelescopeItemView(home.getId(), "윤슬", "같이 집중해요", 2, 5, false, "active", "joined",
-                        SailingTimes.minutes(viewer.getId(), home.getId(), BUCKET), 83, false, true, null, null, null),
+                        SailingTimes.minutes(viewer.getId(), home.getId(), BUCKET), 83, false, true, null, null, null, 0),
                 new TelescopeItemView(applied.getId(), "물결", "", 1, 10, true, "pending", "nearby", 15, null,
-                        false, false, null, null, null));
+                        false, false, null, null, null, 0));
     }
 
     // ---------------------------------------------------------------- 칸 순서·소속 섬
@@ -384,9 +683,39 @@ class TelescopeIntegrationTest {
         return members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.MEMBER).build());
     }
 
-    /** 서비스와 같은 시드의 셔플 순서 — SQL 의 {@code md5(seed || id)} 와 같은 값으로 정렬한다. */
+    /** 이 database 에서 행·트랜잭션 잠금을 기다리는 세션 수 — {@code TelescopePinIntegrationTest} 와 같은 헬퍼. */
+    private long waitingOnLock() {
+        Long value = jdbc.queryForObject("select count(*) from pg_stat_activity where wait_event_type = 'Lock' "
+                + "and datname = current_database()", Long.class);
+        return value == null ? 0L : value;
+    }
+
+    private static void awaitUntil(String what, BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("제때 일어나지 않았다: " + what);
+            }
+            Thread.sleep(20);
+        }
+    }
+
+    private void facility(Group island, String buildingId, String status) {
+        jdbc.update("insert into island_facilities (island_id, building_id, status, cost, cost_revision) "
+                + "values (?, ?, ?, 0, 1)", island.getId(), buildingId, status);
+    }
+
+    private static List<UUID> ids(TelescopeView view) {
+        return view.items().stream().map(TelescopeItemView::islandId).toList();
+    }
+
     private static List<UUID> byHash(User viewer, List<UUID> islandIds) {
-        String seed = viewer.getId() + ":" + BUCKET.getEpochSecond();
+        return byHash(viewer, islandIds, BUCKET);
+    }
+
+    /** 서비스와 같은 시드의 셔플 순서 — SQL 의 {@code md5(seed || id)} 와 같은 값으로 정렬한다. */
+    private static List<UUID> byHash(User viewer, List<UUID> islandIds, Instant bucket) {
+        String seed = viewer.getId() + ":" + bucket.getEpochSecond();
         return islandIds.stream()
                 .sorted(Comparator.comparing(id -> IslandMembershipService.handle(seed, id)))
                 .toList();

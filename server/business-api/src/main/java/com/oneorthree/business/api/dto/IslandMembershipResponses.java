@@ -16,6 +16,7 @@ import com.oneorthree.business.upstream.data.dto.Magazines;
 import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.Telescope;
 import com.oneorthree.business.upstream.data.dto.TelescopePin;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
 import java.util.List;
@@ -306,6 +307,8 @@ public final class IslandMembershipResponses {
      * @param pinnedAt                  핀을 넣은 시각 — {@code pinnedFrom} 과 함께 있거나 함께 없다
      * @param magazineCell              잡지에서 넣은 섬의 그 잡지 홍보 칸(잡지 한 호의 칸과 같은 모양). 없으면 null 이고 키는
      *                                  항상 있다(GROMO-2289)
+     * @param buildingCount             완공 건물 수 — 단계 그림은 앱 {@code islandStage(memberCount, buildingCount)} 가 정한다
+     *                                  (GROMO-2306). 이 필드를 모르는 옛 Data 면 키가 빠진다(null 을 보내지 않는다 — 앱은 0 으로 읽는다)
      */
     public record TelescopeItemView(
             @JsonProperty(required = true) UUID islandId,
@@ -322,7 +325,12 @@ public final class IslandMembershipResponses {
             @JsonProperty(required = true) boolean arrivedBefore,
             @JsonInclude(JsonInclude.Include.NON_NULL) String pinnedFrom,
             @JsonInclude(JsonInclude.Include.NON_NULL) Instant pinnedAt,
-            @JsonInclude(JsonInclude.Include.ALWAYS) Magazines.Cell magazineCell) {
+            @JsonInclude(JsonInclude.Include.ALWAYS) Magazines.Cell magazineCell,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @Schema(description = "완공 건물 수. 키가 없으면 0 으로 읽는다(옛 Data 호환 — 롤링 배포 중에만 빠지고 null 은 보내지 않는다). "
+                    + "단계 그림은 앱 islandStage(memberCount, buildingCount)",
+                    requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+            Integer buildingCount) {
         public static TelescopeItemView from(Telescope.Item value) {
             if (value == null) {
                 return null;
@@ -342,7 +350,8 @@ public final class IslandMembershipResponses {
                     value.arrivedBefore(),
                     value.pinnedFrom(),
                     value.pinnedAt(),
-                    value.magazineCell());
+                    value.magazineCell(),
+                    value.buildingCount());
         }
     }
 
