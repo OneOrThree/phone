@@ -14,6 +14,9 @@ import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityReq
 import com.oneorthree.phone.internal.notification.dto.NotificationEligibilityResponse;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationExpiry;
+import com.oneorthree.phone.magazine.repository.MagazineIssueRepository;
+import com.oneorthree.phone.magazine.repository.domain.MagazineIssue;
+import com.oneorthree.phone.magazine.support.MagazineCalendar;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.service.UserBlockService;
@@ -59,6 +62,8 @@ public class NotificationEligibilityService {
     static final String REASON_SUBJECT_REQUIRED = "SUBJECT_REQUIRED";
     /** 거절 사유 — 대상이 사라졌다. */
     static final String REASON_SUBJECT_GONE = "SUBJECT_GONE";
+    /** 거절 사유 — 잡지 알림의 그 호가 지난 호가 됐다(다음 호 발행 시각 이후, GROMO-2307). */
+    static final String REASON_ISSUE_NOT_CURRENT = "ISSUE_NOT_CURRENT";
     /** 거절 사유 — 챌린지가 삭제·종료됐다. */
     static final String REASON_CHALLENGE_INACTIVE = "CHALLENGE_INACTIVE";
     /** 거절 사유 — 그룹원이 아니다(탈퇴·강퇴). */
@@ -98,6 +103,7 @@ public class NotificationEligibilityService {
     private final NotificationRetentionEligibility retentionEligibility;
     private final NotificationLeagueEligibility leagueEligibility;
     private final UserBlockService userBlockService;
+    private final MagazineIssueRepository magazineIssueRepository;
 
     /**
      * 지금 이 알림을 보내도 되는가.
@@ -138,13 +144,26 @@ public class NotificationEligibilityService {
             case LEAGUE_DEADLINE_D1, LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING ->
                     leagueEligibility.evaluate(kind, request, clock.instant());
             // 추가 도메인 조회가 없는 종류. 시간 제한이 있는 리그·리텐션은 위에서 만료를 확인했다.
-            // MAGAZINE_PUBLISHED(GROMO-2307)도 «이미 발행된 호»의 통보다 — 정식 계정·미탈퇴는 위 공통 전제가 이미 봤다.
             // MAIN_ISLAND_TRANSFERRED(GROMO-1971)는 «이미 커밋된 이전»을 알리는 것이라 되물을 상태가 없다 —
             // 그 뒤 또 옮겨졌어도 그 이전이 자기 알림을 따로 내므로 여기서 최신 여부를 판정하지 않는다.
-            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE, MAIN_ISLAND_TRANSFERRED,
-                    MAGAZINE_PUBLISHED ->
+            case MAGAZINE_PUBLISHED -> evaluateMagazinePublished(request);
+            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE, MAIN_ISLAND_TRANSFERRED ->
                     NotificationEligibilityResponse.allow();
         };
+    }
+
+    /**
+     * 잡지 발행 알림(GROMO-2307) — 그 호가 아직 «현재 호» 여야 한다. relay·발송 게이트가 다음 호 발행 뒤까지 밀리면 지난 호
+     * 알림이 「오늘의 고양이 잡지」로 나가고, 7호 밖이면 딥링크도 404 다. 정식 계정·미탈퇴는 위 공통 전제가 봤다.
+     */
+    private NotificationEligibilityResponse evaluateMagazinePublished(NotificationEligibilityRequest request) {
+        MagazineIssue issue = magazineIssueRepository.findById(request.subjectId()).orElse(null);
+        if (issue == null) {
+            return NotificationEligibilityResponse.deny(REASON_SUBJECT_GONE);
+        }
+        return clock.instant().isBefore(MagazineCalendar.currentUntil(issue.getIssueDate()))
+                ? NotificationEligibilityResponse.allow()
+                : NotificationEligibilityResponse.deny(REASON_ISSUE_NOT_CURRENT);
     }
 
     /** null은 시간 판정 통과다. 원시각 없는 과거 봉투를 수신 시각으로 새롭게 만들지 않는다. */

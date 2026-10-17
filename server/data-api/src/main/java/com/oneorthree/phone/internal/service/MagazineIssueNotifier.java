@@ -10,6 +10,7 @@ import com.oneorthree.phone.notification.producer.NotificationRequest;
 import com.oneorthree.phone.notification.repository.NotificationSentLogRepository;
 import com.oneorthree.phone.notification.repository.domain.NotificationSendStatus;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
+import com.oneorthree.phone.notification.service.PushNotificationService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -67,6 +68,7 @@ public class MagazineIssueNotifier {
     private final UserQueryService userQueryService;
     private final NotificationDispatcher dispatcher;
     private final NotificationSentLogRepository sentLogs;
+    private final PushNotificationService pushNotificationService;
     private final PlatformTransactionManager transactionManager;
 
     /** 한 쪽 크기 — 테스트가 쪽 경계를 만들려고 줄인다. */
@@ -87,6 +89,7 @@ public class MagazineIssueNotifier {
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         UUID after = NIL;
         int total = 0;
+        int failed = 0;
         while (true) {
             UUID cursor = after;
             Page page = transaction.execute(status -> processPage(issue, cursor, now));
@@ -98,7 +101,14 @@ public class MagazineIssueNotifier {
                 dispatcher.writeFanOut(page.outbox(), NotificationFanOutUnit.RECIPIENT);
             }
             total += page.size();
+            failed += page.failed();
             after = page.last();
+        }
+        if (failed > 0) {
+            // 예외로 쪽 트랜잭션을 되돌리면 이미 나간 FCM 이 다음 틱에 중복된다 — 정상 반환하되 완료는 확정하지 않는다.
+            log.warn("고양이 잡지 알림 일시 실패 — 실패 {}건 — 다음 틱 재시도 date={} issueNo={}", failed, issueDate,
+                    issue.getIssueNo());
+            return;
         }
         transaction.executeWithoutResult(status -> issues.markNotified(issue.getId(), now));
         log.info("고양이 잡지 알림 펼치기 완료 date={} issueNo={} 대상={}", issueDate, issue.getIssueNo(), total);
@@ -107,7 +117,7 @@ public class MagazineIssueNotifier {
     private Page processPage(MagazineIssue issue, UUID after, Instant now) {
         List<User> targets = users.findFormalUsersAfter(after, PageRequest.ofSize(pageSize));
         if (targets.isEmpty()) {
-            return new Page(null, List.of(), 0);
+            return new Page(null, List.of(), 0, 0);
         }
         Map<UUID, UserNotificationSettings> settings = userQueryService
                 .findAllNotificationSettings(targets.stream().map(User::getId).toList()).stream()
@@ -116,6 +126,7 @@ public class MagazineIssueNotifier {
         List<NotificationRequest> outbox = new ArrayList<>();
         List<UUID> sent = new ArrayList<>();
         List<UUID> unsent = new ArrayList<>();
+        int failed = 0;
         for (User user : targets) {
             NotificationRequest request = requestOf(issue, user);
             if (outboxMode) {
@@ -131,10 +142,18 @@ public class MagazineIssueNotifier {
             PushMessage message = new PushMessage(TITLE, BODY_PREFIX + issue.getIssueNo() + BODY_SUFFIX,
                     DEEP_LINK_PREFIX + issue.getId(), own == null || own.isSoundEnabled(),
                     Map.of("type", NotificationSentLog.TYPE_MAGAZINE_PUBLISHED));
-            // 안 나간 계정(토큰 없음·알림 끔)의 선점은 지운다 — 남기면 «보냈다» 로 읽히고, 지워도 DROP 정책이라
-            // 다음 틱에 다시 시도해도 무해하다.
-            (dispatcher.dispatch(user, own, request, message, now).recordsLegacyLog() ? sent : unsent)
-                    .add(claimId);
+            // 필터에 걸리는 계정(토큰 없음·알림 끔·조용한 시간)은 영구 미발송이고, 안 걸렸는데 못 나갔으면 전송 오류다
+            // (sendIfAllowed 는 타임아웃·서버 오류에서도 예외 대신 false 를 돌려준다).
+            boolean filtered = pushNotificationService.isFilteredOut(user, own, now);
+            if (dispatcher.dispatch(user, own, request, message, now).recordsLegacyLog()) {
+                sent.add(claimId);
+            } else {
+                // 선점은 어느 쪽이든 지운다 — 남기면 «보냈다» 로 읽혀 다음 틱 재시도가 막힌다.
+                unsent.add(claimId);
+                if (!filtered) {
+                    failed++;
+                }
+            }
         }
         if (!sent.isEmpty()) {
             sentLogs.updateStatusByIds(sent, NotificationSendStatus.SENT, now);
@@ -142,7 +161,7 @@ public class MagazineIssueNotifier {
         if (!unsent.isEmpty()) {
             sentLogs.deleteByIds(unsent);
         }
-        return new Page(targets.get(targets.size() - 1).getId(), outbox, targets.size());
+        return new Page(targets.get(targets.size() - 1).getId(), outbox, targets.size(), failed);
     }
 
     private static NotificationRequest requestOf(MagazineIssue issue, User user) {
@@ -152,6 +171,6 @@ public class MagazineIssueNotifier {
                         "issueDate", issue.getIssueDate().toString()));
     }
 
-    private record Page(UUID last, List<NotificationRequest> outbox, int size) {
+    private record Page(UUID last, List<NotificationRequest> outbox, int size, int failed) {
     }
 }

@@ -18,6 +18,8 @@ import com.oneorthree.phone.internal.notification.service.NotificationEligibilit
 import com.oneorthree.phone.internal.notification.service.NotificationRetentionEligibility;
 import com.oneorthree.phone.internal.notification.service.NotificationLeagueEligibility;
 import com.oneorthree.phone.internal.notification.service.NotificationSnapshotService;
+import com.oneorthree.phone.magazine.repository.MagazineIssueRepository;
+import com.oneorthree.phone.magazine.repository.domain.MagazineIssue;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.service.UserBlockService;
@@ -75,6 +77,8 @@ class NotificationEligibilityServiceTest {
     FriendshipRepository friendshipRepository;
     @Mock
     UserBlockService userBlockService;
+    @Mock
+    MagazineIssueRepository magazineIssueRepository;
 
     /**
      * 서비스는 생성자로 직접 조립한다 — {@code @InjectMocks} 는 «어느 인자에 무엇이 들어갔는가»를
@@ -87,7 +91,26 @@ class NotificationEligibilityServiceTest {
         return new NotificationEligibilityService(userQueryService, groupQueryService,
                 groupMemberRepository, betParticipantRepository, friendshipRepository,
                 Clock.fixed(NOW, ZoneOffset.UTC), retention, mock(NotificationLeagueEligibility.class),
-                userBlockService);
+                userBlockService, magazineIssueRepository);
+    }
+
+    @Test
+    void magazinePublishedIsAllowedOnlyWhileItsIssueIsTheCurrentOne() {
+        UUID issueId = UUID.randomUUID();
+        userIsActive();
+        // NOW = 2026-09-11 12:00 KST. 오늘 호는 내일 07:00 KST 까지, 어제 호는 오늘 07:00 KST 에 이미 지났다.
+        when(magazineIssueRepository.findById(issueId)).thenReturn(Optional.of(new MagazineIssue(
+                java.time.LocalDate.of(2026, 9, 11), 5, NOW, null, 0)));
+        assertThat(service().evaluate(request("MAGAZINE_PUBLISHED", issueId)).eligible()).isTrue();
+
+        when(magazineIssueRepository.findById(issueId)).thenReturn(Optional.of(new MagazineIssue(
+                java.time.LocalDate.of(2026, 9, 10), 4, NOW, null, 0)));
+        NotificationEligibilityResponse past = service().evaluate(request("MAGAZINE_PUBLISHED", issueId));
+        assertThat(past.eligible()).isFalse();
+        assertThat(past.reason()).isEqualTo("ISSUE_NOT_CURRENT");
+
+        when(magazineIssueRepository.findById(issueId)).thenReturn(Optional.empty());
+        assertThat(service().evaluate(request("MAGAZINE_PUBLISHED", issueId)).reason()).isEqualTo("SUBJECT_GONE");
     }
 
     private void userIsActive() {

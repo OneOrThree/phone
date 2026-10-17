@@ -327,10 +327,17 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      * 잡지 발행 알림 대상 한 쪽(GROMO-2307) — 활성 <b>정식</b> 유저를 id 순 키셋으로 훑는다.
      * {@link #findInactiveReturnTargets} 와 같은 조건(게스트·탈퇴 제외)에 날짜 창이 없다.
      *
+     * <p><b>공유 잠금(FOR SHARE)</b>으로 읽는다 — 호출한 쪽 트랜잭션이 끝날 때까지 이 사용자들의 탈퇴
+     * ({@code AccountWithdrawalService#withdraw} 의 행 잠금)가 기다린다. 그래야 LEGACY 경로가 «조회 뒤 탈퇴가 커밋된
+     * 사용자»의 메모리 사본으로 선점 행을 만들고 푸시를 보내 탈퇴자의 발송 이력을 되살리지 못한다. 효과는
+     * <b>선점·발송을 같은 트랜잭션에서 하는 LEGACY 에만</b> 있다 — OUTBOX 의 쪽 트랜잭션은 요청 조립뿐이고 적는 쪽
+     * ({@code writeFanOut})이 수신자 축을 따로 잠근다.
+     *
      * @param after    직전 쪽의 마지막 id(첫 쪽은 nil UUID)
      * @param pageable 쪽 크기만 쓴다({@code PageRequest.ofSize})
      * @return id 오름차순 최대 쪽 크기만큼
      */
+    @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("SELECT u FROM User u WHERE u.isGuest = false AND u.isDeleted = false AND u.id > :after ORDER BY u.id")
     List<User> findFormalUsersAfter(@Param("after") UUID after, Pageable pageable);
 }

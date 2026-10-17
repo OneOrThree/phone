@@ -90,11 +90,32 @@ class MagazineIssueNotifierLegacyIntegrationTest extends MagazineIssueNotifierTe
     @DisplayName("안 나간 계정(토큰 없음 등)은 선점을 남기지 않는다 — 다음 틱이 다시 시도할 수 있다")
     void unsentAccountLeavesNoClaim() {
         usersFor(2);
+        when(push.isFilteredOut(any(), any(), any())).thenReturn(true); // 토큰 없음·알림 끔 — 영구 미발송
         when(push.sendIfAllowed(any(), any(), any(), any())).thenReturn(false);
         notifier.notifyIfPending(DATE, NOW);
+        assertThat(notifiedAt()).isEqualTo(NOW); // 영구 미발송만 있으면 완료로 확정한다
         assertThat(sentLogs()).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_sent_logs WHERE kind = 'MAGAZINE_PUBLISHED'",
                 Integer.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("일시적 전송 실패(적격인데 false) — notified_at 은 NULL 로 남고, 다음 틱이 그 계정만 다시 보내 성공하면 확정")
+    void transientFailureIsRetriedOnTheNextTick() {
+        usersFor(3);
+        when(push.isFilteredOut(any(), any(), any())).thenReturn(false);
+        when(push.sendIfAllowed(any(), any(), any(), any())).thenReturn(true, false, true);
+
+        notifier.notifyIfPending(DATE, NOW); // 예외 없이 정상 반환
+
+        assertThat(notifiedAt()).isNull();
+        assertThat(sentLogs()).isEqualTo(2);
+        when(push.sendIfAllowed(any(), any(), any(), any())).thenReturn(true);
+        notifier.notifyIfPending(DATE, NOW.plusSeconds(600));
+        // 앞 틱에 나간 둘은 선점에 막히고 실패한 한 명만 다시 시도된다 — 3 + 1 번
+        verify(push, times(4)).sendIfAllowed(any(), any(), any(), any());
+        assertThat(sentLogs()).isEqualTo(3);
+        assertThat(notifiedAt()).isEqualTo(NOW.plusSeconds(600));
     }
 
     @Test
