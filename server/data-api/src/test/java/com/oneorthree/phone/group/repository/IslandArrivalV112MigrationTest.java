@@ -39,7 +39,7 @@ class IslandArrivalV112MigrationTest {
 
     @Test
     @DisplayName("V111 의 친구 편지는 kind=FRIEND·island_id NULL 로 남고, 활성 소속만 도착 기록으로 백필된다")
-    void v107KeepsFriendLettersAndBackfillsActiveMemberships() {
+    void v112KeepsFriendLettersAndBackfillsActiveMemberships() {
         migrate(MigrationVersion.fromVersion("111"));
         JdbcTemplate jdbc = jdbc();
         UUID sender = user(jdbc, "보낸이");
@@ -67,7 +67,7 @@ class IslandArrivalV112MigrationTest {
 
     @Test
     @DisplayName("백필은 살아 있는 섬만 채우고, 지금 서 있는 섬을 «최근 머문 섬» 으로 올린다")
-    void v107BackfillsOnlyAliveIslandsAndLiftsTheCurrentIsland() {
+    void v112BackfillsOnlyAliveIslandsAndLiftsTheCurrentIsland() {
         migrate(MigrationVersion.fromVersion("111"));
         JdbcTemplate jdbc = jdbc();
         UUID resident = user(jdbc, "주민");
@@ -98,7 +98,7 @@ class IslandArrivalV112MigrationTest {
 
     @Test
     @DisplayName("시스템 편지는 발신자 없이 들어가고, kind 는 세 값만 받는다")
-    void v107AllowsSystemLettersAndChecksKind() {
+    void v112AllowsSystemLettersAndChecksKind() {
         migrate(MigrationVersion.LATEST);
         JdbcTemplate jdbc = jdbc();
         UUID receiver = user(jdbc, "받는이");
