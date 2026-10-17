@@ -1,6 +1,7 @@
+import { CoastalAtlas } from './CoastalAtlas';
 import React, { useEffect, useMemo, useState } from 'react';
+import { TileTerrainFacilities } from './TileTerrainFacilities';
 import {
-  Atlas,
   Canvas,
   Circle,
   Group,
@@ -221,6 +222,8 @@ export function TileTerrainCanvas({
   onAssetsFail,
   navDebug,
   reduceMotion = false,
+  pressedFacility,
+  showFacilityOutlines = false,
 }: {
   width: number;
   height: number;
@@ -236,6 +239,8 @@ export function TileTerrainCanvas({
   navDebug?: NavDebug | null;
   /** 설정의 모션 줄이기 — 보정 원을 50ms로 깜빡이지 않고 창 동안 정적으로 보여준다(GROMO-2249 보완8 항목 6). */
   reduceMotion?: boolean;
+  pressedFacility?: string | null;
+  showFacilityOutlines?: boolean;
 }) {
   // Metro 는 `@2x` 를 배율 접미사로 읽어 파일명 그대로는 못 찾는다 — 기본 이름으로 부르면 tileset@2x.png(밤 tileset-night@2x.png) 변형을 고른다.
   // 스냅샷이 cache 면 파일 URI(GROMO-2233). 소스는 마운트 때 고정되고, 디코드 실패 때만 부모가 번들로 바꾼다.
@@ -251,6 +256,11 @@ export function TileTerrainCanvas({
     [assets, file],
   );
   // 캐시 PNG 가 깨져 디코드에 실패하면 빈 섬이 되지 않게 소스 전체를 번들로 강등한다(번들 이미지는 다시 로드).
+  const coastline = readMapJson('tileset.json', bundledTileset, assets).coastlineMaskVersion;
+  const needsCoastMask = coastline !== 1;
+  const coastMask = useImage(
+    needsCoastMask ? require('@/assets/backgrounds/island/ocean/home-mask.png') : null,
+  );
   const image = useImage(source, () => {
     if (assets.kind === 'cache') onAssetsFail?.(file);
   });
@@ -301,7 +311,7 @@ export function TileTerrainCanvas({
     }, CORRECTION_TICK_MS);
     return () => clearInterval(id);
   }, [correctedAt, reduceMotion]);
-  if (!image || !atlas) return null;
+  if (!image || !atlas || (needsCoastMask && !coastMask)) return null;
   const scale = base * camera.z;
   const serverPath = server?.path && server.path.length > 1 ? polyline(server.path) : null;
   const arrow =
@@ -321,7 +331,23 @@ export function TileTerrainCanvas({
           { scale },
         ]}
       >
-        <Atlas image={image} sprites={atlas.sprites} transforms={atlas.transforms} />
+        <CoastalAtlas
+          image={image}
+          sprites={atlas.sprites}
+          transforms={atlas.transforms}
+          mask={needsCoastMask ? coastMask : null}
+        />
+        {showFacilityOutlines && (
+          <TileTerrainFacilities
+            image={image}
+            coastMask={needsCoastMask ? coastMask : null}
+            atlas={atlas}
+            scale={scale}
+            pressedFacility={pressedFacility}
+            reduceMotion={reduceMotion}
+            night={night}
+          />
+        )}
         {grid && (
           <Path path={grid} style="stroke" strokeWidth={1 / scale} color="rgba(255,0,0,0.6)" />
         )}
