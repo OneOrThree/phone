@@ -72,12 +72,14 @@ export function SeaScene({
         [0.21, 0.46, 66],
         [0.74, 0.55, 76],
         [0.23, 0.66, 94],
+        [0.8, 0.7, 82],
       ]
     : [
         [0.79, 0.25, 48],
         [0.24, 0.33, 66],
         [0.71, 0.42, 76],
         [0.23, 0.58, 94],
+        [0.76, 0.62, 82],
       ];
 
   return (
@@ -268,9 +270,12 @@ const styles = StyleSheet.create({
   name: {
     fontSize: s.typography.caption,
     color: s.color.text,
-    backgroundColor: `${s.color.surface}E6`,
+    backgroundColor: `${s.color.surface}8C`,
     borderRadius: p.radius.control,
-    paddingHorizontal: p.space[1],
+    lineHeight: 16,
+    includeFontPadding: false,
+    paddingHorizontal: 2,
+    paddingVertical: 0,
     marginTop: -p.space[2],
   },
   me: { color: s.color.text, backgroundColor: s.color.selected },

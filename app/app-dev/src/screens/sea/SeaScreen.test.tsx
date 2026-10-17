@@ -42,7 +42,8 @@ test.each([1, 5, 10])('%i명 방은 자기 자신을 제외한 모든 사람에�
   expect(pages.flat().map((person) => person.userId)).toEqual(
     people.slice(1, count).map((person) => person.userId),
   );
-  expect(pages.every((page) => page.length <= 4)).toBe(true);
+  expect(pages.every((page) => page.length <= 5)).toBe(true);
+  if (count === 10) expect(pages.map((page) => page.length)).toEqual([5, 4]);
 });
 
 test('시간만 도달하면 자동 종료하거나 하선 버튼으로 바꾸지 않는다', async () => {
@@ -148,11 +149,11 @@ test('스와이프로 마지막 참여자에 도달하고 드래그 직후에는
   const screen = await render(<SeaScreen {...props()} />);
   const scroll = screen.getByTestId('sea-participants');
   await fireEvent(scroll, 'scrollBeginDrag');
-  await fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { x: 804, y: 0 } } });
+  await fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { x: 402, y: 0 } } });
   const last = screen.getByTestId('sea-person-9');
   await fireEvent.press(last);
   expect(screen.queryByLabelText('닫기')).toBeNull();
-  expect(screen.getByText('3 / 3')).toBeTruthy();
+  expect(screen.getByText('2 / 2')).toBeTruthy();
 });
 
 test('스냅샷 순서 갱신은 선택한 페이지를 초기화하지 않는다', async () => {
@@ -160,22 +161,22 @@ test('스냅샷 순서 갱신은 선택한 페이지를 초기화하지 않는�
   const screen = await render(<SeaScreen {...p} />);
   await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
   await screen.rerender(<SeaScreen {...p} participants={[...people].reverse()} />);
-  expect(screen.getByText('2 / 3')).toBeTruthy();
-  expect(screen.getByTestId('sea-person-5')).toBeTruthy();
+  expect(screen.getByText('2 / 2')).toBeTruthy();
+  expect(screen.getByTestId('sea-person-6')).toBeTruthy();
 });
 
-test('연속 다음 버튼은 스크롤 중간 이벤트 때문에 이전 페이지로 되돌아가지 않는다', async () => {
+test('다음 페이지 이동은 중간 스크롤 이벤트 때문에 이전 페이지로 되돌아가지 않는다', async () => {
   const screen = await render(<SeaScreen {...props()} />);
   await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
   await fireEvent.scroll(screen.getByTestId('sea-participants'), {
     nativeEvent: { contentOffset: { x: 80, y: 0 } },
   });
-  expect(screen.getByText('2 / 3')).toBeTruthy();
+  expect(screen.getByText('2 / 2')).toBeTruthy();
   await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
   await fireEvent.scroll(screen.getByTestId('sea-participants'), {
-    nativeEvent: { contentOffset: { x: 804, y: 0 } },
+    nativeEvent: { contentOffset: { x: 402, y: 0 } },
   });
-  expect(screen.getByText('3 / 3')).toBeTruthy();
+  expect(screen.getByText('2 / 2')).toBeTruthy();
 });
 
 test('게스트와 한마디 쿨다운 상태에서는 저장 요청을 보낼 수 없다', async () => {

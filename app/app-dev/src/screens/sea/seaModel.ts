@@ -48,12 +48,12 @@ export const seaDuration = (seconds: number) =>
     seconds: Math.floor(Math.max(0, seconds) % 60),
   });
 
-/** 나는 앞에 고정하고 다른 참여자는 4명씩 배치한다. 정원 10명의 마지막 1명도 표시한다. */
+/** 나는 앞에 고정하고 다른 참여자는 최대 5명씩 배치한다. 10명 방은 5+4명이다. */
 export function seaPeerPages(participants: readonly SeaParticipant[], selfId: string) {
   const peers = [...new Map(participants.map((p) => [p.userId, p])).values()].filter(
     (p) => p.userId !== selfId,
   );
-  return Array.from({ length: Math.max(1, Math.ceil(peers.length / 4)) }, (_, index) =>
-    peers.slice(index * 4, index * 4 + 4),
+  return Array.from({ length: Math.max(1, Math.ceil(peers.length / 5)) }, (_, index) =>
+    peers.slice(index * 5, index * 5 + 5),
   );
 }

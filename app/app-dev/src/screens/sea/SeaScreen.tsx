@@ -152,14 +152,16 @@ export function SeaScreen(props: SeaScreenProps) {
                     },
                   ]}
                 >
-                  <View style={styles.destinationWindow}>
-                    <Image
-                      source={seaAssets.destination}
-                      resizeMode="contain"
-                      style={styles.destination}
-                      accessible={false}
-                    />
-                  </View>
+                  {voyage.canDisembark && (
+                    <View style={styles.destinationWindow}>
+                      <Image
+                        source={seaAssets.destination}
+                        resizeMode="contain"
+                        style={styles.destination}
+                        accessible={false}
+                      />
+                    </View>
+                  )}
                   <Txt style={styles.subject}>{voyage.subject}</Txt>
                   <Txt testID="sea-focus-clock" style={styles.timer}>
                     {seaClock(voyage.activeSeconds)}
