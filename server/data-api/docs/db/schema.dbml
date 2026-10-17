@@ -1011,7 +1011,7 @@ Table island_promotions [note: '고양이 잡지 홍보 칸 — 섬장이 신청
   applied_at timestamptz [not null, note: '지면 순서(먼저 신청한 순)의 기준 — 고쳐도 바뀌지 않는다']
   updated_at timestamptz [not null, note: '마지막으로 고친 시각']
   body       varchar(60) [not null, note: '한 줄 글(신고 대상) — 앞뒤 공백을 뗀 1~60자(코드 포인트), 줄바꿈 없음. 금칙어 검사를 거친다']
-  layout     jsonb       [not null, note: '{v:1, frameId, stickers:[{assetId,x,y,scale,rotation}] ≤10, tape:{assetId,x,y,rotation}|null} — 칸 기준 정규화 좌표(-0.08~1.08), 배열 뒤쪽이 위에 그려진다. 서비스가 검증한 정규형만 들어온다']
+  layout     jsonb       [not null, note: '{v:1, frameId, stickers:[{assetId,x,y,scale,rotation}] ≤5, tape:{assetId,x,y,rotation}|null} — 칸 기준 정규화 좌표(-0.08~1.08), 배열 뒤쪽이 위에 그려진다. 서비스가 검증한 정규형만 들어온다']
   snapshot   jsonb       [note: '발행 때 고정하는 섬 숫자 {islandId, name, buildingCount, memberCount, maxMembers, averageFocusMinutesPerDay}. 발행 전 NULL — 호가 나온 뒤에도 NULL 이면 그 순간 비공개·닫힌 섬이라 싣지 않은 칸이다(V120 발행 배치)']
   moderation varchar(10) [not null, default: 'NONE', note: 'NONE / HIDDEN / REMOVED / CLEARED — CHECK. 신고 3건이면 HIDDEN, 운영이 REMOVED(내림·환불 없음) 또는 CLEARED(되살림)']
   hidden_at  timestamptz [note: '신고로 숨긴 시각 — 서로 다른 사람 3명이 신고한 트랜잭션이 moderation=HIDDEN 과 함께 적는다(V121)']

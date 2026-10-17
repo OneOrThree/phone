@@ -279,6 +279,8 @@ class MagazineReportPreviewIntegrationTest {
         assertThat(magazinePin.magazineCell().promotionId()).isEqualTo(promotion);
         assertThat(magazinePin.magazineCell().name()).isEqualTo("잡지핀섬");
         assertThat(magazinePin.magazineCell().body()).isEqualTo("홍보");
+        assertThat(magazinePin.magazineCell().privateIsland()).isFalse();
+        assertThat(magazinePin.magazineCell().buildingCount()).as("시설이 없는 섬").isZero();
         assertThat(magazinePin.magazineCell().layout().frameId()).isEqualTo("mag.frame-scallop");
         assertThat(pinned(viewer, fromObservatory).magazineCell()).isNull();
 

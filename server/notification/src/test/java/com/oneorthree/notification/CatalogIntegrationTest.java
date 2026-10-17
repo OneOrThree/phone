@@ -164,6 +164,13 @@ class CatalogIntegrationTest {
         assertThat(push.data()).containsEntry("link", "gromo://magazine?issue=55555555-5555-4555-8555-555555555555")
                 .containsEntry("type", "MAGAZINE_PUBLISHED");
         assertThat(renderer.render("MAGAZINE_PUBLISHED", "en", inputs()).title()).isEqualTo("Today's Cat Magazine is here");
+        for (String locale : List.of("ko", "en", "ja", "zh-Hant")) {
+            RenderedPush localized = renderer.render("MAGAZINE_PUBLISHED", locale, inputs());
+            assertThat(localized.title()).as(locale).isNotBlank();
+            assertThat(localized.body()).as(locale).contains("7").doesNotContain("{");
+            assertThat(localized.data()).as(locale)
+                    .containsEntry("link", "gromo://magazine?issue=55555555-5555-4555-8555-555555555555");
+        }
     }
 
     @Test

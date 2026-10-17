@@ -1,5 +1,7 @@
 -- GROMO-2306 망원경 1시간 고정 + 핀 1시간 (섬 외부 v1.0 마무리 계약 §1).
 --
+-- 주의: 이미 적용된 V115 의 «다음 07:00 KST» 와 V124 의 «매시 다시 계산된다» 주석은 이 마이그레이션 이후 틀리다(체크섬 때문에 못 고친다) — 정본은 TelescopePinService.nextReset·TelescopeService.list.
+--
 -- telescope_buckets: 사람마다 1시간 버킷의 망원경 새 섬 목록 스냅샷. 그 버킷의 첫 목록 요청이 후보를 뽑아 한 행을
 --   넣고(ON CONFLICT DO NOTHING — 두 기기 동시 첫 요청이면 한쪽 행이 이긴다), 같은 버킷 안의 요청은 이 행을 읽는다.
 --   정원·가입·강퇴·비공개 변동은 표시(full·membershipStatus·칸 빠짐)만 바꾸고 뽑은 섬·순서는 바꾸지 않는다.

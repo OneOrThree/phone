@@ -463,7 +463,12 @@ class TelescopeIntegrationTest {
     @DisplayName("비공개·강퇴·종료 섬은 0건이고 자진 탈퇴한 섬은 discover 와 같이 후보에 나온다")
     void privateKickedAndEndedIslandsNeverAppearButLeftIslandsDo() {
         User viewer = user();
-        groups.save(Group.builder().name("비공개섬").maxMembers(10).isPrivate(true).build());
+        Group privateIsland = groups.save(Group.builder().name("비공개섬").maxMembers(10).isPrivate(true).build());
+        // 잡지에 홍보 칸이 실린 비공개 섬이라도 후보·목록에서 빠진다.
+        jdbc.update("insert into island_promotions (id, island_id, issue_date, applied_by, applied_at, updated_at, "
+                + "body, layout) values (?, ?, ?, ?, ?, ?, '홍보', ?::jsonb)", UUID.randomUUID(), privateIsland.getId(),
+                java.sql.Date.valueOf("2026-10-12"), viewer.getId(), Timestamp.from(BASE), Timestamp.from(BASE),
+                "{\"v\":1,\"frameId\":\"mag.frame-scallop\",\"stickers\":[],\"tape\":null}");
         groups.save(Group.builder().name("끝난섬").maxMembers(10).status(GroupStatus.ENDED).build());
         GroupMember kicked = join(viewer, island("강퇴섬", 10));
         kicked.kick(BASE);

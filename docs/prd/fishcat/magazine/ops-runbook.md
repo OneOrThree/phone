@@ -201,14 +201,14 @@ SELECT u.id
 | --- | --- | --- |
 | 2316 | 비공개 섬장도 홍보할 수 있다(서버 409 없음). `SERVER_MAX_STICKERS` 10→5 — 기존 6~10장 칸을 고치면 400 `PROMOTION_LAYOUT_INVALID`. 잡지 칸·편집부 랭킹·새 섬의 `privateIsland` | 비공개 섬장의 홍보 버튼 해제. 스티커는 5장까지, 6~10장 칸은 고치기 전에 줄이게 한다. `privateIsland` 는 **키가 없으면 false**. true 면 망원경 동그라미를 숨기고 「초대로만」 안내를 보인다(잡지→망원경 핀은 404) |
 | 2317 | `GET /me/telescope` 항목 `buildingCount`. 목록은 1시간 스냅샷(V125 `telescope_buckets`), 핀 만료는 정시+1h | `buildingCount` 는 **키가 없으면 0**. 단계는 앱 `islandStage(memberCount, buildingCount)`. 목록은 1시간 고정이고 빠진 섬은 채우지 않으므로 새 섬 칸 0 은 빈 상태. 핀 수명은 정시까지이고, 가까운 섬을 핀하면 그 시간 라벨을 보이지 않는다 |
-| 2090·2091 | 알림 `gromo://magazine?issue={issueId}` · `data.type=MAGAZINE_PUBLISHED`. `issue` 는 호 id(UUID). 만료는 호 날짜 다음 날 07:00 KST, 7호 밖 호 id 는 404 | 만료·7호 밖 호 id 를 탭하면 「없는 호」로 처리한다. FCM 수신 전까지는 서버 발송만 준비된 상태다 |
+| 2090·2091 | 알림 `gromo://magazine?issue={issueId}` · `data.type=MAGAZINE_PUBLISHED`. `issue` 는 호 id(UUID). 만료는 호 날짜 다음 날 07:00 KST. 만료된 호도 최근 7호 안이면 200 에 `current=false` 이고, 404 는 7호 밖 호 id 일 때만이다 | 만료 호를 탭하면 열되 «현재 호» 표시는 하지 않고, 7호 밖 호 id 를 탭하면 「없는 호」로 처리한다. FCM 수신 전까지는 서버 발송만 준비된 상태다 |
 
 ### 4-6. 10/16 마무리 에픽 롤백 순서
 
 1. **되돌리는 순서**: data-api → outbox 의 `MAGAZINE_PUBLISHED` 비우기 → 알림 서버. 알림 서버를 먼저 되돌리면 V8 이 없어 422 로 DLT 에 간다.
 2. **Flyway**: data-api V125·V126 **과 알림 서버 V8 모두** 옛 jar 에 없으면 기본 설정에서 기동을 거부한다. `flyway_schema_history` 행을 제거하거나 `spring.flyway.ignore-migration-patterns=*:missing` 을 임시로 허용한다.
 3. **2306**: `telescope_buckets` 행이 남아, 재배포하면 같은 1시간 안의 낡은 스냅샷이 정본처럼 재사용된다(영향 작음). 당겨진 핀 `expires_at` 은 복구할 수 없다.
-4. **2305**: 롤백 사이 비공개 섬이 낸 홍보는 돈이 빠졌는데 잡지에 실리지 않는 상태다. 건수를 확인하고 환불을 판단한다(`island_promotions ⋈ groups.is_private`).
+4. **2305**: 롤백 사이 비공개 섬이 낸 홍보는 돈이 빠졌는데 잡지에 실리지 않는 상태다. `groups.is_private` 는 현재 값이므로, 현재 비공개인 섬의 홍보 중 롤백 기간에 신청된 것(`island_promotions.applied_at` 범위, 조인 `island_promotions.island_id = groups.id`)을 센다. 환불 판단의 후보 목록일 뿐이다.
 5. **2307**: 재배포 뒤 `notified_at` 이 NULL 인 오늘 호는 첫 틱에 다시 펼쳐지지만, 선점 행이 중복을 막는다.
 
 ## 5. 망원경 홍보 칸 미리보기
