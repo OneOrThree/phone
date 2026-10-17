@@ -12,7 +12,7 @@ const water = {
 };
 export const OCEAN_WORLD_SIZE = 512;
 
-/** Both shores and water use the same world origin and camera scale, including negative pan. */
+/** 해안과 바다가 같은 월드 원점·배율을 쓴다. Android는 x/y 대신 셰이더 행렬로 원점을 옮긴다. */
 export function IslandOcean({
   left,
   top,
@@ -35,7 +35,15 @@ export function IslandOcean({
       style={StyleSheet.absoluteFill}
     >
       <Defs>
-        <Pattern id={id} x={left} y={top} width={size} height={size} patternUnits="userSpaceOnUse">
+        <Pattern
+          id={id}
+          x={0}
+          y={0}
+          width={size}
+          height={size}
+          patternTransform={`translate(${left} ${top})`}
+          patternUnits="userSpaceOnUse"
+        >
           <Image
             href={water[night ? 'night' : 'day']}
             width={size}
