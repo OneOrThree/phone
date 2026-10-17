@@ -31,13 +31,13 @@ public interface IslandPromotionRepository extends JpaRepository<IslandPromotion
     /**
      * 그 호에 실린 칸 중 <b>지금 보여 줄 수 있는</b> 것 한 페이지 — {@code (applied_at, id)} keyset, 지면 순서.
      *
-     * <p>읽는 순간 빼는 칸: 발행 때 싣지 않은 칸(snapshot 없음), 신고로 숨겨졌거나 내려간 칸, 지금 비공개이거나 닫힌 섬의
-     * 칸(SAFE-03 「잡지 어디에도 안 나온다」). 그래서 숨김·비공개 전환이 «모든 독자에게서 즉시» 다. 첫 페이지는 호출측이
+     * <p>읽는 순간 빼는 칸: 발행 때 싣지 않은 칸(snapshot 없음), 신고로 숨겨졌거나 내려간 칸, 지금 닫힌 섬의
+     * 칸(10/16: 비공개 섬의 칸은 보인다). 그래서 숨김이 «모든 독자에게서 즉시» 다. 첫 페이지는 호출측이
      * 어떤 행보다도 이른 경계({@code Instant.EPOCH})를 넘긴다.
      */
     @Query("SELECT p FROM IslandPromotion p, Group g WHERE g.id = p.islandId AND p.issueDate = :issueDate "
             + "AND p.snapshot IS NOT NULL AND p.moderation IN ('NONE', 'CLEARED') "
-            + "AND g.isPrivate = false AND g.deletedAt IS NULL "
+            + "AND g.deletedAt IS NULL "
             + "AND g.status <> com.oneorthree.phone.group.repository.domain.GroupStatus.ENDED "
             + "AND (p.appliedAt > :afterAppliedAt OR (p.appliedAt = :afterAppliedAt AND p.id > :afterId)) "
             + "ORDER BY p.appliedAt, p.id")

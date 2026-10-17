@@ -183,7 +183,8 @@ class MagazineReportPreviewIntegrationTest {
     void onlyPublishedCellsCanBeReported() throws Exception {
         Island island = island("대상섬", false);
         Island other = island("다른섬", false);
-        Island hidden = island("비공개섬", true);
+        Island hidden = island("닫힌섬", false);
+        jdbc.update("update groups set deleted_at = now() where id = ?", hidden.id);
         UUID published = promotion(island, date);
         UUID skipped = promotion(hidden, date);
         UUID tomorrow = promotion(island, date.plusDays(1));

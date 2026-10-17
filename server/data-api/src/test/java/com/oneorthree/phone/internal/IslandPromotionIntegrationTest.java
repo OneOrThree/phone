@@ -16,10 +16,14 @@ import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandLedgerPageView;
+import com.oneorthree.phone.internal.dto.MagazineViews;
 import com.oneorthree.phone.internal.service.IslandEconomyReadService;
 import com.oneorthree.phone.internal.service.IslandManagementService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.IslandPromotionService;
+import com.oneorthree.phone.internal.service.MagazineIssueService;
+import com.oneorthree.phone.internal.service.MagazinePublishService;
+import com.oneorthree.phone.magazine.repository.domain.MagazineIssue;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +49,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -141,6 +146,10 @@ class IslandPromotionIntegrationTest {
     MockMvc mvc;
     @Autowired
     IslandPromotionService promotionService;
+    @Autowired
+    MagazinePublishService publisher;
+    @Autowired
+    MagazineIssueService issueService;
 
     private final AtomicReference<Instant> now = new AtomicReference<>(DAY1);
 
@@ -231,19 +240,28 @@ class IslandPromotionIntegrationTest {
     }
 
     @Test
-    @DisplayName("비공개 섬은 409 PROMOTION_PRIVATE_ISLAND — 차감·칸·소식·receipt 가 없다")
-    void privateIslandCannotPromote() throws Exception {
+    @DisplayName("비공개 섬도 신청된다(10/16) — 201·차감·칸·소식·receipt 가 있고, 다음 호 발행 때 칸이 실려 읽힌다(privateIsland=true)")
+    void privateIslandCanPromote() throws Exception {
         Island island = island(100);
         jdbc.update("update groups set is_private = true where id = ?", island.id);
 
-        promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("PROMOTION_PRIVATE_ISLAND"));
+        promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isCreated());
 
-        assertNothingWritten(island, 100);
+        assertThat(balance(island.id)).isEqualTo(40);
+        assertThat(ledgerRows(island.id)).isEqualTo(1);
+        assertThat(promotionRows(island.id)).isEqualTo(1);
+        assertThat(newsRows(island.id)).isEqualTo(1);
+        assertThat(count("select count(*) from command_idempotency where user_id = ?", island.host)).isEqualTo(1);
+
+        now.set(Instant.parse("2026-10-12T22:00:00Z")); // KST 10/13 07:00
+        MagazineIssue issue = publisher.publish(LocalDate.of(2026, 10, 13)).orElseThrow();
+        MagazineViews.IssuePage page = issueService.issue(island.host, issue.getId(), null, null, 50);
+        assertThat(page.cells()).filteredOn(cell -> cell.islandId().equals(island.id))
+                .singleElement().satisfies(cell -> assertThat(cell.privateIsland()).isTrue());
     }
 
     @Test
-    @DisplayName("글·배치가 틀리면 아무것도 남지 않는다 — 61자 422 · 금칙어 400 · 줄바꿈(앞뒤 포함) 400 · 스티커 11개 400 · 없는 재료 400 · 자리에 맞지 않는 종류 400 · 모르는 키·틀린 타입 400")
+    @DisplayName("글·배치가 틀리면 아무것도 남지 않는다 — 61자 422 · 금칙어 400 · 줄바꿈(앞뒤 포함) 400 · 스티커 6개 400 · 없는 재료 400 · 자리에 맞지 않는 종류 400 · 모르는 키·틀린 타입 400")
     void invalidContentLeavesNoTrace() throws Exception {
         Island island = island(100);
         String ok = layout(FRAME, List.of(STICKER), TAPE);
@@ -251,7 +269,7 @@ class IslandPromotionIntegrationTest {
         expectRejected(island, content("가".repeat(61), ok), 422, "PROMOTION_TEXT_TOO_LONG");
         expectRejected(island, content("씨발 섬", ok), 400, "BANNED_WORD");
         expectRejected(island, content("첫 줄\n둘째 줄", ok), 400, "PROMOTION_LAYOUT_INVALID");
-        expectRejected(island, content(BODY, layout(FRAME, Collections.nCopies(11, STICKER), null)), 400,
+        expectRejected(island, content(BODY, layout(FRAME, Collections.nCopies(6, STICKER), null)), 400,
                 "PROMOTION_LAYOUT_INVALID");
         expectRejected(island, content(BODY, layout("mag.no-such-frame", List.of(), null)), 400,
                 "PROMOTION_LAYOUT_INVALID");
@@ -268,9 +286,9 @@ class IslandPromotionIntegrationTest {
                 "PROMOTION_LAYOUT_INVALID");
 
         assertNothingWritten(island, 100);
-        // 경계값은 통과한다 — 60자, 스티커 10개.
+        // 경계값은 통과한다 — 60자, 스티커 5개.
         promote(island.host, island.id, UUID.randomUUID(),
-                content("가".repeat(60), layout(FRAME, Collections.nCopies(10, STICKER), TAPE)))
+                content("가".repeat(60), layout(FRAME, Collections.nCopies(5, STICKER), TAPE)))
                 .andExpect(status().isCreated());
     }
 

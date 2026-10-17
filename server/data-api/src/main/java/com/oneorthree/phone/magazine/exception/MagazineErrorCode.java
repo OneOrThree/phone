@@ -19,13 +19,13 @@ public enum MagazineErrorCode implements ErrorCode {
     /** 신청 창(KST 07:00~24:00) 밖의 새 신청 — 00~07시. */
     PROMOTION_WINDOW_CLOSED(HttpStatus.CONFLICT, "지금은 홍보를 신청할 수 없어요. 아침 7시에 다시 열려요"),
 
-    /** 비공개 섬의 신청 — 비공개 섬은 잡지 어디에도 나오지 않는다(SAFE-03). */
+    /** 10/16 비공개 섬 홍보 허용 — 더는 던지지 않는다(공개 이름 동결). */
     PROMOTION_PRIVATE_ISLAND(HttpStatus.CONFLICT, "비공개 섬은 잡지에 홍보할 수 없어요"),
 
     /** 홍보 글이 60자(코드 포인트)를 넘는다 — 금칙어 400 과 상태를 가른다(오류 계약 §4). */
     PROMOTION_TEXT_TOO_LONG(HttpStatus.UNPROCESSABLE_ENTITY, "홍보 글은 60자까지 쓸 수 있어요"),
 
-    /** 빈 글·줄바꿈·배치 규칙 위반(틀 없음·스티커 11개·범위 밖 좌표·카탈로그에 없는 재료 …). */
+    /** 빈 글·줄바꿈·배치 규칙 위반(틀 없음·스티커 6개·범위 밖 좌표·카탈로그에 없는 재료 …). */
     PROMOTION_LAYOUT_INVALID(HttpStatus.BAD_REQUEST, "홍보 칸 꾸미기 내용이 올바르지 않아요"),
 
     /** 섬장이 갖지 않았고 직전 칸에도 없던 재료. */

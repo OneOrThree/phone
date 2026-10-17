@@ -46,8 +46,8 @@ import java.util.UUID;
  *   <li>7일 평균 스냅샷을 <b>먼저 직접</b> 부른다(자기 트랜잭션). 평균 배치도 07:00 이라 어느 쪽이 먼저 돌지 모르는데,
  *       평균은 {@code ON CONFLICT DO NOTHING} 이라 두 번 불려도 첫 값이 남는다 — 그래서 이 호의 평균이 «오늘 07시 값»
  *       으로 보장된다.</li>
- *   <li>한 트랜잭션(REPEATABLE READ): 편집부 칸(비공개 제외 주간 랭킹 1~3위 · 어제 새로 생긴 공개 섬 최대 3곳 · 편집부
- *       소식/몽돌 팁) → 그 호의 홍보 칸에 섬 숫자 고정(그 순간 비공개·닫힌 섬의 칸은 싣지 않는다 — 신청한 칸은 모두 실린다,
+ *   <li>한 트랜잭션(REPEATABLE READ): 편집부 칸(주간 랭킹 1~3위 — 10/16 비공개 섬도 든다 · 어제 새로 생긴 공개 섬 최대 3곳 · 편집부
+ *       소식/몽돌 팁) → 그 호의 홍보 칸에 섬 숫자 고정(그 순간 닫힌 섬의 칸은 싣지 않는다 — 신청한 칸은 모두 실린다,
  *       사전 검토 없음) → 호 행 → 조간·석간 판단용 로그.</li>
  *   <li>호가 커밋된 뒤 자기 트랜잭션: 최근 7호보다 오래된 호의 받음 상태 정리({@link #forgetOutsideLatestSeven}).</li>
  * </ol>
@@ -114,7 +114,7 @@ public class MagazinePublishService {
 
     private MagazineIssue compose(LocalDate issueDate) {
         Instant now = clock.instant();
-        List<IslandRanking> ranked = rankings.publicTop(now, EDITORIAL_SLOTS);
+        List<IslandRanking> ranked = rankings.top(now, EDITORIAL_SLOTS);
         Instant todayStart = issueDate.atStartOfDay(ZonePolicy.KST).toInstant();
         List<Group> newIslands = islands.findPublicAliveCreatedBetween(
                 issueDate.minusDays(1).atStartOfDay(ZonePolicy.KST).toInstant(), todayStart, EDITORIAL_SLOTS);
@@ -130,7 +130,7 @@ public class MagazinePublishService {
         for (IslandPromotion promotion : requested) {
             IslandCard card = cards.get(promotion.getIslandId());
             if (card == null) {
-                log.info("발행 순간 비공개·닫힌 섬의 홍보는 싣지 않는다 promotion={} island={}",
+                log.info("발행 순간 닫힌 섬의 홍보는 싣지 않는다 promotion={} island={}",
                         promotion.getId(), promotion.getIslandId());
                 continue;
             }
@@ -153,7 +153,7 @@ public class MagazinePublishService {
     }
 
     /**
-     * 공개·살아 있는 섬의 발행 순간 숫자. 비공개·닫힌 섬은 결과에 없다 — 호출자가 «싣지 않음» 으로 읽는다.
+     * 살아 있는 섬(비공개 포함)의 발행 순간 숫자. 닫힌 섬은 결과에 없다 — 호출자가 «싣지 않음» 으로 읽는다.
      *
      * <p>평균은 방금 적은 오늘 스냅샷(없으면 가장 최근 행), 주민 수·완공 시설 수는 지금 값이다. 쿼리는 섬 수와 무관하게
      * 네 번이다.
@@ -170,7 +170,7 @@ public class MagazinePublishService {
                 .forEach(row -> buildingCounts.put(row.getIslandId(), row.getBuildingCount()));
         Map<UUID, OptionalInt> latestAverages = averages.latest(islandIds);
         for (Group island : islands.findAllById(islandIds)) {
-            if (!IslandMovementGuards.isAlive(island) || island.isPrivate()) {
+            if (!IslandMovementGuards.isAlive(island)) {
                 continue;
             }
             OptionalInt average = latestAverages.get(island.getId());

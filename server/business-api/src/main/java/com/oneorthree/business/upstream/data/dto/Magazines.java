@@ -130,7 +130,11 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer tipNo) {
     }
 
-    /** 홍보 칸 한 개 — 섬 요약 + 섬장이 쓴 글과 꾸미기 {@code layout}. */
+    /**
+     * 홍보 칸 한 개 — 섬 요약 + 섬장이 쓴 글과 꾸미기 {@code layout}. {@code privateIsland} 는 읽는 시점의 섬 공개
+     * 여부(GROMO-2305) — 선택 필드라 옛 Data 가 안 보내면 null 이고, null 이면 키를 싣지 않는다(망원경
+     * 항목의 {@code magazineCell} 모양을 바꾸지 않는다). 비공개 섬은 망원경 핀이 404 라 앱이 동그라미를 숨긴다.
+     */
     @Schema(name = "MagazineCell")
     public record Cell(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID promotionId,
@@ -143,6 +147,7 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String body,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL)
             @Schema(implementation = Map.class) ObjectNode layout,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation) {
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean privateIsland) {
     }
 }

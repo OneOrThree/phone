@@ -58,7 +58,7 @@ class MagazineContractTest extends UpstreamTestBase {
     private static final String CELL = "{\"promotionId\":\"" + PROMOTION + "\",\"islandId\":\"" + ISLAND + "\","
             + "\"name\":\"모래섬\",\"buildingCount\":5,\"memberCount\":3,\"maxMembers\":15,"
             + "\"averageFocusMinutesPerDay\":62,\"body\":\"놀러 오세요\",\"layout\":{\"v\":1,\"future\":{\"nested\":[1,2]}},"
-            + "\"relation\":\"KICKED\"}";
+            + "\"relation\":\"KICKED\",\"privateIsland\":true}";
 
     // ---------------------------------------------------------------- 오늘 호
 
@@ -144,6 +144,18 @@ class MagazineContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 한 호 펼치기
 
     @Test
+    @DisplayName("칸의 privateIsland 는 선택 필드 — 옛 Data 가 안 보내도 계약 위반이 아니고 키 없이 나간다")
+    void cellWithoutPrivateIslandIsNull() throws Exception {
+        DATA.on(DATA_ISSUE, request -> ok(page("null", "null", "null")
+                .replace(",\"privateIsland\":true", "")));
+
+        mockMvc.perform(auth(get(PUBLIC_ISSUE)).header("X-User-Id", UUID.randomUUID()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cells[0].promotionId").value(PROMOTION.toString()))
+                .andExpect(jsonPath("$.data.cells[0].privateIsland").doesNotExist());
+    }
+
+    @Test
     @DisplayName("한 호 첫 페이지는 경계 없이 limit 30 을 보내고, 다음 커서로 부르면 푼 경계를 상류에 보낸다 — 뒤 페이지는 editorial·nextCursor 를 null 로 유지한다")
     void issuePagesWithASignedCursor() throws Exception {
         DATA.on(DATA_ISSUE, request -> request.query().contains("afterAppliedAt")
@@ -176,6 +188,7 @@ class MagazineContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.cells[0].body").value("놀러 오세요"))
                 .andExpect(jsonPath("$.data.cells[0].layout.future.nested[1]").value(2))
                 .andExpect(jsonPath("$.data.cells[0].relation").value("KICKED"))
+                .andExpect(jsonPath("$.data.cells[0].privateIsland").value(true))
                 .andExpect(jsonPath("$.data.nextAppliedAt").doesNotExist())
                 .andExpect(jsonPath("$.data.nextPromotionId").doesNotExist())
                 .andExpect(jsonPath("$.data.nextCursor").isNotEmpty())
@@ -438,7 +451,7 @@ class MagazineContractTest extends UpstreamTestBase {
             "/me/magazine/issues/{issueId}|get|editorial/ranking|rank islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay relation",
             "/me/magazine/issues/{issueId}|get|editorial/newIslands|islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay relation",
             "/me/magazine/issues/{issueId}|get|editorial/note|type body tipNo",
-            "/me/magazine/issues/{issueId}|get|cells|promotionId islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay body layout relation",
+            "/me/magazine/issues/{issueId}|get|cells|promotionId islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay body layout relation privateIsland?",
             "/me/magazine/issues/{issueId}/receipt|put||place receivedAt deferredAt openedAt"})
     @DisplayName("공개 문서가 각 경로의 응답 필드를 담고, null 일 수 있는 키도 필수(늘 실림)로 적는다")
     void publicDocumentationPreservesFields(String path, String method, String nested, String fields)
@@ -457,10 +470,13 @@ class MagazineContractTest extends UpstreamTestBase {
                 schema = document.at(schema.path("$ref").asText().substring(1));
             }
         }
-        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        // 이름 끝 ? = 선택 필드(properties 에는 있고 required 에는 없다)
+        assertThat(schema.path("properties").propertyNames())
+                .containsExactlyInAnyOrder(fields.replace("?", "").split(" "));
         var required = new java.util.ArrayList<String>();
         schema.path("required").forEach(value -> required.add(value.asText()));
-        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
+        assertThat(required).containsExactlyInAnyOrderElementsOf(
+                java.util.Arrays.stream(fields.split(" ")).filter(name -> !name.endsWith("?")).toList());
     }
 
     @Test

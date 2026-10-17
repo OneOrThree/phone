@@ -234,6 +234,22 @@ class IslandRankingsIntegrationTest {
         assertThat(page.myRank()).as("목록에 없어도 전체에서 3위").isEqualTo(3);
     }
 
+    @Test
+    @DisplayName("비공개 섬도 순위와 myRank 모집단에 든다 — 랭킹은 섬 공개 여부를 보지 않는다(GROMO-2305)")
+    void privateIslandsAreRanked() {
+        Island home = island("우리 비공개 섬", true);
+        focus(home, 60);
+        Island hidden = island("비공개 일등섬", true);
+        focus(hidden, 60000);
+        jdbc.update("update groups set is_private = true where id in (?, ?)", home.id, hidden.id);
+        freeze(week);
+
+        IslandRankingPage page = service.islands(home.owner.getId(), week, null);
+
+        assertThat(page.items()).extracting(IslandRanking::islandId).containsExactly(hidden.id, home.id);
+        assertThat(page.myRank()).isEqualTo(2);
+    }
+
     // ---------------------------------------------------------------- 분모 동결
 
     @Test
