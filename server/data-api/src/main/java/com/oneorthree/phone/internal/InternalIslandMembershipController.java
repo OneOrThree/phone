@@ -121,7 +121,7 @@ public class InternalIslandMembershipController {
     @PostMapping("/telescope/pins")
     public ResponseEntity<TelescopePinView> pinToTelescope(@PathVariable UUID userId,
                                                            @Valid @RequestBody TelescopePinCommandRequest body) {
-        TelescopePinView pinned = telescopePinService.pin(userId, body.islandId(), body.source());
+        TelescopePinView pinned = telescopePinService.pin(userId, body.islandId(), body.source(), body.promotionId());
         return ResponseEntity.status(pinned.created() ? HttpStatus.CREATED : HttpStatus.OK).body(pinned);
     }
 

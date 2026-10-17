@@ -353,7 +353,7 @@ test('신고 사유는 44pt이고 메일을 여는 동안 입력이 잠긴다', 
   await fireEvent.press(screen.getByText('신고하기'));
 
   const harassment = screen.getByRole('button', { name: '욕설·괴롭힘' });
-  assert.equal(harassment.props.style.height, 44);
+  assert.equal(harassment.props.style.minHeight, 44);
   const first = fireEvent.press(screen.getByText('이메일 작성'));
   await waitFor(() => assert.equal(openUrlMock.mock.calls.length, 1));
 

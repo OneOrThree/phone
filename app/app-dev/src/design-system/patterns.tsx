@@ -425,7 +425,9 @@ export function Chips({
           disabled={disabled}
           onPress={() => onChange(x)}
           style={{
-            height: large ? 44 : 36,
+            // 큰 글자에서는 글이 잘리지 않게 칩이 늘어난다(평소 크기는 그대로 44·36)
+            minHeight: large ? 44 : 36,
+            paddingVertical: primitiveTokens.space[1],
             paddingHorizontal: large ? 18 : 14,
             alignItems: 'center',
             justifyContent: 'center',

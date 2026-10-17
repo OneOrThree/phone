@@ -51,6 +51,8 @@ export type Route =
   | 'boat'
   | 'raft'
   | 'telescope'
+  | 'promotionEditor'
+  | 'magazine'
   | 'mainIsland'
   | 'currentIsland'
   | 'profile'

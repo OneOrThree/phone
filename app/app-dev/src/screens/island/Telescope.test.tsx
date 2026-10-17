@@ -1037,18 +1037,74 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
   test('잡지로 넣은 섬의 말풍선에는 잡지 칸 미리보기가 1장 — 전망대 핀·무작위·가까운·소속 섬에는 없다', async () => {
     const { screen } = await open(EIGHT());
     await press(screen, 'p1');
-    const cards = screen.getAllByTestId('telescope-magazine-preview');
+    const hidden = { includeHiddenElements: true };
+    const cards = screen.getAllByTestId('telescope-magazine-preview', hidden);
     expect(cards).toHaveLength(1);
-    // 그림과 라벨이 한 덩어리로 읽힌다
-    expect(cards[0].props.accessible).toBe(true);
-    expect(cards[0].props.accessibilityLabel).toBe('섬 p1, 잡지 칸 미리보기');
-    within(cards[0]).getByText('잡지 칸 미리보기');
+    // 칸이 없는 자리표시는 섬 그림 장식뿐 — 「잡지 칸 미리보기」 글이 없고 스크린리더에서도 숨긴다
+    expect(cards[0].props.accessibilityElementsHidden).toBe(true);
+    expect(within(cards[0]).queryByText('잡지 칸 미리보기', hidden)).toBeNull();
     await fireEvent.press(screen.getByLabelText('닫기'));
     for (const id of ['p2', 'n1', 'r1', 'j1']) {
       await press(screen, id);
       screen.getByTestId('telescope-bubble-name');
-      expect(screen.queryByTestId('telescope-magazine-preview')).toBeNull();
+      expect(screen.queryByTestId('telescope-magazine-preview', hidden)).toBeNull();
       await fireEvent.press(screen.getByLabelText('닫기'));
+    }
+  });
+
+  test('서버가 그 섬의 오늘 호 칸(magazineCell)을 주면 자리표시 대신 섬장이 꾸민 칸(AdCell)을 그린다', async () => {
+    const cell = {
+      promotionId: 'pr1',
+      islandId: 'p1',
+      name: '별고래',
+      buildingCount: 5,
+      memberCount: 12,
+      maxMembers: 15,
+      averageFocusMinutesPerDay: 185,
+      relation: 'NONE' as const,
+      body: '밤에 같이 공부할 고양이 모여라~',
+      layout: {
+        v: 1 as const,
+        frameId: 'mag.frame-ticket',
+        stickers: [{ assetId: 'mag.star', x: 0.8, y: 0.2, scale: 0.1, rotation: 0 }],
+        tape: null,
+      },
+    };
+    const { screen } = await open([
+      item('p1', { slot: 'pinned', pinnedFrom: 'magazine', magazineCell: cell }),
+      item('p3', { slot: 'pinned', pinnedFrom: 'magazine', magazineCell: null }),
+    ]);
+    await press(screen, 'p1');
+    const preview = screen.getByTestId('telescope-magazine-cell');
+    expect(screen.queryByTestId('telescope-magazine-preview')).toBeNull();
+    // 폭은 말풍선 안 자리를 재고 나서 정한다
+    await fireEvent(preview, 'layout', { nativeEvent: { layout: { width: 280, height: 0 } } });
+    // 칸이 스스로 섬 이름·글을 읽는다. 실린 날 「주민·평균」 줄은 빼서 아래 줄(지금 숫자)과 겹치지 않는다(신고 동작도 없다)
+    const read = within(preview).getByLabelText(/^별고래섬, ‘밤에 같이/);
+    expect(read.props.accessibilityActions).toBeUndefined();
+    expect(within(preview).queryByText(/주민 12\/15 · /)).toBeNull();
+    within(preview).getByText('잡지 칸 미리보기');
+    await fireEvent.press(screen.getByLabelText('닫기'));
+    // 칸이 없는 잡지 찜(편집부 칸·숨겨진 칸)은 예전 자리표시 그대로
+    await press(screen, 'p3');
+    expect(
+      screen.getByTestId('telescope-magazine-preview', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(screen.queryByTestId('telescope-magazine-cell')).toBeNull();
+  });
+
+  test('서버 세션 없는 목업(telescope 깃발)은 말풍선 행동 버튼을 막는다 — 실제 API 를 부르지 않게', async () => {
+    process.env.EXPO_PUBLIC_DEMO = '1';
+    process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'telescope';
+    try {
+      const screen = await render(<Telescope e={env({ islands: false })} />);
+      await fireEvent.press(await screen.findByTestId('telescope-island-mock-island-별고래섬'));
+      for (const label of ['항해하기', '바로 가입', '망원경에서 빼기'])
+        expect(disabled(screen, label)).toBe(true);
+      expect(mockGet).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.EXPO_PUBLIC_DEMO;
+      delete process.env.EXPO_PUBLIC_MAGAZINE_MOCK;
     }
   });
 
@@ -1348,10 +1404,10 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       '섬 p1, saved from the magazine',
     );
     await press(screen, 'p1');
-    screen.getByText('Magazine panel preview');
-    expect(screen.getByTestId('telescope-magazine-preview').props.accessibilityLabel).toBe(
-      '섬 p1, magazine panel preview',
-    );
+    // 칸이 없는 자리표시에는 글이 없다
+    expect(
+      screen.queryByText('Magazine panel preview', { includeHiddenElements: true }),
+    ).toBeNull();
     const button = screen.getByLabelText('Remove from telescope');
     expect(button.props.accessibilityHint).toBe(
       "You're sailing to this island, so you need to stop sailing to remove it",

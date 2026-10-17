@@ -163,8 +163,9 @@ public class IslandMembershipController {
     }
 
     /**
-     * 망원경에 섬 넣기 (GROMO-2268, 섬 외부 계약 §6). 본문은 정확히 {@code {islandId, source}} 둘이고 {@code source} 는
-     * {@code magazine}·{@code observatory} 뿐이다. 새 핀이면 201, 이미 있던 핀이면 200 으로 같은 항목을 돌려준다.
+     * 망원경에 섬 넣기 (GROMO-2268, 섬 외부 계약 §6). 본문은 {@code {islandId, source}} 에 선택 {@code promotionId}
+     * (GROMO-2289, 잡지 홍보 칸에서 넣었을 때 그 홍보 — 「잡지 경유」 집계용) 뿐이고 {@code source} 는 {@code magazine}·
+     * {@code observatory} 뿐이다. 새 핀이면 201, 이미 있던 핀이면 200 으로 같은 항목을 돌려준다.
      * 게스트도 쓴다. 같은 핀을 다시 넣어도 아무것도 바뀌지 않아 {@code Idempotency-Key} 는 받지 않는다.
      */
     @PostMapping(value = "/me/telescope/pins", consumes = "application/json")
@@ -181,12 +182,22 @@ public class IslandMembershipController {
         if (source == null || !source.isString() || !PIN_SOURCES.contains(source.stringValue())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "source");
         }
-        // 위 둘 말고 다른 키가 섞여 있으면 거절한다 — 주체는 서명된 세션에서만 온다.
-        if (body.size() != 2) {
+        // promotionId 는 없거나 null 이거나 UUID 문자열이다.
+        JsonNode promotionId = body.get("promotionId");
+        UUID promotion = null;
+        if (promotionId != null && !promotionId.isNull()) {
+            if (!promotionId.isString()) {
+                throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "promotionId");
+            }
+            promotion = PublicIds.uuid(promotionId.stringValue(), "promotionId", ApiErrorCode.INVALID_REQUEST);
+        }
+        // 위 셋 말고 다른 키가 섞여 있으면 거절한다 — 주체는 서명된 세션에서만 온다.
+        if (body.size() != (promotionId == null ? 2 : 3)) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
         IslandMembershipUseCase.TelescopePinned pinned = islands.pinTelescope(claims,
-                PublicIds.uuid(islandId.stringValue(), "islandId"), source.stringValue(), properties.deadline());
+                PublicIds.uuid(islandId.stringValue(), "islandId"), source.stringValue(), promotion,
+                properties.deadline());
         return ResponseEntity.status(pinned.created() ? HttpStatus.CREATED : HttpStatus.OK).body(pinned.view());
     }
 

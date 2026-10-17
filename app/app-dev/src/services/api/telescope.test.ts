@@ -46,6 +46,21 @@ const wireItem = (over: object = {}) => ({
   averageFocusMinutesPerDay: 83,
   full: false,
   arrivedBefore: false,
+  // 잡지에서 넣은 섬이 아니면 서버가 null 로 싣는다(키는 늘 있다 — GROMO-2289)
+  magazineCell: null,
+  ...over,
+});
+const wireCell = (over: object = {}) => ({
+  promotionId: 'p1',
+  islandId: 'i1',
+  name: '단풍섬',
+  buildingCount: 3,
+  memberCount: 4,
+  maxMembers: 15,
+  averageFocusMinutesPerDay: 83,
+  relation: 'NONE',
+  body: '같이 집중해요',
+  layout: { v: 1, frameId: 'mag.frame-ticket', stickers: [], tape: null },
   ...over,
 });
 
@@ -67,6 +82,31 @@ test('getTelescope — GET /me/telescope 을 {data} 언랩해 돌려준다(게�
   assert.equal(calls[0].init.method ?? 'GET', 'GET');
   assert.equal(header(calls[0], 'Authorization'), 'Bearer AT');
   assert.deepEqual(result, data);
+});
+
+test('getTelescope — 잡지에서 넣은 섬의 홍보 칸(magazineCell)을 그대로 싣고, 모양이 어긋난 칸만 null 로 둔다', async () => {
+  const pinned = { slot: 'pinned', pinnedFrom: 'magazine', pinnedAt: 't' };
+  stub([
+    {
+      status: 200,
+      body: {
+        data: {
+          bucketStart: 'b',
+          nextRefreshMinutes: 5,
+          items: [
+            wireItem({ ...pinned, magazineCell: wireCell() }),
+            wireItem({ ...pinned, islandId: 'i2', magazineCell: wireCell({ layout: 'x' }) }),
+            // 이 필드를 모르는 옛 서버 — 키가 없어도 목록은 정상이다
+            wireItem({ islandId: 'i3', magazineCell: undefined }),
+          ],
+        },
+      },
+    },
+  ]);
+  const [withCell, broken, old] = (await getTelescope()).items;
+  assert.deepEqual(withCell.magazineCell, wireCell());
+  assert.equal(broken.magazineCell, null);
+  assert.equal(old.magazineCell, null);
 });
 
 test('getTelescope — 소속 섬이 하나도 없는 빈 목록도 정상이다', async () => {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import { getIslandNews } from '@/services/api/magazine';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { t } from '@/i18n';
 import { buildingNames, initialState, reducer } from '@/services/model';
@@ -39,6 +40,10 @@ jest.mock('@/screens/island/Screens', () => {
   const { View } = require('react-native');
   return { ...actual, RedesignScreens: ({ e }: any) => <View testID={`redesign-${e.route}`} /> };
 });
+jest.mock('@/services/api/magazine', () => ({
+  ...jest.requireActual('@/services/api/magazine'),
+  getIslandNews: jest.fn(async () => []),
+}));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
@@ -178,3 +183,27 @@ test.each(['tower', 'explore'])(
     assert.equal(screen.queryByTestId(`redesign-${route}`), null);
   },
 );
+
+test('주민 소식(홍보 토스트)은 서버 역할로 주민임을 확인한 뒤에만 읽는다 — 홈 스냅샷 전에는 섬장일 수도 있다(GROMO-2289)', async () => {
+  const news = getIslandNews as jest.Mock;
+  news.mockClear();
+  const withRole = (role: 'host' | 'member') =>
+    reducer(state(), {
+      type: 'SERVER_HOME',
+      facts: {
+        islandId: 'server',
+        completedBuildings: ['hall'],
+        home: { island: { id: 'server', role }, wallets: { villagePoints: 0 } },
+      },
+    });
+  for (const s of [state(), withRole('host')]) {
+    const screen = await render(<CurrentScreens e={env(s, 'home')} />);
+    await act(async () => {});
+    await screen.unmount();
+  }
+  assert.equal(news.mock.calls.length, 0);
+  const member = await render(<CurrentScreens e={env(withRole('member'), 'home')} />);
+  await act(async () => {});
+  assert.equal(news.mock.calls[0]?.[0], 'server');
+  await member.unmount();
+});

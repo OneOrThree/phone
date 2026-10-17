@@ -21,11 +21,14 @@ import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSail
 import { useTelescope } from '@/screens/island/useTelescope';
 import { uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
+import type { MagazineCell } from '@/services/api/magazine';
 import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { unknownOutcome } from '@/services/islandCommands';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { intentKeyPool, serverVisit, type State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
+import { AdCell } from '@/screens/magazine/AdCell';
+import { isTelescopeMock } from '@/services/api/magazineMock';
 
 const { space } = primitiveTokens;
 const { color, stroke, size } = semanticTokens;
@@ -53,15 +56,22 @@ const styles = StyleSheet.create({
   panel: { alignItems: 'center' },
   panelText: { textAlign: 'center' },
   cell: { width: ISLAND, alignItems: 'center', gap: space[2] },
+  // 그림자(바깥)와 잘라내기(안쪽)를 다른 뷰에 둔다 — 한 뷰에 overflow: hidden + boxShadow 를 같이 주면 iOS 가 그 뷰에 내부
+  // 컨테이너를 만들고, 망원경을 닫아 재활용된 그 뷰가 홈의 다른 부모로 다시 쓰일 때 「Attempt to unmount a view which is mounted
+  // inside a different view」로 앱이 죽는다(RN 0.86 prepareForRecycle 이 컨테이너 상태를 지우지 않음).
   island: {
     width: ISLAND,
     height: ISLAND,
+    borderRadius: ISLAND / 2,
+    boxShadow: `0px ${space[1]}px 0px ${color.outline}`,
+  },
+  islandClip: {
+    flex: 1,
     borderRadius: ISLAND / 2,
     borderWidth: stroke.strong,
     borderColor: color.outline,
     backgroundColor: color.secondary,
     overflow: 'hidden',
-    boxShadow: `0px ${space[1]}px 0px ${color.outline}`,
   },
   flag: { position: 'absolute', top: -FLAG_POLE_BASE, right: space[8] },
   // 이름 알약(Badge soft)을 섬 아래 가운데에 두고 칸 폭을 넘지 않게 한다(Badge 기본 배치는 왼쪽 정렬)
@@ -93,6 +103,8 @@ const styles = StyleSheet.create({
     backgroundColor: color.secondary,
   },
   magazineCaption: { textAlign: 'center' },
+  // 진짜 잡지 칸 — 칸 그림이 틀을 가져 종이 테두리를 겹치지 않는다
+  magazineCell: { gap: space[2] },
   // 항해 중인 섬의 [망원경에서 빼기] — 흐리게 보이지만 누를 수는 있다(누르면 항해를 그만둘지 묻는다)
   voyaging: { opacity: componentTokens.button.disabledOpacity },
 });
@@ -204,7 +216,9 @@ function IslandCell({
       ]}
     >
       <View style={styles.island}>
-        <Pic id="island/whole" w="100%" h="100%" cover />
+        <View style={styles.islandClip}>
+          <Pic id="island/whole" w="100%" h="100%" cover />
+        </View>
       </View>
       {joined && (
         // 장식 — 소속 여부는 위 접근성 라벨이 말한다.
@@ -238,25 +252,36 @@ function IslandCell({
 }
 
 /**
- * 잡지 칸 미리보기 자리표시 — 잡지 도메인이 아직 없어(E4) 그 섬장이 꾸민 칸 그림을 받을 수 없다. 기존 섬 그림을 잡지 칸 틀(종이 +
- * 갈색 테두리)에 넣고 라벨을 붙여 둔다. 그림과 라벨이 한 덩어리로 읽히도록 접근성 요소 하나로 묶는다.
+ * 잡지 칸 미리보기(SCOPE-09) — 서버가 그 섬의 오늘 호 홍보 칸(`magazineCell`)을 주면 섬장이 꾸민 칸을 잡지와 같은 `AdCell` 로
+ * 그린다(칸이 섬 이름·글을 직접 읽는다). 칸의 「주민·평균」 줄은 빼고 그린다 — 실린 날 숫자라, 바로 아래 말풍선 줄의 지금 숫자와
+ * 다르게 겹쳐 보인다. 칸이 없으면(편집부 칸에서 넣었거나 칸이 숨겨짐) 섬 그림만 종이 틀에 둔다 — 미리보기가 아니라 장식이라
+ * 「잡지 칸 미리보기」 글도 없고 스크린리더에서도 숨긴다(섬 이름은 말풍선 제목이 읽는다).
  */
-function MagazinePreview({ name }: { name: string }) {
+function MagazinePreview({ cell }: { cell?: MagazineCell | null }) {
+  const [width, setWidth] = useState(0);
+  if (cell)
+    return (
+      <View
+        testID="telescope-magazine-cell"
+        style={styles.magazineCell}
+        onLayout={(ev) => setWidth(ev.nativeEvent.layout.width)}
+      >
+        {width > 0 && <AdCell width={width} cell={cell} hideMeta />}
+        <Txt kind="meta" style={styles.magazineCaption}>
+          {t('telescope.magazinePreview')}
+        </Txt>
+      </View>
+    );
   return (
     <View
       testID="telescope-magazine-preview"
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={t('telescope.magazinePreviewA11y', { name })}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
       style={styles.magazine}
     >
       <View style={styles.magazinePicture}>
-        {/* TODO E4-5 잡지 도메인이 칸 이미지를 주면 이 섬 그림을 그 이미지로 바꾼다 */}
         <Pic id="island/whole" w="100%" h="100%" cover />
       </View>
-      <Txt kind="meta" style={styles.magazineCaption}>
-        {t('telescope.magazinePreview')}
-      </Txt>
     </View>
   );
 }
@@ -309,7 +334,7 @@ function IslandBubble({
         {item.name}
       </Txt>
       {!!item.intro && <Txt>{item.intro}</Txt>}
-      {isMagazinePin(item) && <MagazinePreview name={item.name} />}
+      {isMagazinePin(item) && <MagazinePreview cell={item.magazineCell} />}
       <SheetGroup>
         <SheetRow
           title={t('telescope.residents', { count: item.memberCount, max: item.maxMembers })}
@@ -365,7 +390,7 @@ function IslandBubble({
  * - 그 밖의 섬: [항해하기] 로 구경하고(`full` 이어도 된다), 가입은 [바로 가입]/[가입 신청](`origin: 'telescope'` —
  *   즉시 가입이어도 현재 섬을 옮기지 않는다. 처음 한 번은 항해해서 가야 한다).
  * - 직접 넣은 섬(`slot=pinned`, GROMO-2273): 말풍선에 [망원경에서 빼기] — `DELETE` 가 성공하면 열린 목록이 알림(`onTelescopeChanged`)으로
- *   다시 읽고 서버가 그 자리를 무작위 섬으로 채운다. 잡지에서 넣은 섬(`pinnedFrom=magazine`)에만 「찜」 리본과 잡지 칸 미리보기 자리표시가 붙는다.
+ *   다시 읽고 서버가 그 자리를 무작위 섬으로 채운다. 잡지에서 넣은 섬(`pinnedFrom=magazine`)에만 「찜」 리본과 잡지 칸 미리보기(칸이 없으면 자리표시)가 붙는다.
  *   지금 구경 중인 섬은 «항해 중»이라(서버에는 항해 상태가 없어 앱이 거친다) 「항해를 그만둘까요?」 확인 뒤에 빼고 구경도 끝낸다.
  *   리본·[빼기]는 목록의 `slot` 만 본다 — 넣었다는 상태를 로컬에 따로 들지 않는다(목록이 정본).
  */
@@ -374,7 +399,7 @@ export function Telescope({ e }: { e: any }) {
   const L = useAppLayout();
   // 시스템 글자가 크면 이름 알약은 두 줄까지, 작은 버튼은 높이를 콘텐츠에 맞춘다(보통 크기의 38pt 모양은 그대로)
   const largeText = (L.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
-  const list = useTelescope({ active: !!e.islands });
+  const list = useTelescope({ active: !!e.islands || isTelescopeMock() });
   // 읽기가 실패해 오류 안내로 바뀌면 한 번 알린다 — 안드로이드는 아래 오류 문구의 live region 이, iOS 는 여기서 직접(IslandSheet.SheetToast 와 같은 방식)
   const errorText =
     list.status === 'error' ? errorTextOr(list.error, 'telescope.loadFailed') : null;
@@ -614,7 +639,8 @@ export function Telescope({ e }: { e: any }) {
       {selected && (
         <IslandBubble
           item={selected}
-          locked={sail.pending || joiningId !== null || unpinning}
+          // 서버 세션이 없는 목업(EXPO_PUBLIC_MAGAZINE_MOCK=telescope)은 보기만 — 행동 버튼은 실제 API 를 부르므로 막는다
+          locked={!e.islands || sail.pending || joiningId !== null || unpinning}
           joining={joiningId === selected.islandId}
           voyaging={selected.islandId === voyagingId}
           onClose={() => setSelectedId(null)}

@@ -960,6 +960,7 @@ Table telescope_pins [note: '망원경 핀 — 이 사람이 잡지·전망대�
   user_id    uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 지운다(TelescopePinRepository.deleteAllOfUser, GroupMemberService.eraseWithdrawnUserRecords) — 개인 목록이라 남길 이유가 없다']
   island_id  uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다. 핀 섬이 그사이 비공개·종료·강퇴·내 소속이 되면 행은 남고 목록에서만 빠진다']
   source     varchar(20) [not null, note: "CHECK IN ('magazine','observatory') — 잡지(찜 리본·잡지 칸) / 전망대 검색·랭킹"]
+  promotion_id uuid      [note: "잡지 홍보 칸에서 넣었으면 그 홍보 (FK → island_promotions.id, ON DELETE SET NULL). 넣을 때 그 섬의 현재 호에 보이는 칸으로 확인된 값만 들어간다(PIN 집계와 같은 판정). 편집부 무료 칸·전망대 핀은 NULL — CHECK (promotion_id IS NULL OR source = 'magazine'). 망원경 말풍선 미리보기(magazineCell)는 이 칸만 싣는다. 이미 있는 핀을 다시 넣어도 바꾸지 않는다. GROMO-2289, V122"]
   pinned_at  timestamptz [not null, note: '넣은 시각 — 5번째를 넣을 때 가장 오래된 핀을 고르는 축. 이미 있는 핀을 다시 넣어도 갱신하지 않는다(멱등)']
   expires_at timestamptz [not null, note: '다음 07:00 KST(지금이 07:00 전이면 오늘, 정각 포함 이후면 내일) — 이 시각 이후엔 목록에 나오지 않는다']
 
@@ -979,6 +980,65 @@ Table island_news [note: '섬 소식 — 주민 전원이 같은 글을 읽는 �
   indexes {
     (island_id, created_at) [name: 'island_news_island_created_idx', note: '최신순 목록 읽기용. 실제 인덱스는 created_at DESC']
   }
+}
+
+Table island_promotions [note: '고양이 잡지 홍보 칸 — 섬장이 신청한 홍보 한 건 = 한 행, 한 섬은 한 호에 한 칸. 신청 창은 실릴 호 전날 KST 07:00~24:00 이고 고치기도 그 창 안에서만 된다(00시가 지나면 글·틀·스티커 모두 굳는다). 홍보비 60마리는 island_wallet_transactions(PROMOTION_FEE, 키 promotion:{섬}:{issue_date})가 들고, 주민 소식은 island_news 가 든다. 운영 사전 검토가 없어 검토·승인 열이 없다. 섬이 닫히면 IslandPurgeService 가 지운다. GROMO-2289, V119'] {
+  id         uuid        [pk, note: 'UUID v7']
+  island_id  uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다']
+  issue_date date        [not null, note: '실릴 호의 KST 날짜(= 신청한 KST 날짜 + 1)']
+  applied_by uuid        [not null, note: 'FK → users.id — 신청한 섬장. 유저는 익명화만 되고 지워지지 않아 탈퇴 정리 대상이 아니다']
+  applied_at timestamptz [not null, note: '지면 순서(먼저 신청한 순)의 기준 — 고쳐도 바뀌지 않는다']
+  updated_at timestamptz [not null, note: '마지막으로 고친 시각']
+  body       varchar(60) [not null, note: '한 줄 글(신고 대상) — 앞뒤 공백을 뗀 1~60자(코드 포인트), 줄바꿈 없음. 금칙어 검사를 거친다']
+  layout     jsonb       [not null, note: '{v:1, frameId, stickers:[{assetId,x,y,scale,rotation}] ≤10, tape:{assetId,x,y,rotation}|null} — 칸 기준 정규화 좌표(-0.08~1.08), 배열 뒤쪽이 위에 그려진다. 서비스가 검증한 정규형만 들어온다']
+  snapshot   jsonb       [note: '발행 때 고정하는 섬 숫자 {islandId, name, buildingCount, memberCount, maxMembers, averageFocusMinutesPerDay}. 발행 전 NULL — 호가 나온 뒤에도 NULL 이면 그 순간 비공개·닫힌 섬이라 싣지 않은 칸이다(V120 발행 배치)']
+  moderation varchar(10) [not null, default: 'NONE', note: 'NONE / HIDDEN / REMOVED / CLEARED — CHECK. 신고 3건이면 HIDDEN, 운영이 REMOVED(내림·환불 없음) 또는 CLEARED(되살림)']
+  hidden_at  timestamptz [note: '신고로 숨긴 시각 — 서로 다른 사람 3명이 신고한 트랜잭션이 moderation=HIDDEN 과 함께 적는다(V121)']
+
+  indexes {
+    (island_id, issue_date) [unique, note: '한 섬은 한 호에 한 칸 — 「지난번에 실은 칸」(섬별 최신 호)도 이 인덱스를 거꾸로 탄다']
+    (issue_date, applied_at, id) [name: 'island_promotions_issue_order_idx', note: '지면 순서(같은 호 안에서 먼저 신청한 순) 읽기용']
+  }
+}
+
+Table island_promotion_reports [note: '홍보 칸 신고 — 한 사람이 한 칸을 한 번. 서로 다른 사람 3명이면 같은 트랜잭션에서 island_promotions.moderation=HIDDEN(모든 독자에게서 즉시 숨김). 운영이 SQL 로 REMOVED(내림, 환불 없음)·CLEARED(되살림, 이후 자동 숨김 없음)로 바꾼다. 소셜 로그인 계정만 신고한다. 운영 사전 검토는 없다. GROMO-2289, V121'] {
+  promotion_id uuid        [pk, note: 'FK → island_promotions.id (ON DELETE CASCADE)']
+  reporter_id  uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 익명화만 되고 지워지지 않는다. 숨김 판정의 근거라 탈퇴해도 남긴다']
+  reason       varchar(30) [not null, note: 'HARASSMENT / HATE / SPAM_FRAUD / SEXUAL / CHILD_SAFETY / THREAT / PRIVACY_IMPERSONATION / OTHER — CHECK, 앱 유저 신고 창과 같은 8종']
+  created_at   timestamptz [not null]
+}
+
+Table magazine_issues [note: '고양이 잡지 한 호 — 하루 한 행. 발행 배치가 07:00~23:50 KST 10분마다 «그날 호가 없으면» 만든다(magazine.enabled 가 꺼져 있으면 돌지 않는다). 지우지 않는다. GROMO-2289, V120'] {
+  id              uuid        [pk, note: 'UUID v7']
+  issue_date      date        [not null, note: '호의 KST 날짜']
+  slot            varchar(10) [not null, default: 'MORNING', note: 'CHECK MORNING — 조간·석간 전환(OPS-03) 때 EVENING 을 더한다']
+  issue_no        integer     [not null, unique, note: '호수(1호부터, CHECK > 0) — 유일 제약이 중복 발행을 한 번 더 막는다']
+  published_at    timestamptz [not null]
+  editorial       jsonb       [not null, note: '편집부 페이지 고정값 {ranking:[{rank, island}], newIslands:[island], note:{type EDITOR|TIP, body, tipNo}} — island 는 island_promotions.snapshot 과 같은 모양. 읽는 순간 비공개·닫힌 섬은 뺀다']
+  promotion_count integer     [not null, note: '실린 홍보 수(CHECK >= 0) — 조간·석간 전환 판단용']
+
+  indexes {
+    (issue_date, slot) [unique]
+  }
+}
+
+Table magazine_receipts [note: '계정당 1부의 받음·나중에·읽음 — 행이 없으면 아직 안 받음. 앱이 처음 알릴 때 생기고(07시에 미리 만들지 않는다) 받은 곳·시각은 처음 값으로 고정된다. 최근 7호보다 오래된 호의 행은 발행 배치가 지운다. GROMO-2289, V120'] {
+  user_id        uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 지워지지 않아 탈퇴 TX(AccountWithdrawalService)가 직접 지운다']
+  issue_id       uuid        [pk, note: 'FK → magazine_issues.id (ON DELETE CASCADE)']
+  received_place varchar(10) [not null, note: 'SEA / ISLAND — CHECK. 바다 화면 전에는 늘 ISLAND']
+  received_at    timestamptz [not null]
+  deferred_at    timestamptz [note: '[나중에 읽기] 를 처음 누른 시각']
+  opened_at      timestamptz [note: '처음 펼친 시각 — NULL 이면 안 읽음(빨간 점)']
+
+  indexes {
+    issue_id [name: 'magazine_receipts_issue_idx', note: '7호 정리용']
+  }
+}
+
+Table magazine_editorial_notes [note: '편집부 소식 — 운영이 SQL 로 날짜별 문구를 넣는다. 없는 날은 몽돌 팁(번호 = 호수 % 14). GROMO-2289, V120'] {
+  issue_date date        [pk]
+  body       varchar(80) [not null, note: '칸 실측 전 임시 80자']
+  created_at timestamptz [not null, default: `now()`]
 }
 
 Table sea_focus_totals [note: '바다 집중 누적 — 유저 한 명당 한 행. 평생 누적은 줄지 않고, 이번 달 누적은 정산 달이 month_key 보다 늦어질 때만 정산 서비스가 가산 직전에 0 으로 되돌린다(월초 크론 없음. 앞으로만 — 시계가 뒤로 가 이전 달이 계산돼도 되돌리지 않고 저장된 달의 누적에 더한다). 섬·도착 여부와 무관한 «바다에서 집중한 시간»이다. 바다 집중이 끝날 때마다 SeaFocusRewardService 가 가산한다(서버에 바다 세션이 생기기 전에는 행이 없다). GROMO-2274, V117'] {
@@ -1124,10 +1184,19 @@ Table island_facilities [note: '섬 시설 (섬+buildingId 유일, LLD §4) — 
 Table catalog_assets [note: '카탈로그 불변 자산 정의 (GROMO-1783, island-appearance LLD §2, V64) — 상점(1781)의 asset definition 정본. 외양 적용은 판매 publication 이 아니라 이 불변 의미로 해석한다(퇴역해도 보유품 해석 유지). kind·owner_type·target_building 은 productId 수명 동안 불변 — 갱신 경로 없음. 레거시 items/character_equipment 는 이관하지 않는다'] {
   product_id      varchar(80)  [pk]
   title           varchar(120) [not null]
-  kind            varchar(20)  [not null, note: "clothes / decor / island_theme / building_theme / audio — CHECK catalog_assets_kind_check"]
-  owner_type      varchar(10)  [not null, note: "user / island — CHECK catalog_assets_owner_type_check. CHECK catalog_assets_kind_owner_check: clothes·decor ↔ user, island_theme·building_theme·audio ↔ island"]
+  kind            varchar(20)  [not null, note: "clothes / decor / island_theme / building_theme / audio / ad_frame / ad_sticker / ad_tape — CHECK catalog_assets_kind_check. ad_* 는 고양이 잡지 꾸미기 재료(GROMO-2289 V118 — 시드 64행, product_id 는 mag.<앱 그림 id>)"]
+  owner_type      varchar(10)  [not null, note: "user / island — CHECK catalog_assets_owner_type_check. CHECK catalog_assets_kind_owner_check: clothes·decor·ad_frame·ad_sticker·ad_tape ↔ user, island_theme·building_theme·audio ↔ island"]
   target_building varchar(30)  [note: 'building_theme 만 대상 건물을 갖는다 — CHECK catalog_assets_target_building_check: (kind = building_theme) = (target_building IS NOT NULL)']
   created_at      timestamptz  [not null, default: `now()`]
+}
+
+Table magazine_asset_meta [note: '고양이 잡지 꾸미기 재료(ad_frame·ad_sticker·ad_tape)의 부가 정보 — catalog_assets 와 1:1. 카탈로그 행이 불변이라 서랍 탭·묶음·정렬·퇴역을 옆 표에 둔다. 시드 64행(틀 11 · 스티커 45 · 테이프 8, 10/14 에셋 id 표)은 전부 free 다. 운영 카탈로그라 탈퇴·섬 정리 대상이 아니다. GROMO-2289, V118'] {
+  product_id varchar(80) [pk, note: '(product_id, kind) 복합 FK → catalog_assets(product_id, kind) ON DELETE RESTRICT — 대상 유일 제약 catalog_assets_product_kind_key']
+  kind       varchar(20) [not null, note: "ad_frame / ad_sticker / ad_tape — CHECK. 카탈로그 종류의 사본(복합 FK 로 어긋나지 못한다) — 이 표의 CHECK 가 종류별 규칙을 보려고 둔다"]
+  bundle     varchar(10) [not null, note: "free / season — CHECK. free = 모든 계정이 가진 것(소유 행을 만들지 않는다), season = 바다 시즌 보상으로 owned_products 행이 생겨야 가진 것"]
+  drawer_tab varchar(10) [note: "cat / sea / friends / deco — CHECK. 스티커 서랍 탭 — CHECK magazine_asset_meta_tab_check: 스티커는 NOT NULL, 틀·테이프는 NULL"]
+  sort_order integer     [not null, note: '종류 안의 정렬 순서(1부터)']
+  retired_at timestamptz [note: '서랍에서 내린 시각 — 이미 붙인 칸은 그대로 그린다. 퇴역한 재료는 free 라도 보유 행이 있거나 직전 칸에 있던 것만 다시 실을 수 있다']
 }
 
 Table owned_products [note: '보유 상품 (GROMO-1783, V64) — (주인, 상품) 유일. 주인은 user 또는 island(groups) 정확히 하나. 지급·회수 writer 는 상점(1781). 외양 적용은 제출 상품의 보유 행을 FOR SHARE 로 잡은 뒤 외양 행을 잠근다(잠금 순서 카탈로그 → 보유 → 외양). raft 는 예약 표현이라 행을 만들지 않는다. 계정 탈퇴 시 owner_type=user 본인 행 삭제, island 행은 보존(GROMO-1950)'] {
@@ -1963,9 +2032,17 @@ Ref: island_guestbook_entries.island_id > groups.id [delete: cascade]
 Ref: island_guestbook_entries.author_id > users.id [delete: cascade]
 Ref: telescope_pins.user_id > users.id [delete: cascade]  // GROMO-2268 — 사용자 행은 소프트 삭제라 탈퇴 때 애플리케이션이 지운다
 Ref: telescope_pins.island_id > groups.id [delete: cascade]  // GROMO-2268 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
+Ref: telescope_pins.promotion_id > island_promotions.id [delete: set null]  // GROMO-2289 — 칸이 지워지면 핀은 남고 말풍선 미리보기만 빠진다
 Ref: island_news.island_id > groups.id [delete: cascade]
 Ref: sea_focus_totals.user_id - users.id [delete: cascade]
 Ref: sea_reward_tiers.product_id > catalog_assets.product_id
+Ref: magazine_asset_meta.(product_id, kind) - catalog_assets.(product_id, kind)  // GROMO-2289 V118 — 복합 FK, ON DELETE RESTRICT
+Ref: island_promotions.island_id > groups.id [delete: cascade]  // GROMO-2289 V119 — 섬 행은 소프트 삭제라 IslandPurgeService 가 지운다
+Ref: island_promotions.applied_by > users.id  // GROMO-2289 V119 — 사용자 행은 익명화만 되고 지워지지 않는다
+Ref: island_promotion_reports.promotion_id > island_promotions.id [delete: cascade]  // GROMO-2289 V121
+Ref: island_promotion_reports.reporter_id > users.id [delete: cascade]  // GROMO-2289 V121 — 사용자 행은 지워지지 않아 신고는 남는다
+Ref: magazine_receipts.user_id > users.id [delete: cascade]  // GROMO-2289 V120 — 사용자 행은 익명화만 되고 지워지지 않아 탈퇴 TX 가 지운다
+Ref: magazine_receipts.issue_id > magazine_issues.id [delete: cascade]  // GROMO-2289 V120
 
 // 초대 링크 (V21)
 Ref: group_invite_links.group_id > groups.id

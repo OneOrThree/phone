@@ -1322,3 +1322,63 @@ test.each([false, true])(
     await screen.unmount();
   },
 );
+
+test('안 읽은 오늘 고양이 잡지는 우체통 위 배지 — 친구 편지 배지가 있으면 그쪽이 먼저(GROMO-2289)', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('mail')) island.buildings.push('mail');
+  const home = (letters: boolean, magazine: boolean) => (
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      showMailboxLetters={letters}
+      showMailboxMagazine={magazine}
+    />
+  );
+  const hidden = { includeHiddenElements: true };
+  const screen = await render(home(false, true));
+  expect(screen.getByTestId('mailbox-magazine-indicator', hidden)).toBeTruthy();
+  expect(screen.getByLabelText('우체통, 새 고양이 잡지가 왔어요')).toBeTruthy();
+  await screen.rerender(home(true, true));
+  expect(screen.queryByTestId('mailbox-magazine-indicator', hidden)).toBeNull();
+  expect(screen.getByTestId('mailbox-new-indicator', hidden)).toBeTruthy();
+  await screen.rerender(home(false, false));
+  expect(screen.queryByTestId('mailbox-magazine-indicator', hidden)).toBeNull();
+});
+
+test.each([false, true])(
+  '잡지 배지는 우체통 팻말의 누름과 모션 줄이기(%s)를 따른다',
+  async (reduceMotion) => {
+    const state = initialState(true);
+    state.settings.reduceMotion = reduceMotion;
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={jest.fn()}
+        build={jest.fn()}
+        showMailboxLetters={false}
+        showMailboxMagazine
+      />,
+    );
+    const sign = screen.getByTestId('building-name-mail');
+    const style = () =>
+      Object.assign(
+        {},
+        ...screen
+          .getByTestId('mailbox-magazine-indicator', { includeHiddenElements: true })
+          .props.style.flat(),
+      );
+    const initial = style();
+    await fireEvent(sign, 'pressIn');
+    if (reduceMotion) {
+      expect(style().opacity).toBe(0.75);
+      expect(style().transform).toBeUndefined();
+    } else {
+      expect(style().transform).toEqual([{ translateY: 2 }, { scale: 0.97 }]);
+    }
+    await fireEvent(sign, 'pressOut');
+    expect(style()).toEqual(initial);
+    await screen.unmount();
+  },
+);

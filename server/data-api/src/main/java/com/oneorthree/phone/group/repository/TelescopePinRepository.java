@@ -28,12 +28,12 @@ public interface TelescopePinRepository extends JpaRepository<TelescopePin, Tele
      * @return 넣은 행 수. 1 이면 새 핀이고 0 이면 이미 있던 핀이다(호출자가 만료 행을 먼저 지웠으므로 «만료 안 된» 핀이다)
      */
     @Modifying
-    @Query(value = "INSERT INTO telescope_pins (user_id, island_id, source, pinned_at, expires_at) "
-            + "VALUES (:userId, :islandId, :source, :now, :expiresAt) "
+    @Query(value = "INSERT INTO telescope_pins (user_id, island_id, source, promotion_id, pinned_at, expires_at) "
+            + "VALUES (:userId, :islandId, :source, :promotionId, :now, :expiresAt) "
             + "ON CONFLICT (user_id, island_id) DO NOTHING", nativeQuery = true)
     int insertIfAbsent(@Param("userId") UUID userId, @Param("islandId") UUID islandId,
-                       @Param("source") String source, @Param("now") Instant now,
-                       @Param("expiresAt") Instant expiresAt);
+                       @Param("source") String source, @Param("promotionId") UUID promotionId,
+                       @Param("now") Instant now, @Param("expiresAt") Instant expiresAt);
 
     /**
      * 이 사람의 만료된 핀을 지운다 — 같은 사람이 핀을 넣을 때만 부른다. 읽기 필터가 정본이라 안 지워도 틀리지 않고,
