@@ -282,7 +282,7 @@ class TelescopePinIntegrationTest {
                 UUID islandId = islands.get(i).getId();
                 results.add(pool.submit(() -> {
                     go.await();
-                    return pinService.pin(viewer, islandId, "observatory");
+                    return pinService.pin(viewer, islandId, "observatory", null);
                 }));
             }
             go.countDown();
@@ -320,7 +320,7 @@ class TelescopePinIntegrationTest {
         try (Connection gate = dataSource.getConnection()) {
             try {
                 execute(gate, "select pg_advisory_lock(" + GATE_KEY + ")");
-                Future<TelescopePinView> add = pool.submit(() -> pinService.pin(viewer, island, "observatory"));
+                Future<TelescopePinView> add = pool.submit(() -> pinService.pin(viewer, island, "observatory", null));
                 awaitUntil("다시 넣기가 INSERT 직후 트리거에서 멈춘다", () -> waitingOnGate() == 1);
 
                 Future<?> remove = pool.submit(() -> pinService.unpin(viewer, island));
@@ -363,7 +363,7 @@ class TelescopePinIntegrationTest {
             Future<?> remove;
             try {
                 execute(holder, "select id from users where id = '" + viewer + "' for update");
-                add = pool.submit(() -> pinService.pin(viewer, island, "observatory"));
+                add = pool.submit(() -> pinService.pin(viewer, island, "observatory", null));
                 remove = pool.submit(() -> pinService.unpin(viewer, island));
                 // 둘 다 사용자 행 잠금에서 기다린다 — 빼기가 잠금 없이 먼저 끝나 버리면 여기서 걸린다.
                 awaitUntil("다시 넣기와 빼기가 사용자 행 잠금에서 함께 기다린다", () -> waitingOnLock() == 2);
@@ -904,7 +904,7 @@ class TelescopePinIntegrationTest {
 
         TelescopeItemView expected = new TelescopeItemView(island.getId(), "물결", "같이 집중해요", 2, 2, true,
                 "pending", "pinned", SailingTimes.minutes(viewer, island.getId(), BUCKET), 83, true, true,
-                "magazine", BASE);
+                "magazine", BASE, null);
         assertThat(view.item()).isEqualTo(expected);
         assertThat(view.evicted()).isNull();
         assertThat(view.created()).isTrue();
@@ -1033,7 +1033,7 @@ class TelescopePinIntegrationTest {
     /** 시계를 {@code at} 으로 옮기고 운영 서비스로 핀을 넣는다. */
     private TelescopePinView pin(UUID viewer, UUID islandId, String source, Instant at) {
         NOW.set(at);
-        return pinService.pin(viewer, islandId, source);
+        return pinService.pin(viewer, islandId, source, null);
     }
 
     private ResultActions postPin(UUID viewer, UUID islandId, String source) throws Exception {

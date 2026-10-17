@@ -153,8 +153,10 @@ public class IslandMembershipUseCase {
      * 망원경에 섬 넣기 (GROMO-2268, 섬 외부 계약 §6). 비공개·없는 섬 404 · 강퇴 403 · 이미 내 소속 409 · 5번째 밀어내기 ·
      * 멱등·만료는 전부 Data 몫이고(404·403·409 는 위 표가 공개 코드로 옮긴다) 여기서는 응답이 요청과 맞는지만 본다.
      */
-    public TelescopePinned pinTelescope(AccessTokenClaims claims, UUID islandId, String source, Deadline deadline) {
-        TelescopePin pinned = relay(() -> data.pinTelescope(claims.userId(), islandId, source, deadline));
+    public TelescopePinned pinTelescope(AccessTokenClaims claims, UUID islandId, String source, UUID promotionId,
+            Deadline deadline) {
+        TelescopePin pinned = relay(() -> data.pinTelescope(claims.userId(), islandId, source, promotionId,
+                deadline));
         if (pinned == null || pinned.item() == null || !islandId.equals(pinned.item().islandId())
                 || !"pinned".equals(pinned.item().slot())) {
             throw new UpstreamContractMismatchException("망원경 핀 응답의 항목이 요청과 다릅니다");

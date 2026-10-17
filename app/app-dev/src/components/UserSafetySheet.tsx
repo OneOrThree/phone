@@ -25,7 +25,7 @@ import {
 import { isUserBlocked, markUserBlocked, revalidateBlockedUsers } from '@/services/blockedUsers';
 import { useAppLayout } from '@/utils/layout';
 
-const REASONS: Array<{ value: ReportReason; label: string }> = [
+export const REASONS: Array<{ value: ReportReason; label: string }> = [
   { value: 'HARASSMENT', label: '욕설·괴롭힘' },
   { value: 'HATE', label: '혐오·차별' },
   { value: 'SPAM_FRAUD', label: '스팸·사기' },

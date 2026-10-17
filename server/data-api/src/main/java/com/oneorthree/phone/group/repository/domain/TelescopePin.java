@@ -41,6 +41,10 @@ public class TelescopePin {
     @Column(nullable = false, length = 20)
     private String source;
 
+    /** 잡지 홍보 칸에서 넣었으면 그 홍보(GROMO-2289, V122) — 편집부 칸·전망대 핀은 null. 말풍선 미리보기는 이 칸만 싣는다. */
+    @Column(name = "promotion_id")
+    private UUID promotionId;
+
     /** 넣은 시각 — 5번째를 넣을 때 가장 오래된 핀을 고르는 축이다. */
     @Column(name = "pinned_at", nullable = false)
     private Instant pinnedAt;

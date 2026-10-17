@@ -69,6 +69,19 @@ const ownGreeting = (detail?: { greeting?: string; greetingIsDefault?: boolean }
   detail?.greetingIsDefault === false ? (detail.greeting ?? '') : '';
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
+// 섬 관리 카드의 「냐옹잡지에 섬 홍보하기 ›」 줄
+const promotionRow = {
+  minHeight: semanticTokens.size.tapMin,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: semanticTokens.spacing.control,
+} as const;
+// 관리 쓰기(위임 · 승인 · 강퇴 · 저장) 중에는 홍보 쓰기 줄을 흐리게 막는다 — 공용 버튼의 꺼짐 투명도
+const promotionRowBusy = {
+  ...promotionRow,
+  opacity: componentTokens.button.disabledOpacity,
+} as const;
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
 const final = (word: string) => {
   const c = word.charCodeAt(word.length - 1) - 0xac00;
@@ -748,6 +761,7 @@ export function Hall({ e }: any) {
       construction_debit: '건설 사용',
       shop_purchase: '공동 구매',
       golden_fish: '황금 물고기',
+      promotion_fee: t('magazine.ledger.promotionFee'),
     };
     const shown = ledger.tab === 'balance' ? ledger.items.slice(0, 2) : ledger.items;
     const bookmark = (label: keyof typeof TAB_KEY, n: number) => {
@@ -2936,40 +2950,62 @@ export function Hall({ e }: any) {
         `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
       )}
       {!visitor && (
-        <View
-          style={{
-            minHeight: land ? 45 : 58,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            marginTop: land ? 5 : 14,
-            paddingTop: 6,
-          }}
-        >
-          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>섬에 친구 초대하기</T>
-          <Pressable
-            testID="hall-invite"
-            accessibilityRole="button"
-            accessibilityLabel="섬에 친구 초대하기"
-            onPress={() =>
-              Share.share({
-                message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
-              }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
-            }
+        <View style={{ marginTop: land ? 5 : 14, paddingTop: 6 }}>
+          {displayHost && (
+            // 냐옹잡지에 섬 홍보하기(GROMO-2289 · P3) — 홍보는 마을회관에서(10/5 · 10/14 확정). 내 섬 섬장만, 구경 중에는 없다.
+            // 친구 초대 줄보다 위에 둔다(10/15).
+            // 섬장 판정은 이 카드의 다른 섬장 전용 동작과 같은 displayHost 다 — 실서버 관리 화면에서는 관리 API 의 지금 역할이라
+            // 여기서 위임하거나 다른 기기에서 위임받은 것이 바로 반영된다(홈 스냅샷은 늦을 수 있다). 뒤로가기는 App 기록으로 이 카드에 돌아온다
+            <Pressable
+              testID="hall-promotion-editor"
+              accessibilityRole="button"
+              accessibilityLabel={t('magazine.editor.entry')}
+              // 위임 등 관리 쓰기가 끝나 역할이 다시 확정되기 전에는 못 들어간다 — 그 사이 회관을 떠나면 확정 역할(host)이
+              // 위임 전 값으로 남아 쓰기 화면이 섬장으로 열린다
+              accessibilityState={{ disabled: managementBusy }}
+              disabled={managementBusy}
+              onPress={() => e.go('promotionEditor')}
+              style={managementBusy ? promotionRowBusy : promotionRow}
+            >
+              <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
+                {t('magazine.editor.entry')}
+              </T>
+              <Icon d={CHEV} size={22} />
+            </Pressable>
+          )}
+          <View
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              borderWidth: 1.5,
-              borderColor: '#a78d6e',
-              backgroundColor: '#fffaf0',
+              minHeight: land ? 45 : 58,
+              flexDirection: 'row',
               alignItems: 'center',
-              justifyContent: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
             }}
           >
-            <Icon d={SHARE} size={22} />
-          </Pressable>
+            <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>섬에 친구 초대하기</T>
+            <Pressable
+              testID="hall-invite"
+              accessibilityRole="button"
+              accessibilityLabel="섬에 친구 초대하기"
+              onPress={() =>
+                Share.share({
+                  message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
+                }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
+              }
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                borderWidth: 1.5,
+                borderColor: '#a78d6e',
+                backgroundColor: '#fffaf0',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon d={SHARE} size={22} />
+            </Pressable>
+          </View>
         </View>
       )}
       {visitor ? (
