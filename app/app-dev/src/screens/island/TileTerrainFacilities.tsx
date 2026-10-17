@@ -9,61 +9,9 @@ import {
   type SkRSXform,
 } from '@shopify/react-native-skia';
 import { componentTokens } from '@/design-system/tokens';
-import { TILE_FACILITIES } from './tileFacilities';
+import { TILE_FACILITIES, TERRAIN_FACILITY_CONTOURS } from './tileFacilities';
 
 // 바닥 원화에 포함된 두 시설의 외곽. 원본 타일을 그대로 잘라 사용하므로 낮·밤·캐시 에셋이 함께 바뀐다.
-const contours = {
-  fire: [
-    [2, 31],
-    [6, 19],
-    [17, 11],
-    [30, 5],
-    [44, 1],
-    [58, 2],
-    [70, 0],
-    [86, 5],
-    [100, 13],
-    [109, 24],
-    [113, 37],
-    [107, 48],
-    [96, 55],
-    [79, 61],
-    [57, 64],
-    [35, 61],
-    [18, 55],
-    [6, 45],
-  ],
-  raft: [
-    [3, 58],
-    [13, 48],
-    [25, 48],
-    [38, 39],
-    [53, 31],
-    [69, 21],
-    [80, 12],
-    [90, 6],
-    [106, 5],
-    [116, 10],
-    [133, 12],
-    [142, 19],
-    [155, 20],
-    [165, 28],
-    [166, 39],
-    [159, 49],
-    [142, 55],
-    [130, 65],
-    [115, 70],
-    [97, 80],
-    [80, 90],
-    [68, 100],
-    [54, 101],
-    [43, 96],
-    [34, 88],
-    [20, 88],
-    [11, 81],
-    [3, 79],
-  ],
-};
 const tokens = componentTokens.tileFacility;
 
 export function TileTerrainFacilities({
@@ -83,7 +31,7 @@ export function TileTerrainFacilities({
 }) {
   const objects = useMemo(
     () =>
-      Object.entries(contours).map(([id, points]) => {
+      Object.entries(TERRAIN_FACILITY_CONTOURS).map(([id, points]) => {
         const r = TILE_FACILITIES[id];
         const path = Skia.PathBuilder.Make();
         points.forEach(([x, y], i) =>

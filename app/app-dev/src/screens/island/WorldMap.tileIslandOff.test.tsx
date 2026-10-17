@@ -1,5 +1,5 @@
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 import { initialState } from '@/services/model';
 
 jest.mock('@/utils/layout', () => ({
@@ -66,7 +66,9 @@ it('플래그 off + 미리보기 없음이면 기존 바닥 Image 를 그리고 
     assets = (require('@/constants/assets') as typeof import('@/constants/assets')).assets;
   });
   mockFacts.current = null;
-  const screen = await render(<Island state={initialState()} go={jest.fn()} build={jest.fn()} />);
+  const go = jest.fn();
+  const state = initialState(true);
+  const screen = await render(<Island state={state} go={go} build={jest.fn()} />);
   const nodes: { props: Record<string, unknown>; children: unknown[] | null }[] = [];
   const walk = (n: any) => {
     if (!n || typeof n === 'string') return;
@@ -79,4 +81,19 @@ it('플래그 off + 미리보기 없음이면 기존 바닥 Image 를 그리고 
   const base = assets[`backgrounds/island/base/${hour >= 6 && hour < 18 ? 'day' : 'night'}.png`];
   expect(nodes.some((n) => n.props.source === base)).toBe(true);
   expect(screen.queryByTestId('tile-terrain')).toBeNull();
+  expect(screen.getByTestId('image-terrain-facilities')).toBeTruthy();
+  for (const id of ['hall', 'board', 'library', 'mail', 'tower', 'shop', 'fire', 'raft']) {
+    expect(screen.getByTestId(`building-name-${id}`)).toBeTruthy();
+  }
+  expect(screen.queryByTestId('world-static-building-gram')).toBeNull();
+  expect(screen.queryByTestId('building-name-gram')).toBeNull();
+  const raft = screen.getByTestId('building-name-raft');
+  const initialMatrix = screen.getByTestId('image-terrain-facility-raft').props.matrix;
+  await fireEvent(raft, 'pressIn');
+  expect(screen.getByTestId('image-terrain-facility-raft').props.matrix).not.toEqual(initialMatrix);
+  expect(screen.getByTestId('image-terrain-facility-raft').props.matrix[0]).toBeCloseTo(0.97);
+  await fireEvent(raft, 'pressOut');
+  expect(screen.getByTestId('image-terrain-facility-raft').props.matrix).toEqual(initialMatrix);
+  await fireEvent.press(raft);
+  expect(go).toHaveBeenCalledWith('boat');
 });

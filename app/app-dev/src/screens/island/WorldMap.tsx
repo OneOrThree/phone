@@ -140,6 +140,7 @@ import {
   layoutFacilitySigns,
   facilityTouchBox,
 } from './tileFacilities';
+import { ImageTerrainFacilities } from './ImageTerrainFacilities';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
 // 타일 섬 지형(GROMO-2230): 켜면 기존 마을 홈 섬의 바닥을 Skia Atlas 로 그리고 탭·걷기를 v1/nav.json A* 로 한다.
@@ -582,6 +583,7 @@ export function WorldMap({
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
   // 타일 섬 지형 캔버스는 기존 마을 홈 섬 + 플래그일 때만. 낚시·새 마을 미리보기는 기존 Image 그대로.
   const tileTerrain = isTileIsland(village, fishing);
+  const facilityDecorations = !village && !fishing;
   const reduceFacilityMotion = useContext(MotionContext) || state.settings.reduceMotion;
   const ownDayNight = useVillageDayNight();
   const dayNight = dayNightProp ?? ownDayNight;
@@ -715,7 +717,7 @@ export function WorldMap({
   const pressStyle = (id: string, fullLayer = false) => {
     const r = TILE_FACILITIES[id];
     return facilityPressStyle(
-      tileTerrain && pressedFacility === id,
+      facilityDecorations && pressedFacility === id,
       reduceFacilityMotion,
       fullLayer && r ? [(r.x + r.w / 2) * scale, (r.y + r.h) * scale, 0] : undefined,
     );
@@ -838,7 +840,18 @@ export function WorldMap({
           />
         )}
       </Pressable>
-      {tileTerrain &&
+      {facilityDecorations && !tileTerrain && (
+        <ImageTerrainFacilities
+          source={assets[`backgrounds/island/base/${dayNight}.png`]}
+          left={left}
+          top={top}
+          scale={scale}
+          night={night}
+          pressedFacility={pressedFacility}
+          reduceMotion={reduceFacilityMotion}
+        />
+      )}
+      {facilityDecorations &&
         island.buildings
           .filter((b) => b !== 'gram')
           .map((b) => {
@@ -869,7 +882,9 @@ export function WorldMap({
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
-            .filter((b) => !(b === 'mail' && mailboxLetters) && !(tileTerrain && b === 'gram'))
+            .filter(
+              (b) => !(b === 'mail' && mailboxLetters) && !(facilityDecorations && b === 'gram'),
+            )
             .filter((b) => !(b === 'hall' && !village && !fishing))
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'tower' && !village && !fishing))
@@ -1055,7 +1070,7 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
-                !(tileTerrain && b === 'gram') &&
+                !(facilityDecorations && b === 'gram') &&
                 // 모션 프레임이 착색을 맡는 건물은 닫힌 모습의 정적 테마 레이어를 겹쳐 그리지 않는다.
                 !framesDrawTheme(b) &&
                 island.buildingThemes?.[b] &&
@@ -1258,8 +1273,8 @@ function FinalIslandScene({
   // 레이어·모션·알림·공사 스프라이트·문(탭 영역·걷기 목표)·이름표가 같은 값을 쓴다. 기본 배치면 전부 0(픽셀 동일).
   // ponytail: 통행 셀은 정적 v1/nav.json 그대로라 옮긴 건물이 막는 칸은 바뀌지 않는다 — 서버가 nav 산출물을 가지면 그걸로 바꾼다.
   const buildingOffsets: BuildingOffsets = useMemo(() => {
-    if (!TILE_ISLAND || scene) return {};
-    const offsets = legacyLayoutOffsets(layout);
+    if (scene) return {};
+    const offsets = TILE_ISLAND ? legacyLayoutOffsets(layout) : {};
     return {
       ...offsets,
       mail: { x: offsets.mail?.x ?? 0, y: (offsets.mail?.y ?? 0) + TILE_MAILBOX_Y_OFFSET },
@@ -1497,6 +1512,7 @@ function FinalIslandScene({
     location = useRef(pos);
   // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
   const tileNav = isTileIsland(scene);
+  const facilityDecorations = !scene;
   const [navWalk, setNavWalk] = useState<NavWalk | null>(null);
   // background 전환(codex 지적, PR #1111 — WorldMap.tsx:1625) — 홈이 마운트된 채 background 로 가도
   // 언마운트·syncIslandId/me 변경 때만 채널 effect 가 정리돼 channel.close() 가 안 불린다. 서버는 소켓
@@ -1892,7 +1908,7 @@ function FinalIslandScene({
     const catSize = 70 * s;
     const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
     const visibleDoors = Object.entries(doors)
-      .filter(([id]) => !(tileNav && id === 'gram'))
+      .filter(([id]) => !(facilityDecorations && id === 'gram'))
       // 방문 카드에서 연 읽기 전용 화면은 낚시섬 관전만 연다. 기존 방문자 홈은 회관·게시판도 열 수 있다.
       .filter(([, d]) =>
         explicitVisit
@@ -1905,7 +1921,7 @@ function FinalIslandScene({
       );
     const facilityRects = Object.fromEntries(
       visibleDoors.flatMap(([id, d]) => {
-        const r = tileNav ? TILE_FACILITIES[id] : undefined;
+        const r = facilityDecorations ? TILE_FACILITIES[id] : undefined;
         const o = d.building ? buildingOffsets[d.building] : undefined;
         return r ? [[id, { ...r, x: r.x + (o?.x ?? 0), y: r.y + (o?.y ?? 0) }]] : [];
       }),
@@ -2054,7 +2070,7 @@ function FinalIslandScene({
                               : undefined
                 }
                 onPress={onPress}
-                onPressIn={() => tileNav && setPressedFacility(id)}
+                onPressIn={() => facilityDecorations && setPressedFacility(id)}
                 onPressOut={() =>
                   setPressedFacility((current) => (current === id ? null : current))
                 }
