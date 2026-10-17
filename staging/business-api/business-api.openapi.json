@@ -4477,6 +4477,10 @@
           },
           "relation": {
             "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean",
+            "description": "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)"
           }
         },
         "required": [
@@ -4545,6 +4549,11 @@
           },
           "magazineCell": {
             "$ref": "#/components/schemas/MagazineCell"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32",
+            "description": "완공 건물 수. 키가 없으면 0 으로 읽는다(옛 Data 호환 — 롤링 배포 중에만 빠지고 null 은 보내지 않는다). 단계 그림은 앱 islandStage(memberCount, buildingCount)"
           }
         },
         "required": [
@@ -5949,6 +5958,10 @@
           },
           "relation": {
             "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean",
+            "description": "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)"
           }
         },
         "required": [
@@ -6039,6 +6052,10 @@
           },
           "relation": {
             "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean",
+            "description": "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)"
           }
         },
         "required": [

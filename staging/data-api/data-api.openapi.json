@@ -7026,6 +7026,9 @@
               "KICKED",
               "NONE"
             ]
+          },
+          "privateIsland": {
+            "type": "boolean"
           }
         }
       },
@@ -7094,6 +7097,10 @@
           },
           "magazineCell": {
             "$ref": "#/components/schemas/Cell"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -9151,6 +9158,9 @@
               "KICKED",
               "NONE"
             ]
+          },
+          "privateIsland": {
+            "type": "boolean"
           }
         }
       },
@@ -9231,6 +9241,9 @@
               "KICKED",
               "NONE"
             ]
+          },
+          "privateIsland": {
+            "type": "boolean"
           }
         }
       },
