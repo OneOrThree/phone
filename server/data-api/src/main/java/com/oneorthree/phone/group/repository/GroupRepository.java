@@ -283,7 +283,8 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
 
     /**
      * {@code [from, to)} 사이에 만들어진 공개·살아 있는 섬, 먼저 만든 순 {@code limit} 곳 — 고양이 잡지 편집부 칸
-     * 「어제 새로 생긴 섬」(GROMO-2289, 계획 P17)이다. 비공개 섬은 잡지 어디에도 나오지 않는다(SAFE-03).
+     * 「어제 새로 생긴 섬」(GROMO-2289, 계획 P17)이다. 가입 유도 칸이라 공개 섬만 싣는다 — 비공개 섬도 랭킹·홍보 칸에는
+     * 실린다(10/16, GROMO-2305).
      */
     @Query(value = "SELECT * FROM groups g WHERE g.is_private = false AND g.deleted_at IS NULL "
             + "AND g.status <> 'ENDED' AND g.created_at >= :from AND g.created_at < :to "
