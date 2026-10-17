@@ -176,19 +176,137 @@ class SeaRoomsScriptTest {
         UUID user = UUID.randomUUID();
         UUID room = UUID.randomUUID();
         join(user, room);
-        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "rev")).isEqualTo("1");
+        long rev = rev(user);
+        assertThat(rev).as("시각 씨앗 — 1 로 시작하지 않는다").isGreaterThan(1L);
 
         assertThat(update(user, room, "7", "remark", "늦은 보정")).isEqualTo(0L);
         assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "remark")).isNull();
-        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "rev")).isEqualTo("1");
+        assertThat(rev(user)).isEqualTo(rev);
 
-        assertThat(update(user, room, "1", "remark", "보정")).isEqualTo(1L);
+        assertThat(update(user, room, Long.toString(rev), "remark", "보정")).isEqualTo(1L);
         assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "remark")).isEqualTo("보정");
-        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "rev")).isEqualTo("2");
+        assertThat(rev(user)).isEqualTo(rev + 1);
 
         assertThat(update(user, room, "", "remark", "사건")).as("Data 사건은 CAS 없이").isEqualTo(1L);
-        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "rev")).isEqualTo("3");
+        assertThat(rev(user)).isEqualTo(rev + 2);
         assertThat(update(user, UUID.randomUUID(), "", "remark", "남의 방")).isEqualTo(0L);
+    }
+
+    @Test
+    @DisplayName("[r1-7] JOIN — rev 는 다시 1 로 돌아가지 않는다: 해시 복구는 이전+1, 나갔다 같은 방 재입장도 이전보다 크다")
+    void joinNeverResetsRev() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID room = UUID.randomUUID();
+        join(user, room);
+        long first = rev(user);
+        update(user, room, "", "remark", "x");
+        update(user, room, "", "remark", "y");
+        redis.opsForHash().delete(RedisKeys.seaUser(user), "roomId"); // 해시 손상 → 복구 경로(cur 없음, SET 에는 있음)
+        assertThat(join(user, room, "", "")).isEqualTo(1L);
+        assertThat(rev(user)).as("이전(+2) 위로").isGreaterThan(first + 2);
+
+        long beforeLeave = rev(user);
+        assertThat(leave(user, room, "")).isEqualTo(1L);
+        Thread.sleep(2);
+        assertThat(join(user, room)).isEqualTo(1L);
+        assertThat(rev(user)).as("ABA — 옛 보정의 CAS 가 통과하지 않는다").isNotEqualTo(beforeLeave).isGreaterThan(first);
+    }
+
+    @Test
+    @DisplayName("[r1-7] LEAVE — 해시가 없으면 roomId 비교 없이 SET 에서 빼고 0, 빈 방이면 open 에서도 뺀다")
+    void leaveClearsSetOnlyGhosts() {
+        UUID ghost = UUID.randomUUID();
+        UUID room = UUID.randomUUID();
+        join(ghost, room);
+        redis.delete(RedisKeys.seaUser(ghost));
+
+        assertThat(leave(ghost, room, "")).as("사건은 내지 않는다").isEqualTo(0L);
+        assertThat(redis.hasKey(RedisKeys.seaRoomMembers(room))).isFalse();
+        assertThat(redis.opsForSet().isMember(RedisKeys.SEA_ROOMS_OPEN, room.toString())).isFalse();
+    }
+
+    @Test
+    @DisplayName("[r1-1] joined 발행과 소속 확인 사이에 다른 기기의 LEAVE 가 끼면 left{left} 를 보정 발행한다")
+    void lateJoinedIsFollowedByACorrectiveLeft() {
+        redis.delete(RedisKeys.SEA_ROOMS_OPEN);
+        Fixture f = new Fixture();
+        UUID user = UUID.randomUUID();
+        org.mockito.BDDMockito.given(f.seaState.fetch(user)).willReturn(
+                new com.oneorthree.realtime.sea.client.SeaStateClient.SeaState(null, null, null));
+        org.mockito.BDDMockito.given(f.friends.fetchFriendIds(user)).willReturn(java.util.Set.of());
+        org.mockito.BDDMockito.given(f.sessions.isConnected("s")).willReturn(true);
+        java.util.concurrent.atomic.AtomicReference<UUID> joinedRoom = new java.util.concurrent.atomic.AtomicReference<>();
+        // joined 발행 «순간» 다른 기기가 LEAVE 를 끝낸다(그 기기의 left 는 이미 나갔다고 친다)
+        org.mockito.BDDMockito.willAnswer(invocation -> {
+            UUID room = invocation.getArgument(0);
+            joinedRoom.set(room);
+            leave(user, room, "");
+            return null;
+        }).given(f.publisher).publish(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(SeaRooms.MEMBER_JOINED), org.mockito.ArgumentMatchers.any());
+
+        assertThat(f.seaRooms.enter(user, "s")).isNotNull();
+
+        org.mockito.ArgumentCaptor<tools.jackson.databind.JsonNode> payload =
+                org.mockito.ArgumentCaptor.forClass(tools.jackson.databind.JsonNode.class);
+        org.mockito.Mockito.verify(f.publisher).publish(org.mockito.ArgumentMatchers.eq(joinedRoom.get()),
+                org.mockito.ArgumentMatchers.eq(SeaRooms.MEMBER_LEFT), payload.capture());
+        assertThat(payload.getValue().get("userId").stringValue()).isEqualTo(user.toString());
+        assertThat(payload.getValue().get("reason").stringValue()).isEqualTo(SeaRooms.LEFT);
+    }
+
+    @Test
+    @DisplayName("[r1-2] 두 세션 종료 사건이 차례로 와도(레지스트리 리스너보다 먼저) 퇴장 1회·left{disconnected} 1건")
+    void twoSessionDisconnectsLeaveExactlyOnce() {
+        Fixture f = new Fixture(new com.oneorthree.realtime.config.RealtimeSessionRegistry());
+        UUID user = UUID.randomUUID();
+        UUID room = UUID.randomUUID();
+        join(user, room);
+        com.oneorthree.realtime.auth.ChatPrincipal principal =
+                new com.oneorthree.realtime.auth.ChatPrincipal(user, "Bearer t");
+        f.sessions.register("a", principal);
+        f.sessions.register("b", principal);
+
+        f.seaRooms.disconnected(disconnect("a", principal));
+        f.seaRooms.disconnected(disconnect("b", principal));
+
+        org.mockito.Mockito.verify(f.publisher, org.mockito.Mockito.times(1)).publish(
+                org.mockito.ArgumentMatchers.eq(room), org.mockito.ArgumentMatchers.eq(SeaRooms.MEMBER_LEFT),
+                org.mockito.ArgumentMatchers.any());
+        assertThat(redis.hasKey(RedisKeys.seaUser(user))).isFalse();
+    }
+
+    private static org.springframework.web.socket.messaging.SessionDisconnectEvent disconnect(String sessionId,
+            java.security.Principal user) {
+        return new org.springframework.web.socket.messaging.SessionDisconnectEvent(new Object(),
+                org.springframework.messaging.support.MessageBuilder.withPayload(new byte[0]).build(), sessionId,
+                org.springframework.web.socket.CloseStatus.NORMAL, user);
+    }
+
+    /** 실 Redis + 목 경계로 만든 SeaRooms. */
+    private final class Fixture {
+        final com.oneorthree.realtime.config.RealtimeSessionRegistry sessions;
+        final com.oneorthree.realtime.sea.client.SeaStateClient seaState =
+                org.mockito.Mockito.mock(com.oneorthree.realtime.sea.client.SeaStateClient.class);
+        final com.oneorthree.realtime.sea.client.FriendsClient friends =
+                org.mockito.Mockito.mock(com.oneorthree.realtime.sea.client.FriendsClient.class);
+        final SeaRoomPublisher publisher = org.mockito.Mockito.mock(SeaRoomPublisher.class);
+        final SeaRooms seaRooms;
+
+        Fixture() {
+            this(org.mockito.Mockito.mock(com.oneorthree.realtime.config.RealtimeSessionRegistry.class));
+        }
+
+        Fixture(com.oneorthree.realtime.config.RealtimeSessionRegistry sessions) {
+            this.sessions = sessions;
+            this.seaRooms = new SeaRooms(redis, seaState, friends,
+                    org.mockito.Mockito.mock(com.oneorthree.realtime.block.BlockedUsers.class), publisher, sessions,
+                    new tools.jackson.databind.ObjectMapper(), java.time.Clock.systemUTC());
+        }
+    }
+
+    private long rev(UUID user) {
+        return Long.parseLong((String) redis.opsForHash().get(RedisKeys.seaUser(user), "rev"));
     }
 
     private Long update(UUID user, UUID room, String expectedRev, String field, String value) {

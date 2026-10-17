@@ -6,6 +6,7 @@ import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.id.UuidV7;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
+import com.oneorthree.realtime.config.StompTopics;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.sea.client.FriendsClient;
@@ -69,6 +70,9 @@ public class SeaRooms {
 
     public static final String ASSIGNED = "sea.room.assigned";
     public static final String SNAPSHOT = "sea.room.snapshot";
+
+    /** 사용자 단위 퇴장을 그 사람의 (이 JVM) 모든 세션 {@code /user/queue/sea} 에 알린다 — 다른 기기가 모르게 남지 않게. */
+    public static final String ROOM_LEFT = "sea.room.left";
     public static final String MEMBER_JOINED = "sea.member.joined";
     public static final String MEMBER_LEFT = "sea.member.left";
     public static final String MEMBER_UPDATED = "sea.member.updated";
@@ -102,8 +106,11 @@ public class SeaRooms {
      * -2 = 구성원이 차단 검사 때 본 집합과 다르다(그사이 누가 들어왔거나 나갔다 — 다시 읽고 다시 검사한다).
      *
      * <p>SET 에는 있는데 해시가 없는 사람(해시만 만료·삭제)은 해시를 다시 써 준다 — 그래야 구독 관문을 통과한다.
-     * 항해 없이 들어오면(adriftSince 가 비어 있지 않으면) 10분 정리 색인에도 같은 스크립트 안에서 올린다. 해시를 쓸 때
-     * 개정 번호 {@code rev} 는 1 부터 시작한다({@link #UPDATE} 가 전이마다 올린다).
+     * 항해 없이 들어오면(adriftSince 가 비어 있지 않으면) 10분 정리 색인에도 같은 스크립트 안에서 올린다.
+     *
+     * <p>개정 번호 {@code rev}({@link #UPDATE} 가 전이마다 올린다)는 <b>다시 1 로 돌아가지 않는다</b> — 해시를 다시 쓸 때
+     * {@code max(이전 rev + 1, 서버 시각 µs)} 로 둔다. 1 로 되돌리면 «나갔다가 같은 방에 다시 들어온» 뒤에도 옛 보정의
+     * CAS 가 통과한다(ABA). 이전 해시는 LEAVE 가 지우므로 이전 값만으로는 못 막고, 시각 씨앗이 그 경우를 덮는다.
      *
      * <p>KEYS: members, open, user, adrift / ARGV: userId, roomId, capacity, ttlSec, 기대 구성원(정렬·',' 연결),
      * adriftSince(ms)|'', 해시 field/value…
@@ -123,8 +130,11 @@ public class SeaRooms {
             + "  redis.call('SADD', KEYS[1], ARGV[1])\n"
             + "end\n"
             + "redis.call('EXPIRE', KEYS[1], ARGV[4])\n"
+            + "local prev = tonumber(redis.call('HGET', KEYS[3], 'rev')) or 0\n"
+            + "local t = redis.call('TIME')\n"
+            + "local rev = math.max(prev + 1, tonumber(t[1]) * 1000000 + tonumber(t[2]))\n"
             + "redis.call('DEL', KEYS[3])\n"
-            + "redis.call('HSET', KEYS[3], 'roomId', ARGV[2], 'rev', '1', unpack(ARGV, 7))\n"
+            + "redis.call('HSET', KEYS[3], 'roomId', ARGV[2], 'rev', string.format('%.0f', rev), unpack(ARGV, 7))\n"
             + "redis.call('EXPIRE', KEYS[3], ARGV[4])\n"
             + "if ARGV[6] ~= '' then redis.call('ZADD', KEYS[4], ARGV[6], ARGV[1])\n"
             + "else redis.call('ZREM', KEYS[4], ARGV[1]) end\n"
@@ -134,10 +144,22 @@ public class SeaRooms {
 
     /**
      * 퇴장. 1 = 내보냈다, 0 = 그 방에 없거나(이미 나감·다른 방) adriftSince 가 기대값과 다르다(그사이 다시 항해).
-     * KEYS: members, open, user, adrift / ARGV: userId, roomId, expectedAdriftSince|''
+     *
+     * <p>해시가 아예 없으면(만료·삭제) 그 방 SET 에서만 빼고 0 이다 — 사건은 내지 않는다. 안 빼면 SET 에만 남은 유령이
+     * 정원·후보 크기를 계속 잡아먹는다. 빈 방이 되면 open 에서도 뺀다.
+     *
+     * <p>KEYS: members, open, user, adrift / ARGV: userId, roomId, expectedAdriftSince|''
      */
     static final RedisScript<Long> LEAVE = new DefaultRedisScript<>(
-            "if redis.call('HGET', KEYS[3], 'roomId') ~= ARGV[2] then return 0 end\n"
+            "local cur = redis.call('HGET', KEYS[3], 'roomId')\n"
+            + "if not cur then\n"
+            + "  redis.call('SREM', KEYS[1], ARGV[1])\n"
+            + "  if redis.call('SCARD', KEYS[1]) == 0 then\n"
+            + "    redis.call('DEL', KEYS[1]); redis.call('SREM', KEYS[2], ARGV[2])\n"
+            + "  end\n"
+            + "  return 0\n"
+            + "end\n"
+            + "if cur ~= ARGV[2] then return 0 end\n"
             + "if ARGV[3] ~= '' and redis.call('HGET', KEYS[3], 'adriftSince') ~= ARGV[3] then return 0 end\n"
             + "redis.call('SREM', KEYS[1], ARGV[1]); redis.call('DEL', KEYS[3])\n"
             + "redis.call('ZREM', KEYS[4], ARGV[1])\n"
@@ -240,11 +262,28 @@ public class SeaRooms {
      * @throws ChatException {@code NOT_IN_SEA_ROOM} — 방이 없다
      */
     public SeaRoomEvent snapshot(UUID userId) {
-        Object current = redis.opsForHash().get(RedisKeys.seaUser(userId), ROOM_ID);
-        UUID roomId = current instanceof String value ? uuidOrNull(value) : null;
+        UUID roomId = currentRoom(userId);
         if (roomId == null) {
             throw new ChatException(ChatErrorCode.NOT_IN_SEA_ROOM);
         }
+        return snapshotOf(roomId);
+    }
+
+    /**
+     * {@link #snapshot(UUID)} + <b>그 세션이 방 토픽을 구독 중인가</b> — 계약 §5 「SUB room → sync」 순서를 서버가 강제한다.
+     * 구독 전에 받은 스냅샷은 그 뒤 구독까지의 입퇴장을 놓친다.
+     *
+     * @throws ChatException {@code NOT_IN_SEA_ROOM} — 방이 없거나 이 세션이 그 방 토픽을 구독하지 않았다
+     */
+    public SeaRoomEvent snapshot(UUID userId, String sessionId) {
+        UUID roomId = currentRoom(userId);
+        if (roomId == null || sessions.subscriptionIdOf(sessionId, StompTopics.seaRoomTopic(roomId)) == null) {
+            throw new ChatException(ChatErrorCode.NOT_IN_SEA_ROOM);
+        }
+        return snapshotOf(roomId);
+    }
+
+    private SeaRoomEvent snapshotOf(UUID roomId) {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("roomId", roomId.toString());
         payload.set("members", membersOf(roomId));
@@ -253,9 +292,25 @@ public class SeaRooms {
 
     /** 지금 들어 있는 방에서 나간다. 방이 없으면 아무 일도 없다. */
     public boolean leaveCurrent(UUID userId, String reason) {
-        String roomId = redis.opsForHash().get(RedisKeys.seaUser(userId), ROOM_ID) instanceof String value
-                ? value : null;
-        return roomId != null && leave(userId, UUID.fromString(roomId), reason);
+        UUID roomId = currentRoom(userId);
+        return roomId != null && leave(userId, roomId, reason);
+    }
+
+    /**
+     * 해시의 {@code roomId}. 없으면 {@code null}. 손상된 값(UUID 아님)이면 로그를 남기고 해시를 지운 뒤 {@code null} —
+     * 남겨 두면 JOIN 이 영영 -1(다른 방)을 돌려 입장이 막히고, 예외로 올리면 ERROR 프레임·소켓 종료로 번진다.
+     */
+    private UUID currentRoom(UUID userId) {
+        Object value = redis.opsForHash().get(RedisKeys.seaUser(userId), ROOM_ID);
+        if (!(value instanceof String text)) {
+            return null;
+        }
+        UUID roomId = uuidOrNull(text);
+        if (roomId == null) {
+            log.warn("바다 사용자 해시의 roomId 손상 — 없는 것으로 치우고 진행한다");
+            redis.delete(RedisKeys.seaUser(userId));
+        }
+        return roomId;
     }
 
     /** 그 방에서 나간다 — 실제로 내보냈을 때만 {@code sea.member.left} 를 낸다. */
@@ -275,6 +330,10 @@ public class SeaRooms {
         payload.put("userId", userId.toString());
         payload.put("reason", reason);
         publisher.publish(roomId, MEMBER_LEFT, payload);
+        ObjectNode notice = objectMapper.createObjectNode();
+        notice.put("roomId", roomId.toString());
+        notice.put("reason", reason);
+        publisher.publishToUser(userId, roomId, ROOM_LEFT, notice);
         return true;
     }
 
@@ -294,7 +353,7 @@ public class SeaRooms {
      */
     public ArrayNode membersOf(UUID roomId) {
         Set<String> ids = redis.opsForSet().members(RedisKeys.seaRoomMembers(roomId));
-        List<String> users = ids == null ? List.of() : List.copyOf(ids);
+        List<String> users = ids == null ? List.of() : ids.stream().filter(id -> uuidOrNull(id) != null).toList();
         List<Object> hashes = users.isEmpty() ? List.of() : redis.executePipelined((RedisCallback<Object>) c -> {
             users.forEach(user -> c.hashCommands().hGetAll(bytes(RedisKeys.seaUser(UUID.fromString(user)))));
             return null;
@@ -323,6 +382,7 @@ public class SeaRooms {
      * Redis 쓰기 실패만 던진다(수신 기록 롤백 → relay 재전달). 방 사건 발행 실패는 삼킨다.
      */
     public void applyMemberUpdated(JsonNode envelope) {
+        String eventId = text(envelope, "eventId");
         UUID userId = uuidOrNull(envelope.get("subjectId"));
         if (userId == null) {
             userId = uuidOrNull(envelope.get("userId"));
@@ -330,33 +390,40 @@ public class SeaRooms {
         JsonNode params = envelope.get("params");
         String status = params == null || !params.isObject() ? null : text(params, "status");
         if (userId == null || status == null || !MEMBER_STATUSES.contains(status)) {
-            log.warn("바다 사건 형식 불량 — 적용하지 않는다. status={}", status);
+            log.warn("바다 사건 형식 불량 — 적용하지 않는다. eventId={} status={}", eventId, status);
             return;
         }
-        Object current = redis.opsForHash().get(RedisKeys.seaUser(userId), ROOM_ID);
-        if (!(current instanceof String roomId)) {
+        UUID roomId = currentRoom(userId);
+        if (roomId == null) {
             return; // 바다 방에 없다 — no-op
         }
-        Transition transition = transition(status, params);
+        Transition transition = transition(status, params, instantOrNull(text(envelope, "occurredAt")));
         if (transition == null) {
-            log.warn("바다 사건 params 불량 — 적용하지 않는다. status={}", status);
+            log.warn("바다 사건 params 불량 — 적용하지 않는다. eventId={} status={}", eventId, status);
             return;
         }
-        if (runUpdate(userId, roomId, transition, "") != 1) {
+        if (runUpdate(userId, roomId.toString(), transition, "") != 1) {
             return; // 그사이 나갔다
         }
         try {
             ObjectNode payload = objectMapper.createObjectNode();
             payload.set("member", memberOf(userId));
-            publisher.publish(UUID.fromString(roomId), MEMBER_UPDATED, payload);
+            publisher.publish(roomId, MEMBER_UPDATED, payload);
         } catch (RuntimeException e) {
-            log.warn("바다 구성원 갱신 발행 실패 — reason={}", e.getClass().getSimpleName());
+            log.warn("바다 구성원 갱신 발행 실패 — eventId={} reason={}", eventId, e.getClass().getSimpleName());
         }
     }
 
-    /** 소켓 종료 — 이 JVM 에 같은 사용자의 다른 세션이 없을 때만 퇴장이다(N24). */
+    /**
+     * 소켓 종료 — 이 JVM 에 같은 사용자의 다른 세션이 없을 때만 퇴장이다(N24).
+     *
+     * <p><b>자기 세션을 레지스트리에서 먼저 뺀 뒤</b> 다른 세션을 센다. 레지스트리의 같은 이벤트 리스너와 순서가 정해져
+     * 있지 않아, 두 기기가 거의 동시에 끊기면 서로를 «다른 세션»으로 보고 둘 다 퇴장을 건너뛴다(focusing 유령 24h).
+     * 먼저 빼면 둘 중 늦게 판정하는 쪽이 반드시 «다른 세션 없음»을 본다 — 둘 다 보면 LEAVE 가 한 번만 1 이다.
+     */
     @EventListener
     public void disconnected(SessionDisconnectEvent event) {
+        sessions.disconnected(event); // 멱등 — 레지스트리 자신의 리스너가 또 불러도 같다
         if (!(event.getUser() instanceof ChatPrincipal principal)
                 || sessions.hasOtherSession(principal.userId(), event.getSessionId())) {
             return;
@@ -372,11 +439,10 @@ public class SeaRooms {
 
     /** 이미 방이 있으면 그 방 그대로. 해시만 남고 방 구성원에 없으면(방 키 만료) 해시를 치우고 새로 배정한다. */
     private SeaRoomEvent existingAssignment(UUID userId) {
-        Object current = redis.opsForHash().get(RedisKeys.seaUser(userId), ROOM_ID);
-        if (!(current instanceof String value)) {
+        UUID roomId = currentRoom(userId);
+        if (roomId == null) {
             return null;
         }
-        UUID roomId = UUID.fromString(value);
         if (Boolean.TRUE.equals(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(roomId), userId.toString()))) {
             return assigned(roomId);
         }
@@ -414,7 +480,28 @@ public class SeaRooms {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.set("member", memberOf(userId));
         publisher.publish(roomId, MEMBER_JOINED, payload);
+        convergeAfterJoined(userId, roomId);
         return assigned(roomId);
+    }
+
+    /**
+     * {@code joined} 발행과 Redis 를 원자로 묶을 수 없다 — 마지막 확인과 발행 사이에 같은 사람의 다른 기기가 LEAVE 를
+     * 끝내면 {@code left} 가 {@code joined} 보다 먼저 나간다. 그래서 발행 «뒤»에 한 번 더 보고, 이 방 소속이 아니면
+     * {@code left{reason:left}} 를 보정 발행한다 — 구독자는 joined→left 로 수렴하고, 앞선 left 와 겹친 두 번째 left 는
+     * 앱에서 없는 사람 제거라 멱등이다. 확인 실패(Redis)는 로그만 — 다음 sync·전달 직전 검사가 맞춘다.
+     */
+    private void convergeAfterJoined(UUID userId, UUID roomId) {
+        try {
+            if (isMember(userId, roomId)) {
+                return;
+            }
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.put("userId", userId.toString());
+            payload.put("reason", LEFT);
+            publisher.publish(roomId, MEMBER_LEFT, payload);
+        } catch (RuntimeException e) {
+            log.warn("joined 뒤 소속 재확인 실패 — reason={}", e.getClass().getSimpleName());
+        }
     }
 
     /** 이 세션이 끊겼고 이 JVM 에 같은 사람의 다른 세션도 없으면 사건 없이 되돌리고 true. */
@@ -452,7 +539,7 @@ public class SeaRooms {
         if (!sessionChanged) {
             transition = new Transition(new HashMap<>(), new ArrayList<>(), "", "0");
         } else if (after == null) {
-            transition = endedTransition();
+            transition = endedTransition(clock.instant());
         } else {
             transition = sailingTransition(after.sessionId().toString(), after.destinationIslandId().toString(),
                     after.sailingMinutes() == null ? null : after.sailingMinutes().toString(), after.startedAt());
@@ -494,6 +581,8 @@ public class SeaRooms {
                 return 0;
             }
         }
+        log.info("바다 방 후보 포기 — 구성원이 계속 바뀌었다(-2). roomId={} userId={} attempts={}",
+                candidate.roomId(), userId, JOIN_RECHECKS);
         return 0;
     }
 
@@ -534,7 +623,7 @@ public class SeaRooms {
             List<String> members = memberSets.get(i) instanceof Collection<?> set
                     ? set.stream().map(String::valueOf).toList() : List.of();
             membersByRoom.put(rooms.get(i), members);
-            everyone.addAll(members);
+            members.stream().filter(member -> uuidOrNull(member) != null).forEach(everyone::add);
         }
         List<String> users = List.copyOf(everyone);
         List<Object> infos = users.isEmpty() ? List.of() : redis.executePipelined((RedisCallback<Object>) c -> {
@@ -615,33 +704,43 @@ public class SeaRooms {
     private record Transition(Map<String, String> set, List<String> delete, String adriftOp, String score) {
     }
 
-    /** @return 적용할 전이, params 가 불량이면 {@code null}(어떤 변환 예외도 밖으로 내지 않는다) */
-    private Transition transition(String status, JsonNode params) {
+    /**
+     * @param occurredAt 사건 발생 시각 — {@code ended} 의 adriftSince 로 쓴다(재전달돼도 같은 값, 멱등). 없으면 지금
+     * @return 적용할 전이, params 가 불량이면 {@code null}(어떤 변환 예외도 밖으로 내지 않는다). 불량은 «필드를 지운다»로
+     *         읽지 않는다 — 빠졌거나 타입이 틀린 필드는 사건 전체를 버린다
+     */
+    private Transition transition(String status, JsonNode params, Instant occurredAt) {
         try {
             switch (status) {
                 case "sailing" -> {
                     Instant serverNow = instantOrNull(text(params, "serverNow"));
                     JsonNode active = params.get("activeSeconds");
-                    long activeSeconds = active != null && active.isIntegralNumber() && active.canConvertToLong()
-                            ? active.longValue() : 0;
-                    if (uuidOrNull(params.get(SESSION_ID)) == null || serverNow == null
-                            || activeSeconds < 0 || activeSeconds > MAX_ACTIVE_SECONDS) {
+                    JsonNode minutes = params.get(SAILING_MINUTES);
+                    if (uuidOrNull(params.get(SESSION_ID)) == null || uuidOrNull(params.get(DESTINATION)) == null
+                            || serverNow == null
+                            || active == null || !active.isIntegralNumber() || !active.canConvertToLong()
+                            || minutes == null || !minutes.isIntegralNumber() || !minutes.canConvertToInt()) {
                         return null;
                     }
-                    JsonNode minutes = params.get(SAILING_MINUTES);
-                    return sailingTransition(text(params, SESSION_ID),
-                            uuidOrNull(params.get(DESTINATION)) == null ? null : text(params, DESTINATION),
-                            minutes != null && minutes.isIntegralNumber() && minutes.canConvertToInt()
-                                    ? Integer.toString(minutes.intValue()) : null,
-                            serverNow.minusSeconds(activeSeconds));
+                    long activeSeconds = active.longValue();
+                    if (activeSeconds < 0 || activeSeconds > MAX_ACTIVE_SECONDS) {
+                        return null;
+                    }
+                    return sailingTransition(text(params, SESSION_ID), text(params, DESTINATION),
+                            Integer.toString(minutes.intValue()), serverNow.minusSeconds(activeSeconds));
                 }
                 case "ended" -> {
-                    return endedTransition();
+                    return endedTransition(occurredAt == null ? clock.instant() : occurredAt);
                 }
-                default -> { // remark
+                default -> { // remark — 키 없음·문자열 아님은 불량, 명시적 null·"" 만 지운다
+                    JsonNode remark = params.get(REMARK);
+                    if (remark == null || !(remark.isNull() || remark.isString())) {
+                        return null;
+                    }
+                    String value = remark.isNull() || remark.stringValue().isEmpty() ? null : remark.stringValue();
                     Map<String, String> set = new HashMap<>();
                     List<String> delete = new ArrayList<>();
-                    putOrDelete(set, delete, REMARK, text(params, REMARK));
+                    putOrDelete(set, delete, REMARK, value);
                     return new Transition(set, delete, "", "0");
                 }
             }
@@ -663,8 +762,8 @@ public class SeaRooms {
         return new Transition(set, delete, "rem", "0");
     }
 
-    private Transition endedTransition() {
-        String since = Long.toString(clock.instant().toEpochMilli());
+    private static Transition endedTransition(Instant at) {
+        String since = Long.toString(at.toEpochMilli());
         Map<String, String> set = new HashMap<>();
         set.put(STATE, ADRIFT);
         set.put(ADRIFT_SINCE, since);

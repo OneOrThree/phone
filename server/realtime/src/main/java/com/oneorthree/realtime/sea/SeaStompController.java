@@ -40,13 +40,14 @@ public class SeaStompController {
     }
 
     /**
-     * 방 스냅샷 — 방 토픽을 구독한 «뒤»에 보낸다. 그 세션 한 곳에만 간다. 방이 없으면 {@code NOT_IN_SEA_ROOM} 을
-     * 개인 오류 큐로.
+     * 방 스냅샷 — 방 토픽을 구독한 «뒤»에 보낸다. 그 세션 한 곳에만 간다. 방이 없거나 이 세션이 방 토픽을 구독하지
+     * 않았으면 {@code NOT_IN_SEA_ROOM} 을 개인 오류 큐로.
      */
     @MessageMapping("/sea/sync")
     @SendToUser(destinations = "/queue/sea", broadcast = false)
-    public SeaRoomEvent sync(ChatPrincipal principal) {
-        return seaRooms.snapshot(principal.userId());
+    public SeaRoomEvent sync(ChatPrincipal principal,
+            @Header(SimpMessageHeaderAccessor.SESSION_ID_HEADER) String sessionId) {
+        return seaRooms.snapshot(principal.userId(), sessionId);
     }
 
     @MessageMapping("/sea/leave")
