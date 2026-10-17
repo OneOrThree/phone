@@ -65,6 +65,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 
 ## Things that will bite you
 
+- **A sea-room SET ghost is cleaned by the snapshot.** A member whose `sea:user:{id}` hash expired stays in
+  `sea:room:{roomId}:members` (a later JOIN keeps extending the SET TTL) and holds capacity forever; `SeaRooms.membersOf`
+  (snapshot) calls LEAVE's no-hash branch to SREM it. No event is emitted.
 - **Ids must come from `common/id/UuidV7`.** Calling `Generators.…().generate()` directly
   works and produces valid UUID v7s, but loses monotonicity *within a millisecond*
   (measured: ~50% inversions). Cursor paging, `hasMore`, and unread counts all rest on
@@ -212,6 +215,8 @@ designed fresh.
   이면 떠오른 시각(`adriftSince`)에서 멈춘 `adriftSince − startedAt`(0 미만은 0). `adriftSince` 자체는 `member` 에 실리지 않는다.
   10분 상수는 서버(`SeaAdriftSweeper.ADRIFT_LIMIT`)가 정하고, 정리는 60초 틱(`realtime.sea.adrift-sweep-seconds` 기본값)이라
   실제 퇴장은 떠오른 뒤 **10:00~11:00** 사이다 — 앱 카운트다운이 0 이어도 사건을 기다린다.
+- **`sea.member.updated(ended)` 의 `arrived` 는 realtime 이 읽지 않는다**(`SeaRooms.transition` 의 `ended` 분기는 params 를
+  보지 않고 `adrift` 로만 전이한다). 앱 결과창의 도착 여부는 Data 의 finish 응답으로 얻는다.
 - **재연결 뒤에는 항상 `enter` 부터**: 소켓이 끊기면 구독이 사라지고 마지막 세션이면 `left{disconnected}` 로 퇴장이다. `enter` 는
   방이 남아 있으면 그 방의 `assigned` 를 돌려주고(`existingAssignment`, `joined` 없음) 없으면 새로 배정한다. 이어서
   `SUB /topic/sea/rooms/{roomId}` → `SEND /app/sea/sync`.

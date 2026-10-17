@@ -40,7 +40,8 @@ import java.util.UUID;
  *   <tr><td>{@code lock:chat:sea:enter:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
  *       <td>바다 입장 시도 창(600ms, 사용자 축)</td></tr>
  *   <tr><td>{@code lock:chat:sea:emote:try:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
- *       <td>바다 방 이모트 발신 시도 창(600ms, 사용자 축)</td></tr>
+ *       <td>바다 방 이모트 발신 시도 창(600ms, 사용자 축). 이 키와 아래 성공 창은 ACL 패턴
+ *       {@code lock:chat:sea:emote:*} 하나가 둘 다 덮는다 — 둘째 세그먼트가 {@code try} 와 UUID 로 갈려 키 충돌은 없다</td></tr>
  *   <tr><td>{@code lock:chat:sea:emote:{roomId}:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
  *       <td>바다 방 이모트 성공 창(3초)</td></tr>
  *   <tr><td>{@code chat:sea:v1}</td><td>실시간</td><td>발행·구독</td>

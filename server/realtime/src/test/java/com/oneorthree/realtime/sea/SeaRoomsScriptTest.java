@@ -28,6 +28,28 @@ class SeaRoomsScriptTest {
     @Autowired
     private StringRedisTemplate redis;
 
+    @Autowired
+    private SeaRooms seaRooms;
+
+    @Test
+    @DisplayName("membersOf — 해시가 만료된 유령은 SET 에서 치워져 정원이 풀리고 새 입장이 된다")
+    void membersOfHealsGhost() {
+        UUID room = UUID.randomUUID();
+        UUID ghost = UUID.randomUUID();
+        join(ghost, room);
+        for (int i = 0; i < SeaRooms.SEA_ROOM_CAPACITY - 1; i++) {
+            join(UUID.randomUUID(), room);
+        }
+        redis.delete(RedisKeys.seaUser(ghost)); // 사용자 해시 TTL 만료
+        assertThat(redis.opsForSet().size(RedisKeys.seaRoomMembers(room))).isEqualTo(10L);
+
+        assertThat(seaRooms.membersOf(room)).hasSize(9);
+
+        assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(room), ghost.toString())).isFalse();
+        assertThat(redis.opsForSet().size(RedisKeys.seaRoomMembers(room))).isEqualTo(9L);
+        assertThat(join(UUID.randomUUID(), room)).as("11번째가 아니라 정상 입장").isEqualTo(1L);
+    }
+
     @Test
     @DisplayName("JOIN — 10번째가 들어오면 방이 open 에서 빠지고, 11번째는 0(그리고 방은 open 에 없다)")
     void joinRespectsCapacity() {

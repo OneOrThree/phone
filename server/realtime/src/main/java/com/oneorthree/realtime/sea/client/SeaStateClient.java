@@ -78,8 +78,10 @@ public class SeaStateClient {
     public record Session(UUID sessionId, UUID destinationIslandId, Integer sailingMinutes, Long activeSeconds,
             Instant serverNow, Instant startedAt) {
 
+        /** 숫자·시각 필드까지 다 있어야 완전하다 — 하나라도 null 이면 호출부가 NPE 대신 상류 불량으로 접는다. */
         boolean complete() {
-            return sessionId != null && destinationIslandId != null && startedAt != null;
+            return sessionId != null && destinationIslandId != null && startedAt != null
+                    && sailingMinutes != null && activeSeconds != null && serverNow != null;
         }
     }
 }

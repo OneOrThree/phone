@@ -359,8 +359,9 @@ public class SeaRooms {
     }
 
     /**
-     * 그 방 구성원 전부(≤10)의 표시 — 앱이 이 중 5명을 고른다(N15). 해시가 없거나 해시의 {@code roomId} 가 이 방이
-     * 아닌 유령은 뺀다. 다른 방 해시를 가리키는 id 는 옛 SET 에 남은 것이라 그 자리에서 SREM 한다(JOIN 의 -1 규칙상
+     * 그 방 구성원 전부(≤10)의 표시 — 앱이 이 중 5명을 고른다(N15). 해시가 없는 유령은 LEAVE 의 «해시 없음» 분기로
+     * SET·색인에서 치운다(사건 없음). 해시의 {@code roomId} 가 이 방이 아닌 유령도 뺀다.
+     * 다른 방 해시를 가리키는 id 는 옛 SET 에 남은 것이라 그 자리에서 SREM 한다(JOIN 의 -1 규칙상
      * 그 사람이 이 방에 정당하게 있을 수 없다).
      */
     public ArrayNode membersOf(UUID roomId) {
@@ -374,7 +375,8 @@ public class SeaRooms {
         ArrayNode members = objectMapper.createArrayNode();
         for (int i = 0; i < users.size(); i++) {
             if (!(hashes.get(i) instanceof Map<?, ?> hash) || hash.isEmpty()) {
-                continue; // 해시만 사라진 사람 — 다음 입장이 복구한다(JOIN), 지우지 않는다
+                healGhost(roomId, users.get(i)); // 해시가 만료된 유령 — SET 에 남으면 정원을 영구 점유한다
+                continue;
             }
             Map<String, String> fields = stringMap(hash);
             if (roomId.toString().equals(fields.get(ROOM_ID))) {
@@ -384,6 +386,14 @@ public class SeaRooms {
             }
         }
         return members;
+    }
+
+    /** 해시 없는 구성원을 그 방 SET 에서 치운다 — LEAVE 의 «해시 없음» 분기(SREM+ZREM, 빈 방이면 open 제거)를 재사용. */
+    private void healGhost(UUID roomId, String userId) {
+        UUID user = uuidOrNull(userId);
+        if (user != null && runLeave(user, roomId, "") == 0) {
+            log.debug("바다 방 유령 구성원 정리 — roomId={} userId={}", roomId, userId);
+        }
     }
 
     /**
