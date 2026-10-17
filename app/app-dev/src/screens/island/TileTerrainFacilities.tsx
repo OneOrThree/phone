@@ -1,6 +1,6 @@
+import { CoastalAtlas } from './CoastalAtlas';
 import React, { useMemo } from 'react';
 import {
-  Atlas,
   Group,
   Path,
   Skia,
@@ -16,6 +16,7 @@ const tokens = componentTokens.tileFacility;
 
 export function TileTerrainFacilities({
   image,
+  coastMask,
   atlas,
   scale,
   pressedFacility,
@@ -23,6 +24,7 @@ export function TileTerrainFacilities({
   night,
 }: {
   image: SkImage;
+  coastMask?: SkImage | null;
   atlas: { sprites: SkRect[]; transforms: SkRSXform[] };
   scale: number;
   pressedFacility?: string | null;
@@ -84,7 +86,12 @@ export function TileTerrainFacilities({
                 color={tokens.outline}
               />
               <Group clip={path}>
-                <Atlas image={image} sprites={sprites} transforms={transforms} />
+                <CoastalAtlas
+                  image={image}
+                  sprites={sprites}
+                  transforms={transforms}
+                  mask={coastMask}
+                />
               </Group>
               {pressed && reduceMotion && (
                 <Path

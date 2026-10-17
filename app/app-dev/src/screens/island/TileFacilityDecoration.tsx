@@ -190,7 +190,11 @@ export function TileFacilitySign({
       importantForAccessibility="no-hide-descendants"
       style={[StyleSheet.absoluteFill, facilityPressStyle(pressed, reduceMotion)]}
     >
-      <Image source={sign} resizeMode="stretch" style={StyleSheet.absoluteFill} />
+      <Image
+        source={sign}
+        resizeMode="stretch"
+        style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
+      />
       <View style={styles.textArea}>
         {Platform.OS === 'web' ? (
           <WebFacilitySignText label={label} />

@@ -1,3 +1,4 @@
+import { IslandOcean, islandTerrain } from './IslandOcean';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
 import { isDemoMode } from '@/services/demoMode';
@@ -743,6 +744,8 @@ export function WorldMap({
           resizeMode="repeat"
           style={StyleSheet.absoluteFill}
         />
+      ) : !village ? (
+        <IslandOcean left={left} top={top} scale={scale} night={dayNight === 'night'} />
       ) : (
         <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
           <Defs>
@@ -753,11 +756,7 @@ export function WorldMap({
               patternUnits="userSpaceOnUse"
             >
               <SvgImage
-                href={
-                  village
-                    ? villageAssets['terrain.png']
-                    : assets[`backgrounds/island/base/${dayNight}.png`]
-                }
+                href={villageAssets['terrain.png']}
                 x={-800 * scale}
                 y={-936 * scale}
                 width={1536 * scale}
@@ -836,7 +835,7 @@ export function WorldMap({
                 ? require('@/assets/reference-v2/fishing-island.png')
                 : village
                   ? villageAssets['terrain.png']
-                  : assets[`backgrounds/island/base/${dayNight}.png`]
+                  : islandTerrain[dayNight]
             }
             style={{ width: '100%', height: '100%' }}
             resizeMode="stretch"
@@ -845,7 +844,7 @@ export function WorldMap({
       </Pressable>
       {facilityDecorations && !tileTerrain && (
         <ImageTerrainFacilities
-          source={assets[`backgrounds/island/base/${dayNight}.png`]}
+          source={islandTerrain[dayNight]}
           left={left}
           top={top}
           scale={scale}
