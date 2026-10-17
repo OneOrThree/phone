@@ -179,7 +179,7 @@ class SeaRemarkIntegrationTest {
                 .andExpect(jsonPath("$.session").doesNotExist());
 
         putRemark(user, "항해 중").andExpect(status().isOk());
-        int sailing = pins.pin(user, island, "magazine").item().sailingMinutes();
+        int sailing = pins.pin(user, island, "magazine", null).item().sailingMinutes();
         call(post("/internal/users/" + user + "/focus-sessions/sea"), BUSINESS, user,
                 "{\"destinationIslandId\":\"" + island + "\"}").andExpect(status().isCreated());
 

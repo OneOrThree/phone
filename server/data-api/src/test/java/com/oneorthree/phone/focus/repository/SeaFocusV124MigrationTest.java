@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * V124 바다 집중 세션 컬럼 + 한마디 테이블의 실 SQL 검증 (GROMO-2299). 검증 방식은 {@code IslandGuestbookV113MigrationTest}
  * 선례 — 전용 컨테이너에 Flyway 체인을 실제로 돌린다.
  *
- * <p>보는 것: ① V117 까지 올린 스키마의 기존 세션이 {@code kind='ISLAND'} 로 채워지고 새 컬럼은 null 이다,
+ * <p>보는 것: ① V123 까지 올린 스키마의 기존 세션이 {@code kind='ISLAND'} 로 채워지고 새 컬럼은 null 이다,
  * ② {@code membership_epoch_at_start} NOT NULL 이 풀렸다, ③ {@code sea_remarks} 의 열·PK·FK 연쇄 삭제.
  */
 class SeaFocusV124MigrationTest {
@@ -39,9 +39,9 @@ class SeaFocusV124MigrationTest {
     }
 
     @Test
-    @DisplayName("V117 시점의 기존 세션 상세는 kind=ISLAND 로 채워지고 sailing_minutes·arrived 는 null 이며, epoch 의 NOT NULL 이 풀린다")
+    @DisplayName("V123 시점의 기존 세션 상세는 kind=ISLAND 로 채워지고 sailing_minutes·arrived 는 null 이며, epoch 의 NOT NULL 이 풀린다")
     void existingSessionsBecomeIslandSessions() {
-        migrate(MigrationVersion.fromVersion("117"));
+        migrate(MigrationVersion.fromVersion("123"));
         JdbcTemplate jdbc = jdbc();
         UUID userId = UUID.randomUUID();
         UUID islandId = UUID.randomUUID();

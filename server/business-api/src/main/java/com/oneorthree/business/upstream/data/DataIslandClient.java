@@ -21,6 +21,7 @@ import com.oneorthree.business.upstream.data.dto.IslandPromotions;
 import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
+import com.oneorthree.business.upstream.data.dto.Magazines;
 import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
 import com.oneorthree.business.upstream.data.dto.JoinRequestAnswer;
 import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
@@ -85,6 +86,21 @@ public class DataIslandClient {
     private static final String PATH_ISLAND_PROMOTIONS =
             "/internal/users/{userId}/islands/{islandId}/promotions";
     private static final String PATH_ISLAND_NEWS = "/internal/users/{userId}/islands/{islandId}/news";
+    // GROMO-2289 고양이 잡지 편집 — 편집 화면·홍보 고치기·내 꾸미기 재료, 모두 사용자 축이다.
+    private static final String PATH_ISLAND_PROMOTION_EDITOR =
+            "/internal/users/{userId}/islands/{islandId}/promotions/editor";
+    private static final String PATH_ISLAND_PROMOTION =
+            "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}";
+    private static final String PATH_MAGAZINE_ASSETS = "/internal/users/{userId}/magazine/assets";
+    // GROMO-2289 홍보 칸 신고 — 사용자 축이다.
+    private static final String PATH_ISLAND_PROMOTION_REPORTS =
+            "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}/reports";
+    // GROMO-2289 고양이 잡지 읽기 — 오늘 호·최근 7호·한 호 펼치기·받기 기록, 모두 사용자 축이다.
+    private static final String PATH_MAGAZINE_TODAY = "/internal/users/{userId}/magazine/today";
+    private static final String PATH_MAGAZINE_ISSUES = "/internal/users/{userId}/magazine/issues";
+    private static final String PATH_MAGAZINE_ISSUE = "/internal/users/{userId}/magazine/issues/{issueId}";
+    private static final String PATH_MAGAZINE_RECEIPT =
+            "/internal/users/{userId}/magazine/issues/{issueId}/receipt";
     // GROMO-1771 섬 게시판 6종 + 댓글 삭제(GROMO-2136)
     private static final String PATH_NOTICES = "/internal/islands/{islandId}/notices";
     private static final String PATH_NOTICE = "/internal/islands/{islandId}/notices/{noticeId}";
@@ -211,12 +227,16 @@ public class DataIslandClient {
                 new ParameterizedTypeReference<Telescope>() { });
     }
 
-    /** 망원경에 섬 넣기 (GROMO-2268) — 재시도하지 않는다(재시도하면 밀려난 핀 알림이 사라진다). */
-    public TelescopePin pinTelescope(UUID userId, UUID islandId, String source, Deadline deadline) {
+    /**
+     * 망원경에 섬 넣기 (GROMO-2268) — 재시도하지 않는다(재시도하면 밀려난 핀 알림이 사라진다). {@code promotionId} 는
+     * 잡지 홍보 칸에서 넣었을 때 그 홍보다(GROMO-2289, 「잡지 경유」 집계) — 없으면 본문에 싣지 않는다.
+     */
+    public TelescopePin pinTelescope(UUID userId, UUID islandId, String source, UUID promotionId,
+            Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, userPath(PATH_TELESCOPE_PINS, userId))
                         .onBehalfOf(userId)
-                        .body(new TelescopePinCommand(islandId, source))
+                        .body(new TelescopePinCommand(islandId, source, promotionId))
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<TelescopePin>() { });
@@ -328,18 +348,124 @@ public class DataIslandClient {
 
     /**
      * 잡지 홍보 신청 (GROMO-2267) — 섬 통장에서 홍보비를 뺀다. 앱 키를 그대로 전달해 응답 유실 복구는 Data 의 receipt
-     * 재생이다. 본문은 없다(홍보 내용은 잡지 담당 범위).
+     * 재생이다. 본문은 한 줄 글과 꾸미기 {@code layout}(GROMO-2289)이고, layout 판정은 Data 가 한다.
      */
-    public IslandPromotions.Created requestPromotion(UUID userId, UUID islandId, UUID key, Deadline deadline) {
+    public IslandPromotions.Created requestPromotion(UUID userId, UUID islandId, String body, JsonNode layout,
+            UUID key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST,
                                 userPath(PATH_ISLAND_PROMOTIONS, userId).replace("{islandId}", islandId.toString()))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
+                        .body(new PromotionCommand(body, layout))
                         .idempotentCommand()
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandPromotions.Created>() { });
+    }
+
+    /**
+     * 홍보 고치기 (GROMO-2289) — 전체 교체 PUT 이라 명령 키가 없다. 재시도하지 않는다(자정 직전 성공 뒤 재시도가
+     * {@code PROMOTION_LOCKED} 로 바뀌어 성공을 실패로 보일 수 있다).
+     */
+    public IslandPromotions.Updated updatePromotion(UUID userId, UUID islandId, UUID promotionId, String body,
+            JsonNode layout, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PUT,
+                                userPath(PATH_ISLAND_PROMOTION, userId).replace("{islandId}", islandId.toString())
+                                        .replace("{promotionId}", promotionId.toString()))
+                        .onBehalfOf(userId)
+                        .body(new PromotionCommand(body, layout))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.Updated>() { });
+    }
+
+    /** 섬장의 홍보 편집 화면 (GROMO-2289). 멱등 GET 이라 재시도한다. */
+    public IslandPromotions.Editor fetchPromotionEditor(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET,
+                                userPath(PATH_ISLAND_PROMOTION_EDITOR, userId)
+                                        .replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.Editor>() { });
+    }
+
+    /** 내 잡지 꾸미기 재료 (GROMO-2289) — 게스트도 읽는다. 멱등 GET 이라 재시도한다. */
+    public IslandPromotions.Assets fetchMagazineAssets(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_MAGAZINE_ASSETS, userId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.Assets>() { });
+    }
+
+    /** 오늘 호와 내 받기 기록 (GROMO-2289) — 게스트도 읽는다. 멱등 GET 이라 재시도한다. */
+    public Magazines.Today fetchMagazineToday(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_MAGAZINE_TODAY, userId)).onBehalfOf(userId).build(),
+                deadline,
+                new ParameterizedTypeReference<Magazines.Today>() { });
+    }
+
+    /** 최근 7호 (GROMO-2289) — 개수는 Data 가 정한다. 멱등 GET 이라 재시도한다. */
+    public Magazines.Issues fetchMagazineIssues(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_MAGAZINE_ISSUES, userId)).onBehalfOf(userId).build(),
+                deadline,
+                new ParameterizedTypeReference<Magazines.Issues>() { });
+    }
+
+    /**
+     * 한 호 펼치기 한 페이지 (GROMO-2289). 경계는 Business 가 서명 커서에서 꺼낸 평문이고 첫 페이지는 싣지 않는다.
+     * 멱등 GET 이라 재시도한다.
+     */
+    public Magazines.IssuePage fetchMagazineIssue(UUID userId, UUID issueId, Instant afterAppliedAt,
+            UUID afterPromotionId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET,
+                                userPath(PATH_MAGAZINE_ISSUE, userId).replace("{issueId}", issueId.toString()))
+                        .onBehalfOf(userId)
+                        .query("afterAppliedAt", afterAppliedAt == null ? null : afterAppliedAt.toString())
+                        .query("afterPromotionId", afterPromotionId == null ? null : afterPromotionId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<Magazines.IssuePage>() { });
+    }
+
+    /** 받기·미루기·펼치기 기록 (GROMO-2289). 홍보 고치기와 같이 명령 키 없는 PUT 이라 재시도하지 않는다. */
+    public Magazines.Receipt recordMagazineReceipt(UUID userId, UUID issueId, String place, Boolean deferred,
+            Boolean opened, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PUT,
+                                userPath(PATH_MAGAZINE_RECEIPT, userId).replace("{issueId}", issueId.toString()))
+                        .onBehalfOf(userId)
+                        .body(new MagazineReceiptCommand(place, deferred, opened))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<Magazines.Receipt>() { });
+    }
+
+    /**
+     * 홍보 칸 신고 (GROMO-2289) — 명령 키가 없고 재시도하지 않는다(POST). 같은 사람의 두 번째 신고는 Data 가 200 으로
+     * 받아 주므로 앱이 다시 눌러도 안전하다.
+     */
+    public IslandPromotions.Report reportPromotion(UUID userId, UUID islandId, UUID promotionId, String reason,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_ISLAND_PROMOTION_REPORTS, userId)
+                                        .replace("{islandId}", islandId.toString())
+                                        .replace("{promotionId}", promotionId.toString()))
+                        .onBehalfOf(userId)
+                        .body(new PromotionReportCommand(reason))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.Report>() { });
     }
 
     /** 섬 소식 (GROMO-2267) — 주민만 읽는다. 멱등 GET 이라 재시도한다. */
@@ -721,8 +847,9 @@ public class DataIslandClient {
     record GuestbookWriteCommand(String content) {
     }
 
-    /** 망원경 핀 넣기 본문 (GROMO-2268). 주인은 X-User-Id 로 간다. */
-    record TelescopePinCommand(UUID islandId, String source) {
+    /** 망원경 핀 넣기 본문 (GROMO-2268). 주인은 X-User-Id 로 간다. {@code promotionId} 는 잡지 경유일 때만 싣는다(GROMO-2289). */
+    record TelescopePinCommand(UUID islandId, String source,
+            @JsonInclude(JsonInclude.Include.NON_NULL) UUID promotionId) {
     }
 
     /** 공지 작성 본문 (GROMO-1771). 작성자는 X-User-Id 로 간다. */
@@ -731,5 +858,17 @@ public class DataIslandClient {
 
     /** 댓글 작성 본문 (GROMO-1771). */
     record NoticeCommentCommand(String text) {
+    }
+
+    /** 홍보 신청·고치기 본문 (GROMO-2289) — {@code layout} 은 앱이 보낸 JSON 객체 그대로다. */
+    record PromotionCommand(String body, JsonNode layout) {
+    }
+
+    /** 홍보 칸 신고 본문 (GROMO-2289). 신고자는 X-User-Id 로 간다. */
+    record PromotionReportCommand(String reason) {
+    }
+
+    /** 잡지 받기 기록 본문 (GROMO-2289). {@code deferred}·{@code opened} 는 앱이 보내지 않았으면 null 이다. */
+    record MagazineReceiptCommand(String place, Boolean deferred, Boolean opened) {
     }
 }

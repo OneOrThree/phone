@@ -1,4 +1,6 @@
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
+import { MagazineHomeLayer } from '@/screens/magazine/MagazineDelivery';
+import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { islandErrorMessage } from '@/services/islandErrors';
@@ -2643,9 +2645,24 @@ export function RedesignScreens({ e }: any) {
             boardStatus={e.boardStatus}
             libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
             showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
+            showMailboxMagazine={magazineUnread(e.magazineToday ?? null)}
             onServerBuilt={e.islands ? e.retryHome : undefined}
           />
         )}
+        {/* 고양이 잡지 배달(B2)·우체통 없는 섬의 잡지 물건 — 다른 안내·집중·구경 중에는 띄우지 않는다 */}
+        <MagazineHomeLayer
+          today={e.magazineToday ?? null}
+          hasMailbox={island.buildings.includes('mail')}
+          blocked={
+            mailboxGuide ||
+            hallGuide ||
+            guideStep === 4 ||
+            !!state.session ||
+            !!state.visitingIslandId ||
+            !!e.routeTransitionShielded
+          }
+          go={go}
+        />
         {mailboxGuide && (
           <MailboxGuide
             blocked={e.routeTransitionShielded}

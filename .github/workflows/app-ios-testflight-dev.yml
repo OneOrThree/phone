@@ -44,6 +44,9 @@ permissions:
 
 jobs:
   testflight-dev:
+    # 이번 main 푸시만 업로드를 생략하려면 PR 제목·머지 메시지에 [skip testflight]를 남긴다.
+    # 다른 CI와 다음 푸시는 그대로 실행하고, 수동 실행도 항상 허용한다.
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip testflight]') }}
     # main push: 머지한 사람이 IOS_DEV_RUNNERS(쉼표 목록) 에 있으면 그 사람 맥, 아니면 오너 맥. 양쪽에 쉼표를
     # 붙여 부분 일치(예: "kim" 이 "kimchi" 에 걸림)를 막는다. 변수가 없으면 ",," 라 항상 오너 맥.
     # 수동 실행: 폴백 없이 항상 누른 사람의 맥 — 아무 브랜치나 고를 수 있는 수동 실행이 남의 맥으로 가면 안 된다.

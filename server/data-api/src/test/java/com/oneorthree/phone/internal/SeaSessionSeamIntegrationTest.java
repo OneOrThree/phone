@@ -255,7 +255,7 @@ class SeaSessionSeamIntegrationTest {
 
     /** 목적지 섬을 핀으로 망원경에 넣고(소속 0 계정도 된다) 그 항목의 항해 분으로 바다 세션을 시작한다. */
     private FocusSessionView startSea(UUID user, UUID island) {
-        pins.pin(user, island, "magazine");
+        pins.pin(user, island, "magazine", null);
         return focus.startSea(user, new SeaFocusSessionStartCommandRequest(island), UUID.randomUUID());
     }
 

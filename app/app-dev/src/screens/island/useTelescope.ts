@@ -7,7 +7,7 @@
  *   으로 다시 계산한다 — 앱이 백그라운드에 있는 동안 타이머가 멈춰도 돌아온 뒤 첫 틱에 따라잡고, 이미 지났으면 바로 다시 읽는다.
  * - 망원경에 넣기·빼기가 서버에 반영되면(`onTelescopeChanged`) 열려 있는 목록도 다시 읽는다 — 요청이 느려 끝나기 전에 이 화면을 열어
  *   (빼기는 나갔다 다시 열어) 옛 목록을 받아 둔 경우를 메운다. 읽는 중이면 옛 응답은 버린다. 화면을 떠난 뒤 끝난 요청은 다음에 열 때 새로 읽는다.
- * - `active=false`(목업·서버 세션 없음)면 아무것도 부르지 않고 빈 목록이다.
+ * - `active=false`(목업·서버 세션 없음)면 아무것도 부르지 않고 빈 목록이다. 목업 QA 의 `telescope` 플래그면 목업 목록을 읽는다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/services/api/client';
@@ -18,6 +18,7 @@ import {
   type Telescope,
   type TelescopeItem,
 } from '@/services/api/telescope';
+import { getTelescopeMock, isTelescopeMock } from '@/services/api/magazineMock';
 
 const MINUTE_MS = 60_000;
 
@@ -51,7 +52,8 @@ export function useTelescope({ active }: { active: boolean }): TelescopeState {
     const gen = ++req.current;
     const stale = () => gen !== req.current || session !== sessionGeneration();
     if (!loaded.current) setStatus('loading');
-    getTelescope()
+    // 목업 QA(EXPO_PUBLIC_MAGAZINE_MOCK=telescope)는 서버 없이 잡지 찜 섬을 보인다
+    (isTelescopeMock() ? getTelescopeMock() : getTelescope())
       .then((next) => {
         if (stale()) return;
         loaded.current = true;

@@ -209,7 +209,7 @@ class SeaFocusSessionIntegrationTest {
 
     /** 목적지를 핀으로 망원경에 넣고 그 항목의 항해 분을 돌려준다 — 소속 0 계정도 된다. */
     private int pinAndSailingMinutes(UUID user, UUID island) {
-        return pins.pin(user, island, "magazine").item().sailingMinutes();
+        return pins.pin(user, island, "magazine", null).item().sailingMinutes();
     }
 
     private UUID newIsland() {

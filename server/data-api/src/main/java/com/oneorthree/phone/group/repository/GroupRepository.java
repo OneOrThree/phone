@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -279,4 +280,14 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     @Query("SELECT g.id FROM Group g WHERE g.deletedAt IS NULL "
             + "AND g.status <> com.oneorthree.phone.group.repository.domain.GroupStatus.ENDED ORDER BY g.id")
     List<UUID> findAliveIslandIds();
+
+    /**
+     * {@code [from, to)} 사이에 만들어진 공개·살아 있는 섬, 먼저 만든 순 {@code limit} 곳 — 고양이 잡지 편집부 칸
+     * 「어제 새로 생긴 섬」(GROMO-2289, 계획 P17)이다. 비공개 섬은 잡지 어디에도 나오지 않는다(SAFE-03).
+     */
+    @Query(value = "SELECT * FROM groups g WHERE g.is_private = false AND g.deleted_at IS NULL "
+            + "AND g.status <> 'ENDED' AND g.created_at >= :from AND g.created_at < :to "
+            + "ORDER BY g.created_at, g.id LIMIT :limit", nativeQuery = true)
+    List<Group> findPublicAliveCreatedBetween(@Param("from") Instant from, @Param("to") Instant to,
+                                              @Param("limit") int limit);
 }

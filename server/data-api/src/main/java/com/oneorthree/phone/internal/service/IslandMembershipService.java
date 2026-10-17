@@ -52,6 +52,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -254,7 +255,8 @@ public class IslandMembershipService {
                         movementGuards.requireDepartureUnlocked(context);
                         context.moveTo(islandId);
                     }
-                    arrivals.recordArrival(userId, islandId, clock.instant());
+                    Instant arrivedAt = clock.instant();
+                    arrivals.recordArrival(userId, islandId, arrivedAt);
 
                     String membershipStatus = IslandSummaries.STATUS_ACTIVE;
                     if (!member) {
