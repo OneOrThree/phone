@@ -7,7 +7,7 @@ export type SeaRewardArt = {
   preview: { width: number; height: number; size: number; left: number; top: number };
 };
 
-// 실제 시즌 ID는 미선정. 알 수 없는 ID를 예시 보상으로 대체하지 않는다.
+// 실제 보상 아이템 ID는 연결 전이다. 알 수 없는 ID를 예시 보상으로 대체하지 않는다.
 export const seaRewardCatalog: Readonly<Record<string, SeaRewardArt>> = {};
 
 export const duckPreviewArt: SeaRewardArt = {

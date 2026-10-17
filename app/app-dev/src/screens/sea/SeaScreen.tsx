@@ -46,6 +46,7 @@ export function SeaScreen(props: SeaScreenProps) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const busy = useRef(false);
+  const requestVersion = useRef(0);
   const mounted = useRef(true);
   const scope = `${self.userId}/${voyage?.sessionId || ''}/${result?.recordId || ''}`;
   const scopeRef = useRef(scope);
@@ -57,6 +58,9 @@ export function SeaScreen(props: SeaScreenProps) {
     };
   }, []);
   useEffect(() => {
+    requestVersion.current += 1;
+    busy.current = false;
+    setPending(false);
     setPanel(null);
     setError('');
   }, [scope]);
@@ -65,16 +69,30 @@ export function SeaScreen(props: SeaScreenProps) {
     if (busy.current) return;
     busy.current = true;
     const requestScope = scopeRef.current;
+    const version = requestVersion.current;
     setPending(true);
     setError('');
     try {
       await action();
-      if (mounted.current && scopeRef.current === requestScope && close) setPanel(null);
+      if (
+        mounted.current &&
+        scopeRef.current === requestScope &&
+        requestVersion.current === version &&
+        close
+      )
+        setPanel(null);
     } catch {
-      if (mounted.current && scopeRef.current === requestScope) setError(t('openSea.retry'));
+      if (
+        mounted.current &&
+        scopeRef.current === requestScope &&
+        requestVersion.current === version
+      )
+        setError(t('openSea.retry'));
     } finally {
-      busy.current = false;
-      if (mounted.current) setPending(false);
+      if (requestVersion.current === version) {
+        busy.current = false;
+        if (mounted.current) setPending(false);
+      }
     }
   };
   const open = (next: Panel) => {
@@ -99,10 +117,16 @@ export function SeaScreen(props: SeaScreenProps) {
     });
     return () => subscription.remove();
   });
+  const currentSelf: SeaParticipant = {
+    ...self,
+    focusing: !!voyage,
+    subject: voyage?.subject ?? self.subject,
+    activeSeconds: voyage?.activeSeconds ?? self.activeSeconds,
+  };
   const selected =
     typeof panel === 'object' && panel
       ? panel.userId === self.userId
-        ? self
+        ? currentSelf
         : participants.find((person) => person.userId === panel.userId)
       : undefined;
   const modal = !!result || !!panel;
@@ -128,11 +152,7 @@ export function SeaScreen(props: SeaScreenProps) {
         <ScrollView style={styles.root} contentContainerStyle={styles.sceneContent} bounces={false}>
           <SeaScene
             participants={participants}
-            self={{
-              ...self,
-              subject: voyage?.subject ?? self.subject,
-              activeSeconds: voyage?.activeSeconds ?? self.activeSeconds,
-            }}
+            self={currentSelf}
             focusing={!!voyage}
             reduceMotion={reduceMotion}
             onParticipant={(person) => open({ userId: person.userId })}

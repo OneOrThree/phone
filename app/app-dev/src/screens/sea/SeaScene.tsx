@@ -62,6 +62,12 @@ export function SeaScene({
     suppressPressUntil.current = Date.now() + 350;
     scroll.current?.scrollTo({ x: next * bounds.width, animated: !reduceMotion });
   };
+  const releasePressSuppression = () => {
+    suppressPressUntil.current = Date.now() + 350;
+  };
+  const releaseInterruptedDrag = () => {
+    if (suppressPressUntil.current === Infinity) releasePressSuppression();
+  };
   const pick = (participant: SeaParticipant) => {
     if (Date.now() >= suppressPressUntil.current) onParticipant(participant);
   };
@@ -115,9 +121,10 @@ export function SeaScene({
           scrollTarget.current = null;
           suppressPressUntil.current = Infinity;
         }}
-        onScrollEndDrag={() => {
-          suppressPressUntil.current = Date.now() + 350;
-        }}
+        onScrollEndDrag={releasePressSuppression}
+        onTouchEnd={releaseInterruptedDrag}
+        onTouchCancel={releaseInterruptedDrag}
+        onMomentumScrollEnd={releasePressSuppression}
         onScroll={(event) => {
           suppressPressUntil.current = Date.now() + 350;
           const offset = event.nativeEvent.contentOffset.x;
@@ -215,7 +222,11 @@ export function SeaScene({
         )}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t('openSea.myRaft')}
+          accessibilityLabel={
+            focusing
+              ? `${t('openSea.myRaft')}, ${self.subject || t('openSea.focusing')}, ${seaClock(self.activeSeconds)}`
+              : t('openSea.myRaft')
+          }
           onPress={() => pick(self)}
           style={styles.person}
         >

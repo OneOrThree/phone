@@ -87,6 +87,22 @@ test('하선 중 중복 탭을 막고 실패하면 같은 세션에서 재시도
   expect(p.onFinish).toHaveBeenCalledTimes(2);
 });
 
+test('내 상세도 참가자 정보보다 현재 항해 과목과 시간을 사용한다', async () => {
+  const p = props();
+  const screen = await render(
+    <SeaScreen
+      {...p}
+      self={{ ...p.self, focusing: false, subject: '이전 과목', activeSeconds: 42 }}
+      voyage={{ ...voyage, activeSeconds: 2050 }}
+    />,
+  );
+  await fireEvent.press(screen.getByLabelText('내 뗏목, 독서, 00:34:10'));
+  expect(screen.getByText('독서')).toBeTruthy();
+  expect(screen.getByText('00:34:10')).toBeTruthy();
+  expect(screen.queryByText('이전 과목')).toBeNull();
+  expect(screen.queryByText('바다 구경 중')).toBeNull();
+});
+
 test('도착 전 종료는 확인 후 실행하고 취소하면 집중을 유지한다', async () => {
   const p = props();
   const screen = await render(
@@ -99,6 +115,22 @@ test('도착 전 종료는 확인 후 실행하고 취소하면 집중을 유지
   await fireEvent.press(screen.getByLabelText('항해 그만두기'));
   await fireEvent.press(screen.getByLabelText('항해 그만두기'));
   expect(p.onFinish).toHaveBeenCalledWith('session-1', 'stop');
+});
+
+test('세션 변경은 이전 요청 잠금을 해제하고 이전 완료가 새 요청을 풀지 않는다', async () => {
+  const finish: Array<() => void> = [];
+  const p = props();
+  p.onFinish = jest.fn(() => new Promise<void>((resolve) => finish.push(resolve)));
+  const screen = await render(<SeaScreen {...p} voyage={voyage} />);
+  await fireEvent.press(screen.getByLabelText('섬에 내리기'));
+  await screen.rerender(<SeaScreen {...p} voyage={{ ...voyage, sessionId: 'session-2' }} />);
+  await fireEvent.press(screen.getByLabelText('섬에 내리기'));
+  expect(p.onFinish).toHaveBeenCalledTimes(2);
+  await act(async () => finish[0]());
+  await fireEvent.press(screen.getByLabelText('처리 중…'));
+  expect(p.onFinish).toHaveBeenCalledTimes(2);
+  await act(async () => finish[1]());
+  expect(screen.getByLabelText('섬에 내리기')).toBeTruthy();
 });
 
 test('미확인 결과를 직접 복원하며 결과 확인 성공 전 화면과 보상을 유지한다', async () => {
@@ -164,6 +196,28 @@ test('스냅샷 순서 갱신은 선택한 페이지를 초기화하지 않는�
   await screen.rerender(<SeaScreen {...p} participants={[...people].reverse()} />);
   expect(screen.getByText('2 / 2')).toBeTruthy();
   expect(screen.getByTestId('sea-person-6')).toBeTruthy();
+});
+
+test('드래그가 취소돼도 잠시 후 참여자를 다시 누를 수 있다', async () => {
+  const now = jest.spyOn(Date, 'now').mockReturnValue(1000);
+  try {
+    const screen = await render(<SeaScreen {...props()} />);
+    const scroll = screen.getByTestId('sea-participants');
+    await fireEvent(scroll, 'scrollBeginDrag');
+    await fireEvent(scroll, 'touchCancel');
+    now.mockReturnValue(1400);
+    await fireEvent.press(screen.getByTestId('sea-person-1'));
+    expect(screen.getByLabelText('닫기')).toBeTruthy();
+  } finally {
+    now.mockRestore();
+  }
+});
+
+test('드래그 없이 터치를 마친 참여자는 바로 누를 수 있다', async () => {
+  const screen = await render(<SeaScreen {...props()} />);
+  await fireEvent(screen.getByTestId('sea-participants'), 'touchEnd');
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  expect(screen.getByLabelText('닫기')).toBeTruthy();
 });
 
 test('다음 페이지 이동은 중간 스크롤 이벤트 때문에 이전 페이지로 되돌아가지 않는다', async () => {
