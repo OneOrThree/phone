@@ -24,7 +24,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -45,9 +44,21 @@ import java.util.stream.Collectors;
  * 의 {@code (user_id, kind, subject_id=호 id)} <b>선점</b>이다 — 선례({@code InactiveReturnNotificationService})는
  * 중복 방지를 범위 밖으로 뒀지만 여기서는 중복 0 이 완료 조건이라 반대로 선점이 필수다.
  *
- * <p>LEGACY 는 쪽(200명) 단위 트랜잭션이다 — FCM 이 나간 뒤 그 쪽의 커밋이 실패하면 선점이 같이 되돌아가
- * 그 쪽이 한 번 더 나간다(ponytail: 계정마다 선점을 먼저 커밋하면 막히지만 FCM 왕복마다 트랜잭션 둘이 든다.
- * 커밋 실패는 드물어 감수 — 정확히 한 번이 필요해지면 선점을 따로 커밋한다).
+ * <h2>왜 사용자별 트랜잭션인가 (LEGACY)</h2>
+ * 쪽 조회는 잠금 없이 id·언어만 읽고, 사용자마다 짧은 트랜잭션 하나에서 <b>그 사용자 행을 공유 잠금</b>으로 다시 읽은 뒤
+ * (탈퇴·소프트 삭제면 건너뜀) 선점 → 필터 판정 → 발송 → 상태 갱신을 하고 커밋한다. 탈퇴
+ * ({@code AccountWithdrawalService#withdraw}: 행 배타 잠금 → sent_log 삭제 → 소프트 삭제)와는 직렬화되어 탈퇴자의
+ * 발송 이력이 되살아나지 않고, 잠금은 <b>한 사용자의 FCM 왕복 동안만</b> 잡혀 쪽 전체(200명)를 잠그던 때처럼 알림
+ * 지연이 프로필 수정·접속 갱신 지연으로 번지지 않는다. 무효 토큰 정리의 더티체킹도 같은 트랜잭션의 managed User 로 한다.
+ *
+ * <p>ponytail: FCM 이 나간 뒤 그 한 사용자의 커밋이 실패하면 선점이 되돌아가 그 사용자만 한 번 더 나간다(드물어
+ * 감수 — 정확히 한 번이 필요해지면 선점을 따로 커밋한다).
+ *
+ * <h2>선점 행의 종착</h2>
+ * 나감 → {@code SENT}(sent_at). <b>필터로 폐기</b>(알림 끔·토큰 없음·조용한 시간) → 역시 {@code SENT}(sent_at 없음) —
+ * DROP 정책이라 이월·재시도가 없어야 하고, 지우면 다른 사용자의 일시 실패로 다음 틱이 이어질 때 조용한 시간이 끝난 이 계정이
+ * 뒤늦게 받는다. 이 enum 에 「폐기」 값이 없어 {@code consumeUnsentClaims} 의 「소비 확정」 선례를 따랐고, 이관 export 는
+ * {@code SENT} 를 종결(재발송 안 함)로 읽는다. <b>전송 오류만</b> 선점을 지워 다음 틱이 재시도한다.
  */
 @Slf4j
 @Service
@@ -87,25 +98,36 @@ public class MagazineIssueNotifier {
             return;
         }
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        boolean outboxMode = dispatcher.isOutboxMode();
         UUID after = NIL;
         int total = 0;
         int failed = 0;
         while (true) {
-            UUID cursor = after;
-            Page page = transaction.execute(status -> processPage(issue, cursor, now));
-            if (page.last() == null) {
+            // 잠금 없는 조회 — id·언어만 쓴다. 사용자 행은 LEGACY 가 사용자별 트랜잭션에서 다시 잠가 읽는다.
+            List<User> targets = users.findFormalUsersAfter(after, PageRequest.ofSize(pageSize));
+            if (targets.isEmpty()) {
                 break;
             }
-            if (!page.outbox().isEmpty()) {
-                // 판정 트랜잭션 밖의 짧은 조각 — 수신자 잠금 순서를 fan-out 이 정본 순서로 잡는다(GROMO-893).
-                dispatcher.writeFanOut(page.outbox(), NotificationFanOutUnit.RECIPIENT);
+            if (outboxMode) {
+                // 요청 조립뿐이다 — 적는 쪽(writeFanOut)이 수신자 축을 정본 순서로 잠근다(GROMO-893).
+                dispatcher.writeFanOut(targets.stream().map(user -> requestOf(issue, user)).toList(),
+                        NotificationFanOutUnit.RECIPIENT);
+            } else {
+                Map<UUID, UserNotificationSettings> settings = userQueryService
+                        .findAllNotificationSettings(targets.stream().map(User::getId).toList()).stream()
+                        .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
+                for (User target : targets) {
+                    UserNotificationSettings own = settings.get(target.getId());
+                    if (transaction.execute(status -> sendLegacy(issue, target.getId(), own, now)) == Outcome.FAILED) {
+                        failed++;
+                    }
+                }
             }
-            total += page.size();
-            failed += page.failed();
-            after = page.last();
+            total += targets.size();
+            after = targets.get(targets.size() - 1).getId();
         }
         if (failed > 0) {
-            // 예외로 쪽 트랜잭션을 되돌리면 이미 나간 FCM 이 다음 틱에 중복된다 — 정상 반환하되 완료는 확정하지 않는다.
+            // 예외로 되돌리지 않고 정상 반환한다 — 이미 나간 FCM 은 되돌릴 수 없다. 완료는 확정하지 않는다.
             log.warn("고양이 잡지 알림 일시 실패 — 실패 {}건 — 다음 틱 재시도 date={} issueNo={}", failed, issueDate,
                     issue.getIssueNo());
             return;
@@ -114,54 +136,35 @@ public class MagazineIssueNotifier {
         log.info("고양이 잡지 알림 펼치기 완료 date={} issueNo={} 대상={}", issueDate, issue.getIssueNo(), total);
     }
 
-    private Page processPage(MagazineIssue issue, UUID after, Instant now) {
-        List<User> targets = users.findFormalUsersAfter(after, PageRequest.ofSize(pageSize));
-        if (targets.isEmpty()) {
-            return new Page(null, List.of(), 0, 0);
+    /** 사용자 한 명의 LEGACY 발송 — 호출한 사용자별 트랜잭션 안에서 돈다. */
+    private Outcome sendLegacy(MagazineIssue issue, UUID userId, UserNotificationSettings own, Instant now) {
+        User user = userQueryService.findActiveForShare(userId).orElse(null);
+        if (user == null) {
+            log.debug("고양이 잡지 알림 생략 — 탈퇴한 수신자 userId={}", userId);
+            return Outcome.SKIPPED;
         }
-        Map<UUID, UserNotificationSettings> settings = userQueryService
-                .findAllNotificationSettings(targets.stream().map(User::getId).toList()).stream()
-                .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
-        boolean outboxMode = dispatcher.isOutboxMode();
-        List<NotificationRequest> outbox = new ArrayList<>();
-        List<UUID> sent = new ArrayList<>();
-        List<UUID> unsent = new ArrayList<>();
-        int failed = 0;
-        for (User user : targets) {
-            NotificationRequest request = requestOf(issue, user);
-            if (outboxMode) {
-                outbox.add(request);
-                continue;
-            }
-            UUID claimId = UUID.randomUUID();
-            if (sentLogs.insertPendingClaim(claimId, user.getId(), NotificationSentLog.TYPE_MAGAZINE_PUBLISHED,
-                    issue.getId(), null, null, now) == 0) {
-                continue; // 앞 틱에 이미 선점·발송된 계정
-            }
-            UserNotificationSettings own = settings.get(user.getId());
-            PushMessage message = new PushMessage(TITLE, BODY_PREFIX + issue.getIssueNo() + BODY_SUFFIX,
-                    DEEP_LINK_PREFIX + issue.getId(), own == null || own.isSoundEnabled(),
-                    Map.of("type", NotificationSentLog.TYPE_MAGAZINE_PUBLISHED));
-            // 필터에 걸리는 계정(토큰 없음·알림 끔·조용한 시간)은 영구 미발송이고, 안 걸렸는데 못 나갔으면 전송 오류다
-            // (sendIfAllowed 는 타임아웃·서버 오류에서도 예외 대신 false 를 돌려준다).
-            boolean filtered = pushNotificationService.isFilteredOut(user, own, now);
-            if (dispatcher.dispatch(user, own, request, message, now).recordsLegacyLog()) {
-                sent.add(claimId);
-            } else {
-                // 선점은 어느 쪽이든 지운다 — 남기면 «보냈다» 로 읽혀 다음 틱 재시도가 막힌다.
-                unsent.add(claimId);
-                if (!filtered) {
-                    failed++;
-                }
-            }
+        UUID claimId = UUID.randomUUID();
+        if (sentLogs.insertPendingClaim(claimId, userId, NotificationSentLog.TYPE_MAGAZINE_PUBLISHED,
+                issue.getId(), null, null, now) == 0) {
+            return Outcome.SKIPPED; // 앞 틱에 이미 선점·발송·폐기된 계정
         }
-        if (!sent.isEmpty()) {
-            sentLogs.updateStatusByIds(sent, NotificationSendStatus.SENT, now);
+        PushMessage message = new PushMessage(TITLE, BODY_PREFIX + issue.getIssueNo() + BODY_SUFFIX,
+                DEEP_LINK_PREFIX + issue.getId(), own == null || own.isSoundEnabled(),
+                Map.of("type", NotificationSentLog.TYPE_MAGAZINE_PUBLISHED));
+        // 필터에 걸리는 계정(토큰 없음·알림 끔·조용한 시간)은 영구 미발송이고, 안 걸렸는데 못 나갔으면 전송 오류다
+        // (sendIfAllowed 는 타임아웃·서버 오류에서도 예외 대신 false 를 돌려준다).
+        boolean filtered = pushNotificationService.isFilteredOut(user, own, now);
+        if (dispatcher.dispatch(user, own, requestOf(issue, user), message, now).recordsLegacyLog()) {
+            sentLogs.updateStatusByIds(List.of(claimId), NotificationSendStatus.SENT, now);
+            return Outcome.SENT;
         }
-        if (!unsent.isEmpty()) {
-            sentLogs.deleteByIds(unsent);
+        if (filtered) {
+            // 폐기도 종결로 남긴다(클래스 javadoc) — sent_at 은 비워 «보내지 않았다» 를 남긴다.
+            sentLogs.updateStatusByIds(List.of(claimId), NotificationSendStatus.SENT, null);
+            return Outcome.DROPPED;
         }
-        return new Page(targets.get(targets.size() - 1).getId(), outbox, targets.size(), failed);
+        sentLogs.deleteByIds(List.of(claimId)); // 전송 오류 — 선점을 지워 다음 틱이 재시도한다
+        return Outcome.FAILED;
     }
 
     private static NotificationRequest requestOf(MagazineIssue issue, User user) {
@@ -171,6 +174,5 @@ public class MagazineIssueNotifier {
                         "issueDate", issue.getIssueDate().toString()));
     }
 
-    private record Page(UUID last, List<NotificationRequest> outbox, int size, int failed) {
-    }
+    private enum Outcome { SENT, DROPPED, FAILED, SKIPPED }
 }

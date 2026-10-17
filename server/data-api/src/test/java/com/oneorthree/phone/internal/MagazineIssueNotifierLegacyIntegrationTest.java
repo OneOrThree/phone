@@ -8,10 +8,15 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.util.List;
+import java.util.UUID;
+
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -87,16 +92,44 @@ class MagazineIssueNotifierLegacyIntegrationTest extends MagazineIssueNotifierTe
     }
 
     @Test
-    @DisplayName("안 나간 계정(토큰 없음 등)은 선점을 남기지 않는다 — 다음 틱이 다시 시도할 수 있다")
-    void unsentAccountLeavesNoClaim() {
+    @DisplayName("필터로 폐기한 계정(토큰 없음 등)은 종결 상태 선점(sent_at 없음) 1행을 남기고 다시 시도하지 않는다")
+    void filteredAccountLeavesATerminalClaimAndIsNotRetried() {
         usersFor(2);
         when(push.isFilteredOut(any(), any(), any())).thenReturn(true); // 토큰 없음·알림 끔 — 영구 미발송
         when(push.sendIfAllowed(any(), any(), any(), any())).thenReturn(false);
         notifier.notifyIfPending(DATE, NOW);
         assertThat(notifiedAt()).isEqualTo(NOW); // 영구 미발송만 있으면 완료로 확정한다
-        assertThat(sentLogs()).isZero();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_sent_logs WHERE kind = 'MAGAZINE_PUBLISHED'",
-                Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_sent_logs WHERE kind = 'MAGAZINE_PUBLISHED'"
+                + " AND status = 'SENT' AND sent_at IS NULL", Integer.class)).isEqualTo(2);
+
+        jdbc.update("UPDATE magazine_issues SET notified_at = NULL");
+        clearInvocations(push);
+        when(push.isFilteredOut(any(), any(), any())).thenReturn(false); // 조용한 시간이 끝났다
+        when(push.sendIfAllowed(any(), any(), any(), any())).thenReturn(true);
+        notifier.notifyIfPending(DATE, NOW.plusSeconds(600));
+        verify(push, never()).sendIfAllowed(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("A 필터 + B 일시 실패 — 다음 틱에 B 만 다시 보내고 A 는 조용한 시간이 끝나도 안 나간다")
+    void filteredAccountStaysDroppedWhileAnotherAccountIsRetried() {
+        List<UUID> ids = usersFor(2);
+        UUID dropped = ids.get(0);
+        UUID flaky = ids.get(1);
+        when(push.isFilteredOut(argThat(user -> user != null && user.getId().equals(dropped)), any(), any())).thenReturn(true);
+        when(push.sendIfAllowed(argThat(user -> user != null && user.getId().equals(dropped)), any(), any(), any()))
+                .thenReturn(false);
+        when(push.sendIfAllowed(argThat(user -> user != null && user.getId().equals(flaky)), any(), any(), any()))
+                .thenReturn(false, true);
+
+        notifier.notifyIfPending(DATE, NOW);
+        assertThat(notifiedAt()).isNull();
+
+        when(push.isFilteredOut(any(), any(), any())).thenReturn(false); // A 의 조용한 시간이 끝났다
+        notifier.notifyIfPending(DATE, NOW.plusSeconds(600));
+        assertThat(notifiedAt()).isEqualTo(NOW.plusSeconds(600));
+        verify(push, times(2)).sendIfAllowed(argThat(user -> user != null && user.getId().equals(flaky)), any(), any(), any());
+        verify(push, times(1)).sendIfAllowed(argThat(user -> user != null && user.getId().equals(dropped)), any(), any(), any());
     }
 
     @Test
