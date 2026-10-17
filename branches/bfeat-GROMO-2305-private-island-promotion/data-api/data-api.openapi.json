@@ -9154,6 +9154,9 @@
               "KICKED",
               "NONE"
             ]
+          },
+          "privateIsland": {
+            "type": "boolean"
           }
         }
       },
@@ -9234,6 +9237,9 @@
               "KICKED",
               "NONE"
             ]
+          },
+          "privateIsland": {
+            "type": "boolean"
           }
         }
       },

@@ -5952,6 +5952,9 @@
           },
           "relation": {
             "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -6042,6 +6045,9 @@
           },
           "relation": {
             "type": "string"
+          },
+          "privateIsland": {
+            "type": "boolean"
           }
         },
         "required": [
