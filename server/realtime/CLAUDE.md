@@ -203,7 +203,7 @@ designed fresh.
 **바다 앱 계약 보충** (앱 티켓이 되묻는 것 — 근거는 `SeaRooms`·`StompAuthChannelInterceptor`·컨트롤러 코드):
 
 - **`sea.room.left{roomId, reason}`** 는 개인 큐 `/user/queue/sea` 로 그 사용자의 **모든 세션**(발신 세션 포함)에 간다
-  (`SeaRoomPublisher.publishToUser`). `reason` ∈ `left`(자발 퇴장·방 토픽 UNSUBSCRIBE) · `adrift`(10분 정리) ·
+  (`SeaRoomPublisher.publishToUser`). `reason` ∈ `left`(자발 퇴장·방 토픽 UNSUBSCRIBE·탈퇴 `user.withdrawn`) · `adrift`(10분 정리) ·
   `disconnected`(마지막 세션 소켓 종료)(`SeaRooms.LEFT/ADRIFT/DISCONNECTED`). 방 토픽의 `sea.member.left{userId, reason}` 도 같은
   값이다. 앱은 **멱등**으로 처리한다.
 - **`member = {userId, state, remark, session}`** (`SeaRooms.member`). `state` ∈ `focusing`·`adrift`. `remark` 는 없으면 `null`.
@@ -265,7 +265,7 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 4. Inbound `POST /internal/events` (GROMO-1943) — Data's canonical `user.withdrawn` envelope, authenticated by
    the Data-only token `SVC_TOKEN_DATA_TO_REALTIME` (no `X-User-Id`). `message/service/ChatUserFence` writes
    `user_tombstones` and deletes the user's `chat_read_cursors` under a per-user advisory lock; every cursor
-   write goes through the same fence. Wired by GROMO-1954 (2026-09-19 R-1): Data's relay sends every `REALTIME`
+   write goes through the same fence. `user.withdrawn` also removes the user from their sea room (`SeaRooms.leaveCurrent`, room event `sea.member.left{reason:"left"}`, GROMO-2300): Data's withdrawal ends the progressing session with a bulk UPDATE (ABANDONED) and emits no `sea.member.updated(ended)`, so without this the user would stay in the room as a `focusing` ghost — outside the `sea:adrift` index, so the 10-minute sweep never sees it — until the 24h hash TTL. Not in a room → no-op; only a Redis failure throws, rolling back the receipt (and the tombstone) so the relay redelivers. Never 400. Wired by GROMO-1954 (2026-09-19 R-1): Data's relay sends every `REALTIME`
    row here over HTTP by default, or over the `realtime-events` Kafka topic when both flags are on
    (`event/KafkaEventInbound`, `REALTIME_EVENTS_KAFKA_ENABLED`, default false). Both entrances call
    `event/InboundEventService`, which inserts `inbound_events(event_id)` first and applies only on first sight.
