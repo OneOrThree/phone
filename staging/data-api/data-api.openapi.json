@@ -12,6 +12,47 @@
     }
   ],
   "paths": {
+    "/internal/users/{userId}/sea-remark": {
+      "put": {
+        "tags": [
+          "internal-sea-controller"
+        ],
+        "operationId": "updateRemark",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeaRemarkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeaRemarkView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/screen-time/{date}": {
       "put": {
         "tags": [
@@ -1566,6 +1607,56 @@
         "responses": {
           "204": {
             "description": "No Content"
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/focus-sessions/sea": {
+      "post": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "startSea",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeaFocusSessionStartCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionView"
+                }
+              }
+            }
           }
         }
       }
@@ -3964,6 +4055,37 @@
         }
       }
     },
+    "/internal/users/{userId}/sea-state": {
+      "get": {
+        "tags": [
+          "internal-sea-controller"
+        ],
+        "operationId": "state",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeaStateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/result-ack": {
       "get": {
         "tags": [
@@ -4709,6 +4831,37 @@
                   "items": {
                     "$ref": "#/components/schemas/FriendResponse"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/friends/ids": {
+      "get": {
+        "tags": [
+          "internal-sea-controller"
+        ],
+        "operationId": "friendIds",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendIdsView"
                 }
               }
             }
@@ -6481,6 +6634,30 @@
   },
   "components": {
     "schemas": {
+      "SeaRemarkRequest": {
+        "type": "object",
+        "properties": {
+          "remark": {
+            "type": "string"
+          }
+        }
+      },
+      "SeaRemarkView": {
+        "type": "object",
+        "properties": {
+          "remark": {
+            "type": "string"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lockedUntil": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ScreenTimeUpload": {
         "type": "object",
         "properties": {
@@ -7429,6 +7606,9 @@
             "items": {
               "$ref": "#/components/schemas/ActiveInterval"
             }
+          },
+          "kind": {
+            "type": "string"
           }
         }
       },
@@ -7516,6 +7696,12 @@
           },
           "seaReward": {
             "$ref": "#/components/schemas/SeaReward"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "arrived": {
+            "type": "boolean"
           }
         }
       },
@@ -7544,6 +7730,15 @@
           "minutesToNextTier": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "SeaFocusSessionStartCommandRequest": {
+        "type": "object",
+        "properties": {
+          "destinationIslandId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -8777,6 +8972,50 @@
           }
         }
       },
+      "SeaStateView": {
+        "type": "object",
+        "properties": {
+          "remark": {
+            "type": "string"
+          },
+          "remarkChangedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "session": {
+            "$ref": "#/components/schemas/Session"
+          }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "destinationIslandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sailingMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "activeSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "serverNow": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ResultAckStateResponse": {
         "type": "object",
         "properties": {
@@ -9420,6 +9659,18 @@
           },
           "isFocusing": {
             "type": "boolean"
+          }
+        }
+      },
+      "FriendIdsView": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },

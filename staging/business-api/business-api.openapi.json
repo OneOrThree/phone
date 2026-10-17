@@ -12,6 +12,36 @@
     }
   ],
   "paths": {
+    "/me/sea-remark": {
+      "put": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "updateSeaRemark",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeaRemarkView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/screen-time/{date}": {
       "put": {
         "tags": [
@@ -1574,6 +1604,38 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/focus-sessions/sea": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "summary": "바다 집중 시작",
+        "description": "목적지는 지금 망원경 목록에 있는 섬이어야 한다. 망원경 목록은 정시마다 다시 계산되므로 앱이 본 목록과 어긋날 수 있다 — 409 SEA_DESTINATION_UNAVAILABLE 이면 GET /me/telescope 를 다시 불러 같은 섬이 있으면 재시도하고, 없으면 선택 화면으로 돌아간다. 항해 분은 서버가 그 항목 값으로 고정한다.",
+        "operationId": "startSea",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateView"
+                }
+              }
+            }
           }
         }
       }
@@ -4175,6 +4237,24 @@
           }
         }
       },
+      "SeaRemarkView": {
+        "type": "object",
+        "properties": {
+          "remark": {
+            "type": "string"
+          },
+          "changedAt": {
+            "type": "string"
+          },
+          "lockedUntil": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "changedAt",
+          "lockedUntil"
+        ]
+      },
       "ScreenTimeDayView": {
         "type": "object",
         "properties": {
@@ -5143,6 +5223,9 @@
             "items": {
               "$ref": "#/components/schemas/ActiveIntervalView"
             }
+          },
+          "kind": {
+            "type": "string"
           }
         },
         "required": [
@@ -5234,6 +5317,12 @@
           },
           "seaReward": {
             "$ref": "#/components/schemas/SeaRewardView"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "arrived": {
+            "type": "boolean"
           }
         },
         "required": [
