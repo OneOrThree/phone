@@ -16,6 +16,8 @@ import java.util.UUID;
  * 키가 없거나 null 이다 — 그래서 필수가 아니다.
  * {@code magazineCell}(GROMO-2289)은 잡지에서 넣은 섬의 그 잡지 홍보 칸이다 — 그 밖의 칸은 null 이고, 이 필드를 모르는 옛
  * Data 는 키를 싣지 않으므로 필수가 아니다(빠지면 null 로 읽는다).
+ * {@code buildingCount}(GROMO-2306)은 완공 건물 수다 — 이 필드를 모르는 옛 Data 는 키를 싣지 않으므로 필수가 아니다(빠지면
+ * null 로 읽는다).
  * {@code items} 의 원소 null 은 계약 위반이다 — 공개 응답으로 {@code null} 칸이 새면 앱이 깨진다.
  */
 public record Telescope(
@@ -39,6 +41,7 @@ public record Telescope(
             @JsonProperty(required = true) boolean arrivedBefore,
             String pinnedFrom,
             Instant pinnedAt,
-            Magazines.Cell magazineCell) {
+            Magazines.Cell magazineCell,
+            Integer buildingCount) {
     }
 }

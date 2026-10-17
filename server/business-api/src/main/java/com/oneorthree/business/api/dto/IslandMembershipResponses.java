@@ -306,6 +306,8 @@ public final class IslandMembershipResponses {
      * @param pinnedAt                  핀을 넣은 시각 — {@code pinnedFrom} 과 함께 있거나 함께 없다
      * @param magazineCell              잡지에서 넣은 섬의 그 잡지 홍보 칸(잡지 한 호의 칸과 같은 모양). 없으면 null 이고 키는
      *                                  항상 있다(GROMO-2289)
+     * @param buildingCount             완공 건물 수 — 단계 그림은 앱 {@code islandStage(memberCount, buildingCount)} 가 정한다
+     *                                  (GROMO-2306). 이 필드를 모르는 옛 Data 면 null
      */
     public record TelescopeItemView(
             @JsonProperty(required = true) UUID islandId,
@@ -322,7 +324,8 @@ public final class IslandMembershipResponses {
             @JsonProperty(required = true) boolean arrivedBefore,
             @JsonInclude(JsonInclude.Include.NON_NULL) String pinnedFrom,
             @JsonInclude(JsonInclude.Include.NON_NULL) Instant pinnedAt,
-            @JsonInclude(JsonInclude.Include.ALWAYS) Magazines.Cell magazineCell) {
+            @JsonInclude(JsonInclude.Include.ALWAYS) Magazines.Cell magazineCell,
+            Integer buildingCount) {
         public static TelescopeItemView from(Telescope.Item value) {
             if (value == null) {
                 return null;
@@ -342,7 +345,8 @@ public final class IslandMembershipResponses {
                     value.arrivedBefore(),
                     value.pinnedFrom(),
                     value.pinnedAt(),
-                    value.magazineCell());
+                    value.magazineCell(),
+                    value.buildingCount());
         }
     }
 
