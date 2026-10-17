@@ -19,16 +19,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V112 바다 집중 누적·단계표 테이블의 실 SQL 검증 (GROMO-2274). 검증 방식은 {@code LoginAttemptV101MigrationTest}
+ * V117 바다 집중 누적·단계표 테이블의 실 SQL 검증 (GROMO-2274). 검증 방식은 {@code LoginAttemptV101MigrationTest}
  * 선례 — 전용 컨테이너에 Flyway 체인을 실제로 돌린다.
  *
  * <p>보는 것: ① 열 타입·길이·nullability·default, PK, FK 동작, 유일 제약, CHECK, ② 기존 데이터(유저·카탈로그) 위에
  * 적용되고 두 표는 <b>빈 채로</b> 시작한다(시드 없음 — 바다 전용 상품이 아직 없다), ③ 제약이 DB 에서 실제로 걸린다,
  * ④ 빈 DB 의 전체 경로.
  *
- * <p>구조 단언은 V112 로 고정해(target) 뒤 번호 마이그레이션이 이 표를 만져도 흔들리지 않게 한다.
+ * <p>구조 단언은 V117 로 고정해(target) 뒤 번호 마이그레이션이 이 표를 만져도 흔들리지 않게 한다.
  */
-class SeaFocusV112MigrationTest {
+class SeaFocusV117MigrationTest {
 
     /** 이 클래스 전용 컨테이너 — 공용 TestPostgres 는 스키마 초기화와 함께 쓸 수 없다. */
     private static final PostgreSQLContainer<?> POSTGRES;
@@ -52,7 +52,7 @@ class SeaFocusV112MigrationTest {
     @Test
     @DisplayName("sea_focus_totals: 열 타입·길이·nullability·default, PK, users FK 연쇄 삭제가 정확히 생긴다")
     void totalsTableShape() {
-        migrate(MigrationVersion.fromVersion("112"));
+        migrate(MigrationVersion.fromVersion("117"));
         JdbcTemplate jdbc = jdbc();
 
         Map<String, Map<String, Object>> columns = columnsOf(jdbc, "sea_focus_totals");
@@ -83,7 +83,7 @@ class SeaFocusV112MigrationTest {
     @Test
     @DisplayName("sea_reward_tiers: 열 타입·길이·nullability, PK, 카탈로그 FK, 유일 제약, CHECK 가 정확히 생긴다")
     void tiersTableShape() {
-        migrate(MigrationVersion.fromVersion("112"));
+        migrate(MigrationVersion.fromVersion("117"));
         JdbcTemplate jdbc = jdbc();
 
         Map<String, Map<String, Object>> columns = columnsOf(jdbc, "sea_reward_tiers");
@@ -119,14 +119,14 @@ class SeaFocusV112MigrationTest {
     }
 
     @Test
-    @DisplayName("기존 유저·카탈로그 위에 V112 가 적용되고 두 표는 비어 있다 — 시드가 없다")
+    @DisplayName("기존 유저·카탈로그 위에 V117 가 적용되고 두 표는 비어 있다 — 시드가 없다")
     void startsEmptyOverExistingData() {
-        migrate(MigrationVersion.fromVersion("111"));
+        migrate(MigrationVersion.fromVersion("116"));
         JdbcTemplate jdbc = jdbc();
         user(jdbc);
         product(jdbc, "scarf", "clothes", "user");
 
-        migrate(MigrationVersion.fromVersion("112"));
+        migrate(MigrationVersion.fromVersion("117"));
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM sea_focus_totals", Integer.class))
                 .as("누적은 바다 집중이 끝날 때 서비스가 쓴다").isZero();
@@ -199,7 +199,7 @@ class SeaFocusV112MigrationTest {
     }
 
     @Test
-    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V112 가 성공으로 기록된다")
+    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V117 가 성공으로 기록된다")
     void appliesOnEmptyDatabase() {
         migrate(MigrationVersion.LATEST);
 

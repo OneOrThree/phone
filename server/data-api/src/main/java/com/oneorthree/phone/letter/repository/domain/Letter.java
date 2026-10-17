@@ -63,7 +63,7 @@ public class Letter {
     @GeneratedUuidV7
     private UUID id;
 
-    /** 보낸 사람. <b>시스템 편지({@code kind != FRIEND})는 null</b> 이다 (GROMO-2260, V107). */
+    /** 보낸 사람. <b>시스템 편지({@code kind != FRIEND})는 null</b> 이다 (GROMO-2260, V112). */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sender_id")
     private User sender;

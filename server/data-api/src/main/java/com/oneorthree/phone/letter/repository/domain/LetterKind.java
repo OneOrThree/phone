@@ -1,7 +1,7 @@
 package com.oneorthree.phone.letter.repository.domain;
 
 /**
- * 편지 종류 (GROMO-2260, V107 {@code letters.kind}). {@code FRIEND} 만 사람이 보내고, 나머지는 시스템
+ * 편지 종류 (GROMO-2260, V112 {@code letters.kind}). {@code FRIEND} 만 사람이 보내고, 나머지는 시스템
  * 편지라 발신자가 없다({@code sender_id IS NULL}).
  */
 public enum LetterKind {

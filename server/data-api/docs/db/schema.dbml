@@ -459,20 +459,20 @@ Table pinned_users [note: '친구 핀 (방향성: user_id가 friend_user_id를 �
 Table letters [note: '친구 사이 1:1 편지 (GROMO-1933, friend-letter LLD §1.12~1.14 · §2, V61). 섬 공개 우체통 메시지(island-mailbox, Realtime gromo_chat)와 다른 도메인 — 화면에 나란히 떠도 저장소·권한이 갈린다'] {
   id          uuid        [pk]
 
-  sender_id   uuid        [note: '보낸 유저 (FK → users.id, ON DELETE RESTRICT — «주고받은 사실»의 기록이라 유저 삭제에 따라가지 않는다. 운영 탈퇴는 소프트 삭제라 닿지 않음). 시스템 편지(kind != FRIEND)는 NULL — V107 이 NOT NULL 을 풀었다(GROMO-2260)']
+  sender_id   uuid        [note: '보낸 유저 (FK → users.id, ON DELETE RESTRICT — «주고받은 사실»의 기록이라 유저 삭제에 따라가지 않는다. 운영 탈퇴는 소프트 삭제라 닿지 않음). 시스템 편지(kind != FRIEND)는 NULL — V112 이 NOT NULL 을 풀었다(GROMO-2260)']
   receiver_id uuid        [not null, note: '받는 유저 (FK → users.id, ON DELETE RESTRICT — sender 와 동일)']
 
   content     varchar(500) [not null, note: '본문 상한 500 — 재영님 확정(2026-09-18). LLD·HLD 의 1000 은 폐기된 제안']
   read_at     timestamptz [note: '수신자가 처음 상세 조회한 시각. NULL = 안 읽음. status enum 없이 이 컬럼 하나가 유일한 전이']
   created_at  timestamptz [not null, default: `now()`, note: '발송 시각. 커서 정렬 축은 이 컬럼이 아니라 id(UUID v7, 시간순)']
   deleted_at  timestamptz [note: '시스템 소프트 삭제 필드 — 지금 쓰는 경로 없음. 친구 삭제 후 편지 처리(LLD §4 결정 3)가 «삭제»로 결정되면 그 실행에 쓸 자리. 읽기는 전부 deleted_at IS NULL']
-  kind        varchar(20) [not null, default: 'FRIEND', note: '편지 종류 — FRIEND|KICK|JOIN_APPROVED (CHECK). FRIEND 만 사람이 보내고 나머지는 시스템 편지(강퇴·가입 승인 안내, sender_id NULL). GROMO-2260, V107']
-  island_id   uuid        [note: '시스템 편지가 가리키는 섬 (FK → groups.id, ON DELETE SET NULL). 친구 편지는 NULL. GROMO-2260, V107']
+  kind        varchar(20) [not null, default: 'FRIEND', note: '편지 종류 — FRIEND|KICK|JOIN_APPROVED (CHECK). FRIEND 만 사람이 보내고 나머지는 시스템 편지(강퇴·가입 승인 안내, sender_id NULL). GROMO-2260, V112']
+  island_id   uuid        [note: '시스템 편지가 가리키는 섬 (FK → groups.id, ON DELETE SET NULL). 친구 편지는 NULL. GROMO-2260, V112']
 
   indexes {
     (receiver_id, id) [note: '받은 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_receiver_cursor)']
     (sender_id, id)   [note: '보낸 편지함 커서 — 실제는 (sender_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_sender_cursor)']
-    (receiver_id, id) [name: 'letters_receiver_system_idx', note: "시스템 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL AND kind <> 'FRIEND' 부분 인덱스. GROMO-2260, V107"]
+    (receiver_id, id) [name: 'letters_receiver_system_idx', note: "시스템 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL AND kind <> 'FRIEND' 부분 인덱스. GROMO-2260, V112"]
   }
 }
 
@@ -849,7 +849,7 @@ Table island_weekly_member_counts [note: 'GROMO-1997: 주간 섬 랭킹의 «동
   }
 }
 
-Table island_focus_averages [note: 'GROMO-2257: 섬별 «최근 7일 주민 1명당 하루 평균 집중(분)» 일 스냅샷(migration V109, 섬 외부 계약 §3). 매일 07:00 KST 배치가 살아 있는(미삭제·미종료) 섬 «전부»(비공개 포함)마다 한 행을 적는다 — 창은 [D-7 07:00 KST, D 07:00 KST), 분자는 FocusSessionDetailRepository.sumIslandActiveSeconds(끝난 세션의 ACTIVE 구간 초 합), 분모는 그 시점의 GroupMemberRepository.countByGroupIdIn × 7. 망원경 목록(GROMO-2265)이 섬마다 «가장 최근 snapshot_date 행»을 읽는다. 주간 섬 랭킹(초 단위·고정 분모)과는 값이 다르다 — 계약이 수용한 차이. 정리 잡 없음(섬 × 일 1행)'] {
+Table island_focus_averages [note: 'GROMO-2257: 섬별 «최근 7일 주민 1명당 하루 평균 집중(분)» 일 스냅샷(migration V114, 섬 외부 계약 §3). 매일 07:00 KST 배치가 살아 있는(미삭제·미종료) 섬 «전부»(비공개 포함)마다 한 행을 적는다 — 창은 [D-7 07:00 KST, D 07:00 KST), 분자는 FocusSessionDetailRepository.sumIslandActiveSeconds(끝난 세션의 ACTIVE 구간 초 합), 분모는 그 시점의 GroupMemberRepository.countByGroupIdIn × 7. 망원경 목록(GROMO-2265)이 섬마다 «가장 최근 snapshot_date 행»을 읽는다. 주간 섬 랭킹(초 단위·고정 분모)과는 값이 다르다 — 계약이 수용한 차이. 정리 잡 없음(섬 × 일 1행)'] {
   snapshot_date              date        [not null, note: '배치가 도는 날의 KST 날짜(07시 실행일). (snapshot_date, island_id) PK + INSERT … ON CONFLICT DO NOTHING 이 «하루 1회·같은 날 2회 조회 = 같은 값» 을 지킨다 — 같은 날 재실행은 첫 값을 덮지 않는다']
   island_id                  uuid        [not null, note: 'FK → groups.id ON DELETE CASCADE. 배치는 groups 에서 출발하므로 집중이 0인 섬·주민이 0명인 섬도 행이 생긴다']
   member_count               integer     [not null, note: '계산 시점의 현재 주민 수(GroupMemberRepository.countByGroupIdIn 과 같은 모수 — 활성·미탈퇴). 0 이면 avg 는 NULL']
@@ -887,7 +887,7 @@ Table groups [note: '스터디/챌린지 그룹'] {
   id               uuid                  [pk]
   name             varchar(50)           [not null, default: '', note: '그룹 이름']
   description      varchar(200)          [note: '그룹 소개']
-  greeting         varchar(160)          [note: '섬장 환영 인사말(≤40 코드포인트). NULL = 기본 문구 — 읽을 때 «{name}섬에 온 걸 환영해요! 같이 집중해요 🐟» 로 합성한다. GROMO-2262, V108']
+  greeting         varchar(160)          [note: '섬장 환영 인사말(≤40 코드포인트). NULL = 기본 문구 — 읽을 때 «{name}섬에 온 걸 환영해요! 같이 집중해요 🐟» 로 합성한다. GROMO-2262, V113']
 
   password         varchar(100)          [note: '레거시 BCrypt 해시(참여 시 확인). 공개/비공개와 무관 — 공개 여부는 is_private 가 결정']
 
@@ -929,7 +929,7 @@ Table user_island_contexts [note: '사용자의 현재 섬 컨텍스트 (users 1
   updated_at  timestamptz
 }
 
-Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «가 본 적» 이 있는가. 즉시 이동(PUT /me/current-island)은 기록이 있는 소속 섬만 받고, 나가기·강퇴 뒤 다음 위치는 남은 소속 중 last_arrived_at 최신 섬이다(없으면 먼바다). V107 이 살아 있는 섬(deleted_at IS NULL·status<>ENDED)의 기존 활성 소속을 COALESCE(rejoined_at, created_at) 로 백필하고, 지금 서 있는 섬(user_island_contexts.current_island_id)의 last_arrived_at 만 now() 로 올림. GROMO-2260'] {
+Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «가 본 적» 이 있는가. 즉시 이동(PUT /me/current-island)은 기록이 있는 소속 섬만 받고, 나가기·강퇴 뒤 다음 위치는 남은 소속 중 last_arrived_at 최신 섬이다(없으면 먼바다). V112 이 살아 있는 섬(deleted_at IS NULL·status<>ENDED)의 기존 활성 소속을 COALESCE(rejoined_at, created_at) 로 백필하고, 지금 서 있는 섬(user_island_contexts.current_island_id)의 last_arrived_at 만 now() 로 올림. GROMO-2260'] {
   user_id          uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE)']
   island_id        uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE)']
   first_arrived_at timestamptz [not null, note: '처음 도착한 시각']
@@ -941,7 +941,7 @@ Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «�
   }
 }
 
-Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루 1개(결정 N6), 섬당 최근 30개만 살리고 나머지는 deleted_at. GROMO-2262, V108'] {
+Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루 1개(결정 N6), 섬당 최근 30개만 살리고 나머지는 deleted_at. GROMO-2262, V113'] {
   id         uuid        [pk]
   island_id  uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다']
   author_id  uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행도 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 먼저 지운 글까지 포함해 delete 한다(IslandGuestbookEntryRepository.deleteAllOfUser — 공지 댓글과 같은 선례)']
@@ -956,7 +956,7 @@ Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루
   }
 }
 
-Table telescope_pins [note: '망원경 핀 — 이 사람이 잡지·전망대로 «직접 넣은 섬». 한 사람의 만료 안 된 핀은 보이는 것 기준 최대 4개이고 5번째를 넣으면 pinned_at 이 가장 오래된 핀이 같은 트랜잭션에서 빠진다(서비스 몫 — 표는 개수를 제한하지 않는다). 만료는 읽을 때 거른다(expires_at > now, 정리 잡 없음 — 같은 사람이 핀을 넣을 때 그 사람의 만료 행만 함께 지운다). 목록 조립(TelescopeService)이 핀을 nearby 다음·random 앞 slot=pinned 로 끼운다. GROMO-2268, V110, 섬 외부 계약 §6'] {
+Table telescope_pins [note: '망원경 핀 — 이 사람이 잡지·전망대로 «직접 넣은 섬». 한 사람의 만료 안 된 핀은 보이는 것 기준 최대 4개이고 5번째를 넣으면 pinned_at 이 가장 오래된 핀이 같은 트랜잭션에서 빠진다(서비스 몫 — 표는 개수를 제한하지 않는다). 만료는 읽을 때 거른다(expires_at > now, 정리 잡 없음 — 같은 사람이 핀을 넣을 때 그 사람의 만료 행만 함께 지운다). 목록 조립(TelescopeService)이 핀을 nearby 다음·random 앞 slot=pinned 로 끼운다. GROMO-2268, V115, 섬 외부 계약 §6'] {
   user_id    uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 지운다(TelescopePinRepository.deleteAllOfUser, GroupMemberService.eraseWithdrawnUserRecords) — 개인 목록이라 남길 이유가 없다']
   island_id  uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다. 핀 섬이 그사이 비공개·종료·강퇴·내 소속이 되면 행은 남고 목록에서만 빠진다']
   source     varchar(20) [not null, note: "CHECK IN ('magazine','observatory') — 잡지(찜 리본·잡지 칸) / 전망대 검색·랭킹"]
@@ -970,7 +970,7 @@ Table telescope_pins [note: '망원경 핀 — 이 사람이 잡지·전망대�
   }
 }
 
-Table island_news [note: '섬 소식 — 주민 전원이 같은 글을 읽는 섬 공동 피드(수신자별 행·읽음 표시 없음). 지금은 잡지 홍보 신청 한 종류(kind=PROMOTION)뿐이고, 홍보 «내용»(글·틀·스티커)은 잡지 도메인의 몫이라 여기엔 없다. GROMO-2267, V111'] {
+Table island_news [note: '섬 소식 — 주민 전원이 같은 글을 읽는 섬 공동 피드(수신자별 행·읽음 표시 없음). 지금은 잡지 홍보 신청 한 종류(kind=PROMOTION)뿐이고, 홍보 «내용»(글·틀·스티커)은 잡지 도메인의 몫이라 여기엔 없다. GROMO-2267, V116'] {
   id         uuid         [pk]
   island_id  uuid         [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 지운다(유저 컬럼이 없어 계정 탈퇴 정리는 없다)']
   kind       varchar(20)  [not null, note: '소식 종류 — 지금은 PROMOTION. CHECK 없음(다음 종류가 마이그레이션 없이 들어온다). 읽는 쪽은 모르는 kind 도 그대로 내려보낸다']
@@ -1048,7 +1048,7 @@ Table magazine_editorial_notes [note: '편집부 소식 — 운영이 SQL 로 �
   created_at timestamptz [not null, default: `now()`]
 }
 
-Table sea_focus_totals [note: '바다 집중 누적 — 유저 한 명당 한 행. 평생 누적은 줄지 않고, 이번 달 누적은 정산 달이 month_key 보다 늦어질 때만 정산 서비스가 가산 직전에 0 으로 되돌린다(월초 크론 없음. 앞으로만 — 시계가 뒤로 가 이전 달이 계산돼도 되돌리지 않고 저장된 달의 누적에 더한다). 섬·도착 여부와 무관한 «바다에서 집중한 시간»이다. 바다 집중이 끝날 때마다 SeaFocusRewardService 가 가산한다(서버에 바다 세션이 생기기 전에는 행이 없다). GROMO-2274, V112'] {
+Table sea_focus_totals [note: '바다 집중 누적 — 유저 한 명당 한 행. 평생 누적은 줄지 않고, 이번 달 누적은 정산 달이 month_key 보다 늦어질 때만 정산 서비스가 가산 직전에 0 으로 되돌린다(월초 크론 없음. 앞으로만 — 시계가 뒤로 가 이전 달이 계산돼도 되돌리지 않고 저장된 달의 누적에 더한다). 섬·도착 여부와 무관한 «바다에서 집중한 시간»이다. 바다 집중이 끝날 때마다 SeaFocusRewardService 가 가산한다(서버에 바다 세션이 생기기 전에는 행이 없다). GROMO-2274, V117'] {
   user_id          uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 익명화만 되고 삭제되지 않아 사실상 발동하지 않는다. 탈퇴 TX 가 SeaFocusRewardService.eraseWithdrawnUser 로 먼저 지운다(개인 이력)']
   lifetime_seconds bigint      [not null, default: 0, note: '평생 누적 순수 집중 초 — 단계표 set_key=base 의 기준']
   month_key        character   [not null, note: 'char(7) — 월 누적이 쌓이는 달(지금까지 정산 달 중 가장 늦은 것), 정산 시각을 KST 로 본 YYYY-MM. 다음 가산의 정산 달이 이 값보다 늦을 때만 month_seconds 를 0 으로 되돌린 뒤 더한다. 같거나 이른 달이면 되돌리지 않고 이 달에 더한다']
@@ -1056,7 +1056,7 @@ Table sea_focus_totals [note: '바다 집중 누적 — 유저 한 명당 한 �
   updated_at       timestamptz [not null, default: `now()`, note: '마지막 가산 시각']
 }
 
-Table sea_reward_tiers [note: '바다 보상 단계표 — 「set_key 세트의 누적이 threshold_minutes 분을 넘으면 product_id 를 개인 인벤토리에 준다」. 운영이 SQL 로 행을 넣고 바꾸는 데이터라 마이그레이션에 시드가 없다(바다 전용 상품이 아직 없다). 다음 달 시즌은 set_key=YYYY-MM 행을 넣으면 코드 배포 없이 열린다. 운영 카탈로그라 계정 탈퇴 정리 대상이 아니다. GROMO-2274, V112'] {
+Table sea_reward_tiers [note: '바다 보상 단계표 — 「set_key 세트의 누적이 threshold_minutes 분을 넘으면 product_id 를 개인 인벤토리에 준다」. 운영이 SQL 로 행을 넣고 바꾸는 데이터라 마이그레이션에 시드가 없다(바다 전용 상품이 아직 없다). 다음 달 시즌은 set_key=YYYY-MM 행을 넣으면 코드 배포 없이 열린다. 운영 카탈로그라 계정 탈퇴 정리 대상이 아니다. GROMO-2274, V117'] {
   id                bigint      [pk, increment]
   set_key           varchar(20) [not null, note: 'base(평생 누적 기준 상시 세트) 또는 YYYY-MM(그 달 누적 기준 시즌 세트, 월 01~12). CHECK: base 이거나 정규식 ^[0-9]{4}-(0[1-9]|1[0-2])$ 와 맞아야 한다 — 철자가 틀린 키(2026-1·2026/11)는 조용히 평가되지 않는 대신 insert 에서 거부된다']
   threshold_minutes integer     [not null, note: 'CHECK > 0. 누적이 이 분 «이상»이 되는 정산에서 한 번 넘는다(이전 < 기준 ≤ 이후) — 이미 지나간 단계는 행이 나중에 생겨도 소급 지급하지 않는다']
@@ -1116,7 +1116,7 @@ Table island_wallet_transactions [note: '섬 공동 원장 — user 지갑의 cu
   id              uuid        [pk]
   island_id       uuid        [not null, note: 'FK → island_wallets.island_id ON DELETE RESTRICT']
   amount          integer     [not null, note: 'CHECK amount > 0 — 항상 양수, 부호는 type']
-  type            varchar(40) [not null, note: 'CONTRIBUTION / CONSTRUCTION_DEBIT / QUEST_SETTLEMENT(V71 코드 추가 — 퀘스트 정산 적립, 건설 기여를 쌓지 않는다) / PROMOTION_FEE(V111/GROMO-2267 코드 추가 — 잡지 홍보비 차감, 스키마 무변경. 멱등 키 promotion:{섬 id}:{KST 날짜}) (IslandWalletTransactionType, DB CHECK 없음)']
+  type            varchar(40) [not null, note: 'CONTRIBUTION / CONSTRUCTION_DEBIT / QUEST_SETTLEMENT(V71 코드 추가 — 퀘스트 정산 적립, 건설 기여를 쌓지 않는다) / PROMOTION_FEE(V116/GROMO-2267 코드 추가 — 잡지 홍보비 차감, 스키마 무변경. 멱등 키 promotion:{섬 id}:{KST 날짜}) (IslandWalletTransactionType, DB CHECK 없음)']
   idempotency_key varchar(200) [note: '중복 기입 방어 — 명령 멱등키를 그대로 심는다']
   created_at      timestamptz [not null, default: `now()`]
 
@@ -1624,12 +1624,14 @@ Table screen_time_observations [note: 'GROMO-1769 (V79): 기기별 스크린타�
   device_id          uuid        [not null, note: '서명된 로그인 세션 id(AT sid) — 2026-09-19 결정 RC-D02-기기']
   measured_date      date        [not null, note: 'UTC 날짜 버킷(2026-09-19 결정 RC-축)']
   measured_at        timestamptz [not null]
+  timezone varchar(32) [not null, default: 'UTC', note: 'UTC 퀘스트 / Asia/Seoul 도서관 집계 경계']
+  finalized boolean [not null, default: false, note: '하루 전체 측정 완료. 중간 수치로 보상하지 않음']
   minutes            integer     [note: 'authorized 일 때만 0~1440, 나머지 상태는 NULL(CHECK)']
   measurement_status varchar(12) [not null, note: 'authorized / denied / unavailable / pending (CHECK)']
   created_at         timestamptz [not null, default: `now()`]
 
   indexes {
-    (user_id, device_id, measured_date, measured_at) [unique, name: 'uq_screen_time_observation']
+    (user_id, device_id, measured_date, timezone, measured_at) [unique, name: 'uq_screen_time_observation']
     (user_id, measured_date) [name: 'idx_screen_time_observations_user_date']
   }
 }
@@ -2132,5 +2134,22 @@ Table notification_result_bundle_manifests {
 // 주간 섬 랭킹 동결 분모 (V85)
 Ref: island_weekly_member_counts.island_id > groups.id [delete: cascade]  // GROMO-1997 — 섬이 사라지면 그 섬의 동결 분모도 같이 지운다
 
-// 섬별 7일 평균 일 스냅샷 (V109)
+// 섬별 7일 평균 일 스냅샷 (V114)
 Ref: island_focus_averages.island_id > groups.id [delete: cascade]  // GROMO-2257 — 섬이 사라지면 그 섬의 스냅샷도 같이 지운다
+
+Table focus_live_activities [note: '집중 상태 APNs·Android FCM 등록·전송 상태. iOS 8시간, Android 세션 종료까지 보관'] {
+  id uuid [pk]
+  session_id uuid [not null, unique, ref: > focus_session_details.session_id]
+  user_id uuid [not null, ref: > users.id]
+  activity_id varchar(128) [not null]
+  push_token varchar(1024) [not null]
+  environment varchar(16) [not null]
+  cat_color varchar(16) [not null]
+  sent_version bigint [not null]
+  sent_timestamp bigint [not null]
+  next_attempt_at timestamptz [not null]
+  expires_at timestamptz [note: 'iOS 만료 시각, Android는 NULL']
+  indexes {
+    next_attempt_at [name: 'focus_live_activities_due_idx']
+  }
+}

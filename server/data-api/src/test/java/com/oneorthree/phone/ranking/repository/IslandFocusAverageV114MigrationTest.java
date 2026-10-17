@@ -17,16 +17,16 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * V109 섬별 7일 평균 스냅샷 테이블의 실 SQL 검증 (GROMO-2257). 검증 방식은 {@code LoginAttemptV101MigrationTest}
+ * V114 섬별 7일 평균 스냅샷 테이블의 실 SQL 검증 (GROMO-2257). 검증 방식은 {@code LoginAttemptV101MigrationTest}
  * 선례 — 전용 컨테이너에 Flyway 체인을 실제로 돌린다.
  *
- * <p>보는 것: ① 열 타입·nullability·default, PK 순서, FK 연쇄 삭제, 최근순 인덱스, ② V108 까지 올린 스키마(기존
- * 섬이 있다) 위에 V109 가 적용되고 표는 빈 채로 시작한다(백필 없음 — 값은 07시 배치의 몫), ③ 같은 (날짜, 섬)
+ * <p>보는 것: ① 열 타입·nullability·default, PK 순서, FK 연쇄 삭제, 최근순 인덱스, ② V113 까지 올린 스키마(기존
+ * 섬이 있다) 위에 V114 가 적용되고 표는 빈 채로 시작한다(백필 없음 — 값은 07시 배치의 몫), ③ 같은 (날짜, 섬)
  * 두 번째 INSERT 는 {@code ON CONFLICT DO NOTHING} 이 0행으로 흘려 첫 값이 남는다, ④ 빈 DB 의 전체 경로.
  *
- * <p>구조 단언은 V109 로 고정해(target) 뒤 번호 마이그레이션이 이 표를 만져도 흔들리지 않게 한다.
+ * <p>구조 단언은 V114 로 고정해(target) 뒤 번호 마이그레이션이 이 표를 만져도 흔들리지 않게 한다.
  */
-class IslandFocusAverageV109MigrationTest {
+class IslandFocusAverageV114MigrationTest {
 
     /** 이 클래스 전용 컨테이너 — 공용 TestPostgres 는 스키마 초기화와 함께 쓸 수 없다. */
     private static final PostgreSQLContainer<?> POSTGRES;
@@ -50,7 +50,7 @@ class IslandFocusAverageV109MigrationTest {
     @Test
     @DisplayName("열 타입·nullability·default, PK 순서(날짜, 섬), FK 연쇄 삭제, 최근순 인덱스가 정확히 생긴다")
     void tableShape() {
-        migrate(MigrationVersion.fromVersion("109"));
+        migrate(MigrationVersion.fromVersion("114"));
         JdbcTemplate jdbc = jdbc();
 
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT column_name, data_type, is_nullable, column_default "
@@ -80,15 +80,15 @@ class IslandFocusAverageV109MigrationTest {
     }
 
     @Test
-    @DisplayName("V108 의 기존 섬 위에 V109 가 적용되고 표는 비어 있다 — 두 번째 INSERT 는 첫 값을 덮지 않고 섬이 지워지면 함께 지워진다")
+    @DisplayName("V113 의 기존 섬 위에 V114 가 적용되고 표는 비어 있다 — 두 번째 INSERT 는 첫 값을 덮지 않고 섬이 지워지면 함께 지워진다")
     void startsEmptyAndKeepsTheFirstValue() {
-        migrate(MigrationVersion.fromVersion("108"));
+        migrate(MigrationVersion.fromVersion("113"));
         JdbcTemplate jdbc = jdbc();
         UUID islandId = UUID.randomUUID();
         jdbc.update("INSERT INTO groups (id, name, max_members, is_chat_enabled, invite_permission, status) "
                 + "VALUES (?, '옛섬', 10, true, 'OWNER_ONLY', 'WAITING')", islandId);
 
-        migrate(MigrationVersion.fromVersion("109"));
+        migrate(MigrationVersion.fromVersion("114"));
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM island_focus_averages", Integer.class))
                 .as("백필이 없다 — 값은 07시 배치가 적는다").isZero();
@@ -111,7 +111,7 @@ class IslandFocusAverageV109MigrationTest {
     }
 
     @Test
-    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V109 가 성공으로 기록된다")
+    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V114 가 성공으로 기록된다")
     void appliesOnEmptyDatabase() {
         migrate(MigrationVersion.LATEST);
 

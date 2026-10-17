@@ -11,7 +11,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-/** 섬별 7일 평균 일 스냅샷 (GROMO-2257, V109). */
+/** 섬별 7일 평균 일 스냅샷 (GROMO-2257, V114). */
 public interface IslandFocusAverageRepository
         extends JpaRepository<IslandFocusAverage, IslandFocusAverage.Key> {
 
@@ -73,7 +73,7 @@ public interface IslandFocusAverageRepository
 
     /**
      * 섬마다 <b>가장 최근 snapshot_date 의 행 하나</b> — 읽기 쪽(망원경 목록)의 유일한 질의다.
-     * {@code DISTINCT ON} 이 섬당 첫 행만 남기고, {@code (island_id, snapshot_date DESC)} 인덱스(V109)가 받친다.
+     * {@code DISTINCT ON} 이 섬당 첫 행만 남기고, {@code (island_id, snapshot_date DESC)} 인덱스(V114)가 받친다.
      *
      * <p>«가장 최근 <b>값이 있는</b> 행» 이 아니다 — 최근 행의 평균이 null(주민 0명)이면 그것이 답이다. 옛 값으로
      * 되돌아가지 않는다.

@@ -182,9 +182,14 @@ App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환�
 `modules/screen-time`은 1.x의 UsageStatsManager 계산기를 이식한 로컬 Expo 모듈입니다. Expo Go에서는 사용할 수 없으며 네이티브 개발 빌드가 필요합니다.
 
 - `src/services/ScreenTimeModule.ts`: Android Expo 모듈과 기존 iOS RN 브리지 선택.
-- `src/services/screentimeSync.ts`: 시작·복귀·자정·활성 상태 1분 간격으로 오늘/어제 값을 동기화하며, 호출 직렬화와 로컬 보존으로 관측값 감소를 방지합니다. 날짜는 2.0 퀘스트와 같은 KST입니다.
-- 첫 측정 이전 날짜는 소급하지 않습니다. 마지막 관측일부터 어제 이전까지의 공백과 권한 철회 구간은 미확인으로 보존합니다. 오늘의 승인된 0분과 조회 실패는 구분합니다.
-- 전체 앱 사용량만 연결합니다. Android 앱 잠금과 기존 1.x 서버 업로드 API는 연결하지 않습니다. 기존 계산기의 일별 통계 폴백은 근사값이며 기기 설정의 총합과 차이가 날 수 있습니다.
+- `src/services/androidScreenTime.ts`: 시작·복귀·자정·활성 상태 1분 간격으로 계정별 측정 원장을 조회하고 공통 서버 보고 큐에 연결합니다. 화면은 KST 날짜, 서버 보고는 원본 이벤트를 UTC 자정~자정 구간으로 다시 집계합니다. KST 합계의 날짜만 바꾸지 않습니다.
+- 설정 → 앱 권한 관리에서 측정 앱과 집중 중 허용 앱을 별도로 고릅니다. 측정 대상은 최초 선택 직후, 변경은 다음 KST 자정부터 적용합니다. 빈 측정 목록을 전체 앱으로 간주하지 않습니다. 허용 앱의 빈 목록은 추가 예외 없음입니다.
+- 최초 측정 이전·선택 변경을 가로지르는 UTC 일자·권한 공백·재부팅·원본 결측은 0으로 보고하지 않습니다. 보상 보고에는 일별 통계 근사 폴백을 쓰지 않습니다. 현재 서버 계약에 맞춰 진행 중 UTC 날짜는 `pending`, 마감된 날짜만 수치로 보고합니다. 당일 중간 관측/최종 확정 계약은 iOS와 공통 후속입니다.
+- `FocusShieldService`는 서버 확인을 거친 집중 세션에만 시작합니다. 사용 정보 접근과 다른 앱 위에 표시 권한이 있어야 차단하며, 허용 앱·자기 앱·전화·알람·홈 런처를 제외합니다. 휴식·종료·권한 상실·서비스 종료 시 가림막을 제거합니다. 강제 종료·재부팅 후 차단을 자동 재시작하지 않으며 앱 복귀 시 서버 상태를 확인합니다.
+- 집중/휴식 지속 알림은 고양이·주제·타이머와 앱 진입을 표시합니다. FCM은 이미 실행 중인 서비스를 갱신/종료하며 종료된 세션을 재생성하지 않습니다. 일반 알림·푸시 전체 구현과는 별도입니다.
+- 홈 위젯은 서버 홈 스냅샷의 오늘 총 집중시간과 고양이 4포즈를 표시합니다. 계정 변경·로그아웃 시 지우고 KST 날짜가 만료되면 미확인으로 표시합니다. 제조사별 위젯 갱신 주기에 따라 자정·포즈 갱신이 지연될 수 있습니다.
 - 모듈 namespace는 `com.oneorthree.gromo.screentime`이며 실제 권한 검사는 `context.packageName`을 사용합니다. 앱 applicationId 변경과 독립적입니다.
 
-검증은 `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test -- --runInBand`, `android/`의 `./gradlew :app:compileDebugKotlin`으로 수행합니다. 기기에서는 설정 → 측정 권한 → 사용 정보 접근 허용/철회 후 복귀, 다른 앱 사용 후 내 일기장 갱신, 자정 후 어제 기록을 확인합니다.
+FCM 설정은 `android/credentials/{dev|prod}/google-services.json`에서 해당 `GROMO_ANDROID_AUDIENCE` 파일만 읽습니다(기본 prod). 등록 패키지는 `com.oneorthree.gromo`이며 파일은 커밋하지 않습니다. 미설정 개발 빌드도 로컬 측정·차단·위젯은 사용할 수 있지만 FCM 원격 갱신은 사용할 수 없습니다. 서버는 기존 `FCM_PROJECT_ID`·base64 `FCM_SERVICE_ACCOUNT_JSON`을 재사용하고 V107·V108 마이그레이션과 Data API 배포가 필요합니다. iOS 전용 APNs 설정은 유지합니다.
+
+검증은 `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test -- --runInBand`, `android/`의 `./gradlew :app:assembleDebug :screen-time:testDebugUnitTest`로 수행합니다. 실기기에서는 사용 정보 접근·오버레이·알림 권한 허용/철회, 측정/허용 앱 독립성, 집중→휴식→종료, 전화·알람, KST/UTC 경계, 계정 전환, 실제 FCM 수신, 절전·강제 종료·재부팅, 위젯 탭/자정/로그아웃을 확인합니다. 네이티브 모듈 변경이므로 새 설치본이 필요합니다.

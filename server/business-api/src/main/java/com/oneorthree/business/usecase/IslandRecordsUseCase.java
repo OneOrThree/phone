@@ -82,18 +82,23 @@ public class IslandRecordsUseCase {
     /** 집중 통계 — scope=me 는 {@link MeFocus}, scope=island 는 {@link IslandFocus}. */
     public Object focus(AccessTokenClaims claims, UUID islandId, LocalDate from, LocalDate to, String scope,
             String cursor, Deadline deadline) {
+        return focus(claims, islandId, from, to, scope, cursor, deadline, "UTC");
+    }
+
+    public Object focus(AccessTokenClaims claims, UUID islandId, LocalDate from, LocalDate to, String scope,
+            String cursor, Deadline deadline, String timezone) {
         boolean me = SCOPE_ME.equals(scope);
         if (!me && cursor != null) {
             throw new PublicApiException(ApiErrorCode.INVALID_CURSOR, "cursor");
         }
         CursorScope cursorScope = new CursorScope(claims.userId(), RESOURCE_FOCUS, Map.of(
-                "islandId", islandId.toString(), "from", from.toString(), "to", to.toString()),
+                "islandId", islandId.toString(), "from", from.toString(), "to", to.toString(), "timezone", timezone),
                 SORT_COMPLETED_DESC, PAGE_SIZE);
         CursorBoundary boundary = me ? codec().decode(cursor, cursorScope) : null;
         UUID snapshotId = boundary == null ? null : snapshotId(boundary.sortKey());
         Integer offset = boundary == null ? null : offset(boundary.tieBreaker());
         IslandRecordViews.FocusStatistics view = relay(() -> data.fetchFocusStatistics(claims.userId(), islandId,
-                from, to, scope, snapshotId, offset, deadline));
+                from, to, scope, snapshotId, offset, deadline, timezone));
         if (view == null || !scope.equals(view.scope()) || view.asOf() == null) {
             throw new UpstreamContractMismatchException("집중 통계 응답이 요청과 다릅니다");
         }
@@ -118,8 +123,13 @@ public class IslandRecordsUseCase {
     /** 스크린타임 통계 — scope=me 는 {@link MeScreenTime}, scope=island 는 {@link IslandScreenTime}. */
     public Object screenTime(AccessTokenClaims claims, UUID islandId, LocalDate from, LocalDate to, String scope,
             Deadline deadline) {
+        return screenTime(claims, islandId, from, to, scope, deadline, "UTC");
+    }
+
+    public Object screenTime(AccessTokenClaims claims, UUID islandId, LocalDate from, LocalDate to, String scope,
+            Deadline deadline, String timezone) {
         IslandRecordViews.ScreenTimeStatistics view = relay(() -> data.fetchScreenTimeStatistics(claims.userId(),
-                islandId, from, to, scope, deadline));
+                islandId, from, to, scope, deadline, timezone));
         if (view == null || !scope.equals(view.scope())) {
             throw new UpstreamContractMismatchException("스크린타임 통계 응답이 요청과 다릅니다");
         }

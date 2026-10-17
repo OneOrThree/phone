@@ -70,7 +70,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 망원경 핀 (GROMO-2268, 섬 외부 계약 §6) — 실 Flyway 스키마(V110) 위에서 운영 엔티티·서비스·내부 HTTP 로 핀을 넣고
+ * 망원경 핀 (GROMO-2268, 섬 외부 계약 §6) — 실 Flyway 스키마(V115) 위에서 운영 엔티티·서비스·내부 HTTP 로 핀을 넣고
  * 빼고 목록에 끼운다. 후보 SQL·핀 가시성 SQL 을 대역으로 덮지 않는다. 시계는 고정이고 테스트가 직접 옮긴다.
  *
  * <p>후보가 «DB 의 공개 섬 전부» 라 테스트마다 앞 테스트의 섬을 묘비(소프트 삭제)로 돌려 그 테스트가 심은 섬만 후보로

@@ -289,6 +289,7 @@ export type State = {
     permission: boolean;
     haptics: boolean;
     screenTimeBoardPromptSeen?: boolean;
+    screenTimeSyncError?: boolean;
     screenTimeMeasurementReady?: boolean;
     screenTimeMeasurementDay?: string;
     screenTimeHistoryReady?: boolean;

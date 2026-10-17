@@ -164,7 +164,7 @@ public class SeaFocusRewardService {
 
     /**
      * 계정 탈퇴 파기 (GROMO-2274 × 계정 LLD §4, 계약 §0 N42) — 개인 누적 이력을 지운다. 사용자 행은 익명화만 되고
-     * 삭제되지 않아 V112 의 {@code ON DELETE CASCADE} 가 돌지 않는다. 지급된 상품({@code owned_products})은 따로
+     * 삭제되지 않아 V117 의 {@code ON DELETE CASCADE} 가 돌지 않는다. 지급된 상품({@code owned_products})은 따로
      * 지울 것이 없다 — {@link AppearanceService#eraseWithdrawnUser} 가 개인 보유 행을 이미 지운다. 단계표는 운영
      * 카탈로그라 유저와 무관하다.
      */

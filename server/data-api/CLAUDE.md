@@ -154,8 +154,10 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
   Secrets Manager `gromo/dev/env`, rendered per job by `.github/scripts/dev-env.sh`); health check at `/health`. Dev images use GAR, not
   ECR; host-bootstrap secrets (`gromo/dev/app-server`, `gromo/dev/ci-runner`) remain
   instance-role-only and are not loaded by the deployment workflow.
-- **Prod**: no pipeline — the old `prod-ci.yml` / `prod-cd.yml` / `prod-rollback.yml` were removed in
-  GROMO-2224; prod will be rebuilt as `{service}-{ci|cd}.prod.yml`.
+- **Prod**: Catus 2.0은 루트의 `prod-ci.yml`로 변경 서비스 이미지를 발행하고,
+  `prod-cd.yml`로 수동 SSM 배포·버전 지정 롤백을 수행한다. 실행 구성은 Infra의
+  `prod/catus/runtime` 소유이며 기존 Gromo 1.x 운영과 분리한다. 선행 조건과 실행 절차는
+  `docs/prd/fishcat/server-separation/deployment.md`의 「Catus 2.0 운영 발행·배포」를 따른다.
 
 ## Recommended skills & tools (backend workflow)
 

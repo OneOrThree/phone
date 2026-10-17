@@ -39,7 +39,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const island = displayIsland(state);
   const server = !!e.islands;
   const neighbors = e.detail === 'residents';
-  const today = dateKey(e.now, server);
+  const today = dateKey(e.now, false);
   const [period, setPeriod] = useState<Period>(e.tab === 'screen' ? '일' : '주');
   const [offset, setOffset] = useState(0);
   const [tab, setTab] = useState<'집중' | '폰 사용'>(e.tab === 'screen' ? '폰 사용' : '집중');
@@ -48,7 +48,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const scroll = useRef<ScrollView>(null);
   const range = neighbors
     ? { from: shiftDate(today, -6), to: today }
-    : diaryRange(period, offset, e.now, server);
+    : diaryRange(period, offset, e.now, false);
   const srv = useLibraryDiary({
     active: server,
     nb: neighbors,
@@ -197,7 +197,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     // 오늘의 네이티브 수치는 기기 날짜(KST)와 선택 날짜가 같을 때만 사용한다.
     const deviceToday = key === dayKey(e.now) && key === today;
     const nativeReady =
-      (!server || measurementStatus === 'authorized') &&
+      (!server || measurementStatus !== 'denied') &&
       state.settings.permission &&
       state.settings.screenTimeMeasurementReady;
     if (deviceToday && nativeReady && Platform.OS === 'ios') {
@@ -267,7 +267,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
               onPress={selectedDayStats.retry}
             />
           ) : (
-            <SessionList records={dayRecords} utc={server} />
+            <SessionList records={dayRecords} utc={false} />
           )}
         </>
       );
@@ -277,7 +277,13 @@ export function Diary({ e, font }: { e: any; font?: string }) {
         server &&
         (!screenStats ||
           measurementStatus === 'denied' ||
-          (period === '일' && measurementStatus !== 'authorized'))
+          (period === '일' &&
+            measurementStatus !== 'authorized' &&
+            !(
+              range.from === today &&
+              state.settings.permission &&
+              state.settings.screenTimeMeasurementReady
+            )))
       ) {
         return (
           <Empty
@@ -316,6 +322,11 @@ export function Diary({ e, font }: { e: any; font?: string }) {
         <>
           <T style={styles.centerMeta}>이번 주 폰 사용</T>
           <T style={styles.total}>{screenTotal == null ? '합산 보류' : usageText(screenTotal)}</T>
+          {screenStats?.series.some(
+            (point) => point.minutes != null && point.finalized === false,
+          ) ? (
+            <T style={styles.centerMeta}>측정 중인 사용량이 포함되어 있어요</T>
+          ) : null}
           <Chart days={days} values={usageSeries} screen />
           <View style={styles.row}>
             <Metric
@@ -384,7 +395,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
             <T style={styles.metricValue}>{hm(seconds)}</T>
           </View>
         ))}
-        <Timetable records={dayRecords} day={activeDay} utc={server} />
+        <Timetable records={dayRecords} day={activeDay} utc={false} />
       </>
     );
   };

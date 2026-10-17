@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 이 사람이 이 섬에 «가 본 적» 이 있는가 (GROMO-2260, V107).
+ * 이 사람이 이 섬에 «가 본 적» 이 있는가 (GROMO-2260, V112).
  *
  * <p>쓰기는 {@code IslandArrivalRepository.recordArrival} 의 네이티브 upsert 하나다 — 이 매핑은 스키마
  * 선언과 읽기용이다(Flyway 없이 엔티티로 스키마를 만드는 CI 프로필에도 테이블이 있어야 한다).

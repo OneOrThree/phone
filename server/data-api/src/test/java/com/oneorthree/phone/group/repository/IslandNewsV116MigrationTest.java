@@ -19,17 +19,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V111 섬 소식 테이블의 실 SQL 검증 (GROMO-2267). 검증 방식은 {@code LoginAttemptV101MigrationTest} 선례 — 전용
+ * V116 섬 소식 테이블의 실 SQL 검증 (GROMO-2267). 검증 방식은 {@code LoginAttemptV101MigrationTest} 선례 — 전용
  * 컨테이너에 Flyway 체인을 실제로 돌린다.
  *
- * <p>보는 것: ① 열 타입·길이·nullability·default, PK, FK 연쇄 삭제, 최근순 인덱스, ② V109 까지 올린 스키마(기존 섬이
- * 있다) 위에 V111 이 적용되고 표는 빈 채로 시작한다(백필 없음), ③ kind 에 CHECK 가 없어 다음 종류가 들어오고 길이 상한은
+ * <p>보는 것: ① 열 타입·길이·nullability·default, PK, FK 연쇄 삭제, 최근순 인덱스, ② V114 까지 올린 스키마(기존 섬이
+ * 있다) 위에 V116 이 적용되고 표는 빈 채로 시작한다(백필 없음), ③ kind 에 CHECK 가 없어 다음 종류가 들어오고 길이 상한은
  * DB 가 지킨다, ④ 빈 DB 의 전체 경로.
  *
- * <p>구조 단언은 V111 로 고정해(target) 뒤 번호 마이그레이션이 이 표를 만져도 흔들리지 않게 한다. 번호 사이(V110)가
+ * <p>구조 단언은 V116 로 고정해(target) 뒤 번호 마이그레이션이 이 표를 만져도 흔들리지 않게 한다. 번호 사이(V115)가
  * 비어 있어도 Flyway 는 개의치 않는다.
  */
-class IslandNewsV111MigrationTest {
+class IslandNewsV116MigrationTest {
 
     /** 이 클래스 전용 컨테이너 — 공용 TestPostgres 는 스키마 초기화와 함께 쓸 수 없다. */
     private static final PostgreSQLContainer<?> POSTGRES;
@@ -51,7 +51,7 @@ class IslandNewsV111MigrationTest {
     @Test
     @DisplayName("열 타입·길이·nullability·default, PK, FK 연쇄 삭제, 최근순 인덱스가 정확히 생긴다")
     void tableShape() {
-        migrate(MigrationVersion.fromVersion("111"));
+        migrate(MigrationVersion.fromVersion("116"));
         JdbcTemplate jdbc = jdbc();
 
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT column_name, data_type, is_nullable, "
@@ -83,15 +83,15 @@ class IslandNewsV111MigrationTest {
     }
 
     @Test
-    @DisplayName("V109 의 기존 섬 위에 V111 이 적용되고 표는 비어 있다 — 새 종류도 받고, 길이 상한은 DB 가 지키고, 섬이 지워지면 함께 지워진다")
+    @DisplayName("V114 의 기존 섬 위에 V116 이 적용되고 표는 비어 있다 — 새 종류도 받고, 길이 상한은 DB 가 지키고, 섬이 지워지면 함께 지워진다")
     void startsEmptyAcceptsNewKindsAndCascades() {
-        migrate(MigrationVersion.fromVersion("109"));
+        migrate(MigrationVersion.fromVersion("114"));
         JdbcTemplate jdbc = jdbc();
         UUID islandId = UUID.randomUUID();
         jdbc.update("INSERT INTO groups (id, name, max_members, is_chat_enabled, invite_permission, status) "
                 + "VALUES (?, '옛섬', 10, true, 'OWNER_ONLY', 'WAITING')", islandId);
 
-        migrate(MigrationVersion.fromVersion("111"));
+        migrate(MigrationVersion.fromVersion("116"));
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM island_news", Integer.class))
                 .as("백필이 없다 — 소식은 홍보 신청이 쓴다").isZero();
@@ -113,7 +113,7 @@ class IslandNewsV111MigrationTest {
     }
 
     @Test
-    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V111 이 성공으로 기록된다")
+    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V116 이 성공으로 기록된다")
     void appliesOnEmptyDatabase() {
         migrate(MigrationVersion.LATEST);
 

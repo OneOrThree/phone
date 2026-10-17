@@ -1025,6 +1025,12 @@ describe('startIslandRealtime', () => {
     assert.deepEqual(channel.sent[0].body, { type: 'cheer' });
   });
 
+  test('visitor 도 emoteSessionId 도 없으면 emotes 채널을 열지 않는다(emote:false) — 방문자는 응원을 받지도 않는다', async () => {
+    const channel = fakeChannel();
+    start({ islandId: 'i1' }, channel);
+    assert.equal(channel.opts?.emote, false);
+  });
+
   test('세션 없이는 응원을 보내지 않고, 끊기면 false 를 돌린다 — 가짜 성공 없음', async () => {
     const channel = fakeChannel();
     const { rt } = start({ islandId: 'i1' }, channel);

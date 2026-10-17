@@ -44,12 +44,18 @@ public class DataRecordsClient {
      */
     public IslandRecordViews.FocusStatistics fetchFocusStatistics(UUID userId, UUID islandId, LocalDate from,
             LocalDate to, String scope, UUID snapshotId, Integer offset, Deadline deadline) {
+        return fetchFocusStatistics(userId, islandId, from, to, scope, snapshotId, offset, deadline, "UTC");
+    }
+
+    public IslandRecordViews.FocusStatistics fetchFocusStatistics(UUID userId, UUID islandId, LocalDate from,
+            LocalDate to, String scope, UUID snapshotId, Integer offset, Deadline deadline, String timezone) {
         return http.exchange(
                 InternalCall.to(HttpMethod.GET, islandPath(PATH_FOCUS_STATISTICS, islandId))
                         .onBehalfOf(userId)
                         .query("from", from.toString())
                         .query("to", to.toString())
                         .query("scope", scope)
+                        .query("timezone", "UTC".equals(timezone) ? null : timezone)
                         .query("snapshotId", snapshotId == null ? null : snapshotId.toString())
                         .query("offset", offset == null ? null : offset.toString())
                         .build(),
@@ -92,12 +98,18 @@ public class DataRecordsClient {
     /** 스크린타임 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. */
     public IslandRecordViews.ScreenTimeStatistics fetchScreenTimeStatistics(UUID userId, UUID islandId,
             LocalDate from, LocalDate to, String scope, Deadline deadline) {
+        return fetchScreenTimeStatistics(userId, islandId, from, to, scope, deadline, "UTC");
+    }
+
+    public IslandRecordViews.ScreenTimeStatistics fetchScreenTimeStatistics(UUID userId, UUID islandId,
+            LocalDate from, LocalDate to, String scope, Deadline deadline, String timezone) {
         return http.exchange(
                 InternalCall.to(HttpMethod.GET, islandPath(PATH_SCREEN_TIME_STATISTICS, islandId))
                         .onBehalfOf(userId)
                         .query("from", from.toString())
                         .query("to", to.toString())
                         .query("scope", scope)
+                        .query("timezone", "UTC".equals(timezone) ? null : timezone)
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandRecordViews.ScreenTimeStatistics>() { });

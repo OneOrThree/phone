@@ -19,16 +19,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V110 망원경 핀 테이블의 실 SQL 검증 (GROMO-2268). 검증 방식은 {@code LoginAttemptV101MigrationTest} 선례 — 전용
+ * V115 망원경 핀 테이블의 실 SQL 검증 (GROMO-2268). 검증 방식은 {@code LoginAttemptV101MigrationTest} 선례 — 전용
  * 컨테이너에 Flyway 체인을 실제로 돌린다.
  *
- * <p>보는 것: ① 열 타입·nullability, PK 순서(사람, 섬), 두 FK 의 연쇄 삭제, CHECK(출처 둘뿐), 정렬 인덱스, ② V109 까지 올린
- * 스키마(기존 사람·섬이 있다) 위에 V110 이 적용되고 표는 빈 채로 시작한다(백필 없음), 같은 (사람, 섬) 두 번째 INSERT 는
+ * <p>보는 것: ① 열 타입·nullability, PK 순서(사람, 섬), 두 FK 의 연쇄 삭제, CHECK(출처 둘뿐), 정렬 인덱스, ② V114 까지 올린
+ * 스키마(기존 사람·섬이 있다) 위에 V115 이 적용되고 표는 빈 채로 시작한다(백필 없음), 같은 (사람, 섬) 두 번째 INSERT 는
  * {@code ON CONFLICT DO NOTHING} 이 0행으로 흘려 첫 값이 남는다, ③ 빈 DB 의 전체 경로.
  *
- * <p>구조 단언은 V110 으로 고정해(target) 뒤 번호 마이그레이션이 이 표를 만져도 흔들리지 않게 한다.
+ * <p>구조 단언은 V115 으로 고정해(target) 뒤 번호 마이그레이션이 이 표를 만져도 흔들리지 않게 한다.
  */
-class TelescopePinV110MigrationTest {
+class TelescopePinV115MigrationTest {
 
     /** 이 클래스 전용 컨테이너 — 공용 TestPostgres 는 스키마 초기화와 함께 쓸 수 없다. */
     private static final PostgreSQLContainer<?> POSTGRES;
@@ -51,7 +51,7 @@ class TelescopePinV110MigrationTest {
     @Test
     @DisplayName("열 타입·nullability, PK 순서(사람, 섬), 두 FK 의 연쇄 삭제, 출처 CHECK, 정렬 인덱스가 정확히 생긴다")
     void tableShape() {
-        migrate(MigrationVersion.fromVersion("110"));
+        migrate(MigrationVersion.fromVersion("115"));
         JdbcTemplate jdbc = jdbc();
 
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT column_name, data_type, is_nullable, "
@@ -83,14 +83,14 @@ class TelescopePinV110MigrationTest {
     }
 
     @Test
-    @DisplayName("V109 의 기존 사람·섬 위에 V110 이 적용되고 표는 비어 있다 — 출처는 둘뿐이고 같은 핀은 한 번만 들어가며 섬·사람이 지워지면 함께 지워진다")
+    @DisplayName("V114 의 기존 사람·섬 위에 V115 이 적용되고 표는 비어 있다 — 출처는 둘뿐이고 같은 핀은 한 번만 들어가며 섬·사람이 지워지면 함께 지워진다")
     void startsEmptyAndGuardsTheRows() {
-        migrate(MigrationVersion.fromVersion("109"));
+        migrate(MigrationVersion.fromVersion("114"));
         JdbcTemplate jdbc = jdbc();
         UUID userId = user(jdbc);
         UUID islandId = island(jdbc);
 
-        migrate(MigrationVersion.fromVersion("110"));
+        migrate(MigrationVersion.fromVersion("115"));
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM telescope_pins", Integer.class))
                 .as("백필이 없다 — 핀은 사람이 직접 넣는다").isZero();
@@ -122,7 +122,7 @@ class TelescopePinV110MigrationTest {
     }
 
     @Test
-    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V110 이 성공으로 기록된다")
+    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V115 이 성공으로 기록된다")
     void appliesOnEmptyDatabase() {
         migrate(MigrationVersion.LATEST);
 

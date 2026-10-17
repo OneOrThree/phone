@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 망원경 핀 — 이 사람이 잡지·전망대로 «직접 넣은 섬» (GROMO-2268, V110, 섬 외부 계약 §6).
+ * 망원경 핀 — 이 사람이 잡지·전망대로 «직접 넣은 섬» (GROMO-2268, V115, 섬 외부 계약 §6).
  *
  * <p>쓰기는 {@code TelescopePinRepository.insertIfAbsent} 의 네이티브 INSERT 하나다 — 이 매핑은 스키마 선언과
  * 읽기용이다(Flyway 없이 엔티티로 스키마를 만드는 CI 프로필에도 테이블이 있어야 한다). 한 번 만든 행은 바뀌지

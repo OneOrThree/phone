@@ -68,7 +68,7 @@ public class Group {
     @Column(length = 200)
     private String description;
 
-    /** 섬장 환영 인사말(GROMO-2262, V108) — null 이면 기본 문구를 읽을 때 합성한다. */
+    /** 섬장 환영 인사말(GROMO-2262, V113) — null 이면 기본 문구를 읽을 때 합성한다. */
     @Column(length = 160)
     private String greeting;
 

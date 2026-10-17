@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 섬 도착 기록 (GROMO-2260, V107). */
+/** 섬 도착 기록 (GROMO-2260, V112). */
 public interface IslandArrivalRepository extends JpaRepository<IslandArrival, IslandArrival.Key> {
 
     /**

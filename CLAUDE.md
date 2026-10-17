@@ -78,11 +78,15 @@ rejects a `gh pr create` that breaks them (reason goes back to you, no user prom
   **never `--draft`**, `--fill` or `--web` (codex auto-review attaches to ready PRs only; the
   gate needs an explicit title and body). Exactly one existing label matching the TYPE:
   FEAT→`enhancement`, FIX→`bug`, REFACTOR→`refactoring`, CHORE→by content (`documentation`
-  docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else no label). Never `release:*`,
-  never create labels, no `--reviewer`. In the same turn post an `@claude`
+  docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else no label). `release` 대상 릴리스 PR에서만 버전 라벨 `release:major|minor|patch` 하나를 추가 허용, 그 외 `release:*` 금지,
+  never create labels, no `--reviewer`. For same-repository `main` → `release` promotion,
+  follow `AGENTS.md` §「main → release 운영 승격」 and skip code-review requests.
+  For other PRs, in the same turn post an `@claude`
   review-request comment with 3–5 PR-specific points and keep watching the PR; later replies
   never mention `@claude` (it re-triggers the workflow).
-- **Merge**: four-part test at the same commit — zero unanswered root review threads; a
+- **Merge**: for same-repository `main` → `release` promotion, use the change-summary
+  rule in `AGENTS.md` instead of a code-review verdict; still require all applicable CI
+  passed and `mergeStateStatus` CLEAN. For other PRs, four-part test at the same commit — zero unanswered root review threads; a
   reviewer verdict newer than the head push (codex 👍 / "no major issues", or a
   `**Claude finished` comment); CI **all passed** (not merely zero failures);
   `mergeStateStatus` CLEAN. There is no formal APPROVE in this repo. **A human clicks merge**
@@ -137,7 +141,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
 - **Business API · Notification**: 공용 검사 `satellite-check.yml`(`server/business-api/**` ·
   `server/notification/**` 매트릭스로 독립 Gradle build — Checkstyle·SpotBugs·Testcontainers 통합 테스트,
   계약 검사)를 `satellite-ci.dev.yml`(release 외 PR + main push → GAR amd64 → `satellite-cd.dev.yml` 배포)과
-  `satellite-ci.prod.yml`(release PR + release push → ECR arm64, prod 배포 단계는 아직 없음)이 호출. 수동 dev overlay는
+  `satellite-ci.prod.yml`(release PR 이미지 검사, push 발행은 `prod-ci.yml`로 통일)이 호출. 수동 dev overlay는
   `docker-compose.business.yml`.
 - **Shared backend gate**: `be-gradle.yml` — the one reusable (`workflow_call`) workflow for JVM
   Gradle checks. Takes `service` / `runs-on` / `tasks` / `artifact-name` / `artifact-path` /
@@ -183,9 +187,8 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   `deploy-failed:dev-<service>` (latest result only) and comments. GitHub Deployments shows one environment per
   server: `dev-server/data-api`, `dev-server/realtime`, `dev-server/<business-api|notification|business-api+notification>`. `ops-redeploy.dev.yml` (manual) re-runs a server's last successful deploy job to reload
   secrets without a new image.
-- **Prod**: **no deploy pipeline** — the old 1.x `prod-ci` / `prod-cd` / `prod-rollback` were removed in
-  GROMO-2224. Prod will be rebuilt as `{service}-{ci|cd}.prod.yml` (with a hotfix path); until then only
-  `satellite-ci.prod.yml` runs on `release` (ECR publish, no deploy).
+- **Prod**: Catus 2.0은 `prod-ci.yml`(release의 변경 서비스 이미지 발행·전체 이미지 조합 기록·PR 라벨 기반 catus-vX.Y.Z 태깅)과 `prod-cd.yml`(승인 후 수동 SSM 배포·버전 지정 롤백)으로 관리한다. 운영 실행 구성은 Infra 저장소에 두고 구성 SHA를 고정한다. 기존 Gromo 1.x와 분리하며 `satellite-ci.prod.yml`은 release PR 검사만 수행한다. release push 자동 발행은 `prod-ci.yml` 하나가 담당한다.
+  실행 순서·운영 선행 조건·배지 초기화는 `docs/prd/fishcat/server-separation/deployment.md`의 「Catus 2.0 운영 발행·배포」를 따른다. 워크플로 추가 자체가 운영 적용 완료를 뜻하지 않는다.
 - **API docs**: `api-dog-generate.yml` (OpenAPI generation on `main`/`release`/
   `bfeat|bfix|brefactor` pushes — `bchore` is excluded), `api-docs-cleanup.yml`
   (cleanup on branch delete — currently a **no-op**: its predicate checks a

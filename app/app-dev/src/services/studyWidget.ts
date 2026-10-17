@@ -4,6 +4,7 @@
 // 같은 컴포넌트 이름으로 위젯을 유지하고 여기서 2.0의 '오늘 집중' 값을 스냅샷으로 넘긴다.
 // iOS·웹에는 이 위젯이 없어 no-op(false)이다.
 import { Platform } from 'react-native';
+import { updateIOSHomeWidget } from './iosHomeWidget';
 import { requireOptionalNativeModule } from 'expo';
 import { primitiveTokens } from '@/design-system/tokens';
 import { dayKey, kstDayStart, recordSecondsBetween, type RecordItem } from '@/services/model';
@@ -110,6 +111,8 @@ export async function clearStudyWidget(now = Date.now()): Promise<boolean> {
   lastSent = null;
   inFlight = null;
   try {
+    // 새 위젯 저장과 같은 큐에서 지워 이전 계정의 늦은 쓰기가 되살아나지 않게 한다.
+    await updateIOSHomeWidget(null);
     return await native.updateSnapshot('[]', 0, dayKey(now));
   } catch {
     return false;

@@ -24,6 +24,8 @@ flowchart TD
 
 Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모든 환경에 일괄 적용하는 구조는 아닙니다.
 
+이 문서의 prod Compose·`gromo/prod/env` 설명은 기존 Gromo 구성을 대상으로 합니다. Catus 2.0의 실행 구성은 Infra 저장소의 `prod/catus/runtime`에서 관리하며, Phone의 `prod-ci.yml`·`prod-cd.yml` 실행은 [Catus 운영 절차](../../docs/prd/fishcat/server-separation/deployment.md#catus-20-운영-발행배포)를 따릅니다.
+
 ## 2. Compose 파일 안내
 
 | 파일 | 용도 · 전제 |

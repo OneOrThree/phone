@@ -9,7 +9,11 @@ const compiled = ts.transpileModule(source, {
 }).outputText;
 const tokens = { exports: {} };
 new Function('exports', 'module', compiled)(tokens.exports, tokens);
-const { semanticTokens: semantic, primitiveTokens: primitive } = tokens.exports;
+const {
+  semanticTokens: semantic,
+  primitiveTokens: primitive,
+  componentTokens: component,
+} = tokens.exports;
 const colors = {
   bg: semantic.color.canvas,
   surface: semantic.color.surface,
@@ -39,3 +43,64 @@ if (process.argv.includes('--check')) {
 } else {
   fs.writeFileSync(target, output);
 }
+
+// Android 집중 화면·알림·위젯도 같은 semantic token에서 생성한다.
+const androidPalette = `// scripts/generate-report-palette.cjs로 생성. 직접 수정하지 않는다.\npackage com.oneorthree.gromo.screentime\n\ninternal object FocusPalette {\n${Object.entries(
+  {
+    BG: semantic.color.canvas,
+    CREAM: semantic.color.text,
+    MUTED: semantic.color.textMuted,
+    ACCENT: semantic.color.primary,
+  },
+)
+  .map(([name, hex]) => `  const val ${name} = "${hex}"`)
+  .join('\n')}\n}\n`;
+const widgetColors = {
+  widget_paper: semantic.color.surface,
+  widget_ink: semantic.color.text,
+  widget_ink_sub: semantic.color.textMuted,
+  widget_chip_bg: semantic.color.canvas,
+  widget_chip_border: semantic.color.outline,
+  widget_accent: semantic.color.text,
+};
+const androidColors = `<?xml version="1.0" encoding="utf-8"?>\n<!-- scripts/generate-report-palette.cjs로 생성 -->\n<resources>\n${Object.entries(
+  widgetColors,
+)
+  .map(([name, hex]) => `  <color name="${name}">${hex}</color>`)
+  .join('\n')}\n</resources>\n`;
+for (const [relative, content] of [
+  [
+    'modules/screen-time/android/src/main/java/com/oneorthree/gromo/screentime/FocusPalette.kt',
+    androidPalette,
+  ],
+  ['modules/study-widget/android/src/main/res/values/widget_palette.xml', androidColors],
+]) {
+  const filename = path.join(root, relative);
+  if (process.argv.includes('--check')) {
+    if (!fs.existsSync(filename) || fs.readFileSync(filename, 'utf8') !== content) {
+      console.error(`Android 팔레트가 토큰과 다릅니다: ${relative}`);
+      process.exitCode = 1;
+    }
+  } else fs.writeFileSync(filename, content);
+}
+
+// UIKit 차단 화면은 주간 딸기 소다 토큰을 사용한다. 레이아웃은 iOS가 담당한다.
+const shieldColors = {
+  background: semantic.color.canvas,
+  title: semantic.color.text,
+  subtitle: semantic.color.textMuted,
+  button: semantic.color.primary,
+  buttonText: semantic.color.onPrimary,
+};
+const shieldLines = Object.entries(shieldColors).map(([name, hex]) => {
+  const rgb = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16));
+  return `    static let ${name} = UIColor(red: ${rgb[0]}.0 / 255, green: ${rgb[1]}.0 / 255, blue: ${rgb[2]}.0 / 255, alpha: 1)`;
+});
+const shieldOutput = `// scripts/generate-report-palette.cjs로 생성. 정본: src/design-system/tokens.ts\nimport UIKit\n\nenum ShieldPalette {\n${shieldLines.join('\n')}\n    static let iconSize: CGFloat = ${component.focusShield.iconSize}\n}\n`;
+const shieldTarget = path.join(root, 'ios/Shared/ShieldPalette.swift');
+if (process.argv.includes('--check')) {
+  if (!fs.existsSync(shieldTarget) || fs.readFileSync(shieldTarget, 'utf8') !== shieldOutput) {
+    console.error('iOS 차단 팔레트가 토큰과 다릅니다. npm run gen:report-palette를 실행하세요.');
+    process.exitCode = 1;
+  }
+} else fs.writeFileSync(shieldTarget, shieldOutput);
