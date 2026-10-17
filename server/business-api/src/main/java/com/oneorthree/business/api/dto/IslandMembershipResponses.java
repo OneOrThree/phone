@@ -327,7 +327,7 @@ public final class IslandMembershipResponses {
             @JsonInclude(JsonInclude.Include.NON_NULL) Instant pinnedAt,
             @JsonInclude(JsonInclude.Include.ALWAYS) Magazines.Cell magazineCell,
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            @Schema(description = "완공 건물 수. 키가 없으면 0 으로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다). "
+            @Schema(description = "완공 건물 수. 키가 없으면 0 으로 읽는다(옛 Data 호환 — 롤링 배포 중에만 빠지고 null 은 보내지 않는다). "
                     + "단계 그림은 앱 islandStage(memberCount, buildingCount)",
                     requiredMode = Schema.RequiredMode.NOT_REQUIRED)
             Integer buildingCount) {
