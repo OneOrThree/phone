@@ -170,6 +170,32 @@ class SeaRoomsScriptTest {
         org.mockito.Mockito.verifyNoInteractions(publisher);
     }
 
+    @Test
+    @DisplayName("UPDATE — expectedRev 가 다르면 0·불변, 같으면 적용하고 rev+1, 비어 있으면 검사 없이 적용")
+    void updateIsACompareAndSetOnRev() {
+        UUID user = UUID.randomUUID();
+        UUID room = UUID.randomUUID();
+        join(user, room);
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "rev")).isEqualTo("1");
+
+        assertThat(update(user, room, "7", "remark", "늦은 보정")).isEqualTo(0L);
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "remark")).isNull();
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "rev")).isEqualTo("1");
+
+        assertThat(update(user, room, "1", "remark", "보정")).isEqualTo(1L);
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "remark")).isEqualTo("보정");
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "rev")).isEqualTo("2");
+
+        assertThat(update(user, room, "", "remark", "사건")).as("Data 사건은 CAS 없이").isEqualTo(1L);
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(user), "rev")).isEqualTo("3");
+        assertThat(update(user, UUID.randomUUID(), "", "remark", "남의 방")).isEqualTo(0L);
+    }
+
+    private Long update(UUID user, UUID room, String expectedRev, String field, String value) {
+        return redis.execute(SeaRooms.UPDATE, List.of(RedisKeys.seaUser(user), RedisKeys.SEA_ADRIFT),
+                room.toString(), user.toString(), "", "0", expectedRev, "0", field, value);
+    }
+
     private Long leave(UUID user, UUID room, String adriftSince) {
         return redis.execute(SeaRooms.LEAVE, keys(user, room), user.toString(), room.toString(), adriftSince);
     }

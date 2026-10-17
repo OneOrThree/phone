@@ -95,13 +95,15 @@ public class SeaRooms {
     private static final String SAILING_MINUTES = "sailingMinutes";
     private static final String STARTED_AT = "startedAt";
     private static final String ADRIFT_SINCE = "adriftSince";
+    private static final String REV = "rev";
 
     /**
      * 입장. 1 = 들어갔다(또는 이미 그 방), 0 = 꽉 찼다(그 방을 open 에서 뺀다), -1 = 이미 다른 방에 있다(두 기기 경합),
      * -2 = 구성원이 차단 검사 때 본 집합과 다르다(그사이 누가 들어왔거나 나갔다 — 다시 읽고 다시 검사한다).
      *
      * <p>SET 에는 있는데 해시가 없는 사람(해시만 만료·삭제)은 해시를 다시 써 준다 — 그래야 구독 관문을 통과한다.
-     * 항해 없이 들어오면(adriftSince 가 비어 있지 않으면) 10분 정리 색인에도 같은 스크립트 안에서 올린다.
+     * 항해 없이 들어오면(adriftSince 가 비어 있지 않으면) 10분 정리 색인에도 같은 스크립트 안에서 올린다. 해시를 쓸 때
+     * 개정 번호 {@code rev} 는 1 부터 시작한다({@link #UPDATE} 가 전이마다 올린다).
      *
      * <p>KEYS: members, open, user, adrift / ARGV: userId, roomId, capacity, ttlSec, 기대 구성원(정렬·',' 연결),
      * adriftSince(ms)|'', 해시 field/value…
@@ -122,7 +124,7 @@ public class SeaRooms {
             + "end\n"
             + "redis.call('EXPIRE', KEYS[1], ARGV[4])\n"
             + "redis.call('DEL', KEYS[3])\n"
-            + "redis.call('HSET', KEYS[3], 'roomId', ARGV[2], unpack(ARGV, 7))\n"
+            + "redis.call('HSET', KEYS[3], 'roomId', ARGV[2], 'rev', '1', unpack(ARGV, 7))\n"
             + "redis.call('EXPIRE', KEYS[3], ARGV[4])\n"
             + "if ARGV[6] ~= '' then redis.call('ZADD', KEYS[4], ARGV[6], ARGV[1])\n"
             + "else redis.call('ZREM', KEYS[4], ARGV[1]) end\n"
@@ -145,15 +147,20 @@ public class SeaRooms {
             + "return 1", Long.class);
 
     /**
-     * Data 사건 전이 — 그 방에 아직 있을 때만 해시를 고친다(나간 뒤 늦게 온 사건이 수명 없는 해시를 되살리지 않게).
-     * KEYS: user, adrift / ARGV: roomId, userId, adrift 연산('add'|'rem'|''), 점수, 지울 필드 수 n, 지울 필드 n개,
-     * 쓸 field/value…
+     * 해시 전이 — 그 방에 아직 있을 때만 고친다(나간 뒤 늦게 온 사건이 수명 없는 해시를 되살리지 않게). 바꿀 때마다
+     * {@code rev} 를 1 올린다. {@code expectedRev} 가 비어 있지 않으면 지금 rev 가 그 값일 때만 바꾼다(CAS) — 입장 보정이
+     * 그사이 먼저 적용된 Data 사건을 오래된 재조회 결과로 덮어쓰지 않게 한다. Data 사건 자체는 검사 없이 적용한다.
+     *
+     * <p>KEYS: user, adrift / ARGV: roomId, userId, adrift 연산('add'|'rem'|''), 점수, expectedRev|'', 지울 필드 수 n,
+     * 지울 필드 n개, 쓸 field/value…
      */
     static final RedisScript<Long> UPDATE = new DefaultRedisScript<>(
             "if redis.call('HGET', KEYS[1], 'roomId') ~= ARGV[1] then return 0 end\n"
-            + "local n = tonumber(ARGV[5])\n"
-            + "for i = 6, 5 + n do redis.call('HDEL', KEYS[1], ARGV[i]) end\n"
-            + "if #ARGV > 5 + n then redis.call('HSET', KEYS[1], unpack(ARGV, 6 + n)) end\n"
+            + "if ARGV[5] ~= '' and redis.call('HGET', KEYS[1], 'rev') ~= ARGV[5] then return 0 end\n"
+            + "local n = tonumber(ARGV[6])\n"
+            + "for i = 7, 6 + n do redis.call('HDEL', KEYS[1], ARGV[i]) end\n"
+            + "if #ARGV > 6 + n then redis.call('HSET', KEYS[1], unpack(ARGV, 7 + n)) end\n"
+            + "redis.call('HINCRBY', KEYS[1], 'rev', 1)\n"
             + "if ARGV[3] == 'add' then redis.call('ZADD', KEYS[2], ARGV[4], ARGV[2])\n"
             + "elseif ARGV[3] == 'rem' then redis.call('ZREM', KEYS[2], ARGV[2]) end\n"
             + "return 1", Long.class);
@@ -281,7 +288,9 @@ public class SeaRooms {
     }
 
     /**
-     * 그 방 구성원 전부(≤10)의 표시 — 앱이 이 중 5명을 고른다(N15). 해시가 사라진 유령 구성원은 뺀다.
+     * 그 방 구성원 전부(≤10)의 표시 — 앱이 이 중 5명을 고른다(N15). 해시가 없거나 해시의 {@code roomId} 가 이 방이
+     * 아닌 유령은 뺀다. 다른 방 해시를 가리키는 id 는 옛 SET 에 남은 것이라 그 자리에서 SREM 한다(JOIN 의 -1 규칙상
+     * 그 사람이 이 방에 정당하게 있을 수 없다).
      */
     public ArrayNode membersOf(UUID roomId) {
         Set<String> ids = redis.opsForSet().members(RedisKeys.seaRoomMembers(roomId));
@@ -293,8 +302,14 @@ public class SeaRooms {
         Instant now = clock.instant();
         ArrayNode members = objectMapper.createArrayNode();
         for (int i = 0; i < users.size(); i++) {
-            if (hashes.get(i) instanceof Map<?, ?> hash && !hash.isEmpty()) {
-                members.add(member(users.get(i), stringMap(hash), now));
+            if (!(hashes.get(i) instanceof Map<?, ?> hash) || hash.isEmpty()) {
+                continue; // 해시만 사라진 사람 — 다음 입장이 복구한다(JOIN), 지우지 않는다
+            }
+            Map<String, String> fields = stringMap(hash);
+            if (roomId.toString().equals(fields.get(ROOM_ID))) {
+                members.add(member(users.get(i), fields, now));
+            } else {
+                redis.opsForSet().remove(RedisKeys.seaRoomMembers(roomId), users.get(i));
             }
         }
         return members;
@@ -327,7 +342,7 @@ public class SeaRooms {
             log.warn("바다 사건 params 불량 — 적용하지 않는다. status={}", status);
             return;
         }
-        if (runUpdate(userId, roomId, transition) != 1) {
+        if (runUpdate(userId, roomId, transition, "") != 1) {
             return; // 그사이 나갔다
         }
         try {
@@ -380,28 +395,43 @@ public class SeaRooms {
 
     /**
      * JOIN 이 1 을 돌려준 뒤. 그사이 소켓이 끊겼고 이 JVM 에 다른 세션도 없으면 조용히 되돌린다 — {@code joined} 를
-     * 내기 전이라 아무도 이 사람을 보지 않았다. 아니면 상태를 한 번 더 맞추고 {@code joined} 를 낸다.
+     * 내기 전이라 아무도 이 사람을 보지 않았다. 아니면 상태를 한 번 더 맞추고({@link #reconcile}, HTTP) <b>그 뒤에
+     * 다시</b> 연결·소속을 확인한 다음에만 {@code joined} 를 낸다 — 재조회 동안 끊겨 종료 리스너가 이미 내보냈으면
+     * {@code joined} 가 {@code left} 뒤에 도착해 유령이 생긴다.
      *
-     * <p>ponytail: 종료 리스너가 JOIN 전에 돌고 소켓 기록 삭제가 이 확인보다 늦으면 그 창(마이크로초)만큼 유령이 남는다 —
+     * <p>ponytail: 종료 리스너가 JOIN 전에 돌고 소켓 기록 삭제가 마지막 확인보다 늦으면 그 창(마이크로초)만큼 유령이 남는다 —
      * 10분 정리·24h TTL 이 백스톱이다.
      */
     private SeaRoomEvent joined(UUID userId, String sessionId, UUID roomId, SeaStateClient.SeaState first) {
-        if (!sessions.isConnected(sessionId) && !sessions.hasOtherSession(userId, sessionId)) {
-            runLeave(userId, roomId, "");
+        if (abandoned(userId, sessionId, roomId)) {
             return null;
         }
-        reconcile(userId, roomId, first);
+        Object rev = redis.opsForHash().get(RedisKeys.seaUser(userId), REV); // JOIN 직후의 개정 — 보정의 CAS 기준
+        reconcile(userId, roomId, first, rev instanceof String value ? value : "1");
+        if (abandoned(userId, sessionId, roomId) || !isMember(userId, roomId)) {
+            return null; // 끊겼거나 이미 내보내졌다(종료 리스너가 left 를 냈다)
+        }
         ObjectNode payload = objectMapper.createObjectNode();
         payload.set("member", memberOf(userId));
         publisher.publish(roomId, MEMBER_JOINED, payload);
         return assigned(roomId);
     }
 
+    /** 이 세션이 끊겼고 이 JVM 에 같은 사람의 다른 세션도 없으면 사건 없이 되돌리고 true. */
+    private boolean abandoned(UUID userId, String sessionId, UUID roomId) {
+        if (sessions.isConnected(sessionId) || sessions.hasOtherSession(userId, sessionId)) {
+            return false;
+        }
+        runLeave(userId, roomId, "");
+        return true;
+    }
+
     /**
-     * 첫 조회와 JOIN 사이에 온 Data 사건은 «바다 밖 사용자»로 no-op 됐다 — 한 번 더 조회해 세션이 바뀌었으면
-     * (끝났거나 새로 시작) 그 전이를 적용한다. 재조회 실패는 첫 상태로 둔다.
+     * 첫 조회와 JOIN 사이에 온 Data 사건은 «바다 밖 사용자»로 no-op 됐다 — 한 번 더 조회해 세션(끝남·새 시작)이나
+     * 한마디가 바뀌었으면 한 전이로 함께 적용한다. JOIN 직후의 {@code rev} 로 CAS 하므로, 재조회가 돌아오는 사이
+     * Data 사건이 먼저 적용됐으면(그쪽이 더 최신) 보정은 조용히 건너뛴다. 재조회 실패는 첫 상태로 둔다.
      */
-    private void reconcile(UUID userId, UUID roomId, SeaStateClient.SeaState first) {
+    private void reconcile(UUID userId, UUID roomId, SeaStateClient.SeaState first, String rev) {
         SeaStateClient.SeaState second;
         try {
             second = seaState.fetch(userId);
@@ -411,15 +441,28 @@ public class SeaRooms {
         }
         SeaStateClient.Session before = first.session();
         SeaStateClient.Session after = second.session();
-        UUID beforeId = before == null ? null : before.sessionId();
-        UUID afterId = after == null ? null : after.sessionId();
-        if (Objects.equals(beforeId, afterId)) {
+        boolean sessionChanged = !Objects.equals(before == null ? null : before.sessionId(),
+                after == null ? null : after.sessionId());
+        boolean remarkChanged = !Objects.equals(first.remark(), second.remark())
+                || !Objects.equals(first.remarkChangedAt(), second.remarkChangedAt());
+        if (!sessionChanged && !remarkChanged) {
             return;
         }
-        Transition transition = after == null ? endedTransition()
-                : sailingTransition(after.sessionId().toString(), after.destinationIslandId().toString(),
-                        after.sailingMinutes() == null ? null : after.sailingMinutes().toString(), after.startedAt());
-        runUpdate(userId, roomId.toString(), transition);
+        Transition transition;
+        if (!sessionChanged) {
+            transition = new Transition(new HashMap<>(), new ArrayList<>(), "", "0");
+        } else if (after == null) {
+            transition = endedTransition();
+        } else {
+            transition = sailingTransition(after.sessionId().toString(), after.destinationIslandId().toString(),
+                    after.sailingMinutes() == null ? null : after.sailingMinutes().toString(), after.startedAt());
+        }
+        if (remarkChanged) {
+            putOrDelete(transition.set(), transition.delete(), REMARK, second.remark());
+        }
+        if (runUpdate(userId, roomId.toString(), transition, rev) != 1) {
+            log.debug("입장 보정 건너뜀 — 그사이 Data 사건이 먼저 적용됐거나 나갔다");
+        }
     }
 
     private SeaRoomEvent assigned(UUID roomId) {
@@ -652,9 +695,9 @@ public class SeaRooms {
         return result == null ? 0 : result;
     }
 
-    private long runUpdate(UUID userId, String roomId, Transition transition) {
+    private long runUpdate(UUID userId, String roomId, Transition transition, String expectedRev) {
         List<String> args = new ArrayList<>(List.of(roomId, userId.toString(), transition.adriftOp(),
-                transition.score(), Integer.toString(transition.delete().size())));
+                transition.score(), expectedRev, Integer.toString(transition.delete().size())));
         args.addAll(transition.delete());
         transition.set().forEach((field, value) -> {
             args.add(field);

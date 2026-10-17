@@ -494,6 +494,104 @@ class SeaRoomIntegrationTest {
         assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "startedAt")).isEqualTo(startedBefore);
     }
 
+    @Test
+    @DisplayName("[rev CAS] 재조회 응답 전에 Data 사건이 먼저 적용되면 오래된 재조회 결과로 덮어쓰지 않는다")
+    void staleRefetchDoesNotOverwriteANewerEvent() throws Exception {
+        UUID alice = UUID.randomUUID();
+        UUID newer = UUID.randomUUID();
+        Instant now = Instant.now();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        given(friends.fetchFriendIds(alice)).willReturn(Set.of());
+        given(seaState.fetch(alice)).willAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1) {
+                return new SeaStateClient.SeaState(null, null,
+                        new SeaStateClient.Session(UUID.randomUUID(), destination, 30, 0L, now, now));
+            }
+            // 재조회가 돌아오기 전에 «항해 끝 → 새 항해» 사건이 먼저 적용된다. 재조회 응답은 그 사이 시점의 낡은 「끝남」.
+            postEvent(seaEvent(alice, "\"status\":\"sailing\",\"sessionId\":\"" + newer + "\","
+                    + "\"destinationIslandId\":\"" + destination + "\",\"sailingMinutes\":30,\"activeSeconds\":0,"
+                    + "\"serverNow\":\"" + Instant.now() + "\""));
+            return new SeaStateClient.SeaState(null, null, null);
+        });
+
+        connect(alice).enter();
+
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "state")).isEqualTo("focusing");
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "sessionId")).isEqualTo(newer.toString());
+        assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, alice.toString())).isNull();
+    }
+
+    @Test
+    @DisplayName("[보정] 두 조회 사이 한마디가 바뀌었으면 세션이 같아도 입장 뒤 한마디를 맞춘다")
+    void remarkChangedBetweenFetchesIsApplied() throws Exception {
+        UUID alice = UUID.randomUUID();
+        Instant now = Instant.now();
+        SeaStateClient.Session session = new SeaStateClient.Session(UUID.randomUUID(), destination, 30, 0L, now, now);
+        given(friends.fetchFriendIds(alice)).willReturn(Set.of());
+        given(seaState.fetch(alice)).willReturn(new SeaStateClient.SeaState("옛말", now, session),
+                new SeaStateClient.SeaState("새말", now.plusSeconds(1), session));
+
+        connect(alice).enter();
+
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "remark")).isEqualTo("새말");
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "sessionId"))
+                .isEqualTo(session.sessionId().toString());
+    }
+
+    @Test
+    @DisplayName("[재확인] 재조회 중 소켓이 끊기면 joined 를 내지 않고 구성원에서도 빠진다")
+    void disconnectDuringRefetchPublishesNoJoined() throws Exception {
+        UUID bob = sailor();
+        Client b = connect(bob);
+        UUID room = roomOf(b.enter());
+        BlockingQueue<Map<String, Object>> heardByBob = b.watch(room, bob);
+
+        UUID alice = UUID.randomUUID();
+        Instant now = Instant.now();
+        SeaStateClient.SeaState sailing = new SeaStateClient.SeaState(null, null,
+                new SeaStateClient.Session(UUID.randomUUID(), destination, 30, 0L, now, now));
+        given(friends.fetchFriendIds(alice)).willReturn(Set.of());
+        Client a = connect(alice);
+        java.util.concurrent.CountDownLatch refetching = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        given(seaState.fetch(alice)).willAnswer(invocation -> {
+            if (calls.incrementAndGet() > 1) {
+                refetching.countDown();
+                a.session.disconnect();
+                Thread.sleep(1500); // 서버가 소켓 종료를 처리할 시간
+            }
+            return sailing;
+        });
+        a.subscribeQueue();
+        redis.delete(RedisKeys.seaEnterAttempt(alice));
+        a.session.send("/app/sea/enter", Map.of());
+
+        assertThat(refetching.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+        awaitTrue(() -> calls.get() >= 2);
+        Thread.sleep(2000);
+        Map<String, Object> frame;
+        while ((frame = heardByBob.poll(300, TimeUnit.MILLISECONDS)) != null) {
+            assertThat(frame.get("type")).as("joined 가 나가면 안 된다").isNotEqualTo("sea.member.joined");
+        }
+        assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(room), alice.toString())).isFalse();
+        assertThat(redis.hasKey(RedisKeys.seaUser(alice))).isFalse();
+    }
+
+    @Test
+    @DisplayName("[스냅샷] 옛 SET 에 남은 id(해시는 다른 방)는 스냅샷에 섞이지 않고 SET 에서 치워진다")
+    void snapshotSkipsGhostsFromAnotherRoom() throws Exception {
+        UUID alice = sailor();
+        Client a = connect(alice);
+        UUID room = roomOf(a.enter());
+        UUID ghost = UUID.randomUUID();
+        redis.opsForSet().add(RedisKeys.seaRoomMembers(room), ghost.toString());
+        redis.opsForHash().putAll(RedisKeys.seaUser(ghost), Map.of("roomId", UUID.randomUUID().toString(),
+                "state", "focusing"));
+
+        assertThat(memberIds(payload(a.sync()))).containsExactly(alice.toString());
+        assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(room), ghost.toString())).isFalse();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private static Map<String, Object> enterUnchecked(Client client) {
