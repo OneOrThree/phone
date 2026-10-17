@@ -8,10 +8,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +28,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>보는 것: ① 열 타입·nullability·기본값, PK 순서(사람, 버킷), users FK 의 연쇄 삭제, ② V124 까지 올린 스키마의 기존 핀이
  * V125 뒤에 «넣은 정시 + 1시간» 으로 줄어들고(07:00 KST 만료였던 행), 이미 그보다 이른 만료는 그대로다, 같은 (사람, 버킷)
- * 두 번째 INSERT 는 {@code ON CONFLICT DO NOTHING} 이 0행으로 흘려 첫 값이 남는다, ③ 빈 DB 의 전체 경로.
+ * 두 번째 INSERT 는 {@code ON CONFLICT DO NOTHING} 이 0행으로 흘려 첫 값이 남는다, ③ 세션 타임존이 비정시 오프셋이어도 정시는
+ * UTC 기준이다, ④ 빈 DB 의 전체 경로.
  *
  * <p>구조 단언은 V125 로 고정해(target) 뒤 번호 마이그레이션이 이 표를 만져도 흔들리지 않게 한다.
  */
@@ -114,6 +117,41 @@ class TelescopeBucketsV125MigrationTest {
         jdbc.update("DELETE FROM users WHERE id = ?", userId);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM telescope_buckets", Integer.class))
                 .as("사람이 지워지면 그 사람의 스냅샷도").isZero();
+    }
+
+    @Test
+    @DisplayName("V125 를 비정시 오프셋 세션(Asia/Kolkata, +05:30)으로 적용해도 핀 만료는 UTC 정시 + 1시간이다 — Java "
+            + "Instant.truncatedTo(HOURS) 와 같은 정시")
+    void shortensPinsOnTheUtcHourWhateverTheSessionTimeZone() {
+        migrate(MigrationVersion.fromVersion("124"));
+        JdbcTemplate jdbc = jdbc();
+        UUID userId = user(jdbc);
+        UUID islandId = island(jdbc);
+        pin(jdbc, userId, islandId, "2034-05-05 05:23:41+00", "2034-05-05 22:00:00+00");
+        // 전제: 세션 타임존 기준 date_trunc 라면 Kolkata 에서는 04:30Z 로 잘려 05:30Z 가 된다.
+        SingleConnectionDataSource session = new SingleConnectionDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword(), true);
+        try {
+            JdbcTemplate kolkata = new JdbcTemplate(session);
+            kolkata.execute("SET TIME ZONE 'Asia/Kolkata'");
+            assertThat(kolkata.queryForObject("SELECT date_trunc('hour', TIMESTAMPTZ '2034-05-05 05:23:41+00') "
+                    + "+ interval '1 hour'", Timestamp.class).toInstant())
+                    .as("세션 타임존을 따르는 잘못된 정시").isEqualTo(Instant.parse("2034-05-05T05:30:00Z"));
+        } finally {
+            session.destroy();
+        }
+
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration")
+                .initSql("SET TIME ZONE 'Asia/Kolkata'")
+                .target(MigrationVersion.fromVersion("125"))
+                .load()
+                .migrate();
+
+        assertThat(expiresAt(jdbc, userId, islandId)).isEqualTo(Instant.parse("2034-05-05T06:00:00Z"))
+                .isEqualTo(Instant.parse("2034-05-05T05:23:41Z").truncatedTo(ChronoUnit.HOURS)
+                        .plus(1, ChronoUnit.HOURS));
     }
 
     @Test

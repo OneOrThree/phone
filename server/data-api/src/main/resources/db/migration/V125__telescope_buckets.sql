@@ -20,5 +20,8 @@ COMMENT ON TABLE telescope_buckets IS
 
 -- 핀 만료를 «다음 07:00 KST» 에서 «넣은 버킷의 끝(넣은 정시 + 1시간)» 으로 바꾼다. 이미 그보다 이른 만료는 그대로 둔다.
 -- 대부분의 기존 핀은 이 UPDATE 로 곧바로 만료된다(정본 SCOPE-07 «1시간 갱신 때 무작위 섬과 함께 사라진다»).
+-- 정시는 UTC 기준으로 자른다 — timestamptz 의 date_trunc 는 세션 타임존 기준이라(+05:30 같은 세션이면 30분 어긋난다)
+-- Java Instant.truncatedTo(HOURS)(UTC 정시)와 맞추려고 UTC 로 바꿔 자른 뒤 되돌린다.
 UPDATE telescope_pins
-SET expires_at = LEAST(expires_at, date_trunc('hour', pinned_at) + interval '1 hour');
+SET expires_at = LEAST(expires_at,
+                       (date_trunc('hour', pinned_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') + interval '1 hour');

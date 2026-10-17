@@ -82,6 +82,8 @@ import java.util.stream.Stream;
  * 두 기기의 동시 첫 요청은 {@code ON CONFLICT DO NOTHING} 이 뒤쪽을 앞쪽 커밋까지 기다리게 한 뒤 0행으로 흘리고, 다시
  * 읽기(READ COMMITTED 의 새 문장 스냅샷)가 이긴 행을 준다. 사용자 행은 <b>공유 잠금</b>으로 읽는다 — 탈퇴({@code getCallerForUpdate})와
  * 직렬화해 탈퇴 뒤 스냅샷이 다시 남는 틈을 막는다(codex 사전 리뷰).
+ * 그래서 {@code GET /me/telescope} 는 같은 사용자의 {@code FOR UPDATE} 쓰기(핀 넣기·빼기·탈퇴 등)와 서로 기다린다 — 같은
+ * 사용자 안의 경합뿐이고 다른 사용자끼리는 막지 않는다.
  *
  * <p>전망대 게이트가 없고(망원경은 바다용) 게스트도 읽는다.
  */

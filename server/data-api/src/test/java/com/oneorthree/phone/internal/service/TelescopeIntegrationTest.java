@@ -86,6 +86,8 @@ class TelescopeIntegrationTest {
     @Autowired
     TelescopeService telescope;
     @Autowired
+    TelescopePinService pinService;
+    @Autowired
     UserRepository users;
     @Autowired
     GroupRepository groups;
@@ -299,6 +301,50 @@ class TelescopeIntegrationTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    @DisplayName("스냅샷 섬 다섯이 전부 비공개로 바뀌면 새 섬 칸은 0이고 joined·pinned 만 남는다 — 새로 뽑지 않는다")
+    void aSnapshotEmptiedByPrivacyLeavesOnlyJoinedAndPinned() {
+        User viewer = user();
+        Group home = island("소속섬", 10);
+        join(viewer, home);
+        List<UUID> open = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            open.add(island("열린섬" + i, 10).getId());
+        }
+        UUID pinnedId = open.get(7);
+        // 첫 핀 넣기가 스냅샷을 뽑는다 — 핀 섬을 뺀 다섯이다.
+        pinService.pin(viewer.getId(), pinnedId, "observatory", null);
+        List<UUID> snapshot = telescope.list(viewer.getId()).items().stream()
+                .filter(item -> "nearby".equals(item.slot()) || "random".equals(item.slot()))
+                .map(TelescopeItemView::islandId).toList();
+        assertThat(snapshot).hasSize(TelescopeService.RANDOM_SLOTS);
+
+        String all = jdbc.queryForObject("select array_to_string(island_ids, ',') from telescope_buckets "
+                + "where user_id = ?", String.class, viewer.getId());
+        for (String id : all.split(",")) {
+            jdbc.update("update groups set is_private = true where id = ?::uuid", id);
+        }
+
+        List<TelescopeItemView> items = telescope.list(viewer.getId()).items();
+        assertThat(items).extracting(TelescopeItemView::islandId, TelescopeItemView::slot)
+                .containsExactly(tuple(home.getId(), "joined"), tuple(pinnedId, "pinned"));
+    }
+
+    @Test
+    @DisplayName("공개 섬이 하나도 없어도 빈 스냅샷({})을 저장하고 같은 버킷엔 그 행을 다시 읽는다 — 그사이 섬이 생겨도 빈 목록이다")
+    void anEmptyDrawIsStoredAndReread() {
+        User viewer = user();
+
+        assertThat(telescope.list(viewer.getId()).items()).isEmpty();
+        assertThat(jdbc.queryForObject("select cardinality(island_ids) || ':' || has_nearby from telescope_buckets "
+                + "where user_id = ?", String.class, viewer.getId())).isEqualTo("0:false");
+
+        island("늦게생긴섬", 10);
+        assertThat(telescope.list(viewer.getId()).items()).isEmpty();
+        assertThat(jdbc.queryForObject("select count(*) from telescope_buckets where user_id = ?", Long.class,
+                viewer.getId())).isEqualTo(1L);
     }
 
     @Test

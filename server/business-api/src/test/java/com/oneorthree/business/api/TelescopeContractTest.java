@@ -193,15 +193,22 @@ class TelescopeContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("완공 건물 수(buildingCount)는 상류 값을 그대로 싣고, 키를 싣지 않은(옛 Data) 칸은 null 로 키를 유지한다")
+    @DisplayName("완공 건물 수(buildingCount)는 상류 값을 그대로 싣고(0 포함), 키가 없거나 null 인(옛 Data) 칸은 공개에서도 키가 빠진다")
     void buildingCountIsRelayedOrNullOnEveryItem() throws Exception {
-        DATA.on(DATA_TELESCOPE, request -> ok(LIST.replace("\"buildingCount\":3", "\"buildingCount\":0")));
+        DATA.on(DATA_TELESCOPE, request -> ok(LIST.replace("\"buildingCount\":3", "\"buildingCount\":0")
+                .replace("\"arrivedBefore\":false}", "\"arrivedBefore\":false,\"buildingCount\":null}")));
 
         mockMvc.perform(auth(get(TELESCOPE)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].buildingCount").value(0))
-                .andExpect(jsonPath("$.data.items[1].buildingCount").hasJsonPath())
-                .andExpect(jsonPath("$.data.items[1].buildingCount").value((Object) null));
+                .andExpect(jsonPath("$.data.items[1].buildingCount").doesNotHaveJsonPath());
+
+        DATA.reset();
+        DATA.on(DATA_TELESCOPE, request -> ok(LIST));
+        mockMvc.perform(auth(get(TELESCOPE)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].buildingCount").value(3))
+                .andExpect(jsonPath("$.data.items[1].buildingCount").doesNotHaveJsonPath());
     }
 
     @Test
@@ -384,14 +391,15 @@ class TelescopeContractTest extends UpstreamTestBase {
         return auth(request).contentType(MediaType.APPLICATION_JSON).content(body);
     }
 
-    /** 공개 응답 기대값 — {@code magazineCell}·{@code buildingCount} 를 모르는 상류 칸에는 공개가 null 키를 싣는다. */
+    /**
+     * 공개 응답 기대값 — {@code magazineCell} 을 모르는 상류 칸에는 공개가 null 키를 싣는다. {@code buildingCount} 는 상류에
+     * 없으면 공개에서도 키가 빠진다(NON_NULL)라 손대지 않는다.
+     */
     private static tools.jackson.databind.JsonNode withNullCells(String upstream) {
         var tree = new ObjectMapper().readTree(upstream);
         tree.path("items").forEach(item -> {
-            for (String optional : new String[] {"magazineCell", "buildingCount"}) {
-                if (!item.has(optional)) {
-                    ((tools.jackson.databind.node.ObjectNode) item).putNull(optional);
-                }
+            if (!item.has("magazineCell")) {
+                ((tools.jackson.databind.node.ObjectNode) item).putNull("magazineCell");
             }
         });
         return tree;
