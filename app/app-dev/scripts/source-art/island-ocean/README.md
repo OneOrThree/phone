@@ -28,3 +28,18 @@ python3 -m venv .venv-tile-atlas
 
 `requirements-tile-atlas.txt`의 Pillow·NumPy 버전을 사용한다. 원화 RGB 보존, 바다 투명화,
 반복 경계의 색 차이, 타일 384개 내부 및 extrusion 링을 검사한다.
+
+## 집중섬 (티켓 2327)
+
+`focus-cutout.png`는 기존 `backgrounds/fishing-island/day.jpg`에서 바깥 바다만
+투명하게 만든 컷아웃이다. 중앙 연못·물줄기·폭포·해변·독립 바위는 남긴다.
+생성본 RGB는 사용하지 않고 홈과 같은 `terrain()`으로 원본 RGB와 알파만 합성한다.
+`python scripts/build-focus-ocean.py`로 `ocean/focus-day.png`를 재생성하며
+`--check`는 최신 픽셀 및 연못·폭포·육지·바위의 불투명도와 바다 투명도를 검사한다.
+
+집중섬은 기존 주간 전용 이미지 렌더러를 유지한다. 홈의 공통 `IslandOcean`을
+`left`, `top`, `size / 1536` 배율로 연결하며 자리·낚시 좌표는 바꾸지 않는다.
+
+컷아웃 생성 요청의 핵심: 원본 1536×1024 위치·크기를 유지하고 외부 바다만 제거한다.
+중앙 연못과 물줄기·폭포·폭포 아래 거품, 모든 육지·나무·모래·해안 거품·독립 바위는
+불투명하게 남긴다. 생성본의 색이나 디테일 변경은 최종 합성에 사용하지 않는다.
