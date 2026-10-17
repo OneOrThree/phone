@@ -107,7 +107,6 @@ public class IslandMembershipService {
     private final IslandMovementGuards movementGuards;
     private final BannedWords bannedWords;
     private final IslandArrivalRepository arrivals;
-    private final MagazineFunnelService magazineFunnel;
     /** 도착 시각을 찍는 시계 (GROMO-2260) — 테스트가 {@code @MockitoBean Clock} 으로 고정한다. */
     private final Clock clock;
 
@@ -258,8 +257,6 @@ public class IslandMembershipService {
                     }
                     Instant arrivedAt = clock.instant();
                     arrivals.recordArrival(userId, islandId, arrivedAt);
-                    // 잡지 경유 도착(GROMO-2289) — 항해해 도착한 것만 센다. 가입·초대 도착(위 두 recordArrival)은 세지 않는다.
-                    magazineFunnel.recordArrival(userId, islandId, arrivedAt);
 
                     String membershipStatus = IslandSummaries.STATUS_ACTIVE;
                     if (!member) {

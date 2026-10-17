@@ -89,7 +89,7 @@ public class TelescopeService {
     private final IslandArrivalRepository arrivals;
     private final TelescopePinRepository pins;
     private final IslandFocusAverageReader averages;
-    private final MagazineFunnelService magazineFunnel;
+    private final MagazinePinService magazinePins;
     private final IslandPromotionRepository promotions;
     private final Clock clock;
 
@@ -238,7 +238,7 @@ public class TelescopeService {
         if (viaPromotions.isEmpty()) {
             return Map.of();
         }
-        return magazineFunnel.currentIssue(now)
+        return magazinePins.currentIssue(now)
                 .map(issue -> promotions.findAllById(viaPromotions).stream()
                         .filter(promotion -> promotion.getIssueDate().equals(issue.getIssueDate())
                                 && promotion.isShown())

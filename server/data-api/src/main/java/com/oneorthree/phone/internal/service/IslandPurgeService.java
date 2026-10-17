@@ -121,7 +121,7 @@ public class IslandPurgeService implements IslandPurgePort {
             // 돌지 않는다. 유저 컬럼이 없어 탈퇴 정리는 없고, 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다.
             "DELETE FROM island_news WHERE island_id = :islandId",
             // 잡지 홍보 칸 (V119, GROMO-2289) — 섬장이 꾸며 신청한 칸. 섬 행은 소프트 삭제라 V119 의 ON DELETE CASCADE 는
-            // 돌지 않는다. 지금은 다른 테이블이 이 표를 참조하지 않아 순서는 자유롭다(신고·잡지 경유 집계 표가 생기면 그 앞).
+            // 돌지 않는다. 홍보 칸 삭제 시 신고는 CASCADE 로 지워지고 핀의 홍보 연결은 NULL 이 된다.
             "DELETE FROM island_promotions WHERE island_id = :islandId",
             // 공동 잔액·원장 (V62) — 원장이 통장의 자식이라 가장 마지막이다. 홍보비 원장 행(PROMOTION_FEE)도 여기서 지워진다.
             "DELETE FROM island_wallet_transactions WHERE island_id = :islandId",

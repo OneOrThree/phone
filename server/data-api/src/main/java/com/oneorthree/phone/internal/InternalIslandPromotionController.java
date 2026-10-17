@@ -5,7 +5,6 @@ import com.oneorthree.phone.internal.dto.MagazineViews;
 import com.oneorthree.phone.internal.service.GuestAccountGuards;
 import com.oneorthree.phone.internal.service.IslandPromotionReportService;
 import com.oneorthree.phone.internal.service.IslandPromotionService;
-import com.oneorthree.phone.internal.service.MagazineFunnelService;
 import com.oneorthree.phone.magazine.support.PromotionContent;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -42,7 +41,6 @@ public class InternalIslandPromotionController {
 
     private final IslandPromotionService promotions;
     private final IslandPromotionReportService reports;
-    private final MagazineFunnelService funnel;
     private final GuestAccountGuards guestAccountGuards;
 
     @PostMapping("/islands/{islandId}/promotions")
@@ -77,13 +75,6 @@ public class InternalIslandPromotionController {
         MagazineViews.Reported reported = reports.report(userId, islandId, promotionId,
                 MagazineViews.ReportReason.valueOf(body.reason()));
         return ResponseEntity.status(reported.created() ? HttpStatus.CREATED : HttpStatus.OK).body(reported);
-    }
-
-    /** 회관 홍보 기록판 (GROMO-2289) — 주민만, 게스트 주민도 읽는다. */
-    @GetMapping("/islands/{islandId}/promotions/records")
-    public MagazineViews.RecordPage records(@PathVariable UUID userId, @PathVariable UUID islandId,
-            @RequestParam(defaultValue = "20") int limit) {
-        return funnel.records(userId, islandId, limit);
     }
 
     @GetMapping("/magazine/assets")

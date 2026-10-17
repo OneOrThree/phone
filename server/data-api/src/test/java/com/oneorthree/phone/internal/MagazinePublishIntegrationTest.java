@@ -148,7 +148,7 @@ class MagazinePublishIntegrationTest {
         when(clock.instant()).thenAnswer(invocation -> now.get());
         when(clock.getZone()).thenReturn(ZonePolicy.KST);
         when(clock.withZone(any())).thenAnswer(invocation -> Clock.fixed(now.get(), invocation.getArgument(0)));
-        jdbc.execute("TRUNCATE island_promotion_funnel, island_promotion_reports, magazine_receipts, magazine_issues, "
+        jdbc.execute("TRUNCATE island_promotion_reports, magazine_receipts, magazine_issues, "
                 + "island_promotions, magazine_editorial_notes, telescope_pins");
     }
 

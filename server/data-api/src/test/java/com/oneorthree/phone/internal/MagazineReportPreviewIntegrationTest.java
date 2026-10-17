@@ -7,10 +7,7 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
-import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.TelescopeItemView;
-import com.oneorthree.phone.internal.service.IslandJoinService;
-import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.MagazinePublishService;
 import com.oneorthree.phone.internal.service.TelescopePinService;
 import com.oneorthree.phone.internal.service.TelescopeService;
@@ -41,24 +38,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 고양이 잡지 홍보 칸 신고·잡지 경유 집계·회관 홍보 기록판·망원경 칸 미리보기 (GROMO-2289)를 <b>실제 Flyway PostgreSQL</b>
- * 위에서 본다. 호는 발행 서비스로 내고, 핀·도착·가입은 생산 서비스, 신고·기록판은 내부 표면으로 부른다. 시계는 고정한다.
+ * 고양이 잡지 홍보 칸 신고·망원경 칸 미리보기 (GROMO-2289)를 <b>실제 Flyway PostgreSQL</b>
+ * 위에서 본다. 호는 발행 서비스로 내고, 핀은 생산 서비스, 신고는 내부 표면으로 부른다. 시계는 고정한다.
  *
  * <p>호는 DB 전체에 한 줄로 쌓이므로 테스트마다 잡지 표를 비우고 2주씩 떨어진 다른 날을 쓴다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class MagazineReportFunnelIntegrationTest {
+class MagazineReportPreviewIntegrationTest {
 
     private static final String TOKEN = "test-magazine-report-business";
     private static final LocalDate FIRST_DATE = LocalDate.of(2035, 3, 7); // 수요일
@@ -72,8 +67,7 @@ class MagazineReportFunnelIntegrationTest {
         registry.add("island-management.commands-enabled", () -> true);
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
-        String[] allow = {"POST /internal/users/*/islands/*/promotions/*/reports",
-            "GET /internal/users/*/islands/*/promotions/records"};
+        String[] allow = {"POST /internal/users/*/islands/*/promotions/*/reports"};
         for (int i = 0; i < allow.length; i++) {
             String entry = allow[i];
             registry.add("internal.api.callers.business.allow[" + i + "]", () -> entry);
@@ -88,10 +82,6 @@ class MagazineReportFunnelIntegrationTest {
     TelescopePinService pins;
     @Autowired
     TelescopeService telescope;
-    @Autowired
-    IslandMembershipService memberships;
-    @Autowired
-    IslandJoinService joins;
     @Autowired
     UserRepository users;
     @Autowired
@@ -113,7 +103,7 @@ class MagazineReportFunnelIntegrationTest {
         when(clock.instant()).thenAnswer(invocation -> now.get());
         when(clock.getZone()).thenReturn(ZonePolicy.KST);
         when(clock.withZone(any())).thenAnswer(invocation -> Clock.fixed(now.get(), invocation.getArgument(0)));
-        jdbc.execute("TRUNCATE island_promotion_funnel, island_promotion_reports, magazine_receipts, magazine_issues, "
+        jdbc.execute("TRUNCATE island_promotion_reports, magazine_receipts, magazine_issues, "
                 + "island_promotions, magazine_editorial_notes, telescope_pins");
     }
 
@@ -215,86 +205,45 @@ class MagazineReportFunnelIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from island_promotion_reports", Integer.class)).isZero();
     }
 
-    // ---------------------------------------------------------------- 잡지 경유 집계
-
     @Test
-    @DisplayName("잡지 칸에서 넣은 사람만 센다 — 넣음·항해 도착·가입이 현재 호 동안 한 번씩, 편집부 칸·다른 섬 홍보·창 밖은 세지 않는다")
-    void funnelCountsOnlyThroughTheCurrentIssue() throws Exception {
-        Island island = island("홍보섬", false);
-        Island elsewhere = island("옆섬", false);
+    @DisplayName("기존 전망대·편집부 핀을 홍보 칸에서 다시 넣어도 출처와 미리보기를 바꾸지 않는다")
+    void repeatingExistingPinPreservesItsPreview() {
+        Island island = island("기존핀섬", false);
         UUID promotion = promotion(island, date);
-        UUID elsewherePromotion = promotion(elsewhere, date);
         publisher.publish(date).orElseThrow();
-        User reader = user();
-        User editorialReader = user();
-        User late = user();
 
-        now.set(kst(date, 8, 0));
-        pins.pin(reader.getId(), island.id, "magazine", promotion);
-        pins.pin(reader.getId(), island.id, "magazine", promotion);
-        pins.pin(editorialReader.getId(), island.id, "magazine", null);
-        pins.pin(editorialReader.getId(), elsewhere.id, "observatory", elsewherePromotion);
-        pins.pin(late.getId(), island.id, "magazine", elsewherePromotion);
-        assertThat(steps(promotion)).containsExactly("PIN:" + reader.getId());
-        assertThat(steps(elsewherePromotion)).as("전망대 출처·남의 섬 홍보 id 는 세지 않는다").isEmpty();
+        for (String source : List.of("observatory", "magazine")) {
+            User reader = user();
+            now.set(kst(date, 8, 0));
+            var original = pins.pin(reader.getId(), island.id, source, null);
+            assertThat(original.created()).isTrue();
 
-        now.set(kst(date, 9, 0));
-        memberships.arrive(reader.getId(), island.id, UUID.randomUUID());
-        memberships.arrive(editorialReader.getId(), island.id, UUID.randomUUID());
-        now.set(kst(date, 9, 30));
-        joins.join(reader.getId(), island.id, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
-
-        assertThat(steps(promotion)).containsExactlyInAnyOrder("PIN:" + reader.getId(), "ARRIVE:" + reader.getId(),
-                "JOIN:" + reader.getId());
-
-        // 다음 날 07:00 이 지나면 현재 호가 아니다 — 같은 섬에 넣어도·도착해도 세지 않는다.
-        now.set(kst(date.plusDays(1), 7, 0));
-        pins.pin(late.getId(), island.id, "magazine", promotion);
-        memberships.arrive(late.getId(), island.id, UUID.randomUUID());
-        assertThat(steps(promotion)).hasSize(3);
+            now.set(kst(date, 9, 0));
+            var repeated = pins.pin(reader.getId(), island.id, "magazine", promotion);
+            assertThat(repeated.created()).isFalse();
+            TelescopeItemView item = pinned(reader, island);
+            assertThat(item.pinnedFrom()).isEqualTo(source);
+            assertThat(item.pinnedAt()).isEqualTo(original.item().pinnedAt());
+            assertThat(item.magazineCell()).isNull();
+        }
     }
 
     @Test
-    @DisplayName("회관 홍보 기록판 — 주민만, 최신 호 먼저, 상태(예정·실림·실리지 않음·숨김)와 넣음·도착·가입 수")
-    void recordsBoard() throws Exception {
-        Island island = island("기록섬", false);
-        User resident = user();
-        join(resident, island.group);
-        UUID yesterday = promotion(island, date.minusDays(1));
-        UUID today = promotion(island, date);
-        UUID tomorrow = promotion(island, date.plusDays(1));
-        publisher.publish(date).orElseThrow();
+    @DisplayName("기존 핀이 만료된 뒤 잡지 칸에서 새로 넣으면 새 핀과 홍보 미리보기를 남긴다")
+    void expiredPinCanBeReplacedByAMagazinePin() {
+        Island island = island("만료핀섬", false);
+        UUID promotion = promotion(island, date);
         User reader = user();
+        now.set(kst(date.minusDays(1), 8, 0));
+        pins.pin(reader.getId(), island.id, "observatory", null);
+        now.set(kst(date, 7, 0));
+        publisher.publish(date).orElseThrow();
+
         now.set(kst(date, 8, 0));
-        pins.pin(reader.getId(), island.id, "magazine", today);
-        memberships.arrive(reader.getId(), island.id, UUID.randomUUID());
-        pins.pin(user().getId(), island.id, "magazine", today);
-
-        records(resident, island, "").andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(3))
-                .andExpect(jsonPath("$.items[0].promotionId").value(tomorrow.toString()))
-                .andExpect(jsonPath("$.items[0].status").value("SCHEDULED"))
-                .andExpect(jsonPath("$.items[0].issueNo").value(nullValue()))
-                .andExpect(jsonPath("$.items[1].promotionId").value(today.toString()))
-                .andExpect(jsonPath("$.items[1].issueDate").value(date.toString()))
-                .andExpect(jsonPath("$.items[1].issueNo").value(1))
-                .andExpect(jsonPath("$.items[1].status").value("PUBLISHED"))
-                .andExpect(jsonPath("$.items[1].body").value("홍보"))
-                .andExpect(jsonPath("$.items[1].layout.frameId").value("mag.frame-scallop"))
-                .andExpect(jsonPath("$.items[1].layout.stickers").isArray())
-                .andExpect(jsonPath("$.items[0].layout.v").value(1))
-                .andExpect(jsonPath("$.items[1].pinned").value(2))
-                .andExpect(jsonPath("$.items[1].arrived").value(1))
-                .andExpect(jsonPath("$.items[1].joined").value(0))
-                .andExpect(jsonPath("$.items[2].promotionId").value(yesterday.toString()))
-                .andExpect(jsonPath("$.items[2].status").value("SKIPPED"));
-        records(resident, island, "?limit=1").andExpect(jsonPath("$.items.length()").value(1));
-
-        jdbc.update("update island_promotions set moderation = 'HIDDEN' where id = ?", today);
-        records(island.owner, island, "").andExpect(jsonPath("$.items[1].status").value("HIDDEN"));
-        records(reader, island, "").andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("MEMBER_ONLY"));
-        records(resident, island, "?limit=51").andExpect(status().isBadRequest());
+        var replacement = pins.pin(reader.getId(), island.id, "magazine", promotion);
+        assertThat(replacement.created()).isTrue();
+        assertThat(replacement.item().pinnedFrom()).isEqualTo("magazine");
+        assertThat(replacement.item().magazineCell().promotionId()).isEqualTo(promotion);
     }
 
     // ---------------------------------------------------------------- 망원경 칸 미리보기
@@ -340,6 +289,10 @@ class MagazineReportFunnelIntegrationTest {
         jdbc.update("update telescope_pins set promotion_id = ? where island_id = ?", promotion, fromMagazine.id);
         now.set(kst(date.plusDays(1), 6, 59));
         assertThat(pinned(viewer, fromMagazine).magazineCell()).isNotNull();
+        now.set(kst(date.plusDays(1), 7, 0));
+        var expiredIssuePin = pins.pin(viewer.getId(), fromMagazine.id, "magazine", promotion);
+        assertThat(expiredIssuePin.created()).isTrue();
+        assertThat(expiredIssuePin.item().magazineCell()).as("현재 호가 끝나면 미리보기를 연결하지 않는다").isNull();
     }
 
     // ---------------------------------------------------------------- 도구
@@ -371,10 +324,6 @@ class MagazineReportFunnelIntegrationTest {
         return users.save(User.builder().nickname("잡지-" + UUID.randomUUID()).build());
     }
 
-    private void join(User user, Group group) {
-        members.save(GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build());
-    }
-
     /** 그 호의 칸 — 전날 08:00 KST 에 신청한 것으로 둔다. */
     private UUID promotion(Island island, LocalDate issueDate) {
         UUID id = UUID.randomUUID();
@@ -388,11 +337,6 @@ class MagazineReportFunnelIntegrationTest {
     private String moderation(UUID promotionId) {
         return jdbc.queryForObject("select moderation from island_promotions where id = ?", String.class,
                 promotionId);
-    }
-
-    private List<String> steps(UUID promotionId) {
-        return jdbc.queryForList("select step || ':' || user_id from island_promotion_funnel where promotion_id = ?",
-                String.class, promotionId);
     }
 
     private TelescopeItemView pinned(User viewer, Island island) {
@@ -412,9 +356,4 @@ class MagazineReportFunnelIntegrationTest {
                 .content("{\"reason\":\"" + reason + "\"}"));
     }
 
-    private ResultActions records(User actor, Island island, String query) throws Exception {
-        return mvc.perform(get("/internal/users/" + actor.getId() + "/islands/" + island.id
-                + "/promotions/records" + query).header("Authorization", "Bearer " + TOKEN)
-                .header("X-User-Id", actor.getId()));
-    }
 }

@@ -40,7 +40,7 @@ class InternalIslandPromotionAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalIslandPromotionController.class);
 
-        assertThat(routes).as("7종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(7);
+        assertThat(routes).as("6종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(6);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
@@ -83,6 +83,7 @@ class InternalIslandPromotionAllowlistTest {
         assertThat(allows(allow, "GET " + base + "/promotions/" + ID + "/reports")).isFalse();
         assertThat(allows(allow, "DELETE " + base + "/promotions/" + ID + "/reports")).isFalse();
         assertThat(allows(allow, "POST " + base + "/promotions/records")).isFalse();
+        assertThat(allows(allow, "GET " + base + "/promotions/records")).isFalse();
         assertThat(allows(allow, "POST " + base + "/promotions/" + ID + "/reports/" + ID)).isFalse();
         // 섬 축(userId 없는) 고치기도 열리지 않는다.
         assertThat(allows(allow, "PUT /internal/islands/" + ID + "/promotions/" + ID)).isFalse();
@@ -92,16 +93,15 @@ class InternalIslandPromotionAllowlistTest {
     }
 
     @Test
-    @DisplayName("일곱 계약은 메서드·경로가 각각 달라 일곱 줄로 등록돼 있다")
-    void sevenContractsAreSeparateEntries() throws IOException {
+    @DisplayName("여섯 계약은 메서드·경로가 각각 달라 여섯 줄로 등록돼 있다")
+    void sixContractsAreSeparateEntries() throws IOException {
         assertThat(shippedBusinessAllowlist()).contains(
                 "POST /internal/users/*/islands/*/promotions",
                 "PUT /internal/users/*/islands/*/promotions/*",
                 "GET /internal/users/*/islands/*/promotions/editor",
                 "GET /internal/users/*/magazine/assets",
                 "GET /internal/users/*/islands/*/news",
-                "POST /internal/users/*/islands/*/promotions/*/reports",
-                "GET /internal/users/*/islands/*/promotions/records");
+                "POST /internal/users/*/islands/*/promotions/*/reports");
     }
 
     // ---------------------------------------------------------------- 도구

@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * V118 꾸미기 재료 카탈로그·V119 홍보 칸·V120 호와 받음 상태·V121 신고·V122 잡지 경유 행동의 실 SQL 검증 (GROMO-2289). 검증 방식은 {@code SeaFocusV112MigrationTest} 선례 —
+ * V118 꾸미기 재료 카탈로그·V119 홍보 칸·V120 호와 받음 상태·V121 신고·V122 잡지 경유 행동·V123 성과 제거의 실 SQL 검증 (GROMO-2289). 검증 방식은 {@code SeaFocusV112MigrationTest} 선례 —
  * 전용 컨테이너에 Flyway 체인을 실제로 돌린다. CI 프로필은 엔티티로 표를 만들어 CHECK·시드를 보지 못하므로 여기서 본다.
  *
  * <p>보는 것: ① 카탈로그 종류 CHECK 가 잡지 재료 3종을 개인 소유로만 받는다 ② 시드 64행(틀 11 · 스티커 45 · 테이프 8)이
@@ -271,13 +271,39 @@ class MagazineMigrationTest {
     }
 
     @Test
-    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V118~V122 이 성공으로 기록된다")
+    @DisplayName("V123 — 기존 성과 집계만 제거하고 홍보와 망원경 미리보기 연결은 유지한다")
+    void removesPerformanceButPreservesPreview() {
+        migrate(MigrationVersion.fromVersion("122"));
+        JdbcTemplate jdbc = jdbc();
+        UUID host = user(jdbc);
+        UUID island = island(jdbc);
+        UUID promotion = UUID.randomUUID();
+        jdbc.update(INSERT_PROMOTION, promotion, island, "2026-10-15", host, "홍보");
+        UUID reader = user(jdbc);
+        for (String step : List.of("PIN", "ARRIVE", "JOIN")) {
+            jdbc.update("INSERT INTO island_promotion_funnel (promotion_id, user_id, step, occurred_at) "
+                    + "VALUES (?, ?, ?, now())", promotion, reader, step);
+        }
+        jdbc.update("INSERT INTO telescope_pins (user_id, island_id, source, promotion_id, pinned_at, expires_at) "
+                + "VALUES (?, ?, 'magazine', ?, now(), now() + interval '1 day')", reader, island, promotion);
+
+        migrate(MigrationVersion.LATEST);
+
+        assertThat(jdbc.queryForObject("SELECT to_regclass('island_promotion_funnel')::text", String.class)).isNull();
+        assertThat(jdbc.queryForObject("SELECT body FROM island_promotions WHERE id = ?", String.class, promotion))
+                .isEqualTo("홍보");
+        assertThat(jdbc.queryForObject("SELECT promotion_id FROM telescope_pins WHERE user_id = ? AND island_id = ?",
+                UUID.class, reader, island)).isEqualTo(promotion);
+    }
+
+    @Test
+    @DisplayName("빈 DB 의 전체 마이그레이션 경로에서도 V118~V123 이 성공으로 기록된다")
     void appliesOnEmptyDatabase() {
         migrate(MigrationVersion.LATEST);
 
         assertThat(jdbc().queryForList("SELECT success::text FROM flyway_schema_history "
-                + "WHERE version IN ('118', '119', '120', '121', '122')", String.class))
-                .containsExactly("true", "true", "true", "true", "true");
+                + "WHERE version IN ('118', '119', '120', '121', '122', '123')", String.class))
+                .containsExactly("true", "true", "true", "true", "true", "true");
     }
 
     private static Map<String, Long> counts(JdbcTemplate jdbc, String sql) {

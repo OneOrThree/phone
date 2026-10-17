@@ -92,11 +92,9 @@ public class DataIslandClient {
     private static final String PATH_ISLAND_PROMOTION =
             "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}";
     private static final String PATH_MAGAZINE_ASSETS = "/internal/users/{userId}/magazine/assets";
-    // GROMO-2289 홍보 칸 신고·우리 섬 홍보 기록판 — 사용자 축이다.
+    // GROMO-2289 홍보 칸 신고 — 사용자 축이다.
     private static final String PATH_ISLAND_PROMOTION_REPORTS =
             "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}/reports";
-    private static final String PATH_ISLAND_PROMOTION_RECORDS =
-            "/internal/users/{userId}/islands/{islandId}/promotions/records";
     // GROMO-2289 고양이 잡지 읽기 — 오늘 호·최근 7호·한 호 펼치기·받기 기록, 모두 사용자 축이다.
     private static final String PATH_MAGAZINE_TODAY = "/internal/users/{userId}/magazine/today";
     private static final String PATH_MAGAZINE_ISSUES = "/internal/users/{userId}/magazine/issues";
@@ -468,20 +466,6 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandPromotions.Report>() { });
-    }
-
-    /** 우리 섬 홍보 기록판 (GROMO-2289) — 주민만 읽는다. 멱등 GET 이라 재시도한다. */
-    public IslandPromotions.RecordPage fetchPromotionRecords(UUID userId, UUID islandId, int limit,
-            Deadline deadline) {
-        return http.exchange(
-                InternalCall.to(HttpMethod.GET,
-                                userPath(PATH_ISLAND_PROMOTION_RECORDS, userId)
-                                        .replace("{islandId}", islandId.toString()))
-                        .onBehalfOf(userId)
-                        .query("limit", Integer.toString(limit))
-                        .build(),
-                deadline,
-                new ParameterizedTypeReference<IslandPromotions.RecordPage>() { });
     }
 
     /** 섬 소식 (GROMO-2267) — 주민만 읽는다. 멱등 GET 이라 재시도한다. */

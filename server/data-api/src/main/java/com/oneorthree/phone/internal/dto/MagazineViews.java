@@ -103,31 +103,4 @@ public final class MagazineViews {
     public record Reported(boolean reported, boolean created) {
     }
 
-    /** 회관 홍보 기록판의 상태. */
-    public enum RecordStatus {
-        /** 아직 발행 전. */
-        SCHEDULED,
-        PUBLISHED,
-        /** 홍보비는 냈지만 실리지 않음 — 발행 순간 비공개·닫힌 섬, 또는 그날 발행 실패. */
-        SKIPPED,
-        /** 신고 3건으로 숨김(운영 확인 대기). */
-        HIDDEN,
-        /** 운영이 내림. */
-        REMOVED
-    }
-
-    /** 최신 호 먼저. */
-    public record RecordPage(List<RecordItem> items) {
-    }
-
-    /**
-     * @param issueNo 실린 호의 호수 — 호가 아직 없으면 null
-     * @param layout  섬장이 꾸민 칸(기록판의 작은 칸 그림용)
-     * @param pinned  잡지 칸에서 망원경에 넣은 사람 수
-     * @param arrived 그중 현재 호 동안 항해해 도착한 사람 수
-     * @param joined  그중 현재 호 동안 가입이 성립한 사람 수
-     */
-    public record RecordItem(UUID promotionId, LocalDate issueDate, Integer issueNo, String body,
-                             PromotionContent.Layout layout, RecordStatus status, int pinned, int arrived, int joined) {
-    }
 }

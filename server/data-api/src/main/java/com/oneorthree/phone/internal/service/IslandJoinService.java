@@ -97,7 +97,6 @@ public class IslandJoinService {
     private final PublicCommandService publicCommands;
     private final IslandArrivalRepository arrivals;
     private final InternalLetterService letters;
-    private final MagazineFunnelService magazineFunnel;
     /**
      * 재가입 시각을 찍는 시계 (GROMO-2050) — 근거는 {@code GroupMember.leftAt} Javadoc(Hibernate 의
      * 시각 애너테이션은 주입 {@link Clock} 을 타지 않는다).
@@ -437,8 +436,6 @@ public class IslandJoinService {
 
     /** 새 멤버십을 만들거나 자진 탈퇴 행을 되살린다 — 즉시 가입과 승인이 같은 전이를 쓴다. */
     private GroupMember admit(User user, Group island, Optional<GroupMember> prior) {
-        // 잡지 경유 가입(GROMO-2289) — 바로 가입·승인이 모두 이 전이를 지나므로 한 곳에서 센다. 가입이 성립한 시각 기준(P9).
-        magazineFunnel.recordJoin(user.getId(), island.getId(), clock.instant());
         if (prior.isPresent()) {
             GroupMember membership = prior.get();
             membership.rejoin(clock.instant());

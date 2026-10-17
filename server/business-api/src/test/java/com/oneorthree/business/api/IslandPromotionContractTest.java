@@ -21,7 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 잡지 홍보 신청·섬 소식 공개 2종(GROMO-2267)과 고양이 잡지 편집·고치기·꾸미기 재료·신고·홍보 기록판 5종(GROMO-2289)의 계약 — 실제
+ * 잡지 홍보 신청·섬 소식 공개 2종(GROMO-2267)과 고양이 잡지 편집·고치기·꾸미기 재료·신고 4종(GROMO-2289)의 계약 — 실제
  * 필터·컨트롤러·TCP 클라이언트로 경계를 본다: 주체·앱 키·본문·{@code limit} 의 모양, 상류 판정의 공개 오류 매핑, 공개
  * 문서의 필드. 섬장·게스트·잔액·신청 창·layout·재료 보유·신고 누적 숨김의 판정과 차감·소식 쓰기는 data-api 의
  * {@code IslandPromotionIntegrationTest} 가 실제 DB 로 본다.
@@ -44,7 +44,6 @@ class IslandPromotionContractTest extends UpstreamTestBase {
     private static final String DATA_EDITOR = "GET " + INTERNAL + "/promotions/editor";
     private static final String DATA_ASSETS = "GET /internal/users/" + USER + "/magazine/assets";
     private static final String DATA_REPORT = "POST " + INTERNAL + "/promotions/" + PROMOTION + "/reports";
-    private static final String DATA_RECORDS = "GET " + INTERNAL + "/promotions/records";
 
     /** Business 가 속을 보지 않는 layout — 모르는 키·중첩까지 그대로 오간다. */
     private static final String LAYOUT = "{\"v\":1,\"frameId\":\"mag.frame-scallop\",\"stickers\":[{\"assetId\":"
@@ -72,13 +71,6 @@ class IslandPromotionContractTest extends UpstreamTestBase {
             + "\"body\":\"섬장이 오늘 잡지 홍보에 60마리를 썼어요\",\"createdAt\":\"2026-10-12T05:00:00Z\"},"
             + "{\"id\":\"" + UUID.randomUUID() + "\",\"kind\":\"MAGAZINE_ISSUED\",\"body\":\"모르는 종류도 그대로\","
             + "\"createdAt\":\"2026-10-11T05:00:00Z\"}]}";
-
-    /** 기록판 — 아직 나오지 않은 호는 {@code issueNo} 가 null 이고 키는 남는다. */
-    private static final String RECORDS = "{\"items\":[{\"promotionId\":\"" + PROMOTION + "\",\"issueDate\":\"2026-10-15\","
-            + "\"issueNo\":null,\"body\":\"" + TEXT + "\",\"layout\":" + LAYOUT + ",\"status\":\"SCHEDULED\","
-            + "\"pinned\":0,\"arrived\":0,\"joined\":0},{\"promotionId\":\"" + LATEST + "\",\"issueDate\":\"2026-10-12\","
-            + "\"issueNo\":12,\"body\":\"지난 호\",\"layout\":{\"v\":1},\"status\":\"PUBLISHED\",\"pinned\":3,"
-            + "\"arrived\":1,\"joined\":0}]}";
 
     // ---------------------------------------------------------------- 신청
 
@@ -604,99 +596,17 @@ class IslandPromotionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
-    // ---------------------------------------------------------------- 홍보 기록판
-
     @Test
-    @DisplayName("기록판은 상류 items 를 그대로 싣고 null issueNo 의 키를 유지하며, limit 을 생략하면 20 을 상류에 보낸다")
-    void recordsRelayItemsAndDefaultTheLimit() throws Exception {
-        DATA.on(DATA_RECORDS, request -> ok(RECORDS));
-
-        var result = mockMvc.perform(auth(get(PUBLIC + "/promotions/records")).header("X-User-Id", UUID.randomUUID()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items[0].issueNo").hasJsonPath())
-                .andExpect(jsonPath("$.data.items[0].issueNo").value((Object) null))
-                .andReturn();
-        var mapper = new tools.jackson.databind.ObjectMapper();
-        assertThat(mapper.readTree(result.getResponse().getContentAsString()).path("data"))
-                .isEqualTo(mapper.readTree(RECORDS));
-
-        MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_RECORDS).get(0);
-        assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
-        assertThat(forwarded.query()).isEqualTo("limit=20");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"1", "50"})
-    @DisplayName("기록판 limit 1~50 은 그대로 상류에 간다")
-    void recordsForwardAnInRangeLimit(String limit) throws Exception {
-        DATA.on(DATA_RECORDS, request -> ok("{\"items\":[]}"));
-
-        mockMvc.perform(auth(get(PUBLIC + "/promotions/records?limit=" + limit)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items").isEmpty());
-        assertThat(DATA.receivedFor(DATA_RECORDS).get(0).query()).isEqualTo("limit=" + limit);
-    }
-
-    @ParameterizedTest
-    @CsvSource({"0,422,OUT_OF_RANGE", "51,422,OUT_OF_RANGE", "abc,400,INVALID_PARAMETER", "1.5,400,INVALID_PARAMETER",
-        "'1&limit=2',400,INVALID_PARAMETER"})
-    @DisplayName("기록판 limit 이 정수가 아니거나 두 번이면 400, 1~50 밖이면 422 — 상류를 부르지 않는다")
-    void recordsRejectABadLimit(String limit, int status, String code) throws Exception {
-        mockMvc.perform(auth(get(PUBLIC + "/promotions/records?limit=" + limit)))
-                .andExpect(status().is(status))
-                .andExpect(jsonPath("$.error.code").value(code))
-                .andExpect(jsonPath("$.error.field").value("limit"));
+    @DisplayName("폐지한 홍보 기록판은 공개 API와 OpenAPI 문서에서 제공하지 않는다")
+    void promotionRecordsAreRemoved() throws Exception {
+        // PUT /promotions/{promotionId} 는 남아 있어, 지원하지 않는 GET 은 405 다.
+        mockMvc.perform(auth(get(PUBLIC + "/promotions/records"))).andExpect(status().isMethodNotAllowed());
         assertThat(DATA.received()).isEmpty();
-    }
-
-    @Test
-    @DisplayName("기록판은 멱등 GET 이라 상류 일시 실패를 재시도한다")
-    void recordsRetryATransientFailure() throws Exception {
-        DATA.failThenSucceed(DATA_RECORDS, 1, 503, RECORDS);
-
-        mockMvc.perform(auth(get(PUBLIC + "/promotions/records")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items[1].issueNo").value(12));
-        assertThat(DATA.hits(DATA_RECORDS)).isEqualTo(2);
-    }
-
-    @ParameterizedTest
-    @CsvSource({
-            "403,MEMBER_ONLY,403,FORBIDDEN,islandId",
-            "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
-            "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("기록판은 비주민·없는 섬의 판정을 공개 오류로 옮기고 그 밖은 계약 위반이다")
-    void recordsRelayDataVerdictsAsPublicErrors(int upstreamStatus, String upstreamCode, int status, String code,
-            String field) throws Exception {
-        DATA.on(DATA_RECORDS, request -> error(upstreamStatus, upstreamCode));
-
-        var result = mockMvc.perform(auth(get(PUBLIC + "/promotions/records")))
-                .andExpect(status().is(status))
-                .andExpect(jsonPath("$.error.code").value(code));
-        if (field != null) {
-            result.andExpect(jsonPath("$.error.field").value(field));
-        }
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"issueNo 누락", "status:null", "items:[null]", "layout 누락", "layout:문자열"})
-    @DisplayName("기록판 응답의 필수 키 누락·null 은 계약 위반이다")
-    void recordsRejectADriftingUpstreamBody(String shape) throws Exception {
-        String body = switch (shape) {
-            case "issueNo 누락" -> RECORDS.replace("\"issueNo\":null,", "");
-            case "status:null" -> RECORDS.replace("\"status\":\"SCHEDULED\"", "\"status\":null");
-            case "items:[null]" -> "{\"items\":[null]}";
-            case "layout 누락" -> RECORDS.replace("\"layout\":{\"v\":1},", "");
-            case "layout:문자열" -> RECORDS.replace("\"layout\":{\"v\":1}", "\"layout\":\"v1\"");
-            default -> throw new IllegalArgumentException(shape);
-        };
-        assertThat(body).isNotEqualTo(RECORDS);
-        DATA.on(DATA_RECORDS, request -> ok(body));
-
-        mockMvc.perform(auth(get(PUBLIC + "/promotions/records")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        assertThat(document.path("paths").has("/islands/{islandId}/promotions/records")).isFalse();
+        assertThat(document.path("components").path("schemas").has("IslandPromotionRecordPage")).isFalse();
+        assertThat(document.path("components").path("schemas").has("IslandPromotionRecord")).isFalse();
     }
 
     // ---------------------------------------------------------------- 공개 문서
@@ -715,9 +625,7 @@ class IslandPromotionContractTest extends UpstreamTestBase {
             "/me/magazine/assets|get|200|tapes|assetId bundle owned|assetId bundle owned",
             "/islands/{islandId}/news|get|200||items|items",
             "/islands/{islandId}/news|get|200|items|id kind body createdAt|id kind body createdAt",
-            "/islands/{islandId}/promotions/{promotionId}/reports|post|200||reported|reported",
-            "/islands/{islandId}/promotions/records|get|200||items|items",
-            "/islands/{islandId}/promotions/records|get|200|items|promotionId issueDate issueNo body layout status pinned arrived joined|promotionId issueDate issueNo body layout status pinned arrived joined"})
+            "/islands/{islandId}/promotions/{promotionId}/reports|post|200||reported|reported"})
     @DisplayName("공개 문서가 각 경로의 응답 필드와 필수 여부를 그대로 담는다")
     void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
             String fields, String requiredFields) throws Exception {

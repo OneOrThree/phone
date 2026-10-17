@@ -27,12 +27,12 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * 잡지 홍보 신청·섬 소식(GROMO-2267, 섬 외부 계약 §7)과 고양이 잡지 편집·고치기·꾸미기 재료·신고·홍보 기록판
+ * 잡지 홍보 신청·섬 소식(GROMO-2267, 섬 외부 계약 §7)과 고양이 잡지 편집·고치기·꾸미기 재료·신고
  * (GROMO-2289)의 <b>공개 경계</b>. 여기서는 입력의 «모양» 만 본다 — 신청·고치기 본문은 정확히 {@code {body, layout}} 이고
  * {@code body} 는 문자열, {@code layout} 은 JSON 객체여야 한다(어긋나면 400 {@code INVALID_REQUEST}). 글 길이(60자)·
  * layout 속(프레임·스티커·테이프)·재료 보유·신청 창·섬장·게스트·잔액은 Data 가 판정한다. 신청만
  * {@code Idempotency-Key}(UUID) 필수이고, 고치기는 전체 교체 PUT 이라 키를 받지 않는다. 신고 본문은 정확히
- * {@code {reason}} 이다. 소식·기록판은 {@code limit}(기본 20, 1~50)뿐이다.
+ * {@code {reason}} 이다. 소식은 {@code limit}(기본 20, 1~50)뿐이다.
  */
 @RestController
 @RequiredArgsConstructor
@@ -99,17 +99,6 @@ public class IslandPromotionController {
                 properties.deadline());
         return ResponseEntity.status(report.created() ? HttpStatus.CREATED : HttpStatus.OK)
                 .body(new IslandPromotions.Reported(true));
-    }
-
-    /**
-     * 우리 섬 홍보 기록판 — 주민만(비주민 403 {@code FORBIDDEN}, field {@code islandId}), 최신순. {@code limit} 은 소식과
-     * 같다(기본 20, 1~50).
-     */
-    @GetMapping("/islands/{islandId}/promotions/records")
-    public IslandPromotions.RecordPage records(@PathVariable String islandId, HttpServletRequest request) {
-        AccessTokenClaims claims = sessions.requireSession(request);
-        return promotions.records(claims, PublicIds.uuid(islandId, "islandId"), limit(request),
-                properties.deadline());
     }
 
     /** 섬장의 편집 화면 — 신청 창·다음 호/지난 호 홍보·홍보비·잔액. */

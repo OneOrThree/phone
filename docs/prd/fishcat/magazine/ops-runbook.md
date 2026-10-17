@@ -2,7 +2,7 @@
 
 GROMO-2289 고양이 잡지(냐옹)를 운영할 때 쓰는 SQL·설정 절차다. 운영 화면은 따로 만들지 않았다. 운영 사전 검토가 없어서(10/14 확정) 운영 일은 아래 몇 가지뿐이라 SQL 로 충분하다고 봤다.
 
-- 대상 스키마: Data DB 의 V118~V122 (`magazine_asset_meta` · `island_promotions` · `magazine_issues` · `magazine_receipts` · `magazine_editorial_notes` · `island_promotion_reports` · `island_promotion_funnel`).
+- 대상 스키마: Data DB 의 V118~V123 (`magazine_asset_meta` · `island_promotions` · `magazine_issues` · `magazine_receipts` · `magazine_editorial_notes` · `island_promotion_reports`).
 - SQL 은 `psql` 기준이다. `\set 이름 '값'` 으로 값을 넣고 본문에서는 `:'이름'` 으로 쓴다. 꺾쇠(`<…>`) 자리를 실제 값으로 바꾼다.
 - 바꾸는 문장은 `BEGIN;` 안에서 돌린다. 영향받은 행 수(`UPDATE 1` 등)를 확인한 뒤 `COMMIT;`, 다르면 `ROLLBACK;` 한다.
 - 시각은 DB 에 UTC 로 저장된다. 「며칠 호」는 KST 날짜(`issue_date`)다. 07:00 KST = 전날 22:00 UTC 다.
@@ -12,7 +12,7 @@ GROMO-2289 고양이 잡지(냐옹)를 운영할 때 쓰는 SQL·설정 절차�
 
 설정값 `magazine.enabled` 이고, 환경 변수는 `MAGAZINE_ENABLED` 다. 기본값은 꺼짐이다.
 
-| 상태 | 홍보 신청·고치기 | 07시 발행 잡 | 읽기(재료 목록·쓰기 화면·잡지·기록판) |
+| 상태 | 홍보 신청·고치기 | 07시 발행 잡 | 읽기(재료 목록·쓰기 화면·잡지) |
 | --- | --- | --- | --- |
 | 꺼짐 | 503 (공개 `SERVICE_UNAVAILABLE`) | 돌지 않는다 | 열려 있다. 호가 없으면 `issue: null` |
 | 켜짐 | 07~24시 KST 에 열림 | 07:00~23:50 KST, 10분마다 | 열려 있다 |
@@ -114,7 +114,7 @@ FROM magazine_issues ORDER BY issue_no DESC LIMIT 7;
 ```
 
 - 그날 07:10 KST 가 지났는데 그날 호가 없으면 Data 서버 로그에서 `고양이 잡지 발행 실패` 를 찾는다. 23:50 까지 10분마다 다시 시도한다.
-- 23:50 틱까지 실패하면 `오늘 호가 없다` error 로그가 남고, 그날 호는 나가지 않는다. 그날 신청한 칸은 기록판에 「실리지 않음(SKIPPED)」으로 보인다. 홍보비는 돌려주지 않는다(계획 P15 기본값).
+- 23:50 틱까지 실패하면 `오늘 호가 없다` error 로그가 남고, 그날 호는 나가지 않는다. 그날 신청한 칸도 발행되지 않는다. 홍보비는 돌려주지 않는다(계획 P15 기본값).
 - 최근 7호의 `promotion_count` 가 모두 10 이상이면 서버가 「조간·석간 전환 기준 충족」 경고 로그를 남긴다(OPS-03 판단용).
 
 ### 4-2. 그날 호에 실린 칸과 빠진 칸
@@ -144,23 +144,9 @@ COMMIT;
 
 지운 뒤 10분 안의 다음 틱(07:00~23:50 KST)이 그 날짜가 오늘이면 다시 낸다. 호수는 「지금까지의 마지막 호수 + 1」 이라, 가장 최근 호를 지웠을 때만 같은 호수로 다시 나온다.
 
-## 5. 홍보 기록판 숫자 확인
+## 5. 망원경 홍보 칸 미리보기
 
-회관 기록판(`GET /islands/{islandId}/promotions/records`)과 같은 숫자를 SQL 로 본다. 넣음(PIN)은 바다판 잡지(A5)가 나온 뒤에야 생긴다. 섬에서 본 잡지에는 망원경 동그라미가 없다(10/14 확정).
-
-```sql
-\set island_id '<섬 id>'
-SELECT p.issue_date, p.body,
-       count(*) FILTER (WHERE f.step = 'PIN')    AS pinned,
-       count(*) FILTER (WHERE f.step = 'ARRIVE') AS arrived,
-       count(*) FILTER (WHERE f.step = 'JOIN')   AS joined
-FROM island_promotions p
-LEFT JOIN island_promotion_funnel f ON f.promotion_id = p.id
-WHERE p.island_id = :'island_id'
-GROUP BY p.id, p.issue_date, p.body
-ORDER BY p.issue_date DESC
-LIMIT 20;
-```
+망원경은 `telescope_pins.promotion_id` 로 원래 홍보 칸의 글·꾸미기와 발행 당시 섬 정보를 읽는다. 현재 호에 보이는 칸만 미리보기로 제공한다. 홍보 성과(넣음·도착·가입)와 기록판 API는 제공하지 않는다. V123은 이전 집계 테이블만 제거하며 홍보 칸과 핀의 연결은 보존한다.
 
 ## 6. 꾸미기 재료
 

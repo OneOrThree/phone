@@ -107,7 +107,7 @@ location = /actuator { return 404; }
 # 잡지 읽기·받음(GROMO-2289)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /me/magazine/today · GET /me/magazine/issues · GET /me/magazine/issues/{issueId} ·
 # PUT /me/magazine/issues/{issueId}/receipt.
-# 고양이 잡지 홍보 칸 신고·우리 섬 홍보 기록판(GROMO-2289)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# 고양이 잡지 홍보 칸 신고(GROMO-2289)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # POST /islands/{islandId}/promotions/{promotionId}/reports · GET /islands/{islandId}/promotions/records.
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks)(?:/|$) {

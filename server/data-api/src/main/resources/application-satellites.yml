@@ -177,10 +177,8 @@ internal:
           - 'PUT /internal/users/*/islands/*/promotions/*'
           - 'GET /internal/users/*/islands/*/promotions/editor'
           - 'GET /internal/users/*/magazine/assets'
-          # GROMO-2289 홍보 칸 신고(소셜 계정)·회관 홍보 기록판(주민). 신고는 홍보 id 아래 한 세그먼트 더 깊고, 기록판은
-          # …/promotions/editor 와 같은 깊이의 다른 이름이라 서로를 열지 않는다.
+          # GROMO-2289 홍보 칸 신고(소셜 계정) — 홍보 id 아래 한 세그먼트 더 깊다.
           - 'POST /internal/users/*/islands/*/promotions/*/reports'
-          - 'GET /internal/users/*/islands/*/promotions/records'
           # GROMO-2289 잡지 읽기·받음 4종 — 게스트도 읽는 본인 조회·기록. 호 목록(…/issues)과 호 한 권(…/issues/*)은
           # 세그먼트 수가 달라 줄을 합치지 않고, 받음(PUT …/receipt)은 한 세그먼트 더 깊다.
           - 'GET /internal/users/*/magazine/today'

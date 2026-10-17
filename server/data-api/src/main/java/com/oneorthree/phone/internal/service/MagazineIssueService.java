@@ -145,7 +145,7 @@ public class MagazineIssueService {
                 .orElseThrow(() -> new MagazineException(MagazineErrorCode.MAGAZINE_ISSUE_NOT_FOUND));
     }
 
-    /** 현재 호 = 가장 최근 호이면서 다음 날 07:00 KST 전 — 망원경 동그라미·잡지 경유 집계의 기준이다. */
+    /** 현재 호 = 가장 최근 호이면서 다음 날 07:00 KST 전 — 망원경 동그라미의 기준이다. */
     private MagazineViews.IssueSummary summary(MagazineIssue issue, List<MagazineIssue> latest) {
         boolean current = latest.get(0).getId().equals(issue.getId())
                 && clock.instant().isBefore(MagazineCalendar.currentUntil(issue.getIssueDate()));

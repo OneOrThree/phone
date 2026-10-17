@@ -123,32 +123,6 @@ public final class IslandPromotions {
     public record Reported(@JsonProperty(required = true) boolean reported) {
     }
 
-    /** 주민이 보는 우리 섬 홍보 기록판 (GROMO-2289) — 최신순. */
-    @Schema(name = "IslandPromotionRecordPage")
-    public record RecordPage(
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL, contentNulls = Nulls.FAIL)
-            List<RecordItem> items) {
-    }
-
-    /**
-     * 홍보 기록 한 건 — {@code issueNo} 는 아직 호가 나오지 않았으면 null 이고 키는 늘 실린다. {@code layout} 은 섬장이
-     * 꾸민 칸 그대로(기록판의 작은 칸 그림용, 늘 있다). {@code status} 는 {@code SCHEDULED}·{@code PUBLISHED}·
-     * {@code SKIPPED}·{@code HIDDEN}·{@code REMOVED}, 숫자 셋은 그 홍보를 거쳐 망원경에 넣은·도착한·가입한 사람 수다.
-     */
-    @Schema(name = "IslandPromotionRecord")
-    public record RecordItem(
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID promotionId,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String issueDate,
-            @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer issueNo,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String body,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL)
-            @Schema(implementation = Map.class) ObjectNode layout,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String status,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int pinned,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int arrived,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int joined) {
-    }
-
     /** 내 꾸미기 재료 — 프레임·스티커·테이프, 각 재료의 보유 여부. */
     @Schema(name = "MagazineAssets")
     public record Assets(
