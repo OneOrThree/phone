@@ -34,7 +34,9 @@ import java.util.stream.Collectors;
  *
  * <h2>무엇을 적용하는가</h2>
  * <ul>
- *   <li>{@code user.withdrawn} — {@link ChatUserFence#withdraw}(tombstone + 커서 파기).</li>
+ *   <li>{@code user.withdrawn} — {@link ChatUserFence#withdraw}(tombstone + 커서 파기), 그리고 바다 방 퇴장
+ *       ({@link SeaRooms#leaveCurrent}, {@code sea.member.left{reason:left}}). 탈퇴는 Data 가 세션을 벌크 UPDATE 로
+ *       끝내 {@code sea.member.updated(ended)} 가 오지 않으므로 여기서 치운다(GROMO-2300).</li>
  *   <li>{@code focus.member.updated}·{@code rest.member.updated} — 7필드 봉투로 바꿔 {@link EventRouter} 로
  *       섬 토픽에 전달한다(GROMO-1765). 이 둘만 여는 조건은 아래에 적었다.</li>
  *   <li>{@code island.members.updated} 의 MEMBER_ADDED·MEMBER_REMOVED — {@code params.memberUserId} 가 있으면
@@ -139,7 +141,12 @@ public class InboundEventService {
             return false;
         }
         if (USER_WITHDRAWN.equals(type)) {
-            chatUserFence.withdraw(uuid(envelope, "userId"), authGeneration(envelope));
+            UUID withdrawn = uuid(envelope, "userId");
+            chatUserFence.withdraw(withdrawn, authGeneration(envelope));
+            // 바다 방에서도 내보낸다(GROMO-2300) — Data 의 탈퇴는 진행 중 세션을 벌크 UPDATE 로 ABANDONED 처리해
+            // sea.member.updated(ended) 를 내지 않는다(2299 와의 계약). 안 치우면 focusing 유령이 sea:adrift 색인에도 없어
+            // 10분 정리가 못 잡고 해시 TTL(24h)까지 정원을 차지한다. 방에 없으면 no-op, Redis 실패만 던진다(재전달).
+            seaRooms.leaveCurrent(withdrawn, SeaRooms.LEFT);
         } else if (USER_BLOCKS_UPDATED.equals(type)) {
             advanceBlockGeneration(eventId, envelope);
         } else if (SEA_MEMBER_UPDATED.equals(type)) {
