@@ -1,4 +1,9 @@
-"""로컬 게이트가 호스트 DB 없이 검사를 실행하고 실패를 숨기지 않는지 검증한다."""
+"""로컬 게이트가 호스트 DB 없이 검사를 실행하고 실패를 숨기지 않는지 검증한다.
+
+스텁 gradlew 는 인자 목록을 기록할 뿐 Gradle 문법(--tests 가 test 에 붙는지, --rerun 이 태스크마다 붙는지)을
+해석하지 않는다. 그 부분은 실제 Gradle 실행으로 보증한다(GROMO-2328 에서 전체 스위트 통과를 확인). 이 테스트가
+초록이라고 be-gradle.yml 과 norm.sh 의 태스크가 일치한다는 뜻도 아니다 — 그 대조는 사람이 한다.
+"""
 import json
 import os
 from pathlib import Path

@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""추적 중인 Claude 설정과 PR/Jira 게이트를 외부 서비스 없이 검증한다."""
+"""추적 중인 Claude 설정과 PR/Jira 게이트를 외부 서비스 없이 검증한다.
+
+보장하는 것: 추적되는 .claude/settings.json 의 훅 구조, 저장소 내부 훅 파일의 존재, 두 게이트가 PreToolUse 에
+동기·인용된 $CLAUDE_PROJECT_DIR 경로로 연결돼 있음, 두 게이트의 --selftest 통과.
+
+보장하지 않는 것:
+- 훅 명령이 Claude Code 안에서 실제로 같은 방식으로 실행된다는 것 — 문자열 구조와 파일 존재만 본다.
+- 개인 설정 — settings.local.json · ~/.claude/settings.json · 관리형 정책이 게이트를 끄거나 disableAllHooks 를
+  켜도 이 검사는 초록이다. 「모두의 세션에서 게이트가 켜져 있다」는 증명이 아니다.
+- 게이트 로직의 정확성 — 각 --selftest 가 아는 범위까지만.
+"""
 
 import json
 from pathlib import Path

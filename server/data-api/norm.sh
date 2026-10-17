@@ -19,7 +19,12 @@
 #   ./norm.sh --tests '*FooTest' --tests '*Bar*'    test 태스크에만 필터를 넘긴다(Checkstyle·SpotBugs 는 그대로)
 #
 # 실패하면 그 자리에서 Gradle 의 종료 코드로 멈춘다 — 뒤 단계는 돌지 않는다.
+#
 # 검증: .github/scripts/test_data_api_norm.py (Agent Harness 워크플로가 PR 마다 돌린다).
+#   - 태스크·인자·순서·출력 문구를 바꾸면 그 테스트의 기대 호출 목록(test_full_gate_… 의 리스트)도 같이 고친다.
+#   - 그 테스트는 이 스크립트의 «호출»만 고정한다. be-gradle.yml 의 태스크가 바뀌어도 초록이다 —
+#     CI 와의 일치는 사람이 대조한다(data-api-ci.dev.yml 의 세 tasks).
+#   - 테스트는 ubuntu bash 5 로 돈다. macOS bash 3.2 호환(set -u 를 쓰지 않는 이유)은 CI 가 보지 않는다.
 
 cd "$(dirname "$0")" || exit 1
 
