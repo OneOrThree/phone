@@ -91,7 +91,8 @@ public interface FocusSessionIntervalRepository extends JpaRepository<FocusSessi
     @Query("SELECT d.userId AS userId, i.startedAt AS startedAt, i.endedAt AS endedAt "
             + "FROM FocusSessionInterval i, FocusSessionDetail d "
             + "WHERE d.sessionId = i.sessionId AND d.islandId = :islandId AND d.userId IN :userIds "
-            + "AND d.lifecycle IN :lifecycles "
+            + "AND d.lifecycle IN :lifecycles AND d.kind = "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND "
             + "AND i.kind = com.oneorthree.phone.focus.repository.domain.FocusIntervalKind.ACTIVE "
             + "AND i.startedAt < :end AND (i.endedAt IS NULL OR i.endedAt > :start)")
     List<ActiveSpan> findActiveSpansOnIsland(@Param("islandId") UUID islandId,

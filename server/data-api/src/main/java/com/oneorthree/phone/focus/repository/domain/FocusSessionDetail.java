@@ -58,8 +58,25 @@ public class FocusSessionDetail {
      * 소속 상실은 강퇴 TX 가 진행 세션을 직접 종결해 다룬다(FR-D03, GROMO-1924) — 그래서 이 값을 비교해
      * 뒤늦게 감지할 필요가 없고, 지금은 기록만 한다.
      */
-    @Column(name = "membership_epoch_at_start", nullable = false)
-    private long membershipEpochAtStart;
+    @Column(name = "membership_epoch_at_start")
+    private Long membershipEpochAtStart;
+
+    /**
+     * 세션 종류(V124, GROMO-2299). 바다 세션이면 {@code islandId} 는 <b>목적지 섬</b>이고 멤버십 epoch 는 null 이다.
+     * 기본값 {@code ISLAND} 는 이 열이 생기기 전의 행과 섬 세션 빌더 호출을 그대로 둔다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10, columnDefinition = "varchar(10) not null default 'ISLAND'")
+    @Builder.Default
+    private FocusSessionKind kind = FocusSessionKind.ISLAND;
+
+    /** 바다 세션만 — 시작 시 망원경 값으로 고정한 항해 분. */
+    @Column(name = "sailing_minutes")
+    private Integer sailingMinutes;
+
+    /** 바다 세션 정산 때 {@code activeSeconds >= sailingMinutes*60}. 진행 중이거나 섬 세션이면 null. */
+    @Column(name = "arrived")
+    private Boolean arrived;
 
     @Column(nullable = false, length = 200)
     private String subject;
@@ -165,6 +182,11 @@ public class FocusSessionDetail {
         this.restSeat = null;
         this.version = this.version + 1;
         this.lastTransitionAt = t;
+    }
+
+    /** 바다 세션 정산 결과 — 도착 여부를 남긴다. */
+    public void markArrived(boolean arrived) {
+        this.arrived = arrived;
     }
 
     /**

@@ -28,6 +28,7 @@ public interface FocusRewardAccrualRepository extends JpaRepository<FocusRewardA
     @Query("SELECT COALESCE(SUM(a.earnedFish), 0) FROM FocusRewardAccrual a, "
             + "com.oneorthree.phone.focus.repository.domain.FocusSessionDetail d "
             + "WHERE d.sessionId = a.sessionId AND d.userId = :userId AND d.islandId = :islandId "
+            + "AND d.kind = com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND "
             + "AND a.accruedOn = :accruedOn")
     long sumEarnedFishOnDay(@Param("userId") UUID userId, @Param("islandId") UUID islandId,
                             @Param("accruedOn") LocalDate accruedOn);

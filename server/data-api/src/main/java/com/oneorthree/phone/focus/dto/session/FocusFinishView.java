@@ -24,6 +24,8 @@ import java.util.UUID;
  *                       아니라 «모름»</b> 이다: 섬 세션이거나, 바다 세션이라도 이 응답이 정산 직후가 아닌 경우(새 키로
  *                       다시 끝낸 요청·{@code pending-result}·휴식 자동 종료 뒤 조회 — 정산 행에서 응답을 다시 만들 뿐
  *                       받은 상품은 저장하지 않는다). 지급 여부의 정본은 인벤토리({@code owned_products})다
+ * @param kind           {@code "island"} 또는 {@code "sea"}(GROMO-2299)
+ * @param arrived        바다 세션의 도착 여부({@code activeSeconds >= 항해 분*60}). 섬 세션은 null
  */
 public record FocusFinishView(
         UUID recordId,
@@ -37,7 +39,9 @@ public record FocusFinishView(
         Instant completedAt,
         List<QuestProgress> questProgress,
         List<ActiveInterval> activeIntervals,
-        SeaReward seaReward) {
+        SeaReward seaReward,
+        String kind,
+        Boolean arrived) {
 
     /** @param personalFishAdded 개인 지갑 반영 @param constructionFishAdded 섬 통장(섬 물고기) 반영 — 이름은 LLD 계약 그대로 */
     public record Allocation(int personalFishAdded, int constructionFishAdded) {
