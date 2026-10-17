@@ -33,7 +33,7 @@
 |---|---|---|
 | 섬 | `groups`, `group_members` | 같은 ID를 islandId로 표현. role OWNER→host, MEMBER→member |
 | 공개 | `is_private=false`이면 이름 검색 대상. 비밀번호는 독립 | visibility와 approvalRequired도 별개. 승인제를 password로 대체하지 않음 |
-| 정원 | 1~10명, 생성 미입력 기본 10; 본인 소속 상한 10 | 기존 제한을 변경하지 않는 출발 기준. 새 UX의 제한 변경은 별도 결정 |
+| 정원 | 1~10명, 생성 미입력 기본 10; 본인 소속 상한 3(GROMO-2260 섬 외부 정책으로 10 → 3) | 기존 제한을 변경하지 않는 출발 기준. 새 UX의 제한 변경은 별도 결정 |
 | 현재 섬 | 영속 현재 섬 필드 없음 | 본인 context 한 건을 저장하고 전체 BFF/집중 시작이 같은 값을 사용 |
 | 승인 요청 | 정식 요청 상태 모델 없음 | pending/approved/rejected/cancelled, 현재 소속과 다른 자원 |
 | 참가 코드 | 과거 8자·3시간 코드는 생성만 남은 폐기 기능 | 새 사람이 입력하는 코드와 기존 slug의 관계/수명을 먼저 결정 |

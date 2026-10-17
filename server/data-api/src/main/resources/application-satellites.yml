@@ -121,6 +121,8 @@ internal:
           - 'DELETE /internal/users/*/join-requests/*'
           - 'POST /internal/users/*/invitations/resolve'
           - 'POST /internal/users/*/islands/*/invitations'
+          # GROMO-2260 섬 도착 기록(멱등) — 위 memberships·invitations 와 마지막 세그먼트가 달라 서로를 열지 않는다.
+          - 'POST /internal/users/*/islands/*/arrivals'
           # GROMO-1802 섬 관리·주민 6종. `*` 는 세그먼트 하나라 `GET /internal/islands/*` 가 아래 경로들을
           # 덮지 않는다. PATCH 두 줄과 GET 두 줄은 세그먼트 수가 달라 서로를 열지 않는다.
           # 나가기는 본인 명령이라 사용자 축이다(B26).
@@ -156,9 +158,19 @@ internal:
           - 'DELETE /internal/islands/*/notices/*'
           - 'POST /internal/islands/*/notices/*/comments'
           - 'DELETE /internal/islands/*/notices/*/comments/*'
+          # GROMO-2262 섬 방명록 3종. 위 notices 와 세그먼트 이름이 달라 서로를 열지 않는다.
+          - 'GET /internal/islands/*/guestbook'
+          - 'POST /internal/islands/*/guestbook'
+          - 'DELETE /internal/islands/*/guestbook/*'
+          # GROMO-2267 잡지 홍보 신청·섬 소식 읽기 2종. 본인 명령이라 사용자 축이다(B26) — 위 memberships·arrivals 와
+          # 마지막 세그먼트가 달라 서로를 열지 않는다. 신청(POST)은 통장에서 홍보비를 빼므로 소식(GET)과 줄을 합치지 않는다.
+          - 'POST /internal/users/*/islands/*/promotions'
+          - 'GET /internal/users/*/islands/*/news'
           # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
           - 'GET /internal/islands/*/focus-members'
           - 'GET /internal/islands/*/rest-members'
+          # GROMO-2258 방문 화면 오늘 집중 분 — 방문자도 읽는다(focus-members 와 같은 문).
+          - 'GET /internal/islands/*/focus-today'
           # GROMO-1894 친구 7종 (friend-letter LLD §1.15 조회 2 + 명령 5). 조회와 생성은 메서드로만 갈리므로
           # 줄을 합치지 않는다.
           - 'GET /internal/users/*/friends'
@@ -210,6 +222,12 @@ internal:
           - 'GET /internal/islands/*/shop/products/*'
           - 'POST /internal/islands/*/shop/orders'
           - 'GET /internal/islands/*/shop/orders'
+          # GROMO-2265 망원경 목록 — 사용자 축 조회 1종. `*` 는 세그먼트 하나라 그 아래 경로를 열지 않는다.
+          - 'GET /internal/users/*/telescope'
+          # GROMO-2268 망원경 핀 2종 — 위 `GET …/telescope` 줄이 덮지 못하는 더 깊은 경로라 따로 연다. 넣기와 빼기는
+          # 메서드도 세그먼트 수도 달라 합치지 않는다.
+          - 'POST /internal/users/*/telescope/pins'
+          - 'DELETE /internal/users/*/telescope/pins/*'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:

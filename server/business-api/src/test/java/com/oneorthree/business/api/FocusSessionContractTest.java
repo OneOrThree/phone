@@ -433,8 +433,39 @@ class FocusSessionContractTest extends UpstreamTestBase {
         var result = mockMvc.perform(pending ? auth(get(path)) : write(post(path), "{\"expectedVersion\":1}"))
                 .andExpect(status().isOk()).andReturn();
         var json = new tools.jackson.databind.ObjectMapper();
+        // 상류가 seaReward 를 안 보내는 구버전 Data 여도 공개 응답에는 키가 있고 null 이다(GROMO-2274 — 섬 세션 = null).
         assertThat(json.readTree(result.getResponse().getContentAsString()).path("data"))
-                .isEqualTo(json.readTree(expected));
+                .isEqualTo(json.readTree(withSeaReward(expected, "null")));
+    }
+
+    /**
+     * 바다 집중 보상 (GROMO-2274) — 상류의 {@code seaReward} 는 공개 두 필드만 내려가고, 섬 세션의 null 은 키째 보존된다.
+     * 상품이 없어도 바다 세션은 객체({@code grantedProductIds:[]})이고, 다음 단계가 없으면 남은 분이 명시 null 이다.
+     */
+    @Test
+    void finishProjectsTheSeaRewardWithoutLeakingUpstreamFields() throws Exception {
+        String received = "{\"grantedProductIds\":[\"sea-scarf\",\"sea-hat\"],\"minutesToNextTier\":12}";
+        assertFinishSeaReward(received.replace("12}", "12,\"ledger\":1}"), received);
+        String empty = "{\"grantedProductIds\":[],\"minutesToNextTier\":null}";
+        assertFinishSeaReward(empty, empty);
+        assertFinishSeaReward("null", "null");
+    }
+
+    private void assertFinishSeaReward(String upstreamSeaReward, String publicSeaReward) throws Exception {
+        String upstream = withSeaReward(FINISH, upstreamSeaReward);
+        DATA.on("POST " + INTERNAL + "/focus-sessions/" + FOCUS + "/finish", request -> ok(upstream));
+
+        var result = mockMvc.perform(write(post("/focus-sessions/" + FOCUS + "/finish"), "{\"expectedVersion\":1}"))
+                .andExpect(status().isOk()).andReturn();
+
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data"))
+                .isEqualTo(json.readTree(withSeaReward(FINISH, publicSeaReward)));
+    }
+
+    /** {@code seaReward} 키가 없는 응답 JSON 끝에 그 키를 붙인다. */
+    private static String withSeaReward(String finishJson, String seaRewardJson) {
+        return finishJson.substring(0, finishJson.length() - 1) + ",\"seaReward\":" + seaRewardJson + "}";
     }
 
     @Test

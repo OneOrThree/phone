@@ -23,7 +23,7 @@ public record IslandLedgerPageView(String month, long earnedTotal, long spentTot
      * 묶는 것은 이 조회뿐이다. 그 밖의 사유는 언제나 한 건이 한 줄이다.
      *
      * @param direction {@code earn|spend}
-     * @param reason {@code contribution|quest_settlement|construction_debit|shop_purchase}
+     * @param reason {@code contribution|quest_settlement|construction_debit|shop_purchase|golden_fish|promotion_fee}
      * @param amount 묶음이면 그 하루의 합, 아니면 그 한 건의 금액
      * @param createdAt 묶음이면 그 하루의 <b>첫</b> 기입 시각, 아니면 그 한 건의 시각(정렬·커서 축)
      * @param groupedUntil 묶음이면 그 하루의 <b>마지막</b> 기입 시각, 아니면 {@code createdAt} 과 같다

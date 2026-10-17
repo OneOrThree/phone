@@ -81,7 +81,8 @@ public class IslandManagementUseCase {
             Map.entry("TARGET_USER_NOT_FOUND", new PublicFailure(404, ApiErrorCode.NOT_FOUND, "requestId")),
             Map.entry("JOIN_REQUEST_TERMINAL", new PublicFailure(409, ApiErrorCode.STATE_CONFLICT, "requestId")),
             Map.entry("ROOM_FULL", new PublicFailure(409, ApiErrorCode.STATE_CONFLICT, "islandId")),
-            Map.entry("GROUP_LIMIT_EXCEEDED", new PublicFailure(409, ApiErrorCode.STATE_CONFLICT, "requestId")),
+            // 신청자의 소속 섬 상한 3 (GROMO-2260) — 섬 사용 사례와 같은 전용 코드다.
+            Map.entry("GROUP_LIMIT_EXCEEDED", new PublicFailure(409, ApiErrorCode.ISLAND_LIMIT_EXCEEDED, "requestId")),
             Map.entry("ALREADY_MEMBER", new PublicFailure(409, ApiErrorCode.STATE_CONFLICT, "requestId")),
             Map.entry("KICKED_CANNOT_REJOIN", new PublicFailure(403, ApiErrorCode.STATE_CONFLICT, "requestId")),
             Map.entry("INVITATION_EXPIRED", new PublicFailure(410, ApiErrorCode.INVITATION_EXPIRED, "requestId")));
@@ -180,7 +181,7 @@ public class IslandManagementUseCase {
     public Left leave(AccessTokenClaims claims, UUID islandId, UUID key, Deadline deadline) {
         JsonNode result = relay(() -> data.leaveIsland(claims.userId(), islandId, key, deadline), LEAVE);
         requireTrue(result, "left");
-        return new Left(true);
+        return new Left(true, nextLocationOf(result));
     }
 
     // ---------------------------------------------------------------- 내부
@@ -216,10 +217,37 @@ public class IslandManagementUseCase {
         }
     }
 
+    /**
+     * 이탈 응답은 {@code {field:true}} 하나이거나 {@code nextLocation} 이 붙은 두 키다 (GROMO-2260). 한 키짜리를
+     * 받아 주는 이유는 GROMO-2260 배포 전에 저장된 receipt 재생과 구버전 Data 응답이 그 모양이기 때문이다.
+     */
     private static void requireTrue(JsonNode result, String field) {
-        if (result == null || !result.isObject() || result.size() != 1 || !result.path(field).isBoolean()
-                || !result.path(field).booleanValue()) {
+        if (result == null || !result.isObject() || !result.path(field).isBoolean()
+                || !result.path(field).booleanValue()
+                || !(result.size() == 1 || (result.size() == 2 && result.has("nextLocation")))) {
             throw new UpstreamContractMismatchException("섬 이탈 응답 계약 불일치");
+        }
+    }
+
+    /**
+     * 이탈 응답의 다음 위치 (GROMO-2260) — {@code {islandId: UUID|null}}, {@code islandId} 가 null 이면 먼바다다.
+     *
+     * <p>키 자체가 없으면(배포 전 receipt·구버전 Data) {@code null} 을 돌려준다 — 「모름」이다. 「먼바다」
+     * ({@code {islandId:null}})와 섞으면 앱이 아직 섬이 있는 사람을 먼바다로 보낸다.
+     */
+    private static NextLocation nextLocationOf(JsonNode result) {
+        JsonNode location = result.path("nextLocation");
+        if (location.isMissingNode() || location.isNull()) {
+            return null;
+        }
+        JsonNode islandId = location.path("islandId");
+        if (!location.isObject() || !location.has("islandId") || !(islandId.isNull() || islandId.isString())) {
+            throw new UpstreamContractMismatchException("섬 이탈 응답의 다음 위치 계약 불일치");
+        }
+        try {
+            return new NextLocation(islandId.isNull() ? null : UUID.fromString(islandId.stringValue()));
+        } catch (IllegalArgumentException e) {
+            throw new UpstreamContractMismatchException("섬 이탈 응답의 다음 위치 계약 불일치");
         }
     }
 
@@ -334,11 +362,19 @@ public class IslandManagementUseCase {
         }
     }
 
-    /** 강퇴 결과 {@code {removed:true}}. */
+    /** 나가기·강퇴 뒤 다음 위치 (GROMO-2260). {@code islandId} 가 null 이면 먼바다다. */
+    public record NextLocation(@JsonInclude(JsonInclude.Include.ALWAYS) UUID islandId) {
+    }
+
+    /**
+     * 강퇴 결과 {@code {removed:true}}. 강퇴된 사람의 다음 위치는 싣지 않는다 (GROMO-2260) — 이 응답을 받는 사람은
+     * 방장이라, 실으면 대상이 속한 다른 섬(비공개 포함)과 먼바다 여부가 샌다.
+     */
     public record Removed(boolean removed) {
     }
 
-    /** 나가기 결과 {@code {left:true}}. */
-    public record Left(boolean left) {
+    /** 나가기 결과 {@code {left:true, nextLocation}}. {@code nextLocation} 이 null 이면 「모름」(배포 전 receipt 재생)이다. */
+    public record Left(boolean left,
+            @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) NextLocation nextLocation) {
     }
 }

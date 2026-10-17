@@ -420,7 +420,11 @@ function SheetToast({ text, bottom, right = 0 }: { text: string; bottom: number;
   );
 }
 
-// 섬 위 작은 팝업(.gpop). 가로 폰에서는 children | side 를 2단(.land .gpop)으로 눕힌다
+// 섬 위 작은 팝업(.gpop). 가로 폰에서는 children | side 를 2단(.land .gpop)으로 눕힌다.
+// 표현만 한다 — 열려 있는 동안 모달이라는 것은 iOS accessibilityViewIsModal 로만 알린다(VoiceOver 가 형제 장면을 무시).
+// 안드로이드 뒤로 가기와 Android 스크린리더용 뒤 장면 숨김(importantForAccessibility="no-hide-descendants")은 호출자 몫이다:
+// 뒤로 가기는 e.backOverride 로 팝업 닫기를 걸고(App 의 뒤로 가기 핸들러가 방문 분기보다 먼저 본다), 형제를 가릴 수 없는
+// 팝업 대신 뒤 장면을 감싼 쪽이 숨긴다.
 export function IslandPopup({
   bg,
   onClose,
@@ -437,7 +441,7 @@ export function IslandPopup({
   const two = L.compact;
   const col: ViewStyle = { flex: 1, gap: 10, minWidth: 0 };
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View style={StyleSheet.absoluteFill} accessibilityViewIsModal>
       <Backdrop bg={bg} onClose={onClose} />
       <View
         style={[
@@ -1012,6 +1016,9 @@ export function Avatar({
   );
 }
 
+// SheetRow 의 `below` 줄 — 본문 칸 안 sub 아래에 왼쪽 정렬
+const rowBelow: ViewStyle = { alignItems: 'flex-start', marginTop: 4 };
+
 // 리스트 행(.row). tone = on(분홍) · butter(노랑). dense = 가로 축음기 시트의 낮은 행
 export function SheetRow({
   title,
@@ -1019,6 +1026,7 @@ export function SheetRow({
   right,
   lead,
   tail,
+  below,
   chevron = false,
   onPress,
   tone,
@@ -1033,6 +1041,8 @@ export function SheetRow({
   right?: React.ReactNode;
   lead?: React.ReactNode;
   tail?: React.ReactNode;
+  // 본문 칸(제목·sub) 안 sub 아래에 한 줄 더 놓는 내용. 큰 글자에서 tail 의 배지를 이리로 내려, 고정 폭 lead·tail 옆에서 본문 칸이 줄지 않게 한다
+  below?: React.ReactNode;
   chevron?: boolean;
   onPress?: () => void;
   tone?: 'on' | 'butter';
@@ -1071,6 +1081,7 @@ export function SheetRow({
             {sub}
           </Txt>
         )}
+        {!!below && <View style={rowBelow}>{below}</View>}
       </View>
       {typeof rightText === 'string' ? (
         <Txt

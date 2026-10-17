@@ -96,7 +96,14 @@ class PublicApiContractTest extends UpstreamTestBase {
                 "SOCIAL_LOGIN_REQUIRED", "SOCIAL_ACCOUNT_ALREADY_LINKED",
                 // GROMO-2053 게스트 승격 경쟁(409): Data AuthErrorCode 와 이름·상태가 같아야
                 // 「이미 승격된 게스트」가 502 UPSTREAM_CONTRACT_ERROR 로 접히지 않는다.
-                "GUEST_ALREADY_PROMOTED");
+                "GUEST_ALREADY_PROMOTED",
+                // GROMO-2260 소속 섬 상한(409)·도착 전 즉시 이동(403): 앱이 일반 STATE_CONFLICT·FORBIDDEN 과
+                // 갈라 「섬을 하나 나가세요」·「망원경에서 항해하세요」를 띄운다.
+                "ISLAND_LIMIT_EXCEEDED", "ISLAND_NOT_ARRIVED",
+                // GROMO-2262 방명록 하루 1개(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 남겼어요」를 띄운다.
+                "GUESTBOOK_ALREADY_WRITTEN_TODAY",
+                // GROMO-2267 잡지 홍보 하루 1회(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 신청했어요」를 띄운다.
+                "PROMOTION_ALREADY_REQUESTED_TODAY");
     }
 
     /**

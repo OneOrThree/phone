@@ -174,11 +174,13 @@ public class DataFriendClient {
      * 편지함 목록. {@code type}·{@code size}·{@code cursor} 의 값 판정(기본값·범위·알 수 없는 type 의
      * 400)은 Data 가 한다 — 여기서 두 번 해석하지 않는다. 생략된 파라미터는 아예 싣지 않는다.
      */
-    public LetterSlice fetchLetters(UUID userId, String type, String cursor, String size, Deadline deadline) {
+    public LetterSlice fetchLetters(UUID userId, String type, String kind, String cursor, String size,
+            Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.GET, userPath(PATH_LETTERS, userId))
                         .onBehalfOf(userId)
                         .query("type", type)
+                        .query("kind", kind)
                         .query("cursor", cursor)
                         .query("size", size)
                         .build(),

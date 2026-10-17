@@ -16,6 +16,7 @@ import com.oneorthree.phone.letter.exception.LetterErrorCode;
 import com.oneorthree.phone.letter.exception.LetterException;
 import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.letter.repository.domain.Letter;
+import com.oneorthree.phone.letter.repository.domain.LetterKind;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.service.UserBlockService;
@@ -24,11 +25,13 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -45,6 +48,13 @@ import java.util.UUID;
  * <b>받은 편지함</b> 목록({@link #list} 의 {@code type=sent} 가 아닌 호출)과 {@link #detail} 에만 있고
  * 판정 대상은 <b>호출자</b>의 섬이다({@link #requireMailboxUnlocked}). 보낸 편지함에는 없다 —
  * 이미 보낸 내 편지를 다시 보는 데 시설을 물을 이유가 없다.
+ *
+ * <h2>시스템 편지는 따로, 명시적으로만 (GROMO-2260)</h2>
+ * 강퇴·가입 승인 안내는 같은 {@code letters} 테이블에 발신자 없이 들어간다. 그러나 <b>기존 읽기 경로는
+ * 전부 친구 편지만 본다</b> — 받은·보낸 목록은 쿼리가 {@code kind = FRIEND} 로 거르고, 상세·닫기는 시스템
+ * 편지를 수신자 본인에게만 연다. 발신자 id 를 필수로 다루는 구 앱이 null 발신자를 받으면 깨지기 때문이다.
+ * 시스템 편지는 {@code kind=system} 목록과 그 id 의 상세·닫기로만 읽고, 이 경로는 <b>우체통 시설 게이트를
+ * 타지 않는다</b> — 마지막 섬에서 강퇴된 사람에게도 강퇴 편지가 닿아야 한다(「우체통이 없으면 펠리컨」).
  *
  * <h2>게스트 분기는 서비스가 아니라 표면에 있다</h2>
  * 정책 「…편지 보내기…를 처음 시도할 때 소셜 로그인을 요청한다」의 계정 상태 gate 는
@@ -63,6 +73,8 @@ public class InternalLetterService {
     static final int MAX_PAGE_SIZE = 100;
 
     private static final String SENT = "sent";
+    /** 시스템 편지함을 여는 {@code kind} 값 (GROMO-2260) — 그 외 값은 400 이다. */
+    private static final String KIND_SYSTEM = "system";
 
     /**
      * 차단한 상대의 편지를 상세로 열 때 원문 대신 싣는 중립 문구 (GROMO-2185). 응답 모양({@code content} 필수
@@ -152,7 +164,31 @@ public class InternalLetterService {
                 .content(content)
                 .build());
         return new LetterView(saved.getId(), sender.getId(), sender.getNickname(),
-                receiver.getId(), saved.getContent(), saved.getCreatedAt(), null);
+                receiver.getId(), saved.getContent(), saved.getCreatedAt(), null, null, null);
+    }
+
+    /**
+     * 시스템 편지를 넣는다 (GROMO-2260) — 강퇴·가입 승인 안내. 발신자가 없고 친구·차단·한도·금칙어 판정을
+     * 타지 않는다: 본문은 사람이 쓴 것이 아니라 서버 문구이고, 받는 사람은 그 섬의 당사자다.
+     *
+     * <p>호출 트랜잭션 안에서만 쓴다 — 강퇴·승인이 롤백되면 편지도 남지 않아야 한다.
+     *
+     * @param receiver 받는 사람. 호출자가 같은 TX 에서 이미 잠근 활성 유저다
+     * @param kind     {@code FRIEND} 가 아닌 종류
+     * @param islandId 편지가 가리키는 섬
+     * @param content  서버 문구
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void sendSystem(User receiver, LetterKind kind, UUID islandId, String content) {
+        if (kind == LetterKind.FRIEND) {
+            throw new IllegalArgumentException("친구 편지는 send 로 보낸다");
+        }
+        letters.save(Letter.builder()
+                .receiver(receiver)
+                .kind(kind)
+                .islandId(islandId)
+                .content(content)
+                .build());
     }
 
     /**
@@ -161,6 +197,8 @@ public class InternalLetterService {
      *
      * @param userId 편지함 주인
      * @param type   {@code received}(생략 시 기본) 또는 {@code sent}. 빈 값·그 외 값은 400 이다
+     * @param kind   생략(null)이면 친구 편지함, {@code system} 이면 시스템 편지함(GROMO-2260 — 받은함만, 시설
+     *     게이트 없음). 그 외 값·{@code system} 과 {@code sent} 의 조합은 400 이다
      * @param cursor 직전 페이지 마지막 편지 id. null 이면 첫 페이지
      * @param size   페이지 크기. null 이면 {@value #DEFAULT_PAGE_SIZE}
      * @return 최신순 한 페이지
@@ -168,12 +206,23 @@ public class InternalLetterService {
      *     size) · {@code INVALID_MAILBOX_TYPE}(400, type)
      */
     @Transactional(readOnly = true)
-    public LetterSliceView list(UUID userId, String type, UUID cursor, Integer size) {
+    public LetterSliceView list(UUID userId, String type, String kind, UUID cursor, Integer size) {
         // 입력 판정이 시설 게이트보다 먼저다 — 잘못된 요청(400)이 잠금(403)에 가려지면 앱이 고칠 곳을 모른다.
         int pageSize = validPageSize(size);
         boolean sent = mailboxType(type);
+        boolean system = systemMailbox(kind);
+        if (system && sent) {
+            throw new LetterException(LetterErrorCode.INVALID_MAILBOX_TYPE);
+        }
 
         User caller = users.getCaller(userId);
+        if (system) {
+            // 시설 게이트 없음 — 우체통이 없거나 마지막 섬을 잃은 사람에게도 안내는 닿아야 한다.
+            Slice<Letter> page = letters.findSystemReceivedByCursor(userId, cursor, PageRequest.of(0, pageSize));
+            List<LetterItemView> items = page.getContent().stream().map(InternalLetterService::systemItem).toList();
+            UUID nextCursor = page.hasNext() && !items.isEmpty() ? items.get(items.size() - 1).id() : null;
+            return new LetterSliceView(items, pageSize, page.hasNext(), nextCursor);
+        }
         // 보낸 편지함에는 게이트가 없다 — 받은 편지함·상세만 우체통을 묻는다(재영님 확정 2026-09-18).
         if (!sent) {
             requireMailboxUnlocked(caller);
@@ -203,6 +252,9 @@ public class InternalLetterService {
      * 판정이 없다 — 조회 시점엔 살아 있었으므로 그 스냅샷을 돌려주는 것이 맞고, 락 없는 GET 과
      * 동시 DELETE 의 경합은 어떤 순서로도 한쪽이 먼저다(알림 경로에 락을 두지 않은 것과 같은 결).
      *
+     * <p><b>내가 받은 시스템 편지</b>(GROMO-2260)는 우체통 게이트 없이 열리고 {@code kind}·{@code islandId} 가
+     * 함께 나간다. 남의 시스템 편지는 아래 친구 편지 경로를 그대로 타서 오늘과 같은 판정(게이트 → 403)을 받는다.
+     *
      * @param userId   조회자
      * @param letterId 편지 id
      * @return 편지 한 통. 방금 읽음 처리했다면 {@code readAt} 이 그 시각이다. 내가 차단한 상대와의 편지면
@@ -212,10 +264,22 @@ public class InternalLetterService {
      */
     @Transactional
     public LetterView detail(UUID userId, UUID letterId) {
-        requireMailboxUnlocked(users.getCaller(userId));
+        User caller = users.getCaller(userId);
+        Optional<Letter> found = letters.findActiveWithSender(letterId);
+        if (found.isPresent() && isOwnSystemLetter(found.get(), userId)) {
+            Letter system = found.get();
+            // 아래 조건부 UPDATE 가 영속성 컨텍스트를 비우므로 응답 값을 «먼저» 꺼내 둔다.
+            String content = system.getContent();
+            Instant createdAt = system.getCreatedAt();
+            LetterKind kind = system.getKind();
+            UUID islandId = system.getIslandId();
+            Instant readAt = system.getReadAt() == null ? markRead(letterId) : system.getReadAt();
+            return new LetterView(letterId, null, null, userId, content, createdAt, readAt, kind, islandId);
+        }
+        // 친구 편지 — 판정 순서는 종전 그대로다(게이트 → 없음 → 참여자). 조회를 앞당겼을 뿐 결과를 쓰는 것은 게이트 뒤다.
+        requireMailboxUnlocked(caller);
 
-        Letter letter = letters.findActiveWithSender(letterId)
-                .orElseThrow(() -> new LetterException(LetterErrorCode.LETTER_NOT_FOUND));
+        Letter letter = found.orElseThrow(() -> new LetterException(LetterErrorCode.LETTER_NOT_FOUND));
         if (letter.isNotParticipant(userId)) {
             throw new LetterException(LetterErrorCode.NOT_LETTER_PARTICIPANT);
         }
@@ -234,7 +298,8 @@ public class InternalLetterService {
         if (!masked && readAt == null && receiverId.equals(userId)) {
             readAt = markRead(letterId);
         }
-        return new LetterView(letterId, senderId, senderNickname, receiverId, content, createdAt, readAt);
+        return new LetterView(letterId, senderId, senderNickname, receiverId, content, createdAt, readAt,
+                null, null);
     }
 
     /**
@@ -260,6 +325,8 @@ public class InternalLetterService {
      * 「보낸 사람 목록에서도 사라진다」로 명시했고 재영님이 알고 수용했다. <b>버그로 보고 2컬럼
      * 삭제 모델로 갈아엎기 전에 이 결정부터 뒤집을 것.</b>
      *
+     * <p>내가 받은 시스템 편지(GROMO-2260)는 상세와 같이 우체통 게이트 없이 닫힌다.
+     *
      * @param userId   닫는 사람 — 편지의 수신자여야 한다
      * @param letterId 닫을 편지 id
      * @throws LetterException {@code LETTER_MAILBOX_LOCKED}(403) · {@code LETTER_NOT_FOUND}(404, 이미 닫힘 포함) ·
@@ -267,11 +334,15 @@ public class InternalLetterService {
      */
     @Transactional
     public void close(UUID userId, UUID letterId) {
-        // 상세와 같은 게이트다 — 열 수 없는 사람이 닫을 수 있으면 두 표면의 판정이 갈린다.
-        requireMailboxUnlocked(users.getCaller(userId));
+        User caller = users.getCaller(userId);
+        Optional<Letter> found = letters.findActiveWithSender(letterId);
+        // 내가 받은 시스템 편지는 상세와 같이 게이트 없이 닫는다(GROMO-2260).
+        if (found.isEmpty() || !isOwnSystemLetter(found.get(), userId)) {
+            // 상세와 같은 게이트다 — 열 수 없는 사람이 닫을 수 있으면 두 표면의 판정이 갈린다.
+            requireMailboxUnlocked(caller);
+        }
 
-        Letter letter = letters.findActiveWithSender(letterId)
-                .orElseThrow(() -> new LetterException(LetterErrorCode.LETTER_NOT_FOUND));
+        Letter letter = found.orElseThrow(() -> new LetterException(LetterErrorCode.LETTER_NOT_FOUND));
         if (letter.isNotParticipant(userId)) {
             throw new LetterException(LetterErrorCode.NOT_LETTER_PARTICIPANT);
         }
@@ -328,7 +399,32 @@ public class InternalLetterService {
         // 보낸 편지함의 isRead 는 항상 false 로 고정한다 (LLD §1.13) — 상대의 열람 여부를 노출하지 않는다.
         boolean read = !sent && letter.getReadAt() != null;
         return new LetterItemView(letter.getId(), counterpart.getId(), counterpart.getNickname(),
-                letter.getContent(), read, letter.getCreatedAt());
+                letter.getContent(), read, letter.getCreatedAt(), null, null, null);
+    }
+
+    /** 시스템 편지함의 한 건 (GROMO-2260) — 발신자가 없고 종류·섬·열람 시각이 함께 나간다. */
+    private static LetterItemView systemItem(Letter letter) {
+        return new LetterItemView(letter.getId(), null, null, letter.getContent(), letter.getReadAt() != null,
+                letter.getCreatedAt(), letter.getKind(), letter.getIslandId(), letter.getReadAt());
+    }
+
+    /** 내가 받은 시스템 편지인가 — 시스템 편지는 수신자 본인에게만, 우체통 게이트 없이 열린다(GROMO-2260). */
+    private static boolean isOwnSystemLetter(Letter letter, UUID userId) {
+        return letter.isSystem() && letter.getReceiver().getId().equals(userId);
+    }
+
+    /**
+     * 편지함 축 — 생략(null)은 친구 편지함, {@code system} 은 시스템 편지함이다 (GROMO-2260). 그 외 값은 무엇인지
+     * 모르므로 친구 편지함으로 몰아 넣지 않고 400 이다({@link #mailboxType} 과 같은 결).
+     */
+    private static boolean systemMailbox(String kind) {
+        if (kind == null) {
+            return false;
+        }
+        if (KIND_SYSTEM.equals(kind)) {
+            return true;
+        }
+        throw new LetterException(LetterErrorCode.INVALID_MAILBOX_TYPE);
     }
 
     /**

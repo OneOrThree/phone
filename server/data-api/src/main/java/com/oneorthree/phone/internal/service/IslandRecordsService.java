@@ -53,8 +53,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -202,6 +202,23 @@ public class IslandRecordsService {
             return new FocusMember(user.getId(), user.getNickname(), user.getCatColor(), sum(series), days(series));
         }).toList();
         return new FocusStatistics(SCOPE_ISLAND, null, null, null, result, asOf, null, null);
+    }
+
+    /**
+     * 섬 하나에서 주민들이 {@code date}({@code zone} 날짜 축) 하루 동안 한 순수 집중 초 — 진행 중 세션은 지금까지 센다
+     * (GROMO-2258 방문 화면 오늘 집중). scope=island 와 같은 세션 선택({@link #COUNTED})·같은 합산이다.
+     * 날짜 축은 호출자가 넘기는 {@code zone} — 방문 화면은 KST 고정이라 회관 기록(scope=island, 요청 timezone)과
+     * 날짜 경계가 다를 수 있다. 가드는 없다 — 부르는 쪽이 섬 접근을 이미 가렸다.
+     */
+    @Transactional(readOnly = true)
+    public long islandActiveSecondsOn(UUID islandId, List<UUID> residents, LocalDate date, ZoneId zone) {
+        if (residents.isEmpty()) {
+            return 0;
+        }
+        Instant start = date.atStartOfDay(zone).toInstant();
+        Instant end = date.plusDays(1).atStartOfDay(zone).toInstant();
+        return contributions(details.findOverlappingOnIsland(islandId, residents, COUNTED, start, end),
+                date, date, clock.instant(), zone).stream().mapToLong(Contribution::total).sum();
     }
 
     /**

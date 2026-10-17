@@ -111,6 +111,9 @@ class AccountWithdrawalServiceTest {
     /** 섬 개인 외양·보유품과 퀘스트 cohort·정산 수령자 파기 (GROMO-1950). */
     @Mock
     private com.oneorthree.phone.appearance.service.AppearanceService appearanceService;
+    /** 바다 집중 누적 파기 (GROMO-2274 · 계약 §0 N42) — 개인 이력이라 지운다. */
+    @Mock
+    private com.oneorthree.phone.appearance.service.SeaFocusRewardService seaFocusRewardService;
     @Mock
     private com.oneorthree.phone.quest.service.IslandQuestService islandQuestService;
 
@@ -134,7 +137,7 @@ class AccountWithdrawalServiceTest {
                 focusSessionIntervalRepository, focusSessionDetailRepository, statsService,
                 screenTimeService, userService, friendService, inviteLinkMatchService,
                 rankOvertakeNotificationService, leagueService, characterGenerationService, equipmentService,
-                appearanceService, islandQuestService, publicCommandService);
+                appearanceService, seaFocusRewardService, islandQuestService, publicCommandService);
         // 배타 락 로드가 맨 앞 — 이후 정리와 새 관계 생성을 직렬화한다
         order.verify(userQueryService).getCallerForUpdate(USER_ID);
         order.verify(groupMemberService).lockGroupsForAccountWithdrawal(user);
@@ -163,6 +166,7 @@ class AccountWithdrawalServiceTest {
         order.verify(characterGenerationService).eraseWithdrawnUser(USER_ID);
         order.verify(equipmentService).eraseWithdrawnUser(USER_ID);
         order.verify(appearanceService).eraseWithdrawnUser(USER_ID);
+        order.verify(seaFocusRewardService).eraseWithdrawnUser(USER_ID);
         order.verify(islandQuestService).eraseWithdrawnUser(USER_ID);
         order.verify(userService).deleteWalletAndSettings(USER_ID);
         order.verify(friendService).detachWithdrawnUser(USER_ID);

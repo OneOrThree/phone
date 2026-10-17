@@ -9,7 +9,8 @@ import java.util.UUID;
  * <ul>
  *   <li>{@code "active"} — 즉시 가입. {@code requestId} 는 null 이고 {@code currentIslandId} 는
  *       방금 옮긴 현재 섬이다. {@code version} 은 {@code island.members.updated} 사건의
- *       (ISLAND_MEMBERS) 집계 버전이다.</li>
+ *       (ISLAND_MEMBERS) 집계 버전이다. 망원경 가입(GROMO-2260)은 옮기지 않으므로 그대로인 현재 섬(없으면
+ *       null)이다.</li>
  *   <li>{@code "pending"} — 승인 대기 요청이 만들어졌거나 이미 있었다. {@code requestId} 가 그
  *       자원이고 {@code version} 은 요청 자원의 버전이다. {@code currentIslandId} 는 null —
  *       대기 생성은 현재 섬을 옮기지 않는다.</li>
@@ -22,8 +23,8 @@ public record JoinIslandResultView(
         UUID currentIslandId,
         long version) {
 
-    public static JoinIslandResultView active(UUID islandId, long membersVersion) {
-        return new JoinIslandResultView("active", null, islandId, islandId, membersVersion);
+    public static JoinIslandResultView active(UUID islandId, UUID currentIslandId, long membersVersion) {
+        return new JoinIslandResultView("active", null, islandId, currentIslandId, membersVersion);
     }
 
     public static JoinIslandResultView pending(UUID requestId, UUID islandId, long requestVersion) {

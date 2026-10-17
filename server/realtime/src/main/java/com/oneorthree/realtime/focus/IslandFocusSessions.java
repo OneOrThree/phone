@@ -107,17 +107,32 @@ public class IslandFocusSessions {
      * @throws UpstreamUnavailableException 판정을 내릴 수 없을 때
      */
     public Set<UUID> requireActiveSession(UUID islandId, UUID userId, UUID sessionId) {
-        if (restClient == null || serviceToken.isBlank()) {
-            // 배선되지 않은 배포에서 응원만 조용히 열리지 않게 한다. 채팅·주민 관전은 영향이 없다.
-            log.warn("응원 인가 상류가 배선되지 않았다 — 전량 거절한다");
-            throw new UpstreamUnavailableException();
-        }
         List<FocusMember> members = members(islandId, userId);
         if (members.stream().noneMatch(item -> userId.equals(item.userId())
                 && PROGRESSING_STATUSES.contains(item.status())
                 && (sessionId == null || sessionId.equals(item.sessionId())))) {
             throw new ChatException(ChatErrorCode.NOT_FOCUSING);
         }
+        return progressing(members);
+    }
+
+    /**
+     * 그 섬에서 지금 진행 중인 주민 전원 — <b>호출자 본인의 세션은 요구하지 않는다</b> (GROMO-2258).
+     *
+     * <p>방문자 응원의 수신자 집합이다. 방문자는 그 섬의 주민이 아니라 목록에 있을 수 없으므로
+     * {@link #requireActiveSession} 의 「목록에서 나를 찾는다」를 건너뛴다. 「이 사람이 방문자인가」는
+     * 여기서 판정하지 않는다 — 부르는 쪽이 멤버십으로 먼저 가른다.
+     *
+     * @param islandId 응원이 나갈 섬
+     * @param callerId 조회 주체({@code X-User-Id}) — 상류는 호출자 존재와 섬 생존만 본다(방문자 허용)
+     * @return 진행 중(active·paused) 주민. 아무도 없으면 빈 집합
+     * @throws UpstreamUnavailableException 판정을 내릴 수 없을 때
+     */
+    public Set<UUID> progressingRecipients(UUID islandId, UUID callerId) {
+        return progressing(members(islandId, callerId));
+    }
+
+    private static Set<UUID> progressing(List<FocusMember> members) {
         return members.stream()
                 .filter(item -> item.userId() != null && PROGRESSING_STATUSES.contains(item.status()))
                 .map(FocusMember::userId)
@@ -125,6 +140,11 @@ public class IslandFocusSessions {
     }
 
     private List<FocusMember> members(UUID islandId, UUID userId) {
+        if (restClient == null || serviceToken.isBlank()) {
+            // 배선되지 않은 배포에서 응원만 조용히 열리지 않게 한다. 채팅·주민 관전은 영향이 없다.
+            log.warn("응원 인가 상류가 배선되지 않았다 — 전량 거절한다");
+            throw new UpstreamUnavailableException();
+        }
         try {
             return restClient.get()
                     .uri("/internal/islands/{islandId}/focus-members", islandId)

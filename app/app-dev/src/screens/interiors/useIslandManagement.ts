@@ -140,6 +140,7 @@ const canonicalPatch = (patch: ManageIslandPatch): string =>
     intro: patch.intro,
     approvalRequired: patch.approvalRequired,
     maxMembers: patch.maxMembers,
+    greeting: patch.greeting,
   });
 
 /**
@@ -441,7 +442,7 @@ export function useIslandManagement({
   );
 
   /**
-   * 섬 설정 저장 — `name/intro/approvalRequired/maxMembers` 만 보낸다(공개 PATCH 계약에
+   * 섬 설정 저장 — `name/intro/approvalRequired/maxMembers/greeting` 만 보낸다(공개 PATCH 계약에
    * expectedVersion 은 없다). 정원 정수 1~15·현원 미만 축소 거절은 서버 결과를 그대로 올린다.
    */
   const saveSettings = useCallback(
@@ -456,6 +457,7 @@ export function useIslandManagement({
           approvalRequired: patch.approvalRequired,
         }),
         ...(patch.maxMembers !== undefined && { maxMembers: patch.maxMembers }),
+        ...(patch.greeting !== undefined && { greeting: patch.greeting }),
       });
       return runWrite(scope, 'settings', canonicalPatch(body), (key) =>
         manageIsland(scope.islandId, body, key),

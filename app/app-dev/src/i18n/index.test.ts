@@ -299,3 +299,25 @@ test('localized — 현재 언어 값을 고르고, 없으면 en 값', () => {
   applyLocalePref('ko');
   expect(localized<string | undefined>({ ko: undefined, en: 'English art' })).toBe('English art');
 });
+
+test('errorText — ISLAND_NOT_ARRIVED 는 영어 로케일에서도 번역된 문구를 쓴다', () => {
+  applyLocalePref('en');
+  expect(errorText(new ApiError('ISLAND_NOT_ARRIVED', '아직 가 본 적 없는 섬이에요.', 403))).toBe(
+    "You haven't been to this island yet. Sail there from the telescope.",
+  );
+  applyLocalePref('system');
+});
+
+test('errorText — ISLAND_LIMIT_EXCEEDED(망원경 [바로 가입]의 409) 는 ko 에서 서버 문구, 영어에서 번역된 문구를 쓴다', () => {
+  const full = new ApiError(
+    'ISLAND_LIMIT_EXCEEDED',
+    '소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요',
+    409,
+  );
+  expect(errorText(full)).toBe(
+    '소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요',
+  );
+  applyLocalePref('en');
+  expect(errorText(full)).toBe('Your islands are full (3/3). Leave one to join a new island.');
+  applyLocalePref('system');
+});

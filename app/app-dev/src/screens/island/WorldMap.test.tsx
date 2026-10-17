@@ -464,6 +464,19 @@ test('완공된 건물은 이름표 없이 접근성 이름으로 식별한다',
   await screen.unmount();
 });
 
+test('전망대를 짓지 않은 섬에는 전망대 입구(랭킹·섬 이름 검색)가 없고, 지은 섬에는 있다', async () => {
+  const state = initialState(true);
+  serverConstructionState(state, null, ['hall', 'board']);
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(screen.queryByRole('button', { name: buildingNames.tower })).toBeNull();
+  // 같은 섬의 지은 건물 입구는 그대로 있다
+  expect(screen.getByRole('button', { name: buildingNames.board })).toBeTruthy();
+  serverConstructionState(state, null, ['hall', 'board', 'tower']);
+  await screen.rerender(<FinalIsland state={{ ...state }} go={jest.fn()} build={jest.fn()} />);
+  expect(screen.getByRole('button', { name: buildingNames.tower })).toBeTruthy();
+  await screen.unmount();
+});
+
 test('뗏목은 이름표 없이 접근성 이름으로 식별한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
@@ -503,7 +516,7 @@ test('홈을 최대로 축소해도 뗏목 터치 영역은 44pt 이상이며 �
   expect(raft.top + raft.height).toBeGreaterThanOrEqual(925 * scale);
 });
 
-test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다리지 않고 배 메뉴를 연다', async () => {
+test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다리지 않고 뗏목 행선지를 연다', async () => {
   const go = jest.fn();
   const state = initialState(true);
   state.settings.reduceMotion = false;
@@ -512,7 +525,7 @@ test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다�
   await fireEvent.press(screen.getByLabelText('뗏목'));
 
   expect(go).toHaveBeenCalledTimes(1);
-  expect(go).toHaveBeenCalledWith('boat');
+  expect(go).toHaveBeenCalledWith('raft');
 });
 
 test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생한다', async () => {
@@ -1140,7 +1153,7 @@ test('뗏목 탭 영역은 부두 끝이 아니라 배경에 그려진 뗏목 �
     expect((raft.top + raft.height) / s).toBeGreaterThanOrEqual(920);
 
     await fireEvent.press(screen.getByLabelText('뗏목'));
-    expect(go).toHaveBeenCalledWith('boat');
+    expect(go).toHaveBeenCalledWith('raft');
   } finally {
     timing.mockRestore();
   }
@@ -1226,4 +1239,18 @@ describe('en', () => {
 
     expect(screen.getByLabelText("Notice Board, there's a new comment.")).toBeTruthy();
   });
+});
+
+test('방문 중에도 뗏목이 그려지고 누르면 행선지 시트(raft)로 간다', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id !== state.islandId)!;
+  const go = jest.fn();
+  const screen = await render(
+    <FinalIsland state={state} go={go} build={jest.fn()} viewingIslandId={visited.id} />,
+  );
+  expect(screen.queryByLabelText('뗏목')).toBeNull(); // 방문 카드(explicit)는 낚시섬 관전만 연다
+  state.visitingIslandId = visited.id;
+  const visiting = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+  await fireEvent.press(visiting.getByLabelText('뗏목'));
+  expect(go).toHaveBeenCalledWith('raft', visited.id);
 });

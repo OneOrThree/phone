@@ -92,6 +92,16 @@ location = /actuator { return 404; }
 # GET /islands/{islandId}/statistics/fish-earnings.
 # 내 가입 신청 목록(GROMO-2047)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /me/join-requests (단건 GET·DELETE /me/join-requests/{requestId} 는 1760 에서 이미 열렸다).
+# 섬 오가기 도착(GROMO-2260)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# POST /islands/{islandId}/arrivals. 나가기·강퇴의 ?include=nextLocation, 편지의 ?kind=system 은 기존 경로의 쿼리다.
+# 섬장 인사말·방명록(GROMO-2262)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET·POST /islands/{islandId}/guestbook · DELETE /islands/{islandId}/guestbook/{entryId}. 인사말은 기존 PATCH /islands/{islandId} 의 필드다.
+# 망원경 목록(GROMO-2265)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /me/telescope.
+# 망원경 핀(GROMO-2268)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# POST /me/telescope/pins · DELETE /me/telescope/pins/{islandId}.
+# 잡지 홍보비·섬 소식(GROMO-2267)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# POST /islands/{islandId}/promotions · GET /islands/{islandId}/news.
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;

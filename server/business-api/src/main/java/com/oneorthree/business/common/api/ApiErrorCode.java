@@ -40,6 +40,9 @@ public enum ApiErrorCode implements ErrorCode {
     // 앱은 소셜 로그인 안내 대신 「서버 장애」를 띄운다. 일반 FORBIDDEN 과 코드를 «가르는» 이유는
     // 앱이 이 하나에만 회원 전환 화면을 열어야 하기 때문이다.
     SOCIAL_LOGIN_REQUIRED(HttpStatus.FORBIDDEN, "소셜 로그인하면 이용할 수 있어요.", false),
+    // GROMO-2260. Data 의 GroupErrorCode.ISLAND_NOT_ARRIVED 와 이름·상태가 같다 — 망원경에서 가입만 하고
+    // 아직 항해하지 않은 섬으로 즉시 이동을 시도했다. 앱은 이 코드에만 망원경 항해를 권한다.
+    ISLAND_NOT_ARRIVED(HttpStatus.FORBIDDEN, "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요", false),
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 대상을 찾을 수 없습니다.", false),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다. 다시 로그인해 주세요.", false),
     GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "섬을 찾을 수 없습니다.", false),
@@ -49,6 +52,15 @@ public enum ApiErrorCode implements ErrorCode {
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청 방식입니다.", false),
     VERSION_CONFLICT(HttpStatus.CONFLICT, "상태가 변경되었습니다. 최신 내용을 확인해 주세요.", false),
     STATE_CONFLICT(HttpStatus.CONFLICT, "현재 상태에서는 이 작업을 수행할 수 없습니다.", false),
+    // GROMO-2260 소속 섬 상한(3). Data 의 GROUP_LIMIT_EXCEEDED 를 섬 사용 사례가 이 코드로 옮긴다 — 앱이
+    // 일반 STATE_CONFLICT 와 갈라 「섬을 하나 나가세요」 안내를 띄워야 한다.
+    ISLAND_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요", false),
+    // GROMO-2262. Data 의 GroupErrorCode.GUESTBOOK_ALREADY_WRITTEN_TODAY 와 이름·상태가 같다 — 같은 KST 날의
+    // 두 번째 방명록. 앱이 이 코드에만 「오늘은 이미 남겼어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+    GUESTBOOK_ALREADY_WRITTEN_TODAY(HttpStatus.CONFLICT, "오늘은 이미 방명록을 남겼어요", false),
+    // GROMO-2267. Data 의 GroupErrorCode.PROMOTION_ALREADY_REQUESTED_TODAY 와 이름·상태가 같다 — 같은 KST 날의 두 번째
+    // 잡지 홍보 신청. 앱이 이 코드에만 「오늘은 이미 신청했어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+    PROMOTION_ALREADY_REQUESTED_TODAY(HttpStatus.CONFLICT, "오늘은 이미 잡지 홍보를 신청했어요", false),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "잔액이 부족합니다.", false),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.", false),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 요청에 사용한 명령 키입니다.", false),

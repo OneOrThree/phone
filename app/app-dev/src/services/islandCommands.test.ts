@@ -277,6 +277,53 @@ test('세대 전환은 멱등 키·초대 token을 버린다', async () => {
   assert.notEqual(joins[1].idempotencyKey, joins[0].idempotencyKey);
 });
 
+test('join origin — 망원경 가입은 origin 을 API 로 넘기고, 생략한 호출은 origin 키를 싣지 않는다', async () => {
+  const opts: object[] = [];
+  const h = harness({
+    join: jest.fn(async (_id: string, o: object) => {
+      opts.push(o);
+      return {
+        status: 'pending' as const,
+        requestId: 'r1',
+        islandId: 'i1',
+        currentIslandId: null,
+        version: 1,
+      };
+    }),
+  });
+  await h.cmds.commands.join('i1', { showApproval: false, origin: 'telescope' });
+  await h.cmds.commands.join('i1', { showApproval: false });
+  assert.equal((opts[0] as { origin?: string }).origin, 'telescope');
+  assert.equal('origin' in opts[1], false); // 생략하면 요청 본문이 이전과 같아야 서버 멱등 지문이 호환된다
+});
+
+test('join origin — 의도 키는 origin 별로 따로 둔다(유실 재시도는 같은 키, 다른 origin 의 같은 섬 가입은 다른 키)', async () => {
+  const keys: string[] = [];
+  let calls = 0;
+  const join = jest.fn(async (_id: string, o: { idempotencyKey: string }) => {
+    keys.push(o.idempotencyKey);
+    // 서버 지문(origin 포함)이 다른 두 요청이 한 키를 쓰면 IDEMPOTENCY_KEY_CONFLICT 라 키가 갈려야 한다
+    if (++calls <= 2) throw new ApiError('CLIENT_NETWORK_ERROR', 'lost', 0);
+    return {
+      status: 'pending' as const,
+      requestId: 'r1',
+      islandId: 'i1',
+      currentIslandId: null,
+      version: 1,
+    };
+  });
+  const h = harness({
+    join,
+    myIslands: async () => myIslands(),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await assert.rejects(h.cmds.commands.join('i1', { origin: 'telescope', showApproval: false }));
+  await assert.rejects(h.cmds.commands.join('i1', { showApproval: false }));
+  await h.cmds.commands.join('i1', { origin: 'telescope', showApproval: false });
+  assert.notEqual(keys[0], keys[1]);
+  assert.equal(keys[2], keys[0]); // 같은 origin 의 재시도는 처음 키 그대로
+});
+
 test('call 오류 경로 — 세대 전환 뒤 도착한 409는 재조회·rethrow 없이 CLIENT_STALE_SESSION으로 버린다', async () => {
   const myMock = jest.fn(async () => myIslands());
   let h: ReturnType<typeof harness>;

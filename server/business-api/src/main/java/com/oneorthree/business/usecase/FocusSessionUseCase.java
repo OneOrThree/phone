@@ -188,7 +188,13 @@ public class FocusSessionUseCase {
         }
     }
 
-    /** 공개 정산 계약. 중첩 객체도 내부 DTO와 분리한다. */
+    /**
+     * 공개 정산 계약. 중첩 객체도 내부 DTO와 분리한다.
+     *
+     * @param seaReward 바다 집중을 방금 정산한 응답에서만 값이 있다. {@code null} 은 «받은 것 없음» 이 아니라 «모름» 이다 —
+     *                  섬 세션이거나, 바다 세션이라도 정산 직후 응답이 아닌 경우(새 키 재종료·pending-result·휴식 자동
+     *                  종료 뒤 조회). 지급 여부의 정본은 인벤토리다
+     */
     public record FinishView(
             @JsonProperty(required = true) UUID recordId,
             @JsonProperty(required = true) UUID islandId,
@@ -200,7 +206,8 @@ public class FocusSessionUseCase {
             @JsonProperty(required = true) AllocationView allocation,
             @JsonProperty(required = true) String completedAt,
             List<QuestProgressView> questProgress,
-            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals,
+            SeaRewardView seaReward) {
         private static FinishView from(FocusFinish source) {
             if (source == null) {
                 return null;
@@ -211,7 +218,22 @@ public class FocusSessionUseCase {
                     source.activeSeconds(), source.goalAchieved(), source.earnedFish(),
                     new AllocationView(source.allocation().personalFishAdded(),
                             source.allocation().constructionFishAdded()),
-                    source.completedAt(), progress, ActiveIntervalView.fromAll(source.activeIntervals()));
+                    source.completedAt(), progress, ActiveIntervalView.fromAll(source.activeIntervals()),
+                    SeaRewardView.from(source.seaReward()));
+        }
+    }
+
+    /**
+     * 바다 집중 보상 (GROMO-2274) — {@link FinishView#seaReward()} 로만 나간다. 바다 세션을 방금 정산한 응답은
+     * 아무것도 못 받았어도 이 객체다. 그 필드의 {@code null}(키는 있다)은 «없음» 이 아니라 «모름» 이다(자세히는
+     * {@link FinishView}).
+     */
+    public record SeaRewardView(
+            @JsonProperty(required = true) List<String> grantedProductIds,
+            Integer minutesToNextTier) {
+        private static SeaRewardView from(FocusFinish.SeaReward source) {
+            return source == null ? null
+                    : new SeaRewardView(source.grantedProductIds(), source.minutesToNextTier());
         }
     }
 

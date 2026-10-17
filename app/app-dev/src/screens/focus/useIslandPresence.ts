@@ -15,6 +15,7 @@ import {
   startIslandRealtime,
   type IslandRealtime,
   type IslandPresenceTransition,
+  type LiveEmote,
   type GoldenFishEvent,
   type PresenceView,
 } from '@/services/islandRealtime';
@@ -36,13 +37,17 @@ export function useIslandPresence(
     islandId: string | null;
     /** 응원 자격이 되는 내 진행 중 서버 세션 id — 없으면 emotes 를 구독·발신하지 않는다. */
     emoteSessionId?: string | null;
+    /** 서버 계약 호환용 — 앱 화면은 넘기지 않는다(2026-10-16). 방문자 모드(GROMO-2259): 세션 없이 응원을 보낸다. */
+    visitor?: boolean;
+    /** 방문자가 보낸 응원을 받았다(주민 화면). */
+    onVisitorEmote?: (emote: LiveEmote) => void;
     onSendError?: (message: string) => void;
     onTransition?: (transition: IslandPresenceTransition) => void;
     onGoldenFish?: (event: GoldenFishEvent) => void;
   },
   start: typeof startIslandRealtime = startIslandRealtime,
 ): IslandPresence {
-  const { active, islandId, emoteSessionId } = opts;
+  const { active, islandId, emoteSessionId, visitor } = opts;
   const generation = sessionGeneration();
   const [nonce, setNonce] = useState(0);
   const scope = `${generation}:${active ? islandId : ''}:${nonce}`;
@@ -54,6 +59,8 @@ export function useIslandPresence(
   onSendError.current = opts.onSendError;
   const onTransition = useRef(opts.onTransition);
   onTransition.current = opts.onTransition;
+  const onVisitorEmote = useRef(opts.onVisitorEmote);
+  onVisitorEmote.current = opts.onVisitorEmote;
   const onGoldenFish = useRef(opts.onGoldenFish);
   onGoldenFish.current = opts.onGoldenFish;
 
@@ -67,12 +74,16 @@ export function useIslandPresence(
     const session = start({
       islandId,
       emoteSessionId,
+      visitor,
       alive,
       onView: (view) => {
         if (alive()) setSnapshot({ scope, view });
       },
       onTransition: (transition) => {
         if (alive()) onTransition.current?.(transition);
+      },
+      onVisitorEmote: (emote) => {
+        if (alive()) onVisitorEmote.current?.(emote);
       },
       onGoldenFish: (event) => {
         if (alive()) onGoldenFish.current?.(event);
