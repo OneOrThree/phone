@@ -44,6 +44,8 @@ public class PushNotificationService {
      * null 허용 — row 부재 시 기본값(알림 on·심야 off)으로 취급.
      * INVALID_TOKEN 시 토큰을 정리하므로 호출측은 쓰기 @Transactional 안에서 불러야 한다.
      *
+     * <p>필터는 {@link #isFilteredOut} 하나다 — 호출부(잡지 알림)가 같은 메서드로 영구 미발송과 일시 실패를 가른다.
+     *
      * @return 실제 발송이 성사(FCM SENT)되면 true. 필터 스킵(알림 off·토큰 없음·quiet hours)·
      *     무효 토큰·실패·예외는 모두 false. 순위 추월(579)이 이 반환값으로 "발송되면 sent_log INSERT" 를
      *     정확히 판정한다(quiet hours 스킵을 발송으로 오기록하지 않기 위함). ①②④⑥ 는 반환값을 무시.
@@ -56,21 +58,38 @@ public class PushNotificationService {
      */
     public boolean sendIfAllowed(User user, UserNotificationSettings settings,
                                  PushMessage message, Instant now) {
-        // 1. 알림 꺼짐 → 스킵 (settings null = 기본값 허용)
-        if (settings != null && !settings.isNotificationEnabled()) {
-            return false;
-        }
-        // 2. 토큰 없음(알림 권한 미허용/해제) → 스킵
-        if (user.getDeviceToken() == null) {
-            return false;
-        }
-        // 3. Quiet hours → 스킵 + info 로그 (지연 발송 하지 않음 — 스펙 확정)
-        if (isQuietHours(settings, now)) {
-            log.info("Quiet hours 스킵 — userId={}, title={}", user.getId(), message.title());
+        if (isFilteredOut(user, settings, now)) {
             return false;
         }
         // 4. 발송 — 한 유저 실패가 배치 루프를 중단시키지 않게 예외 격리
         return deliver(user, message);
+    }
+
+    /**
+     * 표시 푸시의 필터 체인 — 알림 꺼짐 → 토큰 없음 → 조용한 시간. 걸리면 <b>영구 미발송</b>(재시도해도 같은 이유로
+     * 걸린다)이고, 안 걸렸는데 {@link #sendIfAllowed} 가 false 면 전송 오류다. 재시도할 일과 말 일을 가르려는
+     * 호출부(GROMO-2307 잡지 발행 알림)가 발송 전에 부른다.
+     *
+     * @param user     받을 사람
+     * @param settings 알림 설정. null 이면 기본값(알림 on·심야 기본 구간)
+     * @param now      조용한 시간 판정 기준 시각
+     * @return true 면 필터에 걸려 보내지 않는다
+     */
+    public boolean isFilteredOut(User user, UserNotificationSettings settings, Instant now) {
+        // 1. 알림 꺼짐 → 스킵 (settings null = 기본값 허용)
+        if (settings != null && !settings.isNotificationEnabled()) {
+            return true;
+        }
+        // 2. 토큰 없음(알림 권한 미허용/해제) → 스킵
+        if (user.getDeviceToken() == null) {
+            return true;
+        }
+        // 3. Quiet hours → 스킵 + info 로그 (지연 발송 하지 않음 — 스펙 확정)
+        if (isQuietHours(settings, now)) {
+            log.info("Quiet hours 스킵 — userId={}", user.getId());
+            return true;
+        }
+        return false;
     }
 
     /**

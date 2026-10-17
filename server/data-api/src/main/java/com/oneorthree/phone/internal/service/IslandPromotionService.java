@@ -68,18 +68,18 @@ import java.util.stream.Collectors;
  * 재생하고, 같은 키·다른 본문은 409 {@code IDEMPOTENCY_KEY_REUSED} 다(의미 요청에 본문을 싣는다). 다른 키로 같은 호에
  * 또 신청하면 «호 키» {@code promotion:<섬 id>:<호 날짜>} 의 원장 행이 이미 있어 409
  * {@code PROMOTION_ALREADY_REQUESTED_TODAY} 다 — 이 키가 지갑 유니크 제약(섬, 사유, 키)이고, 홍보 칸의
- * {@code UNIQUE (island_id, issue_date)} 와 함께 이중 차감의 최후 방어선이 된다. 실패(창 밖·비공개·이미·검증·부족)는
+ * {@code UNIQUE (island_id, issue_date)} 와 함께 이중 차감의 최후 방어선이 된다. 실패(창 밖·이미·검증·부족)는
  * receipt 도 차감도 칸도 남기지 않는다.
  *
  * <h2>판정 순서 — 싼 검사 → 잠금 → 돈</h2>
- * 게스트(컨트롤러) → 기능 스위치 → 유저(배타) → 섬(groups 배타) → 섬 살아 있음 → 섬장 → 비공개 → 신청 창 → 이 호에 이미
+ * 게스트(컨트롤러) → 기능 스위치 → 유저(배타) → 섬(groups 배타) → 섬 살아 있음 → 섬장 → 신청 창 → 이 호에 이미
  * → 글·배치·보유 → 지갑(배타) 차감 → 칸·소식·지갑 사건. 섬 잠금이 «이 호에 이미 신청했나» 판정과 차감을 섬 단위로
  * 직렬화한다 — 섬장이 위임으로 바뀌는 날 두 사람이 동시에 신청해도 한 건만 통과한다.
  *
  * <h2>재료 보유 — 세 갈래</h2>
  * 칸에 쓴 재료는 ① 퇴역하지 않은 무료 재료(지금 에셋 전부, 10/14 확정) ② 섬장 개인 보유({@code owned_products}, 앞으로의
  * 바다 시즌 재료) ③ 이 섬의 직전 칸에 이미 있던 것 — 그 칸에 있던 장수까지 — 중 하나여야 한다. ③은 정본 134행 「섬장이
- * 더는 갖고 있지 않은 것도 그 칸의 일부로 남는다」이고, 장수 상한이 갖지 않은 스티커 한 장을 열 장으로 늘리는 것을 막는다.
+ * 더는 갖고 있지 않은 것도 그 칸의 일부로 남는다」이고, 장수 상한이 갖지 않은 스티커 한 장을 다섯 장으로 늘리는 것을 막는다.
  * 섬장이 바뀌어도 새 섬장이 불러온 칸을 그대로 실을 수 있다(계획 P27).
  */
 @Service
@@ -133,9 +133,6 @@ public class IslandPromotionService {
     private PublicCommandResult place(UUID userId, UUID islandId, PromotionContent content) {
         membershipLocks.lockGroup(islandId);
         Group island = requireHost(userId, islandId);
-        if (island.isPrivate()) {
-            throw new MagazineException(MagazineErrorCode.PROMOTION_PRIVATE_ISLAND);
-        }
         Instant now = clock.instant();
         if (!MagazineCalendar.isWindowOpen(now)) {
             throw new MagazineException(MagazineErrorCode.PROMOTION_WINDOW_CLOSED);
@@ -161,7 +158,7 @@ public class IslandPromotionService {
     /**
      * 홍보 고치기 — 섬장만, 그 홍보의 신청 창(전날 07시~24시) 안에서만(밖이면 409 {@code PROMOTION_LOCKED}). 돈은 다시
      * 빼지 않고 지면 순서({@code applied_at})도 그대로다. PUT 이라 같은 내용을 여러 번 보내도 결과가 같다 — 명령 키가 없다.
-     * 비공개 여부는 보지 않는다 — 신청 뒤 비공개로 바뀐 섬의 칸은 발행·읽기가 뺀다(SAFE-03).
+     * 비공개 여부는 보지 않는다 — 10/16 비공개 섬도 잡지에 홍보할 수 있다(GROMO-2305).
      */
     @Transactional
     public IslandPromotionViews.Updated update(UUID userId, UUID islandId, UUID promotionId,

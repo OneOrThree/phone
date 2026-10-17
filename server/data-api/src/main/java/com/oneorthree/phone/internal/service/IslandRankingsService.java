@@ -117,21 +117,21 @@ public class IslandRankingsService {
 
     /**
      * 고양이 잡지 편집부 칸의 주간 랭킹 (GROMO-2289, MAG-04) — 발행 순간 전망대가 보여 주는 주(계획 P16)의 상위
-     * {@code n} 곳이다. 부르는 사람이 없는 배치라 전망대 게이트가 없고, <b>비공개 섬을 순위에서 뺀다</b>(SAFE-03 — 잡지
-     * 어디에도 나오지 않는다). 점수·분모·동점 규칙은 {@link #islands} 와 같다.
+     * {@code n} 곳이다. 부르는 사람이 없는 배치라 전망대 게이트가 없다. 10/16: 비공개 섬도 순위에 들어간다
+     * (GROMO-2305). 점수·분모·동점 규칙은 {@link #islands} 와 같다.
      *
      * <p>트랜잭션은 호출자(발행 배치)의 것을 쓴다 — 두 집계를 한 스냅샷으로 읽게 하려면 호출자가 경계를 연다.
      */
-    public List<IslandRanking> publicTop(Instant asOf, int n) {
+    public List<IslandRanking> top(Instant asOf, int n) {
         LocalDate week = RankingWeek.weekStart(asOf);
         Map<UUID, Long> focus = new HashMap<>();
         details.sumIslandActiveSeconds(RankingWeek.startInstant(week), RankingWeek.endInstant(week))
                 .forEach(row -> focus.put(row.getIslandId(), row.getSeconds()));
-        Map<UUID, String> publicNames = new HashMap<>();
+        Map<UUID, String> names = new HashMap<>();
         islands.findAllById(focus.keySet()).stream()
-                .filter(island -> IslandMovementGuards.isAlive(island) && !island.isPrivate())
-                .forEach(island -> publicNames.put(island.getId(), island.getName()));
-        List<IslandRanking> ranked = rank(focus, denominators(week, week, publicNames.keySet()), publicNames);
+                .filter(IslandMovementGuards::isAlive)
+                .forEach(island -> names.put(island.getId(), island.getName()));
+        List<IslandRanking> ranked = rank(focus, denominators(week, week, names.keySet()), names);
         return ranked.subList(0, Math.min(n, ranked.size()));
     }
 

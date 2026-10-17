@@ -36,7 +36,7 @@ public record PromotionContent(String body, Layout layout) {
     /** 홍보 글 상한 — 코드 포인트 수(정본 150행). {@code island_promotions.body varchar(60)} 과 같다. */
     public static final int MAX_BODY_LENGTH = 60;
     /** 스티커 상한(정본 133행). 테이프는 따로 0~1개다. */
-    public static final int MAX_STICKERS = 10;
+    public static final int MAX_STICKERS = 5;
 
     /** 배치 형식 버전 — 지금은 1 하나. */
     private static final int LAYOUT_VERSION = 1;
@@ -57,7 +57,7 @@ public record PromotionContent(String body, Layout layout) {
     /**
      * @param v        형식 버전(1)
      * @param frameId  칸 틀 재료 id(필수)
-     * @param stickers 스티커 0~10개 — 같은 스티커 여러 장 허용. 뒤쪽이 위에 그려진다
+     * @param stickers 스티커 0~5개 — 같은 스티커 여러 장 허용. 뒤쪽이 위에 그려진다
      * @param tape     마스킹테이프 0~1개(없으면 null)
      */
     public record Layout(Integer v, String frameId, List<Sticker> stickers, Tape tape) {

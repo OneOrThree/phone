@@ -45,7 +45,7 @@ public enum FocusErrorCode implements ErrorCode {
     /** 현재 섬의 활성 멤버가 아니다 — start 뿐 아니라 pause/resume/finish 전이도 이 코드로 막는다(LLD §2). */
     ISLAND_MEMBERSHIP_REQUIRED(HttpStatus.FORBIDDEN, "섬 멤버만 집중할 수 있습니다."),
     // ── GROMO-2299: 바다 집중 세션 ───────────────────────────────────────────
-    /** 목적지가 지금 망원경 목록에 없다 — 목록은 매시 다시 계산되므로 화면에서 고른 뒤에 사라질 수 있다. */
+    /** 목적지가 지금 망원경 목록에 없다 — 목록은 1시간마다 바뀌고 같은 버킷 안에서도 섬이 비공개·종료되면 빠지므로 화면에서 고른 뒤에 사라질 수 있다(GROMO-2306). */
     SEA_DESTINATION_UNAVAILABLE(HttpStatus.CONFLICT, "지금은 갈 수 없는 섬입니다."),
     /** 바다 세션에는 휴식이 없다(SAIL-04) — pause/resume 은 거절한다. */
     SEA_SESSION_NO_REST(HttpStatus.CONFLICT, "항해 중에는 쉴 수 없습니다."),

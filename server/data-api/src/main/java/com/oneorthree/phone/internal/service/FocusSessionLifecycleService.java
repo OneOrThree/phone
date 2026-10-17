@@ -226,7 +226,7 @@ public class FocusSessionLifecycleService {
      *
      * <p>섬 세션과 같은 공통부({@link #startSession} — 게이트·활성 계정·진행 중 부재·멱등·마커/상세/구간)를 쓰되
      * 섬 소속·현재 섬 검사는 하지 않고, 목적지가 <b>지금 망원경 목록</b>에 있는지만 본다. 항해 분은 그 항목 값으로
-     * 고정한다(목록은 저장되지 않고 매시 다시 계산된다, N6). 목표 분은 항해 분이다.
+     * 고정한다(목록은 1시간 버킷 스냅샷으로 고정된다 — GROMO-2306, N6 정정). 목표 분은 항해 분이다.
      *
      * @param body 목적지 섬 — 없거나 목록에 없으면 409 {@code SEA_DESTINATION_UNAVAILABLE}
      */

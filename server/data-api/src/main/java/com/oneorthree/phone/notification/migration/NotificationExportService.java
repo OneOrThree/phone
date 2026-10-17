@@ -670,6 +670,9 @@ public class NotificationExportService {
                     LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE,
                     INACTIVE_RETURN, STREAK_AT_RISK, FRIEND_REQUEST, FRIEND_ACCEPTED, CHALLENGE_CREATED ->
                     new Enrichment(Map.of(), null, null, true);
+            // 잡지 알림(GROMO-2307)은 구 경로가 있다 — sent_log 의 subject_id 가 호 id 다. 호수·날짜는 구 행에
+            // 없고 현재 값으로 사건을 재작성하지 않는다(렌더 입력은 호 id 만, 종결 근거 전용).
+            case MAGAZINE_PUBLISHED -> new Enrichment(Map.of("issueId", subjectId.toString()), null, null, true);
             // 구 경로에 대응물이 없는 kind 다(GROMO-1971) — 구 sent_log 에 이 종류의 행이 존재할 수 없어
             // 여기 닿는 것 자체가 이관 입력이 오염됐다는 뜻이다. 조용히 통과시키지 않고 실패로 남긴다.
             case MAIN_ISLAND_TRANSFERRED -> Enrichment.fail(FAIL_UNKNOWN_KIND,
