@@ -186,6 +186,116 @@
         }
       }
     },
+    "/internal/users/{userId}/magazine/issues/{issueId}/receipt": {
+      "put": {
+        "tags": [
+          "internal-magazine-controller"
+        ],
+        "operationId": "receive",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}": {
+      "put": {
+        "tags": [
+          "internal-island-promotion-controller"
+        ],
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Updated"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/focus-sessions/{sessionId}/live-activity": {
       "put": {
         "tags": [
@@ -678,6 +788,17 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "description": "Created",
@@ -685,6 +806,65 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/Created"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}/reports": {
+      "post": {
+        "tags": [
+          "internal-island-promotion-controller"
+        ],
+        "operationId": "report",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reported"
                 }
               }
             }
@@ -3268,7 +3448,7 @@
         "tags": [
           "internal-island-quest-controller"
         ],
-        "operationId": "update",
+        "operationId": "update_1",
         "parameters": [
           {
             "name": "islandId",
@@ -3563,7 +3743,7 @@
         "tags": [
           "internal-island-notice-controller"
         ],
-        "operationId": "update_1",
+        "operationId": "update_2",
         "parameters": [
           {
             "name": "islandId",
@@ -3833,6 +4013,167 @@
         }
       }
     },
+    "/internal/users/{userId}/magazine/today": {
+      "get": {
+        "tags": [
+          "internal-magazine-controller"
+        ],
+        "operationId": "today",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Today"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/magazine/issues": {
+      "get": {
+        "tags": [
+          "internal-magazine-controller"
+        ],
+        "operationId": "shelf",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Shelf"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/magazine/issues/{issueId}": {
+      "get": {
+        "tags": [
+          "internal-magazine-controller"
+        ],
+        "operationId": "issue",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "afterAppliedAt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "afterPromotionId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuePage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/magazine/assets": {
+      "get": {
+        "tags": [
+          "internal-island-promotion-controller"
+        ],
+        "operationId": "assets",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Assets"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/letters/{letterId}": {
       "get": {
         "tags": [
@@ -4042,6 +4383,46 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/JoinRequestCancelView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/islands/{islandId}/promotions/editor": {
+      "get": {
+        "tags": [
+          "internal-island-promotion-controller"
+        ],
+        "operationId": "editor",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Editor"
                 }
               }
             }
@@ -6197,6 +6578,139 @@
           }
         }
       },
+      "ReceiptRequest": {
+        "type": "object",
+        "properties": {
+          "place": {
+            "type": "string",
+            "enum": [
+              "SEA",
+              "ISLAND"
+            ]
+          },
+          "deferred": {
+            "type": "boolean"
+          },
+          "opened": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "place"
+        ]
+      },
+      "Receipt": {
+        "type": "object",
+        "properties": {
+          "place": {
+            "type": "string",
+            "enum": [
+              "SEA",
+              "ISLAND"
+            ]
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deferredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "openedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Layout": {
+        "type": "object",
+        "properties": {
+          "v": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "frameId": {
+            "type": "string"
+          },
+          "stickers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Sticker"
+            }
+          },
+          "tape": {
+            "$ref": "#/components/schemas/Tape"
+          }
+        }
+      },
+      "Sticker": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number",
+            "format": "double"
+          },
+          "y": {
+            "type": "number",
+            "format": "double"
+          },
+          "scale": {
+            "type": "number",
+            "format": "double"
+          },
+          "rotation": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "Tape": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number",
+            "format": "double"
+          },
+          "y": {
+            "type": "number",
+            "format": "double"
+          },
+          "rotation": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "Updated": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/Layout"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "LiveActivityRegistration": {
         "type": "object",
         "properties": {
@@ -6281,12 +6795,62 @@
           "source": {
             "type": "string",
             "pattern": "magazine|observatory"
+          },
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
           "islandId",
           "source"
         ]
+      },
+      "Cell": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/Layout"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "MEMBER",
+              "KICKED",
+              "NONE"
+            ]
+          }
+        }
       },
       "Evicted": {
         "type": "object",
@@ -6350,6 +6914,9 @@
           "pinnedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "magazineCell": {
+            "$ref": "#/components/schemas/Cell"
           }
         }
       },
@@ -6541,6 +7108,14 @@
       "Created": {
         "type": "object",
         "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
           "feeFish": {
             "type": "integer",
             "format": "int32"
@@ -6552,6 +7127,29 @@
           "newsId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "ReportRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "pattern": "HARASSMENT|HATE|SPAM_FRAUD|SEXUAL|CHILD_SAFETY|THREAT|PRIVACY_IMPERSONATION|OTHER"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "Reported": {
+        "type": "object",
+        "properties": {
+          "reported": {
+            "type": "boolean"
+          },
+          "created": {
+            "type": "boolean"
           }
         }
       },
@@ -8009,22 +8607,6 @@
           }
         }
       },
-      "Updated": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "title": {
-            "type": "string"
-          },
-          "targetMinutes": {
-            "type": "integer",
-            "format": "int32"
-          }
-        }
-      },
       "AppearanceCommandViewPlaybackView": {
         "type": "object",
         "properties": {
@@ -8207,6 +8789,249 @@
           }
         }
       },
+      "IssueSummary": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Today": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/IssueSummary"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/Receipt"
+          }
+        }
+      },
+      "Shelf": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShelfItem"
+            }
+          }
+        }
+      },
+      "ShelfItem": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "opened": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Editorial": {
+        "type": "object",
+        "properties": {
+          "ranking": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RankedIsland"
+            }
+          },
+          "newIslands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Island"
+            }
+          },
+          "note": {
+            "$ref": "#/components/schemas/Note"
+          }
+        }
+      },
+      "Island": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "MEMBER",
+              "KICKED",
+              "NONE"
+            ]
+          }
+        }
+      },
+      "IssuePage": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/IssueSummary"
+          },
+          "editorial": {
+            "$ref": "#/components/schemas/Editorial"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Cell"
+            }
+          },
+          "nextAppliedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextPromotionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Note": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "tipNo": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "RankedIsland": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "MEMBER",
+              "KICKED",
+              "NONE"
+            ]
+          }
+        }
+      },
+      "Asset": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "bundle": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Assets": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            }
+          },
+          "stickers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Sticker"
+            }
+          },
+          "tapes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            }
+          }
+        }
+      },
       "LetterItemView": {
         "type": "object",
         "properties": {
@@ -8329,6 +9154,96 @@
               "LEFT",
               "KICKED"
             ]
+          }
+        }
+      },
+      "Editor": {
+        "type": "object",
+        "properties": {
+          "window": {
+            "$ref": "#/components/schemas/Window"
+          },
+          "next": {
+            "$ref": "#/components/schemas/Next"
+          },
+          "latest": {
+            "$ref": "#/components/schemas/Latest"
+          },
+          "feeFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "balance": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "privateIsland": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Latest": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/Layout"
+          }
+        }
+      },
+      "Next": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/Layout"
+          },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "editable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Window": {
+        "type": "object",
+        "properties": {
+          "open": {
+            "type": "boolean"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "opensAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

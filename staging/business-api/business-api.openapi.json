@@ -52,6 +52,46 @@
         }
       }
     },
+    "/me/magazine/issues/{issueId}/receipt": {
+      "put": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "receipt",
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineReceipt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/current-island": {
       "put": {
         "tags": [
@@ -75,6 +115,54 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/CurrentIslandView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/promotions/{promotionId}": {
+      "put": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionUpdated"
                 }
               }
             }
@@ -641,6 +729,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "201": {
             "description": "Created",
@@ -648,6 +746,54 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/IslandPromotion"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/promotions/{promotionId}/reports": {
+      "post": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "report",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionReported"
                 }
               }
             }
@@ -1993,7 +2139,7 @@
         "tags": [
           "island-quest-controller"
         ],
-        "operationId": "update",
+        "operationId": "update_1",
         "parameters": [
           {
             "name": "islandId",
@@ -2181,7 +2327,7 @@
         "tags": [
           "island-notice-controller"
         ],
-        "operationId": "update_1",
+        "operationId": "update_2",
         "parameters": [
           {
             "name": "islandId",
@@ -2649,6 +2795,96 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/TelescopeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/today": {
+      "get": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "today",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineToday"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/issues": {
+      "get": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "issues",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineIssues"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/issues/{issueId}": {
+      "get": {
+        "tags": [
+          "magazine-controller"
+        ],
+        "operationId": "issue",
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineIssuePage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/magazine/assets": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "assets",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineAssets"
                 }
               }
             }
@@ -3154,6 +3390,36 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/CurrentQuestsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/promotions/editor": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "editor",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionEditor"
                 }
               }
             }
@@ -3924,6 +4190,32 @@
           }
         }
       },
+      "MagazineReceipt": {
+        "type": "object",
+        "properties": {
+          "place": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deferredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "openedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "deferredAt",
+          "openedAt",
+          "place",
+          "receivedAt"
+        ]
+      },
       "CurrentIslandView": {
         "type": "object",
         "properties": {
@@ -3934,6 +4226,36 @@
         },
         "required": [
           "currentIslandId"
+        ]
+      },
+      "IslandPromotionUpdated": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "body",
+          "issueDate",
+          "layout",
+          "promotionId",
+          "updatedAt"
         ]
       },
       "ConstructionTargetView": {
@@ -4036,6 +4358,60 @@
           "name"
         ]
       },
+      "MagazineCell": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "relation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "averageFocusMinutesPerDay",
+          "body",
+          "buildingCount",
+          "islandId",
+          "layout",
+          "maxMembers",
+          "memberCount",
+          "name",
+          "promotionId",
+          "relation"
+        ]
+      },
       "TelescopeItemView": {
         "type": "object",
         "properties": {
@@ -4086,6 +4462,9 @@
           "pinnedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "magazineCell": {
+            "$ref": "#/components/schemas/MagazineCell"
           }
         },
         "required": [
@@ -4319,6 +4698,13 @@
       "IslandPromotion": {
         "type": "object",
         "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
           "feeFish": {
             "type": "integer",
             "format": "int32"
@@ -4335,7 +4721,20 @@
         "required": [
           "balanceAfter",
           "feeFish",
-          "newsId"
+          "issueDate",
+          "newsId",
+          "promotionId"
+        ]
+      },
+      "IslandPromotionReported": {
+        "type": "object",
+        "properties": {
+          "reported": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reported"
         ]
       },
       "NoticeView": {
@@ -5319,6 +5718,321 @@
           "nextRefreshMinutes"
         ]
       },
+      "MagazineIssue": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "current",
+          "issueDate",
+          "issueId",
+          "issueNo",
+          "publishedAt"
+        ]
+      },
+      "MagazineToday": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/MagazineIssue"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/MagazineReceipt"
+          }
+        },
+        "required": [
+          "issue",
+          "receipt"
+        ]
+      },
+      "MagazineIssueSummary": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "opened": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issueDate",
+          "issueId",
+          "issueNo",
+          "opened",
+          "publishedAt"
+        ]
+      },
+      "MagazineIssues": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineIssueSummary"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "MagazineEditorial": {
+        "type": "object",
+        "properties": {
+          "ranking": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineRankedIsland"
+            }
+          },
+          "newIslands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineIslandCard"
+            }
+          },
+          "note": {
+            "$ref": "#/components/schemas/MagazineNote"
+          }
+        },
+        "required": [
+          "newIslands",
+          "note",
+          "ranking"
+        ]
+      },
+      "MagazineIslandCard": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "relation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "averageFocusMinutesPerDay",
+          "buildingCount",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "name",
+          "relation"
+        ]
+      },
+      "MagazineIssuePage": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/MagazineIssue"
+          },
+          "editorial": {
+            "$ref": "#/components/schemas/MagazineEditorial"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineCell"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cells",
+          "editorial",
+          "issue",
+          "nextCursor"
+        ]
+      },
+      "MagazineNote": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "tipNo": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "body",
+          "tipNo",
+          "type"
+        ]
+      },
+      "MagazineRankedIsland": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "relation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "averageFocusMinutesPerDay",
+          "buildingCount",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "name",
+          "rank",
+          "relation"
+        ]
+      },
+      "MagazineAsset": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "bundle": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "assetId",
+          "bundle",
+          "owned"
+        ]
+      },
+      "MagazineAssets": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineAsset"
+            }
+          },
+          "stickers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineSticker"
+            }
+          },
+          "tapes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MagazineAsset"
+            }
+          }
+        },
+        "required": [
+          "frames",
+          "stickers",
+          "tapes"
+        ]
+      },
+      "MagazineSticker": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "tab": {
+            "type": "string"
+          },
+          "bundle": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "assetId",
+          "bundle",
+          "owned",
+          "tab"
+        ]
+      },
       "MyJoinRequestView": {
         "type": "object",
         "properties": {
@@ -6180,6 +6894,123 @@
           "version",
           "windowEnd",
           "windowStart"
+        ]
+      },
+      "IslandPromotionEditor": {
+        "type": "object",
+        "properties": {
+          "window": {
+            "$ref": "#/components/schemas/IslandPromotionWindow"
+          },
+          "next": {
+            "$ref": "#/components/schemas/IslandPromotionNext"
+          },
+          "latest": {
+            "$ref": "#/components/schemas/IslandPromotionLatest"
+          },
+          "feeFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "balance": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "privateIsland": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "balance",
+          "feeFish",
+          "latest",
+          "next",
+          "privateIsland",
+          "window"
+        ]
+      },
+      "IslandPromotionLatest": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "body",
+          "issueDate",
+          "layout",
+          "promotionId"
+        ]
+      },
+      "IslandPromotionNext": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "editable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "appliedAt",
+          "body",
+          "editable",
+          "issueDate",
+          "layout",
+          "promotionId"
+        ]
+      },
+      "IslandPromotionWindow": {
+        "type": "object",
+        "properties": {
+          "open": {
+            "type": "boolean"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "opensAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "closesAt",
+          "issueDate",
+          "open",
+          "opensAt"
         ]
       },
       "IslandNoticeItem": {
