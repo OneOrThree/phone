@@ -597,21 +597,22 @@ test.each([false, true])(
     state.settings.reduceMotion = true;
     state.islands.find((island) => island.id === state.islandId)!.buildings = [];
     const go = jest.fn();
-    const screen = await render(
-      <FinalIsland
-        state={state}
-        go={go}
-        build={jest.fn()}
-        layeredPreview={layeredPreview}
-        showHud={false}
-        showActions={false}
-      />,
-    );
+    const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+
+    // FinalIsland는 layeredPreview prop 대신 자체 상태를 사용하므로 실제 전환 버튼을 누른다.
+    if (layeredPreview) {
+      await fireEvent.press(screen.getByTestId('village-preview-toggle'));
+      expect(screen.getByText('기존 마을 보기')).toBeTruthy();
+      expect(screen.queryByTestId('building-name-fire')).toBeNull();
+      expect(screen.queryByText('모닥불')).toBeNull();
+    } else {
+      expect(screen.getByTestId('building-name-fire')).toBeTruthy();
+      expect(screen.getByText('모닥불')).toBeTruthy();
+    }
 
     await fireEvent.press(screen.getByRole('button', { name: '모닥불' }));
     expect(go).toHaveBeenCalledWith('rest');
     expect(state.session).toBeFalsy();
-    expect(screen.getByText('모닥불')).toBeTruthy();
     await screen.unmount();
   },
 );
