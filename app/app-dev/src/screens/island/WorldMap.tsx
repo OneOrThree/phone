@@ -1962,7 +1962,7 @@ function FinalIslandScene({
       }),
     );
     const signBoxes = layoutFacilitySigns(
-      Object.entries(facilityRects).map(([id, rect]) => ({ id, rect })),
+      Object.entries(facilityRects).map(([id, rect]) => ({ id, rect, label: doors[id].label })),
       s,
       L.fontScale,
     );

@@ -1382,3 +1382,24 @@ test.each([false, true])(
     await screen.unmount();
   },
 );
+
+test('언어를 바꾸면 건물 이름과 긴 번역의 팻말 폭을 함께 갱신한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('tower')) island.buildings.push('tower');
+  const home = () => <FinalIsland state={state} go={jest.fn()} build={jest.fn()} />;
+  applyLocalePref('ko');
+  const screen = await render(home());
+  const korean = screen.getByTestId('building-name-tower').props.style;
+  expect(screen.getByText('전망대')).toBeTruthy();
+  try {
+    applyLocalePref('en');
+    await screen.rerender(home());
+    expect(screen.getByText('Lookout Tower')).toBeTruthy();
+    const english = screen.getByTestId('building-name-tower').props.style;
+    expect(english.width).toBeGreaterThan(korean.width);
+    expect(english.height).toBe(korean.height);
+  } finally {
+    applyLocalePref('system');
+  }
+});
