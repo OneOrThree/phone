@@ -71,7 +71,7 @@ public enum ApiErrorCode implements ErrorCode {
     // 잡지 홍보 신청. 앱이 이 코드에만 「오늘은 이미 신청했어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
     PROMOTION_ALREADY_REQUESTED_TODAY(HttpStatus.CONFLICT, "오늘은 이미 잡지 홍보를 신청했어요", false),
     PROMOTION_WINDOW_CLOSED(HttpStatus.CONFLICT, "지금은 홍보를 신청할 수 없어요. 아침 7시에 다시 열려요", false),
-    // 10/16 비공개 섬 홍보 허용 — 더는 던지지 않는다(공개 이름 동결).
+    // 10/16 비공개 섬 홍보 허용 — 더는 던지지 않는다(공개 이름 동결). 제거 시점: 앱 2316(비공개 버튼 해제·분기 삭제) 배포 뒤.
     PROMOTION_PRIVATE_ISLAND(HttpStatus.CONFLICT, "비공개 섬은 잡지에 홍보할 수 없어요", false),
     PROMOTION_LOCKED(HttpStatus.CONFLICT, "자정이 지나 홍보를 고칠 수 없어요", false),
     // GROMO-2299. Data 의 FocusErrorCode 와 이름·상태가 같다 — 바다 항해 세 거절. 앱이 일반 STATE_CONFLICT 와 갈라
