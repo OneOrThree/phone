@@ -1101,11 +1101,42 @@ test('현재 곡을 보유하지 않았으면 다른 보유곡이 있어도 재�
   );
 });
 
-test('집중 중 축음기는 보유곡만 표시하고 복귀 목적지를 정확히 안내한다', async () => {
+test.each(['active', 'paused'] as const)(
+  '세션 %s 중에도 축음기에서 판매곡을 구매하고 복귀 목적지를 안내한다',
+  async (status) => {
+    const state = initialState(false);
+    state.islands[0].joined = true;
+    state.islands[0].buildings.push('gram');
+    state.islands[0].sharedOwned = ['waves'];
+    state.islands[0].fish = 10_000;
+    let exposed: any;
+    state.session = {
+      id: 'focus-1',
+      islandId: state.islands[0].id,
+      subject: '수학',
+      startedAt: 1000,
+      seconds: 0,
+      status,
+    };
+    const s = await render(
+      <Harness route="sound" initial={state} expose={(value: any) => (exposed = value)} />,
+    );
+
+    s.getByLabelText(status === 'active' ? '집중으로 돌아가기' : '휴식으로 돌아가기');
+    s.getByLabelText('잔잔한 파도, 보유');
+    await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+    await fireEvent.press(s.getByText('30마리로 구매'));
+    s.getByText('구매했어요');
+    await fireEvent.press(s.getByText('지금 재생하기'));
+    assert.ok(exposed.actions.includes('BUY'));
+    assert.ok(exposed.actions.includes('TRACK'));
+  },
+);
+
+test('서버 집중 세션의 판매곡 구매는 서버 상품으로 요청하고 로컬 BUY를 호출하지 않는다', async () => {
   const state = initialState(false);
   state.islands[0].joined = true;
   state.islands[0].buildings.push('gram');
-  state.islands[0].sharedOwned = ['waves'];
   state.session = {
     id: 'focus-1',
     islandId: state.islands[0].id,
@@ -1114,11 +1145,30 @@ test('집중 중 축음기는 보유곡만 표시하고 복귀 목적지를 정�
     seconds: 0,
     status: 'active',
   };
-  const s = await render(<Harness route="sound" initial={state} />);
-
-  s.getByLabelText('집중으로 돌아가기');
-  s.getByLabelText('잔잔한 파도, 보유');
-  assert.equal(s.queryByLabelText('빗방울 소리, 30마리로 구매'), null);
+  const product = {
+    id: 'rain',
+    title: '빗방울 소리',
+    price: 30,
+    productVersion: 3,
+    available: true,
+  };
+  mockShopState.items = [product];
+  mockShopState.shared = { audio: [] };
+  mockShopBuy.mockResolvedValue({ id: 'order-1' });
+  let exposed: any;
+  const s = await render(
+    <Harness
+      route="sound"
+      initial={state}
+      api={() => ({})}
+      expose={(value: any) => (exposed = value)}
+    />,
+  );
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  await fireEvent.press(s.getByText('30마리로 구매'));
+  await waitFor(() => s.getByText('구매했어요'));
+  expect(mockShopBuy).toHaveBeenCalledWith(product);
+  expect(exposed.actions).not.toContain('BUY');
 });
 
 test('공동 보유품 중 실제 음원만 축음기 목록에 표시한다', async () => {

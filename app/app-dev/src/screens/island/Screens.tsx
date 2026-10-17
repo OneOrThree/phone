@@ -2882,12 +2882,11 @@ export function RedesignScreens({ e }: any) {
     const serverPlaybackReady = !server || !!e.playback?.state;
     const hasCurrentTrack =
       serverPlaybackReady && currentTrack !== null && ownedTrackIds.includes(currentTrack);
-    const trackIds = scene
-      ? ownedTrackIds
-      : [
-          ...ownedTrackIds,
-          ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
-        ];
+    // 집중·휴식에서 들어와도 같은 섬의 판매곡을 구매할 수 있다.
+    const trackIds = [
+      ...ownedTrackIds,
+      ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
+    ];
     const largeText = (layout.fontScale ?? 1) >= gramophone.largeTextThreshold;
     const dialogProduct = soundDialog?.product;
     const changePlayback = async (patch: { trackId?: string; playing?: boolean }) => {
@@ -2973,7 +2972,13 @@ export function RedesignScreens({ e }: any) {
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={scene ? '집중으로 돌아가기' : '섬으로 돌아가기'}
+            accessibilityLabel={
+              state.session?.status === 'paused'
+                ? '휴식으로 돌아가기'
+                : scene
+                  ? '집중으로 돌아가기'
+                  : '섬으로 돌아가기'
+            }
             onPress={back}
             style={{
               position: 'absolute',
@@ -3157,9 +3162,7 @@ export function RedesignScreens({ e }: any) {
                           : '정지됨'
                         : hasOwnedTracks
                           ? '보유곡에서 선택해 주세요'
-                          : scene
-                            ? '섬에서 곡을 구매할 수 있어요'
-                            : '곡을 구매해 주세요'}
+                          : '곡을 구매해 주세요'}
                     </Txt>
                   </View>
                   <Volume
