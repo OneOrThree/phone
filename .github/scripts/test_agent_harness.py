@@ -165,11 +165,30 @@ class AgentHarnessTest(unittest.TestCase):
         self.write_settings()
         harness.validate_settings(self.root)
 
+    def test_prefixed_output_paths_and_cd_relative_scripts_are_not_false_rejects(self):
+        for command in ('touch "$CLAUDE_PROJECT_DIR/.claude/state"', 'mkdir -p "$CLAUDE_PROJECT_DIR/.claude/tmp"',
+                        'echo x > "$CLAUDE_PROJECT_DIR/.claude/log"', "cd server/data-api && ./gradlew test",
+                        'bash -c "./gradlew build"', 'echo hi | python3 -c "print(1)"'):
+            with self.subTest(command=command):
+                self.settings["hooks"]["PostToolUse"] = [{
+                    "matcher": "Bash", "hooks": [{"type": "command", "command": command}],
+                }]
+                self.write_settings()
+                harness.validate_settings(self.root)
+
+    def test_prefixed_paths_outside_the_repo_are_rejected_in_any_position(self):
+        self.settings["hooks"]["PostToolUse"] = [{
+            "matcher": "Bash", "hooks": [{"type": "command", "command": 'touch "$CLAUDE_PROJECT_DIR/../outside"'}],
+        }]
+        self.write_settings()
+        with self.assertRaisesRegex(ValueError, "저장소 밖"):
+            harness.validate_settings(self.root)
+
     def test_repo_paths_without_the_variable_prefix_are_checked_too(self):
         for command in ("python3 .claude/missing.py", "bash .github/scripts/missing.sh",
                         f'python3 "{self.root}/.claude/missing.py"',
                         "touch /tmp/x && python3 .claude/missing.py", "python3 -u .claude/missing.py",
-                        "./scripts/missing.sh"):
+                        "./scripts/missing.sh", "sleep 1 & python3 .claude/missing.py"):
             with self.subTest(command=command):
                 self.settings["hooks"]["PostToolUse"] = [{
                     "matcher": "Bash", "hooks": [{"type": "command", "command": command}],

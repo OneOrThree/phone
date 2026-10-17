@@ -19,53 +19,78 @@ PROJECT_PREFIXES = ("$CLAUDE_PROJECT_DIR/", "${CLAUDE_PROJECT_DIR}/")
 # 변수 접두사 없이 적힌 저장소 내부 참조도 같은 검사를 받는다 — 훅은 CLAUDE_PROJECT_DIR 에서 실행되므로
 # 이 상대 경로는 저장소 파일을 가리킨다.
 REPO_RELATIVE_PREFIXES = (".claude/", ".github/")
-
-
 INTERPRETERS = {"python3", "python", "bash", "sh", "zsh", "node"}
-CONNECTORS = {"&&", "||", "|", ";"}
+CONNECTORS = {"&&", "||", "|", ";", "&"}
 
 
-def script_positions(tokens):
-    """실행 파일 자리의 토큰 인덱스 집합 — 명령마다 첫 토큰, 그리고 인터프리터면 옵션(-x) 뒤 첫 인자.
-
-    `a && python3 -u .claude/x.py` 처럼 연결자 뒤에서 새 명령이 시작하는 경우도 센다.
-    한계: `bash -c "…"` 처럼 문자열 안에 든 명령은 토큰 하나라 들여다보지 않는다.
-    """
-    positions = set()
+def command_segments(tokens):
+    """연결자(&& · || · | · ; · &)로 나눈 명령 구간 [start, end)."""
+    segments = []
     start = 0
     for index, token in enumerate(tokens):
         if token in CONNECTORS:
+            segments.append((start, index))
             start = index + 1
+    segments.append((start, len(tokens)))
+    return segments
+
+
+def script_positions(tokens):
+    """실행 파일 자리의 토큰 인덱스 — 명령마다 첫 토큰, 그리고 인터프리터면 옵션(-x) 뒤 첫 인자.
+
+    `bash -c "…"` 의 문자열은 파일이 아니라 명령이므로 `-c` 뒤는 보지 않는다.
+    한계: 그 문자열 안에 든 명령은 토큰 하나라 들여다보지 않는다.
+    """
+    positions = set()
+    for start, end in command_segments(tokens):
+        if start >= end:
             continue
-        if index == start:
-            positions.add(index)
-        elif tokens[start] in INTERPRETERS and not token.startswith("-") \
-                and all(t.startswith("-") for t in tokens[start + 1:index]):
-            positions.add(index)
+        positions.add(start)
+        if tokens[start] not in INTERPRETERS:
+            continue
+        for index in range(start + 1, end):
+            token = tokens[index]
+            if token == "-c":
+                break
+            if not token.startswith("-"):
+                positions.add(index)
+                break
     return positions
 
 
-def repo_reference(token, root, positional):
-    """토큰이 저장소 파일을 가리키면 저장소 상대 경로를, 아니면 None 을 돌려준다.
+def positions_after_cd(tokens):
+    """`cd …` 가 앞서 나온 뒤의 토큰 인덱스 — 거기서부터 상대 경로의 기준 디렉터리를 알 수 없다."""
+    moved = set()
+    seen_cd = False
+    for start, end in command_segments(tokens):
+        if start < end and tokens[start] == "cd":
+            seen_cd = True
+        if seen_cd:
+            moved.update(range(start, end))
+    return moved
 
-    $CLAUDE_PROJECT_DIR 로 적은 참조는 어느 자리에 있어도 검사한다. 접두사 없는 상대·절대 경로는
-    실행 파일 자리(첫 토큰, 또는 인터프리터 뒤 첫 토큰)일 때만 검사한다 — 그 밖의 인자는
-    `touch <경로>` 처럼 만들어질 출력 경로일 수 있어 「없음」이 결함이 아니다.
+
+def repo_reference(token, root, positional, moved):
+    """토큰이 저장소 파일을 가리키면 (저장소 상대 경로, 변수 접두 여부)를, 아니면 None 을 돌려준다.
+
+    $CLAUDE_PROJECT_DIR 로 적은 참조는 어느 자리에 있어도 돌려준다. 접두사 없는 상대·절대 경로는
+    실행 파일 자리일 때만 — 그 밖의 인자는 `touch <경로>` 처럼 출력 경로일 수 있다. `cd` 뒤의 상대 경로는
+    기준이 바뀌어 판정하지 않는다(`-c` 뒤의 명령 문자열은 자리 계산에서 이미 빠진다).
     """
     for prefix in PROJECT_PREFIXES:
         if token.startswith(prefix):
-            return token[len(prefix):]
+            return token[len(prefix):], True
     if not positional:
         return None
-    if token.startswith("./"):
-        return token[2:]
-    if token.startswith(REPO_RELATIVE_PREFIXES):
-        return token
+    if token.startswith("./") or token.startswith(REPO_RELATIVE_PREFIXES):
+        if moved:
+            return None
+        return (token[2:] if token.startswith("./") else token), False
     if token.startswith("/"):
         # 절대 경로는 심링크를 풀어 비교한다(macOS 의 /var → /private/var 처럼 글자가 달라도 같은 곳).
         candidate = Path(token).resolve()
         if candidate.is_relative_to(root):
-            return str(candidate.relative_to(root))
+            return str(candidate.relative_to(root)), False
     return None
 
 
@@ -110,13 +135,18 @@ def validate_settings(root):
                 lexer.whitespace_split = True
                 tokens = list(lexer)
                 executable_positions = script_positions(tokens)
+                moved_positions = positions_after_cd(tokens)
                 for index, token in enumerate(tokens):
-                    relative = repo_reference(token, root, index in executable_positions)
-                    if relative is None:
+                    reference = repo_reference(token, root, index in executable_positions, index in moved_positions)
+                    if reference is None:
                         continue
+                    relative, explicit = reference
                     target = (root / relative).resolve()
                     if not target.is_relative_to(root):
                         raise ValueError(f"{event}: 저장소 밖의 훅 경로입니다: {relative}")
+                    if explicit and index not in executable_positions:
+                        # 출력 경로·디렉터리일 수 있다(touch·mkdir·리다이렉션) — 저장소 안이면 충분하다.
+                        continue
                     if not target.is_file():
                         raise ValueError(f"{event}: 훅 파일이 없습니다: {relative}")
                     if relative not in GATES:
@@ -129,7 +159,7 @@ def validate_settings(root):
                         raise ValueError(f"{event}: 게이트 경로는 큰따옴표로 인용해야 합니다: {relative}")
                     # 훅은 현재 작업 디렉터리에서 실행된다 — 상대 경로 게이트는 server/data-api 에서 작업하면
                     # 그 아래의 .claude/ 를 찾다 죽어 모든 Bash 를 막는다. 게이트만은 변수 기준 경로여야 한다.
-                    if not token.startswith(PROJECT_PREFIXES):
+                    if not explicit:
                         raise ValueError(f"{event}: 게이트 경로는 $CLAUDE_PROJECT_DIR 기준이어야 합니다: {relative}")
                     # shlex 는 줄바꿈을 공백으로 보지만 셸은 명령 구분자로 본다 — 게이트가 인자 없이 끝나 버린다.
                     if "\n" in command or "\r" in command:
