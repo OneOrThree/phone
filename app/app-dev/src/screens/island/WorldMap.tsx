@@ -137,6 +137,7 @@ import {
 import {
   TILE_FACILITIES,
   TILE_MAILBOX_Y_OFFSET,
+  TILE_MAILBOX_PELICAN_RECT,
   facilityPressStyle,
   layoutFacilitySigns,
   facilityTouchBox,
@@ -859,7 +860,7 @@ export function WorldMap({
           .map((b) => {
             const pelican = b === 'mail' && mailboxLetters;
             const croppedSource = tileFacilityOutlineSource(b, night);
-            const rect = pelican ? { x: 250, y: 456, w: 140, h: 140 } : TILE_FACILITIES[b];
+            const rect = pelican ? TILE_MAILBOX_PELICAN_RECT : TILE_FACILITIES[b];
             return (
               rect && (
                 <TileFacilityOutline
@@ -914,10 +915,10 @@ export function WorldMap({
               style={{
                 ...pressStyle('mail'),
                 position: 'absolute',
-                left: at('mail').left + 250 * scale,
-                top: at('mail').top + 456 * scale,
-                width: 140 * scale,
-                height: 140 * scale,
+                left: at('mail').left + TILE_MAILBOX_PELICAN_RECT.x * scale,
+                top: at('mail').top + TILE_MAILBOX_PELICAN_RECT.y * scale,
+                width: TILE_MAILBOX_PELICAN_RECT.w * scale,
+                height: TILE_MAILBOX_PELICAN_RECT.h * scale,
               }}
               resizeMode="contain"
             />
@@ -1968,7 +1969,16 @@ function FinalIslandScene({
         )}
         {visibleDoors.map(([id, d]) => {
           const facilityRect = facilityRects[id];
-          const hitbox = facilityRect ?? d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
+          // 새 편지 그림 전체를 누를 수 있게 하되, 팻말 위치는 우체통 기준으로 유지한다.
+          const touchRect =
+            facilityRect && id === 'mail' && mailboxLetters
+              ? {
+                  ...TILE_MAILBOX_PELICAN_RECT,
+                  x: facilityRect.x + TILE_MAILBOX_PELICAN_RECT.x - TILE_FACILITIES.mail.x,
+                  y: facilityRect.y + TILE_MAILBOX_PELICAN_RECT.y - TILE_FACILITIES.mail.y,
+                }
+              : facilityRect;
+          const hitbox = touchRect ?? d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
           // 홈 뗏목 그림 가장자리에 터치 여유를 주고, 축소해도 중심을 유지한다.
           const raftPadding = primitiveTokens.space[2];
           const raftTouchWidth = Math.max(
@@ -2092,7 +2102,7 @@ function FinalIslandScene({
                   minHeight: 44,
                   zIndex: scene ? 2000 : undefined,
                   ...raftTouchBox,
-                  ...(facilityRect ? facilityTouchBox(facilityRect, s) : {}),
+                  ...(touchRect ? facilityTouchBox(touchRect, s) : {}),
                 }}
               />
               {facilityRect && (

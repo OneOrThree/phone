@@ -115,6 +115,30 @@ test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지�
   expect(screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeTruthy();
 });
 
+test('일반 이미지 섬의 새 편지 터치 영역은 펠리컨 전체를 포함하고 팻말 위치는 유지한다', async () => {
+  const state = initialState();
+  state.islands.find((island) => island.id === state.islandId)!.buildings = ['mail'];
+  const home = (showMailboxLetters: boolean) => (
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      showMailboxLetters={showMailboxLetters}
+    />
+  );
+  const screen = await render(home(true));
+  const pelican = screen.getByTestId('mailbox-pelican').props.style;
+  const touch = screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요').props.style;
+  const scale = pelican.width / 140;
+  expect(touch.left).toBeLessThanOrEqual(250 * scale);
+  expect(touch.top).toBeLessThanOrEqual((456 - 24) * scale);
+  expect(touch.left + touch.width).toBeGreaterThanOrEqual(390 * scale);
+  expect(touch.top + touch.height).toBeGreaterThanOrEqual((596 - 24) * scale);
+  const sign = screen.getByTestId('building-name-mail').props.style;
+  await screen.rerender(home(false));
+  expect(screen.getByTestId('building-name-mail').props.style).toEqual(sign);
+});
+
 test('방문 섬에는 서버 미읽음 상태가 있어도 내 편지 배지와 안내를 표시하지 않는다', async () => {
   const state = initialState(true);
   const visited = state.islands.find((island) => island.id === 'cloud')!;

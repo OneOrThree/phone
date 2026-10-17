@@ -14,6 +14,7 @@ export const TILE_FACILITIES: Record<string, FacilityRect> = {
   raft: { x: 207, y: 822, w: 169, h: 103 },
 };
 export const TILE_MAILBOX_Y_OFFSET = -24;
+export const TILE_MAILBOX_PELICAN_RECT: FacilityRect = { x: 250, y: 456, w: 140, h: 140 };
 const tokens = componentTokens.tileFacility;
 
 export function facilityTouchBox(rect: FacilityRect, scale: number) {

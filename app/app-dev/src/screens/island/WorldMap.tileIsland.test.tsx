@@ -288,6 +288,27 @@ it.each(cases)(
   },
 );
 
+it.each([false, true])(
+  '타일 섬 펠리컨 전체가 터치 영역 안에 들어간다 (서버 배치 이동: %s)',
+  async (moved) => {
+    const state = fullState();
+    withLayout(state, moved ? 'mail' : undefined);
+    const screen = await render(
+      <FinalIsland state={state} go={jest.fn()} build={jest.fn()} showMailboxLetters />,
+    );
+    const touch = flatStyle(
+      screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요').props.style,
+    );
+    const dx = moved ? expected.dx : 0;
+    const dy = moved ? expected.dy : 0;
+    expect(touch.left).toBeLessThanOrEqual(250 * SCALE + dx);
+    expect(touch.top).toBeLessThanOrEqual((456 - 24) * SCALE + dy);
+    expect(touch.left + touch.width).toBeGreaterThanOrEqual(390 * SCALE + dx);
+    expect(touch.top + touch.height).toBeGreaterThanOrEqual((596 - 24) * SCALE + dy);
+    await screen.unmount();
+  },
+);
+
 it('공사 중인 건물의 공사 스프라이트도 같은 평행이동을 따른다', async () => {
   const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-21T00:10:00Z'));
   try {
