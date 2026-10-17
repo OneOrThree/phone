@@ -224,6 +224,11 @@ class SeaRemarkIntegrationTest {
         assertThat(count("select count(*) from sea_remarks where user_id=?", leaver)).isZero();
         assertThat(count("select count(*) from sea_remarks where user_id=?", bystander)).isEqualTo(1);
         assertThat(remarks).isNotNull();
+        // 변경 사건 봉투 속 자유 입력 원문 사본도 지운다 — 키는 남기고 값만 null, 남의 봉투는 그대로.
+        assertThat(count("select count(*) from event_outbox where type='sea.member.updated' and user_id=? "
+                + "and jsonb_exists(params, 'remark') and params->>'remark' is null", leaver)).isEqualTo(1);
+        assertThat(count("select count(*) from event_outbox where type='sea.member.updated' and user_id=? "
+                + "and params->>'remark'=?", bystander, "남을게요")).isEqualTo(1);
     }
 
     // ---------------------------------------------------------------- 도구

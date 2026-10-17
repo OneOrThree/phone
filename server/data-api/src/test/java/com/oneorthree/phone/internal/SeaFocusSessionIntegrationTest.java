@@ -3,6 +3,8 @@ package com.oneorthree.phone.internal;
 import com.jayway.jsonpath.JsonPath;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.common.port.FocusPresenceState;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.TelescopePinService;
@@ -16,6 +18,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -26,6 +29,11 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -62,6 +70,8 @@ class SeaFocusSessionIntegrationTest {
         }
     }
 
+    @MockitoSpyBean
+    FocusPresencePort presence;
     @Autowired
     IslandMembershipService islands;
     @Autowired
@@ -122,6 +132,25 @@ class SeaFocusSessionIntegrationTest {
         assertThat(count("select count(*) from event_outbox where type in "
                 + "('focus.member.updated','rest.member.updated') and params->>'sessionId'=?", sessionId))
                 .as("바다 세션은 섬 presence 사건을 내지 않는다(목적지 주민에게 보이면 안 된다)").isZero();
+    }
+
+    @Test
+    @DisplayName("바다 세션도 채팅 게이트 리스는 섬 세션과 같게 든다 — start 뒤 ACTIVE 로 쓰고 finish 뒤 지운다")
+    void voyageHoldsAndReleasesTheChatGateLease() throws Exception {
+        UUID island = newIsland();
+        UUID user = newUser();
+        pinAndSailingMinutes(user, island);
+
+        String sessionId = JsonPath.read(start(user, island).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "$.id");
+
+        verify(presence).focusStateChanged(eq(user), any(), anyLong(), eq(FocusPresenceState.ACTIVE), any());
+        verify(presence, never()).focusEnded(eq(user), any());
+
+        call(post("/internal/users/" + user + "/focus-sessions/" + sessionId + "/finish"), user,
+                "{\"expectedVersion\":1}").andExpect(status().isOk());
+
+        verify(presence).focusEnded(eq(user), any());
     }
 
     @Test

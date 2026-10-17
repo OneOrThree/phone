@@ -332,12 +332,18 @@ public class FocusSessionLifecycleService {
                     // 이 사용자를 지운다」라, 이전 세션이 남긴 옛 sessionId·restSeat 가 새 focus 상태와
                     // 함께 보이지 않는다. 리스 반영은 커밋 이후다(RedisFocusPresence) — 롤백된 start 는
                     // 리스를 남기지 않는다.
-                    // 바다 세션은 섬 presence 를 건드리지 않는다 — 목적지 섬 주민에게 항해자가 보이면 안 된다(관전자 규칙).
-                    List<EventEnvelope> events = startPlan.kind() == FocusSessionKind.SEA
-                            ? seaSessionEvents.sailing(userId, session.getId(), startPlan.islandId(),
-                                    startPlan.sailingMinutes(), now)
-                            : focusPresenceProjection.progressing(userId, startPlan.islandId(), view, null,
-                                    session.getPresenceOrder());
+                    // 바다 세션은 섬 사건(focus/rest.member.updated)만 내지 않는다 — 목적지 섬 주민에게 항해자가 보이면
+                    // 안 된다(관전자 규칙). 사용자 단위 채팅 게이트 리스는 섬 세션과 같게 든다(N37).
+                    List<EventEnvelope> events;
+                    if (startPlan.kind() == FocusSessionKind.SEA) {
+                        focusPresenceProjection.seaStarted(userId, session.getPresenceOrder(), detail.getVersion(),
+                                view.startedAt());
+                        events = seaSessionEvents.sailing(userId, session.getId(), startPlan.islandId(),
+                                startPlan.sailingMinutes(), now);
+                    } else {
+                        events = focusPresenceProjection.progressing(userId, startPlan.islandId(), view, null,
+                                session.getPresenceOrder());
+                    }
                     return new PublicCommandResult(201, tree(view), tree(events));
                 }).value().data();
         return decode(data, FocusSessionView.class);
@@ -732,12 +738,17 @@ public class FocusSessionLifecycleService {
         SeaRewardResult seaResult = sea ? seaFocusRewards.settle(userId, activeSeconds, t) : null;
         // 사건(projection 버전)은 잠금 순서의 맨 끝이다(LLD §3). 지갑 사건은 적립 틱이 그때그때 냈으므로
         // 여기서는 내지 않는다 — finish 는 잔액을 바꾸지 않는다.
-        // 바다 세션은 섬 presence 대신 바다 방 사건(sea.member.updated ended)만 적는다(GROMO-2299).
-        List<EventEnvelope> events = new ArrayList<>(sea
-                ? seaSessionEvents.ended(userId, sessionId, islandId, detail.getSailingMinutes(), activeSeconds,
-                        detail.getArrived(), t)
-                : focusPresenceProjection.ended(userId, islandId, sessionId, detail.getSubject(), activeSeconds, t,
-                        detail.getVersion(), marker.getPresenceOrder()));
+        // 바다 세션은 섬 사건 대신 바다 방 사건(sea.member.updated ended)을 적고, 채팅 게이트 리스는 섬 세션과 같게
+        // 지운다(GROMO-2299, N37) — 안 지우면 복원 스케줄러가 끝난 항해의 리스를 되살린다.
+        List<EventEnvelope> events;
+        if (sea) {
+            focusPresenceProjection.seaEnded(userId, marker.getPresenceOrder());
+            events = new ArrayList<>(seaSessionEvents.ended(userId, sessionId, islandId, detail.getSailingMinutes(),
+                    activeSeconds, detail.getArrived(), t));
+        } else {
+            events = new ArrayList<>(focusPresenceProjection.ended(userId, islandId, sessionId, detail.getSubject(),
+                    activeSeconds, t, detail.getVersion(), marker.getPresenceOrder()));
+        }
         FocusFinishView.SeaReward seaReward = null;
         if (seaResult != null) {
             // 지급마다 적은 인벤토리 사건도 receipt 에 싣는다(outbox-events.md §2.5 — append 가 돌려준 봉투를 그대로).
@@ -1004,8 +1015,16 @@ public class FocusSessionLifecycleService {
         detail.applyAbandon(t);
         // 선행 조건 #9 — 정리된 세션을 그 섬의 focus/rest 목록에서 지운다. 안 보내면 휴식 중에 정리된
         // 사용자의 옛 restSeat 가 그 섬의 rest 투영에 영영 남는다. 세션이 끝났으니 리스도 지운다.
+        long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, t);
+        if (detail.getKind() == FocusSessionKind.SEA) {
+            // 바다 세션은 섬 목록에 없었으니 섬 사건 없이 리스만 지우고, 방에는 도착 못 한 종료로 알린다.
+            focusPresenceProjection.seaEnded(detail.getUserId(), presenceOrderOf(detail.getSessionId()));
+            seaSessionEvents.ended(detail.getUserId(), detail.getSessionId(), detail.getIslandId(),
+                    detail.getSailingMinutes(), activeSeconds, false, t);
+            return true;
+        }
         focusPresenceProjection.ended(detail.getUserId(), detail.getIslandId(), detail.getSessionId(),
-                detail.getSubject(), FocusIntervalMath.activeSecondsAsOf(intervals, t), t, detail.getVersion(),
+                detail.getSubject(), activeSeconds, t, detail.getVersion(),
                 presenceOrderOf(detail.getSessionId()));
         return true;
     }

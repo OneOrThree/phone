@@ -5,6 +5,7 @@ import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.SeaRemarkRepository;
 import com.oneorthree.phone.focus.repository.domain.SeaRemark;
+import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,7 @@ public class SeaRemarkService {
 
     private final UserQueryService userQueryService;
     private final SeaRemarkRepository remarks;
+    private final OutboxCommandPort outbox;
     private final SeaSessionEvents events;
     /** 방명록·공지와 같은 금칙어 목록 — 걸리면 같은 코드 {@code BANNED_WORD}(400). */
     private final BannedWords bannedWords;
@@ -73,5 +75,8 @@ public class SeaRemarkService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void eraseWithdrawnUser(UUID userId) {
         remarks.deleteAllOfUser(userId);
+        // 변경 사건 params.remark 에 자유 입력 원문이 복제돼 있다 — 아직 안 나간 봉투 본문은 바꾸지 않고 남는다
+        // (OutboxCommandPort#eraseWithdrawnParam, outbox-events.md 개인정보 파기).
+        outbox.eraseWithdrawnParam(userId, SeaSessionEvents.EVENT_TYPE, "remark");
     }
 }

@@ -109,6 +109,8 @@ SERVICE_OPTIONAL_KEYS = {
         # GROMO-2182 realtime caller 자격(realtime-authorization 프로필이 읽는다)과 차단 사건 생산 스위치.
         # 프로필을 켜지 않은 배포에서는 쓰이지 않으므로 선택으로 둔다.
         "SVC_TOKEN_REALTIME_TO_DATA", "USER_BLOCKS_REALTIME_EVENTS_ENABLED",
+        # GROMO-2299 바다 방 사건(sea.member.updated) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
+        "FOCUS_SEA_REALTIME_EVENTS_ENABLED",
     ),
     "business-api": (
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
