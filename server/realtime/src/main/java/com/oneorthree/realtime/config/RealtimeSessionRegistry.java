@@ -39,7 +39,8 @@ public class RealtimeSessionRegistry {
      * {@code IslandMovementGuards} 가 같은 값을 되읽는다). 한 섬이 쓰는 목적지는 여섯
      * ({@code focus}·{@code rest}·{@code emotes}·채팅 {@code /topic/groups/{id}}·이동 {@code movement}·
      * {@code movement/snapshot}, GROMO-2247)이고 개인 큐가 둘({@code errors}·{@code duplicates})이라,
-     * <b>이론상 최대는 10 × 6 + 2 = 62</b> 다. 96 은 거기에 약 50% 여유를 둔 값이다 — 화면 전환 중 옛 구독과
+     * 섬 쪽 최대는 10 × 6 + 2 = 62 이고, 바다가 세션당 둘({@code /user/queue/sea}·{@code /topic/sea/rooms/{roomId}},
+     * GROMO-2300)을 더해 <b>이론상 최대는 64</b> 다. 96 은 거기에 약 50% 여유를 둔 값이다 — 화면 전환 중 옛 구독과
      * 새 구독이 잠깐 겹치는 창을 덮는다.
      *
      * <p>비소속 관전이 열려 있어 한 세션으로 여러 섬을 «둘러보는» 흐름은 소속 상한에 묶이지 않는다.

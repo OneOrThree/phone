@@ -592,6 +592,116 @@ class SeaRoomIntegrationTest {
         assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(room), ghost.toString())).isFalse();
     }
 
+    @Test
+    @DisplayName("[r1-6] 방 토픽을 구독하지 않은 세션의 sync 는 NOT_IN_SEA_ROOM — 「SUB room → sync」 순서 강제")
+    void syncWithoutRoomSubscriptionIsRejected() throws Exception {
+        UUID alice = sailor();
+        Client a = connect(alice);
+        a.enter();
+        BlockingQueue<SendFailureResponse> failures = a.subscribeErrors();
+
+        SendFailureResponse failure = null;
+        for (int attempt = 0; attempt < 20 && failure == null; attempt++) {
+            a.session.send("/app/sea/sync", Map.of());
+            failure = failures.poll(500, TimeUnit.MILLISECONDS);
+        }
+        assertThat(failure).isNotNull();
+        assertThat(failure.getCode()).isEqualTo(ChatErrorCode.NOT_IN_SEA_ROOM.name());
+        assertThat(a.assignments.poll(300, TimeUnit.MILLISECONDS)).as("스냅샷은 가지 않는다").isNull();
+        assertThat(a.sync().get("type")).as("구독한 뒤엔 받는다").isEqualTo("sea.room.snapshot");
+    }
+
+    @Test
+    @DisplayName("[r1-3] remark 키 없음·문자열 아님은 무시, 명시적 null·\"\" 만 지운다. sailing 필수 필드 불량은 무시")
+    void malformedMemberEventsAreIgnored() throws Exception {
+        UUID alice = UUID.randomUUID();
+        Instant now = Instant.now();
+        UUID sessionId = UUID.randomUUID();
+        given(friends.fetchFriendIds(alice)).willReturn(Set.of());
+        given(seaState.fetch(alice)).willReturn(new SeaStateClient.SeaState("한마디", now,
+                new SeaStateClient.Session(sessionId, destination, 30, 0L, now, now)));
+        connect(alice).enter();
+        String key = RedisKeys.seaUser(alice);
+
+        postEvent(seaEvent(alice, "\"status\":\"remark\""));
+        postEvent(seaEvent(alice, "\"status\":\"remark\",\"remark\":7"));
+        assertThat(redis.opsForHash().get(key, "remark")).as("키 없음·숫자는 지우지 않는다").isEqualTo("한마디");
+
+        String good = "\"sessionId\":\"" + UUID.randomUUID() + "\",\"serverNow\":\"2026-10-17T00:00:00Z\"";
+        postEvent(seaEvent(alice, "\"status\":\"sailing\"," + good
+                + ",\"destinationIslandId\":\"" + destination + "\",\"sailingMinutes\":30"));            // activeSeconds 없음
+        postEvent(seaEvent(alice, "\"status\":\"sailing\"," + good
+                + ",\"activeSeconds\":\"5\",\"destinationIslandId\":\"" + destination + "\",\"sailingMinutes\":30"));
+        postEvent(seaEvent(alice, "\"status\":\"sailing\"," + good + ",\"activeSeconds\":5,\"sailingMinutes\":30"));
+        postEvent(seaEvent(alice, "\"status\":\"sailing\"," + good
+                + ",\"activeSeconds\":5,\"destinationIslandId\":\"" + destination + "\",\"sailingMinutes\":\"30\""));
+        assertThat(redis.opsForHash().get(key, "sessionId")).as("불량 sailing 은 무시").isEqualTo(sessionId.toString());
+        assertThat(redis.opsForHash().get(key, "destinationIslandId")).isEqualTo(destination.toString());
+        assertThat(redis.opsForHash().get(key, "sailingMinutes")).isEqualTo("30");
+
+        postEvent(seaEvent(alice, "\"status\":\"remark\",\"remark\":null"));
+        assertThat(redis.opsForHash().get(key, "remark")).as("명시적 null 은 지운다").isNull();
+    }
+
+    @Test
+    @DisplayName("[r1-4] 같은 ended 가 두 번 와도 adriftSince 는 사건 occurredAt 으로 같다(멱등)")
+    void endedIsIdempotentOnOccurredAt() throws Exception {
+        UUID alice = sailor();
+        connect(alice).enter();
+        String ended = "{\"eventId\":\"%s\",\"schemaVersion\":1,\"type\":\"sea.member.updated\","
+                + "\"occurredAt\":\"2026-10-17T01:02:03Z\",\"scheduledAt\":null,\"userId\":\"" + alice + "\","
+                + "\"locale\":null,\"subjectId\":\"" + alice + "\",\"version\":2,\"params\":{\"status\":\"ended\"}}";
+
+        postEvent(String.format(ended, UUID.randomUUID()));
+        Object first = redis.opsForHash().get(RedisKeys.seaUser(alice), "adriftSince");
+        Thread.sleep(20);
+        postEvent(String.format(ended, UUID.randomUUID())); // relay 재전달(수신 기록이 롤백된 경우)
+
+        assertThat(first).isEqualTo(Long.toString(Instant.parse("2026-10-17T01:02:03Z").toEpochMilli()));
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "adriftSince")).isEqualTo(first);
+    }
+
+    @Test
+    @DisplayName("[r1-9] 한 기기의 leave 는 같은 사용자의 다른 기기 /user/queue/sea 에 sea.room.left 로 알려진다")
+    void leaveNotifiesTheOtherDevice() throws Exception {
+        UUID alice = sailor();
+        Client phone = connect(alice);
+        UUID room = roomOf(phone.enter());
+        Client tablet = connect(alice);
+        assertThat(roomOf(tablet.enter())).isEqualTo(room);
+
+        phone.session.send("/app/sea/leave", Map.of());
+
+        Map<String, Object> notice = await(tablet.assignments, frame -> "sea.room.left".equals(frame.get("type")));
+        assertThat(payload(notice)).containsEntry("roomId", room.toString()).containsEntry("reason", "left");
+    }
+
+    @Test
+    @DisplayName("[r1-2] 두 기기가 동시에 끊겨도 퇴장은 한 번 — left{disconnected} 1건, 유령 없음")
+    void simultaneousDisconnectLeavesOnce() throws Exception {
+        UUID alice = sailor();
+        UUID bob = sailor();
+        Client phone = connect(alice);
+        UUID room = roomOf(phone.enter());
+        Client tablet = connect(alice);
+        tablet.enter();
+        Client b = connect(bob);
+        b.enter();
+        BlockingQueue<Map<String, Object>> heardByBob = b.watch(room, bob);
+
+        java.util.concurrent.CompletableFuture.allOf(
+                java.util.concurrent.CompletableFuture.runAsync(phone.session::disconnect),
+                java.util.concurrent.CompletableFuture.runAsync(tablet.session::disconnect)).get(5, TimeUnit.SECONDS);
+
+        await(heardByBob, frame -> "sea.member.left".equals(frame.get("type")));
+        Map<String, Object> extra;
+        while ((extra = heardByBob.poll(1, TimeUnit.SECONDS)) != null) {
+            assertThat(extra.get("type")).as("left 는 한 번").isNotEqualTo("sea.member.left");
+        }
+        assertThat(redis.hasKey(RedisKeys.seaUser(alice))).isFalse();
+        assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(room), alice.toString())).isFalse();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private static Map<String, Object> enterUnchecked(Client client) {
@@ -710,6 +820,7 @@ class SeaRoomIntegrationTest {
         private StompSession session;
         private StompSession.Subscription subscription;
         private boolean queueSubscribed;
+        private UUID lastRoom;
 
         private final StompSessionHandlerAdapter recorder = new StompSessionHandlerAdapter() {
             @Override
@@ -756,6 +867,11 @@ class SeaRoomIntegrationTest {
         /** {@code SEND /app/sea/sync} — 스냅샷이 올 때까지 다시 보낸다. */
         Map<String, Object> sync() throws InterruptedException {
             subscribeQueue();
+            if (subscription == null && lastRoom != null) {
+                // 계약 §5: SUB room → sync. 서버가 이 순서를 강제한다(구독 없는 sync 는 NOT_IN_SEA_ROOM).
+                subscription = session.subscribe("/topic/sea/rooms/" + lastRoom,
+                        new QueueHandler(new LinkedBlockingQueue<>()));
+            }
             for (int attempt = 0; attempt < 30; attempt++) {
                 session.send("/app/sea/sync", Map.of());
                 Map<String, Object> frame = assignments.poll(500, TimeUnit.MILLISECONDS);
@@ -775,10 +891,11 @@ class SeaRoomIntegrationTest {
                 redis.delete(RedisKeys.seaEnterAttempt(userId));
                 session.send("/app/sea/enter", Map.of());
                 Map<String, Object> assigned = assignments.poll(500, TimeUnit.MILLISECONDS);
-                if (assigned != null) {
+                if (assigned != null && "sea.room.assigned".equals(assigned.get("type"))) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> body = (Map<String, Object>) assigned.get("payload");
                     assigned.put("roomId", body.get("roomId"));
+                    lastRoom = UUID.fromString((String) body.get("roomId"));
                     assignments.clear();
                     return assigned;
                 }

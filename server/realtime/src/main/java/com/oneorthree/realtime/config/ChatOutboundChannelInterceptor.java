@@ -125,7 +125,9 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         // JVM 의 구독은 남으므로 레지스트리로는 못 끊는다. 판정 불가(Redis 실패)도 보내지 않는다. 차단은 배정 때 분리했다.
         Matcher seaRoom = SEA_ROOM_TOPIC.matcher(destination);
         if (seaRoom.matches()) {
-            return deliverSeaEvent(message, UUID.fromString(seaRoom.group(1)));
+            // 정규식은 36자 모양만 본다 — 손상 값이면 프레임만 버린다(예외가 실행기로 새지 않게).
+            UUID roomId = uuidOrNull(seaRoom.group(1));
+            return roomId == null ? null : deliverSeaEvent(message, roomId);
         }
         if (destination.startsWith("/topic/sea/")) {
             return null;
@@ -263,6 +265,14 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             throw new IllegalStateException("발신자 형식 오류");
         }
         return sender;
+    }
+
+    private static UUID uuidOrNull(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static UUID uuidAt(JsonNode node) {

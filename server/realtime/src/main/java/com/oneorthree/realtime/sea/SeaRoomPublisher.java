@@ -62,6 +62,20 @@ public class SeaRoomPublisher implements MessageListener {
         }
     }
 
+    /**
+     * 그 사용자의 <b>이 JVM</b> 모든 세션 {@code /user/queue/sea} 로 보낸다({@code convertAndSendToUser} 는 세션을 고르지
+     * 않으면 그 사용자의 세션 전부다). ponytail: 다른 인스턴스에 붙은 기기에는 안 간다 — 그 기기는 전달 직전 검사에
+     * 막혀 조용해지고 다음 sync·enter 로 맞춘다. 실패는 삼킨다.
+     */
+    public void publishToUser(UUID userId, UUID roomId, String type, JsonNode payload) {
+        try {
+            messagingTemplate.convertAndSendToUser(userId.toString(), "/queue/sea",
+                    SeaRoomEvent.of(type, roomId, clock.instant(), payload));
+        } catch (RuntimeException e) {
+            log.warn("바다 개인 큐 전달 실패 — type={} reason={}", type, e.getClass().getSimpleName());
+        }
+    }
+
     @Override
     public void onMessage(Message message, byte[] pattern) {
         try {
