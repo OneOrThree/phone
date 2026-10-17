@@ -308,6 +308,7 @@ public class TelescopeService {
                 .orElse(Map.of());
     }
 
+    // 망원경 칸은 가시성 후보(공개 섬)만 오므로 privateIsland 는 false — 10 인자 보조 생성자는 앱 2316 뒤 제거 후보.
     private static MagazineViews.Cell cell(IslandPromotion promotion) {
         IslandCard card = promotion.getSnapshot();
         return new MagazineViews.Cell(promotion.getId(), promotion.getIslandId(), card.name(), card.buildingCount(),

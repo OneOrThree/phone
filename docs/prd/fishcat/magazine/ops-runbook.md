@@ -156,6 +156,7 @@ COMMIT;
 | `일시 실패 … 다음 틱(10분 뒤)에 이어서 한다` | warn | 전송 오류가 남았다 — `notified_at` 은 NULL, 다음 틱이 실패분만 다시 한다 |
 | `펼치기 실패 — 다음 틱(10분 뒤)에 이어서 한다` | warn | 예외로 끊겼다 — 같은 방식으로 이어진다 |
 | `그날 마지막 틱까지 실패분 N건을 남겼다 — 수동 확인 필요` | error | 23:50 틱 — 다음 날은 다른 호만 보므로 자동 재시도는 끝났다 |
+| `고양이 잡지 알림 펼치기가 그날 마지막 틱까지 실패했다` | error | 23:50 틱에서 예외로 끊겼다 — 위와 같이 자동 재시도는 끝났고 실패분은 수동 확인한다 |
 
 **확인**
 
@@ -187,8 +188,28 @@ SELECT u.id
 
 - cron 이 10분이고 `lockAtMostFor` 가 PT9M 이라 펼치기가 9분을 넘기면 틱이 겹칠 수 있다. 선점·결정적 키가 중복을 막고, 겹친 틱이 같은 사용자에서 서로 기다릴 수 있다.
 - 한 호를 펼치는 중에는 `NOTIFICATION_DISPATCH_MODE` 를 바꾸지 않는다. 두 경로의 중복 키가 달라 같은 호가 두 번 나간다.
+- 하루 중간에 배포하면 그날 호 알림이 그 시각에 나간다(DROP 은 조용한 시간만 버린다).
+- `OUTBOX` 로 전환하기 전에 알림 서버 V8 적용을 확인한다.
 
 **롤백** — data-api 만 되돌리면 알림 서버 V8 은 두어도 된다. 알림 서버를 되돌릴 때는 outbox 에 남은 `MAGAZINE_PUBLISHED` 가 422(`UNKNOWN_NOTIFICATION_KIND`)로 DLT 에 가므로 먼저 비운다. V126 의 `notified_at` 열과 선점 행은 남아도 무해하다.
+
+### 4-5. 10/16 마무리 에픽 — 앱 인계 항목
+
+서버가 먼저 나가고 앱이 따라온다. 앱이 규칙대로 읽기 전까지 아래 값은 서버만 준비된 상태다.
+
+| 티켓 | 서버가 내리는 것 | 앱 규칙 |
+| --- | --- | --- |
+| 2316 | 비공개 섬장도 홍보할 수 있다(서버 409 없음). `SERVER_MAX_STICKERS` 10→5 — 기존 6~10장 칸을 고치면 400 `PROMOTION_LAYOUT_INVALID`. 잡지 칸·편집부 랭킹·새 섬의 `privateIsland` | 비공개 섬장의 홍보 버튼 해제. 스티커는 5장까지, 6~10장 칸은 고치기 전에 줄이게 한다. `privateIsland` 는 **키가 없으면 false**. true 면 망원경 동그라미를 숨기고 「초대로만」 안내를 보인다(잡지→망원경 핀은 404) |
+| 2317 | `GET /me/telescope` 항목 `buildingCount`. 목록은 1시간 스냅샷(V125 `telescope_buckets`), 핀 만료는 정시+1h | `buildingCount` 는 **키가 없으면 0**. 단계는 앱 `islandStage(memberCount, buildingCount)`. 목록은 1시간 고정이고 빠진 섬은 채우지 않으므로 새 섬 칸 0 은 빈 상태. 핀 수명은 정시까지이고, 가까운 섬을 핀하면 그 시간 라벨을 보이지 않는다 |
+| 2090·2091 | 알림 `gromo://magazine?issue={issueId}` · `data.type=MAGAZINE_PUBLISHED`. `issue` 는 호 id(UUID). 만료는 호 날짜 다음 날 07:00 KST, 7호 밖 호 id 는 404 | 만료·7호 밖 호 id 를 탭하면 「없는 호」로 처리한다. FCM 수신 전까지는 서버 발송만 준비된 상태다 |
+
+### 4-6. 10/16 마무리 에픽 롤백 순서
+
+1. **되돌리는 순서**: data-api → outbox 의 `MAGAZINE_PUBLISHED` 비우기 → 알림 서버. 알림 서버를 먼저 되돌리면 V8 이 없어 422 로 DLT 에 간다.
+2. **Flyway**: data-api V125·V126 **과 알림 서버 V8 모두** 옛 jar 에 없으면 기본 설정에서 기동을 거부한다. `flyway_schema_history` 행을 제거하거나 `spring.flyway.ignore-migration-patterns=*:missing` 을 임시로 허용한다.
+3. **2306**: `telescope_buckets` 행이 남아, 재배포하면 같은 1시간 안의 낡은 스냅샷이 정본처럼 재사용된다(영향 작음). 당겨진 핀 `expires_at` 은 복구할 수 없다.
+4. **2305**: 롤백 사이 비공개 섬이 낸 홍보는 돈이 빠졌는데 잡지에 실리지 않는 상태다. 건수를 확인하고 환불을 판단한다(`island_promotions ⋈ groups.is_private`).
+5. **2307**: 재배포 뒤 `notified_at` 이 NULL 인 오늘 호는 첫 틱에 다시 펼쳐지지만, 선점 행이 중복을 막는다.
 
 ## 5. 망원경 홍보 칸 미리보기
 
