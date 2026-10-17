@@ -283,6 +283,36 @@
         }
       }
     },
+    "/me/telescope/pins": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "pinTelescope",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopePinView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/letters": {
       "get": {
         "tags": [
@@ -595,6 +625,36 @@
         }
       }
     },
+    "/islands/{islandId}/promotions": {
+      "post": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "promote",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotion"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/notices": {
       "get": {
         "tags": [
@@ -888,6 +948,74 @@
         }
       }
     },
+    "/islands/{islandId}/guestbook": {
+      "get": {
+        "tags": [
+          "island-guestbook-controller"
+        ],
+        "operationId": "list_2",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandGuestbook"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "island-guestbook-controller"
+        ],
+        "operationId": "write",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandGuestbookItem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/constructions": {
       "post": {
         "tags": [
@@ -921,6 +1049,36 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/ConstructionResultView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/arrivals": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "arrive",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandArrivalView"
                 }
               }
             }
@@ -2478,6 +2636,26 @@
         }
       }
     },
+    "/me/telescope": {
+      "get": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "telescope",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/join-requests": {
       "get": {
         "tags": [
@@ -2983,6 +3161,36 @@
         }
       }
     },
+    "/islands/{islandId}/news": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "news",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandNewsPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/members": {
       "get": {
         "tags": [
@@ -3361,6 +3569,36 @@
         }
       }
     },
+    "/me/telescope/pins/{islandId}": {
+      "delete": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "unpinTelescope",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/notices/{noticeId}/comments/{commentId}": {
       "delete": {
         "tags": [
@@ -3468,6 +3706,44 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/islands/{islandId}/guestbook/{entryId}": {
+      "delete": {
+        "tags": [
+          "island-guestbook-controller"
+        ],
+        "operationId": "delete_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
                 }
               }
             }
@@ -3744,6 +4020,102 @@
           }
         }
       },
+      "EvictedPinView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "islandId",
+          "name"
+        ]
+      },
+      "TelescopeItemView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "sailingMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "full": {
+            "type": "boolean"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "pinnedFrom": {
+            "type": "string"
+          },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "approvalRequired",
+          "arrivedBefore",
+          "full",
+          "intro",
+          "islandId",
+          "maxMembers",
+          "memberCount",
+          "membershipStatus",
+          "name",
+          "sailingMinutes",
+          "slot"
+        ]
+      },
+      "TelescopePinView": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/TelescopeItemView"
+          },
+          "evicted": {
+            "$ref": "#/components/schemas/EvictedPinView"
+          }
+        },
+        "required": [
+          "item"
+        ]
+      },
       "LetterDetailView": {
         "type": "object",
         "properties": {
@@ -3770,14 +4142,20 @@
           },
           "readAt": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "required": [
           "content",
           "createdAt",
           "id",
-          "receiverId",
-          "senderId"
+          "receiverId"
         ]
       },
       "InviteMatchRequest": {
@@ -3938,6 +4316,28 @@
           "villagePointsAdded"
         ]
       },
+      "IslandPromotion": {
+        "type": "object",
+        "properties": {
+          "feeFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "balanceAfter": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "newsId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "balanceAfter",
+          "feeFish",
+          "newsId"
+        ]
+      },
       "NoticeView": {
         "type": "object",
         "properties": {
@@ -4068,6 +4468,39 @@
           }
         }
       },
+      "IslandGuestbookItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mine": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "authorId",
+          "content",
+          "createdAt",
+          "id",
+          "mine"
+        ]
+      },
       "ConstructionResultView": {
         "type": "object",
         "properties": {
@@ -4126,6 +4559,53 @@
           "currency"
         ]
       },
+      "IslandArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "arrivedBefore",
+          "islandId",
+          "membershipStatus"
+        ]
+      },
+      "InvitationArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrived": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "arrived",
+          "islandId",
+          "membershipStatus"
+        ]
+      },
       "InvitationResolvedView": {
         "type": "object",
         "properties": {
@@ -4134,6 +4614,9 @@
           },
           "invitationToken": {
             "type": "string"
+          },
+          "arrival": {
+            "$ref": "#/components/schemas/InvitationArrivalView"
           }
         },
         "required": [
@@ -4180,6 +4663,15 @@
           },
           "themeId": {
             "type": "string"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "greeting": {
+            "type": "string"
+          },
+          "greetingIsDefault": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -4340,6 +4832,9 @@
             "items": {
               "$ref": "#/components/schemas/ActiveIntervalView"
             }
+          },
+          "seaReward": {
+            "$ref": "#/components/schemas/SeaRewardView"
           }
         },
         "required": [
@@ -4368,6 +4863,24 @@
         "required": [
           "id",
           "myRate"
+        ]
+      },
+      "SeaRewardView": {
+        "type": "object",
+        "properties": {
+          "grantedProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "minutesToNextTier": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "grantedProductIds"
         ]
       },
       "AuthSessionResult": {
@@ -4782,6 +5295,30 @@
           "onboardingComplete"
         ]
       },
+      "TelescopeView": {
+        "type": "object",
+        "properties": {
+          "bucketStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextRefreshMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TelescopeItemView"
+            }
+          }
+        },
+        "required": [
+          "bucketStart",
+          "items",
+          "nextRefreshMinutes"
+        ]
+      },
       "MyJoinRequestView": {
         "type": "object",
         "properties": {
@@ -4976,11 +5513,20 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "readAt": {
+            "type": "string"
           }
         },
         "required": [
           "content",
-          "counterpartUserId",
           "createdAt",
           "id",
           "isRead"
@@ -5717,6 +6263,45 @@
           }
         }
       },
+      "IslandNewsItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "body",
+          "createdAt",
+          "id",
+          "kind"
+        ]
+      },
+      "IslandNewsPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandNewsItem"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
       "MailboxPageResponse": {
         "type": "object",
         "properties": {
@@ -5899,6 +6484,24 @@
           "buildingThemes",
           "inventoryVersion",
           "islandThemes"
+        ]
+      },
+      "IslandGuestbook": {
+        "type": "object",
+        "properties": {
+          "boardBuilt": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandGuestbookItem"
+            }
+          }
+        },
+        "required": [
+          "boardBuilt",
+          "items"
         ]
       },
       "FocusMemberView": {
@@ -6249,6 +6852,17 @@
           }
         }
       },
+      "NoticeDeletedView": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ]
+      },
       "JoinRequestCancelView": {
         "type": "object",
         "properties": {
@@ -6265,22 +6879,26 @@
           "status"
         ]
       },
-      "NoticeDeletedView": {
-        "type": "object",
-        "properties": {
-          "deleted": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "deleted"
-        ]
-      },
       "Left": {
         "type": "object",
         "properties": {
           "left": {
             "type": "boolean"
+          },
+          "nextLocation": {
+            "$ref": "#/components/schemas/NextLocation"
+          }
+        },
+        "required": [
+          "nextLocation"
+        ]
+      },
+      "NextLocation": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

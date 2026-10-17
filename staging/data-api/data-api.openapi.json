@@ -338,6 +338,47 @@
         }
       }
     },
+    "/internal/users/{userId}/telescope/pins": {
+      "post": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "pinToTelescope",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelescopePinCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopePinView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/notification-settings-snapshot": {
       "post": {
         "tags": [
@@ -397,6 +438,14 @@
           },
           {
             "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
             "in": "query",
             "required": false,
             "schema": {
@@ -594,6 +643,55 @@
         }
       }
     },
+    "/internal/users/{userId}/islands/{islandId}/promotions": {
+      "post": {
+        "tags": [
+          "internal-island-promotion-controller"
+        ],
+        "operationId": "promote",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Created"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/islands/{islandId}/memberships": {
       "post": {
         "tags": [
@@ -694,6 +792,55 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/IslandInvitationIssuedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/islands/{islandId}/arrivals": {
+      "post": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "arrive",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandArrivalView"
                 }
               }
             }
@@ -2174,6 +2321,94 @@
         }
       }
     },
+    "/internal/islands/{islandId}/guestbook": {
+      "get": {
+        "tags": [
+          "internal-island-guestbook-controller"
+        ],
+        "operationId": "list_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "internal-island-guestbook-controller"
+        ],
+        "operationId": "write",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestbookWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/constructions": {
       "post": {
         "tags": [
@@ -3518,6 +3753,37 @@
         }
       }
     },
+    "/internal/users/{userId}/telescope": {
+      "get": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "telescope",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelescopeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/result-ack": {
       "get": {
         "tags": [
@@ -3776,6 +4042,56 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/JoinRequestCancelView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/islands/{islandId}/news": {
+      "get": {
+        "tags": [
+          "internal-island-promotion-controller"
+        ],
+        "operationId": "news",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewsPage"
                 }
               }
             }
@@ -5276,6 +5592,46 @@
         }
       }
     },
+    "/internal/islands/{islandId}/focus-today": {
+      "get": {
+        "tags": [
+          "internal-island-focus-members-controller"
+        ],
+        "operationId": "focusToday",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandFocusTodayView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/focus-members": {
       "get": {
         "tags": [
@@ -5396,6 +5752,46 @@
         }
       }
     },
+    "/internal/users/{userId}/telescope/pins/{islandId}": {
+      "delete": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "unpinFromTelescope",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/islands/{islandId}/membership": {
       "delete": {
         "tags": [
@@ -5428,6 +5824,15 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "nextLocation"
             }
           }
         ],
@@ -5642,6 +6047,55 @@
           }
         }
       }
+    },
+    "/internal/islands/{islandId}/guestbook/{entryId}": {
+      "delete": {
+        "tags": [
+          "internal-island-guestbook-controller"
+        ],
+        "operationId": "delete_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "entryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5817,6 +6271,102 @@
           }
         }
       },
+      "TelescopePinCommandRequest": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string",
+            "pattern": "magazine|observatory"
+          }
+        },
+        "required": [
+          "islandId",
+          "source"
+        ]
+      },
+      "Evicted": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "TelescopeItemView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "sailingMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageFocusMinutesPerDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "full": {
+            "type": "boolean"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "pinnedFrom": {
+            "type": "string"
+          },
+          "pinnedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TelescopePinView": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/TelescopeItemView"
+          },
+          "evicted": {
+            "$ref": "#/components/schemas/Evicted"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        }
+      },
       "NotificationSettingsSnapshotRequest": {
         "type": "object",
         "properties": {
@@ -5913,6 +6463,18 @@
           "readAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "FRIEND",
+              "KICK",
+              "JOIN_APPROVED"
+            ]
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -5976,6 +6538,23 @@
           }
         }
       },
+      "Created": {
+        "type": "object",
+        "properties": {
+          "feeFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "balanceAfter": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "newsId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "JoinIslandCommandRequest": {
         "type": "object",
         "properties": {
@@ -5983,6 +6562,10 @@
             "type": "string",
             "maxLength": 64,
             "minLength": 0
+          },
+          "origin": {
+            "type": "string",
+            "pattern": "visit|telescope"
           }
         }
       },
@@ -6025,6 +6608,25 @@
           }
         }
       },
+      "IslandArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "InvitationResolveCommandRequest": {
         "type": "object",
         "properties": {
@@ -6032,11 +6634,32 @@
             "type": "string",
             "maxLength": 32,
             "minLength": 0
+          },
+          "arrive": {
+            "type": "boolean"
           }
         },
         "required": [
           "code"
         ]
+      },
+      "Arrival": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrived": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
       },
       "InvitationResolvedView": {
         "type": "object",
@@ -6046,6 +6669,9 @@
           },
           "invitationToken": {
             "type": "string"
+          },
+          "arrival": {
+            "$ref": "#/components/schemas/Arrival"
           }
         }
       },
@@ -6088,6 +6714,15 @@
           "joinRequestId": {
             "type": "string",
             "format": "uuid"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "greeting": {
+            "type": "string"
+          },
+          "greetingIsDefault": {
+            "type": "boolean"
           }
         }
       },
@@ -6280,6 +6915,9 @@
             "items": {
               "$ref": "#/components/schemas/ActiveInterval"
             }
+          },
+          "seaReward": {
+            "$ref": "#/components/schemas/SeaReward"
           }
         }
       },
@@ -6293,6 +6931,21 @@
           "myRate": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "SeaReward": {
+        "type": "object",
+        "properties": {
+          "grantedProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "minutesToNextTier": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -6478,18 +7131,6 @@
             "type": "string"
           },
           "timezone": {
-            "type": "string"
-          }
-        }
-      },
-      "Created": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "title": {
             "type": "string"
           }
         }
@@ -6708,6 +7349,40 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "GuestbookWriteRequest": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "Item": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mine": {
+            "type": "boolean"
           }
         }
       },
@@ -7290,6 +7965,9 @@
           "maxMembers": {
             "type": "integer",
             "format": "int32"
+          },
+          "greeting": {
+            "type": "string"
           }
         }
       },
@@ -7498,6 +8176,25 @@
           }
         }
       },
+      "TelescopeView": {
+        "type": "object",
+        "properties": {
+          "bucketStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextRefreshMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TelescopeItemView"
+            }
+          }
+        }
+      },
       "ResultAckStateResponse": {
         "type": "object",
         "properties": {
@@ -7533,6 +8230,22 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "FRIEND",
+              "KICK",
+              "JOIN_APPROVED"
+            ]
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "readAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -7555,41 +8268,6 @@
           "nextCursor": {
             "type": "string",
             "format": "uuid"
-          }
-        }
-      },
-      "Item": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "islandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "islandName": {
-            "type": "string"
-          },
-          "memberCount": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "maxMembers": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "status": {
-            "type": "string"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -7651,6 +8329,36 @@
               "LEFT",
               "KICKED"
             ]
+          }
+        }
+      },
+      "NewsItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NewsPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewsItem"
+            }
           }
         }
       },
@@ -8070,6 +8778,12 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          },
+          "greeting": {
+            "type": "string"
+          },
+          "greetingIsDefault": {
+            "type": "boolean"
           }
         }
       },
@@ -8809,6 +9523,23 @@
           }
         }
       },
+      "IslandFocusTodayView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "IslandFocusMembersView": {
         "type": "object",
         "properties": {
@@ -9033,6 +9764,14 @@
           }
         }
       },
+      "Deleted": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
       "JoinRequestCancelView": {
         "type": "object",
         "properties": {
@@ -9050,6 +9789,18 @@
         "properties": {
           "left": {
             "type": "boolean"
+          },
+          "nextLocation": {
+            "$ref": "#/components/schemas/NextLocationView"
+          }
+        }
+      },
+      "NextLocationView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -9059,14 +9810,6 @@
           "friendshipId": {
             "type": "string",
             "format": "uuid"
-          }
-        }
-      },
-      "Deleted": {
-        "type": "object",
-        "properties": {
-          "deleted": {
-            "type": "boolean"
           }
         }
       },
