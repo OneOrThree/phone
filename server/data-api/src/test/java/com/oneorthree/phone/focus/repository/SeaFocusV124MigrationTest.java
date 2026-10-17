@@ -5,6 +5,7 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -13,6 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * V124 바다 집중 세션 컬럼 + 한마디 테이블의 실 SQL 검증 (GROMO-2299). 검증 방식은 {@code IslandGuestbookV113MigrationTest}
@@ -90,6 +92,33 @@ class SeaFocusV124MigrationTest {
         jdbc.update("INSERT INTO sea_remarks (user_id, remark, changed_at) VALUES (?, '안녕', now())", userId);
         jdbc.update("DELETE FROM users WHERE id = ?", userId);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM sea_remarks", Integer.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("CHECK focus_session_details_sea_sailing_ck — kind=SEA 인데 sailing_minutes 가 null 이면 거절되고 값이 있으면 통과한다")
+    void seaSessionsRequireSailingMinutes() {
+        migrate(MigrationVersion.LATEST);
+        JdbcTemplate jdbc = jdbc();
+        UUID userA = UUID.randomUUID();
+        UUID userB = UUID.randomUUID();
+        UUID islandId = UUID.randomUUID();
+        jdbc.update("INSERT INTO users (id, is_guest) VALUES (?, true)", userA);
+        jdbc.update("INSERT INTO users (id, is_guest) VALUES (?, true)", userB);
+        jdbc.update("INSERT INTO groups (id, name, max_members, is_chat_enabled, invite_permission, status) "
+                + "VALUES (?, '목적지', 10, true, 'OWNER_ONLY', 'WAITING')", islandId);
+        UUID rejected = UUID.randomUUID();
+        UUID accepted = UUID.randomUUID();
+        for (UUID[] pair : new UUID[][] {{rejected, userA}, {accepted, userB}}) {
+            jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds, status) "
+                    + "VALUES (?, ?, now(), 0, 'ACTIVE')", pair[0], pair[1]);
+        }
+        String insert = "INSERT INTO focus_session_details (session_id, user_id, island_id, subject, lifecycle, "
+                + "last_transition_at, kind, sailing_minutes) VALUES (?, ?, ?, '', 'ACTIVE', now(), 'SEA', ?)";
+
+        assertThatThrownBy(() -> jdbc.update(insert, rejected, userA, islandId, null))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("focus_session_details_sea_sailing_ck");
+        assertThat(jdbc.update(insert, accepted, userB, islandId, 30)).isEqualTo(1);
     }
 
     private Map<String, Object> column(String table, String column) {
