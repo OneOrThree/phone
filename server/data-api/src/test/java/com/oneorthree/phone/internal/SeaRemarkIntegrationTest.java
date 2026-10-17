@@ -166,7 +166,11 @@ class SeaRemarkIntegrationTest {
         putRemark(user, "다시").andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("SEA_REMARK_LOCKED"));
         assertThat(count("select count(*) from event_outbox where type='sea.member.updated' and user_id=? "
-                + "and params->>'status'='remark' and params->>'remark' is null", user)).isEqualTo(1);
+                + "and params->>'status'='remark' and params->>'remark' = ''", user)).isEqualTo(1);
+        // 키가 사라지거나 null 이 되지 않고 JSON 으로도 "remark":"" 로 직렬화된다 — realtime 은 키 부재를 불량으로 무시한다.
+        assertThat(jdbc.queryForObject("select params::text from event_outbox where type='sea.member.updated' "
+                + "and user_id=? and params->>'status'='remark' and params->>'remark' = ''", String.class, user))
+                .containsPattern("\"remark\":\\s*\"\"");
     }
 
     @Test

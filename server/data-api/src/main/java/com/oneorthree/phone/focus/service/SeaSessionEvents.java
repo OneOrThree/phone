@@ -62,10 +62,13 @@ public class SeaSessionEvents {
                 sailingMinutes, activeSeconds, arrived, null, serverNow);
     }
 
-    /** 한마디가 바뀌었다 — 지웠으면 {@code remark} 는 null 이다. */
+    /**
+     * 한마디가 바뀌었다 — 지웠으면 {@code remark} 는 {@code ""} 다(null 로 보내지 않는다 — realtime 은 {@code ""}·null
+     * 둘 다 지움으로 받지만 키 부재는 불량으로 보고 무시한다. 저장값 {@code sea_remarks.remark=""} 과도 같다).
+     */
     public List<EventEnvelope> remark(UUID userId, String remark, Instant changedAt) {
         return append(userId, STATUS_REMARK + ":" + userId + ":" + changedAt.toEpochMilli(), STATUS_REMARK, null,
-                null, null, 0L, null, remark, changedAt);
+                null, null, 0L, null, remark == null ? "" : remark, changedAt);
     }
 
     private List<EventEnvelope> append(UUID userId, String key, String status, UUID sessionId,
