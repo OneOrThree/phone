@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Clock;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -46,16 +47,20 @@ class SeaAdriftSweeperWiringTest {
     @Test
     @DisplayName("속성이 없으면 빈이 있고 전용 스레드가 살아 있다 — 컨텍스트를 닫으면 스레드가 끝난다")
     void startsByDefaultAndStopsOnClose() throws Exception {
+        Set<Thread> before = sweepThreads(); // 다른 컨텍스트가 남긴 같은 이름 스레드는 제외한다
+        Set<Thread> created = new HashSet<>();
         runner.run(context -> {
             assertThat(context).hasSingleBean(SeaAdriftSweeper.class);
-            assertThat(sweepThreads()).isNotEmpty();
+            created.addAll(sweepThreads());
+            created.removeAll(before);
+            assertThat(created).isNotEmpty();
         });
         // run 이 끝나면 컨텍스트가 닫힌다 — @PreDestroy 의 shutdownNow 가 스레드를 끝낸다.
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (!sweepThreads().isEmpty() && System.nanoTime() < deadline) {
+        while (created.stream().anyMatch(Thread::isAlive) && System.nanoTime() < deadline) {
             Thread.sleep(50);
         }
-        assertThat(sweepThreads()).isEmpty();
+        assertThat(created).noneMatch(Thread::isAlive);
     }
 
     @Test

@@ -19,7 +19,7 @@ class RedisKeysTest {
         String island = RedisKeys.emoteAttempt(user);
 
         assertThat(sea).isNotEqualTo(island);
-        assertThat(sea).startsWith("lock:chat:sea:emote:try:").doesNotStartWith("lock:chat:emote:");
-        assertThat(island).startsWith("lock:chat:emote:try:").doesNotStartWith("lock:chat:sea:emote:");
+        assertThat(sea).startsWith("lock:chat:sea:emote:try:");
+        assertThat(island).startsWith("lock:chat:emote:try:");
     }
 }

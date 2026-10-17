@@ -126,6 +126,10 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   그때는 방이 없어 no-op 으로 버려져 입장 후 상태가 낡는다. 재조회가 다르면 `UPDATE` 전이로 맞추되 `rev` CAS 로, 그사이 먼저
   적용된 더 새로운 사건을 오래된 재조회가 덮지 못하게 한다. 해시를 직접 HSET 하지 말고 `SeaRooms.UPDATE` 를 쓴다.
 
+- **롤백 메모: `sea:adrift`(ZSET)·`sea:rooms:open`(SET)에는 TTL 이 없다.** 1/2·2/2 를 함께 롤백한 채 오래 두는 경우에만 손으로
+  지운다. **새 버전이 떠 있는 동안 `sea:rooms:open` 을 지우면 전원이 새 방을 만든다**(TTL 금지와 같은 이유). 2/2(스위퍼)만
+  롤백하면 `sea:adrift` 가 쌓이고, 재배포 첫 틱이 전량을 읽어 스스로 치유한다(백로그 10^4 부터는 그 틱이 수 초 걸린다).
+
 ## Redis keys (A19 namespace table)
 
 Only these. Adding a pattern means updating `common/redis/RedisKeys` **and** the
@@ -195,6 +199,35 @@ designed fresh.
 **바다 앱 프레임 순서(강제)**: `SUB /user/queue/sea` → `SEND /app/sea/enter` → `sea.room.assigned{roomId}` 수신 →
 `SUB /topic/sea/rooms/{roomId}` → `SEND /app/sea/sync` → `sea.room.snapshot{members}` 수신. 방을 구독한 «뒤»에
 스냅샷을 받으므로 그 사이의 입퇴장·상태 변경을 놓치지 않는다. 소속 전 방 SUBSCRIBE 는 ERROR + 소켓 종료다.
+
+**바다 앱 계약 보충** (앱 티켓이 되묻는 것 — 근거는 `SeaRooms`·`StompAuthChannelInterceptor`·컨트롤러 코드):
+
+- **`sea.room.left{roomId, reason}`** 는 개인 큐 `/user/queue/sea` 로 그 사용자의 **모든 세션**(발신 세션 포함)에 간다
+  (`SeaRoomPublisher.publishToUser`). `reason` ∈ `left`(자발 퇴장·방 토픽 UNSUBSCRIBE) · `adrift`(10분 정리) ·
+  `disconnected`(마지막 세션 소켓 종료)(`SeaRooms.LEFT/ADRIFT/DISCONNECTED`). 방 토픽의 `sea.member.left{userId, reason}` 도 같은
+  값이다. 앱은 **멱등**으로 처리한다.
+- **`member = {userId, state, remark, session}`** (`SeaRooms.member`). `state` ∈ `focusing`·`adrift`. `remark` 는 없으면 `null`.
+  `session` 은 세션이 없으면 `null`, 있으면 `{sessionId, destinationIslandId, sailingMinutes, activeSeconds, serverNow,
+  startedAt}`. `activeSeconds` 는 저장값이 아니라 **발행 시각에 계산**한다 — `focusing` 이면 `serverNow − startedAt`, `adrift`
+  이면 떠오른 시각(`adriftSince`)에서 멈춘 `adriftSince − startedAt`(0 미만은 0). `adriftSince` 자체는 `member` 에 실리지 않는다.
+  10분 상수는 서버(`SeaAdriftSweeper.ADRIFT_LIMIT`)가 정하고, 정리는 60초 틱(`realtime.sea.adrift-sweep-seconds` 기본값)이라
+  실제 퇴장은 떠오른 뒤 **10:00~11:00** 사이다 — 앱 카운트다운이 0 이어도 사건을 기다린다.
+- **재연결 뒤에는 항상 `enter` 부터**: 소켓이 끊기면 구독이 사라지고 마지막 세션이면 `left{disconnected}` 로 퇴장이다. `enter` 는
+  방이 남아 있으면 그 방의 `assigned` 를 돌려주고(`existingAssignment`, `joined` 없음) 없으면 새로 배정한다. 이어서
+  `SUB /topic/sea/rooms/{roomId}` → `SEND /app/sea/sync`.
+- **오류 코드** — 어디로 오는가:
+
+| 코드 | 경로 | 근거 |
+| --- | --- | --- |
+| `NOT_IN_SEA_ROOM` | 소속 전 방 토픽 SUB → **ERROR 프레임 + 연결 종료**. `sync`·이모트 SEND → `/user/queue/errors`(연결 유지) | 인터셉터 `authorizeSeaRoomSubscription` / `SeaRooms.snapshot`·`SeaEmoteStompController.emote` |
+| `UPSTREAM_UNAVAILABLE` | 방 토픽 SUB 중 소속 조회 실패 → **ERROR 프레임 + 연결 종료**. `enter`(Data 상태 조회 실패)·Redis 실패 → `/user/queue/errors` | 인터셉터 / `SeaStompController.handleDomain`·`handleRedis`, `SeaEmoteStompController.handleRedis` |
+| `SEA_ENTER_TOO_FREQUENT` | `enter` 시도 창 600ms 초과 → **ERROR 프레임 + 연결 종료** | 인터셉터 SEND 분기 |
+| `EMOTE_TOO_FREQUENT` | 시도 창 600ms 초과 → **ERROR 프레임 + 연결 종료**. 성공 창 3초 → `/user/queue/errors` | 인터셉터 SEND 분기 / `SeaEmoteStompController.emote` |
+| `INVALID_EMOTE_TYPE` | `/user/queue/errors` | `SeaEmoteStompController.emote` |
+| `INVALID_REQUEST` | 이모트 본문 오류(`type` 누락·깨진 JSON) → `/user/queue/errors` | `SeaEmoteStompController.handleInvalidPayload` |
+
+- **이모트 `type`** ∈ `hello`·`cheer`·`sleepy`·`laugh`·`hearts`(`FocusEmoteType.wireName()`, 응원과 동일). 보낸 사람도 방 토픽에서
+  자기 `sea.emote{userId, type}` 를 받는다 — 그것이 성공 ack 다.
 
 No SpringDoc here — the real contract is the STOMP surface, which Swagger cannot express,
 and three REST endpoints do not justify a second annotation vocabulary. This table is it.
