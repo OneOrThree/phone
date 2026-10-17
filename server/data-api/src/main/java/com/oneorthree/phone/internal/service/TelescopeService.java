@@ -80,7 +80,8 @@ import java.util.stream.Stream;
  * 못한다. 바깥 트랜잭션에 합류하면 같은 커넥션·같은 스냅샷에서 끝나고, 바깥이 롤백하면 스냅샷도 함께 사라져 다음 요청이
  * 같은 시드로 다시 뽑는다. 단 {@code readOnly} 트랜잭션 안에서 부르면 INSERT 가 실패하므로 그런 호출자를 만들지 않는다.
  * 두 기기의 동시 첫 요청은 {@code ON CONFLICT DO NOTHING} 이 뒤쪽을 앞쪽 커밋까지 기다리게 한 뒤 0행으로 흘리고, 다시
- * 읽기(READ COMMITTED 의 새 문장 스냅샷)가 이긴 행을 준다.
+ * 읽기(READ COMMITTED 의 새 문장 스냅샷)가 이긴 행을 준다. 사용자 행은 <b>공유 잠금</b>으로 읽는다 — 탈퇴({@code getCallerForUpdate})와
+ * 직렬화해 탈퇴 뒤 스냅샷이 다시 남는 틈을 막는다(codex 사전 리뷰).
  *
  * <p>전망대 게이트가 없고(망원경은 바다용) 게스트도 읽는다.
  */
@@ -141,7 +142,9 @@ public class TelescopeService {
      */
     @Transactional
     public TelescopeView list(UUID userId, Instant now) {
-        userQueryService.getCaller(userId);
+        // 공유 잠금 — 탈퇴(getCallerForUpdate 뒤 개인 기록 정리·소프트 삭제)와 직렬화한다. 잠금 없이 읽으면 탈퇴가 그 사이에
+        // 커밋돼도 아래 스냅샷 INSERT 가 들어가 탈퇴자의 개인 기록이 다시 남는다(users 행은 남아 FK 가 막지 않는다).
+        userQueryService.getCallerForShare(userId);
         Instant bucketStart = now.truncatedTo(ChronoUnit.HOURS);
 
         List<UUID> joinedIds = groupMemberRepository.findActiveGroupIdsByUserId(userId);
