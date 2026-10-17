@@ -99,6 +99,13 @@ def validate_settings(root):
                         raise ValueError(f"{event}: 필수 게이트는 동기 실행이어야 합니다(async 금지): {relative}")
                     if f'"{token}"' not in command:
                         raise ValueError(f"{event}: 게이트 경로는 큰따옴표로 인용해야 합니다: {relative}")
+                    # 훅은 현재 작업 디렉터리에서 실행된다 — 상대 경로 게이트는 server/data-api 에서 작업하면
+                    # 그 아래의 .claude/ 를 찾다 죽어 모든 Bash 를 막는다. 게이트만은 변수 기준 경로여야 한다.
+                    if not token.startswith(PROJECT_PREFIXES):
+                        raise ValueError(f"{event}: 게이트 경로는 $CLAUDE_PROJECT_DIR 기준이어야 합니다: {relative}")
+                    # shlex 는 줄바꿈을 공백으로 보지만 셸은 명령 구분자로 본다 — 게이트가 인자 없이 끝나 버린다.
+                    if "\n" in command or "\r" in command:
+                        raise ValueError(f"{event}: 게이트 명령에 줄바꿈이 있습니다: {relative}")
                     if (event == "PreToolUse" and group["matcher"] == GATES[relative]
                             and tokens == ["python3", token, "--hook"]):
                         registered.add(relative)

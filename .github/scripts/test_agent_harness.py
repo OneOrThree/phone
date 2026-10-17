@@ -145,6 +145,20 @@ class AgentHarnessTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "큰따옴표"):
             harness.validate_settings(self.root)
 
+    def test_gate_with_a_newline_in_its_command_is_rejected(self):
+        self.settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"] = (
+            'python3 "$CLAUDE_PROJECT_DIR/.claude/pr-gate.py"\n--hook'
+        )
+        self.write_settings()
+        with self.assertRaisesRegex(ValueError, "줄바꿈"):
+            harness.validate_settings(self.root)
+
+    def test_gate_given_as_a_cwd_relative_path_is_rejected(self):
+        self.settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"] = 'python3 ".claude/pr-gate.py" --hook'
+        self.write_settings()
+        with self.assertRaisesRegex(ValueError, "CLAUDE_PROJECT_DIR 기준"):
+            harness.validate_settings(self.root)
+
     def test_repo_paths_without_the_variable_prefix_are_checked_too(self):
         for command in ("python3 .claude/missing.py", "bash .github/scripts/missing.sh",
                         f'python3 "{self.root}/.claude/missing.py"'):
