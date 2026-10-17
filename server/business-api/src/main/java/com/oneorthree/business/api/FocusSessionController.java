@@ -12,6 +12,7 @@ import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
 import com.oneorthree.business.usecase.FocusSessionUseCase.SummaryView;
 import com.oneorthree.business.usecase.FocusSessionUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -122,6 +123,10 @@ public class FocusSessionController {
      * 바다 집중 시작 (GROMO-2299). 본문은 {@code destinationIslandId} <b>하나</b>다 — 항해 분은 서버가 망원경 목록에서
      * 읽어 고정하므로 앱이 보내지 않는다. 필드 수를 정확히 맞춰 알 수 없는 필드가 조용히 통과하지 못하게 한다.
      */
+    @Operation(summary = "바다 집중 시작",
+            description = "목적지는 지금 망원경 목록에 있는 섬이어야 한다. 망원경 목록은 정시마다 다시 계산되므로 앱이 본 목록과 "
+                    + "어긋날 수 있다 — 409 SEA_DESTINATION_UNAVAILABLE 이면 GET /me/telescope 를 다시 불러 같은 섬이 있으면 "
+                    + "재시도하고, 없으면 선택 화면으로 돌아간다. 항해 분은 서버가 그 항목 값으로 고정한다.")
     @PostMapping(value = "/focus-sessions/sea", consumes = "application/json")
     public ResponseEntity<StateView> startSea(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);

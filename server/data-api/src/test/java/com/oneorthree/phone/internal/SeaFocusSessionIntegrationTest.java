@@ -198,6 +198,27 @@ class SeaFocusSessionIntegrationTest {
     }
 
     @Test
+    @DisplayName("SEA_DESTINATION_UNAVAILABLE 로 거절된 시작은 멱등 키를 남기지 않는다 — 같은 키로 목적지를 고쳐 재시도하면 통과한다")
+    void rejectedStartLeavesNoIdempotencyRowForTheKey() throws Exception {
+        UUID island = newIsland();
+        UUID user = newUser();
+        UUID key = UUID.randomUUID();
+        String path = "/internal/users/" + user + "/focus-sessions/sea";
+        mvc.perform(post(path).header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user.toString())
+                        .header("Idempotency-Key", key.toString()).contentType("application/json")
+                        .content("{\"destinationIslandId\":\"" + UUID.randomUUID() + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SEA_DESTINATION_UNAVAILABLE"));
+
+        pinAndSailingMinutes(user, island);
+        mvc.perform(post(path).header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user.toString())
+                        .header("Idempotency-Key", key.toString()).contentType("application/json")
+                        .content("{\"destinationIslandId\":\"" + island + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.kind").value("sea"));
+    }
+
+    @Test
     @DisplayName("목적지가 망원경 목록에 없으면 409 SEA_DESTINATION_UNAVAILABLE 이고 세션이 생기지 않는다")
     void destinationMustBeOnTheTelescope() throws Exception {
         UUID user = newUser();

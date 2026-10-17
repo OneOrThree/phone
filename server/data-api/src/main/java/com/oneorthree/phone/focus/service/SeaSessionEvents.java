@@ -5,6 +5,8 @@ import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -39,12 +41,17 @@ public class SeaSessionEvents {
     public static final String STATUS_ENDED = "ended";
     public static final String STATUS_REMARK = "remark";
 
+    /** 스위치가 꺼져 건너뛴 사건 수 — 켠 뒤 «왜 방에 안 보이나» 를 가르는 근거. */
+    public static final String SKIPPED_METRIC = "focus.sea.events.skipped";
+
     private final OutboxCommandPort outbox;
+    private final ObjectProvider<MeterRegistry> meterRegistry;
     private final boolean enabled;
 
-    public SeaSessionEvents(OutboxCommandPort outbox,
+    public SeaSessionEvents(OutboxCommandPort outbox, ObjectProvider<MeterRegistry> meterRegistry,
             @Value("${focus.sea.realtime-events-enabled:false}") boolean enabled) {
         this.outbox = outbox;
+        this.meterRegistry = meterRegistry;
         this.enabled = enabled;
     }
 
@@ -75,6 +82,10 @@ public class SeaSessionEvents {
                                        UUID destinationIslandId, Integer sailingMinutes, long activeSeconds,
                                        Boolean arrived, String remark, Instant serverNow) {
         if (!enabled) {
+            MeterRegistry registry = meterRegistry.getIfAvailable();
+            if (registry != null) {
+                registry.counter(SKIPPED_METRIC, "status", status).increment();
+            }
             return List.of();
         }
         // null 값 키를 유지한다(계약 §4) — Map.of 는 null 을 못 담는다.

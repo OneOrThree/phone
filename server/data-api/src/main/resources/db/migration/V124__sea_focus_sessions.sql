@@ -20,3 +20,6 @@ CREATE TABLE sea_remarks (
     remark     varchar(20) NOT NULL,
     changed_at timestamptz NOT NULL
 );
+
+COMMENT ON COLUMN focus_session_details.island_id IS
+    '세션의 섬. kind=SEA 면 목적지 섬이며 섬 기여가 아니다(섬 단위 집계는 kind=ISLAND 만 센다)';

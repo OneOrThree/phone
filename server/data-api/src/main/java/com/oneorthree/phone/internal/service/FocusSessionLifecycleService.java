@@ -338,6 +338,8 @@ public class FocusSessionLifecycleService {
                     if (startPlan.kind() == FocusSessionKind.SEA) {
                         focusPresenceProjection.seaStarted(userId, session.getPresenceOrder(), detail.getVersion(),
                                 view.startedAt());
+                        log.info("바다 집중 시작 session={} user={} destination={} sailingMinutes={}", session.getId(),
+                                userId, startPlan.islandId(), startPlan.sailingMinutes());
                         events = seaSessionEvents.sailing(userId, session.getId(), startPlan.islandId(),
                                 startPlan.sailingMinutes(), now);
                     } else {
@@ -718,6 +720,8 @@ public class FocusSessionLifecycleService {
         if (sea) {
             // 도착 판정(N7) — 항해 시간을 채웠는가. 「정박 중」은 사건이 아니라 수신 측 파생이다.
             detail.markArrived(activeSeconds >= detail.getSailingMinutes() * 60L);
+            log.info("바다 집중 정산 session={} user={} destination={} activeSeconds={} arrived={}", sessionId, userId,
+                    islandId, activeSeconds, detail.getArrived());
         }
 
         FocusSettlement settlement = focusSettlementRepository.save(FocusSettlement.builder()

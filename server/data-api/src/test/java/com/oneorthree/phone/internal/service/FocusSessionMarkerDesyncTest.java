@@ -83,7 +83,9 @@ class FocusSessionMarkerDesyncTest {
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands,
                 focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
                 new SeaSessionPredicate(), seaFocusRewards,
-                null, new SeaSessionEvents(outboxCommandPort, false),
+                null, new SeaSessionEvents(outboxCommandPort,
+                new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                        .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }

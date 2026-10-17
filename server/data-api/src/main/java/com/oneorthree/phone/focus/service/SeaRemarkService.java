@@ -8,6 +8,7 @@ import com.oneorthree.phone.focus.repository.domain.SeaRemark;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ import java.util.UUID;
  * 있으므로, 지운 상태는 빈 문자열 행으로 남기고 응답·조회에서만 null 로 보인다. 탈퇴 때는 행을 진짜로 지운다.
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class SeaRemarkService {
 
@@ -68,6 +70,9 @@ public class SeaRemarkService {
         }
         String shown = remark.isEmpty() ? null : remark;
         events.remark(userId, shown, now);
+        // 원문은 남기지 않는다(자유 입력) — 길이만.
+        log.info("바다 한마디 변경 user={} cleared={} length={}", userId, shown == null,
+                shown == null ? 0 : shown.codePointCount(0, shown.length()));
         return new SeaRemarkView(shown, now, now.plus(LOCK));
     }
 
