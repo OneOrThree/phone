@@ -99,4 +99,20 @@ class SeaAdriftSweeperTest {
         redis.opsForZSet().add(RedisKeys.SEA_ADRIFT, user.toString(), adriftSince);
         return user;
     }
+
+    @Test
+    @DisplayName("해시 없음 — 색인 점수가 고른 값 그대로면 잔재를 지우고, 그사이 바뀌었으면(재입장) 유지한다")
+    void orphanIndexIsRemovedOnlyWhenScoreUnchanged() {
+        long picked = System.currentTimeMillis() - Duration.ofMinutes(11).toMillis();
+        UUID gone = UUID.randomUUID();
+        redis.opsForZSet().add(RedisKeys.SEA_ADRIFT, gone.toString(), picked);
+        assertThat(sweeper.removeIndexIfUnchanged(gone, picked)).isTrue();
+        assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, gone.toString())).isNull();
+
+        UUID rejoined = UUID.randomUUID();
+        long fresh = System.currentTimeMillis();
+        redis.opsForZSet().add(RedisKeys.SEA_ADRIFT, rejoined.toString(), fresh);
+        assertThat(sweeper.removeIndexIfUnchanged(rejoined, picked)).isFalse();
+        assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, rejoined.toString())).isEqualTo((double) fresh);
+    }
 }

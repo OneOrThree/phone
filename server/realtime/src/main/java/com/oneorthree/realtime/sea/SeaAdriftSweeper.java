@@ -7,10 +7,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -33,6 +36,12 @@ public class SeaAdriftSweeper {
     static final Duration ADRIFT_LIMIT = Duration.ofMinutes(10);
     private static final long PERIOD_SECONDS = 60;
     private static final Logger LOG = LoggerFactory.getLogger(SeaAdriftSweeper.class);
+
+    /** KEYS: adrift / ARGV: userId, 기대 점수. ZSCORE 는 문자열이라 양쪽을 숫자로 바꿔 비교한다. */
+    private static final RedisScript<Long> REMOVE_IF_SCORE = new DefaultRedisScript<>(
+            "local s = redis.call('ZSCORE', KEYS[1], ARGV[1])\n"
+            + "if s and tonumber(s) == tonumber(ARGV[2]) then return redis.call('ZREM', KEYS[1], ARGV[1]) end\n"
+            + "return 0", Long.class);
 
     private final StringRedisTemplate redis;
     private final SeaRooms seaRooms;
@@ -97,10 +106,16 @@ public class SeaAdriftSweeper {
     private void sweepOne(UUID userId, long adriftSince) {
         Object roomId = redis.opsForHash().get(RedisKeys.seaUser(userId), "roomId");
         if (!(roomId instanceof String room)) {
-            // 해시가 이미 없다 — 색인에 남은 잔재만 치운다.
-            redis.opsForZSet().remove(RedisKeys.SEA_ADRIFT, userId.toString());
+            // 해시가 이미 없다 — 색인에 남은 잔재만 치운다(점수 CAS: 그사이 재입장해 새로 올라온 항목은 건드리지 않는다).
+            removeIndexIfUnchanged(userId, adriftSince);
             return;
         }
         seaRooms.leave(userId, UUID.fromString(room), SeaRooms.ADRIFT, Long.toString(adriftSince));
+    }
+
+    /** 색인 항목의 점수가 고를 때 읽은 값 그대로일 때만 지운다 — 비교와 삭제가 한 Lua 라 그 사이에 끼어들 수 없다. */
+    boolean removeIndexIfUnchanged(UUID userId, long adriftSince) {
+        return Long.valueOf(1L).equals(redis.execute(REMOVE_IF_SCORE, List.of(RedisKeys.SEA_ADRIFT),
+                userId.toString(), Long.toString(adriftSince)));
     }
 }
