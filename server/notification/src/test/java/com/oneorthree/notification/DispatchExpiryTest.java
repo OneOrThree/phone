@@ -98,6 +98,18 @@ class DispatchExpiryTest {
     }
 
     @Test
+    @DisplayName("지난 호가 된 잡지 알림(eligibility_required=false)은 호 날짜 다음 날 07:00 KST 이후 적격성 조회·발송 없이 만료로 끝난다")
+    void aMagazineNotificationForAPastIssueIsExpired() {
+        timed("magazine", "MAGAZINE_PUBLISHED", NOW.plusSeconds(60)); // expiresAt = 다음 호 발행 시각
+        when(clock.instant()).thenReturn(NOW.plusSeconds(61));
+
+        dispatch.dispatch(delivery("magazine"));
+
+        verifyNoInteractions(data, transport);
+        assertThat(status("magazine")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
     @DisplayName("적격성 조회를 기다리는 사이 시한이 지나면 보내지 않고 만료로 끝난다")
     void expiryReachedWhileEligibilityIsBeingCheckedDoesNotSend() {
         timed("streak", "STREAK_AT_RISK", NOW.plusSeconds(30));

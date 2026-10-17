@@ -25,8 +25,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -92,6 +94,10 @@ public class MagazineIssueNotifier {
      *
      * @param issueDate 호의 KST 날짜
      * @param now       선점·표시 시각(조용한 시간 판정은 사용자마다 발송 직전 시계를 새로 읽는다)
+     * <p>cron 이 10분이고 {@code lockAtMostFor} 가 PT9M 이라 펼치기가 9분을 넘기면 다음 틱과 겹칠 수 있다 — 선점·결정적 키가
+     * 중복을 막고, 겹친 틱이 같은 사용자에서 서로 기다릴 수 있다. 한 호를 펼치는 중에는
+     * {@code NOTIFICATION_DISPATCH_MODE} 를 바꾸지 않는다(두 경로의 중복 키가 달라 같은 호가 두 번 나간다).
+     *
      * @return 완료(또는 할 일 없음)면 {@code complete=true}, 전송 오류가 남았으면 {@code false} 와 실패 수 — 로그·최종 신호는
      *         스케줄러가 그날 마지막 틱 여부로 정한다
      * @throws RuntimeException 중간 실패 — {@code notified_at} 은 NULL 로 남아 다음 틱이 이어 간다
@@ -120,7 +126,14 @@ public class MagazineIssueNotifier {
                 Map<UUID, UserNotificationSettings> settings = userQueryService
                         .findAllNotificationSettings(targets.stream().map(User::getId).toList()).stream()
                         .collect(Collectors.toMap(UserNotificationSettings::getUserId, Function.identity()));
+                // 재시도 틱의 비용 — 이미 처리된 계정은 사용자 트랜잭션(공유 잠금 + 선점 시도)에 들이지 않는다.
+                Set<UUID> handled = new HashSet<>(sentLogs.findUserIdsByKindAndSubjectIdIn(
+                        NotificationSentLog.TYPE_MAGAZINE_PUBLISHED, issue.getId(),
+                        targets.stream().map(User::getId).toList()));
                 for (User target : targets) {
+                    if (handled.contains(target.getId())) {
+                        continue;
+                    }
                     UserNotificationSettings own = settings.get(target.getId());
                     if (transaction.execute(status -> sendLegacy(issue, target.getId(), own, now)) == Outcome.FAILED) {
                         failed++;

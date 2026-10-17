@@ -44,6 +44,8 @@ public class PushNotificationService {
      * null 허용 — row 부재 시 기본값(알림 on·심야 off)으로 취급.
      * INVALID_TOKEN 시 토큰을 정리하므로 호출측은 쓰기 @Transactional 안에서 불러야 한다.
      *
+     * <p>필터는 {@link #isFilteredOut} 하나다 — 호출부(잡지 알림)가 같은 메서드로 영구 미발송과 일시 실패를 가른다.
+     *
      * @return 실제 발송이 성사(FCM SENT)되면 true. 필터 스킵(알림 off·토큰 없음·quiet hours)·
      *     무효 토큰·실패·예외는 모두 false. 순위 추월(579)이 이 반환값으로 "발송되면 sent_log INSERT" 를
      *     정확히 판정한다(quiet hours 스킵을 발송으로 오기록하지 않기 위함). ①②④⑥ 는 반환값을 무시.

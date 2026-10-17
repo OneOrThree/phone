@@ -2,6 +2,7 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.notification.service.PushNotificationService;
+import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.internal.service.MagazineIssueNotifier;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -36,6 +38,8 @@ class MagazineIssueNotifierLegacyIntegrationTest extends MagazineIssueNotifierTe
     PushNotificationService push;
     @MockitoBean
     Clock clock;
+    @MockitoSpyBean
+    UserQueryService userQueryService;
 
     private final AtomicReference<Instant> sendClock = new AtomicReference<>(NOW);
 
@@ -162,7 +166,10 @@ class MagazineIssueNotifierLegacyIntegrationTest extends MagazineIssueNotifierTe
         assertThat(notifiedAt()).isNull();
         assertThat(sentLogs()).isEqualTo(2);
         when(push.sendIfAllowed(any(), any(), any(), any())).thenReturn(true);
+        clearInvocations(userQueryService);
         notifier.notifyIfPending(DATE, NOW.plusSeconds(600));
+        // 처리된 둘은 사용자 트랜잭션(공유 잠금 읽기)에 들어가지도 않고 실패한 한 명만 들어간다
+        verify(userQueryService, times(1)).findActiveForShare(any());
         // 앞 틱에 나간 둘은 선점에 막히고 실패한 한 명만 다시 시도된다 — 3 + 1 번
         verify(push, times(4)).sendIfAllowed(any(), any(), any(), any());
         assertThat(sentLogs()).isEqualTo(3);

@@ -153,8 +153,10 @@ public class NotificationEligibilityService {
     }
 
     /**
-     * 잡지 발행 알림(GROMO-2307) — 그 호가 아직 «현재 호» 여야 한다. relay·발송 게이트가 다음 호 발행 뒤까지 밀리면 지난 호
-     * 알림이 「오늘의 고양이 잡지」로 나가고, 7호 밖이면 딥링크도 404 다. 정식 계정·미탈퇴는 위 공통 전제가 봤다.
+     * 잡지 발행 알림(GROMO-2307) — 그 호가 아직 «현재 호» 여야 한다. 지난 호 차단의 1차는 알림 서버가 발송 직전에 params 의
+     * {@code expiresAt}(호 날짜 다음 날 07:00 KST, {@code NotificationExpiry}) 을 적용하는 것이고
+     * (eligibility_required=false 인 종류도 포함), 이 분기는 적격 조회가 켜진 경우의 이중 방어다. 정식 계정·미탈퇴는 위
+     * 공통 전제가 봤다.
      */
     private NotificationEligibilityResponse evaluateMagazinePublished(NotificationEligibilityRequest request) {
         MagazineIssue issue = magazineIssueRepository.findById(request.subjectId()).orElse(null);
