@@ -58,12 +58,12 @@ it('플래그 off + 미리보기 없음이면 기존 바닥 Image 를 그리고 
   // 미리보기 env 는 모듈 로드 때 굳으므로 격리 로드한다.
   delete process.env.EXPO_PUBLIC_VILLAGE_PREVIEW;
   let Island!: typeof FinalIsland;
-  let assets!: typeof import('@/constants/assets').assets;
+  let terrain!: typeof import('./IslandOcean').islandTerrain;
   jest.isolateModules(() => {
     // 격리 레지스트리가 React 를 따로 만들면 훅이 깨진다 — 바깥 React 를 그대로 물려준다.
     jest.doMock('react', () => React);
     Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
-    assets = (require('@/constants/assets') as typeof import('@/constants/assets')).assets;
+    terrain = (require('./IslandOcean') as typeof import('./IslandOcean')).islandTerrain;
   });
   mockFacts.current = null;
   const go = jest.fn();
@@ -78,7 +78,7 @@ it('플래그 off + 미리보기 없음이면 기존 바닥 Image 를 그리고 
   };
   walk(screen.toJSON());
   const hour = new Date().getHours();
-  const base = assets[`backgrounds/island/base/${hour >= 6 && hour < 18 ? 'day' : 'night'}.png`];
+  const base = terrain[hour >= 6 && hour < 18 ? 'day' : 'night'];
   expect(nodes.some((n) => n.props.source === base)).toBe(true);
   expect(screen.queryByTestId('tile-terrain')).toBeNull();
   expect(screen.getByTestId('image-terrain-facilities')).toBeTruthy();

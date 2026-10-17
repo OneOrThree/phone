@@ -1,7 +1,7 @@
+import { CoastalAtlas } from './CoastalAtlas';
 import React, { useEffect, useMemo, useState } from 'react';
 import { TileTerrainFacilities } from './TileTerrainFacilities';
 import {
-  Atlas,
   Canvas,
   Circle,
   Group,
@@ -256,6 +256,11 @@ export function TileTerrainCanvas({
     [assets, file],
   );
   // 캐시 PNG 가 깨져 디코드에 실패하면 빈 섬이 되지 않게 소스 전체를 번들로 강등한다(번들 이미지는 다시 로드).
+  const coastline = readMapJson('tileset.json', bundledTileset, assets).coastlineMaskVersion;
+  const needsCoastMask = coastline !== 1;
+  const coastMask = useImage(
+    needsCoastMask ? require('@/assets/backgrounds/island/ocean/home-mask.png') : null,
+  );
   const image = useImage(source, () => {
     if (assets.kind === 'cache') onAssetsFail?.(file);
   });
@@ -306,7 +311,7 @@ export function TileTerrainCanvas({
     }, CORRECTION_TICK_MS);
     return () => clearInterval(id);
   }, [correctedAt, reduceMotion]);
-  if (!image || !atlas) return null;
+  if (!image || !atlas || (needsCoastMask && !coastMask)) return null;
   const scale = base * camera.z;
   const serverPath = server?.path && server.path.length > 1 ? polyline(server.path) : null;
   const arrow =
@@ -326,10 +331,16 @@ export function TileTerrainCanvas({
           { scale },
         ]}
       >
-        <Atlas image={image} sprites={atlas.sprites} transforms={atlas.transforms} />
+        <CoastalAtlas
+          image={image}
+          sprites={atlas.sprites}
+          transforms={atlas.transforms}
+          mask={needsCoastMask ? coastMask : null}
+        />
         {showFacilityOutlines && (
           <TileTerrainFacilities
             image={image}
+            coastMask={needsCoastMask ? coastMask : null}
             atlas={atlas}
             scale={scale}
             pressedFacility={pressedFacility}
