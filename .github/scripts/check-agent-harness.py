@@ -3,6 +3,7 @@
 
 import json
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -23,6 +24,9 @@ def validate_settings(root):
     settings = json.loads((root / ".claude/settings.json").read_text(encoding="utf-8"))
     if not isinstance(settings, dict) or not isinstance(settings.get("hooks"), dict):
         raise ValueError(".claude/settings.json: hooks 객체가 필요합니다")
+    # 전역 끄기 한 줄이면 아래 훅 목록이 전부 장식이 된다 — 목록 검사보다 먼저 거절한다.
+    if settings.get("disableAllHooks"):
+        raise ValueError(".claude/settings.json: disableAllHooks 가 켜져 있어 저장소 훅이 실행되지 않습니다")
 
     registered = set()
     for event, groups in settings["hooks"].items():
@@ -40,6 +44,12 @@ def validate_settings(root):
                 command = hook.get("command")
                 if not isinstance(command, str) or not command.strip():
                     raise ValueError(f"{event}: command 문자열이 필요합니다")
+                # shlex 는 인용을 벗겨 버려 '$CLAUDE_PROJECT_DIR/…' 와 "$CLAUDE_PROJECT_DIR/…" 가 같은 토큰이
+                # 된다. 실제 셸에서는 작은따옴표·백슬래시 안의 변수가 확장되지 않아 파이썬이 파일 부재로 죽고
+                # 게이트가 돌지 않으므로, 토큰화 전에 원문에서 막힌 확장을 거절한다.
+                if any("CLAUDE_PROJECT_DIR" in quoted for quoted in re.findall(r"'[^']*'", command)) \
+                        or re.search(r"\\\$\{?CLAUDE_PROJECT_DIR", command):
+                    raise ValueError(f"{event}: 훅 경로의 $CLAUDE_PROJECT_DIR 확장이 인용·이스케이프로 막혀 있습니다")
                 lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
                 lexer.whitespace_split = True
                 tokens = list(lexer)

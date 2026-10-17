@@ -114,6 +114,23 @@ class AgentHarnessTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "훅 파일이 없습니다|저장소 밖"):
                     harness.validate_settings(self.root)
 
+    def test_disable_all_hooks_is_rejected_even_with_valid_gates(self):
+        self.settings["disableAllHooks"] = True
+        self.write_settings()
+        with self.assertRaisesRegex(ValueError, "disableAllHooks"):
+            harness.validate_settings(self.root)
+
+    def test_quoted_or_escaped_variable_that_the_shell_would_not_expand_is_rejected(self):
+        for command in ("python3 '$CLAUDE_PROJECT_DIR/.claude/pr-gate.py' --hook",
+                        "python3 '${CLAUDE_PROJECT_DIR}/.claude/pr-gate.py' --hook",
+                        'python3 "\\$CLAUDE_PROJECT_DIR/.claude/pr-gate.py" --hook',
+                        "python3 \\$CLAUDE_PROJECT_DIR/.claude/pr-gate.py --hook"):
+            with self.subTest(command=command):
+                self.settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"] = command
+                self.write_settings()
+                with self.assertRaisesRegex(ValueError, "확장이 인용·이스케이프로 막혀"):
+                    harness.validate_settings(self.root)
+
     def test_invalid_json_and_hook_structures_fail(self):
         for content in ("{", "[]", "{}", '{"hooks": []}', '{"hooks": {"PreToolUse": []}}',
                         '{"hooks": {"PreToolUse": [null]}}',
