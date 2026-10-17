@@ -330,6 +330,25 @@ class WriteComposeEnvTest(unittest.TestCase):
         self.assertNotIn("SVC_TOKEN_REALTIME_TO_DATA=", without)
         self.assertNotIn("USER_BLOCKS_REALTIME_EVENTS_ENABLED=", without)
 
+    def test_바다_방_사건_스위치는_data_api_에만_있으면_나오고_없으면_안_나온다(self) -> None:
+        # GROMO-2299 — FOCUS_SEA_REALTIME_EVENTS_ENABLED 는 선택 키(기본 OFF)다. SM 에 없어도 렌더가 실패하지 않는다.
+        key = "FOCUS_SEA_REALTIME_EVENTS_ENABLED"
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",
+            SVC_TOKEN_BIZ_TO_DATA="bd", SVC_TOKEN_NOTI_TO_DATA="nd",
+            SVC_TOKEN_DATA_TO_NOTI="dn", SVC_TOKEN_DATA_TO_LINK="dl", LINK_CAPABILITY_KEY="key",
+            LINK_IP_SALT="existing-salt", LINK_BASE_URL="https://links.example.test",
+            NOTIFICATION_BASE_URL="http://notification:8082", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+        )
+        without = MODULE.render(combined, "example/data:1", "data-api", "final", "dev")
+        self.assertNotIn(f"{key}=", without)
+
+        rendered = MODULE.render({**combined, key: "true"}, "example/data:1", "data-api", "final", "dev")
+        self.assertIn(f"{key}='true'", rendered)
+
+        business = {name: "synthetic-value" for name in MODULE.SERVICE_REQUIRED_KEYS["business-api"]}
+        self.assertNotIn(f"{key}=", MODULE.render({**business, key: "true"}, "example/biz:1", "business-api"))
+
     def test_prod_Business의_프록시_시크릿_누락은_출력_전에_차단한다(self) -> None:
         baseline = {key: "synthetic-value" for key in MODULE.SERVICE_REQUIRED_KEYS["business-api"]}
         baseline.pop("LINK_PROXY_SECRET", None)

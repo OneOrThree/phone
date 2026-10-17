@@ -55,6 +55,7 @@ Domain-based, mirroring `server/data-api/`'s conventions (see
 | `presence/` | `FocusPresenceReader` — **read-only** view of `presence:focus:*` |
 | `focus/` | 응원 도메인 — `IslandFocusSessions`(Data 정본 인가), `FocusEmoteService`, `FocusEmoteStompController` |
 | `block/` | 받는 사람 기준 차단 — `BlockedUsers`(세대 캐시·fail-closed 판정), `client/BlockClient`(Data 정본 조회, GROMO-2182) |
+| `sea/` | 먼바다 방(GROMO-2300) — `SeaRooms`(Redis 배정·퇴장 Lua), `SeaRoomPublisher`(로컬 + `chat:sea:v1`), `SeaStompController`·`SeaEmoteStompController`, `SeaAdriftSweeper`(떠 있는 채 10분 정리, 전용 데몬 60초) |
 | `fanout/` | Redis Pub/Sub publish + subscribe, and local delivery |
 | `message/` | The chat domain: controllers at the package root, `service/`, `repository/`(+`repository/domain/`), `dto/`, `exception/` |
 
@@ -64,6 +65,13 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 
 ## Things that will bite you
 
+- **A sea-room SET ghost is cleaned by the snapshot.** A member whose `sea:user:{id}` hash expired stays in
+  `sea:room:{roomId}:members` (a later JOIN keeps extending the SET TTL) and holds capacity forever; `SeaRooms.membersOf`
+  (snapshot) calls LEAVE's no-hash branch to SREM it. No event is emitted. Two small windows remain (both
+  recovered by the app's periodic `sync` → `NOT_IN_SEA_ROOM` → re-`enter`, decision N39): if that user rejoins the same
+  room between the pipeline read and the heal, LEAVE's `cur == roomId` branch evicts them without an event; and a healed
+  room is **not** put back into `sea:rooms:open` by the heal — the freed seat becomes a candidate again only at the next
+  normal JOIN/LEAVE on that room.
 - **Ids must come from `common/id/UuidV7`.** Calling `Generators.…().generate()` directly
   works and produces valid UUID v7s, but loses monotonicity *within a millisecond*
   (measured: ~50% inversions). Cursor paging, `hasMore`, and unread counts all rest on
@@ -111,6 +119,24 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   최종 beforeHandle 이후 DB 변경과 TCP 전송을 원자화하지 않는다. 새 보호 채널은 이 연결만으로 열리지 않으며,
   현재 도메인의 권한 회수·시설 접근·스냅샷을 검증하기 전까지 활성화하지 않는다.
 
+- **바다 방은 전달 직전에 방 소속을 다시 읽는다.** 10분 정리(`SeaAdriftSweeper`)는 다른 인스턴스에서 Redis 의
+  `sea:user:{id}` 를 지우는데, 이 JVM 의 소켓·구독은 그대로 남는다. 로컬 레지스트리로는 끊을 수 없으므로
+  `ChatOutboundChannelInterceptor` 가 `/topic/sea/rooms/*` 프레임마다 `HGET sea:user:{me} roomId` 를 대조한다(fail-closed).
+- **`BlockClient` 가 배선되지 않으면 바다는 전원 1인 방이다.** 배정의 차단 분리는 조회 실패를 «그 방 제외»로 접는다.
+  `realtime.focus.data-base-url`/`data-service-token` 이 비어 있으면 조회가 항상 예외라 후보가 전부 빠지고 매번 새 방을
+  만든다. 응원과 같은 realtime-authorization 배선이 전제다.
+- **`sea:rooms:open` 에 TTL 을 걸지 마라.** 걸면 만료 순간 모든 방이 후보에서 사라져 전원이 새 방을 만든다. 입장·퇴장
+  Lua 가 스스로 정리한다.
+- **JOIN Lua 는 차단 검사 때 본 구성원 집합이 그대로일 때만 넣는다**(결정 N32, 반환 -2 면 다시 읽고 재검사, ≤3회). 차단
+  검사와 입장 사이에 누가 들어오면 검사하지 않은 상대와 같은 방이 된다 — 동시 입장 두 명이 서로 차단 관계여도 분리되는 이유다.
+- **JOIN 뒤 `sea-state` 를 한 번 더 조회한다**(결정 N33). 첫 조회와 JOIN 사이에 Data 사건(`sea.member.updated`)이 오면
+  그때는 방이 없어 no-op 으로 버려져 입장 후 상태가 낡는다. 재조회가 다르면 `UPDATE` 전이로 맞추되 `rev` CAS 로, 그사이 먼저
+  적용된 더 새로운 사건을 오래된 재조회가 덮지 못하게 한다. 해시를 직접 HSET 하지 말고 `SeaRooms.UPDATE` 를 쓴다.
+
+- **롤백 메모: `sea:adrift`(ZSET)·`sea:rooms:open`(SET)에는 TTL 이 없다.** 1/2·2/2 를 함께 롤백한 채 오래 두는 경우에만 손으로
+  지운다. **새 버전이 떠 있는 동안 `sea:rooms:open` 을 지우면 전원이 새 방을 만든다**(TTL 금지와 같은 이유). 2/2(스위퍼)만
+  롤백하면 `sea:adrift` 가 쌓이고, 재배포 첫 틱이 전량을 읽어 스스로 치유한다(백로그 10^4 부터는 그 틱이 수 초 걸린다).
+
 ## Redis keys (A19 namespace table)
 
 Only these. Adding a pattern means updating `common/redis/RedisKeys` **and** the
@@ -127,6 +153,14 @@ architecture decision A19 table.
 | `lock:chat:emote:try:{userId}` | realtime | read/write | 응원 **발신** 시도 창(600ms, **사용자 축**). 거절된 요청도 소모해 상류 조회를 누른다 |
 | `lock:chat:emote:sub:{userId}` | realtime | read/write | 응원 **구독** 시도 창(600ms). SUBSCRIBE 도 상류 조회를 부르므로 같은 상한 |
 | `lock:chat:movement:sub:{userId}` | realtime | read/write | 이동 **구독** 시도 창(600ms, GROMO-2247). 세션×섬의 첫 이동 토픽만 쓴다 — 짝 토픽은 그 판정을 이어받는다 |
+| `sea:room:{roomId}:members` | realtime | read/write | 바다 방 구성원 SET(GROMO-2300). EXPIRE 24h(입장마다 갱신), 비면 DEL |
+| `sea:rooms:open` | realtime | read/write | 빈자리 있는 바다 방 SET. **TTL 없음** — 입장·퇴장 스크립트가 스스로 정리한다 |
+| `sea:user:{userId}` | realtime | read/write | 사용자 바다 상태 HASH(`roomId, state, remark, sessionId, destinationIslandId, sailingMinutes, startedAt, adriftSince`). EXPIRE 24h, 퇴장 시 DEL |
+| `sea:adrift` | realtime | read/write | 떠 있는 사용자 ZSET(userId → adriftSince ms). 수명 없음 — 10분 정리의 색인 |
+| `lock:chat:sea:enter:{userId}` | realtime | read/write | 바다 입장 시도 창(600ms, 사용자 축) |
+| `lock:chat:sea:emote:try:{userId}` | realtime | read/write | 바다 방 이모트 발신 시도 창(600ms, 사용자 축) |
+| `lock:chat:sea:emote:{roomId}:{userId}` | realtime | read/write | 바다 방 이모트 성공 창(3초) |
+| `chat:sea:v1` | realtime | pub/sub | 인스턴스 간 **바다 방 사건** 전파(Pub/Sub). `chat:events:v1` 과 모양이 달라 나눈다 |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
 
 **This ownership is a code convention, not an enforced boundary — yet.** A19 says the chat
@@ -159,9 +193,50 @@ designed fresh.
 | `SUB /topic/islands/{islandId}/movement` | 섬 이동 동기화(GROMO-2247): FullState·PathAccepted·MoveRejected·Arrived — 세션별 직접 전송, **members only**(`requireMember`, 비멤버는 ERROR `NOT_A_MEMBER` 뒤 연결 종료 — 관문 거절은 STOMP ERROR 경로라 close code 는 Spring 이 ERROR 프레임 뒤 세션을 닫을 때의 값(통상 1002)이고 코드가 직접 고르지 않는다). 판정은 세션×섬마다 한 번(사용자 축 시도 창 600ms, 초과는 ERROR `MOVEMENT_TOO_FREQUENT`) — 짝 토픽은 그 세션×섬의 살아 있는(강퇴 전) 판정만 이어받는다. 첫 메시지는 항상 자기 actor 가 든 그 세션 한정 FullState. **1단계는 Realtime 단일 인스턴스 가정** — 방 상태는 이 JVM 메모리에만 있고 인스턴스 간 팬아웃이 없다(다중 인스턴스 소유권은 2단계) |
 | `SUB /topic/islands/{islandId}/movement/snapshot` | 같은 섬의 위치 Snapshot(≤20Hz, 세션당 최신 1개만 전송). members only. 그 세션이 movement 로 자기 FullState 를 받은 뒤부터만 보낸다 — 그 전(snapshot 먼저 구독 포함)·movement 해지 뒤·재검사로 멈춘 뒤 재동기화 전의 Snapshot 은 버린다 |
 | `SEND /app/islands/{islandId}/movement/intent` | 목적지 전송, body `{commandSeq,navRevision,goalX,goalY}`. movement 구독 보유 세션만; 응답은 PathAccepted/MoveRejected. 사용자당 10/s·순간 20 초과는 조용히 버림 |
+| `SUB /user/queue/sea` | 바다 배정 결과(`sea.room.assigned{roomId}`)·방 스냅샷(`sea.room.snapshot{roomId, members[]}`)은 그 세션 한정(`broadcast=false`). 퇴장 통지 `sea.room.left{roomId, reason}` 는 **이 JVM 의 그 사용자 모든 세션**에 간다 — 방 소속이 사용자 단위라 기기 A 의 leave 가 기기 B 를 같이 빼기 때문(다른 인스턴스의 세션은 못 받는다). 인증만 |
+| `SEND /app/sea/enter` | 먼바다 입장 `{}` → 배정(또는 기존 방 재확인). 사용자 축 시도 창 `lock:chat:sea:enter:{userId}` 600ms, 초과는 `SEA_ENTER_TOO_FREQUENT` |
+| `SEND /app/sea/sync` | 내 방의 스냅샷 요청 `{}` — 답은 그 세션의 `/user/queue/sea`. **그 세션이 방 토픽을 구독한 뒤에만** 받는다(아래 순서를 서버가 강제) — 방이 없거나 구독 전이면 `NOT_IN_SEA_ROOM` 이 `/user/queue/errors` 로(연결 유지). **앱은 30~60초 주기 또는 재연결 때 sync 를 보내고 `NOT_IN_SEA_ROOM` 이면 재 `enter`** — Redis 장애·flush·JOIN 타임아웃 뒤 서버가 먼저 알릴 수 없는 조용한 구간의 상한(결정 N39) |
+| `SEND /app/sea/leave` | 퇴장 `{}`. 방 토픽 UNSUBSCRIBE·마지막 세션 소켓 종료도 같은 퇴장이다 |
+| `SUB /topic/sea/rooms/{roomId}` | 바다 방 사건(`sea.member.joined`·`left`·`updated`·`sea.emote`). 해시 `sea:user:{me}` 의 `roomId` 가 이 방일 때만, 아니면 `NOT_IN_SEA_ROOM`(403). 전달 직전에도 프레임마다 다시 본다(fail-closed) |
+| `SEND /app/sea/rooms/{roomId}/emotes` | 바다 방 이모트, body `{type}`(5종). 방 소속 + 시도 창 `lock:chat:sea:emote:try:{userId}` 600ms, 성공 창 `lock:chat:sea:emote:{roomId}:{userId}` 3초. 성공은 방 토픽의 `sea.emote{userId, type}` 가 ack, 거절은 `/user/queue/errors`(`NOT_IN_SEA_ROOM`·`INVALID_EMOTE_TYPE`·성공 창 3초의 `EMOTE_TOO_FREQUENT`). 시도 창 600ms 초과는 관문의 ERROR 프레임 + 연결 종료(응원과 같음) |
 | `GET /api/v1/chat/rooms` | my islands + unread counts |
 | `GET /api/v1/chat/rooms/{groupId}/messages?cursor&size` | history, newest → oldest |
 | `POST /api/v1/chat/rooms/{groupId}/read` | advance the read cursor (forward only) |
+
+**바다 앱 프레임 순서(강제)**: `SUB /user/queue/sea` → `SEND /app/sea/enter` → `sea.room.assigned{roomId}` 수신 →
+`SUB /topic/sea/rooms/{roomId}` → `SEND /app/sea/sync` → `sea.room.snapshot{members}` 수신. 방을 구독한 «뒤»에
+스냅샷을 받으므로 그 사이의 입퇴장·상태 변경을 놓치지 않는다. 소속 전 방 SUBSCRIBE 는 ERROR + 소켓 종료다.
+
+**바다 앱 계약 보충** (앱 티켓이 되묻는 것 — 근거는 `SeaRooms`·`StompAuthChannelInterceptor`·컨트롤러 코드):
+
+- **`sea.room.left{roomId, reason}`** 는 개인 큐 `/user/queue/sea` 로 그 사용자의 **모든 세션**(발신 세션 포함)에 간다
+  (`SeaRoomPublisher.publishToUser`). `reason` ∈ `left`(자발 퇴장·방 토픽 UNSUBSCRIBE·탈퇴 `user.withdrawn`) · `adrift`(10분 정리) ·
+  `disconnected`(마지막 세션 소켓 종료)(`SeaRooms.LEFT/ADRIFT/DISCONNECTED`). 방 토픽의 `sea.member.left{userId, reason}` 도 같은
+  값이다. 앱은 **멱등**으로 처리한다.
+- **`member = {userId, state, remark, session}`** (`SeaRooms.member`). `state` ∈ `focusing`·`adrift`. `remark` 는 없으면 `null`.
+  `session` 은 세션이 없으면 `null`, 있으면 `{sessionId, destinationIslandId, sailingMinutes, activeSeconds, serverNow,
+  startedAt}`. `activeSeconds` 는 저장값이 아니라 **발행 시각에 계산**한다 — `focusing` 이면 `serverNow − startedAt`, `adrift`
+  이면 떠오른 시각(`adriftSince`)에서 멈춘 `adriftSince − startedAt`(0 미만은 0). `adriftSince` 자체는 `member` 에 실리지 않는다.
+  10분 상수는 서버(`SeaAdriftSweeper.ADRIFT_LIMIT`)가 정하고, 정리는 60초 틱(`realtime.sea.adrift-sweep-seconds` 기본값)이라
+  실제 퇴장은 떠오른 뒤 **10:00~11:00** 사이다 — 앱 카운트다운이 0 이어도 사건을 기다린다.
+- **`sea.member.updated(ended)` 의 `arrived` 는 realtime 이 읽지 않는다**(`SeaRooms.transition` 의 `ended` 분기는 params 를
+  보지 않고 `adrift` 로만 전이한다). 앱 결과창의 도착 여부는 Data 의 finish 응답으로 얻는다.
+- **재연결 뒤에는 항상 `enter` 부터**: 소켓이 끊기면 구독이 사라지고 마지막 세션이면 `left{disconnected}` 로 퇴장이다. `enter` 는
+  방이 남아 있으면 그 방의 `assigned` 를 돌려주고(`existingAssignment`, `joined` 없음) 없으면 새로 배정한다. 이어서
+  `SUB /topic/sea/rooms/{roomId}` → `SEND /app/sea/sync`.
+- **오류 코드** — 어디로 오는가:
+
+| 코드 | 경로 | 근거 |
+| --- | --- | --- |
+| `NOT_IN_SEA_ROOM` | 소속 전 방 토픽 SUB → **ERROR 프레임 + 연결 종료**. `sync`·이모트 SEND → `/user/queue/errors`(연결 유지) | 인터셉터 `authorizeSeaRoomSubscription` / `SeaRooms.snapshot`·`SeaEmoteStompController.emote` |
+| `UPSTREAM_UNAVAILABLE` | 방 토픽 SUB 중 소속 조회 실패 → **ERROR 프레임 + 연결 종료**. `enter`(Data 상태 조회 실패)·Redis 실패 → `/user/queue/errors` | 인터셉터 / `SeaStompController.handleDomain`·`handleRedis`, `SeaEmoteStompController.handleRedis` |
+| `SEA_ENTER_TOO_FREQUENT` | `enter` 시도 창 600ms 초과 → **ERROR 프레임 + 연결 종료** | 인터셉터 SEND 분기 |
+| `EMOTE_TOO_FREQUENT` | 시도 창 600ms 초과 → **ERROR 프레임 + 연결 종료**. 성공 창 3초 → `/user/queue/errors` | 인터셉터 SEND 분기 / `SeaEmoteStompController.emote` |
+| `INVALID_EMOTE_TYPE` | `/user/queue/errors` | `SeaEmoteStompController.emote` |
+| `INVALID_REQUEST` | 이모트 본문 오류(`type` 누락·깨진 JSON) → `/user/queue/errors` | `SeaEmoteStompController.handleInvalidPayload` |
+
+- **이모트 `type`** ∈ `hello`·`cheer`·`sleepy`·`laugh`·`hearts`(`FocusEmoteType.wireName()`, 응원과 동일). 보낸 사람도 방 토픽에서
+  자기 `sea.emote{userId, type}` 를 받는다 — 그것이 성공 ack 다.
 
 No SpringDoc here — the real contract is the STOMP surface, which Swagger cannot express,
 and three REST endpoints do not justify a second annotation vocabulary. This table is it.
@@ -199,7 +274,7 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 4. Inbound `POST /internal/events` (GROMO-1943) — Data's canonical `user.withdrawn` envelope, authenticated by
    the Data-only token `SVC_TOKEN_DATA_TO_REALTIME` (no `X-User-Id`). `message/service/ChatUserFence` writes
    `user_tombstones` and deletes the user's `chat_read_cursors` under a per-user advisory lock; every cursor
-   write goes through the same fence. Wired by GROMO-1954 (2026-09-19 R-1): Data's relay sends every `REALTIME`
+   write goes through the same fence. `user.withdrawn` also removes the user from their sea room (`SeaRooms.leaveCurrent`, room event `sea.member.left{reason:"left"}`, GROMO-2300): Data's withdrawal ends the progressing session with a bulk UPDATE (ABANDONED) and emits no `sea.member.updated(ended)`, so without this the user would stay in the room as a `focusing` ghost — outside the `sea:adrift` index, so the 10-minute sweep never sees it — until the 24h hash TTL. Not in a room → no-op; only a Redis failure throws, rolling back the receipt (and the tombstone) so the relay redelivers. Never 400. Wired by GROMO-1954 (2026-09-19 R-1): Data's relay sends every `REALTIME`
    row here over HTTP by default, or over the `realtime-events` Kafka topic when both flags are on
    (`event/KafkaEventInbound`, `REALTIME_EVENTS_KAFKA_ENABLED`, default false). Both entrances call
    `event/InboundEventService`, which inserts `inbound_events(event_id)` first and applies only on first sight.
@@ -337,9 +412,10 @@ STOMP `id` 만 바꿔 반복하면 소켓 하나로 레지스트리 메모리를
 상류 조회조차 안 타서 가장 싸게 쌓인다). 빈도 창은 «조회 수»를 막지 «누적 수»를 막지 않는다 —
 창마다 하나씩 꾸준히 쌓으면 걸리지 않는다. 그래서 `RealtimeSessionRegistry` 가 두 가지를 따로 센다:
 **중복**(같은 목적지 재구독 → 사건 하나가 구독 수만큼 복제되는 증폭을 막는다)과
-**총량**(세션당 `MAX_SUBSCRIPTIONS_PER_SESSION` = 64 → 임의 UUID 로 목적지를 바꿔도 막힌다).
-하나만으로는 다른 하나가 샌다. 64 의 근거는 계정당 소속 상한(`GroupService.MAX_JOINED_GROUPS` = 10)
-× 섬당 목적지 4(`focus`·`rest`·`emotes`·채팅) + 개인 큐 2 = **42** 에 약 50% 여유다.
+**총량**(세션당 `MAX_SUBSCRIPTIONS_PER_SESSION` = 96 → 임의 UUID 로 목적지를 바꿔도 막힌다).
+하나만으로는 다른 하나가 샌다. 96 의 근거는 계정당 소속 상한(`GroupService.MAX_JOINED_GROUPS` = 10)
+× 섬당 목적지 6(`focus`·`rest`·`emotes`·채팅·`movement`·`movement/snapshot`) + 개인 큐 2 = **62**,
+거기에 바다 목적지 2(`/user/queue/sea`·`/topic/sea/rooms/{roomId}`)를 더한 **64** 에 약 50% 여유다.
 **UNSUBSCRIBE 가 자리를 돌려주므로**(`id → destination` 으로 추적한다) 섬을 떠날 때 해지하는 정상
 클라이언트는 이 상한에 닿지 않는다.
 

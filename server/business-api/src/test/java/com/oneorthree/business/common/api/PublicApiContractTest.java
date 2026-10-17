@@ -108,7 +108,10 @@ class PublicApiContractTest extends UpstreamTestBase {
                 "PROMOTION_WINDOW_CLOSED", "PROMOTION_PRIVATE_ISLAND", "PROMOTION_TEXT_TOO_LONG",
                 "PROMOTION_LAYOUT_INVALID", "PROMOTION_ASSET_NOT_OWNED", "PROMOTION_LOCKED", "PROMOTION_NOT_FOUND",
                 // GROMO-2289 잡지 발행: 없는 호·7호 밖(404)이 502 로 접히지 않게 Data 와 이름·상태를 맞춘다.
-                "MAGAZINE_ISSUE_NOT_FOUND");
+                "MAGAZINE_ISSUE_NOT_FOUND",
+                // GROMO-2299 바다 항해(409): 앱이 일반 STATE_CONFLICT 와 갈라 「갈 수 없는 섬」·「항해 중 휴식 불가」·
+                // 「한마디 5분 잠금」을 띄운다.
+                "SEA_DESTINATION_UNAVAILABLE", "SEA_SESSION_NO_REST", "SEA_REMARK_LOCKED");
     }
 
     /**

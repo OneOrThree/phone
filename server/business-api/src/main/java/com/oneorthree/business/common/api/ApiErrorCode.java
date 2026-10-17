@@ -73,6 +73,11 @@ public enum ApiErrorCode implements ErrorCode {
     PROMOTION_WINDOW_CLOSED(HttpStatus.CONFLICT, "지금은 홍보를 신청할 수 없어요. 아침 7시에 다시 열려요", false),
     PROMOTION_PRIVATE_ISLAND(HttpStatus.CONFLICT, "비공개 섬은 잡지에 홍보할 수 없어요", false),
     PROMOTION_LOCKED(HttpStatus.CONFLICT, "자정이 지나 홍보를 고칠 수 없어요", false),
+    // GROMO-2299. Data 의 FocusErrorCode 와 이름·상태가 같다 — 바다 항해 세 거절. 앱이 일반 STATE_CONFLICT 와 갈라
+    // 「지금은 갈 수 없는 섬이에요」·「항해 중에는 쉴 수 없어요」·「한마디는 5분에 한 번」을 띄운다.
+    SEA_DESTINATION_UNAVAILABLE(HttpStatus.CONFLICT, "지금은 갈 수 없는 섬입니다.", false),
+    SEA_SESSION_NO_REST(HttpStatus.CONFLICT, "항해 중에는 쉴 수 없습니다.", false),
+    SEA_REMARK_LOCKED(HttpStatus.CONFLICT, "한마디는 5분에 한 번만 바꿀 수 있습니다.", false),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "잔액이 부족합니다.", false),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.", false),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 요청에 사용한 명령 키입니다.", false),
