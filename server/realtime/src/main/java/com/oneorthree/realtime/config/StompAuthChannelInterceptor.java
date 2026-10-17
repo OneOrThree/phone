@@ -5,6 +5,7 @@ import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
 import com.oneorthree.realtime.membership.MembershipService;
@@ -12,6 +13,7 @@ import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import com.oneorthree.realtime.sea.SeaRooms;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -32,6 +34,11 @@ import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_INTENT_SEND;
 import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.SEA_EMOTE_SEND;
+import static com.oneorthree.realtime.config.StompTopics.SEA_ENTER_SEND;
+import static com.oneorthree.realtime.config.StompTopics.SEA_LEAVE_SEND;
+import static com.oneorthree.realtime.config.StompTopics.SEA_QUEUE;
+import static com.oneorthree.realtime.config.StompTopics.SEA_ROOM_TOPIC;
 
 /**
  * STOMP 프레임에 관문을 세운다 — CONNECT·SUBSCRIBE·SEND.
@@ -84,6 +91,11 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  * ({@link ChatAccessGuard#requireMember}) 을 세션×섬마다 1회 본다(사용자 축 시도 창 600ms 뒤) — 구독이 곧 방
  * 입장이고, 집중 중에도 걸을 수 있어야 해서 채팅 관문(집중 검사 포함)은 쓰지 않는다(N1·N2). intent SEND 는 인증과
  * 「그 섬 movement 구독 중」만 보고, 강퇴 재검사로 그 세션 송신이 멈춘 동안은 조용히 버린다.
+ *
+ * <h2>바다 방 (GROMO-2300)</h2>
+ * {@code /user/queue/sea} 구독과 {@code /app/sea/leave} 발신은 인증만, {@code /app/sea/enter} 는 인증 + 사용자 축
+ * 시도 창({@code SEA_ENTER_TOO_FREQUENT}), 방 토픽 구독은 Redis 의 방 소속({@code NOT_IN_SEA_ROOM}) — 상류 HTTP 가
+ * 없어 구독 시도 창은 두지 않는다. 방 토픽 UNSUBSCRIBE 는 퇴장이다(구독 기록을 지우기 전에 목적지를 되찾는다).
  */
 @Slf4j
 @Component
@@ -130,6 +142,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final StringRedisTemplate redis;
     private final MovementSubscriptionListener movementSubscriptions;
     private final MembershipService membershipService;
+    private final SeaRooms seaRooms;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -141,7 +154,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         switch (accessor.getCommand()) {
             case CONNECT -> authenticate(accessor);
             case SUBSCRIBE -> authorizeSubscription(accessor);
-            case UNSUBSCRIBE -> sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            case UNSUBSCRIBE -> {
+                leaveSeaRoomIfSubscribed(accessor);
+                sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            }
             case SEND -> {
                 if (!authorizeSend(accessor)) {
                     return null; // 조용히 버린다 — 응답·ERROR 없음(authorizeMovementIntent)
@@ -198,6 +214,17 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             if (PERSONAL_DUPLICATE_QUEUE.equals(destination)) {
                 accessGuard.requireNotFocusing(principal.userId());
             }
+            return;
+        }
+
+        if (SEA_QUEUE.equals(destination)) {
+            requireSubscribable(accessor, destination);
+            return;
+        }
+
+        Matcher seaRoom = SEA_ROOM_TOPIC.matcher(destination);
+        if (seaRoom.matches()) {
+            authorizeSeaRoomSubscription(accessor, destination, seaRoom.group(1));
             return;
         }
 
@@ -292,6 +319,45 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     }
 
     /**
+     * 바다 방 토픽 구독(GROMO-2300) — 사용자 해시의 {@code roomId} 가 이 방이어야 한다. 배정({@code sea.room.assigned})
+     * 전의 구독·나간 방·남의 방은 {@code NOT_IN_SEA_ROOM}, Redis 실패는 판정 불가. 거절된 구독은 레지스트리 자리를
+     * 돌려준다 — 남겨 두면 뒤따르는 UNSUBSCRIBE 가 퇴장으로 읽힌다.
+     */
+    private void authorizeSeaRoomSubscription(StompHeaderAccessor accessor, String destination, String roomId) {
+        ChatPrincipal principal = requireSubscribable(accessor, destination);
+        UUID room = uuidOrReject(roomId);
+        boolean member;
+        try {
+            member = seaRooms.isMember(principal.userId(), room);
+        } catch (RuntimeException e) {
+            sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            log.warn("바다 방 소속 조회 실패 — reason={}", e.getClass().getSimpleName());
+            throw new UpstreamUnavailableException();
+        }
+        if (!member) {
+            sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            throw new ChatException(ChatErrorCode.NOT_IN_SEA_ROOM);
+        }
+    }
+
+    /**
+     * 방 토픽 UNSUBSCRIBE = 퇴장(GROMO-2300, N24). 해지 프레임은 id 만 주므로 기록을 지우기 <b>전에</b> 목적지를 되찾는다.
+     * 퇴장 실패는 해지를 막지 않는다 — 떠 있는 채 남으면 10분 정리가 치운다.
+     */
+    private void leaveSeaRoomIfSubscribed(StompHeaderAccessor accessor) {
+        String destination = sessions.destinationOf(accessor.getSessionId(), accessor.getSubscriptionId());
+        Matcher seaRoom = destination == null ? null : SEA_ROOM_TOPIC.matcher(destination);
+        if (seaRoom == null || !seaRoom.matches() || !(accessor.getUser() instanceof ChatPrincipal principal)) {
+            return;
+        }
+        try {
+            seaRooms.leave(principal.userId(), UUID.fromString(seaRoom.group(1)), SeaRooms.LEFT);
+        } catch (RuntimeException e) {
+            log.warn("바다 방 해지 퇴장 실패 — reason={}", e.getClass().getSimpleName());
+        }
+    }
+
+    /**
      * 인증 + <b>이 세션이 구독 하나를 더 들 수 있는가</b>.
      *
      * <p>목적지가 허용 목록에 있다는 것만으로는 부족하다 — {@code SimpleBroker} 는 구독을 연결이 끊길
@@ -341,6 +407,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         Matcher intent = MOVEMENT_INTENT_SEND.matcher(destination);
         if (intent.matches()) {
             return authorizeMovementIntent(accessor, intent.group(1));
+        }
+        if (authorizeSeaSend(accessor, destination)) {
+            return true;
         }
         Matcher matcher = SEND_DESTINATION.matcher(destination);
         Matcher emote = EMOTE_SEND.matcher(destination);
@@ -392,6 +461,36 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
         }
         return movementSubscriptions.acceptsIntents(accessor.getSessionId(), island);
+    }
+
+    /**
+     * 바다 발신 셋(GROMO-2300) — 입장은 시도 창(입장마다 Data 조회 2회), 이모트는 시도 창(컨트롤러는 2/2), 퇴장은 인증만.
+     * 창은 본문 변환보다 앞이어야 해서 여기서 잰다(응원과 같은 이유).
+     *
+     * @return 바다 목적지였으면 true(통과), 아니면 false(다음 검사로)
+     */
+    private boolean authorizeSeaSend(StompHeaderAccessor accessor, String destination) {
+        if (SEA_ENTER_SEND.matcher(destination).matches()) {
+            ChatPrincipal principal = requireAuthenticated(accessor);
+            if (!acquireWindow(RedisKeys.seaEnterAttempt(principal.userId()))) {
+                throw new ChatException(ChatErrorCode.SEA_ENTER_TOO_FREQUENT);
+            }
+            return true;
+        }
+        if (SEA_LEAVE_SEND.matcher(destination).matches()) {
+            requireAuthenticated(accessor);
+            return true;
+        }
+        Matcher emote = SEA_EMOTE_SEND.matcher(destination);
+        if (emote.matches()) {
+            uuidOrReject(emote.group(1));
+            ChatPrincipal principal = requireAuthenticated(accessor);
+            if (!acquireWindow(RedisKeys.seaEmoteAttempt(principal.userId()))) {
+                throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
+            }
+            return true;
+        }
+        return false;
     }
 
     /**

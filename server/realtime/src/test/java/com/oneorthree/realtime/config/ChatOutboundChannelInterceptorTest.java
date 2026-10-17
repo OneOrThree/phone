@@ -36,9 +36,10 @@ class ChatOutboundChannelInterceptorTest {
     private final RealtimeSessionRegistry sessions = new RealtimeSessionRegistry();
     private final RealtimeEventDelivery delivery = mock(RealtimeEventDelivery.class);
     private final BlockedUsers blockedUsers = mock(BlockedUsers.class);
+    private final com.oneorthree.realtime.sea.SeaRooms seaRooms = mock(com.oneorthree.realtime.sea.SeaRooms.class);
     private final ChatOutboundChannelInterceptor interceptor =
             new ChatOutboundChannelInterceptor(sessions, jwt, guard, delivery,
-                new tools.jackson.databind.ObjectMapper(), blockedUsers);
+                new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms);
 
     @BeforeEach
     void setUp() {
@@ -123,6 +124,37 @@ class ChatOutboundChannelInterceptorTest {
         when(jwt.extractUserId("token")).thenReturn(Optional.empty());
         assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/movement"), null, null))
                 .as("만료 토큰의 세션은 이동 프레임도 못 받는다").isNull();
+        verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+    }
+
+    // ── GROMO-2300 바다 방 ───────────────────────────────────────────────
+
+    @Test
+    void seaRoomFramesReachOnlyCurrentMembersAndFailClosed() {
+        UUID mine = UUID.randomUUID();
+        UUID left = UUID.randomUUID();
+        UUID broken = UUID.randomUUID();
+        when(seaRooms.isMember(user, mine)).thenReturn(true);
+        when(seaRooms.isMember(user, broken)).thenThrow(new IllegalStateException("redis down"));
+
+        Message<?> member = frame("socket", "/topic/sea/rooms/" + mine, "{}");
+        assertThat(interceptor.beforeHandle(member, null, null)).isSameAs(member);
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/sea/rooms/" + left, "{}"), null, null))
+                .as("Redis 에서 빠진 사람(다른 인스턴스의 정리)은 이 JVM 의 구독이 남아 있어도 못 받는다").isNull();
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/sea/rooms/" + broken, "{}"), null, null))
+                .as("판정 불가는 보내지 않는다").isNull();
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/sea/other", "{}"), null, null)).isNull();
+        verify(blockedUsers, never()).hasBlocked(any(), any());
+    }
+
+    @Test
+    void seaRoomFramesRequireAValidToken() throws Exception {
+        UUID mine = UUID.randomUUID();
+        when(seaRooms.isMember(user, mine)).thenReturn(true);
+        WebSocketSession socket = openSocket("socket");
+        when(jwt.extractUserId("token")).thenReturn(Optional.empty());
+
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/sea/rooms/" + mine, "{}"), null, null)).isNull();
         verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
     }
 

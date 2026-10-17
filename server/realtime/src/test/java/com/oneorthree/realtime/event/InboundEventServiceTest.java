@@ -243,7 +243,8 @@ class InboundEventServiceTest {
                 .willReturn(1);
         MovementSubscriptionListener listener = mock(MovementSubscriptionListener.class);
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
-                mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener);
+                mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener,
+                mock(com.oneorthree.realtime.sea.SeaRooms.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
 
@@ -261,7 +262,8 @@ class InboundEventServiceTest {
         MovementSubscriptionListener listener = mock(MovementSubscriptionListener.class);
         MembershipService membership = mock(MembershipService.class);
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
-                mock(EventRouter.class), membership, mock(BlockedUsers.class), listener);
+                mock(EventRouter.class), membership, mock(BlockedUsers.class), listener,
+                mock(com.oneorthree.realtime.sea.SeaRooms.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
         UUID evicted = UUID.randomUUID();
@@ -338,6 +340,22 @@ class InboundEventServiceTest {
             mockMvc.perform(post("/internal/events").contentType(MediaType.APPLICATION_JSON).content(body)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + dataToken)).andExpect(status().isBadRequest());
         }
+    }
+
+    @Test
+    @DisplayName("sea.member.updated 는 200 — 바다 밖 사용자는 해시를 만들지 않고, 불량 params 도 200 이다(USER 축 보호)")
+    void seaMemberUpdatedIsAcceptedEvenWhenMalformedOrOutsideTheSea() throws Exception {
+        UUID user = UUID.randomUUID();
+        for (String params : new String[] {
+                "\"status\":\"ended\",\"sessionId\":null,\"serverNow\":\"2026-10-17T00:00:00Z\"",
+                "\"status\":\"teleported\"",
+                "\"status\":7",
+                ""}) {
+            http("{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,\"type\":\"sea.member.updated\","
+                    + "\"occurredAt\":\"2026-10-17T00:00:00Z\",\"scheduledAt\":null,\"userId\":\"" + user + "\","
+                    + "\"locale\":null,\"subjectId\":\"" + user + "\",\"version\":1,\"params\":{" + params + "}}");
+        }
+        assertThat(redis.hasKey(RedisKeys.seaUser(user))).isFalse();
     }
 
     private void http(String body) throws Exception {

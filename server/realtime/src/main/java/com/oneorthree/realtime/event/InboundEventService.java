@@ -6,6 +6,7 @@ import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import com.oneorthree.realtime.sea.SeaRooms;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -47,6 +48,10 @@ import java.util.stream.Collectors;
  *       으로 올린다 — 그 순간부터 그 사람의 캐시된 차단 집합은 읽히지 않고, 다음 전달 판정이 Data 정본을 다시
  *       읽는다. 세대 올리기가 실패하면 예외를 올려 수신 기록까지 롤백한다(relay 가 다시 보낸다). 필드가 없으면
  *       건너뛴다 — TTL 이 백스톱이다.</li>
+ *   <li>{@code sea.member.updated} — 이것도 <b>내부 제어 사건</b>이다(GROMO-2300, N19). 섬 변환을 타지 않고
+ *       {@link SeaRooms#applyMemberUpdated} 가 그 사용자의 바다 방 상태를 고쳐 방 토픽으로 중계한다. params 가 불량이거나
+ *       바다 방에 없는 사용자면 200 으로 받고 끝낸다 — USER 축은 {@code user.withdrawn} 과 같은 축이라 400 한 번이
+ *       탈퇴 전파까지 막는다. Redis 쓰기 실패만 예외로 올려 수신 기록을 롤백한다.</li>
  *   <li>나머지 앱 사건 — <b>받아서 중복만 거르고 앱으로 내보내지 않는다.</b> 여기서 거절하면 relay 가
  *       permanent 로 적고 그 순서 축이 영영 막히므로(A18 고갈 처리 없음) 형식이 달라도 받는다 —
  *       옛 7필드 외양 행({@code islandId}·{@code aggregateVersion}·{@code payload})도 {@code eventId}·
@@ -88,6 +93,9 @@ public class InboundEventService {
     /** 차단 관계 변경 — 앱으로 나가지 않는 내부 제어 사건(GROMO-2182). Data {@code UserBlockEvents.EVENT_TYPE}. */
     static final String USER_BLOCKS_UPDATED = "user.blocks.updated";
 
+    /** 바다 상태 변경 — 내부 제어 사건(GROMO-2300). Data 바다 세션 start·finish·한마디 변경이 적는다. */
+    static final String SEA_MEMBER_UPDATED = "sea.member.updated";
+
     private static final Set<String> APP_EVENT_TYPES = Arrays.stream(RealtimeEventType.values())
             .map(RealtimeEventType::wireName)
             .collect(Collectors.toUnmodifiableSet());
@@ -107,6 +115,7 @@ public class InboundEventService {
     private final MembershipService membershipService;
     private final BlockedUsers blockedUsers;
     private final MovementSubscriptionListener movementSubscriptions;
+    private final SeaRooms seaRooms;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -119,7 +128,8 @@ public class InboundEventService {
     public boolean accept(JsonNode envelope) {
         String eventId = requiredText(envelope, "eventId");
         String type = requiredText(envelope, "type");
-        if (!USER_WITHDRAWN.equals(type) && !USER_BLOCKS_UPDATED.equals(type) && !APP_EVENT_TYPES.contains(type)) {
+        if (!USER_WITHDRAWN.equals(type) && !USER_BLOCKS_UPDATED.equals(type) && !SEA_MEMBER_UPDATED.equals(type)
+                && !APP_EVENT_TYPES.contains(type)) {
             throw new InvalidEventException();
         }
         int inserted = jdbc.update("INSERT INTO inbound_events (event_id, type) VALUES (?, ?)"
@@ -132,6 +142,8 @@ public class InboundEventService {
             chatUserFence.withdraw(uuid(envelope, "userId"), authGeneration(envelope));
         } else if (USER_BLOCKS_UPDATED.equals(type)) {
             advanceBlockGeneration(eventId, envelope);
+        } else if (SEA_MEMBER_UPDATED.equals(type)) {
+            seaRooms.applyMemberUpdated(envelope);
         } else {
             evictMembershipCacheIfNeeded(type, envelope);
             deliver(eventId, type, envelope);

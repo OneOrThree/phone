@@ -114,7 +114,16 @@ public enum ChatErrorCode implements ErrorCode {
      * 이동 토픽 구독을 너무 자주 시도했다(GROMO-2247, 사용자 축 600ms 창). 정상 앱은 접속마다 한 번만 판정받으므로
      * 이 코드는 관문 위반과 같이 ERROR 프레임 + 연결 종료로 나간다.
      */
-    MOVEMENT_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 시도해 주세요.");
+    MOVEMENT_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 시도해 주세요."),
+
+    /**
+     * 그 바다 방의 구성원이 아니다(GROMO-2300) — 배정({@code sea.room.assigned}) 전 구독·이미 나간 방·남의 방이 전부
+     * 이 코드다. 구독 관문 거절이라 ERROR 프레임 + 연결 종료로 나간다.
+     */
+    NOT_IN_SEA_ROOM(HttpStatus.FORBIDDEN, "이 바다 방에 있지 않습니다."),
+
+    /** 바다 입장을 너무 자주 시도했다(사용자 축 600ms 창). 정상 앱이 만들 수 없는 속도라 ERROR + 연결 종료다. */
+    SEA_ENTER_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

@@ -6,6 +6,7 @@ import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.realtime.event.RealtimeEventDelivery;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.sea.SeaRooms;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
@@ -25,6 +26,7 @@ import static com.oneorthree.realtime.config.StompTopics.EMOTES_CHANNEL;
 import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.SEA_ROOM_TOPIC;
 
 /**
  * 구독 후 집중 시작·토큰 만료에도 채팅 본문을 전달하지 않는다.
@@ -77,6 +79,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     private final RealtimeEventDelivery delivery;
     private final ObjectMapper objectMapper;
     private final BlockedUsers blockedUsers;
+    private final SeaRooms seaRooms;
 
     /**
      * {@code delivery} 를 <b>늦게</b> 받는다 — 순환 때문이다. 이 인터셉터는
@@ -86,13 +89,14 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
      */
     public ChatOutboundChannelInterceptor(RealtimeSessionRegistry sessions, JwtValidator jwtValidator,
             ChatAccessGuard accessGuard, @Lazy RealtimeEventDelivery delivery, ObjectMapper objectMapper,
-            BlockedUsers blockedUsers) {
+            BlockedUsers blockedUsers, SeaRooms seaRooms) {
         this.sessions = sessions;
         this.jwtValidator = jwtValidator;
         this.accessGuard = accessGuard;
         this.delivery = delivery;
         this.objectMapper = objectMapper;
         this.blockedUsers = blockedUsers;
+        this.seaRooms = seaRooms;
     }
 
     @Override
@@ -116,6 +120,15 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         Matcher island = ISLAND_TOPIC.matcher(destination);
         if (island.matches()) {
             return deliverIslandEvent(message, island.group(2));
+        }
+        // 바다 방(GROMO-2300, N21) — JWT + 프레임마다 Redis 방 소속. 다른 인스턴스의 정리가 Redis 에서 사람을 빼도 이
+        // JVM 의 구독은 남으므로 레지스트리로는 못 끊는다. 판정 불가(Redis 실패)도 보내지 않는다. 차단은 배정 때 분리했다.
+        Matcher seaRoom = SEA_ROOM_TOPIC.matcher(destination);
+        if (seaRoom.matches()) {
+            return deliverSeaEvent(message, UUID.fromString(seaRoom.group(1)));
+        }
+        if (destination.startsWith("/topic/sea/")) {
+            return null;
         }
         // 열거한 셋 밖의 섬 목적지(events·playback·messages)는 여전히 닫혀 있다.
         if (destination.startsWith("/topic/islands/")) {
@@ -157,6 +170,20 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             // 일시 장애(UpstreamUnavailable)·비멤버·집중 중은 프레임만 막고 소켓은 유지한다 — 자격은 여전히 유효하다.
             // 조회 장애도 통과시키지 않는다. 본문·토큰·원격 응답은 기록하지 않는다.
             log.debug("채팅 전달 차단 — reason={}", e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    /** 바다 방 프레임 — 세션 인증 + 그 주체가 지금도 그 방 소속인가(fail-closed). */
+    private Message<?> deliverSeaEvent(Message<?> message, UUID roomId) {
+        ChatPrincipal principal = stillAuthenticated(message);
+        if (principal == null) {
+            return null;
+        }
+        try {
+            return seaRooms.isMember(principal.userId(), roomId) ? message : null;
+        } catch (RuntimeException e) {
+            log.debug("바다 방 전달 차단 — 소속 판정 불가. reason={}", e.getClass().getSimpleName());
             return null;
         }
     }

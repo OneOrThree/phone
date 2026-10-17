@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -145,6 +146,30 @@ public class RealtimeSessionRegistry {
             }
             return null;
         }
+    }
+
+    /**
+     * 이 세션의 그 구독 id 가 가리키는 목적지 — 없으면 {@code null}. UNSUBSCRIBE 는 id 만 주므로, 해지가 바다 방
+     * 퇴장인지 판정하려면 지우기 <b>전에</b> 되찾아야 한다(GROMO-2300).
+     */
+    public String destinationOf(String sessionId, String subscriptionId) {
+        Map<String, String> held = sessionId == null || subscriptionId == null ? null : subscriptions.get(sessionId);
+        if (held == null) {
+            return null;
+        }
+        synchronized (held) {
+            return held.get(subscriptionId);
+        }
+    }
+
+    /**
+     * 같은 사용자의 <b>다른</b> 세션이 이 JVM 에 붙어 있는가 — 소켓 종료가 바다 방 퇴장인지(마지막 세션일 때만) 가른다.
+     *
+     * <p>ponytail: 세션 전체를 훑는다(O(세션 수)). 종료마다 한 번이라 지금은 싸다 — 커지면 userId → 세션 수 색인으로.
+     */
+    public boolean hasOtherSession(UUID userId, String exceptSessionId) {
+        return principals.entrySet().stream().anyMatch(entry -> !entry.getKey().equals(exceptSessionId)
+                && userId.equals(entry.getValue().userId()));
     }
 
     /**
