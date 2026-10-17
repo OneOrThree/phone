@@ -164,6 +164,7 @@ export function SeaScene({
                           ? person.subject || t('openSea.focusing')
                           : person.message || t('openSea.floating')}
                       </Text>
+                      <View style={styles.bubbleTail} accessible={false} />
                     </View>
                     <SeaRaft
                       color={person.color}
@@ -198,6 +199,7 @@ export function SeaScene({
             <Text numberOfLines={1} style={styles.caption}>
               {self.subject || t('openSea.focusing')}
             </Text>
+            <View style={styles.bubbleTail} accessible={false} />
           </View>
         ) : (
           <Pressable
@@ -279,6 +281,20 @@ const styles = StyleSheet.create({
     paddingVertical: p.space[1],
     alignItems: 'center',
     maxWidth: 130,
+  },
+  bubbleTail: {
+    position: 'absolute',
+    bottom: -7,
+    left: '50%',
+    marginLeft: -6,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 7,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: `${s.color.surface}E6`,
   },
   caption: { fontSize: s.typography.caption, color: s.color.textMuted, textAlign: 'center' },
   clock: {
