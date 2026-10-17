@@ -1,3 +1,4 @@
+import { IslandOcean } from '@/screens/island/IslandOcean';
 import React, { useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
@@ -12,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, Ellipse, Image as SvgImage, Path, Pattern, Rect } from 'react-native-svg';
+import Svg, { Ellipse, Path } from 'react-native-svg';
 import { Text } from '@/design-system/typography';
 import { assets } from '@/constants/assets';
 import { art } from '@/constants/art';
@@ -553,7 +554,6 @@ export function FishingIsland({
     return () => el?.removeEventListener?.('wheel', wheel);
   }, []);
   const { size, sizeY, left, top } = view,
-    tile = (L.width >= 600 ? L.width * 0.319 : 204) * cam.zoom,
     raftW = size * 0.12,
     gramW = (size * GRAM.w) / 100,
     raftK = raftW / raftBox.w;
@@ -564,27 +564,7 @@ export function FishingIsland({
       {...pan.panHandlers}
       style={{ flex: 1, backgroundColor: '#74B9B9', overflow: clip }}
     >
-      {/* 지도 밖은 섬 그림 귀퉁이 바다를 뒤집어 이은 무늬 */}
-      <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
-        <Defs>
-          <Pattern
-            id="fishing-sea"
-            x={-view.sx}
-            y={-view.sy}
-            width={tile}
-            height={tile}
-            patternUnits="userSpaceOnUse"
-          >
-            <SvgImage
-              href={require('@/assets/backgrounds/fishing-island/sea-tile.jpg')}
-              width={tile}
-              height={tile}
-              preserveAspectRatio="none"
-            />
-          </Pattern>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#fishing-sea)" />
-      </Svg>
+      <IslandOcean left={left} top={top} scale={size / 1536} />
       <View
         style={{ position: 'absolute', left, top, width: size, height: sizeY }}
         {...a11yHidden(inert || !!overlay)}
@@ -611,7 +591,7 @@ export function FishingIsland({
           }}
         >
           <Image
-            source={require('@/assets/backgrounds/fishing-island/day.jpg')}
+            source={require('@/assets/backgrounds/island/ocean/focus-day.png')}
             style={{ width: '100%', height: '100%' }}
             resizeMode="stretch"
           />
