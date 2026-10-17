@@ -108,7 +108,8 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int maxMembers,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer averageFocusMinutesPerDay,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
-            @Schema(description = "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환)", nullable = true)
+            @Schema(description = "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)",
+                    requiredMode = Schema.RequiredMode.NOT_REQUIRED)
             @JsonInclude(JsonInclude.Include.NON_NULL) Boolean privateIsland) {
     }
 
@@ -122,7 +123,8 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int maxMembers,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer averageFocusMinutesPerDay,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
-            @Schema(description = "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환)", nullable = true)
+            @Schema(description = "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)",
+                    requiredMode = Schema.RequiredMode.NOT_REQUIRED)
             @JsonInclude(JsonInclude.Include.NON_NULL) Boolean privateIsland) {
     }
 
@@ -152,7 +154,8 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL)
             @Schema(implementation = Map.class) ObjectNode layout,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
-            @Schema(description = "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환)", nullable = true)
+            @Schema(description = "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)",
+                    requiredMode = Schema.RequiredMode.NOT_REQUIRED)
             @JsonInclude(JsonInclude.Include.NON_NULL) Boolean privateIsland) {
     }
 }
