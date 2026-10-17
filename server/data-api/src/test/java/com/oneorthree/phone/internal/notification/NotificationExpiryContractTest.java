@@ -146,4 +146,14 @@ class NotificationExpiryContractTest {
                                 + params + "}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.eligible").value(false));
     }
+
+    /** 알림 서버가 적용하는 만료(notification L7)와 적격 분기가 보는 현재 호 창(magazine L8)은 같은 순간이어야 한다. */
+    @org.junit.jupiter.api.Test
+    void magazineExpiryEqualsTheCurrentIssueWindowEnd() {
+        java.time.LocalDate date = java.time.LocalDate.of(2026, 9, 11);
+        Instant published = date.atTime(7, 5).atZone(com.oneorthree.phone.common.util.ZonePolicy.KST).toInstant();
+        org.assertj.core.api.Assertions.assertThat(com.oneorthree.phone.notification.producer.NotificationExpiry.expiresAt(
+                com.oneorthree.phone.notification.producer.NotificationKind.MAGAZINE_PUBLISHED, published))
+                .isEqualTo(com.oneorthree.phone.magazine.support.MagazineCalendar.currentUntil(date));
+    }
 }

@@ -113,6 +113,30 @@ class NotificationEligibilityServiceTest {
         assertThat(service().evaluate(request("MAGAZINE_PUBLISHED", issueId)).reason()).isEqualTo("SUBJECT_GONE");
     }
 
+    /** 어제 호(9/10)의 현재 호 창은 오늘(9/11) 07:00:00 KST 에 닫힌다 — 정각은 이미 지난 호다. */
+    @Test
+    void magazineIssueBecomesPastExactlyAtSevenKst() {
+        UUID issueId = UUID.randomUUID();
+        userIsActive();
+        when(magazineIssueRepository.findById(issueId)).thenReturn(Optional.of(new MagazineIssue(
+                java.time.LocalDate.of(2026, 9, 10), 4, NOW, null, 0)));
+        Instant seven = Instant.parse("2026-09-10T22:00:00Z"); // 2026-09-11 07:00:00 KST
+
+        NotificationEligibilityResponse atSeven = serviceAt(seven).evaluate(request("MAGAZINE_PUBLISHED", issueId));
+        assertThat(atSeven.eligible()).isFalse();
+        assertThat(atSeven.reason()).isEqualTo("ISSUE_NOT_CURRENT");
+        assertThat(serviceAt(seven.minusSeconds(1)).evaluate(request("MAGAZINE_PUBLISHED", issueId)).eligible())
+                .isTrue();
+    }
+
+    private NotificationEligibilityService serviceAt(Instant at) {
+        NotificationRetentionEligibility retention = mock(NotificationRetentionEligibility.class);
+        return new NotificationEligibilityService(userQueryService, groupQueryService,
+                groupMemberRepository, betParticipantRepository, friendshipRepository,
+                Clock.fixed(at, ZoneOffset.UTC), retention, mock(NotificationLeagueEligibility.class),
+                userBlockService, magazineIssueRepository);
+    }
+
     private void userIsActive() {
         when(userQueryService.findActive(USER)).thenReturn(Optional.of(User.builder().id(USER).build()));
     }

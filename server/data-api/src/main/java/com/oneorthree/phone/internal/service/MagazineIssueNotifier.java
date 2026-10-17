@@ -147,8 +147,11 @@ public class MagazineIssueNotifier {
             // 예외로 되돌리지 않고 정상 반환한다 — 이미 나간 FCM 은 되돌릴 수 없다. 완료는 확정하지 않는다.
             return new Result(false, failed);
         }
-        transaction.executeWithoutResult(status -> issues.markNotified(issue.getId(), now));
-        log.info("고양이 잡지 알림 펼치기 완료 date={} issueNo={} 대상={}", issueDate, issue.getIssueNo(), total);
+        Integer marked = transaction.execute(status -> issues.markNotified(issue.getId(), now));
+        if (marked != null && marked == 1) {
+            // 겹친 틱에서는 먼저 확정한 쪽만 완료 로그를 남긴다(markNotified 가 0 을 돌려준다).
+            log.info("고양이 잡지 알림 펼치기 완료 date={} issueNo={} 대상={}", issueDate, issue.getIssueNo(), total);
+        }
         return Result.DONE;
     }
 

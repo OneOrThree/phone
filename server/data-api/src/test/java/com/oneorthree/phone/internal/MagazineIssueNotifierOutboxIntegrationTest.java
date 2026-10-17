@@ -1,6 +1,9 @@
 package com.oneorthree.phone.internal;
 
+import com.oneorthree.phone.internal.service.MagazineIssueNotifier;
+import com.oneorthree.phone.magazine.repository.MagazineIssueRepository;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
+import com.oneorthree.phone.notification.producer.NotificationFanOutPartiallyCommittedException;
 import com.oneorthree.phone.notification.producer.NotificationFanOutUnit;
 import com.oneorthree.phone.notification.producer.NotificationSlotGranularity;
 import org.junit.jupiter.api.DisplayName;
@@ -8,6 +11,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.time.Instant;
 
 import java.util.List;
 import java.util.UUID;
@@ -16,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 
@@ -25,6 +33,14 @@ class MagazineIssueNotifierOutboxIntegrationTest extends MagazineIssueNotifierTe
 
     @MockitoSpyBean
     NotificationDispatcher dispatcher;
+    @Autowired
+    MagazineIssueRepository issueRepository;
+    @Autowired
+    PlatformTransactionManager transactionManager;
+
+    private int deliveryRows() {
+        return jdbc.queryForObject("SELECT count(*) FROM event_outbox_deliveries", Integer.class);
+    }
 
     private List<String> eventIds() {
         return jdbc.queryForList("SELECT event_id FROM event_outbox WHERE event_id LIKE 'noti:MAGAZINE_PUBLISHED:%'",
@@ -72,6 +88,55 @@ class MagazineIssueNotifierOutboxIntegrationTest extends MagazineIssueNotifierTe
         notifier.notifyIfPending(DATE, NOW.plusSeconds(600));
         assertThat(eventIds()).hasSize(5).doesNotHaveDuplicates();
         assertThat(notifiedAt()).isEqualTo(NOW.plusSeconds(600));
+    }
+
+    @Test
+    @DisplayName("부분 커밋 예외 — 그대로 전파되고 notified_at 은 NULL, 다음 틱이 키로 중복 없이 잇는다(outbox·전달 행 수 모두)")
+    void partialCommitExceptionPropagatesAndResumes() {
+        usersFor(5);
+        doCallRealMethod()
+                .doThrow(new NotificationFanOutPartiallyCommittedException(1, "40001", new RuntimeException("충돌")))
+                .doCallRealMethod()
+                .when(dispatcher).writeFanOut(any(), eq(NotificationFanOutUnit.RECIPIENT));
+
+        assertThatThrownBy(() -> notifier.notifyIfPending(DATE, NOW))
+                .isInstanceOf(NotificationFanOutPartiallyCommittedException.class);
+        assertThat(notifiedAt()).isNull();
+        assertThat(eventIds()).hasSize(2);
+        assertThat(deliveryRows()).isEqualTo(2);
+
+        notifier.notifyIfPending(DATE, NOW.plusSeconds(600));
+        assertThat(eventIds()).hasSize(5).doesNotHaveDuplicates();
+        assertThat(deliveryRows()).isEqualTo(5);
+        assertThat(notifiedAt()).isEqualTo(NOW.plusSeconds(600));
+    }
+
+    @Test
+    @DisplayName("markNotified 는 한 번만 쓴다 — 두 번째는 0 이고 값이 덮이지 않는다")
+    void markNotifiedIsIdempotent() {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        int first = tx.execute(status -> issueRepository.markNotified(issueId, NOW));
+        assertThat(first).isEqualTo(1);
+        int second = tx.execute(status -> issueRepository.markNotified(issueId, NOW.plusSeconds(60)));
+        assertThat(second).isZero();
+        assertThat(notifiedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("겹친 틱 — 둘째가 NULL 로 읽은 뒤 첫 틱이 먼저 확정해도 0 을 받고 정상 반환하며 값은 덮이지 않는다")
+    void overlappingTickDoesNotOverwriteTheFirstConfirmation() {
+        usersFor(2);
+        Instant first = NOW.minusSeconds(30);
+        // 이 틱이 notified_at 을 NULL 로 읽고 펼치는 사이 다른 틱이 먼저 확정한다.
+        doAnswer(invocation -> {
+            jdbc.update("UPDATE magazine_issues SET notified_at = ?", java.sql.Timestamp.from(first));
+            return invocation.callRealMethod();
+        }).when(dispatcher).writeFanOut(any(), eq(NotificationFanOutUnit.RECIPIENT));
+
+        MagazineIssueNotifier.Result result = notifier.notifyIfPending(DATE, NOW);
+
+        assertThat(result.complete()).isTrue();
+        assertThat(notifiedAt()).isEqualTo(first);
     }
 
     @Test

@@ -110,6 +110,31 @@ class DispatchExpiryTest {
     }
 
     @Test
+    @DisplayName("만료 시각 정각(now == expiresAt)에 잡지 알림은 만료로 끝난다")
+    void aMagazineNotificationExpiresExactlyAtItsExpiry() {
+        Instant expiresAt = NOW.plusSeconds(60);
+        timed("magazine-edge", "MAGAZINE_PUBLISHED", expiresAt);
+        when(clock.instant()).thenReturn(expiresAt);
+
+        dispatch.dispatch(delivery("magazine-edge"));
+
+        verify(transport, never()).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(status("magazine-edge")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
+    @DisplayName("만료 1초 전의 잡지 알림은 나간다")
+    void aMagazineNotificationOneSecondBeforeExpiryIsSent() {
+        Instant expiresAt = NOW.plusSeconds(60);
+        timed("magazine-before", "MAGAZINE_PUBLISHED", expiresAt);
+        when(clock.instant()).thenReturn(expiresAt.minusSeconds(1));
+
+        dispatch.dispatch(delivery("magazine-before"));
+
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    @Test
     @DisplayName("적격성 조회를 기다리는 사이 시한이 지나면 보내지 않고 만료로 끝난다")
     void expiryReachedWhileEligibilityIsBeingCheckedDoesNotSend() {
         timed("streak", "STREAK_AT_RISK", NOW.plusSeconds(30));
@@ -221,6 +246,8 @@ class DispatchExpiryTest {
         params.put("kind", kind);
         params.put("rank", 3);
         params.put("streakCount", 4);
+        params.put("issueNo", "7");
+        params.put("issueId", UUID.randomUUID().toString());
         params.put("dedupAt", expiresAt.minusSeconds(7200).toString());
         params.put("expiresAt", expiresAt.toString());
         inbound.accept(event(id, "notification.requested", null, params));
