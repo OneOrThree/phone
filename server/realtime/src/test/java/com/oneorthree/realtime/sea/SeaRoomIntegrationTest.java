@@ -717,6 +717,40 @@ class SeaRoomIntegrationTest {
         assertThat(redis.opsForSet().isMember(RedisKeys.SEA_ROOMS_OPEN, candidate.toString())).isTrue();
     }
 
+    @Test
+    @DisplayName("[2299] user.withdrawn 이면 바다 방에서도 내보낸다 — left{left}·해시·SET·색인 정리, 방 밖이면 200·사건 0")
+    void withdrawalLeavesTheSeaRoom() throws Exception {
+        UUID alice = sailor();
+        UUID bob = sailor();
+        Client a = connect(alice);
+        UUID room = roomOf(a.enter());
+        Client b = connect(bob);
+        b.enter();
+        BlockingQueue<Map<String, Object>> heardByBob = b.watch(room, bob);
+        redis.opsForZSet().add(RedisKeys.SEA_ADRIFT, alice.toString(), 1); // 색인에 있던 경우도 지워지는지
+
+        postEvent(withdrawn(alice));
+
+        Map<String, Object> left = await(heardByBob, frame -> "sea.member.left".equals(frame.get("type")));
+        assertThat(payload(left)).containsEntry("userId", alice.toString()).containsEntry("reason", "left");
+        assertThat(redis.hasKey(RedisKeys.seaUser(alice))).isFalse();
+        assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(room), alice.toString())).isFalse();
+        assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, alice.toString())).isNull();
+
+        UUID outsider = UUID.randomUUID();
+        postEvent(withdrawn(outsider)); // 바다 밖 — 200, 방 사건 없음
+        assertThat(heardByBob.poll(1, TimeUnit.SECONDS)).isNull();
+        assertThat(redis.hasKey(RedisKeys.seaUser(outsider))).isFalse();
+    }
+
+    /** Data 의 탈퇴 정본 봉투 — {@code InboundEventServiceTest#withdrawn} 과 같은 모양. */
+    private static String withdrawn(UUID user) {
+        return "{\"eventId\":\"user.withdrawn:" + user + "\",\"schemaVersion\":1,\"type\":\"user.withdrawn\","
+                + "\"occurredAt\":\"2026-10-17T00:00:00Z\",\"scheduledAt\":null,\"userId\":\"" + user + "\","
+                + "\"locale\":null,\"subjectId\":\"" + user + "\",\"version\":7,"
+                + "\"params\":{\"userId\":\"" + user + "\",\"authGeneration\":1}}";
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private static Map<String, Object> enterUnchecked(Client client) {
