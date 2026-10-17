@@ -6,6 +6,8 @@ import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.id.UuidV7;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
+import com.oneorthree.realtime.message.exception.ChatErrorCode;
+import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.sea.client.FriendsClient;
 import com.oneorthree.realtime.sea.client.SeaStateClient;
 import lombok.extern.slf4j.Slf4j;
@@ -66,6 +68,7 @@ public class SeaRooms {
     public static final String DISCONNECTED = "disconnected";
 
     public static final String ASSIGNED = "sea.room.assigned";
+    public static final String SNAPSHOT = "sea.room.snapshot";
     public static final String MEMBER_JOINED = "sea.member.joined";
     public static final String MEMBER_LEFT = "sea.member.left";
     public static final String MEMBER_UPDATED = "sea.member.updated";
@@ -75,6 +78,14 @@ public class SeaRooms {
 
     /** 차단 검사를 하는 후보 방 수 — 방마다 구성원 수만큼 차단 조회가 나가므로 상한을 둔다(N23). */
     static final int BLOCK_CHECKED_CANDIDATES = 3;
+
+    /** 구성원이 바뀌어(-2) 다시 읽고 다시 검사하는 횟수 — 넘으면 다음 후보로. */
+    static final int JOIN_RECHECKS = 3;
+
+    /** Data {@code activeSeconds} 의 상한(10년) — 넘으면 불량 params 로 본다(시각 계산 overflow 방지). */
+    static final long MAX_ACTIVE_SECONDS = Duration.ofDays(3653).toSeconds();
+
+    private static final long ABORTED = Long.MIN_VALUE;
 
     private static final String ROOM_ID = "roomId";
     private static final String STATE = "state";
@@ -86,19 +97,35 @@ public class SeaRooms {
     private static final String ADRIFT_SINCE = "adriftSince";
 
     /**
-     * 입장. 1 = 들어갔다(또는 이미 그 방), 0 = 꽉 찼다(그 방을 open 에서 뺀다), -1 = 이미 다른 방에 있다(두 기기 경합).
-     * KEYS: members, open, user, adrift / ARGV: userId, roomId, capacity, ttlSec, 해시 field/value…
+     * 입장. 1 = 들어갔다(또는 이미 그 방), 0 = 꽉 찼다(그 방을 open 에서 뺀다), -1 = 이미 다른 방에 있다(두 기기 경합),
+     * -2 = 구성원이 차단 검사 때 본 집합과 다르다(그사이 누가 들어왔거나 나갔다 — 다시 읽고 다시 검사한다).
+     *
+     * <p>SET 에는 있는데 해시가 없는 사람(해시만 만료·삭제)은 해시를 다시 써 준다 — 그래야 구독 관문을 통과한다.
+     * 항해 없이 들어오면(adriftSince 가 비어 있지 않으면) 10분 정리 색인에도 같은 스크립트 안에서 올린다.
+     *
+     * <p>KEYS: members, open, user, adrift / ARGV: userId, roomId, capacity, ttlSec, 기대 구성원(정렬·',' 연결),
+     * adriftSince(ms)|'', 해시 field/value…
      */
     static final RedisScript<Long> JOIN = new DefaultRedisScript<>(
             "local cur = redis.call('HGET', KEYS[3], 'roomId')\n"
             + "if cur and cur ~= ARGV[2] then return -1 end\n"
-            + "if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then return 1 end\n"
-            + "if redis.call('SCARD', KEYS[1]) >= tonumber(ARGV[3]) then\n"
-            + "  redis.call('SREM', KEYS[2], ARGV[2]); return 0\n"
+            + "local member = redis.call('SISMEMBER', KEYS[1], ARGV[1])\n"
+            + "if member == 1 and cur then return 1 end\n"
+            + "if member == 0 then\n"
+            + "  if redis.call('SCARD', KEYS[1]) >= tonumber(ARGV[3]) then\n"
+            + "    redis.call('SREM', KEYS[2], ARGV[2]); return 0\n"
+            + "  end\n"
+            + "  local now = redis.call('SMEMBERS', KEYS[1])\n"
+            + "  table.sort(now)\n"
+            + "  if table.concat(now, ',') ~= ARGV[5] then return -2 end\n"
+            + "  redis.call('SADD', KEYS[1], ARGV[1])\n"
             + "end\n"
-            + "redis.call('SADD', KEYS[1], ARGV[1]); redis.call('EXPIRE', KEYS[1], ARGV[4])\n"
-            + "redis.call('HSET', KEYS[3], 'roomId', ARGV[2], unpack(ARGV, 5))\n"
+            + "redis.call('EXPIRE', KEYS[1], ARGV[4])\n"
+            + "redis.call('DEL', KEYS[3])\n"
+            + "redis.call('HSET', KEYS[3], 'roomId', ARGV[2], unpack(ARGV, 7))\n"
             + "redis.call('EXPIRE', KEYS[3], ARGV[4])\n"
+            + "if ARGV[6] ~= '' then redis.call('ZADD', KEYS[4], ARGV[6], ARGV[1])\n"
+            + "else redis.call('ZREM', KEYS[4], ARGV[1]) end\n"
             + "if redis.call('SCARD', KEYS[1]) >= tonumber(ARGV[3]) then redis.call('SREM', KEYS[2], ARGV[2])\n"
             + "else redis.call('SADD', KEYS[2], ARGV[2]) end\n"
             + "return 1", Long.class);
@@ -158,7 +185,10 @@ public class SeaRooms {
     /**
      * 먼바다 입장 — 이미 방이 있으면 그 방을 다시 알려 주고({@code joined} 없음, 재연결), 없으면 배정한다.
      *
-     * @return 그 세션에 보낼 {@code sea.room.assigned}. 세션이 이미 끊겼으면 {@code null}(늦게 처리된 프레임)
+     * <p>{@code assigned} 에는 {@code roomId} 만 싣는다. 구성원 목록은 앱이 방 토픽을 구독한 «뒤» {@link #snapshot}
+     * 으로 받는다 — 구독 전에 목록을 주면 그 사이 입퇴장 사건을 놓친다.
+     *
+     * @return 그 세션에 보낼 {@code sea.room.assigned}. 세션이 끊겼으면 {@code null}(늦게 처리된 프레임·종료 경합)
      * @throws UpstreamUnavailableException 바다 상태를 Data 에서 못 받았을 때 — 입장 실패
      */
     public SeaRoomEvent enter(UUID userId, String sessionId) {
@@ -172,20 +202,46 @@ public class SeaRooms {
         SeaStateClient.SeaState state = seaState.fetch(userId);
         Set<UUID> friendIds = friendsOrNone(userId);
         Instant now = clock.instant();
-        List<String> fields = joinFields(state, now);
+        String adriftSince = state.session() == null ? Long.toString(now.toEpochMilli()) : "";
+        List<String> fields = joinFields(state, adriftSince);
         String destination = state.session() == null ? null : state.session().destinationIslandId().toString();
 
-        for (UUID roomId : candidates(userId, destination, friendIds)) {
-            long result = join(userId, roomId, fields);
+        for (Candidate candidate : candidates(userId, destination, friendIds)) {
+            long result = joinChecked(userId, sessionId, candidate, fields, adriftSince);
+            if (result == ABORTED) {
+                return null;
+            }
             if (result == 1) {
-                return joined(userId, roomId, fields);
+                return joined(userId, sessionId, candidate.roomId(), state);
             }
             if (result == -1) {
                 return reconfirm(userId);
             }
         }
+        if (!sessions.isConnected(sessionId)) {
+            return null;
+        }
         UUID fresh = UuidV7.next();
-        return join(userId, fresh, fields) == 1 ? joined(userId, fresh, fields) : reconfirm(userId);
+        return join(userId, fresh, "", fields, adriftSince) == 1
+                ? joined(userId, sessionId, fresh, state) : reconfirm(userId);
+    }
+
+    /**
+     * 지금 방의 구성원 전부 — {@code SEND /app/sea/sync} 의 답. 방 토픽을 구독한 뒤에 부르므로 그 뒤 사건과 겹칠 수는
+     * 있어도 빠지지는 않는다.
+     *
+     * @throws ChatException {@code NOT_IN_SEA_ROOM} — 방이 없다
+     */
+    public SeaRoomEvent snapshot(UUID userId) {
+        Object current = redis.opsForHash().get(RedisKeys.seaUser(userId), ROOM_ID);
+        UUID roomId = current instanceof String value ? uuidOrNull(value) : null;
+        if (roomId == null) {
+            throw new ChatException(ChatErrorCode.NOT_IN_SEA_ROOM);
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("roomId", roomId.toString());
+        payload.set("members", membersOf(roomId));
+        return SeaRoomEvent.of(SNAPSHOT, roomId, clock.instant(), payload);
     }
 
     /** 지금 들어 있는 방에서 나간다. 방이 없으면 아무 일도 없다. */
@@ -322,23 +378,84 @@ public class SeaRooms {
         return existing;
     }
 
-    private SeaRoomEvent joined(UUID userId, UUID roomId, List<String> fields) {
-        int adrift = fields.indexOf(ADRIFT_SINCE);
-        if (adrift >= 0) {
-            // 항해 없이 들어왔다 — 처음부터 떠 있는 상태라 10분 정리 색인에 올린다.
-            redis.opsForZSet().add(RedisKeys.SEA_ADRIFT, userId.toString(), Double.parseDouble(fields.get(adrift + 1)));
+    /**
+     * JOIN 이 1 을 돌려준 뒤. 그사이 소켓이 끊겼고 이 JVM 에 다른 세션도 없으면 조용히 되돌린다 — {@code joined} 를
+     * 내기 전이라 아무도 이 사람을 보지 않았다. 아니면 상태를 한 번 더 맞추고 {@code joined} 를 낸다.
+     *
+     * <p>ponytail: 종료 리스너가 JOIN 전에 돌고 소켓 기록 삭제가 이 확인보다 늦으면 그 창(마이크로초)만큼 유령이 남는다 —
+     * 10분 정리·24h TTL 이 백스톱이다.
+     */
+    private SeaRoomEvent joined(UUID userId, String sessionId, UUID roomId, SeaStateClient.SeaState first) {
+        if (!sessions.isConnected(sessionId) && !sessions.hasOtherSession(userId, sessionId)) {
+            runLeave(userId, roomId, "");
+            return null;
         }
+        reconcile(userId, roomId, first);
         ObjectNode payload = objectMapper.createObjectNode();
         payload.set("member", memberOf(userId));
         publisher.publish(roomId, MEMBER_JOINED, payload);
         return assigned(roomId);
     }
 
+    /**
+     * 첫 조회와 JOIN 사이에 온 Data 사건은 «바다 밖 사용자»로 no-op 됐다 — 한 번 더 조회해 세션이 바뀌었으면
+     * (끝났거나 새로 시작) 그 전이를 적용한다. 재조회 실패는 첫 상태로 둔다.
+     */
+    private void reconcile(UUID userId, UUID roomId, SeaStateClient.SeaState first) {
+        SeaStateClient.SeaState second;
+        try {
+            second = seaState.fetch(userId);
+        } catch (RuntimeException e) {
+            log.warn("입장 뒤 바다 상태 재조회 실패 — 첫 상태로 둔다. reason={}", e.getClass().getSimpleName());
+            return;
+        }
+        SeaStateClient.Session before = first.session();
+        SeaStateClient.Session after = second.session();
+        UUID beforeId = before == null ? null : before.sessionId();
+        UUID afterId = after == null ? null : after.sessionId();
+        if (Objects.equals(beforeId, afterId)) {
+            return;
+        }
+        Transition transition = after == null ? endedTransition()
+                : sailingTransition(after.sessionId().toString(), after.destinationIslandId().toString(),
+                        after.sailingMinutes() == null ? null : after.sailingMinutes().toString(), after.startedAt());
+        runUpdate(userId, roomId.toString(), transition);
+    }
+
     private SeaRoomEvent assigned(UUID roomId) {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("roomId", roomId.toString());
-        payload.set("members", membersOf(roomId));
         return SeaRoomEvent.of(ASSIGNED, roomId, clock.instant(), payload);
+    }
+
+    /**
+     * 차단 검사를 통과한 후보에 들어간다. 구성원이 그사이 바뀌었으면(-2) 다시 읽어 차단을 다시 보고 재시도한다 —
+     * 차단 검사와 JOIN 사이에 차단 상대가 들어오는 경합을 스크립트의 집합 비교가 막는다.
+     *
+     * @return JOIN 결과(1·0·-1), 다 실패하면 0, 소켓이 끊겼으면 {@link #ABORTED}
+     */
+    private long joinChecked(UUID userId, String sessionId, Candidate candidate, List<String> fields,
+            String adriftSince) {
+        List<String> members = candidate.members();
+        for (int attempt = 0; attempt < JOIN_RECHECKS; attempt++) {
+            if (!sessions.isConnected(sessionId)) {
+                return ABORTED;
+            }
+            long result = join(userId, candidate.roomId(), String.join(",", sorted(members)), fields, adriftSince);
+            if (result != -2) {
+                return result;
+            }
+            Set<String> now = redis.opsForSet().members(RedisKeys.seaRoomMembers(candidate.roomId()));
+            members = now == null ? List.of() : List.copyOf(now);
+            if (members.size() >= SEA_ROOM_CAPACITY || !noBlockBetween(userId, members)) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    private static List<String> sorted(Collection<String> values) {
+        return values.stream().sorted().toList();
     }
 
     private Set<UUID> friendsOrNone(UUID userId) {
@@ -357,7 +474,7 @@ public class SeaRooms {
      * <p>ponytail: 열린 방 전부를 매 입장마다 읽는다(파이프라인 2회, O(열린 방 × 10)). 동시 항해자가 수천을 넘어
      * 보이면 목적지별 open 색인으로 나눈다.
      */
-    private List<UUID> candidates(UUID userId, String destination, Set<UUID> friendIds) {
+    private List<Candidate> candidates(UUID userId, String destination, Set<UUID> friendIds) {
         Set<String> open = redis.opsForSet().members(RedisKeys.SEA_ROOMS_OPEN);
         List<UUID> rooms = open == null ? List.of() : open.stream().map(SeaRooms::uuidOrNull)
                 .filter(Objects::nonNull).toList();
@@ -398,7 +515,12 @@ public class SeaRooms {
                 .sorted(byScore.thenComparing(bySize).reversed())
                 .limit(BLOCK_CHECKED_CANDIDATES)
                 .filter(room -> noBlockBetween(userId, membersByRoom.get(room)))
+                .map(room -> new Candidate(room, membersByRoom.get(room)))
                 .toList();
+    }
+
+    /** 차단 검사를 통과한 방과 그때 본 구성원 — JOIN 이 이 집합 그대로인지 원자적으로 대조한다. */
+    private record Candidate(UUID roomId, List<String> members) {
     }
 
     /** 방 구성원 누구와도 어느 쪽 차단이 없는가. 판정 불가면 그 방은 뺀다(fail-closed). */
@@ -418,7 +540,7 @@ public class SeaRooms {
     }
 
     /** 입장 해시 필드(roomId 제외) — 값이 없는 필드는 싣지 않는다. 항해 중이 아니면 처음부터 떠 있다. */
-    private static List<String> joinFields(SeaStateClient.SeaState state, Instant now) {
+    private static List<String> joinFields(SeaStateClient.SeaState state, String adriftSince) {
         List<String> fields = new ArrayList<>();
         SeaStateClient.Session session = state.session();
         fields.add(STATE);
@@ -429,7 +551,7 @@ public class SeaRooms {
         }
         if (session == null) {
             fields.add(ADRIFT_SINCE);
-            fields.add(Long.toString(now.toEpochMilli()));
+            fields.add(adriftSince);
             return fields;
         }
         fields.add(SESSION_ID);
@@ -450,41 +572,60 @@ public class SeaRooms {
     private record Transition(Map<String, String> set, List<String> delete, String adriftOp, String score) {
     }
 
-    /** @return 적용할 전이, params 가 불량이면 {@code null} */
+    /** @return 적용할 전이, params 가 불량이면 {@code null}(어떤 변환 예외도 밖으로 내지 않는다) */
     private Transition transition(String status, JsonNode params) {
+        try {
+            switch (status) {
+                case "sailing" -> {
+                    Instant serverNow = instantOrNull(text(params, "serverNow"));
+                    JsonNode active = params.get("activeSeconds");
+                    long activeSeconds = active != null && active.isIntegralNumber() && active.canConvertToLong()
+                            ? active.longValue() : 0;
+                    if (uuidOrNull(params.get(SESSION_ID)) == null || serverNow == null
+                            || activeSeconds < 0 || activeSeconds > MAX_ACTIVE_SECONDS) {
+                        return null;
+                    }
+                    JsonNode minutes = params.get(SAILING_MINUTES);
+                    return sailingTransition(text(params, SESSION_ID),
+                            uuidOrNull(params.get(DESTINATION)) == null ? null : text(params, DESTINATION),
+                            minutes != null && minutes.isIntegralNumber() && minutes.canConvertToInt()
+                                    ? Integer.toString(minutes.intValue()) : null,
+                            serverNow.minusSeconds(activeSeconds));
+                }
+                case "ended" -> {
+                    return endedTransition();
+                }
+                default -> { // remark
+                    Map<String, String> set = new HashMap<>();
+                    List<String> delete = new ArrayList<>();
+                    putOrDelete(set, delete, REMARK, text(params, REMARK));
+                    return new Transition(set, delete, "", "0");
+                }
+            }
+        } catch (RuntimeException e) {
+            return null; // 시각 overflow 같은 변환 실패 — 불량 params 로 접는다
+        }
+    }
+
+    private static Transition sailingTransition(String sessionId, String destination, String sailingMinutes,
+            Instant startedAt) {
         Map<String, String> set = new HashMap<>();
         List<String> delete = new ArrayList<>();
-        switch (status) {
-            case "sailing" -> {
-                String sessionId = text(params, SESSION_ID);
-                Instant serverNow = instantOrNull(text(params, "serverNow"));
-                JsonNode active = params.get("activeSeconds");
-                if (uuidOrNull(params.get(SESSION_ID)) == null || serverNow == null) {
-                    return null;
-                }
-                long activeSeconds = active != null && active.isIntegralNumber() ? Math.max(0, active.longValue()) : 0;
-                set.put(STATE, FOCUSING);
-                set.put(SESSION_ID, sessionId);
-                set.put(STARTED_AT, serverNow.minusSeconds(activeSeconds).toString());
-                putOrDelete(set, delete, DESTINATION, uuidOrNull(params.get(DESTINATION)) == null ? null
-                        : text(params, DESTINATION));
-                JsonNode minutes = params.get(SAILING_MINUTES);
-                putOrDelete(set, delete, SAILING_MINUTES,
-                        minutes != null && minutes.isIntegralNumber() ? Long.toString(minutes.longValue()) : null);
-                delete.add(ADRIFT_SINCE);
-                return new Transition(set, delete, "rem", "0");
-            }
-            case "ended" -> {
-                String since = Long.toString(clock.instant().toEpochMilli());
-                set.put(STATE, ADRIFT);
-                set.put(ADRIFT_SINCE, since);
-                return new Transition(set, delete, "add", since);
-            }
-            default -> { // remark
-                putOrDelete(set, delete, REMARK, text(params, REMARK));
-                return new Transition(set, delete, "", "0");
-            }
-        }
+        set.put(STATE, FOCUSING);
+        set.put(SESSION_ID, sessionId);
+        set.put(STARTED_AT, startedAt.toString());
+        putOrDelete(set, delete, DESTINATION, destination);
+        putOrDelete(set, delete, SAILING_MINUTES, sailingMinutes);
+        delete.add(ADRIFT_SINCE);
+        return new Transition(set, delete, "rem", "0");
+    }
+
+    private Transition endedTransition() {
+        String since = Long.toString(clock.instant().toEpochMilli());
+        Map<String, String> set = new HashMap<>();
+        set.put(STATE, ADRIFT);
+        set.put(ADRIFT_SINCE, since);
+        return new Transition(set, new ArrayList<>(), "add", since);
     }
 
     private static void putOrDelete(Map<String, String> set, List<String> delete, String field, String value) {
@@ -497,9 +638,9 @@ public class SeaRooms {
 
     // ── 스크립트 ────────────────────────────────────────────────────────
 
-    private long join(UUID userId, UUID roomId, List<String> fields) {
+    private long join(UUID userId, UUID roomId, String expectedMembers, List<String> fields, String adriftSince) {
         List<String> args = new ArrayList<>(List.of(userId.toString(), roomId.toString(),
-                Integer.toString(SEA_ROOM_CAPACITY), Long.toString(TTL.toSeconds())));
+                Integer.toString(SEA_ROOM_CAPACITY), Long.toString(TTL.toSeconds()), expectedMembers, adriftSince));
         args.addAll(fields);
         Long result = redis.execute(JOIN, keys(userId, roomId), args.toArray());
         return result == null ? 0 : result;

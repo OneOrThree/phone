@@ -648,7 +648,7 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
-    @DisplayName("바다 — 개인 큐 /user/queue/sea 구독과 leave SEND 는 인증만으로 통과한다")
+    @DisplayName("바다 — 개인 큐 /user/queue/sea 구독과 leave·sync SEND 는 인증만으로 통과한다")
     void seaQueueAndLeavePassWithAuthentication() {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
         StompHeaderAccessor queue = seaFrame(StompCommand.SUBSCRIBE, "/user/queue/sea");
@@ -656,6 +656,8 @@ class StompAuthChannelInterceptorTest {
 
         assertThatCode(() -> interceptor.preSend(message(queue), null)).doesNotThrowAnyException();
         assertThatCode(() -> interceptor.preSend(message(leave), null)).doesNotThrowAnyException();
+        assertThatCode(() -> interceptor.preSend(message(seaFrame(StompCommand.SEND, "/app/sea/sync")), null))
+                .doesNotThrowAnyException();
         verifyNoInteractions(seaRooms);
     }
 

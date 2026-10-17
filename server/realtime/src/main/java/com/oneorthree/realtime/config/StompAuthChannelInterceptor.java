@@ -39,6 +39,7 @@ import static com.oneorthree.realtime.config.StompTopics.SEA_ENTER_SEND;
 import static com.oneorthree.realtime.config.StompTopics.SEA_LEAVE_SEND;
 import static com.oneorthree.realtime.config.StompTopics.SEA_QUEUE;
 import static com.oneorthree.realtime.config.StompTopics.SEA_ROOM_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.SEA_SYNC_SEND;
 
 /**
  * STOMP 프레임에 관문을 세운다 — CONNECT·SUBSCRIBE·SEND.
@@ -93,7 +94,8 @@ import static com.oneorthree.realtime.config.StompTopics.SEA_ROOM_TOPIC;
  * 「그 섬 movement 구독 중」만 보고, 강퇴 재검사로 그 세션 송신이 멈춘 동안은 조용히 버린다.
  *
  * <h2>바다 방 (GROMO-2300)</h2>
- * {@code /user/queue/sea} 구독과 {@code /app/sea/leave} 발신은 인증만, {@code /app/sea/enter} 는 인증 + 사용자 축
+ * {@code /user/queue/sea} 구독과 {@code /app/sea/leave}·{@code /app/sea/sync} 발신은 인증만(sync 의 방 소속은
+ * 컨트롤러가 본다), {@code /app/sea/enter} 는 인증 + 사용자 축
  * 시도 창({@code SEA_ENTER_TOO_FREQUENT}), 방 토픽 구독은 Redis 의 방 소속({@code NOT_IN_SEA_ROOM}) — 상류 HTTP 가
  * 없어 구독 시도 창은 두지 않는다. 방 토픽 UNSUBSCRIBE 는 퇴장이다(구독 기록을 지우기 전에 목적지를 되찾는다).
  */
@@ -464,7 +466,8 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     }
 
     /**
-     * 바다 발신 셋(GROMO-2300) — 입장은 시도 창(입장마다 Data 조회 2회), 이모트는 시도 창(컨트롤러는 2/2), 퇴장은 인증만.
+     * 바다 발신(GROMO-2300) — 입장은 시도 창(입장마다 Data 조회 3회), 이모트는 시도 창(컨트롤러는 2/2), 퇴장·스냅샷은
+     * 인증만.
      * 창은 본문 변환보다 앞이어야 해서 여기서 잰다(응원과 같은 이유).
      *
      * @return 바다 목적지였으면 true(통과), 아니면 false(다음 검사로)
@@ -477,7 +480,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             }
             return true;
         }
-        if (SEA_LEAVE_SEND.matcher(destination).matches()) {
+        if (SEA_LEAVE_SEND.matcher(destination).matches() || SEA_SYNC_SEND.matcher(destination).matches()) {
             requireAuthenticated(accessor);
             return true;
         }

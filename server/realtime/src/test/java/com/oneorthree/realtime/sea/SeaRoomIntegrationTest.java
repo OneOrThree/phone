@@ -124,10 +124,13 @@ class SeaRoomIntegrationTest {
         Map<String, Object> assigned = client.enter();
 
         assertThat(assigned.get("type")).isEqualTo("sea.room.assigned");
+        assertThat(payload(assigned)).as("assigned 는 roomId 만 — 구성원은 구독 뒤 sync 로").containsOnlyKeys("roomId");
         UUID room = roomOf(assigned);
-        assertThat(memberIds(payload(assigned))).containsExactly(alice.toString());
+        Map<String, Object> snapshot = client.sync();
+        assertThat(snapshot.get("type")).isEqualTo("sea.room.snapshot");
+        assertThat(memberIds(payload(snapshot))).containsExactly(alice.toString());
         @SuppressWarnings("unchecked")
-        Map<String, Object> member = ((List<Map<String, Object>>) payload(assigned).get("members")).get(0);
+        Map<String, Object> member = ((List<Map<String, Object>>) payload(snapshot).get("members")).get(0);
         assertThat(member.get("state")).isEqualTo("focusing");
         @SuppressWarnings("unchecked")
         Map<String, Object> session = (Map<String, Object>) member.get("session");
@@ -147,10 +150,11 @@ class SeaRoomIntegrationTest {
         UUID room = roomOf(a.enter());
         BlockingQueue<Map<String, Object>> heard = a.watch(room, alice);
 
-        Map<String, Object> assigned = connect(bob).enter();
+        Client b = connect(bob);
+        Map<String, Object> assigned = b.enter();
 
         assertThat(roomOf(assigned)).isEqualTo(room);
-        assertThat(memberIds(payload(assigned))).containsExactlyInAnyOrder(alice.toString(), bob.toString());
+        assertThat(memberIds(payload(b.sync()))).containsExactlyInAnyOrder(alice.toString(), bob.toString());
         Map<String, Object> joined = await(heard, frame -> "sea.member.joined".equals(frame.get("type")));
         assertThat(memberOf(joined).get("userId")).isEqualTo(bob.toString());
     }
@@ -394,7 +398,112 @@ class SeaRoomIntegrationTest {
         assertThat(a.session.isConnected()).isTrue();
     }
 
+    @Test
+    @DisplayName("[P1] 차단 쌍이 같은 후보 방에 동시에 들어와도 갈라진다 — 차단 검사와 JOIN 사이 경합(-2)")
+    void concurrentBlockedEntrantsAreSeparated() throws Exception {
+        for (int round = 0; round < 5; round++) {
+            redis.delete(RedisKeys.SEA_ROOMS_OPEN);
+            UUID room = preloadRoom(Map.of(UUID.randomUUID(), destination));
+            UUID alice = sailor();
+            UUID bob = sailor();
+            given(blockClient.fetchBlockedIds(alice)).willReturn(Set.of(bob));
+            Client a = connect(alice);
+            Client b = connect(bob);
+            java.util.concurrent.CompletableFuture<Map<String, Object>> first =
+                    java.util.concurrent.CompletableFuture.supplyAsync(() -> enterUnchecked(a));
+            java.util.concurrent.CompletableFuture<Map<String, Object>> second =
+                    java.util.concurrent.CompletableFuture.supplyAsync(() -> enterUnchecked(b));
+            UUID aliceRoom = roomOf(first.get(TIMEOUT_SECONDS * 2, TimeUnit.SECONDS));
+            UUID bobRoom = roomOf(second.get(TIMEOUT_SECONDS * 2, TimeUnit.SECONDS));
+            assertThat(aliceRoom).as("round %d", round).isNotEqualTo(bobRoom);
+            assertThat(List.of(aliceRoom, bobRoom)).contains(room);
+        }
+    }
+
+    @Test
+    @DisplayName("[P2] 해시만 사라진 사람이 다시 enter 하면 해시가 복구되고 방 토픽 구독이 통과한다")
+    void reEnterRestoresAMissingHash() throws Exception {
+        UUID alice = sailor();
+        Client a = connect(alice);
+        UUID room = roomOf(a.enter());
+        redis.delete(RedisKeys.seaUser(alice));
+
+        assertThat(roomOf(a.enter())).isEqualTo(room);
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "roomId")).isEqualTo(room.toString());
+        assertThat(redis.opsForSet().size(RedisKeys.seaRoomMembers(room))).isEqualTo(1L);
+        a.watch(room, alice); // 구독 관문 통과 + 사건 수신
+        assertThat(a.session.isConnected()).isTrue();
+    }
+
+    @Test
+    @DisplayName("[P2] sync 는 그 세션에만 스냅샷을 돌려주고, 방이 없으면 NOT_IN_SEA_ROOM 을 개인 오류 큐로")
+    void syncAnswersOnlyThatSession() throws Exception {
+        UUID alice = sailor();
+        Client phone = connect(alice);
+        UUID room = roomOf(phone.enter());
+        Client tablet = connect(alice);
+        tablet.subscribeQueue();
+
+        Map<String, Object> snapshot = phone.sync();
+        assertThat(snapshot.get("roomId")).isEqualTo(room.toString());
+        assertThat(tablet.assignments.poll(1, TimeUnit.SECONDS)).as("다른 기기에는 가지 않는다").isNull();
+
+        Client outsider = connect(UUID.randomUUID());
+        BlockingQueue<SendFailureResponse> failures = outsider.subscribeErrors();
+        SendFailureResponse failure = null;
+        for (int attempt = 0; attempt < 20 && failure == null; attempt++) {
+            outsider.session.send("/app/sea/sync", Map.of());
+            failure = failures.poll(500, TimeUnit.MILLISECONDS);
+        }
+        assertThat(failure).isNotNull();
+        assertThat(failure.getCode()).isEqualTo(ChatErrorCode.NOT_IN_SEA_ROOM.name());
+        assertThat(outsider.session.isConnected()).isTrue();
+    }
+
+    @Test
+    @DisplayName("[P2] 첫 조회와 JOIN 사이에 항해가 끝났으면(재조회 session=null) 입장 뒤 상태가 adrift 다")
+    void endedBetweenFetchAndJoinIsApplied() throws Exception {
+        UUID alice = UUID.randomUUID();
+        Instant now = Instant.now();
+        given(seaState.fetch(alice)).willReturn(
+                new SeaStateClient.SeaState(null, null,
+                        new SeaStateClient.Session(UUID.randomUUID(), destination, 30, 0L, now, now)),
+                new SeaStateClient.SeaState(null, null, null));
+        given(friends.fetchFriendIds(alice)).willReturn(Set.of());
+
+        connect(alice).enter();
+
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "state")).isEqualTo("adrift");
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "adriftSince")).isNotNull();
+        assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, alice.toString())).isNotNull();
+    }
+
+    @Test
+    @DisplayName("[P2] activeSeconds 가 long 최댓값인 sailing 사건 → 200 이고 상태는 그대로다")
+    void absurdActiveSecondsIsIgnored() throws Exception {
+        UUID alice = sailor();
+        Client a = connect(alice);
+        a.enter();
+        Object sessionBefore = redis.opsForHash().get(RedisKeys.seaUser(alice), "sessionId");
+        Object startedBefore = redis.opsForHash().get(RedisKeys.seaUser(alice), "startedAt");
+
+        postEvent(seaEvent(alice, "\"status\":\"sailing\",\"sessionId\":\"" + UUID.randomUUID() + "\","
+                + "\"activeSeconds\":9223372036854775807,\"serverNow\":\"2026-10-17T00:00:00Z\""));
+
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "sessionId")).isEqualTo(sessionBefore);
+        assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "startedAt")).isEqualTo(startedBefore);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
+
+    private static Map<String, Object> enterUnchecked(Client client) {
+        try {
+            return client.enter();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
 
     /** 이 테스트 목적지로 항해 중인 새 사용자. */
     private UUID sailor() {
@@ -523,12 +632,47 @@ class SeaRoomIntegrationTest {
             this.userId = userId;
         }
 
-        /** {@code SUB /user/queue/sea} → {@code SEND /app/sea/enter} — assigned 가 올 때까지 다시 보낸다(창은 비운다). */
-        Map<String, Object> enter() throws InterruptedException {
+        void subscribeQueue() {
             if (!queueSubscribed) {
                 session.subscribe("/user/queue/sea", new QueueHandler(assignments));
                 queueSubscribed = true;
             }
+        }
+
+        BlockingQueue<SendFailureResponse> subscribeErrors() {
+            BlockingQueue<SendFailureResponse> failures = new LinkedBlockingQueue<>();
+            session.subscribe("/user/queue/errors", new StompFrameHandler() {
+                @Override
+                public @NonNull Type getPayloadType(@NonNull StompHeaders headers) {
+                    return SendFailureResponse.class;
+                }
+
+                @Override
+                public void handleFrame(@NonNull StompHeaders headers, Object payload) {
+                    failures.add((SendFailureResponse) payload);
+                }
+            });
+            return failures;
+        }
+
+        /** {@code SEND /app/sea/sync} — 스냅샷이 올 때까지 다시 보낸다. */
+        Map<String, Object> sync() throws InterruptedException {
+            subscribeQueue();
+            for (int attempt = 0; attempt < 30; attempt++) {
+                session.send("/app/sea/sync", Map.of());
+                Map<String, Object> frame = assignments.poll(500, TimeUnit.MILLISECONDS);
+                if (frame != null && "sea.room.snapshot".equals(frame.get("type"))) {
+                    frame.put("roomId", payload(frame).get("roomId"));
+                    assignments.clear();
+                    return frame;
+                }
+            }
+            throw new AssertionError("스냅샷이 끝내 오지 않았다 — errors=" + errors);
+        }
+
+        /** {@code SUB /user/queue/sea} → {@code SEND /app/sea/enter} — assigned 가 올 때까지 다시 보낸다(창은 비운다). */
+        Map<String, Object> enter() throws InterruptedException {
+            subscribeQueue();
             for (int attempt = 0; attempt < 30; attempt++) {
                 redis.delete(RedisKeys.seaEnterAttempt(userId));
                 session.send("/app/sea/enter", Map.of());

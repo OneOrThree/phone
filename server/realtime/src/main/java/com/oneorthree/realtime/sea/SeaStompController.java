@@ -17,6 +17,9 @@ import org.springframework.stereotype.Controller;
 /**
  * 먼바다 입장·퇴장 입구 (GROMO-2300). 본문은 {@code {}} 이고 읽지 않는다.
  *
+ * <p>프레임 순서: {@code SUB /user/queue/sea → SEND enter → assigned{roomId} → SUB /topic/sea/rooms/{roomId}
+ * → SEND sync → snapshot{roomId, members}}. 구독 뒤에 스냅샷을 받으니 그 사이 사건을 놓치지 않는다.
+ *
  * <p>입장 결과({@code sea.room.assigned})는 <b>보낸 세션 한 곳</b>의 {@code /user/queue/sea} 로 간다 — 같은 사람의
  * 다른 기기가 남의 세션 응답을 받지 않게({@code broadcast = false}). 거절은 {@code /user/queue/errors} 로 가고
  * 연결은 유지한다. 인증·시도 창은 {@code StompAuthChannelInterceptor} 가 이미 봤다.
@@ -34,6 +37,16 @@ public class SeaStompController {
     public SeaRoomEvent enter(ChatPrincipal principal,
             @Header(SimpMessageHeaderAccessor.SESSION_ID_HEADER) String sessionId) {
         return seaRooms.enter(principal.userId(), sessionId);
+    }
+
+    /**
+     * 방 스냅샷 — 방 토픽을 구독한 «뒤»에 보낸다. 그 세션 한 곳에만 간다. 방이 없으면 {@code NOT_IN_SEA_ROOM} 을
+     * 개인 오류 큐로.
+     */
+    @MessageMapping("/sea/sync")
+    @SendToUser(destinations = "/queue/sea", broadcast = false)
+    public SeaRoomEvent sync(ChatPrincipal principal) {
+        return seaRooms.snapshot(principal.userId());
     }
 
     @MessageMapping("/sea/leave")

@@ -36,6 +36,9 @@ public final class StompTopics {
     static final Pattern SEA_ENTER_SEND = Pattern.compile("^/app/sea/enter$");
     static final Pattern SEA_LEAVE_SEND = Pattern.compile("^/app/sea/leave$");
 
+    /** 방 스냅샷 요청 — 방 토픽 구독 «뒤»에 보낸다(답은 {@link #SEA_QUEUE} 로 {@code sea.room.snapshot}). */
+    static final Pattern SEA_SYNC_SEND = Pattern.compile("^/app/sea/sync$");
+
     /** 바다 방 이모트 발신(컨트롤러는 GROMO-2300 2/2). 관문은 시도 창만 본다. */
     static final Pattern SEA_EMOTE_SEND = Pattern.compile("^/app/sea/rooms/([0-9a-f-]{36})/emotes$");
 
