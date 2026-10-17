@@ -68,7 +68,8 @@ public class FocusSessionUseCase {
             Map.entry("SUMMARY_DATE_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "date")),
             Map.entry("INVALID_SUMMARY_TIMEZONE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "timezone")),
             // 바다 한마디(GROMO-2299)의 «한 줄이어야 한다» 같은 모양 거절 — 길이·필드 수는 공개 경계가 먼저 걸러 보통 닿지 않는다.
-            Map.entry("INVALID_REQUEST", new PublicFailure(ApiErrorCode.INVALID_REQUEST, "remark")));
+            // 이 표는 모든 집중 엔드포인트가 공유하므로 field 는 null 이다(특정 필드명을 다른 엔드포인트 400 에 붙이지 않는다).
+            Map.entry("INVALID_REQUEST", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)));
 
     private final DataFocusClient data;
 

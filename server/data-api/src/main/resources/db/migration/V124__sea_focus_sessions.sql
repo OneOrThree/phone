@@ -11,7 +11,9 @@ ALTER TABLE focus_session_details
     ADD COLUMN kind            varchar(10) NOT NULL DEFAULT 'ISLAND',
     ADD COLUMN sailing_minutes integer,
     ADD COLUMN arrived         boolean,
-    ALTER COLUMN membership_epoch_at_start DROP NOT NULL;
+    ALTER COLUMN membership_epoch_at_start DROP NOT NULL,
+    -- 바다 세션은 항해 분 없이 정산(arrived 판정)할 수 없다 — 코드 우회·수동 INSERT 도 DB 가 막는다.
+    ADD CONSTRAINT focus_session_details_sea_sailing_ck CHECK (kind <> 'SEA' OR sailing_minutes IS NOT NULL);
 
 CREATE TABLE sea_remarks (
     user_id    uuid        PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,

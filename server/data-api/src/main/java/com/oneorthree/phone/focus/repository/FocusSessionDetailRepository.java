@@ -85,8 +85,12 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      *
      * @return 있으면 true
      */
-    boolean existsByUserIdAndIslandIdAndLifecycleIn(
-            UUID userId, UUID islandId, Collection<FocusSessionLifecycle> lifecycles);
+    @Query("SELECT COUNT(d) > 0 FROM FocusSessionDetail d WHERE d.userId = :userId AND d.islandId = :islandId "
+            + "AND d.lifecycle IN :lifecycles AND d.kind = "
+            // 바다 세션의 island_id 는 «목적지» 라 소속 탈퇴를 막을 이유가 아니다(강퇴 경로와 같은 기준, GROMO-2299).
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND")
+    boolean existsByUserIdAndIslandIdAndLifecycleIn(@Param("userId") UUID userId, @Param("islandId") UUID islandId,
+                                                    @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles);
 
     /**
      * 섬 주민 스냅샷용(GROMO-1765) — 그 섬에 귀속된 진행 세션 중 지정한 사용자들의 것.
@@ -174,7 +178,8 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * @return 사용 중인 자리 번호(중복 없음이 자연히 보장 — UNIQUE 인덱스)
      */
     @Query("SELECT d.restSeat FROM FocusSessionDetail d WHERE d.islandId = :islandId AND d.lifecycle = "
-            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED")
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED AND d.kind = "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND")
     List<Integer> findUsedRestSeatsByIslandId(@Param("islandId") UUID islandId);
 
     /**

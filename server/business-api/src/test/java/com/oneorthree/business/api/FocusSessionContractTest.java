@@ -329,6 +329,17 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.arrived").value(true));
     }
 
+    /** 공유 매핑표의 INVALID_REQUEST 는 field 를 붙이지 않는다 — 한마디가 아닌 엔드포인트의 400 에 «remark» 가 실리면 안 된다. */
+    @Test
+    void upstreamInvalidRequestCarriesNoFieldOnOtherFocusEndpoints() throws Exception {
+        DATA.on(DATA_START, request -> error(400, "INVALID_REQUEST"));
+        String body = mockMvc.perform(write(post("/focus-sessions"), START_BODY))
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("remark");
+        assertThat(body).doesNotContain("\"field\":\"");
+    }
+
     /** 시작 게이트가 닫혀 있는 동안 start 는 재시도 가능한 503 이다 — 502 로 접히지 않는다. */
     @Test
     void startRelaysClosedStartGateAsRetryableUnavailable() throws Exception {

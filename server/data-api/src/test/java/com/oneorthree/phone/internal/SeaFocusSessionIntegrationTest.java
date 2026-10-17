@@ -173,6 +173,31 @@ class SeaFocusSessionIntegrationTest {
     }
 
     @Test
+    @DisplayName("도착 경계 — 집중 초가 항해 분×60 과 같으면 arrived=true, 1초 모자라면 false")
+    void arrivalBoundaryIsInclusiveAtExactlySailingSeconds() throws Exception {
+        UUID island = newIsland();
+        UUID exact = newUser();
+        UUID shy = newUser();
+        // 항해 분은 사람마다 다르다(사람·섬·정시 버킷 시드) — 각자의 값으로 경계를 잰다.
+        int sailing = pinAndSailingMinutes(exact, island);
+        int shySailing = pinAndSailingMinutes(shy, island);
+        String exactId = JsonPath.read(start(exact, island).andReturn().getResponse().getContentAsString(), "$.id");
+        String shyId = JsonPath.read(start(shy, island).andReturn().getResponse().getContentAsString(), "$.id");
+
+        // 구간을 정확히 닫아 둔다 — finish 의 now 가 길이를 흔들지 않는다.
+        closeIntervalAfter(exactId, sailing * 60L);
+        closeIntervalAfter(shyId, shySailing * 60L - 1);
+        call(post("/internal/users/" + exact + "/focus-sessions/" + exactId + "/finish"), exact,
+                "{\"expectedVersion\":1}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeSeconds").value(sailing * 60L))
+                .andExpect(jsonPath("$.arrived").value(true));
+        call(post("/internal/users/" + shy + "/focus-sessions/" + shyId + "/finish"), shy,
+                "{\"expectedVersion\":1}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.activeSeconds").value(shySailing * 60L - 1))
+                .andExpect(jsonPath("$.arrived").value(false));
+    }
+
+    @Test
     @DisplayName("목적지가 망원경 목록에 없으면 409 SEA_DESTINATION_UNAVAILABLE 이고 세션이 생기지 않는다")
     void destinationMustBeOnTheTelescope() throws Exception {
         UUID user = newUser();
@@ -272,6 +297,17 @@ class SeaFocusSessionIntegrationTest {
         jdbc.update("update focus_sessions set started_at=? where id=?", at, id);
         jdbc.update("update focus_session_details set last_transition_at=? where session_id=?", at, id);
         jdbc.update("update focus_session_intervals set started_at=? where session_id=? and ordinal=1", at, id);
+    }
+
+    /** 첫 구간을 시작 시각 + {@code seconds} 에 닫는다 — 시작은 충분히 과거로 옮겨 닫는 시각이 미래가 되지 않게 한다. */
+    private void closeIntervalAfter(String sessionId, long seconds) {
+        UUID id = UUID.fromString(sessionId);
+        Instant begin = Instant.now().minusSeconds(seconds + 120).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        Timestamp at = Timestamp.from(begin);
+        jdbc.update("update focus_sessions set started_at=? where id=?", at, id);
+        jdbc.update("update focus_session_details set last_transition_at=? where session_id=?", at, id);
+        jdbc.update("update focus_session_intervals set started_at=?, ended_at=? where session_id=? and ordinal=1",
+                at, Timestamp.from(begin.plusSeconds(seconds)), id);
     }
 
     private long walletBalance(UUID island) {

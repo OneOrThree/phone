@@ -761,7 +761,7 @@ Table focus_session_details [note: 'GROMO-1764: v0.3 집중 세션 상세(섬 �
   island_id                 uuid    [not null, note: 'FK → groups.id ON DELETE RESTRICT. 시작 후 불변(FR-P03)']
   membership_epoch_at_start bigint  [note: 'nullable(V124) — 바다 세션은 멤버십이 없어 null. 시작 시점 GroupMember.membershipEpoch 스냅샷 — 기록만. 소속 상실은 강퇴 TX 가 직접 종결한다(FR-D03, GROMO-1924)']
   kind                      varchar(10) [not null, default: 'ISLAND', note: 'V124·GROMO-2299: ISLAND / SEA. SEA 면 island_id 는 목적지 섬이고 멤버십·휴식·presence 투영이 없다']
-  sailing_minutes           integer [note: 'V124: SEA 만. 시작 시 망원경 목록의 항해 분을 고정']
+  sailing_minutes           integer [note: 'V124: SEA 만. 시작 시 망원경 목록의 항해 분을 고정. CHECK focus_session_details_sea_sailing_ck — kind=SEA 면 NOT NULL']
   arrived                   boolean [note: 'V124: SEA 정산 때 activeSeconds >= sailing_minutes*60. 진행 중·섬 세션은 null']
   subject                   varchar(200) [not null, note: '자유 입력 — 탈퇴 익명화가 빈 문자열로 파기한다(NOT NULL 불변식이라 null 대신 빈 값)']
   target_minutes            integer [note: 'nullable — 목표는 선택이다(V82·GROMO-1990: 보상이 시간에만 걸린다). 값이 있으면 0 이하만 거절, 허용 범위는 FR-D06 미결']

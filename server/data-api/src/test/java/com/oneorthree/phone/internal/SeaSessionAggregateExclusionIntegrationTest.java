@@ -120,6 +120,11 @@ class SeaSessionAggregateExclusionIntegrationTest {
         // 둘 다 끝낸 뒤의 주간 분자(COMPLETED 만) — 섬 세션 분만 잡힌다.
         focus.finish(resident, control.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
         focus.finish(voyager, sea.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        // 8) 자진 탈퇴 가드 — 바다 세션 중인 주민은 진행 중 세션으로 세지 않는다(강퇴 경로와 같은 기준).
+        UUID sailing = newUser();
+        join(sailing, island);
+        focus.startSea(sailing, new SeaFocusSessionStartCommandRequest(island), UUID.randomUUID());
+        assertThat(details.existsByUserIdAndIslandIdAndLifecycleIn(sailing, island, active)).isFalse();
         var seconds = details.sumIslandActiveSeconds(from, to);
         assertThat(seconds).filteredOn(row -> island.equals(row.getIslandId())).hasSize(1);
         long islandSeconds = seconds.stream().filter(row -> island.equals(row.getIslandId()))
