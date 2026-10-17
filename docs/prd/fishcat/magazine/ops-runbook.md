@@ -188,7 +188,9 @@ SELECT u.id
 
 - cron 이 10분이고 `lockAtMostFor` 가 PT9M 이라 펼치기가 9분을 넘기면 틱이 겹칠 수 있다. 선점·결정적 키가 중복을 막고, 겹친 틱이 같은 사용자에서 서로 기다릴 수 있다.
 - 한 호를 펼치는 중에는 `NOTIFICATION_DISPATCH_MODE` 를 바꾸지 않는다. 두 경로의 중복 키가 달라 같은 호가 두 번 나간다.
-- 하루 중간에 배포하면 그날 호 알림이 그 시각에 나간다(DROP 은 조용한 시간만 버린다).
+- 하루 중간에 배포하면 그날 호 알림이 그 시각에 나간다(DROP 은 조용한 시간만 버린다). 23:50 이후~07:00 전 배포는 다음 07:00 틱이 정상 경로로 처리한다(cron `0 0/10 7-23`).
+- 알림 쪽은 `MAGAZINE_ENABLED` 를 보지 않는다 — 스위치가 꺼져 있어도 오늘 날짜 호 행이 있고 `notified_at IS NULL` 이면 펼친다. 스위치는 발행(`MagazinePublishService`)만 막고, 틱은 발행 결과와 상관없이 `notifyIfPending` 을 부르며 그 호가 없으면 조용히 끝난다.
+- `NOTIFICATION_DISPATCH_MODE=OUTBOX` 면 `notification_sent_logs` 는 LEGACY 기록이라 0 건이 정상이다. 발송 확인은 알림 서버 DB 의 `deliveries` 에서 한다(`kind = 'MAGAZINE_PUBLISHED'`, `event_id` 는 `noti:MAGAZINE_PUBLISHED:<userId>:<호 id>:<KST 날짜>`, `status` 가 `SENT`/`SUPPRESSED`/`FAILED`). 처리 못 한 레코드는 Kafka `notification-events.DLT` 토픽에 쌓인다 — DLT 를 비우거나 다시 읽는 절차 문서는 아직 없다(담당자 보강).
 - `OUTBOX` 로 전환하기 전에 알림 서버 V8 적용을 확인한다.
 
 **롤백** — data-api 만 되돌리면 알림 서버 V8 은 두어도 된다. 알림 서버를 되돌릴 때는 outbox 에 남은 `MAGAZINE_PUBLISHED` 가 422(`UNKNOWN_NOTIFICATION_KIND`)로 DLT 에 가므로 먼저 비운다. V126 의 `notified_at` 열과 선점 행은 남아도 무해하다.
@@ -205,11 +207,38 @@ SELECT u.id
 
 ### 4-6. 10/16 마무리 에픽 롤백 순서
 
+**되돌릴 신호**
+
+- `GET /me/telescope` 의 5xx·지연이 정시 직후에 튄다(2306 — 읽기-쓰기 트랜잭션 + 사용자 행 공유 잠금 + 버킷 INSERT).
+- `OUTBOX` 일 때 알림 서버가 422 `TEMPLATE_ARGUMENT_MISSING`/`UNKNOWN_NOTIFICATION_KIND` 를 내고 DLT 로 간다(2307 — 카탈로그와 params 짝).
+- data-api 에 `수동 확인 필요` error 나 `일시 실패` warn 이 연속으로 뜬다(2307 — FCM/선점). 1차 대응은 4-4 의 수동 대상 쿼리이고, 그걸로 설명되지 않는 연속 실패만 롤백한다.
+- 비공개 섬 핀 404 는 앱 2316 전의 알려진 창이라 롤백 신호가 아니다.
+
 1. **되돌리는 순서**: data-api → outbox 의 `MAGAZINE_PUBLISHED` 비우기 → 알림 서버. 알림 서버를 먼저 되돌리면 V8 이 없어 422 로 DLT 에 간다.
 2. **Flyway**: data-api V125·V126 **과 알림 서버 V8 모두** 옛 jar 에 없으면 기본 설정에서 기동을 거부한다. `flyway_schema_history` 행을 제거하거나 `spring.flyway.ignore-migration-patterns=*:missing` 을 임시로 허용한다.
 3. **2306**: `telescope_buckets` 행이 남아, 재배포하면 같은 1시간 안의 낡은 스냅샷이 정본처럼 재사용된다(영향 작음). 당겨진 핀 `expires_at` 은 복구할 수 없다.
 4. **2305**: 롤백 사이 비공개 섬이 낸 홍보는 돈이 빠졌는데 잡지에 실리지 않는 상태다. `groups.is_private` 는 현재 값이므로, 현재 비공개인 섬의 홍보 중 롤백 기간에 신청된 것(`island_promotions.applied_at` 범위, 조인 `island_promotions.island_id = groups.id`)을 센다. 환불 판단의 후보 목록일 뿐이다.
 5. **2307**: 재배포 뒤 `notified_at` 이 NULL 인 오늘 호는 첫 틱에 다시 펼쳐지지만, 선점 행이 중복을 막는다.
+
+### 4-7. 10/16 마무리 에픽 — 배포 직후 확인
+
+```sql
+-- ① data-api: V125·V126 이 success=true
+SELECT version, description, success FROM flyway_schema_history WHERE version IN ('125','126') ORDER BY installed_rank;
+-- ① 알림 서버 DB 에서도 같은 조회로 version = '8' 을 본다.
+
+-- ② 핀: 배포 직후엔 거의 0 이다(V125 UPDATE 로 대부분 만료). 이후 새로 넣은 것만 는다.
+SELECT count(*) FROM telescope_pins WHERE expires_at > now();
+
+-- ② 버킷: 누군가 GET /me/telescope 를 한 번 열어야 현재 정시 행이 생긴다 — 배포 직후 0 건은 정상이다.
+SELECT bucket_start, count(*) FROM telescope_buckets GROUP BY 1 ORDER BY 1 DESC LIMIT 3;
+```
+
+**읽는 법**
+
+- 버킷은 사용자당 1행이다(새 버킷 행을 넣을 때 그 사람의 옛 행을 지운다 — V125 헤더). 그래서 시간대별 이력이 쌓이지 않고, 위 조회는 «지금 정시 버킷에 몇 명이 열었나» 만 보여 준다.
+- ③ 오늘 호 알림은 4-4 의 `notified_at` 쿼리와 `펼치기 완료` 로그로 본다.
+- ④ 비공개 섬 랭킹은 읽기 시점 계산이라 SQL 이 없다. 편집부 페이지(`GET /me/magazine/today`) 또는 `/rankings/islands` 응답에 `privateIsland=true` 항목이 보이면 정상이다(10/16 의도).
 
 ## 5. 망원경 홍보 칸 미리보기
 
