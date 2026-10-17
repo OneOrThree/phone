@@ -146,8 +146,9 @@ export function SeaScreen(props: SeaScreenProps) {
                     styles.hud,
                     {
                       top: Math.max(
-                        sceneHeight >= 760 ? sceneHeight * 0.1 : p.space[6],
-                        insets.top,
+                        (sceneHeight >= 760 ? sceneHeight * 0.1 : p.space[6]) -
+                          (voyage.canDisembark ? 0 : p.space[8]),
+                        insets.top + p.space[2],
                       ),
                     },
                   ]}
