@@ -131,6 +131,31 @@ class AgentHarnessTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "확장이 인용·이스케이프로 막혀"):
                     harness.validate_settings(self.root)
 
+    def test_async_gate_is_rejected_because_it_cannot_block(self):
+        self.settings["hooks"]["PreToolUse"][0]["hooks"][0]["async"] = True
+        self.write_settings()
+        with self.assertRaisesRegex(ValueError, "동기 실행"):
+            harness.validate_settings(self.root)
+
+    def test_unquoted_gate_path_is_rejected(self):
+        self.settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"] = (
+            "python3 $CLAUDE_PROJECT_DIR/.claude/pr-gate.py --hook"
+        )
+        self.write_settings()
+        with self.assertRaisesRegex(ValueError, "큰따옴표"):
+            harness.validate_settings(self.root)
+
+    def test_repo_paths_without_the_variable_prefix_are_checked_too(self):
+        for command in ("python3 .claude/missing.py", "bash .github/scripts/missing.sh",
+                        f'python3 "{self.root}/.claude/missing.py"'):
+            with self.subTest(command=command):
+                self.settings["hooks"]["PostToolUse"] = [{
+                    "matcher": "Bash", "hooks": [{"type": "command", "command": command}],
+                }]
+                self.write_settings()
+                with self.assertRaisesRegex(ValueError, "훅 파일이 없습니다"):
+                    harness.validate_settings(self.root)
+
     def test_invalid_json_and_hook_structures_fail(self):
         for content in ("{", "[]", "{}", '{"hooks": []}', '{"hooks": {"PreToolUse": []}}',
                         '{"hooks": {"PreToolUse": [null]}}',

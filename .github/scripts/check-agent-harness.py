@@ -16,6 +16,34 @@ GATES = {
     ".claude/jira_gate.py": ".*createJiraIssue$",
 }
 PROJECT_PREFIXES = ("$CLAUDE_PROJECT_DIR/", "${CLAUDE_PROJECT_DIR}/")
+# 변수 접두사 없이 적힌 저장소 내부 참조도 같은 검사를 받는다 — 훅은 CLAUDE_PROJECT_DIR 에서 실행되므로
+# 이 상대 경로는 저장소 파일을 가리킨다.
+REPO_RELATIVE_PREFIXES = (".claude/", ".github/")
+
+
+INTERPRETERS = {"python3", "python", "bash", "sh", "zsh", "node"}
+
+
+def repo_reference(token, root, positional):
+    """토큰이 저장소 파일을 가리키면 저장소 상대 경로를, 아니면 None 을 돌려준다.
+
+    $CLAUDE_PROJECT_DIR 로 적은 참조는 어느 자리에 있어도 검사한다. 접두사 없는 상대·절대 경로는
+    실행 파일 자리(첫 토큰, 또는 인터프리터 뒤 첫 토큰)일 때만 검사한다 — 그 밖의 인자는
+    `touch <경로>` 처럼 만들어질 출력 경로일 수 있어 「없음」이 결함이 아니다.
+    """
+    for prefix in PROJECT_PREFIXES:
+        if token.startswith(prefix):
+            return token[len(prefix):]
+    if not positional:
+        return None
+    if token.startswith(REPO_RELATIVE_PREFIXES):
+        return token
+    if token.startswith("/"):
+        # 절대 경로는 심링크를 풀어 비교한다(macOS 의 /var → /private/var 처럼 글자가 달라도 같은 곳).
+        candidate = Path(token).resolve()
+        if candidate.is_relative_to(root):
+            return str(candidate.relative_to(root))
+    return None
 
 
 def validate_settings(root):
@@ -53,19 +81,27 @@ def validate_settings(root):
                 lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
                 lexer.whitespace_split = True
                 tokens = list(lexer)
-                for token in tokens:
-                    for prefix in PROJECT_PREFIXES:
-                        if not token.startswith(prefix):
-                            continue
-                        relative = token[len(prefix):]
-                        target = (root / relative).resolve()
-                        if not target.is_relative_to(root):
-                            raise ValueError(f"{event}: 저장소 밖의 훅 경로입니다: {relative}")
-                        if not target.is_file():
-                            raise ValueError(f"{event}: 훅 파일이 없습니다: {relative}")
-                        if (event == "PreToolUse" and group["matcher"] == GATES.get(relative)
-                                and tokens == ["python3", token, "--hook"]):
-                            registered.add(relative)
+                for index, token in enumerate(tokens):
+                    positional = index == 0 or (index == 1 and tokens[0] in INTERPRETERS)
+                    relative = repo_reference(token, root, positional)
+                    if relative is None:
+                        continue
+                    target = (root / relative).resolve()
+                    if not target.is_relative_to(root):
+                        raise ValueError(f"{event}: 저장소 밖의 훅 경로입니다: {relative}")
+                    if not target.is_file():
+                        raise ValueError(f"{event}: 훅 파일이 없습니다: {relative}")
+                    if relative not in GATES:
+                        continue
+                    # 게이트는 «막는» 훅이다 — 비동기면 도구 실행을 못 막고, 경로가 인용되지 않으면
+                    # 공백이 든 체크아웃에서 인자가 갈라져 게이트가 뜨지도 못한다.
+                    if hook.get("async"):
+                        raise ValueError(f"{event}: 필수 게이트는 동기 실행이어야 합니다(async 금지): {relative}")
+                    if f'"{token}"' not in command:
+                        raise ValueError(f"{event}: 게이트 경로는 큰따옴표로 인용해야 합니다: {relative}")
+                    if (event == "PreToolUse" and group["matcher"] == GATES[relative]
+                            and tokens == ["python3", token, "--hook"]):
+                        registered.add(relative)
 
     missing = GATES.keys() - registered
     if missing:
