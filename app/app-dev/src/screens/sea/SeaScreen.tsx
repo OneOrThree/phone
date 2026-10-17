@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
-import { BackHandler, Image, ScrollView, StyleSheet, View } from 'react-native';
+import { BackHandler, ScrollView, StyleSheet, View } from 'react-native';
 import { Btn, Overlay, Txt, k } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
 import { MotionContext, useScreenInsets } from '@/design-system/primitives';
@@ -13,7 +13,6 @@ import { SeaArrival, SeaParticipant, SeaVoyage, SeaEmote, seaEmotes, seaClock } 
 import { SeaScene } from './SeaScene';
 import { SeaArrivalResult } from './SeaArrivalResult';
 import { SeaRewardArt } from './seaRewardCatalog';
-import { seaAssets } from './seaAssets';
 import { art } from '@/constants/art';
 
 export type SeaScreenProps = {
@@ -129,7 +128,11 @@ export function SeaScreen(props: SeaScreenProps) {
         <ScrollView style={styles.root} contentContainerStyle={styles.sceneContent} bounces={false}>
           <SeaScene
             participants={participants}
-            self={self}
+            self={{
+              ...self,
+              subject: voyage?.subject ?? self.subject,
+              activeSeconds: voyage?.activeSeconds ?? self.activeSeconds,
+            }}
             focusing={!!voyage}
             reduceMotion={reduceMotion}
             onParticipant={(person) => open({ userId: person.userId })}
@@ -146,23 +149,12 @@ export function SeaScreen(props: SeaScreenProps) {
                     styles.hud,
                     {
                       top: Math.max(
-                        (sceneHeight >= 760 ? sceneHeight * 0.1 : p.space[6]) -
-                          (voyage.canDisembark ? 0 : p.space[8]),
+                        (sceneHeight >= 760 ? sceneHeight * 0.1 : p.space[6]) - p.space[8],
                         insets.top + p.space[2],
                       ),
                     },
                   ]}
                 >
-                  {voyage.canDisembark && (
-                    <View style={styles.destinationWindow}>
-                      <Image
-                        source={seaAssets.destination}
-                        resizeMode="contain"
-                        style={styles.destination}
-                        accessible={false}
-                      />
-                    </View>
-                  )}
                   <Txt style={styles.subject}>{voyage.subject}</Txt>
                   <Txt testID="sea-focus-clock" style={styles.timer}>
                     {seaClock(voyage.activeSeconds)}
@@ -363,8 +355,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: p.space[1],
   },
-  destinationWindow: { width: 110, height: 67, overflow: 'hidden' },
-  destination: { position: 'absolute', width: 134, height: 134, left: -13, top: -36 },
   subject: { fontSize: s.typography.body, textAlign: 'center' },
   timer: { fontSize: 40, lineHeight: 60, fontVariant: ['tabular-nums'] },
   badge: {

@@ -68,11 +68,11 @@ export function SeaScene({
   const sizeScale = Math.min(bounds.width / 402, 1.3);
   const peerSlots = focusing
     ? [
-        [0.8, 0.43, 48],
-        [0.21, 0.46, 66],
-        [0.74, 0.55, 76],
-        [0.23, 0.66, 94],
-        [0.8, 0.7, 82],
+        [0.65, 0.323, 58],
+        [0.2, 0.42, 67],
+        [0.78, 0.446, 70],
+        [0.22, 0.596, 88],
+        [0.76, 0.617, 82],
       ]
     : [
         [0.79, 0.25, 48],
@@ -160,11 +160,10 @@ export function SeaScene({
                   >
                     <View style={styles.bubble}>
                       <Text numberOfLines={1} style={styles.caption}>
-                        {person.message || person.subject || t('openSea.floating')}
+                        {person.focusing
+                          ? person.subject || t('openSea.focusing')
+                          : person.message || t('openSea.floating')}
                       </Text>
-                      {person.focusing && (
-                        <Text style={styles.clock}>{seaClock(person.activeSeconds)}</Text>
-                      )}
                     </View>
                     <SeaRaft
                       color={person.color}
@@ -175,6 +174,9 @@ export function SeaScene({
                     <Text numberOfLines={1} style={styles.name}>
                       {person.name}
                     </Text>
+                    {person.focusing && (
+                      <Text style={styles.clock}>{seaClock(person.activeSeconds)}</Text>
+                    )}
                     {!!person.emote && (
                       <Image
                         source={art[`emote/${person.emote}`]}
@@ -190,8 +192,14 @@ export function SeaScene({
         ))}
       </ScrollView>
       {typeof children === 'function' ? children(bounds.height) : children}
-      <View style={styles.self}>
-        {!focusing && (
+      <View style={[styles.self, focusing && styles.focusingSelf]}>
+        {focusing ? (
+          <View style={[styles.bubble, styles.selfSubject]}>
+            <Text numberOfLines={1} style={styles.caption}>
+              {self.subject || t('openSea.focusing')}
+            </Text>
+          </View>
+        ) : (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t('openSea.writeMessage')}
@@ -216,6 +224,11 @@ export function SeaScene({
             reduceMotion={reduceMotion}
           />
           <Text style={[styles.name, styles.me]}>{t('openSea.me')}</Text>
+          {focusing && (
+            <Text testID="sea-self-clock" style={styles.clock}>
+              {seaClock(self.activeSeconds)}
+            </Text>
+          )}
           {!!self.emote && (
             <Image source={art[`emote/${self.emote}`]} style={styles.emote} accessible={false} />
           )}
@@ -252,6 +265,8 @@ export function SeaScene({
 
 const styles = StyleSheet.create({
   self: { position: 'absolute', bottom: 116, alignSelf: 'center', alignItems: 'center' },
+  // 이름 아래 시간 줄이 생겨도 내 뗏목의 높이는 유지한다.
+  focusingSelf: { bottom: 98 },
   peer: { position: 'absolute', width: 130, alignItems: 'center' },
   gulls: { position: 'absolute', width: 56, height: 26 },
   disabled: { opacity: 0.3 },
@@ -266,7 +281,14 @@ const styles = StyleSheet.create({
     maxWidth: 130,
   },
   caption: { fontSize: s.typography.caption, color: s.color.textMuted, textAlign: 'center' },
-  clock: { fontSize: s.typography.caption, color: s.color.text },
+  clock: {
+    fontSize: s.typography.caption,
+    lineHeight: 16,
+    color: s.color.text,
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  selfSubject: { marginBottom: -p.space[2] },
   name: {
     fontSize: s.typography.caption,
     color: s.color.text,

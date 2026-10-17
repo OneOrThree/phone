@@ -58,7 +58,8 @@ test('서버가 도착을 알려도 집중 시간이 계속 갱신되며 하선�
   const p = props();
   const screen = await render(<SeaScreen {...p} voyage={voyage} />);
   await screen.rerender(<SeaScreen {...p} voyage={{ ...voyage, activeSeconds: 2050 }} />);
-  expect(screen.getByText('00:34:10')).toBeTruthy();
+  expect(screen.getByTestId('sea-focus-clock')).toHaveTextContent('00:34:10');
+  expect(screen.getByTestId('sea-self-clock')).toHaveTextContent('00:34:10');
   expect(p.onFinish).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByLabelText('섬에 내리기'));
   expect(p.onFinish).toHaveBeenCalledWith('session-1', 'disembark');
