@@ -159,9 +159,17 @@ class AgentHarnessTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "CLAUDE_PROJECT_DIR 기준"):
             harness.validate_settings(self.root)
 
+    def test_matcherless_groups_and_non_command_hooks_are_allowed(self):
+        self.settings["hooks"]["SessionStart"] = [{"hooks": [{"type": "command", "command": "echo 시작"}]}]
+        self.settings["hooks"]["Stop"] = [{"matcher": "", "hooks": [{"type": "prompt", "prompt": "요약해"}]}]
+        self.write_settings()
+        harness.validate_settings(self.root)
+
     def test_repo_paths_without_the_variable_prefix_are_checked_too(self):
         for command in ("python3 .claude/missing.py", "bash .github/scripts/missing.sh",
-                        f'python3 "{self.root}/.claude/missing.py"'):
+                        f'python3 "{self.root}/.claude/missing.py"',
+                        "touch /tmp/x && python3 .claude/missing.py", "python3 -u .claude/missing.py",
+                        "./scripts/missing.sh"):
             with self.subTest(command=command):
                 self.settings["hooks"]["PostToolUse"] = [{
                     "matcher": "Bash", "hooks": [{"type": "command", "command": command}],

@@ -22,6 +22,27 @@ REPO_RELATIVE_PREFIXES = (".claude/", ".github/")
 
 
 INTERPRETERS = {"python3", "python", "bash", "sh", "zsh", "node"}
+CONNECTORS = {"&&", "||", "|", ";"}
+
+
+def script_positions(tokens):
+    """실행 파일 자리의 토큰 인덱스 집합 — 명령마다 첫 토큰, 그리고 인터프리터면 옵션(-x) 뒤 첫 인자.
+
+    `a && python3 -u .claude/x.py` 처럼 연결자 뒤에서 새 명령이 시작하는 경우도 센다.
+    한계: `bash -c "…"` 처럼 문자열 안에 든 명령은 토큰 하나라 들여다보지 않는다.
+    """
+    positions = set()
+    start = 0
+    for index, token in enumerate(tokens):
+        if token in CONNECTORS:
+            start = index + 1
+            continue
+        if index == start:
+            positions.add(index)
+        elif tokens[start] in INTERPRETERS and not token.startswith("-") \
+                and all(t.startswith("-") for t in tokens[start + 1:index]):
+            positions.add(index)
+    return positions
 
 
 def repo_reference(token, root, positional):
@@ -36,6 +57,8 @@ def repo_reference(token, root, positional):
             return token[len(prefix):]
     if not positional:
         return None
+    if token.startswith("./"):
+        return token[2:]
     if token.startswith(REPO_RELATIVE_PREFIXES):
         return token
     if token.startswith("/"):
@@ -61,29 +84,34 @@ def validate_settings(root):
         if not isinstance(groups, list) or not groups:
             raise ValueError(f"{event}: 비어 있지 않은 훅 그룹 목록이 필요합니다")
         for group in groups:
-            if not isinstance(group, dict) or not isinstance(group.get("matcher"), str):
-                raise ValueError(f"{event}: matcher 문자열이 필요합니다")
+            # Stop·SessionStart 같은 이벤트는 matcher 를 생략한다 — 생략·빈 문자열은 허용하고 게이트 대조에서만 본다.
+            if not isinstance(group, dict) or not isinstance(group.get("matcher", ""), str):
+                raise ValueError(f"{event}: matcher 는 생략하거나 문자열이어야 합니다")
             hooks = group.get("hooks")
             if not isinstance(hooks, list) or not hooks:
                 raise ValueError(f"{event}: 비어 있지 않은 hooks 목록이 필요합니다")
             for hook in hooks:
-                if not isinstance(hook, dict) or hook.get("type") != "command":
-                    raise ValueError(f"{event}: 검증 가능한 command 훅이 필요합니다")
+                if not isinstance(hook, dict):
+                    raise ValueError(f"{event}: 훅은 객체여야 합니다")
+                if hook.get("type") != "command":
+                    # prompt·http 훅은 파일 참조가 없어 검사할 것이 없다. 게이트는 아래 등록 조건이 command 를 강제한다.
+                    continue
                 command = hook.get("command")
                 if not isinstance(command, str) or not command.strip():
                     raise ValueError(f"{event}: command 문자열이 필요합니다")
                 # shlex 는 인용을 벗겨 버려 '$CLAUDE_PROJECT_DIR/…' 와 "$CLAUDE_PROJECT_DIR/…" 가 같은 토큰이
                 # 된다. 실제 셸에서는 작은따옴표·백슬래시 안의 변수가 확장되지 않아 파이썬이 파일 부재로 죽고
                 # 게이트가 돌지 않으므로, 토큰화 전에 원문에서 막힌 확장을 거절한다.
+                # 한계: bash -c '"$CLAUDE_PROJECT_DIR/x"' 는 자식 셸에서 정상 확장되는데도 거절된다(안전한 방향의 오탐).
                 if any("CLAUDE_PROJECT_DIR" in quoted for quoted in re.findall(r"'[^']*'", command)) \
                         or re.search(r"\\\$\{?CLAUDE_PROJECT_DIR", command):
                     raise ValueError(f"{event}: 훅 경로의 $CLAUDE_PROJECT_DIR 확장이 인용·이스케이프로 막혀 있습니다")
                 lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
                 lexer.whitespace_split = True
                 tokens = list(lexer)
+                executable_positions = script_positions(tokens)
                 for index, token in enumerate(tokens):
-                    positional = index == 0 or (index == 1 and tokens[0] in INTERPRETERS)
-                    relative = repo_reference(token, root, positional)
+                    relative = repo_reference(token, root, index in executable_positions)
                     if relative is None:
                         continue
                     target = (root / relative).resolve()
@@ -106,7 +134,7 @@ def validate_settings(root):
                     # shlex 는 줄바꿈을 공백으로 보지만 셸은 명령 구분자로 본다 — 게이트가 인자 없이 끝나 버린다.
                     if "\n" in command or "\r" in command:
                         raise ValueError(f"{event}: 게이트 명령에 줄바꿈이 있습니다: {relative}")
-                    if (event == "PreToolUse" and group["matcher"] == GATES[relative]
+                    if (event == "PreToolUse" and group.get("matcher") == GATES[relative]
                             and tokens == ["python3", token, "--hook"]):
                         registered.add(relative)
 
