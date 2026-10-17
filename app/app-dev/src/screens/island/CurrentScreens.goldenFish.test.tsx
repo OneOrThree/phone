@@ -61,8 +61,8 @@ jest.mock('@/screens/focus/FishingIsland', () => {
   const { View } = require('react-native');
   return {
     ...actual,
-    FishingIsland: ({ goldenFish, children, overlay, onRaft }: any) => (
-      <View testID="golden-world" goldenFish={goldenFish} onRaft={onRaft}>
+    FishingIsland: ({ goldenFish, children, overlay, onRaft, onTap }: any) => (
+      <View testID="golden-world" goldenFish={goldenFish} onRaft={onRaft} onTap={onTap}>
         {children(640, 640 / 1.5, 1)}
         {overlay?.(() => ({ x: 150, y: 200 }), 640)}
       </View>
@@ -346,6 +346,66 @@ test('첫 물고기와 사용처는 한 대사이며 한 번 넘기면 휴식 �
   ).toBeTruthy();
   await fireEvent.press(screen.getByText('다음'));
   expect(setGuideStep).toHaveBeenCalledWith(14);
+  await screen.unmount();
+});
+
+test('집중섬 도착 즉시 자리 안내와 귀환 버튼을 표시하고 중복 귀환을 막는다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const go = jest.fn(),
+    dispatch = jest.fn();
+  const screen = await render(
+    screenElement(state, 'fishingArrival', undefined, go, undefined, dispatch),
+  );
+  expect(screen.getByText('집중할 자리를 골라주세요!')).toBeTruthy();
+  const back = screen.getByRole('button', { name: '← 메인 섬으로' });
+  await fireEvent.press(back);
+  await fireEvent.press(back);
+  expect(go).toHaveBeenCalledTimes(1);
+  expect(go).toHaveBeenCalledWith('returnTravel');
+  expect(dispatch).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+test.each(['button', 'hardware'] as const)(
+  '자리로 걷는 중 %s 뒤로가기는 착석을 취소하고 귀환한다',
+  async (method) => {
+    jest.useFakeTimers();
+    const state = focusedState();
+    state.session = null;
+    state.settings.reduceMotion = false;
+    const go = jest.fn(),
+      dispatch = jest.fn();
+    const backOverride: { current: (() => boolean) | null } = { current: null };
+    const screen = await render(
+      screenElement(state, 'fishingArrival', backOverride, go, undefined, dispatch),
+    );
+    await fireEvent(screen.getByTestId('golden-world'), 'tap', state.focusSpot);
+    expect(go).not.toHaveBeenCalled();
+    if (method === 'button') await fireEvent.press(screen.getByTestId('leave-fishing-arrival'));
+    else
+      await act(async () => {
+        expect(backOverride.current?.()).toBe(true);
+      });
+    // 귀환 도중 땅을 다시 눌러도 이전 자리 선택으로 돌아가지 않는다.
+    await fireEvent(screen.getByTestId('golden-world'), 'tap', state.focusSpot);
+    await act(async () => jest.advanceTimersByTime(20000));
+    expect(go).toHaveBeenCalledTimes(1);
+    expect(go).toHaveBeenCalledWith('returnTravel');
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'FOCUS_SPOT' }));
+    await screen.unmount();
+  },
+);
+
+test('착석하면 자리 안내를 숨기고 다시 자리 고르기로 돌아오면 표시한다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const screen = await render(screenElement(state, 'fishingArrival'));
+  await screen.rerender(screenElement(state, 'focusSetup'));
+  expect(screen.queryByText('집중할 자리를 골라주세요!')).toBeNull();
+  expect(screen.queryByTestId('leave-fishing-arrival')).toBeNull();
+  await screen.rerender(screenElement(state, 'fishingArrival'));
+  expect(screen.getByText('집중할 자리를 골라주세요!')).toBeTruthy();
   await screen.unmount();
 });
 

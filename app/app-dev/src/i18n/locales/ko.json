@@ -437,6 +437,8 @@
       "fishingSpot": "낚시섬 내 자리"
     },
     "spot": {
+      "pickPrompt": "집중할 자리를 골라주세요!",
+      "backToMainIsland": "← 메인 섬으로",
       "onWater": "물 위에는 앉을 수 없어요.",
       "occupied": "여기는 주민이 앉아 있어요. 조금 옆에 앉아 주세요.",
       "nearGram": "여기는 축음기가 있어 앉을 수 없어요. 조금 옆에 앉아 주세요.",

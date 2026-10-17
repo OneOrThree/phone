@@ -452,6 +452,8 @@
       "fishingSpot": "My Spot on Fishing Island"
     },
     "spot": {
+      "pickPrompt": "Choose a spot to focus!",
+      "backToMainIsland": "← Main island",
       "onWater": "You can't sit on the water.",
       "occupied": "A resident is sitting here. Please sit a little further over.",
       "nearGram": "You can't sit here because of the gramophone. Please sit a little further over.",

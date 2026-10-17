@@ -11,7 +11,7 @@ import {
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
-import { componentTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
@@ -1637,6 +1637,10 @@ function FocusFlow({ e: environment }: any) {
     [tutorialCatchStart, setTutorialCatchStart] = useState<number | null>(null),
     // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
     [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
+  const returningFromArrival = useRef(false);
+  useEffect(() => {
+    if (r !== 'fishingArrival') returningFromArrival.current = false;
+  }, [r]);
   const tutorialRequest = useRef<string | null>(null);
   const tutorialRetryAt = useRef(0);
   const tutorialReelCancel = useRef<(() => void) | null>(null);
@@ -2313,10 +2317,28 @@ function FocusFlow({ e: environment }: any) {
     advanceTutorial(15, 16);
     setVoyage('toSpot');
   };
-  // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
+  const returnFromArrival = () => {
+    if (
+      r !== 'fishingArrival' ||
+      returningFromArrival.current ||
+      (tutorialStep >= 5 && tutorialStep <= 21) ||
+      goldenCutsceneRef.current ||
+      goldenQueueTimerRef.current
+    )
+      return;
+    // 자리로 걷던 중에도 귀환할 수 있다. 기존 걷기 콜백을 취소하고 뗏목으로 향한다.
+    returningFromArrival.current = true;
+    const sail = () => latest.current.r === 'fishingArrival' && e.go('returnTravel');
+    if (!walkTo(LANDING, sail)) sail();
+  };
+  // 뒤로가기: 자리 선택 중에는 귀환하고, 나머지 걷기·항해 중에는 막는다. 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
     if (tutorialStep >= 5 && tutorialStep <= 21) return true;
     if (goldenCutsceneRef.current || goldenQueueTimerRef.current) return true;
+    if (r === 'fishingArrival') {
+      returnFromArrival();
+      return true;
+    }
     if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
       // 서버 수령은 명시적 버튼으로만 — 뒤로가기는 모달을 닫고 나간다
@@ -2443,6 +2465,7 @@ function FocusFlow({ e: environment }: any) {
     return null;
   };
   const selectSpot = (p: Point) => {
+    if (returningFromArrival.current) return;
     const error = spotError(p);
     if (error) {
       e.notify(error);
@@ -2472,8 +2495,7 @@ function FocusFlow({ e: environment }: any) {
   const raft = () => {
     if (tutorialStep >= 5 && tutorialStep <= 21) return;
     if (r === 'fishingArrival') {
-      const sail = () => latest.current.r === 'fishingArrival' && e.go('returnTravel');
-      if (!walkTo(LANDING, sail)) sail();
+      returnFromArrival();
     } else if (r === 'focus' && s.session && !leg) setDialog('end');
   };
   const start = () => {
@@ -3111,12 +3133,36 @@ function FocusFlow({ e: environment }: any) {
             );
           }}
         </FishingIsland>
+        {r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21) && (
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: 'absolute',
+              top: safe.top + semanticTokens.spacing.control,
+              left: safe.left + semanticTokens.spacing.page,
+              right: safe.right + semanticTokens.spacing.page,
+              gap: semanticTokens.spacing.control,
+              alignItems: 'flex-start',
+            }}
+          >
+            <FiButton
+              title={t('focusFlow.spot.backToMainIsland')}
+              id="leave-fishing-arrival"
+              onPress={returnFromArrival}
+            />
+            <View pointerEvents="none" accessibilityLiveRegion="polite">
+              <Badge>{t('focusFlow.spot.pickPrompt')}</Badge>
+            </View>
+          </View>
+        )}
         {liveIslandId && live.status === 'error' && (
           <View
             style={{
               position: 'absolute',
               zIndex: 5,
-              top: Math.max(56, safe.top + 8),
+              ...(r === 'fishingArrival'
+                ? { bottom: safe.bottom + semanticTokens.spacing.page }
+                : { top: Math.max(56, safe.top + 8) }),
               left: Math.max(18, safe.left + 8),
             }}
           >
