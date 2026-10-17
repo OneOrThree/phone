@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.repository;
 
 import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -321,4 +322,19 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             + " AND u.lastActiveAt >= :startInclusive AND u.lastActiveAt < :endExclusive")
     List<User> findInactiveReturnTargets(@Param("startInclusive") Instant startInclusive,
                                          @Param("endExclusive") Instant endExclusive);
+
+    /**
+     * 잡지 발행 알림 대상 한 쪽(GROMO-2307) — 활성 <b>정식</b> 유저를 id 순 키셋으로 훑는다.
+     * {@link #findInactiveReturnTargets} 와 같은 조건(게스트·탈퇴 제외)에 날짜 창이 없다.
+     *
+     * <p><b>잠금 없이</b> 읽는다 — 쪽 전체(200행)를 FCM 왕복 동안 잠그면 프로필 수정·접속 갱신이 그만큼 대기한다. 호출부는
+     * id·언어만 쓰고, 탈퇴와의 직렬화가 필요하면 사용자별 짧은 트랜잭션에서 {@code findActiveByIdForShare} 로 다시 읽는다
+     * ({@code MagazineIssueNotifier}).
+     *
+     * @param after    직전 쪽의 마지막 id(첫 쪽은 nil UUID)
+     * @param pageable 쪽 크기만 쓴다({@code PageRequest.ofSize})
+     * @return id 오름차순 최대 쪽 크기만큼
+     */
+    @Query("SELECT u FROM User u WHERE u.isGuest = false AND u.isDeleted = false AND u.id > :after ORDER BY u.id")
+    List<User> findFormalUsersAfter(@Param("after") UUID after, Pageable pageable);
 }

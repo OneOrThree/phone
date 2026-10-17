@@ -52,6 +52,22 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
             @Param("since") Instant since);
 
     /**
+     * 이미 이 사건의 선점 행이 있는 계정 — 발송·폐기·진행 중을 가리지 않는다. 같은 사건을 이어 펼치는 재시도 틱이 쪽마다 한 번
+     * 읽어 처리된 계정을 사용자 트랜잭션에 들이지 않는다(GROMO-2307). 선점의 ON CONFLICT 가 두 번째 방어선이다.
+     *
+     * @param kind      사건 종류
+     * @param subjectId 사건 식별자
+     * @param userIds   이번 쪽 계정
+     * @return 그중 이미 선점 행이 있는 계정 id
+     */
+    @Query("SELECT l.userId FROM NotificationSentLog l "
+            + "WHERE l.kind = :kind AND l.subjectId = :subjectId AND l.userId IN :userIds")
+    List<UUID> findUserIdsByKindAndSubjectIdIn(
+            @Param("kind") String kind,
+            @Param("subjectId") UUID subjectId,
+            @Param("userIds") Collection<UUID> userIds);
+
+    /**
      * 사건 클레임(선점) — 발송 <b>전에</b> PENDING 행을 INSERT 한다. 유니크
      * {@code (user_id, kind, subject_id)} 충돌이면 아무것도 하지 않는다(다른 워커가 이미 선점했거나
      * 이미 발송된 사건).

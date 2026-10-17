@@ -2,7 +2,7 @@
 
 GROMO-2289 고양이 잡지(냐옹)를 운영할 때 쓰는 SQL·설정 절차다. 운영 화면은 따로 만들지 않았다. 운영 사전 검토가 없어서(10/14 확정) 운영 일은 아래 몇 가지뿐이라 SQL 로 충분하다고 봤다.
 
-- 대상 스키마: Data DB 의 V118~V123 (`magazine_asset_meta` · `island_promotions` · `magazine_issues` · `magazine_receipts` · `magazine_editorial_notes` · `island_promotion_reports`).
+- 대상 스키마: Data DB 의 V118~V123, 알림 펼치기 표시 열은 V126 (`magazine_asset_meta` · `island_promotions` · `magazine_issues` · `magazine_receipts` · `magazine_editorial_notes` · `island_promotion_reports`).
 - SQL 은 `psql` 기준이다. `\set 이름 '값'` 으로 값을 넣고 본문에서는 `:'이름'` 으로 쓴다. 꺾쇠(`<…>`) 자리를 실제 값으로 바꾼다.
 - 바꾸는 문장은 `BEGIN;` 안에서 돌린다. 영향받은 행 수(`UPDATE 1` 등)를 확인한 뒤 `COMMIT;`, 다르면 `ROLLBACK;` 한다.
 - 시각은 DB 에 UTC 로 저장된다. 「며칠 호」는 KST 날짜(`issue_date`)다. 07:00 KST = 전날 22:00 UTC 다.
@@ -143,6 +143,52 @@ COMMIT;
 ```
 
 지운 뒤 10분 안의 다음 틱(07:00~23:50 KST)이 그 날짜가 오늘이면 다시 낸다. 호수는 「지금까지의 마지막 호수 + 1」 이라, 가장 최근 호를 지웠을 때만 같은 호수로 다시 나온다.
+
+### 4-4. 발행 알림(GROMO-2307)
+
+07시 발행 뒤 10분 틱마다 `magazine_issues.notified_at IS NULL` 인 **오늘** 호를 정식 계정 전원(게스트·탈퇴 제외)에게 펼친다. 기본(LEGACY)은 Data 가 FCM 을 직접 부르고, `NOTIFICATION_DISPATCH_MODE=OUTBOX` 면 알림 서버(V8 카탈로그)가 보낸다. 전부 끝나면 `notified_at` 을 확정하고, 확정된 호는 다시 펼치지 않는다. 앱 2090·2091 전까지 2.0 앱은 FCM 을 받지 못한다(서버 발송만 준비됨).
+
+**로그** — `고양이 잡지 알림` 접두로 찾는다.
+
+| 문구 | 수준 | 뜻 |
+| --- | --- | --- |
+| `펼치기 완료` | info | 먼저 확정한 틱만 남긴다(겹친 틱은 남기지 않는다) |
+| `일시 실패 … 다음 틱(10분 뒤)에 이어서 한다` | warn | 전송 오류가 남았다 — `notified_at` 은 NULL, 다음 틱이 실패분만 다시 한다 |
+| `펼치기 실패 — 다음 틱(10분 뒤)에 이어서 한다` | warn | 예외로 끊겼다 — 같은 방식으로 이어진다 |
+| `그날 마지막 틱까지 실패분 N건을 남겼다 — 수동 확인 필요` | error | 23:50 틱 — 다음 날은 다른 호만 보므로 자동 재시도는 끝났다 |
+
+**확인**
+
+```sql
+-- ① 호 상태 — notified_at 이 NULL 이면 아직 펼치는 중이거나 실패분이 남았다.
+SELECT issue_date, issue_no, notified_at FROM magazine_issues ORDER BY issue_date DESC LIMIT 3;
+
+-- ② 호 id 로 발송/폐기 집계 — 실제 발송 기준은 sent_at IS NOT NULL 이다(필터로 폐기한 건도 status = SENT).
+SELECT count(*) FILTER (WHERE sent_at IS NOT NULL) AS sent,
+       count(*) FILTER (WHERE sent_at IS NULL) AS dropped
+  FROM notification_sent_logs
+ WHERE kind = 'MAGAZINE_PUBLISHED' AND subject_id = '<호 id>';
+
+-- 대상 수 — sent + dropped 가 이 수에 못 미치면 처리되지 않은 계정이 있다.
+SELECT count(*) FROM users WHERE is_guest = false AND is_deleted = false;
+```
+
+**마지막 틱 error 뒤** — 같은 날이면 `notified_at` 이 NULL 인 채 다음 틱이 이어 간다. 23:50 이후에는 다음 날 틱이 **다른 날짜의 호**만 보므로 그 호의 실패분은 재시도되지 않는다. `UPDATE magazine_issues SET notified_at = NULL WHERE id = '<호 id>'` 로는 되살릴 수 없다(날짜가 다르다). 남은 계정은 수동 발송 대상으로 뽑는다.
+
+```sql
+SELECT u.id
+  FROM users u
+ WHERE u.is_guest = false AND u.is_deleted = false
+   AND NOT EXISTS (SELECT 1 FROM notification_sent_logs l
+                    WHERE l.user_id = u.id AND l.kind = 'MAGAZINE_PUBLISHED' AND l.subject_id = '<호 id>');
+```
+
+**주의**
+
+- cron 이 10분이고 `lockAtMostFor` 가 PT9M 이라 펼치기가 9분을 넘기면 틱이 겹칠 수 있다. 선점·결정적 키가 중복을 막고, 겹친 틱이 같은 사용자에서 서로 기다릴 수 있다.
+- 한 호를 펼치는 중에는 `NOTIFICATION_DISPATCH_MODE` 를 바꾸지 않는다. 두 경로의 중복 키가 달라 같은 호가 두 번 나간다.
+
+**롤백** — data-api 만 되돌리면 알림 서버 V8 은 두어도 된다. 알림 서버를 되돌릴 때는 outbox 에 남은 `MAGAZINE_PUBLISHED` 가 422(`UNKNOWN_NOTIFICATION_KIND`)로 DLT 에 가므로 먼저 비운다. V126 의 `notified_at` 열과 선점 행은 남아도 무해하다.
 
 ## 5. 망원경 홍보 칸 미리보기
 
