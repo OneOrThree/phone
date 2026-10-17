@@ -702,6 +702,21 @@ class SeaRoomIntegrationTest {
         assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(room), alice.toString())).isFalse();
     }
 
+    @Test
+    @DisplayName("[r3-3] 차단 판정이 실패하면(fail-closed) 후보 방이 있어도 빼고 새 방으로 간다")
+    void undecidableBlockExcludesTheCandidate() throws Exception {
+        UUID resident = UUID.randomUUID();
+        UUID candidate = preloadRoom(Map.of(resident, destination)); // 같은 목적지 — 막히지 않았다면 1순위
+        given(blockClient.fetchBlockedIds(resident)).willThrow(new UpstreamUnavailableException());
+
+        UUID alice = sailor();
+        UUID room = roomOf(connect(alice).enter());
+
+        assertThat(room).isNotEqualTo(candidate);
+        assertThat(redis.opsForSet().members(RedisKeys.seaRoomMembers(candidate))).containsExactly(resident.toString());
+        assertThat(redis.opsForSet().isMember(RedisKeys.SEA_ROOMS_OPEN, candidate.toString())).isTrue();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private static Map<String, Object> enterUnchecked(Client client) {

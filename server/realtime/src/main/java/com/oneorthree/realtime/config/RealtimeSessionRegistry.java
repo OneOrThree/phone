@@ -11,6 +11,7 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -171,6 +172,12 @@ public class RealtimeSessionRegistry {
     public boolean hasOtherSession(UUID userId, String exceptSessionId) {
         return principals.entrySet().stream().anyMatch(entry -> !entry.getKey().equals(exceptSessionId)
                 && userId.equals(entry.getValue().userId()));
+    }
+
+    /** 이 JVM 에 붙은 그 사용자의 세션 id 전부 — 사용자 단위 통지를 세션마다 따로 보내는 데 쓴다(GROMO-2300). */
+    public List<String> sessionIdsOf(UUID userId) {
+        return principals.entrySet().stream().filter(entry -> userId.equals(entry.getValue().userId()))
+                .map(Map.Entry::getKey).toList();
     }
 
     /**

@@ -219,8 +219,11 @@ class SeaRoomsScriptTest {
         UUID room = UUID.randomUUID();
         join(ghost, room);
         redis.delete(RedisKeys.seaUser(ghost));
+        redis.opsForZSet().add(RedisKeys.SEA_ADRIFT, ghost.toString(), 1000); // 10분 정리 색인에 남은 항목
 
-        assertThat(leave(ghost, room, "")).as("사건은 내지 않는다").isEqualTo(0L);
+        assertThat(leave(ghost, room, "1000")).as("사건은 내지 않는다").isEqualTo(0L);
+        assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, ghost.toString()))
+                .as("정리가 같은 항목을 영원히 다시 뽑지 않게 색인에서도 뺀다").isNull();
         assertThat(redis.hasKey(RedisKeys.seaRoomMembers(room))).isFalse();
         assertThat(redis.opsForSet().isMember(RedisKeys.SEA_ROOMS_OPEN, room.toString())).isFalse();
     }
@@ -276,6 +279,32 @@ class SeaRoomsScriptTest {
         assertThat(redis.hasKey(RedisKeys.seaUser(user))).isFalse();
     }
 
+    @Test
+    @DisplayName("[r3-3] 차단 검사 뒤 구성원이 계속 바뀌어 -2 를 3회 소진하면 그 후보를 포기하고 새 방으로 간다")
+    void exhaustedMembershipChangesFallBackToANewRoom() {
+        redis.delete(RedisKeys.SEA_ROOMS_OPEN);
+        Fixture f = new Fixture();
+        UUID user = UUID.randomUUID();
+        UUID busy = UUID.randomUUID();
+        join(UUID.randomUUID(), busy);
+        org.mockito.BDDMockito.given(f.seaState.fetch(user)).willReturn(
+                new com.oneorthree.realtime.sea.client.SeaStateClient.SeaState(null, null, null));
+        org.mockito.BDDMockito.given(f.friends.fetchFriendIds(user)).willReturn(java.util.Set.of());
+        org.mockito.BDDMockito.given(f.sessions.isConnected("s")).willReturn(true);
+        // 차단 판정을 할 때마다 누군가 그 방에 들어온다 — JOIN 이 볼 때마다 집합이 다르다(-2)
+        org.mockito.BDDMockito.given(f.blockedUsers.eitherBlocked(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).willAnswer(invocation -> {
+                    redis.opsForSet().add(RedisKeys.seaRoomMembers(busy), UUID.randomUUID().toString());
+                    return false;
+                });
+
+        SeaRoomEvent assigned = f.seaRooms.enter(user, "s");
+
+        assertThat(assigned).isNotNull();
+        assertThat(assigned.roomId()).isNotEqualTo(busy);
+        assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(busy), user.toString())).isFalse();
+    }
+
     private static org.springframework.web.socket.messaging.SessionDisconnectEvent disconnect(String sessionId,
             java.security.Principal user) {
         return new org.springframework.web.socket.messaging.SessionDisconnectEvent(new Object(),
@@ -291,6 +320,8 @@ class SeaRoomsScriptTest {
         final com.oneorthree.realtime.sea.client.FriendsClient friends =
                 org.mockito.Mockito.mock(com.oneorthree.realtime.sea.client.FriendsClient.class);
         final SeaRoomPublisher publisher = org.mockito.Mockito.mock(SeaRoomPublisher.class);
+        final com.oneorthree.realtime.block.BlockedUsers blockedUsers =
+                org.mockito.Mockito.mock(com.oneorthree.realtime.block.BlockedUsers.class);
         final SeaRooms seaRooms;
 
         Fixture() {
@@ -299,8 +330,7 @@ class SeaRoomsScriptTest {
 
         Fixture(com.oneorthree.realtime.config.RealtimeSessionRegistry sessions) {
             this.sessions = sessions;
-            this.seaRooms = new SeaRooms(redis, seaState, friends,
-                    org.mockito.Mockito.mock(com.oneorthree.realtime.block.BlockedUsers.class), publisher, sessions,
+            this.seaRooms = new SeaRooms(redis, seaState, friends, blockedUsers, publisher, sessions,
                     new tools.jackson.databind.ObjectMapper(), java.time.Clock.systemUTC());
         }
     }

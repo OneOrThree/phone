@@ -7,6 +7,8 @@ import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialExcept
 import com.oneorthree.realtime.event.RealtimeEventDelivery;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.sea.SeaRooms;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
@@ -82,6 +84,14 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     private final SeaRooms seaRooms;
 
     /**
+     * 바다 방 전달 직전 차단 건수 — {@code sea.deliver.dropped{reason=not_member|redis|jwt}}. debug 로그로는 Redis 장애 중
+     * 프레임 유실이 보이지 않아 사유별로 센다(「조용한 구간」이 대시보드에 드러난다).
+     */
+    private final Counter seaDroppedNotMember;
+    private final Counter seaDroppedRedis;
+    private final Counter seaDroppedJwt;
+
+    /**
      * {@code delivery} 를 <b>늦게</b> 받는다 — 순환 때문이다. 이 인터셉터는
      * {@code WebSocketConfig} 가 만드는 아웃바운드 채널에 등록되고, {@link RealtimeEventDelivery} 는
      * 그 설정이 만드는 {@code SimpMessagingTemplate} 을 필요로 한다. 같은 이유로 그 설정도
@@ -89,7 +99,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
      */
     public ChatOutboundChannelInterceptor(RealtimeSessionRegistry sessions, JwtValidator jwtValidator,
             ChatAccessGuard accessGuard, @Lazy RealtimeEventDelivery delivery, ObjectMapper objectMapper,
-            BlockedUsers blockedUsers, SeaRooms seaRooms) {
+            BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry) {
         this.sessions = sessions;
         this.jwtValidator = jwtValidator;
         this.accessGuard = accessGuard;
@@ -97,6 +107,14 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         this.objectMapper = objectMapper;
         this.blockedUsers = blockedUsers;
         this.seaRooms = seaRooms;
+        this.seaDroppedNotMember = seaDropped(meterRegistry, "not_member");
+        this.seaDroppedRedis = seaDropped(meterRegistry, "redis");
+        this.seaDroppedJwt = seaDropped(meterRegistry, "jwt");
+    }
+
+    private static Counter seaDropped(MeterRegistry registry, String reason) {
+        return Counter.builder("sea.deliver.dropped").tag("reason", reason)
+                .description("바다 방 프레임 전달 직전 차단").register(registry);
     }
 
     @Override
@@ -180,11 +198,17 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     private Message<?> deliverSeaEvent(Message<?> message, UUID roomId) {
         ChatPrincipal principal = stillAuthenticated(message);
         if (principal == null) {
+            seaDroppedJwt.increment();
             return null;
         }
         try {
-            return seaRooms.isMember(principal.userId(), roomId) ? message : null;
+            if (seaRooms.isMember(principal.userId(), roomId)) {
+                return message;
+            }
+            seaDroppedNotMember.increment();
+            return null;
         } catch (RuntimeException e) {
+            seaDroppedRedis.increment();
             log.debug("바다 방 전달 차단 — 소속 판정 불가. reason={}", e.getClass().getSimpleName());
             return null;
         }

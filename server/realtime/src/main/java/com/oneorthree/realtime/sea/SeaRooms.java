@@ -145,8 +145,9 @@ public class SeaRooms {
     /**
      * 퇴장. 1 = 내보냈다, 0 = 그 방에 없거나(이미 나감·다른 방) adriftSince 가 기대값과 다르다(그사이 다시 항해).
      *
-     * <p>해시가 아예 없으면(만료·삭제) 그 방 SET 에서만 빼고 0 이다 — 사건은 내지 않는다. 안 빼면 SET 에만 남은 유령이
-     * 정원·후보 크기를 계속 잡아먹는다. 빈 방이 되면 open 에서도 뺀다.
+     * <p>해시가 아예 없으면(만료·삭제) 그 방 SET 과 {@code sea:adrift} 색인에서 빼고 0 이다 — 사건은 내지 않는다. 안 빼면
+     * SET 에만 남은 유령이 정원·후보 크기를 잡아먹고, 색인에 남은 항목은 10분 정리가 매 주기 다시 뽑아 영원히 0 을 받는다.
+     * 빈 방이 되면 open 에서도 뺀다. 다른 방에 있는(cur ≠ roomId) 사람은 건드리지 않는다 — 그 색인 항목은 그 방의 것이다.
      *
      * <p>KEYS: members, open, user, adrift / ARGV: userId, roomId, expectedAdriftSince|''
      */
@@ -154,6 +155,7 @@ public class SeaRooms {
             "local cur = redis.call('HGET', KEYS[3], 'roomId')\n"
             + "if not cur then\n"
             + "  redis.call('SREM', KEYS[1], ARGV[1])\n"
+            + "  redis.call('ZREM', KEYS[4], ARGV[1])\n"
             + "  if redis.call('SCARD', KEYS[1]) == 0 then\n"
             + "    redis.call('DEL', KEYS[1]); redis.call('SREM', KEYS[2], ARGV[2])\n"
             + "  end\n"
@@ -241,7 +243,8 @@ public class SeaRooms {
                 return null;
             }
             if (result == 1) {
-                return joined(userId, sessionId, candidate.roomId(), state);
+                return logEntered(joined(userId, sessionId, candidate.roomId(), state), userId, false,
+                        candidate.score());
             }
             if (result == -1) {
                 return reconfirm(userId);
@@ -252,7 +255,15 @@ public class SeaRooms {
         }
         UUID fresh = UuidV7.next();
         return join(userId, fresh, "", fields, adriftSince) == 1
-                ? joined(userId, sessionId, fresh, state) : reconfirm(userId);
+                ? logEntered(joined(userId, sessionId, fresh, state), userId, true, 0) : reconfirm(userId);
+    }
+
+    /** 운영 추적용 — 「누가 어느 방」. 한마디 원문은 남기지 않는다. */
+    private static SeaRoomEvent logEntered(SeaRoomEvent assigned, UUID userId, boolean newRoom, int score) {
+        if (assigned != null) {
+            log.info("바다 입장 — roomId={} userId={} newRoom={} score={}", assigned.roomId(), userId, newRoom, score);
+        }
+        return assigned;
     }
 
     /**
@@ -326,6 +337,7 @@ public class SeaRooms {
         if (runLeave(userId, roomId, expectedAdriftSince) != 1) {
             return false;
         }
+        log.info("바다 퇴장 — roomId={} userId={} reason={}", roomId, userId, reason);
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("userId", userId.toString());
         payload.put("reason", reason);
@@ -390,7 +402,8 @@ public class SeaRooms {
         JsonNode params = envelope.get("params");
         String status = params == null || !params.isObject() ? null : text(params, "status");
         if (userId == null || status == null || !MEMBER_STATUSES.contains(status)) {
-            log.warn("바다 사건 형식 불량 — 적용하지 않는다. eventId={} status={}", eventId, status);
+            log.warn("바다 사건 형식 불량 — 적용하지 않는다. eventId={} userId={} status={}", eventId, userId,
+                    clip(status));
             return;
         }
         UUID roomId = currentRoom(userId);
@@ -399,7 +412,8 @@ public class SeaRooms {
         }
         Transition transition = transition(status, params, instantOrNull(text(envelope, "occurredAt")));
         if (transition == null) {
-            log.warn("바다 사건 params 불량 — 적용하지 않는다. eventId={} status={}", eventId, status);
+            log.warn("바다 사건 params 불량 — 적용하지 않는다. eventId={} userId={} status={}", eventId, userId,
+                    clip(status));
             return;
         }
         if (runUpdate(userId, roomId.toString(), transition, "") != 1) {
@@ -498,9 +512,11 @@ public class SeaRooms {
             ObjectNode payload = objectMapper.createObjectNode();
             payload.put("userId", userId.toString());
             payload.put("reason", LEFT);
+            log.info("바다 보정 left 발행 — joined 뒤 이미 나가 있었다(경합). roomId={} userId={}", roomId, userId);
             publisher.publish(roomId, MEMBER_LEFT, payload);
         } catch (RuntimeException e) {
-            log.warn("joined 뒤 소속 재확인 실패 — reason={}", e.getClass().getSimpleName());
+            log.warn("joined 뒤 소속 재확인 실패 — roomId={} userId={} reason={}", roomId, userId,
+                    e.getClass().getSimpleName());
         }
     }
 
@@ -640,19 +656,20 @@ public class SeaRooms {
             UUID id = uuidOrNull(user);
             scoreByUser.put(user, id != null && friendIds.contains(id) ? 2 : sameDestination ? 1 : 0);
         }
-        Comparator<UUID> byScore = Comparator.comparingInt((UUID room) -> membersByRoom.get(room).stream()
-                .mapToInt(user -> scoreByUser.getOrDefault(user, 0)).max().orElse(0));
+        java.util.function.ToIntFunction<UUID> scoreOf = room -> membersByRoom.get(room).stream()
+                .mapToInt(user -> scoreByUser.getOrDefault(user, 0)).max().orElse(0);
+        Comparator<UUID> byScore = Comparator.comparingInt(scoreOf);
         Comparator<UUID> bySize = Comparator.comparingInt(room -> membersByRoom.get(room).size());
         return rooms.stream()
                 .sorted(byScore.thenComparing(bySize).reversed())
                 .limit(BLOCK_CHECKED_CANDIDATES)
                 .filter(room -> noBlockBetween(userId, membersByRoom.get(room)))
-                .map(room -> new Candidate(room, membersByRoom.get(room)))
+                .map(room -> new Candidate(room, membersByRoom.get(room), scoreOf.applyAsInt(room)))
                 .toList();
     }
 
-    /** 차단 검사를 통과한 방과 그때 본 구성원 — JOIN 이 이 집합 그대로인지 원자적으로 대조한다. */
-    private record Candidate(UUID roomId, List<String> members) {
+    /** 차단 검사를 통과한 방과 그때 본 구성원 — JOIN 이 이 집합 그대로인지 원자적으로 대조한다. 점수는 로그용. */
+    private record Candidate(UUID roomId, List<String> members, int score) {
     }
 
     /** 방 구성원 누구와도 어느 쪽 차단이 없는가. 판정 불가면 그 방은 뺀다(fail-closed). */
@@ -846,10 +863,16 @@ public class SeaRooms {
         session.put("sessionId", hash.get(SESSION_ID));
         session.put("destinationIslandId", hash.get(DESTINATION));
         String minutes = hash.get(SAILING_MINUTES);
-        if (minutes == null) {
+        Integer sailingMinutes;
+        try {
+            sailingMinutes = minutes == null ? null : Integer.valueOf(minutes);
+        } catch (NumberFormatException e) {
+            sailingMinutes = null; // 손상 해시 — ERROR 프레임·소켓 종료로 번지지 않게 비워 둔다
+        }
+        if (sailingMinutes == null) {
             session.putNull("sailingMinutes");
         } else {
-            session.put("sailingMinutes", Integer.parseInt(minutes));
+            session.put("sailingMinutes", sailingMinutes);
         }
         session.put("activeSeconds", Math.max(0, Duration.between(startedAt, end).getSeconds()));
         session.put("serverNow", now.toString());
@@ -865,6 +888,11 @@ public class SeaRooms {
 
     private static byte[] bytes(String value) {
         return value.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** 로그에 찍는 외부 값의 길이 상한 — 로그 부풀림·주입 방지. */
+    private static String clip(String value) {
+        return value == null || value.length() <= 32 ? value : value.substring(0, 32);
     }
 
     private static String text(JsonNode node, String field) {
