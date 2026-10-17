@@ -7097,6 +7097,10 @@
           },
           "magazineCell": {
             "$ref": "#/components/schemas/Cell"
+          },
+          "buildingCount": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
