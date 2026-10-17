@@ -28,6 +28,23 @@ import java.util.UUID;
  *       <td>응원 <b>구독</b> 시도 창 — SUBSCRIBE 도 상류 조회를 부르므로 같은 상한을 건다</td></tr>
  *   <tr><td>{@code lock:chat:movement:sub:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
  *       <td>이동 <b>구독</b> 시도 창(GROMO-2247) — 멤버십 조회를 부르는 이동 SUBSCRIBE 의 상한</td></tr>
+ *   <tr><td>{@code sea:room:{roomId}:members}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>바다 방 구성원 SET(GROMO-2300). EXPIRE 24h(입장마다 갱신), 비면 DEL</td></tr>
+ *   <tr><td>{@code sea:rooms:open}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>빈자리 있는 바다 방 SET. <b>TTL 없음</b> — 입장·퇴장 스크립트가 스스로 정리한다</td></tr>
+ *   <tr><td>{@code sea:user:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>사용자 바다 상태 HASH({@code roomId, state, remark, sessionId, destinationIslandId,
+ *       sailingMinutes, startedAt, adriftSince}). EXPIRE 24h, 퇴장 시 DEL</td></tr>
+ *   <tr><td>{@code sea:adrift}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>떠 있는 사용자 ZSET(userId → adriftSince ms). 수명 없음 — 10분 정리의 색인</td></tr>
+ *   <tr><td>{@code lock:chat:sea:enter:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>바다 입장 시도 창(600ms, 사용자 축)</td></tr>
+ *   <tr><td>{@code lock:chat:sea:emote:try:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>바다 방 이모트 발신 시도 창(600ms, 사용자 축)</td></tr>
+ *   <tr><td>{@code lock:chat:sea:emote:{roomId}:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>바다 방 이모트 성공 창(3초)</td></tr>
+ *   <tr><td>{@code chat:sea:v1}</td><td>실시간</td><td>발행·구독</td>
+ *       <td>인스턴스 간 <b>바다 방 사건</b> 전파(Pub/Sub). {@code chat:events:v1} 과 모양이 달라 나눈다</td></tr>
  *   <tr><td>{@code presence:focus:{userId}}</td><td><b>Data API</b></td><td><b>읽기 전용</b></td>
  *       <td>집중 세션 리스. 채팅은 존재 여부만 본다 — 쓰지도 지우지도 않는다</td></tr>
  * </table>
@@ -58,6 +75,23 @@ public final class RedisKeys {
      */
     public static final String EVENT_FANOUT_CHANNEL = "chat:events:v1";
 
+    /**
+     * 바다 방 사건({@code sea.member.*}·{@code sea.emote})의 인스턴스 간 채널(GROMO-2300). 봉투가
+     * {@code SeaRoomFanoutEvent} 라 {@link #EVENT_FANOUT_CHANNEL} 과 섞지 않는다 — 같은 이유로 나눈 둘이다.
+     */
+    public static final String SEA_FANOUT_CHANNEL = "chat:sea:v1";
+
+    /** 빈자리 있는 바다 방 id 집합. TTL 을 걸면 만료 순간 전원이 새 방을 만들어서 걸지 않는다. */
+    public static final String SEA_ROOMS_OPEN = "sea:rooms:open";
+
+    /** 떠 있는(항해를 끝낸) 사용자 색인 — 점수는 adriftSince(epoch ms). {@code SCAN} 없이 10분 정리를 하려고 둔다. */
+    public static final String SEA_ADRIFT = "sea:adrift";
+
+    private static final String SEA_ROOM_PREFIX = "sea:room:";
+    private static final String SEA_USER_PREFIX = "sea:user:";
+    private static final String SEA_ENTER_PREFIX = "lock:chat:sea:enter:";
+    private static final String SEA_EMOTE_RATE_PREFIX = "lock:chat:sea:emote:";
+    private static final String SEA_EMOTE_ATTEMPT_PREFIX = "lock:chat:sea:emote:try:";
     private static final String MEMBER_CACHE_PREFIX = "cache:chat:member:";
     private static final String BLOCK_CACHE_PREFIX = "cache:chat:block:";
     private static final String BLOCK_GENERATION_PREFIX = "cache:chat:blockgen:";
@@ -162,5 +196,30 @@ public final class RedisKeys {
      */
     public static String movementSubscribeAttempt(UUID userId) {
         return MOVEMENT_SUBSCRIBE_PREFIX + userId;
+    }
+
+    /** 바다 방 구성원(SET userId). */
+    public static String seaRoomMembers(UUID roomId) {
+        return SEA_ROOM_PREFIX + roomId + ":members";
+    }
+
+    /** 사용자 바다 상태(HASH) — 방 소속의 정본이다. 전달 직전 검사가 프레임마다 {@code roomId} 를 읽는다. */
+    public static String seaUser(UUID userId) {
+        return SEA_USER_PREFIX + userId;
+    }
+
+    /** 바다 입장 시도 창 — 사용자 축(입장마다 Data 조회 2회를 부르므로 그 상한). */
+    public static String seaEnterAttempt(UUID userId) {
+        return SEA_ENTER_PREFIX + userId;
+    }
+
+    /** 바다 방 이모트 <b>발신</b> 시도 창 — 사용자 축({@link #emoteAttempt} 와 같은 이유). */
+    public static String seaEmoteAttempt(UUID userId) {
+        return SEA_EMOTE_ATTEMPT_PREFIX + userId;
+    }
+
+    /** 바다 방 이모트 <b>성공</b> 창 — {@link #emoteRateLimit} 의 바다 방 판. */
+    public static String seaEmoteRateLimit(UUID roomId, UUID userId) {
+        return SEA_EMOTE_RATE_PREFIX + roomId + ":" + userId;
     }
 }

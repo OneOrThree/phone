@@ -89,6 +89,21 @@ public class BlockedUsers {
     }
 
     /**
+     * 두 사람 중 <b>어느 한쪽이라도</b> 상대를 차단했는가 — 바다 방 배정의 분리 판정(GROMO-2300).
+     *
+     * <p>{@link #hasBlocked} 와 달리 <b>필터 스위치를 보지 않는다</b>. 스위치는 «전달 직전 필터»를 켜는 것이고,
+     * 배정 분리는 그와 별개의 규칙이라 꺼진 배포에서도 같은 방에 넣지 않는다. 세대 캐시·fail-closed 는 같다.
+     *
+     * @throws UpstreamUnavailableException 판정할 수 없을 때 — 호출자는 그 방을 후보에서 뺀다
+     */
+    public boolean eitherBlocked(UUID a, UUID b) {
+        if (a.equals(b)) {
+            return false;
+        }
+        return blockedBy(a).contains(b) || blockedBy(b).contains(a);
+    }
+
+    /**
      * 그 차단자의 세대를 올린다 — 캐시된 집합은 이 순간부터 읽히지 않는다.
      *
      * <p>실패를 삼키지 않는다. 사건 처리 트랜잭션이 롤백돼 수신 기록이 남지 않고 relay 가 다시 보낸다.

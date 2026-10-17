@@ -26,6 +26,25 @@ public final class StompTopics {
     static final Pattern MOVEMENT_INTENT_SEND =
             Pattern.compile("^/app/islands/([0-9a-f-]{36})/movement/intent$");
 
+    /**
+     * 바다 방 토픽(GROMO-2300) — {@code group(1)} 이 방. 관문·전달 직전 검사가 되읽고, 보내는 쪽은
+     * {@link #seaRoomTopic} 으로 같은 모양을 만든다.
+     */
+    public static final Pattern SEA_ROOM_TOPIC = Pattern.compile("^/topic/sea/rooms/([0-9a-f-]{36})$");
+
+    /** 바다 입장·퇴장 발신 — {@code SeaStompController} 의 {@code @MessageMapping} 과 같은 모양이다. */
+    static final Pattern SEA_ENTER_SEND = Pattern.compile("^/app/sea/enter$");
+    static final Pattern SEA_LEAVE_SEND = Pattern.compile("^/app/sea/leave$");
+
+    /** 방 스냅샷 요청 — 방 토픽 구독 «뒤»에 보낸다(답은 {@link #SEA_QUEUE} 로 {@code sea.room.snapshot}). */
+    static final Pattern SEA_SYNC_SEND = Pattern.compile("^/app/sea/sync$");
+
+    /** 바다 방 이모트 발신(컨트롤러는 GROMO-2300 2/2). 관문은 시도 창만 본다. */
+    static final Pattern SEA_EMOTE_SEND = Pattern.compile("^/app/sea/rooms/([0-9a-f-]{36})/emotes$");
+
+    /** 배정 결과({@code sea.room.assigned})를 받는 개인 큐 — 구독 목적지 그대로. */
+    public static final String SEA_QUEUE = "/user/queue/sea";
+
     private StompTopics() {
     }
 
@@ -37,5 +56,10 @@ public final class StompTopics {
     /** 이동 스냅샷 토픽 — {@link #MOVEMENT_TOPIC} 의 {@code /snapshot} 쪽. */
     public static String movementSnapshotTopic(UUID islandId) {
         return movementTopic(islandId) + "/snapshot";
+    }
+
+    /** 바다 방 토픽 — {@link #SEA_ROOM_TOPIC} 과 같은 모양. */
+    public static String seaRoomTopic(UUID roomId) {
+        return "/topic/sea/rooms/" + roomId;
     }
 }
