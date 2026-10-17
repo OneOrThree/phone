@@ -160,6 +160,7 @@ function Harness({
   retryHome,
   friendsScreen,
   conversion,
+  playback,
   localePref = 'system',
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
@@ -260,6 +261,7 @@ function Harness({
         retryHome,
         friendsScreen,
         conversion,
+        playback,
         localePref,
         setLocalePref,
       }}
@@ -1102,7 +1104,7 @@ test('현재 곡을 보유하지 않았으면 다른 보유곡이 있어도 재�
 });
 
 test.each(['active', 'paused'] as const)(
-  '세션 %s 중에도 축음기에서 판매곡을 구매하고 복귀 목적지를 안내한다',
+  '세션 %s 중 축음기는 보유곡만 표시하고 복귀 목적지를 안내한다',
   async (status) => {
     const state = initialState(false);
     state.islands[0].joined = true;
@@ -1123,28 +1125,61 @@ test.each(['active', 'paused'] as const)(
     );
 
     s.getByLabelText(status === 'active' ? '집중으로 돌아가기' : '휴식으로 돌아가기');
-    s.getByLabelText('잔잔한 파도, 보유');
-    await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
-    await fireEvent.press(s.getByText('30마리로 구매'));
-    s.getByText('구매했어요');
-    await fireEvent.press(s.getByText('지금 재생하기'));
-    assert.ok(exposed.actions.includes('BUY'));
-    assert.ok(exposed.actions.includes('TRACK'));
+    s.getByLabelText('잔잔한 파도, 무료');
+    expect(s.queryByLabelText('빗방울 소리, 30마리로 구매')).toBeNull();
+    expect(exposed.actions).not.toContain('BUY');
   },
 );
 
-test('서버 집중 세션의 판매곡 구매는 서버 상품으로 요청하고 로컬 BUY를 호출하지 않는다', async () => {
+test.each([null, 'active', 'paused'] as const)(
+  '세션 %s에서 판매 목록이 비어도 무료 기본 세 곡을 구매 없이 재생한다',
+  async (status) => {
+    const state = initialState(false);
+    state.islands[0].joined = true;
+    state.islands[0].buildings.push('gram');
+    state.islands[0].fish = 0;
+    state.session = status
+      ? {
+          id: 'focus-1',
+          islandId: state.islands[0].id,
+          subject: '수학',
+          startedAt: 1000,
+          seconds: 0,
+          status,
+        }
+      : null;
+    mockShopState.items = [];
+    mockShopState.shared = { audio: ['waves', 'campfire', 'forest-wind'] };
+    const update = jest.fn().mockResolvedValue({});
+    let exposed: any;
+    const s = await render(
+      <Harness
+        route="sound"
+        initial={state}
+        api={() => ({})}
+        playback={{ state: {}, update }}
+        expose={(value: any) => (exposed = value)}
+      />,
+    );
+    for (const [id, name] of [
+      ['waves', '잔잔한 파도'],
+      ['campfire', '모닥불 소리'],
+      ['forest-wind', '숲바람'],
+    ]) {
+      await fireEvent.press(s.getByLabelText(`${name}, 무료`));
+      expect(update).toHaveBeenCalledWith({ trackId: id, playing: true });
+    }
+    expect(mockShopBuy).not.toHaveBeenCalled();
+    expect(exposed.actions).not.toContain('BUY');
+    expect(exposed.actions).not.toContain('TRACK');
+  },
+);
+
+test('세션 없이 섬에서 판매곡을 구매하면 서버 상품으로 요청하고 로컬 BUY를 호출하지 않는다', async () => {
   const state = initialState(false);
   state.islands[0].joined = true;
   state.islands[0].buildings.push('gram');
-  state.session = {
-    id: 'focus-1',
-    islandId: state.islands[0].id,
-    subject: '수학',
-    startedAt: 1000,
-    seconds: 0,
-    status: 'active',
-  };
+  state.session = null;
   const product = {
     id: 'rain',
     title: '빗방울 소리',
@@ -1178,7 +1213,7 @@ test('공동 보유품 중 실제 음원만 축음기 목록에 표시한다', a
   state.islands[0].sharedOwned = ['waves', 'pine'];
   const s = await render(<Harness route="sound" initial={state} />);
 
-  s.getByLabelText('잔잔한 파도, 보유');
+  s.getByLabelText('잔잔한 파도, 무료');
   assert.equal(s.queryByText('pine'), null);
 });
 

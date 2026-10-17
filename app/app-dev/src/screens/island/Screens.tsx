@@ -87,7 +87,11 @@ import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
-import { BUNDLED_AUDIO_TRACK_IDS, hasBundledAudio } from '@/constants/audio';
+import {
+  BUNDLED_AUDIO_TRACK_IDS,
+  DEFAULT_FREE_AUDIO_TRACK_IDS,
+  hasBundledAudio,
+} from '@/constants/audio';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
@@ -2882,11 +2886,12 @@ export function RedesignScreens({ e }: any) {
     const serverPlaybackReady = !server || !!e.playback?.state;
     const hasCurrentTrack =
       serverPlaybackReady && currentTrack !== null && ownedTrackIds.includes(currentTrack);
-    // 집중·휴식에서 들어와도 같은 섬의 판매곡을 구매할 수 있다.
-    const trackIds = [
-      ...ownedTrackIds,
-      ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
-    ];
+    const trackIds = scene
+      ? ownedTrackIds
+      : [
+          ...ownedTrackIds,
+          ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
+        ];
     const largeText = (layout.fontScale ?? 1) >= gramophone.largeTextThreshold;
     const dialogProduct = soundDialog?.product;
     const changePlayback = async (patch: { trackId?: string; playing?: boolean }) => {
@@ -3162,7 +3167,9 @@ export function RedesignScreens({ e }: any) {
                           : '정지됨'
                         : hasOwnedTracks
                           ? '보유곡에서 선택해 주세요'
-                          : '곡을 구매해 주세요'}
+                          : scene
+                            ? '섬에서 곡을 구매할 수 있어요'
+                            : '곡을 구매해 주세요'}
                     </Txt>
                   </View>
                   <Volume
@@ -3183,7 +3190,9 @@ export function RedesignScreens({ e }: any) {
                         (!localAudioIds.has(id) ||
                           (server && (product?.available === false || product?.price == null)));
                       const status = owned
-                        ? '보유'
+                        ? DEFAULT_FREE_AUDIO_TRACK_IDS.includes(id)
+                          ? '무료'
+                          : '보유'
                         : !localAudioIds.has(id)
                           ? '앱 업데이트가 필요해요'
                           : unavailable
@@ -3195,7 +3204,7 @@ export function RedesignScreens({ e }: any) {
                           accessibilityRole="button"
                           accessibilityLabel={
                             owned
-                              ? `${trackLabel(id)}, 보유`
+                              ? `${trackLabel(id)}, ${status}`
                               : unavailable
                                 ? `${trackLabel(id)}, ${status}`
                                 : `${trackLabel(id)}, ${product?.price}마리로 구매`
