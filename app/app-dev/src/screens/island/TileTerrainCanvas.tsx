@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { TileTerrainFacilities } from './TileTerrainFacilities';
 import {
   Atlas,
   Canvas,
@@ -221,6 +222,8 @@ export function TileTerrainCanvas({
   onAssetsFail,
   navDebug,
   reduceMotion = false,
+  pressedFacility,
+  showFacilityOutlines = false,
 }: {
   width: number;
   height: number;
@@ -236,6 +239,8 @@ export function TileTerrainCanvas({
   navDebug?: NavDebug | null;
   /** 설정의 모션 줄이기 — 보정 원을 50ms로 깜빡이지 않고 창 동안 정적으로 보여준다(GROMO-2249 보완8 항목 6). */
   reduceMotion?: boolean;
+  pressedFacility?: string | null;
+  showFacilityOutlines?: boolean;
 }) {
   // Metro 는 `@2x` 를 배율 접미사로 읽어 파일명 그대로는 못 찾는다 — 기본 이름으로 부르면 tileset@2x.png(밤 tileset-night@2x.png) 변형을 고른다.
   // 스냅샷이 cache 면 파일 URI(GROMO-2233). 소스는 마운트 때 고정되고, 디코드 실패 때만 부모가 번들로 바꾼다.
@@ -322,6 +327,16 @@ export function TileTerrainCanvas({
         ]}
       >
         <Atlas image={image} sprites={atlas.sprites} transforms={atlas.transforms} />
+        {showFacilityOutlines && (
+          <TileTerrainFacilities
+            image={image}
+            atlas={atlas}
+            scale={scale}
+            pressedFacility={pressedFacility}
+            reduceMotion={reduceMotion}
+            night={night}
+          />
+        )}
         {grid && (
           <Path path={grid} style="stroke" strokeWidth={1 / scale} color="rgba(255,0,0,0.6)" />
         )}

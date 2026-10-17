@@ -117,7 +117,7 @@ it('EXPO_PUBLIC_TILE_ISLAND=1 이면 기존 마을로 시작하고 바닥 Image 
 
 it('타일 섬은 서버 home.layout 을 건물 평행이동으로 적용한다 — 기본 배치면 그대로, 옮기면 레이어·문이 같이 간다', async () => {
   const state = initialState();
-  state.islands.find((x) => x.id === state.islandId)!.buildings = ['hall', 'gram'];
+  state.islands.find((x) => x.id === state.islandId)!.buildings = ['hall', 'mail'];
   const flat = (style: unknown) => Object.assign({}, ...[style].flat(3)) as Record<string, number>;
   const place = async (cell?: { x: number; y: number }) => {
     if (cell) {
@@ -126,24 +126,24 @@ it('타일 섬은 서버 home.layout 을 건물 평행이동으로 적용한다 
         schemaVersion: 1,
         templateVersion: 2,
         mapId: 'home',
-        buildings: [{ id: 'gram', cell }],
+        buildings: [{ id: 'mail', cell }],
       };
       mockFacts.current = f;
     } else mockFacts.current = null;
     const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
     const out = {
-      layer: flat(screen.getByTestId('world-static-building-gram').props.style),
-      door: flat(screen.getByLabelText(buildingNames.gram).props.style),
+      layer: flat(screen.getByTestId('world-static-building-mail').props.style),
+      door: flat(screen.getByLabelText(buildingNames.mail).props.style),
     };
-    expect(screen.queryByTestId('building-name-gram')).toBeNull();
+    expect(screen.queryByTestId('building-name-mail')).not.toBeNull();
     await screen.unmount();
     return out;
   };
   const none = await place();
-  // gram 기본 셀(23,46) = 서버 기본 템플릿 — layout 없을 때와 픽셀이 같다.
-  const base = await place({ x: 23, y: 46 });
+  // mail 기본 셀(20,56) = 서버 기본 템플릿 — layout 없을 때와 픽셀이 같다.
+  const base = await place({ x: 20, y: 56 });
   expect(base).toEqual(none);
-  const moved = await place({ x: 33, y: 50 });
+  const moved = await place({ x: 30, y: 60 });
   // 기존 마을은 새 마을 applyLayout 을 타지 않는다.
   expect(mockApplyLayout).not.toHaveBeenCalled();
   // 10셀(153.6px)·4셀(40.96px) × 카메라 배율 — 레이어와 문 탭 영역이 같은 만큼 움직인다.
@@ -250,7 +250,6 @@ const cases: [string, B, string[], Record<string, unknown>][] = [
   ['tower', 'tower', ['world-observatory-motion'], {}],
   ['shop', 'shop', ['world-shop-motion'], {}],
   ['library', 'library', ['world-library-motion'], {}],
-  ['gram', 'gram', ['world-static-building-gram'], {}],
   ['mail(정적 레이어)', 'mail', ['world-static-building-mail'], { showMailboxLetters: false }],
   [
     'mail(펠리컨·배지)',
@@ -370,18 +369,21 @@ it('건물을 옮겨도 모닥불·뗏목 렌더 지점은 움직이지 않는�
   expect(moved.raft).toEqual(base.raft);
 });
 
-it.each(allBuildings)('옮긴 %s 문을 탭하면 걷기 목표가 옮겨진 문 좌표다', async (b) => {
-  const state = fullState();
-  withLayout(state, b);
-  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
-  await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
-  await fireEvent.press(screen.getByLabelText(buildingNames[b]));
-  const door = legacyDoorCoords.doors[b];
-  const tap = screen.getByTestId('tile-terrain').props.navDebug.walk.tap;
-  expect(tap.x).toBeCloseTo(door.x + DELTA.x * CELL_PX.x, 6);
-  expect(tap.y).toBeCloseTo(door.y + DELTA.y * CELL_PX.y, 6);
-  await screen.unmount();
-});
+it.each(allBuildings.filter((b) => b !== 'gram'))(
+  '옮긴 %s 문을 탭하면 걷기 목표가 옮겨진 문 좌표다',
+  async (b) => {
+    const state = fullState();
+    withLayout(state, b);
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await fireEvent.press(screen.getByLabelText(buildingNames[b]));
+    const door = legacyDoorCoords.doors[b];
+    const tap = screen.getByTestId('tile-terrain').props.navDebug.walk.tap;
+    expect(tap.x).toBeCloseTo(door.x + DELTA.x * CELL_PX.x, 6);
+    expect(tap.y).toBeCloseTo(door.y + DELTA.y * CELL_PX.y + (b === 'mail' ? -24 : 0), 6);
+    await screen.unmount();
+  },
+);
 
 // 릴리스 빌드(__DEV__=false)에서는 QA 전환 버튼이 없어야 한다. 플래그는 모듈 로드 시 굳으므로 격리 로드한다.
 describe('릴리스 빌드의 디버그 버튼', () => {
@@ -419,4 +421,70 @@ describe('릴리스 빌드의 디버그 버튼', () => {
     expect(screen.queryByTestId('nav-debug-toggle')).toBeNull();
     await screen.unmount();
   });
+});
+
+it('타일섬은 완공된 6개 건물과 뗏목·모닥불 팻말을 표시하고 홈 축음기를 숨긴다', async () => {
+  const state = fullState();
+  const go = jest.fn();
+  const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+  for (const id of ['hall', 'board', 'library', 'mail', 'tower', 'shop', 'fire', 'raft']) {
+    expect(screen.getByTestId(`building-name-${id}`)).toBeTruthy();
+  }
+  expect(screen.queryByTestId('world-static-building-gram')).toBeNull();
+  expect(screen.queryByTestId('building-name-gram')).toBeNull();
+  expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
+  expect(state.islands.find((i) => i.id === state.islandId)!.buildings).toContain('gram');
+  await fireEvent.press(screen.getByTestId('building-name-raft'));
+  expect(go).toHaveBeenCalledWith('boat');
+  await screen.unmount();
+});
+
+it('없는 건물의 팻말은 표시하지 않는다', async () => {
+  const state = fullState();
+  state.islands.find((i) => i.id === state.islandId)!.buildings = ['hall'];
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(screen.queryByTestId('building-name-mail')).toBeNull();
+  expect(screen.queryByTestId('building-name-library')).toBeNull();
+  expect(screen.getByTestId('building-name-hall')).toBeTruthy();
+  await screen.unmount();
+});
+
+it.each([false, true])(
+  '팻말을 누르고 떼면 건물도 반응하며 모션 줄이기=%s를 따른다',
+  async (reduceMotion) => {
+    const state = fullState();
+    state.settings.reduceMotion = reduceMotion;
+    const go = jest.fn();
+    const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+    const sign = screen.getByTestId('building-name-hall');
+    await fireEvent(sign, 'pressIn');
+    const style = screen.getByTestId('world-hall-motion').props.style.flat();
+    const pressed = Object.assign({}, ...style);
+    if (reduceMotion) {
+      expect(pressed.opacity).toBe(0.75);
+      expect(pressed.transform).toBeUndefined();
+    } else expect(pressed.transform).toContainEqual({ scale: 0.97 });
+    await fireEvent(sign, 'pressOut');
+    expect(
+      Object.assign({}, ...screen.getByTestId('world-hall-motion').props.style.flat()).transform,
+    ).toBeUndefined();
+    expect(go).not.toHaveBeenCalled();
+    await screen.unmount();
+  },
+);
+
+it('우체통 팻말로 진입해도 이동한 문으로 걸어가고 그림 전체에 터치 여백을 둔다', async () => {
+  const state = fullState();
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+  await fireEvent.press(screen.getByTestId('building-name-mail'));
+  expect(screen.getByTestId('tile-terrain').props.navDebug.walk.tap).toMatchObject({
+    x: 320,
+    y: 572,
+  });
+  const door = flatStyle(screen.getByLabelText(buildingNames.mail).props.style);
+  expect(door.width).toBeGreaterThan(46 * SCALE);
+  expect(door.height).toBeGreaterThan(63 * SCALE);
+  expect(door.width).toBeGreaterThanOrEqual(44);
+  await screen.unmount();
 });
