@@ -229,6 +229,29 @@ class MagazinePublishIntegrationTest {
     }
 
     @Test
+    @DisplayName("편집부 랭킹·새 섬 항목도 읽는 시점의 privateIsland 를 싣는다 — 비공개 일등섬 true, 공개 섬 false")
+    void editorialItemsCarryPrivateIsland() throws Exception {
+        User reader = user();
+        Island top = island("일등섬", true);
+        Island second = island("이등섬", false);
+        focus(top, 300);
+        focus(second, 200);
+        Island fresh = island("어제섬", false);
+        created(fresh, kst(date.minusDays(1), 12, 0));
+        UUID issueId = publisher.publish(date).orElseThrow().getId();
+        now.set(kst(date, 9, 0));
+
+        issue(reader.getId(), issueId, "").andExpect(status().isOk())
+                .andExpect(jsonPath("$.editorial.ranking[0].name").value("일등섬"))
+                .andExpect(jsonPath("$.editorial.ranking[0].privateIsland").value(true))
+                .andExpect(jsonPath("$.editorial.ranking[1].privateIsland").value(false))
+                .andExpect(jsonPath("$.editorial.newIslands[0].privateIsland").value(false));
+
+        jdbc.update("update groups set is_private = true where id = ?", fresh.id);
+        issue(reader.getId(), issueId, "").andExpect(jsonPath("$.editorial.newIslands[0].privateIsland").value(true));
+    }
+
+    @Test
     @DisplayName("8호째 발행이 최근 7호 밖이 된 1호의 받음 상태를 지운다 — 호 행은 남고, 1호는 더 읽을 수 없다")
     void keepsReceiptsOfTheLatestSevenIssues() throws Exception {
         User reader = user();

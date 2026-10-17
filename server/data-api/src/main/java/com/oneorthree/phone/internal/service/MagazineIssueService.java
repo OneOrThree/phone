@@ -27,6 +27,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -156,35 +157,35 @@ public class MagazineIssueService {
     }
 
     private MagazineViews.Editorial editorial(MagazineEditorial stored, Relations relations) {
-        Set<UUID> visible = visible(stored);
+        Map<UUID, Boolean> visible = visible(stored);
         return new MagazineViews.Editorial(
-                stored.ranking().stream().filter(row -> visible.contains(row.island().islandId()))
+                stored.ranking().stream().filter(row -> visible.containsKey(row.island().islandId()))
                         .map(row -> {
                             IslandCard card = row.island();
                             return new MagazineViews.RankedIsland(row.rank(), card.islandId(), card.name(),
                                     card.buildingCount(), card.memberCount(), card.maxMembers(),
-                                    card.averageFocusMinutesPerDay(), relations.of(card.islandId()));
+                                    card.averageFocusMinutesPerDay(), relations.of(card.islandId()),
+                                    visible.get(card.islandId()));
                         }).toList(),
-                stored.newIslands().stream().filter(card -> visible.contains(card.islandId()))
+                stored.newIslands().stream().filter(card -> visible.containsKey(card.islandId()))
                         .map(card -> new MagazineViews.Island(card.islandId(), card.name(), card.buildingCount(),
                                 card.memberCount(), card.maxMembers(), card.averageFocusMinutesPerDay(),
-                                relations.of(card.islandId())))
+                                relations.of(card.islandId()), visible.get(card.islandId())))
                         .toList(),
                 stored.note());
     }
 
-    /** 편집부 칸의 섬 중 지금도 살아 있는 섬(비공개 포함). */
-    private Set<UUID> visible(MagazineEditorial stored) {
+    /** 편집부 칸의 섬 중 지금도 살아 있는 섬(비공개 포함) → 지금 비공개인지(읽는 시점 값). */
+    private Map<UUID, Boolean> visible(MagazineEditorial stored) {
         Set<UUID> ids = new HashSet<>();
         stored.ranking().forEach(row -> ids.add(row.island().islandId()));
         stored.newIslands().forEach(card -> ids.add(card.islandId()));
         if (ids.isEmpty()) {
-            return ids;
+            return Map.of();
         }
         return islands.findAllById(ids).stream()
                 .filter(IslandMovementGuards::isAlive)
-                .map(island -> island.getId())
-                .collect(Collectors.toSet());
+                .collect(Collectors.toMap(Group::getId, Group::isPrivate));
     }
 
     /** 칸 섬 중 지금 비공개인 섬 — 읽는 시점 값이다(발행 뒤 바뀔 수 있다). */

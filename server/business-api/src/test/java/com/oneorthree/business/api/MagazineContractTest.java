@@ -51,7 +51,7 @@ class MagazineContractTest extends UpstreamTestBase {
             + "\"deferredAt\":null,\"openedAt\":null}";
     private static final String EDITORIAL = "{\"ranking\":[{\"rank\":1,\"islandId\":\"" + ISLAND + "\",\"name\":\"모래섬\","
             + "\"buildingCount\":5,\"memberCount\":3,\"maxMembers\":15,\"averageFocusMinutesPerDay\":null,"
-            + "\"relation\":\"NONE\"}],\"newIslands\":[{\"islandId\":\"" + ISLAND + "\",\"name\":\"모래섬\","
+            + "\"relation\":\"NONE\",\"privateIsland\":true}],\"newIslands\":[{\"islandId\":\"" + ISLAND + "\",\"name\":\"모래섬\","
             + "\"buildingCount\":5,\"memberCount\":3,\"maxMembers\":15,\"averageFocusMinutesPerDay\":null,"
             + "\"relation\":\"MEMBER\"}],\"note\":{\"type\":\"TIP\",\"body\":null,\"tipNo\":3}}";
     /** Business 가 속을 보지 않는 layout — 모르는 키·중첩까지 그대로 오간다. */
@@ -175,6 +175,8 @@ class MagazineContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.editorial.ranking[0].averageFocusMinutesPerDay").hasJsonPath())
                 .andExpect(jsonPath("$.data.editorial.ranking[0].averageFocusMinutesPerDay").value((Object) null))
                 .andExpect(jsonPath("$.data.editorial.ranking[0].relation").value("NONE"))
+                .andExpect(jsonPath("$.data.editorial.ranking[0].privateIsland").value(true))
+                .andExpect(jsonPath("$.data.editorial.newIslands[0].privateIsland").doesNotExist())
                 .andExpect(jsonPath("$.data.editorial.newIslands[0].relation").value("MEMBER"))
                 .andExpect(jsonPath("$.data.editorial.newIslands[0].averageFocusMinutesPerDay").hasJsonPath())
                 .andExpect(jsonPath("$.data.editorial.newIslands[0].rank").doesNotExist())
@@ -448,8 +450,8 @@ class MagazineContractTest extends UpstreamTestBase {
             "/me/magazine/issues|get|items|issueId issueNo issueDate publishedAt opened",
             "/me/magazine/issues/{issueId}|get||issue editorial cells nextCursor",
             "/me/magazine/issues/{issueId}|get|editorial|ranking newIslands note",
-            "/me/magazine/issues/{issueId}|get|editorial/ranking|rank islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay relation",
-            "/me/magazine/issues/{issueId}|get|editorial/newIslands|islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay relation",
+            "/me/magazine/issues/{issueId}|get|editorial/ranking|rank islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay relation privateIsland?",
+            "/me/magazine/issues/{issueId}|get|editorial/newIslands|islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay relation privateIsland?",
             "/me/magazine/issues/{issueId}|get|editorial/note|type body tipNo",
             "/me/magazine/issues/{issueId}|get|cells|promotionId islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay body layout relation privateIsland?",
             "/me/magazine/issues/{issueId}/receipt|put||place receivedAt deferredAt openedAt"})

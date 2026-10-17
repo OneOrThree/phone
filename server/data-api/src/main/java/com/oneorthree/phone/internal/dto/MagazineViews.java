@@ -70,11 +70,12 @@ public final class MagazineViews {
     }
 
     public record RankedIsland(int rank, UUID islandId, String name, int buildingCount, int memberCount,
-                               int maxMembers, Integer averageFocusMinutesPerDay, Relation relation) {
+                               int maxMembers, Integer averageFocusMinutesPerDay, Relation relation,
+                               boolean privateIsland) {
     }
 
     public record Island(UUID islandId, String name, int buildingCount, int memberCount, int maxMembers,
-                         Integer averageFocusMinutesPerDay, Relation relation) {
+                         Integer averageFocusMinutesPerDay, Relation relation, boolean privateIsland) {
     }
 
     /**

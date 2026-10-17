@@ -107,7 +107,8 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int memberCount,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int maxMembers,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer averageFocusMinutesPerDay,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation) {
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean privateIsland) {
     }
 
     /** 새 섬 한 장 — 랭킹에서 순위만 뺀 모양이다. */
@@ -119,7 +120,8 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int memberCount,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int maxMembers,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer averageFocusMinutesPerDay,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation) {
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean privateIsland) {
     }
 
     /** 한마디 — {@code EDITOR} 면 {@code body}, {@code TIP} 이면 {@code tipNo} 만 있고 다른 쪽은 null 이다. */
