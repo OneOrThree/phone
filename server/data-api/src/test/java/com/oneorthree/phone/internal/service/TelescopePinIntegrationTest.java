@@ -462,6 +462,11 @@ class TelescopePinIntegrationTest {
         assertThat(pinnedIds(viewer)).containsExactly(order.get(5), order.get(6));
         assertThat(count("select count(*) from telescope_buckets where user_id=?", viewer)).isEqualTo(1);
 
+        NOW.set(BUCKET_END);
+        TelescopeView onTheHour = telescope.list(viewer);
+        assertThat(onTheHour.bucketStart()).isEqualTo(BUCKET_END);
+        assertThat(onTheHour.items()).extracting(TelescopeItemView::slot).as("정각부터 핀은 없다").doesNotContain("pinned");
+
         NOW.set(BASE.plus(Duration.ofHours(1)));
         TelescopeView next = telescope.list(viewer);
 
@@ -567,6 +572,8 @@ class TelescopePinIntegrationTest {
         pin(viewer, ids.get(1), "observatory", BUCKET_END.plusSeconds(5));
 
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select island_id from telescope_pins where user_id=?", UUID.class, viewer))
+                .as("남은 행은 방금 넣은 새 섬이다").isEqualTo(ids.get(1));
         assertThat(count("select count(*) from telescope_pins where user_id=?", other))
                 .as("남의 만료 행은 그 사람이 넣을 때 지운다").isEqualTo(1);
     }
