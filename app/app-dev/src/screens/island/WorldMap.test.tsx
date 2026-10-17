@@ -476,11 +476,11 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   jest.useRealTimers();
 });
 
-test('완공된 건물은 나무 팻말과 접근성 이름으로 식별하고 홈 축음기는 숨긴다', async () => {
+test('축음기를 포함한 완공 건물은 나무 팻말과 접근성 이름으로 식별한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
 
-  for (const building of ['hall', 'board', 'library', 'mail', 'tower', 'shop'] as const) {
+  for (const building of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const) {
     expect(screen.getByTestId(`building-name-${building}`)).toBeTruthy();
     expect(screen.getByText(buildingNames[building])).toBeTruthy();
     expect(screen.getByRole('button', { name: buildingNames[building] })).toBeTruthy();
@@ -839,23 +839,38 @@ test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는�
   expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
 });
 
-test('내 섬 홈에서도 축음기는 숨긴다', async () => {
-  const state = initialState(true);
-  const island = state.islands.find((item) => item.id === state.islandId)!;
-  if (!island.buildings.includes('gram')) island.buildings.push('gram');
+test.each(['그림', '팻말'])(
+  '내 섬 홈의 완공 축음기 %s을 누르면 음악 화면으로 진입한다',
+  async (target) => {
+    jest.spyOn(Animated, 'timing').mockImplementation(
+      () =>
+        ({
+          start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+          stop: jest.fn(),
+          reset: jest.fn(),
+        }) as unknown as Animated.CompositeAnimation,
+    );
+    const state = initialState(true);
+    state.settings.reduceMotion = true;
+    const go = jest.fn();
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    if (!island.buildings.includes('gram')) island.buildings.push('gram');
 
-  const screen = await render(
-    <FinalIsland
-      state={state}
-      go={jest.fn()}
-      build={jest.fn()}
-      showHud={false}
-      showActions={false}
-    />,
-  );
+    const screen = await render(
+      <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
+    );
 
-  expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
-});
+    expect(screen.getByLabelText(buildingNames.gram)).toBeTruthy();
+    expect(screen.getByTestId('world-static-building-gram')).toBeTruthy();
+    expect(screen.getByTestId('building-name-gram')).toBeTruthy();
+    await fireEvent.press(
+      target === '그림'
+        ? screen.getByLabelText(buildingNames.gram)
+        : screen.getByTestId('building-name-gram'),
+    );
+    expect(go).toHaveBeenCalledWith('sound');
+  },
+);
 
 test('내 섬에서도 미완공 축음기는 터치 대상으로 노출하지 않는다', async () => {
   const state = initialState(true);
@@ -1279,3 +1294,31 @@ test('방문 중에도 뗏목이 그려지고 누르면 행선지 시트(raft)�
   await fireEvent.press(visiting.getByLabelText('뗏목'));
   expect(go).toHaveBeenCalledWith('raft', visited.id);
 });
+
+test.each([false, true])(
+  '뗏목 물결은 누름·해제와 모션 줄이기(%s)를 뗏목 그림과 함께 적용한다',
+  async (reduceMotion) => {
+    const state = initialState(true);
+    state.settings.reduceMotion = reduceMotion;
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    const sign = screen.getByTestId('building-name-raft');
+    const waterStyle = () =>
+      Object.assign({}, ...screen.getByTestId('world-raft-water-motion').props.style.flat());
+    const normal = waterStyle();
+    await fireEvent(sign, 'pressIn');
+    const pressed = waterStyle();
+    if (reduceMotion) {
+      expect(pressed.opacity).toBe(0.75);
+      expect(pressed.transform).toBeUndefined();
+    } else {
+      const scale = pressed.width / 210;
+      expect(pressed.transform).toEqual([{ translateY: 2 }, { scale: 0.97 }]);
+      // 물결 컨테이너의 아래가 아니라 실제 뗏목 그림의 아래 가운데를 기준으로 축소한다.
+      expect(pressed.transformOrigin[0]).toBeCloseTo((207 + 169 / 2 - 185) * scale);
+      expect(pressed.transformOrigin[1]).toBeCloseTo((822 + 103 - 835) * scale);
+    }
+    await fireEvent(sign, 'pressOut');
+    expect(waterStyle()).toEqual(normal);
+    await screen.unmount();
+  },
+);

@@ -854,39 +854,35 @@ export function WorldMap({
         />
       )}
       {facilityDecorations &&
-        island.buildings
-          .filter((b) => b !== 'gram')
-          .map((b) => {
-            const pelican = b === 'mail' && mailboxLetters;
-            const croppedSource = tileFacilityOutlineSource(b, night);
-            const rect = pelican ? TILE_MAILBOX_PELICAN_RECT : TILE_FACILITIES[b];
-            return (
-              rect && (
-                <TileFacilityOutline
-                  key={b}
-                  rect={rect}
-                  source={
-                    pelican
-                      ? assets['characters/pelican/npc/on-mailbox.png']
-                      : (croppedSource ??
-                        assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`])
-                  }
-                  left={at(b).left}
-                  top={at(b).top}
-                  scale={scale}
-                  cropped={pelican || !!croppedSource}
-                  pressed={pressedFacility === b}
-                  reduceMotion={reduceFacilityMotion}
-                />
-              )
-            );
-          })}
+        island.buildings.map((b) => {
+          const pelican = b === 'mail' && mailboxLetters;
+          const croppedSource = tileFacilityOutlineSource(b, night);
+          const rect = pelican ? TILE_MAILBOX_PELICAN_RECT : TILE_FACILITIES[b];
+          return (
+            rect && (
+              <TileFacilityOutline
+                key={b}
+                rect={rect}
+                source={
+                  pelican
+                    ? assets['characters/pelican/npc/on-mailbox.png']
+                    : (croppedSource ??
+                      assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`])
+                }
+                left={at(b).left}
+                top={at(b).top}
+                scale={scale}
+                cropped={pelican || !!croppedSource}
+                pressed={pressedFacility === b}
+                reduceMotion={reduceFacilityMotion}
+              />
+            )
+          );
+        })}
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
-            .filter(
-              (b) => !(b === 'mail' && mailboxLetters) && !(facilityDecorations && b === 'gram'),
-            )
+            .filter((b) => !(b === 'mail' && mailboxLetters))
             .filter((b) => !(b === 'hall' && !village && !fishing))
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'tower' && !village && !fishing))
@@ -1044,6 +1040,15 @@ export function WorldMap({
             testID="world-raft-water-motion"
             reduceMotion={state.settings.reduceMotion}
             style={{
+              ...facilityPressStyle(
+                facilityDecorations && pressedFacility === 'raft',
+                reduceFacilityMotion,
+                [
+                  (TILE_FACILITIES.raft.x + TILE_FACILITIES.raft.w / 2 - 185) * scale,
+                  (TILE_FACILITIES.raft.y + TILE_FACILITIES.raft.h - 835) * scale,
+                  0,
+                ],
+              ),
               left: left + 185 * scale,
               top: top + 835 * scale,
               width: 210 * scale,
@@ -1072,7 +1077,6 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
-                !(facilityDecorations && b === 'gram') &&
                 // 모션 프레임이 착색을 맡는 건물은 닫힌 모습의 정적 테마 레이어를 겹쳐 그리지 않는다.
                 !framesDrawTheme(b) &&
                 island.buildingThemes?.[b] &&
@@ -1916,7 +1920,6 @@ function FinalIslandScene({
     const catSize = 70 * s;
     const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
     const visibleDoors = Object.entries(doors)
-      .filter(([id]) => !(facilityDecorations && id === 'gram'))
       // 방문 카드에서 연 읽기 전용 화면은 낚시섬 관전만 연다. 기존 방문자 홈은 회관·게시판도 열 수 있다.
       .filter(([, d]) =>
         explicitVisit

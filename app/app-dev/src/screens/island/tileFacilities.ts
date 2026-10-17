@@ -6,6 +6,7 @@ export type FacilityRect = { x: number; y: number; w: number; h: number };
 export const TILE_FACILITIES: Record<string, FacilityRect> = {
   hall: { x: 949, y: 21, w: 242, h: 244 },
   board: { x: 856, y: 157, w: 80, h: 80 },
+  gram: { x: 330, y: 391, w: 73, h: 89 },
   library: { x: 1120, y: 288, w: 239, h: 323 },
   mail: { x: 298, y: 520, w: 46, h: 63 },
   tower: { x: 150, y: 24, w: 112, h: 193 },

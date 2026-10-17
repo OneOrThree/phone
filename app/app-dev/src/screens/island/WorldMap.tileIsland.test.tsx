@@ -390,21 +390,18 @@ it('건물을 옮겨도 모닥불·뗏목 렌더 지점은 움직이지 않는�
   expect(moved.raft).toEqual(base.raft);
 });
 
-it.each(allBuildings.filter((b) => b !== 'gram'))(
-  '옮긴 %s 문을 탭하면 걷기 목표가 옮겨진 문 좌표다',
-  async (b) => {
-    const state = fullState();
-    withLayout(state, b);
-    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
-    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
-    await fireEvent.press(screen.getByLabelText(buildingNames[b]));
-    const door = legacyDoorCoords.doors[b];
-    const tap = screen.getByTestId('tile-terrain').props.navDebug.walk.tap;
-    expect(tap.x).toBeCloseTo(door.x + DELTA.x * CELL_PX.x, 6);
-    expect(tap.y).toBeCloseTo(door.y + DELTA.y * CELL_PX.y + (b === 'mail' ? -24 : 0), 6);
-    await screen.unmount();
-  },
-);
+it.each(allBuildings)('옮긴 %s 문을 탭하면 걷기 목표가 옮겨진 문 좌표다', async (b) => {
+  const state = fullState();
+  withLayout(state, b);
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+  await fireEvent.press(screen.getByLabelText(buildingNames[b]));
+  const door = legacyDoorCoords.doors[b];
+  const tap = screen.getByTestId('tile-terrain').props.navDebug.walk.tap;
+  expect(tap.x).toBeCloseTo(door.x + DELTA.x * CELL_PX.x, 6);
+  expect(tap.y).toBeCloseTo(door.y + DELTA.y * CELL_PX.y + (b === 'mail' ? -24 : 0), 6);
+  await screen.unmount();
+});
 
 // 릴리스 빌드(__DEV__=false)에서는 QA 전환 버튼이 없어야 한다. 플래그는 모듈 로드 시 굳으므로 격리 로드한다.
 describe('릴리스 빌드의 디버그 버튼', () => {
@@ -444,16 +441,16 @@ describe('릴리스 빌드의 디버그 버튼', () => {
   });
 });
 
-it('타일섬은 완공된 6개 건물과 뗏목·모닥불 팻말을 표시하고 홈 축음기를 숨긴다', async () => {
+it('타일섬은 축음기를 포함한 완공 건물 7개와 뗏목·모닥불 팻말을 표시한다', async () => {
   const state = fullState();
   const go = jest.fn();
   const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
-  for (const id of ['hall', 'board', 'library', 'mail', 'tower', 'shop', 'fire', 'raft']) {
+  for (const id of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop', 'fire', 'raft']) {
     expect(screen.getByTestId(`building-name-${id}`)).toBeTruthy();
   }
-  expect(screen.queryByTestId('world-static-building-gram')).toBeNull();
-  expect(screen.queryByTestId('building-name-gram')).toBeNull();
-  expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
+  expect(screen.getByTestId('world-static-building-gram')).toBeTruthy();
+  expect(screen.getByTestId('building-name-gram')).toBeTruthy();
+  expect(screen.getByLabelText(buildingNames.gram)).toBeTruthy();
   expect(state.islands.find((i) => i.id === state.islandId)!.buildings).toContain('gram');
   await fireEvent.press(screen.getByTestId('building-name-raft'));
   expect(go).toHaveBeenCalledWith('raft');
@@ -509,3 +506,31 @@ it('우체통 팻말로 진입해도 이동한 문으로 걸어가고 그림 전
   expect(door.width).toBeGreaterThanOrEqual(44);
   await screen.unmount();
 });
+
+test.each([false, true])(
+  '뗏목 물결은 누름·해제와 모션 줄이기(%s)를 뗏목 그림과 함께 적용한다',
+  async (reduceMotion) => {
+    const state = initialState(true);
+    state.settings.reduceMotion = reduceMotion;
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    const sign = screen.getByTestId('building-name-raft');
+    const waterStyle = () =>
+      Object.assign({}, ...screen.getByTestId('world-raft-water-motion').props.style.flat());
+    const normal = waterStyle();
+    await fireEvent(sign, 'pressIn');
+    const pressed = waterStyle();
+    if (reduceMotion) {
+      expect(pressed.opacity).toBe(0.75);
+      expect(pressed.transform).toBeUndefined();
+    } else {
+      const scale = pressed.width / 210;
+      expect(pressed.transform).toEqual([{ translateY: 2 }, { scale: 0.97 }]);
+      // 물결 컨테이너의 아래가 아니라 실제 뗏목 그림의 아래 가운데를 기준으로 축소한다.
+      expect(pressed.transformOrigin[0]).toBeCloseTo((207 + 169 / 2 - 185) * scale);
+      expect(pressed.transformOrigin[1]).toBeCloseTo((822 + 103 - 835) * scale);
+    }
+    await fireEvent(sign, 'pressOut');
+    expect(waterStyle()).toEqual(normal);
+    await screen.unmount();
+  },
+);

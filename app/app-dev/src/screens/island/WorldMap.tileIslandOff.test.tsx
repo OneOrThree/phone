@@ -82,11 +82,11 @@ it('플래그 off + 미리보기 없음이면 기존 바닥 Image 를 그리고 
   expect(nodes.some((n) => n.props.source === base)).toBe(true);
   expect(screen.queryByTestId('tile-terrain')).toBeNull();
   expect(screen.getByTestId('image-terrain-facilities')).toBeTruthy();
-  for (const id of ['hall', 'board', 'library', 'mail', 'tower', 'shop', 'fire', 'raft']) {
+  for (const id of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop', 'fire', 'raft']) {
     expect(screen.getByTestId(`building-name-${id}`)).toBeTruthy();
   }
-  expect(screen.queryByTestId('world-static-building-gram')).toBeNull();
-  expect(screen.queryByTestId('building-name-gram')).toBeNull();
+  expect(screen.getByTestId('world-static-building-gram')).toBeTruthy();
+  expect(screen.getByTestId('building-name-gram')).toBeTruthy();
   const raft = screen.getByTestId('building-name-raft');
   const initialMatrix = screen.getByTestId('image-terrain-facility-raft').props.matrix;
   await fireEvent(raft, 'pressIn');
