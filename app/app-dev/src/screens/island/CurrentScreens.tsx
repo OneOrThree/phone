@@ -1527,12 +1527,11 @@ function FocusFlow({ e: environment }: any) {
   const setupInputTarget = useSpotlightTarget(tutorialStep === 7),
     setupStartTarget = useSpotlightTarget(tutorialStep === 8),
     pauseTarget = useSpotlightTarget(tutorialStep === 14),
-    endTarget = useSpotlightTarget(tutorialStep === 17),
-    confirmEndTarget = useSpotlightTarget(tutorialStep === 18),
+    endTarget = useSpotlightTarget(tutorialStep === 17 || tutorialStep === 18),
     resultTarget = useSpotlightTarget(tutorialStep === 21);
   const [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
-    [dialog, setDialog] = useState<'music' | 'end' | 'endRest' | 'reward' | null>(null),
+    [dialog, setDialog] = useState<'music' | 'endRest' | 'reward' | null>(null),
     [error, setError] = useState(''),
     [setupHeight, setSetupHeight] = useState(0),
     // 화면 높이 대신 실제 영역 높이(키보드가 뜨면 줄어듦)로 준비 카드 위치를 잡는다
@@ -1946,6 +1945,7 @@ function FocusFlow({ e: environment }: any) {
     e.home();
   };
   const finish = () => {
+    if (tutorialStep === 11) return;
     if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
       const requestedSessionId = s.session?.id;
       setDialog(null);
@@ -1971,7 +1971,7 @@ function FocusFlow({ e: environment }: any) {
       e.focus
         .finish()
         .then(() => {
-          advanceTutorial(18, 19);
+          advanceTutorial(tutorialStep === 17 ? 17 : 18, 19);
           e.reset('focusResult');
         })
         .catch(async (error: any) => {
@@ -1993,7 +1993,7 @@ function FocusFlow({ e: environment }: any) {
       return;
     }
     e.dispatch({ type: 'FINISH' });
-    advanceTutorial(18, 19);
+    advanceTutorial(tutorialStep === 17 ? 17 : 18, 19);
     e.reset('focusResult');
   };
   // 내 자리: 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
@@ -2281,7 +2281,7 @@ function FocusFlow({ e: environment }: any) {
       return true;
     }
     if (r === 'focus' && s.session) {
-      setDialog('end');
+      e.notify(t('focusFlow.common.holdEndHint'));
       return true;
     }
     return false;
@@ -2418,7 +2418,7 @@ function FocusFlow({ e: environment }: any) {
     if (tutorialStep >= 5 && tutorialStep <= 21) return;
     if (r === 'fishingArrival') {
       returnFromArrival();
-    } else if (r === 'focus' && s.session && !leg) setDialog('end');
+    } else if (r === 'focus' && s.session && !leg) e.notify(t('focusFlow.common.holdEndHint'));
   };
   const start = () => {
     const subject = e.text.trim() || t('focusFlow.setup.defaultSubject');
@@ -2455,15 +2455,6 @@ function FocusFlow({ e: environment }: any) {
     e.replace('fishingArrival');
   };
   const skipTutorial = () => e.setGuideStep(99);
-  const openEnd = () => {
-    if (tutorialStep === 11) return;
-    if (tutorialStep === 17) e.setGuideStep(18);
-    setDialog('end');
-  };
-  const cancelEnd = () => {
-    setDialog(null);
-    if (tutorialStep === 18) e.setGuideStep(17);
-  };
   const finishResult = () => {
     if (tutorialStep === 21) e.setGuideStep(22);
     done();
@@ -2683,18 +2674,10 @@ function FocusFlow({ e: environment }: any) {
       );
     if (r === 'focus' && tutorialStep === 16)
       return tutorialNext(t('focusFlow.tutorial.step16'), 17);
-    if (r === 'focus' && tutorialStep === 17)
+    if (r === 'focus' && (tutorialStep === 17 || tutorialStep === 18))
       return (
-        <TutorialSpotlight
-          target={endTarget.rect}
-          action={{ title: t('focusFlow.common.endFocus'), onPress: openEnd }}
-          text={t('focusFlow.tutorial.step17')}
-        />
-      );
-    if (r === 'focus' && tutorialStep === 18)
-      return (
-        <TutorialSpotlight target={confirmEndTarget.rect} text={t('focusFlow.tutorial.step18')}>
-          {(screenReader || !confirmEndTarget.rect) && (
+        <TutorialSpotlight target={endTarget.rect} text={t('focusFlow.tutorial.step17')}>
+          {(screenReader || !endTarget.rect) && (
             <FiButton
               title={t('focusFlow.common.endFocus')}
               holdToConfirm
@@ -2702,7 +2685,6 @@ function FocusFlow({ e: environment }: any) {
               onPress={finish}
             />
           )}
-          <Btn title={t('focusFlow.common.continueAction')} kind="ghost" onPress={cancelEnd} />
         </TutorialSpotlight>
       );
     if (r === 'focusResult' && tutorialStep === 19)
@@ -3284,37 +3266,16 @@ function FocusFlow({ e: environment }: any) {
                 onLayout={endTarget.measure}
                 style={{ flex: 1 }}
               >
-                <FiButton title={t('focusFlow.common.endFocus')} id="end-focus" onPress={openEnd} />
+                <FiButton
+                  title={t('focusFlow.common.endFocus')}
+                  id="end-focus"
+                  key={s.session?.id}
+                  holdToConfirm
+                  haptics={s.settings.haptics}
+                  onPress={finish}
+                />
               </View>
             </View>
-            {dialog === 'end' && !goldenReeling && (
-              <FiModal>
-                <Text style={fiTitle(wide ? 19 : 22)}>{t('focusFlow.hud.endConfirmTitle')}</Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
-                  <FiButton
-                    title={t('focusFlow.common.continueAction')}
-                    style={{ flex: 1 }}
-                    onPress={cancelEnd}
-                  />
-                  <View
-                    ref={confirmEndTarget.ref}
-                    collapsable={false}
-                    onLayout={confirmEndTarget.measure}
-                    style={{ flex: 1 }}
-                  >
-                    <FiButton
-                      primary
-                      title={t('focusFlow.common.endFocus')}
-                      id="confirm-finish"
-                      key={s.session?.id}
-                      holdToConfirm
-                      haptics={s.settings.haptics}
-                      onPress={finish}
-                    />
-                  </View>
-                </View>
-              </FiModal>
-            )}
             {dialog === 'music' && !goldenReeling && (
               <FiModal>
                 <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
