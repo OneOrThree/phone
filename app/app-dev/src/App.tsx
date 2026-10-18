@@ -104,6 +104,7 @@ import {
   Member,
   dayKey,
   seaRouteHeld,
+  visitRouteHeld,
   sessionRoute,
 } from '@/services/model';
 import {
@@ -1512,6 +1513,8 @@ function Gromo() {
       return;
     }
     if (state.onboarded || (state.visitingIslandId && ['board', 'notice'].includes(route))) return;
+    // 바다 도착 뒤 소속이 없는 채 방문 지도로 왔다 — 방문이 끝나면(visitingIslandId 해제) 위 평소 검사가 다시 돈다
+    if (visitRouteHeld(route, state.visitingIslandId)) return;
     if (
       [
         'login',
@@ -1532,6 +1535,7 @@ function Gromo() {
     state.loggedIn,
     state.onboarded,
     state.islandId,
+    state.visitingIslandId,
     state.membershipRecovery,
     kickedDestination,
     route,

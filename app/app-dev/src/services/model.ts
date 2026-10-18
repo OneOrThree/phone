@@ -1088,6 +1088,9 @@ export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?
 export const sessionRoute = (x: { kind?: string; status?: string }): Route =>
   x.kind === 'sea' ? 'sea' : x.status === 'paused' ? 'rest' : 'focus';
 export const seaRouteHeld = (route: Route) => route === 'sea' || route === 'seaArrival';
+/** 소속이 없어도(바다 도착 뒤 강퇴 등) 서버 방문 중인 방문 지도는 소속 검사가 되돌리지 않는다(GROMO-2311). */
+export const visitRouteHeld = (route: Route, visitingIslandId: string | null | undefined) =>
+  !!visitingIslandId && (route === 'visitIsland' || route === 'visitIslandFocus');
 export const intentKeyPool = (gen: () => string) => {
   const keys: Record<string, string> = {};
   const slot = (name: string, exactBody: string) => `${name}:${exactBody}`;

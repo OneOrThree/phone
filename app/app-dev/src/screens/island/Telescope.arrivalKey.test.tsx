@@ -4,7 +4,7 @@ import { arrive, arriveWithOutcome } from '@/screens/island/Telescope';
 import { uuid } from '@/services/api/client';
 import { startSeaFocusSession, updateSeaRemark } from '@/services/api/focusSessions';
 import { clearSession, saveSession } from '@/services/api/session';
-import { intentKeyPool } from '@/services/model';
+import { initialState, intentKeyPool, reducer } from '@/services/model';
 
 jest.mock('@/screens/world/WorldViews', () => ({
   Sailing: ({ destination }: any) => {
@@ -151,7 +151,7 @@ test('도착 POST 가 성공(arrivedBefore=false)하면 소속 재조회가 실�
     member: true,
     arrivedBefore: false,
   });
-  expect(e.islands.sync).toHaveBeenCalledTimes(1);
+  expect(e.islands.sync).toHaveBeenCalledTimes(2); // 실패 뒤 한 번 더
 });
 
 test('도착 POST 자체가 결과 불명이면 소속 재조회로 가리고 arrivedBefore=true 폴백을 유지한다', async () => {
@@ -163,4 +163,26 @@ test('도착 POST 자체가 결과 불명이면 소속 재조회로 가리고 ar
     member: true,
     arrivedBefore: true,
   });
+});
+
+test('첫 소속 도착: POST 성공 + 소속 재조회 실패여도 응답의 현재 섬을 로컬에 반영하고 arrivedBefore 를 보존한다', async () => {
+  okArrival(false);
+  let state = initialState(false);
+  state.onboarded = false;
+  const e = {
+    get state() {
+      return state;
+    },
+    dispatch: (a: any) => {
+      state = reducer(state, a);
+    },
+    islands: { sync: jest.fn().mockRejectedValue(new Error('down')) },
+  };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).resolves.toEqual({
+    member: true,
+    arrivedBefore: false,
+  });
+  expect(state.serverIslands?.currentIslandId).toBe('a');
+  expect(state.onboarded).toBe(true); // 소속 검사가 chooseIsland 로 되돌리지 않는다
+  expect(e.islands.sync).toHaveBeenCalledTimes(2); // 반영 뒤 한 번 더 시도
 });

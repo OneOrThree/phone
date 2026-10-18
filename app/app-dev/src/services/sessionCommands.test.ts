@@ -13,6 +13,7 @@ import {
   currentIsland,
   initialState,
   seaRouteHeld,
+  visitRouteHeld,
   questMemberRate,
   questRate,
   reducer,
@@ -690,6 +691,12 @@ test('seaRouteHeld — 소속 0 이어도 항해·표류(세션 없음)·결과�
   assert.equal(seaRouteHeld('seaArrival'), true);
   assert.equal(seaRouteHeld('home'), false);
   assert.equal(seaRouteHeld('focus'), false);
+});
+
+test('visitRouteHeld — 방문 중인 방문 지도만 지키고, 방문이 끝나면(id 없음) 평소 검사로 돌아간다', () => {
+  assert.equal(visitRouteHeld('visitIsland', 'isl'), true);
+  assert.equal(visitRouteHeld('visitIsland', null), false);
+  assert.equal(visitRouteHeld('home', 'isl'), false);
 });
 
 test('바다 finish 응답을 잃으면(결과 불명) 세션을 지우지 않고, 재시도는 같은 키로 나간다', async () => {

@@ -154,7 +154,25 @@ export async function arriveWithOutcome(
   if (membershipStatus !== 'active') return { member: false, arrivedBefore };
   // 소속 재조회 실패는 도착 결과를 지우지 않는다 — 환영 판정은 POST 응답 기준이고(키가 풀려 재시도 POST 는 arrivedBefore=true 를 준다),
   // 소속 스냅샷은 홈 진입 뒤 기존 재조회 경로가 맞춘다
-  await e.islands.sync().catch(() => {});
+  if (
+    !(await e.islands.sync().then(
+      () => true,
+      () => false,
+    ))
+  ) {
+    // 소속 조회가 실패해도 도착 응답이 현재 섬을 알려 준다 — 첫 소속이면 로컬이 «소속 없음» 인 채로 홈에 가 소속 검사가
+    // chooseIsland 로 되돌리지 않게 먼저 반영하고(기존 ISLAND_SYNC 재사용, 소속 목록은 그대로), 한 번 더 맞춰 본다
+    if (arrival.currentIslandId)
+      e.dispatch?.({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: e.state?.serverIslands?.memberships ?? [],
+          currentIslandId: arrival.currentIslandId,
+          lossReason: null,
+        },
+      });
+    await e.islands.sync().catch(() => {});
+  }
   return { member: true, arrivedBefore };
 }
 
