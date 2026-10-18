@@ -41,15 +41,15 @@ class AppearanceContractTest extends UpstreamTestBase {
     private static final String DATA_ISLAND_APP = "PATCH /internal/islands/" + ISLAND + "/appearance";
 
     private static final String MY_INV_BODY = "{\"clothes\":[\"jacket\"],\"decor\":[],"
-            + "\"hulls\":[\"raft\"],\"inventoryVersion\":3,"
-            + "\"equipped\":{\"clothes\":\"jacket\",\"decor\":null,\"hull\":\"raft\","
+            + "\"head\":[\"duck\"],\"neck\":[],\"shoes\":[],\"hulls\":[\"raft\"],\"inventoryVersion\":3,"
+            + "\"equipped\":{\"clothes\":\"jacket\",\"decor\":null,\"head\":\"duck\",\"neck\":null,\"shoes\":null,\"hull\":\"raft\","
             + "\"position\":\"front\",\"version\":2}}";
     private static final String ISLAND_INV_BODY = "{\"audio\":[\"waves\"],\"islandThemes\":[\"pine\"],"
             + "\"buildingThemes\":[{\"buildingId\":\"hall\",\"themeId\":\"hall_theme\"}],"
             + "\"inventoryVersion\":1,"
             + "\"appearance\":{\"islandThemeId\":\"pine\",\"buildingThemes\":{\"hall\":\"default\"},"
             + "\"version\":5}}";
-    private static final String MY_APP_RESULT = "{\"data\":{\"clothes\":\"jacket\",\"decor\":null,"
+    private static final String MY_APP_RESULT = "{\"data\":{\"clothes\":\"jacket\",\"decor\":null,\"head\":\"duck\",\"neck\":null,\"shoes\":null,"
             + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2},"
             + "\"events\":[{\"eventId\":\"e1\",\"type\":\"member.appearance.updated\"}]}";
     private static final String ISLAND_APP_RESULT = "{\"data\":{\"islandThemeId\":\"pine\","
@@ -87,12 +87,46 @@ class AppearanceContractTest extends UpstreamTestBase {
         mockMvc.perform(auth(get("/me/inventory")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.clothes[0]").value("jacket"))
+                .andExpect(jsonPath("$.data.head[0]").value("duck"))
+                .andExpect(jsonPath("$.data.equipped.head").value("duck"))
                 .andExpect(jsonPath("$.data.hulls[0]").value("raft"))
                 .andExpect(jsonPath("$.data.inventoryVersion").value(3))
                 .andExpect(jsonPath("$.data.equipped.version").value(2));
 
         MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_MY_INV).get(0);
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+    }
+
+    @Test
+    @DisplayName("head·neck·shoes 도 개인 PATCH 허용 필드다 — 캐리어로 그대로 옮기고 명시 null 을 보존한다 (GROMO-2331)")
+    void personalPatchAcceptsCustomizationSlots() throws Exception {
+        DATA.on(DATA_MY_APP, request -> ok(MY_APP_RESULT));
+
+        mockMvc.perform(write(patch("/me/appearance"), "{\"head\":\"duck\",\"neck\":null,\"shoes\":null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.head").value("duck"));
+
+        String forwarded = DATA.receivedFor(DATA_MY_APP).get(0).body();
+        assertThat(forwarded).contains("\"fields\":[\"head\",\"neck\",\"shoes\"]");
+        assertThat(forwarded).contains("\"values\":{\"head\":\"duck\",\"neck\":null,\"shoes\":null}");
+    }
+
+    @Test
+    @DisplayName("옛 Data 응답(head·neck·shoes 키 없음)이어도 GET /me/inventory 는 200 이고 세 그룹이 빈 배열이다 (GROMO-2331)")
+    void oldDataInventoryWithoutSlotKeysStillWorks() throws Exception {
+        DATA.on(DATA_MY_INV, request -> ok("{\"clothes\":[\"jacket\"],\"decor\":[],\"hulls\":[\"raft\"],"
+                + "\"inventoryVersion\":3,\"equipped\":{\"clothes\":\"jacket\",\"decor\":null,\"hull\":\"raft\","
+                + "\"position\":\"front\",\"version\":2}}"));
+
+        mockMvc.perform(auth(get("/me/inventory")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.head").isArray())
+                .andExpect(jsonPath("$.data.head").isEmpty())
+                .andExpect(jsonPath("$.data.neck").isArray())
+                .andExpect(jsonPath("$.data.neck").isEmpty())
+                .andExpect(jsonPath("$.data.shoes").isArray())
+                .andExpect(jsonPath("$.data.shoes").isEmpty())
+                .andExpect(jsonPath("$.data.equipped.head").doesNotExist());
     }
 
     @Test
@@ -305,7 +339,7 @@ class AppearanceContractTest extends UpstreamTestBase {
                 request = auth(get("/islands/" + ISLAND + "/inventory"));
             }
             case "personalPatch" -> {
-                expected = "{\"clothes\":\"jacket\",\"decor\":null,\"hull\":\"raft\",\"position\":\"front\",\"version\":2}";
+                expected = "{\"clothes\":\"jacket\",\"decor\":null,\"head\":\"duck\",\"neck\":null,\"shoes\":null,\"hull\":\"raft\",\"position\":\"front\",\"version\":2}";
                 DATA.on(DATA_MY_APP, call -> ok(MY_APP_RESULT.replace("\"version\":2}",
                         "\"version\":2,\"equipped_row_id\":8}")));
                 request = write(patch("/me/appearance"), "{\"decor\":null}");
@@ -338,8 +372,8 @@ class AppearanceContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 도구
 
     @ParameterizedTest
-    @CsvSource({"/me/inventory,get,,clothes decor hulls inventoryVersion equipped",
-            "/me/inventory,get,equipped,clothes decor hull position version",
+    @CsvSource({"/me/inventory,get,,clothes decor head neck shoes hulls inventoryVersion equipped",
+            "/me/inventory,get,equipped,clothes decor head neck shoes hull position version",
             "/islands/{islandId}/inventory,get,,audio islandThemes buildingThemes inventoryVersion appearance",
             "/islands/{islandId}/inventory,get,appearance,islandThemeId buildingThemes version",
             "/islands/{islandId}/inventory,get,buildingThemes,buildingId themeId"})

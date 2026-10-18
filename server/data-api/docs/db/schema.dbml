@@ -1206,8 +1206,8 @@ Table island_facilities [note: '섬 시설 (섬+buildingId 유일, LLD §4) — 
 Table catalog_assets [note: '카탈로그 불변 자산 정의 (GROMO-1783, island-appearance LLD §2, V64) — 상점(1781)의 asset definition 정본. 외양 적용은 판매 publication 이 아니라 이 불변 의미로 해석한다(퇴역해도 보유품 해석 유지). kind·owner_type·target_building 은 productId 수명 동안 불변 — 갱신 경로 없음. 레거시 items/character_equipment 는 이관하지 않는다'] {
   product_id      varchar(80)  [pk]
   title           varchar(120) [not null]
-  kind            varchar(20)  [not null, note: "clothes / decor / island_theme / building_theme / audio / ad_frame / ad_sticker / ad_tape — CHECK catalog_assets_kind_check. ad_* 는 고양이 잡지 꾸미기 재료(GROMO-2289 V118 — 시드 64행, product_id 는 mag.<앱 그림 id>)"]
-  owner_type      varchar(10)  [not null, note: "user / island — CHECK catalog_assets_owner_type_check. CHECK catalog_assets_kind_owner_check: clothes·decor·ad_frame·ad_sticker·ad_tape ↔ user, island_theme·building_theme·audio ↔ island"]
+  kind            varchar(20)  [not null, note: "clothes / decor / island_theme / building_theme / audio / ad_frame / ad_sticker / ad_tape / head / neck / shoes — CHECK catalog_assets_kind_check. head·neck·shoes 는 개인 꾸미기 슬롯(GROMO-2331 V128). ad_* 는 고양이 잡지 꾸미기 재료(GROMO-2289 V118 — 시드 64행, product_id 는 mag.<앱 그림 id>)"]
+  owner_type      varchar(10)  [not null, note: "user / island — CHECK catalog_assets_owner_type_check. CHECK catalog_assets_kind_owner_check: clothes·decor·ad_frame·ad_sticker·ad_tape·head·neck·shoes ↔ user, island_theme·building_theme·audio ↔ island"]
   target_building varchar(30)  [note: 'building_theme 만 대상 건물을 갖는다 — CHECK catalog_assets_target_building_check: (kind = building_theme) = (target_building IS NOT NULL)']
   created_at      timestamptz  [not null, default: `now()`]
 }
@@ -1219,6 +1219,19 @@ Table magazine_asset_meta [note: '고양이 잡지 꾸미기 재료(ad_frame·ad
   drawer_tab varchar(10) [note: "cat / sea / friends / deco — CHECK. 스티커 서랍 탭 — CHECK magazine_asset_meta_tab_check: 스티커는 NOT NULL, 틀·테이프는 NULL"]
   sort_order integer     [not null, note: '종류 안의 정렬 순서(1부터)']
   retired_at timestamptz [note: '서랍에서 내린 시각 — 이미 붙인 칸은 그대로 그린다. 퇴역한 재료는 free 라도 보유 행이 있거나 직전 칸에 있던 것만 다시 실을 수 있다']
+}
+
+Table customization_asset_meta [note: '개인 꾸미기 상품(clothes·decor·head·neck·shoes)의 그림 부가 정보 — catalog_assets 와 1:1(magazine_asset_meta 선례). 카탈로그 행이 불변이라 이미지·크기·고정점·정렬·퇴역을 옆 표에 둔다. 시드 없음(prod) — 로컬 시드는 server/scripts/local/seed-customization.sql. GROMO-2331, V128, 결정 ④'] {
+  product_id varchar(80)   [pk, note: '(product_id, kind) 복합 FK → catalog_assets(product_id, kind) ON DELETE RESTRICT']
+  kind       varchar(20)   [not null, note: 'clothes / decor / head / neck / shoes — CHECK. 카탈로그 종류의 사본']
+  slot       varchar(10)   [not null, note: 'clothes / decor / head / neck / shoes — CHECK. 앱 렌더 슬롯(지금은 kind 와 같다)']
+  image_path varchar(200)  [not null, note: '/static/customization/<kind>/<이름>.<sha8>.png (예 head/duck.9572baaf.png, product_id 는 cust.<kind>.<이름>) — 내용 해시 포함 불변 URL(맵 에셋 정적 서빙 규칙)']
+  width      integer       [not null, note: 'CHECK width > 0 — 픽셀']
+  height     integer       [not null, note: 'CHECK height > 0 — 픽셀']
+  anchor_x   numeric(5, 4) [not null, note: '고양이 기준 정규화 좌표 x']
+  anchor_y   numeric(5, 4) [not null, note: '고양이 기준 정규화 좌표 y']
+  sort_order integer       [not null]
+  retired_at timestamptz   [note: '서랍에서 내린 시각 — 이미 가진 사람은 계속 그린다']
 }
 
 Table owned_products [note: '보유 상품 (GROMO-1783, V64) — (주인, 상품) 유일. 주인은 user 또는 island(groups) 정확히 하나. 지급·회수 writer 는 상점(1781). 외양 적용은 제출 상품의 보유 행을 FOR SHARE 로 잡은 뒤 외양 행을 잠근다(잠금 순서 카탈로그 → 보유 → 외양). raft 는 예약 표현이라 행을 만들지 않는다. 계정 탈퇴 시 owner_type=user 본인 행 삭제, island 행은 보존(GROMO-1950)'] {
@@ -1242,6 +1255,9 @@ Table personal_appearances [note: '개인 외양 (GROMO-1783, V64) — 유저당
   user_id    uuid        [pk, note: 'FK → users.id ON DELETE RESTRICT']
   clothes    varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착']
   decor      varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착']
+  head       varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착 (GROMO-2331 V128)']
+  neck       varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착 (GROMO-2331 V128)']
+  shoes      varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착 (GROMO-2331 V128)']
   hull       varchar(20) [not null, default: 'raft', note: "CHECK hull = 'raft' — 배 종류 폐지(GROMO-1851). 상품이 아니라 예약 표현"]
   position   varchar(10) [not null, default: 'front', note: 'front / back — CHECK']
   version    bigint      [not null, default: 0]

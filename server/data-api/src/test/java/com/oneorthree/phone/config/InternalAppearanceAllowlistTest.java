@@ -58,6 +58,17 @@ class InternalAppearanceAllowlistTest {
     }
 
     @Test
+    @DisplayName("꾸미기 카탈로그 내부 경로가 배포되는 허용목록을 통과한다 (GROMO-2331)")
+    void customizationCatalogRouteIsAllowed() throws IOException {
+        List<String> allow = shippedBusinessAllowlist();
+        List<String> routes = routesOf(com.oneorthree.phone.internal.InternalCustomizationController.class);
+
+        assertThat(routes).hasSize(1);
+        assertThat(routes).allSatisfy(route ->
+                assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
+    }
+
+    @Test
     @DisplayName("세그먼트가 한 칸 더 붙은 경로는 허용되지 않는다")
     void allowlistDoesNotLeakIntoDeeperSegments() throws IOException {
         List<String> allow = shippedBusinessAllowlist();

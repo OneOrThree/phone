@@ -120,6 +120,8 @@ SERVICE_OPTIONAL_KEYS = {
         "GOOGLE_DRIVE_API_KEY",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
         "BUSINESS_CURSOR_ACTIVE_KEY",
+        # GROMO-2331 카탈로그 이미지 절대 URL 의 앞부분 — 비우면 상대 경로(/static/…)를 그대로 내린다.
+        "STATIC_ASSETS_BASE_URL",
     ),
     "notification": (
         "NOTIFICATION_SCHEDULING_ENABLED", "NOTIFICATION_KAFKA_ENABLED", "NOTIFICATION_GENERATION_REQUIRED",

@@ -295,9 +295,9 @@ class IslandManagementIntegrationTest {
 
         List<IslandMembersPageView.Item> items = management.members(newUser(), f.islandId(), null, null, 30).items();
         assertThat(items.get(0).appearance())
-                .isEqualTo(new PersonalAppearanceView(null, null, "raft", "front", 0));
+                .isEqualTo(new PersonalAppearanceView(null, null, null, null, null, "raft", "front", 0));
         assertThat(items.get(1).appearance())
-                .isEqualTo(new PersonalAppearanceView("scarf", null, "raft", "back", 3));
+                .isEqualTo(new PersonalAppearanceView("scarf", null, null, null, null, "raft", "back", 3));
     }
 
     // ---------------------------------------------------------------- §3.3 requests

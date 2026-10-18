@@ -39,6 +39,16 @@ public class PersonalAppearance {
     @Column(length = 80)
     private String decor;
 
+    /** 머리·목·신발 슬롯(GROMO-2331) — 미착용은 null. */
+    @Column(length = 80)
+    private String head;
+
+    @Column(length = 80)
+    private String neck;
+
+    @Column(length = 80)
+    private String shoes;
+
     /** 배 종류 폐지로 {@link #HULL_RAFT} 하나다 — 상품이 아니라 예약 표현. */
     @Column(nullable = false, length = 20)
     private String hull = HULL_RAFT;
@@ -67,13 +77,19 @@ public class PersonalAppearance {
      *
      * @return version 이 올랐으면 {@code true}
      */
-    public boolean apply(String clothes, String decor, String hull, String position, Instant now) {
+    public boolean apply(String clothes, String decor, String head, String neck, String shoes,
+                         String hull, String position, Instant now) {
         if (java.util.Objects.equals(this.clothes, clothes) && java.util.Objects.equals(this.decor, decor)
+                && java.util.Objects.equals(this.head, head) && java.util.Objects.equals(this.neck, neck)
+                && java.util.Objects.equals(this.shoes, shoes)
                 && this.hull.equals(hull) && this.position.equals(position)) {
             return false;
         }
         this.clothes = clothes;
         this.decor = decor;
+        this.head = head;
+        this.neck = neck;
+        this.shoes = shoes;
         this.hull = hull;
         this.position = position;
         this.version += 1;
