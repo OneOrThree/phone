@@ -12,6 +12,7 @@ import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -704,12 +705,26 @@ class StompAuthChannelInterceptorTest {
         return c == null ? 0 : c.count();
     }
 
+    private final java.util.List<ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>>
+            logAppenders = new java.util.ArrayList<>();
+
+    private static ch.qos.logback.classic.Logger interceptorLogger() {
+        return (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(StompAuthChannelInterceptor.class);
+    }
+
+    /** 인터셉터 로거에 ListAppender 를 붙인다 — 로거는 JVM 공유라 @AfterEach 에서 뗀다(누적 방지). */
     private ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> captureLogs() {
         var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         appender.start();
-        ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(StompAuthChannelInterceptor.class))
-                .addAppender(appender);
+        interceptorLogger().addAppender(appender);
+        logAppenders.add(appender);
         return appender;
+    }
+
+    @AfterEach
+    void detachLogAppenders() {
+        logAppenders.forEach(appender -> interceptorLogger().detachAppender(appender));
+        logAppenders.clear();
     }
 
     @Test

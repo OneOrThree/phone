@@ -11,7 +11,7 @@ import com.oneorthree.realtime.common.exception.DomainException;
 public class ChatException extends DomainException {
 
     /** 섬 구독 인가 거절이 실어 보내는 채널(events|movement) — ERROR 프레임 {@code channel} 헤더가 된다. 없으면 null. */
-    private transient String channel;
+    private String channel;
 
     public ChatException(ChatErrorCode errorCode) {
         super(errorCode);

@@ -133,6 +133,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private static final Pattern EMOTE_SEND =
             Pattern.compile("^/app/islands/([0-9a-f-]{36})/focus/emotes$");
 
+    private static final String CHANNEL_EVENTS = "events";
+    private static final String CHANNEL_MOVEMENT = "movement";
+
     /**
      * 응원 구독·발신의 프레임 상한. 두 창은 <b>키가 다르고 길이가 같다</b>.
      *
@@ -141,9 +144,6 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      * 라는 뜻이다 — 그래서 거절은 다른 관문 위반과 같이 ERROR 프레임 + 연결 종료다. 사용자에게
      * 보여 줄 「너무 자주 보냈어요」는 성공 창이 개인 큐로 따로 보낸다({@code FocusEmoteService}).
      */
-    private static final String CHANNEL_EVENTS = "events";
-    private static final String CHANNEL_MOVEMENT = "movement";
-
     private static final Duration FRAME_WINDOW = Duration.ofMillis(600);
 
     private final JwtValidator jwtValidator;
