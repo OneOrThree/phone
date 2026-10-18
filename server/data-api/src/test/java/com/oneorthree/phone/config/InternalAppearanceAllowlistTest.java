@@ -58,6 +58,25 @@ class InternalAppearanceAllowlistTest {
     }
 
     @Test
+    @DisplayName("꾸미기 카탈로그 내부 경로가 배포되는 허용목록을 통과한다 (GROMO-2331)")
+    void customizationCatalogRouteIsAllowed() throws IOException {
+        List<String> allow = shippedBusinessAllowlist();
+        List<String> routes = routesOf(com.oneorthree.phone.internal.InternalCustomizationController.class);
+
+        assertThat(routes).hasSize(1);
+        assertThat(routes).allSatisfy(route ->
+                assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
+    }
+
+    @Test
+    @DisplayName("notification 허용목록에는 꾸미기 카탈로그 내부 경로가 없다 (GROMO-2331)")
+    void customizationCatalogRouteIsNotAllowedForNotification() throws IOException {
+        List<String> allow = shippedAllowlist("notification");
+
+        assertThat(allows(allow, "GET /internal/customization/catalog")).isFalse();
+    }
+
+    @Test
     @DisplayName("세그먼트가 한 칸 더 붙은 경로는 허용되지 않는다")
     void allowlistDoesNotLeakIntoDeeperSegments() throws IOException {
         List<String> allow = shippedBusinessAllowlist();
@@ -71,12 +90,17 @@ class InternalAppearanceAllowlistTest {
 
     /** 배포되는 파일에서 business 호출자의 허용목록을 읽는다. */
     private static List<String> shippedBusinessAllowlist() throws IOException {
+        return shippedAllowlist("business");
+    }
+
+    /** 배포되는 파일에서 {@code caller} 의 허용목록을 읽는다. */
+    private static List<String> shippedAllowlist(String caller) throws IOException {
         List<PropertySource<?>> sources = new YamlPropertySourceLoader()
                 .load("satellites", new ClassPathResource("application-satellites.yml"));
         List<String> allow = new ArrayList<>();
         for (PropertySource<?> source : sources) {
             for (int i = 0; ; i++) {
-                Object value = source.getProperty("internal.api.callers.business.allow[" + i + "]");
+                Object value = source.getProperty("internal.api.callers." + caller + ".allow[" + i + "]");
                 if (value == null) {
                     break;
                 }

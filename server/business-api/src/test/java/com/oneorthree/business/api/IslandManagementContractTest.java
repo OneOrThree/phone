@@ -118,6 +118,19 @@ class IslandManagementContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 목록
 
     @Test
+    @DisplayName("주민 목록 — 상류가 준 head·neck·shoes 를 외양에 그대로 싣고, 없으면 키를 내리지 않는다 (GROMO-2331)")
+    void membersCarryCustomizationSlots() throws Exception {
+        DATA.on(DATA_MEMBERS, request -> ok(MEMBERS.replace("\"decor\":null,",
+                "\"decor\":null,\"head\":\"duck\",\"neck\":null,")));
+
+        mockMvc.perform(auth(get("/islands/" + ISLAND + "/members")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].appearance.head").value("duck"))
+                .andExpect(jsonPath("$.data.items[0].appearance.neck").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].appearance.shoes").doesNotExist());
+    }
+
+    @Test
     @DisplayName("주민 목록 — 평문 경계는 서명 커서로 감싸고, 다음 요청에서 풀어 상류에 넘긴다. 다른 섬엔 못 쓴다")
     void membersCursorIsSignedAndBoundToTheIsland() throws Exception {
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
@@ -437,7 +450,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
             "/islands/{islandId}/join-requests/{requestId}|patch||status memberId version|status version",
             "/islands/{islandId}/members|get||items nextCursor version|",
             "/islands/{islandId}/members|get|items|id name catColor role appearance|id role appearance",
-            "/islands/{islandId}/members|get|items/appearance|clothes decor hull position version|clothes decor hull position version",
+            "/islands/{islandId}/members|get|items/appearance|clothes decor head neck shoes hull position version|clothes decor hull position version",
             "/islands/{islandId}/join-requests|get||items nextCursor|",
             "/islands/{islandId}/join-requests|get|items|id applicantId name catColor status version|id applicantId status version"})
     void publicDocumentationPreservesFieldsAndPresence(String path, String method, String nested,

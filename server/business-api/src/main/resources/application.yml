@@ -138,6 +138,10 @@ auth:
   login-attempt:
     digest-secret: ${LOGIN_ATTEMPT_DIGEST_SECRET}
 
+# 카탈로그 이미지 절대 URL 의 앞부분(GROMO-2331) — 비우면 imagePath 를 상대 경로 그대로 내린다.
+app:
+  static-base-url: ${STATIC_ASSETS_BASE_URL:}
+
 logging:
   level:
     com.oneorthree.business: INFO

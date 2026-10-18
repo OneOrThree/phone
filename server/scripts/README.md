@@ -92,6 +92,12 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 - `docker-compose.business.yml`은 Notification 없이 Business 만 띄우는 옛 진입점입니다. `satellites.yml`과 **함께 쓰지 않습니다**(같은 서비스를 정의).
 - dev 관측은 위 줄에 `-f server/scripts/docker-compose.datadog.yml` 또는 `-f server/scripts/docker-compose.observability.yml`을 더합니다.
 
+### `/static` 카탈로그 이미지 (GROMO-2331)
+
+- 이미지는 `server/static/customization/<kind>/<이름>.<sha8>.png`(내용 해시 파일명 — 만들 때 `static-hash.sh <원본.png> <kind>`)이고 Business 를 거치지 않고 Nginx 가 `/static/` 으로 직접 준다(`Cache-Control: public, max-age=31536000, immutable`). 로컬 nginx 프로필은 compose 볼륨으로 이 폴더를 마운트한다.
+- dev 는 VM 디스크에 수동 복사한다(맵 에셋과 같은 절차). prod 의 `/static/` location 은 인프라 레포 몫이다.
+- 로컬 확인은 `psql … -f server/scripts/local/seed-customization.sql` 로 오리 모자를 심고, Business 에 `STATIC_ASSETS_BASE_URL=http://<맥 IP>:8088`(비우면 상대 경로)을 준다.
+
 ## 4. 시크릿·스위치 — 비었을 때의 동작
 
 dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD·`ops-*.dev` 워크플로가 **job 마다** Secrets Manager 에서 임시로 만들고 끝나면 지웁니다([`dev-env.sh`](../../.github/scripts/dev-env.sh) → [`write-compose-env.py`](../../.github/scripts/write-compose-env.py)). 원본은 `gromo/dev/env` 하나이고, 서버별로 필요한 키만 고르는 건 `write-compose-env.py` 허용목록입니다. 그래서 dev 스위치는 파일이 아니라 **SM 키**로 바꾸고, 반영은 다음 배포 또는 Actions 의 `ops-redeploy.dev` 로 합니다. 필수 9개 외 아래 dev 행의 키는 SM 에 있을 때만 옮기고, 없으면 compose 기본값이 남습니다. 위성·Data 전용 env 는 같은 스크립트의 `--service` 허용목록이 정합니다. prod 의 Data 는 `.env.prod`(SM `gromo/prod/env` 전체)를 통째로 받습니다.

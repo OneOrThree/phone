@@ -112,11 +112,15 @@ public class AppearanceUseCase {
     public record PersonalInventoryView(
             @JsonProperty(required = true) List<String> clothes,
             @JsonProperty(required = true) List<String> decor,
+            @JsonProperty(required = true) List<String> head,
+            @JsonProperty(required = true) List<String> neck,
+            @JsonProperty(required = true) List<String> shoes,
             @JsonProperty(required = true) List<String> hulls,
             @JsonProperty(required = true) long inventoryVersion,
             @JsonProperty(required = true) PersonalAppearanceView equipped) {
         private static PersonalInventoryView from(PersonalInventory source) {
-            return new PersonalInventoryView(source.clothes(), source.decor(), source.hulls(),
+            return new PersonalInventoryView(source.clothes(), source.decor(), source.head(), source.neck(),
+                    source.shoes(), source.hulls(),
                     source.inventoryVersion(), PersonalAppearanceView.from(source.equipped()));
         }
     }
@@ -146,11 +150,15 @@ public class AppearanceUseCase {
     public record PersonalAppearanceView(
             @JsonProperty(required = true) String clothes,
             @JsonProperty(required = true) String decor,
+            @JsonProperty(required = true) String head,
+            @JsonProperty(required = true) String neck,
+            @JsonProperty(required = true) String shoes,
             @JsonProperty(required = true) String hull,
             @JsonProperty(required = true) String position,
             @JsonProperty(required = true) long version) {
         private static PersonalAppearanceView from(PersonalAppearanceState source) {
-            return source == null ? null : new PersonalAppearanceView(source.clothes(), source.decor(), source.hull(),
+            return source == null ? null : new PersonalAppearanceView(source.clothes(), source.decor(), source.head(),
+                    source.neck(), source.shoes(), source.hull(),
                     source.position(), source.version());
         }
     }
