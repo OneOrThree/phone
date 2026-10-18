@@ -6286,6 +6286,29 @@
         }
       }
     },
+    "/internal/customization/catalog": {
+      "get": {
+        "tags": [
+          "internal-customization-controller"
+        ],
+        "operationId": "catalog",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomizationCatalogItem"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/telescope/pins/{islandId}": {
       "delete": {
         "tags": [
@@ -7616,6 +7639,9 @@
           },
           "kind": {
             "type": "string"
+          },
+          "destinationIslandName": {
+            "type": "string"
           }
         }
       },
@@ -8738,6 +8764,15 @@
           "decor": {
             "type": "string"
           },
+          "head": {
+            "type": "string"
+          },
+          "neck": {
+            "type": "string"
+          },
+          "shoes": {
+            "type": "string"
+          },
           "hull": {
             "type": "string"
           },
@@ -8991,6 +9026,12 @@
           },
           "session": {
             "$ref": "#/components/schemas/Session"
+          },
+          "name": {
+            "type": "string"
+          },
+          "catColor": {
+            "type": "string"
           }
         }
       },
@@ -9610,6 +9651,24 @@
             }
           },
           "decor": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "head": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "neck": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "shoes": {
             "type": "array",
             "items": {
               "type": "string"
@@ -10940,6 +10999,48 @@
           "inviterId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "CustomizationCatalogItem": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "imagePath": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "anchorX": {
+            "type": "number"
+          },
+          "anchorY": {
+            "type": "number"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "retiredAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

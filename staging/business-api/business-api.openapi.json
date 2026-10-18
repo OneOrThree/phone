@@ -3775,6 +3775,29 @@
         }
       }
     },
+    "/customization/catalog": {
+      "get": {
+        "tags": [
+          "customization-catalog-controller"
+        ],
+        "operationId": "catalog",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/link-previews/{id}/thumbnail": {
       "get": {
         "tags": [
@@ -5235,6 +5258,10 @@
           },
           "kind": {
             "type": "string"
+          },
+          "destinationIslandName": {
+            "type": "string",
+            "description": "바다 세션의 목적지 섬 이름. 키가 없으면 섬 세션이거나 섬 행이 없는 것이다(옛 Data 호환 — null 은 보내지 않는다)"
           }
         },
         "required": [
@@ -5555,6 +5582,15 @@
           "decor": {
             "type": "string"
           },
+          "head": {
+            "type": "string"
+          },
+          "neck": {
+            "type": "string"
+          },
+          "shoes": {
+            "type": "string"
+          },
           "hull": {
             "type": "string"
           },
@@ -5569,8 +5605,11 @@
         "required": [
           "clothes",
           "decor",
+          "head",
           "hull",
+          "neck",
           "position",
+          "shoes",
           "version"
         ]
       },
@@ -6259,6 +6298,24 @@
               "type": "string"
             }
           },
+          "head": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "neck": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "shoes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "hulls": {
             "type": "array",
             "items": {
@@ -6277,8 +6334,11 @@
           "clothes",
           "decor",
           "equipped",
+          "head",
           "hulls",
-          "inventoryVersion"
+          "inventoryVersion",
+          "neck",
+          "shoes"
         ]
       },
       "SummaryView": {
@@ -7288,6 +7348,15 @@
           "decor": {
             "type": "string"
           },
+          "head": {
+            "type": "string"
+          },
+          "neck": {
+            "type": "string"
+          },
+          "shoes": {
+            "type": "string"
+          },
           "hull": {
             "type": "string"
           },
@@ -7743,6 +7812,61 @@
           "createdAt",
           "requestId",
           "userId"
+        ]
+      },
+      "ItemView": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "imageUrl": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "anchorX": {
+            "type": "number"
+          },
+          "anchorY": {
+            "type": "number"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "retiredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "anchorX",
+          "anchorY",
+          "height",
+          "imageUrl",
+          "kind",
+          "productId",
+          "retiredAt",
+          "slot",
+          "sortOrder",
+          "title",
+          "width"
         ]
       },
       "BlockedUserView": {
