@@ -262,6 +262,18 @@ class FocusSessionContractTest extends UpstreamTestBase {
         assertThat(island).doesNotContain("destinationIslandName");
     }
 
+    /** 옛 Data 는 destinationIslandName 을 안 보낸다 — 역직렬화는 통과하고 공개 응답에도 키가 없다(GROMO-2330). */
+    @Test
+    void seaSessionWithoutDestinationIslandNameFromLegacyDataOmitsTheKey() throws Exception {
+        String legacy = SEA_STATE.replace("\"destinationIslandName\":\"바다섬\",", "");
+        assertThat(legacy).doesNotContain("destinationIslandName");
+        DATA.on(DATA_CURRENT, request -> ok("{\"session\":" + legacy + "}"));
+        String body = mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.kind").value("sea"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("destinationIslandName");
+    }
+
     /** 바다 거절 셋은 같은 이름·상태 그대로 나간다 — 일반 STATE_CONFLICT 로 접히지도, 502 가 되지도 않는다. */
     @ParameterizedTest
     @CsvSource({"409,SEA_DESTINATION_UNAVAILABLE", "409,SEA_SESSION_NO_REST", "409,SEA_REMARK_LOCKED"})

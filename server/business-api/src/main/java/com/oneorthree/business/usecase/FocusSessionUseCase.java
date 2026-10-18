@@ -205,8 +205,8 @@ public class FocusSessionUseCase {
             @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals,
             @JsonInclude(JsonInclude.Include.NON_NULL) String kind,
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED,
-                    description = "바다 세션의 목적지 섬 이름. 섬 세션이거나 섬 행이 없으면 키가 없다")
+            @Schema(description = "바다 세션의 목적지 섬 이름. 키가 없으면 섬 세션이거나 섬 행이 없는 것이다(옛 Data 호환 — null 은 보내지 않는다)",
+                    requiredMode = Schema.RequiredMode.NOT_REQUIRED)
             String destinationIslandName) {
         private static StateView from(FocusSessionState source) {
             if (source == null) {

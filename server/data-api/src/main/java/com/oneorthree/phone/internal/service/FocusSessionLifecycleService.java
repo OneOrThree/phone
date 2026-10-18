@@ -435,6 +435,8 @@ public class FocusSessionLifecycleService {
 
                     long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, now);
                     List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(intervals, now);
+                    // 바다 세션은 pause 409 라 여기 닿지 않는다 — 바다 pause 를 허용하게 되면 kind·destinationIslandName 도
+                    // 같이 고친다(GROMO-2330).
                     FocusSessionView view = new FocusSessionView(sessionId, detail.getIslandId(),
                             detail.getSubject(), detail.getTargetMinutes(), FocusSessionView.STATUS_PAUSED,
                             activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals), now,
@@ -488,6 +490,8 @@ public class FocusSessionLifecycleService {
                     intervalsWithResumed.add(resumed);
                     List<ActiveInterval> activeIntervals =
                             FocusIntervalMath.activeIntervalsAsOf(intervalsWithResumed, now);
+                    // 바다 세션은 pause 409 라 여기 닿지 않는다 — 바다 pause 를 허용하게 되면 kind·destinationIslandName 도
+                    // 같이 고친다(GROMO-2330).
                     FocusSessionView view = new FocusSessionView(sessionId, detail.getIslandId(),
                             detail.getSubject(), detail.getTargetMinutes(), FocusSessionView.STATUS_ACTIVE,
                             activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals), null,
@@ -936,7 +940,10 @@ public class FocusSessionLifecycleService {
                 detail.getKind() == FocusSessionKind.SEA ? destinationName(detail.getIslandId()) : null);
     }
 
-    /** 바다 세션의 목적지 섬 이름(GROMO-2330). 섬 행이 없으면 null — 응답에서 키가 빠진다. */
+    /**
+     * 바다 세션의 목적지 섬 이름(GROMO-2330). {@code Group} 에 soft-delete 제한이 없어 삭제된 섬도 이름이 남는다 —
+     * 항해 중 사용자에게 목적지 이름이 계속 보이게 하는 의도다. 키가 빠지는 건 행 자체가 없을 때(null)만이다.
+     */
     private String destinationName(UUID islandId) {
         return groupRepository.findById(islandId).map(Group::getName).orElse(null);
     }
