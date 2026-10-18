@@ -28,6 +28,7 @@ import {
   Image,
   Keyboard,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -299,20 +300,59 @@ export function CurrentScreens({ e }: any) {
     tower: 'tower',
     shop: 'shop',
   };
-  const building = routeBuildings[e.route as Route];
+  // 건물 내부는 안내가 끝날 때까지 마운트하지 않는다. 고양이의 도착 요청만 보관한다.
+  const generation = sessionGeneration();
+  const [entry, setEntry] = useState<{
+    owner: string;
+    generation: number;
+    islandId: string | null;
+    building: Building;
+    route: Route;
+    args: any[];
+  } | null>(null);
+  const entryRef = useRef(entry);
+  entryRef.current = entry;
   const eligible =
-    owner &&
-    joined &&
-    !e.state.visitingIslandId &&
-    !e.state.session &&
-    building &&
-    built?.includes(building);
+    !!owner && joined && !e.state.visitingIslandId && !e.state.session && e.route === 'home';
+  const pending =
+    eligible &&
+    entry?.owner === owner &&
+    entry.generation === generation &&
+    entry.islandId === islandId &&
+    built?.includes(entry.building)
+      ? entry
+      : null;
+  useEffect(() => {
+    if (entry && !pending) {
+      entryRef.current = null;
+      setEntry(null);
+    }
+  }, [entry, pending]);
+  useEffect(() => {
+    if (!pending || !guides.data?.buildings.includes(pending.building)) return;
+    // 저장 성공 후에만 진입한다. 섬·계정이 바뀐 요청은 위에서 폐기한다.
+    if (entryRef.current !== pending || sessionGeneration() !== pending.generation) return;
+    entryRef.current = null;
+    setEntry(null);
+    e.go(pending.route, ...pending.args);
+  }, [pending, guides.data, e.go]);
+  const go = (route: Route, ...args: any[]) => {
+    const building = routeBuildings[route];
+    if (eligible && building && built?.includes(building)) {
+      if (entryRef.current) return;
+      if (!guides.data || !guides.data.buildings.includes(building)) {
+        const next = { owner: owner!, generation, islandId, building, route, args };
+        entryRef.current = next;
+        setEntry(next);
+        return;
+      }
+    }
+    return e.go(route, ...args);
+  };
   if (
     owner &&
     !guides.data &&
-    (eligible ||
-      e.route === 'guide' ||
-      (e.route === 'home' && e.state.tutorial && e.state.tutorial.step < 22))
+    (e.route === 'guide' || (e.route === 'home' && e.state.tutorial && e.state.tutorial.step < 22))
   )
     return (
       <Overlay close={e.home}>
@@ -323,7 +363,19 @@ export function CurrentScreens({ e }: any) {
   if (owner && guides.data?.focusDone && e.route === 'guide') return null;
   return (
     <>
-      <CurrentScreensContent e={{ ...e, friendsScreen }} />
+      <CurrentScreensContent e={{ ...e, go, friendsScreen }} />
+      {pending && !guides.data && (
+        <Modal transparent animationType="none" onRequestClose={() => {}}>
+          <View style={{ flex: 1, justifyContent: 'center', padding: semanticTokens.spacing.page }}>
+            <GuideBox
+              text={guides.error || '안내 이력을 확인하고 있어요.'}
+              style={{ position: 'relative' }}
+            >
+              {!!guides.error && <Btn title="다시 시도" onPress={guides.retry} />}
+            </GuideBox>
+          </View>
+        </Modal>
+      )}
       {completion && (
         <BuildingCompletionGuide
           key={`${owner}:${islandId}:${completion}`}
@@ -334,16 +386,19 @@ export function CurrentScreens({ e }: any) {
           onDone={() => void guides.done({ completions: [`${islandId}:${completion}`] })}
         />
       )}
-      {eligible && guides.data && !guides.data.buildings.includes(building) && (
-        <BuildingGuide
-          key={`${owner}:${e.state.serverIslands?.currentIslandId}:${building}`}
-          building={building}
-          blocked={e.routeTransitionShielded}
-          saving={guides.saving}
-          error={guides.error}
-          onDone={() => void guides.done({ buildings: [building] })}
-        />
-      )}
+      {pending &&
+        guides.data &&
+        !completion &&
+        !guides.data.buildings.includes(pending.building) && (
+          <BuildingGuide
+            key={`${owner}:${islandId}:${pending.building}`}
+            building={pending.building}
+            blocked={e.routeTransitionShielded}
+            saving={guides.saving}
+            error={guides.error}
+            onDone={() => void guides.done({ buildings: [pending.building] })}
+          />
+        )}
     </>
   );
 }

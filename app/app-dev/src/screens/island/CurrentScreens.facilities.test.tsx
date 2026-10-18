@@ -4,11 +4,22 @@ import { saveAccountGuides } from '@/services/accountGuides';
 import * as homeApi from '@/services/api/home';
 import assert from 'node:assert/strict';
 import React from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { initialState, reducer } from '@/services/model';
 
-jest.mock('@/screens/island/Screens', () => ({ RedesignScreens: () => null }));
+jest.mock('@/screens/island/Screens', () => ({
+  RedesignScreens: ({ e }: any) => {
+    const { View, Pressable } = require('react-native');
+    return (
+      <View testID={`screen-${e.route}`}>
+        {['hall', 'board', 'sound', 'library', 'mail', 'tower', 'shop'].map((route) => (
+          <Pressable key={route} testID={`enter-${route}`} onPress={() => e.go(route)} />
+        ))}
+      </View>
+    );
+  },
+}));
 jest.mock('@/screens/interiors/BuildingInteriors', () => ({ InteriorRoute: () => null }));
 jest.mock('@/screens/island/useFriendsScreen', () => ({
   useFriendsScreen: () => ({ data: null }),
@@ -183,13 +194,19 @@ test('미열람 신규 주민은 건물을 눌렀을 때만 설명을 보고 다
   await waitFor(() => expect(homeApi.getConstructionOptions).toHaveBeenCalled());
   expect(screen.queryByTestId('building-guide')).toBeNull();
   expect(screen.queryByTestId('building-completion-guide')).toBeNull();
-  await screen.rerender(<CurrentScreens e={{ ...home, route: 'mail' }} />);
+  await fireEvent.press(screen.getByTestId('enter-mail'));
   await waitFor(() =>
     expect(screen.getByText('난 친구들의 편지를 배달하는 펠리컨이야.')).toBeTruthy(),
   );
+  expect(screen.getByTestId('screen-home')).toBeTruthy();
+  expect(home.go).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByText('안내 그만 보기'));
-  await waitFor(() => expect(screen.queryByTestId('building-guide')).toBeNull());
-  await screen.rerender(<CurrentScreens e={env(withBuildings(['mail'], 'next-island'), 'mail')} />);
+  await waitFor(() => expect(home.go).toHaveBeenCalledWith('mail'));
+  expect(screen.queryByTestId('building-guide')).toBeNull();
+  const next = env(withBuildings(['mail'], 'next-island'), 'home');
+  await screen.rerender(<CurrentScreens e={next} />);
+  await fireEvent.press(screen.getByTestId('enter-mail'));
+  expect(next.go).toHaveBeenCalledWith('mail');
   expect(screen.queryByTestId('building-guide')).toBeNull();
 });
 
@@ -209,4 +226,114 @@ test('이미 설명을 본 기여자는 완공 안내만 받고 이후 홈에서
   expect(screen.queryByTestId('building-guide')).toBeNull();
   await screen.rerender(<CurrentScreens e={e} />);
   expect(screen.queryByTestId('building-completion-guide')).toBeNull();
+});
+
+function NavigationHarness({ s, go }: { s: ReturnType<typeof state>; go: jest.Mock }) {
+  const [route, setRoute] = React.useState('home');
+  return (
+    <CurrentScreens
+      e={{
+        ...env(s, route),
+        go: (next: string) => {
+          go(next);
+          setRoute(next);
+        },
+      }}
+    />
+  );
+}
+
+test.each([
+  ['hall', 'hall'],
+  ['board', 'board'],
+  ['gram', 'sound'],
+  ['library', 'library'],
+  ['mail', 'mail'],
+  ['tower', 'tower'],
+  ['shop', 'shop'],
+])('%s 첫 설명은 섬 위에서 끝내고 내부 화면을 연다', async (building, route) => {
+  await signInGuideUser();
+  jest
+    .spyOn(homeApi, 'getConstructionOptions')
+    .mockResolvedValue({ contributedCompletions: [] } as any);
+  const go = jest.fn();
+  const screen = await render(<NavigationHarness s={withBuildings([building])} go={go} />);
+  await fireEvent.press(screen.getByTestId(`enter-${route}`));
+  await waitFor(() => expect(screen.getByTestId('building-guide')).toBeTruthy());
+  expect(screen.getByTestId('screen-home')).toBeTruthy();
+  expect(screen.queryByTestId('hall-open')).toBeNull();
+  expect(screen.queryByTestId('library-open')).toBeNull();
+  expect(go).not.toHaveBeenCalled();
+  while (screen.queryByText('다음')) await fireEvent.press(screen.getByText('다음'));
+  await fireEvent.press(screen.getByText('확인'));
+  await waitFor(() => expect(go).toHaveBeenCalledTimes(1));
+  expect(go).toHaveBeenCalledWith(route);
+  expect(screen.queryByTestId('screen-home')).toBeNull();
+  expect(screen.queryByTestId('building-guide')).toBeNull();
+});
+
+test('설명 저장 실패 시 섬에 남고 재시도 저장이 끝난 뒤 한 번만 진입한다', async () => {
+  await signInGuideUser();
+  jest
+    .spyOn(homeApi, 'getConstructionOptions')
+    .mockResolvedValue({ contributedCompletions: [] } as any);
+  const go = jest.fn();
+  const screen = await render(<NavigationHarness s={withBuildings(['mail'])} go={go} />);
+  await fireEvent.press(screen.getByTestId('enter-mail'));
+  await waitFor(() => expect(screen.getByTestId('building-guide')).toBeTruthy());
+  jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('disk'));
+  await fireEvent.press(screen.getByText('안내 그만 보기'));
+  await waitFor(() => expect(screen.getByText(/안내 이력을 저장하지 못했어요/)).toBeTruthy());
+  expect(screen.getByTestId('screen-home')).toBeTruthy();
+  expect(go).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByText('안내 그만 보기'));
+  await waitFor(() => expect(go).toHaveBeenCalledTimes(1));
+});
+
+test('이력 조회가 늦어도 내부 화면을 먼저 열지 않고 조회 후 섬에서 설명한다', async () => {
+  await signInGuideUser();
+  jest
+    .spyOn(homeApi, 'getConstructionOptions')
+    .mockResolvedValue({ contributedCompletions: [] } as any);
+  let resolve!: (value: string | null) => void;
+  jest.spyOn(AsyncStorage, 'getItem').mockImplementationOnce(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      }),
+  );
+  const e = env(withBuildings(['mail']), 'home');
+  const screen = await render(<CurrentScreens e={e} />);
+  await fireEvent.press(screen.getByTestId('enter-mail'));
+  expect(screen.getByText('안내 이력을 확인하고 있어요.')).toBeTruthy();
+  expect(e.go).not.toHaveBeenCalled();
+  await act(async () => resolve(null));
+  await waitFor(() => expect(screen.getByTestId('building-guide')).toBeTruthy());
+  expect(screen.getByTestId('screen-home')).toBeTruthy();
+  expect(e.go).not.toHaveBeenCalled();
+});
+
+test('설명 저장 중 섬을 옮기면 늦은 저장 결과로 건물을 열지 않는다', async () => {
+  await signInGuideUser();
+  jest
+    .spyOn(homeApi, 'getConstructionOptions')
+    .mockResolvedValue({ contributedCompletions: [] } as any);
+  const e = env(withBuildings(['mail']), 'home');
+  const screen = await render(<CurrentScreens e={e} />);
+  await fireEvent.press(screen.getByTestId('enter-mail'));
+  await waitFor(() => expect(screen.getByTestId('building-guide')).toBeTruthy());
+  let resolve!: () => void;
+  jest.spyOn(AsyncStorage, 'setItem').mockImplementationOnce(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      }),
+  );
+  await fireEvent.press(screen.getByText('안내 그만 보기'));
+  const next = env(withBuildings(['mail'], 'next-island'), 'home');
+  await screen.rerender(<CurrentScreens e={next} />);
+  await act(async () => resolve());
+  expect(screen.queryByTestId('building-guide')).toBeNull();
+  expect(e.go).not.toHaveBeenCalled();
+  expect(next.go).not.toHaveBeenCalled();
 });
