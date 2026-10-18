@@ -988,7 +988,7 @@
     "saveMessage": "한마디 띄우기",
     "keepFocusing": "계속 집중하기",
     "close": "닫기",
-    "prepareTitle": "{{name}}로 항해할까요?",
+    "prepareTitle": "{{name}}(으)로 항해할까요?",
     "prepareBody": "집중하며 항해해요. 도착한 뒤에도 섬에 내리기 전까지 집중은 이어져요.",
     "start": "항해 시작",
     "optionalMessage": "한마디 (선택)",

@@ -169,9 +169,14 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
   const transition = async <T>(
     kind: 'pause' | 'resume' | 'finish',
     fn: (id: string, expectedVersion: number, key: string) => Promise<T>,
+    // 결과 불명 재시도의 대상 — 그사이 복구가 로컬 세션을 지웠어도 같은 (세션, version) 키로 한 번 더 묻는다
+    target?: { id: string; version?: number },
   ): Promise<T> => {
     const g = generation();
-    const session = deps.getSession();
+    // 대상과 다른 세션이 로컬에 있으면 그 세션을 대신 끝내지 않는다 — 확정 실패로 돌려 호출부가 정본을 다시 읽게 한다
+    if (target && deps.getSession() && deps.getSession()?.id !== target.id)
+      throw new ApiError('STATE_CONFLICT', '다른 집중이 진행 중이에요.', 409);
+    const session = deps.getSession() ?? target ?? null;
     if (!session || session.version == null) {
       // 서버 세션이 아니면 전이할 수 없다 — 정본을 맞춘 뒤 실패로 돌린다.
       await syncCurrent(g).catch(() => {});
@@ -201,15 +206,28 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
       api.startSea(destinationIslandId, scoped().keys.key(slot, destinationIslandId));
     let view: FocusSessionView;
     try {
-      view = await once();
+      try {
+        view = await once();
+      } catch (thrown) {
+        if (!(thrown instanceof ApiError) || thrown.code !== 'SEA_DESTINATION_UNAVAILABLE')
+          throw thrown;
+        scoped().keys.release(slot, destinationIslandId);
+        const list = await api.telescope();
+        alive(g);
+        if (!list.items.some((item) => item.islandId === destinationIslandId)) throw thrown;
+        view = await once();
+      }
     } catch (thrown) {
-      if (!(thrown instanceof ApiError) || thrown.code !== 'SEA_DESTINATION_UNAVAILABLE')
-        throw thrown;
-      scoped().keys.release(slot, destinationIslandId);
-      const list = await api.telescope();
-      alive(g);
-      if (!list.items.some((item) => item.islandId === destinationIslandId)) throw thrown;
-      view = await once();
+      // 확정 4xx(STATE_CONFLICT·403 등)는 서버가 영수증을 남기지 않는다(성공만 저장 — PublicCommandService.run) —
+      // 키를 풀어 다음 시도가 새 의도로 간다. 결과 불명(네트워크·5xx)과 처리 중(REQUEST_IN_PROGRESS)만 같은 키를 지킨다.
+      if (
+        thrown instanceof ApiError &&
+        thrown.status >= 400 &&
+        thrown.status < 500 &&
+        thrown.code !== 'REQUEST_IN_PROGRESS'
+      )
+        scoped().keys.release(slot, destinationIslandId);
+      throw thrown;
     }
     alive(g);
     // 재시도면 응답이 «최초 응답»(activeSeconds 0·옛 serverNow) 재생일 수 있고, 그사이 다른 기기가 그 항해를 끝내고
@@ -303,10 +321,10 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         return view;
       }),
     // 종료 — 응답은 정산 뷰다. 기록·결과창 반영은 SESSION_RESULT 가 한다(물고기는 서버가 이미 적립).
-    finish: () =>
+    finish: (target?: { id: string; version?: number }) =>
       call(async () => {
         const fromRest = deps.getSession()?.status === 'paused',
-          result = await transition('finish', api.finish);
+          result = await transition('finish', api.finish, target);
         deps.dispatch({ type: 'SESSION_RESULT', record: recordFromFinish(result), fromRest });
         captureProductEvent('focus_completed', {
           duration_seconds: result.activeSeconds,

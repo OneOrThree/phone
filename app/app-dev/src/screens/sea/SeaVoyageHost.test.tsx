@@ -562,3 +562,75 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
     expect(e.replace).toHaveBeenCalledWith('visitIsland', 'dest');
   });
 });
+
+test('호스트 구독 콜백은 첫 렌더가 아니라 최신 e 를 쓴다(App 의 e·replace 는 렌더마다 새로 만든다)', async () => {
+  const e = env();
+  e.focus.recover.mockResolvedValue('focus');
+  const screen = await render(<SeaVoyageHost e={e} />);
+  const next = { ...e, replace: jest.fn(), notify: jest.fn() };
+  await screen.rerender(<SeaVoyageHost e={next} />);
+  await act(async () => mockAppStateChange('active'));
+  expect(next.replace).toHaveBeenCalledWith('focus');
+  expect(e.replace).not.toHaveBeenCalled();
+  await act(async () => mockRoomOpts.onError('끊겼어요'));
+  expect(next.notify).toHaveBeenCalledWith('끊겼어요');
+});
+
+test('종료 응답을 잃은 뒤 복구가 로컬 세션을 지웠으면(없음 = 불명) 같은 (세션, version) 으로 한 번 더 묻는다', async () => {
+  const e = env({
+    state: { name: '나냥', color: 'black', session: seaSession({ seconds: 1800 }) },
+  });
+  const done = { recordId: 'sea-1', islandId: 'dest', arrived: true, activeSeconds: 1800 };
+  e.focus.finish
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0))
+    .mockResolvedValueOnce(done);
+  const screen = await render(<SeaVoyageHost e={e} />);
+  await fireEvent.press(screen.getByLabelText('섬에 내리기'));
+  await act(async () => {});
+  // App 쪽 recover() 가 current=null 로 세션을 지웠다
+  const cleared = { ...e, state: { ...e.state, session: null } };
+  await screen.rerender(<SeaVoyageHost e={cleared} />);
+  await act(async () => mockAppStateChange('active'));
+  expect(e.focus.finish).toHaveBeenCalledTimes(2);
+  expect(e.focus.finish).toHaveBeenLastCalledWith({ id: 'sea-1', version: 1 });
+  expect(e.focus.recover).not.toHaveBeenCalled();
+  expect(e.replace).toHaveBeenCalledWith(
+    'seaArrival',
+    JSON.stringify({ finish: done, destinationName: '별고래섬' }),
+  );
+});
+
+test('대기 중인 종료가 «다른» 진행 세션을 가리키게 되면 재시도를 버리고 정본만 읽는다', async () => {
+  const e = env();
+  e.focus.finish.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0));
+  const screen = await render(<SeaVoyageHost e={e} />);
+  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+  await fireEvent.press(screen.getByLabelText('항해 그만두기'));
+  await act(async () => {});
+  const other = { ...e, state: { ...e.state, session: seaSession({ id: 'sea-2' }) } };
+  await screen.rerender(<SeaVoyageHost e={other} />);
+  await act(async () => mockAppStateChange('active'));
+  expect(e.focus.finish).toHaveBeenCalledTimes(1);
+  expect(e.focus.recover).toHaveBeenCalledTimes(1);
+});
+
+// 한마디 잠금은 모듈에 남으므로 이 파일의 마지막 테스트로 둔다
+test('한마디 저장 응답의 잠금(lockedUntil − changedAt)을 입력창 잠금으로 보이고, 지나면 다시 열린다', async () => {
+  const e = env({ state: { name: '나냥', color: 'black', session: null } });
+  mockRemark.mockResolvedValueOnce({
+    remark: '안녕',
+    changedAt: '2026-10-18T00:00:00Z',
+    lockedUntil: '2026-10-18T00:05:00Z',
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  await fireEvent.changeText(screen.getByLabelText('한마디 쓰기'), '안녕');
+  await fireEvent.press(screen.getByLabelText('한마디 띄우기'));
+  await act(async () => {});
+  await screen.rerender(<SeaVoyageHost e={{ ...e, now: Date.now() }} />);
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  expect(screen.getByText('5분 뒤에 다시 쓸 수 있어요')).toBeTruthy();
+  expect(screen.queryByLabelText('한마디 쓰기')).toBeNull();
+  await screen.rerender(<SeaVoyageHost e={{ ...e, now: Date.now() + 301_000 }} />);
+  expect(screen.getByLabelText('한마디 쓰기')).toBeTruthy();
+});

@@ -250,7 +250,8 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     onStompError: (frame: IFrame) => {
       // 서버가 ERROR 뒤 소켓을 닫는다 — stompjs 가 5초 뒤 재접속해 onConnect 가 enter 부터 다시 한다
       const code = str(frame.headers.message) ?? '';
-      if (code === 'EMOTE_TOO_FREQUENT') opts.onError(t('openSea.emoteTooFrequent'));
+      // 이모트 연타 거절은 방 연결의 이상이 아니다 — 백오프 카운트에 넣지 않는다(연타 3번에 방이 30초 쉬지 않게)
+      if (code === 'EMOTE_TOO_FREQUENT') return opts.onError(t('openSea.emoteTooFrequent'));
       stompErrors += 1;
       if (stompErrors >= STOMP_ERROR_LIMIT && !suspended && !closed) {
         // 무한 거절 루프를 끊되 영구히 멈추지는 않는다 — 30초 → 60초 → 120초(상한) 뒤 다시 붙는다
