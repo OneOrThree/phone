@@ -24,6 +24,7 @@ import { codePointLength } from '@/utils/codePoints';
 import { t } from '@/i18n';
 export { C, art };
 export const k = StyleSheet.create({
+  buttonIcon: { width: 32, height: 32 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stack: { gap: 14 },
   grow: { flex: 1 },
@@ -130,6 +131,7 @@ export function Btn({
   dialog = false,
   disabled = false,
   dynamicHeight = false,
+  icon,
   style,
   id,
   // 목록 항목마다 같은 제목(지우기·신고)이 되풀이되면 어느 항목인지 덧붙인 읽는 이름을 따로 줄 수 있다. 기본은 title
@@ -194,7 +196,8 @@ export function Btn({
           paddingVertical: dynamicHeight ? 12 : undefined,
           ...(round ? { width: 88 } : {}),
           borderRadius: 999,
-          paddingHorizontal: round ? 0 : small ? 14 : kind === 'glass' ? 22 : 20,
+          paddingHorizontal: round || icon ? 0 : small ? 14 : kind === 'glass' ? 22 : 20,
+          ...(icon ? { width: componentTokens.button.height } : {}),
           borderWidth: kind === 'ghost' || kind === 'danger' ? 0 : small ? 1.5 : 2,
           borderColor: kind === 'destructive' ? componentTokens.button.destructiveBorder : C.brown,
           backgroundColor: kind ? 'transparent' : componentTokens.button.background,
@@ -216,25 +219,29 @@ export function Btn({
             : {}),
         }}
       >
-        <Txt
-          style={{
-            fontSize: round || dialog ? 15 : small ? 14 : 16,
-            ...(round ? { lineHeight: 18 } : {}),
-            // v2 홈 집중하기(원형)는 보통 굵기
-            fontWeight: round ? '400' : kind && kind !== 'butter' ? '700' : '800',
-            color:
-              kind === 'danger'
-                ? componentTokens.button.destructiveBorder
-                : kind === 'destructive'
-                  ? componentTokens.button.destructiveForeground
-                  : kind === 'ghost'
-                    ? C.muted
-                    : C.ink,
-            textAlign: 'center',
-          }}
-        >
-          {title}
-        </Txt>
+        {icon ? (
+          <Image source={icon} style={k.buttonIcon} accessible={false} />
+        ) : (
+          <Txt
+            style={{
+              fontSize: round || dialog ? 15 : small ? 14 : 16,
+              ...(round ? { lineHeight: 18 } : {}),
+              // v2 홈 집중하기(원형)는 보통 굵기
+              fontWeight: round ? '400' : kind && kind !== 'butter' ? '700' : '800',
+              color:
+                kind === 'danger'
+                  ? componentTokens.button.destructiveBorder
+                  : kind === 'destructive'
+                    ? componentTokens.button.destructiveForeground
+                    : kind === 'ghost'
+                      ? C.muted
+                      : C.ink,
+              textAlign: 'center',
+            }}
+          >
+            {title}
+          </Txt>
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -783,7 +790,15 @@ export function Page({
     </View>
   );
 }
-export function Overlay({ children, close, sheet = false, background }: any) {
+export function Overlay({
+  children,
+  close,
+  sheet = false,
+  background,
+  maxWidth,
+  contentStyle,
+  frameStyle,
+}: any) {
   const ins = useScreenInsets();
   const layout = useAppLayout();
   const [availableHeight, setAvailableHeight] = useState(layout.height);
@@ -822,11 +837,14 @@ export function Overlay({ children, close, sheet = false, background }: any) {
         />
         <KeyboardAvoidingView
           behavior={undefined}
-          style={{
-            width: centered ? layout.modalWidth : '100%',
-            maxHeight: Math.max(100, availableHeight - ins.top - ins.bottom - 24),
-            flexShrink: 1,
-          }}
+          style={[
+            {
+              width: centered ? Math.min(layout.modalWidth, maxWidth ?? layout.modalWidth) : '100%',
+              maxHeight: Math.max(100, availableHeight - ins.top - ins.bottom - 24),
+              flexShrink: 1,
+            },
+            frameStyle,
+          ]}
         >
           <ScrollView
             keyboardShouldPersistTaps="handled"
@@ -843,14 +861,17 @@ export function Overlay({ children, close, sheet = false, background }: any) {
               borderBottomRightRadius: centered ? componentTokens.modal.radius : 0,
               flexShrink: 1,
             }}
-            contentContainerStyle={{
-              padding: componentTokens.modal.padding,
-              paddingBottom: centered
-                ? componentTokens.modal.paddingBottom
-                : ins.bottom + semanticTokens.spacing.control,
-              gap: componentTokens.modal.gap,
-              boxShadow: sheet ? 'none' : componentTokens.modal.shadow,
-            }}
+            contentContainerStyle={[
+              {
+                padding: componentTokens.modal.padding,
+                paddingBottom: centered
+                  ? componentTokens.modal.paddingBottom
+                  : ins.bottom + semanticTokens.spacing.control,
+                gap: componentTokens.modal.gap,
+                boxShadow: sheet ? 'none' : componentTokens.modal.shadow,
+              },
+              contentStyle,
+            ]}
           >
             {sheet && (
               <View

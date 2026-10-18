@@ -1,0 +1,52 @@
+import React from 'react';
+import { Image, StyleSheet, View } from 'react-native';
+import { CatSprite } from '@/components/CatSprite';
+import type { Color } from '@/services/model';
+import { seaAssets, seaLoaf } from './seaAssets';
+
+export function SeaRaft({
+  color,
+  focusing,
+  size,
+  reduceMotion = false,
+}: {
+  color: Color;
+  focusing: boolean;
+  size: number;
+  reduceMotion?: boolean;
+}) {
+  const catSize = size * 0.49;
+  // 같은 발 위치를 기준으로 독서/식빵 포즈를 교체한다. 앞뒤 판자는 기존 레이어다.
+  return (
+    <View pointerEvents="none" style={{ width: size, height: size }}>
+      <Image
+        source={seaAssets.raftBack}
+        style={[StyleSheet.absoluteFill, { width: size, height: size }]}
+      />
+      <View style={[styles.absolute, { left: size * 0.48, top: size * 0.67 }]}>
+        {focusing ? (
+          <CatSprite color={color} motion="read" size={catSize} reduce={reduceMotion} />
+        ) : (
+          <Image
+            source={seaLoaf[color]}
+            style={[
+              styles.absolute,
+              {
+                width: catSize,
+                height: catSize,
+                left: -catSize / 2,
+                top: -(catSize * 464) / 512,
+              },
+            ]}
+          />
+        )}
+      </View>
+      <Image
+        source={seaAssets.raftFront}
+        style={[StyleSheet.absoluteFill, { width: size, height: size }]}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({ absolute: { position: 'absolute' } });
