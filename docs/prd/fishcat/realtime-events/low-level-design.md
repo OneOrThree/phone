@@ -33,7 +33,7 @@
 |---|---|
 | `schemaVersion` | 양의 정수, 이 계약은 1. 상태 순서용 aggregateVersion과 별개인 wire 호환성 버전. 생산자는 지원하는 1만 발행하며 누락/미지원 버전은 검증 거절 |
 | `eventId` | UUID. 생산자가 한 사건에 한 번 부여. 전달·HTTP 재시도·relay 재전달에서 유지. 다른 사건에 재사용하지 않음 |
-| `type` | §2의 dotted string 14종 중 하나. 모르는 타입은 전파하지 않고 관측 |
+| `type` | §2의 dotted string 16종 중 하나. 모르는 타입은 전파하지 않고 관측 |
 | `islandId` | UUID 또는 null. 섬 범위 사건은 필수. 개인 wallet/inventory만 null 사용. 개인 상품을 어느 섬에서 샀는지 이 필드로 공개하지 않음 |
 | `aggregateVersion` | 양의 정수. `focus.emote`만 null. 값과 범위는 §2 정본. client 안전 정수 범위(1~9007199254740991) 밖은 직렬화 거절; 소비자가 부동소수로 반올림해 비교하지 않음 |
 | `occurredAt` | 서버 UTC ISO-8601 instant. 상태 변경 때 고정; relay가 전달 시각으로 바꾸지 않음. 정렬/중복 판정에 사용하는 값이 아님 |
@@ -45,7 +45,7 @@
 
 용어: `Id`는 실제 도메인 식별자(UUID). `ProductId`/`TrackId`/`BuildingId`/`ThemeId`는 도메인 카탈로그의 불투명 문자열 키이며 클라이언트가 임의 생성하지 않는다. `Instant`는 UTC 문자열. `Version`은 위 양의 정수, `Seconds`는 0 이상의 정수다. 필수 nullable 필드는 키를 생략하지 않고 null을 보낸다. 아래 표의 필드가 해당 payload 정본이며 wire 변경은 이 문서와 타입 검증을 함께 갱신한다.
 
-## 2. 이벤트 14종 정본
+## 2. 이벤트 16종 정본
 
 | # | type / enum 상수 | payload 필수 필드와 타입 | 버전 비교 key / 의미 | 전달 경로 |
 |---|---|---|---|---|
@@ -63,6 +63,8 @@
 | 12 | `island.members.updated` / `ISLAND_MEMBERS_UPDATED` | `islandId:Id`, `version:Version` | `(island.members,islandId)` 주민/역할 목록 무효화. 일반 island 버전과 비교하지 않음 | `events` |
 | 13 | `join.request.updated` / `JOIN_REQUEST_UPDATED` | `requestId:Id`, `applicantId:Id`, `status:pending\|approved\|rejected\|cancelled`, `version:Version` | `(join.request,islandId,requestId)` 신청 무효화. 다른 신청은 별개 | 개인큐 |
 | 14 | `notice.updated` / `NOTICE_UPDATED` | `noticeId:Id`, `version:Version` | `(notice,islandId,noticeId)` 공지/댓글 무효화. 삭제 뒤에도 삭제 사건 버전을 보존 | `events` |
+| 15 | `focus.golden` / `GOLDEN_FISH_CAUGHT` | `islandId:Id`, `drawnAt:Instant`, `reward:integer`, `sharePerMember:integer`, `members:[{userId:Id, sessionId:Id}]`(2명 이상) | 버전 없음 — 일회성 컷신 신호(GROMO-1956). `drawnAt` 으로 중복 재생을 거른다 | `focus` |
+| 16 | `island.member.arrived` / `ISLAND_MEMBER_ARRIVED` | `islandId:Id`, `userId:Id`, `name:string?`, `catColor:string?`, `arrivedAt:Instant` | 버전 비교 없음 — 일회성 소식(GROMO-2302). 소속 주민이 «현 가입 이후 처음» 그 섬에 도착했다(`POST /islands/{id}/arrivals`). 순서 축 `(ISLAND_ARRIVAL,islandId)` 는 `island.updated` 의 `ISLAND` 축과 나눈다. Realtime 이 허용 필드만 골라 싣는다 | `events` — **현재 소속 주민** |
 
 `Appearance`는 `{clothes:ProductId?, decor:ProductId?, hull:ProductId, position:front|back}` 전체 상태다. 기본 `raft`, null 해제와 배치 규칙은 원본대로 외양 도메인에서 검증한다. 선체 업그레이드/하위 재착용은 배 종류 폐지(2026-09-16 B23·B25, GROMO-1851)로 대상이 소멸했고 `hull` 은 `raft` 하나다 — 필드 존치는 외양 도메인이 정한다. 기존 캐릭터 HAIR/TOP/BOTTOM/SHOES 모델을 이 DTO와 같은 것으로 취급하지 않는다.
 
@@ -107,7 +109,7 @@ GET의 API 설명에 '후속 이벤트'가 표시돼 있어도 조회가 변경 
 |---|---|---|
 | WebSocket handshake | `/ws/realtime` | Origin 정책 유지, 실제 인증은 STOMP CONNECT. **React Native(iOS SocketRocket·Android)도 `Origin: https://<API 호스트>` 를 보낸다** — 허용 목록 `CHAT_WS_ALLOWED_ORIGINS` 에 환경별 API 도메인을 넣어야 앱이 연결된다. 기본값은 빈 값(거절) 유지, `*` 금지(2026-10-01 결정 로그 RT-WS-Origin, 티켓 2175) |
 | 호환 handshake | `/ws/chat` | 같은 인증 모델. 기능에 따른 목적지 인가 |
-| SUBSCRIBE | `/topic/islands/{islandId}/events` | 현재 소속 주민. 메시지/음악/응원·개인 경제/가입요청은 이 채널에 실리지 않음 |
+| SUBSCRIBE | `/topic/islands/{islandId}/events` | 현재 소속 주민 — 구독 1회(사용자 축 시도 창 600ms → 멤버십, 집중 검사 없음) + 전달 직전 프레임마다 캐시 멤버십 재검사(GROMO-2302). 지금 이 채널로 전달되는 사건은 `island.member.arrived` 하나이고, 나머지 `events` 유형은 수신만 한다. 메시지/음악/응원·개인 경제/가입요청은 이 채널에 실리지 않음 |
 | SUBSCRIBE | `/topic/islands/{islandId}/focus` | **인증된 사용자**(비소속 관전 개방 2026-09-19 — 같은 목록을 내리는 GET과 같은 문턱). 집중 중 여부로 관람을 차단하지 않음 |
 | SUBSCRIBE | `/topic/islands/{islandId}/rest` | **인증된 사용자**(위와 같음). 로컬 모닥불 관람 때문에 새 세션을 만들지 않음 |
 | SUBSCRIBE | `/topic/islands/{islandId}/emotes` | 현재 같은 섬에서 **진행 중(active·paused) 집중 세션**을 가진 사용자(구독 시 Data 정본 조회). 집중을 시작한 뒤 구독해야 한다 |
@@ -176,9 +178,11 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
 
 서버 레지스트리는 세션 id, 검증 주체, 토큰 만료, 구독 id/경로, 섬 및 수신 정책 범주를 관리한다. 서버가 역할/소속 상실을 감지하면 해당 구독을 해지하고, 브로커의 부분 해지 지원이 검증되지 않았으면 소켓을 닫는다. 단지 레지스트리에서만 지우고 실제 SimpleBroker 구독을 남겨두면 안 된다.
 
-인가 캐시 무효화는 모든 인스턴스에 전파한다. Redis Pub/Sub만으로 내구 철회를 보장하지 않는다. membership 원본 변경 TX의 내구 제어자료/리컨실과 전달 직전 현재 인가 검사로 누락을 닫는다. 이 제어자료는 도메인 사건 14종의 공개 payload와 분리한다. `island.members.updated`에는 주민 개인 퇴장 사유/신청 상세를 넣지 않는다.
+인가 캐시 무효화는 모든 인스턴스에 전파한다. Redis Pub/Sub만으로 내구 철회를 보장하지 않는다. membership 원본 변경 TX의 내구 제어자료/리컨실과 전달 직전 현재 인가 검사로 누락을 닫는다. 이 제어자료는 도메인 사건 16종의 공개 payload와 분리한다. `island.members.updated`에는 주민 개인 퇴장 사유/신청 상세를 넣지 않는다.
 
 **채팅의 TTL 멤버십 캐시 즉시 무효화(GROMO-2140)도 같은 분리를 따른다.** `island.members.updated`(MEMBER_ADDED·MEMBER_REMOVED)의 내부 봉투 `params`에 `memberUserId`(실제로 소속이 바뀐 유저 — 강퇴처럼 명령 주체와 다를 수 있다)를 싣고, Realtime `InboundEventService`가 그 값으로 채팅의 `cache:chat:member:{userId}` 한 키만 즉시 지운다(`MembershipService#evict`). `memberUserId`는 위 문단의 제어자료와 같은 성격이라 **이 표(§2)의 공개 payload에는 없다** — 이 type은 아직 §3.1 전달 adapter가 없어 클라이언트로 나가지도 않는다. 필드가 없는 옛 Data 사건은 무효화를 건너뛰고 기존 TTL(`chat.membership.cache-ttl-seconds`)이 그대로 백스톱이다. HOST_TRANSFER는 주민 집합이 바뀌지 않으므로 무효화 대상이 없다.
+
+`events` 채널(GROMO-2302)은 구독 때 멤버십을 한 번 보고, 프레임마다 캐시 멤버십(`cache:chat:member:{userId}`)을 다시 본다 — 강퇴·탈퇴는 위 `MEMBER_REMOVED` 무효화가 캐시를 지우고 TTL(120s)이 상한이다. 조회 실패·비주민은 프레임만 버린다(fail-closed, 소켓 유지).
 
 실시간 데이터 프레임을 실제 소켓으로 내보내기 직전에 세션 인증과 해당 type의 현재 수신 자격을 확인한다. 특히 개인 join.request 수신 중 이전 방장 권한, emote 수신 중 pause/finish, messages 수신 중 집중 시작을 재검증한다. 보호 채널에서 stale TTL 캐시를 최종 권한 증거로 쓰지 않는다. 권한 원천 확인 실패는 fail-closed; subscriber 수에 비례한 조회 비용은 배치 권한조회/동일 revision 검사로 최적화하되 허용 가능한 지연창을 몰래 늘리지 않는다.
 
@@ -298,7 +302,7 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 | 묶음 | 필수 검증 | 소유 |
 |---|---|---|
 | 이름/호환 | 새/구 handshake, 기존 REST/STOMP 경로·message wire·errors/duplicates 유지, DB/Redis 이름 유지 | 1755 |
-| 타입 골격 | enum 14종, 공통 봉투 필수값/null/version 상한, 존재하는 payload.version 일치, wallet/inventory owner·audience 일치, 임의 destination 거절 | 1755 |
+| 타입 골격 | enum 16종, 공통 봉투 필수값/null/version 상한, 존재하는 payload.version 일치, wallet/inventory owner·audience 일치, 임의 destination 거절 | 1755 |
 | 도메인 payload | §2 각 유형의 필수 필드·status·ID·시설·소유·version key 검증, validator 없는 타입의 활성화 금지 | 각 producer 및 후속 adapter |
 | 인증 | CONNECT 무토큰/만료 거절, active 사용자 CONNECT 성공, 채팅 subscribe/send는 기존 제한, idle 만료 후 egress0 | 1755/1765 |
 | 인가 | 비주민/탈퇴/강퇴/시설잠김, wildcard/인코딩/직접브로커SEND, 개인타인·이전방장 수신0 | 1762/1765/각 기능 |
@@ -310,4 +314,4 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 | 경제 | owner/currency 불일치거절(**지갑은 섬 전용 — 섬 없는 `wallet.updated` 거절**, GROMO-2044), wallet/inventory 별개 version, 공유토픽에 개인payload0 | 1781/1783 |
 | 관측 | payload/본문/토큰 비노출, command→event→relay→router 추적, 실패메트릭 | 각 단계 |
 
-문서 자체 검증은 상대 링크 존재, 14개 행/enum 중복 없음, 원본 14종과 정확 집합 일치, 세 문서의 신규/호환 경로·단계 구분 및 미정 정책 보존으로 제한한다.
+문서 자체 검증은 상대 링크 존재, 16개 행/enum 중복 없음, 원본 14종 + 후속 2종(`focus.golden`·`island.member.arrived`)과 정확 집합 일치, 세 문서의 신규/호환 경로·단계 구분 및 미정 정책 보존으로 제한한다.

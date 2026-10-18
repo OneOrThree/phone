@@ -90,6 +90,8 @@ class IslandArrivalIntegrationTest {
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
+        // 주민 첫 도착 사건(GROMO-2302) — 꺼진 기본값은 IslandInvitationArrivalIntegrationTest 가 본다.
+        registry.add("island.arrival.realtime-events-enabled", () -> true);
         String[] allow = {"POST /internal/users/*/islands/*/memberships", "PUT /internal/users/*/current-island",
             "POST /internal/users/*/islands/*/arrivals", "DELETE /internal/islands/*/members/*",
             "DELETE /internal/users/*/islands/*/membership", "GET /internal/users/*/letters"};
@@ -189,13 +191,13 @@ class IslandArrivalIntegrationTest {
 
         UUID arrivalKey = UUID.randomUUID();
         for (int i = 0; i < 2; i++) {
-            // 같은 키의 두 번째 도착은 처음 결과의 재생이다.
+            // 같은 키의 두 번째 도착은 처음 결과의 재생이다 — 주민 첫 도착이라 둘 다 arrivedBefore=false(GROMO-2302).
             mvc.perform(post("/internal/users/" + user + "/islands/" + target + "/arrivals")
                             .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
                             .header("Idempotency-Key", arrivalKey))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.islandId").value(target.toString()))
-                    .andExpect(jsonPath("$.arrivedBefore").value(true))
+                    .andExpect(jsonPath("$.arrivedBefore").value(false))
                     .andExpect(jsonPath("$.membershipStatus").value("active"))
                     .andExpect(jsonPath("$.currentIslandId").value(target.toString()));
         }
@@ -598,6 +600,125 @@ class IslandArrivalIntegrationTest {
         assertThat(arrivedBefore(islands.myIslands(applicant), islandId)).isFalse();
     }
 
+    // ---------------------------------------------------------------- 주민 첫 도착 사건 (GROMO-2302)
+
+    @Test
+    @DisplayName("망원경 가입 뒤 첫 도착은 사건 1건·arrivedBefore=false, 같은 키 재생은 추가 0건, 두 번째 도착은 0건·true")
+    void firstMemberArrivalPublishesOnce() throws Exception {
+        UUID user = newUser();
+        jdbc.update("update users set nickname=?, cat_color='ginger' where id=?", "도착냥" + user, user);
+        UUID target = island("소식섬", false, false);
+        joinAs(newUser(), target, GroupMemberRole.OWNER);
+        joins.join(user, target, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+
+        UUID key = UUID.randomUUID();
+        String body = mvc.perform(post("/internal/users/" + user + "/islands/" + target + "/arrivals")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                        .header("Idempotency-Key", key))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.arrivedBefore").value(false))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(arrivalEvents(target)).isEqualTo(1);
+        Map<String, Object> row = jdbc.queryForMap("select o.user_id, o.aggregate_type, o.aggregate_id, "
+                + "o.params->>'islandId' as island, o.params->>'userId' as arriver, o.params->>'name' as name, "
+                + "o.params->>'catColor' as color, o.params->>'arrivedAt' as at, d.target, d.endpoint_key "
+                + "from event_outbox o join event_outbox_deliveries d on d.outbox_id=o.id "
+                + "where o.type='island.member.arrived' and o.subject_id=?", target.toString());
+        assertThat(row)
+                .containsEntry("user_id", user)
+                .containsEntry("aggregate_type", "ISLAND_ARRIVAL")
+                .containsEntry("aggregate_id", target.toString())
+                .containsEntry("island", target.toString())
+                .containsEntry("arriver", user.toString())
+                .containsEntry("name", "도착냥" + user)
+                .containsEntry("color", "ginger")
+                .containsEntry("target", "REALTIME")
+                .containsEntry("endpoint_key", "island.member.arrived");
+        assertThat((String) row.get("at")).isNotBlank();
+
+        mvc.perform(post("/internal/users/" + user + "/islands/" + target + "/arrivals")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", user)
+                        .header("Idempotency-Key", key))
+                .andExpect(status().isOk())
+                .andExpect(content().json(body));
+        assertThat(arrivalEvents(target)).as("재생은 work 를 다시 돌리지 않는다").isEqualTo(1);
+
+        assertThat(islands.arrive(user, target, UUID.randomUUID()).arrivedBefore()).isTrue();
+        assertThat(arrivalEvents(target)).as("두 번째 도착").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("방문자 도착은 사건이 없고, 방문자로 먼저 왔던 사람도 주민이 된 뒤 첫 도착엔 사건 1건이다")
+    void visitorArrivalIsSilentUntilTheFirstMemberArrival() {
+        UUID user = newUser();
+        UUID target = island("구경뒤가입섬", false, false);
+        joinAs(newUser(), target, GroupMemberRole.OWNER);
+
+        IslandArrivalView visit = islands.arrive(user, target, UUID.randomUUID());
+        assertThat(visit.membershipStatus()).isEqualTo("none");
+        assertThat(visit.arrivedBefore()).as("방문자는 언제나 true").isTrue();
+        assertThat(arrivalEvents(target)).isZero();
+
+        joins.join(user, target, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+        assertThat(islands.arrive(user, target, UUID.randomUUID()).arrivedBefore()).isFalse();
+        assertThat(arrivalEvents(target)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("나갔다 다시 가입하면 «현 가입 이후» 첫 도착이 다시 사건 1건이다 — 가입 즉시 옮겨진 도착은 소식이 아니다")
+    void rejoinMakesTheNextArrivalFirstAgain() {
+        UUID user = newUser();
+        UUID home = islands.create(user, new CreateIslandCommandRequest("재가입본섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID target = island("재가입섬", false, false);
+        joinAs(newUser(), target, GroupMemberRole.OWNER);
+        joins.join(user, target, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+        islands.arrive(user, target, UUID.randomUUID());
+        assertThat(arrivalEvents(target)).isEqualTo(1);
+
+        management.leave(user, target, UUID.randomUUID());
+        joins.join(user, target, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+        assertThat(currentIsland(user)).isEqualTo(home);
+        assertThat(islands.arrive(user, target, UUID.randomUUID()).arrivedBefore()).isFalse();
+        assertThat(arrivalEvents(target)).isEqualTo(2);
+
+        // 방문 중 가입(즉시 옮김)은 그 자리에서 주민 도착을 남긴다 — 다음 도착은 첫 도착이 아니다.
+        management.leave(user, target, UUID.randomUUID());
+        joins.join(user, target, new JoinIslandCommandRequest(null, "visit"), UUID.randomUUID());
+        islands.switchCurrentIsland(user, home, UUID.randomUUID());
+        assertThat(islands.arrive(user, target, UUID.randomUUID()).arrivedBefore()).isTrue();
+        assertThat(arrivalEvents(target)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("탈퇴하면 그 사람의 도착 사건 봉투·전달 행에서 이름·털색이 지워지고(키는 남고 null), 남의 봉투는 그대로다")
+    void withdrawalErasesTheArrivalNameCopies() {
+        UUID target = island("파기섬", false, false);
+        joinAs(newUser(), target, GroupMemberRole.OWNER);
+        UUID leaver = newUser();
+        UUID bystander = newUser();
+        for (UUID user : List.of(leaver, bystander)) {
+            jdbc.update("update users set nickname=?, cat_color='gray' where id=?", "파기냥" + user, user);
+            joins.join(user, target, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+            islands.arrive(user, target, UUID.randomUUID());
+        }
+
+        withdrawal.withdraw(leaver);
+
+        for (String field : List.of("name", "catColor")) {
+            assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and user_id=? "
+                    + "and jsonb_exists(params, ?) and params->>? is null", leaver, field, field))
+                    .as("봉투 params.%s", field).isEqualTo(1);
+            assertThat(count("select count(*) from event_outbox_deliveries d join event_outbox o on o.id=d.outbox_id "
+                    + "where o.type='island.member.arrived' and o.user_id=? "
+                    + "and jsonb_exists(d.payload->'params', ?) and d.payload->'params'->>? is null",
+                    leaver, field, field)).as("전달 행 payload.params.%s", field).isEqualTo(1);
+        }
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and user_id=? "
+                + "and params->>'name'=? and params->>'catColor'='gray'", bystander, "파기냥" + bystander))
+                .isEqualTo(1);
+    }
+
     // ---------------------------------------------------------------- 도구
 
     /** 두 명령을 동시에 출발시키고 실패만 모은다 — {@code IslandManagementIntegrationTest.race} 와 같은 도구다. */
@@ -665,6 +786,11 @@ class IslandArrivalIntegrationTest {
         List<UUID> rows = jdbc.queryForList(
                 "select current_island_id from user_island_contexts where user_id=?", UUID.class, userId);
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private long arrivalEvents(UUID islandId) {
+        return count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?",
+                islandId.toString());
     }
 
     private long count(String sql, Object... args) {

@@ -316,6 +316,32 @@ class IslandRealtimeIntegrationTest {
     }
 
     @Test
+    @DisplayName("island.member.arrived 는 Data 수신구에서 그 섬 events 의 주민 세션까지 가고, 방문자 구독은 거절돼 못 받는다 (GROMO-2302)")
+    void memberArrivedReachesResidentsOnly() throws Exception {
+        StompSession residentSession = connect(focusing);
+        BlockingQueue<Map<String, Object>> resident = subscribe(residentSession, "events");
+        StompSession visitorSession = connect(visitor);
+        BlockingQueue<Map<String, Object>> stranger = subscribe(visitorSession, "events");
+
+        Map<String, Object> received = null;
+        for (int attempt = 0; attempt < 30 && received == null; attempt++) {
+            postEvent(memberArrivedEvent(resting));
+            received = resident.poll(500, TimeUnit.MILLISECONDS);
+        }
+        assertThat(received).as("주민은 도착 소식을 받는다").isNotNull();
+        assertThat(received.get("type")).isEqualTo("island.member.arrived");
+        assertThat(received.get("islandId")).isEqualTo(island.toString());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) received.get("payload");
+        assertThat(payload).as("허용 필드만 나간다").containsOnlyKeys("islandId", "userId", "name", "catColor",
+                "arrivedAt");
+        assertThat(payload.get("userId")).isEqualTo(resting.toString());
+
+        postEvent(memberArrivedEvent(resting));
+        assertThat(stranger.poll(2, TimeUnit.SECONDS)).as("비주민 구독은 ERROR 로 거절돼 아무것도 못 받는다").isNull();
+    }
+
+    @Test
     @DisplayName("schema 2 · userId 누락 · 계약 밖 status 인 주민 사건은 200 으로 받되 방송하지 않는다")
     void malformedMemberEventsAreAcceptedButNeverBroadcast() throws Exception {
         // P2-①: 서비스 토큰은 「Data 가 보냈다」만 증명한다 — 내용이 계약을 지킨다는 보증이 아니다.
@@ -775,6 +801,16 @@ class IslandRealtimeIntegrationTest {
                 + "\"serverNow\":\"2026-09-20T00:00:00Z\",\"sessionVersion\":3}}";
     }
 
+    /** Data {@code IslandArrivalEvents} 가 적는 10필드 모양(GROMO-2302) — params 끝의 여분 필드는 앱으로 나가면 안 된다. */
+    private String memberArrivedEvent(UUID arriver) {
+        return "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,\"type\":\"island.member.arrived\","
+                + "\"occurredAt\":\"2026-10-18T00:00:00Z\",\"scheduledAt\":null,"
+                + "\"userId\":\"" + arriver + "\",\"locale\":null,\"subjectId\":\"" + island + "\","
+                + "\"version\":1,\"params\":{\"islandId\":\"" + island + "\",\"userId\":\"" + arriver + "\","
+                + "\"name\":\"도착냥\",\"catColor\":\"ginger\",\"arrivedAt\":\"2026-10-18T00:00:00Z\","
+                + "\"leak\":\"x\"}}";
+    }
+
     private void postFocusMemberEvent(String status, long version) throws Exception {
         postEvent(focusMemberEvent(UUID.randomUUID().toString(), status, version));
     }
@@ -823,6 +859,7 @@ class IslandRealtimeIntegrationTest {
         redis.delete(RedisKeys.emoteAttempt(userId));
         redis.delete(RedisKeys.emoteSubscribeAttempt(userId));
         redis.delete(RedisKeys.emoteRateLimit(island, userId));
+        redis.delete(RedisKeys.islandEventsSubscribeAttempt(userId));
     }
 
     private String emoteDestination() {

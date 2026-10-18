@@ -212,6 +212,7 @@ GROMO-1953 에서 이 정의에 맞춰 바꾼 곳: `notice.updated`(noticeId →
 | `notification/producer/NotificationOutboxProducer.java:166` | `notification.requested` | KAFKA | USER | `noti:<KIND>:<userId>:<subjectId\|none>:<시간축\|none>` |
 | `notification/producer/ResultBundleCompletionService.java:169` | `notification.resultBundle.closed` | KAFKA | USER | `noti:resultBundle:<userId>:<groupId>:<slot>` |
 | `group/service/IslandStateEvents.java:58` | `island.updated` | REALTIME | `ISLAND` | UUID |
+| `group/service/IslandArrivalEvents.java:74`(호출: `IslandMembershipService.arrive` — 주민 첫 도착만, 스위치 `island.arrival.realtime-events-enabled`) | `island.member.arrived` | REALTIME | `ISLAND_ARRIVAL` | UUID |
 | `group/service/IslandMembershipEvents.java:50` | `island.members.updated` | REALTIME | `ISLAND_MEMBERS` | UUID |
 | `group/service/IslandNoticeEvents.java:53` | `notice.updated` | REALTIME | `NOTICE` | UUID |
 | `group/service/IslandJoinRequestEvents.java:77` | `join.request.updated` | REALTIME | `JOIN_REQUEST` | `<type>:<requestId>:<recipient>:<status>:<ver>` |

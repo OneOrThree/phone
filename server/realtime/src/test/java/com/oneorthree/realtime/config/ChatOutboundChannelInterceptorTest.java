@@ -103,8 +103,42 @@ class ChatOutboundChannelInterceptorTest {
 
     @Test
     void unimplementedEventDeliveryIsClosedEvenForAuthenticatedSockets() {
-        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/events"), null, null)).isNull();
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/playback"), null, null))
+                .isNull();
         assertThat(interceptor.beforeHandle(frame("socket", "/queue/events-usersocket"), null, null)).isNull();
+    }
+
+    // ── GROMO-2302 섬 events 채널 ─────────────────────────────────────────
+
+    @Test
+    void islandEventsReachCurrentResidentsOnly() throws Exception {
+        // 주민 — 캐시 멤버십 재검사를 통과하면 그대로 전달한다(집중 검사는 섞지 않는다).
+        Message<?> resident = frame("socket", "/topic/islands/" + island + "/events");
+        assertThat(interceptor.beforeHandle(resident, null, null)).isSameAs(resident);
+        verify(guard).requireMember(island, user, "Bearer token");
+        verify(guard, never()).requireCanChat(any(), any(), any());
+        verify(guard, never()).requireNotFocusing(any());
+
+        // 비주민(강퇴 뒤 등)·조회 불가는 프레임만 버리고 소켓은 둔다(fail-closed).
+        WebSocketSession socket = openSocket("socket");
+        doThrow(new IllegalStateException("not a member")).when(guard).requireMember(island, user, "Bearer token");
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/events"), null, null))
+                .isNull();
+        doThrow(new UpstreamUnavailableException()).when(guard).requireMember(island, user, "Bearer token");
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/events"), null, null))
+                .isNull();
+        verify(socket, never()).close(any(CloseStatus.class));
+    }
+
+    @Test
+    void islandEventsAreDroppedForExpiredTokens() throws Exception {
+        WebSocketSession socket = openSocket("socket");
+        when(jwt.extractUserId("token")).thenReturn(Optional.empty());
+
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/events"), null, null))
+                .isNull();
+        verify(guard, never()).requireMember(any(), any(), any());
+        verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
     }
 
     // ── GROMO-2247 이동 채널 ─────────────────────────────────────────────

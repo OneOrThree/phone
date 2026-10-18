@@ -40,7 +40,7 @@ final class EventPayloadValidator {
         }
         boolean versionRequired = switch (type) {
             case FOCUS_MEMBER_UPDATED, REST_MEMBER_UPDATED, FOCUS_EMOTE, MESSAGE_CREATED,
-                 GOLDEN_FISH_CAUGHT -> false;
+                 GOLDEN_FISH_CAUGHT, ISLAND_MEMBER_ARRIVED -> false;
             default -> true;
         };
         JsonNode payloadVersion = payload.get("version");
@@ -57,6 +57,14 @@ final class EventPayloadValidator {
             if (!islandId.equals(uuidField(payload, "islandId"))) {
                 throw new IllegalArgumentException("payload의 섬이 일치하지 않습니다.");
             }
+        }
+        if (type == RealtimeEventType.ISLAND_MEMBER_ARRIVED) {
+            // 일회성 소식이라 version 은 면제(되맞출 스냅샷이 없다). 섬·도착자·시각은 본다 — name·catColor 는 null 일 수 있다.
+            if (!islandId.equals(uuidField(payload, "islandId"))) {
+                throw new IllegalArgumentException("payload의 섬이 일치하지 않습니다.");
+            }
+            uuidField(payload, "userId");
+            instantField(payload, "arrivedAt", false);
         }
         if (type == RealtimeEventType.FOCUS_EMOTE) {
             validateEmote(payload);

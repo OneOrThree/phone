@@ -943,6 +943,7 @@ Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «�
   island_id        uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE)']
   first_arrived_at timestamptz [not null, note: '처음 도착한 시각']
   last_arrived_at  timestamptz [not null, note: '최근 머문 시각 — 도착·섬 생성·방문 중 가입·즉시 이동 성공마다 갱신']
+  member_arrived_at timestamptz [note: '주민으로서 마지막 도착 시각 — 주민 맥락의 도착 writer 가 매번 GREATEST(now, 현 멤버십 시작)으로 덮고 방문자 도착은 건드리지 않는다. NULL=주민 도착 없음. POST /islands/{id}/arrivals 가 이 값이 NULL 이거나 현 멤버십 시작(COALESCE(rejoined_at, created_at))보다 이르면 «현 가입 이후 첫 도착» 으로 보고 island.member.arrived 를 낸다. 백필 없음. GROMO-2302, V127']
 
   indexes {
     (user_id, island_id) [pk]
