@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { API_URL, request } from '@/services/api/client';
+import { API_URL, ApiError, request } from '@/services/api/client';
+import { getSession, sessionGeneration } from '@/services/api/session';
 
 export type CatalogSlot = 'clothes' | 'decor' | 'head' | 'neck' | 'shoes';
 
@@ -28,8 +29,8 @@ const FAILURE_TTL_MS = 60 * 1000;
 const SLOTS: readonly string[] = ['clothes', 'decor', 'head', 'neck', 'shoes'];
 
 const EMPTY: CatalogTable = {};
-let cache: { table: CatalogTable; expires: number } | null = null;
-let inflight: Promise<CatalogTable> | null = null;
+let cache: { scope: string; table: CatalogTable; expires: number; failed: boolean } | null = null;
+let inflight: { scope: string; promise: Promise<CatalogTable> } | null = null;
 const listeners = new Set<(table: CatalogTable) => void>();
 
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && isFinite(v) ? v : fallback);
@@ -66,25 +67,51 @@ export function parseCatalog(raw: unknown): CatalogTable {
   return table;
 }
 
-/** 카탈로그를 읽는다 — 1시간 메모리 캐시, 실패·404 는 빈 표(옛 서버 호환). */
+/** 로그인 범위 — 세대·userId 가 바뀌면 캐시(성공·실패 모두)를 버린다. 로그인 전이면 null. */
+const scopeNow = (): string | null => {
+  const userId = getSession()?.userId;
+  return userId ? `${sessionGeneration()}:${userId}` : null;
+};
+
+/**
+ * 카탈로그를 읽는다 — 1시간 메모리 캐시, 404·실패는 빈 표(옛 서버 호환, 1분만 기억).
+ * 로그인 전에는 조회하지 않고(빈 표, 캐시 안 함), 401 도 캐시하지 않는다(인증 문제는 로그인 세대 변경이 푼다).
+ */
 export function loadCustomizationCatalog(now: number = Date.now()): Promise<CatalogTable> {
-  if (cache && cache.expires > now) return Promise.resolve(cache.table);
-  inflight ??= request<unknown>('/customization/catalog')
-    .then(parseCatalog, () => null)
-    .then((table) => {
-      cache = table
-        ? { table, expires: Date.now() + TTL_MS }
-        : { table: cache?.table ?? EMPTY, expires: Date.now() + FAILURE_TTL_MS };
+  const scope = scopeNow();
+  if (!scope) return Promise.resolve(EMPTY);
+  if (cache && cache.scope === scope && cache.expires > now) return Promise.resolve(cache.table);
+  if (inflight && inflight.scope === scope) return inflight.promise;
+  const promise: Promise<CatalogTable> = request<unknown>('/customization/catalog')
+    .then(
+      (raw) => ({ table: parseCatalog(raw), failed: false, auth: false }),
+      (thrown) => ({
+        table: EMPTY,
+        failed: true,
+        auth: thrown instanceof ApiError && thrown.status === 401,
+      }),
+    )
+    .then((result) => {
+      // 요청 중 로그인이 바뀌었으면 이 결과는 버린다
+      if (scopeNow() !== scope) return EMPTY;
+      if (result.auth) return EMPTY;
+      cache = {
+        scope,
+        failed: result.failed,
+        table: result.failed ? (cache?.scope === scope ? cache.table : EMPTY) : result.table,
+        expires: Date.now() + (result.failed ? FAILURE_TTL_MS : TTL_MS),
+      };
       listeners.forEach((fn) => fn(cache!.table));
       return cache.table;
     })
     .finally(() => {
-      inflight = null;
+      if (inflight?.promise === promise) inflight = null;
     });
-  return inflight;
+  inflight = { scope, promise };
+  return promise;
 }
 
-const snapshot = (): CatalogTable => cache?.table ?? EMPTY;
+const snapshot = (): CatalogTable => (cache && cache.scope === scopeNow() ? cache.table : EMPTY);
 
 export const byProductId = (productId: string): CatalogEntry | undefined => snapshot()[productId];
 
@@ -94,18 +121,31 @@ export const forSlot = (slot: CatalogSlot): CatalogEntry[] =>
     .filter((entry) => entry.slot === slot)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
-/** 화면용 — 처음 쓰일 때 한 번 읽고, 다시 읽히면 갱신한다. */
+/** 화면용 — 로그인 범위가 바뀌면 다시 읽고, 실패 캐시가 만료되면 화면에 머물러도 다시 읽는다. */
 export function useCustomizationCatalog(): CatalogTable {
+  const scope = scopeNow();
   const [table, setTable] = useState<CatalogTable>(snapshot);
   useEffect(() => {
-    listeners.add(setTable);
     let live = true;
-    loadCustomizationCatalog().then((next) => live && setTable(next));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const apply = (next: CatalogTable) => live && setTable(next);
+    listeners.add(apply);
+    const run = () =>
+      loadCustomizationCatalog().then((next) => {
+        if (!live) return;
+        setTable(next);
+        // 실패 캐시는 만료되면 한 번 더 읽어 복구한다
+        if (cache?.failed && cache.scope === scopeNow())
+          timer = setTimeout(run, Math.max(0, cache.expires - Date.now()) + 50);
+      });
+    setTable(snapshot());
+    void run();
     return () => {
       live = false;
-      listeners.delete(setTable);
+      clearTimeout(timer);
+      listeners.delete(apply);
     };
-  }, []);
+  }, [scope]);
   return table;
 }
 
