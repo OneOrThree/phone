@@ -2178,7 +2178,7 @@ function FinalIslandScene({
     hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
     // 오른쪽 여백은 오른쪽 안전영역으로 따로 잡는다(노치가 오른쪽인 가로 방향) — 아래 집중 버튼과 같은 규칙
     hudRight = L.landscape ? Math.max(56, L.insets.right + 4) : 20,
-    hudMax = Math.max(0, L.width - hudLeft - hudRight),
+    hudMax = Math.max(0, Math.min(L.width / 2, L.width - hudLeft - hudRight)),
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
     showQuestIndicator =
       showHud &&
@@ -2248,6 +2248,7 @@ function FinalIslandScene({
           }}
         >
           <View
+            testID="island-focus-pill"
             pointerEvents="none"
             // 섬 이름·오늘 집중·시간을 스크린리더가 한 번에 읽는다
             accessible={!visiting}
@@ -2268,21 +2269,27 @@ function FinalIslandScene({
               // 섬 이름(최대 20자)이 길어도 화면 밖으로 밀리지 않게 폭을 묶어 이름만 말줄임한다.
               // 아주 좁은 창에서 minWidth 가 maxWidth 를 이기지 않게 같은 상한으로 묶는다
               minWidth: visiting ? undefined : Math.min(210, hudMax),
-              maxWidth: visiting ? undefined : hudMax,
+              maxWidth: hudMax,
             }}
           >
             {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
             {visiting ? (
-              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+              <Txt
+                kind="meta"
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}
+              >
                 {t('home.hud.visiting', { name: i.name })}
               </Txt>
             ) : (
               <>
                 {/* 어느 섬의 홈인지 — 서버 모드는 스냅샷의 섬 이름(GROMO-2138) */}
-                <View style={{ flexShrink: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Txt
                     kind="meta"
                     numberOfLines={1}
+                    ellipsizeMode="tail"
                     style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '700' }}
                   >
                     {i.name}
@@ -2292,7 +2299,11 @@ function FinalIslandScene({
                   </Txt>
                 </View>
                 <Txt
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
                   style={{
+                    flexShrink: 1,
+                    minWidth: 0,
                     fontSize: 22,
                     lineHeight: 31.9,
                     fontWeight: '700',

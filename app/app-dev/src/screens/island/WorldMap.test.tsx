@@ -1282,3 +1282,16 @@ test('빠른 핀치 반복에도 화면 팻말과 나무 이미지는 고정 크
   expect(StyleSheet.flatten(sign().props.style).left).not.toBe(initial.left);
   await screen.unmount();
 });
+
+test('긴 섬 이름은 화면 절반 너비의 집중 알약 안에서 말줄임한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  island.name = '아주아주이름이긴우리들의고양이섬';
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  const pill = screen.getByTestId('island-focus-pill');
+  expect(StyleSheet.flatten(pill.props.style).maxWidth).toBe(201);
+  expect(pill.props.accessibilityLabel).toContain(island.name);
+  const name = within(pill).getByText(island.name);
+  expect(name.props.numberOfLines).toBe(1);
+  expect(name.props.ellipsizeMode).toBe('tail');
+});
