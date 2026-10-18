@@ -182,7 +182,7 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
 
 **채팅의 TTL 멤버십 캐시 즉시 무효화(GROMO-2140)도 같은 분리를 따른다.** `island.members.updated`(MEMBER_ADDED·MEMBER_REMOVED)의 내부 봉투 `params`에 `memberUserId`(실제로 소속이 바뀐 유저 — 강퇴처럼 명령 주체와 다를 수 있다)를 싣고, Realtime `InboundEventService`가 그 값으로 채팅의 `cache:chat:member:{userId}` 한 키만 즉시 지운다(`MembershipService#evict`). `memberUserId`는 위 문단의 제어자료와 같은 성격이라 **이 표(§2)의 공개 payload에는 없다** — 이 type은 아직 §3.1 전달 adapter가 없어 클라이언트로 나가지도 않는다. 필드가 없는 옛 Data 사건은 무효화를 건너뛰고 기존 TTL(`chat.membership.cache-ttl-seconds`)이 그대로 백스톱이다. HOST_TRANSFER는 주민 집합이 바뀌지 않으므로 무효화 대상이 없다.
 
-`events` 채널(GROMO-2302)은 구독 때 멤버십을 한 번 보고, 프레임마다 캐시 멤버십(`cache:chat:member:{userId}`)을 다시 본다 — 강퇴·탈퇴는 위 `MEMBER_REMOVED` 무효화가 캐시를 지우고 TTL(120s)이 상한이다. 조회 실패·비주민은 프레임만 버린다(fail-closed, 소켓 유지).
+`events` 채널(GROMO-2302)은 구독 때 멤버십을 한 번 보고, 프레임마다 캐시 멤버십(`cache:chat:member:{userId}`)을 다시 본다 — 강퇴·탈퇴는 위 `MEMBER_REMOVED` 무효화가 캐시를 지우고 TTL(120s)이 상한이다. 조회 실패·비주민은 프레임만 버린다(fail-closed, 소켓 유지). 잔여 위험: `island.members.updated(MEMBER_REMOVED)` 의 캐시 evict 가 실패하면 강퇴된 주민이 최대 캐시 TTL(120초) 동안 `events` 프레임을 한 번 더 받을 수 있다 — 실리는 내용은 같은 섬의 도착 알림(이름·털색) 한 건이라 노출은 낮다. 전달 경로가 이동 채널처럼 stale 표시를 읽어 `requireMemberUncached` 로 가면 창이 닫히며, 그 보강은 후속이다.
 
 실시간 데이터 프레임을 실제 소켓으로 내보내기 직전에 세션 인증과 해당 type의 현재 수신 자격을 확인한다. 특히 개인 join.request 수신 중 이전 방장 권한, emote 수신 중 pause/finish, messages 수신 중 집중 시작을 재검증한다. 보호 채널에서 stale TTL 캐시를 최종 권한 증거로 쓰지 않는다. 권한 원천 확인 실패는 fail-closed; subscriber 수에 비례한 조회 비용은 배치 권한조회/동일 revision 검사로 최적화하되 허용 가능한 지연창을 몰래 늘리지 않는다.
 
