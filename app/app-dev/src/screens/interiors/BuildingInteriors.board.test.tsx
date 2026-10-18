@@ -1245,7 +1245,7 @@ test('874×450 공지 종이는 내비게이션 높이를 반영해 140px 이상
   const noticeScroll = StyleSheet.flatten(screen.getByTestId('board-notice-scroll').props.style);
   const readableHeight = noticeScroll.maxHeight;
 
-  assert.equal(navigation.props.children.length, 2);
+  assert.equal(React.Children.count(navigation.props.children), 1);
   assert.equal(drawer.height, 442);
   assert.equal(drawer.paddingTop, 38);
   assert.equal(drawer.paddingBottom, 28);
@@ -1285,33 +1285,16 @@ test('열린 게시판 패널에서도 스크롤을 막고 배경 라벨은 패�
   await screen.unmount();
 });
 
-test('겹쳐진 가로 게시판 패널에서 44px 조작으로 전환·닫기를 할 수 있다', async () => {
+test('게시판 패널은 전환 화살표 없이 44px 닫기 버튼을 유지한다', async () => {
   const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
     width: 874,
     height: 402,
   });
-  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
-  const switchButton = screen.getByTestId('board-panel-switch');
-  const closeButton = screen.getByTestId('board-panel-close');
-  const switchStyle = StyleSheet.flatten(switchButton.props.style);
-  const closeStyle = StyleSheet.flatten(closeButton.props.style);
-
-  assert.equal(drawer.left, 324);
-  assert.equal(drawer.right, 30);
-  assert.ok(switchStyle.width >= 44 && switchStyle.height >= 44);
-  assert.ok(closeStyle.width >= 44 && closeStyle.height >= 44);
-  assert.equal(switchButton.props.accessibilityLabel, '퀘스트 패널로 전환');
-
-  fireEvent.press(switchButton);
-  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
-  assert.equal(
-    screen.getByTestId('board-panel-switch').props.accessibilityLabel,
-    '공지 패널로 전환',
-  );
-
-  fireEvent.press(screen.getByTestId('board-panel-switch'));
-  await waitFor(() => assert.ok(screen.getByText('소다 섬 게시판')));
-  fireEvent.press(screen.getByTestId('board-panel-close'));
+  assert.equal(screen.queryByTestId('board-panel-switch'), null);
+  const close = screen.getByTestId('board-panel-close');
+  const style = StyleSheet.flatten(close.props.style);
+  assert.ok(style.width >= 44 && style.height >= 44);
+  await fireEvent.press(close);
   await waitFor(() =>
     assert.equal(screen.getByTestId('board-scene-scroll').props.scrollEnabled, true),
   );

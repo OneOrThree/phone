@@ -6505,22 +6505,6 @@ export function Board({
             }}
           >
             <Pressable
-              testID="board-panel-switch"
-              accessibilityRole="button"
-              accessibilityLabel={`${s.panel === 'notice' ? '퀘스트' : '공지'} 패널로 전환`}
-              onPress={() => nav.open(s.panel === 'notice' ? 'quest' : 'notice')}
-              style={{
-                width: 44,
-                height: 44,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text allowFontScaling={false} style={boardFont(20, 1, '700', '#76503c')}>
-                ⇄
-              </Text>
-            </Pressable>
-            <Pressable
               testID="board-panel-close"
               accessibilityRole="button"
               accessibilityLabel="게시판 닫기"
