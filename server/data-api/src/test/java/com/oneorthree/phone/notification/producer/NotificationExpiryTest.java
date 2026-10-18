@@ -36,4 +36,14 @@ class NotificationExpiryTest {
         assertThat(NotificationExpiry.expiresAt(NotificationKind.CHALLENGE_WINDOW_END, cycleEnd))
                 .isEqualTo(cycleEnd.plus(Duration.ofHours(24)));
     }
+
+    @Test
+    @DisplayName("잡지 발행 알림은 호 날짜 다음 날 07:00 KST 에 만료된다 — 다음 호 발행 뒤에는 지난 호가 나가지 않는다")
+    void magazinePublishedExpiresWhenTheNextIssueIsOut() {
+        Instant published = DAY.atTime(LocalTime.of(7, 0)).atZone(KST).toInstant();
+
+        assertThat(NotificationExpiry.validity(NotificationKind.MAGAZINE_PUBLISHED)).isNotNull();
+        assertThat(NotificationExpiry.expiresAt(NotificationKind.MAGAZINE_PUBLISHED, published))
+                .isEqualTo(DAY.plusDays(1).atTime(LocalTime.of(7, 0)).atZone(KST).toInstant());
+    }
 }

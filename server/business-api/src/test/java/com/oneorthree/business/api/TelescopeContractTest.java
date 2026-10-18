@@ -33,6 +33,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>잡지 경유(GROMO-2289) — 핀 본문의 선택 {@code promotionId} 전달과 모든 칸의 {@code magazineCell}(null 이어도 키 유지,
  * 이 필드를 모르는 옛 Data 응답은 null 로 읽기)도 여기서 본다.
+ *
+ * <p>완공 건물 수 {@code buildingCount}(GROMO-2306)는 선택 필드다 — 상류 값을 그대로 싣고, 키를 모르는 옛 Data 칸은 null 이다.
  */
 class TelescopeContractTest extends UpstreamTestBase {
 
@@ -54,7 +56,7 @@ class TelescopeContractTest extends UpstreamTestBase {
             + "\"items\":[{\"islandId\":\"" + HOME + "\",\"name\":\"윤슬\",\"intro\":\"같이 집중해요\","
             + "\"memberCount\":2,\"maxMembers\":5,\"approvalRequired\":false,\"membershipStatus\":\"active\","
             + "\"slot\":\"joined\",\"sailingMinutes\":60,\"averageFocusMinutesPerDay\":83,\"full\":false,"
-            + "\"arrivedBefore\":true},"
+            + "\"arrivedBefore\":true,\"buildingCount\":3},"
             + "{\"islandId\":\"" + NEARBY + "\",\"name\":\"물결\",\"intro\":\"\",\"memberCount\":1,"
             + "\"maxMembers\":10,\"approvalRequired\":true,\"membershipStatus\":\"pending\",\"slot\":\"nearby\","
             + "\"sailingMinutes\":15,\"averageFocusMinutesPerDay\":null,\"full\":false,\"arrivedBefore\":false}]}";
@@ -187,7 +189,26 @@ class TelescopeContractTest extends UpstreamTestBase {
         assertThat(items.get(0).get("magazineCell").isNull()).isTrue();
         assertThat(items.get(1).has("magazineCell")).as("옛 Data — 키 없음").isTrue();
         assertThat(items.get(1).get("magazineCell").isNull()).isTrue();
-        assertThat(items.get(2)).isEqualTo(json.readTree(MAGAZINE_ITEM));
+        assertThat(items.get(2)).isEqualTo(withNullCells("{\"items\":[" + MAGAZINE_ITEM + "]}").path("items").get(0));
+    }
+
+    @Test
+    @DisplayName("완공 건물 수(buildingCount)는 상류 값을 그대로 싣고(0 포함), 키가 없거나 null 인(옛 Data) 칸은 공개에서도 키가 빠진다")
+    void buildingCountIsRelayedOrNullOnEveryItem() throws Exception {
+        DATA.on(DATA_TELESCOPE, request -> ok(LIST.replace("\"buildingCount\":3", "\"buildingCount\":0")
+                .replace("\"arrivedBefore\":false}", "\"arrivedBefore\":false,\"buildingCount\":null}")));
+
+        mockMvc.perform(auth(get(TELESCOPE)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].buildingCount").value(0))
+                .andExpect(jsonPath("$.data.items[1].buildingCount").doesNotHaveJsonPath());
+
+        DATA.reset();
+        DATA.on(DATA_TELESCOPE, request -> ok(LIST));
+        mockMvc.perform(auth(get(TELESCOPE)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].buildingCount").value(3))
+                .andExpect(jsonPath("$.data.items[1].buildingCount").doesNotHaveJsonPath());
     }
 
     @Test
@@ -225,7 +246,7 @@ class TelescopeContractTest extends UpstreamTestBase {
 
         ObjectMapper json = new ObjectMapper();
         assertThat(json.readTree(result.getResponse().getContentAsString()).path("data").path("item"))
-                .isEqualTo(json.readTree(MAGAZINE_ITEM));
+                .isEqualTo(withNullCells("{\"items\":[" + MAGAZINE_ITEM + "]}").path("items").get(0));
         assertThat(json.readTree(DATA.receivedFor(DATA_PIN).get(0).body())).isEqualTo(json.readTree(body));
     }
 
@@ -370,7 +391,10 @@ class TelescopeContractTest extends UpstreamTestBase {
         return auth(request).contentType(MediaType.APPLICATION_JSON).content(body);
     }
 
-    /** 공개 응답 기대값 — {@code magazineCell} 을 모르는 상류 칸에는 공개가 null 키를 싣는다. */
+    /**
+     * 공개 응답 기대값 — {@code magazineCell} 을 모르는 상류 칸에는 공개가 null 키를 싣는다. {@code buildingCount} 는 상류에
+     * 없으면 공개에서도 키가 빠진다(NON_NULL)라 손대지 않는다.
+     */
     private static tools.jackson.databind.JsonNode withNullCells(String upstream) {
         var tree = new ObjectMapper().readTree(upstream);
         tree.path("items").forEach(item -> {

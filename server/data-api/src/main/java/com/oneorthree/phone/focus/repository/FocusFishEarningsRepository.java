@@ -32,7 +32,7 @@ public interface FocusFishEarningsRepository extends Repository<FocusRewardAccru
             SELECT e.user_id AS "userId", SUM(e.fish) AS "earnedFish" FROM (
                 SELECT d.user_id, a.earned_fish + a.golden_fish + a.tutorial_fish AS fish
                 FROM focus_reward_accruals a JOIN focus_session_details d ON d.session_id = a.session_id
-                WHERE d.island_id = :islandId AND d.user_id IN (:userIds)
+                WHERE d.island_id = :islandId AND d.kind = 'ISLAND' AND d.user_id IN (:userIds)
                 UNION ALL
                 SELECT r.user_id, 1 AS fish FROM focus_tutorial_rewards r
                 WHERE r.island_id = :islandId AND r.session_id IS NULL AND r.user_id IN (:userIds)

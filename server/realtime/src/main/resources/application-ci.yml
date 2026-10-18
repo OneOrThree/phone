@@ -40,6 +40,9 @@ logging:
     com.oneorthree.realtime: DEBUG
 
 realtime:
+  sea:
+    # 테스트는 SeaAdriftSweeper.sweep() 을 직접 부른다. 실시계 스위퍼가 캐시 컨텍스트마다 돌면 다른 테스트의 Redis 를 건드린다.
+    adrift-sweep-enabled: false
   focus:
     # 테스트는 IslandFocusSessions 를 스텁으로 갈아 끼운다. 실제로 호출되면 즉시 실패해야 하므로
     # 닿지 않는 주소를 둔다 — GroupClient 의 ci 설정과 같은 이유다.

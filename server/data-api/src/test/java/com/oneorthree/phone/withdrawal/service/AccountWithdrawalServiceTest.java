@@ -117,6 +117,9 @@ class AccountWithdrawalServiceTest {
     /** 고양이 잡지 받음 상태 파기 (GROMO-2289) — 개인 열람 기록이라 지운다. */
     @Mock
     private com.oneorthree.phone.magazine.repository.MagazineReceiptRepository magazineReceiptRepository;
+    /** 바다 한마디 파기 (GROMO-2299). */
+    @Mock
+    private com.oneorthree.phone.focus.service.SeaRemarkService seaRemarkService;
     @Mock
     private com.oneorthree.phone.quest.service.IslandQuestService islandQuestService;
 
@@ -140,8 +143,8 @@ class AccountWithdrawalServiceTest {
                 focusSessionIntervalRepository, focusSessionDetailRepository, statsService,
                 screenTimeService, userService, friendService, inviteLinkMatchService,
                 rankOvertakeNotificationService, leagueService, characterGenerationService, equipmentService,
-                appearanceService, seaFocusRewardService, magazineReceiptRepository, islandQuestService,
-                publicCommandService);
+                appearanceService, seaFocusRewardService, magazineReceiptRepository, seaRemarkService,
+                islandQuestService, publicCommandService);
         // 배타 락 로드가 맨 앞 — 이후 정리와 새 관계 생성을 직렬화한다
         order.verify(userQueryService).getCallerForUpdate(USER_ID);
         order.verify(groupMemberService).lockGroupsForAccountWithdrawal(user);
@@ -172,6 +175,7 @@ class AccountWithdrawalServiceTest {
         order.verify(appearanceService).eraseWithdrawnUser(USER_ID);
         order.verify(seaFocusRewardService).eraseWithdrawnUser(USER_ID);
         order.verify(magazineReceiptRepository).deleteAllOfUser(USER_ID);
+        order.verify(seaRemarkService).eraseWithdrawnUser(USER_ID);
         order.verify(islandQuestService).eraseWithdrawnUser(USER_ID);
         order.verify(userService).deleteWalletAndSettings(USER_ID);
         order.verify(friendService).detachWithdrawnUser(USER_ID);

@@ -77,7 +77,9 @@ public class FocusTutorialRewardService {
                 .orElseThrow(() -> new FocusException(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED));
         var detail = details.findBySessionIdForUpdate(sessionId)
                 .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
-        if (membership.getMembershipEpoch() != detail.getMembershipEpochAtStart()) {
+        // 바다 세션은 epoch 가 null 이다(GROMO-2299) — 섬 통장 +1 인 이 보상은 바다에서 받을 수 없다(미결 제품 판단).
+        if (detail.getMembershipEpochAtStart() == null
+                || membership.getMembershipEpoch() != detail.getMembershipEpochAtStart()) {
             throw new FocusException(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
         }
         var claimed = rewards.findByUserId(userId);

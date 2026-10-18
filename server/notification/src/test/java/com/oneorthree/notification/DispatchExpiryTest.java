@@ -98,6 +98,43 @@ class DispatchExpiryTest {
     }
 
     @Test
+    @DisplayName("지난 호가 된 잡지 알림(eligibility_required=false)은 호 날짜 다음 날 07:00 KST 이후 적격성 조회·발송 없이 만료로 끝난다")
+    void aMagazineNotificationForAPastIssueIsExpired() {
+        timed("magazine", "MAGAZINE_PUBLISHED", NOW.plusSeconds(60)); // expiresAt = 다음 호 발행 시각
+        when(clock.instant()).thenReturn(NOW.plusSeconds(61));
+
+        dispatch.dispatch(delivery("magazine"));
+
+        verifyNoInteractions(data, transport);
+        assertThat(status("magazine")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
+    @DisplayName("만료 시각 정각(now == expiresAt)에 잡지 알림은 만료로 끝난다")
+    void aMagazineNotificationExpiresExactlyAtItsExpiry() {
+        Instant expiresAt = NOW.plusSeconds(60);
+        timed("magazine-edge", "MAGAZINE_PUBLISHED", expiresAt);
+        when(clock.instant()).thenReturn(expiresAt);
+
+        dispatch.dispatch(delivery("magazine-edge"));
+
+        verify(transport, never()).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(status("magazine-edge")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
+    }
+
+    @Test
+    @DisplayName("만료 1초 전의 잡지 알림은 나간다")
+    void aMagazineNotificationOneSecondBeforeExpiryIsSent() {
+        Instant expiresAt = NOW.plusSeconds(60);
+        timed("magazine-before", "MAGAZINE_PUBLISHED", expiresAt);
+        when(clock.instant()).thenReturn(expiresAt.minusSeconds(1));
+
+        dispatch.dispatch(delivery("magazine-before"));
+
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    @Test
     @DisplayName("적격성 조회를 기다리는 사이 시한이 지나면 보내지 않고 만료로 끝난다")
     void expiryReachedWhileEligibilityIsBeingCheckedDoesNotSend() {
         timed("streak", "STREAK_AT_RISK", NOW.plusSeconds(30));
@@ -209,6 +246,8 @@ class DispatchExpiryTest {
         params.put("kind", kind);
         params.put("rank", 3);
         params.put("streakCount", 4);
+        params.put("issueNo", "7");
+        params.put("issueId", UUID.randomUUID().toString());
         params.put("dedupAt", expiresAt.minusSeconds(7200).toString());
         params.put("expiresAt", expiresAt.toString());
         inbound.accept(event(id, "notification.requested", null, params));

@@ -49,7 +49,7 @@ public class TelescopePin {
     @Column(name = "pinned_at", nullable = false)
     private Instant pinnedAt;
 
-    /** 다음 07:00 KST — 이 시각 이후(같은 시각 포함)에는 목록에 나오지 않는다. */
+    /** 넣은 1시간 버킷의 끝(다음 정시, GROMO-2306) — 이 시각 이후(같은 시각 포함)에는 목록에 나오지 않는다. */
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 

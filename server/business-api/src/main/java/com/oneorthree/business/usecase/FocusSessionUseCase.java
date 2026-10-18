@@ -15,6 +15,7 @@ import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
 import com.oneorthree.business.upstream.data.dto.PendingFocusResult;
+import com.oneorthree.business.upstream.data.dto.SeaRemarkResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -65,7 +66,10 @@ public class FocusSessionUseCase {
             Map.entry("SESSION_START_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)),
             Map.entry("INVALID_SUMMARY_DATE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "date")),
             Map.entry("SUMMARY_DATE_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "date")),
-            Map.entry("INVALID_SUMMARY_TIMEZONE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "timezone")));
+            Map.entry("INVALID_SUMMARY_TIMEZONE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "timezone")),
+            // 바다 한마디(GROMO-2299)의 «한 줄이어야 한다» 같은 모양 거절 — 길이·필드 수는 공개 경계가 먼저 걸러 보통 닿지 않는다.
+            // 이 표는 모든 집중 엔드포인트가 공유하므로 field 는 null 이다(특정 필드명을 다른 엔드포인트 400 에 붙이지 않는다).
+            Map.entry("INVALID_REQUEST", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)));
 
     private final DataFocusClient data;
 
@@ -106,6 +110,26 @@ public class FocusSessionUseCase {
             UUID key, Deadline deadline) {
         return StateView.from(relay(() -> data.startFocusSession(
                 claims.userId(), islandId, subject, targetMinutes, key, deadline)));
+    }
+
+    /** 바다 집중 세션 시작 (GROMO-2299) — 목적지·항해 분 판정은 Data 가 망원경 목록으로 한다. */
+    public StateView startSea(AccessTokenClaims claims, UUID destinationIslandId, UUID key, Deadline deadline) {
+        return StateView.from(relay(() -> data.startSeaFocusSession(
+                claims.userId(), destinationIslandId, key, deadline)));
+    }
+
+    /** 바다 한마디 변경 (GROMO-2299) — 게스트 403·5분 잠금 409 는 Data 가 판정한다. */
+    public SeaRemarkView updateSeaRemark(AccessTokenClaims claims, String remark, Deadline deadline) {
+        SeaRemarkResult result = relay(() -> data.updateSeaRemark(claims.userId(), remark, deadline));
+        if (result == null) {
+            throw new UpstreamContractMismatchException("바다 한마디 응답이 없습니다");
+        }
+        return new SeaRemarkView(result.remark(), result.changedAt(), result.lockedUntil());
+    }
+
+    /** 공개 한마디 변경 응답 — 지웠으면 {@code remark} 는 null 이다. */
+    public record SeaRemarkView(String remark, @JsonProperty(required = true) String changedAt,
+                                @JsonProperty(required = true) String lockedUntil) {
     }
 
     /**
@@ -177,14 +201,16 @@ public class FocusSessionUseCase {
             @JsonProperty(required = true) String startedAt,
             String restStartedAt,
             @JsonProperty(required = true) long version,
-            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String kind) {
         private static StateView from(FocusSessionState source) {
             if (source == null) {
                 return null;
             }
             return new StateView(source.id(), source.islandId(), source.subject(), source.targetMinutes(),
                     source.status(), source.activeSeconds(), source.serverNow(), source.startedAt(),
-                    source.restStartedAt(), source.version(), ActiveIntervalView.fromAll(source.activeIntervals()));
+                    source.restStartedAt(), source.version(), ActiveIntervalView.fromAll(source.activeIntervals()),
+                    source.kind());
         }
     }
 
@@ -207,7 +233,9 @@ public class FocusSessionUseCase {
             @JsonProperty(required = true) String completedAt,
             List<QuestProgressView> questProgress,
             @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals,
-            SeaRewardView seaReward) {
+            SeaRewardView seaReward,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String kind,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean arrived) {
         private static FinishView from(FocusFinish source) {
             if (source == null) {
                 return null;
@@ -219,7 +247,7 @@ public class FocusSessionUseCase {
                     new AllocationView(source.allocation().personalFishAdded(),
                             source.allocation().constructionFishAdded()),
                     source.completedAt(), progress, ActiveIntervalView.fromAll(source.activeIntervals()),
-                    SeaRewardView.from(source.seaReward()));
+                    SeaRewardView.from(source.seaReward()), source.kind(), source.arrived());
         }
     }
 

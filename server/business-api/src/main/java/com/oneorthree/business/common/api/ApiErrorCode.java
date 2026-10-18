@@ -18,7 +18,7 @@ public enum ApiErrorCode implements ErrorCode {
     // 앱은 사용자에게 왜 막혔는지 안내할 수 없다(NICKNAME_INVALID 와 같은 이유로 여기 둔다).
     BANNED_WORD(HttpStatus.BAD_REQUEST, "사용할 수 없는 표현이 포함돼 있어요.", false),
     // GROMO-2289 고양이 잡지 홍보 7종(PROMOTION_LAYOUT_INVALID 부터 PROMOTION_TEXT_TOO_LONG 까지, 상태별로 흩어져 있다).
-    // Data 의 MagazineErrorCode 와 이름·상태가 같아야 registeredUpstream 이 붙는다 — 없으면 신청 창·비공개 섬·꾸미기
+    // Data 의 MagazineErrorCode 와 이름·상태가 같아야 registeredUpstream 이 붙는다 — 없으면 신청 창·꾸미기
     // 판정 같은 정상 거절이 502 로 나가 앱이 사용자에게 왜 막혔는지 안내할 수 없다. MAGAZINE_NOT_READY(503)는 등록하지
     // 않는다 — IslandPromotionUseCase 가 공개 SERVICE_UNAVAILABLE 로 바꾼다.
     PROMOTION_LAYOUT_INVALID(HttpStatus.BAD_REQUEST, "홍보 칸 꾸미기 내용이 올바르지 않아요", false),
@@ -71,8 +71,14 @@ public enum ApiErrorCode implements ErrorCode {
     // 잡지 홍보 신청. 앱이 이 코드에만 「오늘은 이미 신청했어요」를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
     PROMOTION_ALREADY_REQUESTED_TODAY(HttpStatus.CONFLICT, "오늘은 이미 잡지 홍보를 신청했어요", false),
     PROMOTION_WINDOW_CLOSED(HttpStatus.CONFLICT, "지금은 홍보를 신청할 수 없어요. 아침 7시에 다시 열려요", false),
+    // 10/16 비공개 섬 홍보 허용 — 더는 던지지 않는다(공개 이름 동결). 제거 시점: 앱 2316(비공개 버튼 해제·분기 삭제) 배포 뒤. 문구는 옛 정책 그대로(이름·문구 동결).
     PROMOTION_PRIVATE_ISLAND(HttpStatus.CONFLICT, "비공개 섬은 잡지에 홍보할 수 없어요", false),
     PROMOTION_LOCKED(HttpStatus.CONFLICT, "자정이 지나 홍보를 고칠 수 없어요", false),
+    // GROMO-2299. Data 의 FocusErrorCode 와 이름·상태가 같다 — 바다 항해 세 거절. 앱이 일반 STATE_CONFLICT 와 갈라
+    // 「지금은 갈 수 없는 섬이에요」·「항해 중에는 쉴 수 없어요」·「한마디는 5분에 한 번」을 띄운다.
+    SEA_DESTINATION_UNAVAILABLE(HttpStatus.CONFLICT, "지금은 갈 수 없는 섬입니다.", false),
+    SEA_SESSION_NO_REST(HttpStatus.CONFLICT, "항해 중에는 쉴 수 없습니다.", false),
+    SEA_REMARK_LOCKED(HttpStatus.CONFLICT, "한마디는 5분에 한 번만 바꿀 수 있습니다.", false),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "잔액이 부족합니다.", false),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.", false),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 요청에 사용한 명령 키입니다.", false),

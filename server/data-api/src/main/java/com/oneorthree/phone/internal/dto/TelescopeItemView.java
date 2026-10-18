@@ -20,9 +20,11 @@ import java.util.UUID;
  * @param pinnedAt                  핀을 넣은 시각 — {@code pinnedFrom} 과 함께 있거나 함께 없다
  * @param magazineCell              잡지에서 넣은 섬의 현재 호 홍보 칸(말풍선 미리보기, SCOPE-09, GROMO-2289). 잡지 핀이 아니거나,
  *                                  편집부 칸에서 넣은 섬이거나, 칸이 숨겨졌거나, 현재 호가 아니면 null
+ * @param buildingCount             완공 건물 수(GROMO-2306) — 잡지 {@code IslandCard.buildingCount} 와 같은 값이고 없으면 0.
+ *                                  「귀여운 섬」 단계 그림은 앱이 {@code islandStage(memberCount, buildingCount)} 로 정한다
  */
 public record TelescopeItemView(UUID islandId, String name, String intro, int memberCount, int maxMembers,
         boolean approvalRequired, String membershipStatus, String slot, int sailingMinutes,
         Integer averageFocusMinutesPerDay, boolean full, boolean arrivedBefore,
-        String pinnedFrom, Instant pinnedAt, MagazineViews.Cell magazineCell) {
+        String pinnedFrom, Instant pinnedAt, MagazineViews.Cell magazineCell, int buildingCount) {
 }

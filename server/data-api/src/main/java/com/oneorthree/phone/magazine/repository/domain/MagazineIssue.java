@@ -17,7 +17,8 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 /**
- * 고양이 잡지 한 호 (GROMO-2289, V120) — 하루 한 행, 발행 배치만 만든다. 만든 뒤 바뀌지 않는다.
+ * 고양이 잡지 한 호 (GROMO-2289, V120) — 하루 한 행, 발행 배치만 만든다. 만든 뒤 바뀌지 않는다(알림 펼치기 완료 표시 {@code notifiedAt} 만 예외 —
+ * {@code MagazineIssueRepository#markNotified}).
  */
 @Entity
 @Table(name = "magazine_issues")
@@ -53,6 +54,10 @@ public class MagazineIssue {
     /** 실린 홍보 수 — 조간·석간 전환 판단용. */
     @Column(name = "promotion_count", nullable = false, updatable = false)
     private int promotionCount;
+
+    /** 알림 펼치기 완료 시각(V126, GROMO-2307) — null 이면 틱마다 이어서 펼친다. 쓰기는 {@code markNotified} 만. */
+    @Column(name = "notified_at")
+    private Instant notifiedAt;
 
     public MagazineIssue(LocalDate issueDate, int issueNo, Instant publishedAt, MagazineEditorial editorial,
                          int promotionCount) {

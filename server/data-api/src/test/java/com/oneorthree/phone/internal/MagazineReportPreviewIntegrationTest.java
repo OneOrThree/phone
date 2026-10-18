@@ -183,7 +183,8 @@ class MagazineReportPreviewIntegrationTest {
     void onlyPublishedCellsCanBeReported() throws Exception {
         Island island = island("대상섬", false);
         Island other = island("다른섬", false);
-        Island hidden = island("비공개섬", true);
+        Island hidden = island("닫힌섬", false);
+        jdbc.update("update groups set deleted_at = now() where id = ?", hidden.id);
         UUID published = promotion(island, date);
         UUID skipped = promotion(hidden, date);
         UUID tomorrow = promotion(island, date.plusDays(1));
@@ -218,7 +219,8 @@ class MagazineReportPreviewIntegrationTest {
             var original = pins.pin(reader.getId(), island.id, source, null);
             assertThat(original.created()).isTrue();
 
-            now.set(kst(date, 9, 0));
+            // 핀은 넣은 1시간 버킷의 끝에 만료된다(GROMO-2306) — 같은 버킷 안에서 다시 넣는다.
+            now.set(kst(date, 8, 30));
             var repeated = pins.pin(reader.getId(), island.id, "magazine", promotion);
             assertThat(repeated.created()).isFalse();
             TelescopeItemView item = pinned(reader, island);
@@ -277,6 +279,8 @@ class MagazineReportPreviewIntegrationTest {
         assertThat(magazinePin.magazineCell().promotionId()).isEqualTo(promotion);
         assertThat(magazinePin.magazineCell().name()).isEqualTo("잡지핀섬");
         assertThat(magazinePin.magazineCell().body()).isEqualTo("홍보");
+        assertThat(magazinePin.magazineCell().privateIsland()).isFalse();
+        assertThat(magazinePin.magazineCell().buildingCount()).as("시설이 없는 섬").isZero();
         assertThat(magazinePin.magazineCell().layout().frameId()).isEqualTo("mag.frame-scallop");
         assertThat(pinned(viewer, fromObservatory).magazineCell()).isNull();
 
@@ -287,6 +291,9 @@ class MagazineReportPreviewIntegrationTest {
         assertThat(pinned(viewer, fromMagazine).magazineCell()).as("핀은 지난 호 칸 — 섬의 현재 호 칸을 대신 싣지 않는다")
                 .isNull();
         jdbc.update("update telescope_pins set promotion_id = ? where island_id = ?", promotion, fromMagazine.id);
+        // 핀은 넣은 1시간 버킷의 끝에 만료된다(GROMO-2306) — 현재 호의 마지막 버킷(06시대)에 다시 넣고 경계를 본다.
+        now.set(kst(date.plusDays(1), 6, 30));
+        assertThat(pins.pin(viewer.getId(), fromMagazine.id, "magazine", promotion).created()).isTrue();
         now.set(kst(date.plusDays(1), 6, 59));
         assertThat(pinned(viewer, fromMagazine).magazineCell()).isNotNull();
         now.set(kst(date.plusDays(1), 7, 0));

@@ -107,7 +107,10 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int memberCount,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int maxMembers,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer averageFocusMinutesPerDay,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation) {
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
+            @Schema(description = "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)",
+                    requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean privateIsland) {
     }
 
     /** 새 섬 한 장 — 랭킹에서 순위만 뺀 모양이다. */
@@ -119,7 +122,10 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int memberCount,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int maxMembers,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer averageFocusMinutesPerDay,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation) {
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
+            @Schema(description = "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)",
+                    requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean privateIsland) {
     }
 
     /** 한마디 — {@code EDITOR} 면 {@code body}, {@code TIP} 이면 {@code tipNo} 만 있고 다른 쪽은 null 이다. */
@@ -130,7 +136,11 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer tipNo) {
     }
 
-    /** 홍보 칸 한 개 — 섬 요약 + 섬장이 쓴 글과 꾸미기 {@code layout}. */
+    /**
+     * 홍보 칸 한 개 — 섬 요약 + 섬장이 쓴 글과 꾸미기 {@code layout}. {@code privateIsland} 는 읽는 시점의 섬 공개
+     * 여부(GROMO-2305) — 선택 필드라 옛 Data 가 안 보내면 null 이고, null 이면 키를 싣지 않는다(망원경
+     * 항목의 {@code magazineCell} 모양을 바꾸지 않는다). 비공개 섬은 망원경 핀이 404 라 앱이 동그라미를 숨긴다.
+     */
     @Schema(name = "MagazineCell")
     public record Cell(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID promotionId,
@@ -143,6 +153,9 @@ public final class Magazines {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String body,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL)
             @Schema(implementation = Map.class) ObjectNode layout,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation) {
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String relation,
+            @Schema(description = "읽는 시점의 섬 공개 여부. 키가 없으면 false 로 읽는다(옛 Data 호환 — null 은 보내지 않고 키만 빠진다)",
+                    requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean privateIsland) {
     }
 }

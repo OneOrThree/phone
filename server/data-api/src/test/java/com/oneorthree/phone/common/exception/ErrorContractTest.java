@@ -249,13 +249,16 @@ class ErrorContractTest {
         // 두 번째 쓰기다. 앱이 이 코드로 «오늘은 이미 남겼어요» 를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
         // GROMO-2267 이 잡지 홍보 코드 1개(GroupErrorCode.PROMOTION_ALREADY_REQUESTED_TODAY, 409)를 더했다 — 같은 KST 날의
         // 두 번째 신청이다. 앱이 이 코드로 «오늘은 이미 신청했어요» 를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다.
+        // GROMO-2299 가 바다 항해 코드 3개(FocusErrorCode.SEA_DESTINATION_UNAVAILABLE·SEA_SESSION_NO_REST·SEA_REMARK_LOCKED,
+        // 모두 409)를 더했다 — 앱이 각각 다른 안내를 띄우므로 일반 STATE_CONFLICT 로 접지 않는다. 공개 표에도 같은 이름·상태로
+        // 등록했다.
         // 잔액 부족은 새 코드가 아니라 건설·상점이 이미 쓰는 INSUFFICIENT_FUNDS(409)를 그대로 쓴다.
         // GROMO-2289 가 잡지 코드 8개(MagazineErrorCode — 신청 창 밖·비공개 섬·글 60자 초과(422)·배치 위반·안 가진 재료·
         // 마감 뒤 고치기·없는 홍보·기능 스위치 꺼짐(503))를 더했고, 발행 묶음이 없는 호(MAGAZINE_ISSUE_NOT_FOUND, 404)를 더했다.
         // 앱이 각 코드로 안내를 가르므로 STATE_CONFLICT 로 접지 않는다. 지금 주민인 섬의 칸 신고(PROMOTION_REPORT_OWN_ISLAND,
         // 403)를 더했다 — 공개 응답은 Business 가 FORBIDDEN 으로 옮긴다.
-        assertThat(tests).as("실측 기준 도메인 상수 221개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류·Live Activity 등록 검증·섬 도착 전 이동·방명록 하루 1개·잡지 홍보 하루 1회·잡지 10종 포함")
-                .hasSize(239);
+        assertThat(tests).as("실측 기준 도메인 상수 224개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류·Live Activity 등록 검증·섬 도착 전 이동·방명록 하루 1개·잡지 홍보 하루 1회·잡지 10종·바다 항해 3종 포함")
+                .hasSize(242);
         return tests;
     }
 

@@ -55,7 +55,7 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/islands/{islandId}/quests/{questId}/progress|members|userId name rate measurementStatus achieved claimed|userId name rate measurementStatus achieved claimed",
             "/islands/{islandId}/statistics/fish-earnings|members|userId name earnedFish|",
             "/me/join-requests|items|id islandId islandName memberCount maxMembers status version createdAt|id islandId memberCount maxMembers status version createdAt",
-            "/me/telescope|items|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes averageFocusMinutesPerDay full arrivedBefore pinnedFrom pinnedAt magazineCell|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes full arrivedBefore"})
+            "/me/telescope|items|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes averageFocusMinutesPerDay full arrivedBefore pinnedFrom pinnedAt magazineCell buildingCount|islandId name intro memberCount maxMembers approvalRequired membershipStatus slot sailingMinutes full arrivedBefore"})
     @DisplayName("동명 중첩 DTO가 있어도 각 도메인의 공개 필드와 required를 문서화한다")
     void nestedSchemasRemainSpecificToTheirDomain(String path, String collection, String fields,
             String requiredFields) throws Exception {
@@ -86,7 +86,8 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/me|delete|200|deleted|",
             "/islands/{islandId}/notices/{noticeId}|delete|200|deleted|deleted",
             // 집중 종료 응답(GROMO-2274) — seaReward 는 키가 늘 있고 값만 null 일 수 있다. 스펙은 속성으로만 싣고 required 에는 없다.
-            "/focus-sessions/{sessionId}/finish|post|200|recordId islandId subject targetMinutes activeSeconds goalAchieved earnedFish allocation completedAt questProgress activeIntervals seaReward|recordId islandId subject activeSeconds goalAchieved earnedFish allocation completedAt"})
+            // GROMO-2299 가 kind·arrived 를 더했다 — 둘 다 선택(구버전 Data 는 안 보내고, arrived 는 섬 세션이면 생략).
+            "/focus-sessions/{sessionId}/finish|post|200|recordId islandId subject targetMinutes activeSeconds goalAchieved earnedFish allocation completedAt questProgress activeIntervals seaReward kind arrived|recordId islandId subject activeSeconds goalAchieved earnedFish allocation completedAt"})
     @DisplayName("동명 Result·Deleted도 각 작업의 필드와 필수 여부를 문서화한다")
     void resultSchemasRemainSpecificToTheirOperation(String path, String method, String responseStatus,
             String fields, String requiredFields) throws Exception {

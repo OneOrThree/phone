@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.internal.dto.MagazineViews;
 import com.oneorthree.phone.magazine.exception.MagazineErrorCode;
 import com.oneorthree.phone.magazine.exception.MagazineException;
@@ -26,6 +27,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -36,7 +38,7 @@ import java.util.stream.Collectors;
  * 호만」·「섬에서 펼치면 동그라미 없음」은 앱 규칙이다.
  *
  * <h2>읽는 순간 빼는 것</h2>
- * 07시에 고정한 숫자라도 지금 비공개이거나 닫힌 섬은 칸에서도 편집부 칸에서도 빠진다(SAFE-03), 신고로 숨겨졌거나 내려간
+ * 07시에 고정한 숫자라도 지금 닫힌 섬은 칸에서도 편집부 칸에서도 빠진다(10/16: 비공개 섬은 보인다), 신고로 숨겨졌거나 내려간
  * 칸도 빠진다 — 그래서 숨김이 «모든 독자에게서 즉시» 다. 섬과 나의 관계({@code relation})도 읽는 순간 계산한다.
  */
 @Service
@@ -105,10 +107,11 @@ public class MagazineIssueService {
         boolean more = page.size() > limit;
         List<IslandPromotion> cells = more ? page.subList(0, limit) : page;
         Relations relations = relations(userId);
+        Set<UUID> privateIds = privateIslandIds(cells);
         IslandPromotion last = more ? cells.get(cells.size() - 1) : null;
         return new MagazineViews.IssuePage(summary(issue, latest),
                 firstPage ? editorial(issue.getEditorial(), relations) : null,
-                cells.stream().map(promotion -> cell(promotion, relations)).toList(),
+                cells.stream().map(promotion -> cell(promotion, relations, privateIds)).toList(),
                 last == null ? null : last.getAppliedAt(), last == null ? null : last.getId());
     }
 
@@ -154,42 +157,50 @@ public class MagazineIssueService {
     }
 
     private MagazineViews.Editorial editorial(MagazineEditorial stored, Relations relations) {
-        Set<UUID> visible = visible(stored);
+        Map<UUID, Boolean> visible = visible(stored);
         return new MagazineViews.Editorial(
-                stored.ranking().stream().filter(row -> visible.contains(row.island().islandId()))
+                stored.ranking().stream().filter(row -> visible.containsKey(row.island().islandId()))
                         .map(row -> {
                             IslandCard card = row.island();
                             return new MagazineViews.RankedIsland(row.rank(), card.islandId(), card.name(),
                                     card.buildingCount(), card.memberCount(), card.maxMembers(),
-                                    card.averageFocusMinutesPerDay(), relations.of(card.islandId()));
+                                    card.averageFocusMinutesPerDay(), relations.of(card.islandId()),
+                                    visible.get(card.islandId()));
                         }).toList(),
-                stored.newIslands().stream().filter(card -> visible.contains(card.islandId()))
+                stored.newIslands().stream().filter(card -> visible.containsKey(card.islandId()))
                         .map(card -> new MagazineViews.Island(card.islandId(), card.name(), card.buildingCount(),
                                 card.memberCount(), card.maxMembers(), card.averageFocusMinutesPerDay(),
-                                relations.of(card.islandId())))
+                                relations.of(card.islandId()), visible.get(card.islandId())))
                         .toList(),
                 stored.note());
     }
 
-    /** 편집부 칸의 섬 중 지금도 공개·살아 있는 섬. */
-    private Set<UUID> visible(MagazineEditorial stored) {
+    /** 편집부 칸의 섬 중 지금도 살아 있는 섬(비공개 포함) → 지금 비공개인지(읽는 시점 값). */
+    private Map<UUID, Boolean> visible(MagazineEditorial stored) {
         Set<UUID> ids = new HashSet<>();
         stored.ranking().forEach(row -> ids.add(row.island().islandId()));
         stored.newIslands().forEach(card -> ids.add(card.islandId()));
         if (ids.isEmpty()) {
-            return ids;
+            return Map.of();
         }
         return islands.findAllById(ids).stream()
-                .filter(island -> IslandMovementGuards.isAlive(island) && !island.isPrivate())
-                .map(island -> island.getId())
+                .filter(IslandMovementGuards::isAlive)
+                .collect(Collectors.toMap(Group::getId, Group::isPrivate));
+    }
+
+    /** 칸 섬 중 지금 비공개인 섬 — 읽는 시점 값이다(발행 뒤 바뀔 수 있다). */
+    private Set<UUID> privateIslandIds(List<IslandPromotion> cells) {
+        Set<UUID> ids = cells.stream().map(IslandPromotion::getIslandId).collect(Collectors.toSet());
+        return islands.findAllById(ids).stream().filter(Group::isPrivate).map(Group::getId)
                 .collect(Collectors.toSet());
     }
 
-    private static MagazineViews.Cell cell(IslandPromotion promotion, Relations relations) {
+    private static MagazineViews.Cell cell(IslandPromotion promotion, Relations relations, Set<UUID> privateIds) {
         IslandCard card = promotion.getSnapshot();
         return new MagazineViews.Cell(promotion.getId(), promotion.getIslandId(), card.name(), card.buildingCount(),
                 card.memberCount(), card.maxMembers(), card.averageFocusMinutesPerDay(), promotion.getBody(),
-                promotion.getLayout(), relations.of(promotion.getIslandId()));
+                promotion.getLayout(), relations.of(promotion.getIslandId()),
+                privateIds.contains(promotion.getIslandId()));
     }
 
     /** 독자의 소속 섬·강퇴된 섬 — 칸마다 묻지 않고 한 번에 읽는다. */
