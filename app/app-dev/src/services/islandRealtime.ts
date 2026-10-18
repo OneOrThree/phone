@@ -566,6 +566,8 @@ const NOT_FROM_EVENTS = new Set([
 ]);
 /** 같은 코드의 events 탓 ERROR 가 이만큼 쌓이면 /events 를 끈다. */
 const EVENTS_STRIKE_LIMIT = 2;
+/** events 구독이 ERROR 없이 이만큼 유지되면 strike 를 비운다. */
+const EVENTS_HEALTHY_MS = 60_000;
 
 export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   const id = encodeURIComponent(opts.islandId);
@@ -581,6 +583,12 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   let eventsDenied = false;
   const eventsStrikes = new Map<string, number>();
   let eventsStruckSinceConnect = false;
+  // events 구독이 이 시간 동안 ERROR 없이 유지되면 쌓인 strike 를 비운다 — 오래 켜 둔 홈의 일시 오류가 누적돼 끄지 않게
+  let eventsHealthyTimer: ReturnType<typeof setTimeout> | null = null;
+  const stopEventsHealthyTimer = () => {
+    if (eventsHealthyTimer) clearTimeout(eventsHealthyTimer);
+    eventsHealthyTimer = null;
+  };
   let movementDenied = false;
   let movementTransientErrors = 0;
   // 코덱스 지적(에픽 PR #1111 4라운드): 첫 ERROR 뒤 소켓이 닫히기 전 같은 접속의 둘째 구독이 600ms 시도
@@ -614,7 +622,11 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
         client.subscribe(`/topic/islands/${id}/movement/snapshot`, onMovementMsg);
       }
       if (opts.playback) client.subscribe(`/topic/islands/${id}/playback`, onMsg);
-      if (opts.events && !eventsDenied) client.subscribe(`/topic/islands/${id}/events`, onMsg);
+      if (opts.events && !eventsDenied) {
+        client.subscribe(`/topic/islands/${id}/events`, onMsg);
+        stopEventsHealthyTimer();
+        eventsHealthyTimer = setTimeout(() => eventsStrikes.clear(), EVENTS_HEALTHY_MS);
+      }
       client.subscribe('/user/queue/errors', (msg: IMessage) => {
         let text = '실시간 요청이 거절됐어요.';
         try {
@@ -646,6 +658,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
           // 본문도 JSON 이 아니면 빈 코드로 둔다.
         }
       }
+      stopEventsHealthyTimer();
       // 구독이 둘 이상인 접속(이동·응원 + 주민 소식)의 ERROR 가 events 탓인지 가른다.
       //  - events 에서 나올 수 없는 코드(응원·바다 전용)는 events 와 무관 — events 도 다른 채널 처리도 평소대로.
       //  - events 와 겹치는 코드(NOT_A_MEMBER·MOVEMENT_TOO_FREQUENT 등)는 어느 구독 탓인지 모른다 — 접속당 1번만 events 탓으로
@@ -700,6 +713,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       void client.deactivate().then(() => client.activate());
     },
     close: () => {
+      stopEventsHealthyTimer();
       void client.deactivate();
     },
   };

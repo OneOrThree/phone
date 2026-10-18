@@ -24,8 +24,10 @@ export type CatalogEntry = {
 export type CatalogTable = Readonly<Record<string, CatalogEntry>>;
 
 const TTL_MS = 60 * 60 * 1000;
-/** 실패(404 포함)는 짧게만 기억해 화면마다 서버를 두드리지 않는다. */
+/** 실패(404 포함)는 짧게만 기억해 화면마다 서버를 두드리지 않는다. 연속 실패마다 2배(상한 10분), 성공하면 초기화. */
 const FAILURE_TTL_MS = 60 * 1000;
+const FAILURE_TTL_MAX_MS = 10 * 60 * 1000;
+let failures = 0;
 const SLOTS: readonly string[] = ['clothes', 'decor', 'head', 'neck', 'shoes'];
 
 const EMPTY: CatalogTable = {};
@@ -67,6 +69,9 @@ export function parseCatalog(raw: unknown): CatalogTable {
   return table;
 }
 
+const failureTtl = () =>
+  Math.min(FAILURE_TTL_MS * 2 ** Math.max(0, failures - 1), FAILURE_TTL_MAX_MS);
+
 /** 로그인 범위 — 세대·userId 가 바뀌면 캐시(성공·실패 모두)를 버린다. 로그인 전이면 null. */
 const scopeNow = (): string | null => {
   const userId = getSession()?.userId;
@@ -95,11 +100,12 @@ export function loadCustomizationCatalog(now: number = Date.now()): Promise<Cata
       // 요청 중 로그인이 바뀌었으면 이 결과는 버린다
       if (scopeNow() !== scope) return EMPTY;
       if (result.auth) return EMPTY;
+      failures = result.failed ? failures + 1 : 0;
       cache = {
         scope,
         failed: result.failed,
         table: result.failed ? (cache?.scope === scope ? cache.table : EMPTY) : result.table,
-        expires: Date.now() + (result.failed ? FAILURE_TTL_MS : TTL_MS),
+        expires: Date.now() + (result.failed ? failureTtl() : TTL_MS),
       };
       listeners.forEach((fn) => fn(cache!.table));
       return cache.table;
@@ -150,6 +156,7 @@ export function useCustomizationCatalog(): CatalogTable {
 }
 
 export function resetCustomizationCatalogForTest() {
+  failures = 0;
   cache = null;
   inflight = null;
 }

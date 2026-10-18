@@ -5979,13 +5979,7 @@ export function RedesignScreens({ e }: any) {
               .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
               .map((p) => p.id)
           : [];
-    const slotTitle: Record<WardrobeSlot, string> = {
-      clothes: '옷',
-      decor: '장식',
-      head: '머리',
-      neck: '목',
-      shoes: '신발',
-    };
+
     const picture = (slot: WardrobeSlot, id: string) => {
       const entry = catalog[id];
       if (entry)
@@ -6020,7 +6014,7 @@ export function RedesignScreens({ e }: any) {
           return (
             <View key={slot} style={{ gap: 10 }}>
               <Txt kind="section" style={st.sec}>
-                {slotTitle[slot]}
+                {t(`wardrobe.section.${slot}`)}
               </Txt>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                 {thumb(

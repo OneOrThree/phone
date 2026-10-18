@@ -453,6 +453,15 @@
       "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요."
     }
   },
+  "wardrobe": {
+    "section": {
+      "clothes": "옷",
+      "decor": "장식",
+      "head": "머리",
+      "neck": "목",
+      "shoes": "신발"
+    }
+  },
   "focusFlow": {
     "visitorCheered": "방문자가 응원했어요 🎉",
     "memberArrived": "{{name}}님이 도착했어요",

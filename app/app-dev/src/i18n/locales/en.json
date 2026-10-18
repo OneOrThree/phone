@@ -477,6 +477,15 @@
       "moveBlocked": "You can't move to another island right now."
     }
   },
+  "wardrobe": {
+    "section": {
+      "clothes": "Clothes",
+      "decor": "Decor",
+      "head": "Head",
+      "neck": "Neck",
+      "shoes": "Shoes"
+    }
+  },
   "focusFlow": {
     "visitorCheered": "A visitor cheered you on 🎉",
     "memberArrived": "{{name}} has arrived",

@@ -1674,4 +1674,20 @@ describe('홈 채널의 주민 소식 구독 (GROMO-2311)', () => {
     expect(count(c, '/topic/islands/isl/emotes')).toBe(3);
     expect(count(c, '/topic/islands/isl/events')).toBe(2);
   });
+
+  test('events 구독이 60초 ERROR 없이 유지되면 strike 를 비운다 — 이후 ERROR 1회로는 차단되지 않는다', () => {
+    jest.useFakeTimers();
+    try {
+      open();
+      const c = client();
+      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } }); // strike 1
+      c.opts.onConnect({});
+      jest.advanceTimersByTime(61_000); // 무사히 유지
+      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } }); // 다시 strike 1
+      c.opts.onConnect({});
+      expect(count(c, '/topic/islands/isl/events')).toBe(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

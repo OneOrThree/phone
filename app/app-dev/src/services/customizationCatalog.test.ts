@@ -94,3 +94,14 @@ test('실패 캐시는 60초 뒤 다시 읽고, 세대가 바뀌면 성공 캐�
   mockRequest.mockResolvedValueOnce([row({ productId: 'cap' })]);
   expect(Object.keys(await loadCustomizationCatalog())).toEqual(['cap']);
 });
+
+test('연속 실패마다 재조회 간격이 2배가 된다(60s → 120s) — 성공하면 초기화', async () => {
+  mockRequest.mockRejectedValue(new Error('404'));
+  await loadCustomizationCatalog(); // 1차 실패: 60s
+  await loadCustomizationCatalog(Date.now() + 61_000); // 2차 실패: 120s
+  expect(mockRequest).toHaveBeenCalledTimes(2);
+  await loadCustomizationCatalog(Date.now() + 100_000);
+  expect(mockRequest).toHaveBeenCalledTimes(2); // 아직 캐시
+  await loadCustomizationCatalog(Date.now() + 121_000);
+  expect(mockRequest).toHaveBeenCalledTimes(3);
+});
