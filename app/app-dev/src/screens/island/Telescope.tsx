@@ -19,7 +19,8 @@ import { Flag } from '@/screens/cosmetics/Cosmetics';
 import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';
-import { sessionGeneration } from '@/services/api/session';
+import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import type { MagazineCell } from '@/services/api/magazine';
 import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { unknownOutcome } from '@/services/islandCommands';
@@ -133,6 +134,10 @@ export async function arriveWithOutcome(
   islandId: string,
 ): Promise<{ member: boolean; arrivedBefore: boolean }> {
   const key = keys.key('arrive', islandId);
+  // 복구 상태를 반영하기 전에 같은 로그인인지 본다 — 재조회 중 로그아웃·계정 전환이 있었으면 이전 계정 값을 쓰지 않는다
+  const generation = sessionGeneration();
+  const userId = getSession()?.userId;
+  const sameLogin = () => sessionGeneration() === generation && getSession()?.userId === userId;
   let arrival;
   try {
     arrival = await arriveAtIsland(islandId, key);
@@ -154,12 +159,20 @@ export async function arriveWithOutcome(
   if (membershipStatus !== 'active') return { member: false, arrivedBefore };
   // 소속 재조회 실패는 도착 결과를 지우지 않는다 — 환영 판정은 POST 응답 기준이고(키가 풀려 재시도 POST 는 arrivedBefore=true 를 준다),
   // 소속 스냅샷은 홈 진입 뒤 기존 재조회 경로가 맞춘다
-  if (
-    !(await e.islands.sync().then(
-      () => true,
-      () => false,
-    ))
-  ) {
+  let syncError: unknown = null;
+  try {
+    await e.islands.sync();
+  } catch (thrown) {
+    syncError = thrown;
+  }
+  if (syncError !== null) {
+    // 세션이 바뀌었거나 인증이 끝난 실패는 복구하지 않고 다시 던진다(호출부가 화면 세대로 거른다)
+    if (
+      syncError instanceof ApiError &&
+      (syncError.code === CLIENT_STALE_SESSION || syncError.status === 401)
+    )
+      throw syncError;
+    if (!sameLogin()) return { member: true, arrivedBefore };
     // 소속 조회가 실패해도 도착 응답이 현재 섬을 알려 준다 — 첫 소속이면 로컬이 «소속 없음» 인 채로 홈에 가 소속 검사가
     // chooseIsland 로 되돌리지 않게 먼저 반영하고(기존 ISLAND_SYNC 재사용, 소속 목록은 그대로), 한 번 더 맞춰 본다
     if (arrival.currentIslandId)

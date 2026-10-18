@@ -1,9 +1,9 @@
 // 망원경 도착 기록(arrive)·바다 항해 시작·한마디가 실제 HTTP 요청에서 어떤 본문·`Idempotency-Key` 를 싣는지(API 배선).
 // 다른 망원경 테스트와 달리 API 모듈을 목으로 바꾸지 않는다 — fetch 만 스텁해 나가는 요청을 그대로 본다.
 import { arrive, arriveWithOutcome } from '@/screens/island/Telescope';
-import { uuid } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { startSeaFocusSession, updateSeaRemark } from '@/services/api/focusSessions';
-import { clearSession, saveSession } from '@/services/api/session';
+import { clearSession, saveSession, getSession } from '@/services/api/session';
 import { initialState, intentKeyPool, reducer } from '@/services/model';
 
 jest.mock('@/screens/world/WorldViews', () => ({
@@ -185,4 +185,38 @@ test('첫 소속 도착: POST 성공 + 소속 재조회 실패여도 응답의 �
   expect(state.serverIslands?.currentIslandId).toBe('a');
   expect(state.onboarded).toBe(true); // 소속 검사가 chooseIsland 로 되돌리지 않는다
   expect(e.islands.sync).toHaveBeenCalledTimes(2); // 반영 뒤 한 번 더 시도
+});
+
+test('소속 재조회가 CLIENT_STALE_SESSION 이면 이전 계정 상태를 반영하지 않고 재시도 없이 다시 던진다', async () => {
+  okArrival(false);
+  const e = {
+    state: { serverIslands: { memberships: [] } },
+    dispatch: jest.fn(),
+    islands: { sync: jest.fn().mockRejectedValue(new ApiError(CLIENT_STALE_SESSION, '세션', 0)) },
+  };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).rejects.toMatchObject({
+    code: CLIENT_STALE_SESSION,
+  });
+  expect(e.dispatch).not.toHaveBeenCalled();
+  expect(e.islands.sync).toHaveBeenCalledTimes(1);
+});
+
+test('재조회 실패 뒤 로그인 세대가 바뀌었으면 dispatch·재시도 없이 도착 결과만 돌려준다', async () => {
+  okArrival(false);
+  const e = {
+    state: { serverIslands: { memberships: [] } },
+    dispatch: jest.fn(),
+    islands: {
+      sync: jest.fn(async () => {
+        await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'other' }); // 계정 전환
+        throw new Error('down');
+      }),
+    },
+  };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).resolves.toEqual({
+    member: true,
+    arrivedBefore: false,
+  });
+  expect(e.dispatch).not.toHaveBeenCalled();
+  expect(e.islands.sync).toHaveBeenCalledTimes(1);
 });
