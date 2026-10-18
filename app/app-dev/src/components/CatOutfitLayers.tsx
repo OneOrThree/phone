@@ -8,13 +8,18 @@ export const OUTFIT_ORDER = ['shoes', 'neck', 'head'] as const;
 export type OutfitSlot = (typeof OUTFIT_ORDER)[number];
 export type Outfit = Partial<Record<OutfitSlot, string | null | undefined>>;
 
-/** 카탈로그 width/height 가 잰 기준 고양이 상자(px) — CatSprite 프레임과 같은 512. */
-const REFERENCE = 512;
+/**
+ * 꾸미기 PNG 가 그려지는 고양이 원본 캔버스 한 변(px). 카탈로그 `width/height` 는 PNG 실측 픽셀이고, 표시 크기는
+ * `width / CAT_CANVAS_PX × 고양이 상자`다. 실측(GROMO-2311): 2303 `duck.png` 는 1254², 앱에 실린 고양이 스프라이트는 512²
+ * 로 줄인 것이다. duck 의 불투명 영역이 가로 633px(= 캔버스의 50%)로 고양이 머리(512 기준 ≈264px, 52%)와 맞아
+ * 원본 캔버스를 1254 로 본다 — 512 로 두면 모자가 고양이의 245% 가 된다.
+ */
+export const CAT_CANVAS_PX = 1254;
 
-/** 고양이 상자 안의 그림 사각형(상자 대비 %) — anchor 는 그림 중심이 놓일 상자 안 0~1 위치. 상자 크기를 몰라도 된다. */
+/** 고양이 상자 안의 그림 사각형(상자 대비 %) — anchor 는 그림 **중심**이 놓일 상자 안 0~1 위치. 상자 크기를 몰라도 된다. */
 export function outfitRect(entry: CatalogEntry) {
-  const w = entry.width / REFERENCE;
-  const h = entry.height / REFERENCE;
+  const w = entry.width / CAT_CANVAS_PX;
+  const h = entry.height / CAT_CANVAS_PX;
   const pct = (n: number) => `${Math.round(n * 1e4) / 100}%` as `${number}%`;
   return {
     width: pct(w),

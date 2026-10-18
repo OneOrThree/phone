@@ -545,6 +545,22 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
     expect(e.dispatch).not.toHaveBeenCalled();
   }, 10000);
 
+  test('인벤토리 대기 중 화면을 떠나면(언마운트) 응답이 와도 dispatch·이동을 하지 않는다', async () => {
+    member();
+    const e = arrivalEnv();
+    const screen = await render(<SeaVoyageHost e={e} />);
+    // 재조회가 나가는 순간 사용자가 뒤로가기로 떠난다
+    (getMyInventory as jest.Mock).mockImplementationOnce(() => {
+      screen.unmount();
+      return new Promise((resolve) =>
+        setTimeout(() => resolve({ clothes: [], decor: [], hulls: [], equipped: {} }), 100),
+      );
+    });
+    await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
+    expect(e.dispatch).not.toHaveBeenCalled();
+    expect(e.reset).not.toHaveBeenCalled();
+  });
+
   test('방문자는 환영 없이 방문 라우트로', async () => {
     (arriveAtIsland as jest.Mock).mockResolvedValue({
       islandId: 'dest',

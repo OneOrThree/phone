@@ -554,6 +554,19 @@ const PERMANENT_MOVEMENT_DENY = new Set([
 /** 일시 오류가 이 횟수만큼 쌓이면 그때부터 영구 차단한다 — 무한 재접속·재거절 루프 방지. */
 const MOVEMENT_TRANSIENT_ERROR_LIMIT = 3;
 
+/** events 구독에서는 나올 수 없는 ERROR 코드 — 응원(`NOT_FOCUSING`·`NO_ONE_FOCUSING`·`EMOTE_TOO_FREQUENT`)과 바다 방 전용
+ * (`SEA_ENTER_TOO_FREQUENT`·`NOT_IN_SEA_ROOM`·`INVALID_EMOTE_TYPE`). 근거: server/realtime/CLAUDE.md 오류 코드 표(236~241행). */
+const NOT_FROM_EVENTS = new Set([
+  'NOT_FOCUSING',
+  'NO_ONE_FOCUSING',
+  'EMOTE_TOO_FREQUENT',
+  'SEA_ENTER_TOO_FREQUENT',
+  'NOT_IN_SEA_ROOM',
+  'INVALID_EMOTE_TYPE',
+]);
+/** 같은 코드의 events 탓 ERROR 가 이만큼 쌓이면 /events 를 끈다. */
+const EVENTS_STRIKE_LIMIT = 2;
+
 export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   const id = encodeURIComponent(opts.islandId);
   const emitError = (raw: string) => {
@@ -566,6 +579,8 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   let emoteSubscription: { unsubscribe(): void } | null = null;
   // 이동 구독이 거절되면 서버가 소켓을 닫고 stompjs 가 5초마다 재접속·재거절한다 — 같은 방식으로 끊는다.
   let eventsDenied = false;
+  const eventsStrikes = new Map<string, number>();
+  let eventsStruckSinceConnect = false;
   let movementDenied = false;
   let movementTransientErrors = 0;
   // 코덱스 지적(에픽 PR #1111 4라운드): 첫 ERROR 뒤 소켓이 닫히기 전 같은 접속의 둘째 구독이 600ms 시도
@@ -589,6 +604,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     onConnect: () => {
       emoteSubscription = null;
       movementErrorCountedSinceConnect = false;
+      eventsStruckSinceConnect = false;
       if (opts.presence !== false) {
         client.subscribe(`/topic/islands/${id}/focus`, onMsg);
         client.subscribe(`/topic/islands/${id}/rest`, onMsg);
@@ -621,20 +637,29 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       opts.onOpen();
     },
     onStompError: (frame: IFrame) => {
-      // 구독이 둘 이상인 접속(이동·응원 + 주민 소식)의 첫 ERROR 는 새로 붙인 events 구독 탓으로 보고 events 만 끈다 —
-      // 응원·이동 등 다른 채널의 거절 상태는 건드리지 않는다. 그쪽 거절이 진짜라면 재접속 뒤 다음 ERROR 에서 평소대로 판정된다.
-      const eventsFault = !!opts.events && !eventsDenied;
-      if (opts.events) eventsDenied = true;
+      // ERROR 코드 — 헤더 message, 없으면 본문 JSON 의 code
+      let code = str(frame.headers.message) ?? '';
+      if (!code) {
+        try {
+          code = str((JSON.parse(frame.body) as { code?: unknown }).code) ?? '';
+        } catch {
+          // 본문도 JSON 이 아니면 빈 코드로 둔다.
+        }
+      }
+      // 구독이 둘 이상인 접속(이동·응원 + 주민 소식)의 ERROR 가 events 탓인지 가른다.
+      //  - events 에서 나올 수 없는 코드(응원·바다 전용)는 events 와 무관 — events 도 다른 채널 처리도 평소대로.
+      //  - events 와 겹치는 코드(NOT_A_MEMBER·MOVEMENT_TOO_FREQUENT 등)는 어느 구독 탓인지 모른다 — 접속당 1번만 events 탓으로
+      //    치고(strike) 재접속에서 /events 를 다시 구독한다. 같은 코드가 2번 쌓이면 그때 events 를 끈다(화면 재진입까지).
+      //    이 ERROR 는 다른 채널의 거절 상태(emoteDenied·movementDenied·일시 오류 카운트)에 반영하지 않는다.
+      const eventsFault = !!opts.events && !eventsDenied && !NOT_FROM_EVENTS.has(code);
+      if (eventsFault && !eventsStruckSinceConnect) {
+        eventsStruckSinceConnect = true;
+        const strikes = (eventsStrikes.get(code) ?? 0) + 1;
+        eventsStrikes.set(code, strikes);
+        if (strikes >= EVENTS_STRIKE_LIMIT) eventsDenied = true;
+      }
       if (emoteEnabled && !eventsFault) emoteDenied = true;
       if (opts.movement && !eventsFault) {
-        let code = str(frame.headers.message) ?? '';
-        if (!code) {
-          try {
-            code = str((JSON.parse(frame.body) as { code?: unknown }).code) ?? '';
-          } catch {
-            // 본문도 JSON 이 아니면 빈 코드로 둔다.
-          }
-        }
         // 코덱스 지적(에픽 PR #1111): 서버 관문은 일시 상류 장애·시도 창 초과(MOVEMENT_TOO_FREQUENT)에도
         // ERROR 프레임을 보낸다 — 멤버 아님·인증 오류만 영구 차단하고, 그 외는 재접속에서 다시 구독하게
         // 두되 상한(3)에 닿으면 그때 차단해 무한 재접속·재거절 루프를 막는다.

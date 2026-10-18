@@ -7,7 +7,7 @@ import { ApiError, uuid } from '@/services/api/client';
 import { getMyInventory } from '@/services/api/shop';
 import { arriveWithOutcome } from '@/screens/island/Telescope';
 import { intentKeyPool } from '@/services/model';
-import { getSession } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import { unknownOutcome } from '@/services/islandCommands';
 import { getTelescope } from '@/services/api/telescope';
 import type { State } from '@/services/model';
@@ -99,6 +99,14 @@ export function SeaVoyageHost({ e }: { e: any }) {
   // await 뒤에 부르는 e.replace·e.notify 는 최신 e 로 — App 의 e 와 그 함수들은 렌더마다 새로 만든다
   const eRef = useRef(e);
   eRef.current = e;
+  // 화면이 아직 이 호스트 자리인가 — 언마운트(뒤로가기 등)면 진행 중이던 요청의 후속 작업을 건너뛴다
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const settleFinish = (finished: FocusFinishView, name: string) => {
     pendingFinish.current = null;
     // 서버가 최종 판정한다 — 이미 도착한 세션이면 그만두기를 눌렀어도 결과창으로 간다
@@ -344,8 +352,15 @@ export function SeaVoyageHost({ e }: { e: any }) {
       onExplore={async (result) => {
         if (!e.islands) return e.home(); // 목업 — 서버 섬이 없다
         const id = result.destinationId;
+        // 요청 시작 때 잡은 세대 — await 뒤마다 화면·로그인 세대가 바뀌었으면 dispatch·이동을 하지 않는다
+        const generation = sessionGeneration();
+        const stale = () =>
+          !mounted.current ||
+          eRef.current.route !== 'seaArrival' ||
+          sessionGeneration() !== generation;
         // 던지면 SeaScreen 이 다시 시도 안내를 띄운다 — 결과 불명은 arrive 가 소속 재조회로 가린다
         const { member, arrivedBefore } = await arriveWithOutcome(e, arriveKeys, id);
+        if (stale()) return;
         // 받은 꾸미기를 옷장에서 바로 입도록 인벤토리를 읽고 나서 이동한다 — 이동 뒤에 늦게 적용되면 그 사이 장착을 되돌린다.
         // 실패·시간 초과(3초)면 읽지 않고 이동하며, 늦은 응답은 버린다(옷장이 다음 진입 때 다시 읽는다).
         await new Promise<void>((done) => {
@@ -356,7 +371,8 @@ export function SeaVoyageHost({ e }: { e: any }) {
           }, INVENTORY_WAIT_MS);
           getMyInventory()
             .then((myInventory) => {
-              if (open) eRef.current.dispatch({ type: 'SHOP_SYNC', islandId: id, myInventory });
+              if (open && !stale())
+                eRef.current.dispatch({ type: 'SHOP_SYNC', islandId: id, myInventory });
             })
             .catch(() => {})
             .finally(() => {
@@ -365,6 +381,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
               done();
             });
         });
+        if (stale()) return;
         // await 뒤에는 최신 e 로 부른다(App 의 e 와 그 함수들은 렌더마다 새로 만든다)
         if (member) {
           // 현 가입 이후 첫 도착이면 환영을 한 번 — 서버가 arrivedBefore=false 로 알려 준다
@@ -375,6 +392,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
           eRef.current.reset('home');
         } else {
           await eRef.current.islands.visit(id);
+          if (stale()) return;
           eRef.current.dispatch({ type: 'SERVER_VISITING', islandId: id });
           eRef.current.replace('visitIsland', id);
         }
