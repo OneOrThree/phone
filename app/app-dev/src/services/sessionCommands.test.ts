@@ -696,6 +696,9 @@ test('seaRouteHeld — 소속 0 이어도 항해·표류(세션 없음)·결과�
 test('visitRouteHeld — 방문 중인 방문 지도만 지키고, 방문이 끝나면(id 없음) 평소 검사로 돌아간다', () => {
   assert.equal(visitRouteHeld('visitIsland', 'isl'), true);
   assert.equal(visitRouteHeld('visitIsland', null), false);
+  for (const r of ['manage', 'raft', 'board', 'notice', 'members', 'visitIslandFocus'] as const)
+    assert.equal(visitRouteHeld(r, 'isl'), true);
+  assert.equal(visitRouteHeld('manage', null), false);
   assert.equal(visitRouteHeld('home', 'isl'), false);
 });
 

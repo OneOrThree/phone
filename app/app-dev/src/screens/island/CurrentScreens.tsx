@@ -58,6 +58,7 @@ import {
   hoursMinutes,
   questMemberRate,
   trackNames,
+  SERVER_VISIT_ROUTES,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
@@ -430,7 +431,7 @@ function CurrentScreensContent({ e }: any) {
     state.visitingIslandId &&
     !(
       e.islands
-        ? ['visitIsland', 'manage', 'members', 'board', 'notice', 'visitIslandFocus', 'raft']
+        ? SERVER_VISIT_ROUTES
         : [
             'home',
             'manage',

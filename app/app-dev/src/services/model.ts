@@ -1088,9 +1088,19 @@ export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?
 export const sessionRoute = (x: { kind?: string; status?: string }): Route =>
   x.kind === 'sea' ? 'sea' : x.status === 'paused' ? 'rest' : 'focus';
 export const seaRouteHeld = (route: Route) => route === 'sea' || route === 'seaArrival';
-/** 소속이 없어도(바다 도착 뒤 강퇴 등) 서버 방문 중인 방문 지도는 소속 검사가 되돌리지 않는다(GROMO-2311). */
+/** 서버 섬 구경 중에 열 수 있는 라우트(허용 목록) — CurrentScreens 의 구경 가드와 App 의 소속 검사가 같은 것을 쓴다. */
+export const SERVER_VISIT_ROUTES: readonly Route[] = [
+  'visitIsland',
+  'manage',
+  'members',
+  'board',
+  'notice',
+  'visitIslandFocus',
+  'raft',
+];
+/** 소속이 없어도(바다 도착 뒤 강퇴 등) 서버 방문 중에 열 수 있는 화면은 소속 검사가 되돌리지 않는다(GROMO-2311). */
 export const visitRouteHeld = (route: Route, visitingIslandId: string | null | undefined) =>
-  !!visitingIslandId && (route === 'visitIsland' || route === 'visitIslandFocus');
+  !!visitingIslandId && SERVER_VISIT_ROUTES.includes(route);
 export const intentKeyPool = (gen: () => string) => {
   const keys: Record<string, string> = {};
   const slot = (name: string, exactBody: string) => `${name}:${exactBody}`;
