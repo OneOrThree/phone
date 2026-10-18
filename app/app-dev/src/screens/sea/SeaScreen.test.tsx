@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SeaScreen, SeaScreenProps } from './SeaScreen';
-import { SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel';
+import { SeaArrival, SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel';
 import { duckPreviewArt } from './seaRewardCatalog';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
@@ -191,12 +191,12 @@ test('미확인 결과를 직접 복원하며 결과 확인 성공 전 화면과
   p.onExplore = jest.fn(async () => {
     throw new Error('network');
   });
-  const result = {
+  const result: SeaArrival = {
     recordId: 'record-1',
     destinationId: 'island-1',
     destinationName: '별고래섬',
     activeSeconds: 2050,
-    reward: { itemId: 'duck', name: '오리 인형' },
+    reward: { status: 'earned', itemId: 'duck', name: '오리 인형' },
   };
   const screen = await render(
     <SeaScreen {...p} result={result} rewardCatalog={{ duck: duckPreviewArt }} />,
@@ -212,23 +212,49 @@ test('미확인 결과를 직접 복원하며 결과 확인 성공 전 화면과
 
 test('보상이 없거나 모르는 ID이면 예시 오리를 지급한 것처럼 표시하지 않는다', async () => {
   const p = props();
-  const result = {
+  const result: SeaArrival = {
     recordId: 'record-1',
     destinationId: 'island-1',
     destinationName: '별고래섬',
     activeSeconds: 60,
-    reward: null,
+    reward: { status: 'none' },
   };
   const screen = await render(<SeaScreen {...p} result={result} />);
   expect(screen.getByText('이번 항해에서 건진 아이템은 없어요')).toBeTruthy();
   await screen.rerender(
     <SeaScreen
       {...p}
-      result={{ ...result, reward: { itemId: 'unknown', name: '서버가 준 모자' } }}
+      result={{
+        ...result,
+        reward: { status: 'earned', itemId: 'unknown', name: '서버가 준 모자' },
+      }}
     />,
   );
   expect(screen.getByText('서버가 준 모자')).toBeTruthy();
   expect(screen.queryByText('오리 인형')).toBeNull();
+});
+
+test('보상 미확인 복원은 미획득과 구분하고 정본을 받으면 획득으로 갱신한다', async () => {
+  const p = props();
+  const result: SeaArrival = {
+    recordId: 'restored-result',
+    destinationId: 'island-1',
+    destinationName: '별고래섬',
+    activeSeconds: 1800,
+    reward: { status: 'unknown' },
+  };
+  const screen = await render(<SeaScreen {...p} result={result} />);
+  expect(screen.getByText('보상 정보를 확인하지 못했어요')).toBeTruthy();
+  expect(screen.queryByText('이번 항해에서 건진 아이템은 없어요')).toBeNull();
+  await screen.rerender(
+    <SeaScreen
+      {...p}
+      result={{ ...result, reward: { status: 'earned', itemId: 'duck', name: '오리 인형' } }}
+    />,
+  );
+  expect(screen.getByText('오리 인형')).toBeTruthy();
+  expect(screen.queryByText('보상 정보를 확인하지 못했어요')).toBeNull();
+  expect(p.onFinish).not.toHaveBeenCalled();
 });
 
 test('스와이프로 마지막 참여자에 도달하고 드래그 직후에는 카드가 열리지 않는다', async () => {

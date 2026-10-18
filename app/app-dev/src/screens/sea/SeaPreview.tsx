@@ -60,7 +60,7 @@ export function SeaPreview() {
   const [reduce, setReduce] = useState(false);
   const [guest, setGuest] = useState(false);
   const [fail, setFail] = useState(false);
-  const [reward, setReward] = useState<'duck' | 'none' | 'unknown'>('duck');
+  const [reward, setReward] = useState<'duck' | 'none' | 'unknown' | 'unconfirmed'>('duck');
   const [preparing, setPreparing] = useState(false);
   const [departing, setDeparting] = useState(false);
   const [hasDepartedBefore, setHasDepartedBefore] = useState(false);
@@ -185,9 +185,17 @@ export function SeaPreview() {
                 />
                 <Btn
                   small
-                  title={`보상: ${reward === 'duck' ? '오리' : reward === 'none' ? '없음' : '미등록 에셋'}`}
+                  title={`보상: ${reward === 'duck' ? '오리' : reward === 'none' ? '없음' : reward === 'unknown' ? '미등록 에셋' : '미확인'}`}
                   onPress={() =>
-                    setReward(reward === 'duck' ? 'none' : reward === 'none' ? 'unknown' : 'duck')
+                    setReward(
+                      reward === 'duck'
+                        ? 'none'
+                        : reward === 'none'
+                          ? 'unknown'
+                          : reward === 'unknown'
+                            ? 'unconfirmed'
+                            : 'duck',
+                    )
                   }
                 />
                 <Btn
@@ -259,11 +267,14 @@ export function SeaPreview() {
                         activeSeconds: voyage.activeSeconds,
                         reward:
                           reward === 'none'
-                            ? null
-                            : {
-                                itemId: reward === 'duck' ? 'preview-duck' : 'preview-unknown',
-                                name: reward === 'duck' ? '오리 인형' : '새로운 꾸미기 아이템',
-                              },
+                            ? { status: 'none' }
+                            : reward === 'unconfirmed'
+                              ? { status: 'unknown' }
+                              : {
+                                  status: 'earned',
+                                  itemId: reward === 'duck' ? 'preview-duck' : 'preview-unknown',
+                                  name: reward === 'duck' ? '오리 인형' : '새로운 꾸미기 아이템',
+                                },
                       });
                     setVoyage(null);
                   }}
