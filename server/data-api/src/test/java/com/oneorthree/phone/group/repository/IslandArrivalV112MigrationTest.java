@@ -99,7 +99,8 @@ class IslandArrivalV112MigrationTest {
     @Test
     @DisplayName("시스템 편지는 발신자 없이 들어가고, kind 는 세 값만 받는다")
     void v112AllowsSystemLettersAndChecksKind() {
-        migrate(MigrationVersion.LATEST);
+        // V112 로 고정한다 — 뒤 번호가 island_arrivals 에 열을 더해도(V127 member_arrived_at) 이 구조 단언이 흔들리지 않게.
+        migrate(MigrationVersion.fromVersion("112"));
         JdbcTemplate jdbc = jdbc();
         UUID receiver = user(jdbc, "받는이");
 

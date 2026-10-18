@@ -40,6 +40,23 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("GET /customization/catalog 는 배열 항목의 공개 필드와 required 를 문서화한다 (GROMO-2331)")
+    void customizationCatalogIsDocumented() throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path("/customization/catalog").path("get").path("responses")
+                .path("200").path("content");
+        var schema = content.iterator().next().path("schema").path("items");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        String[] fields = {"productId", "kind", "slot", "title", "imageUrl", "width", "height", "anchorX",
+                "anchorY", "sortOrder", "retiredAt"};
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields);
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields);
+    }
+
+    @Test
     @DisplayName("기본 /v0/api-docs 는 열지 않는다 — 허용은 public 그룹 경로 하나다")
     void defaultDocsPathStaysClosed() throws Exception {
         mockMvc.perform(get("/v0/api-docs"))

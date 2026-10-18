@@ -327,6 +327,9 @@ public class IslandManagementUseCase {
     public record MemberAppearanceView(
             @JsonProperty(required = true) String clothes,
             @JsonProperty(required = true) String decor,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String head,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String neck,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String shoes,
             @JsonProperty(required = true) String hull,
             @JsonProperty(required = true) String position,
             @JsonProperty(required = true) long version) {
@@ -334,8 +337,9 @@ public class IslandManagementUseCase {
         static final String DEFAULT_POSITION = "front";
 
         private static MemberAppearanceView from(PersonalAppearanceState appearance) {
-            return new MemberAppearanceView(appearance.clothes(), appearance.decor(), appearance.hull(),
-                    appearance.position(), appearance.version());
+            return new MemberAppearanceView(appearance.clothes(), appearance.decor(), appearance.head(),
+                    appearance.neck(), appearance.shoes(), appearance.hull(), appearance.position(),
+                    appearance.version());
         }
 
         /**
@@ -345,7 +349,8 @@ public class IslandManagementUseCase {
          * 식별 정보가 아니라 의도적으로 허용한다. 실시간 외양 사건 쪽 치환은 이 경로의 범위가 아니다.
          */
         private static MemberAppearanceView neutral(PersonalAppearanceState appearance) {
-            return new MemberAppearanceView(null, null, appearance.hull(), DEFAULT_POSITION, appearance.version());
+            return new MemberAppearanceView(null, null, null, null, null, appearance.hull(), DEFAULT_POSITION,
+                    appearance.version());
         }
     }
 

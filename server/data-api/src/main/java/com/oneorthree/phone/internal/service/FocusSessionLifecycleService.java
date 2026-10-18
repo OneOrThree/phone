@@ -37,6 +37,8 @@ import com.oneorthree.phone.focus.service.SeaSessionEvents;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
 import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
@@ -188,6 +190,7 @@ public class FocusSessionLifecycleService {
      */
     private final FocusPresenceProjection focusPresenceProjection;
     private final Clock clock;
+    private final GroupRepository groupRepository;
 
     /**
      * {@code POST /focus-sessions} — LLD §2 start.
@@ -325,7 +328,8 @@ public class FocusSessionLifecycleService {
                     List<ActiveInterval> activeIntervals = List.of(new ActiveInterval(now, now));
                     FocusSessionView view = new FocusSessionView(session.getId(), startPlan.islandId(),
                             startPlan.subject(), startPlan.targetMinutes(), FocusSessionView.STATUS_ACTIVE, 0L, now,
-                            now, null, detail.getVersion(), activeIntervals, kindName(detail));
+                            now, null, detail.getVersion(), activeIntervals, kindName(detail),
+                            startPlan.kind() == FocusSessionKind.SEA ? destinationName(startPlan.islandId()) : null);
                     // 순번은 INSERT 때 DB 시퀀스가 채운다(GROMO-1743) — 쓰기 지연을 여기서 내보내야 보인다.
                     focusSessionRepository.flush();
                     // 선행 조건 #9 — start 도 rest 투영을 내구화한다(LLD §6). active 는 「rest 목록에서
@@ -431,10 +435,12 @@ public class FocusSessionLifecycleService {
 
                     long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, now);
                     List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(intervals, now);
+                    // 바다 세션은 pause 409 라 여기 닿지 않는다 — 바다 pause 를 허용하게 되면 kind·destinationIslandName 도
+                    // 같이 고친다(GROMO-2330).
                     FocusSessionView view = new FocusSessionView(sessionId, detail.getIslandId(),
                             detail.getSubject(), detail.getTargetMinutes(), FocusSessionView.STATUS_PAUSED,
                             activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals), now,
-                            detail.getVersion(), activeIntervals, FocusSessionView.KIND_ISLAND);
+                            detail.getVersion(), activeIntervals, FocusSessionView.KIND_ISLAND, null);
                     return new PublicCommandResult(200, tree(view), tree(focusPresenceProjection.progressing(
                             userId, detail.getIslandId(), view, restSeat, presenceOrderOf(sessionId))));
                 }).value().data();
@@ -484,10 +490,12 @@ public class FocusSessionLifecycleService {
                     intervalsWithResumed.add(resumed);
                     List<ActiveInterval> activeIntervals =
                             FocusIntervalMath.activeIntervalsAsOf(intervalsWithResumed, now);
+                    // 바다 세션은 pause 409 라 여기 닿지 않는다 — 바다 pause 를 허용하게 되면 kind·destinationIslandName 도
+                    // 같이 고친다(GROMO-2330).
                     FocusSessionView view = new FocusSessionView(sessionId, detail.getIslandId(),
                             detail.getSubject(), detail.getTargetMinutes(), FocusSessionView.STATUS_ACTIVE,
                             activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals), null,
-                            detail.getVersion(), activeIntervals, FocusSessionView.KIND_ISLAND);
+                            detail.getVersion(), activeIntervals, FocusSessionView.KIND_ISLAND, null);
                     // active 전이는 rest 목록에서 제거를 뜻한다 — restStartedAt/restSeat=null(LLD §6).
                     return new PublicCommandResult(200, tree(view), tree(focusPresenceProjection.progressing(
                             userId, detail.getIslandId(), view, null, presenceOrderOf(sessionId))));
@@ -928,7 +936,16 @@ public class FocusSessionLifecycleService {
                 detail.getTargetMinutes(), paused ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE,
                 activeSeconds, anchor, FocusIntervalMath.sessionStartedAt(intervals),
                 paused ? FocusIntervalMath.openRestStartedAt(intervals) : null, detail.getVersion(),
-                activeIntervals, kindName(detail));
+                activeIntervals, kindName(detail),
+                detail.getKind() == FocusSessionKind.SEA ? destinationName(detail.getIslandId()) : null);
+    }
+
+    /**
+     * 바다 세션의 목적지 섬 이름(GROMO-2330). {@code Group} 에 soft-delete 제한이 없어 삭제된 섬도 이름이 남는다 —
+     * 항해 중 사용자에게 목적지 이름이 계속 보이게 하는 의도다. 키가 빠지는 건 행 자체가 없을 때(null)만이다.
+     */
+    private String destinationName(UUID islandId) {
+        return groupRepository.findById(islandId).map(Group::getName).orElse(null);
     }
 
     /**

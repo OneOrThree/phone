@@ -68,6 +68,8 @@ public final class IslandMembershipResponses {
     /**
      * 섬 도착 결과 (GROMO-2260) — {@code POST /islands/{islandId}/arrivals}.
      *
+     * @param arrivedBefore   주민이면 현 가입 이후 이미 와 본 적이 있었는가 — false 면 이번이 주민 첫 도착(「환영해요」,
+     *                        GROMO-2302). 방문(비주민)이면 언제나 true
      * @param currentIslandId 도착 처리 뒤 현재 섬. 방문(비주민)이면 그대로이고 없으면 null
      */
     public record IslandArrivalView(

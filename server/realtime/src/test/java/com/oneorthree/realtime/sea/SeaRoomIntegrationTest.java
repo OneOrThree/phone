@@ -160,6 +160,46 @@ class SeaRoomIntegrationTest {
     }
 
     @Test
+    @DisplayName("[2330] member 에 name·catColor — snapshot·joined 에 실리고, 털색 미선택·옛 해시는 null")
+    void memberCarriesNameAndCatColor() throws Exception {
+        Instant now = Instant.now();
+        UUID alice = UUID.randomUUID();
+        UUID bob = UUID.randomUUID();
+        given(seaState.fetch(alice)).willReturn(new SeaStateClient.SeaState(null, null,
+                new SeaStateClient.Session(UUID.randomUUID(), destination, 30, 0L, now, now), "앨리스", "ginger"));
+        given(seaState.fetch(bob)).willReturn(new SeaStateClient.SeaState(null, null,
+                new SeaStateClient.Session(UUID.randomUUID(), destination, 30, 0L, now, now), "밥", null));
+        given(friends.fetchFriendIds(alice)).willReturn(Set.of());
+        given(friends.fetchFriendIds(bob)).willReturn(Set.of());
+        Client a = connect(alice);
+        UUID room = roomOf(a.enter());
+        BlockingQueue<Map<String, Object>> heard = a.watch(room, alice);
+
+        connect(bob).enter();
+
+        Map<String, Object> joined = memberOf(await(heard, frame -> "sea.member.joined".equals(frame.get("type"))));
+        assertThat(joined.get("name")).isEqualTo("밥");
+        assertThat(joined).containsKey("catColor");
+        assertThat(joined.get("catColor")).isNull();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> before = (List<Map<String, Object>>) payload(a.sync()).get("members");
+        Map<String, Object> aliceNow = before.stream().filter(m -> alice.toString().equals(m.get("userId")))
+                .findFirst().orElseThrow();
+        assertThat(aliceNow.get("name")).isEqualTo("앨리스");
+        assertThat(aliceNow.get("catColor")).isEqualTo("ginger");
+        redis.opsForHash().delete(RedisKeys.seaUser(alice), "name", "catColor"); // 배포 전 입장한 옛 해시
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> members = (List<Map<String, Object>>) payload(a.sync()).get("members");
+        Map<String, Object> old = members.stream().filter(m -> alice.toString().equals(m.get("userId"))).findFirst()
+                .orElseThrow();
+        assertThat(old).containsKeys("name", "catColor");
+        assertThat(old.get("name")).isNull();
+        Map<String, Object> fresh = members.stream().filter(m -> bob.toString().equals(m.get("userId"))).findFirst()
+                .orElseThrow();
+        assertThat(fresh.get("name")).isEqualTo("밥");
+    }
+
+    @Test
     @DisplayName("10명이 찬 방에는 11번째를 넣지 않고 그 방을 open 에서 뺀다")
     void eleventhGoesToAnotherRoom() throws Exception {
         UUID full = UUID.randomUUID();
@@ -536,6 +576,26 @@ class SeaRoomIntegrationTest {
         assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "remark")).isEqualTo("새말");
         assertThat(redis.opsForHash().get(RedisKeys.seaUser(alice), "sessionId"))
                 .isEqualTo(session.sessionId().toString());
+    }
+
+    @Test
+    @DisplayName("[보정] 두 조회 사이 이름·털색이 바뀌었으면 입장 뒤 snapshot 의 member 가 두 번째 값이다(털색은 HDEL)")
+    void profileChangedBetweenFetchesIsApplied() throws Exception {
+        UUID alice = UUID.randomUUID();
+        Instant now = Instant.now();
+        SeaStateClient.Session session = new SeaStateClient.Session(UUID.randomUUID(), destination, 30, 0L, now, now);
+        given(friends.fetchFriendIds(alice)).willReturn(Set.of());
+        given(seaState.fetch(alice)).willReturn(new SeaStateClient.SeaState(null, null, session, "앨리스", "ginger"),
+                new SeaStateClient.SeaState(null, null, session, "앨리", null));
+
+        Client a = connect(alice);
+        a.enter();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> member = ((List<Map<String, Object>>) payload(a.sync()).get("members")).get(0);
+        assertThat(member.get("name")).isEqualTo("앨리");
+        assertThat(member.get("catColor")).isNull();
+        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "catColor")).isFalse();
     }
 
     @Test

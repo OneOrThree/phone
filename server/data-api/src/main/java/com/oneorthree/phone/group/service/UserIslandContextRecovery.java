@@ -86,7 +86,7 @@ public class UserIslandContextRecovery {
         } else {
             context.moveTo(next);
             // 다시 머물게 된 섬이다 — «최근 머문» 축을 함께 갱신해야 다음 복구가 이 섬을 오래된 섬으로 보지 않는다.
-            arrivals.recordArrival(userId, next, clock.instant());
+            arrivals.recordArrival(userId, next, clock.instant(), true);
         }
     }
 

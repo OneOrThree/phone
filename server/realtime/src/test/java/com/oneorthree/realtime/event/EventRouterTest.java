@@ -23,8 +23,10 @@ class EventRouterTest {
     private final EventRouter router = new EventRouter(delivery);
 
     @Test
-    void allFifteenWireTypesHaveFixedRoutes() {
-        assertThat(RealtimeEventType.values()).hasSize(15);
+    void allSixteenWireTypesHaveFixedRoutes() {
+        assertThat(RealtimeEventType.values()).hasSize(16);
+        // 주민 첫 도착(GROMO-2302)은 events 채널이다 — 아래 default 가 그 목적지를 계산한다.
+        assertThat(RealtimeEventType.ISLAND_MEMBER_ARRIVED.channel()).isEqualTo("events");
         for (RealtimeEventType type : RealtimeEventType.values()) {
             RealtimeEventEnvelope event = event(type, island);
             // 응원만 수신 집합이 필수다 — 수신 자격이 구독 인가보다 좁아서다(GROMO-1765).
@@ -215,6 +217,10 @@ class EventRouterTest {
         }
         if (islandId != null) {
             payload.put("islandId", islandId.toString());
+        }
+        if (type == RealtimeEventType.ISLAND_MEMBER_ARRIVED) {
+            payload.put("userId", user.toString());
+            payload.put("arrivedAt", Instant.now().toString());
         }
         if (type == RealtimeEventType.WALLET_UPDATED || type == RealtimeEventType.INVENTORY_UPDATED) {
             payload.put("ownerType", islandId == null ? "user" : "island");

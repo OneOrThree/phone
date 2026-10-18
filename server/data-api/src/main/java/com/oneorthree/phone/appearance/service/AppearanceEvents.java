@@ -134,6 +134,9 @@ public class AppearanceEvents {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("clothes", a.getClothes());
         map.put("decor", a.getDecor());
+        map.put("head", a.getHead());
+        map.put("neck", a.getNeck());
+        map.put("shoes", a.getShoes());
         map.put("hull", a.getHull());
         map.put("position", a.getPosition());
         return map;

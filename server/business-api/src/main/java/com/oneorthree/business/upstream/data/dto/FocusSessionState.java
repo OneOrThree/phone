@@ -31,6 +31,8 @@ import java.util.UUID;
  * @param kind          {@code "island"} 또는 {@code "sea"}(GROMO-2299). <b>선택</b>이다 — 이 필드를 모르는 구버전
  *                      Data 는 안 보내고(그러면 공개 응답에서도 빠진다), 필수로 받으면 롤링 배포 중 전 요청이 502 가 된다.
  *                      바다 세션이면 {@code islandId} 는 목적지이고 {@code targetMinutes} 는 항해 분이다
+ * @param destinationIslandName 바다 세션의 목적지 섬 이름(GROMO-2330). <b>선택</b> — 구버전 Data·섬 세션·섬 행 없음은 안 보내고,
+ *                      그러면 공개 응답에서도 키가 빠진다
  */
 public record FocusSessionState(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
@@ -44,5 +46,6 @@ public record FocusSessionState(
         String restStartedAt,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long version,
         List<ActiveIntervalState> activeIntervals,
-        String kind) {
+        String kind,
+        String destinationIslandName) {
 }

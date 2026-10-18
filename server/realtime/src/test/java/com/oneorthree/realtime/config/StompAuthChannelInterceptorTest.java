@@ -430,7 +430,7 @@ class StompAuthChannelInterceptorTest {
     void notYetOpenedDestinationsRemainClosed() {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
         for (String destination : new String[] {
-                "/topic/islands/" + groupId + "/events",
+                "/topic/islands/" + groupId + "/events/",
                 "/topic/islands/" + groupId + "/playback",
                 "/topic/islands/" + groupId + "/messages",
                 "/topic/islands/" + groupId + "/focus/",
@@ -645,6 +645,52 @@ class StompAuthChannelInterceptorTest {
                 .isEqualTo(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
         verify(accessGuard, org.mockito.Mockito.never()).requireMember(any(), any(), any());
         assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/movement")).isNull();
+    }
+
+    // ── GROMO-2302 섬 events 채널 ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("events 구독은 현재 소속 주민이면 통과한다 — 집중 검사가 섞인 채팅 관문은 부르지 않고 시도 창을 한 번 잡는다")
+    void islandEventsSubscriptionAdmitsResidents() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+
+        assertThatCode(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .doesNotThrowAnyException();
+        verify(accessGuard).requireMember(groupId, userId, BEARER);
+        verify(valueOps).setIfAbsent(eq(RedisKeys.islandEventsSubscribeAttempt(userId)), any(String.class),
+                any(java.time.Duration.class));
+        verify(accessGuard, org.mockito.Mockito.never()).requireCanChat(any(), any(), any());
+        verify(accessGuard, org.mockito.Mockito.never()).requireNotFocusing(any());
+        verifyNoInteractions(focusSessions);
+    }
+
+    @Test
+    @DisplayName("events 구독 — 비주민은 NOT_A_MEMBER 로 거절하고 레지스트리 자리를 돌려준다")
+    void islandEventsSubscriptionRejectsNonResidents() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(groupId, userId, BEARER);
+
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/events")).isNull();
+    }
+
+    @Test
+    @DisplayName("events 구독 시도 창(사용자 축 600ms)을 넘기면 상류에 묻기 전에 ERROR 로 끊고 자리를 돌려준다")
+    void islandEventsSubscribeAttemptWindowRejectsBeforeUpstream() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(valueOps.setIfAbsent(eq(RedisKeys.islandEventsSubscribeAttempt(userId)), any(String.class),
+                any(java.time.Duration.class))).willReturn(false);
+
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
+        verify(accessGuard, org.mockito.Mockito.never()).requireMember(any(), any(), any());
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/events")).isNull();
     }
 
     @Test

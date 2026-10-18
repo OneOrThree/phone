@@ -209,7 +209,7 @@ public class IslandJoinService {
                     GroupMember membership = admit(user, island, prior);
                     if (!telescope) {
                         context.moveTo(islandId);
-                        arrivals.recordArrival(userId, islandId, clock.instant());
+                        arrivals.recordArrival(userId, islandId, clock.instant(), true);
                     }
                     EventEnvelope members = membershipEvents.changed(islandId, userId, "MEMBER_ADDED", userId);
                     if (invitation != null) {

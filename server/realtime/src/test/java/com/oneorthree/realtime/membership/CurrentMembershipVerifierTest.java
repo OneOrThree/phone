@@ -190,7 +190,8 @@ class CurrentMembershipVerifierTest {
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         Message<?> duplicate = frame("/queue/duplicates-usersocket");
         assertThat(interceptor.beforeHandle(duplicate, null, null)).isSameAs(duplicate);
-        assertThat(interceptor.beforeHandle(frame("/topic/islands/" + island + "/events"), null, null)).isNull();
+        // events 는 GROMO-2302 에서 주민에게 열려 멤버십을 본다 — 닫힌 섬 채널의 예는 playback 이다.
+        assertThat(interceptor.beforeHandle(frame("/topic/islands/" + island + "/playback"), null, null)).isNull();
         assertThat(interceptor.beforeHandle(frame("/queue/events-usersocket"), null, null)).isNull();
         assertThat(calls.get()).isZero();
     }

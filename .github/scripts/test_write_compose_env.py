@@ -331,8 +331,13 @@ class WriteComposeEnvTest(unittest.TestCase):
         self.assertNotIn("USER_BLOCKS_REALTIME_EVENTS_ENABLED=", without)
 
     def test_바다_방_사건_스위치는_data_api_에만_있으면_나오고_없으면_안_나온다(self) -> None:
-        # GROMO-2299 — FOCUS_SEA_REALTIME_EVENTS_ENABLED 는 선택 키(기본 OFF)다. SM 에 없어도 렌더가 실패하지 않는다.
-        key = "FOCUS_SEA_REALTIME_EVENTS_ENABLED"
+        # GROMO-2299 FOCUS_SEA_REALTIME_EVENTS_ENABLED · GROMO-2302 ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED — 둘 다
+        # 선택 키(기본 OFF)다. SM 에 없어도 렌더가 실패하지 않는다.
+        for key in ("FOCUS_SEA_REALTIME_EVENTS_ENABLED", "ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED"):
+            with self.subTest(key=key):
+                self._assert_optional_data_api_switch(key)
+
+    def _assert_optional_data_api_switch(self, key: str) -> None:
         combined = secret(
             API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",
             SVC_TOKEN_BIZ_TO_DATA="bd", SVC_TOKEN_NOTI_TO_DATA="nd",

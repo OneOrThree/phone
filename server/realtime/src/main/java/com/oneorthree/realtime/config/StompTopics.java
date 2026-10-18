@@ -9,10 +9,11 @@ public final class StompTopics {
     // 발행 경로의 UUID.toString()과 맞춘다. 대문자 구독은 인가에 성공해도 사건을 받지 못한다.
     static final Pattern GROUP_TOPIC = Pattern.compile("^/topic/groups/([0-9a-f-]{36})$");
 
-    // 구현된 관전·응원 채널만 연다. events·playback·messages는 계속 거절한다.
+    // 구현된 관전·응원 채널과 주민 소식(events, GROMO-2302 — 현재 소속 주민)만 연다. playback·messages는 계속 거절한다.
     static final Pattern ISLAND_TOPIC =
-            Pattern.compile("^/topic/islands/([0-9a-f-]{36})/(focus|rest|emotes)$");
+            Pattern.compile("^/topic/islands/([0-9a-f-]{36})/(focus|rest|emotes|events)$");
     static final String EMOTES_CHANNEL = "emotes";
+    static final String EVENTS_CHANNEL = "events";
 
     /**
      * 이동 토픽 둘(GROMO-2247) — {@code group(1)} 은 섬, {@code group(2)} 가 {@code null} 이면 이벤트 토픽

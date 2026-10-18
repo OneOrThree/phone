@@ -43,6 +43,13 @@ public class IslandArrival {
     @Column(name = "last_arrived_at", nullable = false)
     private Instant lastArrivedAt;
 
+    /**
+     * 주민으로서 마지막 도착 시각 (GROMO-2302, V127) — null 이면 주민 도착 없음(방문자 도착만). 현 멤버십 시작보다
+     * 이르면 다음 주민 도착이 «현 가입 이후 첫 도착» 이다({@code IslandMembershipService.arrive}).
+     */
+    @Column(name = "member_arrived_at")
+    private Instant memberArrivedAt;
+
     /** 복합 PK — (userId, islandId). */
     @Getter
     @NoArgsConstructor
