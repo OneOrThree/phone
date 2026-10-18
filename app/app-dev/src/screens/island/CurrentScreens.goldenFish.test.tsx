@@ -269,6 +269,7 @@ const mount = (state = focusedState(), backOverride?: { current: (() => boolean)
   render(screenElement(state, 'focus', backOverride));
 
 beforeEach(async () => {
+  jest.useFakeTimers();
   jest.clearAllMocks();
   onGoldenFish = undefined;
   await clearSession();
@@ -1334,4 +1335,23 @@ describe('en', () => {
     expect(alert).not.toHaveTextContent('회원 전환 토큰 오류');
     await screen.unmount();
   });
+});
+
+test('도착하면 바다 쪽 안내와 선택 가능한 빈자리 원이 나타난다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const go = jest.fn(),
+    dispatch = jest.fn();
+  const screen = await render(
+    screenElement(state, 'fishingArrival', undefined, go, undefined, dispatch),
+  );
+  expect(screen.getByTestId('focus-arrival-hint')).toHaveTextContent('집중할 자리를 골라주세요!');
+  const markers = screen.getAllByLabelText('집중할 빈자리');
+  expect(markers.length).toBeGreaterThan(0);
+  expect(markers.length).toBeLessThanOrEqual(8);
+  await fireEvent.press(markers[0]);
+  await act(() => jest.advanceTimersByTime(10000));
+  expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'FOCUS_SPOT' }));
+  expect(go).toHaveBeenCalledWith('focusSetup');
+  await screen.unmount();
 });

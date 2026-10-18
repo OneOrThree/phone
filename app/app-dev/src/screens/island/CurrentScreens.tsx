@@ -2380,6 +2380,12 @@ function FocusFlow({ e: environment }: any) {
       return t('focusFlow.spot.noCatchRoom');
     return null;
   };
+  const availableSpots =
+    r === 'fishingArrival'
+      ? [DEFAULT_SPOT, ...PEER_SPOTS]
+          .filter((p) => !spotError(p) && landPath(fishingGrid, walker.p, p).length > 0)
+          .slice(0, 8)
+      : [];
   const selectSpot = (p: Point) => {
     if (returningFromArrival.current) return;
     const error = spotError(p);
@@ -2933,7 +2939,43 @@ function FocusFlow({ e: environment }: any) {
           onGram={focusing ? () => setDialog('music') : undefined}
           seated={seated}
           inert={!!dialog || r === 'focusResult' || !!goldenCutscene}
-          overlay={r === 'focusSetup' ? setup : undefined}
+          overlayBlocksMap={r === 'focusSetup'}
+          overlay={
+            r === 'focusSetup'
+              ? setup
+              : r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21)
+                ? (toScreen) => (
+                    <View
+                      testID="focus-arrival-hint"
+                      pointerEvents="none"
+                      accessibilityLiveRegion="polite"
+                      style={{
+                        position: 'absolute',
+                        top: Math.min(
+                          toScreen({ x: 50, y: 100 }).y + semanticTokens.spacing.control,
+                          (boxHeight || L.height) -
+                            safe.bottom -
+                            componentTokens.focusArrival.bottomReserve,
+                        ),
+                        left: safe.left + semanticTokens.spacing.page,
+                        right: safe.right + semanticTokens.spacing.page,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          ...hudText,
+                          textAlign: 'center',
+                          fontSize: componentTokens.focusArrival.fontSize,
+                          lineHeight: componentTokens.focusArrival.lineHeight,
+                          fontWeight: componentTokens.focusArrival.fontWeight,
+                        }}
+                      >
+                        {t('focusFlow.spot.pickPrompt')}
+                      </Text>
+                    </View>
+                  )
+                : undefined
+          }
           goldenFish={goldenFish}
         >
           {(size, sizeY, zoom) => {
@@ -2973,6 +3015,30 @@ function FocusFlow({ e: environment }: any) {
             });
             return (
               <>
+                {availableSpots.map((spot, index) => {
+                  const diameter = componentTokens.focusArrival.markerSize;
+                  return (
+                    <Pressable
+                      key={`${spot.x}:${spot.y}`}
+                      testID={`focus-available-spot-${index}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('focusFlow.spot.available')}
+                      onPress={() => selectSpot(spot)}
+                      hitSlop={(semanticTokens.size.tapMin - diameter) / 2}
+                      style={{
+                        position: 'absolute',
+                        left: (size * spot.x) / 100 - diameter / 2,
+                        top: (sizeY * spot.y) / 100 - diameter / 2,
+                        width: diameter,
+                        height: diameter,
+                        borderRadius: diameter / 2,
+                        borderWidth: componentTokens.focusArrival.markerStroke,
+                        borderColor: componentTokens.focusArrival.markerColor,
+                        boxShadow: componentTokens.focusArrival.markerShadow,
+                      }}
+                    />
+                  );
+                })}
                 {peers.map((actor) => (
                   <FishingPeerActorView
                     key={actor.key}
@@ -3070,9 +3136,6 @@ function FocusFlow({ e: environment }: any) {
               id="leave-fishing-arrival"
               onPress={returnFromArrival}
             />
-            <View pointerEvents="none" accessibilityLiveRegion="polite">
-              <Badge>{t('focusFlow.spot.pickPrompt')}</Badge>
-            </View>
           </View>
         )}
         {liveIslandId && live.status === 'error' && (

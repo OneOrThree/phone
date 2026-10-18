@@ -458,7 +458,8 @@
       "noneFound": "빈 자리를 찾지 못했어요. 잠시 후 다시 시도해 주세요.",
       "groundA11y": "낚시섬 땅 · 원하는 곳을 눌러 앉기",
       "sitEmptyA11y": "빈 자리에 앉기",
-      "sitEmptyButton": "빈 땅에 자리 잡기"
+      "sitEmptyButton": "빈 땅에 자리 잡기",
+      "available": "집중할 빈자리"
     },
     "setup": {
       "title": "집중 준비",

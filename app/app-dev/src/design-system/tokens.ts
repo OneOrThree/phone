@@ -196,6 +196,16 @@ export const componentTokens = {
     imageLeft: 10,
     imageTop: space[1],
   },
+  focusArrival: {
+    fontSize: fontSize.md,
+    lineHeight: space[6],
+    fontWeight: primitiveTokens.fontWeight.bold,
+    bottomReserve: space[16],
+    markerSize: space[8],
+    markerStroke: primitiveTokens.stroke.strong,
+    markerColor: color.paper,
+    markerShadow: `0px 1px 2px ${color.brown}`,
+  },
   focusEndHold: {
     durationMs: 3000,
     hapticIntervalMs: 120,

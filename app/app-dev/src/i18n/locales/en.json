@@ -482,7 +482,8 @@
       "noneFound": "Couldn't find an open spot. Please try again in a moment.",
       "groundA11y": "Fishing Island ground · Tap where you want to sit",
       "sitEmptyA11y": "Sit in an empty spot",
-      "sitEmptyButton": "Take a spot on empty ground"
+      "sitEmptyButton": "Take a spot on empty ground",
+      "available": "Available focus spot"
     },
     "setup": {
       "title": "Get Ready to Focus",

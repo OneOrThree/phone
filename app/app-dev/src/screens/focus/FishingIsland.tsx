@@ -462,6 +462,7 @@ export function FishingIsland({
   inert = false,
   children,
   overlay,
+  overlayBlocksMap = true,
   goldenFish = false,
 }: {
   focus: Point;
@@ -479,6 +480,8 @@ export function FishingIsland({
   seated?: boolean;
   children: (size: number, sizeY: number, zoom: number) => React.ReactNode;
   overlay?: (toScreen: (p: Point) => Point, size: number) => React.ReactNode;
+  /** 단순 안내 오버레이는 지도 이동과 접근성을 막지 않는다. */
+  overlayBlocksMap?: boolean;
   /** 황금 물고기 컷신 재생이 끝난 뒤 섬에 남는 에셋. */
   goldenFish?: boolean;
 }) {
@@ -487,8 +490,8 @@ export function FishingIsland({
   // 상태가 바뀌면(도착·준비·집중·결과) 다시 내 자리를 보여 준다. 확대 배율은 유지.
   useEffect(() => setCam((c) => ({ ...c, x: focus.x, y: focus.y })), [focus.x, focus.y, ratio]);
   const view = fishingCamera(L.width, L.height, cam.zoom, cam, ratio);
-  const live = useRef({ cam, L, ratio, focus, seated, overlay });
-  live.current = { cam, L, ratio, focus, seated, overlay };
+  const live = useRef({ cam, L, ratio, focus, seated, overlay, overlayBlocksMap });
+  live.current = { cam, L, ratio, focus, seated, overlay, overlayBlocksMap };
   // 끌기 기준점. 손가락 수가 바뀌면(핀치 → 한 손가락) 지금 위치에서 다시 잡아 지도가 튀지 않게 한다
   const start = useRef({ zoom: 1, x: 0, y: 0, dist: 0, n: 0, dx: 0, dy: 0 }),
     dragged = useRef(false),
@@ -505,7 +508,7 @@ export function FishingIsland({
       onStartShouldSetPanResponder: () => false,
       // 집중 준비 카드가 떠 있으면 지도를 끌지 않는다
       onMoveShouldSetPanResponder: (e, g) =>
-        !live.current.overlay &&
+        !(live.current.overlay && live.current.overlayBlocksMap) &&
         ((e.nativeEvent.touches?.length ?? 0) > 1 || Math.abs(g.dx) + Math.abs(g.dy) > 6),
       onPanResponderGrant: () => {
         start.current.n = 0;
@@ -571,7 +574,7 @@ export function FishingIsland({
       <IslandOcean left={left} top={top} scale={size / 1536} />
       <View
         style={{ position: 'absolute', left, top, width: size, height: sizeY }}
-        {...a11yHidden(inert || !!overlay)}
+        {...a11yHidden(inert || (!!overlay && overlayBlocksMap))}
       >
         <Pressable
           // 스크린리더 사용자는 좌표를 누를 수 없으니 "빈 자리에 앉기" 동작으로 기본 빈 자리를 고른다
