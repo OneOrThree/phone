@@ -325,11 +325,11 @@ test('튜토리얼 종료 실패는 재시도 가능하며 성공 후에만 결�
   );
   setGuideStep.mockClear();
   await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'pressIn');
-  await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'longPress');
+  await act(() => jest.advanceTimersByTime(3000));
   expect(setGuideStep).not.toHaveBeenCalled();
   expect(reset).not.toHaveBeenCalled();
   await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'pressIn');
-  await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'longPress');
+  await act(() => jest.advanceTimersByTime(3000));
   expect(setGuideStep).toHaveBeenCalledWith(19, { step: 18, revision: 0 });
   expect(reset).toHaveBeenCalledWith('focusResult');
   await screen.unmount();
@@ -475,7 +475,7 @@ test('첫 물고기를 기다리는 11단계에는 휴식과 종료 전환을 �
   );
   await fireEvent.press(screen.getByTestId('pause-focus', { includeHiddenElements: true }));
   await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'pressIn');
-  await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'longPress');
+  await act(() => jest.advanceTimersByTime(3000));
   expect(pause).not.toHaveBeenCalled();
   expect(screen.queryByTestId('confirm-finish', { includeHiddenElements: true })).toBeNull();
   await screen.unmount();
@@ -558,7 +558,7 @@ test.each([
     const screen = await render(<Flow />);
     if (button === 'end-focus') {
       await fireEvent(screen.getByTestId(button, { includeHiddenElements: true }), 'pressIn');
-      await fireEvent(screen.getByTestId(button, { includeHiddenElements: true }), 'longPress');
+      await act(() => jest.advanceTimersByTime(3000));
     } else await fireEvent.press(screen.getByTestId(button, { includeHiddenElements: true }));
     expect(request).toHaveBeenCalledTimes(1);
     await fireEvent.press(screen.getByText('안내 그만 보기'));
@@ -694,7 +694,7 @@ test('체험 종료 버튼은 서버 finish 없이 결과를 표시하고 실제
   }
   const screen = await render(<Flow />);
   await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'pressIn');
-  await fireEvent(screen.getByTestId('end-focus', { includeHiddenElements: true }), 'longPress');
+  await act(() => jest.advanceTimersByTime(3000));
   expect(finish).not.toHaveBeenCalled();
   expect(current.tutorial?.step).toBe(19);
   expect(current.tutorialExperience?.result?.fish).toBe(1);
@@ -994,7 +994,7 @@ test('reel 재생 중 휴식과 종료 명령을 reel 종료까지 미룬다', a
   assert.equal(finishDispatch.mock.calls.length, 0);
   await act(async () => jest.advanceTimersByTime(1));
   await fireEvent(finishScreen.getByTestId('end-focus'), 'pressIn');
-  await fireEvent(finishScreen.getByTestId('end-focus'), 'longPress');
+  await act(() => jest.advanceTimersByTime(3000));
   assert.equal(finishDispatch.mock.calls[0][0].type, 'FINISH');
   await finishScreen.unmount();
   jest.useRealTimers();

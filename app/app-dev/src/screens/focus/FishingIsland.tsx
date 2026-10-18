@@ -1264,9 +1264,14 @@ export function FiButton({
 }) {
   const holdProgress = useRef(new Animated.Value(0)).current;
   const holding = useRef(false);
+  const finishAction = useRef(onPress);
+  finishAction.current = onPress;
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pulseTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const stopHold = useCallback(() => {
     holding.current = false;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
     if (pulseTimer.current) clearInterval(pulseTimer.current);
     pulseTimer.current = null;
     holdProgress.stopAnimation();
@@ -1282,14 +1287,22 @@ export function FiButton({
       stopHold();
     };
   }, [holdToConfirm, stopHold]);
+  const completeHold = () => {
+    if (!holding.current) return;
+    stopHold();
+    holdProgress.setValue(1);
+    finishAction.current();
+  };
   const startHold = () => {
     stopHold();
     holding.current = true;
+    // RN longPress는 버튼 안에서 손가락이 조금 움직여도 취소된다. 누름이 유지되는 시간을 직접 잰다.
+    holdTimer.current = setTimeout(completeHold, componentTokens.focusEndHold.durationMs);
     Animated.timing(holdProgress, {
       toValue: 1,
       duration: componentTokens.focusEndHold.durationMs,
       easing: Easing.linear,
-      useNativeDriver: false,
+      useNativeDriver: true,
     }).start();
     if (haptics && Platform.OS !== 'web') {
       const pulse = () =>
@@ -1297,12 +1310,6 @@ export function FiButton({
       pulse();
       pulseTimer.current = setInterval(pulse, componentTokens.focusEndHold.hapticIntervalMs);
     }
-  };
-  const completeHold = () => {
-    if (!holding.current) return;
-    stopHold();
-    holdProgress.setValue(1);
-    onPress();
   };
   return (
     <Pressable
@@ -1313,8 +1320,6 @@ export function FiButton({
       onPress={holdToConfirm ? undefined : onPress}
       onPressIn={holdToConfirm ? startHold : undefined}
       onPressOut={holdToConfirm ? stopHold : undefined}
-      onLongPress={holdToConfirm ? completeHold : undefined}
-      delayLongPress={holdToConfirm ? componentTokens.focusEndHold.durationMs : undefined}
       style={({ pressed }) => [
         {
           minHeight: 44,
@@ -1341,7 +1346,9 @@ export function FiButton({
             left: 0,
             top: 0,
             bottom: 0,
-            width: holdProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+            right: 0,
+            transform: [{ scaleX: holdProgress }],
+            transformOrigin: 'left center',
             backgroundColor: componentTokens.focusEndHold.fill,
           }}
         />
