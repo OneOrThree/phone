@@ -576,6 +576,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     if (mapped !== null) opts.onError(mapped);
   };
   // 구독 거절 ERROR 는 연결을 끊는다 — emotes 구독 거절이면 다음 접속부터는 빼서 무한 거절 루프를 끊는다.
+  let closed = false;
   let emoteDenied = false;
   let emoteEnabled = opts.emote;
   let emoteSubscription: { unsubscribe(): void } | null = null;
@@ -710,9 +711,13 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       }
     },
     reopen: () => {
-      void client.deactivate().then(() => client.activate());
+      // deactivate 가 끝나기 전에 close() 가 오면(포그라운드 복귀 직후 화면 이탈) 닫은 클라이언트를 되살리지 않는다
+      void client.deactivate().then(() => {
+        if (!closed) client.activate();
+      });
     },
     close: () => {
+      closed = true;
       stopEventsHealthyTimer();
       void client.deactivate();
     },

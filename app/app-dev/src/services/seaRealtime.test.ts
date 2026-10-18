@@ -299,6 +299,21 @@ test('close — 쉬는 중의 재접속 타이머도 멈춘다', () => {
   expect(client().connected).toBe(false);
 });
 
+test('close 뒤 — 내 leave 의 left 가 DISCONNECT 처리 전에 돌아와도 다시 enter 하지 않고 방 사건·ERROR 도 버린다', () => {
+  const { room, spy } = open();
+  joinRoom();
+  room.close();
+  client().connected = true; // deactivate 가 끝나기 전 창 — 소켓이 아직 살아 있어 send 가 나갈 수 있는 상태
+  const before = client().log.length;
+  const membersBefore = spy.members.length;
+  personal('sea.room.left', { roomId: 'room-1', reason: 'left' }, 'left-after-close');
+  roomEvent('sea.member.joined', { member: member('b') });
+  deliver('/user/queue/errors', { code: 'NOT_IN_SEA_ROOM', message: '...' });
+  expect(client().log.slice(before)).toEqual([]);
+  expect(spy.members.length).toBe(membersBefore);
+  expect(spy.left).toEqual([]);
+});
+
 describe('member → 참가자', () => {
   test('T1 필드(name·catColor)가 없으면 ??? · gray, remark 는 한마디, state 로 집중 여부', () => {
     expect(seaMemberFromWire(member('a', { remark: '안녕' }), 5)).toEqual({

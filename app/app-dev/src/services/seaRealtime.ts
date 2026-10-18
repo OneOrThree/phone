@@ -128,7 +128,8 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     return true;
   };
   const enter = () => {
-    if (parked || now() - lastEnter < ENTER_TRY_MS) return;
+    // close() 뒤에는 다시 들어가지 않는다 — 내 leave 의 left 가 DISCONNECT 처리보다 먼저 돌아오면 enter 가 나갈 수 있다
+    if (closed || parked || now() - lastEnter < ENTER_TRY_MS) return;
     if (send('/app/sea/enter')) lastEnter = now();
   };
   const dropRoom = () => {
@@ -146,6 +147,7 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     }
   };
   const onRoomEvent = (msg: IMessage) => {
+    if (closed) return;
     const ev = parse(msg);
     if (!ev || ev.roomId !== roomId) return; // 옛 방의 늦은 사건
     const p = (ev.payload ?? {}) as Record<string, unknown>;
@@ -163,6 +165,7 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     }
   };
   const onPersonal = (msg: IMessage) => {
+    if (closed) return;
     const ev = parse(msg);
     if (!ev) return;
     const p = (ev.payload ?? {}) as Record<string, unknown>;
@@ -209,6 +212,7 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
     }
   };
   const onErrors = (msg: IMessage) => {
+    if (closed) return;
     let code = '';
     let message = '';
     try {
