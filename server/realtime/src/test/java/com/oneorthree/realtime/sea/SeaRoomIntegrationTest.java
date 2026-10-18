@@ -579,6 +579,26 @@ class SeaRoomIntegrationTest {
     }
 
     @Test
+    @DisplayName("[보정] 두 조회 사이 이름·털색이 바뀌었으면 입장 뒤 snapshot 의 member 가 두 번째 값이다(털색은 HDEL)")
+    void profileChangedBetweenFetchesIsApplied() throws Exception {
+        UUID alice = UUID.randomUUID();
+        Instant now = Instant.now();
+        SeaStateClient.Session session = new SeaStateClient.Session(UUID.randomUUID(), destination, 30, 0L, now, now);
+        given(friends.fetchFriendIds(alice)).willReturn(Set.of());
+        given(seaState.fetch(alice)).willReturn(new SeaStateClient.SeaState(null, null, session, "앨리스", "ginger"),
+                new SeaStateClient.SeaState(null, null, session, "앨리", null));
+
+        Client a = connect(alice);
+        a.enter();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> member = ((List<Map<String, Object>>) payload(a.sync()).get("members")).get(0);
+        assertThat(member.get("name")).isEqualTo("앨리");
+        assertThat(member.get("catColor")).isNull();
+        assertThat(redis.opsForHash().hasKey(RedisKeys.seaUser(alice), "catColor")).isFalse();
+    }
+
+    @Test
     @DisplayName("[재확인] 재조회 중 소켓이 끊기면 joined 를 내지 않고 구성원에서도 빠진다")
     void disconnectDuringRefetchPublishesNoJoined() throws Exception {
         UUID bob = sailor();

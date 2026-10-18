@@ -214,7 +214,7 @@ designed fresh.
   `disconnected`(마지막 세션 소켓 종료)(`SeaRooms.LEFT/ADRIFT/DISCONNECTED`). 방 토픽의 `sea.member.left{userId, reason}` 도 같은
   값이다. 앱은 **멱등**으로 처리한다.
 - **`member = {userId, state, remark, name, catColor, session}`** (`SeaRooms.member`). `state` ∈ `focusing`·`adrift`. `remark` 는 없으면 `null`.
-  `name`(string|null)·`catColor`(`black`·`ginger`·`cream`·`gray`·`white`·`calico`|null, 미선택 = null)는 입장 때 Data `sea-state` 에서 읽어 해시에 둔다 —
+  `name`(string|null)·`catColor`(`black`·`ginger`·`cream`·`gray`·`white`·`calico`|null, 미선택 = null)는 입장·입장 직후 보정(reconcile) 때 Data `sea-state` 에서 읽어 해시에 둔다 —
   옛 해시(배포 전 입장)는 둘 다 `null` 이니 앱은 '???'/기본색으로 폴백한다. `sea.room.snapshot`·`joined`·`updated` 모두 같은 `member` 다.
   `session` 은 세션이 없으면 `null`, 있으면 `{sessionId, destinationIslandId, sailingMinutes, activeSeconds, serverNow,
   startedAt}`. `activeSeconds` 는 저장값이 아니라 **발행 시각에 계산**한다 — `focusing` 이면 `serverNow − startedAt`, `adrift`
