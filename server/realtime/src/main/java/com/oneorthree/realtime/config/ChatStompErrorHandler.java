@@ -4,6 +4,7 @@ import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.exception.ErrorCode;
 import com.oneorthree.realtime.common.exception.ErrorResponse;
+import com.oneorthree.realtime.message.exception.ChatException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
@@ -39,7 +40,8 @@ public class ChatStompErrorHandler extends StompSubProtocolErrorHandler {
 
     @Override
     public Message<byte[]> handleClientMessageProcessingError(Message<byte[]> clientMessage, Throwable ex) {
-        ErrorCode errorCode = resolve(ex);
+        DomainException domain = resolve(ex);
+        ErrorCode errorCode = domain == null ? null : domain.getErrorCode();
         if (errorCode == null) {
             // 우리가 만든 거절이 아니다 — 원인을 남기고 기본 처리에 맡긴다(내부 문자열을 우리가 굳이
             // 봉투에 담아 내보내지 않는다).
@@ -51,6 +53,10 @@ public class ChatStompErrorHandler extends StompSubProtocolErrorHandler {
         // message 헤더 = 기계용 코드. 본문을 못 읽는 클라이언트도 이것만으로 분기할 수 있다.
         accessor.setMessage(errorCode.name());
         accessor.setContentType(MimeTypeUtils.APPLICATION_JSON);
+        // 섬 구독 인가 거절만 채널을 싣는다 — 앱이 events 거절을 가르는 근거(없으면 종전 코드 분류 폴백).
+        if (domain instanceof ChatException chat && chat.getChannel() != null) {
+            accessor.setNativeHeader("channel", chat.getChannel());
+        }
         accessor.setLeaveMutable(true);
 
         return MessageBuilder.createMessage(body(errorCode), accessor.getMessageHeaders());
@@ -62,14 +68,14 @@ public class ChatStompErrorHandler extends StompSubProtocolErrorHandler {
      * <p>사슬을 훑는 이유: 메시징 계층이 인터셉터의 예외를 {@code MessageDeliveryException} 으로
      * 한 겹 감싸서 올린다. 최상위 타입만 보면 우리 거절이 전부 «예상치 못한 예외»로 떨어진다.
      */
-    private ErrorCode resolve(Throwable ex) {
+    private DomainException resolve(Throwable ex) {
         // 깊이에 상한을 둔다. 자기 자신을 cause 로 갖는 예외뿐 아니라 A→B→A 같은 «순환»도 실제로
         // 나오는데(재시도 래퍼가 원인을 다시 감싸는 경우), 그때 상한이 없으면 이 메서드가 영영 돌면서
         // 메시지 채널 스레드를 하나 잡아먹는다. 우리 거절은 래핑이 한두 겹이라 이 깊이면 충분하다.
         Throwable cause = ex;
         for (int depth = 0; cause != null && depth < MAX_CAUSE_DEPTH; depth++) {
             if (cause instanceof DomainException domainException) {
-                return domainException.getErrorCode();
+                return domainException;
             }
             Throwable next = cause.getCause();
             if (next == cause) {

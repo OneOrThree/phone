@@ -14,6 +14,7 @@ import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import com.oneorthree.realtime.sea.SeaRooms;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -140,6 +141,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
      * 라는 뜻이다 — 그래서 거절은 다른 관문 위반과 같이 ERROR 프레임 + 연결 종료다. 사용자에게
      * 보여 줄 「너무 자주 보냈어요」는 성공 창이 개인 큐로 따로 보낸다({@code FocusEmoteService}).
      */
+    private static final String CHANNEL_EVENTS = "events";
+    private static final String CHANNEL_MOVEMENT = "movement";
+
     private static final Duration FRAME_WINDOW = Duration.ofMillis(600);
 
     private final JwtValidator jwtValidator;
@@ -150,6 +154,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final MovementSubscriptionListener movementSubscriptions;
     private final MembershipService membershipService;
     private final SeaRooms seaRooms;
+    private final MeterRegistry meterRegistry;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -304,6 +309,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         ChatPrincipal principal = requireSubscribable(accessor, destination);
         UUID islandId = uuidOrReject(movement.group(1));
         if (movementSubscriptions.holdsLiveOutbox(accessor.getSessionId(), islandId)) {
+            countIslandSubscribe(CHANNEL_MOVEMENT, null); // 짝 토픽이 받은 판정을 이어받은 허용
             return;
         }
         long generation = movementSubscriptions.recheckGeneration(islandId); // 판정(캐시일 수 있다)보다 먼저 읽는다
@@ -320,8 +326,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             }
         } catch (RuntimeException e) {
             sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            rejectIslandSubscribe(CHANNEL_MOVEMENT, destination, principal.userId(), islandId, e);
             throw e;
         }
+        countIslandSubscribe(CHANNEL_MOVEMENT, null);
         if (staleCache) {
             // 정본이 「멤버」라고 답했고 그 답이 캐시도 덮었다 — 다음 구독은 다시 캐시를 쓴다. 비멤버면 표시를 남긴다.
             movementSubscriptions.clearMembershipCacheStale(islandId, principal.userId());
@@ -355,10 +363,33 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             }
         } catch (RuntimeException e) {
             sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            rejectIslandSubscribe(CHANNEL_EVENTS, destination, principal.userId(), islandId, e);
             throw e;
         }
+        countIslandSubscribe(CHANNEL_EVENTS, null);
         if (staleCache) {
             movementSubscriptions.clearMembershipCacheStale(islandId, principal.userId());
+        }
+    }
+
+    /** 섬 구독 인가 결과 카운터(GROMO-2332) — 태그 키 집합을 고정하려고 허용도 {@code code=none} 을 싣는다. */
+    private void countIslandSubscribe(String channel, String code) {
+        meterRegistry.counter("realtime.island.subscribe.total", "channel", channel,
+                "result", code == null ? "allow" : "deny", "code", code == null ? "none" : code).increment();
+    }
+
+    /**
+     * 섬 구독 거절 관측 — 카운터 + INFO 한 줄(허용은 로그 없음), 그리고 ERROR 프레임 {@code channel} 헤더용 표식.
+     * 코드가 도메인 거절이 아니면(상류 장애 등) {@code OTHER} 로 센다.
+     */
+    private void rejectIslandSubscribe(String channel, String destination, UUID userId, UUID islandId,
+                                       RuntimeException e) {
+        String code = e instanceof DomainException d ? d.getErrorCode().name() : "OTHER";
+        countIslandSubscribe(channel, code);
+        String kind = destination.endsWith("/snapshot") ? "movement/snapshot" : channel;
+        log.info("섬 구독 거절 — userId={} islandId={} destination={} code={}", userId, islandId, kind, code);
+        if (e instanceof ChatException chat) {
+            chat.setChannel(channel);
         }
     }
 
