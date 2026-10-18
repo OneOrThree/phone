@@ -1,3 +1,4 @@
+import { FocusEmoteBubble } from './FocusEmoteBubble';
 import * as Haptics from 'expo-haptics';
 import { componentTokens } from '@/design-system/tokens';
 import { IslandOcean } from '@/screens/island/IslandOcean';
@@ -919,19 +920,7 @@ export function FishingActor({
       >
         {/* 이모티콘이 오면 3초 동안 과목·시간표 자리를 대신한다(축소해 이름만 보이는 배율에서도 뜬다) */}
         {emote ? (
-          <View
-            style={{
-              alignSelf: 'center',
-              backgroundColor: '#FFFDFA',
-              borderWidth: 2,
-              borderColor: OUTLINE,
-              borderRadius: 15,
-              paddingVertical: 4,
-              paddingHorizontal: 8,
-            }}
-          >
-            <Image source={art[`emote/${emote}`]} style={{ width: 30, height: 30 }} />
-          </View>
+          <FocusEmoteBubble emote={emote} />
         ) : (
           subject != null && (
             <View

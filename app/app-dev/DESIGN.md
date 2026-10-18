@@ -763,3 +763,7 @@ semantic token에서 생성한다. 고양이는 iOS 위젯과 같은 기존 6색
 ### 집중 종료 길게 누르기
 
 집중·휴식의 실제 종료 확인 버튼은 3초 연속으로 눌러야 실행한다. 기존 `FiButton`의 `holdToConfirm` 변형을 사용하며, 크림 바탕 위 핑크 채움이 왼쪽부터 오른쪽으로 진행한다. `componentTokens.focusEndHold`로 3초와 120ms 간격의 약한 햅틱을 관리한다. 진동 설정을 끈 경우 진동하지 않는다. 손을 떼거나 터치 영역을 벗어나거나 앱이 비활성화되면 취소하고 진행을 초기화한다. 튜토리얼·스크린리더의 대체 버튼에도 같은 제약을 적용한다.
+
+### 응원 말풍선
+
+응원 이모지는 고양이를 향한 뾰족한 꼬리의 말풍선 안에 표시한다. `FocusEmoteBubble`과 `componentTokens.focusEmoteBubble`을 공용으로 사용하고, Paper 배경에 옅은 Brown 윤곽을 둔다.

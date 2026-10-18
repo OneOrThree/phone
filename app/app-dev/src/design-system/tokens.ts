@@ -186,6 +186,16 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  focusEmoteBubble: {
+    width: 52,
+    height: 54,
+    background: color.paper,
+    outline: `${color.brown}66`,
+    stroke: primitiveTokens.stroke.default,
+    imageSize: space[8],
+    imageLeft: 10,
+    imageTop: space[1],
+  },
   focusEndHold: {
     durationMs: 3000,
     hapticIntervalMs: 120,
