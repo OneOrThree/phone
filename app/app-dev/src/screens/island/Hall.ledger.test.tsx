@@ -98,6 +98,8 @@ test('서버 월 합계·지갑을 그대로 표시한다 — 보이는 rows 합
   await waitFor(() => assert.ok(screen.getByText('+9,999')));
   assert.ok(screen.getByText('−150'));
   assert.ok(screen.getByText(/1,240마리/));
+  expect(screen.queryByText(/ISLAND LEDGER/)).toBeNull();
+  expect(screen.queryByText('우리 섬 물고기')).toBeNull();
   // 41 은 개인 fish 다 — 공동 잔액 자리에 개인 지갑이 새어 나오면 안 된다
   assert.equal(screen.queryByText(/41마리/), null);
   assert.equal(townHallMock.mock.calls.length, 1);

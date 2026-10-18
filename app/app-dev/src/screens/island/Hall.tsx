@@ -904,10 +904,6 @@ export function Hall({ e }: any) {
       ) : null;
     const left = (
       <View style={land ? { flex: 1, minWidth: 0 } : undefined}>
-        <T style={g(15.5, 24.8, { color: MUTED, letterSpacing: 0.465 })}>
-          {inviteCodeOf(i)} ISLAND LEDGER
-        </T>
-        <T style={g(28.4, 35.5, { marginTop: 1.3 })}>우리 섬 물고기</T>
         <T style={g(36.2, 45.25, { marginTop: 2.6 })} numberOfLines={1}>
           🐟 {ledger.villagePoints === null ? '—' : ledger.villagePoints.toLocaleString('ko-KR')}
           마리
