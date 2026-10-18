@@ -784,3 +784,11 @@ test('finish(target) — 결과 불명 뒤 복구가 로컬 세션을 지웠어�
   await assert.rejects(h.cmds.finish(), { code: 'STATE_CONFLICT' });
   assert.equal(h.calls.filter((c) => c.startsWith('finish')).length, 2);
 });
+
+test('finish(target) — 로컬에 대상과 다른 진행 세션이 있으면 서버를 부르지 않고 STATE_CONFLICT', async () => {
+  const h = harness({ current: async () => seaView({ id: 'sea-2' }) });
+  await h.cmds.recover();
+  await assert.rejects(h.cmds.finish({ id: 'sea-1', version: 1 }), { code: 'STATE_CONFLICT' });
+  assert.equal(h.calls.filter((c) => c.startsWith('finish')).length, 0);
+  assert.equal(h.state().session?.id, 'sea-2');
+});

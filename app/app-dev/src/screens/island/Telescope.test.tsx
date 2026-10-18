@@ -415,7 +415,7 @@ describe('항해하기(바다 항해 집중, GROMO-2310)', () => {
   test('한마디 시트 → 바다 항해 시작 → 항해 화면(sea, 목적지 이름) — 섬 구경·도착 기록은 하지 않는다', async () => {
     const { screen, e } = await open([item('r1')]);
     await sailTo(screen, 'r1');
-    screen.getByText('섬 r1로 항해할까요?');
+    screen.getByText('섬 r1(으)로 항해할까요?');
     expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
     expect(e.focus.startSea).not.toHaveBeenCalled();
     await start(screen);

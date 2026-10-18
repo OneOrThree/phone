@@ -173,6 +173,9 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     target?: { id: string; version?: number },
   ): Promise<T> => {
     const g = generation();
+    // 대상과 다른 세션이 로컬에 있으면 그 세션을 대신 끝내지 않는다 — 확정 실패로 돌려 호출부가 정본을 다시 읽게 한다
+    if (target && deps.getSession() && deps.getSession()?.id !== target.id)
+      throw new ApiError('STATE_CONFLICT', '다른 집중이 진행 중이에요.', 409);
     const session = deps.getSession() ?? target ?? null;
     if (!session || session.version == null) {
       // 서버 세션이 아니면 전이할 수 없다 — 정본을 맞춘 뒤 실패로 돌린다.

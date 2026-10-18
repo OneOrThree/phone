@@ -87,12 +87,15 @@ export function SeaVoyageHost({ e }: { e: any }) {
   // version 까지 들고 있어 로컬 세션이 지워진 뒤에도 명령 계층이 같은 키를 찾는다.
   // 목적지 이름도 그때 값으로 든다 — 세션이 지워진 뒤 화면 이름은 「목적지」 폴백이다.
   const pendingFinish = useRef<{ id: string; version?: number; name: string } | null>(null);
+  // await 뒤에 부르는 e.replace·e.notify 는 최신 e 로 — App 의 e 와 그 함수들은 렌더마다 새로 만든다
+  const eRef = useRef(e);
+  eRef.current = e;
   const settleFinish = (finished: FocusFinishView, name: string) => {
     pendingFinish.current = null;
     // 서버가 최종 판정한다 — 이미 도착한 세션이면 그만두기를 눌렀어도 결과창으로 간다
     if (finished.arrived) {
       const param: SeaArrivalParam = { finish: finished, destinationName: name };
-      e.replace('seaArrival', JSON.stringify(param));
+      eRef.current.replace('seaArrival', JSON.stringify(param));
     } else setDepartFrom(name);
   };
   const retryFinish = async () => {
@@ -112,12 +115,12 @@ export function SeaVoyageHost({ e }: { e: any }) {
         .recover()
         .then(follow)
         .catch(() => {});
-      e.notify(t('openSea.finishUnconfirmed'));
+      eRef.current.notify(t('openSea.finishUnconfirmed'));
     }
   };
   // 복구 결과가 섬 집중이면(다른 기기가 항해를 끝내고 섬에서 집중 시작) 그 화면으로. 'sea'·null 은 이 화면(항해/표류) 그대로
   const follow = (route: unknown) => {
-    if (route === 'focus' || route === 'rest') e.replace(route);
+    if (route === 'focus' || route === 'rest') eRef.current.replace(route);
   };
   // 로컬 세션 유무와 무관하게 정본을 읽는다 — 표류 중에도 다른 기기가 섬 집중·새 항해를 시작했을 수 있다
   const resync = () => {
