@@ -1,5 +1,7 @@
+import { PanResponder, StyleSheet } from 'react-native';
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { within } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import { initialState } from '@/services/model';
 import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
@@ -486,5 +488,60 @@ it('우체통 팻말로 진입해도 이동한 문으로 걸어가고 그림 전
   expect(door.width).toBeGreaterThan(46 * SCALE);
   expect(door.height).toBeGreaterThan(63 * SCALE);
   expect(door.width).toBeGreaterThanOrEqual(44);
+  await screen.unmount();
+});
+
+test('빠른 핀치 반복에도 화면 팻말과 나무 이미지는 고정 크기를 유지한다', async () => {
+  const createPan = jest.spyOn(PanResponder, 'create');
+  const screen = await render(
+    <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const pan = createPan.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  const sign = () => screen.getByTestId('building-name-hall');
+  const initial = StyleSheet.flatten(sign().props.style);
+  const overlay = screen.getByTestId('facility-sign-overlay');
+  const imageSize = () => {
+    const nodes: any[] = [];
+    const walk = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (
+        node.type === 'Image' &&
+        node.props.source === require('@/assets/village-world/ui/wooden-name-sign.png')
+      )
+        nodes.push(node);
+      (node.children ?? []).forEach(walk);
+    };
+    walk(screen.toJSON());
+    return nodes
+      .map((node) => StyleSheet.flatten(node.props.style))
+      .map(({ width, height }) => ({ width, height }));
+  };
+  const originalSizes = imageSize();
+  expect(originalSizes.length).toBeGreaterThan(0);
+  for (const distance of [70, 520, 90, 400, 70, 200]) {
+    await act(async () => {
+      pan.onPanResponderGrant!(pinch(200), {} as any);
+      pan.onPanResponderMove!(pinch(distance), {} as any);
+    });
+    expect(StyleSheet.flatten(sign().props.style)).toMatchObject({
+      width: initial.width,
+      height: initial.height,
+    });
+    expect(imageSize()).toEqual(originalSizes);
+    expect(StyleSheet.flatten(overlay.props.style)).toEqual(StyleSheet.absoluteFill);
+    // 팻말이 월드 너비가 변하는 부모 대신 고정된 화면 레이어 안에 있어야 한다.
+    expect(within(overlay).getByTestId('building-name-hall')).toBeTruthy();
+  }
+  expect(StyleSheet.flatten(sign().props.style).left).not.toBe(initial.left);
   await screen.unmount();
 });

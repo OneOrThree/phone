@@ -1,12 +1,5 @@
 import React, { useId } from 'react';
 import { Image, StyleSheet, Text, View, Platform, type ImageSourcePropType } from 'react-native';
-import {
-  BlendColor,
-  Canvas,
-  Image as SkiaImage,
-  Morphology,
-  useImage,
-} from '@shopify/react-native-skia';
 import Svg, {
   Defs,
   Filter,
@@ -72,11 +65,16 @@ function NativeFacilityOutline({
   reduceMotion,
   cropped = false,
 }: OutlineProps) {
-  const image = useImage(source as Parameters<typeof useImage>[0]);
   const pad = tokens.outlineWidth * 2;
+  // 건물과 같은 RN 이미지 레이아웃으로 그린다. 별도 Skia surface의 크기 갱신을 기다리지 않는다.
+  const width = (cropped ? rect.w : 1536) * scale;
+  const height = (cropped ? rect.h : 1024) * scale;
   return (
     <View
+      testID="native-facility-outline"
       pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
       style={{
         position: 'absolute',
         left: left + rect.x * scale,
@@ -86,30 +84,48 @@ function NativeFacilityOutline({
         ...facilityPressStyle(pressed, reduceMotion),
       }}
     >
-      <Canvas
+      <View
         style={{
           position: 'absolute',
           left: -pad,
           top: -pad,
           width: rect.w * scale + pad * 2,
           height: rect.h * scale + pad * 2,
+          overflow: 'hidden',
         }}
       >
-        <SkiaImage
-          image={image}
-          fit="fill"
-          x={pad - (cropped ? 0 : rect.x * scale)}
-          y={pad - (cropped ? 0 : rect.y * scale)}
-          width={(cropped ? rect.w : 1536) * scale}
-          height={(cropped ? rect.h : 1024) * scale}
-        >
-          <Morphology radius={tokens.outlineWidth} />
-          <BlendColor color={tokens.outline} mode="srcIn" />
-        </SkiaImage>
-      </Canvas>
+        {OUTLINE_OFFSETS.map(([dx, dy], index) => (
+          <Image
+            key={index}
+            source={source}
+            accessible={false}
+            fadeDuration={0}
+            resizeMode="stretch"
+            style={{
+              position: 'absolute',
+              left: pad - (cropped ? 0 : rect.x * scale) + dx * tokens.outlineWidth,
+              top: pad - (cropped ? 0 : rect.y * scale) + dy * tokens.outlineWidth,
+              width,
+              height,
+              tintColor: tokens.outline,
+            }}
+          />
+        ))}
+      </View>
     </View>
   );
 }
+
+const OUTLINE_OFFSETS = [
+  [-1, -1],
+  [0, -1],
+  [1, -1],
+  [-1, 0],
+  [1, 0],
+  [-1, 1],
+  [0, 1],
+  [1, 1],
+] as const;
 
 function WebFacilityOutline({
   source,
@@ -174,10 +190,14 @@ function WebFacilityOutline({
 }
 
 export function TileFacilitySign({
+  width,
+  height,
   label,
   pressed,
   reduceMotion,
 }: {
+  width: number;
+  height: number;
   label: string;
   pressed: boolean;
   reduceMotion: boolean;
@@ -187,9 +207,15 @@ export function TileFacilitySign({
       pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[StyleSheet.absoluteFill, facilityPressStyle(pressed, reduceMotion)]}
+      collapsable={false}
+      style={[{ width, height }, facilityPressStyle(pressed, reduceMotion)]}
     >
-      <Image source={sign} resizeMode="stretch" style={StyleSheet.absoluteFill} />
+      <Image
+        source={sign}
+        fadeDuration={0}
+        resizeMode="stretch"
+        style={[styles.signImage, { width, height }]}
+      />
       <View style={styles.textArea}>
         <Text numberOfLines={1} adjustsFontSizeToFit style={styles.text}>
           {label}
@@ -200,6 +226,11 @@ export function TileFacilitySign({
 }
 
 const styles = StyleSheet.create({
+  signImage: {
+    ...StyleSheet.absoluteFill,
+    width: '100%',
+    height: '100%',
+  },
   textArea: {
     position: 'absolute',
     left: '11%',

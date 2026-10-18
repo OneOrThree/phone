@@ -177,6 +177,8 @@ const pathDistance = (pts: readonly Point[]) => {
   }
   return sum;
 };
+type WorldActorLayers = { world: React.ReactNode; overlay: React.ReactNode };
+
 type WorldViewport = { left: number; top: number; scale: number };
 
 export function createWorldProjector(getViewport: () => WorldViewport) {
@@ -577,7 +579,8 @@ export function WorldMap({
   buildingOffsets?: BuildingOffsets;
   pressedFacility?: string | null;
   children?:
-    React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
+    | React.ReactNode
+    | ((scale: number, project: (point: Point) => Point) => React.ReactNode | WorldActorLayers);
 }) {
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
@@ -723,6 +726,12 @@ export function WorldMap({
       fullLayer && r ? [(r.x + r.w / 2) * scale, (r.y + r.h) * scale, 0] : undefined,
     );
   };
+  const renderedActors =
+    typeof children === 'function' ? children(scale, projectCurrentWorldPoint) : children;
+  const actorLayers =
+    renderedActors && typeof renderedActors === 'object' && 'world' in renderedActors
+      ? renderedActors
+      : { world: renderedActors, overlay: null };
   return (
     <View
       ref={view}
@@ -1117,12 +1126,15 @@ export function WorldMap({
             hallThemed={!!island.buildingThemes?.hall && island.buildingThemes.hall !== 'default'}
           />
         )}
-        {typeof children === 'function'
-          ? (children as (scale: number, project: (point: Point) => Point) => React.ReactNode)(
-              scale,
-              projectCurrentWorldPoint,
-            )
-          : children}
+        {actorLayers.world}
+      </View>
+      <View
+        testID="facility-sign-overlay"
+        pointerEvents="box-none"
+        collapsable={false}
+        style={StyleSheet.absoluteFill}
+      >
+        {actorLayers.overlay}
       </View>
     </View>
   );
@@ -1926,11 +1938,13 @@ function FinalIslandScene({
       }),
     );
     const signBoxes = layoutFacilitySigns(
-      Object.entries(facilityRects).map(([id, rect]) => ({ id, rect })),
+      Object.entries(facilityRects).map(([id, rect]) => ({ id, rect, label: doors[id].label })),
       s,
       L.fontScale,
     );
-    return (
+    const signs: React.ReactNode[] = [];
+    const screenOrigin = project({ x: 0, y: 0 });
+    const world = (
       <>
         {constructionObject && constructionBuilding && constructionSpritePhase && (
           <View
@@ -2026,6 +2040,36 @@ function FinalIslandScene({
             else if (d.building === 'gram') return;
             else notify?.(t('home.door.membersOnly'));
           };
+          if (facilityRect)
+            signs.push(
+              <Pressable
+                key={id}
+                collapsable={false}
+                testID={`building-name-${id}`}
+                accessible={false}
+                onPress={onPress}
+                onPressIn={() => setPressedFacility(id)}
+                onPressOut={() =>
+                  setPressedFacility((current) => (current === id ? null : current))
+                }
+                hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
+                style={{
+                  position: 'absolute',
+                  zIndex: 2001,
+                  ...signBoxes[id],
+                  left: screenOrigin.x + signBoxes[id].left,
+                  top: screenOrigin.y + signBoxes[id].top,
+                }}
+              >
+                <TileFacilitySign
+                  width={signBoxes[id].width}
+                  height={signBoxes[id].height}
+                  label={d.label}
+                  pressed={pressedFacility === id}
+                  reduceMotion={reduceFacilityMotion}
+                />
+              </Pressable>,
+            );
           return (
             <React.Fragment key={id}>
               <Pressable
@@ -2086,29 +2130,6 @@ function FinalIslandScene({
                   ...(facilityRect ? facilityTouchBox(facilityRect, s) : {}),
                 }}
               />
-              {facilityRect && (
-                <Pressable
-                  testID={`building-name-${id}`}
-                  accessible={false}
-                  onPress={onPress}
-                  onPressIn={() => setPressedFacility(id)}
-                  onPressOut={() =>
-                    setPressedFacility((current) => (current === id ? null : current))
-                  }
-                  hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
-                  style={{
-                    position: 'absolute',
-                    zIndex: 2001,
-                    ...signBoxes[id],
-                  }}
-                >
-                  <TileFacilitySign
-                    label={d.label}
-                    pressed={pressedFacility === id}
-                    reduceMotion={reduceFacilityMotion}
-                  />
-                </Pressable>
-              )}
             </React.Fragment>
           );
         })}
@@ -2192,6 +2213,7 @@ function FinalIslandScene({
         )}
       </>
     );
+    return { world, overlay: signs };
   };
   const next = !i.buildings.includes('hall')
     ? 'hall'
@@ -2297,7 +2319,7 @@ function FinalIslandScene({
                 if (!buildingEntryPending.current) walk(p);
               }
         }
-        children={actors as any}
+        children={actors}
       />
       {showHud && (
         <View

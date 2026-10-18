@@ -1,4 +1,5 @@
 import React from 'react';
+import { within } from '@testing-library/react-native';
 import {
   act,
   cleanup,
@@ -7,7 +8,7 @@ import {
   render,
   renderHook,
 } from '@testing-library/react-native';
-import { Animated, PanResponder, Platform } from 'react-native';
+import { Animated, PanResponder, Platform, StyleSheet } from 'react-native';
 import {
   constructionPlacement,
   createWorldProjector,
@@ -1226,4 +1227,80 @@ describe('en', () => {
 
     expect(screen.getByLabelText("Notice Board, there's a new comment.")).toBeTruthy();
   });
+});
+
+test('언어를 바꾸면 건물 이름과 긴 번역의 팻말 폭을 함께 갱신한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('tower')) island.buildings.push('tower');
+  const home = () => <FinalIsland state={state} go={jest.fn()} build={jest.fn()} />;
+  applyLocalePref('ko');
+  const screen = await render(home());
+  const korean = screen.getByTestId('building-name-tower').props.style;
+  expect(screen.getByText('전망대')).toBeTruthy();
+  try {
+    applyLocalePref('en');
+    await screen.rerender(home());
+    expect(screen.getByText('Lookout Tower')).toBeTruthy();
+    const english = screen.getByTestId('building-name-tower').props.style;
+    expect(english.width).toBeGreaterThan(korean.width);
+    expect(english.height).toBe(korean.height);
+  } finally {
+    applyLocalePref('system');
+  }
+});
+
+test('빠른 핀치 반복에도 화면 팻말과 나무 이미지는 고정 크기를 유지한다', async () => {
+  const createPan = jest.spyOn(PanResponder, 'create');
+  const screen = await render(
+    <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const pan = createPan.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  const sign = () => screen.getByTestId('building-name-hall');
+  const initial = StyleSheet.flatten(sign().props.style);
+  const overlay = screen.getByTestId('facility-sign-overlay');
+  const imageSize = () => {
+    const nodes: any[] = [];
+    const walk = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (
+        node.type === 'Image' &&
+        node.props.source === require('@/assets/village-world/ui/wooden-name-sign.png')
+      )
+        nodes.push(node);
+      (node.children ?? []).forEach(walk);
+    };
+    walk(screen.toJSON());
+    return nodes
+      .map((node) => StyleSheet.flatten(node.props.style))
+      .map(({ width, height }) => ({ width, height }));
+  };
+  const originalSizes = imageSize();
+  expect(originalSizes.length).toBeGreaterThan(0);
+  for (const distance of [70, 520, 90, 400, 70, 200]) {
+    await act(async () => {
+      pan.onPanResponderGrant!(pinch(200), {} as any);
+      pan.onPanResponderMove!(pinch(distance), {} as any);
+    });
+    expect(StyleSheet.flatten(sign().props.style)).toMatchObject({
+      width: initial.width,
+      height: initial.height,
+    });
+    expect(imageSize()).toEqual(originalSizes);
+    expect(StyleSheet.flatten(overlay.props.style)).toEqual(StyleSheet.absoluteFill);
+    // 팻말이 월드 너비가 변하는 부모 대신 고정된 화면 레이어 안에 있어야 한다.
+    expect(within(overlay).getByTestId('building-name-hall')).toBeTruthy();
+  }
+  expect(StyleSheet.flatten(sign().props.style).left).not.toBe(initial.left);
+  await screen.unmount();
 });

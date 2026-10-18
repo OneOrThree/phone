@@ -40,11 +40,22 @@ export function facilityPressStyle(
   };
 }
 
-export function facilitySignBox(id: string, rect: FacilityRect, scale: number, fontScale = 1) {
+export function facilitySignBox(
+  id: string,
+  rect: FacilityRect,
+  scale: number,
+  fontScale = 1,
+  label = '',
+) {
+  // 카메라 배율은 건물에 붙는 위치에만 적용하고, 팻말은 화면 크기를 유지한다.
+  // 긴 번역은 글자를 작게 만드는 대신 같은 나무 그림을 가로로 넓힌다.
   const width =
-    Math.max(tokens.signMinWidth, Math.min(tokens.signMaxWidth, tokens.signWorldWidth * scale)) *
-    fontScale;
-  const height = width / tokens.signAspectRatio;
+    (label.length > 10
+      ? tokens.signLongWidth
+      : label.length > 6
+        ? tokens.signMediumWidth
+        : tokens.signWidth) * fontScale;
+  const height = (tokens.signWidth / tokens.signAspectRatio) * fontScale;
   return {
     left:
       id === 'raft'
@@ -61,13 +72,13 @@ export function facilitySignBox(id: string, rect: FacilityRect, scale: number, f
 
 /** 전체 섬으로 축소해도 이웃 팻말끼리 겹치지 않게 아래로 나눈다. 뗏목의 확정 위치는 우선한다. */
 export function layoutFacilitySigns(
-  facilities: { id: string; rect: FacilityRect }[],
+  facilities: { id: string; rect: FacilityRect; label?: string }[],
   scale: number,
   fontScale = 1,
 ) {
   const out: Record<string, ReturnType<typeof facilitySignBox>> = {};
   const candidates = facilities
-    .map(({ id, rect }) => ({ id, box: facilitySignBox(id, rect, scale, fontScale) }))
+    .map(({ id, rect, label }) => ({ id, box: facilitySignBox(id, rect, scale, fontScale, label) }))
     .sort((a, b) => (a.id === 'raft' ? -1 : b.id === 'raft' ? 1 : a.box.top - b.box.top));
   for (const { id, box } of candidates) {
     for (let tries = 0; tries < facilities.length; tries++) {
