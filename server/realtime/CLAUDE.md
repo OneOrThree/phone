@@ -419,8 +419,8 @@ STOMP `id` 만 바꿔 반복하면 소켓 하나로 레지스트리 메모리를
 **중복**(같은 목적지 재구독 → 사건 하나가 구독 수만큼 복제되는 증폭을 막는다)과
 **총량**(세션당 `MAX_SUBSCRIPTIONS_PER_SESSION` = 96 → 임의 UUID 로 목적지를 바꿔도 막힌다).
 하나만으로는 다른 하나가 샌다. 96 의 근거는 계정당 소속 상한(`GroupService.MAX_JOINED_GROUPS` = 10)
-× 섬당 목적지 6(`focus`·`rest`·`emotes`·채팅·`movement`·`movement/snapshot`) + 개인 큐 2 = **62**,
-거기에 바다 목적지 2(`/user/queue/sea`·`/topic/sea/rooms/{roomId}`)를 더한 **64** 에 약 50% 여유다.
+× 섬당 목적지 7(`focus`·`rest`·`emotes`·`events`·채팅·`movement`·`movement/snapshot`) + 개인 큐 2 = **72**,
+거기에 바다 목적지 2(`/user/queue/sea`·`/topic/sea/rooms/{roomId}`)를 더한 **74** 에 약 30% 여유다(`events` 는 GROMO-2302).
 **UNSUBSCRIBE 가 자리를 돌려주므로**(`id → destination` 으로 추적한다) 섬을 떠날 때 해지하는 정상
 클라이언트는 이 상한에 닿지 않는다.
 

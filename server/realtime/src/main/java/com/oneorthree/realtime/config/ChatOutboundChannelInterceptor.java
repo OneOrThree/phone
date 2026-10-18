@@ -198,7 +198,10 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
     }
 
-    /** 섬 {@code events} 프레임(GROMO-2302) — 그 주체가 지금도 그 섬 주민인가(캐시, fail-closed). */
+    /**
+     * 섬 {@code events} 프레임(GROMO-2302) — 그 주체가 지금도 그 섬 주민인가(캐시, fail-closed), 그리고 채팅·응원과 같은
+     * 받는 사람 기준 차단 필터(GROMO-2182) — 보내는 사람은 {@code payload.userId}(도착자)다. 판정 불가는 버린다.
+     */
     private Message<?> deliverResidentEvent(Message<?> message, ChatPrincipal principal, String islandIdText) {
         UUID islandId = uuidOrNull(islandIdText);
         if (islandId == null) {
@@ -206,6 +209,12 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
         try {
             accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            // 스위치가 꺼져 있으면 발신자 판독도 하지 않는다 — 채팅과 같은 이유.
+            if (blockedUsers.enabled() && blockedUsers.hasBlocked(principal.userId(),
+                    senderOf(readPayload(message), "payload", "userId", false))) {
+                log.debug("섬 소식 전달 차단 — 받는 사람이 도착자를 차단했다");
+                return null;
+            }
             return message;
         } catch (UpstreamRejectedCredentialException e) {
             // 채팅과 같다 — 자격 자체가 무효면 소켓을 닫아 앱이 갱신·재연결을 시작하게 한다.

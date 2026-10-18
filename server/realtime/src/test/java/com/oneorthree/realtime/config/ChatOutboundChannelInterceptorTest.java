@@ -113,7 +113,7 @@ class ChatOutboundChannelInterceptorTest {
     @Test
     void islandEventsReachCurrentResidentsOnly() throws Exception {
         // 주민 — 캐시 멤버십 재검사를 통과하면 그대로 전달한다(집중 검사는 섞지 않는다).
-        Message<?> resident = frame("socket", "/topic/islands/" + island + "/events");
+        Message<?> resident = arrival(UUID.randomUUID());
         assertThat(interceptor.beforeHandle(resident, null, null)).isSameAs(resident);
         verify(guard).requireMember(island, user, "Bearer token");
         verify(guard, never()).requireCanChat(any(), any(), any());
@@ -122,10 +122,10 @@ class ChatOutboundChannelInterceptorTest {
         // 비주민(강퇴 뒤 등)·조회 불가는 프레임만 버리고 소켓은 둔다(fail-closed).
         WebSocketSession socket = openSocket("socket");
         doThrow(new IllegalStateException("not a member")).when(guard).requireMember(island, user, "Bearer token");
-        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/events"), null, null))
+        assertThat(interceptor.beforeHandle(arrival(UUID.randomUUID()), null, null))
                 .isNull();
         doThrow(new UpstreamUnavailableException()).when(guard).requireMember(island, user, "Bearer token");
-        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/events"), null, null))
+        assertThat(interceptor.beforeHandle(arrival(UUID.randomUUID()), null, null))
                 .isNull();
         verify(socket, never()).close(any(CloseStatus.class));
     }
@@ -135,10 +135,28 @@ class ChatOutboundChannelInterceptorTest {
         WebSocketSession socket = openSocket("socket");
         when(jwt.extractUserId("token")).thenReturn(Optional.empty());
 
-        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/events"), null, null))
+        assertThat(interceptor.beforeHandle(arrival(UUID.randomUUID()), null, null))
                 .isNull();
         verify(guard, never()).requireMember(any(), any(), any());
         verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+    }
+
+    @Test
+    void islandEventFromABlockedArriverIsNotDeliveredToTheBlocker() throws Exception {
+        // 채팅·응원과 같은 받는 사람 기준 차단 필터(GROMO-2182) — 보내는 사람은 payload.userId(도착자)다.
+        WebSocketSession socket = openSocket("socket");
+        UUID blocked = UUID.randomUUID();
+        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+
+        assertThat(interceptor.beforeHandle(arrival(blocked), null, null)).isNull();
+        Message<?> fromOther = arrival(UUID.randomUUID());
+        assertThat(interceptor.beforeHandle(fromOther, null, null)).isSameAs(fromOther);
+        verify(socket, never()).close(any(CloseStatus.class));
+    }
+
+    private Message<?> arrival(UUID arriver) {
+        return frame("socket", "/topic/islands/" + island + "/events",
+                "{\"type\":\"island.member.arrived\",\"payload\":{\"userId\":\"" + arriver + "\"}}");
     }
 
     // ── GROMO-2247 이동 채널 ─────────────────────────────────────────────
