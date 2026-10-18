@@ -309,6 +309,8 @@ test('close 뒤 — 내 leave 의 left 가 DISCONNECT 처리 전에 돌아와도
   personal('sea.room.left', { roomId: 'room-1', reason: 'left' }, 'left-after-close');
   roomEvent('sea.member.joined', { member: member('b') });
   deliver('/user/queue/errors', { code: 'NOT_IN_SEA_ROOM', message: '...' });
+  clock += 1_000;
+  expect(room.sendEmote('cheer')).toBe(false); // 닫힌 뒤의 이모트도 나가지 않는다
   expect(client().log.slice(before)).toEqual([]);
   expect(spy.members.length).toBe(membersBefore);
   expect(spy.left).toEqual([]);

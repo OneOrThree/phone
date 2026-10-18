@@ -281,7 +281,8 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
   client.activate();
   return {
     sendEmote: (type) => {
-      if (!roomId || !EMOTE_TYPES.has(type) || now() - lastEmote < EMOTE_TRY_MS) return false;
+      if (closed || !roomId || !EMOTE_TYPES.has(type) || now() - lastEmote < EMOTE_TRY_MS)
+        return false;
       if (!send(`/app/sea/rooms/${roomId}/emotes`, { type })) return false;
       lastEmote = now();
       return true;
