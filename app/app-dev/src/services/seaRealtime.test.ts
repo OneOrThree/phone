@@ -230,6 +230,17 @@ test('ERROR 프레임이 연속 3번이면 쉬었다가 백오프(30초 → 60�
   expect(client().connected).toBe(true);
 });
 
+test('이모트 연타 ERROR(EMOTE_TOO_FREQUENT)는 안내만 하고 백오프로 세지 않는다', () => {
+  const { spy } = open();
+  for (let i = 0; i < 3; i += 1) stompError('EMOTE_TOO_FREQUENT');
+  expect(client().connected).toBe(true);
+  expect(spy.errors).toEqual(Array(3).fill('이모트는 잠시 뒤에 다시 보낼 수 있어요'));
+  // 다른 오류 두 번으로도 쉬지 않는다 — 이모트 거절이 카운터에 남지 않았다
+  stompError();
+  stompError();
+  expect(client().connected).toBe(true);
+});
+
 test('reconnect() — 쉬는 중이면 기다리지 않고 바로 다시 붙고, 연결 중이면 아무 일도 없다', () => {
   const { room } = open();
   const before = client().log.length;

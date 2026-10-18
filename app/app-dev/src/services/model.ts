@@ -1127,7 +1127,7 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
   if (!residents) return 0;
   const from = weekStart(now);
   const mine = s.records
-    .filter((r) => r.islandId === i.id)
+    .filter((r) => islandFocusRecord(r, i.id))
     .reduce((a, r) => a + recordSecondsBetween(r, from, now), 0);
   return (
     (mine +
@@ -2617,7 +2617,8 @@ export function reducer(state: State, a: Action): State {
       if (!kickedIsland?.joined) return state;
       const shouldResetScreen =
         s.islandId === kickedIsland.id ||
-        s.session?.islandId === kickedIsland.id ||
+        // 목적지 섬에서 강퇴돼도 바다 항해는 그 섬 소속이 아니다(서버 정본) — 항해 화면을 내리지 않는다
+        (s.session?.kind !== 'sea' && s.session?.islandId === kickedIsland.id) ||
         s.visitingIslandId === kickedIsland.id;
       kickedIsland.kicked = true;
       removeOwnMembership(s, kickedIsland, false);

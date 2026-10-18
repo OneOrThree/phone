@@ -731,3 +731,56 @@ test('출항은 recover 의 옛 응답 무효화 대상 — 표류 화면 조회
   assert.equal(result.code, 'CLIENT_RECOVERY_DEFERRED');
   assert.equal(h.state().session?.id, 'sea-1');
 });
+
+test('startSea — 확정 4xx(STATE_CONFLICT·403)는 의도 키를 풀고, 결과 불명(네트워크)은 같은 키를 지킨다', async () => {
+  const errors = [
+    new ApiError('STATE_CONFLICT', '이미 진행 중', 409),
+    new ApiError('SOCIAL_LOGIN_REQUIRED', '게스트', 403),
+    new ApiError('CLIENT_NETWORK_ERROR', '유실', 0),
+  ];
+  const h = harness({
+    startSea: async () => {
+      const next = errors.shift();
+      if (next) throw next;
+      return seaView();
+    },
+  });
+  for (let i = 0; i < 3; i += 1) await h.cmds.startSea('dest-island').catch(() => {});
+  await h.cmds.startSea('dest-island');
+  assert.deepEqual(
+    h.calls.filter((c) => c.startsWith('startSea')),
+    [
+      'startSea(["dest-island","k1"])',
+      'startSea(["dest-island","k2"])',
+      'startSea(["dest-island","k3"])',
+      'startSea(["dest-island","k3"])',
+    ],
+  );
+});
+
+test('finish(target) — 결과 불명 뒤 복구가 로컬 세션을 지웠어도 같은 (세션, version) 키로 한 번 더 묻는다', async () => {
+  let n = 0,
+    live = true;
+  const h = harness({
+    current: async () => (live ? seaView() : null),
+    finish: async () => {
+      n += 1;
+      if (n === 1) throw new ApiError('CLIENT_NETWORK_ERROR', '유실', 0);
+      return { ...finish(), recordId: 'sea-1', kind: 'sea', arrived: true } as never;
+    },
+  });
+  await h.cmds.recover();
+  await h.cmds.finish().catch(() => {});
+  // App 쪽 복구가 current=null 을 읽어 로컬 세션을 지웠다
+  live = false;
+  await h.cmds.recover();
+  assert.equal(h.state().session, null);
+  const result = await h.cmds.finish({ id: 'sea-1', version: 1 });
+  assert.equal(result.recordId, 'sea-1');
+  const finishes = h.calls.filter((c) => c.startsWith('finish'));
+  assert.equal(finishes.length, 2);
+  assert.equal(finishes[1], finishes[0]);
+  // 대상 없이 세션도 없으면 서버에 묻지 않는다(기존 동작)
+  await assert.rejects(h.cmds.finish(), { code: 'STATE_CONFLICT' });
+  assert.equal(h.calls.filter((c) => c.startsWith('finish')).length, 2);
+});

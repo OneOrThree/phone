@@ -16,7 +16,7 @@ import {
 } from '@/services/seaRealtime';
 import { SeaScreen } from './SeaScreen';
 import type { SeaArrival, SeaEmote, SeaParticipant, SeaVoyage } from './seaModel';
-import { saveSeaRemark } from './seaRemark';
+import { saveSeaRemark, seaRemarkCooldownSeconds } from './seaRemark';
 
 /** 항해를 그만두면 섬이 멀어지는 연출 — 섬 사이 항해(`useIslandSailing`)와 같은 길이. */
 const DEPART_MS = 1900;
@@ -84,8 +84,9 @@ export function SeaVoyageHost({ e }: { e: any }) {
   const resyncing = useRef(false);
   // 결과를 모르는 종료(응답 유실) — 이 세션 id 가 있으면 재조회 전에 같은 키로 finish 를 다시 보낸다.
   // recover() 를 먼저 부르면 current=null 로 세션을 지워 명령 계층이 재시도할 세션·키를 잃는다(→ STATE_CONFLICT, 결과 유실).
-  const pendingFinish = useRef<string | null>(null);
-  const nameRef = useRef('');
+  // version 까지 들고 있어 로컬 세션이 지워진 뒤에도 명령 계층이 같은 키를 찾는다.
+  // 목적지 이름도 그때 값으로 든다 — 세션이 지워진 뒤 화면 이름은 「목적지」 폴백이다.
+  const pendingFinish = useRef<{ id: string; version?: number; name: string } | null>(null);
   const settleFinish = (finished: FocusFinishView, name: string) => {
     pendingFinish.current = null;
     // 서버가 최종 판정한다 — 이미 도착한 세션이면 그만두기를 눌렀어도 결과창으로 간다
@@ -95,10 +96,14 @@ export function SeaVoyageHost({ e }: { e: any }) {
     } else setDepartFrom(name);
   };
   const retryFinish = async () => {
-    const name = nameRef.current;
+    const pending = pendingFinish.current;
+    if (!pending) return;
     try {
       // 명령 계층은 (세션, version) 당 키 하나를 실패해도 들고 있다 — 같은 키라 서버가 최초 정산을 재생한다
-      settleFinish(await e.focus.finish(), name);
+      settleFinish(
+        await e.focus.finish({ id: pending.id, version: pending.version }),
+        pending.name,
+      );
     } catch (thrown) {
       if (finishOutcomeUnknown(thrown)) return; // 아직 모른다 — 다음 복귀·재연결에 다시
       pendingFinish.current = null;
@@ -120,8 +125,10 @@ export function SeaVoyageHost({ e }: { e: any }) {
     room.current?.reconnect();
     if (!e.focus || resyncing.current) return;
     // finish 는 «지금 세션»을 끝낸다 — 대기 중인 종료가 다른 세션(명령 계층이 복원한 새 항해 등)을 가리키게 됐으면
-    // 사용자가 끝내지 않은 세션을 자동 종료하지 않도록 재시도를 버린다
-    if (pendingFinish.current && pendingFinish.current !== sessionRef.current?.id)
+    // 사용자가 끝내지 않은 세션을 자동 종료하지 않도록 재시도를 버린다. 로컬 세션이 없으면(App 복구가 지웠다) 다른 세션이
+    // 아니라 «불명» — 같은 키로 한 번 더 물어 서버가 결과 또는 STATE_CONFLICT 로 답하게 한다
+    const current = sessionRef.current;
+    if (pendingFinish.current && current && pendingFinish.current.id !== current.id)
       pendingFinish.current = null;
     const work = pendingFinish.current
       ? retryFinish()
@@ -151,9 +158,13 @@ export function SeaVoyageHost({ e }: { e: any }) {
     const pending = remarkRef.current;
     if (pending && me.message !== pending.before) setRemark(null);
   };
+  // 마운트 때 한 번 건 구독(AppState·바다 방)은 이 ref 로 매 렌더의 최신 콜백을 부른다 — App 의 e 는 렌더마다 새 객체이고
+  // e.replace·e.notify 도 렌더마다 새로 만든 함수라, 첫 렌더 클로저를 쓰면 옛 라우트·상태 위에서 움직인다
+  const live = useRef({ resync, onMembers, notify: (message: string) => e.notify(message) });
+  live.current = { resync, onMembers, notify: (message: string) => e.notify(message) };
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {
-      if (next === 'active') resync();
+      if (next === 'active') live.current.resync();
     });
     return () => subscription.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -164,7 +175,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
     if (!e.focus) return;
     const timers = emoteTimers.current;
     const r = openSeaRoom({
-      onMembers,
+      onMembers: (next) => live.current.onMembers(next),
       onEmote: (userId, type) => {
         setEmotes((prev) => ({ ...prev, [userId]: type }));
         clearTimeout(timers.get(userId));
@@ -176,8 +187,8 @@ export function SeaVoyageHost({ e }: { e: any }) {
           }, EMOTE_TTL_MS),
         );
       },
-      onError: (message) => e.notify(message),
-      onReconnect: resync,
+      onError: (message) => live.current.notify(message),
+      onReconnect: () => live.current.resync(),
     });
     room.current = r;
     return () => {
@@ -222,7 +233,6 @@ export function SeaVoyageHost({ e }: { e: any }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id, session?.islandId, knownName]);
   const destinationName = knownName || cachedName || t('openSea.destinationFallback');
-  nameRef.current = destinationName;
 
   const arrival = useMemo(
     () => (e.route === 'seaArrival' ? arrivalFrom(e.detail) : null),
@@ -298,6 +308,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
       participants={seaParticipantsAt(members, now).map(withEmote)}
       voyage={arrival ? null : voyage}
       result={arrival}
+      messageCooldownSeconds={seaRemarkCooldownSeconds(now)}
       onFinish={async (sessionId) => {
         if (!session || session.id !== sessionId || !e.focus) throw new Error('stale voyage');
         const name = destinationName;
@@ -306,7 +317,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
           finished = await e.focus.finish();
         } catch (thrown) {
           if (finishOutcomeUnknown(thrown)) {
-            pendingFinish.current = sessionId;
+            pendingFinish.current = { id: sessionId, version: session.version, name };
             e.notify(t('openSea.finishChecking'));
           } else pendingFinish.current = null; // 확정 실패(STATE_CONFLICT 등) — 대기 중이던 재시도도 끝
           throw thrown; // SeaScreen 이 다시 시도 안내를 띄운다 — 다시 누르면 같은 키로 간다
