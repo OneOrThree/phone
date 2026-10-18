@@ -478,6 +478,8 @@ function Gromo() {
   }, []);
   const island = currentIsland(state),
     qaBuildingsReady =
+      // 검수에서 주입한 미완공·공사 중 상태를 전체 완공 프리셋으로 덮지 않는다.
+      REVIEW ||
       (!REVIEW && !DEMO && hasServerSession) ||
       !TESTFLIGHT_ALL_BUILDINGS ||
       !state.onboarded ||
@@ -1919,7 +1921,8 @@ function Gromo() {
         setText(opts.text || '');
         setBody(opts.body || '');
         setRestTravel(!!opts.travel);
-        setGuideStep(opts.guideStep || 0);
+        // LOAD로 받은 진행도를 보존한다. 안내 단계는 명시한 검수 화면에서만 바꾼다.
+        if (opts.guideStep !== undefined) setGuideStep(opts.guideStep);
         setFailNext(!!opts.failNext);
         setWalkRequest(null);
       },

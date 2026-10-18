@@ -117,6 +117,10 @@ npm run review:v2
 npm run review:v2-journeys
 ```
 
+`GROMO_REVIEW_URL`로 다른 로컬 검수 주소를 지정할 수 있습니다. `review:v2`는 화면·이미지·팻말 영역을, `review:v2-journeys`는 이동·구매·건설 등의 상태 변경을 확인합니다. 버튼 단위 검수는 `REVIEW_ROUTES=hall,construction,board,mail,shop,sound npm run review:buttons`처럼 경로를 제한할 수 있습니다. 버튼 클릭 성공만으로 저장·구매 완료를 판정하지는 않습니다. 실패나 실행 오류가 있으면 종료 코드 1을 반환하며 상세 결과는 `.docs/`에 저장합니다.
+
+`?review`에서는 주입한 튜토리얼 진행도와 미완공·공사 상태를 보존합니다. 건물 내부 검수용 상태에는 `tutorial: { step: 99 }`를 지정하고, 튜토리얼 자체를 확인할 때만 `guideStep`을 명시합니다.
+
 ## 현재 연결 범위
 
 로그인·계정, 섬·주민, 집중 세션, 친구·편지 등은 서버 API에 연결되어 있으며, 설정·화면 상태와 스크린타임 측정은 기기에서 처리합니다. 일부 시각 효과와 건설·음원 흐름은 앱 로컬 상태로 동작합니다. 새 API 연결 범위는 `src/services/api/`와 해당 기능 표를 함께 갱신합니다.
