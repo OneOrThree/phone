@@ -120,7 +120,13 @@ export function SeaPreview() {
       <MotionContext.Provider value={reduce}>
         <ScrollView style={styles.page} contentContainerStyle={canvas ? undefined : styles.content}>
           {!canvas && (
-            <>
+            <View
+              style={styles.controls}
+              accessibilityElementsHidden={preparing}
+              importantForAccessibility={preparing ? 'no-hide-descendants' : 'auto'}
+              aria-hidden={preparing}
+              pointerEvents={preparing ? 'none' : 'auto'}
+            >
               <Txt kind="h">먼바다 화면 미리보기</Txt>
               <Txt kind="meta">테스트 데이터 · 실제 집중 기록과 보상은 변경하지 않아요</Txt>
               <View style={styles.toolbar}>
@@ -206,74 +212,82 @@ export function SeaPreview() {
                   }
                 />
               </View>
-            </>
+            </View>
           )}
           <View style={[styles.frame, { width: frameWidth, height: frameHeight }]}>
-            {departing ? (
-              <SeaDeparture
-                state={state}
-                hasDepartedBefore={hasDepartedBefore}
-                onComplete={() => {
-                  setDeparting(false);
-                  setHasDepartedBefore(true);
-                }}
-              />
-            ) : visited ? (
-              <View style={styles.visited}>
-                <Txt kind="h">별고래섬 방문 연결 지점</Txt>
-                <Txt>실서비스에서는 기존 방문자/주민 섬 화면으로 이동합니다.</Txt>
-                <Btn title="다시 보기" onPress={reset} />
-              </View>
-            ) : (
-              <SeaScreen
-                self={self}
-                participants={[self, ...people.slice(1, count)]}
-                voyage={voyage}
-                result={result}
-                guest={guest}
-                messageCooldownSeconds={cooldown}
-                rewardCatalog={fixtureCatalog}
-                onTelescope={() => setPreparing(true)}
-                onSignIn={() => setGuest(false)}
-                onFinish={async (_sessionId, intent) => {
-                  await check();
-                  if (!voyage) return;
-                  if (intent === 'disembark')
-                    setResult({
-                      recordId: 'preview-result',
-                      destinationId: voyage.destinationId,
-                      destinationName: voyage.destinationName,
-                      activeSeconds: voyage.activeSeconds,
-                      reward:
-                        reward === 'none'
-                          ? null
-                          : {
-                              itemId: reward === 'duck' ? 'preview-duck' : 'preview-unknown',
-                              name: reward === 'duck' ? '오리 인형' : '새로운 꾸미기 아이템',
-                            },
-                    });
-                  setVoyage(null);
-                }}
-                onExplore={async () => {
-                  await check();
-                  setVisited(true);
-                }}
-                onMessage={async (message) => {
-                  await check();
-                  setPeople((current) =>
-                    current.map((person, index) => (index ? person : { ...person, message })),
-                  );
-                  setCooldown(300);
-                }}
-                onEmote={async (emote) => {
-                  await check();
-                  setPeople((current) =>
-                    current.map((person, index) => (index ? person : { ...person, emote })),
-                  );
-                  setEmoteTTL(5);
-                }}
-              />
-            )}
+            <View
+              style={styles.scene}
+              accessibilityElementsHidden={preparing}
+              importantForAccessibility={preparing ? 'no-hide-descendants' : 'auto'}
+              aria-hidden={preparing}
+              pointerEvents={preparing ? 'none' : 'auto'}
+            >
+              {departing ? (
+                <SeaDeparture
+                  state={state}
+                  hasDepartedBefore={hasDepartedBefore}
+                  onComplete={() => {
+                    setDeparting(false);
+                    setHasDepartedBefore(true);
+                  }}
+                />
+              ) : visited ? (
+                <View style={styles.visited}>
+                  <Txt kind="h">별고래섬 방문 연결 지점</Txt>
+                  <Txt>실서비스에서는 기존 방문자/주민 섬 화면으로 이동합니다.</Txt>
+                  <Btn title="다시 보기" onPress={reset} />
+                </View>
+              ) : (
+                <SeaScreen
+                  self={self}
+                  participants={[self, ...people.slice(1, count)]}
+                  voyage={voyage}
+                  result={result}
+                  guest={guest}
+                  messageCooldownSeconds={cooldown}
+                  rewardCatalog={fixtureCatalog}
+                  onTelescope={() => setPreparing(true)}
+                  onSignIn={() => setGuest(false)}
+                  onFinish={async (_sessionId, intent) => {
+                    await check();
+                    if (!voyage) return;
+                    if (intent === 'disembark')
+                      setResult({
+                        recordId: 'preview-result',
+                        destinationId: voyage.destinationId,
+                        destinationName: voyage.destinationName,
+                        activeSeconds: voyage.activeSeconds,
+                        reward:
+                          reward === 'none'
+                            ? null
+                            : {
+                                itemId: reward === 'duck' ? 'preview-duck' : 'preview-unknown',
+                                name: reward === 'duck' ? '오리 인형' : '새로운 꾸미기 아이템',
+                              },
+                      });
+                    setVoyage(null);
+                  }}
+                  onExplore={async () => {
+                    await check();
+                    setVisited(true);
+                  }}
+                  onMessage={async (message) => {
+                    await check();
+                    setPeople((current) =>
+                      current.map((person, index) => (index ? person : { ...person, message })),
+                    );
+                    setCooldown(300);
+                  }}
+                  onEmote={async (emote) => {
+                    await check();
+                    setPeople((current) =>
+                      current.map((person, index) => (index ? person : { ...person, emote })),
+                    );
+                    setEmoteTTL(5);
+                  }}
+                />
+              )}
+            </View>
             {preparing && (
               <SeaVoyagePreparation
                 destinationName="별고래섬"
@@ -296,6 +310,8 @@ export function SeaPreview() {
 }
 
 const styles = StyleSheet.create({
+  scene: { flex: 1 },
+  controls: { alignItems: 'center', gap: p.space[2] },
   frame: { overflow: 'hidden' },
   page: { flex: 1, backgroundColor: s.color.canvas },
   content: { alignItems: 'center', paddingVertical: p.space[4], gap: p.space[2] },

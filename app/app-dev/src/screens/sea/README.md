@@ -54,6 +54,9 @@ GROMO-2309·2310에서 실제 진입 경로와 서버 어댑터를 연결한다.
 6. G1/G3 뗏목 행선지 → `SeaDeparture` → `SeaScreen`과 기존 망원경 연결은
    GROMO-2309·2310에서 서버 계약 확정 후 연결한다.
 
+`SeaVoyagePreparation`을 열 때 호스트는 배경 화면의 접근성을 숨기고 입력을 막아야 한다.
+미리보기는 준비창이 열린 동안 장면과 도구 모음을 `no-hide-descendants`/`aria-hidden`으로 숨긴다.
+
 계정 변경 시 호스트는 사용자 ID를 React key로 사용하여 화면을 재생성해야 한다.
 `guest`가 참이거나 동적 boolean이면 `onSignIn`을 반드시 전달해 로그인 안내에서
 실제 회원 전환 흐름으로 이동할 수 있게 한다. 회원 전용 화면은 둘 다 생략할 수 있다.

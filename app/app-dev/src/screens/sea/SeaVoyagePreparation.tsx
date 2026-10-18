@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { Btn, Overlay, Txt, k } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
 import { t } from '@/i18n';
@@ -19,33 +20,35 @@ export function SeaVoyagePreparation({
 }) {
   const [message, setMessage] = useState('');
   return (
-    <Overlay close={pending ? undefined : onClose} maxWidth={354}>
-      <Txt accessibilityRole="header" kind="h">
-        {t('openSea.prepareTitle', { name: destinationName })}
-      </Txt>
-      <Txt>{t('openSea.prepareBody')}</Txt>
-      <TextInput
-        accessibilityLabel={t('openSea.optionalMessage')}
-        placeholder={t('openSea.optionalMessage')}
-        style={k.field}
-        value={message}
-        editable={!pending}
-        onChangeText={(value) => setMessage(Array.from(value).slice(0, 20).join(''))}
-      />
-      {!!error && <Txt accessibilityRole="alert">{error}</Txt>}
-      <Btn
-        dynamicHeight
-        title={t(pending ? 'openSea.processing' : 'openSea.start')}
-        disabled={pending}
-        onPress={() => onStart(message.trim())}
-      />
-      <Btn
-        dynamicHeight
-        title={t('openSea.close')}
-        kind="glass"
-        disabled={pending}
-        onPress={onClose}
-      />
-    </Overlay>
+    <View accessibilityViewIsModal aria-modal style={StyleSheet.absoluteFill}>
+      <Overlay close={pending ? undefined : onClose} maxWidth={354}>
+        <Txt accessibilityRole="header" kind="h">
+          {t('openSea.prepareTitle', { name: destinationName })}
+        </Txt>
+        <Txt>{t('openSea.prepareBody')}</Txt>
+        <TextInput
+          accessibilityLabel={t('openSea.optionalMessage')}
+          placeholder={t('openSea.optionalMessage')}
+          style={k.field}
+          value={message}
+          editable={!pending}
+          onChangeText={(value) => setMessage(Array.from(value).slice(0, 20).join(''))}
+        />
+        {!!error && <Txt accessibilityRole="alert">{error}</Txt>}
+        <Btn
+          dynamicHeight
+          title={t(pending ? 'openSea.processing' : 'openSea.start')}
+          disabled={pending}
+          onPress={() => onStart(message.trim())}
+        />
+        <Btn
+          dynamicHeight
+          title={t('openSea.close')}
+          kind="glass"
+          disabled={pending}
+          onPress={onClose}
+        />
+      </Overlay>
+    </View>
   );
 }
