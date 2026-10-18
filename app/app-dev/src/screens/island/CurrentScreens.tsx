@@ -2421,10 +2421,8 @@ function FocusFlow({ e: environment }: any) {
     } else if (r === 'focus' && s.session && !leg) setDialog('end');
   };
   const start = () => {
-    if (!e.text.trim()) {
-      setError(t('focusFlow.setup.subjectRequired'));
-      return;
-    }
+    const subject = e.text.trim() || t('focusFlow.setup.defaultSubject');
+    Keyboard.dismiss();
     if (!e.focus && !i.joined) {
       e.notify(t('focusFlow.setup.needsIsland'));
       e.replace('chooseIsland');
@@ -2434,7 +2432,7 @@ function FocusFlow({ e: environment }: any) {
       // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
       setError('');
       e.focus
-        .start({ subject: e.text.trim() })
+        .start({ subject })
         .then(() => {
           advanceTutorial(8, 9);
           e.go('focus');
@@ -2442,17 +2440,19 @@ function FocusFlow({ e: environment }: any) {
         .catch((error: any) => setError(errorTextOr(error, 'focusFlow.setup.startFailed')));
       return;
     }
-    e.dispatch({ type: 'START', subject: e.text });
+    e.dispatch({ type: 'START', subject });
     advanceTutorial(8, 9);
     e.go('focus');
   };
   const finishInput = () => {
-    if (!e.text.trim()) {
-      setError(t('focusFlow.setup.subjectRequired'));
-      return;
-    }
     Keyboard.dismiss();
     e.setGuideStep(8);
+  };
+  const closeSetup = () => {
+    Keyboard.dismiss();
+    setError('');
+    if (tutorialStep === 7 || tutorialStep === 8) e.setGuideStep(5);
+    e.replace('fishingArrival');
   };
   const skipTutorial = () => e.setGuideStep(99);
   const openEnd = () => {
@@ -2653,9 +2653,8 @@ function FocusFlow({ e: environment }: any) {
           text={t('focusFlow.tutorial.step7')}
         >
           <Btn
-            title={t('focusFlow.tutorial.step7Done')}
+            title={t(e.text.trim() ? 'focusFlow.tutorial.step7Done' : 'focusFlow.setup.skip')}
             small
-            disabled={!e.text.trim()}
             onPress={finishInput}
           />
         </TutorialSpotlight>
@@ -2817,17 +2816,20 @@ function FocusFlow({ e: environment }: any) {
             }}
           >
             <Text style={fiTitle(18)}>{t('focusFlow.setup.title')}</Text>
-            <View style={{ width: 44, height: 44, position: 'relative' }}>
-              <View style={{ position: 'absolute', left: 22, top: 36 }}>
-                <CatSprite
-                  color={s.color}
-                  motion="tilt"
-                  size={44}
-                  reduce={reduce}
-                  testID="focus-setup-cat"
-                />
-              </View>
-            </View>
+            <Pressable
+              testID="close-focus-setup"
+              accessibilityRole="button"
+              accessibilityLabel={t('focusFlow.setup.close')}
+              onPress={closeSetup}
+              style={{
+                minWidth: semanticTokens.size.tapMin,
+                minHeight: semanticTokens.size.tapMin,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={fiTitle(semanticTokens.typography.title)}>×</Text>
+            </Pressable>
           </View>
           <Text
             style={{
@@ -2874,18 +2876,18 @@ function FocusFlow({ e: environment }: any) {
             </Text>
           )}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <FiButton
-              title={t('focusFlow.setup.pickAnotherSpot')}
-              style={{ flex: 1 }}
-              onPress={e.back}
-            />
             <View
               ref={setupStartTarget.ref}
               collapsable={false}
               onLayout={setupStartTarget.measure}
               style={{ flex: 1 }}
             >
-              <FiButton primary title={t('focus.start')} id="start-focus" onPress={start} />
+              <FiButton
+                primary
+                title={t(e.text.trim() ? 'focus.start' : 'focusFlow.setup.skipAndStart')}
+                id="start-focus"
+                onPress={start}
+              />
             </View>
           </View>
         </View>

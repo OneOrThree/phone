@@ -1297,7 +1297,7 @@ describe('en', () => {
       screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, props),
     );
     expect(
-      screen.getByPlaceholderText('e.g. Memorize English words', { includeHiddenElements: true }),
+      screen.getByPlaceholderText('What will you do? (optional)', { includeHiddenElements: true }),
     ).toBeTruthy();
     await screen.rerender(
       screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, {
@@ -1335,6 +1335,62 @@ describe('en', () => {
     expect(alert).not.toHaveTextContent('회원 전환 토큰 오류');
     await screen.unmount();
   });
+});
+
+test.each(['', '   '])('할 일이 %j이면 기본 주제로 집중을 시작한다', async (text) => {
+  const state = focusedState();
+  state.session = null;
+  const start = jest.fn().mockResolvedValue({});
+  const go = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusSetup', undefined, go, undefined, undefined, {
+      text,
+      focus: { start },
+    }),
+  );
+  await fireEvent.press(screen.getByTestId('start-focus'));
+  expect(start).toHaveBeenCalledWith({ subject: '집중' });
+  expect(go).toHaveBeenCalledWith('focus');
+  await screen.unmount();
+});
+
+test('준비 창 X는 집중 시작 없이 자리 선택으로 돌아간다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const start = jest.fn(),
+    replace = jest.fn(),
+    setGuideStep = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, {
+      guideStep: 7,
+      focus: { start },
+      replace,
+      setGuideStep,
+    }),
+  );
+  await fireEvent.press(screen.getByTestId('close-focus-setup', { includeHiddenElements: true }));
+  expect(start).not.toHaveBeenCalled();
+  expect(replace).toHaveBeenCalledWith('fishingArrival');
+  expect(setGuideStep).toHaveBeenCalledWith(5);
+  await screen.unmount();
+});
+
+test('첫 집중 체험도 할 일을 쓰지 않고 건너뛸 수 있다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const start = jest.fn(),
+    setGuideStep = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, {
+      guideStep: 7,
+      focus: { start },
+      setGuideStep,
+    }),
+  );
+  await fireEvent.press(screen.getByText('건너뛰기'));
+  expect(setGuideStep).toHaveBeenCalledWith(8);
+  expect(start).not.toHaveBeenCalled();
+  await screen.unmount();
 });
 
 test('도착하면 바다 쪽 안내와 선택 가능한 빈자리 원이 나타난다', async () => {

@@ -487,11 +487,15 @@
     },
     "setup": {
       "title": "Get Ready to Focus",
-      "placeholder": "e.g. Memorize English words",
+      "placeholder": "What will you do? (optional)",
       "subjectRequired": "Please enter a subject or to-do to focus on.",
       "needsIsland": "Join an island before you can focus.",
       "startFailed": "Couldn't start the focus session.",
-      "pickAnotherSpot": "Choose Another Spot"
+      "pickAnotherSpot": "Choose Another Spot",
+      "defaultSubject": "Focus",
+      "skip": "Skip",
+      "skipAndStart": "Skip and start",
+      "close": "Close and choose another spot"
     },
     "hud": {
       "emoteFab": "Emote",
@@ -534,7 +538,7 @@
       "step5": "Tap an empty spot on the ground to choose your seat.",
       "step6": "You can't choose the water or a spot where another resident is sitting.\nJust tap the spot you like.",
       "step6SkipButton": "Stop Showing This Guide",
-      "step7": "Write down one to-do for this focus session.\nSomething you can start right away, like “Memorize English words,” works best.",
+      "step7": "Write what you want to do, or skip this step.",
       "step7Done": "Done",
       "step8": "Good. Now tap Start Focus.",
       "step9": "Focus has started.\nUp top, you'll see the to-do you just wrote and your actual focus time.",
