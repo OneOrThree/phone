@@ -103,6 +103,27 @@ test('내 상세도 참가자 정보보다 현재 항해 과목과 시간을 사
   expect(screen.queryByText('바다 구경 중')).toBeNull();
 });
 
+test.each(['self', 'peer'])('비집중 %s 상세에는 이전 과목을 표시하지 않는다', async (target) => {
+  const p = props();
+  const screen = await render(
+    <SeaScreen
+      {...p}
+      self={{ ...p.self, subject: '내 이전 과목' }}
+      participants={people.map((person) => ({
+        ...person,
+        focusing: false,
+        subject: '이웃 이전 과목',
+      }))}
+    />,
+  );
+  await fireEvent.press(
+    target === 'self' ? screen.getByLabelText('내 뗏목') : screen.getByTestId('sea-person-1'),
+  );
+  expect(screen.getByText('바다 구경 중')).toBeTruthy();
+  expect(screen.queryByText('내 이전 과목')).toBeNull();
+  expect(screen.queryByText('이웃 이전 과목')).toBeNull();
+});
+
 test('도착 전 종료는 확인 후 실행하고 취소하면 집중을 유지한다', async () => {
   const p = props();
   const screen = await render(

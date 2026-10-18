@@ -288,8 +288,9 @@ export function SeaScreen(props: SeaScreenProps) {
                 {selected && (
                   <>
                     <Txt>
-                      {selected.subject ||
-                        t(selected.focusing ? 'openSea.focusing' : 'openSea.floating')}
+                      {selected.focusing
+                        ? selected.subject || t('openSea.focusing')
+                        : t('openSea.floating')}
                     </Txt>
                     {selected.focusing && <Txt kind="h">{seaClock(selected.activeSeconds)}</Txt>}
                     {!!selected.message && <Txt>{selected.message}</Txt>}
