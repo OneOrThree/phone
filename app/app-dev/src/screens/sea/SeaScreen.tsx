@@ -323,8 +323,12 @@ export function SeaScreen(props: SeaScreenProps) {
                     <Txt kind="meta">{Array.from(message).length} / 20</Txt>
                     <Btn
                       dynamicHeight
-                      title={t('openSea.saveMessage')}
-                      disabled={pending || !message.trim()}
+                      title={t(
+                        self.message?.trim() && !message.trim()
+                          ? 'openSea.deleteMessage'
+                          : 'openSea.saveMessage',
+                      )}
+                      disabled={pending || (!message.trim() && !self.message?.trim())}
                       onPress={() => run(() => props.onMessage(message.trim()), true)}
                     />
                   </>

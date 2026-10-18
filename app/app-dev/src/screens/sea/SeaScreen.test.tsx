@@ -255,6 +255,25 @@ test('다음 페이지 이동은 중간 스크롤 이벤트 때문에 이전 페
   expect(screen.getByText('2 / 2')).toBeTruthy();
 });
 
+test('기존 한마디를 비우면 빈 문자열로 삭제를 요청할 수 있다', async () => {
+  const p = props();
+  const screen = await render(<SeaScreen {...p} self={{ ...p.self, message: '집중할게요' }} />);
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  await fireEvent.changeText(screen.getByLabelText('한마디 쓰기'), '   ');
+  expect(screen.getByLabelText('한마디 지우기')).toBeEnabled();
+  await fireEvent.press(screen.getByLabelText('한마디 지우기'));
+  expect(p.onMessage).toHaveBeenCalledWith('');
+});
+
+test('기존 한마디가 없으면 빈 내용은 저장하지 않는다', async () => {
+  const p = props();
+  const screen = await render(<SeaScreen {...p} />);
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  expect(screen.getByLabelText('한마디 띄우기')).toBeDisabled();
+  await fireEvent.press(screen.getByLabelText('한마디 띄우기'));
+  expect(p.onMessage).not.toHaveBeenCalled();
+});
+
 test('게스트와 한마디 쿨다운 상태에서는 저장 요청을 보낼 수 없다', async () => {
   const p = props();
   const onSignIn = jest.fn();

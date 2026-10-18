@@ -1010,6 +1010,7 @@
     "messageWait": "You can write again in {{minutes}} min",
     "messagePlaceholder": "What are you working on?",
     "saveMessage": "Share message",
+    "deleteMessage": "Remove message",
     "keepFocusing": "Keep focusing",
     "close": "Close",
     "prepareTitle": "Sail to {{name}}?",

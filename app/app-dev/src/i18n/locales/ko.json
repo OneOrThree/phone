@@ -983,6 +983,7 @@
     "messageWait": "{{minutes}}분 뒤에 다시 쓸 수 있어요",
     "messagePlaceholder": "지금 하고 있는 일을 알려주세요",
     "saveMessage": "한마디 띄우기",
+    "deleteMessage": "한마디 지우기",
     "keepFocusing": "계속 집중하기",
     "close": "닫기",
     "prepareTitle": "{{name}}로 항해할까요?",
