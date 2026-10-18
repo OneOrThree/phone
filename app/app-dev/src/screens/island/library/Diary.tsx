@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { assets } from '@/constants/assets';
 import { art, Seg } from '@/design-system/patterns';
 import { Button } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
@@ -427,7 +428,10 @@ export function Diary({ e, font }: { e: any; font?: string }) {
                 style={({ pressed }) => [styles.resident, pressed && styles.pressed]}
               >
                 <Image
-                  source={art[`avatar/${m.color}`] ?? art['avatar/black']}
+                  source={
+                    assets[`characters/cat/${m.color}/idle.png`] ??
+                    assets['characters/cat/black/idle.png']
+                  }
                   style={styles.avatar}
                   resizeMode="contain"
                 />
@@ -443,7 +447,10 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       <>
         <View style={styles.profile}>
           <Image
-            source={art[`avatar/${resident.color}`] ?? art['avatar/black']}
+            source={
+              assets[`characters/cat/${resident.color}/idle.png`] ??
+              assets['characters/cat/black/idle.png']
+            }
             style={styles.avatar}
             resizeMode="contain"
           />

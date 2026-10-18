@@ -218,7 +218,7 @@ export const componentTokens = {
     timetableRowHeight: space[5],
     timetableGap: space[1],
     tableRowHeight: 50,
-    avatarSize: space[12],
+    avatarSize: space[16],
     residentMinHeight: 104,
     pressedOpacity: 0.7,
     unavailableOpacity: 0.35,
