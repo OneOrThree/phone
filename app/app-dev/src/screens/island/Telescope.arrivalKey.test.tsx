@@ -1,6 +1,6 @@
 // 망원경 도착 기록(arrive)·바다 항해 시작·한마디가 실제 HTTP 요청에서 어떤 본문·`Idempotency-Key` 를 싣는지(API 배선).
 // 다른 망원경 테스트와 달리 API 모듈을 목으로 바꾸지 않는다 — fetch 만 스텁해 나가는 요청을 그대로 본다.
-import { arrive } from '@/screens/island/Telescope';
+import { arrive, arriveWithOutcome } from '@/screens/island/Telescope';
 import { uuid } from '@/services/api/client';
 import { startSeaFocusSession, updateSeaRemark } from '@/services/api/focusSessions';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -123,4 +123,44 @@ test('바다 항해 시작은 본문 한 필드(destinationIslandId)와 Idempote
   expect(remark.init.method).toBe('PUT');
   expect(JSON.parse(String(remark.init.body))).toEqual({ remark: '안녕' });
   expect(header(remark, 'Idempotency-Key')).toBeUndefined();
+});
+
+const okArrival = (arrivedBefore: boolean) =>
+  (global as any).fetch.mockImplementation(
+    async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () =>
+          JSON.stringify({
+            data: {
+              islandId: 'a',
+              arrivedBefore,
+              membershipStatus: 'active',
+              currentIslandId: 'a',
+            },
+          }),
+      }) as unknown as Response,
+  );
+
+test('도착 POST 가 성공(arrivedBefore=false)하면 소속 재조회가 실패해도 그 결과를 돌려준다(환영 판정 보존)', async () => {
+  okArrival(false);
+  const e = { islands: { sync: jest.fn().mockRejectedValue(new Error('down')) } };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).resolves.toEqual({
+    member: true,
+    arrivedBefore: false,
+  });
+  expect(e.islands.sync).toHaveBeenCalledTimes(1);
+});
+
+test('도착 POST 자체가 결과 불명이면 소속 재조회로 가리고 arrivedBefore=true 폴백을 유지한다', async () => {
+  (global as any).fetch.mockImplementation(async () => {
+    throw new TypeError('Network request failed');
+  });
+  const e = { islands: { sync: jest.fn().mockResolvedValue({ currentIslandId: 'a' }) } };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).resolves.toEqual({
+    member: true,
+    arrivedBefore: true,
+  });
 });

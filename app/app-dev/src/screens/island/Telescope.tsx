@@ -133,14 +133,11 @@ export async function arriveWithOutcome(
   islandId: string,
 ): Promise<{ member: boolean; arrivedBefore: boolean }> {
   const key = keys.key('arrive', islandId);
+  let arrival;
   try {
-    const { membershipStatus, arrivedBefore } = await arriveAtIsland(islandId, key);
-    // 도착 POST 응답을 받은 직후 해제한다(switchCurrent 는 소속 재조회로 currentIslandId 일치까지 확인한 뒤 해제 — 여기는 재조회 실패 시 다음 [항해하기]가 새 키로 가지만, 서버 도착은 같은 섬이면 결과가 같아 안전하다)
-    keys.release('arrive', islandId);
-    if (membershipStatus !== 'active') return { member: false, arrivedBefore };
-    await e.islands.sync();
-    return { member: true, arrivedBefore };
+    arrival = await arriveAtIsland(islandId, key);
   } catch (thrown) {
+    // POST 자체의 결과를 모를 때만 소속 재조회로 가린다
     if (!unknownOutcome(thrown)) throw thrown;
     let my;
     try {
@@ -151,6 +148,14 @@ export async function arriveWithOutcome(
     if (my?.currentIslandId !== islandId) throw thrown;
     return { member: true, arrivedBefore: true }; // 서버가 이미 옮겼다 — 곧 화면을 떠나 키 풀도 사라진다
   }
+  // 도착 POST 응답을 받은 직후 해제한다(switchCurrent 는 소속 재조회로 currentIslandId 일치까지 확인한 뒤 해제 — 여기는 재조회 실패 시 다음 [항해하기]가 새 키로 가지만, 서버 도착은 같은 섬이면 결과가 같아 안전하다)
+  keys.release('arrive', islandId);
+  const { membershipStatus, arrivedBefore } = arrival;
+  if (membershipStatus !== 'active') return { member: false, arrivedBefore };
+  // 소속 재조회 실패는 도착 결과를 지우지 않는다 — 환영 판정은 POST 응답 기준이고(키가 풀려 재시도 POST 는 arrivedBefore=true 를 준다),
+  // 소속 스냅샷은 홈 진입 뒤 기존 재조회 경로가 맞춘다
+  await e.islands.sync().catch(() => {});
+  return { member: true, arrivedBefore };
 }
 
 /** 내 소속 섬 — 서버가 joined 칸에 두거나 이미 활성 멤버십이면(핀이 남은 섬 등) 가입 버튼 없이 깃발을 꽂는다. */
