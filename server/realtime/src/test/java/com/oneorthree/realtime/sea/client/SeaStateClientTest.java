@@ -73,4 +73,27 @@ class SeaStateClientTest {
             assertThatThrownBy(() -> client.fetch(USER)).isInstanceOf(UpstreamUnavailableException.class);
         }
     }
+
+    @Test
+    @DisplayName("[2330] 모르는 키(futureField)가 섞여도 역직렬화가 성공하고 name·catColor 가 읽힌다")
+    void unknownKeysAreIgnoredAndProfileIsRead() {
+        body.set("{\"remark\":null,\"remarkChangedAt\":null,\"session\":null,"
+                + "\"name\":\"x\",\"catColor\":\"black\",\"futureField\":1}");
+
+        SeaStateClient.SeaState state = client.fetch(USER);
+
+        assertThat(state.name()).isEqualTo("x");
+        assertThat(state.catColor()).isEqualTo("black");
+    }
+
+    @Test
+    @DisplayName("[2330] 옛 Data 응답(name·catColor 키 없음)은 null 로 들어온다")
+    void missingProfileKeysAreNull() {
+        body.set("{\"remark\":null,\"remarkChangedAt\":null,\"session\":null}");
+
+        SeaStateClient.SeaState state = client.fetch(USER);
+
+        assertThat(state.name()).isNull();
+        assertThat(state.catColor()).isNull();
+    }
 }
