@@ -1,12 +1,13 @@
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SeaScreen, SeaScreenProps } from './SeaScreen';
 import { SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel';
 import { duckPreviewArt } from './seaRewardCatalog';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
 jest.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+  useSafeAreaInsets: jest.fn(() => ({ top: 0, bottom: 0, left: 0, right: 0 })),
 }));
 
 const people: SeaParticipant[] = Array.from({ length: 10 }, (_, index) => ({
@@ -44,6 +45,37 @@ test.each([1, 5, 10])('%i명 방은 자기 자신을 제외한 모든 사람에�
   );
   expect(pages.every((page) => page.length <= 5)).toBe(true);
   if (count === 10) expect(pages.map((page) => page.length)).toEqual([5, 4]);
+});
+
+test('작은 가로 화면에서는 장면 최소 높이를 해제하고 페이지와 본인을 화면 안에 둔다', async () => {
+  const screen = await render(<SeaScreen {...props()} voyage={voyage} />);
+  const layout = { x: 0, y: 0, width: 874, height: 402 };
+  await fireEvent(screen.getByTestId('sea-screen'), 'layout', { nativeEvent: { layout } });
+  await fireEvent(screen.getByTestId('sea-scene'), 'layout', { nativeEvent: { layout } });
+  expect(screen.getByTestId('sea-scene')).toHaveStyle({ minHeight: 0 });
+  expect(screen.getByTestId('sea-paging')).toHaveStyle({ top: 8, bottom: 'auto' });
+  expect(screen.getByTestId('sea-self')).toHaveStyle({ top: 193, bottom: 'auto' });
+  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
+  expect(screen.getByText('2 / 2')).toBeTruthy();
+  await fireEvent(screen.getByTestId('sea-screen'), 'layout', {
+    nativeEvent: { layout: { ...layout, width: 402, height: 874 } },
+  });
+  expect(screen.getByTestId('sea-scene')).toHaveStyle({ minHeight: 660 });
+});
+
+test('하단 행동 버튼은 좌우 안전 영역 안쪽에 배치한다', async () => {
+  const insets = jest.mocked(useSafeAreaInsets);
+  insets.mockReturnValue({ top: 0, bottom: 21, left: 44, right: 24 });
+  try {
+    const screen = await render(<SeaScreen {...props()} />);
+    expect(screen.getByTestId('sea-footer')).toHaveStyle({
+      paddingLeft: 64,
+      paddingRight: 44,
+      paddingBottom: 24,
+    });
+  } finally {
+    insets.mockReturnValue({ top: 0, bottom: 0, left: 0, right: 0 });
+  }
 });
 
 test('시간만 도달하면 자동 종료하거나 하선 버튼으로 바꾸지 않는다', async () => {

@@ -43,6 +43,9 @@ export function SeaScreen(props: SeaScreenProps) {
   const { self, participants, voyage, result } = props;
   const reduceMotion = useContext(MotionContext);
   const insets = useScreenInsets();
+  const [viewport, setViewport] = useState({ width: 402, height: 788 });
+  const [footerHeight, setFooterHeight] = useState(88);
+  const compact = viewport.width > viewport.height && viewport.height < 660;
   const [panel, setPanel] = useState<Panel>(null);
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
@@ -143,7 +146,11 @@ export function SeaScreen(props: SeaScreenProps) {
   const cooldown = Math.max(0, props.messageCooldownSeconds || 0);
 
   return (
-    <View style={styles.root}>
+    <View
+      testID="sea-screen"
+      style={styles.root}
+      onLayout={(event) => setViewport(event.nativeEvent.layout)}
+    >
       <View
         style={styles.root}
         pointerEvents={modal ? 'none' : 'auto'}
@@ -156,6 +163,8 @@ export function SeaScreen(props: SeaScreenProps) {
             participants={participants}
             self={currentSelf}
             focusing={!!voyage}
+            compact={compact}
+            footerHeight={footerHeight}
             reduceMotion={reduceMotion}
             onParticipant={(person) => open({ userId: person.userId })}
             onMessage={() => {
@@ -169,20 +178,31 @@ export function SeaScreen(props: SeaScreenProps) {
                   pointerEvents="none"
                   style={[
                     styles.hud,
+                    compact && styles.compactHud,
                     {
                       top: Math.max(
                         (sceneHeight >= 760 ? sceneHeight * 0.1 : p.space[6]) - p.space[8],
                         insets.top + p.space[2],
                       ),
+                      ...(compact && {
+                        left: insets.left + p.space[5],
+                        right: insets.right + 160,
+                      }),
                     },
                   ]}
                 >
-                  <Txt style={styles.subject}>{voyage.subject}</Txt>
-                  <Txt testID="sea-focus-clock" style={styles.timer}>
+                  {!compact && <Txt style={styles.subject}>{voyage.subject}</Txt>}
+                  <Txt
+                    testID="sea-focus-clock"
+                    style={[styles.timer, compact && styles.compactTimer]}
+                  >
                     {seaClock(voyage.activeSeconds)}
                   </Txt>
-                  <View style={styles.badge}>
-                    <Txt style={styles.badgeText}>
+                  <View style={[styles.badge, compact && styles.compactBadge]}>
+                    <Txt
+                      numberOfLines={compact ? 2 : undefined}
+                      style={[styles.badgeText, compact && styles.compactBadgeText]}
+                    >
                       {voyage.canDisembark
                         ? t('openSea.destinationReached', { name: voyage.destinationName })
                         : voyage.activeSeconds >= voyage.requiredSeconds
@@ -205,7 +225,7 @@ export function SeaScreen(props: SeaScreenProps) {
                           100,
                       ),
                     }}
-                    style={styles.track}
+                    style={[styles.track, compact && styles.compactTrack]}
                   >
                     <View
                       style={[
@@ -221,7 +241,18 @@ export function SeaScreen(props: SeaScreenProps) {
             }
           </SeaScene>
         </ScrollView>
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, p.space[6]) }]}>
+        <View
+          testID="sea-footer"
+          onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
+          style={[
+            styles.footer,
+            {
+              paddingBottom: Math.max(insets.bottom, p.space[6]),
+              paddingLeft: insets.left + p.space[5],
+              paddingRight: insets.right + p.space[5],
+            },
+          ]}
+        >
           {!!error && (
             <Txt accessibilityRole="alert" style={styles.error}>
               {error}
@@ -384,6 +415,17 @@ const styles = StyleSheet.create({
   },
   subject: { fontSize: s.typography.body, textAlign: 'center' },
   timer: { fontSize: 40, lineHeight: 60, fontVariant: ['tabular-nums'] },
+  compactHud: {
+    height: 52,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    gap: p.space[2],
+  },
+  compactTimer: { fontSize: s.typography.title, lineHeight: 32 },
+  compactBadge: { flexShrink: 1, paddingVertical: 0 },
+  compactBadgeText: { fontSize: s.typography.caption, lineHeight: 16 },
+  compactTrack: { position: 'absolute', bottom: 0, left: '50%', marginLeft: -80 },
   badge: {
     paddingHorizontal: p.space[3],
     paddingVertical: p.space[1],

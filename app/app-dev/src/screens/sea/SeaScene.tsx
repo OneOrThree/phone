@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '@/design-system/typography';
+import { useScreenInsets } from '@/design-system/primitives';
 import { semanticTokens as s, primitiveTokens as p } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { seaAssets } from './seaAssets';
@@ -12,6 +13,8 @@ type Props = {
   participants: readonly SeaParticipant[];
   self: SeaParticipant;
   focusing: boolean;
+  compact?: boolean;
+  footerHeight?: number;
   reduceMotion?: boolean;
   onParticipant: (participant: SeaParticipant) => void;
   onMessage: () => void;
@@ -22,11 +25,14 @@ export function SeaScene({
   participants,
   self,
   focusing,
+  compact = false,
+  footerHeight = 88,
   reduceMotion = false,
   onParticipant,
   onMessage,
   children,
 }: Props) {
+  const insets = useScreenInsets();
   const [bounds, setBounds] = useState({ width: 402, height: 788 });
   const [page, setPage] = useState(0);
   const scroll = useRef<ScrollView>(null);
@@ -72,6 +78,17 @@ export function SeaScene({
     if (Date.now() >= suppressPressUntil.current) onParticipant(participant);
   };
   const sizeScale = Math.min(bounds.width / 402, 1.3);
+  const safeWidth = bounds.width - insets.left - insets.right;
+  const compactHeader = insets.top + 72;
+  const compactRow = Math.max(0, (bounds.height - footerHeight - compactHeader) / 2);
+  const compactRaft = Math.min(64, Math.max(32, compactRow - 50));
+  const compactSlots = [
+    [1 / 6, 0],
+    [1 / 2, 0],
+    [5 / 6, 0],
+    [1 / 2, 1],
+    [5 / 6, 1],
+  ];
   const peerSlots = focusing
     ? [
         [0.65, 0.323, 58],
@@ -91,7 +108,7 @@ export function SeaScene({
   return (
     <View
       testID="sea-scene"
-      style={styles.scene}
+      style={[styles.scene, compact && styles.compactScene]}
       onLayout={(event) => setBounds(event.nativeEvent.layout)}
     >
       <Image
@@ -147,14 +164,17 @@ export function SeaScene({
           >
             {peers.map((person, slot) => {
               const [x, y, size] = peerSlots[slot];
+              const [compactX, compactY] = compactSlots[slot];
               return (
                 <View
                   key={person.userId}
                   style={[
                     styles.peer,
                     {
-                      left: bounds.width * x - 65,
-                      top: bounds.height * y - 36,
+                      left: compact
+                        ? insets.left + safeWidth * compactX - 65
+                        : bounds.width * x - 65,
+                      top: compact ? compactHeader + compactRow * compactY : bounds.height * y - 36,
                     },
                   ]}
                 >
@@ -184,7 +204,7 @@ export function SeaScene({
                     <SeaRaft
                       color={person.color}
                       focusing={person.focusing}
-                      size={size * sizeScale}
+                      size={compact ? compactRaft : size * sizeScale}
                       reduceMotion={reduceMotion || index !== visiblePage}
                     />
                     <Text numberOfLines={1} style={styles.name}>
@@ -208,7 +228,19 @@ export function SeaScene({
         ))}
       </ScrollView>
       {typeof children === 'function' ? children(bounds.height) : children}
-      <View style={[styles.self, focusing && styles.focusingSelf]}>
+      <View
+        testID="sea-self"
+        style={[
+          styles.self,
+          focusing && styles.focusingSelf,
+          compact && {
+            top: compactHeader + compactRow,
+            bottom: 'auto',
+            left: insets.left + safeWidth / 6 - 65,
+            width: 130,
+          },
+        ]}
+      >
         {focusing ? (
           <View style={[styles.bubble, styles.selfSubject]}>
             <Text numberOfLines={1} style={styles.caption}>
@@ -245,7 +277,7 @@ export function SeaScene({
           <SeaRaft
             color={self.color}
             focusing={focusing}
-            size={Math.min(160 * sizeScale, bounds.height * 0.22)}
+            size={compact ? compactRaft : Math.min(160 * sizeScale, bounds.height * 0.22)}
             reduceMotion={reduceMotion}
           />
           <Text style={[styles.name, styles.me]}>{t('openSea.me')}</Text>
@@ -260,7 +292,17 @@ export function SeaScene({
         </Pressable>
       </View>
       {pages.length > 1 && (
-        <View style={styles.paging}>
+        <View
+          testID="sea-paging"
+          style={[
+            styles.paging,
+            compact && {
+              top: insets.top + p.space[2],
+              bottom: 'auto',
+              right: insets.right + p.space[3],
+            },
+          ]}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t('openSea.previous')}
@@ -296,6 +338,7 @@ const styles = StyleSheet.create({
   gulls: { position: 'absolute', width: 56, height: 26 },
   disabled: { opacity: 0.3 },
   scene: { flex: 1, minHeight: 660, backgroundColor: s.color.secondary, overflow: 'hidden' },
+  compactScene: { minHeight: 0 },
   person: { alignItems: 'center', minWidth: s.size.tapMin, minHeight: s.size.tapMin },
   bubble: {
     backgroundColor: `${s.color.surface}E6`,
