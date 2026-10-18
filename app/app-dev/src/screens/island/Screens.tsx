@@ -5917,13 +5917,14 @@ export function RedesignScreens({ e }: any) {
       value: string | null,
       label: string,
       picture: React.ReactNode,
+      a11yLabel: string = label,
     ) => {
       const on = slotWorn(slot) === value;
       return (
         <Pressable
           key={`${slot}:${value}`}
           accessibilityRole="button"
-          accessibilityLabel={label}
+          accessibilityLabel={a11yLabel}
           accessibilityState={{ selected: on }}
           onPress={() => {
             // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다. null 은 해제.
@@ -6020,8 +6021,10 @@ export function RedesignScreens({ e }: any) {
                 {thumb(
                   slot,
                   null,
-                  '기본',
+                  t('wardrobe.default'),
                   slot === 'clothes' ? <Pic id={'cat/' + state.color} w={60.5} /> : null,
+                  // 슬롯마다 같은 「기본」이 다섯 번 읽히지 않게 슬롯 이름을 붙인다
+                  t('wardrobe.defaultFor', { slot: t(`wardrobe.section.${slot}`) }),
                 )}
                 {ids.map((id) =>
                   thumb(

@@ -454,6 +454,8 @@
     }
   },
   "wardrobe": {
+    "default": "기본",
+    "defaultFor": "{{slot}} 기본",
     "section": {
       "clothes": "옷",
       "decor": "장식",

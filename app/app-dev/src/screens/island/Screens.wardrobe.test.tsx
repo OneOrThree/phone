@@ -78,11 +78,12 @@ test('「기본」은 그 슬롯만 null 로 해제한다(머리·decor 포함)'
   mockShopApi = api({ head: ['cap'], decor: ['flag'] });
   const screen = await render(<Harness equipped={{ head: 'cap', decor: 'flag' }} />);
   // 섹션 순서: 옷, 장식, 머리
-  const defaults = screen.getAllByLabelText('기본');
+  const defaults = screen.getAllByText('기본');
   await fireEvent.press(defaults[1]);
   expect(mockShopApi.equip).toHaveBeenLastCalledWith({ decor: null });
   await fireEvent.press(defaults[2]);
   expect(mockShopApi.equip).toHaveBeenLastCalledWith({ head: null });
+  expect(screen.getByLabelText('머리 기본')).toBeTruthy(); // 슬롯별 접근성 라벨
 });
 
 test('퇴역 항목은 서랍에 없고, 입고 있으면 남는다', async () => {

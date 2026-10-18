@@ -220,3 +220,17 @@ test('재조회 실패 뒤 로그인 세대가 바뀌었으면 dispatch·재시�
   expect(e.dispatch).not.toHaveBeenCalled();
   expect(e.islands.sync).toHaveBeenCalledTimes(1);
 });
+
+test('소속 재조회가 401 이면 복구하지 않고 다시 던진다(dispatch·재시도 없음)', async () => {
+  okArrival(false);
+  const e = {
+    state: { serverIslands: { memberships: [] } },
+    dispatch: jest.fn(),
+    islands: { sync: jest.fn().mockRejectedValue(new ApiError('UNAUTHORIZED', '만료', 401)) },
+  };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).rejects.toMatchObject({
+    status: 401,
+  });
+  expect(e.dispatch).not.toHaveBeenCalled();
+  expect(e.islands.sync).toHaveBeenCalledTimes(1);
+});
