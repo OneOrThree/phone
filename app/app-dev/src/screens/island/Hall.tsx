@@ -62,6 +62,7 @@ import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManageme
 const ledgerMockMode = () => isMockMode();
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
+const completionStamp = componentTokens.hallCompletionStamp;
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
 const final = (word: string) => {
   const c = word.charCodeAt(word.length - 1) - 0xac00;
@@ -1214,13 +1215,15 @@ export function Hall({ e }: any) {
     const liveItem = (b: string) => opts?.items.find((it) => it.id === b);
     const status = (b: Building) =>
       liveConstruction
-        ? liveItem(b)?.blockedReason === 'IN_PROGRESS'
-          ? 'build'
-          : opts?.selectedBuildingId === b
-            ? 'collect'
-            : liveItem(b) !== undefined && !liveItem(b)!.selectable
-              ? 'locked'
-              : 'none'
+        ? !liveItem(b)
+          ? 'done'
+          : liveItem(b)?.blockedReason === 'IN_PROGRESS'
+            ? 'build'
+            : opts?.selectedBuildingId === b
+              ? 'collect'
+              : liveItem(b) !== undefined && !liveItem(b)!.selectable
+                ? 'locked'
+                : 'none'
         : i.buildings.includes(b)
           ? 'done'
           : i.construction?.building === b
@@ -1253,7 +1256,8 @@ export function Hall({ e }: any) {
           right: land ? 16 : 18.1,
           top: land ? 14 : undefined,
           bottom: land ? 14 : 28.4,
-          minHeight: land ? undefined : 454.5,
+          minHeight: land ? undefined : Math.min(454.5, H - off.top - L.insets.bottom - 56.8),
+          maxHeight: H - off.top - L.insets.bottom - (land ? 28 : 56.8),
           paddingTop: land ? 14 : 20.7,
           paddingHorizontal: land ? 16 : 16.8,
           paddingBottom: land ? 14 : 22,
@@ -1269,7 +1273,12 @@ export function Hall({ e }: any) {
           overflow: 'hidden',
         }}
       >
-        {children}
+        <ScrollView
+          bounces={false}
+          contentContainerStyle={{ paddingBottom: completionStamp.inset }}
+        >
+          {children}
+        </ScrollView>
       </View>
     );
     // 서버 화면의 비정상 상태 — 목업 데이터로 메우지 않는다
@@ -1319,44 +1328,16 @@ export function Hall({ e }: any) {
         e.back,
       );
     }
-    // items 가 비었다 = canonical 7개 모두 완공(서버 계약) — 빈 목록을 오류로 읽지 않는다
-    if (liveConstruction && opts!.items.length === 0) {
-      return shell(
-        pickFrame(
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <T
-              testID="hall-construction-done"
-              style={g(18.1, 28.9, { fontWeight: '800', textAlign: 'center' })}
-            >
-              모든 건물을 지었어요
-            </T>
-          </View>,
-        ),
-        e.back,
-      );
-    }
-    // 서버 items 는 응답 순서 그대로 — 앱이 선형 순서(hall→board→…)를 다시 강제하지 않는다
+    // 미완공 옵션의 순서는 유지하고, 완료한 건물도 기존 그리드에서 지우지 않는다.
+    // options는 canonical 건물 중 미완공 목록 전체이므로 응답에서 빠진 건물은 완공이다.
     const cards: Building[] = liveConstruction
-      ? opts!.items.map((it) => it.id as Building)
+      ? [...opts!.items.map((it) => it.id as Building), ...grid.filter((b) => !liveItem(b))]
       : [...grid];
+    const allDone = cards.every((b) => status(b) === 'done');
     const pick = pickFrame(
       <>
         <View style={{ gap: 1.3, marginBottom: 11.6 }}>
-          <View
-            style={{
-              alignSelf: 'flex-start',
-              marginBottom: 3.9,
-              paddingVertical: 2.6,
-              paddingHorizontal: 10.3,
-              borderWidth: 1.3,
-              borderColor: '#7f624f',
-              borderRadius: 99,
-              backgroundColor: '#fff8e9',
-            }}
-          >
-            <T style={g(15.5, 24.8, { fontWeight: '800' })}>목각 건물 고르기</T>
-          </View>
-          <T style={g(25.8, 32.25)}>어떤 건물을 지을까요?</T>
+          <T style={g(25.8, 32.25)}>{allDone ? '건설 현황' : '어떤 건물을 지을까요?'}</T>
         </View>
         <View
           testID="hall-bld-grid"
@@ -1378,7 +1359,8 @@ export function Hall({ e }: any) {
               item = liveConstruction ? liveItem(b) : undefined,
               cardName = item?.name ?? buildingNames[b];
             // 흐린 카드도 눌러서 잠금 사유·공사 상태 패널을 본다
-            const tappable = !off || st === 'locked' || st === 'build';
+            const tappable =
+              !(liveConstruction && st === 'done') && (!off || st === 'locked' || st === 'build');
             return (
               <Pressable
                 key={b}
@@ -1404,25 +1386,21 @@ export function Hall({ e }: any) {
                 }}
               >
                 {st === 'done' && (
-                  <View
+                  <Image
+                    testID={`hall-completion-stamp-${b}`}
+                    source={require('@/assets/ui/construction-complete.png')}
+                    accessible={false}
+                    resizeMode="contain"
+                    fadeDuration={0}
                     style={{
                       alignSelf: 'flex-end',
-                      paddingVertical: 1.3,
-                      paddingHorizontal: 7.7,
-                      borderRadius: 99,
-                      backgroundColor: '#dff0d0',
+                      width: completionStamp.width,
+                      height: completionStamp.height,
+                      marginRight: completionStamp.inset,
+                      marginBottom: completionStamp.inset,
+                      transform: [{ rotate: completionStamp.rotation }],
                     }}
-                  >
-                    <T
-                      style={g(12.9, 20.64, {
-                        fontWeight: '800',
-                        fontStyle: 'italic',
-                        color: '#3f6b34',
-                      })}
-                    >
-                      완공
-                    </T>
-                  </View>
+                  />
                 )}
                 {st === 'build' && (
                   <View
@@ -1619,75 +1597,74 @@ export function Hall({ e }: any) {
                 ? '조회 불가'
                 : '목표를 정한 뒤 확인해 주세요',
           );
-      // 서버 경로의 본문 — 잔액·몫·공사 구간 모두 options/POST 응답 값이다
-      const liveCopy =
-        st === 'locked' ? (
-          para(`${name} — ${blockedText(planItem!.blockedReason)}`)
-        ) : st === 'build' ? (
-          startedInfo !== null && startedInfo.buildingId === plan && left > 0 ? (
-            <>
-              {row('공사 중', `남은 시간 ${hm(Math.ceil(left / 60000) * 60)}`)}
-              {bar(
-                ((e.now - Date.parse(startedInfo.startedAt)) /
-                  Math.max(
-                    1,
-                    Date.parse(startedInfo.completesAt) - Date.parse(startedInfo.startedAt),
-                  )) *
-                  100,
-              )}
-            </>
-          ) : startedInfo !== null && startedInfo.buildingId === plan ? (
-            para('완공 예정 시각이 지났어요. 서버에서 상태를 확인하고 있어요.')
-          ) : (
-            para('지금 공사가 진행 중이에요.')
-          )
-        ) : st === 'collect' ? (
+      // 서버 본문은 서버 모드에서만 계산한다. 데모에는 opts·planItem이 없다.
+      const liveCopy = !liveConstruction ? null : st === 'locked' ? (
+        para(`${name} — ${blockedText(planItem!.blockedReason)}`)
+      ) : st === 'build' ? (
+        startedInfo !== null && startedInfo.buildingId === plan && left > 0 ? (
           <>
-            {row(
-              '섬 잔액',
-              `${opts!.villagePoints.toLocaleString('ko-KR')} / ${planItem!.cost.toLocaleString('ko-KR')}마리`,
+            {row('공사 중', `남은 시간 ${hm(Math.ceil(left / 60000) * 60)}`)}
+            {bar(
+              ((e.now - Date.parse(startedInfo.startedAt)) /
+                Math.max(
+                  1,
+                  Date.parse(startedInfo.completesAt) - Date.parse(startedInfo.startedAt),
+                )) *
+                100,
             )}
-            {bar((opts!.villagePoints / Math.max(1, planItem!.cost)) * 100)}
-            {shareRow}
-            {!walletTotal(plan) && residentProgress && (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  flexWrap: 'wrap',
-                  gap: 6.5,
-                  marginVertical: 7.7,
-                  paddingVertical: 3.9,
-                  borderTopWidth: 1.3,
-                  borderStyle: 'dashed',
-                  borderTopColor: 'rgba(223, 247, 255, 0.667)',
-                }}
-              >
-                {residentProgress.residents.map((m) => (
-                  <View
-                    key={m.userId}
-                    style={{
-                      paddingVertical: 1.3,
-                      paddingHorizontal: 7.7,
-                      borderRadius: 99,
-                      backgroundColor: 'rgba(255, 255, 255, 0.125)',
-                    }}
-                  >
-                    <T style={g(13, 17.55, { color: '#f7fcff' })}>
-                      {m.userId === meId ? '나' : (m.name ?? '주민')}
-                    </T>
-                  </View>
-                ))}
-              </View>
-            )}
-            {para(planDesc[plan] ?? '')}
           </>
+        ) : startedInfo !== null && startedInfo.buildingId === plan ? (
+          para('완공 예정 시각이 지났어요. 서버에서 상태를 확인하고 있어요.')
         ) : (
-          <>
-            {row('총액', `${planItem!.cost.toLocaleString('ko-KR')}마리`)}
-            {shareRow}
-            {para(planDesc[plan] ?? '', true)}
-          </>
-        );
+          para('지금 공사가 진행 중이에요.')
+        )
+      ) : st === 'collect' ? (
+        <>
+          {row(
+            '섬 잔액',
+            `${opts!.villagePoints.toLocaleString('ko-KR')} / ${planItem!.cost.toLocaleString('ko-KR')}마리`,
+          )}
+          {bar((opts!.villagePoints / Math.max(1, planItem!.cost)) * 100)}
+          {shareRow}
+          {!walletTotal(plan) && residentProgress && (
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 6.5,
+                marginVertical: 7.7,
+                paddingVertical: 3.9,
+                borderTopWidth: 1.3,
+                borderStyle: 'dashed',
+                borderTopColor: 'rgba(223, 247, 255, 0.667)',
+              }}
+            >
+              {residentProgress.residents.map((m) => (
+                <View
+                  key={m.userId}
+                  style={{
+                    paddingVertical: 1.3,
+                    paddingHorizontal: 7.7,
+                    borderRadius: 99,
+                    backgroundColor: 'rgba(255, 255, 255, 0.125)',
+                  }}
+                >
+                  <T style={g(13, 17.55, { color: '#f7fcff' })}>
+                    {m.userId === meId ? '나' : (m.name ?? '주민')}
+                  </T>
+                </View>
+              ))}
+            </View>
+          )}
+          {para(planDesc[plan] ?? '')}
+        </>
+      ) : (
+        <>
+          {row('총액', `${planItem!.cost.toLocaleString('ko-KR')}마리`)}
+          {shareRow}
+          {para(planDesc[plan] ?? '', true)}
+        </>
+      );
       const copy = liveConstruction ? (
         liveCopy
       ) : st === 'locked' ? (
