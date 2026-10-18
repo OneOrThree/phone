@@ -12,6 +12,7 @@ import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -82,6 +83,9 @@ class StompAuthChannelInterceptorTest {
     @Mock
     private com.oneorthree.realtime.sea.SeaRooms seaRooms;
 
+    private final io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+
     private StompAuthChannelInterceptor interceptor;
     private RealtimeSessionRegistry registry;
 
@@ -92,7 +96,7 @@ class StompAuthChannelInterceptorTest {
     void setUp() {
         registry = new RealtimeSessionRegistry();
         interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
-                movementSubscriptions, membershipService, seaRooms);
+                movementSubscriptions, membershipService, seaRooms, meters);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         given(redis.opsForValue()).willReturn(valueOps);
@@ -691,6 +695,117 @@ class StompAuthChannelInterceptorTest {
                 .isEqualTo(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
         verify(accessGuard, org.mockito.Mockito.never()).requireMember(any(), any(), any());
         assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/events")).isNull();
+    }
+
+    // ── GROMO-2332 섬 구독 관측 ───────────────────────────────────────────
+
+    private double subscribeCount(String channel, String result, String code) {
+        var c = meters.find("realtime.island.subscribe.total")
+                .tags("channel", channel, "result", result, "code", code).counter();
+        return c == null ? 0 : c.count();
+    }
+
+    private final java.util.List<ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>>
+            logAppenders = new java.util.ArrayList<>();
+
+    private static ch.qos.logback.classic.Logger interceptorLogger() {
+        return (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(StompAuthChannelInterceptor.class);
+    }
+
+    /** 인터셉터 로거에 ListAppender 를 붙인다 — 로거는 JVM 공유라 @AfterEach 에서 뗀다(누적 방지). */
+    private ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> captureLogs() {
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        interceptorLogger().addAppender(appender);
+        logAppenders.add(appender);
+        return appender;
+    }
+
+    @AfterEach
+    void detachLogAppenders() {
+        logAppenders.forEach(appender -> interceptorLogger().detachAppender(appender));
+        logAppenders.clear();
+    }
+
+    @Test
+    @DisplayName("관측 — events 허용은 allow/none 으로 세고 로그를 남기지 않는다")
+    void islandEventsAllowIsCountedWithoutLog() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        var logs = captureLogs();
+
+        interceptor.preSend(message(movementSubscribe("events", groupId)), null);
+
+        assertThat(subscribeCount("events", "allow", "none")).isEqualTo(1);
+        assertThat(logs.list).isEmpty();
+    }
+
+    @Test
+    @DisplayName("관측 — events 비주민 거절은 deny/NOT_A_MEMBER 로 세고 INFO 한 줄에 userId·islandId·종류·코드를 싣는다")
+    void islandEventsDenyIsCountedAndLogged() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(groupId, userId, BEARER);
+        var logs = captureLogs();
+
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .isInstanceOf(ChatException.class)
+                .extracting(e -> ((ChatException) e).getChannel()).isEqualTo("events");
+
+        assertThat(subscribeCount("events", "deny", "NOT_A_MEMBER")).isEqualTo(1);
+        assertThat(logs.list).hasSize(1);
+        assertThat(logs.list.get(0).getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
+        assertThat(logs.list.get(0).getFormattedMessage()).contains("userId=" + userId, "islandId=" + groupId,
+                "destination=events", "code=NOT_A_MEMBER");
+    }
+
+    @Test
+    @DisplayName("관측 — events 시도 창 초과는 deny/MOVEMENT_TOO_FREQUENT")
+    void islandEventsWindowDenyIsCounted() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(valueOps.setIfAbsent(eq(RedisKeys.islandEventsSubscribeAttempt(userId)), any(String.class),
+                any(java.time.Duration.class))).willReturn(false);
+
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .isInstanceOf(DomainException.class);
+
+        assertThat(subscribeCount("events", "deny", "MOVEMENT_TOO_FREQUENT")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("관측 — movement 허용·거절(snapshot 도 movement 로 센다, 로그 종류만 movement/snapshot)")
+    void movementAllowAndDenyAreCounted() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        var logs = captureLogs();
+        interceptor.preSend(message(movementSubscribe("movement", groupId)), null);
+        assertThat(subscribeCount("movement", "allow", "none")).isEqualTo(1);
+        assertThat(logs.list).isEmpty();
+
+        UUID other = UUID.randomUUID();
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(other, userId, BEARER);
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("movement/snapshot", other)), null))
+                .isInstanceOf(ChatException.class);
+
+        assertThat(subscribeCount("movement", "deny", "NOT_A_MEMBER")).isEqualTo(1);
+        assertThat(logs.list).hasSize(1);
+        assertThat(logs.list.get(0).getFormattedMessage()).contains("destination=movement/snapshot");
+    }
+
+    @Test
+    @DisplayName("ERROR 프레임 — 섬 구독 거절은 channel 헤더를 싣고, 채널 없는 거절은 싣지 않는다")
+    void errorFrameCarriesChannelHeader() {
+        var handler = new ChatStompErrorHandler(tools.jackson.databind.json.JsonMapper.builder().build());
+        ChatException withChannel = new ChatException(ChatErrorCode.NOT_A_MEMBER);
+        withChannel.setChannel("events");
+
+        var frame = handler.handleClientMessageProcessingError(null, new RuntimeException(withChannel));
+        var accessor = StompHeaderAccessor.wrap(frame);
+        assertThat(accessor.getFirstNativeHeader("channel")).isEqualTo("events");
+        assertThat(accessor.getMessage()).isEqualTo("NOT_A_MEMBER");
+
+        var plain = handler.handleClientMessageProcessingError(null,
+                new ChatException(ChatErrorCode.NOT_A_MEMBER));
+        assertThat(StompHeaderAccessor.wrap(plain).getFirstNativeHeader("channel")).isNull();
     }
 
     @Test

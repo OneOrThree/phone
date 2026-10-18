@@ -343,7 +343,7 @@ SELECT CASE WHEN d.delivered_at IS NOT NULL THEN 'delivered'
 
 **④ 되돌릴 신호.**
 - `failing` 행이 쌓이고 `last_error` 가 `HTTP 400` — Realtime 이 이 type 을 모르는 버전이다(①의 순서 위반). 스위치를 OFF 로 돌리고 Realtime 을 먼저 배포한다.
-- `events` 구독 거절(`NOT_A_MEMBER`·`INVALID_REQUEST`) 폭증 — 앱이 주민이 아닌 화면(방문)에서 구독 중이다. 앱 쪽 수정 대상이지 서버 롤백 사유가 아니다.
-- `MOVEMENT_TOO_FREQUENT` 증가 — `events` 구독 시도 창 초과도 같은 코드를 써서 이동과 섞여 보인다. 전용 카운터는 후속이다.
+- `events` 구독 거절 폭증(`realtime.island.subscribe.total{channel=events,result=deny}`, `code` 태그로 `NOT_A_MEMBER`·`MOVEMENT_TOO_FREQUENT` 등을 가른다; 거절 ERROR 프레임에는 헤더 `channel: events` 가 실린다 — 앱은 이걸로 events 거절을 가르고, 없으면 종전 코드 분류 폴백) — 앱이 주민이 아닌 화면(방문)에서 구독 중이다. 앱 쪽 수정 대상이지 서버 롤백 사유가 아니다.
+- `MOVEMENT_TOO_FREQUENT` 증가 — `events` 시도 창 초과도 같은 코드를 쓰지만 위 카운터의 `channel` 태그로 이동과 갈라 본다.
 
 **⑤ 수동 스모크.** 서버만으로는 앱 토스트를 확인할 수 없다. 주민 계정 하나로 `/topic/islands/{islandId}/events` 를 구독해 두고, 다른 계정이 그 섬에 망원경 가입 → `POST /islands/{islandId}/arrivals` 하면 `island.member.arrived` 프레임 1건이 와야 하고, 같은 계정의 두 번째 도착엔 오지 않아야 한다(`IslandRealtimeIntegrationTest.memberArrivedReachesResidentsOnly` 와 같은 시나리오).
