@@ -213,7 +213,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
     private static final String DATA_SEA_REMARK = "PUT " + INTERNAL + "/sea-remark";
     private static final String SEA_START_BODY = "{\"destinationIslandId\":\"" + ISLAND + "\"}";
     private static final String SEA_STATE = STATE.replace("\"subject\":\"알고리즘\"", "\"subject\":\"\"")
-            .replace("\"version\":1,", "\"version\":1,\"kind\":\"sea\",");
+            .replace("\"version\":1,", "\"version\":1,\"kind\":\"sea\",\"destinationIslandName\":\"바다섬\",");
 
     /** 본문은 목적지 하나뿐이다 — 상류 경로는 {@code /focus-sessions/sea}, 명령 키와 서명된 주체가 그대로 실린다. */
     @Test
@@ -223,6 +223,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.id").value(FOCUS.toString()))
                 .andExpect(jsonPath("$.data.kind").value("sea"))
+                .andExpect(jsonPath("$.data.destinationIslandName").value("바다섬"))
                 .andExpect(jsonPath("$.data.targetMinutes").value(60));
         var sent = DATA.received().get(0);
         assertThat(sent.header("x-user-id")).isEqualTo(USER.toString());
@@ -246,6 +247,19 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.field").value("destinationIslandId"));
         assertThat(DATA.received()).isEmpty();
+    }
+
+    /** 목적지 섬 이름은 바다 세션 응답에만 실린다 — current 도 같고, 섬 세션·구버전 Data 는 키가 없다(GROMO-2330). */
+    @Test
+    void currentCarriesDestinationIslandNameOnlyForSeaSessions() throws Exception {
+        DATA.on(DATA_CURRENT, request -> ok("{\"session\":" + SEA_STATE + "}"));
+        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.destinationIslandName").value("바다섬"));
+
+        DATA.on(DATA_CURRENT, request -> ok("{\"session\":" + STATE + "}"));
+        String island = mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(island).doesNotContain("destinationIslandName");
     }
 
     /** 바다 거절 셋은 같은 이름·상태 그대로 나간다 — 일반 STATE_CONFLICT 로 접히지도, 502 가 되지도 않는다. */

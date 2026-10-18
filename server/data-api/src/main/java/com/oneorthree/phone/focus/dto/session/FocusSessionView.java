@@ -1,5 +1,7 @@
 package com.oneorthree.phone.focus.dto.session;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -21,6 +23,8 @@ import java.util.UUID;
  *                        임시로 닫혀 있다(그래서 구간 길이 합이 activeSeconds와 맞는다). 없으면 빈 목록
  * @param kind           {@code "island"} 또는 {@code "sea"}(GROMO-2299). 바다 세션이면 {@code islandId} 는 목적지 섬이고
  *                       {@code targetMinutes} 는 항해 분이다. 이 필드가 없던 시절의 멱등 재생 본문에서는 null
+ * @param destinationIslandName 바다 세션의 목적지 섬 이름(GROMO-2330, {@code groups.name}). 섬 세션이거나 섬 행이 없으면 null
+ *                       — 키가 없다
  */
 public record FocusSessionView(
         UUID id,
@@ -34,7 +38,8 @@ public record FocusSessionView(
         Instant restStartedAt,
         long version,
         List<ActiveInterval> activeIntervals,
-        String kind) {
+        String kind,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String destinationIslandName) {
 
     public static final String KIND_ISLAND = "island";
     public static final String KIND_SEA = "sea";

@@ -9,8 +9,10 @@ import java.util.UUID;
  * @param remark          한마디. 없거나 지웠으면 null
  * @param remarkChangedAt 한마디 마지막 변경 시각. 한 번도 안 바꿨으면 null
  * @param session         진행 중인 바다 세션. 없으면 null
+ * @param name            표시 이름(users.nickname). 없으면 null (GROMO-2330)
+ * @param catColor        고양이 색 6종 중 하나. 미선택이면 null (GROMO-2330)
  */
-public record SeaStateView(String remark, Instant remarkChangedAt, Session session) {
+public record SeaStateView(String remark, Instant remarkChangedAt, Session session, String name, String catColor) {
 
     /**
      * @param sessionId           세션 id

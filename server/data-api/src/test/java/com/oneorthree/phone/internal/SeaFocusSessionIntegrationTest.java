@@ -99,13 +99,15 @@ class SeaFocusSessionIntegrationTest {
                 .andExpect(jsonPath("$.islandId").value(island.toString()))
                 .andExpect(jsonPath("$.targetMinutes").value(sailing))
                 .andExpect(jsonPath("$.status").value("active"))
+                .andExpect(jsonPath("$.destinationIslandName").value("바다섬"))
                 .andReturn().getResponse().getContentAsString();
         String sessionId = JsonPath.read(started, "$.id");
         String base = "/internal/users/" + user;
 
         call(get(base + "/focus-sessions/current"), user, null).andExpect(status().isOk())
                 .andExpect(jsonPath("$.session.id").value(sessionId))
-                .andExpect(jsonPath("$.session.kind").value("sea"));
+                .andExpect(jsonPath("$.session.kind").value("sea"))
+                .andExpect(jsonPath("$.session.destinationIslandName").value("바다섬"));
         call(post(base + "/focus-sessions/" + sessionId + "/pause"), user, "{\"expectedVersion\":1}")
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SEA_SESSION_NO_REST"));
         call(post(base + "/focus-sessions/" + sessionId + "/resume"), user, "{\"expectedVersion\":1}")
