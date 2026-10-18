@@ -16,6 +16,7 @@ import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
 import com.oneorthree.business.upstream.data.dto.PendingFocusResult;
 import com.oneorthree.business.upstream.data.dto.SeaRemarkResult;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -202,7 +203,11 @@ public class FocusSessionUseCase {
             String restStartedAt,
             @JsonProperty(required = true) long version,
             @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals,
-            @JsonInclude(JsonInclude.Include.NON_NULL) String kind) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) String kind,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @Schema(description = "바다 세션의 목적지 섬 이름. 키가 없으면 섬 세션이거나 섬 행이 없는 것이다(옛 Data 호환 — null 은 보내지 않는다)",
+                    requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+            String destinationIslandName) {
         private static StateView from(FocusSessionState source) {
             if (source == null) {
                 return null;
@@ -210,7 +215,7 @@ public class FocusSessionUseCase {
             return new StateView(source.id(), source.islandId(), source.subject(), source.targetMinutes(),
                     source.status(), source.activeSeconds(), source.serverNow(), source.startedAt(),
                     source.restStartedAt(), source.version(), ActiveIntervalView.fromAll(source.activeIntervals()),
-                    source.kind());
+                    source.kind(), source.destinationIslandName());
         }
     }
 

@@ -155,7 +155,7 @@ architecture decision A19 table.
 | `lock:chat:movement:sub:{userId}` | realtime | read/write | 이동 **구독** 시도 창(600ms, GROMO-2247). 세션×섬의 첫 이동 토픽만 쓴다 — 짝 토픽은 그 판정을 이어받는다 |
 | `sea:room:{roomId}:members` | realtime | read/write | 바다 방 구성원 SET(GROMO-2300). EXPIRE 24h(입장마다 갱신), 비면 DEL |
 | `sea:rooms:open` | realtime | read/write | 빈자리 있는 바다 방 SET. **TTL 없음** — 입장·퇴장 스크립트가 스스로 정리한다 |
-| `sea:user:{userId}` | realtime | read/write | 사용자 바다 상태 HASH(`roomId, state, remark, sessionId, destinationIslandId, sailingMinutes, startedAt, adriftSince`). EXPIRE 24h, 퇴장 시 DEL |
+| `sea:user:{userId}` | realtime | read/write | 사용자 바다 상태 HASH(`roomId, state, remark, name, catColor, sessionId, destinationIslandId, sailingMinutes, startedAt, adriftSince`). EXPIRE 24h, 퇴장 시 DEL |
 | `sea:adrift` | realtime | read/write | 떠 있는 사용자 ZSET(userId → adriftSince ms). 수명 없음 — 10분 정리의 색인 |
 | `lock:chat:sea:enter:{userId}` | realtime | read/write | 바다 입장 시도 창(600ms, 사용자 축) |
 | `lock:chat:sea:emote:try:{userId}` | realtime | read/write | 바다 방 이모트 발신 시도 창(600ms, 사용자 축) |
@@ -213,7 +213,9 @@ designed fresh.
   (`SeaRoomPublisher.publishToUser`). `reason` ∈ `left`(자발 퇴장·방 토픽 UNSUBSCRIBE·탈퇴 `user.withdrawn`) · `adrift`(10분 정리) ·
   `disconnected`(마지막 세션 소켓 종료)(`SeaRooms.LEFT/ADRIFT/DISCONNECTED`). 방 토픽의 `sea.member.left{userId, reason}` 도 같은
   값이다. 앱은 **멱등**으로 처리한다.
-- **`member = {userId, state, remark, session}`** (`SeaRooms.member`). `state` ∈ `focusing`·`adrift`. `remark` 는 없으면 `null`.
+- **`member = {userId, state, remark, name, catColor, session}`** (`SeaRooms.member`). `state` ∈ `focusing`·`adrift`. `remark` 는 없으면 `null`.
+  `name`(string|null)·`catColor`(`black`·`ginger`·`cream`·`gray`·`white`·`calico`|null, 미선택 = null)는 입장·입장 직후 보정(reconcile) 때 Data `sea-state` 에서 읽어 해시에 둔다 —
+  옛 해시(배포 전 입장)는 둘 다 `null` 이니 앱은 '???'/기본색으로 폴백한다. `sea.room.snapshot`·`joined`·`updated` 모두 같은 `member` 다.
   `session` 은 세션이 없으면 `null`, 있으면 `{sessionId, destinationIslandId, sailingMinutes, activeSeconds, serverNow,
   startedAt}`. `activeSeconds` 는 저장값이 아니라 **발행 시각에 계산**한다 — `focusing` 이면 `serverNow − startedAt`, `adrift`
   이면 떠오른 시각(`adriftSince`)에서 멈춘 `adriftSince − startedAt`(0 미만은 0). `adriftSince` 자체는 `member` 에 실리지 않는다.

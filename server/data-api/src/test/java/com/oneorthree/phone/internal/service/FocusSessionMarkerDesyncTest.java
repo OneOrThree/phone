@@ -87,7 +87,7 @@ class FocusSessionMarkerDesyncTest {
                 new org.springframework.beans.factory.support.StaticListableBeanFactory()
                         .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), null);
     }
 
     @Test
