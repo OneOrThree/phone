@@ -12,7 +12,7 @@ const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.repla
 
 module.exports = {
   expo: {
-    name: 'Focuscat',
+    name: 'catus',
     slug: 'focuscat',
     owner: 'oneorthree',
     version: '2.0.0',
