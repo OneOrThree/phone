@@ -161,7 +161,15 @@ export function SeaScene({
                   <Pressable
                     testID={`sea-person-${person.userId}`}
                     accessibilityRole="button"
-                    accessibilityLabel={`${person.name}, ${person.focusing ? `${person.subject || t('openSea.focusing')}, ${seaClock(person.activeSeconds)}` : t('openSea.floating')}`}
+                    accessibilityLabel={[
+                      person.name,
+                      person.focusing
+                        ? `${person.subject || t('openSea.focusing')}, ${seaClock(person.activeSeconds)}`
+                        : t('openSea.floating'),
+                      person.emote ? t(`openSea.emoteNames.${person.emote}`) : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}
                     onPress={() => pick(person)}
                     style={styles.person}
                   >
@@ -222,11 +230,15 @@ export function SeaScene({
         )}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={
+          accessibilityLabel={[
+            t('openSea.myRaft'),
             focusing
-              ? `${t('openSea.myRaft')}, ${self.subject || t('openSea.focusing')}, ${seaClock(self.activeSeconds)}`
-              : t('openSea.myRaft')
-          }
+              ? `${self.subject || t('openSea.focusing')}, ${seaClock(self.activeSeconds)}`
+              : undefined,
+            self.emote ? t(`openSea.emoteNames.${self.emote}`) : undefined,
+          ]
+            .filter(Boolean)
+            .join(', ')}
           onPress={() => pick(self)}
           style={styles.person}
         >

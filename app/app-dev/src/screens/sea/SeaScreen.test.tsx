@@ -255,6 +255,24 @@ test('다음 페이지 이동은 중간 스크롤 이벤트 때문에 이전 페
   expect(screen.getByText('2 / 2')).toBeTruthy();
 });
 
+test('본인과 참가자 이모트는 접근성 이름에 포함되고 사라지면 제거된다', async () => {
+  const p = props();
+  const screen = await render(
+    <SeaScreen
+      {...p}
+      self={{ ...p.self, emote: 'cheer' }}
+      participants={people.map((person) => ({ ...person, emote: 'hello' }))}
+    />,
+  );
+  expect(screen.getByLabelText('내 뗏목, 응원')).toBeTruthy();
+  expect(screen.getByLabelText('고양이1, 집중 중, 00:00:42, 안녕')).toBeTruthy();
+  await screen.rerender(<SeaScreen {...p} />);
+  expect(screen.queryByLabelText('내 뗏목, 응원')).toBeNull();
+  expect(screen.queryByLabelText('고양이1, 집중 중, 00:00:42, 안녕')).toBeNull();
+  expect(screen.getByLabelText('내 뗏목')).toBeTruthy();
+  expect(screen.getByLabelText('고양이1, 집중 중, 00:00:42')).toBeTruthy();
+});
+
 test('기존 한마디를 비우면 빈 문자열로 삭제를 요청할 수 있다', async () => {
   const p = props();
   const screen = await render(<SeaScreen {...p} self={{ ...p.self, message: '집중할게요' }} />);
