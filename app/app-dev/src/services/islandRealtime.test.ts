@@ -1630,4 +1630,21 @@ describe('홈 채널의 주민 소식 구독 (GROMO-2311)', () => {
     expect(count(c, '/topic/islands/isl/events')).toBe(1);
     expect(count(c, '/topic/islands/isl/movement')).toBe(2);
   });
+
+  test('events + emote 동시 ON — events 거절은 응원 구독을 끊지 않는다', () => {
+    stompIslandChannel({
+      islandId: 'isl',
+      emote: true,
+      events: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    expect(count(c, '/topic/islands/isl/emotes')).toBe(1);
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/emotes')).toBe(2);
+    expect(count(c, '/topic/islands/isl/events')).toBe(1);
+  });
 });

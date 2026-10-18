@@ -621,11 +621,11 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       opts.onOpen();
     },
     onStompError: (frame: IFrame) => {
-      if (emoteEnabled) emoteDenied = true;
-      // 구독이 둘 이상인 접속(이동 + 주민 소식)의 첫 ERROR 는 새로 붙인 events 구독 탓으로 보고 events 만 끈다 —
-      // 이동 영구 거절로 번지지 않는다. 이동 쪽 거절이 진짜라면 재접속 뒤 다음 ERROR 에서 평소대로 판정된다.
+      // 구독이 둘 이상인 접속(이동·응원 + 주민 소식)의 첫 ERROR 는 새로 붙인 events 구독 탓으로 보고 events 만 끈다 —
+      // 응원·이동 등 다른 채널의 거절 상태는 건드리지 않는다. 그쪽 거절이 진짜라면 재접속 뒤 다음 ERROR 에서 평소대로 판정된다.
       const eventsFault = !!opts.events && !eventsDenied;
       if (opts.events) eventsDenied = true;
+      if (emoteEnabled && !eventsFault) emoteDenied = true;
       if (opts.movement && !eventsFault) {
         let code = str(frame.headers.message) ?? '';
         if (!code) {
