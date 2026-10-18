@@ -75,3 +75,7 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 - 앱은 `.env` 의 `EXPO_PUBLIC_MAP_ASSETS_URL`(시뮬레이터 `http://localhost:4300`, 실기기는 맥 LAN IP)이 있을 때만 받는다. 비우면 번들(`v1/`)만 쓴다.
 - 캐시 위치: 앱 캐시 디렉터리 `maps/home/{state.json, v<n>/}`(최근 2개 버전). 임시 디렉터리에 받아 sha256 검증 후 `v<n>` 으로 rename(원자 교체), 새 버전은 다음 홈 진입부터 쓴다.
 - 서버 꺼짐·해시 불일치·일부 실패 → 이전 캐시, 없으면 번들로 그린다(`services/mapAssets.ts`, 테스트 `mapAssets.test.ts`).
+
+### 홈 바다 분리
+
+홈 아틀라스는 `backgrounds/island/ocean/home-{day,night}.png`에서 생성한다. 원화 RGB와 해안 알파의 합성 및 반복 바다 생성은 `npm run gen:island-ocean`, 전체 최신 여부 확인은 `npm run gen:island-ocean:check`를 사용한다. `tileset.json`의 `coastlineMaskVersion: 1`이 없는 예전 캐시에는 렌더러가 해안 마스크를 적용하며 nav·배치 스냅샷은 그대로 사용한다. [생성 규칙](../../../scripts/source-art/island-ocean/README.md)을 참고한다.
