@@ -987,6 +987,7 @@
     "arrived": "You arrived safely!",
     "voyageTime": "Voyage time",
     "rewardTitle": "Found along the way",
+    "additionalRewards": "Also received: {{names}}",
     "unknownReward": "Reward information is unavailable",
     "noReward": "No item found on this voyage",
     "entering": "Entering the island…",

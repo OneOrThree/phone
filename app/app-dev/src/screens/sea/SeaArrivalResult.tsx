@@ -24,7 +24,8 @@ export function SeaArrivalResult({
   catalog?: Readonly<Record<string, SeaRewardArt>>;
 }) {
   const reward = result.reward;
-  const rewardArt = reward.status === 'earned' ? catalog[reward.itemId] : undefined;
+  const primary = reward.status === 'earned' ? reward.items[0] : undefined;
+  const rewardArt = primary ? catalog[primary.itemId] : undefined;
   return (
     <Overlay maxWidth={354} contentStyle={styles.content} frameStyle={styles.frame}>
       <View accessibilityViewIsModal testID="sea-arrival-result" style={styles.contentInner}>
@@ -64,9 +65,19 @@ export function SeaArrivalResult({
           )}
           <Txt style={styles.value}>
             {reward.status === 'earned'
-              ? reward.name
+              ? reward.items[0].name
               : t(reward.status === 'unknown' ? 'openSea.unknownReward' : 'openSea.noReward')}
           </Txt>
+          {reward.status === 'earned' && reward.items.length > 1 && (
+            <Txt style={styles.label}>
+              {t('openSea.additionalRewards', {
+                names: reward.items
+                  .slice(1)
+                  .map((item) => item.name)
+                  .join(', '),
+              })}
+            </Txt>
+          )}
         </View>
         {!!error && (
           <Txt accessibilityRole="alert" style={styles.error}>

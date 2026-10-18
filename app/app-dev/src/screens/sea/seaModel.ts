@@ -27,6 +27,8 @@ export type SeaVoyage = {
   canDisembark: boolean;
 };
 
+export type SeaRewardItem = { itemId: string; name: string };
+
 export type SeaArrival = {
   recordId: string;
   destinationId: string;
@@ -34,7 +36,9 @@ export type SeaArrival = {
   activeSeconds: number;
   /** 서버 seaReward=null은 unknown으로 변환한다. none은 미지급이 확인된 경우에만 사용한다. */
   reward:
-    { status: 'earned'; itemId: string; name: string } | { status: 'none' } | { status: 'unknown' };
+    | { status: 'earned'; items: readonly [SeaRewardItem, ...SeaRewardItem[]] }
+    | { status: 'none' }
+    | { status: 'unknown' };
 };
 
 export const seaClock = (seconds: number) => {

@@ -272,8 +272,14 @@ export function SeaPreview() {
                               ? { status: 'unknown' }
                               : {
                                   status: 'earned',
-                                  itemId: reward === 'duck' ? 'preview-duck' : 'preview-unknown',
-                                  name: reward === 'duck' ? '오리 인형' : '새로운 꾸미기 아이템',
+                                  items: [
+                                    {
+                                      itemId:
+                                        reward === 'duck' ? 'preview-duck' : 'preview-unknown',
+                                      name:
+                                        reward === 'duck' ? '오리 인형' : '새로운 꾸미기 아이템',
+                                    },
+                                  ],
                                 },
                       });
                     setVoyage(null);

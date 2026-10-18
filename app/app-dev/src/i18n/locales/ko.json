@@ -960,6 +960,7 @@
     "arrived": "무사히 도착했어요!",
     "voyageTime": "항해한 시간",
     "rewardTitle": "항해 중 건진 것",
+    "additionalRewards": "{{names}}도 함께 받았어요",
     "unknownReward": "보상 정보를 확인하지 못했어요",
     "noReward": "이번 항해에서 건진 아이템은 없어요",
     "entering": "섬으로 이동 중…",

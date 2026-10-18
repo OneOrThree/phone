@@ -196,7 +196,7 @@ test('미확인 결과를 직접 복원하며 결과 확인 성공 전 화면과
     destinationId: 'island-1',
     destinationName: '별고래섬',
     activeSeconds: 2050,
-    reward: { status: 'earned', itemId: 'duck', name: '오리 인형' },
+    reward: { status: 'earned', items: [{ itemId: 'duck', name: '오리 인형' }] },
   };
   const screen = await render(
     <SeaScreen {...p} result={result} rewardCatalog={{ duck: duckPreviewArt }} />,
@@ -226,7 +226,7 @@ test('보상이 없거나 모르는 ID이면 예시 오리를 지급한 것처�
       {...p}
       result={{
         ...result,
-        reward: { status: 'earned', itemId: 'unknown', name: '서버가 준 모자' },
+        reward: { status: 'earned', items: [{ itemId: 'unknown', name: '서버가 준 모자' }] },
       }}
     />,
   );
@@ -249,12 +249,40 @@ test('보상 미확인 복원은 미획득과 구분하고 정본을 받으면 �
   await screen.rerender(
     <SeaScreen
       {...p}
-      result={{ ...result, reward: { status: 'earned', itemId: 'duck', name: '오리 인형' } }}
+      result={{
+        ...result,
+        reward: { status: 'earned', items: [{ itemId: 'duck', name: '오리 인형' }] },
+      }}
     />,
   );
   expect(screen.getByText('오리 인형')).toBeTruthy();
   expect(screen.queryByText('보상 정보를 확인하지 못했어요')).toBeNull();
   expect(p.onFinish).not.toHaveBeenCalled();
+});
+
+test('한 정산의 여러 보상은 대표 아이템과 추가 획득 이름을 모두 표시한다', async () => {
+  const p = props();
+  const result: SeaArrival = {
+    recordId: 'multi-reward',
+    destinationId: 'island-1',
+    destinationName: '별고래섬',
+    activeSeconds: 7200,
+    reward: {
+      status: 'earned',
+      items: [
+        { itemId: 'duck', name: '오리 인형' },
+        { itemId: 'scarf', name: '빨간 목도리' },
+        { itemId: 'hat', name: '파란 모자' },
+      ],
+    },
+  };
+  const screen = await render(
+    <SeaScreen {...p} result={result} rewardCatalog={{ duck: duckPreviewArt }} />,
+  );
+  expect(screen.getByText('오리 인형')).toBeTruthy();
+  expect(screen.getByText('빨간 목도리, 파란 모자도 함께 받았어요')).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
+  expect(p.onExplore).toHaveBeenCalledWith(result);
 });
 
 test('스와이프로 마지막 참여자에 도달하고 드래그 직후에는 카드가 열리지 않는다', async () => {
