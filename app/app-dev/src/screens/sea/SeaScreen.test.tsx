@@ -115,6 +115,18 @@ test('하선 중 중복 탭을 막고 실패하면 같은 세션에서 재시도
   await act(async () => reject(new Error('network')));
   expect(screen.getByText('연결이 원활하지 않아요. 다시 눌러 시도해 주세요.')).toBeTruthy();
   expect(screen.queryByTestId('sea-arrival-result')).toBeNull();
+  await fireEvent(screen.getByTestId('sea-footer'), 'layout', {
+    nativeEvent: { layout: { width: 402, height: 144 } },
+  });
+  expect(screen.getByTestId('sea-paging')).toHaveStyle({ bottom: 144 });
+  expect(screen.getByTestId('sea-self')).toHaveStyle({ bottom: 154 });
+  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
+  expect(screen.getByText('2 / 2')).toBeTruthy();
+  await fireEvent(screen.getByTestId('sea-footer'), 'layout', {
+    nativeEvent: { layout: { width: 402, height: 80 } },
+  });
+  expect(screen.getByTestId('sea-paging')).toHaveStyle({ bottom: 88 });
+  expect(screen.getByTestId('sea-self')).toHaveStyle({ bottom: 98 });
   await fireEvent.press(screen.getByLabelText('섬에 내리기'));
   expect(p.onFinish).toHaveBeenCalledTimes(2);
 });
