@@ -766,18 +766,25 @@ class IslandArrivalIntegrationTest {
 
     // ---------------------------------------------------------------- 도구
 
-    /** 사람마다 새 키로 같은 섬 도착을 동시에 출발시키고 응답을 모은다 — 예외는 그대로 던져 테스트를 실패시킨다. */
+    /**
+     * 사람마다 새 키로 같은 섬 도착을 동시에 출발시키고 응답을 모은다 — 예외는 그대로 던져 테스트를 실패시킨다.
+     * 작업자가 전부 게이트에 도달한 것을 {@code ready} 로 확인한 뒤 출발시킨다 — 러너가 느려 한 작업자가 먼저 끝나면
+     * 순차 요청이 되어 경합 회귀를 못 잡는다(codex 리뷰).
+     */
     private List<IslandArrivalView> raceArrivals(List<UUID> arrivers, UUID islandId) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(arrivers.size());
+        CountDownLatch ready = new CountDownLatch(arrivers.size());
         CountDownLatch start = new CountDownLatch(1);
         try {
             List<Future<IslandArrivalView>> futures = new ArrayList<>();
             for (UUID arriver : arrivers) {
                 futures.add(pool.submit(() -> {
+                    ready.countDown();
                     start.await();
                     return islands.arrive(arriver, islandId, UUID.randomUUID());
                 }));
             }
+            assertThat(ready.await(10, TimeUnit.SECONDS)).as("작업자 전원 게이트 도달").isTrue();
             start.countDown();
             List<IslandArrivalView> views = new ArrayList<>();
             for (Future<IslandArrivalView> future : futures) {
