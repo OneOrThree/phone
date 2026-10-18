@@ -25,6 +25,11 @@ export function SeaArrivalResult({
   catalog?: Readonly<Record<string, SeaRewardArt>>;
 }) {
   const table = useCustomizationCatalog();
+  // 서버 grantedProductIds 순서를 보존한다. 첫 아이템은 대표 그림·이름, 나머지는 이름 목록으로 표시한다.
+  const name = (id: string) => catalog[id]?.title ?? table[id]?.title ?? id;
+  const [primary, ...rest] = result.rewards;
+  const art = primary ? catalog[primary] : undefined;
+  const entry = primary ? table[primary] : undefined;
   return (
     <Overlay maxWidth={354} contentStyle={styles.content} frameStyle={styles.frame}>
       <View accessibilityViewIsModal testID="sea-arrival-result" style={styles.contentInner}>
@@ -40,50 +45,46 @@ export function SeaArrivalResult({
         </View>
         <View style={styles.reward}>
           <Txt style={styles.label}>{t('openSea.rewardTitle')}</Txt>
-          {result.rewards.map((id) => {
-            const art = catalog[id];
-            const entry = table[id];
-            return (
-              <View key={id} style={styles.reward}>
-                {art ? (
-                  <View
-                    accessible={false}
-                    style={[
-                      styles.rewardWindow,
-                      { width: art.preview.width, height: art.preview.height },
-                    ]}
-                  >
-                    <Image
-                      source={art.source}
-                      style={[
-                        styles.rewardImage,
-                        {
-                          width: art.preview.size,
-                          height: art.preview.size,
-                          left: art.preview.left,
-                          top: art.preview.top,
-                        },
-                      ]}
-                    />
-                  </View>
-                ) : (
-                  entry && (
-                    <Image
-                      accessible={false}
-                      testID={`sea-reward-${id}`}
-                      source={{ uri: entry.imageUrl }}
-                      style={styles.rewardPicture}
-                      resizeMode="contain"
-                    />
-                  )
-                )}
-                <Txt style={styles.value}>{art?.title ?? entry?.title ?? id}</Txt>
-              </View>
-            );
-          })}
-          {result.rewards.length === 0 && (
-            <Txt style={styles.value}>
-              {result.rewardsUnknown ? t('openSea.rewardsUnknown') : t('openSea.noReward')}
+          {art ? (
+            <View
+              accessible={false}
+              style={[
+                styles.rewardWindow,
+                { width: art.preview.width, height: art.preview.height },
+              ]}
+            >
+              <Image
+                source={art.source}
+                style={[
+                  styles.rewardImage,
+                  {
+                    width: art.preview.size,
+                    height: art.preview.size,
+                    left: art.preview.left,
+                    top: art.preview.top,
+                  },
+                ]}
+              />
+            </View>
+          ) : (
+            entry && (
+              <Image
+                accessible={false}
+                testID={`sea-reward-${primary}`}
+                source={{ uri: entry.imageUrl }}
+                style={styles.rewardPicture}
+                resizeMode="contain"
+              />
+            )
+          )}
+          <Txt style={styles.value}>
+            {primary
+              ? name(primary)
+              : t(result.rewardsUnknown ? 'openSea.rewardsUnknown' : 'openSea.noReward')}
+          </Txt>
+          {rest.length > 0 && (
+            <Txt style={styles.label}>
+              {t('openSea.additionalRewards', { names: rest.map(name).join(', ') })}
             </Txt>
           )}
           {result.minutesToNextTier != null && (

@@ -21,7 +21,6 @@ export type SeaScreenProps = {
   voyage: SeaVoyage | null;
   /** 서버 종료/미확인 결과 응답을 받은 뒤에만 전달한다. */
   result: SeaArrival | null;
-  guest?: boolean;
   messageCooldownSeconds?: number;
   /** 재시도 멱등 키와 버전, 인벤토리 갱신은 세션 명령 어댑터에서 관리한다. */
   onFinish: (sessionId: string, intent: 'disembark' | 'stop') => Promise<void>;
@@ -30,9 +29,12 @@ export type SeaScreenProps = {
   onTelescope: () => void;
   onMessage: (message: string) => Promise<void>;
   onEmote: (emote: SeaEmote) => Promise<void>;
-  onSignIn?: () => void;
   rewardCatalog?: Readonly<Record<string, SeaRewardArt>>;
-};
+} & (
+  | { guest?: false; onSignIn?: () => void }
+  // 게스트 여부가 동적이면 로그인 진입 경로도 반드시 함께 제공한다.
+  | { guest: boolean; onSignIn: () => void }
+);
 
 type Panel = 'stop' | 'message' | 'emote' | { userId: string } | null;
 
@@ -41,6 +43,9 @@ export function SeaScreen(props: SeaScreenProps) {
   const { self, participants, voyage, result } = props;
   const reduceMotion = useContext(MotionContext);
   const insets = useScreenInsets();
+  const [viewport, setViewport] = useState({ width: 402, height: 788 });
+  const [footerHeight, setFooterHeight] = useState(88);
+  const compact = viewport.width > viewport.height && viewport.height < 660;
   const [panel, setPanel] = useState<Panel>(null);
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
@@ -141,7 +146,11 @@ export function SeaScreen(props: SeaScreenProps) {
   const cooldown = Math.max(0, props.messageCooldownSeconds || 0);
 
   return (
-    <View style={styles.root}>
+    <View
+      testID="sea-screen"
+      style={styles.root}
+      onLayout={(event) => setViewport(event.nativeEvent.layout)}
+    >
       <View
         style={styles.root}
         pointerEvents={modal ? 'none' : 'auto'}
@@ -154,6 +163,8 @@ export function SeaScreen(props: SeaScreenProps) {
             participants={participants}
             self={currentSelf}
             focusing={!!voyage}
+            compact={compact}
+            footerHeight={footerHeight}
             reduceMotion={reduceMotion}
             onParticipant={(person) => open({ userId: person.userId })}
             onMessage={() => {
@@ -167,20 +178,31 @@ export function SeaScreen(props: SeaScreenProps) {
                   pointerEvents="none"
                   style={[
                     styles.hud,
+                    compact && styles.compactHud,
                     {
                       top: Math.max(
                         (sceneHeight >= 760 ? sceneHeight * 0.1 : p.space[6]) - p.space[8],
                         insets.top + p.space[2],
                       ),
+                      ...(compact && {
+                        left: insets.left + p.space[5],
+                        right: insets.right + 160,
+                      }),
                     },
                   ]}
                 >
-                  <Txt style={styles.subject}>{voyage.subject}</Txt>
-                  <Txt testID="sea-focus-clock" style={styles.timer}>
+                  {!compact && <Txt style={styles.subject}>{voyage.subject}</Txt>}
+                  <Txt
+                    testID="sea-focus-clock"
+                    style={[styles.timer, compact && styles.compactTimer]}
+                  >
                     {seaClock(voyage.activeSeconds)}
                   </Txt>
-                  <View style={styles.badge}>
-                    <Txt style={styles.badgeText}>
+                  <View style={[styles.badge, compact && styles.compactBadge]}>
+                    <Txt
+                      numberOfLines={compact ? 2 : undefined}
+                      style={[styles.badgeText, compact && styles.compactBadgeText]}
+                    >
                       {voyage.canDisembark
                         ? t('openSea.destinationReached', { name: voyage.destinationName })
                         : voyage.activeSeconds >= voyage.requiredSeconds
@@ -203,7 +225,7 @@ export function SeaScreen(props: SeaScreenProps) {
                           100,
                       ),
                     }}
-                    style={styles.track}
+                    style={[styles.track, compact && styles.compactTrack]}
                   >
                     <View
                       style={[
@@ -219,7 +241,18 @@ export function SeaScreen(props: SeaScreenProps) {
             }
           </SeaScene>
         </ScrollView>
-        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, p.space[6]) }]}>
+        <View
+          testID="sea-footer"
+          onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
+          style={[
+            styles.footer,
+            {
+              paddingBottom: Math.max(insets.bottom, p.space[6]),
+              paddingLeft: insets.left + p.space[5],
+              paddingRight: insets.right + p.space[5],
+            },
+          ]}
+        >
           {!!error && (
             <Txt accessibilityRole="alert" style={styles.error}>
               {error}
@@ -292,8 +325,9 @@ export function SeaScreen(props: SeaScreenProps) {
                 {selected && (
                   <>
                     <Txt>
-                      {selected.subject ||
-                        t(selected.focusing ? 'openSea.focusing' : 'openSea.floating')}
+                      {selected.focusing
+                        ? selected.subject || t('openSea.focusing')
+                        : t('openSea.floating')}
                     </Txt>
                     {selected.focusing && <Txt kind="h">{seaClock(selected.activeSeconds)}</Txt>}
                     {!!selected.message && <Txt>{selected.message}</Txt>}
@@ -326,8 +360,12 @@ export function SeaScreen(props: SeaScreenProps) {
                     <Txt kind="meta">{Array.from(message).length} / 20</Txt>
                     <Btn
                       dynamicHeight
-                      title={t('openSea.saveMessage')}
-                      disabled={pending || !message.trim()}
+                      title={t(
+                        self.message?.trim() && !message.trim()
+                          ? 'openSea.deleteMessage'
+                          : 'openSea.saveMessage',
+                      )}
+                      disabled={pending || (!message.trim() && !self.message?.trim())}
                       onPress={() => run(() => props.onMessage(message.trim()), true)}
                     />
                   </>
@@ -383,6 +421,17 @@ const styles = StyleSheet.create({
   },
   subject: { fontSize: s.typography.body, textAlign: 'center' },
   timer: { fontSize: 40, lineHeight: 60, fontVariant: ['tabular-nums'] },
+  compactHud: {
+    height: 52,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    gap: p.space[2],
+  },
+  compactTimer: { fontSize: s.typography.title, lineHeight: 32 },
+  compactBadge: { flexShrink: 1, paddingVertical: 0 },
+  compactBadgeText: { fontSize: s.typography.caption, lineHeight: 16 },
+  compactTrack: { position: 'absolute', bottom: 0, left: '50%', marginLeft: -80 },
   badge: {
     paddingHorizontal: p.space[3],
     paddingVertical: p.space[1],

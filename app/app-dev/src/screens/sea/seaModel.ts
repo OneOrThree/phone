@@ -39,7 +39,10 @@ export type SeaArrival = {
   rewards: string[];
   /** 다음 단계까지 남은 분 — 모르면 null. */
   minutesToNextTier: number | null;
-  /** 서버가 보상을 아직 모른다(seaReward=null) — 인벤토리에서 확인하라고 안내한다. */
+  /**
+   * 서버가 보상을 아직 모른다(seaReward=null) — 미획득(rewards=[] 이고 false)과 구분해
+   * 「확인 중」 문구로 인벤토리 확인을 안내한다. 복원 응답만으로 지급을 추측하지 않는다.
+   */
   rewardsUnknown: boolean;
 };
 

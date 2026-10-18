@@ -60,6 +60,9 @@
     "CLIENT_TIMEOUT": "서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.",
     "CLIENT_NETWORK_ERROR": "네트워크에 연결할 수 없어요. 연결을 확인해 주세요.",
     "ISLAND_NOT_ARRIVED": "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.",
+    "SEA_DESTINATION_UNAVAILABLE": "지금은 갈 수 없는 섬이에요. 망원경에서 목적지를 다시 확인해 주세요.",
+    "SEA_SESSION_NO_REST": "항해 중에는 쉴 수 없어요.",
+    "SEA_REMARK_LOCKED": "한마디는 5분에 한 번만 바꿀 수 있어요.",
     "ISLAND_LIMIT_EXCEEDED": "소속 섬이 가득 찼어요 (3/3). 섬을 하나 나가면 새로 가입할 수 있어요",
     "GUESTBOOK_ALREADY_WRITTEN_TODAY": "오늘은 이미 방명록을 남겼어요",
     "PROMOTION_ALREADY_REQUESTED_TODAY": "오늘은 이미 잡지 홍보를 신청했어요",
@@ -70,10 +73,7 @@
     "PROMOTION_ASSET_NOT_OWNED": "아직 없는 꾸미기 재료가 있어요",
     "PROMOTION_LOCKED": "자정이 지나 홍보를 고칠 수 없어요",
     "PROMOTION_NOT_FOUND": "홍보를 찾지 못했어요",
-    "MAGAZINE_ISSUE_NOT_FOUND": "잡지 호를 찾을 수 없어요",
-    "SEA_DESTINATION_UNAVAILABLE": "지금은 갈 수 없는 섬이에요.",
-    "SEA_SESSION_NO_REST": "항해 중에는 쉴 수 없어요.",
-    "SEA_REMARK_LOCKED": "한마디는 5분에 한 번만 바꿀 수 있어요."
+    "MAGAZINE_ISSUE_NOT_FOUND": "잡지 호를 찾을 수 없어요"
   },
   "time": {
     "minutes": "{{m}}분",
@@ -974,6 +974,7 @@
     "arrived": "무사히 도착했어요!",
     "voyageTime": "항해한 시간",
     "rewardTitle": "항해 중 건진 것",
+    "additionalRewards": "{{names}}도 함께 받았어요",
     "noReward": "이번 항해에서 건진 아이템은 없어요",
     "entering": "섬으로 이동 중…",
     "explore": "섬 둘러보기",
@@ -997,6 +998,7 @@
     "messageWait": "{{minutes}}분 뒤에 다시 쓸 수 있어요",
     "messagePlaceholder": "지금 하고 있는 일을 알려주세요",
     "saveMessage": "한마디 띄우기",
+    "deleteMessage": "한마디 지우기",
     "keepFocusing": "계속 집중하기",
     "close": "닫기",
     "prepareTitle": "{{name}}(으)로 항해할까요?",

@@ -60,6 +60,9 @@
     "CLIENT_TIMEOUT": "The server is taking a while to respond. Please try again in a moment.",
     "CLIENT_NETWORK_ERROR": "Can't connect to the network. Please check your connection.",
     "ISLAND_NOT_ARRIVED": "You haven't been to this island yet. Sail there from the telescope.",
+    "SEA_DESTINATION_UNAVAILABLE": "You can't sail to this island right now. Check your destination at the telescope again.",
+    "SEA_SESSION_NO_REST": "You can't take a break while sailing.",
+    "SEA_REMARK_LOCKED": "You can change your message once every 5 minutes.",
     "ISLAND_LIMIT_EXCEEDED": "Your islands are full (3/3). Leave one to join a new island.",
     "GUESTBOOK_ALREADY_WRITTEN_TODAY": "You've already left a guestbook note today.",
     "PROMOTION_ALREADY_REQUESTED_TODAY": "You've already requested a magazine promotion today.",
@@ -70,10 +73,7 @@
     "PROMOTION_ASSET_NOT_OWNED": "Some decorations aren't yours yet",
     "PROMOTION_LOCKED": "It's past midnight, so the promotion can't be edited",
     "PROMOTION_NOT_FOUND": "Couldn't find the promotion",
-    "MAGAZINE_ISSUE_NOT_FOUND": "This magazine issue is no longer available",
-    "SEA_DESTINATION_UNAVAILABLE": "You cannot sail to this island right now.",
-    "SEA_SESSION_NO_REST": "You cannot rest during a voyage.",
-    "SEA_REMARK_LOCKED": "You can change your message once every 5 minutes."
+    "MAGAZINE_ISSUE_NOT_FOUND": "This magazine issue is no longer available"
   },
   "time": {
     "minutes": "{{m}}m",
@@ -1001,6 +1001,7 @@
     "arrived": "You arrived safely!",
     "voyageTime": "Voyage time",
     "rewardTitle": "Found along the way",
+    "additionalRewards": "Also received: {{names}}",
     "noReward": "No item found on this voyage",
     "entering": "Entering the island…",
     "explore": "Explore the island",
@@ -1024,6 +1025,7 @@
     "messageWait": "You can write again in {{minutes}} min",
     "messagePlaceholder": "What are you working on?",
     "saveMessage": "Share message",
+    "deleteMessage": "Remove message",
     "keepFocusing": "Keep focusing",
     "close": "Close",
     "prepareTitle": "Sail to {{name}}?",
