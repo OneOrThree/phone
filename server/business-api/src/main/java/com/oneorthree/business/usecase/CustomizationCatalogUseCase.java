@@ -28,7 +28,7 @@ public class CustomizationCatalogUseCase {
             @Value("${app.static-base-url:}") String baseUrl) {
         this.data = data;
         // 끝의 슬래시는 imagePath 의 앞 슬래시와 겹치므로 떼어 둔다.
-        this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        this.baseUrl = baseUrl.replaceAll("/+$", "");
     }
 
     public List<ItemView> catalog(AccessTokenClaims claims, Deadline deadline) {

@@ -1224,11 +1224,11 @@ Table magazine_asset_meta [note: '고양이 잡지 꾸미기 재료(ad_frame·ad
 Table customization_asset_meta [note: '개인 꾸미기 상품(clothes·decor·head·neck·shoes)의 그림 부가 정보 — catalog_assets 와 1:1(magazine_asset_meta 선례). 카탈로그 행이 불변이라 이미지·크기·고정점·정렬·퇴역을 옆 표에 둔다. 시드 없음(prod) — 로컬 시드는 server/scripts/local/seed-customization.sql. GROMO-2331, V128, 결정 ④'] {
   product_id varchar(80)   [pk, note: '(product_id, kind) 복합 FK → catalog_assets(product_id, kind) ON DELETE RESTRICT']
   kind       varchar(20)   [not null, note: 'clothes / decor / head / neck / shoes — CHECK. 카탈로그 종류의 사본']
-  slot       varchar(10)   [not null, note: 'clothes / decor / head / neck / shoes — CHECK. 앱 렌더 슬롯(지금은 kind 와 같다)']
+  slot       varchar(10)   [not null, note: 'clothes / decor / head / neck / shoes — CHECK. 앱 렌더 슬롯(지금은 kind 와 같다) — CHECK customization_asset_meta_slot_kind_check: slot = kind']
   image_path varchar(200)  [not null, note: '/static/customization/<kind>/<이름>.<sha8>.png (예 head/duck.9572baaf.png, product_id 는 cust.<kind>.<이름>) — 내용 해시 포함 불변 URL(맵 에셋 정적 서빙 규칙)']
   width      integer       [not null, note: 'CHECK width > 0 — 픽셀']
   height     integer       [not null, note: 'CHECK height > 0 — 픽셀']
-  anchor_x   numeric(5, 4) [not null, note: '고양이 기준 정규화 좌표 x']
+  anchor_x   numeric(5, 4) [not null, note: '고양이 기준 정규화 좌표 x — CHECK customization_asset_meta_anchor_check: anchor_x·anchor_y 모두 0~1']
   anchor_y   numeric(5, 4) [not null, note: '고양이 기준 정규화 좌표 y']
   sort_order integer       [not null]
   retired_at timestamptz   [note: '서랍에서 내린 시각 — 이미 가진 사람은 계속 그린다']

@@ -78,6 +78,26 @@ class CustomizationV128MigrationTest {
                 .as("크기는 양수").isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @Test
+    @DisplayName("anchor_x·anchor_y 가 0~1 밖이면 거부한다")
+    void anchorOutOfRangeRejected() {
+        JdbcTemplate jdbc = jdbc();
+        product(jdbc, "p-head", "head", "user");
+        assertThatThrownBy(() -> jdbc.update(meta("p-head", "head", 64).replace("0.5, 0.1", "1.5, 0.1")))
+                .as("anchor_x > 1").isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(meta("p-head", "head", 64).replace("0.5, 0.1", "0.5, -0.1")))
+                .as("anchor_y < 0").isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("slot 이 kind 와 다르면 거부한다")
+    void slotMustEqualKind() {
+        JdbcTemplate jdbc = jdbc();
+        product(jdbc, "p-head", "head", "user");
+        assertThatThrownBy(() -> jdbc.update(meta("p-head", "head", 64).replace("'head', '/static", "'neck', '/static")))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
     private static String meta(String id, String kind, int width) {
         return "INSERT INTO customization_asset_meta (product_id, kind, slot, image_path, width, height, "
                 + "anchor_x, anchor_y, sort_order) VALUES ('" + id + "', '" + kind + "', '" + kind

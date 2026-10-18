@@ -32,4 +32,11 @@ class CustomizationCatalogAbsoluteUrlContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data[0].imageUrl")
                         .value("http://192.168.0.7:8088/static/customization/head/duck.9572baaf.png"));
     }
+
+    @Test
+    @DisplayName("끝 슬래시가 여러 개여도 모두 떼어 imagePath 앞에서 겹치지 않는다")
+    void multipleTrailingSlashes() {
+        var useCase = new com.oneorthree.business.usecase.CustomizationCatalogUseCase(null, "http://host//");
+        org.assertj.core.api.Assertions.assertThat(useCase).extracting("baseUrl").isEqualTo("http://host");
+    }
 }

@@ -36,6 +36,8 @@ CREATE TABLE customization_asset_meta (
     anchor_y   numeric(5, 4) NOT NULL,
     sort_order integer       NOT NULL,
     retired_at timestamptz,
+    CONSTRAINT customization_asset_meta_anchor_check CHECK (anchor_x BETWEEN 0 AND 1 AND anchor_y BETWEEN 0 AND 1),
+    CONSTRAINT customization_asset_meta_slot_kind_check CHECK (slot = kind),
     CONSTRAINT customization_asset_meta_catalog_fk FOREIGN KEY (product_id, kind)
         REFERENCES catalog_assets (product_id, kind) ON DELETE RESTRICT
 );

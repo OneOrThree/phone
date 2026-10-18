@@ -130,6 +130,18 @@ class AppearanceContractTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("상류 응답에 모르는 키(futureSlot)가 섞여도 GET /me/inventory 는 200 이다 — 옛 business 가 새 Data 를 받는 경우")
+    void unknownUpstreamKeysAreIgnored() throws Exception {
+        DATA.on(DATA_MY_INV, request -> ok(MY_INV_BODY.replace("\"hulls\"", "\"futureSlot\":\"x\",\"hulls\"")
+                .replace("\"position\"", "\"futureSlot\":\"x\",\"position\"")));
+
+        mockMvc.perform(auth(get("/me/inventory")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.head[0]").value("duck"))
+                .andExpect(jsonPath("$.data.futureSlot").doesNotExist());
+    }
+
+    @Test
     @DisplayName("개인 PATCH 본문은 fields/values 캐리어로 옮기고 명시 null 을 지우지 않는다")
     void personalPatchCarriesTriStateFieldsAndValues() throws Exception {
         DATA.on(DATA_MY_APP, request -> ok(MY_APP_RESULT));
