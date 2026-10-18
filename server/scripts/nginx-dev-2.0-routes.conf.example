@@ -7,7 +7,7 @@ location ^~ /actuator/ { return 404; }
 location = /actuator { return 404; }
 
 # 앱의 공개 Business API와 현재 필요한 /api/v1 호환 표면만 허용한다.
-location ~ ^(?:/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks)(?:/|$)|/api/v1/(?:users/me/(?:device-token|notification-settings)$|link-previews(?:/|$))) {
+location ~ ^(?:/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks|customization)(?:/|$)|/api/v1/(?:users/me/(?:device-token|notification-settings)$|link-previews(?:/|$))) {
     proxy_pass http://127.0.0.1:8083;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -26,6 +26,17 @@ location ~ ^(?:/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|
     proxy_connect_timeout 2s;
     proxy_read_timeout 30s;
     proxy_next_upstream off;
+}
+
+# dev 호스트 Nginx 에는 MV-D09 로 /static/ 블록이 이미 있다 — 그대로 두고 이 블록을 중복 추가하지 않는다(중복이면 nginx -t 실패).
+# location 안의 add_header 는 server 레벨 add_header 를 상속하지 않는다 — 공통 보안 헤더가 server 블록에 있으면 여기 다시 적는다
+# (이 파일에는 server 블록이 없어 복제할 헤더가 없다).
+# 카탈로그 이미지(GROMO-2331·맵 에셋 MV-D09) — 내용 해시가 파일명에 들어간 불변 URL 이라 1년 캐시한다.
+# 파일은 Business 를 거치지 않고 Nginx 가 디스크에서 직접 준다(로컬은 compose 볼륨, dev 는 VM 디스크 수동 복사).
+location ^~ /static/ {
+    root /usr/share/nginx/html;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    gzip off;
 }
 
 # 2.0 앱의 islandRealtime.ts가 이 WSS 경로로 연결한다. 인증은 STOMP CONNECT에서 검사한다.

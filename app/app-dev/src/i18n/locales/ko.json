@@ -453,8 +453,20 @@
       "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요."
     }
   },
+  "wardrobe": {
+    "default": "기본",
+    "defaultFor": "{{slot}} 기본",
+    "section": {
+      "clothes": "옷",
+      "decor": "장식",
+      "head": "머리",
+      "neck": "목",
+      "shoes": "신발"
+    }
+  },
   "focusFlow": {
     "visitorCheered": "방문자가 응원했어요 🎉",
+    "memberArrived": "{{name}}님이 도착했어요",
     "common": {
       "ourIsland": "우리 섬",
       "fishingIsland": "낚시섬",
@@ -686,7 +698,9 @@
       "title": "항해를 그만둘까요?",
       "body": "항해 중인 섬은 바로 뺄 수 없어요. 항해를 그만두고 망원경에서 빼면 원래 섬으로 돌아가요.",
       "ok": "그만두고 빼기"
-    }
+    },
+    "sailFailed": "항해를 시작하지 못했어요. 다시 시도해 주세요.",
+    "destinationGone": "이 섬은 지금 망원경에서 사라졌어요. 새 목록을 보여 드릴게요."
   },
   "observatory": {
     "searchTitle": "섬 찾기",
@@ -961,7 +975,6 @@
     "voyageTime": "항해한 시간",
     "rewardTitle": "항해 중 건진 것",
     "additionalRewards": "{{names}}도 함께 받았어요",
-    "unknownReward": "보상 정보를 확인하지 못했어요",
     "noReward": "이번 항해에서 건진 아이템은 없어요",
     "entering": "섬으로 이동 중…",
     "explore": "섬 둘러보기",
@@ -970,14 +983,14 @@
     "disembark": "섬에 내리기",
     "stop": "항해 그만두기",
     "telescope": "망원경",
-    "destinationReached": "{{name}}에 도착했어요",
+    "destinationReached": "{{name}} 앞 정박 중",
     "checkingArrival": "도착 확인 중…",
     "remaining": "{{name}}까지 {{minutes}}분",
     "emotes": "이모트",
     "readyTitle": "섬에 내릴까요?",
-    "stopTitle": "항해를 그만둘까요?",
+    "stopTitle": "{{name}} 항해를 그만둘까요?",
     "readyBody": "섬에 내려 이번 항해를 마무리해요.",
-    "stopBody": "아직 섬에 도착하지 않았어요. 그만두면 먼바다에 머물러요.",
+    "stopBody": "지금까지 {{minutes}}분은 기록에 남아요",
     "departed": "바다를 떠난 고양이예요",
     "messageTitle": "한마디 쓰기",
     "signInBody": "로그인하면 다른 고양이에게 한마디를 남길 수 있어요.",
@@ -988,7 +1001,7 @@
     "deleteMessage": "한마디 지우기",
     "keepFocusing": "계속 집중하기",
     "close": "닫기",
-    "prepareTitle": "{{name}}로 항해할까요?",
+    "prepareTitle": "{{name}}(으)로 항해할까요?",
     "prepareBody": "집중하며 항해해요. 도착한 뒤에도 섬에 내리기 전까지 집중은 이어져요.",
     "start": "항해 시작",
     "optionalMessage": "한마디 (선택)",
@@ -998,6 +1011,18 @@
       "hearts": "하트",
       "sleepy": "졸려요",
       "laugh": "웃음"
-    }
+    },
+    "destinationFallback": "목적지",
+    "remarkLocked": "한마디는 고친 뒤 5분 동안 바꿀 수 없어요",
+    "remarkFailed": "한마디를 띄우지 못했어요. 바다에서 다시 써 주세요.",
+    "emoteTooFrequent": "이모트는 잠시 뒤에 다시 보낼 수 있어요",
+    "backBlocked": "항해 중에는 [항해 그만두기]로 바다를 떠나요",
+    "finishChecking": "항해 결과를 확인하고 있어요. 연결되면 이어서 처리해요.",
+    "finishUnconfirmed": "항해 결과를 확인하지 못했어요. 기록에서 확인해 주세요.",
+    "someone": "누군가",
+    "nextTier": "다음 단계까지 {{minutes}}분",
+    "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
+    "welcomeTitle": "환영해요!",
+    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요."
   }
 }

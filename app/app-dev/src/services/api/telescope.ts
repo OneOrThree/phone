@@ -60,7 +60,8 @@ export type Telescope = {
 
 export type Arrival = {
   islandId: string;
-  arrivedBefore: true;
+  /** 주민이면 현 가입 이후 첫 도착일 때 false(GROMO-2302), 방문자는 항상 true. */
+  arrivedBefore: boolean;
   membershipStatus: 'none' | 'pending' | 'active';
   currentIslandId: string | null;
 };

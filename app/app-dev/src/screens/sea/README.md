@@ -32,14 +32,17 @@ https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
 실제 연결은 아직 없다. GROMO-2303은 디자인과 에셋 인계 및 확인용 화면을 제공하고,
 GROMO-2309·2310에서 실제 진입 경로와 서버 어댑터를 연결한다.
 
-1. 2299 세션 어댑터: `SeaVoyage`에 현재 세션·서버 시간·도착 판정을 전달한다.
+GROMO-2310(2026-10-18)이 1·2·3·6을 `SeaVoyageHost`(라우트 `sea`·`seaArrival`)와
+`services/seaRealtime.ts`로 연결했다. 남은 것은 4·5(GROMO-2311 결과창·보상·환영)다.
+
+1. **2310 에서 연결** — 2299 세션 어댑터: `SeaVoyage`에 현재 세션·서버 시간·도착 판정을 전달한다.
    화면은 100% 진행률만으로 `canDisembark`를 추론하지 않는다. 서버 시간 보간,
    백그라운드 복귀 재조회, 세션 복원은 기존 세션 명령 계층에 연결해야 한다.
-2. 2300 방 어댑터: 방 전체(최대 10명)를 `participants`에 전달한다. 입퇴장,
+2. **2310 에서 연결** — 2300 방 어댑터: 방 전체(최대 10명)를 `participants`에 전달한다. 입퇴장,
    실시간 재연결/중복 이벤트, 한마디 5분 잠금, 이모트 TTL은 서버 계약대로 처리한다.
    화면에는 현재 `messageCooldownSeconds`와 아직 유효한 이모트만 전달한다.
    기존 한마디를 비우면 `onMessage('')`로 삭제를 요청한다. 삭제에도 같은 쿨다운을 적용한다.
-3. `onFinish(sessionId, intent)`: 기존 명령 계층에서 동일 의도의 멱등 키·버전·계정
+3. **2310 에서 연결** — `onFinish(sessionId, intent)`: 기존 명령 계층에서 동일 의도의 멱등 키·버전·계정
    경계를 유지하며 종료한다. 성공한 정산 응답 또는 미확인 결과를 `result`로 전달한다.
    Promise 성공만으로 화면이 결과/보상을 추측하지 않는다.
    `intent`는 사용자 의도이며 서버의 최종 도착 상태를 대신하지 않는다. 오래된 스냅샷에서
@@ -47,17 +50,19 @@ GROMO-2309·2310에서 실제 진입 경로와 서버 어댑터를 연결한다.
    처리하거나 최신 상태와 함께 거절해야 한다. `voyage` 해제와 `result` 설정은 한 번에 전달한다.
    어댑터 요청에는 타임아웃·취소를 적용한다. 화면은 세션/결과 변경 시 이전 요청의 UI 잠금을
    해제하고, 이전 요청 완료가 새 요청의 잠금·오류·패널에 영향을 주지 않도록 구분한다.
-4. 2301 보상/2313 기본 단계표 데이터: `seaRewardCatalog`에 실제 itemId와 에셋을 매핑한다.
+4. **2311 에서 연결** — 카탈로그 기반 결과창(`GET /customization/catalog`, 없으면 id 만). 이전 메모: 2301 보상/2313 기본 단계표 데이터: `seaRewardCatalog`에 실제 itemId와 에셋을 매핑한다.
    현재 실사용 카탈로그는 비어 있고 오리는 `SeaPreview`에서만 주입된다.
-   `earned.items`는 서버가 지급한 모든 `grantedProductIds`를 순서대로 보존한다. 첫 아이템을 대표 이미지·이름으로, 나머지는 이름 목록으로 표시한다.
-   `reward.status`로 `earned`(획득)·`none`(미획득 확인)·`unknown`(확인 불가)을 구분한다.
-   서버 `seaReward: null`은 지급 없음이 아니라 모름이므로 어댑터는 `unknown`으로 전달한다.
-   복원 응답만으로 지급을 추측하지 않고 인벤토리 정본을 확인한다. 모르는 에셋 ID는 서버 이름만,
-   미획득과 미확인은 각각 다른 문구를 표시한다.
-5. `onExplore(result)`: 결과 확인 처리·인벤토리 재조회·기존 방문자/주민 라우트 이동.
+   `rewards`는 서버가 지급한 모든 `grantedProductIds`를 순서대로 보존한다. 첫 아이템을 대표 이미지·이름으로, 나머지는 이름 목록으로 표시한다.
+   `rewards`가 있으면 획득, 비어 있고 `rewardsUnknown=false`면 미획득 확인, `rewardsUnknown=true`면 확인 불가다.
+   서버 `seaReward: null`은 지급 없음이 아니라 모름이므로 어댑터는 `rewardsUnknown=true`로 전달한다.
+   복원 응답만으로 지급을 추측하지 않고 인벤토리 정본을 확인한다. 모르는 아이템은 id 만,
+   미획득과 미확인은 각각 다른 문구를 표시한다. `minutesToNextTier`가 있으면 다음 단계까지 남은 분을 함께 보인다.
+5. **2311 에서 연결** — `SeaVoyageHost.onExplore`(도착 기록·환영·인벤토리 재조회·방문/주민 라우트), 주민 소식 토스트는 `islandRealtime` events. 이전 메모: `onExplore(result)`: 결과 확인 처리·인벤토리 재조회·기존 방문자/주민 라우트 이동.
    첫 주민 환영/2302 주민 소식도 이 어댑터에서 기존 흐름과 연결한다.
-6. G1/G3 뗏목 행선지 → `SeaDeparture` → `SeaScreen`과 기존 망원경 연결은
-   GROMO-2309·2310에서 서버 계약 확정 후 연결한다.
+6. **2310 에서 연결(망원경 쪽)** — 망원경 [항해하기] → `SeaVoyagePreparation` → 바다 항해 집중 시작
+   → `SeaScreen`. 그만두기는 같은 finish 뒤 `Sailing`(1.9초)으로 멀어지고 표류 상태로 남는다.
+   G1/G3 뗏목 행선지 「먼바다로」와 `SeaDeparture` 최초 출항 연출은 GROMO-2309 몫이다.
+   한마디는 바다 세션에 과목이 없어 집중 중에도 말풍선에 뜬다(`SeaScene`).
 
 `SeaVoyagePreparation`을 열 때 호스트는 배경 화면의 접근성을 숨기고 입력을 막아야 한다.
 미리보기는 준비창이 열린 동안 장면과 도구 모음을 `no-hide-descendants`/`aria-hidden`으로 숨긴다.

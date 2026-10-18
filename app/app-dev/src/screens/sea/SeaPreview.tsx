@@ -265,22 +265,12 @@ export function SeaPreview() {
                         destinationId: voyage.destinationId,
                         destinationName: voyage.destinationName,
                         activeSeconds: voyage.activeSeconds,
-                        reward:
-                          reward === 'none'
-                            ? { status: 'none' }
-                            : reward === 'unconfirmed'
-                              ? { status: 'unknown' }
-                              : {
-                                  status: 'earned',
-                                  items: [
-                                    {
-                                      itemId:
-                                        reward === 'duck' ? 'preview-duck' : 'preview-unknown',
-                                      name:
-                                        reward === 'duck' ? '오리 인형' : '새로운 꾸미기 아이템',
-                                    },
-                                  ],
-                                },
+                        rewards:
+                          reward === 'none' || reward === 'unconfirmed'
+                            ? []
+                            : [reward === 'duck' ? 'preview-duck' : 'preview-unknown'],
+                        minutesToNextTier: reward === 'none' ? 25 : null,
+                        rewardsUnknown: reward === 'unconfirmed',
                       });
                     setVoyage(null);
                   }}

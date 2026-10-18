@@ -540,6 +540,44 @@ class IslandInvitationArrivalIntegrationTest {
         assertNothingLeft(user, islandId, home, islandEvents);
     }
 
+    @Test
+    @DisplayName("주민 첫 도착 사건 스위치가 꺼져 있으면(기본) 사건은 0건이고 arrivedBefore 는 그대로 계산한다 (GROMO-2302)")
+    void firstMemberArrivalWithTheSwitchOffPublishesNothing() {
+        UUID host = newUser();
+        UUID islandId = island("스위치섬", false, false);
+        joinAs(host, islandId, GroupMemberRole.OWNER);
+        UUID user = newUser();
+        joins.join(user, islandId, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+        // 고정 시계(초 내림)는 가입 행의 created_at(벽시계)보다 이르다 — 기록이 GREATEST(now, 멤버십 시작)이라
+        // 두 번째 도착이 «첫 도착» 으로 되돌아가지 않는다.
+
+        assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isFalse();
+        assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isTrue();
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?",
+                islandId.toString())).isZero();
+    }
+
+    @Test
+    @DisplayName("방문 중 가입 직후의 도착은 첫 도착이 아니다 — 시계가 가입 행 created_at 보다 일러도 (GROMO-2302)")
+    void arrivalRightAfterAVisitJoinIsNotAFirstArrival() {
+        UUID host = newUser();
+        UUID islandId = island("방문가입섬", false, false);
+        joinAs(host, islandId, GroupMemberRole.OWNER);
+        UUID user = newUser();
+        // 가입 트랜잭션은 now 를 가입 행 INSERT(@CreationTimestamp, flush 때 벽시계) 보다 먼저 읽는다 — 그 순서를
+        // 결정적으로 만들려고 시계를 몇 초 뒤로 둔다.
+        now.set(Instant.now().minusSeconds(5));
+        joins.join(user, islandId, new JoinIslandCommandRequest(null, "visit"), UUID.randomUUID());
+        assertThat(jdbc.queryForObject("select m.created_at <= a.member_arrived_at from group_members m "
+                + "join island_arrivals a on a.user_id=m.user_id and a.island_id=m.group_id "
+                + "where m.user_id=? and m.group_id=?", Boolean.class, user, islandId))
+                .as("주민 도착 기록은 멤버십 시작 이후다").isTrue();
+
+        assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isTrue();
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?",
+                islandId.toString())).isZero();
+    }
+
     // ---------------------------------------------------------------- 도구
 
     /** 도착 해석(arrive=true) — 이 클래스의 기본 시나리오다. */

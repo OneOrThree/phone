@@ -174,6 +174,22 @@ class SeaRemarkIntegrationTest {
     }
 
     @Test
+    @DisplayName("sea-state: name·catColor 를 돌려주고, 털색을 안 골랐으면 catColor 는 null 이다")
+    void seaStateCarriesNameAndCatColor() throws Exception {
+        UUID picked = newMember();
+        UUID unpicked = newMember();
+        jdbc.update("update users set nickname = ?, cat_color = 'ginger' where id = ?", "고등어" + picked, picked);
+        jdbc.update("update users set nickname = ?, cat_color = null where id = ?", "무색" + unpicked, unpicked);
+
+        getState(picked).andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("고등어" + picked))
+                .andExpect(jsonPath("$.catColor").value("ginger"));
+        getState(unpicked).andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("무색" + unpicked))
+                .andExpect(jsonPath("$.catColor").doesNotExist());
+    }
+
+    @Test
     @DisplayName("sea-state: 한마디와 진행 중인 바다 세션을 돌려주고, 세션이 없으면 session=null 이다")
     void seaStateShowsTheRemarkAndTheLiveVoyage() throws Exception {
         UUID user = newMember();

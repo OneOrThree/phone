@@ -171,7 +171,7 @@ public class IslandInvitationService {
             status = joins.join(userId, islandId, new JoinIslandCommandRequest(token), UUID.randomUUID()).status();
         }
         // 즉시 가입은 가입이 이미 도착을 남겼다 — 다시 남겨도 같은 행의 last 만 갱신된다.
-        arrivals.recordArrival(userId, islandId, clock.instant());
+        arrivals.recordArrival(userId, islandId, clock.instant(), true);
         return new InvitationResolvedView.Arrival(islandId, true, status, reason);
     }
 

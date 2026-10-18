@@ -477,8 +477,20 @@
       "moveBlocked": "You can't move to another island right now."
     }
   },
+  "wardrobe": {
+    "default": "Default",
+    "defaultFor": "{{slot}}: default",
+    "section": {
+      "clothes": "Clothes",
+      "decor": "Decor",
+      "head": "Head",
+      "neck": "Neck",
+      "shoes": "Shoes"
+    }
+  },
   "focusFlow": {
     "visitorCheered": "A visitor cheered you on 🎉",
+    "memberArrived": "{{name}} has arrived",
     "common": {
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
@@ -713,7 +725,9 @@
       "title": "Stop sailing?",
       "body": "You can't remove an island while you're sailing to it. If you stop sailing and remove it, you'll head back to your island.",
       "ok": "Stop and remove"
-    }
+    },
+    "sailFailed": "Could not start the voyage. Please try again.",
+    "destinationGone": "This island is no longer in your telescope. Showing a new list."
   },
   "observatory": {
     "searchTitle": "Find islands",
@@ -988,7 +1002,6 @@
     "voyageTime": "Voyage time",
     "rewardTitle": "Found along the way",
     "additionalRewards": "Also received: {{names}}",
-    "unknownReward": "Reward information is unavailable",
     "noReward": "No item found on this voyage",
     "entering": "Entering the island…",
     "explore": "Explore the island",
@@ -997,14 +1010,14 @@
     "disembark": "Disembark",
     "stop": "End voyage",
     "telescope": "Telescope",
-    "destinationReached": "Arrived at {{name}}",
+    "destinationReached": "Anchored off {{name}}",
     "checkingArrival": "Checking arrival…",
     "remaining": "{{minutes}} min to {{name}}",
     "emotes": "Emotes",
     "readyTitle": "Ready to disembark?",
-    "stopTitle": "End this voyage?",
+    "stopTitle": "End the voyage to {{name}}?",
     "readyBody": "Disembark to finish this voyage.",
-    "stopBody": "You have not arrived yet. Ending the voyage leaves you at sea.",
+    "stopBody": "Your {{minutes}} min so far stays in your records.",
     "departed": "This cat has left the sea",
     "messageTitle": "Add a message",
     "signInBody": "Sign in to leave a message for the other cats.",
@@ -1025,6 +1038,18 @@
       "hearts": "Hearts",
       "sleepy": "Sleepy",
       "laugh": "Laugh"
-    }
+    },
+    "destinationFallback": "your destination",
+    "remarkLocked": "You can change your message again 5 minutes after editing it.",
+    "remarkFailed": "Could not share your message. Please write it again at sea.",
+    "emoteTooFrequent": "You can send another emote in a moment.",
+    "backBlocked": "Use End voyage to leave the sea.",
+    "finishChecking": "Checking your voyage result. It will continue once connected.",
+    "finishUnconfirmed": "Could not confirm your voyage result. Please check your records.",
+    "someone": "Someone",
+    "nextTier": "{{minutes}} min until the next tier",
+    "rewardsUnknown": "Checking. See your inventory.",
+    "welcomeTitle": "Welcome!",
+    "welcomeBody": "You arrived at \"{{island}}\" as a new resident."
   }
 }

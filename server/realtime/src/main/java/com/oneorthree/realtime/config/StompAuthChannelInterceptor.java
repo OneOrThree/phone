@@ -30,6 +30,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.oneorthree.realtime.config.StompTopics.EMOTES_CHANNEL;
+import static com.oneorthree.realtime.config.StompTopics.EVENTS_CHANNEL;
 import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_INTENT_SEND;
@@ -68,7 +69,7 @@ import static com.oneorthree.realtime.config.StompTopics.SEA_SYNC_SEND;
  * <p>CONNECT는 인증만 담당한다. 집중 중에도 집중/휴식용 연결은 필요하므로,
  * 집중 차단은 채팅 SUBSCRIBE·SEND·REST 및 기존 구독의 아웃바운드 전달에 적용한다.
  *
- * <h2>섬 목적지 셋의 인가가 서로 다르다 (GROMO-1765)</h2>
+ * <h2>섬 목적지의 인가가 서로 다르다 (GROMO-1765·2302)</h2>
  * <ul>
  *   <li>{@code /topic/islands/{id}/focus}·{@code /rest} — <b>인증만</b>. 비소속 관전을 열기로
  *       확정했고(2026-09-19), 같은 목록을 내려 주는 {@code GET /islands/{id}/focus-members} 가
@@ -83,8 +84,12 @@ import static com.oneorthree.realtime.config.StompTopics.SEA_SYNC_SEND;
  *       잡는 이유는 <b>본문 변환보다 앞</b>이어야 하기 때문이다({@code authorizeSend} 참고).
  *       「본인 진행 세션인가」는 {@code FocusEmoteService} 한 곳이고, 두 곳에서 검사하면 언젠가
  *       한쪽만 바뀐다 — 채팅 SEND 가 도메인 규칙을 서비스에 맡기는 것과 같은 규율이다.</li>
+ *   <li>{@code /topic/islands/{id}/events} — <b>현재 소속 주민</b>(GROMO-2302). 구독 1회는 이동 채널과 같은 규칙
+ *       (사용자 축 시도 창 600ms → {@link ChatAccessGuard#requireMember}, 집중 검사 없음)이고, 전달 직전 프레임마다
+ *       {@code ChatOutboundChannelInterceptor} 가 캐시 멤버십을 다시 본다. 지금 이 채널로 나가는 사건은
+ *       {@code island.member.arrived} 하나다.</li>
  * </ul>
- * 나머지 섬 채널({@code events}·{@code playback}·{@code messages})과 {@code /user/queue/events} 는
+ * 나머지 섬 채널({@code playback}·{@code messages})과 {@code /user/queue/events} 는
  * 각 도메인의 인가·복구 계약이 구현될 때까지 계속 닫아 둔다.
  *
  * <h2>이동 채널 (GROMO-2247)</h2>
@@ -237,6 +242,10 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         }
 
         Matcher island = ISLAND_TOPIC.matcher(destination);
+        if (island.matches() && EVENTS_CHANNEL.equals(island.group(2))) {
+            authorizeIslandEventsSubscription(accessor, destination, island.group(1));
+            return;
+        }
         if (island.matches()) {
             ChatPrincipal principal = requireSubscribable(accessor, destination);
             UUID islandId = uuidOrReject(island.group(1));
@@ -318,6 +327,39 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             movementSubscriptions.clearMembershipCacheStale(islandId, principal.userId());
         }
         accessor.setHeader(MovementSubscriptionListener.JUDGED, generation);
+    }
+
+    /**
+     * 섬 {@code events} 토픽 구독(GROMO-2302) — 현재 소속 주민만. {@link #authorizeMovementSubscription} 과 같은 규칙이다:
+     * 사용자 축 시도 창(600ms, 초과는 {@code MOVEMENT_TOO_FREQUENT} — 같은 구독 상한 코드를 쓴다) → 멤버십(집중 검사 없음).
+     * 강퇴 사건의 캐시 삭제가 실패한 (섬, 사용자)는 이동과 같은 표시를 보고 정본에 직접 묻는다. 거절은 ERROR + 연결 종료이고,
+     * 레지스트리 자리를 돌려준다 — 남겨 두면 전달 경로가 «판정받은 구독»으로 오인할 자리가 생긴다.
+     *
+     * <p>구독 판정은 한 번이고, 그 뒤의 회수는 전달 직전 프레임마다의 캐시 재검사({@code ChatOutboundChannelInterceptor})가
+     * 맡는다 — 강퇴는 {@code island.members.updated(MEMBER_REMOVED)} 가 캐시를 지우고 TTL 120s 가 상한이다.
+     */
+    private void authorizeIslandEventsSubscription(StompHeaderAccessor accessor, String destination,
+                                                   String islandIdText) {
+        ChatPrincipal principal = requireSubscribable(accessor, destination);
+        UUID islandId = uuidOrReject(islandIdText);
+        boolean staleCache = movementSubscriptions.membershipCacheStale(islandId, principal.userId());
+        try {
+            // 상류 조회 «전에» 센다 — 거절될 연타도 비용을 치러야 상한이 성립한다.
+            if (!acquireWindow(RedisKeys.islandEventsSubscribeAttempt(principal.userId()))) {
+                throw new ChatException(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
+            }
+            if (staleCache) {
+                accessGuard.requireMemberUncached(islandId, principal.userId(), principal.bearer());
+            } else {
+                accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            }
+        } catch (RuntimeException e) {
+            sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
+            throw e;
+        }
+        if (staleCache) {
+            movementSubscriptions.clearMembershipCacheStale(islandId, principal.userId());
+        }
     }
 
     /**

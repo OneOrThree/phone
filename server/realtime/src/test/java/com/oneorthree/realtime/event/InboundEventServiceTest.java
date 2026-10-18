@@ -358,6 +358,44 @@ class InboundEventServiceTest {
         assertThat(redis.hasKey(RedisKeys.seaUser(user))).isFalse();
     }
 
+    @Test
+    @DisplayName("island.member.arrived 는 섬 events 로 전달한다 — 허용 필드만 싣고 aggregateVersion 은 봉투 version 이다(GROMO-2302)")
+    void memberArrivedIsDeliveredWithProjectedFieldsOnly() throws Exception {
+        UUID island = UUID.randomUUID();
+        UUID user = UUID.randomUUID();
+        http(arrived(island, island, user, ",\"secret\":\"x\",\"version\":99"));
+
+        org.mockito.ArgumentCaptor<RealtimeEventEnvelope> event =
+                org.mockito.ArgumentCaptor.forClass(RealtimeEventEnvelope.class);
+        verify(eventRouter).route(event.capture(), ArgumentMatchers.eq(new RealtimeAudience.IslandAudience(island)));
+        assertThat(event.getValue().type()).isEqualTo(RealtimeEventType.ISLAND_MEMBER_ARRIVED);
+        assertThat(event.getValue().islandId()).isEqualTo(island);
+        assertThat(event.getValue().aggregateVersion()).isEqualTo(5L);
+        JsonNode payload = event.getValue().payload();
+        assertThat(payload.propertyNames()).containsExactlyInAnyOrder("islandId", "userId", "name", "catColor",
+                "arrivedAt");
+        assertThat(payload.get("name").stringValue()).isEqualTo("도착냥");
+        assertThat(payload.get("catColor").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("island.member.arrived 의 payload 섬이 봉투 섬과 다르면 200 으로 받고 전달하지 않는다(축 보호)")
+    void memberArrivedForAnotherIslandIsAcceptedButNotDelivered() throws Exception {
+        UUID island = UUID.randomUUID();
+        http(arrived(island, UUID.randomUUID(), UUID.randomUUID(), ""));
+
+        verify(eventRouter, never()).route(any(), ArgumentMatchers.eq(new RealtimeAudience.IslandAudience(island)));
+    }
+
+    /** Data {@code IslandArrivalEvents} 가 적는 봉투 모양 — {@code extra} 는 params 끝에 덧붙는다. */
+    private static String arrived(UUID subject, UUID payloadIsland, UUID user, String extra) {
+        return "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,\"type\":\"island.member.arrived\","
+                + "\"occurredAt\":\"2026-10-18T00:00:00Z\",\"scheduledAt\":null,\"userId\":\"" + user + "\","
+                + "\"locale\":null,\"subjectId\":\"" + subject + "\",\"version\":5,\"params\":{"
+                + "\"islandId\":\"" + payloadIsland + "\",\"userId\":\"" + user + "\",\"name\":\"도착냥\","
+                + "\"catColor\":null,\"arrivedAt\":\"2026-10-18T00:00:00Z\"" + extra + "}}";
+    }
+
     private void http(String body) throws Exception {
         mockMvc.perform(post("/internal/events").contentType(MediaType.APPLICATION_JSON).content(body)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + dataToken)).andExpect(status().isOk());

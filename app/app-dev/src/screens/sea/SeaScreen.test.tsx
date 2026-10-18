@@ -208,7 +208,9 @@ test('미확인 결과를 직접 복원하며 결과 확인 성공 전 화면과
     destinationId: 'island-1',
     destinationName: '별고래섬',
     activeSeconds: 2050,
-    reward: { status: 'earned', items: [{ itemId: 'duck', name: '오리 인형' }] },
+    rewards: ['duck'],
+    minutesToNextTier: null,
+    rewardsUnknown: false,
   };
   const screen = await render(
     <SeaScreen {...p} result={result} rewardCatalog={{ duck: duckPreviewArt }} />,
@@ -229,21 +231,20 @@ test('보상이 없거나 모르는 ID이면 예시 오리를 지급한 것처�
     destinationId: 'island-1',
     destinationName: '별고래섬',
     activeSeconds: 60,
-    reward: { status: 'none' },
+    rewards: [] as string[],
+    minutesToNextTier: null,
+    rewardsUnknown: false,
   };
   const screen = await render(<SeaScreen {...p} result={result} />);
   expect(screen.getByText('이번 항해에서 건진 아이템은 없어요')).toBeTruthy();
   await screen.rerender(
-    <SeaScreen
-      {...p}
-      result={{
-        ...result,
-        reward: { status: 'earned', items: [{ itemId: 'unknown', name: '서버가 준 모자' }] },
-      }}
-    />,
+    <SeaScreen {...p} result={{ ...result, rewards: ['unknown'], minutesToNextTier: 25 }} />,
   );
-  expect(screen.getByText('서버가 준 모자')).toBeTruthy();
+  expect(screen.getByText('unknown')).toBeTruthy();
+  expect(screen.getByText('다음 단계까지 25분')).toBeTruthy();
   expect(screen.queryByText('오리 인형')).toBeNull();
+  await screen.rerender(<SeaScreen {...p} result={{ ...result, rewardsUnknown: true }} />);
+  expect(screen.getByText('확인 중이에요. 인벤토리에서 확인해 주세요.')).toBeTruthy();
 });
 
 test('보상 미확인 복원은 미획득과 구분하고 정본을 받으면 획득으로 갱신한다', async () => {
@@ -253,22 +254,24 @@ test('보상 미확인 복원은 미획득과 구분하고 정본을 받으면 �
     destinationId: 'island-1',
     destinationName: '별고래섬',
     activeSeconds: 1800,
-    reward: { status: 'unknown' },
+    rewards: [],
+    minutesToNextTier: null,
+    rewardsUnknown: true,
   };
-  const screen = await render(<SeaScreen {...p} result={result} />);
-  expect(screen.getByText('보상 정보를 확인하지 못했어요')).toBeTruthy();
+  const screen = await render(
+    <SeaScreen {...p} result={result} rewardCatalog={{ duck: duckPreviewArt }} />,
+  );
+  expect(screen.getByText('확인 중이에요. 인벤토리에서 확인해 주세요.')).toBeTruthy();
   expect(screen.queryByText('이번 항해에서 건진 아이템은 없어요')).toBeNull();
   await screen.rerender(
     <SeaScreen
       {...p}
-      result={{
-        ...result,
-        reward: { status: 'earned', items: [{ itemId: 'duck', name: '오리 인형' }] },
-      }}
+      result={{ ...result, rewards: ['duck'], rewardsUnknown: false }}
+      rewardCatalog={{ duck: duckPreviewArt }}
     />,
   );
   expect(screen.getByText('오리 인형')).toBeTruthy();
-  expect(screen.queryByText('보상 정보를 확인하지 못했어요')).toBeNull();
+  expect(screen.queryByText('확인 중이에요. 인벤토리에서 확인해 주세요.')).toBeNull();
   expect(p.onFinish).not.toHaveBeenCalled();
 });
 
@@ -279,17 +282,20 @@ test('한 정산의 여러 보상은 대표 아이템과 추가 획득 이름을
     destinationId: 'island-1',
     destinationName: '별고래섬',
     activeSeconds: 7200,
-    reward: {
-      status: 'earned',
-      items: [
-        { itemId: 'duck', name: '오리 인형' },
-        { itemId: 'scarf', name: '빨간 목도리' },
-        { itemId: 'hat', name: '파란 모자' },
-      ],
-    },
+    rewards: ['duck', 'scarf', 'hat'],
+    minutesToNextTier: null,
+    rewardsUnknown: false,
   };
   const screen = await render(
-    <SeaScreen {...p} result={result} rewardCatalog={{ duck: duckPreviewArt }} />,
+    <SeaScreen
+      {...p}
+      result={result}
+      rewardCatalog={{
+        duck: duckPreviewArt,
+        scarf: { ...duckPreviewArt, title: '빨간 목도리' },
+        hat: { ...duckPreviewArt, title: '파란 모자' },
+      }}
+    />,
   );
   expect(screen.getByText('오리 인형')).toBeTruthy();
   expect(screen.getByText('빨간 목도리, 파란 모자도 함께 받았어요')).toBeTruthy();

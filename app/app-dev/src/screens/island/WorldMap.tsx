@@ -81,6 +81,9 @@ import {
 import { imageToWorld, worldToCell, worldToImage, type WorldPoint } from '@/utils/worldCoords';
 import {
   publishMoveIntent,
+  memberArrivalFilter,
+  memberArrivedText,
+  sessionSelfId,
   stompIslandChannel,
   type IslandChannel,
 } from '@/services/islandRealtime';
@@ -1676,6 +1679,8 @@ function FinalIslandScene({
     return walkPath(path, done);
   };
   // 이동 채널 콜백 — 렌더마다 최신 클로저로 갈아 끼운다(채널은 섬이 바뀔 때만 다시 연다).
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
   const sync = useRef<Required<MovementCallbacks> & { position: () => WorldPoint }>(null!);
   sync.current = {
     position: () => imageToWorld(location.current, sizeOf(grid)),
@@ -1741,12 +1746,20 @@ function FinalIslandScene({
         sync.current.onRemotePosition(userId, p, durationMs),
     });
     movement.current = controller;
+    const arrivals = memberArrivalFilter(syncIslandId, sessionSelfId);
     channel = stompIslandChannel({
       islandId: syncIslandId,
       presence: false,
       emote: false,
       movement: true,
-      onEvent: controller.onMessage,
+      // 홈 = 내 소속 섬이라 주민 소식(GROMO-2311) 구독 조건을 늘 만족한다 — 방문(facts=null)에는 이 채널이 열리지 않는다
+      events: true,
+      onEvent: (body) => {
+        if ((body as { type?: unknown } | null)?.type === 'island.member.arrived') {
+          const arrived = arrivals(body);
+          if (arrived) notifyRef.current?.(memberArrivedText(arrived));
+        } else controller.onMessage(body);
+      },
       onOpen: () => {},
       // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
       // 돌아간다 — 토스트는 없다. 그 외 오류 큐 코드(예: 속도 제한)는 onError 로만 오고 동기화는 그대로 둔다.

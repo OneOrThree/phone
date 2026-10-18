@@ -16,8 +16,8 @@ class RaftScreenContractTest extends ScreenContractTestBase {
 
     private static final String DATA_INVENTORY = "GET " + USERS + "/inventory";
     private static final String DATA_REQUESTS = "GET " + USERS + "/friend-requests";
-    private static final String INVENTORY = "{\"clothes\":[\"jacket\"],\"decor\":[],\"hulls\":[\"raft\"],"
-            + "\"inventoryVersion\":3,\"equipped\":{\"clothes\":\"jacket\",\"decor\":null,\"hull\":\"raft\","
+    private static final String INVENTORY = "{\"clothes\":[\"jacket\"],\"decor\":[],\"head\":[],\"neck\":[],\"shoes\":[],\"hulls\":[\"raft\"],"
+            + "\"inventoryVersion\":3,\"equipped\":{\"clothes\":\"jacket\",\"decor\":null,\"head\":null,\"neck\":null,\"shoes\":null,\"hull\":\"raft\","
             + "\"position\":\"front\",\"version\":2}}";
 
     private static String requestItem() {

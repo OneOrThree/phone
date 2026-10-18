@@ -7,6 +7,7 @@ import {
   semanticTokens as s,
 } from '@/design-system/tokens';
 import { t } from '@/i18n';
+import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { SeaArrival, seaDuration } from './seaModel';
 import { SeaRewardArt, seaRewardCatalog } from './seaRewardCatalog';
 
@@ -23,9 +24,12 @@ export function SeaArrivalResult({
   onExplore: () => void;
   catalog?: Readonly<Record<string, SeaRewardArt>>;
 }) {
-  const reward = result.reward;
-  const primary = reward.status === 'earned' ? reward.items[0] : undefined;
-  const rewardArt = primary ? catalog[primary.itemId] : undefined;
+  const table = useCustomizationCatalog();
+  // 서버 grantedProductIds 순서를 보존한다. 첫 아이템은 대표 그림·이름, 나머지는 이름 목록으로 표시한다.
+  const name = (id: string) => catalog[id]?.title ?? table[id]?.title ?? id;
+  const [primary, ...rest] = result.rewards;
+  const art = primary ? catalog[primary] : undefined;
+  const entry = primary ? table[primary] : undefined;
   return (
     <Overlay maxWidth={354} contentStyle={styles.content} frameStyle={styles.frame}>
       <View accessibilityViewIsModal testID="sea-arrival-result" style={styles.contentInner}>
@@ -41,41 +45,51 @@ export function SeaArrivalResult({
         </View>
         <View style={styles.reward}>
           <Txt style={styles.label}>{t('openSea.rewardTitle')}</Txt>
-          {rewardArt && (
+          {art ? (
             <View
               accessible={false}
               style={[
                 styles.rewardWindow,
-                { width: rewardArt.preview.width, height: rewardArt.preview.height },
+                { width: art.preview.width, height: art.preview.height },
               ]}
             >
               <Image
-                source={rewardArt.source}
+                source={art.source}
                 style={[
                   styles.rewardImage,
                   {
-                    width: rewardArt.preview.size,
-                    height: rewardArt.preview.size,
-                    left: rewardArt.preview.left,
-                    top: rewardArt.preview.top,
+                    width: art.preview.size,
+                    height: art.preview.size,
+                    left: art.preview.left,
+                    top: art.preview.top,
                   },
                 ]}
               />
             </View>
+          ) : (
+            entry && (
+              <Image
+                accessible={false}
+                testID={`sea-reward-${primary}`}
+                source={{ uri: entry.imageUrl }}
+                style={styles.rewardPicture}
+                resizeMode="contain"
+              />
+            )
           )}
           <Txt style={styles.value}>
-            {reward.status === 'earned'
-              ? reward.items[0].name
-              : t(reward.status === 'unknown' ? 'openSea.unknownReward' : 'openSea.noReward')}
+            {primary
+              ? name(primary)
+              : t(result.rewardsUnknown ? 'openSea.rewardsUnknown' : 'openSea.noReward')}
           </Txt>
-          {reward.status === 'earned' && reward.items.length > 1 && (
+          {rest.length > 0 && (
             <Txt style={styles.label}>
-              {t('openSea.additionalRewards', {
-                names: reward.items
-                  .slice(1)
-                  .map((item) => item.name)
-                  .join(', '),
-              })}
+              {t('openSea.additionalRewards', { names: rest.map(name).join(', ') })}
+            </Txt>
+          )}
+          {result.minutesToNextTier != null && (
+            <Txt style={styles.label}>
+              {t('openSea.nextTier', { minutes: result.minutesToNextTier })}
             </Txt>
           )}
         </View>
@@ -98,6 +112,7 @@ export function SeaArrivalResult({
 const styles = StyleSheet.create({
   rewardWindow: { overflow: 'hidden' },
   rewardImage: { position: 'absolute' },
+  rewardPicture: { width: 120, height: 120 },
   frame: { borderRadius: s.radius.modal, boxShadow: c.modal.shadow },
   content: { padding: p.space[6], paddingBottom: p.space[6] },
   contentInner: { gap: p.space[5] },

@@ -161,6 +161,11 @@ function env(over: { session?: boolean; islands?: boolean } = {}) {
     notify: jest.fn(),
     confirm: jest.fn(),
     backOverride: { current: null as null | (() => boolean) },
+    focus: {
+      startSea: jest.fn().mockResolvedValue(undefined),
+      recover: jest.fn().mockResolvedValue(null),
+    },
+    conversion: { offer: jest.fn().mockReturnValue(false) },
     islands:
       over.islands === false
         ? undefined
@@ -396,230 +401,213 @@ describe('가입', () => {
   });
 });
 
-describe('항해하기', () => {
-  test('비주민 — 도착을 기록하고 연출 뒤 구경(SERVER_VISITING·visitIsland)으로 들어간다', async () => {
-    mockArrive.mockResolvedValue({ membershipStatus: 'none', currentIslandId: 'j1' });
-    const { screen, e } = await open([item('r1')]);
-    await press(screen, 'r1');
+describe('항해하기(바다 항해 집중, GROMO-2310)', () => {
+  const sailTo = async (screen: any, id: string) => {
+    await press(screen, id);
     await fireEvent.press(screen.getByLabelText('항해하기'));
-    expect(mockArrive).toHaveBeenCalledWith('r1', expect.stringMatching(UUID_V4));
-    expect(e.islands!.visit).toHaveBeenCalledWith('r1');
-    // 출발지는 지금 섬, 목적지는 그 섬 — 연출이 끝나기 전엔 화면을 옮기지 않는다
-    expect((await screen.findByTestId('sailing-to')).props.children).toBe('섬 r1');
-    expect(screen.getByTestId('sailing-from').props.children).toBe('섬 j1');
-    expect(e.dispatch).not.toHaveBeenCalled();
-    expect(e.replace).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByTestId('sailing'));
-    expect(e.dispatch).toHaveBeenCalledWith({ type: 'SERVER_VISITING', islandId: 'r1' });
-    expect(e.replace).toHaveBeenCalledWith('visitIsland', 'r1');
-    expect(e.reset).not.toHaveBeenCalled();
-    expect(e.islands!.sync).not.toHaveBeenCalled();
-  });
-
-  test('정원이 찬 섬도 항해(구경)는 된다', async () => {
-    mockArrive.mockResolvedValue({ membershipStatus: 'none', currentIslandId: 'j1' });
-    const { screen, e } = await open([item('r1', { full: true })]);
-    await press(screen, 'r1');
-    await fireEvent.press(screen.getByLabelText('항해하기'));
-    await screen.findByTestId('sailing');
-    await fireEvent.press(screen.getByTestId('sailing'));
-    expect(e.replace).toHaveBeenCalledWith('visitIsland', 'r1');
-  });
-
-  test('망원경으로 가입한 섬의 첫 도착(active)은 소속을 다시 읽고 새 섬 홈으로 간다', async () => {
-    mockArrive.mockResolvedValue({ membershipStatus: 'active', currentIslandId: 'j3' });
-    const { screen, e } = await open([mine('j3')]);
-    await press(screen, 'j3');
-    await fireEvent.press(screen.getByLabelText('항해하기'));
-    await screen.findByTestId('sailing');
-    expect(e.islands!.sync).toHaveBeenCalledTimes(1);
-    expect(e.islands!.visit).not.toHaveBeenCalled();
-    expect(e.reset).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByTestId('sailing'));
-    expect(e.reset).toHaveBeenCalledWith('home');
-    expect(e.replace).not.toHaveBeenCalled();
-  });
-
-  test('도착 기록이 거절되면 연출 없이 서버 문구를 알리고 말풍선이 닫힌 채 파노라마로 남는다', async () => {
-    mockArrive.mockRejectedValue(new ApiError('NOT_FOUND', '없어요', 404));
-    const { screen, e } = await open([item('r1')]);
-    await press(screen, 'r1');
-    await fireEvent.press(screen.getByLabelText('항해하기'));
+  };
+  const start = async (screen: any, remark = '') => {
+    if (remark) await fireEvent.changeText(screen.getByLabelText('한마디 (선택)'), remark);
+    await fireEvent.press(screen.getByLabelText('항해 시작'));
     await act(async () => {});
-    expect(e.notify).toHaveBeenCalledWith('더 이상 볼 수 없는 내용이에요. 다시 불러와 주세요.');
-    expect(screen.queryByTestId('sailing')).toBeNull();
-    expect(e.islands!.visit).not.toHaveBeenCalled();
-    // 확정된 4xx 는 서버가 바꾼 게 없다 — 소속을 다시 읽지 않는다(switchCurrent 와 같은 규칙)
-    expect(e.islands!.sync).not.toHaveBeenCalled();
-    screen.getByTestId('telescope-island-r1');
-  });
+  };
 
-  test('집중·휴식 중에는 구경할 수 없다고 알리고 도착을 기록하지 않는다', async () => {
-    const { screen, e } = await open([item('r1')], env({ session: true }));
-    await press(screen, 'r1');
-    await fireEvent.press(screen.getByLabelText('항해하기'));
-    expect(e.notify).toHaveBeenCalledWith('집중이나 휴식을 마친 뒤 섬을 구경해 주세요.');
+  test('한마디 시트 → 바다 항해 시작 → 항해 화면(sea, 목적지 이름) — 섬 구경·도착 기록은 하지 않는다', async () => {
+    const { screen, e } = await open([item('r1')]);
+    await sailTo(screen, 'r1');
+    screen.getByText('섬 r1(으)로 항해할까요?');
+    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
+    expect(e.focus.startSea).not.toHaveBeenCalled();
+    await start(screen);
+    expect(e.focus.startSea).toHaveBeenCalledWith('r1');
+    // 한마디를 비우면 한마디 저장 요청이 없다
+    expect(mockUnpin).not.toHaveBeenCalled();
+    expect(e.reset).toHaveBeenCalledWith('sea', '섬 r1');
     expect(mockArrive).not.toHaveBeenCalled();
+    expect(e.islands!.visit).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('sailing')).toBeNull();
   });
 
-  test('항해 중 뒤로가기는 삼킨다', async () => {
-    mockArrive.mockResolvedValue({ membershipStatus: 'none', currentIslandId: 'j1' });
+  test('망원경으로 가입만 한 소속 섬과 정원이 찬 섬도 같은 바다 항해다', async () => {
+    const { screen, e } = await open([mine('j3'), item('r1', { full: true })]);
+    await sailTo(screen, 'j3');
+    await start(screen);
+    await sailTo(screen, 'r1');
+    await start(screen);
+    expect(e.focus.startSea.mock.calls).toEqual([['j3'], ['r1']]);
+  });
+
+  test('한마디를 쓰면 출항이 성공한 «뒤» 한마디를 저장한다(시작 API 는 한마디를 받지 않는다)', async () => {
+    const order: string[] = [];
+    const e = env();
+    e.focus.startSea.mockImplementation(async () => {
+      order.push('start');
+    });
+    mockUnpin.mockImplementation(async () => order.push('remark'));
+    const { screen } = await open([item('r1')], e);
+    await sailTo(screen, 'r1');
+    await start(screen, '수학 3단원');
+    expect(order).toEqual(['start', 'remark']);
+    expect(mockUnpin).toHaveBeenCalledWith('/me/sea-remark', {
+      method: 'PUT',
+      body: { remark: '수학 3단원' },
+    });
+    expect(e.reset).toHaveBeenCalledWith('sea', '섬 r1');
+  });
+
+  test.each([
+    [
+      '5분 잠금(409)',
+      new ApiError('SEA_REMARK_LOCKED', '잠김', 409),
+      '한마디는 고친 뒤 5분 동안 바꿀 수 없어요',
+    ],
+    [
+      '그 밖 실패',
+      new ApiError('CLIENT_NETWORK_ERROR', '유실', 0),
+      '한마디를 띄우지 못했어요. 바다에서 다시 써 주세요.',
+    ],
+  ])('한마디 %s — 토스트로 알리고 출항은 그대로 간다', async (_name, error, toast) => {
+    mockUnpin.mockRejectedValue(error);
     const { screen, e } = await open([item('r1')]);
-    await press(screen, 'r1');
-    await fireEvent.press(screen.getByLabelText('항해하기'));
-    await screen.findByTestId('sailing');
-    expect(e.backOverride.current?.()).toBe(true);
+    await sailTo(screen, 'r1');
+    await start(screen, '안녕');
+    expect(e.notify).toHaveBeenCalledWith(toast);
+    expect(e.reset).toHaveBeenCalledWith('sea', '섬 r1');
   });
 
-  test('요청 중에는 섬이 눌리지 않아 말풍선이 열리지 않고 뒤로가기는 계속 삼킨다', async () => {
-    let arrived!: (v: unknown) => void;
-    mockArrive.mockReturnValue(new Promise((r) => (arrived = r)));
-    const { screen, e } = await open([item('r1'), item('r2')]);
-    await press(screen, 'r1');
-    await fireEvent.press(screen.getByLabelText('항해하기'));
-    // 요청 중 — 말풍선은 닫혔고 뒤로가기는 삼킨다
-    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
-    expect(e.backOverride.current?.()).toBe(true);
-    // 다른 섬을 눌러도 말풍선이 열리지 않고 삼킴이 그대로다(열었다 닫으면 삼킴이 지워지던 결함)
-    expect(screen.getByTestId('telescope-island-r2').props.accessibilityState.disabled).toBe(true);
-    await press(screen, 'r2');
-    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
-    expect(e.backOverride.current?.()).toBe(true);
-    // 요청이 끝나 연출로 넘어가도 계속 삼키고, 화면이 떠나면 풀린다
-    await act(async () => arrived({ membershipStatus: 'none', currentIslandId: 'j1' }));
-    await screen.findByTestId('sailing');
-    expect(e.backOverride.current?.()).toBe(true);
-    await screen.unmount();
-    expect(e.backOverride.current).toBeNull();
+  test('게스트의 한마디(403)는 회원 전환 시트를 열고 출항은 그대로 간다', async () => {
+    const error = new ApiError('SOCIAL_LOGIN_REQUIRED', '로그인', 403);
+    mockUnpin.mockRejectedValue(error);
+    const e = env();
+    e.conversion.offer.mockReturnValue(true);
+    const { screen } = await open([item('r1')], e);
+    await sailTo(screen, 'r1');
+    await start(screen, '안녕');
+    expect(e.conversion.offer).toHaveBeenCalledWith(error);
+    expect(e.notify).not.toHaveBeenCalled();
+    expect(e.reset).toHaveBeenCalledWith('sea', '섬 r1');
   });
 
-  test('말풍선을 연 채 항해를 시작해도 뒤로가기는 요청이 끝날 때까지 삼키고, 실패로 끝나면 풀린다', async () => {
-    let fail!: (error: Error) => void;
-    mockArrive.mockReturnValue(new Promise((_, reject) => (fail = reject)));
+  test('목적지가 망원경에서 사라졌으면(409) 안내하고 시트를 닫은 뒤 목록을 다시 읽는다', async () => {
+    const e = env();
+    e.focus.startSea.mockRejectedValue(new ApiError('SEA_DESTINATION_UNAVAILABLE', '없어요', 409));
+    const { screen } = await open([item('r1')], e);
+    await sailTo(screen, 'r1');
+    await start(screen);
+    expect(e.notify).toHaveBeenCalledWith(
+      '이 섬은 지금 망원경에서 사라졌어요. 새 목록을 보여 드릴게요.',
+    );
+    expect(mockScreenReload).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText('항해 시작')).toBeNull();
+    expect(e.reset).not.toHaveBeenCalled();
+  });
+
+  test('그 밖의 시작 실패는 시트에 오류를 두고 출항하지 않는다 — 다시 누를 수 있다', async () => {
+    const e = env();
+    e.focus.startSea
+      .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0))
+      .mockResolvedValueOnce(undefined);
+    const { screen } = await open([item('r1')], e);
+    await sailTo(screen, 'r1');
+    await start(screen);
+    expect(e.reset).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toBeTruthy();
+    await start(screen);
+    expect(e.focus.startSea).toHaveBeenCalledTimes(2);
+    expect(e.reset).toHaveBeenCalledWith('sea', '섬 r1');
+  });
+
+  test('집중·휴식 중에는 시트 없이 안내하고 항해를 시작하지 않는다', async () => {
+    const { screen, e } = await open([item('r1')], env({ session: true }));
+    await sailTo(screen, 'r1');
+    expect(e.notify).toHaveBeenCalledWith('집중이나 휴식을 마친 뒤 섬을 구경해 주세요.');
+    expect(screen.queryByLabelText('항해 시작')).toBeNull();
+    expect(e.focus.startSea).not.toHaveBeenCalled();
+  });
+
+  test('시작 요청 중 뒤로가기는 삼킨다', async () => {
+    let started!: () => void;
+    const e = env();
+    e.focus.startSea.mockReturnValue(new Promise<void>((r) => (started = r)));
+    const { screen } = await open([item('r1')], e);
+    await sailTo(screen, 'r1');
+    await fireEvent.press(screen.getByLabelText('항해 시작'));
+    expect(e.backOverride.current?.()).toBe(true);
+    expect(screen.getByLabelText('처리 중…')).toBeTruthy();
+    await act(async () => started());
+    expect(e.reset).toHaveBeenCalledWith('sea', '섬 r1');
+  });
+
+  test('출항 뒤 한마디 저장이 늦어도 화면 전환까지 잠금이 유지된다 — 다시 시작·닫기·뒤로가기가 막힌다', async () => {
+    let saved!: () => void;
+    mockUnpin.mockReturnValue(new Promise<void>((r) => (saved = r)));
     const { screen, e } = await open([item('r1')]);
-    await press(screen, 'r1');
-    expect(e.backOverride.current).not.toBeNull(); // 말풍선의 뒤로가기(닫기)
-    await fireEvent.press(screen.getByLabelText('항해하기'));
-    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
-    expect(e.backOverride.current?.()).toBe(true); // 이제는 요청을 삼키는 처리다
-    expect(screen.queryByTestId('telescope-bubble-name')).toBeNull();
-    await act(async () => fail(new ApiError('NOT_FOUND', '없어요', 404)));
-    expect(e.backOverride.current).toBeNull();
+    await sailTo(screen, 'r1');
+    await start(screen, '안녕');
+    expect(e.focus.startSea).toHaveBeenCalledTimes(1);
+    expect(e.reset).not.toHaveBeenCalled();
+    // 한마디 응답을 기다리는 동안 시트는 처리 중이고 뒤로가기는 삼킨다
+    expect(screen.getByLabelText('처리 중…').props.accessibilityState.disabled).toBe(true);
+    await fireEvent.press(screen.getByLabelText('처리 중…'));
+    expect(e.focus.startSea).toHaveBeenCalledTimes(1);
+    expect(e.backOverride.current?.()).toBe(true);
+    expect(screen.getByLabelText('처리 중…')).toBeTruthy();
+    await act(async () => saved());
+    expect(e.reset).toHaveBeenCalledWith('sea', '섬 r1');
   });
 
-  describe('도착 기록의 Idempotency-Key(switchCurrent 와 같은 의도 키 풀)', () => {
-    const keyOf = (n: number) => mockArrive.mock.calls[n][1];
-    const sail = async (screen: any, id: string) => {
-      await press(screen, id);
-      await fireEvent.press(screen.getByLabelText('항해하기'));
-      await act(async () => {});
-    };
-
-    test('같은 섬으로 실패 뒤 다시 시도하면 같은 키, 다른 섬은 다른 키로 나간다', async () => {
-      mockArrive.mockRejectedValue(new ApiError('NOT_FOUND', '없어요', 404));
-      const { screen } = await open([item('r1'), item('r2')]);
-      await sail(screen, 'r1');
-      await sail(screen, 'r1');
-      await sail(screen, 'r2');
-      expect(mockArrive).toHaveBeenCalledTimes(3);
-      expect(keyOf(0)).toMatch(UUID_V4);
-      expect(keyOf(1)).toBe(keyOf(0));
-      expect(keyOf(2)).toMatch(UUID_V4);
-      expect(keyOf(2)).not.toBe(keyOf(0));
-    });
-
-    test('응답을 잃고 서버도 안 옮겼으면(결과 불명) 다시 시도해도 같은 키다', async () => {
-      mockArrive.mockRejectedValue(new ApiError('CLIENT_TIMEOUT', '유실', 0));
-      const e = env();
-      e.islands!.sync.mockResolvedValue({ currentIslandId: 'j1', items: [] });
-      const { screen } = await open([item('r1')], e);
-      await sail(screen, 'r1');
-      await sail(screen, 'r1');
-      expect(mockArrive).toHaveBeenCalledTimes(2);
-      expect(keyOf(1)).toBe(keyOf(0));
-    });
-
-    test('도착이 확정되면 키를 해제한다 — 뒤 단계(구경 진입)가 실패한 뒤 다시 시도하면 새 키다', async () => {
-      mockArrive.mockResolvedValue({ membershipStatus: 'none', currentIslandId: 'j1' });
-      const e = env();
-      e.islands!.visit.mockRejectedValueOnce(
-        new ApiError('NOT_FOUND', '없어요', 404),
-      ).mockResolvedValue(undefined);
-      const { screen } = await open([item('r1')], e);
-      await sail(screen, 'r1');
-      expect(screen.queryByTestId('sailing')).toBeNull();
-      await sail(screen, 'r1');
-      expect(mockArrive).toHaveBeenCalledTimes(2);
-      expect(keyOf(0)).toMatch(UUID_V4);
-      expect(keyOf(1)).toMatch(UUID_V4);
-      expect(keyOf(1)).not.toBe(keyOf(0));
-      await screen.findByTestId('sailing');
-    });
+  test('다른 기기가 먼저 출항해 충돌(409 STATE_CONFLICT)하면 복원된 진행 세션 화면으로 간다 — 오류 안내 없음', async () => {
+    const e = env();
+    e.focus.startSea.mockRejectedValue(new ApiError('STATE_CONFLICT', '이미 진행 중', 409));
+    e.focus.recover.mockResolvedValue('sea');
+    const { screen } = await open([item('r1')], e);
+    await sailTo(screen, 'r1');
+    await start(screen);
+    expect(e.focus.recover).toHaveBeenCalledTimes(1);
+    expect(e.reset).toHaveBeenCalledTimes(1);
+    expect(e.reset).toHaveBeenCalledWith('sea', undefined);
+    expect(e.notify).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByLabelText('항해 시작')).toBeNull();
   });
 
-  describe('도착 응답을 잃었을 때(결과 불명 — switchCurrent 와 같은 분류)', () => {
-    test.each([
-      'CLIENT_TIMEOUT',
-      'CLIENT_NETWORK_ERROR',
-      'UPSTREAM_TIMEOUT',
-      'SERVICE_UNAVAILABLE',
-    ])('%s — 서버가 이미 그 섬으로 옮겼으면 소속을 다시 읽어 성공으로 홈에 간다', async (code) => {
-      mockArrive.mockRejectedValue(new ApiError(code, '유실', 0));
-      const e = env();
-      e.islands!.sync.mockImplementation(async () => ({ currentIslandId: 'j3', items: [] }));
-      const { screen } = await open([mine('j3')], e);
-      await press(screen, 'j3');
-      await fireEvent.press(screen.getByLabelText('항해하기'));
-      await screen.findByTestId('sailing');
-      expect(e.islands!.sync).toHaveBeenCalledTimes(1);
-      expect(e.notify).not.toHaveBeenCalled();
-      expect(e.islands!.visit).not.toHaveBeenCalled();
-      await fireEvent.press(screen.getByTestId('sailing'));
-      expect(e.reset).toHaveBeenCalledWith('home');
+  test('출항 재시도로 복원된 세션이 섬 집중이면(다른 기기가 항해를 끝내고 시작) 그 집중 화면으로 — 바다·한마디 없음', async () => {
+    const e = env();
+    e.focus.startSea.mockResolvedValue({
+      id: 'sess-9',
+      islandId: 'home',
+      kind: 'island',
+      status: 'active',
     });
+    const { screen } = await open([item('r1')], e);
+    await sailTo(screen, 'r1');
+    await start(screen, '수학 3단원');
+    expect(e.reset).toHaveBeenCalledTimes(1);
+    expect(e.reset.mock.calls[0][0]).toBe('focus');
+    expect(e.reset.mock.calls.some((c: unknown[]) => c[0] === 'sea')).toBe(false);
+    expect(mockUnpin).not.toHaveBeenCalledWith('/me/sea-remark', expect.anything());
+  });
 
-    test('서버가 옮기지 않았으면 소속을 다시 읽고 원래 오류를 알린다(연출·구경 진입 없음)', async () => {
-      mockArrive.mockRejectedValue(new ApiError('CLIENT_TIMEOUT', '유실', 0));
-      const e = env();
-      e.islands!.sync.mockResolvedValue({ currentIslandId: 'j1', items: [] });
-      const { screen } = await open([item('r1')], e);
-      await press(screen, 'r1');
-      await fireEvent.press(screen.getByLabelText('항해하기'));
-      await act(async () => {});
-      expect(e.islands!.sync).toHaveBeenCalledTimes(1);
-      expect(e.notify).toHaveBeenCalledWith('연결을 확인한 뒤 다시 시도해 주세요.');
-      expect(screen.queryByTestId('sailing')).toBeNull();
-      expect(e.islands!.visit).not.toHaveBeenCalled();
-    });
+  test('충돌 뒤 정본에도 진행 세션이 없으면 시트에 오류를 둔다', async () => {
+    const e = env();
+    e.focus.startSea.mockRejectedValue(new ApiError('STATE_CONFLICT', '이미 진행 중', 409));
+    const { screen } = await open([item('r1')], e);
+    await sailTo(screen, 'r1');
+    await start(screen);
+    expect(e.reset).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toBeTruthy();
+  });
 
-    test('소속 재조회마저 실패하면 원래 오류를 알린다', async () => {
-      mockArrive.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0));
-      const e = env();
-      e.islands!.sync.mockRejectedValue(new ApiError('CLIENT_NETWORK_ERROR', '또 유실', 0));
-      const { screen } = await open([mine('j3')], e);
-      await press(screen, 'j3');
-      await fireEvent.press(screen.getByLabelText('항해하기'));
-      await act(async () => {});
-      expect(e.islands!.sync).toHaveBeenCalledTimes(1);
-      expect(e.notify).toHaveBeenCalledWith('연결을 확인한 뒤 다시 시도해 주세요.');
-      expect(screen.queryByTestId('sailing')).toBeNull();
+  test('시트가 열려 있을 때 뒤로가기는 시트만 닫는다', async () => {
+    const { screen, e } = await open([item('r2')]);
+    await sailTo(screen, 'r2');
+    let handled = false;
+    await act(async () => {
+      handled = e.backOverride.current?.() ?? false;
     });
-
-    test('도착은 성공했는데 소속 재조회 응답을 잃어도 한 번 더 읽어 성공으로 확정한다', async () => {
-      mockArrive.mockResolvedValue({ membershipStatus: 'active', currentIslandId: 'j3' });
-      const e = env();
-      e.islands!.sync.mockRejectedValueOnce(
-        new ApiError('CLIENT_TIMEOUT', '유실', 0),
-      ).mockResolvedValueOnce({ currentIslandId: 'j3', items: [] });
-      const { screen } = await open([mine('j3')], e);
-      await press(screen, 'j3');
-      await fireEvent.press(screen.getByLabelText('항해하기'));
-      await screen.findByTestId('sailing');
-      expect(e.islands!.sync).toHaveBeenCalledTimes(2);
-      expect(e.notify).not.toHaveBeenCalled();
-      await fireEvent.press(screen.getByTestId('sailing'));
-      expect(e.reset).toHaveBeenCalledWith('home');
-    });
+    expect(handled).toBe(true);
+    expect(screen.queryByLabelText('항해 시작')).toBeNull();
+    expect(e.focus.startSea).not.toHaveBeenCalled();
   });
 });
 

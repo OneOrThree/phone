@@ -53,7 +53,8 @@ import java.util.stream.Collectors;
  * 분으로 보여 주지 않는다.
  *
  * <h2>지급하지 않는 종류</h2>
- * 개인 인벤토리는 {@code clothes}·{@code decor} 와 고양이 잡지의 시즌 재료 {@code ad_sticker}·{@code ad_frame}
+ * 개인 인벤토리는 {@code clothes}·{@code decor}·{@code head}·{@code neck}·{@code shoes}(GROMO-2331) 와
+ * 고양이 잡지의 시즌 재료 {@code ad_sticker}·{@code ad_frame}
  * (GROMO-2289 — 정본의 시즌 세트 「잡지 스티커·칸 틀」)만 받는다. 잡지 재료는 부가 정보({@code magazine_asset_meta})가
  * 퇴역하지 않은 {@code season} 일 때만 준다 — 무료 재료는 모두가 이미 가진 것이고, 부가 정보가 없으면 꾸미기 서랍에 보이지
  * 않는다. 잡지 테이프({@code ad_tape})는 지금 전부 무료라 주지 않는다. 그 밖의 종류가 단계표에 와도 건너뛰고 경고를
@@ -126,7 +127,7 @@ public class SeaFocusRewardService {
             boolean crossed = before < threshold && threshold <= after;
             if (!isGrantable(kinds.get(tier.getProductId()), magazineSeason.contains(tier.getProductId()))) {
                 if (crossed) {
-                    log.warn("바다 보상 단계의 상품은 개인 인벤토리에 지급하지 않습니다(clothes·decor, 시즌 잡지 스티커·틀만, "
+                    log.warn("바다 보상 단계의 상품은 개인 인벤토리에 지급하지 않습니다(clothes·decor·head·neck·shoes, 시즌 잡지 스티커·틀만, "
                                     + "결정 N4) — "
                                     + "set={}, threshold={}분, product={}, kind={}, user={}",
                             tier.getSetKey(), tier.getThresholdMinutes(), tier.getProductId(),
@@ -200,6 +201,8 @@ public class SeaFocusRewardService {
 
     private static boolean isGrantable(String kind, boolean magazineSeason) {
         return CatalogAsset.KIND_CLOTHES.equals(kind) || CatalogAsset.KIND_DECOR.equals(kind)
+                || CatalogAsset.KIND_HEAD.equals(kind) || CatalogAsset.KIND_NECK.equals(kind)
+                || CatalogAsset.KIND_SHOES.equals(kind)
                 || (isMagazineReward(kind) && magazineSeason);
     }
 

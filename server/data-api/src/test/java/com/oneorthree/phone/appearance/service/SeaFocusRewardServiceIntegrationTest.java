@@ -342,6 +342,24 @@ class SeaFocusRewardServiceIntegrationTest {
         assertThat(inventoryEvents(user)).isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("head·neck·shoes 종류 상품도 단계를 넘으면 지급된다 — grantedProductIds 와 owned_products (GROMO-2331)")
+    void customizationSlotKindsAreGranted() {
+        UUID user = newUser();
+        String head = product("head");
+        String neck = product("neck");
+        String shoes = product("shoes");
+        tier("base", 1, head);
+        tier("base", 1, neck);
+        tier("base", 1, shoes);
+
+        SeaRewardResult result = sea.settle(user, 60, OCT_12);
+
+        assertThat(result.grantedProductIds()).containsExactlyInAnyOrder(head, neck, shoes);
+        assertThat(owned(user)).containsExactlyInAnyOrder(head, neck, shoes);
+        assertThat(inventoryEvents(user)).isEqualTo(3);
+    }
+
     // ---------------------------------------------------------------- 다음 단계까지 남은 분
 
     @Test
@@ -469,7 +487,8 @@ class SeaFocusRewardServiceIntegrationTest {
     /** 테스트마다 유일한 카탈로그 상품 — 종류에 맞는 주인 축으로 만든다(CHECK). */
     private String product(String kind) {
         String productId = kind + "-" + UUID.randomUUID().toString().substring(0, 8);
-        String ownerType = kind.equals("clothes") || kind.equals("decor") || kind.startsWith("ad_") ? "user" : "island";
+        String ownerType = List.of("clothes", "decor", "head", "neck", "shoes").contains(kind) || kind.startsWith("ad_")
+                ? "user" : "island";
         jdbc.update("INSERT INTO catalog_assets (product_id, title, kind, owner_type, created_at) "
                 + "VALUES (?, ?, ?, ?, now())", productId, productId, kind, ownerType);
         return productId;

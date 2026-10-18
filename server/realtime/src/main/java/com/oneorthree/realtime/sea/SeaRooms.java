@@ -94,6 +94,8 @@ public class SeaRooms {
     private static final String ROOM_ID = "roomId";
     private static final String STATE = "state";
     private static final String REMARK = "remark";
+    private static final String NAME = "name";
+    private static final String CAT_COLOR = "catColor";
     private static final String SESSION_ID = "sessionId";
     private static final String DESTINATION = "destinationIslandId";
     private static final String SAILING_MINUTES = "sailingMinutes";
@@ -558,7 +560,9 @@ public class SeaRooms {
                 after == null ? null : after.sessionId());
         boolean remarkChanged = !Objects.equals(first.remark(), second.remark())
                 || !Objects.equals(first.remarkChangedAt(), second.remarkChangedAt());
-        if (!sessionChanged && !remarkChanged) {
+        boolean profileChanged = !Objects.equals(first.name(), second.name())
+                || !Objects.equals(first.catColor(), second.catColor());
+        if (!sessionChanged && !remarkChanged && !profileChanged) {
             return;
         }
         Transition transition;
@@ -572,6 +576,10 @@ public class SeaRooms {
         }
         if (remarkChanged) {
             putOrDelete(transition.set(), transition.delete(), REMARK, second.remark());
+        }
+        if (profileChanged) {
+            putOrDelete(transition.set(), transition.delete(), NAME, second.name());
+            putOrDelete(transition.set(), transition.delete(), CAT_COLOR, second.catColor());
         }
         if (runUpdate(userId, roomId.toString(), transition, rev) != 1) {
             log.debug("입장 보정 건너뜀 — 그사이 Data 사건이 먼저 적용됐거나 나갔다");
@@ -707,6 +715,14 @@ public class SeaRooms {
         if (state.remark() != null) {
             fields.add(REMARK);
             fields.add(state.remark());
+        }
+        if (state.name() != null) {
+            fields.add(NAME);
+            fields.add(state.name());
+        }
+        if (state.catColor() != null) {
+            fields.add(CAT_COLOR);
+            fields.add(state.catColor());
         }
         if (session == null) {
             fields.add(ADRIFT_SINCE);
@@ -846,7 +862,8 @@ public class SeaRooms {
     }
 
     /**
-     * {@code member = {userId, state, remark, session | null}}. {@code activeSeconds} 는 저장값이 아니라 지금 계산한다 —
+     * {@code member = {userId, state, remark, name, catColor, session | null}}.
+     * {@code activeSeconds} 는 저장값이 아니라 지금 계산한다 —
      * 바다 세션은 일시정지가 없어 경과가 곧 벽시계 차다. 떠 있으면 떠오른 시각에서 멈춘다.
      */
     private ObjectNode member(String userId, Map<String, String> hash, Instant now) {
@@ -855,6 +872,8 @@ public class SeaRooms {
         String state = hash.getOrDefault(STATE, ADRIFT);
         member.put("state", state);
         member.put("remark", hash.get(REMARK));
+        member.put("name", hash.get(NAME)); // 옛 해시(배포 전 입장)는 null
+        member.put("catColor", hash.get(CAT_COLOR));
         Instant startedAt = instantOrNull(hash.get(STARTED_AT));
         if (hash.get(SESSION_ID) == null || startedAt == null) {
             member.putNull("session");

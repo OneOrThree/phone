@@ -1,3 +1,4 @@
+import type { Outfit } from '@/components/CatOutfitLayers';
 import type { Color } from '@/services/model';
 import { t } from '@/i18n';
 
@@ -14,6 +15,8 @@ export type SeaParticipant = {
   subject?: string;
   message?: string;
   emote?: SeaEmote;
+  /** 장착한 머리·목·신발(카탈로그 id) — 내 뗏목에만 채운다. */
+  outfit?: Outfit;
 };
 
 export type SeaVoyage = {
@@ -27,18 +30,20 @@ export type SeaVoyage = {
   canDisembark: boolean;
 };
 
-export type SeaRewardItem = { itemId: string; name: string };
-
 export type SeaArrival = {
   recordId: string;
   destinationId: string;
   destinationName: string;
   activeSeconds: number;
-  /** 서버 seaReward=null은 unknown으로 변환한다. none은 미지급이 확인된 경우에만 사용한다. */
-  reward:
-    | { status: 'earned'; items: readonly [SeaRewardItem, ...SeaRewardItem[]] }
-    | { status: 'none' }
-    | { status: 'unknown' };
+  /** 이번에 받은 꾸미기 productId 목록 — 이름·그림은 카탈로그로 푼다. */
+  rewards: string[];
+  /** 다음 단계까지 남은 분 — 모르면 null. */
+  minutesToNextTier: number | null;
+  /**
+   * 서버가 보상을 아직 모른다(seaReward=null) — 미획득(rewards=[] 이고 false)과 구분해
+   * 「확인 중」 문구로 인벤토리 확인을 안내한다. 복원 응답만으로 지급을 추측하지 않는다.
+   */
+  rewardsUnknown: boolean;
 };
 
 export const seaClock = (seconds: number) => {

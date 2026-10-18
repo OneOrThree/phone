@@ -133,7 +133,7 @@ class FocusSessionLifecycleGuardsTest {
                 new org.springframework.beans.factory.support.StaticListableBeanFactory()
                         .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
-                Clock.fixed(wallClock, ZoneOffset.UTC));
+                Clock.fixed(wallClock, ZoneOffset.UTC), null);
     }
 
     // ── 1. 시작 게이트 ────────────────────────────────────────────────────────

@@ -7,12 +7,12 @@
  *
  * 서버 세션이 없으면 종전대로 로컬 저장본만 본다 — 로그인 API 연결 전의 목업 흐름이 그대로 산다.
  */
-import type { Route } from '@/services/model';
+import { sessionRoute, type Route } from '@/services/model';
 
 export interface SavedShape {
   loggedIn?: boolean;
   onboarded?: boolean;
-  session?: { status?: string } | null;
+  session?: { status?: string; kind?: string } | null;
 }
 
 export interface RestoredAccount {
@@ -33,7 +33,9 @@ export function restoredRoute(
   if (!account && !saved.loggedIn) return 'login';
   // 서버가 「고양이·이름 미선택」이라고 하면 섬보다 그쪽이 먼저다.
   if (account && !account.onboardingComplete) return 'character';
+  // 바다 항해는 소속과 무관하다 — 항해 중 마지막 소속을 잃었어도 항해 화면으로 돌아간다
+  if (saved.session?.kind === 'sea') return 'sea';
   if (!saved.onboarded) return 'chooseIsland';
-  if (saved.session) return saved.session.status === 'paused' ? 'rest' : 'focus';
+  if (saved.session) return sessionRoute(saved.session);
   return 'home';
 }

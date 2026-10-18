@@ -92,6 +92,12 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 - `docker-compose.business.yml`은 Notification 없이 Business 만 띄우는 옛 진입점입니다. `satellites.yml`과 **함께 쓰지 않습니다**(같은 서비스를 정의).
 - dev 관측은 위 줄에 `-f server/scripts/docker-compose.datadog.yml` 또는 `-f server/scripts/docker-compose.observability.yml`을 더합니다.
 
+### `/static` 카탈로그 이미지 (GROMO-2331)
+
+- 이미지는 `server/static/customization/<kind>/<이름>.<sha8>.png`(내용 해시 파일명 — 만들 때 `static-hash.sh <원본.png> <kind>`)이고 Business 를 거치지 않고 Nginx 가 `/static/` 으로 직접 준다(`Cache-Control: public, max-age=31536000, immutable`). 로컬 nginx 프로필은 compose 볼륨으로 이 폴더를 마운트한다.
+- dev 는 VM 디스크에 수동 복사한다(맵 에셋과 같은 절차). prod 의 `/static/` location 은 인프라 레포 몫이다.
+- 로컬 확인은 `psql … -f server/scripts/local/seed-customization.sql` 로 오리 모자를 심고, Business 에 `STATIC_ASSETS_BASE_URL=http://<맥 IP>:8088`(비우면 상대 경로)을 준다.
+
 ## 4. 시크릿·스위치 — 비었을 때의 동작
 
 dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD·`ops-*.dev` 워크플로가 **job 마다** Secrets Manager 에서 임시로 만들고 끝나면 지웁니다([`dev-env.sh`](../../.github/scripts/dev-env.sh) → [`write-compose-env.py`](../../.github/scripts/write-compose-env.py)). 원본은 `gromo/dev/env` 하나이고, 서버별로 필요한 키만 고르는 건 `write-compose-env.py` 허용목록입니다. 그래서 dev 스위치는 파일이 아니라 **SM 키**로 바꾸고, 반영은 다음 배포 또는 Actions 의 `ops-redeploy.dev` 로 합니다. 필수 9개 외 아래 dev 행의 키는 SM 에 있을 때만 옮기고, 없으면 compose 기본값이 남습니다. 위성·Data 전용 env 는 같은 스크립트의 `--service` 허용목록이 정합니다. prod 의 Data 는 `.env.prod`(SM `gromo/prod/env` 전체)를 통째로 받습니다.
@@ -115,6 +121,7 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 | `REALTIME_AUTHORIZATION_DATA_URL` · `SVC_TOKEN_REALTIME_TO_DATA` | Realtime(dev.env → `realtime.yml`) · Data(`realtime-authorization` 프로파일, `data-api.env` 선택) | 응원 발신·구독 전량 거절(`UPSTREAM_UNAVAILABLE`, GROMO-1765) **그리고 `REALTIME_BLOCKS_FILTER_ENABLED=true` 면 섬 채팅·응원 수신 전량 차단** — 받는 사람 기준 차단 필터(GROMO-2182)가 `GET /internal/users/*/blocks` 를 부를 수 없으면 fail-closed 로 프레임을 버린다. 주민 관전(`/topic/islands/*/focus\|rest`)·Data 사건 전달은 영향 없다 |
 | `REALTIME_BLOCKS_FILTER_ENABLED` · `USER_BLOCKS_REALTIME_EVENTS_ENABLED` | Realtime(dev.env → `realtime.yml`) · Data(`data-api.env` 선택) | `false` — 받는 사람 기준 차단 필터(GROMO-2182)가 꺼져 있고 Data 는 `user.blocks.updated` 를 만들지 않는다. 켜는 순서는 `server/realtime/CLAUDE.md` Contracts 6번 |
 | `FOCUS_SEA_REALTIME_EVENTS_ENABLED` | Data(`data-api.env` 선택) | `false` — Data 는 바다 방 사건 `sea.member.updated`(GROMO-2299)를 만들지 않는다. **Realtime 이 이 type 을 받는 버전으로 먼저 배포된 것을 확인한 뒤 켠다** — 옛 Realtime 은 400 → relay 가 그 사용자의 USER 축을 영구 차단하고 USER 축은 `user.withdrawn` 과 같은 축이라 탈퇴 전파까지 멈춘다. 배포 순서는 `doc/sea-voyage-2026-10-17/contract.md` §8 |
+| `ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED` | Data(`data-api.env` 선택) | `false` — Data 는 주민 첫 도착 사건 `island.member.arrived`(GROMO-2302)를 만들지 않는다(도착 API 는 그대로 동작하고 `arrivedBefore` 도 계산된다). **Realtime 이 이 type 을 받는 버전으로 먼저 배포된 것을 확인한 뒤 켠다** — 옛 Realtime 은 400 → relay 가 그 섬의 `ISLAND_ARRIVAL` 축을 영구 차단한다(그 섬 도착 소식만 영향). 배포 순서는 `doc/sea-voyage-2026-10-18/contract.md` §1.6 |
 | `FOCUS_REWARD_ACCRUAL_ENABLED` | Data(같은 경로) | `false` — 분당 적립 크론이 돌지 않는다. 적립은 finish 가 한 번에 확정하므로 정상 종료는 제값을 받지만, **finish 를 안 거치는 강퇴·포기 세션은 그 시점까지의 몫을 못 받는다**. 켜는 것은 배포가 한 버전으로 수렴한 뒤 — 혼합 버전 창에서는 새 크론과 옛 `finish` 가 다른 멱등 키로 이중 지급한다 |
 | `ISLAND_BOARD_WRITES_ENABLED` | Data(dev.env → `dev.yml`, `data-api.env` 선택) | `false` — 섬 게시판 공지 작성·수정·삭제·댓글 작성·댓글 삭제 5종이 503 `NOTICE_WRITE_UNAVAILABLE`. BQ02·BQ03 는 2026-09-25 결정(GROMO-2136)으로 확정됐지만 prod 개방은 별도 릴리스 결정이라 기본값은 그대로 `false` |
 | `ISLAND_MANAGEMENT_COMMANDS_ENABLED` · `ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED` | Data(dev.env → `dev.yml`, `data-api.env` 선택) | `false` — 섬 정보 수정·가입 승인/거절·강퇴·나가기 4종이 503 `ISLAND_MANAGEMENT_NOT_READY`, 방장 위임이 503 `REALTIME_NOT_READY`. dev 는 2026-09-29 relay ON·강퇴 채팅 차단 검증(GROMO-2140) 뒤 켰다. prod 개방은 별도 결정 |

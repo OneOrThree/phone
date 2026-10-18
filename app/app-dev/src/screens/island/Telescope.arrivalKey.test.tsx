@@ -1,10 +1,10 @@
-// 망원경 → 도착 기록이 실제 HTTP 요청에서 `Idempotency-Key` 헤더를 싣는지(화면 → API 배선).
+// 망원경 도착 기록(arrive)·바다 항해 시작·한마디가 실제 HTTP 요청에서 어떤 본문·`Idempotency-Key` 를 싣는지(API 배선).
 // 다른 망원경 테스트와 달리 API 모듈을 목으로 바꾸지 않는다 — fetch 만 스텁해 나가는 요청을 그대로 본다.
-import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
-import { Telescope } from '@/screens/island/Telescope';
-import { clearSession, saveSession } from '@/services/api/session';
-import { initialState, reducer } from '@/services/model';
+import { arrive, arriveWithOutcome } from '@/screens/island/Telescope';
+import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
+import { startSeaFocusSession, updateSeaRemark } from '@/services/api/focusSessions';
+import { clearSession, saveSession, getSession } from '@/services/api/session';
+import { initialState, intentKeyPool, reducer } from '@/services/model';
 
 jest.mock('@/screens/world/WorldViews', () => ({
   Sailing: ({ destination }: any) => {
@@ -90,37 +90,12 @@ beforeEach(async () => {
 });
 
 test('도착 기록 요청은 Idempotency-Key 를 싣는다 — 같은 섬 재시도는 같은 키, 다른 섬은 다른 키', async () => {
-  const state = reducer(initialState(true), {
-    type: 'ISLAND_SYNC',
-    memberships: {
-      items: [{ id: 'a', name: '섬 a', intro: '', memberCount: 1, maxMembers: 15 }],
-      currentIslandId: 'a',
-      nextCursor: null,
-      lossReason: null,
-    },
-  } as any);
-  const e = {
-    state,
-    dispatch: jest.fn(),
-    reset: jest.fn(),
-    replace: jest.fn(),
-    go: jest.fn(),
-    back: jest.fn(),
-    home: jest.fn(),
-    notify: jest.fn(),
-    backOverride: { current: null },
-    islands: { visit: jest.fn().mockResolvedValue(undefined), sync: jest.fn() },
-  };
-  const screen = await render(<Telescope e={e} />);
-  const sail = async (id: string) => {
-    await fireEvent.press(await screen.findByTestId(`telescope-island-${id}`));
-    await fireEvent.press(screen.getByLabelText('항해하기'));
-    await act(async () => {});
-  };
-  await sail('r1'); // 404
-  await sail('r1'); // 404 — 같은 키로 다시
-  await sail('r2'); // 200 — 다른 섬
-  await screen.findByTestId('sailing');
+  // GROMO-2310 이후 망원경 [항해하기]는 바다 항해라 화면이 도착을 기록하지 않는다 — 결과창(GROMO-2311)이 다시 쓸 arrive 를 직접 본다
+  const e = { islands: { visit: jest.fn(), sync: jest.fn() } };
+  const keys = intentKeyPool(uuid);
+  await expect(arrive(e, keys, 'r1')).rejects.toThrow(); // 404
+  await expect(arrive(e, keys, 'r1')).rejects.toThrow(); // 404 — 같은 키로 다시
+  await expect(arrive(e, keys, 'r2')).resolves.toBe(false); // 200 — 다른 섬(비주민)
 
   const sent = arrivals();
   expect(sent).toHaveLength(3);
@@ -130,9 +105,132 @@ test('도착 기록 요청은 Idempotency-Key 를 싣는다 — 같은 섬 재�
     '/islands/r2/arrivals',
   ]);
   expect(sent.every((c) => c.init.method === 'POST' && c.init.body === undefined)).toBe(true);
-  const keys = sent.map((c) => header(c, 'Idempotency-Key'));
-  expect(keys[0]).toMatch(UUID_V4);
-  expect(keys[1]).toBe(keys[0]);
-  expect(keys[2]).toMatch(UUID_V4);
-  expect(keys[2]).not.toBe(keys[0]);
+  const keyList = sent.map((c) => header(c, 'Idempotency-Key'));
+  expect(keyList[0]).toMatch(UUID_V4);
+  expect(keyList[1]).toBe(keyList[0]);
+  expect(keyList[2]).toMatch(UUID_V4);
+  expect(keyList[2]).not.toBe(keyList[0]);
+});
+
+test('바다 항해 시작은 본문 한 필드(destinationIslandId)와 Idempotency-Key, 한마디는 PUT 단발이다', async () => {
+  await startSeaFocusSession('r1', '11111111-1111-4111-8111-111111111111').catch(() => {});
+  await updateSeaRemark('안녕').catch(() => {});
+  const start = calls.find((c) => new URL(c.url).pathname === '/focus-sessions/sea')!;
+  expect(start.init.method).toBe('POST');
+  expect(JSON.parse(String(start.init.body))).toEqual({ destinationIslandId: 'r1' });
+  expect(header(start, 'Idempotency-Key')).toBe('11111111-1111-4111-8111-111111111111');
+  const remark = calls.find((c) => new URL(c.url).pathname === '/me/sea-remark')!;
+  expect(remark.init.method).toBe('PUT');
+  expect(JSON.parse(String(remark.init.body))).toEqual({ remark: '안녕' });
+  expect(header(remark, 'Idempotency-Key')).toBeUndefined();
+});
+
+const okArrival = (arrivedBefore: boolean) =>
+  (global as any).fetch.mockImplementation(
+    async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () =>
+          JSON.stringify({
+            data: {
+              islandId: 'a',
+              arrivedBefore,
+              membershipStatus: 'active',
+              currentIslandId: 'a',
+            },
+          }),
+      }) as unknown as Response,
+  );
+
+test('도착 POST 가 성공(arrivedBefore=false)하면 소속 재조회가 실패해도 그 결과를 돌려준다(환영 판정 보존)', async () => {
+  okArrival(false);
+  const e = { islands: { sync: jest.fn().mockRejectedValue(new Error('down')) } };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).resolves.toEqual({
+    member: true,
+    arrivedBefore: false,
+  });
+  expect(e.islands.sync).toHaveBeenCalledTimes(2); // 실패 뒤 한 번 더
+});
+
+test('도착 POST 자체가 결과 불명이면 소속 재조회로 가리고 arrivedBefore=true 폴백을 유지한다', async () => {
+  (global as any).fetch.mockImplementation(async () => {
+    throw new TypeError('Network request failed');
+  });
+  const e = { islands: { sync: jest.fn().mockResolvedValue({ currentIslandId: 'a' }) } };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).resolves.toEqual({
+    member: true,
+    arrivedBefore: true,
+  });
+});
+
+test('첫 소속 도착: POST 성공 + 소속 재조회 실패여도 응답의 현재 섬을 로컬에 반영하고 arrivedBefore 를 보존한다', async () => {
+  okArrival(false);
+  let state = initialState(false);
+  state.onboarded = false;
+  const e = {
+    get state() {
+      return state;
+    },
+    dispatch: (a: any) => {
+      state = reducer(state, a);
+    },
+    islands: { sync: jest.fn().mockRejectedValue(new Error('down')) },
+  };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).resolves.toEqual({
+    member: true,
+    arrivedBefore: false,
+  });
+  expect(state.serverIslands?.currentIslandId).toBe('a');
+  expect(state.onboarded).toBe(true); // 소속 검사가 chooseIsland 로 되돌리지 않는다
+  expect(e.islands.sync).toHaveBeenCalledTimes(2); // 반영 뒤 한 번 더 시도
+});
+
+test('소속 재조회가 CLIENT_STALE_SESSION 이면 이전 계정 상태를 반영하지 않고 재시도 없이 다시 던진다', async () => {
+  okArrival(false);
+  const e = {
+    state: { serverIslands: { memberships: [] } },
+    dispatch: jest.fn(),
+    islands: { sync: jest.fn().mockRejectedValue(new ApiError(CLIENT_STALE_SESSION, '세션', 0)) },
+  };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).rejects.toMatchObject({
+    code: CLIENT_STALE_SESSION,
+  });
+  expect(e.dispatch).not.toHaveBeenCalled();
+  expect(e.islands.sync).toHaveBeenCalledTimes(1);
+});
+
+test('재조회 실패 뒤 로그인 세대가 바뀌었으면 dispatch·재시도 없이 도착 결과만 돌려준다', async () => {
+  okArrival(false);
+  const e = {
+    state: { serverIslands: { memberships: [] } },
+    dispatch: jest.fn(),
+    islands: {
+      sync: jest.fn(async () => {
+        await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'other' }); // 계정 전환
+        throw new Error('down');
+      }),
+    },
+  };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).resolves.toEqual({
+    member: true,
+    arrivedBefore: false,
+  });
+  expect(e.dispatch).not.toHaveBeenCalled();
+  expect(e.islands.sync).toHaveBeenCalledTimes(1);
+});
+
+test('소속 재조회가 401 이면 복구하지 않고 다시 던진다(dispatch·재시도 없음)', async () => {
+  okArrival(false);
+  const e = {
+    state: { serverIslands: { memberships: [] } },
+    dispatch: jest.fn(),
+    islands: { sync: jest.fn().mockRejectedValue(new ApiError('UNAUTHORIZED', '만료', 401)) },
+  };
+  await expect(arriveWithOutcome(e, intentKeyPool(uuid), 'a')).rejects.toMatchObject({
+    status: 401,
+  });
+  expect(e.dispatch).not.toHaveBeenCalled();
+  expect(e.islands.sync).toHaveBeenCalledTimes(1);
 });

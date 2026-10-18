@@ -103,6 +103,9 @@ import {
   Quest,
   Member,
   dayKey,
+  seaRouteHeld,
+  visitRouteHeld,
+  sessionRoute,
 } from '@/services/model';
 import {
   checkSession,
@@ -227,6 +230,8 @@ const titles: Record<Route, string> = {
   boat: '내 배',
   raft: '뗏목',
   telescope: '망원경',
+  sea: '먼바다',
+  seaArrival: '먼바다',
   promotionEditor: '우리 섬 홍보 쓰기',
   magazine: '고양이 잡지',
   mainIsland: '내 메인 섬 변경하기',
@@ -1039,7 +1044,9 @@ function Gromo() {
             onBootError: setIslandBootError,
           });
           ensureCurrent();
-          if (next) reset(next);
+          // 같은 계정의 회원 전환(게스트 → 소셜)은 진행 중 바다 항해를 그대로 지닌다 — 홈이 아니라 항해 화면으로(GROMO-2310)
+          const live = stateRef.current.session;
+          if (next) reset(live?.kind === 'sea' ? sessionRoute(live) : next);
         },
       });
     } catch (thrown) {
@@ -1492,6 +1499,11 @@ function Gromo() {
     state.islands.some((candidate) => candidate.id === (detail || visited) && candidate.kicked);
   useEffect(() => {
     if (!loaded || !state.loggedIn) return;
+    // 바다 항해(결과창 포함)는 소속과 무관하다 — 강퇴·소속 0 이어도 화면을 지킨다(GROMO-2310)
+    if (seaRouteHeld(route)) {
+      if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
+      return;
+    }
     if (state.membershipRecovery || kickedDestination) {
       setModal(null);
       setWalkRequest(null);
@@ -1500,7 +1512,9 @@ function Gromo() {
       if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
     }
-    if (state.onboarded || (state.visitingIslandId && ['board', 'notice'].includes(route))) return;
+    if (state.onboarded) return;
+    // 소속 없이 구경 중(바다 도착 뒤 등) — 방문이 끝나면(visitingIslandId 해제) 평소 검사가 다시 돈다
+    if (visitRouteHeld(route, state.visitingIslandId)) return;
     if (
       [
         'login',
@@ -1521,6 +1535,7 @@ function Gromo() {
     state.loggedIn,
     state.onboarded,
     state.islandId,
+    state.visitingIslandId,
     state.membershipRecovery,
     kickedDestination,
     route,
@@ -1751,10 +1766,10 @@ function Gromo() {
     const openActivity = (url: string | null) => {
       const session = stateRef.current.session;
       if (active && url?.startsWith('com.oneorthree.focuscat://widget')) {
-        replace(session ? (session.status === 'paused' ? 'rest' : 'focus') : 'home');
+        replace(session ? sessionRoute(session) : 'home');
       }
       if (active && url?.startsWith('com.oneorthree.focuscat://activity') && session) {
-        replace(session.status === 'paused' ? 'rest' : 'focus');
+        replace(sessionRoute(session));
       }
     };
     const subscription = Linking.addEventListener('url', ({ url }) => openActivity(url));

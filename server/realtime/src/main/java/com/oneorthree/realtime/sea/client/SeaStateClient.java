@@ -72,7 +72,12 @@ public class SeaStateClient {
     }
 
     /** 응답 — 판정·표시에 쓰는 필드만. {@code session} 이 {@code null} 이면 항해 중이 아니다. */
-    public record SeaState(String remark, Instant remarkChangedAt, Session session) {
+    public record SeaState(String remark, Instant remarkChangedAt, Session session, String name, String catColor) {
+        /** 이름·털색을 모르는 호출(테스트·옛 Data 응답 모양). */
+        public SeaState(String remark, Instant remarkChangedAt, Session session) {
+            this(remark, remarkChangedAt, session, null, null);
+        }
+
     }
 
     public record Session(UUID sessionId, UUID destinationIslandId, Integer sailingMinutes, Long activeSeconds,

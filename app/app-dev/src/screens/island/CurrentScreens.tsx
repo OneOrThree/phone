@@ -58,13 +58,18 @@ import {
   hoursMinutes,
   questMemberRate,
   trackNames,
+  SERVER_VISIT_ROUTES,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { getSession } from '@/services/api/session';
 import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
-import { isGoldenFishParticipant, type GoldenFishEvent } from '@/services/islandRealtime';
+import {
+  isGoldenFishParticipant,
+  memberArrivedText,
+  type GoldenFishEvent,
+} from '@/services/islandRealtime';
 import {
   fishingSpotsForActors,
   useFishingPeerActors,
@@ -132,6 +137,7 @@ import {
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
+import { SeaVoyageHost } from '@/screens/sea/SeaVoyageHost';
 import { Telescope } from '@/screens/island/Telescope';
 import { MagazineReader } from '@/screens/magazine/MagazineReader';
 import { PromotionEditor } from '@/screens/magazine/PromotionEditor';
@@ -407,6 +413,10 @@ function CurrentScreensContent({ e }: any) {
   };
   const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
   const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
+  // 바다 항해 집중(GROMO-2310) — 섬 소속·구경 여부와 무관한 바다 화면이라 아래 섬 관문보다 먼저 연다.
+  // 계정이 바뀌면 사용자 ID 를 key 로 화면(바다 방 연결 포함)을 새로 만든다.
+  if (r === 'sea' || r === 'seaArrival')
+    return <SeaVoyageHost key={getSession()?.userId ?? ''} e={e} />;
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
@@ -421,7 +431,7 @@ function CurrentScreensContent({ e }: any) {
     state.visitingIslandId &&
     !(
       e.islands
-        ? ['visitIsland', 'manage', 'members', 'board', 'notice', 'visitIslandFocus', 'raft']
+        ? SERVER_VISIT_ROUTES
         : [
             'home',
             'manage',
@@ -1506,6 +1516,9 @@ function FocusVisit({ e, islandId, onBack }: any) {
   const live = useIslandPresence({
     active: liveIslandId !== null,
     islandId: liveIslandId,
+    // 방문(islandId 있음)은 주민이 아니라 구독하면 ERROR 로 소켓이 닫힌다 — 내 소속 섬 보기에서만 켠다
+    events: !islandId,
+    onMemberArrived: (event) => e.notify(memberArrivedText(event)),
     onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
@@ -1808,6 +1821,8 @@ function FocusFlow({ e: environment }: any) {
     active: liveIslandId !== null,
     islandId: liveIslandId,
     emoteSessionId,
+    events: true, // 내 소속 섬 화면 — 주민만 구독할 수 있다(GROMO-2311)
+    onMemberArrived: (event) => e.notify(memberArrivedText(event)),
     onSendError: e.notify,
     // 방문자가 보낸 응원은 말풍선 대신 알림으로 — 이름은 서버가 주지 않는다
     onVisitorEmote: () => e.notify(t('focusFlow.visitorCheered')),

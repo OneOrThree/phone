@@ -7,6 +7,7 @@ import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.internal.dto.FriendIdsView;
 import com.oneorthree.phone.internal.dto.SeaStateView;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,7 +37,9 @@ public class SeaStateService {
                         view.serverNow(), view.startedAt());
         SeaRemark remark = remarks.findById(userId).orElse(null);
         String shown = remark == null || remark.getRemark().isEmpty() ? null : remark.getRemark();
-        return new SeaStateView(shown, remark == null ? null : remark.getChangedAt(), session);
+        User user = userQueryService.findActive(userId).orElse(null);
+        return new SeaStateView(shown, remark == null ? null : remark.getChangedAt(), session,
+                user == null ? null : user.getNickname(), user == null ? null : user.getCatColor());
     }
 
     @Transactional(readOnly = true)

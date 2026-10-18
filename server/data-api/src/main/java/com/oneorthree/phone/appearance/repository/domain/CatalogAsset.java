@@ -25,6 +25,10 @@ public class CatalogAsset {
     /** 개인 착용 슬롯 — {@code clothes}/{@code decor}. */
     public static final String KIND_CLOTHES = "clothes";
     public static final String KIND_DECOR = "decor";
+    /** 개인 꾸미기 슬롯 3종(GROMO-2331, V128) — 머리·목·신발. */
+    public static final String KIND_HEAD = "head";
+    public static final String KIND_NECK = "neck";
+    public static final String KIND_SHOES = "shoes";
     /** 섬 공동 상품 — 테마와 음원. */
     public static final String KIND_ISLAND_THEME = "island_theme";
     public static final String KIND_BUILDING_THEME = "building_theme";
