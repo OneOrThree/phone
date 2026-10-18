@@ -273,10 +273,22 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       );
     }
     if (tab === '폰 사용') {
+      // 서버에 남은 과거 허용 상태보다 현재 기기의 권한을 먼저 확인한다.
+      if (!state.settings.permission || measurementStatus === 'denied')
+        return (
+          <Empty
+            title="스크린타임 권한을 허용해 주세요"
+            action="권한 설정하기"
+            onPress={settings}
+          />
+        );
+      if (!state.settings.screenTimeMeasurementReady)
+        return (
+          <Empty title="측정할 앱을 선택해 주세요" action="측정 설정 열기" onPress={settings} />
+        );
       if (
         server &&
         (!screenStats ||
-          measurementStatus === 'denied' ||
           (period === '일' &&
             measurementStatus !== 'authorized' &&
             !(
@@ -288,14 +300,10 @@ export function Diary({ e, font }: { e: any; font?: string }) {
         return (
           <Empty
             title={
-              measurementStatus === 'denied'
-                ? '측정 권한이 꺼져 있어요'
-                : measurementStatus === 'unavailable'
-                  ? '폰 사용 기록을 이용할 수 없어요'
-                  : '기록을 준비하고 있어요'
+              measurementStatus === 'unavailable'
+                ? '폰 사용 기록을 이용할 수 없어요'
+                : '기록을 준비하고 있어요'
             }
-            action={measurementStatus === 'denied' ? '측정 설정 열기' : undefined}
-            onPress={settings}
           />
         );
       }
@@ -346,8 +354,8 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       return (
         <Empty
           title={period === '일' ? '이날은 기록이 없어요' : '이 주에는 기록이 없어요'}
-          action={offset < 0 ? '오늘 기록으로' : '집중하러 가기'}
-          onPress={() => (offset < 0 ? changePeriod('일') : e.go('focusSetup'))}
+          action={offset < 0 ? '오늘 기록으로' : undefined}
+          onPress={() => changePeriod('일')}
         />
       );
     if (period === '주') {
@@ -523,7 +531,9 @@ export function Diary({ e, font }: { e: any; font?: string }) {
         contentContainerStyle={[styles.content, neighbors && styles.neighborContent]}
         key={`${neighbors ? 'neighbors' : period}-${state.islandId}`}
       >
-        {showState() ?? (neighbors ? residentContent() : personal())}
+        {!neighbors && period !== '월' && tab === '폰 사용' && !state.settings.permission
+          ? personal()
+          : (showState() ?? (neighbors ? residentContent() : personal()))}
       </ScrollView>
     </Book>
   );

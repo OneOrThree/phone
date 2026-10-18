@@ -158,9 +158,15 @@ test.each(
       await waitFor(() => expect(screen.getByTestId('today-screen-time-report')).toBeTruthy());
       return;
     }
-    await waitFor(() => expect(screen.getByText(title)).toBeTruthy());
-    if (status === 'denied') {
-      await fireEvent.press(screen.getByText('측정 설정 열기'));
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          !permission || status === 'denied' ? '스크린타임 권한을 허용해 주세요' : title,
+        ),
+      ).toBeTruthy(),
+    );
+    if (!permission || status === 'denied') {
+      await fireEvent.press(screen.getByText('권한 설정하기'));
       expect(e.go).toHaveBeenCalledWith('permission');
     } else {
       expect(screen.queryByText('측정 설정 열기')).toBeNull();
@@ -381,3 +387,52 @@ test.each(['diary', 'stats'])(
     expect(screen.getByText('0분')).toBeTruthy();
   },
 );
+
+test.each([false, true])(
+  '주간 폰 사용은 현재 기기 권한이 없으면 합산 보류 대신 설정을 안내한다: 서버=%s',
+  async (server) => {
+    const e = {
+      ...environment({ permission: false, ready: false }),
+      tab: '',
+      ...(server ? { islands: [] } : {}),
+    };
+    jest.mocked(getLibraryScreen).mockResolvedValue({
+      island: { id: e.state.islandId, name: '섬', role: 'owner' },
+      statisticsAvailability: 'available',
+      focusStatistics: null,
+      screenTimeStatistics: {
+        scope: 'me',
+        measurementStatus: 'authorized',
+        totalMinutes: null,
+        series: [],
+        updatedAt: null,
+      },
+      fishEarnings: { members: [] },
+      missingFragments: ['focusStatistics'],
+    });
+    const screen = await render(<Library e={e} />);
+    await fireEvent.press(screen.getByLabelText('폰 사용'));
+    expect(screen.getByText('스크린타임 권한을 허용해 주세요')).toBeTruthy();
+    expect(screen.queryByText('합산 보류')).toBeNull();
+    await fireEvent.press(screen.getByText('권한 설정하기'));
+    expect(e.go).toHaveBeenCalledWith('permission');
+  },
+);
+
+test('권한 허용 후 측정 앱 선택이 없으면 선택 안내로 구분한다', async () => {
+  const screen = await render(<Library e={environment({ ready: false })} />);
+  expect(screen.getByText('측정할 앱을 선택해 주세요')).toBeTruthy();
+  expect(screen.queryByText('합산 보류')).toBeNull();
+});
+
+test('빈 집중 기록에서 집중 시작 버튼을 빼고 과거 날짜의 오늘 기록 이동은 유지한다', async () => {
+  const e = { ...environment(), tab: '' };
+  e.state.records = [];
+  const screen = await render(<Library e={e} />);
+  expect(screen.getByText('이 주에는 기록이 없어요')).toBeTruthy();
+  expect(screen.queryByText('집중하러 가기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('이전 기간'));
+  await fireEvent.press(screen.getByText('오늘 기록으로'));
+  expect(screen.getByText('이날은 기록이 없어요')).toBeTruthy();
+  expect(e.go).not.toHaveBeenCalled();
+});
