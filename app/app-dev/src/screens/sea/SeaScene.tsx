@@ -167,9 +167,11 @@ export function SeaScene({
                   >
                     <View style={styles.bubble}>
                       <Text numberOfLines={1} style={styles.caption}>
-                        {person.focusing
-                          ? person.subject || t('openSea.focusing')
-                          : person.message || t('openSea.floating')}
+                        {/* 한마디는 집중 중에도 머리 위에 늘 뜬다(GROMO-2310) — 바다 세션은 과목이 비어 있다 */}
+                        {person.message ||
+                          (person.focusing
+                            ? person.subject || t('openSea.focusing')
+                            : t('openSea.floating'))}
                       </Text>
                       <View style={styles.bubbleTail} accessible={false} />
                     </View>
@@ -204,7 +206,7 @@ export function SeaScene({
         {focusing ? (
           <View style={[styles.bubble, styles.selfSubject]}>
             <Text numberOfLines={1} style={styles.caption}>
-              {self.subject || t('openSea.focusing')}
+              {self.message || self.subject || t('openSea.focusing')}
             </Text>
             <View style={styles.bubbleTail} accessible={false} />
           </View>

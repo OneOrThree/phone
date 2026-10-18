@@ -24,6 +24,7 @@ import {
   todayFocusSeconds,
   buildingNames,
   costs,
+  sessionRoute,
 } from '@/services/model';
 import { assets } from '@/constants/assets';
 import { t } from '@/i18n';
@@ -294,6 +295,7 @@ export function IslandHome({
         {
           focusSetup: 'dock',
           focus: 'dock',
+          sea: 'dock',
           boat: 'dock',
           wardrobe: 'dock',
           rest: 'fire',
@@ -307,6 +309,7 @@ export function IslandHome({
           boat: t('home.a11y.boat'),
           focusSetup: t('home.a11y.dock'),
           focus: t('home.a11y.dock'),
+          sea: t('home.a11y.dock'),
           rest: t('home.a11y.campfire'),
           sound: t('home.a11y.gram'),
         } as Record<string, string>
@@ -726,15 +729,7 @@ export function IslandHome({
             <Button
               round
               title={state.session ? t('focus.resume') : t('focus.start')}
-              onPress={() =>
-                enter(
-                  state.session
-                    ? state.session.status === 'paused'
-                      ? 'rest'
-                      : 'focus'
-                    : 'focusSetup',
-                )
-              }
+              onPress={() => enter(state.session ? sessionRoute(state.session) : 'focusSetup')}
             />
           </View>
         </View>

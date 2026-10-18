@@ -1176,6 +1176,8 @@ test('섬 평균 집중: 이번 주(일요일 시작) 그 섬 집중 합계 ÷ �
     record('mon', 'soda', 1800, new Date(2026, 8, 14, 9).getTime()),
     record('last-sat', 'soda', 3600, new Date(2026, 8, 12, 23).getTime()),
     record('other', 'strawberry', 900, now - 1000),
+    // 소다 섬을 목적지로 한 바다 항해 — 섬 집중이 아니라 평균에서 빠진다
+    { ...record('sea', 'soda', 7200, new Date(2026, 8, 14, 10).getTime()), kind: 'sea' as const },
   ];
   // 소다 섬: 나 1800 + 민지 1320 + 두부 960 + 수아 600 = 4680 ÷ 4명
   assert.equal(islandWeeklyAverage(s, currentIsland(s), now), 1170);
@@ -1826,6 +1828,26 @@ test('현재 섬에서 강퇴돼도 다른 소속이 있으면 그 섬을 현재
   assert.equal(s.visitingIslandId, null);
   assert.equal(s.session, null);
   assert.deepEqual(s.membershipRecovery, { reason: 'kicked', islandId: kicked.id });
+});
+
+test('목적지 섬에서 강퇴돼도 바다 항해 세션은 남기고 화면 복구 신호도 남기지 않는다', () => {
+  let s = initialState(true);
+  const home = currentIsland(s);
+  const destination = s.islands.find((island) => island.id !== home.id)!;
+  destination.joined = true;
+  s.session = {
+    id: 'sea-1',
+    islandId: destination.id,
+    subject: '',
+    startedAt: 1000,
+    seconds: 0,
+    status: 'active',
+    kind: 'sea',
+    targetMinutes: 30,
+  } as never;
+  s = act(s, 'KICKED_FROM_ISLAND', { id: destination.id });
+  assert.equal(s.session?.id, 'sea-1');
+  assert.equal(s.membershipRecovery, undefined);
 });
 
 test('가입한 보조 섬을 방문 중 강퇴되면 현재 섬으로 화면 복구 신호를 남긴다', () => {

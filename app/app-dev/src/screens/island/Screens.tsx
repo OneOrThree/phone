@@ -34,6 +34,7 @@ import {
 import Svg, { Path, Line } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  islandFocusRecord,
   State,
   Friend,
   shouldShowMailboxGuide,
@@ -3477,7 +3478,8 @@ export function RedesignScreens({ e }: any) {
   if (['hall', 'stats', 'ledger'].includes(route)) {
     const records = state.records.filter(
         (r) =>
-          r.islandId === island.id && r.at > Date.now() - (period === '주' ? 7 : 30) * 86400000,
+          islandFocusRecord(r, island.id) &&
+          r.at > Date.now() - (period === '주' ? 7 : 30) * 86400000,
       ),
       total = records.reduce((s, r) => s + r.seconds, 0),
       days = Array.from({ length: 7 }, (_, i) =>

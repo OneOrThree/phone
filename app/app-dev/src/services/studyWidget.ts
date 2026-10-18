@@ -7,7 +7,13 @@ import { Platform } from 'react-native';
 import { updateIOSHomeWidget } from './iosHomeWidget';
 import { requireOptionalNativeModule } from 'expo';
 import { primitiveTokens } from '@/design-system/tokens';
-import { dayKey, kstDayStart, recordSecondsBetween, type RecordItem } from '@/services/model';
+import {
+  dayKey,
+  islandFocusRecord,
+  kstDayStart,
+  recordSecondsBetween,
+  type RecordItem,
+} from '@/services/model';
 
 // 위젯 과목 칩 한 줄 — 1.x 스냅샷({name, seconds, color})과 같은 형태(네이티브 호환)
 export type WidgetSubject = { name: string; seconds: number; color: string };
@@ -47,7 +53,7 @@ export function buildStudyWidgetSnapshot(
     until = from + 86400000;
   const bySubject = new Map<string, number>();
   for (const r of records) {
-    if (r.islandId !== islandId) continue;
+    if (!islandFocusRecord(r, islandId)) continue; // 바다 항해는 섬 집중이 아니다(과목 없음)
     const seconds = recordSecondsBetween(r, from, until);
     if (seconds > 0) bySubject.set(r.subject, (bySubject.get(r.subject) ?? 0) + seconds);
   }
