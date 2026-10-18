@@ -1,3 +1,6 @@
+import * as Application from 'expo-application';
+import appManifest from '../../../package.json';
+import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
 import { GuideBox } from '@/screens/island/NpcGuide';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
@@ -6173,7 +6176,16 @@ export function RedesignScreens({ e }: any) {
     );
     return (
       <>
-        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+        <IslandSheet
+          bg="dock"
+          sign="boat/raft"
+          title="친구 관리"
+          tall
+          onBack={back}
+          onClose={home}
+          action={serverMode ? t('account.blocked.title') : undefined}
+          actionPress={serverMode ? () => go('blockedUsers') : undefined}
+        >
           <SearchField
             value={queryValue}
             onChange={serverMode ? friendsScreen.setQuery : setSearch}
@@ -6428,58 +6440,27 @@ export function RedesignScreens({ e }: any) {
         onBack={back}
         onClose={home}
       >
-        {sec(t('settings.notificationsSoundSection'))}
+        {sec(t('settings.generalSection'))}
         <SheetGroup flat>
           {toggle(t('settings.notifications'), 'notifications')}
           {toggle(t('settings.sound'), 'sound')}
           {toggle(t('settings.haptics'), 'haptics')}
-        </SheetGroup>
-        {sec(t('settings.screenSection'))}
-        <SheetGroup flat>
-          {toggle(t('settings.reduceMotion'), 'reduceMotion', t('settings.reduceMotionSub'))}
-        </SheetGroup>
-        {sec(t('settings.language.title'))}
-        <SheetGroup flat>
+          {toggle(t('settings.reduceMotion'), 'reduceMotion')}
           <SheetRow
             title={t('settings.language.title')}
             sub={pref === 'system' ? t('settings.language.system') : LOCALE_NAMES[pref]}
             chevron
             onPress={() => go('language', 'settings')}
           />
-        </SheetGroup>
-        {sec(t('settings.permissionSection'))}
-        <SheetGroup flat>
           <SheetRow
             title={t('settings.permissionManage')}
-            sub={t('settings.permissionManageSub')}
             chevron
             onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
-        {server ? (
-          <>
-            {sec(t('settings.safetySection'))}
-            <SheetGroup flat>
-              <SheetRow
-                title={t('account.blocked.title')}
-                sub={t('settings.blockedUsersSub')}
-                chevron
-                onPress={() => go('blockedUsers')}
-              />
-            </SheetGroup>
-          </>
-        ) : null}
-        {sec(t('settings.appInfoSection'))}
+        {sec(t('settings.privacySection'))}
         <SheetGroup flat>
-          <SheetRow title={t('settings.version')} sub="R61 · v2" />
-          <SheetRow
-            title={t('settings.privacyNotice')}
-            sub={t('settings.privacyNoticeSub')}
-            chevron
-            onPress={() =>
-              confirm(t('settings.privacyNotice'), t('settings.privacyNoticeBody'), () => {})
-            }
-          />
+          <ScreenTimeSharingSettings e={e} />
           <SheetRow
             title={t('login.policy.terms')}
             chevron
@@ -6493,6 +6474,9 @@ export function RedesignScreens({ e }: any) {
             onPress={() => openPolicy(PRIVACY_URL)}
           />
         </SheetGroup>
+        <Txt kind="meta" testID="settings-app-version" style={[st.meta, { textAlign: 'center' }]}>
+          catus {Application.nativeApplicationVersion ?? appManifest.version}
+        </Txt>
       </IslandSheet>
     );
   }

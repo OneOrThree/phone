@@ -91,9 +91,11 @@
     "replayTutorialSub": "Watch the Mongdol guide again from the start",
     "appInfoSection": "App Info",
     "version": "Version",
-    "privacyNotice": "Privacy Practices",
-    "privacyNoticeSub": "Information this app handles and sends externally",
-    "privacyNoticeBody": "Signing in shares your social provider's authentication info and account identifiers with our server. Service data such as your nickname, island and resident activity, friends and letters, and focus records is also stored on the server to provide features and keep them in sync.\n\nScreen usage and key feature events are sent to PostHog, and screen and request diagnostics may be sent to Datadog when configured. If you allow Screen Time permission, the app reads your selected app usage time on-device for goals and stats. You can find the full details and retention periods in the Privacy Policy. Requesting account deletion asks the server to delete your account."
+    "generalSection": "General",
+    "privacySection": "Privacy",
+    "usageSharing": "Share usage time",
+    "usageSharingSub": "Share usage time for statistics and quests",
+    "usageSharingError": "Could not share usage time. We’ll try again."
   },
   "login": {
     "continue": {
@@ -145,7 +147,10 @@
       "wardrobeSub": "Clothes · Accessories",
       "friendsTitle": "Manage Friends",
       "friendsSub": "Find friends · Requests · Friend list",
-      "friendRequestCount": { "one": "{{count}} request", "other": "{{count}} requests" },
+      "friendRequestCount": {
+        "one": "{{count}} request",
+        "other": "{{count}} requests"
+      },
       "settingsTitle": "App Settings",
       "settingsSub": "Notifications · Sound · App permissions · Replay tutorial"
     },
@@ -252,7 +257,10 @@
     "createIsland": {
       "capacityLabel": "Capacity · up to {{max}}",
       "capacityA11y": "Capacity",
-      "capacityUnit": { "one": "{{count}} resident", "other": "{{count}} residents" },
+      "capacityUnit": {
+        "one": "{{count}} resident",
+        "other": "{{count}} residents"
+      },
       "approvalAfterJoin": "Approval to Join",
       "approvalAfterJoinSub": "Residents join only after the host approves",
       "title": "Create a New Island",
@@ -361,7 +369,10 @@
     "build": "Build {{building}}",
     "buildProgress": "{{current}}/{{total}} fish",
     "buildInProgress": "{{building}} under construction",
-    "buildMinutesLeft": { "one": "{{count}} minute left", "other": "{{count}} minutes left" },
+    "buildMinutesLeft": {
+      "one": "{{count}} minute left",
+      "other": "{{count}} minutes left"
+    },
     "buildAction": "Build",
     "returnToMyIsland": "Back to My Island",
     "quest": {
@@ -370,8 +381,14 @@
       "today": "Today's Quest",
       "claim": "Claim Reward",
       "tapToClaim": "Tap to view your reward",
-      "more": { "one": "+{{count}} more", "other": "+{{count}} more" },
-      "done": { "one": "{{count}} quest completed", "other": "{{count}} quests completed" },
+      "more": {
+        "one": "+{{count}} more",
+        "other": "+{{count}} more"
+      },
+      "done": {
+        "one": "{{count}} quest completed",
+        "other": "{{count}} quests completed"
+      },
       "a11yReward": {
         "one": "{{count}} quest reward to claim. Claim reward",
         "other": "{{count}} quest rewards to claim. Claim reward"

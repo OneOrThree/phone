@@ -4,10 +4,6 @@ import { BuildingGuide, BuildingCompletionGuide } from '@/screens/island/NpcGuid
 import { AndroidAppPicker } from '@/components/AndroidAppPicker';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { PermissionsAndroid } from 'react-native';
-import {
-  getScreenTimeReportingConsent,
-  setScreenTimeReportingConsent,
-} from '@/services/screenTimeReporting';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
@@ -697,75 +693,6 @@ function CurrentScreensContent({ e }: any) {
   return <RedesignScreens e={screenE} />;
 }
 
-function ScreenTimeReportingSettings({ e }: any) {
-  const [enabled, setEnabled] = useState(false);
-  const [busy, setBusy] = useState(true);
-  const owner = getSession()?.userId;
-  useEffect(() => {
-    let active = true;
-    setBusy(true);
-    setEnabled(false);
-    if (!owner) {
-      setBusy(false);
-      return;
-    }
-    getScreenTimeReportingConsent(owner)
-      .then((value) => {
-        if (active) setEnabled(value);
-      })
-      .catch(() => {
-        if (active) e.notify('전송 동의를 확인하지 못했어요.');
-      })
-      .finally(() => {
-        if (active) setBusy(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [owner]);
-  const change = async (value: boolean) => {
-    if (!owner || busy) return;
-    setBusy(true);
-    try {
-      await setScreenTimeReportingConsent(owner, value);
-      if (getSession()?.userId === owner) setEnabled(value);
-    } catch {
-      e.notify('전송 설정을 저장하지 못했어요. 다시 시도해 주세요.');
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (Platform.OS !== 'ios' && Platform.OS !== 'android') return null;
-  return (
-    <>
-      <Group>
-        <Row
-          title="통계·퀘스트에 사용"
-          sub="사용 시간과 측정 상태를 서버에 전송해요"
-          tail={
-            <Toggle
-              label="스크린타임 서버 전송 동의"
-              value={enabled}
-              disabled={busy || !owner}
-              onChange={change}
-            />
-          }
-        />
-      </Group>
-      <Txt kind="meta">
-        선택한 앱의 사용 시간을 통계와 폰 사용 퀘스트 보상 판정에 사용해요. 앱 이름은 보내지 않아요.
-        하루 기록은 한국 시각 오전 9시에 마감되고, 다음 앱 실행 시 전송해요. 언제든 여기서 전송을 끌
-        수 있어요.
-      </Txt>
-      {e.state.settings.screenTimeSyncError && (
-        <Txt kind="meta">
-          스크린타임을 확인하거나 전송하지 못했어요. 앱이 열려 있으면 다시 시도해요.
-        </Txt>
-      )}
-    </>
-  );
-}
-
 async function openScreenTimeSettings(notify: (message: string) => void) {
   try {
     if (Platform.OS === 'android') {
@@ -797,7 +724,6 @@ function AppPermissionManager({ e }: any) {
   const [allowedCount, setAllowedCount] = useState(0);
   const [allowedPicker, setAllowedPicker] = useState(false);
   const [overlayGranted, setOverlayGranted] = useState(false);
-  const [requestAttempted, setRequestAttempted] = useState(false);
   const unavailable = !isScreenTimeAvailable || status === 'unavailable';
   const approved = status === 'approved';
   const selectedCount = selectionCount(selection);
@@ -811,7 +737,14 @@ function AppPermissionManager({ e }: any) {
           : selectedCount
             ? `${selectedCount}개 선택됨${selection?.pending ? ' · 내일부터 적용' : ''}`
             : '아직 선택하지 않았어요';
-  const permissionDescription = approved ? '허용됨' : unavailable ? '사용 불가' : '허용 필요';
+  const permissionDescription =
+    status === 'loading'
+      ? '확인 중'
+      : approved
+        ? '연결됨'
+        : unavailable
+          ? '사용 불가'
+          : '연결 필요';
 
   useEffect(() => {
     let active = true;
@@ -882,7 +815,6 @@ function AppPermissionManager({ e }: any) {
     }
     if (busy) return;
     setBusy(true);
-    setRequestAttempted(true);
     try {
       await screenTime.requestAuthorization();
       const nextStatus = await screenTime.getAuthorizationStatus();
@@ -905,7 +837,7 @@ function AppPermissionManager({ e }: any) {
 
   const changeConnection = async (next: boolean) => {
     if (next) {
-      await requestConnection();
+      if (await requestConnection()) e.go('screenTimeApps', 'settings-auto');
       return;
     }
     // Family Controls 권한은 앱에서 직접 철회할 수 없어 시스템 설정으로 보낸다.
@@ -941,13 +873,15 @@ function AppPermissionManager({ e }: any) {
       <Group>
         <Row
           title="스크린타임 연결"
-          sub="폰 사용 퀘스트와 기록에 사용해요"
+          sub={`${permissionDescription} · 폰 사용 퀘스트와 기록에 사용해요`}
           tail={
             <Toggle
               label="스크린타임 연결"
               value={approved}
               disabled={busy || status === 'loading' || unavailable}
-              onChange={changeConnection}
+              onChange={(next: boolean) => {
+                void changeConnection(next);
+              }}
             />
           }
         />
@@ -960,17 +894,6 @@ function AppPermissionManager({ e }: any) {
         />
       </Group>
       <Txt kind="meta">연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.</Txt>
-      {!approved && !unavailable && (status === 'denied' || requestAttempted) && (
-        <>
-          <ScreenTimePermissionHelp />
-          <Btn
-            title={busy ? '권한 요청 중…' : '권한 다시 요청하기'}
-            disabled={busy}
-            onPress={requestConnection}
-          />
-          <Btn title="시스템 설정 열기" kind="sec" onPress={openSystemSettings} disabled={busy} />
-        </>
-      )}
       <Txt kind="section">집중 중 허용</Txt>
       <Group>
         <Row
@@ -1052,24 +975,6 @@ function AppPermissionManager({ e }: any) {
           />
         </Group>
       )}
-      <ScreenTimeReportingSettings e={e} />
-      <Txt kind="section">시스템 설정</Txt>
-      <Group>
-        <Row
-          title="측정 권한"
-          sub={
-            Platform.OS === 'ios'
-              ? '앱 설정의 스크린타임 접근 권한 확인'
-              : 'Android 설정 › 사용 정보 접근에서 변경'
-          }
-          accessibilityLabel={`측정 권한, ${permissionDescription}`}
-          right={<Badge soft>{permissionDescription}</Badge>}
-          chevron
-          disabled={unavailable}
-          onPress={openSystemSettings}
-        />
-      </Group>
-      <Txt kind="meta">권한이 없으면 기록을 0분으로 처리하지 않고 확인이 필요한 상태로 남겨요.</Txt>
     </Sheet>
   );
 }
@@ -1086,10 +991,8 @@ function ScreenTimePermission({ e }: any) {
   const finish = () => {
     if (boardFirst) {
       e.replace('screenTimeApps', e.detail);
-    } else if (measuredApps) {
-      e.replace('screenTimeApps', 'settings');
     } else {
-      e.back();
+      e.replace('screenTimeApps', 'settings-auto');
     }
   };
   const skip = () => {
@@ -1262,15 +1165,13 @@ function MeasuredAppPicker({ e }: any) {
     return (
       <Sheet e={e} title="측정 앱" onBack={finish} onClose={finish}>
         <AndroidAppPicker mode="measured" notify={e.notify} onDone={finish} />
-        <ScreenTimeReportingSettings e={e} />
       </Sheet>
     );
   }
   return <IOSMeasuredAppPicker e={e} />;
 }
 function IOSMeasuredAppPicker({ e }: any) {
-  const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const pickerInFlight = useRef(false);
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gateParts = String(e.detail).split('|');
@@ -1294,11 +1195,9 @@ function IOSMeasuredAppPicker({ e }: any) {
     }
     setBusy(true);
     try {
-      const active = await screenTime.getMeasurementSelectionForEditing();
-      setSelection(active);
       const picked = await screenTime.presentAppPicker();
       if (!picked) {
-        if (boardFirst) finish();
+        finish();
         return;
       }
       const count = selectionCount(picked);
@@ -1315,8 +1214,7 @@ function IOSMeasuredAppPicker({ e }: any) {
       } else {
         e.notify(`측정 앱 ${count}개를 내일부터 적용해요.`);
       }
-      setSelection(picked);
-      if (!boardFirst) finish();
+      finish();
     } catch {
       e.notify('측정 앱 선택 화면을 열지 못했어요.');
     } finally {
@@ -1325,11 +1223,7 @@ function IOSMeasuredAppPicker({ e }: any) {
     }
   };
   useEffect(() => {
-    screenTime
-      .getMeasurementSelectionForEditing()
-      .then(setSelection)
-      .catch(() => {});
-    if (!boardFirst) return;
+    // 이전 시스템 권한창·앱 화면 전환이 닫힌 뒤 한 번만 네이티브 선택기를 띄운다.
     autoTimer.current = setTimeout(openPicker, 450);
     return () => {
       if (autoTimer.current) clearTimeout(autoTimer.current);
@@ -1342,44 +1236,11 @@ function IOSMeasuredAppPicker({ e }: any) {
       onBack={boardFirst ? finish : undefined}
       onClose={boardFirst ? finish : undefined}
     >
-      <Pic id="cat/black/sitting" w={82} />
-      <Txt kind="h17">줄이고 싶은 앱을 골라주세요</Txt>
-      <Txt>
-        선택한 앱과 카테고리의 사용 시간을 15분 단위로 기록해요. 앱 이름은 Apple 선택 화면 안에서만
-        보여요.
-      </Txt>
-      <Group flat>
-        <Row
-          title="저장한 측정 대상"
-          sub={selectionCount(selection) ? `${selectionCount(selection)}개 선택됨` : '아직 없음'}
-        />
-        <Row
-          title="변경 적용"
-          sub={
-            selection?.pending
-              ? '변경 예약됨 · 다음 날 한국 시각 자정부터 적용'
-              : selectionCount(selection)
-                ? '현재 적용 중 · 변경하면 다음 날 한국 시각 자정부터'
-                : '최초 선택은 바로 적용'
-          }
-        />
-      </Group>
-      <ScreenTimeReportingSettings e={e} />
-      <Btn
-        title={busy ? '선택 화면 여는 중…' : '측정 앱 고르기'}
-        disabled={busy}
-        onPress={openPicker}
-      />
-      {boardFirst && (
-        <Btn
-          title={selectionCount(selection) ? '게시판 열기' : '나중에 하고 게시판 열기'}
-          kind="ghost"
-          onPress={finish}
-        />
+      {busy ? (
+        <ActivityIndicator color={C.ink} />
+      ) : (
+        <Btn title="측정 앱 고르기" onPress={openPicker} />
       )}
-      <Txt kind="meta">
-        선택을 바꾸는 날에는 기존 앱 기준 기록을 유지하고, 자정부터 새 대상을 측정해요.
-      </Txt>
     </Sheet>
   );
 }

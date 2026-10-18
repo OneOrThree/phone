@@ -1574,28 +1574,38 @@ test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', asyn
   assert.equal(s.queryByText('차단한 사용자'), null);
 });
 
-test('앱 정보의 개인정보 안내는 서버 저장과 분석 전송을 사실대로 설명한다', async () => {
-  let exposed: any;
-  const s = await render(
-    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
-  );
-
-  await fireEvent.press(s.getByText('개인정보 처리 안내'));
-  const explanation = exposed.confirm.mock.calls.at(-1)[1] as string;
-  assert.match(explanation, /계정 식별 정보가 서버로 전달/);
-  assert.match(explanation, /섬·주민 활동, 친구·편지, 집중 기록/);
-  assert.match(explanation, /PostHog/);
-  assert.doesNotMatch(explanation, /로컬 목업|서버로 전송하지 않아요/);
+test('앱 설정은 개인정보처리방침 하나만 남기고 차단 관리를 숨긴다', async () => {
+  const s = await render(<Harness route="settings" full api={() => ({})} />);
+  assert.equal(s.queryByText('개인정보 처리 안내'), null);
+  assert.equal(s.queryByText('차단한 사용자'), null);
+  assert.equal(s.getAllByText('개인정보처리방침').length, 1);
+  assert.ok(s.getByTestId('settings-app-version'));
 });
 
-test('서버 앱 설정의 안전 섹션에서 차단 사용자 목록으로 진입한다', async () => {
+test('친구 관리에서 차단 사용자 목록으로 진입한다', async () => {
   let exposed: any;
+  const friendsScreen = {
+    data: { friends: [], friendRequests: [], sentFriendRequests: [] },
+    status: 'ready',
+    error: null,
+    busy: false,
+    query: '',
+    searchItems: [],
+    refresh: jest.fn(),
+    retry: jest.fn(),
+    setQuery: jest.fn(),
+    command: jest.fn(),
+  };
   const s = await render(
-    <Harness route="settings" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
+    <Harness
+      route="friends"
+      full
+      api={() => ({})}
+      friendsScreen={friendsScreen}
+      expose={(value: any) => (exposed = value)}
+    />,
   );
-
   await fireEvent.press(s.getByText('차단한 사용자'));
-
   assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
 });
 
