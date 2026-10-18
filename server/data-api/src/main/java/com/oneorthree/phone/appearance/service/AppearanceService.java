@@ -1,5 +1,6 @@
 package com.oneorthree.phone.appearance.service;
 
+import com.oneorthree.phone.appearance.support.DefaultAudioTracks;
 import static com.oneorthree.phone.appearance.service.AppearanceEvents.AGGREGATE_ISLAND_INVENTORY;
 import static com.oneorthree.phone.appearance.service.AppearanceEvents.AGGREGATE_USER_INVENTORY;
 
@@ -173,7 +174,7 @@ public class AppearanceService implements IslandAppearancePort {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
         List<OwnedProduct> owned = ownedProducts.findByIslandId(islandId);
         Map<String, CatalogAsset> assets = assetsOf(owned);
-        List<String> audio = new ArrayList<>();
+        List<String> audio = new ArrayList<>(DefaultAudioTracks.IDS);
         List<String> islandThemes = new ArrayList<>();
         List<SharedInventoryView.BuildingThemeItem> buildingThemes = new ArrayList<>();
         for (OwnedProduct p : owned) {
@@ -182,7 +183,11 @@ public class AppearanceService implements IslandAppearancePort {
                 continue;
             }
             switch (asset.getKind()) {
-                case CatalogAsset.KIND_AUDIO -> audio.add(p.getProductId());
+                case CatalogAsset.KIND_AUDIO -> {
+                    if (!audio.contains(p.getProductId())) {
+                        audio.add(p.getProductId());
+                    }
+                }
                 case CatalogAsset.KIND_ISLAND_THEME -> islandThemes.add(p.getProductId());
                 case CatalogAsset.KIND_BUILDING_THEME -> buildingThemes.add(
                         new SharedInventoryView.BuildingThemeItem(
