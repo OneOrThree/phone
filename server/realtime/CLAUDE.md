@@ -13,8 +13,9 @@ the root `CLAUDE.md`. Run all commands from inside `server/realtime/`.
 
 집중 중에도 연결 자체는 허용한다. 집중/휴식 이벤트를 받을 연결과 채팅에 들어갈 권한은 다르다.
 섬 채널 셋(`focus`·`rest`·`emotes`)은 GROMO-1765에서 열렸다 — 관전 둘은 인증만, 응원은 Data 정본으로
-「그 섬의 본인 진행 세션(active·paused)」을 판정한다. 나머지 섬 채널(`events`·`playback`·`messages`)과 `/user/queue/events`는 각 도메인의
-인가·복구 계약이 구현될 때까지 계속 닫혀 있다.
+「그 섬의 본인 진행 세션(active·paused)」을 판정한다. `events` 는 GROMO-2302에서 **현재 소속 주민**에게 열렸다(구독 1회 +
+전달 직전 프레임마다 캐시 멤버십 재검사, 지금 실리는 사건은 `island.member.arrived` 하나). 나머지 섬 채널(`playback`·`messages`)과
+`/user/queue/events`는 각 도메인의 인가·복구 계약이 구현될 때까지 계속 닫혀 있다.
 
 채팅은 푸시를 발송하지 않는다. 기존 `chat_read_cursors`는 본인의 읽은 위치를 나타내며 이번 개명에서
 삭제하거나 의미를 바꾸지 않는다. 서버는 집중 시작에 소켓 전체를 끊지 않고 채팅 본문 전달을 차단한다.
@@ -153,6 +154,7 @@ architecture decision A19 table.
 | `lock:chat:emote:try:{userId}` | realtime | read/write | 응원 **발신** 시도 창(600ms, **사용자 축**). 거절된 요청도 소모해 상류 조회를 누른다 |
 | `lock:chat:emote:sub:{userId}` | realtime | read/write | 응원 **구독** 시도 창(600ms). SUBSCRIBE 도 상류 조회를 부르므로 같은 상한 |
 | `lock:chat:movement:sub:{userId}` | realtime | read/write | 이동 **구독** 시도 창(600ms, GROMO-2247). 세션×섬의 첫 이동 토픽만 쓴다 — 짝 토픽은 그 판정을 이어받는다 |
+| `lock:chat:events:sub:{userId}` | realtime | read/write | 섬 `events` **구독** 시도 창(600ms, 사용자 축, GROMO-2302). 이동 창과 나눈다 — 앱이 접속마다 두 토픽을 연달아 구독한다 |
 | `sea:room:{roomId}:members` | realtime | read/write | 바다 방 구성원 SET(GROMO-2300). EXPIRE 24h(입장마다 갱신), 비면 DEL |
 | `sea:rooms:open` | realtime | read/write | 빈자리 있는 바다 방 SET. **TTL 없음** — 입장·퇴장 스크립트가 스스로 정리한다 |
 | `sea:user:{userId}` | realtime | read/write | 사용자 바다 상태 HASH(`roomId, state, remark, name, catColor, sessionId, destinationIslandId, sailingMinutes, startedAt, adriftSince`). EXPIRE 24h, 퇴장 시 DEL |
@@ -190,6 +192,7 @@ designed fresh.
 | `SUB /topic/islands/{islandId}/focus`, `/rest` | 섬의 집중·휴식 주민 갱신. **인증만** — 비소속 관전 개방(2026-09-19) |
 | `SUB /topic/islands/{islandId}/emotes` | 응원 수신. 그 섬의 **본인 진행 세션(active·paused)** 이 있어야 한다 |
 | `SEND /app/islands/{islandId}/focus/emotes` | 응원 발신, body `{sessionId,type}`. 성공은 브로드캐스트가 ack |
+| `SUB /topic/islands/{islandId}/events` | 섬 소식(GROMO-2302) — 지금은 `island.member.arrived{islandId,userId,name,catColor,arrivedAt}`(주민 첫 도착) 하나. **현재 소속 주민만**: 구독 때 사용자 축 시도 창 `lock:chat:events:sub:{userId}` 600ms(초과는 ERROR `MOVEMENT_TOO_FREQUENT`) → `requireMember`(집중 검사 없음, 비주민은 ERROR `NOT_A_MEMBER` 뒤 연결 종료). 전달 직전 프레임마다 캐시 멤버십을 다시 본다 — 비주민·조회 불가는 프레임만 버리고(fail-closed) 소켓은 유지, 강퇴는 `MEMBER_REMOVED` 캐시 삭제 + TTL 120s 가 상한(evict 실패 시 TTL 120s 잔여 창 — 전달 경로의 stale 표시·`requireMemberUncached` 보강은 후속). 배포 순서·점검·되돌릴 신호는 LLD §9 |
 | `SUB /topic/islands/{islandId}/movement` | 섬 이동 동기화(GROMO-2247): FullState·PathAccepted·MoveRejected·Arrived — 세션별 직접 전송, **members only**(`requireMember`, 비멤버는 ERROR `NOT_A_MEMBER` 뒤 연결 종료 — 관문 거절은 STOMP ERROR 경로라 close code 는 Spring 이 ERROR 프레임 뒤 세션을 닫을 때의 값(통상 1002)이고 코드가 직접 고르지 않는다). 판정은 세션×섬마다 한 번(사용자 축 시도 창 600ms, 초과는 ERROR `MOVEMENT_TOO_FREQUENT`) — 짝 토픽은 그 세션×섬의 살아 있는(강퇴 전) 판정만 이어받는다. 첫 메시지는 항상 자기 actor 가 든 그 세션 한정 FullState. **1단계는 Realtime 단일 인스턴스 가정** — 방 상태는 이 JVM 메모리에만 있고 인스턴스 간 팬아웃이 없다(다중 인스턴스 소유권은 2단계) |
 | `SUB /topic/islands/{islandId}/movement/snapshot` | 같은 섬의 위치 Snapshot(≤20Hz, 세션당 최신 1개만 전송). members only. 그 세션이 movement 로 자기 FullState 를 받은 뒤부터만 보낸다 — 그 전(snapshot 먼저 구독 포함)·movement 해지 뒤·재검사로 멈춘 뒤 재동기화 전의 Snapshot 은 버린다 |
 | `SEND /app/islands/{islandId}/movement/intent` | 목적지 전송, body `{commandSeq,navRevision,goalX,goalY}`. movement 구독 보유 세션만; 응답은 PathAccepted/MoveRejected. 사용자당 10/s·순간 20 초과는 조용히 버림 |
@@ -280,10 +283,12 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    row here over HTTP by default, or over the `realtime-events` Kafka topic when both flags are on
    (`event/KafkaEventInbound`, `REALTIME_EVENTS_KAFKA_ENABLED`, default false). Both entrances call
    `event/InboundEventService`, which inserts `inbound_events(event_id)` first and applies only on first sight.
-   Of the 14 app event types, `focus.member.updated` and `rest.member.updated` are now **delivered to STOMP**
+   Of the 16 app event types, `focus.member.updated` and `rest.member.updated` are now **delivered to STOMP**
    (GROMO-1765): `InboundEventService` converts the canonical 10-field outbox envelope to the 7-field
    `RealtimeEventEnvelope` (`subjectId`→`islandId`, `version`→`aggregateVersion`, `params`→`payload`) and calls
-   `EventRouter`. The other 12 are still accepted-and-deduped only — their domain payload validators and
+   `EventRouter`. `island.member.arrived` (GROMO-2302) is delivered too, to `/topic/islands/{id}/events`, through
+   its own projection (`arrivalEvent`): only `islandId·userId·name·catColor·arrivedAt` are copied from `params` —
+   anything else the producer adds is dropped. The other 13 are still accepted-and-deduped only — their domain payload validators and
    authorization/recovery contracts do not exist yet. **A conversion failure never becomes a 400**: the event is
    still recorded and only delivery is skipped, because a 400 makes the relay mark the row permanent and that
    aggregate axis is blocked forever.
@@ -416,8 +421,8 @@ STOMP `id` 만 바꿔 반복하면 소켓 하나로 레지스트리 메모리를
 **중복**(같은 목적지 재구독 → 사건 하나가 구독 수만큼 복제되는 증폭을 막는다)과
 **총량**(세션당 `MAX_SUBSCRIPTIONS_PER_SESSION` = 96 → 임의 UUID 로 목적지를 바꿔도 막힌다).
 하나만으로는 다른 하나가 샌다. 96 의 근거는 계정당 소속 상한(`GroupService.MAX_JOINED_GROUPS` = 10)
-× 섬당 목적지 6(`focus`·`rest`·`emotes`·채팅·`movement`·`movement/snapshot`) + 개인 큐 2 = **62**,
-거기에 바다 목적지 2(`/user/queue/sea`·`/topic/sea/rooms/{roomId}`)를 더한 **64** 에 약 50% 여유다.
+× 섬당 목적지 7(`focus`·`rest`·`emotes`·`events`·채팅·`movement`·`movement/snapshot`) + 개인 큐 2 = **72**,
+거기에 바다 목적지 2(`/user/queue/sea`·`/topic/sea/rooms/{roomId}`)를 더한 **74** 에 약 30% 여유다(`events` 는 GROMO-2302).
 **UNSUBSCRIBE 가 자리를 돌려주므로**(`id → destination` 으로 추적한다) 섬을 떠날 때 해지하는 정상
 클라이언트는 이 상한에 닿지 않는다.
 

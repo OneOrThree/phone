@@ -15,9 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -73,6 +76,9 @@ import java.util.stream.Collectors;
  *       {@code watermarks} 로 병합한다(realtime-events LLD §5). 이 봉투의 {@code aggregateVersion} 이
  *       그 watermark 와 같은 축(outbox aggregate version)이라 비교가 성립한다.</li>
  * </ol>
+ * {@code island.member.arrived}(GROMO-2302)도 세 조건을 채워 연다 — 구독은 현재 소속 주민만(Data 정본 확인), 회수는
+ * 전달 직전 프레임마다 캐시 멤버십 재검사(MEMBER_REMOVED 가 지우고 TTL 이 상한), 재연결 복구는 필요 없다(일회성 소식 —
+ * 놓치면 토스트 한 번이 안 뜰 뿐이다). payload 는 전용 변환({@link #arrivalEvent})이 고른 필드만 싣는다.
  * 나머지 11종은 셋 중 하나 이상이 아직 없다 — 특히 도메인 payload validator 가 없는 type 은 활성화하지
  * 않는다(realtime-events LLD §8 「validator 없는 타입의 활성화 금지」).
  *
@@ -103,7 +109,11 @@ public class InboundEventService {
             .collect(Collectors.toUnmodifiableSet());
 
     private static final Set<String> DELIVERED_TYPES = Set.of(
-            RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName(), RealtimeEventType.REST_MEMBER_UPDATED.wireName());
+            RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName(), RealtimeEventType.REST_MEMBER_UPDATED.wireName(),
+            RealtimeEventType.ISLAND_MEMBER_ARRIVED.wireName());
+
+    /** {@code island.member.arrived} 가 앱으로 내보내는 필드 — 그 밖은 버린다(주민 전용 채널이라도 고른 것만). */
+    private static final List<String> ARRIVAL_FIELDS = List.of("islandId", "userId", "name", "catColor", "arrivedAt");
 
     /** 소속이 «줄어드는» changeKind — 이동 방 재검사는 이것만 본다(GROMO-2247, 늘어나는 쪽은 회수할 게 없다). */
     private static final String MEMBER_REMOVED = "MEMBER_REMOVED";
@@ -270,7 +280,8 @@ public class InboundEventService {
         }
         RealtimeEventEnvelope event;
         try {
-            event = memberEvent(eventId, type, envelope);
+            event = RealtimeEventType.ISLAND_MEMBER_ARRIVED.wireName().equals(type)
+                    ? arrivalEvent(eventId, envelope) : memberEvent(eventId, type, envelope);
         } catch (RuntimeException e) {
             // 봉투 본문은 로그에 남기지 않는다(realtime-events LLD §6).
             log.error("주민 사건 변환 실패 — 전달하지 않는다. eventId={} type={} reason={}",
@@ -304,6 +315,27 @@ public class InboundEventService {
         return new RealtimeEventEnvelope(UUID.fromString(eventId), intValue(envelope, "schemaVersion"), eventType,
                 UUID.fromString(requiredText(envelope, "subjectId")), longValue(envelope, "version"),
                 Instant.parse(requiredText(envelope, "occurredAt")), params);
+    }
+
+    /**
+     * 주민 첫 도착(GROMO-2302) 10필드 → 7필드. {@link #memberEvent} 와 달리 params 를 그대로 쓰지 않고
+     * {@link #ARRIVAL_FIELDS} 만 복사한다 — 이름·털색을 싣는 사건이라 생산자가 필드를 늘려도 앱으로 새지 않게 한다.
+     * {@code aggregateVersion} 은 봉투 version({@code ISLAND_ARRIVAL} 축)이다.
+     */
+    private static RealtimeEventEnvelope arrivalEvent(String eventId, JsonNode envelope) {
+        JsonNode params = envelope.get("params");
+        if (params == null || !params.isObject()) {
+            throw new IllegalArgumentException("도착 사건 params 가 객체가 아닙니다.");
+        }
+        ObjectNode payload = JsonNodeFactory.instance.objectNode();
+        for (String field : ARRIVAL_FIELDS) {
+            if (params.has(field)) {
+                payload.set(field, params.get(field));
+            }
+        }
+        return new RealtimeEventEnvelope(UUID.fromString(eventId), intValue(envelope, "schemaVersion"),
+                RealtimeEventType.ISLAND_MEMBER_ARRIVED, UUID.fromString(requiredText(envelope, "subjectId")),
+                longValue(envelope, "version"), Instant.parse(requiredText(envelope, "occurredAt")), payload);
     }
 
     private static int intValue(JsonNode envelope, String field) {

@@ -74,6 +74,7 @@ public class GroupMemberService {
     private final GroupChallengeBetParticipantRepository betParticipantRepository;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandArrivalRepository islandArrivalRepository;
+    private final IslandArrivalEvents islandArrivalEvents;
     private final TelescopePinRepository telescopePinRepository;
     private final TelescopeBucketRepository telescopeBucketRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
@@ -447,6 +448,8 @@ public class GroupMemberService {
         guestbookEntryRepository.deleteAllOfUser(userId);
         // 섬 도착 기록(GROMO-2260) — 개인 이동·방문 이력이다. 남의 판정 근거가 아니라 원문째 지운다.
         islandArrivalRepository.deleteAllOfUser(userId);
+        // 주민 첫 도착 사건(GROMO-2302) params 의 이름·털색 사본.
+        islandArrivalEvents.eraseWithdrawnUser(userId);
         // 망원경 핀(GROMO-2268)도 개인 목록이다 — 남의 판정 근거가 아니라 원문째 지운다.
         telescopePinRepository.deleteAllOfUser(userId);
         // 망원경 1시간 목록 스냅샷(GROMO-2306)도 개인 목록이다.

@@ -111,6 +111,8 @@ SERVICE_OPTIONAL_KEYS = {
         "SVC_TOKEN_REALTIME_TO_DATA", "USER_BLOCKS_REALTIME_EVENTS_ENABLED",
         # GROMO-2299 바다 방 사건(sea.member.updated) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
         "FOCUS_SEA_REALTIME_EVENTS_ENABLED",
+        # GROMO-2302 주민 첫 도착 사건(island.member.arrived) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
+        "ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED",
     ),
     "business-api": (
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",

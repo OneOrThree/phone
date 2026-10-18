@@ -25,6 +25,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 
 import static com.oneorthree.realtime.config.StompTopics.EMOTES_CHANNEL;
+import static com.oneorthree.realtime.config.StompTopics.EVENTS_CHANNEL;
 import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
 import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
@@ -45,6 +46,9 @@ import static com.oneorthree.realtime.config.StompTopics.SEA_ROOM_TOPIC;
  *   <li>{@code emotes} — 그 사건의 <b>수신 대상 목록</b>과 대조한다
  *       ({@link RealtimeEventDelivery#mayReceive}). 목록은 발신 때 Data 정본에서 나온 「그 섬에서 지금
  *       진행 중인 주민」이고, 기록이 없거나 만료됐으면 <b>fail-closed</b> 로 버린다.</li>
+ *   <li>{@code events} — 프레임마다 <b>캐시 멤버십</b>({@link ChatAccessGuard#requireMember}, 집중 검사 없음)을 다시
+ *       본다(GROMO-2302). 강퇴는 {@code island.members.updated(MEMBER_REMOVED)} 가 캐시를 지우고 TTL 120s 가 상한이다.
+ *       비주민·조회 불가는 <b>fail-closed</b> 로 프레임만 버린다(소켓 유지), 자격 거절은 채팅과 같이 소켓을 닫는다.</li>
  * </ul>
  *
  * <h2>프레즌스 사본을 최종 인가 증거로 쓰지 않는다</h2>
@@ -137,7 +141,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
         Matcher island = ISLAND_TOPIC.matcher(destination);
         if (island.matches()) {
-            return deliverIslandEvent(message, island.group(2));
+            return deliverIslandEvent(message, island.group(1), island.group(2));
         }
         // 바다 방(GROMO-2300, N21) — JWT + 프레임마다 Redis 방 소속. 다른 인스턴스의 정리가 Redis 에서 사람을 빼도 이
         // JVM 의 구독은 남으므로 레지스트리로는 못 끊는다. 판정 불가(Redis 실패)도 보내지 않는다. 차단은 배정 때 분리했다.
@@ -150,7 +154,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         if (destination.startsWith("/topic/sea/")) {
             return null;
         }
-        // 열거한 셋 밖의 섬 목적지(events·playback·messages)는 여전히 닫혀 있다.
+        // 열거한 넷(focus·rest·emotes·events) 밖의 섬 목적지(playback·messages)는 여전히 닫혀 있다.
         if (destination.startsWith("/topic/islands/")) {
             return null;
         }
@@ -194,6 +198,34 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
     }
 
+    /**
+     * 섬 {@code events} 프레임(GROMO-2302) — 그 주체가 지금도 그 섬 주민인가(캐시, fail-closed), 그리고 채팅·응원과 같은
+     * 받는 사람 기준 차단 필터(GROMO-2182) — 보내는 사람은 {@code payload.userId}(도착자)다. 판정 불가는 버린다.
+     */
+    private Message<?> deliverResidentEvent(Message<?> message, ChatPrincipal principal, String islandIdText) {
+        UUID islandId = uuidOrNull(islandIdText);
+        if (islandId == null) {
+            return null;
+        }
+        try {
+            accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            // 스위치가 꺼져 있으면 발신자 판독도 하지 않는다 — 채팅과 같은 이유.
+            if (blockedUsers.enabled() && blockedUsers.hasBlocked(principal.userId(),
+                    senderOf(readPayload(message), "payload", "userId", false))) {
+                log.debug("섬 소식 전달 차단 — 받는 사람이 도착자를 차단했다");
+                return null;
+            }
+            return message;
+        } catch (UpstreamRejectedCredentialException e) {
+            // 채팅과 같다 — 자격 자체가 무효면 소켓을 닫아 앱이 갱신·재연결을 시작하게 한다.
+            sessions.closeUnauthorized(SimpMessageHeaderAccessor.getSessionId(message.getHeaders()));
+            return null;
+        } catch (RuntimeException e) {
+            log.debug("섬 소식 전달 차단 — reason={}", e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
     /** 바다 방 프레임 — 세션 인증 + 그 주체가 지금도 그 방 소속인가(fail-closed). */
     private Message<?> deliverSeaEvent(Message<?> message, UUID roomId) {
         ChatPrincipal principal = stillAuthenticated(message);
@@ -215,12 +247,16 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     }
 
     /**
-     * 섬 채널의 전달 직전 판정 — <b>셋 모두 인증을 다시 보고</b>, 응원만 「아직 집중 중인가」를 더 본다.
+     * 섬 채널의 전달 직전 판정 — <b>모두 인증을 다시 보고</b>, 응원은 수신 대상 목록을, {@code events} 는 현재 소속을
+     * 더 본다.
      */
-    private Message<?> deliverIslandEvent(Message<?> message, String channel) {
+    private Message<?> deliverIslandEvent(Message<?> message, String islandIdText, String channel) {
         ChatPrincipal principal = stillAuthenticated(message);
         if (principal == null) {
             return null;
+        }
+        if (EVENTS_CHANNEL.equals(channel)) {
+            return deliverResidentEvent(message, principal, islandIdText);
         }
         if (!EMOTES_CHANNEL.equals(channel)) {
             return message;

@@ -187,7 +187,7 @@ public class GroupService {
                 .build());
         // 동결된 1.x 앱의 생성도 «가 본 섬» 으로 남긴다 (GROMO-2260) — 안 남기면 2.0 의 즉시 이동이 이 섬을
         // 가 본 적 없는 섬(ISLAND_NOT_ARRIVED)으로 막는다. 2.0 생성({@code IslandMembershipService.create})과 같다.
-        islandArrivalRepository.recordArrival(userId, group.getId(), clock.instant());
+        islandArrivalRepository.recordArrival(userId, group.getId(), clock.instant(), true);
 
         membershipEvents.changed(group.getId(), userId, "MEMBER_ADDED", userId);
 
@@ -368,7 +368,7 @@ public class GroupService {
             groupMemberRepository.save(membership);
         }
         // 1.x 참여도 «가 본 섬» 이다 (GROMO-2260) — 생성과 같은 이유다.
-        islandArrivalRepository.recordArrival(userId, groupId, clock.instant());
+        islandArrivalRepository.recordArrival(userId, groupId, clock.instant(), true);
 
         membershipEvents.changed(groupId, userId, "MEMBER_ADDED", userId);
 

@@ -28,6 +28,8 @@ import java.util.UUID;
  *       <td>응원 <b>구독</b> 시도 창 — SUBSCRIBE 도 상류 조회를 부르므로 같은 상한을 건다</td></tr>
  *   <tr><td>{@code lock:chat:movement:sub:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
  *       <td>이동 <b>구독</b> 시도 창(GROMO-2247) — 멤버십 조회를 부르는 이동 SUBSCRIBE 의 상한</td></tr>
+ *   <tr><td>{@code lock:chat:events:sub:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>섬 {@code events} <b>구독</b> 시도 창(GROMO-2302, 600ms) — 멤버십 조회를 부르는 events SUBSCRIBE 의 상한</td></tr>
  *   <tr><td>{@code sea:room:{roomId}:members}</td><td>실시간</td><td>읽기·쓰기</td>
  *       <td>바다 방 구성원 SET(GROMO-2300). EXPIRE 24h(입장마다 갱신), 비면 DEL</td></tr>
  *   <tr><td>{@code sea:rooms:open}</td><td>실시간</td><td>읽기·쓰기</td>
@@ -101,6 +103,7 @@ public final class RedisKeys {
     private static final String EMOTE_ATTEMPT_PREFIX = "lock:chat:emote:try:";
     private static final String EMOTE_SUBSCRIBE_PREFIX = "lock:chat:emote:sub:";
     private static final String MOVEMENT_SUBSCRIBE_PREFIX = "lock:chat:movement:sub:";
+    private static final String ISLAND_EVENTS_SUBSCRIBE_PREFIX = "lock:chat:events:sub:";
 
     private RedisKeys() {
     }
@@ -197,6 +200,14 @@ public final class RedisKeys {
      */
     public static String movementSubscribeAttempt(UUID userId) {
         return MOVEMENT_SUBSCRIBE_PREFIX + userId;
+    }
+
+    /**
+     * 섬 {@code events} <b>구독</b> 시도 창(GROMO-2302) — {@link #movementSubscribeAttempt} 와 같은 방식, 사용자 축.
+     * 이동 창과 나누는 이유는 앱이 접속마다 두 토픽을 연달아 구독하기 때문이다 — 합치면 둘째가 창에 걸린다.
+     */
+    public static String islandEventsSubscribeAttempt(UUID userId) {
+        return ISLAND_EVENTS_SUBSCRIBE_PREFIX + userId;
     }
 
     /** 바다 방 구성원(SET userId). */
