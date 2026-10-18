@@ -1531,7 +1531,7 @@ function FocusFlow({ e: environment }: any) {
     resultTarget = useSpotlightTarget(tutorialStep === 21);
   const [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
-    [dialog, setDialog] = useState<'music' | 'endRest' | 'reward' | null>(null),
+    [dialog, setDialog] = useState<'music' | 'reward' | null>(null),
     [error, setError] = useState(''),
     [setupHeight, setSetupHeight] = useState(0),
     // 화면 높이 대신 실제 영역 높이(키보드가 뜨면 줄어듦)로 준비 카드 위치를 잡는다
@@ -2346,9 +2346,6 @@ function FocusFlow({ e: environment }: any) {
         live={liveIslandId ? live : null}
         home={e.home}
         resume={resume}
-        endRest={finish}
-        confirming={dialog === 'endRest'}
-        setConfirming={(open) => setDialog(open ? 'endRest' : null)}
         tutorial={
           tutorialStep === 15
             ? {

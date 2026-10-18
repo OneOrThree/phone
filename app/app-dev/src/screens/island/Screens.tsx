@@ -2866,10 +2866,6 @@ export function RedesignScreens({ e }: any) {
           go('focus');
         }}
         home={home}
-        endRest={() => {
-          act('FINISH');
-          reset('focusResult');
-        }}
       />
     );
   if (route === 'sound') {

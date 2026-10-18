@@ -95,6 +95,15 @@ jest.mock('@/screens/focus/FishingIsland', () => {
   };
 });
 
+jest.mock('@/screens/world/WorldViews', () => {
+  const actual = jest.requireActual('@/screens/world/WorldViews');
+  const { Pressable } = require('react-native');
+  return {
+    ...actual,
+    Sailing: ({ onArrive }: any) => <Pressable testID="focus-sailing" onPress={onArrive} />,
+  };
+});
+
 jest.mock('@/screens/focus/GoldenFishCutscene', () => ({
   GoldenFishCutscene: ({ onFinish, muted, volume }: any) => {
     const { Pressable } = require('react-native');
@@ -1405,5 +1414,29 @@ test('도착하면 바다 쪽 안내와 선택 가능한 빈자리 원이 나타
   await act(() => jest.advanceTimersByTime(10000));
   expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'FOCUS_SPOT' }));
   expect(go).toHaveBeenCalledWith('focusSetup');
+  await screen.unmount();
+});
+
+test('휴식 중에는 집중 이어가기만 있고 한 번 누르면 종료 없이 집중섬으로 돌아온다', async () => {
+  const state = focusedState();
+  state.session!.status = 'paused';
+  state.session!.version = 1;
+  const resume = jest.fn().mockResolvedValue({}),
+    finish = jest.fn();
+  const go = jest.fn(),
+    home = jest.fn();
+  const screen = await render(
+    screenElement(state, 'rest', undefined, go, home, undefined, {
+      focus: { resume, finish },
+    }),
+  );
+  expect(screen.queryByTestId('end-rest')).toBeNull();
+  expect(screen.queryByTestId('confirm-end-rest')).toBeNull();
+  await fireEvent.press(screen.getByTestId('resume-focus'));
+  expect(resume).toHaveBeenCalledTimes(1);
+  expect(finish).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('focus-sailing'));
+  expect(go).toHaveBeenCalledWith('focus');
+  expect(home).not.toHaveBeenCalled();
   await screen.unmount();
 });

@@ -67,10 +67,11 @@ test('집중 세션이 있으면 멈춘 집중 정보가 보인다', async () =>
     intervals: [],
   };
 
+  const resume = jest.fn();
   const screen = await render(
     React.createElement(RestGroup, {
       state,
-      resume: jest.fn(),
+      resume,
       home: jest.fn(),
     }),
   );
@@ -78,9 +79,13 @@ test('집중 세션이 있으면 멈춘 집중 정보가 보인다', async () =>
   assert.ok(screen.getByTestId('paused-focus-info'));
   assert.ok(screen.getByText('휴식 중...'));
   assert.ok(screen.getByTestId('loaf-1'));
-  assert.ok(screen.getByTestId('end-rest'));
+  expect(screen.queryByTestId('end-rest')).toBeNull();
+  expect(screen.queryByTestId('confirm-end-rest')).toBeNull();
   assert.equal(screen.getByTestId('paused-focus-subject').props.children, '영어 단어 외우기');
   assert.equal(screen.getByTestId('paused-focus-time').props.children, '00:20:30');
+  await fireEvent.press(screen.getByTestId('resume-focus'));
+  expect(resume).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId('confirm-end-rest')).toBeNull();
   await screen.unmount();
 });
 
