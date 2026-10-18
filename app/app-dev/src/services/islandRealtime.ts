@@ -472,6 +472,21 @@ export function friendlyRealtimeErrorMessage(raw: string): string | null {
   return raw;
 }
 
+/** 실시간 STOMP 클라이언트 공용 설정(재접속·하트비트·인증) — 바다 방(seaRealtime, GROMO-2310)도 같은 값으로 연다. */
+export const realtimeClientOptions = () => ({
+  brokerURL: realtimeWsUrl(),
+  reconnectDelay: 5000,
+  heartbeatIncoming: 10_000,
+  heartbeatOutgoing: 10_000,
+  // [진단] React Native WebSocket 은 문자열 프레임의 NULL(\0)을 잘라 STOMP 프레임 끝이 사라진다.
+  forceBinaryWSFrames: true,
+  appendMissingNULLonIncoming: true,
+  beforeConnect: (c: Client) => {
+    const token = getAccessToken();
+    if (token) c.connectHeaders = { Authorization: `Bearer ${token}` };
+  },
+});
+
 /**
  * 이동 채널 STOMP ERROR 코드 중 영구 차단 대상 — 그 외(일시 상류 장애·시도 창 초과 등)는 재접속에서 다시 구독한다.
  * INVALID_REQUEST 는 같은 요청이면 항상 같은 거절이라 재시도로도 풀리지 않는다 — 영구 차단.
@@ -515,17 +530,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     onMsg(msg);
   };
   const client = new Client({
-    brokerURL: realtimeWsUrl(),
-    reconnectDelay: 5000,
-    heartbeatIncoming: 10_000,
-    heartbeatOutgoing: 10_000,
-    // [진단] React Native WebSocket 은 문자열 프레임의 NULL(\0)을 잘라 STOMP 프레임 끝이 사라진다.
-    forceBinaryWSFrames: true,
-    appendMissingNULLonIncoming: true,
-    beforeConnect: (c) => {
-      const token = getAccessToken();
-      if (token) c.connectHeaders = { Authorization: `Bearer ${token}` };
-    },
+    ...realtimeClientOptions(),
     onConnect: () => {
       emoteSubscription = null;
       movementErrorCountedSinceConnect = false;

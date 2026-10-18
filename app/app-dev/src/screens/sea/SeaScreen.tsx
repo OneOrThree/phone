@@ -267,9 +267,15 @@ export function SeaScreen(props: SeaScreenProps) {
             {panel === 'stop' && (
               <>
                 <Txt accessibilityRole="header" kind="h">
-                  {t(voyage?.canDisembark ? 'openSea.readyTitle' : 'openSea.stopTitle')}
+                  {t(voyage?.canDisembark ? 'openSea.readyTitle' : 'openSea.stopTitle', {
+                    name: voyage?.destinationName ?? '',
+                  })}
                 </Txt>
-                <Txt>{t(voyage?.canDisembark ? 'openSea.readyBody' : 'openSea.stopBody')}</Txt>
+                <Txt>
+                  {t(voyage?.canDisembark ? 'openSea.readyBody' : 'openSea.stopBody', {
+                    minutes: Math.floor((voyage?.activeSeconds ?? 0) / 60),
+                  })}
+                </Txt>
                 <Btn
                   dynamicHeight
                   title={t(voyage?.canDisembark ? 'openSea.disembark' : 'openSea.stop')}

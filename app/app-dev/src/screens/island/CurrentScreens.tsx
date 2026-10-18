@@ -132,6 +132,7 @@ import {
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
+import { SeaVoyageHost } from '@/screens/sea/SeaVoyageHost';
 import { Telescope } from '@/screens/island/Telescope';
 import { MagazineReader } from '@/screens/magazine/MagazineReader';
 import { PromotionEditor } from '@/screens/magazine/PromotionEditor';
@@ -407,6 +408,10 @@ function CurrentScreensContent({ e }: any) {
   };
   const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
   const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
+  // 바다 항해 집중(GROMO-2310) — 섬 소속·구경 여부와 무관한 바다 화면이라 아래 섬 관문보다 먼저 연다.
+  // 계정이 바뀌면 사용자 ID 를 key 로 화면(바다 방 연결 포함)을 새로 만든다.
+  if (r === 'sea' || r === 'seaArrival')
+    return <SeaVoyageHost key={getSession()?.userId ?? ''} e={e} />;
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>

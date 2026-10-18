@@ -19,13 +19,14 @@ import { Flag } from '@/screens/cosmetics/Cosmetics';
 import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';
-import { uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import type { MagazineCell } from '@/services/api/magazine';
 import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { unknownOutcome } from '@/services/islandCommands';
 import { islandErrorMessage } from '@/services/islandErrors';
-import { intentKeyPool, serverVisit, type State } from '@/services/model';
+import { SeaVoyagePreparation } from '@/screens/sea/SeaVoyagePreparation';
+import { saveSeaRemark } from '@/screens/sea/seaRemark';
+import { intentKeyPool, serverVisit, sessionRoute, type Route, type State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { AdCell } from '@/screens/magazine/AdCell';
 import { isTelescopeMock } from '@/services/api/magazineMock';
@@ -112,7 +113,8 @@ const styles = StyleSheet.create({
 type IntentKeys = ReturnType<typeof intentKeyPool>;
 
 /**
- * 도착 기록. 내 소속 섬이면(`true`) 서버가 현재 섬도 옮겼고 소속은 다시 읽어 둔 상태다.
+ * 도착 기록(GROMO-2310 이후 망원경 [항해하기]는 바다 항해 집중으로 바뀌어 여기서 부르지 않는다 — 섬에 내린 뒤
+ * 결과창(GROMO-2311)이 다시 쓴다). 내 소속 섬이면(`true`) 서버가 현재 섬도 옮겼고 소속은 다시 읽어 둔 상태다.
  * 응답을 잃어 결과를 모르면(타임아웃·연결 끊김) 서버는 이미 도착을 기록하고 현재 섬까지 옮겼을 수 있다 —
  * islandCommands.switchCurrent 와 같은 분류·규칙으로 소속을 다시 읽어 그 섬이 현재 섬이면 성공으로, 아니면 원래 오류를 올린다.
  * (그대로 두면 로컬은 옛 현재 섬을 들고 있어 이후 [돌아가기]가 «이미 서 있는 섬»으로 착각해 요청 없이 홈만 연다.)
@@ -120,7 +122,7 @@ type IntentKeys = ReturnType<typeof intentKeyPool>;
  * `Idempotency-Key` 는 현재 섬 이동(switchCurrent)과 같은 의도 키 풀·UUID 생성기로 만든다 — 섬당 의도 하나, 실패(결과 불명 포함)로
  * 끝나면 키를 그대로 둬 같은 섬으로의 재시도가 같은 키로 나가고, 도착 POST 응답을 받으면 바로 해제한다(아래 주석).
  */
-async function arrive(e: any, keys: IntentKeys, islandId: string): Promise<boolean> {
+export async function arrive(e: any, keys: IntentKeys, islandId: string): Promise<boolean> {
   const key = keys.key('arrive', islandId);
   try {
     const { membershipStatus } = await arriveAtIsland(islandId, key);
@@ -387,7 +389,8 @@ function IslandBubble({
  * 섬을 누르면 말풍선(이름·소개·주민·평균 집중·항해 시간 + 행동)이 뜬다. 임시 입구는 뗏목 행선지 「망원경」(N5).
  *
  * - 소속 섬: 한 번 가 봤으면 [돌아가기] 로 항해 없이 현재 섬을 옮겨 홈으로, 망원경으로 가입만 하고 안 가 봤으면 [항해하기].
- * - 그 밖의 섬: [항해하기] 로 구경하고(`full` 이어도 된다), 가입은 [바로 가입]/[가입 신청](`origin: 'telescope'` —
+ * - [항해하기]는 한마디 시트 → 바다 항해 집중(`POST /focus-sessions/sea`, GROMO-2310) → 항해 화면(`sea`)이다. 섬에는 정박 뒤 내린다.
+ * - 그 밖의 섬: [항해하기]는 정원이 차도 된다(`full`), 가입은 [바로 가입]/[가입 신청](`origin: 'telescope'` —
  *   즉시 가입이어도 현재 섬을 옮기지 않는다. 처음 한 번은 항해해서 가야 한다).
  * - 직접 넣은 섬(`slot=pinned`, GROMO-2273): 말풍선에 [망원경에서 빼기] — `DELETE` 가 성공하면 열린 목록이 알림(`onTelescopeChanged`)으로
  *   다시 읽고 서버가 그 자리를 무작위 섬으로 채운다. 잡지에서 넣은 섬(`pinnedFrom=magazine`)에만 「찜」 리본과 잡지 칸 미리보기(칸이 없으면 자리표시)가 붙는다.
@@ -407,9 +410,6 @@ export function Telescope({ e }: { e: any }) {
     if (errorText && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(errorText);
   }, [errorText]);
   const sail = useIslandSailing(e);
-  // 풀은 이 화면 수명 — 결과 불명 뒤 화면을 나갔다 오면 새 키다(도착은 같은 섬이면 결과가 같아 무해). 세션 세대 동안 유지하려면 islandCommands.arrive + scoped().keys 로 옮긴다(후속).
-  const keyPool = useRef<IntentKeys | null>(null);
-  const keys = (keyPool.current ??= intentKeyPool(uuid));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // 가입 요청 중인 섬 — 그 섬의 버튼만 «처리 중»으로 보인다. joiningRef 는 서버 중복 호출 방지(한 번에 한 가입 요청만 나간다).
   const [joiningId, setJoiningId] = useState<string | null>(null);
@@ -417,6 +417,11 @@ export function Telescope({ e }: { e: any }) {
   // 빼기 요청 중 — 가입처럼 한 번에 하나만 나가고, 그동안 말풍선의 모든 버튼이 막힌다.
   const [unpinning, setUnpinning] = useState(false);
   const unpinningRef = useRef(false);
+  // [항해하기] → 한마디 시트(GROMO-2310). starting 은 시작 요청 중 — 시트를 닫거나 다시 누를 수 없다.
+  const [preparing, setPreparing] = useState<TelescopeItem | null>(null);
+  const [starting, setStarting] = useState(false);
+  const startingRef = useRef(false);
+  const [startError, setStartError] = useState<string | undefined>();
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -430,14 +435,17 @@ export function Telescope({ e }: { e: any }) {
   // 지금 구경(방문) 중인 섬 — 이 섬이 «항해 중인 섬»이다. [항해하기] 요청·연출 중에는 섬 칸이 막히고 연출이 화면을 덮어
   // 말풍선이 열리지 않으므로 따로 보지 않는다.
   const voyagingId = serverVisit(s)?.island.id;
-  const popupOpen = !!selected;
+  const popupOpen = !!selected || !!preparing;
   // 말풍선이 열려 있으면 뒤로가기는 말풍선만 닫는다. 항해 중 뒤로가기 삼킴(useIslandSailing)과 겹치지 않게
   // 항해·이동을 시작할 때 말풍선을 먼저 닫고, 요청 중에는 섬이 눌리지 않아 말풍선이 열리지 않는다.
   // 정리는 «내 함수가 아직 걸려 있을 때만» 지운다 — 남이 갈아 끼운 삼킴을 지우지 않는다.
   useEffect(() => {
     if (!popupOpen || !e.backOverride) return;
     const closePopup = () => {
+      // 항해 시작 요청 중에는 시트를 닫지 않고 삼킨다
+      if (startingRef.current) return true;
       setSelectedId(null);
+      setPreparing(null);
       return true;
     };
     e.backOverride.current = closePopup;
@@ -446,21 +454,70 @@ export function Telescope({ e }: { e: any }) {
     };
   }, [popupOpen, e.backOverride]);
 
+  // [항해하기] = 바다 항해 집중(GROMO-2310). 섬 구경(arrive·visit)으로 들어가지 않는다 — 섬에는 항해를 마치고 내린다.
   const voyage = (item: TelescopeItem) => {
-    // 집중·휴식 중에는 섬을 구경할 수 없다 — ServerVisit 의 [섬 둘러보기]와 같은 안내.
+    // 집중·휴식 중에는 새 항해를 시작할 수 없다 — ServerVisit 의 [섬 둘러보기]와 같은 안내.
     if (s.session) return e.notify(t('islandVisit.sessionBlocksBrowse'));
     setSelectedId(null);
-    return sail.sail(item.name, async () => {
-      // 망원경으로 가입한 소속 섬의 첫 도착이면 서버가 현재 섬을 옮겼다 — 소속을 다시 읽고 새 섬 홈으로 간다.
-      if (await arrive(e, keys, item.islandId)) return () => e.reset('home');
-      // 비주민은 구경(방문 모드)으로 들어간다 — ServerVisit 의 [섬 둘러보기]와 같은 길이다.
-      // TODO E1-5 항해 집중이 생기면 바다 담당이 이 구경 진입을 항해 집중으로 교체한다
-      await e.islands.visit(item.islandId);
-      return () => {
-        e.dispatch({ type: 'SERVER_VISITING', islandId: item.islandId });
-        e.replace('visitIsland', item.islandId);
-      };
-    });
+    setStartError(undefined);
+    setPreparing(item);
+  };
+
+  // 시작 API 는 한마디를 받지 않는다 — 출항이 성공한 뒤에 한마디를 따로 저장하고, 한마디가 실패해도 출항은 유지한다.
+  const startVoyage = async (item: TelescopeItem, remark: string) => {
+    if (startingRef.current) return;
+    startingRef.current = true;
+    setStarting(true);
+    setStartError(undefined);
+    const gen = sessionGeneration();
+    const alive = () => mounted.current && sessionGeneration() === gen;
+    // 잠금은 실패 분기에서만 먼저 푼다 — 성공하면 한마디 저장·화면 전환까지 시트의 시작·닫기·뒤로가기를 막는다(중복 시작 방지)
+    const unlock = () => {
+      startingRef.current = false;
+      if (mounted.current) setStarting(false);
+    };
+    // 진행 세션 화면으로 — 출항 성공·재시도 복원·충돌 복구가 같이 쓴다
+    const enter = (route: Route, name?: string) => {
+      setPreparing(null);
+      e.reset(route, name);
+    };
+    let view: Awaited<ReturnType<typeof e.focus.startSea>>;
+    try {
+      view = await e.focus.startSea(item.islandId);
+    } catch (thrown) {
+      unlock();
+      if (!alive()) return;
+      // 망원경 시간대가 바뀌어 목적지가 빠졌다(명령 계층이 목록을 다시 읽고도 없었다) — 안내하고 새 목록으로
+      if ((thrown as { code?: string })?.code === 'SEA_DESTINATION_UNAVAILABLE') {
+        setPreparing(null);
+        e.notify(t('telescope.destinationGone'));
+        list.reload();
+        return;
+      }
+      // 다른 기기가 먼저 출항·집중을 시작했다 — 다시 눌러도 계속 충돌하므로 정본을 읽어 그 진행 세션 화면으로 간다
+      if ((thrown as { code?: string })?.code === 'STATE_CONFLICT') {
+        const route = await e.focus.recover().catch(() => null);
+        if (!alive()) return;
+        if (route === 'sea' || route === 'focus' || route === 'rest') return enter(route);
+      }
+      setStartError(errorTextOr(thrown, 'telescope.sailFailed'));
+      return;
+    }
+    // 응답 유실 재시도면 명령 계층이 돌려준 것은 current 정본이다 — 그사이 다른 기기가 항해를 끝내고 섬 집중을
+    // 시작했으면 그 화면으로 간다(null = 진행 세션 없음 → 바다 표류 화면). 바다가 아니면 한마디도 저장하지 않는다.
+    const route = view ? sessionRoute(view) : 'sea';
+    try {
+      if (remark && route === 'sea')
+        await saveSeaRemark(e, remark).catch(() => e.notify(t('openSea.remarkFailed')));
+      if (!alive()) return;
+      // 라우트 인자는 목적지 이름 — 서버가 세션에 이름을 싣기 전(T1)에도 항해 화면이 섬 이름을 쓴다
+      enter(
+        route,
+        route === 'sea' && (!view || view.islandId === item.islandId) ? item.name : undefined,
+      );
+    } finally {
+      unlock();
+    }
   };
 
   const goBack = (item: TelescopeItem) => {
@@ -657,6 +714,17 @@ export function Telescope({ e }: { e: any }) {
           onUnpin={() => {
             askUnpin(selected);
           }}
+        />
+      )}
+      {preparing && (
+        <SeaVoyagePreparation
+          destinationName={preparing.name}
+          pending={starting}
+          error={startError}
+          onStart={(remark) => {
+            startVoyage(preparing, remark);
+          }}
+          onClose={() => setPreparing(null)}
         />
       )}
     </View>

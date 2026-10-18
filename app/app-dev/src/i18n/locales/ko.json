@@ -70,7 +70,10 @@
     "PROMOTION_ASSET_NOT_OWNED": "아직 없는 꾸미기 재료가 있어요",
     "PROMOTION_LOCKED": "자정이 지나 홍보를 고칠 수 없어요",
     "PROMOTION_NOT_FOUND": "홍보를 찾지 못했어요",
-    "MAGAZINE_ISSUE_NOT_FOUND": "잡지 호를 찾을 수 없어요"
+    "MAGAZINE_ISSUE_NOT_FOUND": "잡지 호를 찾을 수 없어요",
+    "SEA_DESTINATION_UNAVAILABLE": "지금은 갈 수 없는 섬이에요.",
+    "SEA_SESSION_NO_REST": "항해 중에는 쉴 수 없어요.",
+    "SEA_REMARK_LOCKED": "한마디는 5분에 한 번만 바꿀 수 있어요."
   },
   "time": {
     "minutes": "{{m}}분",
@@ -683,7 +686,9 @@
       "title": "항해를 그만둘까요?",
       "body": "항해 중인 섬은 바로 뺄 수 없어요. 항해를 그만두고 망원경에서 빼면 원래 섬으로 돌아가요.",
       "ok": "그만두고 빼기"
-    }
+    },
+    "sailFailed": "항해를 시작하지 못했어요. 다시 시도해 주세요.",
+    "destinationGone": "이 섬은 지금 망원경에서 사라졌어요. 새 목록을 보여 드릴게요."
   },
   "observatory": {
     "searchTitle": "섬 찾기",
@@ -965,14 +970,14 @@
     "disembark": "섬에 내리기",
     "stop": "항해 그만두기",
     "telescope": "망원경",
-    "destinationReached": "{{name}}에 도착했어요",
+    "destinationReached": "{{name}} 앞 정박 중",
     "checkingArrival": "도착 확인 중…",
     "remaining": "{{name}}까지 {{minutes}}분",
     "emotes": "이모트",
     "readyTitle": "섬에 내릴까요?",
-    "stopTitle": "항해를 그만둘까요?",
+    "stopTitle": "{{name}} 항해를 그만둘까요?",
     "readyBody": "섬에 내려 이번 항해를 마무리해요.",
-    "stopBody": "아직 섬에 도착하지 않았어요. 그만두면 먼바다에 머물러요.",
+    "stopBody": "지금까지 {{minutes}}분은 기록에 남아요",
     "departed": "바다를 떠난 고양이예요",
     "messageTitle": "한마디 쓰기",
     "signInBody": "로그인하면 다른 고양이에게 한마디를 남길 수 있어요.",
@@ -992,6 +997,13 @@
       "hearts": "하트",
       "sleepy": "졸려요",
       "laugh": "웃음"
-    }
+    },
+    "destinationFallback": "목적지",
+    "remarkLocked": "한마디는 고친 뒤 5분 동안 바꿀 수 없어요",
+    "remarkFailed": "한마디를 띄우지 못했어요. 바다에서 다시 써 주세요.",
+    "emoteTooFrequent": "이모트는 잠시 뒤에 다시 보낼 수 있어요",
+    "backBlocked": "항해 중에는 [항해 그만두기]로 바다를 떠나요",
+    "finishChecking": "항해 결과를 확인하고 있어요. 연결되면 이어서 처리해요.",
+    "finishUnconfirmed": "항해 결과를 확인하지 못했어요. 기록에서 확인해 주세요."
   }
 }
