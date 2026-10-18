@@ -40,7 +40,7 @@ const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
 /**
- * 서버 `member` → 표시 모델. `name`·`catColor` 는 서버 보강(T1) 전에는 없을 수 있어 `'???'`·`'gray'` 로 둔다.
+ * 서버 `member` → 표시 모델. `name`·`catColor` 는 서버가 싣지만(2330) 보강 전 기록된 옛 해시엔 null 이라 `'???'`·`'gray'` 로 폴백한다.
  * `activeSeconds` 는 서버 발행 시각 기준값이라 받은 시각을 기준점으로 삼는다(기기·서버 시계 차이를 타지 않는다).
  */
 export function seaMemberFromWire(raw: unknown, receivedAt: number): SeaLiveMember | null {

@@ -318,7 +318,8 @@ public class InboundEventService {
     }
 
     /**
-     * 주민 첫 도착(GROMO-2302) 10필드 → 7필드. {@link #memberEvent} 와 달리 params 를 그대로 쓰지 않고
+     * 주민 첫 도착(GROMO-2302) 봉투 10필드 → 7필드(봉투 기준 — payload 는 {@link #ARRIVAL_FIELDS} 5필드만).
+     * {@link #memberEvent} 와 달리 params 를 그대로 쓰지 않고
      * {@link #ARRIVAL_FIELDS} 만 복사한다 — 이름·털색을 싣는 사건이라 생산자가 필드를 늘려도 앱으로 새지 않게 한다.
      * {@code aggregateVersion} 은 봉투 version({@code ISLAND_ARRIVAL} 축)이다.
      */
