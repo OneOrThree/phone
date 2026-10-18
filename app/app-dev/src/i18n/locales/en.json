@@ -450,6 +450,8 @@
   },
   "focusFlow": {
     "common": {
+      "holdEndFocus": "Hold 3s to end",
+      "holdEndHint": "Hold for 3 seconds to end focus. Release early to cancel.",
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
       "myLittleBoat": "My Little Raft",

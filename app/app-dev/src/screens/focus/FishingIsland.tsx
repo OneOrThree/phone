@@ -1,7 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics';
+import { componentTokens } from '@/design-system/tokens';
+import { IslandOcean } from '@/screens/island/IslandOcean';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
   Animated,
+  Easing,
   AppState,
   Image,
   PanResponder,
@@ -1252,6 +1256,8 @@ export function FiButton({
   left = false,
   bg,
   style,
+  holdToConfirm = false,
+  haptics = true,
 }: {
   title: string;
   onPress: () => void;
@@ -1261,13 +1267,62 @@ export function FiButton({
   left?: boolean;
   bg?: string;
   style?: any;
+  holdToConfirm?: boolean;
+  haptics?: boolean;
 }) {
+  const holdProgress = useRef(new Animated.Value(0)).current;
+  const holding = useRef(false);
+  const pulseTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopHold = useCallback(() => {
+    holding.current = false;
+    if (pulseTimer.current) clearInterval(pulseTimer.current);
+    pulseTimer.current = null;
+    holdProgress.stopAnimation();
+    holdProgress.setValue(0);
+  }, [holdProgress]);
+  useEffect(() => {
+    if (!holdToConfirm) return;
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') stopHold();
+    });
+    return () => {
+      listener.remove();
+      stopHold();
+    };
+  }, [holdToConfirm, stopHold]);
+  const startHold = () => {
+    stopHold();
+    holding.current = true;
+    Animated.timing(holdProgress, {
+      toValue: 1,
+      duration: componentTokens.focusEndHold.durationMs,
+      easing: Easing.linear,
+      useNativeDriver: false,
+    }).start();
+    if (haptics && Platform.OS !== 'web') {
+      const pulse = () =>
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      pulse();
+      pulseTimer.current = setInterval(pulse, componentTokens.focusEndHold.hapticIntervalMs);
+    }
+  };
+  const completeHold = () => {
+    if (!holding.current) return;
+    stopHold();
+    holdProgress.setValue(1);
+    onPress();
+  };
   return (
     <Pressable
       testID={id}
       accessibilityRole="button"
       accessibilityLabel={title}
-      onPress={onPress}
+      accessibilityHint={holdToConfirm ? t('focusFlow.common.holdEndHint') : undefined}
+      onPress={holdToConfirm ? undefined : onPress}
+      onPressIn={holdToConfirm ? startHold : undefined}
+      onPressOut={holdToConfirm ? stopHold : undefined}
+      onLongPress={holdToConfirm ? completeHold : undefined}
+      delayLongPress={holdToConfirm ? componentTokens.focusEndHold.durationMs : undefined}
       style={({ pressed }) => [
         {
           minHeight: 44,
@@ -1276,7 +1331,8 @@ export function FiButton({
           borderRadius: 999,
           borderWidth: 2,
           borderColor: OUTLINE,
-          backgroundColor: bg ?? (primary ? C.pink : C.cream),
+          backgroundColor: holdToConfirm ? C.cream : (bg ?? (primary ? C.pink : C.cream)),
+          overflow: holdToConfirm ? 'hidden' : undefined,
           boxShadow: `0px ${pressed ? 1 : 4}px 0px ${OUTLINE}`,
           transform: [{ translateY: pressed ? 3 : 0 }],
           justifyContent: 'center',
@@ -1284,6 +1340,20 @@ export function FiButton({
         style,
       ]}
     >
+      {holdToConfirm && (
+        <Animated.View
+          testID={id ? `${id}-progress` : undefined}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: holdProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+            backgroundColor: componentTokens.focusEndHold.fill,
+          }}
+        />
+      )}
       <Text
         numberOfLines={1}
         style={{
@@ -1294,7 +1364,7 @@ export function FiButton({
           textAlign: left ? 'left' : 'center',
         }}
       >
-        {title}
+        {holdToConfirm ? t('focusFlow.common.holdEndFocus') : title}
       </Text>
     </Pressable>
   );

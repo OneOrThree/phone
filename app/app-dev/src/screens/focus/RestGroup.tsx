@@ -548,6 +548,9 @@ export function RestGroup({
             <FiButton
               primary
               id="confirm-end-rest"
+              key={pausedSession.id}
+              holdToConfirm
+              haptics={state.settings.haptics}
               title={t('focusFlow.common.endFocus')}
               style={{ flex: 1 }}
               onPress={() => {

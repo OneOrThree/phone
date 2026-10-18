@@ -2688,11 +2688,15 @@ function FocusFlow({ e: environment }: any) {
       );
     if (r === 'focus' && tutorialStep === 18)
       return (
-        <TutorialSpotlight
-          target={confirmEndTarget.rect}
-          text={t('focusFlow.tutorial.step18')}
-          action={{ title: t('focusFlow.common.endFocus'), onPress: finish }}
-        >
+        <TutorialSpotlight target={confirmEndTarget.rect} text={t('focusFlow.tutorial.step18')}>
+          {(screenReader || !confirmEndTarget.rect) && (
+            <FiButton
+              title={t('focusFlow.common.endFocus')}
+              holdToConfirm
+              haptics={s.settings.haptics}
+              onPress={finish}
+            />
+          )}
           <Btn title={t('focusFlow.common.continueAction')} kind="ghost" onPress={cancelEnd} />
         </TutorialSpotlight>
       );
@@ -3237,6 +3241,9 @@ function FocusFlow({ e: environment }: any) {
                       primary
                       title={t('focusFlow.common.endFocus')}
                       id="confirm-finish"
+                      key={s.session?.id}
+                      holdToConfirm
+                      haptics={s.settings.haptics}
                       onPress={finish}
                     />
                   </View>

@@ -199,7 +199,8 @@ test('내가 직접 집중 종료를 부른 뒤 응답 전에 도착한 같은 �
   });
 
   await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('confirm-finish'), 'pressIn');
+  await fireEvent(screen.getByTestId('confirm-finish'), 'longPress');
   assert.equal(finish.mock.calls.length, 1);
 
   onTransition!(kickedTransition());
@@ -233,7 +234,8 @@ test('종료 요청 중 무시한 완료 이벤트가 있고 finish()가 실패�
   });
 
   await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('confirm-finish'), 'pressIn');
+  await fireEvent(screen.getByTestId('confirm-finish'), 'longPress');
   onTransition!(kickedTransition());
   assert.equal(home.mock.calls.length, 0);
 
@@ -256,8 +258,10 @@ test('종료 확인을 연달아 눌러도 finish()는 한 번만 부른다', as
   const { screen } = await mount(serverFocusState(), { focus: { finish } });
 
   await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('confirm-finish'), 'pressIn');
+  await fireEvent(screen.getByTestId('confirm-finish'), 'longPress');
+  await fireEvent(screen.getByTestId('confirm-finish'), 'pressIn');
+  await fireEvent(screen.getByTestId('confirm-finish'), 'longPress');
 
   assert.equal(finish.mock.calls.length, 1);
 });
@@ -267,7 +271,8 @@ test('내가 종료한 세션의 완료 이벤트가 finish() 응답 뒤에 늦�
   const { screen, notify, home, reset } = await mount(serverFocusState(), { focus: { finish } });
 
   await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('confirm-finish'), 'pressIn');
+  await fireEvent(screen.getByTestId('confirm-finish'), 'longPress');
   await act(async () => {});
   assert.equal(reset.mock.calls[0]?.[0], 'focusResult');
 
@@ -284,7 +289,8 @@ test('finish()가 응답 유실로 실패한 뒤 늦게 온 내 세션 완료 �
   const { screen, notify, home } = await mount(serverFocusState(), { focus: { finish } });
 
   await fireEvent.press(screen.getByTestId('end-focus'));
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent(screen.getByTestId('confirm-finish'), 'pressIn');
+  await fireEvent(screen.getByTestId('confirm-finish'), 'longPress');
   await act(async () => {});
   assert.equal(home.mock.calls.length, 0);
 
