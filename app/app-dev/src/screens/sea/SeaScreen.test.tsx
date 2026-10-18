@@ -236,10 +236,14 @@ test('다음 페이지 이동은 중간 스크롤 이벤트 때문에 이전 페
 
 test('게스트와 한마디 쿨다운 상태에서는 저장 요청을 보낼 수 없다', async () => {
   const p = props();
-  const screen = await render(<SeaScreen {...p} guest />);
+  const onSignIn = jest.fn();
+  const screen = await render(<SeaScreen {...p} guest onSignIn={onSignIn} />);
   await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
   expect(screen.getByText('로그인하면 다른 고양이에게 한마디를 남길 수 있어요.')).toBeTruthy();
   expect(screen.queryByLabelText('한마디 띄우기')).toBeNull();
+  expect(screen.getByLabelText('로그인하기')).toBeEnabled();
+  await fireEvent.press(screen.getByLabelText('로그인하기'));
+  expect(onSignIn).toHaveBeenCalledTimes(1);
   await screen.rerender(<SeaScreen {...p} messageCooldownSeconds={299} />);
   expect(screen.getByText('5분 뒤에 다시 쓸 수 있어요')).toBeTruthy();
   expect(p.onMessage).not.toHaveBeenCalled();

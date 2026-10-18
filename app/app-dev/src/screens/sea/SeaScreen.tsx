@@ -21,7 +21,6 @@ export type SeaScreenProps = {
   voyage: SeaVoyage | null;
   /** 서버 종료/미확인 결과 응답을 받은 뒤에만 전달한다. */
   result: SeaArrival | null;
-  guest?: boolean;
   messageCooldownSeconds?: number;
   /** 재시도 멱등 키와 버전, 인벤토리 갱신은 세션 명령 어댑터에서 관리한다. */
   onFinish: (sessionId: string, intent: 'disembark' | 'stop') => Promise<void>;
@@ -30,9 +29,12 @@ export type SeaScreenProps = {
   onTelescope: () => void;
   onMessage: (message: string) => Promise<void>;
   onEmote: (emote: SeaEmote) => Promise<void>;
-  onSignIn?: () => void;
   rewardCatalog?: Readonly<Record<string, SeaRewardArt>>;
-};
+} & (
+  | { guest?: false; onSignIn?: () => void }
+  // 게스트 여부가 동적이면 로그인 진입 경로도 반드시 함께 제공한다.
+  | { guest: boolean; onSignIn: () => void }
+);
 
 type Panel = 'stop' | 'message' | 'emote' | { userId: string } | null;
 
