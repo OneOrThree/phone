@@ -315,3 +315,35 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 | 관측 | payload/본문/토큰 비노출, command→event→relay→router 추적, 실패메트릭 | 각 단계 |
 
 문서 자체 검증은 상대 링크 존재, 16개 행/enum 중복 없음, 원본 14종 + 후속 2종(`focus.golden`·`island.member.arrived`)과 정확 집합 일치, 세 문서의 신규/호환 경로·단계 구분 및 미정 정책 보존으로 제한한다.
+
+## 9. 배포·운영 — 주민 첫 도착 사건(GROMO-2302)
+
+`island.member.arrived` 는 Data 생산 스위치 `island.arrival.realtime-events-enabled`(env `ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED`, **기본 false**) 뒤에 있다. 꺼져 있어도 도착 API 와 `arrivedBefore` 판정은 그대로 동작하고, 사건만 적지 않는다(skip 메트릭 `island.arrival.events.skipped`).
+
+**① 배포 순서(강제).** Realtime(이 type 을 받는 버전) → Data → 스위치 ON. dev 는 Secrets Manager `gromo/dev/env` 에 `ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED=true` 를 넣고 `ops-redeploy.dev` 로 data-api 를 다시 띄운다. 순서가 뒤집히면 옛 Realtime 이 400 을 돌려주고 relay 가 그 행을 재시도해도 풀리지 않아 `ISLAND_ARRIVAL/{islandId}` 축이 막힌다 — 축이 `island.updated` 의 `ISLAND` 와 나뉘어 있어 **그 섬의 도착 소식만** 멈추고 다른 섬 사건은 영향 없다.
+
+**② ON 직후 10분 점검 SQL.** `event_outbox_deliveries` 에는 상태 열이 없다 — 상태는 `delivered_at`(전달 완료)·`attempt_count`·`last_error`·`next_attempt_at` 조합으로 읽는다(`schema.dbml`, relay 는 재시도 불가 실패도 행을 지우지 않고 `last_error` 에 남긴다).
+
+```sql
+-- 최근 10분 생산 건수
+SELECT count(*) FROM event_outbox
+ WHERE type = 'island.member.arrived' AND created_at > now() - interval '10 minutes';
+
+-- 최근 10분 전달 상태별 건수
+SELECT CASE WHEN d.delivered_at IS NOT NULL THEN 'delivered'
+            WHEN d.attempt_count = 0 THEN 'pending'
+            ELSE 'failing' END AS state,
+       count(*), max(d.attempt_count) AS max_attempts, max(d.last_error) AS sample_error
+  FROM event_outbox_deliveries d JOIN event_outbox o ON o.id = d.outbox_id
+ WHERE o.type = 'island.member.arrived' AND o.created_at > now() - interval '10 minutes'
+ GROUP BY 1;
+```
+
+**③ ON 직후 1회성 소식.** V127 은 백필하지 않으므로(`member_arrived_at` NULL) 기존 주민의 다음 망원경 도착 1회는 «첫 도착» 으로 판정돼 소식이 나갈 수 있다. 사람·섬당 최대 1건이고 정상이다.
+
+**④ 되돌릴 신호.**
+- `failing` 행이 쌓이고 `last_error` 가 `HTTP 400` — Realtime 이 이 type 을 모르는 버전이다(①의 순서 위반). 스위치를 OFF 로 돌리고 Realtime 을 먼저 배포한다.
+- `events` 구독 거절(`NOT_A_MEMBER`·`INVALID_REQUEST`) 폭증 — 앱이 주민이 아닌 화면(방문)에서 구독 중이다. 앱 쪽 수정 대상이지 서버 롤백 사유가 아니다.
+- `MOVEMENT_TOO_FREQUENT` 증가 — `events` 구독 시도 창 초과도 같은 코드를 써서 이동과 섞여 보인다. 전용 카운터는 후속이다.
+
+**⑤ 수동 스모크.** 서버만으로는 앱 토스트를 확인할 수 없다. 주민 계정 하나로 `/topic/islands/{islandId}/events` 를 구독해 두고, 다른 계정이 그 섬에 망원경 가입 → `POST /islands/{islandId}/arrivals` 하면 `island.member.arrived` 프레임 1건이 와야 하고, 같은 계정의 두 번째 도착엔 오지 않아야 한다(`IslandRealtimeIntegrationTest.memberArrivedReachesResidentsOnly` 와 같은 시나리오).

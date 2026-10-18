@@ -154,6 +154,18 @@ class ChatOutboundChannelInterceptorTest {
         verify(socket, never()).close(any(CloseStatus.class));
     }
 
+    @Test
+    void switchedOffFilterDeliversIslandEventsWithoutReadingTheArriver() {
+        // OFF = 이 기능 이전과 같은 경로 — 차단 관계여도 events 프레임은 멤버십만 보고 나간다.
+        when(blockedUsers.enabled()).thenReturn(false);
+        UUID blocked = UUID.randomUUID();
+        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+
+        Message<?> fromBlocked = arrival(blocked);
+        assertThat(interceptor.beforeHandle(fromBlocked, null, null)).isSameAs(fromBlocked);
+        verify(blockedUsers, never()).hasBlocked(any(), any());
+    }
+
     private Message<?> arrival(UUID arriver) {
         return frame("socket", "/topic/islands/" + island + "/events",
                 "{\"type\":\"island.member.arrived\",\"payload\":{\"userId\":\"" + arriver + "\"}}");

@@ -73,4 +73,15 @@ class RealtimeOutboxEndpointsTest {
                 .as("Kafka 는 선택이다 — 기본은 HTTP")
                 .hasToString("${OUTBOX_RELAY_REALTIME_KAFKA_ENABLED:false}");
     }
+
+    @Test
+    @DisplayName("주민 첫 도착 사건 생산 스위치는 기본 OFF 다 — realtime 이 먼저 배포되기 전에 켜지면 ISLAND_ARRIVAL 축이 막힌다")
+    void islandArrivalSwitchDefaultsToOff() throws IOException {
+        PropertySource<?> yml = new YamlPropertySourceLoader()
+                .load("satellites", new ClassPathResource("application-satellites.yml")).get(0);
+
+        // 코드 쪽 기본값(@Value 의 :false)은 IslandArrivalEvents 생성자가 같은 값을 쓴다 — 둘 다 OFF 여야 한다.
+        assertThat(yml.getProperty("island.arrival.realtime-events-enabled"))
+                .hasToString("${ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED:false}");
+    }
 }
