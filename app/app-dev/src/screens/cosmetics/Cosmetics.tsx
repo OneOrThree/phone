@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Image } from 'react-native';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
 import { assets, cat } from '@/constants/assets';
+import { CatOutfitLayers } from '@/components/CatOutfitLayers';
 import { C } from '@/design-system/primitives';
 import { State, Island } from '@/services/model';
 export function Scarf({ size = 60 }: { size?: number }) {
@@ -62,6 +63,19 @@ export function BoatPortrait({ state, height = 270 }: { state: State; height?: n
       />
       <View style={{ position: 'absolute', top: 60, left: '50%', marginLeft: -47 }}>
         <Image source={cat(state.color, 'idle')} style={{ width: 94, height: 94 }} />
+        {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림과 같은 94×94 상자 */}
+        <View
+          pointerEvents="none"
+          style={{ position: 'absolute', left: 0, top: 0, width: 94, height: 94 }}
+        >
+          <CatOutfitLayers
+            outfit={{
+              head: state.equipped.head ?? null,
+              neck: state.equipped.neck ?? null,
+              shoes: state.equipped.shoes ?? null,
+            }}
+          />
+        </View>
         {state.equipped.clothes !== 'default' && (
           <View style={{ position: 'absolute', top: 54, left: 19 }}>
             <Scarf size={58} />

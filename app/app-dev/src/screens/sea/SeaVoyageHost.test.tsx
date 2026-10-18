@@ -5,7 +5,8 @@ import { act, fireEvent, render } from '@testing-library/react-native';
 import { AppState } from 'react-native';
 import { ApiError } from '@/services/api/client';
 import { updateSeaRemark } from '@/services/api/focusSessions';
-import { getTelescope } from '@/services/api/telescope';
+import { getMyInventory } from '@/services/api/shop';
+import { arriveAtIsland, getTelescope } from '@/services/api/telescope';
 import { SeaVoyageHost } from './SeaVoyageHost';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
@@ -22,12 +23,17 @@ jest.mock('@/services/api/focusSessions', () => ({
 }));
 jest.mock('@/services/api/telescope', () => ({
   ...jest.requireActual('@/services/api/telescope'),
+  arriveAtIsland: jest.fn(),
   getTelescope: jest.fn(async () => ({
     items: [
       { islandId: 'dest', name: '목록섬' },
       { islandId: 'dest-b', name: '새목적섬' },
     ],
   })),
+}));
+jest.mock('@/services/api/shop', () => ({
+  ...jest.requireActual('@/services/api/shop'),
+  getMyInventory: jest.fn(async () => ({ clothes: [], decor: [], hulls: [], equipped: {} })),
 }));
 const mockRoom = { sendEmote: jest.fn(() => true), close: jest.fn(), reconnect: jest.fn() };
 let mockRoomOpts: any;
@@ -448,6 +454,129 @@ test('종료 유실 대기 중 세션이 다른 id 로 바뀌면 재연결·복�
   await act(async () => mockAppStateChange('active'));
   expect(e.focus.finish).toHaveBeenCalledTimes(1);
   expect(e.focus.recover).toHaveBeenCalledTimes(2);
+});
+
+describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
+  const arrivalEnv = (extra: Record<string, unknown> = {}): any =>
+    env({
+      route: 'seaArrival',
+      detail: JSON.stringify({
+        finish: {
+          recordId: 'r',
+          islandId: 'dest',
+          arrived: true,
+          activeSeconds: 1800,
+          seaReward: { grantedProductIds: [], minutesToNextTier: 12 },
+        },
+        destinationName: '별고래섬',
+      }),
+      state: { name: '나냥', color: 'black', session: null, equipped: {} },
+      dispatch: jest.fn(),
+      islands: { sync: jest.fn(async () => ({})), visit: jest.fn(async () => {}) },
+      reset: jest.fn(),
+      ...extra,
+    });
+
+  test('seaReward 의 남은 시간을 보여 준다', async () => {
+    const screen = await render(<SeaVoyageHost e={arrivalEnv()} />);
+    expect(screen.getByText('다음 단계까지 12분')).toBeTruthy();
+  });
+
+  test('주민 첫 도착(arrivedBefore=false)이면 환영 뒤 주민 홈', async () => {
+    (arriveAtIsland as jest.Mock).mockResolvedValue({
+      islandId: 'dest',
+      arrivedBefore: false,
+      membershipStatus: 'active',
+      currentIslandId: 'dest',
+    });
+    const e = arrivalEnv();
+    const screen = await render(<SeaVoyageHost e={e} />);
+    await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
+    await act(async () => {});
+    expect(e.notify).toHaveBeenCalledWith(expect.stringContaining('환영해요!'));
+    expect(e.reset).toHaveBeenCalledWith('home');
+  });
+
+  const member = () =>
+    (arriveAtIsland as jest.Mock).mockResolvedValue({
+      islandId: 'dest',
+      arrivedBefore: true,
+      membershipStatus: 'active',
+      currentIslandId: 'dest',
+    });
+
+  test('인벤토리 응답이 늦어도 응답을 받은 뒤에 SHOP_SYNC 하고 그 다음 한 번 이동한다', async () => {
+    member();
+    (getMyInventory as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ clothes: [], decor: [], hulls: [], equipped: {} }), 200),
+        ),
+    );
+    const e = arrivalEnv();
+    const screen = await render(<SeaVoyageHost e={e} />);
+    await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
+    expect(e.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'SHOP_SYNC' }));
+    expect(e.reset).toHaveBeenCalledTimes(1);
+    expect(e.dispatch.mock.invocationCallOrder[0]).toBeLessThan(
+      e.reset.mock.invocationCallOrder[0],
+    );
+  });
+
+  test('인벤토리 재조회가 실패하면 SHOP_SYNC 없이 이동은 한 번', async () => {
+    member();
+    (getMyInventory as jest.Mock).mockRejectedValueOnce(new Error('x'));
+    const e = arrivalEnv();
+    const screen = await render(<SeaVoyageHost e={e} />);
+    await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
+    expect(e.reset).toHaveBeenCalledTimes(1);
+    expect(e.dispatch).not.toHaveBeenCalled();
+  });
+
+  test('인벤토리 재조회가 3초를 넘기면 기다리지 않고 이동하며 늦은 응답은 버린다', async () => {
+    member();
+    let resolve!: (v: unknown) => void;
+    (getMyInventory as jest.Mock).mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+    const e = arrivalEnv();
+    const screen = await render(<SeaVoyageHost e={e} />);
+    await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
+    expect(e.reset).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ clothes: [], decor: [], hulls: [], equipped: {} }));
+    expect(e.dispatch).not.toHaveBeenCalled();
+  }, 10000);
+
+  test('인벤토리 대기 중 화면을 떠나면(언마운트) 응답이 와도 dispatch·이동을 하지 않는다', async () => {
+    member();
+    const e = arrivalEnv();
+    const screen = await render(<SeaVoyageHost e={e} />);
+    // 재조회가 나가는 순간 사용자가 뒤로가기로 떠난다
+    (getMyInventory as jest.Mock).mockImplementationOnce(() => {
+      screen.unmount();
+      return new Promise((resolve) =>
+        setTimeout(() => resolve({ clothes: [], decor: [], hulls: [], equipped: {} }), 100),
+      );
+    });
+    await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
+    expect(e.dispatch).not.toHaveBeenCalled();
+    expect(e.reset).not.toHaveBeenCalled();
+  });
+
+  test('방문자는 환영 없이 방문 라우트로', async () => {
+    (arriveAtIsland as jest.Mock).mockResolvedValue({
+      islandId: 'dest',
+      arrivedBefore: true,
+      membershipStatus: 'none',
+      currentIslandId: null,
+    });
+    const e = arrivalEnv();
+    const screen = await render(<SeaVoyageHost e={e} />);
+    await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
+    await act(async () => {});
+    expect(e.notify).not.toHaveBeenCalled();
+    expect(e.islands.visit).toHaveBeenCalledWith('dest');
+    expect(e.dispatch).toHaveBeenCalledWith({ type: 'SERVER_VISITING', islandId: 'dest' });
+    expect(e.replace).toHaveBeenCalledWith('visitIsland', 'dest');
+  });
 });
 
 test('호스트 구독 콜백은 첫 렌더가 아니라 최신 e 를 쓴다(App 의 e·replace 는 렌더마다 새로 만든다)', async () => {

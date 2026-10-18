@@ -1570,3 +1570,124 @@ describe('friendlyRealtimeErrorMessage', () => {
     );
   });
 });
+
+describe('island.member.arrived (GROMO-2311)', () => {
+  const { memberArrivalFilter, parseMemberArrivedEvent } = jest.requireActual('./islandRealtime');
+  const ev = (over: Record<string, unknown> = {}, userId = 'u2') => ({
+    eventId: 'e1',
+    schemaVersion: 1,
+    type: 'island.member.arrived',
+    islandId: 'isl',
+    aggregateVersion: 3,
+    occurredAt: '2026-10-18T00:00:00Z',
+    payload: { islandId: 'isl', userId, name: '모모', catColor: 'gray', arrivedAt: 'x' },
+    ...over,
+  });
+
+  test('파서는 다른 type·섬을 버린다', () => {
+    expect(parseMemberArrivedEvent(ev(), 'isl')?.name).toBe('모모');
+    expect(parseMemberArrivedEvent(ev({ type: 'focus.emote' }), 'isl')).toBeNull();
+    expect(parseMemberArrivedEvent(ev(), 'other')).toBeNull();
+  });
+
+  test('eventId 중복·내 도착은 거르고 aggregateVersion 은 보지 않는다', () => {
+    const f = memberArrivalFilter('isl', () => 'me');
+    expect(f(ev())).not.toBeNull();
+    expect(f(ev())).toBeNull();
+    expect(f(ev({ eventId: 'e2', aggregateVersion: 1 }))).not.toBeNull();
+    expect(f(ev({ eventId: 'e3' }, 'me'))).toBeNull();
+  });
+});
+
+describe('홈 채널의 주민 소식 구독 (GROMO-2311)', () => {
+  const client = () => (Client as any).instances.at(-1);
+  beforeEach(() => {
+    (Client as any).instances.length = 0;
+  });
+  const open = (denied: number[] = []) =>
+    stompIslandChannel({
+      islandId: 'isl',
+      presence: false,
+      emote: false,
+      movement: true,
+      events: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => denied.push(1),
+    });
+  const count = (c: any, dest: string) => c.subs.filter((s: any) => s.dest === dest).length;
+
+  test('이동과 겹치는 코드(MOVEMENT_TOO_FREQUENT)의 첫 ERROR 는 events 를 끄지 않고 재접속에서 다시 구독, 이동 상태도 보존한다', () => {
+    const denied: number[] = [];
+    open(denied);
+    const c = client();
+    expect(count(c, '/topic/islands/isl/events')).toBe(1);
+    expect(count(c, '/topic/islands/isl/movement')).toBe(1);
+    c.opts.onStompError({ headers: { message: 'MOVEMENT_TOO_FREQUENT' } });
+    expect(denied).toEqual([]);
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/events')).toBe(2);
+    expect(count(c, '/topic/islands/isl/movement')).toBe(2);
+  });
+
+  test('events 와 무관한 코드(NOT_FOCUSING)는 events 판정에서 제외 — 재접속에서 /events 를 다시 구독한다', () => {
+    open();
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'NOT_FOCUSING' } });
+    c.opts.onConnect({});
+    c.opts.onStompError({ headers: { message: 'NOT_FOCUSING' } });
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/events')).toBe(3);
+  });
+
+  test('구분 불가 코드가 같은 코드로 두 번 거절되면 세 번째 접속에서 /events 를 건너뛰고 이동은 재구독한다', () => {
+    const denied: number[] = [];
+    open(denied);
+    const c = client();
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onConnect({});
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/events')).toBe(2);
+    expect(count(c, '/topic/islands/isl/movement')).toBe(3);
+    expect(denied).toEqual([]);
+  });
+
+  test('events + emote 동시 ON — events 거절은 응원 구독을 끊지 않는다', () => {
+    stompIslandChannel({
+      islandId: 'isl',
+      emote: true,
+      events: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    expect(count(c, '/topic/islands/isl/emotes')).toBe(1);
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/emotes')).toBe(2);
+    expect(count(c, '/topic/islands/isl/events')).toBe(2);
+    c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } });
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/emotes')).toBe(3);
+    expect(count(c, '/topic/islands/isl/events')).toBe(2);
+  });
+
+  test('events 구독이 60초 ERROR 없이 유지되면 strike 를 비운다 — 이후 ERROR 1회로는 차단되지 않는다', () => {
+    jest.useFakeTimers();
+    try {
+      open();
+      const c = client();
+      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } }); // strike 1
+      c.opts.onConnect({});
+      jest.advanceTimersByTime(61_000); // 무사히 유지
+      c.opts.onStompError({ headers: { message: 'INVALID_REQUEST' } }); // 다시 strike 1
+      c.opts.onConnect({});
+      expect(count(c, '/topic/islands/isl/events')).toBe(3);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

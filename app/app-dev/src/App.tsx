@@ -104,6 +104,7 @@ import {
   Member,
   dayKey,
   seaRouteHeld,
+  visitRouteHeld,
   sessionRoute,
 } from '@/services/model';
 import {
@@ -1511,7 +1512,9 @@ function Gromo() {
       if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
     }
-    if (state.onboarded || (state.visitingIslandId && ['board', 'notice'].includes(route))) return;
+    if (state.onboarded) return;
+    // 소속 없이 구경 중(바다 도착 뒤 등) — 방문이 끝나면(visitingIslandId 해제) 평소 검사가 다시 돈다
+    if (visitRouteHeld(route, state.visitingIslandId)) return;
     if (
       [
         'login',
@@ -1532,6 +1535,7 @@ function Gromo() {
     state.loggedIn,
     state.onboarded,
     state.islandId,
+    state.visitingIslandId,
     state.membershipRecovery,
     kickedDestination,
     route,

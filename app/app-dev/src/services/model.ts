@@ -293,7 +293,16 @@ export type State = {
   islandId: string;
   fish: number;
   owned: string[];
-  equipped: { clothes: string; decor: string; hull: string; position: string };
+  equipped: {
+    clothes: string;
+    decor: string;
+    hull: string;
+    position: string;
+    /** 머리·목·신발 슬롯(GROMO-2331) — 옛 서버면 없다. 카탈로그 그림으로 겹쳐 그린다. */
+    head?: string | null;
+    neck?: string | null;
+    shoes?: string | null;
+  };
   settings: {
     notifications: boolean;
     sound: boolean;
@@ -1079,6 +1088,19 @@ export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?
 export const sessionRoute = (x: { kind?: string; status?: string }): Route =>
   x.kind === 'sea' ? 'sea' : x.status === 'paused' ? 'rest' : 'focus';
 export const seaRouteHeld = (route: Route) => route === 'sea' || route === 'seaArrival';
+/** 서버 섬 구경 중에 열 수 있는 라우트(허용 목록) — CurrentScreens 의 구경 가드와 App 의 소속 검사가 같은 것을 쓴다. */
+export const SERVER_VISIT_ROUTES: readonly Route[] = [
+  'visitIsland',
+  'manage',
+  'members',
+  'board',
+  'notice',
+  'visitIslandFocus',
+  'raft',
+];
+/** 소속이 없어도(바다 도착 뒤 강퇴 등) 서버 방문 중에 열 수 있는 화면은 소속 검사가 되돌리지 않는다(GROMO-2311). */
+export const visitRouteHeld = (route: Route, visitingIslandId: string | null | undefined) =>
+  !!visitingIslandId && SERVER_VISIT_ROUTES.includes(route);
 export const intentKeyPool = (gen: () => string) => {
   const keys: Record<string, string> = {};
   const slot = (name: string, exactBody: string) => `${name}:${exactBody}`;
@@ -1935,6 +1957,9 @@ export function reducer(state: State, a: Action): State {
           decor: inv.equipped.decor ?? 'none',
           hull: inv.equipped.hull,
           position: inv.equipped.position,
+          ...(inv.equipped.head !== undefined && { head: inv.equipped.head }),
+          ...(inv.equipped.neck !== undefined && { neck: inv.equipped.neck }),
+          ...(inv.equipped.shoes !== undefined && { shoes: inv.equipped.shoes }),
         };
       }
       break;

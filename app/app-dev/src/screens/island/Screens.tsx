@@ -94,6 +94,8 @@ import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
 import { BUNDLED_AUDIO_TRACK_IDS, hasBundledAudio } from '@/constants/audio';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
+import { CatOutfitLayers, type Outfit } from '@/components/CatOutfitLayers';
+import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
@@ -238,6 +240,12 @@ function MainIslandRadio({ selected }: { selected: boolean }) {
     </View>
   );
 }
+/** 상태에 실린 머리·목·신발 — 키 없음(옛 서버·미장착)과 null(해제)은 모두 «미장착» 이다. */
+const outfitOf = (state: State): Outfit => ({
+  head: state.equipped.head ?? null,
+  neck: state.equipped.neck ?? null,
+  shoes: state.equipped.shoes ?? null,
+});
 function Boat({ state, h = 260, scarf }: any) {
   return (
     <View style={[k.preview, { height: h }]}>
@@ -247,6 +255,19 @@ function Boat({ state, h = 260, scarf }: any) {
         w={h * 0.42}
         style={{ position: 'absolute', left: h * 0.36, top: h * 0.12 }}
       />
+      {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림과 같은 상자 */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: h * 0.36,
+          top: h * 0.12,
+          width: h * 0.42,
+          height: h * 0.42,
+        }}
+      >
+        <CatOutfitLayers outfit={outfitOf(state)} />
+      </View>
       {scarf && (
         <View
           style={{
@@ -949,6 +970,7 @@ export function RedesignScreens({ e }: any) {
     server && p.owned !== undefined
       ? !!p.owned
       : (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
+  const catalog = useCustomizationCatalog();
   const productTitle = (id: string) =>
     server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id;
   // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
@@ -5070,6 +5092,23 @@ export function RedesignScreens({ e }: any) {
       <Preview h={h}>
         <Pic id={scarf ? 'boat/raft/cat-scarf' : 'boat/raft/cat'} w="92%" h="86%" />
         {hat && <HatOn image="raft" style={{ width: '92%', height: '86%' }} />}
+        {/* 합성 그림(440×317) 안 고양이 상자 ≈ 왼쪽 16.6%·위 2.8%·폭 55.7% — 밀짚모자 좌표에서 역산한 값, 실기기 확인 필요 */}
+        <View
+          pointerEvents="none"
+          style={{ position: 'absolute', width: '92%', aspectRatio: 440 / 317 }}
+        >
+          <View
+            style={{
+              position: 'absolute',
+              left: '16.6%',
+              top: '2.8%',
+              width: '55.7%',
+              aspectRatio: 1,
+            }}
+          >
+            <CatOutfitLayers outfit={outfitOf(state)} />
+          </View>
+        </View>
       </Preview>
     ) : (
       <View>
@@ -5867,31 +5906,36 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'wardrobe') {
-    // 가진 옷·장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용)
-    const thumb = (value: string, label: string, picture: React.ReactNode) => {
-      const on = worn === value || (value === 'default' && ['default', 'none'].includes(worn));
+    // 가진 옷·장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용). 슬롯은 인벤토리 그룹이 정한다.
+    type WardrobeSlot = 'clothes' | 'decor' | 'head' | 'neck' | 'shoes';
+    const slotWorn = (slot: WardrobeSlot): string | null => {
+      const v = state.equipped[slot];
+      return v == null || v === 'default' || v === 'none' ? null : v;
+    };
+    const thumb = (
+      slot: WardrobeSlot,
+      value: string | null,
+      label: string,
+      picture: React.ReactNode,
+      a11yLabel: string = label,
+    ) => {
+      const on = slotWorn(slot) === value;
       return (
         <Pressable
-          key={value}
+          key={`${slot}:${value}`}
           accessibilityRole="button"
-          accessibilityLabel={label}
+          accessibilityLabel={a11yLabel}
           accessibilityState={{ selected: on }}
           onPress={() => {
-            // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다.
+            // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다. null 은 해제.
             if (server) {
-              const patch =
-                value === 'default'
-                  ? { clothes: null }
-                  : shopApi.kinds[value] === 'decor'
-                    ? { decor: value }
-                    : { clothes: value };
-              shopApi.equip(patch).catch((thrown) => {
+              shopApi.equip({ [slot]: value }).catch((thrown) => {
                 const m = serverErrorText(thrown);
                 if (m) notify(m);
               });
               return;
             }
-            act('EQUIP', { key: 'clothes', value });
+            act('EQUIP', { key: 'clothes', value: value ?? 'default' });
           }}
           style={{ width: 76, gap: 5, alignItems: 'center' }}
         >
@@ -5928,6 +5972,30 @@ export function RedesignScreens({ e }: any) {
         </Pressable>
       );
     };
+    const slotIds = (slot: WardrobeSlot): string[] =>
+      server
+        ? ((shopApi.my?.[slot] as string[] | undefined) ?? [])
+        : slot === 'clothes'
+          ? products
+              .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
+              .map((p) => p.id)
+          : [];
+
+    const picture = (slot: WardrobeSlot, id: string) => {
+      const entry = catalog[id];
+      if (entry)
+        return (
+          <Image
+            accessible={false}
+            testID={`wardrobe-art-${id}`}
+            source={{ uri: entry.imageUrl }}
+            style={{ width: 60, height: 60 }}
+            resizeMode="contain"
+          />
+        );
+      if (slot === 'clothes' && id === 'straw-hat') return <HatArt w={72} scale={0.7} />;
+      return slot === 'clothes' || slot === 'decor' ? <Pic id="scarf-cat" w={60.5} /> : null;
+    };
     return (
       <IslandSheet
         bg="dock"
@@ -5939,24 +6007,39 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
       >
         {raftCat(260)}
-        <Txt kind="section" style={st.sec}>
-          옷·장신구
-        </Txt>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          {thumb('default', '기본', <Pic id={'cat/' + state.color} w={60.5} />)}
-          {(server
-            ? [...(shopApi.my?.clothes ?? []), ...(shopApi.my?.decor ?? [])]
-            : products
-                .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
-                .map((p) => p.id)
-          ).map((id) =>
-            thumb(
-              id,
-              server ? productTitle(id) : products.find((p) => p.id === id)?.title || id,
-              id === 'straw-hat' ? <HatArt w={72} scale={0.7} /> : <Pic id="scarf-cat" w={60.5} />,
-            ),
-          )}
-        </View>
+        {(['clothes', 'decor', 'head', 'neck', 'shoes'] as const).map((slot) => {
+          const worn = slotWorn(slot);
+          // 퇴역 항목은 서랍에서 빼되, 이미 입고 있으면 남겨 벗을 수 있게 한다
+          const ids = slotIds(slot).filter((id) => !catalog[id]?.retiredAt || id === worn);
+          if (slot !== 'clothes' && ids.length === 0 && !worn) return null;
+          return (
+            <View key={slot} style={{ gap: 10 }}>
+              <Txt kind="section" style={st.sec}>
+                {t(`wardrobe.section.${slot}`)}
+              </Txt>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {thumb(
+                  slot,
+                  null,
+                  t('wardrobe.default'),
+                  slot === 'clothes' ? <Pic id={'cat/' + state.color} w={60.5} /> : null,
+                  // 슬롯마다 같은 「기본」이 다섯 번 읽히지 않게 슬롯 이름을 붙인다
+                  t('wardrobe.defaultFor', { slot: t(`wardrobe.section.${slot}`) }),
+                )}
+                {ids.map((id) =>
+                  thumb(
+                    slot,
+                    id,
+                    server
+                      ? (catalog[id]?.title ?? productTitle(id))
+                      : products.find((p) => p.id === id)?.title || id,
+                    picture(slot, id),
+                  ),
+                )}
+              </View>
+            </View>
+          );
+        })}
       </IslandSheet>
     );
   }

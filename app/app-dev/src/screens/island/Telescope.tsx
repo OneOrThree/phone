@@ -19,7 +19,8 @@ import { Flag } from '@/screens/cosmetics/Cosmetics';
 import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';
-import { sessionGeneration } from '@/services/api/session';
+import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import type { MagazineCell } from '@/services/api/magazine';
 import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { unknownOutcome } from '@/services/islandCommands';
@@ -123,15 +124,25 @@ type IntentKeys = ReturnType<typeof intentKeyPool>;
  * 끝나면 키를 그대로 둬 같은 섬으로의 재시도가 같은 키로 나가고, 도착 POST 응답을 받으면 바로 해제한다(아래 주석).
  */
 export async function arrive(e: any, keys: IntentKeys, islandId: string): Promise<boolean> {
+  return (await arriveWithOutcome(e, keys, islandId)).member;
+}
+
+/** `arrive` + 서버가 준 `arrivedBefore`(결과를 모르는 채 소속으로 확인된 경우엔 true — 환영을 띄우지 않는다). */
+export async function arriveWithOutcome(
+  e: any,
+  keys: IntentKeys,
+  islandId: string,
+): Promise<{ member: boolean; arrivedBefore: boolean }> {
   const key = keys.key('arrive', islandId);
+  // 복구 상태를 반영하기 전에 같은 로그인인지 본다 — 재조회 중 로그아웃·계정 전환이 있었으면 이전 계정 값을 쓰지 않는다
+  const generation = sessionGeneration();
+  const userId = getSession()?.userId;
+  const sameLogin = () => sessionGeneration() === generation && getSession()?.userId === userId;
+  let arrival;
   try {
-    const { membershipStatus } = await arriveAtIsland(islandId, key);
-    // 도착 POST 응답을 받은 직후 해제한다(switchCurrent 는 소속 재조회로 currentIslandId 일치까지 확인한 뒤 해제 — 여기는 재조회 실패 시 다음 [항해하기]가 새 키로 가지만, 서버 도착은 같은 섬이면 결과가 같아 안전하다)
-    keys.release('arrive', islandId);
-    if (membershipStatus !== 'active') return false;
-    await e.islands.sync();
-    return true;
+    arrival = await arriveAtIsland(islandId, key);
   } catch (thrown) {
+    // POST 자체의 결과를 모를 때만 소속 재조회로 가린다
     if (!unknownOutcome(thrown)) throw thrown;
     let my;
     try {
@@ -140,8 +151,42 @@ export async function arrive(e: any, keys: IntentKeys, islandId: string): Promis
       my = null;
     }
     if (my?.currentIslandId !== islandId) throw thrown;
-    return true; // 서버가 이미 옮겼다 — 곧 화면을 떠나 키 풀도 사라진다
+    return { member: true, arrivedBefore: true }; // 서버가 이미 옮겼다 — 곧 화면을 떠나 키 풀도 사라진다
   }
+  // 도착 POST 응답을 받은 직후 해제한다(switchCurrent 는 소속 재조회로 currentIslandId 일치까지 확인한 뒤 해제 — 여기는 재조회 실패 시 다음 [항해하기]가 새 키로 가지만, 서버 도착은 같은 섬이면 결과가 같아 안전하다)
+  keys.release('arrive', islandId);
+  const { membershipStatus, arrivedBefore } = arrival;
+  if (membershipStatus !== 'active') return { member: false, arrivedBefore };
+  // 소속 재조회 실패는 도착 결과를 지우지 않는다 — 환영 판정은 POST 응답 기준이고(키가 풀려 재시도 POST 는 arrivedBefore=true 를 준다),
+  // 소속 스냅샷은 홈 진입 뒤 기존 재조회 경로가 맞춘다
+  let syncError: unknown = null;
+  try {
+    await e.islands.sync();
+  } catch (thrown) {
+    syncError = thrown;
+  }
+  if (syncError !== null) {
+    // 세션이 바뀌었거나 인증이 끝난 실패는 복구하지 않고 다시 던진다(호출부가 화면 세대로 거른다)
+    if (
+      syncError instanceof ApiError &&
+      (syncError.code === CLIENT_STALE_SESSION || syncError.status === 401)
+    )
+      throw syncError;
+    if (!sameLogin()) return { member: true, arrivedBefore };
+    // 소속 조회가 실패해도 도착 응답이 현재 섬을 알려 준다 — 첫 소속이면 로컬이 «소속 없음» 인 채로 홈에 가 소속 검사가
+    // chooseIsland 로 되돌리지 않게 먼저 반영하고(기존 ISLAND_SYNC 재사용, 소속 목록은 그대로), 한 번 더 맞춰 본다
+    if (arrival.currentIslandId)
+      e.dispatch?.({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: e.state?.serverIslands?.memberships ?? [],
+          currentIslandId: arrival.currentIslandId,
+          lossReason: null,
+        },
+      });
+    await e.islands.sync().catch(() => {});
+  }
+  return { member: true, arrivedBefore };
 }
 
 /** 내 소속 섬 — 서버가 joined 칸에 두거나 이미 활성 멤버십이면(핀이 남은 섬 등) 가입 버튼 없이 깃발을 꽂는다. */

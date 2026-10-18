@@ -143,7 +143,9 @@ test('미확인 결과를 직접 복원하며 결과 확인 성공 전 화면과
     destinationId: 'island-1',
     destinationName: '별고래섬',
     activeSeconds: 2050,
-    reward: { itemId: 'duck', name: '오리 인형' },
+    rewards: ['duck'],
+    minutesToNextTier: null,
+    rewardsUnknown: false,
   };
   const screen = await render(
     <SeaScreen {...p} result={result} rewardCatalog={{ duck: duckPreviewArt }} />,
@@ -164,18 +166,20 @@ test('보상이 없거나 모르는 ID이면 예시 오리를 지급한 것처�
     destinationId: 'island-1',
     destinationName: '별고래섬',
     activeSeconds: 60,
-    reward: null,
+    rewards: [] as string[],
+    minutesToNextTier: null,
+    rewardsUnknown: false,
   };
   const screen = await render(<SeaScreen {...p} result={result} />);
   expect(screen.getByText('이번 항해에서 건진 아이템은 없어요')).toBeTruthy();
   await screen.rerender(
-    <SeaScreen
-      {...p}
-      result={{ ...result, reward: { itemId: 'unknown', name: '서버가 준 모자' } }}
-    />,
+    <SeaScreen {...p} result={{ ...result, rewards: ['unknown'], minutesToNextTier: 25 }} />,
   );
-  expect(screen.getByText('서버가 준 모자')).toBeTruthy();
+  expect(screen.getByText('unknown')).toBeTruthy();
+  expect(screen.getByText('다음 단계까지 25분')).toBeTruthy();
   expect(screen.queryByText('오리 인형')).toBeNull();
+  await screen.rerender(<SeaScreen {...p} result={{ ...result, rewardsUnknown: true }} />);
+  expect(screen.getByText('확인 중이에요. 인벤토리에서 확인해 주세요.')).toBeTruthy();
 });
 
 test('스와이프로 마지막 참여자에 도달하고 드래그 직후에는 카드가 열리지 않는다', async () => {

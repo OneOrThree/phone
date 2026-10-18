@@ -7,6 +7,7 @@ import {
   semanticTokens as s,
 } from '@/design-system/tokens';
 import { t } from '@/i18n';
+import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { SeaArrival, seaDuration } from './seaModel';
 import { SeaRewardArt, seaRewardCatalog } from './seaRewardCatalog';
 
@@ -23,7 +24,7 @@ export function SeaArrivalResult({
   onExplore: () => void;
   catalog?: Readonly<Record<string, SeaRewardArt>>;
 }) {
-  const rewardArt = result.reward ? catalog[result.reward.itemId] : undefined;
+  const table = useCustomizationCatalog();
   return (
     <Overlay maxWidth={354} contentStyle={styles.content} frameStyle={styles.frame}>
       <View accessibilityViewIsModal testID="sea-arrival-result" style={styles.contentInner}>
@@ -39,29 +40,57 @@ export function SeaArrivalResult({
         </View>
         <View style={styles.reward}>
           <Txt style={styles.label}>{t('openSea.rewardTitle')}</Txt>
-          {rewardArt && (
-            <View
-              accessible={false}
-              style={[
-                styles.rewardWindow,
-                { width: rewardArt.preview.width, height: rewardArt.preview.height },
-              ]}
-            >
-              <Image
-                source={rewardArt.source}
-                style={[
-                  styles.rewardImage,
-                  {
-                    width: rewardArt.preview.size,
-                    height: rewardArt.preview.size,
-                    left: rewardArt.preview.left,
-                    top: rewardArt.preview.top,
-                  },
-                ]}
-              />
-            </View>
+          {result.rewards.map((id) => {
+            const art = catalog[id];
+            const entry = table[id];
+            return (
+              <View key={id} style={styles.reward}>
+                {art ? (
+                  <View
+                    accessible={false}
+                    style={[
+                      styles.rewardWindow,
+                      { width: art.preview.width, height: art.preview.height },
+                    ]}
+                  >
+                    <Image
+                      source={art.source}
+                      style={[
+                        styles.rewardImage,
+                        {
+                          width: art.preview.size,
+                          height: art.preview.size,
+                          left: art.preview.left,
+                          top: art.preview.top,
+                        },
+                      ]}
+                    />
+                  </View>
+                ) : (
+                  entry && (
+                    <Image
+                      accessible={false}
+                      testID={`sea-reward-${id}`}
+                      source={{ uri: entry.imageUrl }}
+                      style={styles.rewardPicture}
+                      resizeMode="contain"
+                    />
+                  )
+                )}
+                <Txt style={styles.value}>{art?.title ?? entry?.title ?? id}</Txt>
+              </View>
+            );
+          })}
+          {result.rewards.length === 0 && (
+            <Txt style={styles.value}>
+              {result.rewardsUnknown ? t('openSea.rewardsUnknown') : t('openSea.noReward')}
+            </Txt>
           )}
-          <Txt style={styles.value}>{result.reward?.name || t('openSea.noReward')}</Txt>
+          {result.minutesToNextTier != null && (
+            <Txt style={styles.label}>
+              {t('openSea.nextTier', { minutes: result.minutesToNextTier })}
+            </Txt>
+          )}
         </View>
         {!!error && (
           <Txt accessibilityRole="alert" style={styles.error}>
@@ -82,6 +111,7 @@ export function SeaArrivalResult({
 const styles = StyleSheet.create({
   rewardWindow: { overflow: 'hidden' },
   rewardImage: { position: 'absolute' },
+  rewardPicture: { width: 120, height: 120 },
   frame: { borderRadius: s.radius.modal, boxShadow: c.modal.shadow },
   content: { padding: p.space[6], paddingBottom: p.space[6] },
   contentInner: { gap: p.space[5] },
