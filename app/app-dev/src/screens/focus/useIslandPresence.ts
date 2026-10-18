@@ -17,6 +17,7 @@ import {
   type IslandPresenceTransition,
   type LiveEmote,
   type GoldenFishEvent,
+  type MemberArrivedEvent,
   type PresenceView,
 } from '@/services/islandRealtime';
 
@@ -44,6 +45,9 @@ export function useIslandPresence(
     onSendError?: (message: string) => void;
     onTransition?: (transition: IslandPresenceTransition) => void;
     onGoldenFish?: (event: GoldenFishEvent) => void;
+    /** 주민 소식(GROMO-2311) — 현재 소속 섬의 주민 화면에서만 `events` 를 켠다. */
+    events?: boolean;
+    onMemberArrived?: (event: MemberArrivedEvent) => void;
   },
   start: typeof startIslandRealtime = startIslandRealtime,
 ): IslandPresence {
@@ -63,6 +67,8 @@ export function useIslandPresence(
   onVisitorEmote.current = opts.onVisitorEmote;
   const onGoldenFish = useRef(opts.onGoldenFish);
   onGoldenFish.current = opts.onGoldenFish;
+  const onMemberArrived = useRef(opts.onMemberArrived);
+  onMemberArrived.current = opts.onMemberArrived;
 
   useEffect(() => {
     if (!active || !islandId) {
@@ -75,6 +81,7 @@ export function useIslandPresence(
       islandId,
       emoteSessionId,
       visitor,
+      events: opts.events,
       alive,
       onView: (view) => {
         if (alive()) setSnapshot({ scope, view });
@@ -87,6 +94,9 @@ export function useIslandPresence(
       },
       onGoldenFish: (event) => {
         if (alive()) onGoldenFish.current?.(event);
+      },
+      onMemberArrived: (event) => {
+        if (alive()) onMemberArrived.current?.(event);
       },
       onSendError: (message) => {
         if (alive()) onSendError.current?.(message);

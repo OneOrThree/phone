@@ -64,7 +64,11 @@ import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { getSession } from '@/services/api/session';
 import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
-import { isGoldenFishParticipant, type GoldenFishEvent } from '@/services/islandRealtime';
+import {
+  isGoldenFishParticipant,
+  memberArrivedText,
+  type GoldenFishEvent,
+} from '@/services/islandRealtime';
 import {
   fishingSpotsForActors,
   useFishingPeerActors,
@@ -1511,6 +1515,9 @@ function FocusVisit({ e, islandId, onBack }: any) {
   const live = useIslandPresence({
     active: liveIslandId !== null,
     islandId: liveIslandId,
+    // 방문(islandId 있음)은 주민이 아니라 구독하면 ERROR 로 소켓이 닫힌다 — 내 소속 섬 보기에서만 켠다
+    events: !islandId,
+    onMemberArrived: (event) => e.notify(memberArrivedText(event)),
     onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
@@ -1813,6 +1820,8 @@ function FocusFlow({ e: environment }: any) {
     active: liveIslandId !== null,
     islandId: liveIslandId,
     emoteSessionId,
+    events: true, // 내 소속 섬 화면 — 주민만 구독할 수 있다(GROMO-2311)
+    onMemberArrived: (event) => e.notify(memberArrivedText(event)),
     onSendError: e.notify,
     // 방문자가 보낸 응원은 말풍선 대신 알림으로 — 이름은 서버가 주지 않는다
     onVisitorEmote: () => e.notify(t('focusFlow.visitorCheered')),

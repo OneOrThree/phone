@@ -479,6 +479,7 @@
   },
   "focusFlow": {
     "visitorCheered": "A visitor cheered you on 🎉",
+    "memberArrived": "{{name}} has arrived",
     "common": {
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
@@ -1031,6 +1032,11 @@
     "emoteTooFrequent": "You can send another emote in a moment.",
     "backBlocked": "Use End voyage to leave the sea.",
     "finishChecking": "Checking your voyage result. It will continue once connected.",
-    "finishUnconfirmed": "Could not confirm your voyage result. Please check your records."
+    "finishUnconfirmed": "Could not confirm your voyage result. Please check your records.",
+    "someone": "Someone",
+    "nextTier": "{{minutes}} min until the next tier",
+    "rewardsUnknown": "Checking. See your inventory.",
+    "welcomeTitle": "Welcome!",
+    "welcomeBody": "You arrived at \"{{island}}\" as a new resident."
   }
 }

@@ -244,13 +244,12 @@ export function SeaPreview() {
                       destinationId: voyage.destinationId,
                       destinationName: voyage.destinationName,
                       activeSeconds: voyage.activeSeconds,
-                      reward:
+                      rewards:
                         reward === 'none'
-                          ? null
-                          : {
-                              itemId: reward === 'duck' ? 'preview-duck' : 'preview-unknown',
-                              name: reward === 'duck' ? '오리 인형' : '새로운 꾸미기 아이템',
-                            },
+                          ? []
+                          : [reward === 'duck' ? 'preview-duck' : 'preview-unknown'],
+                      minutesToNextTier: reward === 'none' ? 25 : null,
+                      rewardsUnknown: false,
                     });
                   setVoyage(null);
                 }}

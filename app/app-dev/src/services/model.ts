@@ -293,7 +293,16 @@ export type State = {
   islandId: string;
   fish: number;
   owned: string[];
-  equipped: { clothes: string; decor: string; hull: string; position: string };
+  equipped: {
+    clothes: string;
+    decor: string;
+    hull: string;
+    position: string;
+    /** 머리·목·신발 슬롯(GROMO-2331) — 옛 서버면 없다. 카탈로그 그림으로 겹쳐 그린다. */
+    head?: string | null;
+    neck?: string | null;
+    shoes?: string | null;
+  };
   settings: {
     notifications: boolean;
     sound: boolean;
@@ -1935,6 +1944,9 @@ export function reducer(state: State, a: Action): State {
           decor: inv.equipped.decor ?? 'none',
           hull: inv.equipped.hull,
           position: inv.equipped.position,
+          ...(inv.equipped.head !== undefined && { head: inv.equipped.head }),
+          ...(inv.equipped.neck !== undefined && { neck: inv.equipped.neck }),
+          ...(inv.equipped.shoes !== undefined && { shoes: inv.equipped.shoes }),
         };
       }
       break;

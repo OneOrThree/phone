@@ -123,14 +123,23 @@ type IntentKeys = ReturnType<typeof intentKeyPool>;
  * 끝나면 키를 그대로 둬 같은 섬으로의 재시도가 같은 키로 나가고, 도착 POST 응답을 받으면 바로 해제한다(아래 주석).
  */
 export async function arrive(e: any, keys: IntentKeys, islandId: string): Promise<boolean> {
+  return (await arriveWithOutcome(e, keys, islandId)).member;
+}
+
+/** `arrive` + 서버가 준 `arrivedBefore`(결과를 모르는 채 소속으로 확인된 경우엔 true — 환영을 띄우지 않는다). */
+export async function arriveWithOutcome(
+  e: any,
+  keys: IntentKeys,
+  islandId: string,
+): Promise<{ member: boolean; arrivedBefore: boolean }> {
   const key = keys.key('arrive', islandId);
   try {
-    const { membershipStatus } = await arriveAtIsland(islandId, key);
+    const { membershipStatus, arrivedBefore } = await arriveAtIsland(islandId, key);
     // 도착 POST 응답을 받은 직후 해제한다(switchCurrent 는 소속 재조회로 currentIslandId 일치까지 확인한 뒤 해제 — 여기는 재조회 실패 시 다음 [항해하기]가 새 키로 가지만, 서버 도착은 같은 섬이면 결과가 같아 안전하다)
     keys.release('arrive', islandId);
-    if (membershipStatus !== 'active') return false;
+    if (membershipStatus !== 'active') return { member: false, arrivedBefore };
     await e.islands.sync();
-    return true;
+    return { member: true, arrivedBefore };
   } catch (thrown) {
     if (!unknownOutcome(thrown)) throw thrown;
     let my;
@@ -140,7 +149,7 @@ export async function arrive(e: any, keys: IntentKeys, islandId: string): Promis
       my = null;
     }
     if (my?.currentIslandId !== islandId) throw thrown;
-    return true; // 서버가 이미 옮겼다 — 곧 화면을 떠나 키 풀도 사라진다
+    return { member: true, arrivedBefore: true }; // 서버가 이미 옮겼다 — 곧 화면을 떠나 키 풀도 사라진다
   }
 }
 

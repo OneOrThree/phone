@@ -1,3 +1,4 @@
+import type { Outfit } from '@/components/CatOutfitLayers';
 import type { Color } from '@/services/model';
 import { t } from '@/i18n';
 
@@ -14,6 +15,8 @@ export type SeaParticipant = {
   subject?: string;
   message?: string;
   emote?: SeaEmote;
+  /** 장착한 머리·목·신발(카탈로그 id) — 내 뗏목에만 채운다. */
+  outfit?: Outfit;
 };
 
 export type SeaVoyage = {
@@ -32,7 +35,12 @@ export type SeaArrival = {
   destinationId: string;
   destinationName: string;
   activeSeconds: number;
-  reward: { itemId: string; name: string } | null;
+  /** 이번에 받은 꾸미기 productId 목록 — 이름·그림은 카탈로그로 푼다. */
+  rewards: string[];
+  /** 다음 단계까지 남은 분 — 모르면 null. */
+  minutesToNextTier: number | null;
+  /** 서버가 보상을 아직 모른다(seaReward=null) — 인벤토리에서 확인하라고 안내한다. */
+  rewardsUnknown: boolean;
 };
 
 export const seaClock = (seconds: number) => {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, StyleSheet, View } from 'react-native';
+import { CatOutfitLayers, type Outfit } from '@/components/CatOutfitLayers';
 import { CatSprite } from '@/components/CatSprite';
 import type { Color } from '@/services/model';
 import { seaAssets, seaLoaf } from './seaAssets';
@@ -9,11 +10,14 @@ export function SeaRaft({
   focusing,
   size,
   reduceMotion = false,
+  outfit,
 }: {
   color: Color;
   focusing: boolean;
   size: number;
   reduceMotion?: boolean;
+  /** 카탈로그 그림으로 고양이 위에 겹칠 머리·목·신발(GROMO-2311). */
+  outfit?: Outfit;
 }) {
   const catSize = size * 0.49;
   // 같은 발 위치를 기준으로 독서/식빵 포즈를 교체한다. 앞뒤 판자는 기존 레이어다.
@@ -41,6 +45,21 @@ export function SeaRaft({
           />
         )}
       </View>
+      {outfit && (
+        <View
+          style={[
+            styles.absolute,
+            {
+              left: size * 0.48 - catSize / 2,
+              top: size * 0.67 - (catSize * 464) / 512,
+              width: catSize,
+              height: catSize,
+            },
+          ]}
+        >
+          <CatOutfitLayers outfit={outfit} />
+        </View>
+      )}
       <Image
         source={seaAssets.raftFront}
         style={[StyleSheet.absoluteFill, { width: size, height: size }]}

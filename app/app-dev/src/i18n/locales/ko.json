@@ -455,6 +455,7 @@
   },
   "focusFlow": {
     "visitorCheered": "방문자가 응원했어요 🎉",
+    "memberArrived": "{{name}}님이 도착했어요",
     "common": {
       "ourIsland": "우리 섬",
       "fishingIsland": "낚시섬",
@@ -1004,6 +1005,11 @@
     "emoteTooFrequent": "이모트는 잠시 뒤에 다시 보낼 수 있어요",
     "backBlocked": "항해 중에는 [항해 그만두기]로 바다를 떠나요",
     "finishChecking": "항해 결과를 확인하고 있어요. 연결되면 이어서 처리해요.",
-    "finishUnconfirmed": "항해 결과를 확인하지 못했어요. 기록에서 확인해 주세요."
+    "finishUnconfirmed": "항해 결과를 확인하지 못했어요. 기록에서 확인해 주세요.",
+    "someone": "누군가",
+    "nextTier": "다음 단계까지 {{minutes}}분",
+    "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
+    "welcomeTitle": "환영해요!",
+    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요."
   }
 }

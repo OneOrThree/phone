@@ -2,6 +2,8 @@ import type { ImageSourcePropType } from 'react-native';
 
 export type SeaRewardArt = {
   source: ImageSourcePropType;
+  /** 표시 이름 — 없으면 서버 카탈로그 제목을 쓴다. */
+  title?: string;
   category: 'head' | 'neck' | 'shoes' | 'decor' | 'hull';
   /** 원본의 투명 여백을 보존하면서 표시 창에 배치한다. */
   preview: { width: number; height: number; size: number; left: number; top: number };
@@ -11,6 +13,7 @@ export type SeaRewardArt = {
 export const seaRewardCatalog: Readonly<Record<string, SeaRewardArt>> = {};
 
 export const duckPreviewArt: SeaRewardArt = {
+  title: '오리 인형',
   source: require('@/assets/ota/customization/head/duck.png'),
   category: 'head',
   preview: { width: 176, height: 148, size: 330, left: -84, top: -98 },

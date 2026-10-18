@@ -178,6 +178,7 @@ export function SeaScene({
                     <SeaRaft
                       color={person.color}
                       focusing={person.focusing}
+                      outfit={person.outfit}
                       size={size * sizeScale}
                       reduceMotion={reduceMotion || index !== visiblePage}
                     />
@@ -235,6 +236,7 @@ export function SeaScene({
           <SeaRaft
             color={self.color}
             focusing={focusing}
+            outfit={self.outfit}
             size={Math.min(160 * sizeScale, bounds.height * 0.22)}
             reduceMotion={reduceMotion}
           />

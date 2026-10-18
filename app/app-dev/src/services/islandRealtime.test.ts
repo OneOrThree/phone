@@ -1570,3 +1570,64 @@ describe('friendlyRealtimeErrorMessage', () => {
     );
   });
 });
+
+describe('island.member.arrived (GROMO-2311)', () => {
+  const { memberArrivalFilter, parseMemberArrivedEvent } = jest.requireActual('./islandRealtime');
+  const ev = (over: Record<string, unknown> = {}, userId = 'u2') => ({
+    eventId: 'e1',
+    schemaVersion: 1,
+    type: 'island.member.arrived',
+    islandId: 'isl',
+    aggregateVersion: 3,
+    occurredAt: '2026-10-18T00:00:00Z',
+    payload: { islandId: 'isl', userId, name: '모모', catColor: 'gray', arrivedAt: 'x' },
+    ...over,
+  });
+
+  test('파서는 다른 type·섬을 버린다', () => {
+    expect(parseMemberArrivedEvent(ev(), 'isl')?.name).toBe('모모');
+    expect(parseMemberArrivedEvent(ev({ type: 'focus.emote' }), 'isl')).toBeNull();
+    expect(parseMemberArrivedEvent(ev(), 'other')).toBeNull();
+  });
+
+  test('eventId 중복·내 도착은 거르고 aggregateVersion 은 보지 않는다', () => {
+    const f = memberArrivalFilter('isl', () => 'me');
+    expect(f(ev())).not.toBeNull();
+    expect(f(ev())).toBeNull();
+    expect(f(ev({ eventId: 'e2', aggregateVersion: 1 }))).not.toBeNull();
+    expect(f(ev({ eventId: 'e3' }, 'me'))).toBeNull();
+  });
+});
+
+describe('홈 채널의 주민 소식 구독 (GROMO-2311)', () => {
+  const client = () => (Client as any).instances.at(-1);
+  beforeEach(() => {
+    (Client as any).instances.length = 0;
+  });
+  const open = (denied: number[] = []) =>
+    stompIslandChannel({
+      islandId: 'isl',
+      presence: false,
+      emote: false,
+      movement: true,
+      events: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+      onMovementDenied: () => denied.push(1),
+    });
+  const count = (c: any, dest: string) => c.subs.filter((s: any) => s.dest === dest).length;
+
+  test('events 구독 1회, ERROR 뒤 재접속에서는 events 만 건너뛰고 이동은 다시 구독한다', () => {
+    const denied: number[] = [];
+    open(denied);
+    const c = client();
+    expect(count(c, '/topic/islands/isl/events')).toBe(1);
+    expect(count(c, '/topic/islands/isl/movement')).toBe(1);
+    c.opts.onStompError({ headers: { message: 'NOT_A_MEMBER' } });
+    expect(denied).toEqual([]); // 이동 영구 거절로 번지지 않는다
+    c.opts.onConnect({});
+    expect(count(c, '/topic/islands/isl/events')).toBe(1);
+    expect(count(c, '/topic/islands/isl/movement')).toBe(2);
+  });
+});

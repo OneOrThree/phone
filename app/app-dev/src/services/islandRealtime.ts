@@ -20,7 +20,7 @@
 import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
 import { t } from '@/i18n';
 import { API_URL, ApiError } from '@/services/api/client';
-import { getAccessToken } from '@/services/api/session';
+import { getAccessToken, getSession } from '@/services/api/session';
 import type { MoveIntent } from '@/services/movementSync';
 import {
   focusMembers,
@@ -117,6 +117,55 @@ export function parseGoldenFishEvent(raw: unknown, islandId: string): GoldenFish
     return null;
   return { eventId, islandId, drawnAt, reward, sharePerMember, members };
 }
+
+/** `island.member.arrived`(GROMO-2302) — 주민이 이 섬에 처음 도착했다. */
+export type MemberArrivedEvent = {
+  eventId: string;
+  userId: string;
+  name: string | null;
+  catColor: string | null;
+};
+
+/** 7필드 봉투 + payload{islandId,userId,name,catColor,arrivedAt} 만 인정한다. 모양이 다르면 null. */
+export function parseMemberArrivedEvent(raw: unknown, islandId: string): MemberArrivedEvent | null {
+  const env = raw as RealtimeEnvelope;
+  if (
+    !env ||
+    typeof env !== 'object' ||
+    env.schemaVersion !== 1 ||
+    env.type !== 'island.member.arrived' ||
+    env.islandId !== islandId
+  )
+    return null;
+  const eventId = str(env.eventId);
+  const p = env.payload as Record<string, unknown> | null;
+  const userId = str(p?.userId);
+  if (!eventId || !userId || p?.islandId !== islandId) return null;
+  return { eventId, userId, name: str(p?.name), catColor: str(p?.catColor) };
+}
+
+/**
+ * 도착 사건 필터 — `eventId` 로 중복만 거르고(`aggregateVersion` 은 섬 전체 카운터라 (섬, 사용자) 워터마크와 비교하지 않는다)
+ * 내 도착은 버린다. 받는 사람 기준 차단은 서버가 이미 걸렀다.
+ */
+export function memberArrivalFilter(islandId: string, selfId: () => string | undefined) {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  return (raw: unknown): MemberArrivedEvent | null => {
+    const event = parseMemberArrivedEvent(raw, islandId);
+    if (!event || seen.has(event.eventId)) return null;
+    seen.add(event.eventId);
+    order.push(event.eventId);
+    if (order.length > 200) seen.delete(order.shift()!);
+    return event.userId === selfId() ? null : event;
+  };
+}
+
+/** 「○○님이 도착했어요」 토스트 문구 — 이름이 없으면 「누군가」. */
+export const memberArrivedText = (event: MemberArrivedEvent) =>
+  t('focusFlow.memberArrived', { name: event.name ?? t('openSea.someone') });
+
+export const sessionSelfId = () => getSession()?.userId;
 
 export function isGoldenFishParticipant(
   event: GoldenFishEvent,
@@ -442,6 +491,11 @@ export type IslandChannelOpts = {
    * `NOT_A_MEMBER`)을 한 번 받으면 이 채널은 재접속해도 다시 구독하지 않는다.
    */
   movement?: boolean;
+  /**
+   * 주민 소식 채널(GROMO-2311) — `/topic/islands/{id}/events`. **현재 소속 주민만** 구독할 수 있다(비주민은 ERROR 뒤
+   * 소켓 종료). 어떤 ERROR 든 한 번 받으면 이 채널은 재접속해도 다시 구독하지 않는다.
+   */
+  events?: boolean;
   /** 내 진행 세션이 있을 때만 emotes 채널을 구독한다 — 없으면 서버가 구독을 거절한다. */
   emote: boolean;
   onEvent: (body: unknown) => void;
@@ -511,6 +565,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   let emoteEnabled = opts.emote;
   let emoteSubscription: { unsubscribe(): void } | null = null;
   // 이동 구독이 거절되면 서버가 소켓을 닫고 stompjs 가 5초마다 재접속·재거절한다 — 같은 방식으로 끊는다.
+  let eventsDenied = false;
   let movementDenied = false;
   let movementTransientErrors = 0;
   // 코덱스 지적(에픽 PR #1111 4라운드): 첫 ERROR 뒤 소켓이 닫히기 전 같은 접속의 둘째 구독이 600ms 시도
@@ -543,6 +598,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
         client.subscribe(`/topic/islands/${id}/movement/snapshot`, onMovementMsg);
       }
       if (opts.playback) client.subscribe(`/topic/islands/${id}/playback`, onMsg);
+      if (opts.events && !eventsDenied) client.subscribe(`/topic/islands/${id}/events`, onMsg);
       client.subscribe('/user/queue/errors', (msg: IMessage) => {
         let text = '실시간 요청이 거절됐어요.';
         try {
@@ -566,7 +622,11 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     },
     onStompError: (frame: IFrame) => {
       if (emoteEnabled) emoteDenied = true;
-      if (opts.movement) {
+      // 구독이 둘 이상인 접속(이동 + 주민 소식)의 첫 ERROR 는 새로 붙인 events 구독 탓으로 보고 events 만 끈다 —
+      // 이동 영구 거절로 번지지 않는다. 이동 쪽 거절이 진짜라면 재접속 뒤 다음 ERROR 에서 평소대로 판정된다.
+      const eventsFault = !!opts.events && !eventsDenied;
+      if (opts.events) eventsDenied = true;
+      if (opts.movement && !eventsFault) {
         let code = str(frame.headers.message) ?? '';
         if (!code) {
           try {
@@ -650,6 +710,10 @@ export type IslandRealtimeDeps = {
   emoteSessionId?: string | null;
   /** 방문자 모드(GROMO-2259) — 세션 없이도 emotes 를 구독하고 `{ type }` 만 보낸다. */
   visitor?: boolean;
+  /** 주민 소식 구독(GROMO-2311) — 현재 소속 섬의 주민 화면에서만 켠다. */
+  events?: boolean;
+  /** 다른 주민이 이 섬에 처음 도착했다(내 도착 제외·중복 제거 후 1번). */
+  onMemberArrived?: (event: MemberArrivedEvent) => void;
   /** 방문자가 보낸 응원을 받았다(주민 화면). eventId 로 중복 제거된 뒤 1번만 불린다. */
   onVisitorEmote?: (emote: LiveEmote) => void;
   onView: (view: PresenceView) => void;
@@ -680,6 +744,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   const load = deps.loadSnapshots ?? defaultSnapshots;
   const connect = deps.connect ?? stompIslandChannel;
   const alive = deps.alive ?? (() => true);
+  const arrivalFilter = memberArrivalFilter(islandId, sessionSelfId);
   const projection = new IslandProjection(islandId);
   projection.onVisitorEmote = (emote) => {
     if (!disposed && alive()) deps.onVisitorEmote?.(emote);
@@ -905,8 +970,14 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   const conn = connect({
     islandId,
     emote: !!emoteSessionId || !!deps.visitor,
+    events: deps.events,
     onEvent: (raw) => {
       if (disposed || !alive()) return;
+      if ((raw as RealtimeEnvelope | null)?.type === 'island.member.arrived') {
+        const arrived = arrivalFilter(raw);
+        if (arrived) deps.onMemberArrived?.(arrived);
+        return;
+      }
       const golden = parseGoldenFishEvent(raw, islandId);
       if (golden) {
         if (seenGolden.has(golden.eventId)) return;
