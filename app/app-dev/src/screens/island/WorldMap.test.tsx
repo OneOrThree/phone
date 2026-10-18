@@ -18,10 +18,6 @@ import {
 } from '@/screens/island/WorldMap';
 import { applyLocalePref } from '@/i18n';
 import { buildingNames, initialState, reducer } from '@/services/model';
-import {
-  BUILDING_ENTRY_DURATION_MS,
-  BUILDING_TRANSITION_DURATION_MS,
-} from '@/services/buildingTransition';
 import { villageScene } from '@/utils/village-world';
 import { assets } from '@/constants/assets';
 import { semanticTokens } from '@/design-system/tokens';
@@ -347,37 +343,31 @@ test.each([
   },
 );
 
-test.each(['board'] as const)(
-  '진입 스프라이트가 없는 %s는 620ms 뒤 라우트를 연다',
-  async (building) => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2026-06-15T12:00:00'));
-    const timing = jest.spyOn(Animated, 'timing').mockImplementation(
-      () =>
-        ({
-          start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
-          stop: jest.fn(),
-          reset: jest.fn(),
-        }) as unknown as Animated.CompositeAnimation,
-    );
-    try {
-      const state = initialState(true);
-      const island = state.islands.find((item) => item.id === state.islandId)!;
-      if (!island.buildings.includes(building)) island.buildings.push(building);
-      const go = jest.fn();
-      const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
-      await fireEvent.press(screen.getByLabelText(buildingNames[building]));
-      await act(async () => jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS - 1));
-      expect(go).not.toHaveBeenCalled();
-      await act(async () => jest.advanceTimersByTime(1));
-      expect(go).toHaveBeenCalledWith(building);
-      await screen.unmount();
-    } finally {
-      timing.mockRestore();
-      jest.useRealTimers();
-    }
-  },
-);
+test.each(['board'] as const)('%s에 도착하면 전환 대기 없이 라우트를 연다', async (building) => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    () =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  try {
+    const state = initialState(true);
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    if (!island.buildings.includes(building)) island.buildings.push(building);
+    const go = jest.fn();
+    const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+    await fireEvent.press(screen.getByLabelText(buildingNames[building]));
+    expect(go).toHaveBeenCalledWith(building);
+    await screen.unmount();
+  } finally {
+    timing.mockRestore();
+    jest.useRealTimers();
+  }
+});
 
 test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에서만 프레임을 연다', async () => {
   jest.useFakeTimers();
@@ -939,7 +929,7 @@ test('클라이언트 계산이 완료 시각에 도달하면 completion sprite�
   expect(screen.queryByTestId('construction-sprite-library-completion')).toBeNull();
 });
 
-test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 완료 뒤 route를 연다', async () => {
+test('건물을 연타해도 한 번만 걷고 도착 즉시 내부를 연다', async () => {
   jest.useFakeTimers();
   const timing = jest.spyOn(Animated, 'timing').mockImplementation(
     (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
@@ -960,14 +950,7 @@ test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 
     await fireEvent.press(hall);
     await fireEvent.press(hall);
 
-    expect(go).not.toHaveBeenCalled();
-    expect(
-      screen.getByTestId('building-transition-overlay', { includeHiddenElements: true }),
-    ).toBeTruthy();
-
-    await act(async () => {
-      jest.advanceTimersByTime(BUILDING_ENTRY_DURATION_MS);
-    });
+    expect(screen.queryByTestId('building-transition-overlay')).toBeNull();
     expect(go).toHaveBeenCalledTimes(1);
     expect(go).toHaveBeenCalledWith('hall');
 
@@ -1081,7 +1064,7 @@ test('테마 회관·상점·전망대·도서관은 낮·밤 모두 정적 레�
   jest.useRealTimers();
 });
 
-test('밤에도 회관은 밤 문 프레임을 먼저 보여 준 뒤 라우트를 연다', async () => {
+test('밤에도 회관 도착 시 문 모션을 기다리지 않고 내부를 연다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T22:00:00'));
   const timing = jest.spyOn(Animated, 'timing').mockImplementation(
@@ -1100,11 +1083,6 @@ test('밤에도 회관은 밤 문 프레임을 먼저 보여 준 뒤 라우트�
     expect(nightFrame).toBe(require('@/assets/village-world/motion/hall/night-frame-0.png'));
 
     await fireEvent.press(screen.getByLabelText(buildingNames.hall));
-    await act(async () => jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS));
-    expect(go).not.toHaveBeenCalled();
-    await act(async () =>
-      jest.advanceTimersByTime(BUILDING_ENTRY_DURATION_MS - BUILDING_TRANSITION_DURATION_MS),
-    );
     expect(go).toHaveBeenCalledWith('hall');
     await screen.unmount();
   } finally {

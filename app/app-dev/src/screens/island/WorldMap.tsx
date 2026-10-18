@@ -32,7 +32,7 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
-import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
+import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
   ConstructionBuildingSprite,
@@ -108,17 +108,7 @@ import {
   constructionPhase,
   normalizedConstructionProgress,
 } from '@/screens/island/constructionProgress';
-import {
-  BUILDING_ENTRY_DURATION_MS,
-  BUILDING_TRANSITION_DURATION_MS,
-  BUILDING_SPRITE_LEAD_IN_MS,
-  BUILDING_TRANSITION_ROUTE,
-  createBuildingTransitionController,
-  runBuildingEntryWalk,
-  type BuildingTransitionState,
-  type BuildingTransitionTarget,
-} from '@/services/buildingTransition';
-import { BuildingTransitionOverlay } from './BuildingTransitionOverlay';
+import { runBuildingEntryWalk, type BuildingTransitionTarget } from '@/services/buildingTransition';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
 import {
@@ -1293,10 +1283,6 @@ function FinalIslandScene({
   }, [scene, layout]);
   // WorldMap 이 부모와 같은 낮·밤 값을 쓰도록 한 번만 계산해 내려준다.
   const dayNight = useVillageDayNight();
-  const hasEntrySprite = (target: BuildingTransitionTarget | null) =>
-    // 네 건물은 낮·밤 모두 진입 프레임이 있다.
-    !scene &&
-    (target === 'hall' || target === 'library' || target === 'shop' || target === 'tower');
   const fireObject = scene?.objects.find((object) => object.kind === 'fire');
   // 렌더 시점 스프레드 — legacyDoors 의 label 게터가 여기서 그때 언어로 복사된다. useMemo/useCallback/React.memo
   // 로 감싸면 언어를 바꿔도 라벨이 굳으니 메모이즈하지 않는다(GROMO-2239·에픽 리뷰).
@@ -1419,15 +1405,11 @@ function FinalIslandScene({
           y: constructionBase.y + constructionOffset.y,
         }
       : constructionBase;
-  const [buildingTransition, setBuildingTransition] = useState<BuildingTransitionState>({
-    phase: 'idle',
-    target: null,
-    direction: null,
-    generation: 0,
-  });
-  const buildingTransitionController = useRef(createBuildingTransitionController()).current;
-  const [transitionOrigin, setTransitionOrigin] = useState({ x: L.width / 2, y: L.height / 2 });
   const buildingEntryPending = useRef(false);
+  const entryGeneration = useRef(0);
+  useEffect(() => {
+    buildingEntryPending.current = false;
+  }, [showActions, positionKey]);
   const tiltTimer = useRef<NodeJS.Timeout | null>(null);
   const tapCountRef = useRef(0);
   const tapResetTimer = useRef<NodeJS.Timeout | null>(null);
@@ -1446,48 +1428,19 @@ function FinalIslandScene({
       }, 500);
     }
   };
-  const triggerTilt = () => triggerMotion('tilt');
-  const transitionTimer = useRef<NodeJS.Timeout | null>(null);
-
-  const navigateWithTilt = (targetRoute: Route) => {
-    triggerTilt();
-    if (transitionTimer.current) clearTimeout(transitionTimer.current);
-    const delay = state.settings.reduceMotion ? 0 : interactiveMotionDurationMs('tilt');
-    if (delay) {
-      transitionTimer.current = setTimeout(() => {
-        go(targetRoute);
-      }, delay);
-    } else {
+  const navigateOnArrival = (targetRoute: Route) => {
+    setInteractiveMotion(null);
+    if (state.settings.sound && (targetRoute === 'hall' || targetRoute === 'library')) {
+      onBuildingEntrySound?.(targetRoute, ++entryGeneration.current);
+    }
+    try {
       go(targetRoute);
+    } catch (error) {
+      buildingEntryPending.current = false;
+      throw error;
     }
   };
-
   const scaleRef = useRef(1);
-  useEffect(
-    () =>
-      buildingTransitionController.subscribe((next) => {
-        setBuildingTransition(next);
-        if (next.phase === 'idle') buildingEntryPending.current = false;
-      }),
-    [buildingTransitionController],
-  );
-  useEffect(() => () => buildingTransitionController.dispose(), [buildingTransitionController]);
-  useEffect(() => {
-    const target = buildingTransition.target;
-    if (
-      !state.settings.sound ||
-      buildingTransition.phase !== 'entering' ||
-      (target !== 'hall' && target !== 'library')
-    )
-      return;
-    onBuildingEntrySound?.(target, buildingTransition.generation);
-  }, [
-    buildingTransition.generation,
-    buildingTransition.phase,
-    buildingTransition.target,
-    onBuildingEntrySound,
-    state.settings.sound,
-  ]);
 
   const handleCatPress = (e: any) => {
     if (walking) return;
@@ -1515,7 +1468,6 @@ function FinalIslandScene({
     return () => {
       if (tiltTimer.current) clearTimeout(tiltTimer.current);
       if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
-      if (transitionTimer.current) clearTimeout(transitionTimer.current);
     };
   }, []);
   const xy = useRef(new Animated.ValueXY(pos)).current,
@@ -1593,7 +1545,7 @@ function FinalIslandScene({
         // 걷는 중에 서버 Arrived 가 왔으면 마지막 세그먼트를 마친 뒤 그 자리에 선다.
         if (arrival.current) place(arrival.current);
         arrival.current = null;
-        if (pathDistance(path) >= 180) {
+        if (!done && pathDistance(path) >= 180) {
           triggerMotion('stretch');
         }
         walkDone.current = undefined;
@@ -1633,7 +1585,6 @@ function FinalIslandScene({
   };
   const walk = (target: Point, done?: () => void) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
-    if (transitionTimer.current) clearTimeout(transitionTimer.current);
     setInteractiveMotion(null);
     const path = tileNav
       ? tilePath(activeNav(mapAssets, navBuildings), location.current, target, sizeOf(grid))
@@ -1889,10 +1840,10 @@ function FinalIslandScene({
       const d = Object.values(doors).find((d) => d.r === request);
       if (d) {
         if (d.direct) {
-          navigateWithTilt(request);
+          navigateOnArrival(request);
         } else {
           walk(d, () => {
-            navigateWithTilt(request);
+            navigateOnArrival(request);
           });
         }
       }
@@ -1999,39 +1950,19 @@ function FinalIslandScene({
               // 배 메뉴는 걷기와 갸웃 모션이 끝나기를 기다리지 않고 바로 연다.
               if (id === 'raft') return go(d.r);
               if (d.direct) {
-                return navigateWithTilt(d.r);
+                return navigateOnArrival(d.r);
               }
-              const transitionTarget =
-                d.building && d.building in BUILDING_TRANSITION_ROUTE
-                  ? (d.building as BuildingTransitionTarget)
-                  : null;
-              const enter = () => {
-                if (!transitionTarget) {
-                  navigateWithTilt(d.r);
+              buildingEntryPending.current = true;
+              return runBuildingEntryWalk(
+                (onArrival) => walk(d, onArrival),
+                () => {
+                  navigateOnArrival(d.r);
                   return true;
-                }
-                setTransitionOrigin(project(d));
-                return buildingTransitionController.start(
-                  transitionTarget,
-                  'enter',
-                  state.settings.reduceMotion,
-                  () => go(BUILDING_TRANSITION_ROUTE[transitionTarget]),
-                  hasEntrySprite(transitionTarget)
-                    ? BUILDING_ENTRY_DURATION_MS
-                    : BUILDING_TRANSITION_DURATION_MS,
-                );
-              };
-              if (transitionTarget) {
-                buildingEntryPending.current = true;
-                return runBuildingEntryWalk(
-                  (onArrival) => walk(d, onArrival),
-                  enter,
-                  () => {
-                    buildingEntryPending.current = false;
-                  },
-                );
-              }
-              return walk(d, enter);
+                },
+                () => {
+                  buildingEntryPending.current = false;
+                },
+              );
             }
             if (d.visitorRoute) return go(d.visitorRoute, i.id);
             // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
@@ -2289,26 +2220,10 @@ function FinalIslandScene({
         }
         debugNow={debugNow}
         islandId={i.id}
-        hallMotionActive={
-          buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
-        }
-        hallMotionGeneration={buildingTransition.generation}
         boardStatus={visiting ? null : boardStatus}
         observatoryRankState={observatoryRankState}
         shopState={shopState}
         libraryState={visiting ? 'normal' : libraryState}
-        libraryArrivalActive={
-          buildingTransition.phase === 'entering' && buildingTransition.target === 'library'
-        }
-        libraryArrivalGeneration={buildingTransition.generation}
-        towerArrivalActive={
-          buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
-        }
-        towerArrivalGeneration={buildingTransition.generation}
-        shopArrivalActive={
-          buildingTransition.phase === 'entering' && buildingTransition.target === 'shop'
-        }
-        shopArrivalGeneration={buildingTransition.generation}
         showMailboxLetters={mailboxLetters}
         hiddenVillageBuilding={activeBuilding}
         dayNight={dayNight}
@@ -2516,16 +2431,6 @@ function FinalIslandScene({
           </View>
         </>
       )}
-      <BuildingTransitionOverlay
-        state={buildingTransition}
-        reduceMotion={state.settings.reduceMotion}
-        origin={transitionOrigin}
-        delayMs={
-          buildingTransition.direction === 'enter' && hasEntrySprite(buildingTransition.target)
-            ? BUILDING_SPRITE_LEAD_IN_MS
-            : 0
-        }
-      />
     </TutorialScene>
   );
 }
