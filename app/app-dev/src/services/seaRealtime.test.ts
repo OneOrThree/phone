@@ -230,6 +230,28 @@ test('ERROR 프레임이 연속 3번이면 쉬었다가 백오프(30초 → 60�
   expect(client().connected).toBe(true);
 });
 
+test('백오프는 30초 → 60초 → 120초로 늘고 120초가 상한이다(네 번째도 120초)', () => {
+  open();
+  const reject = () => {
+    for (let i = 0; i < 3; i += 1) stompError();
+  };
+  const waitsFor = (ms: number) => {
+    expect(client().connected).toBe(false);
+    jest.advanceTimersByTime(ms - 1);
+    expect(client().connected).toBe(false);
+    jest.advanceTimersByTime(1);
+    expect(client().connected).toBe(true);
+  };
+  reject();
+  waitsFor(30_000);
+  reject();
+  waitsFor(60_000);
+  reject();
+  waitsFor(120_000);
+  reject();
+  waitsFor(120_000);
+});
+
 test('이모트 연타 ERROR(EMOTE_TOO_FREQUENT)는 안내만 하고 백오프로 세지 않는다', () => {
   const { spy } = open();
   for (let i = 0; i < 3; i += 1) stompError('EMOTE_TOO_FREQUENT');
