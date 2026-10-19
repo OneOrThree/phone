@@ -22,6 +22,8 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 
@@ -210,7 +212,8 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
                     log.debug("채팅 전달 차단 — 받는 사람이 발신자를 차단했다");
                     return null;
                 }
-                authzCache.allowMember(sessionId, principal.userId(), scope, stamp);
+                authzCache.allow(sessionId, principal.userId(), scope, stamp,
+                        sources(true, filter, principal.userId(), sender));
             } else {
                 accessGuard.requireNotFocusing(principal.userId());
             }
@@ -253,7 +256,8 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
                 log.debug("섬 소식 전달 차단 — 받는 사람이 도착자를 차단했다");
                 return null;
             }
-            authzCache.allowMember(sessionId, principal.userId(), scope, stamp);
+            authzCache.allow(sessionId, principal.userId(), scope, stamp,
+                    sources(true, filter, principal.userId(), arriver));
             return message;
         } catch (UpstreamRejectedCredentialException e) {
             // 채팅과 같다 — 자격 자체가 무효면 소켓을 닫아 앱이 갱신·재연결을 시작하게 한다.
@@ -322,7 +326,8 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
                 log.debug("응원 전달 차단 — 받는 사람이 발신자를 차단했다");
                 return null;
             }
-            authzCache.allow(sessionId, principal.userId(), scope, stamp);
+            authzCache.allow(sessionId, principal.userId(), scope, stamp,
+                    sources(false, true, principal.userId(), sender));
         } catch (RuntimeException e) {
             // 차단 판정 불가 — 전달 근거가 없다. 소켓은 유지한다(자격은 여전히 유효하다).
             log.debug("응원 전달 차단 — 차단 판정 불가. reason={}", e.getClass().getSimpleName());
@@ -373,6 +378,22 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             throw new IllegalStateException("발신자 형식 오류");
         }
         return sender;
+    }
+
+    /**
+     * 그 허용이 기댄 원본 캐시({@link OutboundAuthzCache} 표). 차단은 {@link BlockedUsers#hasBlocked} 가 실제로 집합을
+     * 읽은 경우만 — 필터 OFF·발신자 없음(탈퇴)·본인이면 조회가 없어 원본도 없다.
+     */
+    private static Set<OutboundAuthzCache.Source> sources(boolean membership, boolean filter, UUID viewer,
+            UUID sender) {
+        Set<OutboundAuthzCache.Source> sources = EnumSet.noneOf(OutboundAuthzCache.Source.class);
+        if (membership) {
+            sources.add(OutboundAuthzCache.Source.MEMBERSHIP);
+        }
+        if (filter && sender != null && !sender.equals(viewer)) {
+            sources.add(OutboundAuthzCache.Source.BLOCKS);
+        }
+        return sources;
     }
 
     private static UUID uuidOrNull(String value) {
