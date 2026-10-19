@@ -12,6 +12,7 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.IslandArrivalRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository.JoinRequestRef;
 import com.oneorthree.phone.group.repository.UserIslandContextRepository;
@@ -19,14 +20,17 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.IslandArrival;
 import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
+import com.oneorthree.phone.group.service.IslandArrivalEvents;
 import com.oneorthree.phone.group.service.IslandMembershipEvents;
 import com.oneorthree.phone.group.service.IslandStateEvents;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.CurrentIslandView;
+import com.oneorthree.phone.internal.dto.IslandArrivalView;
 import com.oneorthree.phone.internal.dto.IslandCreatedView;
 import com.oneorthree.phone.internal.dto.IslandDetailView;
 import com.oneorthree.phone.internal.dto.IslandDiscoverPageView;
@@ -49,6 +53,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -96,12 +102,16 @@ public class IslandMembershipService {
     private final GroupMembershipMutationLocks membershipLocks;
     private final IslandMembershipEvents membershipEvents;
     private final IslandStateEvents islandStateEvents;
+    private final IslandArrivalEvents islandArrivalEvents;
     private final PublicCommandService publicCommands;
     private final IslandWalletRepository islandWalletRepository;
     private final IslandConstructionStateRepository islandConstructionStateRepository;
     private final IslandFacilityQueryService facilityQueries;
     private final IslandMovementGuards movementGuards;
     private final BannedWords bannedWords;
+    private final IslandArrivalRepository arrivals;
+    /** 도착 시각을 찍는 시계 (GROMO-2260) — 테스트가 {@code @MockitoBean Clock} 으로 고정한다. */
+    private final Clock clock;
 
     // ---------------------------------------------------------------- §3.1 create
 
@@ -146,6 +156,8 @@ public class IslandMembershipService {
                     islandWalletRepository.save(IslandWallet.empty(island.getId()));
                     islandConstructionStateRepository.save(IslandConstructionState.empty(island.getId()));
                     context.moveTo(island.getId());
+                    // 만든 섬에서 출발한다 — 처음부터 «가 본 섬» 이다(GROMO-2260).
+                    arrivals.recordArrival(userId, island.getId(), clock.instant(), true);
 
                     EventEnvelope created = islandStateEvents.created(island.getId(), userId);
                     EventEnvelope members = membershipEvents.changed(island.getId(), userId, "MEMBER_ADDED", userId);
@@ -192,16 +204,84 @@ public class IslandMembershipService {
                                 InternalJson.tree(new CurrentIslandView(islandId)),
                                 InternalJson.tree(List.of()));
                     }
+                    // 즉시 이동은 가 본 섬으로만 된다(GROMO-2260) — 망원경에서 가입만 한 섬은 먼저 항해해야 한다.
+                    if (!arrivals.existsByUserIdAndIslandId(userId, islandId)) {
+                        throw new GroupException(GroupErrorCode.ISLAND_NOT_ARRIVED);
+                    }
                     movementGuards.requireNoLiveFocusSession(user);
                     movementGuards.requireDepartureUnlocked(context);
 
                     context.moveTo(islandId);
+                    // «최근 머문» 축 — 나가기·강퇴 뒤 다음 위치가 이 값으로 고른다.
+                    arrivals.recordArrival(userId, islandId, clock.instant(), true);
                     // 개인 선택 변경은 가입/이탈이 아니다 — island.members.updated 로 방송하지 않는다(§3.6).
                     return new PublicCommandResult(200,
                             InternalJson.tree(new CurrentIslandView(islandId)),
                             InternalJson.tree(List.of()));
                 }).value().data();
         return InternalJson.decode(data, CurrentIslandView.class);
+    }
+
+    // ---------------------------------------------------------------- 도착 (GROMO-2260)
+
+    /**
+     * 섬에 도착했다 — 항해(망원경)·방문이 끝난 자리에서 앱이 부른다 (섬 외부 계약 §1).
+     *
+     * <p>주민이면 현재 섬도 옮긴다 — 다른 섬으로 옮기는 것이라 즉시 이동과 같은 이동 가드(집중 세션·출발 섬
+     * 전망대)를 건다. 비주민(방문)은 기록만 남긴다. 비공개 섬의 비주민은 존재를 숨겨 404 다.
+     *
+     * <p><b>명령 키 receipt 로 묶는다</b> — {@link #switchCurrentIsland} 와 같은 흐름이다. 도착은 현재 섬을
+     * 옮기므로, 늦게 도착한 옛 요청의 재시도가 그 사이 다른 섬으로 간 사람을 지난 목적지로 되돌리거나 집중 중
+     * 409 로 실패하면 안 된다. 같은 키의 재시도는 처음 결과를 그대로 재생하고 다시 옮기지 않는다.
+     */
+    @Transactional
+    public IslandArrivalView arrive(UUID userId, UUID islandId, UUID idempotencyKey) {
+        PublicCommandRequest command = new PublicCommandRequest(userId,
+                "POST:/islands/" + islandId + "/arrivals:" + userId, idempotencyKey, InternalJson.tree(Map.of()));
+        JsonNode data = publicCommands.run(command,
+                () -> userQueryService.getCallerForUpdate(userId),
+                ignored -> userQueryService.getCallerForUpdate(userId),
+                () -> {
+                    User user = userQueryService.getCallerForUpdate(userId);
+                    UserIslandContext context = userIslandContextLockService.lock(user);
+                    membershipLocks.lockGroup(islandId);
+                    Group island = groupQueryService.findGroup(islandId)
+                            .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
+                    IslandMovementGuards.requireAlive(island);
+                    Optional<GroupMember> membership =
+                            groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId);
+                    boolean member = membership.isPresent();
+                    if (!member && island.isPrivate()) {
+                        throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
+                    }
+                    if (member && !islandId.equals(context.getCurrentIslandId())) {
+                        movementGuards.requireNoLiveFocusSession(user);
+                        movementGuards.requireDepartureUnlocked(context);
+                        context.moveTo(islandId);
+                    }
+                    Instant arrivedAt = clock.instant();
+                    // 현 가입 이후 주민으로서 처음인가 (GROMO-2302) — 덮기 전에 «주민으로서 마지막 도착» 을 현 멤버십
+                    // 시작과 비교한다. 재가입하면 옛 값이 새 시작보다 일러 다시 첫 도착이다. 방문자는 언제나 아니다.
+                    boolean first = member && arrivals.findById(new IslandArrival.Key(userId, islandId))
+                            .map(IslandArrival::getMemberArrivedAt)
+                            .map(at -> at.isBefore(membership.get().membershipStartedAt()))
+                            .orElse(true);
+                    arrivals.recordArrival(userId, islandId, arrivedAt, member);
+
+                    String membershipStatus = IslandSummaries.STATUS_ACTIVE;
+                    if (!member) {
+                        JoinRequestRef latest = latestRequests(userId, List.of(islandId)).get(islandId);
+                        membershipStatus = IslandSummaries.statusOf(false, latest);
+                    }
+                    IslandArrivalView view = new IslandArrivalView(islandId, !first, membershipStatus,
+                            member ? islandId : liveCurrentIsland(userId));
+                    // 도착은 가입·이탈이 아니다 — island.members.updated 로 방송하지 않는다(switch 와 같다). 주민 첫
+                    // 도착만 그 섬 events 채널에 소식 하나를 낸다(GROMO-2302). receipt 에도 담아 재생이 같은 봉투를 돌려준다.
+                    List<EventEnvelope> events = first
+                            ? islandArrivalEvents.arrived(islandId, user, arrivedAt) : List.of();
+                    return new PublicCommandResult(200, InternalJson.tree(view), InternalJson.tree(events));
+                }).value().data();
+        return InternalJson.decode(data, IslandArrivalView.class);
     }
 
     // ---------------------------------------------------------------- §3.4 island
@@ -235,21 +315,24 @@ public class IslandMembershipService {
                     ? IslandSummaries.STATUS_PENDING : IslandSummaries.STATUS_NONE;
             return IslandViewResponse.ofVisitor(IslandSummaries.of(
                     island, memberCount, membershipStatus,
-                    latest == null ? null : latest.getId()), facilityQueries.completedBuildings(islandId));
+                    latest == null ? null : latest.getId(),
+                    arrivals.existsByUserIdAndIslandId(viewerUserId, islandId)),
+                    facilityQueries.completedBuildings(islandId));
         }
         return IslandViewResponse.ofMember(new IslandDetailView(
                 island.getId(), island.getName(), IslandSummaries.introOf(island),
                 IslandSummaries.visibilityOf(island),
                 island.isApprovalRequired(), memberCount, island.getMaxMembers(),
                 IslandSummaries.STATUS_ACTIVE, null, null,
-                roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion()),
+                roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion(),
+                IslandSummaries.greetingOf(island), island.getGreeting() == null),
                 facilityQueries.completedBuildings(islandId));
     }
 
     // ---------------------------------------------------------------- §3.5 memberships
 
     /**
-     * 내 섬 목록 (LLD §3.5). 소속 상한 10 이라 페이지가 없다.
+     * 내 섬 목록 (LLD §3.5). 소속 상한 3 이라(GROMO-2260) 페이지가 없다.
      *
      * <p>현재 섬이 없으면 «왜 없는지»({@code lossReason})를 함께 싣는다 (GROMO-2038) — 앱이 「처음
      * 왔다」와 「방금 잃었다」를 같은 빈 화면으로 보여 주지 않게 하려는 것이다. 사유를 <b>읽기만</b>
@@ -267,10 +350,12 @@ public class IslandMembershipService {
         List<UUID> ids = islands.stream().map(Group::getId).toList();
         Map<UUID, Integer> counts = memberCountsOf(ids);
         Map<UUID, JoinRequestRef> latest = latestRequests(userId, ids);
+        Set<UUID> arrived = arrivedAmong(userId, ids);
         List<IslandSummaryView> items = islands.stream()
                 .map(island -> IslandSummaries.of(island, counts.getOrDefault(island.getId(), 0),
                         IslandSummaries.STATUS_ACTIVE,
-                        latest.containsKey(island.getId()) ? latest.get(island.getId()).getRequestId() : null))
+                        latest.containsKey(island.getId()) ? latest.get(island.getId()).getRequestId() : null,
+                        arrived.contains(island.getId())))
                 .toList();
         UUID current = liveCurrentIsland(userId);
         // 「현재 섬이 있으면 상실 사유는 없다」 — V84 의 CHECK 와 같은 불변이라 사유를 읽지도 않는다.
@@ -404,6 +489,7 @@ public class IslandMembershipService {
         Map<UUID, Integer> counts = memberCountsOf(orderedIds);
         Set<UUID> mine = new HashSet<>(groupMemberRepository.findActiveGroupIdsByUserId(userId));
         Map<UUID, JoinRequestRef> latest = latestRequests(userId, orderedIds);
+        Set<UUID> arrived = arrivedAmong(userId, orderedIds);
         List<IslandSummaryView> items = new ArrayList<>(orderedIds.size());
         for (UUID id : orderedIds) {
             Group island = byId.get(id);
@@ -411,10 +497,18 @@ public class IslandMembershipService {
                 JoinRequestRef ref = latest.get(id);
                 items.add(IslandSummaries.of(island, counts.getOrDefault(id, 0),
                         IslandSummaries.statusOf(mine.contains(id), ref),
-                        ref == null ? null : ref.getRequestId()));
+                        ref == null ? null : ref.getRequestId(), arrived.contains(id)));
             }
         }
         return items;
+    }
+
+    /** 후보 중 본인이 가 본 섬 — 요약의 {@code arrivedBefore} 를 한 번에 채운다(GROMO-2260). */
+    private Set<UUID> arrivedAmong(UUID userId, Collection<UUID> islandIds) {
+        if (islandIds.isEmpty()) {
+            return Set.of();
+        }
+        return new HashSet<>(arrivals.findArrivedIslandIdsAmong(userId, islandIds));
     }
 
     /** «본인 최신 신청» 일괄 해석 — 요약을 만드는 경로가 섬마다 쿼리를 내지 않게 한 번에 묶는다. */

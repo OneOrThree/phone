@@ -290,6 +290,27 @@ it.each(cases)(
   },
 );
 
+it.each([false, true])(
+  '타일 섬 펠리컨 전체가 터치 영역 안에 들어간다 (서버 배치 이동: %s)',
+  async (moved) => {
+    const state = fullState();
+    withLayout(state, moved ? 'mail' : undefined);
+    const screen = await render(
+      <FinalIsland state={state} go={jest.fn()} build={jest.fn()} showMailboxLetters />,
+    );
+    const touch = flatStyle(
+      screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요').props.style,
+    );
+    const dx = moved ? expected.dx : 0;
+    const dy = moved ? expected.dy : 0;
+    expect(touch.left).toBeLessThanOrEqual(250 * SCALE + dx);
+    expect(touch.top).toBeLessThanOrEqual((456 - 24) * SCALE + dy);
+    expect(touch.left + touch.width).toBeGreaterThanOrEqual(390 * SCALE + dx);
+    expect(touch.top + touch.height).toBeGreaterThanOrEqual((596 - 24) * SCALE + dy);
+    await screen.unmount();
+  },
+);
+
 it('공사 중인 건물의 공사 스프라이트도 같은 평행이동을 따른다', async () => {
   const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-21T00:10:00Z'));
   try {
@@ -371,21 +392,18 @@ it('건물을 옮겨도 모닥불·뗏목 렌더 지점은 움직이지 않는�
   expect(moved.raft).toEqual(base.raft);
 });
 
-it.each(allBuildings.filter((b) => b !== 'gram'))(
-  '옮긴 %s 문을 탭하면 걷기 목표가 옮겨진 문 좌표다',
-  async (b) => {
-    const state = fullState();
-    withLayout(state, b);
-    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
-    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
-    await fireEvent.press(screen.getByLabelText(buildingNames[b]));
-    const door = legacyDoorCoords.doors[b];
-    const tap = screen.getByTestId('tile-terrain').props.navDebug.walk.tap;
-    expect(tap.x).toBeCloseTo(door.x + DELTA.x * CELL_PX.x, 6);
-    expect(tap.y).toBeCloseTo(door.y + DELTA.y * CELL_PX.y + (b === 'mail' ? -24 : 0), 6);
-    await screen.unmount();
-  },
-);
+it.each(allBuildings)('옮긴 %s 문을 탭하면 걷기 목표가 옮겨진 문 좌표다', async (b) => {
+  const state = fullState();
+  withLayout(state, b);
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+  await fireEvent.press(screen.getByLabelText(buildingNames[b]));
+  const door = legacyDoorCoords.doors[b];
+  const tap = screen.getByTestId('tile-terrain').props.navDebug.walk.tap;
+  expect(tap.x).toBeCloseTo(door.x + DELTA.x * CELL_PX.x, 6);
+  expect(tap.y).toBeCloseTo(door.y + DELTA.y * CELL_PX.y + (b === 'mail' ? -24 : 0), 6);
+  await screen.unmount();
+});
 
 // 릴리스 빌드(__DEV__=false)에서는 QA 전환 버튼이 없어야 한다. 플래그는 모듈 로드 시 굳으므로 격리 로드한다.
 describe('릴리스 빌드의 디버그 버튼', () => {
@@ -425,19 +443,19 @@ describe('릴리스 빌드의 디버그 버튼', () => {
   });
 });
 
-it('타일섬은 완공된 6개 건물과 뗏목·모닥불 팻말을 표시하고 홈 축음기를 숨긴다', async () => {
+it('타일섬은 축음기를 포함한 완공 건물 7개와 뗏목·모닥불 팻말을 표시한다', async () => {
   const state = fullState();
   const go = jest.fn();
   const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
-  for (const id of ['hall', 'board', 'library', 'mail', 'tower', 'shop', 'fire', 'raft']) {
+  for (const id of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop', 'fire', 'raft']) {
     expect(screen.getByTestId(`building-name-${id}`)).toBeTruthy();
   }
-  expect(screen.queryByTestId('world-static-building-gram')).toBeNull();
-  expect(screen.queryByTestId('building-name-gram')).toBeNull();
-  expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
+  expect(screen.getByTestId('world-static-building-gram')).toBeTruthy();
+  expect(screen.getByTestId('building-name-gram')).toBeTruthy();
+  expect(screen.getByLabelText(buildingNames.gram)).toBeTruthy();
   expect(state.islands.find((i) => i.id === state.islandId)!.buildings).toContain('gram');
   await fireEvent.press(screen.getByTestId('building-name-raft'));
-  expect(go).toHaveBeenCalledWith('boat');
+  expect(go).toHaveBeenCalledWith('raft');
   await screen.unmount();
 });
 
@@ -491,7 +509,35 @@ it('우체통 팻말로 진입해도 이동한 문으로 걸어가고 그림 전
   await screen.unmount();
 });
 
-test('빠른 핀치 반복에도 화면 팻말과 나무 이미지는 고정 크기를 유지한다', async () => {
+test.each([false, true])(
+  '뗏목 물결은 누름·해제와 모션 줄이기(%s)를 뗏목 그림과 함께 적용한다',
+  async (reduceMotion) => {
+    const state = initialState(true);
+    state.settings.reduceMotion = reduceMotion;
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    const sign = screen.getByTestId('building-name-raft');
+    const waterStyle = () =>
+      Object.assign({}, ...screen.getByTestId('world-raft-water-motion').props.style.flat());
+    const normal = waterStyle();
+    await fireEvent(sign, 'pressIn');
+    const pressed = waterStyle();
+    if (reduceMotion) {
+      expect(pressed.opacity).toBe(0.75);
+      expect(pressed.transform).toBeUndefined();
+    } else {
+      const scale = pressed.width / 210;
+      expect(pressed.transform).toEqual([{ translateY: 2 }, { scale: 0.97 }]);
+      // 물결 컨테이너의 아래가 아니라 실제 뗏목 그림의 아래 가운데를 기준으로 축소한다.
+      expect(pressed.transformOrigin[0]).toBeCloseTo((207 + 169 / 2 - 185) * scale);
+      expect(pressed.transformOrigin[1]).toBeCloseTo((822 + 103 - 835) * scale);
+    }
+    await fireEvent(sign, 'pressOut');
+    expect(waterStyle()).toEqual(normal);
+    await screen.unmount();
+  },
+);
+
+test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되고 내부 이미지 좌표는 유지한다', async () => {
   const createPan = jest.spyOn(PanResponder, 'create');
   const screen = await render(
     <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
@@ -508,6 +554,8 @@ test('빠른 핀치 반복에도 화면 팻말과 나무 이미지는 고정 크
     }) as any;
   const sign = () => screen.getByTestId('building-name-hall');
   const initial = StyleSheet.flatten(sign().props.style);
+  const building = () => StyleSheet.flatten(screen.getByTestId('world-hall-motion').props.style);
+  const originalBuilding = building();
   const overlay = screen.getByTestId('facility-sign-overlay');
   const imageSize = () => {
     const nodes: any[] = [];
@@ -533,13 +581,16 @@ test('빠른 핀치 반복에도 화면 팻말과 나무 이미지는 고정 크
       pan.onPanResponderGrant!(pinch(200), {} as any);
       pan.onPanResponderMove!(pinch(distance), {} as any);
     });
-    expect(StyleSheet.flatten(sign().props.style)).toMatchObject({
-      width: initial.width,
-      height: initial.height,
+    const current = StyleSheet.flatten(sign().props.style);
+    const ratio = building().width / originalBuilding.width;
+    expect(current.width / initial.width).toBeCloseTo(ratio);
+    expect(current.height / initial.height).toBeCloseTo(ratio);
+    imageSize().forEach((size, index) => {
+      expect(size.width).toBeCloseTo(originalSizes[index].width);
+      expect(size.height).toBeCloseTo(originalSizes[index].height);
     });
-    expect(imageSize()).toEqual(originalSizes);
     expect(StyleSheet.flatten(overlay.props.style)).toEqual(StyleSheet.absoluteFill);
-    // 팻말이 월드 너비가 변하는 부모 대신 고정된 화면 레이어 안에 있어야 한다.
+    // 화면 레이어에서도 팻말은 건물과 같은 배율을 사용한다.
     expect(within(overlay).getByTestId('building-name-hall')).toBeTruthy();
   }
   expect(StyleSheet.flatten(sign().props.style).left).not.toBe(initial.left);

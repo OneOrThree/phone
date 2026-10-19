@@ -126,6 +126,51 @@ class AppearanceServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("head·neck·shoes — 인벤토리 그룹·장착·해제·종류 불일치 422 (GROMO-2331)")
+    void customizationSlots() {
+        UUID userId = newUser();
+        seedProduct("duck", "head", "user", null);
+        seedProduct("bell", "neck", "user", null);
+        seedProduct("boots", "shoes", "user", null);
+        seedProduct("scarf", "clothes", "user", null);
+        for (String p : List.of("duck", "bell", "boots", "scarf")) {
+            grant(p, userId, null);
+        }
+
+        PersonalInventoryView inv = service.myInventory(userId);
+        assertThat(inv.head()).containsExactly("duck");
+        assertThat(inv.neck()).containsExactly("bell");
+        assertThat(inv.shoes()).containsExactly("boots");
+        assertThat(inv.clothes()).containsExactly("scarf");
+        assertThat(inv.equipped().head()).isNull();
+
+        AppearanceCommandView<PersonalAppearanceView> on = service.patchMine(userId, UUID.randomUUID(),
+                List.of("head", "neck", "shoes"), Map.of("head", "duck", "neck", "bell", "shoes", "boots"));
+        assertThat(on.data().head()).isEqualTo("duck");
+        assertThat(on.data().neck()).isEqualTo("bell");
+        assertThat(on.data().shoes()).isEqualTo("boots");
+        assertThat(on.data().version()).isEqualTo(1);
+        assertThat(service.myInventory(userId).equipped().head()).isEqualTo("duck");
+
+        // 한 슬롯만 해제 — 나머지는 유지
+        AppearanceCommandView<PersonalAppearanceView> off = service.patchMine(userId, UUID.randomUUID(),
+                List.of("neck"), valuesWithNull("neck"));
+        assertThat(off.data().neck()).isNull();
+        assertThat(off.data().head()).isEqualTo("duck");
+        assertThat(off.data().shoes()).isEqualTo("boots");
+
+        // 종류 불일치(neck 상품을 head 슬롯에, clothes 상품을 shoes 슬롯에) → 422
+        assertThatThrownBy(() -> service.patchMine(userId, UUID.randomUUID(),
+                List.of("head"), Map.of("head", "bell")))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.OUT_OF_RANGE));
+        assertThatThrownBy(() -> service.patchMine(userId, UUID.randomUUID(),
+                List.of("shoes"), Map.of("shoes", "scarf")))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.OUT_OF_RANGE));
+    }
+
+    @Test
     @DisplayName("회수가 보유 행을 먼저 잡으면 장착은 회수 커밋을 기다렸다 403 — stale-equip 창이 없다")
     void equipWaitsForConcurrentRevoke() {
         UUID userId = newUser();
@@ -279,6 +324,31 @@ class AppearanceServiceIntegrationTest {
                 .isInstanceOfSatisfying(OutboxException.class,
                         e -> assertThat(e.getErrorCode())
                                 .isEqualTo(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT));
+    }
+
+    @Test
+    @DisplayName("head 만 바꿔도 member.appearance.updated 의 params.appearance 에 head 가 실리고 해제 땐 null 이다 (GROMO-2331)")
+    void memberEventCarriesCustomizationSlots() {
+        Fixture f = islandWithOwner();
+        UUID memberId = newUser();
+        joinMember(f.islandId, memberId);
+        seedProduct("duck", "head", "user", null);
+        grant("duck", memberId, null);
+
+        AppearanceCommandView<PersonalAppearanceView> on = service.patchMine(memberId, UUID.randomUUID(),
+                List.of("head"), Map.of("head", "duck"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> appearance = (Map<String, Object>)
+                ((Map<?, ?>) on.events().get(0).get("params")).get("appearance");
+        assertThat(appearance.get("head")).isEqualTo("duck");
+        assertThat(appearance).containsKeys("neck", "shoes");
+
+        AppearanceCommandView<PersonalAppearanceView> off = service.patchMine(memberId, UUID.randomUUID(),
+                List.of("head"), valuesWithNull("head"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> cleared = (Map<String, Object>)
+                ((Map<?, ?>) off.events().get(0).get("params")).get("appearance");
+        assertThat(cleared).containsEntry("head", null);
     }
 
     @Test

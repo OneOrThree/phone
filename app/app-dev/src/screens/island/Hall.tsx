@@ -18,9 +18,6 @@ import {
   State,
   Building,
   viewIsland,
-  visitorJoinState,
-  pendingVisitRequest,
-  visitorJoinLabel,
   buildingNames,
   costs,
   buildMinutes,
@@ -54,14 +51,37 @@ import {
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
-import { islandErrorMessage } from '@/services/islandErrors';
-import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
+import { t } from '@/i18n';
+import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import {
+  ISLAND_GREETING_MAX,
+  ISLAND_INTRO_MAX,
+  ISLAND_NAME_MAX,
+} from '@/services/api/islandManagement';
+import { clampCodePoints } from '@/utils/codePoints';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
 // App.tsx 의 REVIEW/DEMO 와 같은 판정(services/demoMode) — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
 const ledgerMockMode = () => isMockMode();
+// 편집 칸에 미리 채울 인사말 — 섬장이 쓴 것만. 안 썼으면(기본 문구가 합성돼 온다) 빈 칸이고, 기본 문구는 힌트로만 보인다.
+// 합성 문구를 그대로 채워 저장하면 섬 이름이 바뀌어도 안 따라가고, 이름이 길면 40 코드포인트를 넘을 수 있다.
+const ownGreeting = (detail?: { greeting?: string; greetingIsDefault?: boolean } | null) =>
+  detail?.greetingIsDefault === false ? (detail.greeting ?? '') : '';
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
+// 섬 관리 카드의 「냐옹잡지에 섬 홍보하기 ›」 줄
+const promotionRow = {
+  minHeight: semanticTokens.size.tapMin,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: semanticTokens.spacing.control,
+} as const;
+// 관리 쓰기(위임 · 승인 · 강퇴 · 저장) 중에는 홍보 쓰기 줄을 흐리게 막는다 — 공용 버튼의 꺼짐 투명도
+const promotionRowBusy = {
+  ...promotionRow,
+  opacity: componentTokens.button.disabledOpacity,
+} as const;
 const completionStamp = componentTokens.hallCompletionStamp;
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
 const final = (word: string) => {
@@ -217,19 +237,11 @@ export function Hall({ e }: any) {
     intro: i.intro,
     approval: i.approval,
     capacity: capacityOf(i),
+    greeting: '',
   });
   const [managementError, setManagementError] = useState('');
   const [managementBusy, setManagementBusy] = useState(false);
   const managementRun = useRef(0);
-  const visitorJoinPending = useRef(false);
-  const visitorJoinMounted = useRef(true);
-  const [visitorJoinBusy, setVisitorJoinBusy] = useState(false);
-  useEffect(() => {
-    visitorJoinMounted.current = true;
-    return () => {
-      visitorJoinMounted.current = false;
-    };
-  }, []);
   // 같은 섬의 관리 화면이라도 route 또는 인증 세대가 바뀌면 이전 요청의 UI 완료를 버린다.
   // 세대는 렌더 때 snapshot으로 잡아 effect dependency에 넣는다.
   const managementSessionGeneration = sessionGeneration();
@@ -261,6 +273,8 @@ export function Hall({ e }: any) {
       notify(success);
     } catch (error) {
       if (run !== managementRun.current) return;
+      // 게스트 섬장이 인사말을 저장하면 서버가 403 SOCIAL_LOGIN_REQUIRED 로 거절한다 — 회원 전환 시트로 보낸다(GROMO-2005)
+      if (e.conversion?.offer(error)) return;
       const message = managementErrorMessage(error, operation);
       setManagementError(message);
       // 정보 수정·위임 패널에는 주민 카드의 오류 줄이 안 보인다 — 패널에서는 토스트로 알린다(H5)
@@ -371,6 +385,13 @@ export function Hall({ e }: any) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(''), 2400);
   };
+  const {
+    join,
+    disabled: joinDisabled,
+    label: joinLabel,
+    busy: visitorJoinBusy,
+    serverJoin,
+  } = useVisitorJoin(e, s, i, notify);
   // .hl 글자: 고운돋움, 자간 −0.15
   const g = (size: number, lh: number, extra?: object) => ({
     fontFamily: font,
@@ -741,6 +762,7 @@ export function Hall({ e }: any) {
       construction_debit: '건설 사용',
       shop_purchase: '공동 구매',
       golden_fish: '황금 물고기',
+      promotion_fee: t('magazine.ledger.promotionFee'),
     };
     const shown = ledger.tab === 'balance' ? ledger.items.slice(0, 2) : ledger.items;
     const bookmark = (label: keyof typeof TAB_KEY, n: number) => {
@@ -2401,18 +2423,29 @@ export function Hall({ e }: any) {
         {tail}
       </Pressable>
     );
-    const input = (label: string, key: 'name' | 'intro') => (
+    const input = (label: string, key: 'name' | 'intro' | 'greeting') => (
       <View style={{ gap: 5 }}>
         <T style={g(13, 20.8, { color: '#6d5b4a', fontWeight: '700' })}>{label}</T>
         <TextInput
-          testID={key === 'name' ? 'hall-name' : 'hall-intro'}
+          testID={`hall-${key}`}
           accessibilityLabel={label}
           value={draft[key]}
-          onChangeText={(v) => setDraft((d) => ({ ...d, [key]: v }))}
+          // 인사말은 코드포인트 40 — TextInput maxLength 는 UTF-16 이라 🐟 가 2로 세어 여기서 자른다
+          onChangeText={(v) =>
+            setDraft((d) => ({
+              ...d,
+              [key]: key === 'greeting' ? clampCodePoints(v, ISLAND_GREETING_MAX) : v,
+            }))
+          }
           multiline={key === 'intro'}
-          maxLength={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX}
+          maxLength={
+            key === 'name' ? ISLAND_NAME_MAX : key === 'intro' ? ISLAND_INTRO_MAX : undefined
+          }
+          placeholder={key === 'greeting' ? t('hall.greetingPlaceholder') : undefined}
+          placeholderTextColor={componentTokens.input.placeholder}
           style={{
-            height: key === 'intro' ? (land ? 57 : 62) : land ? 39 : 44,
+            // 이름·인사말 한 줄 칸은 가로에서도 실제 터치 높이 44 — 접근성 최소 터치 영역(DESIGN.md)
+            height: key === 'intro' ? (land ? 57 : 62) : 44,
             paddingVertical: land ? 7 : 10,
             paddingHorizontal: land ? 9 : 11,
             borderWidth: 1.5,
@@ -2427,7 +2460,17 @@ export function Hall({ e }: any) {
             textAlignVertical: 'top',
           }}
         />
-        <CharCount value={draft[key]} max={key === 'name' ? ISLAND_NAME_MAX : ISLAND_INTRO_MAX} />
+        <CharCount
+          value={draft[key]}
+          max={
+            key === 'name'
+              ? ISLAND_NAME_MAX
+              : key === 'intro'
+                ? ISLAND_INTRO_MAX
+                : ISLAND_GREETING_MAX
+          }
+          codePoints={key === 'greeting'}
+        />
       </View>
     );
     const approval = setting(
@@ -2523,6 +2566,12 @@ export function Hall({ e }: any) {
                   intro: draft.intro,
                   approvalRequired: draft.approval,
                   maxMembers: draft.capacity,
+                  // 인사말은 바꾼 때만 싣는다 — 안 바꾼 저장이 구서버(모르는 키 400)·게스트(403)에 걸리지 않게.
+                  // 앞뒤 공백만 다른 것은 안 바꾼 것이다(서버에 보내는 값도 앞뒤를 뗀 글이다).
+                  // 빈 값은 기본 문구로 되돌리는 값이라 그대로 보낸다
+                  ...(draft.greeting.trim() !== ownGreeting(management.detail).trim() && {
+                    greeting: draft.greeting.trim(),
+                  }),
                 }),
               '섬 정보를 저장했어요.',
               () => setPanel(''),
@@ -2574,6 +2623,8 @@ export function Hall({ e }: any) {
       <View style={{ gap: land ? 7 : 10 }}>
         {input('섬 이름', 'name')}
         {input('섬 소개', 'intro')}
+        {/* 인사말은 서버 모드(실제 섬)에서만 — 목업 로컬 섬에는 필드가 없다 */}
+        {liveManagement && input(t('hall.greeting'), 'greeting')}
       </View>
     );
     return shell(
@@ -2632,41 +2683,6 @@ export function Hall({ e }: any) {
     : host
       ? joinRequests(i)
       : [];
-  const join = visitorJoinState(s, i);
-  const joinDisabled = visitorJoinBusy || join === 'full' || join === 'blocked';
-  const joinLabel = visitorJoinBusy ? '처리 중이에요' : visitorJoinLabel[join];
-  const serverJoin = async () => {
-    if (visitorJoinPending.current || joinDisabled) return;
-    if (s.session) return notify('집중이나 휴식을 마친 뒤 가입해 주세요.');
-    visitorJoinPending.current = true;
-    setVisitorJoinBusy(true);
-    const generation = sessionGeneration();
-    // 즉시 가입의 재조회가 current/방문 상태를 바꿔도, 같은 화면·인증의 성공 처리는 마친다.
-    const alive = () => visitorJoinMounted.current && generation === sessionGeneration();
-    try {
-      if (join === 'cancel') {
-        const request = pendingVisitRequest(s, i.id);
-        if (!request) return;
-        await e.islands.cancel(request.id);
-        if (alive()) notify('가입 신청을 취소했어요.');
-      } else {
-        const result = await e.islands.join(i.id, { showApproval: false });
-        if (!alive()) return;
-        if (result.status === 'pending') {
-          notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
-        } else {
-          e.dispatch({ type: 'END_VISIT' });
-          e.reset('home');
-          e.notify(`${i.name} 주민이 됐어요`);
-        }
-      }
-    } catch (error) {
-      if (alive()) notify(islandErrorMessage(error));
-    } finally {
-      visitorJoinPending.current = false;
-      if (alive()) setVisitorJoinBusy(false);
-    }
-  };
   const section = (title: string, children: React.ReactNode, right?: string) => (
     <View
       style={{
@@ -2735,6 +2751,7 @@ export function Hall({ e }: any) {
                   capacity: liveManagement
                     ? (management.detail?.maxMembers ?? CAPACITY_MIN)
                     : capacityOf(i),
+                  greeting: liveManagement ? ownGreeting(management.detail) : '',
                 });
                 setPanel('edit');
               }}
@@ -2906,40 +2923,62 @@ export function Hall({ e }: any) {
         `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
       )}
       {!visitor && (
-        <View
-          style={{
-            minHeight: land ? 45 : 58,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            marginTop: land ? 5 : 14,
-            paddingTop: 6,
-          }}
-        >
-          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>섬에 친구 초대하기</T>
-          <Pressable
-            testID="hall-invite"
-            accessibilityRole="button"
-            accessibilityLabel="섬에 친구 초대하기"
-            onPress={() =>
-              Share.share({
-                message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
-              }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
-            }
+        <View style={{ marginTop: land ? 5 : 14, paddingTop: 6 }}>
+          {displayHost && (
+            // 냐옹잡지에 섬 홍보하기(GROMO-2289 · P3) — 홍보는 마을회관에서(10/5 · 10/14 확정). 내 섬 섬장만, 구경 중에는 없다.
+            // 친구 초대 줄보다 위에 둔다(10/15).
+            // 섬장 판정은 이 카드의 다른 섬장 전용 동작과 같은 displayHost 다 — 실서버 관리 화면에서는 관리 API 의 지금 역할이라
+            // 여기서 위임하거나 다른 기기에서 위임받은 것이 바로 반영된다(홈 스냅샷은 늦을 수 있다). 뒤로가기는 App 기록으로 이 카드에 돌아온다
+            <Pressable
+              testID="hall-promotion-editor"
+              accessibilityRole="button"
+              accessibilityLabel={t('magazine.editor.entry')}
+              // 위임 등 관리 쓰기가 끝나 역할이 다시 확정되기 전에는 못 들어간다 — 그 사이 회관을 떠나면 확정 역할(host)이
+              // 위임 전 값으로 남아 쓰기 화면이 섬장으로 열린다
+              accessibilityState={{ disabled: managementBusy }}
+              disabled={managementBusy}
+              onPress={() => e.go('promotionEditor')}
+              style={managementBusy ? promotionRowBusy : promotionRow}
+            >
+              <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
+                {t('magazine.editor.entry')}
+              </T>
+              <Icon d={CHEV} size={22} />
+            </Pressable>
+          )}
+          <View
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              borderWidth: 1.5,
-              borderColor: '#a78d6e',
-              backgroundColor: '#fffaf0',
+              minHeight: land ? 45 : 58,
+              flexDirection: 'row',
               alignItems: 'center',
-              justifyContent: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
             }}
           >
-            <Icon d={SHARE} size={22} />
-          </Pressable>
+            <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>섬에 친구 초대하기</T>
+            <Pressable
+              testID="hall-invite"
+              accessibilityRole="button"
+              accessibilityLabel="섬에 친구 초대하기"
+              onPress={() =>
+                Share.share({
+                  message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
+                }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
+              }
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                borderWidth: 1.5,
+                borderColor: '#a78d6e',
+                backgroundColor: '#fffaf0',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon d={SHARE} size={22} />
+            </Pressable>
+          </View>
         </View>
       )}
       {visitor ? (
@@ -2960,10 +2999,10 @@ export function Hall({ e }: any) {
               return;
             }
             e.dispatch({ type: 'JOIN', id: i.id });
-            if (join === 'apply') notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+            if (join === 'apply') notify(t('islandVisit.visitorJoin.requested'));
             else {
               // 바로 가입: 이 섬 주민이 되어 구경이 끝나므로 새 섬 홈으로 간다
-              e.notify(`${i.name} 주민이 됐어요`);
+              e.notify(t('islandVisit.visitorJoin.joined', { name: i.name }));
               e.home();
             }
           }}

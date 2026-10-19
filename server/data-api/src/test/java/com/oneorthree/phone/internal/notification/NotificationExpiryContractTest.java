@@ -9,6 +9,7 @@ import com.oneorthree.phone.internal.notification.service.NotificationRetentionE
 import com.oneorthree.phone.internal.notification.service.NotificationLeagueEligibility;
 import com.oneorthree.phone.internal.notification.service.NotificationSnapshotService;
 import com.oneorthree.phone.group.service.ChallengeResultAckService;
+import com.oneorthree.phone.magazine.repository.MagazineIssueRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.service.UserBlockService;
@@ -48,7 +49,8 @@ class NotificationExpiryContractTest {
         NotificationEligibilityService eligibility = new NotificationEligibilityService(users,
                 mock(GroupQueryService.class), mock(GroupMemberRepository.class),
                 mock(GroupChallengeBetParticipantRepository.class), mock(FriendshipRepository.class),
-                Clock.fixed(now, ZoneOffset.UTC), retention, league, mock(UserBlockService.class));
+                Clock.fixed(now, ZoneOffset.UTC), retention, league, mock(UserBlockService.class),
+                mock(MagazineIssueRepository.class));
         return MockMvcBuilders.standaloneSetup(new InternalNotificationController(
                 mock(NotificationSnapshotService.class), eligibility, mock(ChallengeResultAckService.class))).build();
     }
@@ -99,7 +101,7 @@ class NotificationExpiryContractTest {
                 mock(GroupQueryService.class), mock(GroupMemberRepository.class),
                 mock(GroupChallengeBetParticipantRepository.class), mock(FriendshipRepository.class),
                 Clock.systemUTC(), retention, mock(NotificationLeagueEligibility.class),
-                mock(UserBlockService.class));
+                mock(UserBlockService.class), mock(MagazineIssueRepository.class));
         MockMvc http = MockMvcBuilders.standaloneSetup(new InternalNotificationController(
                 mock(NotificationSnapshotService.class), eligibility, mock(ChallengeResultAckService.class))).build();
         http.perform(post("/internal/notifications/eligibility").contentType("application/json")
@@ -143,5 +145,15 @@ class NotificationExpiryContractTest {
                         .content("{\"userId\":\"" + USER + "\",\"kind\":\"STREAK_AT_RISK\",\"params\":"
                                 + params + "}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.eligible").value(false));
+    }
+
+    /** 알림 서버가 적용하는 만료(notification L7)와 적격 분기가 보는 현재 호 창(magazine L8)은 같은 순간이어야 한다. */
+    @org.junit.jupiter.api.Test
+    void magazineExpiryEqualsTheCurrentIssueWindowEnd() {
+        java.time.LocalDate date = java.time.LocalDate.of(2026, 9, 11);
+        Instant published = date.atTime(7, 5).atZone(com.oneorthree.phone.common.util.ZonePolicy.KST).toInstant();
+        org.assertj.core.api.Assertions.assertThat(com.oneorthree.phone.notification.producer.NotificationExpiry.expiresAt(
+                com.oneorthree.phone.notification.producer.NotificationKind.MAGAZINE_PUBLISHED, published))
+                .isEqualTo(com.oneorthree.phone.magazine.support.MagazineCalendar.currentUntil(date));
     }
 }

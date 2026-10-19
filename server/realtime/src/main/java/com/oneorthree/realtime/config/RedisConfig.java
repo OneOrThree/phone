@@ -3,6 +3,7 @@ package com.oneorthree.realtime.config;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.event.RealtimeEventFanoutSubscriber;
 import com.oneorthree.realtime.fanout.ChatFanoutSubscriber;
+import com.oneorthree.realtime.sea.SeaRoomPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -34,11 +35,13 @@ public class RedisConfig {
      */
     @Bean
     public RedisMessageListenerContainer chatFanoutListenerContainer(RedisConnectionFactory connectionFactory,
-            ChatFanoutSubscriber subscriber, RealtimeEventFanoutSubscriber eventSubscriber) {
+            ChatFanoutSubscriber subscriber, RealtimeEventFanoutSubscriber eventSubscriber,
+            SeaRoomPublisher seaSubscriber) {
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);
         container.addMessageListener(subscriber, new ChannelTopic(RedisKeys.FANOUT_CHANNEL));
         container.addMessageListener(eventSubscriber, new ChannelTopic(RedisKeys.EVENT_FANOUT_CHANNEL));
+        container.addMessageListener(seaSubscriber, new ChannelTopic(RedisKeys.SEA_FANOUT_CHANNEL)); // 바다 방(GROMO-2300)
         return container;
     }
 }

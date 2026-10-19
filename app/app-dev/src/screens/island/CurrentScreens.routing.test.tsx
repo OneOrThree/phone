@@ -9,6 +9,7 @@ import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer, type Route, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
+import { getTelescope } from '@/services/api/telescope';
 
 // 가로채기 고정 대상: RedesignScreens 를 호출 기록용 가짜로 바꾸되 나머지 export 는 실제 구현을 유지한다.
 jest.mock('@/screens/island/Screens', () => {
@@ -96,6 +97,11 @@ jest.mock('@/utils/layout', () => ({
 }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+}));
+jest.mock('@/services/api/telescope', () => ({
+  ...jest.requireActual('@/services/api/telescope'),
+  getTelescope: jest.fn(),
+  arriveAtIsland: jest.fn(),
 }));
 
 const redesignScreensMock = RedesignScreens as unknown as jest.Mock;
@@ -215,3 +221,44 @@ test.each([true, false])(
     await screen.unmount();
   },
 );
+
+test('로컬 방문 중에도 뗏목 라우트는 막히지 않고 행선지 시트를 연다', async () => {
+  const state = initialState(true);
+  state.visitingIslandId = 'cloud';
+  const screen = await render(
+    <CurrentScreens
+      e={{
+        state,
+        route: 'raft',
+        now: Date.now(),
+        dispatch: jest.fn(),
+        go: jest.fn(),
+        replace: jest.fn(),
+        reset: jest.fn(),
+        home: jest.fn(),
+        back: jest.fn(),
+        backOverride: { current: null },
+        notify: jest.fn(),
+        text: '',
+        setText: jest.fn(),
+        setGuideStep: jest.fn(),
+      }}
+    />,
+  );
+  expect(screen.queryByText('주민만 이용할 수 있어요')).toBeNull();
+  expect(screen.getByText('뗏목')).toBeTruthy();
+  await screen.unmount();
+});
+
+test('망원경 라우트는 자리표시가 아니라 망원경 화면이 가로채 목록을 불러온다', async () => {
+  (getTelescope as jest.Mock).mockResolvedValue({
+    bucketStart: '2026-10-12T05:00:00Z',
+    nextRefreshMinutes: 5,
+    items: [],
+  });
+  const screen = await mount('telescope', initialState(true));
+  await screen.findByText('지금은 보이는 섬이 없어요');
+  expect(getTelescope).toHaveBeenCalledTimes(1);
+  expect(redesignScreensMock).not.toHaveBeenCalled();
+  await screen.unmount();
+});

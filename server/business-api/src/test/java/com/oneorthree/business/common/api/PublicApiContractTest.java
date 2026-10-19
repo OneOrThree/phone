@@ -96,7 +96,22 @@ class PublicApiContractTest extends UpstreamTestBase {
                 "SOCIAL_LOGIN_REQUIRED", "SOCIAL_ACCOUNT_ALREADY_LINKED",
                 // GROMO-2053 게스트 승격 경쟁(409): Data AuthErrorCode 와 이름·상태가 같아야
                 // 「이미 승격된 게스트」가 502 UPSTREAM_CONTRACT_ERROR 로 접히지 않는다.
-                "GUEST_ALREADY_PROMOTED");
+                "GUEST_ALREADY_PROMOTED",
+                // GROMO-2260 소속 섬 상한(409)·도착 전 즉시 이동(403): 앱이 일반 STATE_CONFLICT·FORBIDDEN 과
+                // 갈라 「섬을 하나 나가세요」·「망원경에서 항해하세요」를 띄운다.
+                "ISLAND_LIMIT_EXCEEDED", "ISLAND_NOT_ARRIVED",
+                // GROMO-2262 방명록 하루 1개(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 남겼어요」를 띄운다.
+                "GUESTBOOK_ALREADY_WRITTEN_TODAY",
+                // GROMO-2267 잡지 홍보 하루 1회(409): 앱이 일반 STATE_CONFLICT 와 갈라 「오늘은 이미 신청했어요」를 띄운다.
+                "PROMOTION_ALREADY_REQUESTED_TODAY",
+                // GROMO-2289 고양이 잡지 홍보 7종: Data 와 이름·상태가 같아야 신청 창·비공개 섬·꾸미기 판정이 502 로 접히지 않는다.
+                "PROMOTION_WINDOW_CLOSED", "PROMOTION_PRIVATE_ISLAND", "PROMOTION_TEXT_TOO_LONG",
+                "PROMOTION_LAYOUT_INVALID", "PROMOTION_ASSET_NOT_OWNED", "PROMOTION_LOCKED", "PROMOTION_NOT_FOUND",
+                // GROMO-2289 잡지 발행: 없는 호·7호 밖(404)이 502 로 접히지 않게 Data 와 이름·상태를 맞춘다.
+                "MAGAZINE_ISSUE_NOT_FOUND",
+                // GROMO-2299 바다 항해(409): 앱이 일반 STATE_CONFLICT 와 갈라 「갈 수 없는 섬」·「항해 중 휴식 불가」·
+                // 「한마디 5분 잠금」을 띄운다.
+                "SEA_DESTINATION_UNAVAILABLE", "SEA_SESSION_NO_REST", "SEA_REMARK_LOCKED");
     }
 
     /**

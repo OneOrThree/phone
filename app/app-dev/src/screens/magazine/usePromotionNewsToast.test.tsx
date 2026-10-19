@@ -1,0 +1,100 @@
+// 주민 소식 토스트(GROMO-2289 · C3) — 아직 안 본 가장 최근 홍보 소식만 한 번, 하루 지난 소식·꺼진 상태는 조용히.
+import React from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { render, waitFor } from '@testing-library/react-native';
+import * as api from '@/services/api/magazine';
+import { newsSeenKey, promotionNewsKey, usePromotionNewsToast } from './usePromotionNewsToast';
+
+jest.mock('@/services/api/magazine', () => ({
+  ...jest.requireActual('@/services/api/magazine'),
+  getIslandNews: jest.fn(),
+}));
+const getNews = api.getIslandNews as jest.Mock;
+const NOW = Date.parse('2026-10-14T03:00:00Z');
+
+function Probe(props: { active: boolean; notify: (m: string) => void }) {
+  usePromotionNewsToast({ ...props, islandId: 'i1', now: () => NOW });
+  return null;
+}
+const item = (id: string, minutesAgo: number, kind = 'PROMOTION') => ({
+  id,
+  kind,
+  body: '…',
+  createdAt: new Date(NOW - minutesAgo * 60_000).toISOString(),
+});
+
+beforeEach(async () => {
+  jest.clearAllMocks();
+  await AsyncStorage.clear();
+});
+
+it('새 홍보 소식이면 한 번 알리고 「본 소식」으로 남긴다', async () => {
+  getNews.mockResolvedValue([item('n2', 5), item('n1', 600)]);
+  const notify = jest.fn();
+  await render(<Probe active notify={notify} />);
+  await waitFor(() => expect(notify).toHaveBeenCalledTimes(1));
+  expect(notify).toHaveBeenCalledWith(
+    '섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요',
+  );
+  expect(await AsyncStorage.getItem(newsSeenKey('i1'))).toBe('n2');
+});
+
+it('이미 본 소식이면 알리지 않는다', async () => {
+  await AsyncStorage.setItem(newsSeenKey('i1'), 'n2');
+  getNews.mockResolvedValue([item('n2', 5)]);
+  const notify = jest.fn();
+  await render(<Probe active notify={notify} />);
+  await waitFor(() => expect(getNews).toHaveBeenCalledTimes(1));
+  await new Promise((r) => setTimeout(r, 10));
+  expect(notify).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['하루 지난 소식', [item('old', 60 * 25)]],
+  ['홍보가 아닌 소식', [item('x', 1, 'OTHER')]],
+])('%s은 알리지 않는다', async (_, items) => {
+  getNews.mockResolvedValue(items);
+  const notify = jest.fn();
+  await render(<Probe active notify={notify} />);
+  await waitFor(() => expect(getNews).toHaveBeenCalledTimes(1));
+  await new Promise((r) => setTimeout(r, 10));
+  expect(notify).not.toHaveBeenCalled();
+});
+
+it('꺼져 있으면(섬장·방문자) 부르지도 않는다', async () => {
+  const notify = jest.fn();
+  await render(<Probe active={false} notify={notify} />);
+  expect(getNews).not.toHaveBeenCalled();
+});
+
+it('소식을 못 읽어도 조용히 넘어간다', async () => {
+  getNews.mockRejectedValue(new Error('offline'));
+  const notify = jest.fn();
+  await render(<Probe active notify={notify} />);
+  await waitFor(() => expect(getNews).toHaveBeenCalled());
+  expect(notify).not.toHaveBeenCalled();
+});
+
+it('소식을 기다리는 사이 홈을 떠나면 띄우지도, 본 것으로 적지도 않는다', async () => {
+  let deliver: (v: unknown) => void = () => {};
+  getNews.mockReturnValueOnce(new Promise((resolve) => (deliver = resolve)));
+  const notify = jest.fn();
+  const screen = await render(<Probe active notify={notify} />);
+  await screen.rerender(<Probe active={false} notify={notify} />);
+  deliver([item('n9', 1)]);
+  await new Promise((r) => setTimeout(r, 10));
+  expect(notify).not.toHaveBeenCalled();
+  expect(await AsyncStorage.getItem(newsSeenKey('i1'))).toBeNull();
+});
+
+it('그 홍보가 실릴 호의 발행(다음 날 07시 KST) 전까지만, 자정이 지나면 「어제 · 오늘 아침」 문구', () => {
+  const created = '2026-10-13T14:00:00Z'; // KST 10/13 23:00 신청 → 10/14 07:00 호
+  const kst = (s: string) => Date.parse(`${s}+09:00`);
+  expect(promotionNewsKey(created, kst('2026-10-13T23:30:00'))).toBe('magazine.news.promotion');
+  expect(promotionNewsKey(created, kst('2026-10-14T01:00:00'))).toBe(
+    'magazine.news.promotionYesterday',
+  );
+  expect(promotionNewsKey(created, kst('2026-10-14T07:00:00'))).toBeNull();
+  expect(promotionNewsKey(created, kst('2026-10-14T08:00:00'))).toBeNull();
+  expect(promotionNewsKey('깨진 시각', kst('2026-10-14T08:00:00'))).toBeNull();
+});

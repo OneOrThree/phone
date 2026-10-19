@@ -8,6 +8,7 @@ import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
 import com.oneorthree.business.upstream.data.dto.FocusTutorialReward;
+import com.oneorthree.business.upstream.data.dto.SeaRemarkResult;
 import com.oneorthree.business.upstream.data.dto.TutorialExperienceReward;
 import com.oneorthree.business.upstream.data.dto.PendingFocusResult;
 import org.springframework.core.ParameterizedTypeReference;
@@ -62,6 +63,36 @@ public class DataFocusClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<FocusSessionState>() { });
+    }
+
+    /**
+     * 바다 집중 세션 시작 (GROMO-2299). 섬 세션과 같게 앱이 준 UUID 키를 실어 Data 의 공개 명령 receipt 를 재생한다.
+     */
+    public FocusSessionState startSeaFocusSession(UUID userId, UUID destinationIslandId, UUID key,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_FOCUS_SESSIONS, userId) + "/sea")
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new SeaFocusSessionStartCommand(destinationIslandId))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<FocusSessionState>() { });
+    }
+
+    /**
+     * 바다 한마디 변경 (GROMO-2299). <b>재시도하지 않는다</b>({@code idempotentCommand} 없음) — Data 의 5분 잠금이 있어
+     * 응답만 유실된 성공을 다시 보내면 {@code SEA_REMARK_LOCKED} 로 거짓 거절이 된다.
+     */
+    public SeaRemarkResult updateSeaRemark(UUID userId, String remark, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PUT, "/internal/users/" + userId + "/sea-remark")
+                        .onBehalfOf(userId)
+                        .body(new SeaRemarkCommand(remark))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<SeaRemarkResult>() { });
     }
 
     /**
@@ -173,6 +204,14 @@ public class DataFocusClient {
 
     /** 집중 세션 시작 요청 본문 (GROMO-1764). */
     record FocusSessionStartCommand(UUID islandId, String subject, Integer targetMinutes) {
+    }
+
+    /** 바다 집중 세션 시작 요청 본문 (GROMO-2299). */
+    record SeaFocusSessionStartCommand(UUID destinationIslandId) {
+    }
+
+    /** 바다 한마디 변경 요청 본문 (GROMO-2299) — 빈 문자열은 지움. */
+    record SeaRemarkCommand(String remark) {
     }
 
     /** pause/resume/finish 공용 요청 본문 — expectedVersion 필수(FR-P07). */

@@ -10,6 +10,7 @@ import Svg, {
 } from 'react-native-svg';
 import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import { facilityPressStyle, type FacilityRect } from './tileFacilities';
+import { WebFacilitySignText } from './WebFacilitySignText';
 
 const tokens = componentTokens.tileFacility;
 const sign = require('@/assets/village-world/ui/wooden-name-sign.png');
@@ -240,9 +241,13 @@ export function TileFacilitySign({
           style={[styles.signImage, { width: width / zoom, height: height / zoom }]}
         />
         <View style={styles.textArea}>
-          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.text}>
-            {label}
-          </Text>
+          {Platform.OS === 'web' ? (
+            <WebFacilitySignText label={label} />
+          ) : (
+            <Text numberOfLines={1} adjustsFontSizeToFit style={styles.text}>
+              {label}
+            </Text>
+          )}
         </View>
       </View>
     </View>

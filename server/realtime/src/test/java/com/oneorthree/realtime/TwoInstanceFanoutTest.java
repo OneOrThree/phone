@@ -82,6 +82,9 @@ class TwoInstanceFanoutTest {
     @Autowired
     private LettuceConnectionFactory redisConnectionFactory;
 
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate redis;
+
     /**
      * 두 인스턴스가 «각자» 상류를 부른다. 이쪽 목은 A 의 것이고, B 에는 아래에서 자기 목을 심는다 —
      * 그래야 B 도 구독 인가를 통과한다.
@@ -99,6 +102,9 @@ class TwoInstanceFanoutTest {
 
     /** 스텁 빈이 읽어야 해서 static 이다 — 컨텍스트 B 는 이 인스턴스를 모른다. */
     private static volatile UUID sharedIsland;
+
+    /** B 의 친구 조회 스텁이 돌려줄 친구(바다 방 배정 우선순위, GROMO-2300). */
+    private static volatile UUID sharedFriend;
 
     private UUID island;
     private UUID alice;
@@ -180,6 +186,76 @@ class TwoInstanceFanoutTest {
         assertThat(received.clientMessageId()).isEqualTo(clientMessageId);
     }
 
+    @Test
+    @DisplayName("B 에서 바다에 들어온 사람의 joined 가 A 에 붙은 같은 방 구성원에게 도착한다 — chat:sea:v1 (GROMO-2300)")
+    void seaRoomEventCrossesInstances() throws Exception {
+        assertThat(portB).isNotEqualTo(portA);
+        // alice 는 이미 방 R 에 있다(A 에 붙어 있다). bob 의 친구라 B 의 배정이 R 을 1순위로 고른다.
+        UUID room = UUID.randomUUID();
+        redis.opsForSet().add(com.oneorthree.realtime.common.redis.RedisKeys.seaRoomMembers(room), alice.toString());
+        redis.opsForHash().putAll(com.oneorthree.realtime.common.redis.RedisKeys.seaUser(alice),
+                java.util.Map.of("roomId", room.toString(), "state", "focusing"));
+        redis.opsForSet().add(com.oneorthree.realtime.common.redis.RedisKeys.SEA_ROOMS_OPEN, room.toString());
+        sharedFriend = alice;
+
+        StompSession onA = connect(portA, aliceBearer);
+        BlockingQueue<java.util.Map<String, Object>> heardOnA = new LinkedBlockingQueue<>();
+        onA.subscribe("/topic/sea/rooms/" + room, new StompFrameHandler() {
+            @Override
+            public @NonNull Type getPayloadType(@NonNull StompHeaders headers) {
+                return java.util.Map.class;
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            public void handleFrame(@NonNull StompHeaders headers, Object payload) {
+                heardOnA.add((java.util.Map<String, Object>) payload);
+            }
+        });
+        StompSession onB = connect(portB, bobBearer);
+
+        // 구독 등록과 입장 사이의 경합 — 못 받았으면 bob 이 나갔다가 다시 들어온다(재입장은 joined 를 내지 않으므로).
+        java.util.Map<String, Object> joined = null;
+        for (int attempt = 0; attempt < 20 && joined == null; attempt++) {
+            redis.delete(com.oneorthree.realtime.common.redis.RedisKeys.seaEnterAttempt(bob));
+            onB.send("/app/sea/enter", java.util.Map.of());
+            long deadline = System.currentTimeMillis() + 1000L;
+            while (joined == null && System.currentTimeMillis() < deadline) {
+                java.util.Map<String, Object> frame = heardOnA.poll(200, TimeUnit.MILLISECONDS);
+                if (frame != null && "sea.member.joined".equals(frame.get("type"))) {
+                    joined = frame;
+                }
+            }
+            if (joined == null) {
+                onB.send("/app/sea/leave", java.util.Map.of());
+            }
+        }
+
+        assertThat(joined).as("frameErrors=%s", frameErrors).isNotNull();
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> member = (java.util.Map<String, Object>)
+                ((java.util.Map<String, Object>) joined.get("payload")).get("member");
+        assertThat(member.get("userId")).isEqualTo(bob.toString());
+        assertThat(joined.get("roomId")).isEqualTo(room.toString());
+
+        // 퇴장도 같은 publish 경로(chat:sea:v1)로 건넌다. 반면 bob 의 다른 기기에 가는 /user/queue/sea 의
+        // sea.room.left 는 «의도적으로» 인스턴스를 건너지 않는다(SeaRoomPublisher.publishToUser 의 ceiling) — 여기서 보지 않는다.
+        onB.send("/app/sea/leave", java.util.Map.of());
+        java.util.Map<String, Object> left = null;
+        long deadline = System.currentTimeMillis() + 10_000L;
+        while (left == null && System.currentTimeMillis() < deadline) {
+            java.util.Map<String, Object> frame = heardOnA.poll(200, TimeUnit.MILLISECONDS);
+            if (frame != null && "sea.member.left".equals(frame.get("type"))) {
+                left = frame;
+            }
+        }
+        assertThat(left).as("frameErrors=%s", frameErrors).isNotNull();
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> leftPayload = (java.util.Map<String, Object>) left.get("payload");
+        assertThat(leftPayload.get("userId")).isEqualTo(bob.toString());
+        assertThat(leftPayload.get("reason")).isEqualTo("left");
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     /**
@@ -233,6 +309,32 @@ class TwoInstanceFanoutTest {
                 @Override
                 public Membership fetchMyGroupIds(String bearerToken) {
                     return Membership.of(Set.of(sharedIsland));
+                }
+            };
+        }
+
+        /** B 의 바다 상태 — 늘 항해 중(GROMO-2300). */
+        @org.springframework.context.annotation.Bean
+        @org.springframework.context.annotation.Primary
+        com.oneorthree.realtime.sea.client.SeaStateClient stubSeaStateClient() {
+            return new com.oneorthree.realtime.sea.client.SeaStateClient("http://localhost:1", "t", 100) {
+                @Override
+                public SeaState fetch(UUID userId) {
+                    Instant now = Instant.now();
+                    return new SeaState(null, null, new Session(UUID.randomUUID(), UUID.randomUUID(), 30, 0L, now,
+                            now));
+                }
+            };
+        }
+
+        /** B 의 친구 조회 — {@link #sharedFriend} 하나. */
+        @org.springframework.context.annotation.Bean
+        @org.springframework.context.annotation.Primary
+        com.oneorthree.realtime.sea.client.FriendsClient stubFriendsClient() {
+            return new com.oneorthree.realtime.sea.client.FriendsClient("http://localhost:1", "t", 100) {
+                @Override
+                public Set<UUID> fetchFriendIds(UUID userId) {
+                    return sharedFriend == null ? Set.of() : Set.of(sharedFriend);
                 }
             };
         }

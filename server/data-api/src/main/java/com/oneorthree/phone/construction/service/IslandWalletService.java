@@ -257,6 +257,32 @@ public class IslandWalletService {
     }
 
     /**
+     * 고양이 잡지 홍보비 차감(GROMO-2267) — {@link #debitForConstruction} 과 같은 모양이다: 잠긴 지갑에서 총액을
+     * 빼고 원장에 기입한다. 잔액이 모자라면 아무것도 바꾸지 않고 {@code INSUFFICIENT_FUNDS}(409)다.
+     *
+     * <p>«하루 한 번(KST)»은 이 메서드가 아니라 호출측의 몫이다 — 섬 잠금 아래에서 «오늘 키»의 원장 행을 먼저
+     * 본다. 유니크 제약 {@code uq_island_wallet_tx_idem}(섬, 사유, 키)이 같은 날의 이중 기입을 막는 최후 방어선이다.
+     *
+     * @param idempotencyKey {@code promotion:<섬 id>:<KST 날짜>}
+     * @return 차감 후 잔액 — 응답의 {@code balanceAfter} 다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int debitForPromotion(UUID islandId, int amount, String idempotencyKey) {
+        wallets.insertIfAbsent(islandId);
+        IslandWallet wallet = wallets.findByIdForUpdate(islandId)
+                .orElseThrow(() -> new IllegalStateException("섬 지갑을 만들 직후에 찾지 못했습니다."));
+        if (!wallet.trySpend(amount)) {
+            throw new ConstructionException(ConstructionErrorCode.INSUFFICIENT_FUNDS);
+        }
+        ledger.save(IslandWalletTransaction.builder()
+                .islandId(islandId).amount(amount)
+                .type(IslandWalletTransactionType.PROMOTION_FEE)
+                .idempotencyKey(idempotencyKey)
+                .build());
+        return wallet.getBalance();
+    }
+
+    /**
      * 상점 구매 차감(GROMO-1781) — {@link #debitForConstruction} 과 같은 규율로 잠긴 지갑에서 가격을 빼고 원장에
      * 적는다. 잔액이 모자라면 아무것도 바꾸지 않고 {@code false} 다 — 「모자라다」를 어떤 공개 실패로 낼지는
      * 상점 도메인이 정한다(건설과 달리 상점 오류 코드로 나가야 해서 여기서 예외를 고르지 않는다).

@@ -32,6 +32,7 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
+import { formatDuration } from '@/i18n/format';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
@@ -80,6 +81,9 @@ import {
 import { imageToWorld, worldToCell, worldToImage, type WorldPoint } from '@/utils/worldCoords';
 import {
   publishMoveIntent,
+  memberArrivalFilter,
+  memberArrivedText,
+  sessionSelfId,
   stompIslandChannel,
   type IslandChannel,
 } from '@/services/islandRealtime';
@@ -127,6 +131,7 @@ import {
 import {
   TILE_FACILITIES,
   TILE_MAILBOX_Y_OFFSET,
+  TILE_MAILBOX_PELICAN_RECT,
   facilityPressStyle,
   layoutFacilitySigns,
   facilityTouchBox,
@@ -244,11 +249,12 @@ export const legacyDoors: Record<string, Door> = (() => {
       x: d.raft.x,
       y: d.raft.y,
       hitbox: d.raft.hitbox,
-      r: 'boat',
+      r: 'raft',
       get label() {
         return t('home.a11y.raft');
       },
       memberOnly: true,
+      visitorRoute: 'raft',
     },
     fishingIsland: {
       x: d.fishingIsland.x,
@@ -510,6 +516,7 @@ export function WorldMap({
   onSpot,
   emote,
   showMailboxLetters,
+  showMailboxMagazine = false,
   hallMotionActive = false,
   hallMotionGeneration = 0,
   boardStatus = null,
@@ -539,6 +546,8 @@ export function WorldMap({
   onSpot?: (p: Point) => void;
   emote?: string | null;
   showMailboxLetters?: boolean;
+  /** 안 읽은 오늘 고양이 잡지(GROMO-2289) — 친구 편지 표시가 없을 때만 우체통 위 빨간 점. */
+  showMailboxMagazine?: boolean;
   hallMotionActive?: boolean;
   hallMotionGeneration?: number;
   boardStatus?: 'unread' | 'new-comment' | null;
@@ -855,40 +864,35 @@ export function WorldMap({
         />
       )}
       {facilityDecorations &&
-        island.buildings
-          .filter((b) => b !== 'gram')
-          .map((b) => {
-            const pelican = b === 'mail' && mailboxLetters;
-            const croppedSource = tileFacilityOutlineSource(b, night);
-            const rect = pelican ? { x: 250, y: 456, w: 140, h: 140 } : TILE_FACILITIES[b];
-            return (
-              rect && (
-                <TileFacilityOutline
-                  key={b}
-                  rect={rect}
-                  source={
-                    pelican
-                      ? assets['characters/pelican/npc/on-mailbox.png']
-                      : (croppedSource ??
-                        assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`])
-                  }
-                  left={at(b).left}
-                  top={at(b).top}
-                  scale={scale}
-                  baseScale={base}
-                  cropped={pelican || !!croppedSource}
-                  pressed={pressedFacility === b}
-                  reduceMotion={reduceFacilityMotion}
-                />
-              )
-            );
-          })}
+        island.buildings.map((b) => {
+          const pelican = b === 'mail' && mailboxLetters;
+          const croppedSource = tileFacilityOutlineSource(b, night);
+          const rect = pelican ? TILE_MAILBOX_PELICAN_RECT : TILE_FACILITIES[b];
+          return (
+            rect && (
+              <TileFacilityOutline
+                key={b}
+                rect={rect}
+                source={
+                  pelican
+                    ? assets['characters/pelican/npc/on-mailbox.png']
+                    : (croppedSource ??
+                      assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`])
+                }
+                left={at(b).left}
+                top={at(b).top}
+                scale={scale}
+                cropped={pelican || !!croppedSource}
+                pressed={pressedFacility === b}
+                reduceMotion={reduceFacilityMotion}
+              />
+            )
+          );
+        })}
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
-            .filter(
-              (b) => !(b === 'mail' && mailboxLetters) && !(facilityDecorations && b === 'gram'),
-            )
+            .filter((b) => !(b === 'mail' && mailboxLetters))
             .filter((b) => !(b === 'hall' && !village && !fishing))
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'tower' && !village && !fishing))
@@ -916,10 +920,10 @@ export function WorldMap({
               style={{
                 ...pressStyle('mail'),
                 position: 'absolute',
-                left: at('mail').left + 250 * scale,
-                top: at('mail').top + 456 * scale,
-                width: 140 * scale,
-                height: 140 * scale,
+                left: at('mail').left + TILE_MAILBOX_PELICAN_RECT.x * scale,
+                top: at('mail').top + TILE_MAILBOX_PELICAN_RECT.y * scale,
+                width: TILE_MAILBOX_PELICAN_RECT.w * scale,
+                height: TILE_MAILBOX_PELICAN_RECT.h * scale,
               }}
               resizeMode="contain"
             />
@@ -928,6 +932,18 @@ export function WorldMap({
             <VillageNotificationBadge
               testID="mailbox-new-indicator"
               accessibilityLabel={t('home.a11y.mailboxNewLetter')}
+              scale={scale}
+              style={{
+                ...pressStyle('mail'),
+                left: at('mail').left + 348 * scale,
+                top: at('mail').top + 520 * scale,
+              }}
+            />
+          )}
+          {!mailboxLetters && showMailboxMagazine && island.buildings.includes('mail') && (
+            <VillageNotificationBadge
+              testID="mailbox-magazine-indicator"
+              accessibilityLabel={t('home.a11y.mailboxNewMagazine')}
               scale={scale}
               style={{
                 ...pressStyle('mail'),
@@ -1046,6 +1062,15 @@ export function WorldMap({
             testID="world-raft-water-motion"
             reduceMotion={state.settings.reduceMotion}
             style={{
+              ...facilityPressStyle(
+                facilityDecorations && pressedFacility === 'raft',
+                reduceFacilityMotion,
+                [
+                  (TILE_FACILITIES.raft.x + TILE_FACILITIES.raft.w / 2 - 185) * scale,
+                  (TILE_FACILITIES.raft.y + TILE_FACILITIES.raft.h - 835) * scale,
+                  0,
+                ],
+              ),
               left: left + 185 * scale,
               top: top + 835 * scale,
               width: 210 * scale,
@@ -1074,7 +1099,6 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
-                !(facilityDecorations && b === 'gram') &&
                 // 모션 프레임이 착색을 맡는 건물은 닫힌 모습의 정적 테마 레이어를 겹쳐 그리지 않는다.
                 !framesDrawTheme(b) &&
                 island.buildingThemes?.[b] &&
@@ -1187,6 +1211,7 @@ function FinalIslandScene({
   focusTutorial,
   motion,
   showMailboxLetters,
+  showMailboxMagazine = false,
   boardStatus = null,
   observatoryRankState = 'normal',
   shopState = 'normal',
@@ -1195,6 +1220,8 @@ function FinalIslandScene({
   layeredPreview = false,
   onServerBuilt,
   onReturnFromVisit,
+  visitHud,
+  visitJoin,
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug = false,
@@ -1211,6 +1238,8 @@ function FinalIslandScene({
   focusTutorial?: { text: string; onPress: () => void; onSkip: () => void };
   motion?: CatMotionInput;
   showMailboxLetters?: boolean;
+  /** 안 읽은 오늘 고양이 잡지 — 우체통 위 빨간 점(구경 중에는 끈다). */
+  showMailboxMagazine?: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
   shopState?: ShopMotionState;
@@ -1222,6 +1251,10 @@ function FinalIslandScene({
   onServerBuilt?: () => void;
   /** 서버 방문은 현재 소속 섬을 변경하지 않고 구경만 끝낸다. */
   onReturnFromVisit?: () => void;
+  /** 서버 방문 HUD(GROMO-2259) — 집중 중 인원(null 이면 줄을 숨긴다)·오늘 집중 분(없으면 숨긴다). */
+  visitHud?: { focusCount: number | null; onFocusPress: () => void; todayMinutes?: number };
+  /** 서버 방문 하단 가입 버튼(GROMO-2259) — 있으면 「원래 섬으로」 자리를 대신한다. */
+  visitJoin?: { label: string; disabled: boolean; onPress: () => void };
   mapAssets?: MapAssetSource;
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기 — 켜진 동안만 마지막 걷기를 기록한다. */
@@ -1240,6 +1273,12 @@ function FinalIslandScene({
   const focusTutorialLatest = useRef(focusTutorial);
   focusTutorialLatest.current = focusTutorial;
   const mailboxLetters = !visiting && (showMailboxLetters ?? hasMailboxLetters(state, i.id));
+  const mailboxMagazine = !visiting && showMailboxMagazine;
+  const mailLabel = mailboxLetters
+    ? t('home.door.mailNewLetter')
+    : mailboxMagazine
+      ? t('home.door.mailNewMagazine')
+      : null;
   const serverConstruction = state.serverIslands?.clientConstruction;
   const trackedConstruction = facts
     ? serverConstruction?.islandId === facts.islandId
@@ -1608,6 +1647,8 @@ function FinalIslandScene({
     return walkPath(path, done);
   };
   // 이동 채널 콜백 — 렌더마다 최신 클로저로 갈아 끼운다(채널은 섬이 바뀔 때만 다시 연다).
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
   const sync = useRef<Required<MovementCallbacks> & { position: () => WorldPoint }>(null!);
   sync.current = {
     position: () => imageToWorld(location.current, sizeOf(grid)),
@@ -1673,12 +1714,20 @@ function FinalIslandScene({
         sync.current.onRemotePosition(userId, p, durationMs),
     });
     movement.current = controller;
+    const arrivals = memberArrivalFilter(syncIslandId, sessionSelfId);
     channel = stompIslandChannel({
       islandId: syncIslandId,
       presence: false,
       emote: false,
       movement: true,
-      onEvent: controller.onMessage,
+      // 홈 = 내 소속 섬이라 주민 소식(GROMO-2311) 구독 조건을 늘 만족한다 — 방문(facts=null)에는 이 채널이 열리지 않는다
+      events: true,
+      onEvent: (body) => {
+        if ((body as { type?: unknown } | null)?.type === 'island.member.arrived') {
+          const arrived = arrivals(body);
+          if (arrived) notifyRef.current?.(memberArrivedText(arrived));
+        } else controller.onMessage(body);
+      },
       onOpen: () => {},
       // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
       // 돌아간다 — 토스트는 없다. 그 외 오류 큐 코드(예: 속도 제한)는 onError 로만 오고 동기화는 그대로 둔다.
@@ -1876,11 +1925,10 @@ function FinalIslandScene({
     const catSize = 70 * s;
     const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
     const visibleDoors = Object.entries(doors)
-      .filter(([id]) => !(facilityDecorations && id === 'gram'))
       // 방문 카드에서 연 읽기 전용 화면은 낚시섬 관전만 연다. 기존 방문자 홈은 회관·게시판도 열 수 있다.
       .filter(([, d]) =>
         explicitVisit
-          ? !!d.visitorRoute
+          ? !!d.visitorRoute && d.visitorRoute !== 'raft'
           : d.building && !i.buildings.includes(d.building)
             ? false
             : d.memberOnly
@@ -1931,7 +1979,16 @@ function FinalIslandScene({
         )}
         {visibleDoors.map(([id, d]) => {
           const facilityRect = facilityRects[id];
-          const hitbox = facilityRect ?? d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
+          // 새 편지 그림 전체를 누를 수 있게 하되, 팻말 위치는 우체통 기준으로 유지한다.
+          const touchRect =
+            facilityRect && id === 'mail' && mailboxLetters
+              ? {
+                  ...TILE_MAILBOX_PELICAN_RECT,
+                  x: facilityRect.x + TILE_MAILBOX_PELICAN_RECT.x - TILE_FACILITIES.mail.x,
+                  y: facilityRect.y + TILE_MAILBOX_PELICAN_RECT.y - TILE_FACILITIES.mail.y,
+                }
+              : facilityRect;
+          const hitbox = touchRect ?? d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
           // 홈 뗏목 그림 가장자리에 터치 여유를 주고, 축소해도 중심을 유지한다.
           const raftPadding = primitiveTokens.space[2];
           const raftTouchWidth = Math.max(
@@ -2015,8 +2072,8 @@ function FinalIslandScene({
                 key={id}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  id === 'mail' && mailboxLetters
-                    ? t('home.door.mailNewLetter')
+                  id === 'mail' && mailLabel
+                    ? mailLabel
                     : d.building === 'board' && boardStatus === 'new-comment'
                       ? t('home.door.newComment', { label: d.label })
                       : d.building === 'board' && boardStatus === 'unread'
@@ -2066,7 +2123,7 @@ function FinalIslandScene({
                   minHeight: 44,
                   zIndex: scene ? 2000 : undefined,
                   ...raftTouchBox,
-                  ...(facilityRect ? facilityTouchBox(facilityRect, s) : {}),
+                  ...(touchRect ? facilityTouchBox(touchRect, s) : {}),
                 }}
               />
             </React.Fragment>
@@ -2233,6 +2290,7 @@ function FinalIslandScene({
         shopState={shopState}
         libraryState={visiting ? 'normal' : libraryState}
         showMailboxLetters={mailboxLetters}
+        showMailboxMagazine={mailboxMagazine}
         hiddenVillageBuilding={activeBuilding}
         dayNight={dayNight}
         onSpot={
@@ -2282,14 +2340,23 @@ function FinalIslandScene({
           >
             {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
             {visiting ? (
-              <Txt
-                kind="meta"
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}
-              >
-                {t('home.hud.visiting', { name: i.name })}
-              </Txt>
+              <View>
+                <Txt
+                  kind="meta"
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}
+                >
+                  {t('home.hud.visiting', { name: i.name })}
+                </Txt>
+                {visitHud?.todayMinutes != null && (
+                  <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                    {t('home.hud.todayFocusVisitor', {
+                      time: formatDuration(visitHud.todayMinutes * 60),
+                    })}
+                  </Txt>
+                )}
+              </View>
             ) : (
               <>
                 {/* 어느 섬의 홈인지 — 서버 모드는 스냅샷의 섬 이름(GROMO-2138) */}
@@ -2324,6 +2391,30 @@ function FinalIslandScene({
               </>
             )}
           </View>
+          {visiting && visitHud && visitHud.focusCount !== null && (
+            <Pressable
+              testID="visit-focus-count"
+              accessibilityRole="button"
+              accessibilityHint={t('home.hud.focusingNowHint')}
+              onPress={visitHud.onFocusPress}
+              style={{
+                marginTop: componentTokens.homeQuestIndicator.hudGap,
+                minHeight: semanticTokens.size.tapMin,
+                justifyContent: 'center',
+                // 위 HUD 알약과 같은 반투명 Paper 표면
+                backgroundColor: `${semanticTokens.color.surface}B3`,
+                borderRadius: semanticTokens.radius.full,
+                paddingVertical: primitiveTokens.space[2],
+                paddingHorizontal: semanticTokens.spacing.component,
+              }}
+            >
+              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                {visitHud.focusCount > 0
+                  ? t('home.hud.focusingNow', { count: visitHud.focusCount })
+                  : t('home.hud.quietNow')}
+              </Txt>
+            </Pressable>
+          )}
           {showQuestIndicator && (
             <HomeQuestIndicator
               quests={i.quests}
@@ -2423,13 +2514,19 @@ function FinalIslandScene({
               position: 'absolute',
               ...(visiting
                 ? { left: 0, right: 0, alignItems: 'center' }
-                : { right: L.landscape ? Math.max(56, L.insets.right + 4) : 20 }),
-              bottom: L.landscape
-                ? Math.max(22, L.insets.bottom)
-                : Math.max(44, L.insets.bottom + 10),
+                : { right: focusButtonInset(L).right }),
+              bottom: focusButtonInset(L).bottom,
             }}
           >
-            {visiting ? (
+            {visiting && visitJoin ? (
+              <Btn
+                kind="butter"
+                title={visitJoin.label}
+                id="visit-join"
+                disabled={visitJoin.disabled}
+                onPress={visitJoin.onPress}
+              />
+            ) : visiting ? (
               <Btn
                 kind="butter"
                 title={t('home.returnToMyIsland')}
@@ -2466,6 +2563,18 @@ const cellEq = (a: WorldPoint, b: WorldPoint) => {
 // 화면 스냅샷(GROMO-2233)의 nav.json 을 완공 목록별로(미완공 건물 자리는 통행). 같은 소스면 같은 JSON 객체라 loadNav 의 캐시가 맞는다.
 const activeNav = (assets: MapAssetSource, completed: readonly string[]) =>
   loadNav(readMapJson('nav.json', bundledNavJson, assets) as any, completed);
+/** 홈 오른쪽 아래 「집중 시작」 동그라미 버튼(지름 88)의 자리 — 그 위에 붙는 홈 물건(잡지)도 같은 값을 쓴다. */
+export const FOCUS_BUTTON_SIZE = 88;
+export function focusButtonInset(L: {
+  landscape: boolean;
+  insets: { right: number; bottom: number };
+}) {
+  return {
+    right: L.landscape ? Math.max(56, L.insets.right + 4) : 20,
+    bottom: L.landscape ? Math.max(22, L.insets.bottom) : Math.max(44, L.insets.bottom + 10),
+  };
+}
+
 export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
   const L = useAppLayout();
   // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 스냅샷으로 고정해 렌더러·nav·layout 에

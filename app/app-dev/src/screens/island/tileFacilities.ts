@@ -6,6 +6,7 @@ export type FacilityRect = { x: number; y: number; w: number; h: number };
 export const TILE_FACILITIES: Record<string, FacilityRect> = {
   hall: { x: 949, y: 21, w: 242, h: 244 },
   board: { x: 856, y: 157, w: 80, h: 80 },
+  gram: { x: 330, y: 391, w: 73, h: 89 },
   library: { x: 1120, y: 288, w: 239, h: 323 },
   mail: { x: 298, y: 520, w: 46, h: 63 },
   tower: { x: 150, y: 24, w: 112, h: 193 },
@@ -14,6 +15,7 @@ export const TILE_FACILITIES: Record<string, FacilityRect> = {
   raft: { x: 207, y: 822, w: 169, h: 103 },
 };
 export const TILE_MAILBOX_Y_OFFSET = -24;
+export const TILE_MAILBOX_PELICAN_RECT: FacilityRect = { x: 250, y: 456, w: 140, h: 140 };
 const tokens = componentTokens.tileFacility;
 
 export function facilityTouchBox(rect: FacilityRect, scale: number) {

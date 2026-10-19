@@ -7,10 +7,12 @@ import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -66,12 +68,23 @@ class StompAuthChannelInterceptorTest {
     @Mock
     private org.springframework.data.redis.core.StringRedisTemplate redis;
 
+    /** 방문자 판정(GROMO-2258) — 성공한 그룹 조회만이 «비주민»을 확정한다. 기본 false(목)는 쓰는 테스트가 덮는다. */
+    @Mock
+    private MembershipService membershipService;
+
     @Mock
     private org.springframework.data.redis.core.ValueOperations<String, String> valueOps;
 
     /** 이동 처리기의 색인 — 짝 토픽 판정 이어받기의 근거({@code holdsLiveOutbox}). 기본은 «들고 있는 outbox 없음». */
     @Mock
     private MovementSubscriptionListener movementSubscriptions;
+
+    /** 바다 방(GROMO-2300) — 방 소속 판정·해지 퇴장. 기본은 «소속 아님». */
+    @Mock
+    private com.oneorthree.realtime.sea.SeaRooms seaRooms;
+
+    private final io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
 
     private StompAuthChannelInterceptor interceptor;
     private RealtimeSessionRegistry registry;
@@ -83,7 +96,7 @@ class StompAuthChannelInterceptorTest {
     void setUp() {
         registry = new RealtimeSessionRegistry();
         interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
-                movementSubscriptions);
+                movementSubscriptions, membershipService, seaRooms, meters);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         given(redis.opsForValue()).willReturn(valueOps);
@@ -337,12 +350,71 @@ class StompAuthChannelInterceptorTest {
         // sessionId 는 null 이다 — 구독은 「진행 세션이 있기만 하면」이고 어느 세션인지는 발신이 본다.
         verify(focusSessions).requireActiveSession(groupId, userId, null);
 
+        // 주민인데 진행 세션이 없으면 거절한다 — 방문자 예외(GROMO-2258)는 비주민에게만 열린다.
         org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
                 .given(focusSessions).requireActiveSession(groupId, userId, null);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(true);
         assertThatThrownBy(() -> interceptor.preSend(message(frame), null))
                 .isInstanceOf(DomainException.class)
                 .extracting(e -> ((DomainException) e).getErrorCode())
                 .isEqualTo(ChatErrorCode.NOT_FOCUSING);
+    }
+
+    @Test
+    @DisplayName("emote 구독 — 비주민(방문자)은 진행 세션 없이도 구독된다 (GROMO-2258)")
+    void visitorMaySubscribeToEmotesWithoutSession() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(groupId, userId, null);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(false);
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId + "/emotes");
+
+        assertThatCode(() -> interceptor.preSend(message(frame), null)).doesNotThrowAnyException();
+        verify(membershipService).isMemberUncached(groupId, userId, BEARER);
+    }
+
+    @Test
+    @DisplayName("emote 구독 — 엄격 모드 인가의 NOT_A_MEMBER 를 «비주민»으로 읽지 않는다: 그룹 조회가 주민이면 세션 없는 구독은 거절")
+    void authorizationDenialIsNotNonMembership() {
+        // 엄격 모드 verifier 는 세션 철회·auth_generation 불일치로 «실제 주민»에게도 NOT_A_MEMBER 를 준다.
+        // 방문자 예외가 그 거절을 소속 부재로 읽으면 세션 없는 주민의 응원 구독이 열린다(realtime CLAUDE.md 현재 인가 계약).
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(groupId, userId, null);
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMemberUncached(groupId, userId, BEARER);
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(groupId, userId, BEARER);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER)).willReturn(true);
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId + "/emotes");
+
+        assertThatThrownBy(() -> interceptor.preSend(message(frame), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_FOCUSING);
+        verifyNoInteractions(accessGuard);
+    }
+
+    @Test
+    @DisplayName("emote 구독 — 그룹 조회가 판정 불가(거절·형식 불량)면 방문자로 열지 않고 그대로 거절한다")
+    void undecidableMembershipLookupFailsClosed() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(groupId, userId, null);
+        given(membershipService.isMemberUncached(groupId, userId, BEARER))
+                .willThrow(new com.oneorthree.realtime.common.exception.UpstreamUnavailableException());
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId + "/emotes");
+
+        assertThatThrownBy(() -> interceptor.preSend(message(frame), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(com.oneorthree.realtime.common.exception.CommonErrorCode.UPSTREAM_UNAVAILABLE);
     }
 
     @Test
@@ -362,7 +434,7 @@ class StompAuthChannelInterceptorTest {
     void notYetOpenedDestinationsRemainClosed() {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
         for (String destination : new String[] {
-                "/topic/islands/" + groupId + "/events",
+                "/topic/islands/" + groupId + "/events/",
                 "/topic/islands/" + groupId + "/playback",
                 "/topic/islands/" + groupId + "/messages",
                 "/topic/islands/" + groupId + "/focus/",
@@ -577,6 +649,262 @@ class StompAuthChannelInterceptorTest {
                 .isEqualTo(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
         verify(accessGuard, org.mockito.Mockito.never()).requireMember(any(), any(), any());
         assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/movement")).isNull();
+    }
+
+    // ── GROMO-2302 섬 events 채널 ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("events 구독은 현재 소속 주민이면 통과한다 — 집중 검사가 섞인 채팅 관문은 부르지 않고 시도 창을 한 번 잡는다")
+    void islandEventsSubscriptionAdmitsResidents() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+
+        assertThatCode(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .doesNotThrowAnyException();
+        verify(accessGuard).requireMember(groupId, userId, BEARER);
+        verify(valueOps).setIfAbsent(eq(RedisKeys.islandEventsSubscribeAttempt(userId)), any(String.class),
+                any(java.time.Duration.class));
+        verify(accessGuard, org.mockito.Mockito.never()).requireCanChat(any(), any(), any());
+        verify(accessGuard, org.mockito.Mockito.never()).requireNotFocusing(any());
+        verifyNoInteractions(focusSessions);
+    }
+
+    @Test
+    @DisplayName("events 구독 — 비주민은 NOT_A_MEMBER 로 거절하고 레지스트리 자리를 돌려준다")
+    void islandEventsSubscriptionRejectsNonResidents() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(groupId, userId, BEARER);
+
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/events")).isNull();
+    }
+
+    @Test
+    @DisplayName("events 구독 시도 창(사용자 축 600ms)을 넘기면 상류에 묻기 전에 ERROR 로 끊고 자리를 돌려준다")
+    void islandEventsSubscribeAttemptWindowRejectsBeforeUpstream() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(valueOps.setIfAbsent(eq(RedisKeys.islandEventsSubscribeAttempt(userId)), any(String.class),
+                any(java.time.Duration.class))).willReturn(false);
+
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.MOVEMENT_TOO_FREQUENT);
+        verify(accessGuard, org.mockito.Mockito.never()).requireMember(any(), any(), any());
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/islands/" + groupId + "/events")).isNull();
+    }
+
+    // ── GROMO-2332 섬 구독 관측 ───────────────────────────────────────────
+
+    private double subscribeCount(String channel, String result, String code) {
+        var c = meters.find("realtime.island.subscribe.total")
+                .tags("channel", channel, "result", result, "code", code).counter();
+        return c == null ? 0 : c.count();
+    }
+
+    private final java.util.List<ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>>
+            logAppenders = new java.util.ArrayList<>();
+
+    private static ch.qos.logback.classic.Logger interceptorLogger() {
+        return (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(StompAuthChannelInterceptor.class);
+    }
+
+    /** 인터셉터 로거에 ListAppender 를 붙인다 — 로거는 JVM 공유라 @AfterEach 에서 뗀다(누적 방지). */
+    private ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> captureLogs() {
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        interceptorLogger().addAppender(appender);
+        logAppenders.add(appender);
+        return appender;
+    }
+
+    @AfterEach
+    void detachLogAppenders() {
+        logAppenders.forEach(appender -> interceptorLogger().detachAppender(appender));
+        logAppenders.clear();
+    }
+
+    @Test
+    @DisplayName("관측 — events 허용은 allow/none 으로 세고 로그를 남기지 않는다")
+    void islandEventsAllowIsCountedWithoutLog() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        var logs = captureLogs();
+
+        interceptor.preSend(message(movementSubscribe("events", groupId)), null);
+
+        assertThat(subscribeCount("events", "allow", "none")).isEqualTo(1);
+        assertThat(logs.list).isEmpty();
+    }
+
+    @Test
+    @DisplayName("관측 — events 비주민 거절은 deny/NOT_A_MEMBER 로 세고 INFO 한 줄에 userId·islandId·종류·코드를 싣는다")
+    void islandEventsDenyIsCountedAndLogged() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(groupId, userId, BEARER);
+        var logs = captureLogs();
+
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .isInstanceOf(ChatException.class)
+                .extracting(e -> ((ChatException) e).getChannel()).isEqualTo("events");
+
+        assertThat(subscribeCount("events", "deny", "NOT_A_MEMBER")).isEqualTo(1);
+        assertThat(logs.list).hasSize(1);
+        assertThat(logs.list.get(0).getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
+        assertThat(logs.list.get(0).getFormattedMessage()).contains("userId=" + userId, "islandId=" + groupId,
+                "destination=events", "code=NOT_A_MEMBER");
+    }
+
+    @Test
+    @DisplayName("관측 — events 시도 창 초과는 deny/MOVEMENT_TOO_FREQUENT")
+    void islandEventsWindowDenyIsCounted() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(valueOps.setIfAbsent(eq(RedisKeys.islandEventsSubscribeAttempt(userId)), any(String.class),
+                any(java.time.Duration.class))).willReturn(false);
+
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                .isInstanceOf(DomainException.class);
+
+        assertThat(subscribeCount("events", "deny", "MOVEMENT_TOO_FREQUENT")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("관측 — movement 허용·거절(snapshot 도 movement 로 센다, 로그 종류만 movement/snapshot)")
+    void movementAllowAndDenyAreCounted() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        var logs = captureLogs();
+        interceptor.preSend(message(movementSubscribe("movement", groupId)), null);
+        assertThat(subscribeCount("movement", "allow", "none")).isEqualTo(1);
+        assertThat(logs.list).isEmpty();
+
+        UUID other = UUID.randomUUID();
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(other, userId, BEARER);
+        assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("movement/snapshot", other)), null))
+                .isInstanceOf(ChatException.class);
+
+        assertThat(subscribeCount("movement", "deny", "NOT_A_MEMBER")).isEqualTo(1);
+        assertThat(logs.list).hasSize(1);
+        assertThat(logs.list.get(0).getFormattedMessage()).contains("destination=movement/snapshot");
+    }
+
+    @Test
+    @DisplayName("ERROR 프레임 — 섬 구독 거절은 channel 헤더를 싣고, 채널 없는 거절은 싣지 않는다")
+    void errorFrameCarriesChannelHeader() {
+        var handler = new ChatStompErrorHandler(tools.jackson.databind.json.JsonMapper.builder().build());
+        ChatException withChannel = new ChatException(ChatErrorCode.NOT_A_MEMBER);
+        withChannel.setChannel("events");
+
+        var frame = handler.handleClientMessageProcessingError(null, new RuntimeException(withChannel));
+        var accessor = StompHeaderAccessor.wrap(frame);
+        assertThat(accessor.getFirstNativeHeader("channel")).isEqualTo("events");
+        assertThat(accessor.getMessage()).isEqualTo("NOT_A_MEMBER");
+
+        var plain = handler.handleClientMessageProcessingError(null,
+                new ChatException(ChatErrorCode.NOT_A_MEMBER));
+        assertThat(StompHeaderAccessor.wrap(plain).getFirstNativeHeader("channel")).isNull();
+    }
+
+    @Test
+    @DisplayName("바다 — 개인 큐 /user/queue/sea 구독과 leave·sync SEND 는 인증만으로 통과한다")
+    void seaQueueAndLeavePassWithAuthentication() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        StompHeaderAccessor queue = seaFrame(StompCommand.SUBSCRIBE, "/user/queue/sea");
+        StompHeaderAccessor leave = seaFrame(StompCommand.SEND, "/app/sea/leave");
+
+        assertThatCode(() -> interceptor.preSend(message(queue), null)).doesNotThrowAnyException();
+        assertThatCode(() -> interceptor.preSend(message(leave), null)).doesNotThrowAnyException();
+        assertThatCode(() -> interceptor.preSend(message(seaFrame(StompCommand.SEND, "/app/sea/sync")), null))
+                .doesNotThrowAnyException();
+        verifyNoInteractions(seaRooms);
+    }
+
+    @Test
+    @DisplayName("바다 — enter SEND 는 시도 창을 잡고, 창이 차 있으면 SEA_ENTER_TOO_FREQUENT")
+    void seaEnterUsesAttemptWindow() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        assertThatCode(() -> interceptor.preSend(message(seaFrame(StompCommand.SEND, "/app/sea/enter")), null))
+                .doesNotThrowAnyException();
+        verify(valueOps).setIfAbsent(eq(RedisKeys.seaEnterAttempt(userId)), any(String.class),
+                any(java.time.Duration.class));
+
+        given(valueOps.setIfAbsent(eq(RedisKeys.seaEnterAttempt(userId)), any(String.class),
+                any(java.time.Duration.class))).willReturn(false);
+        assertThatThrownBy(() -> interceptor.preSend(message(seaFrame(StompCommand.SEND, "/app/sea/enter")), null))
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.SEA_ENTER_TOO_FREQUENT);
+    }
+
+    @Test
+    @DisplayName("바다 — 방 이모트 SEND 는 시도 창 자리만 연다(컨트롤러는 2/2)")
+    void seaEmoteSendUsesItsOwnWindow() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        UUID room = UUID.randomUUID();
+        assertThatCode(() -> interceptor.preSend(
+                message(seaFrame(StompCommand.SEND, "/app/sea/rooms/" + room + "/emotes")), null))
+                .doesNotThrowAnyException();
+        verify(valueOps).setIfAbsent(eq(RedisKeys.seaEmoteAttempt(userId)), any(String.class),
+                any(java.time.Duration.class));
+    }
+
+    @Test
+    @DisplayName("바다 — 소속 방 토픽은 통과, 비소속은 NOT_IN_SEA_ROOM, Redis 실패는 UPSTREAM_UNAVAILABLE(자리 반납)")
+    void seaRoomSubscriptionRequiresMembership() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        UUID mine = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        UUID broken = UUID.randomUUID();
+        given(seaRooms.isMember(userId, mine)).willReturn(true);
+        given(seaRooms.isMember(userId, broken)).willThrow(new IllegalStateException("redis down"));
+
+        assertThatCode(() -> interceptor.preSend(message(seaFrame(StompCommand.SUBSCRIBE,
+                "/topic/sea/rooms/" + mine)), null)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> interceptor.preSend(message(seaFrame(StompCommand.SUBSCRIBE,
+                "/topic/sea/rooms/" + other)), null))
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_IN_SEA_ROOM);
+        assertThatThrownBy(() -> interceptor.preSend(message(seaFrame(StompCommand.SUBSCRIBE,
+                "/topic/sea/rooms/" + broken)), null))
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UPSTREAM_UNAVAILABLE);
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/sea/rooms/" + other)).isNull();
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/sea/rooms/" + broken)).isNull();
+    }
+
+    @Test
+    @DisplayName("바다 — 방 토픽 UNSUBSCRIBE 는 left 퇴장이고, 다른 구독의 해지는 퇴장이 아니다")
+    void seaRoomUnsubscribeLeaves() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        UUID room = UUID.randomUUID();
+        given(seaRooms.isMember(userId, room)).willReturn(true);
+        StompHeaderAccessor subscribe = seaFrame(StompCommand.SUBSCRIBE, "/topic/sea/rooms/" + room);
+        subscribe.setSubscriptionId("sea-sub");
+        interceptor.preSend(message(subscribe), null);
+        StompHeaderAccessor unrelated = seaFrame(StompCommand.UNSUBSCRIBE, null);
+        unrelated.setSubscriptionId("nope");
+        interceptor.preSend(message(unrelated), null);
+        verify(seaRooms, org.mockito.Mockito.never()).leave(any(), any(), any());
+
+        StompHeaderAccessor unsubscribe = seaFrame(StompCommand.UNSUBSCRIBE, null);
+        unsubscribe.setSubscriptionId("sea-sub");
+        interceptor.preSend(message(unsubscribe), null);
+
+        verify(seaRooms).leave(userId, room, com.oneorthree.realtime.sea.SeaRooms.LEFT);
+        assertThat(registry.subscriptionIdOf(SESSION, "/topic/sea/rooms/" + room)).isNull();
+    }
+
+    private StompHeaderAccessor seaFrame(StompCommand command, String destination) {
+        StompHeaderAccessor frame = accessor(command);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setSessionId(SESSION);
+        frame.setSubscriptionId(destination == null ? "sub" : destination);
+        if (destination != null) {
+            frame.setDestination(destination);
+        }
+        return frame;
     }
 
     private StompHeaderAccessor movementSubscribe(String topic, UUID island) {

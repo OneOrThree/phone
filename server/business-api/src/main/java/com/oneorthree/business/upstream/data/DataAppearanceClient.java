@@ -3,6 +3,7 @@ package com.oneorthree.business.upstream.data;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
+import com.oneorthree.business.upstream.data.dto.CustomizationCatalogItem;
 import com.oneorthree.business.upstream.data.dto.IslandAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.PersonalAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.PersonalInventory;
@@ -27,6 +28,7 @@ public class DataAppearanceClient {
 
     private static final String PATH_MY_INVENTORY = "/internal/users/{userId}/inventory";
     private static final String PATH_MY_APPEARANCE = "/internal/users/{userId}/appearance";
+    private static final String PATH_CUSTOMIZATION_CATALOG = "/internal/customization/catalog";
     private static final String PATH_ISLAND_INVENTORY = "/internal/islands/{islandId}/inventory";
     private static final String PATH_ISLAND_APPEARANCE = "/internal/islands/{islandId}/appearance";
     private static final String PATH_ISLAND_PLAYBACK = "/internal/islands/{islandId}/playback";
@@ -48,6 +50,16 @@ public class DataAppearanceClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<PersonalInventory>() { });
+    }
+
+    /** 꾸미기 카탈로그 (GROMO-2331) — 사용자 축이 아닌 전역 목록. 멱등 GET 이라 재시도한다. */
+    public List<CustomizationCatalogItem> fetchCustomizationCatalog(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, PATH_CUSTOMIZATION_CATALOG)
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<List<CustomizationCatalogItem>>() { });
     }
 
     /**

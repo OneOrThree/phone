@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.appearance.service.SeaFocusRewardService;
 import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
 import com.oneorthree.phone.focus.repository.FocusRewardAccrualRepository;
@@ -19,6 +20,7 @@ import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
 import com.oneorthree.phone.focus.service.FocusMemberEvents;
 import com.oneorthree.phone.focus.service.FocusPresenceProjection;
+import com.oneorthree.phone.focus.service.SeaSessionEvents;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -72,6 +74,7 @@ class FocusSessionMarkerDesyncTest {
     @Mock private FocusSettlementRepository focusSettlementRepository;
     @Mock private FocusRewardAccrualRepository focusRewardAccrualRepository;
     @Mock private FocusRewardAccrualService rewardAccruals;
+    @Mock private SeaFocusRewardService seaFocusRewards;
 
     private FocusSessionLifecycleService service() {
         return new FocusSessionLifecycleService(new FocusSessionStartGate(false), userQueryService,
@@ -79,8 +82,12 @@ class FocusSessionMarkerDesyncTest {
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands,
                 focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
+                new SeaSessionPredicate(), seaFocusRewards,
+                null, new SeaSessionEvents(outboxCommandPort,
+                new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                        .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), null);
     }
 
     @Test

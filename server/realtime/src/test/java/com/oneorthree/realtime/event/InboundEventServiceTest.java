@@ -243,7 +243,8 @@ class InboundEventServiceTest {
                 .willReturn(1);
         MovementSubscriptionListener listener = mock(MovementSubscriptionListener.class);
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
-                mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener);
+                mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener,
+                mock(com.oneorthree.realtime.sea.SeaRooms.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
 
@@ -261,7 +262,8 @@ class InboundEventServiceTest {
         MovementSubscriptionListener listener = mock(MovementSubscriptionListener.class);
         MembershipService membership = mock(MembershipService.class);
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
-                mock(EventRouter.class), membership, mock(BlockedUsers.class), listener);
+                mock(EventRouter.class), membership, mock(BlockedUsers.class), listener,
+                mock(com.oneorthree.realtime.sea.SeaRooms.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
         UUID evicted = UUID.randomUUID();
@@ -338,6 +340,60 @@ class InboundEventServiceTest {
             mockMvc.perform(post("/internal/events").contentType(MediaType.APPLICATION_JSON).content(body)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + dataToken)).andExpect(status().isBadRequest());
         }
+    }
+
+    @Test
+    @DisplayName("sea.member.updated 는 200 — 바다 밖 사용자는 해시를 만들지 않고, 불량 params 도 200 이다(USER 축 보호)")
+    void seaMemberUpdatedIsAcceptedEvenWhenMalformedOrOutsideTheSea() throws Exception {
+        UUID user = UUID.randomUUID();
+        for (String params : new String[] {
+                "\"status\":\"ended\",\"sessionId\":null,\"serverNow\":\"2026-10-17T00:00:00Z\"",
+                "\"status\":\"teleported\"",
+                "\"status\":7",
+                ""}) {
+            http("{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,\"type\":\"sea.member.updated\","
+                    + "\"occurredAt\":\"2026-10-17T00:00:00Z\",\"scheduledAt\":null,\"userId\":\"" + user + "\","
+                    + "\"locale\":null,\"subjectId\":\"" + user + "\",\"version\":1,\"params\":{" + params + "}}");
+        }
+        assertThat(redis.hasKey(RedisKeys.seaUser(user))).isFalse();
+    }
+
+    @Test
+    @DisplayName("island.member.arrived 는 섬 events 로 전달한다 — 허용 필드만 싣고 aggregateVersion 은 봉투 version 이다(GROMO-2302)")
+    void memberArrivedIsDeliveredWithProjectedFieldsOnly() throws Exception {
+        UUID island = UUID.randomUUID();
+        UUID user = UUID.randomUUID();
+        http(arrived(island, island, user, ",\"secret\":\"x\",\"version\":99"));
+
+        org.mockito.ArgumentCaptor<RealtimeEventEnvelope> event =
+                org.mockito.ArgumentCaptor.forClass(RealtimeEventEnvelope.class);
+        verify(eventRouter).route(event.capture(), ArgumentMatchers.eq(new RealtimeAudience.IslandAudience(island)));
+        assertThat(event.getValue().type()).isEqualTo(RealtimeEventType.ISLAND_MEMBER_ARRIVED);
+        assertThat(event.getValue().islandId()).isEqualTo(island);
+        assertThat(event.getValue().aggregateVersion()).isEqualTo(5L);
+        JsonNode payload = event.getValue().payload();
+        assertThat(payload.propertyNames()).containsExactlyInAnyOrder("islandId", "userId", "name", "catColor",
+                "arrivedAt");
+        assertThat(payload.get("name").stringValue()).isEqualTo("도착냥");
+        assertThat(payload.get("catColor").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("island.member.arrived 의 payload 섬이 봉투 섬과 다르면 200 으로 받고 전달하지 않는다(축 보호)")
+    void memberArrivedForAnotherIslandIsAcceptedButNotDelivered() throws Exception {
+        UUID island = UUID.randomUUID();
+        http(arrived(island, UUID.randomUUID(), UUID.randomUUID(), ""));
+
+        verify(eventRouter, never()).route(any(), ArgumentMatchers.eq(new RealtimeAudience.IslandAudience(island)));
+    }
+
+    /** Data {@code IslandArrivalEvents} 가 적는 봉투 모양 — {@code extra} 는 params 끝에 덧붙는다. */
+    private static String arrived(UUID subject, UUID payloadIsland, UUID user, String extra) {
+        return "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,\"type\":\"island.member.arrived\","
+                + "\"occurredAt\":\"2026-10-18T00:00:00Z\",\"scheduledAt\":null,\"userId\":\"" + user + "\","
+                + "\"locale\":null,\"subjectId\":\"" + subject + "\",\"version\":5,\"params\":{"
+                + "\"islandId\":\"" + payloadIsland + "\",\"userId\":\"" + user + "\",\"name\":\"도착냥\","
+                + "\"catColor\":null,\"arrivedAt\":\"2026-10-18T00:00:00Z\"" + extra + "}}";
     }
 
     private void http(String body) throws Exception {

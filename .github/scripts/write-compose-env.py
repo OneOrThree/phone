@@ -109,6 +109,10 @@ SERVICE_OPTIONAL_KEYS = {
         # GROMO-2182 realtime caller 자격(realtime-authorization 프로필이 읽는다)과 차단 사건 생산 스위치.
         # 프로필을 켜지 않은 배포에서는 쓰이지 않으므로 선택으로 둔다.
         "SVC_TOKEN_REALTIME_TO_DATA", "USER_BLOCKS_REALTIME_EVENTS_ENABLED",
+        # GROMO-2299 바다 방 사건(sea.member.updated) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
+        "FOCUS_SEA_REALTIME_EVENTS_ENABLED",
+        # GROMO-2302 주민 첫 도착 사건(island.member.arrived) 생산 스위치 — 기본 OFF, realtime 이 먼저 배포된 뒤 켠다.
+        "ISLAND_ARRIVAL_REALTIME_EVENTS_ENABLED",
     ),
     "business-api": (
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
@@ -118,6 +122,8 @@ SERVICE_OPTIONAL_KEYS = {
         "GOOGLE_DRIVE_API_KEY",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
         "BUSINESS_CURSOR_ACTIVE_KEY",
+        # GROMO-2331 카탈로그 이미지 절대 URL 의 앞부분 — 비우면 상대 경로(/static/…)를 그대로 내린다.
+        "STATIC_ASSETS_BASE_URL",
     ),
     "notification": (
         "NOTIFICATION_SCHEDULING_ENABLED", "NOTIFICATION_KAFKA_ENABLED", "NOTIFICATION_GENERATION_REQUIRED",

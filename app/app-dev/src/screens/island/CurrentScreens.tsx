@@ -5,6 +5,7 @@ import { AndroidAppPicker } from '@/components/AndroidAppPicker';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { PermissionsAndroid } from 'react-native';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
+import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
@@ -40,6 +41,7 @@ import {
   displayIsland as currentIsland,
   viewIsland,
   serverHome,
+  serverVisit,
   canVisit,
   buildingNames,
   costs,
@@ -55,13 +57,18 @@ import {
   islandWeeklyAverage,
   hoursMinutes,
   trackNames,
+  SERVER_VISIT_ROUTES,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { getSession } from '@/services/api/session';
 import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
-import { isGoldenFishParticipant, type GoldenFishEvent } from '@/services/islandRealtime';
+import {
+  isGoldenFishParticipant,
+  memberArrivedText,
+  type GoldenFishEvent,
+} from '@/services/islandRealtime';
 import {
   fishingSpotsForActors,
   useFishingPeerActors,
@@ -129,6 +136,15 @@ import {
   Overlay,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
+import { RaftDestinations } from '@/screens/island/RaftDestinations';
+import { SeaVoyageHost } from '@/screens/sea/SeaVoyageHost';
+import { Telescope } from '@/screens/island/Telescope';
+import { MagazineReader } from '@/screens/magazine/MagazineReader';
+import { PromotionEditor } from '@/screens/magazine/PromotionEditor';
+import { useMagazineToday } from '@/screens/magazine/useMagazineToday';
+import { usePromotionNewsToast } from '@/screens/magazine/usePromotionNewsToast';
+import { mockFlags } from '@/services/api/magazineMock';
+import { isMockMode } from '@/services/demoMode';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
@@ -444,7 +460,8 @@ export function memberGate(state: State, server: boolean) {
         ? (visit.buildings ?? undefined)
         : undefined
       : facts?.completedBuildings,
-    host: facts?.home.island.role === 'host',
+    // 스냅샷 전에는 섬장인지 모른다 — false(주민)와 구분해 undefined 로 둔다(주민 소식 토스트가 섬장에게 새지 않게)
+    host: facts ? facts.home.island.role === 'host' : undefined,
   };
 }
 function CurrentScreensContent({ e }: any) {
@@ -505,14 +522,32 @@ function CurrentScreensContent({ e }: any) {
     'product',
     'orders',
     'sound',
+    'promotionEditor',
   ];
   const { joined, built, host } = memberGate(state, !!e.islands);
+  // 주민 소식 토스트(C3) — 내 섬 홈에 들어올 때, 섬장이 아닌 주민에게만(목업 QA 는 EXPO_PUBLIC_MAGAZINE_MOCK=member).
+  // 서버 홈 스냅샷이 오기 전에는 host 가 undefined 라 섬장인지 모른다 — 주민으로 확인된(false) 뒤에만 읽는다
+  usePromotionNewsToast({
+    active:
+      r === 'home' &&
+      joined &&
+      !state.visitingIslandId &&
+      (host === false || (isMockMode() && mockFlags().has('member'))),
+    islandId: e.islands ? (state.serverIslands?.currentIslandId ?? null) : i.id,
+    notify: e.notify,
+  });
+  // 오늘 고양이 잡지(GROMO-2289) — 섬 홈(펠리컨 배달·우체통 빨간 점)과 우체통(잡지 보기 버튼)이 같이 본다. 구경 중에는 읽지 않는다
+  const magazine = useMagazineToday(['home', 'mail'].includes(r) && !state.visitingIslandId);
   const endServerVisit = () => {
     e.dispatch({ type: 'END_VISIT' });
     e.reset(state.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
   };
   const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
   const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
+  // 바다 항해 집중(GROMO-2310) — 섬 소속·구경 여부와 무관한 바다 화면이라 아래 섬 관문보다 먼저 연다.
+  // 계정이 바뀌면 사용자 ID 를 key 로 화면(바다 방 연결 포함)을 새로 만든다.
+  if (r === 'sea' || r === 'seaArrival')
+    return <SeaVoyageHost key={getSession()?.userId ?? ''} e={e} />;
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
@@ -527,7 +562,7 @@ function CurrentScreensContent({ e }: any) {
     state.visitingIslandId &&
     !(
       e.islands
-        ? ['visitIsland', 'manage', 'members', 'board', 'notice', 'visitIslandFocus']
+        ? SERVER_VISIT_ROUTES
         : [
             'home',
             'manage',
@@ -538,6 +573,7 @@ function CurrentScreensContent({ e }: any) {
             'travel',
             'visitIsland',
             'visitIslandFocus',
+            'raft',
             'permission',
             'screenTimeApps',
           ]
@@ -632,6 +668,7 @@ function CurrentScreensContent({ e }: any) {
         islandId={islandId}
         backOverride={e.backOverride}
         onClose={visitMap}
+        e={e}
       />
     );
   }
@@ -677,8 +714,30 @@ function CurrentScreensContent({ e }: any) {
         {!state.visitingIslandId && <RewardModal e={e} rewardIslandId={rewardIslandId} />}
       </>
     );
-  if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
+  if (['mail', 'chat', 'friendMail'].includes(r))
+    return <InteriorRoute e={{ ...e, magazineToday: magazine.today }} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
+  if (r === 'raft') return <RaftDestinations e={e} />;
+  // TODO E1-4 먼바다 화면이 생기면 바다 담당이 이 임시 입구(뗏목 행선지 「망원경」)와 함께 정리한다
+  if (r === 'telescope') return <Telescope e={e} />;
+  if (r === 'promotionEditor') return <PromotionEditor e={e} />;
+  // 섬에서 펼친 잡지 — 배경은 섬 홈(A4). 끝 쪽 「우리 섬도 실어 볼까요?」 안내는 내 섬 섬장만(쓰기 입구는 마을회관)
+  if (r === 'magazine')
+    return (
+      <MagazineReader
+        e={e}
+        host={host && !state.visitingIslandId}
+        background={
+          <FinalIsland
+            state={state}
+            go={e.go}
+            build={e.build}
+            showActions={false}
+            boardStatus={boardStatus}
+          />
+        }
+      />
+    );
   if (['boat', 'mainIsland', 'currentIsland', 'friends', 'friendSearch'].includes(r))
     return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
@@ -690,7 +749,7 @@ function CurrentScreensContent({ e }: any) {
     );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
   if (r === 'blockedUsers' && e.islands) return <BlockedUsersScreen e={e} />;
-  return <RedesignScreens e={screenE} />;
+  return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today }} />;
 }
 
 async function openScreenTimeSettings(notify: (message: string) => void) {
@@ -1276,20 +1335,160 @@ function Travel({ e }: any) {
     />
   );
 }
+const visitScene = StyleSheet.create({ fill: { flex: 1 } });
 function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
+  // 서버 방문(GROMO-2259) — 구경하는 섬의 집중 중 인원·오늘 집중·하단 가입 버튼. 목업은 기존 화면 그대로.
+  // 방문 스냅샷이 visitingIslandId 와 같은 섬의 것일 때만 쓴다 — HUD·presence·가입이 같은 섬을 본다.
+  const visit = e.islands ? serverVisit(s) : null;
+  const live = useIslandPresence({ active: !!visit, islandId: visit?.island.id ?? null });
+  const join = useVisitorJoin(e, s, viewIsland(s, visit?.island.id ?? islandId), e.notify);
+  // 섬장 인사말 말풍선(GROMO-2263) — 이번 방문(리듀서 visitGreeted)에 한 번만 띄운다. 게시판·낚시 구경에서 돌아와
+  // 이 화면이 다시 마운트돼도 안 뜬다. 구서버는 greeting 이 없어 띄우지 않는다.
+  const greeting = visit?.island.greeting?.trim();
+  const [greetingOpen, setGreetingOpen] = useState(false);
+  useEffect(() => {
+    if (!greeting || s.visitGreeted) return;
+    e.dispatch({ type: 'VISIT_GREETED' });
+    setGreetingOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- e 는 매 렌더 새 객체다. 방문 여부(visitGreeted)만 본다
+  }, [greeting, s.visitGreeted]);
+  const showGreeting = greetingOpen && !!greeting;
+  // 안드로이드 뒤로 가기: 인사말 팝업이 떠 있는 동안은 방문 종료(App 의 visitIsland 분기) 대신 팝업만 닫는다.
+  // App 의 뒤로 가기 핸들러가 방문 분기보다 먼저 e.backOverride 를 본다(VisitorBoard 와 같은 방식).
+  useEffect(() => {
+    if (!showGreeting || !e.backOverride) return;
+    const close = () => {
+      setGreetingOpen(false);
+      return true;
+    };
+    e.backOverride.current = close;
+    return () => {
+      // 이미 다른 화면이 자기 처리를 걸었으면 건드리지 않는다
+      if (e.backOverride.current === close) e.backOverride.current = null;
+    };
+  }, [showGreeting, e.backOverride]);
   return (
-    <FinalIsland
-      state={s}
-      go={e.go}
-      build={e.build}
-      boardStatus={e.boardStatus}
-      viewingIslandId={s.visitingIslandId ? undefined : islandId}
-      notify={e.notify}
-      dispatch={e.dispatch}
-      onReturnFromVisit={onReturnFromVisit}
-    />
+    <>
+      {/* 인사말 팝업이 열려 있는 동안 뒤 지도·가입 버튼은 스크린리더에서 숨긴다(DESIGN.md §11). iOS 는 팝업이 모달이라
+          VoiceOver 가 이미 무시하고, 형제를 못 가리는 Android(TalkBack)를 이 래퍼가 맡는다. */}
+      <View
+        testID="visit-scene"
+        style={visitScene.fill}
+        accessibilityElementsHidden={showGreeting}
+        importantForAccessibility={showGreeting ? 'no-hide-descendants' : 'auto'}
+        aria-hidden={showGreeting}
+      >
+        <FinalIsland
+          state={s}
+          go={e.go}
+          build={e.build}
+          boardStatus={e.boardStatus}
+          viewingIslandId={s.visitingIslandId ? undefined : islandId}
+          notify={e.notify}
+          dispatch={e.dispatch}
+          onReturnFromVisit={onReturnFromVisit}
+          visitHud={
+            visit
+              ? {
+                  // HUD 는 지금 집중 중(active)만 센다. 응원 수신자는 서버 기준 진행 중(active·paused)이라 FocusVisit 와 다르다
+                  focusCount:
+                    live.status === 'ready'
+                      ? live.focus.filter((m) => m.status === 'active').length
+                      : null,
+                  onFocusPress: () => e.go('visitIslandFocus', visit.island.id),
+                  todayMinutes: visit.focusToday?.minutes,
+                }
+              : undefined
+          }
+          visitJoin={
+            visit
+              ? {
+                  label: join.label,
+                  disabled: join.disabled,
+                  onPress: () => void join.serverJoin(),
+                }
+              : undefined
+          }
+        />
+      </View>
+      {showGreeting && (
+        <IslandPopup onClose={() => setGreetingOpen(false)}>
+          <Txt kind="meta">{t('islandVisit.greetingTitle')}</Txt>
+          <Txt testID="visit-greeting" kind="h17">
+            {greeting}
+          </Txt>
+        </IslandPopup>
+      )}
+    </>
+  );
+}
+/** 응원 이모트 부채꼴 + 버튼 — 주민 집중 화면(FocusFlow)에서만 쓴다. 부모가 위치를 잡는다. `disabled` 는 지금 넘기는 곳이 없다(방문자 구경 화면에서 쓰던 모양, DESIGN.md §8.3). */
+function EmoteFab({
+  fan,
+  setFan,
+  emote,
+  onSend,
+  disabled = false,
+  onDisabledPress,
+}: {
+  fan: boolean;
+  setFan: (v: boolean) => void;
+  emote: string | null;
+  onSend: (id: string) => void;
+  /** 보낼 수 없는 상태 — 흐리게 그리고, 누르면 부채꼴 대신 onDisabledPress(안내)만 부른다. */
+  disabled?: boolean;
+  onDisabledPress?: () => void;
+}) {
+  const circle = (d: number, bg: string) => ({
+    width: d,
+    height: d,
+    borderRadius: d / 2,
+    borderWidth: 2,
+    borderColor: OUTLINE,
+    backgroundColor: bg,
+    boxShadow: `0px 4px 0px ${OUTLINE}`,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  });
+  // 비활성이 되는 순간 접는다 — 부채꼴은 숨겨도 fan 이 true 로 남으면 다시 활성이 될 때 저절로 펼쳐진다.
+  useEffect(() => {
+    if (disabled) setFan(false);
+  }, [disabled, setFan]);
+  return (
+    <>
+      {fan && !disabled && (
+        <View style={{ position: 'absolute', left: 0, bottom: 64, flexDirection: 'row', gap: 6 }}>
+          {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((id) => (
+            <Pressable
+              key={id}
+              testID={`emote-${id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t(`focusFlow.hud.emote.${id}`)}
+              onPress={() => onSend(id)}
+              style={circle(46, C.paper)}
+            >
+              <Image source={art[`emote/${id}`]} style={{ width: 30, height: 30 }} />
+            </Pressable>
+          ))}
+        </View>
+      )}
+      <Pressable
+        testID="emote-fab"
+        accessibilityRole="button"
+        accessibilityLabel={t('focusFlow.hud.emoteFab')}
+        accessibilityHint={disabled ? t('focusFlow.hud.emoteNoOneFocusing') : undefined}
+        accessibilityState={{ expanded: fan, disabled }}
+        onPress={() => (disabled ? onDisabledPress?.() : setFan(!fan))}
+        style={[
+          circle(52, C.butter),
+          disabled && { opacity: componentTokens.button.disabledOpacity, boxShadow: 'none' },
+        ]}
+      >
+        <Image source={art[`emote/${emote ?? 'hello'}`]} style={{ width: 32, height: 32 }} />
+      </Pressable>
+    </>
   );
 }
 function FocusVisit({ e, islandId, onBack }: any) {
@@ -1308,9 +1507,15 @@ function FocusVisit({ e, islandId, onBack }: any) {
       : (s.serverIslands?.currentIslandId ?? null)
     : null;
   const transitionHandler = useRef<(transition: any) => void>(() => {});
+  // 방문자는 응원을 보내지도 받지도 않는다(2026-10-16 결정) — visitor 를 넘기지 않아 emotes 채널을 열지 않는다.
+  // 서버의 방문자 경로(GROMO-2258)는 남아 있지만 앱이 노출하지 않는다.
   const live = useIslandPresence({
     active: liveIslandId !== null,
     islandId: liveIslandId,
+    // 방문(islandId 있음)은 주민이 아니라 구독하면 ERROR 로 소켓이 닫힌다 — 내 소속 섬 보기에서만 켠다
+    events: !islandId,
+    onMemberArrived: (event) => e.notify(memberArrivedText(event)),
+    onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
   });
   const myId = getSession()?.userId;
@@ -1615,7 +1820,11 @@ function FocusFlow({ e: environment }: any) {
     active: liveIslandId !== null,
     islandId: liveIslandId,
     emoteSessionId,
+    events: true, // 내 소속 섬 화면 — 주민만 구독할 수 있다(GROMO-2311)
+    onMemberArrived: (event) => e.notify(memberArrivedText(event)),
     onSendError: e.notify,
+    // 방문자가 보낸 응원은 말풍선 대신 알림으로 — 이름은 서버가 주지 않는다
+    onVisitorEmote: () => e.notify(t('focusFlow.visitorCheered')),
     onTransition: (transition) => transitionHandler.current(transition),
     onGoldenFish: (event) => goldenHandler.current(event),
   });
@@ -1761,9 +1970,11 @@ function FocusFlow({ e: environment }: any) {
   // 안드로이드 뒤로가기는 App.back 보다 먼저 이 화면이 처리한다
   useEffect(() => {
     if (!e.backOverride) return;
-    e.backOverride.current = () => backRef.current();
+    const own = () => backRef.current();
+    e.backOverride.current = own;
     return () => {
-      e.backOverride.current = null;
+      // 이미 다른 화면이 자기 처리를 걸었으면 건드리지 않는다
+      if (e.backOverride.current === own) e.backOverride.current = null;
     };
   }, [e.backOverride]);
   // 휴식·결과로 전환하는 순간의 당첨은 유지한다. 집중 흐름을 완전히 떠날 때만 지운다.
@@ -3101,51 +3312,7 @@ function FocusFlow({ e: environment }: any) {
                 gap: 8,
               }}
             >
-              {fan && (
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    bottom: 64,
-                    flexDirection: 'row',
-                    gap: 6,
-                  }}
-                >
-                  {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((id, n) => (
-                    <Pressable
-                      key={id}
-                      testID={`emote-${id}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        [
-                          t('focusFlow.hud.emote.hello'),
-                          t('focusFlow.hud.emote.cheer'),
-                          t('focusFlow.hud.emote.sleepy'),
-                          t('focusFlow.hud.emote.laugh'),
-                          t('focusFlow.hud.emote.hearts'),
-                        ][n]
-                      }
-                      onPress={() => sendEmote(id)}
-                      style={circle(46, C.paper)}
-                    >
-                      <Image source={art[`emote/${id}`]} style={{ width: 30, height: 30 }} />
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-              <Pressable
-                testID="emote-fab"
-                accessibilityRole="button"
-                accessibilityLabel={t('focusFlow.hud.emoteFab')}
-                accessibilityState={{ expanded: fan }}
-                onPress={() => setFan(!fan)}
-                style={circle(52, C.butter)}
-              >
-                <Image
-                  source={art[`emote/${emote ?? 'hello'}`]}
-                  style={{ width: 32, height: 32 }}
-                />
-              </Pressable>
+              <EmoteFab fan={fan} setFan={setFan} emote={emote} onSend={sendEmote} />
               <View
                 ref={pauseTarget.ref}
                 collapsable={false}

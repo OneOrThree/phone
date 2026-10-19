@@ -98,6 +98,51 @@ class PushNotificationServiceTest {
         verify(pushNotificationPort).send(eq("fcm-token"), eq(MESSAGE));
     }
 
+    // ── isFilteredOut — 호출부(잡지 알림)가 영구 미발송과 일시 실패를 가르는 기준 (GROMO-2307) ───────
+
+    @Test
+    @DisplayName("isFilteredOut: 알림 끔 → true")
+    void filteredWhenNotificationDisabled() {
+        UserNotificationSettings settings = UserNotificationSettings.builder()
+                .userId(USER_ID).notificationEnabled(false).build();
+        assertThat(pushNotificationService.isFilteredOut(userWithToken(), settings, NOON_KST)).isTrue();
+    }
+
+    @Test
+    @DisplayName("isFilteredOut: 토큰 없음 → true")
+    void filteredWhenDeviceTokenNull() {
+        assertThat(pushNotificationService.isFilteredOut(User.builder().id(USER_ID).build(), null, NOON_KST)).isTrue();
+    }
+
+    @Test
+    @DisplayName("isFilteredOut: 조용한 시간 안(23:00) → true")
+    void filteredInsideQuietHours() {
+        assertThat(pushNotificationService.isFilteredOut(userWithToken(), null, kstInstant(LocalTime.of(23, 0))))
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("isFilteredOut: 모두 통과 → false")
+    void notFilteredWhenEverythingPasses() {
+        assertThat(pushNotificationService.isFilteredOut(userWithToken(), null, NOON_KST)).isFalse();
+    }
+
+    @Test
+    @DisplayName("계약: isFilteredOut 이 true 면 sendIfAllowed 는 false 이고 FCM 포트는 호출되지 않는다")
+    void filteredMeansSendIfAllowedNeverReachesFcm() {
+        UserNotificationSettings off = UserNotificationSettings.builder()
+                .userId(USER_ID).notificationEnabled(false).build();
+        User noToken = User.builder().id(USER_ID).build();
+        Instant quiet = kstInstant(LocalTime.of(23, 30));
+        assertThat(pushNotificationService.isFilteredOut(userWithToken(), off, NOON_KST)).isTrue();
+        assertThat(pushNotificationService.sendIfAllowed(userWithToken(), off, MESSAGE, NOON_KST)).isFalse();
+        assertThat(pushNotificationService.isFilteredOut(noToken, null, NOON_KST)).isTrue();
+        assertThat(pushNotificationService.sendIfAllowed(noToken, null, MESSAGE, NOON_KST)).isFalse();
+        assertThat(pushNotificationService.isFilteredOut(userWithToken(), null, quiet)).isTrue();
+        assertThat(pushNotificationService.sendIfAllowed(userWithToken(), null, MESSAGE, quiet)).isFalse();
+        verify(pushNotificationPort, never()).send(any(), any());
+    }
+
     // ── 필터 3: Quiet hours 경계 (기본 23:00–07:00, [start, end)) ───────────────
     // sendIfAllowed 를 여러 시각으로 호출하고, 발송된 횟수로 경계를 검증한다.
     // 공격형 카탈로그(GROMO-819) 수용을 위해 기본 금지 구간을 21:00–09:00 → 23:00–07:00 으로 조정(GROMO-840).

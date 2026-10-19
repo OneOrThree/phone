@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,6 +32,15 @@ public interface OwnedProductRepository extends JpaRepository<OwnedProduct, UUID
             + "WHERE o.ownerType = 'island' AND o.groupId = :islandId AND o.productId = :productId")
     boolean existsByIslandIdAndProductId(@Param("islandId") UUID islandId,
             @Param("productId") String productId);
+
+    /**
+     * 주어진 상품 중 이 유저가 개인 인벤토리에 이미 가진 것의 id — 상품마다 {@link #existsByUserIdAndProductId} 를
+     * 묻지 않고 한 번에 거를 때 쓴다(바다 보상 단계표 정산). {@code productIds} 는 비어 있으면 안 된다.
+     */
+    @Query("SELECT o.productId FROM OwnedProduct o "
+            + "WHERE o.ownerType = 'user' AND o.userId = :userId AND o.productId IN :productIds")
+    List<String> findProductIdsByUserIdAndProductIdIn(@Param("userId") UUID userId,
+            @Param("productIds") Collection<String> productIds);
 
     /**
      * 적용 경로 전용 보유 행 공유 잠금 — <b>반드시 트랜잭션 안에서, 외양 행 잠금 전에</b>.

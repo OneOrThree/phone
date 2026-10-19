@@ -23,8 +23,10 @@ class EventRouterTest {
     private final EventRouter router = new EventRouter(delivery);
 
     @Test
-    void allFifteenWireTypesHaveFixedRoutes() {
-        assertThat(RealtimeEventType.values()).hasSize(15);
+    void allSixteenWireTypesHaveFixedRoutes() {
+        assertThat(RealtimeEventType.values()).hasSize(16);
+        // 주민 첫 도착(GROMO-2302)은 events 채널이다 — 아래 default 가 그 목적지를 계산한다.
+        assertThat(RealtimeEventType.ISLAND_MEMBER_ARRIVED.channel()).isEqualTo("events");
         for (RealtimeEventType type : RealtimeEventType.values()) {
             RealtimeEventEnvelope event = event(type, island);
             // 응원만 수신 집합이 필수다 — 수신 자격이 구독 인가보다 좁아서다(GROMO-1765).
@@ -154,6 +156,27 @@ class EventRouterTest {
     }
 
     @Test
+    void visitorEmoteMayOmitSessionIdOnlyWhenFlagged() {
+        // 방문자 응원(GROMO-2258)은 세션이 없다 — visitor:true 일 때만 sessionId 를 면제한다.
+        ObjectNode visitor = emotePayload().put("visitor", true);
+        assertThat(new RealtimeEventEnvelope(UUID.randomUUID(), RealtimeEventType.FOCUS_EMOTE, island, null,
+                Instant.now(), visitor).payload().has("sessionId")).isFalse();
+
+        for (ObjectNode rejected : new ObjectNode[] {
+                emotePayload(), emotePayload().put("visitor", false), emotePayload().put("visitor", "true"),
+                emotePayload().put("visitor", true).put("sessionId", "not-a-uuid")}) {
+            assertThatThrownBy(() -> new RealtimeEventEnvelope(UUID.randomUUID(), RealtimeEventType.FOCUS_EMOTE,
+                    island, null, Instant.now(), rejected)).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    private ObjectNode emotePayload() {
+        return mapper.createObjectNode().put("userId", user.toString())
+                .put("type", FocusEmoteType.CHEER.wireName())
+                .put("expiresAt", Instant.now().plusSeconds(3).toString());
+    }
+
+    @Test
     void personalQueueDeliveryStillFailsClosed() {
         // 섬 토픽은 열렸지만(GROMO-1765) /user/queue/events 는 event 별 owner·방장 권한 재검사가
         // 없어 계속 닫혀 있다. 조용히 성공한 척하지 않는다.
@@ -194,6 +217,10 @@ class EventRouterTest {
         }
         if (islandId != null) {
             payload.put("islandId", islandId.toString());
+        }
+        if (type == RealtimeEventType.ISLAND_MEMBER_ARRIVED) {
+            payload.put("userId", user.toString());
+            payload.put("arrivedAt", Instant.now().toString());
         }
         if (type == RealtimeEventType.WALLET_UPDATED || type == RealtimeEventType.INVENTORY_UPDATED) {
             payload.put("ownerType", islandId == null ? "user" : "island");

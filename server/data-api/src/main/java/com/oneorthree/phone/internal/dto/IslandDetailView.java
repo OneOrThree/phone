@@ -20,6 +20,9 @@ import java.util.UUID;
  *     V-읽기가 정원을 방문자 열람 범위에 넣었다. 고치는 권한만 방장에게 있다
  * @param role {@code host|member} — 저장된 {@code GroupMemberRole} 을 공개 이름으로 옮긴 값이다
  * @param version {@code (island, islandId)} 상태 축의 버전. 외양/주민 목록의 버전과 혼용하지 않는다
+ * @param greeting 섬장 인사말 — 항상 채워진다(안 썼으면 기본 문구 합성, {@link IslandSummaryView#greeting()} 과 같은
+ *     값). 섬장이 회관 편집 칸에 현재 인사말을 채우려면 주민 상세에도 있어야 한다(GROMO-2262)
+ * @param greetingIsDefault 합성된 기본 문구인가
  */
 public record IslandDetailView(
         UUID id,
@@ -33,5 +36,7 @@ public record IslandDetailView(
         String growthStage,
         String themeId,
         String role,
-        long version) {
+        long version,
+        String greeting,
+        boolean greetingIsDefault) {
 }

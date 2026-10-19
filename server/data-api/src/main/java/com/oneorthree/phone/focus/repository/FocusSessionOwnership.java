@@ -1,5 +1,7 @@
 package com.oneorthree.phone.focus.repository;
 
+import com.oneorthree.phone.focus.repository.domain.FocusSessionKind;
+
 import java.util.UUID;
 
 /**
@@ -12,7 +14,13 @@ import java.util.UUID;
  * 프로젝션은 컨텍스트에 올라가지 않는다. 이 클래스의 FQCN 은 {@code @Query} 문자열 안에도 있다.
  *
  * @param userId   세션 주인 — 탈퇴 익명화로 null 일 수 있다
- * @param islandId 시작 때 고정된 섬(FR-P03, 불변)
+ * @param islandId 시작 때 고정된 섬(FR-P03, 불변). 바다 세션이면 목적지 섬
+ * @param kind     세션 종류 — 바다 세션은 멤버십 잠금을 건너뛴다(GROMO-2299)
  */
-public record FocusSessionOwnership(UUID userId, UUID islandId) {
+public record FocusSessionOwnership(UUID userId, UUID islandId, FocusSessionKind kind) {
+
+    /** 섬 세션으로 읽는 호출부(종전 모양)를 위한 편의 생성자. */
+    public FocusSessionOwnership(UUID userId, UUID islandId) {
+        this(userId, islandId, FocusSessionKind.ISLAND);
+    }
 }

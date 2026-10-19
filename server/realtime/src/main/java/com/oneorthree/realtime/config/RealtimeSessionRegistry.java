@@ -11,7 +11,9 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -35,10 +37,11 @@ public class RealtimeSessionRegistry {
      * 세션 하나가 들 수 있는 구독 수.
      *
      * <p>근거는 <b>계정당 소속 상한</b>이다({@code GroupService.MAX_JOINED_GROUPS} = 10,
-     * {@code IslandMovementGuards} 가 같은 값을 되읽는다). 한 섬이 쓰는 목적지는 여섯
-     * ({@code focus}·{@code rest}·{@code emotes}·채팅 {@code /topic/groups/{id}}·이동 {@code movement}·
-     * {@code movement/snapshot}, GROMO-2247)이고 개인 큐가 둘({@code errors}·{@code duplicates})이라,
-     * <b>이론상 최대는 10 × 6 + 2 = 62</b> 다. 96 은 거기에 약 50% 여유를 둔 값이다 — 화면 전환 중 옛 구독과
+     * {@code IslandMovementGuards} 가 같은 값을 되읽는다). 한 섬이 쓰는 목적지는 일곱
+     * ({@code focus}·{@code rest}·{@code emotes}·{@code events}(GROMO-2302)·채팅 {@code /topic/groups/{id}}·이동
+     * {@code movement}·{@code movement/snapshot}, GROMO-2247)이고 개인 큐가 둘({@code errors}·{@code duplicates})이라,
+     * 섬 쪽 최대는 10 × 7 + 2 = 72 이고, 바다가 세션당 둘({@code /user/queue/sea}·{@code /topic/sea/rooms/{roomId}},
+     * GROMO-2300)을 더해 <b>이론상 최대는 74</b> 다. 96 은 거기에 약 30% 여유를 둔 값이다 — 화면 전환 중 옛 구독과
      * 새 구독이 잠깐 겹치는 창을 덮는다.
      *
      * <p>비소속 관전이 열려 있어 한 세션으로 여러 섬을 «둘러보는» 흐름은 소속 상한에 묶이지 않는다.
@@ -145,6 +148,36 @@ public class RealtimeSessionRegistry {
             }
             return null;
         }
+    }
+
+    /**
+     * 이 세션의 그 구독 id 가 가리키는 목적지 — 없으면 {@code null}. UNSUBSCRIBE 는 id 만 주므로, 해지가 바다 방
+     * 퇴장인지 판정하려면 지우기 <b>전에</b> 되찾아야 한다(GROMO-2300).
+     */
+    public String destinationOf(String sessionId, String subscriptionId) {
+        Map<String, String> held = sessionId == null || subscriptionId == null ? null : subscriptions.get(sessionId);
+        if (held == null) {
+            return null;
+        }
+        synchronized (held) {
+            return held.get(subscriptionId);
+        }
+    }
+
+    /**
+     * 같은 사용자의 <b>다른</b> 세션이 이 JVM 에 붙어 있는가 — 소켓 종료가 바다 방 퇴장인지(마지막 세션일 때만) 가른다.
+     *
+     * <p>ponytail: 세션 전체를 훑는다(O(세션 수)). 종료마다 한 번이라 지금은 싸다 — 커지면 userId → 세션 수 색인으로.
+     */
+    public boolean hasOtherSession(UUID userId, String exceptSessionId) {
+        return principals.entrySet().stream().anyMatch(entry -> !entry.getKey().equals(exceptSessionId)
+                && userId.equals(entry.getValue().userId()));
+    }
+
+    /** 이 JVM 에 붙은 그 사용자의 세션 id 전부 — 사용자 단위 통지를 세션마다 따로 보내는 데 쓴다(GROMO-2300). */
+    public List<String> sessionIdsOf(UUID userId) {
+        return principals.entrySet().stream().filter(entry -> userId.equals(entry.getValue().userId()))
+                .map(Map.Entry::getKey).toList();
     }
 
     /**

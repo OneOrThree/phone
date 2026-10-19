@@ -5,7 +5,7 @@ import { art, Seg } from '@/design-system/patterns';
 import { Button } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { displayIsland, dayKey, earnedBy, type State } from '@/services/model';
+import { displayIsland, dayKey, earnedBy, islandFocusRecord, type State } from '@/services/model';
 import { getSession } from '@/services/api/session';
 import { useLibraryDiary } from '@/screens/island/useLibraryDiary';
 import { T, fill, hm } from '@/screens/island/sceneKit';
@@ -87,7 +87,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     rangeOverride: { from: selectedDate, to: selectedDate },
     islandKey: island.id,
   });
-  const localRecords = state.records.filter((r) => r.islandId === island.id);
+  const localRecords = state.records.filter((r) => islandFocusRecord(r, island.id));
   const me = getSession()?.userId;
   const memberRows = server
     ? [...(srv.focusIsland?.members ?? []), ...(srv.screenIsland?.members ?? [])]

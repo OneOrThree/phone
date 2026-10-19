@@ -49,13 +49,17 @@ import {
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
-import { localized, t } from '@/i18n';
-import { semanticTokens } from '@/design-system/tokens';
+import { errorTextOr, localized, t } from '@/i18n';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { MagazineRack } from '@/screens/magazine/MagazineRack';
+import { magazineUnread } from '@/screens/magazine/useMagazineToday';
+import type { MagazineToday } from '@/services/api/magazine';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
 import { useBoardNotices } from './useBoardNotices';
 import { useMailbox } from './useMailbox';
+import { Guestbook } from './Guestbook';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
@@ -68,7 +72,7 @@ export type Concept = {
   position: 'scene' | 'bottom' | 'middle';
   items: Item[];
   managementTab?: 'info' | 'residents' | 'requests';
-  boardPanel?: '' | 'notice' | 'quest' | 'blueprint';
+  boardPanel?: '' | 'notice' | 'quest' | 'blueprint' | 'guestbook';
   boardRole?: 'owner' | 'resident';
   boardView?: string;
 };
@@ -2949,7 +2953,7 @@ type QuestForm = {
 };
 type BoardState = {
   role: 'owner' | 'resident';
-  panel: '' | 'notice' | 'quest' | 'blueprint';
+  panel: '' | 'notice' | 'quest' | 'blueprint' | 'guestbook';
   view: string;
   noticeIndex: number;
   questIndex: number;
@@ -3764,7 +3768,12 @@ function QuestCard({
 }
 
 // 앱 라우트의 게시판 탭 이름 ↔ 종이
-const boardTabs = { notice: '공지', quest: '퀘스트', blueprint: '청사진' } as const;
+const boardTabs = {
+  notice: '공지',
+  quest: '퀘스트',
+  blueprint: '청사진',
+  guestbook: '방명록',
+} as const;
 // 건물 → 청사진 설명(buildOptions)과 완공 후 이동할 라우트
 const blueprintOption: Partial<Record<Building, string>> = {
   library: 'library',
@@ -6162,10 +6171,43 @@ export function Board({
       2 * (scene.height * (blueprintCenterY - questCenterY) - questLabelHitHeight / 2 - 1),
     ),
   );
+  const noticeBox = sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height);
+  const questBox = sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height);
+  const blueprintBox = sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight);
+  // 방명록 = 선반 위 펜꽂이(그림 비율 1024×1536 기준 중심 0.54, 0.535). 알약 라벨이 큰 글자에서도 한 줄로 들어가도록
+  // 터치 영역을 글자 수·글자 배율로 키운다(글자 한 칸을 1em 으로 넉넉히 잡아 어떤 글꼴에서도 줄바꿈이 없다).
+  const guestbookPillHeight =
+    13 * 1.3 * fontScale * labelScale +
+    2 * (primitiveTokens.space[1] + semanticTokens.stroke.default);
+  const guestbookPillWidth =
+    Array.from(t('guestbook.title')).length * 13 * fontScale * labelScale +
+    2 * (primitiveTokens.space[3] + semanticTokens.stroke.default);
+  const guestbookBase = sceneHitbox(
+    0.54,
+    0.535,
+    Math.min(1, Math.max(0.2, guestbookPillWidth / scene.width)),
+    Math.max(0.07, guestbookPillHeight / scene.height),
+  );
   const boardHitboxes = {
-    notice: sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height),
-    quest: sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height),
-    blueprint: sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight),
+    notice: noticeBox,
+    quest: questBox,
+    blueprint: blueprintBox,
+    // 위쪽 공지·청사진 터치 영역은 큰 글자에서 커진다 — 방명록은 그 1px 아래로 밀어 서로 겹치지 않게 하고(위 영역의
+    // 터치를 가로채지 않게), 넓어진 영역이 장면 밖으로 나가지 않게 가로·세로를 장면 안으로 맞춘다.
+    // 퀘스트 상자는 직접 비교하지 않는다 — 청사진 상자가 그 아래에 있어 청사진 아래면 퀘스트 아래이기도 하다.
+    // 아주 작은 창에서 눌려 남는 겹침은 zIndex(1 < 공지·청사진 2)로 위 영역이 이긴다.
+    guestbook: {
+      ...guestbookBase,
+      left: Math.min(Math.max(0, guestbookBase.left), scene.width - guestbookBase.width),
+      top: Math.min(
+        Math.max(
+          guestbookBase.top,
+          noticeBox.top + noticeBox.height + 1,
+          blueprintBox.top + blueprintBox.height + 1,
+        ),
+        scene.height - guestbookBase.height,
+      ),
+    },
   };
   // 상세 패널은 원본 874px 가로 시안의 화면 폭 비율을 유지한다.
   const landScale = land ? width / 874 : 1;
@@ -6182,7 +6224,7 @@ export function Board({
   };
   const pressedFilter = (panel: BoardState['panel']) =>
     s.panel === panel && webOnly({ filter: 'brightness(1.08)' });
-  const paperPanel = s.panel === 'notice' || s.panel === 'quest';
+  const paperPanel = s.panel === 'notice' || s.panel === 'quest' || s.panel === 'guestbook';
   const noticeDetailOpen = s.panel === 'notice' && (s.view === 'detail' || s.view === 'comment');
   const noticeEditorOpen = s.panel === 'notice' && (s.view === 'write' || s.view === 'edit');
   const noticeOverlayOpen = noticeDetailOpen || noticeEditorOpen;
@@ -6205,9 +6247,11 @@ export function Board({
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
   const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
   const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
-  // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다
+  // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다.
+  // 방명록은 목록뿐 아니라 제목+입력 칸+글자 수+[남기기](약 203px)가 한 번에 보여야 해서 바닥을 더 높게 둔다
   const sheetHeight = Math.min(height * 0.58, 492 * landScale);
-  const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < 140;
+  const minPaperScroll = s.panel === 'guestbook' ? 210 : 140;
+  const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < minPaperScroll;
   const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
   const paperPad = sheetCramped
     ? { top: 38 * landScale, bottom: 28 * landScale }
@@ -6428,6 +6472,41 @@ export function Board({
                 ]}
               />
             )}
+            {/* 방명록은 선반 위 펜꽂이로 연다. 서버 게시판(주민)에서만 — 방문자는 VisitorBoard 에 방명록이 있다 */}
+            {serverBoard && (
+              <Pressable
+                testID="board-guestbook-area"
+                accessibilityRole="button"
+                accessibilityLabel={t('guestbook.title')}
+                onPress={() => nav.open('guestbook')}
+                style={[
+                  {
+                    position: 'absolute',
+                    // 공지·청사진(zIndex 2)보다 낮게 — 어떤 글자 배율에서 겹침이 남아도 그쪽 터치가 먼저다
+                    zIndex: 1,
+                    ...boardHitboxes.guestbook,
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                  },
+                  pressedFilter('guestbook'),
+                ]}
+              >
+                <View
+                  style={{
+                    paddingVertical: primitiveTokens.space[1],
+                    paddingHorizontal: primitiveTokens.space[3],
+                    borderRadius: semanticTokens.radius.full,
+                    borderWidth: semanticTokens.stroke.default,
+                    borderColor: semanticTokens.color.outline,
+                    backgroundColor: semanticTokens.color.surface,
+                  }}
+                >
+                  <Text allowFontScaling style={boardFont(13 * labelScale, 1.3, '700')}>
+                    {t('guestbook.title')}
+                  </Text>
+                </View>
+              </Pressable>
+            )}
           </View>
         </View>
       </ScrollView>
@@ -6561,6 +6640,33 @@ export function Board({
         )}
         {s.panel === 'quest' && (
           <Scroll style={{ maxHeight: paperScroll }}>{questContent(questDetailOpen)}</Scroll>
+        )}
+        {/* 섬 id·섬장 여부는 공지와 같은 getBoard 응답이 정본이다 — 그 첫 조회가 끝나기 전·실패했을 때는 빈 종이가
+            아니라 공지·퀘스트와 같은 불러오는 중·오류+다시 시도를 보인다(다시 시도 = board.retry).
+            키보드는 공지 댓글·편지 입력과 같은 길로 피한다 — App 루트 KeyboardAvoidingView(iOS padding)·adjustResize(안드로이드)가
+            InteriorRoute 높이를 줄이면 paperScroll·sheetCramped 가 그 높이를 따른다(방명록은 minPaperScroll 바닥이 더 높다).
+            automaticallyAdjustKeyboardInsets 는 줄어들기 전 좌표로 inset 을 잡아 이중 보정이 될 수 있어 두지 않는다. */}
+        {s.panel === 'guestbook' && serverBoard && (
+          <Scroll testID="board-guestbook-scroll" style={{ maxHeight: paperScroll }}>
+            {board.islandId ? (
+              <Guestbook islandId={board.islandId} host={owner} e={e} />
+            ) : board.error && !board.loading ? (
+              <View>
+                <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
+                  {errorTextOr(board.error, 'guestbook.loadFailed')}
+                </Text>
+                <PaperAction
+                  testID="board-guestbook-retry"
+                  label={t('common.retry')}
+                  onPress={() => board.retry().catch(() => {})}
+                />
+              </View>
+            ) : (
+              <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
+                {t('guestbook.loading')}
+              </Text>
+            )}
+          </Scroll>
         )}
         {s.panel === 'blueprint' && (
           <Scroll
@@ -7525,6 +7631,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const [letterText, setLetterText] = useState('섬에 새 꽃이 피었어. 다음에 놀러 와서 같이 보자.');
   const [deletedLetters, setDeletedLetters] = useState<string[]>([]);
   const [letterSafetyTarget, setLetterSafetyTarget] = useState<LetterView | null>(null);
+  const [magazineRack, setMagazineRack] = useState(false);
   const [reactTransform, react] = useReact(reduceMotion);
   // 앱에서는 안내를 앱 알림으로 띄운다 (장면 토스트는 동작 줄이기에서 그려지지 않는다)
   const say = (message: string) => (e ? e.notify(message) : showToast(message));
@@ -7846,6 +7953,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       : state
         ? letters.length
         : 3;
+  // 고양이 잡지(GROMO-2289 · C4) — 오늘 호가 나와 있으면 「고양이 잡지 보기 · N호」(안 읽었으면 빨간 점), 지난 호는 꽂이(C5)
+  const magazineToday: MagazineToday | null = e?.magazineToday ?? null;
+  const magazineIssue = magazineToday?.issue?.current ? magazineToday.issue : null;
+  const magazineUnreadDot = magazineUnread(magazineToday);
   const homeItems: [string, string][] = [
     ['우리 섬 채팅방', newChat ? `새 글 ${newChat}개` : ''],
     ['받은 편지', newLetters ? `새 편지 ${newLetters}통` : ''],
@@ -7917,6 +8028,87 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
 
   const home = (
     <>
+      {e && magazineToday?.issue && (
+        <View
+          style={{
+            flexDirection: 'row',
+            columnGap: componentTokens.mailboxAction.gap,
+            marginBottom: componentTokens.mailboxAction.gap,
+          }}
+        >
+          {magazineIssue && (
+            <Pressable
+              testID="mail-home-magazine"
+              accessibilityRole="button"
+              accessibilityLabel={t(
+                magazineUnreadDot ? 'magazine.mail.unreadA11y' : 'magazine.mail.open',
+                { no: magazineIssue.issueNo },
+              )}
+              onPress={() => e.go('magazine', magazineIssue.issueId)}
+              style={{
+                flex: 1,
+                minHeight: semanticTokens.size.tapMin,
+                paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
+                justifyContent: 'center',
+                borderWidth: componentTokens.mailboxAction.borderWidth,
+                borderColor: componentTokens.mailboxAction.border,
+                borderRadius: componentTokens.mailboxAction.pillRadius,
+                backgroundColor: semanticTokens.color.primary,
+                boxShadow: componentTokens.mailboxAction.shadow,
+              }}
+            >
+              <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
+                {t('magazine.mail.open', { no: magazineIssue.issueNo })}
+              </Text>
+              {magazineUnreadDot && (
+                <View
+                  testID="mail-home-magazine-dot"
+                  style={{
+                    position: 'absolute',
+                    top: -componentTokens.mailboxAction.dotSize / 3,
+                    right: componentTokens.mailboxAction.dotSize / 2,
+                    width: componentTokens.mailboxAction.dotSize,
+                    height: componentTokens.mailboxAction.dotSize,
+                    borderRadius: componentTokens.mailboxAction.dotSize / 2,
+                    borderWidth: semanticTokens.stroke.strong,
+                    borderColor: componentTokens.mailboxAction.dotBorder,
+                    backgroundColor: semanticTokens.color.danger,
+                  }}
+                />
+              )}
+            </Pressable>
+          )}
+          <Pressable
+            testID="mail-home-rack"
+            accessibilityRole="button"
+            accessibilityLabel={t('magazine.rack.open')}
+            onPress={() => setMagazineRack(true)}
+            style={{
+              flex: magazineIssue ? 0 : 1,
+              minHeight: semanticTokens.size.tapMin,
+              paddingHorizontal: componentTokens.mailboxAction.paddingHorizontal,
+              justifyContent: 'center',
+              borderWidth: componentTokens.mailboxAction.borderWidth,
+              borderColor: componentTokens.mailboxAction.border,
+              borderRadius: componentTokens.mailboxAction.pillRadius,
+              backgroundColor: semanticTokens.color.surface,
+              boxShadow: componentTokens.mailboxAction.shadow,
+            }}
+          >
+            <Text style={[mailFont(8.5, 1.25, INK, '900'), { textAlign: 'center' }]}>
+              {t('magazine.rack.open')}
+            </Text>
+          </Pressable>
+          <MagazineRack
+            visible={magazineRack}
+            onClose={() => setMagazineRack(false)}
+            onOpen={(id) => {
+              setMagazineRack(false);
+              e.go('magazine', id);
+            }}
+          />
+        </View>
+      )}
       <View
         style={[
           {

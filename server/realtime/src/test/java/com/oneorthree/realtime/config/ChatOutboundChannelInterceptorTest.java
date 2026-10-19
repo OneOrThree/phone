@@ -36,9 +36,12 @@ class ChatOutboundChannelInterceptorTest {
     private final RealtimeSessionRegistry sessions = new RealtimeSessionRegistry();
     private final RealtimeEventDelivery delivery = mock(RealtimeEventDelivery.class);
     private final BlockedUsers blockedUsers = mock(BlockedUsers.class);
+    private final io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
+            new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+    private final com.oneorthree.realtime.sea.SeaRooms seaRooms = mock(com.oneorthree.realtime.sea.SeaRooms.class);
     private final ChatOutboundChannelInterceptor interceptor =
             new ChatOutboundChannelInterceptor(sessions, jwt, guard, delivery,
-                new tools.jackson.databind.ObjectMapper(), blockedUsers);
+                new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms, meters);
 
     @BeforeEach
     void setUp() {
@@ -100,8 +103,72 @@ class ChatOutboundChannelInterceptorTest {
 
     @Test
     void unimplementedEventDeliveryIsClosedEvenForAuthenticatedSockets() {
-        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/events"), null, null)).isNull();
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/playback"), null, null))
+                .isNull();
         assertThat(interceptor.beforeHandle(frame("socket", "/queue/events-usersocket"), null, null)).isNull();
+    }
+
+    // ── GROMO-2302 섬 events 채널 ─────────────────────────────────────────
+
+    @Test
+    void islandEventsReachCurrentResidentsOnly() throws Exception {
+        // 주민 — 캐시 멤버십 재검사를 통과하면 그대로 전달한다(집중 검사는 섞지 않는다).
+        Message<?> resident = arrival(UUID.randomUUID());
+        assertThat(interceptor.beforeHandle(resident, null, null)).isSameAs(resident);
+        verify(guard).requireMember(island, user, "Bearer token");
+        verify(guard, never()).requireCanChat(any(), any(), any());
+        verify(guard, never()).requireNotFocusing(any());
+
+        // 비주민(강퇴 뒤 등)·조회 불가는 프레임만 버리고 소켓은 둔다(fail-closed).
+        WebSocketSession socket = openSocket("socket");
+        doThrow(new IllegalStateException("not a member")).when(guard).requireMember(island, user, "Bearer token");
+        assertThat(interceptor.beforeHandle(arrival(UUID.randomUUID()), null, null))
+                .isNull();
+        doThrow(new UpstreamUnavailableException()).when(guard).requireMember(island, user, "Bearer token");
+        assertThat(interceptor.beforeHandle(arrival(UUID.randomUUID()), null, null))
+                .isNull();
+        verify(socket, never()).close(any(CloseStatus.class));
+    }
+
+    @Test
+    void islandEventsAreDroppedForExpiredTokens() throws Exception {
+        WebSocketSession socket = openSocket("socket");
+        when(jwt.extractUserId("token")).thenReturn(Optional.empty());
+
+        assertThat(interceptor.beforeHandle(arrival(UUID.randomUUID()), null, null))
+                .isNull();
+        verify(guard, never()).requireMember(any(), any(), any());
+        verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+    }
+
+    @Test
+    void islandEventFromABlockedArriverIsNotDeliveredToTheBlocker() throws Exception {
+        // 채팅·응원과 같은 받는 사람 기준 차단 필터(GROMO-2182) — 보내는 사람은 payload.userId(도착자)다.
+        WebSocketSession socket = openSocket("socket");
+        UUID blocked = UUID.randomUUID();
+        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+
+        assertThat(interceptor.beforeHandle(arrival(blocked), null, null)).isNull();
+        Message<?> fromOther = arrival(UUID.randomUUID());
+        assertThat(interceptor.beforeHandle(fromOther, null, null)).isSameAs(fromOther);
+        verify(socket, never()).close(any(CloseStatus.class));
+    }
+
+    @Test
+    void switchedOffFilterDeliversIslandEventsWithoutReadingTheArriver() {
+        // OFF = 이 기능 이전과 같은 경로 — 차단 관계여도 events 프레임은 멤버십만 보고 나간다.
+        when(blockedUsers.enabled()).thenReturn(false);
+        UUID blocked = UUID.randomUUID();
+        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+
+        Message<?> fromBlocked = arrival(blocked);
+        assertThat(interceptor.beforeHandle(fromBlocked, null, null)).isSameAs(fromBlocked);
+        verify(blockedUsers, never()).hasBlocked(any(), any());
+    }
+
+    private Message<?> arrival(UUID arriver) {
+        return frame("socket", "/topic/islands/" + island + "/events",
+                "{\"type\":\"island.member.arrived\",\"payload\":{\"userId\":\"" + arriver + "\"}}");
     }
 
     // ── GROMO-2247 이동 채널 ─────────────────────────────────────────────
@@ -123,6 +190,40 @@ class ChatOutboundChannelInterceptorTest {
         when(jwt.extractUserId("token")).thenReturn(Optional.empty());
         assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/movement"), null, null))
                 .as("만료 토큰의 세션은 이동 프레임도 못 받는다").isNull();
+        verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+    }
+
+    // ── GROMO-2300 바다 방 ───────────────────────────────────────────────
+
+    @Test
+    void seaRoomFramesReachOnlyCurrentMembersAndFailClosed() {
+        UUID mine = UUID.randomUUID();
+        UUID left = UUID.randomUUID();
+        UUID broken = UUID.randomUUID();
+        when(seaRooms.isMember(user, mine)).thenReturn(true);
+        when(seaRooms.isMember(user, broken)).thenThrow(new IllegalStateException("redis down"));
+
+        Message<?> member = frame("socket", "/topic/sea/rooms/" + mine, "{}");
+        assertThat(interceptor.beforeHandle(member, null, null)).isSameAs(member);
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/sea/rooms/" + left, "{}"), null, null))
+                .as("Redis 에서 빠진 사람(다른 인스턴스의 정리)은 이 JVM 의 구독이 남아 있어도 못 받는다").isNull();
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/sea/rooms/" + broken, "{}"), null, null))
+                .as("판정 불가는 보내지 않는다").isNull();
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/sea/other", "{}"), null, null)).isNull();
+        assertThat(meters.counter("sea.deliver.dropped", "reason", "not_member").count()).isEqualTo(1.0);
+        assertThat(meters.counter("sea.deliver.dropped", "reason", "redis").count()).isEqualTo(1.0);
+        verify(blockedUsers, never()).hasBlocked(any(), any());
+    }
+
+    @Test
+    void seaRoomFramesRequireAValidToken() throws Exception {
+        UUID mine = UUID.randomUUID();
+        when(seaRooms.isMember(user, mine)).thenReturn(true);
+        WebSocketSession socket = openSocket("socket");
+        when(jwt.extractUserId("token")).thenReturn(Optional.empty());
+
+        assertThat(interceptor.beforeHandle(frame("socket", "/topic/sea/rooms/" + mine, "{}"), null, null)).isNull();
+        assertThat(meters.counter("sea.deliver.dropped", "reason", "jwt").count()).isEqualTo(1.0);
         verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
     }
 

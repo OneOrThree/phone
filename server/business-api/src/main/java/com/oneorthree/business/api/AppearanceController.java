@@ -45,7 +45,8 @@ import java.util.UUID;
 public class AppearanceController {
 
     /** 개인 PATCH 에 허용되는 필드 — 그 외 키는 다른 의미 객체라 400 이다. */
-    private static final Set<String> PERSONAL_FIELDS = Set.of("clothes", "decor", "hull", "position");
+    private static final Set<String> PERSONAL_FIELDS =
+            Set.of("clothes", "decor", "head", "neck", "shoes", "hull", "position");
     /** 공동 PATCH 의 외양 필드 — expectedVersion 은 외양 필드가 아니라 별도 계약이다. */
     private static final Set<String> ISLAND_FIELDS = Set.of("islandThemeId", "buildingThemes");
 

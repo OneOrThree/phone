@@ -187,6 +187,20 @@ describe('위젯 스냅샷 계산', () => {
     expect(snap.subjects.every((s) => /^#[0-9A-F]{6}$/i.test(s.color))).toBe(true);
   });
 
+  test('바다 항해 기록(kind sea)은 목적지 섬의 과목 칩에서 빠진다', () => {
+    const { mod } = load('ios', null);
+    const snap = mod.buildStudyWidgetSnapshot(
+      [
+        record({ id: 'a', subject: '영어', seconds: 600 }),
+        { ...record({ id: 's', subject: '', seconds: 1800 }), kind: 'sea' as const },
+      ],
+      'island-1',
+      600,
+      NOW,
+    );
+    expect(snap.subjects.map((s) => [s.name, s.seconds])).toEqual([['영어', 600]]);
+  });
+
   test('자정을 넘긴 기록은 오늘분만 센다', () => {
     const { mod } = load('ios', null);
     // KST 자정(= NOW - 12h) 30분 전 시작해 30분 뒤 끝난 1시간 기록

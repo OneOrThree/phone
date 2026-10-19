@@ -104,6 +104,9 @@ import {
   Quest,
   Member,
   dayKey,
+  seaRouteHeld,
+  visitRouteHeld,
+  sessionRoute,
 } from '@/services/model';
 import {
   checkSession,
@@ -226,6 +229,12 @@ const titles: Record<Route, string> = {
   product: '상품 상세',
   orders: '구매 내역',
   boat: '내 배',
+  raft: '뗏목',
+  telescope: '망원경',
+  sea: '먼바다',
+  seaArrival: '먼바다',
+  promotionEditor: '우리 섬 홍보 쓰기',
+  magazine: '고양이 잡지',
   mainIsland: '내 메인 섬 변경하기',
   currentIsland: '현재 섬 변경하기',
   profile: '내 정보',
@@ -351,6 +360,9 @@ function Gromo() {
       // 확인 버튼 글자(기본 '확인') · 파괴적 확인이면 빨간 버튼
       ok?: string;
       destructive?: boolean;
+      // 취소 버튼 글자(기본 '취소')와 그 버튼을 눌렀을 때의 동작(GROMO-2259). 바깥·뒤로가기로 닫을 때는 부르지 않는다
+      cancel?: string;
+      onCancel?: () => void;
     } | null>(null),
     // 회원 전환(GROMO-2005) — 게이트 거절(403 SOCIAL_LOGIN_REQUIRED)이 여는 공통 시트.
     // busy 는 진행 중인 제공자, error 는 시트 안에 보여 줄 마지막 실패다.
@@ -622,7 +634,7 @@ function Gromo() {
     title: string,
     txt: string,
     action: () => void,
-    opts: { ok?: string; destructive?: boolean } = {},
+    opts: { ok?: string; destructive?: boolean; cancel?: string; onCancel?: () => void } = {},
   ) => setModal({ title, text: txt, action, ...opts });
   // ── 섬 서버 명령(GROMO-2006) ──
   // 오케스트레이션은 services/islandCommands.ts — 멱등 키·초대 token은 거기 세대 격리
@@ -715,6 +727,7 @@ function Gromo() {
       'focusTravel',
       'fishingArrival',
       'boat',
+      'raft',
       'hall',
       'manage',
       'members',
@@ -1050,7 +1063,9 @@ function Gromo() {
             onBootError: setIslandBootError,
           });
           ensureCurrent();
-          if (next) reset(next);
+          // 같은 계정의 회원 전환(게스트 → 소셜)은 진행 중 바다 항해를 그대로 지닌다 — 홈이 아니라 항해 화면으로(GROMO-2310)
+          const live = stateRef.current.session;
+          if (next) reset(live?.kind === 'sea' ? sessionRoute(live) : next);
         },
       });
     } catch (thrown) {
@@ -1503,6 +1518,11 @@ function Gromo() {
     state.islands.some((candidate) => candidate.id === (detail || visited) && candidate.kicked);
   useEffect(() => {
     if (!loaded || !state.loggedIn) return;
+    // 바다 항해(결과창 포함)는 소속과 무관하다 — 강퇴·소속 0 이어도 화면을 지킨다(GROMO-2310)
+    if (seaRouteHeld(route)) {
+      if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
+      return;
+    }
     if (state.membershipRecovery || kickedDestination) {
       setModal(null);
       setWalkRequest(null);
@@ -1511,7 +1531,9 @@ function Gromo() {
       if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
     }
-    if (state.onboarded || (state.visitingIslandId && ['board', 'notice'].includes(route))) return;
+    if (state.onboarded) return;
+    // 소속 없이 구경 중(바다 도착 뒤 등) — 방문이 끝나면(visitingIslandId 해제) 평소 검사가 다시 돈다
+    if (visitRouteHeld(route, state.visitingIslandId)) return;
     if (
       [
         'login',
@@ -1532,6 +1554,7 @@ function Gromo() {
     state.loggedIn,
     state.onboarded,
     state.islandId,
+    state.visitingIslandId,
     state.membershipRecovery,
     kickedDestination,
     route,
@@ -1762,10 +1785,10 @@ function Gromo() {
     const openActivity = (url: string | null) => {
       const session = stateRef.current.session;
       if (active && url?.startsWith('com.oneorthree.focuscat://widget')) {
-        replace(session ? (session.status === 'paused' ? 'rest' : 'focus') : 'home');
+        replace(session ? sessionRoute(session) : 'home');
       }
       if (active && url?.startsWith('com.oneorthree.focuscat://activity') && session) {
-        replace(session.status === 'paused' ? 'rest' : 'focus');
+        replace(sessionRoute(session));
       }
     };
     const subscription = Linking.addEventListener('url', ({ url }) => openActivity(url));
@@ -1808,6 +1831,15 @@ function Gromo() {
   }, [route, loaded, reviewEpoch]);
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      // 열린 확인창·진행 중인 건물 전환·화면이 건 뒤로 가기(backOverride)를 방문 분기보다 먼저 본다 — back() 의 앞 세
+      // 검사와 같은 순서다. 그래서 방문 화면에서도 확인창이나 팝업이 END_VISIT 보다 먼저 닫히고, 집중→휴식 전환 취소처럼
+      // override 보다 전환 취소가 앞서던 기존 순서도 그대로다(back() 는 그대로 둔다).
+      if (modal) {
+        setModal(null);
+        return true;
+      }
+      if (cancelBuildingTransition()) return true;
+      if (backOverride.current?.()) return true;
       // 서버 방문은 현재 섬을 바꾸지 않으므로 방문 상태만 지우고 내 섬으로 돌아간다.
       if (
         ['home', 'visitIsland'].includes(route) &&
@@ -1832,8 +1864,8 @@ function Gromo() {
         go('travel', island.id);
         return true;
       }
-      if (route === 'home') return cancelBuildingTransition();
-      if (route === 'login') return false;
+      // 홈·로그인의 뒤로가기는 앱이 받지 않는다(OS 몫) — 홈에서 진행 중인 건물 전환은 위에서 이미 취소했다
+      if (route === 'home' || route === 'login') return false;
       back();
       return true;
     });
@@ -2237,9 +2269,13 @@ function Gromo() {
                 <View style={[S.row, { justifyContent: 'flex-end', gap: 8, marginTop: 8 }]}>
                   <NativeButton
                     dialog
-                    title={t('common.cancel')}
+                    title={modal.cancel ?? t('common.cancel')}
                     kind="glass"
-                    onPress={() => setModal(null)}
+                    onPress={() => {
+                      const onCancel = modal.onCancel;
+                      setModal(null);
+                      onCancel?.();
+                    }}
                   />
                   <NativeButton
                     dialog

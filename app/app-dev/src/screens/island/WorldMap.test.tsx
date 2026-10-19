@@ -112,6 +112,30 @@ test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지�
   expect(screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeTruthy();
 });
 
+test('일반 이미지 섬의 새 편지 터치 영역은 펠리컨 전체를 포함하고 팻말 위치는 유지한다', async () => {
+  const state = initialState();
+  state.islands.find((island) => island.id === state.islandId)!.buildings = ['mail'];
+  const home = (showMailboxLetters: boolean) => (
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      showMailboxLetters={showMailboxLetters}
+    />
+  );
+  const screen = await render(home(true));
+  const pelican = screen.getByTestId('mailbox-pelican').props.style;
+  const touch = screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요').props.style;
+  const scale = pelican.width / 140;
+  expect(touch.left).toBeLessThanOrEqual(250 * scale);
+  expect(touch.top).toBeLessThanOrEqual((456 - 24) * scale);
+  expect(touch.left + touch.width).toBeGreaterThanOrEqual(390 * scale);
+  expect(touch.top + touch.height).toBeGreaterThanOrEqual((596 - 24) * scale);
+  const sign = screen.getByTestId('building-name-mail').props.style;
+  await screen.rerender(home(false));
+  expect(screen.getByTestId('building-name-mail').props.style).toEqual(sign);
+});
+
 test('방문 섬에는 서버 미읽음 상태가 있어도 내 편지 배지와 안내를 표시하지 않는다', async () => {
   const state = initialState(true);
   const visited = state.islands.find((island) => island.id === 'cloud')!;
@@ -443,15 +467,28 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   jest.useRealTimers();
 });
 
-test('완공된 건물은 나무 팻말과 접근성 이름으로 식별하고 홈 축음기는 숨긴다', async () => {
+test('축음기를 포함한 완공 건물은 나무 팻말과 접근성 이름으로 식별한다', async () => {
   const state = initialState(true);
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
 
-  for (const building of ['hall', 'board', 'library', 'mail', 'tower', 'shop'] as const) {
+  for (const building of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const) {
     expect(screen.getByTestId(`building-name-${building}`)).toBeTruthy();
     expect(screen.getByText(buildingNames[building])).toBeTruthy();
     expect(screen.getByRole('button', { name: buildingNames[building] })).toBeTruthy();
   }
+  await screen.unmount();
+});
+
+test('전망대를 짓지 않은 섬에는 전망대 입구(랭킹·섬 이름 검색)가 없고, 지은 섬에는 있다', async () => {
+  const state = initialState(true);
+  serverConstructionState(state, null, ['hall', 'board']);
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(screen.queryByRole('button', { name: buildingNames.tower })).toBeNull();
+  // 같은 섬의 지은 건물 입구는 그대로 있다
+  expect(screen.getByRole('button', { name: buildingNames.board })).toBeTruthy();
+  serverConstructionState(state, null, ['hall', 'board', 'tower']);
+  await screen.rerender(<FinalIsland state={{ ...state }} go={jest.fn()} build={jest.fn()} />);
+  expect(screen.getByRole('button', { name: buildingNames.tower })).toBeTruthy();
   await screen.unmount();
 });
 
@@ -494,7 +531,7 @@ test('홈을 최대로 축소해도 뗏목 터치 영역은 44pt 이상이며 �
   expect(raft.top + raft.height).toBeGreaterThanOrEqual(925 * scale);
 });
 
-test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다리지 않고 배 메뉴를 연다', async () => {
+test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다리지 않고 뗏목 행선지를 연다', async () => {
   const go = jest.fn();
   const state = initialState(true);
   state.settings.reduceMotion = false;
@@ -503,7 +540,7 @@ test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다�
   await fireEvent.press(screen.getByLabelText('뗏목'));
 
   expect(go).toHaveBeenCalledTimes(1);
-  expect(go).toHaveBeenCalledWith('boat');
+  expect(go).toHaveBeenCalledWith('raft');
 });
 
 test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생한다', async () => {
@@ -575,21 +612,22 @@ test.each([false, true])(
     state.settings.reduceMotion = true;
     state.islands.find((island) => island.id === state.islandId)!.buildings = [];
     const go = jest.fn();
-    const screen = await render(
-      <FinalIsland
-        state={state}
-        go={go}
-        build={jest.fn()}
-        layeredPreview={layeredPreview}
-        showHud={false}
-        showActions={false}
-      />,
-    );
+    const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+
+    // FinalIsland는 layeredPreview prop 대신 자체 상태를 사용하므로 실제 전환 버튼을 누른다.
+    if (layeredPreview) {
+      await fireEvent.press(screen.getByTestId('village-preview-toggle'));
+      expect(screen.getByText('기존 마을 보기')).toBeTruthy();
+      expect(screen.queryByTestId('building-name-fire')).toBeNull();
+      expect(screen.queryByText('모닥불')).toBeNull();
+    } else {
+      expect(screen.getByTestId('building-name-fire')).toBeTruthy();
+      expect(screen.getByText('모닥불')).toBeTruthy();
+    }
 
     await fireEvent.press(screen.getByRole('button', { name: '모닥불' }));
     expect(go).toHaveBeenCalledWith('rest');
     expect(state.session).toBeFalsy();
-    expect(screen.getByText('모닥불')).toBeTruthy();
     await screen.unmount();
   },
 );
@@ -792,23 +830,38 @@ test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는�
   expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
 });
 
-test('내 섬 홈에서도 축음기는 숨긴다', async () => {
-  const state = initialState(true);
-  const island = state.islands.find((item) => item.id === state.islandId)!;
-  if (!island.buildings.includes('gram')) island.buildings.push('gram');
+test.each(['그림', '팻말'])(
+  '내 섬 홈의 완공 축음기 %s을 누르면 음악 화면으로 진입한다',
+  async (target) => {
+    jest.spyOn(Animated, 'timing').mockImplementation(
+      () =>
+        ({
+          start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+          stop: jest.fn(),
+          reset: jest.fn(),
+        }) as unknown as Animated.CompositeAnimation,
+    );
+    const state = initialState(true);
+    state.settings.reduceMotion = true;
+    const go = jest.fn();
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    if (!island.buildings.includes('gram')) island.buildings.push('gram');
 
-  const screen = await render(
-    <FinalIsland
-      state={state}
-      go={jest.fn()}
-      build={jest.fn()}
-      showHud={false}
-      showActions={false}
-    />,
-  );
+    const screen = await render(
+      <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
+    );
 
-  expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
-});
+    expect(screen.getByLabelText(buildingNames.gram)).toBeTruthy();
+    expect(screen.getByTestId('world-static-building-gram')).toBeTruthy();
+    expect(screen.getByTestId('building-name-gram')).toBeTruthy();
+    await fireEvent.press(
+      target === '그림'
+        ? screen.getByLabelText(buildingNames.gram)
+        : screen.getByTestId('building-name-gram'),
+    );
+    expect(go).toHaveBeenCalledWith('sound');
+  },
+);
 
 test('내 섬에서도 미완공 축음기는 터치 대상으로 노출하지 않는다', async () => {
   const state = initialState(true);
@@ -1119,7 +1172,7 @@ test('뗏목 탭 영역은 부두 끝이 아니라 배경에 그려진 뗏목 �
     expect((raft.top + raft.height) / s).toBeGreaterThanOrEqual(920);
 
     await fireEvent.press(screen.getByLabelText('뗏목'));
-    expect(go).toHaveBeenCalledWith('boat');
+    expect(go).toHaveBeenCalledWith('raft');
   } finally {
     timing.mockRestore();
   }
@@ -1207,6 +1260,107 @@ describe('en', () => {
   });
 });
 
+test('방문 중에도 뗏목이 그려지고 누르면 행선지 시트(raft)로 간다', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id !== state.islandId)!;
+  const go = jest.fn();
+  const screen = await render(
+    <FinalIsland state={state} go={go} build={jest.fn()} viewingIslandId={visited.id} />,
+  );
+  expect(screen.queryByLabelText('뗏목')).toBeNull(); // 방문 카드(explicit)는 낚시섬 관전만 연다
+  state.visitingIslandId = visited.id;
+  const visiting = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+  await fireEvent.press(visiting.getByLabelText('뗏목'));
+  expect(go).toHaveBeenCalledWith('raft', visited.id);
+});
+
+test.each([false, true])(
+  '뗏목 물결은 누름·해제와 모션 줄이기(%s)를 뗏목 그림과 함께 적용한다',
+  async (reduceMotion) => {
+    const state = initialState(true);
+    state.settings.reduceMotion = reduceMotion;
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    const sign = screen.getByTestId('building-name-raft');
+    const waterStyle = () =>
+      Object.assign({}, ...screen.getByTestId('world-raft-water-motion').props.style.flat());
+    const normal = waterStyle();
+    await fireEvent(sign, 'pressIn');
+    const pressed = waterStyle();
+    if (reduceMotion) {
+      expect(pressed.opacity).toBe(0.75);
+      expect(pressed.transform).toBeUndefined();
+    } else {
+      const scale = pressed.width / 210;
+      expect(pressed.transform).toEqual([{ translateY: 2 }, { scale: 0.97 }]);
+      // 물결 컨테이너의 아래가 아니라 실제 뗏목 그림의 아래 가운데를 기준으로 축소한다.
+      expect(pressed.transformOrigin[0]).toBeCloseTo((207 + 169 / 2 - 185) * scale);
+      expect(pressed.transformOrigin[1]).toBeCloseTo((822 + 103 - 835) * scale);
+    }
+    await fireEvent(sign, 'pressOut');
+    expect(waterStyle()).toEqual(normal);
+    await screen.unmount();
+  },
+);
+
+test('안 읽은 오늘 고양이 잡지는 우체통 위 배지 — 친구 편지 배지가 있으면 그쪽이 먼저(GROMO-2289)', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('mail')) island.buildings.push('mail');
+  const home = (letters: boolean, magazine: boolean) => (
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      showMailboxLetters={letters}
+      showMailboxMagazine={magazine}
+    />
+  );
+  const hidden = { includeHiddenElements: true };
+  const screen = await render(home(false, true));
+  expect(screen.getByTestId('mailbox-magazine-indicator', hidden)).toBeTruthy();
+  expect(screen.getByLabelText('우체통, 새 고양이 잡지가 왔어요')).toBeTruthy();
+  await screen.rerender(home(true, true));
+  expect(screen.queryByTestId('mailbox-magazine-indicator', hidden)).toBeNull();
+  expect(screen.getByTestId('mailbox-new-indicator', hidden)).toBeTruthy();
+  await screen.rerender(home(false, false));
+  expect(screen.queryByTestId('mailbox-magazine-indicator', hidden)).toBeNull();
+});
+
+test.each([false, true])(
+  '잡지 배지는 우체통 팻말의 누름과 모션 줄이기(%s)를 따른다',
+  async (reduceMotion) => {
+    const state = initialState(true);
+    state.settings.reduceMotion = reduceMotion;
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={jest.fn()}
+        build={jest.fn()}
+        showMailboxLetters={false}
+        showMailboxMagazine
+      />,
+    );
+    const sign = screen.getByTestId('building-name-mail');
+    const style = () =>
+      Object.assign(
+        {},
+        ...screen
+          .getByTestId('mailbox-magazine-indicator', { includeHiddenElements: true })
+          .props.style.flat(),
+      );
+    const initial = style();
+    await fireEvent(sign, 'pressIn');
+    if (reduceMotion) {
+      expect(style().opacity).toBe(0.75);
+      expect(style().transform).toBeUndefined();
+    } else {
+      expect(style().transform).toEqual([{ translateY: 2 }, { scale: 0.97 }]);
+    }
+    await fireEvent(sign, 'pressOut');
+    expect(style()).toEqual(initial);
+    await screen.unmount();
+  },
+);
 test('언어를 바꾸면 건물 이름과 긴 번역의 팻말 폭을 함께 갱신한다', async () => {
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;

@@ -102,6 +102,10 @@ export type SharedInventory = {
 export type PersonalAppearance = {
   clothes: string | null;
   decor: string | null;
+  /** 머리·목·신발(GROMO-2331) — 옛 서버 응답엔 키가 없다. */
+  head?: string | null;
+  neck?: string | null;
+  shoes?: string | null;
   hull: string;
   position: string;
   version: number;
@@ -110,6 +114,10 @@ export type PersonalAppearance = {
 export type PersonalInventory = {
   clothes: string[];
   decor: string[];
+  /** 머리·목·신발 그룹(GROMO-2331) — 옛 서버면 키가 없어 빈 배열로 읽는다. */
+  head?: string[];
+  neck?: string[];
+  shoes?: string[];
   hulls: string[];
   inventoryVersion: number;
   equipped: PersonalAppearance;
@@ -196,6 +204,9 @@ export function getIslandInventory(islandId: string): Promise<SharedInventory> {
 export type MyAppearancePatch = {
   clothes?: string | null;
   decor?: string | null;
+  head?: string | null;
+  neck?: string | null;
+  shoes?: string | null;
   hull?: string | null;
   position?: string | null;
 };

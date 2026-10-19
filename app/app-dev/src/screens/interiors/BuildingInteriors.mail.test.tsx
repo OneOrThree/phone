@@ -54,6 +54,12 @@ jest.mock('@/utils/layout', () => ({
   }),
 }));
 
+// 잡지 꽂이 시트(Overlay)가 안전 영역을 읽는다 — 이 파일은 Provider 없이 그린다
+jest.mock('react-native-safe-area-context', () => ({
+  ...jest.requireActual('react-native-safe-area-context'),
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+}));
+
 const ISLAND = 'island-1';
 const LETTER = 'letter-1';
 
@@ -523,6 +529,73 @@ test('목업 ?review — e 가 있어도 우체통 API 는 0건이다', async ()
     // 목업 받은 편지함(로컬 상태의 빈 목록)은 그대로 보인다.
     assert.ok(ui.getByText('기다리는 편지가 없어요.'));
     await ui.unmount();
+  } finally {
+    restore();
+  }
+});
+
+// 「없다」는 expect(...).toBeNull() 로 본다 — assert.equal(인스턴스, null) 은 실패하면 테스트 인스턴스 트리를 통째로
+// 찍다가 jest 가 메모리 부족으로 죽는다(출력 없이 exit 137)
+test('우체통 첫 화면에는 「우리 섬 홍보 쓰기」 입구가 없다 — 섬장이어도(홍보는 마을회관에서, 10/14)', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const host = makeE({ tab: '' });
+    const ui = await renderMail(host);
+    assert.ok(ui.getByTestId('mail-home-0'));
+    expect(ui.queryByTestId('mail-home-promotion')).toBeNull();
+    expect(ui.queryByText('우리 섬 홍보 쓰기')).toBeNull();
+    await ui.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와 잡지 꽂이(GROMO-2289 · C4·C5)', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const issue = {
+      issueId: 'mock-issue-19',
+      issueNo: 19,
+      issueDate: '2026-10-14',
+      publishedAt: '2026-10-13T22:00:00Z',
+      current: true,
+    };
+    const e = makeE({ tab: '', magazineToday: { issue, receipt: null } });
+    const ui = await renderMail(e);
+    assert.ok(ui.getByText('고양이 잡지 보기 · 19호'));
+    assert.equal(
+      ui.getByTestId('mail-home-magazine').props.accessibilityLabel,
+      '고양이 잡지 보기 19호, 아직 안 읽음',
+    );
+    assert.ok(ui.getByTestId('mail-home-magazine-dot'));
+    await fireEvent.press(ui.getByTestId('mail-home-rack'));
+    await waitFor(() => assert.ok(ui.getByTestId('magazine-rack-13')));
+    await fireEvent.press(ui.getByTestId('magazine-rack-17'));
+    expect(e.go).toHaveBeenCalledWith('magazine', 'mock-issue-17');
+    await ui.unmount();
+
+    // 읽은 오늘 호는 점이 없다 · 오늘 호가 없으면(발행 지연) 꽂이만 · 잡지가 아예 없으면 둘 다 없다
+    const read = await renderMail(
+      makeE({
+        tab: '',
+        magazineToday: {
+          issue,
+          receipt: { place: 'ISLAND', receivedAt: 'a', deferredAt: null, openedAt: 'b' },
+        },
+      }),
+    );
+    assert.equal(read.queryByTestId('mail-home-magazine-dot'), null);
+    await fireEvent.press(read.getByTestId('mail-home-magazine'));
+    await read.unmount();
+    const stale = await renderMail(
+      makeE({ tab: '', magazineToday: { issue: { ...issue, current: false }, receipt: null } }),
+    );
+    assert.equal(stale.queryByTestId('mail-home-magazine'), null);
+    assert.ok(stale.getByTestId('mail-home-rack'));
+    await stale.unmount();
+    const none = await renderMail(makeE({ tab: '' }));
+    assert.equal(none.queryByTestId('mail-home-rack'), null);
+    await none.unmount();
   } finally {
     restore();
   }
