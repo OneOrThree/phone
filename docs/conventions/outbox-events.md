@@ -138,6 +138,13 @@
 ### 2.6 재전달
 
 - relay 는 at-least-once 다. 수신 측은 `eventId` 멱등이어야 한다.
+- 선점은 축별 윈도 한 문장(`WITH … UPDATE … RETURNING`)이다. 선행 미전달·KAFKA→NOTI 장벽의
+  의미는 [`outbox.md` §5](../prd/fishcat/server-separation/outbox.md) 그대로다(GROMO-2337). 축마다 앞쪽 `run-length`(기본 10)건을
+  집고 같은 트랜잭션에서 앞지르기를 되돌리며, 축 안 순차·축 사이 병렬로 보낸다(GROMO-2338).
+- 지표: `outbox.relay.backlog{target}`·`outbox.relay.oldest_pending_age{target}`(초, 도래한 행 기준 — 틱 시작 스냅샷) 게이지,
+  `outbox.relay.claim{target}`·`outbox.relay.send{target}` 타이머, `outbox.relay.delivered{target}`·
+  `outbox.relay.failed{target,retryable}`·`outbox.relay.released{target,reason=overtaking|predecessor_failed}` 카운터.
+  `SCORE` 는 전달 경로가 없어 영구 보류(V80)라 backlog 가 계속 자라는 것이 정상이다 — 경보에서 뺀다.
 - 재전달은 **저장된 전달 행 payload 를 그대로** 보낸다 — 발행 시점의 도메인 상태를 다시 읽지 않는다. 그래서 봉투는 불변이다.
 - **불변의 유일한 예외는 `eraseWithdrawnParam`** 이고 탈퇴 트랜잭션 전용이다. 이미 전달됐거나 한 번도 안 나간 행만 고치고,
   시도했지만 미완료인 행은 그대로 둔다 — 본문이 바뀐 재전달은 소비자의 `eventId` 대조에서 영구 실패가 되고, 고갈 처리가 없는

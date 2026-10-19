@@ -58,7 +58,17 @@ public class UpstreamConfigProperties {
         return target;
     }
 
-    /** 초기 JVM 안전 상한이며 운영 처리량/SLO를 보장하는 수치가 아니다. */
+    /**
+     * 초기 JVM 안전 상한이며 운영 처리량/SLO를 보장하는 수치가 아니다.
+     *
+     * <p>pool-size 4 의 근거(GROMO-2345 재검토): 스레드 합계 18(= Data 4 + Notification 4 + Link 4 + Realtime 2 +
+     * 조합 4)은 컨테이너 PID 128 에서 Tomcat 16+16·미리보기/DNS 8·JVM/Redis/PDF 자식을 빼고 남긴 몫이다. 조합 스레드는
+     * 조각이 끝날 때까지 Data worker 하나를 붙잡으므로 조합 4 : Data 4 로 맞춰 둔 것이다. 홈은 요청 1건이 최대
+     * 7조각을 한 단계에서 낸다(소속 1, 섬 상세 1, 섬 단계 7, 방송기 1) — 4 스레드면 섬 단계가 2번에 나뉘지만, 홈 외 화면과
+     * Notification·Link 몫을 줄일 부하 근거가 아직 없어 값은 그대로다(바꾸려면 혼합 부하로 합계 18 안 재배분을 측정).
+     * 운영에서 보는 곳: {@code executor_queued_tasks{name="business-screen-composer"}} 와
+     * {@code business_upstream_connections{target="DATA",state="pending"}}.
+     */
     @Getter
     @Setter
     public static class Composition {

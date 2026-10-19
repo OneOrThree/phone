@@ -1,0 +1,496 @@
+[
+  {
+    "id": "account",
+    "kind": "api",
+    "paths": [
+      "/me"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "my_islands",
+    "kind": "api",
+    "paths": [
+      "/me/islands"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "focus_current",
+    "kind": "api",
+    "paths": [
+      "/focus-sessions/current"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "focus_summary",
+    "kind": "api",
+    "paths": [
+      "/me/focus-summary?date={date}&timezone=Asia/Seoul"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "friends",
+    "kind": "api",
+    "paths": [
+      "/friends?date={date}"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "friend_requests",
+    "kind": "api",
+    "paths": [
+      "/friends/requests?type=received"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "letters",
+    "kind": "api",
+    "paths": [
+      "/letters"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "blocks",
+    "kind": "api",
+    "paths": [
+      "/blocks"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "inventory",
+    "kind": "api",
+    "paths": [
+      "/me/inventory"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "join_requests",
+    "kind": "api",
+    "paths": [
+      "/me/join-requests"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "island",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "members",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/members"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "focus_members",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/focus-members"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "rest_members",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/rest-members"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "wallets",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/shop/wallets"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "products",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/shop/products?category=personal"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "orders",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/shop/orders?scope=personal"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "notices",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/notices"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "guestbook",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/guestbook"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "mailbox",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/messages"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "playback",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/playback"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "construction",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/construction-options"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "quests",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/quests/current"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "rankings",
+    "kind": "api",
+    "paths": [
+      "/rankings/islands?week={week}"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "stats_screen_time_island",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/statistics/screen-time?from={from}&to={date}&timezone=Asia/Seoul&scope=island"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "stats_screen_time_me",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/statistics/screen-time?from={from}&to={date}&timezone=Asia/Seoul&scope=me"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "stats_focus_island",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/statistics/focus?from={from}&to={date}&timezone=Asia/Seoul&scope=island"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "stats_focus_me",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/statistics/focus?from={from}&to={date}&timezone=Asia/Seoul&scope=me"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "chat_rooms",
+    "kind": "api",
+    "paths": [
+      "/api/v1/chat/rooms"
+    ],
+    "target": "realtime"
+  },
+  {
+    "id": "chat_history",
+    "kind": "api",
+    "paths": [
+      "/api/v1/chat/rooms/{islandId}/messages"
+    ],
+    "target": "realtime"
+  },
+  {
+    "id": "screen_launch",
+    "kind": "screen",
+    "paths": [
+      "/screens/launch"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_raft",
+    "kind": "screen",
+    "paths": [
+      "/screens/raft"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_account",
+    "kind": "screen",
+    "paths": [
+      "/screens/account"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_explore",
+    "kind": "screen",
+    "paths": [
+      "/screens/explore"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_home",
+    "kind": "screen",
+    "paths": [
+      "/screens/home?date={date}&timezone=Asia/Seoul"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_focus",
+    "kind": "screen",
+    "paths": [
+      "/screens/focus"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_town_hall",
+    "kind": "screen",
+    "paths": [
+      "/screens/town-hall"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_mailbox",
+    "kind": "screen",
+    "paths": [
+      "/screens/mailbox"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_friends",
+    "kind": "screen",
+    "paths": [
+      "/screens/friends?date={date}"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_board",
+    "kind": "screen",
+    "paths": [
+      "/screens/board"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_library",
+    "kind": "screen",
+    "paths": [
+      "/screens/library"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_shop",
+    "kind": "screen",
+    "paths": [
+      "/screens/shop?category=personal"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_playback",
+    "kind": "screen",
+    "paths": [
+      "/screens/playback"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "app_home_visit",
+    "kind": "journey",
+    "paths": [
+      "/screens/home?date={date}&timezone=Asia/Seoul",
+      "/islands/{islandId}/focus-members",
+      "/islands/{islandId}/rest-members",
+      "/screens/library",
+      "/screens/mailbox",
+      "/screens/board"
+    ],
+    "target": "business",
+    "parallelAfterFirst": true
+  },
+  {
+    "id": "focus_lifecycle",
+    "kind": "write_journey",
+    "paths": [],
+    "target": "business",
+    "script": "focus_lifecycle.js"
+  },
+  {
+    "id": "notification_settings_legacy",
+    "kind": "api",
+    "paths": [
+      "/api/v1/users/me/notification-settings"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "island_list",
+    "kind": "api",
+    "paths": [
+      "/islands"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "settings",
+    "kind": "api",
+    "paths": [
+      "/me/settings"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "screen_visit",
+    "kind": "screen",
+    "paths": [
+      "/screens/visit/{islandId}"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "telescope",
+    "kind": "api",
+    "paths": [
+      "/me/telescope"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "fish_earnings",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/statistics/fish-earnings"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "resource_ledger",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/resources/ledger?month={month}"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "island_news",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/news"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "island_join_requests",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/join-requests"
+    ],
+    "target": "business",
+    "role": "host"
+  },
+  {
+    "id": "island_inventory",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/inventory"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "discover",
+    "kind": "api",
+    "paths": [
+      "/islands/discover"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "friend_search",
+    "kind": "api",
+    "paths": [
+      "/friends/search?type=NICKNAME&q=loadtest"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "focus_pending",
+    "kind": "api",
+    "paths": [
+      "/focus-sessions/pending-result"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "notice_detail",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/notices/{noticeId}"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "letter_detail",
+    "kind": "api",
+    "paths": [
+      "/letters/{letterId}"
+    ],
+    "target": "business"
+  },
+  {
+    "id": "stats_focus_history",
+    "kind": "api",
+    "paths": [
+      "/islands/{islandId}/statistics/focus?from={from}&to={yesterday}&timezone=Asia/Seoul&scope=island"
+    ],
+    "target": "business"
+  }
+]

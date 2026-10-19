@@ -19,6 +19,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 @RequiredArgsConstructor
 public class OutboxRelayScheduler {
 
+    /** relay 전용 풀 빈 이름 — {@code OutboxRelayConfig#outboxRelayTaskScheduler}. */
+    public static final String SCHEDULER = "outboxRelayTaskScheduler";
+
     private final OutboxRelayService relayService;
 
     /**
@@ -26,8 +29,12 @@ public class OutboxRelayScheduler {
      *
      * <p>{@code fixedDelay} 다 — 한 틱이 길어지면 다음 틱이 겹치지 않고 기다린다. 겹쳐도 리스가
      * 막지만, 굳이 브로커 연결을 두 배로 만들 이유가 없다.
+     *
+     * <p>relay 전용 풀에서 돈다(GROMO-2338). {@code fixedDelay} 라 이 메서드는 그 풀의 <b>스레드 하나만</b> 쓴다 — 나머지
+     * 스레드는 틱이 띄운 축 작업 몫이다. 이 성질이 깨지면(fixedRate·cron 으로 바꾸면) 틱이 겹쳐 축 작업 스레드를 빼앗고,
+     * 틱이 전부 축 작업을 기다리며 풀을 채우면 교착한다.
      */
-    @Scheduled(fixedDelayString = "${outbox.relay.poll-interval}")
+    @Scheduled(fixedDelayString = "${outbox.relay.poll-interval}", scheduler = SCHEDULER)
     public void relay() {
         try {
             int delivered = relayService.relayOnce();

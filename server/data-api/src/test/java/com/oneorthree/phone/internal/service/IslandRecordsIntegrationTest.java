@@ -198,6 +198,32 @@ class IslandRecordsIntegrationTest {
     }
 
     @Test
+    @DisplayName("시간 경계(GROMO-2344) — 창보다 오래 전에 전이한 진행 세션은 남고, 창 시작에 끝난 세션은 빠지며, 창을 걸친 세션은 정본 배분 그대로다")
+    void timeBoundKeepsLongRunningSessionsAndCanonicalAllocation() {
+        Island x = island(true);
+        User a = resident(x.group);
+        LocalDate before = D.minusDays(1);
+
+        // 사흘 전부터 열려 있는 ACTIVE 세션 — 마지막 전이가 창보다 훨씬 이르다. 창 안의 몫(00:00~10:00)만 센다.
+        UUID longRunning = session(a, x.id, FocusSessionLifecycle.ACTIVE, t(D.minusDays(3), "12:00:00"));
+        interval(longRunning, 1, FocusIntervalKind.ACTIVE, t(D.minusDays(3), "12:00:00"), null);
+        // 창 시작(전날 00:00)에 정확히 끝난 세션 — 겹치지 않는다
+        UUID endedAtFrom = session(a, x.id, FocusSessionLifecycle.COMPLETED, t(before, "00:00:00"));
+        interval(endedAtFrom, 1, FocusIntervalKind.ACTIVE, t(before.minusDays(1), "23:00:00"), t(before, "00:00:00"));
+        // 창 시작을 0.6초씩 걸친 세션 — 창 밖 몫이 누적 배분에 들어가야 창 안 날짜가 0초가 된다(정본 규칙)
+        UUID crossing = session(a, x.id, FocusSessionLifecycle.COMPLETED, Instant.parse(before + "T00:00:00.600Z"));
+        interval(crossing, 1, FocusIntervalKind.ACTIVE, Instant.parse(before.minusDays(1) + "T23:59:59.400Z"),
+                Instant.parse(before + "T00:00:00.600Z"));
+
+        FocusStatistics me = service.focus(a.getId(), x.id, before, D, "me", null, 0);
+        assertThat(me.totalSeconds()).as("진행 세션의 창 안 몫 34시간만 — 끝난 두 세션은 창 안 0초")
+                .isEqualTo(34 * 3600L);
+        assertThat(me.records()).as("창 안 0초인 완료 세션은 기록이 아니다").isEmpty();
+        FocusStatistics island = service.focus(a.getId(), x.id, before, D, "island", null, 0);
+        assertThat(member(island, a).totalSeconds()).isEqualTo(34 * 3600L);
+    }
+
+    @Test
     @DisplayName("scope=me 기록이 30건을 넘으면 스냅샷으로 이어 읽는다 — 합계는 페이지와 무관, 만료되면 409")
     void focusPagesFromSnapshot() {
         Island x = island(true);

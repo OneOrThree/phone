@@ -6,8 +6,8 @@ import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.message.dto.SendFailureResponse;
 import com.oneorthree.realtime.movement.MovementRooms;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.converter.MessageConversionException;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.Header;
@@ -30,10 +30,19 @@ import java.util.UUID;
  */
 @Slf4j
 @Controller
-@RequiredArgsConstructor
 public class MovementStompController {
 
-    private final MovementRooms rooms;
+    private final MovementCluster cluster;
+
+    @Autowired
+    public MovementStompController(MovementCluster cluster) {
+        this.cluster = cluster;
+    }
+
+    /** 패키지 전용 — 테스트가 로컬 방(플래그 OFF 그대로)으로 만든다. */
+    MovementStompController(MovementRooms rooms) {
+        this(MovementCluster.local(rooms));
+    }
 
     /**
      * @param principal CONNECT 때 세션에 묶인 주체 — 토큰 버킷이 사용자 기준이라 userId 를 같이 넘긴다(policy §3)
@@ -42,7 +51,7 @@ public class MovementStompController {
     @MessageMapping("/islands/{islandId}/movement/intent")
     public void intent(@DestinationVariable UUID islandId, @Payload @Valid MoveIntentRequest request,
             ChatPrincipal principal, @Header(SimpMessageHeaderAccessor.SESSION_ID_HEADER) String sessionId) {
-        rooms.accept(islandId, principal.userId(), sessionId, request.toIntent());
+        cluster.accept(islandId, principal.userId(), sessionId, request.toIntent());
     }
 
     /**
