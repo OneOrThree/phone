@@ -154,7 +154,10 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
      *
      * <p>{@code attempt_count} 는 «실제 시도» 수다. 선점에서 올린 1 을 보내지도 않고 남기면 앞지르기 보정·선행 실패로 놓은
      * 행이 시도한 적 없는데 시도 수만 늘어 경고 임계값을 거짓으로 넘고, {@link #eraseParamOfResendSafe} 의
-     * 「{@code attempt_count=0} = 한 번도 안 나갔다」 판정도 깨진다. {@code last_attempt_at} 은 옛 값을 모르므로 둔다.
+     * 「{@code attempt_count=0} = 한 번도 안 나갔다」 판정도 깨진다.
+     *
+     * <p>{@code last_attempt_at} 은 되돌리지 않는다(옛 값을 모른다). 지금은 관측용 열이지만, 「마지막 시도 이후 경과」로
+     * 무언가를 판정하게 되면 release 된 행이 방금 시도한 것처럼 보인다 — 그런 판정을 만들 때 이 문장을 먼저 고친다.
      *
      * @param ids   놓을 행
      * @param token 선점 때 받은 펜싱 토큰 — 남의 리스는 건드리지 않는다

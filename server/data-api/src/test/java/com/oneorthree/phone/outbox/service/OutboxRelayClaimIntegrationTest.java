@@ -33,16 +33,19 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -328,6 +331,9 @@ class OutboxRelayClaimIntegrationTest {
         CountDownLatch go = new CountDownLatch(1);
         AtomicInteger delivered = new AtomicInteger();
         List<UUID> ownedOnce = Collections.synchronizedList(new ArrayList<>());
+        // 전역 «전송» 순번 — 표시(커밋) 직전에 뽑는다. 후행은 선행 커밋 뒤에야 집히므로 정상이면 축마다 version 순 = 순번 순이다.
+        AtomicLong sequence = new AtomicLong();
+        Map<UUID, Long> sentAt = new ConcurrentHashMap<>();
         var executor = Executors.newFixedThreadPool(workers);
         try {
             List<Future<?>> runs = new ArrayList<>();
@@ -347,6 +353,7 @@ class OutboxRelayClaimIntegrationTest {
                         assertThat(deliveries.findOvertaking(mine.stream().map(EventOutboxDelivery::getId).toList(),
                                 token)).as("커밋된 내 행의 선행 미전달은 전부 내 것이다").isEmpty();
                         for (EventOutboxDelivery row : mine) {
+                            sentAt.put(row.getId(), sequence.incrementAndGet());
                             assertThat(store.markDelivered(row.getId(), token)).isEqualTo(1);
                             ownedOnce.add(row.getId());
                             delivered.incrementAndGet();
@@ -367,6 +374,42 @@ class OutboxRelayClaimIntegrationTest {
 
         assertThat(ownedOnce).as("두 워커가 같은 행을 갖지 않는다(교집합 0)").doesNotHaveDuplicates().hasSize(200);
         assertThat(deliveries.findAll()).allSatisfy(row -> assertThat(row.getDeliveredAt()).isNotNull());
+        for (UUID user : users) {
+            List<Long> order = deliveries.findAll().stream()
+                    .filter(row -> row.getAggregateId().equals(user.toString()))
+                    .sorted(Comparator.comparingLong(EventOutboxDelivery::getAggregateVersion))
+                    .map(row -> sentAt.get(row.getId())).toList();
+            assertThat(order).as("축 %s — 남이 선행을 보내기 전에 후행을 보내지 않았다(version 순 = 전송 순번 순)", user)
+                    .isSorted();
+        }
+    }
+
+    @Test
+    void aLockedMiddleRowKeepsOnlyThePrefixBeforeIt() throws Exception {
+        UUID user = UUID.randomUUID();
+        for (int i = 0; i < 3; i++) {
+            append(user, OutboxDeliveryRequest.toKafka());
+        }
+        UUID v2 = idOf(user, 2);
+        // 다른 워커가 v2 만 잡은 순간 — 내 잠금은 {v1, v3} 로 교차한다(T1={a1,a3}, T2={a2}). 보정이 없으면 v3 가 v2 를 앞지른다.
+        try (Connection holder = dataSource.getConnection()) {
+            holder.setAutoCommit(false);
+            try (PreparedStatement lock = holder.prepareStatement(
+                    "SELECT id FROM event_outbox_deliveries WHERE id = ? FOR UPDATE")) {
+                lock.setObject(1, v2);
+                lock.executeQuery().close();
+            }
+
+            assertThat(versionsOf(store.claim(OutboxTarget.KAFKA, "w", UUID.randomUUID()), user))
+                    .as("v2 앞까지만 내 것 — v3 는 되돌린다").containsExactly(1L);
+            holder.rollback();
+        }
+
+        EventOutboxDelivery v3 = deliveries.findById(idOf(user, 3)).orElseThrow();
+        assertThat(v3.getLeaseToken()).isNull();
+        assertThat(v3.getAttemptCount()).isZero();
+        assertThat(REGISTRY.get("outbox.relay.released").tags("target", "KAFKA", "reason", "overtaking")
+                .counter().count()).isEqualTo(1);
     }
 
     private void append(UUID user, OutboxDeliveryRequest... destinations) {

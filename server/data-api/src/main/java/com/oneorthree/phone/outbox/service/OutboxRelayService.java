@@ -130,6 +130,9 @@ public class OutboxRelayService {
      * <p>라운드 안에서는 모든 대상의 선점을 먼저 하고 축 작업을 한꺼번에 띄운 뒤 다 기다린다 — 대상끼리도 겹쳐 돈다.
      * 예산은 «새 라운드를 시작할지»만 가른다. 시작한 라운드는 끝까지 기다리므로 한 틱은 예산 + 라운드 한 번까지 늘 수 있다.
      *
+     * <p><b>한 대상·한 축의 예외가 라운드를 끊지 않는다.</b> 선점이 던진 대상은 그 대상만 건너뛰고, 띄운 축 작업은 예외로
+     * 끝난 것까지 전부 기다린 뒤 합산한다. 중간에 빠져나가면 남은 축 작업이 다음 틱과 겹쳐 돌고 전달 건수도 잃는다.
+     *
      * @return 이번 틱에 전달을 마친 건수
      */
     public int relayOnce() {
@@ -140,8 +143,14 @@ public class OutboxRelayService {
         do {
             List<Round> rounds = new ArrayList<>();
             for (OutboxTarget target : OutboxTarget.values()) {
-                if (transports.containsKey(target)) {
+                if (!transports.containsKey(target)) {
+                    continue;
+                }
+                try {
                     rounds.add(startRound(target));
+                } catch (RuntimeException e) {
+                    // 선점·봉투 조회 실패(DB 순단 등) — 이 대상만 이번 라운드를 건너뛴다. 이미 띄운 다른 대상은 아래서 기다린다.
+                    log.error("outbox relay 라운드 시작 실패 — target={}", target, e);
                 }
             }
             claimed = rounds.stream().mapToInt(Round::claimed).sum();
@@ -218,9 +227,16 @@ public class OutboxRelayService {
         if (rest.isEmpty()) {
             return;
         }
-        int released = store.release(rest.stream().map(EventOutboxDelivery::getId).toList(), token);
-        meterRegistry.counter("outbox.relay.released",
-                "target", rest.get(0).getTarget().name(), "reason", "predecessor_failed").increment(released);
+        try {
+            int released = store.release(rest.stream().map(EventOutboxDelivery::getId).toList(), token);
+            meterRegistry.counter("outbox.relay.released",
+                    "target", rest.get(0).getTarget().name(), "reason", "predecessor_failed").increment(released);
+        } catch (RuntimeException e) {
+            // 놓기에 실패해도 안전하다 — 그 행들은 내 리스를 문 채 남았다가 리스 만료 뒤 앞 행부터 다시 집힌다(보내지 않았으니
+            // 순서도 그대로). 다만 시도 수가 1 남는다. 예외를 올리면 라운드의 다른 축 결과까지 잃으므로 로그만 남긴다.
+            log.error("선행 실패 뒤 나머지 놓기 실패 — 리스 만료 뒤 재선점된다 count={} target={}",
+                    rest.size(), rest.get(0).getTarget(), e);
+        }
     }
 
     /**
@@ -230,8 +246,22 @@ public class OutboxRelayService {
      * @param running 축 작업
      */
     private record Round(int claimed, List<CompletableFuture<Integer>> running) {
+        /** 모든 축 작업을 기다린 뒤 성공분만 합산한다 — 예외로 끝난 축은 세고 로그로 남긴다. */
         int join() {
-            return running.stream().mapToInt(CompletableFuture::join).sum();
+            CompletableFuture.allOf(running.toArray(CompletableFuture[]::new)).exceptionally(e -> null).join();
+            int delivered = 0;
+            int failed = 0;
+            for (CompletableFuture<Integer> axis : running) {
+                if (axis.isCompletedExceptionally()) {
+                    failed += 1;
+                } else {
+                    delivered += axis.join();
+                }
+            }
+            if (failed > 0) {
+                log.error("outbox relay 축 작업 {}개가 예외로 끝났다 — 그 축의 행은 리스 만료 뒤 재선점된다", failed);
+            }
+            return delivered;
         }
     }
 

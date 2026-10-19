@@ -13,6 +13,7 @@ import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -150,7 +151,8 @@ class OutboxRelayRunIntegrationTest {
     }
 
     @Test
-    void aRunInterruptedMidWayIsReclaimedAfterLeaseExpiryWithoutReorder() throws Exception {
+    @DisplayName("run 도중 리스가 만료된 낡은 소유자는 펜싱된다 — 자기 v2 표시는 거부, v3 는 보내지도 놓지도 못하고 새 소유자가 순서대로 보낸다")
+    void aStaleRunOwnerIsFencedOutAfterLeaseExpiryAndNeverSendsTheRest() throws Exception {
         UUID user = UUID.randomUUID();
         for (int i = 0; i < 3; i++) {
             append(user);
@@ -200,6 +202,45 @@ class OutboxRelayRunIntegrationTest {
                 .counter().count()).as("A 의 v3 놓기는 이미 B 의 것이라 0행 — 남의 리스를 건드리지 않는다").isZero();
     }
 
+    @Test
+    void aFailingReleaseOnOneAxisDoesNotCutTheRoundForOtherAxes() {
+        UUID failing = UUID.randomUUID();
+        UUID healthy = UUID.randomUUID();
+        for (int i = 0; i < 3; i++) {
+            append(failing);
+            append(healthy);
+        }
+        // failing 축의 v1 이 재시도 실패 → 나머지 놓기(release)가 DB 순단으로 던진다.
+        Recording transport = new Recording(row -> row.getAggregateId().equals(failing.toString())
+                ? OutboxTransportResult.retry("broker down") : OutboxTransportResult.success());
+        PROPERTIES.setTickBudget(Duration.ZERO);
+        OutboxRelayService relay = new OutboxRelayService(new Faulty(store, null), outbox, PROPERTIES, CLOCK,
+                List.of(transport), new SimpleMeterRegistry(), Runnable::run);
+
+        assertThat(relay.relayOnce()).as("다른 축 전달 수가 보존되고 틱은 예외 없이 끝난다").isEqualTo(3);
+        assertThat(deliveries.findAll().stream().filter(row -> row.getAggregateId().equals(failing.toString())))
+                .as("놓지 못한 v2·v3 는 리스를 문 채 남는다 — 만료 뒤 재선점").filteredOn(row -> row.getAggregateVersion() > 1)
+                .allSatisfy(row -> assertThat(row.getLeaseToken()).isNotNull());
+    }
+
+    @Test
+    void aTargetWhoseClaimThrowsIsSkippedWhileOtherTargetsStillDeliver() {
+        UUID user = UUID.randomUUID();
+        tx().executeWithoutResult(status -> commands.append(new OutboxAppendCommand(
+                "run-test-" + UUID.randomUUID(), 1, "user.withdrawn", user, "ko", null,
+                AggregateRef.ofUser(user), null, Map.of(),
+                List.of(OutboxDeliveryRequest.toKafka(), OutboxDeliveryRequest.toLink("LINK_TEST", null)))));
+        Recording kafka = new Recording(row -> OutboxTransportResult.success());
+        Recording link = new Recording(OutboxTarget.LINK, row -> OutboxTransportResult.success());
+        PROPERTIES.setTickBudget(Duration.ZERO);
+        OutboxRelayService relay = new OutboxRelayService(new Faulty(store, OutboxTarget.KAFKA), outbox, PROPERTIES,
+                CLOCK, List.of(kafka, link), new SimpleMeterRegistry(), Runnable::run);
+
+        assertThat(relay.relayOnce()).as("KAFKA 선점이 던져도 LINK 는 나간다").isEqualTo(1);
+        assertThat(link.sent).hasSize(1);
+        assertThat(kafka.sent).isEmpty();
+    }
+
     private OutboxRelayService relay(OutboxTransport transport, Executor executor) {
         return new OutboxRelayService(store, outbox, PROPERTIES, CLOCK, List.of(transport), new SimpleMeterRegistry(),
                 executor);
@@ -237,18 +278,72 @@ class OutboxRelayRunIntegrationTest {
         return result;
     }
 
+    /**
+     * 실제 store(트랜잭션 프록시)에 위임하되 장애를 끼워 넣는다 — release 는 늘 던지고, {@code failClaim} 대상의 claim 도 던진다.
+     * 서브클래스 자신은 프록시가 아니라서 트랜잭션이 필요한 일은 전부 위임한다.
+     */
+    private static final class Faulty extends OutboxRelayStore {
+        private final OutboxRelayStore delegate;
+        private final OutboxTarget failClaim;
+
+        Faulty(OutboxRelayStore delegate, OutboxTarget failClaim) {
+            super(null, PROPERTIES, CLOCK, new SimpleMeterRegistry());
+            this.delegate = delegate;
+            this.failClaim = failClaim;
+        }
+
+        @Override
+        public List<EventOutboxDelivery> claim(OutboxTarget target, String owner, UUID token) {
+            if (target == failClaim) {
+                throw new IllegalStateException("db down (claim)");
+            }
+            return delegate.claim(target, owner, token);
+        }
+
+        @Override
+        public int release(List<UUID> deliveryIds, UUID token) {
+            throw new IllegalStateException("db down (release)");
+        }
+
+        @Override
+        public List<Object[]> pendingSnapshot() {
+            return delegate.pendingSnapshot();
+        }
+
+        @Override
+        public boolean renewLease(UUID deliveryId, UUID token) {
+            return delegate.renewLease(deliveryId, token);
+        }
+
+        @Override
+        public int markDelivered(UUID deliveryId, UUID token) {
+            return delegate.markDelivered(deliveryId, token);
+        }
+
+        @Override
+        public int markFailed(UUID deliveryId, UUID token, Instant nextAt, String error) {
+            return delegate.markFailed(deliveryId, token, nextAt, error);
+        }
+    }
+
     /** 보낸 행 id 를 적고 결과는 주어진 함수가 정한다. */
     private static final class Recording implements OutboxTransport {
         final List<UUID> sent = new CopyOnWriteArrayList<>();
+        private final OutboxTarget destination;
         private final Function<EventOutboxDelivery, OutboxTransportResult> behaviour;
 
         Recording(Function<EventOutboxDelivery, OutboxTransportResult> behaviour) {
+            this(OutboxTarget.KAFKA, behaviour);
+        }
+
+        Recording(OutboxTarget destination, Function<EventOutboxDelivery, OutboxTransportResult> behaviour) {
+            this.destination = destination;
             this.behaviour = behaviour;
         }
 
         @Override
         public OutboxTarget target() {
-            return OutboxTarget.KAFKA;
+            return destination;
         }
 
         @Override

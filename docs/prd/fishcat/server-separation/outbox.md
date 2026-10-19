@@ -130,6 +130,9 @@ outbox.relay.run-length / worker-threads / tick-budget          # 선택 — 기
 outbox.relay.endpoints.<KEY>.target / url / method / token   # HTTP 대상이 있을 때
 ```
 
+`lease-duration` 은 `run-length × http-read-timeout` 보다 충분히 커야 한다. 축 안은 순차라 뒤 행은 앞 행들의 전송을
+기다리는데, 그 사이 리스가 만료되면 전송 직전 갱신이 실패해 축이 멈추고 나머지를 놓는다 — 순서는 안전하지만 처리량이 떨어진다.
+
 ## 7. A18(보류)을 코드가 대신 정하지 않는다
 
 최종 재시도 기간·고갈 처리·비요청형 유실 허용은 **보류**다. 그래서 이 기반에는
