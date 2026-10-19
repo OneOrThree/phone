@@ -575,4 +575,48 @@ class IslandFocusAverageSnapshotIntegrationTest {
         return jdbc.queryForObject("SELECT count(*) FROM island_focus_averages WHERE island_id = ?",
                 Integer.class, islandId);
     }
+
+    // ---------------------------------------------------------------- 바인드 상한 (GROMO-2287)
+
+    @Test
+    @DisplayName("주민 수 집계는 섬 id 를 청크로 끊어도 경계에서 빠지거나 겹치지 않는다 — 청크 2 로 5개 섬")
+    void countMembersChunkBoundaries() {
+        List<Island> five = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            Island island = island(false);
+            for (int j = 0; j < i; j++) {
+                resident(island.group);
+            }
+            five.add(island);
+        }
+        List<UUID> ids = five.stream().map(Island::id).toList();
+
+        for (int chunk : new int[] {1, 2, 4, 5, 6, 5000}) {
+            Map<UUID, Long> counts = service.countMembers(ids, chunk);
+            assertThat(counts).as("chunk=" + chunk).hasSize(5);
+            for (int i = 0; i < 5; i++) {
+                assertThat(counts.get(ids.get(i))).as("chunk=" + chunk + " island#" + i).isEqualTo(i + 1L);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("살아 있는 섬이 바인드 상한(32767)을 넘어도 배치가 전량 적는다")
+    void snapshotSurvivesMoreIslandsThanBindLimit() {
+        int bulk = 33_000;
+        try {
+            jdbc.update("INSERT INTO groups (id, name, max_members, is_chat_enabled, invite_permission, status) "
+                    + "SELECT gen_random_uuid(), 'bulk2287', 10, true, 'OWNER_ONLY', 'WAITING' "
+                    + "FROM generate_series(1, ?)", bulk);
+
+            int inserted = service.snapshot(date);
+
+            assertThat(inserted).isEqualTo(aliveIslandCount());
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM island_focus_averages a JOIN groups g "
+                    + "ON g.id = a.island_id WHERE g.name = 'bulk2287' AND a.snapshot_date = ?",
+                    Integer.class, date)).isEqualTo(bulk);
+        } finally {
+            jdbc.update("DELETE FROM groups WHERE name = 'bulk2287'");
+        }
+    }
 }
