@@ -3,6 +3,11 @@ package com.oneorthree.realtime.membership.client;
 import com.oneorthree.realtime.auth.VerifiedAccessIdentity;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.config.RealtimeAuthorizationProperties;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import tools.jackson.core.StreamReadFeature;
@@ -44,8 +49,17 @@ public class RealtimeMembershipAuthorizationClient {
     private final String serviceToken;
     private final Duration requestTimeout;
     private final Semaphore capacity;
+    private final int maxInFlight;
+    private final Duration waitTimeout;
+    private final MeterRegistry registry;
+    private final Counter rejectedCapacity;
+    private final Counter rejectedTimeout;
 
     public RealtimeMembershipAuthorizationClient(RealtimeAuthorizationProperties properties) {
+        this(properties, new SimpleMeterRegistry());
+    }
+
+    public RealtimeMembershipAuthorizationClient(RealtimeAuthorizationProperties properties, MeterRegistry registry) {
         properties.validate();
         if (!properties.isEnabled()) {
             throw new IllegalArgumentException("현재 멤버십 HTTP client는 활성 설정에서만 생성합니다.");
@@ -53,18 +67,25 @@ public class RealtimeMembershipAuthorizationClient {
         endpoint = URI.create(properties.getBaseUrl()).resolve("/internal/realtime/membership-authorization");
         serviceToken = properties.getServiceToken();
         requestTimeout = properties.getRequestTimeout();
-        capacity = new Semaphore(properties.getMaxInFlight());
+        maxInFlight = properties.getMaxInFlight();
+        capacity = new Semaphore(maxInFlight);
+        waitTimeout = properties.getWaitTimeout();
+        this.registry = registry;
+        rejectedCapacity = Counter.builder("realtime.authz.rejected").tag("reason", "capacity").register(registry);
+        rejectedTimeout = Counter.builder("realtime.authz.rejected").tag("reason", "timeout").register(registry);
+        Gauge.builder("realtime.authz.inflight", capacity, sem -> maxInFlight - sem.availablePermits())
+                .register(registry);
         http = HttpClient.newBuilder().connectTimeout(properties.getConnectTimeout())
                 .followRedirects(HttpClient.Redirect.NEVER).build();
     }
 
-    /** 헤더부터 마지막 body byte까지 한 예산. 응답이나 요청을 재시도/캐시하지 않는다. */
+    /**
+     * 헤더부터 마지막 body byte까지 한 예산(대기 시간 포함). 응답이나 요청을 재시도/캐시하지 않는다.
+     * 동시 상한이 차면 {@code wait-timeout} 까지만 기다리고 503 — 무한 대기는 없다.
+     */
     public boolean isAllowed(VerifiedAccessIdentity identity, UUID islandId) {
         long started = System.nanoTime();
-        if (!capacity.tryAcquire()) {
-            log.warn("현재 멤버십 조회 실패 — outcome=capacity status=0 durationMs=0");
-            throw new UpstreamUnavailableException();
-        }
+        acquire(started);
         var outcome = new AtomicReference<>("transport");
         var status = new AtomicInteger();
         var subscriber = new AtomicReference<LimitedBodySubscriber>();
@@ -152,6 +173,31 @@ public class RealtimeMembershipAuthorizationClient {
                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
             }
             capacity.release();
+            Timer.builder("realtime.authz.duration").tag("outcome", outcome.get()).register(registry)
+                    .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+        }
+    }
+
+    private void acquire(long started) {
+        boolean waited = false;
+        boolean got = capacity.tryAcquire();
+        if (!got && !waitTimeout.isZero()) {
+            waited = true;
+            long wait = Math.min(waitTimeout.toNanos(), requestTimeout.toNanos());
+            try {
+                got = capacity.tryAcquire(wait, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        if (!got) {
+            String reason = waited ? "timeout" : "capacity";
+            (waited ? rejectedTimeout : rejectedCapacity).increment();
+            Timer.builder("realtime.authz.duration").tag("outcome", reason).register(registry)
+                    .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
+            log.warn("현재 멤버십 조회 실패 — outcome={} status=0 durationMs={}", reason,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            throw new UpstreamUnavailableException();
         }
     }
 

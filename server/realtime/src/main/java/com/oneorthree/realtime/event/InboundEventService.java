@@ -3,6 +3,7 @@ package com.oneorthree.realtime.event;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.membership.CurrentMembershipDecisionCache;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
@@ -128,6 +129,7 @@ public class InboundEventService {
     private final BlockedUsers blockedUsers;
     private final MovementSubscriptionListener movementSubscriptions;
     private final SeaRooms seaRooms;
+    private final CurrentMembershipDecisionCache currentMembershipCache;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -152,6 +154,7 @@ public class InboundEventService {
         }
         if (USER_WITHDRAWN.equals(type)) {
             UUID withdrawn = uuid(envelope, "userId");
+            currentMembershipCache.evictUser(withdrawn); // 탈퇴 직후 허용 결정이 남지 않게 — 펜스보다 먼저
             chatUserFence.withdraw(withdrawn, authGeneration(envelope));
             // 바다 방에서도 내보낸다(GROMO-2300) — Data 의 탈퇴는 진행 중 세션을 벌크 UPDATE 로 ABANDONED 처리해
             // sea.member.updated(ended) 를 내지 않는다(2299 와의 계약). 안 치우면 focusing 유령이 sea:adrift 색인에도 없어
@@ -245,7 +248,9 @@ public class InboundEventService {
             return false;
         }
         try {
-            return !membershipService.evict(UUID.fromString(memberUserId.stringValue()));
+            UUID member = UUID.fromString(memberUserId.stringValue());
+            currentMembershipCache.evictUser(member); // ON 모드 허용 결정 — Redis 캐시 삭제 성패와 무관하게 먼저
+            return !membershipService.evict(member);
         } catch (IllegalArgumentException e) {
             log.warn("memberUserId 가 UUID 형식이 아닙니다 — 무효화를 건너뜁니다.");
             return false;

@@ -244,7 +244,8 @@ class InboundEventServiceTest {
         MovementSubscriptionListener listener = mock(MovementSubscriptionListener.class);
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener,
-                mock(com.oneorthree.realtime.sea.SeaRooms.class));
+                mock(com.oneorthree.realtime.sea.SeaRooms.class),
+                mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
 
@@ -263,7 +264,8 @@ class InboundEventServiceTest {
         MembershipService membership = mock(MembershipService.class);
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), membership, mock(BlockedUsers.class), listener,
-                mock(com.oneorthree.realtime.sea.SeaRooms.class));
+                mock(com.oneorthree.realtime.sea.SeaRooms.class),
+                mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
         UUID evicted = UUID.randomUUID();
@@ -275,6 +277,26 @@ class InboundEventServiceTest {
 
         verify(listener).markMembershipCacheStale(island, kicked);
         verify(listener, never()).markMembershipCacheStale(island, evicted);
+    }
+
+    @Test
+    @DisplayName("강퇴(MEMBER_REMOVED)·탈퇴(user.withdrawn) 사건은 ON 모드 허용 결정 캐시를 그 사용자 기준으로 지운다")
+    void membershipAndWithdrawEventsEvictCurrentDecisionCache() throws Exception {
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        var decisions = mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class);
+        InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
+                mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
+                mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions);
+        UUID kicked = UUID.randomUUID();
+        UUID gone = UUID.randomUUID();
+
+        plain.accept(objectMapper.readTree(membersUpdated(UUID.randomUUID(), "MEMBER_REMOVED", kicked, 4)));
+        plain.accept(objectMapper.readTree(withdrawn(gone, 2)));
+
+        verify(decisions).evictUser(kicked);
+        verify(decisions).evictUser(gone);
     }
 
     @Test

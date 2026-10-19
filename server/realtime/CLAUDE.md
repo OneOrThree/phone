@@ -90,6 +90,13 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   on a single instance — `ChatWebSocketIntegrationTest` covers that regression. 이동(movement)은 예외다 — 1단계는 Realtime 단일 인스턴스 가정이라 인스턴스 간 팬아웃이 없다(API 표 `SUB …/movement` 행).
 - **현재 인가 옵션 OFF의 멤버십은 TTL 캐시** (`chat.membership.cache-ttl-seconds`)다. ON이면 지정된
   `requireCanChat` 경계가 PR753 Data 현재 인가를 매번 조회한다. 방 목록·duplicates·개인큐는 새 조회 범위가 아니다.
+- **ON 모드 비용·예산(GROMO-2342)**: `CurrentMembershipDecisionCache`(인스턴스 로컬)가 «허용»만 (userId, sessionId, authGeneration, islandId) 키로
+  `realtime.authorization-client.cache-ttl-seconds`(30, 0=끔) 동안 들고 있다 — 거절·오류는 캐시하지 않는다. `island.members.updated`(가입·탈퇴·강퇴)의 `memberUserId`와
+  `user.withdrawn` 이 `InboundEventService` 에서 `evictUser` 로 지우고(Redis 삭제 성패와 무관, 펜스보다 먼저), 조회 중 겹친 evict 의 옛 허용은 `mark/remember` 가 막는다.
+  ⚠️ 사건은 Kafka 소비 그룹·HTTP 로 «한 인스턴스»에만 닿으므로 다른 인스턴스의 항목은 TTL 로만 닫힌다(다중 인스턴스에서 즉시성이 필요하면 0). 개별 세션 폐기(로그아웃)는
+  realtime 으로 오는 사건이 없어 TTL 이 상한이다. 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
+  지표: `realtime.authz.cache{result=hit|miss|evict}`·`realtime.authz.inflight`·`realtime.authz.rejected{reason=capacity|timeout}`·`realtime.authz.duration{outcome}`.
+  OFF 모드 `GroupClient` 는 JDK HttpClient(keep-alive 풀·고정 실행기)에 2s 타임아웃·동시 상한 `chat.data-api.max-concurrency`(32)를 둔다.
 - **Messages are stored only through `ChatMessageAppender`, never `ChatMessageRepository.save`.**
   It takes a per-room advisory lock, reads the room's last id and inserts a strictly larger one,
   so within a room id order equals commit order (GROMO-1741). A plain `save` reopens the window
