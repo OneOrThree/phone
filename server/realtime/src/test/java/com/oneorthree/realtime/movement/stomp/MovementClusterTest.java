@@ -96,7 +96,8 @@ class MovementClusterTest {
         RealtimeSessionRegistry sessions = new RealtimeSessionRegistry();
         publisher = new MovementPublisher(json, sessions, meters, channel);
         ownership = new MovementOwnership(redis, meters, "ct-" + UUID.randomUUID().toString().substring(0, 8), 3000);
-        relay = new MovementRelay(true, publisher, ownership, redis, json, meters, MovementRelay.QUEUE_CAPACITY);
+        relay = new MovementRelay(true, publisher, ownership, redis, json, meters, MovementRelay.QUEUE_CAPACITY,
+                MovementRelay.CONTROL_CAPACITY);
         relay.start();
         rooms = new MovementRooms(relay, meters);
         StaticListableBeanFactory beans = new StaticListableBeanFactory();
@@ -237,16 +238,83 @@ class MovementClusterTest {
     }
 
     @Test
-    @DisplayName("송신 줄이 차면 막지 않고 버린다 — movement.relay.dropped·queue.depth")
-    void saturatedRelayDropsInsteadOfBlocking() {
+    @DisplayName("사건 줄이 차도 제어 명령(JOIN 등)은 제어 줄로 나가고 버려지지 않는다 — dropped 는 kind=frame|control 로 나눈다")
+    void controlCommandsSurviveAFullFrameQueue() {
         SimpleMeterRegistry own = new SimpleMeterRegistry();
-        MovementRelay stalled = new MovementRelay(true, publisher, ownership, redis, json, own, 2); // 송신 스레드 없음
-        for (int i = 0; i < 3; i++) {
-            stalled.publishCommand(new Command("ct", null, 0, island, Type.PING, null, null, null, false));
-        }
+        MovementRelay stalled = new MovementRelay(true, publisher, ownership, redis, json, own, 1, 2); // 송신 스레드 없음
+        Frame snapshot = new Frame("ct", island, 1, Kind.SNAPSHOT, null, null, false, "{}");
+        stalled.publishFrame(snapshot);
+        stalled.publishFrame(snapshot);
+        stalled.publishCommand(new Command("ct", "o", 1, island, Type.INTENT, user, "ct:s", null, false));
+        stalled.publishCommand(new Command("ct", "o", 1, island, Type.JOIN, user, "ct:s", null, false));
+        stalled.publishCommand(new Command("ct", "o", 1, island, Type.FULL_STATE, null, "ct:s", null, false));
 
-        assertThat(own.counter("movement.relay.dropped").count()).isEqualTo(1);
-        assertThat(own.get("movement.relay.queue.depth").gauge().value()).isEqualTo(2);
+        assertThat(own.counter("movement.relay.dropped", "kind", "frame").count()).as("Snapshot·INTENT 만 버린다")
+                .isEqualTo(2);
+        assertThat(own.counter("movement.relay.dropped", "kind", "control").count()).isZero();
+        assertThat(own.get("movement.relay.queue.depth").gauge().value()).isEqualTo(3);
+
+        stalled.publishCommand(new Command("ct", "o", 1, island, Type.LEAVE, null, "ct:s", null, false));
+        assertThat(own.counter("movement.relay.dropped", "kind", "control").count())
+                .as("제어 줄마저 차면 세고 버린다 — PING 대조가 고친다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("LEAVE 를 잃어 남은 유령 actor 는 그 인스턴스의 다음 PING(세션 목록) 대조로 사라진다")
+    void pingReconciliationRemovesGhostActors() throws Exception {
+        UUID remoteUser = becomeOwnerWithRemoteActor("ghost-5", "x");
+
+        command(new Command("ghost-5", null, 0, null, Type.PING, null, null, null, false, List.of()));
+
+        List<String> ids = actorIdsOf(awaitFullStateWith("s1", 1, 2));
+        assertThat(ids).as("PING 목록에 없는 ghost-5:x(%s)는 내보냈다", remoteUser).containsExactly(user.toString());
+    }
+
+    @Test
+    @DisplayName("PING 목록엔 있는데 내 방에 없는 세션(JOIN 유실·생존 신호 단절로 제거)은 EVICTED 로 그 인스턴스에 알린다")
+    void pingReconciliationReportsMissingSessions() throws Exception {
+        becomeOwnerWithRemoteActor("ghost-6", "x");
+
+        command(new Command("ghost-6", null, 0, null, Type.PING, null, null, null, false,
+                List.of(island + "|x", island + "|y")));
+
+        Command evicted = awaitCommand(Type.EVICTED);
+        assertThat(evicted.ownerInstanceId()).as("받을 인스턴스").isEqualTo("ghost-6");
+        assertThat(evicted.sessions()).as("이미 있는 x 는 빼고 빠진 y 만").containsExactly(island + "|y");
+    }
+
+    @Test
+    @DisplayName("EVICTED 를 받으면 그 세션을 소유자에게 다시 입장시킨다(JOIN + FULL_STATE)")
+    void evictedSessionsRejoinTheOwner() throws Exception {
+        redis.opsForValue().set(RedisKeys.movementOwner(island), "ghost-7:9", Duration.ofMinutes(1));
+        open("s1");
+
+        command(new Command("ghost-7", ownership.instanceId(), 0, null, Type.EVICTED, null, null, null, false,
+                List.of(island + "|s1")));
+
+        Command join = awaitCommand(Type.JOIN);
+        assertThat(join.ownerInstanceId()).isEqualTo("ghost-7");
+        assertThat(join.sessionKey()).isEqualTo(ownership.instanceId() + ":s1");
+        assertThat(awaitCommand(Type.FULL_STATE).sessionKey()).isEqualTo(ownership.instanceId() + ":s1");
+    }
+
+    /** 이 인스턴스가 소유자가 되고(로컬 세션 s1), 다른 인스턴스 세션 {@code <instance>:<sid>} 가 방에 든 상태를 만든다. */
+    private UUID becomeOwnerWithRemoteActor(String instance, String sessionId) throws Exception {
+        open("s1");
+        cluster.join(island, user, "s1");
+        cluster.requestFullState(island, "s1");
+        awaitFor("s1", "FullState");
+        UUID remoteUser = UUID.randomUUID();
+        command(new Command(instance, ownership.instanceId(), ownership.lease(island).epoch(), island, Type.JOIN,
+                remoteUser, instance + ":" + sessionId, null, false));
+        awaitFullStateWith("s1", 2);
+        return remoteUser;
+    }
+
+    private static List<String> actorIdsOf(JsonNode fullState) {
+        List<String> ids = new ArrayList<>();
+        fullState.get("actors").forEach(actor -> ids.add(actor.get("userId").stringValue()));
+        return ids;
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
@@ -304,9 +372,16 @@ class MovementClusterTest {
     }
 
     private JsonNode awaitFullStateWith(String sessionId, int actors) throws InterruptedException {
+        return awaitFullStateWith(sessionId, actors, 0);
+    }
+
+    /** {@code skip} 번째 FullState 부터 본다 — 앞선 같은 크기의 FullState 를 건너뛸 때. */
+    private JsonNode awaitFullStateWith(String sessionId, int actors, int skip) throws InterruptedException {
         JsonNode[] found = new JsonNode[1];
         await(() -> {
-            for (JsonNode body : bodiesFor(sessionId)) {
+            List<JsonNode> states = bodiesFor(sessionId).stream()
+                    .filter(b -> "FullState".equals(b.get("type").stringValue())).toList();
+            for (JsonNode body : states.subList(Math.min(skip, states.size()), states.size())) {
                 if ("FullState".equals(body.get("type").stringValue()) && body.get("actors").size() == actors) {
                     found[0] = body;
                     return true;

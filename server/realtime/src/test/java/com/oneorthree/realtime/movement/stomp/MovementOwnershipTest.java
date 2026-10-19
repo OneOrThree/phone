@@ -2,6 +2,9 @@ package com.oneorthree.realtime.movement.stomp;
 
 import com.oneorthree.realtime.TestcontainersConfiguration;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.config.RealtimeSessionRegistry;
+import com.oneorthree.realtime.movement.MovementEvent;
+import com.oneorthree.realtime.movement.Target;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -10,6 +13,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +25,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -134,5 +141,36 @@ class MovementOwnershipTest {
             boolean ownedByB = b.lease(island) != null;
             assertThat(ownedByA ^ ownedByB).as("정확히 한 쪽만 리스를 든다").isTrue();
         }
+    }
+
+    @Test
+    @DisplayName("갱신이 멈추면 로컬 한도(수명의 9/10) 뒤엔 리스를 믿지 않는다 — 2.6초는 유효, 3.0초는 무효·발행 0건(codex P1)")
+    void staleLocalLeaseStopsPublishing() {
+        AtomicLong clock = new AtomicLong(0);
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        MovementOwnership a = new MovementOwnership(redis, meters, "clk-a", 3000, clock::get);
+        ObjectMapper json = JsonMapper.builder().build();
+        MovementPublisher publisher = new MovementPublisher(json, new RealtimeSessionRegistry(), meters,
+                (message, timeout) -> true);
+        MovementRelay relay = new MovementRelay(true, publisher, a, redis, json, meters, 16, 16); // 송신 스레드 없음
+        UUID island = UUID.randomUUID();
+        MovementEvent.FullState state = new MovementEvent.FullState(1, 1, 50, 10.989, List.of());
+        a.acquire(island);
+
+        clock.set(TimeUnit.MILLISECONDS.toNanos(2600));
+        assertThat(a.lease(island)).isNotNull();
+        relay.onEvent(island, state, Target.ALL);
+        assertThat(meters.get("movement.relay.queue.depth").gauge().value()).isEqualTo(1);
+
+        clock.set(TimeUnit.MILLISECONDS.toNanos(3000));
+        assertThat(a.lease(island)).as("Redis 가 아직 내 것이라 해도 로컬 한도를 넘기면 믿지 않는다").isNull();
+        relay.onEvent(island, state, Target.ALL);
+        relay.onSnapshot(island, new MovementEvent.Snapshot(1, 1, List.of()));
+        assertThat(meters.get("movement.relay.queue.depth").gauge().value()).as("발행 0건").isEqualTo(1);
+        assertThat(meters.counter("movement.routing.failed", "reason", "no_lease").count()).isEqualTo(2);
+
+        assertThat(a.renew(island)).as("갱신이 성공하면 다시 믿는다").isTrue();
+        assertThat(a.lease(island)).isNotNull();
+        a.release(island);
     }
 }

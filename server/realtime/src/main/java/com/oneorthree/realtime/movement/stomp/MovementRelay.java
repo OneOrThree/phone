@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -34,10 +35,11 @@ import java.util.concurrent.TimeUnit;
  * 이면 사건을 {@link Frame} 으로 싸서 {@code chat:movement:frames:v1} 에 낸다(GROMO-2339). 다른 인스턴스로 가는 명령
  * ({@link Command})도 같은 송신 줄을 탄다.
  *
- * <p><b>송신은 한 줄·한 스레드다</b>({@code movement-relay-out}) — 틱 스레드는 {@link ArrayBlockingQueue}({@link
- * #QUEUE_CAPACITY})에 넣기만 하고, 송신 스레드가 모아서 파이프라인 PUBLISH 한다. 한 연결·한 순서라 받는 쪽에서도 낸 순서
- * 그대로 보인다(Redis Pub/Sub 은 연결 단위 순서를 지킨다). 줄이 차면 그 건은 버리고 {@code movement.relay.dropped} 를
- * 센다 — 틱을 막지 않는다. 잃은 사건은 다음 입장·재동기화 FullState 가 덮는다.
+ * <p><b>송신은 한 스레드·두 줄이다</b>({@code movement-relay-out}) — 사건·Snapshot·INTENT 줄({@link #QUEUE_CAPACITY})과
+ * 제어 명령 줄({@link #CONTROL_CAPACITY}). 넣는 쪽은 넣기만 하고, 송신 스레드가 제어 줄부터 모아 파이프라인 PUBLISH 한다.
+ * 한 연결이라 받는 쪽에서도 낸 순서 그대로 보인다(같은 줄 안에서. 제어가 앞선 INTENT 를 앞지를 수는 있다 — 퇴장 뒤 INTENT 는
+ * 방이 버린다). 줄이 차면 버리고 {@code movement.relay.dropped{kind=frame|control}} 을 센다 — 틱을 막지 않는다. 잃은 사건은
+ * 다음 FullState 가, 잃은 제어 명령은 1초 PING 대조가 덮는다.
  *
  * <p>소유자 리스가 없는 섬의 사건은 내지 않는다(fail-closed) — 리스를 잃은 직후 같은 틱에 한 번 더 돈 옛 방이 새 소유자
  * 위에 덮어쓰지 않게.
@@ -48,6 +50,8 @@ import java.util.concurrent.TimeUnit;
 public class MovementRelay implements RoomRuntime.Listener {
 
     static final int QUEUE_CAPACITY = 4096;
+    /** 제어 명령 줄 — 사건·Snapshot·INTENT 와 따로 두고 먼저 낸다. 1초 PING 대조가 유실을 고치므로 작게 둔다. */
+    static final int CONTROL_CAPACITY = 1024;
     private static final int BATCH = 256;
 
     private final boolean enabled;
@@ -56,7 +60,10 @@ public class MovementRelay implements RoomRuntime.Listener {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final ArrayBlockingQueue<Outgoing> queue;
+    private final ArrayBlockingQueue<Outgoing> control;
+    private final Semaphore signal = new Semaphore(0);
     private final Counter dropped;
+    private final Counter droppedControl;
     private final Counter noLease;
     private final Counter publishFailed;
     private final Timer lag;
@@ -74,23 +81,28 @@ public class MovementRelay implements RoomRuntime.Listener {
     public MovementRelay(@Value("${realtime.movement.multi-instance.enabled:false}") boolean enabled,
             MovementPublisher publisher, MovementOwnership ownership, StringRedisTemplate redis,
             ObjectMapper objectMapper, MeterRegistry meterRegistry) {
-        this(enabled, publisher, ownership, redis, objectMapper, meterRegistry, QUEUE_CAPACITY);
+        this(enabled, publisher, ownership, redis, objectMapper, meterRegistry, QUEUE_CAPACITY, CONTROL_CAPACITY);
     }
 
     /** 패키지 전용 — 테스트가 작은 줄로 포화를 만든다. */
     MovementRelay(boolean enabled, MovementPublisher publisher, MovementOwnership ownership,
-            StringRedisTemplate redis, ObjectMapper objectMapper, MeterRegistry meterRegistry, int capacity) {
+            StringRedisTemplate redis, ObjectMapper objectMapper, MeterRegistry meterRegistry, int capacity,
+            int controlCapacity) {
         this.enabled = enabled;
         this.publisher = publisher;
         this.ownership = ownership;
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.queue = new ArrayBlockingQueue<>(capacity);
-        Gauge.builder("movement.relay.queue.depth", queue, ArrayBlockingQueue::size)
+        this.control = new ArrayBlockingQueue<>(controlCapacity);
+        Gauge.builder("movement.relay.queue.depth", this, relay -> relay.queue.size() + relay.control.size())
                 .description("이동 릴레이 송신 줄 깊이(GROMO-2339, 상한 " + capacity + ")")
                 .register(meterRegistry);
-        this.dropped = Counter.builder("movement.relay.dropped")
-                .description("송신 줄이 차서 버린 이동 프레임·명령 수")
+        this.dropped = Counter.builder("movement.relay.dropped").tag("kind", "frame")
+                .description("송신 줄이 차서 버린 이동 프레임·INTENT 수")
+                .register(meterRegistry);
+        this.droppedControl = Counter.builder("movement.relay.dropped").tag("kind", "control")
+                .description("제어 줄까지 차서 버린 JOIN·LEAVE·FULL_STATE·RECHECK·PING 수 — 다음 PING 대조가 고친다")
                 .register(meterRegistry);
         this.noLease = Counter.builder("movement.routing.failed").tag("reason", "no_lease")
                 .description("소유자 리스 없이 나온 방 사건이라 내지 않은 수(fail-closed)")
@@ -216,30 +228,49 @@ public class MovementRelay implements RoomRuntime.Listener {
     // ── 송신 줄 ─────────────────────────────────────────────────────────
 
     void publishFrame(Frame frame) {
-        offer(RedisKeys.MOVEMENT_FRAMES_CHANNEL, objectMapper.writeValueAsString(frame));
+        offer(queue, dropped, RedisKeys.MOVEMENT_FRAMES_CHANNEL, objectMapper.writeValueAsString(frame));
     }
 
+    /**
+     * 명령을 낸다. INTENT 만 사건과 같은 줄이고(버려져도 사용자가 다시 누른다), 나머지(JOIN·LEAVE·FULL_STATE·RECHECK·PING·
+     * EVICTED)는 제어 줄로 가 사건 줄이 Snapshot 으로 차도 밀리지 않고 먼저 나간다(codex P2). 제어 줄마저 차거나 PUBLISH 가
+     * 실패해 JOIN·LEAVE 를 잃으면 다음 PING 대조({@code MovementCluster#reconcile})가 1초 안에 맞춘다 — 그래서 재전송 장부를
+     * 따로 두지 않는다(더 작은 설계).
+     */
     void publishCommand(Command command) {
-        offer(RedisKeys.MOVEMENT_CMD_CHANNEL, objectMapper.writeValueAsString(command));
+        String payload = objectMapper.writeValueAsString(command);
+        if (command.type() == Type.INTENT) {
+            offer(queue, dropped, RedisKeys.MOVEMENT_CMD_CHANNEL, payload);
+        } else {
+            offer(control, droppedControl, RedisKeys.MOVEMENT_CMD_CHANNEL, payload);
+        }
     }
 
-    private void offer(String channel, String payload) {
-        if (!queue.offer(new Outgoing(channel, payload, System.nanoTime()))) {
-            dropped.increment();
+    private void offer(ArrayBlockingQueue<Outgoing> target, Counter drops, String channel, String payload) {
+        if (target.offer(new Outgoing(channel, payload, System.nanoTime()))) {
+            signal.release();
+        } else {
+            drops.increment();
         }
     }
 
     private void sendLoop() {
         List<Outgoing> batch = new ArrayList<>(BATCH);
-        while (running || !queue.isEmpty()) {
+        while (running || !queue.isEmpty() || !control.isEmpty()) {
             try {
-                Outgoing first = queue.poll(200, TimeUnit.MILLISECONDS);
-                if (first == null) {
-                    continue;
+                if (!signal.tryAcquire(200, TimeUnit.MILLISECONDS) && control.isEmpty() && queue.isEmpty()) {
+                    continue; // 할 일 없음 — running 을 다시 본다
                 }
-                batch.add(first);
-                queue.drainTo(batch, BATCH - 1);
-                send(batch);
+                signal.drainPermits();
+                // 제어 줄을 먼저 비운다 — 한 배치 안에서도 제어가 앞선다.
+                control.drainTo(batch, BATCH);
+                queue.drainTo(batch, BATCH - batch.size());
+                if (!batch.isEmpty()) {
+                    send(batch);
+                }
+                if (!control.isEmpty() || !queue.isEmpty()) {
+                    signal.release(); // 다 못 비웠다 — 기다리지 말고 다음 배치
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
@@ -291,10 +322,12 @@ public class MovementRelay implements RoomRuntime.Listener {
     public enum Kind { EVENT, SNAPSHOT, SUPERSEDE }
 
     /**
-     * 명령 종류. {@code PING} 은 계약 §4 밖의 추가다 — 인스턴스 생존 신호(1초). 소유자는 끊긴 인스턴스의 세션 actor 를
-     * 내보낸다(그 인스턴스가 죽으면 LEAVE 를 보낼 곳이 없다).
+     * 명령 종류. {@code PING}·{@code EVICTED} 는 계약 §4 밖의 추가다. PING = 인스턴스 생존 신호(1초) + 그 인스턴스가 «입장해
+     * 있다고 믿는» 세션 목록({@code sessions}, {@code 섬|세션}) — 소유자는 끊긴 인스턴스의 actor 를 내보내고, 목록과 대조해
+     * 유령(LEAVE 유실)은 내보내고 빠진 세션(JOIN 유실·생존 신호 단절로 제거됨)은 {@code EVICTED}({@code ownerInstanceId} =
+     * 받을 인스턴스)로 알려 다시 입장시킨다.
      */
-    public enum Type { JOIN, LEAVE, INTENT, FULL_STATE, RECHECK, PING }
+    public enum Type { JOIN, LEAVE, INTENT, FULL_STATE, RECHECK, PING, EVICTED }
 
     /**
      * 소유자 → 전 인스턴스. {@code payload} 는 앱 wire 그대로의 사건 JSON(받는 쪽이 바이트로 바꿔 outbox 에 넣는다 —
@@ -310,6 +343,12 @@ public class MovementRelay implements RoomRuntime.Listener {
      * {@code ownerInstanceId=null} 로 전원에게. {@code sessionKey} = {@code <originInstanceId>:<sessionId>}.
      */
     public record Command(String originInstanceId, String ownerInstanceId, long epoch, UUID islandId, Type type,
-            UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale) {
+            UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale, List<String> sessions) {
+
+        public Command(String originInstanceId, String ownerInstanceId, long epoch, UUID islandId, Type type,
+                UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale) {
+            this(originInstanceId, ownerInstanceId, epoch, islandId, type, userId, sessionKey, intent, cacheStale,
+                    null);
+        }
     }
 }

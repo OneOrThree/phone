@@ -183,9 +183,12 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   프레임은 `chat:movement:frames:v1` 로 전원에게 — **소유자도 자기 메아리로만 자기 세션에 넣는다**(전달 경로 하나).
   봉투(`MovementRelay.Frame`·`Command`)는 인스턴스 사이 전용이고 `payload` 는 앱 wire JSON 그대로다.
 - **스레드**: `movement-cluster`(1, 라우팅·소유권·1초 감시 — 인바운드 스레드는 넣기만 한다), `movement-relay-in`(1, 전용
-  `RedisMessageListenerContainer` — 채팅 컨테이너와 섞으면 순서가 깨진다), `movement-relay-out`(1, 줄 4096 + 파이프라인
-  PUBLISH, 차면 버린다).
-- **fail-closed**: 리스 상실(남의 값·갱신 실패 2초) → 방 `evict`·발행 중단. 본 epoch 보다 작은 프레임은 버린다. 소유자가
+  `RedisMessageListenerContainer` — 채팅 컨테이너와 섞으면 순서가 깨진다), `movement-relay-out`(1, 사건·Snapshot·INTENT 줄 4096 +
+  제어 줄 1024(JOIN·LEAVE·FULL_STATE·RECHECK·PING·EVICTED, 먼저 낸다) + 파이프라인 PUBLISH, 차면 버리고
+  `dropped{kind=frame|control}`).
+- **fail-closed**: 리스 상실 → 방 `evict`·발행 중단. 리스는 마지막 성공 갱신을 «보낸 시각»부터 수명의 9/10(2.7초)까지만
+  믿는다 — 넘으면 `MovementOwnership.lease()` 가 null 이라 감시 스레드가 밀려도 발행·명령 적용이 즉시 멈추고, 다음 감시가
+  `lost{expired}` 로 방을 버린다(남의 값이면 `lost{stolen}`). 본 epoch 보다 작은 프레임은 버린다. 소유자가
   바뀌면 그 섬 내 세션 전부 게이트를 닫고(resync) 새 소유자에 다시 입장 → 세션 한정 FullState(wire 무변경).
 - **인계(단계 B)**: 소유자 종료는 수명주기 단계 1(`SmartLifecycle` — 웹 서버 종료 뒤·Lettuce(단계 0) 종료 전)에서 위치를
   `movement:room:{id}:handoff` 에 남기고 리스를 내놓는다. `@PreDestroy` 로 옮기지 마라 — 그때는 Redis 연결이 이미 닫혀 있어
@@ -193,6 +196,11 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 - **강퇴·교체**: `MovementSubscriptionListener.recheckMembership` 은 로컬 재검사 + RECHECK 브로드캐스트(각자 자기 세션만,
   캐시 삭제 실패 표시 `cacheStale` 동반). 다른 인스턴스에서 같은 사용자가 새로 들어오면 소유자가 SUPERSEDE 프레임으로 옛
   세션을 멈추고 그 세션 intent 를 버린다. PING(1초)이 5초 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다.
+- **PING 대조(제어 명령 유실·생존 신호 복구)**: PING 은 그 인스턴스가 남의 방에 입장해 있다고 믿는 세션 목록(`섬|세션`)을
+  싣는다. 소유자는 PING 마다 목록과 자기 방을 맞춘다 — 목록에 없는 그 인스턴스 actor 는 내보내고(LEAVE 유실), 목록에 있는데
+  방에 없는 세션은 `EVICTED` 로 알려 그 세션만 resync + JOIN·FULL_STATE 로 다시 입장시킨다(JOIN·첫 FullState 요청 유실,
+  생존 신호 단절로 제거된 뒤 복구). 1초마다 되풀이되므로 EVICTED 가 유실돼도 다음 PING 이 다시 보낸다 — 비소유 쪽의
+  «내 PING 이 끊겼다 복구됨» 감지는 따로 두지 않았다.
 - **지표**: `movement.owner.{acquire{trigger},lost{reason},islands,forward{type},forward.stale{reason}}`,
   `movement.routing.failed{reason=redis|no_lease|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`.
 

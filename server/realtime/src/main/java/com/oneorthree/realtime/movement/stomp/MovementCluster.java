@@ -68,8 +68,6 @@ import java.util.concurrent.TimeUnit;
 public class MovementCluster implements MessageListener, SmartLifecycle {
 
     static final long POLL_MS = 1000;
-    /** 갱신 실패가 이만큼 이어지면 리스를 잃은 것으로 친다(리스 3초보다 짧게 — 남이 얻기 전에 먼저 손을 뗀다). */
-    private static final long RENEW_GIVE_UP_NANOS = TimeUnit.MILLISECONDS.toNanos(2000);
     /** 방이 비어도 갓 얻은 리스는 이만큼은 들고 있는다 — 얻자마자 첫 명령 전에 반납하는 경합을 막는다. */
     private static final long RELEASE_GRACE_NANOS = TimeUnit.SECONDS.toNanos(5);
     /** 생존 신호(PING)가 이만큼 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다. */
@@ -165,7 +163,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
 
     private static Counter lostCounter(MeterRegistry meters, String reason) {
         return Counter.builder("movement.owner.lost").tag("reason", reason)
-                .description("이동 방 소유자 리스를 잃은 수 — stolen: 남의 값, expired: 갱신 실패 2초")
+                .description("이동 방 소유자 리스를 잃은 수 — stolen: 남의 값, expired: 로컬 한도(리스 수명의 9/10) 초과")
                 .register(meters);
     }
 
@@ -333,6 +331,10 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     /** 아는 소유자, 없으면 Redis 에 묻는다(비어 있으면 내가 갖는다). Redis 가 안 되면 null. */
     private Owner resolveOwner(UUID islandId) {
         Owner known = owners.get(islandId);
+        if (known != null && known.instanceId().equals(me) && ownership.lease(islandId) == null) {
+            lose(islandId, lostExpired); // 나라고 알고 있지만 리스가 로컬 한도를 넘겼다 — 방을 버리고 다시 알아낸다
+            known = owners.get(islandId);
+        }
         if (known != null) {
             return known;
         }
@@ -380,8 +382,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     /** 이 인스턴스의 그 섬 세션을 지금 소유자에게 다시 입장시킨다(JOIN 다음 FULL_STATE — 방 큐 FIFO). */
     private void rejoin(UUID islandId) {
         for (MovementOutbox outbox : publisher.outboxes(islandId)) {
-            if (outbox.hasMovement() && !outbox.isClosed() && !outbox.isSuperseded()
-                    && !replaced.contains(replacedKey(islandId, outbox.sessionId()))) {
+            if (eligible(islandId, outbox)) {
                 route(islandId, Type.JOIN, outbox.userId(), outbox.sessionId(), null);
                 route(islandId, Type.FULL_STATE, null, outbox.sessionId(), null);
             }
@@ -431,7 +432,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             renewLeases();
             releaseIdle();
             watchOwners();
-            relay.publishCommand(new Command(me, null, 0, null, Type.PING, null, null, null, false));
+            relay.publishCommand(new Command(me, null, 0, null, Type.PING, null, null, null, false, joinedSessions()));
             sweepDeadInstances();
         } catch (RuntimeException e) {
             log.warn("이동 소유자 감시 실패 — reason={}", e.getClass().getSimpleName());
@@ -439,17 +440,18 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     }
 
     private void renewLeases() {
-        long now = System.nanoTime();
-        for (Map.Entry<UUID, Lease> entry : ownership.leases().entrySet()) {
-            UUID islandId = entry.getKey();
+        for (UUID islandId : ownership.leases().keySet()) {
+            if (ownership.lease(islandId) == null) {
+                // 로컬 한도를 넘겼다(갱신 실패·이 스레드 지연) — 발행·적용은 이미 막혔고(lease()=null), 여기서 방을 버린다.
+                lose(islandId, lostExpired);
+                continue;
+            }
             try {
                 if (!ownership.renew(islandId)) {
                     lose(islandId, lostStolen);
                 }
             } catch (RuntimeException e) {
-                if (now - entry.getValue().renewedAtNanos() > RENEW_GIVE_UP_NANOS) {
-                    lose(islandId, lostExpired);
-                }
+                log.debug("이동 리스 갱신 실패 — 로컬 한도 안이면 다음 틱에 다시 한다");
             }
         }
     }
@@ -587,9 +589,95 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             }
             return;
         }
-        if (command.type() != Type.PING && me.equals(command.ownerInstanceId())) {
-            submit(() -> applyForwarded(command));
+        if (command.type() == Type.PING) {
+            submit(() -> reconcile(command.originInstanceId(), command.sessions()));
+        } else if (me.equals(command.ownerInstanceId())) {
+            submit(command.type() == Type.EVICTED ? () -> rejoinEvicted(command.sessions())
+                    : () -> applyForwarded(command));
         }
+    }
+
+    // ── PING 대조(codex P2 2건) — movement-cluster 스레드 ─────────────────
+
+    /**
+     * 이 인스턴스가 남의 방에 «입장해 있다고 믿는» 세션({@code 섬|세션}) — PING 에 실어 소유자가 대조한다. 내가 소유한 섬은
+     * 로컬이라 뺀다. ponytail: 1초마다 전부 싣는다(세션 수만큼 커진다). 커지면 섬별 해시로 줄인다.
+     */
+    private List<String> joinedSessions() {
+        List<String> joined = new ArrayList<>();
+        for (UUID islandId : publisher.islands()) {
+            if (ownership.lease(islandId) != null) {
+                continue;
+            }
+            for (MovementOutbox outbox : publisher.outboxes(islandId)) {
+                if (eligible(islandId, outbox)) {
+                    joined.add(replacedKey(islandId, outbox.sessionId()));
+                }
+            }
+        }
+        return joined;
+    }
+
+    /**
+     * 소유자 쪽 대조 — {@code origin} 의 PING 목록과 내 방의 그 인스턴스 actor 를 맞춘다. 목록에 없는데 방에 있으면(LEAVE 유실)
+     * 내보내고, 목록에 있는데 방에 없으면(JOIN 유실, 생존 신호가 끊겨 내가 내보낸 뒤 복구) {@code EVICTED} 로 알려 다시 입장하게
+     * 한다. 명령과 같은 실행기·같은 순서(JOIN 이 PING 보다 먼저 나갔으면 먼저 적용됐다)라 아직 도착 전인 JOIN 을 잘못 세지 않는다.
+     *
+     * <p>비소유 쪽이 «자기 PING 이 끊겼다가 복구됨»을 따로 감지하지 않는 이유: 이 대조가 PING 마다(1초) 되풀이되므로 EVICTED 가
+     * 한 번 유실돼도 다음 PING 이 다시 보낸다. 감지 장치를 하나 더 두면 같은 일을 두 곳이 한다.
+     */
+    private void reconcile(String origin, List<String> sessions) {
+        Set<String> listed = sessions == null ? Set.of() : new HashSet<>(sessions);
+        List<String> missing = new ArrayList<>();
+        for (UUID islandId : ownership.leases().keySet()) {
+            if (ownership.lease(islandId) == null) {
+                continue;
+            }
+            Set<String> remote = remoteSessions.computeIfAbsent(islandId, id -> new HashSet<>());
+            remote.removeIf(key -> {
+                if (!MovementRelay.instanceOf(key).equals(origin)
+                        || listed.contains(replacedKey(islandId, MovementRelay.sessionOf(key)))) {
+                    return false;
+                }
+                rooms.leave(islandId, key);
+                return true;
+            });
+            String prefix = islandId + "|";
+            for (String entry : listed) {
+                if (entry.startsWith(prefix)
+                        && !remote.contains(MovementRelay.sessionKey(origin, entry.substring(prefix.length())))) {
+                    missing.add(entry);
+                }
+            }
+        }
+        if (!missing.isEmpty()) {
+            relay.publishCommand(new Command(me, origin, 0, null, Type.EVICTED, null, null, null, false, missing));
+        }
+    }
+
+    /** 비소유 쪽 — 소유자가 «네 세션이 내 방에 없다»고 알렸다. 그 세션만 게이트를 닫고 다시 입장시킨다. */
+    private void rejoinEvicted(List<String> sessions) {
+        if (sessions == null) {
+            return;
+        }
+        for (String entry : sessions) {
+            int split = entry.indexOf('|');
+            UUID islandId = UUID.fromString(entry.substring(0, split));
+            String sessionId = entry.substring(split + 1);
+            for (MovementOutbox outbox : publisher.outboxes(islandId)) {
+                if (outbox.sessionId().equals(sessionId) && eligible(islandId, outbox)) {
+                    publisher.resync(islandId, sessionId);
+                    route(islandId, Type.JOIN, outbox.userId(), sessionId, null);
+                    route(islandId, Type.FULL_STATE, null, sessionId, null);
+                }
+            }
+        }
+    }
+
+    /** 방에 actor 를 든 내 세션인가 — 구독 중·안 닫힘·교체되지 않음. */
+    private boolean eligible(UUID islandId, MovementOutbox outbox) {
+        return outbox.hasMovement() && !outbox.isClosed() && !outbox.isSuperseded()
+                && !replaced.contains(replacedKey(islandId, outbox.sessionId()));
     }
 
     private static String replacedKey(UUID islandId, String sessionId) {

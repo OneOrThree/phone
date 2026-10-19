@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /**
  * 섬 이동 방의 소유자 리스(GROMO-2339) — 한 섬의 {@code RoomRuntime} 은 클러스터 전체에서 이 리스를 든 인스턴스 한 곳에만 산다.
@@ -72,18 +74,32 @@ public class MovementOwnership {
     private final StringRedisTemplate redis;
     private final String instanceId;
     private final long leaseMs;
+    /**
+     * 로컬에서 리스를 «유효»로 믿는 한도 — 마지막 성공 갱신을 «보낸 시각»부터 리스 수명의 9/10(3000ms 면 2700ms).
+     * 나머지 1/10(300ms)은 시계·전달 지연 여유다. 이 한도를 넘으면 Redis 가 아직 내 것이라 해도 쓰지 않는다(fail-closed).
+     */
+    private final long trustNanos;
+    private final LongSupplier nanoClock;
     private final Map<UUID, Lease> leases = new ConcurrentHashMap<>();
 
     @Autowired
     public MovementOwnership(StringRedisTemplate redis, MeterRegistry meterRegistry) {
-        this(redis, meterRegistry, newInstanceId(), LEASE_MS);
+        this(redis, meterRegistry, newInstanceId(), LEASE_MS, System::nanoTime);
     }
 
     /** 패키지 전용 — 테스트가 인스턴스 id 와 짧은 리스 수명을 준다. */
     MovementOwnership(StringRedisTemplate redis, MeterRegistry meterRegistry, String instanceId, long leaseMs) {
+        this(redis, meterRegistry, instanceId, leaseMs, System::nanoTime);
+    }
+
+    /** 패키지 전용 — 테스트가 로컬 만료 판정의 시계를 준다. */
+    MovementOwnership(StringRedisTemplate redis, MeterRegistry meterRegistry, String instanceId, long leaseMs,
+            LongSupplier nanoClock) {
         this.redis = redis;
         this.instanceId = instanceId;
         this.leaseMs = leaseMs;
+        this.trustNanos = TimeUnit.MILLISECONDS.toNanos(leaseMs - leaseMs / 10);
+        this.nanoClock = nanoClock;
         Gauge.builder("movement.owner.islands", leases, Map::size)
                 .description("이 인스턴스가 소유자 리스를 든 섬 수(GROMO-2339)")
                 .register(meterRegistry);
@@ -100,14 +116,14 @@ public class MovementOwnership {
      * @return 지금 소유자(나일 수도 있다)
      */
     Owner acquire(UUID islandId) {
+        long sentAt = nanoClock.getAsLong(); // 응답이 늦어도 수명은 보낸 시각부터 센다(보수적)
         String value = redis.execute(ACQUIRE, List.of(RedisKeys.movementOwner(islandId), RedisKeys.MOVEMENT_EPOCH),
                 instanceId, Long.toString(leaseMs));
         Owner owner = Owner.parse(value);
         if (owner.instanceId().equals(instanceId)) {
-            long now = System.nanoTime();
             Lease held = leases.get(islandId);
-            leases.put(islandId, held != null && held.owner().equals(owner) ? held.renewed(now)
-                    : new Lease(owner, now, now));
+            leases.put(islandId, held != null && held.owner().equals(owner) ? held.renewed(sentAt)
+                    : new Lease(owner, sentAt, sentAt));
         }
         return owner;
     }
@@ -118,10 +134,11 @@ public class MovementOwnership {
         if (lease == null) {
             return false;
         }
+        long sentAt = nanoClock.getAsLong();
         Long renewed = redis.execute(RENEW, List.of(RedisKeys.movementOwner(islandId)), lease.owner().value(),
                 Long.toString(leaseMs));
         if (renewed != null && renewed == 1L) {
-            leases.put(islandId, lease.renewed(System.nanoTime()));
+            leases.put(islandId, lease.renewed(sentAt));
             return true;
         }
         return false;
@@ -140,12 +157,17 @@ public class MovementOwnership {
         leases.remove(islandId);
     }
 
-    /** 내가 든 리스, 없으면 null. 틱 스레드(릴레이 발행)도 읽는다. */
+    /**
+     * 지금 «믿을 수 있는» 내 리스, 없거나 로컬 한도({@link #trustNanos})를 넘겼으면 null(codex P1). 발행(틱 스레드)·명령
+     * 적용이 이것만 본다 — 갱신 호출이나 {@code movement-cluster} 실행기가 밀려 실제 리스가 만료됐는데 옛 기록을 믿고 새
+     * 소유자 위에 덮어쓰는 일을 감시 스레드가 돌든 말든 막는다. 기록 자체는 감시가 {@code lost{expired}} 로 정리한다.
+     */
     Lease lease(UUID islandId) {
-        return leases.get(islandId);
+        Lease lease = leases.get(islandId);
+        return lease == null || nanoClock.getAsLong() - lease.renewedAtNanos() >= trustNanos ? null : lease;
     }
 
-    /** 내가 든 리스 전부(복사본) — 갱신·인계가 훑는다. */
+    /** 내가 든 리스 기록 전부(복사본, 로컬 만료 포함) — 갱신·반납·인계가 훑는다. */
     Map<UUID, Lease> leases() {
         return Map.copyOf(leases);
     }
@@ -169,7 +191,7 @@ public class MovementOwnership {
         }
     }
 
-    /** 내가 든 리스 — {@code renewedAtNanos} 는 마지막으로 Redis 가 «아직 내 것»이라 답한 시각. */
+    /** 내가 든 리스 — {@code renewedAtNanos} 는 Redis 가 «아직 내 것»이라 답한 마지막 요청을 «보낸» 시각. */
     record Lease(Owner owner, long acquiredAtNanos, long renewedAtNanos) {
 
         long epoch() {

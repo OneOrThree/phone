@@ -300,6 +300,33 @@ class TwoInstanceMovementTest {
                 .noneMatch(m -> "PathAccepted".equals(m.get("type")));
     }
 
+    @Test
+    @DisplayName("⑥ 소유자가 6초간 생존 신호를 못 받아 비소유 쪽 actor 를 내보냈다가 복구되면, PING 대조로 그 세션이 다시 입장해 intent 가 적용된다")
+    void sessionsRejoinAfterLivenessOutage() throws Exception {
+        UUID b1 = UUID.randomUUID();
+        UUID a1 = UUID.randomUUID();
+        awaitFullState(movement(connect(portB, b1)), 1);
+        StompSession sa1 = connect(portA, a1);
+        BlockingQueue<Map<String, Object>> a1Moves = movement(sa1);
+        awaitFullState(a1Moves, 2);
+
+        org.springframework.data.redis.listener.RedisMessageListenerContainer ownerRelayIn =
+                instanceB.getBean("movementRelayListenerContainer",
+                        org.springframework.data.redis.listener.RedisMessageListenerContainer.class);
+        ownerRelayIn.stop(); // 소유자 B 가 A 의 PING·명령을 못 받는다
+        assertThat(actorIds(awaitFullState(a1Moves, 1))).as("5초 뒤 B 가 a1 을 내보낸다")
+                .containsExactly(b1.toString());
+        ownerRelayIn.start();
+
+        assertThat(actorIds(awaitFullState(a1Moves, 2))).as("복구 뒤 PING 대조 → EVICTED → a1 재입장")
+                .containsExactlyInAnyOrder(a1.toString(), b1.toString());
+        drainUntilQuiet(a1Moves);
+        sa1.send(intentDestination(), intent(1, NEAR_X, NEAR_Y));
+        Map<String, Object> accepted = awaitType(a1Moves, "PathAccepted", TIMEOUT_MS);
+        assertThat(accepted).as("재입장한 actor 에 intent 가 다시 적용된다").isNotNull();
+        assertThat(accepted.get("userId")).isEqualTo(a1.toString());
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private static GroupClient.Membership membershipOf(String bearer) {
