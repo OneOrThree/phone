@@ -951,7 +951,7 @@ Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «�
   }
 }
 
-Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루 1개(결정 N6), 섬당 최근 30개만 살리고 나머지는 deleted_at. GROMO-2262, V113'] {
+Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루 1개(결정 N6), 개수 제한 없이 보관하며 섬장이 지운 글은 deleted_at으로 숨긴다. GROMO-2262·2304, V113'] {
   id         uuid        [pk]
   island_id  uuid        [not null, note: 'FK → groups.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다']
   author_id  uuid        [not null, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행도 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 먼저 지운 글까지 포함해 delete 한다(IslandGuestbookEntryRepository.deleteAllOfUser — 공지 댓글과 같은 선례)']
