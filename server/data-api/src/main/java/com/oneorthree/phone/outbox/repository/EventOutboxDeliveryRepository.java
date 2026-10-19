@@ -60,6 +60,15 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
      * <p>{@code @Modifying} 이 아니다 — 결과 집합을 돌려주는 문장이라 select 로 실행한다. 쓰기이므로
      * 호출측이 읽기·쓰기 트랜잭션 안에 있어야 한다.
      *
+     * <p><b>캐시 주의:</b> 네이티브 쿼리가 엔티티를 돌려주므로 같은 영속성 컨텍스트에 이미 로드된
+     * {@code EventOutboxDelivery} 가 있으면 RETURNING 값이 아니라 캐시 인스턴스가 올 수 있다 — 반드시 자기
+     * 트랜잭션({@code OutboxRelayStore.claim})에서만 부른다.
+     *
+     * <p><b>가정:</b> 한 축 안에서 (target, aggregate_version) 은 유일하다 — 같은 version 의 같은 target 행이
+     * 둘이면 윈도 순서가 불안정하다. 근거: 봉투 {@code uq_event_outbox_aggregate_version
+     * (aggregate_type, aggregate_id, version)} 와 전달 행 {@code uq_event_outbox_deliveries_outbox_target
+     * (outbox_id, target)} 두 UNIQUE 인덱스(V51)가 합쳐 보장한다.
+     *
      * @param target     전달 대상 이름({@code OutboxTarget.name()})
      * @param now        현재 시각 — 도래 판정과 만료 리스 회수의 기준
      * @param leaseUntil 이번 리스의 만료 시각

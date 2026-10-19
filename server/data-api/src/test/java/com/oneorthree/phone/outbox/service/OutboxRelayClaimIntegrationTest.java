@@ -78,32 +78,77 @@ class OutboxRelayClaimIntegrationTest {
     }
 
     @Test
-    void twoConcurrentClaimersNeverCoOwnARow() throws Exception {
-        for (int i = 0; i < 20; i++) {
+    void claimerSkipsRowsLockedByUncommittedClaimerInsteadOfWaiting() throws Exception {
+        for (int i = 0; i < 25; i++) {
             append(UUID.randomUUID(), OutboxDeliveryRequest.toKafka());
         }
-        CountDownLatch ready = new CountDownLatch(2);
-        CountDownLatch go = new CountDownLatch(1);
+        CountDownLatch aClaimed = new CountDownLatch(1);
+        CountDownLatch releaseA = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(2);
         try {
-            List<Future<List<EventOutboxDelivery>>> runs = List.of(
-                    executor.submit(() -> claimAfter(ready, go, "worker-a")),
-                    executor.submit(() -> claimAfter(ready, go, "worker-b")));
-            assertThat(ready.await(5, TimeUnit.SECONDS)).as("두 워커가 모두 출발선에 섰다").isTrue();
-            go.countDown();
-            Set<UUID> a = ids(runs.get(0).get(10, TimeUnit.SECONDS));
-            Set<UUID> b = ids(runs.get(1).get(10, TimeUnit.SECONDS));
+            // A: 선점하고 커밋하지 않은 채 붙들어 행 잠금을 쥔다.
+            Future<Set<UUID>> runA = executor.submit(() -> tx().execute(status -> {
+                Instant now = CLOCK.instant();
+                List<EventOutboxDelivery> rows = deliveries.claimBatch("KAFKA", now,
+                        now.plus(PROPERTIES.getLeaseDuration()), "worker-a", UUID.randomUUID(), 1, 10);
+                aClaimed.countDown();
+                try {
+                    if (!releaseA.await(10, TimeUnit.SECONDS)) {
+                        throw new AssertionError("A 해제 신호를 받지 못했다");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+                return ids(rows);
+            }));
+            assertThat(aClaimed.await(10, TimeUnit.SECONDS)).as("A 가 선점했다").isTrue();
 
-            assertThat(a).doesNotContainAnyElementsOf(b);
+            // B: 다른 커넥션. SKIP LOCKED 면 A 를 기다리지 않고 남은 후보로 batch 를 채운다.
+            Future<List<EventOutboxDelivery>> runB =
+                    executor.submit(() -> store.claim(OutboxTarget.KAFKA, "worker-b", UUID.randomUUID()));
+            Set<UUID> b = ids(runB.get(10, TimeUnit.SECONDS));
+            releaseA.countDown();
+            Set<UUID> a = runA.get(10, TimeUnit.SECONDS);
+            assertThat(a).hasSize(10);
+            assertThat(b).as("B 는 A 가 쥔 행을 건너뛰고 batch 만큼 채웠다").hasSize(10).doesNotContainAnyElementsOf(a);
+
+            Set<UUID> rest = ids(store.claim(OutboxTarget.KAFKA, "worker-c", UUID.randomUUID()));
             Set<UUID> union = new HashSet<>(a);
             union.addAll(b);
-            assertThat(union).as("배치 10 둘이 SKIP LOCKED 로 나눠 헤드 20개를 전부 집는다")
-                    .isEqualTo(ids(deliveries.findAll()));
+            union.addAll(rest);
+            assertThat(rest).hasSize(5);
+            assertThat(union).as("A 커밋 뒤 합집합이 전체").isEqualTo(ids(deliveries.findAll()));
             assertThat(deliveries.findAll()).allSatisfy(row -> assertThat(row.getAttemptCount()).isEqualTo(1));
         } finally {
+            releaseA.countDown();
             executor.shutdownNow();
             assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    @Test
+    void leasedPredecessorOnSameAxisBlocksSuccessor() {
+        UUID user = UUID.randomUUID();
+        append(user, OutboxDeliveryRequest.toKafka());
+        append(user, OutboxDeliveryRequest.toKafka());
+
+        assertThat(store.claim(OutboxTarget.KAFKA, "w", UUID.randomUUID())).singleElement()
+                .satisfies(row -> assertThat(row.getAggregateVersion()).isEqualTo(1));
+        NOW.set(START.plusSeconds(1));
+        assertThat(store.claim(OutboxTarget.KAFKA, "w2", UUID.randomUUID()))
+                .as("v1 이 리스 중이면 v2 는 앞지르지 못한다").isEmpty();
+    }
+
+    @Test
+    void undeliveredRowOfOtherTargetDoesNotBlockKafka() {
+        UUID user = UUID.randomUUID();
+        append(user, OutboxDeliveryRequest.toScore());
+        append(user, OutboxDeliveryRequest.toKafka());
+
+        assertThat(store.claim(OutboxTarget.KAFKA, "w", UUID.randomUUID())).singleElement()
+                .as("장벽은 KAFKA→NOTI 뿐 — SCORE 미전달은 막지 않는다")
+                .satisfies(row -> assertThat(row.getAggregateVersion()).isEqualTo(2));
     }
 
     @Test
@@ -156,15 +201,6 @@ class OutboxRelayClaimIntegrationTest {
         assertThat(store.markDelivered(notiV1.get(0).getId(), notiToken)).isEqualTo(1);
         assertThat(store.claim(OutboxTarget.KAFKA, "w", UUID.randomUUID())).singleElement()
                 .satisfies(row -> assertThat(row.getAggregateVersion()).isEqualTo(2));
-    }
-
-    private List<EventOutboxDelivery> claimAfter(CountDownLatch ready, CountDownLatch go, String owner)
-            throws InterruptedException {
-        ready.countDown();
-        if (!go.await(5, TimeUnit.SECONDS)) {
-            throw new AssertionError("출발 신호를 받지 못했다");
-        }
-        return store.claim(OutboxTarget.KAFKA, owner, UUID.randomUUID());
     }
 
     private void append(UUID user, OutboxDeliveryRequest... destinations) {
