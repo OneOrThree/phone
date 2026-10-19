@@ -131,6 +131,8 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
   call `recompute` before reading rankings.
   `island_id` deliberately has no FK to `groups`: the FK check in `recompute`'s INSERT would take a `groups` row
   KEY SHARE while holding the table lock, inverting `finish`'s order (groups FOR UPDATE → table lock) and deadlocking.
+  For the same reason the Sunday close is two transactions (recompute commits, then the denominator freeze opens),
+  and `recompute` throws if called inside an active transaction.
 
 ## Observability
 

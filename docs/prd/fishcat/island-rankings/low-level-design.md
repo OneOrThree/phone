@@ -189,6 +189,9 @@ INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON C
   (테이블을 SHARE ROW EXCLUSIVE 로 잠가 동시 가산과 직렬화). 주 마감 크론이 동결과 같은 트랜잭션에서 **방금 끝난 주**를
   재계산하므로 배포 창·장애로 빠진 가산은 그 주 마감에 바로잡힌다. V130 이 기존 모든 주를 백필하고, 배포 뒤
   수동 보정이 필요하면 같은 메서드를 그 주로 부른다(HTTP 표면 없음).
+  주 마감은 **트랜잭션 두 개**다 — 재계산 트랜잭션을 커밋해 테이블 잠금을 푼 «뒤» 분모 동결 트랜잭션을 연다
+  (`IslandRankingFreezeService.closeWeek`). 한 트랜잭션이면 동결 INSERT 의 `island_weekly_member_counts → groups` FK 검사가
+  테이블 잠금을 쥔 채 groups 행을 기다려 완료와 교착한다. `recompute` 는 활성 트랜잭션 안에서 부르면 거절한다.
 - **FK 없음** — `island_id` 는 `groups` 를 가리키지만 FK 를 두지 않는다. FK 가 있으면 재계산 INSERT 의 FK 검사가
   `groups` 행 KEY SHARE 를 요구해 「테이블 잠금 → groups 행」 순서가 되고, finish 의 「groups FOR UPDATE → 테이블 잠금」과
   교착한다. `groups` 는 소프트 삭제라 CASCADE 효용이 없고, 고아 행은 읽기 쪽 생존·이름 조회가 거른다.

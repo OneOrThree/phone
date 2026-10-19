@@ -7,8 +7,11 @@ import com.oneorthree.phone.ranking.support.RankingWeek;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -33,6 +36,7 @@ public class IslandWeeklyFocusService {
 
     private final IslandWeeklyFocusRepository weeklyFocus;
     private final Clock clock;
+    private final PlatformTransactionManager transactionManager;
 
     /**
      * 섬 세션 하나가 COMPLETED 로 끝났다 — 그 ACTIVE 구간을 주마다 잘라 그 섬의 주 합에 더한다.
@@ -54,16 +58,25 @@ public class IslandWeeklyFocusService {
      * 그 주를 정본으로 다시 채운다 — 주 마감 크론이 방금 끝난 주를 맞추고, 장애 뒤 수동 백필도 이것이다.
      * 다시 돌려도 같은 값이다.
      *
+     * <p><b>호출자는 트랜잭션 밖에서 불러야 한다</b> — 이 메서드가 자기 트랜잭션을 열고 커밋해 테이블 잠금을 바로 푼다.
+     * 바깥 트랜잭션에 합류하면 잠금이 그 끝까지 늘어나, 뒤이은 쓰기가 {@code groups} FK 검사(KEY SHARE)를 하는 순간
+     * 집중 완료(groups FOR UPDATE → 테이블 잠금)와 순서가 뒤집혀 교착한다. 그래서 활성 트랜잭션 안에서 부르면 거절한다.
+     *
      * @return 채운 섬 수
+     * @throws IllegalStateException 트랜잭션 안에서 불렀을 때
      */
-    @Transactional
     public int recompute(LocalDate week) {
-        weeklyFocus.lockForRecompute();
-        weeklyFocus.clear(week);
-        int filled = weeklyFocus.fill(week, RankingWeek.startInstant(week), RankingWeek.endInstant(week),
-                clock.instant());
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("recompute 는 트랜잭션 밖에서 부른다 — 테이블 잠금이 바깥 트랜잭션 끝까지 남는다");
+        }
+        Integer filled = new TransactionTemplate(transactionManager).execute(status -> {
+            weeklyFocus.lockForRecompute();
+            weeklyFocus.clear(week);
+            return weeklyFocus.fill(week, RankingWeek.startInstant(week), RankingWeek.endInstant(week),
+                    clock.instant());
+        });
         log.info("주간 섬 랭킹 분자 재계산 week={} 섬={}", week, filled);
-        return filled;
+        return filled == null ? 0 : filled;
     }
 
     /**

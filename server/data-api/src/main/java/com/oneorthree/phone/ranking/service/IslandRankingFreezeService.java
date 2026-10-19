@@ -5,7 +5,9 @@ import com.oneorthree.phone.ranking.support.RankingWeek;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -30,19 +32,35 @@ public class IslandRankingFreezeService {
     private final IslandWeeklyMemberCountRepository denominators;
     private final IslandWeeklyFocusService weeklyFocus;
     private final Clock clock;
+    private final PlatformTransactionManager transactionManager;
 
     /**
-     * 「방금 끝난 주」의 분모를 동결하고 분자 read model 을 재계산한다 — 크론이 부르는 진입점이다.
+     * 「방금 끝난 주」를 마감한다 — 크론이 부르는 진입점이다. 크론이 도는 시각(일요일 00:00Z)은 이미 «새» 주에
+     * 속하므로 대상은 직전 주다.
      *
      * @return 새로 적힌 섬 수. 재실행이거나 유예를 넘겼으면 0 이다
      */
-    @Transactional
     public int freezePreviousWeek() {
-        // 크론이 도는 시각(일요일 00:00Z)은 이미 «새» 주에 속한다 — 대상은 직전 주다.
-        LocalDate week = RankingWeek.previousWeekStart(clock.instant());
-        // 분자 read model 을 정본으로 한 번 맞춘다(GROMO-2343) — 가산이 빠졌던 주(배포 창·장애)도 마감 순간 바로잡힌다.
+        return closeWeek(RankingWeek.previousWeekStart(clock.instant()));
+    }
+
+    /**
+     * 그 주를 마감한다 — <b>트랜잭션 두 개</b>다: ① 분자 read model 재계산(GROMO-2343, 자기 트랜잭션) → ② 분모 동결.
+     *
+     * <p>한 트랜잭션으로 묶으면 ①의 테이블 잠금({@code island_weekly_focus})이 ②까지 남고, ②의 INSERT 가
+     * {@code island_weekly_member_counts} FK 검사로 {@code groups} 행 KEY SHARE 를 기다린다. 그 사이 집중 완료는
+     * {@code groups} 행을 FOR UPDATE 로 쥔 채 가산(테이블 잠금)을 기다리므로 교착한다. 그래서 이 메서드는 트랜잭션
+     * 밖에서 돌고 ①을 커밋해 잠금을 푼 뒤 ②를 연다. 중첩(REQUIRES_NEW)이 아니라 순차라 커넥션도 하나씩만 쥔다.
+     *
+     * <p>두 트랜잭션 사이에 집중 완료가 끼어도 값은 맞다 — ①이 정본으로 채운 뒤의 완료는 read model 에 그대로
+     * 가산되고, ②는 분모만 적는다.
+     *
+     * @return 새로 적힌 섬 수(분모)
+     */
+    public int closeWeek(LocalDate week) {
         weeklyFocus.recompute(week);
-        return freeze(week);
+        Integer frozen = new TransactionTemplate(transactionManager).execute(status -> freeze(week));
+        return frozen == null ? 0 : frozen;
     }
 
     /**

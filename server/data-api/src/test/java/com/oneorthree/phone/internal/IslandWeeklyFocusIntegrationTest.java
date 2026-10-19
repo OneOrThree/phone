@@ -18,6 +18,7 @@ import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.ranking.repository.IslandWeeklyFocusRepository;
+import com.oneorthree.phone.ranking.service.IslandRankingFreezeService;
 import com.oneorthree.phone.ranking.service.IslandWeeklyFocusService;
 import com.oneorthree.phone.ranking.support.RankingWeek;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -44,6 +45,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 주간 섬 랭킹 분자 read model 의 정합성 (GROMO-2343) — 운영 완료 경로(start·pause·resume·finish)로 세션을 끝낸 뒤
@@ -86,6 +88,8 @@ class IslandWeeklyFocusIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     PlatformTransactionManager transactionManager;
+    @Autowired
+    IslandRankingFreezeService freezeService;
 
     @Test
     @DisplayName("완료 전이 가산 = 정본 집계 = 재계산 — 주 경계·휴식·다른 섬·1초 미만·바다·진행 중·두 번째 finish")
@@ -170,13 +174,51 @@ class IslandWeeklyFocusIntegrationTest {
     @DisplayName("재계산과 완료 가산이 같은 섬에서 겹쳐도 10초 안에 둘 다 끝나고 결과는 정본 집계와 같다")
     void recomputeAndCompletionDoNotDeadlock() throws Exception {
         LocalDate week = RankingWeek.weekStart(Instant.parse("2041-03-06T00:00:00Z"));
+        race(week, "recomputeAndCompletionDoNotDeadlock", () -> weeklyFocus.recompute(week));
+    }
+
+    /**
+     * P1 회귀(codex r1) — 주 마감(재계산 + 분모 동결)도 완료와 교착하지 않는다. 종전에는 둘이 한 트랜잭션이라
+     * 재계산의 테이블 잠금이 동결까지 남고, 동결 INSERT 의 {@code island_weekly_member_counts → groups} FK 검사가
+     * A 가 쥔 groups 행을 기다렸다. 지금은 재계산 트랜잭션이 커밋된 뒤 동결 트랜잭션이 열린다.
+     */
+    @Test
+    @DisplayName("주 마감(재계산 → 동결)과 완료 가산이 같은 섬에서 겹쳐도 10초 안에 끝나고 분자·분모가 맞다")
+    void weekCloseAndCompletionDoNotDeadlock() throws Exception {
+        // 동결은 끝난 주만 적는다 — 지난 주를 쓴다(그 주의 다른 섬 행은 이 섬 단언과 무관하다).
+        LocalDate week = RankingWeek.weekStart(Instant.parse("2025-06-04T00:00:00Z"));
+        UUID islandId = race(week, "weekCloseAndCompletionDoNotDeadlock", () -> freezeService.closeWeek(week));
+        assertThat(jdbc.queryForObject("SELECT member_count FROM island_weekly_member_counts "
+                + "WHERE week_start = ? AND island_id = ?", Integer.class, java.sql.Date.valueOf(week), islandId))
+                .as("주민 1명이 동결됐다 — FK 가 있는 표에 실제로 썼다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("재계산은 트랜잭션 안에서 부르면 거절한다 — 테이블 잠금이 바깥 트랜잭션 끝까지 남기 때문이다")
+    void recomputeRefusesAnOuterTransaction() {
+        LocalDate week = RankingWeek.weekStart(Instant.parse("2041-05-08T00:00:00Z"));
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> weeklyFocus.recompute(week)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    /**
+     * A(완료 모양: groups 행 FOR UPDATE → 잠시 멈춤 → 상태 변경·가산 → 커밋)와 B 를 겹쳐 돌린다. B 는 A 가 행을 쥔
+     * 사이에 시작한다. 둘 다 10초 안에 끝나야 하고, 최종 분자는 정본 집계(완료 600 + A 300 = 900초)와 같아야 한다.
+     *
+     * @return 심은 섬 — 주민(방장) 1명이 있다
+     */
+    private UUID race(LocalDate week, String label, java.util.function.Supplier<Integer> b) throws Exception {
         Instant base = RankingWeek.startInstant(week).plusSeconds(86_400);
         UUID userId = UUID.randomUUID();
         jdbc.update("INSERT INTO users (id, is_guest) VALUES (?, true)", userId);
         UUID islandId = UUID.randomUUID();
         jdbc.update("INSERT INTO groups (id, name, max_members, is_chat_enabled, invite_permission, status) "
                 + "VALUES (?, '교착섬', 10, true, 'OWNER_ONLY', 'WAITING')", islandId);
-        // 이미 끝난 세션 — 재계산 INSERT 가 이 섬 행을 쓰게 한다(FK 가 있었다면 groups 검사가 일어나는 자리).
+        jdbc.update("INSERT INTO group_members (id, user_id, group_id, role, notification_enabled, is_left, "
+                + "created_at, updated_at) VALUES (?, ?, ?, 'OWNER', true, false, TIMESTAMPTZ '2020-01-01Z', now())",
+                UUID.randomUUID(), userId, islandId);
+        // 이미 끝난 세션 — 재계산 INSERT 가 이 섬 행을 쓰게 한다.
         seedSession(userId, islandId, "COMPLETED", base, base.plusSeconds(600));
         // A 가 완료시킬 세션 — 구간은 이미 닫혀 있고 상태만 바뀐다.
         Instant aStart = base.plusSeconds(3_600);
@@ -197,21 +239,22 @@ class IslandWeeklyFocusIntegrationTest {
                             .ordinal(1).kind(FocusIntervalKind.ACTIVE).startedAt(aStart).endedAt(aEnd).build()));
                 }));
         await(locked);
-        CompletableFuture<Integer> b = CompletableFuture.supplyAsync(() -> weeklyFocus.recompute(week));
-        // B 가 끝났거나(FK 없음) 잠금 대기에 들어갈 때까지(FK 있음) 기다린 뒤 A 를 진행시킨다.
-        for (int i = 0; i < 100 && !b.isDone() && waitingLocks() == 0; i++) {
+        CompletableFuture<Integer> bRun = CompletableFuture.supplyAsync(b);
+        // B 가 끝났거나 잠금 대기에 들어갈 때까지 기다린 뒤 A 를 진행시킨다.
+        for (int i = 0; i < 100 && !bRun.isDone() && waitingLocks() == 0; i++) {
             Thread.sleep(50);
         }
         proceed.countDown();
 
-        CompletableFuture.allOf(a, b).get(10, TimeUnit.SECONDS);
-        System.out.printf("recomputeAndCompletionDoNotDeadlock: %d ms%n", (System.nanoTime() - started) / 1_000_000);
+        CompletableFuture.allOf(a, bRun).get(10, TimeUnit.SECONDS);
+        System.out.printf("%s: %d ms%n", label, (System.nanoTime() - started) / 1_000_000);
 
         long canonical = details.sumIslandActiveSeconds(RankingWeek.startInstant(week), RankingWeek.endInstant(week))
                 .stream().filter(row -> row.getIslandId().equals(islandId)).mapToLong(row -> row.getSeconds())
                 .sum();
         assertThat(canonical).isEqualTo(900);
         assertThat(readModel(week, Set.of(islandId))).containsExactly(Map.entry(islandId, canonical));
+        return islandId;
     }
 
     private UUID seedSession(UUID userId, UUID islandId, String lifecycle, Instant start, Instant end) {
