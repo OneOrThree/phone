@@ -58,6 +58,8 @@ make write-fixture SLOTS=50
 make test-existing BASE_URL=http://localhost:18088 PARAMS_DIR=$PWD/.local/params PROFILE=smoke RATE=2 DURATION=1m K6_SCRIPT=k6/scenarios/island_switch.js
 ```
 
+`join_approval`은 Data의 `ISLAND_MANAGEMENT_COMMANDS_ENABLED=true`가 필요하다(기본 false — 운영 기본에선 승인·나가기가 503 `ISLAND_MANAGEMENT_NOT_READY`). 로컬 compose(`infra/local/compose.yml`)는 켜 두었다.
+
 fixture 전제: ① actor·partner를 회원으로 전환하고 친구로 맺고 섬의 전망대를 완공(`seed/60_write_fixture.sql`, `make check`가 최신 스키마에서 검증) ② actor는 소속 2곳(상한 3 이하)
 ③ 토큰 만료 전에 실행(만료되면 `write-fixture` 재실행). 쓰기 시나리오는 `k6/cases/public.json`이 아닌 `k6/cases/write.json`에 두었다 — 조사 러너(`survey/run.py --cases all`)가 slot fixture 없이 집어 들지 않게 한다.
 대시보드 카탈로그(`scenarios.json`·`recipes-manifest.json`)는 `/api/v1` 레시피 러너용 생성 산출물이라 등록하지 않았다(공개 경로·다중 계정 흐름을 그 러너가 실행하지 못한다).

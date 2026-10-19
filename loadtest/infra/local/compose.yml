@@ -101,6 +101,7 @@ services:
       OUTBOX_RELAY_REALTIME_KAFKA_ENABLED: 'true'
       USER_BLOCKS_REALTIME_EVENTS_ENABLED: 'true'
       ISLAND_BOARD_WRITES_ENABLED: 'true'
+      ISLAND_MANAGEMENT_COMMANDS_ENABLED: 'true'
     mem_limit: 1g
     cpus: 2
     ports:
