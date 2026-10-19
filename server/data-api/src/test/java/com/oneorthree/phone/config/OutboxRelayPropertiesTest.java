@@ -72,6 +72,30 @@ class OutboxRelayPropertiesTest {
     }
 
     @Test
+    @DisplayName("처리량 손잡이 셋은 기본값이 있고 범위를 벗어나면 기동을 거부한다 — tick-budget 0 은 «한 라운드»라 허용")
+    void throughputKnobsHaveDefaultsAndBounds() {
+        OutboxRelayProperties properties = fullyConfigured();
+        assertThat(properties.getRunLength()).isEqualTo(10);
+        assertThat(properties.getWorkerThreads()).isEqualTo(4);
+        assertThat(properties.getTickBudget()).isEqualTo(Duration.ofSeconds(5));
+
+        properties.setTickBudget(Duration.ZERO);
+        assertThatCode(properties::validateWhenEnabled).doesNotThrowAnyException();
+        properties.setTickBudget(Duration.ofSeconds(-1));
+        assertThatThrownBy(properties::validateWhenEnabled).hasMessageContaining("tick-budget");
+        properties.setTickBudget(null);
+        assertThatThrownBy(properties::validateWhenEnabled).hasMessageContaining("tick-budget");
+
+        properties = fullyConfigured();
+        properties.setRunLength(0);
+        assertThatThrownBy(properties::validateWhenEnabled).hasMessageContaining("run-length");
+
+        properties = fullyConfigured();
+        properties.setWorkerThreads(0);
+        assertThatThrownBy(properties::validateWhenEnabled).hasMessageContaining("worker-threads");
+    }
+
+    @Test
     @DisplayName("파티션 수를 3 이 아닌 값으로 바꾸면 거부한다 — notification-events 와 .DLT 는 계약이 3 이다")
     void rejectsPartitionCountOtherThanThree() {
         OutboxRelayProperties properties = fullyConfigured();

@@ -302,9 +302,9 @@ class HostTransferIntegrationTest {
         Fixture f = fixture();
         transfer(f, UUID.randomUUID());
         var properties = new OutboxRelayProperties();
-        var store = new OutboxRelayStore(deliveries, properties, Clock.systemUTC());
+        var store = new OutboxRelayStore(deliveries, properties, Clock.systemUTC(), new SimpleMeterRegistry());
         var relay = new OutboxRelayService(store, events, properties, Clock.systemUTC(), List.of(),
-                new SimpleMeterRegistry());
+                new SimpleMeterRegistry(), Runnable::run);
         long before = eventCount(f);
         assertThat(relay.relayOnce()).isZero();
         assertThat(eventCount(f)).isEqualTo(before);

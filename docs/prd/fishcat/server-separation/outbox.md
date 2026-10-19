@@ -72,9 +72,19 @@ JSON 정본은 **`docs/contracts/notification-event-v1.json`** 이다. 양쪽 CI
 축(`aggregate_type, aggregate_id`)을 `aggregate_version, target` 순으로 한 번 훑는 윈도에서 `ready` =
 「축 첫 행부터 이 행까지 전부 지금 선점 가능」(누적 AND)을 구하고, `ready` 이면서 축 앞 `runLength` 안의 행만
 집는다. 리스·백오프 중인 행과 KAFKA 축에 섞인 NOTI 행은 `ready` 가 거짓이라 뒤를 막는다 — 아래 장벽과 같은
-의미다. 지금은 **run = 1**(축당 선두 하나, 예전 결과와 동일)이고, 늘리는 것은 실패 시 나머지 놓기와 함께
-GROMO-2338 이 한다. `RETURNING` 이 선점 행을 돌려줘 토큰으로 다시 읽던 조회(`lease_token` 인덱스 없음)도 없앴다.
+의미다. `RETURNING` 이 선점 행을 돌려줘 토큰으로 다시 읽던 조회(`lease_token` 인덱스 없음)도 없앴다.
 EXPLAIN 근거: 깊은 축(20축 × 1000 version) 선점 13.7~22.7 s → 29~70 ms.
+
+**축 run 과 그 보정 (GROMO-2338).** `run-length`(기본 10)만큼 축 앞쪽을 한 번에 집는다. 윈도는 스냅샷으로 run 을
+계산하고 잠금은 행마다 `SKIP LOCKED` 로 잡으므로, 두 워커가 같은 run {a1,a2,a3} 를 계산한 뒤 잠금을 교차로 가져가면
+T1={a1,a2}, T2={a3} 가 되어 a3 가 a2 를 앞지를 수 있다. 그래서 같은 트랜잭션에서 「선행 미전달 중 내 토큰이 아닌 행이
+있는」 내 행을 찾아(`findOvertaking`, KAFKA→NOTI 장벽 포함) 리스를 놓고 `attempt_count` 를 1 되돌린다(`release` —
+보내지 않은 선점은 시도가 아니다). 커밋 시점에 남는 내 행은 축마다 「선행 미전달이 전부 내 것」인 앞쪽 연속이다.
+
+전달은 축별로 묶어 relay 전용 풀(`worker-threads`, 기본 4 + 틱 1)에서 **축 안 version 순 순차, 축 사이 병렬**로 한다.
+축 안에서 한 건이 끝나지 못하면(재시도·영구 실패·리스 상실·낡은 표시) 그 축은 멈추고 나머지를 보내지 않은 채 되돌린다
+(`outbox.relay.released{reason=predecessor_failed}`). 한 틱은 `tick-budget`(기본 5s) 안에서 집을 것이 없을 때까지
+라운드를 반복한다(0 = 한 라운드). Kafka 발행은 여전히 건마다 동기 확인 뒤 표시한다 — 비동기 ack 체인은 순서 창을 연다.
 
 **알림 상태 → Kafka 생산에는 전송 방식 사이 장벽도 둔다.** Kafka 후보는 같은 축의 더 낮은
 version에 미완료 `NOTI` HTTP 전달이 있으면 선점하지 않는다. 설정 변경·기기 삭제·세션 폐기의
@@ -116,6 +126,7 @@ at-least-once 는 이 방향으로만 틀려야 한다.
 outbox.relay.enabled=true
 outbox.relay.batch-size / lease-duration / poll-interval
 outbox.relay.retry.initial-backoff / max-backoff / max-attempts
+outbox.relay.run-length / worker-threads / tick-budget          # 선택 — 기본 10 / 4 / PT5S (GROMO-2338)
 outbox.relay.endpoints.<KEY>.target / url / method / token   # HTTP 대상이 있을 때
 ```
 

@@ -59,7 +59,7 @@ class OutboxRelayLeaseIntegrationTest {
     static class Configuration {
         @Bean
         OutboxRelayStore leaseTestStore(EventOutboxDeliveryRepository repository) {
-            return new OutboxRelayStore(repository, PROPERTIES, CLOCK);
+            return new OutboxRelayStore(repository, PROPERTIES, CLOCK, new SimpleMeterRegistry());
         }
     }
 
@@ -186,7 +186,8 @@ class OutboxRelayLeaseIntegrationTest {
     }
 
     private OutboxRelayService relay(OutboxTransport transport) {
-        return new OutboxRelayService(store, outbox, PROPERTIES, CLOCK, List.of(transport), new SimpleMeterRegistry());
+        return new OutboxRelayService(store, outbox, PROPERTIES, CLOCK, List.of(transport), new SimpleMeterRegistry(),
+                Runnable::run);
     }
 
     private void append(OutboxTarget target) {
