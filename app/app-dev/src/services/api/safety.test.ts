@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import { Linking } from 'react-native';
+import { applyLocalePref } from '@/i18n';
 import { API_URL } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   blockUser,
   getBlockedUsers,
   reportEmailUrl,
+  openReportCenter,
   REPORT_EMAIL_RECIPIENT,
   unblockUser,
 } from '@/services/api/safety';
@@ -45,25 +48,19 @@ test('차단 목록·등록·해제 공개 계약을 그대로 호출한다', as
   assert.equal(calls[2].init.method, 'DELETE');
 });
 
-test('신고 입력을 운영 Gmail 수신 주소와 편집 가능한 mailto 본문으로 만든다', () => {
-  const input = {
-    targetType: 'LETTER' as const,
-    targetId: USER,
-    reason: 'HARASSMENT' as const,
-    description: '설명',
-    replyEmail: 'reply@example.com',
-    blockStatus: 'COMPLETED' as const,
-    evidenceText: '반가워, 잘 지내?',
-  };
-
-  const url = reportEmailUrl(input, '민지');
-  assert.ok(url.startsWith(`mailto:${REPORT_EMAIL_RECIPIENT}?`));
+test('단일 신고 메일은 수신 주소와 작성 안내만 포함하고 사용자 콘텐츠를 수집하지 않는다', async () => {
+  applyLocalePref('ko');
+  const url = reportEmailUrl();
   const decoded = decodeURIComponent(url);
-  assert.ok(decoded.includes('subject=[Gromo 신고] 편지 민지'));
-  assert.ok(decoded.includes('신고 사유: 욕설·괴롭힘'));
-  assert.ok(decoded.includes('상세 설명: 설명'));
-  assert.ok(decoded.includes('회신 받을 이메일: reply@example.com'));
-  assert.ok(decoded.includes('앱에서 함께 차단: 완료'));
-  assert.ok(decoded.includes('[신고 대상 원문]\n반가워, 잘 지내?\n[/신고 대상 원문]'));
+  assert.ok(url.startsWith(`mailto:${REPORT_EMAIL_RECIPIENT}?`));
+  assert.ok(decoded.includes('subject=[Gromo 신고] 신고센터'));
+  assert.ok(decoded.includes('신고 내용:'));
+  assert.ok(decoded.includes('상대 닉네임·섬 이름:'));
+  assert.ok(!decoded.includes('[신고 대상 원문]'));
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  await openReportCenter();
+  assert.equal(open.mock.calls[0][0], url);
   assert.equal(calls.length, 0);
+  open.mockRestore();
+  applyLocalePref('system');
 });

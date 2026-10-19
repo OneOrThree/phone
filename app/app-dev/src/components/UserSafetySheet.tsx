@@ -3,7 +3,6 @@ import {
   Image,
   ImageBackground,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -11,30 +10,13 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { TextInput } from '@/design-system/typography';
-import { Btn, C, Chips, Toggle, Txt } from '@/design-system/patterns';
+import { Btn, C, Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { ApiError } from '@/services/api/client';
-import {
-  blockUser,
-  reportEmailUrl,
-  REPORT_EMAIL_RECIPIENT,
-  type ReportReason,
-  type ReportTargetType,
-} from '@/services/api/safety';
+import { blockUser } from '@/services/api/safety';
+import { t } from '@/i18n';
 import { isUserBlocked, markUserBlocked, revalidateBlockedUsers } from '@/services/blockedUsers';
 import { useAppLayout } from '@/utils/layout';
-
-export const REASONS: Array<{ value: ReportReason; label: string }> = [
-  { value: 'HARASSMENT', label: '욕설·괴롭힘' },
-  { value: 'HATE', label: '혐오·차별' },
-  { value: 'SPAM_FRAUD', label: '스팸·사기' },
-  { value: 'SEXUAL', label: '성적 콘텐츠' },
-  { value: 'CHILD_SAFETY', label: '아동 안전' },
-  { value: 'THREAT', label: '위해 협박' },
-  { value: 'PRIVACY_IMPERSONATION', label: '개인정보·사칭' },
-  { value: 'OTHER', label: '기타' },
-];
 
 const SAFETY_ART = {
   background: require('@/assets/interiors/mail-cute-v1.png'),
@@ -47,9 +29,7 @@ type Props = {
   visible: boolean;
   targetUserId: string;
   targetName: string;
-  reportTargetType: ReportTargetType;
-  reportTargetId: string;
-  reportEvidence?: string;
+  initialMode?: 'menu' | 'block';
   onClose: () => void;
   onChanged?: () => void;
   onMessage: (message: string) => void;
@@ -59,33 +39,19 @@ type Props = {
 export function UserSafetySheet(props: Props) {
   const layout = useAppLayout();
   const centered = layout.tablet || layout.compact;
-  const [mode, setMode] = useState<'menu' | 'report' | 'block'>('menu');
-  const [reason, setReason] = useState<ReportReason>('HARASSMENT');
-  const [description, setDescription] = useState('');
-  const [replyEmail, setReplyEmail] = useState('');
-  const [alsoBlock, setAlsoBlock] = useState(false);
-  const [reportBlockCompleted, setReportBlockCompleted] = useState(false);
+  const [mode, setMode] = useState<'menu' | 'block'>(props.initialMode ?? 'menu');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!props.visible) return;
-    setMode('menu');
-    setReason('HARASSMENT');
-    setDescription('');
-    setReplyEmail('');
-    setAlsoBlock(false);
-    setReportBlockCompleted(false);
+    setMode(props.initialMode ?? 'menu');
     setBusy(false);
     setError('');
-  }, [props.visible, props.reportTargetId]);
+  }, [props.visible, props.targetUserId, props.initialMode]);
 
   const fail = (thrown: unknown) => {
-    setError(
-      thrown instanceof ApiError && thrown.message
-        ? thrown.message
-        : '처리하지 못했어요. 연결을 확인하고 다시 시도해 주세요.',
-    );
+    setError(thrown instanceof ApiError && thrown.message ? thrown.message : t('safety.failed'));
   };
 
   const block = async () => {
@@ -97,7 +63,7 @@ export function UserSafetySheet(props: Props) {
       markUserBlocked(props.targetUserId);
       props.onChanged?.();
       props.onClose();
-      props.onMessage(`${props.targetName}님을 차단했어요.`);
+      props.onMessage(t('safety.blocked', { name: props.targetName }));
     } catch (thrown) {
       // 서버 성공 뒤 응답만 유실됐을 수도 있으므로 정본을 즉시 다시 읽어 로컬 필터를 수렴시킨다.
       const verified = await revalidateBlockedUsers()
@@ -110,95 +76,10 @@ export function UserSafetySheet(props: Props) {
       if (verified) {
         props.onChanged?.();
         props.onClose();
-        props.onMessage(`${props.targetName}님을 차단했어요.`);
+        props.onMessage(t('safety.blocked', { name: props.targetName }));
         return;
       }
       fail(thrown);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const composeReportEmail = async () => {
-    if (busy) return;
-    if (reason === 'OTHER' && !description.trim()) {
-      setError('기타 사유를 설명해 주세요.');
-      return;
-    }
-    // react-native-web의 Linking.openURL(mailto:)는 window.open(_blank)을 사용한다.
-    // 네트워크 await 뒤에는 Safari 등의 사용자 활성화가 만료될 수 있으므로 클릭 stack에서
-    // 빈 창을 먼저 확보하고, 차단 결과가 정해진 뒤 그 창을 실제 mailto로 이동한다.
-    let webComposeWindow: Window | null = null;
-    if (Platform.OS === 'web') {
-      try {
-        webComposeWindow = typeof window === 'undefined' ? null : window.open('', '_blank');
-      } catch {
-        webComposeWindow = null;
-      }
-      if (!webComposeWindow) {
-        setError('메일 작성 창을 열지 못했어요. 브라우저에서 팝업을 허용한 뒤 다시 시도해 주세요.');
-        return;
-      }
-    }
-    setBusy(true);
-    setError('');
-    let blocked = reportBlockCompleted;
-    let blockFailed = false;
-    try {
-      if (alsoBlock && !reportBlockCompleted) {
-        try {
-          await blockUser(props.targetUserId);
-          blocked = true;
-          markUserBlocked(props.targetUserId);
-        } catch {
-          // POST 성공 뒤 응답만 유실될 수 있으므로 서버 정본을 기다려 실제 차단 여부를 확정한다.
-          blocked = await revalidateBlockedUsers()
-            .then(
-              (users) =>
-                users.some((user) => user.id === props.targetUserId) ||
-                isUserBlocked(props.targetUserId),
-            )
-            .catch(() => false);
-          blockFailed = !blocked;
-        }
-        if (blocked) {
-          setReportBlockCompleted(true);
-          props.onChanged?.();
-        }
-      }
-      const input = {
-        targetType: props.reportTargetType,
-        targetId: props.reportTargetId,
-        reason,
-        description: description.trim() || null,
-        replyEmail: replyEmail.trim() || null,
-        blockStatus: blocked
-          ? ('COMPLETED' as const)
-          : blockFailed
-            ? ('FAILED' as const)
-            : ('NOT_REQUESTED' as const),
-        evidenceText: props.reportEvidence?.trim() || null,
-      };
-      const emailUrl = reportEmailUrl(input, props.targetName);
-      if (webComposeWindow) webComposeWindow.location.href = emailUrl;
-      else await Linking.openURL(emailUrl);
-      props.onClose();
-      props.onMessage(
-        blockFailed
-          ? '차단은 완료하지 못했어요. 신고 메일 내용을 확인한 뒤 보내 주세요.'
-          : blocked
-            ? '차단했어요. 메일 내용을 확인한 뒤 보내 주세요.'
-            : '메일 내용을 확인한 뒤 보내 주세요.',
-      );
-    } catch (thrown) {
-      webComposeWindow?.close();
-      if (blocked) {
-        setError('차단은 완료했지만 메일 앱을 열지 못했어요. 다시 시도해 주세요.');
-      } else if (blockFailed) {
-        setError('차단하지 못했고 메일 앱도 열지 못했어요. 다시 시도해 주세요.');
-      } else {
-        fail(thrown);
-      }
     } finally {
       setBusy(false);
     }
@@ -227,7 +108,7 @@ export function UserSafetySheet(props: Props) {
           <Pressable
             testID="user-safety-background"
             style={StyleSheet.absoluteFill}
-            accessibilityLabel="닫기"
+            accessibilityLabel={t('common.close')}
             accessibilityState={{ disabled: busy }}
             disabled={busy}
             onPress={close}
@@ -287,12 +168,10 @@ export function UserSafetySheet(props: Props) {
                 justifyContent: 'space-between',
               }}
             >
-              <Txt kind="title">
-                {mode === 'menu' ? props.targetName : mode === 'report' ? '신고하기' : '차단하기'}
-              </Txt>
+              <Txt kind="title">{mode === 'menu' ? props.targetName : t('safety.blockTitle')}</Txt>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="닫기"
+                accessibilityLabel={t('common.close')}
                 accessibilityState={{ disabled: busy }}
                 disabled={busy}
                 onPress={close}
@@ -315,8 +194,7 @@ export function UserSafetySheet(props: Props) {
             >
               {mode === 'menu' ? (
                 <View style={{ gap: semanticTokens.spacing.control }}>
-                  <Btn title="신고하기" onPress={() => setMode('report')} />
-                  <Btn kind="sec" title="차단하기" onPress={() => setMode('block')} />
+                  <Btn kind="sec" title={t('safety.blockTitle')} onPress={() => setMode('block')} />
                   {props.extraAction ? (
                     <Btn
                       kind="sec"
@@ -328,124 +206,22 @@ export function UserSafetySheet(props: Props) {
                     />
                   ) : null}
                 </View>
-              ) : mode === 'block' ? (
+              ) : (
                 <View style={{ gap: componentTokens.modal.gap }}>
-                  <Txt>
-                    {props.targetName}님의 친구 요청과 편지는 앱 목록에서 숨겨져요. 친구 요청 알림은
-                    기기에 표시될 수 있어요. 차단 중 받은 내용은 해제하면 다시 보일 수 있어요.
-                  </Txt>
+                  <Txt>{t('safety.blockBody', { name: props.targetName })}</Txt>
                   <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
                     <Btn
                       kind="sec"
-                      title="취소"
+                      title={t('common.cancel')}
                       disabled={busy}
                       style={{ flex: 1 }}
-                      onPress={() => setMode('menu')}
+                      onPress={() => (props.initialMode === 'block' ? close() : setMode('menu'))}
                     />
                     <Btn
-                      title={busy ? '처리 중…' : '차단'}
+                      title={busy ? t('safety.processing') : t('safety.blockAction')}
                       disabled={busy}
                       style={{ flex: 1 }}
                       onPress={block}
-                    />
-                  </View>
-                </View>
-              ) : (
-                <View style={{ gap: componentTokens.modal.gap }}>
-                  <Txt kind="meta">
-                    운영팀 Gmail({REPORT_EMAIL_RECIPIENT})로 보낼 메일 작성 화면을 열어요. 전송 전
-                    내용을 확인해 주세요.
-                  </Txt>
-                  <Chips
-                    items={REASONS.map((item) => item.label)}
-                    value={REASONS.find((item) => item.value === reason)?.label}
-                    onChange={(label: string) =>
-                      setReason(REASONS.find((item) => item.label === label)!.value)
-                    }
-                    disabled={busy}
-                    large
-                    wrap
-                  />
-                  <TextInput
-                    accessibilityLabel="신고 설명"
-                    value={description}
-                    onChangeText={setDescription}
-                    editable={!busy}
-                    multiline
-                    maxLength={1000}
-                    placeholder={
-                      reason === 'OTHER' ? '기타 사유를 적어 주세요 (필수)' : '설명 (선택)'
-                    }
-                    placeholderTextColor={C.muted}
-                    style={{
-                      minHeight: 88,
-                      padding: semanticTokens.spacing.control,
-                      borderWidth: componentTokens.input.borderWidth,
-                      borderColor: componentTokens.input.border,
-                      borderRadius: componentTokens.input.radius,
-                      color: C.ink,
-                    }}
-                  />
-                  <View style={{ gap: 6 }}>
-                    <Txt>처리 결과를 회신받을 이메일 (선택)</Txt>
-                    <Txt kind="meta">
-                      운영팀의 답장을 받을 주소예요. 입력하지 않아도 신고 메일을 작성할 수 있어요.
-                    </Txt>
-                    <TextInput
-                      accessibilityLabel="처리 결과를 회신받을 이메일"
-                      value={replyEmail}
-                      onChangeText={setReplyEmail}
-                      editable={!busy}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      maxLength={254}
-                      placeholder="email@example.com"
-                      placeholderTextColor={C.muted}
-                      style={{
-                        minHeight: componentTokens.input.minHeight,
-                        padding: semanticTokens.spacing.control,
-                        borderWidth: componentTokens.input.borderWidth,
-                        borderColor: componentTokens.input.border,
-                        borderRadius: componentTokens.input.radius,
-                        color: C.ink,
-                      }}
-                    />
-                  </View>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: semanticTokens.spacing.control,
-                    }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Txt>이 사용자도 차단</Txt>
-                      <Txt kind="meta">
-                        {reportBlockCompleted ? '차단을 완료했어요.' : '기본값은 꺼져 있어요.'}
-                      </Txt>
-                    </View>
-                    <Toggle
-                      label="이 사용자도 차단"
-                      value={alsoBlock || reportBlockCompleted}
-                      onChange={setAlsoBlock}
-                      disabled={busy || reportBlockCompleted}
-                      activeColor={semanticTokens.color.primary}
-                    />
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
-                    <Btn
-                      kind="sec"
-                      title="뒤로"
-                      disabled={busy}
-                      style={{ flex: 1 }}
-                      onPress={() => setMode('menu')}
-                    />
-                    <Btn
-                      title={busy ? '메일 여는 중…' : '이메일 작성'}
-                      disabled={busy}
-                      style={{ flex: 1 }}
-                      onPress={composeReportEmail}
                     />
                   </View>
                 </View>
