@@ -151,6 +151,7 @@ lifecycle 잠금 `public-statistics-snapshot-lifecycle`, 15분 cursor TTL, `CURS
 ```
 @Scheduled(cron = "0 0 0 * * SUN", zone = "UTC")  +  @SchedulerLock("island-weekly-ranking-freeze")
 INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON CONFLICT DO NOTHING
++ 분자 read model 재계산(island_weekly_focus, 직전 주 — 아래)
 ```
 
 크론이 도는 시각은 이미 «새» 주이므로 대상은 직전 주다. `ON CONFLICT DO NOTHING` 이 멱등 가드다 — 두 번 돌든,
@@ -174,9 +175,20 @@ INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON C
 남는 창은 **「경계 뒤에 나갔다가 또 돌아온」 한 벌**뿐이다 — 멤버십 행이 (user, group) 당 하나라 세대가 덮인다.
 닫으려면 멤버십 이력 표가 필요한데, 배치가 경계 직후 한 번만 도는 데 비해 비용이 크다(RK-D12).
 
-분자는 **복제하지 않는다**. 집중 정본(`focus_session_details`·`focus_session_intervals`)이 그대로 남아 있어
-언제든 같은 창으로 다시 합칠 수 있고, 복제하면 정본과 어긋날 자리를 만든다. 그 대가로 «주 경계를 걸친 세션이
-늦게 끝나면 지난 주 합이 늘어나는» 창이 남는다 — cutoff 여부는 RK-D04 미결이다.
+분자는 **read model `island_weekly_focus`(migration V130, GROMO-2343)** 에서 읽는다. 종전에는 요청마다
+`focus_session_details × focus_session_intervals` 를 모든 섬에 걸쳐 다시 합쳤고(부하 조사 100 RPS 에서 p95 1.62s),
+그래서 «복제하지 않는다» 를 거뒀다. 정본은 여전히 집중 표이고 read model 은 같은 창으로 접은 사본이다.
+
+- **단위는 μs** — `(week_start, island_id)` PK 에 ACTIVE 교집합 μs 합(`active_micros`)을 두고, 읽을 때 섬마다 한 번만
+  초로 내린 뒤 1초 미만 섬을 뺀다. 세션마다 초로 내려 더하면 원본 집계(마지막에 한 번만 내림)와 어긋난다.
+- **갱신 지연 없음** — 섬 세션(`kind=ISLAND`)이 COMPLETED 로 전이하는 트랜잭션(`FocusSessionLifecycleService.settle`,
+  finish·휴식 자동 종료 공통)이 그 세션의 닫힌 ACTIVE 구간을 주 경계에서 잘라 주마다 `UPSERT … active_micros + Δ` 한다.
+  바다 세션·포기·소속 상실은 더하지 않는다. 한 세션이 두 번 더해지지 않는 것은 정산 행(`focus_settlements` PK)이 지킨다.
+  주 경계를 걸친 세션이 늦게 끝나면 지난 주 합이 늘어나는 것은 종전과 같다(RK-D04 미결).
+- **재계산** — `IslandWeeklyFocusService.recompute(week)` 가 그 주를 지우고 정본 집계와 같은 술어로 다시 채운다
+  (테이블을 SHARE ROW EXCLUSIVE 로 잠가 동시 가산과 직렬화). 주 마감 크론이 동결과 같은 트랜잭션에서 **방금 끝난 주**를
+  재계산하므로 배포 창·장애로 빠진 가산은 그 주 마감에 바로잡힌다. V130 이 기존 모든 주를 백필하고, 배포 뒤
+  수동 보정이 필요하면 같은 메서드를 그 주로 부른다(HTTP 표면 없음).
 
 랭킹 GET 은 읽기 응답 외의 경제 효과가 0이다. 지갑·보상 원장을 호출하지 않고, 기존 리그 정산 함수도 부르지
 않으며, 새 realtime 사건을 만들지 않는다.

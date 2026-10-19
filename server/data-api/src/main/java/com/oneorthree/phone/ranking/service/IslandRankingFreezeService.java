@@ -28,17 +28,21 @@ import java.time.LocalDate;
 public class IslandRankingFreezeService {
 
     private final IslandWeeklyMemberCountRepository denominators;
+    private final IslandWeeklyFocusService weeklyFocus;
     private final Clock clock;
 
     /**
-     * 「방금 끝난 주」의 분모를 동결한다 — 크론이 부르는 진입점이다.
+     * 「방금 끝난 주」의 분모를 동결하고 분자 read model 을 재계산한다 — 크론이 부르는 진입점이다.
      *
      * @return 새로 적힌 섬 수. 재실행이거나 유예를 넘겼으면 0 이다
      */
     @Transactional
     public int freezePreviousWeek() {
         // 크론이 도는 시각(일요일 00:00Z)은 이미 «새» 주에 속한다 — 대상은 직전 주다.
-        return freeze(RankingWeek.previousWeekStart(clock.instant()));
+        LocalDate week = RankingWeek.previousWeekStart(clock.instant());
+        // 분자 read model 을 정본으로 한 번 맞춘다(GROMO-2343) — 가산이 빠졌던 주(배포 창·장애)도 마감 순간 바로잡힌다.
+        weeklyFocus.recompute(week);
+        return freeze(week);
     }
 
     /**

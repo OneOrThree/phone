@@ -51,6 +51,7 @@ import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
+import com.oneorthree.phone.ranking.service.IslandWeeklyFocusService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
@@ -191,6 +192,8 @@ public class FocusSessionLifecycleService {
     private final FocusPresenceProjection focusPresenceProjection;
     private final Clock clock;
     private final GroupRepository groupRepository;
+    /** 주간 섬 랭킹 분자 read model(GROMO-2343) — 섬 세션 완료가 그 주 합에 가산한다. */
+    private final IslandWeeklyFocusService weeklyFocus;
 
     /**
      * {@code POST /focus-sessions} — LLD §2 start.
@@ -766,6 +769,11 @@ public class FocusSessionLifecycleService {
             // 지급마다 적은 인벤토리 사건도 receipt 에 싣는다(outbox-events.md §2.5 — append 가 돌려준 봉투를 그대로).
             events.addAll(seaResult.events());
             seaReward = new FocusFinishView.SeaReward(seaResult.grantedProductIds(), seaResult.minutesToNextTier());
+        }
+        // 주간 섬 랭킹 분자(GROMO-2343) — 원본 집계와 같은 모수(COMPLETED · kind ISLAND · 닫힌 ACTIVE 구간)만 더한다.
+        // 바다 세션의 island_id 는 «목적지» 라 섬 기여가 아니다(GROMO-2299).
+        if (detail.getKind() == FocusSessionKind.ISLAND) {
+            weeklyFocus.addCompleted(islandId, intervals);
         }
         // 위에서 열린 구간을 이미 닫아 뒀다 — 같은 intervals·anchor 를 재사용해 별도 쿼리를 내지 않는다.
         List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(intervals, t);

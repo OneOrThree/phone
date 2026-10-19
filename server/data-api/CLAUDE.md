@@ -125,6 +125,10 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
   archive** — do not add new ones. `/back-migration` scaffolds the next
   `V<N+1>__<desc>.sql` migration.
 - **Flag any DB schema change in the PR** (per the PR template).
+- **Read models**: `island_weekly_focus` (V130) is the weekly island-ranking numerator. Session completion
+  (`FocusSessionLifecycleService.settle`) adds to it in the same transaction and the Sunday freeze cron recomputes
+  the finished week (`IslandWeeklyFocusService.recompute`). A fixture that inserts COMPLETED sessions directly must
+  call `recompute` before reading rankings.
 
 ## Observability
 

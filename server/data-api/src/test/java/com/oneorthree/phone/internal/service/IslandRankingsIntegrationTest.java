@@ -27,6 +27,7 @@ import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import org.springframework.jdbc.core.JdbcTemplate;
 import com.oneorthree.phone.ranking.repository.IslandWeeklyMemberCountRepository;
 import com.oneorthree.phone.ranking.service.IslandRankingFreezeService;
+import com.oneorthree.phone.ranking.service.IslandWeeklyFocusService;
 import com.oneorthree.phone.ranking.support.RankingWeek;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
@@ -108,6 +109,8 @@ class IslandRankingsIntegrationTest {
     IslandWeeklyMemberCountRepository denominators;
     @Autowired
     IslandRankingFreezeService freezeService;
+    @Autowired
+    IslandWeeklyFocusService weeklyFocus;
     @Autowired
     JdbcTemplate jdbc;
 
@@ -529,6 +532,14 @@ class IslandRankingsIntegrationTest {
     private void interval(UUID sessionId, int ordinal, FocusIntervalKind kind, Instant startedAt, Instant endedAt) {
         intervals.save(FocusSessionInterval.builder().sessionId(sessionId).ordinal(ordinal).kind(kind)
                 .startedAt(startedAt).endedAt(endedAt).build());
+        // 픽스처는 완료 전이를 거치지 않고 끝난 세션을 바로 심는다 — 분자 read model(GROMO-2343)을 정본으로 다시
+        // 채운다. 완료 전이의 가산 경로는 IslandWeeklyFocusIntegrationTest 가 따로 겨눈다.
+        if (endedAt != null) {
+            for (LocalDate w = RankingWeek.weekStart(startedAt); !w.isAfter(RankingWeek.weekStart(endedAt));
+                 w = w.plusWeeks(1)) {
+                weeklyFocus.recompute(w);
+            }
+        }
     }
 
     private static IslandRanking item(IslandRankingPage page, UUID islandId) {
