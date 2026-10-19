@@ -570,7 +570,11 @@ export function WorldMap({
   pressedFacility?: string | null;
   children?:
     | React.ReactNode
-    | ((scale: number, project: (point: Point) => Point) => React.ReactNode | WorldActorLayers);
+    | ((
+        scale: number,
+        project: (point: Point) => Point,
+        baseScale: number,
+      ) => React.ReactNode | WorldActorLayers);
 }) {
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
@@ -717,7 +721,7 @@ export function WorldMap({
     );
   };
   const renderedActors =
-    typeof children === 'function' ? children(scale, projectCurrentWorldPoint) : children;
+    typeof children === 'function' ? children(scale, projectCurrentWorldPoint, base) : children;
   const actorLayers =
     renderedActors && typeof renderedActors === 'object' && 'world' in renderedActors
       ? renderedActors
@@ -844,6 +848,7 @@ export function WorldMap({
           left={left}
           top={top}
           scale={scale}
+          baseScale={base}
           night={night}
           pressedFacility={pressedFacility}
           reduceMotion={reduceFacilityMotion}
@@ -870,6 +875,7 @@ export function WorldMap({
                   left={at(b).left}
                   top={at(b).top}
                   scale={scale}
+                  baseScale={base}
                   cropped={pelican || !!croppedSource}
                   pressed={pressedFacility === b}
                   reduceMotion={reduceFacilityMotion}
@@ -1865,7 +1871,7 @@ function FinalIslandScene({
     return [...others, ...spare].slice(0, 2);
   }, [i.members, facts, state.color]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
-  const actors = (s: number, project: (point: Point) => Point) => {
+  const actors = (s: number, project: (point: Point) => Point, baseScale: number) => {
     scaleRef.current = s;
     const catSize = 70 * s;
     const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
@@ -1892,6 +1898,7 @@ function FinalIslandScene({
       Object.entries(facilityRects).map(([id, rect]) => ({ id, rect, label: doors[id].label })),
       s,
       L.fontScale,
+      baseScale,
     );
     const signs: React.ReactNode[] = [];
     const screenOrigin = project({ x: 0, y: 0 });
@@ -1996,6 +2003,7 @@ function FinalIslandScene({
                   width={signBoxes[id].width}
                   height={signBoxes[id].height}
                   label={d.label}
+                  zoom={s / baseScale}
                   pressed={pressedFacility === id}
                   reduceMotion={reduceFacilityMotion}
                 />

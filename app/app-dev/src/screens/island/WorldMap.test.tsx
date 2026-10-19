@@ -1228,7 +1228,7 @@ test('언어를 바꾸면 건물 이름과 긴 번역의 팻말 폭을 함께 �
   }
 });
 
-test('빠른 핀치 반복에도 화면 팻말과 나무 이미지는 고정 크기를 유지한다', async () => {
+test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되고 내부 이미지 좌표는 유지한다', async () => {
   const createPan = jest.spyOn(PanResponder, 'create');
   const screen = await render(
     <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
@@ -1245,6 +1245,8 @@ test('빠른 핀치 반복에도 화면 팻말과 나무 이미지는 고정 크
     }) as any;
   const sign = () => screen.getByTestId('building-name-hall');
   const initial = StyleSheet.flatten(sign().props.style);
+  const building = () => StyleSheet.flatten(screen.getByTestId('world-hall-motion').props.style);
+  const originalBuilding = building();
   const overlay = screen.getByTestId('facility-sign-overlay');
   const imageSize = () => {
     const nodes: any[] = [];
@@ -1270,13 +1272,16 @@ test('빠른 핀치 반복에도 화면 팻말과 나무 이미지는 고정 크
       pan.onPanResponderGrant!(pinch(200), {} as any);
       pan.onPanResponderMove!(pinch(distance), {} as any);
     });
-    expect(StyleSheet.flatten(sign().props.style)).toMatchObject({
-      width: initial.width,
-      height: initial.height,
+    const current = StyleSheet.flatten(sign().props.style);
+    const ratio = building().width / originalBuilding.width;
+    expect(current.width / initial.width).toBeCloseTo(ratio);
+    expect(current.height / initial.height).toBeCloseTo(ratio);
+    imageSize().forEach((size, index) => {
+      expect(size.width).toBeCloseTo(originalSizes[index].width);
+      expect(size.height).toBeCloseTo(originalSizes[index].height);
     });
-    expect(imageSize()).toEqual(originalSizes);
     expect(StyleSheet.flatten(overlay.props.style)).toEqual(StyleSheet.absoluteFill);
-    // 팻말이 월드 너비가 변하는 부모 대신 고정된 화면 레이어 안에 있어야 한다.
+    // 화면 레이어에서도 팻말은 건물과 같은 배율을 사용한다.
     expect(within(overlay).getByTestId('building-name-hall')).toBeTruthy();
   }
   expect(StyleSheet.flatten(sign().props.style).left).not.toBe(initial.left);

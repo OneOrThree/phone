@@ -42,6 +42,7 @@ type OutlineProps = {
   left: number;
   top: number;
   scale: number;
+  baseScale?: number;
   pressed: boolean;
   reduceMotion: boolean;
   cropped?: boolean;
@@ -61,14 +62,16 @@ function NativeFacilityOutline({
   left,
   top,
   scale,
+  baseScale = 1,
   pressed,
   reduceMotion,
   cropped = false,
 }: OutlineProps) {
+  const zoom = scale / baseScale;
   const pad = tokens.outlineWidth * 2;
   // 건물과 같은 RN 이미지 레이아웃으로 그린다. 별도 Skia surface의 크기 갱신을 기다리지 않는다.
-  const width = (cropped ? rect.w : 1536) * scale;
-  const height = (cropped ? rect.h : 1024) * scale;
+  const width = (cropped ? rect.w : 1536) * baseScale;
+  const height = (cropped ? rect.h : 1024) * baseScale;
   return (
     <View
       testID="native-facility-outline"
@@ -79,9 +82,10 @@ function NativeFacilityOutline({
         position: 'absolute',
         left: left + rect.x * scale,
         top: top + rect.y * scale,
-        width: rect.w * scale,
-        height: rect.h * scale,
-        ...facilityPressStyle(pressed, reduceMotion),
+        width: rect.w * baseScale,
+        height: rect.h * baseScale,
+        transformOrigin: [0, 0, 0],
+        transform: [{ scale: zoom }],
       }}
     >
       <View
@@ -89,9 +93,10 @@ function NativeFacilityOutline({
           position: 'absolute',
           left: -pad,
           top: -pad,
-          width: rect.w * scale + pad * 2,
-          height: rect.h * scale + pad * 2,
+          width: rect.w * baseScale + pad * 2,
+          height: rect.h * baseScale + pad * 2,
           overflow: 'hidden',
+          ...facilityPressStyle(pressed, reduceMotion),
         }}
       >
         {OUTLINE_OFFSETS.map(([dx, dy], index) => (
@@ -103,8 +108,8 @@ function NativeFacilityOutline({
             resizeMode="stretch"
             style={{
               position: 'absolute',
-              left: pad - (cropped ? 0 : rect.x * scale) + dx * tokens.outlineWidth,
-              top: pad - (cropped ? 0 : rect.y * scale) + dy * tokens.outlineWidth,
+              left: pad - (cropped ? 0 : rect.x * baseScale) + dx * tokens.outlineWidth,
+              top: pad - (cropped ? 0 : rect.y * baseScale) + dy * tokens.outlineWidth,
               width,
               height,
               tintColor: tokens.outline,
@@ -133,11 +138,13 @@ function WebFacilityOutline({
   left,
   top,
   scale,
+  baseScale = 1,
   pressed,
   reduceMotion,
   cropped = false,
 }: OutlineProps) {
   const uid = useId().replace(/:/g, '');
+  const zoom = scale / baseScale;
   const pad = tokens.outlineWidth * 2;
   return (
     <View
@@ -146,23 +153,29 @@ function WebFacilityOutline({
         position: 'absolute',
         left: left + rect.x * scale,
         top: top + rect.y * scale,
-        width: rect.w * scale,
-        height: rect.h * scale,
-        ...facilityPressStyle(pressed, reduceMotion),
+        width: rect.w * baseScale,
+        height: rect.h * baseScale,
+        transformOrigin: [0, 0, 0],
+        transform: [{ scale: zoom }],
       }}
     >
       <Svg
-        width={rect.w * scale + pad * 2}
-        height={rect.h * scale + pad * 2}
-        style={{ position: 'absolute', left: -pad, top: -pad }}
+        width={rect.w * baseScale + pad * 2}
+        height={rect.h * baseScale + pad * 2}
+        style={{
+          position: 'absolute',
+          left: -pad,
+          top: -pad,
+          ...facilityPressStyle(pressed, reduceMotion),
+        }}
       >
         <Defs>
           <Filter
             id={uid}
             x={0}
             y={0}
-            width={rect.w * scale + pad * 2}
-            height={rect.h * scale + pad * 2}
+            width={rect.w * baseScale + pad * 2}
+            height={rect.h * baseScale + pad * 2}
             filterUnits="userSpaceOnUse"
           >
             <FeMorphology
@@ -178,10 +191,10 @@ function WebFacilityOutline({
         <SvgImage
           href={source}
           filter={`url(#${uid})`}
-          x={pad - (cropped ? 0 : rect.x * scale)}
-          y={pad - (cropped ? 0 : rect.y * scale)}
-          width={(cropped ? rect.w : 1536) * scale}
-          height={(cropped ? rect.h : 1024) * scale}
+          x={pad - (cropped ? 0 : rect.x * baseScale)}
+          y={pad - (cropped ? 0 : rect.y * baseScale)}
+          width={(cropped ? rect.w : 1536) * baseScale}
+          height={(cropped ? rect.h : 1024) * baseScale}
           preserveAspectRatio="none"
         />
       </Svg>
@@ -193,12 +206,14 @@ export function TileFacilitySign({
   width,
   height,
   label,
+  zoom = 1,
   pressed,
   reduceMotion,
 }: {
   width: number;
   height: number;
   label: string;
+  zoom?: number;
   pressed: boolean;
   reduceMotion: boolean;
 }) {
@@ -210,16 +225,25 @@ export function TileFacilitySign({
       collapsable={false}
       style={[{ width, height }, facilityPressStyle(pressed, reduceMotion)]}
     >
-      <Image
-        source={sign}
-        fadeDuration={0}
-        resizeMode="stretch"
-        style={[styles.signImage, { width, height }]}
-      />
-      <View style={styles.textArea}>
-        <Text numberOfLines={1} adjustsFontSizeToFit style={styles.text}>
-          {label}
-        </Text>
+      <View
+        style={{
+          width: width / zoom,
+          height: height / zoom,
+          transformOrigin: [0, 0, 0],
+          transform: [{ scale: zoom }],
+        }}
+      >
+        <Image
+          source={sign}
+          fadeDuration={0}
+          resizeMode="stretch"
+          style={[styles.signImage, { width: width / zoom, height: height / zoom }]}
+        />
+        <View style={styles.textArea}>
+          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.text}>
+            {label}
+          </Text>
+        </View>
       </View>
     </View>
   );

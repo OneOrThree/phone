@@ -46,39 +46,47 @@ export function facilitySignBox(
   scale: number,
   fontScale = 1,
   label = '',
+  baseScale = 1,
 ) {
-  // 카메라 배율은 건물에 붙는 위치에만 적용하고, 팻말은 화면 크기를 유지한다.
+  // 기본 카메라에서 정한 크기·간격을 건물과 같은 줌 배율로 확대한다.
   // 긴 번역은 글자를 작게 만드는 대신 같은 나무 그림을 가로로 넓힌다.
+  const zoom = scale / baseScale;
   const width =
     (label.length > 10
       ? tokens.signLongWidth
       : label.length > 6
         ? tokens.signMediumWidth
-        : tokens.signWidth) * fontScale;
-  const height = (tokens.signWidth / tokens.signAspectRatio) * fontScale;
+        : tokens.signWidth) *
+    fontScale *
+    zoom;
+  const height = (tokens.signWidth / tokens.signAspectRatio) * fontScale * zoom;
   return {
     left:
       id === 'raft'
-        ? (rect.x + rect.w) * scale + tokens.raftSignLeftOffset
+        ? (rect.x + rect.w) * scale + tokens.raftSignLeftOffset * zoom
         : (rect.x + rect.w / 2) * scale - width / 2,
     top:
       id === 'raft'
-        ? rect.y * scale - height + tokens.raftSignBottomOffset
-        : (rect.y + rect.h) * scale + tokens.signGap,
+        ? rect.y * scale - height + tokens.raftSignBottomOffset * zoom
+        : (rect.y + rect.h) * scale + tokens.signGap * zoom,
     width,
     height,
   };
 }
 
-/** 전체 섬으로 축소해도 이웃 팻말끼리 겹치지 않게 아래로 나눈다. 뗏목의 확정 위치는 우선한다. */
+/** 기본 배율에서 한 번 정한 팻말 배치를 그대로 확대한다. 핀치 중 충돌 재배치로 팻말을 밀지 않는다. */
 export function layoutFacilitySigns(
   facilities: { id: string; rect: FacilityRect; label?: string }[],
   scale: number,
   fontScale = 1,
+  baseScale = 1,
 ) {
   const out: Record<string, ReturnType<typeof facilitySignBox>> = {};
   const candidates = facilities
-    .map(({ id, rect, label }) => ({ id, box: facilitySignBox(id, rect, scale, fontScale, label) }))
+    .map(({ id, rect, label }) => ({
+      id,
+      box: facilitySignBox(id, rect, baseScale, fontScale, label, baseScale),
+    }))
     .sort((a, b) => (a.id === 'raft' ? -1 : b.id === 'raft' ? 1 : a.box.top - b.box.top));
   for (const { id, box } of candidates) {
     for (let tries = 0; tries < facilities.length; tries++) {
@@ -94,7 +102,18 @@ export function layoutFacilitySigns(
     }
     out[id] = box;
   }
-  return out;
+  const zoom = scale / baseScale;
+  return Object.fromEntries(
+    Object.entries(out).map(([id, box]) => [
+      id,
+      {
+        left: box.left * zoom,
+        top: box.top * zoom,
+        width: box.width * zoom,
+        height: box.height * zoom,
+      },
+    ]),
+  );
 }
 
 export const TERRAIN_FACILITY_CONTOURS = {

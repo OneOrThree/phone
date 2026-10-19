@@ -6,9 +6,10 @@ import { componentTokens } from '@/design-system/tokens';
 configure({ defaultIncludeHiddenElements: true });
 
 it.each([true, false])(
-  '네이티브 외곽선은 빠른 줌에도 같은 이미지 좌표·일정한 두께를 쓴다 (crop %s)',
+  '네이티브 외곽선은 빠른 줌에도 기본 이미지 좌표를 유지하고 건물과 함께 확대를 쓴다 (crop %s)',
   async (cropped) => {
     const rect = { x: 150, y: 24, w: 112, h: 193 };
+    const baseScale = 0.73;
     const source = require('@/assets/village-world/motion/observatory/frame-0.png');
     const outline = (scale: number) => (
       <TileFacilityOutline
@@ -17,6 +18,7 @@ it.each([true, false])(
         left={-120}
         top={50}
         scale={scale}
+        baseScale={baseScale}
         cropped={cropped}
         pressed={false}
         reduceMotion={false}
@@ -29,9 +31,10 @@ it.each([true, false])(
       expect(outer).toMatchObject({
         left: -120 + rect.x * scale,
         top: 50 + rect.y * scale,
-        width: rect.w * scale,
-        height: rect.h * scale,
+        width: rect.w * baseScale,
+        height: rect.h * baseScale,
       });
+      expect(outer.transform).toEqual([{ scale: scale / baseScale }]);
       const nodes: any[] = [];
       const walk = (node: any) => {
         if (!node || typeof node !== 'object') return;
@@ -43,11 +46,11 @@ it.each([true, false])(
       expect(nodes).toHaveLength(8);
       for (const node of nodes) {
         const image = StyleSheet.flatten(node.props.style);
-        expect(image.width).toBe((cropped ? rect.w : 1536) * scale);
-        expect(image.height).toBe((cropped ? rect.h : 1024) * scale);
+        expect(image.width).toBe((cropped ? rect.w : 1536) * baseScale);
+        expect(image.height).toBe((cropped ? rect.h : 1024) * baseScale);
         const pad = componentTokens.tileFacility.outlineWidth * 2;
-        const dx = image.left - pad + (cropped ? 0 : rect.x * scale);
-        const dy = image.top - pad + (cropped ? 0 : rect.y * scale);
+        const dx = image.left - pad + (cropped ? 0 : rect.x * baseScale);
+        const dy = image.top - pad + (cropped ? 0 : rect.y * baseScale);
         expect(Math.max(Math.abs(dx), Math.abs(dy))).toBeCloseTo(
           componentTokens.tileFacility.outlineWidth,
         );
