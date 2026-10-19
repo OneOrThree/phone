@@ -163,11 +163,14 @@ grafana: guard
 
 # 이미 구성한 격리 서버의 공개 API 부하. golden reset·클라우드 기동 없이 실행한다.
 # PARAMS_DIR은 해당 서버에 존재하는 세션의 users_uniform.json을 포함한 절대 경로.
+# K6_SCRIPT로 다른 시나리오를 고른다. 쓰기 시나리오(island_switch·join_approval·letter_exchange·telescope_pin)는
+# PARAMS_DIR에 write_fixture.json이 필요하다 — `make write-fixture`(로컬 스택 전용)로 만든다.
+K6_SCRIPT ?= k6/scenarios/business_reads.js
 .PHONY: test-existing
 test-existing:
 	@test -n "$(BASE_URL)" -a -n "$(PARAMS_DIR)" || { echo 'BASE_URL과 PARAMS_DIR 필요'; exit 1; }
 	BASE_URL="$(BASE_URL)" PARAMS_DIR="$(PARAMS_DIR)" PROFILE="$(PROFILE)" \
-	  k6 run k6/scenarios/business_reads.js
+	  k6 run $(K6_SCRIPT)
 
 .PHONY: check
 check:
@@ -199,3 +202,16 @@ survey-report: survey-check
 
 survey-check:
 	@for f in matrix.py aggregate.py coverage.py tables.py; do test -f "survey/$$f" || { echo "loadtest/survey/$$f 가 없습니다 — 조사 스크립트는 로컬 전용(gitignored)입니다. 조사 담당자에게 받아 loadtest/survey/ 에 두세요."; exit 2; }; done
+
+# 공개 OpenAPI 전 operation × k6 시나리오 재대조 (GROMO-2346). 결과: docs/public-api-coverage.csv
+# 스펙 갱신: scripts/coverage.py --refresh http://<business>/v0/api-docs/public
+.PHONY: coverage coverage-check write-fixture
+coverage:
+	python3 scripts/coverage.py
+
+coverage-check:
+	python3 scripts/coverage.py --check
+
+# 쓰기 시나리오용 slot fixture(계정 2 + 섬 3, SLOTS ≥ 시나리오 MAX_VUS). 로컬 격리 스택(localhost)에만 쓴다.
+write-fixture:
+	SLOTS="$(or $(SLOTS),50)" seed/60_write_fixture.sh

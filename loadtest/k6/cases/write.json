@@ -1,0 +1,56 @@
+[
+  {
+    "id": "island_switch",
+    "kind": "write_journey",
+    "target": "business",
+    "script": "island_switch.js",
+    "fixture": "write_fixture.json",
+    "operations": [
+      "PUT /me/current-island",
+      "POST /islands/{islandId}/arrivals"
+    ],
+    "teardown": "항상 원래 섬으로 복귀(도착 → 실패 시 PUT current-island). 잔여물 없음"
+  },
+  {
+    "id": "join_approval",
+    "kind": "write_journey",
+    "target": "business",
+    "script": "join_approval.js",
+    "fixture": "write_fixture.json",
+    "operations": [
+      "POST /islands/{islandId}/memberships",
+      "GET /islands/{islandId}/join-requests",
+      "PATCH /islands/{islandId}/join-requests/{requestId}",
+      "DELETE /islands/{islandId}/memberships/me",
+      "DELETE /me/join-requests/{requestId}"
+    ],
+    "teardown": "승인 후 신청자가 나가기, 승인 전 실패는 신청 취소. 잔여물: join_requests 행·승인 안내 시스템 편지 각 1건(되돌릴 수 없음)"
+  },
+  {
+    "id": "letter_exchange",
+    "kind": "write_journey",
+    "target": "business",
+    "script": "letter_exchange.js",
+    "fixture": "write_fixture.json",
+    "operations": [
+      "POST /letters",
+      "GET /letters",
+      "GET /letters/{letterId}",
+      "DELETE /letters/{letterId}"
+    ],
+    "teardown": "수신자가 편지 닫기. 발송 한도 카운터는 되돌릴 수 없어 loadtest 프로파일(사실상 무제한) 필요"
+  },
+  {
+    "id": "telescope_pin",
+    "kind": "write_journey",
+    "target": "business",
+    "script": "telescope_pin.js",
+    "fixture": "write_fixture.json",
+    "operations": [
+      "POST /me/telescope/pins",
+      "GET /me/telescope",
+      "DELETE /me/telescope/pins/{islandId}"
+    ],
+    "teardown": "unpin. 잔여물 없음"
+  }
+]

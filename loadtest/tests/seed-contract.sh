@@ -30,6 +30,16 @@ docker exec "$NAME" sh -ec '
   cd /tmp/export
   psql -U postgres -d golden -f /seed/40_params_export.sql
 '
+# 쓰기 시나리오 fixture SQL(60_write_fixture.sql)이 최신 스키마에서 실행되고 의도한 상태를 만드는지 — 임시 DB, 같은 psql 세션.
+{
+  echo "CREATE TEMP TABLE write_slots AS SELECT (SELECT id FROM users WHERE is_guest ORDER BY id LIMIT 1) actor, (SELECT id FROM users WHERE is_guest ORDER BY id OFFSET 1 LIMIT 1) partner, (SELECT id FROM groups ORDER BY id LIMIT 1) island, (SELECT id FROM groups ORDER BY id OFFSET 1 LIMIT 1) hub;"
+  cat "$ROOT/loadtest/seed/60_write_fixture.sql"
+  echo "DO \$\$ BEGIN
+    ASSERT (SELECT count(*) FROM users u JOIN write_slots w ON u.id IN (w.actor, w.partner) WHERE NOT u.is_guest) = 2, '회원 전환 실패';
+    ASSERT (SELECT count(*) FROM friendships f JOIN write_slots w ON f.from_user_id = w.actor AND f.to_user_id = w.partner AND f.status = 'ACCEPTED') = 1, '친구 관계 누락';
+    ASSERT (SELECT count(*) FROM island_facilities f JOIN write_slots w ON f.island_id IN (w.island, w.hub) AND f.building_id = 'tower' AND f.status = 'COMPLETED') = 2, '전망대 누락';
+  END \$\$;"
+} | docker exec -i "$NAME" psql -U postgres -d golden -v ON_ERROR_STOP=1 >/dev/null
 docker cp "$NAME:/tmp/export/seed/params" "$TMP/params" >/dev/null
 JWT_SECRET=local-contract-secret-at-least-32-bytes node "$ROOT/loadtest/seed/50_mint_jwt.mjs" "$TMP/params"
 node --input-type=module - "$TMP/params" <<'JS'
