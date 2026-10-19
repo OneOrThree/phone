@@ -11,7 +11,7 @@ export const assetName = (id: string) => t(`magazine.asset.${id.replace(/^mag\./
 
 /**
  * 스티커 서랍(C1 아래) — 탭 넷(고양이 · 바다 · 친구들 · 꾸미기), 꾸미기 탭 첫 줄은 마스킹테이프(1개, 다시 고르면 바꿔 끼움).
- * 칸을 누르면 붙는다(가운데 · 맨 위). 5개가 차도 스티커 칸은 그대로이고, 더 누를 때만 안내가 뜬다(owned 아닌 재료는 흐리게 잠근다).
+ * 칸을 누르면 붙는다(가운데 · 맨 위). 5개가 차도 스티커 칸은 그대로이고, 더 누를 때만 안내가 뜬다(보유한 재료만 표시한다).
  */
 export function StickerDrawer({
   tab,
@@ -33,7 +33,10 @@ export function StickerDrawer({
   onFull: () => void;
 }) {
   const labels = TABS.map((x) => t(`magazine.editor.tabs.${x}`));
-  const stickers = Object.entries(MAGAZINE_STICKERS).filter(([, s]) => s.tab === tab);
+  const stickers = Object.entries(MAGAZINE_STICKERS).filter(
+    ([id, s]) => s.tab === tab && owned(id),
+  );
+  const tapes = tab === 'deco' ? Object.entries(MAGAZINE_TAPES).filter(([id]) => owned(id)) : [];
   return (
     <View style={{ flex: 1, gap: semanticTokens.spacing.control }}>
       {/* 탭은 44pt(large), 좁은 화면(320pt)에서는 두 줄로 감긴다 */}
@@ -54,18 +57,20 @@ export function StickerDrawer({
         }}
         showsVerticalScrollIndicator={false}
       >
-        {tab === 'deco' && (
+        {!stickers.length && !tapes.length && (
+          <Txt kind="meta">{t('magazine.editor.assetsEmpty')}</Txt>
+        )}
+        {tapes.length > 0 && (
           <>
             <Txt kind="meta">{t('magazine.editor.tapes')}</Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: primitiveTokens.space[2] }}>
-              {Object.entries(MAGAZINE_TAPES).map(([id, tape]) => (
+              {tapes.map(([id, tape]) => (
                 <Tile
                   key={id}
                   id={id}
                   wide
                   source={tape.source}
                   selected={tapeId === id}
-                  locked={!owned(id)}
                   onPress={() => onTape(id)}
                 />
               ))}
@@ -78,7 +83,6 @@ export function StickerDrawer({
               key={id}
               id={id}
               source={s.source}
-              locked={!owned(id)}
               onPress={() => (full ? onFull() : onSticker(id))}
             />
           ))}
@@ -93,16 +97,12 @@ function Tile({
   source,
   wide = false,
   selected = false,
-  dim = false,
-  locked,
   onPress,
 }: {
   id: string;
   source: any;
   wide?: boolean;
   selected?: boolean;
-  dim?: boolean;
-  locked: boolean;
   onPress: () => void;
 }) {
   const name = assetName(id);
@@ -111,9 +111,8 @@ function Tile({
     <Pressable
       testID={`drawer-${id}`}
       accessibilityRole="button"
-      accessibilityLabel={locked ? t('magazine.editor.lockedAsset', { name }) : name}
-      accessibilityState={{ selected, disabled: locked }}
-      disabled={locked}
+      accessibilityLabel={name}
+      accessibilityState={{ selected }}
       onPress={onPress}
       style={{
         width: wide ? tile.tapeTileWidth : tile.stickerTile,
@@ -124,7 +123,6 @@ function Tile({
         backgroundColor: selected ? semanticTokens.color.selected : semanticTokens.color.surface,
         alignItems: 'center',
         justifyContent: 'center',
-        opacity: locked || dim ? componentTokens.button.disabledOpacity : 1,
       }}
     >
       <Image

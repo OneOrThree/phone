@@ -2624,3 +2624,46 @@ test('주민은 타인 댓글을 삭제할 수 없고 방장의 삭제 실패는
   assert.ok(ui.getByText('남아야 할 댓글'));
   await ui.unmount();
 });
+
+test.each(['ios', 'web'])(
+  '주민 게시판 부모 스크롤(%s) 하단에서 방명록 다음 페이지를 불러온다',
+  async (os) => {
+    const restore = os === 'web' ? webMockMode('') : () => {};
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: os });
+    try {
+      getBoardMock.mockResolvedValue(page([], null, 'member'));
+      getGuestbookMock
+        .mockResolvedValueOnce({
+          boardBuilt: true,
+          items: [guestbookEntry('first')],
+          nextCursor: 'next',
+        })
+        .mockResolvedValueOnce({
+          boardBuilt: true,
+          items: [guestbookEntry('last')],
+          nextCursor: null,
+        });
+      const screen = await renderBoard(makeE({ tab: '' }));
+      await fireEvent.press(await screen.findByTestId('board-guestbook-area'));
+      await screen.findByText('first 놀러 왔어요');
+      const scroll = screen.getByTestId('board-guestbook-scroll');
+      if (os === 'web')
+        await fireEvent(scroll, 'scroll', {
+          nativeEvent: {},
+          currentTarget: { scrollTop: 600, clientHeight: 400, scrollHeight: 1000 },
+        });
+      else
+        await fireEvent.scroll(scroll, {
+          nativeEvent: {
+            contentOffset: { y: 600 },
+            contentSize: { height: 1000 },
+            layoutMeasurement: { height: 400 },
+          },
+        });
+      await screen.findByText('last 놀러 왔어요');
+      expect(getGuestbookMock).toHaveBeenLastCalledWith(ISLAND, 'next');
+    } finally {
+      restore();
+    }
+  },
+);

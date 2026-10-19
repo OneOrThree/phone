@@ -232,13 +232,13 @@ export function PromotionEditor({
     });
     return () => sub.remove();
   }, [backStep, askEdit, confirming, e]);
-  // 서버 재료 목록에서 내 것이 아니라고 온 것만 잠근다(목록을 못 읽었으면 지금 재료는 전부 무료라 연다)
+  // 선택 목록은 서버가 보유했다고 확인한 재료만 표시한다. 저장된 칸의 꾸미기는 그대로 그린다.
   const owned = (id: string) => {
-    if (!assets) return true;
+    if (!assets) return false;
     const item = [...assets.frames, ...assets.stickers, ...assets.tapes].find(
       (a) => a.assetId === id,
     );
-    return item ? item.owned : false;
+    return item?.owned === true;
   };
 
   // 칸 크기: 화면 폭에서 스티커가 걸칠 둘레(8%)를 뺀 만큼. 태블릿·가로에서는 너무 커지지 않게 묶는다
@@ -531,18 +531,16 @@ export function PromotionEditor({
   const fee = editor.feeFish;
   const poor = !editor.next && editor.balance < fee;
   const closed = !editor.next && !editor.window.open;
-  const blocked = readOnly || closed || poor || editor.privateIsland;
+  const blocked = readOnly || closed || poor;
   // 종이 아래 [완료](10/15) — 처음 싣기면 가격 확인창, 이미 낸 홍보면 바로 저장. 신청 창이 닫힌 00~07시는 그 안내로
   const ctaTitle = closed ? t('magazine.editor.whenClosed') : t('magazine.editor.done');
   const note = readOnly
     ? t('magazine.editor.locked')
-    : editor.privateIsland
-      ? t('magazine.editor.problem.private')
-      : poor
-        ? t('magazine.editor.problem.poor')
-        : !editor.next && !editor.window.open
-          ? t('magazine.editor.whenClosed')
-          : t('magazine.editor.whenOpen');
+    : poor
+      ? t('magazine.editor.problem.poor')
+      : !editor.next && !editor.window.open
+        ? t('magazine.editor.whenClosed')
+        : t('magazine.editor.whenOpen');
 
   const box = selection && itemBox(layout, selection, cellW);
   // 점선 상자의 (sx, sy) 모서리(-1 = 왼쪽·위)를 꾸미기 회전만큼 돌린 자리 — ✕ 버튼 가운데가 그 점에 오게
@@ -709,38 +707,41 @@ export function PromotionEditor({
       }}
       showsVerticalScrollIndicator={false}
     >
-      {Object.keys(MAGAZINE_FRAMES).map((id) => {
-        const on = chosenFrame === id;
-        const lockedFrame = !owned(id);
-        return (
-          <Pressable
-            key={id}
-            testID={`frame-${id}`}
-            accessibilityRole="button"
-            accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
-            accessibilityState={{ selected: on, disabled: !canEdit || lockedFrame }}
-            disabled={!canEdit || lockedFrame}
-            onPress={() => {
-              setChosenFrame(id);
-              edit({ ...layout, frameId: id });
-              setStep('text');
-            }}
-            style={{
-              padding: space[1],
-              borderRadius: semanticTokens.radius.control,
-              borderWidth: semanticTokens.stroke.strong,
-              borderColor: on ? semanticTokens.color.outline : 'transparent',
-              opacity: lockedFrame ? componentTokens.button.disabledOpacity : 1,
-            }}
-          >
-            <Image
-              source={MAGAZINE_FRAMES[id].source}
-              resizeMode="stretch"
-              style={{ width: cellW, height: cellW * CELL_ASPECT }}
-            />
-          </Pressable>
-        );
-      })}
+      {!Object.keys(MAGAZINE_FRAMES).some(owned) && (
+        <Txt kind="meta">{t('magazine.editor.assetsEmpty')}</Txt>
+      )}
+      {Object.keys(MAGAZINE_FRAMES)
+        .filter(owned)
+        .map((id) => {
+          const on = chosenFrame === id;
+          return (
+            <Pressable
+              key={id}
+              testID={`frame-${id}`}
+              accessibilityRole="button"
+              accessibilityLabel={t('magazine.editor.frameA11y', { name: assetName(id) })}
+              accessibilityState={{ selected: on, disabled: !canEdit }}
+              disabled={!canEdit}
+              onPress={() => {
+                setChosenFrame(id);
+                edit({ ...layout, frameId: id });
+                setStep('text');
+              }}
+              style={{
+                padding: space[1],
+                borderRadius: semanticTokens.radius.control,
+                borderWidth: semanticTokens.stroke.strong,
+                borderColor: on ? semanticTokens.color.outline : 'transparent',
+              }}
+            >
+              <Image
+                source={MAGAZINE_FRAMES[id].source}
+                resizeMode="stretch"
+                style={{ width: cellW, height: cellW * CELL_ASPECT }}
+              />
+            </Pressable>
+          );
+        })}
     </ScrollView>,
   );
 
@@ -918,8 +919,8 @@ export function PromotionEditor({
               onPress={() => (editor.next ? send() : setConfirming(true))}
             />
           ) : null}
-          {/* 버튼이 꺼진 이유만 한 줄(잔액 부족 · 비공개 섬 · 자정 지나 잠김) */}
-          {readOnly || poor || editor.privateIsland ? (
+          {/* 버튼이 꺼진 이유만 한 줄(잔액 부족 · 자정 지나 잠김) */}
+          {readOnly || poor ? (
             <Txt kind="meta" style={{ textAlign: 'center' }}>
               {readOnly
                 ? note

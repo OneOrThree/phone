@@ -58,6 +58,7 @@ import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
 import { useBoardNotices } from './useBoardNotices';
+import { isNearScrollEnd } from '@/utils/scrollEnd';
 import { useMailbox } from './useMailbox';
 import { Guestbook } from './Guestbook';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
@@ -3231,19 +3232,43 @@ function Scroll({
   style,
   children,
   testID,
+  onEndReached,
 }: {
   style: any;
   children: React.ReactNode;
   testID?: string;
+  onEndReached?: () => void;
 }) {
   if (Platform.OS !== 'web')
     return (
-      <ScrollView testID={testID} style={style} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        testID={testID}
+        style={style}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onScroll={
+          onEndReached
+            ? (event) => {
+                if (isNearScrollEnd(event)) onEndReached();
+              }
+            : undefined
+        }
+      >
         {children}
       </ScrollView>
     );
   return (
-    <View testID={testID} style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>
+    <View
+      testID={testID}
+      {...(onEndReached
+        ? {
+            onScroll: (event: React.UIEvent<HTMLElement>) => {
+              if (isNearScrollEnd(event)) onEndReached();
+            },
+          }
+        : {})}
+      style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}
+    >
       {children}
     </View>
   );
@@ -4027,6 +4052,7 @@ export function Board({
   onBoardModalChange,
 }: ArtifactProps) {
   const [local, setS] = useState(() => makeState(concept));
+  const guestbookMore = useRef<(() => void) | null>(null);
   const [mockNotices, setNotices] = useState(() =>
     concept.boardPanel === 'notice' && concept.boardView === 'empty' ? [] : NOTICES,
   );
@@ -6647,9 +6673,20 @@ export function Board({
             InteriorRoute 높이를 줄이면 paperScroll·sheetCramped 가 그 높이를 따른다(방명록은 minPaperScroll 바닥이 더 높다).
             automaticallyAdjustKeyboardInsets 는 줄어들기 전 좌표로 inset 을 잡아 이중 보정이 될 수 있어 두지 않는다. */}
         {s.panel === 'guestbook' && serverBoard && (
-          <Scroll testID="board-guestbook-scroll" style={{ maxHeight: paperScroll }}>
+          <Scroll
+            testID="board-guestbook-scroll"
+            style={{ maxHeight: paperScroll }}
+            onEndReached={() => guestbookMore.current?.()}
+          >
             {board.islandId ? (
-              <Guestbook islandId={board.islandId} host={owner} e={e} />
+              <Guestbook
+                islandId={board.islandId}
+                host={owner}
+                e={e}
+                onLoadMoreReady={(load) => {
+                  guestbookMore.current = load;
+                }}
+              />
             ) : board.error && !board.loading ? (
               <View>
                 <Text style={muted({ marginTop: 4, marginBottom: 8 })}>

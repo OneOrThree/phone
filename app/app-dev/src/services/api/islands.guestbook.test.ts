@@ -63,7 +63,7 @@ test('getGuestbook — GET /islands/{id}/guestbook 을 {data} 언랩해 돌려�
 
 test('getGuestbook — 게시판이 없는 섬은 boardBuilt=false 와 빈 목록이다', async () => {
   stub([{ status: 200, body: { data: { boardBuilt: false, items: [] } } }]);
-  assert.deepEqual(await getGuestbook('i1'), { boardBuilt: false, items: [] });
+  assert.deepEqual(await getGuestbook('i1'), { boardBuilt: false, items: [], nextCursor: null });
 });
 
 test('writeGuestbook — POST 는 {content} 하나만 보내고 멱등 키를 싣지 않는다', async () => {
@@ -98,4 +98,11 @@ test('deleteGuestbookEntry — DELETE /islands/{id}/guestbook/{entryId}, 404 는
     deleteGuestbookEntry('i1', 'g1'),
     (e) => e instanceof ApiError && e.code === 'NOT_FOUND',
   );
+});
+
+test('getGuestbook — 다음 페이지는 서명 커서를 인코딩해서 전달하고 null 커서로 끝난다', async () => {
+  stub([{ status: 200, body: { data: { boardBuilt: true, items: [entry], nextCursor: null } } }]);
+  const page = await getGuestbook('i1', 'signed+/=');
+  assert.equal(new URL(calls[0].url).searchParams.get('cursor'), 'signed+/=');
+  assert.equal(page.nextCursor, null);
 });

@@ -152,6 +152,7 @@ const card = (
   relation: MagazineCell['relation'] = 'NONE',
 ) => ({
   islandId: `mock-island-${name}`,
+  privateIsland: false,
   name,
   buildingCount,
   memberCount,
@@ -368,8 +369,6 @@ export const magazineMock = {
     }
     seed(store, now);
     const w = windowAt(now);
-    if (mockFlags().has('private'))
-      reject('PROMOTION_PRIVATE_ISLAND', 409, '비공개 섬은 잡지에 실을 수 없어요.');
     if (!w.open) reject('PROMOTION_WINDOW_CLOSED', 409, '지금은 신청할 수 없어요.');
     if (store.promotions.some((p) => p.issueDate === w.issueDate))
       reject('PROMOTION_ALREADY_REQUESTED_TODAY', 409, '오늘은 이미 잡지 홍보를 신청했어요');

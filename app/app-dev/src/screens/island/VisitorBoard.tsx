@@ -6,6 +6,7 @@ import { Btn, Group, Row, Txt } from '@/design-system/patterns';
 import { getNotice, listNotices, type NoticeDetail, type NoticePage } from '@/services/api/notices';
 import { sessionGeneration } from '@/services/api/session';
 import { islandErrorMessage } from '@/services/islandErrors';
+import { isNearScrollEnd } from '@/utils/scrollEnd';
 
 /**
  * 방문자·가입 대기자는 공지와 댓글만 읽는다. 주민 전용 /screens/board와 쓰기 API는 호출하지 않는다.
@@ -30,6 +31,7 @@ export function VisitorBoard({
   const [reload, setReload] = useState(0);
   const [failedRead, setFailedRead] = useState<{ id?: string; cursor?: string } | null>(null);
   const epoch = useRef(0);
+  const guestbookMore = useRef<(() => void) | null>(null);
   const pending = useRef<object | null>(null);
   const back = () => {
     if (!detail) return onClose();
@@ -132,6 +134,9 @@ export function VisitorBoard({
       tall
       onBack={back}
       onClose={onClose}
+      onScroll={(event) => {
+        if (!detail && isNearScrollEnd(event)) guestbookMore.current?.();
+      }}
     >
       <Txt kind="meta">{t('visitorBoard.readOnly')}</Txt>
       {detail ? (
@@ -198,7 +203,16 @@ export function VisitorBoard({
           />
         </>
       )}
-      {!detail && <Guestbook islandId={islandId} host={false} e={e} />}
+      {!detail && (
+        <Guestbook
+          islandId={islandId}
+          host={false}
+          e={e}
+          onLoadMoreReady={(load) => {
+            guestbookMore.current = load;
+          }}
+        />
+      )}
     </IslandSheet>
   );
 }

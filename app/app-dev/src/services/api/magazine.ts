@@ -216,6 +216,7 @@ export type MagazineReceipt = {
 export type MagazineToday = { issue: MagazineIssue | null; receipt: MagazineReceipt | null };
 export type MagazineIssueSummary = Omit<MagazineIssue, 'current'> & { opened: boolean };
 export type MagazineIsland = {
+  privateIsland: boolean;
   islandId: string;
   name: string;
   buildingCount: number;
@@ -224,7 +225,7 @@ export type MagazineIsland = {
   averageFocusMinutesPerDay: number | null;
   relation: MagazineRelation;
 };
-/** 주간 랭킹 한 줄 — rank 는 비공개 섬을 뺀 순위(동점은 공동 순위). */
+/** 주간 랭킹 한 줄 — rank 는 비공개 섬도 포함한 순위(동점은 공동 순위). */
 export type MagazineRanked = MagazineIsland & { rank: number };
 /** 편집부 한마디 — EDITOR 면 운영 문구(body), TIP 이면 앱 번역 파일의 몽돌 팁 번호(tipNo). */
 export type MagazineNote = { type: 'EDITOR' | 'TIP'; body: string | null; tipNo: number | null };
@@ -295,6 +296,7 @@ function readIsland(raw: unknown): MagazineIsland | null {
     return null;
   return {
     islandId: raw.islandId,
+    privateIsland: raw.privateIsland === true,
     name: raw.name,
     buildingCount: raw.buildingCount as number,
     memberCount: raw.memberCount as number,
