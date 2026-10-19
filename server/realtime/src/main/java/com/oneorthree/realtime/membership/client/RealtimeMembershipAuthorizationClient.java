@@ -10,6 +10,11 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import io.micrometer.core.instrument.FunctionCounter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.MeterBinder;
+
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -31,10 +36,11 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 
 /** Data753 단일 멤버십 판정 전용. 서비스 오류는 사용자401이나 부정 판정으로 바꾸지 않는다. */
 @Slf4j
-public class RealtimeMembershipAuthorizationClient {
+public class RealtimeMembershipAuthorizationClient implements MeterBinder {
     private static final int MAX_RESPONSE_BYTES = 1024;
     private static final JsonMapper JSON = JsonMapper.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
@@ -44,6 +50,8 @@ public class RealtimeMembershipAuthorizationClient {
     private final String serviceToken;
     private final Duration requestTimeout;
     private final Semaphore capacity;
+    private final int maxInFlight;
+    private final LongAdder capacityRejected = new LongAdder();
 
     public RealtimeMembershipAuthorizationClient(RealtimeAuthorizationProperties properties) {
         properties.validate();
@@ -53,15 +61,26 @@ public class RealtimeMembershipAuthorizationClient {
         endpoint = URI.create(properties.getBaseUrl()).resolve("/internal/realtime/membership-authorization");
         serviceToken = properties.getServiceToken();
         requestTimeout = properties.getRequestTimeout();
-        capacity = new Semaphore(properties.getMaxInFlight());
+        maxInFlight = properties.getMaxInFlight();
+        capacity = new Semaphore(maxInFlight);
         http = HttpClient.newBuilder().connectTimeout(properties.getConnectTimeout())
                 .followRedirects(HttpClient.Redirect.NEVER).build();
+    }
+
+    @Override
+    public void bindTo(MeterRegistry registry) {
+        Gauge.builder("realtime.authorization.inflight", capacity,
+                permits -> maxInFlight - permits.availablePermits()).register(registry);
+        Gauge.builder("realtime.authorization.limit", this, client -> client.maxInFlight).register(registry);
+        FunctionCounter.builder("realtime.authorization.capacity.rejected", capacityRejected,
+                LongAdder::doubleValue).register(registry);
     }
 
     /** 헤더부터 마지막 body byte까지 한 예산. 응답이나 요청을 재시도/캐시하지 않는다. */
     public boolean isAllowed(VerifiedAccessIdentity identity, UUID islandId) {
         long started = System.nanoTime();
         if (!capacity.tryAcquire()) {
+            capacityRejected.increment();
             log.warn("현재 멤버십 조회 실패 — outcome=capacity status=0 durationMs=0");
             throw new UpstreamUnavailableException();
         }

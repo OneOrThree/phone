@@ -3,6 +3,45 @@
 버튼 하나(딸깍)로 부하테스트를 실행·판정·비교하는 하네스. 상세 기획은 **[docs/prd.md](docs/prd.md)**,
 아키텍처 원천은 `knowledge/topics/부하테스트-아키텍처.md` v2.
 
+## 현재 서버 기준 실행 경로
+
+전체 앱·채팅·이동 부하와 로컬 Grafana 실행은 현재 서버 부하 조사 하네스를 사용합니다.
+`make local-up`으로 최신 소스의 격리 스택을 기동하고 `make survey`로 100→1,000→10,000명 규모별 조사를 실행합니다.
+**`loadtest/survey/`(조사 스크립트·결과·실험일지)는 gitignored 로컬 자료**라 저장소에 없습니다 — `make survey`·`survey-report` 는 그 폴더가 없으면 안내만 하고 멈춥니다. 핵심 측정값과 조건은 Jira 에픽(2335)과 하위 티켓 본문에 있습니다.
+Outbox·Kafka 전송·Realtime 공유는 이 기동 경로에서 기본 활성화됩니다. `make local-down`은 조사 컨테이너만 내리고 데이터를 보존합니다.
+
+실제 실행 결과(로컬 전용, 저장소에 없음): `survey/results/2026-10-18/README.md`,
+`survey/results/2026-10-18/experiment-journal.md`. API·실시간·혼합 부하와 후보 인덱스의 성공/실패·원복 기록을 포함합니다.
+
+
+- `make test`: GCP의 **Data API 단독** 성능 실험입니다. `/api/v1` 잔존 계약을 사용하며 전체 앱 경로 측정과 구분합니다.
+- `make test-existing`: 이미 구성된 **현재 공개 API → Business → Data** 조회 부하입니다. DB 초기화나 서버 기동을 하지 않습니다.
+  Notification·Realtime·Redis·Kafka의 자원 사용량은 전체 컴포넌트 대시보드에서 함께 관측합니다.
+  이 조회 시나리오 자체가 푸시 발송·WebSocket 메시지·Kafka 이벤트 부하를 생성하지는 않습니다.
+
+```bash
+cd loadtest
+make check # Docker 임시 PostgreSQL에서 최신 전체 마이그레이션·축소 시드·JWT 검증
+make test-existing BASE_URL=http://localhost:8088 PARAMS_DIR=/absolute/path/to/params PROFILE=smoke RATE=5 DURATION=1m
+```
+
+`test-existing`의 params는 **대상 DB에 존재하는 전용 부하 계정과 활성 세션**이어야 합니다.
+`users_uniform.json`에 `{userId, token}` 배열을 넣습니다. 최신 golden 시드의 토큰을 사용하려면 대상 스택의
+Data가 해당 DB 복제본을 사용하고 Business·Data의 JWT 키가 시드 발급 키와 같아야 합니다.
+`seed-v2`는 `guest`, `sid`, `gen` 클레임과 `auth_sessions`를 함께 준비합니다. 예전 `seed-v1`은 재시드가 필요합니다.
+
+시드 날짜는 기본 UTC 오늘이며 `SEED_DATE=YYYY-MM-DD`로 고정할 수 있습니다. 날짜가 오래된 시드를 사용하면
+최근 기간 조회가 빈 데이터를 측정하므로 재시드하세요. 동일 버전의 시드를 다시 만들었으면 기존 baseline과 비교하지 말고
+새 `SEED_VERSION`을 지정합니다. 리그 마스터·봇은 최신 Flyway 데이터를 보존하고 부하 계정과 분리합니다.
+
+API 카탈로그 갱신은 대상 Data의 `/v0/api-docs/legacy`를 `dashboard/public/openapi.json`에 저장한 다음
+`node recipes/gen-recipes.mjs && node scenarios/gen-scenarios.mjs`로 수행합니다.
+스키마만 보고 성공 요청을 만들 수 없는 엔드포인트는 실행 불가로 표시합니다. 신규 API는 시드·상태 전이 검증 후
+생성기의 지원 목록에 추가합니다. 기본 제공 공개 조회 시나리오는 `k6/scenarios/business_reads.js`입니다.
+
+관측: [전체 컴포넌트 대시보드 안내](../server/observability/README.md#전체-컴포넌트-부하-대시보드).
+DB 커넥션, 스레드, CPU, GC, 컨테이너 리소스와 인프라 병목을 한 시간축에서 비교할 수 있습니다.
+
 ## 퀵스타트 (Phase 0 완성 후)
 
 ```bash

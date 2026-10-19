@@ -44,10 +44,19 @@ spring:
       concurrency: 1
 
 server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
   port: 8081
 
 # 관리 포트는 호스트에 publish 하지 않는다 — 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.
 management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s
   server:
     port: 9091
   endpoints:
