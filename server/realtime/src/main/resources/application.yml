@@ -82,6 +82,8 @@ management:
 chat:
   data-api:
     timeout-ms: 2000
+    # OFF 모드 그룹 조회(GroupClient)의 동시 호출 상한. 넘으면 timeout-ms 까지 기다리다 503.
+    max-concurrency: ${CHAT_DATA_API_MAX_CONCURRENCY:32}
   membership:
     # 늘리면 상류 부하가 줄고, 탈퇴·강퇴가 채팅에 반영되기까지의 창이 그만큼 넓어진다.
     cache-ttl-seconds: 120
@@ -109,6 +111,10 @@ realtime:
     connect-timeout: ${REALTIME_AUTHORIZATION_CONNECT_TIMEOUT:500ms}
     request-timeout: ${REALTIME_AUTHORIZATION_REQUEST_TIMEOUT:1500ms}
     max-in-flight: ${REALTIME_AUTHORIZATION_MAX_IN_FLIGHT:16}
+    # 동시 상한이 찼을 때 기다리는 시간(총 예산 request-timeout 에 포함). 0 = 기다리지 않고 바로 503.
+    wait-timeout: ${REALTIME_AUTHORIZATION_WAIT_TIMEOUT:200ms}
+    # 허용 결정 캐시(인스턴스 로컬). 거절은 캐시하지 않는다. 0 = 끔. 멤버십 사건·탈퇴가 즉시 지우고 TTL 은 백스톱.
+    cache-ttl-seconds: ${REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS:30}
 
   # 우체통 내부 어댑터(/internal/islands/{islandId}/messages)의 서비스 자격 — 호출자는 Business 하나다.
   # Business 가 Data·알림·링크에 쓰는 토큰과 «분리»된 값이어야 한다(A22 ㊀). 비어 있으면 그 표면만

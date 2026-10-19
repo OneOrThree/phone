@@ -3,6 +3,7 @@ package com.oneorthree.realtime.event;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.membership.CurrentMembershipDecisionCache;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
@@ -128,6 +129,7 @@ public class InboundEventService {
     private final BlockedUsers blockedUsers;
     private final MovementSubscriptionListener movementSubscriptions;
     private final SeaRooms seaRooms;
+    private final CurrentMembershipDecisionCache currentMembershipCache;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -152,6 +154,7 @@ public class InboundEventService {
         }
         if (USER_WITHDRAWN.equals(type)) {
             UUID withdrawn = uuid(envelope, "userId");
+            currentMembershipCache.evictUser(withdrawn); // 탈퇴 직후 허용 결정이 남지 않게 — 펜스보다 먼저
             chatUserFence.withdraw(withdrawn, authGeneration(envelope));
             // 바다 방에서도 내보낸다(GROMO-2300) — Data 의 탈퇴는 진행 중 세션을 벌크 UPDATE 로 ABANDONED 처리해
             // sea.member.updated(ended) 를 내지 않는다(2299 와의 계약). 안 치우면 focusing 유령이 sea:adrift 색인에도 없어
@@ -187,7 +190,7 @@ public class InboundEventService {
         if (!membershipChanged) {
             return;
         }
-        boolean evictionFailed = evictMember(params.get("memberUserId"));
+        boolean evictionFailed = evictMember(params.get("memberUserId"), uuidOrNull(params.get("islandId")));
         if (MEMBER_REMOVED.equals(changeKind.stringValue())) {
             UUID islandId = uuidOrNull(params.get("islandId"));
             UUID memberUserId = uuidOrNull(params.get("memberUserId"));
@@ -239,15 +242,26 @@ public class InboundEventService {
     }
 
     /** @return 캐시 삭제를 시도했는데 Redis 가 실패했으면 true — 옛 답이 TTL 동안 남는다 */
-    private boolean evictMember(JsonNode memberUserId) {
+    private boolean evictMember(JsonNode memberUserId, UUID islandId) {
         if (memberUserId == null || !memberUserId.isString()) {
-            log.debug("주민 사건에 memberUserId 가 없다 — 옛 Data. TTL 로만 무효화한다.");
+            // 옛 Data — 사용자를 모르니 그 섬의 ON 모드 허용 결정을 통째로 지운다(채팅 경계가 강퇴자를 TTL 동안 통과시키지 않게).
+            // Redis 멤버십 캐시는 사용자 키라 TTL 로만 닫힌다.
+            log.debug("주민 사건에 memberUserId 가 없다 — 옛 Data. 섬 허용 캐시를 지우고 Redis 캐시는 TTL 로 닫는다.");
+            if (islandId != null) {
+                currentMembershipCache.evictIsland(islandId);
+            }
             return false;
         }
         try {
-            return !membershipService.evict(UUID.fromString(memberUserId.stringValue()));
+            UUID member = UUID.fromString(memberUserId.stringValue());
+            currentMembershipCache.evictUser(member); // ON 모드 허용 결정 — Redis 캐시 삭제 성패와 무관하게 먼저
+            return !membershipService.evict(member);
         } catch (IllegalArgumentException e) {
-            log.warn("memberUserId 가 UUID 형식이 아닙니다 — 무효화를 건너뜁니다.");
+            // 사용자를 모르는 것과 같다 — 섬 단위로 지운다.
+            log.warn("memberUserId 가 UUID 형식이 아닙니다 — 섬 허용 캐시만 지웁니다.");
+            if (islandId != null) {
+                currentMembershipCache.evictIsland(islandId);
+            }
             return false;
         }
     }
