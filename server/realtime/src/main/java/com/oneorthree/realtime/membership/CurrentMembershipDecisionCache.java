@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * ON 모드(현재 멤버십 HTTP 판정)의 «허용» 결정 캐시 — 인스턴스 로컬, 인메모리.
@@ -42,6 +43,11 @@ public class CurrentMembershipDecisionCache {
     private static final int MAX_GENERATIONS = 50_000;
     private static final long GENERATION_GRACE_NANOS = 10_000_000_000L;
     private final ConcurrentHashMap<UUID, Generation> userGenerations = new ConcurrentHashMap<>();
+    /**
+     * 세대 값은 전역 단조 카운터에서 발급한다 — 정리로 기록이 사라진 사용자가 다시 evict 되어도 «이전과 같은 번호»가
+     * 나오지 않으므로, 옛 mark 를 든 진행 중 조회의 remember 가 통과할 수 없다(codex 게이트: 정리 뒤 번호 재사용 경합).
+     */
+    private final AtomicLong generationCounter = new AtomicLong();
     private final long ttlNanos;
     private final Counter hit;
     private final Counter miss;
@@ -106,8 +112,8 @@ public class CurrentMembershipDecisionCache {
         }
         long now = System.nanoTime();
         // 먼저 세대를 올려 진행 중 조회·게시를 무효화한다
-        userGenerations.compute(userId, (ignored, current) ->
-                new Generation(current == null ? 1L : current.value() + 1, now));
+        long next = generationCounter.incrementAndGet();
+        userGenerations.put(userId, new Generation(next, now));
         int before = entries.size();
         entries.keySet().removeIf(key -> key.userId().equals(userId));
         evict.increment(Math.max(1, before - entries.size()));

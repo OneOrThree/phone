@@ -163,9 +163,12 @@ class CurrentMembershipDecisionCacheTest {
         assertThat(on.generationCount()).isEqualTo(1);
         on.pruneStaleGenerations(System.nanoTime()); // TTL+유예 안 — 남는다
         assertThat(on.generationCount()).isEqualTo(1);
+        long before = on.mark(user);
         on.pruneStaleGenerations(System.nanoTime() + 41_000_000_000L); // TTL 30s + 유예 10s 를 넘김
         assertThat(on.generationCount()).isZero();
-        assertThat(on.mark(user)).isZero(); // 정리 뒤 세대는 0 으로 돌아가고, 옛 세대 항목은 세대 불일치로 미스가 된다
+        assertThat(on.mark(user)).isZero(); // 정리 뒤 기록은 없고(0), 옛 세대 항목은 세대 불일치로 미스가 된다
+        on.evictUser(user); // 정리 뒤 다시 evict — 번호가 재사용되면 옛 mark 의 remember 가 통과한다
+        assertThat(on.mark(user)).isNotEqualTo(before).isNotZero();
     }
 
     @Test
