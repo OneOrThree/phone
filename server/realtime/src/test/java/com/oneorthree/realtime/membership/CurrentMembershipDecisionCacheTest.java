@@ -134,6 +134,22 @@ class CurrentMembershipDecisionCacheTest {
     }
 
     @Test
+    void uncachedRecheckBypassesACachedAllowAndEvictsItOnDeny() {
+        var cache = new CurrentMembershipDecisionCache(properties, registry);
+        var verifier = verifier(cache);
+        UUID sid = UUID.randomUUID();
+        verifier.requireMember(island, user, bearer(sid)); // 허용이 캐시된다
+        allowed.set(false); // 섬 전체 재검사(memberUserId 없는 MEMBER_REMOVED) — 사용자별 evict 는 없다
+        assertThatThrownBy(() -> verifier.requireMemberUncached(island, user, bearer(sid)))
+                .isInstanceOf(ChatException.class); // 캐시된 허용을 읽지 않고 원격 거절을 따른다
+        assertThat(calls.get()).isEqualTo(2);
+        // 재검사 거절이 남아 있던 허용을 지웠으므로, 캐시 경로도 바로 거절한다
+        assertThatThrownBy(() -> verifier.requireMember(island, user, bearer(sid))).isInstanceOf(ChatException.class);
+        assertThat(calls.get()).isEqualTo(3);
+        assertThat(count("evict")).isGreaterThanOrEqualTo(1.0);
+    }
+
+    @Test
     void allowRacingAnEvictIsNotStored() {
         var cache = new CurrentMembershipDecisionCache(properties, registry);
         var identity = jwt.extractSessionProof(bearer(UUID.randomUUID()).substring(7)).orElseThrow();

@@ -95,7 +95,11 @@ public class ChatAccessGuard {
     private void checkMember(UUID islandId, UUID userId, String bearerToken, boolean uncached) {
         CurrentMembershipVerifier verifier = currentVerifier == null ? null : currentVerifier.getIfAvailable();
         if (verifier != null) {
-            verifier.requireMember(islandId, userId, bearerToken);
+            if (uncached) {
+                verifier.requireMemberUncached(islandId, userId, bearerToken); // 강퇴 재검사는 허용 캐시도 우회
+            } else {
+                verifier.requireMember(islandId, userId, bearerToken);
+            }
             return;
         }
         boolean member = uncached ? membershipService.isMemberUncached(islandId, userId, bearerToken)

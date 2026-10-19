@@ -30,16 +30,33 @@ public class CurrentMembershipVerifier {
     }
 
     public void requireMember(UUID islandId, UUID expectedUserId, String bearer) {
+        check(islandId, expectedUserId, bearer, true);
+    }
+
+    /**
+     * 캐시를 읽지 않고 원격 판정만 쓴다 — 강퇴 재검사({@code ChatAccessGuard.requireMemberUncached}) 전용.
+     * 섬 전체 재검사(memberUserId 없는 MEMBER_REMOVED)는 사용자별 evict 가 없으므로, 캐시된 허용으로 통과하면
+     * 강퇴된 사용자의 이동 구독이 다시 살아난다(codex 게이트). 거절이면 그 사용자의 허용 항목을 지운다.
+     */
+    public void requireMemberUncached(UUID islandId, UUID expectedUserId, String bearer) {
+        check(islandId, expectedUserId, bearer, false);
+    }
+
+    private void check(UUID islandId, UUID expectedUserId, String bearer, boolean useCache) {
         String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
         var identity = jwt.extractSessionProof(token)
                 .filter(value -> value.userId().equals(expectedUserId))
                 .orElseThrow(UpstreamRejectedCredentialException::new);
-        boolean allowed = cache != null && cache.isAllowed(identity, islandId);
+        boolean allowed = useCache && cache != null && cache.isAllowed(identity, islandId);
         if (!allowed) {
             long mark = cache == null ? 0 : cache.mark();
             allowed = client.isAllowed(identity, islandId);
-            if (allowed && cache != null) {
-                cache.remember(identity, islandId, mark); // 거절은 캐시하지 않는다
+            if (cache != null) {
+                if (allowed) {
+                    cache.remember(identity, islandId, mark); // 거절은 캐시하지 않는다
+                } else if (!useCache) {
+                    cache.evictUser(identity.userId()); // 재검사 거절 — 남아 있던 허용을 지워 다음 조회도 거절
+                }
             }
         }
         // RPC 대기 중 만료도 차단한다. DB active 세션이 AT 수명을 연장하지 않는다.
