@@ -90,6 +90,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   on a single instance — `ChatWebSocketIntegrationTest` covers that regression. 이동(movement)은 예외다 — 1단계는 Realtime 단일 인스턴스 가정이라 인스턴스 간 팬아웃이 없다(API 표 `SUB …/movement` 행).
 - **현재 인가 옵션 OFF의 멤버십은 TTL 캐시** (`chat.membership.cache-ttl-seconds`)다. ON이면 지정된
   `requireCanChat` 경계가 PR753 Data 현재 인가를 TTL 캐시(허용만, 기본 30s)를 거쳐 조회한다. 방 목록·duplicates·개인큐는 새 조회 범위가 아니다.
+  전달 직전 허용 캐시(`OutboundAuthzCache`, 아래 송신 예산 절)는 ON 에서 멤버십 판정을 담지 않으므로 ON 의 반영 상한은 이 30s 그대로이고,
+  OFF 에서는 원본 Redis 캐시의 만료를 넘지 않는다.
 - **ON 모드 비용·예산(GROMO-2342)**: `CurrentMembershipDecisionCache`(인스턴스 로컬)가 «허용»만 (userId, sessionId, authGeneration, islandId) 키로
   `realtime.authorization-client.cache-ttl-seconds`(30, 0=끔) 동안 들고 있다 — 거절·오류는 캐시하지 않는다. `island.members.updated`(가입·탈퇴·강퇴)의 `memberUserId`와
   `user.withdrawn` 이 `InboundEventService` 에서 `evictUser` 로 지우고(Redis 삭제 성패와 무관, 펜스보다 먼저), 조회 중 겹친 evict 의 옛 허용은 `mark/remember` 가 막는다.
@@ -150,7 +152,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 
 - **heartbeat 10s/10s 가 계약이다.** `WebSocketConfig` 가 `SimpleBroker` 에 `heart-beat:10000,10000` + 전용 1스레드 스케줄러
   (`realtime-heartbeat-`)를 건다. 앱(`islandRealtime.ts`)도 10s/10s 라 CONNECTED 는 `heart-beat:10000,10000`
-  (`StompHeartbeatIntegrationTest`). 클라이언트가 30s(3회) 동안 아무것도 안 보내면 브로커가 세션을 닫는다.
+  (`StompHeartbeatIntegrationTest`). 클라이언트가 30s(3회) 동안 아무것도 안 보내면 브로커가 세션을 닫는다 — `SimpleBrokerMessageHandler`
+  의 HeartbeatTask 가 읽기 무활동을 DISCONNECT_ACK 로 내고 `StompSubProtocolHandler` 가 ERROR `Session closed.` 뒤 1002 로 닫는다
+  (`StompHeartbeatTimeoutIntegrationTest`, 1s 로 줄여 고정). 값은 `chat.websocket.heartbeat.server-ms`·`client-ms`(기본 10000).
   `heart-beat:0,0` 클라이언트(k6 등)는 양쪽 다 꺼진다. 프록시 유휴 상한(Cloudflare 약 100s, nginx
   `proxy_read/send_timeout 3600s` — `server/scripts/nginx-*.example`)보다 짧아야 연결이 산다 — 늘리거나 끄지 마라.
 - **아웃바운드 실행기는 유한 큐다**(`OutboundSendBudget`). `chat.websocket.outbound.core-threads`(0 = CPU×2)·
@@ -162,25 +166,29 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   상한은 Tomcat 11 의 비정상 종료 송신 제한(`ABNORMAL_SESSION_CLOSE_SEND_TIMEOUT`, 50ms)이고, 예약은 소켓 종료 경로가 지운다.
 - **세션 송신 상한은 기본값을 명시만 한다** — `chat.websocket.transport.send-time-limit-ms`(10000)·
   `send-buffer-size-limit-bytes`(524288)·`message-size-limit-bytes`(65536). `MovementOutbox.STUCK_NANOS`(15s)가 10s 를 전제한다.
+  수신 크기 초과는 4500 이 아니다 — WebSocket 메시지 하나가 Tomcat 텍스트 버퍼(Spring 이 16KB+256 으로 올림)를 넘으면 Tomcat 1009,
+  여러 프레임으로 모은 STOMP 메시지가 `message-size-limit-bytes` 를 넘으면 ERROR 프레임 뒤 1002 다.
 - **전달 직전 인가는 «허용»만 캐시한다**(`OutboundAuthzCache`, `chat.websocket.outbound.authz-cache-ttl-seconds` 30, 멤버십
   TTL 이하로 잘림, 0 = 끔). 키는 (세션, `목적지#발신자`) — 담는 것은 멤버십·차단 판정뿐. 거절·판정 불가는 담지 않는다(fail-closed).
   JWT 재검증·**채팅의 집중 검사**(무효화 사건이 없고 규칙 2가 즉시 차단이다 — `ChatWebSocketIntegrationTest` 가 잡는다)·응원 수신
   대상 대조·바다 방 `HGET` 은 프레임마다 그대로. 무효화: `InboundEventService` 가 멤버십 변경·차단 세대·탈퇴를 **원 캐시를 고친 뒤**
   `evictUser`, 소켓 종료가 `evictSession`. 사건마다 순서는 ① ON 모드 결정 캐시(`CurrentMembershipDecisionCache`, 위 GROMO-2342 항목)
   → ② 원 캐시(Redis 멤버십·차단 세대)·탈퇴 펜스 → ③ 이 캐시다. `memberUserId` 가 없거나 형식이 깨진 옛 MEMBER_REMOVED 는 두 캐시 모두
-  `evictIsland`(이 캐시는 그 섬 목적지 범위를 모든 세션에서 지운다). 남는 창(TTL 상한): 다른 인스턴스(이 캐시는 JVM 안), ON 모드 세션
-  폐기(사건 없음 — ON 결정 캐시 30s 위에 이 캐시 30s 가 겹쳐 최대 약 60s).
+  `evictIsland`(이 캐시는 그 섬 목적지 범위를 모든 세션에서 지운다). 남는 창(TTL 상한): 다른 인스턴스(이 캐시는 JVM 안).
   허용의 만료는 그 판정에 **쓴 원본 값의** 만료까지다 — 값과 PTTL 을 한 원자 단위(Lua GET+PTTL, `common/redis/Sourced`)로 읽는다.
   따로 읽으면 그 사이 다른 요청이 원본을 새 값·새 TTL 로 갈아 옛 판정이 새 수명을 얻는다. 멤버십(채팅·`events`)은 관문 판정 뒤
   `OutboundMembershipSource` 가 `cache:chat:member:{userId}` 를 원자 읽기해 그 값도 멤버일 때만 그 만료를 쓰고(비멤버·없음 → 담지 않음),
   차단(필터 ON 에서 실제 조회한 채팅·`events`·응원)은 `BlockedUsers.hasBlockedSourced` 가 판정 집합과 `cache:chat:block:{userId}` 의 PTTL 을
   함께 준다(MGET 대신 Lua 1회, 정본 재조회면 조회 시작 + TTL). 강퇴 상한은 멤버십 TTL, 차단 백스톱은 `realtime.blocks.cache-ttl-seconds`
-  그대로다. ON(verifier) 멤버십은 원본이 없어 30s. `OutboundAuthzCache` 는 Redis 를 읽지 않는다.
+  그대로다. **반영 상한 — OFF: 원본 Redis 만료(멤버십 TTL·차단 TTL)가 상한. ON(verifier): 관문 캐시(`CurrentMembershipDecisionCache`
+  30s, GROMO-2342)가 상한이고, 이 캐시는 멤버십을 포함한 판정을 담지 않는다**(`OutboundMembershipSource` 가 `EXPIRED` — 겹쳐 쌓으면
+  60s 가 된다; ON 의 응원(차단만)은 그대로 담는다). `OutboundAuthzCache` 는 Redis 를 읽지 않는다.
 - **운영 신호**: 큐 깊이 `executor.queued{name=realtime-outbound}`(+`executor.active`·`executor.queue.remaining`),
   `realtime.outbound.dropped{reason=queue_full|session_limit|closing}`(`session_limit` = Spring 이 4500 `SESSION_NOT_RELIABLE` 로 닫은
   세션 — 송신 시간·버퍼 초과가 같은 코드라 구분 불가, CONNECT 없는 60s 세션 정리도 섞인다), 소켓 쓰기 시간
   `realtime.outbound.send{destination_kind=chat|movement|events|sea|other}`, 인가 캐시 `realtime.outbound.authz.cache{result=hit|miss|evict}`.
-  `queue_full` 이 0 이 아니면 실행기·느린 수신자부터 본다.
+  `queue_full` 이 0 이 아니면 실행기·느린 수신자부터 본다. heartbeat 프레임도 같은 실행기를 지난다 — 송신 시간은
+  `destination_kind=other` 로 재고, 포화로 거부되면 다른 프레임과 같이 `queue_full` 로 세며 그 세션을 닫는다.
 
 ## Redis keys (A19 namespace table)
 

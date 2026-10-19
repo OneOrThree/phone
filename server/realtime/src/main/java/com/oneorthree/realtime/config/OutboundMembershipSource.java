@@ -18,7 +18,9 @@ import java.util.UUID;
  * 판정과 이 읽기 사이에 다른 요청이 원본을 새 값으로 갈았다면 — 새 값이 비멤버면 담지 않고({@link Sourced#EXPIRED}), 여전히
  * 멤버면 새 값 자체가 유효한 근거라 그 만료까지 믿어도 된다. 판정 때의 GET 과 이 읽기는 종전 «GET + PTTL» 과 같은 두 왕복이다.
  *
- * <p>현재 인가 옵션 ON(verifier)은 원본 캐시가 없다 — {@link Sourced#UNBOUNDED}(우리 TTL 이 상한).
+ * <p>현재 인가 옵션 ON(verifier)이면 {@link Sourced#EXPIRED} — 멤버십을 포함한 허용을 담지 않는다. ON 의 관문에는 이미 인메모리
+ * 허용 캐시({@code CurrentMembershipDecisionCache}, 30s, 사건 evict·세대 대조 — GROMO-2342)가 있어 그 위에 이 캐시 30s 를 쌓으면
+ * 반영 상한이 최대 60s 로 늘어난다. 관문 캐시가 메모리라 ON 에서 이 캐시가 아끼는 것은 차단 Lua 1회뿐이니 포기한다.
  */
 @Slf4j
 @Component
@@ -36,7 +38,7 @@ public class OutboundMembershipSource {
     /** @return 이 (섬, 사용자) 멤버 허용의 절대 만료 — 원본 없음·비멤버·읽기 실패면 {@link Sourced#EXPIRED} */
     long notAfter(UUID islandId, UUID userId) {
         if (currentVerifier.getIfAvailable() != null) {
-            return Sourced.UNBOUNDED;
+            return Sourced.EXPIRED;
         }
         try {
             Sourced<Set<UUID>> cached = membershipService.cachedGroupIdsSourced(userId);

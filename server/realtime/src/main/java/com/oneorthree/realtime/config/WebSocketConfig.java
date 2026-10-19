@@ -73,8 +73,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final OutboundSendBudget outboundSendBudget;
     private final OutboundAuthzCache outboundAuthzCache;
 
-    /** 서버 heartbeat 주기(ms) — 앱 {@code realtimeClientOptions} 의 10_000/10_000 과 같은 값이다. */
-    static final long HEARTBEAT_MILLIS = 10_000;
+    /** 서버 heartbeat 송신 주기(ms) — 앱 {@code realtimeClientOptions} 의 10_000 과 같은 값이 기본이다. */
+    @Value("${chat.websocket.heartbeat.server-ms:10000}")
+    private long heartbeatServerMillis;
+
+    /** 클라이언트에게 기대하는 heartbeat 주기(ms) — 3배 동안 아무것도 안 오면 브로커가 세션을 닫는다. */
+    @Value("${chat.websocket.heartbeat.client-ms:10000}")
+    private long heartbeatClientMillis;
 
     /** 세션 하나의 송신 한 건이 끝나기를 기다리는 상한 — 넘기면 Spring 이 그 세션을 4500 으로 닫는다. */
     @Value("${chat.websocket.transport.send-time-limit-ms:10000}")
@@ -164,7 +169,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
         registry.enableSimpleBroker("/topic", "/queue")
-                .setHeartbeatValue(new long[] {HEARTBEAT_MILLIS, HEARTBEAT_MILLIS})
+                .setHeartbeatValue(new long[] {heartbeatServerMillis, heartbeatClientMillis})
                 .setTaskScheduler(realtimeHeartbeatScheduler());
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");

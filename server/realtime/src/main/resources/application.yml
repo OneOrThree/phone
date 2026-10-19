@@ -102,6 +102,11 @@ chat:
       queue-capacity: 10000
       # 전달 직전 인가 «허용» 캐시(OutboundAuthzCache). membership.cache-ttl-seconds 를 넘지 않게 잘린다. 0 = 끔.
       authz-cache-ttl-seconds: 30
+    # STOMP heartbeat(GROMO-2341) — CONNECTED heart-beat:<server-ms>,<client-ms>. 클라이언트가 3×max(client-ms, 앱 송신 주기)
+    # 동안 아무것도 안 보내면 SimpleBroker 가 세션을 닫는다. 앱(islandRealtime.ts) 10s/10s 와 Cloudflare 유휴 100s 사이 값이다.
+    heartbeat:
+      server-ms: ${CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS:10000}
+      client-ms: ${CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS:10000}
     # 세션별 송신 상한 — Spring 기본값을 명시만 한다(MovementOutbox 워치독 15s 가 send-time 10s 를 전제한다).
     transport:
       send-time-limit-ms: 10000

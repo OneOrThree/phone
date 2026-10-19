@@ -177,6 +177,35 @@ class OutboundSendBudgetTest {
         assertThat(budget.isClosing("gone")).isFalse();
     }
 
+    @Test
+    @DisplayName("종료가 실패하면(소켓이 열린 채) 예약을 푼다 — 전달만 영구히 막힌 좀비가 되지 않고 다음 프레임은 통과한다")
+    void failedCloseReleasesTheReservation() throws Exception {
+        start();
+        WebSocketSession broken = socket("broken");
+        org.mockito.Mockito.doThrow(new java.io.IOException("close failed")).when(broken)
+                .close(OutboundSendBudget.QUEUE_FULL);
+        String chat = "/topic/groups/" + UUID.randomUUID();
+        channel.send(frame("x", chat));
+        channel.send(frame("x", chat));
+        channel.send(frame("broken", chat)); // 거부 → 예약 → close 실패
+        verify(broken, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (budget.isClosing("broken") && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertThat(budget.isClosing("broken")).isFalse();
+
+        release.countDown(); // 큐가 회복됐다 — 밀린 두 건이 빠질 때까지 기다린다
+        long drained = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (handled.size() < 2 && System.nanoTime() < drained) {
+            Thread.sleep(10);
+        }
+        assertThat(channel.send(frame("broken", chat))).as("예약이 풀려 다시 전달 경로를 탄다").isTrue();
+        executor.getThreadPoolExecutor().shutdown();
+        executor.getThreadPoolExecutor().awaitTermination(5, TimeUnit.SECONDS);
+        assertThat(handled).contains("broken");
+    }
+
     private double closingDropped() {
         return meters.counter("realtime.outbound.dropped", "reason", "closing").count();
     }
