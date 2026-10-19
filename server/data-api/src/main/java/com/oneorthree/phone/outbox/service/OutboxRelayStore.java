@@ -28,6 +28,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OutboxRelayStore {
 
+    /**
+     * 축마다 한 번에 집는 앞쪽 연속 길이. GROMO-2337 은 예전 결과(축당 선두 하나)와 같게 1 로 고정한다 —
+     * 늘리면 한 축의 뒤 행이 앞 행 실패 뒤에도 나갈 수 있어, 실패 시 나머지를 놓는 처리(2338)가 먼저다.
+     */
+    static final int RUN_LENGTH = 1;
+
     private final EventOutboxDeliveryRepository deliveryRepository;
     private final OutboxRelayProperties properties;
     private final Clock clock;
@@ -47,12 +53,18 @@ public class OutboxRelayStore {
     public List<EventOutboxDelivery> claim(OutboxTarget target, String owner, UUID token) {
         Instant now = clock.instant();
         Instant leaseUntil = now.plus(properties.getLeaseDuration());
-        int count = deliveryRepository.claimBatch(
-                target.name(), now, leaseUntil, owner, token, properties.getBatchSize());
-        if (count == 0) {
-            return List.of();
-        }
-        return deliveryRepository.findLeased(token);
+        return deliveryRepository.claimBatch(
+                target.name(), now, leaseUntil, owner, token, RUN_LENGTH, properties.getBatchSize());
+    }
+
+    /**
+     * 대상별 미전달 스냅샷 — 지표 게이지가 읽는다.
+     *
+     * @return 행마다 {@code [target, 미전달 수, 가장 오래된 도래 행의 나이(초) 또는 null]}
+     */
+    @Transactional(readOnly = true)
+    public List<Object[]> pendingSnapshot() {
+        return deliveryRepository.pendingSnapshot(clock.instant());
     }
 
     /**

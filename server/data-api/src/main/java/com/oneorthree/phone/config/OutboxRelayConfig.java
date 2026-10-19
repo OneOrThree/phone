@@ -9,9 +9,12 @@ import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.scheduler.OutboxRelayScheduler;
 import com.oneorthree.phone.outbox.service.OutboxRelayService;
 import com.oneorthree.phone.outbox.service.OutboxRelayStore;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
@@ -137,6 +140,7 @@ public class OutboxRelayConfig {
      * @param outboxKafkaTemplate Kafka 발행구
      * @param outboxRestClient 위성 호출 클라이언트
      * @param clock            서버 시계
+     * @param meterRegistry    relay 지표 — 레지스트리가 없는 기동(일부 슬라이스 테스트)에선 버리는 레지스트리
      * @return relay 본체
      */
     @Bean
@@ -145,7 +149,8 @@ public class OutboxRelayConfig {
             EventOutboxRepository outboxRepository,
             KafkaTemplate<String, String> outboxKafkaTemplate,
             RestClient outboxRestClient,
-            Clock clock) {
+            Clock clock,
+            ObjectProvider<MeterRegistry> meterRegistry) {
         List<OutboxTransport> transports = new ArrayList<>();
         transports.add(new KafkaOutboxTransport(
                 OutboxTarget.KAFKA, properties.getKafka().getTopic(), outboxKafkaTemplate, properties));
@@ -162,7 +167,8 @@ public class OutboxRelayConfig {
                 transports.add(new HttpOutboxTransport(target, outboxRestClient, properties));
             }
         }
-        return new OutboxRelayService(store, outboxRepository, properties, clock, transports);
+        return new OutboxRelayService(store, outboxRepository, properties, clock, transports,
+                meterRegistry.getIfAvailable(SimpleMeterRegistry::new));
     }
 
     /**
