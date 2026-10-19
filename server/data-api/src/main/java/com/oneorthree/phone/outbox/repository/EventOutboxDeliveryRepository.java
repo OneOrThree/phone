@@ -25,9 +25,9 @@ import java.util.UUID;
 public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutboxDelivery, UUID> {
 
     /**
-     * 한 대상의 미전달 행을 리스로 선점한다.
+     * 한 대상의 미전달 행을 리스로 선점하고 <b>선점한 행을 그대로 돌려준다</b>({@code UPDATE … RETURNING}).
      *
-     * <h2>왜 이 {@code NOT EXISTS} 가 필수인가</h2>
+     * <h2>왜 선행 미전달 검사가 필수인가</h2>
      * relay 는 <b>같은 순서 축의 선행 미전달을 건너뛰면 안 된다</b>(A21). 건너뛰면 앞 사건이 재시도되는
      * 동안 뒤 사건이 먼저 도착해 {@code user_snapshot}·{@code bet_participations} 가 과거 상태로
      * 되돌아간다 — {@code key=userId} 는 브로커 <b>도착 순서</b>만 보존하고 {@code eventId} dedup 은
@@ -41,57 +41,150 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
      * 브로커 지연에 묶어 두면 보호가 늦어진다. 늦게 소비된 요청은 발송 시 최신 상태를 대조한다.
      * LINK는 이 장벽과 독립이다.
      *
-     * <p>{@code SKIP LOCKED} 는 <b>다른 축</b>의 행을 기다리지 않기 위한 것이다 — 한 축이 막혀도 나머지
-     * 축은 계속 나간다.
+     * <h2>상관 서브쿼리 대신 윈도 한 번 (GROMO-2337)</h2>
+     * 예전 문장은 후보 행마다 {@code NOT EXISTS} 로 선행을 찔러 백로그 2만 건에서 선점 한 번이 1초를
+     * 넘었다. 지금은 축({@code aggregate_type, aggregate_id})별로 {@code aggregate_version, target} 순서로
+     * 한 번 훑으며 {@code ready} = 「축 첫 행부터 이 행까지 <b>전부</b> 지금 선점 가능」(누적 AND)을 구한다.
+     * 이 대상이 아닌 행(KAFKA 축의 NOTI)과 리스·백오프 중인 행은 {@code ready} 가 거짓이라 그 뒤를 전부
+     * 막는다 — 위 두 장벽과 같은 의미다. 같은 version 의 NOTI 는 {@code 'KAFKA' < 'NOTI'} 정렬로 KAFKA 뒤에
+     * 와서 막지 않는다(예전 {@code <} 비교와 같다). {@code pos <= runLength} 가 축에서 집을 앞쪽 연속 길이다.
+     *
+     * <p>바깥 {@code l} 의 도래·리스 조건은 중복처럼 보이지만 <b>지우면 이중 선점</b>이다. 다른 워커가 이 문장의
+     * 스냅샷 뒤에 같은 행을 선점·커밋하면, 잠금을 얻은 뒤 PostgreSQL 은 잠근 테이블의 조건만 최신 행으로
+     * 재평가한다 — 그 재평가가 「이미 남의 리스」를 걸러 낸다. 잠금 뒤 {@code LIMIT} 이라 {@code SKIP LOCKED}
+     * 로 건너뛴 만큼 다음 후보로 채운다.
      *
      * <p>{@code attempt_count} 는 선점 시점에 증가한다. 죽은 워커의 시도도 세어야 「몇 번째부터
      * 이상한가」가 보인다 — 성공 시에만 세면 영원히 0 이다.
+     *
+     * <p>{@code @Modifying} 이 아니다 — 결과 집합을 돌려주는 문장이라 select 로 실행한다. 쓰기이므로
+     * 호출측이 읽기·쓰기 트랜잭션 안에 있어야 한다.
+     *
+     * <p><b>캐시 주의:</b> 네이티브 쿼리가 엔티티를 돌려주므로 같은 영속성 컨텍스트에 이미 로드된
+     * {@code EventOutboxDelivery} 가 있으면 RETURNING 값이 아니라 캐시 인스턴스가 올 수 있다 — 반드시 자기
+     * 트랜잭션({@code OutboxRelayStore.claim})에서만 부른다.
+     *
+     * <p><b>가정:</b> 한 축 안에서 (target, aggregate_version) 은 유일하다 — 같은 version 의 같은 target 행이
+     * 둘이면 윈도 순서가 불안정하다. 근거: 봉투 {@code uq_event_outbox_aggregate_version
+     * (aggregate_type, aggregate_id, version)} 와 전달 행 {@code uq_event_outbox_deliveries_outbox_target
+     * (outbox_id, target)} 두 UNIQUE 인덱스(V51)가 합쳐 보장한다.
      *
      * @param target     전달 대상 이름({@code OutboxTarget.name()})
      * @param now        현재 시각 — 도래 판정과 만료 리스 회수의 기준
      * @param leaseUntil 이번 리스의 만료 시각
      * @param owner      워커 식별자(로그·관측용)
      * @param token      펜싱 토큰 — 완료·실패 표시가 이 값을 제시해야 반영된다
+     * @param runLength  축마다 앞에서부터 집을 최대 연속 건수
      * @param batchSize  한 번에 집을 최대 건수
-     * @return 선점한 행 수
+     * @return 선점한 행 — {@code aggregateType, aggregateId, aggregateVersion} 순
      */
-    @Modifying
-    @Query(value = "UPDATE event_outbox_deliveries d "
-            + "SET lease_owner = :owner, lease_token = :token, lease_expires_at = :leaseUntil, "
-            + "    attempt_count = d.attempt_count + 1, last_attempt_at = :now "
-            + "WHERE d.id IN ( "
-            + "  SELECT c.id FROM event_outbox_deliveries c "
-            + "  WHERE c.target = :target "
-            + "    AND c.delivered_at IS NULL "
-            + "    AND c.next_attempt_at <= :now "
-            + "    AND (c.lease_expires_at IS NULL OR c.lease_expires_at <= :now) "
-            + "    AND NOT EXISTS ( "
-            + "      SELECT 1 FROM event_outbox_deliveries p "
-            + "      WHERE (p.target = c.target OR (c.target = 'KAFKA' AND p.target = 'NOTI')) "
-            + "        AND p.aggregate_type = c.aggregate_type "
-            + "        AND p.aggregate_id = c.aggregate_id "
-            + "        AND p.delivered_at IS NULL "
-            + "        AND p.aggregate_version < c.aggregate_version) "
-            + "  ORDER BY c.next_attempt_at, c.created_at, c.id "
-            + "  LIMIT :batchSize "
-            + "  FOR UPDATE SKIP LOCKED)", nativeQuery = true)
-    int claimBatch(
+    @Query(value = "WITH claimed AS ( "
+            + "  UPDATE event_outbox_deliveries d "
+            + "     SET lease_owner = :owner, lease_token = :token, lease_expires_at = :leaseUntil, "
+            + "         attempt_count = d.attempt_count + 1, last_attempt_at = :now "
+            + "   WHERE d.id IN ( "
+            + "     SELECT l.id "
+            + "       FROM event_outbox_deliveries l "
+            + "       JOIN (SELECT c.id, c.target, "
+            + "                    row_number() OVER axis AS pos, "
+            + "                    bool_and(c.target = :target AND c.next_attempt_at <= :now "
+            + "                             AND (c.lease_expires_at IS NULL OR c.lease_expires_at <= :now)) "
+            + "                      OVER axis AS ready "
+            + "               FROM event_outbox_deliveries c "
+            + "              WHERE c.delivered_at IS NULL "
+            + "                AND (c.target = :target OR (:target = 'KAFKA' AND c.target = 'NOTI')) "
+            + "             WINDOW axis AS (PARTITION BY c.aggregate_type, c.aggregate_id "
+            + "                             ORDER BY c.aggregate_version, c.target "
+            + "                             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) w "
+            + "         ON w.id = l.id "
+            + "      WHERE w.ready AND w.target = :target AND w.pos <= :runLength "
+            + "        AND l.delivered_at IS NULL AND l.next_attempt_at <= :now "
+            + "        AND (l.lease_expires_at IS NULL OR l.lease_expires_at <= :now) "
+            + "      ORDER BY w.pos, l.next_attempt_at, l.created_at, l.id "
+            + "      LIMIT :batchSize "
+            + "      FOR UPDATE OF l SKIP LOCKED) "
+            + "  RETURNING d.*) "
+            + "SELECT * FROM claimed ORDER BY aggregate_type, aggregate_id, aggregate_version",
+            nativeQuery = true)
+    List<EventOutboxDelivery> claimBatch(
             @Param("target") String target,
             @Param("now") Instant now,
             @Param("leaseUntil") Instant leaseUntil,
             @Param("owner") String owner,
             @Param("token") UUID token,
+            @Param("runLength") int runLength,
             @Param("batchSize") int batchSize);
 
     /**
-     * 방금 선점한 행들을 읽는다 — {@link #claimBatch} 직후 같은 트랜잭션에서.
+     * 방금 선점한 행 중 <b>선행 미전달이 내 것이 아닌</b> 행 — 선점과 같은 트랜잭션에서 부른다(GROMO-2338).
      *
+     * <h2>왜 윈도만으로는 모자란가</h2>
+     * {@link #claimBatch} 의 윈도는 문장 시작 스냅샷으로 run 을 계산하고, 잠금은 행마다 따로 잡는다. run 이 2 이상이면
+     * 두 워커가 같은 후보 {a1,a2,a3} 를 계산한 뒤 {@code SKIP LOCKED} 로 잠금을 교차로 가져가 T1={a1,a2}, T2={a3}
+     * 가 될 수 있다 — T2 의 a3 가 아직 안 나간 a2 를 앞지른다. 스냅샷 뒤에 남이 커밋한 선행 선점도 같은 모양이다.
+     * 이 조회가 그 행을 찾아 {@link #release} 로 되돌린다.
+     *
+     * <p>「선행」은 윈도와 같은 순서·같은 장벽이다: 같은 축에서 version 이 더 작은 같은 대상의 미전달, KAFKA 행이면 NOTI
+     * 행도 포함. 윈도의 {@code (aggregate_version, target)} 순서와 같은 뜻이다 — 같은 대상 안에서 version 은 유일하고, 같은
+     * version 의 NOTI 는 {@code 'KAFKA' < 'NOTI'} 로 KAFKA 뒤라 막지 않는다. 그 행의 토큰이 내 것이 아니면(남의 리스·리스
+     * 없음·잠금만 잡힌 채 미커밋) 앞지르기다.
+     * 새 문장이라 READ COMMITTED 의 최신 커밋을 본다 — 남이 아직 커밋하지 않은 선점은 「리스 없음」으로 보여 똑같이 걸린다.
+     *
+     * <p>바깥은 PK({@code id IN})로, 선행 탐색은 축 정렬 부분 인덱스({@code idx_event_outbox_deliveries_ordering})의
+     * {@code target = ANY(…)} 탐침으로 묶인다. 행 비교 {@code (version, target) < (…)} 나 {@code OR} 로 쓰면 플래너가 그 인덱스를
+     * 첫 컬럼으로 못 타고 미전달 전체를 해시로 훑는다(조사 DB 20축×1000: 146~345 ms → 이 모양 1.2 ms, GROMO-2338).
+     *
+     * @param ids   방금 선점한 행
      * @param token 이번 선점의 펜싱 토큰
-     * @return 이 워커가 소유한 미전달 행들
+     * @return 앞지른 행 id
      */
-    @Query("SELECT d FROM EventOutboxDelivery d WHERE d.leaseToken = :token AND d.deliveredAt IS NULL "
-            + "ORDER BY d.aggregateType, d.aggregateId, d.aggregateVersion")
-    List<EventOutboxDelivery> findLeased(@Param("token") UUID token);
+    @Query(value = "SELECT d.id FROM event_outbox_deliveries d "
+            + "WHERE d.id IN (:ids) AND EXISTS ( "
+            + "  SELECT 1 FROM event_outbox_deliveries p "
+            + "   WHERE p.aggregate_type = d.aggregate_type AND p.aggregate_id = d.aggregate_id "
+            + "     AND p.target IN (d.target, CASE WHEN d.target = 'KAFKA' THEN 'NOTI' END) "
+            + "     AND p.aggregate_version < d.aggregate_version "
+            + "     AND p.delivered_at IS NULL "
+            + "     AND p.lease_token IS DISTINCT FROM :token)",
+            nativeQuery = true)
+    List<UUID> findOvertaking(@Param("ids") List<UUID> ids, @Param("token") UUID token);
+
+    /**
+     * <b>보내지 않은</b> 선점을 되돌린다 — 리스를 비우고 {@code attempt_count} 를 1 줄인다(GROMO-2338).
+     *
+     * <p>{@code attempt_count} 는 «실제 시도» 수다. 선점에서 올린 1 을 보내지도 않고 남기면 앞지르기 보정·선행 실패로 놓은
+     * 행이 시도한 적 없는데 시도 수만 늘어 경고 임계값을 거짓으로 넘고, {@link #eraseParamOfResendSafe} 의
+     * 「{@code attempt_count=0} = 한 번도 안 나갔다」 판정도 깨진다.
+     *
+     * <p>{@code last_attempt_at} 은 되돌리지 않는다(옛 값을 모른다). 지금은 관측용 열이지만, 「마지막 시도 이후 경과」로
+     * 무언가를 판정하게 되면 release 된 행이 방금 시도한 것처럼 보인다 — 그런 판정을 만들 때 이 문장을 먼저 고친다.
+     *
+     * @param ids   놓을 행
+     * @param token 선점 때 받은 펜싱 토큰 — 남의 리스는 건드리지 않는다
+     * @return 놓은 행 수
+     */
+    @Modifying
+    @Query(value = "UPDATE event_outbox_deliveries "
+            + "SET lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, "
+            + "    attempt_count = attempt_count - 1 "
+            + "WHERE id IN (:ids) AND lease_token = :token AND delivered_at IS NULL",
+            nativeQuery = true)
+    int release(@Param("ids") List<UUID> ids, @Param("token") UUID token);
+
+    /**
+     * 대상별 미전달 스냅샷 — relay 지표(backlog·oldest_pending_age)용, 틱마다 한 번.
+     *
+     * <p>나이는 <b>도래한 행</b>({@code next_attempt_at <= now})만 본다. 백오프로 미뤄 둔 행까지 세면
+     * 「밀렸다」와 「일부러 기다린다」가 구분되지 않는다.
+     *
+     * @param now 기준 시각
+     * @return 행마다 {@code [target, 미전달 수, 가장 오래된 도래 행의 나이(초, 없으면 null)]}
+     */
+    @Query(value = "SELECT target, count(*), "
+            + "  CAST(EXTRACT(EPOCH FROM CAST(:now AS timestamptz) "
+            + "       - min(created_at) FILTER (WHERE next_attempt_at <= :now)) AS bigint) "
+            + "FROM event_outbox_deliveries WHERE delivered_at IS NULL GROUP BY target", nativeQuery = true)
+    List<Object[]> pendingSnapshot(@Param("now") Instant now);
 
     /**
      * 전송 직전 살아 있는 자기 리스만 갱신한다. 만료 토큰은 재선점 전까지 부활시키지 않는다.

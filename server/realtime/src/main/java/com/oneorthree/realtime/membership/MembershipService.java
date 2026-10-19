@@ -2,6 +2,7 @@ package com.oneorthree.realtime.membership;
 
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.common.redis.Sourced;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -161,6 +163,22 @@ public class MembershipService {
             log.warn("멤버십 캐시 무효화 실패 — userId={}", userId, e);
             return false;
         }
+    }
+
+    /**
+     * 캐시된 소속과 <b>그 값의</b> 만료를 한 원자 단위로 읽는다 — 상류는 부르지 않는다(GROMO-2340). 전달 직전 인가 캐시가
+     * 「이 판정을 언제까지 믿어도 되는가」를 이 값에서 얻는다. 캐시가 없으면 값이 {@code null}, 만료는
+     * {@link Sourced#EXPIRED} 다.
+     *
+     * @throws RuntimeException Redis 실패 — 부르는 쪽은 담지 않는다
+     */
+    public Sourced<Set<UUID>> cachedGroupIdsSourced(UUID userId) {
+        long readStart = System.nanoTime();
+        @SuppressWarnings("unchecked")
+        List<Object> read = redis.execute(Sourced.GET_WITH_PTTL, List.of(RedisKeys.memberCache(userId)));
+        long expiresAt = Sourced.expiresAt(readStart, Long.parseLong(String.valueOf(read.get(1))));
+        return expiresAt == Sourced.EXPIRED ? new Sourced<>(null, Sourced.EXPIRED)
+                : new Sourced<>(parse(String.valueOf(read.get(0))), expiresAt);
     }
 
     /** 파싱 안 되는 조각은 조용히 버린다 — 이물질 하나가 판정 전체를 예외로 만들지 않게. */

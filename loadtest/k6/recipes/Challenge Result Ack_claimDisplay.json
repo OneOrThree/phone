@@ -1,0 +1,25 @@
+{
+  "endpoint": "Challenge Result Ack_claimDisplay",
+  "method": "POST",
+  "path": "/api/v1/me/challenge-results/{sessionId}/claim",
+  "tag": "Challenge Result Ack",
+  "summary": "결과 표시 선점 (claim) · 렌더 직전 재검증",
+  "userPool": "uniform",
+  "pathParams": {
+    "sessionId": {
+      "gen": "gap",
+      "reason": "path-id:sessionId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [
+    "path.sessionId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

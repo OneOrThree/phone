@@ -11,6 +11,27 @@ scrape_configs:
     metrics_path: /actuator/prometheus
     static_configs:
       - targets: ['data-api:9091']
+        labels: {service: data-api}
+
+  # 서비스별 관리 포트는 Docker 내부 네트워크에서만 수집한다.
+  - job_name: business-api
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['business-api:9091']
+        labels: {service: business-api}
+  - job_name: notification
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['notification:9091']
+        labels: {service: notification}
+  - job_name: realtime
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['realtime:9091']
+        labels: {service: realtime}
+  - job_name: business-redis
+    static_configs:
+      - targets: ['business-redis-exporter:9121']
 
   # PostgreSQL (쿼리 부하 L2) — tps·캐시히트·커넥션·락
   - job_name: postgres

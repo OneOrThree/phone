@@ -81,6 +81,9 @@ services:
     container_name: gromo-postgres-exporter
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres-exporter/queries.yml
+    volumes:
+      - ../observability/postgres-exporter/queries.yml:/etc/postgres-exporter/queries.yml:ro
     # db(dev compose)의 healthcheck 를 기다려 최초 기동 시 스크레이프 공백 방지. overlay 전제(db 는 dev 파일 서비스).
     depends_on:
       db:
@@ -101,6 +104,16 @@ services:
       com.datadoghq.ad.checks: >-
         {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9121/metrics","namespace":"gromo_redis","metrics":[".*"],"health_service_check":true}]}}
     networks: [app-network]
+    restart: unless-stopped
+
+  # Business 전용 Redis도 별도 수집. 기존 health ACL의 INFO 권한을 사용한다.
+  business-redis-exporter:
+    logging: *infra-logging
+    image: oliver006/redis_exporter:v1.66.0
+    environment:
+      REDIS_ADDR: redis://business-redis:6379
+      REDIS_USER: health
+    networks: [app-network, business-cache]
     restart: unless-stopped
 
   # Kafka 운영 지표 — broker/partition/consumer group lag. Kafka가 꺼져 있어도 exporter는
@@ -152,7 +165,7 @@ services:
   # 컨테이너별 리소스. 기본 포트 8080 = app 과 충돌 → 호스트 미공개(내부에서 Prometheus 만 접근)
   cadvisor:
     logging: *infra-logging
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    image: ghcr.io/google/cadvisor:0.55.1
     container_name: gromo-cadvisor
     volumes:
       - /:/rootfs:ro
@@ -175,3 +188,6 @@ volumes:
 networks:
   app-network:
     driver: bridge
+
+  business-cache:
+    internal: true

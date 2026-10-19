@@ -1,0 +1,25 @@
+{
+  "endpoint": "Challenge Result Ack_acknowledge",
+  "method": "POST",
+  "path": "/api/v1/me/challenge-results/{sessionId}/ack",
+  "tag": "Challenge Result Ack",
+  "summary": "결과 확인 표시 (ack)",
+  "userPool": "uniform",
+  "pathParams": {
+    "sessionId": {
+      "gen": "gap",
+      "reason": "path-id:sessionId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [
+    "path.sessionId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

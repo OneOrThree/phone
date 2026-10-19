@@ -8,8 +8,8 @@ export const scenarios = (exec) => ({
     rate: Math.max(1, shardRate(Number(__ENV.RATE || 5))), // constant 는 rate>0 필수 — SPOTS>rate 엣지 방어
     timeUnit: '1s',
     duration: __ENV.DURATION || '1m',
-    preAllocatedVUs: 10,
-    maxVUs: 50,
+    preAllocatedVUs: Number(__ENV.PRE_ALLOCATED_VUS || 10),
+    maxVUs: Number(__ENV.MAX_VUS || 50),
     exec,
     tags: { phase: 'main' },
   },

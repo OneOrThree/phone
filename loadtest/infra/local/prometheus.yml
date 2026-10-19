@@ -1,0 +1,61 @@
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+scrape_configs:
+- job_name: data-api
+  metrics_path: /actuator/prometheus
+  static_configs:
+  - targets:
+    - data-api:9091
+    labels:
+      service: data-api
+- job_name: business-api
+  metrics_path: /actuator/prometheus
+  static_configs:
+  - targets:
+    - business-api:9091
+    labels:
+      service: business-api
+- job_name: realtime
+  metrics_path: /actuator/prometheus
+  static_configs:
+  - targets:
+    - realtime:9091
+    - realtime-2:9091
+    labels:
+      service: realtime
+- job_name: notification
+  metrics_path: /actuator/prometheus
+  static_configs:
+  - targets:
+    - notification:9091
+    labels:
+      service: notification
+- job_name: postgres-exporter
+  static_configs:
+  - targets:
+    - postgres-exporter:9187
+- job_name: redis-exporter
+  static_configs:
+  - targets:
+    - redis-exporter:9121
+- job_name: business-redis-exporter
+  static_configs:
+  - targets:
+    - business-redis-exporter:9121
+- job_name: node-exporter
+  static_configs:
+  - targets:
+    - node-exporter:9100
+- job_name: cadvisor
+  static_configs:
+  - targets:
+    - cadvisor:8080
+- job_name: kafka
+  static_configs:
+  - targets:
+    - kafka-exporter:9308
+- job_name: kafka-jmx
+  static_configs:
+  - targets:
+    - kafka-jmx-exporter:9404

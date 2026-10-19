@@ -27,6 +27,8 @@ import com.oneorthree.phone.magazine.repository.domain.IslandPromotion;
 import com.oneorthree.phone.magazine.repository.domain.MagazineIssue;
 import com.oneorthree.phone.magazine.support.IslandCard;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import com.oneorthree.phone.ranking.service.IslandWeeklyFocusService;
+import com.oneorthree.phone.ranking.support.RankingWeek;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.BeforeEach;
@@ -108,6 +110,8 @@ class MagazinePublishIntegrationTest {
 
     @MockitoBean
     Clock clock;
+    @Autowired
+    IslandWeeklyFocusService weeklyFocus;
     @Autowired
     MagazinePublishService publisher;
     @Autowired
@@ -509,6 +513,8 @@ class MagazinePublishIntegrationTest {
                 .lifecycle(FocusSessionLifecycle.COMPLETED).lastTransitionAt(start).build());
         intervals.save(FocusSessionInterval.builder().sessionId(session).ordinal(1).kind(FocusIntervalKind.ACTIVE)
                 .startedAt(start).endedAt(start.plusSeconds(minutes * 60L)).build());
+        // 완료 전이를 거치지 않고 심은 세션이라 랭킹 분자 read model(GROMO-2343)을 정본으로 다시 채운다.
+        weeklyFocus.recompute(RankingWeek.weekStart(start));
     }
 
     private UUID promotion(UUID islandId, LocalDate issueDate, Instant appliedAt, String body) {

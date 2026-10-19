@@ -1,0 +1,23 @@
+{
+  "endpoint": "InviteLink_claim",
+  "method": "POST",
+  "path": "/api/v1/invite-links/claim",
+  "tag": "InviteLink",
+  "summary": "초대 claim",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "slug": {
+        "gen": "string"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

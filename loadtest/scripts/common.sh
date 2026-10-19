@@ -6,7 +6,7 @@ set -euo pipefail
 ZONE="${ZONE:-asia-northeast3-c}" # a존 stockout 연쇄(07-11~13)로 이동 — terraform variables.tf 와 함께 변경
 REGION="${REGION:-asia-northeast3}"
 SQL_INSTANCE="${SQL_INSTANCE:-loadtest-pg}"
-SEED_VERSION="${SEED_VERSION:-seed-v1}"
+SEED_VERSION="${SEED_VERSION:-seed-v2}"
 
 log() { printf '\n[%s] %s\n' "$(basename "${BASH_SOURCE[1]:-run}")" "$*"; }
 
