@@ -276,6 +276,12 @@ outbox:
     batch-size: ${OUTBOX_RELAY_BATCH_SIZE:}
     lease-duration: ${OUTBOX_RELAY_LEASE_DURATION:}
     poll-interval: ${OUTBOX_RELAY_POLL_INTERVAL:}
+    # GROMO-2338 처리량 손잡이 — 비우면 기본값. run-length = 축마다 한 번에 집는 연속 건수(1 = 축당 선두 하나),
+    # worker-threads = 축 병렬 스레드(relay 동시 커넥션 = 이 값 + 1, Hikari 기본 10 안), tick-budget = 한 틱이
+    # 빌 때까지 라운드를 반복하는 상한(0 = 한 라운드).
+    run-length: ${OUTBOX_RELAY_RUN_LENGTH:10}
+    worker-threads: ${OUTBOX_RELAY_WORKER_THREADS:4}
+    tick-budget: ${OUTBOX_RELAY_TICK_BUDGET:PT5S}
     retry:
       initial-backoff: ${OUTBOX_RELAY_INITIAL_BACKOFF:}
       max-backoff: ${OUTBOX_RELAY_MAX_BACKOFF:}

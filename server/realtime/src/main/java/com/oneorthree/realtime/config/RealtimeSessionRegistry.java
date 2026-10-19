@@ -217,19 +217,26 @@ public class RealtimeSessionRegistry implements MeterBinder {
 
     /**
      * 실제 연결을 끝낸다 — 상태의 {@code reason} 이 앱이 볼 수 있는 기계용 사유다(1008 {@code UNAUTHORIZED}·
-     * {@code MOVEMENT_BACKPRESSURE}, 1011 {@code MEMBERSHIP_UNVERIFIED}·{@code MOVEMENT_SEND_FAILED}). 던지지
-     * 않는다 — 부르는 쪽이 송신·재검사 스레드라, 여기서 새는 예외가 그 스레드의 다음 일을 끊으면 안 된다.
+     * {@code MOVEMENT_BACKPRESSURE}·{@code OUTBOUND_QUEUE_FULL}, 1011 {@code MEMBERSHIP_UNVERIFIED}·
+     * {@code MOVEMENT_SEND_FAILED}). 던지지 않는다 — 부르는 쪽이 송신·재검사 스레드라, 여기서 새는 예외가 그 스레드의 다음
+     * 일을 끊으면 안 된다.
+     *
+     * @return 닫았거나 닫을 열린 소켓이 없으면 {@code true}, 종료가 실패해 소켓이 열린 채 남았으면 {@code false} — 다시
+     *         시도할지는 부르는 쪽이 정한다(전달 직전 재검사 경로는 다음 프레임이 같은 판정으로 다시 닫는다, 송신 예산은 종료
+     *         예약을 풀어 다음 거부에서 다시 예약한다). 반환값을 무시해도 된다.
      */
-    public void close(String sessionId, CloseStatus status) {
+    public boolean close(String sessionId, CloseStatus status) {
         WebSocketSession socket = sessionId == null ? null : sockets.get(sessionId);
         if (socket == null || !socket.isOpen()) {
-            return;
+            return true;
         }
         try {
             socket.close(status);
+            return true;
         } catch (IOException | RuntimeException e) {
-            // 원 자격과 프레임은 기록하지 않는다. 실패해도 본문은 계속 차단하고 다음 전달에서 재시도한다.
+            // 원 자격과 프레임은 기록하지 않는다.
             log.warn("소켓 종료 실패 — status={} cause={}", status, e.getClass().getSimpleName());
+            return false;
         }
     }
 

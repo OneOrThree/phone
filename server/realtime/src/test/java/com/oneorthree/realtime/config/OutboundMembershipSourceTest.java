@@ -42,10 +42,10 @@ class OutboundMembershipSourceTest {
     }
 
     @Test
-    @DisplayName("현재 인가 ON(verifier)은 원본 캐시가 없다 — 제한 없음, Redis 를 읽지 않는다")
+    @DisplayName("현재 인가 ON(verifier)은 담지 않는다(EXPIRED) — 관문 캐시 30s(2342)가 상한, Redis 를 읽지 않는다")
     void onModeHasNoSourceCache() {
         when(verifier.getIfAvailable()).thenReturn(mock(CurrentMembershipVerifier.class));
-        assertThat(source.notAfter(island, user)).isEqualTo(Sourced.UNBOUNDED);
+        assertThat(source.notAfter(island, user)).isEqualTo(Sourced.EXPIRED);
         verifyNoInteractions(membership);
     }
 }

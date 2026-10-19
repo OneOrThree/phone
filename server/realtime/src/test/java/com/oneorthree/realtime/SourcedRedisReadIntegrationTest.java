@@ -45,8 +45,10 @@ class SourcedRedisReadIntegrationTest {
             redis.opsForValue().set(key, island.toString(), Duration.ofSeconds(1));
             long before = System.nanoTime();
             Sourced<Set<UUID>> judged = membershipService.cachedGroupIdsSourced(user);
+            long after = System.nanoTime();
             assertThat(judged.value()).containsExactly(island);
-            assertThat(judged.expiresAtNanos()).isBetween(before, before + TimeUnit.SECONDS.toNanos(1));
+            // PTTL 은 ms 단위로 내려온다 — 상한은 읽기가 끝난 시각 + 1s(정밀 대조가 아니라 «그 값의 1s 수명»을 본다).
+            assertThat(judged.expiresAtNanos()).isBetween(before, after + TimeUnit.SECONDS.toNanos(1));
 
             redis.opsForValue().set(key, "", Duration.ofSeconds(120)); // 원본이 비멤버 새 값·새 TTL 로 갈렸다
             Sourced<Set<UUID>> replaced = membershipService.cachedGroupIdsSourced(user);
@@ -71,8 +73,9 @@ class SourcedRedisReadIntegrationTest {
             redis.opsForValue().set(RedisKeys.blockCache(viewer), "0|" + blocked, Duration.ofSeconds(1));
             long before = System.nanoTime();
             Sourced<Boolean> judged = filter.hasBlockedSourced(viewer, blocked);
+            long after = System.nanoTime();
             assertThat(judged.value()).isTrue();
-            assertThat(judged.expiresAtNanos()).isBetween(before, before + TimeUnit.SECONDS.toNanos(1));
+            assertThat(judged.expiresAtNanos()).isBetween(before, after + TimeUnit.SECONDS.toNanos(1));
             assertThat(filter.hasBlockedSourced(viewer, UUID.randomUUID()).value()).isFalse();
             assertThat(filter.hasBlockedSourced(viewer, null).expiresAtNanos()).as("조회 없음").isEqualTo(Sourced.UNBOUNDED);
         } finally {

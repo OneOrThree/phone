@@ -53,7 +53,12 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  * 거부된 세션은 {@code closing} 에 들어가는 «그 순간»부터 어떤 프레임도 받지 않는다 — 큐에 넣기 전({@link #preSend})과 이미
  * 큐에 있던 것({@link #beforeHandle}) 두 곳에서 버리고 {@code dropped{reason=closing}} 으로 센다. 실제 소켓 종료가 늦어져도
  * 「거부된 프레임을 빼먹은 채 다음 채팅을 정상처럼 받는」 창이 없다 — 종료가 늦는 동안 그 세션은 조용할 뿐이고, 앱은 종료를
- * 받은 뒤 재연결·이력으로 메운다. 항목은 소켓 종료 경로({@link #closed})가 지운다(종료 시도 뒤 이미 끊겨 있으면 그때도 지운다).
+ * 받은 뒤 재연결·이력으로 메운다. 항목은 소켓 종료 경로({@link #closed})가 지운다(종료 시도 뒤 이미 끊겨 있으면 그때도).
+ *
+ * <p><b>종료 실패는 1회 재시도한다.</b> 첫 close 가 실패하면 예약을 유지한 채(전달 차단 유지) 한 번 더 닫는다. 그래도 실패하면
+ * 예약을 풀고 WARN 을 남긴다 — 풀지 않으면 heartbeat 는 사는데 전달만 영구히 막힌 좀비가 된다. 그 대가로 <b>이 경로에서만</b>
+ * 이미 버린 프레임 뒤를 정상처럼 받을 수 있다(채팅 한 건 구멍은 앱 sync·이력으로, 이동은 in-flight 워치독 15s 로 복구). 풀린
+ * 세션은 다음 거부에서 다시 예약된다.
  *
  * <p>소켓 종료는 전용 2스레드({@code realtime-outbound-close})에서 한다 — 거부는 브로커·인바운드 스레드에서 일어나므로 그
  * 스레드에서 닫지 않는다. close 는 블로킹이다: Spring {@code StandardWebSocketSession.close} → Tomcat 11
@@ -153,9 +158,12 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         if (sessionId != null && closing.add(sessionId)) {
             log.warn("아웃바운드 큐 포화 — 프레임을 버린 세션을 닫는다. kind={}", kindOf(destination));
             closer.execute(() -> {
-                sessions.close(sessionId, QUEUE_FULL);
                 // 정상이면 종료 경로(closed)가 지운다. 이미 끊긴 세션이었으면 그 경로가 먼저 지나갔으니 여기서 지운다.
-                if (!sessions.isConnected(sessionId)) {
+                boolean closed = sessions.close(sessionId, QUEUE_FULL) || sessions.close(sessionId, QUEUE_FULL);
+                if (!closed) {
+                    log.warn("아웃바운드 큐 포화 세션 종료가 두 번 실패 — 예약을 푼다. 한 프레임 손실 가능(앱 sync·이력으로 복구)");
+                }
+                if (!closed || !sessions.isConnected(sessionId)) {
                     closing.remove(sessionId);
                 }
             });

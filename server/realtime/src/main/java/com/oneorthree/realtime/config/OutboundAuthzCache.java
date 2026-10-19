@@ -192,6 +192,25 @@ public class OutboundAuthzCache {
         }
     }
 
+    /**
+     * 사용자를 모르는 멤버십 사건(옛 Data — {@code memberUserId} 없음·형식 불량) — 그 섬 목적지의 결정을 모든 세션에서 지운다.
+     * 범위 키는 목적지로 시작하므로({@code /topic/groups/{id}}·{@code /topic/islands/{id}/…}) 접두사로 고른다.
+     * ponytail: 세션 × 범위를 훑는다 — 옛 Data 사건에서만 불려 드물다.
+     */
+    public void evictIsland(UUID islandId) {
+        epoch.incrementAndGet();
+        String chat = "/topic/groups/" + islandId;
+        String island = "/topic/islands/" + islandId + "/";
+        boolean removed = false;
+        for (SessionEntries entries : bySession.values()) {
+            removed |= entries.allowedUntil().keySet().removeIf(scope -> scope.equals(chat)
+                    || scope.startsWith(chat + "#") || scope.startsWith(island));
+        }
+        if (removed) {
+            evict.increment();
+        }
+    }
+
     /** 소켓 종료 — 그 세션의 결정을 지운다. */
     public void evictSession(String sessionId) {
         epoch.incrementAndGet();
