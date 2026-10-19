@@ -61,7 +61,9 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 
 ## 5. 배포·확장
 
-이 절의 worker·UDP endpoint·lease 설계는 **2단계 QUIC(보류 — §7 「2단계 판단」)** 전제다. 1단계는 Realtime 단일 인스턴스 안에서 돈다.
+이 절의 worker·UDP endpoint·lease 설계는 **2단계 QUIC(보류 — §7 「2단계 판단」)** 전제다. 1단계는 Realtime 안에서 돈다(섬별 단일 소유자 — 아래 문단).
+
+**1단계 Realtime 다중 인스턴스(GROMO-2339, [ADR A26](../../../architecture/decisions.md), 플래그 `realtime.movement.multi-instance.enabled` 기본 ON — `false` 로 옵트아웃하면 단일 인스턴스 현행 경로)** — 아래 2단계의 «방 하나 = 소유자 하나·lease·epoch» 원칙을 Realtime 안에 먼저 옮긴 것이다. 섬마다 Redis 리스 `movement:owner:{islandId}`(`<instanceId>:<epoch>`, PX 3s, 1s 갱신)를 든 인스턴스 하나만 `RoomRuntime` 을 돌린다. 다른 인스턴스에 붙은 세션의 JOIN·LEAVE·INTENT·FULL_STATE 는 `chat:movement:cmd:v1` 로 소유자에게 가고, 소유자가 만든 사건·Snapshot 은 `chat:movement:frames:v1` 로 전 인스턴스에 퍼진다(소유자 자신의 세션도 그 메아리로 받는다). 리스를 잃으면 방을 버리고 발행을 멈춘다(fail-closed). 옛 epoch 프레임은 버린다. 소유자 종료 시 위치를 `movement:room:{islandId}:handoff`(30s)에 남겨 새 소유자가 이어받는다. 앱 wire 는 그대로다 — 소유자 교체는 세션 한정 FullState 재동기화로 보인다. 코드: `server/realtime/.../movement/stomp/MovementCluster`·`MovementOwnership`·`MovementRelay`.
 
 ![배포와 소유권](diagrams/02-deployment.svg)
 

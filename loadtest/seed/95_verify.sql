@@ -16,7 +16,7 @@ SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size;
 SELECT count(*) AS cursor_order_violations
 FROM (SELECT started_at,
              lag(started_at) OVER (ORDER BY id DESC) AS prev_started
-      FROM (SELECT id, started_at FROM focus_sessions ORDER BY id DESC LIMIT 10000) s) t
+      FROM (SELECT fs.id, fs.started_at FROM focus_sessions fs JOIN users u ON u.id = fs.user_id WHERE u.is_bot = false ORDER BY fs.id DESC LIMIT 10000) s) t
 WHERE prev_started IS NOT NULL
   AND started_at > prev_started + interval '1 second';
 
@@ -25,3 +25,21 @@ SELECT count(*) AS dangling_tag_refs
 FROM (SELECT focus_tag_id FROM focus_sessions LIMIT 100000) fs
 LEFT JOIN user_focus_tags t ON t.id = fs.focus_tag_id
 WHERE fs.focus_tag_id IS NOT NULL AND t.id IS NULL;
+
+-- 수치 출력만으로 성공 처리하지 않는다. 잘못된 시드는 golden 동결 전에 중단한다.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM (SELECT focus_tag_id FROM focus_sessions LIMIT 100000) fs
+    LEFT JOIN user_focus_tags t ON t.id = fs.focus_tag_id
+    WHERE fs.focus_tag_id IS NOT NULL AND t.id IS NULL
+  ) THEN RAISE EXCEPTION '시드 focus_tag FK 검증 실패'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM users WHERE NOT is_bot AND NOT is_deleted) THEN
+    RAISE EXCEPTION '시드 활성 유저 없음';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM users u LEFT JOIN auth_sessions s
+      ON s.id = md5('loadtest-session-'||u.id)::uuid AND s.user_id = u.id
+    WHERE NOT u.is_bot AND NOT u.is_deleted AND (s.id IS NULL OR s.revoked_at IS NOT NULL)
+  ) THEN RAISE EXCEPTION '시드 로그인 세션 누락'; END IF;
+END $$;

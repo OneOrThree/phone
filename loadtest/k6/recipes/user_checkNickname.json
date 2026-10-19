@@ -1,0 +1,16 @@
+{
+  "endpoint": "user_checkNickname",
+  "method": "GET",
+  "path": "/api/v1/users/nickname/check",
+  "tag": "user",
+  "summary": "닉네임 사용 가능 여부 확인",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

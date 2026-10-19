@@ -1,0 +1,26 @@
+{
+  "endpoint": "Group Bet_cancelBet",
+  "method": "DELETE",
+  "path": "/api/v1/groups/{groupId}/bets/{betId}",
+  "tag": "Group Bet",
+  "summary": "챌린지 내기 취소",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "betId": {
+      "gen": "gap",
+      "reason": "path-id:betId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.betId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

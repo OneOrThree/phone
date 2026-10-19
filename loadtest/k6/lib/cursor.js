@@ -12,7 +12,7 @@ export function followCursor(url, params, pages = 2, cursorField = 'nextCursor')
       break; // 비정상 응답 — 에러율 지표가 잡는다
     }
     if (!cursor) break;
-    res = http.get(`${url}&cursor=${encodeURIComponent(cursor)}`, params);
+    res = http.get(`${url}${url.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`, params);
   }
   return res;
 }

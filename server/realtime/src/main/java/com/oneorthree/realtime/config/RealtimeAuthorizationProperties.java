@@ -27,6 +27,10 @@ public class RealtimeAuthorizationProperties implements InitializingBean {
     private Duration connectTimeout = Duration.ofMillis(500);
     private Duration requestTimeout = Duration.ofMillis(1500);
     private int maxInFlight = 16;
+    /** 동시 상한이 찼을 때 기다리는 시간. 0 = 기다리지 않고 바로 거절. 총 예산(requestTimeout) 안에서 센다. */
+    private Duration waitTimeout = Duration.ofMillis(200);
+    /** 허용 결정 캐시 TTL(초). 0 = 비활성. */
+    private int cacheTtlSeconds = 30;
 
     @Override
     public void afterPropertiesSet() {
@@ -38,6 +42,12 @@ public class RealtimeAuthorizationProperties implements InitializingBean {
         requireDuration(requestTimeout);
         if (maxInFlight < 1 || maxInFlight > 64) {
             throw new IllegalArgumentException("현재 멤버십 동시 호출 한도는 1~64입니다.");
+        }
+        if (waitTimeout == null || waitTimeout.isNegative() || waitTimeout.compareTo(Duration.ofSeconds(10)) > 0) {
+            throw new IllegalArgumentException("현재 멤버십 대기 시간은 0~10s입니다.");
+        }
+        if (cacheTtlSeconds < 0 || cacheTtlSeconds > 300) {
+            throw new IllegalArgumentException("현재 멤버십 캐시 TTL은 0~300초입니다.");
         }
         if (!enabled) {
             return;
@@ -59,6 +69,10 @@ public class RealtimeAuthorizationProperties implements InitializingBean {
         }
     }
 
+    /**
+     * 상한 10s 는 {@code CurrentMembershipDecisionCache.GENERATION_GRACE_NANOS}(10s)의 전제다 — 원격 조회(대기 포함)가
+     * 이보다 오래 걸릴 수 없어야 세대 기록 정리 뒤에도 진행 중 조회의 mark 가 살아 있다.
+     */
     private static void requireDuration(Duration value) {
         if (value == null || value.compareTo(Duration.ofMillis(1)) < 0
                 || value.compareTo(Duration.ofSeconds(10)) > 0) {

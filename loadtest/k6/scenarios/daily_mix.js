@@ -3,7 +3,7 @@
 // 명시하고 출시 후 액세스 로그로 교정한다. screen_time_2359 는 spike 프로파일 전용(Phase 4).
 import http from 'k6/http';
 import { API, THRESHOLDS, pick, randInt } from '../lib/config.js';
-import { usersZipf, usersUniform, groupIds, searchTerms } from '../lib/params.js';
+import { usersZipf, usersUniform, searchTerms } from '../lib/params.js';
 import { authParams } from '../lib/auth.js';
 import { followCursor } from '../lib/cursor.js';
 import { summarize } from '../lib/summary.js';
@@ -12,7 +12,6 @@ import { scenario } from 'k6/execution';
 
 const users = usersZipf();
 const writers = usersUniform(); // 쓰기 여정은 파티셔닝용 균등 풀
-const groups = groupIds();
 const terms = searchTerms();
 
 export const options = {
@@ -24,8 +23,8 @@ export const options = {
 function morningCheck(u) {
   const date = new Date().toISOString().slice(0, 10);
   http.get(`${API}/stats/today?date=${date}`, authParams(u, 'stats_today'));
-  http.get(`${API}/league/me/ranking`, authParams(u, 'league_me_ranking'));
-  http.get(`${API}/stats/streak`, authParams(u, 'stats_streak'));
+  http.get(`${API}/league/me/ranking?date=${date}`, authParams(u, 'league_me_ranking'));
+  http.get(`${API}/stats/streak?date=${date}`, authParams(u, 'stats_streak'));
 }
 
 function statsBrowse(u) {
@@ -38,9 +37,9 @@ function statsBrowse(u) {
 }
 
 function social(u) {
-  http.get(`${API}/friends`, authParams(u, 'friends_list'));
+  http.get(`${API}/friends?date=${new Date().toISOString().slice(0, 10)}`, authParams(u, 'friends_list'));
   http.get(`${API}/friends/search?type=NICKNAME&q=${encodeURIComponent(pick(terms).term)}`, authParams(u, 'friends_search'));
-  http.get(`${API}/groups/${pick(groups).groupId}/overview`, authParams(u, 'group_overview'));
+  http.get(`${API}/groups`, authParams(u, 'my_groups'));
 }
 
 function focusWrite() {
@@ -57,7 +56,7 @@ function focusWrite() {
 
 function shop(u) {
   // Phase 0 은 조회 중심 — spend 는 잔액 부족 4xx 가 에러율을 오염시켜 경합 설계(Phase 4)로 미룸
-  http.get(`${API}/inventory/${u.userId}`, authParams(u, 'inventory'));
+  http.get(`${API}/inventory`, authParams(u, 'inventory'));
   http.get(`${API}/currency`, authParams(u, 'currency_balance'));
 }
 

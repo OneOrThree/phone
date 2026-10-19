@@ -10,12 +10,14 @@
     {
       "name": "from",
       "gen": "date",
-      "offsetDays": -90
+      "offsetDays": -90,
+      "dateOnly": true
     },
     {
       "name": "to",
       "gen": "date",
-      "offsetDays": 0
+      "offsetDays": 0,
+      "dateOnly": true
     }
   ],
   "body": null,

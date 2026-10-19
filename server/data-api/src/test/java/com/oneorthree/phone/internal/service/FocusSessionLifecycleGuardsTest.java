@@ -115,6 +115,7 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private FocusRewardAccrualRepository focusRewardAccrualRepository;
     @Mock private FocusRewardAccrualService rewardAccruals;
     @Mock private SeaFocusRewardService seaFocusRewards;
+    @Mock private com.oneorthree.phone.ranking.service.IslandWeeklyFocusService weeklyFocus;
     @Mock private User caller;
     @Mock private GroupMember membership;
 
@@ -133,7 +134,7 @@ class FocusSessionLifecycleGuardsTest {
                 new org.springframework.beans.factory.support.StaticListableBeanFactory()
                         .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
-                Clock.fixed(wallClock, ZoneOffset.UTC), null);
+                Clock.fixed(wallClock, ZoneOffset.UTC), null, weeklyFocus);
     }
 
     // ── 1. 시작 게이트 ────────────────────────────────────────────────────────

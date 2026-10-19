@@ -21,8 +21,17 @@ spring:
       maximum-pool-size: 5
       connection-timeout: 3000
 server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
   port: ${SERVER_PORT:8082}
 management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s
   server:
     port: 9091
   endpoints:
