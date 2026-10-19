@@ -192,6 +192,9 @@ INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON C
   주 마감은 **트랜잭션 두 개**다 — 재계산 트랜잭션을 커밋해 테이블 잠금을 푼 «뒤» 분모 동결 트랜잭션을 연다
   (`IslandRankingFreezeService.closeWeek`). 한 트랜잭션이면 동결 INSERT 의 `island_weekly_member_counts → groups` FK 검사가
   테이블 잠금을 쥔 채 groups 행을 기다려 완료와 교착한다. `recompute` 는 활성 트랜잭션 안에서 부르면 거절한다.
+- **운영 관측** — 재계산이 `LOCK … SHARE ROW EXCLUSIVE` 를 쥔 0.7~3s(이력 120만 세션 기준 EXPLAIN) 동안 같은 순간의
+  finish 는 `groups FOR UPDATE` 를 쥔 채 `add` 에서 대기하고, 그 섬의 다른 finish·pause 도 그 사이 대기한다.
+  주 마감(일요일 00:00Z)에만 일어난다.
 - **FK 없음** — `island_id` 는 `groups` 를 가리키지만 FK 를 두지 않는다. FK 가 있으면 재계산 INSERT 의 FK 검사가
   `groups` 행 KEY SHARE 를 요구해 「테이블 잠금 → groups 행」 순서가 되고, finish 의 「groups FOR UPDATE → 테이블 잠금」과
   교착한다. `groups` 는 소프트 삭제라 CASCADE 효용이 없고, 고아 행은 읽기 쪽 생존·이름 조회가 거른다.

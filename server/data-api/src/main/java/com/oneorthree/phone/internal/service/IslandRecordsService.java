@@ -139,7 +139,9 @@ public class IslandRecordsService {
      * <p>한 스냅샷에서 읽도록 REPEATABLE READ 다 — 상세와 구간을 두 SELECT 로 읽는 사이 finish 가 커밋돼도 같은 순간을 본다.
      * 그 조회 트랜잭션은 <b>읽기 전용</b>이고, scope=me 기록이 한 페이지를 넘을 때의 스냅샷 저장만 조회가 끝난 «뒤»
      * 별 쓰기 트랜잭션에서 한다(GROMO-2344) — 쓰기 트랜잭션 안에서 조회 전체를 돌리지 않는다. 커넥션을 동시에 둘
-     * 쥐지 않도록 중첩(REQUIRES_NEW)이 아니라 순차다.
+     * 쥐지 않도록 중첩(REQUIRES_NEW)이 아니라 순차다. {@code screenTime} 처럼 선언형 {@code @Transactional(readOnly)} 가
+     * 아니라 템플릿을 쓰는 이유가 이것이다 — 한 메서드 안에서 읽기 tx 와 쓰기 tx 를 순차로 나눈다. {@code @Transactional}
+     * 로 되돌리면 2344 이전(쓰기 트랜잭션 안의 조회)으로 회귀한다.
      *
      * @param snapshotId 다음 페이지면 첫 페이지가 고정한 스냅샷(me 만), 첫 페이지면 {@code null}
      * @param offset     다음 페이지의 시작 위치

@@ -163,6 +163,55 @@ class IslandWeeklyFocusIntegrationTest {
     }
 
     /**
+     * GROMO-2344 전제 고정 — 운영 경로로 끝난 세션은 «모든 구간 {@code ended_at ≤ last_transition_at}» 이다. 회관 기록의
+     * 시간 경계({@code lastTransitionAt > from})가 이 전제에 기댄다. 경계 사례가 아니라 전제 자체를 SQL 전수 검사로 본다.
+     */
+    @Test
+    @DisplayName("운영 경로(finish·휴식 후 finish·휴식 자동 종료·과거 시작)로 끝난 세션은 모든 구간이 last_transition_at 이전에 끝난다")
+    void completedSessionsNeverHaveIntervalsEndingAfterTheirLastTransition() {
+        UUID owner = newUser();
+        UUID islandId = island(owner, "전제섬");
+        UUID r1 = newUser();
+        join(r1, islandId);
+        UUID r2 = newUser();
+        join(r2, islandId);
+        UUID r3 = newUser();
+        join(r3, islandId);
+
+        // ① 바로 finish
+        FocusSessionView plain = start(owner, islandId);
+        focus.finish(owner, plain.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        // ② 휴식을 두 번 끼운 finish
+        FocusSessionView rests = start(r1, islandId);
+        focus.pause(r1, rests.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        focus.resume(r1, rests.id(), new FocusVersionedCommandRequest(2L), UUID.randomUUID());
+        focus.pause(r1, rests.id(), new FocusVersionedCommandRequest(3L), UUID.randomUUID());
+        focus.finish(r1, rests.id(), new FocusVersionedCommandRequest(4L), UUID.randomUUID());
+        // ③ 휴식 1시간 초과 → 서버 자동 종료. 세션의 모든 시각을 함께 2시간 앞으로 옮겨 휴식이 오래된 것으로 만든다.
+        FocusSessionView idle = start(r2, islandId);
+        focus.pause(r2, idle.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        jdbc.update("update focus_sessions set started_at = started_at - interval '2 hours' where id = ?", idle.id());
+        jdbc.update("update focus_session_details set last_transition_at = last_transition_at - interval '2 hours' "
+                + "where session_id = ?", idle.id());
+        jdbc.update("update focus_session_intervals set started_at = started_at - interval '2 hours', "
+                + "ended_at = ended_at - interval '2 hours' where session_id = ?", idle.id());
+        assertThat(focus.autoCloseTimedOutRest(idle.id())).isTrue();
+        // ④ 시작이 과거인 세션의 finish
+        FocusSessionView old = start(r3, islandId);
+        backdate(old.id(), Instant.now().minusSeconds(5_400));
+        focus.finish(r3, old.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+
+        List<UUID> ours = List.of(plain.id(), rests.id(), idle.id(), old.id());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_session_details WHERE session_id = ANY (?) "
+                + "AND lifecycle = 'COMPLETED'", Integer.class, (Object) ours.toArray(UUID[]::new)))
+                .as("네 세션 모두 운영 경로로 COMPLETED").isEqualTo(4);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_session_details d WHERE d.lifecycle = 'COMPLETED' "
+                + "AND d.session_id = ANY (?) AND EXISTS (SELECT 1 FROM focus_session_intervals i "
+                + "WHERE i.session_id = d.session_id AND i.ended_at > d.last_transition_at)", Integer.class,
+                (Object) ours.toArray(UUID[]::new))).isZero();
+    }
+
+    /**
      * P1 회귀(codex 사전 게이트) — 재계산과 집중 완료가 같은 섬을 동시에 만져도 교착하지 않는다.
      *
      * <p>A 는 finish 와 같은 모양이다: 섬 {@code groups} 행을 FOR UPDATE 로 잠근 «뒤» 세션을 완료하고 가산한다.

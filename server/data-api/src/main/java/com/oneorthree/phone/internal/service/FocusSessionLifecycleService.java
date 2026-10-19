@@ -772,6 +772,7 @@ public class FocusSessionLifecycleService {
         }
         // 주간 섬 랭킹 분자(GROMO-2343) — 원본 집계와 같은 모수(COMPLETED · kind ISLAND · 닫힌 ACTIVE 구간)만 더한다.
         // 바다 세션의 island_id 는 «목적지» 라 섬 기여가 아니다(GROMO-2299).
+        // IslandWeeklyFocusRepository.fill 술어(COMPLETED · ISLAND · 닫힌 ACTIVE)와 한 쌍이다 — 한쪽을 바꾸면 다른 쪽도.
         if (detail.getKind() == FocusSessionKind.ISLAND) {
             weeklyFocus.addCompleted(islandId, intervals);
         }

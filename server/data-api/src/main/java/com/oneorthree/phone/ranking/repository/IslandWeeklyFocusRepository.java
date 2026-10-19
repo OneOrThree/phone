@@ -51,7 +51,8 @@ public interface IslandWeeklyFocusRepository extends JpaRepository<IslandWeeklyF
 
     /**
      * 재계산 3/3 — 정본({@code focus_session_details} × {@code focus_session_intervals})을 원본 집계와
-     * <b>같은 술어</b>로 접어 그 주를 다시 채운다.
+     * <b>같은 술어</b>로 접어 그 주를 다시 채운다. 완료 전이의 가산({@code FocusSessionLifecycleService.settle} 의
+     * {@code addCompleted} 호출 조건)과 한 쌍이다 — 한쪽을 바꾸면 다른 쪽도.
      */
     @Modifying
     @Query(value = "INSERT INTO island_weekly_focus (week_start, island_id, active_micros, updated_at) "
