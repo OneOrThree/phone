@@ -73,9 +73,56 @@ class OutboundAuthzCacheTest {
     @Test
     @DisplayName("TTL 은 멤버십 캐시 TTL 을 넘지 않게 잘린다")
     void ttlIsCappedByMembershipTtl() {
-        OutboundAuthzCache capped = new OutboundAuthzCache(600, 0, meters);
+        OutboundAuthzCache capped = new OutboundAuthzCache(600, 0, meters,
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class),
+                org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class));
         capped.allow("s1", user, "k", capped.stamp());
         assertThat(capped.allowed("s1", user, "k")).as("멤버십 TTL 0 → 꺼짐").isFalse();
+    }
+
+    @Test
+    @DisplayName("멤버십 허용은 원본 캐시(cache:chat:member) 남은 수명보다 오래 살지 않는다 — 원본 잔여 1s 면 1s 뒤 miss")
+    void memberAllowNeverOutlivesTheSourceMembershipCache() {
+        OutboundAuthzCache capped = new OutboundAuthzCache(TimeUnit.SECONDS.toNanos(30), now::get, meters,
+                userId -> TimeUnit.SECONDS.toNanos(1));
+        capped.allowMember("s1", user, "k", capped.stamp());
+        capped.allow("s1", user, "block-only", capped.stamp()); // 차단만 담는 범위(응원)는 원본 멤버십과 무관
+        now.addAndGet(TimeUnit.MILLISECONDS.toNanos(999));
+        assertThat(capped.allowed("s1", user, "k")).isTrue();
+        now.addAndGet(TimeUnit.MILLISECONDS.toNanos(1));
+        assertThat(capped.allowed("s1", user, "k")).isFalse();
+        assertThat(capped.allowed("s1", user, "block-only")).isTrue();
+
+        OutboundAuthzCache gone = new OutboundAuthzCache(TimeUnit.SECONDS.toNanos(30), now::get, meters,
+                userId -> 0L);
+        gone.allowMember("s1", user, "k", gone.stamp());
+        assertThat(gone.allowed("s1", user, "k")).as("원본 키가 없거나 PTTL 실패면 담지 않는다").isFalse();
+    }
+
+    @Test
+    @DisplayName("원본 남은 수명 읽기 — PTTL -2(없음)·실패는 0, -1(수명 없음)은 제한 없음, ON(verifier)은 PTTL 을 묻지 않는다")
+    void sourceRemainingLifetimeMapping() {
+        assertThat(OutboundAuthzCache.remainingNanos(-2L)).isZero();
+        assertThat(OutboundAuthzCache.remainingNanos(null)).isZero();
+        assertThat(OutboundAuthzCache.remainingNanos(-1L)).isEqualTo(Long.MAX_VALUE);
+        assertThat(OutboundAuthzCache.remainingNanos(1500L)).isEqualTo(TimeUnit.MILLISECONDS.toNanos(1500));
+
+        org.springframework.data.redis.core.StringRedisTemplate redis =
+                org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        org.mockito.Mockito.when(redis.getExpire(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(TimeUnit.MILLISECONDS))).thenThrow(new IllegalStateException("redis"));
+        assertThat(OutboundAuthzCache.memberCacheRemainingNanos(redis, user)).isZero();
+
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<com.oneorthree.realtime.membership.CurrentMembershipVerifier>
+                on = org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class);
+        org.mockito.Mockito.when(on.getIfAvailable())
+                .thenReturn(org.mockito.Mockito.mock(com.oneorthree.realtime.membership.CurrentMembershipVerifier.class));
+        OutboundAuthzCache onMode = new OutboundAuthzCache(30, 120, meters, redis, on);
+        onMode.allowMember("s1", user, "k", onMode.stamp());
+        assertThat(onMode.allowed("s1", user, "k")).isTrue();
+        org.mockito.Mockito.verify(redis, org.mockito.Mockito.times(1))
+                .getExpire(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
     }
 
     private double count(String result) {

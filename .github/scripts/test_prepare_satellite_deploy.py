@@ -254,6 +254,7 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                         for line in source.splitlines())
                 source = source.replace("__BUSINESS_UPSTREAM__", "127.0.0.1:18080")
                 source = source.replace("__NOTIFICATION_UPSTREAM__", "127.0.0.1:18082")
+                source = source.replace("__REALTIME_UPSTREAM__", "127.0.0.1:18084")
                 source = source.replace("__LINK_HOST__", "localhost")
                 source = source.replace("__LINK_PROXY_SECRET__", "synthetic-probe-secret")
                 path = Path(directory)

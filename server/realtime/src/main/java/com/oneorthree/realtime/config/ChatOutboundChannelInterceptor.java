@@ -210,7 +210,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
                     log.debug("채팅 전달 차단 — 받는 사람이 발신자를 차단했다");
                     return null;
                 }
-                authzCache.allow(sessionId, principal.userId(), scope, stamp);
+                authzCache.allowMember(sessionId, principal.userId(), scope, stamp);
             } else {
                 accessGuard.requireNotFocusing(principal.userId());
             }
@@ -253,7 +253,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
                 log.debug("섬 소식 전달 차단 — 받는 사람이 도착자를 차단했다");
                 return null;
             }
-            authzCache.allow(sessionId, principal.userId(), scope, stamp);
+            authzCache.allowMember(sessionId, principal.userId(), scope, stamp);
             return message;
         } catch (UpstreamRejectedCredentialException e) {
             // 채팅과 같다 — 자격 자체가 무효면 소켓을 닫아 앱이 갱신·재연결을 시작하게 한다.
