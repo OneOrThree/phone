@@ -129,6 +129,8 @@ Schema is managed by **Flyway** (GROMO-670). The canonical DB schema is
   (`FocusSessionLifecycleService.settle`) adds to it in the same transaction and the Sunday freeze cron recomputes
   the finished week (`IslandWeeklyFocusService.recompute`). A fixture that inserts COMPLETED sessions directly must
   call `recompute` before reading rankings.
+  `island_id` deliberately has no FK to `groups`: the FK check in `recompute`'s INSERT would take a `groups` row
+  KEY SHARE while holding the table lock, inverting `finish`'s order (groups FOR UPDATE → table lock) and deadlocking.
 
 ## Observability
 

@@ -865,7 +865,7 @@ Table island_weekly_member_counts [note: 'GROMO-1997: 주간 섬 랭킹의 «동
 
 Table island_weekly_focus [note: 'GROMO-2343: 주간 섬 랭킹 «분자» read model(migration V130) — (UTC 일요일 주, 섬)의 끝난 섬 집중(lifecycle COMPLETED · kind ISLAND · 닫힌 ACTIVE 구간) 교집합 μs 합. 섬 세션 완료 전이(FocusSessionLifecycleService.settle)가 같은 TX 에서 주마다 UPSERT 가산하고, 주 마감 크론이 방금 끝난 주를 정본(focus_session_details × focus_session_intervals)으로 재계산한다(IslandWeeklyFocusService.recompute — LOCK SHARE ROW EXCLUSIVE → DELETE → INSERT … SELECT). V130 이 기존 모든 주를 백필했다. 읽기는 active_micros / 1e6 을 섬마다 한 번만 내리고 1초 미만 섬을 뺀다 — FocusSessionDetailRepository.sumIslandActiveSeconds 와 같은 값'] {
   week_start    date        [not null, note: '주 시작일 = UTC 일요일(RankingWeek). CHECK EXTRACT(ISODOW FROM week_start) = 7']
-  island_id     uuid        [not null, note: 'FK → groups.id ON DELETE CASCADE. 세션이 시작할 때 고정한 섬']
+  island_id     uuid        [not null, note: '세션이 시작할 때 고정한 섬. FK 없음 — 재계산의 테이블 잠금과 finish 의 groups FOR UPDATE 사이 잠금 순서 역전(교착)을 피한다. groups 는 소프트 삭제라 CASCADE 가 무의미하고, 고아 행은 읽기 쪽 isAlive·이름 조회가 거른다']
   active_micros bigint      [not null, default: 0, note: 'CHECK >= 0. 초가 아니라 μs — 세션마다 초로 내려 더하면 원본 집계(마지막에 한 번만 내림)와 어긋난다']
   updated_at    timestamptz [not null, default: `now()`, note: '마지막 가산·재계산 시각(운영 관측용)']
 
@@ -2181,8 +2181,7 @@ Table notification_result_bundle_manifests {
 // 주간 섬 랭킹 동결 분모 (V85)
 Ref: island_weekly_member_counts.island_id > groups.id [delete: cascade]  // GROMO-1997 — 섬이 사라지면 그 섬의 동결 분모도 같이 지운다
 
-// 주간 섬 랭킹 분자 read model (V130)
-Ref: island_weekly_focus.island_id > groups.id [delete: cascade]  // GROMO-2343 — 섬이 사라지면 그 섬의 주 합도 같이 지운다
+// 주간 섬 랭킹 분자 read model (V130) — island_weekly_focus.island_id 는 groups 를 가리키지만 FK 를 두지 않는다(교착 회피, 표 노트)
 
 // 섬별 7일 평균 일 스냅샷 (V114)
 Ref: island_focus_averages.island_id > groups.id [delete: cascade]  // GROMO-2257 — 섬이 사라지면 그 섬의 스냅샷도 같이 지운다

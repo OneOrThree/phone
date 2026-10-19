@@ -7,6 +7,8 @@ import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
 import com.oneorthree.phone.focus.dto.session.SeaFocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
+import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -26,6 +28,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -35,6 +39,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -77,6 +84,8 @@ class IslandWeeklyFocusIntegrationTest {
     JwtProvider jwt;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     @Test
     @DisplayName("완료 전이 가산 = 정본 집계 = 재계산 — 주 경계·휴식·다른 섬·1초 미만·바다·진행 중·두 번째 finish")
@@ -147,6 +156,90 @@ class IslandWeeklyFocusIntegrationTest {
         weeklyFocus.recompute(lastWeek);
         weeklyFocus.recompute(thisWeek);
         assertThat(rawMicros(ours)).as("가산 결과 == 정본 재계산 (μs 단위)").isEqualTo(incremented);
+    }
+
+    /**
+     * P1 회귀(codex 사전 게이트) — 재계산과 집중 완료가 같은 섬을 동시에 만져도 교착하지 않는다.
+     *
+     * <p>A 는 finish 와 같은 모양이다: 섬 {@code groups} 행을 FOR UPDATE 로 잠근 «뒤» 세션을 완료하고 가산한다.
+     * B 는 A 가 행을 쥔 사이 그 주를 재계산한다(테이블 잠금 → 정본 INSERT). read model 에 groups FK 가 있으면 B 의
+     * INSERT 가 그 행의 KEY SHARE 를 기다리고, A 의 가산은 B 의 테이블 잠금을 기다려 교착(40P01)한다. FK 가 없으면
+     * B 는 groups 를 건드리지 않고 끝나고, A 는 그 뒤에 더한다 — 최종 값이 정본과 같다.
+     */
+    @Test
+    @DisplayName("재계산과 완료 가산이 같은 섬에서 겹쳐도 10초 안에 둘 다 끝나고 결과는 정본 집계와 같다")
+    void recomputeAndCompletionDoNotDeadlock() throws Exception {
+        LocalDate week = RankingWeek.weekStart(Instant.parse("2041-03-06T00:00:00Z"));
+        Instant base = RankingWeek.startInstant(week).plusSeconds(86_400);
+        UUID userId = UUID.randomUUID();
+        jdbc.update("INSERT INTO users (id, is_guest) VALUES (?, true)", userId);
+        UUID islandId = UUID.randomUUID();
+        jdbc.update("INSERT INTO groups (id, name, max_members, is_chat_enabled, invite_permission, status) "
+                + "VALUES (?, '교착섬', 10, true, 'OWNER_ONLY', 'WAITING')", islandId);
+        // 이미 끝난 세션 — 재계산 INSERT 가 이 섬 행을 쓰게 한다(FK 가 있었다면 groups 검사가 일어나는 자리).
+        seedSession(userId, islandId, "COMPLETED", base, base.plusSeconds(600));
+        // A 가 완료시킬 세션 — 구간은 이미 닫혀 있고 상태만 바뀐다.
+        Instant aStart = base.plusSeconds(3_600);
+        Instant aEnd = aStart.plusSeconds(300);
+        UUID finishing = seedSession(userId, islandId, "PAUSED", aStart, aEnd);
+
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch proceed = new CountDownLatch(1);
+        long started = System.nanoTime();
+        CompletableFuture<Void> a = CompletableFuture.runAsync(() -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> {
+                    jdbc.queryForList("SELECT id FROM groups WHERE id = ? FOR UPDATE", islandId);
+                    locked.countDown();
+                    await(proceed);
+                    jdbc.update("UPDATE focus_session_details SET lifecycle = 'COMPLETED' WHERE session_id = ?",
+                            finishing);
+                    weeklyFocus.addCompleted(islandId, List.of(FocusSessionInterval.builder().sessionId(finishing)
+                            .ordinal(1).kind(FocusIntervalKind.ACTIVE).startedAt(aStart).endedAt(aEnd).build()));
+                }));
+        await(locked);
+        CompletableFuture<Integer> b = CompletableFuture.supplyAsync(() -> weeklyFocus.recompute(week));
+        // B 가 끝났거나(FK 없음) 잠금 대기에 들어갈 때까지(FK 있음) 기다린 뒤 A 를 진행시킨다.
+        for (int i = 0; i < 100 && !b.isDone() && waitingLocks() == 0; i++) {
+            Thread.sleep(50);
+        }
+        proceed.countDown();
+
+        CompletableFuture.allOf(a, b).get(10, TimeUnit.SECONDS);
+        System.out.printf("recomputeAndCompletionDoNotDeadlock: %d ms%n", (System.nanoTime() - started) / 1_000_000);
+
+        long canonical = details.sumIslandActiveSeconds(RankingWeek.startInstant(week), RankingWeek.endInstant(week))
+                .stream().filter(row -> row.getIslandId().equals(islandId)).mapToLong(row -> row.getSeconds())
+                .sum();
+        assertThat(canonical).isEqualTo(900);
+        assertThat(readModel(week, Set.of(islandId))).containsExactly(Map.entry(islandId, canonical));
+    }
+
+    private UUID seedSession(UUID userId, UUID islandId, String lifecycle, Instant start, Instant end) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds, status) "
+                + "VALUES (?, ?, ?, 0, 'COMPLETED')", id, userId, Timestamp.from(start));
+        jdbc.update("INSERT INTO focus_session_details (session_id, user_id, island_id, membership_epoch_at_start, "
+                + "subject, lifecycle, last_transition_at, kind) VALUES (?, ?, ?, 1, '공부', ?, ?, 'ISLAND')",
+                id, userId, islandId, lifecycle, Timestamp.from(end));
+        jdbc.update("INSERT INTO focus_session_intervals (session_id, ordinal, kind, started_at, ended_at) "
+                + "VALUES (?, 1, 'ACTIVE', ?, ?)", id, Timestamp.from(start), Timestamp.from(end));
+        return id;
+    }
+
+    private int waitingLocks() {
+        Integer waiting = jdbc.queryForObject("SELECT count(*) FROM pg_locks WHERE NOT granted", Integer.class);
+        return waiting == null ? 0 : waiting;
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("래치 대기 시간 초과");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 
     private Map<UUID, Long> readModel(LocalDate week, Set<UUID> ours) {

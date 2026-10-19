@@ -189,6 +189,9 @@ INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON C
   (테이블을 SHARE ROW EXCLUSIVE 로 잠가 동시 가산과 직렬화). 주 마감 크론이 동결과 같은 트랜잭션에서 **방금 끝난 주**를
   재계산하므로 배포 창·장애로 빠진 가산은 그 주 마감에 바로잡힌다. V130 이 기존 모든 주를 백필하고, 배포 뒤
   수동 보정이 필요하면 같은 메서드를 그 주로 부른다(HTTP 표면 없음).
+- **FK 없음** — `island_id` 는 `groups` 를 가리키지만 FK 를 두지 않는다. FK 가 있으면 재계산 INSERT 의 FK 검사가
+  `groups` 행 KEY SHARE 를 요구해 「테이블 잠금 → groups 행」 순서가 되고, finish 의 「groups FOR UPDATE → 테이블 잠금」과
+  교착한다. `groups` 는 소프트 삭제라 CASCADE 효용이 없고, 고아 행은 읽기 쪽 생존·이름 조회가 거른다.
 
 랭킹 GET 은 읽기 응답 외의 경제 효과가 0이다. 지갑·보상 원장을 호출하지 않고, 기존 리그 정산 함수도 부르지
 않으며, 새 realtime 사건을 만들지 않는다.

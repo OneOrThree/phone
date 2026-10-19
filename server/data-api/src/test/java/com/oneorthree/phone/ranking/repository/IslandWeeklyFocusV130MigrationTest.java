@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * V130 주간 섬 랭킹 분자 read model 의 실 SQL 검증 (GROMO-2343·2344). 방식은 {@code IslandFocusAverageV114MigrationTest}
  * 선례 — 전용 컨테이너에 Flyway 체인을 실제로 돌린다.
  *
- * <p>보는 것: ① 열·PK 순서(주, 섬)·일요일 CHECK·FK 연쇄 삭제·상세 시간 인덱스, ② V128 까지 올린 스키마의 기존 세션을
+ * <p>보는 것: ① 열·PK 순서(주, 섬)·일요일 CHECK·FK 없음·상세 시간 인덱스, ② V128 까지 올린 스키마의 기존 세션을
  * V130 이 «원본 집계와 같은 술어»로 백필한다 — 주 경계를 걸친 구간은 주마다 나뉘고, 휴식·진행 중·바다·포기 세션은
  * 빠진다, ③ 빈 DB 의 전체 경로.
  */
@@ -42,7 +42,7 @@ class IslandWeeklyFocusV130MigrationTest {
     }
 
     @Test
-    @DisplayName("열·PK 순서(주, 섬)·일요일 CHECK·FK 연쇄 삭제와 상세 (user_id, island_id, last_transition_at) 인덱스가 생긴다")
+    @DisplayName("열·PK 순서(주, 섬)·일요일 CHECK·FK 없음과 상세 (user_id, island_id, last_transition_at) 인덱스가 생긴다")
     void tableShape() {
         migrate(MigrationVersion.fromVersion("130"));
         JdbcTemplate jdbc = jdbc();
@@ -61,9 +61,9 @@ class IslandWeeklyFocusV130MigrationTest {
         assertThat(jdbc.queryForList("SELECT column_name FROM information_schema.key_column_usage "
                 + "WHERE constraint_name = 'island_weekly_focus_pk' ORDER BY ordinal_position", String.class))
                 .containsExactly("week_start", "island_id");
-        assertThat(jdbc.queryForList("SELECT confdeltype::text FROM pg_constraint "
-                + "WHERE conrelid = 'island_weekly_focus'::regclass AND contype = 'f'", String.class))
-                .containsExactly("c");
+        // FK 없음 — 재계산 INSERT 가 groups 행 KEY SHARE 를 요구하면 finish 의 FOR UPDATE 와 잠금 순서가 뒤집힌다.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM pg_constraint "
+                + "WHERE conrelid = 'island_weekly_focus'::regclass AND contype = 'f'", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT indexdef FROM pg_indexes "
                 + "WHERE indexname = 'focus_session_details_user_transition_idx'", String.class))
                 .contains("(user_id, island_id, last_transition_at)");
@@ -73,8 +73,6 @@ class IslandWeeklyFocusV130MigrationTest {
                 + "VALUES (DATE '2034-05-08', ?)", islandId)).as("월요일 주는 거절").hasMessageContaining("sunday_ck");
         jdbc.update("INSERT INTO island_weekly_focus (week_start, island_id) VALUES (DATE '2034-05-07', ?)",
                 islandId);
-        jdbc.update("DELETE FROM groups WHERE id = ?", islandId);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM island_weekly_focus", Integer.class)).isZero();
     }
 
     @Test

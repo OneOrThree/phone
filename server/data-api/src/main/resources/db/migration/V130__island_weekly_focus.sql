@@ -16,7 +16,9 @@
 -- 주 창(RankingWeek — UTC 일요일 00:00Z)별로 잘라 가산한다. 주 마감 크론이 방금 끝난 주를 정본으로 다시 채운다.
 CREATE TABLE island_weekly_focus (
     week_start    date        NOT NULL,
-    island_id     uuid        NOT NULL REFERENCES groups (id) ON DELETE CASCADE,
+    -- FK 없음 — 재계산의 테이블 잠금과 finish 의 groups FOR UPDATE 사이 잠금 순서 역전(교착)을 피한다. groups 는 소프트 삭제라 CASCADE 가 무의미하고, 고아 행은 읽기 쪽 isAlive·이름 조회가 거른다.
+    -- (FK 가 있으면 재계산 INSERT 의 FK 검사가 groups 행 KEY SHARE 를 요구해, 테이블 잠금을 쥔 채 finish 의 행 잠금을 기다린다.)
+    island_id     uuid        NOT NULL,
     active_micros bigint      NOT NULL DEFAULT 0,
     updated_at    timestamptz NOT NULL DEFAULT now(),
     -- 읽기가 «그 주의 모든 섬» 이라 주가 앞이다(V85 island_weekly_member_counts 와 같은 순서).
