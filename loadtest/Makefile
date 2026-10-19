@@ -176,7 +176,7 @@ check:
 # 현재 전체 서버 조사. GCP 경로와 격리하며 Outbox/Kafka/Realtime 공유를 기본 활성화한다.
 SURVEY_SIZES ?= 100,1000,10000
 SURVEY_OUT ?= reports/matrix-$(RUN_ID)
-.PHONY: local-build local-up local-down survey survey-report
+.PHONY: local-build local-up local-down survey survey-report survey-check
 local-build:
 	@for service in data-api business-api realtime notification; do \
 	  docker compose -f infra/local/compose.yml build "$$service" || exit $$?; \
@@ -188,10 +188,14 @@ local-up: local-build
 local-down:
 	docker compose -f infra/local/compose.yml down
 
-survey:
+# survey/ 는 조사용 로컬 스크립트·결과(gitignored, .gitignore 의 /survey/) — 저장소에는 없다. 없으면 안내만 하고 멈춘다.
+survey: survey-check
 	python3 survey/matrix.py --out "$(SURVEY_OUT)" --sizes "$(SURVEY_SIZES)"
 
-survey-report:
+survey-report: survey-check
 	python3 survey/aggregate.py "$(SURVEY_OUT)" "$(SURVEY_OUT)/summary"
 	python3 survey/coverage.py "$(SURVEY_OUT)" "$(SURVEY_OUT)/summary/public-api-coverage.csv"
 	python3 survey/tables.py "$(SURVEY_OUT)/summary"
+
+survey-check:
+	@test -f survey/matrix.py || { echo "loadtest/survey/ 가 없습니다 — 조사 스크립트는 로컬 전용(gitignored)입니다. 조사 담당자에게 받아 loadtest/survey/ 에 두세요."; exit 2; }

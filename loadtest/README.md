@@ -5,12 +5,13 @@
 
 ## 현재 서버 기준 실행 경로
 
-전체 앱·채팅·이동 부하와 로컬 Grafana 실행은 [현재 서버 부하 조사](survey/README.md)를 사용합니다.
+전체 앱·채팅·이동 부하와 로컬 Grafana 실행은 현재 서버 부하 조사 하네스를 사용합니다.
 `make local-up`으로 최신 소스의 격리 스택을 기동하고 `make survey`로 100→1,000→10,000명 규모별 조사를 실행합니다.
+**`loadtest/survey/`(조사 스크립트·결과·실험일지)는 gitignored 로컬 자료**라 저장소에 없습니다 — `make survey`·`survey-report` 는 그 폴더가 없으면 안내만 하고 멈춥니다. 핵심 측정값과 조건은 Jira 에픽(2335)과 하위 티켓 본문에 있습니다.
 Outbox·Kafka 전송·Realtime 공유는 이 기동 경로에서 기본 활성화됩니다. `make local-down`은 조사 컨테이너만 내리고 데이터를 보존합니다.
 
-실제 실행 결과: [2026-10-18 조사 보고서](survey/results/2026-10-18/README.md),
-[실험일지](survey/results/2026-10-18/experiment-journal.md). API·실시간·혼합 부하와 후보 인덱스의 성공/실패·원복 기록을 포함합니다.
+실제 실행 결과(로컬 전용, 저장소에 없음): `survey/results/2026-10-18/README.md`,
+`survey/results/2026-10-18/experiment-journal.md`. API·실시간·혼합 부하와 후보 인덱스의 성공/실패·원복 기록을 포함합니다.
 
 
 - `make test`: GCP의 **Data API 단독** 성능 실험입니다. `/api/v1` 잔존 계약을 사용하며 전체 앱 경로 측정과 구분합니다.
