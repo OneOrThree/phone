@@ -429,10 +429,54 @@ test('빈 집중 기록에서 집중 시작 버튼을 빼고 과거 날짜의 �
   const e = { ...environment(), tab: '' };
   e.state.records = [];
   const screen = await render(<Library e={e} />);
-  expect(screen.getByText('이 주에는 기록이 없어요')).toBeTruthy();
+  expect(screen.getAllByTestId(/^diary-weekday-/)).toHaveLength(7);
+  await fireEvent.press(screen.getByLabelText('일'));
+  expect(screen.getByText('이날은 기록이 없어요')).toBeTruthy();
   expect(screen.queryByText('집중하러 가기')).toBeNull();
   await fireEvent.press(screen.getByLabelText('이전 기간'));
   await fireEvent.press(screen.getByText('오늘 기록으로'));
   expect(screen.getByText('이날은 기록이 없어요')).toBeTruthy();
   expect(e.go).not.toHaveBeenCalled();
+});
+
+test.each([
+  { tab: '집중', permission: true, ready: true },
+  { tab: '폰 사용', permission: true, ready: true },
+  { tab: '폰 사용', permission: false, ready: false },
+  { tab: '폰 사용', permission: true, ready: false },
+])('빈 주간 그래프도 일~토 7칸과 미래 날짜를 유지한다: %j', async ({ tab, permission, ready }) => {
+  const e = {
+    ...environment({ permission, ready }),
+    tab: '',
+    now: Date.parse('2026-09-22T12:00:00+09:00'),
+  };
+  e.state.records = [];
+  e.state.screenDays = {};
+  const screen = await render(<Library e={e} />);
+  if (tab === '폰 사용') await fireEvent.press(screen.getByLabelText(tab));
+  const labels = screen.getAllByTestId(/^diary-weekday-/);
+  expect(labels.map((node) => node.props.children)).toEqual([
+    '일',
+    '월',
+    '화',
+    '수',
+    '목',
+    '금',
+    '토',
+  ]);
+  expect(labels.map((node) => node.props.testID)).toEqual(
+    [20, 21, 22, 23, 24, 25, 26].map((day) => `diary-weekday-2026-09-${day}`),
+  );
+  expect(screen.getByLabelText('9월 26일 토요일 기록 없음')).toBeTruthy();
+});
+
+test('폰 사용 그래프는 7칸이지만 하루 평균과 측정 날짜는 오늘까지의 날짜로 계산한다', async () => {
+  const e = { ...environment(), tab: '', now: Date.parse('2026-09-22T12:00:00+09:00') };
+  e.state.screenDays = { '2026-09-20': 30, '2026-09-21': 30, '2026-09-22': 30 };
+  const screen = await render(<Library e={e} />);
+  await fireEvent.press(screen.getByLabelText('폰 사용'));
+  expect(screen.getAllByTestId(/^diary-weekday-/)).toHaveLength(7);
+  expect(screen.getByText('1시간 30분')).toBeTruthy();
+  expect(screen.getAllByText('30분').length).toBeGreaterThan(0);
+  expect(screen.getByText('3 / 3일')).toBeTruthy();
 });

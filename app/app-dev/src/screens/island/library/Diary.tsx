@@ -230,6 +230,16 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     return null;
   };
 
+  const usageNotice = (notice: React.ReactNode) =>
+    period === '주' ? (
+      <>
+        <Chart days={allDays} values={new Map()} screen />
+        {notice}
+      </>
+    ) : (
+      notice
+    );
+
   const personal = () => {
     if (period === '월') {
       return (
@@ -276,16 +286,16 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     if (tab === '폰 사용') {
       // 서버에 남은 과거 허용 상태보다 현재 기기의 권한을 먼저 확인한다.
       if (!state.settings.permission || measurementStatus === 'denied')
-        return (
+        return usageNotice(
           <Empty
             title="스크린타임 권한을 허용해 주세요"
             action="권한 설정하기"
             onPress={settings}
-          />
+          />,
         );
       if (!state.settings.screenTimeMeasurementReady)
-        return (
-          <Empty title="측정할 앱을 선택해 주세요" action="측정 설정 열기" onPress={settings} />
+        return usageNotice(
+          <Empty title="측정할 앱을 선택해 주세요" action="측정 설정 열기" onPress={settings} />,
         );
       if (
         server &&
@@ -298,18 +308,18 @@ export function Diary({ e, font }: { e: any; font?: string }) {
               state.settings.screenTimeMeasurementReady
             )))
       ) {
-        return (
+        return usageNotice(
           <Empty
             title={
               measurementStatus === 'unavailable'
                 ? '폰 사용 기록을 이용할 수 없어요'
                 : '기록을 준비하고 있어요'
             }
-          />
+          />,
         );
       }
       if (!usageAllowed)
-        return (
+        return usageNotice(
           <Empty
             title={state.settings.permission ? '측정 기록이 없어요' : '측정 권한이 꺼져 있어요'}
             action={
@@ -318,7 +328,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
                 : '측정 설정 열기'
             }
             onPress={settings}
-          />
+          />,
         );
       if (period === '일')
         return (
@@ -336,7 +346,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
           ) ? (
             <T style={styles.centerMeta}>측정 중인 사용량이 포함되어 있어요</T>
           ) : null}
-          <Chart days={days} values={usageSeries} screen />
+          <Chart days={allDays} values={usageSeries} screen />
           <View style={styles.row}>
             <Metric
               label="하루 평균"
@@ -345,6 +355,27 @@ export function Diary({ e, font }: { e: any; font?: string }) {
             <Metric
               label="측정된 날짜"
               value={`${days.filter((key) => usageSeries.get(key) != null).length} / ${days.length}일`}
+            />
+          </View>
+        </>
+      );
+    }
+    if (period === '주') {
+      const activeDays = days.filter((key) => (focusSeries.get(key) ?? 0) > 0).length;
+      return (
+        <>
+          <T style={styles.centerMeta}>이번 주 집중</T>
+          <T style={styles.total}>{focus == null ? '—' : hm(focus)}</T>
+          <Chart days={allDays} values={focusSeries} />
+          <View style={styles.row}>
+            <Metric label="집중한 날" value={`${activeDays}일`} />
+            <Metric
+              label="집중일 평균"
+              value={focus == null ? '—' : hm(focus / Math.max(1, activeDays))}
+            />
+            <Metric
+              label="집중 횟수"
+              value={`${server ? records.length : recordsInRange(records, dateStart(range.from, false), Math.min(dateStart(range.to, false) + DAY, e.now)).length}회`}
             />
           </View>
         </>
@@ -359,24 +390,6 @@ export function Diary({ e, font }: { e: any; font?: string }) {
           onPress={() => changePeriod('일')}
         />
       );
-    if (period === '주') {
-      const activeDays = days.filter((key) => (focusSeries.get(key) ?? 0) > 0).length;
-      return (
-        <>
-          <T style={styles.centerMeta}>이번 주 집중</T>
-          <T style={styles.total}>{hm(focus)}</T>
-          <Chart days={days} values={focusSeries} />
-          <View style={styles.row}>
-            <Metric label="집중한 날" value={`${activeDays}일`} />
-            <Metric label="집중일 평균" value={hm(focus / Math.max(1, activeDays))} />
-            <Metric
-              label="집중 횟수"
-              value={`${server ? records.length : recordsInRange(records, dateStart(range.from, false), Math.min(dateStart(range.to, false) + DAY, e.now)).length}회`}
-            />
-          </View>
-        </>
-      );
-    }
     const subjects = Object.entries(
       dayRecords.reduce<Record<string, number>>((acc, r) => {
         acc[r.subject] = (acc[r.subject] ?? 0) + r.seconds;
@@ -683,7 +696,11 @@ function Empty({
   return (
     <View style={styles.empty}>
       <T style={styles.emptyTitle}>{title}</T>
-      {action && onPress && <Button title={action} onPress={onPress} />}
+      {action && onPress && (
+        <View testID="diary-empty-action" style={styles.emptyAction}>
+          <Button title={action} onPress={onPress} />
+        </View>
+      )}
     </View>
   );
 }
@@ -790,7 +807,9 @@ function Chart({
                 ]}
               />
             </View>
-            <T style={styles.chartLabel}>{weekday(day)}</T>
+            <T testID={`diary-weekday-${day}`} style={styles.chartLabel}>
+              {weekday(day)}
+            </T>
           </View>
         );
       })}
@@ -979,6 +998,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: S.section,
   },
+  emptyAction: { alignSelf: 'center' },
   emptyTitle: { fontSize: F.title, textAlign: 'center' },
   loading: { gap: S.section, alignItems: 'center', paddingTop: S.component },
   skeleton: { backgroundColor: C.divider, borderRadius: semanticTokens.radius.control },
