@@ -88,7 +88,7 @@ public class MovementRelay implements RoomRuntime.Listener {
     private Thread sender;
 
     @Autowired
-    public MovementRelay(@Value("${realtime.movement.multi-instance.enabled:false}") boolean enabled,
+    public MovementRelay(@Value("${realtime.movement.multi-instance.enabled:true}") boolean enabled,
             MovementPublisher publisher, MovementOwnership ownership, StringRedisTemplate redis,
             ObjectMapper objectMapper, MeterRegistry meterRegistry) {
         this(enabled, publisher, ownership, redis, objectMapper, meterRegistry, QUEUE_CAPACITY, CONTROL_CAPACITY);
@@ -145,7 +145,7 @@ public class MovementRelay implements RoomRuntime.Listener {
 
     @PostConstruct
     void start() {
-        if (!enabled) {
+        if (!enabled || running) {
             return;
         }
         running = true;

@@ -51,10 +51,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.BDDMockito.given;
 
 /**
- * 플래그 OFF(기본)면 이동은 Redis 를 전혀 타지 않는다(GROMO-2339 ⑥) — 구독·이동 한 바퀴 동안 PUBLISH 0회, 소유자 키 없음,
- * 릴레이 컨테이너·실행기 없음. 목 구성은 {@code MovementStompIntegrationTest} 와 같아 그 컨텍스트를 나눠 쓴다.
+ * 플래그를 옵트아웃(false — 기본은 ON)하면 이동은 Redis 를 전혀 타지 않는다(GROMO-2339 ⑥) — 구독·이동 한 바퀴 동안 PUBLISH
+ * 0회, 소유자 키 없음, 릴레이 컨테이너·실행기 없음. false 를 명시해 이 경로를 고정한다(전용 컨텍스트).
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "realtime.movement.multi-instance.enabled=false")
 @AutoConfigureMockMvc
 @ActiveProfiles("ci")
 @Import(TestcontainersConfiguration.class)

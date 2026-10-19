@@ -12,6 +12,7 @@ import com.oneorthree.realtime.movement.stomp.MovementRelay.Type;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,8 +45,8 @@ import java.util.concurrent.TimeUnit;
  * {@link MovementRooms}, 아니면 {@code chat:movement:cmd:v1}. 소유자가 낸 프레임({@code chat:movement:frames:v1})은
  * 전 인스턴스가 받아 자기 세션에만 넣는다 — 소유자 자신도 그 메아리로만 넣어 전달 경로가 하나다.
  *
- * <p><b>플래그 OFF({@code realtime.movement.multi-instance.enabled}, 기본)면 모든 메서드가 {@link MovementRooms} 를 바로
- * 부른다</b> — 세션 키 = STOMP 세션 id, Redis 0회, 스레드 0개. 현행 단일 인스턴스 동작 그대로다.
+ * <p><b>기본은 ON 이다. 옵트아웃({@code realtime.movement.multi-instance.enabled=false})하면 모든 메서드가
+ * {@link MovementRooms} 를 바로 부른다</b> — 세션 키 = STOMP 세션 id, Redis 0회, 스레드 0개. 현행 단일 인스턴스 동작 그대로다.
  *
  * <h2>스레드 모델(ON)</h2>
  * <ul>
@@ -127,7 +128,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
      * 기다리지 않게 한다. PING 이 1초라 2초 아래로 내리면 정상 부하에서도 actor 를 잘못 내보낸다.
      */
     @Autowired
-    public MovementCluster(@Value("${realtime.movement.multi-instance.enabled:false}") boolean enabled,
+    public MovementCluster(@Value("${realtime.movement.multi-instance.enabled:true}") boolean enabled,
             MovementRooms rooms, MovementPublisher publisher, MovementOwnership ownership, MovementRelay relay,
             StringRedisTemplate redis, ObjectMapper objectMapper,
             ObjectProvider<MovementSubscriptionListener> listeners, MeterRegistry meterRegistry,
@@ -200,10 +201,22 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
         if (!enabled) {
             return;
         }
+        relayIn = Executors.newSingleThreadExecutor(daemon("movement-relay-in")); // 빈 수명 — 컨테이너가 이 참조를 쥔다
+        startWorkers();
+    }
+
+    private void startWorkers() {
         running = true;
         executor = Executors.newSingleThreadScheduledExecutor(daemon("movement-cluster"));
-        relayIn = Executors.newSingleThreadExecutor(daemon("movement-relay-in"));
         executor.scheduleWithFixedDelay(this::poll, POLL_MS, POLL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    /** relay-in 실행기는 빈과 함께 끝낸다 — 수명주기 stop/start(테스트 컨텍스트 일시정지 등)를 넘어 컨테이너가 계속 쓴다. */
+    @PreDestroy
+    void destroy() {
+        if (relayIn != null) {
+            relayIn.shutdownNow();
+        }
     }
 
     private static java.util.concurrent.ThreadFactory daemon(String name) {
@@ -262,12 +275,17 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
                 log.warn("이동 리스 반납 실패 — 리스 만료(3초)로 넘어간다. reason={}", e.getClass().getSimpleName());
             }
         }
-        relayIn.shutdown();
     }
 
     @Override
     public void start() {
-        running = enabled;
+        // 수명주기 재시작(Spring 7 테스트 컨텍스트 일시정지 → 재개 등) — stop() 이 멈춘 송신·감시를 다시 세운다. 반납한 리스는
+        // 첫 명령·감시가 다시 얻는다(남은 방은 리스가 없어 lost{expired} 로 버리고 다시 세운다).
+        if (!enabled || running) {
+            return;
+        }
+        relay.start();
+        startWorkers();
     }
 
     @Override

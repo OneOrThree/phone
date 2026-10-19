@@ -50,12 +50,13 @@ public class RedisConfig {
     }
 
     /**
-     * 섬 이동 다중 인스턴스 릴레이(GROMO-2339)의 <b>전용</b> 수신 컨테이너 — 플래그가 켜졌을 때만 생긴다(OFF 면 SUBSCRIBE 도
-     * 없다). 위 컨테이너와 나누는 이유는 순서다: 받은 프레임을 {@link MovementCluster} 의 1스레드 실행기로만 처리해야 소유자가
+     * 섬 이동 다중 인스턴스 릴레이(GROMO-2339)의 <b>전용</b> 수신 컨테이너 — 플래그가 켜졌을 때만 생긴다(기본 ON, 값이 없어도
+     * ON — 옵트아웃 false 면 SUBSCRIBE 도 없다). 위 컨테이너와 나누는 이유는 순서다: 받은 프레임을 {@link MovementCluster} 의 1스레드 실행기로만 처리해야 소유자가
      * 낸 순서 그대로 세션에 들어간다. 채팅 컨테이너의 실행기를 같이 쓰면 그 순서가 채팅 처리와 섞여 깨진다.
      */
     @Bean
-    @ConditionalOnProperty(name = "realtime.movement.multi-instance.enabled", havingValue = "true")
+    @ConditionalOnProperty(name = "realtime.movement.multi-instance.enabled", havingValue = "true",
+            matchIfMissing = true)
     public RedisMessageListenerContainer movementRelayListenerContainer(RedisConnectionFactory connectionFactory,
             MovementCluster cluster) {
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();

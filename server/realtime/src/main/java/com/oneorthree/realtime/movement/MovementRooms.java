@@ -37,9 +37,9 @@ import java.util.function.LongSupplier;
  * 따로다 — 다중화하면 같은 사용자가 인스턴스를 오가며 버킷을 공유하지 못해 실질 제한이 느슨해질 수
  * 있다. 수평 확장은 이 전제를 깨므로 별도 설계가 필요하다.
  *
- * <p><b>다중 인스턴스(GROMO-2339, 플래그 {@code realtime.movement.multi-instance.enabled})</b>에서는 이 맵이 «이
- * 인스턴스가 소유자 리스를 든 섬»의 방만 담는다 — 명령은 {@code MovementCluster} 가 소유자에게 모아 주고, 리스를
- * 잃으면 {@link #evict} 로 버린다. 그래서 같은 섬의 방은 클러스터 전체에서 한 곳에만 산다. 플래그 OFF 는 위 단일
+ * <p><b>다중 인스턴스(GROMO-2339, 플래그 {@code realtime.movement.multi-instance.enabled}, 기본 ON)</b>에서는 이 맵이
+ * «이 인스턴스가 소유자 리스를 든 섬»의 방만 담는다 — 명령은 {@code MovementCluster} 가 소유자에게 모아 주고, 리스를
+ * 잃으면 {@link #evict} 로 버린다. 그래서 같은 섬의 방은 클러스터 전체에서 한 곳에만 산다. 옵트아웃(false)하면 위 단일
  * 인스턴스 전제 그대로다.
  */
 @Component
