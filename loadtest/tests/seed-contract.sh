@@ -36,7 +36,7 @@ docker exec "$NAME" sh -ec '
   cat "$ROOT/loadtest/seed/60_write_fixture.sql"
   echo "DO \$\$ BEGIN
     ASSERT (SELECT count(*) FROM users u JOIN write_slots w ON u.id IN (w.actor, w.partner) WHERE NOT u.is_guest) = 2, '회원 전환 실패';
-    ASSERT (SELECT count(*) FROM friendships f JOIN write_slots w ON f.from_user_id = w.actor AND f.to_user_id = w.partner AND f.status = 'ACCEPTED') = 1, '친구 관계 누락';
+    ASSERT (SELECT count(*) FROM friendships f JOIN write_slots w ON ((f.from_user_id = w.actor AND f.to_user_id = w.partner) OR (f.from_user_id = w.partner AND f.to_user_id = w.actor)) AND f.status = 'ACCEPTED' AND f.deleted_at IS NULL) = 1, '친구 관계 누락';
     ASSERT (SELECT count(*) FROM island_facilities f JOIN write_slots w ON f.island_id IN (w.island, w.hub) AND f.building_id = 'tower' AND f.status = 'COMPLETED') = 2, '전망대 누락';
   END \$\$;"
 } | docker exec -i "$NAME" psql -U postgres -d golden -v ON_ERROR_STOP=1 >/dev/null

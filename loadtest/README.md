@@ -39,6 +39,7 @@ Data가 해당 DB 복제본을 사용하고 Business·Data의 JWT 키가 시드 
 `make coverage`가 공개 OpenAPI(`k6/cases/openapi-public.json`, Business `/v0/api-docs/public` 스냅샷) 전 operation을
 `k6/cases/public.json`(조회)·`k6/cases/write.json`(쓰기)과 대조해 `docs/public-api-coverage.csv`를 갱신한다.
 스냅샷 갱신은 `scripts/coverage.py --refresh <url>`, CSV가 최신인지만 볼 때는 `make coverage-check`.
+구 `/api/v1` 표면 11건이 스펙(`/v0/api-docs/public`)에 노출되어 분모 128에 포함된다(있음 1 · 없음 3 · 제외 7 — 제외는 전부 외부 의존). 따라서 「있음 68」은 신규 쓰기 시나리오 10 + 기존 조회·집중 58이다.
 상태는 **있음**(시나리오가 호출) · **제외**(소셜 IdP·FCM/APNs·링크 제공자 등 외부 의존) · **없음**(의존성은 없으나 시나리오 미작성).
 실측 여부는 보지 않는다 — 실행 결과는 survey 보고서 소관이다.
 
@@ -59,6 +60,8 @@ make test-existing BASE_URL=http://localhost:18088 PARAMS_DIR=$PWD/.local/params
 ```
 
 `join_approval`은 Data의 `ISLAND_MANAGEMENT_COMMANDS_ENABLED=true`가 필요하다(기본 false — 운영 기본에선 승인·나가기가 503 `ISLAND_MANAGEMENT_NOT_READY`). 로컬 compose(`infra/local/compose.yml`)는 켜 두었다.
+
+**쓰기 시나리오는 한 번에 하나만 실행한다** — 같은 slot을 공유해 `join_approval`이 남기는 시스템 편지가 `letter_exchange`의 `GET /letters` 응답 시간을 오염시킨다.
 
 fixture 전제: ① actor·partner를 회원으로 전환하고 친구로 맺고 섬의 전망대를 완공(`seed/60_write_fixture.sql`, `make check`가 최신 스키마에서 검증) ② actor는 소속 2곳(상한 3 이하)
 ③ 토큰 만료 전에 실행(만료되면 `write-fixture` 재실행). 쓰기 시나리오는 `k6/cases/public.json`이 아닌 `k6/cases/write.json`에 두었다 — 조사 러너(`survey/run.py --cases all`)가 slot fixture 없이 집어 들지 않게 한다.

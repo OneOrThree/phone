@@ -24,23 +24,27 @@ export const options = {
 export function run() {
   const s = mySlot(slots);
   const gate = s.gateIslandId;
-  let requestId, approved = false, ok = false;
+  const apply = (track) => call('POST', `/islands/${gate}/memberships`, s.actor, 'join_apply', errors, { body: {}, idem: true, track });
+  const leave = () => call('DELETE', `/islands/${gate}/memberships/me`, s.actor, 'join_leave', errors, { idem: true, track: false });
+  let requestId, maybeMember = false, ok = false;
   try {
-    const applied = call('POST', `/islands/${gate}/memberships`, s.actor, 'join_apply', errors, { body: {}, idem: true });
+    // 앞 회차의 유실 응답 등으로 actor 가 아직 gate 주민이면 신청이 실패한다 — 그때만 나가기 후 한 번 재시도한다.
+    // 매 회차 사전 조회·나가기를 하면 요청이 1건 늘어 측정이 왜곡되므로, 정상 경로에는 비용이 없는 이 방식을 택했다.
+    let applied = apply(false);
+    if (!applied) { leave(); applied = apply(true); }
     if (!applied) return;
     requestId = field(applied, 'requestId');
     if (!requestId) { errors.add(true); return; }
     if (!call('GET', `/islands/${gate}/join-requests`, s.partner, 'join_list', errors)) return;
+    // PATCH 를 보낸 순간부터 서버에선 승인이 커밋됐을 수 있다(타임아웃·5xx·응답 유실) — 결과와 무관하게 주민일 수 있다고 본다.
+    maybeMember = true;
     if (!call('PATCH', `/islands/${gate}/join-requests/${requestId}`, s.partner, 'join_approve', errors, { body: { decision: 'approve' }, idem: true })) return;
-    approved = true;
     ok = true;
   } finally {
-    if (approved) {
-      const left = call('DELETE', `/islands/${gate}/memberships/me`, s.actor, 'join_leave', errors, { idem: true });
-      if (ok && left) completed.add(1);
-    } else if (requestId) {
-      call('DELETE', `/me/join-requests/${requestId}`, s.actor, 'join_cancel', errors, { idem: true });
-    }
+    // 정리 실패는 api_errors 에 넣지 않는다(track=false, 경고만). 나가기를 먼저, 안 됐으면(주민 아님) 신청 취소.
+    const left = maybeMember ? leave() : null;
+    if (!left && requestId) call('DELETE', `/me/join-requests/${requestId}`, s.actor, 'join_cancel', errors, { idem: true, track: false });
+    if (ok && left) completed.add(1);
   }
 }
 export function handleSummary(data) { return summarize(data); }

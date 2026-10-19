@@ -39,10 +39,19 @@ def load_covered():
         for op in c['operations']:
             m, p = op.split(' ', 1)
             covered.setdefault((m.lower(), norm(p)), []).append(c['id'])
-    # public.json 의 write_journey(focus_lifecycle)는 paths 가 비어 있다 — 호출하는 operation 을 여기 둔다.
-    for p in ('/focus-sessions', '/focus-sessions/{id}/pause', '/focus-sessions/{id}/resume', '/focus-sessions/{id}/finish'):
-        covered[('post', norm(p))] = ['focus_lifecycle']
     return covered
+
+
+def verify_scripts():
+    """write.json 의 각 operation 경로 정적 토큰이 시나리오 JS 에 있는지 — 경로가 바뀌면 카탈로그와 어긋난 채 조용히 통과하지 않게."""
+    bad = []
+    for c in json.loads((LT / 'k6/cases/write.json').read_text()):
+        text = (LT / 'k6/scenarios' / c['script']).read_text()
+        for op in c['operations']:
+            for tok in (t for t in op.split(' ', 1)[1].split('/') if t and not t.startswith('{')):
+                if tok not in text:
+                    bad.append(f"{c['script']}: '{op}' 의 '{tok}' 가 스크립트에 없음")
+    return bad
 
 
 def classify(method, path, cases):
@@ -91,6 +100,10 @@ def main():
     if a.refresh:
         data = urllib.request.urlopen(a.refresh, timeout=15).read()
         Path(a.spec).write_bytes(json.dumps(json.loads(data), ensure_ascii=False, indent=2).encode() + b'\n')
+    bad = verify_scripts()
+    if bad:
+        print('\n'.join(bad), file=sys.stderr)
+        sys.exit(1)
     rows = build(json.loads(Path(a.spec).read_text()))
     text = render(rows)
     out = Path(a.out)
@@ -102,6 +115,8 @@ def main():
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(text)
     tally = {s: sum(r['status'] == s for r in rows) for s in ('있음', '없음', '제외')}
+    legacy = [r for r in rows if r['path'].startswith('/api/v1')]
+    tally['구_api_v1'] = {s: sum(r['status'] == s for r in legacy) for s in ('있음', '없음', '제외')}
     print(json.dumps({'operations': len(rows), **tally, 'output': str(out)}, ensure_ascii=False))
 
 

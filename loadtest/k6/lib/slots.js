@@ -37,12 +37,12 @@ export const field = (res, name) => {
 
 // 명령 1건. idem=true 면 Idempotency-Key(UUID) 를 붙인다(현재 섬 이동·가입·나가기·승인은 필수, 편지·핀은 받지 않음).
 // 성공하면 응답, 실패하면 null — 에러율 Rate(errors)에 기록하고 토큰 없이 코드만 경고한다.
-export function call(method, path, who, endpoint, errors, { body, idem = false, ok = [200, 201, 204] } = {}) {
+export function call(method, path, who, endpoint, errors, { body, idem = false, ok = [200, 201, 204], track = true } = {}) {
   const params = authParams(who, endpoint);
   if (idem) params.headers['Idempotency-Key'] = uuid();
   const res = http.request(method, BASE_URL + path, body === undefined ? null : JSON.stringify(body), params);
   const good = check(res, { '요청 성공': (r) => ok.includes(r.status) });
-  errors.add(!good);
+  if (track) errors.add(!good); // track=false: 정리(되돌림) 호출 — 실패는 에러율이 아니라 경고로만 남긴다
   if (!good) {
     let code;
     try { code = res.json('error.code') || res.json('code'); } catch (_) {}
