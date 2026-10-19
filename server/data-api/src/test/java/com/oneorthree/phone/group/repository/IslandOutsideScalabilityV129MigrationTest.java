@@ -73,7 +73,11 @@ class IslandOutsideScalabilityV129MigrationTest {
                 + "' AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 30"))
                 .contains("island_guestbook_live_recent_idx");
         assertThat(planWithoutSeqScan("SELECT user_id FROM group_members WHERE group_id = '" + island
-                + "' AND is_left = false")).contains("group_members_active_group_user_idx");
+                + "' AND is_left = false"))
+                .contains("group_members_active_group_user_idx").contains("Index Only Scan");
+        // 부분 조건 밖(is_left = true)은 이 인덱스를 못 탄다.
+        assertThat(planWithoutSeqScan("SELECT user_id FROM group_members WHERE group_id = '" + island
+                + "' AND is_left = true")).doesNotContain("group_members_active_group_user_idx");
     }
 
     private java.util.Optional<String> indexdef(String name) {

@@ -601,7 +601,7 @@ class IslandFocusAverageSnapshotIntegrationTest {
     }
 
     @Test
-    @DisplayName("살아 있는 섬이 바인드 상한(32767)을 넘어도 배치가 전량 적는다")
+    @DisplayName("규모 스모크 — 섬 33,000개여도 배치가 전량 적는다 (청크 회귀 방지는 countMembersChunkBoundaries 몫)")
     void snapshotSurvivesMoreIslandsThanBindLimit() {
         int bulk = 33_000;
         try {
