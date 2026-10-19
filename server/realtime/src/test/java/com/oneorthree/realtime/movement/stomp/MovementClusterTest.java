@@ -528,6 +528,53 @@ class MovementClusterTest {
         assertThat(cluster.isRunning()).isTrue();
     }
 
+    @Test
+    @DisplayName("닫힌 세션(큐 포화 1008·소켓 종료)은 RESYNC·EVICTED 를 받아도 FULL_STATE 재요청·JOIN 이 나가지 않는다")
+    void closedSessionsAreSkippedByResyncAndEvicted() throws Exception {
+        redis.opsForValue().set(RedisKeys.movementOwner(island), "ghost-c:9", Duration.ofMinutes(1));
+        open("s1");
+        open("s2");
+        // 소켓 종료 경로(afterConnectionClosed → closed)가 outbox 를 닫는 것과 같은 상태 — 섬 목록엔 남은 채 닫힘.
+        publisher.outboxes(island).stream().filter(o -> "s1".equals(o.sessionId())).forEach(MovementOutbox::close);
+        commands.clear();
+
+        String closedKey = ownership.instanceId() + ":s1";
+        // 가드: MovementCluster.eligible() 의 !outbox.isClosed() 가 resyncIsland·rejoinEvicted 둘 다를 막는다.
+        command(new Command("ghost-c", null, 0, island, Type.RESYNC, null, null, null, false));
+        command(new Command("ghost-c", ownership.instanceId(), 0, null, Type.EVICTED, null, null, null, false,
+                List.of(island + "|s1", island + "|s2")));
+
+        // 양성 대조 — 열린 s2 는 다시 입장한다. 이 명령들이 처리된 뒤에도 s1 은 한 건도 없어야 한다.
+        assertThat(awaitCommand(Type.JOIN).sessionKey()).isEqualTo(ownership.instanceId() + ":s2");
+        Thread.sleep(1500);
+        assertThat(commands).as("닫힌 s1 로는 JOIN·FULL_STATE 가 나가지 않는다")
+                .noneMatch(c -> closedKey.equals(c.sessionKey()));
+    }
+
+    @Test
+    @DisplayName("방이 있는 상태(입장·리스 보유)에서 stop 뒤 start 해도 입장·세션 한정 FullState·프레임 전달이 정상이고 리스·방이 다시 선다")
+    void lifecycleRestartWithRoomsRestoresState() throws Exception {
+        open("s1");
+        cluster.join(island, user, "s1");
+        cluster.requestFullState(island, "s1");
+        awaitFor("s1", "FullState");
+        assertThat(ownership.lease(island)).isNotNull();
+
+        cluster.stop(); // 인계·반납
+        assertThat(ownership.lease(island)).as("stop 이 리스를 반납했다").isNull();
+        cluster.start();
+        open("s2");
+        cluster.join(island, UUID.randomUUID(), "s2");
+        cluster.requestFullState(island, "s2");
+
+        assertThat(awaitFor("s2", "FullState").get("actors").size()).isGreaterThanOrEqualTo(1);
+        await(() -> ownership.lease(island) != null && rooms.rooms().containsKey(island));
+        String arrived = json.writeValueAsString(new MovementEvent.Arrived(user, 1, 9, new MovementEvent.Point(1, 1)));
+        relay.publishFrame(new Frame(ownership.instanceId(), island, ownership.lease(island).epoch(), Kind.EVENT,
+                null, null, false, arrived));
+        assertThat(awaitFor("s2", "Arrived").get("serverTick").asLong()).isEqualTo(9);
+    }
+
     /** 이 인스턴스가 소유자가 되고(로컬 세션 s1), 다른 인스턴스 세션 {@code <instance>:<sid>} 가 방에 든 상태를 만든다. */
     private UUID becomeOwnerWithRemoteActor(String instance, String sessionId) throws Exception {
         open("s1");

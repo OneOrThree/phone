@@ -148,6 +148,18 @@ public class MovementRelay implements RoomRuntime.Listener {
         if (!enabled || running) {
             return;
         }
+        // stop() 이 2초 시간 초과로 끝나 옛 송신 스레드가 살아 있으면 하나 더 만들지 않는다(줄을 둘이 소비) — 더 기다린 뒤에도 살아 있으면 그것을 재사용한다.
+        if (sender != null && sender.isAlive()) {
+            try {
+                sender.join(TimeUnit.SECONDS.toMillis(2));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            if (sender.isAlive()) {
+                running = true;
+                return;
+            }
+        }
         running = true;
         sender = new Thread(this::sendLoop, "movement-relay-out");
         sender.setDaemon(true);
@@ -321,6 +333,7 @@ public class MovementRelay implements RoomRuntime.Listener {
      * <p>그 대가로 reliable 사건이 먼저 줄 선 Snapshot 을 앞지를 수 있다 — 두 토픽은 원래 세션 outbox 에서도 따로 줄 서므로
      * (reliable 덱·Snapshot 슬롯) 새 순서 관계가 생기지는 않는다.
      */
+    /** 테스트 전용 — 리스를 «넣는 시점»에 읽어 세대가 «만든 시점»과 다를 수 있다. 프로덕션은 세대 인자 버전을 쓴다. */
     void publishFrame(Frame frame) {
         MovementOwnership.Lease lease = ownership.lease(frame.islandId());
         publishFrame(lease == null ? -1 : lease.generation(), frame);

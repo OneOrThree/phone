@@ -226,6 +226,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   버리지 않고 표시해 두었다가 1초 감시가 성공할 때까지 다시 보낸다(`movement.relay.recheck.retry{reason=dropped|publish}`).
   받는 쪽은 멱등이다(두 번 오면 재판정을 새로 시작할 뿐). PING 대조는 멤버십을 다시 보지 않는다. 다른 인스턴스에서 같은 사용자가 새로 들어오면 소유자가 SUPERSEDE 프레임으로 옛
   세션을 멈추고 그 세션 intent 를 버린다. PING(1초)이 5초 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다.
+- **PUBLISH 성공 ≠ 수신**: 수신 쪽 relay-in 이 끊긴 구간에 간 RECHECK 는 송신 쪽이 알 수 없다 — 상한은 멤버십 캐시 TTL 이다.
 - **PING 대조(제어 명령 유실·생존 신호 복구)**: PING 은 그 인스턴스가 남의 방에 입장해 있다고 믿는 세션 목록(`섬|세션`)을
   싣는다. 소유자는 PING 마다 목록과 자기 방을 맞춘다 — 목록에 없는 그 인스턴스 actor 는 내보내고(LEAVE 유실), 목록에 있는데
   방에 없는 세션은 `EVICTED` 로 알려 그 세션만 resync + JOIN·FULL_STATE 로 다시 입장시킨다(JOIN·첫 FullState 요청 유실,

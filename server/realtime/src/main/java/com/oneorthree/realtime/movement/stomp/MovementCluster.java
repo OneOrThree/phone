@@ -262,9 +262,13 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
                     redis.opsForValue().set(RedisKeys.movementHandoff(islandId),
                             objectMapper.writeValueAsString(positions), HANDOFF_TTL);
                 }
-                ownership.renew(islandId);
             } catch (RuntimeException e) {
                 log.warn("이동 방 인계 실패 — 리스 만료(3초)로 넘어간다. reason={}", e.getClass().getSimpleName());
+            }
+            try { // 인계 set 이 실패해도 갱신은 한다 — flush 동안 로컬 신뢰 한도가 줄지 않게 별도 try
+                ownership.renew(islandId);
+            } catch (RuntimeException e) {
+                log.warn("이동 리스 갱신 실패 — 리스 만료(3초)로 넘어간다. reason={}", e.getClass().getSimpleName());
             }
         }
         relay.stop();
@@ -486,7 +490,6 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
         apply(command.islandId(), command.type(), command.userId(), command.sessionKey(), command.intent());
     }
 
-    /** 1초 감시 — 갱신·반납·소유자 교체 감지·생존 신호·끊긴 인스턴스 정리. 예외 한 번에 주기가 끊기지 않게 삼킨다. */
     /**
      * 단계마다 예외를 따로 삼킨다 — 한 단계가 던져도 나머지는 돈다(#1180 claude r2). 순서: 리스 갱신(발행 자격) → 복구 재송
      * (RECHECK·RESYNC·FULL_STATE 재요청 — 다른 단계 예외에 막히면 안 된다) → 반납·소유자 감시·생존 신호·끊긴 인스턴스 정리.
