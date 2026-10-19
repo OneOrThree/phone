@@ -34,6 +34,41 @@ Data가 해당 DB 복제본을 사용하고 Business·Data의 JWT 키가 시드 
 최근 기간 조회가 빈 데이터를 측정하므로 재시드하세요. 동일 버전의 시드를 다시 만들었으면 기존 baseline과 비교하지 말고
 새 `SEED_VERSION`을 지정합니다. 리그 마스터·봇은 최신 Flyway 데이터를 보존하고 부하 계정과 분리합니다.
 
+## 공개 API 커버리지·쓰기 시나리오 (GROMO-2346)
+
+`make coverage`가 공개 OpenAPI(`k6/cases/openapi-public.json`, Business `/v0/api-docs/public` 스냅샷) 전 operation을
+`k6/cases/public.json`(조회)·`k6/cases/write.json`(쓰기)과 대조해 `docs/public-api-coverage.csv`를 갱신한다.
+스냅샷 갱신은 `scripts/coverage.py --refresh <url>`, CSV가 최신인지만 볼 때는 `make coverage-check`.
+구 `/api/v1` 표면 11건이 스펙(`/v0/api-docs/public`)에 노출되어 분모 128에 포함된다(있음 1 · 없음 3 · 제외 7 — 제외는 전부 외부 의존). 따라서 「있음 68」은 신규 쓰기 시나리오 10 + 기존 조회·집중 58이다.
+상태는 **있음**(시나리오가 호출) · **제외**(소셜 IdP·FCM/APNs·링크 제공자 등 외부 의존) · **없음**(의존성은 없으나 시나리오 미작성).
+실측 여부는 보지 않는다 — 실행 결과는 survey 보고서 소관이다.
+
+외부 의존성 없는 쓰기 시나리오 4종. 모두 VU별 전용 slot(`write_fixture.json`: 계정 2 + 섬 3)을 쓰고, 한 회차가 끝나면 상태를 되돌린다.
+**실행·수치는 전용 호스트 뒤**(저장소 안에서는 구문·카탈로그 검증까지만 했다).
+
+| 시나리오 | 요청 순서 | 되돌림 | 되돌릴 수 없는 잔여물 |
+|---|---|---|---|
+| `island_switch` | `PUT /me/current-island`(hub) → `POST /islands/{내 섬}/arrivals` | 항상 원래 섬 복귀(실패 시 `PUT` 복원) | 없음 |
+| `join_approval` | 가입 신청 → 섬장 `GET join-requests` → 섬장 `PATCH … approve` → 신청자 `DELETE memberships/me` | 나가기 / 승인 전 실패는 `DELETE /me/join-requests/{id}` | join_requests 행·승인 안내 시스템 편지 회차당 1건 |
+| `letter_exchange` | `POST /letters`(actor→partner) → 수신자 `GET /letters` → `GET /letters/{id}` → `DELETE /letters/{id}` | 수신자가 닫기 | 발송 한도 카운터(loadtest 프로파일 필요 — 기본 한도는 429) |
+| `telescope_pin` | `POST /me/telescope/pins`(observatory) → `GET /me/telescope` → `DELETE /me/telescope/pins/{id}` | unpin | 없음 |
+
+```bash
+# 로컬 격리 스택(make local-up)에 slot fixture를 만든 뒤 (localhost만 허용; SLOTS ≥ MAX_VUS, 기본 50)
+make write-fixture SLOTS=50
+make test-existing BASE_URL=http://localhost:18088 PARAMS_DIR=$PWD/.local/params PROFILE=smoke RATE=2 DURATION=1m K6_SCRIPT=k6/scenarios/island_switch.js
+```
+
+`join_approval`은 Data의 `ISLAND_MANAGEMENT_COMMANDS_ENABLED=true`가 필요하다(기본 false — 운영 기본에선 승인·나가기가 503 `ISLAND_MANAGEMENT_NOT_READY`). 로컬 compose(`infra/local/compose.yml`)는 켜 두었다.
+
+정리 호출(나가기·신청 취소)과 `join_approval`의 첫 신청은 예상 4xx(404·409)를 `http_req_failed`에서 제외한다.
+
+**쓰기 시나리오는 한 번에 하나만 실행한다** — 같은 slot을 공유해 `join_approval`이 남기는 시스템 편지가 `letter_exchange`의 `GET /letters` 응답 시간을 오염시킨다.
+
+fixture 전제: ① actor·partner를 회원으로 전환하고 친구로 맺고 섬의 전망대를 완공(`seed/60_write_fixture.sql`, `make check`가 최신 스키마에서 검증) ② actor는 소속 2곳(상한 3 이하)
+③ 토큰 만료 전에 실행(만료되면 `write-fixture` 재실행). 쓰기 시나리오는 `k6/cases/public.json`이 아닌 `k6/cases/write.json`에 두었다 — 조사 러너(`survey/run.py --cases all`)가 slot fixture 없이 집어 들지 않게 한다.
+대시보드 카탈로그(`scenarios.json`·`recipes-manifest.json`)는 `/api/v1` 레시피 러너용 생성 산출물이라 등록하지 않았다(공개 경로·다중 계정 흐름을 그 러너가 실행하지 못한다).
+
 API 카탈로그 갱신은 대상 Data의 `/v0/api-docs/legacy`를 `dashboard/public/openapi.json`에 저장한 다음
 `node recipes/gen-recipes.mjs && node scenarios/gen-scenarios.mjs`로 수행합니다.
 스키마만 보고 성공 요청을 만들 수 없는 엔드포인트는 실행 불가로 표시합니다. 신규 API는 시드·상태 전이 검증 후
