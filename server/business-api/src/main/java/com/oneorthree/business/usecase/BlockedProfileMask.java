@@ -72,7 +72,7 @@ public class BlockedProfileMask {
         return blocked;
     }
 
-    /** 화면 조합 안에서는 요청당 한 번만 읽는다(GROMO-2345) — 주민 목록·건설 옵션 조각이 같은 목록을 쓴다. */
+    /** 화면 조합 안에서는 요청당 한 번만 읽는다(GROMO-2345) — 주민 목록·집중 주민·건설 옵션 조각이 같은 목록을 쓴다. */
     private List<BlockedUserRef> fetchBlocks(UUID viewerId, Deadline deadline) {
         UpstreamRequestContext context = UpstreamRequestContext.current();
         if (context == null) {

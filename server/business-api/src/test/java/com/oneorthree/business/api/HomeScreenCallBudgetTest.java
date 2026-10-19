@@ -43,7 +43,15 @@ class HomeScreenCallBudgetTest extends ScreenContractTestBase {
         DATA.on(ISLAND_PATH + "/playback", request -> ok("{\"trackId\":\"campfire\",\"playing\":true,"
                 + "\"positionSeconds\":12,\"effectiveAt\":\"2026-09-17T00:00:00Z\",\"changedBy\":\"" + USER
                 + "\",\"version\":3,\"serverNow\":\"2026-09-17T00:00:00Z\",\"durationSeconds\":120.5}"));
-        DATA.on(BLOCKS, request -> ok("[{\"id\":\"" + OTHER + "\"}]"));
+        // 느린 응답 — 두 조각(members·construction-options)이 동시에 들어와도 한 번만 나가는지 본다.
+        DATA.on(BLOCKS, request -> {
+            try {
+                Thread.sleep(150);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return ok("[{\"id\":\"" + OTHER + "\"}]");
+        });
 
         String body = mockMvc.perform(auth(get("/screens/home")).queryParam("date", "2026-09-17")
                         .queryParam("timezone", "Asia/Seoul"))
