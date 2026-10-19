@@ -123,6 +123,11 @@ services:
       SVC_TOKEN_REALTIME_TO_DATA: ${SVC_TOKEN_REALTIME_TO_DATA:-}
       # 받는 사람 기준 차단 필터 스위치(GROMO-2182). 기본 꺼짐 — 위 배선 확인 뒤 켠다.
       REALTIME_BLOCKS_FILTER_ENABLED: ${REALTIME_BLOCKS_FILTER_ENABLED:-false}
+      # 채팅 이력 인가 예산(GROMO-2342). ON 모드 동시 16 초과 시 유한 대기·허용 결정 캐시 TTL(0=끔), OFF 모드 GroupClient 동시 상한.
+      # 기본값은 yml 과 같다 — 빈 값이 들어가면 Duration/int 파싱이 깨지므로 compose 기본값으로 막는다.
+      REALTIME_AUTHORIZATION_WAIT_TIMEOUT: ${REALTIME_AUTHORIZATION_WAIT_TIMEOUT:-200ms}
+      REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS: ${REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS:-30}
+      CHAT_DATA_API_MAX_CONCURRENCY: ${CHAT_DATA_API_MAX_CONCURRENCY:-32}
       # realtime-events Kafka 입구(2026-09-19 R-1). 기본 꺼짐 — 켜려면 Kafka 오버레이가 떠 있어야 한다.
       REALTIME_EVENTS_KAFKA_ENABLED: ${REALTIME_EVENTS_KAFKA_ENABLED:-false}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
