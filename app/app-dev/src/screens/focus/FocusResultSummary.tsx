@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { art } from '@/constants/art';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
@@ -18,28 +18,34 @@ export function FocusResultSummary({
   fish: number;
   questTitles: string[];
 }) {
+  const largeText = useWindowDimensions().fontScale > 1.3;
   return (
     <View testID="focus-result-summary">
       <View style={styles.header}>
         <Text style={styles.eyebrow}>{t('focusFlow.result.title')}</Text>
         <Text style={styles.subject}>{subject}</Text>
       </View>
-      <View style={styles.duration}>
-        <Text style={styles.label}>{t('focusFlow.result.durationLabel')}</Text>
-        <Text
-          testID="focus-result-duration"
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.7}
-          style={styles.time}
+      <View style={[styles.metrics, largeText && styles.stackedMetrics]}>
+        <View style={styles.duration}>
+          <Text style={styles.label}>{t('focusFlow.result.durationLabel')}</Text>
+          <Text
+            testID="focus-result-duration"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+            style={[styles.time, largeText && styles.centeredTime]}
+          >
+            {hms(seconds)}
+          </Text>
+        </View>
+        <View
+          accessible
+          accessibilityLabel={`${t('focusFlow.result.fishLabel')} ${fish}`}
+          style={[styles.reward, largeText && styles.stackedReward]}
         >
-          {hms(seconds)}
-        </Text>
-      </View>
-      <View style={styles.reward}>
-        <Image source={art.fish} style={styles.fish} />
-        <Text style={styles.rewardLabel}>{t('focusFlow.result.fishLabel')}</Text>
-        <Text style={styles.fishCount}>{t('focusFlow.result.fishCount', { count: fish })}</Text>
+          <Image source={art.fish} accessible={false} style={styles.fish} />
+          <Text style={styles.fishCount}>{t('focusFlow.result.fishCount', { count: fish })}</Text>
+        </View>
       </View>
       {questTitles.length > 0 && (
         <View testID="focus-result-quests" style={styles.quests}>
@@ -81,12 +87,15 @@ const styles = StyleSheet.create({
     fontWeight: semanticTokens.typography.bold,
     textAlign: 'center',
   },
-  duration: {
+  metrics: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: token.timeGap,
-    paddingVertical: semanticTokens.spacing.section,
+    gap: semanticTokens.spacing.control,
+    marginTop: semanticTokens.spacing.section,
   },
-  label: { color: semanticTokens.color.textMuted, fontSize: semanticTokens.typography.label },
+  stackedMetrics: { flexDirection: 'column', alignItems: 'stretch' },
+  duration: { flex: 1, minWidth: 0, gap: token.timeGap },
+  label: { color: semanticTokens.color.textMuted, fontSize: semanticTokens.typography.caption },
   time: {
     color: semanticTokens.color.text,
     fontSize: token.timeSize,
@@ -94,25 +103,26 @@ const styles = StyleSheet.create({
     fontWeight: semanticTokens.typography.extraBold,
     letterSpacing: token.timeLetterSpacing,
     fontVariant: ['tabular-nums'],
-    textAlign: 'center',
     alignSelf: 'stretch',
   },
+  centeredTime: { textAlign: 'center' },
   reward: {
-    backgroundColor: token.rewardBackground,
-    borderRadius: semanticTokens.radius.control,
-    padding: semanticTokens.spacing.component,
-    flexDirection: 'row',
+    width: token.rewardWidth,
+    borderLeftWidth: semanticTokens.stroke.subtle,
+    borderLeftColor: semanticTokens.color.divider,
+    paddingLeft: semanticTokens.spacing.control,
     alignItems: 'center',
-    flexWrap: 'wrap',
+    gap: token.timeGap,
+  },
+  stackedReward: {
+    width: '100%',
+    borderLeftWidth: 0,
+    paddingLeft: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
     gap: semanticTokens.spacing.control,
   },
   fish: { width: token.fishSize, height: token.fishSize },
-  rewardLabel: {
-    flex: 1,
-    color: semanticTokens.color.textMuted,
-    fontSize: semanticTokens.typography.label,
-    fontWeight: semanticTokens.typography.semibold,
-  },
   fishCount: {
     color: semanticTokens.color.text,
     fontSize: semanticTokens.typography.title,

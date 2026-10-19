@@ -673,7 +673,7 @@ test('구버전 완료 결과의 실제 물고기와 acknowledge 명령을 보�
     }),
   );
   expect(screen.getByText('기존 집중 결과', { includeHiddenElements: true })).toBeTruthy();
-  expect(screen.getByText('+2마리', { includeHiddenElements: true })).toBeTruthy();
+  expect(screen.getByText('+2', { includeHiddenElements: true })).toBeTruthy();
   await fireEvent.press(screen.getByTestId('result-done', { includeHiddenElements: true }));
   expect(acknowledge).toHaveBeenCalledWith('legacy-result');
   await screen.unmount();
@@ -1479,7 +1479,7 @@ test.each([
   expect(screen.queryByText('달성한 일일 퀘스트')).toBeNull();
   expect(screen.queryByText(/아직 없어요/)).toBeNull();
   expect(screen.getByTestId('focus-result-duration')).toHaveTextContent('00:25:00');
-  expect(screen.getByText('+3마리')).toBeTruthy();
+  expect(screen.getByText('+3')).toBeTruthy();
   expect(screen.getByTestId('result-done')).toBeTruthy();
   await screen.unmount();
 });

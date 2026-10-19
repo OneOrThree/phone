@@ -450,7 +450,7 @@
   },
   "focusFlow": {
     "common": {
-      "holdEndFocus": "Hold 3s to end",
+      "holdEndFocus": "End",
       "holdEndHint": "Hold for 3 seconds to end focus. Release early to cancel.",
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
@@ -525,7 +525,7 @@
       "defaultSubject": "This Focus Session",
       "durationLabel": "This Session's Focus Time",
       "fishLabel": "Fish caught",
-      "fishCount": "+{{count}} fish",
+      "fishCount": "+{{count}}",
       "questsAchievedTitle": "Daily Quests Completed",
       "checking": "Checking…",
       "checkFailed": "Couldn't check your quests",

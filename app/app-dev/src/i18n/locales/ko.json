@@ -426,7 +426,7 @@
   },
   "focusFlow": {
     "common": {
-      "holdEndFocus": "3초 눌러 종료",
+      "holdEndFocus": "종료하기",
       "holdEndHint": "3초 동안 길게 누르면 집중을 종료해요. 중간에 손을 떼면 취소돼요.",
       "ourIsland": "우리 섬",
       "fishingIsland": "낚시섬",
@@ -501,7 +501,7 @@
       "defaultSubject": "이번 집중",
       "durationLabel": "이번 집중 시간",
       "fishLabel": "낚은 물고기",
-      "fishCount": "+{{count}}마리",
+      "fishCount": "+{{count}}",
       "questsAchievedTitle": "달성한 일일 퀘스트",
       "checking": "확인 중…",
       "checkFailed": "퀘스트를 확인하지 못했어요",
