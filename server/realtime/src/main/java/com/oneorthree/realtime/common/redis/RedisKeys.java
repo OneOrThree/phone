@@ -48,6 +48,16 @@ import java.util.UUID;
  *       <td>바다 방 이모트 성공 창(3초)</td></tr>
  *   <tr><td>{@code chat:sea:v1}</td><td>실시간</td><td>발행·구독</td>
  *       <td>인스턴스 간 <b>바다 방 사건</b> 전파(Pub/Sub). {@code chat:events:v1} 과 모양이 달라 나눈다</td></tr>
+ *   <tr><td>{@code movement:owner:{islandId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>섬 이동 방 소유자 리스(GROMO-2339) — 값 {@code <instanceId>:<epoch>}, PX 3000, 소유자가 1초마다 갱신</td></tr>
+ *   <tr><td>{@code movement:epoch}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>소유권 세대 카운터 — {@code max(직전+1, Redis TIME ms)}. <b>TTL 없음</b>(되돌아가면 옛 프레임이 새 것으로 읽힌다)</td></tr>
+ *   <tr><td>{@code movement:room:{islandId}:handoff}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>소유자가 종료하며 남기는 위치 스냅샷 JSON(사용자 → 좌표). PX 30000, 새 소유자가 GETDEL</td></tr>
+ *   <tr><td>{@code chat:movement:cmd:v1}</td><td>실시간</td><td>발행·구독</td>
+ *       <td>비소유 인스턴스 → 소유자 이동 명령 + 강퇴 재검사·생존 신호 브로드캐스트(Pub/Sub)</td></tr>
+ *   <tr><td>{@code chat:movement:frames:v1}</td><td>실시간</td><td>발행·구독</td>
+ *       <td>소유자 → 전 인스턴스 이동 프레임(Pub/Sub). 소유자 자신도 이 메아리로만 자기 세션에 보낸다</td></tr>
  *   <tr><td>{@code presence:focus:{userId}}</td><td><b>Data API</b></td><td><b>읽기 전용</b></td>
  *       <td>집중 세션 리스. 채팅은 존재 여부만 본다 — 쓰지도 지우지도 않는다</td></tr>
  * </table>
@@ -84,6 +94,18 @@ public final class RedisKeys {
      */
     public static final String SEA_FANOUT_CHANNEL = "chat:sea:v1";
 
+    /** 이동 명령·재검사·생존 신호 채널(GROMO-2339) — 비소유 인스턴스가 소유자에게, RECHECK·PING 은 전원에게. */
+    public static final String MOVEMENT_CMD_CHANNEL = "chat:movement:cmd:v1";
+
+    /** 이동 프레임 채널(GROMO-2339) — 소유자가 만든 사건·Snapshot·교체 통지를 전 인스턴스로. */
+    public static final String MOVEMENT_FRAMES_CHANNEL = "chat:movement:frames:v1";
+
+    /** 이동 소유권 세대 — 전역 단조, TTL 없음(GROMO-2339). */
+    public static final String MOVEMENT_EPOCH = "movement:epoch";
+
+    private static final String MOVEMENT_OWNER_PREFIX = "movement:owner:";
+    private static final String MOVEMENT_ROOM_PREFIX = "movement:room:";
+
     /** 빈자리 있는 바다 방 id 집합. TTL 을 걸면 만료 순간 전원이 새 방을 만들어서 걸지 않는다. */
     public static final String SEA_ROOMS_OPEN = "sea:rooms:open";
 
@@ -106,6 +128,16 @@ public final class RedisKeys {
     private static final String ISLAND_EVENTS_SUBSCRIBE_PREFIX = "lock:chat:events:sub:";
 
     private RedisKeys() {
+    }
+
+    /** 그 섬 이동 방의 소유자 리스 — 값 {@code <instanceId>:<epoch>}(GROMO-2339). */
+    public static String movementOwner(UUID islandId) {
+        return MOVEMENT_OWNER_PREFIX + islandId;
+    }
+
+    /** 종료하는 소유자가 남긴 그 섬 위치 스냅샷 — 새 소유자가 한 번 읽고 지운다(GROMO-2339 단계 B). */
+    public static String movementHandoff(UUID islandId) {
+        return MOVEMENT_ROOM_PREFIX + islandId + ":handoff";
     }
 
     /** 유저가 속한 그룹 id 집합(SET). 값은 groupId 의 문자열 표현이다. */

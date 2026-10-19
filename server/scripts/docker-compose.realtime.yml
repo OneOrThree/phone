@@ -125,6 +125,8 @@ services:
       REALTIME_BLOCKS_FILTER_ENABLED: ${REALTIME_BLOCKS_FILTER_ENABLED:-false}
       # realtime-events Kafka 입구(2026-09-19 R-1). 기본 꺼짐 — 켜려면 Kafka 오버레이가 떠 있어야 한다.
       REALTIME_EVENTS_KAFKA_ENABLED: ${REALTIME_EVENTS_KAFKA_ENABLED:-false}
+      # 섬 이동 다중 인스턴스(GROMO-2339). 기본 꺼짐 — 이 overlay 는 realtime 1대라 켤 이유가 없다. 2대 이상일 때만.
+      REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED: ${REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED:-false}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
     depends_on:
       db:

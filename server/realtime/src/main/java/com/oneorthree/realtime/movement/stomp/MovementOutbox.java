@@ -288,6 +288,20 @@ final class MovementOutbox {
         return movementSubscriptionId != null || snapshotSubscriptionId != null;
     }
 
+    /**
+     * 다시 맞춘다(GROMO-2339) — 게이트를 닫아 다음 메시지를 이 세션 한정 FullState 로 만든다. 섬 소유자가 바뀌었을 때(틱
+     * 번호가 새 소유자 기준으로 다시 시작한다)와 다른 인스턴스의 새 세션이 actor 를 가져갔을 때 쓴다. 교체({@link
+     * #supersede})와 달리 멈춤 표시를 남기지 않는다 — 자기 FullState 가 오면 그대로 다시 받는다.
+     */
+    synchronized void resync() {
+        closeGate();
+    }
+
+    /** 같은 사용자의 다른 세션에 actor 를 넘겼다(N6) — 재입장(re-join)·생존 신호 대상에서 뺀다. */
+    synchronized boolean isSuperseded() {
+        return superseded;
+    }
+
     /** 닫혔다(해지·종료·강퇴·큐 초과) — 이 outbox 로는 더 보내지 않는다. */
     synchronized boolean isClosed() {
         return closed;

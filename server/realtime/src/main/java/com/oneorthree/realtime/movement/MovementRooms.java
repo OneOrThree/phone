@@ -36,6 +36,11 @@ import java.util.function.LongSupplier;
  * 갈린다). ② 사용자당 토큰 버킷도 {@code RoomRuntime} 안에 있어 (사용자, 섬, 인스턴스) 조합마다
  * 따로다 — 다중화하면 같은 사용자가 인스턴스를 오가며 버킷을 공유하지 못해 실질 제한이 느슨해질 수
  * 있다. 수평 확장은 이 전제를 깨므로 별도 설계가 필요하다.
+ *
+ * <p><b>다중 인스턴스(GROMO-2339, 플래그 {@code realtime.movement.multi-instance.enabled})</b>에서는 이 맵이 «이
+ * 인스턴스가 소유자 리스를 든 섬»의 방만 담는다 — 명령은 {@code MovementCluster} 가 소유자에게 모아 주고, 리스를
+ * 잃으면 {@link #evict} 로 버린다. 그래서 같은 섬의 방은 클러스터 전체에서 한 곳에만 산다. 플래그 OFF 는 위 단일
+ * 인스턴스 전제 그대로다.
  */
 @Component
 public final class MovementRooms {
@@ -118,6 +123,23 @@ public final class MovementRooms {
             r.applyLayout(newLayoutRevision);
             return r;
         });
+    }
+
+    /** 인계받은 위치를 그 섬 방에 심는다({@link RoomRuntime#restore}) — 소유권을 새로 얻은 직후, 첫 명령보다 먼저. */
+    public void restore(UUID islandId, Map<UUID, MovementEvent.Point> positions) {
+        rooms.compute(islandId, (id, room) -> {
+            RoomRuntime r = ensure(id, room);
+            r.restore(positions);
+            return r;
+        });
+    }
+
+    /**
+     * 소유자 리스를 잃은 섬의 방을 상태째 버린다(GROMO-2339, fail-closed) — 새 소유자가 따로 방을 세우므로 여기 남기면 같은
+     * 섬 방이 둘이 된다. 버린 방이 이번 틱에 한 번 더 돌아도 그 사건은 리스가 없어 발행되지 않는다.
+     */
+    public void evict(UUID islandId) {
+        rooms.remove(islandId);
     }
 
     /**

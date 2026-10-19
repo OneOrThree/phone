@@ -1,0 +1,598 @@
+package com.oneorthree.realtime.movement.stomp;
+
+import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.movement.MoveIntent;
+import com.oneorthree.realtime.movement.MovementEvent;
+import com.oneorthree.realtime.movement.MovementRooms;
+import com.oneorthree.realtime.movement.stomp.MovementOwnership.Lease;
+import com.oneorthree.realtime.movement.stomp.MovementOwnership.Owner;
+import com.oneorthree.realtime.movement.stomp.MovementRelay.Command;
+import com.oneorthree.realtime.movement.stomp.MovementRelay.Frame;
+import com.oneorthree.realtime.movement.stomp.MovementRelay.Type;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.SmartLifecycle;
+import org.springframework.data.redis.connection.Message;
+import org.springframework.data.redis.connection.MessageListener;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Component;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * 이동 명령의 길잡이(GROMO-2339) — 세션의 JOIN·LEAVE·INTENT·FULL_STATE 를 그 섬 소유자에게 보낸다. 내가 소유자면 로컬
+ * {@link MovementRooms}, 아니면 {@code chat:movement:cmd:v1}. 소유자가 낸 프레임({@code chat:movement:frames:v1})은
+ * 전 인스턴스가 받아 자기 세션에만 넣는다 — 소유자 자신도 그 메아리로만 넣어 전달 경로가 하나다.
+ *
+ * <p><b>플래그 OFF({@code realtime.movement.multi-instance.enabled}, 기본)면 모든 메서드가 {@link MovementRooms} 를 바로
+ * 부른다</b> — 세션 키 = STOMP 세션 id, Redis 0회, 스레드 0개. 현행 단일 인스턴스 동작 그대로다.
+ *
+ * <h2>스레드 모델(ON)</h2>
+ * <ul>
+ *   <li>{@code movement-cluster}(1스레드) — 라우팅·소유권(획득·갱신·반납·상실)·명령 적용·1초 감시를 전부 여기서 한다. 한
+ *       스레드라 «적용 중에 리스 반납» 같은 경합이 없고, 세션 하나의 명령 순서가 그대로 보존된다. 인바운드 스레드(세션 잠금
+ *       안)는 넣기만 한다 — Redis 를 기다리지 않는다.</li>
+ *   <li>{@code movement-relay-in}(1스레드, 전용 {@code RedisMessageListenerContainer}) — 받은 프레임을 바로 outbox 에
+ *       넣고(비차단), 명령은 {@code movement-cluster} 로 넘긴다. 기존 채팅 컨테이너와 나눈 이유는 순서다.</li>
+ *   <li>{@code movement-relay-out}(1스레드, {@link MovementRelay}) — 파이프라인 PUBLISH.</li>
+ * </ul>
+ *
+ * <h2>실패 모드</h2>
+ * 리스 상실(남이 가져감·갱신 실패 2초) → 그 섬 방을 버리고({@link MovementRooms#evict}) 발행을 멈춘다(fail-closed). 소유자
+ * 교체를 보면(감시·더 큰 epoch 프레임) 그 섬의 내 세션 전부 게이트를 닫고(resync) 새 소유자에게 다시 입장시킨다 —
+ * 새 소유자의 세션 한정 FullState 가 게이트를 다시 연다(wire 변경 없음 — 앱은 serverTick 역행을 이미 수렴한다).
+ * 옛 epoch 프레임은 버린다({@code movement.relay.stale}).
+ */
+@Slf4j
+@Component
+public class MovementCluster implements MessageListener, SmartLifecycle {
+
+    static final long POLL_MS = 1000;
+    /** 갱신 실패가 이만큼 이어지면 리스를 잃은 것으로 친다(리스 3초보다 짧게 — 남이 얻기 전에 먼저 손을 뗀다). */
+    private static final long RENEW_GIVE_UP_NANOS = TimeUnit.MILLISECONDS.toNanos(2000);
+    /** 방이 비어도 갓 얻은 리스는 이만큼은 들고 있는다 — 얻자마자 첫 명령 전에 반납하는 경합을 막는다. */
+    private static final long RELEASE_GRACE_NANOS = TimeUnit.SECONDS.toNanos(5);
+    /** 생존 신호(PING)가 이만큼 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다. */
+    private static final long INSTANCE_STALE_NANOS = TimeUnit.SECONDS.toNanos(5);
+    private static final Duration HANDOFF_TTL = Duration.ofSeconds(30);
+    private static final TypeReference<Map<UUID, MovementEvent.Point>> POSITIONS = new TypeReference<>() {
+    };
+
+    private final boolean enabled;
+    private final MovementRooms rooms;
+    private final MovementPublisher publisher;
+    private final MovementOwnership ownership;
+    private final MovementRelay relay;
+    private final StringRedisTemplate redis;
+    private final ObjectMapper objectMapper;
+    private final ObjectProvider<MovementSubscriptionListener> listeners;
+    private final String me;
+
+    private ScheduledExecutorService executor;
+    private ExecutorService relayIn;
+    private volatile boolean running;
+
+    // ── movement-cluster 스레드 전용 ──
+    /** 내가 아는 섬별 소유자(나 포함). 그 섬에 내 세션이 있거나 내가 소유자인 동안만 둔다. */
+    private final Map<UUID, Owner> owners = new HashMap<>();
+    /** 소유자를 못 정해 입장을 못 보낸 섬 — 감시가 소유자를 알아내면 그때 다시 입장시킨다. */
+    private final Set<UUID> pendingRejoin = new HashSet<>();
+    /** 소유자 쪽: 내 방에 들어온 다른 인스턴스의 세션 키(섬 → 세션 키). 그 인스턴스가 끊기면 내보낸다. */
+    private final Map<UUID, Set<String>> remoteSessions = new HashMap<>();
+
+    // ── 여러 스레드 ──
+    /** 섬별로 본 가장 큰 epoch — 그보다 작은 프레임은 옛 소유자의 것이다(relay-in 이 읽고 쓴다). */
+    private final Map<UUID, Long> seenEpochs = new ConcurrentHashMap<>();
+    /** 인스턴스별 마지막으로 무엇이든 받은 시각(nanoTime, relay-in 이 쓴다). */
+    private final Map<String, Long> lastHeard = new ConcurrentHashMap<>();
+    /** 다른 인스턴스의 새 세션이 actor 를 가져간 내 세션({@code 섬|세션}) — 그 세션 intent 는 버린다. */
+    private final Set<String> replaced = ConcurrentHashMap.newKeySet();
+
+    private final Counter acquiredByRoute;
+    private final Counter acquiredByTakeover;
+    private final Counter lostStolen;
+    private final Counter lostExpired;
+    private final Counter staleNotOwner;
+    private final Counter staleEpoch;
+    private final Counter routingRedis;
+    private final Counter relayStale;
+    private final Map<Type, Counter> forwarded = new HashMap<>();
+
+    @Autowired
+    public MovementCluster(@Value("${realtime.movement.multi-instance.enabled:false}") boolean enabled,
+            MovementRooms rooms, MovementPublisher publisher, MovementOwnership ownership, MovementRelay relay,
+            StringRedisTemplate redis, ObjectMapper objectMapper,
+            ObjectProvider<MovementSubscriptionListener> listeners, MeterRegistry meterRegistry) {
+        this.enabled = enabled;
+        this.rooms = rooms;
+        this.publisher = publisher;
+        this.ownership = ownership;
+        this.relay = relay;
+        this.redis = redis;
+        this.objectMapper = objectMapper;
+        this.listeners = listeners;
+        this.me = ownership == null ? "" : ownership.instanceId();
+        MeterRegistry meters = meterRegistry;
+        this.acquiredByRoute = acquireCounter(meters, "route");
+        this.acquiredByTakeover = acquireCounter(meters, "takeover");
+        this.lostStolen = lostCounter(meters, "stolen");
+        this.lostExpired = lostCounter(meters, "expired");
+        this.staleNotOwner = Counter.builder("movement.owner.forward.stale").tag("reason", "not_owner")
+                .description("나에게 온 명령인데 내가 그 섬 소유자가 아니라 버린 수").register(meters);
+        this.staleEpoch = Counter.builder("movement.owner.forward.stale").tag("reason", "epoch")
+                .description("나에게 온 명령인데 보낸 쪽이 본 epoch 가 지금 리스와 달라 버린 수").register(meters);
+        this.routingRedis = Counter.builder("movement.routing.failed").tag("reason", "redis")
+                .description("소유자를 Redis 로 알아내지 못해 보내지 못한 이동 명령 수").register(meters);
+        this.relayStale = Counter.builder("movement.relay.stale")
+                .description("그 섬에서 본 epoch 보다 작은(옛 소유자) 프레임이라 버린 수").register(meters);
+        for (Type type : Type.values()) {
+            forwarded.put(type, Counter.builder("movement.owner.forward").tag("type", type.name())
+                    .description("다른 인스턴스(소유자)로 보낸 이동 명령 수").register(meters));
+        }
+    }
+
+    /** 플래그 OFF 그대로의 길잡이 — 테스트가 {@link MovementRooms} 만으로 처리기·컨트롤러를 만들 때. */
+    static MovementCluster local(MovementRooms rooms) {
+        return new MovementCluster(false, rooms, null, null, null, null, null, null,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+    }
+
+    private static Counter acquireCounter(MeterRegistry meters, String trigger) {
+        return Counter.builder("movement.owner.acquire").tag("trigger", trigger)
+                .description("이동 방 소유자 리스를 새로 얻은 수 — route: 첫 명령, takeover: 감시가 빈 리스를 봄")
+                .register(meters);
+    }
+
+    private static Counter lostCounter(MeterRegistry meters, String reason) {
+        return Counter.builder("movement.owner.lost").tag("reason", reason)
+                .description("이동 방 소유자 리스를 잃은 수 — stolen: 남의 값, expired: 갱신 실패 2초")
+                .register(meters);
+    }
+
+    @PostConstruct
+    void init() {
+        if (!enabled) {
+            return;
+        }
+        running = true;
+        executor = Executors.newSingleThreadScheduledExecutor(daemon("movement-cluster"));
+        relayIn = Executors.newSingleThreadExecutor(daemon("movement-relay-in"));
+        executor.scheduleWithFixedDelay(this::poll, POLL_MS, POLL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private static java.util.concurrent.ThreadFactory daemon(String name) {
+        return runnable -> {
+            Thread thread = new Thread(runnable, name);
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+
+    /** 전용 리스너 컨테이너({@code RedisConfig})의 실행기 — 1스레드라 받은 순서 그대로 처리한다. */
+    public ExecutorService relayInExecutor() {
+        return relayIn;
+    }
+
+    /**
+     * 종료 인계(단계 B) — 소유한 섬마다 마지막 위치를 {@code movement:room:{id}:handoff}(30초)에 남기고 리스를 내놓는다.
+     * 다른 인스턴스의 감시가 빈 리스를 보고 가져가 그 위치로 방을 다시 세운다.
+     *
+     * <p>{@code @PreDestroy} 가 아니라 수명주기 단계 {@link #getPhase()} 에서 한다 — Lettuce 연결 팩토리도 수명주기(단계 0)라
+     * 빈 파괴 때는 이미 닫혀 있다. 웹 서버(세션 종료)가 먼저 멈춘 «뒤», Redis 가 닫히기 «전»에 돈다. 송신 줄도 여기서 비운다.
+     */
+    @Override
+    public void stop() {
+        if (!enabled || !running) {
+            return;
+        }
+        running = false;
+        executor.shutdown();
+        try {
+            executor.awaitTermination(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        for (UUID islandId : ownership.leases().keySet()) {
+            try {
+                Map<UUID, MovementEvent.Point> positions = relay.positions(islandId);
+                if (!positions.isEmpty()) {
+                    redis.opsForValue().set(RedisKeys.movementHandoff(islandId),
+                            objectMapper.writeValueAsString(positions), HANDOFF_TTL);
+                }
+                ownership.release(islandId);
+            } catch (RuntimeException e) {
+                log.warn("이동 방 인계 실패 — 리스 만료(3초)로 넘어간다. reason={}", e.getClass().getSimpleName());
+            }
+        }
+        relay.stop();
+        relayIn.shutdown();
+    }
+
+    @Override
+    public void start() {
+        running = enabled;
+    }
+
+    @Override
+    public boolean isRunning() {
+        return running;
+    }
+
+    /** Lettuce 연결 팩토리(0)보다 먼저, 웹 서버 종료보다 나중에 멈춘다(수명주기는 단계가 높은 쪽부터 멈춘다). */
+    @Override
+    public int getPhase() {
+        return 1;
+    }
+
+    // ── 세션 쪽 입구(인바운드 스레드, 세션 잠금 안 — 넣기만 한다) ─────────
+
+    public void join(UUID islandId, UUID userId, String sessionId) {
+        if (!enabled) {
+            rooms.join(islandId, userId, sessionId);
+            return;
+        }
+        replaced.remove(replacedKey(islandId, sessionId));
+        submit(() -> route(islandId, Type.JOIN, userId, sessionId, null));
+    }
+
+    public void leave(UUID islandId, String sessionId) {
+        if (!enabled) {
+            rooms.leave(islandId, sessionId);
+            return;
+        }
+        replaced.remove(replacedKey(islandId, sessionId));
+        submit(() -> route(islandId, Type.LEAVE, null, sessionId, null));
+    }
+
+    public void accept(UUID islandId, UUID userId, String sessionId, MoveIntent intent) {
+        if (!enabled) {
+            rooms.accept(islandId, userId, sessionId, intent);
+            return;
+        }
+        if (replaced.contains(replacedKey(islandId, sessionId))) {
+            return; // 다른 인스턴스의 새 세션이 actor 를 가져갔다 — 공용 토큰 버킷을 먹지 않게 버린다(N6).
+        }
+        submit(() -> route(islandId, Type.INTENT, userId, sessionId, intent));
+    }
+
+    public void requestFullState(UUID islandId, String sessionId) {
+        if (!enabled) {
+            rooms.requestFullState(islandId, sessionId);
+            return;
+        }
+        submit(() -> route(islandId, Type.FULL_STATE, null, sessionId, null));
+    }
+
+    /**
+     * 강퇴 재검사를 다른 인스턴스에도 알린다 — 그 사람 세션이 어느 인스턴스에 붙어 있는지 모르니 전원에게 보낸다(각자 자기
+     * 세션만 재판정한다). {@code cacheStale} 은 이 인스턴스에서 멤버십 캐시 삭제가 실패했다는 표시 — 받는 쪽도 그 표시를
+     * 남긴다. OFF 면 아무것도 안 한다. 던지지 않는다.
+     */
+    void broadcastRecheck(UUID islandId, UUID userId, boolean cacheStale) {
+        if (!enabled) {
+            return;
+        }
+        relay.publishCommand(new Command(me, null, 0, islandId, Type.RECHECK, userId, null, null, cacheStale));
+    }
+
+    private void submit(Runnable task) {
+        try {
+            executor.execute(() -> {
+                try {
+                    task.run();
+                } catch (RuntimeException e) {
+                    log.warn("이동 명령 처리 실패 — reason={}", e.getClass().getSimpleName(), e);
+                }
+            });
+        } catch (RuntimeException e) {
+            log.debug("이동 길잡이 종료 중 — 명령을 버린다");
+        }
+    }
+
+    // ── movement-cluster 스레드 ─────────────────────────────────────────
+
+    private void route(UUID islandId, Type type, UUID userId, String sessionId, MoveIntent intent) {
+        Owner owner = resolveOwner(islandId);
+        if (owner == null) {
+            routingRedis.increment();
+            if (type == Type.JOIN || type == Type.FULL_STATE) {
+                pendingRejoin.add(islandId); // 감시가 소유자를 알아내면 다시 입장시킨다 — 게이트가 영영 닫혀 있지 않게.
+            }
+            return;
+        }
+        String sessionKey = MovementRelay.sessionKey(me, sessionId);
+        if (owner.instanceId().equals(me)) {
+            apply(islandId, type, userId, sessionKey, intent);
+            return;
+        }
+        relay.publishCommand(new Command(me, owner.instanceId(), owner.epoch(), islandId, type, userId, sessionKey,
+                intent, false));
+        forwarded.get(type).increment();
+    }
+
+    /** 아는 소유자, 없으면 Redis 에 묻는다(비어 있으면 내가 갖는다). Redis 가 안 되면 null. */
+    private Owner resolveOwner(UUID islandId) {
+        Owner known = owners.get(islandId);
+        if (known != null) {
+            return known;
+        }
+        try {
+            Owner owner = ownership.acquire(islandId);
+            if (owner.instanceId().equals(me)) {
+                acquiredByRoute.increment();
+                restoreHandoff(islandId);
+            }
+            observeOwner(islandId, owner);
+            return owner;
+        } catch (RuntimeException e) {
+            log.warn("이동 방 소유자 조회 실패 — reason={}", e.getClass().getSimpleName());
+            return null;
+        }
+    }
+
+    private void restoreHandoff(UUID islandId) {
+        String json = redis.opsForValue().getAndDelete(RedisKeys.movementHandoff(islandId));
+        if (json != null) {
+            rooms.restore(islandId, objectMapper.readValue(json, POSITIONS));
+        }
+    }
+
+    /**
+     * 그 섬 소유자가 {@code owner} 다. 내가 알던 소유자와 다르면(교체) 내 세션 전부 게이트를 닫고 새 소유자에게 다시
+     * 입장시킨다. 더 작은 epoch 는 무시한다(늦게 도착한 옛 소식).
+     */
+    private void observeOwner(UUID islandId, Owner owner) {
+        Owner previous = owners.get(islandId);
+        if (previous != null && previous.epoch() > owner.epoch()) {
+            return;
+        }
+        owners.put(islandId, owner);
+        seenEpochs.merge(islandId, owner.epoch(), Math::max);
+        boolean changed = previous != null && !previous.equals(owner);
+        if (pendingRejoin.remove(islandId) || changed) {
+            if (changed) {
+                publisher.resyncAll(islandId);
+            }
+            rejoin(islandId);
+        }
+    }
+
+    /** 이 인스턴스의 그 섬 세션을 지금 소유자에게 다시 입장시킨다(JOIN 다음 FULL_STATE — 방 큐 FIFO). */
+    private void rejoin(UUID islandId) {
+        for (MovementOutbox outbox : publisher.outboxes(islandId)) {
+            if (outbox.hasMovement() && !outbox.isClosed() && !outbox.isSuperseded()
+                    && !replaced.contains(replacedKey(islandId, outbox.sessionId()))) {
+                route(islandId, Type.JOIN, outbox.userId(), outbox.sessionId(), null);
+                route(islandId, Type.FULL_STATE, null, outbox.sessionId(), null);
+            }
+        }
+    }
+
+    private void apply(UUID islandId, Type type, UUID userId, String sessionKey, MoveIntent intent) {
+        String origin = MovementRelay.instanceOf(sessionKey);
+        switch (type) {
+            case JOIN -> {
+                rooms.join(islandId, userId, sessionKey);
+                if (!origin.equals(me)) {
+                    remoteSessions.computeIfAbsent(islandId, id -> new HashSet<>()).add(sessionKey);
+                }
+            }
+            case LEAVE -> {
+                rooms.leave(islandId, sessionKey);
+                Set<String> remote = remoteSessions.get(islandId);
+                if (remote != null) {
+                    remote.remove(sessionKey);
+                }
+            }
+            case INTENT -> rooms.accept(islandId, userId, sessionKey, intent);
+            case FULL_STATE -> rooms.requestFullState(islandId, sessionKey);
+            default -> {
+            }
+        }
+    }
+
+    /** 다른 인스턴스가 나에게 보낸 명령 — 지금 그 리스(같은 epoch)를 든 경우에만 적용한다. */
+    private void applyForwarded(Command command) {
+        Lease lease = ownership.lease(command.islandId());
+        if (lease == null) {
+            staleNotOwner.increment();
+            return;
+        }
+        if (lease.epoch() != command.epoch()) {
+            staleEpoch.increment();
+            return;
+        }
+        apply(command.islandId(), command.type(), command.userId(), command.sessionKey(), command.intent());
+    }
+
+    /** 1초 감시 — 갱신·반납·소유자 교체 감지·생존 신호·끊긴 인스턴스 정리. 예외 한 번에 주기가 끊기지 않게 삼킨다. */
+    void poll() {
+        try {
+            renewLeases();
+            releaseIdle();
+            watchOwners();
+            relay.publishCommand(new Command(me, null, 0, null, Type.PING, null, null, null, false));
+            sweepDeadInstances();
+        } catch (RuntimeException e) {
+            log.warn("이동 소유자 감시 실패 — reason={}", e.getClass().getSimpleName());
+        }
+    }
+
+    private void renewLeases() {
+        long now = System.nanoTime();
+        for (Map.Entry<UUID, Lease> entry : ownership.leases().entrySet()) {
+            UUID islandId = entry.getKey();
+            try {
+                if (!ownership.renew(islandId)) {
+                    lose(islandId, lostStolen);
+                }
+            } catch (RuntimeException e) {
+                if (now - entry.getValue().renewedAtNanos() > RENEW_GIVE_UP_NANOS) {
+                    lose(islandId, lostExpired);
+                }
+            }
+        }
+    }
+
+    /** 리스 상실 — 방을 버리고(fail-closed) 내 세션은 새 소유자(다시 알아낸다)에게 다시 입장시킨다. */
+    private void lose(UUID islandId, Counter reason) {
+        reason.increment();
+        ownership.forget(islandId);
+        rooms.evict(islandId);
+        relay.forget(islandId);
+        remoteSessions.remove(islandId);
+        owners.remove(islandId);
+        publisher.resyncAll(islandId);
+        rejoin(islandId);
+    }
+
+    private void releaseIdle() {
+        long now = System.nanoTime();
+        for (Map.Entry<UUID, Lease> entry : ownership.leases().entrySet()) {
+            UUID islandId = entry.getKey();
+            if (!rooms.rooms().containsKey(islandId)
+                    && now - entry.getValue().acquiredAtNanos() > RELEASE_GRACE_NANOS) {
+                ownership.release(islandId);
+                relay.forget(islandId);
+                remoteSessions.remove(islandId);
+                owners.remove(islandId);
+            }
+        }
+    }
+
+    /** 내 세션이 있는데 내가 소유자가 아닌 섬 — 소유자 값을 다시 읽어 교체를 알아챈다. 비어 있으면 내가 가져간다. */
+    private void watchOwners() {
+        Set<UUID> local = publisher.islands();
+        List<UUID> watched = new ArrayList<>();
+        for (UUID islandId : local) {
+            if (ownership.lease(islandId) == null) {
+                watched.add(islandId);
+            }
+        }
+        owners.keySet().removeIf(id -> !local.contains(id) && ownership.lease(id) == null);
+        pendingRejoin.removeIf(id -> !local.contains(id));
+        seenEpochs.keySet().removeIf(id -> !local.contains(id) && ownership.lease(id) == null);
+        if (watched.isEmpty()) {
+            return;
+        }
+        List<String> values = redis.opsForValue().multiGet(watched.stream().map(RedisKeys::movementOwner).toList());
+        for (int i = 0; i < watched.size(); i++) {
+            UUID islandId = watched.get(i);
+            String value = values == null ? null : values.get(i);
+            if (value != null) {
+                observeOwner(islandId, Owner.parse(value));
+                continue;
+            }
+            Owner owner = ownership.acquire(islandId);
+            if (owner.instanceId().equals(me)) {
+                acquiredByTakeover.increment();
+                restoreHandoff(islandId);
+            }
+            observeOwner(islandId, owner);
+        }
+    }
+
+    private void sweepDeadInstances() {
+        long now = System.nanoTime();
+        for (Map.Entry<UUID, Set<String>> entry : remoteSessions.entrySet()) {
+            entry.getValue().removeIf(sessionKey -> {
+                Long heard = lastHeard.get(MovementRelay.instanceOf(sessionKey));
+                if (heard != null && now - heard <= INSTANCE_STALE_NANOS) {
+                    return false;
+                }
+                rooms.leave(entry.getKey(), sessionKey);
+                return true;
+            });
+        }
+    }
+
+    // ── movement-relay-in 스레드 ────────────────────────────────────────
+
+    @Override
+    public void onMessage(Message message, byte[] pattern) {
+        try {
+            String channel = new String(message.getChannel(), StandardCharsets.UTF_8);
+            if (RedisKeys.MOVEMENT_FRAMES_CHANNEL.equals(channel)) {
+                onFrame(objectMapper.readValue(message.getBody(), Frame.class));
+            } else if (RedisKeys.MOVEMENT_CMD_CHANNEL.equals(channel)) {
+                onCommand(objectMapper.readValue(message.getBody(), Command.class));
+            }
+        } catch (RuntimeException e) {
+            log.warn("이동 릴레이 수신 처리 실패 — reason={}", e.getClass().getSimpleName());
+        }
+    }
+
+    void onFrame(Frame frame) {
+        UUID islandId = frame.islandId();
+        Long seen = seenEpochs.get(islandId);
+        if (seen != null && frame.epoch() < seen) {
+            relayStale.increment();
+            return;
+        }
+        if (seen == null || frame.epoch() > seen) {
+            seenEpochs.merge(islandId, frame.epoch(), Math::max);
+            Owner owner = new Owner(frame.originInstanceId(), frame.epoch());
+            submit(() -> observeOwner(islandId, owner));
+        }
+        if (frame.targetInstanceId() != null && !frame.targetInstanceId().equals(me)) {
+            return;
+        }
+        switch (frame.kind()) {
+            case EVENT -> {
+                if (frame.resync() && frame.targetSessionId() != null) {
+                    replaced.remove(replacedKey(islandId, frame.targetSessionId())); // 자기 FullState = actor 를 든 쪽이다
+                }
+                publisher.deliver(islandId, frame.payload().getBytes(StandardCharsets.UTF_8), frame.targetSessionId(),
+                        frame.resync());
+            }
+            case SNAPSHOT -> publisher.deliverSnapshot(islandId, frame.payload().getBytes(StandardCharsets.UTF_8));
+            case SUPERSEDE -> {
+                replaced.add(replacedKey(islandId, frame.targetSessionId()));
+                publisher.resync(islandId, frame.targetSessionId());
+            }
+            default -> {
+            }
+        }
+    }
+
+    void onCommand(Command command) {
+        lastHeard.put(command.originInstanceId(), System.nanoTime());
+        if (me.equals(command.originInstanceId())) {
+            return; // 자기 메아리 — RECHECK 는 이미 로컬에서 했다.
+        }
+        if (command.type() == Type.RECHECK) {
+            MovementSubscriptionListener listener = listeners.getIfAvailable();
+            if (listener != null) {
+                listener.applyRemoteRecheck(command.islandId(), command.userId(), command.cacheStale());
+            }
+            return;
+        }
+        if (command.type() != Type.PING && me.equals(command.ownerInstanceId())) {
+            submit(() -> applyForwarded(command));
+        }
+    }
+
+    private static String replacedKey(UUID islandId, String sessionId) {
+        return islandId + "|" + sessionId;
+    }
+}

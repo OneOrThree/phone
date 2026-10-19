@@ -42,6 +42,8 @@ LEGACY_OPTIONAL_KEYS = (
     # GROMO-2182 Realtime → Data 내부 조회(응원 인가·받는 사람 기준 차단) 대상·자격과 차단 필터 스위치.
     "SVC_TOKEN_REALTIME_TO_DATA", "REALTIME_AUTHORIZATION_DATA_URL", "REALTIME_BLOCKS_FILTER_ENABLED",
     "REALTIME_EVENTS_KAFKA_ENABLED", "KAFKA_BOOTSTRAP_SERVERS", "CHAT_POSTGRES_DB",
+    # GROMO-2339 섬 이동 다중 인스턴스 스위치 — 기본 OFF(단일 인스턴스). 두 대 이상으로 늘리기 전에 켠다.
+    "REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED",
 )
 
 # legacy(dev 전용) 에서 «비면 배포 차단» 으로 올린 값. GROMO-2224.

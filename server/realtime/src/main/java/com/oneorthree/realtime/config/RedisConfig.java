@@ -3,12 +3,16 @@ package com.oneorthree.realtime.config;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.event.RealtimeEventFanoutSubscriber;
 import com.oneorthree.realtime.fanout.ChatFanoutSubscriber;
+import com.oneorthree.realtime.movement.stomp.MovementCluster;
 import com.oneorthree.realtime.sea.SeaRoomPublisher;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
+
+import java.util.List;
 
 /**
  * Redis 배선.
@@ -42,6 +46,23 @@ public class RedisConfig {
         container.addMessageListener(subscriber, new ChannelTopic(RedisKeys.FANOUT_CHANNEL));
         container.addMessageListener(eventSubscriber, new ChannelTopic(RedisKeys.EVENT_FANOUT_CHANNEL));
         container.addMessageListener(seaSubscriber, new ChannelTopic(RedisKeys.SEA_FANOUT_CHANNEL)); // 바다 방(GROMO-2300)
+        return container;
+    }
+
+    /**
+     * 섬 이동 다중 인스턴스 릴레이(GROMO-2339)의 <b>전용</b> 수신 컨테이너 — 플래그가 켜졌을 때만 생긴다(OFF 면 SUBSCRIBE 도
+     * 없다). 위 컨테이너와 나누는 이유는 순서다: 받은 프레임을 {@link MovementCluster} 의 1스레드 실행기로만 처리해야 소유자가
+     * 낸 순서 그대로 세션에 들어간다. 채팅 컨테이너의 실행기를 같이 쓰면 그 순서가 채팅 처리와 섞여 깨진다.
+     */
+    @Bean
+    @ConditionalOnProperty(name = "realtime.movement.multi-instance.enabled", havingValue = "true")
+    public RedisMessageListenerContainer movementRelayListenerContainer(RedisConnectionFactory connectionFactory,
+            MovementCluster cluster) {
+        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+        container.setConnectionFactory(connectionFactory);
+        container.setTaskExecutor(cluster.relayInExecutor());
+        container.addMessageListener(cluster, List.of(new ChannelTopic(RedisKeys.MOVEMENT_CMD_CHANNEL),
+                new ChannelTopic(RedisKeys.MOVEMENT_FRAMES_CHANNEL)));
         return container;
     }
 }

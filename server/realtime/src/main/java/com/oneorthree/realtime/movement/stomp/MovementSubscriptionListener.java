@@ -98,7 +98,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
 
     private static final CloseStatus UNVERIFIED = CloseStatus.SERVER_ERROR.withReason("MEMBERSHIP_UNVERIFIED");
 
-    private final MovementRooms rooms;
+    private final MovementCluster cluster;
     private final MovementPublisher publisher;
     private final RealtimeSessionRegistry sessions;
     private final ChatAccessGuard accessGuard;
@@ -142,18 +142,26 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
      * 처치는 세대 비교({@code rechecks} 의 compute/remove/replace)로 한 번뿐이다.
      */
     @Autowired
-    public MovementSubscriptionListener(MovementRooms rooms, MovementPublisher publisher,
+    public MovementSubscriptionListener(MovementCluster cluster, MovementPublisher publisher,
             RealtimeSessionRegistry sessions, ChatAccessGuard accessGuard, JwtValidator jwtValidator,
             MeterRegistry meterRegistry, @Value("${chat.membership.cache-ttl-seconds:120}") long membershipCacheTtl) {
-        this(rooms, publisher, sessions, accessGuard, jwtValidator, meterRegistry, newExecutor(1, "movement-recheck"),
-                newExecutor(2, "movement-watchdog"), membershipCacheTtl);
+        this(cluster, publisher, sessions, accessGuard, jwtValidator, meterRegistry,
+                newExecutor(1, "movement-recheck"), newExecutor(2, "movement-watchdog"), membershipCacheTtl);
     }
 
-    /** 패키지 전용 — 테스트가 두 실행기를 갈아 끼워 실제 대기 없이 한 단계씩 돌린다. */
+    /** 패키지 전용 — 테스트가 두 실행기를 갈아 끼워 실제 대기 없이 한 단계씩 돌린다(방은 로컬 그대로 — 플래그 OFF). */
     MovementSubscriptionListener(MovementRooms rooms, MovementPublisher publisher, RealtimeSessionRegistry sessions,
             ChatAccessGuard accessGuard, JwtValidator jwtValidator, MeterRegistry meterRegistry,
             ScheduledExecutorService scheduler, ScheduledExecutorService watchdog, long membershipCacheTtlSeconds) {
-        this.rooms = rooms;
+        this(MovementCluster.local(rooms), publisher, sessions, accessGuard, jwtValidator, meterRegistry, scheduler,
+                watchdog, membershipCacheTtlSeconds);
+    }
+
+    /** 패키지 전용 — 다중 인스턴스 테스트가 실제 길잡이와 갈아 끼운 실행기로 만든다. */
+    MovementSubscriptionListener(MovementCluster cluster, MovementPublisher publisher, RealtimeSessionRegistry sessions,
+            ChatAccessGuard accessGuard, JwtValidator jwtValidator, MeterRegistry meterRegistry,
+            ScheduledExecutorService scheduler, ScheduledExecutorService watchdog, long membershipCacheTtlSeconds) {
+        this.cluster = cluster;
         this.publisher = publisher;
         this.sessions = sessions;
         this.accessGuard = accessGuard;
@@ -296,8 +304,8 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
                 }
             }
             // join 다음 requestFullState — 방 큐가 FIFO 라 이 세션의 첫 FullState 가 자기 actor 를 담는다.
-            rooms.join(islandId, principal.userId(), sessionId);
-            rooms.requestFullState(islandId, sessionId);
+            cluster.join(islandId, principal.userId(), sessionId);
+            cluster.requestFullState(islandId, sessionId);
             return outboxes;
         });
     }
@@ -318,7 +326,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         held.entrySet().removeIf(entry -> {
             MovementOutbox outbox = entry.getValue();
             if (outbox.unsubscribeMovement(subscriptionId)) {
-                rooms.leave(entry.getKey(), sessionId);
+                cluster.leave(entry.getKey(), sessionId);
             }
             outbox.unsubscribeSnapshot(subscriptionId);
             if (outbox.hasSubscriptions()) {
@@ -403,6 +411,32 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
      * 있으면 새 사건 기준으로 처음부터 다시 잰다(예약은 늘 한 개). <b>절대 던지지 않는다</b>.
      */
     public void recheckMembership(UUID islandId, UUID memberUserId) {
+        recheckLocally(islandId, memberUserId);
+        // 다중 인스턴스(GROMO-2339) — 그 사람 세션이 다른 인스턴스에 붙어 있을 수 있다. 전원에게 알리고 각자 자기 세션을
+        // 다시 잰다. 캐시 삭제 실패 표시(markMembershipCacheStale 가 먼저 남겼다)도 함께 실어 보낸다. OFF 면 아무것도 안 한다.
+        try {
+            cluster.broadcastRecheck(islandId, memberUserId,
+                    memberUserId != null && membershipCacheStale(islandId, memberUserId));
+        } catch (RuntimeException e) {
+            log.warn("이동 멤버십 재검사 전파 실패 — reason={}", e.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * 다른 인스턴스가 받은 강퇴 사건(RECHECK, GROMO-2339) — 이 인스턴스의 세션만 다시 잰다. 그쪽에서 캐시 삭제가 실패했으면
+     * 같은 표시를 여기에도 남긴다(다음 이동 구독이 캐시를 건너뛴다). {@code movement-relay-in} 스레드에서 불린다 — 예약만 한다.
+     */
+    void applyRemoteRecheck(UUID islandId, UUID memberUserId, boolean cacheStale) {
+        if (islandId == null) {
+            return;
+        }
+        if (cacheStale) {
+            markMembershipCacheStale(islandId, memberUserId);
+        }
+        recheckLocally(islandId, memberUserId);
+    }
+
+    private void recheckLocally(UUID islandId, UUID memberUserId) {
         try {
             // 세대부터 올리고 순회한다 — 판정은 끝났지만 아직 등록 전인 세션은 등록 때 이 세대를 보고 스스로 재판정한다.
             recheckGenerations.compute(islandId, (id, generation) -> {
@@ -490,7 +524,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             case ALLOWED -> {
                 // 멈춘 동안의 사건은 버렸다 — FullState 한 번으로 다시 맞춘다(그 세션에만, 방 큐 FIFO).
                 if (resumeIfCurrent(outbox, recheck) && outbox.hasMovement()) {
-                    rooms.requestFullState(recheck.islandId, outbox.sessionId());
+                    cluster.requestFullState(recheck.islandId, outbox.sessionId());
                 }
             }
             case NOT_A_MEMBER -> {
@@ -578,7 +612,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         boolean joined = outbox.hasMovement();
         publisher.close(islandId, sessionId);
         if (joined) {
-            rooms.leave(islandId, sessionId);
+            cluster.leave(islandId, sessionId);
         }
     }
 

@@ -167,6 +167,13 @@ realtime:
     # Data 동시 호출 상한 — 넘치면 기다리지 않고 그 프레임을 버린다(채널 스레드 고갈 방지).
     max-in-flight: ${REALTIME_BLOCKS_MAX_IN_FLIGHT:16}
 
+  # 섬 이동 다중 인스턴스(GROMO-2339, ADR A26). 켜면 섬마다 소유자 리스(movement:owner:*)를 든 인스턴스 한 곳만 방을
+  # 돌리고, 명령·프레임은 chat:movement:cmd:v1·frames:v1 로 오간다. 끄면(기본) Redis 를 전혀 쓰지 않는 단일 인스턴스
+  # 동작 그대로다 — 운영은 아직 1대(nginx upstream 1)라 꺼 둔다. 두 대 이상으로 늘리기 «전에» 켠다.
+  movement:
+    multi-instance:
+      enabled: ${REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED:false}
+
 logging:
   level:
     com.oneorthree.realtime: INFO

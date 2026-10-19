@@ -115,6 +115,7 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 | `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED` | Data(satellites, 선택) | `false` — REALTIME 을 HTTP 로 보낸다 |
 | `CHAT_WS_ALLOWED_ORIGINS` | Realtime(dev.env → `realtime.yml`) | Origin 을 보낸 WS 핸드셰이크 전부 403. React Native 앱도 접속 URL 기준 `Origin: https://<API 호스트>` 를 보내므로 **앱 실시간 연결이 끊긴다**. dev 는 `https://oneorthree.dev.mooo.com`(GROMO-2175). 기본값을 `*` 로 열지 않는다 |
 | `REALTIME_EVENTS_KAFKA_ENABLED` | Realtime(dev.env) | `false` — `realtime-events` 소비자가 뜨지 않는다 |
+| `REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED` | Realtime(dev.env → `realtime.yml`) | `false` — 섬 이동 방은 이 인스턴스 메모리에만 있고 Redis 를 쓰지 않는다(단일 인스턴스 전제). **Realtime 을 2대 이상으로 늘리기 전에 켠다** — 켜면 섬마다 소유자 리스 `movement:owner:*` 를 든 한 대가 방을 돌리고 나머지는 `chat:movement:cmd:v1`·`frames:v1` 로 중계한다(GROMO-2339, ADR A26). 끈 채 2대면 같은 섬 방이 인스턴스마다 따로 생겨 서로 안 보인다 |
 | `KAFKA_BOOTSTRAP_SERVERS` | Realtime(dev.env) · Data·Notification(서비스 env) | Realtime·Data 는 `kafka:9092`. Notification 은 필수 |
 | `FOCUS_SESSION_START_ENABLED` | Data(dev.env → `dev.yml`, `data-api.env` 선택) | `false` — 새 집중 start 만 503 |
 | `FOCUS_PRESENCE_ENABLED` | Data(같은 경로) | `false` — 프레즌스를 쓰지 않는다 |

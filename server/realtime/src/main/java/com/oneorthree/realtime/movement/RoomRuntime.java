@@ -170,6 +170,15 @@ public final class RoomRuntime {
         queue.add(new ApplyLayout(newLayoutRevision));
     }
 
+    /**
+     * 소유권 인계(GROMO-2339 단계 B) — 앞 소유자가 종료하며 남긴 위치를 퇴장 기억(N23)으로 심는다. 지금 방에 없는
+     * 사용자만 심으므로, 그 사용자가 다시 입장하면 스폰이 아니라 그 자리에서 시작한다(FullState 가 0 으로 튀지 않는다).
+     * 다른 명령과 같은 큐라 이 뒤에 들어온 join 보다 먼저 처리된다.
+     */
+    public void restore(Map<UUID, MovementEvent.Point> positions) {
+        queue.add(new Restore(Map.copyOf(positions)));
+    }
+
     /** 공개 API(Ticker·테스트) — 매번 Snapshot 을 발행하는 평범한 틱({@code tick(tickNumber, true)} 위임). */
     public void tick(long tickNumber) {
         tick(tickNumber, true);
@@ -340,6 +349,8 @@ public final class RoomRuntime {
                 guarded("ApplyLayout revision=" + a.layoutRevision(), () -> processApplyLayout(a));
             } else if (c instanceof RequestFullState r) {
                 guarded("RequestFullState session=" + r.sessionKey(), () -> processRequestFullState(r));
+            } else if (c instanceof Restore r) {
+                guarded("Restore count=" + r.positions().size(), () -> processRestore(r));
             } else if (c instanceof Intent i) {
                 latest.merge(i.sessionKey(), i.intent(), RoomRuntime::newerIntent);
             }
@@ -386,15 +397,35 @@ public final class RoomRuntime {
                 // SUBSCRIBE 는 2247 의 requestFullState 가 별도로 받으므로 여기서는 챙기지 않는다.
                 return false;
             }
+            String replaced = actor.sessionKey;
             // 두 번째 세션이 교체 — 위치·경로는 유지, 명령 번호만 새 세션 기준으로 리셋(N6, N20). 토큰
             // 버킷은 세션이 아니라 사용자 기준이라(2246 보완5) 여기서 지울 게 없다 — 재접속을 반복해도
             // 버킷은 그대로 이어져, 순간 20 을 다시 받는 우회가 되지 않는다.
             actor.sessionKey = cmd.sessionKey();
             actor.lastCommandSeq = 0;
             sessionToUser.put(cmd.sessionKey(), cmd.userId());
+            notifyReplaced(replaced, cmd.sessionKey());
         }
         emit(fullStateOf(), Target.ALL);
         return true;
+    }
+
+    /** {@link #emit} 과 같은 이유로 교체 통지 콜백의 예외도 삼킨다. */
+    private void notifyReplaced(String replacedSessionKey, String newSessionKey) {
+        try {
+            listener.onSessionReplaced(islandId, replacedSessionKey, newSessionKey);
+        } catch (RuntimeException e) {
+            LOG.warn("섬 {} 세션 교체 통지 콜백 실패 — 삼키고 계속한다", islandId, e);
+        }
+    }
+
+    private void processRestore(Restore cmd) {
+        long now = nowNanos.getAsLong();
+        cmd.positions().forEach((userId, position) -> {
+            if (!actors.containsKey(userId)) {
+                departed.put(userId, new Departed(position, now));
+            }
+        });
     }
 
     /**
@@ -698,16 +729,21 @@ public final class RoomRuntime {
     /**
      * {@link RoomRuntime} 은 네트워크를 모른다 — 이벤트는 이 콜백으로만 나간다.
      *
-     * <p><b>구현은 로컬 전송을 전제한다</b>(2246 보완14) — 이 콜백 하나로는 같은 JVM 인스턴스에 붙은
-     * 구독자에게만 닿는다. 다른 인스턴스에 붙은 구독자에게도 보내려면(수평 확장) Redis 팬아웃
-     * ({@code chat:events:v1}) 으로 중계하는 구현이 필요한데, 그 설계는 2단계 결정이다 — 지금
-     * 구현({@code MovementRooms} 가 주입하는 것)은 로컬 전송만 한다.
+     * <p>구현은 둘이다 — 플래그 OFF 면 로컬 전송({@code MovementPublisher}), ON 이면 Redis 릴레이({@code MovementRelay},
+     * GROMO-2339 — 소유자 인스턴스의 사건을 전 인스턴스로). 이 클래스는 어느 쪽인지 모른다.
      */
     public interface Listener {
 
         void onEvent(UUID islandId, MovementEvent event, Target target);
 
         void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot);
+
+        /**
+         * 같은 사용자의 새 세션이 actor 를 가져갔다(N6). 단일 인스턴스는 구독 처리기가 이미 옛 세션을 멈춰 아무것도 안
+         * 해도 된다(기본). 다중 인스턴스(GROMO-2339)는 옛 세션이 다른 인스턴스에 있을 수 있어 그쪽에 알린다.
+         */
+        default void onSessionReplaced(UUID islandId, String replacedSessionKey, String newSessionKey) {
+        }
     }
 
     // ── 큐 명령 ──────────────────────────────────────────────────────────
@@ -725,6 +761,10 @@ public final class RoomRuntime {
     }
 
     private record RequestFullState(String sessionKey) implements Command {
+    }
+
+    /** {@link #restore} — 인계받은 위치(사용자 → 좌표). */
+    private record Restore(Map<UUID, MovementEvent.Point> positions) implements Command {
     }
 
     /**
