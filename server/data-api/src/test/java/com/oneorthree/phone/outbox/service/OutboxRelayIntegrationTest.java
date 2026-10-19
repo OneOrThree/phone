@@ -38,6 +38,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -96,6 +97,8 @@ class OutboxRelayIntegrationTest {
         // 크론은 돌지 않게 한다(ci 프로파일의 app.scheduling.enabled=false). 틱은 테스트가 직접 부른다 —
         // 그래야 「몇 번째 틱에 무엇이 나갔는가」를 단언할 수 있다.
         registry.add("outbox.relay.poll-interval", () -> "PT60S");
+        // relayOnce 를 한 라운드로 둔다 — 「몇 번째 틱에 무엇이 나갔는가」 단언이 예산 루프에 흐려지지 않게(GROMO-2338).
+        registry.add("outbox.relay.tick-budget", () -> "PT0S");
         registry.add("outbox.relay.retry.initial-backoff", () -> "PT0.2S");
         registry.add("outbox.relay.retry.max-backoff", () -> "PT1S");
         registry.add("outbox.relay.retry.max-attempts", () -> 5);
@@ -232,7 +235,7 @@ class OutboxRelayIntegrationTest {
     }
 
     @Test
-    @DisplayName("같은 축의 선행 미전달을 건너뛰지 않는다 — 건너뛰면 뒤 사건이 먼저 도착해 투영이 되돌아간다")
+    @DisplayName("같은 축의 선행 미전달을 건너뛰지 않는다 — 앞이 실패하면 뒤는 시도조차 하지 않고, 풀리면 한 라운드에 순서대로 나간다")
     void neverSkipsAnEarlierUndeliveredRowOnTheSameAxis() {
         UUID userId = UUID.randomUUID();
         LINK_SERVER.clear();
@@ -242,10 +245,12 @@ class OutboxRelayIntegrationTest {
         UUID second = appendLinkOnly(userId, "evt-order-2-" + UUID.randomUUID()).outboxId();
         UUID third = appendLinkOnly(userId, "evt-order-3-" + UUID.randomUUID()).outboxId();
 
+        // run 10 이라 셋을 한꺼번에 집지만, 첫 건이 실패하면 나머지는 보내지 않고 되돌린다 — 시도 수도 0 으로 돌아온다.
         relayService.relayTarget(OutboxTarget.LINK);
         assertThat(delivery(first, OutboxTarget.LINK).getAttemptCount()).isEqualTo(1);
         assertThat(delivery(second, OutboxTarget.LINK).getAttemptCount())
-                .as("앞 사건이 아직 미전달인데 뒤 사건을 집으면 순서가 뒤집힌다").isZero();
+                .as("앞 사건이 아직 미전달인데 뒤 사건을 보내면 순서가 뒤집힌다").isZero();
+        assertThat(delivery(second, OutboxTarget.LINK).getLeaseToken()).as("되돌린 행은 리스도 놓는다").isNull();
         assertThat(delivery(third, OutboxTarget.LINK).getAttemptCount()).isZero();
 
         sleep(400);
@@ -255,13 +260,19 @@ class OutboxRelayIntegrationTest {
 
         LINK_SERVER.respondWith(200);
         sleep(800);
+        LINK_SERVER.clear();
         relayService.relayTarget(OutboxTarget.LINK);
-        assertThat(delivery(first, OutboxTarget.LINK).getDeliveredAt()).isNotNull();
-
-        relayService.relayTarget(OutboxTarget.LINK);
-        assertThat(delivery(second, OutboxTarget.LINK).getDeliveredAt())
-                .as("앞이 끝나야 다음이 나간다").isNotNull();
-        assertThat(delivery(third, OutboxTarget.LINK).getDeliveredAt()).isNull();
+        assertThat(List.of(first, second, third)).as("한 라운드에 축의 앞쪽 연속이 전부 나간다(GROMO-2338)")
+                .allSatisfy(id -> assertThat(delivery(id, OutboxTarget.LINK).getDeliveredAt()).isNotNull());
+        List<Instant> deliveredAt = List.of(first, second, third).stream()
+                .map(id -> delivery(id, OutboxTarget.LINK).getDeliveredAt()).toList();
+        assertThat(deliveredAt).as("축 안은 version 순 순차 — 표시 시각이 그 순서다").isSorted();
+        assertThat(LINK_SERVER.received()).as("수신 순서 = version 순, 각 1회")
+                .extracting(StubSatelliteServer.Received::body)
+                .satisfiesExactly(
+                        body -> assertThat(body).contains("evt-order-1-"),
+                        body -> assertThat(body).contains("evt-order-2-"),
+                        body -> assertThat(body).contains("evt-order-3-"));
     }
 
     @Test

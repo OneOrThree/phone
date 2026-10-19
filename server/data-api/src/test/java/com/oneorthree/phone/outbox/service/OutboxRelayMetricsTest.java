@@ -56,7 +56,7 @@ class OutboxRelayMetricsTest {
     static class Configuration {
         @Bean
         OutboxRelayStore metricsTestStore(EventOutboxDeliveryRepository repository) {
-            return new OutboxRelayStore(repository, PROPERTIES, CLOCK);
+            return new OutboxRelayStore(repository, PROPERTIES, CLOCK, new SimpleMeterRegistry());
         }
     }
 
@@ -97,7 +97,7 @@ class OutboxRelayMetricsTest {
             }
         };
         OutboxRelayService relay = new OutboxRelayService(
-                store, outbox, PROPERTIES, CLOCK, List.of(firstSucceedsThenRetry), registry);
+                store, outbox, PROPERTIES, CLOCK, List.of(firstSucceedsThenRetry), registry, Runnable::run);
 
         assertThat(relay.relayOnce()).isEqualTo(1);
 
@@ -110,7 +110,7 @@ class OutboxRelayMetricsTest {
         assertThat(registry.get("outbox.relay.failed").tags("target", "KAFKA", "retryable", "true")
                 .counter().count()).isEqualTo(1);
         assertThat(registry.get("outbox.relay.released").tags("target", "KAFKA", "reason", "overtaking")
-                .counter().count()).as("2338 전까지는 등록만").isZero();
+                .counter().count()).as("서로 다른 축이라 앞지르기가 없다").isZero();
         assertThat(registry.get("outbox.relay.released").tags("target", "KAFKA", "reason", "predecessor_failed")
                 .counter().count()).isZero();
 
@@ -122,15 +122,16 @@ class OutboxRelayMetricsTest {
 
     @Test
     void snapshotFailureCountsAndKeepsPreviousGauge() {
+        NOW.set(Instant.parse("2030-01-01T00:00:00Z"));   // relayOnce 가 틱 예산 기한을 시계로 잡는다(GROMO-2338)
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
-        OutboxRelayStore failing = new OutboxRelayStore(deliveries, PROPERTIES, CLOCK) {
+        OutboxRelayStore failing = new OutboxRelayStore(deliveries, PROPERTIES, CLOCK, new SimpleMeterRegistry()) {
             @Override
             public List<Object[]> pendingSnapshot() {
                 throw new IllegalStateException("db down");
             }
         };
         OutboxRelayService relay = new OutboxRelayService(
-                failing, outbox, PROPERTIES, CLOCK, List.of(), registry);
+                failing, outbox, PROPERTIES, CLOCK, List.of(), registry, Runnable::run);
 
         relay.relayOnce();
 
@@ -159,6 +160,7 @@ class OutboxRelayMetricsTest {
         result.setLeaseDuration(Duration.ofSeconds(30));
         result.getRetry().setInitialBackoff(Duration.ofSeconds(10));
         result.getRetry().setMaxBackoff(Duration.ofSeconds(10));
+        result.setTickBudget(Duration.ZERO);   // 틱 = 한 라운드 — 선점 타이머 1회를 단언한다
         return result;
     }
 }

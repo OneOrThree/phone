@@ -122,6 +122,8 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 `OUTBOX_RELAY_BATCH_SIZE`, `OUTBOX_RELAY_LEASE_DURATION`, `OUTBOX_RELAY_POLL_INTERVAL`,
 `OUTBOX_RELAY_INITIAL_BACKOFF`, `OUTBOX_RELAY_MAX_BACKOFF`, `OUTBOX_RELAY_WARNING_ATTEMPTS`는
 relay를 켤 때 모두 명시한다. warning attempts는 폐기 횟수가 아니다. 미전달 행은 보존한다.
+처리량 손잡이 `OUTBOX_RELAY_RUN_LENGTH`(10)·`OUTBOX_RELAY_WORKER_THREADS`(4)·`OUTBOX_RELAY_TICK_BUDGET`(PT5S, 0 = 한
+라운드)는 **선택**이다 — 비우면 괄호의 기본값(GROMO-2338). poll 1s·예산 5s 면 relay 가 일하는 비율은 ≈ 83%다.
 Kafka4 기본 DLT 이름에 의존하지 않고 수신기가 `notification-events.DLT`를 명시한다.
 
 ### ~~Link 정지 스냅샷 이관~~ → A23: 링크 이관 없음

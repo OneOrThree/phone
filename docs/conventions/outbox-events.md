@@ -138,8 +138,9 @@
 ### 2.6 재전달
 
 - relay 는 at-least-once 다. 수신 측은 `eventId` 멱등이어야 한다.
-- 선점은 축별 윈도 한 문장(`WITH … UPDATE … RETURNING`, run = 1 — 축당 선두 하나)이다. 선행 미전달·KAFKA→NOTI 장벽의
-  의미는 [`outbox.md` §5](../prd/fishcat/server-separation/outbox.md) 그대로다(GROMO-2337).
+- 선점은 축별 윈도 한 문장(`WITH … UPDATE … RETURNING`)이다. 선행 미전달·KAFKA→NOTI 장벽의
+  의미는 [`outbox.md` §5](../prd/fishcat/server-separation/outbox.md) 그대로다(GROMO-2337). 축마다 앞쪽 `run-length`(기본 10)건을
+  집고 같은 트랜잭션에서 앞지르기를 되돌리며, 축 안 순차·축 사이 병렬로 보낸다(GROMO-2338).
 - 지표: `outbox.relay.backlog{target}`·`outbox.relay.oldest_pending_age{target}`(초, 도래한 행 기준 — 틱 시작 스냅샷) 게이지,
   `outbox.relay.claim{target}`·`outbox.relay.send{target}` 타이머, `outbox.relay.delivered{target}`·
   `outbox.relay.failed{target,retryable}`·`outbox.relay.released{target,reason=overtaking|predecessor_failed}` 카운터.

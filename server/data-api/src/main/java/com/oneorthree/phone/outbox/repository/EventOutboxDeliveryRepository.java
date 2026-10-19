@@ -116,6 +116,62 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
             @Param("batchSize") int batchSize);
 
     /**
+     * 방금 선점한 행 중 <b>선행 미전달이 내 것이 아닌</b> 행 — 선점과 같은 트랜잭션에서 부른다(GROMO-2338).
+     *
+     * <h2>왜 윈도만으로는 모자란가</h2>
+     * {@link #claimBatch} 의 윈도는 문장 시작 스냅샷으로 run 을 계산하고, 잠금은 행마다 따로 잡는다. run 이 2 이상이면
+     * 두 워커가 같은 후보 {a1,a2,a3} 를 계산한 뒤 {@code SKIP LOCKED} 로 잠금을 교차로 가져가 T1={a1,a2}, T2={a3}
+     * 가 될 수 있다 — T2 의 a3 가 아직 안 나간 a2 를 앞지른다. 스냅샷 뒤에 남이 커밋한 선행 선점도 같은 모양이다.
+     * 이 조회가 그 행을 찾아 {@link #release} 로 되돌린다.
+     *
+     * <p>「선행」은 윈도와 같은 순서·같은 장벽이다: 같은 축에서 version 이 더 작은 같은 대상의 미전달, KAFKA 행이면 NOTI
+     * 행도 포함. 윈도의 {@code (aggregate_version, target)} 순서와 같은 뜻이다 — 같은 대상 안에서 version 은 유일하고, 같은
+     * version 의 NOTI 는 {@code 'KAFKA' < 'NOTI'} 로 KAFKA 뒤라 막지 않는다. 그 행의 토큰이 내 것이 아니면(남의 리스·리스
+     * 없음·잠금만 잡힌 채 미커밋) 앞지르기다.
+     * 새 문장이라 READ COMMITTED 의 최신 커밋을 본다 — 남이 아직 커밋하지 않은 선점은 「리스 없음」으로 보여 똑같이 걸린다.
+     *
+     * <p>바깥은 PK({@code id IN})로, 선행 탐색은 축 정렬 부분 인덱스({@code idx_event_outbox_deliveries_ordering})의
+     * {@code target = ANY(…)} 탐침으로 묶인다. 행 비교 {@code (version, target) < (…)} 나 {@code OR} 로 쓰면 플래너가 그 인덱스를
+     * 첫 컬럼으로 못 타고 미전달 전체를 해시로 훑는다(조사 DB 20축×1000: 146~345 ms → 이 모양 1.2 ms, GROMO-2338).
+     *
+     * @param ids   방금 선점한 행
+     * @param token 이번 선점의 펜싱 토큰
+     * @return 앞지른 행 id
+     */
+    @Query(value = "SELECT d.id FROM event_outbox_deliveries d "
+            + "WHERE d.id IN (:ids) AND EXISTS ( "
+            + "  SELECT 1 FROM event_outbox_deliveries p "
+            + "   WHERE p.aggregate_type = d.aggregate_type AND p.aggregate_id = d.aggregate_id "
+            + "     AND p.target IN (d.target, CASE WHEN d.target = 'KAFKA' THEN 'NOTI' END) "
+            + "     AND p.aggregate_version < d.aggregate_version "
+            + "     AND p.delivered_at IS NULL "
+            + "     AND p.lease_token IS DISTINCT FROM :token)",
+            nativeQuery = true)
+    List<UUID> findOvertaking(@Param("ids") List<UUID> ids, @Param("token") UUID token);
+
+    /**
+     * <b>보내지 않은</b> 선점을 되돌린다 — 리스를 비우고 {@code attempt_count} 를 1 줄인다(GROMO-2338).
+     *
+     * <p>{@code attempt_count} 는 «실제 시도» 수다. 선점에서 올린 1 을 보내지도 않고 남기면 앞지르기 보정·선행 실패로 놓은
+     * 행이 시도한 적 없는데 시도 수만 늘어 경고 임계값을 거짓으로 넘고, {@link #eraseParamOfResendSafe} 의
+     * 「{@code attempt_count=0} = 한 번도 안 나갔다」 판정도 깨진다.
+     *
+     * <p>{@code last_attempt_at} 은 되돌리지 않는다(옛 값을 모른다). 지금은 관측용 열이지만, 「마지막 시도 이후 경과」로
+     * 무언가를 판정하게 되면 release 된 행이 방금 시도한 것처럼 보인다 — 그런 판정을 만들 때 이 문장을 먼저 고친다.
+     *
+     * @param ids   놓을 행
+     * @param token 선점 때 받은 펜싱 토큰 — 남의 리스는 건드리지 않는다
+     * @return 놓은 행 수
+     */
+    @Modifying
+    @Query(value = "UPDATE event_outbox_deliveries "
+            + "SET lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, "
+            + "    attempt_count = attempt_count - 1 "
+            + "WHERE id IN (:ids) AND lease_token = :token AND delivered_at IS NULL",
+            nativeQuery = true)
+    int release(@Param("ids") List<UUID> ids, @Param("token") UUID token);
+
+    /**
      * 대상별 미전달 스냅샷 — relay 지표(backlog·oldest_pending_age)용, 틱마다 한 번.
      *
      * <p>나이는 <b>도래한 행</b>({@code next_attempt_at <= now})만 본다. 백오프로 미뤄 둔 행까지 세면
