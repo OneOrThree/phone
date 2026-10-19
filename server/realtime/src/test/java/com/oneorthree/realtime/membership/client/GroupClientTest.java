@@ -50,6 +50,7 @@ class GroupClientTest {
 
     @AfterEach
     void stopServer() {
+        groupClient.close(); // 전용 실행기 회수 — 테스트마다 새 클라이언트라 안 닫으면 스레드가 누적된다
         server.stop(0);
     }
 

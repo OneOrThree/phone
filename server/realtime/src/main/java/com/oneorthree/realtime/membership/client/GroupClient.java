@@ -15,11 +15,13 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.io.UncheckedIOException;
+import jakarta.annotation.PreDestroy;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -55,6 +57,8 @@ public class GroupClient {
     private final RestClient restClient;
     private final Semaphore concurrency;
     private final long timeoutMs;
+    /** HttpClient 전용 고정 풀 — 클라이언트 수명과 같이 끝낸다(close). 지역 변수로 두면 컨텍스트 재생성·테스트마다 스레드가 누적된다. */
+    private final ExecutorService workers;
 
     public GroupClient(String baseUrl, long timeoutMs) {
         this(baseUrl, timeoutMs, 32);
@@ -66,10 +70,22 @@ public class GroupClient {
             @Value("${chat.data-api.max-concurrency:32}") int maxConcurrency) {
         this.timeoutMs = timeoutMs;
         this.concurrency = new Semaphore(maxConcurrency);
+        AtomicInteger seq = new AtomicInteger();
+        this.workers = Executors.newFixedThreadPool(Math.max(2, maxConcurrency), task -> {
+            Thread thread = new Thread(task, "group-client-" + seq.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
-                .requestFactory(timeoutFactory(timeoutMs, maxConcurrency))
+                .requestFactory(timeoutFactory(timeoutMs, workers))
                 .build();
+    }
+
+    /** 전용 실행기를 거둔다 — Spring 빈 소멸과 테스트 정리 양쪽에서 부른다. */
+    @PreDestroy
+    public void close() {
+        workers.shutdownNow();
     }
 
     /**
@@ -79,16 +95,11 @@ public class GroupClient {
      * 잠기고, 채널 스레드는 풀이라 곧 전부 소진돼 <b>상류 한 곳의 지연이 채팅 전체의 정지</b>가 된다.
      * 의존성을 늘리지 않으려 Apache 대신 JDK HttpClient 를 쓴다 — 실행기를 고정 풀로 줘 스레드도 유한하다.
      */
-    private static ClientHttpRequestFactory timeoutFactory(long timeoutMs, int maxConcurrency) {
-        AtomicInteger seq = new AtomicInteger();
+    private static ClientHttpRequestFactory timeoutFactory(long timeoutMs, ExecutorService workers) {
         HttpClient http = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofMillis(timeoutMs))
-                .executor(Executors.newFixedThreadPool(Math.max(2, maxConcurrency), task -> {
-                    Thread thread = new Thread(task, "group-client-" + seq.incrementAndGet());
-                    thread.setDaemon(true);
-                    return thread;
-                }))
+                .executor(workers)
                 .build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(http);
         factory.setReadTimeout(Duration.ofMillis(timeoutMs));
