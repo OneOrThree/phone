@@ -167,7 +167,7 @@ class IslandWeeklyFocusIntegrationTest {
      * 시간 경계({@code lastTransitionAt > from})가 이 전제에 기댄다. 경계 사례가 아니라 전제 자체를 SQL 전수 검사로 본다.
      */
     @Test
-    @DisplayName("운영 경로(finish·휴식 후 finish·휴식 자동 종료·과거 시작)로 끝난 세션은 모든 구간이 last_transition_at 이전에 끝난다")
+    @DisplayName("운영 경로(finish·휴식 후 finish·휴식 자동 종료·과거 시작·anchor 클램프)로 끝난 세션은 모든 구간이 last_transition_at 이전에 끝난다")
     void completedSessionsNeverHaveIntervalsEndingAfterTheirLastTransition() {
         UUID owner = newUser();
         UUID islandId = island(owner, "전제섬");
@@ -177,6 +177,8 @@ class IslandWeeklyFocusIntegrationTest {
         join(r2, islandId);
         UUID r3 = newUser();
         join(r3, islandId);
+        UUID r4 = newUser();
+        join(r4, islandId);
 
         // ① 바로 finish
         FocusSessionView plain = start(owner, islandId);
@@ -200,15 +202,24 @@ class IslandWeeklyFocusIntegrationTest {
         FocusSessionView old = start(r3, islandId);
         backdate(old.id(), Instant.now().minusSeconds(5_400));
         focus.finish(r3, old.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        // ⑤ anchor 클램프 분기 — 마지막 전이가 «지금»보다 뒤면(서버 시계 역행) finish 의 anchor 가 그 전이 시각이 되어
+        //    열린 구간이 ended_at == last_transition_at 로 닫힌다. 전이 «전» 입력만 바꾼다.
+        FocusSessionView clamped = start(r4, islandId);
+        jdbc.update("update focus_session_details set last_transition_at = now() + interval '1 hour' "
+                + "where session_id = ?", clamped.id());
+        focus.finish(r4, clamped.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
 
-        List<UUID> ours = List.of(plain.id(), rests.id(), idle.id(), old.id());
+        List<UUID> ours = List.of(plain.id(), rests.id(), idle.id(), old.id(), clamped.id());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_session_details WHERE session_id = ANY (?) "
                 + "AND lifecycle = 'COMPLETED'", Integer.class, (Object) ours.toArray(UUID[]::new)))
-                .as("네 세션 모두 운영 경로로 COMPLETED").isEqualTo(4);
+                .as("다섯 세션 모두 운영 경로로 COMPLETED").isEqualTo(5);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_session_details d WHERE d.lifecycle = 'COMPLETED' "
                 + "AND d.session_id = ANY (?) AND EXISTS (SELECT 1 FROM focus_session_intervals i "
                 + "WHERE i.session_id = d.session_id AND i.ended_at > d.last_transition_at)", Integer.class,
                 (Object) ours.toArray(UUID[]::new))).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM focus_session_intervals i JOIN focus_session_details d "
+                + "ON d.session_id = i.session_id WHERE d.session_id = ? AND i.ended_at = d.last_transition_at",
+                Integer.class, clamped.id())).as("클램프 분기 — 등호로 닫힌 구간이 있다").isPositive();
     }
 
     /**
