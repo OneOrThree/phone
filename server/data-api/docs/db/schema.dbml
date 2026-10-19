@@ -963,6 +963,7 @@ Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루
   indexes {
     (island_id, author_id, written_on) [unique]
     (island_id, created_at) [name: 'island_guestbook_island_created_idx']
+    (island_id, created_at, id) [name: 'island_guestbook_live_recent_idx', note: 'V129 GROMO-2287: 부분 인덱스 WHERE deleted_at IS NULL, (created_at DESC, id DESC) — 최근 30개 목록·정리가 지운 글을 훑지 않는다']
   }
 }
 
@@ -1118,6 +1119,7 @@ Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 �
   indexes {
     // (user,group) 전체 unique — 멤버십은 1행. 재가입은 신규 삽입이 아니라 기존 행 rejoin(is_left=false로 복원).
     (user_id, group_id) [unique, note: '멤버십 1행 보장. 자진 탈퇴자 재가입=행 되살리기, 강퇴자=거절']
+    (group_id, user_id) [name: 'group_members_active_group_user_idx', note: 'V129 GROMO-2287: 부분 인덱스 WHERE is_left = false — 섬 → 활성 주민 접근(망원경 후보의 «주민 수» 상관 서브쿼리 — Index Only Scan 은 visibility map 의존이라 autovacuum 지연 시 Heap Fetches 증가. «내 소속/강퇴» NOT EXISTS 는 KICKED 가 is_left=true 라 이 인덱스를 못 쓰고 위 unique 를 탄다). 선두 열이 달라 위 unique 와 중복이 아니다']
   }
 }
 

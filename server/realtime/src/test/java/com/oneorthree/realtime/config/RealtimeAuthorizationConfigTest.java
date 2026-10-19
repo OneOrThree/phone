@@ -28,6 +28,8 @@ class RealtimeAuthorizationConfigTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(RealtimeAuthorizationConfig.class)
             .withBean(Clock.class, Clock::systemUTC)
+                .withBean(io.micrometer.core.instrument.MeterRegistry.class,
+                        io.micrometer.core.instrument.simple.SimpleMeterRegistry::new)
             .withBean(JwtValidator.class, () -> new JwtValidator(
                     "test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256"));
 

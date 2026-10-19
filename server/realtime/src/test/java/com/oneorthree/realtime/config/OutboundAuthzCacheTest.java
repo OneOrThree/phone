@@ -154,6 +154,22 @@ class OutboundAuthzCacheTest {
                 .invokeMethod(entries, "allowedUntil")).size();
     }
 
+    @Test
+    @DisplayName("섬 단위 무효화 — 그 섬 목적지(채팅·섬 채널) 범위만 모든 세션에서 지운다")
+    void islandEvictionRemovesOnlyThatIslandsScopes() {
+        java.util.UUID island = java.util.UUID.randomUUID();
+        java.util.UUID other = java.util.UUID.randomUUID();
+        cache.allow("s1", user, "/topic/groups/" + island + "#x", cache.stamp());
+        cache.allow("s2", java.util.UUID.randomUUID(), "/topic/islands/" + island + "/events#y", cache.stamp());
+        cache.allow("s1", user, "/topic/groups/" + other + "#x", cache.stamp());
+
+        cache.evictIsland(island);
+
+        assertThat(cache.allowed("s1", user, "/topic/groups/" + island + "#x")).isFalse();
+        assertThat(cache.allowed("s1", user, "/topic/groups/" + other + "#x")).isTrue();
+        assertThat(count("evict")).isEqualTo(1.0);
+    }
+
     private double count(String result) {
         return meters.counter("realtime.outbound.authz.cache", "result", result).count();
     }
