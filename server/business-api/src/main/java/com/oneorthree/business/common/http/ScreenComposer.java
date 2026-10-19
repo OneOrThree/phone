@@ -3,6 +3,10 @@ package com.oneorthree.business.common.http;
 import com.oneorthree.business.common.exception.CompositionCapacityExceededException;
 import com.oneorthree.business.common.exception.UpstreamTimeoutException;
 import com.oneorthree.business.common.exception.UpstreamUnavailableException;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.binder.MeterBinder;
+import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
@@ -25,7 +29,7 @@ import java.util.concurrent.TimeUnit;
 
 /** JVM 공유 bounded 조합기. 완료 순서로 오류를 관측해 느린 필수 조각 뒤에 403을 숨기지 않는다. */
 @Slf4j
-public final class ScreenComposer implements AutoCloseable {
+public final class ScreenComposer implements AutoCloseable, MeterBinder {
 
     private final ThreadPoolExecutor workers;
     private final Duration budget;
@@ -42,6 +46,11 @@ public final class ScreenComposer implements AutoCloseable {
                     return thread;
                 }, new ThreadPoolExecutor.AbortPolicy());
         workers.allowCoreThreadTimeOut(true);
+    }
+
+    @Override
+    public void bindTo(MeterRegistry registry) {
+        new ExecutorServiceMetrics(workers, "business-screen-composer", Tags.empty()).bindTo(registry);
     }
 
     /** context 조회를 시작하기 전에 호출한다. 이후 모든 단계가 이 동일 예산을 사용한다. */

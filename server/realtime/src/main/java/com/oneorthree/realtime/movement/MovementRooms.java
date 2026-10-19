@@ -2,6 +2,7 @@ package com.oneorthree.realtime.movement;
 
 import com.oneorthree.realtime.movement.nav.NavGrid;
 import com.oneorthree.realtime.movement.nav.NavJsonLoader;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,8 +70,10 @@ public final class MovementRooms {
      */
     MovementRooms(RoomRuntime.Listener listener, MeterRegistry meterRegistry, LongSupplier nowNanos) {
         this.listener = listener;
+        Gauge.builder("movement.rooms", rooms, Map::size).register(meterRegistry);
         this.pathfindTimer = Timer.builder("movement.pathfind")
                 .description("방 하나의 A* 경로탐색(pathfinder.find) 1회 호출 시간 — 2250 틱 p99 판단용")
+                .publishPercentileHistogram()
                 .register(meterRegistry);
         this.nowNanos = nowNanos;
     }

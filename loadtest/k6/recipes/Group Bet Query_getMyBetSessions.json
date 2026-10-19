@@ -1,0 +1,16 @@
+{
+  "endpoint": "Group Bet Query_getMyBetSessions",
+  "method": "GET",
+  "path": "/api/v1/me/bet-sessions",
+  "tag": "Group Bet Query",
+  "summary": "내 OPEN 회차 목록 (그룹 무관)",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

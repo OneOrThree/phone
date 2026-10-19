@@ -10,7 +10,7 @@ set -euo pipefail
 DB_HOST="${DB_HOST:?Cloud SQL 사설 IP}"
 DB_USER="${DB_USER:-loadtest}"
 DB_PASSWORD="${DB_PASSWORD:?}"
-MIGRATIONS_DIR="${MIGRATIONS_DIR:-$(cd "$(dirname "$0")/../.." && pwd)/back/src/main/resources/db/migration}"
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-$(cd "$(dirname "$0")/../.." && pwd)/server/data-api/src/main/resources/db/migration}"
 
 echo "[00_flyway] golden DB 재생성"
 export PGPASSWORD="$DB_PASSWORD"

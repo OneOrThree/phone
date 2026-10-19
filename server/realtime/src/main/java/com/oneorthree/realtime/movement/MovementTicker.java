@@ -1,5 +1,6 @@
 package com.oneorthree.realtime.movement;
 
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
@@ -8,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -53,8 +55,16 @@ public final class MovementTicker {
 
     public MovementTicker(MovementRooms rooms, MeterRegistry meterRegistry) {
         this.rooms = rooms;
+        FunctionCounter.builder("movement.tick.delayed", delayedTickCount, AtomicLong::doubleValue)
+                .register(meterRegistry);
+        FunctionCounter.builder("movement.snapshot.skipped", skippedSnapshotCount, AtomicLong::doubleValue)
+                .register(meterRegistry);
+        FunctionCounter.builder("movement.tick.skipped", skippedTickCount, AtomicLong::doubleValue)
+                .register(meterRegistry);
         this.tickTimer = Timer.builder("movement.tick")
                 .description("섬 이동 틱 한 번(모든 방) 처리 시간")
+                .publishPercentileHistogram()
+                .serviceLevelObjectives(Duration.ofMillis(10), Duration.ofMillis(25), Duration.ofMillis(50))
                 .register(meterRegistry);
     }
 

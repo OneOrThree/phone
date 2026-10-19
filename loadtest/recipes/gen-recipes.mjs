@@ -10,7 +10,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SPEC = join(HERE, '../dashboard/public/openapi.json');
+const SPEC = process.argv[2] || join(HERE, '../dashboard/public/openapi.json');
 const OUT = join(HERE, '../k6/recipes');
 
 const spec = JSON.parse(readFileSync(SPEC, 'utf8'));
@@ -28,11 +28,12 @@ const PATH_SOURCE = {
 
 // 쿼리/필드 이름 → 생성 전략
 function paramGen(name, schema) {
+  if (name === 'type' && schema?.enum?.includes('NICKNAME')) return { gen: 'const', value: 'NICKNAME' };
   const enums = schema?.enum ?? deref(schema)?.enum;
   if (enums) return { gen: 'enum', values: enums };
   const n = name.toLowerCase();
-  if (n === 'from') return { gen: 'date', offsetDays: -90 };
-  if (n === 'to') return { gen: 'date', offsetDays: 0 };
+  if (n === 'from') return { gen: 'date', offsetDays: -90, dateOnly: deref(schema).format === 'date' };
+  if (n === 'to') return { gen: 'date', offsetDays: 0, dateOnly: deref(schema).format === 'date' };
   if (n === 'date') return { gen: 'date', offsetDays: 0, dateOnly: true };
   if (n === 'size' || n === 'limit') return { gen: 'const', value: 20 };
   if (n === 'cursor') return { gen: 'skip' };
@@ -116,6 +117,24 @@ function buildRecipe(tag, method, path, op) {
     const sch = op.requestBody.content?.['application/json']?.schema;
     body = bodyTemplate(sch, gaps);
   }
+  // OpenAPI만으로는 상태 전이·소유권·필드 간 제약을 증명할 수 없다.
+  // 현재 시드와 함께 검증한 요청만 자동 실행 대상으로 공개한다.
+  const supported = new Set([
+    'GET /api/v1/stats/today', 'GET /api/v1/stats/streak', 'GET /api/v1/stats/heatmap',
+    'GET /api/v1/focus-session', 'POST /api/v1/focus-session',
+    'GET /api/v1/friends', 'GET /api/v1/friends/requests', 'GET /api/v1/friends/search',
+    'GET /api/v1/groups', 'GET /api/v1/groups/search', 'GET /api/v1/users/me',
+    'GET /api/v1/currency', 'GET /api/v1/inventory',
+    'GET /api/v1/league/me/ranking', 'GET /api/v1/league/me/tier',
+  ]);
+  if (!supported.has(`${method.toUpperCase()} ${path}`)) gaps.push('contract:시드·상태 전이 검증 필요');
+  if (method === 'post' && path === '/api/v1/focus-session') {
+    body = { gen: 'object', props: {
+      startedAt: { gen: 'datetime', offsetDays: -1 / 24 },
+      endedAt: { gen: 'datetime', offsetDays: -1 / 48 },
+      totalDistractionSeconds: { gen: 'const', value: 0 },
+    } };
+  }
   const isWrite = method !== 'get';
   return {
     endpoint: `${tag}_${op.operationId || `${method}_${path.replace(/\W+/g, '_')}`}`,
@@ -152,7 +171,9 @@ for (const [path, item] of Object.entries(spec.paths)) {
   }
 }
 const runnable = manifest.filter((m) => m.runnable).length;
-writeFileSync(join(OUT, '_manifest.json'), JSON.stringify({ total: manifest.length, runnable, gapped: manifest.length - runnable, recipes: manifest }, null, 2));
+const manifestJson = JSON.stringify({ total: manifest.length, runnable, gapped: manifest.length - runnable, recipes: manifest }, null, 2);
+writeFileSync(join(OUT, '_manifest.json'), manifestJson);
+writeFileSync(join(HERE, '../dashboard/public/recipes-manifest.json'), manifestJson);
 
 console.log(`[gen-recipes] 총 ${manifest.length} 엔드포인트 → runnable ${runnable} · gap ${manifest.length - runnable}`);
 const gapReasons = {};

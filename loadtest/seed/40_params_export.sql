@@ -10,13 +10,13 @@
 -- Zipf 전개(#179 리뷰 3 반영): 활동량 "순위" 기반 멱법칙 — rank 1 = 40회 수록, 1/√rank 감쇠.
 -- (기존 sc/150 산식은 이론 최대 5회라 롱테일 핫유저가 안 생겼음. 순위 기반이라 분포 모양이
 --  시드 활동량 산식과 독립적으로 보장된다. 총 항목 ≈ N + 40·2√N ≈ 12만~13만 @ N=10만)
-\copy (SELECT row_to_json(t) FROM (SELECT u.id AS "userId", u.nickname FROM (SELECT user_id, row_number() OVER (ORDER BY sum(session_count) DESC, user_id) AS rnk FROM daily_focus_stats GROUP BY user_id) a JOIN users u ON u.id = a.user_id CROSS JOIN generate_series(1, greatest(1, (40.0 / sqrt(a.rnk))::int)) WHERE u.is_deleted = false) t) TO 'seed/params/users_zipf.jsonl' (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02')
+\copy (SELECT row_to_json(t) FROM (SELECT u.id AS "userId", u.nickname, u.is_guest AS "isGuest", md5('loadtest-session-'||u.id)::uuid AS "sessionId", u.auth_generation AS "authGeneration" FROM (SELECT user_id, row_number() OVER (ORDER BY sum(session_count) DESC, user_id) AS rnk FROM daily_focus_stats GROUP BY user_id) a JOIN users u ON u.id = a.user_id CROSS JOIN generate_series(1, greatest(1, (40.0 / sqrt(a.rnk))::int)) WHERE u.is_deleted = false AND u.is_bot = false) t) TO 'seed/params/users_zipf.jsonl' (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02')
 
 -- uniform 샘플 1만 — 캐시 편향 없는 대조군·쓰기 파티셔닝용
-\copy (SELECT row_to_json(t) FROM (SELECT id AS "userId", nickname FROM users WHERE is_deleted = false ORDER BY md5(id::text) LIMIT 10000) t) TO 'seed/params/users_uniform.jsonl' (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02')
+\copy (SELECT row_to_json(t) FROM (SELECT id AS "userId", nickname, is_guest AS "isGuest", md5('loadtest-session-'||id)::uuid AS "sessionId", auth_generation AS "authGeneration" FROM users WHERE is_deleted = false AND is_bot = false ORDER BY md5(id::text) LIMIT 10000) t) TO 'seed/params/users_uniform.jsonl' (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02')
 
 -- 활성 그룹 id — 그룹 조회·검색 시나리오용
 \copy (SELECT row_to_json(t) FROM (SELECT id AS "groupId" FROM groups WHERE status = 'ACTIVE' ORDER BY md5(id::text) LIMIT 20000) t) TO 'seed/params/group_ids.jsonl' (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02')
 
 -- 검색어 사전 — 실존 닉네임·그룹명의 프리픽스 (LIKE/trgm 검색이 실제로 매칭되도록)
-\copy (SELECT row_to_json(t) FROM (SELECT DISTINCT left(nickname, 2) AS term FROM users WHERE is_deleted = false AND nickname IS NOT NULL UNION SELECT DISTINCT left(name, 2) FROM groups LIMIT 2000) t) TO 'seed/params/search_terms.jsonl' (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02')
+\copy (SELECT row_to_json(t) FROM (SELECT DISTINCT left(nickname, 2) AS term FROM users WHERE is_deleted = false AND is_bot = false AND nickname IS NOT NULL UNION SELECT DISTINCT left(name, 2) FROM groups LIMIT 2000) t) TO 'seed/params/search_terms.jsonl' (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02')

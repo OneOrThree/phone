@@ -13,7 +13,7 @@ REGION ?= asia-northeast3
 ZONE ?= asia-northeast3-c
 PROFILE ?= smoke
 TARGET ?= scenarios/daily_mix.js
-SEED_VERSION ?= seed-v1
+SEED_VERSION ?= seed-v2
 SCALE ?= 1
 # 고급 설정(expert) override — 빈값이면 k6 프로파일 기본값 사용 (run.sh 가 k6 __ENV 로 전달).
 # rate 계열: RATE/DURATION(constant) · START_RATE(stress) · BASE_RATE/SPIKE_RATE(spike).
@@ -160,3 +160,42 @@ grafana: guard
 	@echo "  Ctrl+C 로 터널 종료"
 	gcloud compute start-iap-tunnel obs 3000 --local-host-port=localhost:3000 \
 		--zone=$(ZONE) --project=$(PROJECT_ID)
+
+# 이미 구성한 격리 서버의 공개 API 부하. golden reset·클라우드 기동 없이 실행한다.
+# PARAMS_DIR은 해당 서버에 존재하는 세션의 users_uniform.json을 포함한 절대 경로.
+.PHONY: test-existing
+test-existing:
+	@test -n "$(BASE_URL)" -a -n "$(PARAMS_DIR)" || { echo 'BASE_URL과 PARAMS_DIR 필요'; exit 1; }
+	BASE_URL="$(BASE_URL)" PARAMS_DIR="$(PARAMS_DIR)" PROFILE="$(PROFILE)" \
+	  k6 run k6/scenarios/business_reads.js
+
+.PHONY: check
+check:
+	tests/seed-contract.sh
+
+# 현재 전체 서버 조사. GCP 경로와 격리하며 Outbox/Kafka/Realtime 공유를 기본 활성화한다.
+SURVEY_SIZES ?= 100,1000,10000
+SURVEY_OUT ?= reports/matrix-$(RUN_ID)
+.PHONY: local-build local-up local-down survey survey-report survey-check
+local-build:
+	@for service in data-api business-api realtime notification; do \
+	  docker compose -f infra/local/compose.yml build "$$service" || exit $$?; \
+	done
+
+local-up: local-build
+	docker compose -f infra/local/compose.yml up -d --wait
+
+local-down:
+	docker compose -f infra/local/compose.yml down
+
+# survey/ 는 조사용 로컬 스크립트·결과(gitignored, .gitignore 의 /survey/) — 저장소에는 없다. 없으면 안내만 하고 멈춘다.
+survey: survey-check
+	python3 survey/matrix.py --out "$(SURVEY_OUT)" --sizes "$(SURVEY_SIZES)"
+
+survey-report: survey-check
+	python3 survey/aggregate.py "$(SURVEY_OUT)" "$(SURVEY_OUT)/summary"
+	python3 survey/coverage.py "$(SURVEY_OUT)" "$(SURVEY_OUT)/summary/public-api-coverage.csv"
+	python3 survey/tables.py "$(SURVEY_OUT)/summary"
+
+survey-check:
+	@for f in matrix.py aggregate.py coverage.py tables.py; do test -f "survey/$$f" || { echo "loadtest/survey/$$f 가 없습니다 — 조사 스크립트는 로컬 전용(gitignored)입니다. 조사 담당자에게 받아 loadtest/survey/ 에 두세요."; exit 2; }; done
