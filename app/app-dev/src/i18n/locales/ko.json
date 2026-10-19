@@ -67,13 +67,13 @@
     "GUESTBOOK_ALREADY_WRITTEN_TODAY": "오늘은 이미 방명록을 남겼어요",
     "PROMOTION_ALREADY_REQUESTED_TODAY": "오늘은 이미 잡지 홍보를 신청했어요",
     "PROMOTION_WINDOW_CLOSED": "지금은 홍보를 신청할 수 없어요. 아침 7시에 다시 열려요",
-    "PROMOTION_PRIVATE_ISLAND": "비공개 섬은 잡지에 실을 수 없어요",
     "PROMOTION_TEXT_TOO_LONG": "홍보 글은 60자까지 쓸 수 있어요",
     "PROMOTION_LAYOUT_INVALID": "꾸미기를 다시 확인해 주세요",
     "PROMOTION_ASSET_NOT_OWNED": "아직 없는 꾸미기 재료가 있어요",
     "PROMOTION_LOCKED": "자정이 지나 홍보를 고칠 수 없어요",
     "PROMOTION_NOT_FOUND": "홍보를 찾지 못했어요",
-    "MAGAZINE_ISSUE_NOT_FOUND": "잡지 호를 찾을 수 없어요"
+    "MAGAZINE_ISSUE_NOT_FOUND": "잡지 호를 찾을 수 없어요",
+    "PROMOTION_PRIVATE_ISLAND": "홍보를 신청할 수 없어요. 잠시 후 다시 해 주세요."
   },
   "time": {
     "minutes": "{{m}}분",
@@ -679,7 +679,8 @@
     "error": {
       "boardLocked": "게시판을 지으면 방명록을 쓸 수 있어요",
       "alreadyWritten": "오늘은 이미 남겼어요"
-    }
+    },
+    "loadMoreFailed": "방명록을 더 불러오지 못했어요."
   },
   "telescope": {
     "back": "뒤로",
@@ -738,7 +739,8 @@
       "ours": "우리 섬이에요",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
       "a11yNoMeta": "{{name}}, ‘{{body}}’",
-      "scope": "{{name}} 망원경에 넣기"
+      "scope": "{{name}} 망원경에 넣기",
+      "privateIsland": "초대로만 갈 수 있는 섬"
     },
     "editor": {
       "title": "우리 섬 홍보 쓰기",
@@ -771,7 +773,6 @@
       "problem": {
         "poor": "섬 통장 물고기가 모자라요",
         "windowClosed": "지금은 신청할 수 없어요. 아침 7시에 다시 열려요",
-        "private": "비공개 섬은 잡지에 실을 수 없어요",
         "body": "한 줄 글을 다시 확인해 주세요",
         "layout": "꾸미기를 다시 확인해 주세요",
         "locked": "자정이 지나 고칠 수 없어요. 아침 7시에 실려요",
@@ -803,7 +804,8 @@
       "confirmA11y": "물고기 {{fish}}마리",
       "done": "완료",
       "editAsk": "올린 홍보글을 수정하시겠습니까?",
-      "editOk": "수정"
+      "editOk": "수정",
+      "assetsEmpty": "보유한 재료가 없어요"
     },
     "news": {
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",

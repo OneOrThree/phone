@@ -40,6 +40,7 @@ const issue = {
 };
 const island = (name: string, relation: MagazineCell['relation'] = 'NONE') => ({
   islandId: `is-${name}`,
+  privateIsland: false,
   name,
   buildingCount: 3,
   memberCount: 4,
@@ -516,4 +517,15 @@ test('지면은 이 호 칸들이 실제로 걸치는 만큼 비운다 — 위 �
     },
   };
   expect(issueBleed([huge]).y).toBeLessThanOrEqual(0.3);
+});
+
+test('비공개 편집부 랭킹·새 섬에 초대 안내를 표시하고 랭킹 접근성 이름에도 넣는다', async () => {
+  const first = page();
+  first.editorial!.ranking[0].privateIsland = true;
+  first.editorial!.newIslands[0].privateIsland = true;
+  const { screen } = await open(first);
+  expect(screen.getAllByText(/초대로만 갈 수 있는 섬/)).toHaveLength(2);
+  expect(
+    screen.getByLabelText('1위 별고래섬, 평균 2시간 5분, 초대로만 갈 수 있는 섬'),
+  ).toBeTruthy();
 });

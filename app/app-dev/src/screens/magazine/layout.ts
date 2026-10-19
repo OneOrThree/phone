@@ -25,9 +25,8 @@ export type PromotionLayout = {
 };
 
 export const CELL_ASPECT = componentTokens.magazineCell.aspect;
-/** 새로 붙일 수 있는 스티커 수(10/15). 서버는 10개까지 받는다 — 이미 낸 6~10개 칸도 고쳐 저장할 수 있게 검사는 서버 상한으로 */
+/** 붙이기·저장에 공통으로 적용하는 스티커 상한. 테이프 1개는 별도다. */
 export const MAX_STICKERS = 5;
-const SERVER_MAX_STICKERS = 10;
 export const BODY_MAX = 60;
 /** 칸 둘레 8% 까지 걸치기를 허용한다. */
 export const POS_MIN = -0.08;
@@ -159,7 +158,7 @@ export function toNormalized(cx: number, cy: number, width: number) {
 }
 
 /**
- * 보내기 전 검사 — 문제가 있으면 서버 오류의 field 와 같은 모양의 위치(`layout.stickers[10]`)를, 없으면 null.
+ * 보내기 전 검사 — 문제가 있으면 서버 오류의 field 와 같은 모양의 위치(`layout.stickers[5]`)를, 없으면 null.
  * knownIds 를 주면 이 앱이 모르는 재료도 걸러낸다(서버는 보유 여부까지 본다).
  */
 export function layoutProblem(
@@ -168,8 +167,7 @@ export function layoutProblem(
 ): string | null {
   if (layout.v !== 1) return 'layout.v';
   if (!layout.frameId || (knownIds && !knownIds('frame', layout.frameId))) return 'layout.frameId';
-  if (layout.stickers.length > SERVER_MAX_STICKERS)
-    return `layout.stickers[${SERVER_MAX_STICKERS}]`;
+  if (layout.stickers.length > MAX_STICKERS) return `layout.stickers[${MAX_STICKERS}]`;
   // NaN 은 어떤 비교도 거짓이라 「범위 안」을 참으로 묻는다
   const inPos = (n: number) => n >= POS_MIN && n <= POS_MAX;
   const inRotation = (n: number) => n >= -180 && n <= 180;
@@ -214,10 +212,13 @@ const MIN_SCALE = 0.6;
  * 배율은 칸 너비에 비례하는 기준 크기(componentTokens.magazineCell)에 곱한다 — 모든 치수가 너비에 비례하므로
  * 틀마다 한 번 정해지는 값이고 칸 너비와 무관하다. 프로필·이름 줄 + 한 줄 글 + 주민/평균 줄이 상자 높이 안에 든다.
  */
-export function cellTextFit(frame: {
-  inset: readonly [number, number, number, number];
-  maxBodyLines?: number;
-}): { scale: number; bodyScale: number; bodyLines: number } {
+export function cellTextFit(
+  frame: {
+    inset: readonly [number, number, number, number];
+    maxBodyLines?: number;
+  },
+  metaLines = 1,
+): { scale: number; bodyScale: number; bodyLines: number } {
   const m = componentTokens.magazineCell;
   const [l, t, r, b] = frame.inset;
   const boxW = (1 - l - r) * m.referenceWidth;
@@ -237,7 +238,7 @@ export function cellTextFit(frame: {
       m.profileDiameter * s +
       m.gap * s * 2 +
       lines * body * m.lineHeight +
-      m.metaSize * s * m.lineHeight;
+      m.metaSize * s * m.lineHeight * metaLines;
     // 글 배율은 내림 — 반올림으로 0.01 커지면 줄이 하나 넘칠 수 있다
     result = {
       scale: Math.round(s * 100) / 100,

@@ -12,6 +12,7 @@ import type { PromotionEditor as EditorResponse } from '@/services/api/magazine'
 import { initialState, reducer } from '@/services/model';
 import { saveSession } from '@/services/api/session';
 import { CELL_ASPECT, PromotionLayout } from './layout';
+import { MAGAZINE_FRAMES, MAGAZINE_STICKERS, MAGAZINE_TAPES } from '@/constants/magazineAssets';
 import { EditorDriver, EditorStep, PromotionEditor } from './PromotionEditor';
 import { CANVAS_PAD } from './useStickerGestures';
 import { createTouchDriver } from './touchDriver';
@@ -38,6 +39,15 @@ jest.mock('@/screens/interiors/useIslandManagement', () => ({
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
+const allAssets = () => {
+  const owned = (table: object) =>
+    Object.keys(table).map((assetId) => ({ assetId, bundle: 'free', owned: true }));
+  return {
+    frames: owned(MAGAZINE_FRAMES),
+    stickers: owned(MAGAZINE_STICKERS),
+    tapes: owned(MAGAZINE_TAPES),
+  };
+};
 const getEditor = api.getPromotionEditor as jest.Mock;
 const getAssets = api.getMagazineAssets as jest.Mock;
 const apply = api.applyPromotion as jest.Mock;
@@ -97,7 +107,7 @@ beforeEach(() => {
   mockLiveRole = null;
   // 한 번만 쓰는 응답(…Once)이 실패한 테스트에서 남아 다음 테스트로 새지 않게 서버 목은 통째로 비운다
   for (const m of [getEditor, getAssets, apply, update]) m.mockReset();
-  getAssets.mockRejectedValue(new Error('offline')); // 재료 목록을 못 읽어도 쓰기는 된다
+  getAssets.mockResolvedValue(allAssets());
 });
 
 /**
@@ -191,9 +201,31 @@ describe('여닫기', () => {
     expect(getEditor).toHaveBeenCalledTimes(2);
   });
 
-  it('재료 목록이 늦어도 편집기 응답만으로 먼저 열린다', async () => {
-    getAssets.mockReturnValueOnce(new Promise(() => {}));
-    await open();
+  it('재료 목록이 늦으면 보유 확인 전 선택지를 표시하지 않는다', async () => {
+    let finish!: (assets: unknown) => void;
+    getAssets.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    getEditor.mockResolvedValue(editorResponse());
+    const screen = await render(<PromotionEditor e={env()} />);
+    expect(screen.getByText('홍보 칸을 불러오고 있어요')).toBeTruthy();
+    expect(screen.queryByTestId('frame-mag.frame-scallop')).toBeNull();
+    await act(async () => finish(allAssets()));
+    await ready(screen, 'frame');
+    expect(screen.getByTestId('frame-mag.frame-scallop')).toBeTruthy();
+  });
+
+  it('재료 조회가 실패하면 전부 보유로 열지 않고 다시 읽어 복구한다', async () => {
+    getAssets.mockRejectedValueOnce(new Error('offline'));
+    getEditor.mockResolvedValue(editorResponse());
+    const screen = await render(<PromotionEditor e={env()} />);
+    await screen.findByTestId('promotion-retry');
+    expect(screen.queryByTestId('frame-mag.frame-scallop')).toBeNull();
+    await fireEvent.press(screen.getByTestId('promotion-retry'));
+    await ready(screen, 'frame');
+    expect(screen.getByTestId('frame-mag.frame-scallop')).toBeTruthy();
   });
 
   it('실서버 — 다른 기기에서 섬장을 위임받아 홈 스냅샷이 아직 주민이어도, 회관이 확정한 역할(host)로 쓰기 화면이 열린다', async () => {
@@ -573,7 +605,6 @@ describe('싣기·고치기', () => {
 
   it.each([
     ['INSUFFICIENT_FUNDS', '섬 통장 물고기가 모자라요', true],
-    ['PROMOTION_PRIVATE_ISLAND', '비공개 섬은 잡지에 실을 수 없어요', true],
     ['PROMOTION_WINDOW_CLOSED', '지금은 신청할 수 없어요. 아침 7시에 다시 열려요', true],
     ['PROMOTION_LAYOUT_INVALID', '꾸미기를 다시 확인해 주세요', true],
     ['SERVICE_UNAVAILABLE', '잡지가 아직 준비 중이에요. 잠시 후 다시 해 주세요', false],
@@ -631,10 +662,23 @@ describe('신청 창·잔액·비공개', () => {
     expect(screen.getByText(/섬 통장 물고기가 모자라요/)).toBeTruthy();
   });
 
-  it('비공개 섬이면 버튼이 꺼지고 안내', async () => {
-    const { screen } = await open({ privateIsland: true });
-    expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(true);
-    expect(screen.getByText(/비공개 섬은 잡지에 실을 수 없어요/)).toBeTruthy();
+  it('비공개 섬장도 신청하고 성공 토스트를 본 뒤 회관으로 돌아간다', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-14T05:00:00Z'));
+    try {
+      apply.mockResolvedValue({
+        promotionId: 'private-ad',
+        issueDate: '2026-10-15',
+        balanceAfter: 40,
+      });
+      const { screen, e } = await open({ privateIsland: true });
+      expect(screen.getByTestId('promotion-submit').props.accessibilityState.disabled).toBe(false);
+      await submit(screen);
+      await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
+      expect(e.notify).toHaveBeenCalledWith('잡지에 신청했어요');
+      expect(e.back).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('다시 읽는 동안에는 [완료]가 꺼진다', async () => {
@@ -1034,4 +1078,43 @@ it('작은 화면·키보드에서도 글 단계는 속지 안을 세로로 밀�
     nativeEvent: { touches: [] },
   });
   expect(scroll().props.scrollEnabled).toBe(true);
+});
+
+it('미보유·목록에 없는 종이와 스티커·테이프는 선택 목록에서 숨기고 보유 재료는 사용할 수 있다', async () => {
+  getAssets.mockResolvedValue({
+    frames: [
+      { assetId: 'mag.frame-scallop', owned: true },
+      { assetId: 'mag.frame-catear', owned: false },
+    ],
+    stickers: [
+      { assetId: 'mag.cat-ginger-fish', owned: true },
+      { assetId: 'mag.heart', owned: false },
+    ],
+    tapes: [
+      { assetId: 'mag.tape-pink', owned: true },
+      { assetId: 'mag.tape-blue', owned: false },
+    ],
+  });
+  const { screen } = await open({}, env(), 'frame');
+  expect(screen.getByTestId('frame-mag.frame-scallop')).toBeTruthy();
+  expect(screen.queryByTestId('frame-mag.frame-catear')).toBeNull();
+  expect(screen.getAllByTestId(/^frame-/)).toHaveLength(1);
+  await ready(screen);
+  expect(screen.getByTestId('drawer-mag.cat-ginger-fish')).toBeTruthy();
+  expect(screen.getAllByTestId(/^drawer-/)).toHaveLength(1);
+  await fireEvent.press(screen.getByTestId('drawer-mag.cat-ginger-fish'));
+  expect(stickerStyles(screen)).toHaveLength(1);
+  await fireEvent.press(screen.getByText('꾸미기'));
+  expect(screen.queryByTestId('drawer-mag.heart')).toBeNull();
+  expect(screen.queryByTestId('drawer-mag.tape-blue')).toBeNull();
+  expect(screen.getByTestId('drawer-mag.tape-pink')).toBeTruthy();
+  await fireEvent.press(screen.getByTestId('drawer-mag.tape-pink'));
+  expect(screen.getByTestId('promotion-cell-tape')).toBeTruthy();
+});
+
+it('보유 재료가 없으면 빈 상태를 표시하고 미보유 기본 종이를 대신 선택하지 않는다', async () => {
+  getAssets.mockResolvedValue({ frames: [], stickers: [], tapes: [] });
+  const { screen } = await open({}, env(), 'frame');
+  expect(screen.getByText('보유한 재료가 없어요')).toBeTruthy();
+  expect(screen.queryAllByTestId(/^frame-/)).toHaveLength(0);
 });

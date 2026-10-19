@@ -144,6 +144,7 @@ export function IslandSheet({
   footer,
   toast,
   scrollRef,
+  onScroll,
   keepOnBackdrop = false,
   children,
 }: {
@@ -163,6 +164,7 @@ export function IslandSheet({
   toast?: string;
   // 편지방처럼 새 글을 보낸 뒤 아래로 스크롤해야 할 때
   scrollRef?: Ref<ScrollView>;
+  onScroll?: React.ComponentProps<typeof ScrollView>['onScroll'];
   // 글을 쓰는 시트는 바깥(스크림)을 눌러도 닫지 않는다. 작성 중인 글 보호용, × 닫기는 그대로
   keepOnBackdrop?: boolean;
   children?: React.ReactNode;
@@ -345,6 +347,9 @@ export function IslandSheet({
         >
           <ScrollView
             ref={scrollRef}
+            testID="island-sheet-scroll"
+            onScroll={onScroll}
+            scrollEventThrottle={16}
             style={{ flex: 1 }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}

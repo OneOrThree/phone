@@ -1043,6 +1043,7 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
   test('서버가 그 섬의 오늘 호 칸(magazineCell)을 주면 자리표시 대신 섬장이 꾸민 칸(AdCell)을 그린다', async () => {
     const cell = {
       promotionId: 'pr1',
+      privateIsland: false,
       islandId: 'p1',
       name: '별고래',
       buildingCount: 5,
