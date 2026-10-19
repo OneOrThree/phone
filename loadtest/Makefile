@@ -198,4 +198,4 @@ survey-report: survey-check
 	python3 survey/tables.py "$(SURVEY_OUT)/summary"
 
 survey-check:
-	@test -f survey/matrix.py || { echo "loadtest/survey/ 가 없습니다 — 조사 스크립트는 로컬 전용(gitignored)입니다. 조사 담당자에게 받아 loadtest/survey/ 에 두세요."; exit 2; }
+	@for f in matrix.py aggregate.py coverage.py tables.py; do test -f "survey/$$f" || { echo "loadtest/survey/$$f 가 없습니다 — 조사 스크립트는 로컬 전용(gitignored)입니다. 조사 담당자에게 받아 loadtest/survey/ 에 두세요."; exit 2; }; done

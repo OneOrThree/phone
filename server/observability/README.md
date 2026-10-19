@@ -98,7 +98,7 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
 ## 스크레이프 대상 / 포트
 
 - `data-api:9091/actuator/prometheus` — 트래픽·HikariCP (dev 내부 관리 포트, GROMO-588)
-- `postgres-exporter:9187` — PostgreSQL 지표 · `node-exporter:9100` · `cadvisor`(내부)
+- `postgres-exporter:9187` — PostgreSQL 지표(`postgres-exporter/queries.yml` 커스텀 쿼리 포함: outbox 미전달 수·최고 대기 시간은 `delivered_at IS NULL` 부분 인덱스를 타지만 **backlog 가 폭증하면 쿼리 비용도 비례**해 스크레이프마다 쌓인 만큼 읽는다 — 장애 중 스크레이프 주기를 늘리는 것이 안전) · `node-exporter:9100` · `cadvisor`(내부, `ghcr.io/google/cadvisor:0.55.1`)
 - 외부 노출: Grafana `:3000` / 내부: Prometheus `:9090`(127.0.0.1)·Loki `:3100`
 
 ## 보안 메모

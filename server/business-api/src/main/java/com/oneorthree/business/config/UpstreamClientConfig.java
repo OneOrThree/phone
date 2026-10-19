@@ -46,6 +46,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 @EnableConfigurationProperties({UpstreamConfigProperties.class, CompatProperties.class})
 public class UpstreamClientConfig implements MeterBinder {
 
+    /** 마지막으로 bindTo 된 레지스트리 하나만 기억한다 — Boot 기본(Prometheus 단일 또는 composite) 전제. 레지스트리가 여럿이면 List 로. */
     private MeterRegistry metrics;
 
     private final Queue<InternalHttpClient> ownedClients = new ConcurrentLinkedQueue<>();
