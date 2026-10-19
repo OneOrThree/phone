@@ -1,6 +1,8 @@
 // 가입 승인 — 승인제 섬(gate)에 신청 → 섬장이 신청 목록 확인·승인 → 신청자가 나가기(되돌림).
 // POST /islands/{gate}/memberships → GET /islands/{gate}/join-requests(섬장) → PATCH …/join-requests/{id} approve(섬장)
 // → DELETE /islands/{gate}/memberships/me. 승인 전 실패는 신청 취소(DELETE /me/join-requests/{id})로 되돌린다.
+// 경쟁: 클라이언트가 타임아웃한 뒤 서버가 PATCH 를 아직 처리 중이면 leave 는 비주민 거절·cancel 은 409 이고 그 뒤 승인이 커밋된다 —
+// 다음 회차의 「첫 apply 실패 → leave → 재시도」가 복구한다.
 // 되돌릴 수 없는 잔여물: join_requests 행(요청당 1건)과 승인 안내 시스템 편지 1건 — 반복 실행 시 선형 증가한다.
 // 전제: Data 의 ISLAND_MANAGEMENT_COMMANDS_ENABLED=true 필요(기본 false) — 꺼져 있으면 승인·나가기가 503 ISLAND_MANAGEMENT_NOT_READY 다(로컬 compose 는 켜 둠).
 // 전제: slot.actor 는 소속 2곳(상한 3) 이하이고 gate 섬(승인제, 정원 여유)의 방장은 slot.partner 다.

@@ -40,6 +40,8 @@ export const field = (res, name) => {
 export function call(method, path, who, endpoint, errors, { body, idem = false, ok = [200, 201, 204], track = true } = {}) {
   const params = authParams(who, endpoint);
   if (idem) params.headers['Idempotency-Key'] = uuid();
+  // 정리 호출의 예상 4xx(주민 아님 404·이미 종결 409)는 http_req_failed 에도 실패로 세지 않는다.
+  if (!track) params.responseCallback = http.expectedStatuses(200, 201, 204, 404, 409);
   const res = http.request(method, BASE_URL + path, body === undefined ? null : JSON.stringify(body), params);
   const good = check(res, { '요청 성공': (r) => ok.includes(r.status) });
   if (track) errors.add(!good); // track=false: 정리(되돌림) 호출 — 실패는 에러율이 아니라 경고로만 남긴다

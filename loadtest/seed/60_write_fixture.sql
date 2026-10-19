@@ -5,6 +5,7 @@
 \set ON_ERROR_STOP on
 BEGIN;
 UPDATE users SET is_guest = false WHERE id IN (SELECT actor FROM write_slots UNION SELECT partner FROM write_slots);
+-- 양방향 기존 행(PENDING/REJECTED/CANCELED, 소프트 삭제 포함)을 ACCEPTED 로 되살린다 — 로컬 fixture 전용, 운영 데이터엔 쓰지 않는다. status CHECK 는 이 넷만 허용하고 별도 차단 상태는 없다.
 -- 유니크 (from,to) 는 정방향만 막는다 — 반대 방향 행이 이미 있으면 그 행을 ACCEPTED 로 되살리고, 없을 때만 새로 넣는다(쌍 중복 방지).
 UPDATE friendships f SET status = 'ACCEPTED', deleted_at = NULL
 FROM write_slots w
