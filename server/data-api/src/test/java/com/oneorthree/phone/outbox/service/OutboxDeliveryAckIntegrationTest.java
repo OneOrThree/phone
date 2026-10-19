@@ -143,7 +143,7 @@ class OutboxDeliveryAckIntegrationTest {
         tx().executeWithoutResult(status -> {
             EventOutboxDelivery kafka = delivery(outboxId, OutboxTarget.KAFKA);
             deliveryRepository.claimBatch(OutboxTarget.KAFKA.name(), Instant.now(),
-                    Instant.now().plusSeconds(60), "relay", relayToken, 10);
+                    Instant.now().plusSeconds(60), "relay", relayToken, 1, 10);
             deliveryRepository.markFailed(kafka.getId(), relayToken,
                     Instant.now().plusSeconds(30), "브로커 순단");
         });
@@ -166,7 +166,7 @@ class OutboxDeliveryAckIntegrationTest {
         UUID relayToken = UUID.randomUUID();
         tx().executeWithoutResult(status -> deliveryRepository.claimBatch(
                 OutboxTarget.NOTI.name(), Instant.now(), Instant.now().plusSeconds(60),
-                "relay", relayToken, 10));
+                "relay", relayToken, 1, 10));
         assertThat(delivery(outboxId, OutboxTarget.NOTI).getLeaseToken()).isEqualTo(relayToken);
 
         assertThat(ackPort.acknowledgeNotificationDelivery(userId, outboxId))

@@ -29,6 +29,7 @@ import com.oneorthree.phone.outbox.service.OutboxRelayStore;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -302,7 +303,8 @@ class HostTransferIntegrationTest {
         transfer(f, UUID.randomUUID());
         var properties = new OutboxRelayProperties();
         var store = new OutboxRelayStore(deliveries, properties, Clock.systemUTC());
-        var relay = new OutboxRelayService(store, events, properties, Clock.systemUTC(), List.of());
+        var relay = new OutboxRelayService(store, events, properties, Clock.systemUTC(), List.of(),
+                new SimpleMeterRegistry());
         long before = eventCount(f);
         assertThat(relay.relayOnce()).isZero();
         assertThat(eventCount(f)).isEqualTo(before);
