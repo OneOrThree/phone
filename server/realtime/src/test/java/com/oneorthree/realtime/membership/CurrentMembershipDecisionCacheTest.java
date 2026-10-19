@@ -153,7 +153,7 @@ class CurrentMembershipDecisionCacheTest {
     void allowRacingAnEvictIsNotStored() {
         var cache = new CurrentMembershipDecisionCache(properties, registry);
         var identity = jwt.extractSessionProof(bearer(UUID.randomUUID()).substring(7)).orElseThrow();
-        long mark = cache.mark();
+        long mark = cache.mark(user);
         cache.evictUser(user); // 조회 도중 사건 도착
         cache.remember(identity, island, mark);
         assertThat(cache.isAllowed(identity, island)).isFalse();

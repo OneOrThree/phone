@@ -7,7 +7,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * ON 모드(현재 멤버십 HTTP 판정)의 «허용» 결정 캐시 — 인스턴스 로컬, 인메모리.
@@ -27,8 +26,12 @@ public class CurrentMembershipDecisionCache {
 
     private record Key(UUID userId, UUID sessionId, long generation, UUID islandId) { }
 
-    private final ConcurrentHashMap<Key, Long> entries = new ConcurrentHashMap<>();
-    private final AtomicLong evictions = new AtomicLong();
+    /** 허용 항목 — 만료 시각과 «넣을 때의 사용자 세대». 조회 때 세대가 다르면 무효(게시·무효화 경합을 세대로 막는다). */
+    private record Entry(long expiresAt, long userGeneration) { }
+
+    private final ConcurrentHashMap<Key, Entry> entries = new ConcurrentHashMap<>();
+    /** 사용자별 무효화 세대 — evictUser 마다 1 증가. 항목은 넣을 때의 세대를 품고, 조회는 현재 세대와 같을 때만 믿는다. */
+    private final ConcurrentHashMap<UUID, Long> userGenerations = new ConcurrentHashMap<>();
     private final long ttlNanos;
     private final Counter hit;
     private final Counter miss;
@@ -50,44 +53,44 @@ public class CurrentMembershipDecisionCache {
             return false;
         }
         Key key = new Key(id.userId(), id.sessionId(), id.authGeneration(), islandId);
-        Long expiry = entries.get(key);
-        if (expiry != null && expiry - System.nanoTime() > 0) {
+        Entry entry = entries.get(key);
+        if (entry != null && entry.expiresAt() - System.nanoTime() > 0 && entry.userGeneration() == mark(id.userId())) {
             hit.increment();
             return true;
         }
-        if (expiry != null) {
-            entries.remove(key, expiry);
+        if (entry != null) {
+            entries.remove(key, entry); // 만료 또는 무효화 세대 — 사후 정리
         }
         miss.increment();
         return false;
     }
 
-    /** 원격 조회 «전에» 부른다. */
-    public long mark() {
-        return evictions.get();
+    /** 원격 조회 «전에» 부른다 — 그 사용자의 현재 무효화 세대. */
+    public long mark(UUID userId) {
+        return userGenerations.getOrDefault(userId, 0L);
     }
 
-    /** 허용 답만 넣는다. mark 이후 evict 가 있었으면 넣지 않는다. */
+    /**
+     * 허용 답만 넣는다. 항목은 mark(세대)를 품으므로, 세대 검사와 put 사이에 evictUser 가 끼어도
+     * 조회가 세대 불일치로 거절한다 — 사후 삭제 전에도 옛 허용이 노출되지 않는다.
+     */
     public void remember(VerifiedAccessIdentity id, UUID islandId, long mark) {
-        if (!enabled() || evictions.get() != mark) {
+        if (!enabled() || mark(id.userId()) != mark) {
             return;
         }
         if (entries.size() >= MAX_ENTRIES) {
             long now = System.nanoTime();
-            entries.values().removeIf(expiry -> expiry - now <= 0);
+            entries.values().removeIf(entry -> entry.expiresAt() - now <= 0);
             if (entries.size() >= MAX_ENTRIES) {
                 return;
             }
         }
         entries.put(new Key(id.userId(), id.sessionId(), id.authGeneration(), islandId),
-                System.nanoTime() + ttlNanos);
-        if (evictions.get() != mark) { // put 직전 evict 가 끼어든 경우
-            entries.remove(new Key(id.userId(), id.sessionId(), id.authGeneration(), islandId));
-        }
+                new Entry(System.nanoTime() + ttlNanos, mark));
     }
 
     public void evictUser(UUID userId) {
-        evictions.incrementAndGet();
+        userGenerations.merge(userId, 1L, Long::sum); // 먼저 세대를 올려 진행 중 조회·게시를 무효화한다
         int before = entries.size();
         entries.keySet().removeIf(key -> key.userId().equals(userId));
         evict.increment(Math.max(1, before - entries.size()));
