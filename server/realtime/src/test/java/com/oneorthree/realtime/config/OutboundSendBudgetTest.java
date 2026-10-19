@@ -38,6 +38,7 @@ class OutboundSendBudgetTest {
     private final OutboundSendBudget budget = new OutboundSendBudget(sessions, meters, 1, 1, 1);
     private final ThreadPoolTaskExecutor executor = budget.newExecutor();
     private final CountDownLatch release = new CountDownLatch(1);
+    private final CountDownLatch entered = new CountDownLatch(1);
     private final List<String> handled = new CopyOnWriteArrayList<>();
     private ExecutorSubscribableChannel channel;
 
@@ -46,6 +47,7 @@ class OutboundSendBudgetTest {
         channel = new ExecutorSubscribableChannel(executor);
         channel.setInterceptors(List.of(budget));
         channel.subscribe(message -> {
+            entered.countDown();
             try {
                 release.await(5, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
@@ -104,10 +106,86 @@ class OutboundSendBudgetTest {
     }
 
     @Test
+    @DisplayName("종료 예약된 세션의 다음 프레임은 큐에 들어가지 않는다 — dropped{closing}, 이미 큐에 있던 것도 버린다")
+    void framesToAClosingSessionAreDroppedBeforeAndAfterTheQueue() throws Exception {
+        start();
+        socket("other");
+        String chat = "/topic/groups/" + UUID.randomUUID();
+        channel.send(frame("other", chat)); // 실행 중(막힘)
+        assertThat(entered.await(2, TimeUnit.SECONDS)).as("첫 프레임이 핸들러에 들어갔다").isTrue();
+        channel.send(frame("other", chat)); // 큐 1칸 — 아래 예약 «전»에 들어갔다
+        channel.send(frame("other", chat)); // 거부 → other 종료 예약
+        assertThat(budget.isClosing("other")).isTrue();
+
+        assertThat(channel.send(frame("other", chat))).as("큐에 넣기 전에 버린다").isFalse();
+        assertThat(executor.getThreadPoolExecutor().getQueue()).as("넣기 전 버림 — 큐는 예약 전의 1건 그대로").hasSize(1);
+        assertThat(closingDropped()).isEqualTo(1.0);
+
+        release.countDown();
+        executor.getThreadPoolExecutor().shutdown();
+        executor.getThreadPoolExecutor().awaitTermination(5, TimeUnit.SECONDS);
+        assertThat(handled).as("예약 전에 실행 중이던 한 건만 나갔다 — 큐에 있던 건 꺼낼 때 버렸다").containsExactly("other");
+        assertThat(closingDropped()).isEqualTo(2.0);
+    }
+
+    @Test
+    @DisplayName("첫 세션의 close 가 막혀 있어도 둘째 세션은 예약 즉시 전달이 막히고 종료도 따로 진행된다")
+    void aBlockedCloseDoesNotLetOtherClosingSessionsKeepReceiving() throws Exception {
+        start();
+        WebSocketSession stuck = socket("stuck");
+        WebSocketSession second = socket("second");
+        CountDownLatch unblockClose = new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            unblockClose.await(5, TimeUnit.SECONDS);
+            return null;
+        }).when(stuck).close(OutboundSendBudget.QUEUE_FULL);
+        String chat = "/topic/groups/" + UUID.randomUUID();
+        try {
+            channel.send(frame("x", chat));
+            channel.send(frame("x", chat));
+            channel.send(frame("stuck", chat)); // 거부 → close 가 막힌다
+            verify(stuck, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+            channel.send(frame("second", chat)); // 거부 → 예약
+
+            assertThat(channel.send(frame("second", chat))).as("종료 전이라도 이미 막혔다").isFalse();
+            verify(second, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL); // 종료 스레드 2개 — 막힌 close 를 기다리지 않는다
+        } finally {
+            unblockClose.countDown();
+        }
+    }
+
+    @Test
+    @DisplayName("소켓 종료 경로가 종료 예약을 지운다 — 누적되지 않는다")
+    void closedSessionLeavesTheClosingSet() throws Exception {
+        start();
+        socket("victim");
+        String chat = "/topic/groups/" + UUID.randomUUID();
+        channel.send(frame("x", chat));
+        channel.send(frame("x", chat));
+        channel.send(frame("victim", chat));
+        assertThat(budget.isClosing("victim")).isTrue();
+
+        budget.closed("victim", CloseStatus.POLICY_VIOLATION);
+        assertThat(budget.isClosing("victim")).isFalse();
+
+        // 이미 끊긴 세션이 거부되면 종료 시도 뒤 곧바로 지운다(종료 경로가 먼저 지나갔다).
+        channel.send(frame("gone", chat));
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (budget.isClosing("gone") && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertThat(budget.isClosing("gone")).isFalse();
+    }
+
+    private double closingDropped() {
+        return meters.counter("realtime.outbound.dropped", "reason", "closing").count();
+    }
+
+    @Test
     @DisplayName("세션 송신 상한(4500 SESSION_NOT_RELIABLE)으로 닫힌 세션을 센다")
     void sessionLimitClosesAreCounted() {
-        budget.closed(CloseStatus.SESSION_NOT_RELIABLE);
-        budget.closed(CloseStatus.NORMAL);
+        budget.closed("a", CloseStatus.SESSION_NOT_RELIABLE);
+        budget.closed("b", CloseStatus.NORMAL);
         assertThat(meters.counter("realtime.outbound.dropped", "reason", "session_limit").count()).isEqualTo(1.0);
     }
 

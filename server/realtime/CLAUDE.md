@@ -150,7 +150,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `max-threads`(0 = core)·`queue-capacity`(10000). 큐가 차면 거부된 프레임의 세션을 **종류 불문 1008
   `OUTBOUND_QUEUE_FULL`** 로 닫는다(채팅은 재연결 이력, 이동은 재구독 FullState 로 복구). 거부 핸들러는 **던지지 않는다** —
   Spring 7 `ExecutorSubscribableChannel` 은 거부된 작업을 보낸 스레드(브로커·이동 틱)에서 바로 실행한다. 종료는 전용
-  `realtime-outbound-close` 스레드에서 한다.
+  `realtime-outbound-close`(2스레드)에서 한다. **종료 예약 즉시 그 세션으로의 전달을 막는다**(큐 넣기 전 `preSend` + 꺼낼 때
+  `beforeHandle`, `dropped{reason=closing}`) — close 가 늦어도 빠진 프레임 뒤의 채팅을 정상처럼 받는 창이 없다. close 한 건의
+  상한은 Tomcat 11 의 비정상 종료 송신 제한(`ABNORMAL_SESSION_CLOSE_SEND_TIMEOUT`, 50ms)이고, 예약은 소켓 종료 경로가 지운다.
 - **세션 송신 상한은 기본값을 명시만 한다** — `chat.websocket.transport.send-time-limit-ms`(10000)·
   `send-buffer-size-limit-bytes`(524288)·`message-size-limit-bytes`(65536). `MovementOutbox.STUCK_NANOS`(15s)가 10s 를 전제한다.
 - **전달 직전 인가는 «허용»만 캐시한다**(`OutboundAuthzCache`, `chat.websocket.outbound.authz-cache-ttl-seconds` 30, 멤버십
@@ -161,7 +163,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   멤버십을 담는 허용(채팅·`events`)의 만료는 원본 `cache:chat:member:{userId}` 의 남은 수명(PTTL, 담는 미스 경로에서만 1회)으로
   잘린다 — 강퇴 반영 상한은 여전히 멤버십 TTL 이다. 원본 키가 없거나 PTTL 이 실패하면 담지 않는다. ON(verifier) 모드는 원본이 없어 30s 그대로.
 - **운영 신호**: 큐 깊이 `executor.queued{name=realtime-outbound}`(+`executor.active`·`executor.queue.remaining`),
-  `realtime.outbound.dropped{reason=queue_full|session_limit}`(`session_limit` = Spring 이 4500 `SESSION_NOT_RELIABLE` 로 닫은
+  `realtime.outbound.dropped{reason=queue_full|session_limit|closing}`(`session_limit` = Spring 이 4500 `SESSION_NOT_RELIABLE` 로 닫은
   세션 — 송신 시간·버퍼 초과가 같은 코드라 구분 불가, CONNECT 없는 60s 세션 정리도 섞인다), 소켓 쓰기 시간
   `realtime.outbound.send{destination_kind=chat|movement|events|sea|other}`, 인가 캐시 `realtime.outbound.authz.cache{result=hit|miss|evict}`.
   `queue_full` 이 0 이 아니면 실행기·느린 수신자부터 본다.

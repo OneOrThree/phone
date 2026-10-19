@@ -152,7 +152,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 } finally {
                     sessions.closed(session.getId());
                     outboundAuthzCache.evictSession(session.getId());
-                    outboundSendBudget.closed(status);
+                    outboundSendBudget.closed(session.getId(), status);
                     // 소켓 기록을 지운 «뒤»에 이동 방에서 내보낸다 — 순서 보존 큐에 남아 늦게 처리되는 SUBSCRIBE 가
                     // 끊긴 세션을 보고 물러나게 하는 전제다(MovementSubscriptionListener).
                     movementSubscriptions.closed(session.getId());
