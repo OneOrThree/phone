@@ -18,13 +18,14 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * {@link RoomRuntime} 의 사건을 세션별 {@link MovementOutbox} 로 나눠 담는다 — 이동 메시지의 유일한 송신 경로다.
  *
- * <p><b>브로커·{@code RealtimeEventEnvelope}·Redis 팬아웃을 쓰지 않는다</b>(N3·N5). {@link Target#ALL} 은 «그 섬
+ * <p><b>브로커·{@code RealtimeEventEnvelope} 를 쓰지 않는다</b>(N3·N5). {@link Target#ALL} 은 «그 섬
  * outbox 를 가진 세션 전부», {@link Target.Only} 는 그 세션 하나다. 직렬화는 사건당 한 번이고 바이트를 세션마다
  * 나눠 쓴다. 콜백은 틱 스레드에서 오고, outbox 등록·해제는 인바운드 스레드({@link MovementSubscriptionListener})가 한다.
  *
@@ -33,7 +34,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 상한 초과로 닫은 세션 수({@code movement.outbox.overflow}), reliable 넘기기 실패로 닫은 세션 수
  * ({@code movement.outbox.send.failed}).
  *
- * <p>ponytail: 단일 인스턴스 가정(N5) — 방·outbox 가 이 JVM 메모리에만 있다. 다중 인스턴스 소유권은 2단계.
+ * <p>다중 인스턴스(GROMO-2339)에서는 방이 다른 인스턴스(소유자)에 있을 수 있다 — 그때 이 클래스는 방 콜백이 아니라
+ * {@code MovementCluster} 가 받은 릴레이 프레임을 바이트 입구({@link #deliver}·{@link #deliverSnapshot})로 받는다.
+ * 방 콜백({@code RoomRuntime.Listener})은 {@code MovementRelay} 가 받아 Redis 로 내보낸다. outbox 는 늘 이 JVM 의 것이다.
  */
 @Slf4j
 @Component
@@ -82,11 +85,39 @@ public class MovementPublisher implements RoomRuntime.Listener {
         }
         byte[] payload = objectMapper.writeValueAsBytes(event);
         if (target instanceof Target.Only only) {
-            MovementOutbox outbox = outboxes.get(only.sessionKey());
+            // 그 세션 한정 FullState(requestFullState)만 송신 게이트를 연다 — 방 큐 FIFO 상 그 세션의 join 뒤라 자기
+            // actor 가 들어 있다.
+            deliver(islandId, payload, only.sessionKey(), event instanceof MovementEvent.FullState);
+            return;
+        }
+        deliver(islandId, payload, null, false);
+    }
+
+    @Override
+    public void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot) {
+        Map<String, MovementOutbox> outboxes = byIsland.get(islandId);
+        if (outboxes == null || outboxes.isEmpty()) {
+            return;
+        }
+        deliverSnapshot(islandId, objectMapper.writeValueAsBytes(snapshot));
+    }
+
+    /**
+     * 직렬화된 사건 하나를 이 인스턴스의 outbox 로 나눈다 — 로컬 방({@link #onEvent})과 다른 인스턴스 소유자의 릴레이
+     * 프레임({@code MovementCluster}, GROMO-2339)이 같은 입구를 쓴다.
+     *
+     * @param targetSessionId 그 세션 하나만, {@code null} 이면 그 섬 전원
+     * @param resync          그 세션 한정 FullState 인가 — 송신 게이트를 여는 유일한 사건. 전원 대상은 늘 false 로 넘긴다
+     */
+    void deliver(UUID islandId, byte[] payload, String targetSessionId, boolean resync) {
+        Map<String, MovementOutbox> outboxes = byIsland.get(islandId);
+        if (outboxes == null || outboxes.isEmpty()) {
+            return;
+        }
+        if (targetSessionId != null) {
+            MovementOutbox outbox = outboxes.get(targetSessionId);
             if (outbox != null) {
-                // 그 세션 한정 FullState(requestFullState)만 송신 게이트를 연다 — 방 큐 FIFO 상 그 세션의 join 뒤라 자기
-                // actor 가 들어 있다.
-                enqueue(outbox, payload, event instanceof MovementEvent.FullState);
+                enqueue(outbox, payload, resync);
             }
             return;
         }
@@ -96,18 +127,39 @@ public class MovementPublisher implements RoomRuntime.Listener {
         }
     }
 
-    @Override
-    public void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot) {
+    /** 직렬화된 Snapshot 을 그 섬 outbox 들의 최신 슬롯에 둔다({@link #deliver} 와 같은 이유로 바이트 입구). */
+    void deliverSnapshot(UUID islandId, byte[] payload) {
         Map<String, MovementOutbox> outboxes = byIsland.get(islandId);
-        if (outboxes == null || outboxes.isEmpty()) {
+        if (outboxes == null) {
             return;
         }
-        byte[] payload = objectMapper.writeValueAsBytes(snapshot);
         for (MovementOutbox outbox : outboxes.values()) {
             if (outbox.offerSnapshot(payload)) {
                 supersededSnapshots.increment();
             }
         }
+    }
+
+    /** 그 섬 소유자가 바뀌었다(GROMO-2339) — 이 인스턴스의 그 섬 outbox 전부 다음 자기 FullState 부터 다시 받는다. */
+    void resyncAll(UUID islandId) {
+        Map<String, MovementOutbox> outboxes = byIsland.get(islandId);
+        if (outboxes != null) {
+            outboxes.values().forEach(MovementOutbox::resync);
+        }
+    }
+
+    /** 그 세션 하나만 다시 맞춘다 — 다른 인스턴스의 새 세션이 actor 를 가져갔다(SUPERSEDE 프레임, GROMO-2339). */
+    void resync(UUID islandId, String sessionId) {
+        Map<String, MovementOutbox> outboxes = byIsland.get(islandId);
+        MovementOutbox outbox = outboxes == null ? null : outboxes.get(sessionId);
+        if (outbox != null) {
+            outbox.resync();
+        }
+    }
+
+    /** 이 인스턴스에 outbox 가 하나라도 있는 섬들(복사본) — 소유자 감시가 훑는다. */
+    Set<UUID> islands() {
+        return Set.copyOf(byIsland.keySet());
     }
 
     private void enqueue(MovementOutbox outbox, byte[] payload, boolean resync) {

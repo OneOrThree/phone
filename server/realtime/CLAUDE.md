@@ -87,7 +87,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   service would let chat cancel the focus rule.
 - **The simple broker only knows subscribers in this JVM.** Cross-instance delivery is
   `fanout/` and nothing else. A missing `RedisMessageListenerContainer` bean is invisible
-  on a single instance — `ChatWebSocketIntegrationTest` covers that regression. 이동(movement)은 예외다 — 1단계는 Realtime 단일 인스턴스 가정이라 인스턴스 간 팬아웃이 없다(API 표 `SUB …/movement` 행).
+  on a single instance — `ChatWebSocketIntegrationTest` covers that regression. 이동(movement)은 `fanout/` 이 아니라 자기 릴레이(`chat:movement:*`)를 쓰고, 그것도 플래그 `realtime.movement.multi-instance.enabled`(기본 ON)가 켜졌을 때만이다 — 아래 「섬 이동 다중 인스턴스」 절.
 - **현재 인가 옵션 OFF의 멤버십은 TTL 캐시** (`chat.membership.cache-ttl-seconds`)다. ON이면 지정된
   `requireCanChat` 경계가 PR753 Data 현재 인가를 TTL 캐시(허용만, 기본 30s)를 거쳐 조회한다. 방 목록·duplicates·개인큐는 새 조회 범위가 아니다.
   전달 직전 허용 캐시(`OutboundAuthzCache`, 아래 송신 예산 절)는 ON 에서 멤버십 판정을 담지 않으므로 ON 의 반영 상한은 이 30s 그대로이고,
@@ -193,10 +193,65 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `queue_full` 이 0 이 아니면 실행기·느린 수신자부터 본다. heartbeat 프레임도 같은 실행기를 지난다 — 송신 시간은
   `destination_kind=other` 로 재고, 포화로 거부되면 다른 프레임과 같이 `queue_full` 로 세며 그 세션을 닫는다.
 
+## 섬 이동 다중 인스턴스 (GROMO-2339, ADR A26)
+
+- **플래그 `realtime.movement.multi-instance.enabled`(env `REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED`, 기본 true — 2026-10-19
+  재영님 결정: 늘릴 때마다 켜는 걸 챙기지 않게).** 1대여도 ON 경로(리스·채널·Lua)를 탄다. `false` 로 옵트아웃하면
+  `MovementCluster` 가 `MovementRooms` 를 바로 부르고 Redis 를 전혀 쓰지 않는 단일 인스턴스 현행 경로다(릴레이 컨테이너·스레드도
+  없다, `MovementMultiInstanceOffTest` 가 고정). **옵트아웃한 채 2대 이상이면** 같은 섬 방이 인스턴스마다 따로 생겨 서로 안 보인다.
+- **ON 의 고정 비용(1대여도)**: 전용 스레드 3(`movement-cluster`·`movement-relay-in`·`movement-relay-out`), 1초마다 소유 섬별
+  RENEW(EVAL) + PING PUBLISH + 내 세션 섬 MGET 감시, 자기 세션 프레임도 Redis 메아리로 받는다(왕복 1회 지연). 명령은 EVAL·
+  PUBLISH·SUBSCRIBE·GETDEL·MGET·SET 을 쓴다 — realtime Redis 에는 아직 ACL 이 없다(GROMO-1744, dev·prod 모두 ACL 파일 없음)라
+  지금은 막히지 않는다. ACL 을 걸 때 아래 「ACL 이 걸리는 날」 목록을 같이 넣어야 이동이 fail-closed 로 멈추지 않는다.
+- **ON — 섬마다 소유자 한 곳.** `MovementOwnership`(Lua ACQUIRE/RENEW/RELEASE) 리스를 든 인스턴스만 `RoomRuntime` 을 돌린다.
+  세션 키는 `<instanceId>:<sessionId>`. 비소유 인스턴스 세션의 명령은 `chat:movement:cmd:v1` 로 소유자에게, 소유자의
+  프레임은 `chat:movement:frames:v1` 로 전원에게 — **소유자도 자기 메아리로만 자기 세션에 넣는다**(전달 경로 하나).
+  봉투(`MovementRelay.Frame`·`Command`)는 인스턴스 사이 전용이고 `payload` 는 앱 wire JSON 그대로다.
+- **스레드**: `movement-cluster`(1, 라우팅·소유권·1초 감시 — 인바운드 스레드는 넣기만 한다), `movement-relay-in`(1, 전용
+  `RedisMessageListenerContainer` — 채팅 컨테이너와 섞으면 순서가 깨진다), `movement-relay-out`(1, Snapshot·INTENT 줄 4096 +
+  제어 줄 1024(reliable 프레임과 JOIN·LEAVE·FULL_STATE·RECHECK·PING·EVICTED·RESYNC, 먼저 낸다) + 파이프라인 PUBLISH. 차면
+  Snapshot·INTENT 는 `dropped{kind=frame}`, 제어 명령은 `dropped{kind=control}`, reliable 프레임은 아래 RESYNC).
+- **fail-closed**: 리스 상실 → 방 `evict`·발행 중단. 리스는 마지막 성공 갱신을 «보낸 시각»부터 수명의 9/10(2.7초)까지만
+  믿는다 — 넘으면 `MovementOwnership.lease()` 가 null 이라 감시 스레드가 밀려도 발행·명령 적용이 즉시 멈추고, 다음 감시가
+  `lost{expired}` 로 방을 버린다(남의 값이면 `lost{stolen}`). 본 epoch 보다 작은 프레임은 버린다. 소유자가
+  바뀌면 그 섬 내 세션 전부 게이트를 닫고(resync) 새 소유자에 다시 입장 → 세션 한정 FullState(wire 무변경).
+- **인계(단계 B)**: 소유자 종료는 수명주기 단계 1(`SmartLifecycle` — 웹 서버 종료 뒤·Lettuce(단계 0) 종료 전)에서 위치를
+  `movement:room:{id}:handoff` 에 남기고, 송신 줄을 비운 «뒤» 리스를 내놓는다(먼저 내놓으면 남은 프레임이
+  `stale_queue` 로 버려진다). 수명주기는 되돌릴 수 있다 — `stop()` 뒤 `start()` 가 송신·감시를 다시 세운다(Spring 7 테스트 컨텍스트
+  일시정지가 실제로 이것을 부른다. 예전엔 재개 뒤 실행기가 죽은 채라 이동 명령이 «길잡이 종료 중»으로 전부 버려졌다). relay-in 실행기는
+  빈 수명(`@PreDestroy`)이라 컨테이너가 계속 쓴다. `@PreDestroy` 로 옮기지 마라 — 그때는 Redis 연결이 이미 닫혀 있어
+  인계가 조용히 실패하고 남은 인스턴스가 리스 만료(3초)를 기다린다(실측).
+- **강퇴·교체**: `MovementSubscriptionListener.recheckMembership` 은 로컬 재검사 + RECHECK 브로드캐스트(각자 자기 세션만,
+  캐시 삭제 실패 표시 `cacheStale` 동반). 강퇴 사건은 한 노드만 받으므로 RECHECK 를 제어 줄에 못 넣거나 PUBLISH 가 실패하면
+  버리지 않고 표시해 두었다가 1초 감시가 성공할 때까지 다시 보낸다(`movement.relay.recheck.retry{reason=dropped|publish}`).
+  받는 쪽은 멱등이다(두 번 오면 재판정을 새로 시작할 뿐). PING 대조는 멤버십을 다시 보지 않는다. 다른 인스턴스에서 같은 사용자가 새로 들어오면 소유자가 SUPERSEDE 프레임으로 옛
+  세션을 멈추고 그 세션 intent 를 버린다. PING(1초)이 5초 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다.
+- **PING 대조(제어 명령 유실·생존 신호 복구)**: PING 은 그 인스턴스가 남의 방에 입장해 있다고 믿는 세션 목록(`섬|세션`)을
+  싣는다. 소유자는 PING 마다 목록과 자기 방을 맞춘다 — 목록에 없는 그 인스턴스 actor 는 내보내고(LEAVE 유실), 목록에 있는데
+  방에 없는 세션은 `EVICTED` 로 알려 그 세션만 resync + JOIN·FULL_STATE 로 다시 입장시킨다(JOIN·첫 FullState 요청 유실,
+  생존 신호 단절로 제거된 뒤 복구). 1초마다 되풀이되므로 EVICTED 가 유실돼도 다음 PING 이 다시 보낸다 — 비소유 쪽의
+  «내 PING 이 끊겼다 복구됨» 감지는 따로 두지 않았다.
+- **세션 한정 FullState 유실**: JOIN 은 됐는데 FULL_STATE 명령이나 그 응답을 잃으면 게이트가 닫힌 채 남는다(PING 대조는 actor 가
+  있으니 정상으로 본다). 감시가 «게이트가 닫힌 지 2초 넘은» 내 세션의 FULL_STATE 를 상한 없이 약 2초마다(재요청이 시각을 다시 찍어 실제 2~3초)
+  다시 요청한다
+  (`movement.fullstate.retry`, 멈춘 세션 제외 — 재개 때 처리기가 요청한다).
+- **reliable 프레임 유실**: 버려도 되는 건 Snapshot(·INTENT)뿐이라 그것만 사건 줄(4096, `dropped{kind=frame}`)로 간다.
+  FullState·PathAccepted·Arrived·MoveRejected·SUPERSEDE 는 제어 줄로 간다. 제어 줄이 차거나 PUBLISH 가 실패해 이것을 잃으면
+  소유자가 그 섬에 «재동기화 필요»를 남기고(`movement.relay.resync{reason=dropped|publish}`) 다음 감시 틱에 `RESYNC` 를
+  돌린다. 그러면 모든 인스턴스가 그 섬 세션을 resync 하고 세션 한정 FullState 를 다시 요청한다. 게이트가 이미 열린 세션은
+  FullState 재요청 대상이 아니고 PING 은 앱의 actor 목록을 모르기 때문에 이 경로가 필요하다.
+- **줄에 머무는 사이 리스 상실**: 송신 스레드가 배치를 꺼낸 뒤 프레임마다 지금 리스 «세대»를 다시 보고(같은 epoch 재획득도 구분), 없거나 다르면 PUBLISH
+  직전에 버린다(`routing.failed{stale_queue}`). 큐 체류 창은 이것으로 닫히고, 남는 것은 재확인~PUBLISH 사이 μs 뿐이다.
+- **옛 방의 늦은 콜백**: 방은 만들 때의 리스 세대(`Lease.generation`, 새 리스 기록마다 증가 — 같은 epoch 재획득도 구분)에 묶인
+  콜백(`RoomRuntime.Listener.forRoom`)을 받는다. 리스를 잃고 다시 얻은 뒤 틱 스레드가 옛 방을 한 번 더 돌려도 그 사건은
+  `routing.failed{stale_room}` 으로 버린다.
+- **지표**: `movement.owner.{acquire{trigger},lost{reason},islands,forward{type},forward.stale{reason}}`,
+  `movement.routing.failed{reason=redis|no_lease|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`.
+
 ## Redis keys (A19 namespace table)
 
 Only these. Adding a pattern means updating `common/redis/RedisKeys` **and** the
-architecture decision A19 table.
+architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다중 인스턴스 플래그(기본 ON)가 쓴다 — 1대여도 생긴다.
 
 | Key | Writer | This service | Purpose |
 | --- | --- | --- | --- |
@@ -218,7 +273,17 @@ architecture decision A19 table.
 | `lock:chat:sea:emote:try:{userId}` | realtime | read/write | 바다 방 이모트 발신 시도 창(600ms, 사용자 축) |
 | `lock:chat:sea:emote:{roomId}:{userId}` | realtime | read/write | 바다 방 이모트 성공 창(3초) |
 | `chat:sea:v1` | realtime | pub/sub | 인스턴스 간 **바다 방 사건** 전파(Pub/Sub). `chat:events:v1` 과 모양이 달라 나눈다 |
+| `movement:owner:{islandId}` | realtime | read/write (Lua) | 섬 이동 방 소유자 리스 `<instanceId>:<epoch>`, PX 3000, 1초 갱신(GROMO-2339). 플래그 기본 ON — 옵트아웃(false) 하면 만들지 않는다 |
+| `movement:epoch` | realtime | read/write (Lua) | 소유권 세대 카운터 `max(직전+1, TIME ms)`. **TTL 없음** — 지우면 시각으로 다시 시작하지만 같은 ms 안의 +1 몇 개만큼 뒤로 갈 수 있다 |
+| `movement:room:{islandId}:handoff` | realtime | read/write | 종료하는 소유자의 위치 스냅샷 JSON, PX 30000. 새 소유자가 GETDEL |
+| `chat:movement:cmd:v1` | realtime | pub/sub | 비소유 → 소유자 이동 명령, RECHECK·PING 은 전원 |
+| `chat:movement:frames:v1` | realtime | pub/sub | 소유자 → 전 인스턴스 이동 프레임(소유자 자신도 이 메아리로 받는다) |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
+
+**ACL 이 걸리는 날 이동 다중 인스턴스에 필요한 것**(지금은 dev·prod 모두 realtime Redis 에 ACL 파일이 없어 고칠 파일이 없다 — GROMO-1744):
+키 `~movement:*`, 채널 `&chat:movement:*`, 명령 `+eval +evalsha +publish +subscribe +getdel +mget`(Lua 안의 `TIME`·`PEXPIRE` 는
+EVAL 권한 아래에서도 각각 허용돼야 한다 — `+time +pexpire +set +get +del`). 빠지면 소유자 획득이 실패해 그 섬 이동 명령이 전부
+`movement.routing.failed{reason=redis}` 로 떨어진다(fail-closed).
 
 **This ownership is a code convention, not an enforced boundary — yet.** A19 says the chat
 Redis user should get `presence:*` through a **separate read-only ACL selector**
@@ -248,7 +313,7 @@ designed fresh.
 | `SUB /topic/islands/{islandId}/emotes` | 응원 수신. 그 섬의 **본인 진행 세션(active·paused)** 이 있어야 한다 |
 | `SEND /app/islands/{islandId}/focus/emotes` | 응원 발신, body `{sessionId,type}`. 성공은 브로드캐스트가 ack |
 | `SUB /topic/islands/{islandId}/events` | 섬 소식(GROMO-2302) — 지금은 `island.member.arrived{islandId,userId,name,catColor,arrivedAt}`(주민 첫 도착) 하나. **현재 소속 주민만**: 구독 때 사용자 축 시도 창 `lock:chat:events:sub:{userId}` 600ms(초과는 ERROR `MOVEMENT_TOO_FREQUENT`) → `requireMember`(집중 검사 없음, 비주민은 ERROR `NOT_A_MEMBER` 뒤 연결 종료). 전달 직전 프레임마다 캐시 멤버십을 다시 본다 — 비주민·조회 불가는 프레임만 버리고(fail-closed) 소켓은 유지, 강퇴는 `MEMBER_REMOVED` 캐시 삭제 + TTL 120s 가 상한(evict 실패 시 TTL 120s 잔여 창 — 전달 경로의 stale 표시·`requireMemberUncached` 보강은 후속). 배포 순서·점검·되돌릴 신호는 LLD §9. 관측(GROMO-2332): 카운터 `realtime.island.subscribe.total{channel=events|movement,result=allow|deny,code=<거절 코드|none>}`(snapshot 구독도 `movement` 로 센다·짝 토픽의 판정 이어받기도 allow 라 movement allow 는 접속당 약 2배 — 접속 수 대용으로 읽지 말 것·**인가 판정 거절만** 센다 — 미인증·UUID 형식 거절은 `try` 밖이라 미집계), 거절은 INFO 한 줄(`userId`·`islandId`·destination·`code`), 거절 ERROR 프레임에 헤더 `channel: events|movement` — 앱은 이걸로 events 거절을 가른다(없으면 종전 코드 분류 폴백) |
-| `SUB /topic/islands/{islandId}/movement` | 섬 이동 동기화(GROMO-2247): FullState·PathAccepted·MoveRejected·Arrived — 세션별 직접 전송, **members only**(`requireMember`, 비멤버는 ERROR `NOT_A_MEMBER` 뒤 연결 종료 — 관문 거절은 STOMP ERROR 경로라 close code 는 Spring 이 ERROR 프레임 뒤 세션을 닫을 때의 값(통상 1002)이고 코드가 직접 고르지 않는다). 판정은 세션×섬마다 한 번(사용자 축 시도 창 600ms, 초과는 ERROR `MOVEMENT_TOO_FREQUENT`) — 짝 토픽은 그 세션×섬의 살아 있는(강퇴 전) 판정만 이어받는다. 첫 메시지는 항상 자기 actor 가 든 그 세션 한정 FullState. **1단계는 Realtime 단일 인스턴스 가정** — 방 상태는 이 JVM 메모리에만 있고 인스턴스 간 팬아웃이 없다(다중 인스턴스 소유권은 2단계). 구독 인가 관측은 `realtime.island.subscribe.total{channel=movement,…}`, 거절 ERROR 프레임에 헤더 `channel: movement`(GROMO-2332) |
+| `SUB /topic/islands/{islandId}/movement` | 섬 이동 동기화(GROMO-2247): FullState·PathAccepted·MoveRejected·Arrived — 세션별 직접 전송, **members only**(`requireMember`, 비멤버는 ERROR `NOT_A_MEMBER` 뒤 연결 종료 — 관문 거절은 STOMP ERROR 경로라 close code 는 Spring 이 ERROR 프레임 뒤 세션을 닫을 때의 값(통상 1002)이고 코드가 직접 고르지 않는다). 판정은 세션×섬마다 한 번(사용자 축 시도 창 600ms, 초과는 ERROR `MOVEMENT_TOO_FREQUENT`) — 짝 토픽은 그 세션×섬의 살아 있는(강퇴 전) 판정만 이어받는다. 첫 메시지는 항상 자기 actor 가 든 그 세션 한정 FullState. 방 상태는 JVM 메모리다 — 플래그 ON(기본)이면 섬별 소유자 인스턴스 한 곳(1대여도 Redis 리스 경로), 옵트아웃(false)이면 단일 인스턴스 가정(위 「섬 이동 다중 인스턴스」, GROMO-2339). 구독 인가 관측은 `realtime.island.subscribe.total{channel=movement,…}`, 거절 ERROR 프레임에 헤더 `channel: movement`(GROMO-2332) |
 | `SUB /topic/islands/{islandId}/movement/snapshot` | 같은 섬의 위치 Snapshot(≤20Hz, 세션당 최신 1개만 전송). members only. 그 세션이 movement 로 자기 FullState 를 받은 뒤부터만 보낸다 — 그 전(snapshot 먼저 구독 포함)·movement 해지 뒤·재검사로 멈춘 뒤 재동기화 전의 Snapshot 은 버린다 |
 | `SEND /app/islands/{islandId}/movement/intent` | 목적지 전송, body `{commandSeq,navRevision,goalX,goalY}`. movement 구독 보유 세션만; 응답은 PathAccepted/MoveRejected. 사용자당 10/s·순간 20 초과는 조용히 버림 |
 | `SUB /user/queue/sea` | 바다 배정 결과(`sea.room.assigned{roomId}`)·방 스냅샷(`sea.room.snapshot{roomId, members[]}`)은 그 세션 한정(`broadcast=false`). 퇴장 통지 `sea.room.left{roomId, reason}` 는 **이 JVM 의 그 사용자 모든 세션**에 간다 — 방 소속이 사용자 단위라 기기 A 의 leave 가 기기 B 를 같이 빼기 때문(다른 인스턴스의 세션은 못 받는다). 인증만 |

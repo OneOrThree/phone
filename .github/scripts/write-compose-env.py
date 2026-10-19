@@ -46,6 +46,8 @@ LEGACY_OPTIONAL_KEYS = (
     "REALTIME_AUTHORIZATION_WAIT_TIMEOUT", "REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS", "CHAT_DATA_API_MAX_CONCURRENCY",
     # GROMO-2341 STOMP heartbeat(서버 송신·클라이언트 기대 주기 ms). 기본 10000 — 앱 10s/10s 와 같아야 한다.
     "CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS", "CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS",
+    # GROMO-2339 섬 이동 다중 인스턴스 스위치 — 기본 ON(단일 인스턴스에서도 Redis 리스·채널을 탄다). 끄려면 false.
+    "REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED",
 )
 
 # legacy(dev 전용) 에서 «비면 배포 차단» 으로 올린 값. GROMO-2224.

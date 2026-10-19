@@ -12,7 +12,7 @@
 | FullState · PathAccepted · MoveRejected · Arrived | `/topic/islands/{islandId}/movement` | JSON — 식별자 필드명은 §3 의 `actorId` 가 아니라 **`userId`**(서버 `MovementEvent`·앱 `movementSync.ts` 의 wire 키, 정책 MV-D11), 나머지는 §3 과 같은 필드. **Relocated·MapChanged 는 1단계 미구현(2단계 이후 — 어느 범위에 들어갈지는 §7 「2단계 판단」 확정 뒤)** — 서버 `MovementEvent` 는 이 4종 + Snapshot 의 5종뿐이고, actor 집합 변화는 FullState 재전송으로 알린다 수신자: PathAccepted·Arrived 는 방 전원, **MoveRejected 는 요청자 세션에만**(앱은 자기 commandSeq 로 맞춘다), FullState 는 구독 직후 그 세션에 1회 + actor 집합 변화 때 전원 |
 | Snapshot | `/topic/islands/{islandId}/movement/snapshot` | **1단계는 JSON**, 20Hz 이하. 바이너리 본문(§4 Snapshot v1 레이아웃)은 2단계 1차 후보(티켓 2272) |
 
-Join/Welcome 은 구독 성공 뒤 첫 FullState 로 대체하고, 티켓·jti·roomEpoch 는 2단계 QUIC 항목이다(단일 Realtime 인스턴스 가정; 다중 인스턴스 소유권은 2단계 QUIC). TCP 라 손실 시 앞선 프레임을 기다리므로 §4 의 「최신만 보낸다」 규칙을 서버 송신 큐에서 구현한다(수신자별 최신 스냅샷으로 덮어쓰기). 아래 §1~§6 은 2단계(분리 서버·QUIC) 계약이다. §3·§4 의 actorGeneration·epoch 규칙 전체도 2단계 QUIC 계약이다 — 1단계 메시지에는 두 필드가 없다.
+Join/Welcome 은 구독 성공 뒤 첫 FullState 로 대체하고, 티켓·jti·roomEpoch 는 2단계 QUIC 항목이다. Realtime 다중 인스턴스는 **wire 를 바꾸지 않고** 서버 안에서 섬별 단일 소유자로 푼다(GROMO-2339, [ADR A26](../../../architecture/decisions.md), 플래그 `realtime.movement.multi-instance.enabled` 기본 ON, `false` 로 옵트아웃하면 단일 인스턴스 현행 경로 — 어느 쪽이든 wire 는 같다) — 소유자가 바뀌면 그 섬 세션 전원이 **세션 한정 FullState** 를 다시 받는다. 이때 `serverTick` 이 새 소유자 기준으로 바뀌어 앞으로든 뒤로든 뛸 수 있다 — 앱은 FullState 를 기준점으로 다시 잡는다(`movementSync.ts` 의 serverTick 역행 수렴). 위치는 앞 소유자의 종료 인계로 이어지고(인계 없이 소유자를 잃으면 스폰). TCP 라 손실 시 앞선 프레임을 기다리므로 §4 의 「최신만 보낸다」 규칙을 서버 송신 큐에서 구현한다(수신자별 최신 스냅샷으로 덮어쓰기). 아래 §1~§6 은 2단계(분리 서버·QUIC) 계약이다. §3·§4 의 actorGeneration·epoch 규칙 전체도 2단계 QUIC 계약이다 — 1단계 메시지에는 두 필드가 없다.
 
 ## 1. 전송 선택 (2단계 QUIC — 보류)
 
