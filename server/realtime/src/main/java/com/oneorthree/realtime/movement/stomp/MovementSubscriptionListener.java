@@ -73,8 +73,8 @@ import java.util.regex.Matcher;
  * <h2>스레드 둘</h2>
  * 판정·재시도는 전용 단일 스레드 {@code movement-recheck}, 송신 워치독과 <b>모든 소켓 종료</b>는 별도
  * {@code movement-watchdog}(2스레드)다 — 상류 장애로 판정이 줄을 서도 굳은 송신 해제·종료가 돌고, 막힌
- * 클라이언트의 blocking close 가 판정 스레드를 잡지 않는다. 둘 다 틱 스레드·브로커 스케줄러
- * ({@code messageBrokerTaskScheduler}, 하트비트)와 따로다.
+ * 클라이언트의 blocking close 가 판정 스레드를 잡지 않는다. 둘 다 틱 스레드·브로커 heartbeat 전용 스케줄러
+ * ({@code realtime-heartbeat}, {@code WebSocketConfig} — GROMO-2341 전에는 heartbeat 가 꺼져 있었다)와 따로다.
  */
 @Slf4j
 @Component

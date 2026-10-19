@@ -3,6 +3,7 @@ package com.oneorthree.realtime.event;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.config.OutboundAuthzCache;
 import com.oneorthree.realtime.membership.CurrentMembershipDecisionCache;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
@@ -64,6 +65,8 @@ import java.util.stream.Collectors;
  *       {@code type} 만 보면 같은 길로 소비된다.</li>
  *   <li>그 밖의 type — 400. 계약 밖의 사건을 조용히 삼키지 않는다.</li>
  * </ul>
+ * 셋(탈퇴·차단·멤버십 변경)은 원 캐시를 고친 <b>뒤에</b> 전달 직전 인가 결정 캐시({@link OutboundAuthzCache})에서 그 사용자를
+ * 지운다(GROMO-2340) — 먼저 지우면 그 사이의 판정이 아직 옛 Redis 값으로 허용을 다시 담는다.
  *
  * <h2>왜 주민 사건 둘만 여는가</h2>
  * 종전 주석이 전달을 닫아 둔 조건은 세 가지였고, 그 셋이 이제 둘에 대해서만 충족됐다.
@@ -130,6 +133,7 @@ public class InboundEventService {
     private final MovementSubscriptionListener movementSubscriptions;
     private final SeaRooms seaRooms;
     private final CurrentMembershipDecisionCache currentMembershipCache;
+    private final OutboundAuthzCache outboundAuthzCache;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -160,6 +164,7 @@ public class InboundEventService {
             // sea.member.updated(ended) 를 내지 않는다(2299 와의 계약). 안 치우면 focusing 유령이 sea:adrift 색인에도 없어
             // 10분 정리가 못 잡고 해시 TTL(24h)까지 정원을 차지한다. 방에 없으면 no-op, Redis 실패만 던진다(재전달).
             seaRooms.leaveCurrent(withdrawn, SeaRooms.LEFT);
+            outboundAuthzCache.evictUser(withdrawn);
         } else if (USER_BLOCKS_UPDATED.equals(type)) {
             advanceBlockGeneration(eventId, envelope);
         } else if (SEA_MEMBER_UPDATED.equals(type)) {
@@ -247,22 +252,31 @@ public class InboundEventService {
             // 옛 Data — 사용자를 모르니 그 섬의 ON 모드 허용 결정을 통째로 지운다(채팅 경계가 강퇴자를 TTL 동안 통과시키지 않게).
             // Redis 멤버십 캐시는 사용자 키라 TTL 로만 닫힌다.
             log.debug("주민 사건에 memberUserId 가 없다 — 옛 Data. 섬 허용 캐시를 지우고 Redis 캐시는 TTL 로 닫는다.");
-            if (islandId != null) {
-                currentMembershipCache.evictIsland(islandId);
-            }
+            evictIsland(islandId);
             return false;
         }
         try {
             UUID member = UUID.fromString(memberUserId.stringValue());
             currentMembershipCache.evictUser(member); // ON 모드 허용 결정 — Redis 캐시 삭제 성패와 무관하게 먼저
-            return !membershipService.evict(member);
+            boolean failed = !membershipService.evict(member);
+            outboundAuthzCache.evictUser(member); // 전달 직전 허용 — 원 캐시를 고친 «뒤»(GROMO-2340)
+            return failed;
         } catch (IllegalArgumentException e) {
             // 사용자를 모르는 것과 같다 — 섬 단위로 지운다.
             log.warn("memberUserId 가 UUID 형식이 아닙니다 — 섬 허용 캐시만 지웁니다.");
-            if (islandId != null) {
-                currentMembershipCache.evictIsland(islandId);
-            }
+            evictIsland(islandId);
             return false;
+        }
+    }
+
+    /**
+     * 사용자를 모르는 멤버십 사건 — 그 섬의 허용 결정을 두 캐시 모두에서 지운다. ON 모드 결정이 먼저, 전달 직전 허용이 뒤다
+     * (사용자 키인 Redis 멤버십 캐시는 고칠 수 없어 TTL 로 닫힌다 — 전달 직전 허용도 그 원본 만료를 넘지 않는다).
+     */
+    private void evictIsland(UUID islandId) {
+        if (islandId != null) {
+            currentMembershipCache.evictIsland(islandId);
+            outboundAuthzCache.evictIsland(islandId);
         }
     }
 
@@ -284,6 +298,7 @@ public class InboundEventService {
             return;
         }
         blockedUsers.advanceGeneration(blockerId);
+        outboundAuthzCache.evictUser(blockerId);
     }
 
     /** 전달 어댑터가 있는 사건만 7필드로 바꿔 섬 토픽으로 보낸다. 나머지는 기록만 하고 끝낸다. */

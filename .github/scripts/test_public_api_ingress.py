@@ -42,6 +42,8 @@ class PublicApiIngressTest(unittest.TestCase):
         include = (ROOT / "server/scripts/nginx-satellites.include.conf.example").read_text()
         include = include.replace("__BUSINESS_UPSTREAM__", "business")
         include = include.replace("__NOTIFICATION_UPSTREAM__", "127.0.0.1:18082")
+        # Realtime(/ws/realtime, GROMO-2341)도 합성 주소다 — 이 테스트는 WebSocket 을 열지 않고 라우팅 구문만 쓴다.
+        include = include.replace("__REALTIME_UPSTREAM__", "127.0.0.1:18084")
         (cls.directory / "routes.conf").write_text(include)
         fields = {
             "backend": "$server_port", "uri": "$request_uri", "method": "$request_method",

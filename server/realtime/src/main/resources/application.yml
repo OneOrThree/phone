@@ -94,6 +94,24 @@ chat:
     # 빈 값이면 앱 접속까지 403 이다 — 환경마다 API 도메인을 넣는다(dev 는 SM gromo/dev/env, GROMO-2175).
     # 기본값을 비워 두는 이유는 WebSocketConfig#allowedOrigins javadoc.
     allowed-origins: ${CHAT_WS_ALLOWED_ORIGINS:}
+    # 아웃바운드 송신 예산(GROMO-2340) — 근거·포화 정책은 OutboundSendBudget javadoc.
+    outbound:
+      core-threads: 0 # 0 = CPU×2(Spring 기본)
+      max-threads: 0 # 0 = core. 유한 큐에서 max>core 는 큐가 찬 «뒤»에야 늘어난다
+      # 조사 최대 대기 13,724작업은 프레임당 상류 조회를 걷어내기 전 값이다 — 차면 채팅 세션은 1008 OUTBOUND_QUEUE_FULL.
+      queue-capacity: 10000
+      # 전달 직전 인가 «허용» 캐시(OutboundAuthzCache). membership.cache-ttl-seconds 를 넘지 않게 잘린다. 0 = 끔.
+      authz-cache-ttl-seconds: 30
+    # STOMP heartbeat(GROMO-2341) — CONNECTED heart-beat:<server-ms>,<client-ms>. 클라이언트가 3×max(client-ms, 앱 송신 주기)
+    # 동안 아무것도 안 보내면 SimpleBroker 가 세션을 닫는다. 앱(islandRealtime.ts) 10s/10s 와 Cloudflare 유휴 100s 사이 값이다.
+    heartbeat:
+      server-ms: ${CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS:10000}
+      client-ms: ${CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS:10000}
+    # 세션별 송신 상한 — Spring 기본값을 명시만 한다(MovementOutbox 워치독 15s 가 send-time 10s 를 전제한다).
+    transport:
+      send-time-limit-ms: 10000
+      send-buffer-size-limit-bytes: 524288
+      message-size-limit-bytes: 65536
 
 # Data 내부 인가를 먼저 켜고(프로필·전용 토큰) sid/gen 없는 AT 소진을 확인한 뒤 명시적으로 켠다.
 # OFF에서는 기존 멤버십 캐시를 유지하며 새 서비스 자격은 필요하지 않다.

@@ -40,6 +40,10 @@ location ^~ /static/ {
 }
 
 # 2.0 앱의 islandRealtime.ts가 이 WSS 경로로 연결한다. 인증은 STOMP CONNECT에서 검사한다.
+# 유휴 연결 유지(GROMO-2341): 서버·앱이 STOMP heartbeat 10s/10s 를 주고받으므로 살아 있는 연결은 10초마다 양방향
+# 바이트가 흐른다. read·send 3600s 는 «죽은 연결 정리»가 아니라 상한일 뿐이다 — 끊긴 상대는 Realtime 이 heartbeat
+# 3회(30s) 미수신으로 닫는다. send 를 기본 60s 로 두면 서버→앱 방향만 조용한 구간에서 프록시가 먼저 끊을 수 있어 명시한다.
+# 1.x 의 /ws/chat 은 이 include 가 열지 않는다(2.0 표면만 둔다).
 location = /ws/realtime {
     proxy_pass http://127.0.0.1:8081;
     proxy_http_version 1.1;
@@ -49,6 +53,7 @@ location = /ws/realtime {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_connect_timeout 2s;
     proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
     proxy_next_upstream off;
 }
 

@@ -245,7 +245,8 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener,
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
-                mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class));
+                mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
 
@@ -265,7 +266,8 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), membership, mock(BlockedUsers.class), listener,
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
-                mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class));
+                mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
         UUID evicted = UUID.randomUUID();
@@ -286,9 +288,11 @@ class InboundEventServiceTest {
         given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
                 .willReturn(1);
         var decisions = mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class);
+        var outbound = mock(com.oneorthree.realtime.config.OutboundAuthzCache.class);
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
-                mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions);
+                mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
+                outbound);
         UUID kicked = UUID.randomUUID();
         UUID gone = UUID.randomUUID();
 
@@ -303,12 +307,14 @@ class InboundEventServiceTest {
         plain.accept(objectMapper.readTree(membersUpdated(island, "MEMBER_REMOVED", null, 9)
                 .replace(",\"memberUserId\":\"null\"", "")));
         verify(decisions).evictIsland(island);
+        verify(outbound).evictIsland(island); // 전달 직전 허용도 섬 단위로(GROMO-2340)
 
         // 형식 불량 memberUserId — 사용자를 모르는 것과 같아 섬 단위로 지운다
         UUID island2 = UUID.randomUUID();
         plain.accept(objectMapper.readTree(membersUpdated(island2, "MEMBER_REMOVED", null, 10)
                 .replace("\"memberUserId\":\"null\"", "\"memberUserId\":\"not-a-uuid\"")));
         verify(decisions).evictIsland(island2);
+        verify(outbound).evictIsland(island2);
     }
 
     @Test
@@ -324,6 +330,43 @@ class InboundEventServiceTest {
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?", Long.class,
                 objectMapper.readTree(event).get("eventId").stringValue())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("멤버십·차단·탈퇴 사건은 원 캐시를 고친 «뒤» 전달 직전 인가 캐시에서 그 사용자를 지운다(GROMO-2340)")
+    void outboundAuthzCacheIsEvictedAfterTheSourceCache() throws Exception {
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        MembershipService membership = mock(MembershipService.class);
+        BlockedUsers blocks = mock(BlockedUsers.class);
+        ChatUserFence fence = mock(ChatUserFence.class);
+        com.oneorthree.realtime.config.OutboundAuthzCache cache =
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class);
+        var decisions = mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class);
+        InboundEventService plain = new InboundEventService(plainJdbc, fence, mock(EventRouter.class), membership,
+                blocks, mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class),
+                decisions, cache);
+        UUID kicked = UUID.randomUUID();
+        UUID blocker = UUID.randomUUID();
+        UUID leaver = UUID.randomUUID();
+        given(membership.evict(kicked)).willReturn(true);
+
+        plain.accept(objectMapper.readTree(membersUpdated(UUID.randomUUID(), "MEMBER_REMOVED", kicked, 4)));
+        plain.accept(objectMapper.readTree(blocksUpdated(UUID.randomUUID().toString(),
+                "\"blockerUserId\":\"" + blocker + "\"")));
+        plain.accept(objectMapper.readTree(withdrawn(leaver, 1)));
+
+        // 순서: ON 모드 허용 결정(2342) → 원 캐시·펜스 → 전달 직전 허용(2340)
+        var order = org.mockito.Mockito.inOrder(decisions, membership, blocks, fence, cache);
+        order.verify(decisions).evictUser(kicked);
+        order.verify(membership).evict(kicked);
+        order.verify(cache).evictUser(kicked);
+        order.verify(blocks).advanceGeneration(blocker);
+        order.verify(cache).evictUser(blocker);
+        order.verify(decisions).evictUser(leaver);
+        order.verify(fence).withdraw(leaver, 1);
+        order.verify(cache).evictUser(leaver);
     }
 
     /** Data outbox 정본 봉투 — {@code IslandMembershipEvents#changed} 가 내보내는 params 모양 그대로다. */
