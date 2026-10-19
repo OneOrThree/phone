@@ -5,6 +5,7 @@ import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
+import com.oneorthree.realtime.common.redis.Sourced;
 import com.oneorthree.realtime.event.RealtimeEventDelivery;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import org.junit.jupiter.api.BeforeEach;
@@ -306,8 +307,27 @@ class ChatOutboundChannelInterceptorTest {
 
     private final OutboundAuthzCache cache = new OutboundAuthzCache(
             java.util.concurrent.TimeUnit.SECONDS.toNanos(30), System::nanoTime, meters);
+    private final OutboundMembershipSource membershipSource = mock(OutboundMembershipSource.class);
     private final ChatOutboundChannelInterceptor cached = new ChatOutboundChannelInterceptor(sessions, jwt, guard,
-            delivery, new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms, meters, cache);
+            delivery, new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms, meters, cache, membershipSource);
+
+    /** 캐시 켠 경로의 원본 만료 — 멤버십은 제한 없음, 차단은 같은 판정(hasBlocked 스텁)을 만료 제한 없이 돌려준다. */
+    @BeforeEach
+    void sourcedJudgments() {
+        when(membershipSource.notAfter(any(), any())).thenReturn(Sourced.UNBOUNDED);
+        when(blockedUsers.hasBlockedSourced(any(), any())).thenAnswer(invocation -> new Sourced<>(
+                blockedUsers.hasBlocked(invocation.getArgument(0), invocation.getArgument(1)), Sourced.UNBOUNDED));
+    }
+
+    @Test
+    void decisionIsNotCachedWhenTheMembershipSourceNoLongerSaysMember() {
+        // 판정(관문) 뒤 원본이 비멤버 값으로 갈렸다 — OutboundMembershipSource 가 EXPIRED 를 주면 담지 않는다.
+        when(membershipSource.notAfter(island, user)).thenReturn(Sourced.EXPIRED);
+        UUID sender = UUID.randomUUID();
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNotNull();
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNotNull();
+        verify(guard, org.mockito.Mockito.times(2)).requireCanChat(island, user, "Bearer token");
+    }
 
     @Test
     void allowedChatDecisionIsReusedButJwtIsStillCheckedEveryFrame() throws Exception {

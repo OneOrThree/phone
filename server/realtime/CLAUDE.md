@@ -160,10 +160,12 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   JWT 재검증·**채팅의 집중 검사**(무효화 사건이 없고 규칙 2가 즉시 차단이다 — `ChatWebSocketIntegrationTest` 가 잡는다)·응원 수신
   대상 대조·바다 방 `HGET` 은 프레임마다 그대로. 무효화: `InboundEventService` 가 멤버십 변경·차단 세대·탈퇴를 **원 캐시를 고친 뒤**
   `evictUser`, 소켓 종료가 `evictSession`. 남는 창(TTL 상한): 다른 인스턴스(이 캐시는 JVM 안), ON 모드 세션 폐기(사건 없음).
-  허용의 만료는 그 판정이 기댄 원본 캐시의 남은 수명(PTTL, 담는 미스 경로에서만 원본당 1회)으로 잘린다 — 멤버십(채팅·`events`)은
-  `cache:chat:member:{userId}`, 차단(필터 ON 에서 실제 조회한 채팅·`events`·응원)은 받는 사람의 `cache:chat:block:{userId}`.
-  그래서 강퇴 반영 상한은 여전히 멤버십 TTL, 차단의 사건 유실·relay OFF 백스톱은 여전히 `realtime.blocks.cache-ttl-seconds` 다.
-  원본 키가 없거나 PTTL 이 실패하면 담지 않는다. ON(verifier) 모드의 멤버십은 원본이 없어 30s 그대로(차단 원본은 그대로 본다).
+  허용의 만료는 그 판정에 **쓴 원본 값의** 만료까지다 — 값과 PTTL 을 한 원자 단위(Lua GET+PTTL, `common/redis/Sourced`)로 읽는다.
+  따로 읽으면 그 사이 다른 요청이 원본을 새 값·새 TTL 로 갈아 옛 판정이 새 수명을 얻는다. 멤버십(채팅·`events`)은 관문 판정 뒤
+  `OutboundMembershipSource` 가 `cache:chat:member:{userId}` 를 원자 읽기해 그 값도 멤버일 때만 그 만료를 쓰고(비멤버·없음 → 담지 않음),
+  차단(필터 ON 에서 실제 조회한 채팅·`events`·응원)은 `BlockedUsers.hasBlockedSourced` 가 판정 집합과 `cache:chat:block:{userId}` 의 PTTL 을
+  함께 준다(MGET 대신 Lua 1회, 정본 재조회면 조회 시작 + TTL). 강퇴 상한은 멤버십 TTL, 차단 백스톱은 `realtime.blocks.cache-ttl-seconds`
+  그대로다. ON(verifier) 멤버십은 원본이 없어 30s. `OutboundAuthzCache` 는 Redis 를 읽지 않는다.
 - **운영 신호**: 큐 깊이 `executor.queued{name=realtime-outbound}`(+`executor.active`·`executor.queue.remaining`),
   `realtime.outbound.dropped{reason=queue_full|session_limit|closing}`(`session_limit` = Spring 이 4500 `SESSION_NOT_RELIABLE` 로 닫은
   세션 — 송신 시간·버퍼 초과가 같은 코드라 구분 불가, CONNECT 없는 60s 세션 정리도 섞인다), 소켓 쓰기 시간

@@ -1,14 +1,11 @@
 package com.oneorthree.realtime.config;
 
-import com.oneorthree.realtime.common.redis.RedisKeys;
-import com.oneorthree.realtime.membership.CurrentMembershipVerifier;
+import com.oneorthree.realtime.common.redis.Sourced;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -17,8 +14,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
-import java.util.Set;
-import java.util.function.ToLongBiFunction;
 
 /**
  * 전달 직전 인가의 «허용» 결정 캐시 (GROMO-2340) — 키는 (세션, 판정 범위), 값은 만료 시각.
@@ -56,15 +51,17 @@ import java.util.function.ToLongBiFunction;
  * <h2>허용은 그 판정의 원본 캐시보다 오래 살지 않는다</h2>
  * 판정이 Redis 캐시로 통과했다면 그 원본의 남은 수명이 1초일 수 있다. 거기에 새로 30초를 주면 사건 유실·relay OFF·Redis 삭제
  * 실패 때 원본이 만료돼 다시 물었어야 할 시점 뒤로 최대 29초 동안 강퇴자·차단한 발신자의 프레임이 나간다 — 「강퇴 반영 상한 =
- * 멤버십 TTL」「차단 TTL 백스톱」이 깨진다. 그래서 담는 순간({@link #allow}, 미스 경로에서만 — hit 경로엔 I/O 가 없다) 그
- * 판정이 기댄 원본 키마다 PTTL 1회를 읽어 만료를 {@code min(우리 TTL, 원본 남은 수명들)} 로 자른다. 키가 없거나 PTTL 이
- * 실패하면 담지 않는다(fail-closed), 수명 없음(-1)이면 제한 없음.
+ * 멤버십 TTL」「차단 TTL 백스톱」이 깨진다. 그래서 호출자가 판정에 쓴 원본 값과 <b>그 값의</b> 만료를 한 원자 단위로 읽어
+ * ({@link Sourced}, Lua GET+PTTL) 절대 시각 {@code notAfterNanos} 로 넘기고, 여기서는 {@code min(지금 + 우리 TTL, notAfter)}
+ * 까지만 담는다. 값과 PTTL 을 따로 읽으면 그 사이 다른 요청이 키를 새 값·새 TTL 로 갈아 끼워 옛 판정이 새 수명을 얻는다
+ * (사건이 없으니 {@link #stamp} 도 못 막는다). 원본이 없거나 읽기가 실패하면 {@link Sourced#EXPIRED} — 담지 않는다. 이 클래스는
+ * Redis 를 읽지 않는다.
  * <table>
  *   <caption>판정 → 원본</caption>
- *   <tr><th>{@link Source}</th><th>원본 키</th><th>쓰는 범위</th></tr>
- *   <tr><td>MEMBERSHIP</td><td>{@code cache:chat:member:{userId}} (옵션 ON 은 원본 없음 → 우리 TTL)</td>
+ *   <tr><th>판정</th><th>원본 키</th><th>쓰는 범위</th></tr>
+ *   <tr><td>멤버십</td><td>{@code cache:chat:member:{userId}} (옵션 ON 은 원본 없음 → 우리 TTL)</td>
  *       <td>채팅·{@code events}</td></tr>
- *   <tr><td>BLOCKS</td><td>{@code cache:chat:block:{userId}} (받는 사람 기준 집합, {@code BlockedUsers})</td>
+ *   <tr><td>차단</td><td>{@code cache:chat:block:{userId}} (받는 사람 기준 집합, {@code BlockedUsers})</td>
  *       <td>필터 ON 에서 실제로 조회한 채팅·{@code events}·응원</td></tr>
  * </table>
  * 차단의 세대 키({@code cache:chat:blockgen:*})는 수명이 없고 무효화 신호일 뿐이다 — 집합의 수명은 위 캐시 키가 정한다.
@@ -89,31 +86,15 @@ public class OutboundAuthzCache {
     private final Counter miss;
     private final Counter evict;
 
-    /** 판정이 기댄 원본 캐시 — 그 키의 남은 수명이 허용의 상한이다. */
-    enum Source { MEMBERSHIP, BLOCKS }
-
-    /** (원본, 사용자) → 남은 수명(ns). {@link Long#MAX_VALUE} = 제한 없음, 0 이하 = 담지 않는다. */
-    private final ToLongBiFunction<Source, UUID> sourceRemainingNanos;
 
     @Autowired
     public OutboundAuthzCache(@Value("${chat.websocket.outbound.authz-cache-ttl-seconds:30}") long ttlSeconds,
-            @Value("${chat.membership.cache-ttl-seconds:120}") long membershipTtlSeconds, MeterRegistry meterRegistry,
-            StringRedisTemplate redis, ObjectProvider<CurrentMembershipVerifier> currentVerifier) {
+            @Value("${chat.membership.cache-ttl-seconds:120}") long membershipTtlSeconds, MeterRegistry meterRegistry) {
         this(TimeUnit.SECONDS.toNanos(Math.max(0, Math.min(ttlSeconds, membershipTtlSeconds))), System::nanoTime,
-                meterRegistry, (source, userId) -> switch (source) {
-                    case MEMBERSHIP -> currentVerifier.getIfAvailable() != null ? Long.MAX_VALUE
-                            : remainingNanos(redis, RedisKeys.memberCache(userId));
-                    case BLOCKS -> remainingNanos(redis, RedisKeys.blockCache(userId));
-                });
+                meterRegistry);
     }
 
     OutboundAuthzCache(long ttlNanos, LongSupplier nanoTime, MeterRegistry meterRegistry) {
-        this(ttlNanos, nanoTime, meterRegistry, (source, userId) -> Long.MAX_VALUE);
-    }
-
-    OutboundAuthzCache(long ttlNanos, LongSupplier nanoTime, MeterRegistry meterRegistry,
-            ToLongBiFunction<Source, UUID> sourceRemainingNanos) {
-        this.sourceRemainingNanos = sourceRemainingNanos;
         this.ttlNanos = ttlNanos;
         this.nanoTime = nanoTime;
         this.hit = counter(meterRegistry, "hit");
@@ -124,22 +105,6 @@ public class OutboundAuthzCache {
     /** 꺼진 캐시 — 직접 생성하는 옛 호출부가 종전(프레임마다 판정) 의미를 유지한다. */
     static OutboundAuthzCache disabled() {
         return new OutboundAuthzCache(0, System::nanoTime, new SimpleMeterRegistry());
-    }
-
-    /** 원본 캐시 키의 남은 수명 — 키 없음(-2)·PTTL 실패는 0(담지 않음), 수명 없음(-1)은 제한 없음. */
-    static long remainingNanos(StringRedisTemplate redis, String key) {
-        try {
-            return remainingNanos(redis.getExpire(key, TimeUnit.MILLISECONDS));
-        } catch (RuntimeException e) {
-            return 0;
-        }
-    }
-
-    static long remainingNanos(Long pttlMillis) {
-        if (pttlMillis == null || pttlMillis == -2) {
-            return 0;
-        }
-        return pttlMillis < 0 ? Long.MAX_VALUE : TimeUnit.MILLISECONDS.toNanos(pttlMillis);
     }
 
     private static Counter counter(MeterRegistry registry, String result) {
@@ -170,32 +135,28 @@ public class OutboundAuthzCache {
         return false;
     }
 
+    /** 캐시가 켜져 있는가 — 꺼져 있으면 호출자는 원본 만료를 읽는 수고도 하지 않는다. */
+    boolean enabled() {
+        return ttlNanos > 0;
+    }
+
     /** 원본 캐시 없이 통과한 판정 — 우리 TTL 그대로. */
     void allow(String sessionId, UUID userId, String scope, long stamp) {
-        allow(sessionId, userId, scope, stamp, Set.of());
+        allow(sessionId, userId, scope, stamp, Sourced.UNBOUNDED);
     }
 
     /**
      * 동기 판정이 통과했다 — {@code stamp} 이후 무효화가 있었으면 담지 않는다(담았다가 지운다).
      *
-     * @param sources 그 판정이 기댄 원본 캐시 — 만료를 그 남은 수명들로 자른다
+     * @param notAfterNanos 판정에 쓴 원본 값의 만료({@link Sourced#expiresAtNanos}, 여럿이면 가장 이른 것) — 이 뒤로는 담지 않는다
      */
-    void allow(String sessionId, UUID userId, String scope, long stamp, Set<Source> sources) {
-        if (ttlNanos == 0 || sessionId == null) {
+    void allow(String sessionId, UUID userId, String scope, long stamp, long notAfterNanos) {
+        if (ttlNanos == 0 || sessionId == null || notAfterNanos == Sourced.EXPIRED) {
             return;
         }
-        store(sessionId, userId, scope, stamp, lifetime(userId, sources));
-    }
-
-    private long lifetime(UUID userId, Set<Source> sources) {
-        long lifetime = ttlNanos;
-        for (Source source : sources) {
-            lifetime = Math.min(lifetime, sourceRemainingNanos.applyAsLong(source, userId));
-            if (lifetime <= 0) {
-                return 0;
-            }
-        }
-        return lifetime;
+        long lifetime = notAfterNanos == Sourced.UNBOUNDED ? ttlNanos
+                : Math.min(ttlNanos, notAfterNanos - nanoTime.getAsLong());
+        store(sessionId, userId, scope, stamp, lifetime);
     }
 
     private void store(String sessionId, UUID userId, String scope, long stamp, long lifetimeNanos) {

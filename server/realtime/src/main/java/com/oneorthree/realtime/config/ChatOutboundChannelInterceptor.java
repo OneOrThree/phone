@@ -4,6 +4,7 @@ import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
+import com.oneorthree.realtime.common.redis.Sourced;
 import com.oneorthree.realtime.event.RealtimeEventDelivery;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.sea.SeaRooms;
@@ -22,8 +23,6 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.util.EnumSet;
-import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 
@@ -99,6 +98,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     private final BlockedUsers blockedUsers;
     private final SeaRooms seaRooms;
     private final OutboundAuthzCache authzCache;
+    private final OutboundMembershipSource membershipSource;
 
     /**
      * 바다 방 전달 직전 차단 건수 — {@code sea.deliver.dropped{reason=not_member|redis|jwt}}. debug 로그로는 Redis 장애 중
@@ -117,7 +117,8 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     @Autowired
     public ChatOutboundChannelInterceptor(RealtimeSessionRegistry sessions, JwtValidator jwtValidator,
             ChatAccessGuard accessGuard, @Lazy RealtimeEventDelivery delivery, ObjectMapper objectMapper,
-            BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry, OutboundAuthzCache authzCache) {
+            BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry, OutboundAuthzCache authzCache,
+            OutboundMembershipSource membershipSource) {
         this.sessions = sessions;
         this.jwtValidator = jwtValidator;
         this.accessGuard = accessGuard;
@@ -126,6 +127,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         this.blockedUsers = blockedUsers;
         this.seaRooms = seaRooms;
         this.authzCache = authzCache;
+        this.membershipSource = membershipSource;
         this.seaDroppedNotMember = seaDropped(meterRegistry, "not_member");
         this.seaDroppedRedis = seaDropped(meterRegistry, "redis");
         this.seaDroppedJwt = seaDropped(meterRegistry, "jwt");
@@ -136,7 +138,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             ChatAccessGuard accessGuard, RealtimeEventDelivery delivery, ObjectMapper objectMapper,
             BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry) {
         this(sessions, jwtValidator, accessGuard, delivery, objectMapper, blockedUsers, seaRooms, meterRegistry,
-                OutboundAuthzCache.disabled());
+                OutboundAuthzCache.disabled(), null);
     }
 
     private static Counter seaDropped(MeterRegistry registry, String reason) {
@@ -207,13 +209,15 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
                     accessGuard.requireNotFocusing(principal.userId());
                     return message;
                 }
-                accessGuard.requireCanChat(UUID.fromString(group.group(1)), principal.userId(), bearer);
-                if (filter && blockedUsers.hasBlocked(principal.userId(), sender)) {
+                UUID islandId = UUID.fromString(group.group(1));
+                accessGuard.requireCanChat(islandId, principal.userId(), bearer);
+                Sourced<Boolean> blocked = filter ? blockJudgment(principal.userId(), sender) : NOT_BLOCKED;
+                if (blocked.value()) {
                     log.debug("채팅 전달 차단 — 받는 사람이 발신자를 차단했다");
                     return null;
                 }
                 authzCache.allow(sessionId, principal.userId(), scope, stamp,
-                        sources(true, filter, principal.userId(), sender));
+                        Math.min(membershipNotAfter(islandId, principal.userId()), blocked.expiresAtNanos()));
             } else {
                 accessGuard.requireNotFocusing(principal.userId());
             }
@@ -252,12 +256,13 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
                 return message;
             }
             accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
-            if (filter && blockedUsers.hasBlocked(principal.userId(), arriver)) {
+            Sourced<Boolean> blocked = filter ? blockJudgment(principal.userId(), arriver) : NOT_BLOCKED;
+            if (blocked.value()) {
                 log.debug("섬 소식 전달 차단 — 받는 사람이 도착자를 차단했다");
                 return null;
             }
             authzCache.allow(sessionId, principal.userId(), scope, stamp,
-                    sources(true, filter, principal.userId(), arriver));
+                    Math.min(membershipNotAfter(islandId, principal.userId()), blocked.expiresAtNanos()));
             return message;
         } catch (UpstreamRejectedCredentialException e) {
             // 채팅과 같다 — 자격 자체가 무효면 소켓을 닫아 앱이 갱신·재연결을 시작하게 한다.
@@ -322,12 +327,12 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             if (authzCache.allowed(sessionId, principal.userId(), scope)) {
                 return message;
             }
-            if (blockedUsers.hasBlocked(principal.userId(), sender)) {
+            Sourced<Boolean> blocked = blockJudgment(principal.userId(), sender);
+            if (blocked.value()) {
                 log.debug("응원 전달 차단 — 받는 사람이 발신자를 차단했다");
                 return null;
             }
-            authzCache.allow(sessionId, principal.userId(), scope, stamp,
-                    sources(false, true, principal.userId(), sender));
+            authzCache.allow(sessionId, principal.userId(), scope, stamp, blocked.expiresAtNanos());
         } catch (RuntimeException e) {
             // 차단 판정 불가 — 전달 근거가 없다. 소켓은 유지한다(자격은 여전히 유효하다).
             log.debug("응원 전달 차단 — 차단 판정 불가. reason={}", e.getClass().getSimpleName());
@@ -380,20 +385,20 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         return sender;
     }
 
+    private static final Sourced<Boolean> NOT_BLOCKED = new Sourced<>(false, Sourced.UNBOUNDED);
+
     /**
-     * 그 허용이 기댄 원본 캐시({@link OutboundAuthzCache} 표). 차단은 {@link BlockedUsers#hasBlocked} 가 실제로 집합을
-     * 읽은 경우만 — 필터 OFF·발신자 없음(탈퇴)·본인이면 조회가 없어 원본도 없다.
+     * 차단 판정 — 캐시가 켜져 있으면 판정에 쓴 집합의 만료까지 한 원자 단위로 받는다({@link BlockedUsers#hasBlockedSourced}).
+     * 꺼져 있으면 종전 판정 그대로(만료는 쓰지 않는다).
      */
-    private static Set<OutboundAuthzCache.Source> sources(boolean membership, boolean filter, UUID viewer,
-            UUID sender) {
-        Set<OutboundAuthzCache.Source> sources = EnumSet.noneOf(OutboundAuthzCache.Source.class);
-        if (membership) {
-            sources.add(OutboundAuthzCache.Source.MEMBERSHIP);
-        }
-        if (filter && sender != null && !sender.equals(viewer)) {
-            sources.add(OutboundAuthzCache.Source.BLOCKS);
-        }
-        return sources;
+    private Sourced<Boolean> blockJudgment(UUID viewer, UUID sender) {
+        return authzCache.enabled() ? blockedUsers.hasBlockedSourced(viewer, sender)
+                : new Sourced<>(blockedUsers.hasBlocked(viewer, sender), Sourced.UNBOUNDED);
+    }
+
+    /** 멤버 허용의 만료 상한({@link OutboundMembershipSource}) — 캐시가 꺼져 있으면 읽지 않는다. */
+    private long membershipNotAfter(UUID islandId, UUID userId) {
+        return authzCache.enabled() ? membershipSource.notAfter(islandId, userId) : Sourced.UNBOUNDED;
     }
 
     private static UUID uuidOrNull(String value) {
