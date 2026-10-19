@@ -157,3 +157,5 @@ cAdvisor는 Docker containerd 이미지 저장소 호환성을 위해 `0.55.1`�
 Docker Desktop 조사 compose는 Docker 소켓을 명시적으로 마운트하고 VM의 containerd 소켓을 지정합니다.
 
 Realtime 현재 소속 인가의 동시 요청/한도 및 포화 거절 횟수도 표시합니다. 이 한도에서의 거절은 HTTP 503과 함께 확인합니다. 부하 조사는 현재 인가를 활성화한 상태로 진행합니다.
+
+부하 조사 후속(에픽 2335)의 새 지표는 대시보드 아래쪽 세 행에 모았습니다. 이동 다중 인스턴스(티켓 2339): 소유 섬 수·리스 획득/상실·소유자 전달/폐기·라우팅 실패·릴레이 줄 깊이/지연/버림/재동기화·FullState 재요청. Outbox relay(data-api, 티켓 2337·2338): 대상별 적체·가장 오래된 미전달·claim/send 지연·전달/실패/놓음·적체 스냅샷 실패. 인가 캐시·아웃바운드(realtime, 티켓 2340·2342): 현재 소속 인가 캐시 적중률·결과, 인가 호출 지연·거절, 아웃바운드 인가 캐시·버림·실행기 대기열·소켓 쓰기 p95. `realtime.authorization.duration`과 `outbox.relay.claim|send`는 히스토그램 버킷이 없어 평균·최대로 봅니다. Hikari pending·active는 앞의 「DB 커넥션 풀」 행에 이미 있습니다.

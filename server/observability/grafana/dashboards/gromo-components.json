@@ -3133,6 +3133,1179 @@
           "sort": "desc"
         }
       }
+    },
+    {
+      "id": 66,
+      "type": "row",
+      "title": "이동 다중 인스턴스 · 소유자 리스 (티켓 2339)",
+      "gridPos": {
+        "x": 0,
+        "y": 240,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 67,
+      "type": "timeseries",
+      "title": "이동 소유 섬 수 (인스턴스별)",
+      "description": "인스턴스가 지금 소유자 리스를 든 섬 수. 합이 활성 섬 수, 한 곳에 쏠리면 부하도 쏠립니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 241,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "movement_owner_islands{service=~\"$service\",instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 68,
+      "type": "timeseries",
+      "title": "소유자 리스 획득 · 상실 / 초",
+      "description": "상실 expired 는 리스 갱신 지연(Redis·GC), stolen 은 남이 가져간 것입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 241,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(trigger)(rate(movement_owner_acquire_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "획득 {{trigger}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(reason)(rate(movement_owner_lost_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "상실 {{reason}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 69,
+      "type": "timeseries",
+      "title": "소유자 전달 · 옛 명령 폐기 / 초",
+      "description": "비소유 인스턴스가 소유자로 보낸 명령(type)과, 소유자가 아니거나 epoch 가 달라 버린 명령(reason).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 249,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(type)(rate(movement_owner_forward_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "전달 {{type}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(reason)(rate(movement_owner_forward_stale_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "폐기 {{reason}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 70,
+      "type": "timeseries",
+      "title": "이동 라우팅 실패 / 초",
+      "description": "reason: redis, no_lease, stale_queue, stale_room, publish.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 249,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(reason)(rate(movement_routing_failed_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 71,
+      "type": "timeseries",
+      "title": "이동 릴레이 줄 깊이",
+      "description": "사건 줄 + 제어 줄. 상한 가까이 가면 dropped 가 오릅니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 257,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "movement_relay_queue_depth{service=~\"$service\",instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 72,
+      "type": "timeseries",
+      "title": "이동 릴레이 지연 p95 · 최대",
+      "description": "줄에 넣은 뒤 Redis PUBLISH 가 끝날 때까지.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 257,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by(le,instance)(rate(movement_relay_lag_seconds_bucket{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": "{{instance}} p95",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "max by(instance)(movement_relay_lag_seconds_max{service=~\"$service\",instance=~\"$instance\"})",
+          "legendFormat": "{{instance}} max",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 73,
+      "type": "timeseries",
+      "title": "이동 릴레이 버림 · 재동기화 / 초",
+      "description": "dropped control 은 다음 PING 대조가 고칩니다. resync 는 그 섬 세션 FullState 재요청입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 265,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(kind)(rate(movement_relay_dropped_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "dropped {{kind}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(instance)(rate(movement_relay_stale_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "stale 프레임 {{instance}}",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum by(reason)(rate(movement_relay_resync_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "resync {{reason}}",
+          "range": true
+        },
+        {
+          "refId": "D",
+          "expr": "sum by(reason)(rate(movement_relay_recheck_retry_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "recheck 재시도 {{reason}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 74,
+      "type": "timeseries",
+      "title": "세션 FullState 재요청 / 초",
+      "description": "세션 한정 FullState 를 2초 넘게 못 받아 다시 요청한 수.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 265,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(instance)(rate(movement_fullstate_retry_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 75,
+      "type": "row",
+      "title": "Outbox relay (data-api · 티켓 2337·2338)",
+      "gridPos": {
+        "x": 0,
+        "y": 273,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 76,
+      "type": "timeseries",
+      "title": "Outbox relay 적체 (대상별)",
+      "description": "relay 가 본 대상별 미전달 수.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 274,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(target)(outbox_relay_backlog{service=~\"$service\",instance=~\"$instance\"})",
+          "legendFormat": "{{target}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 77,
+      "type": "timeseries",
+      "title": "Outbox relay 가장 오래된 미전달 (대상별)",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 274,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by(target)(outbox_relay_oldest_pending_age_seconds{service=~\"$service\",instance=~\"$instance\"})",
+          "legendFormat": "{{target}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 78,
+      "type": "timeseries",
+      "title": "Outbox relay 선점(claim) 지연 / 초",
+      "description": "타이머에 히스토그램 버킷이 없어 p95 대신 평균·최대를 봅니다. 횟수는 ops, 평균·최대는 초.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 282,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(target)(rate(outbox_relay_claim_seconds_count{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "claim 횟수 {{target}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(target)(rate(outbox_relay_claim_seconds_sum{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])) / clamp_min(sum by(target)(rate(outbox_relay_claim_seconds_count{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])),1e-9)",
+          "legendFormat": "평균 {{target}}",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "max by(target)(outbox_relay_claim_seconds_max{service=~\"$service\",instance=~\"$instance\"})",
+          "legendFormat": "최대 {{target}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 79,
+      "type": "timeseries",
+      "title": "Outbox relay 전송 지연 / 초",
+      "description": "타이머에 히스토그램 버킷이 없어 p95 대신 평균·최대를 봅니다. 횟수는 ops, 평균·최대는 초.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 282,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(target)(rate(outbox_relay_send_seconds_count{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "send 횟수 {{target}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(target)(rate(outbox_relay_send_seconds_sum{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])) / clamp_min(sum by(target)(rate(outbox_relay_send_seconds_count{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])),1e-9)",
+          "legendFormat": "평균 {{target}}",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "max by(target)(outbox_relay_send_seconds_max{service=~\"$service\",instance=~\"$instance\"})",
+          "legendFormat": "최대 {{target}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 80,
+      "type": "timeseries",
+      "title": "Outbox relay 전달 · 실패 · 놓음 / 초",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 290,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(target)(rate(outbox_relay_delivered_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "전달 {{target}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by(target, retryable)(rate(outbox_relay_failed_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "실패 {{target}} retryable={{retryable}}",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum by(target, reason)(rate(outbox_relay_released_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "놓음 {{target}} {{reason}}",
+          "range": true
+        },
+        {
+          "refId": "D",
+          "expr": "sum by(instance)(rate(outbox_relay_snapshot_failed_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "적체 스냅샷 실패 {{instance}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 81,
+      "type": "row",
+      "title": "인가 캐시 · 아웃바운드 (realtime · 티켓 2340·2342)",
+      "gridPos": {
+        "x": 0,
+        "y": 298,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 82,
+      "type": "timeseries",
+      "title": "현재 소속 인가 캐시 적중률",
+      "description": "hit/(hit+miss). 요청이 없으면 0 으로 보입니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 299,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(realtime_authorization_cache_total{service=~\"$service\",instance=~\"$instance\",result=\"hit\"}[$__rate_interval])) / clamp_min(sum(rate(realtime_authorization_cache_total{service=~\"$service\",instance=~\"$instance\",result=~\"hit|miss\"}[$__rate_interval])),1e-9)",
+          "legendFormat": "적중률",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 83,
+      "type": "timeseries",
+      "title": "현재 소속 인가 캐시 결과 / 초",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 299,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(result)(rate(realtime_authorization_cache_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{result}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 84,
+      "type": "timeseries",
+      "title": "현재 소속 인가 호출 평균 · 최대 (outcome별)",
+      "description": "타이머에 히스토그램 버킷이 없어 p95 대신 평균·최대를 봅니다.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 307,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(outcome)(rate(realtime_authorization_duration_seconds_sum{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])) / clamp_min(sum by(outcome)(rate(realtime_authorization_duration_seconds_count{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])),1e-9)",
+          "legendFormat": "평균 {{outcome}}",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "max by(outcome)(realtime_authorization_duration_seconds_max{service=~\"$service\",instance=~\"$instance\"})",
+          "legendFormat": "최대 {{outcome}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 85,
+      "type": "timeseries",
+      "title": "현재 소속 인가 거절 / 초",
+      "description": "reason: timeout, interrupted. 포화 거절은 앞 패널.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 307,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(reason)(rate(realtime_authorization_rejected_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 86,
+      "type": "timeseries",
+      "title": "아웃바운드 인가 캐시 결과 / 초",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 315,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(result)(rate(realtime_outbound_authz_cache_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{result}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 87,
+      "type": "timeseries",
+      "title": "아웃바운드 버림 / 초",
+      "description": "reason: queue_full, session_limit, closing.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 315,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(reason)(rate(realtime_outbound_dropped_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 88,
+      "type": "timeseries",
+      "title": "아웃바운드 실행기 대기열",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 323,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "executor_queued_tasks{service=~\"$service\",instance=~\"$instance\",name=\"realtime-outbound\"}",
+          "legendFormat": "{{instance}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 89,
+      "type": "timeseries",
+      "title": "아웃바운드 소켓 쓰기 p95 (destination_kind별)",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 323,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by(le,destination_kind)(rate(realtime_outbound_send_seconds_bucket{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": "{{destination_kind}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     }
   ]
 }
