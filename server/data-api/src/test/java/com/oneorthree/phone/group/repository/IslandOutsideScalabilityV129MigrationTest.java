@@ -67,6 +67,8 @@ class IslandOutsideScalabilityV129MigrationTest {
                 + "FROM (SELECT id, row_number() OVER () rn FROM users) u", island);
         jdbc.update("INSERT INTO group_members (id, notification_enabled, role, group_id, user_id) "
                 + "SELECT gen_random_uuid(), true, 'MEMBER', ?, id FROM users LIMIT 20", island);
+        // VACUUM 이 visibility map 을 채워야 Index Only Scan 이 비용상 확실히 우세하다(ANALYZE 만으로는 relallvisible=0 — 플래키). autocommit 커넥션이라 트랜잭션 블록 제약이 없다.
+        jdbc.execute("VACUUM ANALYZE group_members");
         jdbc.execute("ANALYZE");
 
         assertThat(planWithoutSeqScan("SELECT id FROM island_guestbook_entries WHERE island_id = '" + island
