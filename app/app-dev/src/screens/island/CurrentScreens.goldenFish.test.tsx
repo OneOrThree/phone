@@ -11,6 +11,11 @@ import type { GoldenFishEvent } from '@/services/islandRealtime';
 
 let onGoldenFish: ((event: GoldenFishEvent) => void) | undefined;
 let presenceActive: boolean | undefined;
+let mockResultBoard: { loading: boolean; error: unknown; quests: any[] } = {
+  loading: false,
+  error: null,
+  quests: [],
+};
 
 jest.mock('@/screens/focus/useIslandPresence', () => ({
   catColor: (color: string) => color,
@@ -118,7 +123,7 @@ jest.mock('@/screens/island/useBoardHomeIndicator', () => ({
   useBoardHomeIndicator: () => ({ hasNew: false }),
 }));
 jest.mock('@/screens/interiors/useBoardNotices', () => ({
-  useBoardNotices: () => ({ loading: false, error: null, quests: [] }),
+  useBoardNotices: () => mockResultBoard,
 }));
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -280,6 +285,7 @@ const mount = (state = focusedState(), backOverride?: { current: (() => boolean)
 beforeEach(async () => {
   jest.useFakeTimers();
   jest.clearAllMocks();
+  mockResultBoard = { loading: false, error: null, quests: [] };
   onGoldenFish = undefined;
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
@@ -1438,5 +1444,62 @@ test('휴식 중에는 집중 이어가기만 있고 한 번 누르면 종료 �
   await fireEvent.press(screen.getByTestId('focus-sailing'));
   expect(go).toHaveBeenCalledWith('focus');
   expect(home).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+test.each([
+  { loading: false, error: null, quests: [] },
+  { loading: true, error: null, quests: [] },
+  { loading: false, error: new Error('network'), quests: [] },
+  {
+    loading: false,
+    error: null,
+    quests: [{ title: '아직 진행 중', claimable: false, claimed: false, myRate: 20 }],
+  },
+])('결과창에 표시할 달성 퀘스트가 없으면 영역과 빈 안내를 숨긴다: %j', async (board) => {
+  mockResultBoard = board;
+  const state = focusedState();
+  state.serverIslands = { currentIslandId: 'soda' } as any;
+  state.session = null;
+  state.lastResult = {
+    id: 's-me',
+    islandId: 'soda',
+    subject: '독서',
+    seconds: 1500,
+    fish: 3,
+    at: Date.now(),
+    contributed: true,
+  };
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, undefined, undefined, {
+      islands: {},
+    }),
+  );
+  expect(screen.queryByTestId('focus-result-quests')).toBeNull();
+  expect(screen.queryByText('달성한 일일 퀘스트')).toBeNull();
+  expect(screen.queryByText(/아직 없어요/)).toBeNull();
+  expect(screen.getByTestId('focus-result-duration')).toHaveTextContent('00:25:00');
+  expect(screen.getByText('+3마리')).toBeTruthy();
+  expect(screen.getByTestId('result-done')).toBeTruthy();
+  await screen.unmount();
+});
+
+test('결과창은 서버에서 달성 또는 수령한 퀘스트만 보여준다', async () => {
+  mockResultBoard.quests = [
+    { title: '집중 25분', claimable: true, claimed: false },
+    { title: '아침 집중', claimable: false, claimed: true },
+    { title: '미달성 퀘스트', claimable: false, claimed: false },
+  ];
+  const state = focusedState();
+  state.serverIslands = { currentIslandId: 'soda' } as any;
+  state.session = null;
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, undefined, undefined, {
+      islands: {},
+    }),
+  );
+  expect(screen.getByTestId('focus-result-quests')).toContainElement(screen.getByText('집중 25분'));
+  expect(screen.getByTestId('focus-result-quests')).toContainElement(screen.getByText('아침 집중'));
+  expect(screen.queryByText('미달성 퀘스트')).toBeNull();
   await screen.unmount();
 });

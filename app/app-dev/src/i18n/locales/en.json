@@ -524,6 +524,7 @@
       "title": "This Focus Session's Results",
       "defaultSubject": "This Focus Session",
       "durationLabel": "This Session's Focus Time",
+      "fishLabel": "Fish caught",
       "fishCount": "+{{count}} fish",
       "questsAchievedTitle": "Daily Quests Completed",
       "checking": "Checking…",

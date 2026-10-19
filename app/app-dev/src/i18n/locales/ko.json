@@ -500,6 +500,7 @@
       "title": "이번 집중 결과",
       "defaultSubject": "이번 집중",
       "durationLabel": "이번 집중 시간",
+      "fishLabel": "낚은 물고기",
       "fishCount": "+{{count}}마리",
       "questsAchievedTitle": "달성한 일일 퀘스트",
       "checking": "확인 중…",

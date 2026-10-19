@@ -54,7 +54,6 @@ import {
   periodBounds,
   islandWeeklyAverage,
   hoursMinutes,
-  questMemberRate,
   trackNames,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
@@ -70,6 +69,7 @@ import {
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import { RestGroup } from '@/screens/focus/RestGroup';
+import { FocusResultSummary } from '@/screens/focus/FocusResultSummary';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
   FiButton,
@@ -2461,123 +2461,18 @@ function FocusFlow({ e: environment }: any) {
     resultDay = dayKey(resultAt),
     focusQuests = i.quests.filter((q) => q.type === 'focus'),
     achieved = focusQuests.filter((q) => q.rounds?.[resultDay]?.achieved.includes('me'));
+  const achievedQuestTitles = serverQuests
+    ? boardQ.quests.filter((q) => q.claimable || q.claimed).map((q) => q.title)
+    : achieved.map((q) => q.title);
   const resultModal = (
-    <FiModal hidden={dialog === 'reward'}>
-      <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
-        {t('focusFlow.result.title')}
-      </Text>
-      <Text style={{ fontSize: 19, lineHeight: 30.4, fontWeight: '900', color: INK }}>
-        {result?.subject ?? t('focusFlow.result.defaultSubject')}
-      </Text>
-      <View style={{ gap: 8, marginVertical: wide ? 12 : 18 }}>
-        <View
-          style={{
-            backgroundColor: C.paper,
-            borderWidth: 2,
-            borderColor: OUTLINE,
-            borderRadius: 13,
-            paddingTop: 10,
-            paddingHorizontal: 8,
-            paddingBottom: 8,
-            alignItems: 'center',
-          }}
-        >
-          <Text
-            style={{
-              fontSize: wide ? 32 : 42,
-              lineHeight: (wide ? 32 : 42) * 1.1,
-              fontWeight: '900',
-              letterSpacing: -1.5,
-              fontVariant: ['tabular-nums'],
-              color: INK,
-            }}
-          >
-            {hms(result?.seconds ?? 0)}
-          </Text>
-          <Text style={{ fontSize: 11, lineHeight: 22.4, color: INK }}>
-            {t('focusFlow.result.durationLabel')}
-          </Text>
-        </View>
-        <View
-          style={{
-            alignSelf: 'center',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            paddingVertical: 4,
-            paddingHorizontal: 12,
-            backgroundColor: C.butter,
-            borderWidth: 2,
-            borderColor: OUTLINE,
-            borderRadius: 13,
-          }}
-        >
-          <Image source={art.fish} style={{ width: 26, height: 26 }} />
-          <Text style={{ fontSize: 15, lineHeight: 19.5, fontWeight: '900', color: INK }}>
-            {t('focusFlow.result.fishCount', { count: result?.fish ?? 0 })}
-          </Text>
-        </View>
-      </View>
-      {/* 퀘스트가 여럿이거나 화면이 낮으면 카드(FiModal) 안에서 통째로 스크롤한다 */}
-      <View
-        style={{
-          backgroundColor: C.paper,
-          borderWidth: 2,
-          borderColor: OUTLINE,
-          borderRadius: 13,
-          paddingVertical: 9,
-          paddingHorizontal: 12,
-        }}
-      >
-        <Text style={{ fontSize: 11, lineHeight: 17.6, fontWeight: '700', color: '#7C6857' }}>
-          {t('focusFlow.result.questsAchievedTitle')}
-        </Text>
-        <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
-          {serverQuests
-            ? // 서버 회차 — 달성은 claimable·claimed 플래그가 정본이다(rate 추정 금지).
-              boardQ.loading
-              ? t('focusFlow.result.checking')
-              : boardQ.error
-                ? t('focusFlow.result.checkFailed')
-                : boardQ.quests.filter((q) => q.claimable || q.claimed).length
-                  ? boardQ.quests
-                      .filter((q) => q.claimable || q.claimed)
-                      .map((q) => '✓ ' + q.title)
-                      .join('\n')
-                  : boardQ.quests[0]
-                    ? t('focusFlow.result.notYetServerRate', {
-                        title: boardQ.quests[0].title,
-                        rate:
-                          boardQ.quests[0].myRate == null
-                            ? t('focusFlow.result.notMeasuredYet')
-                            : `${boardQ.quests[0].myRate}%`,
-                      })
-                    : t('focusFlow.result.notYet')
-            : achieved.length
-              ? achieved.map((q) => '✓ ' + q.title).join('\n')
-              : focusQuests[0]
-                ? t('focusFlow.result.notYetLocalRate', {
-                    title: focusQuests[0].title,
-                    current: Math.floor(
-                      ((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) *
-                        focusQuests[0].target) /
-                        100,
-                    ),
-                    target: focusQuests[0].target,
-                  })
-                : t('focusFlow.result.notYet')}
-        </Text>
-      </View>
-      <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
-        <View
-          ref={resultTarget.ref}
-          collapsable={false}
-          onLayout={resultTarget.measure}
-          style={{ flex: 1 }}
-        >
+    <FiModal
+      hidden={dialog === 'reward'}
+      footer={
+        <View ref={resultTarget.ref} collapsable={false} onLayout={resultTarget.measure}>
           <FiButton
             primary
             id="result-done"
+            multiline
             title={
               s.resultFromRest || tutorialStep === 21
                 ? t('focusFlow.common.backToIsland')
@@ -2586,7 +2481,14 @@ function FocusFlow({ e: environment }: any) {
             onPress={finishResult}
           />
         </View>
-      </View>
+      }
+    >
+      <FocusResultSummary
+        subject={result?.subject ?? t('focusFlow.result.defaultSubject')}
+        seconds={result?.seconds ?? 0}
+        fish={result?.fish ?? 0}
+        questTitles={achievedQuestTitles}
+      />
     </FiModal>
   );
   const rewardModal =

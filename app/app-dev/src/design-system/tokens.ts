@@ -186,6 +186,18 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  focusResult: {
+    subjectLineHeight: space[8],
+    timeSize: 44,
+    timeLineHeight: 56,
+    timeLetterSpacing: -1,
+    timeGap: space[1],
+    rewardBackground: color.letter,
+    fishSize: space[8],
+    checkSize: space[5],
+    questGap: space[2],
+    questLineHeight: space[6],
+  },
   focusEmoteBubble: {
     width: 52,
     height: 54,

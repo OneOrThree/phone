@@ -1,6 +1,6 @@
 import { FocusEmoteBubble } from './FocusEmoteBubble';
 import * as Haptics from 'expo-haptics';
-import { componentTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { IslandOcean } from '@/screens/island/IslandOcean';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
@@ -1250,6 +1250,7 @@ export function FiButton({
   style,
   holdToConfirm = false,
   haptics = true,
+  multiline = false,
 }: {
   title: string;
   onPress: () => void;
@@ -1261,6 +1262,7 @@ export function FiButton({
   style?: any;
   holdToConfirm?: boolean;
   haptics?: boolean;
+  multiline?: boolean;
 }) {
   const holdProgress = useRef(new Animated.Value(0)).current;
   const holding = useRef(false);
@@ -1354,7 +1356,7 @@ export function FiButton({
         />
       )}
       <Text
-        numberOfLines={1}
+        numberOfLines={multiline ? undefined : 1}
         style={{
           fontSize: small ? 11 : 14,
           lineHeight: small ? 14.3 : 18.2,
@@ -1370,9 +1372,18 @@ export function FiButton({
 }
 // 낚시섬 모달(fi-modal): 반투명 막 위 가운데 카드. 가로(폭 600 이상)는 오른쪽 330px.
 // hidden: 위에 다른 모달(보상)이 떠 있을 때 — Android TalkBack은 형제 뷰를 자동으로 숨기지 않으므로 직접 숨긴다
-export function FiModal({ children, hidden }: { children: React.ReactNode; hidden?: boolean }) {
+export function FiModal({
+  children,
+  hidden,
+  footer,
+}: {
+  children: React.ReactNode;
+  hidden?: boolean;
+  footer?: React.ReactNode;
+}) {
   const wide = useAppLayout().width >= 600,
     safe = useSafeAreaInsets();
+  const contentPadding = wide ? semanticTokens.spacing.page : semanticTokens.spacing.section;
   return (
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 10, justifyContent: 'center' }]}
@@ -1396,11 +1407,21 @@ export function FiModal({ children, hidden }: { children: React.ReactNode; hidde
       >
         <ScrollView
           style={{ flexGrow: 0, flexShrink: 1 }}
-          contentContainerStyle={{ padding: wide ? 20 : 24 }}
+          contentContainerStyle={{ padding: contentPadding }}
           bounces={false}
         >
           {children}
         </ScrollView>
+        {footer && (
+          <View
+            style={{
+              paddingHorizontal: contentPadding,
+              paddingBottom: contentPadding,
+            }}
+          >
+            {footer}
+          </View>
+        )}
       </View>
     </View>
   );
