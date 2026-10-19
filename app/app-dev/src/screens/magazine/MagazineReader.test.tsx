@@ -2,7 +2,7 @@
 // 섬에서 펼치면 망원경 동그라미 없음(우리 섬 배지만) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 · 크게 보기.
 // 서버 API(magazine.ts)는 목이다.
 import React from 'react';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import * as api from '@/services/api/magazine';
@@ -312,134 +312,19 @@ test('칸을 누르면 화면 폭으로 크게 보고, 누르면 닫힌다 · �
   expect(e.back).toHaveBeenCalled();
 });
 
-// 지금 열린 맨 위 Modal 이 iOS 에서 «다 닫혔다» 고 알릴 함수 — 테스트 렌더러는 닫힌 Modal 을 바로 지우므로 열려 있을 때 잡아 둔다
-const topModalDismiss = (screen: Awaited<ReturnType<typeof render>>): (() => void) =>
-  screen.container.queryAll((node) => node.type === 'Modal').at(-1)!.props.onDismiss;
-
-describe('신고(SAFE-04)', () => {
-  test('칸을 길게 누르면 신고 시트 — 사유를 골라 보내면 닫히고 알림, 칸은 다음에 읽을 때까지 그대로', async () => {
-    report.mockResolvedValueOnce({ created: true });
-    const notify = jest.fn();
-    const { screen } = await open(page(), env({ notify }));
-    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
-    expect(screen.getByText('홍보 칸 신고하기')).toBeTruthy();
-    expect(screen.getByText(/섬2섬 홍보 칸을 신고하는 이유/)).toBeTruthy();
-    // 유저 신고 창과 같은 사유 8종
-    expect(screen.getByLabelText('개인정보·사칭')).toBeTruthy();
-    // 이유는 미리 골라 두지 않는다 — 고르기 전에는 [신고하기]가 꺼져 있다
-    expect(screen.getByTestId('magazine-report-submit').props.accessibilityState.disabled).toBe(
-      true,
-    );
-    await fireEvent.press(screen.getByLabelText('스팸·사기'));
-    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
-    await waitFor(() => expect(notify).toHaveBeenCalledWith('신고했어요. 운영팀이 살펴볼게요.'));
-    expect(report).toHaveBeenCalledWith('is-섬2', 'p2', 'SPAM_FRAUD');
-    expect(screen.queryByTestId('magazine-report')).toBeNull();
-    expect(screen.getByTestId('magazine-cell-p2')).toBeTruthy();
-  });
-
-  test('이미 신고한 칸(서버 200)은 「이미 신고」 안내', async () => {
-    report.mockResolvedValueOnce({ created: false });
-    const notify = jest.fn();
-    const { screen } = await open(page(), env({ notify }));
-    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
-    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
-    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
-    await waitFor(() =>
-      expect(notify).toHaveBeenCalledWith('이미 신고한 칸이에요. 운영팀이 살펴보고 있어요.'),
-    );
-    expect(report).toHaveBeenCalledWith('is-섬2', 'p2', 'HARASSMENT');
-  });
-
-  test('스크린리더는 칸의 「신고하기」 동작으로 연다 · 취소하면 닫힌다', async () => {
-    const { screen } = await open();
-    await fireEvent(screen.getByLabelText(/^섬4섬,/), 'accessibilityAction', {
-      nativeEvent: { actionName: 'report' },
-    });
-    expect(screen.getByTestId('magazine-report')).toBeTruthy();
-    await fireEvent.press(screen.getByText('취소'));
-    expect(screen.queryByTestId('magazine-report')).toBeNull();
-    expect(report).not.toHaveBeenCalled();
-  });
-
-  test('크게 보기에서 길게 누르면 크게 보기를 닫고, 다 닫힌 뒤(iOS onDismiss) 신고 시트', async () => {
-    const { screen } = await open();
-    await fireEvent.press(screen.getByTestId('magazine-cell-p2'));
-    const zoomDismissed = topModalDismiss(screen);
-    const zoomed = screen.getAllByLabelText(/^섬2섬,/);
-    await fireEvent(zoomed[zoomed.length - 1], 'longPress');
-    expect(screen.queryByTestId('magazine-zoom')).toBeNull();
-    // 닫히는 중에는 아직 열지 않는다 — iOS 는 Modal 이 닫히는 중에 다른 Modal 을 띄우면 실패한다
-    expect(screen.queryByTestId('magazine-report')).toBeNull();
-    await act(async () => zoomDismissed());
-    expect(screen.getByTestId('magazine-report')).toBeTruthy();
-    expect(screen.getByText(/섬2섬 홍보 칸을 신고하는 이유/)).toBeTruthy();
-  });
-
-  test('게스트(403) — 회원 전환 시트를 열 수 있으면 열고 닫는다, 없으면 시트 안에 안내', async () => {
-    const gate = new ApiError('SOCIAL_LOGIN_REQUIRED', '소셜', 403);
-    report.mockRejectedValueOnce(gate);
-    const offer = jest.fn(() => true);
-    const { screen } = await open(page(), env({ conversion: { offer } }));
-    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
-    const sheetDismissed = topModalDismiss(screen);
-    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
-    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
-    // 시트를 먼저 닫고, 다 닫힌 뒤(iOS onDismiss) 회원 전환 시트를 연다
-    await waitFor(() => expect(screen.queryByTestId('magazine-report')).toBeNull());
-    expect(offer).not.toHaveBeenCalled();
-    await act(async () => sheetDismissed());
-    expect(offer).toHaveBeenCalledWith(gate);
-
-    report.mockRejectedValueOnce(gate);
-    const mock = await open();
-    await fireEvent(mock.screen.getByLabelText(/^섬2섬,/), 'longPress');
-    await fireEvent.press(mock.screen.getByLabelText('욕설·괴롭힘'));
-    await fireEvent.press(mock.screen.getByTestId('magazine-report-submit'));
-    await waitFor(() =>
-      expect(mock.screen.getByTestId('magazine-report-error')).toHaveTextContent(
-        '소셜 로그인하면 신고할 수 있어요.',
-      ),
-    );
-  });
-
-  test('우리 섬 칸(MEMBER)은 신고할 수 없다 — 길게 누르기·스크린리더 동작 모두 없음(크게 보기도)', async () => {
-    const { screen } = await open();
-    const ours = screen.getByLabelText(/^섬1섬, .*우리 섬이에요$/);
-    expect(ours.props.accessibilityActions).toBeUndefined();
-    await fireEvent(ours, 'longPress');
-    expect(screen.queryByTestId('magazine-report')).toBeNull();
-    await fireEvent.press(ours);
-    const zoomed = screen.getAllByLabelText(/^섬1섬, .*우리 섬이에요$/);
-    expect(zoomed[zoomed.length - 1].props.accessibilityActions).toBeUndefined();
-    // 남의 섬 칸에는 그대로 있다
-    expect(screen.getByLabelText(/^섬2섬,/).props.accessibilityActions).toEqual([
-      { name: 'report', label: '신고하기' },
-    ]);
-  });
-
-  test('읽은 뒤 가입해 우리 섬이 된 칸(서버 403 FORBIDDEN)은 「우리 섬 칸」 안내', async () => {
-    report.mockRejectedValueOnce(new ApiError('FORBIDDEN', '권한 없음', 403));
-    const { screen } = await open();
-    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
-    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
-    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
-    await waitFor(() =>
-      expect(screen.getByTestId('magazine-report-error')).toHaveTextContent(
-        '우리 섬 칸은 신고할 수 없어요.',
-      ),
-    );
-  });
-
-  test('그 밖의 실패는 시트에 남아 다시 보낼 수 있다', async () => {
-    report.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오프라인', 0));
-    const { screen } = await open();
-    await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
-    await fireEvent.press(screen.getByLabelText('욕설·괴롭힘'));
-    await fireEvent.press(screen.getByTestId('magazine-report-submit'));
-    await waitFor(() => expect(screen.getByTestId('magazine-report-error')).toBeTruthy());
-    expect(screen.getByTestId('magazine-report')).toBeTruthy();
-  });
+test('잡지 일반·확대 보기에는 길게 누르기나 접근성 신고 진입이 없고 확대는 유지한다', async () => {
+  const { screen } = await open();
+  const target = screen.getByLabelText(/^섬2섬,/);
+  expect(target.props.onLongPress).toBeUndefined();
+  expect(target.props.accessibilityActions).toBeUndefined();
+  await fireEvent(target, 'longPress');
+  expect(screen.queryByTestId('magazine-report')).toBeNull();
+  await fireEvent.press(target);
+  const zoomed = within(screen.getByTestId('magazine-zoom')).getByLabelText(/^섬2섬,/);
+  expect(zoomed.props.onLongPress).toBeUndefined();
+  expect(zoomed.props.accessibilityActions).toBeUndefined();
+  expect(screen.getByTestId('magazine-zoom')).toBeTruthy();
+  expect(report).not.toHaveBeenCalled();
 });
 
 test('magazinePages — 커서가 남아 있으면 빈 장·끝 장을 아직 붙이지 않는다', () => {
@@ -459,7 +344,7 @@ describe('en 로케일', () => {
   });
 
   // 섬 이름·홍보 글은 사용자 데이터라 번역하지 않는다 — 전수 한글 검사가 이름을 걸러내지 않게 영문 픽스처로 본다
-  test('en — 표지·편집부·칸·신고 창에 한글이 없고 날짜는 영문 형식이다', async () => {
+  test('en — 표지·편집부·칸에 한글이 없고 날짜는 영문 형식이다', async () => {
     mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
     applyLocalePref('system');
     const layout = { v: 1 as const, frameId: 'mag.frame-scallop', stickers: [], tape: null };
@@ -486,8 +371,8 @@ describe('en 로케일', () => {
       expect(screen.queryByLabelText(/[가-힣]/)).toBeNull();
     };
     noHangul();
-    await fireEvent(screen.getByLabelText(/^Wave Island,/), 'longPress');
-    expect(screen.getByText('Report this ad')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText(/^Wave Island,/));
+    expect(screen.getByTestId('magazine-zoom')).toBeTruthy();
     noHangul();
   });
 });
