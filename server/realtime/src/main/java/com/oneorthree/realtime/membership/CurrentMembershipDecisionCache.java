@@ -62,9 +62,9 @@ public class CurrentMembershipDecisionCache {
 
     public CurrentMembershipDecisionCache(RealtimeAuthorizationProperties properties, MeterRegistry registry) {
         this.ttlNanos = properties.getCacheTtlSeconds() * 1_000_000_000L;
-        hit = Counter.builder("realtime.authz.cache").tag("result", "hit").register(registry);
-        miss = Counter.builder("realtime.authz.cache").tag("result", "miss").register(registry);
-        evict = Counter.builder("realtime.authz.cache").tag("result", "evict").register(registry);
+        hit = Counter.builder("realtime.authorization.cache").tag("result", "hit").register(registry);
+        miss = Counter.builder("realtime.authorization.cache").tag("result", "miss").register(registry);
+        evict = Counter.builder("realtime.authorization.cache").tag("result", "evict").register(registry);
     }
 
     public boolean enabled() {

@@ -71,7 +71,7 @@ class CurrentMembershipDecisionCacheTest {
     }
 
     private double count(String result) {
-        return registry.get("realtime.authz.cache").tag("result", result).counter().count();
+        return registry.get("realtime.authorization.cache").tag("result", result).counter().count();
     }
 
     private String bearer(UUID sid) {

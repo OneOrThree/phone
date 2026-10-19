@@ -4,6 +4,7 @@ import com.oneorthree.realtime.auth.VerifiedAccessIdentity;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.config.RealtimeAuthorizationProperties;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -36,6 +37,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 
 /** Data753 단일 멤버십 판정 전용. 서비스 오류는 사용자401이나 부정 판정으로 바꾸지 않는다. */
 @Slf4j
@@ -52,7 +54,8 @@ public class RealtimeMembershipAuthorizationClient {
     private final int maxInFlight;
     private final Duration waitTimeout;
     private final MeterRegistry registry;
-    private final Counter rejectedCapacity;
+    /** 세마포어가 찬 채 끝난 거절 전부(즉시 거절 + 대기 뒤 거절) — 대시보드 {@code realtime.authorization.capacity.rejected}. */
+    private final LongAdder capacityRejected = new LongAdder();
     private final Counter rejectedTimeout;
     private final Counter rejectedInterrupted;
 
@@ -72,12 +75,16 @@ public class RealtimeMembershipAuthorizationClient {
         capacity = new Semaphore(maxInFlight);
         waitTimeout = properties.getWaitTimeout();
         this.registry = registry;
-        rejectedCapacity = Counter.builder("realtime.authz.rejected").tag("reason", "capacity").register(registry);
-        rejectedTimeout = Counter.builder("realtime.authz.rejected").tag("reason", "timeout").register(registry);
-        rejectedInterrupted = Counter.builder("realtime.authz.rejected").tag("reason", "interrupted")
+        rejectedTimeout = Counter.builder("realtime.authorization.rejected").tag("reason", "timeout")
                 .register(registry);
-        Gauge.builder("realtime.authz.inflight", capacity, sem -> maxInFlight - sem.availablePermits())
+        rejectedInterrupted = Counter.builder("realtime.authorization.rejected").tag("reason", "interrupted")
                 .register(registry);
+        // 대시보드(gromo-components.json)가 보는 이름 — 바꾸지 않는다.
+        Gauge.builder("realtime.authorization.inflight", capacity,
+                permits -> maxInFlight - permits.availablePermits()).register(registry);
+        Gauge.builder("realtime.authorization.limit", this, client -> client.maxInFlight).register(registry);
+        FunctionCounter.builder("realtime.authorization.capacity.rejected", capacityRejected,
+                LongAdder::doubleValue).register(registry);
         http = HttpClient.newBuilder().connectTimeout(properties.getConnectTimeout())
                 .followRedirects(HttpClient.Redirect.NEVER).build();
     }
@@ -176,7 +183,7 @@ public class RealtimeMembershipAuthorizationClient {
                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
             }
             capacity.release();
-            Timer.builder("realtime.authz.duration").tag("outcome", outcome.get()).register(registry)
+            Timer.builder("realtime.authorization.duration").tag("outcome", outcome.get()).register(registry)
                     .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
         }
     }
@@ -197,8 +204,15 @@ public class RealtimeMembershipAuthorizationClient {
         }
         if (!got) {
             String reason = interrupted ? "interrupted" : waited ? "timeout" : "capacity";
-            (interrupted ? rejectedInterrupted : waited ? rejectedTimeout : rejectedCapacity).increment();
-            Timer.builder("realtime.authz.duration").tag("outcome", reason).register(registry)
+            if (!interrupted) {
+                capacityRejected.increment();
+            }
+            if (interrupted) {
+                rejectedInterrupted.increment();
+            } else if (waited) {
+                rejectedTimeout.increment();
+            }
+            Timer.builder("realtime.authorization.duration").tag("outcome", reason).register(registry)
                     .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
             log.warn("현재 멤버십 조회 실패 — outcome={} status=0 durationMs={}", reason,
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));

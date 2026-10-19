@@ -95,7 +95,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `user.withdrawn` 이 `InboundEventService` 에서 `evictUser` 로 지우고(Redis 삭제 성패와 무관, 펜스보다 먼저), 조회 중 겹친 evict 의 옛 허용은 `mark/remember` 가 막는다.
   ⚠️ 사건은 Kafka 소비 그룹·HTTP 로 «한 인스턴스»에만 닿으므로 다른 인스턴스의 항목은 TTL 로만 닫힌다(다중 인스턴스에서 즉시성이 필요하면 0). 개별 세션 폐기(로그아웃)는
   realtime 으로 오는 사건이 없어 TTL 이 상한이다. 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
-  지표: `realtime.authz.cache{result=hit|miss|evict}`·`realtime.authz.inflight`·`realtime.authz.rejected{reason=capacity|timeout}`·`realtime.authz.duration{outcome}`.
+  지표: `realtime.authorization.cache{result=hit|miss|evict}`·`.inflight`·`.limit`·`.capacity.rejected`(세마포어가 찬 거절 전부)·`.rejected{reason=timeout|interrupted}`·`.duration{outcome}`.
   OFF 모드 `GroupClient` 는 `SimpleClientHttpRequestFactory`(connect·read 2s 타임아웃이 소켓 읽기마다 적용 — 본문 정지도 끊긴다, keep-alive 는 JDK 기본)에 동시 상한 `chat.data-api.max-concurrency`(32)를 둔다.
 - **Messages are stored only through `ChatMessageAppender`, never `ChatMessageRepository.save`.**
   It takes a per-room advisory lock, reads the room's last id and inserts a strictly larger one,

@@ -1,15 +1,11 @@
 {
   "endpoint": "equipment_unequip",
   "method": "DELETE",
-  "path": "/api/v1/equipment/{userId}/{slotType}",
+  "path": "/api/v1/equipment/{slotType}",
   "tag": "equipment",
   "summary": "장비 해제",
   "userPool": "uniform",
   "pathParams": {
-    "userId": {
-      "gen": "pool",
-      "source": "userId"
-    },
     "slotType": {
       "gen": "enum",
       "values": [
@@ -23,6 +19,8 @@
   "query": [],
   "body": null,
   "paginate": null,
-  "gaps": [],
-  "runnable": true
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
 }

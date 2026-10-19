@@ -22,7 +22,9 @@ const N_USERS = Math.max(100, Math.round(100_000 * SCALE));
 const N_GROUPS = Math.max(20, Math.round(50_000 * SCALE));
 const N_ITEMS = 500; // 마스터성 — 스케일 무관
 const N_DEFAULT_TAGS = 40;
-const BASE_DATE = Date.parse('2026-07-01T00:00:00Z'); // 재현성 — Date.now() 금지
+const SEED_DATE = process.env.SEED_DATE || new Date().toISOString().slice(0, 10);
+const BASE_DATE = Date.parse(`${SEED_DATE}T00:00:00Z`);
+if (!Number.isFinite(SCALE) || SCALE <= 0 || !Number.isFinite(BASE_DATE)) throw new Error('SCALE/SEED_DATE 확인 필요');
 const DAYS = 180;
 
 // mulberry32 — 고정 시드 PRNG (실행 간 동일 산출)
@@ -57,7 +59,7 @@ const TAG_BASE = ['이론 공부','문제 풀이','오답 정리','모의고사'
   '독서','리서치','과제','복습','예습','스터디','노트 정리','코딩 테스트','면접 준비','포트폴리오','회화','청취'];
 const TAG_NAMES = [...TAG_BASE, ...TAG_BASE.map((t) => `${t} 심화`)]; // 40개, 전부 유일
 write('default_tags.csv', 'id,name,created_at',
-  TAG_NAMES.map((name, idx) => [uuid(`dtag-${idx}`), name, iso(BASE_DATE - DAYS * 864e5)]));
+  TAG_NAMES.map((name, idx) => [uuid(`dtag-${idx}`), `부하-${name}`, iso(BASE_DATE - DAYS * 864e5)]));
 
 // ── occupation_default_tags (V4: name→default_tag_id FK, UNIQUE(occupation, default_tag_id)) ──
 write('occupation_default_tags.csv', 'id,occupation,sort_order,created_at,default_tag_id',
@@ -65,9 +67,7 @@ write('occupation_default_tags.csv', 'id,occupation,sort_order,created_at,defaul
     uuid(`odt-${c}-${i}`), c, i, iso(BASE_DATE - DAYS * 864e5), uuid(`dtag-${(ci * 4 + i) % N_DEFAULT_TAGS}`),
   ])));
 
-// ── league_tier_configs (5티어) ──
-write('league_tier_configs.csv', 'tier_level,arena_size,badge_id,promote_count,relegate_count,relegate_warning_count,created_at',
-  [1, 2, 3, 4, 5].map((t) => [t, 30, `badge-${t}`, 5, 5, 5, iso(BASE_DATE - DAYS * 864e5)]));
+// 리그 티어 마스터는 Flyway V13의 값을 그대로 사용한다.
 
 // ── users (한글 닉네임 — pg_trgm 한글 검증용. 혼합 기수로 유일성 보장) ──
 const SUR = '김이박최정강조윤장임한오서신권황안송류전홍고문양손배백허유남심노하곽성차주우구민진지엄'.split('');
