@@ -12,9 +12,8 @@ import {
 } from 'react-native';
 import { Btn, C, Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { ApiError } from '@/services/api/client';
 import { blockUser } from '@/services/api/safety';
-import { t } from '@/i18n';
+import { errorTextOr, t } from '@/i18n';
 import { isUserBlocked, markUserBlocked, revalidateBlockedUsers } from '@/services/blockedUsers';
 import { useAppLayout } from '@/utils/layout';
 
@@ -51,7 +50,7 @@ export function UserSafetySheet(props: Props) {
   }, [props.visible, props.targetUserId, props.initialMode]);
 
   const fail = (thrown: unknown) => {
-    setError(thrown instanceof ApiError && thrown.message ? thrown.message : t('safety.failed'));
+    setError(errorTextOr(thrown, 'safety.failed'));
   };
 
   const block = async () => {

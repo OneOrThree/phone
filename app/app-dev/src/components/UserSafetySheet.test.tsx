@@ -3,6 +3,7 @@ import { Linking, StyleSheet } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { componentTokens } from '@/design-system/tokens';
+import { ApiError } from '@/services/api/client';
 import { blockUser, getBlockedUsers } from '@/services/api/safety';
 import { applyLocalePref } from '@/i18n';
 import { isUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
@@ -147,6 +148,19 @@ test('영어에서도 차단 메뉴와 확인을 번역한다', async () => {
   await fireEvent.press(ui.getByText('Block user'));
   assert.ok(ui.getByText('Block'));
   assert.equal(ui.queryByText(/[가-힣]/), null);
+});
+
+test('영어 차단 API 오류는 서버 한국어 대신 공용 오류 번역을 표시한다', async () => {
+  applyLocalePref('en');
+  blockMock.mockRejectedValueOnce(new ApiError('NOT_FOUND', '사용자를 찾을 수 없어요.', 404));
+  const ui = await render(
+    <UserSafetySheet {...props({ initialMode: 'block', targetName: 'Alex' })} />,
+  );
+  await fireEvent.press(ui.getByText('Block'));
+  await waitFor(() =>
+    expect(ui.getByText("Couldn't find what you were looking for.")).toBeTruthy(),
+  );
+  expect(ui.queryByText('사용자를 찾을 수 없어요.')).toBeNull();
 });
 
 test('직접 차단 성공은 API 확인 뒤 로컬 필터와 완료 콜백을 갱신한다', async () => {
