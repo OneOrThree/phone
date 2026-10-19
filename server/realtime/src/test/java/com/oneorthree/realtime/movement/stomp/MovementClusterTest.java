@@ -397,6 +397,30 @@ class MovementClusterTest {
                 .as("잃은 전원 FullState 대신 RESYNC 의 세션 한정 FullState 로 맞췄다").isNotEmpty();
     }
 
+    @Test
+    @DisplayName("줄에 머무는 사이 리스를 잃은 프레임은 PUBLISH 직전에 버린다(stale_queue) — 발행 0")
+    void framesQueuedBeforeLeaseLossAreNotPublished() throws Exception {
+        SimpleMeterRegistry own = new SimpleMeterRegistry();
+        MovementOwnership owner = new MovementOwnership(redis, own, "sq-" + UUID.randomUUID().toString()
+                .substring(0, 8), 3000);
+        MovementRelay queued = new MovementRelay(true, publisher, owner, redis, json, own, 16, 16);
+        long epoch = owner.acquire(island).epoch();
+        queued.publishFrame(new Frame(owner.instanceId(), island, epoch, Kind.EVENT, null, null, false, "{}"));
+        queued.publishFrame(new Frame(owner.instanceId(), island, epoch, Kind.SNAPSHOT, null, null, false, "{}"));
+
+        owner.forget(island); // 줄에 있는 동안 리스를 잃었다
+        queued.start();
+        try {
+            await(() -> own.counter("movement.routing.failed", "reason", "stale_queue").count() == 2);
+            assertThat(own.timer("movement.relay.lag").count()).as("PUBLISH 0").isZero();
+            assertThat(own.counter("movement.relay.resync", "reason", "dropped").count())
+                    .as("소유자가 바뀐 것이라 재동기화는 걸지 않는다").isZero();
+        } finally {
+            queued.stop();
+            redis.delete(RedisKeys.movementOwner(island));
+        }
+    }
+
     /** 이 인스턴스가 소유자가 되고(로컬 세션 s1), 다른 인스턴스 세션 {@code <instance>:<sid>} 가 방에 든 상태를 만든다. */
     private UUID becomeOwnerWithRemoteActor(String instance, String sessionId) throws Exception {
         open("s1");

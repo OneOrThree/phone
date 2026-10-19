@@ -129,7 +129,10 @@ public class MovementOwnership {
         return owner;
     }
 
-    /** @return 아직 내 것이라 늘렸으면 true. false 면 남이 가져갔거나 만료됐다 — 호출자가 잃은 것으로 처리한다 */
+    /**
+     * @return 아직 내 것이라 늘렸으면 true. false 면 남이 가져갔거나 키가 만료로 사라졌다 — 호출자가 잃은 것으로 처리한다.
+     *     지표 해석 주의: 둘을 가르지 않아 «만료로 사라짐»도 {@code lost{stolen}} 으로 센다(감시가 로컬 만료를 먼저 보므로 드물다)
+     */
     boolean renew(UUID islandId) {
         Lease lease = leases.get(islandId);
         if (lease == null) {

@@ -215,7 +215,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `movement:room:{id}:handoff` 에 남기고 리스를 내놓는다. `@PreDestroy` 로 옮기지 마라 — 그때는 Redis 연결이 이미 닫혀 있어
   인계가 조용히 실패하고 남은 인스턴스가 리스 만료(3초)를 기다린다(실측).
 - **강퇴·교체**: `MovementSubscriptionListener.recheckMembership` 은 로컬 재검사 + RECHECK 브로드캐스트(각자 자기 세션만,
-  캐시 삭제 실패 표시 `cacheStale` 동반). 다른 인스턴스에서 같은 사용자가 새로 들어오면 소유자가 SUPERSEDE 프레임으로 옛
+  캐시 삭제 실패 표시 `cacheStale` 동반). 강퇴 사건은 한 노드만 받으므로 RECHECK 를 제어 줄에 못 넣거나 PUBLISH 가 실패하면
+  버리지 않고 표시해 두었다가 1초 감시가 성공할 때까지 다시 보낸다(`movement.relay.recheck.retry{reason=dropped|publish}`).
+  받는 쪽은 멱등이다(두 번 오면 재판정을 새로 시작할 뿐). PING 대조는 멤버십을 다시 보지 않는다. 다른 인스턴스에서 같은 사용자가 새로 들어오면 소유자가 SUPERSEDE 프레임으로 옛
   세션을 멈추고 그 세션 intent 를 버린다. PING(1초)이 5초 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다.
 - **PING 대조(제어 명령 유실·생존 신호 복구)**: PING 은 그 인스턴스가 남의 방에 입장해 있다고 믿는 세션 목록(`섬|세션`)을
   싣는다. 소유자는 PING 마다 목록과 자기 방을 맞춘다 — 목록에 없는 그 인스턴스 actor 는 내보내고(LEAVE 유실), 목록에 있는데
@@ -223,13 +225,16 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   생존 신호 단절로 제거된 뒤 복구). 1초마다 되풀이되므로 EVICTED 가 유실돼도 다음 PING 이 다시 보낸다 — 비소유 쪽의
   «내 PING 이 끊겼다 복구됨» 감지는 따로 두지 않았다.
 - **세션 한정 FullState 유실**: JOIN 은 됐는데 FULL_STATE 명령이나 그 응답을 잃으면 게이트가 닫힌 채 남는다(PING 대조는 actor 가
-  있으니 정상으로 본다). 감시가 1초마다 «게이트가 닫힌 지 2초 넘은» 내 세션의 FULL_STATE 를 상한 없이 다시 요청한다
+  있으니 정상으로 본다). 감시가 «게이트가 닫힌 지 2초 넘은» 내 세션의 FULL_STATE 를 상한 없이 약 2초마다(재요청이 시각을 다시 찍어 실제 2~3초)
+  다시 요청한다
   (`movement.fullstate.retry`, 멈춘 세션 제외 — 재개 때 처리기가 요청한다).
 - **reliable 프레임 유실**: 버려도 되는 건 Snapshot(·INTENT)뿐이라 그것만 사건 줄(4096, `dropped{kind=frame}`)로 간다.
   FullState·PathAccepted·Arrived·MoveRejected·SUPERSEDE 는 제어 줄로 간다. 제어 줄이 차거나 PUBLISH 가 실패해 이것을 잃으면
   소유자가 그 섬에 «재동기화 필요»를 남기고(`movement.relay.resync{reason=dropped|publish}`) 다음 감시 틱에 `RESYNC` 를
   돌린다. 그러면 모든 인스턴스가 그 섬 세션을 resync 하고 세션 한정 FullState 를 다시 요청한다. 게이트가 이미 열린 세션은
   FullState 재요청 대상이 아니고 PING 은 앱의 actor 목록을 모르기 때문에 이 경로가 필요하다.
+- **줄에 머무는 사이 리스 상실**: 송신 스레드가 배치를 꺼낸 뒤 프레임마다 지금 리스·epoch 를 다시 보고, 없거나 다르면 PUBLISH
+  직전에 버린다(`routing.failed{stale_queue}`). 큐 체류 창은 이것으로 닫히고, 남는 것은 재확인~PUBLISH 사이 μs 뿐이다.
 - **옛 방의 늦은 콜백**: 방은 만들 때의 리스 세대(`Lease.generation`, 새 리스 기록마다 증가 — 같은 epoch 재획득도 구분)에 묶인
   콜백(`RoomRuntime.Listener.forRoom`)을 받는다. 리스를 잃고 다시 얻은 뒤 틱 스레드가 옛 방을 한 번 더 돌려도 그 사건은
   `routing.failed{stale_room}` 으로 버린다.

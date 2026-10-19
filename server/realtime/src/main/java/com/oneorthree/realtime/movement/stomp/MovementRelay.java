@@ -69,8 +69,12 @@ public class MovementRelay implements RoomRuntime.Listener {
     private final Counter resyncDropped;
     private final Counter resyncPublish;
     private final Set<UUID> needsResync = ConcurrentHashMap.newKeySet();
+    private final Counter recheckDropped;
+    private final Counter recheckPublish;
+    private final Set<Command> pendingRechecks = ConcurrentHashMap.newKeySet();
     private final Counter noLease;
     private final Counter staleRoom;
+    private final Counter staleQueue;
     private final Counter publishFailed;
     private final Timer lag;
 
@@ -117,6 +121,12 @@ public class MovementRelay implements RoomRuntime.Listener {
                 .description("제어 줄이 차서 reliable 프레임을 잃고 그 섬 재동기화를 건 수").register(meterRegistry);
         this.resyncPublish = Counter.builder("movement.relay.resync").tag("reason", "publish")
                 .description("PUBLISH 실패로 reliable 프레임을 잃고 그 섬 재동기화를 건 수").register(meterRegistry);
+        this.recheckDropped = Counter.builder("movement.relay.recheck.retry").tag("reason", "dropped")
+                .description("제어 줄이 차서 RECHECK 를 못 넣고 다시 보내기로 한 수").register(meterRegistry);
+        this.recheckPublish = Counter.builder("movement.relay.recheck.retry").tag("reason", "publish")
+                .description("PUBLISH 실패로 RECHECK 를 잃고 다시 보내기로 한 수").register(meterRegistry);
+        this.staleQueue = Counter.builder("movement.routing.failed").tag("reason", "stale_queue")
+                .description("줄에 머무는 사이 리스·epoch 가 바뀐 프레임이라 PUBLISH 직전에 버린 수").register(meterRegistry);
         this.staleRoom = Counter.builder("movement.routing.failed").tag("reason", "stale_room")
                 .description("리스를 잃었다 다시 얻은 뒤 옛 방에서 늦게 나온 사건이라 내지 않은 수(fail-closed)")
                 .register(meterRegistry);
@@ -313,10 +323,12 @@ public class MovementRelay implements RoomRuntime.Listener {
      */
     void publishFrame(Frame frame) {
         String payload = objectMapper.writeValueAsString(frame);
+        Outgoing out = new Outgoing(RedisKeys.MOVEMENT_FRAMES_CHANNEL, payload, System.nanoTime(),
+                frame.kind() == Kind.SNAPSHOT ? null : frame.islandId(), null, frame.islandId(), frame.epoch());
         if (frame.kind() == Kind.SNAPSHOT) {
-            offer(queue, dropped, RedisKeys.MOVEMENT_FRAMES_CHANNEL, payload, null);
+            offer(queue, dropped, out);
         } else {
-            offer(control, null, RedisKeys.MOVEMENT_FRAMES_CHANNEL, payload, frame.islandId());
+            offer(control, null, out);
         }
     }
 
@@ -328,26 +340,72 @@ public class MovementRelay implements RoomRuntime.Listener {
      */
     void publishCommand(Command command) {
         String payload = objectMapper.writeValueAsString(command);
+        long now = System.nanoTime();
+        String channel = RedisKeys.MOVEMENT_CMD_CHANNEL;
         if (command.type() == Type.INTENT) {
-            offer(queue, dropped, RedisKeys.MOVEMENT_CMD_CHANNEL, payload, null);
+            offer(queue, dropped, new Outgoing(channel, payload, now, null, null, null, 0));
         } else if (command.type() == Type.RESYNC) {
             // RESYNC 자신을 잃어도 다시 표시돼 다음 틱에 또 보낸다.
-            offer(control, null, RedisKeys.MOVEMENT_CMD_CHANNEL, payload, command.islandId());
+            offer(control, null, new Outgoing(channel, payload, now, command.islandId(), null, null, 0));
+        } else if (command.type() == Type.RECHECK) {
+            // 강퇴 사건은 한 노드만 받는다 — 다른 노드의 세션을 멈추는 길은 이 RECHECK 뿐이라 잃으면 성공할 때까지 다시 보낸다
+            // (codex P1). PING 대조는 actor 존재만 맞추고 멤버십은 보지 않는다.
+            offer(control, null, new Outgoing(channel, payload, now, null, command, null, 0));
         } else {
-            offer(control, droppedControl, RedisKeys.MOVEMENT_CMD_CHANNEL, payload, null);
+            offer(control, droppedControl, new Outgoing(channel, payload, now, null, null, null, 0));
         }
     }
 
-    /** @param resyncIsland 잃으면 재동기화해야 하는 섬(reliable 프레임·RESYNC), 아니면 null — 그때는 {@code drops} 를 센다 */
-    private void offer(ArrayBlockingQueue<Outgoing> target, Counter drops, String channel, String payload,
-            UUID resyncIsland) {
-        if (target.offer(new Outgoing(channel, payload, System.nanoTime(), resyncIsland))) {
+    /**
+     * @param resyncIsland 잃으면 재동기화해야 하는 섬(reliable 프레임·RESYNC), 아니면 null
+     * @param recheck      잃으면 다시 보내야 하는 RECHECK, 아니면 null — 둘 다 null 이면 잃을 때 {@code drops} 를 센다
+     */
+    private void offer(ArrayBlockingQueue<Outgoing> target, Counter drops, Outgoing out) {
+        if (target.offer(out)) {
             signal.release();
-        } else if (resyncIsland != null) {
-            markResync(resyncIsland, resyncDropped);
+        } else if (out.resyncIsland() != null) {
+            markResync(out.resyncIsland(), resyncDropped);
+        } else if (out.recheck() != null) {
+            markRecheck(out.recheck(), recheckDropped);
         } else {
             drops.increment();
         }
+    }
+
+    /**
+     * PUBLISH 직전 재확인(#1180 claude r1) — 줄에 넣을 때 본 리스는 줄에 머무는 동안(포화·GC·RTT, 초 단위) 바뀔 수 있다. 옛
+     * 소유자의 프레임이 새 소유자 획득 뒤에 나가면, 새 epoch 를 아직 못 본 인스턴스의 stale 필터를 통과한다. 그래서 프레임마다
+     * 지금 리스가 없거나 epoch 가 다르면 여기서 버린다({@code routing.failed{stale_queue}}). 재동기화는 걸지 않는다 — 소유자가
+     * 바뀌었으니 새 소유자의 재입장 경로가 맞춘다. 남는 창은 이 확인과 PUBLISH 사이(μs)뿐이다.
+     */
+    private void dropStaleFrames(List<Outgoing> batch) {
+        batch.removeIf(out -> {
+            if (out.frameIsland() == null) {
+                return false;
+            }
+            MovementOwnership.Lease lease = ownership.lease(out.frameIsland());
+            if (lease != null && lease.epoch() == out.frameEpoch()) {
+                return false;
+            }
+            staleQueue.increment();
+            return true;
+        });
+    }
+
+    private void markRecheck(Command recheck, Counter reason) {
+        reason.increment();
+        pendingRechecks.add(recheck);
+    }
+
+    /** 잃은 RECHECK 를 꺼낸다(꺼낸 것은 지운다) — {@code movement-cluster} 감시가 1초마다 다시 보낸다. */
+    Set<Command> takeRechecks() {
+        Set<Command> taken = new HashSet<>();
+        for (Command recheck : pendingRechecks) {
+            if (pendingRechecks.remove(recheck)) {
+                taken.add(recheck);
+            }
+        }
+        return taken;
     }
 
     private void markResync(UUID islandId, Counter reason) {
@@ -377,6 +435,7 @@ public class MovementRelay implements RoomRuntime.Listener {
                 // 제어 줄을 먼저 비운다 — 한 배치 안에서도 제어가 앞선다.
                 control.drainTo(batch, BATCH);
                 queue.drainTo(batch, BATCH - batch.size());
+                dropStaleFrames(batch);
                 if (!batch.isEmpty()) {
                     send(batch);
                 }
@@ -391,6 +450,9 @@ public class MovementRelay implements RoomRuntime.Listener {
                 for (Outgoing lost : batch) {
                     if (lost.resyncIsland() != null) {
                         markResync(lost.resyncIsland(), resyncPublish);
+                    }
+                    if (lost.recheck() != null) {
+                        markRecheck(lost.recheck(), recheckPublish);
                     }
                 }
                 log.warn("이동 릴레이 PUBLISH 실패 — {}건을 잃었다. reason={}", batch.size(), e.getClass().getSimpleName());
@@ -430,7 +492,9 @@ public class MovementRelay implements RoomRuntime.Listener {
         return sessionKey.substring(sessionKey.indexOf(':') + 1);
     }
 
-    private record Outgoing(String channel, String payload, long enqueuedNanos, UUID resyncIsland) {
+    /** {@code frameIsland}·{@code frameEpoch} — 프레임이면 낸 섬과 그때의 epoch(PUBLISH 직전 재확인용), 명령이면 null·0. */
+    private record Outgoing(String channel, String payload, long enqueuedNanos, UUID resyncIsland, Command recheck,
+            UUID frameIsland, long frameEpoch) {
     }
 
     // ── 봉투(wire 아님 — 인스턴스 사이 전용) ───────────────────────────

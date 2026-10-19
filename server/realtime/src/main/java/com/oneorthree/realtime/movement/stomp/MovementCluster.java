@@ -70,8 +70,8 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     static final long POLL_MS = 1000;
     /** 방이 비어도 갓 얻은 리스는 이만큼은 들고 있는다 — 얻자마자 첫 명령 전에 반납하는 경합을 막는다. */
     private static final long RELEASE_GRACE_NANOS = TimeUnit.SECONDS.toNanos(5);
-    /** 생존 신호(PING)가 이만큼 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다. */
-    private static final long INSTANCE_STALE_NANOS = TimeUnit.SECONDS.toNanos(5);
+    /** 생존 신호(PING)가 이만큼 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다(기본 5초 — 테스트만 줄인다). */
+    private static final long INSTANCE_STALE_MS = 5000;
     /** 세션 한정 FullState 를 이만큼 못 받으면 다시 요청한다. */
     private static final long FULL_STATE_RETRY_NANOS = TimeUnit.SECONDS.toNanos(2);
     private static final Duration HANDOFF_TTL = Duration.ofSeconds(30);
@@ -79,6 +79,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     };
 
     private final boolean enabled;
+    private final long instanceStaleNanos;
     private final MovementRooms rooms;
     private final MovementPublisher publisher;
     private final MovementOwnership ownership;
@@ -121,12 +122,19 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     private final Counter fullStateRetried;
     private final Map<Type, Counter> forwarded = new HashMap<>();
 
+    /**
+     * {@code instance-stale-ms} 는 운영 env 로 열지 않는 테스트용 손잡이다(기본 5000) — 생존 신호 단절 테스트가 5초 타이머를
+     * 기다리지 않게 한다. PING 이 1초라 2초 아래로 내리면 정상 부하에서도 actor 를 잘못 내보낸다.
+     */
     @Autowired
     public MovementCluster(@Value("${realtime.movement.multi-instance.enabled:false}") boolean enabled,
             MovementRooms rooms, MovementPublisher publisher, MovementOwnership ownership, MovementRelay relay,
             StringRedisTemplate redis, ObjectMapper objectMapper,
-            ObjectProvider<MovementSubscriptionListener> listeners, MeterRegistry meterRegistry) {
+            ObjectProvider<MovementSubscriptionListener> listeners, MeterRegistry meterRegistry,
+            @Value("${realtime.movement.multi-instance.instance-stale-ms:" + INSTANCE_STALE_MS + "}")
+            long instanceStaleMs) {
         this.enabled = enabled;
+        this.instanceStaleNanos = TimeUnit.MILLISECONDS.toNanos(instanceStaleMs);
         this.rooms = rooms;
         this.publisher = publisher;
         this.ownership = ownership;
@@ -156,10 +164,23 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
         }
     }
 
+    /** 패키지 전용 — 테스트가 기본 생존 신호 한도로 만든다. */
+    MovementCluster(boolean enabled, MovementRooms rooms, MovementPublisher publisher, MovementOwnership ownership,
+            MovementRelay relay, StringRedisTemplate redis, ObjectMapper objectMapper,
+            ObjectProvider<MovementSubscriptionListener> listeners, MeterRegistry meterRegistry) {
+        this(enabled, rooms, publisher, ownership, relay, redis, objectMapper, listeners, meterRegistry,
+                INSTANCE_STALE_MS);
+    }
+
     /** 플래그 OFF 그대로의 길잡이 — 테스트가 {@link MovementRooms} 만으로 처리기·컨트롤러를 만들 때. */
     static MovementCluster local(MovementRooms rooms) {
         return new MovementCluster(false, rooms, null, null, null, null, null, null,
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+    }
+
+    /** 플래그 ON 인가 — OFF 면 호출자가 다중 인스턴스용 계산 자체를 건너뛴다. */
+    public boolean isEnabled() {
+        return enabled;
     }
 
     private static Counter acquireCounter(MeterRegistry meters, String trigger) {
@@ -446,6 +467,9 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             sweepDeadInstances();
             retryFullStates();
             requestResyncs();
+            for (Command recheck : relay.takeRechecks()) {
+                relay.publishCommand(recheck); // 잃은 강퇴 재검사 — 또 잃으면 다시 표시된다
+            }
         } catch (RuntimeException e) {
             log.warn("이동 소유자 감시 실패 — reason={}", e.getClass().getSimpleName());
         }
@@ -526,12 +550,17 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
         }
     }
 
+    /**
+     * PING 이 {@code instance-stale-ms} 넘게 끊긴 인스턴스의 세션 actor 를 내보낸다. {@code lastHeard} 가 없으면 죽은 것으로
+     * 보는데, 이는 «{@code remoteSessions} 의 키는 늘 그 인스턴스의 명령을 받은({@code onCommand} 가 {@code lastHeard} 를
+     * 채운) 뒤에만 생긴다»는 순서에 기댄다 — 원격 JOIN 적용({@link #applyForwarded})이 유일한 생성 경로다.
+     */
     private void sweepDeadInstances() {
         long now = System.nanoTime();
         for (Map.Entry<UUID, Set<String>> entry : remoteSessions.entrySet()) {
             entry.getValue().removeIf(sessionKey -> {
                 Long heard = lastHeard.get(MovementRelay.instanceOf(sessionKey));
-                if (heard != null && now - heard <= INSTANCE_STALE_NANOS) {
+                if (heard != null && now - heard <= instanceStaleNanos) {
                     return false;
                 }
                 rooms.leave(entry.getKey(), sessionKey);
@@ -692,7 +721,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
      * 세션 한정 FullState 재요청(codex r1 P1) — JOIN 은 됐는데 FULL_STATE 명령이나 그 응답 프레임을 잃으면(줄 포화·PUBLISH
      * 실패) 그 세션은 게이트가 닫힌 채 남는다. PING 대조는 방에 actor 가 있으니 정상으로 보고, 전원 FullState 는 게이트를 열지
      * 못한다. 그래서 1초마다 «게이트가 닫힌 지(또는 요청한 지) {@link #FULL_STATE_RETRY_NANOS} 넘은» 내 세션의 FULL_STATE 를
-     * 다시 보낸다 — 상한 없이(소유자가 바뀌면 재입장 경로가 대신한다). 소유자 쪽에 «대기 중» 표시를 싣는 안보다 작다: 게이트
+     * 다시 보낸다(재요청이 시각을 다시 찍으므로 실제 주기는 약 2~3초) — 상한 없이(소유자가 바뀌면 재입장 경로가 대신한다). 소유자 쪽에 «대기 중» 표시를 싣는 안보다 작다: 게이트
      * 상태는 이쪽 outbox 만 안다. 멈춘(강퇴 재검사 중) 세션은 재개 때 처리기가 직접 요청하므로 뺀다.
      */
     private void retryFullStates() {

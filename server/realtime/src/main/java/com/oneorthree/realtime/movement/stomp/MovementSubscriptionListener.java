@@ -414,6 +414,9 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         recheckLocally(islandId, memberUserId);
         // 다중 인스턴스(GROMO-2339) — 그 사람 세션이 다른 인스턴스에 붙어 있을 수 있다. 전원에게 알리고 각자 자기 세션을
         // 다시 잰다. 캐시 삭제 실패 표시(markMembershipCacheStale 가 먼저 남겼다)도 함께 실어 보낸다. OFF 면 아무것도 안 한다.
+        if (!cluster.isEnabled()) {
+            return; // OFF — 캐시 표시 조회도 하지 않는다(단일 인스턴스 동작 그대로)
+        }
         try {
             cluster.broadcastRecheck(islandId, memberUserId,
                     memberUserId != null && membershipCacheStale(islandId, memberUserId));
@@ -425,6 +428,10 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     /**
      * 다른 인스턴스가 받은 강퇴 사건(RECHECK, GROMO-2339) — 이 인스턴스의 세션만 다시 잰다. 그쪽에서 캐시 삭제가 실패했으면
      * 같은 표시를 여기에도 남긴다(다음 이동 구독이 캐시를 건너뛴다). {@code movement-relay-in} 스레드에서 불린다 — 예약만 한다.
+     *
+     * <p><b>멱등이다</b> — 잃은 RECHECK 를 다시 보내므로(재송) 같은 사건이 두 번 올 수 있다. 두 번째는 {@link #restart} 가 그
+     * outbox 의 진행 중 재판정을 새 세대로 바꿔(옛 예약 취소) 다시 멈추고 다시 잴 뿐이다 — 판정 결과(재개·퇴장·종료)는 한 번만
+     * 적용된다. 표시({@code markMembershipCacheStale})도 같은 키를 덮어쓴다.
      */
     void applyRemoteRecheck(UUID islandId, UUID memberUserId, boolean cacheStale) {
         if (islandId == null) {
