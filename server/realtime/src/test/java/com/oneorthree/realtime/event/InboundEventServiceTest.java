@@ -303,6 +303,12 @@ class InboundEventServiceTest {
         plain.accept(objectMapper.readTree(membersUpdated(island, "MEMBER_REMOVED", null, 9)
                 .replace(",\"memberUserId\":\"null\"", "")));
         verify(decisions).evictIsland(island);
+
+        // 형식 불량 memberUserId — 사용자를 모르는 것과 같아 섬 단위로 지운다
+        UUID island2 = UUID.randomUUID();
+        plain.accept(objectMapper.readTree(membersUpdated(island2, "MEMBER_REMOVED", null, 10)
+                .replace("\"memberUserId\":\"null\"", "\"memberUserId\":\"not-a-uuid\"")));
+        verify(decisions).evictIsland(island2);
     }
 
     @Test

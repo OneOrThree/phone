@@ -220,6 +220,15 @@ class CurrentMembershipDecisionCacheTest {
     }
 
     @Test
+    void clientOffRecordsNoGenerations() {
+        properties.setEnabled(false);
+        var off = new CurrentMembershipDecisionCache(properties, registry);
+        off.evictUser(user);
+        off.evictIsland(island);
+        assertThat(off.generationCount()).isZero();
+    }
+
+    @Test
     void ttlZeroDisablesCache() {
         properties.setCacheTtlSeconds(0);
         var verifier = verifier(new CurrentMembershipDecisionCache(properties, registry));

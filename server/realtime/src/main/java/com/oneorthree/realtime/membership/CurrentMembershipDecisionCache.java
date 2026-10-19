@@ -61,7 +61,8 @@ public class CurrentMembershipDecisionCache {
     private final Counter evict;
 
     public CurrentMembershipDecisionCache(RealtimeAuthorizationProperties properties, MeterRegistry registry) {
-        this.ttlNanos = properties.getCacheTtlSeconds() * 1_000_000_000L;
+        // 인가 클라이언트 OFF 면 verifier 가 없어 쓸 곳이 없다 — 꺼 두어 사건이 세대 맵을 키우지 않게 한다.
+        this.ttlNanos = properties.isEnabled() ? properties.getCacheTtlSeconds() * 1_000_000_000L : 0L;
         hit = Counter.builder("realtime.authorization.cache").tag("result", "hit").register(registry);
         miss = Counter.builder("realtime.authorization.cache").tag("result", "miss").register(registry);
         evict = Counter.builder("realtime.authorization.cache").tag("result", "evict").register(registry);

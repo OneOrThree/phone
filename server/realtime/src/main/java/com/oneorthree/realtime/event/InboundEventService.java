@@ -257,7 +257,11 @@ public class InboundEventService {
             currentMembershipCache.evictUser(member); // ON 모드 허용 결정 — Redis 캐시 삭제 성패와 무관하게 먼저
             return !membershipService.evict(member);
         } catch (IllegalArgumentException e) {
-            log.warn("memberUserId 가 UUID 형식이 아닙니다 — 무효화를 건너뜁니다.");
+            // 사용자를 모르는 것과 같다 — 섬 단위로 지운다.
+            log.warn("memberUserId 가 UUID 형식이 아닙니다 — 섬 허용 캐시만 지웁니다.");
+            if (islandId != null) {
+                currentMembershipCache.evictIsland(islandId);
+            }
             return false;
         }
     }

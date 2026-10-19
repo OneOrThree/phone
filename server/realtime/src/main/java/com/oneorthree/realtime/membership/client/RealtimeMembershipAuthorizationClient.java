@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Flow;
 import java.util.concurrent.Semaphore;
@@ -58,6 +59,7 @@ public class RealtimeMembershipAuthorizationClient {
     private final LongAdder capacityRejected = new LongAdder();
     private final Counter rejectedTimeout;
     private final Counter rejectedInterrupted;
+    private final ConcurrentHashMap<String, Timer> timers = new ConcurrentHashMap<>();
 
     public RealtimeMembershipAuthorizationClient(RealtimeAuthorizationProperties properties) {
         this(properties, new SimpleMeterRegistry());
@@ -80,6 +82,10 @@ public class RealtimeMembershipAuthorizationClient {
         rejectedInterrupted = Counter.builder("realtime.authorization.rejected").tag("reason", "interrupted")
                 .register(registry);
         // 대시보드(gromo-components.json)가 보는 이름 — 바꾸지 않는다.
+        for (String outcome : List.of("allowed", "denied", "transport", "status", "content_type", "body_limit",
+                "contract", "deadline", "interrupted", "capacity", "timeout")) {
+            timer(outcome);
+        }
         Gauge.builder("realtime.authorization.inflight", capacity,
                 permits -> maxInFlight - permits.availablePermits()).register(registry);
         Gauge.builder("realtime.authorization.limit", this, client -> client.maxInFlight).register(registry);
@@ -183,9 +189,14 @@ public class RealtimeMembershipAuthorizationClient {
                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
             }
             capacity.release();
-            Timer.builder("realtime.authorization.duration").tag("outcome", outcome.get()).register(registry)
+            timer(outcome.get())
                     .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
         }
+    }
+
+    private Timer timer(String outcome) {
+        return timers.computeIfAbsent(outcome,
+                key -> Timer.builder("realtime.authorization.duration").tag("outcome", key).register(registry));
     }
 
     private void acquire(long started) {
@@ -212,7 +223,7 @@ public class RealtimeMembershipAuthorizationClient {
             } else if (waited) {
                 rejectedTimeout.increment();
             }
-            Timer.builder("realtime.authorization.duration").tag("outcome", reason).register(registry)
+            timer(reason)
                     .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
             log.warn("현재 멤버십 조회 실패 — outcome={} status=0 durationMs={}", reason,
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
