@@ -9,23 +9,18 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestFactory;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.io.UncheckedIOException;
-import jakarta.annotation.PreDestroy;
-import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -57,8 +52,6 @@ public class GroupClient {
     private final RestClient restClient;
     private final Semaphore concurrency;
     private final long timeoutMs;
-    /** HttpClient 전용 고정 풀 — 클라이언트 수명과 같이 끝낸다(close). 지역 변수로 두면 컨텍스트 재생성·테스트마다 스레드가 누적된다. */
-    private final ExecutorService workers;
 
     public GroupClient(String baseUrl, long timeoutMs) {
         this(baseUrl, timeoutMs, 32);
@@ -70,38 +63,26 @@ public class GroupClient {
             @Value("${chat.data-api.max-concurrency:32}") int maxConcurrency) {
         this.timeoutMs = timeoutMs;
         this.concurrency = new Semaphore(maxConcurrency);
-        AtomicInteger seq = new AtomicInteger();
-        this.workers = Executors.newFixedThreadPool(Math.max(2, maxConcurrency), task -> {
-            Thread thread = new Thread(task, "group-client-" + seq.incrementAndGet());
-            thread.setDaemon(true);
-            return thread;
-        });
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
-                .requestFactory(timeoutFactory(timeoutMs, workers))
+                .requestFactory(timeoutFactory(timeoutMs))
                 .build();
-    }
-
-    /** 전용 실행기를 거둔다 — Spring 빈 소멸과 테스트 정리 양쪽에서 부른다. */
-    @PreDestroy
-    public void close() {
-        workers.shutdownNow();
     }
 
     /**
-     * 연결을 재사용하고(JDK HttpClient 의 keep-alive 풀) 타임아웃·동시 상한을 «반드시» 지정하기 위한 팩토리.
+     * 타임아웃을 «반드시» 지정하기 위한 팩토리.
      *
-     * <p>기본 팩토리는 타임아웃이 무제한이고 연결을 재사용하지 않는다. 상류가 멈추면 STOMP 채널 스레드가 그대로
+     * <p>기본 팩토리는 타임아웃이 무제한이다. 그 상태로 상류가 멈추면 STOMP 채널 스레드가 그대로
      * 잠기고, 채널 스레드는 풀이라 곧 전부 소진돼 <b>상류 한 곳의 지연이 채팅 전체의 정지</b>가 된다.
-     * 의존성을 늘리지 않으려 Apache 대신 JDK HttpClient 를 쓴다 — 실행기를 고정 풀로 줘 스레드도 유한하다.
+     *
+     * <p>{@code SimpleClientHttpRequestFactory}(HttpURLConnection)를 쓰는 이유: read 타임아웃이 «소켓 읽기마다»
+     * 적용돼 헤더 뒤 본문이 멈춰도 끊긴다. JDK HttpClient 의 요청 타임아웃은 응답 헤더까지만 제한해 본문 정지에
+     * 무한 대기가 된다. 연결 재사용은 JDK 기본 keep-alive({@code http.keepAlive})에 맡기고, 동시성은
+     * {@link #concurrency} 세마포어로 묶는다.
      */
-    private static ClientHttpRequestFactory timeoutFactory(long timeoutMs, ExecutorService workers) {
-        HttpClient http = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofMillis(timeoutMs))
-                .executor(workers)
-                .build();
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(http);
+    private static ClientHttpRequestFactory timeoutFactory(long timeoutMs) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofMillis(timeoutMs));
         factory.setReadTimeout(Duration.ofMillis(timeoutMs));
         return factory;
     }

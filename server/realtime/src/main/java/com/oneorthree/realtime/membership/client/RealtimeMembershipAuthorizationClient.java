@@ -54,6 +54,7 @@ public class RealtimeMembershipAuthorizationClient {
     private final MeterRegistry registry;
     private final Counter rejectedCapacity;
     private final Counter rejectedTimeout;
+    private final Counter rejectedInterrupted;
 
     public RealtimeMembershipAuthorizationClient(RealtimeAuthorizationProperties properties) {
         this(properties, new SimpleMeterRegistry());
@@ -73,6 +74,8 @@ public class RealtimeMembershipAuthorizationClient {
         this.registry = registry;
         rejectedCapacity = Counter.builder("realtime.authz.rejected").tag("reason", "capacity").register(registry);
         rejectedTimeout = Counter.builder("realtime.authz.rejected").tag("reason", "timeout").register(registry);
+        rejectedInterrupted = Counter.builder("realtime.authz.rejected").tag("reason", "interrupted")
+                .register(registry);
         Gauge.builder("realtime.authz.inflight", capacity, sem -> maxInFlight - sem.availablePermits())
                 .register(registry);
         http = HttpClient.newBuilder().connectTimeout(properties.getConnectTimeout())
@@ -180,6 +183,7 @@ public class RealtimeMembershipAuthorizationClient {
 
     private void acquire(long started) {
         boolean waited = false;
+        boolean interrupted = false;
         boolean got = capacity.tryAcquire();
         if (!got && !waitTimeout.isZero()) {
             waited = true;
@@ -188,11 +192,12 @@ public class RealtimeMembershipAuthorizationClient {
                 got = capacity.tryAcquire(wait, TimeUnit.NANOSECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                interrupted = true;
             }
         }
         if (!got) {
-            String reason = waited ? "timeout" : "capacity";
-            (waited ? rejectedTimeout : rejectedCapacity).increment();
+            String reason = interrupted ? "interrupted" : waited ? "timeout" : "capacity";
+            (interrupted ? rejectedInterrupted : waited ? rejectedTimeout : rejectedCapacity).increment();
             Timer.builder("realtime.authz.duration").tag("outcome", reason).register(registry)
                     .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
             log.warn("현재 멤버십 조회 실패 — outcome={} status=0 durationMs={}", reason,

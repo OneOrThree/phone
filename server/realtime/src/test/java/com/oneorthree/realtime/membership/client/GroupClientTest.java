@@ -50,8 +50,27 @@ class GroupClientTest {
 
     @AfterEach
     void stopServer() {
-        groupClient.close(); // 전용 실행기 회수 — 테스트마다 새 클라이언트라 안 닫으면 스레드가 누적된다
         server.stop(0);
+    }
+
+    @Test
+    @DisplayName("헤더만 보내고 본문이 멈추면 타임아웃 안에 실패한다 — 본문 읽기도 무한 대기가 아니다")
+    void stalledBodyFailsWithinReadTimeout() {
+        respondWith(exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, 100);
+            exchange.getResponseBody().write('[');
+            exchange.getResponseBody().flush();
+            try {
+                Thread.sleep(6000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        long started = System.nanoTime();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> groupClient.fetchMyGroupIds("Bearer t"))
+                .isInstanceOf(com.oneorthree.realtime.common.exception.UpstreamUnavailableException.class);
+        assertThat(java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(3000L);
     }
 
     @Test

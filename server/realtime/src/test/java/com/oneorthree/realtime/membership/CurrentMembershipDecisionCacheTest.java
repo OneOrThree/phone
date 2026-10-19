@@ -163,20 +163,47 @@ class CurrentMembershipDecisionCacheTest {
         assertThat(on.generationCount()).isEqualTo(1);
         on.pruneStaleGenerations(System.nanoTime()); // TTL+유예 안 — 남는다
         assertThat(on.generationCount()).isEqualTo(1);
-        long before = on.mark(user);
+        long before = on.mark(user, island).user();
         on.pruneStaleGenerations(System.nanoTime() + 41_000_000_000L); // TTL 30s + 유예 10s 를 넘김
         assertThat(on.generationCount()).isZero();
-        assertThat(on.mark(user)).isZero(); // 정리 뒤 기록은 없고(0), 옛 세대 항목은 세대 불일치로 미스가 된다
+        assertThat(on.mark(user, island).user()).isZero(); // 정리 뒤 기록은 없고(0), 옛 세대 항목은 세대 불일치로 미스가 된다
         on.evictUser(user); // 정리 뒤 다시 evict — 번호가 재사용되면 옛 mark 의 remember 가 통과한다
-        assertThat(on.mark(user)).isNotEqualTo(before).isNotZero();
+        assertThat(on.mark(user, island).user()).isNotEqualTo(before).isNotZero();
     }
 
     @Test
     void allowRacingAnEvictIsNotStored() {
         var cache = new CurrentMembershipDecisionCache(properties, registry);
         var identity = jwt.extractSessionProof(bearer(UUID.randomUUID()).substring(7)).orElseThrow();
-        long mark = cache.mark(user);
+        var mark = cache.mark(user, island);
         cache.evictUser(user); // 조회 도중 사건 도착
+        cache.remember(identity, island, mark);
+        assertThat(cache.isAllowed(identity, island)).isFalse();
+    }
+
+    @Test
+    void evictIslandDropsEveryUsersEntryOfThatIslandOnly() {
+        var cache = new CurrentMembershipDecisionCache(properties, registry);
+        var verifier = verifier(cache);
+        UUID sid = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        verifier.requireMember(island, user, bearer(sid));
+        verifier.requireMember(other, user, bearer(sid));
+        assertThat(calls.get()).isEqualTo(2);
+        cache.evictIsland(island); // memberUserId 없는 MEMBER_REMOVED
+        allowed.set(false);
+        assertThatThrownBy(() -> verifier.requireMember(island, user, bearer(sid))).isInstanceOf(ChatException.class);
+        assertThat(calls.get()).isEqualTo(3);
+        verifier.requireMember(other, user, bearer(sid)); // 다른 섬은 그대로 hit
+        assertThat(calls.get()).isEqualTo(3);
+    }
+
+    @Test
+    void allowRacingAnIslandEvictIsNotStored() {
+        var cache = new CurrentMembershipDecisionCache(properties, registry);
+        var identity = jwt.extractSessionProof(bearer(UUID.randomUUID()).substring(7)).orElseThrow();
+        var mark = cache.mark(user, island); // 섬 evict 전에 뜬 mark
+        cache.evictIsland(island);
         cache.remember(identity, island, mark);
         assertThat(cache.isAllowed(identity, island)).isFalse();
     }

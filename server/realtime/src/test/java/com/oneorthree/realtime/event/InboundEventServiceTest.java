@@ -297,6 +297,12 @@ class InboundEventServiceTest {
 
         verify(decisions).evictUser(kicked);
         verify(decisions).evictUser(gone);
+
+        // 옛 Data — memberUserId 없는 MEMBER_REMOVED 는 섬 단위로 지운다
+        UUID island = UUID.randomUUID();
+        plain.accept(objectMapper.readTree(membersUpdated(island, "MEMBER_REMOVED", null, 9)
+                .replace(",\"memberUserId\":\"null\"", "")));
+        verify(decisions).evictIsland(island);
     }
 
     @Test

@@ -49,7 +49,7 @@ public class CurrentMembershipVerifier {
                 .orElseThrow(UpstreamRejectedCredentialException::new);
         boolean allowed = useCache && cache != null && cache.isAllowed(identity, islandId);
         if (!allowed) {
-            long mark = cache == null ? 0 : cache.mark(identity.userId());
+            var mark = cache == null ? null : cache.mark(identity.userId(), islandId);
             allowed = client.isAllowed(identity, islandId);
             if (cache != null) {
                 if (allowed) {

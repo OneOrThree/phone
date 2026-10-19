@@ -190,7 +190,7 @@ public class InboundEventService {
         if (!membershipChanged) {
             return;
         }
-        boolean evictionFailed = evictMember(params.get("memberUserId"));
+        boolean evictionFailed = evictMember(params.get("memberUserId"), uuidOrNull(params.get("islandId")));
         if (MEMBER_REMOVED.equals(changeKind.stringValue())) {
             UUID islandId = uuidOrNull(params.get("islandId"));
             UUID memberUserId = uuidOrNull(params.get("memberUserId"));
@@ -242,9 +242,14 @@ public class InboundEventService {
     }
 
     /** @return 캐시 삭제를 시도했는데 Redis 가 실패했으면 true — 옛 답이 TTL 동안 남는다 */
-    private boolean evictMember(JsonNode memberUserId) {
+    private boolean evictMember(JsonNode memberUserId, UUID islandId) {
         if (memberUserId == null || !memberUserId.isString()) {
-            log.debug("주민 사건에 memberUserId 가 없다 — 옛 Data. TTL 로만 무효화한다.");
+            // 옛 Data — 사용자를 모르니 그 섬의 ON 모드 허용 결정을 통째로 지운다(채팅 경계가 강퇴자를 TTL 동안 통과시키지 않게).
+            // Redis 멤버십 캐시는 사용자 키라 TTL 로만 닫힌다.
+            log.debug("주민 사건에 memberUserId 가 없다 — 옛 Data. 섬 허용 캐시를 지우고 Redis 캐시는 TTL 로 닫는다.");
+            if (islandId != null) {
+                currentMembershipCache.evictIsland(islandId);
+            }
             return false;
         }
         try {

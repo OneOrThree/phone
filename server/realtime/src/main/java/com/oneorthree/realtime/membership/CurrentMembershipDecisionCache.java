@@ -14,7 +14,8 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>키는 (userId, sessionId, authGeneration, islandId) — 세션이 바뀌거나 세대가 오르면 옛 항목에 닿지 않는다.
  * <b>거절·오류는 캐시하지 않는다</b>(허용으로 뒤집힐 때 지연 없이 풀리고, 거절이 오래 남지 않는다).
- * 무효화: 멤버십 변경 사건(가입·탈퇴·강퇴)·{@code user.withdrawn} 이 {@link #evictUser} 를 부른다. TTL 은 백스톱이다.
+ * 무효화: 멤버십 변경 사건(가입·탈퇴·강퇴)·{@code user.withdrawn} 이 {@link #evictUser} 를, 사용자를 모르는
+ * 멤버십 사건(옛 Data)은 {@link #evictIsland} 를 부른다. TTL 은 백스톱이다.
  *
  * <p>사건은 Kafka 소비 그룹·HTTP 로 «한 인스턴스»에만 닿으므로 다른 인스턴스의 항목은 TTL 로만 닫힌다.
  * 여러 인스턴스 + 즉시성이 필요하면 {@code cache-ttl-seconds=0} 으로 끈다.
@@ -28,7 +29,10 @@ public class CurrentMembershipDecisionCache {
     private record Key(UUID userId, UUID sessionId, long generation, UUID islandId) { }
 
     /** 허용 항목 — 만료 시각과 «넣을 때의 사용자 세대». 조회 때 세대가 다르면 무효(게시·무효화 경합을 세대로 막는다). */
-    private record Entry(long expiresAt, long userGeneration) { }
+    private record Entry(long expiresAt, long userGeneration, long islandGeneration) { }
+
+    /** 원격 조회 전에 뜬 두 축(사용자·섬)의 무효화 세대. */
+    public record Mark(long user, long island) { }
 
     private final ConcurrentHashMap<Key, Entry> entries = new ConcurrentHashMap<>();
 
@@ -41,8 +45,11 @@ public class CurrentMembershipDecisionCache {
      * 진행 중 조회는 없고, 그 세대로 넣은 항목은 이미 만료다(정리 뒤 남은 항목이 있어도 세대 불일치 → 미스로 끝난다).
      */
     private static final int MAX_GENERATIONS = 50_000;
+    /** ⚠️ 원격 조회 최대 시간(request-timeout 상한 10s, {@code RealtimeAuthorizationProperties})보다 커야 한다. */
     private static final long GENERATION_GRACE_NANOS = 10_000_000_000L;
     private final ConcurrentHashMap<UUID, Generation> userGenerations = new ConcurrentHashMap<>();
+    /** 섬별 무효화 세대 — 같은 상한·정리 규칙. */
+    private final ConcurrentHashMap<UUID, Generation> islandGenerations = new ConcurrentHashMap<>();
     /**
      * 세대 값은 전역 단조 카운터에서 발급한다 — 정리로 기록이 사라진 사용자가 다시 evict 되어도 «이전과 같은 번호»가
      * 나오지 않으므로, 옛 mark 를 든 진행 중 조회의 remember 가 통과할 수 없다(codex 게이트: 정리 뒤 번호 재사용 경합).
@@ -70,7 +77,9 @@ public class CurrentMembershipDecisionCache {
         }
         Key key = new Key(id.userId(), id.sessionId(), id.authGeneration(), islandId);
         Entry entry = entries.get(key);
-        if (entry != null && entry.expiresAt() - System.nanoTime() > 0 && entry.userGeneration() == mark(id.userId())) {
+        if (entry != null && entry.expiresAt() - System.nanoTime() > 0
+                && entry.userGeneration() == generation(userGenerations, id.userId())
+                && entry.islandGeneration() == generation(islandGenerations, islandId)) {
             hit.increment();
             return true;
         }
@@ -81,18 +90,22 @@ public class CurrentMembershipDecisionCache {
         return false;
     }
 
-    /** 원격 조회 «전에» 부른다 — 그 사용자의 현재 무효화 세대. */
-    public long mark(UUID userId) {
-        Generation generation = userGenerations.get(userId);
+    /** 원격 조회 «전에» 부른다 — 그 사용자·섬의 현재 무효화 세대. */
+    public Mark mark(UUID userId, UUID islandId) {
+        return new Mark(generation(userGenerations, userId), generation(islandGenerations, islandId));
+    }
+
+    private static long generation(ConcurrentHashMap<UUID, Generation> map, UUID id) {
+        Generation generation = map.get(id);
         return generation == null ? 0L : generation.value();
     }
 
     /**
-     * 허용 답만 넣는다. 항목은 mark(세대)를 품으므로, 세대 검사와 put 사이에 evictUser 가 끼어도
+     * 허용 답만 넣는다. 항목은 mark(세대)를 품으므로, 세대 검사와 put 사이에 evict 가 끼어도
      * 조회가 세대 불일치로 거절한다 — 사후 삭제 전에도 옛 허용이 노출되지 않는다.
      */
-    public void remember(VerifiedAccessIdentity id, UUID islandId, long mark) {
-        if (!enabled() || mark(id.userId()) != mark) {
+    public void remember(VerifiedAccessIdentity id, UUID islandId, Mark mark) {
+        if (!enabled() || !mark(id.userId(), islandId).equals(mark)) {
             return;
         }
         if (entries.size() >= MAX_ENTRIES) {
@@ -103,21 +116,30 @@ public class CurrentMembershipDecisionCache {
             }
         }
         entries.put(new Key(id.userId(), id.sessionId(), id.authGeneration(), islandId),
-                new Entry(System.nanoTime() + ttlNanos, mark));
+                new Entry(System.nanoTime() + ttlNanos, mark.user(), mark.island()));
     }
 
     public void evictUser(UUID userId) {
+        evict(userGenerations, userId, key -> key.userId().equals(userId));
+    }
+
+    /** 사용자를 모르는 섬 멤버십 사건 — 그 섬의 모든 허용 항목을 지운다. */
+    public void evictIsland(UUID islandId) {
+        evict(islandGenerations, islandId, key -> key.islandId().equals(islandId));
+    }
+
+    private void evict(ConcurrentHashMap<UUID, Generation> generations, UUID id,
+            java.util.function.Predicate<Key> matches) {
         if (!enabled()) {
             return; // 캐시가 꺼져 있으면 기록할 것이 없다 — 세대 맵도 키우지 않는다
         }
         long now = System.nanoTime();
         // 먼저 세대를 올려 진행 중 조회·게시를 무효화한다
-        long next = generationCounter.incrementAndGet();
-        userGenerations.put(userId, new Generation(next, now));
+        generations.put(id, new Generation(generationCounter.incrementAndGet(), now));
         int before = entries.size();
-        entries.keySet().removeIf(key -> key.userId().equals(userId));
+        entries.keySet().removeIf(matches);
         evict.increment(Math.max(1, before - entries.size()));
-        if (userGenerations.size() > MAX_GENERATIONS) {
+        if (generations.size() > MAX_GENERATIONS) {
             pruneStaleGenerations(now);
         }
     }
@@ -126,9 +148,10 @@ public class CurrentMembershipDecisionCache {
     void pruneStaleGenerations(long nowNanos) {
         long horizon = ttlNanos + GENERATION_GRACE_NANOS;
         userGenerations.values().removeIf(generation -> nowNanos - generation.touchedAt() > horizon);
+        islandGenerations.values().removeIf(generation -> nowNanos - generation.touchedAt() > horizon);
     }
 
     int generationCount() {
-        return userGenerations.size();
+        return userGenerations.size() + islandGenerations.size();
     }
 }

@@ -69,6 +69,10 @@ public class RealtimeAuthorizationProperties implements InitializingBean {
         }
     }
 
+    /**
+     * 상한 10s 는 {@code CurrentMembershipDecisionCache.GENERATION_GRACE_NANOS}(10s)의 전제다 — 원격 조회(대기 포함)가
+     * 이보다 오래 걸릴 수 없어야 세대 기록 정리 뒤에도 진행 중 조회의 mark 가 살아 있다.
+     */
     private static void requireDuration(Duration value) {
         if (value == null || value.compareTo(Duration.ofMillis(1)) < 0
                 || value.compareTo(Duration.ofSeconds(10)) > 0) {
