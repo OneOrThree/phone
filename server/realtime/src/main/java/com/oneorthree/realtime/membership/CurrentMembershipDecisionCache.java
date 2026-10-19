@@ -30,8 +30,18 @@ public class CurrentMembershipDecisionCache {
     private record Entry(long expiresAt, long userGeneration) { }
 
     private final ConcurrentHashMap<Key, Entry> entries = new ConcurrentHashMap<>();
+
     /** 사용자별 무효화 세대 — evictUser 마다 1 증가. 항목은 넣을 때의 세대를 품고, 조회는 현재 세대와 같을 때만 믿는다. */
-    private final ConcurrentHashMap<UUID, Long> userGenerations = new ConcurrentHashMap<>();
+    private record Generation(long value, long touchedAt) { }
+
+    /**
+     * 세대 기록은 «그 사용자의 허용 항목이 살아 있거나 원격 조회가 진행 중일 수 있는 동안»만 필요하다.
+     * 상한을 넘으면 TTL + 유예(원격 조회 최대 시간보다 길게)가 지난 기록을 지운다 — 그보다 오래된 mark 를 든
+     * 진행 중 조회는 없고, 그 세대로 넣은 항목은 이미 만료다(정리 뒤 남은 항목이 있어도 세대 불일치 → 미스로 끝난다).
+     */
+    private static final int MAX_GENERATIONS = 50_000;
+    private static final long GENERATION_GRACE_NANOS = 10_000_000_000L;
+    private final ConcurrentHashMap<UUID, Generation> userGenerations = new ConcurrentHashMap<>();
     private final long ttlNanos;
     private final Counter hit;
     private final Counter miss;
@@ -67,7 +77,8 @@ public class CurrentMembershipDecisionCache {
 
     /** 원격 조회 «전에» 부른다 — 그 사용자의 현재 무효화 세대. */
     public long mark(UUID userId) {
-        return userGenerations.getOrDefault(userId, 0L);
+        Generation generation = userGenerations.get(userId);
+        return generation == null ? 0L : generation.value();
     }
 
     /**
@@ -90,9 +101,28 @@ public class CurrentMembershipDecisionCache {
     }
 
     public void evictUser(UUID userId) {
-        userGenerations.merge(userId, 1L, Long::sum); // 먼저 세대를 올려 진행 중 조회·게시를 무효화한다
+        if (!enabled()) {
+            return; // 캐시가 꺼져 있으면 기록할 것이 없다 — 세대 맵도 키우지 않는다
+        }
+        long now = System.nanoTime();
+        // 먼저 세대를 올려 진행 중 조회·게시를 무효화한다
+        userGenerations.compute(userId, (ignored, current) ->
+                new Generation(current == null ? 1L : current.value() + 1, now));
         int before = entries.size();
         entries.keySet().removeIf(key -> key.userId().equals(userId));
         evict.increment(Math.max(1, before - entries.size()));
+        if (userGenerations.size() > MAX_GENERATIONS) {
+            pruneStaleGenerations(now);
+        }
+    }
+
+    /** TTL + 유예가 지난 세대 기록을 지운다(상한 초과 때). 테스트에서 시각을 주입하려고 패키지 공개. */
+    void pruneStaleGenerations(long nowNanos) {
+        long horizon = ttlNanos + GENERATION_GRACE_NANOS;
+        userGenerations.values().removeIf(generation -> nowNanos - generation.touchedAt() > horizon);
+    }
+
+    int generationCount() {
+        return userGenerations.size();
     }
 }

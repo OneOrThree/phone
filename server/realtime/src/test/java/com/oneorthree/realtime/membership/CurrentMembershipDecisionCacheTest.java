@@ -150,6 +150,25 @@ class CurrentMembershipDecisionCacheTest {
     }
 
     @Test
+    void disabledCacheRecordsNoGenerationsAndStaleGenerationsArePruned() {
+        properties.setCacheTtlSeconds(0);
+        var off = new CurrentMembershipDecisionCache(properties, registry);
+        off.evictUser(user);
+        off.evictUser(UUID.randomUUID());
+        assertThat(off.generationCount()).isZero(); // 꺼진 캐시는 세대 맵도 키우지 않는다
+
+        properties.setCacheTtlSeconds(30);
+        var on = new CurrentMembershipDecisionCache(properties, registry);
+        on.evictUser(user);
+        assertThat(on.generationCount()).isEqualTo(1);
+        on.pruneStaleGenerations(System.nanoTime()); // TTL+유예 안 — 남는다
+        assertThat(on.generationCount()).isEqualTo(1);
+        on.pruneStaleGenerations(System.nanoTime() + 41_000_000_000L); // TTL 30s + 유예 10s 를 넘김
+        assertThat(on.generationCount()).isZero();
+        assertThat(on.mark(user)).isZero(); // 정리 뒤 세대는 0 으로 돌아가고, 옛 세대 항목은 세대 불일치로 미스가 된다
+    }
+
+    @Test
     void allowRacingAnEvictIsNotStored() {
         var cache = new CurrentMembershipDecisionCache(properties, registry);
         var identity = jwt.extractSessionProof(bearer(UUID.randomUUID()).substring(7)).orElseThrow();
