@@ -1,17 +1,24 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.IslandGuestbookResponses;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.request.CursorBoundary;
+import com.oneorthree.business.common.request.CursorScope;
+import com.oneorthree.business.common.request.SignedCursorCodec;
 import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.IslandGuestbooks;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -23,6 +30,8 @@ import java.util.function.Supplier;
 @Service
 @RequiredArgsConstructor
 public class IslandGuestbookUseCase {
+
+    private static final int PAGE_SIZE = 30;
 
     /**
      * 상류 (status, code) → 공개 코드·필드. {@code SOCIAL_LOGIN_REQUIRED}·{@code GUESTBOOK_ALREADY_WRITTEN_TODAY}
@@ -40,9 +49,30 @@ public class IslandGuestbookUseCase {
             "INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null));
 
     private final DataIslandClient data;
+    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 
-    public IslandGuestbooks.Page list(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
-        return required(relay(() -> data.fetchGuestbook(claims.userId(), islandId, deadline)));
+    /** 30개씩 최신순으로 읽는다. 커서는 인가가 아니므로 매 페이지 Data가 사용자·섬·시설을 판정한다. */
+    public IslandGuestbookResponses.Page list(AccessTokenClaims claims, UUID islandId, String cursor,
+            Deadline deadline) {
+        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
+        if (codec == null) {
+            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
+        }
+        CursorScope scope = new CursorScope(claims.userId(), "islands/guestbook",
+                Map.of("islandId", islandId.toString()), "created-desc", PAGE_SIZE);
+        Anchor anchor = Anchor.of(codec.decode(cursor, scope));
+        IslandGuestbooks.Page page = required(relay(() -> data.fetchGuestbook(claims.userId(), islandId,
+                anchor == null ? null : anchor.createdAt(), anchor == null ? null : anchor.id(), PAGE_SIZE,
+                deadline)));
+        if (page.items().size() > PAGE_SIZE || (page.hasMore() && page.items().size() != PAGE_SIZE)) {
+            throw new UpstreamContractMismatchException("방명록 페이지 크기가 계약과 다릅니다");
+        }
+        String next = null;
+        if (page.hasMore()) {
+            IslandGuestbooks.Item last = page.items().get(page.items().size() - 1);
+            next = codec.encode(scope, new CursorBoundary(last.createdAt().toString(), last.id().toString()));
+        }
+        return new IslandGuestbookResponses.Page(page.boardBuilt(), page.items(), next);
     }
 
     public IslandGuestbooks.Item write(AccessTokenClaims claims, UUID islandId, String content, Deadline deadline) {
@@ -74,6 +104,21 @@ public class IslandGuestbookUseCase {
                 throw e;
             }
             throw new PublicApiException(failure.code(), failure.field());
+        }
+    }
+
+    /** 서명이 유효해도 경계 값의 타입이 잘못되면 첫 페이지로 접지 않는다. */
+    private record Anchor(Instant createdAt, UUID id) {
+
+        static Anchor of(CursorBoundary boundary) {
+            if (boundary == null) {
+                return null;
+            }
+            try {
+                return new Anchor(Instant.parse(boundary.sortKey()), UUID.fromString(boundary.tieBreaker()));
+            } catch (DateTimeParseException | IllegalArgumentException e) {
+                throw new PublicApiException(ApiErrorCode.INVALID_CURSOR, "cursor");
+            }
         }
     }
 

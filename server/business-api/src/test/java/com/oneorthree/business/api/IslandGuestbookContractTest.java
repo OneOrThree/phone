@@ -1,5 +1,9 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.common.request.CursorBoundary;
+import com.oneorthree.business.common.request.CursorScope;
+import com.oneorthree.business.common.request.SignedCursorCodec;
+import com.oneorthree.business.config.CursorConfig;
 import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
@@ -7,12 +11,26 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -26,6 +44,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code IslandGuestbookIntegrationTest} 가 실제 DB 로 본다.
  */
 class IslandGuestbookContractTest extends UpstreamTestBase {
+
+    @Autowired
+    SignedCursorCodec codec;
+    @Autowired
+    CursorConfig.Properties cursorProperties;
+    @Autowired
+    ObjectMapper mapper;
 
     private static final UUID USER = UUID.fromString("aaaaaaaa-2262-0000-0000-000000000001");
     private static final UUID SESSION = UUID.fromString("bbbbbbbb-2262-0000-0000-000000000001");
@@ -45,7 +70,7 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
             + "\"mine\":true}";
     private static final String PAGE = "{\"boardBuilt\":true,\"items\":[" + ITEM + ",{\"id\":\"" + UUID.randomUUID()
             + "\",\"authorId\":\"" + UUID.randomUUID() + "\",\"authorName\":null,\"content\":\"hi\","
-            + "\"createdAt\":\"2026-10-12T04:00:00Z\",\"mine\":false}]}";
+            + "\"createdAt\":\"2026-10-12T04:00:00Z\",\"mine\":false}],\"hasMore\":false}";
 
     @Test
     @DisplayName("목록은 상류의 boardBuilt·items 를 그대로 싣고 authorName null 도 키를 유지한다 — 주체는 AT 에서만 간다")
@@ -58,8 +83,101 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items[0].content").value("🐟 안녕"))
                 .andExpect(jsonPath("$.data.items[0].mine").value(true))
                 .andExpect(jsonPath("$.data.items[1].authorName").hasJsonPath())
-                .andExpect(jsonPath("$.data.items[1].authorName").value((Object) null));
+                .andExpect(jsonPath("$.data.items[1].authorName").value((Object) null))
+                .andExpect(jsonPath("$.data.nextCursor").value(nullValue()))
+                .andExpect(jsonPath("$.data.hasMore").doesNotExist());
         assertThat(DATA.receivedFor(DATA_LIST).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+    }
+
+    @Test
+    @DisplayName("30개 뒤에는 마지막 글의 시각·id를 서명하고, 다음 요청에서 같은 경계와 고정 크기 30을 Data에 보낸다")
+    void listSignsCursorAndForwardsItsBoundary() throws Exception {
+        DATA.on(DATA_LIST, request -> ok(pageBody(30, true)));
+        String cursor = nextCursor();
+        assertThat(decodedQuery(DATA.receivedFor(DATA_LIST).get(0))).containsExactly("limit=30");
+
+        DATA.on(DATA_LIST, request -> ok("{\"boardBuilt\":true,\"items\":[],\"hasMore\":false}"));
+        mockMvc.perform(auth(get(PUBLIC)).queryParam("cursor", cursor))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.nextCursor").value(nullValue()));
+        assertThat(decodedQuery(DATA.receivedFor(DATA_LIST).get(1))).containsExactlyInAnyOrder(
+                "afterCreatedAt=2026-10-12T05:00:00.123456Z", "afterId=" + new UUID(0, 30), "limit=30");
+    }
+
+    @Test
+    @DisplayName("커서는 사용자·섬·자원에 묶인다 — 다른 사용자·섬·공지의 커서는 상류 호출 없이 거절한다")
+    void cursorCannotMoveToAnotherScope() throws Exception {
+        DATA.on(DATA_LIST, request -> ok(pageBody(30, true)));
+        String cursor = nextCursor();
+        UUID otherUser = UUID.randomUUID();
+        mockMvc.perform(get(PUBLIC).header("Authorization", "Bearer "
+                        + Tokens.accessWithSession(otherUser, 3, UUID.randomUUID())).queryParam("cursor", cursor))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"));
+        mockMvc.perform(auth(get("/islands/" + UUID.randomUUID() + "/guestbook")).queryParam("cursor", cursor))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"));
+        String noticeCursor = codec.encode(new CursorScope(USER, "islands/notices",
+                Map.of("islandId", ISLAND.toString()), "created-desc", 30),
+                new CursorBoundary("2026-10-12T05:00:00Z", ENTRY.toString()));
+        mockMvc.perform(auth(get(PUBLIC)).queryParam("cursor", noticeCursor))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"));
+        assertThat(DATA.receivedFor(DATA_LIST)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("빈·위조·중복 커서와 타입이 손상된 서명 경계는 첫 페이지로 바꾸지 않고 거절한다")
+    void invalidCursorsFailBeforeUpstream() throws Exception {
+        for (String cursor : List.of("", "forged", "x".repeat(4097), codec.encode(guestbookScope(),
+                new CursorBoundary("not-a-time", ENTRY.toString())), codec.encode(guestbookScope(),
+                new CursorBoundary("2026-10-12T05:00:00Z", "not-a-uuid")))) {
+            mockMvc.perform(auth(get(PUBLIC)).queryParam("cursor", cursor))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"))
+                    .andExpect(jsonPath("$.error.field").value("cursor"));
+        }
+        mockMvc.perform(auth(get(PUBLIC)).queryParam("cursor", "a", "b"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.field").value("cursor"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("만료된 커서는 상류 호출 없이 409 CURSOR_EXPIRED다")
+    void expiredCursorFailsBeforeUpstream() throws Exception {
+        Map<String, byte[]> keys = cursorProperties.keys().entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> Base64.getDecoder().decode(e.getValue())));
+        SignedCursorCodec past = new SignedCursorCodec(keys, cursorProperties.activeKey(),
+                Clock.fixed(Instant.parse("2020-01-01T00:00:00Z"), ZoneOffset.UTC), Duration.ofMinutes(15), mapper);
+        String cursor = past.encode(guestbookScope(), new CursorBoundary("2019-01-01T00:00:00Z", ENTRY.toString()));
+        mockMvc.perform(auth(get(PUBLIC)).queryParam("cursor", cursor))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("CURSOR_EXPIRED"))
+                .andExpect(jsonPath("$.error.field").value("cursor"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missingPaging", "emptyWithMore", "shortWithMore", "tooMany", "nullItems"})
+    @DisplayName("상류 페이지의 누락·모순은 커서 소진으로 숨기지 않고 공개 계약 오류로 드러낸다")
+    void invalidUpstreamPagesAreRejected(String shape) throws Exception {
+        String body = switch (shape) {
+            case "missingPaging" -> "{\"boardBuilt\":true,\"items\":[]}";
+            case "emptyWithMore" -> pageBody(0, true);
+            case "shortWithMore" -> pageBody(1, true);
+            case "tooMany" -> pageBody(31, false);
+            default -> "{\"boardBuilt\":true,\"items\":null,\"hasMore\":false}";
+        };
+        DATA.on(DATA_LIST, request -> ok(body));
+        mockMvc.perform(auth(get(PUBLIC))).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @Test
+    @DisplayName("공개 문서에는 boardBuilt·items·nextCursor를 싣고 내부 hasMore는 노출하지 않는다")
+    void publicDocumentationIncludesCursor() throws Exception {
+        String body = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(mapper.readTree(body).path("components").path("schemas").path("IslandGuestbook")
+                .path("properties").propertyNames()).containsExactlyInAnyOrder("boardBuilt", "items", "nextCursor");
     }
 
     @Test
@@ -165,12 +283,13 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
     @Test
     @DisplayName("읽기는 게시판 잠김을 오류로 만들지 않는다 — 상류가 boardBuilt=false 로 답한다")
     void listRelaysBoardNotBuilt() throws Exception {
-        DATA.on(DATA_LIST, request -> ok("{\"boardBuilt\":false,\"items\":[]}"));
+        DATA.on(DATA_LIST, request -> ok("{\"boardBuilt\":false,\"items\":[],\"hasMore\":false}"));
 
         mockMvc.perform(auth(get(PUBLIC)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.boardBuilt").value(false))
-                .andExpect(jsonPath("$.data.items").isEmpty());
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.nextCursor").value(nullValue()));
     }
 
     // ---------------------------------------------------------------- 인사말 수정 (PATCH /islands/{id})
@@ -217,6 +336,28 @@ class IslandGuestbookContractTest extends UpstreamTestBase {
     }
 
     // ---------------------------------------------------------------- 도구
+
+    private String nextCursor() throws Exception {
+        String body = mockMvc.perform(auth(get(PUBLIC))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nextCursor").isString())
+                .andReturn().getResponse().getContentAsString();
+        return mapper.readTree(body).path("data").path("nextCursor").asText();
+    }
+
+    private static CursorScope guestbookScope() {
+        return new CursorScope(USER, "islands/guestbook", Map.of("islandId", ISLAND.toString()), "created-desc", 30);
+    }
+
+    private static String pageBody(int size, boolean more) {
+        String items = IntStream.range(0, size).mapToObj(i -> ITEM.replace(ENTRY.toString(), new UUID(0, i + 1).toString())
+                .replace("2026-10-12T05:00:00Z", "2026-10-12T05:00:00.123456Z")).collect(Collectors.joining(","));
+        return "{\"boardBuilt\":true,\"items\":[" + items + "],\"hasMore\":" + more + "}";
+    }
+
+    private static List<String> decodedQuery(MockUpstream.RecordedRequest request) {
+        return java.util.Arrays.stream(request.query().split("&"))
+                .map(value -> java.net.URLDecoder.decode(value, java.nio.charset.StandardCharsets.UTF_8)).toList();
+    }
 
     private static MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
         return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));
