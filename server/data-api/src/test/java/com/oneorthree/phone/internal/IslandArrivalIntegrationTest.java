@@ -719,7 +719,82 @@ class IslandArrivalIntegrationTest {
                 .isEqualTo(1);
     }
 
+    // ---------------------------------------------------------------- 첫 도착 동시 경합 (GROMO-2333)
+
+    @Test
+    @DisplayName("같은 사람의 같은 섬 동시 도착 둘은 사건 1건·도착 행 1개 — arrivedBefore=false 는 정확히 한 응답이다")
+    void concurrentArrivalsOfTheSameMemberPublishOnce() throws Exception {
+        UUID user = newUser();
+        UUID target = island("동시도착섬", false, false);
+        joinAs(newUser(), target, GroupMemberRole.OWNER);
+        joins.join(user, target, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+
+        List<IslandArrivalView> views = raceArrivals(List.of(user, user), target);
+
+        assertThat(views).hasSize(2);
+        assertThat(views.stream().filter(view -> !view.arrivedBefore())).as("첫 도착 응답").hasSize(1);
+        assertThat(views.stream().filter(IslandArrivalView::arrivedBefore)).as("나머지는 이미 가 본 섬").hasSize(1);
+        assertThat(arrivalEvents(target)).isEqualTo(1);
+        assertThat(count("select count(*) from island_arrivals where user_id=? and island_id=?", user, target))
+                .isEqualTo(1);
+        assertThat(currentIsland(user)).isEqualTo(target);
+    }
+
+    @Test
+    @DisplayName("서로 다른 두 주민의 같은 섬 동시 첫 도착은 사건 각 1건이고 aggregate_version 이 겹치지 않는다")
+    void concurrentFirstArrivalsOfTwoMembersGetDistinctVersions() throws Exception {
+        UUID target = island("동시첫도착섬", false, false);
+        joinAs(newUser(), target, GroupMemberRole.OWNER);
+        UUID a = newUser();
+        UUID b = newUser();
+        for (UUID user : List.of(a, b)) {
+            joins.join(user, target, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
+        }
+
+        List<IslandArrivalView> views = raceArrivals(List.of(a, b), target);
+
+        assertThat(views).allSatisfy(view -> assertThat(view.arrivedBefore()).isFalse());
+        assertThat(arrivalEvents(target)).isEqualTo(2);
+        assertThat(jdbc.queryForList("select user_id from event_outbox where type='island.member.arrived' "
+                + "and subject_id=?", UUID.class, target.toString())).containsExactlyInAnyOrder(a, b);
+        List<Long> versions = jdbc.queryForList("select d.aggregate_version from event_outbox_deliveries d "
+                + "join event_outbox o on o.id=d.outbox_id where o.type='island.member.arrived' "
+                + "and d.aggregate_type='ISLAND_ARRIVAL' and d.aggregate_id=?",
+                Long.class, target.toString());
+        assertThat(versions).hasSize(2).doesNotHaveDuplicates();
+    }
+
     // ---------------------------------------------------------------- 도구
+
+    /**
+     * 사람마다 새 키로 같은 섬 도착을 동시에 출발시키고 응답을 모은다 — 예외는 그대로 던져 테스트를 실패시킨다.
+     * 작업자가 전부 게이트에 도달한 것을 {@code ready} 로 확인한 뒤 출발시킨다 — 러너가 느려 한 작업자가 먼저 끝나면
+     * 순차 요청이 되어 경합 회귀를 못 잡는다(codex 리뷰).
+     */
+    private List<IslandArrivalView> raceArrivals(List<UUID> arrivers, UUID islandId) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(arrivers.size());
+        CountDownLatch ready = new CountDownLatch(arrivers.size());
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<IslandArrivalView>> futures = new ArrayList<>();
+            for (UUID arriver : arrivers) {
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    return islands.arrive(arriver, islandId, UUID.randomUUID());
+                }));
+            }
+            assertThat(ready.await(10, TimeUnit.SECONDS)).as("작업자 전원 게이트 도달").isTrue();
+            start.countDown();
+            List<IslandArrivalView> views = new ArrayList<>();
+            for (Future<IslandArrivalView> future : futures) {
+                views.add(future.get(30, TimeUnit.SECONDS));
+            }
+            return views;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
 
     /** 두 명령을 동시에 출발시키고 실패만 모은다 — {@code IslandManagementIntegrationTest.race} 와 같은 도구다. */
     private List<Throwable> race(Callable<?> first, Callable<?> second) throws Exception {
