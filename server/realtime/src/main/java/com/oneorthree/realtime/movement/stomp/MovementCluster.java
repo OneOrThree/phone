@@ -445,6 +445,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             relay.publishCommand(new Command(me, null, 0, null, Type.PING, null, null, null, false, joinedSessions()));
             sweepDeadInstances();
             retryFullStates();
+            requestResyncs();
         } catch (RuntimeException e) {
             log.warn("이동 소유자 감시 실패 — reason={}", e.getClass().getSimpleName());
         }
@@ -600,7 +601,9 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             }
             return;
         }
-        if (command.type() == Type.PING) {
+        if (command.type() == Type.RESYNC) {
+            submit(() -> resyncIsland(command.islandId()));
+        } else if (command.type() == Type.PING) {
             submit(() -> reconcile(command.originInstanceId(), command.sessions()));
         } else if (me.equals(command.ownerInstanceId())) {
             submit(command.type() == Type.EVICTED ? () -> rejoinEvicted(command.sessions())
@@ -710,6 +713,32 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             }
         }
         fullStateRequestedAt.keySet().retainAll(waiting);
+    }
+
+    /**
+     * 소유자 쪽 — reliable 프레임(퇴장 FullState·Arrived 등)을 잃은 섬에 RESYNC 를 돌린다(codex r2). 게이트가 이미 열린 세션은
+     * {@link #retryFullStates} 대상이 아니고 PING 대조는 앱의 actor 목록을 모르므로, 그 프레임을 잃으면 다음 입퇴장까지 어긋난다.
+     * 리스가 없으면 건너뛴다(새 소유자의 재입장이 같은 일을 한다).
+     */
+    private void requestResyncs() {
+        for (UUID islandId : relay.takeResyncs()) {
+            Lease lease = ownership.lease(islandId);
+            if (lease == null) {
+                continue;
+            }
+            relay.publishCommand(new Command(me, null, lease.epoch(), islandId, Type.RESYNC, null, null, null, false));
+            resyncIsland(islandId); // 내 세션 — 자기 메아리는 받지 않는다
+        }
+    }
+
+    /** 그 섬의 내 세션 전부 게이트를 닫고 세션 한정 FullState 를 다시 요청한다. */
+    private void resyncIsland(UUID islandId) {
+        for (MovementOutbox outbox : publisher.outboxes(islandId)) {
+            if (eligible(islandId, outbox) && outbox.acceptsIntents()) {
+                publisher.resync(islandId, outbox.sessionId());
+                route(islandId, Type.FULL_STATE, null, outbox.sessionId(), null);
+            }
+        }
     }
 
     /** 방에 actor 를 든 내 세션인가 — 구독 중·안 닫힘·교체되지 않음. */

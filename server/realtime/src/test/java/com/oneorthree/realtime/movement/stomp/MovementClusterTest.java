@@ -341,6 +341,62 @@ class MovementClusterTest {
         owner.release(island);
     }
 
+    @Test
+    @DisplayName("reliable 프레임은 Snapshot 줄이 아니라 제어 줄로 가고, 그마저 차면 버리는 대신 그 섬에 재동기화를 건다(codex r2)")
+    void reliableFramesAreNeverSilentlyDropped() {
+        SimpleMeterRegistry own = new SimpleMeterRegistry();
+        MovementRelay stalled = new MovementRelay(true, publisher, ownership, redis, json, own, 1, 1); // 송신 스레드 없음
+        Frame snapshot = new Frame("ct", island, 1, Kind.SNAPSHOT, null, null, false, "{}");
+        Frame fullState = new Frame("ct", island, 1, Kind.EVENT, null, null, false, "{}");
+        stalled.publishFrame(snapshot);
+        stalled.publishFrame(snapshot);
+        stalled.publishFrame(fullState); // 사건 줄이 차 있어도 제어 줄로
+        stalled.publishFrame(fullState); // 제어 줄도 찼다 — 재동기화 표시
+
+        assertThat(own.counter("movement.relay.dropped", "kind", "frame").count()).as("Snapshot 만 버린다")
+                .isEqualTo(1);
+        assertThat(own.counter("movement.relay.resync", "reason", "dropped").count()).isEqualTo(1);
+        assertThat(own.get("movement.relay.queue.depth").gauge().value()).isEqualTo(2);
+        assertThat(stalled.takeResyncs()).containsExactly(island);
+        assertThat(stalled.takeResyncs()).as("꺼내면 지운다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("퇴장 FullState 를 송신 줄에서 잃어도 RESYNC 로 2~3초 안에 남은 세션이 세션 한정 FullState 로 actor 목록을 맞춘다")
+    void lostDepartureFullStateIsResynced() throws Exception {
+        UUID stayer = user;
+        UUID leaver = UUID.randomUUID();
+        open("s1");
+        publisher.open(island, "s2", leaver).subscribeMovement("sub-s2");
+        cluster.join(island, stayer, "s1");
+        cluster.requestFullState(island, "s1");
+        cluster.join(island, leaver, "s2");
+        cluster.requestFullState(island, "s2");
+        awaitFullStateWith("s1", 2);
+
+        relay.stop(); // 송신을 멈추고 제어 줄을 채운다 — 이 뒤의 퇴장 FullState 는 줄에 못 들어간다
+        while (meters.counter("movement.relay.dropped", "kind", "control").count() == 0) {
+            relay.publishCommand(new Command(ownership.instanceId(), null, 0, null, Type.PING, null, null, null,
+                    false));
+        }
+        publisher.close(island, "s2");
+        cluster.leave(island, "s2");
+        await(() -> meters.counter("movement.relay.resync", "reason", "dropped").count() >= 1);
+        int before = bodiesFor("s1").size();
+        int fullStatesBefore = (int) bodiesFor("s1").stream()
+                .filter(b -> "FullState".equals(b.get("type").stringValue())).count();
+
+        relay.start();
+        long restarted = System.nanoTime();
+        JsonNode resynced = awaitFullStateWith("s1", 1, fullStatesBefore); // 입장 때의 1명짜리는 건너뛴다
+        long tookMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - restarted);
+
+        assertThat(actorIdsOf(resynced)).containsExactly(stayer.toString());
+        assertThat(tookMs).as("감시 1틱 + 왕복").isLessThanOrEqualTo(3000);
+        assertThat(bodiesFor("s1").subList(before, bodiesFor("s1").size()))
+                .as("잃은 전원 FullState 대신 RESYNC 의 세션 한정 FullState 로 맞췄다").isNotEmpty();
+    }
+
     /** 이 인스턴스가 소유자가 되고(로컬 세션 s1), 다른 인스턴스 세션 {@code <instance>:<sid>} 가 방에 든 상태를 만든다. */
     private UUID becomeOwnerWithRemoteActor(String instance, String sessionId) throws Exception {
         open("s1");

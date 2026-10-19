@@ -22,8 +22,10 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -64,6 +66,9 @@ public class MovementRelay implements RoomRuntime.Listener {
     private final Semaphore signal = new Semaphore(0);
     private final Counter dropped;
     private final Counter droppedControl;
+    private final Counter resyncDropped;
+    private final Counter resyncPublish;
+    private final Set<UUID> needsResync = ConcurrentHashMap.newKeySet();
     private final Counter noLease;
     private final Counter staleRoom;
     private final Counter publishFailed;
@@ -100,7 +105,7 @@ public class MovementRelay implements RoomRuntime.Listener {
                 .description("이동 릴레이 송신 줄 깊이(GROMO-2339, 상한 " + capacity + ")")
                 .register(meterRegistry);
         this.dropped = Counter.builder("movement.relay.dropped").tag("kind", "frame")
-                .description("송신 줄이 차서 버린 이동 프레임·INTENT 수")
+                .description("사건 줄이 차서 버린 Snapshot·INTENT 수(버려도 되는 것만 이 줄에 있다)")
                 .register(meterRegistry);
         this.droppedControl = Counter.builder("movement.relay.dropped").tag("kind", "control")
                 .description("제어 줄까지 차서 버린 JOIN·LEAVE·FULL_STATE·RECHECK·PING 수 — 다음 PING 대조가 고친다")
@@ -108,6 +113,10 @@ public class MovementRelay implements RoomRuntime.Listener {
         this.noLease = Counter.builder("movement.routing.failed").tag("reason", "no_lease")
                 .description("소유자 리스 없이 나온 방 사건이라 내지 않은 수(fail-closed)")
                 .register(meterRegistry);
+        this.resyncDropped = Counter.builder("movement.relay.resync").tag("reason", "dropped")
+                .description("제어 줄이 차서 reliable 프레임을 잃고 그 섬 재동기화를 건 수").register(meterRegistry);
+        this.resyncPublish = Counter.builder("movement.relay.resync").tag("reason", "publish")
+                .description("PUBLISH 실패로 reliable 프레임을 잃고 그 섬 재동기화를 건 수").register(meterRegistry);
         this.staleRoom = Counter.builder("movement.routing.failed").tag("reason", "stale_room")
                 .description("리스를 잃었다 다시 얻은 뒤 옛 방에서 늦게 나온 사건이라 내지 않은 수(fail-closed)")
                 .register(meterRegistry);
@@ -292,8 +301,23 @@ public class MovementRelay implements RoomRuntime.Listener {
 
     // ── 송신 줄 ─────────────────────────────────────────────────────────
 
+    /**
+     * 프레임을 낸다. 버려도 되는 건 Snapshot 뿐이다(다음 틱이 또 준다) — 사건 줄로 간다. reliable 사건(FullState·PathAccepted·
+     * Arrived·MoveRejected)과 SUPERSEDE 는 제어 줄로 간다(codex r2): 사건 줄이 Snapshot 으로 차도 밀리지 않는다. 제어 줄은
+     * 건수 상한(1024)이라 FullState 크기(15명·경로 포함 수 KB)와 무관하다 — 다 차도 수 MB 다. 그래도 차거나 PUBLISH 가 실패해
+     * reliable 을 잃으면 그 섬에 «재동기화 필요»를 남긴다 — 다음 감시 틱에 {@code MovementCluster} 가 RESYNC 를 돌려 모든
+     * 인스턴스의 그 섬 세션이 세션 한정 FullState 로 다시 맞춘다({@code movement.relay.resync{reason}}).
+     *
+     * <p>그 대가로 reliable 사건이 먼저 줄 선 Snapshot 을 앞지를 수 있다 — 두 토픽은 원래 세션 outbox 에서도 따로 줄 서므로
+     * (reliable 덱·Snapshot 슬롯) 새 순서 관계가 생기지는 않는다.
+     */
     void publishFrame(Frame frame) {
-        offer(queue, dropped, RedisKeys.MOVEMENT_FRAMES_CHANNEL, objectMapper.writeValueAsString(frame));
+        String payload = objectMapper.writeValueAsString(frame);
+        if (frame.kind() == Kind.SNAPSHOT) {
+            offer(queue, dropped, RedisKeys.MOVEMENT_FRAMES_CHANNEL, payload, null);
+        } else {
+            offer(control, null, RedisKeys.MOVEMENT_FRAMES_CHANNEL, payload, frame.islandId());
+        }
     }
 
     /**
@@ -305,18 +329,41 @@ public class MovementRelay implements RoomRuntime.Listener {
     void publishCommand(Command command) {
         String payload = objectMapper.writeValueAsString(command);
         if (command.type() == Type.INTENT) {
-            offer(queue, dropped, RedisKeys.MOVEMENT_CMD_CHANNEL, payload);
+            offer(queue, dropped, RedisKeys.MOVEMENT_CMD_CHANNEL, payload, null);
+        } else if (command.type() == Type.RESYNC) {
+            // RESYNC 자신을 잃어도 다시 표시돼 다음 틱에 또 보낸다.
+            offer(control, null, RedisKeys.MOVEMENT_CMD_CHANNEL, payload, command.islandId());
         } else {
-            offer(control, droppedControl, RedisKeys.MOVEMENT_CMD_CHANNEL, payload);
+            offer(control, droppedControl, RedisKeys.MOVEMENT_CMD_CHANNEL, payload, null);
         }
     }
 
-    private void offer(ArrayBlockingQueue<Outgoing> target, Counter drops, String channel, String payload) {
-        if (target.offer(new Outgoing(channel, payload, System.nanoTime()))) {
+    /** @param resyncIsland 잃으면 재동기화해야 하는 섬(reliable 프레임·RESYNC), 아니면 null — 그때는 {@code drops} 를 센다 */
+    private void offer(ArrayBlockingQueue<Outgoing> target, Counter drops, String channel, String payload,
+            UUID resyncIsland) {
+        if (target.offer(new Outgoing(channel, payload, System.nanoTime(), resyncIsland))) {
             signal.release();
+        } else if (resyncIsland != null) {
+            markResync(resyncIsland, resyncDropped);
         } else {
             drops.increment();
         }
+    }
+
+    private void markResync(UUID islandId, Counter reason) {
+        reason.increment();
+        needsResync.add(islandId);
+    }
+
+    /** 재동기화가 필요한 섬을 꺼낸다(꺼낸 것은 지운다) — {@code movement-cluster} 감시가 1초마다 부른다. */
+    Set<UUID> takeResyncs() {
+        Set<UUID> taken = new HashSet<>();
+        for (UUID islandId : needsResync) {
+            if (needsResync.remove(islandId)) {
+                taken.add(islandId);
+            }
+        }
+        return taken;
     }
 
     private void sendLoop() {
@@ -341,6 +388,11 @@ public class MovementRelay implements RoomRuntime.Listener {
                 return;
             } catch (RuntimeException e) {
                 publishFailed.increment(batch.size());
+                for (Outgoing lost : batch) {
+                    if (lost.resyncIsland() != null) {
+                        markResync(lost.resyncIsland(), resyncPublish);
+                    }
+                }
                 log.warn("이동 릴레이 PUBLISH 실패 — {}건을 잃었다. reason={}", batch.size(), e.getClass().getSimpleName());
             } finally {
                 batch.clear();
@@ -378,7 +430,7 @@ public class MovementRelay implements RoomRuntime.Listener {
         return sessionKey.substring(sessionKey.indexOf(':') + 1);
     }
 
-    private record Outgoing(String channel, String payload, long enqueuedNanos) {
+    private record Outgoing(String channel, String payload, long enqueuedNanos, UUID resyncIsland) {
     }
 
     // ── 봉투(wire 아님 — 인스턴스 사이 전용) ───────────────────────────
@@ -390,9 +442,10 @@ public class MovementRelay implements RoomRuntime.Listener {
      * 명령 종류. {@code PING}·{@code EVICTED} 는 계약 §4 밖의 추가다. PING = 인스턴스 생존 신호(1초) + 그 인스턴스가 «입장해
      * 있다고 믿는» 세션 목록({@code sessions}, {@code 섬|세션}) — 소유자는 끊긴 인스턴스의 actor 를 내보내고, 목록과 대조해
      * 유령(LEAVE 유실)은 내보내고 빠진 세션(JOIN 유실·생존 신호 단절로 제거됨)은 {@code EVICTED}({@code ownerInstanceId} =
-     * 받을 인스턴스)로 알려 다시 입장시킨다.
+     * 받을 인스턴스)로 알려 다시 입장시킨다. {@code RESYNC}(역시 추가) = 소유자가 reliable 프레임을 잃었다 — 모든 인스턴스가
+     * 그 섬의 자기 세션을 세션 한정 FullState 로 다시 맞춘다.
      */
-    public enum Type { JOIN, LEAVE, INTENT, FULL_STATE, RECHECK, PING, EVICTED }
+    public enum Type { JOIN, LEAVE, INTENT, FULL_STATE, RECHECK, PING, EVICTED, RESYNC }
 
     /**
      * 소유자 → 전 인스턴스. {@code payload} 는 앱 wire 그대로의 사건 JSON(받는 쪽이 바이트로 바꿔 outbox 에 넣는다 —

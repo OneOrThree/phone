@@ -204,9 +204,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   프레임은 `chat:movement:frames:v1` 로 전원에게 — **소유자도 자기 메아리로만 자기 세션에 넣는다**(전달 경로 하나).
   봉투(`MovementRelay.Frame`·`Command`)는 인스턴스 사이 전용이고 `payload` 는 앱 wire JSON 그대로다.
 - **스레드**: `movement-cluster`(1, 라우팅·소유권·1초 감시 — 인바운드 스레드는 넣기만 한다), `movement-relay-in`(1, 전용
-  `RedisMessageListenerContainer` — 채팅 컨테이너와 섞으면 순서가 깨진다), `movement-relay-out`(1, 사건·Snapshot·INTENT 줄 4096 +
-  제어 줄 1024(JOIN·LEAVE·FULL_STATE·RECHECK·PING·EVICTED, 먼저 낸다) + 파이프라인 PUBLISH, 차면 버리고
-  `dropped{kind=frame|control}`).
+  `RedisMessageListenerContainer` — 채팅 컨테이너와 섞으면 순서가 깨진다), `movement-relay-out`(1, Snapshot·INTENT 줄 4096 +
+  제어 줄 1024(reliable 프레임과 JOIN·LEAVE·FULL_STATE·RECHECK·PING·EVICTED·RESYNC, 먼저 낸다) + 파이프라인 PUBLISH. 차면
+  Snapshot·INTENT 는 `dropped{kind=frame}`, 제어 명령은 `dropped{kind=control}`, reliable 프레임은 아래 RESYNC).
 - **fail-closed**: 리스 상실 → 방 `evict`·발행 중단. 리스는 마지막 성공 갱신을 «보낸 시각»부터 수명의 9/10(2.7초)까지만
   믿는다 — 넘으면 `MovementOwnership.lease()` 가 null 이라 감시 스레드가 밀려도 발행·명령 적용이 즉시 멈추고, 다음 감시가
   `lost{expired}` 로 방을 버린다(남의 값이면 `lost{stolen}`). 본 epoch 보다 작은 프레임은 버린다. 소유자가
@@ -225,6 +225,11 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 - **세션 한정 FullState 유실**: JOIN 은 됐는데 FULL_STATE 명령이나 그 응답을 잃으면 게이트가 닫힌 채 남는다(PING 대조는 actor 가
   있으니 정상으로 본다). 감시가 1초마다 «게이트가 닫힌 지 2초 넘은» 내 세션의 FULL_STATE 를 상한 없이 다시 요청한다
   (`movement.fullstate.retry`, 멈춘 세션 제외 — 재개 때 처리기가 요청한다).
+- **reliable 프레임 유실**: 버려도 되는 건 Snapshot(·INTENT)뿐이라 그것만 사건 줄(4096, `dropped{kind=frame}`)로 간다.
+  FullState·PathAccepted·Arrived·MoveRejected·SUPERSEDE 는 제어 줄로 간다. 제어 줄이 차거나 PUBLISH 가 실패해 이것을 잃으면
+  소유자가 그 섬에 «재동기화 필요»를 남기고(`movement.relay.resync{reason=dropped|publish}`) 다음 감시 틱에 `RESYNC` 를
+  돌린다. 그러면 모든 인스턴스가 그 섬 세션을 resync 하고 세션 한정 FullState 를 다시 요청한다. 게이트가 이미 열린 세션은
+  FullState 재요청 대상이 아니고 PING 은 앱의 actor 목록을 모르기 때문에 이 경로가 필요하다.
 - **옛 방의 늦은 콜백**: 방은 만들 때의 리스 세대(`Lease.generation`, 새 리스 기록마다 증가 — 같은 epoch 재획득도 구분)에 묶인
   콜백(`RoomRuntime.Listener.forRoom`)을 받는다. 리스를 잃고 다시 얻은 뒤 틱 스레드가 옛 방을 한 번 더 돌려도 그 사건은
   `routing.failed{stale_room}` 으로 버린다.
