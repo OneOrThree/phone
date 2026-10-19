@@ -1,0 +1,16 @@
+{
+  "endpoint": "league_getLastResult",
+  "method": "GET",
+  "path": "/api/v1/league/me/last-result",
+  "tag": "league",
+  "summary": "주간 마감 결과 조회",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

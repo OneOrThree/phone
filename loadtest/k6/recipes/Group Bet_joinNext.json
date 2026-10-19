@@ -1,0 +1,26 @@
+{
+  "endpoint": "Group Bet_joinNext",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/challenges/{challengeId}/join-next",
+  "tag": "Group Bet",
+  "summary": "다음 활성일 회차 참여 (신 경로, GROMO-1408·N45)",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    },
+    "challengeId": {
+      "gen": "gap",
+      "reason": "path-id:challengeId"
+    }
+  },
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "path.challengeId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

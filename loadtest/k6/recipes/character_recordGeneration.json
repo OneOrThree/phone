@@ -1,0 +1,19 @@
+{
+  "endpoint": "character_recordGeneration",
+  "method": "POST",
+  "path": "/api/v1/character/generation",
+  "tag": "character",
+  "summary": "생성 1건 기록",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

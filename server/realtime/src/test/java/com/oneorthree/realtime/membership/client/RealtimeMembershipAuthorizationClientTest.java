@@ -226,6 +226,8 @@ class RealtimeMembershipAuthorizationClientTest {
     @Test
     void bulkheadRejectsSecondCallWithoutSendingAnotherRequest() throws Exception {
         client = createClient(Duration.ofSeconds(3), 1);
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        client.bindTo(registry);
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         responder.set(exchange -> {
@@ -237,11 +239,15 @@ class RealtimeMembershipAuthorizationClientTest {
         try {
             var first = caller.submit(() -> client.isAllowed(identity, island));
             assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(registry.get("realtime.authorization.inflight").gauge().value()).isEqualTo(1);
+            assertThat(registry.get("realtime.authorization.limit").gauge().value()).isEqualTo(1);
             assertThatThrownBy(() -> client.isAllowed(identity, island))
                     .isInstanceOf(UpstreamUnavailableException.class);
             assertThat(calls.get()).isEqualTo(1);
             release.countDown();
             assertThat(first.get(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(registry.get("realtime.authorization.inflight").gauge().value()).isZero();
+            assertThat(registry.get("realtime.authorization.capacity.rejected").functionCounter().count()).isEqualTo(1);
         } finally {
             release.countDown();
             caller.shutdownNow();

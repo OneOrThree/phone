@@ -163,3 +163,8 @@ spring.data.redis:
   # best-effort 라면 «빨리» 실패해야 한다.
   connect-timeout: 500ms
   timeout: 2s
+
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true

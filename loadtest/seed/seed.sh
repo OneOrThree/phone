@@ -14,7 +14,8 @@ set -euo pipefail
 PROJECT_ID="${PROJECT_ID:?}"
 ZONE="${ZONE:-asia-northeast3-c}" # a존 stockout 연쇄(07-11~13)로 이동 — common.sh 와 동일 기본값
 SCALE="${SCALE:-1}"
-SEED_VERSION="${SEED_VERSION:-seed-v1}"
+export SEED_DATE="${SEED_DATE:-$(date -u +%F)}"
+SEED_VERSION="${SEED_VERSION:-seed-v2}"
 OBS_VM="${OBS_VM:-obs}"
 SQL_INSTANCE="${SQL_INSTANCE:-loadtest-pg}"
 
@@ -94,7 +95,7 @@ log "4/8 차원 테이블 \\copy"
 vm_sh "bash ~/seed/15_copy_dimensions.sh"
 
 log "5/8 팩트 테이블 generate_series (가장 오래 걸리는 단계 — VM detached)"
-vm_sh_bg facts "$VM_PSQL -d golden -v scale=$SCALE -f ~/seed/20_facts.sql"
+vm_sh_bg facts "$VM_PSQL -d golden -v scale=$SCALE -v seed_date=$SEED_DATE -f ~/seed/20_facts.sql"
 
 log "6/8 제약·인덱스 복원 + VACUUM ANALYZE (VM detached)"
 vm_sh_bg constraints "$VM_PSQL -d golden -f ~/seed/30_constraints_indexes.sql"
