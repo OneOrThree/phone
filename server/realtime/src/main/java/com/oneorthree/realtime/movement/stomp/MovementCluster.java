@@ -238,19 +238,30 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        for (UUID islandId : ownership.leases().keySet()) {
+        // 순서(#1180 claude r2): 인계 스냅샷 → 갱신 한 번 → 송신 줄 flush → RELEASE. RELEASE 를 먼저 하면 줄에 남은 프레임
+        // (종료 직전 퇴장 FullState 등)이 PUBLISH 직전 재확인에서 «리스 없음»으로 버려진다. 갱신은 flush(≤2초) 동안 로컬
+        // 신뢰 한도(2.7초)를 넘기지 않게 한 번 더 한다.
+        Set<UUID> held = ownership.leases().keySet();
+        for (UUID islandId : held) {
             try {
                 Map<UUID, MovementEvent.Point> positions = relay.positions(islandId);
                 if (!positions.isEmpty()) {
                     redis.opsForValue().set(RedisKeys.movementHandoff(islandId),
                             objectMapper.writeValueAsString(positions), HANDOFF_TTL);
                 }
-                ownership.release(islandId);
+                ownership.renew(islandId);
             } catch (RuntimeException e) {
                 log.warn("이동 방 인계 실패 — 리스 만료(3초)로 넘어간다. reason={}", e.getClass().getSimpleName());
             }
         }
         relay.stop();
+        for (UUID islandId : held) {
+            try {
+                ownership.release(islandId);
+            } catch (RuntimeException e) {
+                log.warn("이동 리스 반납 실패 — 리스 만료(3초)로 넘어간다. reason={}", e.getClass().getSimpleName());
+            }
+        }
         relayIn.shutdown();
     }
 
@@ -458,20 +469,31 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     }
 
     /** 1초 감시 — 갱신·반납·소유자 교체 감지·생존 신호·끊긴 인스턴스 정리. 예외 한 번에 주기가 끊기지 않게 삼킨다. */
+    /**
+     * 단계마다 예외를 따로 삼킨다 — 한 단계가 던져도 나머지는 돈다(#1180 claude r2). 순서: 리스 갱신(발행 자격) → 복구 재송
+     * (RECHECK·RESYNC·FULL_STATE 재요청 — 다른 단계 예외에 막히면 안 된다) → 반납·소유자 감시·생존 신호·끊긴 인스턴스 정리.
+     */
     void poll() {
-        try {
-            renewLeases();
-            releaseIdle();
-            watchOwners();
-            relay.publishCommand(new Command(me, null, 0, null, Type.PING, null, null, null, false, joinedSessions()));
-            sweepDeadInstances();
-            retryFullStates();
-            requestResyncs();
+        step("renew", this::renewLeases);
+        step("recheck-retry", () -> {
             for (Command recheck : relay.takeRechecks()) {
                 relay.publishCommand(recheck); // 잃은 강퇴 재검사 — 또 잃으면 다시 표시된다
             }
+        });
+        step("resync", this::requestResyncs);
+        step("fullstate-retry", this::retryFullStates);
+        step("release-idle", this::releaseIdle);
+        step("watch-owners", this::watchOwners);
+        step("ping", () -> relay.publishCommand(
+                new Command(me, null, 0, null, Type.PING, null, null, null, false, joinedSessions())));
+        step("sweep-dead", this::sweepDeadInstances);
+    }
+
+    private static void step(String name, Runnable body) {
+        try {
+            body.run();
         } catch (RuntimeException e) {
-            log.warn("이동 소유자 감시 실패 — reason={}", e.getClass().getSimpleName());
+            log.warn("이동 소유자 감시 단계 실패 — step={} reason={}", name, e.getClass().getSimpleName());
         }
     }
 
@@ -631,6 +653,11 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             return;
         }
         if (command.type() == Type.RESYNC) {
+            Long seen = seenEpochs.get(command.islandId());
+            if (seen != null && command.epoch() < seen) {
+                staleEpoch.increment(); // 옛 소유자의 RESYNC — 새 소유자 아래 세션을 괜히 흔들지 않는다
+                return;
+            }
             submit(() -> resyncIsland(command.islandId()));
         } else if (command.type() == Type.PING) {
             submit(() -> reconcile(command.originInstanceId(), command.sessions()));

@@ -212,7 +212,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `lost{expired}` 로 방을 버린다(남의 값이면 `lost{stolen}`). 본 epoch 보다 작은 프레임은 버린다. 소유자가
   바뀌면 그 섬 내 세션 전부 게이트를 닫고(resync) 새 소유자에 다시 입장 → 세션 한정 FullState(wire 무변경).
 - **인계(단계 B)**: 소유자 종료는 수명주기 단계 1(`SmartLifecycle` — 웹 서버 종료 뒤·Lettuce(단계 0) 종료 전)에서 위치를
-  `movement:room:{id}:handoff` 에 남기고 리스를 내놓는다. `@PreDestroy` 로 옮기지 마라 — 그때는 Redis 연결이 이미 닫혀 있어
+  `movement:room:{id}:handoff` 에 남기고, 송신 줄을 비운 «뒤» 리스를 내놓는다(먼저 내놓으면 남은 프레임이
+  `stale_queue` 로 버려진다). `@PreDestroy` 로 옮기지 마라 — 그때는 Redis 연결이 이미 닫혀 있어
   인계가 조용히 실패하고 남은 인스턴스가 리스 만료(3초)를 기다린다(실측).
 - **강퇴·교체**: `MovementSubscriptionListener.recheckMembership` 은 로컬 재검사 + RECHECK 브로드캐스트(각자 자기 세션만,
   캐시 삭제 실패 표시 `cacheStale` 동반). 강퇴 사건은 한 노드만 받으므로 RECHECK 를 제어 줄에 못 넣거나 PUBLISH 가 실패하면
@@ -233,7 +234,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   소유자가 그 섬에 «재동기화 필요»를 남기고(`movement.relay.resync{reason=dropped|publish}`) 다음 감시 틱에 `RESYNC` 를
   돌린다. 그러면 모든 인스턴스가 그 섬 세션을 resync 하고 세션 한정 FullState 를 다시 요청한다. 게이트가 이미 열린 세션은
   FullState 재요청 대상이 아니고 PING 은 앱의 actor 목록을 모르기 때문에 이 경로가 필요하다.
-- **줄에 머무는 사이 리스 상실**: 송신 스레드가 배치를 꺼낸 뒤 프레임마다 지금 리스·epoch 를 다시 보고, 없거나 다르면 PUBLISH
+- **줄에 머무는 사이 리스 상실**: 송신 스레드가 배치를 꺼낸 뒤 프레임마다 지금 리스 «세대»를 다시 보고(같은 epoch 재획득도 구분), 없거나 다르면 PUBLISH
   직전에 버린다(`routing.failed{stale_queue}`). 큐 체류 창은 이것으로 닫히고, 남는 것은 재확인~PUBLISH 사이 μs 뿐이다.
 - **옛 방의 늦은 콜백**: 방은 만들 때의 리스 세대(`Lease.generation`, 새 리스 기록마다 증가 — 같은 epoch 재획득도 구분)에 묶인
   콜백(`RoomRuntime.Listener.forRoom`)을 받는다. 리스를 잃고 다시 얻은 뒤 틱 스레드가 옛 방을 한 번 더 돌려도 그 사건은

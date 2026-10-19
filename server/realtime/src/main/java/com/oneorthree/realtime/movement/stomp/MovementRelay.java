@@ -255,12 +255,12 @@ public class MovementRelay implements RoomRuntime.Listener {
         String payload = objectMapper.writeValueAsString(event);
         if (target instanceof Target.Only only) {
             String key = only.sessionKey();
-            publishFrame(new Frame(ownership.instanceId(), islandId, lease.epoch(), Kind.EVENT, instanceOf(key),
-                    sessionOf(key), event instanceof MovementEvent.FullState, payload));
+            publishFrame(lease.generation(), new Frame(ownership.instanceId(), islandId, lease.epoch(), Kind.EVENT,
+                    instanceOf(key), sessionOf(key), event instanceof MovementEvent.FullState, payload));
             return;
         }
-        publishFrame(new Frame(ownership.instanceId(), islandId, lease.epoch(), Kind.EVENT, null, null, false,
-                payload));
+        publishFrame(lease.generation(), new Frame(ownership.instanceId(), islandId, lease.epoch(), Kind.EVENT, null,
+                null, false, payload));
     }
 
     private void publishSnapshot(UUID islandId, MovementEvent.Snapshot snapshot, MovementOwnership.Lease lease) {
@@ -269,8 +269,8 @@ public class MovementRelay implements RoomRuntime.Listener {
             return;
         }
         remember(islandId, snapshot);
-        publishFrame(new Frame(ownership.instanceId(), islandId, lease.epoch(), Kind.SNAPSHOT, null, null, false,
-                objectMapper.writeValueAsString(snapshot)));
+        publishFrame(lease.generation(), new Frame(ownership.instanceId(), islandId, lease.epoch(), Kind.SNAPSHOT,
+                null, null, false, objectMapper.writeValueAsString(snapshot)));
     }
 
     private void publishReplaced(UUID islandId, String replacedSessionKey, String newSessionKey,
@@ -282,7 +282,7 @@ public class MovementRelay implements RoomRuntime.Listener {
             noLease.increment();
             return;
         }
-        publishFrame(new Frame(ownership.instanceId(), islandId, lease.epoch(), Kind.SUPERSEDE,
+        publishFrame(lease.generation(), new Frame(ownership.instanceId(), islandId, lease.epoch(), Kind.SUPERSEDE,
                 instanceOf(replacedSessionKey), sessionOf(replacedSessionKey), false, null));
     }
 
@@ -322,9 +322,15 @@ public class MovementRelay implements RoomRuntime.Listener {
      * (reliable 덱·Snapshot 슬롯) 새 순서 관계가 생기지는 않는다.
      */
     void publishFrame(Frame frame) {
+        MovementOwnership.Lease lease = ownership.lease(frame.islandId());
+        publishFrame(lease == null ? -1 : lease.generation(), frame);
+    }
+
+    /** @param generation 이 프레임을 만든 리스 세대 — PUBLISH 직전에 지금 세대와 맞춰 본다({@link #dropStaleFrames}) */
+    void publishFrame(long generation, Frame frame) {
         String payload = objectMapper.writeValueAsString(frame);
         Outgoing out = new Outgoing(RedisKeys.MOVEMENT_FRAMES_CHANNEL, payload, System.nanoTime(),
-                frame.kind() == Kind.SNAPSHOT ? null : frame.islandId(), null, frame.islandId(), frame.epoch());
+                frame.kind() == Kind.SNAPSHOT ? null : frame.islandId(), null, frame.islandId(), generation);
         if (frame.kind() == Kind.SNAPSHOT) {
             offer(queue, dropped, out);
         } else {
@@ -375,7 +381,9 @@ public class MovementRelay implements RoomRuntime.Listener {
     /**
      * PUBLISH 직전 재확인(#1180 claude r1) — 줄에 넣을 때 본 리스는 줄에 머무는 동안(포화·GC·RTT, 초 단위) 바뀔 수 있다. 옛
      * 소유자의 프레임이 새 소유자 획득 뒤에 나가면, 새 epoch 를 아직 못 본 인스턴스의 stale 필터를 통과한다. 그래서 프레임마다
-     * 지금 리스가 없거나 epoch 가 다르면 여기서 버린다({@code routing.failed{stale_queue}}). 재동기화는 걸지 않는다 — 소유자가
+     * 지금 리스가 없거나 «세대»가 다르면 여기서 버린다({@code routing.failed{stale_queue}}). epoch 가 아니라 세대로 보는 이유는
+     * {@link #forRoom} 과 같다 — 줄에 머무는 사이 상실·재획득이 일어나도 Redis 키가 아직 내 값이면 epoch 가 같다. 같은 세대면
+     * epoch 도 같다. 재동기화는 걸지 않는다 — 소유자가
      * 바뀌었으니 새 소유자의 재입장 경로가 맞춘다. 남는 창은 이 확인과 PUBLISH 사이(μs)뿐이다.
      */
     private void dropStaleFrames(List<Outgoing> batch) {
@@ -384,7 +392,7 @@ public class MovementRelay implements RoomRuntime.Listener {
                 return false;
             }
             MovementOwnership.Lease lease = ownership.lease(out.frameIsland());
-            if (lease != null && lease.epoch() == out.frameEpoch()) {
+            if (lease != null && lease.generation() == out.frameGeneration()) {
                 return false;
             }
             staleQueue.increment();
@@ -492,9 +500,9 @@ public class MovementRelay implements RoomRuntime.Listener {
         return sessionKey.substring(sessionKey.indexOf(':') + 1);
     }
 
-    /** {@code frameIsland}·{@code frameEpoch} — 프레임이면 낸 섬과 그때의 epoch(PUBLISH 직전 재확인용), 명령이면 null·0. */
+    /** {@code frameIsland}·{@code frameGeneration} — 프레임이면 낸 섬과 만든 리스 세대(PUBLISH 직전 재확인용), 명령이면 null·0. */
     private record Outgoing(String channel, String payload, long enqueuedNanos, UUID resyncIsland, Command recheck,
-            UUID frameIsland, long frameEpoch) {
+            UUID frameIsland, long frameGeneration) {
     }
 
     // ── 봉투(wire 아님 — 인스턴스 사이 전용) ───────────────────────────

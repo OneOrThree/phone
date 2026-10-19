@@ -421,6 +421,113 @@ class MovementClusterTest {
         }
     }
 
+    @Test
+    @DisplayName("줄에 머무는 사이 상실·재획득이 같은 epoch 로 일어나도 옛 세대 프레임은 PUBLISH 직전에 버린다(세대 비교)")
+    void framesQueuedAcrossSameEpochReacquireAreNotPublished() throws Exception {
+        SimpleMeterRegistry own = new SimpleMeterRegistry();
+        MovementOwnership owner = new MovementOwnership(redis, own, "sg-" + UUID.randomUUID().toString()
+                .substring(0, 8), 3000);
+        MovementRelay queued = new MovementRelay(true, publisher, owner, redis, json, own, 16, 16);
+        long epoch = owner.acquire(island).epoch();
+        queued.publishFrame(new Frame(owner.instanceId(), island, epoch, Kind.EVENT, null, null, false, "{}"));
+
+        owner.forget(island); // 상실 → 재획득(키가 아직 내 것이라 같은 epoch)
+        assertThat(owner.acquire(island).epoch()).isEqualTo(epoch);
+        queued.start();
+        try {
+            await(() -> own.counter("movement.routing.failed", "reason", "stale_queue").count() == 1);
+            assertThat(own.timer("movement.relay.lag").count()).as("PUBLISH 0").isZero();
+        } finally {
+            queued.stop();
+            owner.release(island);
+        }
+    }
+
+    @Test
+    @DisplayName("감시의 한 단계가 던져도 복구 재송 단계(RECHECK 재송)는 돈다")
+    void pollStepsAreIsolated() throws Exception {
+        SimpleMeterRegistry own = new SimpleMeterRegistry();
+        MovementOwnership broken = org.mockito.Mockito.spy(new MovementOwnership(redis, own,
+                "ps-" + UUID.randomUUID().toString().substring(0, 8), 3000));
+        org.mockito.Mockito.doThrow(new IllegalStateException("갱신 단계 고장")).when(broken).leases();
+        MovementRelay small = new MovementRelay(true, publisher, broken, redis, json, own, 16, 1); // 아직 송신 없음
+        Command recheck = new Command(broken.instanceId(), null, 0, island, Type.RECHECK, user, null, null, false);
+        small.publishCommand(recheck);
+        small.publishCommand(recheck); // 제어 줄(1)이 차 재송 표시
+        assertThat(own.counter("movement.relay.recheck.retry", "reason", "dropped").count()).isEqualTo(1);
+        MovementCluster isolated = new MovementCluster(true, rooms, publisher, broken, small, redis, json,
+                new StaticListableBeanFactory().getBeanProvider(MovementSubscriptionListener.class), own);
+        small.start();
+        try {
+            isolated.poll(); // renew·release-idle 이 던진다
+
+            long rechecks = 0;
+            long deadline = System.currentTimeMillis() + TIMEOUT_MS;
+            while (rechecks < 2 && System.currentTimeMillis() < deadline) {
+                Command next = commands.poll(200, TimeUnit.MILLISECONDS);
+                if (next != null && next.type() == Type.RECHECK && broken.instanceId().equals(next.originInstanceId())) {
+                    rechecks++;
+                }
+            }
+            assertThat(rechecks).as("처음 1건 + 재송 1건").isEqualTo(2);
+        } finally {
+            small.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("종료 인계는 송신 줄을 RELEASE 전에 비운다 — 종료 직전 프레임이 stale_queue 로 버려지지 않고 실제로 나간다")
+    void stopFlushesQueuedFramesBeforeRelease() throws Exception {
+        BlockingQueue<Frame> frames = new LinkedBlockingQueue<>();
+        RedisMessageListenerContainer frameSpy = container();
+        frameSpy.addMessageListener((message, pattern) -> frames.add(json.readValue(message.getBody(), Frame.class)),
+                new ChannelTopic(RedisKeys.MOVEMENT_FRAMES_CHANNEL));
+        frameSpy.afterPropertiesSet();
+        frameSpy.start();
+        try {
+            becomeOwnerWithRemoteActor("ghost-10", "q");
+            relay.stop(); // 송신을 멈춘 채 마지막 프레임을 줄에 남긴다
+            relay.publishFrame(new Frame(ownership.instanceId(), island, ownership.lease(island).epoch(), Kind.EVENT,
+                    null, null, false, "\"last\""));
+            relay.start();
+            cluster.stop();
+
+            Frame last = null;
+            long deadline = System.currentTimeMillis() + TIMEOUT_MS;
+            while (last == null && System.currentTimeMillis() < deadline) {
+                Frame next = frames.poll(200, TimeUnit.MILLISECONDS);
+                if (next != null && "\"last\"".equals(next.payload())) {
+                    last = next;
+                }
+            }
+            assertThat(last).as("종료 직전 프레임이 나갔다").isNotNull();
+            assertThat(meters.counter("movement.routing.failed", "reason", "stale_queue").count()).isZero();
+            assertThat(redis.hasKey(RedisKeys.movementOwner(island))).as("그 뒤 반납").isFalse();
+        } finally {
+            frameSpy.destroy();
+        }
+    }
+
+    @Test
+    @DisplayName("그 섬에서 본 epoch 보다 작은 RESYNC 는 버린다(forward.stale{epoch}) — 같은 epoch 는 세션을 다시 맞춘다")
+    void staleResyncIsIgnored() throws Exception {
+        redis.opsForValue().set(RedisKeys.movementOwner(island), "ghost-11:100", Duration.ofMinutes(1));
+        open("s1");
+        String fullState = json.writeValueAsString(new MovementEvent.FullState(1, 1, 50, 10.989, List.of()));
+        frame(new Frame("ghost-11", island, 100, Kind.EVENT, ownership.instanceId(), "s1", true, fullState));
+        awaitFor("s1", "FullState");
+        commands.clear();
+
+        command(new Command("ghost-old", null, 99, island, Type.RESYNC, null, null, null, false));
+        await(() -> meters.counter("movement.owner.forward.stale", "reason", "epoch").count() == 1);
+        command(new Command("ghost-11", null, 100, island, Type.RESYNC, null, null, null, false));
+
+        Command request = awaitCommand(Type.FULL_STATE);
+        assertThat(request.sessionKey()).isEqualTo(ownership.instanceId() + ":s1");
+        assertThat(meters.counter("movement.owner.forward.stale", "reason", "epoch").count())
+                .as("옛 RESYNC 1건만 버렸다").isEqualTo(1);
+    }
+
     /** 이 인스턴스가 소유자가 되고(로컬 세션 s1), 다른 인스턴스 세션 {@code <instance>:<sid>} 가 방에 든 상태를 만든다. */
     private UUID becomeOwnerWithRemoteActor(String instance, String sessionId) throws Exception {
         open("s1");
