@@ -1,0 +1,16 @@
+{
+  "endpoint": "Group Bet Query_getMyChallengeResults",
+  "method": "GET",
+  "path": "/api/v1/me/challenge-results",
+  "tag": "Group Bet Query",
+  "summary": "내 미확인 정산 완료 회차 (그룹 무관) — 결과 모달 큐의 유일한 소스",
+  "userPool": "zipf",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

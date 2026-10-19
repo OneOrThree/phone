@@ -6,12 +6,17 @@ import com.oneorthree.business.common.exception.UpstreamCredentialRejectedExcept
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.exception.UpstreamTimeoutException;
 import com.oneorthree.business.common.exception.UpstreamUnavailableException;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
+import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
 import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
@@ -74,6 +79,7 @@ public class InternalHttpClient implements AutoCloseable {
     private final UpstreamProperties properties;
     private final String serviceToken;
     private final CloseableHttpClient http;
+    private final PoolingHttpClientConnectionManager connectionManager;
     private final ThreadPoolExecutor workers;
     private final CircuitBreaker circuitBreaker;
     private final ObjectMapper objectMapper;
@@ -90,12 +96,13 @@ public class InternalHttpClient implements AutoCloseable {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.circuitBreaker = new CircuitBreaker(properties.failureThreshold(), properties.openDuration());
+        this.connectionManager = PoolingHttpClientConnectionManagerBuilder.create()
+                .setMaxConnTotal(properties.maxConnections()).setMaxConnPerRoute(properties.maxConnections())
+                .setDefaultConnectionConfig(ConnectionConfig.custom()
+                        .setConnectTimeout(timeout(properties.connectTimeout()))
+                        .setSocketTimeout(timeout(properties.readTimeout())).build()).build();
         this.http = HttpClients.custom().disableAutomaticRetries().disableRedirectHandling().disableCookieManagement()
-                .setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
-                        .setMaxConnTotal(properties.maxConnections()).setMaxConnPerRoute(properties.maxConnections())
-                        .setDefaultConnectionConfig(ConnectionConfig.custom()
-                                .setConnectTimeout(timeout(properties.connectTimeout()))
-                                .setSocketTimeout(timeout(properties.readTimeout())).build()).build()).build();
+                .setConnectionManager(connectionManager).build();
         this.workers = new ThreadPoolExecutor(properties.maxConnections(), properties.maxConnections(),
                 30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(properties.queueCapacity()), runnable -> {
                     Thread thread = new Thread(runnable, "internal-http-" + target.name().toLowerCase());
@@ -103,6 +110,19 @@ public class InternalHttpClient implements AutoCloseable {
                     return thread;
                 }, new ThreadPoolExecutor.AbortPolicy());
         workers.allowCoreThreadTimeOut(true);
+    }
+
+    /** 실제 상류 풀을 관측한다. 도메인 client 수가 아니라 공유 전송 풀당 한 번 등록한다. */
+    public void bindMetrics(MeterRegistry registry) {
+        new ExecutorServiceMetrics(workers, "business-upstream-" + target.name(), Tags.empty()).bindTo(registry);
+        Gauge.builder("business.upstream.connections", connectionManager, m -> m.getTotalStats().getLeased())
+                .tag("target", target.name()).tag("state", "leased").register(registry);
+        Gauge.builder("business.upstream.connections", connectionManager, m -> m.getTotalStats().getAvailable())
+                .tag("target", target.name()).tag("state", "available").register(registry);
+        Gauge.builder("business.upstream.connections", connectionManager, m -> m.getTotalStats().getPending())
+                .tag("target", target.name()).tag("state", "pending").register(registry);
+        Gauge.builder("business.upstream.connections", connectionManager, m -> m.getTotalStats().getMax())
+                .tag("target", target.name()).tag("state", "max").register(registry);
     }
 
     public UpstreamTarget target() {

@@ -3,7 +3,7 @@
   "method": "POST",
   "path": "/api/v1/currency/earn",
   "tag": "currency",
-  "summary": "적립",
+  "summary": "적립 (폐쇄 — no-op)",
   "userPool": "uniform",
   "pathParams": {},
   "query": [],
@@ -12,6 +12,8 @@
     "props": {}
   },
   "paginate": null,
-  "gaps": [],
-  "runnable": true
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
 }

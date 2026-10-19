@@ -1,0 +1,19 @@
+{
+  "endpoint": "league_acknowledgeLastResult",
+  "method": "POST",
+  "path": "/api/v1/league/me/last-result/ack",
+  "tag": "league",
+  "summary": "주간 마감 결과 확인 처리(ack)",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {}
+  },
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

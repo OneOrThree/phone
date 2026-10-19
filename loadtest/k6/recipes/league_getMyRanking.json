@@ -3,10 +3,17 @@
   "method": "GET",
   "path": "/api/v1/league/me/ranking",
   "tag": "league",
-  "summary": "티어 멤버 랭킹 조회",
+  "summary": "전역 주간 랭킹 조회",
   "userPool": "zipf",
   "pathParams": {},
-  "query": [],
+  "query": [
+    {
+      "name": "date",
+      "gen": "date",
+      "offsetDays": 0,
+      "dateOnly": true
+    }
+  ],
   "body": null,
   "paginate": null,
   "gaps": [],

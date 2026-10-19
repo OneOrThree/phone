@@ -1,6 +1,9 @@
 package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.auth.ChatPrincipal;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.MeterBinder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -31,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Component
-public class RealtimeSessionRegistry {
+public class RealtimeSessionRegistry implements MeterBinder {
 
     /**
      * 세션 하나가 들 수 있는 구독 수.
@@ -55,6 +58,25 @@ public class RealtimeSessionRegistry {
 
     /** {@code sessionId → (subscriptionId → destination)}. UNSUBSCRIBE 가 id 만 주므로 id 로 키를 잡는다. */
     private final Map<String, Map<String, String>> subscriptions = new ConcurrentHashMap<>();
+
+    /** 연결·인증·구독을 구분해 연결 폭주와 구독 누적을 관측한다. 사용자별 라벨은 만들지 않는다. */
+    @Override
+    public void bindTo(MeterRegistry registry) {
+        Gauge.builder("realtime.websocket.sessions", sockets, Map::size).register(registry);
+        Gauge.builder("realtime.stomp.sessions", principals, Map::size).register(registry);
+        Gauge.builder("realtime.stomp.subscriptions", this, RealtimeSessionRegistry::totalSubscriptions)
+                .register(registry);
+    }
+
+    private int totalSubscriptions() {
+        int total = 0;
+        for (Map<String, String> held : subscriptions.values()) {
+            synchronized (held) {
+                total += held.size();
+            }
+        }
+        return total;
+    }
 
     public void opened(WebSocketSession socket) {
         sockets.put(socket.getId(), socket);

@@ -1,0 +1,39 @@
+{
+  "endpoint": "Group Challenge_createGroupChallenge",
+  "method": "POST",
+  "path": "/api/v1/groups/{groupId}/challenges",
+  "tag": "Group Challenge",
+  "summary": "그룹 챌린지 생성",
+  "userPool": "uniform",
+  "pathParams": {
+    "groupId": {
+      "gen": "pool",
+      "source": "groupId"
+    }
+  },
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "missionCategory": {
+        "gen": "enum",
+        "values": [
+          "FOCUS",
+          "SCREEN_TIME"
+        ]
+      },
+      "missionType": {
+        "gen": "enum",
+        "values": [
+          "TIME_WINDOW",
+          "DURATION"
+        ]
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

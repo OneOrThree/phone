@@ -2,6 +2,8 @@ package com.oneorthree.business.config;
 
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.common.http.ScreenComposer;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.MeterBinder;
 import jakarta.annotation.PreDestroy;
 import com.oneorthree.business.common.http.UpstreamProperties;
 import com.oneorthree.business.common.http.UpstreamTarget;
@@ -42,7 +44,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 @Configuration
 @EnableConfigurationProperties({UpstreamConfigProperties.class, CompatProperties.class})
-public class UpstreamClientConfig {
+public class UpstreamClientConfig implements MeterBinder {
+
+    private MeterRegistry metrics;
 
     private final Queue<InternalHttpClient> ownedClients = new ConcurrentLinkedQueue<>();
     /** 도메인별 Data 클라이언트가 나눠 쓰는 유일한 DATA 풀 — 첫 bean 이 만들고 나머지가 재사용한다. */
@@ -58,10 +62,21 @@ public class UpstreamClientConfig {
         return new ScreenComposer(composition.getPoolSize(), composition.getQueueCapacity(), composition.getDeadline());
     }
 
-    private InternalHttpClient client(UpstreamTarget target, UpstreamProperties properties, ObjectMapper mapper) {
+    private synchronized InternalHttpClient client(UpstreamTarget target, UpstreamProperties properties,
+            ObjectMapper mapper) {
         InternalHttpClient client = new InternalHttpClient(target, properties, mapper);
         ownedClients.add(client);
+        if (metrics != null) {
+            client.bindMetrics(metrics);
+        }
         return client;
+    }
+
+    /** 레지스트리와 전송 풀의 생성 순서가 달라도 실제 풀을 모두 등록한다. */
+    @Override
+    public synchronized void bindTo(MeterRegistry registry) {
+        metrics = registry;
+        ownedClients.forEach(client -> client.bindMetrics(registry));
     }
 
     /** 대상별 HTTP 풀과 worker를 애플리케이션 종료에 함께 회수한다. */
