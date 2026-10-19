@@ -63,6 +63,14 @@ import java.util.function.ToLongFunction;
 @Component
 public class OutboundAuthzCache {
 
+    /**
+     * 세션 하나가 들 수 있는 범위(목적지·발신자 조합) 수. 만료 항목은 조회 때 지우고, 이 수를 넘으면 담는 순간 만료분을 걷고,
+     * 그래도 넘으면 그 세션 맵을 비운다(다음 프레임은 미스 → 동기 판정, fail-safe). 256 은 구독 상한 96 × 섬 채팅의 활발한
+     * 발신자 몇 명을 덮는 값이다. 세션 수 자체엔 상한을 두지 않는다 — 소켓 종료가 {@link #evictSession} 으로 회수한다.
+     * 구독 해지(UNSUBSCRIBE) 때는 지우지 않는다 — 해지된 목적지엔 프레임이 오지 않아 항목이 만료된 채 남고, 위 두 정리가 걷는다.
+     */
+    static final int MAX_SCOPES_PER_SESSION = 256;
+
     private final long ttlNanos;
     private final LongSupplier nanoTime;
     private final Map<String, SessionEntries> bySession = new ConcurrentHashMap<>();
@@ -138,6 +146,9 @@ public class OutboundAuthzCache {
             hit.increment();
             return true;
         }
+        if (until != null) {
+            entries.allowedUntil().remove(scope, until); // 만료 — 그사이 새로 담긴 값은 건드리지 않는다
+        }
         miss.increment();
         return false;
     }
@@ -164,7 +175,15 @@ public class OutboundAuthzCache {
         if (!entries.userId().equals(userId)) {
             return;
         }
-        entries.allowedUntil().put(scope, nanoTime.getAsLong() + lifetimeNanos);
+        long now = nanoTime.getAsLong();
+        Map<String, Long> allowedUntil = entries.allowedUntil();
+        allowedUntil.put(scope, now + lifetimeNanos);
+        if (allowedUntil.size() > MAX_SCOPES_PER_SESSION) {
+            allowedUntil.values().removeIf(until -> until - now <= 0);
+            if (allowedUntil.size() > MAX_SCOPES_PER_SESSION) {
+                allowedUntil.clear();
+            }
+        }
         // 무효화는 세대를 먼저 올리고 지운다 — 여기서 세대가 다르면 그 무효화가 이 값을 못 봤을 수 있다.
         if (epoch.get() != stamp) {
             bySession.remove(sessionId);

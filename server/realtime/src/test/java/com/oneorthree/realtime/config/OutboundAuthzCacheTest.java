@@ -125,6 +125,41 @@ class OutboundAuthzCacheTest {
                 .getExpire(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    @DisplayName("만료 항목은 조회 때 지워진다")
+    void expiredEntryIsRemovedOnLookup() {
+        cache.allow("s1", user, "k", cache.stamp());
+        now.addAndGet(TimeUnit.SECONDS.toNanos(30));
+        assertThat(cache.allowed("s1", user, "k")).isFalse();
+        assertThat(scopes("s1")).isZero();
+    }
+
+    @Test
+    @DisplayName("범위 수가 상한을 넘으면 만료분을 걷고, 전부 살아 있으면 세션 맵을 비운다(다음 조회는 미스)")
+    void scopesPerSessionAreBounded() {
+        int max = OutboundAuthzCache.MAX_SCOPES_PER_SESSION;
+        for (int i = 0; i < max; i++) {
+            cache.allow("s1", user, "old" + i, cache.stamp());
+        }
+        now.addAndGet(TimeUnit.SECONDS.toNanos(30)); // 전부 만료
+        cache.allow("s1", user, "fresh", cache.stamp());
+        assertThat(scopes("s1")).as("만료분만 걷혔다").isEqualTo(1);
+        assertThat(cache.allowed("s1", user, "fresh")).isTrue();
+
+        for (int i = 0; i < max; i++) {
+            cache.allow("s1", user, "live" + i, cache.stamp());
+        }
+        assertThat(scopes("s1")).as("살아 있는 채 초과 → 비운다").isZero();
+        assertThat(cache.allowed("s1", user, "fresh")).isFalse();
+    }
+
+    private int scopes(String sessionId) {
+        Object entries = ((java.util.Map<?, ?>) org.springframework.test.util.ReflectionTestUtils
+                .getField(cache, "bySession")).get(sessionId);
+        return entries == null ? 0 : ((java.util.Map<?, ?>) org.springframework.test.util.ReflectionTestUtils
+                .invokeMethod(entries, "allowedUntil")).size();
+    }
+
     private double count(String result) {
         return meters.counter("realtime.outbound.authz.cache", "result", result).count();
     }
