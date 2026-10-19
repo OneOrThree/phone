@@ -209,7 +209,12 @@ export function Guestbook({
     setMoreFailed(false);
     getGuestbook(islandId)
       .then((page) => {
-        if (alive() && Array.isArray(page?.items)) setLoaded(page);
+        if (alive() && Array.isArray(page?.items)) {
+          setLoaded({
+            ...page,
+            items: page.items.filter((item) => !deletedIds.current.has(item.id)),
+          });
+        }
       })
       .catch(() => {})
       .finally(() => {

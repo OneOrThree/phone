@@ -725,3 +725,24 @@ test('다른 섬으로 이동한 뒤 이전 섬의 추가 페이지가 도착해
   await act(async () => finish({ ...page([entry('late')]), nextCursor: null }));
   expect(screen.queryByText('late 놀러 왔어요')).toBeNull();
 });
+
+test('쓰기 409 뒤 첫 페이지를 다시 읽는 동안 지운 글도 늦은 응답으로 되살리지 않는다', async () => {
+  const { screen, e } = await mount(true);
+  let finish!: (value: unknown) => void;
+  getMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  writeMock.mockRejectedValueOnce(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', 'x', 409));
+  await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await screen.findByText('오늘은 이미 남겼어요');
+  deleteMock.mockResolvedValueOnce({ deleted: true });
+  await fireEvent.press(screen.getByTestId('guestbook-delete-g1'));
+  await act(async () => e.confirm.mock.calls[0][2]());
+  await act(async () => finish({ ...page([entry('g1'), entry('g2')]), nextCursor: null }));
+  expect(screen.queryByText('g1 놀러 왔어요')).toBeNull();
+  expect(screen.getByText('g2 놀러 왔어요')).toBeTruthy();
+  expect(screen.getByTestId(INPUT).props.value).toBe('안녕');
+});
