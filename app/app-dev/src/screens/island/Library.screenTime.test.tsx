@@ -480,3 +480,56 @@ test('폰 사용 그래프는 7칸이지만 하루 평균과 측정 날짜는 �
   expect(screen.getAllByText('30분').length).toBeGreaterThan(0);
   expect(screen.getByText('3 / 3일')).toBeTruthy();
 });
+
+test.each([0, 7])(
+  '일 집중 통계는 서버의 날짜별 실제 적립 물고기 %s마리를 표시한다',
+  async (earnedFish) => {
+    const e = { ...environment(), tab: '', islands: [] };
+    const focus = {
+      scope: 'me' as const,
+      totalSeconds: 600,
+      earnedFish,
+      series: [],
+      records: [],
+      nextCursor: null,
+    };
+    jest.mocked(getLibraryScreen).mockResolvedValue({
+      island: { id: e.state.islandId, name: '섬', role: 'owner' },
+      statisticsAvailability: 'available',
+      focusStatistics: focus,
+      screenTimeStatistics: null,
+      fishEarnings: { members: [{ userId: 'me', name: '나', earnedFish: 999 }] },
+      missingFragments: ['screenTimeStatistics'],
+    });
+    (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
+    const screen = await render(<Library e={e} />);
+    await fireEvent.press(screen.getByLabelText('일'));
+    await waitFor(() => expect(screen.getByText(`${earnedFish}마리`)).toBeTruthy());
+    expect(screen.queryByText('999마리')).toBeNull();
+  },
+);
+
+test('집중 기록 없이 체험 보상만 받은 날도 실제 적립 물고기를 표시한다', async () => {
+  const e = { ...environment(), tab: '', islands: [] };
+  const focus = {
+    scope: 'me' as const,
+    totalSeconds: 0,
+    earnedFish: 1,
+    series: [],
+    records: [],
+    nextCursor: null,
+  };
+  jest.mocked(getLibraryScreen).mockResolvedValue({
+    island: { id: e.state.islandId, name: '섬', role: 'owner' },
+    statisticsAvailability: 'available',
+    focusStatistics: focus,
+    screenTimeStatistics: null,
+    fishEarnings: { members: [] },
+    missingFragments: ['screenTimeStatistics'],
+  });
+  (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
+  const screen = await render(<Library e={e} />);
+  await fireEvent.press(screen.getByLabelText('일'));
+  await waitFor(() => expect(screen.getByText('1마리')).toBeTruthy());
+  expect(screen.queryByText('이날은 기록이 없어요')).toBeNull();
+});

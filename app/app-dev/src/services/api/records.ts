@@ -35,6 +35,8 @@ export type ScreenSeriesPoint = {
 export type FocusStatsMe = {
   scope: 'me';
   totalSeconds: number;
+  /** 요청 날짜 창에서 실제 적립된 일반·황금·최초 체험 물고기. 구 서버는 미제공. */
+  earnedFish?: number | null;
   series: FocusSeriesPoint[];
   records: { id: string; subject: string; activeSeconds: number; completedAt: string }[];
   nextCursor: string | null;
@@ -125,6 +127,14 @@ export function validateFocusStats(raw: unknown): FocusStatsMe | FocusStatsIslan
   if (!isRecord(raw)) throw contractError('focusStatistics');
   if (raw.scope === 'me') {
     if (!isNumber(raw.totalSeconds)) throw contractError('totalSeconds');
+    if (
+      raw.earnedFish !== undefined &&
+      !nullable(
+        raw.earnedFish,
+        (value) => isNumber(value) && Number.isSafeInteger(value) && value >= 0,
+      )
+    )
+      throw contractError('earnedFish');
     if (!validFocusSeries(raw.series)) throw contractError('series');
     if (!Array.isArray(raw.records)) throw contractError('records');
     for (const r of raw.records) {

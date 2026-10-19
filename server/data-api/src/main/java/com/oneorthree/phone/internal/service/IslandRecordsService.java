@@ -109,6 +109,7 @@ public class IslandRecordsService {
     private final FocusSessionDetailRepository details;
     private final FocusSessionIntervalRepository intervals;
     private final FocusStatisticsSnapshotRepository snapshots;
+    private final FocusFishEarningsReadService fishEarnings;
     private final ScreenTimeObservationRepository observations;
     private final AuthSessionService sessions;
     private final PublicCommandService publicCommands;
@@ -174,7 +175,8 @@ public class IslandRecordsService {
         }
         records.sort(Comparator.comparing(FocusRecord::completedAt)
                 .thenComparing(FocusRecord::id, UUID_ORDER).reversed());
-        FocusSnapshot snapshot = new FocusSnapshot(asOf, sum(series), days(series), records);
+        FocusSnapshot snapshot = new FocusSnapshot(asOf, sum(series), days(series), records,
+                fishEarnings.earnedBetween(userId, start, end, asOf));
         if (records.size() <= PAGE_SIZE) {
             return page(null, snapshot, 0);
         }
@@ -244,7 +246,7 @@ public class IslandRecordsService {
         boolean more = next < records.size();
         return new FocusStatistics(SCOPE_ME, snapshot.totalSeconds(), snapshot.series(),
                 records.subList(offset, Math.min(next, records.size())), null, snapshot.asOf(),
-                more ? snapshotId : null, more ? next : null);
+                more ? snapshotId : null, more ? next : null, snapshot.earnedFish());
     }
 
     // ------------------------------------------------------------------ 스크린타임 조회

@@ -159,6 +159,9 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     ? srv.screen?.fishEarnings?.members.find((m) => m.userId === (neighbors ? memberId : me))
         ?.earnedFish
     : earnedBy(island, neighbors ? (memberId ?? '') : 'me');
+  const dailyFish = server
+    ? srv.focusMe?.earnedFish
+    : recordsOnDay(localSource, range.from, false).reduce((sum, r) => sum + (r.fish ?? 0), 0);
   const activeDay = period === '월' ? selectedDate : range.from;
   // 서버 records.activeSeconds는 요청 날짜와 겹친 기여분이다. 완료 날짜로 재필터하지 않는다.
   const dayRecords = server ? records : recordsOnDay(records, activeDay, false);
@@ -382,7 +385,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       );
     }
     if (!focusAvailable) return <Empty title="기록을 준비하고 있어요" />;
-    if (!focus)
+    if (!focus && !dailyFish)
       return (
         <Empty
           title={period === '일' ? '이날은 기록이 없어요' : '이 주에는 기록이 없어요'}
@@ -398,17 +401,14 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     ).sort((a, b) => b[1] - a[1]);
     return (
       <>
-        <T style={styles.total}>{hm(focus)}</T>
+        <T style={styles.total}>{hm(focus ?? 0)}</T>
         <View style={styles.row}>
           <Metric label="집중" value={`${dayRecords.length}회`} />
           <Metric
             label="최장"
             value={dayRecords.length ? hm(Math.max(...dayRecords.map((r) => r.seconds))) : '—'}
           />
-          <Metric
-            label="물고기"
-            value={!server ? `${dayRecords.reduce((sum, r) => sum + (r.fish ?? 0), 0)}마리` : '—'}
-          />
+          <Metric label="물고기" value={dailyFish == null ? '—' : `${dailyFish}마리`} />
         </View>
         <T style={styles.sectionTitle}>과목별 집중</T>
         {subjects.map(([subject, seconds]) => (
