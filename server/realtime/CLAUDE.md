@@ -153,7 +153,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 - **heartbeat 10s/10s 가 계약이다.** `WebSocketConfig` 가 `SimpleBroker` 에 `heart-beat:10000,10000` + 전용 1스레드 스케줄러
   (`realtime-heartbeat-`)를 건다. 앱(`islandRealtime.ts`)도 10s/10s 라 CONNECTED 는 `heart-beat:10000,10000`
   (`StompHeartbeatIntegrationTest`). 클라이언트가 30s(3회) 동안 아무것도 안 보내면 브로커가 세션을 닫는다 — `SimpleBrokerMessageHandler`
-  의 HeartbeatTask 가 읽기 무활동을 DISCONNECT_ACK 로 내고 `StompSubProtocolHandler` 가 ERROR `Session closed.` 뒤 1002 로 닫는다
+  의 HeartbeatTask 가 읽기 무활동을 DISCONNECT_ACK 로 내고 `StompSubProtocolHandler` 가 ERROR `Session closed.` 를 보내며 1002 로 닫는다
+  (ERROR 프레임은 닫힘과 겹쳐 클라이언트에 안 닿기도 한다 — 계약은 1002 종료다)
   (`StompHeartbeatTimeoutIntegrationTest`, 1s 로 줄여 고정). 값은 `chat.websocket.heartbeat.server-ms`·`client-ms`(기본 10000).
   `heart-beat:0,0` 클라이언트(k6 등)는 양쪽 다 꺼진다. 프록시 유휴 상한(Cloudflare 약 100s, nginx
   `proxy_read/send_timeout 3600s` — `server/scripts/nginx-*.example`)보다 짧아야 연결이 산다 — 늘리거나 끄지 마라.
@@ -164,6 +165,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `realtime-outbound-close`(2스레드)에서 한다. **종료 예약 즉시 그 세션으로의 전달을 막는다**(큐 넣기 전 `preSend` + 꺼낼 때
   `beforeHandle`, `dropped{reason=closing}`) — close 가 늦어도 빠진 프레임 뒤의 채팅을 정상처럼 받는 창이 없다. close 한 건의
   상한은 Tomcat 11 의 비정상 종료 송신 제한(`ABNORMAL_SESSION_CLOSE_SEND_TIMEOUT`, 50ms)이고, 예약은 소켓 종료 경로가 지운다.
+  close 가 실패하면 예약을 유지한 채 1회 재시도하고, 그래도 실패하면 예약을 풀고 WARN — 좀비(전달만 영구 차단)를 막는 대가로 이 경로에서만
+  한 프레임 손실 뒤 정상 수신이 가능하다(채팅은 앱 sync·이력, 이동은 in-flight 워치독 15s 로 복구).
 - **세션 송신 상한은 기본값을 명시만 한다** — `chat.websocket.transport.send-time-limit-ms`(10000)·
   `send-buffer-size-limit-bytes`(524288)·`message-size-limit-bytes`(65536). `MovementOutbox.STUCK_NANOS`(15s)가 10s 를 전제한다.
   수신 크기 초과는 4500 이 아니다 — WebSocket 메시지 하나가 Tomcat 텍스트 버퍼(Spring 이 16KB+256 으로 올림)를 넘으면 Tomcat 1009,

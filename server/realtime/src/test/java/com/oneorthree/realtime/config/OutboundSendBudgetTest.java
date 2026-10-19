@@ -178,8 +178,8 @@ class OutboundSendBudgetTest {
     }
 
     @Test
-    @DisplayName("종료가 실패하면(소켓이 열린 채) 예약을 푼다 — 전달만 영구히 막힌 좀비가 되지 않고 다음 프레임은 통과한다")
-    void failedCloseReleasesTheReservation() throws Exception {
+    @DisplayName("종료가 두 번 실패하면(소켓이 열린 채) 예약을 푼다 — 전달만 영구히 막힌 좀비가 되지 않고 다음 프레임은 통과한다")
+    void twiceFailedCloseReleasesTheReservation() throws Exception {
         start();
         WebSocketSession broken = socket("broken");
         org.mockito.Mockito.doThrow(new java.io.IOException("close failed")).when(broken)
@@ -187,8 +187,8 @@ class OutboundSendBudgetTest {
         String chat = "/topic/groups/" + UUID.randomUUID();
         channel.send(frame("x", chat));
         channel.send(frame("x", chat));
-        channel.send(frame("broken", chat)); // 거부 → 예약 → close 실패
-        verify(broken, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+        channel.send(frame("broken", chat)); // 거부 → 예약 → close 실패 → 재시도도 실패
+        verify(broken, timeout(2000).times(2)).close(OutboundSendBudget.QUEUE_FULL);
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
         while (budget.isClosing("broken") && System.nanoTime() < deadline) {
             Thread.sleep(10);
@@ -204,6 +204,26 @@ class OutboundSendBudgetTest {
         executor.getThreadPoolExecutor().shutdown();
         executor.getThreadPoolExecutor().awaitTermination(5, TimeUnit.SECONDS);
         assertThat(handled).contains("broken");
+    }
+
+    @Test
+    @DisplayName("첫 close 가 실패해도 재시도가 성공하면 예약을 유지한다(전달 차단 유지) — 소켓 종료 경로가 푼다")
+    void retriedCloseKeepsTheReservationUntilClosed() throws Exception {
+        start();
+        WebSocketSession flaky = socket("flaky");
+        org.mockito.Mockito.doThrow(new java.io.IOException("close failed")).doNothing().when(flaky)
+                .close(OutboundSendBudget.QUEUE_FULL);
+        String chat = "/topic/groups/" + UUID.randomUUID();
+        channel.send(frame("x", chat));
+        channel.send(frame("x", chat));
+        channel.send(frame("flaky", chat)); // 거부 → 예약 → 첫 close 실패 → 재시도 성공
+        verify(flaky, timeout(2000).times(2)).close(OutboundSendBudget.QUEUE_FULL);
+        Thread.sleep(100); // closer 가 끝날 시간 — 예약은 남아 있어야 한다
+        assertThat(budget.isClosing("flaky")).as("소켓이 아직 연결 중 — 종료 경로를 기다린다").isTrue();
+        assertThat(channel.send(frame("flaky", chat))).as("예약 중이라 여전히 막힌다").isFalse();
+
+        budget.closed("flaky", OutboundSendBudget.QUEUE_FULL); // afterConnectionClosed
+        assertThat(budget.isClosing("flaky")).isFalse();
     }
 
     private double closingDropped() {
