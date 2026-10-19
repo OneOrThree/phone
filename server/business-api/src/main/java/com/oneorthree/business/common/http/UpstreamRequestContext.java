@@ -74,6 +74,7 @@ public final class UpstreamRequestContext {
      * 같은 요청 안에서 같은 상류 조회를 한 번만 내게 한다 — 동시에 도는 조각도 첫 호출을 기다렸다 같은 값을 받는다.
      * 요청이 끝나면 context 와 함께 버려지므로 요청 사이에 공유되지 않는다(전역 캐시·TTL 없음).
      * {@code load} 가 예외를 던지면 저장하지 않고 그대로 올린다. null 결과도 저장하지 않는다.
+     * {@code load} 안에서 같은 context 의 {@code memo} 를 다시 부르지 않는다 — {@code computeIfAbsent} 재진입은 금지돼 있다(같은 키면 예외, 다른 키도 비트 잠금 아래라 막힐 수 있다).
      */
     @SuppressWarnings("unchecked")
     public <T> T memo(Object key, Supplier<T> load) {
