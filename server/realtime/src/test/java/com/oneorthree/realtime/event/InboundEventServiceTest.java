@@ -244,7 +244,8 @@ class InboundEventServiceTest {
         MovementSubscriptionListener listener = mock(MovementSubscriptionListener.class);
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener,
-                mock(com.oneorthree.realtime.sea.SeaRooms.class));
+                mock(com.oneorthree.realtime.sea.SeaRooms.class),
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
 
@@ -263,7 +264,8 @@ class InboundEventServiceTest {
         MembershipService membership = mock(MembershipService.class);
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), membership, mock(BlockedUsers.class), listener,
-                mock(com.oneorthree.realtime.sea.SeaRooms.class));
+                mock(com.oneorthree.realtime.sea.SeaRooms.class),
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
         UUID evicted = UUID.randomUUID();
@@ -290,6 +292,39 @@ class InboundEventServiceTest {
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?", Long.class,
                 objectMapper.readTree(event).get("eventId").stringValue())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("멤버십·차단·탈퇴 사건은 원 캐시를 고친 «뒤» 전달 직전 인가 캐시에서 그 사용자를 지운다(GROMO-2340)")
+    void outboundAuthzCacheIsEvictedAfterTheSourceCache() throws Exception {
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        MembershipService membership = mock(MembershipService.class);
+        BlockedUsers blocks = mock(BlockedUsers.class);
+        ChatUserFence fence = mock(ChatUserFence.class);
+        com.oneorthree.realtime.config.OutboundAuthzCache cache =
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class);
+        InboundEventService plain = new InboundEventService(plainJdbc, fence, mock(EventRouter.class), membership,
+                blocks, mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class),
+                cache);
+        UUID kicked = UUID.randomUUID();
+        UUID blocker = UUID.randomUUID();
+        UUID leaver = UUID.randomUUID();
+        given(membership.evict(kicked)).willReturn(true);
+
+        plain.accept(objectMapper.readTree(membersUpdated(UUID.randomUUID(), "MEMBER_REMOVED", kicked, 4)));
+        plain.accept(objectMapper.readTree(blocksUpdated(UUID.randomUUID().toString(),
+                "\"blockerUserId\":\"" + blocker + "\"")));
+        plain.accept(objectMapper.readTree(withdrawn(leaver, 1)));
+
+        var order = org.mockito.Mockito.inOrder(membership, blocks, fence, cache);
+        order.verify(membership).evict(kicked);
+        order.verify(cache).evictUser(kicked);
+        order.verify(blocks).advanceGeneration(blocker);
+        order.verify(cache).evictUser(blocker);
+        order.verify(fence).withdraw(leaver, 1);
+        order.verify(cache).evictUser(leaver);
     }
 
     /** Data outbox 정본 봉투 — {@code IslandMembershipEvents#changed} 가 내보내는 params 모양 그대로다. */

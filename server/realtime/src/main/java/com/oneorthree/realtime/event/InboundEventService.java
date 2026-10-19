@@ -3,6 +3,7 @@ package com.oneorthree.realtime.event;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.config.OutboundAuthzCache;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
@@ -63,6 +64,8 @@ import java.util.stream.Collectors;
  *       {@code type} 만 보면 같은 길로 소비된다.</li>
  *   <li>그 밖의 type — 400. 계약 밖의 사건을 조용히 삼키지 않는다.</li>
  * </ul>
+ * 셋(탈퇴·차단·멤버십 변경)은 원 캐시를 고친 <b>뒤에</b> 전달 직전 인가 결정 캐시({@link OutboundAuthzCache})에서 그 사용자를
+ * 지운다(GROMO-2340) — 먼저 지우면 그 사이의 판정이 아직 옛 Redis 값으로 허용을 다시 담는다.
  *
  * <h2>왜 주민 사건 둘만 여는가</h2>
  * 종전 주석이 전달을 닫아 둔 조건은 세 가지였고, 그 셋이 이제 둘에 대해서만 충족됐다.
@@ -128,6 +131,7 @@ public class InboundEventService {
     private final BlockedUsers blockedUsers;
     private final MovementSubscriptionListener movementSubscriptions;
     private final SeaRooms seaRooms;
+    private final OutboundAuthzCache outboundAuthzCache;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -157,6 +161,7 @@ public class InboundEventService {
             // sea.member.updated(ended) 를 내지 않는다(2299 와의 계약). 안 치우면 focusing 유령이 sea:adrift 색인에도 없어
             // 10분 정리가 못 잡고 해시 TTL(24h)까지 정원을 차지한다. 방에 없으면 no-op, Redis 실패만 던진다(재전달).
             seaRooms.leaveCurrent(withdrawn, SeaRooms.LEFT);
+            outboundAuthzCache.evictUser(withdrawn);
         } else if (USER_BLOCKS_UPDATED.equals(type)) {
             advanceBlockGeneration(eventId, envelope);
         } else if (SEA_MEMBER_UPDATED.equals(type)) {
@@ -245,7 +250,10 @@ public class InboundEventService {
             return false;
         }
         try {
-            return !membershipService.evict(UUID.fromString(memberUserId.stringValue()));
+            UUID member = UUID.fromString(memberUserId.stringValue());
+            boolean failed = !membershipService.evict(member);
+            outboundAuthzCache.evictUser(member);
+            return failed;
         } catch (IllegalArgumentException e) {
             log.warn("memberUserId 가 UUID 형식이 아닙니다 — 무효화를 건너뜁니다.");
             return false;
@@ -270,6 +278,7 @@ public class InboundEventService {
             return;
         }
         blockedUsers.advanceGeneration(blockerId);
+        outboundAuthzCache.evictUser(blockerId);
     }
 
     /** 전달 어댑터가 있는 사건만 7필드로 바꿔 섬 토픽으로 보낸다. 나머지는 기록만 하고 끝낸다. */

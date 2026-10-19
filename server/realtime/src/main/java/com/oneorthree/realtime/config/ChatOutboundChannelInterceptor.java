@@ -10,6 +10,7 @@ import com.oneorthree.realtime.sea.SeaRooms;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -74,6 +75,15 @@ import static com.oneorthree.realtime.config.StompTopics.SEA_ROOM_TOPIC;
  * <p><b>판정을 못 내리면 보내지 않는다(fail-closed, 2026-10-01 결정).</b> 차단 조회 실패·timeout·계약 위반뿐
  * 아니라 프레임에서 발신자를 읽지 못한 경우도 «전달 근거 없음»이다. 발신자가 JSON {@code null} 인 채팅
  * (탈퇴 발신자, GROMO-1946)만은 거를 대상이 없으므로 그대로 보낸다.
+ *
+ * <h2>허용 결정 캐시 (GROMO-2340)</h2>
+ * 위 상류 판정(멤버십·차단)은 실행기 스레드에서 프레임 × 수신 세션마다 도는 I/O 다. 통과한 결정은
+ * {@link OutboundAuthzCache} 에 (세션, {@code 목적지#발신자}) 로 짧게 담고 다음 프레임은 묻지 않는다 — 없거나 만료면 종전
+ * 동기 판정 그대로(fail-closed), 거절·판정 불가는 담지 않는다. <b>JWT 재검증은 캐시하지 않는다</b>(로컬 HMAC 이라 I/O 가
+ * 아니고, 만료 즉시 1008 계약이 걸려 있다). <b>채팅의 집중 검사도 캐시하지 않는다</b> — 집중 시작은 무효화 사건이 없고
+ * 「구독 중 집중을 시작하면 그 순간부터 본문을 받지 않는다」가 서비스 규칙이라, hit 에서도 프레즌스 EXISTS 한 번은 남는다.
+ * 응원의 수신 대상 대조({@code mayReceive}, 인메모리)와 바다 방의 프레임마다 Redis 재검사(GROMO-2302 결정)도 캐시하지
+ * 않는다. 남는 창(다른 인스턴스·ON 모드 세션 폐기)은 {@link OutboundAuthzCache} 에 적었다.
  */
 @Slf4j
 @Component
@@ -86,6 +96,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     private final ObjectMapper objectMapper;
     private final BlockedUsers blockedUsers;
     private final SeaRooms seaRooms;
+    private final OutboundAuthzCache authzCache;
 
     /**
      * 바다 방 전달 직전 차단 건수 — {@code sea.deliver.dropped{reason=not_member|redis|jwt}}. debug 로그로는 Redis 장애 중
@@ -101,9 +112,10 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
      * 그 설정이 만드는 {@code SimpMessagingTemplate} 을 필요로 한다. 같은 이유로 그 설정도
      * {@code clientOutboundChannel} 을 {@code @Lazy} 로 받는다.
      */
+    @Autowired
     public ChatOutboundChannelInterceptor(RealtimeSessionRegistry sessions, JwtValidator jwtValidator,
             ChatAccessGuard accessGuard, @Lazy RealtimeEventDelivery delivery, ObjectMapper objectMapper,
-            BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry) {
+            BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry, OutboundAuthzCache authzCache) {
         this.sessions = sessions;
         this.jwtValidator = jwtValidator;
         this.accessGuard = accessGuard;
@@ -111,9 +123,18 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         this.objectMapper = objectMapper;
         this.blockedUsers = blockedUsers;
         this.seaRooms = seaRooms;
+        this.authzCache = authzCache;
         this.seaDroppedNotMember = seaDropped(meterRegistry, "not_member");
         this.seaDroppedRedis = seaDropped(meterRegistry, "redis");
         this.seaDroppedJwt = seaDropped(meterRegistry, "jwt");
+    }
+
+    /** 직접 생성하는 옛 호출부 — 결정 캐시 없이 프레임마다 판정한다(종전 의미). */
+    public ChatOutboundChannelInterceptor(RealtimeSessionRegistry sessions, JwtValidator jwtValidator,
+            ChatAccessGuard accessGuard, RealtimeEventDelivery delivery, ObjectMapper objectMapper,
+            BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry) {
+        this(sessions, jwtValidator, accessGuard, delivery, objectMapper, blockedUsers, seaRooms, meterRegistry,
+                OutboundAuthzCache.disabled());
     }
 
     private static Counter seaDropped(MeterRegistry registry, String reason) {
@@ -126,6 +147,8 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         if (SimpMessageHeaderAccessor.getMessageType(message.getHeaders()) != SimpMessageType.MESSAGE) {
             return message;
         }
+        // 판정 «전에» 세대를 읽는다 — 판정 도중 무효화가 지나가면 이 결정은 담기지 않는다.
+        long stamp = authzCache.stamp();
         String destination = SimpMessageHeaderAccessor.getDestination(message.getHeaders());
         if (destination == null) {
             return null;
@@ -141,7 +164,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
         Matcher island = ISLAND_TOPIC.matcher(destination);
         if (island.matches()) {
-            return deliverIslandEvent(message, island.group(1), island.group(2));
+            return deliverIslandEvent(message, destination, island.group(1), island.group(2), stamp);
         }
         // 바다 방(GROMO-2300, N21) — JWT + 프레임마다 Redis 방 소속. 다른 인스턴스의 정리가 Redis 에서 사람을 빼도 이
         // JVM 의 구독은 남으므로 레지스트리로는 못 끊는다. 판정 불가(Redis 실패)도 보내지 않는다. 차단은 배정 때 분리했다.
@@ -173,13 +196,21 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         String bearer = principal.bearer();
         try {
             if (groupMessage) {
-                accessGuard.requireCanChat(UUID.fromString(group.group(1)), principal.userId(), bearer);
                 // 스위치가 꺼져 있으면 발신자 판독도 하지 않는다 — 판독의 fail-closed 가 OFF 에서 새지 않게.
-                if (blockedUsers.enabled() && blockedUsers.hasBlocked(principal.userId(),
-                        senderOf(readPayload(message), "senderId", null, true))) {
+                boolean filter = blockedUsers.enabled();
+                UUID sender = filter ? senderOf(readPayload(message), "senderId", null, true) : null;
+                String scope = filter ? destination + "#" + sender : destination;
+                if (authzCache.allowed(sessionId, principal.userId(), scope)) {
+                    // 집중은 캐시하지 않는다 — 집중 시작은 무효화 사건이 없고, 「집중 중 채팅 차단」은 즉시여야 한다.
+                    accessGuard.requireNotFocusing(principal.userId());
+                    return message;
+                }
+                accessGuard.requireCanChat(UUID.fromString(group.group(1)), principal.userId(), bearer);
+                if (filter && blockedUsers.hasBlocked(principal.userId(), sender)) {
                     log.debug("채팅 전달 차단 — 받는 사람이 발신자를 차단했다");
                     return null;
                 }
+                authzCache.allow(sessionId, principal.userId(), scope, stamp);
             } else {
                 accessGuard.requireNotFocusing(principal.userId());
             }
@@ -202,19 +233,27 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
      * 섬 {@code events} 프레임(GROMO-2302) — 그 주체가 지금도 그 섬 주민인가(캐시, fail-closed), 그리고 채팅·응원과 같은
      * 받는 사람 기준 차단 필터(GROMO-2182) — 보내는 사람은 {@code payload.userId}(도착자)다. 판정 불가는 버린다.
      */
-    private Message<?> deliverResidentEvent(Message<?> message, ChatPrincipal principal, String islandIdText) {
+    private Message<?> deliverResidentEvent(Message<?> message, String destination, ChatPrincipal principal,
+            String islandIdText, long stamp) {
         UUID islandId = uuidOrNull(islandIdText);
         if (islandId == null) {
             return null;
         }
+        String sessionId = SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
         try {
-            accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
             // 스위치가 꺼져 있으면 발신자 판독도 하지 않는다 — 채팅과 같은 이유.
-            if (blockedUsers.enabled() && blockedUsers.hasBlocked(principal.userId(),
-                    senderOf(readPayload(message), "payload", "userId", false))) {
+            boolean filter = blockedUsers.enabled();
+            UUID arriver = filter ? senderOf(readPayload(message), "payload", "userId", false) : null;
+            String scope = filter ? destination + "#" + arriver : destination;
+            if (authzCache.allowed(sessionId, principal.userId(), scope)) {
+                return message;
+            }
+            accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
+            if (filter && blockedUsers.hasBlocked(principal.userId(), arriver)) {
                 log.debug("섬 소식 전달 차단 — 받는 사람이 도착자를 차단했다");
                 return null;
             }
+            authzCache.allow(sessionId, principal.userId(), scope, stamp);
             return message;
         } catch (UpstreamRejectedCredentialException e) {
             // 채팅과 같다 — 자격 자체가 무효면 소켓을 닫아 앱이 갱신·재연결을 시작하게 한다.
@@ -250,13 +289,14 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
      * 섬 채널의 전달 직전 판정 — <b>모두 인증을 다시 보고</b>, 응원은 수신 대상 목록을, {@code events} 는 현재 소속을
      * 더 본다.
      */
-    private Message<?> deliverIslandEvent(Message<?> message, String islandIdText, String channel) {
+    private Message<?> deliverIslandEvent(Message<?> message, String destination, String islandIdText, String channel,
+            long stamp) {
         ChatPrincipal principal = stillAuthenticated(message);
         if (principal == null) {
             return null;
         }
         if (EVENTS_CHANNEL.equals(channel)) {
-            return deliverResidentEvent(message, principal, islandIdText);
+            return deliverResidentEvent(message, destination, principal, islandIdText, stamp);
         }
         if (!EMOTES_CHANNEL.equals(channel)) {
             return message;
@@ -270,11 +310,19 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         if (!blockedUsers.enabled()) {
             return message;
         }
+        String sessionId = SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
         try {
-            if (blockedUsers.hasBlocked(principal.userId(), senderOf(root, "payload", "userId", false))) {
+            // 캐시는 차단 판정만 담는다 — 수신 대상 대조(mayReceive)는 위에서 프레임마다 했다.
+            UUID sender = senderOf(root, "payload", "userId", false);
+            String scope = destination + "#" + sender;
+            if (authzCache.allowed(sessionId, principal.userId(), scope)) {
+                return message;
+            }
+            if (blockedUsers.hasBlocked(principal.userId(), sender)) {
                 log.debug("응원 전달 차단 — 받는 사람이 발신자를 차단했다");
                 return null;
             }
+            authzCache.allow(sessionId, principal.userId(), scope, stamp);
         } catch (RuntimeException e) {
             // 차단 판정 불가 — 전달 근거가 없다. 소켓은 유지한다(자격은 여전히 유효하다).
             log.debug("응원 전달 차단 — 차단 판정 불가. reason={}", e.getClass().getSimpleName());

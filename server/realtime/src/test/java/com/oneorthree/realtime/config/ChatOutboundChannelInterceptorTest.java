@@ -302,6 +302,90 @@ class ChatOutboundChannelInterceptorTest {
                 "{\"eventId\":\"" + eventId + "\",\"payload\":{}}"), null, null)).isNull();
     }
 
+    // ── GROMO-2340 허용 결정 캐시 ──────────────────────────────────────────
+
+    private final OutboundAuthzCache cache = new OutboundAuthzCache(
+            java.util.concurrent.TimeUnit.SECONDS.toNanos(30), System::nanoTime, meters);
+    private final ChatOutboundChannelInterceptor cached = new ChatOutboundChannelInterceptor(sessions, jwt, guard,
+            delivery, new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms, meters, cache);
+
+    @Test
+    void allowedChatDecisionIsReusedButJwtIsStillCheckedEveryFrame() throws Exception {
+        UUID sender = UUID.randomUUID();
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNotNull();
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNotNull();
+        // 상류(집중·멤버십·차단)는 첫 프레임 한 번만 — 둘째는 캐시 hit.
+        verify(guard, org.mockito.Mockito.times(1)).requireCanChat(island, user, "Bearer token");
+        verify(blockedUsers, org.mockito.Mockito.times(1)).hasBlocked(user, sender);
+        verify(guard, org.mockito.Mockito.times(1)).requireNotFocusing(user); // hit 도 집중은 다시 본다
+        // 다른 발신자는 차단 판정이 달라 따로 묻는다.
+        assertThat(cached.beforeHandle(chat(UUID.randomUUID()), null, null)).isNotNull();
+        verify(guard, org.mockito.Mockito.times(2)).requireCanChat(island, user, "Bearer token");
+
+        // JWT 만료는 캐시와 무관하게 다음 프레임에서 잡혀 소켓을 닫는다.
+        WebSocketSession socket = openSocket("socket");
+        when(jwt.extractUserId("token")).thenReturn(Optional.empty());
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNull();
+        verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+    }
+
+    @Test
+    void focusStartCutsOffChatEvenOnACacheHit() {
+        // 서비스 규칙 2 — 구독 중 집중을 시작하면 그 순간부터 본문을 받지 않는다. 집중 시작은 무효화 사건이 없다.
+        UUID sender = UUID.randomUUID();
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNotNull();
+        doThrow(new IllegalStateException("focus")).when(guard).requireNotFocusing(user);
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNull();
+    }
+
+    @Test
+    void rejectionsAreNeverCachedFailClosed() {
+        UUID sender = UUID.randomUUID();
+        doThrow(new UpstreamUnavailableException()).when(guard).requireCanChat(island, user, "Bearer token");
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNull();
+        // 장애가 풀리면 다음 프레임이 다시 묻고 통과한다 — 거절이 담겼다면 계속 막혔을 것이다.
+        org.mockito.Mockito.reset(guard);
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNotNull();
+
+        UUID blocked = UUID.randomUUID();
+        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+        assertThat(cached.beforeHandle(chat(blocked), null, null)).isNull();
+        assertThat(cached.beforeHandle(chat(blocked), null, null)).isNull();
+        verify(blockedUsers, org.mockito.Mockito.times(2)).hasBlocked(user, blocked);
+    }
+
+    @Test
+    void evictionSendsTheNextFrameBackToTheSynchronousPath() {
+        UUID sender = UUID.randomUUID();
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNotNull();
+        doThrow(new IllegalStateException("not a member")).when(guard).requireCanChat(island, user, "Bearer token");
+        assertThat(cached.beforeHandle(chat(sender), null, null)).as("캐시 hit — 아직 모른다").isNotNull();
+
+        cache.evictUser(user); // island.members.updated(MEMBER_REMOVED)
+        assertThat(cached.beforeHandle(chat(sender), null, null)).isNull();
+
+        // 섬 소식도 같다 — 허용을 담고, 세션 종료가 지운다.
+        org.mockito.Mockito.reset(guard);
+        Message<?> arrival = arrival(sender);
+        assertThat(cached.beforeHandle(arrival, null, null)).isSameAs(arrival);
+        assertThat(cached.beforeHandle(arrival(sender), null, null)).isNotNull();
+        verify(guard, org.mockito.Mockito.times(1)).requireMember(island, user, "Bearer token");
+        cache.evictSession("socket");
+        assertThat(cached.beforeHandle(arrival(sender), null, null)).isNotNull();
+        verify(guard, org.mockito.Mockito.times(2)).requireMember(island, user, "Bearer token");
+        assertThat(meters.counter("realtime.outbound.authz.cache", "result", "evict").count()).isEqualTo(2.0);
+    }
+
+    @Test
+    void seaRoomMembershipIsReadEveryFrame() {
+        // GROMO-2302 「전달 직전 재검사」 — 바다 방은 캐시하지 않는다.
+        UUID room = UUID.randomUUID();
+        when(seaRooms.isMember(user, room)).thenReturn(true);
+        cached.beforeHandle(frame("socket", "/topic/sea/rooms/" + room, "{}"), null, null);
+        cached.beforeHandle(frame("socket", "/topic/sea/rooms/" + room, "{}"), null, null);
+        verify(seaRooms, org.mockito.Mockito.times(2)).isMember(user, room);
+    }
+
     private Message<?> chat(UUID sender) {
         return frame("socket", "/topic/groups/" + island, "{\"senderId\":\"" + sender + "\",\"content\":\"x\"}");
     }

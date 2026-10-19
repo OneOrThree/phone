@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
@@ -16,6 +17,7 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
@@ -45,6 +47,17 @@ import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
  * <h2>SockJS 폴백은 켜지 않는다</h2>
  * 클라이언트가 React Native 앱 하나뿐이고 WebSocket 을 네이티브로 지원한다. 폴백을 켜면 XHR 스트리밍
  * 경로가 열려 인증·타임아웃 규칙을 두 벌 관리해야 한다.
+ *
+ * <h2>heartbeat 10s/10s — 유휴 연결 유지 계약 (GROMO-2341)</h2>
+ * 서버가 {@code heart-beat:10000,10000} 을 협상한다. 앱({@code islandRealtime.ts})도 10s/10s 를 보내므로 CONNECTED 는
+ * {@code heart-beat:10000,10000} 이고, 살아 있는 연결은 10초마다 양방향 바이트가 흐른다 — 프록시 유휴 상한(Cloudflare
+ * 약 100s, nginx {@code proxy_read/send_timeout})에 걸리지 않는다. 클라이언트가 3회(30s) 동안 아무것도 보내지 않으면
+ * {@code SimpleBroker} 가 세션을 닫는다(죽은 연결 정리). {@code heart-beat:0,0} 클라이언트(부하 도구 등)는 양쪽 다
+ * heartbeat 가 꺼진다 — 종전과 같다. heartbeat 는 전용 1스레드 스케줄러({@code realtime-heartbeat-})가 돈다.
+ *
+ * <h2>송신 예산 (GROMO-2340)</h2>
+ * 아웃바운드 실행기는 유한 큐다({@link OutboundSendBudget} — 크기·포화 정책·지표). 세션별 송신 시간·버퍼·수신 메시지
+ * 크기 상한은 Spring 기본값(10s·512KB·64KB)을 <b>명시</b>하고 {@code chat.websocket.transport.*} 로 노출한다.
  */
 @Configuration
 @EnableWebSocketMessageBroker
@@ -57,6 +70,23 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final RealtimeSessionRegistry sessions;
     private final MovementSubscriptionListener movementSubscriptions;
     private final MovementOutboundInterceptor movementOutboundInterceptor;
+    private final OutboundSendBudget outboundSendBudget;
+    private final OutboundAuthzCache outboundAuthzCache;
+
+    /** 서버 heartbeat 주기(ms) — 앱 {@code realtimeClientOptions} 의 10_000/10_000 과 같은 값이다. */
+    static final long HEARTBEAT_MILLIS = 10_000;
+
+    /** 세션 하나의 송신 한 건이 끝나기를 기다리는 상한 — 넘기면 Spring 이 그 세션을 4500 으로 닫는다. */
+    @Value("${chat.websocket.transport.send-time-limit-ms:10000}")
+    private int sendTimeLimitMillis;
+
+    /** 느린 세션에 쌓아 둘 수 있는 송신 버퍼 — 넘기면 Spring 이 그 세션을 4500 으로 닫는다. */
+    @Value("${chat.websocket.transport.send-buffer-size-limit-bytes:524288}")
+    private int sendBufferSizeLimitBytes;
+
+    /** 수신 STOMP 메시지 크기 상한. */
+    @Value("${chat.websocket.transport.message-size-limit-bytes:65536}")
+    private int messageSizeLimitBytes;
 
     /** 거절 ERROR 프레임을 보낼 통로. 이 설정이 채널을 만드는 쪽이라 순환을 피해 늦게 받는다. */
     @Lazy
@@ -91,9 +121,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.setPreserveReceiveOrder(true);
     }
 
-    /** STOMP 세션 ID와 같은 실제 소켓을 등록하고 모든 연결 종료 경로에서 정리한다. */
+    /**
+     * STOMP 세션 ID와 같은 실제 소켓을 등록하고 모든 연결 종료 경로에서 정리한다 — 전달 직전 인가 캐시도 함께 지운다.
+     * 세션 송신 상한은 기본값을 명시한다(값을 바꾸지 않는다 — {@code MovementOutbox.STUCK_NANOS} 15s 가 10s 를 전제한다).
+     */
     @Override
     public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
+        registration.setSendTimeLimit(sendTimeLimitMillis)
+                .setSendBufferSizeLimit(sendBufferSizeLimitBytes)
+                .setMessageSizeLimit(messageSizeLimitBytes);
         registration.addDecoratorFactory(handler -> new WebSocketHandlerDecorator(handler) {
             @Override
             public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -103,6 +139,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 } catch (Exception e) {
                     // 종료 경로와 같은 순서·같은 짝 — 소켓 기록을 지운 뒤 이동 쪽 정리.
                     sessions.closed(session.getId());
+                    outboundAuthzCache.evictSession(session.getId());
                     movementSubscriptions.closed(session.getId());
                     throw e;
                 }
@@ -114,6 +151,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                     super.afterConnectionClosed(session, status);
                 } finally {
                     sessions.closed(session.getId());
+                    outboundAuthzCache.evictSession(session.getId());
+                    outboundSendBudget.closed(status);
                     // 소켓 기록을 지운 «뒤»에 이동 방에서 내보낸다 — 순서 보존 큐에 남아 늦게 처리되는 SUBSCRIBE 가
                     // 끊긴 세션을 보고 물러나게 하는 전제다(MovementSubscriptionListener).
                     movementSubscriptions.closed(session.getId());
@@ -124,9 +163,24 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/topic", "/queue");
+        registry.enableSimpleBroker("/topic", "/queue")
+                .setHeartbeatValue(new long[] {HEARTBEAT_MILLIS, HEARTBEAT_MILLIS})
+                .setTaskScheduler(realtimeHeartbeatScheduler());
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
+    }
+
+    /**
+     * 브로커 heartbeat 전용 스케줄러 — 1스레드면 충분하다(10초마다 세션을 한 번 훑어 쓸 것만 아웃바운드 채널에 넘긴다).
+     * Spring 의 {@code messageBrokerTaskScheduler}(CPU 수 스레드)와 나눠 이름으로 드러낸다.
+     */
+    @Bean
+    public ThreadPoolTaskScheduler realtimeHeartbeatScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("realtime-heartbeat-");
+        scheduler.setDaemon(true);
+        return scheduler;
     }
 
     /**
@@ -170,10 +224,14 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      *
      * <p>이동 완료 통지가 <b>맨 앞</b>이다 — {@code afterMessageHandled} 는 {@code beforeHandle} 을 통과한
      * 인터셉터에게만 오므로, 채팅 인터셉터 뒤에 두면 그쪽이 버린 이동 프레임(토큰 만료)의 완료가 영영 오지 않아
-     * 그 세션의 이동 송신이 멈춘다.
+     * 그 세션의 이동 송신이 멈춘다. 송신 시간 측정({@link OutboundSendBudget})은 <b>맨 뒤</b>다 — 앞 둘의 판정 시간을
+     * 빼고 소켓 쓰기만 잰다.
+     *
+     * <p>실행기는 유한 큐다(GROMO-2340) — 크기·포화 정책은 {@link OutboundSendBudget}.
      */
     @Override
     public void configureClientOutboundChannel(ChannelRegistration registration) {
-        registration.interceptors(movementOutboundInterceptor, chatOutboundChannelInterceptor);
+        registration.executor(outboundSendBudget.newExecutor());
+        registration.interceptors(movementOutboundInterceptor, chatOutboundChannelInterceptor, outboundSendBudget);
     }
 }

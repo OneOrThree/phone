@@ -119,6 +119,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   탈퇴·강퇴가 캐시 만료까지 지연될 수 있다. ON의 기존 그룹 채팅은 Data 현재 인가를 조회하되
   최종 beforeHandle 이후 DB 변경과 TCP 전송을 원자화하지 않는다. 새 보호 채널은 이 연결만으로 열리지 않으며,
   현재 도메인의 권한 회수·시설 접근·스냅샷을 검증하기 전까지 활성화하지 않는다.
+  **통과한 결정은 짧게 캐시한다**(GROMO-2340, `OutboundAuthzCache`) — 아래 「송신 예산·heartbeat」 절.
 
 - **바다 방은 전달 직전에 방 소속을 다시 읽는다.** 10분 정리(`SeaAdriftSweeper`)는 다른 인스턴스에서 Redis 의
   `sea:user:{id}` 를 지우는데, 이 JVM 의 소켓·구독은 그대로 남는다. 로컬 레지스트리로는 끊을 수 없으므로
@@ -137,6 +138,31 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
 - **롤백 메모: `sea:adrift`(ZSET)·`sea:rooms:open`(SET)에는 TTL 이 없다.** 1/2·2/2 를 함께 롤백한 채 오래 두는 경우에만 손으로
   지운다. **새 버전이 떠 있는 동안 `sea:rooms:open` 을 지우면 전원이 새 방을 만든다**(TTL 금지와 같은 이유). 2/2(스위퍼)만
   롤백하면 `sea:adrift` 가 쌓이고, 재배포 첫 틱이 전량을 읽어 스스로 치유한다(백로그 10^4 부터는 그 틱이 수 초 걸린다).
+
+## 송신 예산·heartbeat (GROMO-2340·2341)
+
+- **heartbeat 10s/10s 가 계약이다.** `WebSocketConfig` 가 `SimpleBroker` 에 `heart-beat:10000,10000` + 전용 1스레드 스케줄러
+  (`realtime-heartbeat-`)를 건다. 앱(`islandRealtime.ts`)도 10s/10s 라 CONNECTED 는 `heart-beat:10000,10000`
+  (`StompHeartbeatIntegrationTest`). 클라이언트가 30s(3회) 동안 아무것도 안 보내면 브로커가 세션을 닫는다.
+  `heart-beat:0,0` 클라이언트(k6 등)는 양쪽 다 꺼진다. 프록시 유휴 상한(Cloudflare 약 100s, nginx
+  `proxy_read/send_timeout 3600s` — `server/scripts/nginx-*.example`)보다 짧아야 연결이 산다 — 늘리거나 끄지 마라.
+- **아웃바운드 실행기는 유한 큐다**(`OutboundSendBudget`). `chat.websocket.outbound.core-threads`(0 = CPU×2)·
+  `max-threads`(0 = core)·`queue-capacity`(10000). 큐가 차면 거부된 프레임의 세션을 **종류 불문 1008
+  `OUTBOUND_QUEUE_FULL`** 로 닫는다(채팅은 재연결 이력, 이동은 재구독 FullState 로 복구). 거부 핸들러는 **던지지 않는다** —
+  Spring 7 `ExecutorSubscribableChannel` 은 거부된 작업을 보낸 스레드(브로커·이동 틱)에서 바로 실행한다. 종료는 전용
+  `realtime-outbound-close` 스레드에서 한다.
+- **세션 송신 상한은 기본값을 명시만 한다** — `chat.websocket.transport.send-time-limit-ms`(10000)·
+  `send-buffer-size-limit-bytes`(524288)·`message-size-limit-bytes`(65536). `MovementOutbox.STUCK_NANOS`(15s)가 10s 를 전제한다.
+- **전달 직전 인가는 «허용»만 캐시한다**(`OutboundAuthzCache`, `chat.websocket.outbound.authz-cache-ttl-seconds` 30, 멤버십
+  TTL 이하로 잘림, 0 = 끔). 키는 (세션, `목적지#발신자`) — 담는 것은 멤버십·차단 판정뿐. 거절·판정 불가는 담지 않는다(fail-closed).
+  JWT 재검증·**채팅의 집중 검사**(무효화 사건이 없고 규칙 2가 즉시 차단이다 — `ChatWebSocketIntegrationTest` 가 잡는다)·응원 수신
+  대상 대조·바다 방 `HGET` 은 프레임마다 그대로. 무효화: `InboundEventService` 가 멤버십 변경·차단 세대·탈퇴를 **원 캐시를 고친 뒤**
+  `evictUser`, 소켓 종료가 `evictSession`. 남는 창(TTL 상한): 다른 인스턴스(이 캐시는 JVM 안), ON 모드 세션 폐기(사건 없음).
+- **운영 신호**: 큐 깊이 `executor.queued{name=realtime-outbound}`(+`executor.active`·`executor.queue.remaining`),
+  `realtime.outbound.dropped{reason=queue_full|session_limit}`(`session_limit` = Spring 이 4500 `SESSION_NOT_RELIABLE` 로 닫은
+  세션 — 송신 시간·버퍼 초과가 같은 코드라 구분 불가, CONNECT 없는 60s 세션 정리도 섞인다), 소켓 쓰기 시간
+  `realtime.outbound.send{destination_kind=chat|movement|events|sea|other}`, 인가 캐시 `realtime.outbound.authz.cache{result=hit|miss|evict}`.
+  `queue_full` 이 0 이 아니면 실행기·느린 수신자부터 본다.
 
 ## Redis keys (A19 namespace table)
 
