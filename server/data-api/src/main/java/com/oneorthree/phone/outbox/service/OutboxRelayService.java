@@ -165,6 +165,7 @@ public class OutboxRelayService {
     /** 선점하고 축 작업을 실행기에 띄운다 — 기다리지 않는다. */
     private Round startRound(OutboxTarget target) {
         UUID token = UUID.randomUUID();
+        // 빈 틱에도 기록하는 것은 의도다 — 선점 쿼리의 틱당 비용을 그대로 보이게 한다.
         List<EventOutboxDelivery> claimed = timer("outbox.relay.claim", target)
                 .record(() -> store.claim(target, workerId, token));
         if (claimed.isEmpty()) {
@@ -319,6 +320,8 @@ public class OutboxRelayService {
                 seen.put(OutboxTarget.valueOf((String) row[0]), new long[] {((Number) row[1]).longValue(), age});
             }
         } catch (RuntimeException e) {
+            // 게이지가 얼어붙은 채 정상처럼 보이지 않게 카운터로 알린다.
+            meterRegistry.counter("outbox.relay.snapshot.failed").increment();
             log.warn("outbox relay 미전달 스냅샷 실패 — 이번 틱 게이지는 직전 값을 유지한다", e);
             return;
         }

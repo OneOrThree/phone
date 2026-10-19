@@ -120,6 +120,25 @@ class OutboxRelayMetricsTest {
                 .as("백오프로 미뤄 둔 행은 나이에 넣지 않는다").isZero();
     }
 
+    @Test
+    void snapshotFailureCountsAndKeepsPreviousGauge() {
+        NOW.set(Instant.parse("2030-01-01T00:00:00Z"));   // relayOnce 가 틱 예산 기한을 시계로 잡는다(GROMO-2338)
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        OutboxRelayStore failing = new OutboxRelayStore(deliveries, PROPERTIES, CLOCK, new SimpleMeterRegistry()) {
+            @Override
+            public List<Object[]> pendingSnapshot() {
+                throw new IllegalStateException("db down");
+            }
+        };
+        OutboxRelayService relay = new OutboxRelayService(
+                failing, outbox, PROPERTIES, CLOCK, List.of(), registry, Runnable::run);
+
+        relay.relayOnce();
+
+        assertThat(registry.get("outbox.relay.snapshot.failed").counter().count()).isEqualTo(1);
+        assertThat(gauge(registry, "outbox.relay.backlog", "KAFKA")).as("직전 값 유지").isZero();
+    }
+
     private static double gauge(SimpleMeterRegistry registry, String name, String target) {
         return registry.get(name).tag("target", target).gauge().value();
     }
