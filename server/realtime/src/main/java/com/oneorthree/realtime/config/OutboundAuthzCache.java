@@ -154,13 +154,15 @@ public class OutboundAuthzCache {
         if (ttlNanos == 0 || sessionId == null || notAfterNanos == Sourced.EXPIRED) {
             return;
         }
-        long lifetime = notAfterNanos == Sourced.UNBOUNDED ? ttlNanos
-                : Math.min(ttlNanos, notAfterNanos - nanoTime.getAsLong());
-        store(sessionId, userId, scope, stamp, lifetime);
+        long now = nanoTime.getAsLong();
+        // 절대 만료를 «한 번» 계산해 그대로 담는다 — 남은 수명을 계산한 뒤 시간을 다시 읽어 더하면 그 사이 지연(GC·대기)만큼
+        // 원본보다 오래 살아 강퇴·차단 반영 상한을 넘긴다.
+        long until = notAfterNanos == Sourced.UNBOUNDED ? now + ttlNanos : Math.min(now + ttlNanos, notAfterNanos);
+        store(sessionId, userId, scope, stamp, now, until);
     }
 
-    private void store(String sessionId, UUID userId, String scope, long stamp, long lifetimeNanos) {
-        if (ttlNanos == 0 || sessionId == null || lifetimeNanos <= 0) {
+    private void store(String sessionId, UUID userId, String scope, long stamp, long now, long untilNanos) {
+        if (ttlNanos == 0 || sessionId == null || untilNanos - now <= 0) {
             return;
         }
         SessionEntries entries = bySession.computeIfAbsent(sessionId,
@@ -168,9 +170,8 @@ public class OutboundAuthzCache {
         if (!entries.userId().equals(userId)) {
             return;
         }
-        long now = nanoTime.getAsLong();
         Map<String, Long> allowedUntil = entries.allowedUntil();
-        allowedUntil.put(scope, now + lifetimeNanos);
+        allowedUntil.put(scope, untilNanos);
         if (allowedUntil.size() > MAX_SCOPES_PER_SESSION) {
             allowedUntil.values().removeIf(until -> until - now <= 0);
             if (allowedUntil.size() > MAX_SCOPES_PER_SESSION) {
