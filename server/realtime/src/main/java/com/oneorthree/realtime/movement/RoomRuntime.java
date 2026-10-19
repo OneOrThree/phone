@@ -744,6 +744,14 @@ public final class RoomRuntime {
          */
         default void onSessionReplaced(UUID islandId, String replacedSessionKey, String newSessionKey) {
         }
+
+        /**
+         * 방 하나를 만들 때 그 방에 줄 콜백 — 기본은 자기 자신. 다중 인스턴스(GROMO-2339)는 «이 방을 만든 소유권 세대»에 묶은
+         * 콜백을 돌려줘, 리스를 잃고 다시 얻은 뒤 옛 방의 늦은 사건이 새 리스로 나가지 않게 한다.
+         */
+        default Listener forRoom(UUID islandId) {
+            return this;
+        }
     }
 
     // ── 큐 명령 ──────────────────────────────────────────────────────────

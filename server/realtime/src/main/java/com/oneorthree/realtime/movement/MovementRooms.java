@@ -176,7 +176,7 @@ public final class MovementRooms {
 
     private RoomRuntime ensure(UUID islandId, RoomRuntime room) {
         return room != null ? room
-                : new RoomRuntime(islandId, nav, pathfinder, MovementRules.DEFAULT, listener, nowNanos,
-                        pathfindTimer);
+                : new RoomRuntime(islandId, nav, pathfinder, MovementRules.DEFAULT, listener.forRoom(islandId),
+                        nowNanos, pathfindTimer);
     }
 }

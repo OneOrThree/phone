@@ -72,6 +72,8 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     private static final long RELEASE_GRACE_NANOS = TimeUnit.SECONDS.toNanos(5);
     /** 생존 신호(PING)가 이만큼 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다. */
     private static final long INSTANCE_STALE_NANOS = TimeUnit.SECONDS.toNanos(5);
+    /** 세션 한정 FullState 를 이만큼 못 받으면 다시 요청한다. */
+    private static final long FULL_STATE_RETRY_NANOS = TimeUnit.SECONDS.toNanos(2);
     private static final Duration HANDOFF_TTL = Duration.ofSeconds(30);
     private static final TypeReference<Map<UUID, MovementEvent.Point>> POSITIONS = new TypeReference<>() {
     };
@@ -95,6 +97,8 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     private final Map<UUID, Owner> owners = new HashMap<>();
     /** 소유자를 못 정해 입장을 못 보낸 섬 — 감시가 소유자를 알아내면 그때 다시 입장시킨다. */
     private final Set<UUID> pendingRejoin = new HashSet<>();
+    /** 세션({@code 섬|세션})별 마지막 FULL_STATE 요청(또는 게이트 닫힘을 처음 본) 시각 — {@link #retryFullStates}. */
+    private final Map<String, Long> fullStateRequestedAt = new HashMap<>();
     /** 소유자 쪽: 내 방에 들어온 다른 인스턴스의 세션 키(섬 → 세션 키). 그 인스턴스가 끊기면 내보낸다. */
     private final Map<UUID, Set<String>> remoteSessions = new HashMap<>();
 
@@ -114,6 +118,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     private final Counter staleEpoch;
     private final Counter routingRedis;
     private final Counter relayStale;
+    private final Counter fullStateRetried;
     private final Map<Type, Counter> forwarded = new HashMap<>();
 
     @Autowired
@@ -143,6 +148,8 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
                 .description("소유자를 Redis 로 알아내지 못해 보내지 못한 이동 명령 수").register(meters);
         this.relayStale = Counter.builder("movement.relay.stale")
                 .description("그 섬에서 본 epoch 보다 작은(옛 소유자) 프레임이라 버린 수").register(meters);
+        this.fullStateRetried = Counter.builder("movement.fullstate.retry")
+                .description("세션 한정 FullState 를 2초 넘게 못 받아 다시 요청한 수(codex r1 P1)").register(meters);
         for (Type type : Type.values()) {
             forwarded.put(type, Counter.builder("movement.owner.forward").tag("type", type.name())
                     .description("다른 인스턴스(소유자)로 보낸 이동 명령 수").register(meters));
@@ -310,6 +317,9 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     // ── movement-cluster 스레드 ─────────────────────────────────────────
 
     private void route(UUID islandId, Type type, UUID userId, String sessionId, MoveIntent intent) {
+        if (type == Type.FULL_STATE) {
+            fullStateRequestedAt.put(replacedKey(islandId, sessionId), System.nanoTime());
+        }
         Owner owner = resolveOwner(islandId);
         if (owner == null) {
             routingRedis.increment();
@@ -434,6 +444,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             watchOwners();
             relay.publishCommand(new Command(me, null, 0, null, Type.PING, null, null, null, false, joinedSessions()));
             sweepDeadInstances();
+            retryFullStates();
         } catch (RuntimeException e) {
             log.warn("이동 소유자 감시 실패 — reason={}", e.getClass().getSimpleName());
         }
@@ -672,6 +683,33 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
                 }
             }
         }
+    }
+
+    /**
+     * 세션 한정 FullState 재요청(codex r1 P1) — JOIN 은 됐는데 FULL_STATE 명령이나 그 응답 프레임을 잃으면(줄 포화·PUBLISH
+     * 실패) 그 세션은 게이트가 닫힌 채 남는다. PING 대조는 방에 actor 가 있으니 정상으로 보고, 전원 FullState 는 게이트를 열지
+     * 못한다. 그래서 1초마다 «게이트가 닫힌 지(또는 요청한 지) {@link #FULL_STATE_RETRY_NANOS} 넘은» 내 세션의 FULL_STATE 를
+     * 다시 보낸다 — 상한 없이(소유자가 바뀌면 재입장 경로가 대신한다). 소유자 쪽에 «대기 중» 표시를 싣는 안보다 작다: 게이트
+     * 상태는 이쪽 outbox 만 안다. 멈춘(강퇴 재검사 중) 세션은 재개 때 처리기가 직접 요청하므로 뺀다.
+     */
+    private void retryFullStates() {
+        long now = System.nanoTime();
+        Set<String> waiting = new HashSet<>();
+        for (UUID islandId : publisher.islands()) {
+            for (MovementOutbox outbox : publisher.outboxes(islandId)) {
+                if (!eligible(islandId, outbox) || !outbox.acceptsIntents() || !outbox.isAwaitingFullState()) {
+                    continue;
+                }
+                String key = replacedKey(islandId, outbox.sessionId());
+                waiting.add(key);
+                Long since = fullStateRequestedAt.putIfAbsent(key, now);
+                if (since != null && now - since >= FULL_STATE_RETRY_NANOS) {
+                    fullStateRetried.increment();
+                    route(islandId, Type.FULL_STATE, null, outbox.sessionId(), null);
+                }
+            }
+        }
+        fullStateRequestedAt.keySet().retainAll(waiting);
     }
 
     /** 방에 actor 를 든 내 세션인가 — 구독 중·안 닫힘·교체되지 않음. */

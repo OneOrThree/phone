@@ -297,6 +297,11 @@ final class MovementOutbox {
         closeGate();
     }
 
+    /** 자기 세션 한정 FullState 를 아직 못 받았다(게이트 닫힘) — 다중 인스턴스 길잡이가 재요청 여부를 본다(codex r1 P1). */
+    synchronized boolean isAwaitingFullState() {
+        return awaitingFullState;
+    }
+
     /** 같은 사용자의 다른 세션에 actor 를 넘겼다(N6) — 재입장(re-join)·생존 신호 대상에서 뺀다. */
     synchronized boolean isSuperseded() {
         return superseded;

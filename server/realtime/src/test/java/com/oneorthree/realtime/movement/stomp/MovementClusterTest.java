@@ -298,6 +298,49 @@ class MovementClusterTest {
         assertThat(awaitCommand(Type.FULL_STATE).sessionKey()).isEqualTo(ownership.instanceId() + ":s1");
     }
 
+    @Test
+    @DisplayName("FULL_STATE 요청을 잃어 게이트가 닫힌 세션은 2초 뒤 감시가 다시 요청해 3~4초 안에 열리고 이후 프레임을 받는다(codex r1 P1)")
+    void lostFullStateRequestIsRetried() throws Exception {
+        open("s1");
+        long started = System.nanoTime();
+        cluster.join(island, user, "s1"); // requestFullState 를 «잃었다» — 게이트는 닫힌 채다
+
+        JsonNode own = awaitFor("s1", "FullState");
+        long tookMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        assertThat(own.get("actors").size()).isEqualTo(1);
+        assertThat(tookMs).as("감시 1초 × (기록 1틱 + 2초 대기)").isLessThanOrEqualTo(4500);
+        assertThat(meters.counter("movement.fullstate.retry").count()).isGreaterThanOrEqualTo(1);
+
+        command(new Command("ghost-9", ownership.instanceId(), ownership.lease(island).epoch(), island, Type.JOIN,
+                UUID.randomUUID(), "ghost-9:z", null, false));
+        assertThat(awaitFullStateWith("s1", 2)).as("열린 뒤의 전원 사건도 받는다").isNotNull();
+    }
+
+    @Test
+    @DisplayName("리스를 잃고 같은 섬을 다시 얻은 뒤 옛 방의 늦은 콜백은 내지 않는다 — 같은 epoch 재획득이어도(stale_room)")
+    void staleRoomCallbacksAreNotPublishedAfterReacquire() {
+        SimpleMeterRegistry own = new SimpleMeterRegistry();
+        MovementOwnership owner = new MovementOwnership(redis, own, "sr-" + UUID.randomUUID().toString()
+                .substring(0, 8), 3000);
+        MovementRelay stalled = new MovementRelay(true, publisher, owner, redis, json, own, 16, 16); // 송신 스레드 없음
+        MovementEvent.FullState state = new MovementEvent.FullState(1, 1, 50, 10.989, List.of());
+        long firstEpoch = owner.acquire(island).epoch();
+        RoomRuntime.Listener oldRoom = stalled.forRoom(island);
+
+        owner.forget(island); // 상실(로컬) — Redis 키는 아직 내 것
+        long secondEpoch = owner.acquire(island).epoch();
+        oldRoom.onEvent(island, state, com.oneorthree.realtime.movement.Target.ALL);
+        oldRoom.onSnapshot(island, new MovementEvent.Snapshot(1, 1, List.of()));
+
+        assertThat(secondEpoch).as("epoch 만으로는 옛 방을 못 가린다").isEqualTo(firstEpoch);
+        assertThat(own.get("movement.relay.queue.depth").gauge().value()).as("발행 0").isZero();
+        assertThat(own.counter("movement.routing.failed", "reason", "stale_room").count()).isEqualTo(2);
+
+        stalled.forRoom(island).onEvent(island, state, com.oneorthree.realtime.movement.Target.ALL);
+        assertThat(own.get("movement.relay.queue.depth").gauge().value()).as("새 방은 낸다").isEqualTo(1);
+        owner.release(island);
+    }
+
     /** 이 인스턴스가 소유자가 되고(로컬 세션 s1), 다른 인스턴스 세션 {@code <instance>:<sid>} 가 방에 든 상태를 만든다. */
     private UUID becomeOwnerWithRemoteActor(String instance, String sessionId) throws Exception {
         open("s1");

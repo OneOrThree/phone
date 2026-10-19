@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
@@ -123,7 +124,7 @@ public class MovementOwnership {
         if (owner.instanceId().equals(instanceId)) {
             Lease held = leases.get(islandId);
             leases.put(islandId, held != null && held.owner().equals(owner) ? held.renewed(sentAt)
-                    : new Lease(owner, sentAt, sentAt));
+                    : new Lease(owner, sentAt, sentAt, GENERATIONS.incrementAndGet()));
         }
         return owner;
     }
@@ -191,15 +192,21 @@ public class MovementOwnership {
         }
     }
 
-    /** 내가 든 리스 — {@code renewedAtNanos} 는 Redis 가 «아직 내 것»이라 답한 마지막 요청을 «보낸» 시각. */
-    record Lease(Owner owner, long acquiredAtNanos, long renewedAtNanos) {
+    /** 새 리스 기록마다 1 오르는 프로세스 전역 세대 — 같은 epoch 를 다시 얻어도(상실 뒤 키가 아직 내 것) 값이 다르다. */
+    private static final AtomicLong GENERATIONS = new AtomicLong();
+
+    /**
+     * 내가 든 리스 — {@code renewedAtNanos} 는 Redis 가 «아직 내 것»이라 답한 마지막 요청을 «보낸» 시각. {@code generation} 은
+     * 이 기록이 생길 때 받은 세대(갱신으로는 바뀌지 않는다) — 방이 «자기를 만든 리스»를 알아보는 데 쓴다(codex r1 P2).
+     */
+    record Lease(Owner owner, long acquiredAtNanos, long renewedAtNanos, long generation) {
 
         long epoch() {
             return owner.epoch();
         }
 
         Lease renewed(long nowNanos) {
-            return new Lease(owner, acquiredAtNanos, nowNanos);
+            return new Lease(owner, acquiredAtNanos, nowNanos, generation);
         }
     }
 }

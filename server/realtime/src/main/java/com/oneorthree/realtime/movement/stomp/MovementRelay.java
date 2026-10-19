@@ -65,6 +65,7 @@ public class MovementRelay implements RoomRuntime.Listener {
     private final Counter dropped;
     private final Counter droppedControl;
     private final Counter noLease;
+    private final Counter staleRoom;
     private final Counter publishFailed;
     private final Timer lag;
 
@@ -106,6 +107,9 @@ public class MovementRelay implements RoomRuntime.Listener {
                 .register(meterRegistry);
         this.noLease = Counter.builder("movement.routing.failed").tag("reason", "no_lease")
                 .description("소유자 리스 없이 나온 방 사건이라 내지 않은 수(fail-closed)")
+                .register(meterRegistry);
+        this.staleRoom = Counter.builder("movement.routing.failed").tag("reason", "stale_room")
+                .description("리스를 잃었다 다시 얻은 뒤 옛 방에서 늦게 나온 사건이라 내지 않은 수(fail-closed)")
                 .register(meterRegistry);
         this.publishFailed = Counter.builder("movement.routing.failed").tag("reason", "publish")
                 .description("Redis PUBLISH 가 실패해 잃은 이동 프레임·명령 수")
@@ -151,7 +155,79 @@ public class MovementRelay implements RoomRuntime.Listener {
             publisher.onEvent(islandId, event, target);
             return;
         }
-        MovementOwnership.Lease lease = ownership.lease(islandId);
+        publishEvent(islandId, event, target, ownership.lease(islandId));
+    }
+
+    @Override
+    public void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot) {
+        if (!enabled) {
+            publisher.onSnapshot(islandId, snapshot);
+            return;
+        }
+        publishSnapshot(islandId, snapshot, ownership.lease(islandId));
+    }
+
+    /**
+     * 다른 인스턴스의 새 세션이 actor 를 가져갔다 — 옛 세션의 인스턴스에 SUPERSEDE 를 보낸다(N6). 같은 인스턴스끼리의 교체는
+     * 그 인스턴스의 구독 처리기가 이미 했다(단일 인스턴스와 같은 경로). OFF 는 늘 그 경우라 아무것도 안 한다.
+     */
+    @Override
+    public void onSessionReplaced(UUID islandId, String replacedSessionKey, String newSessionKey) {
+        if (enabled) {
+            publishReplaced(islandId, replacedSessionKey, newSessionKey, ownership.lease(islandId));
+        }
+    }
+
+    /**
+     * 방 하나에 묶인 콜백(codex r1 P2) — 방을 만들 때의 리스 세대를 쥐고, 지금 리스가 «그 세대»일 때만 낸다. 틱 스레드가 옛 방을
+     * 처리하는 사이 클러스터 스레드가 리스를 잃고({@code evict}) 같은 섬을 다시 얻으면, 옛 방의 늦은 콜백이 새 리스(새 epoch,
+     * 또는 같은 epoch 재획득)로 나가 받는 쪽 stale 필터를 통과한다 — 그걸 여기서 막는다({@code routing.failed{stale_room}}).
+     * epoch 가 아니라 로컬 세대로 비교하는 이유: 상실 뒤 Redis 키가 아직 내 것이면 같은 epoch 로 다시 얻는다.
+     */
+    @Override
+    public RoomRuntime.Listener forRoom(UUID islandId) {
+        if (!enabled) {
+            return this;
+        }
+        MovementOwnership.Lease creator = ownership.lease(islandId);
+        long generation = creator == null ? -1 : creator.generation();
+        return new RoomRuntime.Listener() {
+            @Override
+            public void onEvent(UUID id, MovementEvent event, Target target) {
+                MovementOwnership.Lease lease = ownership.lease(id);
+                if (sameRoom(lease, generation)) {
+                    publishEvent(id, event, target, lease);
+                }
+            }
+
+            @Override
+            public void onSnapshot(UUID id, MovementEvent.Snapshot snapshot) {
+                MovementOwnership.Lease lease = ownership.lease(id);
+                if (sameRoom(lease, generation)) {
+                    publishSnapshot(id, snapshot, lease);
+                }
+            }
+
+            @Override
+            public void onSessionReplaced(UUID id, String replacedSessionKey, String newSessionKey) {
+                MovementOwnership.Lease lease = ownership.lease(id);
+                if (sameRoom(lease, generation)) {
+                    publishReplaced(id, replacedSessionKey, newSessionKey, lease);
+                }
+            }
+        };
+    }
+
+    /** 리스가 없으면 아래 발행이 {@code no_lease} 로 센다. 있는데 세대가 다르면 옛 방이다. */
+    private boolean sameRoom(MovementOwnership.Lease lease, long generation) {
+        if (lease != null && lease.generation() != generation) {
+            staleRoom.increment();
+            return false;
+        }
+        return true;
+    }
+
+    private void publishEvent(UUID islandId, MovementEvent event, Target target, MovementOwnership.Lease lease) {
         if (lease == null) {
             noLease.increment();
             return;
@@ -168,13 +244,7 @@ public class MovementRelay implements RoomRuntime.Listener {
                 payload));
     }
 
-    @Override
-    public void onSnapshot(UUID islandId, MovementEvent.Snapshot snapshot) {
-        if (!enabled) {
-            publisher.onSnapshot(islandId, snapshot);
-            return;
-        }
-        MovementOwnership.Lease lease = ownership.lease(islandId);
+    private void publishSnapshot(UUID islandId, MovementEvent.Snapshot snapshot, MovementOwnership.Lease lease) {
         if (lease == null) {
             noLease.increment();
             return;
@@ -184,16 +254,11 @@ public class MovementRelay implements RoomRuntime.Listener {
                 objectMapper.writeValueAsString(snapshot)));
     }
 
-    /**
-     * 다른 인스턴스의 새 세션이 actor 를 가져갔다 — 옛 세션의 인스턴스에 SUPERSEDE 를 보낸다(N6). 같은 인스턴스끼리의 교체는
-     * 그 인스턴스의 구독 처리기가 이미 했다(단일 인스턴스와 같은 경로). OFF 는 늘 그 경우라 아무것도 안 한다.
-     */
-    @Override
-    public void onSessionReplaced(UUID islandId, String replacedSessionKey, String newSessionKey) {
-        if (!enabled || instanceOf(replacedSessionKey).equals(instanceOf(newSessionKey))) {
+    private void publishReplaced(UUID islandId, String replacedSessionKey, String newSessionKey,
+            MovementOwnership.Lease lease) {
+        if (instanceOf(replacedSessionKey).equals(instanceOf(newSessionKey))) {
             return;
         }
-        MovementOwnership.Lease lease = ownership.lease(islandId);
         if (lease == null) {
             noLease.increment();
             return;

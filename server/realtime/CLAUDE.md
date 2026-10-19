@@ -222,6 +222,12 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   방에 없는 세션은 `EVICTED` 로 알려 그 세션만 resync + JOIN·FULL_STATE 로 다시 입장시킨다(JOIN·첫 FullState 요청 유실,
   생존 신호 단절로 제거된 뒤 복구). 1초마다 되풀이되므로 EVICTED 가 유실돼도 다음 PING 이 다시 보낸다 — 비소유 쪽의
   «내 PING 이 끊겼다 복구됨» 감지는 따로 두지 않았다.
+- **세션 한정 FullState 유실**: JOIN 은 됐는데 FULL_STATE 명령이나 그 응답을 잃으면 게이트가 닫힌 채 남는다(PING 대조는 actor 가
+  있으니 정상으로 본다). 감시가 1초마다 «게이트가 닫힌 지 2초 넘은» 내 세션의 FULL_STATE 를 상한 없이 다시 요청한다
+  (`movement.fullstate.retry`, 멈춘 세션 제외 — 재개 때 처리기가 요청한다).
+- **옛 방의 늦은 콜백**: 방은 만들 때의 리스 세대(`Lease.generation`, 새 리스 기록마다 증가 — 같은 epoch 재획득도 구분)에 묶인
+  콜백(`RoomRuntime.Listener.forRoom`)을 받는다. 리스를 잃고 다시 얻은 뒤 틱 스레드가 옛 방을 한 번 더 돌려도 그 사건은
+  `routing.failed{stale_room}` 으로 버린다.
 - **지표**: `movement.owner.{acquire{trigger},lost{reason},islands,forward{type},forward.stale{reason}}`,
   `movement.routing.failed{reason=redis|no_lease|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`.
 
