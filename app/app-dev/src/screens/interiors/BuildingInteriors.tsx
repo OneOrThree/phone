@@ -2286,22 +2286,17 @@ function DeskHotspot({ reduceMotion }: { reduceMotion: boolean }) {
   const t = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (reduceMotion || Platform.OS === 'web') return;
+    // 네이티브 드라이버(GROMO-2374)는 보간의 easing 을 버리므로 0.9초 easeInOut 왕복으로 같은 곡선을 만든다
     const loop = Animated.loop(
-      Animated.timing(t, {
-        toValue: 1,
-        duration: 1800,
-        easing: Easing.linear,
-        useNativeDriver: false,
-      }),
+      Animated.sequence([
+        Animated.timing(t, { toValue: 1, duration: 900, easing: easeInOut, useNativeDriver: true }),
+        Animated.timing(t, { toValue: 0, duration: 900, easing: easeInOut, useNativeDriver: true }),
+      ]),
     );
     loop.start();
     return () => loop.stop();
   }, [reduceMotion, t]);
-  const scale = t.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [1, 1.06, 1],
-    easing: easeInOut,
-  });
+  const scale = t.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
   const moving = !reduceMotion && Platform.OS !== 'web';
   return (
     <Animated.View
@@ -2315,11 +2310,10 @@ function DeskHotspot({ reduceMotion }: { reduceMotion: boolean }) {
           borderRadius: 18,
           backgroundColor: exact('#ffffff73'),
           boxShadow: '0 0 0 2px #ffffff70,0 0 0 6px #f4a7bb55',
-          transform: [
-            { translateX: '-50%' },
-            { translateY: '-50%' },
-            { scale: moving ? scale : 1 },
-          ],
+          // 네이티브 드라이버 transform 은 % 이동을 못 받는다 — 네이티브는 크기(36)의 절반만큼 margin 으로 가운데를 맞춘다
+          ...(moving
+            ? { marginLeft: -18, marginTop: -18, transform: [{ scale }] }
+            : { transform: [{ translateX: '-50%' }, { translateY: '-50%' }] }),
         },
         !reduceMotion && deskPulse,
       ]}
@@ -7083,13 +7077,13 @@ function DeskDot({ reduceMotion }: { reduceMotion: boolean }) {
           toValue: 1,
           duration: 900,
           easing: easeInOut,
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
         Animated.timing(t, {
           toValue: 0,
           duration: 900,
           easing: easeInOut,
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
       ]),
     );
@@ -7117,12 +7111,11 @@ function DeskDot({ reduceMotion }: { reduceMotion: boolean }) {
     <Animated.View
       style={[
         base,
+        // 네이티브 드라이버 transform 은 % 이동을 못 받는다 — 크기(9)의 절반만큼 margin 으로 가운데를 맞춘다(GROMO-2374)
         {
-          transform: [
-            { translateX: '-50%' },
-            { translateY: '-50%' },
-            { scale: t.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }) },
-          ],
+          marginLeft: -4.5,
+          marginTop: -4.5,
+          transform: [{ scale: t.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] }) }],
         },
       ]}
     />
@@ -8948,7 +8941,7 @@ function ShopGramArtifact({ concept, reduceMotion, showToast }: ArtifactProps) {
         toValue: 1,
         duration: 2300,
         easing: Easing.linear,
-        useNativeDriver: false,
+        useNativeDriver: true,
       }),
     );
     loop.start();
