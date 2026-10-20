@@ -264,7 +264,8 @@ class InboundEventServiceTest {
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener,
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
                 mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
-                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC());
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC(),
+                mock(RealtimeEventDelivery.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
 
@@ -285,7 +286,8 @@ class InboundEventServiceTest {
                 mock(EventRouter.class), membership, mock(BlockedUsers.class), listener,
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
                 mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
-                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC());
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC(),
+                mock(RealtimeEventDelivery.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
         UUID evicted = UUID.randomUUID();
@@ -310,7 +312,8 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
-                outbound, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC());
+                outbound, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC(),
+                mock(RealtimeEventDelivery.class));
         UUID kicked = UUID.randomUUID();
         UUID gone = UUID.randomUUID();
 
@@ -364,7 +367,8 @@ class InboundEventServiceTest {
         var decisions = mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class);
         InboundEventService plain = new InboundEventService(plainJdbc, fence, mock(EventRouter.class), membership,
                 blocks, mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class),
-                decisions, cache, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC());
+                decisions, cache, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC(),
+                mock(RealtimeEventDelivery.class));
         UUID kicked = UUID.randomUUID();
         UUID blocker = UUID.randomUUID();
         UUID leaver = UUID.randomUUID();
@@ -498,7 +502,8 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, fence,
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
-                outbound, registry, new JwtValidator(SECRET), java.time.Clock.systemUTC());
+                outbound, registry, new JwtValidator(SECRET), java.time.Clock.systemUTC(),
+                mock(RealtimeEventDelivery.class));
         UUID user = UUID.randomUUID();
         UUID revokedSid = UUID.randomUUID();
         WebSocketSession revoked = connect(registry, "stomp-revoked", user, revokedSid, SECRET);
@@ -558,7 +563,8 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, fence, mock(EventRouter.class),
                 mock(MembershipService.class), mock(BlockedUsers.class), mock(MovementSubscriptionListener.class),
                 mock(com.oneorthree.realtime.sea.SeaRooms.class), mock(CurrentMembershipDecisionCache.class),
-                mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET), java.time.Clock.systemUTC());
+                mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET), java.time.Clock.systemUTC(),
+                mock(RealtimeEventDelivery.class));
         UUID user = UUID.randomUUID();
         UUID sid = UUID.randomUUID();
         connect(registry, "stomp-order", user, sid, SECRET);
@@ -569,6 +575,76 @@ class InboundEventServiceTest {
         order.verify(fence).revokeSession(org.mockito.ArgumentMatchers.eq(sid), any());
         order.verify(registry).sessionIdsOf(user);
         order.verify(registry).close("stomp-order", REVOKED);
+    }
+
+    @Test
+    @DisplayName("auth.session.revoked 는 기존 팬아웃 채널로 다른 replica 에 퍼져 그 replica 가 인메모리 펜스를 올리고 자기 세션을 닫는다 — 멱등 (GROMO-2350)")
+    void sessionRevokedFansOutToTheOtherReplica() throws Exception {
+        java.time.Clock clock = java.time.Clock.systemUTC();
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        // replica A — 사건을 HTTP 로 받는다. 발행은 실제 직렬화 그대로 잡아 B 의 구독자에 먹인다.
+        StringRedisTemplate publishRedis = mock(StringRedisTemplate.class);
+        var deliveryA = new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
+                publishRedis, objectMapper, clock);
+        var registryA = new RealtimeSessionRegistry();
+        var fenceA = new ChatUserFence(null, null, null, clock, redis);
+        InboundEventService serviceA = new InboundEventService(plainJdbc, fenceA, mock(EventRouter.class),
+                mock(MembershipService.class), mock(BlockedUsers.class), mock(MovementSubscriptionListener.class),
+                mock(com.oneorthree.realtime.sea.SeaRooms.class), mock(CurrentMembershipDecisionCache.class),
+                mock(OutboundAuthzCache.class), registryA, new JwtValidator(SECRET), clock, deliveryA);
+        // replica B — Redis 를 쓰지 않는 인메모리 펜스만 가진다(redis=null 이면 Redis 를 건드리는 순간 NPE 라 증명이 된다).
+        var registryB = new RealtimeSessionRegistry();
+        var fenceB = new ChatUserFence(null, null, null, clock, null);
+        var outboundB = mock(OutboundAuthzCache.class);
+        var deliveryB = new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
+                publishRedis, objectMapper, clock);
+        InboundEventService serviceB = new InboundEventService(plainJdbc, fenceB, mock(EventRouter.class),
+                mock(MembershipService.class), mock(BlockedUsers.class), mock(MovementSubscriptionListener.class),
+                mock(com.oneorthree.realtime.sea.SeaRooms.class), mock(CurrentMembershipDecisionCache.class),
+                outboundB, registryB, new JwtValidator(SECRET), clock, deliveryB);
+        var subscriberB = new RealtimeEventFanoutSubscriber(deliveryB, serviceB, objectMapper);
+
+        UUID user = UUID.randomUUID();
+        UUID sid = UUID.randomUUID();
+        WebSocketSession onA = connect(registryA, "a-1", user, sid, SECRET);
+        WebSocketSession onB = connect(registryB, "b-1", user, sid, SECRET);
+        WebSocketSession otherOnB = connect(registryB, "b-2", user, UUID.randomUUID(), SECRET);
+
+        serviceA.accept(objectMapper.readTree(sessionRevoked(user, sid.toString())));
+
+        var payload = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(publishRedis).convertAndSend(org.mockito.ArgumentMatchers.eq(RedisKeys.EVENT_FANOUT_CHANNEL),
+                payload.capture());
+        verify(onA).close(REVOKED);
+        org.springframework.data.redis.connection.Message wire = new org.springframework.data.redis.connection
+                .DefaultMessage(RedisKeys.EVENT_FANOUT_CHANNEL.getBytes(StandardCharsets.UTF_8),
+                payload.getValue().getBytes(StandardCharsets.UTF_8));
+        subscriberB.onMessage(wire, null);
+        subscriberB.onMessage(wire, null); // 중복 전달 — 멱등
+
+        verify(onB, org.mockito.Mockito.atLeastOnce()).close(REVOKED);
+        verify(outboundB, org.mockito.Mockito.atLeastOnce()).evictSession("b-1");
+        verify(otherOnB, never()).close(any(CloseStatus.class));
+        assertThat(fenceB.isRevoked(sid)).isTrue();
+        assertThat(fenceB.isRevoked(UUID.randomUUID())).isFalse();
+        // 자기 메아리는 건너뛴다 — 발행한 replica 의 구독자는 아무것도 하지 않는다.
+        new RealtimeEventFanoutSubscriber(deliveryA, serviceA, objectMapper).onMessage(wire, null);
+        verify(onA, times(1)).close(REVOKED);
+    }
+
+    @Test
+    @DisplayName("폐기 펜스의 Redis 쓰기가 실패해도 던지지 않는다 — 인메모리 펜스와 종료로 계속한다")
+    void fenceRedisWriteFailureIsWarnedNotThrown() {
+        StringRedisTemplate broken = mock(StringRedisTemplate.class);
+        given(broken.opsForValue()).willThrow(new IllegalStateException("redis down"));
+        var fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), broken);
+        UUID sid = UUID.randomUUID();
+
+        fence.revokeSession(sid, java.time.Instant.now().plusSeconds(60));
+
+        assertThat(fence.isRevoked(sid)).isTrue();
     }
 
     @Test
@@ -596,7 +672,8 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
-                mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET), java.time.Clock.systemUTC());
+                mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET), java.time.Clock.systemUTC(),
+                mock(RealtimeEventDelivery.class));
         UUID user = UUID.randomUUID();
         WebSocketSession session = connect(registry, "stomp-1", user, UUID.randomUUID(), SECRET);
 

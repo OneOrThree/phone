@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 public class RealtimeEventFanoutSubscriber implements MessageListener {
 
     private final RealtimeEventDelivery delivery;
+    private final InboundEventService inboundEventService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -35,6 +36,12 @@ public class RealtimeEventFanoutSubscriber implements MessageListener {
 
             if (delivery.instanceId().equals(event.originInstanceId())) {
                 // 내가 발행한 것 — 로컬 전달은 deliver() 에서 이미 끝났다.
+                return;
+            }
+            if (event.revokedSessionId() != null && event.revokedUserId() != null) {
+                // 세션 폐기 제어 사건 — 이 replica 의 펜스·캐시·세션만 정리한다. 멱등이고(펜스 merge, 세션이 없으면 no-op),
+                // inbound_events 중복 차단은 HTTP/Kafka 입구(InboundEventService#accept)에만 있어 여기엔 걸리지 않는다.
+                inboundEventService.applySessionRevocation(event.revokedUserId(), event.revokedSessionId());
                 return;
             }
             delivery.deliverLocally(event.destination(), event.event(), event.recipients());

@@ -93,6 +93,10 @@ import static com.oneorthree.realtime.config.StompTopics.SEA_ROOM_TOPIC;
 @Component
 public class ChatOutboundChannelInterceptor implements ExecutorChannelInterceptor {
 
+    /** 개인 오류 큐 — 앱이 구독하는 이름과, Spring 이 세션별로 풀어 쓰는 이름({@code /queue/errors-user<세션>}) 접두. */
+    private static final String ERRORS_QUEUE = "/user/queue/errors";
+    private static final String ERRORS_QUEUE_RESOLVED = "/queue/errors-user";
+
     private final RealtimeSessionRegistry sessions;
     private final JwtValidator jwtValidator;
     private final ChatAccessGuard accessGuard;
@@ -198,7 +202,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         if (!groupMessage && !duplicate) {
             // 개인 오류 큐(errors)는 집중 거절·폐기 통지를 알릴 수 있어야 하니 그대로 둔다. 그 밖의 개인 큐(바다 스냅샷 응답 등 구성원
             // 정보가 실린다)는 JWT 와 폐기 sid(GROMO-2350)를 다시 본다 — 종료가 실패해 소켓이 남은 폐기 세션에 나가지 않게.
-            if (destination.contains("queue/errors")) {
+            if (destination.equals(ERRORS_QUEUE) || destination.startsWith(ERRORS_QUEUE_RESOLVED)) {
                 return message;
             }
             return stillAuthenticated(message) == null ? null : message;

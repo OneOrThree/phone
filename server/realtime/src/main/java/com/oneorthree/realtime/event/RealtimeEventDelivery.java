@@ -121,10 +121,24 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
 
         try {
             String payload = objectMapper.writeValueAsString(
-                    new RealtimeEventFanoutEvent(instanceId, destination, event, island.recipients()));
+                    RealtimeEventFanoutEvent.island(instanceId, destination, event, island.recipients()));
             redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, payload);
         } catch (RuntimeException e) {
             log.error("섬 사건 팬아웃 발행 실패 — eventId={} type={}", event.eventId(), event.type().wireName(), e);
+        }
+    }
+
+    /**
+     * 세션 폐기 제어 사건(GROMO-2350)을 다른 replica 에 퍼뜨린다 — 같은 채널에 얹은 제어 봉투다. 실패는 삼킨다: 수신 인스턴스는 이미
+     * Redis 내구 펜스를 올렸고(CONNECT·REST 를 막는다), 여기서 던지면 수신 기록이 롤백돼 relay 가 같은 사건을 반복한다.
+     */
+    public void publishSessionRevoked(UUID userId, UUID sessionId) {
+        try {
+            redis.convertAndSend(RedisKeys.EVENT_FANOUT_CHANNEL, objectMapper.writeValueAsString(
+                    RealtimeEventFanoutEvent.sessionRevoked(instanceId, userId, sessionId)));
+        } catch (RuntimeException e) {
+            log.error("세션 폐기 팬아웃 발행 실패 — 다른 replica 의 기존 연결은 AT 만료까지 살 수 있다. reason={}",
+                    e.getClass().getName());
         }
     }
 

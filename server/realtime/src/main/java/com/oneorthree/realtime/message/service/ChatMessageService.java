@@ -125,6 +125,9 @@ public class ChatMessageService {
      * 구 토큰»과 «만료·검증 실패»를 가른다: 대기 중에 AT 가 만료됐다면 proof 도 비어 있으므로, 비었다고 통과시키면 만료 토큰으로
      * 저장·방송된다(CLAUDE.md 「만료 토큰 송수신 금지」). 구 토큰은 {@code extractUserId} 가 발신자와 같은 사용자를 돌려줄 때만 허용한다.
      *
+     * <p>저장 경계 재검사는 <b>SEND 에만</b> 둔다 — 읽음 커서·응원·바다 한마디는 멤버십 쓰기가 아니라 영향이 작아 인바운드 펜스
+     * ({@code StompAuthChannelInterceptor.requireAuthenticated})까지로 둔다(조정자 결정).
+     *
      * <p>만료와 폐기 모두 멤버십 문제가 아니라 인증 문제다 — {@code NOT_A_MEMBER} 로 내보내면 정상 주민이 멤버십 상실로 오해한다.
      * 던지는 타입은 인증 거절 전용 {@link UpstreamRejectedCredentialException}(= {@code DomainException}, UNAUTHORIZED)이라
      * {@code ChatStompController.send} 의 {@code DomainException} 변환이 그대로 개인 오류 큐 통지로 바꾼다.
@@ -132,6 +135,7 @@ public class ChatMessageService {
     private void requireLiveSession(UUID senderId, String bearer) {
         String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : bearer;
         var proof = jwtValidator.extractSessionProof(token);
+        // 후속: 모든 발급 토큰이 sid 를 가지면 «sid 없는 구 토큰» 분기(extractUserId 쪽)를 제거한다.
         boolean rejected = proof.isPresent()
                 ? chatUserFence.isRevoked(proof.get().sessionId())
                 : jwtValidator.extractUserId(token).filter(senderId::equals).isEmpty();

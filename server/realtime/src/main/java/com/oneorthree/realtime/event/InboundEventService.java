@@ -160,6 +160,7 @@ public class InboundEventService {
     private final RealtimeSessionRegistry sessions;
     private final JwtValidator jwtValidator;
     private final Clock clock;
+    private final RealtimeEventDelivery eventDelivery;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -345,9 +346,27 @@ public class InboundEventService {
             log.warn("세션 폐기 사건에 userId/sessionId 가 없다 — 연결을 닫지 않는다. eventId={}", eventId);
             return;
         }
-        // 순서: 펜스 → (세션 목록 스냅샷) → 캐시 → 종료. 펜스가 목록보다 먼저여야 그 사이에 CONNECT·등록을 끝낸 같은 sid 가 «목록에도
-        // 없고 펜스에도 안 걸리는» 일이 없다 — CONNECT 는 등록 뒤에도 펜스를 다시 본다(StompAuthChannelInterceptor.authenticate).
+        // 순서: 펜스(+Redis 내구) → 전 replica 팬아웃 → (세션 목록 스냅샷) → 캐시 → 종료. 펜스가 목록보다 먼저여야 그 사이에 CONNECT·등록을
+        // 끝낸 같은 sid 가 «목록에도 없고 펜스에도 안 걸리는» 일이 없다 — CONNECT 는 등록 뒤에도 펜스를 다시 본다.
+        // Redis SET 은 한 번(여기)이면 되고 전파를 받은 replica 는 인메모리만 올린다.
         chatUserFence.revokeSession(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
+        eventDelivery.publishSessionRevoked(userId, sid);
+        closeLocalSessions(userId, sid);
+    }
+
+    /**
+     * 팬아웃으로 전파받은 세션 폐기 — 이 replica 의 인메모리 펜스·캐시·세션만 정리한다(GROMO-2350). 멱등이다.
+     */
+    public void applySessionRevocation(UUID userId, UUID sid) {
+        chatUserFence.markRevokedLocally(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
+        closeLocalSessions(userId, sid);
+    }
+
+    /**
+     * 이 JVM 에 붙은 그 사용자의 세션 중 sid 가 같은 것만 닫는다. 한 세션의 종료가 실패해도 나머지를 먼저 닫고 마지막에 던진다 —
+     * 수신 인스턴스에서는 던져진 예외가 트랜잭션을 롤백해 relay 가 재시도한다(팬아웃 수신 쪽은 로그만 남기는 리스너가 삼킨다).
+     */
+    private void closeLocalSessions(UUID userId, UUID sid) {
         List<String> revoked = new ArrayList<>();
         for (String stompId : sessions.sessionIdsOf(userId)) {
             ChatPrincipal principal = sessions.find(stompId);
@@ -359,14 +378,15 @@ public class InboundEventService {
         }
         currentMembershipCache.evictUser(userId);
         CloseStatus status = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
+        boolean failed = false;
         for (String stompId : revoked) {
             outboundAuthzCache.evictSession(stompId);
-            // 두 번 시도하고도 소켓이 열려 있으면 던진다 — 수신 트랜잭션이 롤백돼 relay 가 재시도한다(펜스는 이미 올라 있다).
-            // 이미 끊긴 세션(close 가 false 여도 isConnected false)은 성공으로 본다.
+            // 두 번 시도하고도 소켓이 열려 있으면 실패다. 이미 끊긴 세션(close 가 false 여도 isConnected false)은 성공으로 본다.
             boolean closed = sessions.close(stompId, status) || sessions.close(stompId, status);
-            if (!closed && sessions.isConnected(stompId)) {
-                throw new IllegalStateException("폐기된 세션의 연결을 닫지 못했다");
-            }
+            failed |= !closed && sessions.isConnected(stompId);
+        }
+        if (failed) {
+            throw new IllegalStateException("폐기된 세션의 연결을 닫지 못했다");
         }
     }
 

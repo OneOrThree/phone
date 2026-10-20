@@ -48,8 +48,9 @@ public class ChatUserFence {
      * 않아, 소켓을 닫아도 앱이 저장된 AT 로 재연결하면 같은 sid 가 되살아난다 — CONNECT 가 이 펜스로 거절한다.
      *
      * <p>두 겹이다. 이 인메모리 맵은 <b>프레임마다</b> 보는 쪽(왕복 없음)이고, {@link RedisKeys#revokedSession} 키(TTL = 만료까지)는
-     * 재시작·다른 인스턴스의 <b>CONNECT</b> 가 보는 내구 쪽이다. 한계: 사건을 처리한 인스턴스에 «이미 붙어 있는» 세션만 닫힌다 — 다른
-     * 인스턴스에 이미 붙은 같은 sid 세션은 그 인스턴스가 인메모리 펜스를 모르므로 재연결 전까지 AT 만료까지 산다(Redis 는 CONNECT 에서만 본다).
+     * 재시작·다른 인스턴스의 <b>CONNECT</b>·REST 가 보는 내구 쪽이다. 폐기 사건은 수신 인스턴스가
+     * 기존 팬아웃 채널({@code chat:events:v1})로 전 replica 에 퍼뜨려 각 replica 가 이 인메모리 펜스를 올리고 자기 세션을 닫는다. 남는 한계:
+     * 팬아웃 발행이 유실되면 다른 replica 에 이미 붙은 세션은 AT 만료까지 살 수 있다 — 그 replica 의 재연결·REST 는 Redis 펜스가 막는다.
      */
     private final Map<UUID, Instant> revokedSessions = new ConcurrentHashMap<>();
 
@@ -77,14 +78,25 @@ public class ChatUserFence {
      * <p>ponytail: 올릴 때마다 만료분을 O(항목 수)로 쓸어낸다 — 폐기는 로그아웃·탈퇴 때뿐이다.
      */
     public void revokeSession(UUID sessionId, Instant until) {
+        markRevokedLocally(sessionId, until);
+        long ttlMillis = Duration.between(clock.instant(), until).toMillis();
+        if (ttlMillis > 0) {
+            try {
+                redis.opsForValue().set(RedisKeys.revokedSession(sessionId), "1", Duration.ofMillis(ttlMillis));
+            } catch (RuntimeException e) {
+                // 내구 펜스는 보조다 — 인메모리 펜스와 즉시 종료(전 replica 팬아웃)가 주된 차단이다. 여기서 던지면 Redis 장애 동안 폐기 사건마다
+                // 500 → relay 백오프로 그 사용자 USER 축이 막힌다(읽기 fail-open 과도 상충). 대가: 이 장애 중 재시작·유실이 겹치면 그 sid 의
+                // CONNECT·REST 가 AT 만료까지 열린다.
+                log.warn("폐기 세션 펜스 Redis 쓰기 실패 — 인메모리 펜스로 계속한다. cause={}", e.getClass().getSimpleName());
+            }
+        }
+    }
+
+    /** 이 JVM 의 인메모리 펜스만 올린다 — 팬아웃으로 전파를 받은 replica 용(Redis 는 수신 인스턴스가 한 번 썼다). 멱등: 더 늦은 만료만 남긴다. */
+    public void markRevokedLocally(UUID sessionId, Instant until) {
         Instant now = clock.instant();
         revokedSessions.values().removeIf(expiry -> !expiry.isAfter(now));
         revokedSessions.merge(sessionId, until, (a, b) -> a.isAfter(b) ? a : b);
-        long ttlMillis = Duration.between(now, until).toMillis();
-        if (ttlMillis > 0) {
-            // 쓰기 실패는 던진다 — 호출한 수신 트랜잭션이 롤백돼 relay 가 다시 보낸다(인메모리 펜스는 이미 올라 있다).
-            redis.opsForValue().set(RedisKeys.revokedSession(sessionId), "1", Duration.ofMillis(ttlMillis));
-        }
     }
 
     /**
