@@ -1528,7 +1528,7 @@ function Gromo() {
       setModal(null);
       setWalkRequest(null);
       setVisited(state.onboarded ? state.islandId : '');
-      reset(state.onboarded ? 'home' : 'chooseIsland');
+      reset(state.onboarded ? 'home' : noIslandRoute(state));
       if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
     }
@@ -1566,11 +1566,12 @@ function Gromo() {
   ]);
   // 강퇴 안내(GROMO-2366) — /me/islands 가 강퇴로 현재 섬이 없다고 하면 한 번만 띄운다(바다 이동은 위 검사).
   // 「봤음」은 계정별로 잃은 섬 id(모르면 '1')를 적어 다른 섬에서 또 강퇴되면 다시 띄우고, 현재 섬이 다시 생기면 지운다.
-  const { lossReason, kickedIsland } = state.serverIslands ?? {};
+  // 계정이 바뀌면(kickNoticeOwner) 그 계정의 「봤음」으로 다시 본다.
+  const { lossReason, kickedIsland } = state.serverIslands ?? {},
+    kickNoticeOwner = getSession()?.userId;
   useEffect(() => {
-    const userId = getSession()?.userId;
-    if (!loaded || !userId) return;
-    const key = `kickNoticeSeen:${userId}`;
+    if (!loaded || !kickNoticeOwner) return;
+    const key = `kickNoticeSeen:${kickNoticeOwner}`;
     let live = true;
     (async () => {
       try {
@@ -1594,7 +1595,7 @@ function Gromo() {
     return () => {
       live = false;
     };
-  }, [loaded, serverCurrent, lossReason, kickedIsland?.id, kickedIsland?.name]);
+  }, [loaded, kickNoticeOwner, serverCurrent, lossReason, kickedIsland?.id, kickedIsland?.name]);
   useEffect(() => {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });

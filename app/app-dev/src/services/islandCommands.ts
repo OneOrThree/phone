@@ -520,10 +520,9 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         const g = generation();
         let my, nextLocation;
         try {
-          ({ nextLocation } = await api.leave(
-            islandId,
-            scoped().keys.key(`leave:${islandId}`, ''),
-          ));
+          const res = await api.leave(islandId, scoped().keys.key(`leave:${islandId}`, ''));
+          // 빈 본문(payload null)이어도 나가기는 성공이다 — 다음 위치만 «모름»으로 둔다
+          nextLocation = res?.nextLocation;
           alive(g);
           my = await syncIslands();
         } catch (error) {

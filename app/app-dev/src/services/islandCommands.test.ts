@@ -656,6 +656,23 @@ test('leave — 결과 불명 오류는 재조회하고 같은 키로 재시도�
   assert.equal(keys[0], keys[1]);
 });
 
+test.each([null, undefined])(
+  'leave — 응답 본문이 %s 여도 실패로 보지 않고 재조회로 확정한다(다음 위치는 모름)',
+  async (body) => {
+    const leave = jest.fn(async (_id: string, _key: string) => body as never);
+    const my = jest.fn(async () => myIslands({ lossReason: 'LEFT' }));
+    const h = harness({
+      leave,
+      myIslands: my,
+      myJoinRequests: async () => ({ items: [], nextCursor: null }),
+    });
+    const result = await h.cmds.commands.leave('i1');
+    assert.equal(my.mock.calls.length, 1);
+    assert.equal(result.currentIslandId, null);
+    assert.equal(result.nextLocation, undefined);
+  },
+);
+
 test('leave — 응답이 유실돼도 재조회에서 탈퇴가 확인되면 성공하고 키를 해제한다', async () => {
   const leave = jest.fn(async (_id: string, _key: string) => {
     throw new ApiError('CLIENT_TIMEOUT', 'lost', 0);
