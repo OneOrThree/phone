@@ -313,8 +313,10 @@ public class IslandMembershipService {
                     .stream().findFirst().orElse(null);
             String membershipStatus = latest != null && latest.isPending()
                     ? IslandSummaries.STATUS_PENDING : IslandSummaries.STATUS_NONE;
+            boolean kicked = groupMemberRepository.findAnyByUserAndGroup(viewer, island)
+                    .map(GroupMember::isKicked).orElse(false);
             return IslandViewResponse.ofVisitor(IslandSummaries.of(
-                    island, memberCount, membershipStatus,
+                    island, kicked, memberCount, membershipStatus,
                     latest == null ? null : latest.getId(),
                     arrivals.existsByUserIdAndIslandId(viewerUserId, islandId)),
                     facilityQueries.completedBuildings(islandId));
@@ -336,8 +338,8 @@ public class IslandMembershipService {
      *
      * <p>현재 섬이 없으면 «왜 없는지»({@code lossReason})를 함께 싣는다 (GROMO-2038) — 앱이 「처음
      * 왔다」와 「방금 잃었다」를 같은 빈 화면으로 보여 주지 않게 하려는 것이다. 사유를 <b>읽기만</b>
-     * 한다: 강퇴와 자진 이탈의 처리는 정책상 같고(둘 다 온보딩 `04` 화면·벌칙 없음) 재가입 제한도
-     * 이 경로가 만들지 않는다. 쓰는 쪽은 {@code UserIslandContextRecovery#onMembershipRevoked} 하나다.
+     * 한다 — 강퇴는 다른 소속이 남아 있어도 현재 섬을 비우고 {@code KICKED} 를 남긴다(GROMO-2315). 쓰는 쪽은
+     * {@code UserIslandContextRecovery#onMembershipRevoked} 하나다.
      */
     public MyIslandsView myIslands(UUID userId) {
         userQueryService.getCaller(userId);
@@ -352,7 +354,8 @@ public class IslandMembershipService {
         Map<UUID, JoinRequestRef> latest = latestRequests(userId, ids);
         Set<UUID> arrived = arrivedAmong(userId, ids);
         List<IslandSummaryView> items = islands.stream()
-                .map(island -> IslandSummaries.of(island, counts.getOrDefault(island.getId(), 0),
+                // 활성 소속 섬이라 강퇴 이력이 없다.
+                .map(island -> IslandSummaries.of(island, false, counts.getOrDefault(island.getId(), 0),
                         IslandSummaries.STATUS_ACTIVE,
                         latest.containsKey(island.getId()) ? latest.get(island.getId()).getRequestId() : null,
                         arrived.contains(island.getId())))
@@ -395,9 +398,9 @@ public class IslandMembershipService {
     /**
      * 첫 소속 탐색 (LLD §3.3). 전망대 가드가 <b>없다</b> — 아직 섬이 없는 사람을 위한 경로다.
      *
-     * <p>후보 조건은 공개·미소속·미종료·미삭제·실제 가입 가능 정원이며 강퇴 이력이 있는 섬은 제외한다.
-     * 승인제도 후보에 포함한다. {@code approvalRequired} 로 즉시 가입과 가입 신청을 구분하며,
-     * 신청 자체가 불가능한 후보를 보여 주지 않도록 정원과 강퇴를 SQL 에서 함께 건다.
+     * <p>후보 조건은 공개·미소속·미종료·미삭제·실제 가입 가능 정원이다. 강퇴된 섬도 후보다 — 그 사람의 가입은
+     * 승인 대기 신청이 된다(GROMO-2315). 승인제도 후보에 포함한다. {@code approvalRequired} 로 즉시 가입과 가입
+     * 신청을 구분하며, 신청 자체가 불가능한 후보를 보여 주지 않도록 정원을 SQL 에서 함께 건다.
      *
      * <p>탐색 세션이 시작된 <b>뒤에 생긴</b> 섬도 뒷 페이지에 노출된다 — 매 페이지 후보를 다시 조회하고
      * 순서가 {@code md5(seed || id)} 라 그 값이 경계보다 크면 실린다. 의도적이다: 후보 집합을 세션 시작
@@ -490,12 +493,14 @@ public class IslandMembershipService {
         Set<UUID> mine = new HashSet<>(groupMemberRepository.findActiveGroupIdsByUserId(userId));
         Map<UUID, JoinRequestRef> latest = latestRequests(userId, orderedIds);
         Set<UUID> arrived = arrivedAmong(userId, orderedIds);
+        // 강퇴된 섬도 후보다(GROMO-2315) — 그 섬은 이 사람에게 승인제로 보인다. 섬마다 묻지 않고 한 번에 읽는다.
+        Set<UUID> kicked = new HashSet<>(groupMemberRepository.findKickedGroupIdsByUserId(userId));
         List<IslandSummaryView> items = new ArrayList<>(orderedIds.size());
         for (UUID id : orderedIds) {
             Group island = byId.get(id);
             if (island != null) {
                 JoinRequestRef ref = latest.get(id);
-                items.add(IslandSummaries.of(island, counts.getOrDefault(id, 0),
+                items.add(IslandSummaries.of(island, kicked.contains(id), counts.getOrDefault(id, 0),
                         IslandSummaries.statusOf(mine.contains(id), ref),
                         ref == null ? null : ref.getRequestId(), arrived.contains(id)));
             }

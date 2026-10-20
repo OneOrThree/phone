@@ -23,8 +23,9 @@ public record InvitationResolvedView(
      *
      * @param arrived          항상 true — 이 해석이 그 섬에 도착을 남겼다
      * @param membershipStatus {@code active|pending|none} — 해석 뒤 본인 기준. {@code pending} 은 이미 열려 있던 신청이다
-     * @param reason           이 섬에 가입·신청을 할 수 없는 사유. {@code ISLAND_LIMIT}(소속 섬 3개) · {@code KICKED}(강퇴된
-     *     섬), 없으면 null
+     * @param reason           바로 가입하지 않은 사유. {@code ISLAND_LIMIT}(소속 섬 3개 — 가입·신청 모두 불가) ·
+     *     {@code KICKED}(강퇴된 섬 — 도착만 남기고, 가입 신청은 승인 대기로 할 수 있다. GROMO-2315 전에는 신청도 403),
+     *     없으면 null
      */
     public record Arrival(UUID islandId, boolean arrived, String membershipStatus, String reason) {
     }

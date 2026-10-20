@@ -313,6 +313,8 @@ paths:
       description: |
         공개 `POST /islands/{islandId}/memberships` 의 상류. approvalRequired=false 면 즉시 가입
         (`status:"active"`·현재 섬 이동), true 면 pending 요청만 만든다(`status:"pending"`).
+        섬 요약·망원경 칸의 approvalRequired 는 보는 사람 기준이다 — 그 섬에서 강퇴된 사람에게는
+        섬 설정과 무관하게 true 다(강퇴자의 가입은 언제나 pending, GROMO-2315).
         같은 (섬, 신청자)의 열린 요청은 이미 있으면 새로 만들지 않고 같은 자원을 돌려준다.
         `invitationToken` 은 선택이다 — 형식 오류는 422, 형식이 맞지만 무효·폐기·타 섬의 코드는 410.
         Data 가 가입 커밋 안에서 발급자 멤버십·발급 세대를 다시 대조하므로 Business 의 사전 resolve
@@ -351,7 +353,7 @@ paths:
                   currentIslandId: { type: [string, 'null'], format: uuid }
                   version: { type: integer, minimum: 0, maximum: 9007199254740991 }
         '403':
-          description: INVITATION_REQUIRED·MEMBER_ONLY·ISLAND_JOIN_UNAVAILABLE·KICKED_CANNOT_REJOIN
+          description: INVITATION_REQUIRED·MEMBER_ONLY·ISLAND_JOIN_UNAVAILABLE. 강퇴된 섬은 403 KICKED_CANNOT_REJOIN 이 아니라 200 pending(GROMO-2315 — 누구나 가입 섬이어도 승인 대기)
         '404':
           description: GROUP_NOT_FOUND·USER_NOT_FOUND
         '409':
@@ -440,7 +442,8 @@ paths:
         null 이다. GROMO-2264 부터 arrive=true 일 때만 그 섬에 항해 없이 도착을 남기고, 누구나 가입
         섬이면 가입까지 한다(명시적 opt-in — 미리보기만 하는 구 앱 호환). 승인제 섬은 도착만이다
         (membershipStatus none) — 가입 신청은 방문자가 가입 명령으로 직접 한다. 강퇴된 섬·소속 섬
-        3개는 도착만 남기고 arrival.reason 으로 알린다. 누구나 가입 섬의 그 밖의 가입 거절은 같은
+        3개는 도착만 남기고 arrival.reason 으로 알린다. 강퇴된 섬(KICKED)은 승인제 섬처럼 신청할 수
+        있다 — 가입 명령이 pending 을 만든다(GROMO-2315). 누구나 가입 섬의 그 밖의 가입 거절은 같은
         오류로 실패한다. 다시 불러도 같은 상태로 수렴해 멱등 키를 받지 않는다. 초대 검증은 가입
         커밋이 다시 한다. 구 Data 서버는 모르는 arrive 를 무시하고 미리보기로 답한다.
       parameters:
@@ -485,7 +488,7 @@ paths:
                       reason:
                         type: [string, 'null']
                         enum: [ISLAND_LIMIT, KICKED, null]
-                        description: 이 섬에 가입·신청을 할 수 없는 사유 — 강퇴된 섬 · 소속 섬 3개
+                        description: 바로 가입하지 않은 사유 — ISLAND_LIMIT 소속 섬 3개(가입·신청 불가) · KICKED 강퇴된 섬(도착만, 가입 신청은 직접 해서 pending — GROMO-2315)
         '404':
           description: SLUG_NOT_FOUND — 형식은 맞지만 없는 코드
         '410':

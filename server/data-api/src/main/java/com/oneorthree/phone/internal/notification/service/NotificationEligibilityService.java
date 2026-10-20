@@ -147,8 +147,9 @@ public class NotificationEligibilityService {
             // MAIN_ISLAND_TRANSFERRED(GROMO-1971)는 «이미 커밋된 이전»을 알리는 것이라 되물을 상태가 없다 —
             // 그 뒤 또 옮겨졌어도 그 이전이 자기 알림을 따로 내므로 여기서 최신 여부를 판정하지 않는다.
             case MAGAZINE_PUBLISHED -> evaluateMagazinePublished(request);
-            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE, MAIN_ISLAND_TRANSFERRED ->
-                    NotificationEligibilityResponse.allow();
+            // ISLAND_KICKED(GROMO-2315)도 «이미 커밋된 강퇴»의 통보다 — 그 뒤 다시 들어왔어도 되묻지 않는다.
+            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE, MAIN_ISLAND_TRANSFERRED,
+                    ISLAND_KICKED -> NotificationEligibilityResponse.allow();
         };
     }
 

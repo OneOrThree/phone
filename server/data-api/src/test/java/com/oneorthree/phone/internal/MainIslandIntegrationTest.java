@@ -270,8 +270,8 @@ class MainIslandIntegrationTest {
     }
 
     @Test
-    @DisplayName("강퇴 경로에서도 메인 섬이 옮겨진다 — 공통 훅 하나가 이탈과 강퇴를 함께 덮는다")
-    void kickAlsoMovesTheMainIsland() {
+    @DisplayName("강퇴 경로에서도 메인 섬이 옮겨진다 — 알림은 «메인 섬이 바뀌었어요» 없이 강퇴 알림 1건뿐이다 (GROMO-2315)")
+    void kickAlsoMovesTheMainIslandButOnlySendsTheKickNotice() {
         Actor host = actor();
         Actor user = actor();
         UUID first = joined(user, island(actor(), "먼저섬"));
@@ -280,8 +280,46 @@ class MainIslandIntegrationTest {
 
         management.kick(host.id(), latest, user.id(), UUID.randomUUID());
 
+        // 공통 훅 하나가 이탈과 강퇴를 함께 덮는다 — 이전 자체는 일어난다.
         assertThat(mainIslandOf(user)).isEqualTo(first);
-        assertThat(transferNotices(user)).containsExactly(first.toString());
+        // 10/20 결정: 메인 섬에서 강퇴돼도 앱 알림은 강퇴 알림 1건만 — 이전 알림은 내지 않는다.
+        assertThat(transferNotices(user)).isEmpty();
+        assertThat(notices(user, "ISLAND_KICKED")).containsExactly(latest.toString());
+        assertThat(notificationCount(user)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("재가입 승인 뒤 1분 안에 다시 강퇴돼도 강퇴 알림이 두 건 남는다 — 분 축 중복으로 접히지 않는다")
+    void reKickWithinAMinuteGetsItsOwnNotice() {
+        Actor host = actor();
+        Actor user = actor();
+        island(user, "집섬");
+        UUID islandId = joined(user, island(host, "두번강퇴섬"));
+
+        management.kick(host.id(), islandId, user.id(), UUID.randomUUID());
+        UUID request = joins.join(user.id(), islandId, null, UUID.randomUUID()).requestId();
+        joins.answer(host.id(), islandId, request, true, UUID.randomUUID());
+        management.kick(host.id(), islandId, user.id(), UUID.randomUUID());
+
+        // 시간축이 분이면 두 번째 강퇴가 첫 번째의 1분 창에 걸려 버려진다(구 경로는 두 번 보낸다).
+        assertThat(notices(user, "ISLAND_KICKED")).containsExactly(islandId.toString(), islandId.toString());
+    }
+
+    @Test
+    @DisplayName("메인 섬이 아닌 섬에서 강퇴돼도 강퇴 알림은 1건 간다 — 메인 섬·이전 알림은 그대로다")
+    void kickFromANonMainIslandStillSendsOneKickNotice() {
+        Actor host = actor();
+        Actor user = actor();
+        UUID kickedFrom = joined(user, island(host, "강퇴될섬"));
+        UUID latest = joined(user, island(actor(), "메인섬"));
+        assertThat(mainIslandOf(user)).isEqualTo(latest);
+
+        management.kick(host.id(), kickedFrom, user.id(), UUID.randomUUID());
+
+        assertThat(mainIslandOf(user)).isEqualTo(latest);
+        assertThat(transferNotices(user)).isEmpty();
+        assertThat(notices(user, "ISLAND_KICKED")).containsExactly(kickedFrom.toString());
+        assertThat(notificationCount(user)).isEqualTo(1);
     }
 
     @Test
@@ -537,8 +575,19 @@ class MainIslandIntegrationTest {
 
     /** 이 사람 앞으로 적힌 메인 섬 이전 알림 봉투의 대상 섬들 — 없으면 빈 목록이다. */
     private List<String> transferNotices(Actor user) {
+        return notices(user, KIND);
+    }
+
+    /** 이 사람 앞으로 적힌 {@code kind} 알림 봉투의 대상 섬들. */
+    private List<String> notices(Actor user, String kind) {
         return jdbc.queryForList("select params->>'islandId' from event_outbox"
                         + " where user_id=? and type='notification.requested' and params->>'kind'=?"
-                        + " order by id", String.class, user.id(), KIND);
+                        + " order by id", String.class, user.id(), kind);
+    }
+
+    /** 이 사람 앞으로 적힌 알림 봉투 전부의 수 — 「앱 알림 1건」을 kind 와 무관하게 센다. */
+    private long notificationCount(Actor user) {
+        return jdbc.queryForObject("select count(*) from event_outbox"
+                + " where user_id=? and type='notification.requested'", Long.class, user.id());
     }
 }

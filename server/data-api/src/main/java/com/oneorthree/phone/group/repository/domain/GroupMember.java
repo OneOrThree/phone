@@ -105,7 +105,7 @@ public class GroupMember {
     private boolean isLeft = false;
 
     /**
-     * A-0 소프트삭제 사유 — 활성 멤버는 null, 탈퇴/강퇴 시 세팅. KICKED 는 재참여 차단 대상.
+     * A-0 소프트삭제 사유 — 활성 멤버는 null, 탈퇴/강퇴 시 세팅. KICKED 의 재가입은 섬장 승인을 거친다(GROMO-2315).
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "left_reason", length = 10)
@@ -202,14 +202,14 @@ public class GroupMember {
         this.leftAt = at;
     }
 
-    /** 강퇴 — 이탈 마킹 + 재참여 차단 사유. (A-0/A-3) */
+    /** 강퇴 — 이탈 마킹 + 사유 KICKED. 섬 가입 경로에서 재가입은 승인 대기 신청이 된다(GROMO-2315). (A-0/A-3) */
     public void kick(Instant at) {
         this.isLeft = true;
         this.leftReason = GroupLeaveReason.KICKED;
         this.leftAt = at;
     }
 
-    /** 자진 탈퇴 후 재참여 — 기존 행을 되살린다(unique(user,group) 때문에 재삽입 불가). (A-0) */
+    /** 탈퇴·강퇴 후 재참여 — 기존 행을 되살린다(unique(user,group) 때문에 재삽입 불가). (A-0) */
     public void rejoin(Instant at) {
         this.isLeft = false;
         this.leftReason = null;
@@ -263,10 +263,10 @@ public class GroupMember {
     }
 
     /**
-     * 강퇴 이력으로 재참여가 막힌 상태인지. (A-0 재가입 차단)
+     * 강퇴돼 지금 나가 있는 상태인지 — 재가입이 승인 대기로 가는 근거다(GROMO-2315, 종전 A-0 재가입 차단).
      *
      * @return 이탈 마킹 <b>과</b> 사유 KICKED 가 함께일 때만 true — 강퇴 후 방장이 다시 넣어
-     *     {@code isLeft} 가 풀린 행은 false 다(차단은 지금 나가 있는 사람에게만 건다)
+     *     {@code isLeft} 가 풀린 행은 false 다(지금 나가 있는 사람에게만 건다)
      */
     public boolean isKicked() {
         return this.isLeft && this.leftReason == GroupLeaveReason.KICKED;
