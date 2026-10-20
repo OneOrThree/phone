@@ -861,11 +861,18 @@ export function FishingActor({
     setGoldenReeling(true);
     return afterForegroundMs(() => setGoldenReeling(false), 2000);
   }, [goldenFishCount, goldenCatchToken, reduce]);
-  const sceneActive = useContext(FishingSceneActive);
+  const sceneActive = useContext(FishingSceneActive),
+    [appState, setAppState] = useState(AppState.currentState);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppState);
+    return () => subscription?.remove();
+  }, []);
   // 황금 물고기 reel 은 기존 100ms 반복 그대로 두고, 일반 낚시 연출(키 포즈·몸 변환·물보라)은 끈다.
   const isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
     reelEvent = isFishing && !goldenReeling && (motion === 'reel' || (motion == null && reeling)),
-    interrupted = reelEvent && interruptedNonce === reelNonce,
+    // 덮인 채/백그라운드로 시작한 사건은 effect 를 기다리지 않고 첫 렌더부터 끊긴 것으로 본다.
+    running = isFishing && !goldenReeling && !reduce && sceneActive && appState === 'active',
+    interrupted = reelEvent && (interruptedNonce === reelNonce || (!reduce && !running)),
     // 끊긴 사건은 남은 창 동안 기존 기본 reel(100ms 반복)로 두고, 끝나면 focus 키 포즈로 돌아간다.
     keyed = isFishing && !goldenReeling && !interrupted,
     catching = reelEvent && !interrupted;
@@ -875,8 +882,10 @@ export function FishingActor({
     nonce: reelNonce,
   });
   useEffect(() => {
-    if (reelEvent && !reduce && !pose.running) setInterruptedNonce(reelNonce);
-  }, [reelEvent, reduce, pose.running, reelNonce]);
+    // 사건이 끝나면 기록을 비운다(부모가 motion='reel' 을 줄 땐 nonce 가 안 올라 같은 nonce 가 재사용된다).
+    if (!reelEvent) setInterruptedNonce(null);
+    else if (!reduce && !running) setInterruptedNonce(reelNonce);
+  }, [reelEvent, reduce, running, reelNonce]);
   const a = size * 0.077,
     face = spot.face,
     direction = castAngle(spot),
@@ -936,7 +945,7 @@ export function FishingActor({
         onFinish={onMotionFinish}
         generation={generation}
         keyPoses={keyed}
-        replayKey={reelNonce}
+        replayKey={keyed ? reelNonce : undefined}
         poseTransform={keyed ? pose.body : undefined}
         testID="fishing-actor-cat"
       />
