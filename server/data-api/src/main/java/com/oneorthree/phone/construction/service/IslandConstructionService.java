@@ -28,6 +28,9 @@ import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.IslandStateEvents;
 import com.oneorthree.phone.construction.dto.ConstructionOptionItem;
 import com.oneorthree.phone.construction.dto.ConstructionOptionsView;
+import com.oneorthree.phone.construction.repository.ConstructionGuideRecipientRepository;
+import com.oneorthree.phone.construction.repository.domain.ConstructionGuideRecipient;
+import com.oneorthree.phone.focus.repository.FocusFishEarningsRepository;
 import com.oneorthree.phone.construction.dto.ConstructionResidentProgress;
 import com.oneorthree.phone.construction.dto.ConstructionStartedView;
 import com.oneorthree.phone.construction.dto.ConstructionTargetView;
@@ -90,6 +93,8 @@ public class IslandConstructionService {
     private final IslandConstructionStateRepository states;
     private final IslandFacilityRepository facilities;
     private final IslandConstructionContributionRepository contributions;
+    private final ConstructionGuideRecipientRepository guideRecipients;
+    private final FocusFishEarningsRepository earnings;
     private final ConstructionCostPolicyRepository policies;
     private final CostPolicyPublicationRepository publication;
     private final IslandWalletService walletService;
@@ -177,7 +182,9 @@ public class IslandConstructionService {
                         .filter(f -> f.getStatus() == FacilityStatus.BUILDING)
                         .map(f -> new ConstructionOptionsView.ActiveConstruction(
                                 f.getBuildingId(), f.getStartedAt(), f.getCompletesAt()))
-                        .findFirst().orElse(null));
+                        .findFirst().orElse(null),
+                guideRecipients.findCompletedForResident(islandId, userId).stream()
+                        .map(ConstructionGuideRecipient::getBuildingId).toList());
     }
 
     /** 착공 판정과 같은 스냅샷·대상·가격으로 읽는다. 일반 주민에게도 진행량을 제공한다. */
@@ -337,6 +344,21 @@ public class IslandConstructionService {
                     // 건설이 확정되면 걸려 있던 목표는 소비된 것이다 — 어떤 건물을 지었든
                     // 같은 TX 안에서 무조건 해제한다. 남겨 두면 이미 지은 건물을 가리키는
                     // 죽은 목표가 epoch 와 함께 다음 「각자 몫」판정을 오염시킨다.
+                    // 착공 당시 실제 기여 주민만 확정한다. 나중에 가입한 주민은 추가하지 않는다.
+                    List<UUID> supporters;
+                    if (building.funding() == ConstructionBuilding.Funding.RESIDENT_SPLIT) {
+                        Map<UUID, Integer> amounts = contributedByUser(islandId, state.getTargetEpoch());
+                        supporters = targetResidents(islandId, amounts.keySet(), state.getUpdatedAt()).stream()
+                                .filter(id -> amounts.getOrDefault(id, 0) > 0).toList();
+                    } else {
+                        List<UUID> residents = groupMemberRepository.findActiveMemberUserIdsJoinedBy(islandId, now);
+                        supporters = residents.isEmpty() ? List.of() : earnings.sumEarnedFishByUser(islandId, residents)
+                                .stream().filter(row -> row.getEarnedFish() > 0)
+                                .map(FocusFishEarningsRepository.UserEarnings::getUserId).toList();
+                    }
+                    for (UUID supporter : supporters) {
+                        guideRecipients.save(new ConstructionGuideRecipient(islandId, buildingId, supporter));
+                    }
                     state.clearTarget();
 
                     EventEnvelope islandUpdated = islandStateEvents.changed(

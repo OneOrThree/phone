@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
-import { initialState } from '@/services/model';
+import { Platform, StyleSheet } from 'react-native';
+import { costs, initialState, reducer } from '@/services/model';
 import { Hall } from '@/screens/island/Hall';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
@@ -154,6 +154,49 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+test.each(['done', 'none', 'collect', 'locked', 'build'] as const)(
+  '데모 건설 카드는 서버 옵션 없이 설명을 열고 닫는다: %s',
+  async (status) => {
+    const os = jest.replaceProperty(Platform, 'OS', 'web');
+    const previousWindow = globalThis.window;
+    (globalThis as any).window = { location: { search: '?review=1' } };
+    try {
+      let state = initialState(true);
+      if (status !== 'done') state.islands[0].buildings = ['hall', 'board'];
+      if (status === 'collect')
+        state = reducer(state, { type: 'SELECT_BUILDING', building: 'library' });
+      if (status === 'build')
+        state.islands[0].construction = {
+          building: 'library',
+          cost: costs.library,
+          startedAt: Date.now(),
+          endsAt: Date.now() + 60000,
+        };
+      constructionMock.mockReturnValue(construction({ options: null }));
+      const env = e('construction', state);
+      const screen = await render(<Hall e={env} />);
+      await fireEvent.press(
+        screen.getByTestId(`hall-bld-${status === 'locked' ? 'shop' : 'library'}`),
+      );
+      expect(screen.getByTestId('hall-building-plan')).toBeTruthy();
+      if (status === 'done') {
+        await fireEvent.press(screen.getByText('도서관으로 가기'));
+        expect(env.go).toHaveBeenCalledWith('library');
+      } else if (status === 'none') {
+        await fireEvent.press(screen.getByText('이 건물을 목표로 정하기'));
+        expect(env.dispatch).toHaveBeenCalledWith({ type: 'SELECT_BUILDING', building: 'library' });
+      }
+      await fireEvent.press(screen.getByTestId('hall-back'));
+      expect(screen.queryByTestId('hall-building-plan')).toBeNull();
+      expect(constructionMock.mock.calls.at(-1)[0].active).toBe(false);
+    } finally {
+      os.restore();
+      if (previousWindow === undefined) delete (globalThis as any).window;
+      else (globalThis as any).window = previousWindow;
+    }
+  },
+);
+
 test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐리게 비활성화한다', async () => {
   const select = jest.fn(async () => {});
   const build = jest.fn(async () => {});
@@ -301,3 +344,32 @@ test.each(['missing', 'empty', 'unselected'] as const)(
     assert.equal(screen.queryByText('100마리 · 2명'), null);
   },
 );
+
+test('전부 완공해도 건물 그리드와 완료 도장을 유지한다', async () => {
+  constructionMock.mockReturnValue(
+    construction({ options: options({ items: [], selectedBuildingId: null }) }),
+  );
+  const screen = await render(<Hall e={e()} />);
+  expect(screen.getByText('건설 현황')).toBeTruthy();
+  expect(screen.getByTestId('hall-bld-grid')).toBeTruthy();
+  expect(screen.queryByText('모든 건물을 지었어요')).toBeNull();
+  for (const building of ['library', 'tower', 'mail', 'gram', 'shop']) {
+    expect(screen.getByTestId(`hall-bld-${building}`)).toBeTruthy();
+    expect(screen.getByTestId(`hall-completion-stamp-${building}`)).toBeTruthy();
+    await fireEvent.press(screen.getByTestId(`hall-bld-${building}`));
+  }
+  expect(screen.queryByTestId('hall-building-plan')).toBeNull();
+  expect(constructionMock().select).not.toHaveBeenCalled();
+  expect(constructionMock().build).not.toHaveBeenCalled();
+});
+
+test('미완공 카드는 유지하고 서버 옵션에서 빠진 완공 건물에만 도장을 표시한다', async () => {
+  const screen = await render(<Hall e={e()} />);
+  expect(screen.queryByTestId('hall-completion-stamp-board')).toBeNull();
+  expect(screen.queryByTestId('hall-completion-stamp-library')).toBeNull();
+  for (const building of ['tower', 'mail', 'gram', 'shop']) {
+    expect(screen.getByTestId(`hall-completion-stamp-${building}`)).toBeTruthy();
+  }
+  await fireEvent.press(screen.getByTestId('hall-bld-board'));
+  expect(screen.getByTestId('hall-building-plan')).toBeTruthy();
+});

@@ -22,7 +22,12 @@ public final class IslandRecordViews {
      */
     public record FocusStatistics(String scope, Long totalSeconds, List<DaySeconds> series,
                                   List<FocusRecord> records, List<FocusMember> members, Instant asOf,
-                                  UUID nextSnapshotId, Integer nextOffset) {
+                                  UUID nextSnapshotId, Integer nextOffset, Long earnedFish) {
+        public FocusStatistics(String scope, Long totalSeconds, List<DaySeconds> series,
+                               List<FocusRecord> records, List<FocusMember> members, Instant asOf,
+                               UUID nextSnapshotId, Integer nextOffset) {
+            this(scope, totalSeconds, series, records, members, asOf, nextSnapshotId, nextOffset, null);
+        }
     }
 
     /** 날짜 하나의 순수 ACTIVE 초. */
@@ -40,7 +45,7 @@ public final class IslandRecordViews {
 
     /** scope=me 스냅샷에 고정하는 값 — 합계·일별·기록 전체와 관측 시각. */
     public record FocusSnapshot(Instant asOf, long totalSeconds, List<DaySeconds> series,
-                                List<FocusRecord> records) {
+                                List<FocusRecord> records, Long earnedFish) {
     }
 
     /**

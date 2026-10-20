@@ -11,6 +11,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.IslandSummaryView;
+import com.oneorthree.phone.internal.dto.IslandGuestbookViews;
 import com.oneorthree.phone.internal.service.IslandGuestbookService;
 import com.oneorthree.phone.internal.service.IslandManagementService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
@@ -19,6 +20,8 @@ import com.oneorthree.phone.user.repository.UserQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -31,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -38,10 +42,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -53,7 +55,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -115,6 +116,8 @@ class IslandGuestbookIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     MockMvc mvc;
+    @Autowired
+    ObjectMapper mapper;
 
     private final AtomicReference<Instant> now = new AtomicReference<>(DAY1);
 
@@ -284,7 +287,8 @@ class IslandGuestbookIntegrationTest {
                 .andExpect(jsonPath("$.code").value("BOARD_LOCKED"));
         read(island.visitor, island.id).andExpect(status().isOk())
                 .andExpect(jsonPath("$.boardBuilt").value(false))
-                .andExpect(jsonPath("$.items").isEmpty());
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.hasMore").value(false));
     }
 
     @Test
@@ -373,8 +377,8 @@ class IslandGuestbookIntegrationTest {
     }
 
     @Test
-    @DisplayName("31번째 글을 쓰면 가장 오래된 1개가 deleted_at 으로 지워지고 목록은 30개다")
-    void keepsOnlyLatestThirty() throws Exception {
+    @DisplayName("31번째 글을 써도 앞선 글이 모두 남고 다음 페이지로 읽을 수 있다")
+    void keepsAllEntriesBeyondThirty() throws Exception {
         Island island = island(true);
         List<UUID> authors = java.util.stream.IntStream.range(0, 31).mapToObj(i -> newUser()).toList();
         for (int i = 0; i < authors.size(); i++) {
@@ -382,45 +386,92 @@ class IslandGuestbookIntegrationTest {
         }
 
         assertThat(count("select count(*) from island_guestbook_entries where island_id=? and deleted_at is null",
-                island.id)).isEqualTo(30);
-        assertThat(count("select count(*) from island_guestbook_entries where island_id=? and deleted_at is not null "
-                + "and content='글 0'", island.id)).isEqualTo(1);
-        read(island.visitor, island.id).andExpect(jsonPath("$.items.length()").value(30))
-                .andExpect(jsonPath("$.items[0].content").value("글 30"));
+                island.id)).isEqualTo(31);
+        assertThat(count("select count(*) from island_guestbook_entries where island_id=? and deleted_at is not null",
+                island.id)).isZero();
+        IslandGuestbookViews.Page first = readPage(island.visitor, island.id, null);
+        assertThat(first.items()).hasSize(30);
+        assertThat(first.hasMore()).isTrue();
+        IslandGuestbookViews.Page second = readPage(island.visitor, island.id, first.items().get(29));
+        assertThat(second.items()).hasSize(1);
+        assertThat(second.items().get(0).content()).isEqualTo("글 0");
+        assertThat(second.hasMore()).isFalse();
     }
 
     @Test
-    @DisplayName("29개인 섬에 서로 다른 두 작성자가 동시에 써도 활성 글은 30개다 — 섬 단위 잠금이 삽입 → 정리를 직렬화한다")
-    void concurrentWritesFromDifferentAuthorsKeepThirty() throws Exception {
+    @DisplayName("29개인 섬에 서로 다른 두 작성자가 동시에 쓰면 기존 글과 새 글 31개가 모두 남는다")
+    void concurrentWritesFromDifferentAuthorsKeepAllEntries() throws Exception {
         Island island = island(true);
         seedFillerEntries(island.id, 29);
         UUID first = newUser();
         UUID second = newUser();
-        // 두 작성자가 «삽입 뒤·정리 앞» 에서 만나게 한다 — 잠금이 없으면 둘 다 서로의 미커밋 행을 못 본 채 정리해
-        // 31개가 남는다(정리 시각은 삽입 바로 다음에 clock 에서 읽는다). 잠금이 있으면 둘째는 첫째가 커밋할 때까지
-        // 들어오지 못해 첫째만 도착하고, 만남은 1초 뒤 포기된다.
-        ThreadLocal<Boolean> meeting = new ThreadLocal<>();
-        CyclicBarrier afterInsert = new CyclicBarrier(2);
-        doAnswer(invocation -> {
-            if (Boolean.TRUE.equals(meeting.get())) {
-                try {
-                    afterInsert.await(1, TimeUnit.SECONDS);
-                } catch (TimeoutException | BrokenBarrierException ignored) {
-                    // 만나지 못했다 — 직렬화돼 있다는 뜻이다.
-                }
-            }
-            return now.get();
-        }).when(clock).instant();
-
-        List<Throwable> failures = race(() -> meet(meeting, () -> guestbook.write(island.id, first, "동시 A")),
-                () -> meet(meeting, () -> guestbook.write(island.id, second, "동시 B")));
+        List<Throwable> failures = race(() -> guestbook.write(island.id, first, "동시 A"),
+                () -> guestbook.write(island.id, second, "동시 B"));
 
         assertThat(failures).isEmpty();
         assertThat(count("select count(*) from island_guestbook_entries where island_id=? and deleted_at is null",
-                island.id)).as("활성 글").isEqualTo(30);
-        assertThat(count("select count(*) from island_guestbook_entries where island_id=? and deleted_at is not null"
-                + " and content='채움 0'", island.id)).as("지워진 하나는 가장 오래된 글").isEqualTo(1);
-        read(island.visitor, island.id).andExpect(jsonPath("$.items.length()").value(30));
+                island.id)).as("활성 글").isEqualTo(31);
+        assertThat(count("select count(*) from island_guestbook_entries where island_id=? and deleted_at is not null",
+                island.id)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 30, 31, 61})
+    @DisplayName("같은 시각의 글도 id 내림차순으로 30개씩 중복·누락 없이 끝까지 읽는다")
+    void pagesAllEntriesWithTiedTimestamps(int total) throws Exception {
+        Island island = island(true);
+        seedFillerEntries(island.id, total);
+        jdbc.update("update island_guestbook_entries set created_at=? where island_id=?",
+                java.sql.Timestamp.from(Instant.parse("2020-01-01T00:00:00.123456Z")), island.id);
+        List<UUID> expected = jdbc.queryForList("select id from island_guestbook_entries where island_id=? "
+                + "order by created_at desc, id desc", UUID.class, island.id);
+        List<UUID> actual = new ArrayList<>();
+        IslandGuestbookViews.Item anchor = null;
+        for (int offset = 0; offset <= total; offset += 30) {
+            IslandGuestbookViews.Page page = readPage(island.visitor, island.id, anchor);
+            assertThat(page.boardBuilt()).isTrue();
+            assertThat(page.items()).hasSize(Math.min(30, total - offset));
+            assertThat(page.hasMore()).isEqualTo(total - offset > 30);
+            actual.addAll(page.items().stream().map(IslandGuestbookViews.Item::id).toList());
+            if (!page.hasMore()) {
+                break;
+            }
+            anchor = page.items().get(page.items().size() - 1);
+        }
+        assertThat(actual).containsExactlyElementsOf(expected).doesNotHaveDuplicates();
+    }
+
+    @Test
+    @DisplayName("페이지 사이에 새 글이 생기고 경계 글·다음 쪽 글이 삭제돼도 남은 과거 글을 이어 읽는다")
+    void keysetSurvivesInsertionAndDeletion() throws Exception {
+        Island island = island(true);
+        seedFillerEntries(island.id, 61);
+        List<UUID> expected = jdbc.queryForList("select id from island_guestbook_entries where island_id=? "
+                + "order by created_at desc, id desc", UUID.class, island.id);
+        IslandGuestbookViews.Page first = readPage(island.visitor, island.id, null);
+        IslandGuestbookViews.Item anchor = first.items().get(29);
+        remove(island.host, island.id, anchor.id().toString()).andExpect(status().isOk());
+        remove(island.host, island.id, expected.get(35).toString()).andExpect(status().isOk());
+        write(island.visitor, island.id, "새 글").andExpect(status().isCreated());
+
+        IslandGuestbookViews.Page second = readPage(island.visitor, island.id, anchor);
+
+        assertThat(second.items().stream().map(IslandGuestbookViews.Item::id).toList())
+                .containsExactlyElementsOf(expected.subList(30, 61).stream()
+                        .filter(id -> !id.equals(expected.get(35))).toList());
+        assertThat(second.hasMore()).isFalse();
+    }
+
+    @Test
+    @DisplayName("내부 페이지 경계는 시각·id 한 쌍이고 크기는 1~100이다 — 잘못된 요청은 400")
+    void invalidInternalPageBoundariesAreRejected() throws Exception {
+        Island island = island(true);
+        for (String query : List.of("afterCreatedAt=2020-01-01T00:00:00Z", "afterId=" + UUID.randomUUID(),
+                "limit=0", "limit=101")) {
+            mvc.perform(get("/internal/islands/" + island.id + "/guestbook?" + query)
+                            .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", island.visitor))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("ILLEGAL_ARGUMENT"));
+        }
     }
 
     @Test
@@ -554,6 +605,19 @@ class IslandGuestbookIntegrationTest {
                 .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor));
     }
 
+    private IslandGuestbookViews.Page readPage(UUID actor, UUID islandId, IslandGuestbookViews.Item anchor)
+            throws Exception {
+        var request = get("/internal/islands/" + islandId + "/guestbook")
+                .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor);
+        if (anchor != null) {
+            request.queryParam("afterCreatedAt", anchor.createdAt().toString())
+                    .queryParam("afterId", anchor.id().toString());
+        }
+        String body = mvc.perform(request).andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        return mapper.readValue(body, IslandGuestbookViews.Page.class);
+    }
+
     private ResultActions write(UUID actor, UUID islandId, String content) throws Exception {
         return mvc.perform(post("/internal/islands/" + islandId + "/guestbook")
                 .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor)
@@ -579,15 +643,6 @@ class IslandGuestbookIntegrationTest {
             jdbc.update("insert into island_guestbook_entries (id, island_id, author_id, content, written_on, "
                     + "created_at) values (?, ?, ?, ?, ?, ?)", UUID.randomUUID(), islandId, filler, "채움 " + i,
                     LocalDate.of(2026, 9, 1).plusDays(i), java.sql.Timestamp.from(base.plusSeconds(60L * i)));
-        }
-    }
-
-    private static <T> T meet(ThreadLocal<Boolean> meeting, Callable<T> write) throws Exception {
-        meeting.set(true);
-        try {
-            return write.call();
-        } finally {
-            meeting.remove();
         }
     }
 

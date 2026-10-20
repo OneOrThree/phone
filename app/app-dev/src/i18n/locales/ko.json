@@ -67,13 +67,13 @@
     "GUESTBOOK_ALREADY_WRITTEN_TODAY": "오늘은 이미 방명록을 남겼어요",
     "PROMOTION_ALREADY_REQUESTED_TODAY": "오늘은 이미 잡지 홍보를 신청했어요",
     "PROMOTION_WINDOW_CLOSED": "지금은 홍보를 신청할 수 없어요. 아침 7시에 다시 열려요",
-    "PROMOTION_PRIVATE_ISLAND": "비공개 섬은 잡지에 실을 수 없어요",
     "PROMOTION_TEXT_TOO_LONG": "홍보 글은 60자까지 쓸 수 있어요",
     "PROMOTION_LAYOUT_INVALID": "꾸미기를 다시 확인해 주세요",
     "PROMOTION_ASSET_NOT_OWNED": "아직 없는 꾸미기 재료가 있어요",
     "PROMOTION_LOCKED": "자정이 지나 홍보를 고칠 수 없어요",
     "PROMOTION_NOT_FOUND": "홍보를 찾지 못했어요",
-    "MAGAZINE_ISSUE_NOT_FOUND": "잡지 호를 찾을 수 없어요"
+    "MAGAZINE_ISSUE_NOT_FOUND": "잡지 호를 찾을 수 없어요",
+    "PROMOTION_PRIVATE_ISLAND": "홍보를 신청할 수 없어요. 잠시 후 다시 해 주세요."
   },
   "time": {
     "minutes": "{{m}}분",
@@ -106,9 +106,18 @@
     "replayTutorialSub": "몽돌 안내를 처음부터 다시 봐요",
     "appInfoSection": "앱 정보",
     "version": "버전",
-    "privacyNotice": "개인정보 처리 안내",
-    "privacyNoticeSub": "앱에서 처리하는 정보와 외부 전송 안내",
-    "privacyNoticeBody": "로그인 때 소셜 제공자 인증 정보와 계정 식별 정보가 서버로 전달돼요. 닉네임, 섬·주민 활동, 친구·편지, 집중 기록 등 서비스 데이터도 기능 제공과 동기화를 위해 서버에 저장돼요.\n\n화면 이용과 주요 기능 이벤트는 PostHog로, 화면·요청 진단 정보는 설정된 경우 Datadog으로 전송될 수 있어요. 스크린타임 권한을 허용하면 선택한 앱 사용 시간을 기기에서 읽어 목표와 통계에 사용해요. 자세한 처리 항목과 보관 기간은 개인정보 처리방침에서 확인할 수 있어요. 회원 탈퇴를 요청하면 서버 계정 삭제를 요청해요."
+    "report": {
+      "title": "신고센터",
+      "sub": "이메일로 신고하기",
+      "subject": "[catus 신고] 신고센터",
+      "body": "신고 내용:\n\n상대 닉네임·섬 이름:\n\n발생 시각:\n\n캡처가 있다면 이 메일에 첨부해 주세요.",
+      "openFailed": "메일 앱을 열지 못했어요. 메일 앱을 설정한 뒤 다시 시도하거나, 아래 주소로 직접 메일을 보내 주세요.\n\n{{email}}"
+    },
+    "generalSection": "기본 설정",
+    "privacySection": "개인정보",
+    "usageSharing": "사용 시간 공유",
+    "usageSharingSub": "사용 시간만 공유해 통계·퀘스트에 사용해요",
+    "usageSharingError": "사용 시간을 공유하지 못했어요. 다시 시도할게요."
   },
   "login": {
     "continue": {
@@ -372,7 +381,12 @@
       "focusingNow": "지금 {{count}}명이 낚시섬에서 집중 중",
       "quietNow": "지금 낚시섬은 조용해요",
       "focusingNowHint": "터치하면 낚시섬 구경으로 가요",
-      "todayFocusVisitor": "오늘 집중 {{time}}"
+      "todayFocusVisitor": "오늘 집중 {{time}}",
+      "customize": "내 고양이 꾸미기",
+      "friends": "친구",
+      "friendsRequests": "친구, 받은 요청 {{count}}개",
+      "settings": "설정",
+      "todayFocusWithClock": "오늘의 집중 {{clock}}"
     },
     "build": "{{building}} 짓기",
     "buildProgress": "{{current}}/{{total}} 마리",
@@ -450,7 +464,14 @@
       "telescope": "망원경",
       "myRaft": "내 뗏목",
       "endVisit": "구경 끝내기",
-      "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요."
+      "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요.",
+      "departureTitle": "어디로 떠나볼까요?",
+      "myIslands": "소속 섬으로",
+      "departSea": "바다로 출항",
+      "goFocus": "집중하러 가기",
+      "islandsTitle": "어느 섬으로 갈까요?",
+      "visitedMember": "가 본 소속 섬",
+      "noIslands": "이동할 수 있는 소속 섬이 없어요."
     }
   },
   "wardrobe": {
@@ -468,6 +489,13 @@
     "visitorCheered": "방문자가 응원했어요 🎉",
     "memberArrived": "{{name}}님이 도착했어요",
     "common": {
+      "holdEndFocus": "종료하기",
+      "holdEndHint": "3초 동안 길게 누르면 집중을 종료해요. 중간에 손을 떼면 취소돼요.",
+      "holdEndA11yHint": "두 번 탭하면 3초 후 집중을 종료해요. 다시 두 번 탭하면 취소해요.",
+      "holdEndStart": "3초 후 집중 종료",
+      "holdEndCancel": "집중 종료 취소",
+      "holdEndCancelHint": "다시 두 번 탭하면 집중 종료를 취소해요.",
+      "holdEndStarted": "3초 후 종료해요. 다시 두 번 탭하면 취소해요.",
       "ourIsland": "우리 섬",
       "fishingIsland": "낚시섬",
       "myLittleBoat": "나의 작은 배",
@@ -487,6 +515,8 @@
       "fishingSpot": "낚시섬 내 자리"
     },
     "spot": {
+      "pickPrompt": "집중할 자리를 골라주세요!",
+      "backToMainIsland": "← 메인 섬으로",
       "onWater": "물 위에는 앉을 수 없어요.",
       "occupied": "여기는 주민이 앉아 있어요. 조금 옆에 앉아 주세요.",
       "nearGram": "여기는 축음기가 있어 앉을 수 없어요. 조금 옆에 앉아 주세요.",
@@ -496,15 +526,20 @@
       "noneFound": "빈 자리를 찾지 못했어요. 잠시 후 다시 시도해 주세요.",
       "groundA11y": "낚시섬 땅 · 원하는 곳을 눌러 앉기",
       "sitEmptyA11y": "빈 자리에 앉기",
-      "sitEmptyButton": "빈 땅에 자리 잡기"
+      "sitEmptyButton": "빈 땅에 자리 잡기",
+      "available": "집중할 빈자리"
     },
     "setup": {
       "title": "집중 준비",
-      "placeholder": "예: 영어 단어 외우기",
+      "placeholder": "할 일 입력 (선택)",
       "subjectRequired": "집중할 과목이나 할 일을 적어주세요.",
       "needsIsland": "섬에 가입한 뒤 집중할 수 있어요.",
       "startFailed": "집중을 시작하지 못했어요.",
-      "pickAnotherSpot": "다른 곳 고르기"
+      "pickAnotherSpot": "다른 곳 고르기",
+      "defaultSubject": "집중",
+      "skip": "건너뛰기",
+      "skipAndStart": "건너뛰고 집중 시작",
+      "close": "닫고 자리 다시 고르기"
     },
     "hud": {
       "emoteFab": "이모티콘",
@@ -534,7 +569,8 @@
       "title": "이번 집중 결과",
       "defaultSubject": "이번 집중",
       "durationLabel": "이번 집중 시간",
-      "fishCount": "+{{count}}마리",
+      "fishLabel": "낚은 물고기",
+      "fishCount": "+{{count}}",
       "questsAchievedTitle": "달성한 일일 퀘스트",
       "checking": "확인 중…",
       "checkFailed": "퀘스트를 확인하지 못했어요",
@@ -548,7 +584,7 @@
       "step5": "집중하고 싶은 빈 땅을 눌러 자리를 골라 봐.",
       "step6": "물 위나 다른 주민이 앉아 있는 곳은 고를 수 없어.\n마음에 드는 자리를 직접 누르면 돼.",
       "step6SkipButton": "안내 그만 보기",
-      "step7": "이번 집중에서 할 일을 하나 적어 봐.\n“영어 단어 외우기”처럼 지금 바로 시작할 수 있는 일이 좋아.",
+      "step7": "할 일을 적어 봐. 비워 두고 건너뛰어도 돼.",
       "step7Done": "입력 완료",
       "step8": "좋아. 이제 집중 시작을 눌러 봐.",
       "step9": "집중이 시작됐어.\n위에는 방금 적은 할 일과 실제 집중 시간이 표시돼.",
@@ -557,7 +593,7 @@
       "step14": "이번에는 잠깐 쉬어 보자.\n아래의 휴식하기를 눌러 봐.",
       "step15": "같은 섬에서 쉬고 있는 주민이 있다면 이 모닥불에서 함께 볼 수 있어.\n충분히 쉬었다면 집중 이어가기를 눌러 봐.",
       "step16": "아까 골랐던 자리로 돌아왔어.\n할 일과 집중 시간도 쉬기 전 그대로 이어졌지?",
-      "step17": "이렇게 쉬었다가 돌아와도 처음부터 다시 시작할 필요는 없어.\n이제 집중을 마쳐 보자.",
+      "step17": "이제 집중 종료 버튼을 3초 동안 꾹 눌러 봐.",
       "step18": "집중 종료를 눌러 마쳐 봐.",
       "step19": "방금 집중한 시간이 기록됐어.\n쉬었던 시간은 집중 시간에 포함되지 않아.",
       "step20": "집중해서 낚은 물고기도 여기에서 확인할 수 있어.",
@@ -655,7 +691,6 @@
     "write": "남기기",
     "writing": "남기는 중이에요",
     "delete": "지우기",
-    "report": "신고",
     "deleteTitle": "이 글을 지울까요?",
     "deleteBody": "지운 글은 되돌릴 수 없어요.",
     "deleted": "방명록 글을 지웠어요",
@@ -667,7 +702,9 @@
     "error": {
       "boardLocked": "게시판을 지으면 방명록을 쓸 수 있어요",
       "alreadyWritten": "오늘은 이미 남겼어요"
-    }
+    },
+    "block": "차단",
+    "loadMoreFailed": "방명록을 더 불러오지 못했어요."
   },
   "telescope": {
     "back": "뒤로",
@@ -726,7 +763,8 @@
       "ours": "우리 섬이에요",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
       "a11yNoMeta": "{{name}}, ‘{{body}}’",
-      "scope": "{{name}} 망원경에 넣기"
+      "scope": "{{name}} 망원경에 넣기",
+      "privateIsland": "초대로만 갈 수 있는 섬"
     },
     "editor": {
       "title": "우리 섬 홍보 쓰기",
@@ -759,7 +797,6 @@
       "problem": {
         "poor": "섬 통장 물고기가 모자라요",
         "windowClosed": "지금은 신청할 수 없어요. 아침 7시에 다시 열려요",
-        "private": "비공개 섬은 잡지에 실을 수 없어요",
         "body": "한 줄 글을 다시 확인해 주세요",
         "layout": "꾸미기를 다시 확인해 주세요",
         "locked": "자정이 지나 고칠 수 없어요. 아침 7시에 실려요",
@@ -791,7 +828,8 @@
       "confirmA11y": "물고기 {{fish}}마리",
       "done": "완료",
       "editAsk": "올린 홍보글을 수정하시겠습니까?",
-      "editOk": "수정"
+      "editOk": "수정",
+      "assetsEmpty": "보유한 재료가 없어요"
     },
     "news": {
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",
@@ -933,29 +971,6 @@
       "clock": "알람시계",
       "tomato-timer": "토마토 타이머"
     },
-    "report": {
-      "action": "신고하기",
-      "title": "홍보 칸 신고하기",
-      "sub": "{{name}} 홍보 칸을 신고하는 이유를 골라 주세요. 여러 사람이 신고하면 칸이 숨겨지고 운영팀이 확인해요.",
-      "submit": "신고하기",
-      "busy": "보내는 중…",
-      "done": "신고했어요. 운영팀이 살펴볼게요.",
-      "already": "이미 신고한 칸이에요. 운영팀이 살펴보고 있어요.",
-      "guest": "소셜 로그인하면 신고할 수 있어요.",
-      "gone": "이제 볼 수 없는 칸이라 신고할 수 없어요.",
-      "ours": "우리 섬 칸은 신고할 수 없어요.",
-      "failed": "신고하지 못했어요. 연결을 확인하고 다시 시도해 주세요.",
-      "reasons": {
-        "HARASSMENT": "욕설·괴롭힘",
-        "HATE": "혐오·차별",
-        "SPAM_FRAUD": "스팸·사기",
-        "SEXUAL": "성적 콘텐츠",
-        "CHILD_SAFETY": "아동 안전",
-        "THREAT": "위해 협박",
-        "PRIVACY_IMPERSONATION": "개인정보·사칭",
-        "OTHER": "기타"
-      }
-    },
     "ledger": {
       "promotionFee": "잡지 홍보"
     }
@@ -1024,5 +1039,16 @@
     "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
     "welcomeTitle": "환영해요!",
     "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요."
+  },
+  "safety": {
+    "blockTitle": "차단하기",
+    "blockAction": "차단",
+    "processing": "처리 중…",
+    "blockBody": "{{name}}님의 친구 요청과 편지는 앱 목록에서 숨겨져요. 친구 요청 알림은 기기에 표시될 수 있어요. 차단 중 받은 내용은 해제하면 다시 보일 수 있어요.",
+    "blocked": "{{name}}님을 차단했어요.",
+    "failed": "처리하지 못했어요. 연결을 확인하고 다시 시도해 주세요."
+  },
+  "departureStory": {
+    "label": "출항 준비: {{destination}}. 짐을 싣고 밧줄을 풀어 바다로 떠나요."
   }
 }

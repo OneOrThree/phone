@@ -273,9 +273,11 @@ export type State = {
   tutorialExperience?: { session: Session | null; result: RecordItem | null; fromRest?: boolean };
   // 서버에서 소속 없음이 확인된 신규 흐름만 첫 소속 확정 후 안내를 시작한다.
   tutorialEnrollment?: 'awaiting-first-island' | 'existing';
+  focusGuideDone?: boolean;
   version: 1;
   schema?: 2;
   friends?: Friend[];
+  lastRaftDestination?: string;
   rewards?: Reward[];
   screenDays?: Record<string, number | null>;
   screenTimeUnconfirmedDays?: string[];
@@ -981,13 +983,17 @@ export const shouldShowMailboxGuide = (s: State, userId: string) =>
   !s.visitingIslandId &&
   !s.session &&
   currentIsland(s).joined &&
-  currentIsland(s).buildings.includes('mail') &&
+  (s.serverIslands
+    ? serverHome(s)?.completedBuildings.includes('mail')
+    : currentIsland(s).buildings.includes('mail')) &&
   !s.mailboxGuideSeenBy?.includes(userId);
 
 export const shouldShowShopGuide = (s: State, userId: string) =>
   !s.visitingIslandId &&
   currentIsland(s).joined &&
-  currentIsland(s).buildings.includes('shop') &&
+  (s.serverIslands
+    ? serverHome(s)?.completedBuildings.includes('shop')
+    : currentIsland(s).buildings.includes('shop')) &&
   !s.shopGuideSeenBy?.includes(userId);
 
 // 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
@@ -1690,6 +1696,12 @@ export function reducer(state: State, a: Action): State {
   // 도메인별 구분선(GROMO-2004). 이 리듀서 하나에 여러 티켓이 동시에 붙는다 — 자기 도메인 구간
   // 안에만 case 를 더하면 서로의 머지 충돌이 줄어든다. 구간 순서는 바꾸지 않는다.
   switch (a.type) {
+    case 'FOCUS_GUIDE_RESTORED':
+      s.focusGuideDone = true;
+      s.tutorialEnrollment = 'existing';
+      s.tutorial = { step: 99 };
+      delete s.tutorialExperience;
+      break;
     case 'GUIDE_STEP': {
       if (
         a.expected &&
@@ -1698,6 +1710,8 @@ export function reducer(state: State, a: Action): State {
       )
         return state;
       const step = a.step as number;
+      if (s.focusGuideDone && step < 22) return state;
+      if (step >= 22) s.focusGuideDone = true;
       if ([0, 4, 99].includes(step)) delete s.tutorialExperience;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       s.tutorial = {
@@ -1815,6 +1829,12 @@ export function reducer(state: State, a: Action): State {
     // 서버 응답만 serverIslands 스냅샷에 반영한다. CREATE_ISLAND·JOIN·CANCEL_JOIN 의
     // 로컬 성공 경로는 REVIEW·DEMO fixture 용이며 일반 실행의 성공 경로에서 부르지 않는다.
     case 'ISLAND_SYNC': {
+      if (a.focusGuideDone) {
+        s.focusGuideDone = true;
+        s.tutorialEnrollment = 'existing';
+        s.tutorial = { step: 99 };
+        delete s.tutorialExperience;
+      }
       // /me/islands 정본 — 소속·current·상실 사유를 갈아 끼우고 로컬 joined 표시를 맞춘다
       const my = a.memberships as MyIslands,
         snap = serverSnap(s);
@@ -2563,6 +2583,9 @@ export function reducer(state: State, a: Action): State {
         if (!a.value) i.playbackReset = (i.playbackReset ?? 0) + 1;
       }
       break;
+    case 'RAFT_DESTINATION':
+      s.lastRaftDestination = a.destination;
+      break;
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;
       break;
@@ -2717,6 +2740,7 @@ export function reducer(state: State, a: Action): State {
       delete s.tutorial;
       delete s.tutorialExperience;
       delete s.tutorialEnrollment;
+      delete s.focusGuideDone;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게
       s.serverIslands = null;

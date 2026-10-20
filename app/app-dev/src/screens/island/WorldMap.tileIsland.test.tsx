@@ -1,5 +1,7 @@
+import { PanResponder, StyleSheet } from 'react-native';
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { within } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import { initialState } from '@/services/model';
 import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
@@ -534,3 +536,63 @@ test.each([false, true])(
     await screen.unmount();
   },
 );
+
+test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되고 내부 이미지 좌표는 유지한다', async () => {
+  const createPan = jest.spyOn(PanResponder, 'create');
+  const screen = await render(
+    <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const pan = createPan.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  const sign = () => screen.getByTestId('building-name-hall');
+  const initial = StyleSheet.flatten(sign().props.style);
+  const building = () => StyleSheet.flatten(screen.getByTestId('world-hall-motion').props.style);
+  const originalBuilding = building();
+  const overlay = screen.getByTestId('facility-sign-overlay');
+  const imageSize = () => {
+    const nodes: any[] = [];
+    const walk = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (
+        node.type === 'Image' &&
+        node.props.source === require('@/assets/village-world/ui/wooden-name-sign.png')
+      )
+        nodes.push(node);
+      (node.children ?? []).forEach(walk);
+    };
+    walk(screen.toJSON());
+    return nodes
+      .map((node) => StyleSheet.flatten(node.props.style))
+      .map(({ width, height }) => ({ width, height }));
+  };
+  const originalSizes = imageSize();
+  expect(originalSizes.length).toBeGreaterThan(0);
+  for (const distance of [70, 520, 90, 400, 70, 200]) {
+    await act(async () => {
+      pan.onPanResponderGrant!(pinch(200), {} as any);
+      pan.onPanResponderMove!(pinch(distance), {} as any);
+    });
+    const current = StyleSheet.flatten(sign().props.style);
+    const ratio = building().width / originalBuilding.width;
+    expect(current.width / initial.width).toBeCloseTo(ratio);
+    expect(current.height / initial.height).toBeCloseTo(ratio);
+    imageSize().forEach((size, index) => {
+      expect(size.width).toBeCloseTo(originalSizes[index].width);
+      expect(size.height).toBeCloseTo(originalSizes[index].height);
+    });
+    expect(StyleSheet.flatten(overlay.props.style)).toEqual(StyleSheet.absoluteFill);
+    // 화면 레이어에서도 팻말은 건물과 같은 배율을 사용한다.
+    expect(within(overlay).getByTestId('building-name-hall')).toBeTruthy();
+  }
+  expect(StyleSheet.flatten(sign().props.style).left).not.toBe(initial.left);
+  await screen.unmount();
+});

@@ -47,7 +47,7 @@ import {
   viewIsland,
 } from '@/services/model';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
-import { sessionGeneration } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { errorTextOr, localized, t } from '@/i18n';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
@@ -58,6 +58,7 @@ import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
 import { useBoardNotices } from './useBoardNotices';
+import { isNearScrollEnd } from '@/utils/scrollEnd';
 import { useMailbox } from './useMailbox';
 import { Guestbook } from './Guestbook';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
@@ -3231,19 +3232,43 @@ function Scroll({
   style,
   children,
   testID,
+  onEndReached,
 }: {
   style: any;
   children: React.ReactNode;
   testID?: string;
+  onEndReached?: () => void;
 }) {
   if (Platform.OS !== 'web')
     return (
-      <ScrollView testID={testID} style={style} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        testID={testID}
+        style={style}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onScroll={
+          onEndReached
+            ? (event) => {
+                if (isNearScrollEnd(event)) onEndReached();
+              }
+            : undefined
+        }
+      >
         {children}
       </ScrollView>
     );
   return (
-    <View testID={testID} style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>
+    <View
+      testID={testID}
+      {...(onEndReached
+        ? {
+            onScroll: (event: React.UIEvent<HTMLElement>) => {
+              if (isNearScrollEnd(event)) onEndReached();
+            },
+          }
+        : {})}
+      style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}
+    >
       {children}
     </View>
   );
@@ -4027,6 +4052,7 @@ export function Board({
   onBoardModalChange,
 }: ArtifactProps) {
   const [local, setS] = useState(() => makeState(concept));
+  const guestbookMore = useRef<(() => void) | null>(null);
   const [mockNotices, setNotices] = useState(() =>
     concept.boardPanel === 'notice' && concept.boardView === 'empty' ? [] : NOTICES,
   );
@@ -4043,7 +4069,7 @@ export function Board({
   // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류
   const [ui, setUi] = useState({
     comment: false,
-    confirm: null as null | { target: 'notice' | 'comment'; index: number },
+    confirm: null as null | { target: 'notice' | 'comment'; index: number; commentId?: string },
     target: '',
     error: '',
   });
@@ -4425,7 +4451,7 @@ export function Board({
   const apiWriteMessage = (err: unknown) =>
     err instanceof ApiError && err.code === CLIENT_STALE_SESSION ? '' : apiMessage(err);
   // 서버 상세 — 본문·댓글은 getNotice 만 준다. 탈퇴 작성자의 name 은 null 그대로 두고
-  // (합성 금지) 댓글 삭제는 공개 API 에 없으니 mine 을 붙이지 않는다.
+  // 본인 여부는 서버 작성자 ID와 현재 세션으로 판단한다.
   const serverDetailView: NoticeView | null = board.detail
     ? {
         id: board.detail.id,
@@ -4436,7 +4462,7 @@ export function Board({
           id: c.id,
           name: c.name ?? '',
           text: c.text,
-          mine: false,
+          mine: c.userId != null && c.userId === getSession()?.userId,
         })),
       }
     : null;
@@ -4567,10 +4593,11 @@ export function Board({
     },
     askDelete: (target: 'notice' | 'comment', index = 0) => {
       if (visitor) return;
-      if (target === 'notice' ? !owner : !owner && !notices[s.noticeIndex].comments[index].mine)
-        return;
+      const comment = (serverBoard ? serverDetailView : notices[s.noticeIndex])?.comments[index];
+      if (target === 'notice' ? !owner : !comment || (!owner && !comment.mine)) return;
       draftEpoch.current += 1;
-      if (e) return setUi((prev) => ({ ...prev, confirm: { target, index } }));
+      if (e)
+        return setUi((prev) => ({ ...prev, confirm: { target, index, commentId: comment?.id } }));
       render(
         target === 'notice'
           ? { deleteTarget: 'notice', view: 'confirm' }
@@ -4623,8 +4650,29 @@ export function Board({
         setNotices(mockNotices.filter((_, i) => i !== s.noticeIndex));
         return render({ noticeIndex: 0, view: 'list' });
       }
-      // 댓글 삭제는 공개 API 에 없다 — 서버 경로는 확인창만 닫는다(버튼도 숨겨져 있다).
-      if (e && serverBoard) return setUi((prev) => ({ ...prev, confirm: null }));
+      if (e && serverBoard) {
+        const notice = serverDetailView;
+        const comment = notice?.comments.find((item) => item.id === ui.confirm?.commentId);
+        if (!notice || !comment || (!owner && !comment.mine)) return;
+        const intent = `comment:${notice.id}:${comment.id}`;
+        if (deleteInflight.current === intent) return;
+        deleteInflight.current = intent;
+        const op = routeGen.current;
+        const draftOp = draftEpoch.current;
+        board.deleteComment(notice.id, comment.id).then(
+          () => {
+            if (deleteInflight.current === intent) deleteInflight.current = null;
+            if (!liveE(op) || draftEpoch.current !== draftOp) return;
+            setUi((prev) => ({ ...prev, confirm: null, error: '' }));
+          },
+          (err: unknown) => {
+            if (deleteInflight.current === intent) deleteInflight.current = null;
+            if (!liveE(op) || draftEpoch.current !== draftOp) return;
+            setUi((prev) => ({ ...prev, confirm: null, error: apiWriteMessage(err) }));
+          },
+        );
+        return;
+      }
       const notice = notices[s.noticeIndex];
       if (!notice) return;
       const comment = notice.comments[s.commentIndex];
@@ -5241,8 +5289,7 @@ export function Board({
                   >
                     {text}
                   </Text>
-                  {/* 댓글 삭제는 공개 API 에 없다 — 서버 경로에서는 버튼을 숨긴다 */}
-                  {!visitor && !serverBoard && (owner || mine) && (
+                  {!visitor && (owner || mine) && (
                     <View style={{ flexDirection: 'row', marginTop: 5 }}>
                       <Link
                         testID={`board-comment-delete-${commentIndex}`}
@@ -6563,22 +6610,6 @@ export function Board({
             }}
           >
             <Pressable
-              testID="board-panel-switch"
-              accessibilityRole="button"
-              accessibilityLabel={`${s.panel === 'notice' ? '퀘스트' : '공지'} 패널로 전환`}
-              onPress={() => nav.open(s.panel === 'notice' ? 'quest' : 'notice')}
-              style={{
-                width: 44,
-                height: 44,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text allowFontScaling={false} style={boardFont(20, 1, '700', '#76503c')}>
-                ⇄
-              </Text>
-            </Pressable>
-            <Pressable
               testID="board-panel-close"
               accessibilityRole="button"
               accessibilityLabel="게시판 닫기"
@@ -6642,9 +6673,20 @@ export function Board({
             InteriorRoute 높이를 줄이면 paperScroll·sheetCramped 가 그 높이를 따른다(방명록은 minPaperScroll 바닥이 더 높다).
             automaticallyAdjustKeyboardInsets 는 줄어들기 전 좌표로 inset 을 잡아 이중 보정이 될 수 있어 두지 않는다. */}
         {s.panel === 'guestbook' && serverBoard && (
-          <Scroll testID="board-guestbook-scroll" style={{ maxHeight: paperScroll }}>
+          <Scroll
+            testID="board-guestbook-scroll"
+            style={{ maxHeight: paperScroll }}
+            onEndReached={() => guestbookMore.current?.()}
+          >
             {board.islandId ? (
-              <Guestbook islandId={board.islandId} host={owner} e={e} />
+              <Guestbook
+                islandId={board.islandId}
+                host={owner}
+                e={e}
+                onLoadMoreReady={(load) => {
+                  guestbookMore.current = load;
+                }}
+              />
             ) : board.error && !board.loading ? (
               <View>
                 <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
@@ -7640,7 +7682,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const liveApp = !!e && !isMockMode();
   // 서버 우체통(GROMO-2016): 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 목업·갤러리는 0콜이다.
   const serverMail = liveApp && !state?.visitingIslandId;
-  const mail = useMailbox({ active: serverMail, scopeKey: island ? String(island.id) : 'mock' });
+  const mail = useMailbox({
+    active: serverMail,
+    scopeKey: island ? String(island.id) : 'mock',
+    chatActive: e?.route === 'chat',
+  });
   // 서버는 아바타 색을 주지 않는다 — userId 로 deterministic 하게 고른다.
   const mailCat = (id: string): Cat =>
     (['gray', 'cream', 'ginger', 'black', 'calico', 'white'] as Cat[])[
@@ -8150,6 +8196,31 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     setGroupSent(true);
     showToast('소다 섬 주민 모두에게 남겼어요');
   };
+  const mailRetry = (error: ApiError, testID: string, onRetry: () => void) => (
+    <View style={{ paddingVertical: 30, alignItems: 'center', rowGap: 8 }}>
+      <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
+        {error.message}
+      </Text>
+      <Pressable
+        testID={testID}
+        accessibilityRole="button"
+        onPress={onRetry}
+        style={{
+          minHeight: 28,
+          paddingVertical: 5,
+          paddingHorizontal: 12,
+          justifyContent: 'center',
+          borderWidth: 1.2,
+          borderColor: '#795642',
+          borderRadius: 7,
+          backgroundColor: '#fff8e8',
+          boxShadow: '0 2px 0 #795642',
+        }}
+      >
+        <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>다시 시도</Text>
+      </Pressable>
+    </View>
+  );
   const islandRoom = (
     <>
       {header(
@@ -8198,6 +8269,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               아직 남긴 글이 없어요.
             </Text>
           ) : null}
+          {serverMail &&
+            mail.messagesRefreshError &&
+            mailRetry(mail.messagesRefreshError, 'chat-refresh-retry', () =>
+              mail.retry().catch(() => {}),
+            )}
           {serverMail && mail.messagesCursor ? (
             <Pressable
               testID="chat-more"
@@ -8317,31 +8393,6 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const mailStatus = (label: string) => (
     <View style={{ paddingVertical: 30, alignItems: 'center' }}>
       <Text style={mailFont(8, 1.4, '#826c5b', '800')}>{label}</Text>
-    </View>
-  );
-  const mailRetry = (error: ApiError, testID: string, onRetry: () => void) => (
-    <View style={{ paddingVertical: 30, alignItems: 'center', rowGap: 8 }}>
-      <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
-        {error.message}
-      </Text>
-      <Pressable
-        testID={testID}
-        accessibilityRole="button"
-        onPress={onRetry}
-        style={{
-          minHeight: 28,
-          paddingVertical: 5,
-          paddingHorizontal: 12,
-          justifyContent: 'center',
-          borderWidth: 1.2,
-          borderColor: '#795642',
-          borderRadius: 7,
-          backgroundColor: '#fff8e8',
-          boxShadow: '0 2px 0 #795642',
-        }}
-      >
-        <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>다시 시도</Text>
-      </Pressable>
     </View>
   );
   const unreadCount = serverMail ? mail.letters.filter((l) => !l.isRead).length : letters.length;
@@ -8802,9 +8853,6 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             visible
             targetUserId={letterSafetyTarget.friendId}
             targetName={letterSafetyTarget.from}
-            reportTargetType="LETTER"
-            reportTargetId={letterSafetyTarget.id}
-            reportEvidence={letterSafetyTarget.body}
             onClose={() => setLetterSafetyTarget(null)}
             onChanged={() => {
               back('inbox');

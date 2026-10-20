@@ -1,3 +1,4 @@
+import { readAccountGuides } from '@/services/accountGuides';
 import assert from 'node:assert/strict';
 import * as SecureStore from 'expo-secure-store';
 import React from 'react';
@@ -2073,5 +2074,29 @@ test('인증 후 집중 세션이 시작되면 푸시 토큰 동기화를 즉시
   });
   expect(stop).toHaveBeenCalled();
   expect(mockStartLiveActivityPushSync).toHaveBeenCalledTimes(before + 1);
+  await app.unmount();
+});
+
+test('실제 앱의 집중 체험 완료는 일반 저장본과 별도 계정 키에 남는다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'guide-persistence-user' });
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeDefined());
+  await act(async () => captured.setGuideStep(22));
+  await waitFor(async () =>
+    expect((await readAccountGuides('guide-persistence-user')).focusDone).toBe(true),
+  );
+  await AsyncStorage.removeItem('gromo-r61-user-v2');
+  expect((await readAccountGuides('guide-persistence-user')).focusDone).toBe(true);
+  await app.unmount();
+});
+
+test('이전 계정의 늦은 체험 완료 콜백은 새 계정의 완료 이력을 쓰지 않는다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'guide-old' });
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeDefined());
+  const oldComplete = captured.setGuideStep;
+  await saveSession({ accessToken: 'BT', refreshToken: 'BR', userId: 'guide-new' });
+  await act(async () => oldComplete(22));
+  expect((await readAccountGuides('guide-new')).focusDone).toBe(false);
   await app.unmount();
 });

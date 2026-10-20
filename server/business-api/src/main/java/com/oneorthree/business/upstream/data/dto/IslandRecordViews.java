@@ -17,7 +17,12 @@ public final class IslandRecordViews {
     /** 집중 통계 상류. me 다음 페이지가 있으면 {@code nextSnapshotId·nextOffset} 이 함께 온다. */
     public record FocusStatistics(String scope, Long totalSeconds, List<DaySeconds> series,
             List<FocusRecord> records, List<FocusMember> members, String asOf, String nextSnapshotId,
-            Integer nextOffset) {
+            Integer nextOffset, Long earnedFish) {
+        public FocusStatistics(String scope, Long totalSeconds, List<DaySeconds> series,
+                List<FocusRecord> records, List<FocusMember> members, String asOf, String nextSnapshotId,
+                Integer nextOffset) {
+            this(scope, totalSeconds, series, records, members, asOf, nextSnapshotId, nextOffset, null);
+        }
     }
 
     public record DaySeconds(String date, long seconds) {

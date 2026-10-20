@@ -30,6 +30,7 @@ const ISLAND_ZOOM = 1.3;
 
 /** 칸 하나에 그리는 값 — 서버 홍보 칸(snapshot + body + layout)과 같은 모양. */
 export type AdCellData = {
+  privateIsland?: boolean;
   name: string;
   buildingCount: number;
   memberCount: number;
@@ -53,10 +54,9 @@ export type AdCellData = {
 export function AdCell({
   width,
   cell,
-  corner = null,
+  corner: requestedCorner = null,
   onScope,
   onPress,
-  onReport,
   hideMeta = false,
   bodyInput,
   testID,
@@ -66,8 +66,6 @@ export function AdCell({
   corner?: 'scope' | 'ours' | null;
   onScope?: () => void;
   onPress?: () => void;
-  /** 신고 — 칸 길게 누르기와 스크린리더 「신고하기」 동작이 부른다. */
-  onReport?: () => void;
   /**
    * 「주민 N/정원 · 평균」 줄을 그리지 않는다 — 바로 아래에 지금 숫자가 따로 있는 곳(망원경 말풍선)에서
    * 실린 날 숫자와 지금 숫자가 같이 보이지 않게.
@@ -80,6 +78,8 @@ export function AdCell({
   bodyInput?: (style: StyleProp<TextStyle>) => React.ReactNode;
   testID?: string;
 }) {
+  const corner = cell.privateIsland && requestedCorner === 'scope' ? null : requestedCorner;
+  const privateNotice = cell.privateIsland ? t('magazine.cell.privateIsland') : '';
   const font = useGowun();
   const m = componentTokens.magazineCell;
   const W = width;
@@ -87,7 +87,7 @@ export function AdCell({
   const k = W / m.referenceWidth;
   const frame = MAGAZINE_FRAMES[cell.layout.frameId] ?? MAGAZINE_FRAMES[DEFAULT_FRAME_ID];
   const [l, top, r, b] = frame.inset;
-  const fit = cellTextFit(frame);
+  const fit = cellTextFit(frame, privateNotice && !hideMeta ? 2 : 1);
   const s = k * fit.scale;
   const d = m.profileDiameter * s;
   const cornerSize = m.cornerSize * k;
@@ -110,7 +110,8 @@ export function AdCell({
     (hideMeta
       ? t('magazine.cell.a11yNoMeta', { name, body: cell.body })
       : t('magazine.cell.a11y', { name, residents, average, body: cell.body })) +
-    (corner === 'ours' ? `, ${ours}` : '');
+    (corner === 'ours' ? `, ${ours}` : '') +
+    (privateNotice ? `, ${privateNotice}` : '');
   const text = (size: number, scale = s, lines?: number) => ({
     fontFamily: font,
     fontSize: size * scale,
@@ -118,7 +119,7 @@ export function AdCell({
     color: semanticTokens.color.text,
     ...(lines ? { maxHeight: size * scale * m.lineHeight * lines } : null),
   });
-  const Body = onPress || onReport ? Pressable : View;
+  const Body = onPress ? Pressable : View;
   // 쓰는 중 겹친 입력 칸의 배율 — 표시용 글자가 자동 축소되면 그 배율(첫 줄 높이 ÷ 원래 줄 높이)로 입력 칸도 줄여
   // 커서·선택이 보이는 글자와 같은 자리에 오게 한다(축소가 없으면 1)
   const [inputScale, setInputScale] = useState(1);
@@ -132,13 +133,6 @@ export function AdCell({
         accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={label}
         onPress={onPress}
-        onLongPress={onReport}
-        accessibilityActions={
-          onReport ? [{ name: 'report', label: t('magazine.report.action') }] : undefined
-        }
-        onAccessibilityAction={
-          onReport && ((ev) => ev.nativeEvent.actionName === 'report' && onReport())
-        }
       >
         <Image
           source={frame.source}
@@ -232,10 +226,10 @@ export function AdCell({
               ) : null}
             </View>
           </View>
-          {!hideMeta && (
+          {(!hideMeta || !!privateNotice) && (
             <T
               allowFontScaling={false}
-              numberOfLines={1}
+              numberOfLines={privateNotice && !hideMeta ? 2 : 1}
               adjustsFontSizeToFit
               minimumFontScale={0.7}
               style={[
@@ -248,7 +242,7 @@ export function AdCell({
                 },
               ]}
             >
-              {`${residents} · ${average}`}
+              {[!hideMeta && `${residents} · ${average}`, privateNotice].filter(Boolean).join('\n')}
             </T>
           )}
         </View>

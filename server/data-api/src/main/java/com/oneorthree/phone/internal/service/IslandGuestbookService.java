@@ -18,6 +18,7 @@ import com.oneorthree.phone.internal.dto.IslandNoticeViews;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,21 +34,22 @@ import java.util.UUID;
  * 섬 방명록 (GROMO-2262, 섬 외부 계약 §2) — 읽기는 방문자·주민 모두, 쓰기는 게시판이 지어진 섬에서만
  * (방문자·주민 모두), 삭제는 섬장만.
  *
- * <p>쓰기 판정 순서는 금칙어 → 섬 생존 → 게시판 완공 → 오늘 이미 씀 이다. «하루» 는 KST 날짜다(결정 N6). 쓴 뒤 같은
- * TX 에서 그 섬의 31번째 이후를 soft-delete 한다. 게스트 차단은 컨트롤러가 서비스 앞에서 한다
+ * <p>쓰기 판정 순서는 금칙어 → 섬 생존 → 게시판 완공 → 오늘 이미 씀 이다. «하루» 는 KST 날짜다(결정 N6).
+ * 글은 개수 제한 없이 보관한다. 게스트 차단은 컨트롤러가 서비스 앞에서 한다
  * ({@link GuestAccountGuards}). {@code IslandNoticeService} 와 같은 자리(엔티티·레포는 group, 조합 서비스는
  * internal)다.
  *
  * <h2>잠금 — users 공유 → 섬(groups) 배타</h2>
- * {@code IslandNoticeService#run} 과 같은 순서다. 섬 행을 배타로 쥐어야 «삽입 → 31번째 이후 정리» 가 섬 단위로
- * 직렬화된다 — 안 쥐면 29개인 섬에 다른 두 작성자가 동시에 써도 둘 다 서로의 미커밋 행을 못 봐 31개가 남는다
- * (READ COMMITTED). 같은 사람의 동시 두 쓰기도 같은 잠금에 직렬화돼 둘째는 «오늘 이미 씀» 409 가 된다(유니크 제약
+ * {@code IslandNoticeService#run} 과 같은 순서다. 같은 사람의 동시 두 쓰기를 섬 잠금에 직렬화해
+ * 둘째는 «오늘 이미 씀» 409 가 된다(유니크 제약
  * 위반 500 이 아니다). users 를 먼저 쥐는 이유는 계정 탈퇴(users 배타 → 섬 잠금)와 순서를 맞춰 교착을 피하는
- * 것이다. 읽기와 섬장 삭제는 잠그지 않는다 — 삭제는 한 행의 {@code deleted_at} 만 바꿔 상한 30 을 넘기지 않는다.
+ * 것이다. 읽기와 섬장 삭제는 잠그지 않는다 — 삭제는 한 행의 {@code deleted_at} 만 바꾼다.
  */
 @Service
 @RequiredArgsConstructor
 public class IslandGuestbookService {
+
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final UserQueryService users;
     private final GroupQueryService groups;
@@ -58,7 +60,7 @@ public class IslandGuestbookService {
     private final Clock clock;
 
     /**
-     * 최근 30개. {@code boardBuilt} 는 게시판이 <b>실제로 완공</b>됐는가다 — 섬 상세의 {@code buildings} 와 같은
+     * 최신순 한 페이지. {@code boardBuilt} 는 게시판이 <b>실제로 완공</b>됐는가다 — 섬 상세의 {@code buildings} 와 같은
      * 근거({@code completedBuildings})라 시설 게이트 플래그({@code construction.facility-gates.enforce})와
      * 무관하다. 목록 공개 여부는 쓰기와 같은 게이트({@code hasBoard}, 플래그 존중)다: 게이트가 켜진 환경에서
      * 게시판이 없으면 빈 목록이다.
@@ -69,22 +71,33 @@ public class IslandGuestbookService {
      * {@code BOARD_LOCKED} 로 닫는다.
      */
     @Transactional(readOnly = true)
-    public IslandGuestbookViews.Page list(UUID islandId, UUID callerId) {
+    public IslandGuestbookViews.Page list(UUID islandId, UUID callerId, Instant afterCreatedAt, UUID afterId,
+            int limit) {
         users.getCaller(callerId);
         requireAliveIsland(islandId);
+        if (limit < 1 || limit > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("페이지 크기는 1~100 이어야 합니다.");
+        }
+        if ((afterCreatedAt == null) != (afterId == null)) {
+            throw new IllegalArgumentException("커서 anchor 는 시각과 id 가 함께 와야 합니다.");
+        }
         boolean built = facilities.completedBuildings(islandId).contains(ConstructionBuilding.BOARD.id());
         if (!facilities.hasBoard(islandId)) {
-            return new IslandGuestbookViews.Page(built, List.of());
+            return new IslandGuestbookViews.Page(built, List.of(), false);
         }
-        List<IslandGuestbookEntry> rows =
-                entries.findTop30ByIslandIdAndDeletedAtIsNullOrderByCreatedAtDescIdDesc(islandId);
+        PageRequest page = PageRequest.of(0, limit + 1);
+        List<IslandGuestbookEntry> rows = afterCreatedAt == null
+                ? entries.findFirstPage(islandId, page)
+                : entries.findPageAfter(islandId, afterCreatedAt, afterId, page);
+        boolean hasMore = rows.size() > limit;
+        List<IslandGuestbookEntry> shown = hasMore ? rows.subList(0, limit) : rows;
         Map<UUID, String> names = new HashMap<>();
-        for (User user : users.findAllActive(rows.stream().map(IslandGuestbookEntry::getAuthorId).distinct()
+        for (User user : users.findAllActive(shown.stream().map(IslandGuestbookEntry::getAuthorId).distinct()
                 .toList())) {
             names.put(user.getId(), user.getNickname());
         }
-        return new IslandGuestbookViews.Page(built, rows.stream()
-                .map(row -> toItem(row, names.get(row.getAuthorId()), callerId)).toList());
+        return new IslandGuestbookViews.Page(built, shown.stream()
+                .map(row -> toItem(row, names.get(row.getAuthorId()), callerId)).toList(), hasMore);
     }
 
     /**
@@ -106,7 +119,6 @@ public class IslandGuestbookService {
         }
         IslandGuestbookEntry saved = entries.saveAndFlush(
                 new IslandGuestbookEntry(islandId, callerId, content, today));
-        entries.trimBeyondLatest30(islandId, Instant.now(clock));
         return toItem(saved, caller.getNickname(), callerId);
     }
 

@@ -1,4 +1,7 @@
-import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
+import * as Application from 'expo-application';
+import appManifest from '../../../package.json';
+import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
+import { GuideBox } from '@/screens/island/NpcGuide';
 import { MagazineHomeLayer } from '@/screens/magazine/MagazineDelivery';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ServerVisit } from '@/screens/island/ServerVisit';
@@ -37,8 +40,6 @@ import {
   islandFocusRecord,
   State,
   Friend,
-  shouldShowMailboxGuide,
-  shouldShowShopGuide,
   Building,
   Color,
   displayIsland as currentIsland,
@@ -92,7 +93,11 @@ import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
-import { BUNDLED_AUDIO_TRACK_IDS, hasBundledAudio } from '@/constants/audio';
+import {
+  BUNDLED_AUDIO_TRACK_IDS,
+  DEFAULT_FREE_AUDIO_TRACK_IDS,
+  hasBundledAudio,
+} from '@/constants/audio';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
 import { CatOutfitLayers, type Outfit } from '@/components/CatOutfitLayers';
 import { useCustomizationCatalog } from '@/services/customizationCatalog';
@@ -155,6 +160,7 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
+import { openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
@@ -2639,45 +2645,44 @@ export function RedesignScreens({ e }: any) {
     );
   if (route === 'home') {
     // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
-    const guideUserId = getSession()?.userId ?? 'local';
-    const mailboxGuide = shouldShowMailboxGuide(state, guideUserId);
-    const hallGuide = !mailboxGuide && hallGuideOpen && !island.buildings.includes('hall'),
+    const hallGuide = hallGuideOpen && !island.buildings.includes('hall'),
       w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
     return (
       <View style={{ flex: 1 }}>
-        {mailboxGuide ? (
-          backgroundHome
-        ) : (
-          <IslandHome
-            state={state}
-            go={go}
-            build={build}
-            request={e.walkRequest}
-            notify={notify}
-            dispatch={dispatch}
-            focusTutorial={
-              guideStep === 4
-                ? {
-                    text: t('home.tutorial.focusStart'),
-                    onPress: () =>
-                      setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
-                    onSkip: () => setGuideStep(99),
-                  }
-                : undefined
-            }
-            boardStatus={e.boardStatus}
-            libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
-            showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
-            showMailboxMagazine={magazineUnread(e.magazineToday ?? null)}
-            onServerBuilt={e.islands ? e.retryHome : undefined}
-          />
-        )}
-        {/* 고양이 잡지 배달(B2)·우체통 없는 섬의 잡지 물건 — 다른 안내·집중·구경 중에는 띄우지 않는다 */}
+        <IslandHome
+          state={state}
+          go={go}
+          build={build}
+          request={e.walkRequest}
+          notify={notify}
+          dispatch={dispatch}
+          focusTutorial={
+            guideStep === 4
+              ? {
+                  text: t('home.tutorial.focusStart'),
+                  onPress: () =>
+                    setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
+                  onSkip: () => setGuideStep(99),
+                }
+              : undefined
+          }
+          friendRequestCount={
+            server
+              ? friendsScreen?.status === 'ready'
+                ? (friendsScreen.data?.friendRequests.length ?? 0)
+                : 0
+              : undefined
+          }
+          boardStatus={e.boardStatus}
+          libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
+          showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
+          showMailboxMagazine={magazineUnread(e.magazineToday ?? null)}
+          onServerBuilt={e.islands ? e.retryHome : undefined}
+        />
         <MagazineHomeLayer
           today={e.magazineToday ?? null}
           hasMailbox={island.buildings.includes('mail')}
           blocked={
-            mailboxGuide ||
             hallGuide ||
             guideStep === 4 ||
             !!state.session ||
@@ -2686,16 +2691,6 @@ export function RedesignScreens({ e }: any) {
           }
           go={go}
         />
-        {mailboxGuide && (
-          <MailboxGuide
-            blocked={e.routeTransitionShielded}
-            key={`${guideUserId}:${island.id}`}
-            onDone={(openMailbox) => {
-              dispatch({ type: 'MAILBOX_GUIDE_DONE', userId: guideUserId });
-              if (openMailbox) go('mail');
-            }}
-          />
-        )}
         {hallGuide && (
           <GuideBox
             text={t('home.tutorial.hallGuide', { count: costs.hall })}
@@ -2923,10 +2918,6 @@ export function RedesignScreens({ e }: any) {
           go('focus');
         }}
         home={home}
-        endRest={() => {
-          act('FINISH');
-          reset('focusResult');
-        }}
       />
     );
   if (route === 'sound') {
@@ -3037,7 +3028,13 @@ export function RedesignScreens({ e }: any) {
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={scene ? '집중으로 돌아가기' : '섬으로 돌아가기'}
+            accessibilityLabel={
+              state.session?.status === 'paused'
+                ? '휴식으로 돌아가기'
+                : scene
+                  ? '집중으로 돌아가기'
+                  : '섬으로 돌아가기'
+            }
             onPress={back}
             style={{
               position: 'absolute',
@@ -3244,7 +3241,9 @@ export function RedesignScreens({ e }: any) {
                         (!localAudioIds.has(id) ||
                           (server && (product?.available === false || product?.price == null)));
                       const status = owned
-                        ? '보유'
+                        ? DEFAULT_FREE_AUDIO_TRACK_IDS.includes(id)
+                          ? '무료'
+                          : '보유'
                         : !localAudioIds.has(id)
                           ? '앱 업데이트가 필요해요'
                           : unavailable
@@ -3256,7 +3255,7 @@ export function RedesignScreens({ e }: any) {
                           accessibilityRole="button"
                           accessibilityLabel={
                             owned
-                              ? `${trackLabel(id)}, 보유`
+                              ? `${trackLabel(id)}, ${status}`
                               : unavailable
                                 ? `${trackLabel(id)}, ${status}`
                                 : `${trackLabel(id)}, ${product?.price}마리로 구매`
@@ -5223,8 +5222,6 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
-    const guideUserId = getSession()?.userId ?? 'local';
-    const shopGuide = shouldShowShopGuide(state, guideUserId);
     return (
       <>
         <IslandSheet
@@ -5284,13 +5281,6 @@ export function RedesignScreens({ e }: any) {
             ))}
           </View>
         </IslandSheet>
-        {shopGuide && (
-          <ShopGuide
-            blocked={e.routeTransitionShielded}
-            onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })}
-            onCancel={home}
-          />
-        )}
       </>
     );
   }
@@ -6321,7 +6311,16 @@ export function RedesignScreens({ e }: any) {
     );
     return (
       <>
-        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+        <IslandSheet
+          bg="dock"
+          sign="boat/raft"
+          title="친구 관리"
+          tall
+          onBack={back}
+          onClose={home}
+          action={serverMode ? t('account.blocked.title') : undefined}
+          actionPress={serverMode ? () => go('blockedUsers') : undefined}
+        >
           <SearchField
             value={queryValue}
             onChange={serverMode ? friendsScreen.setQuery : setSearch}
@@ -6364,8 +6363,6 @@ export function RedesignScreens({ e }: any) {
             visible
             targetUserId={safetyTarget.id}
             targetName={safetyTarget.name}
-            reportTargetType="USER"
-            reportTargetId={safetyTarget.id}
             onClose={() => setSafetyTarget(null)}
             onChanged={friendsScreen?.refresh ?? (() => {})}
             onMessage={notify}
@@ -6546,6 +6543,15 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'settings') {
+    const primaryIslandName = server
+      ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
+        snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
+        t('account.boat.myIslandFallback'))
+      : (mainIsland(state)?.name ?? island.name);
+    const canChangeMainIsland =
+      (server
+        ? (snap?.memberships.length ?? 0)
+        : state.islands.filter((candidate) => candidate.joined && !candidate.closed).length) > 1;
     const toggle = (label: string, key: string, sub?: string) => (
       <SheetRow
         title={label}
@@ -6576,70 +6582,59 @@ export function RedesignScreens({ e }: any) {
         onBack={back}
         onClose={home}
       >
-        {sec(t('settings.notificationsSoundSection'))}
+        <SheetGroup>
+          <SheetRow
+            title={t('account.profile.title')}
+            sub={t('account.profile.sub')}
+            lead={<Pic id={'avatar/' + state.color} w={28} />}
+            chevron
+            onPress={() => go('profile')}
+          />
+          <SheetRow
+            title={t(canChangeMainIsland ? 'account.boat.changeMain' : 'account.boat.currentMain')}
+            sub={primaryIslandName}
+            chevron={canChangeMainIsland}
+            onPress={canChangeMainIsland ? () => go('mainIsland') : undefined}
+          />
+        </SheetGroup>
+        {sec(t('settings.generalSection'))}
         <SheetGroup flat>
           {toggle(t('settings.notifications'), 'notifications')}
           {toggle(t('settings.sound'), 'sound')}
           {toggle(t('settings.haptics'), 'haptics')}
-        </SheetGroup>
-        {sec(t('settings.screenSection'))}
-        <SheetGroup flat>
-          {toggle(t('settings.reduceMotion'), 'reduceMotion', t('settings.reduceMotionSub'))}
-        </SheetGroup>
-        {sec(t('settings.language.title'))}
-        <SheetGroup flat>
+          {toggle(t('settings.reduceMotion'), 'reduceMotion')}
           <SheetRow
             title={t('settings.language.title')}
             sub={pref === 'system' ? t('settings.language.system') : LOCALE_NAMES[pref]}
             chevron
             onPress={() => go('language', 'settings')}
           />
-        </SheetGroup>
-        {sec(t('settings.permissionSection'))}
-        <SheetGroup flat>
           <SheetRow
             title={t('settings.permissionManage')}
-            sub={t('settings.permissionManageSub')}
             chevron
             onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
-        {server ? (
-          <>
-            {sec(t('settings.safetySection'))}
-            <SheetGroup flat>
-              <SheetRow
-                title={t('account.blocked.title')}
-                sub={t('settings.blockedUsersSub')}
-                chevron
-                onPress={() => go('blockedUsers')}
-              />
-            </SheetGroup>
-          </>
-        ) : null}
-        {sec(t('settings.helpSection'))}
+        {sec(t('settings.safetySection'))}
         <SheetGroup flat>
           <SheetRow
-            title={t('settings.replayTutorial')}
-            sub={t('settings.replayTutorialSub')}
+            title={t('settings.report.title')}
+            sub={t('settings.report.sub')}
             chevron
             onPress={() => {
-              setGuideStep(0);
-              go('guide');
+              openReportCenter().catch(() =>
+                confirm(
+                  t('settings.report.title'),
+                  t('settings.report.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                  () => {},
+                ),
+              );
             }}
           />
         </SheetGroup>
-        {sec(t('settings.appInfoSection'))}
+        {sec(t('settings.privacySection'))}
         <SheetGroup flat>
-          <SheetRow title={t('settings.version')} sub="R61 · v2" />
-          <SheetRow
-            title={t('settings.privacyNotice')}
-            sub={t('settings.privacyNoticeSub')}
-            chevron
-            onPress={() =>
-              confirm(t('settings.privacyNotice'), t('settings.privacyNoticeBody'), () => {})
-            }
-          />
+          <ScreenTimeSharingSettings e={e} />
           <SheetRow
             title={t('login.policy.terms')}
             chevron
@@ -6653,6 +6648,9 @@ export function RedesignScreens({ e }: any) {
             onPress={() => openPolicy(PRIVACY_URL)}
           />
         </SheetGroup>
+        <Txt kind="meta" testID="settings-app-version" style={[st.meta, { textAlign: 'center' }]}>
+          catus {Application.nativeApplicationVersion ?? appManifest.version}
+        </Txt>
       </IslandSheet>
     );
   }

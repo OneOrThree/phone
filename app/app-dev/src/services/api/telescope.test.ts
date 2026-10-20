@@ -104,7 +104,7 @@ test('getTelescope — 잡지에서 넣은 섬의 홍보 칸(magazineCell)을 �
     },
   ]);
   const [withCell, broken, old] = (await getTelescope()).items;
-  assert.deepEqual(withCell.magazineCell, wireCell());
+  assert.deepEqual(withCell.magazineCell, { ...wireCell(), privateIsland: false });
   assert.equal(broken.magazineCell, null);
   assert.equal(old.magazineCell, null);
 });

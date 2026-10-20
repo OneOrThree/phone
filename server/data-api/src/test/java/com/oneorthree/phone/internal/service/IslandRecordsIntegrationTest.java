@@ -3,6 +3,13 @@ package com.oneorthree.phone.internal.service;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
+import com.oneorthree.phone.construction.repository.IslandWalletTransactionRepository;
+import com.oneorthree.phone.construction.repository.domain.IslandWalletTransaction;
+import com.oneorthree.phone.construction.repository.domain.IslandWalletTransactionType;
+import com.oneorthree.phone.focus.repository.FocusTutorialRewardRepository;
+import com.oneorthree.phone.focus.repository.domain.FocusTutorialReward;
+import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
+import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
@@ -55,6 +62,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -109,6 +117,12 @@ class IslandRecordsIntegrationTest {
     ScreenTimeObservationRepository observations;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    IslandWalletTransactionRepository walletTransactions;
+    @Autowired
+    FocusTutorialRewardRepository tutorialRewards;
+    @Autowired
+    EventOutboxRepository events;
 
     @BeforeEach
     void controlClock() {
@@ -139,6 +153,75 @@ class IslandRecordsIntegrationTest {
     }
 
     // ---------------------------------------------------------------- 집중
+
+    @Test
+    @DisplayName("일별 물고기는 KST 자정에서 실제 지급 건만 나누고 휴식·상한·황금 자기 몫·체험을 반영한다")
+    void earnedFishUsesKstPayoutInstants() {
+        Island island = island(true);
+        User user = resident(island.group);
+        User neighbor = resident(island.group);
+        UUID id = session(user, island.id, FocusSessionLifecycle.COMPLETED, t(D, "15:03:30"));
+        jdbc.update("UPDATE focus_session_details SET policy_revision = 1 WHERE session_id = ?", id);
+        // ACTIVE 1분 / REST 1분 / ACTIVE 3분. 지급 #1은 KST 전일, #3은 다음 날이다.
+        interval(id, 1, FocusIntervalKind.ACTIVE, t(D, "14:58:30"), t(D, "14:59:30"));
+        interval(id, 2, FocusIntervalKind.REST, t(D, "14:59:30"), t(D, "15:00:30"));
+        interval(id, 3, FocusIntervalKind.ACTIVE, t(D, "15:00:30"), t(D, "15:03:30"));
+        jdbc.update("INSERT INTO island_wallets (island_id, balance) VALUES (?, 0)", island.id);
+        for (int number : List.of(1, 3)) {
+            walletTransactions.saveAndFlush(IslandWalletTransaction.builder().islandId(island.id).amount(1)
+                    .type(IslandWalletTransactionType.CONTRIBUTION)
+                    .idempotencyKey("focus:" + id + ":" + number).build());
+        }
+        // #2·#4는 상한에 걸려 지급 원장이 없다. 시간을 나눠 계산하면 잘못 4마리가 된다.
+        tutorialRewards.saveAndFlush(FocusTutorialReward.builder().userId(user.getId()).sessionId(id)
+                .claimedAt(t(D, "14:59:59")).build());
+        events.saveAndFlush(EventOutbox.builder().eventId("golden-test:" + UUID.randomUUID())
+                .schemaVersion(1).type("focus.golden").occurredAt(t(D, "15:00:00"))
+                .userId(new UUID(0, 0)).aggregateType("ISLAND_GOLDEN_FISH")
+                .aggregateId(island.id.toString()).version(1).createdAt(t(D, "15:00:00"))
+                .params(Map.of("drawnAt", t(D, "15:00:00").toString(), "sharePerMember", 16,
+                        "members", List.of(Map.of("userId", user.getId().toString())))).build());
+        at(D.plusDays(1), "10:00:00");
+
+        assertThat(service.focus(user.getId(), island.id, D, D, "me", null, 0, "Asia/Seoul")
+                .earnedFish()).isEqualTo(2L);
+        assertThat(service.focus(user.getId(), island.id, D.plusDays(1), D.plusDays(1), "me", null, 0,
+                "Asia/Seoul").earnedFish()).isEqualTo(17L);
+        assertThat(service.focus(user.getId(), island.id, D, D, "me", null, 0, "UTC")
+                .earnedFish()).isEqualTo(19L);
+        assertThat(service.focus(neighbor.getId(), island.id, D, D.plusDays(1), "me", null, 0,
+                "Asia/Seoul").earnedFish()).isZero();
+    }
+
+
+    @Test
+    @DisplayName("지급 시각을 복원할 수 없는 보상도 원장 적립 시각의 KST 날짜에 한 번 집계한다")
+    void earnedFishFallsBackToLedgerTimeForIncompleteIntervals() {
+        Island island = island(true);
+        User user = resident(island.group);
+        UUID missing = session(user, island.id, FocusSessionLifecycle.COMPLETED, t(D, "14:59:59"));
+        UUID shortIntervals = session(user, island.id, FocusSessionLifecycle.COMPLETED, t(D, "15:00:01"));
+        jdbc.update("UPDATE focus_session_details SET policy_revision = 1 WHERE session_id IN (?, ?)",
+                missing, shortIntervals);
+        interval(shortIntervals, 1, FocusIntervalKind.ACTIVE, t(D, "14:59:30"), t(D, "14:59:45"));
+        jdbc.update("INSERT INTO island_wallets (island_id, balance) VALUES (?, 0)", island.id);
+        for (UUID id : List.of(missing, shortIntervals)) {
+            walletTransactions.saveAndFlush(IslandWalletTransaction.builder().islandId(island.id).amount(1)
+                    .type(IslandWalletTransactionType.CONTRIBUTION)
+                    .idempotencyKey("focus:" + id + ":1").build());
+            Instant creditedAt = id.equals(missing) ? t(D, "14:59:59") : t(D, "15:00:01");
+            jdbc.update("UPDATE island_wallet_transactions SET created_at = ? WHERE idempotency_key = ?",
+                    java.sql.Timestamp.from(creditedAt), "focus:" + id + ":1");
+        }
+        at(D.plusDays(1), "10:00:00");
+
+        assertThat(service.focus(user.getId(), island.id, D, D, "me", null, 0, "Asia/Seoul")
+                .earnedFish()).isEqualTo(1L);
+        assertThat(service.focus(user.getId(), island.id, D.plusDays(1), D.plusDays(1), "me", null, 0,
+                "Asia/Seoul").earnedFish()).isEqualTo(1L);
+        assertThat(service.focus(user.getId(), island.id, D, D, "me", null, 0, "UTC")
+                .earnedFish()).isEqualTo(2L);
+    }
 
     @Test
     @DisplayName("scope=me 는 개인 전체(섬 무관), scope=island 는 이 섬에 고정된 세션만 — UTC 자정에서 ACTIVE 만 나뉜다")

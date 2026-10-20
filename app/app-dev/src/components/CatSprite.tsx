@@ -14,6 +14,7 @@ import {
   CatMotionInput,
   catFrameAt,
   catFrameDelay,
+  catKeyPoses,
   catSequenceLength,
   isFrameAnimated,
   nextIdleBehavior,
@@ -26,6 +27,12 @@ export type { CatMotion, CatMotionInput } from './catMotion';
 export { INTERACTIVE_MOTION_CYCLES, interactiveMotionDurationMs };
 
 type MetricMotion = 'blink' | 'walking' | 'reading';
+type AnimatedNumber = Animated.Value | Animated.AnimatedInterpolation<number>;
+export type CatPoseTransform = readonly (
+  | { rotate: Animated.AnimatedInterpolation<string> }
+  | { scaleX: AnimatedNumber }
+  | { scaleY: AnimatedNumber }
+)[];
 type MotionMetric = { scale: number; footAnchor: readonly number[] };
 
 function metricFor(color: Color, motion: CatMotionInput): MotionMetric {
@@ -53,6 +60,8 @@ function useCatPlayback(
   paused: boolean,
   onFinish?: () => void,
   generation?: number,
+  keyed = false,
+  replayKey?: number,
 ) {
   const normalized = normalizeCatMotion(motion);
   const [frame, setFrame] = useState(0);
@@ -112,7 +121,23 @@ function useCatPlayback(
       timer = setTimeout(advance, catFrameDelay('blink'));
     };
 
-    if (normalized === 'idle') {
+    const keyPoses = keyed ? catKeyPoses(normalized) : undefined;
+    if (keyPoses) {
+      // 키 시점에만 셀을 바꾼다. focus 는 12초 반복, reel 은 한 번 재생 후 마지막 셀을 유지한다(완료 콜백 없음).
+      let index = 0;
+      const step = () => {
+        if (cancelled) return;
+        const [cell, holdMs] = keyPoses[index];
+        setFrame(cell);
+        index += 1;
+        if (index >= keyPoses.length) {
+          if (normalized !== 'focus') return;
+          index = 0;
+        }
+        timer = setTimeout(step, holdMs);
+      };
+      step();
+    } else if (normalized === 'idle') {
       let cycle = 0;
       const playIdle = () => {
         if (cancelled) return;
@@ -186,7 +211,7 @@ function useCatPlayback(
       cancelled = true;
       clearTimer();
     };
-  }, [color, normalized, paused, generation]);
+  }, [color, normalized, paused, generation, keyed, replayKey]);
 
   return { frame, effectiveMotion: normalized === 'idle' ? idleBehavior : normalized };
 }
@@ -201,6 +226,9 @@ export function CatSprite({
   anchored = true,
   onFinish,
   generation,
+  keyPoses = false,
+  replayKey,
+  poseTransform,
   testID,
 }: {
   color: Color;
@@ -212,11 +240,25 @@ export function CatSprite({
   anchored?: boolean;
   onFinish?: () => void;
   generation?: number;
+  /** focus·reel 을 움직임 검토실 키 포즈 시간표로 재생한다(낚시섬 FishingActor 전용). */
+  keyPoses?: boolean;
+  /** 바뀌면 같은 동작을 처음부터 다시 재생한다. generation(완료 콜백 계약)과 별개로 낚아올리기 사건마다 올린다. */
+  replayKey?: number;
+  /** 발 기준점에서 몸 전체에 거는 추가 변환(호흡·기울기). 좌우 반전 안쪽에 적용돼 방향을 따라간다. */
+  poseTransform?: CatPoseTransform;
   testID?: string;
 }) {
   const [appState, setAppState] = useState(AppState.currentState);
   const paused = reduce || reduceMotion || appState === 'background' || appState === 'inactive';
-  const { frame, effectiveMotion } = useCatPlayback(motion, color, paused, onFinish, generation);
+  const { frame, effectiveMotion } = useCatPlayback(
+    motion,
+    color,
+    paused,
+    onFinish,
+    generation,
+    keyPoses,
+    replayKey,
+  );
   const isTilting = effectiveMotion === 'tilt';
   const questionAnim = useRef(new Animated.Value(0)).current;
   // idle 도중 자세 아틀라스로 바뀌어도 부모가 잡은 기존 발 기준 영역은 유지한다.
@@ -230,7 +272,7 @@ export function CatSprite({
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
-    return () => subscription.remove();
+    return () => subscription?.remove();
   }, []);
 
   useEffect(() => {
@@ -312,7 +354,7 @@ export function CatSprite({
         top: anchored ? -anchorY : 0,
         overflow: 'visible',
         transformOrigin: [anchorX, anchorY, 0],
-        transform: [{ scaleX: left ? -1 : 1 }],
+        transform: [{ scaleX: left ? -1 : 1 }, ...(poseTransform ?? [])],
       }}
     >
       {isReadingAtlas || isIdleAtlas ? (

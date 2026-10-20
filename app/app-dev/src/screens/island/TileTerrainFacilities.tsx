@@ -18,7 +18,7 @@ export function TileTerrainFacilities({
   image,
   coastMask,
   atlas,
-  scale,
+  baseScale = 1,
   pressedFacility,
   reduceMotion,
   night,
@@ -26,7 +26,7 @@ export function TileTerrainFacilities({
   image: SkImage;
   coastMask?: SkImage | null;
   atlas: { sprites: SkRect[]; transforms: SkRSXform[] };
-  scale: number;
+  baseScale?: number;
   pressedFacility?: string | null;
   reduceMotion: boolean;
   night: boolean;
@@ -74,7 +74,7 @@ export function TileTerrainFacilities({
               origin={{ x: rect.x + rect.w / 2, y: rect.y + rect.h }}
               transform={
                 moving
-                  ? [{ translateY: tokens.pressOffset / scale }, { scale: tokens.pressScale }]
+                  ? [{ translateY: tokens.pressOffset / baseScale }, { scale: tokens.pressScale }]
                   : []
               }
             >
@@ -82,7 +82,7 @@ export function TileTerrainFacilities({
                 path={path}
                 style="stroke"
                 strokeJoin="round"
-                strokeWidth={(tokens.outlineWidth * 2) / scale}
+                strokeWidth={(tokens.outlineWidth * 2) / baseScale}
                 color={tokens.outline}
               />
               <Group clip={path}>
