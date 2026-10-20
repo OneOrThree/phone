@@ -1,5 +1,5 @@
 import { IslandOcean } from '@/screens/island/IslandOcean';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
   Animated,
@@ -17,13 +17,20 @@ import Svg, { Ellipse, Path } from 'react-native-svg';
 import { Text } from '@/design-system/typography';
 import { assets } from '@/constants/assets';
 import { art } from '@/constants/art';
-import { C } from '@/design-system/primitives';
+import { C, MotionContext } from '@/design-system/primitives';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
 import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
 import land from '@/constants/fishing-island.json';
 import { catchAssetPath } from '@/screens/focus/catchAssets';
+import {
+  FishingCatchMotion,
+  FishingFloatMotion,
+  FishingSceneActive,
+  LAB_CAT_PX,
+  useFishingPose,
+} from '@/screens/focus/FishingSceneMotion';
 
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
 // 땅 격자는 시안 land_mask 와 같은 50×50 칸(파란 칸 = 물).
@@ -81,6 +88,8 @@ const raftBounds = {
 };
 // fishing-rod.png 장축은 오른쪽 위를 향한다. 찌 방향에 맞추려면 이 기준축을 보정한다.
 const FISHING_ROD_AXIS_ANGLE = -Math.PI / 4;
+// 움직임 검토실 line(): 줄 처짐 52 × (1 - tension .24) LAB px 를 고양이(지도 폭 7.7%) 비율로 옮긴 지도 세로 % 값.
+const LINE_SAG = ((52 * (1 - 0.24)) / LAB_CAT_PX) * 7.7 * FISHING_MAP_ASPECT;
 export const LANDING = nearestLand(fishingGrid, { x: RAFT.x, y: RAFT.y - 6 });
 // 우리 섬에 축음기를 지었으면 낚시섬에도 한 대(지도 폭 6% · 시안 CSS 17:03). 낚시 자리·뗏목·올라오는 길을 피한 남동쪽 풀밭.
 export const GRAM = { x: 50, y: 70, w: 6 };
@@ -479,6 +488,7 @@ export function FishingIsland({
   goldenFish?: boolean;
 }) {
   const L = useAppLayout();
+  const reduceMotion = useContext(MotionContext);
   const [cam, setCam] = useState({ zoom: 1, x: focus.x, y: focus.y });
   // 상태가 바뀌면(도착·준비·집중·결과) 다시 내 자리를 보여 준다. 확대 배율은 유지.
   useEffect(() => setCam((c) => ({ ...c, x: focus.x, y: focus.y })), [focus.x, focus.y, ratio]);
@@ -611,7 +621,9 @@ export function FishingIsland({
               return (
                 <React.Fragment key={n}>
                   <Path
-                    d={`M ${start.x} ${start.y} L ${s.bx} ${s.by}`}
+                    d={`M ${start.x} ${start.y} Q ${(start.x + s.bx!) / 2} ${
+                      (start.y + s.by!) / 2 + LINE_SAG
+                    } ${s.bx} ${s.by}`}
                     fill="none"
                     stroke="#fff5db"
                     strokeWidth={0.14}
@@ -629,6 +641,18 @@ export function FishingIsland({
               );
             })}
         </Svg>
+        <FishingFloatMotion
+          active={!inert && !reduceMotion}
+          spots={spots
+            .filter((s) => s.bx != null)
+            .map((s, n) => ({
+              key: String(n),
+              x: (size * s.bx!) / 100,
+              y: (sizeY * s.by!) / 100,
+              face: s.face < 0 ? -1 : 1,
+              k: (size * 0.077) / LAB_CAT_PX,
+            }))}
+        />
         {goldenFish && (
           <Image
             source={art['fish/gold']}
@@ -705,7 +729,9 @@ export function FishingIsland({
             />
           </Pressable>
         )}
-        {children(size, sizeY, cam.zoom)}
+        <FishingSceneActive.Provider value={!inert}>
+          {children(size, sizeY, cam.zoom)}
+        </FishingSceneActive.Provider>
       </View>
       {overlay?.((p) => ({ x: left + (size * p.x) / 100, y: top + (sizeY * p.y) / 100 }), size)}
     </View>
@@ -830,9 +856,14 @@ export function FishingActor({
     setGoldenReeling(true);
     return afterForegroundMs(() => setGoldenReeling(false), 2000);
   }, [goldenFishCount, goldenCatchToken, reduce]);
+  const sceneActive = useContext(FishingSceneActive);
+  // 황금 물고기 reel 은 기존 100ms 반복 그대로 두고, 일반 낚시 연출(키 포즈·몸 변환·물보라)은 끈다.
+  const isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
+    keyed = isFishing && !goldenReeling,
+    catching = keyed && (motion === 'reel' || (motion == null && reeling));
+  const pose = useFishingPose({ active: keyed && !reduce && sceneActive, catching });
   const a = size * 0.077,
     face = spot.face,
-    isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
     direction = castAngle(spot),
     rodSize = a * 0.6,
     rodTipDistance = (a * castReach(spot)) / 7.7,
@@ -889,6 +920,8 @@ export function FishingActor({
         anchored={false}
         onFinish={onMotionFinish}
         generation={generation}
+        keyPoses={keyed}
+        poseTransform={keyed ? pose.body : undefined}
         testID="fishing-actor-cat"
       />
       {isFishing && (
@@ -908,6 +941,25 @@ export function FishingActor({
             ],
             transformOrigin: [rodSize * 0.96, rodSize * 0.04, 0],
           }}
+        />
+      )}
+      {catching && !reduce && sceneActive && spot.bx != null && spot.by != null && (
+        <FishingCatchMotion
+          reel={pose.reel}
+          k={a / LAB_CAT_PX}
+          face={face < 0 ? -1 : 1}
+          bob={{
+            x: (size * (spot.bx - spot.x)) / 100 + a / 2,
+            y: (sizeY * (spot.by - spot.y)) / 100 + a * 0.90625,
+          }}
+          home={
+            showsCatch && catchPlacement
+              ? {
+                  x: (catchPlacement.left + fishingCatchFrame.width / 2) * a,
+                  y: (catchPlacement.top + fishingCatchFrame.height / 2) * a,
+                }
+              : null
+          }
         />
       )}
       <View

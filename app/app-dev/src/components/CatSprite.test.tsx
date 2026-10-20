@@ -160,6 +160,44 @@ describe('CatSprite 재생 제어', () => {
     await view.unmount();
   });
 
+  it('keyPoses: focus 는 12초 중 3.1초·8.8초에만 표정을 바꾸고, reel 은 2초 안에 한 번 재생 후 멈춘다', async () => {
+    const view = await render(<CatSprite color="gray" motion="focus" keyPoses testID="cat" />);
+    const frameAt = async (ms: number) => {
+      await act(async () => jest.advanceTimersByTime(ms));
+      return view.getByTestId(/^cat-frame-/).props.testID;
+    };
+    expect(await frameAt(3_099)).toBe('cat-frame-0');
+    expect(await frameAt(1)).toBe('cat-frame-1');
+    expect(await frameAt(160)).toBe('cat-frame-2');
+    expect(await frameAt(220)).toBe('cat-frame-3');
+    expect(await frameAt(160)).toBe('cat-frame-0');
+    expect(await frameAt(5_159)).toBe('cat-frame-0');
+    expect(await frameAt(1)).toBe('cat-frame-1');
+    expect(await frameAt(6_299)).toBe('cat-frame-0');
+    expect(await frameAt(1)).toBe('cat-frame-1'); // 12초 뒤 다시 3.1초
+    expect(view.getByTestId('cat-frame-1').props.source).toBe(
+      cat('gray', 'fishing/fishing-frame-1'),
+    );
+
+    await view.rerender(<CatSprite color="gray" motion="reel" keyPoses testID="cat" />);
+    expect(view.getByTestId('cat-frame-0').props.source).toBe(cat('gray', 'fishing/reel-frame-0'));
+    const seen = [0];
+    for (const hold of [456, 400, 267, 337]) {
+      await act(async () => jest.advanceTimersByTime(hold));
+      seen.push(Number(view.getByTestId(/^cat-frame-/).props.testID.slice(-1)));
+    }
+    expect(seen).toEqual([0, 1, 2, 1, 3]);
+    await act(async () => jest.advanceTimersByTime(5_000));
+    expect(view.getByTestId('cat-frame-3')).toBeTruthy();
+
+    await view.rerender(
+      <CatSprite color="gray" motion="focus" keyPoses reduceMotion testID="cat" />,
+    );
+    await act(async () => jest.advanceTimersByTime(12_000));
+    expect(view.getByTestId('cat-frame-0')).toBeTruthy();
+    await view.unmount();
+  });
+
   it('Reduce Motion에서는 cast를 재생하지 않고 완료 콜백을 호출한다', async () => {
     const onFinish = jest.fn();
     const view = await render(
