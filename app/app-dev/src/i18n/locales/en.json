@@ -381,7 +381,15 @@
       "focusingNow": "{{count}} focusing on Fishing Island now",
       "quietNow": "Fishing Island is quiet right now",
       "focusingNowHint": "Tap to watch Fishing Island.",
-      "todayFocusVisitor": "Focus today {{time}}"
+      "todayFocusVisitor": "Focus today {{time}}",
+      "customize": "Customize my cat",
+      "friends": "Friends",
+      "friendsRequests": {
+        "one": "Friends, {{count}} pending request",
+        "other": "Friends, {{count}} pending requests"
+      },
+      "settings": "Settings",
+      "todayFocusWithClock": "Focus today {{clock}}"
     },
     "build": "Build {{building}}",
     "buildProgress": "{{current}}/{{total}} fish",
@@ -474,7 +482,14 @@
       "telescope": "Telescope",
       "myRaft": "My Raft",
       "endVisit": "End visit",
-      "moveBlocked": "You can't move to another island right now."
+      "moveBlocked": "You can't move to another island right now.",
+      "departureTitle": "Where shall we sail?",
+      "myIslands": "My islands",
+      "departSea": "Set sail",
+      "goFocus": "Start focusing",
+      "islandsTitle": "Which island?",
+      "visitedMember": "Joined and visited",
+      "noIslands": "No joined islands to travel to."
     }
   },
   "wardrobe": {

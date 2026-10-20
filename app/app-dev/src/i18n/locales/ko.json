@@ -372,7 +372,12 @@
       "focusingNow": "지금 {{count}}명이 낚시섬에서 집중 중",
       "quietNow": "지금 낚시섬은 조용해요",
       "focusingNowHint": "터치하면 낚시섬 구경으로 가요",
-      "todayFocusVisitor": "오늘 집중 {{time}}"
+      "todayFocusVisitor": "오늘 집중 {{time}}",
+      "customize": "내 고양이 꾸미기",
+      "friends": "친구",
+      "friendsRequests": "친구, 받은 요청 {{count}}개",
+      "settings": "설정",
+      "todayFocusWithClock": "오늘의 집중 {{clock}}"
     },
     "build": "{{building}} 짓기",
     "buildProgress": "{{current}}/{{total}} 마리",
@@ -450,7 +455,14 @@
       "telescope": "망원경",
       "myRaft": "내 뗏목",
       "endVisit": "구경 끝내기",
-      "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요."
+      "moveBlocked": "지금은 다른 섬으로 이동할 수 없어요.",
+      "departureTitle": "어디로 떠나볼까요?",
+      "myIslands": "소속 섬으로",
+      "departSea": "바다로 출항",
+      "goFocus": "집중하러 가기",
+      "islandsTitle": "어느 섬으로 갈까요?",
+      "visitedMember": "가 본 소속 섬",
+      "noIslands": "이동할 수 있는 소속 섬이 없어요."
     }
   },
   "wardrobe": {

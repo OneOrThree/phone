@@ -260,7 +260,7 @@ function Sheet({
 
 export function CurrentScreens({ e }: any) {
   const friendsRouteActive = e.route === 'friends' || e.route === 'friendSearch';
-  const friendsSafetyRouteActive = friendsRouteActive || e.route === 'boat';
+  const friendsSafetyRouteActive = friendsRouteActive || e.route === 'boat' || e.route === 'home';
   const serverIslands = e.islands;
   const dispatch = e.dispatch;
   const friendsScreen = useFriendsScreen({
@@ -587,7 +587,6 @@ function CurrentScreensContent({ e }: any) {
     return <InteriorRoute e={{ ...e, magazineToday: magazine.today }} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (r === 'raft') return <RaftDestinations e={e} />;
-  // TODO E1-4 먼바다 화면이 생기면 바다 담당이 이 임시 입구(뗏목 행선지 「망원경」)와 함께 정리한다
   if (r === 'telescope') return <Telescope e={e} />;
   if (r === 'promotionEditor') return <PromotionEditor e={e} />;
   // 섬에서 펼친 잡지 — 배경은 섬 홈(A4). 끝 쪽 「우리 섬도 실어 볼까요?」 안내는 내 섬 섬장만(쓰기 입구는 마을회관)

@@ -1261,7 +1261,7 @@ describe('en', () => {
     const state = initialState(true);
     const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
 
-    expect(screen.getByText('Focus today')).toBeTruthy();
+    expect(screen.getByText(/Focus today/)).toBeTruthy();
     expect(screen.getByLabelText('Raft')).toBeTruthy();
   });
 

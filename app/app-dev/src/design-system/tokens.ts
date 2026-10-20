@@ -186,6 +186,33 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  homeNavigation: {
+    background: `${color.paper}AD`,
+    border: `${color.brown}33`,
+    radius: radius.control,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    gap: space[2],
+    avatarSize: space[10],
+    titleSize: fontSize.md,
+    clockSize: 11,
+    iconSize: 22,
+    badgeSize: 16,
+  },
+  raftDestinations: {
+    imageWidth: 1024,
+    imageHeight: 1536,
+    landscape: { imageWidth: 1860, imageHeight: 845 },
+    imagePositionX: 0.9,
+    headerTop: space[10],
+    titleOffset: space[3],
+    titleSize: 19,
+    choiceSize: 21,
+    seaTop: 0.28,
+    focusTop: 0.505,
+    choiceInset: 0.04,
+    textShadow: color.paper,
+  },
   focusShield: { iconSize: 96 },
   loginButton: {
     // 카카오·Google/LINE·Apple 버튼이 같은 높이로 줄을 맞춘다. 최소 터치 영역(size.tapMin 44pt)보다 크다.
