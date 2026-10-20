@@ -1,3 +1,36 @@
+// V131·V132 — 집중 꾸미기 확률 보상 정책·90종 등록 데이터 (GROMO-2313).
+Table customization_reward_policies [note: '추첨 엔진 2301의 입력. 등록만으로 지급·장착이 활성화되지 않는다'] {
+  revision integer [pk, note: '> 0']
+  minimum_active_seconds integer [not null, note: '> 0, 1회 세션 기준']
+  rare_unlock_seconds integer [not null, note: 'minimum_active_seconds 이상']
+  legendary_unlock_seconds integer [not null, note: 'rare_unlock_seconds 이상']
+  time_half_seconds integer [not null, note: '> 0']
+  rare_max_bonus_ppm integer [not null, note: '0~1000000']
+  legendary_max_bonus_ppm integer [not null, note: '0~1000000']
+  rewards_per_eligible_session integer [not null, note: 'CHECK = 1']
+  duplicates_allowed boolean [not null, note: 'CHECK true']
+  location_weights jsonb [not null, note: 'ISLAND·SEA 각각 common/uncommon/rare/legendary 가중치']
+  category_weights jsonb [not null, note: '꾸미기 9분류의 양수 가중치']
+  source_workbook_sha256 char(64) [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table customization_reward_items [note: 'revision별 90종. 뗏목은 kind=decor, category로 6분류 보존. 원본 시트를 기존 정적 오버레이 API에 넣지 않는다'] {
+  revision integer [not null, ref: > customization_reward_policies.revision]
+  product_id varchar(80) [not null, ref: > catalog_assets.product_id]
+  source_asset_id varchar(80) [not null]
+  category varchar(10) [not null, note: 'head/neck/shoes/flag/mat/oar/cargo/lantern/canopy']
+  rarity varchar(10) [not null, note: 'common/uncommon/rare/legendary']
+  rarity_reason varchar(200) [not null]
+  render_data jsonb [not null, note: 'cat-fit-v1 또는 raft-fit-v1: 원본·크롭·동작 보정·배치']
+  sort_order integer [not null, note: '>= 0']
+  indexes {
+    (revision, product_id) [pk]
+    (revision, source_asset_id) [unique]
+    (revision, category, rarity) [name: 'idx_customization_reward_items_draw']
+  }
+}
+
 // Use DBML to define your database structure
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
