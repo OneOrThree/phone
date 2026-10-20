@@ -325,6 +325,20 @@ Data API also keeps `presence:focus:{userId}:closed` in that namespace — a sho
 "this session already ended" marker it uses to order its own writes. Chat never reads it,
 and it is a *different key* from the lease, so the `hasKey` check is unaffected.
 
+### 세션 폐기 운영 신호 (GROMO-2350)
+
+`auth.session.revoked` 는 수신 인스턴스가 Redis 내구 펜스를 쓰고 기존 팬아웃 채널(`chat:events:v1`)로 전 replica 에 퍼뜨려 각자 인메모리 펜스·캐시·세션 종료를 한다.
+
+| 신호 | 의미 | 조치 |
+| --- | --- | --- |
+| warn `폐기 세션 펜스 Redis 쓰기 실패`(`ChatUserFence`) · 지표 `realtime.session.revoked.fence{op=write,result=failed}` | 내구 펜스가 안 섰다 — 인메모리 펜스와 종료는 정상. 이 장애 중 재시작·팬아웃 유실이 겹치면 그 sid 의 CONNECT·REST 가 AT 만료까지 열린다 | Redis 상태 확인. **`>0` 이면 알림** |
+| warn `폐기 세션 펜스 조회 실패`(`ChatUserFence`) · `op=read,result=failed` | **fail-open** — CONNECT·REST 의 폐기 펜스가 꺼진 상태(프레임·SEND 인메모리 펜스는 유효) | Redis 복구. **`>0` 이면 알림** |
+| error `세션 폐기 팬아웃 발행 실패`(`RealtimeEventDelivery`) | 다른 replica 의 기존 세션이 AT 만료까지 살 수 있다(재연결·REST 는 Redis 펜스가 막는다) | Redis Pub/Sub 확인, 필요하면 사용자 재로그인 유도 |
+| warn `세션 폐기 사건에 userId/sessionId 가 없다`(`InboundEventService`) | Data 가 필드 없는 사건을 보냈다 — 200 + skip | Data 봉투 계약 점검 |
+| warn `팬아웃 봉투가 섬 사건도 세션 폐기도 아니다`(`RealtimeEventFanoutSubscriber`) | 반쪽 제어 필드·옛 발행자 봉투를 버렸다(롤링 배포 중 소량은 정상) | 지속되면 발행자 버전 확인 |
+| 소켓 종료 reason `SESSION_REVOKED`(1008) | 정상 — 폐기된 sid 의 연결을 닫았다 | — |
+| realtime 이 `/internal/events` 에 400/500 | 폐기 사건이 거절됐다 | data-api outbox 의 그 사용자 USER 축 행이 백오프 중인지 확인(A18 보류라 폐기하지 않고 재시도 — 그동안 탈퇴 전파가 늦어진다) |
+
 ## API surface
 
 The ticket (GROMO-292/293) predates the current conventions, so the endpoints were

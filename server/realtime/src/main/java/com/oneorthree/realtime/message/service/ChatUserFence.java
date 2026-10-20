@@ -6,6 +6,7 @@ import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.repository.ChatMessageRepository;
 import com.oneorthree.realtime.message.repository.ChatReadCursorRepository;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -42,6 +43,7 @@ public class ChatUserFence {
     private final ChatMessageRepository chatMessageRepository;
     private final Clock clock;
     private final StringRedisTemplate redis;
+    private final MeterRegistry meterRegistry;
 
     /**
      * 폐기된 로그인 세션(AT 의 {@code sid}) → 그 AT 가 만료되는 시각(GROMO-2350). 기본 인가 OFF 모드는 전달 직전 인가가 sid 를 보지
@@ -87,9 +89,19 @@ public class ChatUserFence {
                 // 내구 펜스는 보조다 — 인메모리 펜스와 즉시 종료(전 replica 팬아웃)가 주된 차단이다. 여기서 던지면 Redis 장애 동안 폐기 사건마다
                 // 500 → relay 백오프로 그 사용자 USER 축이 막힌다(읽기 fail-open 과도 상충). 대가: 이 장애 중 재시작·유실이 겹치면 그 sid 의
                 // CONNECT·REST 가 AT 만료까지 열린다.
+                fenceFailed("write");
                 log.warn("폐기 세션 펜스 Redis 쓰기 실패 — 인메모리 펜스로 계속한다. cause={}", e.getClass().getSimpleName());
             }
         }
+    }
+
+    /**
+     * Redis 내구 펜스 실패 계수 — {@code realtime.session.revoked.fence{op=read|write,result=failed}}.
+     * 읽기 실패는 fail-open(CONNECT·REST
+     * 펜스가 꺼진 상태), 쓰기 실패는 내구 펜스가 안 선 상태라 둘 다 0 보다 크면 알린다. 처음 실패할 때 계열이 생긴다.
+     */
+    private void fenceFailed(String op) {
+        meterRegistry.counter("realtime.session.revoked.fence", "op", op, "result", "failed").increment();
     }
 
     /** 이 JVM 의 인메모리 펜스만 올린다 — 팬아웃으로 전파를 받은 replica 용(Redis 는 수신 인스턴스가 한 번 썼다). 멱등: 더 늦은 만료만 남긴다. */
@@ -114,6 +126,7 @@ public class ChatUserFence {
         try {
             return sessionId != null && Boolean.TRUE.equals(redis.hasKey(RedisKeys.revokedSession(sessionId)));
         } catch (RuntimeException e) {
+            fenceFailed("read");
             log.warn("폐기 세션 펜스 조회 실패 — 폐기 아님으로 둔다. cause={}", e.getClass().getSimpleName());
             return false;
         }

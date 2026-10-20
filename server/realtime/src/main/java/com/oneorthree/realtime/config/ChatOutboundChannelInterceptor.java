@@ -148,7 +148,8 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry) {
         this(sessions, jwtValidator, accessGuard, delivery, objectMapper, blockedUsers, seaRooms, meterRegistry,
                 OutboundAuthzCache.disabled(), null,
-                new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), null));
+                new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), null,
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
     }
 
     private static Counter seaDropped(MeterRegistry registry, String reason) {

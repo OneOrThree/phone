@@ -81,7 +81,7 @@ class ChatMessageServiceTest {
     private final com.oneorthree.realtime.message.service.ChatUserFence fence =
             new com.oneorthree.realtime.message.service.ChatUserFence(null, null, null, Clock.systemUTC(),
                     org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class,
-                            org.mockito.Mockito.RETURNS_DEEP_STUBS));
+                            org.mockito.Mockito.RETURNS_DEEP_STUBS), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
     private ChatMessageService chatMessageService;
 

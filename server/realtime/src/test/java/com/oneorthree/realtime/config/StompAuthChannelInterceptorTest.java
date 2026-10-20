@@ -97,7 +97,7 @@ class StompAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         registry = new RealtimeSessionRegistry();
-        fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), redis);
+        fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), redis, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
                 movementSubscriptions, membershipService, seaRooms, meters, fence);
         userId = UUID.randomUUID();

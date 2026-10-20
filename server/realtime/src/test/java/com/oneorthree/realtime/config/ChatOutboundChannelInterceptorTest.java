@@ -317,7 +317,7 @@ class ChatOutboundChannelInterceptorTest {
         var redis = mock(org.springframework.data.redis.core.StringRedisTemplate.class);
         when(redis.opsForValue()).thenReturn(mock(org.springframework.data.redis.core.ValueOperations.class));
         var fence = new com.oneorthree.realtime.message.service.ChatUserFence(null, null, null,
-                java.time.Clock.systemUTC(), redis);
+                java.time.Clock.systemUTC(), redis, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         ChatOutboundChannelInterceptor guarded = new ChatOutboundChannelInterceptor(sessions, jwt, guard, delivery,
                 new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms, meters, OutboundAuthzCache.disabled(),
                 null, fence);
@@ -347,7 +347,7 @@ class ChatOutboundChannelInterceptorTest {
     private final ChatOutboundChannelInterceptor cached = new ChatOutboundChannelInterceptor(sessions, jwt, guard,
             delivery, new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms, meters, cache, membershipSource,
             new com.oneorthree.realtime.message.service.ChatUserFence(null, null, null,
-                    java.time.Clock.systemUTC(), null));
+                    java.time.Clock.systemUTC(), null, new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
 
     /** 캐시 켠 경로의 원본 만료 — 멤버십은 제한 없음, 차단은 같은 판정(hasBlocked 스텁)을 만료 제한 없이 돌려준다. */
     @BeforeEach

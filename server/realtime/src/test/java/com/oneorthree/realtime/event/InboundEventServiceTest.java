@@ -498,7 +498,7 @@ class InboundEventServiceTest {
         var decisions = mock(CurrentMembershipDecisionCache.class);
         var outbound = mock(OutboundAuthzCache.class);
         var registry = new RealtimeSessionRegistry();
-        ChatUserFence fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), redis);
+        ChatUserFence fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), redis, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         InboundEventService plain = new InboundEventService(plainJdbc, fence,
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
@@ -589,14 +589,14 @@ class InboundEventServiceTest {
         var deliveryA = new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
                 publishRedis, objectMapper, clock);
         var registryA = new RealtimeSessionRegistry();
-        var fenceA = new ChatUserFence(null, null, null, clock, redis);
+        var fenceA = new ChatUserFence(null, null, null, clock, redis, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         InboundEventService serviceA = new InboundEventService(plainJdbc, fenceA, mock(EventRouter.class),
                 mock(MembershipService.class), mock(BlockedUsers.class), mock(MovementSubscriptionListener.class),
                 mock(com.oneorthree.realtime.sea.SeaRooms.class), mock(CurrentMembershipDecisionCache.class),
                 mock(OutboundAuthzCache.class), registryA, new JwtValidator(SECRET), clock, deliveryA);
         // replica B — Redis 를 쓰지 않는 인메모리 펜스만 가진다(redis=null 이면 Redis 를 건드리는 순간 NPE 라 증명이 된다).
         var registryB = new RealtimeSessionRegistry();
-        var fenceB = new ChatUserFence(null, null, null, clock, null);
+        var fenceB = new ChatUserFence(null, null, null, clock, null, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         var outboundB = mock(OutboundAuthzCache.class);
         var deliveryB = new RealtimeEventDelivery(mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
                 publishRedis, objectMapper, clock);
@@ -673,12 +673,19 @@ class InboundEventServiceTest {
     void fenceRedisWriteFailureIsWarnedNotThrown() {
         StringRedisTemplate broken = mock(StringRedisTemplate.class);
         given(broken.opsForValue()).willThrow(new IllegalStateException("redis down"));
-        var fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), broken);
+        given(broken.hasKey(anyString())).willThrow(new IllegalStateException("redis down"));
+        var meters = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        var fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), broken, meters);
         UUID sid = UUID.randomUUID();
 
         fence.revokeSession(sid, java.time.Instant.now().plusSeconds(60));
 
         assertThat(fence.isRevoked(sid)).isTrue();
+        assertThat(fence.isRevokedDurable(UUID.randomUUID())).isFalse(); // 읽기 실패는 fail-open
+        assertThat(meters.counter("realtime.session.revoked.fence", "op", "write", "result", "failed").count())
+                .isEqualTo(1.0);
+        assertThat(meters.counter("realtime.session.revoked.fence", "op", "read", "result", "failed").count())
+                .isEqualTo(1.0);
     }
 
     @Test
@@ -686,9 +693,9 @@ class InboundEventServiceTest {
     void revokedSessionFenceSurvivesARestartUntilTheTtl() throws Exception {
         java.time.Clock clock = java.time.Clock.systemUTC();
         UUID sid = UUID.randomUUID();
-        new ChatUserFence(null, null, null, clock, redis).revokeSession(sid, clock.instant().plusMillis(800));
+        new ChatUserFence(null, null, null, clock, redis, new io.micrometer.core.instrument.simple.SimpleMeterRegistry()).revokeSession(sid, clock.instant().plusMillis(800));
 
-        ChatUserFence restarted = new ChatUserFence(null, null, null, clock, redis); // 인메모리 맵이 빈 새 인스턴스
+        ChatUserFence restarted = new ChatUserFence(null, null, null, clock, redis, new io.micrometer.core.instrument.simple.SimpleMeterRegistry()); // 인메모리 맵이 빈 새 인스턴스
         assertThat(restarted.isRevoked(sid)).isFalse(); // 프레임용 인메모리 검사는 모른다
         assertThat(restarted.isRevokedDurable(sid)).isTrue(); // CONNECT 용은 Redis 로 본다
         org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5))
