@@ -628,6 +628,7 @@ Semantic spacing:
 - 이동 중임과 목적지를 명확히 표시한다.
 - 모션이 끝나지 않아도 뒤로가기·중단·오류 같은 상태를 처리한다.
 - Reduce Motion에서는 의미를 유지한 축약 전환을 제공한다.
+- 출항 연출의 항적 막대·수면 고리 색과 막대 반경은 `componentTokens.sailing`(wake · ripple · wakeRadius)을 쓴다.
 
 동작 검증: `components/13-sailing/`, `runtime/sailing.js`, `runtime/sailing.css`
 
