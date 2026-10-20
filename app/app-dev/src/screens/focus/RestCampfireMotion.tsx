@@ -39,8 +39,10 @@ const FLAME_SEQUENCE = [1, 2, 3, 2] as const;
 
 /** 멤버별 고정 자세(재영님 N1 「사람마다 다르게」): 식별자 문자열 해시가 짝수면 식빵, 홀수면 책 읽기. */
 export function restPose(id: string): 'loaf' | 'read' {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  // FNV-1a + 끝 섞기 — h*31+c 의 최하위 비트는 문자 코드 패리티 합이라 비슷한 id 끼리 자세가 쏠렸다
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  h ^= h >>> 15;
   return h & 1 ? 'read' : 'loaf';
 }
 
@@ -54,8 +56,9 @@ export function useRestClock(still: boolean) {
     return () => subscription.remove();
   }, []);
   useEffect(() => {
-    t.setValue(0);
+    // 멈출 때는 값을 두고(iOS inactive 는 화면이 보여 0 자세로 튀면 안 된다), 다시 돌 때만 0 부터
     if (paused) return;
+    t.setValue(0);
     const loop = Animated.loop(
       Animated.timing(t, {
         toValue: LOOP,
@@ -168,15 +171,19 @@ export function RestCampfireBack({
         K={K}
         scale={pulse}
       />
+      {/* 덮개는 배경(1024) 좌표로 둔다. 검토실 값(302,320,330,220)은 구워진 돌 테두리보다 1.5배 커서 버렸다.
+          PIL 실측: 배경 돌 테두리 bbox (365,525)-(604,677) → fire.png(330×220, 돌이 가장자리까지 참)를
+          폭 240·비율 유지(160)로 아래 끝을 맞춘다. 구워진 불꽃 중 덮개 위로 남는 끝(493~529, 495~517)은
+          움직이는 불꽃이 덮는다. */}
       <Image
         source={firePit}
         accessible={false}
         style={{
           position: 'absolute',
-          left: 302 * K,
-          top: (320 + 120) * K,
-          width: 330 * K,
-          height: 220 * K,
+          left: 365 * at.s,
+          top: 517 * at.s,
+          width: 240 * at.s,
+          height: 160 * at.s,
         }}
       />
     </View>
@@ -374,6 +381,22 @@ const PAGE = (() => {
   return { inputRange, outputRange };
 })();
 
+// 호흡·미세 회전은 시계 t 만 입력이라 모든 고양이가 같은 노드를 쓴다(고양이 수만큼 interpolate 를 만들지 않는다)
+const breathCache = new WeakMap<Animated.Value, { scaleX: any; scaleY: any; rotate: any }>();
+function breathOf(t: Animated.Value) {
+  let b = breathCache.get(t);
+  if (!b) {
+    const breath = (x: number) => wave(x, 3, 0.7);
+    b = {
+      scaleX: curve(t, LOOP, 0.05, (v) => 1 - breath(v) * 0.005),
+      scaleY: curve(t, LOOP, 0.05, (v) => 1 + breath(v) * 0.012),
+      rotate: curve(t, LOOP, 0.05, (v) => wave(v, 2, 0.2) * 0.006, 'rad'),
+    };
+    breathCache.set(t, b);
+  }
+  return b;
+}
+
 /** 자리 하나의 고양이. 발(512 중 256,464)을 고정하고 호흡, 읽기는 미세 회전 + 책장 넘김을 더한다. */
 export function RestCat({
   t,
@@ -401,11 +424,8 @@ export function RestCat({
   const extent = n * metrics[color].reading.scale;
   const anim = useMemo(() => {
     if (still) return null;
-    const breath = (x: number) => wave(x, 3, 0.7);
     return {
-      scaleX: curve(t, LOOP, 0.05, (v) => 1 - breath(v) * 0.005),
-      scaleY: curve(t, LOOP, 0.05, (v) => 1 + breath(v) * 0.012),
-      rotate: curve(t, LOOP, 0.05, (v) => wave(v, 2, 0.2) * 0.006, 'rad'),
+      ...breathOf(t),
       page: t.interpolate({
         inputRange: PAGE.inputRange,
         outputRange: PAGE.outputRange.map((v) => -v * extent),
@@ -440,6 +460,7 @@ export function RestCat({
           style={{ width: n, height: n, transform: [{ scaleX: flip ? -1 : 1 }] }}
         />
       ) : (
+        // 책 읽기도 식빵과 같이 오른쪽 자리에서 반전한다. 셀 가운데(512 중 256)가 발 x 라 가운데 기준 반전은 발 앵커를 옮기지 않는다.
         <View
           style={{
             position: 'absolute',
@@ -448,6 +469,7 @@ export function RestCat({
             width: extent,
             height: extent,
             overflow: 'hidden',
+            transform: [{ scaleX: flip ? -1 : 1 }],
           }}
         >
           <Animated.Image
