@@ -7,7 +7,7 @@
  *  - `POST /islands/{id}/arrivals`   도착 기록(멱등, 본문 없음). `Idempotency-Key` 필수 — `PUT /me/current-island` 와
  *                                    같다: 키는 호출부가 의도당 한 번 만들고, 응답 유실 재시도는 같은 키로 보낸다.
  *                                    주민이면 서버가 현재 섬도 옮기고, 비주민은 기록만 한다(방문). 미존재·비공개 비주민은 404.
- *  - `POST /me/telescope/pins`       섬을 망원경에 넣는다(GROMO-2269 전망대 · 서버 GROMO-2268). `{ islandId, source }`,
+ *  - `POST /me/telescope/pins`       섬을 망원경에 넣는다(GROMO-2269 전망대 · 서버 GROMO-2268). `{ islandId, source, promotionId? }`,
  *                                    `Idempotency-Key` 불필요(이미 넣은 섬이면 200 으로 같은 본문). 5번째면 가장 오래된
  *                                    핀이 빠지고 `evicted` 로 온다. 없는·비공개 섬 404 `GROUP_NOT_FOUND` · 강퇴 섬 403
  *                                    `FORBIDDEN` · 내 소속 섬 409 `STATE_CONFLICT`.
@@ -149,13 +149,19 @@ export function arriveAtIsland(islandId: string, idempotencyKey: string): Promis
 
 /**
  * 섬을 망원경에 넣는다(GROMO-2269). 응답 유실 재시도가 안전하다 — 이미 넣은 섬은 서버가 같은 본문으로 답한다(첫 `source` 유지).
+ * 잡지 홍보 칸에서 넣으면 그 홍보 id(`promotionId`)도 싣는다(GROMO-2314, 서버 「잡지 경유」 집계).
  * 거절은 공개 오류 코드 그대로 올라간다: 없는·종료·비공개 섬 `GROUP_NOT_FOUND`, 강퇴 섬 `FORBIDDEN`(일반 권한 오류와 코드로는
  * 구분되지 않는다), 내 소속 섬 `STATE_CONFLICT`. 게스트도 넣을 수 있다.
  */
-export async function pinToTelescope(islandId: string, source: PinSource): Promise<PinResult> {
+export async function pinToTelescope(
+  islandId: string,
+  source: PinSource,
+  promotionId?: string,
+): Promise<PinResult> {
   const result = await request<PinResult>('/me/telescope/pins', {
     method: 'POST',
-    body: { islandId, source },
+    // 서버는 그 밖의 키를 거절한다 — promotionId 가 없으면 키째 뺀다(JSON 직렬화가 undefined 를 버린다)
+    body: { islandId, source, promotionId },
   });
   notifyTelescopeChanged();
   return result;

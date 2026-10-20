@@ -234,6 +234,7 @@ const titles: Record<Route, string> = {
   telescope: '망원경',
   sea: '먼바다',
   seaArrival: '먼바다',
+  seaMagazine: '고양이 잡지',
   promotionEditor: '우리 섬 홍보 쓰기',
   magazine: '고양이 잡지',
   mainIsland: '내 메인 섬 변경하기',

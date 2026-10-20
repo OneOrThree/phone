@@ -68,6 +68,10 @@ export function SeaPreview() {
   const [cooldown, setCooldown] = useState(0);
   const [emoteTTL, setEmoteTTL] = useState(0);
   const [landscape, setLandscape] = useState(false);
+  // 바다 잡지(GROMO-2314) — `stage=magazine` 이면 펠리컨 배달부터, 나중에·펼치기 뒤에는 뗏목 위 물건
+  const [magazine, setMagazine] = useState<'delivery' | 'unread' | 'read' | null>(() =>
+    query.get('stage') === 'magazine' ? 'delivery' : null,
+  );
   useEffect(() => {
     const timer = setInterval(() => {
       setVoyage((current) =>
@@ -253,6 +257,17 @@ export function SeaPreview() {
                   messageCooldownSeconds={cooldown}
                   rewardCatalog={fixtureCatalog}
                   onTelescope={() => setPreparing(true)}
+                  magazine={
+                    magazine && {
+                      issueNo: 20,
+                      delivery: magazine === 'delivery',
+                      received: magazine !== 'delivery',
+                      unread: magazine !== 'read',
+                      onShown: () => {},
+                      onOpen: () => setMagazine('read'),
+                      onLater: () => setMagazine('unread'),
+                    }
+                  }
                   onSignIn={() => setGuest(false)}
                   onFriendRequest={async () => {
                     await check();

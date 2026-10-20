@@ -34,6 +34,14 @@ https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
 - `seaRealtime.ts`의 `name=null`·`catColor=null` 폴백은 `???`·`gray`다. 서버 바다 member 계약에는 현재 appearance가 없어서 다른 참가자의 장착을 추측하거나 섬 주민 API로 우회 조회하지 않는다. 내 장착과 전달된 `outfit`은 기존 레이어로 합성하며 `undefined`·`null`은 모두 미장착이다.
 - 한국어·영어 문구와 공용 모달 스크롤·접근성 차단 규칙을 사용한다.
 
+## 고양이 잡지 (2314)
+
+- `CurrentScreens` 가 `sea` 라우트에서도 오늘 호(`useMagazineToday`)를 읽어 `e.magazineToday` 로 넘긴다. `SeaVoyageHost` 는 표류(`sea` · 세션 없음 · 출항 연출 아님) 중에만 `SeaScreen.magazine` 을 준다.
+- 펠리컨 배달 B1(`SeaMagazineDelivery`): 아직 받지 않은 오늘 호면 한 번 띄운다. 받음 `{place: SEA}` 와 `markDelivered` 는 실제로 뜬 순간(`onShown`)에만 — `SeaScreen` 이 다른 창(유저 카드·한마디·이모트·결과창) 때문에 미루는 동안은 적지 않는다. 그 사이 항해가 시작되거나 다른 곳에서 받았으면 띄울 차례를 거둔다. 「나중에 읽기」·안드로이드 뒤로가기(SeaScreen BackHandler, App 이 먼저 부르면 호스트 `backOverride`)는 `{place: SEA, deferred: true}`. 띄운 동안 장면을 모달로 숨기고 문구를 스크린리더에 한 번 알린다.
+- 뗏목 위 잡지 B3: 받은 호가 있으면 `SeaScene` 이 내 뗏목 오른쪽에 표지 물건(안 읽음 빨간 점)을 둔다. 가로 compact 에서는 뗏목 크기에 비례해 줄여 뗏목 옆에 나란히 둔다(누르는 자리 44 이상, 뗏목과 겹치지 않음). 꽂이·길게 누르기는 없다(`GET /me/magazine/issues` 를 부르지 않는다).
+- 펼치기는 라우트 `seaMagazine`(`seaRouteHeld` 에 포함 — 소속 섬 가드를 타지 않는다) → `MagazineReader place="SEA"`. 망원경 동그라미는 `pinToTelescope(id, 'magazine', promotionId)` 뒤 `e.replace('telescope')` 라 망원경 뒤로가기가 바다로 간다. 요청 중 잡지를 닫으면 이동하지 않고, 빠진 섬 토스트만 알린다.
+- 알려진 한계(범위 밖): 소속 섬이 없는 표류 유저가 망원경(바다 [망원경] · 잡지 동그라미 모두)으로 가면 App 의 소속 가드가 `telescope` 를 지키지 않아 섬 선택으로 보낸다. 기존 바다 [망원경] 버튼과 같은 동작이다.
+
 ## 서비스 연결 지점과 남은 작업
 
 2026-10-17 기준 main `725504d3c`에는 PR #1129·#1149가 통합돼 있다.

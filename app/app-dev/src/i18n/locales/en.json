@@ -894,7 +894,8 @@
       "noCells": "No promotions in this issue",
       "endTitle": "Want to feature your island?",
       "endBody": "Write it at the town hall. Apply between 7 AM and midnight to be in the next morning's issue",
-      "zoomClose": "Close large view"
+      "zoomClose": "Close large view",
+      "scopeEvicted": "{{name}} is leaving your telescope"
     },
     "rack": {
       "open": "Magazine rack",

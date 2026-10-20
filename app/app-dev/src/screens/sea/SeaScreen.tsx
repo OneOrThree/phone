@@ -13,6 +13,7 @@ import { SeaArrival, SeaParticipant, SeaVoyage, SeaEmote, seaEmotes, seaClock } 
 import { SeaScene } from './SeaScene';
 import { SeaRaft } from './SeaRaft';
 import { SeaArrivalResult } from './SeaArrivalResult';
+import { SeaMagazineDelivery } from './SeaMagazineDelivery';
 import { SeaRewardArt } from './seaRewardCatalog';
 import { art } from '@/constants/art';
 
@@ -33,6 +34,19 @@ export type SeaScreenProps = {
   /** 서버가 요청 생성을 확인하면 true. 로그인 안내·실패 처리는 호스트가 맡는다. */
   onFriendRequest?: (userId: string) => Promise<boolean>;
   rewardCatalog?: Readonly<Record<string, SeaRewardArt>>;
+  /**
+   * 오늘 고양이 잡지(GROMO-2314) — 표류 중에만 그린다. `delivery` 면 펠리컨 배달(B1)을 다른 창이 없을 때 화면 전체로 띄우고
+   * (실제로 뜬 순간 `onShown`), `received` 면 내 뗏목 옆에 잡지 물건(B3, 안 읽었으면 빨간 점)을 둔다. 바다에는 길게 누르기(꽂이)가 없다.
+   */
+  magazine?: {
+    issueNo: number;
+    delivery: boolean;
+    received: boolean;
+    unread: boolean;
+    onShown: () => void;
+    onOpen: () => void;
+    onLater: () => void;
+  } | null;
 } & (
   | { guest?: false; onSignIn?: () => void }
   // 게스트 여부가 동적이면 로그인 진입 경로도 반드시 함께 제공한다.
@@ -116,6 +130,10 @@ export function SeaScreen(props: SeaScreenProps) {
   const close = () => open(null);
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (delivery) {
+        magazine!.onLater();
+        return true;
+      }
       if (pending || result) return true;
       if (panel) {
         close();
@@ -141,7 +159,9 @@ export function SeaScreen(props: SeaScreenProps) {
         ? currentSelf
         : participants.find((person) => person.userId === panel.userId)
       : undefined;
-  const modal = !!result || !!panel;
+  const magazine = voyage ? null : props.magazine;
+  const delivery = !!magazine?.delivery && !result && !panel;
+  const modal = !!result || !!panel || delivery;
   const finish = (intent: 'disembark' | 'stop') => {
     if (voyage) run(() => props.onFinish(voyage.sessionId, intent), true);
   };
@@ -178,6 +198,11 @@ export function SeaScreen(props: SeaScreenProps) {
               setMessage(self.message || '');
               open('message');
             }}
+            magazine={
+              magazine?.received
+                ? { issueNo: magazine.issueNo, unread: magazine.unread, onOpen: magazine.onOpen }
+                : null
+            }
           >
             {(sceneHeight) =>
               voyage && (
@@ -292,6 +317,13 @@ export function SeaScreen(props: SeaScreenProps) {
           </View>
         </View>
       </View>
+      {delivery && (
+        <SeaMagazineDelivery
+          onShown={magazine!.onShown}
+          onOpen={magazine!.onOpen}
+          onLater={magazine!.onLater}
+        />
+      )}
       {!!result && (
         <SeaArrivalResult
           result={result}
