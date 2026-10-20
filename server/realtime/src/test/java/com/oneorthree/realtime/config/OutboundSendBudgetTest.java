@@ -98,8 +98,10 @@ class OutboundSendBudgetTest {
         start();
         WebSocketSession mover = socket("mover");
         List<Thread> closeThreads = new CopyOnWriteArrayList<>();
+        CountDownLatch closeRecorded = new CountDownLatch(1);
         org.mockito.Mockito.doAnswer(invocation -> {
             closeThreads.add(Thread.currentThread());
+            closeRecorded.countDown(); // 기록한 «뒤» — verify(timeout) 성공은 이 본문의 완료를 보장하지 않는다
             return null;
         }).when(mover).close(OutboundSendBudget.QUEUE_FULL);
         String movement = "/topic/islands/" + UUID.randomUUID() + "/movement";
@@ -109,6 +111,7 @@ class OutboundSendBudgetTest {
 
         assertThat(channel.send(frame("mover", movement))).isTrue();
         verify(mover, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+        assertThat(closeRecorded.await(2, TimeUnit.SECONDS)).isTrue();
         // 시간 대신 구조로 «호출 스레드에서 돌지 않음»을 본다 — close 는 전용 풀, 핸들러는 실행기 워커에서만 돈다.
         assertThat(closeThreads).singleElement().satisfies(thread -> {
             assertThat(thread.getName()).isEqualTo("realtime-outbound-close");
@@ -128,12 +131,15 @@ class OutboundSendBudgetTest {
         WebSocketSession hog = socket("hog");
         WebSocketSession overflow = socket("overflow");
         List<String> order = new CopyOnWriteArrayList<>();
+        CountDownLatch bothClosed = new CountDownLatch(2);
         org.mockito.Mockito.doAnswer(invocation -> {
             order.add("hog");
+            bothClosed.countDown();
             return null;
         }).when(hog).close(OutboundSendBudget.QUEUE_FULL);
         org.mockito.Mockito.doAnswer(invocation -> {
             order.add("overflow");
+            bothClosed.countDown();
             return null;
         }).when(overflow).close(OutboundSendBudget.QUEUE_FULL);
         String chat = "/topic/groups/" + UUID.randomUUID();
@@ -145,6 +151,7 @@ class OutboundSendBudgetTest {
 
         verify(overflow, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
         verify(hog).close(OutboundSendBudget.QUEUE_FULL);
+        assertThat(bothClosed.await(2, TimeUnit.SECONDS)).isTrue();
         assertThat(order).containsExactly("hog", "overflow");
         assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isEqualTo(1.0);
         assertThat(meters.counter("realtime.outbound.closed", "selected", "overflow").count()).isEqualTo(1.0);
@@ -210,6 +217,26 @@ class OutboundSendBudgetTest {
         assertThat(meters.counter("realtime.outbound.dropped", "reason", "queue_full").count()).isEqualTo(2.0);
         assertThat(meters.counter("realtime.outbound.closed", "selected", "overflow").count()).isEqualTo(1.0);
         assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isZero();
+    }
+
+    @Test
+    @DisplayName("이미 끊긴 세션의 거부는 선별하지 않는다 — 종료 ACK 가 거부돼도 다른 세션이 연쇄로 닫히지 않는다")
+    void rejectionOfADisconnectedSessionClosesNobody() throws Exception {
+        start();
+        WebSocketSession gone = socket("gone");
+        WebSocketSession healthy = socket("healthy");
+        String chat = "/topic/groups/" + UUID.randomUUID();
+        channel.send(frame("healthy", chat)); // 실행 중(막힘)
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        channel.send(frame("healthy", chat)); // 큐 — 가득
+        sessions.closed("gone"); // 소켓 종료 콜백이 먼저 끝났다
+        channel.send(frame("gone", chat)); // 브로커의 DISCONNECT_ACK 가 거부된다
+
+        Thread.sleep(100); // closer 가 아무것도 하지 않음을 확인할 시간
+        verify(healthy, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
+        verify(gone, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
+        assertThat(budget.isClosing("gone")).isFalse();
+        assertThat(meters.counter("realtime.outbound.dropped", "reason", "queue_full").count()).isEqualTo(1.0);
     }
 
     @Test

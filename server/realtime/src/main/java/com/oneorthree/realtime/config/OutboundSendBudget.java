@@ -227,7 +227,10 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         String sessionId = message == null ? null : SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
         // 이미 종료 예약된 세션의 뒤늦은 거부(같은 세션의 동시 송신이 preSend 를 먼저 통과했다)는 추가 대상을 고르지 않는다 —
         // 고르면 프레임을 잃지 않은 정상 세션이 연쇄로 닫힌다. add 가 원자적이라 동시 거부 중 하나만 fresh 다.
-        boolean fresh = sessionId != null && closing.add(sessionId);
+        // 이미 끊긴 세션의 거부도 선별하지 않는다 — 소켓 종료 콜백(closed)이 먼저 끝나 예약이 지워진 뒤 브로커의 DISCONNECT_ACK 가
+        // 포화 큐에서 거부되면 «새 거부»로 보여 다른 세션을 가해자로 닫고, 그 종료 ACK 가 또 거부돼 연쇄된다. 끊긴 세션은
+        // closing 에 넣지도 않는다(넣으면 closer 가 헛도는 close 를 한다).
+        boolean fresh = sessionId != null && sessions.isConnected(sessionId) && closing.add(sessionId);
         // 최대 점유자는 넘친 세션을 «포함해» 고른다 — 거부된 프레임도 그 세션이 잡으려 한 몫이라 센 채로 비교하고(장식기가 이미
         // +1 했다), 비교 «뒤에» 뺀다. 동률이면 넘친 세션이 이긴다(정상 세션을 불필요하게 닫지 않는다).
         String heaviest = fresh ? heaviest(sessionId) : null;
