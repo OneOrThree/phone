@@ -43,6 +43,17 @@ jest.mock('@/screens/world/WorldViews', () => ({
   },
 }));
 
+jest.mock('@/screens/world/DepartureStory', () => ({
+  DepartureStory: ({ destination, onComplete }: any) => {
+    const { Pressable, Text } = require('react-native');
+    return (
+      <Pressable testID="departure-story" onPress={onComplete}>
+        <Text>{destination}</Text>
+      </Pressable>
+    );
+  },
+}));
+
 const isl = (id: string, name: string, extra: object = {}) => ({
   id,
   name,
@@ -321,6 +332,7 @@ test('가입 신청을 이미 낸 사람은 membershipStatus 가 아직 none 이
   const end = visitEnv({ joinRequest: request });
   const endScreen = await renderMembers(end);
   await pressSea(endScreen);
+  await fireEvent.press(endScreen.getByTestId('departure-story'));
   expect(end.confirm).not.toHaveBeenCalled();
   expect(end.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
   expect(end.reset).toHaveBeenCalledWith('sea');
@@ -350,6 +362,8 @@ test('소속 섬이 없어도 방문 중에는 「구경 끝내기」가 있어 
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'VISIT_LEAVE_ASKED' });
   expect(e.reset).not.toHaveBeenCalled();
   await act(async () => e.confirm.mock.calls[0][2]());
+  expect(e.reset).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('departure-story'));
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
   expect(e.reset).toHaveBeenCalledWith('sea');
   expect(e.state.visitingIslandId).toBeNull();
@@ -364,6 +378,8 @@ test('현재 섬이 있으면 「구경 끝내기」는 home 으로 간다(이�
   const screen = await renderMembers(e);
   await pressSea(screen);
   expect(e.confirm).not.toHaveBeenCalled();
+  expect(e.reset).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('departure-story'));
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
   expect(e.reset).toHaveBeenCalledWith('sea');
 });
@@ -383,6 +399,7 @@ test('방문 스냅샷이 구경 중인 섬과 다르면 가입 여부를 알 �
 
   const again = await renderMembers(e);
   await pressSea(again);
+  await fireEvent.press(again.getByTestId('departure-story'));
   expect(e.confirm).not.toHaveBeenCalled();
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
   expect(e.reset).toHaveBeenCalledWith('sea');
@@ -541,4 +558,18 @@ test('현재 섬의 도착 이력 동기화가 늦어도 홈으로 돌아갈 길
   await fireEvent.press(screen.getByText('하나섬으로'));
   expect(e.reset).toHaveBeenCalledWith('home');
   expect(e.islands.switchCurrent).not.toHaveBeenCalled();
+});
+
+test('바다 출항은 세 컷 완료 전에는 머물고 뒤로가기를 막은 뒤 먼바다로 이어진다', async () => {
+  const e = env();
+  const screen = await render(<RaftDestinations e={e} />);
+  await pressSea(screen);
+  expect(e.reset).not.toHaveBeenCalled();
+  expect(screen.queryByText('어디로 떠나볼까요?')).toBeNull();
+  expect(e.backOverride.current?.()).toBe(true);
+  await fireEvent.press(screen.getByTestId('departure-story'));
+  expect(e.reset).toHaveBeenCalledTimes(1);
+  expect(e.reset).toHaveBeenCalledWith('sea');
+  await screen.unmount();
+  expect(e.backOverride.current).toBeNull();
 });

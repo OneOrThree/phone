@@ -63,7 +63,6 @@ export function SeaPreview() {
   const [reward, setReward] = useState<'duck' | 'none' | 'unknown' | 'unconfirmed'>('duck');
   const [preparing, setPreparing] = useState(false);
   const [departing, setDeparting] = useState(false);
-  const [hasDepartedBefore, setHasDepartedBefore] = useState(false);
   const [visited, setVisited] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [emoteTTL, setEmoteTTL] = useState(0);
@@ -233,10 +232,8 @@ export function SeaPreview() {
               {departing ? (
                 <SeaDeparture
                   state={state}
-                  hasDepartedBefore={hasDepartedBefore}
                   onComplete={() => {
                     setDeparting(false);
-                    setHasDepartedBefore(true);
                   }}
                 />
               ) : visited ? (

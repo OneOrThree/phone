@@ -4,12 +4,23 @@
 // `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로챈다. 이 가로채기가 지워지면
 // 번역되지 않은 `Screens.tsx` 분기가 다시 살아나 한국어 문자열이 영어 빌드에 섞여 나온다.
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer, type Route, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 import { getTelescope } from '@/services/api/telescope';
+
+jest.mock('@/screens/world/DepartureStory', () => ({
+  DepartureStory: ({ destination, onComplete }: any) => {
+    const { Pressable, Text } = require('react-native');
+    return (
+      <Pressable testID="departure-story" onPress={onComplete}>
+        <Text>{destination}</Text>
+      </Pressable>
+    );
+  },
+}));
 
 // 가로채기 고정 대상: RedesignScreens 를 호출 기록용 가짜로 바꾸되 나머지 export 는 실제 구현을 유지한다.
 jest.mock('@/screens/island/Screens', () => {
@@ -133,7 +144,7 @@ const serverFocusState = (): State => {
   return state;
 };
 
-const mount = async (route: Route, state: State = serverFocusState()) =>
+const mount = async (route: Route, state: State = serverFocusState(), extra: object = {}) =>
   render(
     <CurrentScreens
       e={{
@@ -152,6 +163,7 @@ const mount = async (route: Route, state: State = serverFocusState()) =>
         setText: jest.fn(),
         setGuideStep: jest.fn(),
         islands: {},
+        ...extra,
       }}
     />,
   );
@@ -260,5 +272,16 @@ test('망원경 라우트는 자리표시가 아니라 망원경 화면이 가�
   await screen.findByText('지금은 보이는 섬이 없어요');
   expect(getTelescope).toHaveBeenCalledTimes(1);
   expect(redesignScreensMock).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+test('집중섬 출발도 공통 세 컷을 마친 뒤 기존 자리 선택 흐름으로 이어진다', async () => {
+  const replace = jest.fn();
+  const screen = await mount('focusTravel', serverFocusState(), { replace });
+  expect(screen.getByTestId('departure-story')).toBeTruthy();
+  expect(replace).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('departure-story'));
+  expect(replace).toHaveBeenCalledTimes(1);
+  expect(replace).toHaveBeenCalledWith('fishingArrival');
   await screen.unmount();
 });
