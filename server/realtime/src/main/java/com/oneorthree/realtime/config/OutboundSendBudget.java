@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.config;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
@@ -49,8 +50,11 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  * outbox 를 치운다). 세션을 살려 둔 채 한 건을 빼먹으면 채팅은 구멍이, 이동은 순서·상태 어긋남이 남는다.
  *
  * <p><b>가해 세션을 먼저 닫는다.</b> 큐는 전역 하나라 넘친 프레임의 세션이 꼭 가해자는 아니다 — 느린 소켓 하나가 큐를 채우면
- * 멀쩡한 세션이 넘침을 맞는다. 그래서 세션별 대기 프레임 수(실행 중 포함)를 세어 두고, 거부되면 <b>가장 많이 점유한 세션(종료
- * 예약 제외)을 먼저</b> 닫은 뒤 넘친 세션도 닫는다(둘 다 잃은 프레임은 재연결 복구). 세는 곳은 실행기의 작업 장식기다 —
+ * 멀쩡한 세션이 넘침을 맞는다. 그래서 세션별 대기 프레임 수(실행 중 포함)를 세어 두고, 첫 거부({@code isConnected &&
+ * closing.add})에서 <b>연결된 세션 중 가장 많이 점유한 세션</b>(넘친 세션 포함, 동률이면 넘친 세션 — 이땐 {@code overflow}
+ * 만 센다)을 먼저 닫은 뒤 넘친 세션도 닫는다(둘 다 잃은 프레임은 재연결 복구). 가해자는 <b>한 번에 하나</b>(단일 슬롯 CAS)이고
+ * 소켓 종료 콜백이 슬롯을 풀며 콜백이 안 오면 10초 뒤 만료된다 — 슬롯이 차 있는 동안의 거부는 넘친 세션만 닫는다. 세는 곳은
+ * 실행기의 작업 장식기다 —
  * 인터셉터의 {@code preSend}/{@code beforeHandle} 쌍은 앞선 인터셉터가 프레임을 버리면 {@code beforeHandle} 이 안 불려 샌다.
  * 장식기는 Spring 이 작업을 실행기에 넣는 «그 순간» 한 번 세고, 작업이 끝나거나 거부되면 반드시 뺀다.
  *
@@ -85,7 +89,9 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  *       시간({@code send-time-limit-ms})·버퍼({@code send-buffer-size-limit-bytes}) 상한 초과로 닫힌 세션이다. Spring 은 둘을
  *       같은 4500 {@code SESSION_NOT_RELIABLE} 로 닫아 구분할 수 없다(CONNECT 없이 60초 지난 세션 정리도 같은 코드다).</li>
  *   <li>{@code realtime.outbound.closed{selected=offender|overflow}} — 포화로 닫은 세션. {@code offender} 는 최대 점유
- *       세션(먼저), {@code overflow} 는 넘친 프레임의 세션. 최대 점유 세션이 곧 넘친 세션이면 {@code overflow} 만 센다.</li>
+ *       세션(먼저), {@code overflow} 는 넘친 프레임의 세션(종료 ACK 를 잃은 세션 포함). 최대 점유 세션이 곧 넘친 세션이면
+ *       {@code overflow} 만 센다.</li>
+ *   <li>{@code realtime.outbound.offender.pending} — 가해자를 선점한 순간 그 세션의 대기 프레임 수 분포.</li>
  *   <li>{@code realtime.outbound.send{destination_kind=chat|movement|events|sea|other}} — 실행기가 꺼낸 뒤 소켓
  *       핸들러가 프레임을 쓰는 시간. 이 인터셉터가 체인 «맨 뒤»라 전달 직전 인가 시간은 들어가지 않는다.</li>
  * </ul>
@@ -111,6 +117,7 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     private final Counter closingDropped;
     private final Counter closedOffender;
     private final Counter closedOverflow;
+    private final DistributionSummary offenderPending;
     /** 세션별 대기(실행 중 포함) 프레임 수 — 0 이 되면 항목을 지운다. */
     private final Map<String, Integer> pending = new ConcurrentHashMap<>();
     private final Map<String, Timer> sendTimers;
@@ -153,6 +160,9 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         this.closingDropped = dropped("closing");
         this.closedOffender = closedCounter("offender");
         this.closedOverflow = closedCounter("overflow");
+        this.offenderPending = DistributionSummary.builder("realtime.outbound.offender.pending")
+                .description("선점 때 가해자의 대기 프레임 수 — queue-capacity 의 큰 비중이면 느린 수신자 한 명, 작고 반복되면 전역 포화")
+                .register(meterRegistry);
         this.sendTimers = KINDS.stream().collect(Collectors.toUnmodifiableMap(kind -> kind,
                 kind -> Timer.builder("realtime.outbound.send").tag("destination_kind", kind)
                         .description("아웃바운드 프레임의 소켓 쓰기 시간").publishPercentileHistogram()
@@ -280,6 +290,10 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         }
         if (claimed != null) {
             closedOffender.increment();
+            Integer waiting = pending.get(heaviest);
+            if (waiting != null) {
+                offenderPending.record(waiting);
+            }
             victims.add(heaviest);
             log.warn("아웃바운드 큐 포화 — 최대 점유 세션을 닫는다. pending={}", pending.get(heaviest));
         }

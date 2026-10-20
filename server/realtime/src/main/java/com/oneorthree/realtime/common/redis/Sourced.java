@@ -61,7 +61,7 @@ public record Sourced<T>(T value, long expiresAtNanos) {
         long readStart = System.nanoTime();
         List<Object> read = redis.execute(GET_WITH_PTTL, List.of(keys));
         if (read == null || read.size() != keys.length + 1) {
-            throw new IllegalStateException("캐시 읽기 스크립트 응답이 비었다");
+            throw new IllegalStateException("캐시 읽기 스크립트 응답이 비었거나 키 수와 안 맞는다");
         }
         List<String> values = new ArrayList<>(keys.length);
         values.add(String.valueOf(read.get(0)));

@@ -155,6 +155,10 @@ class OutboundSendBudgetTest {
         assertThat(order).containsExactly("hog", "overflow");
         assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isEqualTo(1.0);
         assertThat(meters.counter("realtime.outbound.closed", "selected", "overflow").count()).isEqualTo(1.0);
+        io.micrometer.core.instrument.DistributionSummary pendingAtClaim =
+                meters.get("realtime.outbound.offender.pending").summary();
+        assertThat(pendingAtClaim.count()).isEqualTo(1);
+        assertThat(pendingAtClaim.totalAmount()).as("선점 때 hog 의 대기 수 = 실행 중 1 + 큐 1").isEqualTo(2.0);
     }
 
     @Test
