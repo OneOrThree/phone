@@ -25,6 +25,7 @@ export const primitiveTokens = {
     dangerSurface: '#F4C0C0',
     dangerSoft: '#F7E9E3',
     success: '#3FB6A0',
+    focusInk: '#286856',
     letter: '#FFF0CF',
     letterBorder: '#E7CF9A',
     controlIdle: '#D9C6B8',
@@ -198,6 +199,12 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  seaParticipant: {
+    focusInk: color.focusInk,
+    clockBackground: `${color.paper}E6`,
+    cardRaftSize: 192,
+    cardMaxWidth: 354,
+  },
   departureStory: {
     background: color.paper,
     imageWidth: 1472,

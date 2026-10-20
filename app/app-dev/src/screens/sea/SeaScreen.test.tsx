@@ -4,8 +4,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SeaScreen, SeaScreenProps } from './SeaScreen';
 import { SeaArrival, SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel';
 import { duckPreviewArt } from './seaRewardCatalog';
+import { SeaRaft } from './SeaRaft';
+import { applyLocalePref } from '@/i18n';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
+jest.mock('./SeaRaft', () => ({ SeaRaft: jest.fn(() => null) }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: jest.fn(() => ({ top: 0, bottom: 0, left: 0, right: 0 })),
 }));
@@ -36,6 +39,107 @@ const props = (): SeaScreenProps => ({
   onTelescope: jest.fn(),
   onMessage: jest.fn(async () => {}),
   onEmote: jest.fn(async () => {}),
+  onFriendRequest: jest.fn(async () => true),
+});
+
+test('유저 카드는 고양이·장착 정보·집중 시간·한마디 전체와 친구 요청을 표시한다', async () => {
+  const p = props();
+  const person: SeaParticipant = {
+    ...people[1],
+    color: 'calico',
+    activeSeconds: 3661,
+    message: '오늘도 내 속도로 한 걸음씩 가보자!',
+    outfit: { head: 'hat', neck: null, shoes: undefined },
+  };
+  const screen = await render(<SeaScreen {...p} participants={[people[0], person]} />);
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  expect(screen.getByText(person.message!)).toBeTruthy();
+  expect(screen.getByText('집중 시간')).toBeTruthy();
+  expect(screen.getByText('01:01:01')).toBeTruthy();
+  expect(SeaRaft).toHaveBeenLastCalledWith(
+    expect.objectContaining({ color: 'calico', focusing: true, outfit: person.outfit }),
+    undefined,
+  );
+  expect(screen.queryByLabelText('차단하기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  expect(p.onFriendRequest).toHaveBeenCalledWith('1');
+  expect(screen.getByLabelText('친구 요청 보냄')).toBeDisabled();
+  await fireEvent.press(screen.getByLabelText('친구 요청 보냄'));
+  expect(p.onFriendRequest).toHaveBeenCalledTimes(1);
+});
+
+test('친구 요청 중에는 중복 탭·카드 닫기를 막고 실패 후 다시 요청할 수 있다', async () => {
+  let finish!: (ok: boolean) => void;
+  const p = props();
+  p.onFriendRequest = jest.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const screen = await render(<SeaScreen {...p} />);
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  await fireEvent.press(screen.getByLabelText('처리 중…'));
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  expect(p.onFriendRequest).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId('sea-participant-avatar')).toBeTruthy();
+  await act(async () => finish(false));
+  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  await act(async () => finish(true));
+  expect(screen.getByLabelText('친구 요청 보냄')).toBeDisabled();
+});
+
+test('본인에게는 친구 요청이 없고 참가자가 떠나면 카드의 친구 요청도 없어진다', async () => {
+  const p = props();
+  const screen = await render(<SeaScreen {...p} />);
+  await fireEvent.press(screen.getByLabelText('내 뗏목'));
+  expect(screen.queryByLabelText('친구 요청')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  await screen.rerender(
+    <SeaScreen {...p} participants={people.filter((person) => person.userId !== '1')} />,
+  );
+  expect(screen.getByText('바다를 떠난 고양이예요')).toBeTruthy();
+  expect(screen.queryByLabelText('친구 요청')).toBeNull();
+});
+
+test('게스트의 친구 요청은 로그인으로 이어지고 이전 계정의 늦은 성공을 적용하지 않는다', async () => {
+  const p = props();
+  const signIn = jest.fn();
+  const screen = await render(<SeaScreen {...p} guest onSignIn={signIn} />);
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  expect(signIn).toHaveBeenCalledTimes(1);
+  expect(p.onFriendRequest).not.toHaveBeenCalled();
+  let finish!: (ok: boolean) => void;
+  p.onFriendRequest = jest.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await screen.rerender(<SeaScreen {...p} />);
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  const next = { ...p, self: { ...p.self, userId: 'new-account' } };
+  await screen.rerender(<SeaScreen {...next} />);
+  await act(async () => finish(true));
+  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
+});
+
+test('친구 요청 버튼과 집중 시간은 영어 설정도 따른다', async () => {
+  applyLocalePref('en');
+  try {
+    const screen = await render(<SeaScreen {...props()} />);
+    await fireEvent.press(screen.getByTestId('sea-person-1'));
+    expect(screen.getByText('Focus time')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Add friend'));
+    expect(screen.getByLabelText('Request sent')).toBeDisabled();
+  } finally {
+    applyLocalePref('ko');
+  }
 });
 
 test.each([1, 5, 10])('%i명 방은 자기 자신을 제외한 모든 사람에게 도달할 수 있다', (count) => {

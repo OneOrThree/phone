@@ -1038,7 +1038,12 @@
     "nextTier": "다음 단계까지 {{minutes}}분",
     "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
     "welcomeTitle": "환영해요!",
-    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요."
+    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요.",
+    "focusTime": "집중 시간",
+    "requestFriend": "친구 요청",
+    "friendRequested": "친구 요청 보냄",
+    "friendExists": "이미 친구이거나 보낸 요청이 있어요.",
+    "friendUnavailable": "친구 요청을 보낼 수 없는 상대예요."
   },
   "safety": {
     "blockTitle": "차단하기",
