@@ -327,6 +327,8 @@
     "memberConverted": "회원으로 전환했어요.",
     "restoreFailed": "저장된 상태를 불러오지 못했어요.",
     "storageCheck": "기기 저장 공간을 확인해 주세요.",
+    "kickedFrom": "「{{island}}」에서 더 이상 함께할 수 없게 되었어요.",
+    "kicked": "섬에서 더 이상 함께할 수 없게 되었어요.",
     "build": {
       "confirmTitle": "{{building}} 짓기",
       "confirmBody": "섬 물고기 {{cost}}마리를 차감하고 {{minutes}}분 동안 공사해요.",

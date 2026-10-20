@@ -107,6 +107,7 @@ import {
   seaRouteHeld,
   visitRouteHeld,
   sessionRoute,
+  noIslandRoute,
 } from '@/services/model';
 import {
   checkSession,
@@ -618,7 +619,7 @@ function Gromo() {
           reset('login');
         })
         .catch(() => {});
-    } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
+    } else transitionRoute(state.onboarded ? 'home' : noIslandRoute(state));
   };
   const home = () => {
     const finish = () => {
@@ -1527,7 +1528,7 @@ function Gromo() {
       setModal(null);
       setWalkRequest(null);
       setVisited(state.onboarded ? state.islandId : '');
-      reset(state.onboarded ? 'home' : 'chooseIsland');
+      reset(state.onboarded ? 'home' : noIslandRoute(state));
       if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
     }
@@ -1544,11 +1545,14 @@ function Gromo() {
         'approval',
         'currentIsland',
         'visit',
+        // 바다 표류에서 연 망원경(GROMO-2366) — 섬이 없어도 여기서 갈 섬을 고른다
+        'telescope',
       ].includes(route)
     )
       return;
     // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
-    reset('chooseIsland');
+    // 섬을 잃은 사람(나가기·강퇴)은 바다로, 처음 온 사람은 섬 선택으로 보낸다(GROMO-2366).
+    reset(noIslandRoute(state));
   }, [
     loaded,
     state.loggedIn,
@@ -1558,7 +1562,40 @@ function Gromo() {
     state.membershipRecovery,
     kickedDestination,
     route,
+    state.serverIslands?.lossReason,
   ]);
+  // 강퇴 안내(GROMO-2366) — /me/islands 가 강퇴로 현재 섬이 없다고 하면 한 번만 띄운다(바다 이동은 위 검사).
+  // 「봤음」은 계정별로 잃은 섬 id(모르면 '1')를 적어 다른 섬에서 또 강퇴되면 다시 띄우고, 현재 섬이 다시 생기면 지운다.
+  // 계정이 바뀌면(kickNoticeOwner) 그 계정의 「봤음」으로 다시 본다.
+  const { lossReason, kickedIsland } = state.serverIslands ?? {},
+    kickNoticeOwner = getSession()?.userId;
+  useEffect(() => {
+    if (!loaded || !kickNoticeOwner) return;
+    const key = `kickNoticeSeen:${kickNoticeOwner}`;
+    let live = true;
+    (async () => {
+      try {
+        if (serverCurrent) {
+          await AsyncStorage.removeItem(key);
+          return;
+        }
+        if (lossReason !== 'KICKED') return;
+        const lost = kickedIsland?.id ?? '1',
+          seen = await AsyncStorage.getItem(key).catch(() => null);
+        if (!live || seen === lost) return;
+        // 띄운 뒤에 본 것으로 적는다 — 기다리는 사이 상태가 바뀌면 띄우지도, 적지도 않는다
+        notify(
+          kickedIsland?.name ? t('app.kickedFrom', { island: kickedIsland.name }) : t('app.kicked'),
+        );
+        await AsyncStorage.setItem(key, lost);
+      } catch {
+        // 표시를 못 적으면 다음 동기화에 한 번 더 띄운다 — 안내는 화면을 막지 않는다
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [loaded, kickNoticeOwner, serverCurrent, lossReason, kickedIsland?.id, kickedIsland?.name]);
   useEffect(() => {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
@@ -1573,7 +1610,7 @@ function Gromo() {
       experienceIsland !== state.serverIslands.currentIslandId
     ) {
       setGuideStep(4);
-      reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+      reset(state.serverIslands.currentIslandId ? 'home' : noIslandRoute(state));
       return;
     }
     const restoring = !tutorialBootReconciled.current;
@@ -1829,46 +1866,48 @@ function Gromo() {
       useNativeDriver: false,
     }).start();
   }, [route, loaded, reviewEpoch]);
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      // 열린 확인창·진행 중인 건물 전환·화면이 건 뒤로 가기(backOverride)를 방문 분기보다 먼저 본다 — back() 의 앞 세
-      // 검사와 같은 순서다. 그래서 방문 화면에서도 확인창이나 팝업이 END_VISIT 보다 먼저 닫히고, 집중→휴식 전환 취소처럼
-      // override 보다 전환 취소가 앞서던 기존 순서도 그대로다(back() 는 그대로 둔다).
-      if (modal) {
-        setModal(null);
-        return true;
-      }
-      if (cancelBuildingTransition()) return true;
-      if (backOverride.current?.()) return true;
-      // 서버 방문은 현재 섬을 바꾸지 않으므로 방문 상태만 지우고 내 섬으로 돌아간다.
-      if (
-        ['home', 'visitIsland'].includes(route) &&
-        state.visitingIslandId &&
-        state.serverIslands
-      ) {
-        dispatch({ type: 'END_VISIT' });
-        reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
-        return true;
-      }
-      // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다
-      if (route === 'home' && state.visitingIslandId) {
-        dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
-        dispatch({ type: 'END_VISIT' });
-        go('travel', island.id);
-        return true;
-      }
-      // 방문 화면의 시스템 뒤로가기도 하단 `원래 섬으로` 버튼과 같이 귀환 항해를 시작한다.
-      if (route === 'visitIsland' && state.visitingIslandId) {
-        dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
-        dispatch({ type: 'END_VISIT' });
-        go('travel', island.id);
-        return true;
-      }
-      // 홈·로그인의 뒤로가기는 앱이 받지 않는다(OS 몫) — 홈에서 진행 중인 건물 전환은 위에서 이미 취소했다
-      if (route === 'home' || route === 'login') return false;
-      back();
+  // 처리 본문은 매 렌더의 최신 상태(소속·상실 사유 등)를 보도록 ref 로 부른다 — 등록 당시 상태로 섬 고르기에 가지 않게
+  // (GROMO-2366). 리스너는 지금처럼 화면이 바뀔 때마다 다시 걸어 다른 화면의 리스너와의 순서를 그대로 둔다.
+  const hardwareBack = useRef<() => boolean>(() => false);
+  hardwareBack.current = () => {
+    // 열린 확인창·진행 중인 건물 전환·화면이 건 뒤로 가기(backOverride)를 방문 분기보다 먼저 본다 — back() 의 앞 세
+    // 검사와 같은 순서다. 그래서 방문 화면에서도 확인창이나 팝업이 END_VISIT 보다 먼저 닫히고, 집중→휴식 전환 취소처럼
+    // override 보다 전환 취소가 앞서던 기존 순서도 그대로다(back() 는 그대로 둔다).
+    if (modal) {
+      setModal(null);
       return true;
-    });
+    }
+    if (cancelBuildingTransition()) return true;
+    if (backOverride.current?.()) return true;
+    // 서버 방문은 현재 섬을 바꾸지 않으므로 방문 상태만 지우고 내 섬으로 돌아간다.
+    if (['home', 'visitIsland'].includes(route) && state.visitingIslandId && state.serverIslands) {
+      dispatch({ type: 'END_VISIT' });
+      reset(state.serverIslands.currentIslandId ? 'home' : noIslandRoute(state));
+      return true;
+    }
+    // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다
+    if (route === 'home' && state.visitingIslandId) {
+      dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
+      dispatch({ type: 'END_VISIT' });
+      go('travel', island.id);
+      return true;
+    }
+    // 방문 화면의 시스템 뒤로가기도 하단 `원래 섬으로` 버튼과 같이 귀환 항해를 시작한다.
+    if (route === 'visitIsland' && state.visitingIslandId) {
+      dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
+      dispatch({ type: 'END_VISIT' });
+      go('travel', island.id);
+      return true;
+    }
+    // 홈·로그인의 뒤로가기는 앱이 받지 않는다(OS 몫) — 홈에서 진행 중인 건물 전환은 위에서 이미 취소했다
+    if (route === 'home' || route === 'login') return false;
+    back();
+    return true;
+  };
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () =>
+      hardwareBack.current(),
+    );
     return () => subscription.remove();
   }, [history, route, modal, state.visitingIslandId, island.id]);
   // 섬 음악은 집중 중이거나 축음기 시트를 보고 있을 때 들린다. 시트를 떠나면 집중 중이 아닐 때 멈춘다
