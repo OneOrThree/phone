@@ -385,7 +385,8 @@ function Wanderer({
         }).start(({ finished }) => {
           if (!finished) return;
           at.current = next;
-          setDepth(next.y);
+          // 깊이는 layered 미리보기(scene)의 zIndex 에만 쓴다 — 운영에서는 걸음마다 다시 그리지 않는다(GROMO-2371).
+          if (scene) setDepth(next.y);
           step();
         });
       };
@@ -1619,7 +1620,8 @@ function FinalIslandScene({
         if (finished) {
           location.current = p;
           // 월드 단위 정본(location)은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
-          setPos(p);
+          // pos state 는 layered 미리보기의 zIndex 에만 쓴다 — 운영에서는 걸음마다 지도 전체를 다시 그리지 않는다(GROMO-2371).
+          if (layeredPreview) setPos(p);
           homePositions[positionKey] = p;
           next();
         }
