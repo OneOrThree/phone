@@ -2616,6 +2616,34 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "afterCreatedAt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "afterId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 30
+            }
           }
         ],
         "responses": {
@@ -10228,6 +10256,10 @@
           "nextOffset": {
             "type": "integer",
             "format": "int32"
+          },
+          "earnedFish": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -10875,6 +10907,12 @@
           },
           "activeConstruction": {
             "$ref": "#/components/schemas/ActiveConstruction"
+          },
+          "contributedCompletions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

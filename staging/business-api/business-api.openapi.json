@@ -7503,6 +7503,9 @@
             "items": {
               "$ref": "#/components/schemas/IslandGuestbookItem"
             }
+          },
+          "nextCursor": {
+            "type": "string"
           }
         },
         "required": [
@@ -7655,6 +7658,12 @@
           },
           "activeConstruction": {
             "$ref": "#/components/schemas/ActiveConstruction"
+          },
+          "contributedCompletions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
