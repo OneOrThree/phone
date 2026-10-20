@@ -608,6 +608,34 @@ export const componentTokens = {
     // 우체통 없는 섬의 홈 잡지 물건 · 안 읽음 점
     object: { width: 60, height: 70, art: { width: 56, height: 66 } },
     unreadDot: 14,
+    // 바다(GROMO-2314) — 내 뗏목 오른쪽 잡지 물건(자리는 뗏목 크기에 대한 비율) · 펠리컨 배달 B1(402×874 기준, 화면에 맞춰 줄인다)
+    seaObject: {
+      width: 52,
+      height: 60,
+      art: { width: 46, height: 55 },
+      left: 0.62,
+      top: 0.3,
+      tilt: '12deg',
+      // 가로 compact(뗏목 32~64)에서는 뗏목 옆에 나란히 두고 표지 폭을 뗏목 크기에 비례시킨다 — 누르는 자리는 44 이상
+      compactArtRatio: 0.45,
+    },
+    seaDelivery: {
+      referenceWidth: 402,
+      referenceHeight: 874,
+      bubbleMaxWidth: 300,
+      bubbleRadius: semanticTokens.radius.preview,
+      textLineHeight: 28,
+      tail: 16,
+      // 꼬리는 말풍선 왼쪽 아래(펠리컨 쪽)
+      tailLeft: '28%',
+      pelican: 230,
+      cover: { width: 170, height: 202 },
+      coverTilt: '14deg',
+      // 펠리컨과 표지가 겹치는 폭 · 아래 두 버튼의 최대 폭
+      overlap: 40,
+      actionMaxWidth: 320,
+      shadow: `0px ${primitiveTokens.space[1]}px 0px ${semanticTokens.color.outline}`,
+    },
     // 잡지 꽂이 한 줄(호 · 날짜 + 읽음 상태 두 줄)
     rackRowMinHeight: 56,
   },

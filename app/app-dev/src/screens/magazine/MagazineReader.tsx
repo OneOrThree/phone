@@ -20,7 +20,10 @@ import type {
   MagazineEditorial,
   MagazineIsland,
   MagazineIssue,
+  MagazinePlace,
 } from '@/services/api/magazine';
+import { pinToTelescope } from '@/services/api/telescope';
+import { pinErrorText } from '@/screens/island/useTelescopePin';
 import { t } from '@/i18n';
 import { formatDate, formatDuration } from '@/i18n/format';
 import { T, useGowun } from '@/screens/island/sceneKit';
@@ -125,16 +128,22 @@ export function magazinePages(loaded: Loaded, host: boolean): Page[] {
  * 끝 쪽에 가까워지면 다음 커서를 읽는다. 펼치는 데 성공하면 그 호에 「읽음」을 보낸다(빨간 점이 꺼진다).
  * 칸을 누르면 화면 폭으로 크게 본다. 신고는 설정의 단일 신고센터에서 이메일로 접수한다.
  *
+ * 바다에서 펼치면(place SEA, GROMO-2314 · A2) 받음·읽음을 SEA 로 적고, 남의 섬 칸에 망원경 동그라미를 둔다(강퇴된 섬은 없고,
+ * 비공개 섬은 AdCell 이 숨긴다). 동그라미를 누르면 망원경에 넣고 잡지 자리를 망원경으로 바꿔 그 뒤로가기가 바다로 간다.
+ *
  * e.detail = 펼칠 호 id. 비어 있으면 들고 있는 오늘 호를 연다.
  */
 export function MagazineReader({
   e,
   host = false,
+  place = 'ISLAND',
   background,
 }: {
   e: any;
   /** 내 섬 섬장이면 끝 쪽에 「우리 섬도 실어 볼까요?」 안내 — 쓰기 입구는 마을회관에만 있다(10/14). */
   host?: boolean;
+  /** 펼친 곳 — 받음·읽음 기록과 칸 오른쪽 아래 자리가 갈린다. */
+  place?: MagazinePlace;
   background?: React.ReactNode;
 }) {
   const L = useAppLayout();
@@ -155,6 +164,14 @@ export function MagazineReader({
   const [index, setIndex] = useState(0);
   const [zoom, setZoom] = useState<MagazineCell | null>(null);
   const list = useRef<FlatList<Page>>(null);
+  const pinning = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!issueId) {
@@ -170,8 +187,8 @@ export function MagazineReader({
         setLoaded(page);
         setIndex(0);
         setStatus('ready');
-        // 섬에서 펼쳤다 — 받은 적 없는 호면 받음도 같이 적힌다. 실패해도 읽기는 그대로 둔다(다음에 펼칠 때 다시 보낸다)
-        sendReceipt(issueId, { place: 'ISLAND', opened: true }).catch(() => {});
+        // 펼친 곳으로 적는다 — 받은 적 없는 호면 받음도 같이 적힌다. 실패해도 읽기는 그대로 둔다(다음에 펼칠 때 다시 보낸다)
+        sendReceipt(issueId, { place, opened: true }).catch(() => {});
       })
       .catch((err) => {
         if (!alive) return;
@@ -182,7 +199,35 @@ export function MagazineReader({
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- place 는 라우트마다 고정이다
   }, [issueId, nonce]);
+
+  // 섬에서 본 잡지에는 망원경 동그라미가 없다(10/14) — 우리 섬 배지만. 바다에서는 남의 섬 칸에 동그라미(강퇴된 섬은 없다)
+  const corner = (cell: MagazineCell) =>
+    cell.relation === 'MEMBER'
+      ? 'ours'
+      : place === 'SEA' && cell.relation !== 'KICKED'
+        ? 'scope'
+        : null;
+  // 망원경에 넣기 — 한 번에 하나. 넣으면 잡지 자리를 망원경으로 바꾼다(기록은 바다 그대로라 망원경 뒤로가기가 바다로 간다).
+  // 가득 차 빠진 섬이 있으면 화면을 떠난 뒤에 끝나도 알린다 — 서버에는 이미 들어갔다
+  const scope = async (cell: MagazineCell) => {
+    if (pinning.current) return;
+    pinning.current = true;
+    try {
+      const { evicted } = await pinToTelescope(cell.islandId, 'magazine', cell.promotionId);
+      if (evicted) e.notify(t('magazine.reader.scopeEvicted', { name: islandTitle(evicted.name) }));
+      if (mounted.current) {
+        setZoom(null);
+        e.replace('telescope');
+      }
+    } catch (thrown) {
+      const message = pinErrorText(thrown);
+      if (message) e.notify(message);
+    } finally {
+      pinning.current = false;
+    }
+  };
 
   const pages = loaded ? magazinePages(loaded, host) : [];
   const cursor = loaded?.nextCursor ?? null;
@@ -493,8 +538,10 @@ export function MagazineReader({
               testID={`magazine-cell-${cell.promotionId}`}
               width={cellW}
               cell={cell}
-              // 섬에서 펼친 잡지에는 망원경 동그라미가 없다(10/14) — 우리 섬 배지만
-              corner={cell.relation === 'MEMBER' ? 'ours' : null}
+              corner={corner(cell)}
+              onScope={() => {
+                scope(cell);
+              }}
               onPress={() => setZoom(cell)}
             />
           ))}
@@ -780,7 +827,10 @@ export function MagazineReader({
                 R.maxPageWidth,
               )}
               cell={zoom}
-              corner={zoom.relation === 'MEMBER' ? 'ours' : null}
+              corner={corner(zoom)}
+              onScope={() => {
+                scope(zoom);
+              }}
               onPress={() => setZoom(null)}
             />
           )}

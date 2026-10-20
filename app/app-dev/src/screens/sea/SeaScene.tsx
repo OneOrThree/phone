@@ -10,6 +10,7 @@ import {
 import { t } from '@/i18n';
 import { seaAssets } from './seaAssets';
 import { art } from '@/constants/art';
+import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { SeaRaft } from './SeaRaft';
 import { SeaParticipant, seaClock, seaPeerPages } from './seaModel';
 
@@ -22,8 +23,13 @@ type Props = {
   reduceMotion?: boolean;
   onParticipant: (participant: SeaParticipant) => void;
   onMessage: () => void;
+  /** 내 뗏목 오른쪽 잡지 물건(GROMO-2314 B3) — 받은 오늘 호가 있을 때만. 누르면 그 호, 안 읽었으면 빨간 점. */
+  magazine?: { issueNo: number; unread: boolean; onOpen: () => void } | null;
   children?: React.ReactNode | ((height: number) => React.ReactNode);
 };
+
+const M = c.magazineReader.seaObject;
+const DOT = c.magazineReader.unreadDot;
 
 export function SeaScene({
   participants,
@@ -34,6 +40,7 @@ export function SeaScene({
   reduceMotion = false,
   onParticipant,
   onMessage,
+  magazine,
   children,
 }: Props) {
   const insets = useScreenInsets();
@@ -79,6 +86,11 @@ export function SeaScene({
   const compactHeader = insets.top + 72;
   const compactRow = Math.max(0, (bounds.height - footerHeight - compactHeader) / 2);
   const compactRaft = Math.min(64, Math.max(32, compactRow - 50));
+  const selfRaft = compact ? compactRaft : Math.min(160 * sizeScale, bounds.height * 0.22);
+  // 잡지 표지 — 보통은 뗏목 위 고양이 오른쪽에 얹고, 뗏목이 작은 compact 에서는 뗏목 크기에 비례해 줄여 옆에 나란히 둔다
+  // (작은 뗏목을 덮어 뗏목 누르는 자리를 44 아래로 줄이지 않게)
+  const coverWidth = compact ? selfRaft * M.compactArtRatio : M.art.width;
+  const coverHeight = (coverWidth * M.art.height) / M.art.width;
   const compactSlots = [
     [1 / 6, 0],
     [1 / 2, 0],
@@ -250,37 +262,75 @@ export function SeaScene({
             </View>
           </Pressable>
         )}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={[
-            t('openSea.myRaft'),
-            focusing
-              ? `${self.subject || t('openSea.focusing')}, ${seaClock(self.activeSeconds)}`
-              : undefined,
-            self.emote ? t(`openSea.emoteNames.${self.emote}`) : undefined,
-          ]
-            .filter(Boolean)
-            .join(', ')}
-          onPress={() => pick(self)}
-          style={styles.person}
-        >
-          <SeaRaft
-            color={self.color}
-            focusing={focusing}
-            outfit={self.outfit}
-            size={compact ? compactRaft : Math.min(160 * sizeScale, bounds.height * 0.22)}
-            reduceMotion={reduceMotion}
-          />
-          <Text style={[styles.name, styles.me]}>{t('openSea.me')}</Text>
-          {focusing && (
-            <Text testID="sea-self-clock" style={styles.clock}>
-              {seaClock(self.activeSeconds)}
-            </Text>
+        <View testID="sea-self-row" style={compact && styles.besideRaft}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={[
+              t('openSea.myRaft'),
+              focusing
+                ? `${self.subject || t('openSea.focusing')}, ${seaClock(self.activeSeconds)}`
+                : undefined,
+              self.emote ? t(`openSea.emoteNames.${self.emote}`) : undefined,
+            ]
+              .filter(Boolean)
+              .join(', ')}
+            onPress={() => pick(self)}
+            style={styles.person}
+          >
+            <SeaRaft
+              color={self.color}
+              focusing={focusing}
+              outfit={self.outfit}
+              size={selfRaft}
+              reduceMotion={reduceMotion}
+            />
+            <Text style={[styles.name, styles.me]}>{t('openSea.me')}</Text>
+            {focusing && (
+              <Text testID="sea-self-clock" style={styles.clock}>
+                {seaClock(self.activeSeconds)}
+              </Text>
+            )}
+            {!!self.emote && (
+              <Image source={art[`emote/${self.emote}`]} style={styles.emote} accessible={false} />
+            )}
+          </Pressable>
+          {magazine && (
+            // 뗏목 누름과 겹치지 않게 뗏목 Pressable 밖의 형제로 둔다
+            <Pressable
+              testID="sea-magazine-object"
+              accessibilityRole="button"
+              accessibilityLabel={t(
+                magazine.unread ? 'magazine.delivery.objectUnread' : 'magazine.delivery.object',
+                { no: magazine.issueNo },
+              )}
+              onPress={magazine.onOpen}
+              style={[
+                styles.magazine,
+                compact
+                  ? {
+                      width: Math.max(s.size.tapMin, coverWidth),
+                      height: Math.max(s.size.tapMin, coverHeight),
+                    }
+                  : [styles.magazineOnRaft, { left: selfRaft * M.left, top: selfRaft * M.top }],
+              ]}
+            >
+              <View style={{ width: coverWidth, height: coverHeight }}>
+                <Image
+                  testID="sea-magazine-object-art"
+                  source={MAGAZINE_UI.cover}
+                  resizeMode="contain"
+                  accessible={false}
+                  style={{
+                    width: coverWidth,
+                    height: coverHeight,
+                    transform: [{ rotate: M.tilt }],
+                  }}
+                />
+                {magazine.unread && <View testID="sea-magazine-object-dot" style={styles.dot} />}
+              </View>
+            </Pressable>
           )}
-          {!!self.emote && (
-            <Image source={art[`emote/${self.emote}`]} style={styles.emote} accessible={false} />
-          )}
-        </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -341,4 +391,18 @@ const styles = StyleSheet.create({
   me: { color: s.color.text, backgroundColor: s.color.selected },
   messageTouch: { minHeight: s.size.tapMin, justifyContent: 'center', marginBottom: -p.space[5] },
   emote: { position: 'absolute', right: 0, top: 0, width: 40, height: 40 },
+  besideRaft: { flexDirection: 'row', alignItems: 'center' },
+  magazine: { alignItems: 'center', justifyContent: 'center' },
+  magazineOnRaft: { position: 'absolute', width: M.width, height: M.height },
+  dot: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: DOT,
+    height: DOT,
+    borderRadius: DOT / 2,
+    borderWidth: s.stroke.strong,
+    borderColor: s.color.surface,
+    backgroundColor: s.color.danger,
+  },
 });

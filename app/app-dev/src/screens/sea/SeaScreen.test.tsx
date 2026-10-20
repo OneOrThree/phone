@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SeaScreen, SeaScreenProps } from './SeaScreen';
 import { SeaArrival, SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel';
@@ -519,4 +520,43 @@ test('게스트와 한마디 쿨다운 상태에서는 저장 요청을 보낼 �
   await screen.rerender(<SeaScreen {...p} messageCooldownSeconds={299} />);
   expect(screen.getByText('5분 뒤에 다시 쓸 수 있어요')).toBeTruthy();
   expect(p.onMessage).not.toHaveBeenCalled();
+});
+
+test('뗏목 위 잡지(GROMO-2314) — 세로는 고양이 오른쪽에 얹고, 가로 compact 는 뗏목 크기에 비례해 줄여 옆에 나란히 둔다', async () => {
+  const onOpen = jest.fn();
+  const magazine = {
+    issueNo: 20,
+    delivery: false,
+    received: true,
+    unread: true,
+    onShown: jest.fn(),
+    onOpen,
+    onLater: jest.fn(),
+  };
+  const screen = await render(<SeaScreen {...props()} magazine={magazine} />);
+  const object = () => StyleSheet.flatten(screen.getByTestId('sea-magazine-object').props.style);
+  const art = () => StyleSheet.flatten(screen.getByTestId('sea-magazine-object-art').props.style);
+  expect(object().position).toBe('absolute');
+  expect(art().width).toBe(46);
+  const wide = async (height: number) => {
+    const layout = { x: 0, y: 0, width: 874, height };
+    await fireEvent(screen.getByTestId('sea-screen'), 'layout', { nativeEvent: { layout } });
+    await fireEvent(screen.getByTestId('sea-scene'), 'layout', { nativeEvent: { layout } });
+  };
+  await wide(402);
+  // 뗏목을 덮지 않고 같은 줄 옆에 — 뗏목 누름 자리를 가리지 않는다
+  expect(object().position).toBeUndefined();
+  expect(StyleSheet.flatten(screen.getByTestId('sea-self-row').props.style).flexDirection).toBe(
+    'row',
+  );
+  const larger = art().width as number;
+  expect(object().width).toBeGreaterThanOrEqual(44);
+  expect(object().height).toBeGreaterThanOrEqual(44);
+  await wide(300);
+  expect(art().width).toBeLessThan(larger);
+  expect(object().width).toBeGreaterThanOrEqual(44);
+  expect(object().height).toBeGreaterThanOrEqual(44);
+  expect(screen.getByTestId('sea-magazine-object-dot')).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('고양이 잡지 20호, 아직 안 읽음'));
+  expect(onOpen).toHaveBeenCalledTimes(1);
 });

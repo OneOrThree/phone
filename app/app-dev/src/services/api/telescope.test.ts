@@ -217,6 +217,16 @@ test('pinToTelescope — 빠진 섬이 없으면 evicted 는 null 이고, 이미
   assert.equal(result.item.pinnedFrom, 'magazine');
 });
 
+test('pinToTelescope — 잡지 홍보 칸에서 넣으면 promotionId 를 함께 싣는다(GROMO-2314)', async () => {
+  stub([{ status: 201, body: { data: { item: wireItem({ slot: 'pinned' }), evicted: null } } }]);
+  await pinToTelescope('i1', 'magazine', 'p1');
+  assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
+    islandId: 'i1',
+    source: 'magazine',
+    promotionId: 'p1',
+  });
+});
+
 test.each([
   [404, 'GROUP_NOT_FOUND'],
   [403, 'FORBIDDEN'],
