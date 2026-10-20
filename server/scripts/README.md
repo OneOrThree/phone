@@ -61,7 +61,7 @@ LOCAL_BUSINESS_PORT=8083 LOCAL_REALTIME_PORT=8081 docker compose -f server/scrip
 curl -si 127.0.0.1:8088/actuator/health | head -1; curl -si 127.0.0.1:8088/health | head -1   # 404 · 200(Business 응답) 이면 정상. 200 대신 502 면 Business 가 안 떠 있는 것
 docker compose -f server/scripts/docker-compose.local.yml --profile nginx rm -sf nginx   # nginx 만 내린다. `--profile nginx down` 은 db·redis 까지 내리니 쓰지 않는다
 # 이동 측정(docs/prd/fishcat/island-movement/scripts)처럼 게스트를 한 번에 15명 만들 때 — 게스트 발급 상한(IP당 10/시간)을 env 로 연다
-(cd server/data-api && AUTH_GUEST_RATE_LIMIT_MAX=1000000 AUTH_GUEST_RATE_LIMIT_MAX_GLOBAL=1000000 ./gradlew bootRun)   # application-local.yml.example 의 auth.guest.rate-limit 자리표시자
+(cd server/data-api && AUTH_GUEST_RATE_LIMIT_MAX=1000000 AUTH_GUEST_RATE_LIMIT_MAX_GLOBAL=1000000 ./gradlew bootRun)   # application-local.yml.example 의 auth.guest.rate-limit 자리표시자 — 이미 application-local.yml 이 있으면 같은 블록을 직접 추가
 
 # dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(+전용 Redis)·Notification. compose 에 nginx 없음(호스트 systemd Nginx 가 공개 라우팅)
 # dev VM 에 영구 env 없음(GROMO-2224) — CD·ops-*.dev 워크플로가 job 마다 SM 에서 임시로 만든다. 수동이면

@@ -7,6 +7,13 @@ main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Red
 - 맥 한 대(Apple M5 Pro, 15코어·48 GB)의 Docker Desktop(8 CPU · 7.65 GiB, aarch64). 발생기(Node 24)도 같은 맥.
 - `host loadavg`·동시 작업은 각 `*-conditions.txt`·`host-conditions-run*.txt` 에 실었다. **`survey-run1/`(run1)은 다른 세션의 gradle 워커와 구현 에이전트(gradle build·jest·pod install)가 동시에 돌아 지연이 오염됐다 — 전달 누락·수신량·Snapshot 수만 참고하고 지연은 run2 를 본다.**
 
+## 원본 축소 (리뷰 1라운드 반영)
+
+- `survey-run1/metrics/*.prom` 은 오염 run 이라 삭제했다. 인용값은 같은 폴더의 JSON 이다(`prometheus-range.json` 은 유지).
+- `survey/metrics/*.prom`·`survey/repeat-300c/metrics/*.prom` 은 각 파일을 `grep -E '^(movement_|realtime_|jvm_gc_pause|process_cpu|system_cpu|executor_)'` 결과로 제자리 교체했다(파일명 유지). 필터 전 전체 스크레이프의 해시는 커밋 `a8199cf41` 의 이 README 표에 있다.
+- `one-island.json` 은 각 result 의 `raw.promBefore`·`raw.promAfter` 키를 제거했다(나머지 필드 불변). 스크립트는 이제 `--keep-raw` 일 때만 이 텍스트를 `--json` 에 담는다.
+- `before-20261018/` 는 유지한다. 원본(`loadtest/reports/matrix-20261018/`·`loadtest/survey/results/2026-10-18/`)은 gitignored 라 레포에 없다.
+
 ## ① 조사 하네스(`survey/`) — `loadtest/survey/realtime.mjs --mode movement`
 
 - 스택: `loadtest/infra/local/compose.yml`(프로젝트 `gromo-loadtest-survey`), realtime·data-api·business-api 를 main 소스로 재빌드(10-18 이미지는 `:20261018` 태그 보존), fixture 1만 명 DB 그대로(`users` 10,191·Flyway V130), 사용자 파일 `loadtest/.local/params/users_uniform.json`(JWT 재발급).
@@ -25,7 +32,7 @@ main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Red
 
 ## 파일 해시
 
-`README.md` 를 뺀 폴더 전체(210개), 이 폴더 기준 상대경로. 재확인: 이 폴더에서 `find . -type f ! -name README.md | sed 's|^\./||' | LC_ALL=C sort | xargs shasum -a 256`.
+`README.md` 를 뺀 폴더 전체(162개), 이 폴더 기준 상대경로. 재확인: 이 폴더에서 `find . -type f ! -name README.md | sed 's|^\./||' | LC_ALL=C sort | xargs shasum -a 256`. 축소한 `.prom`·`one-island.json` 은 축소 후 해시다.
 
 | 파일 | sha256 |
 | --- | --- |
@@ -57,61 +64,13 @@ main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Red
 | `before-20261018/users-10000/ws-movement-50c-1hz.json` | `71732095fb8f49f66f0c18fbbcdd57f2dd957f1c74059f9791834186fbd90a79` |
 | `before-20261018/websocket-measurements-movement.csv` | `acc3c98c27ae494a9652d72c881909e2b87d60974ed72afae70741cb3e7c5bd0` |
 | `one-island-conditions.txt` | `230bbbbbdfda5cf70176928a512b11e69fa2af39bf467fce87f4278de815dcb3` |
-| `one-island.json` | `fc4873faf07797ab37b47c5287c112014796b383e06a5cf1cefe58ac97f00ba5` |
+| `one-island.json` | `758804d2e002ebd054ffea1ba6db7be285b7c43b574058d1e911689433667739` |
 | `one-island.md` | `dd9452ec3a0b73cebfacfdf0bdeac5e7b36656dc303ea71a21ada0016e8bfe21` |
 | `one-island.stderr.log` | `a0f6b067f9738b7920d2fcce6047cb89bd500bffb812ea056ad590a46fabacc6` |
 | `one-island.stdout.md` | `dd9452ec3a0b73cebfacfdf0bdeac5e7b36656dc303ea71a21ada0016e8bfe21` |
 | `survey-run1/compare-run1.md` | `e98aff500ec96734160a43be99c8ba204c5400625506d9bbc880129fb05275f7` |
 | `survey-run1/host-conditions-run1.txt` | `9aa18a243cd076178447e1e5baaaf1bf4047039468c71be4a1416f4359762a9f` |
-| `survey-run1/metrics/movement-split-100c-20s-after-realtime-1.prom` | `3c95ba04132304a0e8b2b658eef3ce46bc92075a69ef53535ef6408634fe9aee` |
-| `survey-run1/metrics/movement-split-100c-20s-after-realtime-2-1.prom` | `031089dae3f755b307118d9b3785f48fa494eeae5d63397cfad769be266b0f8b` |
-| `survey-run1/metrics/movement-split-100c-20s-before-realtime-1.prom` | `3478dbb80d937bbeef661941d315bd30e3d63af5029e916c24d60a6cd7d144ce` |
-| `survey-run1/metrics/movement-split-100c-20s-before-realtime-2-1.prom` | `48644dfdfa688129ed6415c3bfc1a718544429d6a9fe94ff59b0449ebef47536` |
-| `survey-run1/metrics/movement-split-10c-10s-after-realtime-1.prom` | `79e6efcda32e55f0be940b7ce0417ed14c8ef7d3c90c5888a8f004444ae0c6e6` |
-| `survey-run1/metrics/movement-split-10c-10s-after-realtime-2-1.prom` | `d99ef476bae722bca82732d35a1bae7714e5796c378ea7c9e631fc88def7687d` |
-| `survey-run1/metrics/movement-split-10c-10s-before-realtime-1.prom` | `be3a273b44468731b30794221195c4e1551ef5f0ee445b1f2ac655c1b28376f4` |
-| `survey-run1/metrics/movement-split-10c-10s-before-realtime-2-1.prom` | `9e9c62df41764777d7df429f75c9d69f4bbd60f78597143e00cfc6b4f111c7fe` |
-| `survey-run1/metrics/movement-split-10c-60s-after-realtime-1.prom` | `bad62ebd3074d4bb54a1caf0e9af5da6ebe853d51212cf6739f8c1655ed36a61` |
-| `survey-run1/metrics/movement-split-10c-60s-after-realtime-2-1.prom` | `6b0fc74f90325e899f2dd70eb39af3d219a25f0ac3c660dbacdb0765a918243d` |
-| `survey-run1/metrics/movement-split-10c-60s-before-realtime-1.prom` | `bc21d97e0afbb98adc9ba870dace7ebd484ad114a9291acdf3f61a68b378d481` |
-| `survey-run1/metrics/movement-split-10c-60s-before-realtime-2-1.prom` | `a475f896f151f0527b39d61474e01f2813e8dd1d5eb355fd9c4d90351de94495` |
-| `survey-run1/metrics/movement-spread-300c-after-realtime-1.prom` | `4fa4a6b3e81010f8073f53da95956eb6c6f1a59d44a3d17dc26066804350ee63` |
-| `survey-run1/metrics/movement-spread-300c-after-realtime-2-1.prom` | `d369ae87e10ae035cb03a745c7fe95a955d3aa3dcc2cd45350a716dc31d48844` |
-| `survey-run1/metrics/movement-spread-300c-before-realtime-1.prom` | `23a43e846d6cfff070c7bf6aae1ac81a6dada0766273a7d4b8b0dad6aa7dddc2` |
-| `survey-run1/metrics/movement-spread-300c-before-realtime-2-1.prom` | `81e8ec3569d9e2049c9f0242258afa3bbc896295776c1b2b41ae82089eb76bf3` |
 | `survey-run1/metrics/prometheus-range.json` | `5928796375ca8afa9abaa36c4b7e3a9211f3e3a92e18af392e387f3171c7e2b1` |
-| `survey-run1/metrics/ws-movement-100c-10hz-after-realtime-1.prom` | `0f361b527a9f4d701f9a92ffc5694f00b66d083dd868f5e760d9be28cd2bffef` |
-| `survey-run1/metrics/ws-movement-100c-10hz-after-realtime-2-1.prom` | `a7e50280b50fbbd913f38b670bbaf97a717844792d60b56adf5b006fc7783080` |
-| `survey-run1/metrics/ws-movement-100c-10hz-before-realtime-1.prom` | `daedede735ff8492674b1f997687b6bc2dd77d0e554a941388126f0cc3b827ce` |
-| `survey-run1/metrics/ws-movement-100c-10hz-before-realtime-2-1.prom` | `8d6e9bac586fdef7e69c680f7b71f396a4ddfc5df7a22ddfabc94d60961c3319` |
-| `survey-run1/metrics/ws-movement-100c-1hz-after-realtime-1.prom` | `7b242c9a60b7c217c7f6d2e3b491db13e6762f93de0301b73a4270f99737f249` |
-| `survey-run1/metrics/ws-movement-100c-1hz-after-realtime-2-1.prom` | `4c0ce57f644fd950a79e4d2a1655623faea1615bbd050164f278ac3bfca79a34` |
-| `survey-run1/metrics/ws-movement-100c-1hz-before-realtime-1.prom` | `1d7f030545dee31b7aa4dfead89ff075cd0c66bc79e7216c262fb27bc42e6220` |
-| `survey-run1/metrics/ws-movement-100c-1hz-before-realtime-2-1.prom` | `2ba4e30dbfadccb946fa2c78737a5ac3945dd1b2c599d6b45462cb09a6b385ef` |
-| `survey-run1/metrics/ws-movement-100c-1hz-confirm-after-realtime-1.prom` | `e75342d9679834a7cfcae345de3e62610b2adfb60796112880f4ec8560f1cb47` |
-| `survey-run1/metrics/ws-movement-100c-1hz-confirm-after-realtime-2-1.prom` | `7407b668f62b8c641f65564dfea58ccdc863b8149e492322b7c7a99c8d3cf279` |
-| `survey-run1/metrics/ws-movement-100c-1hz-confirm-before-realtime-1.prom` | `ba44a55dd2c69ec0d60e99a9f44fb983aca0ae4cb634442369e333e118a91099` |
-| `survey-run1/metrics/ws-movement-100c-1hz-confirm-before-realtime-2-1.prom` | `94d043683f401d3ba68c5d2e0926be1e18d5088e25e91eda5cb029cff46b35ce` |
-| `survey-run1/metrics/ws-movement-100c-5hz-after-realtime-1.prom` | `4958adbc567506174238d349c8498618e0f4c0123c7f67725cbbdfa57310ec1d` |
-| `survey-run1/metrics/ws-movement-100c-5hz-after-realtime-2-1.prom` | `953c30e053655a473bff6931567e075068b326a53e6dc37f21a864f1b12673e9` |
-| `survey-run1/metrics/ws-movement-100c-5hz-before-realtime-1.prom` | `f66de8979bb337b9f5e23bfae1caa250122a2632d30da853501f1141f5f81500` |
-| `survey-run1/metrics/ws-movement-100c-5hz-before-realtime-2-1.prom` | `d99ea6bbe0678aea2040a1a7b8d70073c9d367d77c754a0bd7576e220fcd0cfa` |
-| `survey-run1/metrics/ws-movement-10c-1hz-after-realtime-1.prom` | `1f417a7d06796c70df4196c01fc342801cfa528989897fef6d4ba06d28e15a4f` |
-| `survey-run1/metrics/ws-movement-10c-1hz-after-realtime-2-1.prom` | `50642f7f5cc903d07f49105a7bad4fce9bc4d5a2613cc3608393879b1ce2fcd0` |
-| `survey-run1/metrics/ws-movement-10c-1hz-before-realtime-1.prom` | `6d430c4bfe35dd2baa28f131c5c3f79bfabd8d364e032200f3107351cd9a2927` |
-| `survey-run1/metrics/ws-movement-10c-1hz-before-realtime-2-1.prom` | `db10362e1515e0abb5baf20aa1f5f861da34dedae1c38d10b9935b9c8dc33666` |
-| `survey-run1/metrics/ws-movement-10c-20hz-policy-limit-after-realtime-1.prom` | `6b9b62c0f535995bd39f2cdfe83b795bdbbc8497e2d28d8d00799afd319f0a9d` |
-| `survey-run1/metrics/ws-movement-10c-20hz-policy-limit-after-realtime-2-1.prom` | `e8c3c07213520ca3f38fd042854408aec355dd29398f99f425a263d0f9e842f5` |
-| `survey-run1/metrics/ws-movement-10c-20hz-policy-limit-before-realtime-1.prom` | `84de250caaa31b7b4806f282fb9cb7051216b329cfe60f66768176f50c080d3c` |
-| `survey-run1/metrics/ws-movement-10c-20hz-policy-limit-before-realtime-2-1.prom` | `e79ca82939956aefa93e269c0dcd816e8ff5fccb5fc1c137df9b770cf7ab35f9` |
-| `survey-run1/metrics/ws-movement-300c-1hz-after-realtime-1.prom` | `9cf3f6b176ef3231e341a3bc47dc7465f19122e5091ef9232aef96bb3af2b1b0` |
-| `survey-run1/metrics/ws-movement-300c-1hz-after-realtime-2-1.prom` | `04283f7c8caac5dd5d713f010f8d19135e026e55ddce742c628e7277e7bb876c` |
-| `survey-run1/metrics/ws-movement-300c-1hz-before-realtime-1.prom` | `5526951e7c1d166c9a482f40798aa3a93f7c29859bdb133e3cb3ae18a32aab2f` |
-| `survey-run1/metrics/ws-movement-300c-1hz-before-realtime-2-1.prom` | `92bd48384a0bdfafd00b2f610862bb24baff6acbbdbe8ecbfd2c369d687e7ad1` |
-| `survey-run1/metrics/ws-movement-50c-1hz-after-realtime-1.prom` | `a14084d6fa41dbf2e19da40a52a0be9aa12479c804c751949ea48dd3d78faf04` |
-| `survey-run1/metrics/ws-movement-50c-1hz-after-realtime-2-1.prom` | `42c478c69bfb7e1a0c46ab64b9655a54dd87485050c5e5c924d3f62bc904a18c` |
-| `survey-run1/metrics/ws-movement-50c-1hz-before-realtime-1.prom` | `9aa040dd3183cd295bd596eeffd5df5549949a41847d6b7151d6aa09f3740a1d` |
-| `survey-run1/metrics/ws-movement-50c-1hz-before-realtime-2-1.prom` | `1178864163425b473d08c5abfc7b9666909bf820a936b6152d0659d42b22091e` |
 | `survey-run1/movement-split-100c-20s.json` | `75b5c126959dcdd0fee7100df5f1c29b04acb8e9725556a7fd0539abe19f5ae6` |
 | `survey-run1/movement-split-100c-20s.log` | `2a1db74b0e5012c4bf252918106e55f945178157adae61d88b3f838430e0ebe2` |
 | `survey-run1/movement-split-10c-10s.json` | `4d6ef401c50fa833848bb3cdbbf107514fb78c00bc9e8f5b1b099f6bd6e92aed` |
@@ -139,55 +98,55 @@ main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Red
 | `survey-run1/ws-movement-50c-1hz.log` | `3683dc4c60022dadfdc0caa82f6f8168937f1372531242f3e495978a9a8d0c9f` |
 | `survey/compare-run2.md` | `7b4766408336d8b972b39eb16c2e08f5e197c386f505c4ef2853bc85f524ef92` |
 | `survey/host-conditions-run2.txt` | `cfd38fcaab24d085a9f8fdd6be8885a93615abe61f764d81716559e1fb2469ca` |
-| `survey/metrics/movement-split-100c-20s-after-realtime-1.prom` | `ffa9306fe89e53b134b4a9d7518c76c5eedd96f053f34f1b5f1dba9be87ebcc3` |
-| `survey/metrics/movement-split-100c-20s-after-realtime-2-1.prom` | `ba85365d50c94c703c8b232eb923db178f6888fa99cf12c77e7004ba55c2cb6a` |
-| `survey/metrics/movement-split-100c-20s-before-realtime-1.prom` | `1f62b6949268d138a62f366f251db44cfe343664ac849dc0afb179028325c417` |
-| `survey/metrics/movement-split-100c-20s-before-realtime-2-1.prom` | `08eb397b37cd2cf3ec67566a7da9ab8f2e594c8d682c8cf0c5fd614ea3c7add6` |
-| `survey/metrics/movement-split-10c-10s-after-realtime-1.prom` | `1277b9ec44b9da97124e3adf4661a78deec2d277a460aaa076a049c550b6814a` |
-| `survey/metrics/movement-split-10c-10s-after-realtime-2-1.prom` | `72b9bf3d2e60fd4d935bc7b8a7934a7013abfa84cb7eaaf74dd1fec65de053e6` |
-| `survey/metrics/movement-split-10c-10s-before-realtime-1.prom` | `85a0eb5ef8494024a012df1bf0e1f35ac8860f89ae380b156a5079332b4404e5` |
-| `survey/metrics/movement-split-10c-10s-before-realtime-2-1.prom` | `56b650648b198be66029384d7825ed83b9be66541c0ba4f32e280f06a0fcc6bc` |
-| `survey/metrics/movement-split-10c-60s-after-realtime-1.prom` | `da0cec83592b585e5ff84e05c23d0481732e72562a41a1ca308d6fbb838f0a61` |
-| `survey/metrics/movement-split-10c-60s-after-realtime-2-1.prom` | `86300f15bab774ba0aa20c3043f60e0fb70568f2aecfa5ba3380e4c790360d35` |
-| `survey/metrics/movement-split-10c-60s-before-realtime-1.prom` | `ca757714c17f31860d3599eca31bfd77c439fd39de302e979baf8eb46ca9fbe3` |
-| `survey/metrics/movement-split-10c-60s-before-realtime-2-1.prom` | `e07c879df03c63dfb11ee8ce0cde7bbd67f3be7b90de50c5c1b3af57baaf0441` |
-| `survey/metrics/movement-spread-300c-after-realtime-1.prom` | `1419715a3a2926be8a66a2267a9ffeb9377dcae2e002ff91780bf6c8fbf35c38` |
-| `survey/metrics/movement-spread-300c-after-realtime-2-1.prom` | `42c7758d3aa43ced4b529fada91dbcfd880c87aef5e2eeb7a8b662f1f2f080a5` |
-| `survey/metrics/movement-spread-300c-before-realtime-1.prom` | `e7a035efa43541e42d47f380fe522dc3eb0d2caa902283196728d565317dce5d` |
-| `survey/metrics/movement-spread-300c-before-realtime-2-1.prom` | `0948129bba2839267946dbc333ed893950d54cd788fc672ab69175789bcba484` |
+| `survey/metrics/movement-split-100c-20s-after-realtime-1.prom` | `b689c6f94a564bfd3d828e47aa452534713ce69a75ee2d3bf350a3f12d1e5c79` |
+| `survey/metrics/movement-split-100c-20s-after-realtime-2-1.prom` | `e7e9d25b7ccfd3d081c056130d0f0077e4fb240286572ab41f17160951a8f7a4` |
+| `survey/metrics/movement-split-100c-20s-before-realtime-1.prom` | `1a8413921e0322d29992483fcb8781a6e3b10f0aee6cb2fc3fe2bc358ecad2c9` |
+| `survey/metrics/movement-split-100c-20s-before-realtime-2-1.prom` | `81f33828c16a954e2bd0bf06037ef5b4e47c1e4cee7eccc3423c7dfb327869b6` |
+| `survey/metrics/movement-split-10c-10s-after-realtime-1.prom` | `038908bc956aa6cf90140001b4cbfc43656daf452a1edc01f41c3f82ca5fe131` |
+| `survey/metrics/movement-split-10c-10s-after-realtime-2-1.prom` | `7b5cdc18f26b618d9e2e45afab1807281b6200afc78bb577e7be150c5b7c39a7` |
+| `survey/metrics/movement-split-10c-10s-before-realtime-1.prom` | `964f56589c82fc742431fd877b2156e5789ecbd45bfa231f749c3a9ab76288de` |
+| `survey/metrics/movement-split-10c-10s-before-realtime-2-1.prom` | `1bd8f9e85126fa90a893c9cf65f4d4b813598ef9a8586f91b2a547b93ef1d555` |
+| `survey/metrics/movement-split-10c-60s-after-realtime-1.prom` | `4ced14022a0d9b7322cb6c2ec4b4fc6abb4e88a912b9f98a782307cd22c71b63` |
+| `survey/metrics/movement-split-10c-60s-after-realtime-2-1.prom` | `8162da730dc51912dd6f7ee0b8df81863aeee65b37f814c02ff2df42ddc40a8b` |
+| `survey/metrics/movement-split-10c-60s-before-realtime-1.prom` | `aef17e9fc0d5ae82b3d75348efb9cd08fba34e89729765c73ad44d2a72c1ccc9` |
+| `survey/metrics/movement-split-10c-60s-before-realtime-2-1.prom` | `89ff331d2317926e4c3576ee145daa06201cd1e7f94b75c15097b008eb9a2691` |
+| `survey/metrics/movement-spread-300c-after-realtime-1.prom` | `1020c3a97106c656277d9a813bd8a5aea3f17de91ce93e6d1ef4b964e6419c56` |
+| `survey/metrics/movement-spread-300c-after-realtime-2-1.prom` | `cf9527dccaae51eea72c222386520ffc11836bb4659a181f664a6b042ab19d71` |
+| `survey/metrics/movement-spread-300c-before-realtime-1.prom` | `6e5f982772b605a4bbd2ef611fa5b9bb4555789e036d2e0a73ad965c0863df40` |
+| `survey/metrics/movement-spread-300c-before-realtime-2-1.prom` | `7972f827c180cc420e7ca7d9c8de3a3413a808e1ecc74d208bd5afb32aed2519` |
 | `survey/metrics/prometheus-range.json` | `f1bfdc7decb9a704fd2a3b080ff3d5f10aaabafe1a4b150b81e7a14e84684bd0` |
-| `survey/metrics/ws-movement-100c-10hz-after-realtime-1.prom` | `21810f61843b693cb8a95f06e01491f705c9bafc7199819765687269528e2f1f` |
-| `survey/metrics/ws-movement-100c-10hz-after-realtime-2-1.prom` | `8f7f51315d6b020e38f2be00d3f4a187557a349dc77429b70bc0bf5abef4b817` |
-| `survey/metrics/ws-movement-100c-10hz-before-realtime-1.prom` | `8c89ae391f25055773a52363fd62020a95c7f8762fa03c68cd06b95a0fd72655` |
-| `survey/metrics/ws-movement-100c-10hz-before-realtime-2-1.prom` | `655746df8ab486de2d22549d9e4076b37ebe5e997785034dbc28bf46acb4e280` |
-| `survey/metrics/ws-movement-100c-1hz-after-realtime-1.prom` | `a515a0bf9b71bca0ca7482806ff5ec62943c5701c99411355c6fd336b57a81fd` |
-| `survey/metrics/ws-movement-100c-1hz-after-realtime-2-1.prom` | `a46a60d03b2c4c19cd4e63bd017af2945447fde983be4fdd8562454325f2c8bb` |
-| `survey/metrics/ws-movement-100c-1hz-before-realtime-1.prom` | `690fe93397cabe19420e64fdfe6352ab5958e7e4a8063c2cf5e62e3c503a65dd` |
-| `survey/metrics/ws-movement-100c-1hz-before-realtime-2-1.prom` | `2651a05305ce7833b6bae3774bfdd9b17de109bf8b884f9489c70ec57f7a498d` |
-| `survey/metrics/ws-movement-100c-1hz-confirm-after-realtime-1.prom` | `cb59946a8cfe310882ae3f2448451b926d173d5f6ba65e2a9b35e692037d0252` |
-| `survey/metrics/ws-movement-100c-1hz-confirm-after-realtime-2-1.prom` | `57b8c668702d88aa93481e295c12a6546f03b6648b4cfcc8615f3ff7f0f75d42` |
-| `survey/metrics/ws-movement-100c-1hz-confirm-before-realtime-1.prom` | `091f350437cd0c54c80e429e9989585c2fbb04f5eaf77db408848ccf21e34115` |
-| `survey/metrics/ws-movement-100c-1hz-confirm-before-realtime-2-1.prom` | `6c5f8297cee86f908fa18ffa0dda621c35d2b55ab04a07dfd1e331d3a357fd57` |
-| `survey/metrics/ws-movement-100c-5hz-after-realtime-1.prom` | `e5f6761dc45eaaac222b2d6d7337d591b9a8174427fedba4f16d19c44c06b04d` |
-| `survey/metrics/ws-movement-100c-5hz-after-realtime-2-1.prom` | `274ff95125e4eada385d0dddf5f3f4c5cb0336794eae041ff9830f0fc30b3d0c` |
-| `survey/metrics/ws-movement-100c-5hz-before-realtime-1.prom` | `5d5abde50c12002a1adab72327d65461097a8f7c2765e52337ce26bb551b0b29` |
-| `survey/metrics/ws-movement-100c-5hz-before-realtime-2-1.prom` | `41ecc06deddf93496ca69eef500d497a9bff62a7dc37d9678253faadbde09cd7` |
-| `survey/metrics/ws-movement-10c-1hz-after-realtime-1.prom` | `26b6e371efd2647abec14e9952b1bddcdf3115cc41ddf38c603b9d56529f6fd7` |
-| `survey/metrics/ws-movement-10c-1hz-after-realtime-2-1.prom` | `bfe5889b54b4da413a55686e880d7ef20ec7c401bd997904c1bd4fa8347b3491` |
-| `survey/metrics/ws-movement-10c-1hz-before-realtime-1.prom` | `7e3f867f8431d13c81c692a8777c0405446410bc04d0145b56fdf88a02620cd8` |
-| `survey/metrics/ws-movement-10c-1hz-before-realtime-2-1.prom` | `8ca5a11e02db278bdedf923e50c95f66319926dad3a386176fb7526e56e8b1d9` |
-| `survey/metrics/ws-movement-10c-20hz-policy-limit-after-realtime-1.prom` | `02ab5a26e59137a105a9d62101e3582598b08d3c0cf72dcd5824360cfa806f29` |
-| `survey/metrics/ws-movement-10c-20hz-policy-limit-after-realtime-2-1.prom` | `6c2332ce13296188b3187a8c8ed63ee19fcd35178aca5c13058be442ea99ab31` |
-| `survey/metrics/ws-movement-10c-20hz-policy-limit-before-realtime-1.prom` | `20c34c39b868b7f44ae139faf336a25bdb014dde6f6671dac39f05d3646fe8f0` |
-| `survey/metrics/ws-movement-10c-20hz-policy-limit-before-realtime-2-1.prom` | `c749fa658d1aaf9f467c0f345cb3a7e4296393c83f7bc1df45b771f142ef3ffe` |
-| `survey/metrics/ws-movement-300c-1hz-after-realtime-1.prom` | `b66dc024c3602e03cdbfb0d3bf51cff27f4d2f62672e7a50522db832a495b6d1` |
-| `survey/metrics/ws-movement-300c-1hz-after-realtime-2-1.prom` | `24a617bd27be0ad877bf88d7581014fd877a8aec915dda7f4f65ee87070de2e6` |
-| `survey/metrics/ws-movement-300c-1hz-before-realtime-1.prom` | `7e16cd433483748d67c6b42904cda816210916727278fdf421fc99966d45555e` |
-| `survey/metrics/ws-movement-300c-1hz-before-realtime-2-1.prom` | `659c4b7506bdf18b01e1f4bd29b62d3cba615412643ac0fc1c78e84251d48c81` |
-| `survey/metrics/ws-movement-50c-1hz-after-realtime-1.prom` | `c6b1c78f291f4c47b0dc7f52a7918481bb9191bb7b07f2f5fcbc6e42b51cba4c` |
-| `survey/metrics/ws-movement-50c-1hz-after-realtime-2-1.prom` | `e37ca2306a2aa1220b55429583209b56db6a0dfe35a610f22111c9effb52eeac` |
-| `survey/metrics/ws-movement-50c-1hz-before-realtime-1.prom` | `6fde00c80d11706e86d587d7205905488f67dca44635b4cae526165768685b16` |
-| `survey/metrics/ws-movement-50c-1hz-before-realtime-2-1.prom` | `c1fcff0e37e9286637535570e4e6d2c0849d67a81165afd33a0abecfaf68b62a` |
+| `survey/metrics/ws-movement-100c-10hz-after-realtime-1.prom` | `186533066dbdc7c9ce9097d72a53768739f4c057a44919b24231e58058524517` |
+| `survey/metrics/ws-movement-100c-10hz-after-realtime-2-1.prom` | `859249b76100eec650de83fd4fb556e58fced9270ae95fd8d10d90c5452424a8` |
+| `survey/metrics/ws-movement-100c-10hz-before-realtime-1.prom` | `f23cc0ea1e4285531718b77579542eff92618daa7b4f2b032e493a0c2532e293` |
+| `survey/metrics/ws-movement-100c-10hz-before-realtime-2-1.prom` | `2d977ec70050f7239ff9afb49fd7e61c6a83980e4175b4560fa6c63a41a22928` |
+| `survey/metrics/ws-movement-100c-1hz-after-realtime-1.prom` | `3b37816ee3a67cf470f4683e71adcfdd3a7f9151e06298e3dd7f4a4537582708` |
+| `survey/metrics/ws-movement-100c-1hz-after-realtime-2-1.prom` | `6a722c5067278ec38990783324abf0fd198acf0accd87ebbc901cac71fe30d6a` |
+| `survey/metrics/ws-movement-100c-1hz-before-realtime-1.prom` | `2a15cb09bdbde16d07d213e1e1899930a974c721c194bd85b4158a0b624e7c74` |
+| `survey/metrics/ws-movement-100c-1hz-before-realtime-2-1.prom` | `b18572d5b2e18d3c8e6499316a97c9f70e2a5fa85aebac05bf0bbe47b9c685c1` |
+| `survey/metrics/ws-movement-100c-1hz-confirm-after-realtime-1.prom` | `0b650effee427531bad5c53f164fe3f1402bcff1ac3f1ea2bbc54d45aa851f2e` |
+| `survey/metrics/ws-movement-100c-1hz-confirm-after-realtime-2-1.prom` | `a50d97eb27fb08e13be33da74e49983129b4780b65b68d17c6671a304a7260d1` |
+| `survey/metrics/ws-movement-100c-1hz-confirm-before-realtime-1.prom` | `f0646a850fd04aaf4b3f7c7c0b660aadc5b1195eb9b5156aef957b8377e6f82c` |
+| `survey/metrics/ws-movement-100c-1hz-confirm-before-realtime-2-1.prom` | `233a8fd5af483c7da3abdb335026e32ec5fb3cdc0b23c0509b2b8106a0705344` |
+| `survey/metrics/ws-movement-100c-5hz-after-realtime-1.prom` | `6f324798992d5909e212636df7df8efba8eca59b169392afded264e6a844773f` |
+| `survey/metrics/ws-movement-100c-5hz-after-realtime-2-1.prom` | `490ba3b79d8cdb7b4cd61b6462c29c52dd701fd561808894d446df7c3f9b7392` |
+| `survey/metrics/ws-movement-100c-5hz-before-realtime-1.prom` | `ea4a0b9b700bd793c6b7c0080943c77433dfd3873724375d0b676f1b93fbefd3` |
+| `survey/metrics/ws-movement-100c-5hz-before-realtime-2-1.prom` | `7238f7bbebafd708aa95833c710bc5008227dbdcf5547c83b71b253c96caf9ae` |
+| `survey/metrics/ws-movement-10c-1hz-after-realtime-1.prom` | `223bbb3a8400a3bc06bdddd4dd82c279ffff0909ad2d6a2ea87264f06c7428af` |
+| `survey/metrics/ws-movement-10c-1hz-after-realtime-2-1.prom` | `dd828544631dfe3f226b4eef0dc0ee3c2db1c68b47c82d6be5bfc9f5cdc58c14` |
+| `survey/metrics/ws-movement-10c-1hz-before-realtime-1.prom` | `5e4808da33bd433301a8e24b43573404b2ad79f740868a2d5a494d9f8d447a60` |
+| `survey/metrics/ws-movement-10c-1hz-before-realtime-2-1.prom` | `79de7efcaeb68ee18ba1ce33640ccab66be783dd01f2308249eadb96a8d10a28` |
+| `survey/metrics/ws-movement-10c-20hz-policy-limit-after-realtime-1.prom` | `9b7d60e8e4afd64d8a27a45b38b4e0388704e0357c34a0048a355dabd1083ebc` |
+| `survey/metrics/ws-movement-10c-20hz-policy-limit-after-realtime-2-1.prom` | `15d8883e9f4df42b93485f557ddce6eeab19f9ab00e8dd9379c808ecb5f2bfd3` |
+| `survey/metrics/ws-movement-10c-20hz-policy-limit-before-realtime-1.prom` | `a702b348e19fb51771ea7141f4ff7f61c7bc9b638b47f40ac9990eb60b9d9b30` |
+| `survey/metrics/ws-movement-10c-20hz-policy-limit-before-realtime-2-1.prom` | `2e9d9e336b6d4b9794aef5e183f323c535eac62236752d2d68e3cab9aff00c71` |
+| `survey/metrics/ws-movement-300c-1hz-after-realtime-1.prom` | `b418c2fac9430445e2974f34c3a50ada74d83537af8816ccf3c4c34f48d58da7` |
+| `survey/metrics/ws-movement-300c-1hz-after-realtime-2-1.prom` | `9b77db63db34b4b1f9f7797c8ef204f5c596b8e3b2fcca53faf25e4e3bed0d5d` |
+| `survey/metrics/ws-movement-300c-1hz-before-realtime-1.prom` | `ac6e99d80008d6adf9f0f79cf432ab253646e5f644b63cbd52c24f834f4e4824` |
+| `survey/metrics/ws-movement-300c-1hz-before-realtime-2-1.prom` | `dfd7f3208083f50992480b75437460b07ef62910f66f6b6fbf4332f66de45fed` |
+| `survey/metrics/ws-movement-50c-1hz-after-realtime-1.prom` | `05069530500796c1e311fa3bd1a1ce85b594c0a28522cdd8ce8db6f7a547ef38` |
+| `survey/metrics/ws-movement-50c-1hz-after-realtime-2-1.prom` | `b2c80a3e095b94abc533b6d3abb048b5ef39de3523a294ff61cac7858413660c` |
+| `survey/metrics/ws-movement-50c-1hz-before-realtime-1.prom` | `ab05ac2c4e04e0257bfdfcb69082ca5c75cd24e3e2ece36b95bf51408d0ee31b` |
+| `survey/metrics/ws-movement-50c-1hz-before-realtime-2-1.prom` | `ca5e74915d632c7543c65e1d829abb558b4574a542f4030985a2a3f91b75c8d4` |
 | `survey/movement-split-100c-20s.json` | `22d05c1f8b52a2469472dfc8cc27563c7ea0ac893e843d526a752c0de22dde45` |
 | `survey/movement-split-100c-20s.log` | `0ed25dd621cbeafeece608fa36a0464b6962904c2d4e64ac7dcbb33b9a6286cc` |
 | `survey/movement-split-10c-10s.json` | `a7fe8dc48f2d46037673b7702bb701536283ccf4d63935a2c28e684d9f2ba738` |

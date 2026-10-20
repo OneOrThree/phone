@@ -257,7 +257,10 @@ public final class RoomRuntime {
         return departed.size();
     }
 
-    /** 패키지 전용 — 테스트용. 토큰 버킷 초과로 조용히 버려진 intent 수(codex P2, N8). */
+    /**
+     * 패키지 전용 — 테스트용. 토큰 버킷 초과로 조용히 버려진 intent 수(codex P2, N8).
+     * 주입된 Counter 기준이다(운영은 프로세스 전체 합계, 테스트는 방마다 새 Counter).
+     */
     long rateLimitedDropCount() {
         return (long) rateLimitedCounter.count();
     }

@@ -46,14 +46,6 @@ jvm_gc_pause_seconds_count{action="end of minor GC",cause="GCLocker Initiated GC
 jvm_gc_pause_seconds_sum{action="end of minor GC",cause="GCLocker Initiated GC",gc="Copy"} 0.012
 jvm_gc_pause_seconds_max{action="end of minor GC",cause="Allocation Failure",gc="Copy"} 0.01
 jvm_gc_pause_seconds_max{action="end of minor GC",cause="GCLocker Initiated GC",gc="Copy"} 0.0
-jvm_memory_used_bytes{area="heap",id="Eden Space"} 1.3913216E7
-jvm_memory_used_bytes{area="heap",id="Survivor Space"} 1437336.0
-jvm_memory_used_bytes{area="heap",id="Tenured Gen"} 6.5196088E7
-jvm_memory_used_bytes{area="nonheap",id="CodeHeap 'non-nmethods'"} 1572224.0
-jvm_memory_used_bytes{area="nonheap",id="CodeHeap 'non-profiled nmethods'"} 1.3170816E7
-jvm_memory_used_bytes{area="nonheap",id="CodeHeap 'profiled nmethods'"} 3.2243968E7
-jvm_memory_used_bytes{area="nonheap",id="Compressed Class Space"} 1.8574944E7
-jvm_memory_used_bytes{area="nonheap",id="Metaspace"} 1.41187968E8
 movement_fullstate_retry_total 0.0
 movement_outbox_overflow_total 0.0
 movement_outbox_reliable_depth_count 19892

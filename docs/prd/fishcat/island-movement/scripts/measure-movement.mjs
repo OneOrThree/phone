@@ -28,7 +28,8 @@ const USAGE = `사용법(레포 루트에서):
                      docker exec phone-realtime-local wget -qO- http://localhost:9091/actuator/prometheus
   --nav <file>       통행 격자. 기본 server/realtime/src/main/resources/movement/nav.json
   --seed 2250        목적지 난수 시드(사용자별 seed+i)
-  --repeat 1         같은 N 을 k 번 돌려 results 에 각각(run 1..k) 남긴다. k>1 이면 표는 각 수치의 중앙값
+  --repeat 1         같은 N 을 k 번 돌려 results 에 각각(run 1..k) 남긴다. k>1 이면 표는 각 수치의 중앙값(홀수 k 권장 — 짝수면 정수 필드는 반올림)
+  --keep-raw         --json 에 Prometheus 전후 스크레이프 본문(raw.promBefore·promAfter)도 담는다. 기본은 제외(수 MB)
   --self-check       네트워크 없이 계산 함수만 점검하고 끝낸다`;
 
 const REPO_NAV = fileURLToPath(
@@ -52,6 +53,7 @@ function parseArgs(argv) {
     repeat: 1,
     metricsCmd: 'docker exec phone-realtime-local wget -qO- http://localhost:9091/actuator/prometheus',
     selfCheck: false,
+    keepRaw: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -74,6 +76,7 @@ function parseArgs(argv) {
     else if (flag === '--seed') o.seed = Number(val());
     else if (flag === '--repeat') o.repeat = Number(val());
     else if (flag === '--self-check') o.selfCheck = true;
+    else if (flag === '--keep-raw') o.keepRaw = true;
     else if (flag === '--help' || flag === '-h') {
       console.log(USAGE);
       process.exit(0);
@@ -184,13 +187,13 @@ function classifyFrame(text, bytes) {
 }
 
 // Prometheus histogram 델타(after−before)의 분위 — «그 분위를 처음 넘는 bucket 의 le» 를 ms 로(상한 보수값, 보간 안 함).
-// le=+Inf 에 걸리면 호출자가 준 maxMs 로 대신한다. bucket 줄이 없거나 Δ 가 0 이면 null.
-function bucketQuantileMs(before, after, name, q, maxMs) {
+// le=+Inf 에 걸리면 호출자가 준 maxMs 로 대신하고 over=true 로 표시한다. bucket 줄이 없거나 Δ 가 0 이면 null.
+function bucketQuantile(before, after, name, q, maxMs) {
   const re = new RegExp(`^${name}_bucket\\{.*le="([^"]+)"`);
   const rows = [];
   for (const [k, v] of after) {
     const le = re.exec(k)?.[1];
-    if (le !== undefined) rows.push([Number(le), v - (before.get(k) ?? 0)]);
+    if (le !== undefined) rows.push([le === '+Inf' ? Infinity : Number(le), v - (before.get(k) ?? 0)]);
   }
   if (!rows.length) return null;
   rows.sort((a, b) => a[0] - b[0]);
@@ -198,8 +201,10 @@ function bucketQuantileMs(before, after, name, q, maxMs) {
   if (!(total > 0)) return null;
   const hit = rows.find(([, cum]) => cum >= q * total);
   if (!hit) return null;
-  return Number.isFinite(hit[0]) ? hit[0] * 1000 : Number.isFinite(maxMs) ? maxMs : null;
+  if (Number.isFinite(hit[0])) return { ms: hit[0] * 1000, over: false };
+  return Number.isFinite(maxMs) ? { ms: maxMs, over: true } : null;
 }
+const bucketQuantileMs = (...a) => bucketQuantile(...a)?.ms ?? null;
 
 function scrape(cmd) {
   try {
@@ -229,6 +234,8 @@ function metricSummary(before, after) {
       maxMs,
       p50: bucketQuantileMs(before, after, name, 0.5, maxMs),
       p99: bucketQuantileMs(before, after, name, 0.99, maxMs),
+      p50Over: bucketQuantile(before, after, name, 0.5, maxMs)?.over ?? false,
+      p99Over: bucketQuantile(before, after, name, 0.99, maxMs)?.over ?? false,
       missing,
     };
   };
@@ -648,9 +655,11 @@ function summarize(r, o) {
     rtts,
     snapIntervals: intervals,
     bytesPerSecBySession: bps,
-    promBefore: r.before.ok ? Object.fromEntries(r.before.metrics) : r.before.error,
-    promAfter: r.after.ok ? Object.fromEntries(r.after.metrics) : r.after.error,
   };
+  if (o.keepRaw) {
+    out.raw.promBefore = r.before.ok ? Object.fromEntries(r.before.metrics) : r.before.error;
+    out.raw.promAfter = r.after.ok ? Object.fromEntries(r.after.metrics) : r.after.error;
+  }
   return out;
 }
 
@@ -668,7 +677,9 @@ const counterText = (c) => (typeof c === 'number' ? `Δ ${c}` : c.missing ? MISS
 function medianOf(nums) {
   const v = nums.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
   if (!v.length) return nums.find((x) => typeof x === 'number');
-  return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  if (v.length % 2) return v[(v.length - 1) / 2];
+  const m = (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  return v.every(Number.isInteger) ? Math.round(m) : m; // 정수 필드(카운트·Δ)는 .5 를 남기지 않는다
 }
 function mergeMedian(vals) {
   const defined = vals.filter((v) => v !== undefined);
@@ -800,8 +811,9 @@ function table(rawResults, o) {
       s.n,
       how,
     );
-    const quantileHow = '_bucket 전후 델타(누적)에서 그 분위를 처음 넘는 bucket 의 le(상한 보수값, 보간 없음). le=+Inf 에 걸리면 _max';
-    const quantileText = (t) => (t.p50 == null && t.p99 == null ? NO_NEW_METRIC : `p50 ${ms(t.p50)} · p99 ${ms(t.p99)}`);
+    const quantileHow = '_bucket 전후 델타(누적)에서 그 분위를 처음 넘는 bucket 의 le(상한 보수값 — 표의 ≤, 보간 없음). le=+Inf 에 걸리면 _max(max 표기)';
+    const qv = (v, over) => (v == null ? '—' : over ? `max ${ms(v)}(bucket 상한 초과)` : `≤${ms(v)}`);
+    const quantileText = (t) => (t.p50 == null && t.p99 == null ? NO_NEW_METRIC : `p50 ${qv(t.p50, t.p50Over)} · p99 ${qv(t.p99, t.p99Over)}`);
     push('틱 p50·p99', quantileText(m.tick), s.n, quantileHow);
     push(
       'movement_pathfind_seconds',
@@ -850,7 +862,8 @@ function table(rawResults, o) {
     const cells = cols.map((c) => (byCol.has(c) ? byCol.get(c) : byCol.has('all') ? byCol.get('all') : '—'));
     lines.push([name, ...cells, hows.get(name)]);
   }
-  return lines.map((r) => `| ${r.map(esc).join(' | ')} |`).join('\n');
+  const md = lines.map((r) => `| ${r.map(esc).join(' | ')} |`).join('\n');
+  return k > 1 ? `p50/p99 는 각 run 의 값의 중앙값이다(전체 표본의 분위가 아님).\n\n${md}` : md;
 }
 
 function selfCheck(nav) {
@@ -919,6 +932,19 @@ function selfCheck(nav) {
   assert.equal(q.counters.tickDelayed.missing, false);
   // 마지막 구간이 +Inf 에만 쌓이면 p99 는 le 대신 _max(60ms) 로 표기.
   assert.ok(Math.abs(metricSummary(bk(0, 0, 0, 0), bk(1, 1, 1, 10)).tick.p99 - 60) < 1e-9);
+  assert.equal(metricSummary(bk(0, 0, 0, 0), bk(1, 1, 1, 10)).tick.p99Over, true);
+  assert.equal(metricSummary(bk(0, 0, 0, 0), bk(1, 1, 1, 10)).tick.p50Over, true);
+  // +Inf 줄이 중간에 와도(정렬이 스크레이프 순서에 안 기댐) 같은 결과.
+  const mid = new Map([
+    ['movement_tick_seconds_bucket{le="+Inf"}', 10],
+    ['movement_tick_seconds_bucket{le="0.05"}', 10],
+    ['movement_tick_seconds_bucket{le="0.01"}', 2],
+    ['movement_tick_seconds_bucket{le="0.025"}', 8],
+    ['movement_tick_seconds_max', 0.06],
+  ]);
+  assert.ok(Math.abs(bucketQuantileMs(new Map(), mid, 'movement_tick_seconds', 0.5, 60) - 25) < 1e-9);
+  assert.ok(Math.abs(bucketQuantileMs(new Map(), mid, 'movement_tick_seconds', 0.99, 60) - 50) < 1e-9);
+  assert.equal(mergeMedian([{ n: 1 }, { n: 2 }]).n, 2); // 짝수 k 정수 필드는 반올림(1.5→2)
   assert.equal(metricSummary(new Map(), new Map([['movement_tick_seconds_count', 1]])).tick.p50, null); // bucket 없음
   // 프레임 type 분리 — 합성 프레임 3종(PathAccepted·Arrived 는 movement, Snapshot 은 헤더 몫 따로).
   const mf = (dest, body) => `MESSAGE\ndestination:/topic/islands/abc${dest}\nsubscription:s\ncontent-length:${body.length}\n\n${body}\u0000`;

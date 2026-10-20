@@ -238,13 +238,13 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 | `ws-movement-300c-1hz-r3` | 300c · 1Hz · 20s | (10-18 없음) | 57000/57000 · p50 110.9 · p95 417.7 · p99 469.2 · 199 MB | 0 | 93127 |
 
 - **두 인스턴스 분산 전달 누락 0**: 10c 10 s 는 10-18 의 450/900 에서 900/900 이 됐고(p95 53.2 → 48.3 ms), 10c 60 s 5,900/5,900 · 100c 20 s 19,000/19,000 이다.
-- **단일 입구 조합은 누락 0, 지연은 10-18 과 같거나 낮다**: 100c@1Hz p95 73.3 → 43.7 · 50c p95 148.6 → 69.7 · 10c p95 75.1 → 47.8 · 300c 분산 발신 60 s p95 63.5 → 64.1 · 100c@10Hz p99 72.6 → 92.0. 수신량(MB)은 10-18 과 같은 값이다.
-- **300c 정렬 발신 20 s 는 값이 크게 흔든다**: run2 p95 979.8 ms 는 재현되지 않고 3회 재확인이 p95 124.3 / 199.1 / 417.7 ms(p50 76.4 / 100.7 / 110.9, 누락 0)다. 같은 구간 realtime-1 의 `movement_relay_lag` 19,311건 중 99% 가 13 ms 이하(최대 0.09 s)이고 릴레이 줄 깊이 0 이라 릴레이 원인이 아니다. 300 연결이 같은 틱에 몰리는 발생기(Node 단일 루프)·호스트 상태에 민감한 조합으로 읽고, 회귀가 아니라 「변동 큰 조합」으로 기록한다. 전용 호스트 재측정(2347)에 300c 정렬 3회 반복을 넣는다.
+- **단일 입구 조합은 누락 0, 지연은 조합에 따라 갈린다**: 개선은 100c@1Hz p95 73.3 → 43.7 · 50c p95 148.6 → 69.7 · 10c p95 75.1 → 47.8, 악화는 100c 60 s confirm p50 32.3 → 58.5 · p99 73.1 → 87.7, 100c@10Hz p99 72.6 → 92.0 이다(300c 분산 발신 60 s p95 63.5 → 64.1 은 같은 급). 일관된 회귀·개선은 없고 맥 한 대의 노이즈 범위로 읽는다. confirm 의 p50 상승은 재확인하지 못했다(`survey/repeat-300c/ws-movement-100c-1hz-confirm-r2.json` 은 Xcode 빌드와 겹쳐 폐기). 수신량(MB)은 10-18 과 같은 값이다.
+- **300c 정렬 발신 20 s 는 값이 크게 흔든다**: run2 p95 979.8 ms 는 재현되지 않고 3회 재확인이 p95 124.3 / 199.1 / 417.7 ms(p50 76.4 / 100.7 / 110.9, 누락 0)다. 같은 구간 realtime-1 의 `movement_relay_lag` 19,311건 중 99% 가 13 ms 이하(최대 0.09 s)이고 릴레이 줄 깊이 0 이라 릴레이는 원인에서 배제한다. 나머지(발생기 Node 단일 루프·호스트 상태 등)는 확인하지 못했다. 회귀 판정 없이 「변동 큰 조합」으로 기록하고, 전용 호스트 재측정(2347)에 300c 정렬 3회 반복을 넣는다.
 - 같은 묶음의 `ws-movement-100c-1hz-confirm-r2`(57,721/59,000 · p95 1.3 s)는 06:38 에 다시 띄운 Xcode 빌드와 겹쳐 오염됐다 — 버리고 파일만 남긴다. 10c@20Hz 정책 상한 run 은 설계대로 일부만 받는다(11,900/19,700).
 
 ### ② 한 섬 N=1·5·15 (`one-island.md`, 3회 중앙값)
 
-10-09 표(§7)와 행이 다른 점: 「Snapshot IDLE 비율·PathAccepted 크기」·「틱 p50·p99」·「pathfind p50·p99」 행과 틱 지연·건너뜀·속도제한 드롭 카운터 행이 새로 있고, 세션당 수신량 셀에 프레임 종류별 분해가 붙는다. 값은 N 마다 3회 실행의 중앙값이다.
+10-09 표(§7)와 행이 다른 점: 「Snapshot IDLE 비율·PathAccepted 크기」·「틱 p50·p99」·「pathfind p50·p99」 행과 틱 지연·건너뜀·속도제한 드롭 카운터 행이 새로 있고, 세션당 수신량 셀에 프레임 종류별 분해가 붙는다. 값은 N 마다 3회 실행의 중앙값이다. 틱·pathfind p50/p99 는 histogram bucket 의 상한(≤)이라 실제 값보다 크거나 같다.
 
 | 항목 | N=1 (3회 중앙값) | N=5 (3회 중앙값) | N=15 (3회 중앙값) | 측정 방법 |
 | --- | --- | --- | --- | --- |
@@ -258,9 +258,9 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 | Snapshot IDLE 비율·PathAccepted 크기 | IDLE entity 1.3% · waypoints 평균 30.7 · 최대 67 (표본 30) · PathAccepted 본문 평균 843 B | IDLE entity 10.8% · waypoints 평균 30.8 · 최대 79 (표본 150) · PathAccepted 본문 평균 845 B | IDLE entity 10.7% · waypoints 평균 31.8 · 최대 80 (표본 450) · PathAccepted 본문 평균 866 B | 부하 구간 Snapshot entity 중 state=IDLE 몫(전체 entity 수 대비), 내 PathAccepted 의 waypoints.length·본문 바이트(브로드캐스트 중복 제외) |
 | 끊김·ERROR | close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | 의도적 해제 전 WebSocket close code·reason, STOMP ERROR message, /user/queue/errors code |
 | movement_tick_seconds | Δcount 1287 · 평균 0.1 ms · 최대 10.0 ms | Δcount 1289 · 평균 0.1 ms · 최대 57.5 ms | Δcount 1288 · 평균 0.3 ms · 최대 69.4 ms | /actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창) |
-| 틱 p50·p99 | p50 1.0 ms · p99 1.0 ms | p50 1.0 ms · p99 1.0 ms | p50 1.0 ms · p99 1.4 ms | _bucket 전후 델타(누적)에서 그 분위를 처음 넘는 bucket 의 le(상한 보수값, 보간 없음). le=+Inf 에 걸리면 _max |
+| 틱 p50·p99 | p50 ≤1.0 ms · p99 ≤1.0 ms | p50 ≤1.0 ms · p99 ≤1.0 ms | p50 ≤1.0 ms · p99 ≤1.4 ms | _bucket 전후 델타(누적)에서 그 분위를 처음 넘는 bucket 의 le(상한 보수값 — 표의 ≤, 보간 없음). le=+Inf 에 걸리면 _max(max 표기) |
 | movement_pathfind_seconds | Δcount 30 · 평균 0.2 ms · 최대 1.4 ms | Δcount 150 · 평균 0.2 ms · 최대 1.8 ms | Δcount 450 · 평균 0.2 ms · 최대 46.4 ms | /actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창) |
-| pathfind p50·p99 | p50 1.0 ms · p99 1.4 ms | p50 1.0 ms · p99 1.4 ms | p50 1.0 ms · p99 1.4 ms | _bucket 전후 델타(누적)에서 그 분위를 처음 넘는 bucket 의 le(상한 보수값, 보간 없음). le=+Inf 에 걸리면 _max |
+| pathfind p50·p99 | p50 ≤1.0 ms · p99 ≤1.4 ms | p50 ≤1.0 ms · p99 ≤1.4 ms | p50 ≤1.0 ms · p99 ≤1.4 ms | _bucket 전후 델타(누적)에서 그 분위를 처음 넘는 bucket 의 le(상한 보수값 — 표의 ≤, 보간 없음). le=+Inf 에 걸리면 _max(max 표기) |
 | movement_outbox_reliable_depth | 표본 39 · 평균 1.00 · 최대 1 | 표본 972 · 평균 1.00 · 최대 2 | 표본 8580 · 평균 1.03 · 최대 9 | /actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창). reliable 사건을 넣은 직후 세션 큐 깊이 |
 | movement_outbox_snapshot_superseded_total | Δ 0 | Δ 0 | Δ 30 | 보내기 전에 더 새 Snapshot 으로 덮어쓴 횟수(전후 델타) |
 | movement_outbox_overflow_total · send_failed_total | Δ 0 · Δ 0 | Δ 0 · Δ 0 | Δ 0 · Δ 0 | 큐 상한·넘기기 실패로 닫은 세션 수(전후 델타) |
@@ -279,6 +279,8 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 | N=15 | 54,572 (196.5) | 41,670 (150.0) | 4,289 (15.4) | 8,032.0 (28.9) | 593.6 (2.1) |
 | 10-09 역산 N=15 | 54,717 (197.0) | ≈ 150 | ≈ 13 | ≈ 33 (PathAccepted + Arrived) | (합산) |
 
+- 성분 합(≈ 54,585 B/s)이 총량 중앙값(54,572)과 조금 다른 것은 열마다 따로 구한 3회 중앙값이기 때문이다.
+- Snapshot 헤더 몫은 N=1·5·15 에서 3,955 → 4,289 B/s 로 거의 일정하다. 엔티티 수가 아니라 프레임 수(≈ 20/s)에 비례하는 고정비라는 뜻이다.
 - FullState 바이트는 부하 구간에 0 이다(접속 때 한 번뿐, 60초 구간 밖).
 - 10-09 역산(150 / 13 / 33)은 대체로 맞았다. 실측은 헤더 몫이 조금 크고(13 → 15.4) reliable 사건은 조금 작다(33 → PathAccepted 28.9 + Arrived 2.1 = 31.0). 총량은 54,717 → 54,572 B/s 로 같은 급이다.
 
@@ -286,7 +288,7 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 
 - N 과 무관하게 왕복 p50 ≈ 30 ms · p99 55~60 ms(N=15 최대 367.1 ms 1회, 표본 450), Snapshot 간격 p99 55~58 ms · 100 ms 이상 0.00~0.08%. 틱 p50·p99 ≤ 1 ms(N=15 p99 는 bucket 상한 1.4 ms), pathfind p99 1.4 ms. 호스트 loadavg 7~11 로 지연은 10-09(서버 `7af884d`)와 같은 급이다.
 - 틱·송신 큐는 여전히 병목이 아니다: 끊김·STOMP ERROR·오류 큐 0, outbox 오버플로·송신 실패 0, N=15 에서 `tick.delayed` 1 · `snapshot.skipped` 2 · `intent.rate_limited` 0 · `snapshot_superseded` 30.
-- 세션당 수신량 N=15 는 196.5 MB/시간으로 목표 30 의 약 6.5배다. Snapshot 본문 150.0 은 그대로 가장 큰 몫이고, Snapshot 만 줄여서는 목표에 못 간다 — 본문을 0 으로 놓아도 헤더 15.4 + reliable 사건 31.0 = 약 46.4 MB/시간이 남는다.
+- 세션당 수신량 N=15 는 196.5 MB/시간으로 목표 30 의 약 6.5배다. Snapshot 본문 150.0 은 그대로 가장 큰 몫이고, Snapshot 만 줄여서는 목표에 못 간다(헤더는 프레임 수에 묶인 고정비) — 본문을 0 으로 놓아도 헤더 15.4 + reliable 사건 31.0 = 약 46.4 MB/시간이 남는다.
 - IDLE entity 는 N≥5 에서 ≈ 11%(N=1 은 1.3%)다. PathAccepted 의 waypoints 는 평균 31(최대 80), 본문 ≈ 845~866 B 다. 정지 주민 생략과 waypoints 축소가 2단계 1차 후보인 근거가 실측으로 확인됐다.
 - 한계: 한 방(섬 1개), 전원이 쉬지 않고 걷는 부하, 발생기와 서버가 같은 맥이다. 실기기·손실 망은 §7 잔여 표 그대로 미측정이다.
 
