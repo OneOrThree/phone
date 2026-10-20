@@ -289,6 +289,23 @@ class MainIslandIntegrationTest {
     }
 
     @Test
+    @DisplayName("재가입 승인 뒤 1분 안에 다시 강퇴돼도 강퇴 알림이 두 건 남는다 — 분 축 중복으로 접히지 않는다")
+    void reKickWithinAMinuteGetsItsOwnNotice() {
+        Actor host = actor();
+        Actor user = actor();
+        island(user, "집섬");
+        UUID islandId = joined(user, island(host, "두번강퇴섬"));
+
+        management.kick(host.id(), islandId, user.id(), UUID.randomUUID());
+        UUID request = joins.join(user.id(), islandId, null, UUID.randomUUID()).requestId();
+        joins.answer(host.id(), islandId, request, true, UUID.randomUUID());
+        management.kick(host.id(), islandId, user.id(), UUID.randomUUID());
+
+        // 시간축이 분이면 두 번째 강퇴가 첫 번째의 1분 창에 걸려 버려진다(구 경로는 두 번 보낸다).
+        assertThat(notices(user, "ISLAND_KICKED")).containsExactly(islandId.toString(), islandId.toString());
+    }
+
+    @Test
     @DisplayName("메인 섬이 아닌 섬에서 강퇴돼도 강퇴 알림은 1건 간다 — 메인 섬·이전 알림은 그대로다")
     void kickFromANonMainIslandStillSendsOneKickNotice() {
         Actor host = actor();

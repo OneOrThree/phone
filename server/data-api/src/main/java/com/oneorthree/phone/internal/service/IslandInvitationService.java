@@ -240,7 +240,8 @@ public class IslandInvitationService {
         int memberCount = groupMemberRepository.countByGroupIdIn(List.of(island.getId())).stream()
                 .mapToInt(row -> (int) row.getMemberCount())
                 .sum();
-        boolean mine = groupMemberRepository.findByUserAndGroup(caller, island).isPresent();
+        Optional<GroupMember> prior = groupMemberRepository.findAnyByUserAndGroup(caller, island);
+        boolean mine = prior.filter(member -> !member.isLeft()).isPresent();
         IslandJoinRequest latest = joinRequestRepository
                 .findLatestByIslandIdAndApplicantId(
                         island.getId(), caller.getId(), PageRequest.of(0, 1))
@@ -248,7 +249,7 @@ public class IslandInvitationService {
         String status = mine ? IslandSummaries.STATUS_ACTIVE
                 : latest != null && latest.isPending()
                         ? IslandSummaries.STATUS_PENDING : IslandSummaries.STATUS_NONE;
-        return IslandSummaries.of(island, memberCount, status,
+        return IslandSummaries.of(island, prior.map(GroupMember::isKicked).orElse(false), memberCount, status,
                 latest == null ? null : latest.getId(),
                 arrivals.existsByUserIdAndIslandId(caller.getId(), island.getId()));
     }

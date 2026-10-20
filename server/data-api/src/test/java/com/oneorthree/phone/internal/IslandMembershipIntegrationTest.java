@@ -213,6 +213,25 @@ class IslandMembershipIntegrationTest {
     }
 
     @Test
+    @DisplayName("강퇴된 섬은 그 사람에게만 승인제로 보인다 — 발견·직접 조회의 approvalRequired 가 true, 남에게는 섬 설정 그대로")
+    void kickedIslandLooksApprovalRequiredOnlyToTheKickedViewer() {
+        UUID kickedUser = newUser();
+        UUID other = newUser();
+        UUID islandId = publicIsland("다시신청섬");
+        joinAs(kickedUser, islandId, GroupMemberRole.MEMBER);
+        jdbc.update("update group_members set is_left=true, left_reason='KICKED' "
+                + "where group_id=? and user_id=?", islandId, kickedUser);
+
+        // GROMO-2315: 강퇴자의 가입은 누구나 가입 섬이어도 신청이다 — 섬 설정만 주면 앱이 「바로 가입」을 띄운다.
+        assertThat(discovered(kickedUser, islandId).approvalRequired()).isTrue();
+        assertThat(islands.view(islandId, kickedUser).visitor().approvalRequired()).isTrue();
+        assertThat(discovered(other, islandId).approvalRequired()).as("섬 설정은 누구나 가입").isFalse();
+        assertThat(islands.view(islandId, other).visitor().approvalRequired()).isFalse();
+        // 보이는 가입 방식과 실제 가입이 같다.
+        assertThat(joins.join(kickedUser, islandId, null, UUID.randomUUID()).status()).isEqualTo("pending");
+    }
+
+    @Test
     @DisplayName("마지막 주민이 나간 섬은 발견·검색·내 섬에서 사라지고 직접 조회·가입도 막힌다")
     void lastResidentLeaveHidesIslandAcrossDiscoveryAndAccess() {
         UUID host = newUser();
@@ -557,6 +576,24 @@ class IslandMembershipIntegrationTest {
             }
         }
         throw new IllegalStateException("커서가 끝나지 않는다");
+    }
+
+    /** 발견 후보를 끝까지 넘겨 그 섬의 요약을 찾는다. */
+    private IslandSummaryView discovered(UUID userId, UUID islandId) {
+        String handle = null;
+        for (int guard = 0; guard < 500; guard++) {
+            IslandDiscoverPageView page = islands.discover(userId, SEED, handle, 50);
+            for (IslandSummaryView item : page.items()) {
+                if (item.id().equals(islandId)) {
+                    return item;
+                }
+            }
+            handle = page.nextHandle();
+            if (handle == null) {
+                break;
+            }
+        }
+        throw new AssertionError("발견 후보에 없다: " + islandId);
     }
 
     private UUID newUser() {

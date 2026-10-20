@@ -313,6 +313,8 @@ paths:
       description: |
         공개 `POST /islands/{islandId}/memberships` 의 상류. approvalRequired=false 면 즉시 가입
         (`status:"active"`·현재 섬 이동), true 면 pending 요청만 만든다(`status:"pending"`).
+        섬 요약·망원경 칸의 approvalRequired 는 보는 사람 기준이다 — 그 섬에서 강퇴된 사람에게는
+        섬 설정과 무관하게 true 다(강퇴자의 가입은 언제나 pending, GROMO-2315).
         같은 (섬, 신청자)의 열린 요청은 이미 있으면 새로 만들지 않고 같은 자원을 돌려준다.
         `invitationToken` 은 선택이다 — 형식 오류는 422, 형식이 맞지만 무효·폐기·타 섬의 코드는 410.
         Data 가 가입 커밋 안에서 발급자 멤버십·발급 세대를 다시 대조하므로 Business 의 사전 resolve

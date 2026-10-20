@@ -184,6 +184,9 @@ public class TelescopeService {
         Map<UUID, JoinRequestRef> requests = freshIds.isEmpty() ? Map.of()
                 : IslandSummaries.latestByIsland(
                         joinRequestRepository.findRefsByApplicantIdAndIslandIds(userId, freshIds));
+        // 강퇴된 섬도 새 섬 칸·핀에 나온다(GROMO-2315) — 그 섬은 이 사람에게 승인제로 보인다.
+        Set<UUID> kicked = freshIds.isEmpty() ? Set.of()
+                : new HashSet<>(groupMemberRepository.findKickedGroupIdsByUserId(userId));
         Map<UUID, Integer> joinedCounts = new HashMap<>();
         if (!joinedIds.isEmpty()) {
             groupMemberRepository.countByGroupIdIn(joinedIds)
@@ -200,7 +203,7 @@ public class TelescopeService {
         for (UUID id : joinedIds) {
             Group island = islands.get(id);
             if (island != null && IslandMovementGuards.isAlive(island)) {
-                items.add(item(island, joinedCounts.getOrDefault(id, 0), island.getMaxMembers(),
+                items.add(item(island, false, joinedCounts.getOrDefault(id, 0), island.getMaxMembers(),
                         IslandSummaries.STATUS_ACTIVE, SLOT_JOINED, SailingTimes.minutes(userId, id, bucketStart),
                         averageOf.get(id), arrived.contains(id), null, null, null, buildings.getOrDefault(id, 0)));
             }
@@ -214,7 +217,7 @@ public class TelescopeService {
             }
             boolean nearby = hasNearby && i == 0;
             // 주민 수·정원은 방금 읽은 가시성 행의 값이다 — full 표시가 지금 정원과 어긋나지 않는다.
-            items.add(item(island, candidate.getMemberCount(), candidate.getMaxMembers(),
+            items.add(item(island, kicked.contains(id), candidate.getMemberCount(), candidate.getMaxMembers(),
                     IslandSummaries.statusOf(false, requests.get(id)), nearby ? SLOT_NEARBY : SLOT_RANDOM,
                     nearby ? NEARBY_SAILING_MINUTES : SailingTimes.minutes(userId, id, bucketStart),
                     averageOf.get(id), arrived.contains(id), null, null, null, buildings.getOrDefault(id, 0)));
@@ -229,7 +232,7 @@ public class TelescopeService {
             if (island == null) {
                 continue;
             }
-            pinnedItems.add(item(island, row.getMemberCount(), row.getMaxMembers(),
+            pinnedItems.add(item(island, kicked.contains(id), row.getMemberCount(), row.getMaxMembers(),
                     IslandSummaries.statusOf(false, requests.get(id)), SLOT_PINNED,
                     SailingTimes.minutes(userId, id, bucketStart), averageOf.get(id), arrived.contains(id),
                     entry.pin().getSource(), entry.pin().getPinnedAt(), magazineCells.get(id),
@@ -325,12 +328,13 @@ public class TelescopeService {
         return ids.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
     }
 
-    private static TelescopeItemView item(Group island, long memberCount, int maxMembers, String membershipStatus,
-                                          String slot, int sailingMinutes, OptionalInt average,
-                                          boolean arrivedBefore, String pinnedFrom, Instant pinnedAt,
-                                          MagazineViews.Cell magazineCell, int buildingCount) {
+    private static TelescopeItemView item(Group island, boolean kicked, long memberCount, int maxMembers,
+                                          String membershipStatus, String slot, int sailingMinutes,
+                                          OptionalInt average, boolean arrivedBefore, String pinnedFrom,
+                                          Instant pinnedAt, MagazineViews.Cell magazineCell, int buildingCount) {
         return new TelescopeItemView(island.getId(), island.getName(), IslandSummaries.introOf(island),
-                (int) memberCount, maxMembers, island.isApprovalRequired(), membershipStatus, slot, sailingMinutes,
+                (int) memberCount, maxMembers, IslandSummaries.approvalRequiredFor(island, kicked),
+                membershipStatus, slot, sailingMinutes,
                 average.isPresent() ? average.getAsInt() : null, memberCount >= maxMembers, arrivedBefore,
                 pinnedFrom, pinnedAt, magazineCell, buildingCount);
     }

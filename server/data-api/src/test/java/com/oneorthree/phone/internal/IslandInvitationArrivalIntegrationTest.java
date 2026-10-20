@@ -366,6 +366,8 @@ class IslandInvitationArrivalIntegrationTest {
 
             assertThat(resolved.arrival().membershipStatus()).isEqualTo("none");
             assertThat(resolved.arrival().reason()).isEqualTo("KICKED");
+            // 누구나 가입 섬이어도 강퇴자에게는 승인제로 보인다 — 가입이 신청이 되기 때문이다.
+            assertThat(resolved.island().approvalRequired()).isTrue();
             assertThat(arrived(user, islandId)).isTrue();
             assertThat(activeMemberships(user, islandId)).isZero();
             assertThat(islandEvents(islandId)).isEqualTo(islandEvents);

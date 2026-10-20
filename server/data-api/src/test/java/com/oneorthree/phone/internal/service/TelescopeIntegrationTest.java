@@ -485,6 +485,11 @@ class TelescopeIntegrationTest {
         assertThat(items).extracting(TelescopeItemView::islandId).containsExactlyElementsOf(
                 byHash(viewer, List.of(left.getId(), open.getId(), kicked.getGroup().getId())));
         assertThat(items).extracting(TelescopeItemView::membershipStatus).containsOnly("none");
+        // 강퇴된 섬은 이 사람에게만 승인제로 보인다 — 실제 가입이 신청(pending)이라 「바로 가입」을 띄우면 안 된다.
+        assertThat(items).filteredOn(item -> item.islandId().equals(kicked.getGroup().getId()))
+                .singleElement().extracting(TelescopeItemView::approvalRequired).isEqualTo(true);
+        assertThat(items).filteredOn(item -> !item.islandId().equals(kicked.getGroup().getId()))
+                .extracting(TelescopeItemView::approvalRequired).containsOnly(false);
     }
 
     // ---------------------------------------------------------------- ④ 정원 찬 섬 채우기

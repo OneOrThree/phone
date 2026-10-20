@@ -106,11 +106,12 @@ public enum NotificationKind {
     MAIN_ISLAND_TRANSFERRED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.ISLAND),
 
     /**
-     * 섬에서 강퇴됐다(GROMO-2315). 대상 = <b>강퇴된 섬</b>, 축·정책은 {@link #MAIN_ISLAND_TRANSFERRED} 와 같다 — 서로
-     * 다른 섬의 강퇴가 한 건으로 접히지 않고, 같은 섬의 재전송만 접힌다. params: {@code islandId}·{@code islandName}.
+     * 섬에서 강퇴됐다(GROMO-2315). 대상 = <b>강퇴된 섬</b>, 시간축은 <b>강퇴 시각 그대로</b>({@code leftAt}) — 재가입
+     * 승인 뒤 1분 안에 다시 강퇴돼도 두 번째 알림이 분 축 중복으로 버려지지 않는다(구 경로는 원래 두 번 보낸다). 사건은 강퇴
+     * 트랜잭션 안에서 한 번만 적히므로 이 축으로도 재처리 중복이 없다. params: {@code islandId}·{@code islandName}.
      * 메인 섬에서 강퇴돼도 이전 알림은 내지 않고 이 알림 1건만 간다(10/20 결정).
      */
-    ISLAND_KICKED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.ISLAND),
+    ISLAND_KICKED(NotificationSlotGranularity.INSTANT, NotificationQuietPolicy.DROP, SubjectKind.ISLAND),
 
     // ── 고양이 잡지 (MagazineIssueNotifier) ────────────────────────────────────
     /**

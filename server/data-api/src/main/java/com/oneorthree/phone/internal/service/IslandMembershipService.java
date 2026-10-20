@@ -313,8 +313,10 @@ public class IslandMembershipService {
                     .stream().findFirst().orElse(null);
             String membershipStatus = latest != null && latest.isPending()
                     ? IslandSummaries.STATUS_PENDING : IslandSummaries.STATUS_NONE;
+            boolean kicked = groupMemberRepository.findAnyByUserAndGroup(viewer, island)
+                    .map(GroupMember::isKicked).orElse(false);
             return IslandViewResponse.ofVisitor(IslandSummaries.of(
-                    island, memberCount, membershipStatus,
+                    island, kicked, memberCount, membershipStatus,
                     latest == null ? null : latest.getId(),
                     arrivals.existsByUserIdAndIslandId(viewerUserId, islandId)),
                     facilityQueries.completedBuildings(islandId));
@@ -352,7 +354,8 @@ public class IslandMembershipService {
         Map<UUID, JoinRequestRef> latest = latestRequests(userId, ids);
         Set<UUID> arrived = arrivedAmong(userId, ids);
         List<IslandSummaryView> items = islands.stream()
-                .map(island -> IslandSummaries.of(island, counts.getOrDefault(island.getId(), 0),
+                // 활성 소속 섬이라 강퇴 이력이 없다.
+                .map(island -> IslandSummaries.of(island, false, counts.getOrDefault(island.getId(), 0),
                         IslandSummaries.STATUS_ACTIVE,
                         latest.containsKey(island.getId()) ? latest.get(island.getId()).getRequestId() : null,
                         arrived.contains(island.getId())))
@@ -490,12 +493,14 @@ public class IslandMembershipService {
         Set<UUID> mine = new HashSet<>(groupMemberRepository.findActiveGroupIdsByUserId(userId));
         Map<UUID, JoinRequestRef> latest = latestRequests(userId, orderedIds);
         Set<UUID> arrived = arrivedAmong(userId, orderedIds);
+        // 강퇴된 섬도 후보다(GROMO-2315) — 그 섬은 이 사람에게 승인제로 보인다. 섬마다 묻지 않고 한 번에 읽는다.
+        Set<UUID> kicked = new HashSet<>(groupMemberRepository.findKickedGroupIdsByUserId(userId));
         List<IslandSummaryView> items = new ArrayList<>(orderedIds.size());
         for (UUID id : orderedIds) {
             Group island = byId.get(id);
             if (island != null) {
                 JoinRequestRef ref = latest.get(id);
-                items.add(IslandSummaries.of(island, counts.getOrDefault(id, 0),
+                items.add(IslandSummaries.of(island, kicked.contains(id), counts.getOrDefault(id, 0),
                         IslandSummaries.statusOf(mine.contains(id), ref),
                         ref == null ? null : ref.getRequestId(), arrived.contains(id)));
             }
