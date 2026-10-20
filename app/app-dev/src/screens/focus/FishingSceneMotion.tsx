@@ -10,10 +10,12 @@
 import React, { createContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, AppState, Easing, Image, View } from 'react-native';
 import { assets } from '@/constants/assets';
+import { componentTokens } from '@/design-system/tokens';
 import { REEL_LAB_END_S, REEL_LAB_START_S, REEL_WINDOW_MS } from '@/components/catMotion';
 import type { CatPoseTransform } from '@/components/CatSprite';
 
 const TAU = Math.PI * 2;
+const tokens = componentTokens.fishingScene;
 export const LAB_CAT_PX = 390;
 const FOCUS_LOOP_S = 12;
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -131,9 +133,18 @@ function useLoopClock(loopSeconds: number, running: boolean) {
 
 /**
  * 집중 중 호흡·미세 회전과, 낚아올리기 2초 동안 LAB 5.5~8.35초 몸 변환(pull·recoil·poseSettle)을 돌려준다.
- * catching 이 켜질 때마다 처음부터 한 번 재생하고 꺼지거나 화면이 멈추면 바로 끊는다(완료 콜백 없음).
+ * catching 이 켜지거나 nonce(낚아올리기 사건)가 바뀔 때마다 처음부터 한 번 재생하고,
+ * 꺼지거나 화면이 멈추면 바로 끊는다(완료 콜백 없음). running 은 덮이지 않고 앱이 앞에 있는지다.
  */
-export function useFishingPose({ active, catching }: { active: boolean; catching: boolean }) {
+export function useFishingPose({
+  active,
+  catching,
+  nonce = 0,
+}: {
+  active: boolean;
+  catching: boolean;
+  nonce?: number;
+}) {
   const running = useRunning(active);
   const clock = useLoopClock(FOCUS_LOOP_S, running);
   const reel = useRef(new Animated.Value(REEL_LAB_START_S)).current;
@@ -148,8 +159,8 @@ export function useFishingPose({ active, catching }: { active: boolean; catching
     });
     run.start();
     return () => run.stop();
-  }, [catching, running, reel]);
-  return useMemo(() => {
+  }, [catching, running, reel, nonce]);
+  const pose = useMemo(() => {
     const breath = (fn: (b: number) => number) =>
       sampled(clock, 0, FOCUS_LOOP_S, 48, (t) => fn(labBreath(t)));
     const reelPose = (fn: (p: ReturnType<typeof labReelPose>) => number) =>
@@ -175,6 +186,7 @@ export function useFishingPose({ active, catching }: { active: boolean; catching
     ];
     return { body, reel };
   }, [clock, reel]);
+  return { ...pose, running };
 }
 
 // ---- 낚아올리기: 물보라·물고기 ----
@@ -223,8 +235,8 @@ export function FishingCatchMotion({
           top: origin.y - dropH / 2,
           width: dropW,
           height: dropH,
-          borderRadius: dropW,
-          backgroundColor: '#e9fff4',
+          borderRadius: tokens.radius,
+          backgroundColor: tokens.splashDrop,
           opacity: Animated.multiply(
             gate,
             at((age) => labSplashDrop(n, age).alpha),
@@ -246,9 +258,9 @@ export function FishingCatchMotion({
       top: origin.y + 5 * k - ringRy * k,
       width: ringRx * 2 * k,
       height: ringRy * 2 * k,
-      borderRadius: ringRx * k,
+      borderRadius: tokens.radius,
       borderWidth: Math.max(1, 2 * k),
-      borderColor: '#fff4ce',
+      borderColor: tokens.splashRing,
       opacity: Animated.multiply(
         gate,
         at((age) => clamp(1 - age) * 0.75),
@@ -298,7 +310,11 @@ export function FishingCatchMotion({
     return { drops, ring, fish };
   }, [reel, bob.x, bob.y, home, k, face]);
   return (
-    <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0 }}>
+    <View
+      testID="fishing-catch-motion"
+      pointerEvents="none"
+      style={{ position: 'absolute', left: 0, top: 0 }}
+    >
       <Animated.View style={nodes.ring} />
       {nodes.drops.map((drop) => (
         <Animated.View key={drop.key} style={drop.style} />
@@ -373,9 +389,9 @@ export function FishingFloatMotion({ spots, active }: { spots: FloatSpot[]; acti
                   top: 8 * k - 14 * k,
                   width: 96 * k,
                   height: 28 * k,
-                  borderRadius: 48 * k,
+                  borderRadius: tokens.radius,
                   borderWidth: Math.max(1, 1.8 * k),
-                  borderColor: '#fff6d5',
+                  borderColor: tokens.floatRing,
                   opacity: p.interpolate({ inputRange: [0, 1], outputRange: [0.48, 0] }),
                   transform: [
                     { scaleX: p.interpolate({ inputRange: [0, 1], outputRange: [13 / 48, 1] }) },
@@ -395,8 +411,8 @@ export function FishingFloatMotion({ spots, active }: { spots: FloatSpot[]; acti
                     width: 30 * k,
                     height: Math.max(2, 3 * k),
                     borderTopWidth: Math.max(1, 2 * k),
-                    borderColor: '#fff9dc',
-                    borderRadius: 15 * k,
+                    borderColor: tokens.glint,
+                    borderRadius: tokens.radius,
                     opacity: alpha,
                   }}
                 />

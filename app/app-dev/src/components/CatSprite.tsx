@@ -61,6 +61,7 @@ function useCatPlayback(
   onFinish?: () => void,
   generation?: number,
   keyed = false,
+  replayKey?: number,
 ) {
   const normalized = normalizeCatMotion(motion);
   const [frame, setFrame] = useState(0);
@@ -210,7 +211,7 @@ function useCatPlayback(
       cancelled = true;
       clearTimer();
     };
-  }, [color, normalized, paused, generation, keyed]);
+  }, [color, normalized, paused, generation, keyed, replayKey]);
 
   return { frame, effectiveMotion: normalized === 'idle' ? idleBehavior : normalized };
 }
@@ -226,6 +227,7 @@ export function CatSprite({
   onFinish,
   generation,
   keyPoses = false,
+  replayKey,
   poseTransform,
   testID,
 }: {
@@ -240,6 +242,8 @@ export function CatSprite({
   generation?: number;
   /** focus·reel 을 움직임 검토실 키 포즈 시간표로 재생한다(낚시섬 FishingActor 전용). */
   keyPoses?: boolean;
+  /** 바뀌면 같은 동작을 처음부터 다시 재생한다. generation(완료 콜백 계약)과 별개로 낚아올리기 사건마다 올린다. */
+  replayKey?: number;
   /** 발 기준점에서 몸 전체에 거는 추가 변환(호흡·기울기). 좌우 반전 안쪽에 적용돼 방향을 따라간다. */
   poseTransform?: CatPoseTransform;
   testID?: string;
@@ -253,6 +257,7 @@ export function CatSprite({
     onFinish,
     generation,
     keyPoses,
+    replayKey,
   );
   const isTilting = effectiveMotion === 'tilt';
   const questionAnim = useRef(new Animated.Value(0)).current;

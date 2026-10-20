@@ -820,7 +820,11 @@ export function FishingActor({
   catchAvoidSpots?: Spot[];
 }) {
   const [reeling, setReeling] = useState(false),
-    [goldenReeling, setGoldenReeling] = useState(false);
+    [goldenReeling, setGoldenReeling] = useState(false),
+    // 한 마리 잡을 때마다 올린다. 2초 창 안에서 또 잡아도 키 포즈·몸 변환·물보라를 처음부터 다시 튼다.
+    [reelNonce, setReelNonce] = useState(0),
+    // 연출 도중 덮이거나(inert) 백그라운드로 끊긴 사건. 돌아와도 그 사건의 연출은 다시 틀지 않는다.
+    [interruptedNonce, setInterruptedNonce] = useState<number | null>(null);
   const count = caughtFish ?? Math.floor(seconds / SECONDS_PER_FISH) + (tutorialFish ? 1 : 0),
     last = useRef(count),
     // 이미 표시된 더미를 가진 채 재마운트되면 기존 사건을 새 당첨으로 재생하지 않는다.
@@ -838,6 +842,7 @@ export function FishingActor({
       return;
     }
     setReeling(true);
+    setReelNonce((n) => n + 1);
     return afterForegroundMs(() => setReeling(false), 2000);
   }, [count, reduce]);
   // 컷신이 닫힌 뒤 참여자만 기존 낚아올리기 스프라이트로 한 번 알린다.
@@ -859,9 +864,19 @@ export function FishingActor({
   const sceneActive = useContext(FishingSceneActive);
   // 황금 물고기 reel 은 기존 100ms 반복 그대로 두고, 일반 낚시 연출(키 포즈·몸 변환·물보라)은 끈다.
   const isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
-    keyed = isFishing && !goldenReeling,
-    catching = keyed && (motion === 'reel' || (motion == null && reeling));
-  const pose = useFishingPose({ active: keyed && !reduce && sceneActive, catching });
+    reelEvent = isFishing && !goldenReeling && (motion === 'reel' || (motion == null && reeling)),
+    interrupted = reelEvent && interruptedNonce === reelNonce,
+    // 끊긴 사건은 남은 창 동안 기존 기본 reel(100ms 반복)로 두고, 끝나면 focus 키 포즈로 돌아간다.
+    keyed = isFishing && !goldenReeling && !interrupted,
+    catching = reelEvent && !interrupted;
+  const pose = useFishingPose({
+    active: isFishing && !goldenReeling && !reduce && sceneActive,
+    catching,
+    nonce: reelNonce,
+  });
+  useEffect(() => {
+    if (reelEvent && !reduce && !pose.running) setInterruptedNonce(reelNonce);
+  }, [reelEvent, reduce, pose.running, reelNonce]);
   const a = size * 0.077,
     face = spot.face,
     direction = castAngle(spot),
@@ -921,6 +936,7 @@ export function FishingActor({
         onFinish={onMotionFinish}
         generation={generation}
         keyPoses={keyed}
+        replayKey={reelNonce}
         poseTransform={keyed ? pose.body : undefined}
         testID="fishing-actor-cat"
       />
@@ -943,8 +959,10 @@ export function FishingActor({
           }}
         />
       )}
-      {catching && !reduce && sceneActive && spot.bx != null && spot.by != null && (
+      {/* DESIGN.md §8.3: 다른 주민의 물고기 획득은 공개하지 않는다 — 물보라·물고기는 내 고양이만. */}
+      {me && catching && !reduce && sceneActive && spot.bx != null && spot.by != null && (
         <FishingCatchMotion
+          key={reelNonce}
           reel={pose.reel}
           k={a / LAB_CAT_PX}
           face={face < 0 ? -1 : 1}

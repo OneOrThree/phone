@@ -198,6 +198,21 @@ describe('CatSprite 재생 제어', () => {
     await view.unmount();
   });
 
+  it('keyPoses reel 은 replayKey 가 바뀌면 같은 motion 이어도 처음 셀부터 다시 재생한다', async () => {
+    const view = await render(
+      <CatSprite color="gray" motion="reel" keyPoses replayKey={1} testID="cat" />,
+    );
+    await act(async () => jest.advanceTimersByTime(1_500));
+    expect(view.queryByTestId('cat-frame-0')).toBeNull();
+    await view.rerender(
+      <CatSprite color="gray" motion="reel" keyPoses replayKey={2} testID="cat" />,
+    );
+    expect(view.getByTestId('cat-frame-0')).toBeTruthy();
+    await act(async () => jest.advanceTimersByTime(456));
+    expect(view.getByTestId('cat-frame-1')).toBeTruthy();
+    await view.unmount();
+  });
+
   it('Reduce Motion에서는 cast를 재생하지 않고 완료 콜백을 호출한다', async () => {
     const onFinish = jest.fn();
     const view = await render(

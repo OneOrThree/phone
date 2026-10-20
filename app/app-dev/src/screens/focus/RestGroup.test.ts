@@ -175,9 +175,9 @@ test.each([[1, 2, 3, 4, 5, 6], Array.from({ length: 15 }, (_, i) => i + 1), [15]
 );
 
 test('모닥불 자세: 멤버 식별자 해시 짝수는 식빵, 홀수는 책 읽기로 늘 같다', () => {
-  // 'a'(97)·'b'(98) 한 글자는 문자 코드가 곧 해시다
-  assert.equal(restPose('a'), 'read');
-  assert.equal(restPose('b'), 'loaf');
+  // FNV-1a + 끝 섞기 값으로 고정: 'a' 는 짝수(식빵), 'b' 는 홀수(책)
+  assert.equal(restPose('a'), 'loaf');
+  assert.equal(restPose('b'), 'read');
   const ids = Array.from({ length: 40 }, (_, i) => `user-${i}`);
   assert.deepEqual(ids.map(restPose), ids.map(restPose));
   assert.ok(new Set(ids.map(restPose)).size === 2);
