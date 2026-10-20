@@ -332,6 +332,11 @@ class ChatOutboundChannelInterceptorTest {
                 .isNull(); // 이동
         verify(socket, org.mockito.Mockito.atLeastOnce()).close(
                 org.springframework.web.socket.CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+        // 바다 개인 큐(구성원 정보)는 막고, 오류 통지 큐는 폐기 통지를 위해 남긴다.
+        Message<?> errors = frame("socket", "/user/queue/errors");
+        assertThat(guarded.beforeHandle(frame("socket", "/queue/sea-userabc"), null, null)).isNull();
+        assertThat(guarded.beforeHandle(frame("socket", "/user/queue/sea"), null, null)).isNull();
+        assertThat(guarded.beforeHandle(errors, null, null)).isSameAs(errors);
     }
 
     // ── GROMO-2340 허용 결정 캐시 ──────────────────────────────────────────

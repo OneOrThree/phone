@@ -172,6 +172,47 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
+    @DisplayName("SEND·SUBSCRIBE — 폐기된 sid 의 기존 세션은 UNAUTHORIZED 로 거절되고 소켓이 SESSION_REVOKED 로 닫힌다, 다른 sid 는 통과 (GROMO-2350)")
+    void revokedSessionCannotSendOrSubscribe() throws Exception {
+        UUID revokedSid = UUID.randomUUID();
+        UUID otherSid = UUID.randomUUID();
+        java.time.Instant exp = java.time.Instant.now().plusSeconds(600);
+        given(jwtValidator.extractSessionProof("test-token")).willReturn(Optional.of(
+                new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, revokedSid, 0L, exp)));
+        given(jwtValidator.extractSessionProof("other-token")).willReturn(Optional.of(
+                new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, otherSid, 0L, exp)));
+        org.springframework.web.socket.WebSocketSession socket =
+                org.mockito.Mockito.mock(org.springframework.web.socket.WebSocketSession.class);
+        given(socket.getId()).willReturn("stomp-1");
+        given(socket.isOpen()).willReturn(true);
+        registry.opened(socket);
+        fence.revokeSession(revokedSid, exp);
+
+        for (StompCommand command : new StompCommand[] {StompCommand.SEND, StompCommand.SUBSCRIBE}) {
+            StompHeaderAccessor accessor = accessor(command);
+            accessor.setSessionId("stomp-1");
+            accessor.setUser(new ChatPrincipal(userId, BEARER));
+            accessor.setDestination(command == StompCommand.SEND ? "/app/groups/" + groupId + "/send"
+                    : "/user/queue/errors");
+            assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                    .describedAs("%s", command)
+                    .isInstanceOf(DomainException.class)
+                    .extracting(e -> ((DomainException) e).getErrorCode())
+                    .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+        }
+        verify(socket, org.mockito.Mockito.times(2)).close(
+                org.springframework.web.socket.CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+        verifyNoInteractions(accessGuard);
+
+        StompHeaderAccessor other = accessor(StompCommand.SUBSCRIBE);
+        other.setSessionId("stomp-2");
+        other.setUser(new ChatPrincipal(userId, "Bearer other-token"));
+        other.setDestination("/user/queue/errors");
+        given(jwtValidator.extractUserId("other-token")).willReturn(Optional.of(userId));
+        assertThatCode(() -> interceptor.preSend(message(other), null)).doesNotThrowAnyException();
+    }
+
+    @Test
     @DisplayName("CONNECT — 토큰이 없으면 UNAUTHORIZED 로 거절한다")
     void connectWithoutTokenIsRejected() {
         StompHeaderAccessor accessor = accessor(StompCommand.CONNECT);

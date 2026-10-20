@@ -196,7 +196,12 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         boolean duplicate = destination.startsWith("/queue/duplicates")
                 || destination.equals("/user/queue/duplicates");
         if (!groupMessage && !duplicate) {
-            return message; // 개인 오류 큐는 집중 거절을 알릴 수 있어야 한다.
+            // 개인 오류 큐(errors)는 집중 거절·폐기 통지를 알릴 수 있어야 하니 그대로 둔다. 그 밖의 개인 큐(바다 스냅샷 응답 등 구성원
+            // 정보가 실린다)는 JWT 와 폐기 sid(GROMO-2350)를 다시 본다 — 종료가 실패해 소켓이 남은 폐기 세션에 나가지 않게.
+            if (destination.contains("queue/errors")) {
+                return message;
+            }
+            return stillAuthenticated(message) == null ? null : message;
         }
         String sessionId = SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
         ChatPrincipal principal = stillAuthenticated(message);
