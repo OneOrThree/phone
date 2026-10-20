@@ -2687,6 +2687,8 @@ function FinalIslandScene({
 
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
+// 개발 빌드에서만 — 이동 보기·자동 걷기를 켠 채 시작(GROMO-2250 실기기 측정 자동 시작).
+const MEASURE_AUTOSTART = __DEV__ && process.env.EXPO_PUBLIC_MOVEMENT_MEASURE === '1';
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
 // 두 월드 점이 같은 통행 셀인지 — 연결 경로(navPath)가 비어도 되는 정상 경우(같은 셀)를 가려낸다.
 const cellEq = (a: WorldPoint, b: WorldPoint) => {
@@ -2735,8 +2737,10 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         new URLSearchParams(window.location.search).get('village') === 'layered') ||
         process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
   );
-  const [navDebug, setNavDebug] = useState(false);
-  const [autoWalk, setAutoWalk] = useState(false);
+  // 측정 자동 시작(GROMO-2250, 개발 전용): EXPO_PUBLIC_MOVEMENT_MEASURE=1 이면 이동 보기·자동 걷기를 켠 채로
+  // 시작한다 — 실기기 10분 런을 사람 탭 없이 돌리기 위한 것. 버튼으로 끌 수 있다.
+  const [navDebug, setNavDebug] = useState(MEASURE_AUTOSTART);
+  const [autoWalk, setAutoWalk] = useState(MEASURE_AUTOSTART);
   const demoMotionStates = isDemoMode();
   return (
     <View style={{ flex: 1 }}>
