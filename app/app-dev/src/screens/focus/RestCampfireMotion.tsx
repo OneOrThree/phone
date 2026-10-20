@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { cat } from '@/constants/assets';
+import { componentTokens } from '@/design-system/tokens';
 import metrics from '@/constants/motion-metrics.json';
 import type { Color } from '@/services/model';
 
@@ -19,6 +20,7 @@ import type { Color } from '@/services/model';
 // 시계는 Animated.Value 하나(0→12초 반복, 네이티브 드라이버)이고 모든 값은 interpolate 로 뽑는다 — 프레임마다
 // setState 를 하지 않는다. 연출은 보상·집중 시간·서버 상태를 만들지 않는다.
 
+const fire = componentTokens.restCampfire;
 const LOOP = 12;
 const TAU = Math.PI * 2;
 const wave = (t: number, cycles: number, offset = 0) =>
@@ -39,8 +41,10 @@ const FLAME_SEQUENCE = [1, 2, 3, 2] as const;
 
 /** 멤버별 고정 자세(재영님 N1 「사람마다 다르게」): 식별자 문자열 해시가 짝수면 식빵, 홀수면 책 읽기. */
 export function restPose(id: string): 'loaf' | 'read' {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  // FNV-1a + 끝 섞기 — h*31+c 의 최하위 비트는 문자 코드 패리티 합이라 비슷한 id 끼리 자세가 쏠렸다
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  h ^= h >>> 15;
   return h & 1 ? 'read' : 'loaf';
 }
 
@@ -54,8 +58,9 @@ export function useRestClock(still: boolean) {
     return () => subscription.remove();
   }, []);
   useEffect(() => {
-    t.setValue(0);
+    // 멈출 때는 값을 두고(iOS inactive 는 화면이 보여 0 자세로 튀면 안 된다), 다시 돌 때만 0 부터
     if (paused) return;
+    t.setValue(0);
     const loop = Animated.loop(
       Animated.timing(t, {
         toValue: LOOP,
@@ -134,7 +139,7 @@ function Glow({
         <Defs>
           <RadialGradient id={id} cx="50%" cy="50%" r="50%">
             <Stop offset="0" stopColor={color} stopOpacity={colorAlpha} />
-            <Stop offset="1" stopColor="rgb(255,181,78)" stopOpacity={0} />
+            <Stop offset="1" stopColor={fire.glowEdgeColor} stopOpacity={0} />
           </RadialGradient>
         </Defs>
         <Rect width="100%" height="100%" fill={`url(#${id})`} />
@@ -162,21 +167,25 @@ export function RestCampfireBack({
         cx={466}
         cy={444}
         r={255}
-        color="rgb(255,190,70)"
-        colorAlpha={0.35}
-        alpha={0.35}
+        color={fire.glowBackColor}
+        colorAlpha={fire.glowBackColorOpacity}
+        alpha={fire.glowBackOpacity}
         K={K}
         scale={pulse}
       />
+      {/* 덮개는 배경(1024) 좌표로 둔다. 검토실 값(302,320,330,220)은 구워진 돌 테두리보다 1.5배 커서 버렸다.
+          PIL 실측: 배경 돌 테두리 bbox (365,525)-(604,677) → fire.png(330×220, 돌이 가장자리까지 참)를
+          폭 240·비율 유지(160)로 아래 끝을 맞춘다. 구워진 불꽃 중 덮개 위로 남는 끝(493~529, 495~517)은
+          움직이는 불꽃이 덮는다. */}
       <Image
         source={firePit}
         accessible={false}
         style={{
           position: 'absolute',
-          left: 302 * K,
-          top: (320 + 120) * K,
-          width: 330 * K,
-          height: 220 * K,
+          left: 365 * at.s,
+          top: 517 * at.s,
+          width: 240 * at.s,
+          height: 160 * at.s,
         }}
       />
     </View>
@@ -230,7 +239,7 @@ export function RestCampfireFront({
           f = (g: (a: number) => number) => curve(age, 3, 0.05, (u) => g(u / 3));
         return {
           width,
-          color: i % 3 ? '#ffcf73' : '#fff0b2',
+          color: i % 3 ? fire.sparkWarm : fire.sparkLight,
           opacity: f((a) => Math.sin(Math.PI * a) * 0.65),
           x: f((a) => (466 + Math.sin(i * 2.41) * 19 + Math.sin(a * 3.2 + i) * 18 - width / 2) * K),
           y: f((a) => (423 - a * (118 + (i % 4) * 17) + 120) * K),
@@ -350,9 +359,9 @@ export function RestCampfireFront({
         cx={467}
         cy={490}
         r={195}
-        color="rgb(255,193,100)"
-        colorAlpha={0.3}
-        alpha={0.07}
+        color={fire.glowFrontColor}
+        colorAlpha={fire.glowFrontColorOpacity}
+        alpha={fire.glowFrontOpacity}
         K={K}
       />
     </View>
@@ -373,6 +382,22 @@ const PAGE = (() => {
   outputRange.push(0);
   return { inputRange, outputRange };
 })();
+
+// 호흡·미세 회전은 시계 t 만 입력이라 모든 고양이가 같은 노드를 쓴다(고양이 수만큼 interpolate 를 만들지 않는다)
+const breathCache = new WeakMap<Animated.Value, { scaleX: any; scaleY: any; rotate: any }>();
+function breathOf(t: Animated.Value) {
+  let b = breathCache.get(t);
+  if (!b) {
+    const breath = (x: number) => wave(x, 3, 0.7);
+    b = {
+      scaleX: curve(t, LOOP, 0.05, (v) => 1 - breath(v) * 0.005),
+      scaleY: curve(t, LOOP, 0.05, (v) => 1 + breath(v) * 0.012),
+      rotate: curve(t, LOOP, 0.05, (v) => wave(v, 2, 0.2) * 0.006, 'rad'),
+    };
+    breathCache.set(t, b);
+  }
+  return b;
+}
 
 /** 자리 하나의 고양이. 발(512 중 256,464)을 고정하고 호흡, 읽기는 미세 회전 + 책장 넘김을 더한다. */
 export function RestCat({
@@ -401,11 +426,8 @@ export function RestCat({
   const extent = n * metrics[color].reading.scale;
   const anim = useMemo(() => {
     if (still) return null;
-    const breath = (x: number) => wave(x, 3, 0.7);
     return {
-      scaleX: curve(t, LOOP, 0.05, (v) => 1 - breath(v) * 0.005),
-      scaleY: curve(t, LOOP, 0.05, (v) => 1 + breath(v) * 0.012),
-      rotate: curve(t, LOOP, 0.05, (v) => wave(v, 2, 0.2) * 0.006, 'rad'),
+      ...breathOf(t),
       page: t.interpolate({
         inputRange: PAGE.inputRange,
         outputRange: PAGE.outputRange.map((v) => -v * extent),
@@ -440,6 +462,7 @@ export function RestCat({
           style={{ width: n, height: n, transform: [{ scaleX: flip ? -1 : 1 }] }}
         />
       ) : (
+        // 책 읽기도 식빵과 같이 오른쪽 자리에서 반전한다. 셀 가운데(512 중 256)가 발 x 라 가운데 기준 반전은 발 앵커를 옮기지 않는다.
         <View
           style={{
             position: 'absolute',
@@ -448,6 +471,7 @@ export function RestCat({
             width: extent,
             height: extent,
             overflow: 'hidden',
+            transform: [{ scaleX: flip ? -1 : 1 }],
           }}
         >
           <Animated.Image
