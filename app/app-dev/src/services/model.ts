@@ -1860,12 +1860,16 @@ export function reducer(state: State, a: Action): State {
         }
         s.tutorialEnrollment = 'existing';
       }
-      // 강퇴로 잃은 섬을 남긴다 — 직전 current, 없으면(망원경 가입 뒤 강퇴) 이번에 사라진 소속.
-      // 덮어쓰기 전 소속 목록에만 있다. 새로 잃은 섬이 없으면 그대로 둔다
+      // 강퇴로 잃은 섬을 남긴다 — 이번에 사라진 소속(직전 current 가 그 안에 있으면 그것), 사라진 게 없으면
+      // 직전 current. 다른 기기에서 current 가 바뀌었어도 실제로 빠진 섬을 고른다. 덮어쓰기 전 소속 목록에만 있다.
+      // 둘 다 없으면(새로 잃은 섬이 없다) 그대로 둔다
       if (my.lossReason !== 'KICKED' || my.currentIslandId != null) snap.kickedIsland = null;
       else {
         const kept = new Set(my.items.map((item) => item.id)),
-          lostId = snap.currentIslandId ?? snap.memberships.find((item) => !kept.has(item.id))?.id;
+          gone = snap.memberships.filter((item) => !kept.has(item.id)),
+          lostId =
+            (gone.find((item) => item.id === snap.currentIslandId) ?? gone[0])?.id ??
+            snap.currentIslandId;
         if (lostId)
           snap.kickedIsland = {
             id: lostId,

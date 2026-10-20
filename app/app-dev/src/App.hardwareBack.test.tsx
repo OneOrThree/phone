@@ -428,3 +428,22 @@ test.each([
     assert.equal(captured.route, to);
   },
 );
+
+test('리스너를 건 뒤 상실 사유가 바뀌어도 하드웨어 뒤로 가기는 최신 상태로 먼바다에 간다(GROMO-2366)', async () => {
+  await mount();
+  const sync = (lossReason: 'KICKED' | null) =>
+    captured.dispatch({
+      type: 'ISLAND_SYNC',
+      memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason },
+    });
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    sync(null);
+    captured.reset('currentIsland');
+  });
+  // 화면·방문·기록이 그대로라 리스너는 다시 걸리지 않는다 — 소속 동기화만 상실 사유를 바꾼다
+  await act(async () => sync('KICKED'));
+  assert.equal(captured.route, 'currentIsland');
+  assert.equal(await back(), true);
+  assert.equal(captured.route, 'sea');
+});
