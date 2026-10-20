@@ -40,6 +40,9 @@ def main():
     source = args.source.resolve()
     design = load(HERE / "reward-design.json")
     catalog = load(source / "final/catalog.json")
+    # final/catalog.json 은 목·신발 알파 영역만 담는다. 머리·뗏목 영역은 합본 원본 data.js 의 ASSET_DATA 에 있다.
+    studio = (source / "data.js").read_text()
+    studio_metadata = json.loads(studio[studio.index("{"):studio.rindex("}") + 1])["metadata"]
     manifest_items = {
         item["id"]: item for group in catalog["manifest"]["groups"] for item in group["items"]
     }
@@ -63,7 +66,7 @@ def main():
             raise ValueError("합본 밖의 파일은 등록하지 않습니다")
         raw = file.read_bytes()
         w, h = png_size(raw)
-        metadata = catalog["metadata"].get(path)
+        metadata = catalog["metadata"].get(path) or studio_metadata.get(path)
         if metadata:
             assert [w, h] == [metadata["width"], metadata["height"]]
             box = metadata["bbox"]

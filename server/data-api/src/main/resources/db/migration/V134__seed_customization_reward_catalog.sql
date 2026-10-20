@@ -16,7 +16,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.mandarin', 'head-mandarin', 'head', 'common', '일상적인 과일로 시작하기 좋은 기본 소품', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/mandarin.cfb06049.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":64,"itemDepthY":9,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 0);
+VALUES (1, 'cust.head.mandarin', 'head-mandarin', 'head', 'common', '일상적인 과일로 시작하기 좋은 기본 소품', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/mandarin.cfb06049.png","width":1254,"height":1254,"crop":[329,349,940,942]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":64,"itemDepthY":9,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 0);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.head.riceball', '꼬마 주먹밥', 'head', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -26,7 +26,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.riceball', 'head-riceball', 'head', 'common', '단순한 삼각 실루엣의 친숙한 먹거리', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/riceball.63291aee.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":65,"itemDepthY":8,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 1);
+VALUES (1, 'cust.head.riceball', 'head-riceball', 'head', 'common', '단순한 삼각 실루엣의 친숙한 먹거리', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/riceball.63291aee.png","width":1254,"height":1254,"crop":[326,412,929,933]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":65,"itemDepthY":8,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 1);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.head.bun', '동글 빵', 'head', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -36,7 +36,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.bun', 'head-bun', 'head', 'common', '작고 둥근 기본 먹거리 형태', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/bun.318b6c24.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":72,"itemDepthY":9,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 2);
+VALUES (1, 'cust.head.bun', 'head-bun', 'head', 'common', '작고 둥근 기본 먹거리 형태', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/bun.318b6c24.png","width":1254,"height":1254,"crop":[317,418,937,892]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":72,"itemDepthY":9,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 2);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.head.peach', '복숭아 한 알', 'head', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -46,7 +46,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.peach', 'head-peach', 'head', 'common', '기본 과일 형태와 부드러운 색감', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/peach.b8a41040.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":68,"itemDepthY":9,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 3);
+VALUES (1, 'cust.head.peach', 'head-peach', 'head', 'common', '기본 과일 형태와 부드러운 색감', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/peach.b8a41040.png","width":1254,"height":1254,"crop":[280,296,980,986]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":68,"itemDepthY":9,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 3);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.head.duck-plush', '오리 인형', 'head', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -56,7 +56,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.duck-plush', 'head-duck', 'head', 'uncommon', '얼굴·날개가 있는 친숙한 동물 인형', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/duck.9572baaf.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":78,"itemDepthY":7,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 4);
+VALUES (1, 'cust.head.duck-plush', 'head-duck', 'head', 'uncommon', '얼굴·날개가 있는 친숙한 동물 인형', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/duck.9572baaf.png","width":1254,"height":1254,"crop":[337,386,970,917]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":78,"itemDepthY":7,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 4);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.head.chick', '병아리 인형', 'head', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -66,7 +66,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.chick', 'head-chick', 'head', 'uncommon', '발·날개·머리 깃털로 형태가 풍부함', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/chick.60d5184a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":68,"itemDepthY":10,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 5);
+VALUES (1, 'cust.head.chick', 'head-chick', 'head', 'uncommon', '발·날개·머리 깃털로 형태가 풍부함', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/chick.60d5184a.png","width":1254,"height":1254,"crop":[283,251,1025,1025]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":68,"itemDepthY":10,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 5);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.head.frog', '개구리 인형', 'head', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -76,7 +76,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.frog', 'head-frog', 'head', 'uncommon', '눈과 앞발이 드러나는 개성 있는 인형', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/frog.dcb0455f.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":76,"itemDepthY":8,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 6);
+VALUES (1, 'cust.head.frog', 'head-frog', 'head', 'uncommon', '눈과 앞발이 드러나는 개성 있는 인형', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/frog.dcb0455f.png","width":1254,"height":1254,"crop":[290,395,975,953]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":76,"itemDepthY":8,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 6);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.head.bear', '곰돌이 인형', 'head', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -86,7 +86,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.bear', 'head-bear', 'head', 'rare', '앉은 자세와 팔다리가 뚜렷한 수집형 인형', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/bear.5e0ad5da.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":70,"itemDepthY":8,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 7);
+VALUES (1, 'cust.head.bear', 'head-bear', 'head', 'rare', '앉은 자세와 팔다리가 뚜렷한 수집형 인형', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/bear.5e0ad5da.png","width":1254,"height":1254,"crop":[330,259,949,1041]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":70,"itemDepthY":8,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 7);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.head.bunny', '토끼 인형', 'head', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -96,7 +96,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.bunny', 'head-bunny', 'head', 'rare', '귀가 길게 솟아 머리 장착 변화가 큼', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/bunny.094e8219.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":65,"itemDepthY":8,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 8);
+VALUES (1, 'cust.head.bunny', 'head-bunny', 'head', 'rare', '귀가 길게 솟아 머리 장착 변화가 큼', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/bunny.094e8219.png","width":1254,"height":1254,"crop":[378,270,908,1038]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":65,"itemDepthY":8,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 8);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.head.seal', '잠자는 물범 인형', 'head', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -106,7 +106,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.head.seal', 'head-seal', 'head', 'legendary', '누워 자는 독특한 자세를 가진 대표 인형', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/seal.7896b8c5.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":80,"itemDepthY":7,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 9);
+VALUES (1, 'cust.head.seal', 'head-seal', 'head', 'legendary', '누워 자는 독특한 자세를 가진 대표 인형', '{"format":"cat-fit-v1","target":"cat","source":{"path":"/static/customization/head/seal.7896b8c5.png","width":1254,"height":1254,"crop":[181,416,1105,925]},"coordinateSpace":"black-cat-512","canvas":[512,512],"validatedMotions":{"walk":6,"focus":4,"reel":4},"rigPath":"/static/customization/rigs/head.0093c1a9.json","drawWidth":80,"itemDepthY":7,"contactFrames":{"walk-0":{"x":277,"y":182,"angleDegrees":-20.6},"walk-1":{"x":277,"y":180,"angleDegrees":-19.0},"walk-2":{"x":277,"y":180,"angleDegrees":-14.0},"walk-3":{"x":265,"y":180,"angleDegrees":-17.4},"walk-4":{"x":277,"y":178,"angleDegrees":-20.6},"walk-5":{"x":269,"y":181,"angleDegrees":-19.0},"focus-0":{"x":256,"y":111,"angleDegrees":-17.4},"focus-1":{"x":256,"y":113,"angleDegrees":-20.6},"focus-2":{"x":256,"y":112,"angleDegrees":-19.0},"focus-3":{"x":256,"y":113,"angleDegrees":-19.0},"reel-0":{"x":251,"y":114,"angleDegrees":-22},"reel-1":{"x":212,"y":118,"angleDegrees":-26.6},"reel-2":{"x":238,"y":108,"angleDegrees":-22},"reel-3":{"x":251,"y":109,"angleDegrees":-17.4}},"contactShadow":{"widthFactor":0.22,"height":2.5}}'::jsonb, 9);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.neck.bell', '버터 방울 목걸이', 'neck', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -316,7 +316,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-fish', 'flag-fish', 'flag', 'common', '바다 활동과 직접 이어지는 기본 문양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-fish.bdb8f7c3.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 30);
+VALUES (1, 'cust.decor.flag-fish', 'flag-fish', 'flag', 'common', '바다 활동과 직접 이어지는 기본 문양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-fish.bdb8f7c3.png","width":1254,"height":1254,"crop":[352,354,1016,961]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 30);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.flag-paw', '발바닥 깃발', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -326,7 +326,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-paw', 'flag-paw', 'flag', 'common', '고양이를 상징하는 기본 발바닥 문양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-paw.f80b0734.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 31);
+VALUES (1, 'cust.decor.flag-paw', 'flag-paw', 'flag', 'common', '고양이를 상징하는 기본 발바닥 문양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-paw.f80b0734.png","width":1254,"height":1254,"crop":[260,267,1058,1009]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 31);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.flag-leaf', '잎사귀 깃발', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -336,7 +336,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-leaf', 'flag-leaf', 'flag', 'common', '소박한 자연 테마의 기본 깃발', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-leaf.e14c9184.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 32);
+VALUES (1, 'cust.decor.flag-leaf', 'flag-leaf', 'flag', 'common', '소박한 자연 테마의 기본 깃발', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-leaf.e14c9184.png","width":1254,"height":1254,"crop":[261,321,1021,972]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 32);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.flag-picnic', '소풍 깃발', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -346,7 +346,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-picnic', 'flag-picnic', 'flag', 'common', '친숙한 체크무늬의 기본 깃발', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-picnic.e7fd7c0c.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 33);
+VALUES (1, 'cust.decor.flag-picnic', 'flag-picnic', 'flag', 'common', '친숙한 체크무늬의 기본 깃발', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-picnic.e7fd7c0c.png","width":1254,"height":1254,"crop":[243,298,1067,959]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 33);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.flag-strawberry', '딸기 깃발', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -356,7 +356,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-strawberry', 'flag-strawberry', 'flag', 'uncommon', '과일 문양으로 소풍 테마를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-strawberry.e276aac3.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 34);
+VALUES (1, 'cust.decor.flag-strawberry', 'flag-strawberry', 'flag', 'uncommon', '과일 문양으로 소풍 테마를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-strawberry.e276aac3.png","width":1254,"height":1254,"crop":[292,239,1060,1046]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 34);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.flag-flower', '꽃 깃발', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -366,7 +366,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-flower', 'flag-flower', 'flag', 'uncommon', '꽃 문양으로 색감과 장식성을 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-flower.6886f58a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 35);
+VALUES (1, 'cust.decor.flag-flower', 'flag-flower', 'flag', 'uncommon', '꽃 문양으로 색감과 장식성을 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-flower.6886f58a.png","width":1254,"height":1254,"crop":[293,325,1006,947]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 35);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.flag-shell', '조개 깃발', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -376,7 +376,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-shell', 'flag-shell', 'flag', 'uncommon', '조개 문양으로 해변 테마를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-shell.e881a484.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 36);
+VALUES (1, 'cust.decor.flag-shell', 'flag-shell', 'flag', 'uncommon', '조개 문양으로 해변 테마를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-shell.e881a484.png","width":1254,"height":1254,"crop":[229,256,1025,1025]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 36);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.flag-duck', '오리 깃발', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -386,7 +386,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-duck', 'flag-duck', 'flag', 'rare', '동물 모티프가 뚜렷한 포인트 깃발', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-duck.195ff25c.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 37);
+VALUES (1, 'cust.decor.flag-duck', 'flag-duck', 'flag', 'rare', '동물 모티프가 뚜렷한 포인트 깃발', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-duck.195ff25c.png","width":1254,"height":1254,"crop":[219,301,1071,1031]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 37);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.flag-cloud', '구름 깃발', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -396,7 +396,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-cloud', 'flag-cloud', 'flag', 'rare', '구름 테마가 주는 특별한 분위기', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-cloud.234ff807.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 38);
+VALUES (1, 'cust.decor.flag-cloud', 'flag-cloud', 'flag', 'rare', '구름 테마가 주는 특별한 분위기', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-cloud.234ff807.png","width":1254,"height":1254,"crop":[287,265,1094,1031]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 38);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.flag-moon', '달밤 깃발', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -406,7 +406,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.flag-moon', 'flag-moon', 'flag', 'legendary', '달밤 테마를 대표하는 상징적인 깃발', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-moon.03a2a7a5.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 39);
+VALUES (1, 'cust.decor.flag-moon', 'flag-moon', 'flag', 'legendary', '달밤 테마를 대표하는 상징적인 깃발', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/flag-moon.03a2a7a5.png","width":1254,"height":1254,"crop":[268,302,1017,997]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":205,"y":445,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":190,"y":411,"drawWidth":72,"anchorX":0.08,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 39);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-leaf', '잎사귀 매트', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -416,7 +416,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-leaf', 'mat-leaf', 'mat', 'common', '자연 소재의 기본 바닥 장식', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-leaf.2eb9af26.png","width":1774,"height":887,"crop":[0,0,1774,887]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-leaf-side.779ade05.png","width":2172,"height":724,"crop":[0,0,2172,724]}}'::jsonb, 40);
+VALUES (1, 'cust.decor.mat-leaf', 'mat-leaf', 'mat', 'common', '자연 소재의 기본 바닥 장식', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-leaf.2eb9af26.png","width":1774,"height":887,"crop":[333,257,1444,695]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-leaf-side.779ade05.png","width":2172,"height":724,"crop":[215,293,1957,548]}}'::jsonb, 40);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-picnic', '체크 돗자리', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -426,7 +426,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-picnic', 'mat-picnic', 'mat', 'common', '소풍에 익숙한 기본 체크 돗자리', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-picnic.f8bd2e63.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-picnic-side.92eb3374.png","width":1774,"height":887,"crop":[0,0,1774,887]}}'::jsonb, 41);
+VALUES (1, 'cust.decor.mat-picnic', 'mat-picnic', 'mat', 'common', '소풍에 익숙한 기본 체크 돗자리', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-picnic.f8bd2e63.png","width":1254,"height":1254,"crop":[113,253,1158,997]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-picnic-side.92eb3374.png","width":1774,"height":887,"crop":[202,377,1571,579]}}'::jsonb, 41);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-basket', '짜임 방석', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -436,7 +436,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-basket', 'mat-basket', 'mat', 'common', '생활 소품 성격이 강한 기본 방석', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-basket.17892624.png","width":1774,"height":887,"crop":[0,0,1774,887]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-basket-side.7e0eb186.png","width":1774,"height":887,"crop":[0,0,1774,887]}}'::jsonb, 42);
+VALUES (1, 'cust.decor.mat-basket', 'mat-basket', 'mat', 'common', '생활 소품 성격이 강한 기본 방석', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-basket.17892624.png","width":1774,"height":887,"crop":[446,265,1330,694]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-basket-side.7e0eb186.png","width":1774,"height":887,"crop":[284,369,1488,612]}}'::jsonb, 42);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-fish', '물고기 방석', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -446,7 +446,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-fish', 'mat-fish', 'mat', 'common', '낚시 테마와 자연스럽게 맞는 방석', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-fish.775247a6.png","width":1774,"height":887,"crop":[0,0,1774,887]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-fish-side.df35cf64.png","width":2149,"height":732,"crop":[0,0,2149,732]}}'::jsonb, 43);
+VALUES (1, 'cust.decor.mat-fish', 'mat-fish', 'mat', 'common', '낚시 테마와 자연스럽게 맞는 방석', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-fish.775247a6.png","width":1774,"height":887,"crop":[207,197,1579,736]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-fish-side.df35cf64.png","width":2149,"height":732,"crop":[208,228,1945,560]}}'::jsonb, 43);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-flower', '꽃 방석', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -456,7 +456,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-flower', 'mat-flower', 'mat', 'uncommon', '꽃 형태로 바닥 실루엣에 변화를 줌', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-flower.370654e2.png","width":1774,"height":887,"crop":[0,0,1774,887]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-flower-side.a6f7fd22.png","width":1774,"height":887,"crop":[0,0,1774,887]}}'::jsonb, 44);
+VALUES (1, 'cust.decor.mat-flower', 'mat-flower', 'mat', 'uncommon', '꽃 형태로 바닥 실루엣에 변화를 줌', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-flower.370654e2.png","width":1774,"height":887,"crop":[334,181,1442,709]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-flower-side.a6f7fd22.png","width":1774,"height":887,"crop":[375,336,1398,595]}}'::jsonb, 44);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-strawberry', '딸기 매트', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -466,7 +466,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-strawberry', 'mat-strawberry', 'mat', 'uncommon', '과일 테마로 선명한 색 포인트를 줌', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-strawberry.69318f55.png","width":1774,"height":887,"crop":[0,0,1774,887]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-strawberry-side.affc01dc.png","width":1774,"height":887,"crop":[0,0,1774,887]}}'::jsonb, 45);
+VALUES (1, 'cust.decor.mat-strawberry', 'mat-strawberry', 'mat', 'uncommon', '과일 테마로 선명한 색 포인트를 줌', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-strawberry.69318f55.png","width":1774,"height":887,"crop":[317,191,1490,725]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-strawberry-side.affc01dc.png","width":1774,"height":887,"crop":[223,329,1551,582]}}'::jsonb, 45);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-toast', '식빵 방석', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -476,7 +476,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-toast', 'mat-toast', 'mat', 'uncommon', '먹거리를 방석으로 바꾼 재미있는 형태', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-toast.c389d34a.png","width":1774,"height":887,"crop":[0,0,1774,887]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-toast-side.e05f49f8.png","width":1774,"height":887,"crop":[0,0,1774,887]}}'::jsonb, 46);
+VALUES (1, 'cust.decor.mat-toast', 'mat-toast', 'mat', 'uncommon', '먹거리를 방석으로 바꾼 재미있는 형태', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-toast.c389d34a.png","width":1774,"height":887,"crop":[332,234,1443,713]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-toast-side.e05f49f8.png","width":1774,"height":887,"crop":[190,362,1583,651]}}'::jsonb, 46);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-shell', '조개 방석', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -486,7 +486,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-shell', 'mat-shell', 'mat', 'rare', '조개 형태의 독특한 해변 방석', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-shell.9adef6e0.png","width":1774,"height":887,"crop":[0,0,1774,887]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-shell-side.0da6af24.png","width":2172,"height":724,"crop":[0,0,2172,724]}}'::jsonb, 47);
+VALUES (1, 'cust.decor.mat-shell', 'mat-shell', 'mat', 'rare', '조개 형태의 독특한 해변 방석', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-shell.9adef6e0.png","width":1774,"height":887,"crop":[294,186,1480,714]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-shell-side.0da6af24.png","width":2172,"height":724,"crop":[180,269,1993,546]}}'::jsonb, 47);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-cloud', '구름 방석', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -496,7 +496,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-cloud', 'mat-cloud', 'mat', 'rare', '구름 형태로 부드러운 분위기를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-cloud.c452d50f.png","width":1774,"height":887,"crop":[0,0,1774,887]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-cloud-side.ec2e9c6d.png","width":1774,"height":887,"crop":[0,0,1774,887]}}'::jsonb, 48);
+VALUES (1, 'cust.decor.mat-cloud', 'mat-cloud', 'mat', 'rare', '구름 형태로 부드러운 분위기를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-cloud.c452d50f.png","width":1774,"height":887,"crop":[338,232,1438,669]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-cloud-side.ec2e9c6d.png","width":1774,"height":887,"crop":[225,333,1549,613]}}'::jsonb, 48);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.mat-moon', '초승달 방석', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -506,7 +506,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.mat-moon', 'mat-moon', 'mat', 'legendary', '초승달 실루엣이 뚜렷한 대표 방석', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-moon.4041c02b.png","width":1774,"height":887,"crop":[0,0,1774,887]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-moon-side.10cdb474.png","width":1774,"height":887,"crop":[0,0,1774,887]}}'::jsonb, 49);
+VALUES (1, 'cust.decor.mat-moon', 'mat-moon', 'mat', 'legendary', '초승달 실루엣이 뚜렷한 대표 방석', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/mat-moon.4041c02b.png","width":1774,"height":887,"crop":[304,194,1477,731]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":385,"y":441,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":-15,"layer":"behindCat"},"side":{"x":378,"y":414,"drawWidth":175,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":0,"layer":"behindCat"}},"sideSource":{"path":"/static/customization/decor/mat-moon-side.10cdb474.png","width":1774,"height":887,"crop":[203,312,1571,636]}}'::jsonb, 49);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-fish', '물고기 꼬리 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -516,7 +516,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-fish', 'oar-fish', 'oar', 'common', '기본 낚시 테마에 어울리는 꼬리 형태', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-fish.3b35b0ee.png","width":1983,"height":793,"crop":[0,0,1983,793]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 50);
+VALUES (1, 'cust.decor.oar-fish', 'oar-fish', 'oar', 'common', '기본 낚시 테마에 어울리는 꼬리 형태', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-fish.3b35b0ee.png","width":1983,"height":793,"crop":[112,214,1872,588]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 50);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-leaf', '잎사귀 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -526,7 +526,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-leaf', 'oar-leaf', 'oar', 'common', '잎사귀 모양의 소박한 기본 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-leaf.2c346ee7.png","width":2172,"height":724,"crop":[0,0,2172,724]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 51);
+VALUES (1, 'cust.decor.oar-leaf', 'oar-leaf', 'oar', 'common', '잎사귀 모양의 소박한 기본 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-leaf.2c346ee7.png","width":2172,"height":724,"crop":[98,159,2073,564]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 51);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-spoon', '나무 숟가락 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -536,7 +536,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-spoon', 'oar-spoon', 'oar', 'common', '일상 도구를 닮은 단순한 나무 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-spoon.d5d1e285.png","width":1983,"height":793,"crop":[0,0,1983,793]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 52);
+VALUES (1, 'cust.decor.oar-spoon', 'oar-spoon', 'oar', 'common', '일상 도구를 닮은 단순한 나무 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-spoon.d5d1e285.png","width":1983,"height":793,"crop":[130,171,1853,639]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 52);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-paw', '발바닥 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -546,7 +546,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-paw', 'oar-paw', 'oar', 'common', '고양이 발바닥을 살린 친숙한 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-paw.1c49ad01.png","width":1983,"height":793,"crop":[0,0,1983,793]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 53);
+VALUES (1, 'cust.decor.oar-paw', 'oar-paw', 'oar', 'common', '고양이 발바닥을 살린 친숙한 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-paw.1c49ad01.png","width":1983,"height":793,"crop":[69,151,1928,639]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 53);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-flower', '꽃잎 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -556,7 +556,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-flower', 'oar-flower', 'oar', 'uncommon', '꽃잎 끝으로 형태에 장식성을 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-flower.785a4b0e.png","width":1983,"height":793,"crop":[0,0,1983,793]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 54);
+VALUES (1, 'cust.decor.oar-flower', 'oar-flower', 'oar', 'uncommon', '꽃잎 끝으로 형태에 장식성을 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-flower.785a4b0e.png","width":1983,"height":793,"crop":[152,175,1829,627]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 54);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-shell', '조개 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -566,7 +566,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-shell', 'oar-shell', 'oar', 'uncommon', '조개 끝으로 해변 테마를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-shell.1fdd532f.png","width":1983,"height":793,"crop":[0,0,1983,793]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 55);
+VALUES (1, 'cust.decor.oar-shell', 'oar-shell', 'oar', 'uncommon', '조개 끝으로 해변 테마를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-shell.1fdd532f.png","width":1983,"height":793,"crop":[148,182,1844,621]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 55);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-heart', '하트 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -576,7 +576,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-heart', 'oar-heart', 'oar', 'uncommon', '하트 형태로 감정 표현이 가능한 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-heart.cc69cf39.png","width":1983,"height":793,"crop":[0,0,1983,793]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 56);
+VALUES (1, 'cust.decor.oar-heart', 'oar-heart', 'oar', 'uncommon', '하트 형태로 감정 표현이 가능한 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-heart.cc69cf39.png","width":1983,"height":793,"crop":[137,185,1848,617]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 56);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-duck', '오리발 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -586,7 +586,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-duck', 'oar-duck', 'oar', 'rare', '오리발이라는 익살스러운 대체 형태', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-duck.717d8676.png","width":1983,"height":793,"crop":[0,0,1983,793]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 57);
+VALUES (1, 'cust.decor.oar-duck', 'oar-duck', 'oar', 'rare', '오리발이라는 익살스러운 대체 형태', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-duck.717d8676.png","width":1983,"height":793,"crop":[203,177,1828,617]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 57);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-whale', '고래 꼬리 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -596,7 +596,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-whale', 'oar-whale', 'oar', 'rare', '큰 고래 꼬리로 실루엣 변화가 큼', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-whale.249ad404.png","width":1983,"height":793,"crop":[0,0,1983,793]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 58);
+VALUES (1, 'cust.decor.oar-whale', 'oar-whale', 'oar', 'rare', '큰 고래 꼬리로 실루엣 변화가 큼', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-whale.249ad404.png","width":1983,"height":793,"crop":[131,154,1867,640]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 58);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.oar-star', '별 노', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -606,7 +606,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.oar-star', 'oar-star', 'oar', 'legendary', '별 끝 장식이 눈에 띄는 대표 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-star.c502d11a.png","width":1983,"height":793,"crop":[0,0,1983,793]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[0,0,1254,1254]}}}'::jsonb, 59);
+VALUES (1, 'cust.decor.oar-star', 'oar-star', 'oar', 'legendary', '별 끝 장식이 눈에 띄는 대표 노', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/oar-star.c502d11a.png","width":1983,"height":793,"crop":[202,225,1781,572]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":510,"y":464,"drawWidth":258,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":125,"layer":"inFrontOfCat"},"side":{"x":412,"y":493,"drawWidth":345,"anchorX":0.5,"anchorY":0.5,"rotationDegrees":8,"layer":"inFrontOfCat"}},"replacementRafts":{"isometric":{"path":"/static/customization/raft/isometric.2ee6df4a.png","width":1254,"height":1254,"crop":[60,378,1194,1194]},"side":{"path":"/static/customization/raft/side.fa9f24ea.png","width":1254,"height":1254,"crop":[60,784,1194,1077]}}}'::jsonb, 59);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-fishbucket', '물고기 양동이', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -616,7 +616,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-fishbucket', 'cargo-fishbucket', 'cargo', 'common', '낚시 생활에 직접 연결되는 기본 짐', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-fishbucket.59c67026.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 60);
+VALUES (1, 'cust.decor.cargo-fishbucket', 'cargo-fishbucket', 'cargo', 'common', '낚시 생활에 직접 연결되는 기본 짐', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-fishbucket.59c67026.png","width":1254,"height":1254,"crop":[327,337,978,960]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 60);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-tackle', '낚시 상자', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -626,7 +626,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-tackle', 'cargo-tackle', 'cargo', 'common', '기능이 명확한 기본 낚시 상자', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-tackle.feea65ef.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 61);
+VALUES (1, 'cust.decor.cargo-tackle', 'cargo-tackle', 'cargo', 'common', '기능이 명확한 기본 낚시 상자', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-tackle.feea65ef.png","width":1254,"height":1254,"crop":[287,392,973,933]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 61);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-bundle', '여행 보따리', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -636,7 +636,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-bundle', 'cargo-bundle', 'cargo', 'common', '여행을 표현하는 소박한 기본 보따리', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-bundle.40f0495d.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 62);
+VALUES (1, 'cust.decor.cargo-bundle', 'cargo-bundle', 'cargo', 'common', '여행을 표현하는 소박한 기본 보따리', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-bundle.40f0495d.png","width":1254,"height":1254,"crop":[331,368,997,907]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 62);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-bread', '빵 바구니', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -646,7 +646,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-bread', 'cargo-bread', 'cargo', 'common', '일상 먹거리가 담긴 기본 바구니', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-bread.6b2b792c.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 63);
+VALUES (1, 'cust.decor.cargo-bread', 'cargo-bread', 'cargo', 'common', '일상 먹거리가 담긴 기본 바구니', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-bread.6b2b792c.png","width":1254,"height":1254,"crop":[235,390,1047,927]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 63);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-picnic', '도시락 바구니', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -656,7 +656,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-picnic', 'cargo-picnic', 'cargo', 'uncommon', '뚜껑과 도시락으로 소풍 이야기가 생김', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-picnic.899b4741.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 64);
+VALUES (1, 'cust.decor.cargo-picnic', 'cargo-picnic', 'cargo', 'uncommon', '뚜껑과 도시락으로 소풍 이야기가 생김', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-picnic.899b4741.png","width":1254,"height":1254,"crop":[280,339,1014,957]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 64);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-shells', '조개 바구니', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -666,7 +666,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-shells', 'cargo-shells', 'cargo', 'uncommon', '조개 수집이라는 해변 이야기가 생김', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-shells.ca785372.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 65);
+VALUES (1, 'cust.decor.cargo-shells', 'cargo-shells', 'cargo', 'uncommon', '조개 수집이라는 해변 이야기가 생김', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-shells.ca785372.png","width":1254,"height":1254,"crop":[275,398,1002,915]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 65);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-plant', '새싹 화분', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -676,7 +676,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-plant', 'cargo-plant', 'cargo', 'uncommon', '살아 있는 새싹이 뗏목에 색을 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-plant.30ac429d.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 66);
+VALUES (1, 'cust.decor.cargo-plant', 'cargo-plant', 'cargo', 'uncommon', '살아 있는 새싹이 뗏목에 색을 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-plant.30ac429d.png","width":1254,"height":1254,"crop":[363,342,905,950]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 66);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-berries', '딸기 바구니', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -686,7 +686,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-berries', 'cargo-berries', 'cargo', 'rare', '풍성한 딸기와 바구니 조합의 장식성', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-berries.fe79f4f5.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 67);
+VALUES (1, 'cust.decor.cargo-berries', 'cargo-berries', 'cargo', 'rare', '풍성한 딸기와 바구니 조합의 장식성', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-berries.fe79f4f5.png","width":1254,"height":1254,"crop":[202,324,1056,980]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 67);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-teapot', '소풍 찻주전자', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -696,7 +696,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-teapot', 'cargo-teapot', 'cargo', 'rare', '찻주전자를 싣는 이색적인 소풍 소품', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-teapot.63b65890.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 68);
+VALUES (1, 'cust.decor.cargo-teapot', 'cargo-teapot', 'cargo', 'rare', '찻주전자를 싣는 이색적인 소풍 소품', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-teapot.63b65890.png","width":1254,"height":1254,"crop":[201,378,1057,924]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 68);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.cargo-bottle', '편지병', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -706,7 +706,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.cargo-bottle', 'cargo-bottle', 'cargo', 'legendary', '편지를 담은 병의 발견·여행 이야기가 강함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-bottle.42cc18f8.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 69);
+VALUES (1, 'cust.decor.cargo-bottle', 'cargo-bottle', 'cargo', 'legendary', '편지를 담은 병의 발견·여행 이야기가 강함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/cargo-bottle.42cc18f8.png","width":1254,"height":1254,"crop":[371,368,975,973]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":330,"y":520,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":630,"y":418,"drawWidth":70,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 69);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-milk', '우유병 탁상등', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -716,7 +716,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-milk', 'lantern-milk', 'lantern', 'common', '생활 용기를 활용한 기본 탁상등', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-milk.f4799bef.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 70);
+VALUES (1, 'cust.decor.lantern-milk', 'lantern-milk', 'lantern', 'common', '생활 용기를 활용한 기본 탁상등', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-milk.f4799bef.png","width":1254,"height":1254,"crop":[313,241,940,1026]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 70);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-buoy', '바다 탁상등', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -726,7 +726,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-buoy', 'lantern-buoy', 'lantern', 'common', '항해 도구를 닮은 기본 탁상등', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-buoy.2a6b0fe7.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 71);
+VALUES (1, 'cust.decor.lantern-buoy', 'lantern-buoy', 'lantern', 'common', '항해 도구를 닮은 기본 탁상등', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-buoy.2a6b0fe7.png","width":1254,"height":1254,"crop":[323,233,935,1026]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 71);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-fish', '물고기 탁상등', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -736,7 +736,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-fish', 'lantern-fish', 'lantern', 'common', '낚시 테마의 친숙한 물고기 모티프', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-fish.24e80a21.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 72);
+VALUES (1, 'cust.decor.lantern-fish', 'lantern-fish', 'lantern', 'common', '낚시 테마의 친숙한 물고기 모티프', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-fish.24e80a21.png","width":1254,"height":1254,"crop":[283,304,1065,985]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 72);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-pumpkin', '호박 탁상등', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -746,7 +746,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-pumpkin', 'lantern-pumpkin', 'lantern', 'common', '친숙한 채소 형태의 기본 탁상등', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-pumpkin.f4ce5010.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 73);
+VALUES (1, 'cust.decor.lantern-pumpkin', 'lantern-pumpkin', 'lantern', 'common', '친숙한 채소 형태의 기본 탁상등', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-pumpkin.f4ce5010.png","width":1254,"height":1254,"crop":[270,293,998,1005]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 73);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-flower', '꽃 탁상등', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -756,7 +756,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-flower', 'lantern-flower', 'lantern', 'uncommon', '꽃 형태로 주변 소품과 조합하기 좋음', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-flower.a8cf8bf3.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 74);
+VALUES (1, 'cust.decor.lantern-flower', 'lantern-flower', 'lantern', 'uncommon', '꽃 형태로 주변 소품과 조합하기 좋음', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-flower.a8cf8bf3.png","width":1254,"height":1254,"crop":[276,245,980,1015]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 74);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-shell', '조개 탁상등', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -766,7 +766,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-shell', 'lantern-shell', 'lantern', 'uncommon', '조개 형태로 해변 분위기를 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-shell.85fc2c4e.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 75);
+VALUES (1, 'cust.decor.lantern-shell', 'lantern-shell', 'lantern', 'uncommon', '조개 형태로 해변 분위기를 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-shell.85fc2c4e.png","width":1254,"height":1254,"crop":[242,244,1019,1006]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 75);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-mushroom', '버섯 탁상등', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -776,7 +776,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-mushroom', 'lantern-mushroom', 'lantern', 'uncommon', '버섯 형태로 작은 숲 분위기를 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-mushroom.1ee57957.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 76);
+VALUES (1, 'cust.decor.lantern-mushroom', 'lantern-mushroom', 'lantern', 'uncommon', '버섯 형태로 작은 숲 분위기를 더함', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-mushroom.1ee57957.png","width":1254,"height":1254,"crop":[324,296,955,978]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 76);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-star', '별 탁상등', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -786,7 +786,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-star', 'lantern-star', 'lantern', 'rare', '별 실루엣이 눈에 띄는 포인트 조명', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-star.29e50e37.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 77);
+VALUES (1, 'cust.decor.lantern-star', 'lantern-star', 'lantern', 'rare', '별 실루엣이 눈에 띄는 포인트 조명', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-star.29e50e37.png","width":1254,"height":1254,"crop":[293,256,988,1016]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 77);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-moon', '초승달 탁상등', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -796,7 +796,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-moon', 'lantern-moon', 'lantern', 'rare', '초승달 실루엣이 분명한 야간 테마', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-moon.6a81c9bd.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 78);
+VALUES (1, 'cust.decor.lantern-moon', 'lantern-moon', 'lantern', 'rare', '초승달 실루엣이 분명한 야간 테마', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-moon.6a81c9bd.png","width":1254,"height":1254,"crop":[289,196,989,1054]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 78);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.lantern-firefly', '반딧불이 병 램프', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -806,7 +806,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.lantern-firefly', 'lantern-firefly', 'lantern', 'legendary', '병 속 반딧불이라는 특별한 발광 모티프', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-firefly.ad2c6578.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 79);
+VALUES (1, 'cust.decor.lantern-firefly', 'lantern-firefly', 'lantern', 'legendary', '병 속 반딧불이라는 특별한 발광 모티프', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/lantern-firefly.ad2c6578.png","width":1254,"height":1254,"crop":[315,296,940,983]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":486,"y":446,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"},"side":{"x":478,"y":421,"drawWidth":49,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"inFrontOfCat"}}}'::jsonb, 79);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-picnic', '체크 파라솔', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -816,7 +816,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-picnic', 'canopy-picnic', 'canopy', 'common', '친숙한 체크 천을 쓴 기본 파라솔', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-picnic.4a012362.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 80);
+VALUES (1, 'cust.decor.canopy-picnic', 'canopy-picnic', 'canopy', 'common', '친숙한 체크 천을 쓴 기본 파라솔', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-picnic.4a012362.png","width":1254,"height":1254,"crop":[124,262,1136,1061]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 80);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-sailor', '선원 파라솔', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -826,7 +826,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-sailor', 'canopy-sailor', 'canopy', 'common', '기본 항해 세트에 어울리는 배색', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-sailor.3f8d957a.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 81);
+VALUES (1, 'cust.decor.canopy-sailor', 'canopy-sailor', 'canopy', 'common', '기본 항해 세트에 어울리는 배색', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-sailor.3f8d957a.png","width":1254,"height":1254,"crop":[150,265,1105,1071]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 81);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-leaf', '잎사귀 파라솔', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -836,7 +836,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-leaf', 'canopy-leaf', 'canopy', 'common', '잎사귀를 활용한 기본 자연 차양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-leaf.edbdd885.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 82);
+VALUES (1, 'cust.decor.canopy-leaf', 'canopy-leaf', 'canopy', 'common', '잎사귀를 활용한 기본 자연 차양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-leaf.edbdd885.png","width":1254,"height":1254,"crop":[270,211,1151,1073]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 82);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-lotus', '연잎 파라솔', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -846,7 +846,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-lotus', 'canopy-lotus', 'canopy', 'common', '연잎을 활용한 친숙한 자연 차양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-lotus.edc327cb.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 83);
+VALUES (1, 'cust.decor.canopy-lotus', 'canopy-lotus', 'canopy', 'common', '연잎을 활용한 친숙한 자연 차양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-lotus.edc327cb.png","width":1254,"height":1254,"crop":[188,300,1077,1033]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 83);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-flower', '꽃 파라솔', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -856,7 +856,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-flower', 'canopy-flower', 'canopy', 'uncommon', '꽃잎 형태로 큰 실루엣에 변화를 줌', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-flower.45f2325b.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 84);
+VALUES (1, 'cust.decor.canopy-flower', 'canopy-flower', 'canopy', 'uncommon', '꽃잎 형태로 큰 실루엣에 변화를 줌', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-flower.45f2325b.png","width":1254,"height":1254,"crop":[134,257,1117,1082]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 84);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-strawberry', '딸기 파라솔', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -866,7 +866,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-strawberry', 'canopy-strawberry', 'canopy', 'uncommon', '과일 테마를 크게 드러내는 차양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-strawberry.6f9d2612.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 85);
+VALUES (1, 'cust.decor.canopy-strawberry', 'canopy-strawberry', 'canopy', 'uncommon', '과일 테마를 크게 드러내는 차양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-strawberry.6f9d2612.png","width":1254,"height":1254,"crop":[189,287,1071,1066]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 85);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-shell', '조개 양산', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -876,7 +876,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-shell', 'canopy-shell', 'canopy', 'uncommon', '조개 형태로 해변 테마를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-shell.7c362fc6.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 86);
+VALUES (1, 'cust.decor.canopy-shell', 'canopy-shell', 'canopy', 'uncommon', '조개 형태로 해변 테마를 강조', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-shell.7c362fc6.png","width":1254,"height":1254,"crop":[170,251,1094,1071]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 86);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-mushroom', '버섯 파라솔', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -886,7 +886,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-mushroom', 'canopy-mushroom', 'canopy', 'rare', '버섯을 차양으로 쓴 동화적 형태', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-mushroom.fbf47673.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 87);
+VALUES (1, 'cust.decor.canopy-mushroom', 'canopy-mushroom', 'canopy', 'rare', '버섯을 차양으로 쓴 동화적 형태', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-mushroom.fbf47673.png","width":1254,"height":1254,"crop":[159,286,1104,1064]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 87);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-cloud', '구름 차양', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -896,7 +896,7 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-cloud', 'canopy-cloud', 'canopy', 'rare', '구름 형태의 독특하고 부드러운 차양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-cloud.45336ca2.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 88);
+VALUES (1, 'cust.decor.canopy-cloud', 'canopy-cloud', 'canopy', 'rare', '구름 형태의 독특하고 부드러운 차양', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-cloud.45336ca2.png","width":1254,"height":1254,"crop":[159,290,1100,1109]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 88);
 
 INSERT INTO catalog_assets (product_id, title, kind, owner_type) VALUES ('cust.decor.canopy-moon', '달빛 파라솔', 'decor', 'user') ON CONFLICT (product_id) DO NOTHING;
 
@@ -906,4 +906,4 @@ END IF; END $$;
 
 INSERT INTO customization_reward_items
     (revision, product_id, source_asset_id, category, rarity, rarity_reason, render_data, sort_order)
-VALUES (1, 'cust.decor.canopy-moon', 'canopy-moon', 'canopy', 'legendary', '달밤 테마를 완성하는 대표 파라솔', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-moon.130f3bd9.png","width":1254,"height":1254,"crop":[0,0,1254,1254]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 89);
+VALUES (1, 'cust.decor.canopy-moon', 'canopy-moon', 'canopy', 'legendary', '달밤 테마를 완성하는 대표 파라솔', '{"format":"raft-fit-v1","target":"raft","source":{"path":"/static/customization/decor/canopy-moon.130f3bd9.png","width":1254,"height":1254,"crop":[153,255,1103,1067]},"coordinateSpace":"review-scene-800x620","canvas":[800,620],"placements":{"isometric":{"x":565,"y":403,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"},"side":{"x":550,"y":405,"drawWidth":150,"anchorX":0.5,"anchorY":1,"rotationDegrees":0,"layer":"behindCat"}}}'::jsonb, 89);

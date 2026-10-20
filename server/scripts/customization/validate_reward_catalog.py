@@ -85,6 +85,9 @@ def main():
 
     for item in items:
         verify_sources(item["renderData"])
+        source = item["renderData"]["source"]
+        # 소품 그림은 캔버스를 꽉 채우지 않는다. 전체 캔버스 크롭은 알파 영역을 못 읽었다는 뜻이다.
+        assert source["crop"] != [0, 0, source["width"], source["height"]], item["productId"]
         assert item["ownerType"] == "user"
         if item["category"] in ("head", "neck", "shoes"):
             assert item["kind"] == item["category"]
