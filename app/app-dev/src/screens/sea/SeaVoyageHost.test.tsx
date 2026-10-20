@@ -847,6 +847,21 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
   });
 
+  test('펠리컨이 떠 있는 채 07:01 재조회로 호가 바뀌면 새 호로 다시 떠서 받음(SEA)과 알림을 새 호에 한 번 더 남긴다', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    const e = drift({ issue, receipt: null });
+    const screen = await render(<SeaVoyageHost e={e} />);
+    expect(putReceipt).toHaveBeenCalledTimes(1);
+    const next = { ...issue, issueId: 'iss-21', issueNo: 21, issueDate: '2026-10-21' };
+    await screen.rerender(
+      <SeaVoyageHost e={{ ...e, magazineToday: { issue: next, receipt: null } }} />,
+    );
+    expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
+    expect(putReceipt).toHaveBeenCalledTimes(2);
+    expect(putReceipt).toHaveBeenLastCalledWith('iss-21', { place: 'SEA' });
+    expect(announce).toHaveBeenCalledTimes(2);
+  });
+
   test('항해를 그만두고 멀어지는 연출이 끝나 표류가 되면 그때 펠리컨이 뜬다', async () => {
     const e = env({ magazineToday: { issue, receipt: null } });
     e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
