@@ -86,6 +86,16 @@ const contractError = () =>
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 
+// 안내 이력의 조회·오류 복구는 useAccountGuides가 맡는다. 로컬 오류로 서버 정본·명령 성공을 버리지 않는다.
+const guidesForSync = async (ownerId: string | undefined) => {
+  if (!ownerId) return null;
+  try {
+    return await readAccountGuides(ownerId);
+  } catch {
+    return null;
+  }
+};
+
 // 결과 불명 — 쓰기가 서버에 닿았는지·커밋됐는지 알 수 없다. SERVICE_UNAVAILABLE은 서킷 오픈(미발송)뿐
 // 아니라 Data 응답 수신 중 연결이 끊긴 경우에도 나온다. 둘 다 공개 응답에선 HTTP 400으로 접히므로
 // (티켓 2088) 상태가 아니라 code로 가른다. 망원경의 도착 기록(Telescope)도 같은 분류를 쓴다.
@@ -163,7 +173,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       api.myIslands(),
       allJoinRequests(g),
       api.me(),
-      ownerId ? readAccountGuides(ownerId) : Promise.resolve(null),
+      guidesForSync(ownerId),
     ]);
     alive(g);
     if (revision !== syncRevision) throw staleError();
@@ -298,7 +308,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         const [screen, requests, guides] = await Promise.all([
           api.explore(),
           allJoinRequests(g),
-          ownerId ? readAccountGuides(ownerId) : Promise.resolve(null),
+          guidesForSync(ownerId),
         ]);
         alive(g);
         if (revision !== syncRevision) throw staleError();

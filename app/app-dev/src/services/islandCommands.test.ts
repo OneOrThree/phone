@@ -8,8 +8,19 @@ import { initialState, pendingVisitRequest, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import type { Account } from '@/services/api/auth';
 import type { IslandSummary, MyIslands, MyJoinRequest } from '@/services/api/islands';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { saveAccountGuides } from '@/services/accountGuides';
 
-jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0, getSession: () => null }));
+let mockGuideOwner: string | null = null;
+jest.mock('@/services/api/session', () => ({
+  sessionGeneration: () => 0,
+  getSession: () => (mockGuideOwner ? { userId: mockGuideOwner } : null),
+}));
+jest.mock('@/services/posthog', () => ({ captureProductEvent: jest.fn() }));
+afterEach(() => {
+  mockGuideOwner = null;
+  jest.restoreAllMocks();
+});
 
 const island = (over: Partial<IslandSummary> = {}): IslandSummary => ({
   id: 'i1',
@@ -1187,3 +1198,75 @@ test.each(['CLIENT_NETWORK_ERROR', 'UPSTREAM_CONTRACT_ERROR'])(
     assert.equal(cancel.mock.calls[0][1], cancel.mock.calls[1][1]);
   },
 );
+
+test.each(['sync', 'explore'])(
+  '손상된 안내 이력은 %s의 서버 정본 동기화를 실패시키지 않는다',
+  async (command) => {
+    mockGuideOwner = 'u1';
+    await AsyncStorage.clear();
+    await AsyncStorage.setItem('gromo:account-guides:v1:u1', '{broken');
+    const memberships = myIslands({ items: [island()], currentIslandId: 'i1' });
+    const h = harness({
+      myIslands: async () => memberships,
+      myJoinRequests: async () => ({ items: [], nextCursor: null }),
+      explore: async () => ({ memberships, islands: { items: [], nextCursor: null } }),
+    });
+    if (command === 'sync') await h.cmds.commands.sync();
+    else await h.cmds.commands.explore();
+    assert.equal(h.state().serverIslands?.currentIslandId, 'i1');
+    assert.equal(h.state().onboarded, true);
+    assert.equal(h.dispatched.find((a) => a.type === 'ISLAND_SYNC')?.focusGuideDone, undefined);
+    assert.notEqual(h.state().focusGuideDone, true);
+    assert.equal(await AsyncStorage.getItem('gromo:account-guides:v1:u1'), '{broken');
+  },
+);
+
+test('손상된 안내 이력 때문에 서버에서 성공한 섬 생성을 실패로 반환하지 않는다', async () => {
+  mockGuideOwner = 'u1';
+  await AsyncStorage.clear();
+  await AsyncStorage.setItem('gromo:account-guides:v1:u1', '{broken');
+  const create = jest.fn().mockResolvedValue({ islandId: 'i1' });
+  const h = harness({
+    createIsland: create,
+    myIslands: async () => myIslands({ items: [island()], currentIslandId: 'i1' }),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await h.cmds.commands.create(createInput);
+  assert.equal(create.mock.calls.length, 1);
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i1');
+});
+
+test('안내 저장소의 일시적 읽기 실패는 이미 복구한 체험 완료 이력과 새 섬 정본을 보존한다', async () => {
+  mockGuideOwner = 'u1';
+  await AsyncStorage.clear();
+  await saveAccountGuides('u1', { focusDone: true });
+  const h = harness({
+    myIslands: jest
+      .fn()
+      .mockResolvedValueOnce(myIslands({ items: [island()], currentIslandId: 'i1' }))
+      .mockResolvedValue(myIslands({ items: [island({ id: 'i2' })], currentIslandId: 'i2' })),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await h.cmds.commands.sync();
+  assert.equal(h.state().focusGuideDone, true);
+  jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('storage unavailable'));
+  await h.cmds.commands.sync();
+  assert.equal(h.state().serverIslands?.currentIslandId, 'i2');
+  assert.equal(h.state().focusGuideDone, true);
+  assert.equal(h.dispatched.at(-1)?.focusGuideDone, undefined);
+});
+
+test('안내 이력 오류와 별개로 서버 정본 조회 실패는 그대로 거절한다', async () => {
+  mockGuideOwner = 'u1';
+  await AsyncStorage.clear();
+  await AsyncStorage.setItem('gromo:account-guides:v1:u1', '{broken');
+  const error = new ApiError('CLIENT_NETWORK_ERROR', 'network', 0);
+  const h = harness({
+    myIslands: async () => {
+      throw error;
+    },
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await assert.rejects(h.cmds.syncIslands(), (e: unknown) => e === error);
+  assert.equal(h.dispatched.length, 0);
+});
