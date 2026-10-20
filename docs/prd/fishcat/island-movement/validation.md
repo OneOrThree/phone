@@ -151,8 +151,8 @@ mmdc -i docs/prd/fishcat/island-movement/diagrams/01-architecture.mmd \
 표는 [측정 스크립트](scripts/measure-movement.mjs)의 `--render`(run3.json) 출력을 그대로 붙였다 — 위 각 셀의 수치는 손으로 옮기지 않았다.
 
 측정 불가:
-- 틱 p50·p99 — `movement.tick` Timer 가 백분위·히스토그램을 내보내지 않는다(count·sum·max 만).
-- 틱 지연·catch-up·Snapshot 건너뜀·토큰 버킷 드롭 — `MovementTicker`(delayed·skippedSnapshot·skippedTick)·`RoomRuntime`(rateLimitedDrop) 카운터가 필드로만 있고 지표로 노출되지 않는다.
+- 틱 p50·p99 — `measure-movement.mjs` 가 `movement_tick_seconds_bucket` 전후 델타에서 그 분위를 처음 넘는 bucket 의 상한으로 구한다(`pathfind` 도 같다). 값은 7-2 절 표에 채운다.
+- 틱 지연·catch-up·Snapshot 건너뜀·토큰 버킷 드롭 — `movement_tick_delayed_total`·`movement_tick_skipped_total`·`movement_snapshot_skipped_total`·`movement_intent_rate_limited_total` 카운터의 전후 델타로 읽는다. 값은 7-2 절 표에 채운다.
 
 **실기기 잔여(티켓 2250)** — 실기기 측정(오너)으로 채운다.
 
@@ -179,7 +179,7 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 
 - `app/app-dev/node_modules` 가 없는 워크트리는 `npm ci` 한 체크아웃의 경로를 `NODE_PATH` 로 준다(앱과 같은 `@stomp/stompjs` 7.3.0). `--self-check` 는 네트워크 없이 계산 함수만 점검한다.
 - 쓰는 공개 경로는 앱과 같다: `POST /auth/sessions/guest`(`X-Device-Id`) · `POST /auth/sessions/current/refresh`(`X-Refresh-Token`) · `POST /islands` · `POST /islands/{id}/memberships`(둘 다 `Idempotency-Key`) · `/ws/realtime` CONNECT(`Authorization: Bearer`).
-- 게스트 생성은 Data `GuestLoginRateLimiter` 기본값인 IP당 10회/시간에 걸린다. 로컬은 nginx 뒤라 모든 요청이 한 IP 다. 15명은 `--state` 파일로 계정을 이어 써 한 시간 창 두 번에 걸쳐 만들었다(첫 실행의 11번째가 429). 상태 파일에는 로컬 토큰이 들어가므로 레포 밖에 둔다. 만료된 AT 는 스크립트가 갱신 경로로 바꾼다.
+- 게스트 생성은 Data `GuestLoginRateLimiter` 기본값인 IP당 10회/시간에 걸린다(첫 실행의 11번째가 429). 로컬 data-api 에 `AUTH_GUEST_RATE_LIMIT_MAX=1000000`(application-local.yml.example 의 자리표시자) 또는 완화 바인딩 env `AUTH_GUEST_RATE_LIMIT_MAX_PER_WINDOW` 를 주면 15명을 한 번에 만든다. 운영·dev 기본값(10/300)은 그대로다. 상태 파일에는 로컬 토큰이 들어가므로 레포 밖에 둔다. 만료된 AT 는 스크립트가 갱신 경로로 바꾼다.
 - nginx 가 `/actuator/*` 를 404 로 막아, Prometheus 는 `docker exec phone-realtime-local wget -qO- http://localhost:9091/actuator/prometheus`(관리 포트 9091)로 읽는다. `--metrics-cmd` 로 바꿀 수 있다.
 - `caffeinate -i` 는 맥 절전을 막는다. 측정 중 맥이 잠들면 서버 틱이 건너뛰어져 값이 틀어진다. 표의 「실행 유효성」이 90% 미만인 N 은 버린다.
 
@@ -199,6 +199,104 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 | N=15 | 54,717 | 41,800 | 12,917 | 9.45 (450 + 117) |
 
 세션당 수신량은 정책 §3·T18 의 30 MB/시간을 N=15 에서 약 6.6배 넘는다. 197 MB/시간은 WebSocket 수신 총량(STOMP 헤더·reliable 사건·하트비트 포함)이고, Snapshot 본문만은 2,090 B × 20 Hz ≈ 150 MB/시간이다. 차이가 N 과 함께 늘어나므로 헤더만으로는 설명되지 않는다 — 차이 = 상수 + 사건당 바이트 × 사건/초 로 두고 N=1·15 로 풀면 상수 ≈ 3.7 KB/s(≈ 13 MB/시간, Snapshot 프레임 20개/초의 STOMP 헤더 ≈ 185 B/프레임), 사건당 ≈ 0.98 KB(경로 waypoints 를 실은 PathAccepted)이고 N=5 는 이 모델과 4% 안에서 맞는다. 즉 N=15 의 차이 약 46.5 MB/시간은 대략 헤더 13 : reliable 사건 33 (MB/시간)이다 — 표의 값에서 역산한 근사이며 건당 바이트는 이 측정에서 직접 재지 않았다(다음 실행부터 스크립트가 프레임 종류별로 나눠 찍는다). **Snapshot 만 줄여서는 목표에 못 간다**: Snapshot 본문을 0 으로 놓아도 약 46.5 MB/시간이 남는다. 바이너리 Snapshot·송신 주기 저감은 Snapshot 프레임의 헤더 몫(≈ 13 MB/시간)도 같이 줄이므로 실제 하한은 이보다 낮지만, reliable 사건 몫 ≈ 33 MB/시간만으로도 목표 30 을 넘는다. 2단계 판단에서 바이너리 Snapshot 과 함께 송신 주기 저감(정지·원거리 주민)과 reliable 사건 크기(PathAccepted 의 waypoints)를 같이 봐야 한다. 이 부하는 전원이 거의 쉬지 않고 걷는 경우라 실제 사용보다 크다(정지한 방에는 Snapshot 을 보내지 않는다).
+
+## 7-2. 2026-10-20 main 재측정
+
+서버 main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Redis 릴레이, 유한 outbound 실행기, heartbeat 10s, 틱 히스토그램)을 10-09·10-18 과 같은 두 하네스로 다시 쟀다. 원본·해시는 [measurements/2026-10-20/](measurements/2026-10-20/README.md). 표의 값은 스크립트 출력이며 손으로 옮기지 않았다. 앱은 띄우지 않았고 **실기기 잔여 표(§7)는 그대로 미측정**이다.
+
+조건:
+
+- 맥 한 대(Apple M5 Pro, 15코어·48 GB)의 Docker Desktop(8 CPU · 7.65 GiB, aarch64). 발생기(Node 24)도 같은 맥이다.
+- 조사 하네스: 스택 `loadtest/infra/local/compose.yml`(프로젝트 `gromo-loadtest-survey`), realtime·data-api·business-api 를 main 소스로 재빌드(10-18 이미지는 `:20261018` 태그 보존), fixture 1만 명 DB(`users` 10,191·Flyway V130), 사용자 파일 `users_uniform.json`. 호스트: run2 시작 loadavg `{ 45.37 17.16 13.86 }`·gradle 프로세스 1개·Xcode 빌드 없음([host-conditions-run2.txt](measurements/2026-10-20/survey/host-conditions-run2.txt)).
+- 한 섬: 로컬 풀 스택 `phone-*-local`, realtime 만 2270 브랜치 jar(main + `movement.intent.rate_limited` Counter)로 재기동, 이미지 `903cfb5d146c`, 시작 loadavg `{ 7.33 11.04 11.09 }`(다른 세션 부하, [one-island-conditions.txt](measurements/2026-10-20/one-island-conditions.txt)). 게스트 15명을 한 번에 발급했다(429 없음, 티켓 2271).
+- run1 은 다른 세션의 gradle 워커와 구현 에이전트(gradle build·jest·pod install)가 동시에 돌아 지연이 오염됐다([host-conditions-run1.txt](measurements/2026-10-20/survey-run1/host-conditions-run1.txt): gradle 프로세스 3개). run1 은 전달 누락·수신량·Snapshot 수만 참고하고 지연은 run2 를 정본으로 본다.
+
+### ① 조사 하네스 대조 (`survey/` run2, 10-18 대비)
+
+| run | 조건 | 10-18 (전) 수신/기대 · 지연 p50/p95/p99 ms · 수신량 (fixture) | 10-20 run2 (후) | 누락 | Snapshot 수 |
+|---|---|---|---|---|---|
+| `movement-split-100c-20s` | 100c · 1Hz · 20s · 2 인스턴스 | (10-18 없음) | 19000/19000 · p50 40.6 · p95 149.6 · p99 196.7 · 74 MB | 0 | 35974 |
+| `movement-split-10c-10s` | 10c · 1Hz · 10s · 2 인스턴스 | 450/900 · p50 43.7 · p95 53.2 · p99 57.8 · 2 MB (followup) | 900/900 · p50 44.7 · p95 48.3 · p99 49.2 · 3 MB | 0 | 1630 |
+| `movement-split-10c-60s` | 10c · 1Hz · 60s · 2 인스턴스 | (10-18 없음) | 5900/5900 · p50 20.0 · p95 55.0 · p99 58.4 · 23 MB | 0 | 11670 |
+| `movement-spread-300c` | 300c · 1Hz · 60s · spread | 176950/176950 · p50 55.1 · p95 63.5 · p99 69.0 · 706 MB (followup) | 176940/176940 · p50 50.5 · p95 64.1 · p99 68.6 · 708 MB | 0 | 350230 |
+| `ws-movement-100c-10hz` | 100c · 10Hz · 20s | 198840/198840 · p50 53.5 · p95 69.0 · p99 72.6 · 215 MB (1k) | 199000/199000 · p50 52.7 · p95 73.4 · p99 92.0 · 213 MB | 0 | 40440 |
+| `ws-movement-100c-1hz-confirm` | 100c · 1Hz · 60s | 59000/59000 · p50 32.3 · p95 68.5 · p99 73.1 · 236 MB (1k) | 59000/59000 · p50 58.5 · p95 76.6 · p99 87.7 · 236 MB | 0 | 116500 |
+| `ws-movement-100c-1hz` | 100c · 1Hz · 20s | 19000/19000 · p50 60.8 · p95 73.3 · p99 77.1 · 74 MB (1k) | 19000/19000 · p50 30.0 · p95 43.7 · p99 51.2 · 74 MB | 0 | 36300 |
+| `ws-movement-100c-5hz` | 100c · 5Hz · 20s | 99000/99000 · p50 50.0 · p95 69.4 · p99 80.1 · 148 MB (1k) | 99000/99000 · p50 46.0 · p95 71.2 · p99 76.1 · 143 MB | 0 | 39734 |
+| `ws-movement-10c-1hz` | 10c · 1Hz · 20s | 1900/1900 · p50 23.3 · p95 75.1 · p99 114.0 · 7 MB (10k) | 1900/1900 · p50 32.2 · p95 47.8 · p99 72.8 · 7 MB | 0 | 3630 |
+| `ws-movement-10c-20hz-policy-limit` | 10c · 20Hz · 10s | 11800/19750 · p50 41.6 · p95 53.6 · p99 58.3 · 12 MB (10k) | 11900/19700 · p50 38.7 · p95 53.8 · p99 60.4 · 12 MB | 7800 | 2580 |
+| `ws-movement-300c-1hz` | 300c · 1Hz · 20s | 57000/57000 · p50 79.6 · p95 194.2 · p99 232.0 · 211 MB (1k) | 57000/57000 · p50 114.7 · p95 979.8 · p99 1232.1 · 196 MB | 0 | 91966 |
+| `ws-movement-50c-1hz` | 50c · 1Hz · 20s | 9500/9500 · p50 53.6 · p95 148.6 · p99 157.2 · 36 MB (10k) | 9500/9500 · p50 54.7 · p95 69.7 · p99 89.5 · 37 MB | 0 | 18240 |
+
+300c 정렬 발신 20 s 재확인(`survey/repeat-300c/`, 같은 조건 3회 + 100c 60 s 1회):
+
+| run | 조건 | 10-18 (전) 수신/기대 · 지연 p50/p95/p99 ms · 수신량 (fixture) | 10-20 repeat (후) | 누락 | Snapshot 수 |
+|---|---|---|---|---|---|
+| `ws-movement-100c-1hz-confirm-r2` | 100c · 1Hz · 60s | (10-18 없음) | 57721/59000 · p50 52.8 · p95 1301.3 · p99 2900.4 · 210 MB | 1279 | 103529 |
+| `ws-movement-300c-1hz-r1` | 300c · 1Hz · 20s | (10-18 없음) | 57000/57000 · p50 76.4 · p95 124.3 · p99 147.7 · 217 MB | 0 | 107205 |
+| `ws-movement-300c-1hz-r2` | 300c · 1Hz · 20s | (10-18 없음) | 57000/57000 · p50 100.7 · p95 199.1 · p99 252.7 · 210 MB | 0 | 100172 |
+| `ws-movement-300c-1hz-r3` | 300c · 1Hz · 20s | (10-18 없음) | 57000/57000 · p50 110.9 · p95 417.7 · p99 469.2 · 199 MB | 0 | 93127 |
+
+- **두 인스턴스 분산 전달 누락 0**: 10c 10 s 는 10-18 의 450/900 에서 900/900 이 됐고(p95 53.2 → 48.3 ms), 10c 60 s 5,900/5,900 · 100c 20 s 19,000/19,000 이다.
+- **단일 입구 조합은 누락 0, 지연은 조합에 따라 갈린다**: 개선은 100c@1Hz p95 73.3 → 43.7 · 50c p95 148.6 → 69.7 · 10c p95 75.1 → 47.8, 악화는 100c 60 s confirm p50 32.3 → 58.5 · p99 73.1 → 87.7, 100c@10Hz p99 72.6 → 92.0 · 100c@5Hz p95 69.4 → 71.2 이다(300c 분산 발신 60 s p95 63.5 → 64.1 은 같은 급). 일관된 회귀·개선은 없고 맥 한 대의 노이즈 범위로 읽는다. confirm 의 p50 상승은 재확인하지 못했다(`survey/repeat-300c/ws-movement-100c-1hz-confirm-r2.json` 은 Xcode 빌드와 겹쳐 폐기). 수신량은(정책 한계 행 제외, 누락 0) 10-18 의 ±8% 이내다(가장 큰 차이는 300c·20s 211→196 MB, −7.1%).
+- **300c 정렬 발신 20 s 는 값이 크게 흔든다**: run2 p95 979.8 ms 는 재현되지 않고 3회 재확인이 p95 124.3 / 199.1 / 417.7 ms(p50 76.4 / 100.7 / 110.9, 누락 0)다. 같은 구간 realtime-1 의 `movement_relay_lag` 19,311건 중 99% 가 13 ms 이하(최대 0.09 s)이고 릴레이 줄 깊이 0 이라 릴레이는 원인에서 배제한다. 나머지(발생기 Node 단일 루프·호스트 상태 등)는 확인하지 못했다. 회귀 판정 없이 「변동 큰 조합」으로 기록하고, 전용 호스트 재측정(2347)에 300c 정렬 3회 반복을 넣는다.
+- 같은 묶음의 `ws-movement-100c-1hz-confirm-r2`(57,721/59,000 · p95 1.3 s)는 06:38 에 다시 띄운 Xcode 빌드와 겹쳐 오염됐다 — 버리고 파일만 남긴다. 10c@20Hz 정책 상한 run 은 설계대로 일부만 받는다(11,900/19,700).
+
+### ② 한 섬 N=1·5·15 (`one-island.md`, 3회 중앙값)
+
+10-09 표(§7)와 행이 다른 점: 「Snapshot IDLE 비율·PathAccepted 크기」·「틱 p50·p99」·「pathfind p50·p99」 행과 틱 지연·건너뜀·속도제한 드롭 카운터 행이 새로 있고, 세션당 수신량 셀에 프레임 종류별 분해가 붙는다. 값은 N 마다 3회 실행의 중앙값이다. 틱·pathfind p50/p99 는 histogram bucket 의 상한(≤)이라 실제 값보다 크거나 같다.
+
+| 항목 | N=1 (3회 중앙값) | N=5 (3회 중앙값) | N=15 (3회 중앙값) | 측정 방법 |
+| --- | --- | --- | --- | --- |
+| 실행 유효성(서버 틱 진행) | 99.9% (Δtick 1287 / 벽시계 64.4초) — 정상 | 99.8% (Δtick 1289 / 벽시계 64.6초) — 정상 | 99.8% (Δtick 1288 / 벽시계 64.5초) — 정상 | movement_tick_seconds Δcount ÷ (전후 스크레이프 사이 벽시계 ÷ 50ms) |
+| 접속·첫 FullState | 준비 1/1 · 첫 movement 메시지 FullState 1/1 · 자기 actor 포함 1/1 · FullState 전 Snapshot 0건 · 구독→FullState p50 55.9 ms, 최대 55.9 ms | 준비 5/5 · 첫 movement 메시지 FullState 5/5 · 자기 actor 포함 5/5 · FullState 전 Snapshot 0건 · 구독→FullState p50 80.6 ms, 최대 81.8 ms | 준비 15/15 · 첫 movement 메시지 FullState 15/15 · 자기 actor 포함 15/15 · FullState 전 Snapshot 0건 · 구독→FullState p50 101.3 ms, 최대 109.2 ms | CONNECT(Bearer) 뒤 movement → movement/snapshot → /user/queue/errors 순 SUBSCRIBE, 첫 FullState 수신 − movement SUBSCRIBE 송신 |
+| intent → 내 PathAccepted 왕복 | p50 30.5 ms · p99 55.5 ms · 최대 55.5 ms (응답 30/보냄 30) | p50 31.3 ms · p99 60.4 ms · 최대 61.3 ms (응답 150/보냄 150) | p50 29.9 ms · p99 60.5 ms · 최대 367.1 ms (응답 450/보냄 450) | 사용자마다 2000ms 간격(+0~1틱 무작위 지터) 무작위 통행 셀(스폰 연결 영역) intent, 송신 직전 → 같은 commandSeq·내 userId PathAccepted 수신. 서버가 다음 틱(≤50ms)에 처리하므로 틱 대기 포함. 최근접 순위 백분위 |
+| MoveRejected | 0건 | 0건 | 0건 | 요청자 세션에만 오는 MoveRejected 를 reason 별로 |
+| 무응답 intent | 0건 (미연결로 못 보냄 0건) | 0건 (미연결로 못 보냄 0건) | 0건 (미연결로 못 보냄 0건) | 부하 끝 + 3초 안에 PathAccepted·MoveRejected 가 없던 intent |
+| Snapshot 수신 간격 | p50 50.0 ms · p99 56.9 ms · 최대 86.6 ms · 100ms 이상 0.00% (표본 1099) | p50 50.0 ms · p99 55.3 ms · 최대 80.5 ms · 100ms 이상 0.00% (표본 5995) | p50 50.0 ms · p99 57.7 ms · 최대 253.9 ms · 100ms 이상 0.08% (표본 17940) | 20Hz 기대 50ms. 직전 Snapshot 에 MOVING entity 가 있을 때 다음 Snapshot 까지의 간격(정지 뒤 공백 제외), 전 세션 합산 |
+| 세션당 수신량 | 평균 8270 B/s (≈ 29.8 MB/시간) · 세션 간 편차 0 · Snapshot 본문 평균 202 B · Snapshot 프레임 7707 B/s · movement 프레임 562 B/s · 기타 0 B/s<br>movement 종류별 PathAccepted 523.7 B/s · Arrived 38.7 B/s · Snapshot 헤더 몫 3955 B/s | 평균 21935 B/s (≈ 79.0 MB/시간) · 세션 간 편차 0 · Snapshot 본문 평균 741 B · Snapshot 프레임 19097 B/s · movement 프레임 2837 B/s · 기타 0 B/s<br>movement 종류별 PathAccepted 2626.8 B/s · Arrived 210.7 B/s · Snapshot 헤더 몫 4280 B/s | 평균 54572 B/s (≈ 196.5 MB/시간) · 세션 간 편차 0 · Snapshot 본문 평균 2089 B · Snapshot 프레임 45959 B/s · movement 프레임 8625 B/s · 기타 0 B/s<br>movement 종류별 PathAccepted 8032.0 B/s · Arrived 593.6 B/s · Snapshot 헤더 몫 4289 B/s | 부하 60초 동안 WebSocket message 바이트(STOMP 헤더·하트비트 포함) ÷ 60. 전 세션이 같은 브로드캐스트를 받아 세션 간 편차는 거의 없다 |
+| Snapshot IDLE 비율·PathAccepted 크기 | IDLE entity 1.3% · waypoints 평균 30.7 · 최대 67 (표본 30) · PathAccepted 본문 평균 843 B | IDLE entity 10.8% · waypoints 평균 30.8 · 최대 79 (표본 150) · PathAccepted 본문 평균 845 B | IDLE entity 10.7% · waypoints 평균 31.8 · 최대 80 (표본 450) · PathAccepted 본문 평균 866 B | 부하 구간 Snapshot entity 중 state=IDLE 몫(전체 entity 수 대비), 내 PathAccepted 의 waypoints.length·본문 바이트(브로드캐스트 중복 제외) |
+| 끊김·ERROR | close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | close 0건 · STOMP ERROR 0건 · 오류 큐 0건 | 의도적 해제 전 WebSocket close code·reason, STOMP ERROR message, /user/queue/errors code |
+| movement_tick_seconds | Δcount 1287 · 평균 0.1 ms · 최대 10.0 ms | Δcount 1289 · 평균 0.1 ms · 최대 57.5 ms | Δcount 1288 · 평균 0.3 ms · 최대 69.4 ms | /actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창) |
+| 틱 p50·p99 | p50 ≤1.0 ms · p99 ≤1.0 ms | p50 ≤1.0 ms · p99 ≤1.0 ms | p50 ≤1.0 ms · p99 ≤1.4 ms | _bucket 전후 델타(누적)에서 그 분위를 처음 넘는 bucket 의 le(상한 보수값 — 표의 ≤, 보간 없음). le=+Inf 에 걸리면 _max(max 표기) |
+| movement_pathfind_seconds | Δcount 30 · 평균 0.2 ms · 최대 1.4 ms | Δcount 150 · 평균 0.2 ms · 최대 1.8 ms | Δcount 450 · 평균 0.2 ms · 최대 46.4 ms | /actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창) |
+| pathfind p50·p99 | p50 ≤1.0 ms · p99 ≤1.4 ms | p50 ≤1.0 ms · p99 ≤1.4 ms | p50 ≤1.0 ms · p99 ≤1.4 ms | _bucket 전후 델타(누적)에서 그 분위를 처음 넘는 bucket 의 le(상한 보수값 — 표의 ≤, 보간 없음). le=+Inf 에 걸리면 _max(max 표기) |
+| movement_outbox_reliable_depth | 표본 39 · 평균 1.00 · 최대 1 | 표본 972 · 평균 1.00 · 최대 2 | 표본 8580 · 평균 1.03 · 최대 9 | /actuator/prometheus 실행 전후 델타(평균 = Δsum/Δcount). 최대 = 뒤 스크레이프의 _max(Micrometer 최근 약 2분 창). reliable 사건을 넣은 직후 세션 큐 깊이 |
+| movement_outbox_snapshot_superseded_total | Δ 0 | Δ 0 | Δ 30 | 보내기 전에 더 새 Snapshot 으로 덮어쓴 횟수(전후 델타) |
+| movement_outbox_overflow_total · send_failed_total | Δ 0 · Δ 0 | Δ 0 · Δ 0 | Δ 0 · Δ 0 | 큐 상한·넘기기 실패로 닫은 세션 수(전후 델타) |
+| movement_recheck_suspended_total | Δ 0 | Δ 0 | Δ 0 | 강퇴 재검사로 멈춘 outbox 수(전후 델타) |
+| 틱 지연·틱 건너뜀·Snapshot 건너뜀·intent 속도제한 드롭 | tick.delayed Δ 0 · tick.skipped Δ 0 · snapshot.skipped Δ 0 · intent.rate_limited Δ 0 | tick.delayed Δ 0 · tick.skipped Δ 0 · snapshot.skipped Δ 0 · intent.rate_limited Δ 0 | tick.delayed Δ 1 · tick.skipped Δ 0 · snapshot.skipped Δ 2 · intent.rate_limited Δ 0 | movement_tick_delayed_total · movement_tick_skipped_total · movement_snapshot_skipped_total · movement_intent_rate_limited_total 전후 델타 |
+| jvm_gc_pause_seconds | _max 최대 10.0 ms · Δcount 2 · Δsum 17.0 ms | _max 최대 16.0 ms · Δcount 7 · Δsum 60.0 ms | _max 최대 12.0 ms · Δcount 24 · Δsum 64.0 ms | 전 GC 계열 합산. _max 는 뒤 스크레이프 기준 최근 창 |
+
+### 데이터 예산 분해 — 역산 vs 실측
+
+세션당 B/s(3회 중앙값)를 `B/s × 3600 / 1e6` 으로 MB/시간 환산했다. Snapshot 본문 = Snapshot 프레임 − 헤더 몫. 10-09 는 프레임 종류별 바이트를 직접 재지 못해 N=15 값에서 역산했다(위 §7 데이터 예산).
+
+| N | 총 B/s (MB/h) | Snapshot 본문 B/s (MB/h) | Snapshot 헤더 몫 B/s (MB/h) | PathAccepted B/s (MB/h) | Arrived B/s (MB/h) |
+| --- | --- | --- | --- | --- | --- |
+| N=1 | 8,270 (29.8) | 3,752 (13.5) | 3,955 (14.2) | 523.7 (1.9) | 38.7 (0.1) |
+| N=5 | 21,935 (79.0) | 14,817 (53.3) | 4,280 (15.4) | 2,626.8 (9.5) | 210.7 (0.8) |
+| N=15 | 54,572 (196.5) | 41,670 (150.0) | 4,289 (15.4) | 8,032.0 (28.9) | 593.6 (2.1) |
+| 10-09 역산 N=15 | 54,717 (197.0) | ≈ 150 | ≈ 13 | ≈ 33 (PathAccepted + Arrived) | (합산) |
+
+- 성분 합(≈ 54,585 B/s)이 총량 중앙값(54,572)과 조금 다른 것은 열마다 따로 구한 3회 중앙값이기 때문이다.
+- Snapshot 헤더 몫은 N=1·5·15 에서 3,955 → 4,289 B/s 로 거의 일정하다. 엔티티 수가 아니라 프레임 수(≈ 20/s)에 비례하는 고정비라는 뜻이다.
+- FullState 바이트는 부하 구간에 0 이다(접속 때 한 번뿐, 60초 구간 밖).
+- 10-09 역산(150 / 13 / 33)은 대체로 맞았다. 실측은 헤더 몫이 조금 크고(13 → 15.4) reliable 사건은 조금 작다(33 → PathAccepted 28.9 + Arrived 2.1 = 31.0). 총량은 54,717 → 54,572 B/s 로 같은 급이다.
+
+관찰:
+
+- N 과 무관하게 왕복 p50 ≈ 30 ms · p99 55~60 ms(N=15 최대 367.1 ms 1회, 표본 450), Snapshot 간격 p99 55~58 ms · 100 ms 이상 0.00~0.08%. 틱 p50·p99 ≤ 1 ms(N=15 p99 는 bucket 상한 1.4 ms), pathfind p99 1.4 ms. 호스트 loadavg 7~11 로 지연은 10-09(서버 `7af884d`)와 같은 급이다.
+- 틱·송신 큐는 여전히 병목이 아니다: 끊김·STOMP ERROR·오류 큐 0, outbox 오버플로·송신 실패 0, N=15 에서 `tick.delayed` 1 · `snapshot.skipped` 2 · `intent.rate_limited` 0 · `snapshot_superseded` 30.
+- 세션당 수신량 N=15 는 196.5 MB/시간으로 목표 30 의 약 6.5배다. Snapshot 본문 150.0 은 그대로 가장 큰 몫이고, Snapshot 만 줄여서는 목표에 못 간다(헤더는 프레임 수에 묶인 고정비) — 본문을 0 으로 놓아도 헤더 15.4 + reliable 사건 31.0 = 약 46.4 MB/시간이 남는다.
+- IDLE entity 는 N≥5 에서 ≈ 11%(N=1 은 1.3%)다. PathAccepted 의 waypoints 는 평균 31(최대 80), 본문 ≈ 845~866 B 다. 정지 주민 생략과 waypoints 축소가 2단계 1차 후보인 근거가 실측으로 확인됐다.
+- 한계: 한 방(섬 1개), 전원이 쉬지 않고 걷는 부하, 발생기와 서버가 같은 맥이다. 실기기·손실 망은 §7 잔여 표 그대로 미측정이다.
+
+원본 위치와 재현 명령:
+
+- 원본: [measurements/2026-10-20/](measurements/2026-10-20/README.md) — `survey/`(run2 정본)·`survey-run1/`(오염, 참고)·`survey/repeat-300c/`·`one-island.{json,md,stdout.md,stderr.log}`·`one-island-conditions.txt`·`before-20261018/`(10-18 사본)·파일 해시.
+- ① 조사 하네스(레포 루트, 스택 `loadtest/infra/local/compose.yml`): `node loadtest/survey/realtime.mjs --mode movement --connections <N> --frequency <Hz> --seconds <S> --url ws://localhost:18088/ws/realtime --out <json>`. 300c 발신 분산(`movement-spread-300c`)은 `--spread-sends true` 를 더하고, 두 인스턴스 분산은 `--url ws://localhost:18083/ws/realtime,ws://localhost:18085/ws/realtime` 로 바꾼다(연결을 두 주소에 번갈아 배정). 하네스는 gitignored `loadtest/` 에 있다.
+- ② 한 섬: 위 재현 명령 ① 의 `--users 1,5,15` 에 `--repeat 3 --json <경로>` 를 더하고, data-api 에 `AUTH_GUEST_RATE_LIMIT_MAX=1000000`(게스트 15명 한 번에 발급, 티켓 2271)을 준다. 표는 `--render` 출력이다.
 
 ## 부록 A. 10/9 타일 전환 체크리스트 (2026-10-08 작성)
 

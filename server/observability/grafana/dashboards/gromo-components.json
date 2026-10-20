@@ -2884,19 +2884,19 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(movement_tick_delayed_total[$__rate_interval])",
+          "expr": "rate(movement_tick_delayed_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} movement_tick_delayed",
           "range": true
         },
         {
           "refId": "B",
-          "expr": "rate(movement_tick_skipped_total[$__rate_interval])",
+          "expr": "rate(movement_tick_skipped_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} movement_tick_skipped",
           "range": true
         },
         {
           "refId": "C",
-          "expr": "rate(movement_snapshot_skipped_total[$__rate_interval])",
+          "expr": "rate(movement_snapshot_skipped_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} movement_snapshot_skipped",
           "range": true
         }
@@ -4283,6 +4283,112 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 90,
+      "type": "timeseries",
+      "title": "이동 pathfind p95 · p99",
+      "description": "방 하나의 A* 1회 호출 시간(movement.pathfind) 분위",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 331,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,sum by(le,instance)(rate(movement_pathfind_seconds_bucket{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": "{{instance}} 0.95",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.99,sum by(le,instance)(rate(movement_pathfind_seconds_bucket{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": "{{instance}} 0.99",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 91,
+      "type": "timeseries",
+      "title": "이동 intent 속도제한 드롭 / 초",
+      "description": "토큰 버킷 초과로 조용히 버린 intent(movement.intent.rate_limited)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 331,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(movement_intent_rate_limited_total{service=~\"$service\",instance=~\"$instance\"}[$__rate_interval])",
+          "legendFormat": "{{instance}} movement_intent_rate_limited",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
