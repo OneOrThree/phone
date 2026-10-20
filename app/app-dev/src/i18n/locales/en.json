@@ -503,6 +503,11 @@
     "common": {
       "holdEndFocus": "End",
       "holdEndHint": "Hold for 3 seconds to end focus. Release early to cancel.",
+      "holdEndA11yHint": "Double-tap to end focus after 3 seconds. Double-tap again to cancel.",
+      "holdEndStart": "End focus after 3 seconds",
+      "holdEndCancel": "Cancel ending focus",
+      "holdEndCancelHint": "Double-tap again to cancel ending focus.",
+      "holdEndStarted": "Ending in 3 seconds. Double-tap again to cancel.",
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
       "myLittleBoat": "My Little Raft",

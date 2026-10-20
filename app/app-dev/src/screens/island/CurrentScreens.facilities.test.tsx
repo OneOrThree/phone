@@ -397,3 +397,51 @@ test('설명 저장 중 섬을 옮기면 늦은 저장 결과로 건물을 열�
   expect(e.go).not.toHaveBeenCalled();
   expect(next.go).not.toHaveBeenCalled();
 });
+
+test.each(['닫기', '뒤로가기'])(
+  '안내 이력이 손상돼도 %s로 진입 요청만 취소하고 섬에 남는다',
+  async (action) => {
+    await signInGuideUser();
+    const key = 'gromo:account-guides:v1:guide-user';
+    await AsyncStorage.setItem(key, '{broken');
+    jest
+      .spyOn(homeApi, 'getConstructionOptions')
+      .mockResolvedValue({ contributedCompletions: [] } as any);
+    const e = env(withBuildings(['mail']), 'home');
+    const screen = await render(<CurrentScreens e={e} />);
+    await fireEvent.press(screen.getByTestId('enter-mail'));
+    await waitFor(() => expect(screen.getByText('다시 시도')).toBeTruthy());
+    if (action === '닫기') await fireEvent.press(screen.getByText('닫기'));
+    else await fireEvent(screen.getByTestId('building-entry-pending'), 'requestClose');
+    expect(screen.queryByTestId('building-entry-pending')).toBeNull();
+    expect(screen.getByTestId('screen-home')).toBeTruthy();
+    expect(e.go).not.toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(key)).toBe('{broken');
+    await fireEvent.press(screen.getByTestId('enter-mail'));
+    expect(screen.getByTestId('building-entry-pending')).toBeTruthy();
+    expect(e.go).not.toHaveBeenCalled();
+  },
+);
+
+test('이력 조회 중 진입을 취소하면 늦은 조회 성공으로 안내나 건물을 열지 않는다', async () => {
+  await signInGuideUser();
+  jest
+    .spyOn(homeApi, 'getConstructionOptions')
+    .mockResolvedValue({ contributedCompletions: [] } as any);
+  let resolve!: (value: string | null) => void;
+  jest.spyOn(AsyncStorage, 'getItem').mockImplementationOnce(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      }),
+  );
+  const e = env(withBuildings(['mail']), 'home');
+  const screen = await render(<CurrentScreens e={e} />);
+  await fireEvent.press(screen.getByTestId('enter-mail'));
+  await fireEvent.press(screen.getByText('닫기'));
+  await act(async () => resolve(null));
+  expect(screen.queryByTestId('building-entry-pending')).toBeNull();
+  expect(screen.queryByTestId('building-guide')).toBeNull();
+  expect(screen.getByTestId('screen-home')).toBeTruthy();
+  expect(e.go).not.toHaveBeenCalled();
+});

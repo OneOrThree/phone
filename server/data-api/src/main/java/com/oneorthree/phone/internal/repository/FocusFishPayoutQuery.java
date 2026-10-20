@@ -39,6 +39,8 @@ public interface FocusFishPayoutQuery extends Repository<FocusRewardAccrual, UUI
     /**
      * 황금 물고기 지급과 같은 트랜잭션에 보존한 불변 사건의 확정 참여자·자기 몫을 읽는다.
      * 전송 성공 여부와 무관하며 섬 전체 50마리나 현재 참여 인원으로 다시 나누지 않는다.
+     * 이 조회를 사용하는 동안 focus.golden 사건은 통계 원장으로 보존해야 한다.
+     * outbox 삭제·만료 정책을 도입하기 전에는 확정 지급 시각·참여자·자기 몫을 별도 원장으로 이관해야 한다.
      */
     @Query(value = """
             SELECT COALESCE(SUM(CAST(e.params ->> 'sharePerMember' AS bigint)), 0)

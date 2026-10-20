@@ -361,6 +361,10 @@ export function CurrentScreens({ e }: any) {
     }
     return e.go(route, ...args);
   };
+  const cancelEntry = () => {
+    entryRef.current = null;
+    setEntry(null);
+  };
   if (
     owner &&
     !guides.data &&
@@ -377,13 +381,19 @@ export function CurrentScreens({ e }: any) {
     <>
       <CurrentScreensContent e={{ ...e, go, friendsScreen }} />
       {pending && !guides.data && (
-        <Modal transparent animationType="none" onRequestClose={() => {}}>
+        <Modal
+          transparent
+          animationType="none"
+          testID="building-entry-pending"
+          onRequestClose={cancelEntry}
+        >
           <View style={{ flex: 1, justifyContent: 'center', padding: semanticTokens.spacing.page }}>
             <GuideBox
               text={guides.error || '안내 이력을 확인하고 있어요.'}
               style={{ position: 'relative' }}
             >
               {!!guides.error && <Btn title="다시 시도" onPress={guides.retry} />}
+              <Btn title={t('common.close')} kind="sec" onPress={cancelEntry} />
             </GuideBox>
           </View>
         </Modal>

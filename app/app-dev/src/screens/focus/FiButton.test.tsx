@@ -151,3 +151,54 @@ test('버튼 밖으로 나갔다 돌아오면 이전 누름 시간은 합산하�
   expect(finish).toHaveBeenCalledTimes(1);
   await screen.unmount();
 });
+
+test.each(['accessibilityTap', 'accessibilityAction'])(
+  '%s 활성화도 3초를 기다리고 터치 해제 이벤트에 취소되지 않는다',
+  async (event) => {
+    const { finish, ui } = mount(false);
+    const screen = await render(ui);
+    const button = screen.getByTestId('finish');
+    await fireEvent(button, event, { nativeEvent: { actionName: 'activate' } });
+    expect(screen.getByLabelText('집중 종료 취소')).toBeTruthy();
+    await fireEvent(button, 'pressIn');
+    await fireEvent(button, 'pressOut');
+    await act(() => jest.advanceTimersByTime(2999));
+    expect(finish).not.toHaveBeenCalled();
+    await act(() => jest.advanceTimersByTime(1));
+    expect(finish).toHaveBeenCalledTimes(1);
+    await act(() => jest.advanceTimersByTime(5000));
+    expect(finish).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each(['accessibilityTap', 'accessibilityAction'])(
+  '%s로 다시 활성화하면 종료 대기를 취소하고 기존 집중을 유지한다',
+  async (event) => {
+    const { finish, ui } = mount(false);
+    const screen = await render(ui);
+    const button = screen.getByTestId('finish');
+    const action = { nativeEvent: { actionName: 'activate' } };
+    await fireEvent(button, event, action);
+    await act(() => jest.advanceTimersByTime(1500));
+    await fireEvent(button, event, action);
+    expect(screen.getByLabelText('집중 종료하기')).toBeTruthy();
+    await act(() => jest.advanceTimersByTime(5000));
+    expect(finish).not.toHaveBeenCalled();
+  },
+);
+
+test('스크린리더 종료 대기도 앱 비활성화에서 취소한다', async () => {
+  let changed: ((state: AppStateStatus) => void) | undefined;
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, fn) => {
+    changed = fn;
+    return { remove: jest.fn() };
+  });
+  const { finish, ui } = mount(false);
+  const screen = await render(ui);
+  await fireEvent(screen.getByTestId('finish'), 'accessibilityTap');
+  await act(() => jest.advanceTimersByTime(1500));
+  await act(() => changed?.('inactive'));
+  expect(screen.getByLabelText('집중 종료하기')).toBeTruthy();
+  await act(() => jest.advanceTimersByTime(5000));
+  expect(finish).not.toHaveBeenCalled();
+});

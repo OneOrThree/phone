@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
   Animated,
+  AccessibilityInfo,
   Easing,
   AppState,
   Image,
@@ -1266,12 +1267,16 @@ export function FiButton({
 }) {
   const holdProgress = useRef(new Animated.Value(0)).current;
   const holding = useRef(false);
+  const holdSource = useRef<'touch' | 'accessibility' | null>(null);
+  const [accessibleHolding, setAccessibleHolding] = useState(false);
   const finishAction = useRef(onPress);
   finishAction.current = onPress;
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pulseTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const stopHold = useCallback(() => {
     holding.current = false;
+    holdSource.current = null;
+    setAccessibleHolding(false);
     if (holdTimer.current) clearTimeout(holdTimer.current);
     holdTimer.current = null;
     if (pulseTimer.current) clearInterval(pulseTimer.current);
@@ -1295,9 +1300,11 @@ export function FiButton({
     holdProgress.setValue(1);
     finishAction.current();
   };
-  const startHold = () => {
+  const startHold = (source: 'touch' | 'accessibility') => {
     stopHold();
     holding.current = true;
+    holdSource.current = source;
+    setAccessibleHolding(source === 'accessibility');
     // RN longPress는 버튼 안에서 손가락이 조금 움직여도 취소된다. 누름이 유지되는 시간을 직접 잰다.
     holdTimer.current = setTimeout(completeHold, componentTokens.focusEndHold.durationMs);
     Animated.timing(holdProgress, {
@@ -1313,15 +1320,65 @@ export function FiButton({
       pulseTimer.current = setInterval(pulse, componentTokens.focusEndHold.hapticIntervalMs);
     }
   };
+  const activateAccessibleHold = () => {
+    if (holdSource.current === 'accessibility') {
+      stopHold();
+      return;
+    }
+    startHold('accessibility');
+    AccessibilityInfo.announceForAccessibility(t('focusFlow.common.holdEndStarted'));
+  };
   return (
     <Pressable
       testID={id}
       accessibilityRole="button"
-      accessibilityLabel={title}
-      accessibilityHint={holdToConfirm ? t('focusFlow.common.holdEndHint') : undefined}
+      accessibilityLabel={accessibleHolding ? t('focusFlow.common.holdEndCancel') : title}
+      accessibilityHint={
+        holdToConfirm
+          ? t(
+              accessibleHolding
+                ? 'focusFlow.common.holdEndCancelHint'
+                : 'focusFlow.common.holdEndA11yHint',
+            )
+          : undefined
+      }
+      accessibilityActions={
+        holdToConfirm
+          ? [
+              {
+                name: 'activate',
+                label: t(
+                  accessibleHolding
+                    ? 'focusFlow.common.holdEndCancel'
+                    : 'focusFlow.common.holdEndStart',
+                ),
+              },
+            ]
+          : undefined
+      }
+      onAccessibilityTap={holdToConfirm ? activateAccessibleHold : undefined}
+      onAccessibilityAction={
+        holdToConfirm
+          ? ({ nativeEvent }) => {
+              if (nativeEvent.actionName === 'activate') activateAccessibleHold();
+            }
+          : undefined
+      }
       onPress={holdToConfirm ? undefined : onPress}
-      onPressIn={holdToConfirm ? startHold : undefined}
-      onPressOut={holdToConfirm ? stopHold : undefined}
+      onPressIn={
+        holdToConfirm
+          ? () => {
+              if (holdSource.current !== 'accessibility') startHold('touch');
+            }
+          : undefined
+      }
+      onPressOut={
+        holdToConfirm
+          ? () => {
+              if (holdSource.current === 'touch') stopHold();
+            }
+          : undefined
+      }
       style={({ pressed }) => [
         {
           minHeight: 44,

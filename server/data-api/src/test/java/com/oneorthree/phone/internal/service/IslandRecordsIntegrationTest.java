@@ -195,6 +195,35 @@ class IslandRecordsIntegrationTest {
 
 
     @Test
+    @DisplayName("지급 시각을 복원할 수 없는 보상도 원장 적립 시각의 KST 날짜에 한 번 집계한다")
+    void earnedFishFallsBackToLedgerTimeForIncompleteIntervals() {
+        Island island = island(true);
+        User user = resident(island.group);
+        UUID missing = session(user, island.id, FocusSessionLifecycle.COMPLETED, t(D, "14:59:59"));
+        UUID shortIntervals = session(user, island.id, FocusSessionLifecycle.COMPLETED, t(D, "15:00:01"));
+        jdbc.update("UPDATE focus_session_details SET policy_revision = 1 WHERE session_id IN (?, ?)",
+                missing, shortIntervals);
+        interval(shortIntervals, 1, FocusIntervalKind.ACTIVE, t(D, "14:59:30"), t(D, "14:59:45"));
+        jdbc.update("INSERT INTO island_wallets (island_id, balance) VALUES (?, 0)", island.id);
+        for (UUID id : List.of(missing, shortIntervals)) {
+            walletTransactions.saveAndFlush(IslandWalletTransaction.builder().islandId(island.id).amount(1)
+                    .type(IslandWalletTransactionType.CONTRIBUTION)
+                    .idempotencyKey("focus:" + id + ":1").build());
+            Instant creditedAt = id.equals(missing) ? t(D, "14:59:59") : t(D, "15:00:01");
+            jdbc.update("UPDATE island_wallet_transactions SET created_at = ? WHERE idempotency_key = ?",
+                    java.sql.Timestamp.from(creditedAt), "focus:" + id + ":1");
+        }
+        at(D.plusDays(1), "10:00:00");
+
+        assertThat(service.focus(user.getId(), island.id, D, D, "me", null, 0, "Asia/Seoul")
+                .earnedFish()).isEqualTo(1L);
+        assertThat(service.focus(user.getId(), island.id, D.plusDays(1), D.plusDays(1), "me", null, 0,
+                "Asia/Seoul").earnedFish()).isEqualTo(1L);
+        assertThat(service.focus(user.getId(), island.id, D, D, "me", null, 0, "UTC")
+                .earnedFish()).isEqualTo(2L);
+    }
+
+    @Test
     @DisplayName("scope=me 는 개인 전체(섬 무관), scope=island 는 이 섬에 고정된 세션만 — UTC 자정에서 ACTIVE 만 나뉜다")
     void focusScopesAndUtcMidnight() {
         Island x = island(true);

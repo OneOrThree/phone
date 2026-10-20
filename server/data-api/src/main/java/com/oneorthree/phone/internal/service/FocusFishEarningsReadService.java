@@ -34,9 +34,13 @@ public class FocusFishEarningsReadService {
         for (var grant : grants) {
             Instant at = grant.getCreditedAt();
             if (grant.getRewardNumber() != null && grant.getSecondsPerFish() != null) {
-                at = FocusIntervalMath.instantAtActiveSeconds(
+                Instant restored = FocusIntervalMath.instantAtActiveSeconds(
                         bySession.getOrDefault(grant.getSessionId(), List.of()), asOf,
                         Math.multiplyExact(grant.getRewardNumber(), grant.getSecondsPerFish().longValue()));
+                // 구간 이력이 불완전해도 이미 지급한 몫은 원장 적립 시각으로 집계한다.
+                if (restored != null) {
+                    at = restored;
+                }
             }
             if (contains(from, to, at)) {
                 total = Math.addExact(total, grant.getAmount());
