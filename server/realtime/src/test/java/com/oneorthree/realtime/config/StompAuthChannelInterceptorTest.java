@@ -147,6 +147,30 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
+    @DisplayName("CONNECT — 펜스가 «검사 사이»에 올라가도(등록 전 false, 등록 후 true) 거절하고 등록을 남기지 않는다 (GROMO-2350)")
+    void connectRechecksTheFenceAfterRegistering() {
+        UUID sid = UUID.randomUUID();
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(jwtValidator.extractSessionProof("test-token")).willReturn(Optional.of(
+                new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, sid, 0L,
+                        java.time.Instant.now().plusSeconds(600))));
+        ChatUserFence racing = org.mockito.Mockito.mock(ChatUserFence.class);
+        given(racing.isRevoked(sid)).willReturn(false, true);
+        StompAuthChannelInterceptor raced = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry,
+                focusSessions, redis, movementSubscriptions, membershipService, seaRooms, meters, racing);
+        StompHeaderAccessor accessor = accessor(StompCommand.CONNECT);
+        accessor.setSessionId("stomp-race");
+        accessor.addNativeHeader("Authorization", BEARER);
+
+        assertThatThrownBy(() -> raced.preSend(message(accessor), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+        assertThat(registry.find(accessor.getSessionId())).isNull();
+        assertThat(registry.sessionIdsOf(userId)).isEmpty();
+    }
+
+    @Test
     @DisplayName("CONNECT — 토큰이 없으면 UNAUTHORIZED 로 거절한다")
     void connectWithoutTokenIsRejected() {
         StompHeaderAccessor accessor = accessor(StompCommand.CONNECT);

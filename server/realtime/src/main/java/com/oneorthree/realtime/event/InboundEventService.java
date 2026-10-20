@@ -345,7 +345,9 @@ public class InboundEventService {
             log.warn("세션 폐기 사건에 userId/sessionId 가 없다 — 연결을 닫지 않는다. eventId={}", eventId);
             return;
         }
-        // 순서: 펜스 → 캐시 → 종료. 펜스가 먼저여야 종료와 재연결 사이에 창이 없다.
+        // 순서: 펜스 → (세션 목록 스냅샷) → 캐시 → 종료. 펜스가 목록보다 먼저여야 그 사이에 CONNECT·등록을 끝낸 같은 sid 가 «목록에도
+        // 없고 펜스에도 안 걸리는» 일이 없다 — CONNECT 는 등록 뒤에도 펜스를 다시 본다(StompAuthChannelInterceptor.authenticate).
+        chatUserFence.revokeSession(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
         List<String> revoked = new ArrayList<>();
         for (String stompId : sessions.sessionIdsOf(userId)) {
             ChatPrincipal principal = sessions.find(stompId);
@@ -355,7 +357,6 @@ public class InboundEventService {
                 revoked.add(stompId);
             }
         }
-        chatUserFence.revokeSession(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
         currentMembershipCache.evictUser(userId);
         CloseStatus status = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
         for (String stompId : revoked) {

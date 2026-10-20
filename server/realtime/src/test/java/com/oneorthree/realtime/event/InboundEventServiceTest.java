@@ -548,6 +548,30 @@ class InboundEventServiceTest {
     }
 
     @Test
+    @DisplayName("auth.session.revoked — 펜스가 세션 목록 스냅샷·종료보다 먼저 올라간다 (CONNECT 경합 창 없음)")
+    void sessionRevokedRaisesTheFenceBeforeSnapshotAndClose() throws Exception {
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        ChatUserFence fence = mock(ChatUserFence.class);
+        var registry = org.mockito.Mockito.spy(new RealtimeSessionRegistry());
+        InboundEventService plain = new InboundEventService(plainJdbc, fence, mock(EventRouter.class),
+                mock(MembershipService.class), mock(BlockedUsers.class), mock(MovementSubscriptionListener.class),
+                mock(com.oneorthree.realtime.sea.SeaRooms.class), mock(CurrentMembershipDecisionCache.class),
+                mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET), java.time.Clock.systemUTC());
+        UUID user = UUID.randomUUID();
+        UUID sid = UUID.randomUUID();
+        connect(registry, "stomp-order", user, sid, SECRET);
+
+        plain.accept(objectMapper.readTree(sessionRevoked(user, sid.toString())));
+
+        var order = org.mockito.Mockito.inOrder(fence, registry);
+        order.verify(fence).revokeSession(org.mockito.ArgumentMatchers.eq(sid), any());
+        order.verify(registry).sessionIdsOf(user);
+        order.verify(registry).close("stomp-order", REVOKED);
+    }
+
+    @Test
     @DisplayName("auth.session.revoked — sessionId 누락·형식 불량이면 200 + skip, 아무 연결도 닫지 않는다")
     void sessionRevokedWithoutUsableSidIsSkipped() throws Exception {
         JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
