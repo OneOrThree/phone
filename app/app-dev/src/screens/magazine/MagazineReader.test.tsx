@@ -434,7 +434,7 @@ describe('바다에서 펼친 잡지(GROMO-2314 · A2)', () => {
   const cellsOnly = (cells: MagazineCell[]) => page({ editorial: null, cells });
   afterEach(() => expect(api.getMagazineIssues).not.toHaveBeenCalled());
 
-  test('읽음 받음은 SEA 로 적고, 칸 자리는 우리 섬 = 배지 · 남의 섬 = 망원경 동그라미 · 강퇴된 섬 = 없음', async () => {
+  test('읽음 받음은 SEA 로 적고, 칸 자리는 우리 섬 = 배지 · 남의 섬 = 망원경 동그라미 · 옛 서버의 강퇴(KICKED) 칸 = 없음', async () => {
     const { screen } = await openSea(cellsOnly([cell(1, 'MEMBER'), cell(2), cell(3, 'KICKED')]));
     await waitFor(() =>
       expect(putReceipt).toHaveBeenCalledWith('iss-19', { place: 'SEA', opened: true }),

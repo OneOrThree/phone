@@ -128,8 +128,8 @@ export function magazinePages(loaded: Loaded, host: boolean): Page[] {
  * 끝 쪽에 가까워지면 다음 커서를 읽는다. 펼치는 데 성공하면 그 호에 「읽음」을 보낸다(빨간 점이 꺼진다).
  * 칸을 누르면 화면 폭으로 크게 본다. 신고는 설정의 단일 신고센터에서 이메일로 접수한다.
  *
- * 바다에서 펼치면(place SEA, GROMO-2314 · A2) 받음·읽음을 SEA 로 적고, 남의 섬 칸에 망원경 동그라미를 둔다(강퇴된 섬은 없고,
- * 비공개 섬은 AdCell 이 숨긴다). 동그라미를 누르면 망원경에 넣고 잡지 자리를 망원경으로 바꿔 그 뒤로가기가 바다로 간다.
+ * 바다에서 펼치면(place SEA, GROMO-2314 · A2) 받음·읽음을 SEA 로 적고, 남의 섬 칸에 망원경 동그라미를 둔다(비공개 섬은 AdCell 이
+ * 숨긴다. 강퇴된 섬도 티켓 2315 부터 서버가 남의 섬으로 보내 동그라미가 뜨고, `KICKED` 는 옛 서버 응답에만 온다). 동그라미를 누르면 망원경에 넣고 잡지 자리를 망원경으로 바꿔 그 뒤로가기가 바다로 간다.
  *
  * e.detail = 펼칠 호 id. 비어 있으면 들고 있는 오늘 호를 연다.
  */
@@ -202,7 +202,7 @@ export function MagazineReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- place 는 라우트마다 고정이다
   }, [issueId, nonce]);
 
-  // 섬에서 본 잡지에는 망원경 동그라미가 없다(10/14) — 우리 섬 배지만. 바다에서는 남의 섬 칸에 동그라미(강퇴된 섬은 없다)
+  // 섬에서 본 잡지에는 망원경 동그라미가 없다(10/14) — 우리 섬 배지만. 바다에서는 남의 섬 칸에 동그라미(옛 서버가 보내는 KICKED 칸은 없다)
   const corner = (cell: MagazineCell) =>
     cell.relation === 'MEMBER'
       ? 'ours'
