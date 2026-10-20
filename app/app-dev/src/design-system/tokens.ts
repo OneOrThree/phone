@@ -359,11 +359,11 @@ export const componentTokens = {
   // 모닥불 휴식 장면 불빛·불티(GROMO-2361). 색은 primitive, 번짐 불투명도는 검토실에서 확정한 값이다.
   restCampfire: {
     glowBackColor: color.restFireGlowBack,
-    glowBackColorOpacity: 0.35,
-    glowBackOpacity: 0.35,
+    glowBackStopOpacity: 0.35,
+    glowBackLayerOpacity: 0.35,
     glowFrontColor: color.restFireGlowFront,
-    glowFrontColorOpacity: 0.3,
-    glowFrontOpacity: 0.07,
+    glowFrontStopOpacity: 0.3,
+    glowFrontLayerOpacity: 0.07,
     glowEdgeColor: color.restFireGlowEdge,
     sparkWarm: color.restFireSparkWarm,
     sparkLight: color.restFireSparkLight,

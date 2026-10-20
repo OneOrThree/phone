@@ -168,8 +168,8 @@ export function RestCampfireBack({
         cy={444}
         r={255}
         color={fire.glowBackColor}
-        colorAlpha={fire.glowBackColorOpacity}
-        alpha={fire.glowBackOpacity}
+        colorAlpha={fire.glowBackStopOpacity}
+        alpha={fire.glowBackLayerOpacity}
         K={K}
         scale={pulse}
       />
@@ -360,8 +360,8 @@ export function RestCampfireFront({
         cy={490}
         r={195}
         color={fire.glowFrontColor}
-        colorAlpha={fire.glowFrontColorOpacity}
-        alpha={fire.glowFrontOpacity}
+        colorAlpha={fire.glowFrontStopOpacity}
+        alpha={fire.glowFrontLayerOpacity}
         K={K}
       />
     </View>
@@ -384,7 +384,10 @@ const PAGE = (() => {
 })();
 
 // 호흡·미세 회전은 시계 t 만 입력이라 모든 고양이가 같은 노드를 쓴다(고양이 수만큼 interpolate 를 만들지 않는다)
-const breathCache = new WeakMap<Animated.Value, { scaleX: any; scaleY: any; rotate: any }>();
+const breathCache = new WeakMap<
+  Animated.Value,
+  Record<'scaleX' | 'scaleY' | 'rotate', ReturnType<typeof curve>>
+>();
 function breathOf(t: Animated.Value) {
   let b = breathCache.get(t);
   if (!b) {
