@@ -150,6 +150,44 @@ class OutboundSendBudgetTest {
     }
 
     @Test
+    @DisplayName("넘친 세션이 곧 최대 점유자면 그 세션만 닫는다 — 덜 점유한 정상 세션을 불필요하게 닫지 않는다")
+    void overflowingHeaviestSessionIsTheOnlyOneClosed() throws Exception {
+        OutboundSendBudget wide = new OutboundSendBudget(sessions, meters, 1, 1, 3);
+        ThreadPoolTaskExecutor wideExecutor = wide.newExecutor();
+        wideExecutor.initialize();
+        try {
+            ExecutorSubscribableChannel wideChannel = new ExecutorSubscribableChannel(wideExecutor);
+            wideChannel.setInterceptors(List.of(wide));
+            wideChannel.subscribe(message -> {
+                entered.countDown();
+                try {
+                    release.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            WebSocketSession hog = socket("hog");
+            WebSocketSession healthy = socket("healthy");
+            String chat = "/topic/groups/" + UUID.randomUUID();
+
+            wideChannel.send(frame("hog", chat)); // 실행 중(막힘)
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            wideChannel.send(frame("hog", chat)); // 큐
+            wideChannel.send(frame("hog", chat)); // 큐
+            wideChannel.send(frame("healthy", chat)); // 큐 — 가득
+            wideChannel.send(frame("hog", chat)); // 거부 — hog 3건, healthy 1건
+
+            verify(hog, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+            verify(healthy, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
+            assertThat(meters.counter("realtime.outbound.closed", "selected", "overflow").count()).isEqualTo(1.0);
+            assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isZero();
+        } finally {
+            release.countDown();
+            wideExecutor.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("끝난 프레임은 세션별 대기 수에서 빠진다 — 항목이 남아 새지 않는다")
     void drainedFramesLeaveThePendingCount() throws Exception {
         start();
