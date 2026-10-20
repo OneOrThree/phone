@@ -236,7 +236,7 @@ export function Sailing({
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
-    return () => subscription.remove();
+    return () => subscription?.remove();
   }, []);
   const paused = appState === 'background' || appState === 'inactive';
   const elapsed = useRef(0),

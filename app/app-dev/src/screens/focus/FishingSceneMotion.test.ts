@@ -1,3 +1,6 @@
+import { Animated, AppState } from 'react-native';
+import { act, renderHook } from '@testing-library/react-native';
+
 import {
   labBreath,
   labGlint,
@@ -5,6 +8,7 @@ import {
   labReelPose,
   labRing,
   labSplashDrop,
+  useFishingPose,
 } from './FishingSceneMotion';
 
 test('움직임 검토실 식: 집중 호흡·미세 회전, 낚아올리기 몸 변환, 물보라·물결', () => {
@@ -22,4 +26,39 @@ test('움직임 검토실 식: 집중 호흡·미세 회전, 낚아올리기 몸
   expect(drop.y).toBeGreaterThan(labSplashDrop(0, 0.5).y); // 중력으로 떨어진다
   expect([0, 1, 2].map((i) => labRing(0, i))).toEqual([0, 1 / 3, 2 / 3]);
   expect(labGlint(4.5, 0)).toBeCloseTo(0.1);
+});
+
+test('낚시 시계: inactive 로 멈출 때 값을 0 으로 되돌리지 않고, 덮이면(active=false) 0 으로 되돌린다', async () => {
+  const loop = jest
+    .spyOn(Animated, 'loop')
+    .mockImplementation(() => ({ start: jest.fn(), stop: jest.fn(), reset: jest.fn() }) as any);
+  const setValue = jest.spyOn(Animated.Value.prototype, 'setValue');
+  let fire: (state: string) => void = () => {};
+  const add = jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+    _type: string,
+    cb: (state: string) => void,
+  ) => {
+    fire = cb;
+    return { remove: jest.fn() };
+  }) as any);
+  const prev = AppState.currentState;
+  (AppState as any).currentState = 'active';
+  try {
+    const { rerender } = await renderHook(
+      ({ active }: { active: boolean }) => useFishingPose({ active, catching: false }),
+      { initialProps: { active: true } },
+    );
+    setValue.mockClear();
+    await act(() => fire('inactive'));
+    expect(setValue).not.toHaveBeenCalledWith(0); // 시계 되감기 없음(릴 시작 자세 값은 별개)
+
+    await act(() => fire('active'));
+    await rerender({ active: false });
+    expect(setValue).toHaveBeenCalledWith(0);
+  } finally {
+    (AppState as any).currentState = prev;
+    add.mockRestore();
+    setValue.mockRestore();
+    loop.mockRestore();
+  }
 });

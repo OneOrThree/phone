@@ -109,12 +109,16 @@ function useRunning(active: boolean) {
   return active && appState === 'active';
 }
 
-/** 0 → loopSeconds 를 실제 시간으로 반복하는 시계(LAB 의 t). 멈추면 0(정지 장면)으로 돌린다. */
-function useLoopClock(loopSeconds: number, running: boolean) {
+/**
+ * 0 → loopSeconds 를 실제 시간으로 반복하는 시계(LAB 의 t).
+ * 동작 줄이기·덮임(active=false)이면 0(정지 장면)으로 돌리고, 앱 상태만으로 멈출 때(iOS inactive 는 화면이 보인다)는 값을 두고 다시 돌 때만 0 부터 시작한다.
+ */
+function useLoopClock(loopSeconds: number, running: boolean, active: boolean) {
   const clock = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    clock.setValue(0);
+    if (!active) clock.setValue(0);
     if (!running) return;
+    clock.setValue(0);
     const loop = Animated.loop(
       Animated.timing(clock, {
         toValue: loopSeconds,
@@ -125,7 +129,7 @@ function useLoopClock(loopSeconds: number, running: boolean) {
     );
     loop.start();
     return () => loop.stop();
-  }, [clock, loopSeconds, running]);
+  }, [clock, loopSeconds, running, active]);
   return clock;
 }
 
@@ -146,11 +150,13 @@ export function useFishingPose({
   nonce?: number;
 }) {
   const running = useRunning(active);
-  const clock = useLoopClock(FOCUS_LOOP_S, running);
+  const clock = useLoopClock(FOCUS_LOOP_S, running, active);
   const reel = useRef(new Animated.Value(REEL_LAB_START_S)).current;
   useEffect(() => {
-    reel.setValue(REEL_LAB_START_S);
+    // 앱 상태만으로 멈출 때(catching 중 inactive)는 값을 둔다. 끝났거나 덮이면 시작 자세로.
+    if (!catching || !active) reel.setValue(REEL_LAB_START_S);
     if (!catching || !running) return;
+    reel.setValue(REEL_LAB_START_S);
     const run = Animated.timing(reel, {
       toValue: REEL_LAB_END_S,
       duration: REEL_WINDOW_MS,
@@ -159,7 +165,7 @@ export function useFishingPose({
     });
     run.start();
     return () => run.stop();
-  }, [catching, running, reel, nonce]);
+  }, [catching, running, active, reel, nonce]);
   const pose = useMemo(() => {
     const breath = (fn: (b: number) => number) =>
       sampled(clock, 0, FOCUS_LOOP_S, 48, (t) => fn(labBreath(t)));
@@ -342,7 +348,7 @@ type FloatSpot = { key: string; x: number; y: number; face: number; k: number };
  */
 export function FishingFloatMotion({ spots, active }: { spots: FloatSpot[]; active: boolean }) {
   const running = useRunning(active);
-  const clock = useLoopClock(FOCUS_LOOP_S, running);
+  const clock = useLoopClock(FOCUS_LOOP_S, running, active);
   const rings = useMemo(
     () =>
       [0, 1, 2].map((i) => {

@@ -272,7 +272,7 @@ export function CatSprite({
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
-    return () => subscription.remove();
+    return () => subscription?.remove();
   }, []);
 
   useEffect(() => {

@@ -55,7 +55,7 @@ export function useRestClock(still: boolean) {
   const paused = still || appState === 'background' || appState === 'inactive';
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
-    return () => subscription.remove();
+    return () => subscription?.remove();
   }, []);
   useEffect(() => {
     // 멈출 때는 값을 두고(iOS inactive 는 화면이 보여 0 자세로 튀면 안 된다), 다시 돌 때만 0 부터
