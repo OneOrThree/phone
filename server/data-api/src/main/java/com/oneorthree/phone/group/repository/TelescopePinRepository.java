@@ -15,7 +15,7 @@ public interface TelescopePinRepository extends JpaRepository<TelescopePin, Tele
 
     /**
      * 만료 안 된 핀을 오래된 순으로 — 같은 시각이면 섬 id 로 고정한다. 만료는 읽을 때 거른다(정리 잡 없음).
-     * 그 섬을 아직 보여 줄 수 있는지(공개·생존·강퇴·소속)는 보지 않는다 — 그건 후보와 같은 술어인
+     * 그 섬을 아직 보여 줄 수 있는지(공개·생존·소속)는 보지 않는다 — 그건 후보와 같은 술어인
      * {@code GroupRepository#findTelescopeVisibleAmong} 의 몫이다.
      */
     @Query("SELECT p FROM TelescopePin p WHERE p.userId = :userId AND p.expiresAt > :now "

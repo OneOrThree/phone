@@ -168,7 +168,7 @@ class IslandMembershipIntegrationTest {
     }
 
     @Test
-    @DisplayName("발견 후보는 승인제를 포함하고 비공개·종료·삭제·만원·내 소속·강퇴 이력 섬은 제외한다")
+    @DisplayName("발견 후보는 승인제·강퇴된 섬을 포함하고 비공개·종료·삭제·만원·내 소속 섬은 제외한다")
     void discoverIncludesApprovalButExcludesUnavailableIslands() {
         UUID hunter = newUser();
         UUID open = publicIsland("열린섬");
@@ -190,7 +190,8 @@ class IslandMembershipIntegrationTest {
 
         Set<UUID> candidates = new HashSet<>(pageThroughDiscover(hunter, 50));
 
-        assertThat(candidates).contains(open, approval).doesNotContain(secret, ended, deleted, full, mine, kicked);
+        // 강퇴된 섬도 다시 신청할 수 있어 후보다(GROMO-2315, 10/20 결정) — 가입은 승인 대기가 된다.
+        assertThat(candidates).contains(open, approval, kicked).doesNotContain(secret, ended, deleted, full, mine);
     }
 
     @Test

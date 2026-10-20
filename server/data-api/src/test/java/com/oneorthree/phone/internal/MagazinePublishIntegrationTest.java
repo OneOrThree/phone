@@ -390,7 +390,8 @@ class MagazinePublishIntegrationTest {
                 .andExpect(jsonPath("$.editorial").value(nullValue()))
                 .andExpect(jsonPath("$.cells.length()").value(2))
                 .andExpect(jsonPath("$.cells[0].name").value("쫓겨난섬"))
-                .andExpect(jsonPath("$.cells[0].relation").value("KICKED"))
+                // 강퇴된 섬도 남의 섬과 같은 NONE 이다(GROMO-2315) — 다시 신청할 수 있어 동그라미를 그린다.
+                .andExpect(jsonPath("$.cells[0].relation").value("NONE"))
                 .andExpect(jsonPath("$.cells[1].name").value("남의섬"))
                 .andExpect(jsonPath("$.cells[1].relation").value("NONE"))
                 .andExpect(jsonPath("$.nextAppliedAt").value(nullValue()))

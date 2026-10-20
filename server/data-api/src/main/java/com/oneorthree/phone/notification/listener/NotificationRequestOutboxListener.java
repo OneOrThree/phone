@@ -5,6 +5,7 @@ import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
 import com.oneorthree.phone.group.event.GroupBetSessionClosedEvent;
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
+import com.oneorthree.phone.group.event.IslandKickedEvent;
 import com.oneorthree.phone.group.event.MainIslandTransferredEvent;
 import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
@@ -13,6 +14,7 @@ import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import com.oneorthree.phone.notification.service.BetWonNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeCreatedNotificationService;
 import com.oneorthree.phone.notification.service.FriendNotificationService;
+import com.oneorthree.phone.notification.service.IslandKickNotificationService;
 import com.oneorthree.phone.notification.service.MainIslandNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -76,6 +78,7 @@ public class NotificationRequestOutboxListener {
     private final ChallengeCreatedNotificationService challengeCreatedNotificationService;
     private final FriendNotificationService friendNotificationService;
     private final MainIslandNotificationService mainIslandNotificationService;
+    private final IslandKickNotificationService islandKickNotificationService;
 
     /** @param event 종료된 회차 — 대기열에 담는다 */
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
@@ -116,6 +119,13 @@ public class NotificationRequestOutboxListener {
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public void collectMainIslandTransferred(MainIslandTransferredEvent event) {
+        collect(event);
+    }
+
+    /** @param event 섬에서 강퇴된 사람 — 대기열에 담는다 */
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void collectIslandKicked(IslandKickedEvent event) {
         collect(event);
     }
 
@@ -192,6 +202,18 @@ public class NotificationRequestOutboxListener {
         flush();
     }
 
+    /**
+     * 섬 강퇴 — 강퇴된 본인 1명 (GROMO-2315).
+     *
+     * @param event 강퇴 사건
+     */
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    @Order(Ordered.LOWEST_PRECEDENCE)
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onIslandKicked(IslandKickedEvent event) {
+        flush();
+    }
+
     private void collect(Object event) {
         if (!notificationDispatcher.isOutboxMode()) {
             return;
@@ -247,6 +269,9 @@ public class NotificationRequestOutboxListener {
         }
         if (event instanceof MainIslandTransferredEvent transferred) {
             return mainIslandNotificationService.transferredRequest(transferred).stream().toList();
+        }
+        if (event instanceof IslandKickedEvent kicked) {
+            return islandKickNotificationService.kickedRequest(kicked).stream().toList();
         }
         throw new IllegalStateException("모르는 요청형 알림 사건입니다: " + event.getClass().getName());
     }

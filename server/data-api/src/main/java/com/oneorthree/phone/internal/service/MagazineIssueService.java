@@ -203,12 +203,10 @@ public class MagazineIssueService {
                 privateIds.contains(promotion.getIslandId()));
     }
 
-    /** 독자의 소속 섬·강퇴된 섬 — 칸마다 묻지 않고 한 번에 읽는다. */
+    /** 독자의 소속 섬 — 칸마다 묻지 않고 한 번에 읽는다. */
     private Relations relations(UUID userId) {
-        return new Relations(
-                members.findActiveMembershipsByUserId(userId).stream()
-                        .map(membership -> membership.getGroup().getId()).collect(Collectors.toSet()),
-                new HashSet<>(members.findKickedGroupIdsByUserId(userId)));
+        return new Relations(members.findActiveMembershipsByUserId(userId).stream()
+                .map(membership -> membership.getGroup().getId()).collect(Collectors.toSet()));
     }
 
     private static MagazineReceipt.Key key(UUID userId, UUID issueId) {
@@ -220,14 +218,11 @@ public class MagazineIssueService {
                 receipt.getReceivedAt(), receipt.getDeferredAt(), receipt.getOpenedAt());
     }
 
-    /** 읽는 순간의 관계 — 소속이 강퇴 이력보다 먼저다(강퇴 후 다시 들어온 섬은 소속이다). */
-    private record Relations(Set<UUID> memberOf, Set<UUID> kickedFrom) {
+    /** 읽는 순간의 관계 — 강퇴된 섬도 남의 섬과 같은 NONE 이다(GROMO-2315 — 다시 신청할 수 있어 동그라미를 그린다). */
+    private record Relations(Set<UUID> memberOf) {
 
         MagazineViews.Relation of(UUID islandId) {
-            if (memberOf.contains(islandId)) {
-                return MagazineViews.Relation.MEMBER;
-            }
-            return kickedFrom.contains(islandId) ? MagazineViews.Relation.KICKED : MagazineViews.Relation.NONE;
+            return memberOf.contains(islandId) ? MagazineViews.Relation.MEMBER : MagazineViews.Relation.NONE;
         }
     }
 }

@@ -87,6 +87,7 @@ public class IslandMembershipUseCase {
             Map.entry("INVITATION_REQUIRED", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
             Map.entry("ISLAND_JOIN_UNAVAILABLE", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
             Map.entry("ALREADY_MEMBER", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "islandId")),
+            // GROMO-2315 부터 Data 는 내지 않는다(강퇴자 신청은 pending) — 따로 배포되는 동안의 구 Data 응답용으로 남긴다.
             Map.entry("KICKED_CANNOT_REJOIN", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
             Map.entry("ROOM_FULL", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "islandId")),
             // 남의 요청은 범위 밖 — 「없다」와 같은 404 로 접어 소유 정보를 새지 않는다(LLD §3.8).
@@ -150,8 +151,9 @@ public class IslandMembershipUseCase {
     }
 
     /**
-     * 망원경에 섬 넣기 (GROMO-2268, 섬 외부 계약 §6). 비공개·없는 섬 404 · 강퇴 403 · 이미 내 소속 409 · 5번째 밀어내기 ·
-     * 멱등·만료는 전부 Data 몫이고(404·403·409 는 위 표가 공개 코드로 옮긴다) 여기서는 응답이 요청과 맞는지만 본다.
+     * 망원경에 섬 넣기 (GROMO-2268, 섬 외부 계약 §6). 비공개·없는 섬 404 · 이미 내 소속 409 · 5번째 밀어내기 ·
+     * 멱등·만료는 전부 Data 몫이고(404·409 는 위 표가 공개 코드로 옮긴다) 여기서는 응답이 요청과 맞는지만 본다. 강퇴된 섬도
+     * 넣을 수 있다(GROMO-2315 — 구 Data 의 403 은 위 표가 그대로 옮긴다).
      */
     public TelescopePinned pinTelescope(AccessTokenClaims claims, UUID islandId, String source, UUID promotionId,
             Deadline deadline) {

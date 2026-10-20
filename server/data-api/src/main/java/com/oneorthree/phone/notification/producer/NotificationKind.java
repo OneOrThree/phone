@@ -7,7 +7,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Data 가 <b>판정</b>하는 알림 종류 — 21종(실측). 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
+ * Data 가 <b>판정</b>하는 알림 종류 — 22종(실측). 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
  *
  * <p>이 enum 이 하는 일은 셋이다: ① 결정적 사건 키의 시간 축을 고정하고
  * ({@link NotificationSlotGranularity}), ② 조용한 시간 정책을 실어 보내고
@@ -91,7 +91,7 @@ public enum NotificationKind {
     /** 보낸 요청이 수락됨. 대상 = 수락한 유저. */
     FRIEND_ACCEPTED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER),
 
-    // ── 섬 (MainIslandService) ─────────────────────────────────────────
+    // ── 섬 (MainIslandService · GroupMemberService 강퇴) ──────────────────
     /**
      * 메인 섬을 잃어 자동으로 옮겨졌다(GROMO-1971). 대상 = <b>옮겨 간 섬</b>. params: {@code islandId}·
      * {@code islandName}.
@@ -104,6 +104,13 @@ public enum NotificationKind {
      * <p>시간축이 분인 것은 <b>같은 섬으로의</b> 재전송만 접기 위해서다(재훑기·재시도).
      */
     MAIN_ISLAND_TRANSFERRED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.ISLAND),
+
+    /**
+     * 섬에서 강퇴됐다(GROMO-2315). 대상 = <b>강퇴된 섬</b>, 축·정책은 {@link #MAIN_ISLAND_TRANSFERRED} 와 같다 — 서로
+     * 다른 섬의 강퇴가 한 건으로 접히지 않고, 같은 섬의 재전송만 접힌다. params: {@code islandId}·{@code islandName}.
+     * 메인 섬에서 강퇴돼도 이전 알림은 내지 않고 이 알림 1건만 간다(10/20 결정).
+     */
+    ISLAND_KICKED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.ISLAND),
 
     // ── 고양이 잡지 (MagazineIssueNotifier) ────────────────────────────────────
     /**

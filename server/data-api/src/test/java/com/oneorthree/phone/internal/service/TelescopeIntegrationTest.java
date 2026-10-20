@@ -460,8 +460,8 @@ class TelescopeIntegrationTest {
     // ---------------------------------------------------------------- ③ 비공개·강퇴
 
     @Test
-    @DisplayName("비공개·강퇴·종료 섬은 0건이고 자진 탈퇴한 섬은 discover 와 같이 후보에 나온다")
-    void privateKickedAndEndedIslandsNeverAppearButLeftIslandsDo() {
+    @DisplayName("비공개·종료 섬은 0건이고 자진 탈퇴·강퇴된 섬은 discover 와 같이 후보에 나온다")
+    void privateAndEndedIslandsNeverAppearButLeftAndKickedIslandsDo() {
         User viewer = user();
         Group privateIsland = groups.save(Group.builder().name("비공개섬").maxMembers(10).isPrivate(true).build());
         // 잡지에 홍보 칸이 실린 비공개 섬이라도 후보·목록에서 빠진다.
@@ -481,8 +481,9 @@ class TelescopeIntegrationTest {
 
         List<TelescopeItemView> items = telescope.list(viewer.getId()).items();
 
-        assertThat(items).extracting(TelescopeItemView::islandId)
-                .containsExactlyElementsOf(byHash(viewer, List.of(left.getId(), open.getId())));
+        // 강퇴된 섬도 다시 보인다(GROMO-2315, 10/20 결정) — 그 섬의 가입은 승인 대기 신청이 된다.
+        assertThat(items).extracting(TelescopeItemView::islandId).containsExactlyElementsOf(
+                byHash(viewer, List.of(left.getId(), open.getId(), kicked.getGroup().getId())));
         assertThat(items).extracting(TelescopeItemView::membershipStatus).containsOnly("none");
     }
 
