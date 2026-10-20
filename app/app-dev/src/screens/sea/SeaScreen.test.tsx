@@ -142,6 +142,13 @@ test('친구 요청 버튼과 집중 시간은 영어 설정도 따른다', asyn
   }
 });
 
+const swipeTo = async (screen: Awaited<ReturnType<typeof render>>, x: number) => {
+  const scroll = screen.getByTestId('sea-participants');
+  await fireEvent(scroll, 'scrollBeginDrag');
+  await fireEvent.scroll(scroll, { nativeEvent: { contentOffset: { x, y: 0 } } });
+  await fireEvent(scroll, 'momentumScrollEnd');
+};
+
 test.each([1, 5, 10])('%i명 방은 자기 자신을 제외한 모든 사람에게 도달할 수 있다', (count) => {
   const pages = seaPeerPages(people.slice(0, count), '0');
   expect(pages.flat().map((person) => person.userId)).toEqual(
@@ -151,16 +158,16 @@ test.each([1, 5, 10])('%i명 방은 자기 자신을 제외한 모든 사람에�
   if (count === 10) expect(pages.map((page) => page.length)).toEqual([5, 4]);
 });
 
-test('작은 가로 화면에서는 장면 최소 높이를 해제하고 페이지와 본인을 화면 안에 둔다', async () => {
+test('작은 가로 화면에서도 스와이프로 전원을 탐색하고 본인을 화면 안에 둔다', async () => {
   const screen = await render(<SeaScreen {...props()} voyage={voyage} />);
   const layout = { x: 0, y: 0, width: 874, height: 402 };
   await fireEvent(screen.getByTestId('sea-screen'), 'layout', { nativeEvent: { layout } });
   await fireEvent(screen.getByTestId('sea-scene'), 'layout', { nativeEvent: { layout } });
   expect(screen.getByTestId('sea-scene')).toHaveStyle({ minHeight: 0 });
-  expect(screen.getByTestId('sea-paging')).toHaveStyle({ top: 8, bottom: 'auto' });
+  expect(screen.queryByTestId('sea-paging')).toBeNull();
   expect(screen.getByTestId('sea-self')).toHaveStyle({ top: 193, bottom: 'auto' });
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  await swipeTo(screen, 874);
+  expect(screen.getByTestId('sea-person-9')).toBeTruthy();
   await fireEvent(screen.getByTestId('sea-screen'), 'layout', {
     nativeEvent: { layout: { ...layout, width: 402, height: 874 } },
   });
@@ -222,14 +229,12 @@ test('하선 중 중복 탭을 막고 실패하면 같은 세션에서 재시도
   await fireEvent(screen.getByTestId('sea-footer'), 'layout', {
     nativeEvent: { layout: { width: 402, height: 144 } },
   });
-  expect(screen.getByTestId('sea-paging')).toHaveStyle({ bottom: 144 });
   expect(screen.getByTestId('sea-self')).toHaveStyle({ bottom: 154 });
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  await swipeTo(screen, 402);
+  expect(screen.getByTestId('sea-person-9')).toBeTruthy();
   await fireEvent(screen.getByTestId('sea-footer'), 'layout', {
     nativeEvent: { layout: { width: 402, height: 80 } },
   });
-  expect(screen.getByTestId('sea-paging')).toHaveStyle({ bottom: 88 });
   expect(screen.getByTestId('sea-self')).toHaveStyle({ bottom: 98 });
   await fireEvent.press(screen.getByLabelText('섬에 내리기'));
   expect(p.onFinish).toHaveBeenCalledTimes(2);
@@ -415,15 +420,15 @@ test('스와이프로 마지막 참여자에 도달하고 드래그 직후에는
   const last = screen.getByTestId('sea-person-9');
   await fireEvent.press(last);
   expect(screen.queryByLabelText('닫기')).toBeNull();
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-1')).toBeNull();
 });
 
 test('스냅샷 순서 갱신은 선택한 페이지를 초기화하지 않는다', async () => {
   const p = props();
   const screen = await render(<SeaScreen {...p} />);
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
+  await swipeTo(screen, 402);
   await screen.rerender(<SeaScreen {...p} participants={[...people].reverse()} />);
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-1')).toBeNull();
   expect(screen.getByTestId('sea-person-6')).toBeTruthy();
 });
 
@@ -449,18 +454,19 @@ test('드래그 없이 터치를 마친 참여자는 바로 누를 수 있다', 
   expect(screen.getByLabelText('닫기')).toBeTruthy();
 });
 
-test('다음 페이지 이동은 중간 스크롤 이벤트 때문에 이전 페이지로 되돌아가지 않는다', async () => {
+test('페이지 버튼과 숫자 없이 양방향 스와이프로 나머지 전원을 탐색한다', async () => {
   const screen = await render(<SeaScreen {...props()} />);
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
-  await fireEvent.scroll(screen.getByTestId('sea-participants'), {
-    nativeEvent: { contentOffset: { x: 80, y: 0 } },
-  });
-  expect(screen.getByText('2 / 2')).toBeTruthy();
-  await fireEvent.press(screen.getByLabelText('다음 참여자 보기'));
-  await fireEvent.scroll(screen.getByTestId('sea-participants'), {
-    nativeEvent: { contentOffset: { x: 402, y: 0 } },
-  });
-  expect(screen.getByText('2 / 2')).toBeTruthy();
+  expect(screen.queryByTestId('sea-paging')).toBeNull();
+  expect(screen.queryByText('1 / 2')).toBeNull();
+  expect(screen.getByTestId('sea-person-1')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-9')).toBeNull();
+  await swipeTo(screen, 402);
+  expect(screen.getByTestId('sea-person-9')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-1')).toBeNull();
+  expect(screen.getByLabelText('내 뗏목')).toBeTruthy();
+  await swipeTo(screen, 0);
+  expect(screen.getByTestId('sea-person-1')).toBeTruthy();
+  expect(screen.queryByTestId('sea-person-9')).toBeNull();
 });
 
 test('본인과 참가자 이모트는 접근성 이름에 포함되고 사라지면 제거된다', async () => {
