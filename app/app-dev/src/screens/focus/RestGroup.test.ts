@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
+import { Animated } from 'react-native';
 import { RestGroup, restSeats, seatBox } from '@/screens/focus/RestGroup';
+import { restPose } from '@/screens/focus/RestCampfireMotion';
 import { initialState } from '@/services/model';
 import { applyLocalePref } from '@/i18n';
 
@@ -171,3 +173,32 @@ test.each([[1, 2, 3, 4, 5, 6], Array.from({ length: 15 }, (_, i) => i + 1), [15]
     await screen.unmount();
   },
 );
+
+test('모닥불 자세: 멤버 식별자 해시 짝수는 식빵, 홀수는 책 읽기로 늘 같다', () => {
+  // 'a'(97)·'b'(98) 한 글자는 문자 코드가 곧 해시다
+  assert.equal(restPose('a'), 'read');
+  assert.equal(restPose('b'), 'loaf');
+  const ids = Array.from({ length: 40 }, (_, i) => `user-${i}`);
+  assert.deepEqual(ids.map(restPose), ids.map(restPose));
+  assert.ok(new Set(ids.map(restPose)).size === 2);
+});
+
+test.each([
+  [false, 1],
+  [true, 0],
+])('모닥불 움직임: 동작 줄이기 %s 이면 반복 재생 %i 번', async (reduceMotion, loops) => {
+  const loop = jest.spyOn(Animated, 'loop');
+  try {
+    const state = initialState(true);
+    state.settings.reduceMotion = reduceMotion;
+    const screen = await render(
+      React.createElement(RestGroup, { state, resume: jest.fn(), home: jest.fn() }),
+    );
+    expect(loop).toHaveBeenCalledTimes(loops);
+    screen.getByTestId('rest-campfire-back');
+    screen.getByTestId('rest-campfire-front');
+    await screen.unmount();
+  } finally {
+    loop.mockRestore();
+  }
+});
