@@ -1,12 +1,5 @@
 import React, { useId } from 'react';
 import { Image, StyleSheet, Text, View, Platform, type ImageSourcePropType } from 'react-native';
-import {
-  BlendColor,
-  Canvas,
-  Image as SkiaImage,
-  Morphology,
-  useImage,
-} from '@shopify/react-native-skia';
 import Svg, {
   Defs,
   Filter,
@@ -50,6 +43,7 @@ type OutlineProps = {
   left: number;
   top: number;
   scale: number;
+  baseScale?: number;
   pressed: boolean;
   reduceMotion: boolean;
   cropped?: boolean;
@@ -69,48 +63,75 @@ function NativeFacilityOutline({
   left,
   top,
   scale,
+  baseScale = 1,
   pressed,
   reduceMotion,
   cropped = false,
 }: OutlineProps) {
-  const image = useImage(source as Parameters<typeof useImage>[0]);
+  const zoom = scale / baseScale;
   const pad = tokens.outlineWidth * 2;
+  // 건물과 같은 RN 이미지 레이아웃으로 그린다. 별도 Skia surface의 크기 갱신을 기다리지 않는다.
+  const width = (cropped ? rect.w : 1536) * baseScale;
+  const height = (cropped ? rect.h : 1024) * baseScale;
   return (
     <View
+      testID="native-facility-outline"
       pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
       style={{
         position: 'absolute',
         left: left + rect.x * scale,
         top: top + rect.y * scale,
-        width: rect.w * scale,
-        height: rect.h * scale,
-        ...facilityPressStyle(pressed, reduceMotion),
+        width: rect.w * baseScale,
+        height: rect.h * baseScale,
+        transformOrigin: [0, 0, 0],
+        transform: [{ scale: zoom }],
       }}
     >
-      <Canvas
+      <View
         style={{
           position: 'absolute',
           left: -pad,
           top: -pad,
-          width: rect.w * scale + pad * 2,
-          height: rect.h * scale + pad * 2,
+          width: rect.w * baseScale + pad * 2,
+          height: rect.h * baseScale + pad * 2,
+          overflow: 'hidden',
+          ...facilityPressStyle(pressed, reduceMotion),
         }}
       >
-        <SkiaImage
-          image={image}
-          fit="fill"
-          x={pad - (cropped ? 0 : rect.x * scale)}
-          y={pad - (cropped ? 0 : rect.y * scale)}
-          width={(cropped ? rect.w : 1536) * scale}
-          height={(cropped ? rect.h : 1024) * scale}
-        >
-          <Morphology radius={tokens.outlineWidth} />
-          <BlendColor color={tokens.outline} mode="srcIn" />
-        </SkiaImage>
-      </Canvas>
+        {OUTLINE_OFFSETS.map(([dx, dy], index) => (
+          <Image
+            key={index}
+            source={source}
+            accessible={false}
+            fadeDuration={0}
+            resizeMode="stretch"
+            style={{
+              position: 'absolute',
+              left: pad - (cropped ? 0 : rect.x * baseScale) + dx * tokens.outlineWidth,
+              top: pad - (cropped ? 0 : rect.y * baseScale) + dy * tokens.outlineWidth,
+              width,
+              height,
+              tintColor: tokens.outline,
+            }}
+          />
+        ))}
+      </View>
     </View>
   );
 }
+
+const OUTLINE_OFFSETS = [
+  [-1, -1],
+  [0, -1],
+  [1, -1],
+  [-1, 0],
+  [1, 0],
+  [-1, 1],
+  [0, 1],
+  [1, 1],
+] as const;
 
 function WebFacilityOutline({
   source,
@@ -118,11 +139,13 @@ function WebFacilityOutline({
   left,
   top,
   scale,
+  baseScale = 1,
   pressed,
   reduceMotion,
   cropped = false,
 }: OutlineProps) {
   const uid = useId().replace(/:/g, '');
+  const zoom = scale / baseScale;
   const pad = tokens.outlineWidth * 2;
   return (
     <View
@@ -131,23 +154,29 @@ function WebFacilityOutline({
         position: 'absolute',
         left: left + rect.x * scale,
         top: top + rect.y * scale,
-        width: rect.w * scale,
-        height: rect.h * scale,
-        ...facilityPressStyle(pressed, reduceMotion),
+        width: rect.w * baseScale,
+        height: rect.h * baseScale,
+        transformOrigin: [0, 0, 0],
+        transform: [{ scale: zoom }],
       }}
     >
       <Svg
-        width={rect.w * scale + pad * 2}
-        height={rect.h * scale + pad * 2}
-        style={{ position: 'absolute', left: -pad, top: -pad }}
+        width={rect.w * baseScale + pad * 2}
+        height={rect.h * baseScale + pad * 2}
+        style={{
+          position: 'absolute',
+          left: -pad,
+          top: -pad,
+          ...facilityPressStyle(pressed, reduceMotion),
+        }}
       >
         <Defs>
           <Filter
             id={uid}
             x={0}
             y={0}
-            width={rect.w * scale + pad * 2}
-            height={rect.h * scale + pad * 2}
+            width={rect.w * baseScale + pad * 2}
+            height={rect.h * baseScale + pad * 2}
             filterUnits="userSpaceOnUse"
           >
             <FeMorphology
@@ -163,10 +192,10 @@ function WebFacilityOutline({
         <SvgImage
           href={source}
           filter={`url(#${uid})`}
-          x={pad - (cropped ? 0 : rect.x * scale)}
-          y={pad - (cropped ? 0 : rect.y * scale)}
-          width={(cropped ? rect.w : 1536) * scale}
-          height={(cropped ? rect.h : 1024) * scale}
+          x={pad - (cropped ? 0 : rect.x * baseScale)}
+          y={pad - (cropped ? 0 : rect.y * baseScale)}
+          width={(cropped ? rect.w : 1536) * baseScale}
+          height={(cropped ? rect.h : 1024) * baseScale}
           preserveAspectRatio="none"
         />
       </Svg>
@@ -175,11 +204,17 @@ function WebFacilityOutline({
 }
 
 export function TileFacilitySign({
+  width,
+  height,
   label,
+  zoom = 1,
   pressed,
   reduceMotion,
 }: {
+  width: number;
+  height: number;
   label: string;
+  zoom?: number;
   pressed: boolean;
   reduceMotion: boolean;
 }) {
@@ -188,27 +223,43 @@ export function TileFacilitySign({
       pointerEvents="none"
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[StyleSheet.absoluteFill, facilityPressStyle(pressed, reduceMotion)]}
+      collapsable={false}
+      style={[{ width, height }, facilityPressStyle(pressed, reduceMotion)]}
     >
-      <Image
-        source={sign}
-        resizeMode="stretch"
-        style={[StyleSheet.absoluteFill, { width: '100%', height: '100%' }]}
-      />
-      <View style={styles.textArea}>
-        {Platform.OS === 'web' ? (
-          <WebFacilitySignText label={label} />
-        ) : (
-          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.text}>
-            {label}
-          </Text>
-        )}
+      <View
+        style={{
+          width: width / zoom,
+          height: height / zoom,
+          transformOrigin: [0, 0, 0],
+          transform: [{ scale: zoom }],
+        }}
+      >
+        <Image
+          source={sign}
+          fadeDuration={0}
+          resizeMode="stretch"
+          style={[styles.signImage, { width: width / zoom, height: height / zoom }]}
+        />
+        <View style={styles.textArea}>
+          {Platform.OS === 'web' ? (
+            <WebFacilitySignText label={label} />
+          ) : (
+            <Text numberOfLines={1} adjustsFontSizeToFit style={styles.text}>
+              {label}
+            </Text>
+          )}
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  signImage: {
+    ...StyleSheet.absoluteFill,
+    width: '100%',
+    height: '100%',
+  },
   textArea: {
     position: 'absolute',
     left: '11%',

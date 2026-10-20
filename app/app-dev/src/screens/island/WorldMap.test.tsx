@@ -1,4 +1,5 @@
 import React from 'react';
+import { within } from '@testing-library/react-native';
 import {
   act,
   cleanup,
@@ -7,7 +8,7 @@ import {
   render,
   renderHook,
 } from '@testing-library/react-native';
-import { Animated, PanResponder, Platform } from 'react-native';
+import { Animated, PanResponder, Platform, StyleSheet } from 'react-native';
 import {
   constructionPlacement,
   createWorldProjector,
@@ -17,10 +18,6 @@ import {
 } from '@/screens/island/WorldMap';
 import { applyLocalePref } from '@/i18n';
 import { buildingNames, initialState, reducer } from '@/services/model';
-import {
-  BUILDING_ENTRY_DURATION_MS,
-  BUILDING_TRANSITION_DURATION_MS,
-} from '@/services/buildingTransition';
 import { villageScene } from '@/utils/village-world';
 import { assets } from '@/constants/assets';
 import { semanticTokens } from '@/design-system/tokens';
@@ -370,37 +367,31 @@ test.each([
   },
 );
 
-test.each(['board'] as const)(
-  '진입 스프라이트가 없는 %s는 620ms 뒤 라우트를 연다',
-  async (building) => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2026-06-15T12:00:00'));
-    const timing = jest.spyOn(Animated, 'timing').mockImplementation(
-      () =>
-        ({
-          start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
-          stop: jest.fn(),
-          reset: jest.fn(),
-        }) as unknown as Animated.CompositeAnimation,
-    );
-    try {
-      const state = initialState(true);
-      const island = state.islands.find((item) => item.id === state.islandId)!;
-      if (!island.buildings.includes(building)) island.buildings.push(building);
-      const go = jest.fn();
-      const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
-      await fireEvent.press(screen.getByLabelText(buildingNames[building]));
-      await act(async () => jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS - 1));
-      expect(go).not.toHaveBeenCalled();
-      await act(async () => jest.advanceTimersByTime(1));
-      expect(go).toHaveBeenCalledWith(building);
-      await screen.unmount();
-    } finally {
-      timing.mockRestore();
-      jest.useRealTimers();
-    }
-  },
-);
+test.each(['board'] as const)('%s에 도착하면 전환 대기 없이 라우트를 연다', async (building) => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    () =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  try {
+    const state = initialState(true);
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    if (!island.buildings.includes(building)) island.buildings.push(building);
+    const go = jest.fn();
+    const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+    await fireEvent.press(screen.getByLabelText(buildingNames[building]));
+    expect(go).toHaveBeenCalledWith(building);
+    await screen.unmount();
+  } finally {
+    timing.mockRestore();
+    jest.useRealTimers();
+  }
+});
 
 test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에서만 프레임을 연다', async () => {
   jest.useFakeTimers();
@@ -991,7 +982,7 @@ test('클라이언트 계산이 완료 시각에 도달하면 completion sprite�
   expect(screen.queryByTestId('construction-sprite-library-completion')).toBeNull();
 });
 
-test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 완료 뒤 route를 연다', async () => {
+test('건물을 연타해도 한 번만 걷고 도착 즉시 내부를 연다', async () => {
   jest.useFakeTimers();
   const timing = jest.spyOn(Animated, 'timing').mockImplementation(
     (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
@@ -1012,14 +1003,7 @@ test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 
     await fireEvent.press(hall);
     await fireEvent.press(hall);
 
-    expect(go).not.toHaveBeenCalled();
-    expect(
-      screen.getByTestId('building-transition-overlay', { includeHiddenElements: true }),
-    ).toBeTruthy();
-
-    await act(async () => {
-      jest.advanceTimersByTime(BUILDING_ENTRY_DURATION_MS);
-    });
+    expect(screen.queryByTestId('building-transition-overlay')).toBeNull();
     expect(go).toHaveBeenCalledTimes(1);
     expect(go).toHaveBeenCalledWith('hall');
 
@@ -1030,6 +1014,30 @@ test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 
     timing.mockRestore();
     jest.useRealTimers();
   }
+});
+
+test('안내 대기로 화면을 열지 않으면 다음 건물 진입과 집중하기를 잠그지 않는다', async () => {
+  jest.spyOn(Animated, 'timing').mockImplementation(
+    () =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  const state = initialState(true);
+  state.settings.reduceMotion = true;
+  const go = jest.fn().mockReturnValue(false);
+  const screen = await render(
+    <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} />,
+  );
+
+  await fireEvent.press(screen.getByLabelText(buildingNames.hall));
+  expect(go).toHaveBeenCalledTimes(1);
+  await fireEvent.press(screen.getByLabelText(buildingNames.hall));
+  expect(go).toHaveBeenCalledTimes(2);
+  await fireEvent.press(screen.getByTestId('depart-focus'));
+  expect(go).toHaveBeenLastCalledWith('focusTravel');
 });
 
 test('reduceMotion에서는 건물 도착 직후 overlay 없이 route를 연다', async () => {
@@ -1133,7 +1141,7 @@ test('테마 회관·상점·전망대·도서관은 낮·밤 모두 정적 레�
   jest.useRealTimers();
 });
 
-test('밤에도 회관은 밤 문 프레임을 먼저 보여 준 뒤 라우트를 연다', async () => {
+test('밤에도 회관 도착 시 문 모션을 기다리지 않고 내부를 연다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T22:00:00'));
   const timing = jest.spyOn(Animated, 'timing').mockImplementation(
@@ -1152,11 +1160,6 @@ test('밤에도 회관은 밤 문 프레임을 먼저 보여 준 뒤 라우트�
     expect(nightFrame).toBe(require('@/assets/village-world/motion/hall/night-frame-0.png'));
 
     await fireEvent.press(screen.getByLabelText(buildingNames.hall));
-    await act(async () => jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS));
-    expect(go).not.toHaveBeenCalled();
-    await act(async () =>
-      jest.advanceTimersByTime(BUILDING_ENTRY_DURATION_MS - BUILDING_TRANSITION_DURATION_MS),
-    );
     expect(go).toHaveBeenCalledWith('hall');
     await screen.unmount();
   } finally {
@@ -1382,3 +1385,96 @@ test.each([false, true])(
     await screen.unmount();
   },
 );
+test('언어를 바꾸면 건물 이름과 긴 번역의 팻말 폭을 함께 갱신한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('tower')) island.buildings.push('tower');
+  const home = () => <FinalIsland state={state} go={jest.fn()} build={jest.fn()} />;
+  applyLocalePref('ko');
+  const screen = await render(home());
+  const korean = screen.getByTestId('building-name-tower').props.style;
+  expect(screen.getByText('전망대')).toBeTruthy();
+  try {
+    applyLocalePref('en');
+    await screen.rerender(home());
+    expect(screen.getByText('Lookout Tower')).toBeTruthy();
+    const english = screen.getByTestId('building-name-tower').props.style;
+    expect(english.width).toBeGreaterThan(korean.width);
+    expect(english.height).toBe(korean.height);
+  } finally {
+    applyLocalePref('system');
+  }
+});
+
+test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되고 내부 이미지 좌표는 유지한다', async () => {
+  const createPan = jest.spyOn(PanResponder, 'create');
+  const screen = await render(
+    <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const pan = createPan.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  const sign = () => screen.getByTestId('building-name-hall');
+  const initial = StyleSheet.flatten(sign().props.style);
+  const building = () => StyleSheet.flatten(screen.getByTestId('world-hall-motion').props.style);
+  const originalBuilding = building();
+  const overlay = screen.getByTestId('facility-sign-overlay');
+  const imageSize = () => {
+    const nodes: any[] = [];
+    const walk = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (
+        node.type === 'Image' &&
+        node.props.source === require('@/assets/village-world/ui/wooden-name-sign.png')
+      )
+        nodes.push(node);
+      (node.children ?? []).forEach(walk);
+    };
+    walk(screen.toJSON());
+    return nodes
+      .map((node) => StyleSheet.flatten(node.props.style))
+      .map(({ width, height }) => ({ width, height }));
+  };
+  const originalSizes = imageSize();
+  expect(originalSizes.length).toBeGreaterThan(0);
+  for (const distance of [70, 520, 90, 400, 70, 200]) {
+    await act(async () => {
+      pan.onPanResponderGrant!(pinch(200), {} as any);
+      pan.onPanResponderMove!(pinch(distance), {} as any);
+    });
+    const current = StyleSheet.flatten(sign().props.style);
+    const ratio = building().width / originalBuilding.width;
+    expect(current.width / initial.width).toBeCloseTo(ratio);
+    expect(current.height / initial.height).toBeCloseTo(ratio);
+    imageSize().forEach((size, index) => {
+      expect(size.width).toBeCloseTo(originalSizes[index].width);
+      expect(size.height).toBeCloseTo(originalSizes[index].height);
+    });
+    expect(StyleSheet.flatten(overlay.props.style)).toEqual(StyleSheet.absoluteFill);
+    // 화면 레이어에서도 팻말은 건물과 같은 배율을 사용한다.
+    expect(within(overlay).getByTestId('building-name-hall')).toBeTruthy();
+  }
+  expect(StyleSheet.flatten(sign().props.style).left).not.toBe(initial.left);
+  await screen.unmount();
+});
+
+test('긴 섬 이름은 화면 절반 너비의 집중 알약 안에서 말줄임한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  island.name = '아주아주이름이긴우리들의고양이섬';
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  const pill = screen.getByTestId('island-focus-pill');
+  expect(StyleSheet.flatten(pill.props.style).maxWidth).toBe(201);
+  expect(pill.props.accessibilityLabel).toContain(island.name);
+  const name = within(pill).getByText(island.name);
+  expect(name.props.numberOfLines).toBe(1);
+  expect(name.props.ellipsizeMode).toBe('tail');
+});

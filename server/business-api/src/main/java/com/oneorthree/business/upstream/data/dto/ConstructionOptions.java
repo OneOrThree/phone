@@ -23,7 +23,8 @@ public record ConstructionOptions(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long walletVersion,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<Item> items,
         ResidentProgress residentProgress,
-        ActiveConstruction activeConstruction) {
+        ActiveConstruction activeConstruction,
+        List<String> contributedCompletions) {
 
     /** 순차 배포 중 이전 Data 응답에는 없을 수 있다. */
     public record ActiveConstruction(

@@ -108,20 +108,14 @@ describe('AdCell', () => {
     expect(screen.getByLabelText(/, 우리 섬이에요$/)).toBeTruthy();
   });
 
-  it('누르기는 크게 보기, 길게 누르기·스크린리더 「신고하기」 동작은 신고', async () => {
+  it('누르기는 크게 보기를 유지하고 길게 누르기·접근성 신고는 제공하지 않는다', async () => {
     const onPress = jest.fn();
-    const onReport = jest.fn();
-    const screen = await render(
-      <AdCell width={300} cell={cell()} onPress={onPress} onReport={onReport} />,
-    );
+    const screen = await render(<AdCell width={300} cell={cell()} onPress={onPress} />);
     const target = screen.getByRole('button');
     await fireEvent.press(target);
-    await fireEvent(target, 'longPress');
     expect(onPress).toHaveBeenCalledTimes(1);
-    expect(onReport).toHaveBeenCalledTimes(1);
-    expect(target.props.accessibilityActions).toEqual([{ name: 'report', label: '신고하기' }]);
-    await fireEvent(target, 'accessibilityAction', { nativeEvent: { actionName: 'report' } });
-    expect(onReport).toHaveBeenCalledTimes(2);
+    expect(target.props.onLongPress).toBeUndefined();
+    expect(target.props.accessibilityActions).toBeUndefined();
   });
 
   it('hideMeta — 「주민·평균」 줄을 그리지 않고 읽는 이름에서도 뺀다', async () => {
@@ -149,4 +143,21 @@ describe('islandTitle', () => {
     expect(islandTitle('바다')).toBe('바다섬');
     expect(islandTitle(' 소다 ')).toBe('소다섬');
   });
+});
+
+it('비공개 섬은 망원경 동그라미 대신 초대 안내를 그리고 접근성 이름에도 포함한다', async () => {
+  const onScope = jest.fn();
+  const screen = await render(
+    <AdCell
+      testID="private"
+      width={338}
+      cell={cell({ privateIsland: true })}
+      corner="scope"
+      onScope={onScope}
+    />,
+  );
+  expect(screen.queryByTestId('private-scope')).toBeNull();
+  expect(screen.getByText(/초대로만 갈 수 있는 섬/)).toBeTruthy();
+  expect(screen.getByLabelText(/초대로만 갈 수 있는 섬/)).toBeTruthy();
+  expect(onScope).not.toHaveBeenCalled();
 });

@@ -289,7 +289,7 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     await screen2.unmount();
   });
 
-  it('건물 진입 시 갸웃(tilt) 모션 전체 주기(1,820ms)가 끝난 뒤 화면이 전환된다', async () => {
+  it('낚시섬 구경하기는 갸웃 모션을 기다리지 않고 바로 화면을 전환한다', async () => {
     const state = initialState(true);
     const goMock = jest.fn();
     const screen = await renderWithContext(
@@ -305,17 +305,14 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
       fireEvent(fishingDoor, 'press');
     });
 
-    // 1810ms 시점에는 갸웃 모션이 진행 중이며 화면 전환이 아직 일어나지 않음
-    await act(async () => {
-      jest.advanceTimersByTime(1810);
-    });
-    expect(goMock).not.toHaveBeenCalled();
-
-    // 1820ms(갸웃 모션 전체 주기) 완료 시점에 비로소 화면 전환 호출
-    await act(async () => {
-      jest.advanceTimersByTime(20);
-    });
     expect(goMock).toHaveBeenCalledWith('focusVisit');
+    expect(goMock).toHaveBeenCalledTimes(1);
+
+    // 이전 갸웃 모션 길이가 지나도 뒤늦게 한 번 더 이동하지 않는다
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(goMock).toHaveBeenCalledTimes(1);
 
     await screen.unmount();
   });

@@ -366,3 +366,19 @@ test('공사 조회는 건물과 시간을 보존하고 잘못된 공사 구간�
   for (let n = 0; n < 3; n++)
     await assert.rejects(getConstructionOptions('i1'), { code: CLIENT_CONTRACT_ERROR });
 });
+
+test('완공 기여 목록은 실제 완공 canonical 건물만 허용하고 구서버 생략은 유지한다', async () => {
+  stub([
+    { status: 200, body: { data: options([item('shop')], { contributedCompletions: ['mail'] }) } },
+    { status: 200, body: { data: options([item('mail')], { contributedCompletions: ['mail'] }) } },
+    { status: 200, body: { data: options([], { contributedCompletions: ['castle'] }) } },
+    { status: 200, body: { data: options([], { contributedCompletions: ['mail', 'mail'] }) } },
+    { status: 200, body: { data: options([]) } },
+  ]);
+  expect((await getConstructionOptions('i1')).contributedCompletions).toEqual(['mail']);
+  for (let i = 0; i < 3; i++)
+    await expect(getConstructionOptions('i1')).rejects.toMatchObject({
+      code: CLIENT_CONTRACT_ERROR,
+    });
+  expect((await getConstructionOptions('i1')).contributedCompletions).toBeUndefined();
+});

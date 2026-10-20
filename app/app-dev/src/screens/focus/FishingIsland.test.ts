@@ -839,7 +839,7 @@ test('컷신 종료 전에는 섬 황금 물고기를 숨기고 종료 뒤에만
     );
   const screen = await render(wrap());
   assert.equal(screen.queryByTestId('fishing-island-golden-fish'), null);
-  assert.ok(screen.getByTestId('island-ocean'));
+  assert.ok(screen.getByTestId('island-ocean', { includeHiddenElements: true }));
   await screen.rerender(wrap(true));
   const fish = screen.getByTestId('fishing-island-golden-fish');
   assert.equal(fish.props.accessibilityLabel, '방금 함께 낚은 황금 물고기');

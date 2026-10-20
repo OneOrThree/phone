@@ -1,5 +1,6 @@
 package com.oneorthree.phone.shop.service;
 
+import com.oneorthree.phone.appearance.support.DefaultAudioTracks;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.appearance.repository.CatalogAssetRepository;
@@ -354,6 +355,9 @@ public class ShopService {
                             int balance) {
 
         boolean owns(CatalogAsset asset) {
+            if (CatalogAsset.KIND_AUDIO.equals(asset.getKind()) && DefaultAudioTracks.contains(asset.getProductId())) {
+                return true;
+            }
             return (CatalogAsset.OWNER_USER.equals(asset.getOwnerType()) ? userOwned : islandOwned)
                     .contains(asset.getProductId());
         }
@@ -404,6 +408,9 @@ public class ShopService {
     }
 
     private boolean owns(String ownerType, UUID ownerId, String productId) {
+        if (CatalogAsset.OWNER_ISLAND.equals(ownerType) && DefaultAudioTracks.contains(productId)) {
+            return true;
+        }
         return CatalogAsset.OWNER_USER.equals(ownerType)
                 ? ownedProducts.existsByUserIdAndProductId(ownerId, productId)
                 : ownedProducts.existsByIslandIdAndProductId(ownerId, productId);

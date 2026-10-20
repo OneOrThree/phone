@@ -1,4 +1,4 @@
-// 섬 방명록(GROMO-2263): 목록·쓰기 payload·섬장 버튼·게시판 없는 섬 숨김·쓰기 거절 안내(토스트·칸 아래 안내)·지우기·신고.
+// 섬 방명록(GROMO-2263): 목록·쓰기 payload·섬장 버튼·게시판 없는 섬 숨김·쓰기 거절 안내(토스트·칸 아래 안내)·지우기·차단.
 import React from 'react';
 import { AccessibilityInfo, Platform } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
@@ -101,25 +101,25 @@ test('빈 글·공백만이면 남기기 버튼이 막혀 있다', async () => {
   expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(false);
 });
 
-test('섬장에게는 항목마다 [지우기]·[신고] 두 버튼이 보이고 주민에게는 없다', async () => {
+test('섬장에게는 항목마다 [지우기]·[차단] 두 버튼이 보이고 주민에게는 없다', async () => {
   const hostScreen = (await mount(true)).screen;
   for (const id of ['g1', 'g2']) {
     expect(hostScreen.getByTestId(`guestbook-delete-${id}`)).toBeTruthy();
-    expect(hostScreen.getByTestId(`guestbook-report-${id}`)).toBeTruthy();
+    expect(hostScreen.getByTestId(`guestbook-block-${id}`)).toBeTruthy();
   }
   expect(hostScreen.getAllByText('지우기')).toHaveLength(2);
-  expect(hostScreen.getAllByText('신고')).toHaveLength(2);
+  expect(hostScreen.getAllByText('차단')).toHaveLength(2);
   await hostScreen.unmount();
 
   const resident = (await mount(false)).screen;
   expect(resident.getByText('g1 놀러 왔어요')).toBeTruthy();
   expect(resident.queryByTestId('guestbook-delete-g1')).toBeNull();
-  expect(resident.queryByTestId('guestbook-report-g1')).toBeNull();
+  expect(resident.queryByTestId('guestbook-block-g1')).toBeNull();
   expect(resident.queryByText('지우기')).toBeNull();
-  expect(resident.queryByText('신고')).toBeNull();
+  expect(resident.queryByText('차단')).toBeNull();
 });
 
-test('항목마다 [지우기]·[신고] 는 어느 글·누구인지 읽는 이름에 담고, 보이는 글자는 그대로다', async () => {
+test('항목마다 [지우기]·[차단] 는 어느 글·누구인지 읽는 이름에 담고, 보이는 글자는 그대로다', async () => {
   const { screen } = await mount(true, env(), [entry('g1'), entry('g2', { authorName: null })]);
   expect(screen.getByTestId('guestbook-delete-g1').props.accessibilityLabel).toBe(
     '지우기: g1 놀러 왔어요',
@@ -127,14 +127,12 @@ test('항목마다 [지우기]·[신고] 는 어느 글·누구인지 읽는 이
   expect(screen.getByTestId('guestbook-delete-g2').props.accessibilityLabel).toBe(
     '지우기: g2 놀러 왔어요',
   );
-  expect(screen.getByTestId('guestbook-report-g1').props.accessibilityLabel).toBe('신고: 수아');
+  expect(screen.getByTestId('guestbook-block-g1').props.accessibilityLabel).toBe('차단: 수아');
   // 이름이 없는 작성자는 화면에 보이는 「떠난 주민」과 같은 이름으로 읽힌다
-  expect(screen.getByTestId('guestbook-report-g2').props.accessibilityLabel).toBe(
-    '신고: 떠난 주민',
-  );
+  expect(screen.getByTestId('guestbook-block-g2').props.accessibilityLabel).toBe('차단: 떠난 주민');
   expect(screen.getByLabelText('지우기: g1 놀러 왔어요')).toBeTruthy();
   expect(screen.getAllByText('지우기')).toHaveLength(2);
-  expect(screen.getAllByText('신고')).toHaveLength(2);
+  expect(screen.getAllByText('차단')).toHaveLength(2);
 });
 
 test('게시판이 없는 섬(boardBuilt=false)이면 방명록을 통째로 숨긴다', async () => {
@@ -490,25 +488,23 @@ test('이미 지워진 글(404)을 지우면 목록에서도 빼고 안내한다
   expect(e.notify).toHaveBeenCalledWith('더 이상 볼 수 없는 내용이에요. 다시 불러와 주세요.');
 });
 
-test('섬장 본인이 쓴 글에는 [지우기]만 있고 [신고]는 없다', async () => {
+test('섬장 본인이 쓴 글에는 [지우기]만 있고 [차단]는 없다', async () => {
   const { screen } = await mount(true, env(), [entry('g1', { mine: true }), entry('g2')]);
   expect(screen.getByTestId('guestbook-delete-g1')).toBeTruthy();
-  expect(screen.queryByTestId('guestbook-report-g1')).toBeNull();
-  expect(screen.getByTestId('guestbook-report-g2')).toBeTruthy();
+  expect(screen.queryByTestId('guestbook-block-g1')).toBeNull();
+  expect(screen.getByTestId('guestbook-block-g2')).toBeTruthy();
 });
 
-test('[신고]는 기존 유저 신고 창을 그 글의 작성자·원문으로 연다', async () => {
+test('[차단]는 기존 유저 차단 확인을 그 글의 작성자로 열며 원문은 보내지 않는다', async () => {
   const { screen, e } = await mount(true);
   expect(screen.queryByTestId('user-safety')).toBeNull();
-  await fireEvent.press(screen.getByTestId('guestbook-report-g2'));
+  await fireEvent.press(screen.getByTestId('guestbook-block-g2'));
   expect(screen.getByTestId('user-safety')).toBeTruthy();
   expect(mockSafety).toMatchObject({
     visible: true,
     targetUserId: 'u-g2',
     targetName: '수아',
-    reportTargetType: 'USER',
-    reportTargetId: 'u-g2',
-    reportEvidence: 'g2 놀러 왔어요',
+    initialMode: 'block',
   });
   await act(async () => mockSafety.onMessage('메일 내용을 확인한 뒤 보내 주세요.'));
   expect(e.notify).toHaveBeenCalledWith('메일 내용을 확인한 뒤 보내 주세요.');
@@ -519,7 +515,7 @@ test('[신고]는 기존 유저 신고 창을 그 글의 작성자·원문으로
 test('닉네임이 없는 작성자는 「떠난 주민」으로 보인다', async () => {
   const { screen } = await mount(true, env(), [entry('g1', { authorName: null })]);
   expect(screen.getByText('떠난 주민')).toBeTruthy();
-  await fireEvent.press(screen.getByTestId('guestbook-report-g1'));
+  await fireEvent.press(screen.getByTestId('guestbook-block-g1'));
   expect(mockSafety.targetName).toBe('떠난 주민');
 });
 
@@ -569,14 +565,180 @@ test('영어 로케일에서 제목·입력·버튼·안내를 번역한다', as
   );
   expect(screen.getByText('Post')).toBeTruthy();
   expect(screen.getAllByText('Delete')).toHaveLength(2);
-  expect(screen.getAllByText('Report')).toHaveLength(2);
+  expect(screen.getAllByText('Block')).toHaveLength(2);
   expect(screen.getByTestId('guestbook-delete-g1').props.accessibilityLabel).toBe(
     'Delete: g1 놀러 왔어요',
   );
-  expect(screen.getByTestId('guestbook-report-g1').props.accessibilityLabel).toBe('Report: 수아');
+  expect(screen.getByTestId('guestbook-block-g1').props.accessibilityLabel).toBe('Block: 수아');
   writeMock.mockRejectedValue(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', '오늘은', 409));
   await fireEvent.changeText(screen.getByTestId('field-Leave a note'), 'hi');
   await fireEvent.press(screen.getByTestId('guestbook-submit'));
   await screen.findByText("You've already left a note today"); // 칸 아래 안내(토스트는 없다)
   expect(e.notify).not.toHaveBeenCalled();
+});
+
+test.each([30, 31, 60, 61])(
+  '방명록 %i개를 커서로 끝까지 읽고 마지막 페이지 뒤에는 요청하지 않는다',
+  async (total) => {
+    const entries = Array.from({ length: total }, (_, index) => entry(`p${index}`));
+    getMock.mockImplementation((_island: string, cursor?: string) => {
+      const start = cursor ? Number(cursor) : 0;
+      return Promise.resolve({
+        ...page(entries.slice(start, start + 30)),
+        nextCursor: start + 30 < total ? String(start + 30) : null,
+      });
+    });
+    let more: (() => void) | null = null;
+    const screen = await render(
+      <Guestbook
+        islandId="i1"
+        host={false}
+        onLoadMoreReady={(load) => {
+          more = load;
+        }}
+      />,
+    );
+    await screen.findByTestId('guestbook-submit');
+    for (let start = 30; start < total; start += 30) {
+      await act(async () => more?.());
+      await screen.findByText(`p${Math.min(start + 29, total - 1)} 놀러 왔어요`);
+    }
+    expect(screen.getByText('p0 놀러 왔어요')).toBeTruthy();
+    expect(getMock).toHaveBeenCalledTimes(Math.ceil(total / 30));
+    await act(async () => more?.());
+    expect(getMock).toHaveBeenCalledTimes(Math.ceil(total / 30));
+  },
+);
+
+test('페이지를 읽은 뒤 글을 남겨도 이전 글을 30개로 자르지 않는다', async () => {
+  const items = Array.from({ length: 30 }, (_, index) => entry(`g${index}`));
+  const { screen } = await mount(false, env(), items);
+  writeMock.mockResolvedValue(entry('new', { content: '새 한마디' }));
+  await fireEvent.changeText(screen.getByTestId(INPUT), '새 한마디');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await screen.findByText('새 한마디');
+  expect(screen.getByText('g29 놀러 왔어요')).toBeTruthy();
+});
+
+test('하단 이벤트가 반복돼도 한 번만 조회하고, 추가 조회 실패는 글과 초안을 유지한 채 재시도한다', async () => {
+  getMock.mockResolvedValueOnce({ ...page([entry('first')]), nextCursor: 'next' });
+  let fail!: (error: unknown) => void;
+  getMock.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  let more: (() => void) | null = null;
+  const screen = await render(
+    <Guestbook
+      islandId="i1"
+      host={false}
+      onLoadMoreReady={(load) => {
+        more = load;
+      }}
+    />,
+  );
+  await screen.findByTestId('guestbook-submit');
+  await fireEvent.changeText(screen.getByTestId(INPUT), '쓰던 글');
+  await act(async () => {
+    more?.();
+    more?.();
+  });
+  expect(getMock).toHaveBeenCalledTimes(2);
+  await act(async () => fail(new Error('offline')));
+  await screen.findByTestId('guestbook-more-retry');
+  expect(screen.getByText('first 놀러 왔어요')).toBeTruthy();
+  expect(screen.getByTestId(INPUT).props.value).toBe('쓰던 글');
+  await act(async () => more?.());
+  expect(getMock).toHaveBeenCalledTimes(2);
+  getMock.mockResolvedValueOnce({ ...page([entry('last')]), nextCursor: null });
+  await fireEvent.press(screen.getByTestId('guestbook-more-retry'));
+  await screen.findByText('last 놀러 왔어요');
+  expect(getMock).toHaveBeenLastCalledWith('i1', 'next');
+  expect(screen.getByText('first 놀러 왔어요')).toBeTruthy();
+});
+
+test('추가 페이지의 중복 글과 조회 중 지운 글을 다시 넣지 않는다', async () => {
+  getMock.mockResolvedValueOnce({
+    ...page([entry('first'), entry('deleted')]),
+    nextCursor: 'next',
+  });
+  let finish!: (value: unknown) => void;
+  getMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let more: (() => void) | null = null;
+  const e = env();
+  const screen = await render(
+    <Guestbook
+      islandId="i1"
+      host
+      e={e}
+      onLoadMoreReady={(load) => {
+        more = load;
+      }}
+    />,
+  );
+  await screen.findByTestId('guestbook-submit');
+  await act(async () => more?.());
+  deleteMock.mockResolvedValue({ deleted: true });
+  await fireEvent.press(screen.getByTestId('guestbook-delete-deleted'));
+  await act(async () => e.confirm.mock.calls[0][2]());
+  await act(async () =>
+    finish({
+      ...page([entry('first'), entry('deleted'), entry('last'), entry('last')]),
+      nextCursor: null,
+    }),
+  );
+  expect(screen.getAllByText('first 놀러 왔어요')).toHaveLength(1);
+  expect(screen.getAllByText('last 놀러 왔어요')).toHaveLength(1);
+  expect(screen.queryByText('deleted 놀러 왔어요')).toBeNull();
+});
+
+test('다른 섬으로 이동한 뒤 이전 섬의 추가 페이지가 도착해도 섞이지 않는다', async () => {
+  getMock.mockResolvedValueOnce({ ...page([entry('old')]), nextCursor: 'next' });
+  let finish!: (value: unknown) => void;
+  getMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let more: (() => void) | null = null;
+  const register = (load: (() => void) | null) => {
+    more = load;
+  };
+  const screen = await render(<Guestbook islandId="i1" host={false} onLoadMoreReady={register} />);
+  await screen.findByTestId('guestbook-submit');
+  await act(async () => more?.());
+  getMock.mockResolvedValueOnce({ ...page([entry('new-island')]), nextCursor: null });
+  await screen.rerender(<Guestbook islandId="i2" host={false} onLoadMoreReady={register} />);
+  await screen.findByText('new-island 놀러 왔어요');
+  await act(async () => finish({ ...page([entry('late')]), nextCursor: null }));
+  expect(screen.queryByText('late 놀러 왔어요')).toBeNull();
+});
+
+test('쓰기 409 뒤 첫 페이지를 다시 읽는 동안 지운 글도 늦은 응답으로 되살리지 않는다', async () => {
+  const { screen, e } = await mount(true);
+  let finish!: (value: unknown) => void;
+  getMock.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  writeMock.mockRejectedValueOnce(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', 'x', 409));
+  await fireEvent.changeText(screen.getByTestId(INPUT), '안녕');
+  await fireEvent.press(screen.getByTestId('guestbook-submit'));
+  await screen.findByText('오늘은 이미 남겼어요');
+  deleteMock.mockResolvedValueOnce({ deleted: true });
+  await fireEvent.press(screen.getByTestId('guestbook-delete-g1'));
+  await act(async () => e.confirm.mock.calls[0][2]());
+  await act(async () => finish({ ...page([entry('g1'), entry('g2')]), nextCursor: null }));
+  expect(screen.queryByText('g1 놀러 왔어요')).toBeNull();
+  expect(screen.getByText('g2 놀러 왔어요')).toBeTruthy();
+  expect(screen.getByTestId(INPUT).props.value).toBe('안녕');
 });

@@ -7,6 +7,7 @@ import {
   createNotice as postNotice,
   createNoticeComment as postComment,
   deleteNotice as delNotice,
+  deleteNoticeComment as delComment,
   getBoard,
   getNotice,
   listNotices,
@@ -31,6 +32,7 @@ jest.mock('@/services/api/notices', () => ({
   createNotice: jest.fn(),
   updateNotice: jest.fn(),
   deleteNotice: jest.fn(),
+  deleteNoticeComment: jest.fn(),
   createNoticeComment: jest.fn(),
 }));
 jest.mock('@/services/api/quests', () => ({
@@ -1165,5 +1167,55 @@ test('쓰기 후속 조회를 측정 갱신이 대체해도 저장 성공을 유
   });
   expect(hook.result.current.items[0]?.title).toBe('최신 목록');
   expect(postNoticeMock).toHaveBeenCalledTimes(1);
+  await hook.unmount();
+});
+
+test('댓글 삭제 — 중복 요청을 합치고 재조회 실패 재시도는 같은 멱등 키를 쓴다', async () => {
+  const hook = await mountActive();
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1' }]));
+  await act(async () => {
+    await hook.result.current.select('n1');
+  });
+  const pending = deferred<{ deleted: true }>();
+  (delComment as jest.Mock)
+    .mockReturnValueOnce(pending.promise)
+    .mockResolvedValue({ deleted: true });
+  getBoardMock.mockRejectedValueOnce(new ApiError('TEMPORARY', '다시 시도', 503));
+  let one!: Promise<unknown>, two!: Promise<unknown>;
+  await act(async () => {
+    one = settle(hook.result.current.deleteComment('n1', 'c1'));
+    two = settle(hook.result.current.deleteComment('n1', 'c1'));
+  });
+  assert.equal((delComment as jest.Mock).mock.calls.length, 1);
+  await act(async () => {
+    pending.resolve({ deleted: true });
+    await Promise.all([one, two]);
+  });
+  assert.equal(hook.result.current.detail?.comments.length, 1);
+  getBoardMock.mockResolvedValue(board([{ id: 'n1', title: '공지' }]));
+  getNoticeMock.mockResolvedValue(detail('n1', []));
+  await act(async () => {
+    await hook.result.current.deleteComment('n1', 'c1');
+  });
+  const calls = (delComment as jest.Mock).mock.calls;
+  assert.equal(calls[0][3], calls[1][3]);
+  assert.equal(hook.result.current.detail?.comments.length, 0);
+  assert.equal(hook.result.current.items[0].commentCount, 0);
+  await hook.unmount();
+});
+
+test('댓글 삭제 중 섬이 바뀌면 옛 성공으로 새 게시판을 갱신하지 않는다', async () => {
+  const hook = await mountActive();
+  const pending = deferred<{ deleted: true }>();
+  (delComment as jest.Mock).mockReturnValue(pending.promise);
+  let outcome!: Promise<any>;
+  await act(async () => {
+    outcome = settle(hook.result.current.deleteComment('n1', 'c1'));
+  });
+  await hook.rerender({ active: true, scopeKey: 's2' });
+  await act(async () => {
+    pending.resolve({ deleted: true });
+  });
+  assert.equal((await outcome).err.code, CLIENT_STALE_SESSION);
   await hook.unmount();
 });

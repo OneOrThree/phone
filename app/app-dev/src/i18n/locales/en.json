@@ -67,13 +67,13 @@
     "GUESTBOOK_ALREADY_WRITTEN_TODAY": "You've already left a guestbook note today.",
     "PROMOTION_ALREADY_REQUESTED_TODAY": "You've already requested a magazine promotion today.",
     "PROMOTION_WINDOW_CLOSED": "Promotions can't be submitted right now. It opens again at 7 AM",
-    "PROMOTION_PRIVATE_ISLAND": "Private islands can't be in the magazine",
     "PROMOTION_TEXT_TOO_LONG": "A promotion message can be up to 60 characters",
     "PROMOTION_LAYOUT_INVALID": "Please check your decorations",
     "PROMOTION_ASSET_NOT_OWNED": "Some decorations aren't yours yet",
     "PROMOTION_LOCKED": "It's past midnight, so the promotion can't be edited",
     "PROMOTION_NOT_FOUND": "Couldn't find the promotion",
-    "MAGAZINE_ISSUE_NOT_FOUND": "This magazine issue is no longer available"
+    "MAGAZINE_ISSUE_NOT_FOUND": "This magazine issue is no longer available",
+    "PROMOTION_PRIVATE_ISLAND": "Could not request a promotion. Please try again shortly."
   },
   "time": {
     "minutes": "{{m}}m",
@@ -106,9 +106,18 @@
     "replayTutorialSub": "Watch the Mongdol guide again from the start",
     "appInfoSection": "App Info",
     "version": "Version",
-    "privacyNotice": "Privacy Practices",
-    "privacyNoticeSub": "Information this app handles and sends externally",
-    "privacyNoticeBody": "Signing in shares your social provider's authentication info and account identifiers with our server. Service data such as your nickname, island and resident activity, friends and letters, and focus records is also stored on the server to provide features and keep them in sync.\n\nScreen usage and key feature events are sent to PostHog, and screen and request diagnostics may be sent to Datadog when configured. If you allow Screen Time permission, the app reads your selected app usage time on-device for goals and stats. You can find the full details and retention periods in the Privacy Policy. Requesting account deletion asks the server to delete your account."
+    "report": {
+      "title": "Report center",
+      "sub": "Report by email",
+      "subject": "[catus report] Report center",
+      "body": "What happened:\n\nNickname or island name:\n\nWhen it happened:\n\nPlease attach screenshots to this email, if available.",
+      "openFailed": "Couldn't open your mail app. Set up a mail app and try again, or email us directly at:\n\n{{email}}"
+    },
+    "generalSection": "General",
+    "privacySection": "Privacy",
+    "usageSharing": "Share usage time",
+    "usageSharingSub": "Share usage time for statistics and quests",
+    "usageSharingError": "Could not share usage time. We’ll try again."
   },
   "login": {
     "continue": {
@@ -492,6 +501,13 @@
     "visitorCheered": "A visitor cheered you on 🎉",
     "memberArrived": "{{name}} has arrived",
     "common": {
+      "holdEndFocus": "End",
+      "holdEndHint": "Hold for 3 seconds to end focus. Release early to cancel.",
+      "holdEndA11yHint": "Double-tap to end focus after 3 seconds. Double-tap again to cancel.",
+      "holdEndStart": "End focus after 3 seconds",
+      "holdEndCancel": "Cancel ending focus",
+      "holdEndCancelHint": "Double-tap again to cancel ending focus.",
+      "holdEndStarted": "Ending in 3 seconds. Double-tap again to cancel.",
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
       "myLittleBoat": "My Little Raft",
@@ -511,6 +527,8 @@
       "fishingSpot": "My Spot on Fishing Island"
     },
     "spot": {
+      "pickPrompt": "Choose a spot to focus!",
+      "backToMainIsland": "← Main island",
       "onWater": "You can't sit on the water.",
       "occupied": "A resident is sitting here. Please sit a little further over.",
       "nearGram": "You can't sit here because of the gramophone. Please sit a little further over.",
@@ -520,15 +538,20 @@
       "noneFound": "Couldn't find an open spot. Please try again in a moment.",
       "groundA11y": "Fishing Island ground · Tap where you want to sit",
       "sitEmptyA11y": "Sit in an empty spot",
-      "sitEmptyButton": "Take a spot on empty ground"
+      "sitEmptyButton": "Take a spot on empty ground",
+      "available": "Available focus spot"
     },
     "setup": {
       "title": "Get Ready to Focus",
-      "placeholder": "e.g. Memorize English words",
+      "placeholder": "What will you do? (optional)",
       "subjectRequired": "Please enter a subject or to-do to focus on.",
       "needsIsland": "Join an island before you can focus.",
       "startFailed": "Couldn't start the focus session.",
-      "pickAnotherSpot": "Choose Another Spot"
+      "pickAnotherSpot": "Choose Another Spot",
+      "defaultSubject": "Focus",
+      "skip": "Skip",
+      "skipAndStart": "Skip and start",
+      "close": "Close and choose another spot"
     },
     "hud": {
       "emoteFab": "Emote",
@@ -558,7 +581,8 @@
       "title": "This Focus Session's Results",
       "defaultSubject": "This Focus Session",
       "durationLabel": "This Session's Focus Time",
-      "fishCount": "+{{count}} fish",
+      "fishLabel": "Fish caught",
+      "fishCount": "+{{count}}",
       "questsAchievedTitle": "Daily Quests Completed",
       "checking": "Checking…",
       "checkFailed": "Couldn't check your quests",
@@ -572,7 +596,7 @@
       "step5": "Tap an empty spot on the ground to choose your seat.",
       "step6": "You can't choose the water or a spot where another resident is sitting.\nJust tap the spot you like.",
       "step6SkipButton": "Stop Showing This Guide",
-      "step7": "Write down one to-do for this focus session.\nSomething you can start right away, like “Memorize English words,” works best.",
+      "step7": "Write what you want to do, or skip this step.",
       "step7Done": "Done",
       "step8": "Good. Now tap Start Focus.",
       "step9": "Focus has started.\nUp top, you'll see the to-do you just wrote and your actual focus time.",
@@ -581,7 +605,7 @@
       "step14": "Let's take a quick break this time.\nTap Take a Break below.",
       "step15": "If other residents on the same island are on a break, you can see them together here at the campfire.\nOnce you've rested enough, tap Resume Focus.",
       "step16": "You're back at the spot you picked earlier.\nYour to-do and focus time picked up right where they left off before your break, didn't they?",
-      "step17": "Even after taking a break like this, you don't need to start over from the beginning.\nNow let's finish up your focus session.",
+      "step17": "Now hold the end focus button for 3 seconds.",
       "step18": "Tap End Focus to finish.",
       "step19": "The time you just focused has been recorded.\nTime spent on break isn't included in your focus time.",
       "step20": "You can also check the fish you caught by focusing here.",
@@ -682,7 +706,6 @@
     "write": "Post",
     "writing": "Posting…",
     "delete": "Delete",
-    "report": "Report",
     "deleteTitle": "Delete this note?",
     "deleteBody": "This can't be undone.",
     "deleted": "Note deleted",
@@ -694,7 +717,9 @@
     "error": {
       "boardLocked": "You can write in the guestbook once the island builds a notice board",
       "alreadyWritten": "You've already left a note today"
-    }
+    },
+    "block": "Block",
+    "loadMoreFailed": "Could not load more guestbook notes."
   },
   "telescope": {
     "back": "Back",
@@ -753,7 +778,8 @@
       "ours": "Our island",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
       "a11yNoMeta": "{{name}}, ‘{{body}}’",
-      "scope": "Add {{name}} to the telescope"
+      "scope": "Add {{name}} to the telescope",
+      "privateIsland": "This island is invite-only"
     },
     "editor": {
       "title": "Promote Our Island",
@@ -786,7 +812,6 @@
       "problem": {
         "poor": "Not enough fish in the island bank",
         "windowClosed": "You can't apply right now. It opens again at 7 AM",
-        "private": "Private islands can't be in the magazine",
         "body": "Please check your message",
         "layout": "Please check your decorations",
         "locked": "It's past midnight, so it can't be edited. It appears at 7 AM",
@@ -818,7 +843,8 @@
       "confirmA11y": "{{fish}} fish",
       "done": "Done",
       "editAsk": "Edit your posted promotion?",
-      "editOk": "Edit"
+      "editOk": "Edit",
+      "assetsEmpty": "No owned materials"
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
@@ -960,29 +986,6 @@
       "clock": "Alarm clock",
       "tomato-timer": "Tomato timer"
     },
-    "report": {
-      "action": "Report",
-      "title": "Report this ad",
-      "sub": "Tell us why you are reporting the {{name}} ad. If several people report it, the ad is hidden and our team reviews it.",
-      "submit": "Report",
-      "busy": "Sending…",
-      "done": "Reported. Our team will take a look.",
-      "already": "You already reported this ad. Our team is looking into it.",
-      "guest": "Sign in with a social account to report.",
-      "gone": "This ad is no longer available, so it can’t be reported.",
-      "ours": "You can’t report your own island’s ad.",
-      "failed": "Couldn’t send the report. Check your connection and try again.",
-      "reasons": {
-        "HARASSMENT": "Abuse · harassment",
-        "HATE": "Hate · discrimination",
-        "SPAM_FRAUD": "Spam · scam",
-        "SEXUAL": "Sexual content",
-        "CHILD_SAFETY": "Child safety",
-        "THREAT": "Threats",
-        "PRIVACY_IMPERSONATION": "Privacy · impersonation",
-        "OTHER": "Other"
-      }
-    },
     "ledger": {
       "promotionFee": "Magazine promotion"
     }
@@ -1051,5 +1054,13 @@
     "rewardsUnknown": "Checking. See your inventory.",
     "welcomeTitle": "Welcome!",
     "welcomeBody": "You arrived at \"{{island}}\" as a new resident."
+  },
+  "safety": {
+    "blockTitle": "Block user",
+    "blockAction": "Block",
+    "processing": "Working…",
+    "blockBody": "Friend requests and letters from {{name}} will be hidden from your app list. Request notifications may still appear on your device. Content received while blocked may reappear after unblocking.",
+    "blocked": "Blocked {{name}}.",
+    "failed": "Couldn't complete this action. Check your connection and try again."
   }
 }

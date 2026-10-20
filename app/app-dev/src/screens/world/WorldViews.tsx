@@ -627,13 +627,11 @@ export function RestWorld({
   travel,
   resume,
   home,
-  endRest,
 }: {
   state: State;
   travel: boolean;
   resume: () => void;
   home: () => void;
-  endRest?: () => void;
 }) {
   const insets = useScreenInsets();
   const [phase, setPhase] = useState(travel ? 'sail' : 'read'),
@@ -686,8 +684,7 @@ export function RestWorld({
         onArrive={() => setPhase('walk')}
       />
     );
-  if (phase === 'read')
-    return <RestGroup state={state} resume={resume} home={home} endRest={endRest} />;
+  if (phase === 'read') return <RestGroup state={state} resume={resume} home={home} />;
   const scale = size.w / 820,
     mapW = 1024 * scale,
     mapH = 1536 * scale,

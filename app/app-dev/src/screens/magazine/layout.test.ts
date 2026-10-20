@@ -132,11 +132,10 @@ describe('보내기 전 검사', () => {
 
   it('정상이면 null, 문제가 있으면 서버 field 와 같은 위치를 준다', () => {
     expect(layoutProblem(ok)).toBeNull();
-    // 붙이기는 5개까지지만, 이미 낸 6~10개 칸도 고쳐 저장할 수 있게 검사는 서버 상한(10)이다
-    const ten = { ...ok, stickers: Array.from({ length: 10 }, () => ok.stickers[0]) };
-    expect(layoutProblem(ten)).toBeNull();
-    const eleven = { ...ok, stickers: Array.from({ length: 11 }, () => ok.stickers[0]) };
-    expect(layoutProblem(eleven)).toBe('layout.stickers[10]');
+    const five = { ...ok, stickers: Array.from({ length: 5 }, () => ok.stickers[0]) };
+    expect(layoutProblem(five)).toBeNull();
+    const six = { ...ok, stickers: [...five.stickers, ok.stickers[0]] };
+    expect(layoutProblem(six)).toBe('layout.stickers[5]');
     expect(layoutProblem({ ...ok, stickers: [{ ...ok.stickers[0], scale: 0.7 }] })).toBe(
       'layout.stickers[0]',
     );
@@ -270,3 +269,20 @@ describe('칸 밖 걸침 · 손잡이', () => {
     expect(h.y + 22).toBeLessThanOrEqual((1 + CANVAS_PAD) * width * CELL_ASPECT);
   });
 });
+
+it.each(Object.keys(MAGAZINE_FRAMES))(
+  '%s — 비공개 안내 한 줄을 더해도 60자 글이 칸 밖으로 넘치지 않는다',
+  (id) => {
+    const m = componentTokens.magazineCell;
+    const frame = MAGAZINE_FRAMES[id];
+    const { scale, bodyScale, bodyLines } = cellTextFit(frame, 2);
+    const [l, top, r, bottom] = frame.inset;
+    const boxW = (1 - l - r) * m.referenceWidth;
+    const boxH = (1 - top - bottom) * m.referenceWidth * m.aspect;
+    const need =
+      (m.profileDiameter + m.gap * 2 + m.metaSize * m.lineHeight * 2) * scale +
+      bodyLines * m.bodySize * bodyScale * m.lineHeight;
+    expect(need).toBeLessThanOrEqual(boxH);
+    expect(60 * 0.92 * m.bodySize * bodyScale).toBeLessThanOrEqual(boxW * bodyLines);
+  },
+);

@@ -54,6 +54,17 @@ class IslandConstructionContractTest extends UpstreamTestBase {
             + "\"villagePoints\":50,\"walletVersion\":8,"
             + "\"startedAt\":\"2026-09-18T10:00:00+09:00\",\"completesAt\":\"2026-09-18T10:30:00+09:00\"}";
 
+    @Test
+    @DisplayName("기여한 완공 목록을 전달하고 구서버 응답은 빈 목록으로 보존한다")
+    void forwardsContributedCompletions() throws Exception {
+        DATA.on(DATA_OPTIONS, request -> ok(OPTIONS_BODY.substring(0, OPTIONS_BODY.length() - 1)
+                + ",\"contributedCompletions\":[\"mail\"]}"));
+        mockMvc.perform(get("/islands/" + ISLAND + "/construction-options")
+                        .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.contributedCompletions[0]").value("mail"));
+    }
+
     // ---------------------------------------------------------------- 주체
 
     @Test
@@ -441,6 +452,7 @@ class IslandConstructionContractTest extends UpstreamTestBase {
         if (!operation.equals("target") && !operation.equals("build")) {
             expected.putNull("residentProgress");
             expected.putNull("activeConstruction");
+            expected.putArray("contributedCompletions");
         }
         if (operation.equals("empty-options")) {
             expected.putArray("items");
@@ -469,7 +481,7 @@ class IslandConstructionContractTest extends UpstreamTestBase {
     }
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "/islands/{islandId}/construction-options|get|200||islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items residentProgress activeConstruction|islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items",
+            "/islands/{islandId}/construction-options|get|200||islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items residentProgress activeConstruction contributedCompletions|islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items",
             "/islands/{islandId}/construction-options|get|200|activeConstruction|buildingId startedAt completesAt|buildingId startedAt completesAt",
             "/islands/{islandId}/construction-options|get|200|items|id name cost currency selectable buildable blockedReason|id name cost currency selectable buildable blockedReason",
             "/islands/{islandId}/construction-options|get|200|residentProgress|buildingId requiredPerResident residents|buildingId requiredPerResident residents",

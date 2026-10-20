@@ -359,7 +359,7 @@ test('홈에서는 진행 중인 건물 전환만 취소하고, 없으면 뒤로
   }
 });
 
-test('집중 중 휴식으로 들어가는 전환 동안 뒤로 가기는 전환만 취소하고, 그다음에야 집중 종료 확인을 연다', async () => {
+test('집중 중 휴식 진입 전환의 뒤로 가기는 전환을 취소하고, 다음 뒤로 가기는 길게 누르기 안내만 보여 준다', async () => {
   // 소속 섬이 있는 로컬 상태여야 집중 화면이 가입 안내 대신 그려진다
   await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(initialState(true)));
   const screen = await mount();
@@ -378,16 +378,21 @@ test('집중 중 휴식으로 들어가는 전환 동안 뒤로 가기는 전환
   await act(async () => captured.go('rest'));
   assert.equal(isBuildingTransitionActive(), true);
 
-  // 전환 취소가 집중 화면의 종료 확인보다 먼저다 — 취소하면 일시정지한 집중이 다시 시작된다
+  // 전환 취소가 집중 화면의 뒤로 가기보다 먼저다 — 취소하면 일시정지한 집중이 다시 시작된다
   assert.equal(await back(), true);
   assert.equal(isBuildingTransitionActive(), false);
   await waitFor(() => assert.equal(captured.state.session?.status, 'active'));
   assert.equal(captured.route, 'focus');
   expect(screen.queryByText('이번 집중을 마칠까요?')).toBeNull();
   expect(screen.queryByText('집중을 마칠까요?')).toBeNull();
+  const holdHint = '3초 동안 길게 누르면 집중을 종료해요. 중간에 손을 떼면 취소돼요.';
+  expect(screen.queryByText(holdHint)).toBeNull();
 
-  // 전환이 없으면 집중 화면이 종료 확인을 연다
+  // 전환이 없으면 종료 버튼의 길게 누르기를 안내하고 집중을 유지한다
   assert.equal(await back(), true);
-  expect(await screen.findByText('이번 집중을 마칠까요?')).toBeTruthy();
+  expect(await screen.findByText(holdHint)).toBeTruthy();
+  expect(screen.queryByText('이번 집중을 마칠까요?')).toBeNull();
+  expect(screen.queryByText('집중을 마칠까요?')).toBeNull();
+  assert.equal(captured.state.session?.status, 'active');
   assert.equal(captured.route, 'focus');
 });
