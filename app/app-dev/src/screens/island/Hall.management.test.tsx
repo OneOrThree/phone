@@ -378,6 +378,24 @@ test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave
   assert.ok(!env.dispatch.mock.calls.some(([a]: any) => a.type === 'LEAVE'));
   await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
   assert.equal(env.home.mock.calls.length, 0); // current 가 비면 App 이 섬 선택으로 보낸다
+  assert.equal(env.reset.mock.calls.length, 0); // 다음 위치를 모르면 바다로 단정하지 않는다
+});
+
+test.each([
+  ['먼바다면 바다로', { islandId: null }, null, 'sea'],
+  ['다른 섬이면 홈으로', { islandId: 'srv-2' }, 'srv-2', 'home'],
+])('탈퇴 응답의 다음 위치가 %s 간다(GROMO-2366)', async (_name, nextLocation, current, to) => {
+  managementMock.mockReturnValue(management({ role: 'member', requests: null }));
+  const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: current, nextLocation }));
+  const env = { ...e('manage', state), islands: { leave } };
+  const screen = await render(<Hall e={env} />);
+
+  await fireEvent.press(screen.getByTestId('hall-leave'));
+  await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+  await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
+  expect(env.reset.mock.calls).toEqual(to === 'sea' ? [['sea']] : []);
+  assert.equal(env.home.mock.calls.length, to === 'home' ? 1 : 0);
 });
 
 test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 서버로 탈퇴한다', async () => {

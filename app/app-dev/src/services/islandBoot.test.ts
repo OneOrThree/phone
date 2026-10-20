@@ -101,3 +101,18 @@ test('저장본도 계정도 없으면 null — 호출부가 setRoute를 하지 
   const d = deps({ account: null, serverMode: false, saved: null });
   assert.equal(await decideBootRoute(d.args as never), null);
 });
+
+test.each([
+  ['LEFT', 'sea'],
+  ['KICKED', 'sea'],
+  [null, 'chooseIsland'],
+] as const)(
+  '현재 섬이 없을 때 상실 사유 %s 면 %s 로 부팅한다(GROMO-2366)',
+  async (lossReason, route) => {
+    const d = deps({
+      syncIslands: async () => myIslands({ lossReason }),
+      saved: { loggedIn: true, onboarded: true },
+    });
+    assert.equal(await decideBootRoute(d.args as never), route);
+  },
+);

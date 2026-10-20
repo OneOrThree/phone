@@ -107,6 +107,7 @@ import {
   seaRouteHeld,
   visitRouteHeld,
   sessionRoute,
+  noIslandRoute,
 } from '@/services/model';
 import {
   checkSession,
@@ -618,7 +619,7 @@ function Gromo() {
           reset('login');
         })
         .catch(() => {});
-    } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
+    } else transitionRoute(state.onboarded ? 'home' : noIslandRoute(state));
   };
   const home = () => {
     const finish = () => {
@@ -1544,11 +1545,14 @@ function Gromo() {
         'approval',
         'currentIsland',
         'visit',
+        // 바다 표류에서 연 망원경(GROMO-2366) — 섬이 없어도 여기서 갈 섬을 고른다
+        'telescope',
       ].includes(route)
     )
       return;
     // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
-    reset('chooseIsland');
+    // 섬을 잃은 사람(나가기·강퇴)은 바다로, 처음 온 사람은 섬 선택으로 보낸다(GROMO-2366).
+    reset(noIslandRoute(state));
   }, [
     loaded,
     state.loggedIn,
@@ -1558,7 +1562,39 @@ function Gromo() {
     state.membershipRecovery,
     kickedDestination,
     route,
+    state.serverIslands?.lossReason,
   ]);
+  // 강퇴 안내(GROMO-2366) — /me/islands 가 강퇴로 현재 섬이 없다고 하면 한 번만 띄운다(바다 이동은 위 검사).
+  // 「봤음」은 계정별로 잃은 섬 id(모르면 '1')를 적어 다른 섬에서 또 강퇴되면 다시 띄우고, 현재 섬이 다시 생기면 지운다.
+  const { lossReason, kickedIsland } = state.serverIslands ?? {};
+  useEffect(() => {
+    const userId = getSession()?.userId;
+    if (!loaded || !userId) return;
+    const key = `kickNoticeSeen:${userId}`;
+    let live = true;
+    (async () => {
+      try {
+        if (serverCurrent) {
+          await AsyncStorage.removeItem(key);
+          return;
+        }
+        if (lossReason !== 'KICKED') return;
+        const lost = kickedIsland?.id ?? '1',
+          seen = await AsyncStorage.getItem(key).catch(() => null);
+        if (!live || seen === lost) return;
+        // 띄운 뒤에 본 것으로 적는다 — 기다리는 사이 상태가 바뀌면 띄우지도, 적지도 않는다
+        notify(
+          kickedIsland?.name ? t('app.kickedFrom', { island: kickedIsland.name }) : t('app.kicked'),
+        );
+        await AsyncStorage.setItem(key, lost);
+      } catch {
+        // 표시를 못 적으면 다음 동기화에 한 번 더 띄운다 — 안내는 화면을 막지 않는다
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [loaded, serverCurrent, lossReason, kickedIsland?.id, kickedIsland?.name]);
   useEffect(() => {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
@@ -1573,7 +1609,7 @@ function Gromo() {
       experienceIsland !== state.serverIslands.currentIslandId
     ) {
       setGuideStep(4);
-      reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+      reset(state.serverIslands.currentIslandId ? 'home' : noIslandRoute(state));
       return;
     }
     const restoring = !tutorialBootReconciled.current;
@@ -1847,7 +1883,7 @@ function Gromo() {
         state.serverIslands
       ) {
         dispatch({ type: 'END_VISIT' });
-        reset(state.serverIslands.currentIslandId ? 'home' : 'chooseIsland');
+        reset(state.serverIslands.currentIslandId ? 'home' : noIslandRoute(state));
         return true;
       }
       // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다

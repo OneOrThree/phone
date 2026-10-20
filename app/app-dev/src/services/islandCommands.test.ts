@@ -611,9 +611,9 @@ test('leave — 탈퇴 뒤 /me/islands 재조회로 소속을 확정하고 키�
   const keys: string[] = [];
   const leave = jest.fn(async (_id: string, key: string) => {
     keys.push(key);
-    return { left: true as const };
+    return { left: true as const, nextLocation: { islandId: null } };
   });
-  // 마지막 섬 탈퇴 — current 가 비면 onboarded=false 가 돼 App 이 섬 선택으로 보낸다
+  // 마지막 섬 탈퇴 — current 가 비면 onboarded=false 가 돼 App 이 바다로 보낸다
   const my = jest.fn(async () => myIslands({ lossReason: 'LEFT' }));
   const h = harness({
     leave,
@@ -624,6 +624,7 @@ test('leave — 탈퇴 뒤 /me/islands 재조회로 소속을 확정하고 키�
   assert.equal(leave.mock.calls[0][0], 'i1');
   assert.equal(my.mock.calls.length, 1);
   assert.equal(result.currentIslandId, null);
+  assert.deepEqual(result.nextLocation, { islandId: null }); // 서버가 알려 준 다음 위치를 넘긴다
   assert.equal(h.state().onboarded, false);
   await h.cmds.commands.leave('i1'); // 확정 뒤 다시 누르면 새 의도
   assert.notEqual(keys[0], keys[1]);
@@ -666,6 +667,7 @@ test('leave — 응답이 유실돼도 재조회에서 탈퇴가 확인되면 �
   });
   const result = await h.cmds.commands.leave('i1');
   assert.equal(result.currentIslandId, 'i2');
+  assert.equal(result.nextLocation, undefined); // 응답을 잃었으면 다음 위치는 모른다
   assert.equal(h.state().serverIslands?.currentIslandId, 'i2');
   await h.cmds.commands.leave('i1');
   assert.notEqual(leave.mock.calls[0][1], leave.mock.calls[1][1]);

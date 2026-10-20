@@ -344,6 +344,8 @@ export type State = {
     memberships: IslandSummary[];
     currentIslandId: string | null;
     lossReason: 'LEFT' | 'KICKED' | null;
+    // 강퇴로 잃은 섬(GROMO-2366) — /me/islands 에는 잃은 섬이 없어 강퇴 안내의 문구·「봤음」 표시가 쓴다
+    kickedIsland?: { id: string; name: string | null } | null;
     candidates: IslandSummary[];
     nextCursor: string | null;
     visit: VisitScreen | null;
@@ -1094,6 +1096,10 @@ export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?
 export const sessionRoute = (x: { kind?: string; status?: string }): Route =>
   x.kind === 'sea' ? 'sea' : x.status === 'paused' ? 'rest' : 'focus';
 export const seaRouteHeld = (route: Route) => route === 'sea' || route === 'seaArrival';
+/** 현재 섬이 없을 때 갈 화면(GROMO-2366) — 섬을 잃은 사람(나가기·강퇴)은 먼바다, 처음 온 사람은 섬 선택. */
+export const noIslandRoute = (s: {
+  serverIslands?: { lossReason: string | null } | null;
+}): Route => (s.serverIslands?.lossReason ? 'sea' : 'chooseIsland');
 /** 서버 섬 구경 중에 열 수 있는 라우트(허용 목록) — CurrentScreens 의 구경 가드와 App 의 소속 검사가 같은 것을 쓴다. */
 export const SERVER_VISIT_ROUTES: readonly Route[] = [
   'visitIsland',
@@ -1853,6 +1859,18 @@ export function reducer(state: State, a: Action): State {
           s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
         }
         s.tutorialEnrollment = 'existing';
+      }
+      // 강퇴로 잃은 섬을 남긴다 — 직전 current, 없으면(망원경 가입 뒤 강퇴) 이번에 사라진 소속.
+      // 덮어쓰기 전 소속 목록에만 있다. 새로 잃은 섬이 없으면 그대로 둔다
+      if (my.lossReason !== 'KICKED' || my.currentIslandId != null) snap.kickedIsland = null;
+      else {
+        const kept = new Set(my.items.map((item) => item.id)),
+          lostId = snap.currentIslandId ?? snap.memberships.find((item) => !kept.has(item.id))?.id;
+        if (lostId)
+          snap.kickedIsland = {
+            id: lostId,
+            name: snap.memberships.find((item) => item.id === lostId)?.name ?? null,
+          };
       }
       snap.memberships = my.items;
       // current 가 바뀌면 홈 스냅샷을 버린다 — 강퇴 뒤 같은 섬 재가입·전환 후 복귀에서 id 만 다시 맞아

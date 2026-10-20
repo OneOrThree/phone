@@ -1,7 +1,7 @@
 import React from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { act, render } from '@testing-library/react-native';
-import { useIslandSailing } from '@/screens/island/useIslandSailing';
+import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { initialState } from '@/services/model';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -55,3 +55,20 @@ describe('useIslandSailing', () => {
     expect(e.dispatch).toHaveBeenCalledTimes(1);
   });
 });
+
+test.each([
+  ['KICKED', 'sea'],
+  [null, 'chooseIsland'],
+] as const)(
+  '현재 섬 없이 구경을 끝내면 상실 사유 %s 는 %s 로 간다(GROMO-2366)',
+  (lossReason, to) => {
+    const e = {
+      dispatch: jest.fn(),
+      reset: jest.fn(),
+      state: { serverIslands: { currentIslandId: null, lossReason } },
+    };
+    endServerVisit(e);
+    expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
+    expect(e.reset).toHaveBeenCalledWith(to);
+  },
+);

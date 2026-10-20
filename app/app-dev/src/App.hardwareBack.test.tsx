@@ -144,11 +144,11 @@ const mount = async () => {
 };
 
 // 서버 방문 중인 상태 — 이때 앱의 뒤로 가기는 방문 종료(END_VISIT)다
-const startVisit = async (greeting?: string) => {
+const startVisit = async (greeting?: string, lossReason: 'LEFT' | 'KICKED' | null = null) => {
   await act(async () => {
     captured.dispatch({
       type: 'ISLAND_SYNC',
-      memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason: null },
+      memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason },
     });
     captured.dispatch({
       type: 'ISLAND_VISIT',
@@ -396,3 +396,35 @@ test('집중 중 휴식 진입 전환의 뒤로 가기는 전환을 취소하고
   assert.equal(captured.state.session?.status, 'active');
   assert.equal(captured.route, 'focus');
 });
+
+test('섬을 잃은 사람은 방문을 끝내면 섬 고르기 대신 먼바다로 가고, 먼바다의 뒤로 가기는 그 자리에 머문다(GROMO-2366)', async () => {
+  await mount();
+  await startVisit(undefined, 'KICKED');
+  assert.equal(await back(), true);
+  assert.equal(captured.state.visitingIslandId, null);
+  assert.equal(captured.route, 'sea');
+  // 기록 없는 먼바다에서 뒤로 가기 — 같은 먼바다로 남는다(빈 화면·되튐 없음)
+  assert.equal(await back(), true);
+  assert.equal(captured.route, 'sea');
+});
+
+test.each([
+  ['LEFT', 'sea'],
+  [null, 'chooseIsland'],
+] as const)(
+  '현재 섬이 없을 때 기록 없는 화면의 뒤로 가기는 상실 사유 %s 면 %s 로 간다(GROMO-2366)',
+  async (lossReason, to) => {
+    await mount();
+    await act(async () => {
+      captured.dispatch({ type: 'LOGIN' });
+      captured.dispatch({
+        type: 'ISLAND_SYNC',
+        memberships: { items: [], currentIslandId: null, nextCursor: null, lossReason },
+      });
+      captured.reset('currentIsland');
+    });
+    assert.equal(captured.route, 'currentIsland');
+    assert.equal(await back(), true);
+    assert.equal(captured.route, to);
+  },
+);

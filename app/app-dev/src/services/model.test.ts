@@ -2273,6 +2273,28 @@ test('ISLAND_SYNC — memberships가 정본이다: onboarded·current 반영, �
   assert.equal(s.serverIslands!.currentIslandId, null);
 });
 
+test('ISLAND_SYNC — 강퇴로 잃은 섬을 남기고, 망원경 가입 섬의 강퇴도 새로 남긴다(GROMO-2366)', () => {
+  const my = (
+    currentIslandId: string | null,
+    lossReason: 'LEFT' | 'KICKED' | null,
+    items = [sum('srv2')],
+  ) => ({ memberships: { items, nextCursor: null, currentIslandId, lossReason } });
+  let s = act(initialState(), 'ISLAND_SYNC', my('srv1', null, [sum('srv1'), sum('srv2')]));
+  s = act(s, 'ISLAND_SYNC', my(null, 'KICKED'));
+  assert.deepEqual(s.serverIslands!.kickedIsland, { id: 'srv1', name: '서버 섬 srv1' });
+  // 새로 잃은 섬이 없으면(다시 읽기) 그대로 둔다
+  s = act(s, 'ISLAND_SYNC', my(null, 'KICKED'));
+  assert.deepEqual(s.serverIslands!.kickedIsland, { id: 'srv1', name: '서버 섬 srv1' });
+  // current 를 옮기지 않은 망원경 가입 섬에서 강퇴 — 사라진 소속이 잃은 섬이다
+  s = act(s, 'ISLAND_SYNC', my(null, 'KICKED', []));
+  assert.deepEqual(s.serverIslands!.kickedIsland, { id: 'srv2', name: '서버 섬 srv2' });
+  s = act(s, 'ISLAND_SYNC', my('srv2', null));
+  assert.equal(s.serverIslands!.kickedIsland, null);
+  // 나가기로 잃은 섬은 강퇴로 남기지 않는다
+  s = act(s, 'ISLAND_SYNC', my(null, 'LEFT'));
+  assert.equal(s.serverIslands!.kickedIsland, null);
+});
+
 test('ISLAND_SYNC — mainIslandId를 실으면 /me 정본으로 갈아 끼우고, 안 실으면 현재 값을 유지한다', () => {
   // GROMO-2054: 두 번째 섬 가입처럼 소속이 바뀌는 동기화는 서버 도출 메인을 함께 반영한다.
   let s = act(initialState(true), 'ISLAND_SYNC', {
