@@ -43,6 +43,8 @@ export const primitiveTokens = {
     gramophoneTextMuted: '#FFFFFF',
     gramophoneSignText: '#211E1B',
     gramophoneShadow: '#3B291C',
+    sailingWake: '#E9FFF7',
+    sailingRipple: '#EAFFFA',
     nightCanvas: '#1D2521',
     nightSurface: '#26302A',
     nightSoft: '#313C33',
@@ -337,6 +339,12 @@ export const componentTokens = {
     tapeWidth: 46,
     hudGap: space[1],
     shadow: `0px ${space[1]}px 0px ${semanticTokens.color.outline}`,
+  },
+  // 뗏목 출항 연출(GROMO-2362, LAB scenes-rest-raft.js wake)의 항적 막대·수면 고리
+  sailing: {
+    wake: color.sailingWake,
+    wakeRadius: semanticTokens.radius.full,
+    ripple: color.sailingRipple,
   },
   gramophone: {
     panelBackground: color.gramophonePanel,

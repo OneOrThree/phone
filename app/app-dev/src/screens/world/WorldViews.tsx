@@ -16,6 +16,7 @@ import Svg, { Path } from 'react-native-svg';
 import { useFonts } from 'expo-font';
 import { State, currentIsland } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
+import { componentTokens } from '@/design-system/tokens';
 import { C, T, H, Button, useScreenInsets } from '@/design-system/primitives';
 import { CatSprite } from '@/components/CatSprite';
 import { PolicyLinks } from '@/components/PolicyLink';
@@ -109,34 +110,51 @@ function FrozenDrift({
   );
 }
 // 뗏목 출항(GROMO-2362) — 검토실 doc/animation-lab-2026-10-19 scenes-rest-raft.js voyage·hull·raftCat·wake 를 옮긴다.
-// sec 는 LAB 초. 상수는 LAB 숫자 그대로(12초 주기 wave), LAB 0–6.3초(준비 → 가속·항해 → 감속·정박 → 잔흔들림)를
-// Sailing duration 하나에 비례로 압축한다. 모든 값은 진행값 x(0→1) 하나의 보간이라 프레임마다 JS 가 돌지 않는다.
+// sec 는 LAB 초. 상수는 LAB 숫자 그대로(12초 주기 wave), LAB 0–6.3초를 Sailing duration 에 비례로 압축하되
+// 출항 준비·정박 잔흔들림은 실시간 고정 길이로 빼고(압축하면 1.9초에서 6.4Hz 로 떤다) 항해가 남는 시간을 갖는다.
+// 모든 값은 진행값 x(0→1) 하나의 보간이라 프레임마다 JS 가 돌지 않는다.
 const LAB_END = 6.3;
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const smooth = (v: number) => {
   const c = clamp01(v);
   return c * c * (3 - 2 * c);
 };
-const labPhase = (sec: number, a: number, b: number) => smooth((sec - a) / (b - a));
 const wave = (sec: number, cycles: number, offset = 0) =>
   Math.sin((Math.PI * 2 * cycles * sec) / 12 + offset);
 const mod1 = (n: number) => ((n % 1) + 1) % 1;
-function voyage(sec: number) {
-  const go = (at: number) => labPhase(at, 1.25, 5.25) * 300;
-  const velocity = (go(sec + 0.025) - go(sec - 0.025)) / 0.05;
+// 실시간 초: 출항 준비(뒤로 살짝 빠지는 예비 동작) · 정박 잔흔들림(2.2Hz, 감쇠 5/s, 끝에서 0 으로 접힌다)
+const PREP_S = 0.4,
+  SETTLE_S = 0.6,
+  SETTLE_HZ = 2.2,
+  SETTLE_DECAY = 5;
+// r 은 실시간 초, total 은 duration 초. 짧은 duration 이면 고정 구간을 전체의 60% 안으로 줄인다
+function voyage(r: number, total: number) {
+  const fit = Math.min(1, (total * 0.6) / (PREP_S + SETTLE_S)),
+    prep = PREP_S * fit,
+    settleS = SETTLE_S * fit,
+    p = clamp01((r - prep) / (total - prep - settleS)),
+    tau = r - (total - settleS);
+  // 속도는 LAB 항해(4초에 300px) 기준으로 정규화 — 항적 세기·고양이 기울기가 duration 과 무관하다
+  const velocity = 6 * p * (1 - p) * 75;
   return {
     // LAB x = 330 + progression*300 → 이동 구간 가운데(480)를 0 으로 둔다
-    x: go(sec) - 150 + (sec < 1.25 ? -Math.sin((Math.PI * sec) / 1.25) * 9 : 0),
+    x: smooth(p) * 300 - 150 + (r < prep ? -Math.sin((Math.PI * r) / prep) * 9 : 0),
     speed: clamp01(Math.abs(velocity) / 110),
     velocity,
-    settle: sec > 5.25 && sec < 6.3 ? Math.sin((sec - 5.25) * 12) * Math.exp(-(sec - 5.25) * 4) : 0,
+    settle:
+      tau > 0
+        ? Math.sin(2 * Math.PI * SETTLE_HZ * tau) *
+          Math.exp(-SETTLE_DECAY * tau) *
+          (1 - tau / settleS)
+        : 0,
   };
 }
-// ponytail: 128구간 선형 보간 — 잔흔들림(주기 0.52 LAB초)도 한 주기 10점 이상. 더 매끈해야 하면 STEPS 만 올린다
-const STEPS = 128;
+// ponytail: 256구간 선형 보간 — 7초에서도 잔흔들림 한 주기 16점. 더 매끈해야 하면 STEPS 만 올린다
+const STEPS = 256;
 const VOYAGE_INPUT = Array.from({ length: STEPS + 1 }, (_, i) => i / STEPS);
 const WAKE_COUNT = 8;
-const VOYAGE = (() => {
+const WAKE_STERN_SHIFT = 300 - (230 - 32 / 2);
+export function voyageTable(totalSec: number) {
   const empty = () => [] as number[];
   const tr = {
     x: empty(),
@@ -156,7 +174,7 @@ const VOYAGE = (() => {
   };
   for (const u of VOYAGE_INPUT) {
     const sec = u * LAB_END,
-      v = voyage(sec),
+      v = voyage(u * totalSec, totalSec),
       breath = wave(sec, 3, 1.1),
       strength = clamp01(v.speed * 1.15);
     tr.x.push(v.x);
@@ -169,7 +187,9 @@ const VOYAGE = (() => {
     tr.wake.forEach((w, i) => {
       const age = mod1(sec / 3 + i / WAKE_COUNT);
       w.o.push(Math.sin(Math.PI * age) * 0.35 * strength);
-      w.x.push(-(230 + age * 145 * strength));
+      // LAB 원본은 앞 끝이 −214~−264 라 선미 뒤 판(front-day, 이 줄에서 −277~−298 까지 불투명)에 대부분 가린다.
+      // 길이·투명도 식은 그대로 두고 age 0 의 앞 끝(−230+32/2)을 선미 끝 −300 에 맞춰 86 만큼 뒤로 민다
+      w.x.push(-(230 + WAKE_STERN_SHIFT + age * 145 * strength));
       w.y.push(62 + (i % 3) * 25 + age * 12); // LAB y 503+… − 선체 기준 441
       w.len.push(32 + age * 190 * strength);
     });
@@ -181,7 +201,7 @@ const VOYAGE = (() => {
     });
   }
   return tr;
-})();
+}
 const rad = (a: number[]) => a.map((v) => `${v}rad`);
 const scaled = (a: number[], k: number, plus = 0) => a.map((v) => v * k + plus);
 export function Sailing({
@@ -211,8 +231,6 @@ export function Sailing({
   callback.current = onArrive;
   const reduced = state.settings.reduceMotion,
     land = layout.compact;
-  // 멈춘 배 위치: 세로는 시안 프레임(0.441). 가로는 아래에서 가운데로 둔다
-  const park = 0.441;
   // 백그라운드·비활성(제어 센터 등)에서는 진행을 멈추고, 돌아오면 남은 시간만 이어 간다(FireMotion 과 같은 판정)
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   useEffect(() => {
@@ -220,9 +238,11 @@ export function Sailing({
     return () => subscription.remove();
   }, []);
   const paused = appState === 'background' || appState === 'inactive';
-  const elapsed = useRef(0);
+  const elapsed = useRef(0),
+    arrived = useRef(false);
   useEffect(() => {
     elapsed.current = 0;
+    arrived.current = false;
   }, [duration, reduced]);
   useEffect(() => {
     if (paused) return;
@@ -237,8 +257,11 @@ export function Sailing({
       easing: Easing.linear,
       useNativeDriver: true,
     });
+    // 다 온 뒤 background→active 면 남은 0ms timing 이 곧장 finished 로 끝난다 — 도착은 한 번만 알린다
     animation.start(({ finished }) => {
-      if (finished) callback.current();
+      if (!finished || arrived.current) return;
+      arrived.current = true;
+      callback.current();
     });
     return () => {
       animation.stop();
@@ -259,12 +282,14 @@ export function Sailing({
   const font = fontsLoaded ? 'GromoSailing' : undefined;
   const Drift = reduced ? FrozenDrift : SeaDrift,
     stillLand = reduced && land;
-  // 정박 기준점: 세로는 시안 프레임 위치, 가로는 화면 가운데(시안 L/sail). 움직임 줄이기는 여기 멈춘다
-  const parkX = land ? (width - size) / 2 : size * (-1.1 + park * 2.6);
   // LAB 뗏목 600px 은 원본 928px(48~976) — LAB 1px = 928/600 원본 px
   const k = (928 / 600) * sc;
+  // 기준점 = 이동 구간 가운데(LAB 480, 움직임 줄이기 정지점). LAB 처럼 화면 가운데에 두되, 정박(+150 LAB)한
+  // 뗏목 오른쪽 끝(원본 976)이 화면 밖으로 나가지 않게 당긴다 — 세로 폰은 시안 프레임 위치와 같아진다
+  const parkX = Math.min((width - size) / 2, width - 8 - 976 * sc - 150 * k);
   const motion = useMemo(() => {
     if (reduced) return null;
+    const VOYAGE = voyageTable(duration / 1000);
     const at = (out: number[] | string[]) =>
       x.interpolate({ inputRange: VOYAGE_INPUT, outputRange: out as any });
     // 회전 기준: 뗏목은 원본 (512, 640)(LAB 선체 원점), 고양이는 발 앵커(시트), 등불은 위 가운데(매단 점)
@@ -307,7 +332,7 @@ export function Sailing({
         transform: [{ scaleX: at(r.sx) }, { scaleY: at(r.sy) }],
       })),
     };
-  }, [x, reduced, k, parkX, sc, cs]);
+  }, [x, reduced, k, parkX, sc, cs, duration]);
   return (
     <View
       style={{ flex: 1, backgroundColor: '#f0f2df', overflow: 'hidden' }}
@@ -509,7 +534,7 @@ export function Sailing({
               <Path
                 d={`M${681 * k} ${52 * k}A${340 * k} ${51 * k} 0 0 1 ${k} ${52 * k}`}
                 fill="none"
-                stroke="#eafffa"
+                stroke={componentTokens.sailing.ripple}
                 strokeWidth={1.5 * k}
               />
             </Svg>
@@ -525,8 +550,8 @@ export function Sailing({
                 top: 640 * sc - 1.1 * k,
                 width: 222 * k,
                 height: 2.2 * k,
-                borderRadius: 1.1 * k,
-                backgroundColor: '#e9fff7',
+                borderRadius: componentTokens.sailing.wakeRadius,
+                backgroundColor: componentTokens.sailing.wake,
               },
               w,
             ]}
