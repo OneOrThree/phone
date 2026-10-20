@@ -714,6 +714,8 @@
     "loadFailed": "섬을 불러오지 못했어요.",
     "islandHint": "누르면 섬 정보를 볼 수 있어요",
     "joinedIslandA11y": "{{name}}, 내가 사는 섬",
+    "islandLabel": "{{name}} · {{time}}",
+    "islandTimeA11y": "{{label}}, 항해 {{time}}",
     "residents": "주민 {{count}}/{{max}}",
     "averageFocus": "평균 {{time}}",
     "averageUnknown": "아직 집계 전",

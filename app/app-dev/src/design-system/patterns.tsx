@@ -604,7 +604,14 @@ export function Bar({ value }: any) {
   );
 }
 // numberOfLines: 글자를 이 줄 수에서 말줄임으로 자른다(기본은 제한 없음). style: 바깥 알약에 얹는 배치(maxWidth·alignSelf 등).
-export function Badge({ children, soft = false, small = false, numberOfLines, style }: any) {
+export function Badge({
+  children,
+  soft = false,
+  small = false,
+  numberOfLines,
+  ellipsizeMode,
+  style,
+}: any) {
   const base = {
     alignSelf: 'flex-start',
     minHeight: small ? 22 : 28,
@@ -623,6 +630,7 @@ export function Badge({ children, soft = false, small = false, numberOfLines, st
       {/* v2 .badge.soft: 보통 굵기 · 옅은 글자 */}
       <Txt
         numberOfLines={numberOfLines}
+        ellipsizeMode={ellipsizeMode}
         style={{
           fontSize: small ? 12 : 13,
           lineHeight: small ? 17.4 : 18.85,
