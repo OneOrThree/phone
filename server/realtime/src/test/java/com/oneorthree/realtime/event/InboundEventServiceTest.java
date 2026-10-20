@@ -635,6 +635,40 @@ class InboundEventServiceTest {
     }
 
     @Test
+    @DisplayName("섬 사건 팬아웃 봉투의 wire 에는 제어 키가 없다 — 롤링 배포 중 옛 replica 의 매퍼 설정에 기대지 않는다")
+    void islandFanoutWireHasNoControlKeys() throws Exception {
+        String json = objectMapper.writeValueAsString(RealtimeEventFanoutEvent.island(UUID.randomUUID(),
+                "/topic/islands/x/focus", null, java.util.Set.of()));
+
+        assertThat(json).doesNotContain("revokedUserId").doesNotContain("revokedSessionId");
+        assertThat(objectMapper.writeValueAsString(RealtimeEventFanoutEvent.sessionRevoked(UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID()))).contains("revokedUserId").contains("revokedSessionId");
+    }
+
+    @Test
+    @DisplayName("구독자 — 반쪽 제어 필드(userId 만 null)나 destination 없는 섬 봉투는 전달도 폐기 처리도 없이 조용히 버린다")
+    void subscriberDropsMalformedEnvelopes() throws Exception {
+        var delivery = mock(RealtimeEventDelivery.class);
+        given(delivery.instanceId()).willReturn(UUID.randomUUID()); // 자기 메아리 판정이 NPE 로 새지 않게
+        var service = mock(InboundEventService.class);
+        var subscriber = new RealtimeEventFanoutSubscriber(delivery, service, objectMapper);
+        UUID origin = UUID.randomUUID();
+        String halfControl = objectMapper.writeValueAsString(new RealtimeEventFanoutEvent(origin, null, null,
+                java.util.Set.of(), null, UUID.randomUUID()));
+        String islandWithoutDestination = objectMapper.writeValueAsString(new RealtimeEventFanoutEvent(origin, null,
+                null, java.util.Set.of(), null, null));
+
+        for (String body : new String[] {halfControl, islandWithoutDestination}) {
+            subscriber.onMessage(new org.springframework.data.redis.connection.DefaultMessage(
+                    RedisKeys.EVENT_FANOUT_CHANNEL.getBytes(StandardCharsets.UTF_8),
+                    body.getBytes(StandardCharsets.UTF_8)), null);
+        }
+
+        verify(service, never()).applySessionRevocation(any(), any());
+        verify(delivery, never()).deliverLocally(any(), any(), any());
+    }
+
+    @Test
     @DisplayName("폐기 펜스의 Redis 쓰기가 실패해도 던지지 않는다 — 인메모리 펜스와 종료로 계속한다")
     void fenceRedisWriteFailureIsWarnedNotThrown() {
         StringRedisTemplate broken = mock(StringRedisTemplate.class);

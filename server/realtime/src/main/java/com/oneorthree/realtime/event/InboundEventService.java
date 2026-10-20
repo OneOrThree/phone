@@ -349,6 +349,7 @@ public class InboundEventService {
         // 순서: 펜스(+Redis 내구) → 전 replica 팬아웃 → (세션 목록 스냅샷) → 캐시 → 종료. 펜스가 목록보다 먼저여야 그 사이에 CONNECT·등록을
         // 끝낸 같은 sid 가 «목록에도 없고 펜스에도 안 걸리는» 일이 없다 — CONNECT 는 등록 뒤에도 펜스를 다시 본다.
         // Redis SET 은 한 번(여기)이면 되고 전파를 받은 replica 는 인메모리만 올린다.
+        // 의도 — relay 재시도마다 만료가 now+30일로 다시 잡혀 재시도 간격(상한 2^16 s)만큼 늘어나지만 무시할 수준이다.
         chatUserFence.revokeSession(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
         eventDelivery.publishSessionRevoked(userId, sid);
         closeLocalSessions(userId, sid);
@@ -356,6 +357,7 @@ public class InboundEventService {
 
     /**
      * 팬아웃으로 전파받은 세션 폐기 — 이 replica 의 인메모리 펜스·캐시·세션만 정리한다(GROMO-2350). 멱등이다.
+     * 전파받은 replica 에서 close 가 실패하면 재시도는 없다(롤백할 트랜잭션이 없다) — 인메모리 펜스가 프레임·SEND·SUBSCRIBE 를 막는다.
      */
     public void applySessionRevocation(UUID userId, UUID sid) {
         chatUserFence.markRevokedLocally(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));

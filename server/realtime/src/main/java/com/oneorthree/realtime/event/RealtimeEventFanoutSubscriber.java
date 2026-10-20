@@ -44,6 +44,11 @@ public class RealtimeEventFanoutSubscriber implements MessageListener {
                 inboundEventService.applySessionRevocation(event.revokedUserId(), event.revokedSessionId());
                 return;
             }
+            if (event.destination() == null || event.event() == null) {
+                // 반쪽 제어 필드나 옛 발행자의 봉투 — 섬 사건으로도 제어 사건으로도 읽을 수 없다. 삼켜지는 IllegalArgumentException 대신 원인을 남긴다.
+                log.warn("팬아웃 봉투가 섬 사건도 세션 폐기도 아니다 — 버린다");
+                return;
+            }
             delivery.deliverLocally(event.destination(), event.event(), event.recipients());
         } catch (Exception e) {
             // 예외 «객체»를 통째로 기록하지 않는다 — Jackson 의 역직렬화 예외 메시지에는 깨진 JSON 조각이

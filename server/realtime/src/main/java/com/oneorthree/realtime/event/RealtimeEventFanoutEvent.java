@@ -1,5 +1,7 @@
 package com.oneorthree.realtime.event;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.util.Set;
 import java.util.UUID;
 
@@ -30,8 +32,8 @@ public record RealtimeEventFanoutEvent(
         String destination,
         RealtimeEventEnvelope event,
         Set<UUID> recipients,
-        UUID revokedUserId,
-        UUID revokedSessionId
+        @JsonInclude(JsonInclude.Include.NON_NULL) UUID revokedUserId,
+        @JsonInclude(JsonInclude.Include.NON_NULL) UUID revokedSessionId
 ) {
     public RealtimeEventFanoutEvent {
         recipients = recipients == null ? Set.of() : Set.copyOf(recipients);
