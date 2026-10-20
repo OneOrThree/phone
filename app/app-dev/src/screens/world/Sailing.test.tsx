@@ -110,7 +110,7 @@ describe('Sailing', () => {
     },
   );
 
-  it.each([0.5, 1, 1.9, 7])(
+  it.each([0, 0.5, 1, 1.9, 7])(
     'voyageTable(%s) — 표본이 유한하고 시작 −150·끝 150, 끝에서 잔흔들림 0',
     (sec) => {
       const tr = voyageTable(sec);

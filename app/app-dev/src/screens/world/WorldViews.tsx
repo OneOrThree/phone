@@ -155,6 +155,7 @@ const VOYAGE_INPUT = Array.from({ length: STEPS + 1 }, (_, i) => i / STEPS);
 const WAKE_COUNT = 8;
 const WAKE_STERN_SHIFT = 300 - (230 - 32 / 2);
 export function voyageTable(totalSec: number) {
+  totalSec = Math.max(0.05, totalSec); // 0 이면 voyage 가 0/0 → NaN
   const empty = () => [] as number[];
   const tr = {
     x: empty(),
