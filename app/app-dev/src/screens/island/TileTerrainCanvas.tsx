@@ -113,18 +113,23 @@ function serverDebugLine(server: NavServerDebug, now: number) {
   return '서버 없음';
 }
 
-/** 마지막 걷기 한 줄 요약, server 가 있으면 둘째 줄로 서버 Δ·지연/대기/거절/없음을 더한다(GROMO-2249). */
+/**
+ * 마지막 걷기 한 줄 요약, server 가 있으면 둘째 줄로 서버 Δ·지연/대기/거절/없음을 더한다(GROMO-2249).
+ * stats 가 있으면 그 뒤에 이동 동기화 집계(GROMO-2250, 개발 전용 movementStats.format)를 붙인다.
+ */
 export function navDebugText(
   walk: NavWalk | null,
   kind: MapAssetSource['kind'],
   server?: NavServerDebug | null,
   now: number = Date.now(),
+  stats?: string | null,
 ) {
   const summary = walkSummary(walk, kind);
   // server 를 아예 안 주면(기존 호출) 둘째 줄이 없다 — 기존 동작 불변. null 은 "동기화 꺼짐(off)"을 명시한
   // 호출이라 「서버 없음」을 보여준다 — status:'off' 객체와 같은 문구다(GROMO-2249 보완 — 항목 2·5).
   if (server === undefined) return summary;
-  return `${summary}\n${server ? serverDebugLine(server, now) : '서버 없음'}`;
+  const text = `${summary}\n${server ? serverDebugLine(server, now) : '서버 없음'}`;
+  return stats ? `${text}\n${stats}` : text;
 }
 
 function polyline(points: Point[]) {
