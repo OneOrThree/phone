@@ -602,8 +602,8 @@ class TelescopePinIntegrationTest {
     }
 
     @Test
-    @DisplayName("강퇴된 섬은 403 KICKED_CANNOT_REJOIN, 내가 속한 섬은 409 ALREADY_MEMBER 다 — 비공개 섬이어도 본인 사실은 숨기지 않는다")
-    void kickedIs403AndAlreadyMemberIs409() throws Exception {
+    @DisplayName("강퇴된 섬은 넣을 수 있고(GROMO-2315), 내가 속한 섬은 409 ALREADY_MEMBER 다 — 비공개 섬이어도 본인 사실은 숨기지 않는다")
+    void kickedIslandPinsAndAlreadyMemberIs409() throws Exception {
         UUID viewer = newUser();
         Group kickedFrom = island("강퇴섬", 10);
         GroupMember kicked = join(viewer, kickedFrom);
@@ -614,19 +614,20 @@ class TelescopePinIntegrationTest {
         Group privateHome = groups.save(Group.builder().name("비공개소속섬").maxMembers(10).isPrivate(true).build());
         join(viewer, privateHome);
 
-        postPin(viewer, kickedFrom.getId(), "observatory").andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("KICKED_CANNOT_REJOIN"));
+        // 강퇴된 섬도 다시 신청할 수 있는 섬이라 망원경에 넣고 목록에도 보인다(10/20 결정) — 종전 403 KICKED_CANNOT_REJOIN.
+        postPin(viewer, kickedFrom.getId(), "observatory").andExpect(status().isCreated())
+                .andExpect(jsonPath("$.created").value(true));
         postPin(viewer, home.getId(), "observatory").andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ALREADY_MEMBER"));
         postPin(viewer, privateHome.getId(), "magazine").andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ALREADY_MEMBER"));
-        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isZero();
+        assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isEqualTo(1);
     }
 
     @ParameterizedTest(name = "비공개 섬 + 본인이 {0} → {1} {2}")
-    @CsvSource({"kicked,403,KICKED_CANNOT_REJOIN", "member,409,ALREADY_MEMBER", "left,404,GROUP_NOT_FOUND",
+    @CsvSource({"kicked,404,GROUP_NOT_FOUND", "member,409,ALREADY_MEMBER", "left,404,GROUP_NOT_FOUND",
             "none,404,GROUP_NOT_FOUND"})
-    @DisplayName("비공개 섬에서도 판정 순서는 내 소속 409 → 강퇴 403 → 비공개 404 다 — 비공개 섬의 응답은 본인 관계에 따라 갈린다")
+    @DisplayName("비공개 섬에서도 판정 순서는 내 소속 409 → 비공개 404 다 — 강퇴된 옛 주민도 자진 탈퇴와 같은 404 다(GROMO-2315)")
     void aPrivateIslandAnswersByTheCallersRelationBeforeHidingItself(String relation, int httpStatus, String code)
             throws Exception {
         UUID viewer = newUser();
@@ -649,8 +650,8 @@ class TelescopePinIntegrationTest {
             default -> throw new IllegalArgumentException(relation);
         }
 
-        // 본인이 아는 사실(소속·강퇴)은 비공개 판정보다 먼저다 — 비공개 판정이 앞서면 kicked 도 member 도 404 로 바뀐다. 그 밖에는
-        // (자진해서 나간 옛 주민 포함) 존재를 숨겨 관계 없는 사람과 같은 404 다.
+        // 본인이 아는 사실(소속)은 비공개 판정보다 먼저다 — 비공개 판정이 앞서면 member 도 404 로 바뀐다. 그 밖에는
+        // (자진해서 나갔거나 강퇴된 옛 주민 포함) 존재를 숨겨 관계 없는 사람과 같은 404 다.
         postPin(viewer, secret.getId(), "magazine").andExpect(status().is(httpStatus))
                 .andExpect(jsonPath("$.code").value(code));
         assertThat(count("select count(*) from telescope_pins where user_id=?", viewer)).isZero();
@@ -676,8 +677,8 @@ class TelescopePinIntegrationTest {
     // ---------------------------------------------------------------- ⑦ 보이는 핀
 
     @ParameterizedTest
-    @ValueSource(strings = {"private", "ended", "deleted", "kicked", "joined"})
-    @DisplayName("핀 섬이 그사이 비공개·종료·삭제·강퇴·내 소속이 되면 목록에서 빠지고 그 칸은 random 이 채운다 — 핀 행은 남는다")
+    @ValueSource(strings = {"private", "ended", "deleted", "joined"})
+    @DisplayName("핀 섬이 그사이 비공개·종료·삭제·내 소속이 되면 목록에서 빠지고 그 칸은 random 이 채운다 — 핀 행은 남는다")
     void aPinnedIslandThatBecomesUnavailableLeavesTheList(String change) {
         UUID viewer = newUser();
         List<UUID> order = byHash(viewer, islandIds(12));
@@ -693,11 +694,6 @@ class TelescopePinIntegrationTest {
             case "private" -> jdbc.update("update groups set is_private = true where id = ?", changing);
             case "ended" -> jdbc.update("update groups set status = 'ENDED' where id = ?", changing);
             case "deleted" -> jdbc.update("update groups set deleted_at = now() where id = ?", changing);
-            case "kicked" -> {
-                GroupMember kicked = join(viewer, groups.findById(changing).orElseThrow());
-                kicked.kick(BASE);
-                members.save(kicked);
-            }
             case "joined" -> join(viewer, groups.findById(changing).orElseThrow());
             default -> throw new IllegalArgumentException(change);
         }

@@ -333,6 +333,8 @@
     "memberConverted": "You're now a member.",
     "restoreFailed": "Couldn't load your saved data.",
     "storageCheck": "Please check your device storage.",
+    "kickedFrom": "You can no longer stay on \"{{island}}\".",
+    "kicked": "You can no longer stay on that island.",
     "build": {
       "confirmTitle": "Build {{building}}",
       "confirmBody": {

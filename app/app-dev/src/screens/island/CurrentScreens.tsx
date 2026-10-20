@@ -58,6 +58,7 @@ import {
   hoursMinutes,
   trackNames,
   SERVER_VISIT_ROUTES,
+  noIslandRoute,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
@@ -555,7 +556,7 @@ function CurrentScreensContent({ e }: any) {
   );
   const endServerVisit = () => {
     e.dispatch({ type: 'END_VISIT' });
-    e.reset(state.serverIslands?.currentIslandId ? 'home' : 'chooseIsland');
+    e.reset(state.serverIslands?.currentIslandId ? 'home' : noIslandRoute(state));
   };
   const visitMap = () => e.replace('visitIsland', state.visitingIslandId);
   const closeFacility = e.islands && state.visitingIslandId ? visitMap : e.home;
