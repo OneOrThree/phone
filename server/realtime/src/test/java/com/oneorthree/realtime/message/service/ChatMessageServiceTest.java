@@ -119,9 +119,9 @@ class ChatMessageServiceTest {
         fence.revokeSession(revokedSid, java.time.Instant.now().plusSeconds(600));
 
         assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("안녕"), revoked, SESSION_ID))
-                .isInstanceOf(ChatException.class)
-                .extracting(e -> ((ChatException) e).getErrorCode())
-                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+                .isInstanceOf(com.oneorthree.realtime.common.exception.DomainException.class)
+                .extracting(e -> ((com.oneorthree.realtime.common.exception.DomainException) e).getErrorCode())
+                .isEqualTo(com.oneorthree.realtime.common.exception.CommonErrorCode.UNAUTHORIZED);
 
         verify(chatMessageAppender, never()).append(any());
         verify(chatFanout, never()).broadcast(any());
@@ -141,9 +141,9 @@ class ChatMessageServiceTest {
                         SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8))).compact();
 
         assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("안녕"), expired, SESSION_ID))
-                .isInstanceOf(ChatException.class)
-                .extracting(e -> ((ChatException) e).getErrorCode())
-                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+                .isInstanceOf(com.oneorthree.realtime.common.exception.DomainException.class)
+                .extracting(e -> ((com.oneorthree.realtime.common.exception.DomainException) e).getErrorCode())
+                .isEqualTo(com.oneorthree.realtime.common.exception.CommonErrorCode.UNAUTHORIZED);
         verify(chatMessageAppender, never()).append(any());
         verify(chatFanout, never()).broadcast(any());
 
