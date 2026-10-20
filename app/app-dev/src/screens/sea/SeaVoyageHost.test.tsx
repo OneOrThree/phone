@@ -6,6 +6,9 @@ import { AppState } from 'react-native';
 import { ApiError } from '@/services/api/client';
 import { updateSeaRemark } from '@/services/api/focusSessions';
 import { getMyInventory } from '@/services/api/shop';
+import { sendFriendRequest } from '@/services/api/friends';
+import { sessionGeneration } from '@/services/api/session';
+import { openSeaRoom } from '@/services/seaRealtime';
 import { arriveAtIsland, getTelescope } from '@/services/api/telescope';
 import { SeaVoyageHost } from './SeaVoyageHost';
 
@@ -16,6 +19,11 @@ jest.mock('react-native-safe-area-context', () => ({
 jest.mock('@/services/api/session', () => ({
   ...jest.requireActual('@/services/api/session'),
   getSession: () => ({ userId: 'me' }),
+  sessionGeneration: jest.fn(() => 1),
+}));
+jest.mock('@/services/api/friends', () => ({
+  ...jest.requireActual('@/services/api/friends'),
+  sendFriendRequest: jest.fn(),
 }));
 jest.mock('@/services/api/focusSessions', () => ({
   ...jest.requireActual('@/services/api/focusSessions'),
@@ -39,10 +47,10 @@ const mockRoom = { sendEmote: jest.fn(() => true), close: jest.fn(), reconnect: 
 let mockRoomOpts: any;
 jest.mock('@/services/seaRealtime', () => ({
   ...jest.requireActual('@/services/seaRealtime'),
-  openSeaRoom: (opts: any) => {
+  openSeaRoom: jest.fn((opts: any) => {
     mockRoomOpts = opts;
     return mockRoom;
-  },
+  }),
 }));
 jest.mock('@/screens/world/WorldViews', () => ({
   Sailing: ({ destination, from, onArrive }: any) => {
@@ -83,6 +91,7 @@ const env = (over: Record<string, unknown> = {}) => ({
   home: jest.fn(),
   backOverride: { current: null as null | (() => boolean) },
   conversion: { offer: jest.fn(() => false) },
+  friendsScreen: { refresh: jest.fn() },
   ...over,
 });
 
@@ -94,6 +103,78 @@ beforeEach(() => {
     return { remove: jest.fn() };
   }) as never);
   mockRemark.mockReset();
+  jest.mocked(sessionGeneration).mockReturnValue(1);
+  jest.mocked(sendFriendRequest).mockReset();
+});
+
+const showPeer = async () => {
+  const e = env({
+    state: { name: '나냥', color: 'black', session: null },
+    friendsScreen: { refresh: jest.fn() },
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  await act(async () =>
+    mockRoomOpts.onMembers([
+      {
+        userId: 'peer',
+        name: '치즈',
+        color: 'ginger',
+        focusing: false,
+        activeSeconds: 123,
+        anchorMs: Date.now(),
+      },
+    ]),
+  );
+  await fireEvent.press(screen.getByTestId('sea-person-peer'));
+  expect(openSeaRoom).toHaveBeenCalledTimes(1);
+  return { e, screen };
+};
+
+test('바다 유저 카드의 친구 요청은 API 성공 뒤에만 완료 표시하고 친구 목록을 새로 읽는다', async () => {
+  jest.mocked(sendFriendRequest).mockResolvedValue();
+  const { e, screen } = await showPeer();
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  expect(sendFriendRequest).toHaveBeenCalledWith('peer');
+  expect(e.friendsScreen.refresh).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText('친구 요청 보냄')).toBeDisabled();
+  expect(openSeaRoom).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  ['STATE_CONFLICT', '이미 친구이거나 보낸 요청이 있어요.'],
+  ['FORBIDDEN', '친구 요청을 보낼 수 없는 상대예요.'],
+])('친구 요청 %s 실패를 성공으로 표시하지 않고 이유를 안내한다', async (code, message) => {
+  jest.mocked(sendFriendRequest).mockRejectedValue(new ApiError(code, '', 409));
+  const { e, screen } = await showPeer();
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  expect(e.notify).toHaveBeenCalledWith(message);
+  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
+});
+
+test('게스트 친구 요청은 회원 전환을 열고 성공으로 표시하지 않는다', async () => {
+  jest.mocked(sendFriendRequest).mockRejectedValue(new ApiError('SOCIAL_LOGIN_REQUIRED', '', 403));
+  const { e, screen } = await showPeer();
+  e.conversion.offer.mockReturnValue(true);
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  expect(e.conversion.offer).toHaveBeenCalled();
+  expect(e.notify).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
+});
+
+test('계정 전환 뒤 도착한 친구 요청 성공은 새 계정에 반영하지 않는다', async () => {
+  let finish!: () => void;
+  jest.mocked(sendFriendRequest).mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const { e, screen } = await showPeer();
+  await fireEvent.press(screen.getByLabelText('친구 요청'));
+  jest.mocked(sessionGeneration).mockReturnValue(2);
+  await act(async () => finish());
+  expect(e.friendsScreen.refresh).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
 });
 
 test('남은 분이 줄다가 목표 시간에 닿으면 「○○ 앞 정박 중」과 [섬에 내리기]로 바뀐다', async () => {

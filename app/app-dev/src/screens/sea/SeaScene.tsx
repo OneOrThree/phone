@@ -2,7 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '@/design-system/typography';
 import { useScreenInsets } from '@/design-system/primitives';
-import { semanticTokens as s, primitiveTokens as p } from '@/design-system/tokens';
+import {
+  semanticTokens as s,
+  primitiveTokens as p,
+  componentTokens as c,
+} from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { seaAssets } from './seaAssets';
 import { art } from '@/constants/art';
@@ -370,7 +374,10 @@ const styles = StyleSheet.create({
   clock: {
     fontSize: s.typography.caption,
     lineHeight: 16,
-    color: s.color.text,
+    color: c.seaParticipant.focusInk,
+    backgroundColor: c.seaParticipant.clockBackground,
+    borderRadius: s.radius.control,
+    paddingHorizontal: p.space[1],
     marginTop: 2,
     fontVariant: ['tabular-nums'],
   },

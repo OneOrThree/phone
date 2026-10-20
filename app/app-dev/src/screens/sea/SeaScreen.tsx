@@ -11,6 +11,7 @@ import {
 import { t } from '@/i18n';
 import { SeaArrival, SeaParticipant, SeaVoyage, SeaEmote, seaEmotes, seaClock } from './seaModel';
 import { SeaScene } from './SeaScene';
+import { SeaRaft } from './SeaRaft';
 import { SeaArrivalResult } from './SeaArrivalResult';
 import { SeaRewardArt } from './seaRewardCatalog';
 import { art } from '@/constants/art';
@@ -29,6 +30,8 @@ export type SeaScreenProps = {
   onTelescope: () => void;
   onMessage: (message: string) => Promise<void>;
   onEmote: (emote: SeaEmote) => Promise<void>;
+  /** 서버가 요청 생성을 확인하면 true. 로그인 안내·실패 처리는 호스트가 맡는다. */
+  onFriendRequest?: (userId: string) => Promise<boolean>;
   rewardCatalog?: Readonly<Record<string, SeaRewardArt>>;
 } & (
   | { guest?: false; onSignIn?: () => void }
@@ -50,6 +53,7 @@ export function SeaScreen(props: SeaScreenProps) {
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [requested, setRequested] = useState<ReadonlySet<string>>(new Set());
   const busy = useRef(false);
   const requestVersion = useRef(0);
   const mounted = useRef(true);
@@ -69,9 +73,10 @@ export function SeaScreen(props: SeaScreenProps) {
     setPanel(null);
     setError('');
   }, [scope]);
+  useEffect(() => setRequested(new Set()), [self.userId]);
 
   const run = async (action: () => Promise<void>, close = false) => {
-    if (busy.current) return;
+    if (busy.current) return false;
     busy.current = true;
     const requestScope = scopeRef.current;
     const version = requestVersion.current;
@@ -82,10 +87,11 @@ export function SeaScreen(props: SeaScreenProps) {
       if (
         mounted.current &&
         scopeRef.current === requestScope &&
-        requestVersion.current === version &&
-        close
-      )
-        setPanel(null);
+        requestVersion.current === version
+      ) {
+        if (close) setPanel(null);
+        return true;
+      }
     } catch {
       if (
         mounted.current &&
@@ -99,6 +105,7 @@ export function SeaScreen(props: SeaScreenProps) {
         if (mounted.current) setPending(false);
       }
     }
+    return false;
   };
   const open = (next: Panel) => {
     if (!busy.current) {
@@ -295,7 +302,7 @@ export function SeaScreen(props: SeaScreenProps) {
         />
       )}
       {!result && !!panel && (
-        <Overlay close={pending ? undefined : close} maxWidth={354}>
+        <Overlay close={pending ? undefined : close} maxWidth={c.seaParticipant.cardMaxWidth}>
           <View accessibilityViewIsModal style={styles.panel}>
             {panel === 'stop' && (
               <>
@@ -324,13 +331,49 @@ export function SeaScreen(props: SeaScreenProps) {
                 </Txt>
                 {selected && (
                   <>
+                    <View testID="sea-participant-avatar" style={styles.avatar} accessible={false}>
+                      <SeaRaft
+                        color={selected.color}
+                        focusing={selected.focusing}
+                        outfit={selected.outfit}
+                        size={c.seaParticipant.cardRaftSize}
+                        reduceMotion={reduceMotion}
+                      />
+                    </View>
                     <Txt>
                       {selected.focusing
                         ? selected.subject || t('openSea.focusing')
                         : t('openSea.floating')}
                     </Txt>
-                    {selected.focusing && <Txt kind="h">{seaClock(selected.activeSeconds)}</Txt>}
+                    <Txt kind="meta">{t('openSea.focusTime')}</Txt>
+                    <Txt kind="h" style={selected.focusing ? styles.focusClock : undefined}>
+                      {seaClock(selected.activeSeconds)}
+                    </Txt>
                     {!!selected.message && <Txt>{selected.message}</Txt>}
+                    {selected.userId !== self.userId && props.onFriendRequest && (
+                      <Btn
+                        dynamicHeight
+                        title={t(
+                          pending
+                            ? 'openSea.processing'
+                            : requested.has(selected.userId)
+                              ? 'openSea.friendRequested'
+                              : 'openSea.requestFriend',
+                        )}
+                        disabled={pending || requested.has(selected.userId)}
+                        onPress={() => {
+                          if (props.guest) return props.onSignIn();
+                          const target = selected.userId;
+                          let sent = false;
+                          run(async () => {
+                            sent = await props.onFriendRequest!(target);
+                          }).then((current) => {
+                            if (current && sent)
+                              setRequested((previous) => new Set([...previous, target]));
+                          });
+                        }}
+                      />
+                    )}
                   </>
                 )}
               </>
@@ -463,6 +506,8 @@ const styles = StyleSheet.create({
   primary: { flex: 1 },
   emoteButton: { maxWidth: 100 },
   panel: { gap: p.space[4] },
+  avatar: { alignItems: 'center' },
+  focusClock: { color: c.seaParticipant.focusInk },
   emotes: { flexDirection: 'row', flexWrap: 'wrap', gap: p.space[3] },
   error: { color: s.color.danger, textAlign: 'center' },
 });
