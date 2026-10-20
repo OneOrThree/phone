@@ -158,12 +158,12 @@ mmdc -i docs/prd/fishcat/island-movement/diagrams/01-architecture.mmd \
 
 | 항목 | 값 | 측정 방법 | 기준 |
 | --- | --- | --- | --- |
-| 앱 10분 이동 배터리 % | 미측정 — 실기기(2250 잔여) | 이동 동기화 플래그를 켠 빌드로 홈 섬에서 10분 동안 탭 이동, 전후 배터리 % | 앱 `e6e9b6920` |
-| 보정 점프 최대 px | 미측정 — 실기기(2250 잔여) | 서버 위치로 맞출 때(정지 보정·경로 갈아타기·도착) 캐릭터가 한 번에 옮겨지는 최대 화면 거리 | 앱 `e6e9b6920` |
-| dev 서버 RTT | 미측정 — 실기기(2250 잔여) | 실기기(Wi-Fi·LTE)에서 dev 서버로 intent → 내 PathAccepted 왕복 | 앱 `e6e9b6920` |
-| MV-D05 체감 | 미측정 — 실기기(2250 잔여) | 서버 확정 경로를 따라 걷는 가로·세로·대각 이동의 체감(정책 MV-D05) | 앱 `e6e9b6920` |
-| 실기기 Snapshot 간격 p99 | 미측정 — 실기기(2250 잔여) | 실기기(Wi-Fi·LTE)에서 Snapshot 수신 간격 p50·p99·100 ms 이상 비율 — 「dev 서버 RTT」 와 같은 세션, 위 서버 측 표와 같은 정의(아키텍처 §7 재검토 조건 ①-a) | 앱 `e6e9b6920` |
-| T10 재접속 횟수·복구 시간 | 미측정 — 실기기(2250 잔여) | 배경 종료·Wi-Fi 전환·동일 계정 다른 기기(T10)에서 재접속 횟수와 FullState 로 수렴까지 걸린 시간(아키텍처 §7 재검토 조건 ③) | 앱 `e6e9b6920` |
+| 앱 10분 이동 배터리 % | 68% → 53% (15%p, 약 21분 연속 자동 걷기·봇 5명 공존) — §7-3 | 이동 동기화 플래그를 켠 빌드로 홈 섬에서 탭 이동, 전후 배터리 % | 실기기 §7-3 (로컬·Wi-Fi) |
+| 보정 점프 최대 px | 화면 260 px (이미지 324 px × 배율 0.80) — §7-3 | 서버 위치로 맞출 때(정지 보정·경로 갈아타기·도착) 캐릭터가 한 번에 옮겨지는 최대 화면 거리 | 실기기 §7-3 |
+| dev 서버 RTT | 로컬 스택·Wi-Fi p50 64 · p99 202 · 최대 277 ms (452건) — §7-3. **dev 서버·LTE 는 미측정** | 실기기에서 dev 서버로 intent → 내 PathAccepted 왕복 | 실기기 §7-3 (dev·LTE 남음) |
+| MV-D05 체감 | 꽤 자연스러움 — 가로·세로·대각 이동 체감(오너) — §7-3 | 서버 확정 경로를 따라 걷는 가로·세로·대각 이동의 체감(정책 MV-D05) | 실기기 §7-3 |
+| 실기기 Snapshot 간격 p99 | 로컬·Wi-Fi p50 51 · p99 126 ms · ≥100ms 5.2% (18,000+건, 봇 5명 공존) — §7-3 | Snapshot 수신 간격 p50·p99·100 ms 이상 비율 — 「dev 서버 RTT」 와 같은 세션(아키텍처 §7 재검토 조건 ①-a) | 실기기 §7-3 (dev·LTE 남음) |
+| T10 재접속 횟수·복구 시간 | 단일 세션·망 전환 없이 재접속 0회·첫 FullState 38 ms. **배경 종료·Wi-Fi 전환·다른 기기(T10) 시나리오는 미수행** — §7-3 | 배경 종료·Wi-Fi 전환·동일 계정 다른 기기(T10)에서 재접속 횟수와 FullState 수렴 시간(아키텍처 §7 재검토 조건 ③) | 실기기 §7-3 (T10 남음) |
 
 ⁽¹⁾ PathAccepted 는 방 전원에게 나가는 메시지라(`RoomRuntime` `Target.ALL`) movement 토픽 구독으로 받는다. 서버가 다음 틱에 처리해 틱 대기(0~50 ms)가 들어 있고, 같은 맥이라 망 지연은 거의 없다. 측정 클라이언트가 같은 맥의 Node 단일 이벤트 루프라 N=15 에선 클라이언트 쪽 지터가 p99 에 섞인다 — 서버 처리 시간만으로 읽지 않는다. 표본이 30·150·450 개라 p99 는 경향으로만 읽는다(N=1 의 p99 는 곧 최대).
 
@@ -202,7 +202,7 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 
 ## 7-2. 2026-10-20 main 재측정
 
-서버 main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Redis 릴레이, 유한 outbound 실행기, heartbeat 10s, 틱 히스토그램)을 10-09·10-18 과 같은 두 하네스로 다시 쟀다. 원본·해시는 [measurements/2026-10-20/](measurements/2026-10-20/README.md). 표의 값은 스크립트 출력이며 손으로 옮기지 않았다. 앱은 띄우지 않았고 **실기기 잔여 표(§7)는 그대로 미측정**이다.
+서버 main `6e4857950`(에픽 2335 머지: 이동 단일 소유자 2339 기본 ON·Redis 릴레이, 유한 outbound 실행기, heartbeat 10s, 틱 히스토그램)을 10-09·10-18 과 같은 두 하네스로 다시 쟀다. 원본·해시는 [measurements/2026-10-20/](measurements/2026-10-20/README.md). 표의 값은 스크립트 출력이며 손으로 옮기지 않았다. 앱은 띄우지 않았다(실기기 측정은 §7-3 에서 따로 했다 — §7 잔여 표의 로컬·Wi-Fi·공존 분을 채웠고 dev 서버·LTE·T10 은 남았다).
 
 조건:
 
@@ -297,6 +297,31 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 - 원본: [measurements/2026-10-20/](measurements/2026-10-20/README.md) — `survey/`(run2 정본)·`survey-run1/`(오염, 참고)·`survey/repeat-300c/`·`one-island.{json,md,stdout.md,stderr.log}`·`one-island-conditions.txt`·`before-20261018/`(10-18 사본)·파일 해시.
 - ① 조사 하네스(레포 루트, 스택 `loadtest/infra/local/compose.yml`): `node loadtest/survey/realtime.mjs --mode movement --connections <N> --frequency <Hz> --seconds <S> --url ws://localhost:18088/ws/realtime --out <json>`. 300c 발신 분산(`movement-spread-300c`)은 `--spread-sends true` 를 더하고, 두 인스턴스 분산은 `--url ws://localhost:18083/ws/realtime,ws://localhost:18085/ws/realtime` 로 바꾼다(연결을 두 주소에 번갈아 배정). 하네스는 gitignored `loadtest/` 에 있다.
 - ② 한 섬: 위 재현 명령 ① 의 `--users 1,5,15` 에 `--repeat 3 --json <경로>` 를 더하고, data-api 에 `AUTH_GUEST_RATE_LIMIT_MAX=1000000`(게스트 15명 한 번에 발급, 티켓 2271)을 준다. 표는 `--render` 출력이다.
+
+## 7-3. 2026-10-20 실기기 측정 (티켓 2250, 봇 5명 공존)
+
+실기기에서 1단계 이동 동기화를 처음 쟀다. 개발 전용 앱 계기(`movementStats` + 자동 걷기, 브랜치 `afeat/GROMO-2250-movement-device-stats` `325e7214c`)가 앱 안에서 RTT·Snapshot 간격·보정 점프·재접속·FullState 를 세어 1초마다 Metro 로그(`[GROMO-2250]`)로 찍는다. 정의는 §7 서버 측 스크립트와 같다. 방법·수치 사본은 [measurements/2026-10-20/device-run/](measurements/2026-10-20/device-run/README.md).
+
+조건:
+
+- 기기 iPhone 16 Pro Max(iOS 27.0.1)·Wi-Fi. 서버는 **dev 가 아니라** 로컬 풀 스택 `phone-*-local`, realtime 2270 jar.
+- 공존: 측정 스크립트(`measure-movement.mjs --island <폰 홈 섬> --users 5 --duration 720`)로 봇 5명을 폰과 같은 섬에 멤버로 넣어 폰이 그들 이동을 수신했다(방 6명). 앱은 자기 소속(홈) 섬에서만 이동 채널을 연다 — 방문 섬에선 열리지 않아, 공존은 봇을 폰 섬에 넣는 방식이다.
+- 리셋 토글을 안 눌러 약 21분 누적이지만 봇이 대부분 구간에 있어 공존이 지배한다. 혼자일 때 Snapshot p99 106 ms·≥100ms 1.8% → 공존 126 ms·5.2% 로, 폰이 남의 이동을 소비하는 것이 수치에 잡힌다.
+
+| 항목 | 값 |
+| --- | --- |
+| RTT (intent→내 PathAccepted) | p50 64 · p99 202 · 최대 277 ms (452건) |
+| Snapshot 수신 간격 | p50 51 · p99 126 ms · ≥100ms 5.2% (18,000+건) |
+| 보정 점프 최대 | 화면 260 px (이미지 324 px × 배율 0.80) |
+| 재접속 / FullState 첫 수렴 | 0회 / 38 ms |
+| 배터리 | 68% → 53% (15%p, 약 21분) |
+| 이동 체감 (MV-D05) | 꽤 자연스러움 (오너) |
+
+서버 측 교차(봇 6명, `measure-movement.mjs` 결과): 세션당 수신 90.9 MB/시간, Snapshot 간격 p50 50·p99 59.7 ms, 왕복 p50 30·p99 64 ms, 실행 유효성 100%.
+
+남은 것(공개 dev 서버 빌드 + 수동 조작 필요): dev 서버 RTT·LTE 망, T10 재접속 시나리오(배경 종료·Wi-Fi 전환·동일 계정 다른 기기). 이번은 로컬 Wi-Fi·단일 세션이라 재접속이 0이었다.
+
+접속 함정(측정 중 해소): realtime 이 옛 IP 허용 목록을 들고 있어 폰 WebSocket(`/ws/realtime`)을 403 으로 막았다. realtime `CHAT_WS_ALLOWED_ORIGINS` 에 현재 맥 IP(`http://<ip>:8088`)를 더해 realtime 만 재기동하면 열린다(nginx 는 프록시만, 403 은 realtime 이 낸다).
 
 ## 부록 A. 10/9 타일 전환 체크리스트 (2026-10-08 작성)
 
