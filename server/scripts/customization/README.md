@@ -8,8 +8,8 @@
 
 - `server/data-api/src/main/resources/customization/reward-catalog-v1.json`: 90종의 서버 ID, 원본 ID, 이름, 희귀도, 렌더 자료와 정적 파일 SHA-256 목록.
 - `server/static/customization/`: 승인된 원본 PNG·자세 보정 JSON·이식 참고용 합성 코드. 파일 내용은 변경하지 않고 이름에 SHA-256 앞 8자를 붙였다.
-- V131: `customization_reward_policies`, `customization_reward_items`.
-- V132: 정책 revision 1과 `catalog_assets` 90종, `customization_reward_items` 90행을 등록한다.
+- V133: `customization_reward_policies`, `customization_reward_items`.
+- V134: 정책 revision 1과 `catalog_assets` 90종, `customization_reward_items` 90행을 등록한다.
 - `reward-design.json`: 승인 엑셀에서 추출한 입력. 파일 해시로 출처를 식별한다.
 - `probability-fixtures.json`: 같은 엑셀에서 계산한 13개 시간의 등급 확률. 2301에서도 호환성 검증에 사용할 수 있다.
 
@@ -31,7 +31,7 @@
 앱·서버 장착 모델이 6분류를 각각 지원하도록 연결하는 작업은 별도다.
 
 기존 `cust.head.duck`은 오리 모자이므로 보존한다. 새 오리 인형은 `cust.head.duck-plush`다.
-다른 기존 ID와 이름·종류·소유자가 충돌하면 V132 전체를 실패시킨다. 이미 존재하는 상품의 의미를 바꾸지 않는다.
+다른 기존 ID와 이름·종류·소유자가 충돌하면 V134 전체를 실패시킨다. 이미 존재하는 상품의 의미를 바꾸지 않는다.
 
 ## 확정 정책과 계산 계약
 
@@ -109,8 +109,8 @@ python3 server/scripts/customization/validate_reward_catalog.py
 ```
 
 생성기는 원본 합본을 수정하지 않으며 DB에 접속하지 않는다.
-V132는 아직 배포되지 않은 작업 중에만 재생성한다. 머지·적용 후 변경은 새 migration과 revision을 사용한다.
-적용 순서는 정적 파일 배포 → V131/V132 적용 → 2301·앱 어댑터 연결이다. 운영 DB 직접 적용은 하지 않았다.
+V134는 아직 배포되지 않은 작업 중에만 재생성한다. 머지·적용 후 변경은 새 migration과 revision을 사용한다.
+적용 순서는 정적 파일 배포 → V133/V134 적용 → 2301·앱 어댑터 연결이다. 운영 DB 직접 적용은 하지 않았다.
 
 ```sh
 cd server/data-api

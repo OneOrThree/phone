@@ -215,10 +215,10 @@ def main():
             + ", " + sql(json.dumps(item["renderData"], ensure_ascii=False, separators=(",", ":")))
             + "::jsonb, " + str(item["sortOrder"]) + ");"
         )
-    (RESOURCES / "db/migration/V132__seed_customization_reward_catalog.sql").write_text(
+    (RESOURCES / "db/migration/V134__seed_customization_reward_catalog.sql").write_text(
         "\n\n".join(statements) + "\n"
     )
-    print(f"카탈로그 {len(items)}종, 해시 파일 {len(file_index)}개, V132 생성 완료")
+    print(f"카탈로그 {len(items)}종, 해시 파일 {len(file_index)}개, V134 생성 완료")
 
 
 if __name__ == "__main__":

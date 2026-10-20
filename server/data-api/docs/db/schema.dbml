@@ -1,4 +1,4 @@
-// V131·V132 — 집중 꾸미기 확률 보상 정책·90종 등록 데이터 (GROMO-2313).
+// V133·V134 — 집중 꾸미기 확률 보상 정책·90종 등록 데이터 (GROMO-2313).
 Table customization_reward_policies [note: '추첨 엔진 2301의 입력. 등록만으로 지급·장착이 활성화되지 않는다'] {
   revision integer [pk, note: '> 0']
   minimum_active_seconds integer [not null, note: '> 0, 1회 세션 기준']
