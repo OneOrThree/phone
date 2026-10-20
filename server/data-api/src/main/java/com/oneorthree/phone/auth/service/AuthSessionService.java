@@ -8,8 +8,8 @@ import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,7 +49,6 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AuthSessionService {
 
     /** 사건 종류 — 봉투 {@code type}. */
@@ -72,6 +71,18 @@ public class AuthSessionService {
     private final LoginAttemptRepository loginAttemptRepository;
     private final OutboxCommandPort outboxCommandPort;
     private final Clock clock;
+    /** GROMO-2350 — true 면 폐기 사건을 Realtime 에도 보내 그 세션의 STOMP 연결을 닫게 한다. 기본 OFF. */
+    private final boolean realtimeEventsEnabled;
+
+    public AuthSessionService(AuthSessionRepository authSessionRepository,
+            LoginAttemptRepository loginAttemptRepository, OutboxCommandPort outboxCommandPort, Clock clock,
+            @Value("${auth.session-revoked.realtime-events-enabled:false}") boolean realtimeEventsEnabled) {
+        this.authSessionRepository = authSessionRepository;
+        this.loginAttemptRepository = loginAttemptRepository;
+        this.outboxCommandPort = outboxCommandPort;
+        this.clock = clock;
+        this.realtimeEventsEnabled = realtimeEventsEnabled;
+    }
 
     /**
      * 로그인 세션을 연다 — <b>발급된 RT 와 같은 트랜잭션에서</b>.
@@ -376,7 +387,10 @@ public class AuthSessionService {
                 AggregateRef.ofUser(session.getUserId()),
                 null,
                 params,
-                List.of(OutboxDeliveryRequest.toNotification(ENDPOINT_SESSION_REVOKED, null))));
+                realtimeEventsEnabled
+                        ? List.of(OutboxDeliveryRequest.toNotification(ENDPOINT_SESSION_REVOKED, null),
+                                OutboxDeliveryRequest.toRealtime(EVENT_SESSION_REVOKED, null))
+                        : List.of(OutboxDeliveryRequest.toNotification(ENDPOINT_SESSION_REVOKED, null))));
     }
 
     private static String newBootstrapNonce() {

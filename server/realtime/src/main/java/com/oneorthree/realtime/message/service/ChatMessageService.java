@@ -1,5 +1,7 @@
 package com.oneorthree.realtime.message.service;
 
+import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.message.dto.ChatHistoryResponse;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
@@ -59,6 +61,8 @@ public class ChatMessageService {
     private final ChatFanout chatFanout;
     private final Clock clock;
     private final WithdrawnSenders withdrawnSenders;
+    private final JwtValidator jwtValidator;
+    private final ChatUserFence chatUserFence;
 
     /**
      * 섬에 말 한 마디를 남기고 그 방 사람들에게 민다.
@@ -100,6 +104,12 @@ public class ChatMessageService {
 
         String content = normalizeContent(request.content());
 
+        // 저장 경계 재검사(GROMO-2350) — preSend 를 통과해 인바운드 실행기에서 기다리는 사이 세션이 폐기되면 소켓을 닫아도 예약된 이
+        // 작업은 취소되지 않는다. 그래서 INSERT 직전에 같은 폐기 sid 펜스를 다시 본다. 인메모리라 저장당 Redis 는 없다(Redis 판은
+        // 재시작·타 인스턴스의 CONNECT·REST 용). sid 는 STOMP 세션에 묶인 bearer 에서 푼다 — 프레임 헤더로 넘기는 것보다 호출부가 안 바뀐다.
+        // ponytail: 이 검사와 INSERT 사이 수 ms 는 남는다 — 사용자 잠금 아래로 옮기려면 appender 트랜잭션 안으로 들인다.
+        requireLiveSession(senderId, bearerToken);
+
         Stored stored = insertOrFindExisting(groupId, senderId, request.clientMessageId(), content);
         if (stored.freshlyInserted()) {
             chatFanout.broadcast(stored.message());
@@ -108,6 +118,30 @@ public class ChatMessageService {
             chatFanout.deliverToSender(senderId, sessionId, stored.message());
         }
         return stored.message();
+    }
+
+    /**
+     * 저장 직전 세션 재검사 — 거절이면 {@code UNAUTHORIZED}. proof(sid 있는 현행 토큰)가 있으면 폐기 펜스를 보고, 없으면 «sid 없는 정상
+     * 구 토큰»과 «만료·검증 실패»를 가른다: 대기 중에 AT 가 만료됐다면 proof 도 비어 있으므로, 비었다고 통과시키면 만료 토큰으로
+     * 저장·방송된다(CLAUDE.md 「만료 토큰 송수신 금지」). 구 토큰은 {@code extractUserId} 가 발신자와 같은 사용자를 돌려줄 때만 허용한다.
+     *
+     * <p>저장 경계 재검사는 <b>SEND 에만</b> 둔다 — 읽음 커서·응원·바다 한마디는 멤버십 쓰기가 아니라 영향이 작아 인바운드 펜스
+     * ({@code StompAuthChannelInterceptor.requireAuthenticated})까지로 둔다(조정자 결정).
+     *
+     * <p>만료와 폐기 모두 멤버십 문제가 아니라 인증 문제다 — {@code NOT_A_MEMBER} 로 내보내면 정상 주민이 멤버십 상실로 오해한다.
+     * 던지는 타입은 인증 거절 전용 {@link UpstreamRejectedCredentialException}(= {@code DomainException}, UNAUTHORIZED)이라
+     * {@code ChatStompController.send} 의 {@code DomainException} 변환이 그대로 개인 오류 큐 통지로 바꾼다.
+     */
+    private void requireLiveSession(UUID senderId, String bearer) {
+        String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : bearer;
+        var proof = jwtValidator.extractSessionProof(token);
+        // 후속: 모든 발급 토큰이 sid 를 가지면 «sid 없는 구 토큰» 분기(extractUserId 쪽)를 제거한다.
+        boolean rejected = proof.isPresent()
+                ? chatUserFence.isRevoked(proof.get().sessionId())
+                : jwtValidator.extractUserId(token).filter(senderId::equals).isEmpty();
+        if (rejected) {
+            throw new UpstreamRejectedCredentialException();
+        }
     }
 
     /**

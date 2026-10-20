@@ -1,9 +1,12 @@
 package com.oneorthree.realtime.event;
 
+import com.oneorthree.realtime.auth.ChatPrincipal;
+import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.config.OutboundAuthzCache;
+import com.oneorthree.realtime.config.RealtimeSessionRegistry;
 import com.oneorthree.realtime.membership.CurrentMembershipDecisionCache;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
@@ -16,11 +19,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.socket.CloseStatus;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -108,6 +115,22 @@ public class InboundEventService {
     /** 바다 상태 변경 — 내부 제어 사건(GROMO-2300). Data 바다 세션 start·finish·한마디 변경이 적는다. */
     static final String SEA_MEMBER_UPDATED = "sea.member.updated";
 
+    /**
+     * 로그인 세션 폐기 — 내부 제어 사건(GROMO-2350). Data {@code AuthSessionService.EVENT_SESSION_REVOKED}.
+     * 기본 OFF 모드는 전달 직전 인가가 AT 의 sid 를 보지 않아 폐기된 세션의 AT 가 만료까지 통과하므로, 캐시 삭제만으로는
+     * 부족하고 그 sid 의 STOMP 연결을 닫는 것이 수정이다.
+     */
+
+    static final String AUTH_SESSION_REVOKED = "auth.session.revoked";
+
+    /**
+     * 폐기 펜스 수명 — 폐기 sid 로 이미 발급된 AT 의 최대 수명. realtime 은 AT 수명 설정을 갖지 않고, 소켓의 bearer 는 앱이 재발급한
+     * 더 늦은 AT 보다 일찍 만료할 수 있어(세션이 없을 때는 알 수도 없다) 그 exp 를 믿을 수 없다. Data 의 가장 긴 값(dev
+     * {@code jwt.access-expiration} 2592000s = 30일, prod 3600s)을 쓴다.
+     * ponytail: prod 에는 과하다(폐기 건수 × 30일치 항목, 건당 ~100 B). 커지면 AT 수명을 설정으로 받아 줄인다.
+     */
+    private static final Duration MAX_ACCESS_TOKEN_LIFETIME = Duration.ofDays(30);
+
     private static final Set<String> APP_EVENT_TYPES = Arrays.stream(RealtimeEventType.values())
             .map(RealtimeEventType::wireName)
             .collect(Collectors.toUnmodifiableSet());
@@ -134,6 +157,10 @@ public class InboundEventService {
     private final SeaRooms seaRooms;
     private final CurrentMembershipDecisionCache currentMembershipCache;
     private final OutboundAuthzCache outboundAuthzCache;
+    private final RealtimeSessionRegistry sessions;
+    private final JwtValidator jwtValidator;
+    private final Clock clock;
+    private final RealtimeEventDelivery eventDelivery;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -147,6 +174,7 @@ public class InboundEventService {
         String eventId = requiredText(envelope, "eventId");
         String type = requiredText(envelope, "type");
         if (!USER_WITHDRAWN.equals(type) && !USER_BLOCKS_UPDATED.equals(type) && !SEA_MEMBER_UPDATED.equals(type)
+                && !AUTH_SESSION_REVOKED.equals(type)
                 && !APP_EVENT_TYPES.contains(type)) {
             throw new InvalidEventException();
         }
@@ -169,6 +197,8 @@ public class InboundEventService {
             advanceBlockGeneration(eventId, envelope);
         } else if (SEA_MEMBER_UPDATED.equals(type)) {
             seaRooms.applyMemberUpdated(envelope);
+        } else if (AUTH_SESSION_REVOKED.equals(type)) {
+            closeRevokedSession(eventId, envelope);
         } else {
             evictMembershipCacheIfNeeded(type, envelope);
             deliver(eventId, type, envelope);
@@ -299,6 +329,67 @@ public class InboundEventService {
         }
         blockedUsers.advanceGeneration(blockerId);
         outboundAuthzCache.evictUser(blockerId);
+    }
+
+    /**
+     * 폐기된 로그인 세션({@code params.sessionId} = AT 의 {@code sid})의 STOMP 연결을 닫는다. 같은 사용자의 다른 sid 세션은
+     * 건드리지 않는다. 필드가 없거나 UUID 가 아니면 200 + skip — 이 사건이 USER 축을 막으면 탈퇴 전파까지 멈춘다.
+     *
+     * <p>ponytail: {@code sessionIdsOf} 가 세션 전체를 훑고(O(세션 수)) 그 사용자의 세션마다 JWT 를 푼다 — 폐기 사건은 로그아웃·탈퇴 때뿐이라 싸다. 만료된 AT 를
+     * 든 세션은 sid 를 못 읽어 닫지 않는다 — 어차피 모든 SEND·SUBSCRIBE 가 만료로 거절한다.
+     */
+    private void closeRevokedSession(String eventId, JsonNode envelope) {
+        JsonNode params = envelope.get("params");
+        UUID userId = uuidOrNull(envelope.get("userId"));
+        UUID sid = params == null || !params.isObject() ? null : uuidOrNull(params.get("sessionId"));
+        if (userId == null || sid == null) {
+            log.warn("세션 폐기 사건에 userId/sessionId 가 없다 — 연결을 닫지 않는다. eventId={}", eventId);
+            return;
+        }
+        // 순서: 펜스(+Redis 내구) → 전 replica 팬아웃 → (세션 목록 스냅샷) → 캐시 → 종료. 펜스가 목록보다 먼저여야 그 사이에 CONNECT·등록을
+        // 끝낸 같은 sid 가 «목록에도 없고 펜스에도 안 걸리는» 일이 없다 — CONNECT 는 등록 뒤에도 펜스를 다시 본다.
+        // Redis SET 은 한 번(여기)이면 되고 전파를 받은 replica 는 인메모리만 올린다.
+        // 의도 — relay 재시도마다 만료가 now+30일로 다시 잡혀 재시도 간격(상한 2^16 s)만큼 늘어나지만 무시할 수준이다.
+        chatUserFence.revokeSession(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
+        eventDelivery.publishSessionRevoked(userId, sid);
+        closeLocalSessions(userId, sid);
+    }
+
+    /**
+     * 팬아웃으로 전파받은 세션 폐기 — 이 replica 의 인메모리 펜스·캐시·세션만 정리한다(GROMO-2350). 멱등이다.
+     * 전파받은 replica 에서 close 가 실패하면 재시도는 없다(롤백할 트랜잭션이 없다) — 인메모리 펜스가 프레임·SEND·SUBSCRIBE 를 막는다.
+     */
+    public void applySessionRevocation(UUID userId, UUID sid) {
+        chatUserFence.markRevokedLocally(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
+        closeLocalSessions(userId, sid);
+    }
+
+    /**
+     * 이 JVM 에 붙은 그 사용자의 세션 중 sid 가 같은 것만 닫는다. 한 세션의 종료가 실패해도 나머지를 먼저 닫고 마지막에 던진다 —
+     * 수신 인스턴스에서는 던져진 예외가 트랜잭션을 롤백해 relay 가 재시도한다(팬아웃 수신 쪽은 로그만 남기는 리스너가 삼킨다).
+     */
+    private void closeLocalSessions(UUID userId, UUID sid) {
+        List<String> revoked = new ArrayList<>();
+        for (String stompId : sessions.sessionIdsOf(userId)) {
+            ChatPrincipal principal = sessions.find(stompId);
+            String bearer = principal == null ? null : principal.bearer();
+            String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
+            if (jwtValidator.extractSessionProof(token).filter(p -> sid.equals(p.sessionId())).isPresent()) {
+                revoked.add(stompId);
+            }
+        }
+        currentMembershipCache.evictUser(userId);
+        CloseStatus status = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
+        boolean failed = false;
+        for (String stompId : revoked) {
+            outboundAuthzCache.evictSession(stompId);
+            // 두 번 시도하고도 소켓이 열려 있으면 실패다. 이미 끊긴 세션(close 가 false 여도 isConnected false)은 성공으로 본다.
+            boolean closed = sessions.close(stompId, status) || sessions.close(stompId, status);
+            failed |= !closed && sessions.isConnected(stompId);
+        }
+        if (failed) {
+            throw new IllegalStateException("폐기된 세션의 연결을 닫지 못했다");
+        }
     }
 
     /** 전달 어댑터가 있는 사건만 7필드로 바꿔 섬 토픽으로 보낸다. 나머지는 기록만 하고 끝낸다. */

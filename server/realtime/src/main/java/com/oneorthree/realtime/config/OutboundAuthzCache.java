@@ -44,7 +44,9 @@ import java.util.function.LongSupplier;
  * <h2>남는 창 — TTL({@code chat.websocket.outbound.authz-cache-ttl-seconds}, 기본 30s)이 상한</h2>
  * <ul>
  *   <li>사건을 처리한 인스턴스만 지운다(이 캐시는 JVM 안이다) — 다른 인스턴스는 TTL 뒤에 반영된다.</li>
- *   <li>세션 폐기(ON 모드 sid/gen)도 사건이 없다 — TTL 뒤 다음 미스에서 자격 거절로 닫힌다.</li>
+ *   <li>세션 폐기({@code auth.session.revoked}, GROMO-2350)는 사건이 그 sid 의 STOMP 연결을 닫고 {@link #evictSession} 으로
+ *       지운다. 사건은 기존 팬아웃 채널로 전 replica 에 퍼져 각자 지운다. 단 Data 의 생산 스위치(기본 OFF)가 꺼져 있으면 사건이 없다 — ON 모드는 sid/gen 거절로,
+ *       OFF 모드는 AT 만료로 닫힌다.</li>
  * </ul>
  * TTL 은 멤버십 캐시 TTL({@code chat.membership.cache-ttl-seconds})을 넘지 않게 자른다. 0 이면 캐시를 끈다(종전 동작).
  *

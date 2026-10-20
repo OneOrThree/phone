@@ -71,6 +71,9 @@ class ChatControllerTest {
     @Value("${jwt.secret}")
     private String jwtSecret;
 
+    @Autowired
+    private com.oneorthree.realtime.message.service.ChatUserFence chatUserFence;
+
     @MockitoBean
     private GroupClient groupClient;
 
@@ -282,6 +285,37 @@ class ChatControllerTest {
                 .clientMessageId(UUID.randomUUID())
                 .sentAt(java.time.Instant.now())
                 .build());
+    }
+
+    @Test
+    @DisplayName("폐기된 sid 의 AT 는 멤버십 캐시가 남아 있어도 이력 조회가 401 이고, 같은 사용자의 다른 sid 는 200 이다 (GROMO-2350)")
+    void revokedSessionCannotReadHistory() throws Exception {
+        UUID revokedSid = UUID.randomUUID();
+        String revoked = sessionBearerOf(userId, revokedSid);
+        String other = sessionBearerOf(userId, UUID.randomUUID());
+        given(groupClient.fetchMyGroupIds(revoked)).willReturn(GroupClient.Membership.of(Set.of(island)));
+        given(groupClient.fetchMyGroupIds(other)).willReturn(GroupClient.Membership.of(Set.of(island)));
+        String path = "/api/v1/chat/rooms/" + island + "/messages";
+        mockMvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, revoked)).andExpect(status().isOk()); // 캐시를 채운다
+
+        chatUserFence.revokeSession(revokedSid, Instant.now().plusSeconds(600));
+
+        mockMvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, revoked))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        mockMvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, other)).andExpect(status().isOk());
+        redis.delete(RedisKeys.revokedSession(revokedSid));
+    }
+
+    private String sessionBearerOf(UUID id, UUID sid) {
+        return "Bearer " + Jwts.builder()
+                .subject(id.toString())
+                .claim("type", "access")
+                .claim("sid", sid.toString())
+                .claim("gen", 0L)
+                .expiration(Date.from(Instant.now().plusSeconds(3600)))
+                .signWith(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8)))
+                .compact();
     }
 
     private String bearerOf(UUID id) {
