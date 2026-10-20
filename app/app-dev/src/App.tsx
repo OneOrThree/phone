@@ -188,7 +188,8 @@ const REVIEW_LANG =
     ? new URLSearchParams(window.location.search).get('lang')
     : null;
 // GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
-const TESTFLIGHT_ALL_BUILDINGS = true;
+// 출시 빌드에서는 꺼지고, 개발 빌드나 EXPO_PUBLIC_QA=1 로 띄운 QA 빌드에서만 켠다(GROMO-2381).
+export const TESTFLIGHT_ALL_BUILDINGS = __DEV__ || process.env.EXPO_PUBLIC_QA === '1';
 const STORAGE = 'gromo-r61-user-v2';
 // 채택 도중 세션 세대가 바뀌면(401 정리·다른 로그인) 남은 적용을 버리는 내부 신호. 호출부에는
 // 오류로 드러내지 않는다 — 새 세션의 화면이 이미 자기 흐름을 진행 중이다.

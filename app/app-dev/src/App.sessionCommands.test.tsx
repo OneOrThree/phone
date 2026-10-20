@@ -2100,3 +2100,24 @@ test('이전 계정의 늦은 체험 완료 콜백은 새 계정의 완료 이�
   expect((await readAccountGuides('guide-new')).focusDone).toBe(false);
   await app.unmount();
 });
+
+test('출시 빌드에서는 QA 전체 완공 플래그가 꺼진다', () => {
+  const g = global as { __DEV__?: boolean };
+  const dev = g.__DEV__;
+  const qa = process.env.EXPO_PUBLIC_QA;
+  g.__DEV__ = false;
+  delete process.env.EXPO_PUBLIC_QA;
+  try {
+    jest.isolateModules(() => {
+      expect(require('@/App').TESTFLIGHT_ALL_BUILDINGS).toBe(false);
+    });
+    process.env.EXPO_PUBLIC_QA = '1';
+    jest.isolateModules(() => {
+      expect(require('@/App').TESTFLIGHT_ALL_BUILDINGS).toBe(true);
+    });
+  } finally {
+    g.__DEV__ = dev;
+    if (qa === undefined) delete process.env.EXPO_PUBLIC_QA;
+    else process.env.EXPO_PUBLIC_QA = qa;
+  }
+});
