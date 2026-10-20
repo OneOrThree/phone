@@ -300,7 +300,7 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 | PathAccepted waypoints 평균 (최대) | 30.7 (67) | 30.8 (79) | 31.8 (80) | 측정 |
 | Arrived (B/s) | 38.7 | 210.7 | 593.6 | 측정 (건당 크기는 미측정) |
 | IDLE entity 비율 | 1.3% | 10.8% | 10.7% | 측정 |
-| waypoint 당 B | — | — | — | 미측정. `Point` JSON `{"x":12.34,"y":56.78}` ≈ 24 B 로 추정하면 31.8 × 24 ≈ 763 B, 본문 866 − 763 ≈ 103 B 가 waypoints 밖 필드다(추정) |
+| waypoint 당 B | — | — | — | 미측정. `RoomRuntime.toWaypoints()` 가 셀 중심(0.5 단위)만 내므로 `Point` JSON `{"x":12.5,"y":34.5},` 는 구분 쉼표 포함 ≈ 20 B 로 추정하면 31.8 × 20 ≈ 636 B, 본문 866 − 636 ≈ 230 B 가 waypoints 밖 필드다(추정) |
 
 PathAccepted 프레임(1,071 B) − 본문(866 B) = 205 B 는 STOMP 헤더(Snapshot 의 215 B 와 같은 급)로 보이지만, 헤더 길이를 PathAccepted·Arrived 에서 직접 재지는 않았다.
 
