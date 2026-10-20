@@ -225,35 +225,38 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         Message<?> message = task instanceof MessageHandlingRunnable handling ? handling.getMessage() : null;
         String destination = message == null ? null : SimpMessageHeaderAccessor.getDestination(message.getHeaders());
         String sessionId = message == null ? null : SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
+        // 이미 종료 예약된 세션의 뒤늦은 거부(같은 세션의 동시 송신이 preSend 를 먼저 통과했다)는 추가 대상을 고르지 않는다 —
+        // 고르면 프레임을 잃지 않은 정상 세션이 연쇄로 닫힌다. add 가 원자적이라 동시 거부 중 하나만 fresh 다.
+        boolean fresh = sessionId != null && closing.add(sessionId);
         // 최대 점유자는 넘친 세션을 «포함해» 고른다 — 거부된 프레임도 그 세션이 잡으려 한 몫이라 센 채로 비교하고(장식기가 이미
         // +1 했다), 비교 «뒤에» 뺀다. 동률이면 넘친 세션이 이긴다(정상 세션을 불필요하게 닫지 않는다).
-        String heaviest = heaviest(sessionId);
+        String heaviest = fresh ? heaviest(sessionId) : null;
         if (sessionId != null) {
             uncount(sessionId); // 큐에 못 들어갔다
         }
+        if (!fresh) {
+            return;
+        }
         // 최대 점유자가 넘친 세션 자신이면 한 번만 닫는다(overflow). 다르면 가해를 먼저, 넘친 세션을 그 다음에 —
         // 한 작업에서 차례로 닫아 순서를 보장한다.
-        String offender = heaviest != null && !heaviest.equals(sessionId) ? heaviest : null;
         List<String> victims = new ArrayList<>(2);
-        if (offender != null && closing.add(offender)) {
+        if (heaviest != null && !heaviest.equals(sessionId) && closing.add(heaviest)) {
             closedOffender.increment();
-            victims.add(offender);
-            log.warn("아웃바운드 큐 포화 — 최대 점유 세션을 닫는다. pending={}", pending.get(offender));
+            victims.add(heaviest);
+            log.warn("아웃바운드 큐 포화 — 최대 점유 세션을 닫는다. pending={}", pending.get(heaviest));
         }
-        if (sessionId != null && closing.add(sessionId)) {
-            closedOverflow.increment();
-            victims.add(sessionId);
-            log.warn("아웃바운드 큐 포화 — 프레임을 버린 세션을 닫는다. kind={}", kindOf(destination));
-        }
-        if (!victims.isEmpty()) {
-            closer.execute(() -> victims.forEach(this::closeReserved));
-        }
+        closedOverflow.increment();
+        victims.add(sessionId);
+        log.warn("아웃바운드 큐 포화 — 프레임을 버린 세션을 닫는다. kind={}", kindOf(destination));
+        closer.execute(() -> victims.forEach(this::closeReserved));
     }
 
     // ponytail: 거부마다 세션 수만큼 훑는다(수천 세션 × 포화 폭풍이면 부담) — 이미 닫는 세션은 closing 으로 빠져 곧 줄어든다.
     // 부담이 측정되면 거부 간격 제한(예: 100ms 1회)을 둔다.
+    /** 종료 예약 세션은 제외하되, 방금 예약한 넘친 세션 자신은 후보다. */
     private String heaviest(String overflowSessionId) {
-        return pending.entrySet().stream().filter(e -> !closing.contains(e.getKey()))
+        return pending.entrySet().stream()
+                .filter(e -> !closing.contains(e.getKey()) || e.getKey().equals(overflowSessionId))
                 .max(Comparator.<Map.Entry<String, Integer>, Integer>comparing(Map.Entry::getValue)
                         .thenComparing(e -> e.getKey().equals(overflowSessionId)))
                 .map(Map.Entry::getKey).orElse(null);

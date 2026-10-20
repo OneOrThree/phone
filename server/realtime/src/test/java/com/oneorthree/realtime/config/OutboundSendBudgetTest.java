@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
+import org.springframework.messaging.support.MessageHandlingRunnable;
 import org.springframework.messaging.support.ExecutorSubscribableChannel;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -185,6 +186,30 @@ class OutboundSendBudgetTest {
             release.countDown();
             wideExecutor.shutdown();
         }
+    }
+
+    @Test
+    @DisplayName("이미 종료 예약된 세션의 뒤늦은 거부는 다른 세션을 고르지 않는다 — 정상 세션이 연쇄로 닫히지 않는다")
+    void lateRejectionOfAClosingSessionDoesNotCloseHealthySessions() throws Exception {
+        start();
+        WebSocketSession hog = socket("hog");
+        WebSocketSession healthy = socket("healthy");
+        String chat = "/topic/groups/" + UUID.randomUUID();
+        channel.send(frame("hog", chat)); // 실행 중(막힘)
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        channel.send(frame("healthy", chat)); // 큐 — 가득
+        channel.send(frame("hog", chat)); // 1차 거부 — hog 2건(거부분 포함) > healthy 1건, hog 만 닫힌다
+        verify(hog, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+
+        // preSend 를 먼저 통과한 같은 세션의 동시 송신이 뒤늦게 거부되는 경우 — preSend 는 예약 뒤 막으므로 거부 핸들러에 직접 넣는다.
+        MessageHandlingRunnable late = mock(MessageHandlingRunnable.class);
+        when(late.getMessage()).thenAnswer(invocation -> frame("hog", chat));
+        budget.rejectedExecution(late, executor.getThreadPoolExecutor());
+
+        verify(healthy, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
+        assertThat(meters.counter("realtime.outbound.dropped", "reason", "queue_full").count()).isEqualTo(2.0);
+        assertThat(meters.counter("realtime.outbound.closed", "selected", "overflow").count()).isEqualTo(1.0);
+        assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isZero();
     }
 
     @Test
