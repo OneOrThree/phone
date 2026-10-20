@@ -744,6 +744,8 @@
     "loadFailed": "Couldn't load the islands.",
     "islandHint": "Opens the island's details",
     "joinedIslandA11y": "{{name}}, your island",
+    "islandLabel": "{{name}} · {{time}}",
+    "islandTimeA11y": "{{label}}, sailing {{time}}",
     "residents": "Residents {{count}}/{{max}}",
     "averageFocus": "Average {{time}}",
     "averageUnknown": "Not tallied yet",

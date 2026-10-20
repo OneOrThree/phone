@@ -46,6 +46,7 @@ const wireItem = (over: object = {}) => ({
   averageFocusMinutesPerDay: 83,
   full: false,
   arrivedBefore: false,
+  buildingCount: 2,
   // 잡지에서 넣은 섬이 아니면 서버가 null 로 싣는다(키는 늘 있다 — GROMO-2289)
   magazineCell: null,
   ...over,
@@ -107,6 +108,29 @@ test('getTelescope — 잡지에서 넣은 섬의 홍보 칸(magazineCell)을 �
   assert.deepEqual(withCell.magazineCell, { ...wireCell(), privateIsland: false });
   assert.equal(broken.magazineCell, null);
   assert.equal(old.magazineCell, null);
+});
+
+test('getTelescope — 완공 건물 수(buildingCount)는 그대로 싣고, 키가 없거나 null·숫자가 아니면 0 이다(목록은 정상)', async () => {
+  stub([
+    {
+      status: 200,
+      body: {
+        data: {
+          bucketStart: 'b',
+          nextRefreshMinutes: 5,
+          items: [
+            wireItem({ buildingCount: 5 }),
+            // 롤링 배포 중의 옛 서버 — 키가 없다
+            wireItem({ islandId: 'i2', buildingCount: undefined }),
+            wireItem({ islandId: 'i3', buildingCount: '3' }),
+            wireItem({ islandId: 'i4', buildingCount: null }),
+          ],
+        },
+      },
+    },
+  ]);
+  const counts = (await getTelescope()).items.map((i) => i.buildingCount);
+  assert.deepEqual(counts, [5, 0, 0, 0]);
 });
 
 test('getTelescope — 소속 섬이 하나도 없는 빈 목록도 정상이다', async () => {

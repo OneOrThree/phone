@@ -1,8 +1,9 @@
 // 잡지 꾸미기 재료 표(GROMO-2289) — 개수·id 모양·서랍 탭, 표에 적은 그림 비율이 실제 PNG 와 같은지, 틀 글 상자,
-// 섬 그림 7단계 매핑(P8).
+// 섬 그림 4장 매핑(GROMO-2317 v5).
 import fs from 'fs';
 import path from 'path';
 import {
+  ISLAND_ART_ASPECT,
   ISLAND_STAGE_ART,
   MAGAZINE_FRAMES,
   MAGAZINE_STICKERS,
@@ -54,20 +55,27 @@ describe('재료 표', () => {
   });
 });
 
-describe('섬 그림 단계(P8)', () => {
+describe('섬 그림 4장(GROMO-2317 v5)', () => {
   it.each([
-    [0, 7, 's0'],
-    [1, 0, 's1'],
-    [3, 1, 's1'],
-    [3, 2, 's2'],
-    [3, 3, 's3'],
-    [3, 4, 's4'],
-    [3, 5, 's5'],
-    [3, 6, 's5'],
-    [3, 7, 's7'],
-    [3, 9, 's7'],
+    [0, 0, 'houses0'],
+    [0, 7, 'houses0'],
+    [1, 0, 'houses1'],
+    [3, 2, 'houses1'],
+    [3, 3, 'houses3'],
+    [3, 4, 'houses3'],
+    [3, 5, 'houses5'],
+    [3, 9, 'houses5'],
   ])('주민 %i명 · 완공 건물 %i개 → %s', (members, buildings, stage) => {
     expect(islandStage(members, buildings)).toBe(stage);
     expect(ISLAND_STAGE_ART[islandStage(members, buildings)]).toBeTruthy();
+  });
+
+  it('네 장 모두 표의 비율(ISLAND_ART_ASPECT)과 같은 크기다', () => {
+    for (const n of [0, 1, 3, 5]) {
+      const { w, h } = pngSize(
+        path.join(__dirname, '..', `assets/ota/magazine/island/island-houses-${n}.png`),
+      );
+      expect([n, ISLAND_ART_ASPECT]).toEqual([n, expect.closeTo(w / h, 2)]);
+    }
   });
 });
