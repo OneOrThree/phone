@@ -52,6 +52,7 @@ const wire = (...ids: string[]): Telescope => ({
     averageFocusMinutesPerDay: null,
     full: false,
     arrivedBefore: false,
+    buildingCount: 0,
   })),
 });
 const pinned = (id: string) => ({ item: { islandId: id, slot: 'pinned' }, evicted: null });

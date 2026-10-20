@@ -41,6 +41,8 @@ export type TelescopeItem = {
   full: boolean;
   /** 한 번 가 본 섬 — 소속 섬이면 항해 없이 돌아갈 수 있다. */
   arrivedBefore: boolean;
+  /** 완공 건물 수(GROMO-2317) — 파노라마 섬 그림(`islandStage`)을 정한다. 롤링 배포 중 키가 없으면 0. */
+  buildingCount: number;
   pinnedFrom?: 'magazine' | 'observatory';
   pinnedAt?: string;
   /**
@@ -119,10 +121,12 @@ function validateTelescope(raw: unknown): Telescope {
   }
   // 잡지 칸은 모양이 어긋나도 목록 전체를 오류로 만들지 않고 그 칸만 null(미리보기 자리표시)로 둔다.
   // 위 루프가 항목마다 객체인지 먼저 확인했으므로 여기서 item.magazineCell 을 읽어도 안전하다(순서를 바꾸지 말 것)
+  // 건물 수는 서버가 롤링 배포 중에만 키를 빼고 null 은 보내지 않는다 — 숫자가 아니면 0(그림만 고른다)
   return {
     ...(raw as unknown as Telescope),
     items: raw.items.map((item) => ({
       ...item,
+      buildingCount: typeof item.buildingCount === 'number' ? item.buildingCount : 0,
       magazineCell: readMagazineCell(item.magazineCell),
     })),
   } as Telescope;

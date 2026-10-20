@@ -99,6 +99,8 @@ GROMO-2310(2026-10-18)이 1·2·3·6을 `SeaVoyageHost`(라우트 `sea`·`seaArr
 - `sea/far-sea.png`: Figma S1 배경 원본, imageHash `0b86e35e7765c15c59e8ee641e0fe7a654319252`.
 - `sea/seagulls.png`: S1 `1216:1300`.
 - `sea/destination-island.png`: V2 `1216:1620`의 원본. 기존 목적지 미리보기 원본을 보관하며, 현재 항해 중·도착 후 화면에는 표시하지 않는다.
+- `sea/telescope-sea.jpg`: 망원경 화면 배경(GROMO-2317 T1, 1024×1536 · 수평선 545px). `seaAssets.telescopeSea`.
+- `sea/raft-telescope/{color}.png`: 망원경 화면 오른쪽 아래의 망원경 든 뗏목 고양이, 6색 · 600×471. `seaAssets.raftTelescope`.
 - `customization/head/duck.png`: `.docs/customization-assets-2026-10-16/assets-v3/head/duck.png` 원본.
   투명 여백은 변경하지 않고 최신 결과창의 표시 창/앵커로 배치한다.
 
