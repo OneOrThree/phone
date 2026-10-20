@@ -63,7 +63,7 @@ public class RedisConfig {
         container.setConnectionFactory(connectionFactory);
         container.setTaskExecutor(cluster.relayInExecutor());
         container.addMessageListener(cluster, List.of(new ChannelTopic(RedisKeys.MOVEMENT_CMD_CHANNEL),
-                new ChannelTopic(RedisKeys.MOVEMENT_FRAMES_CHANNEL)));
+                new ChannelTopic(RedisKeys.MOVEMENT_FRAMES_CHANNEL), new ChannelTopic(cluster.ownCmdChannel())));
         return container;
     }
 }

@@ -200,7 +200,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `MovementCluster` 가 `MovementRooms` 를 바로 부르고 Redis 를 전혀 쓰지 않는 단일 인스턴스 현행 경로다(릴레이 컨테이너·스레드도
   없다, `MovementMultiInstanceOffTest` 가 고정). **옵트아웃한 채 2대 이상이면** 같은 섬 방이 인스턴스마다 따로 생겨 서로 안 보인다.
 - **ON 의 고정 비용(1대여도)**: 전용 스레드 3(`movement-cluster`·`movement-relay-in`·`movement-relay-out`), 1초마다 소유 섬별
-  RENEW(EVAL) + PING PUBLISH + 내 세션 섬 MGET 감시, 자기 세션 프레임도 Redis 메아리로 받는다(왕복 1회 지연). 명령은 EVAL·
+  RENEW(EVAL) + PING PUBLISH(소유자별 — 입장해 있는 섬의 소유자마다 1건, 소유자 채널로) + 내 세션 섬 MGET 감시, 자기 세션 프레임도 Redis 메아리로 받는다(왕복 1회 지연). 명령은 EVAL·
   PUBLISH·SUBSCRIBE·GETDEL·MGET·SET 을 쓴다 — realtime Redis 에는 아직 ACL 이 없다(GROMO-1744, dev·prod 모두 ACL 파일 없음)라
   지금은 막히지 않는다. ACL 을 걸 때 아래 「ACL 이 걸리는 날」 목록을 같이 넣어야 이동이 fail-closed 로 멈추지 않는다.
 - **ON — 섬마다 소유자 한 곳.** `MovementOwnership`(Lua ACQUIRE/RENEW/RELEASE) 리스를 든 인스턴스만 `RoomRuntime` 을 돌린다.
@@ -209,7 +209,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   봉투(`MovementRelay.Frame`·`Command`)는 인스턴스 사이 전용이고 `payload` 는 앱 wire JSON 그대로다.
 - **스레드**: `movement-cluster`(1, 라우팅·소유권·1초 감시 — 인바운드 스레드는 넣기만 한다), `movement-relay-in`(1, 전용
   `RedisMessageListenerContainer` — 채팅 컨테이너와 섞으면 순서가 깨진다), `movement-relay-out`(1, Snapshot·INTENT 줄 4096 +
-  제어 줄 1024(reliable 프레임과 JOIN·LEAVE·FULL_STATE·RECHECK·PING·EVICTED·RESYNC, 먼저 낸다) + 파이프라인 PUBLISH. 차면
+  제어 줄 1024(reliable 프레임과 JOIN·LEAVE·FULL_STATE·RECHECK·PING(소유자별 채널)·EVICTED·RESYNC, 먼저 낸다) + 파이프라인 PUBLISH. 차면
   Snapshot·INTENT 는 `dropped{kind=frame}`, 제어 명령은 `dropped{kind=control}`, reliable 프레임은 아래 RESYNC).
 - **fail-closed**: 리스 상실 → 방 `evict`·발행 중단. 리스는 마지막 성공 갱신을 «보낸 시각»부터 수명의 9/10(2.7초)까지만
   믿는다 — 넘으면 `MovementOwnership.lease()` 가 null 이라 감시 스레드가 밀려도 발행·명령 적용이 즉시 멈추고, 다음 감시가
@@ -225,13 +225,22 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   캐시 삭제 실패 표시 `cacheStale` 동반). 강퇴 사건은 한 노드만 받으므로 RECHECK 를 제어 줄에 못 넣거나 PUBLISH 가 실패하면
   버리지 않고 표시해 두었다가 1초 감시가 성공할 때까지 다시 보낸다(`movement.relay.recheck.retry{reason=dropped|publish}`).
   받는 쪽은 멱등이다(두 번 오면 재판정을 새로 시작할 뿐). PING 대조는 멤버십을 다시 보지 않는다. 다른 인스턴스에서 같은 사용자가 새로 들어오면 소유자가 SUPERSEDE 프레임으로 옛
-  세션을 멈추고 그 세션 intent 를 버린다. PING(1초)이 5초 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다.
+  세션을 멈추고 그 세션 intent 를 버린다. 내게 오는 PING(1초)이 5초 끊긴 인스턴스의 세션 actor 는 소유자가 내보낸다(`lastPinged`).
 - **PUBLISH 성공 ≠ 수신**: 수신 쪽 relay-in 이 끊긴 구간에 간 RECHECK 는 송신 쪽이 알 수 없다 — 상한은 멤버십 캐시 TTL 이다.
 - **PING 대조(제어 명령 유실·생존 신호 복구)**: PING 은 그 인스턴스가 남의 방에 입장해 있다고 믿는 세션 목록(`섬|세션`)을
   싣는다. 소유자는 PING 마다 목록과 자기 방을 맞춘다 — 목록에 없는 그 인스턴스 actor 는 내보내고(LEAVE 유실), 목록에 있는데
   방에 없는 세션은 `EVICTED` 로 알려 그 세션만 resync + JOIN·FULL_STATE 로 다시 입장시킨다(JOIN·첫 FullState 요청 유실,
   생존 신호 단절로 제거된 뒤 복구). 1초마다 되풀이되므로 EVICTED 가 유실돼도 다음 PING 이 다시 보낸다 — 비소유 쪽의
   «내 PING 이 끊겼다 복구됨» 감지는 따로 두지 않았다.
+  **PING 은 소유자별 채널이다**(GROMO-2352): 비소유 인스턴스는 입장해 있는 섬의 소유자마다 그 소유자의 세션만 담은 PING 1건을
+  `chat:movement:cmd:v1:<소유자 instanceId>` 로 보낸다(소유자를 모르는 섬은 빼고 `pendingRejoin` 이 덮는다). 채널 하나에 전원이
+  구독하면 PING 을 나눠도 N 구독자가 전부 받아 바이트가 N×S 그대로라 채널을 나눴다. 각 인스턴스는 자기 이름 채널도 구독한다.
+  수신 쪽 생존은 `lastPinged`(origin → 내게 온 PING 시각, 원격 JOIN 때 한 번 심는다)로 센다 — 남에게 간 PING 이나 FULL_STATE 재시도 같은 다른 명령으로 갱신하면 내게 PING 을 안
+  보내는(그 섬에 세션이 없는) 유령이 안 지워진다. 수신자 null PING(옛 버전·호환)은 전원 채널로 가고 전원이 대조한다.
+  트레이드오프: 게이트가 닫힌(eligible 아님) 세션은 PING 목록에서 빠지므로 origin 이 살아 있어도 소유자가 5초 뒤 그 actor 를
+  내보낼 수 있다 — 게이트가 열려 목록에 다시 들어오면 「목록엔 있고 방엔 없음」으로 EVICTED → 재입장해 복구된다.
+  혼합 버전 한계: 옛 인스턴스는 소유자 채널을 구독하지 않아 새 인스턴스의 PING 을 못 받아 5초 뒤 그 세션 actor 를 내보낸다 —
+  업그레이드 뒤 PING 대조가 복구한다. 비대칭: 옛→새 는 옛 인스턴스의 수신자 null PING 이 호환 경로(전원 채널)라 정상이고, 새→옛 만 끊기며 복구는 마지막 인스턴스가 올라온 뒤다.
 - **세션 한정 FullState 유실**: JOIN 은 됐는데 FULL_STATE 명령이나 그 응답을 잃으면 게이트가 닫힌 채 남는다(PING 대조는 actor 가
   있으니 정상으로 본다). 감시가 «게이트가 닫힌 지 2초 넘은» 내 세션의 FULL_STATE 를 상한 없이 약 2초마다(재요청이 시각을 다시 찍어 실제 2~3초)
   다시 요청한다
@@ -247,7 +256,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   콜백(`RoomRuntime.Listener.forRoom`)을 받는다. 리스를 잃고 다시 얻은 뒤 틱 스레드가 옛 방을 한 번 더 돌려도 그 사건은
   `routing.failed{stale_room}` 으로 버린다.
 - **지표**: `movement.owner.{acquire{trigger},lost{reason},islands,forward{type},forward.stale{reason}}`,
-  `movement.routing.failed{reason=redis|no_lease|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`.
+  `movement.routing.failed{reason=redis|no_lease|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`, `movement.cluster.poll`(1초 감시 한 틱 Timer — submit 작업 제외; `enabled=false` 여도 생성자에서 등록돼 0 샘플로 노출(무해). submit 작업은 같은 스레드의 다음 순번이라 poll p95 가 낮아도 스레드가 밀려 있을 수 있다).
 
 ## Redis keys (A19 namespace table)
 
@@ -277,7 +286,8 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `movement:owner:{islandId}` | realtime | read/write (Lua) | 섬 이동 방 소유자 리스 `<instanceId>:<epoch>`, PX 3000, 1초 갱신(GROMO-2339). 플래그 기본 ON — 옵트아웃(false) 하면 만들지 않는다 |
 | `movement:epoch` | realtime | read/write (Lua) | 소유권 세대 카운터 `max(직전+1, TIME ms)`. **TTL 없음** — 지우면 시각으로 다시 시작하지만 같은 ms 안의 +1 몇 개만큼 뒤로 갈 수 있다 |
 | `movement:room:{islandId}:handoff` | realtime | read/write | 종료하는 소유자의 위치 스냅샷 JSON, PX 30000. 새 소유자가 GETDEL |
-| `chat:movement:cmd:v1` | realtime | pub/sub | 비소유 → 소유자 이동 명령, RECHECK·PING 은 전원 |
+| `chat:movement:cmd:v1` | realtime | pub/sub | 비소유 → 소유자 이동 명령, RECHECK 는 전원 |
+| `chat:movement:cmd:v1:{instanceId}` | realtime | pub/sub | 그 인스턴스(소유자) 앞 PING 대조 — 수신자 null PING 은 위 전원 채널 |
 | `chat:movement:frames:v1` | realtime | pub/sub | 소유자 → 전 인스턴스 이동 프레임(소유자 자신도 이 메아리로 받는다) |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
 
