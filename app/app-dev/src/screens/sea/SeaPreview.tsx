@@ -30,6 +30,7 @@ const fixturePeople: SeaParticipant[] = [
   focusing: index !== 0 && index % 3 !== 1,
   activeSeconds: index * 613,
   subject: index % 3 === 1 ? undefined : ['영어 단어', '논문 읽기', '코딩 테스트'][index % 3],
+  message: index === 1 ? '오늘도 내 속도로 한 걸음씩 가보자!' : undefined,
 }));
 const fixtureVoyage = (): SeaVoyage => ({
   sessionId: 'preview-voyage',
@@ -63,7 +64,6 @@ export function SeaPreview() {
   const [reward, setReward] = useState<'duck' | 'none' | 'unknown' | 'unconfirmed'>('duck');
   const [preparing, setPreparing] = useState(false);
   const [departing, setDeparting] = useState(false);
-  const [hasDepartedBefore, setHasDepartedBefore] = useState(false);
   const [visited, setVisited] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [emoteTTL, setEmoteTTL] = useState(0);
@@ -233,10 +233,8 @@ export function SeaPreview() {
               {departing ? (
                 <SeaDeparture
                   state={state}
-                  hasDepartedBefore={hasDepartedBefore}
                   onComplete={() => {
                     setDeparting(false);
-                    setHasDepartedBefore(true);
                   }}
                 />
               ) : visited ? (
@@ -256,6 +254,10 @@ export function SeaPreview() {
                   rewardCatalog={fixtureCatalog}
                   onTelescope={() => setPreparing(true)}
                   onSignIn={() => setGuest(false)}
+                  onFriendRequest={async () => {
+                    await check();
+                    return true;
+                  }}
                   onFinish={async (_sessionId, intent) => {
                     await check();
                     if (!voyage) return;

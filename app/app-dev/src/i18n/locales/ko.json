@@ -1040,7 +1040,12 @@
     "nextTier": "다음 단계까지 {{minutes}}분",
     "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
     "welcomeTitle": "환영해요!",
-    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요."
+    "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요.",
+    "focusTime": "집중 시간",
+    "requestFriend": "친구 요청",
+    "friendRequested": "친구 요청 보냄",
+    "friendExists": "이미 친구이거나 보낸 요청이 있어요.",
+    "friendUnavailable": "친구 요청을 보낼 수 없는 상대예요."
   },
   "safety": {
     "blockTitle": "차단하기",
@@ -1049,5 +1054,8 @@
     "blockBody": "{{name}}님의 친구 요청과 편지는 앱 목록에서 숨겨져요. 친구 요청 알림은 기기에 표시될 수 있어요. 차단 중 받은 내용은 해제하면 다시 보일 수 있어요.",
     "blocked": "{{name}}님을 차단했어요.",
     "failed": "처리하지 못했어요. 연결을 확인하고 다시 시도해 주세요."
+  },
+  "departureStory": {
+    "label": "출항 준비: {{destination}}. 짐을 싣고 밧줄을 풀어 바다로 떠나요."
   }
 }

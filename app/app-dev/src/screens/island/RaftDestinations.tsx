@@ -7,6 +7,7 @@ import { getLocale, t } from '@/i18n';
 import { SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { SeaDeparture } from '@/screens/sea/SeaDeparture';
 import { currentIsland, serverVisit, viewIsland, type State } from '@/services/model';
 
 /** 뗏목 이동 화면 — 바다와 집중섬, 가 본 소속 섬으로 이어진다. */
@@ -14,6 +15,7 @@ export function RaftDestinations({ e }: { e: any }) {
   const s: State = e.state;
   const visiting = !!s.visitingIslandId;
   const [membersOpen, setMembersOpen] = useState(false);
+  const [departing, setDeparting] = useState(false);
   const remember = (destination: string) => e.dispatch({ type: 'RAFT_DESTINATION', destination });
   // 소속 섬 이동(요청 → 짧은 항해 연출 → 홈)은 망원경 [돌아가기]와 같은 훅이다. 요청·항해 중 뒤로가기도 거기서 삼킨다.
   const sail = useIslandSailing(e);
@@ -83,7 +85,26 @@ export function RaftDestinations({ e }: { e: any }) {
     };
   }, [membersOpen, sail.busy, e.backOverride]);
 
+  useEffect(() => {
+    if (!departing || !e.backOverride) return;
+    const swallow = () => true;
+    e.backOverride.current = swallow;
+    return () => {
+      if (e.backOverride.current === swallow) e.backOverride.current = null;
+    };
+  }, [departing, e.backOverride]);
+
   if (sail.sailing) return sail.sailing;
+  if (departing)
+    return (
+      <SeaDeparture
+        state={s}
+        onComplete={() => {
+          if (visiting) e.dispatch({ type: 'END_VISIT' });
+          e.reset('sea');
+        }}
+      />
+    );
 
   return (
     <View style={{ flex: 1 }}>
@@ -106,8 +127,7 @@ export function RaftDestinations({ e }: { e: any }) {
           onSea={() =>
             confirmLeave(() => {
               remember('sea');
-              if (visiting) e.dispatch({ type: 'END_VISIT' });
-              e.reset('sea');
+              setDeparting(true);
             })
           }
         />

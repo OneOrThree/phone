@@ -79,6 +79,7 @@ import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { FocusResultSummary } from '@/screens/focus/FocusResultSummary';
 import { Sailing } from '@/screens/world/WorldViews';
+import { DepartureStory } from '@/screens/world/DepartureStory';
 import {
   FiButton,
   FiModal,
@@ -2509,12 +2510,10 @@ function FocusFlow({ e: environment }: any) {
   };
   if (r === 'focusTravel')
     return (
-      <Sailing
+      <DepartureStory
         state={s}
-        from={t('focusFlow.common.ourIsland')}
         destination={t('focusFlow.common.fishingIsland')}
-        duration={1900}
-        onArrive={() => e.replace('fishingArrival')}
+        onComplete={() => e.replace('fishingArrival')}
       />
     );
   if (r === 'returnTravel')

@@ -2,7 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '@/design-system/typography';
 import { useScreenInsets } from '@/design-system/primitives';
-import { semanticTokens as s, primitiveTokens as p } from '@/design-system/tokens';
+import {
+  semanticTokens as s,
+  primitiveTokens as p,
+  componentTokens as c,
+} from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { seaAssets } from './seaAssets';
 import { art } from '@/constants/art';
@@ -37,7 +41,6 @@ export function SeaScene({
   const [page, setPage] = useState(0);
   const scroll = useRef<ScrollView>(null);
   const suppressPressUntil = useRef(0);
-  const scrollTarget = useRef<number | null>(null);
   const [order, setOrder] = useState<string[]>(() => participants.map((person) => person.userId));
   // 새 스냅샷의 배열 순서가 달라도 기존 자리를 유지한다. 입장자는 뒤에 추가한다.
   useEffect(() => {
@@ -58,16 +61,9 @@ export function SeaScene({
   pageRef.current = visiblePage;
   useEffect(() => {
     const next = Math.min(pageRef.current, pages.length - 1);
-    scrollTarget.current = null;
     setPage(next);
     scroll.current?.scrollTo({ x: next * bounds.width, animated: false });
   }, [pages.length, bounds.width]);
-  const go = (next: number) => {
-    scrollTarget.current = next;
-    setPage(next);
-    suppressPressUntil.current = Date.now() + 350;
-    scroll.current?.scrollTo({ x: next * bounds.width, animated: !reduceMotion });
-  };
   const releasePressSuppression = () => {
     suppressPressUntil.current = Date.now() + 350;
   };
@@ -132,11 +128,7 @@ export function SeaScene({
         showsHorizontalScrollIndicator={false}
         style={StyleSheet.absoluteFill}
         scrollEventThrottle={32}
-        onTouchStart={() => {
-          scrollTarget.current = null;
-        }}
         onScrollBeginDrag={() => {
-          scrollTarget.current = null;
           suppressPressUntil.current = Infinity;
         }}
         onScrollEndDrag={releasePressSuppression}
@@ -146,12 +138,6 @@ export function SeaScene({
         onScroll={(event) => {
           suppressPressUntil.current = Date.now() + 350;
           const offset = event.nativeEvent.contentOffset.x;
-          if (scrollTarget.current !== null) {
-            // 버튼으로 이동 중에는 중간 스크롤 이벤트가 선택 페이지를 되돌리지 않는다.
-            if (Math.abs(offset - scrollTarget.current * bounds.width) < 1)
-              scrollTarget.current = null;
-            else return;
-          }
           setPage(Math.min(pages.length - 1, Math.max(0, Math.round(offset / bounds.width))));
         }}
       >
@@ -296,42 +282,6 @@ export function SeaScene({
           )}
         </Pressable>
       </View>
-      {pages.length > 1 && (
-        <View
-          testID="sea-paging"
-          style={[
-            styles.paging,
-            { bottom: portraitFooter },
-            compact && {
-              top: insets.top + p.space[2],
-              bottom: 'auto',
-              right: insets.right + p.space[3],
-            },
-          ]}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('openSea.previous')}
-            disabled={visiblePage === 0}
-            onPress={() => go(visiblePage - 1)}
-            style={styles.pageButton}
-          >
-            <Text style={visiblePage === 0 && styles.disabled}>‹</Text>
-          </Pressable>
-          <Text style={styles.caption}>
-            {visiblePage + 1} / {pages.length}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('openSea.next')}
-            disabled={visiblePage === pages.length - 1}
-            onPress={() => go(visiblePage + 1)}
-            style={styles.pageButton}
-          >
-            <Text style={visiblePage === pages.length - 1 && styles.disabled}>›</Text>
-          </Pressable>
-        </View>
-      )}
     </View>
   );
 }
@@ -340,7 +290,6 @@ const styles = StyleSheet.create({
   self: { position: 'absolute', alignSelf: 'center', alignItems: 'center' },
   peer: { position: 'absolute', width: 130, alignItems: 'center' },
   gulls: { position: 'absolute', width: 56, height: 26 },
-  disabled: { opacity: 0.3 },
   scene: { flex: 1, minHeight: 660, backgroundColor: s.color.secondary, overflow: 'hidden' },
   compactScene: { minHeight: 0 },
   person: { alignItems: 'center', minWidth: s.size.tapMin, minHeight: s.size.tapMin },
@@ -370,7 +319,10 @@ const styles = StyleSheet.create({
   clock: {
     fontSize: s.typography.caption,
     lineHeight: 16,
-    color: s.color.text,
+    color: c.seaParticipant.focusInk,
+    backgroundColor: c.seaParticipant.clockBackground,
+    borderRadius: s.radius.control,
+    paddingHorizontal: p.space[1],
     marginTop: 2,
     fontVariant: ['tabular-nums'],
   },
@@ -388,19 +340,5 @@ const styles = StyleSheet.create({
   },
   me: { color: s.color.text, backgroundColor: s.color.selected },
   messageTouch: { minHeight: s.size.tapMin, justifyContent: 'center', marginBottom: -p.space[5] },
-  paging: {
-    position: 'absolute',
-    right: p.space[3],
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: `${s.color.surface}E6`,
-    borderRadius: s.radius.full,
-  },
-  pageButton: {
-    minHeight: s.size.tapMin,
-    minWidth: s.size.tapMin,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   emote: { position: 'absolute', right: 0, top: 0, width: 40, height: 40 },
 });
