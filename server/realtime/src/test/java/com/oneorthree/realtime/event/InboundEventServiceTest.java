@@ -45,6 +45,7 @@ import java.util.Date;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -263,7 +264,7 @@ class InboundEventServiceTest {
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener,
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
                 mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
-                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class));
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC());
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
 
@@ -284,7 +285,7 @@ class InboundEventServiceTest {
                 mock(EventRouter.class), membership, mock(BlockedUsers.class), listener,
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
                 mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
-                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class));
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC());
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
         UUID evicted = UUID.randomUUID();
@@ -309,7 +310,7 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
-                outbound, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class));
+                outbound, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC());
         UUID kicked = UUID.randomUUID();
         UUID gone = UUID.randomUUID();
 
@@ -363,7 +364,7 @@ class InboundEventServiceTest {
         var decisions = mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class);
         InboundEventService plain = new InboundEventService(plainJdbc, fence, mock(EventRouter.class), membership,
                 blocks, mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class),
-                decisions, cache, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class));
+                decisions, cache, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class), java.time.Clock.systemUTC());
         UUID kicked = UUID.randomUUID();
         UUID blocker = UUID.randomUUID();
         UUID leaver = UUID.randomUUID();
@@ -493,10 +494,11 @@ class InboundEventServiceTest {
         var decisions = mock(CurrentMembershipDecisionCache.class);
         var outbound = mock(OutboundAuthzCache.class);
         var registry = new RealtimeSessionRegistry();
-        InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
+        ChatUserFence fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC());
+        InboundEventService plain = new InboundEventService(plainJdbc, fence,
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
-                outbound, registry, new JwtValidator(SECRET));
+                outbound, registry, new JwtValidator(SECRET), java.time.Clock.systemUTC());
         UUID user = UUID.randomUUID();
         UUID revokedSid = UUID.randomUUID();
         WebSocketSession revoked = connect(registry, "stomp-revoked", user, revokedSid, SECRET);
@@ -511,6 +513,38 @@ class InboundEventServiceTest {
         verify(other, never()).close(any(CloseStatus.class));
         verify(stranger, never()).close(any(CloseStatus.class));
         verify(outbound, never()).evictSession("stomp-other");
+        // 폐기 펜스 — 같은 sid 의 재연결은 막고 다른 sid 는 통과시킨다(StompAuthChannelInterceptorTest 가 CONNECT 거절을 본다)
+        assertThat(fence.isRevoked(revokedSid)).isTrue();
+        assertThat(fence.isRevoked(UUID.randomUUID())).isFalse();
+    }
+
+    @Test
+    @DisplayName("auth.session.revoked — 두 번 닫아도 실패하고 소켓이 열려 있으면 던져 수신 트랜잭션을 롤백한다, 이미 끊겼으면 정상이다")
+    void sessionRevokedCloseFailureRollsBackUnlessAlreadyGone() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID sid = UUID.randomUUID();
+        UUID goneSid = UUID.randomUUID();
+        WebSocketSession stuck = connect(sessionRegistry, "stomp-stuck-" + sid, user, sid, jwtSecret);
+        org.mockito.Mockito.doThrow(new java.io.IOException("close 실패")).when(stuck).close(any(CloseStatus.class));
+        String event = sessionRevoked(user, sid.toString());
+
+        // 던지면 @Transactional accept 가 롤백돼 inbound_events 에 남지 않고, HTTP 는 5xx 로 나가 relay 가 다시 보낸다.
+        assertThatThrownBy(() -> inboundEventService.accept(objectMapper.readTree(event)))
+                .isInstanceOf(IllegalStateException.class);
+        verify(stuck, times(2)).close(any(CloseStatus.class));
+        String eventId = objectMapper.readTree(event).get("eventId").stringValue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?", Integer.class,
+                eventId)).isZero();
+        sessionRegistry.closed("stomp-stuck-" + sid);
+
+        // close 가 false 여도 소켓이 이미 레지스트리에서 빠졌으면(끊김) 성공이다.
+        WebSocketSession gone = connect(sessionRegistry, "stomp-gone-" + goneSid, user, goneSid, jwtSecret);
+        org.mockito.Mockito.doAnswer(call -> {
+            sessionRegistry.closed("stomp-gone-" + goneSid);
+            throw new java.io.IOException("이미 끊김");
+        }).when(gone).close(any(CloseStatus.class));
+        http(sessionRevoked(user, goneSid.toString()));
+        sessionRegistry.closed("stomp-gone-" + goneSid);
     }
 
     @Test
@@ -524,7 +558,7 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
-                mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET));
+                mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET), java.time.Clock.systemUTC());
         UUID user = UUID.randomUUID();
         WebSocketSession session = connect(registry, "stomp-1", user, UUID.randomUUID(), SECRET);
 

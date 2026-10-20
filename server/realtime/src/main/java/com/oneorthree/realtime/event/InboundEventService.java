@@ -24,7 +24,10 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -117,7 +120,16 @@ public class InboundEventService {
      * 기본 OFF 모드는 전달 직전 인가가 AT 의 sid 를 보지 않아 폐기된 세션의 AT 가 만료까지 통과하므로, 캐시 삭제만으로는
      * 부족하고 그 sid 의 STOMP 연결을 닫는 것이 수정이다.
      */
+
     static final String AUTH_SESSION_REVOKED = "auth.session.revoked";
+
+    /**
+     * 폐기 펜스 수명 — 폐기 sid 로 이미 발급된 AT 의 최대 수명. realtime 은 AT 수명 설정을 갖지 않고, 소켓의 bearer 는 앱이 재발급한
+     * 더 늦은 AT 보다 일찍 만료할 수 있어(세션이 없을 때는 알 수도 없다) 그 exp 를 믿을 수 없다. Data 의 가장 긴 값(dev
+     * {@code jwt.access-expiration} 2592000s = 30일, prod 3600s)을 쓴다.
+     * ponytail: prod 에는 과하다(폐기 건수 × 30일치 항목, 건당 ~100 B). 커지면 AT 수명을 설정으로 받아 줄인다.
+     */
+    private static final Duration MAX_ACCESS_TOKEN_LIFETIME = Duration.ofDays(30);
 
     private static final Set<String> APP_EVENT_TYPES = Arrays.stream(RealtimeEventType.values())
             .map(RealtimeEventType::wireName)
@@ -147,6 +159,7 @@ public class InboundEventService {
     private final OutboundAuthzCache outboundAuthzCache;
     private final RealtimeSessionRegistry sessions;
     private final JwtValidator jwtValidator;
+    private final Clock clock;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -332,14 +345,26 @@ public class InboundEventService {
             log.warn("세션 폐기 사건에 userId/sessionId 가 없다 — 연결을 닫지 않는다. eventId={}", eventId);
             return;
         }
-        currentMembershipCache.evictUser(userId);
+        // 순서: 펜스 → 캐시 → 종료. 펜스가 먼저여야 종료와 재연결 사이에 창이 없다.
+        List<String> revoked = new ArrayList<>();
         for (String stompId : sessions.sessionIdsOf(userId)) {
             ChatPrincipal principal = sessions.find(stompId);
             String bearer = principal == null ? null : principal.bearer();
             String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
-            if (jwtValidator.extractSessionProof(token).filter(proof -> sid.equals(proof.sessionId())).isPresent()) {
-                outboundAuthzCache.evictSession(stompId);
-                sessions.close(stompId, CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+            if (jwtValidator.extractSessionProof(token).filter(p -> sid.equals(p.sessionId())).isPresent()) {
+                revoked.add(stompId);
+            }
+        }
+        chatUserFence.revokeSession(sid, clock.instant().plus(MAX_ACCESS_TOKEN_LIFETIME));
+        currentMembershipCache.evictUser(userId);
+        CloseStatus status = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
+        for (String stompId : revoked) {
+            outboundAuthzCache.evictSession(stompId);
+            // 두 번 시도하고도 소켓이 열려 있으면 던진다 — 수신 트랜잭션이 롤백돼 relay 가 재시도한다(펜스는 이미 올라 있다).
+            // 이미 끊긴 세션(close 가 false 여도 isConnected false)은 성공으로 본다.
+            boolean closed = sessions.close(stompId, status) || sessions.close(stompId, status);
+            if (!closed && sessions.isConnected(stompId)) {
+                throw new IllegalStateException("폐기된 세션의 연결을 닫지 못했다");
             }
         }
     }

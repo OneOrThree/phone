@@ -11,6 +11,7 @@ import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -88,6 +89,7 @@ class StompAuthChannelInterceptorTest {
 
     private StompAuthChannelInterceptor interceptor;
     private RealtimeSessionRegistry registry;
+    private final ChatUserFence fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC());
 
     private UUID userId;
     private UUID groupId;
@@ -96,7 +98,7 @@ class StompAuthChannelInterceptorTest {
     void setUp() {
         registry = new RealtimeSessionRegistry();
         interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
-                movementSubscriptions, membershipService, seaRooms, meters);
+                movementSubscriptions, membershipService, seaRooms, meters, fence);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         given(redis.opsForValue()).willReturn(valueOps);
@@ -115,6 +117,33 @@ class StompAuthChannelInterceptorTest {
         interceptor.preSend(message(accessor), null);
 
         verifyNoInteractions(accessGuard);
+    }
+
+    @Test
+    @DisplayName("CONNECT — 폐기된 sid 의 AT 는 만료 전이어도 UNAUTHORIZED, 다른 sid 는 통과한다 (GROMO-2350)")
+    void connectRejectsRevokedSessionOnly() {
+        UUID revokedSid = UUID.randomUUID();
+        UUID otherSid = UUID.randomUUID();
+        java.time.Instant exp = java.time.Instant.now().plusSeconds(600);
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(jwtValidator.extractUserId("other-token")).willReturn(Optional.of(userId));
+        given(jwtValidator.extractSessionProof("test-token"))
+                .willReturn(Optional.of(new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, revokedSid, 0L, exp)));
+        given(jwtValidator.extractSessionProof("other-token"))
+                .willReturn(Optional.of(new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, otherSid, 0L, exp)));
+        fence.revokeSession(revokedSid, exp);
+
+        StompHeaderAccessor rejected = accessor(StompCommand.CONNECT);
+        rejected.addNativeHeader("Authorization", BEARER);
+        assertThatThrownBy(() -> interceptor.preSend(message(rejected), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+
+        StompHeaderAccessor admitted = accessor(StompCommand.CONNECT);
+        admitted.addNativeHeader("Authorization", "Bearer other-token");
+        interceptor.preSend(message(admitted), null);
+        assertThat(admitted.getUser()).isInstanceOf(ChatPrincipal.class);
     }
 
     @Test

@@ -12,7 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 탈퇴 tombstone 과 읽음 커서 쓰기를 <b>같은 사용자 잠금</b>으로 직렬화한다 (GROMO-1943 · 계정 LLD §4).
@@ -35,6 +38,15 @@ public class ChatUserFence {
     private final Clock clock;
 
     /**
+     * 폐기된 로그인 세션(AT 의 {@code sid}) → 그 AT 가 만료되는 시각(GROMO-2350). 기본 인가 OFF 모드는 전달 직전 인가가 sid 를 보지
+     * 않아, 소켓을 닫아도 앱이 저장된 AT 로 재연결하면 같은 sid 가 되살아난다 — CONNECT 가 이 펜스로 거절한다.
+     *
+     * <p>ponytail: 인메모리·JVM 로컬이다(탈퇴 tombstone 은 PostgreSQL 이지만 이쪽은 AT 만료로 스스로 닫히는 단명 상태라 키 공간·
+     * 마이그레이션을 늘리지 않는다). 사건이 닿지 않은 인스턴스는 모른다 — 다중 인스턴스에서 즉시성이 필요하면 Redis 키로 승급.
+     */
+    private final Map<UUID, Instant> revokedSessions = new ConcurrentHashMap<>();
+
+    /**
      * {@code user.withdrawn} 적용 — tombstone 확정 → 그 사용자의 모든 방 커서 삭제. 한 로컬 TX 다.
      *
      * <p>멱등이다: 두 번째 전달은 세대를 {@code GREATEST} 로만 맞추고 지울 커서가 없다. 역순으로 온 낮은
@@ -50,6 +62,30 @@ public class ChatUserFence {
                 + " GREATEST(user_tombstones.auth_generation, EXCLUDED.auth_generation)",
                 userId, authGeneration, Timestamp.from(clock.instant()));
         return jdbc.update("DELETE FROM chat_read_cursors WHERE user_id = ?", userId);
+    }
+
+    /**
+     * 폐기된 세션을 {@code until}(그 AT 의 만료)까지 거절 대상으로 올린다. 이미 있으면 더 늦은 만료를 남긴다.
+     *
+     * <p>ponytail: 올릴 때마다 만료분을 O(항목 수)로 쓸어낸다 — 폐기는 로그아웃·탈퇴 때뿐이다.
+     */
+    public void revokeSession(UUID sessionId, Instant until) {
+        Instant now = clock.instant();
+        revokedSessions.values().removeIf(expiry -> !expiry.isAfter(now));
+        revokedSessions.merge(sessionId, until, (a, b) -> a.isAfter(b) ? a : b);
+    }
+
+    /** 이 sid 가 폐기돼 아직 AT 만료 전인가 — 만료 뒤엔 AT 자체가 거절되므로 항목을 지운다. */
+    public boolean isRevoked(UUID sessionId) {
+        Instant until = sessionId == null ? null : revokedSessions.get(sessionId);
+        if (until == null) {
+            return false;
+        }
+        if (until.isAfter(clock.instant())) {
+            return true;
+        }
+        revokedSessions.remove(sessionId, until);
+        return false;
     }
 
     /**

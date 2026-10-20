@@ -758,7 +758,8 @@ class MovementSubscriptionListenerTest {
         return new StompAuthChannelInterceptor(jwtValidator, accessGuard, sessions, mock(IslandFocusSessions.class),
                 redis, listener, mock(com.oneorthree.realtime.membership.MembershipService.class),
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
-                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                mock(com.oneorthree.realtime.message.service.ChatUserFence.class));
     }
 
     /** 인바운드 체인 그대로 — 관문(거절이면 예외 = 실서비스의 ERROR 프레임 + 종료) 다음 이 처리기. */

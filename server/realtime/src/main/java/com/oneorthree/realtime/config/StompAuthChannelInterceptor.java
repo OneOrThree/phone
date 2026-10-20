@@ -12,6 +12,7 @@ import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
 import com.oneorthree.realtime.sea.SeaRooms;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -155,6 +156,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private final MembershipService membershipService;
     private final SeaRooms seaRooms;
     private final MeterRegistry meterRegistry;
+    private final ChatUserFence chatUserFence;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -191,6 +193,11 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
         UUID userId = jwtValidator.extractUserId(token)
                 .orElseThrow(() -> new StompAuthException(CommonErrorCode.UNAUTHORIZED));
+        // 폐기된 세션(auth.session.revoked, GROMO-2350)의 AT 는 만료 전이어도 재연결을 받지 않는다. sid 없는 구 토큰은 해당 없음.
+        if (jwtValidator.extractSessionProof(token).filter(proof -> chatUserFence.isRevoked(proof.sessionId()))
+                .isPresent()) {
+            throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
 
         ChatPrincipal principal = new ChatPrincipal(userId, authorization);
         accessor.setUser(principal);
