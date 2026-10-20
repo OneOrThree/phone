@@ -207,6 +207,7 @@ export const componentTokens = {
     headerTop: space[10],
     titleOffset: space[3],
     titleSize: 19,
+    largeTextThreshold: 1.2,
     choiceSize: 21,
     seaTop: 0.28,
     focusTop: 0.505,
