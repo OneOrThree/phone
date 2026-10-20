@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import Svg, { G, Path, Polygon } from 'react-native-svg';
 import { Asset } from 'expo-asset';
-import { useFonts } from 'expo-font';
+import { GOWUN, useGowunFont } from '@/screens/island/sceneKit';
 import { useAppLayout } from '@/utils/layout';
 import {
   Building,
@@ -498,8 +498,8 @@ export const buildings: BuildingData[] = [
 export const BODY_FONT =
   Platform.OS === 'web'
     ? "Gowun,-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif"
-    : 'Gowun';
-export const GOWUN = 'Gowun';
+    : GOWUN;
+export { GOWUN };
 export const INK = '#493b39';
 export const OUTLINE = '#7d5f4d';
 
@@ -523,13 +523,8 @@ export const assetUri = (source: ImageSourcePropType) => Asset.fromModule(source
 // 원본 크롬은 줄 높이를 1/64px 단위로 내려 잡는다. 같은 높이로 맞춰야 회전한 요소 가장자리가 어긋나지 않는다
 export const lh = (px: number) => Math.floor(px * 64) / 64;
 
-export function useInteriorFonts() {
-  return useFonts({
-    Gowun: require('@/assets/fonts/gowun-dodum.ttf'),
-    BoardHand: require('@/assets/interiors/fonts/Gaegu-Regular.ttf'),
-    'BoardHand-Bold': require('@/assets/interiors/fonts/Gaegu-Bold.ttf'),
-  });
-}
+// 장면 글꼴은 고운돋움 하나다(DESIGN.md §5.1). 네이티브는 앱에 들어 있어 첫 렌더부터 불러온 상태다
+export const useInteriorFonts = useGowunFont;
 
 // CSS ease (cubic-bezier(.25,.1,.25,1))
 const ease = Easing.bezier(0.25, 0.1, 0.25, 1);
@@ -3446,7 +3441,7 @@ function PaperAction({
     >
       <Text
         style={[
-          boardFont(16, 1.2, '400', '#7e5541', 'BoardHand-Bold'),
+          boardFont(16, 1.2, '700', '#7e5541'),
           { textDecorationLine: 'underline' },
           webOnly({ textUnderlineOffset: 4 }),
         ]}
@@ -3494,7 +3489,7 @@ function PaperStamp({
         pressed && { opacity: 0.55, transform: [{ rotate: '-1deg' }, { scale: 0.98 }] },
       ]}
     >
-      <Text style={boardFont(16, 1.2, '400', '#8d5b50', 'BoardHand-Bold')}>{label}</Text>
+      <Text style={boardFont(16, 1.2, '700', '#8d5b50')}>{label}</Text>
     </Pressable>
   );
 }
@@ -3735,7 +3730,7 @@ function QuestCard({
           gap: 6,
         }}
       >
-        <Text style={boardFont(18, 1.2, '400', INK, 'BoardHand-Bold')}>{quest.title}</Text>
+        <Text style={boardFont(18, 1.2, '700', INK)}>{quest.title}</Text>
       </View>
       <Text style={[boardFont(12, 1.45, '400', '#786147', GOWUN), { marginTop: 5 }]}>
         {quest.type === 'phone'
@@ -5004,7 +4999,7 @@ export function Board({
   const noticeList = () => (
     <View>
       <View>
-        <Text style={[boardFont(14, 1.2, '400', '#9b7058', 'BoardHand'), { marginBottom: 1 }]}>
+        <Text style={[boardFont(14, 1.2, '400', '#9b7058'), { marginBottom: 1 }]}>
           {app ? `${app.island.name} 게시판` : '소다 섬 게시판'}
         </Text>
         <View
@@ -5016,7 +5011,7 @@ export function Board({
             marginBottom: 6,
           }}
         >
-          <Text style={boardFont(28, 1.15, '400', INK, 'BoardHand-Bold')}>
+          <Text style={boardFont(28, 1.15, '700', INK)}>
             공지{' '}
             <Text style={{ fontSize: 16, lineHeight: lh(16 * 1.15), color: '#9b7058' }}>
               {notices.length}
@@ -5060,10 +5055,7 @@ export function Board({
               })}
             >
               <Text
-                style={[
-                  boardFont(17, 1.25, '400', INK, 'BoardHand-Bold'),
-                  webOnly({ wordBreak: 'keep-all' }),
-                ]}
+                style={[boardFont(17, 1.25, '700', INK), webOnly({ wordBreak: 'keep-all' })]}
                 lineBreakStrategyIOS="hangul-word"
               >
                 {notice.title}
@@ -5154,7 +5146,7 @@ export function Board({
         )}
         <Text
           style={[
-            boardFont(23, 1.2, '400', INK, 'BoardHand-Bold'),
+            boardFont(23, 1.2, '700', INK),
             { marginTop: 4, marginBottom: 3 },
             webOnly({ wordBreak: 'keep-all', textWrap: 'pretty' }),
           ]}
@@ -5708,7 +5700,7 @@ export function Board({
     return (
       <>
         <View style={{ marginBottom: 4 }}>
-          <Text style={[boardFont(14, 1.2, '400', '#98713d', 'BoardHand'), { marginBottom: 1 }]}>
+          <Text style={[boardFont(14, 1.2, '400', '#98713d'), { marginBottom: 1 }]}>
             매일 새 도전
           </Text>
           <View
@@ -5719,7 +5711,7 @@ export function Board({
               gap: 8,
             }}
           >
-            <Text style={boardFont(27, 1.15, '400', INK, 'BoardHand-Bold')}>
+            <Text style={boardFont(27, 1.15, '700', INK)}>
               퀘스트{' '}
               <Text style={{ fontSize: 16, lineHeight: lh(16 * 1.15), color: '#92713f' }}>
                 {quests.length}
@@ -6435,7 +6427,7 @@ export function Board({
               <Text
                 allowFontScaling
                 style={[
-                  boardFont(28 * labelScale, 1.1, '400', '#76503c', 'BoardHand'),
+                  boardFont(28 * labelScale, 1.1, '400', '#76503c'),
                   {
                     width: scene.width * 0.45,
                     letterSpacing: 0.56 * labelScale,
@@ -6469,7 +6461,7 @@ export function Board({
               <Text
                 allowFontScaling
                 style={[
-                  boardFont(22 * labelScale, 1.1, '400', '#82652c', 'BoardHand-Bold'),
+                  boardFont(22 * labelScale, 1.1, '700', '#82652c'),
                   { width: scene.width * 0.52, textAlign: 'center' },
                 ]}
               >
