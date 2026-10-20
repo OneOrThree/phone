@@ -40,6 +40,7 @@ class OutboundSendBudgetTest {
     private final CountDownLatch release = new CountDownLatch(1);
     private final CountDownLatch entered = new CountDownLatch(1);
     private final List<String> handled = new CopyOnWriteArrayList<>();
+    private final List<Thread> handlerThreads = new CopyOnWriteArrayList<>();
     private ExecutorSubscribableChannel channel;
 
     private void start() {
@@ -47,6 +48,7 @@ class OutboundSendBudgetTest {
         channel = new ExecutorSubscribableChannel(executor);
         channel.setInterceptors(List.of(budget));
         channel.subscribe(message -> {
+            handlerThreads.add(Thread.currentThread());
             entered.countDown();
             try {
                 release.await(5, TimeUnit.SECONDS);
@@ -72,20 +74,21 @@ class OutboundSendBudgetTest {
         String chat = "/topic/groups/" + UUID.randomUUID();
 
         assertThat(channel.send(frame("other", chat))).isTrue(); // 실행 중(막힘)
+        assertThat(entered.await(2, TimeUnit.SECONDS)).as("첫 프레임이 핸들러에 들어갔다 — 가해로 닫히기 전에 실행 중이어야 큐 칸이 안 빈다").isTrue();
         assertThat(channel.send(frame("other", chat))).isTrue(); // 큐 1칸
         assertThat(channel.send(frame("victim", chat))).as("브로커에 예외를 올리지 않는다").isTrue();
 
         verify(victim, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
-        verify(other, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
+        verify(other).close(OutboundSendBudget.QUEUE_FULL); // 큐를 채운 쪽(최대 점유)이 가해로 먼저 닫힌다
         assertThat(meters.counter("realtime.outbound.dropped", "reason", "queue_full").count()).isEqualTo(1.0);
         assertThat(meters.get("executor.queued").tag("name", "realtime-outbound").gauge().value()).isEqualTo(1.0);
 
         release.countDown();
         executor.getThreadPoolExecutor().shutdown();
         executor.getThreadPoolExecutor().awaitTermination(5, TimeUnit.SECONDS);
-        assertThat(handled).containsExactly("other", "other");
+        assertThat(handled).as("실행 중이던 한 건만 나갔다 — 큐에 있던 건 종료 예약이라 꺼낼 때 버렸다").containsExactly("other");
         assertThat(meters.get("realtime.outbound.send").tag("destination_kind", "chat").timer().count())
-                .isEqualTo(2);
+                .isEqualTo(1);
     }
 
     @Test
@@ -93,16 +96,71 @@ class OutboundSendBudgetTest {
     void queueFullClosesTheMovementSessionWithoutRunningItOnTheCaller() throws Exception {
         start();
         WebSocketSession mover = socket("mover");
+        List<Thread> closeThreads = new CopyOnWriteArrayList<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            closeThreads.add(Thread.currentThread());
+            return null;
+        }).when(mover).close(OutboundSendBudget.QUEUE_FULL);
         String movement = "/topic/islands/" + UUID.randomUUID() + "/movement";
         channel.send(frame("other", movement));
+        assertThat(entered.await(2, TimeUnit.SECONDS)).as("첫 프레임이 실행기 워커의 핸들러에 들어갔다").isTrue();
         channel.send(frame("other", movement));
 
-        long started = System.nanoTime();
         assertThat(channel.send(frame("mover", movement))).isTrue();
-        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started))
-                .as("호출 스레드에서 막힌 핸들러를 돌리지 않는다").isLessThan(1000);
         verify(mover, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+        // 시간 대신 구조로 «호출 스레드에서 돌지 않음»을 본다 — close 는 전용 풀, 핸들러는 실행기 워커에서만 돈다.
+        assertThat(closeThreads).singleElement().satisfies(thread -> {
+            assertThat(thread.getName()).isEqualTo("realtime-outbound-close");
+            assertThat(thread).isNotSameAs(Thread.currentThread());
+        });
+        assertThat(handlerThreads).isNotEmpty().allSatisfy(thread -> {
+            assertThat(thread.getName()).startsWith("realtime-outbound-");
+            assertThat(thread).isNotSameAs(Thread.currentThread());
+        });
         assertThat(handled).doesNotContain("mover");
+    }
+
+    @Test
+    @DisplayName("포화되면 가장 많이 점유한 세션을 먼저, 넘친 세션을 그 다음에 닫는다 — 둘 다 1008 이고 지표가 가른다")
+    void queueFullClosesTheHeaviestSessionBeforeTheOverflowingOne() throws Exception {
+        start();
+        WebSocketSession hog = socket("hog");
+        WebSocketSession overflow = socket("overflow");
+        List<String> order = new CopyOnWriteArrayList<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            order.add("hog");
+            return null;
+        }).when(hog).close(OutboundSendBudget.QUEUE_FULL);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            order.add("overflow");
+            return null;
+        }).when(overflow).close(OutboundSendBudget.QUEUE_FULL);
+        String chat = "/topic/groups/" + UUID.randomUUID();
+
+        channel.send(frame("hog", chat)); // 실행 중(막힘)
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        channel.send(frame("hog", chat)); // 큐 1칸 — hog 가 2건 점유
+        channel.send(frame("overflow", chat)); // 거부
+
+        verify(overflow, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+        verify(hog).close(OutboundSendBudget.QUEUE_FULL);
+        assertThat(order).containsExactly("hog", "overflow");
+        assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isEqualTo(1.0);
+        assertThat(meters.counter("realtime.outbound.closed", "selected", "overflow").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("끝난 프레임은 세션별 대기 수에서 빠진다 — 항목이 남아 새지 않는다")
+    void drainedFramesLeaveThePendingCount() throws Exception {
+        start();
+        release.countDown();
+        channel.send(frame("idle", "/topic/groups/" + UUID.randomUUID()));
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while ((handled.isEmpty() || budget.pendingOf("idle") != 0) && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertThat(handled).containsExactly("idle");
+        assertThat(budget.pendingOf("idle")).isZero();
     }
 
     @Test
@@ -142,6 +200,7 @@ class OutboundSendBudgetTest {
         String chat = "/topic/groups/" + UUID.randomUUID();
         try {
             channel.send(frame("x", chat));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).as("첫 프레임이 핸들러에 들어갔다 — 가해로 닫히기 전에 실행 중이어야 큐 칸이 안 빈다").isTrue();
             channel.send(frame("x", chat));
             channel.send(frame("stuck", chat)); // 거부 → close 가 막힌다
             verify(stuck, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
@@ -161,6 +220,7 @@ class OutboundSendBudgetTest {
         socket("victim");
         String chat = "/topic/groups/" + UUID.randomUUID();
         channel.send(frame("x", chat));
+        assertThat(entered.await(2, TimeUnit.SECONDS)).as("첫 프레임이 핸들러에 들어갔다 — 가해로 닫히기 전에 실행 중이어야 큐 칸이 안 빈다").isTrue();
         channel.send(frame("x", chat));
         channel.send(frame("victim", chat));
         assertThat(budget.isClosing("victim")).isTrue();
@@ -186,6 +246,7 @@ class OutboundSendBudgetTest {
                 .close(OutboundSendBudget.QUEUE_FULL);
         String chat = "/topic/groups/" + UUID.randomUUID();
         channel.send(frame("x", chat));
+        assertThat(entered.await(2, TimeUnit.SECONDS)).as("첫 프레임이 핸들러에 들어갔다 — 가해로 닫히기 전에 실행 중이어야 큐 칸이 안 빈다").isTrue();
         channel.send(frame("x", chat));
         channel.send(frame("broken", chat)); // 거부 → 예약 → close 실패 → 재시도도 실패
         verify(broken, timeout(2000).times(2)).close(OutboundSendBudget.QUEUE_FULL);
@@ -195,9 +256,9 @@ class OutboundSendBudgetTest {
         }
         assertThat(budget.isClosing("broken")).isFalse();
 
-        release.countDown(); // 큐가 회복됐다 — 밀린 두 건이 빠질 때까지 기다린다
+        release.countDown(); // 큐가 회복됐다 — 밀린 x 의 두 건이 빠질 때까지 기다린다
         long drained = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-        while (handled.size() < 2 && System.nanoTime() < drained) {
+        while (budget.pendingOf("x") > 0 && System.nanoTime() < drained) {
             Thread.sleep(10);
         }
         assertThat(channel.send(frame("broken", chat))).as("예약이 풀려 다시 전달 경로를 탄다").isTrue();
@@ -215,6 +276,7 @@ class OutboundSendBudgetTest {
                 .close(OutboundSendBudget.QUEUE_FULL);
         String chat = "/topic/groups/" + UUID.randomUUID();
         channel.send(frame("x", chat));
+        assertThat(entered.await(2, TimeUnit.SECONDS)).as("첫 프레임이 핸들러에 들어갔다 — 가해로 닫히기 전에 실행 중이어야 큐 칸이 안 빈다").isTrue();
         channel.send(frame("x", chat));
         channel.send(frame("flaky", chat)); // 거부 → 예약 → 첫 close 실패 → 재시도 성공
         verify(flaky, timeout(2000).times(2)).close(OutboundSendBudget.QUEUE_FULL);

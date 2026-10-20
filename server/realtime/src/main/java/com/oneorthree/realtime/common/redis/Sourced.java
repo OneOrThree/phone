@@ -1,5 +1,6 @@
 package com.oneorthree.realtime.common.redis;
 
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 
@@ -43,5 +44,26 @@ public record Sourced<T>(T value, long expiresAtNanos) {
             return EXPIRED;
         }
         return readStartNanos + TimeUnit.MILLISECONDS.toNanos(pttlMillis);
+    }
+
+    /**
+     * 키의 값들과 첫 키의 만료를 한 원자 단위로 읽는다 — 값은 {@code keys} 순서의 문자열(없으면 빈 문자열), 만료는 첫 키 기준.
+     * 키는 1~2개({@link #GET_WITH_PTTL} 의 계약).
+     *
+     * @throws IllegalStateException 응답이 비었거나 키 수와 맞지 않을 때
+     */
+    @SuppressWarnings("unchecked")
+    public static Sourced<List<String>> read(StringRedisTemplate redis, String... keys) {
+        long readStart = System.nanoTime();
+        List<Object> read = redis.execute(GET_WITH_PTTL, List.of(keys));
+        if (read == null || read.size() != keys.length + 1) {
+            throw new IllegalStateException("캐시 읽기 스크립트 응답이 비었다");
+        }
+        List<String> values = new java.util.ArrayList<>(keys.length);
+        values.add(String.valueOf(read.get(0)));
+        if (keys.length > 1) {
+            values.add(String.valueOf(read.get(2)));
+        }
+        return new Sourced<>(values, expiresAt(readStart, Long.parseLong(String.valueOf(read.get(1)))));
     }
 }

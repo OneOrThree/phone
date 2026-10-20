@@ -192,6 +192,14 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `realtime.outbound.send{destination_kind=chat|movement|events|sea|other}`, 인가 캐시 `realtime.outbound.authz.cache{result=hit|miss|evict}`.
   `queue_full` 이 0 이 아니면 실행기·느린 수신자부터 본다. heartbeat 프레임도 같은 실행기를 지난다 — 송신 시간은
   `destination_kind=other` 로 재고, 포화로 거부되면 다른 프레임과 같이 `queue_full` 로 세며 그 세션을 닫는다.
+  **포화 종료는 가해 세션을 먼저 닫는다** — 큐는 전역 하나라 넘친 프레임의 세션이 가해자가 아닐 수 있다. 그래서 세션별 대기 프레임 수
+  (실행 중 포함, 실행기 `TaskDecorator` 가 센다 — 인터셉터 쌍은 앞선 인터셉터가 버린 프레임에서 새서 쓰지 않는다)를 두고, 거부되면
+  **최대 점유 세션(종료 예약 제외)을 먼저, 넘친 세션을 그 다음에** 같은 `OUTBOUND_QUEUE_FULL` 로 닫는다. 지표
+  `realtime.outbound.closed{selected=offender|overflow}`(최대 점유 세션이 곧 넘친 세션이면 `overflow` 만 센다). `offender` 가 자주 오르면
+  특정 느린 수신자가 큐를 채우는 것이니 그 세션의 경로(방·네트워크)를 본다.
+  **1008 vs 1002**: `OUTBOUND_QUEUE_FULL` 은 1008(`POLICY_VIOLATION`, 큐 포화), heartbeat 무활동은 1002 — 앱이 코드로 가를 수 있게 둘을 섞지 않는다.
+  **재연결 지터 권고**: 포화로 한꺼번에 닫힌 세션이 같은 순간 다시 붙으면 포화가 되풀이된다 — 클라이언트 재연결은 5 s ± 50 % 같은
+  지터를 둔다. 현재 앱은 `reconnectDelay` 5000 ms 고정이다(앱 후속).
 
 ## 섬 이동 다중 인스턴스 (GROMO-2339, ADR A26)
 

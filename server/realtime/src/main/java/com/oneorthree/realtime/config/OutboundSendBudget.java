@@ -16,6 +16,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,6 +44,12 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  * 거부된 프레임의 세션을 1008 {@link #QUEUE_FULL} 로 닫는다 — 종류를 가리지 않는다. 채팅 본문은 DB 에 있으므로 앱은 재연결
  * 뒤 이력 조회로 메우고, 이동은 재구독의 첫 FullState 로 다시 맞춘다(종료가 {@code MovementSubscriptionListener#closed} 로
  * outbox 를 치운다). 세션을 살려 둔 채 한 건을 빼먹으면 채팅은 구멍이, 이동은 순서·상태 어긋남이 남는다.
+ *
+ * <p><b>가해 세션을 먼저 닫는다.</b> 큐는 전역 하나라 넘친 프레임의 세션이 꼭 가해자는 아니다 — 느린 소켓 하나가 큐를 채우면
+ * 멀쩡한 세션이 넘침을 맞는다. 그래서 세션별 대기 프레임 수(실행 중 포함)를 세어 두고, 거부되면 <b>가장 많이 점유한 세션(종료
+ * 예약 제외)을 먼저</b> 닫은 뒤 넘친 세션도 닫는다(둘 다 잃은 프레임은 재연결 복구). 세는 곳은 실행기의 작업 장식기다 —
+ * 인터셉터의 {@code preSend}/{@code beforeHandle} 쌍은 앞선 인터셉터가 프레임을 버리면 {@code beforeHandle} 이 안 불려 샌다.
+ * 장식기는 Spring 이 작업을 실행기에 넣는 «그 순간» 한 번 세고, 작업이 끝나거나 거부되면 반드시 뺀다.
  *
  * <p><b>예외를 던지지 않는다.</b> Spring 7 의 {@code ExecutorSubscribableChannel} 은 거부({@code RejectedExecutionException})를
  * 받으면 그 작업을 <b>보낸 스레드에서 바로 실행</b>한다(종료 중을 가정한 폴백). 던지면 포화 순간의 소켓 쓰기가 브로커·틱
@@ -74,6 +81,8 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  *       가다 버린 프레임. {@code session_limit} 은 Spring 의 세션 송신
  *       시간({@code send-time-limit-ms})·버퍼({@code send-buffer-size-limit-bytes}) 상한 초과로 닫힌 세션이다. Spring 은 둘을
  *       같은 4500 {@code SESSION_NOT_RELIABLE} 로 닫아 구분할 수 없다(CONNECT 없이 60초 지난 세션 정리도 같은 코드다).</li>
+ *   <li>{@code realtime.outbound.closed{selected=offender|overflow}} — 포화로 닫은 세션. {@code offender} 는 최대 점유
+ *       세션(먼저), {@code overflow} 는 넘친 프레임의 세션. 최대 점유 세션이 곧 넘친 세션이면 {@code overflow} 만 센다.</li>
  *   <li>{@code realtime.outbound.send{destination_kind=chat|movement|events|sea|other}} — 실행기가 꺼낸 뒤 소켓
  *       핸들러가 프레임을 쓰는 시간. 이 인터셉터가 체인 «맨 뒤»라 전달 직전 인가 시간은 들어가지 않는다.</li>
  * </ul>
@@ -97,6 +106,10 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     private final Counter queueFull;
     private final Counter sessionLimit;
     private final Counter closingDropped;
+    private final Counter closedOffender;
+    private final Counter closedOverflow;
+    /** 세션별 대기(실행 중 포함) 프레임 수 — 0 이 되면 항목을 지운다. */
+    private final Map<String, Integer> pending = new ConcurrentHashMap<>();
     private final Map<String, Timer> sendTimers;
     private final ThreadLocal<Long> handleStart = new ThreadLocal<>();
     private final Set<String> closing = ConcurrentHashMap.newKeySet();
@@ -121,6 +134,8 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         this.queueFull = dropped("queue_full");
         this.sessionLimit = dropped("session_limit");
         this.closingDropped = dropped("closing");
+        this.closedOffender = closedCounter("offender");
+        this.closedOverflow = closedCounter("overflow");
         this.sendTimers = KINDS.stream().collect(Collectors.toUnmodifiableMap(kind -> kind,
                 kind -> Timer.builder("realtime.outbound.send").tag("destination_kind", kind)
                         .description("아웃바운드 프레임의 소켓 쓰기 시간").publishPercentileHistogram()
@@ -130,6 +145,11 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     private Counter dropped(String reason) {
         return Counter.builder("realtime.outbound.dropped").tag("reason", reason)
                 .description("아웃바운드 예산 초과로 버린 프레임·닫힌 세션").register(meterRegistry);
+    }
+
+    private Counter closedCounter(String selected) {
+        return Counter.builder("realtime.outbound.closed").tag("selected", selected)
+                .description("큐 포화로 닫은 세션 — offender 는 최대 점유 세션, overflow 는 넘친 프레임의 세션").register(meterRegistry);
     }
 
     /**
@@ -143,7 +163,56 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         executor.setMaxPoolSize(maxThreads);
         executor.setQueueCapacity(queueCapacity);
         executor.setRejectedExecutionHandler(this);
+        executor.setTaskDecorator(this::count);
         return executor;
+    }
+
+    /** 작업을 세션별로 센다 — 실행기에 들어가는 순간 +1, 끝나거나({@code run}) 거부되면 -1. */
+    private Runnable count(Runnable task) {
+        if (!(task instanceof MessageHandlingRunnable handling)) {
+            return task;
+        }
+        String sessionId = SimpMessageHeaderAccessor.getSessionId(handling.getMessage().getHeaders());
+        if (sessionId == null) {
+            return task;
+        }
+        pending.merge(sessionId, 1, Integer::sum);
+        return new CountedTask(handling, sessionId);
+    }
+
+    private void uncount(String sessionId) {
+        pending.computeIfPresent(sessionId, (id, n) -> n > 1 ? n - 1 : null);
+    }
+
+    /** 장식된 작업 — {@link MessageHandlingRunnable} 을 구현해 {@link #rejectedExecution} 이 메시지를 그대로 읽는다. */
+    private final class CountedTask implements MessageHandlingRunnable {
+
+        private final MessageHandlingRunnable delegate;
+        private final String sessionId;
+
+        CountedTask(MessageHandlingRunnable delegate, String sessionId) {
+            this.delegate = delegate;
+            this.sessionId = sessionId;
+        }
+
+        @Override
+        public Message<?> getMessage() {
+            return delegate.getMessage();
+        }
+
+        @Override
+        public MessageHandler getMessageHandler() {
+            return delegate.getMessageHandler();
+        }
+
+        @Override
+        public void run() {
+            try {
+                delegate.run();
+            } finally {
+                uncount(sessionId);
+            }
+        }
     }
 
     @Override
@@ -155,18 +224,43 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         Message<?> message = task instanceof MessageHandlingRunnable handling ? handling.getMessage() : null;
         String destination = message == null ? null : SimpMessageHeaderAccessor.getDestination(message.getHeaders());
         String sessionId = message == null ? null : SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
+        if (sessionId != null) {
+            uncount(sessionId); // 큐에 못 들어갔다
+        }
+        // 가해(최대 점유) 세션을 먼저, 넘친 세션을 그 다음에 — 한 작업에서 차례로 닫아 순서를 보장한다.
+        String offender = sessionId == null ? null : heaviestOtherThan(sessionId);
+        List<String> victims = new ArrayList<>(2);
+        if (offender != null && closing.add(offender)) {
+            closedOffender.increment();
+            victims.add(offender);
+            log.warn("아웃바운드 큐 포화 — 최대 점유 세션을 닫는다. pending={}", pending.get(offender));
+        }
         if (sessionId != null && closing.add(sessionId)) {
+            closedOverflow.increment();
+            victims.add(sessionId);
             log.warn("아웃바운드 큐 포화 — 프레임을 버린 세션을 닫는다. kind={}", kindOf(destination));
-            closer.execute(() -> {
-                // 정상이면 종료 경로(closed)가 지운다. 이미 끊긴 세션이었으면 그 경로가 먼저 지나갔으니 여기서 지운다.
-                boolean closed = sessions.close(sessionId, QUEUE_FULL) || sessions.close(sessionId, QUEUE_FULL);
-                if (!closed) {
-                    log.warn("아웃바운드 큐 포화 세션 종료가 두 번 실패 — 예약을 푼다. 한 프레임 손실 가능(앱 sync·이력으로 복구)");
-                }
-                if (!closed || !sessions.isConnected(sessionId)) {
-                    closing.remove(sessionId);
-                }
-            });
+        }
+        if (!victims.isEmpty()) {
+            closer.execute(() -> victims.forEach(this::closeReserved));
+        }
+    }
+
+    // ponytail: 거부마다 세션 수만큼 훑는다(수천 세션 × 포화 폭풍이면 부담) — 이미 닫는 세션은 closing 으로 빠져 곧 줄어든다.
+    // 부담이 측정되면 거부 간격 제한(예: 100ms 1회)을 둔다.
+    private String heaviestOtherThan(String sessionId) {
+        return pending.entrySet().stream()
+                .filter(e -> !e.getKey().equals(sessionId) && !closing.contains(e.getKey()))
+                .max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
+    }
+
+    private void closeReserved(String sessionId) {
+        // 정상이면 종료 경로(closed)가 지운다. 이미 끊긴 세션이었으면 그 경로가 먼저 지나갔으니 여기서 지운다.
+        boolean closed = sessions.close(sessionId, QUEUE_FULL) || sessions.close(sessionId, QUEUE_FULL);
+        if (!closed) {
+            log.warn("아웃바운드 큐 포화 세션 종료가 두 번 실패 — 예약을 푼다. 한 프레임 손실 가능(앱 sync·이력으로 복구)");
+        }
+        if (!closed || !sessions.isConnected(sessionId)) {
+            closing.remove(sessionId);
         }
     }
 
@@ -174,6 +268,7 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     void closed(String sessionId, CloseStatus status) {
         if (sessionId != null) {
             closing.remove(sessionId);
+            pending.remove(sessionId);
         }
         if (status != null && status.equalsCode(CloseStatus.SESSION_NOT_RELIABLE)) {
             sessionLimit.increment();
@@ -205,6 +300,11 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
             return true;
         }
         return false;
+    }
+
+    /** 세션의 대기 프레임 수 — 회귀 전용. */
+    int pendingOf(String sessionId) {
+        return pending.getOrDefault(sessionId, 0);
     }
 
     /** 종료 예약 중인가 — 회귀 전용. */

@@ -92,7 +92,7 @@ public class BlockedUsers {
 
     /**
      * {@link #hasBlocked} 와 같은 판정에, 그 판정이 기댄 차단 집합 캐시의 만료를 함께 돌려준다(GROMO-2340). 캐시 hit 이면 집합과
-     * 그 PTTL 을 한 원자 단위(Lua)로 읽고 — MGET 한 번을 대신하므로 왕복은 늘지 않는다 — 정본에서 새로 읽었으면 그 적재 수명
+     * 그 만료를 한 원자 단위({@link Sourced#read})로 읽고 — MGET 한 번을 대신하므로 왕복은 늘지 않는다 — 정본에서 새로 읽었으면 그 적재 수명
      * (조회 시작 + TTL)이다. 조회가 없으면(꺼짐·발신자 없음·본인) 만료는 {@link Sourced#UNBOUNDED}.
      *
      * @throws UpstreamUnavailableException 판정할 수 없을 때 — 호출자는 전달하지 않는다
@@ -150,19 +150,14 @@ public class BlockedUsers {
         return new Read(values.get(0), values.get(1), Sourced.UNBOUNDED);
     }
 
-    /** 캐시 값·그 PTTL·세대를 한 원자 단위로 — 값과 만료 사이에 다른 적재가 끼지 못한다. */
+    /** 캐시 값·그 만료·세대를 한 원자 단위로 — 값과 만료 사이에 다른 적재가 끼지 못한다. */
     private Read readWithExpiry(UUID viewerId) {
-        long readStart = System.nanoTime();
-        @SuppressWarnings("unchecked")
-        List<Object> read = redis.execute(Sourced.GET_WITH_PTTL,
-                List.of(RedisKeys.blockCache(viewerId), RedisKeys.blockGeneration(viewerId)));
-        if (read == null || read.size() != 3) {
-            throw new IllegalStateException("차단 캐시 스크립트 응답이 비었다");
-        }
-        String cached = String.valueOf(read.get(0));
-        String generation = String.valueOf(read.get(2));
+        Sourced<List<String>> read = Sourced.read(redis, RedisKeys.blockCache(viewerId),
+                RedisKeys.blockGeneration(viewerId));
+        String cached = read.value().get(0);
+        String generation = read.value().get(1);
         return new Read(generation.isEmpty() ? null : generation, cached.isEmpty() ? null : cached,
-                Sourced.expiresAt(readStart, Long.parseLong(String.valueOf(read.get(1)))));
+                read.expiresAtNanos());
     }
 
     private Sourced<Set<UUID>> load(UUID viewerId, Function<UUID, Read> reader) {
