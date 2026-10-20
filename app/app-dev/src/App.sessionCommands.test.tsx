@@ -25,6 +25,8 @@ import {
 let captured: any;
 // 앱 state 저장은 1초 모아 쓴다(GROMO-2372) — 저장본을 기다리는 waitFor 는 그보다 넉넉히 기다린다
 const SAVED_WRITE = { timeout: 3000 };
+// 저장은 1초 모아 쓴다(SAVE_DELAY_MS) — 저장을 여러 번 기다리는 테스트가 느린 CI 러너에서 기본 5초를 넘지 않게 늘린다
+jest.setTimeout(15_000);
 const mockStartLiveActivityPushSync = jest.fn(() => jest.fn());
 jest.mock('@/services/liveActivityPush', () => ({
   startLiveActivityPushSync: () => mockStartLiveActivityPushSync(),
