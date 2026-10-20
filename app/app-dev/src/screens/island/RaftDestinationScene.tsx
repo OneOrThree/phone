@@ -17,12 +17,16 @@ function Arrow({ back = false }: { back?: boolean }) {
       aria-hidden
       style={styles.arrow}
     >
-      <Svg width={back ? 13 : 18} height={back ? 13 : 18} viewBox="0 0 24 24">
+      <Svg
+        width={back ? c.backIconSize : c.forwardIconSize}
+        height={back ? c.backIconSize : c.forwardIconSize}
+        viewBox="0 0 24 24"
+      >
         <Path
           d={back ? 'm14 5-7 7 7 7' : 'M4 12h15m-6-6 6 6-6 6'}
           fill="none"
           stroke={semanticTokens.color.text}
-          strokeWidth={2}
+          strokeWidth={semanticTokens.stroke.strong}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -56,14 +60,17 @@ export function RaftDestinationScene({
     ? require('@/assets/ota/raft/destinations-landscape.png')
     : require('@/assets/ota/raft/destinations.png');
   const scale = Math.max(
-    (L.width * 1.04) / imageSize.imageWidth,
-    (L.height * 1.02) / imageSize.imageHeight,
+    (L.width * c.imageBleedX) / imageSize.imageWidth,
+    (L.height * c.imageBleedY) / imageSize.imageHeight,
   );
   const imageWidth = imageSize.imageWidth * scale,
     imageHeight = imageSize.imageHeight * scale;
   const top = Math.max(c.headerTop, L.insets.top + semanticTokens.spacing.control);
   const titleTop =
-    top + (L.width < 350 || L.fontScale > 1.2 ? semanticTokens.size.tapMin : c.titleOffset);
+    top +
+    (L.width < c.narrowWidth || L.fontScale > c.largeTextThreshold
+      ? semanticTokens.size.tapMin
+      : c.titleOffset);
   const choice = (kind: 'sea' | 'focus', action: () => void) => (
     <Pressable
       accessibilityRole="button"
@@ -88,7 +95,7 @@ export function RaftDestinationScene({
                 maxWidth:
                   L.width - L.insets.right - Math.max(L.insets.left, L.width * c.choiceInset),
               },
-        { opacity: busy ? componentTokens.button.disabledOpacity : pressed ? 0.7 : 1 },
+        { opacity: busy ? componentTokens.button.disabledOpacity : pressed ? c.pressedOpacity : 1 },
       ]}
     >
       <Txt style={[styles.choiceText, font, selected === kind && styles.selected]}>
@@ -135,7 +142,7 @@ export function RaftDestinationScene({
           ? styles.flowCaption
           : {
               top: L.height * c.focusTop + semanticTokens.size.tapMin + c.titleOffset,
-              left: Math.max(L.insets.left, L.width * 0.11),
+              left: Math.max(L.insets.left, L.width * c.captionInset),
             },
       ]}
     >
@@ -197,16 +204,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     fontSize: c.titleSize,
     lineHeight: c.titleSize * 1.5,
-    fontWeight: '400',
+    fontWeight: semanticTokens.typography.regular,
     textAlign: 'center',
     textShadowColor: c.textShadow,
-    textShadowRadius: 5,
+    textShadowRadius: c.textShadowRadius.title,
   },
   members: {
     position: 'absolute',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: c.inlineGap,
     minHeight: semanticTokens.size.tapMin,
     minWidth: semanticTokens.size.tapMin,
   },
@@ -214,9 +221,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     fontSize: semanticTokens.typography.caption,
-    fontWeight: '400',
+    fontWeight: semanticTokens.typography.regular,
     textShadowColor: c.textShadow,
-    textShadowRadius: 3,
+    textShadowRadius: c.textShadowRadius.members,
   },
   choice: {
     position: 'absolute',
@@ -231,16 +238,16 @@ const styles = StyleSheet.create({
     minWidth: 0,
     fontSize: c.choiceSize,
     lineHeight: c.choiceSize * 1.4,
-    fontWeight: '400',
+    fontWeight: semanticTokens.typography.regular,
     textDecorationLine: 'underline',
     textShadowColor: c.textShadow,
-    textShadowRadius: 8,
+    textShadowRadius: c.textShadowRadius.choice,
   },
-  selected: { fontWeight: '700' },
+  selected: { fontWeight: semanticTokens.typography.bold },
   caption: {
     position: 'absolute',
     fontSize: componentTokens.homeNavigation.clockSize,
     textShadowColor: c.textShadow,
-    textShadowRadius: 5,
+    textShadowRadius: c.textShadowRadius.title,
   },
 });
