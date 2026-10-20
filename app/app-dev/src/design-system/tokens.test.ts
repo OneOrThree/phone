@@ -39,6 +39,8 @@ describe('design system tokens', () => {
     expect(componentTokens.gramophone.recordGroove).toBe(
       primitiveTokens.color.gramophoneRecordGroove,
     );
+    expect(componentTokens.fishingScene.splashDrop).toBe(primitiveTokens.color.fishingSplash);
+    expect(componentTokens.fishingScene.radius).toBe(semanticTokens.radius.full);
     expect(componentTokens.restCampfire.glowBackColor).toBe(primitiveTokens.color.restFireGlowBack);
     expect(componentTokens.restCampfire.sparkLight).toBe(primitiveTokens.color.restFireSparkLight);
   });

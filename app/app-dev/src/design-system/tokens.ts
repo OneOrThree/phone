@@ -64,6 +64,11 @@ export const primitiveTokens = {
     nightDanger: '#F1AC98',
     nightDangerSoft: '#493B33',
     nightLetterInk: '#E8DDBB',
+    // 낚시섬 물빛 효과(움직임 검토실 scenes-focus-fishing.js 원값). 물 위 밝은 하이라이트다.
+    fishingSplash: '#E9FFF4',
+    fishingSplashRing: '#FFF4CE',
+    fishingFloatRing: '#FFF6D5',
+    fishingGlint: '#FFF9DC',
   },
   space: {
     0: 0,
@@ -342,6 +347,14 @@ export const componentTokens = {
     tapeWidth: 46,
     hudGap: space[1],
     shadow: `0px ${space[1]}px 0px ${semanticTokens.color.outline}`,
+  },
+  fishingScene: {
+    splashDrop: color.fishingSplash,
+    splashRing: color.fishingSplashRing,
+    floatRing: color.fishingFloatRing,
+    glint: color.fishingGlint,
+    // 물방울·물결 고리·반짝임은 모두 타원/알약 모양이다. 짧은 변의 절반으로 잘려 둥글게 닫힌다.
+    radius: semanticTokens.radius.full,
   },
   // 모닥불 휴식 장면 불빛·불티(GROMO-2361). 색은 primitive, 번짐 불투명도는 검토실에서 확정한 값이다.
   restCampfire: {
