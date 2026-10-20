@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { cat } from '@/constants/assets';
+import { componentTokens } from '@/design-system/tokens';
 import metrics from '@/constants/motion-metrics.json';
 import type { Color } from '@/services/model';
 
@@ -19,6 +20,7 @@ import type { Color } from '@/services/model';
 // 시계는 Animated.Value 하나(0→12초 반복, 네이티브 드라이버)이고 모든 값은 interpolate 로 뽑는다 — 프레임마다
 // setState 를 하지 않는다. 연출은 보상·집중 시간·서버 상태를 만들지 않는다.
 
+const fire = componentTokens.restCampfire;
 const LOOP = 12;
 const TAU = Math.PI * 2;
 const wave = (t: number, cycles: number, offset = 0) =>
@@ -137,7 +139,7 @@ function Glow({
         <Defs>
           <RadialGradient id={id} cx="50%" cy="50%" r="50%">
             <Stop offset="0" stopColor={color} stopOpacity={colorAlpha} />
-            <Stop offset="1" stopColor="rgb(255,181,78)" stopOpacity={0} />
+            <Stop offset="1" stopColor={fire.glowEdgeColor} stopOpacity={0} />
           </RadialGradient>
         </Defs>
         <Rect width="100%" height="100%" fill={`url(#${id})`} />
@@ -165,9 +167,9 @@ export function RestCampfireBack({
         cx={466}
         cy={444}
         r={255}
-        color="rgb(255,190,70)"
-        colorAlpha={0.35}
-        alpha={0.35}
+        color={fire.glowBackColor}
+        colorAlpha={fire.glowBackColorOpacity}
+        alpha={fire.glowBackOpacity}
         K={K}
         scale={pulse}
       />
@@ -237,7 +239,7 @@ export function RestCampfireFront({
           f = (g: (a: number) => number) => curve(age, 3, 0.05, (u) => g(u / 3));
         return {
           width,
-          color: i % 3 ? '#ffcf73' : '#fff0b2',
+          color: i % 3 ? fire.sparkWarm : fire.sparkLight,
           opacity: f((a) => Math.sin(Math.PI * a) * 0.65),
           x: f((a) => (466 + Math.sin(i * 2.41) * 19 + Math.sin(a * 3.2 + i) * 18 - width / 2) * K),
           y: f((a) => (423 - a * (118 + (i % 4) * 17) + 120) * K),
@@ -357,9 +359,9 @@ export function RestCampfireFront({
         cx={467}
         cy={490}
         r={195}
-        color="rgb(255,193,100)"
-        colorAlpha={0.3}
-        alpha={0.07}
+        color={fire.glowFrontColor}
+        colorAlpha={fire.glowFrontColorOpacity}
+        alpha={fire.glowFrontOpacity}
         K={K}
       />
     </View>
