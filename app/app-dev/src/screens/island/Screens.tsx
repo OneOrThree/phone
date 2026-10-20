@@ -6558,6 +6558,10 @@ export function RedesignScreens({ e }: any) {
         snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
         t('account.boat.myIslandFallback'))
       : (mainIsland(state)?.name ?? island.name);
+    const canChangeMainIsland =
+      (server
+        ? (snap?.memberships.length ?? 0)
+        : state.islands.filter((candidate) => candidate.joined && !candidate.closed).length) > 1;
     const toggle = (label: string, key: string, sub?: string) => (
       <SheetRow
         title={label}
@@ -6597,10 +6601,10 @@ export function RedesignScreens({ e }: any) {
             onPress={() => go('profile')}
           />
           <SheetRow
-            title={t('account.boat.changeMain')}
-            sub={t('account.boat.currentMainOnlyA11y', { name: primaryIslandName })}
-            chevron
-            onPress={() => go('mainIsland')}
+            title={t(canChangeMainIsland ? 'account.boat.changeMain' : 'account.boat.currentMain')}
+            sub={primaryIslandName}
+            chevron={canChangeMainIsland}
+            onPress={canChangeMainIsland ? () => go('mainIsland') : undefined}
           />
         </SheetGroup>
         {sec(t('settings.notificationsSoundSection'))}

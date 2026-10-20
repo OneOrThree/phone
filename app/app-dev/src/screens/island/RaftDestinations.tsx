@@ -23,7 +23,9 @@ export function RaftDestinations({ e }: { e: any }) {
     : s.islands.filter((j) => j.joined);
   // 아직 도착한 적 없는 섬은 뺀다. 필드가 없는 구서버 응답은 도착한 것으로 본다.
   // 별도 뒤로 버튼 대신 소속 섬 선택에서 지금 섬으로도 돌아갈 수 있다.
-  const destinations = members.filter((m) => m.arrivedBefore !== false);
+  const destinations = members.filter(
+    (m) => m.arrivedBefore !== false || (!visiting && m.id === currentId),
+  );
 
   // 가입하지 않은 섬을 구경하다 떠나면 가입 안내를 방문당 1번 묻는다(GROMO-2259).
   // 물었는지는 리듀서 상태(visitLeaveAsked)에 둔다 — 새 방문·구경 끝에서만 지워지고, 사이의 다른 액션에 영향받지 않는다.

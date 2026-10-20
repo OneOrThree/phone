@@ -296,13 +296,28 @@ function Harness({
 test('설정에서 기존 내 정보·메인 섬 변경으로 이동하고 현재 메인 섬 이름을 보여 준다', async () => {
   let exposed: any;
   const screen = await render(
-    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+    <Harness
+      route="settings"
+      full
+      seed={(d: any) => {
+        const state = initialState(true);
+        state.islands[1].joined = true;
+        d({ type: 'LOAD', state });
+      }}
+      expose={(value: any) => (exposed = value)}
+    />,
   );
-  expect(screen.getByText(/현재 내 메인 섬/)).toBeTruthy();
+  expect(screen.getByText('소다 섬')).toBeTruthy();
   await fireEvent.press(screen.getByText('내 정보'));
   expect(exposed.go).toHaveBeenCalledWith('profile');
   await fireEvent.press(screen.getByText('메인 섬 변경하기'));
   expect(exposed.go).toHaveBeenCalledWith('mainIsland');
+});
+
+test('소속 섬이 하나면 설정에서 현재 메인 섬만 표시하고 변경 행동을 노출하지 않는다', async () => {
+  const screen = await render(<Harness route="settings" full />);
+  expect(screen.getByText('현재 내 메인 섬')).toBeTruthy();
+  expect(screen.queryByText('메인 섬 변경하기')).toBeNull();
 });
 
 test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 로컬 LOGIN은 하지 않는다', async () => {

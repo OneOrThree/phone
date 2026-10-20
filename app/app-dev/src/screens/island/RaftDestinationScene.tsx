@@ -93,6 +93,7 @@ export function RaftDestinationScene({
         }}
       />
       <Txt
+        accessibilityRole="header"
         style={[
           styles.heading,
           font,
@@ -148,6 +149,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
     minHeight: semanticTokens.size.tapMin,
+    minWidth: semanticTokens.size.tapMin,
   },
   membersText: {
     fontSize: semanticTokens.typography.caption,

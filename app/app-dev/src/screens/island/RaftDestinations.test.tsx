@@ -533,3 +533,12 @@ test('섬 이름에 이미 섬이 들어 있으면 도착 문구에 중복해서
   expect(screen.getByText('구름섬으로')).toBeTruthy();
   expect(screen.queryByText('구름섬섬으로')).toBeNull();
 });
+
+test('현재 섬의 도착 이력 동기화가 늦어도 홈으로 돌아갈 길은 유지한다', async () => {
+  const e = env();
+  e.state.serverIslands!.memberships[0].arrivedBefore = false;
+  const screen = await renderMembers(e);
+  await fireEvent.press(screen.getByText('하나섬으로'));
+  expect(e.reset).toHaveBeenCalledWith('home');
+  expect(e.islands.switchCurrent).not.toHaveBeenCalled();
+});
