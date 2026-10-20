@@ -46,7 +46,7 @@ class LibraryScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_OPTIONS, request -> ok(FacilityFixtures.options("mail")));
         DATA.on(DATA_FOCUS, request -> ok("{\"scope\":\"me\",\"totalSeconds\":1500,\"series\":[{\"date\":\""
                 + WEEK_START + "\",\"seconds\":1500}],\"records\":[],\"members\":null,"
-                + "\"asOf\":\"2026-09-19T09:10:00Z\",\"nextSnapshotId\":null,\"nextOffset\":null}"));
+                + "\"asOf\":\"2026-09-19T09:10:00Z\",\"nextSnapshotId\":null,\"nextOffset\":null,\"earnedFish\":25}"));
         DATA.on(DATA_SCREEN, request -> ok("{\"scope\":\"me\",\"measurementStatus\":\"unavailable\","
                 + "\"totalMinutes\":null,\"series\":[],\"updatedAt\":null,\"members\":null}"));
         DATA.on(DATA_FISH, request -> ok("{\"members\":[{\"userId\":\"" + ISLAND + "\",\"name\":\"수빈\","
@@ -58,6 +58,7 @@ class LibraryScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
                 .andExpect(jsonPath("$.data.statisticsAvailability").value("available"))
                 .andExpect(jsonPath("$.data.focusStatistics.totalSeconds").value(1500))
+                .andExpect(jsonPath("$.data.focusStatistics.earnedFish").value(25))
                 .andExpect(jsonPath("$.data.focusStatistics.nextCursor").value(nullValue()))
                 .andExpect(jsonPath("$.data.screenTimeStatistics.measurementStatus").value("unavailable"))
                 .andExpect(jsonPath("$.data.screenTimeStatistics.totalMinutes").value(nullValue()))

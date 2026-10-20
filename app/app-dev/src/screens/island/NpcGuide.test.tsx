@@ -193,3 +193,19 @@ test('안내 그만 보기는 다른 버튼이 있든 없든 항상 버튼 줄 �
   // 왼쪽 끝에 붙어 있도록 오른쪽 여백을 auto 로 민다
   expect(StyleSheet.flatten(alone.getByTestId('guide-skip').props.style).marginRight).toBe('auto');
 });
+
+test.each(['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const)(
+  '%s 설명과 완공 축하는 별개의 대화다',
+  async (building) => {
+    const { BuildingGuide, BuildingCompletionGuide } = require('./NpcGuide');
+    const done = jest.fn();
+    const screen = await render(<BuildingGuide building={building} onDone={done} />);
+    expect(screen.queryByText(/공사가 끝났어/)).toBeNull();
+    await fireEvent.press(screen.getByText('안내 그만 보기'));
+    expect(done).toHaveBeenCalledTimes(1);
+    await screen.unmount();
+    const completion = await render(<BuildingCompletionGuide building={building} onDone={done} />);
+    expect(completion.getByText(/공사가 끝났어/)).toBeTruthy();
+    expect(completion.queryByText('다음')).toBeNull();
+  },
+);

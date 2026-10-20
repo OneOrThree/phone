@@ -1,0 +1,23 @@
+{
+  "endpoint": "character_moderate",
+  "method": "POST",
+  "path": "/api/v1/character/moderation",
+  "tag": "character",
+  "summary": "누끼 이미지 유해성 검사",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "image": {
+        "gen": "string"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

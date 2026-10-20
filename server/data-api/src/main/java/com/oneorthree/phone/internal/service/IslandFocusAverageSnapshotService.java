@@ -54,8 +54,8 @@ import java.util.UUID;
  *
  * <p>ponytail: 07시에 인스턴스가 모두 죽어 있으면 그날 행이 없다 — 읽는 쪽이 «가장 최근 행» 을 주므로 하루 묵은
  * 값이 나갈 뿐이라 보정 잡을 두지 않는다. 행은 섬 × 일 1건씩 쌓이고 정리 잡도 없다(섬 1천 개면 1년 36만 행) —
- * 부담이 되면 N일 지난 행을 지우는 잡을 더한다. {@code countByGroupIdIn} 에 섬 id 전부를 한 번에 넘기므로 살아
- * 있는 섬이 3만을 넘으면 바인드 파라미터 상한(32767)에 걸린다 — 그때 청크로 쪼갠다.
+ * 부담이 되면 N일 지난 행을 지우는 잡을 더한다. {@code countByGroupIdIn} 은 섬 id 를
+ * {@link #ID_CHUNK}(5000)개씩 끊어 부르므로 살아 있는 섬이 3만을 넘어도 바인드 파라미터 상한(32767)에 걸리지 않는다.
  *
  * <p>ponytail: 적는 문장은 살아 있는 섬의 행을 한 문장에서 id 오름차순으로 {@code FOR SHARE} 잠근다. 섬 행을
  * 잠그는 쪽(가입·이탈·삭제)이 여러 섬을 <b>다른 순서</b>로 잠그면 07시에 겹칠 때 교착할 수 있다 — 계정 탈퇴의
@@ -81,6 +81,12 @@ public class IslandFocusAverageSnapshotService {
     private static final int SNAPSHOT_HOUR_KST = 7;
     /** 평균을 내는 창의 길이(일) — 분모의 「÷ 7」 이기도 하다. */
     private static final int WINDOW_DAYS = 7;
+
+    /**
+     * 주민 수 집계에 한 번에 바인드하는 섬 id 수 — PostgreSQL 바인드 파라미터 상한(32767)보다 한참 작게 잡는다.
+     * 섬 id 가 몇 개든 문장 하나당 이만큼만 넘긴다(GROMO-2287).
+     */
+    static final int ID_CHUNK = 5000;
 
     private final GroupRepository islands;
     private final GroupMemberRepository members;
@@ -108,9 +114,7 @@ public class IslandFocusAverageSnapshotService {
             return 0;
         }
         // 두 집계 모두 «없는 행 = 0» 이다 — 주민이 0명인 섬도, 집중이 없는 섬도 행이 나오지 않는다.
-        Map<UUID, Long> memberCounts = new HashMap<>();
-        members.countByGroupIdIn(islandIds)
-                .forEach(row -> memberCounts.put(row.getGroupId(), row.getMemberCount()));
+        Map<UUID, Long> memberCounts = countMembers(islandIds, ID_CHUNK);
         Map<UUID, Long> focusSeconds = new HashMap<>();
         details.sumIslandActiveSeconds(windowStart, windowEnd)
                 .forEach(row -> focusSeconds.put(row.getIslandId(), row.getSeconds()));
@@ -128,6 +132,16 @@ public class IslandFocusAverageSnapshotService {
         int inserted = snapshots.insertIfAbsent(kstDate, ids, counts, averages);
         log.info("섬별 7일 평균 집계 date={} 대상 섬={} 새로 적음={}", kstDate, ids.length, inserted);
         return inserted;
+    }
+
+    /** 섬 id 를 {@code chunk} 개씩 끊어 주민 수를 센다 — 청크 경계에서 빠지거나 겹치는 섬이 없다(그룹당 1행이라 합쳐도 같다). */
+    Map<UUID, Long> countMembers(List<UUID> islandIds, int chunk) {
+        Map<UUID, Long> counts = new HashMap<>();
+        for (int from = 0; from < islandIds.size(); from += chunk) {
+            members.countByGroupIdIn(islandIds.subList(from, Math.min(from + chunk, islandIds.size())))
+                    .forEach(row -> counts.put(row.getGroupId(), row.getMemberCount()));
+        }
+        return counts;
     }
 
     /**

@@ -22,6 +22,7 @@ export function ImageTerrainFacilities({
   left,
   top,
   scale,
+  baseScale = 1,
   night,
   pressedFacility,
   reduceMotion,
@@ -30,6 +31,7 @@ export function ImageTerrainFacilities({
   left: number;
   top: number;
   scale: number;
+  baseScale?: number;
   night: boolean;
   pressedFacility?: string | null;
   reduceMotion: boolean;
@@ -68,7 +70,7 @@ export function ImageTerrainFacilities({
               testID={`image-terrain-facility-${id}`}
               transform={
                 moving
-                  ? `translate(0 ${tokens.pressOffset / scale}) translate(${x} ${y}) scale(${tokens.pressScale}) translate(${-x} ${-y})`
+                  ? `translate(0 ${tokens.pressOffset / baseScale}) translate(${x} ${y}) scale(${tokens.pressScale}) translate(${-x} ${-y})`
                   : undefined
               }
             >
@@ -76,7 +78,7 @@ export function ImageTerrainFacilities({
                 d={path}
                 fill="none"
                 stroke={tokens.outline}
-                strokeWidth={(tokens.outlineWidth * 2) / scale}
+                strokeWidth={(tokens.outlineWidth * 2) / baseScale}
                 strokeLinejoin="round"
               />
               <G clipPath={`url(#${uid}-${id})`}>

@@ -3,6 +3,7 @@ package com.oneorthree.realtime.membership.client;
 import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatus;
@@ -18,6 +19,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -47,9 +50,19 @@ import java.util.stream.Collectors;
 public class GroupClient {
 
     private final RestClient restClient;
+    private final Semaphore concurrency;
+    private final long timeoutMs;
 
+    public GroupClient(String baseUrl, long timeoutMs) {
+        this(baseUrl, timeoutMs, 32);
+    }
+
+    @Autowired
     public GroupClient(@Value("${chat.data-api.base-url}") String baseUrl,
-            @Value("${chat.data-api.timeout-ms:2000}") long timeoutMs) {
+            @Value("${chat.data-api.timeout-ms:2000}") long timeoutMs,
+            @Value("${chat.data-api.max-concurrency:32}") int maxConcurrency) {
+        this.timeoutMs = timeoutMs;
+        this.concurrency = new Semaphore(maxConcurrency);
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(timeoutFactory(timeoutMs))
@@ -61,6 +74,11 @@ public class GroupClient {
      *
      * <p>기본 팩토리는 타임아웃이 무제한이다. 그 상태로 상류가 멈추면 STOMP 채널 스레드가 그대로
      * 잠기고, 채널 스레드는 풀이라 곧 전부 소진돼 <b>상류 한 곳의 지연이 채팅 전체의 정지</b>가 된다.
+     *
+     * <p>{@code SimpleClientHttpRequestFactory}(HttpURLConnection)를 쓰는 이유: read 타임아웃이 «소켓 읽기마다»
+     * 적용돼 헤더 뒤 본문이 멈춰도 끊긴다. JDK HttpClient 의 요청 타임아웃은 응답 헤더까지만 제한해 본문 정지에
+     * 무한 대기가 된다. 연결 재사용은 JDK 기본 keep-alive({@code http.keepAlive})에 맡기고, 동시성은
+     * {@link #concurrency} 세마포어로 묶는다.
      */
     private static ClientHttpRequestFactory timeoutFactory(long timeoutMs) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -80,6 +98,25 @@ public class GroupClient {
      * @throws UpstreamUnavailableException 상류가 응답하지 않아 <b>판정을 내릴 수 없을 때</b>
      */
     public Membership fetchMyGroupIds(String bearerToken) {
+        boolean acquired;
+        try {
+            acquired = concurrency.tryAcquire(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new UpstreamUnavailableException();
+        }
+        if (!acquired) {
+            log.warn("그룹 조회 동시 상한 초과 — 대기 {}ms 안에 자리가 나지 않았다", timeoutMs);
+            throw new UpstreamUnavailableException();
+        }
+        try {
+            return fetch(bearerToken);
+        } finally {
+            concurrency.release();
+        }
+    }
+
+    private Membership fetch(String bearerToken) {
         try {
             return restClient.get()
                     .uri("/api/v1/groups")

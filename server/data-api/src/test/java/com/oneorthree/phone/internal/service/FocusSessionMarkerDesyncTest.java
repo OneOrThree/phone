@@ -75,6 +75,7 @@ class FocusSessionMarkerDesyncTest {
     @Mock private FocusRewardAccrualRepository focusRewardAccrualRepository;
     @Mock private FocusRewardAccrualService rewardAccruals;
     @Mock private SeaFocusRewardService seaFocusRewards;
+    @Mock private com.oneorthree.phone.ranking.service.IslandWeeklyFocusService weeklyFocus;
 
     private FocusSessionLifecycleService service() {
         return new FocusSessionLifecycleService(new FocusSessionStartGate(false), userQueryService,
@@ -87,7 +88,7 @@ class FocusSessionMarkerDesyncTest {
                 new org.springframework.beans.factory.support.StaticListableBeanFactory()
                         .getBeanProvider(io.micrometer.core.instrument.MeterRegistry.class), false),
                 new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
-                Clock.fixed(NOW, ZoneOffset.UTC), null);
+                Clock.fixed(NOW, ZoneOffset.UTC), null, weeklyFocus);
     }
 
     @Test

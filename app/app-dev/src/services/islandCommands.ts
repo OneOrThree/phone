@@ -13,7 +13,8 @@ import {
 import { me as apiMe } from '@/services/api/auth';
 import { updateProfile as apiUpdateProfile } from '@/services/api/account';
 import { switchCurrentIsland as apiSwitchCurrentIsland } from '@/services/api/home';
-import { sessionGeneration } from '@/services/api/session';
+import { readAccountGuides } from '@/services/accountGuides';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import {
   cancelJoinRequest as apiCancelJoinRequest,
   createIsland as apiCreateIsland,
@@ -157,10 +158,12 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   const syncIslandSnapshot = async () => {
     const g = generation();
     const revision = ++syncRevision;
-    const [my, requests, account] = await Promise.all([
+    const ownerId = getSession()?.userId;
+    const [my, requests, account, guides] = await Promise.all([
       api.myIslands(),
       allJoinRequests(g),
       api.me(),
+      ownerId ? readAccountGuides(ownerId) : Promise.resolve(null),
     ]);
     alive(g);
     if (revision !== syncRevision) throw staleError();
@@ -168,6 +171,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     deps.dispatch({
       type: 'ISLAND_SYNC',
       memberships: my,
+      focusGuideDone: guides?.focusDone,
       requests,
       mainIslandId: account.mainIslandId,
     });
@@ -290,11 +294,20 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       call(async () => {
         const g = generation();
         const revision = ++syncRevision;
-        const [screen, requests] = await Promise.all([api.explore(), allJoinRequests(g)]);
+        const ownerId = getSession()?.userId;
+        const [screen, requests, guides] = await Promise.all([
+          api.explore(),
+          allJoinRequests(g),
+          ownerId ? readAccountGuides(ownerId) : Promise.resolve(null),
+        ]);
         alive(g);
         if (revision !== syncRevision) throw staleError();
         if (!myIslandsConsistent(screen.memberships)) throw contractError();
-        deps.dispatch({ type: 'ISLAND_SYNC', memberships: screen.memberships });
+        deps.dispatch({
+          type: 'ISLAND_SYNC',
+          memberships: screen.memberships,
+          focusGuideDone: guides?.focusDone,
+        });
         deps.dispatch({
           type: 'ISLAND_CANDIDATES',
           items: screen.islands.items,

@@ -269,16 +269,16 @@ export function MagazineReader({
     </View>
   );
   // 섬 이름(두 줄까지) + 오른쪽 숫자. 큰 글자에서는 숫자를 이름 아래 줄로 내려 속지 밖으로 밀리지 않게 한다
-  const islandLine = (name: string, meta: string) => (
+  const islandLine = (name: string, meta: string, privateIsland = false) => (
     <View
       style={{
         flex: 1,
-        flexDirection: largeText ? 'column' : 'row',
-        alignItems: largeText ? 'flex-start' : 'center',
-        gap: largeText ? 0 : primitiveTokens.space[2],
+        flexDirection: largeText || privateIsland ? 'column' : 'row',
+        alignItems: largeText || privateIsland ? 'flex-start' : 'center',
+        gap: largeText || privateIsland ? 0 : primitiveTokens.space[2],
       }}
     >
-      <T numberOfLines={2} style={[text(14), largeText ? null : { flex: 1 }]}>
+      <T numberOfLines={2} style={[text(14), largeText || privateIsland ? null : { flex: 1 }]}>
         {name}
       </T>
       <T style={text(11, semanticTokens.color.textMuted)}>{meta}</T>
@@ -367,11 +367,13 @@ export function MagazineReader({
                   key={row.islandId}
                   testID={`magazine-rank-${row.rank}`}
                   accessible
-                  accessibilityLabel={t('magazine.reader.rankA11y', {
-                    rank: row.rank,
-                    name: islandTitle(row.name),
-                    average: average(row),
-                  })}
+                  accessibilityLabel={
+                    t('magazine.reader.rankA11y', {
+                      rank: row.rank,
+                      name: islandTitle(row.name),
+                      average: average(row),
+                    }) + (row.privateIsland ? `, ${t('magazine.cell.privateIsland')}` : '')
+                  }
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -391,7 +393,13 @@ export function MagazineReader({
                     </T>
                   )}
                   {avatar(row, R.rankAvatar)}
-                  {islandLine(islandTitle(row.name), average(row))}
+                  {islandLine(
+                    islandTitle(row.name),
+                    [average(row), row.privateIsland && t('magazine.cell.privateIsland')]
+                      .filter(Boolean)
+                      .join('\n'),
+                    row.privateIsland,
+                  )}
                 </View>
               ))
             : emptyLine('magazine.reader.rankingEmpty'),
@@ -427,10 +435,16 @@ export function MagazineReader({
                   {avatar(island, R.newAvatar)}
                   {islandLine(
                     islandTitle(island.name),
-                    t('magazine.cell.residents', {
-                      count: island.memberCount,
-                      max: island.maxMembers,
-                    }),
+                    [
+                      t('magazine.cell.residents', {
+                        count: island.memberCount,
+                        max: island.maxMembers,
+                      }),
+                      island.privateIsland && t('magazine.cell.privateIsland'),
+                    ]
+                      .filter(Boolean)
+                      .join('\n'),
+                    island.privateIsland,
                   )}
                 </View>
               ))

@@ -599,9 +599,14 @@ public class DataIslandClient {
     }
 
     /** 방명록 목록 (GROMO-2262) — 방문자도 읽는다. 멱등 GET 이라 재시도한다. */
-    public IslandGuestbooks.Page fetchGuestbook(UUID userId, UUID islandId, Deadline deadline) {
+    public IslandGuestbooks.Page fetchGuestbook(UUID userId, UUID islandId, Instant afterCreatedAt, UUID afterId,
+            int limit, Deadline deadline) {
         return http.exchange(
-                InternalCall.to(HttpMethod.GET, islandPath(PATH_GUESTBOOK, islandId)).onBehalfOf(userId).build(),
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_GUESTBOOK, islandId)).onBehalfOf(userId)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterId", afterId == null ? null : afterId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandGuestbooks.Page>() { });
     }

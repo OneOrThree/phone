@@ -45,8 +45,6 @@ export function promotionProblem(err: unknown): EditorProblem & { reload?: boole
       return { message: t('magazine.editor.problem.windowClosed'), reload: true };
     case 'PROMOTION_ALREADY_REQUESTED_TODAY':
       return { message: t('errors.PROMOTION_ALREADY_REQUESTED_TODAY'), reload: true };
-    case 'PROMOTION_PRIVATE_ISLAND':
-      return { message: t('magazine.editor.problem.private'), reload: true };
     case 'BANNED_WORD':
     case 'PROMOTION_TEXT_TOO_LONG':
       return { message: errorText(err) || t('magazine.editor.problem.body'), field: 'body' };
@@ -96,16 +94,16 @@ export function usePromotionEditor({
     if (!islandId) return;
     const mine = ++generation.current;
     setStatus('loading');
+    setAssets(null);
     const api = magazineApi();
-    // 재료 목록은 따로 읽는다 — 늦거나 실패해도 쓰기 화면은 편집기 응답만으로 먼저 열린다.
-    // 지금 재료는 전부 무료라 목록이 오기 전에는 앱 표를 그대로 쓴다(보유 검사는 서버가 한다)
-    api
-      .getMagazineAssets()
-      .then((nextAssets) => mine === generation.current && setAssets(nextAssets))
-      .catch(() => {});
     try {
-      const nextEditor = await api.getPromotionEditor(islandId);
+      // 보유 재료가 확인된 뒤 편집을 연다. 실패하면 기존 오류 화면에서 다시 읽는다.
+      const [nextEditor, nextAssets] = await Promise.all([
+        api.getPromotionEditor(islandId),
+        api.getMagazineAssets(),
+      ]);
       if (mine !== generation.current) return;
+      setAssets(nextAssets);
       setEditor(nextEditor);
       setError(null);
       setStatus('ready');

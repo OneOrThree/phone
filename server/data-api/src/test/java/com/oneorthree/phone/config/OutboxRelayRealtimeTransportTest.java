@@ -7,8 +7,10 @@ import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
 import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.service.OutboxRelayService;
 import com.oneorthree.phone.outbox.service.OutboxRelayStore;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestClient;
@@ -66,7 +68,8 @@ class OutboxRelayRealtimeTransportTest {
 
         OutboxRelayService service = new OutboxRelayConfig(properties).outboxRelayService(
                 mock(OutboxRelayStore.class), mock(EventOutboxRepository.class), mock(KafkaTemplate.class),
-                RestClient.create(), Clock.systemUTC());
+                RestClient.create(), Clock.systemUTC(),
+                new StaticListableBeanFactory().getBeanProvider(MeterRegistry.class));
         return (Map<OutboxTarget, OutboxTransport>) ReflectionTestUtils.getField(service, "transports");
     }
 }

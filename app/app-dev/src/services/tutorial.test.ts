@@ -170,3 +170,16 @@ test('접근성 자리 선택은 막힌 기본 자리와 연결되지 않은 땅
     findReachableTutorialSpot(grid, { x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }, () => false),
   ).toBeNull();
 });
+
+test('기기에 저장된 완료 이력은 로그아웃 후 새 섬 가입에서도 집중 체험을 막는다', () => {
+  const loggedOut = reducer(progress(22), { type: 'LOGOUT' });
+  const restored = reducer(loggedOut, {
+    type: 'ISLAND_SYNC',
+    focusGuideDone: true,
+    memberships: { items: [], currentIslandId: null, lossReason: null },
+  });
+  expect(syncMembership(restored, 'second').tutorial?.step).toBe(99);
+  expect(reducer(restored, { type: 'GUIDE_STEP', step: 0 })).toBe(restored);
+  const otherAccount = reducer(restored, { type: 'LOGOUT' });
+  expect(syncMembership(syncMembership(otherAccount, null), 'first').tutorial?.step).toBe(0);
+});

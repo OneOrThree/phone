@@ -4,7 +4,7 @@
 // 입력: 40_params_export.sql 이 만든 *.jsonl (COPY 친화 — 줄당 JSON 1개)
 // 출력: k6 SharedArray 용 *.json (JSON 배열). users_* 파일에는 token 필드 병합.
 //
-// 토큰은 JwtProvider(HS256, {sub,iat,exp}) 계약의 재구현 — 로그인은 측정 대상이 아니므로
+// 토큰은 JwtProvider(HS256, {sub,type,guest,sid,gen,iat,exp}) 계약의 재구현 — 로그인은 측정 대상이 아니므로
 // 사전 발급하되, 필터는 그대로 타서 파싱 비용은 측정에 포함(prod 동일 경로). 계약 검증은
 // 별도 테스트가 아니라 smoke run 자체 — SUT 가 토큰을 거부하면 스모크가 401 로 죽는다.
 //
@@ -22,17 +22,21 @@ if (!secret || !paramsDir) {
   process.exit(1);
 }
 
+if (Buffer.byteLength(secret, 'utf8') < 32 || !Number.isFinite(EXP_DAYS) || EXP_DAYS <= 0) {
+  throw new Error('JWT_SECRET은 UTF-8 32바이트 이상, JWT_EXP_DAYS는 양수여야 합니다');
+}
+
 const now = Math.floor(Date.now() / 1000);
 const exp = now + EXP_DAYS * 86400;
 const b64u = (s) => Buffer.from(s).toString('base64url');
 const HEADER = b64u(JSON.stringify({ alg: 'HS256' }));
 
-// JwtProvider.buildToken 과 동일 클레임: sub=userId, type, iat, exp (그 외 없음).
+// JwtProvider.buildToken 과 동일 클레임: sub=userId, type, guest, sid, gen, iat, exp.
 // type 은 필수 — GROMO-714 이후 JwtFilter 가 access 타입만 통과시키고, 클레임이 없으면(null)
 // fail-closed 로 401 이다. 부하 토큰은 API 호출용이므로 JwtProvider.TYPE_ACCESS 와 같은 "access".
 // 서명 키 계약: Keys.hmacShaKeyFor(secret.getBytes(UTF_8)) = HMAC-SHA256(secret 원문 바이트)
-const mint = (userId) => {
-  const data = `${HEADER}.${b64u(JSON.stringify({ sub: userId, type: 'access', iat: now, exp }))}`;
+const mint = (userId, isGuest, sessionId, authGeneration) => {
+  const data = `${HEADER}.${b64u(JSON.stringify({ sub: userId, type: 'access', guest: isGuest, sid: sessionId, gen: authGeneration, iat: now, exp }))}`;
   return `${data}.${createHmac('sha256', secret).update(data).digest('base64url')}`;
 };
 
@@ -42,7 +46,8 @@ const readJsonl = (path) =>
 const signUsers = (rows, label) => {
   const cache = new Map(); // zipf 파일은 핫유저가 가중치만큼 중복 수록 — 토큰은 유저당 1회만 서명
   for (const r of rows) {
-    if (!cache.has(r.userId)) cache.set(r.userId, mint(r.userId));
+    if (typeof r.isGuest !== 'boolean' || !r.sessionId || !Number.isInteger(r.authGeneration)) throw new Error('세션 클레임 입력 누락: 최신 시드로 make seed를 다시 실행하세요');
+    if (!cache.has(r.userId)) cache.set(r.userId, mint(r.userId, r.isGuest, r.sessionId, r.authGeneration));
     r.token = cache.get(r.userId);
   }
   console.log(`[mint] ${label}: 항목 ${rows.length}, 고유 유저 ${cache.size}, exp=+${EXP_DAYS}d`);

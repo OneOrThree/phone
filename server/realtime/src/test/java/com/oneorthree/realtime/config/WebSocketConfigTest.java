@@ -34,11 +34,14 @@ class WebSocketConfigTest {
     private final RealtimeSessionRegistry sessions = mock(RealtimeSessionRegistry.class);
     private final MovementSubscriptionListener movementSubscriptions = mock(MovementSubscriptionListener.class);
     private final MovementOutboundInterceptor movementOutbound = mock(MovementOutboundInterceptor.class);
+    private final OutboundSendBudget budget = mock(OutboundSendBudget.class);
+    private final OutboundAuthzCache authzCache = mock(OutboundAuthzCache.class);
     private final WebSocketConfig config = new WebSocketConfig(mock(StompAuthChannelInterceptor.class),
-            mock(ChatStompErrorHandler.class), chatOutbound, sessions, movementSubscriptions, movementOutbound);
+            mock(ChatStompErrorHandler.class), chatOutbound, sessions, movementSubscriptions, movementOutbound, budget,
+            authzCache);
 
     @Test
-    @DisplayName("인바운드는 관문 → 이동 구독 처리, 아웃바운드는 이동 완료 통지 → 채팅 검사 순이다")
+    @DisplayName("인바운드는 관문 → 이동 구독 처리, 아웃바운드는 이동 완료 통지 → 채팅 검사 → 송신 측정 순이다")
     void interceptorOrderIsTheContract() {
         Interceptors inbound = new Interceptors();
         config.configureClientInboundChannel(inbound);
@@ -48,7 +51,7 @@ class WebSocketConfigTest {
 
         Interceptors outbound = new Interceptors();
         config.configureClientOutboundChannel(outbound);
-        assertThat(outbound.list()).containsExactly(movementOutbound, chatOutbound);
+        assertThat(outbound.list()).containsExactly(movementOutbound, chatOutbound, budget);
     }
 
     @Test
@@ -65,8 +68,9 @@ class WebSocketConfigTest {
 
         assertThatThrownBy(() -> decorated.afterConnectionEstablished(socket))
                 .isInstanceOf(IllegalStateException.class);
-        var order = inOrder(sessions, movementSubscriptions);
+        var order = inOrder(sessions, authzCache, movementSubscriptions);
         order.verify(sessions).closed("socket-1");
+        order.verify(authzCache).evictSession("socket-1");
         order.verify(movementSubscriptions).closed("socket-1");
     }
 

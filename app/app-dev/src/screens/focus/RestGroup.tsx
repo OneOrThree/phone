@@ -8,7 +8,6 @@ import { catColor, type IslandPresence } from '@/screens/focus/useIslandPresence
 import { useAppLayout } from '@/utils/layout';
 import {
   FiButton,
-  FiModal,
   INK,
   ME,
   OUTLINE,
@@ -149,28 +148,22 @@ export function RestGroup({
   live,
   resume,
   home,
-  endRest,
   result = false,
   tutorial,
   goldenReeling = false,
   goldenFishCount = 0,
-  ...confirm
 }: {
   state: State;
   // GROMO-2010 — 서버 모드에서 넘어오는 실시간 휴식 멤버. 없으면 기존 로컬 멤버 경로.
   live?: IslandPresence | null;
   resume: () => void;
   home: () => void;
-  endRest?: () => void;
   // 휴식 종료 결과창 뒤 배경으로 쓸 때는 버튼을 숨기고 휴식 시간을 종료 순간에 멈춘다
   result?: boolean;
   tutorial?: { text: string; onSkip: () => void };
   /** 휴식 결과 배경에서 컷신 후 실제 reel sprite를 보여준다. */
   goldenReeling?: boolean;
   goldenFishCount?: number;
-  // 휴식 종료 확인창 열림 상태를 밖(뒤로가기 처리)에서 쥘 때
-  confirming?: boolean;
-  setConfirming?: (open: boolean) => void;
 }) {
   const layout = useAppLayout(),
     wide = layout.width >= 600,
@@ -181,9 +174,6 @@ export function RestGroup({
   const browsing = !result && !pausedSession;
   const restTutorial = pausedSession ? tutorial : undefined;
   const resumeTarget = useSpotlightTarget(!!restTutorial);
-  const [own, setOwn] = useState(false),
-    confirming = confirm.confirming ?? own,
-    setConfirming = confirm.setConfirming ?? setOwn;
   const [now, setNow] = useState(ended?.at ?? Date.now());
   // 내 휴식 시작: 휴식 중이면 세션, 결과창이면 마지막 집중 구간이 끝난 때
   const started = useRef(
@@ -279,12 +269,8 @@ export function RestGroup({
         )
       }
     >
-      {/* 확인창·결과창이 떠 있으면 뒤 장면은 스크린리더에서 숨긴다 */}
-      <View
-        pointerEvents="box-none"
-        style={StyleSheet.absoluteFill}
-        {...a11yHidden(confirming || result)}
-      >
+      {/* 결과창이 떠 있으면 뒤 장면은 스크린리더에서 숨긴다 */}
+      <View pointerEvents="box-none" style={StyleSheet.absoluteFill} {...a11yHidden(result)}>
         <Image
           source={require('@/assets/backgrounds/campfire/day.jpg')}
           style={{
@@ -497,9 +483,8 @@ export function RestGroup({
             </View>
           )}
         </View>
-        {/* 확인창이 떠 있는 동안에는 아래 버튼을 숨긴다 */}
       </View>
-      {!result && !confirming && (
+      {!result && (
         <View
           style={{
             position: 'absolute',
@@ -525,38 +510,7 @@ export function RestGroup({
               onPress={pausedSession ? resume : home}
             />
           </View>
-          {pausedSession && (
-            <FiButton
-              style={{ flex: 1 }}
-              id="end-rest"
-              title={t('focusFlow.rest.endButton')}
-              onPress={() => setConfirming(true)}
-            />
-          )}
         </View>
-      )}
-      {/* 휴식 종료는 집중이 통째로 끝나므로 한 번 묻는다. 계속 쉬기는 창만 닫고 휴식 시간은 계속 흐른다 */}
-      {confirming && !!pausedSession && (
-        <FiModal>
-          <Text style={fiTitle(wide ? 19 : 22)}>{t('focusFlow.rest.endConfirmTitle')}</Text>
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
-            <FiButton
-              title={t('focusFlow.rest.keepResting')}
-              style={{ flex: 1 }}
-              onPress={() => setConfirming(false)}
-            />
-            <FiButton
-              primary
-              id="confirm-end-rest"
-              title={t('focusFlow.common.endFocus')}
-              style={{ flex: 1 }}
-              onPress={() => {
-                setConfirming(false);
-                (endRest || home)();
-              }}
-            />
-          </View>
-        </FiModal>
       )}
     </TutorialScene>
   );

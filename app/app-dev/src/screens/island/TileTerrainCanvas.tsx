@@ -342,7 +342,7 @@ export function TileTerrainCanvas({
             image={image}
             coastMask={needsCoastMask ? coastMask : null}
             atlas={atlas}
-            scale={scale}
+            baseScale={base}
             pressedFacility={pressedFacility}
             reduceMotion={reduceMotion}
             night={night}

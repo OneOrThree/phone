@@ -293,3 +293,24 @@ describe('신고', () => {
     });
   });
 });
+
+test.each([true, false, undefined])(
+  '잡지 칸·편집부의 privateIsland=%s — 키가 없으면 false로 읽는다',
+  async (privateIsland) => {
+    const raw = { ...island('초대섬'), ...(privateIsland === undefined ? {} : { privateIsland }) };
+    stub(200, {
+      issue: issueWire,
+      editorial: {
+        ranking: [{ ...raw, rank: 1 }],
+        newIslands: [raw],
+        note: { type: 'TIP', tipNo: 0 },
+      },
+      cells: [{ ...raw, promotionId: 'private-ad', body: '함께해요', layout }],
+      nextCursor: null,
+    });
+    const page = await getMagazineIssue('iss-19');
+    expect(page.cells[0].privateIsland).toBe(privateIsland === true);
+    expect(page.editorial?.ranking[0].privateIsland).toBe(privateIsland === true);
+    expect(page.editorial?.newIslands[0].privateIsland).toBe(privateIsland === true);
+  },
+);

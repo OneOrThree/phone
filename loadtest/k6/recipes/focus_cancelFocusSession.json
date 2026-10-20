@@ -1,0 +1,25 @@
+{
+  "endpoint": "focus_cancelFocusSession",
+  "method": "PATCH",
+  "path": "/api/v1/focus-session/cancel",
+  "tag": "focus",
+  "summary": "Focus Session 취소",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": {
+    "gen": "object",
+    "props": {
+      "sessionId": {
+        "gen": "gap",
+        "reason": "body-id:sessionId"
+      }
+    }
+  },
+  "paginate": null,
+  "gaps": [
+    "body.sessionId",
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

@@ -1,0 +1,16 @@
+{
+  "endpoint": "group-bet-batch_settleDueBets",
+  "method": "POST",
+  "path": "/api/v1/groups/bets/settle",
+  "tag": "group-bet-batch",
+  "summary": "내기 정산 배치 수동 실행 (MANUAL 트리거 · prod 포함)",
+  "userPool": "uniform",
+  "pathParams": {},
+  "query": [],
+  "body": null,
+  "paginate": null,
+  "gaps": [
+    "contract:시드·상태 전이 검증 필요"
+  ],
+  "runnable": false
+}

@@ -30,6 +30,7 @@ const ISLAND_ZOOM = 1.3;
 
 /** 칸 하나에 그리는 값 — 서버 홍보 칸(snapshot + body + layout)과 같은 모양. */
 export type AdCellData = {
+  privateIsland?: boolean;
   name: string;
   buildingCount: number;
   memberCount: number;
@@ -53,7 +54,7 @@ export type AdCellData = {
 export function AdCell({
   width,
   cell,
-  corner = null,
+  corner: requestedCorner = null,
   onScope,
   onPress,
   hideMeta = false,
@@ -77,6 +78,8 @@ export function AdCell({
   bodyInput?: (style: StyleProp<TextStyle>) => React.ReactNode;
   testID?: string;
 }) {
+  const corner = cell.privateIsland && requestedCorner === 'scope' ? null : requestedCorner;
+  const privateNotice = cell.privateIsland ? t('magazine.cell.privateIsland') : '';
   const font = useGowun();
   const m = componentTokens.magazineCell;
   const W = width;
@@ -84,7 +87,7 @@ export function AdCell({
   const k = W / m.referenceWidth;
   const frame = MAGAZINE_FRAMES[cell.layout.frameId] ?? MAGAZINE_FRAMES[DEFAULT_FRAME_ID];
   const [l, top, r, b] = frame.inset;
-  const fit = cellTextFit(frame);
+  const fit = cellTextFit(frame, privateNotice && !hideMeta ? 2 : 1);
   const s = k * fit.scale;
   const d = m.profileDiameter * s;
   const cornerSize = m.cornerSize * k;
@@ -107,7 +110,8 @@ export function AdCell({
     (hideMeta
       ? t('magazine.cell.a11yNoMeta', { name, body: cell.body })
       : t('magazine.cell.a11y', { name, residents, average, body: cell.body })) +
-    (corner === 'ours' ? `, ${ours}` : '');
+    (corner === 'ours' ? `, ${ours}` : '') +
+    (privateNotice ? `, ${privateNotice}` : '');
   const text = (size: number, scale = s, lines?: number) => ({
     fontFamily: font,
     fontSize: size * scale,
@@ -222,10 +226,10 @@ export function AdCell({
               ) : null}
             </View>
           </View>
-          {!hideMeta && (
+          {(!hideMeta || !!privateNotice) && (
             <T
               allowFontScaling={false}
-              numberOfLines={1}
+              numberOfLines={privateNotice && !hideMeta ? 2 : 1}
               adjustsFontSizeToFit
               minimumFontScale={0.7}
               style={[
@@ -238,7 +242,7 @@ export function AdCell({
                 },
               ]}
             >
-              {`${residents} · ${average}`}
+              {[!hideMeta && `${residents} · ${average}`, privateNotice].filter(Boolean).join('\n')}
             </T>
           )}
         </View>

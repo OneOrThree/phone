@@ -3,6 +3,13 @@ package com.oneorthree.phone.internal.service;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
+import com.oneorthree.phone.construction.repository.IslandWalletTransactionRepository;
+import com.oneorthree.phone.construction.repository.domain.IslandWalletTransaction;
+import com.oneorthree.phone.construction.repository.domain.IslandWalletTransactionType;
+import com.oneorthree.phone.focus.repository.FocusTutorialRewardRepository;
+import com.oneorthree.phone.focus.repository.domain.FocusTutorialReward;
+import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
+import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
@@ -55,6 +62,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -109,6 +117,12 @@ class IslandRecordsIntegrationTest {
     ScreenTimeObservationRepository observations;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    IslandWalletTransactionRepository walletTransactions;
+    @Autowired
+    FocusTutorialRewardRepository tutorialRewards;
+    @Autowired
+    EventOutboxRepository events;
 
     @BeforeEach
     void controlClock() {
@@ -139,6 +153,46 @@ class IslandRecordsIntegrationTest {
     }
 
     // ---------------------------------------------------------------- 집중
+
+    @Test
+    @DisplayName("일별 물고기는 KST 자정에서 실제 지급 건만 나누고 휴식·상한·황금 자기 몫·체험을 반영한다")
+    void earnedFishUsesKstPayoutInstants() {
+        Island island = island(true);
+        User user = resident(island.group);
+        User neighbor = resident(island.group);
+        UUID id = session(user, island.id, FocusSessionLifecycle.COMPLETED, t(D, "15:03:30"));
+        jdbc.update("UPDATE focus_session_details SET policy_revision = 1 WHERE session_id = ?", id);
+        // ACTIVE 1분 / REST 1분 / ACTIVE 3분. 지급 #1은 KST 전일, #3은 다음 날이다.
+        interval(id, 1, FocusIntervalKind.ACTIVE, t(D, "14:58:30"), t(D, "14:59:30"));
+        interval(id, 2, FocusIntervalKind.REST, t(D, "14:59:30"), t(D, "15:00:30"));
+        interval(id, 3, FocusIntervalKind.ACTIVE, t(D, "15:00:30"), t(D, "15:03:30"));
+        jdbc.update("INSERT INTO island_wallets (island_id, balance) VALUES (?, 0)", island.id);
+        for (int number : List.of(1, 3)) {
+            walletTransactions.saveAndFlush(IslandWalletTransaction.builder().islandId(island.id).amount(1)
+                    .type(IslandWalletTransactionType.CONTRIBUTION)
+                    .idempotencyKey("focus:" + id + ":" + number).build());
+        }
+        // #2·#4는 상한에 걸려 지급 원장이 없다. 시간을 나눠 계산하면 잘못 4마리가 된다.
+        tutorialRewards.saveAndFlush(FocusTutorialReward.builder().userId(user.getId()).sessionId(id)
+                .claimedAt(t(D, "14:59:59")).build());
+        events.saveAndFlush(EventOutbox.builder().eventId("golden-test:" + UUID.randomUUID())
+                .schemaVersion(1).type("focus.golden").occurredAt(t(D, "15:00:00"))
+                .userId(new UUID(0, 0)).aggregateType("ISLAND_GOLDEN_FISH")
+                .aggregateId(island.id.toString()).version(1).createdAt(t(D, "15:00:00"))
+                .params(Map.of("drawnAt", t(D, "15:00:00").toString(), "sharePerMember", 16,
+                        "members", List.of(Map.of("userId", user.getId().toString())))).build());
+        at(D.plusDays(1), "10:00:00");
+
+        assertThat(service.focus(user.getId(), island.id, D, D, "me", null, 0, "Asia/Seoul")
+                .earnedFish()).isEqualTo(2L);
+        assertThat(service.focus(user.getId(), island.id, D.plusDays(1), D.plusDays(1), "me", null, 0,
+                "Asia/Seoul").earnedFish()).isEqualTo(17L);
+        assertThat(service.focus(user.getId(), island.id, D, D, "me", null, 0, "UTC")
+                .earnedFish()).isEqualTo(19L);
+        assertThat(service.focus(neighbor.getId(), island.id, D, D.plusDays(1), "me", null, 0,
+                "Asia/Seoul").earnedFish()).isZero();
+    }
+
 
     @Test
     @DisplayName("scope=me 는 개인 전체(섬 무관), scope=island 는 이 섬에 고정된 세션만 — UTC 자정에서 ACTIVE 만 나뉜다")
@@ -195,6 +249,32 @@ class IslandRecordsIntegrationTest {
         assertThat(member(island, b).catColor()).isNull();
         assertThat(member(island, x.owner).totalSeconds()).isZero();
         assertThat(member(island, x.owner).series()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("시간 경계(GROMO-2344) — 창보다 오래 전에 전이한 진행 세션은 남고, 창 시작에 끝난 세션은 빠지며, 창을 걸친 세션은 정본 배분 그대로다")
+    void timeBoundKeepsLongRunningSessionsAndCanonicalAllocation() {
+        Island x = island(true);
+        User a = resident(x.group);
+        LocalDate before = D.minusDays(1);
+
+        // 사흘 전부터 열려 있는 ACTIVE 세션 — 마지막 전이가 창보다 훨씬 이르다. 창 안의 몫(00:00~10:00)만 센다.
+        UUID longRunning = session(a, x.id, FocusSessionLifecycle.ACTIVE, t(D.minusDays(3), "12:00:00"));
+        interval(longRunning, 1, FocusIntervalKind.ACTIVE, t(D.minusDays(3), "12:00:00"), null);
+        // 창 시작(전날 00:00)에 정확히 끝난 세션 — 겹치지 않는다
+        UUID endedAtFrom = session(a, x.id, FocusSessionLifecycle.COMPLETED, t(before, "00:00:00"));
+        interval(endedAtFrom, 1, FocusIntervalKind.ACTIVE, t(before.minusDays(1), "23:00:00"), t(before, "00:00:00"));
+        // 창 시작을 0.6초씩 걸친 세션 — 창 밖 몫이 누적 배분에 들어가야 창 안 날짜가 0초가 된다(정본 규칙)
+        UUID crossing = session(a, x.id, FocusSessionLifecycle.COMPLETED, Instant.parse(before + "T00:00:00.600Z"));
+        interval(crossing, 1, FocusIntervalKind.ACTIVE, Instant.parse(before.minusDays(1) + "T23:59:59.400Z"),
+                Instant.parse(before + "T00:00:00.600Z"));
+
+        FocusStatistics me = service.focus(a.getId(), x.id, before, D, "me", null, 0);
+        assertThat(me.totalSeconds()).as("진행 세션의 창 안 몫 34시간만 — 끝난 두 세션은 창 안 0초")
+                .isEqualTo(34 * 3600L);
+        assertThat(me.records()).as("창 안 0초인 완료 세션은 기록이 아니다").isEmpty();
+        FocusStatistics island = service.focus(a.getId(), x.id, before, D, "island", null, 0);
+        assertThat(member(island, a).totalSeconds()).isEqualTo(34 * 3600L);
     }
 
     @Test

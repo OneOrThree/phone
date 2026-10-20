@@ -1,8 +1,12 @@
+import { FocusEmoteBubble } from './FocusEmoteBubble';
+import * as Haptics from 'expo-haptics';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { IslandOcean } from '@/screens/island/IslandOcean';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
   Animated,
+  Easing,
   AppState,
   Image,
   PanResponder,
@@ -458,6 +462,7 @@ export function FishingIsland({
   inert = false,
   children,
   overlay,
+  overlayBlocksMap = true,
   goldenFish = false,
 }: {
   focus: Point;
@@ -475,6 +480,8 @@ export function FishingIsland({
   seated?: boolean;
   children: (size: number, sizeY: number, zoom: number) => React.ReactNode;
   overlay?: (toScreen: (p: Point) => Point, size: number) => React.ReactNode;
+  /** 단순 안내 오버레이는 지도 이동과 접근성을 막지 않는다. */
+  overlayBlocksMap?: boolean;
   /** 황금 물고기 컷신 재생이 끝난 뒤 섬에 남는 에셋. */
   goldenFish?: boolean;
 }) {
@@ -483,8 +490,8 @@ export function FishingIsland({
   // 상태가 바뀌면(도착·준비·집중·결과) 다시 내 자리를 보여 준다. 확대 배율은 유지.
   useEffect(() => setCam((c) => ({ ...c, x: focus.x, y: focus.y })), [focus.x, focus.y, ratio]);
   const view = fishingCamera(L.width, L.height, cam.zoom, cam, ratio);
-  const live = useRef({ cam, L, ratio, focus, seated, overlay });
-  live.current = { cam, L, ratio, focus, seated, overlay };
+  const live = useRef({ cam, L, ratio, focus, seated, overlay, overlayBlocksMap });
+  live.current = { cam, L, ratio, focus, seated, overlay, overlayBlocksMap };
   // 끌기 기준점. 손가락 수가 바뀌면(핀치 → 한 손가락) 지금 위치에서 다시 잡아 지도가 튀지 않게 한다
   const start = useRef({ zoom: 1, x: 0, y: 0, dist: 0, n: 0, dx: 0, dy: 0 }),
     dragged = useRef(false),
@@ -501,7 +508,7 @@ export function FishingIsland({
       onStartShouldSetPanResponder: () => false,
       // 집중 준비 카드가 떠 있으면 지도를 끌지 않는다
       onMoveShouldSetPanResponder: (e, g) =>
-        !live.current.overlay &&
+        !(live.current.overlay && live.current.overlayBlocksMap) &&
         ((e.nativeEvent.touches?.length ?? 0) > 1 || Math.abs(g.dx) + Math.abs(g.dy) > 6),
       onPanResponderGrant: () => {
         start.current.n = 0;
@@ -567,7 +574,7 @@ export function FishingIsland({
       <IslandOcean left={left} top={top} scale={size / 1536} />
       <View
         style={{ position: 'absolute', left, top, width: size, height: sizeY }}
-        {...a11yHidden(inert || !!overlay)}
+        {...a11yHidden(inert || (!!overlay && overlayBlocksMap))}
       >
         <Pressable
           // 스크린리더 사용자는 좌표를 누를 수 없으니 "빈 자리에 앉기" 동작으로 기본 빈 자리를 고른다
@@ -916,19 +923,7 @@ export function FishingActor({
       >
         {/* 이모티콘이 오면 3초 동안 과목·시간표 자리를 대신한다(축소해 이름만 보이는 배율에서도 뜬다) */}
         {emote ? (
-          <View
-            style={{
-              alignSelf: 'center',
-              backgroundColor: '#FFFDFA',
-              borderWidth: 2,
-              borderColor: OUTLINE,
-              borderRadius: 15,
-              paddingVertical: 4,
-              paddingHorizontal: 8,
-            }}
-          >
-            <Image source={art[`emote/${emote}`]} style={{ width: 30, height: 30 }} />
-          </View>
+          <FocusEmoteBubble emote={emote} />
         ) : (
           subject != null && (
             <View
@@ -1253,6 +1248,9 @@ export function FiButton({
   left = false,
   bg,
   style,
+  holdToConfirm = false,
+  haptics = true,
+  multiline = false,
 }: {
   title: string;
   onPress: () => void;
@@ -1262,13 +1260,68 @@ export function FiButton({
   left?: boolean;
   bg?: string;
   style?: any;
+  holdToConfirm?: boolean;
+  haptics?: boolean;
+  multiline?: boolean;
 }) {
+  const holdProgress = useRef(new Animated.Value(0)).current;
+  const holding = useRef(false);
+  const finishAction = useRef(onPress);
+  finishAction.current = onPress;
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopHold = useCallback(() => {
+    holding.current = false;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    if (pulseTimer.current) clearInterval(pulseTimer.current);
+    pulseTimer.current = null;
+    holdProgress.stopAnimation();
+    holdProgress.setValue(0);
+  }, [holdProgress]);
+  useEffect(() => {
+    if (!holdToConfirm) return;
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') stopHold();
+    });
+    return () => {
+      listener.remove();
+      stopHold();
+    };
+  }, [holdToConfirm, stopHold]);
+  const completeHold = () => {
+    if (!holding.current) return;
+    stopHold();
+    holdProgress.setValue(1);
+    finishAction.current();
+  };
+  const startHold = () => {
+    stopHold();
+    holding.current = true;
+    // RN longPress는 버튼 안에서 손가락이 조금 움직여도 취소된다. 누름이 유지되는 시간을 직접 잰다.
+    holdTimer.current = setTimeout(completeHold, componentTokens.focusEndHold.durationMs);
+    Animated.timing(holdProgress, {
+      toValue: 1,
+      duration: componentTokens.focusEndHold.durationMs,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }).start();
+    if (haptics && Platform.OS !== 'web') {
+      const pulse = () =>
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      pulse();
+      pulseTimer.current = setInterval(pulse, componentTokens.focusEndHold.hapticIntervalMs);
+    }
+  };
   return (
     <Pressable
       testID={id}
       accessibilityRole="button"
       accessibilityLabel={title}
-      onPress={onPress}
+      accessibilityHint={holdToConfirm ? t('focusFlow.common.holdEndHint') : undefined}
+      onPress={holdToConfirm ? undefined : onPress}
+      onPressIn={holdToConfirm ? startHold : undefined}
+      onPressOut={holdToConfirm ? stopHold : undefined}
       style={({ pressed }) => [
         {
           minHeight: 44,
@@ -1277,7 +1330,8 @@ export function FiButton({
           borderRadius: 999,
           borderWidth: 2,
           borderColor: OUTLINE,
-          backgroundColor: bg ?? (primary ? C.pink : C.cream),
+          backgroundColor: holdToConfirm ? C.cream : (bg ?? (primary ? C.pink : C.cream)),
+          overflow: holdToConfirm ? 'hidden' : undefined,
           boxShadow: `0px ${pressed ? 1 : 4}px 0px ${OUTLINE}`,
           transform: [{ translateY: pressed ? 3 : 0 }],
           justifyContent: 'center',
@@ -1285,8 +1339,24 @@ export function FiButton({
         style,
       ]}
     >
+      {holdToConfirm && (
+        <Animated.View
+          testID={id ? `${id}-progress` : undefined}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            right: 0,
+            transform: [{ scaleX: holdProgress }],
+            transformOrigin: 'left center',
+            backgroundColor: componentTokens.focusEndHold.fill,
+          }}
+        />
+      )}
       <Text
-        numberOfLines={1}
+        numberOfLines={multiline ? undefined : 1}
         style={{
           fontSize: small ? 11 : 14,
           lineHeight: small ? 14.3 : 18.2,
@@ -1295,16 +1365,25 @@ export function FiButton({
           textAlign: left ? 'left' : 'center',
         }}
       >
-        {title}
+        {holdToConfirm ? t('focusFlow.common.holdEndFocus') : title}
       </Text>
     </Pressable>
   );
 }
 // 낚시섬 모달(fi-modal): 반투명 막 위 가운데 카드. 가로(폭 600 이상)는 오른쪽 330px.
 // hidden: 위에 다른 모달(보상)이 떠 있을 때 — Android TalkBack은 형제 뷰를 자동으로 숨기지 않으므로 직접 숨긴다
-export function FiModal({ children, hidden }: { children: React.ReactNode; hidden?: boolean }) {
+export function FiModal({
+  children,
+  hidden,
+  footer,
+}: {
+  children: React.ReactNode;
+  hidden?: boolean;
+  footer?: React.ReactNode;
+}) {
   const wide = useAppLayout().width >= 600,
     safe = useSafeAreaInsets();
+  const contentPadding = wide ? semanticTokens.spacing.page : semanticTokens.spacing.section;
   return (
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 10, justifyContent: 'center' }]}
@@ -1328,11 +1407,21 @@ export function FiModal({ children, hidden }: { children: React.ReactNode; hidde
       >
         <ScrollView
           style={{ flexGrow: 0, flexShrink: 1 }}
-          contentContainerStyle={{ padding: wide ? 20 : 24 }}
+          contentContainerStyle={{ padding: contentPadding }}
           bounces={false}
         >
           {children}
         </ScrollView>
+        {footer && (
+          <View
+            style={{
+              paddingHorizontal: contentPadding,
+              paddingBottom: contentPadding,
+            }}
+          >
+            {footer}
+          </View>
+        )}
       </View>
     </View>
   );

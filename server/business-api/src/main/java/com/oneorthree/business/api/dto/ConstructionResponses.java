@@ -23,7 +23,8 @@ public final class ConstructionResponses {
             @JsonProperty(required = true) long walletVersion,
             @JsonProperty(required = true) List<ConstructionOptionItem> items,
             ConstructionResidentProgress residentProgress,
-            ActiveConstruction activeConstruction) {
+            ActiveConstruction activeConstruction,
+            List<String> contributedCompletions) {
         public static ConstructionOptionsView from(ConstructionOptions value,
                 Function<ConstructionOptions.Resident, String> residentName) {
             if (value == null) {
@@ -37,7 +38,8 @@ public final class ConstructionResponses {
                     value.walletVersion(),
                     value.items() == null ? null : value.items().stream().map(ConstructionOptionItem::from).toList(),
                     ConstructionResidentProgress.from(value.residentProgress(), residentName),
-                    ActiveConstruction.from(value.activeConstruction()));
+                    ActiveConstruction.from(value.activeConstruction()),
+                    value.contributedCompletions() == null ? List.of() : value.contributedCompletions());
         }
     }
 

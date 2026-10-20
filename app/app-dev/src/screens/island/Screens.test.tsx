@@ -178,6 +178,7 @@ function Harness({
   retryHome,
   friendsScreen,
   conversion,
+  playback,
   localePref = 'system',
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
@@ -278,6 +279,7 @@ function Harness({
         retryHome,
         friendsScreen,
         conversion,
+        playback,
         localePref,
         setLocalePref,
       }}
@@ -1119,24 +1121,107 @@ test('현재 곡을 보유하지 않았으면 다른 보유곡이 있어도 재�
   );
 });
 
-test('집중 중 축음기는 보유곡만 표시하고 복귀 목적지를 정확히 안내한다', async () => {
+test.each(['active', 'paused'] as const)(
+  '세션 %s 중 축음기는 보유곡만 표시하고 복귀 목적지를 안내한다',
+  async (status) => {
+    const state = initialState(false);
+    state.islands[0].joined = true;
+    state.islands[0].buildings.push('gram');
+    state.islands[0].sharedOwned = ['waves'];
+    state.islands[0].fish = 10_000;
+    let exposed: any;
+    state.session = {
+      id: 'focus-1',
+      islandId: state.islands[0].id,
+      subject: '수학',
+      startedAt: 1000,
+      seconds: 0,
+      status,
+    };
+    const s = await render(
+      <Harness route="sound" initial={state} expose={(value: any) => (exposed = value)} />,
+    );
+
+    s.getByLabelText(status === 'active' ? '집중으로 돌아가기' : '휴식으로 돌아가기');
+    s.getByLabelText('잔잔한 파도, 무료');
+    expect(s.queryByLabelText('빗방울 소리, 30마리로 구매')).toBeNull();
+    expect(exposed.actions).not.toContain('BUY');
+  },
+);
+
+test.each([null, 'active', 'paused'] as const)(
+  '세션 %s에서 판매 목록이 비어도 무료 기본 세 곡을 구매 없이 재생한다',
+  async (status) => {
+    const state = initialState(false);
+    state.islands[0].joined = true;
+    state.islands[0].buildings.push('gram');
+    state.islands[0].fish = 0;
+    state.session = status
+      ? {
+          id: 'focus-1',
+          islandId: state.islands[0].id,
+          subject: '수학',
+          startedAt: 1000,
+          seconds: 0,
+          status,
+        }
+      : null;
+    mockShopState.items = [];
+    mockShopState.shared = { audio: ['waves', 'campfire', 'forest-wind'] };
+    const update = jest.fn().mockResolvedValue({});
+    let exposed: any;
+    const s = await render(
+      <Harness
+        route="sound"
+        initial={state}
+        api={() => ({})}
+        playback={{ state: {}, update }}
+        expose={(value: any) => (exposed = value)}
+      />,
+    );
+    for (const [id, name] of [
+      ['waves', '잔잔한 파도'],
+      ['campfire', '모닥불 소리'],
+      ['forest-wind', '숲바람'],
+    ]) {
+      await fireEvent.press(s.getByLabelText(`${name}, 무료`));
+      expect(update).toHaveBeenCalledWith({ trackId: id, playing: true });
+    }
+    expect(mockShopBuy).not.toHaveBeenCalled();
+    expect(exposed.actions).not.toContain('BUY');
+    expect(exposed.actions).not.toContain('TRACK');
+  },
+);
+
+test('세션 없이 섬에서 판매곡을 구매하면 서버 상품으로 요청하고 로컬 BUY를 호출하지 않는다', async () => {
   const state = initialState(false);
   state.islands[0].joined = true;
   state.islands[0].buildings.push('gram');
-  state.islands[0].sharedOwned = ['waves'];
-  state.session = {
-    id: 'focus-1',
-    islandId: state.islands[0].id,
-    subject: '수학',
-    startedAt: 1000,
-    seconds: 0,
-    status: 'active',
+  state.session = null;
+  const product = {
+    id: 'rain',
+    title: '빗방울 소리',
+    price: 30,
+    productVersion: 3,
+    available: true,
   };
-  const s = await render(<Harness route="sound" initial={state} />);
-
-  s.getByLabelText('집중으로 돌아가기');
-  s.getByLabelText('잔잔한 파도, 보유');
-  assert.equal(s.queryByLabelText('빗방울 소리, 30마리로 구매'), null);
+  mockShopState.items = [product];
+  mockShopState.shared = { audio: [] };
+  mockShopBuy.mockResolvedValue({ id: 'order-1' });
+  let exposed: any;
+  const s = await render(
+    <Harness
+      route="sound"
+      initial={state}
+      api={() => ({})}
+      expose={(value: any) => (exposed = value)}
+    />,
+  );
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  await fireEvent.press(s.getByText('30마리로 구매'));
+  await waitFor(() => s.getByText('구매했어요'));
+  expect(mockShopBuy).toHaveBeenCalledWith(product);
+  expect(exposed.actions).not.toContain('BUY');
 });
 
 test('공동 보유품 중 실제 음원만 축음기 목록에 표시한다', async () => {
@@ -1146,7 +1231,7 @@ test('공동 보유품 중 실제 음원만 축음기 목록에 표시한다', a
   state.islands[0].sharedOwned = ['waves', 'pine'];
   const s = await render(<Harness route="sound" initial={state} />);
 
-  s.getByLabelText('잔잔한 파도, 보유');
+  s.getByLabelText('잔잔한 파도, 무료');
   assert.equal(s.queryByText('pine'), null);
 });
 
@@ -1507,28 +1592,38 @@ test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', asyn
   assert.equal(s.queryByText('차단한 사용자'), null);
 });
 
-test('앱 정보의 개인정보 안내는 서버 저장과 분석 전송을 사실대로 설명한다', async () => {
-  let exposed: any;
-  const s = await render(
-    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
-  );
-
-  await fireEvent.press(s.getByText('개인정보 처리 안내'));
-  const explanation = exposed.confirm.mock.calls.at(-1)[1] as string;
-  assert.match(explanation, /계정 식별 정보가 서버로 전달/);
-  assert.match(explanation, /섬·주민 활동, 친구·편지, 집중 기록/);
-  assert.match(explanation, /PostHog/);
-  assert.doesNotMatch(explanation, /로컬 목업|서버로 전송하지 않아요/);
+test('앱 설정은 개인정보처리방침 하나만 남기고 차단 관리를 숨긴다', async () => {
+  const s = await render(<Harness route="settings" full api={() => ({})} />);
+  assert.equal(s.queryByText('개인정보 처리 안내'), null);
+  assert.equal(s.queryByText('차단한 사용자'), null);
+  assert.equal(s.getAllByText('개인정보처리방침').length, 1);
+  assert.ok(s.getByTestId('settings-app-version'));
 });
 
-test('서버 앱 설정의 안전 섹션에서 차단 사용자 목록으로 진입한다', async () => {
+test('친구 관리에서 차단 사용자 목록으로 진입한다', async () => {
   let exposed: any;
+  const friendsScreen = {
+    data: { friends: [], friendRequests: [], sentFriendRequests: [] },
+    status: 'ready',
+    error: null,
+    busy: false,
+    query: '',
+    searchItems: [],
+    refresh: jest.fn(),
+    retry: jest.fn(),
+    setQuery: jest.fn(),
+    command: jest.fn(),
+  };
   const s = await render(
-    <Harness route="settings" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
+    <Harness
+      route="friends"
+      full
+      api={() => ({})}
+      friendsScreen={friendsScreen}
+      expose={(value: any) => (exposed = value)}
+    />,
   );
-
   await fireEvent.press(s.getByText('차단한 사용자'));
-
   assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
 });
 
@@ -1671,32 +1766,10 @@ test('기기 언어가 지원 언어(ko·en)가 아니면 기기 언어 따름 s
   assert.ok(s.getByText(/기기 언어 미지원/));
 });
 
-test('완공된 상점 첫 진입에서 강아지 이야기를 한 번만 보여준다', async () => {
-  let exposed: any;
-  const s = await render(<Harness route="shop" full expose={(value: any) => (exposed = value)} />);
-
-  s.getByText(/드디어 마지막 건물까지 완성됐네/);
-  await fireEvent.press(s.getByText('다음'));
-  s.getByText(/상점이 열릴 날만 기다리면서/);
-  await fireEvent.press(s.getByText('다음'));
-  s.getByText(/이제 이 섬을 너희답게 꾸밀 차례야/);
-  await fireEvent.press(s.getByText('상점 둘러보기'));
-
-  await waitFor(() => {
-    assert.ok(exposed.actions.includes('SHOP_GUIDE_DONE'));
-    assert.equal(s.queryByText(/드디어 마지막 건물까지 완성됐네/), null);
-  });
-  s.getByText('강아지 상점');
-});
-
-test('상점 안내 중 시스템 뒤로가기는 완료 처리 없이 상점을 닫는다', async () => {
-  let exposed: any;
-  const s = await render(<Harness route="shop" full expose={(value: any) => (exposed = value)} />);
-
-  await fireEvent(s.getByTestId('shop-guide'), 'requestClose');
-
-  assert.equal(exposed.home.mock.calls.length, 1);
-  assert.ok(!exposed.actions.includes('SHOP_GUIDE_DONE'));
+test('상점 내용 화면은 완공 축하나 사용 설명을 중복해서 띄우지 않는다', async () => {
+  const screen = await render(<Harness route="shop" full />);
+  expect(screen.queryByTestId('shop-guide')).toBeNull();
+  screen.getByText('강아지 상점');
 });
 
 test('일반 상점 구매의 SOCIAL_LOGIN_REQUIRED는 오류 알림 대신 회원 전환을 연다', async () => {
@@ -2886,6 +2959,9 @@ test('영어 설정에서도 신고센터가 영어 작성 안내가 담긴 메�
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
   const ui = await render(<Harness route="settings" full localePref="en" />);
   await fireEvent.press(ui.getByText('Report center'));
+  assert.ok(
+    decodeURIComponent(open.mock.calls[0][0]).includes('subject=[catus report] Report center'),
+  );
   assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('What happened:'));
   open.mockRestore();
 });

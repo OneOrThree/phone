@@ -144,3 +144,20 @@ describe('islandTitle', () => {
     expect(islandTitle(' 소다 ')).toBe('소다섬');
   });
 });
+
+it('비공개 섬은 망원경 동그라미 대신 초대 안내를 그리고 접근성 이름에도 포함한다', async () => {
+  const onScope = jest.fn();
+  const screen = await render(
+    <AdCell
+      testID="private"
+      width={338}
+      cell={cell({ privateIsland: true })}
+      corner="scope"
+      onScope={onScope}
+    />,
+  );
+  expect(screen.queryByTestId('private-scope')).toBeNull();
+  expect(screen.getByText(/초대로만 갈 수 있는 섬/)).toBeTruthy();
+  expect(screen.getByLabelText(/초대로만 갈 수 있는 섬/)).toBeTruthy();
+  expect(onScope).not.toHaveBeenCalled();
+});

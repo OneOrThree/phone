@@ -47,7 +47,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -62,6 +65,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -109,10 +113,12 @@ public class IslandRecordsService {
     private final FocusSessionDetailRepository details;
     private final FocusSessionIntervalRepository intervals;
     private final FocusStatisticsSnapshotRepository snapshots;
+    private final FocusFishEarningsReadService fishEarnings;
     private final ScreenTimeObservationRepository observations;
     private final AuthSessionService sessions;
     private final PublicCommandService publicCommands;
     private final Clock clock;
+    private final PlatformTransactionManager transactionManager;
 
     /** 관측 시각이 서버 시각보다 앞서도 받는 폭(RC-D04 — 설정값이 곧 정책 revision). */
     @Value("${island-records.screen-time.future-tolerance:PT1M}")
@@ -132,19 +138,48 @@ public class IslandRecordsService {
      * 고정한 섬) 기여다(2026-09-19 결정 RC-D01). 합계·일별은 페이지와 무관한 전체 기간 값이다(RC-P04).
      *
      * <p>한 스냅샷에서 읽도록 REPEATABLE READ 다 — 상세와 구간을 두 SELECT 로 읽는 사이 finish 가 커밋돼도 같은 순간을 본다.
+     * 그 조회 트랜잭션은 <b>읽기 전용</b>이고, scope=me 기록이 한 페이지를 넘을 때의 스냅샷 저장만 조회가 끝난 «뒤»
+     * 별 쓰기 트랜잭션에서 한다(GROMO-2344) — 쓰기 트랜잭션 안에서 조회 전체를 돌리지 않는다. 커넥션을 동시에 둘
+     * 쥐지 않도록 중첩(REQUIRES_NEW)이 아니라 순차다. {@code screenTime} 처럼 선언형 {@code @Transactional(readOnly)} 가
+     * 아니라 템플릿을 쓰는 이유가 이것이다 — 한 메서드 안에서 읽기 tx 와 쓰기 tx 를 순차로 나눈다. {@code @Transactional}
+     * 로 되돌리면 2344 이전(쓰기 트랜잭션 안의 조회)으로 회귀한다.
      *
      * @param snapshotId 다음 페이지면 첫 페이지가 고정한 스냅샷(me 만), 첫 페이지면 {@code null}
      * @param offset     다음 페이지의 시작 위치
      */
-    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public FocusStatistics focus(UUID userId, UUID islandId, LocalDate from, LocalDate to, String scope,
                                  UUID snapshotId, Integer offset) {
         return focus(userId, islandId, from, to, scope, snapshotId, offset, "UTC");
     }
 
-    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public FocusStatistics focus(UUID userId, UUID islandId, LocalDate from, LocalDate to, String scope,
                                  UUID snapshotId, Integer offset, String timezone) {
+        TransactionTemplate read = new TransactionTemplate(transactionManager);
+        read.setReadOnly(true);
+        read.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        FocusRead result = Objects.requireNonNull(read.execute(status -> readFocus(userId, islandId, from, to, scope,
+                snapshotId, offset, timezone)));
+        if (result.statistics() != null) {
+            return result.statistics();
+        }
+        FocusSnapshot snapshot = result.toStore();
+        UUID id = UUID.randomUUID();
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            // ponytail: 만료 스냅샷은 같은 사용자의 다음 생성 때 지운다 — 쌓임이 문제되면 정리 스케줄러로 옮긴다.
+            snapshots.deleteExpiredOf(userId, snapshot.asOf());
+            snapshots.save(FocusStatisticsSnapshot.builder().id(id).userId(userId)
+                    .payload(OutboxEnvelopeCodec.toJson(snapshot)).expiresAt(snapshot.asOf().plus(SNAPSHOT_TTL))
+                    .build());
+        });
+        return page(id, snapshot, 0);
+    }
+
+    /** 조회 트랜잭션의 결과 — 응답이 끝났거나({@code statistics}), 저장할 스냅샷이 남았거나({@code toStore}). */
+    private record FocusRead(FocusStatistics statistics, FocusSnapshot toStore) {
+    }
+
+    private FocusRead readFocus(UUID userId, UUID islandId, LocalDate from, LocalDate to, String scope,
+                                UUID snapshotId, Integer offset, String timezone) {
         ZoneId zone = measurementZone(timezone);
         requireRange(from, to);
         Group island = requireLibraryResident(userId, islandId);
@@ -154,11 +189,11 @@ public class IslandRecordsService {
             if (snapshotId != null) {
                 throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
             }
-            return islandFocus(island, from, to, start, end, zone);
+            return new FocusRead(islandFocus(island, from, to, start, end, zone), null);
         }
         requireMe(scope);
         if (snapshotId != null) {
-            return page(snapshotId, readSnapshot(userId, snapshotId), offset);
+            return new FocusRead(page(snapshotId, readSnapshot(userId, snapshotId), offset), null);
         }
         Instant asOf = clock.instant();
         TreeMap<LocalDate, Long> series = new TreeMap<>();
@@ -174,16 +209,12 @@ public class IslandRecordsService {
         }
         records.sort(Comparator.comparing(FocusRecord::completedAt)
                 .thenComparing(FocusRecord::id, UUID_ORDER).reversed());
-        FocusSnapshot snapshot = new FocusSnapshot(asOf, sum(series), days(series), records);
+        FocusSnapshot snapshot = new FocusSnapshot(asOf, sum(series), days(series), records,
+                fishEarnings.earnedBetween(userId, start, end, asOf));
         if (records.size() <= PAGE_SIZE) {
-            return page(null, snapshot, 0);
+            return new FocusRead(page(null, snapshot, 0), null);
         }
-        // ponytail: 만료 스냅샷은 같은 사용자의 다음 생성 때 지운다 — 쌓임이 문제되면 정리 스케줄러로 옮긴다.
-        snapshots.deleteExpiredOf(userId, asOf);
-        UUID id = UUID.randomUUID();
-        snapshots.save(FocusStatisticsSnapshot.builder().id(id).userId(userId)
-                .payload(OutboxEnvelopeCodec.toJson(snapshot)).expiresAt(asOf.plus(SNAPSHOT_TTL)).build());
-        return page(id, snapshot, 0);
+        return new FocusRead(null, snapshot);
     }
 
     private FocusStatistics islandFocus(Group island, LocalDate from, LocalDate to, Instant start, Instant end,
@@ -261,7 +292,7 @@ public class IslandRecordsService {
         boolean more = next < records.size();
         return new FocusStatistics(SCOPE_ME, snapshot.totalSeconds(), snapshot.series(),
                 records.subList(offset, Math.min(next, records.size())), null, snapshot.asOf(),
-                more ? snapshotId : null, more ? next : null);
+                more ? snapshotId : null, more ? next : null, snapshot.earnedFish());
     }
 
     // ------------------------------------------------------------------ 스크린타임 조회

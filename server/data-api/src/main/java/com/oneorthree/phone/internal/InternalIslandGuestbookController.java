@@ -13,9 +13,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -32,8 +34,10 @@ public class InternalIslandGuestbookController {
     private final GuestAccountGuards guestAccountGuards;
 
     @GetMapping("/internal/islands/{islandId}/guestbook")
-    public IslandGuestbookViews.Page list(@PathVariable UUID islandId, @RequestHeader("X-User-Id") UUID userId) {
-        return guestbook.list(islandId, userId);
+    public IslandGuestbookViews.Page list(@PathVariable UUID islandId, @RequestHeader("X-User-Id") UUID userId,
+            @RequestParam(required = false) Instant afterCreatedAt, @RequestParam(required = false) UUID afterId,
+            @RequestParam(defaultValue = "30") int limit) {
+        return guestbook.list(islandId, userId, afterCreatedAt, afterId, limit);
     }
 
     @PostMapping("/internal/islands/{islandId}/guestbook")

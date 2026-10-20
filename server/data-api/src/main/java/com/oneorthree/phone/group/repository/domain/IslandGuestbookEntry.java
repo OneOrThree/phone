@@ -16,8 +16,8 @@ import java.util.UUID;
 
 /**
  * 섬 방명록 한 건 (GROMO-2262, V113). 방문 1회 = 유저·섬·KST 하루(결정 N6) 라서
- * {@code (island_id, author_id, written_on)} 이 유일하다. 섬당 최근 30개만 살리고 나머지는
- * {@code deleted_at} 으로 지운다(soft delete). 연관관계 대신 id 만 든다 — 작성자 이름은 조회 쪽이 모아 읽는다.
+ * {@code (island_id, author_id, written_on)} 이 유일하다. 개수 제한 없이 보관하고 섬장이 지운 글만
+ * {@code deleted_at} 으로 숨긴다. 연관관계 대신 id 만 든다 — 작성자 이름은 조회 쪽이 모아 읽는다.
  */
 @Entity
 @Table(name = "island_guestbook_entries")

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { AppState } from 'react-native';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { getBlockedUsers } from '@/services/api/safety';
@@ -616,4 +617,164 @@ test('편지 더 보기 — 커서로 다음 페이지를 붙이고 id 중복을
     [LETTER, 'letter-2'],
   );
   await hook.unmount();
+});
+
+describe('채팅방 최신 이력 갱신', () => {
+  let onAppState: (next: string) => void;
+  let subscription: jest.SpyInstance;
+  const msg = (id: string) => ({
+    ...screen().messages.items[0],
+    id,
+    clientMessageId: id,
+    text: id,
+    createdAt: `2026-09-20T10:00:0${id.slice(1)}Z`,
+  });
+  beforeEach(() => {
+    jest.useFakeTimers();
+    AppState.currentState = 'active';
+    subscription = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation((_event, handler) => {
+        onAppState = handler as (next: string) => void;
+        return { remove: jest.fn() };
+      });
+    listMessagesMock.mockReset().mockResolvedValue({ items: [msg('m1')], nextCursor: null });
+  });
+  afterEach(() => {
+    subscription.mockRestore();
+    jest.useRealTimers();
+  });
+  const openChat = async () => {
+    const hook = await renderHook(
+      (p: { chatActive: boolean; scopeKey: string }) => useMailbox({ active: true, ...p }),
+      {
+        initialProps: { chatActive: true, scopeKey: 's1' },
+      },
+    );
+    await act(async () => {});
+    return hook;
+  };
+  test('진입·10초 주기·복귀에 갱신하고 비활성·백그라운드에서는 멈춘다', async () => {
+    const hook = await openChat();
+    assert.equal(listMessagesMock.mock.calls.length, 1);
+    listMessagesMock.mockResolvedValue({ items: [msg('m1'), msg('m2')], nextCursor: null });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
+    expect(hook.result.current.messages.map((m) => m.id)).toEqual(['m1', 'm2']);
+    await act(async () => {
+      onAppState('background');
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    assert.equal(listMessagesMock.mock.calls.length, 2);
+    await act(async () => {
+      onAppState('active');
+    });
+    assert.equal(listMessagesMock.mock.calls.length, 3);
+    await hook.rerender({ chatActive: false, scopeKey: 's1' });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    assert.equal(listMessagesMock.mock.calls.length, 3);
+    await hook.rerender({ chatActive: true, scopeKey: 's1' });
+    assert.equal(listMessagesMock.mock.calls.length, 4);
+    await hook.unmount();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    assert.equal(listMessagesMock.mock.calls.length, 4);
+  });
+  test('내 발송이 있어도 마지막 조회 지점까지 읽고 과거 이력을 보존한다', async () => {
+    screenMock.mockResolvedValue(
+      screen({ messages: { items: [msg('m0'), msg('m1')], nextCursor: 'older' } }),
+    );
+    const hook = await openChat();
+    sendMessageMock.mockResolvedValue(msg('m5'));
+    await act(async () => {
+      await hook.result.current.sendMessage('내 새 글');
+    });
+    listMessagesMock
+      .mockResolvedValueOnce({ items: [msg('m4'), msg('m5')], nextCursor: 'gap' })
+      .mockResolvedValueOnce({ items: [msg('m1'), msg('m2'), msg('m3')], nextCursor: 'older' });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
+    expect(hook.result.current.messages.map((m) => m.id)).toEqual([
+      'm0',
+      'm1',
+      'm2',
+      'm3',
+      'm4',
+      'm5',
+    ]);
+    assert.equal(hook.result.current.messagesCursor, 'older');
+    expect(listMessagesMock.mock.calls.at(-1)).toEqual([ISLAND, 'gap']);
+    await hook.unmount();
+  });
+  test('네트워크 실패는 이력을 보존하고 다음 갱신으로 복구한다', async () => {
+    const hook = await openChat();
+    listMessagesMock.mockRejectedValueOnce(new ApiError('NETWORK', '연결 오류', 0));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
+    assert.equal(hook.result.current.messages.length, 1);
+    assert.equal(hook.result.current.messagesRefreshError?.code, 'NETWORK');
+    listMessagesMock.mockResolvedValue({ items: [msg('m1'), msg('m2')], nextCursor: null });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
+    assert.equal(hook.result.current.messages.length, 2);
+    assert.equal(hook.result.current.messagesRefreshError, null);
+    await hook.unmount();
+  });
+  test('진행 중 요청은 중복하지 않고 화면 이탈 뒤 응답은 버린다', async () => {
+    const hook = await openChat();
+    let resolve!: (value: any) => void;
+    listMessagesMock.mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    assert.equal(listMessagesMock.mock.calls.length, 2);
+    await hook.rerender({ chatActive: false, scopeKey: 's1' });
+    await act(async () => {
+      resolve({ items: [msg('m1'), msg('m2')], nextCursor: null });
+    });
+    assert.equal(hook.result.current.messages.length, 1);
+    await hook.unmount();
+  });
+  test('계정이 바뀐 뒤 도착한 응답은 버린다', async () => {
+    const hook = await openChat();
+    let resolve!: (value: any) => void;
+    listMessagesMock.mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
+    await act(async () => {
+      await clearSession();
+      resolve({ items: [msg('m2')], nextCursor: null });
+    });
+    assert.ok(!hook.result.current.messages.some((m) => m.id === 'm2'));
+    await hook.unmount();
+  });
+  test('권한 상실은 원문을 비우고 자동 재요청을 중단한다', async () => {
+    const hook = await openChat();
+    listMessagesMock.mockRejectedValueOnce(new ApiError('FORBIDDEN', '접근 불가', 403));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
+    assert.equal(hook.result.current.messages.length, 0);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    assert.equal(listMessagesMock.mock.calls.length, 2);
+    await hook.unmount();
+  });
 });

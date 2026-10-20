@@ -49,6 +49,31 @@ public class OutboxRelayProperties {
     private Duration pollInterval;
 
     /**
+     * 축마다 한 번에 집는 앞쪽 연속 길이(GROMO-2338). 1 이면 축당 선두 하나 — 2337 까지의 동작이다.
+     *
+     * <p>아래 셋은 기본값을 둔다({@link #httpConnectTimeout} 과 같은 이유) — 재시도 «정책»이 아니라 처리량
+     * 조절 손잡이라 A18 보류와 무관하고, 비워 둔 배포가 예전처럼 축당 1건으로 굼뜨게 돌 이유가 없다.
+     */
+    private int runLength = 10;
+
+    /**
+     * 축 작업을 돌리는 relay 전용 스레드 수. 틱 스레드 1개는 따로 더한다({@code OutboxRelayConfig}).
+     *
+     * <p>스레드 하나가 한 번에 DB 커넥션을 하나만 쥔다(선점·갱신·표시가 각자 짧은 트랜잭션이고 전송 중엔 쥐지
+     * 않는다). 그래서 relay 가 Hikari 풀(기본 10)에서 동시에 쓰는 커넥션은 최대 이 값 + 1 이다 — 4 면 5, 요청
+     * 처리 몫으로 절반이 남는다. 풀 크기를 넘겨 키우면 요청 스레드가 커넥션을 기다린다.
+     */
+    private int workerThreads = 4;
+
+    /**
+     * 한 틱이 «더 집을 것이 없을 때까지» 라운드를 반복하는 상한 시간. 0 = 틱당 한 라운드(2337 까지의 동작).
+     *
+     * <p>poll 1s 에 5s 면 relay 가 일하는 비율은 대략 budget/(budget+poll) ≈ 83% 다 — 밀렸을 때 틱 사이 대기가
+     * 처리량을 갉아먹지 않고, 한가할 때는 첫 라운드가 0건이라 곧바로 끝난다.
+     */
+    private Duration tickBudget = Duration.ofSeconds(5);
+
+    /**
      * 위성 HTTP 연결 수립 상한.
      *
      * <p>기본값을 둔 것은 A18 보류와 무관하다 — 재시도 «정책»이 아니라 「무한정 기다리지 않는다」는
@@ -165,6 +190,10 @@ public class OutboxRelayProperties {
         require(batchSize != null && batchSize > 0, "outbox.relay.batch-size 는 1 이상이어야 합니다.");
         require(isPositive(leaseDuration), "outbox.relay.lease-duration 이 필요합니다.");
         require(isPositive(pollInterval), "outbox.relay.poll-interval 이 필요합니다.");
+        require(runLength >= 1, "outbox.relay.run-length 는 1 이상이어야 합니다.");
+        require(workerThreads >= 1, "outbox.relay.worker-threads 는 1 이상이어야 합니다.");
+        require(tickBudget != null && !tickBudget.isNegative(),
+                "outbox.relay.tick-budget 은 0 이상이어야 합니다(0 = 틱당 한 라운드).");
         require(isPositive(httpConnectTimeout), "outbox.relay.http-connect-timeout 이 필요합니다.");
         require(isPositive(httpReadTimeout), "outbox.relay.http-read-timeout 이 필요합니다.");
         require(isPositive(retry.getInitialBackoff()), "outbox.relay.retry.initial-backoff 가 필요합니다.");

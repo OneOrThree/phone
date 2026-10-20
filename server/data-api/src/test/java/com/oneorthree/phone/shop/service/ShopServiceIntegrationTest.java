@@ -506,6 +506,21 @@ class ShopServiceIntegrationTest {
         assertThat(view.durationSeconds()).isEqualTo(95.0);
     }
 
+    @Test
+    @DisplayName("기본 무료곡은 판매 목록에 남아 있어도 소유로 표시하고 중복 결제하지 않는다")
+    void defaultAudioCannotBeCharged() {
+        Fixture f = island();
+        complete(f, "gram");
+        fund(f.islandId, 100);
+        publish(entry("waves", 1, 30, "gram", null, "sound", 1));
+        ShopViews.Item item = shop.products(f.islandId, f.ownerId, "sound", null, null, null, 30).items().get(0);
+        assertThat(item.owned()).isTrue();
+        assertThat(item.available()).isFalse();
+        assertCode(() -> buy(f, f.ownerId, "waves", UUID.randomUUID()), ShopErrorCode.STATE_CONFLICT);
+        assertThat(shop.wallets(f.islandId, f.ownerId).villagePoints()).isEqualTo(100);
+        assertThat(count("SELECT COUNT(*) FROM shop_orders WHERE island_id = ?", f.islandId)).isZero();
+    }
+
     // ---------------------------------------------------------------- 도구
 
     private ShopViews.Order buy(Fixture f, UUID userId, String productId, UUID key) {

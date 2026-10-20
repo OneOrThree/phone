@@ -17,7 +17,7 @@
  *  - `DELETE /me/join-requests/{requestId}`     신청 취소. `Idempotency-Key` 필수.
  *  - `POST   /invitations/resolve`              초대 코드 해석. 조회 성격이라 멱등 키 없음.
  *  - `GET    /me/islands`                       내 섬 재조회 — 생성·가입·승인·재실행의 정본.
- *  - `GET    /islands/{islandId}/guestbook`     방명록 목록(최근 30, 최신순) — 방문자·주민·게스트 읽기.
+ *  - `GET    /islands/{islandId}/guestbook?cursor` 방명록 목록(30개씩, 최신순) — 방문자·주민·게스트 읽기.
  *  - `POST   /islands/{islandId}/guestbook`     한 줄 남기기(≤20 코드포인트, 하루 1개). 멱등 키 없음.
  *  - `DELETE /islands/{islandId}/guestbook/{entryId}`  섬장만 지우기.
  *
@@ -255,8 +255,6 @@ export function myIslands(): Promise<MyIslands> {
 
 /** 방명록 한 줄 최대 길이(코드포인트, 🐟 = 1) — 서버 계약(GROMO-2262)과 같다. */
 export const GUESTBOOK_CONTENT_MAX = 20;
-/** 목록은 최근 30개까지만 온다(서버가 31번째부터 지운다). */
-export const GUESTBOOK_LIST_MAX = 30;
 
 export type GuestbookEntry = {
   id: string;
@@ -270,11 +268,28 @@ export type GuestbookEntry = {
 };
 
 /** `boardBuilt=false` 는 게시판이 없는 섬이다 — items 는 비어 있고 앱은 방명록을 숨긴다. */
-export type GuestbookPage = { boardBuilt: boolean; items: GuestbookEntry[] };
+export type GuestbookPage = {
+  boardBuilt: boolean;
+  items: GuestbookEntry[];
+  nextCursor: string | null;
+};
 
 /** 방명록 목록(최신순). 방문자·주민·게스트 모두 읽는다. */
-export function getGuestbook(islandId: string): Promise<GuestbookPage> {
-  return request<GuestbookPage>(`/islands/${encodeURIComponent(islandId)}/guestbook`);
+export async function getGuestbook(islandId: string, cursor?: string): Promise<GuestbookPage> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  const page = await request<GuestbookPage>(
+    `/islands/${encodeURIComponent(islandId)}/guestbook${query}`,
+  );
+  if (
+    !page ||
+    typeof page.boardBuilt !== 'boolean' ||
+    !Array.isArray(page.items) ||
+    (page.nextCursor != null && typeof page.nextCursor !== 'string')
+  ) {
+    throw new ApiError(CLIENT_CONTRACT_ERROR, '계약과 다른 방명록 응답이에요.', 0);
+  }
+  // 커서가 없는 구서버는 한 페이지로 끝난다.
+  return { ...page, nextCursor: page.nextCursor ?? null };
 }
 
 /**
