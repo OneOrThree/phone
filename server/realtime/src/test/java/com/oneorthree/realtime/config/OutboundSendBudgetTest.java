@@ -240,6 +240,33 @@ class OutboundSendBudgetTest {
     }
 
     @Test
+    @DisplayName("DISCONNECT_ACK 거부는 선별도 종료도 하지 않는다 — afterConnectionClosed 가 sessions.closed 를 부르기 전 창")
+    void rejectedDisconnectAckClosesNobody() throws Exception {
+        start();
+        WebSocketSession leaving = socket("leaving"); // 레지스트리는 아직 connected
+        WebSocketSession healthy = socket("healthy");
+        String chat = "/topic/groups/" + UUID.randomUUID();
+        channel.send(frame("healthy", chat)); // 실행 중(막힘)
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        channel.send(frame("healthy", chat)); // 큐 — 가득
+
+        SimpMessageHeaderAccessor ack = SimpMessageHeaderAccessor.create(SimpMessageType.DISCONNECT_ACK);
+        ack.setSessionId("leaving");
+        MessageHandlingRunnable late = mock(MessageHandlingRunnable.class);
+        when(late.getMessage()).thenAnswer(
+                invocation -> MessageBuilder.createMessage(new byte[0], ack.getMessageHeaders()));
+        budget.rejectedExecution(late, executor.getThreadPoolExecutor());
+
+        Thread.sleep(100); // closer 가 아무것도 하지 않음을 확인할 시간
+        verify(healthy, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
+        verify(leaving, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
+        assertThat(budget.isClosing("leaving")).isFalse();
+        assertThat(meters.counter("realtime.outbound.dropped", "reason", "queue_full").count()).isEqualTo(1.0);
+        assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isZero();
+        assertThat(meters.counter("realtime.outbound.closed", "selected", "overflow").count()).isZero();
+    }
+
+    @Test
     @DisplayName("끝난 프레임은 세션별 대기 수에서 빠진다 — 항목이 남아 새지 않는다")
     void drainedFramesLeaveThePendingCount() throws Exception {
         start();
