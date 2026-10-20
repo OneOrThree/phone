@@ -1,0 +1,7 @@
+host loadavg at start: { 8.01 9.59 9.98 }; gradle procs: 3 (다른 세션 빌드 동시 — run1)
+gromo-loadtest-survey-business-api-1 cpu=2.72% mem=283.4MiB / 1GiB
+gromo-loadtest-survey-realtime-1 cpu=1.81% mem=342.1MiB / 1GiB
+gromo-loadtest-survey-realtime-2-1 cpu=1.48% mem=341.4MiB / 1GiB
+gromo-loadtest-survey-data-api-1 cpu=2.84% mem=492.7MiB / 1GiB
+gromo-loadtest-survey-business-redis-1 cpu=0.24% mem=1.371MiB / 192MiB
+gromo-loadtest-survey-business-redis-exporter-1 cpu=0.00% mem=5.031MiB / 7.653GiB
