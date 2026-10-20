@@ -1,13 +1,20 @@
 package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.auth.ChatPrincipal;
+import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.block.BlockedUsers;
+import com.oneorthree.realtime.config.OutboundAuthzCache;
+import com.oneorthree.realtime.config.RealtimeSessionRegistry;
+import com.oneorthree.realtime.membership.CurrentMembershipDecisionCache;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.repository.ChatReadCursorRepository;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
@@ -25,12 +32,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.WebSocketSession;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Date;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -87,7 +98,13 @@ class InboundEventServiceTest {
     private StringRedisTemplate redis;
 
     @Autowired
+    private RealtimeSessionRegistry sessionRegistry;
+
+    @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Value("${jwt.secret}")
+    private String jwtSecret;
 
     @Value("${realtime.internal.data-service-token}")
     private String dataToken;
@@ -246,7 +263,7 @@ class InboundEventServiceTest {
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class), listener,
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
                 mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
-                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class));
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
 
@@ -267,7 +284,7 @@ class InboundEventServiceTest {
                 mock(EventRouter.class), membership, mock(BlockedUsers.class), listener,
                 mock(com.oneorthree.realtime.sea.SeaRooms.class),
                 mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class),
-                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class));
+                mock(com.oneorthree.realtime.config.OutboundAuthzCache.class), mock(RealtimeSessionRegistry.class), mock(JwtValidator.class));
         UUID island = UUID.randomUUID();
         UUID kicked = UUID.randomUUID();
         UUID evicted = UUID.randomUUID();
@@ -292,7 +309,7 @@ class InboundEventServiceTest {
         InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
-                outbound);
+                outbound, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class));
         UUID kicked = UUID.randomUUID();
         UUID gone = UUID.randomUUID();
 
@@ -346,7 +363,7 @@ class InboundEventServiceTest {
         var decisions = mock(com.oneorthree.realtime.membership.CurrentMembershipDecisionCache.class);
         InboundEventService plain = new InboundEventService(plainJdbc, fence, mock(EventRouter.class), membership,
                 blocks, mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class),
-                decisions, cache);
+                decisions, cache, mock(RealtimeSessionRegistry.class), mock(JwtValidator.class));
         UUID kicked = UUID.randomUUID();
         UUID blocker = UUID.randomUUID();
         UUID leaver = UUID.randomUUID();
@@ -462,6 +479,95 @@ class InboundEventServiceTest {
         http(arrived(island, UUID.randomUUID(), UUID.randomUUID(), ""));
 
         verify(eventRouter, never()).route(any(), ArgumentMatchers.eq(new RealtimeAudience.IslandAudience(island)));
+    }
+
+    private static final String SECRET = "test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256";
+    private static final CloseStatus REVOKED = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
+
+    @Test
+    @DisplayName("auth.session.revoked — 폐기된 sid 의 STOMP 세션만 SESSION_REVOKED 로 닫고 허용 결정을 지운다, 같은 사용자의 다른 sid 세션은 산다")
+    void sessionRevokedClosesOnlyThatSid() throws Exception {
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        var decisions = mock(CurrentMembershipDecisionCache.class);
+        var outbound = mock(OutboundAuthzCache.class);
+        var registry = new RealtimeSessionRegistry();
+        InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
+                mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
+                mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
+                outbound, registry, new JwtValidator(SECRET));
+        UUID user = UUID.randomUUID();
+        UUID revokedSid = UUID.randomUUID();
+        WebSocketSession revoked = connect(registry, "stomp-revoked", user, revokedSid, SECRET);
+        WebSocketSession other = connect(registry, "stomp-other", user, UUID.randomUUID(), SECRET);
+        WebSocketSession stranger = connect(registry, "stomp-stranger", UUID.randomUUID(), revokedSid, SECRET);
+
+        assertThat(plain.accept(objectMapper.readTree(sessionRevoked(user, revokedSid.toString())))).isTrue();
+
+        verify(revoked).close(REVOKED);
+        verify(outbound).evictSession("stomp-revoked");
+        verify(decisions).evictUser(user);
+        verify(other, never()).close(any(CloseStatus.class));
+        verify(stranger, never()).close(any(CloseStatus.class));
+        verify(outbound, never()).evictSession("stomp-other");
+    }
+
+    @Test
+    @DisplayName("auth.session.revoked — sessionId 누락·형식 불량이면 200 + skip, 아무 연결도 닫지 않는다")
+    void sessionRevokedWithoutUsableSidIsSkipped() throws Exception {
+        JdbcTemplate plainJdbc = mock(JdbcTemplate.class);
+        given(plainJdbc.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
+                .willReturn(1);
+        var decisions = mock(CurrentMembershipDecisionCache.class);
+        var registry = new RealtimeSessionRegistry();
+        InboundEventService plain = new InboundEventService(plainJdbc, mock(ChatUserFence.class),
+                mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
+                mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
+                mock(OutboundAuthzCache.class), registry, new JwtValidator(SECRET));
+        UUID user = UUID.randomUUID();
+        WebSocketSession session = connect(registry, "stomp-1", user, UUID.randomUUID(), SECRET);
+
+        assertThat(plain.accept(objectMapper.readTree(sessionRevoked(user, null)))).isTrue();
+        assertThat(plain.accept(objectMapper.readTree(sessionRevoked(user, "not-a-uuid")))).isTrue();
+
+        verify(session, never()).close(any(CloseStatus.class));
+        verify(decisions, never()).evictUser(any());
+    }
+
+    @Test
+    @DisplayName("auth.session.revoked 가 HTTP 입구로 200 이고 실제 레지스트리의 그 sid 세션을 닫는다 — 알 수 없는 type 은 여전히 400")
+    void sessionRevokedOverHttpClosesTheSession() throws Exception {
+        UUID user = UUID.randomUUID();
+        UUID sid = UUID.randomUUID();
+        WebSocketSession socket = connect(sessionRegistry, "stomp-http-" + sid, user, sid, jwtSecret);
+
+        http(sessionRevoked(user, sid.toString()));
+
+        verify(socket).close(REVOKED);
+        sessionRegistry.closed("stomp-http-" + sid);
+    }
+
+    private WebSocketSession connect(RealtimeSessionRegistry registry, String stompId, UUID user, UUID sid,
+            String secret) {
+        WebSocketSession socket = mock(WebSocketSession.class);
+        given(socket.getId()).willReturn(stompId);
+        given(socket.isOpen()).willReturn(true);
+        registry.opened(socket);
+        String jwt = Jwts.builder().claims(java.util.Map.of("sub", user.toString(), "sid", sid.toString(),
+                        "gen", 0L, "type", "access", "exp", new Date(System.currentTimeMillis() + 600_000)))
+                .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8))).compact();
+        registry.register(stompId, new ChatPrincipal(user, "Bearer " + jwt));
+        return socket;
+    }
+
+    /** Data {@code AuthSessionService.appendSessionRevoked} 봉투 — {@code sessionId} 가 null 이면 params 에서 뺀다. */
+    private static String sessionRevoked(UUID user, String sessionId) {
+        return "{\"eventId\":\"auth.session.revoked:" + UUID.randomUUID() + "\",\"schemaVersion\":1,"
+                + "\"type\":\"auth.session.revoked\",\"occurredAt\":\"2026-10-21T00:00:00Z\",\"scheduledAt\":null,"
+                + "\"userId\":\"" + user + "\",\"locale\":null,\"subjectId\":\"" + sessionId + "\",\"version\":3,"
+                + "\"params\":{" + (sessionId == null ? "" : "\"sessionId\":\"" + sessionId + "\",")
+                + "\"sessionEpoch\":3,\"bootstrapNonceHash\":null,\"reason\":\"LOGOUT\"}}";
     }
 
     /** Data {@code IslandArrivalEvents} 가 적는 봉투 모양 — {@code extra} 는 params 끝에 덧붙는다. */

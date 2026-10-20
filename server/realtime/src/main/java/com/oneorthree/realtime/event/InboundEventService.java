@@ -1,9 +1,12 @@
 package com.oneorthree.realtime.event;
 
+import com.oneorthree.realtime.auth.ChatPrincipal;
+import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.config.OutboundAuthzCache;
+import com.oneorthree.realtime.config.RealtimeSessionRegistry;
 import com.oneorthree.realtime.membership.CurrentMembershipDecisionCache;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.service.ChatUserFence;
@@ -16,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.socket.CloseStatus;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
@@ -108,6 +112,13 @@ public class InboundEventService {
     /** 바다 상태 변경 — 내부 제어 사건(GROMO-2300). Data 바다 세션 start·finish·한마디 변경이 적는다. */
     static final String SEA_MEMBER_UPDATED = "sea.member.updated";
 
+    /**
+     * 로그인 세션 폐기 — 내부 제어 사건(GROMO-2350). Data {@code AuthSessionService.EVENT_SESSION_REVOKED}.
+     * 기본 OFF 모드는 전달 직전 인가가 AT 의 sid 를 보지 않아 폐기된 세션의 AT 가 만료까지 통과하므로, 캐시 삭제만으로는
+     * 부족하고 그 sid 의 STOMP 연결을 닫는 것이 수정이다.
+     */
+    static final String AUTH_SESSION_REVOKED = "auth.session.revoked";
+
     private static final Set<String> APP_EVENT_TYPES = Arrays.stream(RealtimeEventType.values())
             .map(RealtimeEventType::wireName)
             .collect(Collectors.toUnmodifiableSet());
@@ -134,6 +145,8 @@ public class InboundEventService {
     private final SeaRooms seaRooms;
     private final CurrentMembershipDecisionCache currentMembershipCache;
     private final OutboundAuthzCache outboundAuthzCache;
+    private final RealtimeSessionRegistry sessions;
+    private final JwtValidator jwtValidator;
 
     /**
      * 사건 하나를 처리한다 — 두 입구 공통.
@@ -147,6 +160,7 @@ public class InboundEventService {
         String eventId = requiredText(envelope, "eventId");
         String type = requiredText(envelope, "type");
         if (!USER_WITHDRAWN.equals(type) && !USER_BLOCKS_UPDATED.equals(type) && !SEA_MEMBER_UPDATED.equals(type)
+                && !AUTH_SESSION_REVOKED.equals(type)
                 && !APP_EVENT_TYPES.contains(type)) {
             throw new InvalidEventException();
         }
@@ -169,6 +183,8 @@ public class InboundEventService {
             advanceBlockGeneration(eventId, envelope);
         } else if (SEA_MEMBER_UPDATED.equals(type)) {
             seaRooms.applyMemberUpdated(envelope);
+        } else if (AUTH_SESSION_REVOKED.equals(type)) {
+            closeRevokedSession(eventId, envelope);
         } else {
             evictMembershipCacheIfNeeded(type, envelope);
             deliver(eventId, type, envelope);
@@ -299,6 +315,33 @@ public class InboundEventService {
         }
         blockedUsers.advanceGeneration(blockerId);
         outboundAuthzCache.evictUser(blockerId);
+    }
+
+    /**
+     * 폐기된 로그인 세션({@code params.sessionId} = AT 의 {@code sid})의 STOMP 연결을 닫는다. 같은 사용자의 다른 sid 세션은
+     * 건드리지 않는다. 필드가 없거나 UUID 가 아니면 200 + skip — 이 사건이 USER 축을 막으면 탈퇴 전파까지 멈춘다.
+     *
+     * <p>ponytail: {@code sessionIdsOf} 가 세션 전체를 훑고(O(세션 수)) 그 사용자의 세션마다 JWT 를 푼다 — 폐기 사건은 로그아웃·탈퇴 때뿐이라 싸다. 만료된 AT 를
+     * 든 세션은 sid 를 못 읽어 닫지 않는다 — 어차피 모든 SEND·SUBSCRIBE 가 만료로 거절한다.
+     */
+    private void closeRevokedSession(String eventId, JsonNode envelope) {
+        JsonNode params = envelope.get("params");
+        UUID userId = uuidOrNull(envelope.get("userId"));
+        UUID sid = params == null || !params.isObject() ? null : uuidOrNull(params.get("sessionId"));
+        if (userId == null || sid == null) {
+            log.warn("세션 폐기 사건에 userId/sessionId 가 없다 — 연결을 닫지 않는다. eventId={}", eventId);
+            return;
+        }
+        currentMembershipCache.evictUser(userId);
+        for (String stompId : sessions.sessionIdsOf(userId)) {
+            ChatPrincipal principal = sessions.find(stompId);
+            String bearer = principal == null ? null : principal.bearer();
+            String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
+            if (jwtValidator.extractSessionProof(token).filter(proof -> sid.equals(proof.sessionId())).isPresent()) {
+                outboundAuthzCache.evictSession(stompId);
+                sessions.close(stompId, CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+            }
+        }
     }
 
     /** 전달 어댑터가 있는 사건만 7필드로 바꿔 섬 토픽으로 보낸다. 나머지는 기록만 하고 끝낸다. */

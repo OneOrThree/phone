@@ -1,6 +1,7 @@
 package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.appearance.service.AppearanceEvents;
+import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.construction.service.IslandWalletEvents;
 import com.oneorthree.phone.focus.service.FocusMemberEvents;
 import com.oneorthree.phone.focus.service.SeaSessionEvents;
@@ -52,7 +53,8 @@ class RealtimeOutboxEndpointsTest {
             GoldenFishService.EVENT_TYPE,
             UserBlockEvents.EVENT_TYPE,
             SeaSessionEvents.EVENT_TYPE,
-            IslandArrivalEvents.EVENT_TYPE);
+            IslandArrivalEvents.EVENT_TYPE,
+            AuthSessionService.EVENT_SESSION_REVOKED);
 
     @Test
     @DisplayName("REALTIME 사건 type 전부가 realtime POST /internal/events 로 Data 전용 토큰과 함께 등록돼 있다")
