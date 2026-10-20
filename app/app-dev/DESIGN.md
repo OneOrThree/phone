@@ -166,6 +166,20 @@ Primitive → Semantic → Component → Screen composition
 
 코드 정본은 `componentTokens.gramophone`이다. 색상뿐 아니라 패널 크기, 레코드 크기, 44pt 터치 영역도 같은 컴포넌트 토큰에서 관리한다. 패널·간판·곡 행의 텍스트는 실제 배경과 4.5:1 이상의 대비를 유지한다.
 
+### 4.5 모닥불 휴식 장면
+
+모닥불 휴식 장면(`screens/focus/RestCampfireMotion`)의 불빛·불티는 전용 컴포넌트 토큰을 사용한다. 화면에서 아래 값을 직접 선언하지 않는다.
+
+| 역할                       | 값                    |
+| -------------------------- | --------------------- |
+| 뒤 불빛 / 앞 불빛          | `#FFBE46` / `#FFC164` |
+| 불빛 가장자리              | `#FFB54E`             |
+| 불티 따뜻한 색 / 밝은 색   | `#FFCF73` / `#FFF0B2` |
+| 뒤 불빛 중심 / 층 불투명도 | 0.35 / 0.35           |
+| 앞 불빛 중심 / 층 불투명도 | 0.3 / 0.07            |
+
+코드 정본은 `componentTokens.restCampfire`다. `*StopOpacity`는 그라데이션 중심 stop의 불투명도, `*LayerOpacity`는 불빛 뷰 전체의 불투명도다. 색은 primitive(`restFire*`)를 참조한다.
+
 ## 5. 타이포그래피
 
 ### 5.1 글꼴

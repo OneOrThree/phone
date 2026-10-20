@@ -1235,7 +1235,10 @@ describe('낚아올리기 연출: 재발생·내 고양이 전용·중단 뒤 �
     seconds: 0,
     reduce: false,
   };
-  const actor = (over: Partial<typeof props> = {}, active = true) =>
+  const actor = (
+    over: Partial<typeof props> & { motion?: 'cast' | 'reel' | 'focus' } = {},
+    active = true,
+  ) =>
     React.createElement(
       FishingSceneActive.Provider,
       { value: active },
@@ -1307,6 +1310,34 @@ describe('낚아올리기 연출: 재발생·내 고양이 전용·중단 뒤 �
     await screen.rerender(actor({ seconds: SECONDS_PER_FISH * 2 }));
     expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true, replayKey: 2 });
     expect(screen.getByTestId('fishing-catch-motion')).toBeTruthy();
+    await screen.unmount();
+  });
+
+  test('cast 같은 비낚시 motion 중 count 가 올라도 replayKey 를 넘기지 않아 재시작시키지 않는다', async () => {
+    const screen = await render(actor({ motion: 'cast' }));
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    expect(cat().replayKey).toBeUndefined();
+    await screen.rerender(actor({ motion: 'cast', seconds: SECONDS_PER_FISH }));
+    expect(cat().replayKey).toBeUndefined();
+    await screen.unmount();
+  });
+
+  test('덮인 채 시작한 사건은 첫 렌더부터 키 포즈·물보라 없이 기본 reel 로 둔다', async () => {
+    const screen = await render(actor());
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH }, false));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await screen.unmount();
+  });
+
+  test('부모가 준 motion=reel 은 사건이 내려가면 끊김 기록을 비워 다음 reel 을 온전히 튼다', async () => {
+    const screen = await render(actor({ motion: 'reel' }, false));
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    await screen.rerender(actor({ motion: 'focus' }));
+    await screen.rerender(actor({ motion: 'reel' }));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true });
     await screen.unmount();
   });
 

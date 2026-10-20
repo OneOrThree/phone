@@ -41,6 +41,8 @@ describe('design system tokens', () => {
     );
     expect(componentTokens.fishingScene.splashDrop).toBe(primitiveTokens.color.fishingSplash);
     expect(componentTokens.fishingScene.radius).toBe(semanticTokens.radius.full);
+    expect(componentTokens.restCampfire.glowBackColor).toBe(primitiveTokens.color.restFireGlowBack);
+    expect(componentTokens.restCampfire.sparkLight).toBe(primitiveTokens.color.restFireSparkLight);
   });
 
   it('터치 영역과 UI kit 스케일을 보존한다', () => {
