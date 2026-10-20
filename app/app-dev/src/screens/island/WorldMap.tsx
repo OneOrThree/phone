@@ -1,4 +1,5 @@
 import { IslandOcean, islandTerrain } from './IslandOcean';
+import { useMapGesture, viewportShift } from './mapGesture';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
 import { isDemoMode } from '@/services/demoMode';
@@ -151,6 +152,9 @@ const MOVEMENT_SYNC = TILE_ISLAND && process.env.EXPO_PUBLIC_MOVEMENT_SYNC === '
 // 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
 const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
+// 홈 지도 확대·축소 한계. 최소 배율은 손가락으로 끄는 동안 바다를 미리 깔 범위도 정한다.
+const MIN_ZOOM = 0.35,
+  MAX_ZOOM = 2.6;
 /**
  * 화면 마운트 때 쓸 맵 에셋 스냅샷(GROMO-2244, codex 지적 — 서버 `MovementRooms.java:46` 기준).
  * 서버 이동 엔진은 1단계에서 번들 nav.json 만 쓰므로, movementSync 빌드는 캐시 승격(promote)을
@@ -633,6 +637,7 @@ export function WorldMap({
     onSpot,
   };
   const projectCurrentWorldPoint = useRef(createWorldProjector(() => current.current)).current;
+  const gesture = useMapGesture(camera);
   const origin = useRef({ x: 0, y: 0, z: 1, dist: 0, anchorX: 0, anchorY: 0 }),
     frame = useRef({ x: 0, y: 0 }),
     drag = useRef(false),
@@ -641,8 +646,27 @@ export function WorldMap({
     ...c,
     x: Math.max(0, Math.min(grid.w, c.x)),
     y: Math.max(0, Math.min(grid.h, c.y)),
-    z: Math.max(0.35, Math.min(2.6, c.z)),
+    z: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, c.z)),
   });
+  // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 배치를 c 카메라 자리로 옮겨 보이기만 한다.
+  const show = (c: typeof camera) => {
+    const v = current.current,
+      s = v.base * c.z;
+    gesture.show(
+      c,
+      viewportShift(
+        v,
+        { left: v.width / 2 - c.x * s, top: v.height / 2 - c.y * s, scale: s },
+        v.width,
+        v.height,
+      ),
+    );
+  };
+  // 손을 떼면 보이는 카메라로 한 번만 다시 배치한다. transform 은 커밋 직후 useMapGesture 가 항등으로 되돌린다.
+  const settle = () => {
+    const c = gesture.release();
+    if (c) setCamera(c);
+  };
   const touches = (e: any) => e.nativeEvent.touches ?? [];
   const dist = (tp: any[]) =>
     tp.length > 1 ? Math.hypot(tp[0].pageX - tp[1].pageX, tp[0].pageY - tp[1].pageY) : 0;
@@ -652,13 +676,14 @@ export function WorldMap({
   });
   const begin = (tp: any[]) => {
     const v = current.current,
-      c = v.camera;
+      c = gesture.visible(),
+      s = v.base * c.z;
     const m = tp.length > 1 ? midpoint(tp) : { x: v.width / 2, y: v.height / 2 };
     origin.current = {
       ...c,
       dist: dist(tp),
-      anchorX: c.x + (m.x - v.width / 2) / v.scale,
-      anchorY: c.y + (m.y - v.height / 2) / v.scale,
+      anchorX: c.x + (m.x - v.width / 2) / s,
+      anchorY: c.y + (m.y - v.height / 2) / s,
     };
   };
   const pan = useRef(
@@ -679,24 +704,28 @@ export function WorldMap({
             begin(tp);
             return;
           }
-          const z = Math.max(0.35, Math.min(2.6, (o.z * dist(tp)) / o.dist)),
+          const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (o.z * dist(tp)) / o.dist)),
             m = midpoint(tp);
-          setCamera(
+          show(
             clamp({
               x: o.anchorX - (m.x - v.width / 2) / (v.base * z),
               y: o.anchorY - (m.y - v.height / 2) / (v.base * z),
               z,
             }),
           );
-        } else if (!o.dist)
-          setCamera(clamp({ x: o.x - g.dx / v.scale, y: o.y - g.dy / v.scale, z: o.z }));
+        } else if (!o.dist) {
+          const s = v.base * o.z;
+          show(clamp({ x: o.x - g.dx / s, y: o.y - g.dy / s, z: o.z }));
+        }
       },
       onPanResponderRelease: () => {
+        settle();
         setTimeout(() => {
           drag.current = false;
         }, 80);
       },
       onPanResponderTerminate: () => {
+        settle();
         drag.current = false;
       },
     }),
@@ -731,6 +760,10 @@ export function WorldMap({
       fullLayer && r ? [(r.x + r.w / 2) * scale, (r.y + r.h) * scale, 0] : undefined,
     );
   };
+  // 끄는 동안에는 바다를 다시 깔지 않으므로, 카메라 한계(섬 안·최소 배율) 안에서 화면에 걸칠 수 있는 바다를 미리 깐다.
+  const reachX = L.width / (2 * base * MIN_ZOOM),
+    reachY = L.height / (2 * base * MIN_ZOOM),
+    oceanCover = { left: -reachX, top: -reachY, right: grid.w + reachX, bottom: grid.h + reachY };
   const renderedActors =
     typeof children === 'function' ? children(scale, projectCurrentWorldPoint, base) : children;
   const actorLayers =
@@ -749,15 +782,14 @@ export function WorldMap({
       testID={fishing ? 'fishing-world' : 'final-island-world'}
       style={{ flex: 1, backgroundColor: '#a9d9d7', overflow: 'hidden' }}
     >
+      {/* 낚시·새 마을 미리보기 바다는 화면에 붙은 무늬라 지도 transform 밖에 둔다. */}
       {fishing ? (
         <Image
           source={require('@/assets/reference-v2/sea-tile.jpg')}
           resizeMode="repeat"
           style={StyleSheet.absoluteFill}
         />
-      ) : !village ? (
-        <IslandOcean left={left} top={top} scale={scale} night={dayNight === 'night'} />
-      ) : (
+      ) : village ? (
         <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFill}>
           <Defs>
             <Pattern
@@ -778,22 +810,389 @@ export function WorldMap({
           </Defs>
           <Rect width="100%" height="100%" fill="url(#home-ocean)" />
         </Svg>
-      )}
-      {tileTerrain && (
-        <TileTerrainCanvas
-          width={L.width}
-          height={L.height}
-          camera={camera}
-          base={base}
-          night={dayNight === 'night'}
-          assets={mapAssets}
-          onAssetsFail={onMapAssetsFail}
-          navDebug={navDebug}
-          reduceMotion={reduceFacilityMotion}
-          pressedFacility={pressedFacility}
-          showFacilityOutlines
-        />
-      )}
+      ) : null}
+      {/* 지도 손가락 변환(GROMO-2373): 끄는 동안 이 컨테이너 하나만 움직이고 쉬는 동안은 항등이다. */}
+      <Animated.View
+        pointerEvents="box-none"
+        collapsable={false}
+        style={[
+          StyleSheet.absoluteFill,
+          { width: L.width, height: L.height, transform: gesture.transform },
+        ]}
+      >
+        {!fishing && !village && (
+          <IslandOcean
+            left={left}
+            top={top}
+            scale={scale}
+            night={dayNight === 'night'}
+            cover={oceanCover}
+          />
+        )}
+        {tileTerrain && (
+          <TileTerrainCanvas
+            width={L.width}
+            height={L.height}
+            camera={camera}
+            base={base}
+            night={dayNight === 'night'}
+            assets={mapAssets}
+            onAssetsFail={onMapAssetsFail}
+            navDebug={navDebug}
+            reduceMotion={reduceFacilityMotion}
+            pressedFacility={pressedFacility}
+            showFacilityOutlines
+          />
+        )}
+        <Pressable
+          accessible={false}
+          style={{
+            position: 'absolute',
+            left,
+            top,
+            width: grid.w * scale,
+            height: grid.h * scale,
+          }}
+          onPress={(e) => {
+            if (drag.current) return;
+            const event = e.nativeEvent as any;
+            const rect =
+              Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
+            const tap = {
+              locationX: rect ? event.clientX - rect.left : event.locationX,
+              locationY: rect ? event.clientY - rect.top : event.locationY,
+            };
+            if (tileTerrain) {
+              // 탭 → 월드. 출발 영역 보정(resolveTarget)은 walk 안의 navPath 가 맡는다.
+              const size = { scale, imageWidth: grid.w, imageHeight: grid.h };
+              current.current.onSpot?.(worldToImage(tapToWorld(tap, size), size));
+              return;
+            }
+            const p = { x: tap.locationX / scale, y: tap.locationY / scale };
+            if (onLand(grid, p)) current.current.onSpot?.(p);
+          }}
+        >
+          {/* 타일 섬 플래그면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
+          {!tileTerrain && (
+            <Image
+              source={
+                fishing
+                  ? require('@/assets/reference-v2/fishing-island.png')
+                  : village
+                    ? villageAssets['terrain.png']
+                    : islandTerrain[dayNight]
+              }
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="stretch"
+            />
+          )}
+        </Pressable>
+        {facilityDecorations && !tileTerrain && (
+          <ImageTerrainFacilities
+            source={islandTerrain[dayNight]}
+            left={left}
+            top={top}
+            scale={scale}
+            baseScale={base}
+            night={night}
+            pressedFacility={pressedFacility}
+            reduceMotion={reduceFacilityMotion}
+          />
+        )}
+        {facilityDecorations &&
+          island.buildings.map((b) => {
+            const pelican = b === 'mail' && mailboxLetters;
+            const croppedSource = tileFacilityOutlineSource(b, night);
+            const rect = pelican ? TILE_MAILBOX_PELICAN_RECT : TILE_FACILITIES[b];
+            return (
+              rect && (
+                <TileFacilityOutline
+                  key={b}
+                  rect={rect}
+                  source={
+                    pelican
+                      ? assets['characters/pelican/npc/on-mailbox.png']
+                      : (croppedSource ??
+                        assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`])
+                  }
+                  left={at(b).left}
+                  top={at(b).top}
+                  scale={scale}
+                  cropped={pelican || !!croppedSource}
+                  pressed={pressedFacility === b}
+                  reduceMotion={reduceFacilityMotion}
+                />
+              )
+            );
+          })}
+        {!fishing && !village && (
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            {island.buildings
+              .filter((b) => !(b === 'mail' && mailboxLetters))
+              .filter((b) => !(b === 'hall' && !village && !fishing))
+              .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
+              .filter((b) => !(b === 'tower' && !village && !fishing))
+              .filter((b) => !(b === 'shop' && !village && !fishing))
+              .filter((b) => !(b === 'library' && !village && !fishing))
+              .map((b) => (
+                <Image
+                  key={b}
+                  testID={`world-static-building-${b}`}
+                  source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
+                  style={{
+                    position: 'absolute',
+                    ...at(b),
+                    ...pressStyle(b, true),
+                    width: grid.w * scale,
+                    height: grid.h * scale,
+                  }}
+                  resizeMode="stretch"
+                />
+              ))}
+            {mailboxLetters && (
+              <Image
+                testID="mailbox-pelican"
+                source={assets['characters/pelican/npc/on-mailbox.png']}
+                style={{
+                  ...pressStyle('mail'),
+                  position: 'absolute',
+                  left: at('mail').left + TILE_MAILBOX_PELICAN_RECT.x * scale,
+                  top: at('mail').top + TILE_MAILBOX_PELICAN_RECT.y * scale,
+                  width: TILE_MAILBOX_PELICAN_RECT.w * scale,
+                  height: TILE_MAILBOX_PELICAN_RECT.h * scale,
+                }}
+                resizeMode="contain"
+              />
+            )}
+            {mailboxLetters && (
+              <VillageNotificationBadge
+                testID="mailbox-new-indicator"
+                accessibilityLabel={t('home.a11y.mailboxNewLetter')}
+                scale={scale}
+                style={{
+                  ...pressStyle('mail'),
+                  left: at('mail').left + 348 * scale,
+                  top: at('mail').top + 520 * scale,
+                }}
+              />
+            )}
+            {!mailboxLetters && showMailboxMagazine && island.buildings.includes('mail') && (
+              <VillageNotificationBadge
+                testID="mailbox-magazine-indicator"
+                accessibilityLabel={t('home.a11y.mailboxNewMagazine')}
+                scale={scale}
+                style={{
+                  ...pressStyle('mail'),
+                  left: at('mail').left + 348 * scale,
+                  top: at('mail').top + 520 * scale,
+                }}
+              />
+            )}
+            {/* 모션 좌표는 placement.json rect 와 같다. 밤 프레임도 같은 rect 로 잘라 정지 밤 레이어와 픽셀이 일치한다. */}
+            {island.buildings.includes('hall') && (
+              <VillageHallMotion
+                testID="world-hall-motion"
+                night={night}
+                state={hallMotionActive ? 'arrival' : 'normal'}
+                generation={hallMotionGeneration}
+                themed={themed('hall')}
+                style={{
+                  ...pressStyle('hall'),
+                  position: 'absolute',
+                  left: at('hall').left + 949 * scale,
+                  top: at('hall').top + 21 * scale,
+                  width: 242 * scale,
+                  height: 244 * scale,
+                }}
+              />
+            )}
+            {island.buildings.includes('board') && (
+              <VillageBoardIndicator
+                testID="world-board-indicator"
+                showBoardImage={dayNight === 'day'}
+                hasUnread={boardStatus === 'unread'}
+                hasNewComment={boardStatus === 'new-comment'}
+                indicatorScale={scale}
+                style={{
+                  ...pressStyle('board'),
+                  position: 'absolute',
+                  left: at('board').left + 858 * scale,
+                  top: at('board').top + 158 * scale,
+                  width: 80 * scale,
+                  height: 80 * scale,
+                }}
+              />
+            )}
+            {island.buildings.includes('tower') && (
+              <VillageObservatoryMotion
+                testID="world-observatory-motion"
+                themed={framesDrawTheme('tower') && themed('tower')}
+                rankState={observatoryRankState}
+                dayNight={dayNight}
+                night={night}
+                generation={towerArrivalActive ? towerArrivalGeneration : 0}
+                reduceMotion={state.settings.reduceMotion}
+                style={{
+                  ...pressStyle('tower'),
+                  position: 'absolute',
+                  left: at('tower').left + 150 * scale,
+                  top: at('tower').top + 24 * scale,
+                  width: 112 * scale,
+                  height: 193 * scale,
+                }}
+              />
+            )}
+            {island.buildings.includes('shop') && (
+              <ShopMotion
+                testID="world-shop-motion"
+                themed={framesDrawTheme('shop') && themed('shop')}
+                state={shopState}
+                trigger={shopArrivalActive ? shopArrivalGeneration : 0}
+                entryActive={shopArrivalActive}
+                night={night}
+                reduceMotion={state.settings.reduceMotion}
+                style={{
+                  ...pressStyle('shop'),
+                  position: 'absolute',
+                  left: at('shop').left + 456 * scale,
+                  top: at('shop').top + 580 * scale,
+                  width: 262 * scale,
+                  height: 199 * scale,
+                }}
+              />
+            )}
+            {island.buildings.includes('library') && (
+              <LibraryMotion
+                testID="world-library-motion"
+                themed={framesDrawTheme('library') && themed('library')}
+                state={libraryState}
+                indicatorScale={scale}
+                trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
+                entryActive={libraryArrivalActive}
+                night={night}
+                reduceMotion={state.settings.reduceMotion}
+                style={{
+                  ...pressStyle('library'),
+                  position: 'absolute',
+                  left: at('library').left + 1120 * scale,
+                  top: at('library').top + 288 * scale,
+                  width: 239 * scale,
+                  height: 323 * scale,
+                }}
+              />
+            )}
+            <FireMotion
+              testID="world-fire-motion"
+              mode={dayNight === 'day' ? 'day' : 'evening'}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                ...pressStyle('fire'),
+                position: 'absolute',
+                left: left + (dayNight === 'day' ? 402 : 405) * scale,
+                top: top + (dayNight === 'day' ? 425 : 437) * scale,
+                width: (dayNight === 'day' ? 116 : 140) * scale,
+                height: (dayNight === 'day' ? 77 : 93) * scale,
+              }}
+            />
+            <RaftWaterMotion
+              testID="world-raft-water-motion"
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                ...facilityPressStyle(
+                  facilityDecorations && pressedFacility === 'raft',
+                  reduceFacilityMotion,
+                  [
+                    (TILE_FACILITIES.raft.x + TILE_FACILITIES.raft.w / 2 - 185) * scale,
+                    (TILE_FACILITIES.raft.y + TILE_FACILITIES.raft.h - 835) * scale,
+                    0,
+                  ],
+                ),
+                left: left + 185 * scale,
+                top: top + 835 * scale,
+                width: 210 * scale,
+                height: 92 * scale,
+              }}
+            />
+          </View>
+        )}
+        {!fishing && island.theme !== 'default' && (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left,
+              top,
+              width: grid.w * scale,
+              height: grid.h * scale,
+              backgroundColor: '#ade1f8',
+              opacity: 0.12,
+            }}
+          />
+        )}
+        {!fishing && !village && (
+          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+            {island.buildings
+              .filter(
+                (b) =>
+                  (b !== 'mail' || !mailboxLetters) &&
+                  // 모션 프레임이 착색을 맡는 건물은 닫힌 모습의 정적 테마 레이어를 겹쳐 그리지 않는다.
+                  !framesDrawTheme(b) &&
+                  island.buildingThemes?.[b] &&
+                  island.buildingThemes?.[b] !== 'default',
+              )
+              .map((b) => (
+                <Image
+                  key={b}
+                  testID={`world-building-theme-${b}`}
+                  source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
+                  style={{
+                    position: 'absolute',
+                    ...at(b),
+                    ...pressStyle(b, true),
+                    width: grid.w * scale,
+                    height: grid.h * scale,
+                    tintColor: '#d7829b',
+                    opacity: 0.3,
+                  }}
+                  resizeMode="stretch"
+                />
+              ))}
+          </View>
+        )}
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left,
+            top,
+            width: grid.w * scale,
+            height: grid.h * scale,
+          }}
+        >
+          {village && (
+            <VillageScenery
+              scene={village}
+              scale={scale}
+              reduce={state.settings.reduceMotion}
+              mailboxLetters={mailboxLetters}
+              hiddenBuilding={hiddenVillageBuilding}
+              boardStatus={boardStatus}
+              hallMotionActive={hallMotionActive}
+              hallMotionGeneration={hallMotionGeneration}
+              hallThemed={!!island.buildingThemes?.hall && island.buildingThemes.hall !== 'default'}
+            />
+          )}
+          {actorLayers.world}
+        </View>
+        <View
+          testID="facility-sign-overlay"
+          pointerEvents="box-none"
+          collapsable={false}
+          style={StyleSheet.absoluteFill}
+        >
+          {actorLayers.overlay}
+        </View>
+      </Animated.View>
       {tileTerrain && navDebug && (
         <Txt
           testID="nav-debug-text"
@@ -810,354 +1209,6 @@ export function WorldMap({
           {navDebugText(navDebug.walk, mapAssets.kind, navDebug.server, debugNow)}
         </Txt>
       )}
-      <Pressable
-        accessible={false}
-        style={{
-          position: 'absolute',
-          left,
-          top,
-          width: grid.w * scale,
-          height: grid.h * scale,
-        }}
-        onPress={(e) => {
-          if (drag.current) return;
-          const event = e.nativeEvent as any;
-          const rect =
-            Platform.OS === 'web' ? (e.currentTarget as any).getBoundingClientRect() : null;
-          const tap = {
-            locationX: rect ? event.clientX - rect.left : event.locationX,
-            locationY: rect ? event.clientY - rect.top : event.locationY,
-          };
-          if (tileTerrain) {
-            // 탭 → 월드. 출발 영역 보정(resolveTarget)은 walk 안의 navPath 가 맡는다.
-            const size = { scale, imageWidth: grid.w, imageHeight: grid.h };
-            current.current.onSpot?.(worldToImage(tapToWorld(tap, size), size));
-            return;
-          }
-          const p = { x: tap.locationX / scale, y: tap.locationY / scale };
-          if (onLand(grid, p)) current.current.onSpot?.(p);
-        }}
-      >
-        {/* 타일 섬 플래그면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
-        {!tileTerrain && (
-          <Image
-            source={
-              fishing
-                ? require('@/assets/reference-v2/fishing-island.png')
-                : village
-                  ? villageAssets['terrain.png']
-                  : islandTerrain[dayNight]
-            }
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="stretch"
-          />
-        )}
-      </Pressable>
-      {facilityDecorations && !tileTerrain && (
-        <ImageTerrainFacilities
-          source={islandTerrain[dayNight]}
-          left={left}
-          top={top}
-          scale={scale}
-          baseScale={base}
-          night={night}
-          pressedFacility={pressedFacility}
-          reduceMotion={reduceFacilityMotion}
-        />
-      )}
-      {facilityDecorations &&
-        island.buildings.map((b) => {
-          const pelican = b === 'mail' && mailboxLetters;
-          const croppedSource = tileFacilityOutlineSource(b, night);
-          const rect = pelican ? TILE_MAILBOX_PELICAN_RECT : TILE_FACILITIES[b];
-          return (
-            rect && (
-              <TileFacilityOutline
-                key={b}
-                rect={rect}
-                source={
-                  pelican
-                    ? assets['characters/pelican/npc/on-mailbox.png']
-                    : (croppedSource ??
-                      assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`])
-                }
-                left={at(b).left}
-                top={at(b).top}
-                scale={scale}
-                cropped={pelican || !!croppedSource}
-                pressed={pressedFacility === b}
-                reduceMotion={reduceFacilityMotion}
-              />
-            )
-          );
-        })}
-      {!fishing && !village && (
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {island.buildings
-            .filter((b) => !(b === 'mail' && mailboxLetters))
-            .filter((b) => !(b === 'hall' && !village && !fishing))
-            .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
-            .filter((b) => !(b === 'tower' && !village && !fishing))
-            .filter((b) => !(b === 'shop' && !village && !fishing))
-            .filter((b) => !(b === 'library' && !village && !fishing))
-            .map((b) => (
-              <Image
-                key={b}
-                testID={`world-static-building-${b}`}
-                source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
-                style={{
-                  position: 'absolute',
-                  ...at(b),
-                  ...pressStyle(b, true),
-                  width: grid.w * scale,
-                  height: grid.h * scale,
-                }}
-                resizeMode="stretch"
-              />
-            ))}
-          {mailboxLetters && (
-            <Image
-              testID="mailbox-pelican"
-              source={assets['characters/pelican/npc/on-mailbox.png']}
-              style={{
-                ...pressStyle('mail'),
-                position: 'absolute',
-                left: at('mail').left + TILE_MAILBOX_PELICAN_RECT.x * scale,
-                top: at('mail').top + TILE_MAILBOX_PELICAN_RECT.y * scale,
-                width: TILE_MAILBOX_PELICAN_RECT.w * scale,
-                height: TILE_MAILBOX_PELICAN_RECT.h * scale,
-              }}
-              resizeMode="contain"
-            />
-          )}
-          {mailboxLetters && (
-            <VillageNotificationBadge
-              testID="mailbox-new-indicator"
-              accessibilityLabel={t('home.a11y.mailboxNewLetter')}
-              scale={scale}
-              style={{
-                ...pressStyle('mail'),
-                left: at('mail').left + 348 * scale,
-                top: at('mail').top + 520 * scale,
-              }}
-            />
-          )}
-          {!mailboxLetters && showMailboxMagazine && island.buildings.includes('mail') && (
-            <VillageNotificationBadge
-              testID="mailbox-magazine-indicator"
-              accessibilityLabel={t('home.a11y.mailboxNewMagazine')}
-              scale={scale}
-              style={{
-                ...pressStyle('mail'),
-                left: at('mail').left + 348 * scale,
-                top: at('mail').top + 520 * scale,
-              }}
-            />
-          )}
-          {/* 모션 좌표는 placement.json rect 와 같다. 밤 프레임도 같은 rect 로 잘라 정지 밤 레이어와 픽셀이 일치한다. */}
-          {island.buildings.includes('hall') && (
-            <VillageHallMotion
-              testID="world-hall-motion"
-              night={night}
-              state={hallMotionActive ? 'arrival' : 'normal'}
-              generation={hallMotionGeneration}
-              themed={themed('hall')}
-              style={{
-                ...pressStyle('hall'),
-                position: 'absolute',
-                left: at('hall').left + 949 * scale,
-                top: at('hall').top + 21 * scale,
-                width: 242 * scale,
-                height: 244 * scale,
-              }}
-            />
-          )}
-          {island.buildings.includes('board') && (
-            <VillageBoardIndicator
-              testID="world-board-indicator"
-              showBoardImage={dayNight === 'day'}
-              hasUnread={boardStatus === 'unread'}
-              hasNewComment={boardStatus === 'new-comment'}
-              indicatorScale={scale}
-              style={{
-                ...pressStyle('board'),
-                position: 'absolute',
-                left: at('board').left + 858 * scale,
-                top: at('board').top + 158 * scale,
-                width: 80 * scale,
-                height: 80 * scale,
-              }}
-            />
-          )}
-          {island.buildings.includes('tower') && (
-            <VillageObservatoryMotion
-              testID="world-observatory-motion"
-              themed={framesDrawTheme('tower') && themed('tower')}
-              rankState={observatoryRankState}
-              dayNight={dayNight}
-              night={night}
-              generation={towerArrivalActive ? towerArrivalGeneration : 0}
-              reduceMotion={state.settings.reduceMotion}
-              style={{
-                ...pressStyle('tower'),
-                position: 'absolute',
-                left: at('tower').left + 150 * scale,
-                top: at('tower').top + 24 * scale,
-                width: 112 * scale,
-                height: 193 * scale,
-              }}
-            />
-          )}
-          {island.buildings.includes('shop') && (
-            <ShopMotion
-              testID="world-shop-motion"
-              themed={framesDrawTheme('shop') && themed('shop')}
-              state={shopState}
-              trigger={shopArrivalActive ? shopArrivalGeneration : 0}
-              entryActive={shopArrivalActive}
-              night={night}
-              reduceMotion={state.settings.reduceMotion}
-              style={{
-                ...pressStyle('shop'),
-                position: 'absolute',
-                left: at('shop').left + 456 * scale,
-                top: at('shop').top + 580 * scale,
-                width: 262 * scale,
-                height: 199 * scale,
-              }}
-            />
-          )}
-          {island.buildings.includes('library') && (
-            <LibraryMotion
-              testID="world-library-motion"
-              themed={framesDrawTheme('library') && themed('library')}
-              state={libraryState}
-              indicatorScale={scale}
-              trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
-              entryActive={libraryArrivalActive}
-              night={night}
-              reduceMotion={state.settings.reduceMotion}
-              style={{
-                ...pressStyle('library'),
-                position: 'absolute',
-                left: at('library').left + 1120 * scale,
-                top: at('library').top + 288 * scale,
-                width: 239 * scale,
-                height: 323 * scale,
-              }}
-            />
-          )}
-          <FireMotion
-            testID="world-fire-motion"
-            mode={dayNight === 'day' ? 'day' : 'evening'}
-            reduceMotion={state.settings.reduceMotion}
-            style={{
-              ...pressStyle('fire'),
-              position: 'absolute',
-              left: left + (dayNight === 'day' ? 402 : 405) * scale,
-              top: top + (dayNight === 'day' ? 425 : 437) * scale,
-              width: (dayNight === 'day' ? 116 : 140) * scale,
-              height: (dayNight === 'day' ? 77 : 93) * scale,
-            }}
-          />
-          <RaftWaterMotion
-            testID="world-raft-water-motion"
-            reduceMotion={state.settings.reduceMotion}
-            style={{
-              ...facilityPressStyle(
-                facilityDecorations && pressedFacility === 'raft',
-                reduceFacilityMotion,
-                [
-                  (TILE_FACILITIES.raft.x + TILE_FACILITIES.raft.w / 2 - 185) * scale,
-                  (TILE_FACILITIES.raft.y + TILE_FACILITIES.raft.h - 835) * scale,
-                  0,
-                ],
-              ),
-              left: left + 185 * scale,
-              top: top + 835 * scale,
-              width: 210 * scale,
-              height: 92 * scale,
-            }}
-          />
-        </View>
-      )}
-      {!fishing && island.theme !== 'default' && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            left,
-            top,
-            width: grid.w * scale,
-            height: grid.h * scale,
-            backgroundColor: '#ade1f8',
-            opacity: 0.12,
-          }}
-        />
-      )}
-      {!fishing && !village && (
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {island.buildings
-            .filter(
-              (b) =>
-                (b !== 'mail' || !mailboxLetters) &&
-                // 모션 프레임이 착색을 맡는 건물은 닫힌 모습의 정적 테마 레이어를 겹쳐 그리지 않는다.
-                !framesDrawTheme(b) &&
-                island.buildingThemes?.[b] &&
-                island.buildingThemes?.[b] !== 'default',
-            )
-            .map((b) => (
-              <Image
-                key={b}
-                testID={`world-building-theme-${b}`}
-                source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
-                style={{
-                  position: 'absolute',
-                  ...at(b),
-                  ...pressStyle(b, true),
-                  width: grid.w * scale,
-                  height: grid.h * scale,
-                  tintColor: '#d7829b',
-                  opacity: 0.3,
-                }}
-                resizeMode="stretch"
-              />
-            ))}
-        </View>
-      )}
-      <View
-        pointerEvents="box-none"
-        style={{
-          position: 'absolute',
-          left,
-          top,
-          width: grid.w * scale,
-          height: grid.h * scale,
-        }}
-      >
-        {village && (
-          <VillageScenery
-            scene={village}
-            scale={scale}
-            reduce={state.settings.reduceMotion}
-            mailboxLetters={mailboxLetters}
-            hiddenBuilding={hiddenVillageBuilding}
-            boardStatus={boardStatus}
-            hallMotionActive={hallMotionActive}
-            hallMotionGeneration={hallMotionGeneration}
-            hallThemed={!!island.buildingThemes?.hall && island.buildingThemes.hall !== 'default'}
-          />
-        )}
-        {actorLayers.world}
-      </View>
-      <View
-        testID="facility-sign-overlay"
-        pointerEvents="box-none"
-        collapsable={false}
-        style={StyleSheet.absoluteFill}
-      >
-        {actorLayers.overlay}
-      </View>
     </View>
   );
 }

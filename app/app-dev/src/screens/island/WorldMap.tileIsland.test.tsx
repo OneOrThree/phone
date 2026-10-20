@@ -580,6 +580,8 @@ test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되�
     await act(async () => {
       pan.onPanResponderGrant!(pinch(200), {} as any);
       pan.onPanResponderMove!(pinch(distance), {} as any);
+      // 끄는 동안은 transform 만 움직이고 손을 떼야 배치가 커밋된다(GROMO-2373).
+      pan.onPanResponderRelease!(pinch(distance), {} as any);
     });
     const current = StyleSheet.flatten(sign().props.style);
     const ratio = building().width / originalBuilding.width;
