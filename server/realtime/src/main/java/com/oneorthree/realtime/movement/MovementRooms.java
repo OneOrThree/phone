@@ -2,6 +2,7 @@ package com.oneorthree.realtime.movement;
 
 import com.oneorthree.realtime.movement.nav.NavGrid;
 import com.oneorthree.realtime.movement.nav.NavJsonLoader;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -49,6 +50,7 @@ public final class MovementRooms {
     private final Pathfinder pathfinder = new Pathfinder();
     private final RoomRuntime.Listener listener;
     private final Timer pathfindTimer;
+    private final Counter rateLimitedCounter;
     private final LongSupplier nowNanos;
     private final ConcurrentHashMap<UUID, RoomRuntime> rooms = new ConcurrentHashMap<>();
 
@@ -79,6 +81,9 @@ public final class MovementRooms {
         this.pathfindTimer = Timer.builder("movement.pathfind")
                 .description("방 하나의 A* 경로탐색(pathfinder.find) 1회 호출 시간 — 2250 틱 p99 판단용")
                 .publishPercentileHistogram()
+                .register(meterRegistry);
+        this.rateLimitedCounter = Counter.builder("movement.intent.rate_limited")
+                .description("토큰 버킷 초과로 조용히 버린 intent 수")
                 .register(meterRegistry);
         this.nowNanos = nowNanos;
     }
@@ -177,6 +182,6 @@ public final class MovementRooms {
     private RoomRuntime ensure(UUID islandId, RoomRuntime room) {
         return room != null ? room
                 : new RoomRuntime(islandId, nav, pathfinder, MovementRules.DEFAULT, listener.forRoom(islandId),
-                        nowNanos, pathfindTimer);
+                        nowNanos, pathfindTimer, rateLimitedCounter);
     }
 }

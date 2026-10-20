@@ -151,8 +151,8 @@ mmdc -i docs/prd/fishcat/island-movement/diagrams/01-architecture.mmd \
 표는 [측정 스크립트](scripts/measure-movement.mjs)의 `--render`(run3.json) 출력을 그대로 붙였다 — 위 각 셀의 수치는 손으로 옮기지 않았다.
 
 측정 불가:
-- 틱 p50·p99 — `movement.tick` Timer 가 백분위·히스토그램을 내보내지 않는다(count·sum·max 만).
-- 틱 지연·catch-up·Snapshot 건너뜀·토큰 버킷 드롭 — `MovementTicker`(delayed·skippedSnapshot·skippedTick)·`RoomRuntime`(rateLimitedDrop) 카운터가 필드로만 있고 지표로 노출되지 않는다.
+- 틱 p50·p99 — `measure-movement.mjs` 가 `movement_tick_seconds_bucket` 전후 델타에서 그 분위를 처음 넘는 bucket 의 상한으로 구한다(`pathfind` 도 같다). 값은 7-2 절 표에 채운다.
+- 틱 지연·catch-up·Snapshot 건너뜀·토큰 버킷 드롭 — `movement_tick_delayed_total`·`movement_tick_skipped_total`·`movement_snapshot_skipped_total`·`movement_intent_rate_limited_total` 카운터의 전후 델타로 읽는다. 값은 7-2 절 표에 채운다.
 
 **실기기 잔여(티켓 2250)** — 실기기 측정(오너)으로 채운다.
 
@@ -179,7 +179,7 @@ NODE_PATH="$PWD/app/app-dev/node_modules" caffeinate -i \
 
 - `app/app-dev/node_modules` 가 없는 워크트리는 `npm ci` 한 체크아웃의 경로를 `NODE_PATH` 로 준다(앱과 같은 `@stomp/stompjs` 7.3.0). `--self-check` 는 네트워크 없이 계산 함수만 점검한다.
 - 쓰는 공개 경로는 앱과 같다: `POST /auth/sessions/guest`(`X-Device-Id`) · `POST /auth/sessions/current/refresh`(`X-Refresh-Token`) · `POST /islands` · `POST /islands/{id}/memberships`(둘 다 `Idempotency-Key`) · `/ws/realtime` CONNECT(`Authorization: Bearer`).
-- 게스트 생성은 Data `GuestLoginRateLimiter` 기본값인 IP당 10회/시간에 걸린다. 로컬은 nginx 뒤라 모든 요청이 한 IP 다. 15명은 `--state` 파일로 계정을 이어 써 한 시간 창 두 번에 걸쳐 만들었다(첫 실행의 11번째가 429). 상태 파일에는 로컬 토큰이 들어가므로 레포 밖에 둔다. 만료된 AT 는 스크립트가 갱신 경로로 바꾼다.
+- 게스트 생성은 Data `GuestLoginRateLimiter` 기본값인 IP당 10회/시간에 걸린다(첫 실행의 11번째가 429). 로컬 data-api 에 `AUTH_GUEST_RATE_LIMIT_MAX=1000000`(application-local.yml.example 의 자리표시자) 또는 완화 바인딩 env `AUTH_GUEST_RATE_LIMIT_MAX_PER_WINDOW` 를 주면 15명을 한 번에 만든다. 운영·dev 기본값(10/300)은 그대로다. 상태 파일에는 로컬 토큰이 들어가므로 레포 밖에 둔다. 만료된 AT 는 스크립트가 갱신 경로로 바꾼다.
 - nginx 가 `/actuator/*` 를 404 로 막아, Prometheus 는 `docker exec phone-realtime-local wget -qO- http://localhost:9091/actuator/prometheus`(관리 포트 9091)로 읽는다. `--metrics-cmd` 로 바꿀 수 있다.
 - `caffeinate -i` 는 맥 절전을 막는다. 측정 중 맥이 잠들면 서버 틱이 건너뛰어져 값이 틀어진다. 표의 「실행 유효성」이 90% 미만인 N 은 버린다.
 

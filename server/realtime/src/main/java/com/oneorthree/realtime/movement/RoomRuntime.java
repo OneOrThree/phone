@@ -6,6 +6,7 @@ import com.oneorthree.realtime.movement.nav.NavJsonLoader;
 import com.oneorthree.realtime.movement.nav.Pathfinder.PathResult;
 import com.oneorthree.realtime.movement.nav.WorldCoords;
 import com.oneorthree.realtime.movement.nav.WorldPoint;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
@@ -20,7 +21,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
@@ -64,6 +64,14 @@ public final class RoomRuntime {
     private static final Timer DEFAULT_PATHFIND_TIMER =
             Timer.builder("movement.pathfind").register(new SimpleMeterRegistry());
 
+    /**
+     * 위 Timer 와 같은 이유의 기본값(2270) — 운영은 {@code MovementRooms} 가 만든 Counter 를 주입한다. 방마다
+     * 새로 만든다(공유하면 테스트 사이에 드롭 수가 섞인다).
+     */
+    private static Counter newRateLimitedCounter() {
+        return Counter.builder("movement.intent.rate_limited").register(new SimpleMeterRegistry());
+    }
+
     private final UUID islandId;
     private final NavGrid nav;
     private final Pathfinder pathfinder;
@@ -78,7 +86,7 @@ public final class RoomRuntime {
     // 보완5) — 세션 교체(재접속)마다 새로 만들지 않고, actor 가 있거나 departed 에 남아 있는 동안
     // 그대로 유지된다(정리는 pruneExpiredDeparted() 끝줄).
     private final ConcurrentHashMap<UUID, Bucket> userBuckets = new ConcurrentHashMap<>();
-    private final AtomicLong rateLimitedDropCount = new AtomicLong();
+    private final Counter rateLimitedCounter;
 
     // 아래 셋은 틱 스레드만 만진다(단일 작성자) — 그래서 평범한 Map 이다.
     private final Map<UUID, Actor> actors = new LinkedHashMap<>();
@@ -90,13 +98,15 @@ public final class RoomRuntime {
     private boolean lastTickHadMoving;
 
     public RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener) {
-        this(islandId, nav, pathfinder, rules, listener, System::nanoTime, DEFAULT_PATHFIND_TIMER);
+        this(islandId, nav, pathfinder, rules, listener, System::nanoTime, DEFAULT_PATHFIND_TIMER,
+                newRateLimitedCounter());
     }
 
     /** 패키지 전용 — 토큰 버킷 리필 시계를 테스트가 주입하기 위함(codex P2, 틱 번호 대신 벽시계 나노초). */
     RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener,
             LongSupplier nowNanos) {
-        this(islandId, nav, pathfinder, rules, listener, nowNanos, DEFAULT_PATHFIND_TIMER);
+        this(islandId, nav, pathfinder, rules, listener, nowNanos, DEFAULT_PATHFIND_TIMER,
+                newRateLimitedCounter());
     }
 
     /**
@@ -106,7 +116,7 @@ public final class RoomRuntime {
      * 틱 p99 판단에 쓴다).
      */
     RoomRuntime(UUID islandId, NavGrid nav, Pathfinder pathfinder, MovementRules rules, Listener listener,
-            LongSupplier nowNanos, Timer pathfindTimer) {
+            LongSupplier nowNanos, Timer pathfindTimer, Counter rateLimitedCounter) {
         this.islandId = islandId;
         this.nav = nav;
         this.pathfinder = pathfinder;
@@ -114,6 +124,7 @@ public final class RoomRuntime {
         this.listener = listener;
         this.nowNanos = nowNanos;
         this.pathfindTimer = pathfindTimer;
+        this.rateLimitedCounter = rateLimitedCounter;
     }
 
     public void join(UUID userId, String sessionKey) {
@@ -152,7 +163,7 @@ public final class RoomRuntime {
             return bucket;
         });
         if (!consumed[0]) {
-            rateLimitedDropCount.incrementAndGet();
+            rateLimitedCounter.increment();
             LOG.debug("사용자 {} 토큰 버킷 초과 — commandSeq={} intent 를 큐에 넣지 않고 버린다(N8)", userId,
                     intent.commandSeq());
             return;
@@ -248,7 +259,7 @@ public final class RoomRuntime {
 
     /** 패키지 전용 — 테스트용. 토큰 버킷 초과로 조용히 버려진 intent 수(codex P2, N8). */
     long rateLimitedDropCount() {
-        return rateLimitedDropCount.get();
+        return (long) rateLimitedCounter.count();
     }
 
     /** 패키지 전용 — 테스트용. 지금 살아 있는 사용자 토큰 버킷 수(codex P2, 2246 보완5). */
