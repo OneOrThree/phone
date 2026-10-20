@@ -2,7 +2,7 @@ import { FocusEmoteBubble } from './FocusEmoteBubble';
 import * as Haptics from 'expo-haptics';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { IslandOcean } from '@/screens/island/IslandOcean';
-import { useMapGesture, viewportShift } from '@/screens/island/mapGesture';
+import { NATIVE, useMapGesture, viewportShift } from '@/screens/island/mapGesture';
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
@@ -969,8 +969,12 @@ export function FishingActor({
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: animatedPosition?.left ?? (size * spot.x) / 100 - a / 2,
-        top: animatedPosition?.top ?? (sizeY * spot.y) / 100 - a * 0.90625,
+        // 걷는 주민(animatedPosition)은 left/top 대신 네이티브 드라이버 transform 으로 옮긴다(GROMO-2374).
+        left: animatedPosition ? 0 : (size * spot.x) / 100 - a / 2,
+        top: animatedPosition ? 0 : (sizeY * spot.y) / 100 - a * 0.90625,
+        transform: animatedPosition
+          ? [{ translateX: animatedPosition.left }, { translateY: animatedPosition.top }]
+          : undefined,
         width: a,
         height: a,
         zIndex:
@@ -1179,6 +1183,7 @@ export function FishingPeerActorView({
         cancelled = false;
       // 이전 방향의 composite가 cleanup에서 멈춘 실제 픽셀 좌표를 읽어 새 땅 경로를 계산한다.
       // actor.position은 상태 경계 좌표라 이동 도중 방향이 바뀐 경우의 현재 위치가 아니다.
+      // 네이티브 드라이버 값이라 stopAnimation 콜백은 네이티브 왕복 뒤에 온다(GROMO-2374) — 그 사이 정리는 cancelled 가 막는다.
       const fromSize = pixelSize.current;
       left.stopAnimation((currentLeft: number) => {
         top.stopAnimation((currentTop: number) => {
@@ -1222,12 +1227,12 @@ export function FishingPeerActorView({
               NativeAnimated.timing(left, {
                 toValue: (size * point.x) / 100 - (size * 0.077) / 2,
                 duration,
-                useNativeDriver: false,
+                ...NATIVE,
               }),
               NativeAnimated.timing(top, {
                 toValue: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
                 duration,
-                useNativeDriver: false,
+                ...NATIVE,
               }),
             ]);
             movement = segment;
@@ -1253,6 +1258,8 @@ export function FishingPeerActorView({
         const fromSize = pixelSize.current;
         left.stopAnimation((currentLeft: number) => {
           top.stopAnimation((currentTop: number) => {
+            // 콜백이 비동기라(네이티브 드라이버) 그 사이 다음 단계가 시작됐으면 그 자리를 덮지 않는다.
+            if (motionToken.current !== token) return;
             const rebased = peerPixelsAtSize(
               currentLeft,
               currentTop,

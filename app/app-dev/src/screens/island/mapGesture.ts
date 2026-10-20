@@ -24,7 +24,8 @@ export function viewportShift(
 }
 
 // 웹(react-native-web)에는 네이티브 애니메이션 모듈이 없어 값을 네이티브로 만들면 죽는다 — 웹은 JS 값으로 둔다.
-const NATIVE = { useNativeDriver: Platform.OS !== 'web' };
+// 고양이 이동(WorldMap·FishingIsland, GROMO-2374)도 같은 기준으로 Animated.timing 에 펼쳐 쓴다.
+export const NATIVE = { useNativeDriver: Platform.OS !== 'web' };
 
 /**
  * 지도 손가락 변환(GROMO-2373). 끄는 동안에는 React 로 지도를 다시 그리지 않고, 지도 컨테이너 하나의 transform 을

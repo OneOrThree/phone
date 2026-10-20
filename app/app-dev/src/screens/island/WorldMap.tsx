@@ -1,5 +1,5 @@
 import { IslandOcean, islandTerrain } from './IslandOcean';
-import { useMapGesture, viewportShift } from './mapGesture';
+import { NATIVE, useMapGesture, viewportShift } from './mapGesture';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
 import { isDemoMode } from '@/services/demoMode';
@@ -317,6 +317,26 @@ const WANDER_STARTS: Point[] = [
   { x: 470, y: 560 },
   { x: 720, y: 520 },
 ];
+// 내 고양이 걸음 곡선 — Animated.timing 기본값(easing 을 안 줄 때)과 같다. 걷는 도중 자리 계산(livePosition)도 이것을 쓴다.
+const WALK_EASE = Easing.inOut(Easing.ease);
+// 고양이 이동(GROMO-2374) — left/top 대신 transform 값을 네이티브 드라이버로 옮겨 걷는 동안 JS 스레드가 프레임마다
+// 레이아웃을 돌리지 않는다. 이 값은 네이티브로 넘어가므로 JS 드라이버 애니메이션·레이아웃 속성에 쓰지 않는다.
+// 길이 0(동작 줄이기)은 네이티브로 보내면 한 프레임 뒤에야 끝나 걷기 사슬이 꼭짓점마다 밀린다 — 예전(JS 드라이버)처럼
+// 그 자리에 바로 놓고 같은 호출 안에서 끝낸다.
+function moveCat(
+  xy: Animated.ValueXY,
+  toValue: Point,
+  duration: number,
+  done?: Animated.EndCallback,
+  easing?: (t: number) => number,
+) {
+  if (duration <= 0) {
+    xy.setValue(toValue);
+    done?.({ finished: true });
+    return;
+  }
+  Animated.timing(xy, { toValue, duration, easing, ...NATIVE }).start(done);
+}
 // 주민 고양이: 내 고양이와 다른 색으로, 근처 땅을 골라 걸어갔다 잠시 쉬기를 되풀이한다 (연출 전용, 상태 없음)
 function Wanderer({
   color,
@@ -382,18 +402,19 @@ function Wanderer({
           return;
         }
         const next = path[idx++];
-        Animated.timing(xy, {
-          toValue: next,
-          duration: reduce ? 0 : 130,
-          easing: Easing.linear,
-          useNativeDriver: false,
-        }).start(({ finished }) => {
-          if (!finished) return;
-          at.current = next;
-          // 깊이는 layered 미리보기(scene)의 zIndex 에만 쓴다 — 운영에서는 걸음마다 다시 그리지 않는다(GROMO-2371).
-          if (scene) setDepth(next.y);
-          step();
-        });
+        moveCat(
+          xy,
+          next,
+          reduce ? 0 : 130,
+          ({ finished }) => {
+            if (!finished) return;
+            at.current = next;
+            // 깊이는 layered 미리보기(scene)의 zIndex 에만 쓴다 — 운영에서는 걸음마다 다시 그리지 않는다(GROMO-2371).
+            if (scene) setDepth(next.y);
+            step();
+          },
+          Easing.linear,
+        );
       };
       step();
     };
@@ -409,8 +430,12 @@ function Wanderer({
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: Animated.multiply(xy.x, s),
-        top: Animated.multiply(xy.y, s),
+        left: 0,
+        top: 0,
+        transform: [
+          { translateX: Animated.multiply(xy.x, s) },
+          { translateY: Animated.multiply(xy.y, s) },
+        ],
         zIndex: scene ? Math.round(depth) : undefined,
       }}
     >
@@ -456,12 +481,7 @@ function RemoteResident({
       clearTimeout(stop);
       if (moving) stop = setTimeout(() => setWalking(false), 300);
       // durationMs 는 보간에 쓴 두 샘플의 틱 간격 기반 — 저주기 스냅샷도 다음 호출까지 매끄럽게 잇는다.
-      Animated.timing(xy, {
-        toValue: p,
-        duration: reduce ? 0 : durationMs,
-        easing: Easing.linear,
-        useNativeDriver: false,
-      }).start();
+      moveCat(xy, p, reduce ? 0 : durationMs, undefined, Easing.linear);
     });
     return () => {
       unsubscribe();
@@ -475,8 +495,12 @@ function RemoteResident({
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: Animated.multiply(xy.x, s),
-        top: Animated.multiply(xy.y, s),
+        left: 0,
+        top: 0,
+        transform: [
+          { translateX: Animated.multiply(xy.x, s) },
+          { translateY: Animated.multiply(xy.y, s) },
+        ],
       }}
     >
       <CatSprite
@@ -1583,7 +1607,18 @@ function FinalIslandScene({
   }, []);
   const xy = useRef(new Animated.ValueXY(pos)).current,
     token = useRef(0),
-    location = useRef(pos);
+    location = useRef(pos),
+    // 지금 걷는 구간(출발·도착·시작 시각·길이). 멈춰 있으면 null.
+    segment = useRef<{ from: Point; to: Point; t0: number; ms: number } | null>(null);
+  // 화면에 보이는 고양이 자리(이미지 px, GROMO-2374). xy 는 네이티브 드라이버 값이라 걷는 도중 값을 JS 에서 바로 못
+  // 읽는다(stopAnimation 콜백·리스너는 네이티브 왕복이라 비동기). 지금 구간을 같은 곡선(WALK_EASE)으로 계산하고,
+  // 멈춰 있으면 location 그대로다.
+  const livePosition = () => {
+    const g = segment.current;
+    if (!g) return location.current;
+    const k = WALK_EASE(Math.min(1, (Date.now() - g.t0) / g.ms));
+    return { x: g.from.x + (g.to.x - g.from.x) * k, y: g.from.y + (g.to.y - g.from.y) * k };
+  };
   // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
   const tileNav = isTileIsland(scene);
   const facilityDecorations = !scene;
@@ -1628,6 +1663,7 @@ function FinalIslandScene({
   // 멈춘 상태에서 서버 위치로 맞춘다(FullState 채택·보정·도착).
   const place = (p: Point) => {
     xy.setValue(p);
+    segment.current = null;
     location.current = p;
     setPos(p);
     homePositions[positionKey] = p;
@@ -1636,7 +1672,10 @@ function FinalIslandScene({
   // msPerUnit 은 서버 경로를 걸을 때 서버 속도(1000/speed), 없으면 로컬 MS_PER_UNIT.
   const walkPath = (path: Point[], done?: () => void, msPerUnit?: number) => {
     const run = ++token.current;
+    // 걷는 도중 멈추면 고양이는 구간 중간에 서 있다 — 첫 구간의 보이는 출발점으로 기억한다(livePosition).
+    let from = livePosition();
     xy.stopAnimation();
+    segment.current = null;
     arrival.current = null;
     // false 를 돌려준 걷기의 done 은 호출부가 이미 포기했다 — 서버 경로로 갈아탈 때 되살리지 않는다.
     walkDone.current = path.length ? done : undefined;
@@ -1669,28 +1708,34 @@ function FinalIslandScene({
         setLeft(p.x < location.current.x);
       }
       const prev = location.current;
-      Animated.timing(xy, {
-        toValue: p,
-        duration: state.settings.reduceMotion
-          ? 0
-          : tileNav
-            ? stepDurationMs(
-                imageToWorld(prev, sizeOf(grid)),
-                imageToWorld(p, sizeOf(grid)),
-                msPerUnit,
-              )
-            : 95,
-        useNativeDriver: false,
-      }).start(({ finished }) => {
-        if (finished) {
-          location.current = p;
-          // 월드 단위 정본(location)은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
-          // pos state 는 layered 미리보기의 zIndex 에만 쓴다 — 운영에서는 걸음마다 지도 전체를 다시 그리지 않는다(GROMO-2371).
-          if (layeredPreview) setPos(p);
-          homePositions[positionKey] = p;
-          next();
-        }
-      });
+      const ms = state.settings.reduceMotion
+        ? 0
+        : tileNav
+          ? stepDurationMs(
+              imageToWorld(prev, sizeOf(grid)),
+              imageToWorld(p, sizeOf(grid)),
+              msPerUnit,
+            )
+          : 95;
+      segment.current = { from, to: p, t0: Date.now(), ms };
+      moveCat(
+        xy,
+        p,
+        ms,
+        ({ finished }) => {
+          if (finished) {
+            segment.current = null;
+            from = p;
+            location.current = p;
+            // 월드 단위 정본(location)은 Movement 연결(2단계) 때 저장 형식까지 옮긴다. 그때까지 homePositions 는 px.
+            // pos state 는 layered 미리보기의 zIndex 에만 쓴다 — 운영에서는 걸음마다 지도 전체를 다시 그리지 않는다(GROMO-2371).
+            if (layeredPreview) setPos(p);
+            homePositions[positionKey] = p;
+            next();
+          }
+        },
+        WALK_EASE,
+      );
     };
     next();
     return true;
@@ -1726,8 +1771,10 @@ function FinalIslandScene({
       if (sameCells(walkCells.current, waypoints) && Math.abs(msPerUnit - MS_PER_UNIT) <= 1e-6)
         return;
       const size = sizeOf(grid);
-      let here = location.current;
-      xy.stopAnimation((value) => (here = value));
+      // 네이티브 드라이버 값은 stopAnimation 콜백이 비동기라 지금 자리는 걷는 구간으로 계산한다(GROMO-2374).
+      const here = livePosition();
+      xy.stopAnimation();
+      segment.current = null;
       location.current = here;
       walkCells.current = waypoints;
       const hereWorld = imageToWorld(here, size);
@@ -1834,18 +1881,11 @@ function FinalIslandScene({
     }
     const controller = movement.current;
     const size = sizeOf(grid);
-    // 걷는 동안 화면에 보이는 고양이 위치를 ref 로 샘플링한다 — location.current 는 구간이 끝나야
-    // 갱신돼 걷는 중엔 전 꼭짓점에 머문다. 오버레이 화살표·서버 Δ 가 긴 구간에서 예측 오차를 잘못
-    // 보여준다(GROMO-2249 보완7 지적 2). xy 는 location.current 와 같은 1x 이미지 px 공간이라
-    // px→world 변환이 필요 없다(둘 다 image px — worldCoords 의 WorldPoint 가 아니다). 컨트롤러가
-    // 없으면(동기화 off) predicted 자체를 안 그리니(아래 flush) 리스너도 걸지 않는다 — 기존 off 동작
-    // 그대로(MOVEMENT_SYNC 가 꺼지면 controller 는 항상 null).
-    const livePos = { current: location.current };
-    const listenerId = controller
-      ? xy.addListener((v) => {
-          livePos.current = v;
-        })
-      : null;
+    // 걷는 동안 화면에 보이는 고양이 위치는 flush 때 livePosition() 으로 계산한다 — location.current 는
+    // 구간이 끝나야 갱신돼 걷는 중엔 전 꼭짓점에 머문다. 오버레이 화살표·서버 Δ 가 긴 구간에서 예측 오차를
+    // 잘못 보여준다(GROMO-2249 보완7 지적 2). 둘 다 1x 이미지 px 공간이라 px→world 변환이 필요 없다(worldCoords
+    // 의 WorldPoint 가 아니다). xy 는 네이티브 드라이버 값이라 리스너를 걸면 매 프레임 네이티브→JS 이벤트가
+    // 오므로 걸지 않는다(GROMO-2374).
     // 100ms 쓰로틀 — controller.subscribe() 는 스냅샷마다(최대 20Hz) 올 수 있어 마지막 반영 이후 100ms 안이면 미뤄서 합친다.
     let lastFlush = 0,
       timer: ReturnType<typeof setTimeout> | null = null;
@@ -1884,8 +1924,8 @@ function FinalIslandScene({
             // 경로 비교 1순위(보완4 지적 3) — 서버 경로 식별자. lastPath 가 없으면(아직 PathAccepted 전) null.
             pathId: st.lastPath?.pathId ?? null,
             snapshot: st.lastSnapshot ? worldToImage(st.lastSnapshot, size) : null,
-            // 걷는 중엔 xy 의 애니메이션 중간값(livePos) — 멈춰 있으면 location.current 와 같다(폴백, 지적 2).
-            predicted: livePos.current,
+            // 걷는 중엔 구간 중간값(livePosition) — 멈춰 있으면 location.current 와 같다(폴백, 지적 2).
+            predicted: livePosition(),
             correctedAt: st.lastCorrectionAt,
             // state() 가 수신 시각을 그대로 준다(GROMO-2249 보완) — 틱 지연(now - 이 값)은 readout 이 그릴 때
             // 계산해, 절대 시각이라 메시지가 안 와도 값이 그대로다(아래 shallow 비교가 매번 새 객체를 안 만든다).
@@ -1917,7 +1957,6 @@ function FinalIslandScene({
     // 가 다시 돌며 새로 잡는다(보완9 항목 2).
     const interval = controller ? setInterval(flush, 250) : null;
     return () => {
-      if (listenerId) xy.removeListener(listenerId);
       unsubscribe();
       if (timer) clearTimeout(timer);
       if (interval) clearInterval(interval);
@@ -1948,6 +1987,7 @@ function FinalIslandScene({
     const p = initial();
     location.current = p;
     xy.setValue(p);
+    segment.current = null;
     setPos(p);
     setWalking(false);
     stepping.current = false;
@@ -2230,8 +2270,13 @@ function FinalIslandScene({
             pointerEvents="box-none"
             style={{
               position: 'absolute',
-              left: Animated.subtract(Animated.multiply(xy.x, s), hitSize / 2),
-              top: Animated.subtract(Animated.multiply(xy.y, s), catSize / 2 + hitSize / 2),
+              // 발 기준점 맞춤은 고정 left/top, 걷기는 네이티브 드라이버 transform(GROMO-2374) — 터치 영역도 같이 옮겨진다.
+              left: -hitSize / 2,
+              top: -(catSize / 2 + hitSize / 2),
+              transform: [
+                { translateX: Animated.multiply(xy.x, s) },
+                { translateY: Animated.multiply(xy.y, s) },
+              ],
               width: hitSize,
               height: hitSize,
               zIndex: scene ? Math.round(pos.y) : 25,
