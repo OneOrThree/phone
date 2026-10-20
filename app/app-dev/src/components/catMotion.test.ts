@@ -1,6 +1,37 @@
-import { CAT_FRAME_SEQUENCES, catFrameAt, nextIdleBehavior, normalizeCatMotion } from './catMotion';
+import {
+  CAT_FRAME_SEQUENCES,
+  FOCUS_KEY_POSES,
+  REEL_KEY_POSES,
+  REEL_WINDOW_MS,
+  catFrameAt,
+  catKeyPoses,
+  nextIdleBehavior,
+  normalizeCatMotion,
+} from './catMotion';
 
 describe('catMotion', () => {
+  it('키 포즈: 집중은 12초 주기, 낚아올리기는 기존 2초 창 안에서 끝난다', () => {
+    const total = (poses: typeof FOCUS_KEY_POSES) => poses.reduce((sum, [, hold]) => sum + hold, 0);
+    expect(total(FOCUS_KEY_POSES)).toBe(12_000);
+    expect(total(REEL_KEY_POSES)).toBe(REEL_WINDOW_MS);
+    expect(REEL_KEY_POSES.map(([frame]) => frame)).toEqual([0, 1, 2, 1, 3]);
+    // LAB idleFrame: 3.1초에 1, 3.26초에 2, 3.48초에 3, 3.64초에 중립
+    const at = (seconds: number) => {
+      let elapsed = 0;
+      for (const [frame, hold] of FOCUS_KEY_POSES) {
+        if (seconds * 1000 < elapsed + hold) return frame;
+        elapsed += hold;
+      }
+      return -1;
+    };
+    expect([3.0, 3.15, 3.3, 3.5, 3.7, 8.85, 9.0, 9.2, 9.4].map(at)).toEqual([
+      0, 1, 2, 3, 0, 1, 2, 3, 0,
+    ]);
+    expect(catKeyPoses('focus')).toBe(FOCUS_KEY_POSES);
+    expect(catKeyPoses('reel')).toBe(REEL_KEY_POSES);
+    expect(catKeyPoses('cast')).toBeUndefined();
+  });
+
   it('모든 반복 tick을 유효한 프레임으로 변환한다', () => {
     for (const [motion, sequence] of Object.entries(CAT_FRAME_SEQUENCES)) {
       for (let tick = -12; tick < 40; tick += 1) {

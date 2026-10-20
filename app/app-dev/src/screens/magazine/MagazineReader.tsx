@@ -5,7 +5,6 @@ import {
   FlatList,
   Image,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -32,7 +31,6 @@ import { islandTitle } from './islandTitle';
 import { CELL_ASPECT } from './layout';
 import { magazineApi } from './usePromotionEditor';
 import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
-import { PromotionReportSheet } from './PromotionReportSheet';
 import { CANVAS_PAD, layoutBleed } from './useStickerGestures';
 
 const R = componentTokens.magazineReader;
@@ -125,8 +123,7 @@ export function magazinePages(loaded: Loaded, host: boolean): Page[] {
  * 고양이 잡지 펼치기(GROMO-2289 · A1~A4) — 섬에서 펼친 잡지라 배경은 섬 홈이고 칸에 망원경 동그라미가 없다(10/14 확정).
  * 우리 섬 칸에는 「우리 섬이에요」. 속지 그림 위에 표지 띠(날짜·호)와 쪽을 그리고, 가로로 넘기거나 ‹ › 로 넘긴다.
  * 끝 쪽에 가까워지면 다음 커서를 읽는다. 펼치는 데 성공하면 그 호에 「읽음」을 보낸다(빨간 점이 꺼진다).
- * 칸을 누르면 화면 폭으로 크게 본다. 칸을 길게 누르거나(크게 보기에서도) 스크린리더 「신고하기」 동작으로 신고 시트를 연다(SAFE-04) —
- * 신고한 칸은 다음에 읽을 때까지 그대로 보인다(서버가 3건이면 숨긴다).
+ * 칸을 누르면 화면 폭으로 크게 본다. 신고는 설정의 단일 신고센터에서 이메일로 접수한다.
  *
  * e.detail = 펼칠 호 id. 비어 있으면 들고 있는 오늘 호를 연다.
  */
@@ -157,9 +154,6 @@ export function MagazineReader({
   const [failedAt, setFailedAt] = useState<{ cursor: string; index: number } | null>(null);
   const [index, setIndex] = useState(0);
   const [zoom, setZoom] = useState<MagazineCell | null>(null);
-  const [report, setReport] = useState<MagazineCell | null>(null);
-  // 크게 보기에서 길게 누른 칸 — iOS 는 크게 보기(Modal)가 다 닫힌 뒤에 신고 시트(Modal)를 연다(닫히는 중에 띄우면 실패한다)
-  const reportAfterZoom = useRef<MagazineCell | null>(null);
   const list = useRef<FlatList<Page>>(null);
 
   useEffect(() => {
@@ -275,16 +269,16 @@ export function MagazineReader({
     </View>
   );
   // 섬 이름(두 줄까지) + 오른쪽 숫자. 큰 글자에서는 숫자를 이름 아래 줄로 내려 속지 밖으로 밀리지 않게 한다
-  const islandLine = (name: string, meta: string) => (
+  const islandLine = (name: string, meta: string, privateIsland = false) => (
     <View
       style={{
         flex: 1,
-        flexDirection: largeText ? 'column' : 'row',
-        alignItems: largeText ? 'flex-start' : 'center',
-        gap: largeText ? 0 : primitiveTokens.space[2],
+        flexDirection: largeText || privateIsland ? 'column' : 'row',
+        alignItems: largeText || privateIsland ? 'flex-start' : 'center',
+        gap: largeText || privateIsland ? 0 : primitiveTokens.space[2],
       }}
     >
-      <T numberOfLines={2} style={[text(14), largeText ? null : { flex: 1 }]}>
+      <T numberOfLines={2} style={[text(14), largeText || privateIsland ? null : { flex: 1 }]}>
         {name}
       </T>
       <T style={text(11, semanticTokens.color.textMuted)}>{meta}</T>
@@ -373,11 +367,13 @@ export function MagazineReader({
                   key={row.islandId}
                   testID={`magazine-rank-${row.rank}`}
                   accessible
-                  accessibilityLabel={t('magazine.reader.rankA11y', {
-                    rank: row.rank,
-                    name: islandTitle(row.name),
-                    average: average(row),
-                  })}
+                  accessibilityLabel={
+                    t('magazine.reader.rankA11y', {
+                      rank: row.rank,
+                      name: islandTitle(row.name),
+                      average: average(row),
+                    }) + (row.privateIsland ? `, ${t('magazine.cell.privateIsland')}` : '')
+                  }
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -397,7 +393,13 @@ export function MagazineReader({
                     </T>
                   )}
                   {avatar(row, R.rankAvatar)}
-                  {islandLine(islandTitle(row.name), average(row))}
+                  {islandLine(
+                    islandTitle(row.name),
+                    [average(row), row.privateIsland && t('magazine.cell.privateIsland')]
+                      .filter(Boolean)
+                      .join('\n'),
+                    row.privateIsland,
+                  )}
                 </View>
               ))
             : emptyLine('magazine.reader.rankingEmpty'),
@@ -433,10 +435,16 @@ export function MagazineReader({
                   {avatar(island, R.newAvatar)}
                   {islandLine(
                     islandTitle(island.name),
-                    t('magazine.cell.residents', {
-                      count: island.memberCount,
-                      max: island.maxMembers,
-                    }),
+                    [
+                      t('magazine.cell.residents', {
+                        count: island.memberCount,
+                        max: island.maxMembers,
+                      }),
+                      island.privateIsland && t('magazine.cell.privateIsland'),
+                    ]
+                      .filter(Boolean)
+                      .join('\n'),
+                    island.privateIsland,
                   )}
                 </View>
               ))
@@ -488,8 +496,6 @@ export function MagazineReader({
               // 섬에서 펼친 잡지에는 망원경 동그라미가 없다(10/14) — 우리 섬 배지만
               corner={cell.relation === 'MEMBER' ? 'ours' : null}
               onPress={() => setZoom(cell)}
-              // 우리 섬 칸은 신고하지 않는다(길게 누르기·스크린리더 동작 모두 없음)
-              onReport={cell.relation === 'MEMBER' ? undefined : () => setReport(cell)}
             />
           ))}
         </View>
@@ -751,16 +757,7 @@ export function MagazineReader({
           </Pressable>
         </View>
       </View>
-      <Modal
-        visible={!!zoom}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setZoom(null)}
-        onDismiss={() => {
-          if (reportAfterZoom.current) setReport(reportAfterZoom.current);
-          reportAfterZoom.current = null;
-        }}
-      >
+      <Modal visible={!!zoom} transparent animationType="fade" onRequestClose={() => setZoom(null)}>
         <Pressable
           testID="magazine-zoom"
           accessibilityRole="button"
@@ -785,28 +782,10 @@ export function MagazineReader({
               cell={zoom}
               corner={zoom.relation === 'MEMBER' ? 'ours' : null}
               onPress={() => setZoom(null)}
-              onReport={
-                zoom.relation === 'MEMBER'
-                  ? undefined
-                  : () => {
-                      if (Platform.OS === 'ios') reportAfterZoom.current = zoom;
-                      else setReport(zoom);
-                      setZoom(null);
-                    }
-              }
             />
           )}
         </Pressable>
       </Modal>
-      <PromotionReportSheet
-        cell={report}
-        onClose={() => setReport(null)}
-        onDone={(message) => {
-          setReport(null);
-          e.notify?.(message);
-        }}
-        offerConversion={e.conversion?.offer}
-      />
     </View>
   );
 }

@@ -13,7 +13,8 @@ import {
 import { me as apiMe } from '@/services/api/auth';
 import { updateProfile as apiUpdateProfile } from '@/services/api/account';
 import { switchCurrentIsland as apiSwitchCurrentIsland } from '@/services/api/home';
-import { sessionGeneration } from '@/services/api/session';
+import { readAccountGuides } from '@/services/accountGuides';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import {
   cancelJoinRequest as apiCancelJoinRequest,
   createIsland as apiCreateIsland,
@@ -84,6 +85,16 @@ const contractError = () =>
   new ApiError('UPSTREAM_CONTRACT_ERROR', '섬 소속 정보가 올바르지 않아요.', 502);
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+
+// 안내 이력의 조회·오류 복구는 useAccountGuides가 맡는다. 로컬 오류로 서버 정본·명령 성공을 버리지 않는다.
+const guidesForSync = async (ownerId: string | undefined) => {
+  if (!ownerId) return null;
+  try {
+    return await readAccountGuides(ownerId);
+  } catch {
+    return null;
+  }
+};
 
 // 결과 불명 — 쓰기가 서버에 닿았는지·커밋됐는지 알 수 없다. SERVICE_UNAVAILABLE은 서킷 오픈(미발송)뿐
 // 아니라 Data 응답 수신 중 연결이 끊긴 경우에도 나온다. 둘 다 공개 응답에선 HTTP 400으로 접히므로
@@ -157,10 +168,12 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   const syncIslandSnapshot = async () => {
     const g = generation();
     const revision = ++syncRevision;
-    const [my, requests, account] = await Promise.all([
+    const ownerId = getSession()?.userId;
+    const [my, requests, account, guides] = await Promise.all([
       api.myIslands(),
       allJoinRequests(g),
       api.me(),
+      guidesForSync(ownerId),
     ]);
     alive(g);
     if (revision !== syncRevision) throw staleError();
@@ -168,6 +181,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     deps.dispatch({
       type: 'ISLAND_SYNC',
       memberships: my,
+      focusGuideDone: guides?.focusDone,
       requests,
       mainIslandId: account.mainIslandId,
     });
@@ -290,11 +304,20 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       call(async () => {
         const g = generation();
         const revision = ++syncRevision;
-        const [screen, requests] = await Promise.all([api.explore(), allJoinRequests(g)]);
+        const ownerId = getSession()?.userId;
+        const [screen, requests, guides] = await Promise.all([
+          api.explore(),
+          allJoinRequests(g),
+          guidesForSync(ownerId),
+        ]);
         alive(g);
         if (revision !== syncRevision) throw staleError();
         if (!myIslandsConsistent(screen.memberships)) throw contractError();
-        deps.dispatch({ type: 'ISLAND_SYNC', memberships: screen.memberships });
+        deps.dispatch({
+          type: 'ISLAND_SYNC',
+          memberships: screen.memberships,
+          focusGuideDone: guides?.focusDone,
+        });
         deps.dispatch({
           type: 'ISLAND_CANDIDATES',
           items: screen.islands.items,

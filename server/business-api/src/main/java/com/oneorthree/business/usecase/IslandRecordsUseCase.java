@@ -117,7 +117,7 @@ public class IslandRecordsUseCase {
                 new CursorBoundary(view.nextSnapshotId(), view.nextOffset().toString()));
         return new MeFocus(SCOPE_ME, view.totalSeconds(),
                 view.series().stream().map(RecordDaySeconds::from).toList(),
-                view.records().stream().map(IslandFocusRecord::from).toList(), next, view.asOf());
+                view.records().stream().map(IslandFocusRecord::from).toList(), next, view.asOf(), view.earnedFish());
     }
 
     /** 스크린타임 통계 — scope=me 는 {@link MeScreenTime}, scope=island 는 {@link IslandScreenTime}. */
@@ -282,7 +282,7 @@ public class IslandRecordsUseCase {
 
     /** 집중 scope=me — 본인 전체 기간 합·일별과 완료 세션 페이지(LLD §2). */
     public record MeFocus(String scope, long totalSeconds, List<RecordDaySeconds> series,
-            List<IslandFocusRecord> records, String nextCursor, String asOf) {
+            List<IslandFocusRecord> records, String nextCursor, String asOf, Long earnedFish) {
     }
 
     /** 집중 scope=island — 주민별 이 섬 기여. 개인 기록·과목 없음. */

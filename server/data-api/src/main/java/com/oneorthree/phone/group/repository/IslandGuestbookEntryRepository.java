@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.group.repository.domain.IslandGuestbookEntry;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -15,8 +16,17 @@ import java.util.UUID;
 /** 섬 방명록 (GROMO-2262, V113). */
 public interface IslandGuestbookEntryRepository extends JpaRepository<IslandGuestbookEntry, UUID> {
 
-    /** 최근 30개 — 목록의 전부다(그 뒤는 쓰기 때 지워진다). */
-    List<IslandGuestbookEntry> findTop30ByIslandIdAndDeletedAtIsNullOrderByCreatedAtDescIdDesc(UUID islandId);
+    /** 삭제되지 않은 글의 첫 페이지. */
+    @Query("SELECT e FROM IslandGuestbookEntry e WHERE e.islandId = :islandId AND e.deletedAt IS NULL"
+            + " ORDER BY e.createdAt DESC, e.id DESC")
+    List<IslandGuestbookEntry> findFirstPage(@Param("islandId") UUID islandId, Pageable page);
+
+    /** 마지막 행의 값으로 이어 읽는다 — 경계 글이 삭제되어도 다음 페이지를 읽을 수 있다. */
+    @Query("SELECT e FROM IslandGuestbookEntry e WHERE e.islandId = :islandId AND e.deletedAt IS NULL"
+            + " AND (e.createdAt < :createdAt OR (e.createdAt = :createdAt AND e.id < :id))"
+            + " ORDER BY e.createdAt DESC, e.id DESC")
+    List<IslandGuestbookEntry> findPageAfter(@Param("islandId") UUID islandId,
+            @Param("createdAt") Instant createdAt, @Param("id") UUID id, Pageable page);
 
     /**
      * 그날 이미 썼는가 — 지워진 행도 센다. 유니크 키가 deleted_at 을 모르므로 섬장이 지운 날 다시 쓰게 하면
@@ -36,11 +46,4 @@ public interface IslandGuestbookEntryRepository extends JpaRepository<IslandGues
     @Query("DELETE FROM IslandGuestbookEntry e WHERE e.authorId = :userId")
     int deleteAllOfUser(@Param("userId") UUID userId);
 
-    /** 31번째 이후(오래된 순)를 지운다 — 쓰기 직후 같은 TX 에서 부른다. */
-    @Modifying
-    @Query(value = "UPDATE island_guestbook_entries SET deleted_at = :now "
-            + "WHERE island_id = :islandId AND deleted_at IS NULL AND id NOT IN ("
-            + "SELECT id FROM island_guestbook_entries WHERE island_id = :islandId AND deleted_at IS NULL "
-            + "ORDER BY created_at DESC, id DESC LIMIT 30)", nativeQuery = true)
-    int trimBeyondLatest30(@Param("islandId") UUID islandId, @Param("now") Instant now);
 }

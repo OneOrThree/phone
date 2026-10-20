@@ -56,7 +56,7 @@ it('07~24시는 내일 호에 신청 · 같은 호 두 번은 거절 · 잔액�
   });
 });
 
-it('상황 깃발 — guest 는 403, poor 는 잔액 30, private 는 신청 거절', async () => {
+it('상황 깃발 — guest 는 403, poor 는 잔액 30, private 도 신청 가능', async () => {
   process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'guest';
   await expect(magazineMock.getPromotionEditor('i')).rejects.toMatchObject({ status: 403 });
   resetMagazineMock();
@@ -64,8 +64,14 @@ it('상황 깃발 — guest 는 403, poor 는 잔액 30, private 는 신청 거�
   const editor = await magazineMock.getPromotionEditor('i');
   expect(editor).toMatchObject({ balance: 30, privateIsland: true });
   await expect(magazineMock.applyPromotion('i', { body: 'x', layout }, 'k')).rejects.toMatchObject({
-    code: 'PROMOTION_PRIVATE_ISLAND',
+    code: 'INSUFFICIENT_FUNDS',
   });
+  resetMagazineMock();
+  process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'open,private';
+  const privateEditor = await magazineMock.getPromotionEditor('private');
+  await expect(
+    magazineMock.applyPromotion('private', { body: 'x', layout }, 'private-key'),
+  ).resolves.toMatchObject({ balanceAfter: privateEditor.balance - 60 });
 });
 
 describe('잡지 읽기 목업', () => {

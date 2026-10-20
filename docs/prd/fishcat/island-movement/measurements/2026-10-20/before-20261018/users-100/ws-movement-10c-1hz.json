@@ -1,0 +1,92 @@
+{
+  "mode": "movement",
+  "runId": "3bb74ec2-2024-4ddc-a74b-4fe62c2d4ca1",
+  "targets": [
+    "ws://localhost:18088/ws/realtime"
+  ],
+  "userOffset": 0,
+  "serverConnections": [
+    {
+      "metric": {
+        "__name__": "realtime_websocket_sessions",
+        "instance": "realtime:9091",
+        "job": "realtime",
+        "service": "realtime"
+      },
+      "value": [
+        1792304184.151,
+        "10"
+      ]
+    },
+    {
+      "metric": {
+        "__name__": "realtime_websocket_sessions",
+        "instance": "realtime-2:9091",
+        "job": "realtime",
+        "service": "realtime"
+      },
+      "value": [
+        1792304184.151,
+        "0"
+      ]
+    }
+  ],
+  "eventWindowStart": 1792304161146,
+  "eventWindowEnd": 1792304181146,
+  "eventReceipts": [],
+  "receivedBytes": 7777040,
+  "sentBytes": 39380,
+  "fullyDeliveredMessages": 190,
+  "sendPerSecond": 9.500039365788123,
+  "deliveryPerSecond": 95.00039365788122,
+  "goodputPerSecond": 9.500039365788123,
+  "latestCommandConfirmed": 10,
+  "loadgen": {
+    "rssBytes": 113311744,
+    "cpuCores": 0.023760109246064177
+  },
+  "startedAt": "2026-10-18T06:15:59.971Z",
+  "endedAt": "2026-10-18T06:16:24.159Z",
+  "connections": 10,
+  "ready": 10,
+  "seconds": 20,
+  "frequency": 1,
+  "measurementMs": 19999.917125,
+  "sent": 190,
+  "expectedDeliveries": 1900,
+  "delivered": 1900,
+  "missing": 0,
+  "duplicate": 0,
+  "frames": 6282,
+  "snapshots": 3670,
+  "errors": 0,
+  "rejected": 0,
+  "errorCodes": {},
+  "connectMs": {
+    "count": 10,
+    "p50": 5.224416999999988,
+    "p95": 25.393875,
+    "p99": 25.393875,
+    "max": 25.393875
+  },
+  "readyMs": {
+    "count": 10,
+    "p50": 52.310208,
+    "p95": 108.43154200000001,
+    "p99": 108.43154200000001,
+    "max": 108.43154200000001
+  },
+  "deliveryMs": {
+    "count": 1900,
+    "p50": 13.879791000000296,
+    "p95": 62.74595899999986,
+    "p99": 64.9756669999997,
+    "max": 65.3810840000001
+  },
+  "eventLoopDelayMs": {
+    "mean": 20.735766193991417,
+    "max": 22.921215,
+    "p99": 21.741567
+  },
+  "valid": true
+}

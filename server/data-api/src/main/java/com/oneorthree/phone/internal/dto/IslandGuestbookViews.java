@@ -16,7 +16,7 @@ public final class IslandGuestbookViews {
     private IslandGuestbookViews() {
     }
 
-    public record Page(boolean boardBuilt, List<Item> items) {
+    public record Page(boolean boardBuilt, List<Item> items, boolean hasMore) {
     }
 
     /** @param mine 호출자가 쓴 글인가 */

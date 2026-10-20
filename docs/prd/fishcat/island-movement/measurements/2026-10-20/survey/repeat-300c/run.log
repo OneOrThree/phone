@@ -1,0 +1,6 @@
+START 06:36:28Z loadavg { 7.19 8.17 10.21 }
+ws-movement-300c-1hz-r1 rc=0 06:36:55Z
+ws-movement-300c-1hz-r2 rc=0 06:37:43Z
+ws-movement-300c-1hz-r3 rc=0 06:38:33Z
+ws-movement-100c-1hz-confirm-r2 rc=1 06:40:01Z
+END 06:40:21Z

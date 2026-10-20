@@ -1,6 +1,7 @@
 package com.oneorthree.business.api;
 
 import com.oneorthree.business.api.dto.IslandNoticeResponses.NoticeDeletedView;
+import com.oneorthree.business.api.dto.IslandGuestbookResponses;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -40,9 +41,14 @@ public class IslandGuestbookController {
     private final UpstreamConfigProperties properties;
 
     @GetMapping("/islands/{islandId}/guestbook")
-    public IslandGuestbooks.Page list(@PathVariable String islandId, HttpServletRequest request) {
+    public IslandGuestbookResponses.Page list(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return guestbook.list(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
+        String[] cursors = request.getParameterValues("cursor");
+        if (cursors != null && cursors.length != 1) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "cursor");
+        }
+        return guestbook.list(claims, PublicIds.uuid(islandId, "islandId"),
+                cursors == null ? null : cursors[0], properties.deadline());
     }
 
     @PostMapping(value = "/islands/{islandId}/guestbook", consumes = "application/json")

@@ -28,6 +28,8 @@ const USAGE = `사용법(레포 루트에서):
                      docker exec phone-realtime-local wget -qO- http://localhost:9091/actuator/prometheus
   --nav <file>       통행 격자. 기본 server/realtime/src/main/resources/movement/nav.json
   --seed 2250        목적지 난수 시드(사용자별 seed+i)
+  --repeat 1         같은 N 을 k 번 돌려 results 에 각각(run 1..k) 남긴다. k>1 이면 표는 각 수치의 중앙값(홀수 k 권장 — 짝수면 정수 필드는 반올림)
+  --keep-raw         --json 에 Prometheus 전후 스크레이프 본문(raw.promBefore·promAfter)도 담는다. 기본은 제외(수 MB)
   --self-check       네트워크 없이 계산 함수만 점검하고 끝낸다`;
 
 const REPO_NAV = fileURLToPath(
@@ -48,8 +50,10 @@ function parseArgs(argv) {
     render: null,
     nav: REPO_NAV,
     seed: 2250,
+    repeat: 1,
     metricsCmd: 'docker exec phone-realtime-local wget -qO- http://localhost:9091/actuator/prometheus',
     selfCheck: false,
+    keepRaw: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -70,13 +74,16 @@ function parseArgs(argv) {
     else if (flag === '--metrics-cmd') o.metricsCmd = val();
     else if (flag === '--nav') o.nav = val();
     else if (flag === '--seed') o.seed = Number(val());
+    else if (flag === '--repeat') o.repeat = Number(val());
     else if (flag === '--self-check') o.selfCheck = true;
+    else if (flag === '--keep-raw') o.keepRaw = true;
     else if (flag === '--help' || flag === '-h') {
       console.log(USAGE);
       process.exit(0);
     } else throw new Error(`모르는 인자 ${flag}\n${USAGE}`);
   }
   if (!o.users.length) o.users = [1, 5, 15];
+  if (!Number.isInteger(o.repeat) || o.repeat < 1) throw new Error(`--repeat 는 1 이상 정수: ${o.repeat}`);
   for (const n of o.users) if (!Number.isInteger(n) || n < 1 || n > 15) throw new Error(`--users 는 1~15 정수: ${n}`);
   return o;
 }
@@ -162,6 +169,43 @@ function frameKind(text) {
   return 'other';
 }
 
+// frameKind + 프레임 안쪽 크기. snapshot 은 «프레임 − 본문» = STOMP 헤더 몫, movement 는 본문 type(PathAccepted 등).
+function classifyFrame(text, bytes) {
+  const kind = frameKind(text);
+  if (kind === 'other') return { kind };
+  const he = text.indexOf('\n\n');
+  const body = he < 0 ? '' : text.slice(he + 2).replace(/\0+$/, '');
+  const bodyBytes = Buffer.byteLength(body);
+  if (kind === 'snapshot') return { kind, headerBytes: bytes - bodyBytes, bodyBytes };
+  let type = 'UNKNOWN';
+  try {
+    type = JSON.parse(body).type ?? type;
+  } catch {
+    // 본문이 JSON 이 아니면 UNKNOWN
+  }
+  return { kind, type, bodyBytes };
+}
+
+// Prometheus histogram 델타(after−before)의 분위 — «그 분위를 처음 넘는 bucket 의 le» 를 ms 로(상한 보수값, 보간 안 함).
+// le=+Inf 에 걸리면 호출자가 준 maxMs 로 대신하고 over=true 로 표시한다. bucket 줄이 없거나 Δ 가 0 이면 null.
+function bucketQuantile(before, after, name, q, maxMs) {
+  const re = new RegExp(`^${name}_bucket\\{.*le="([^"]+)"`);
+  const rows = [];
+  for (const [k, v] of after) {
+    const le = re.exec(k)?.[1];
+    if (le !== undefined) rows.push([le === '+Inf' ? Infinity : Number(le), v - (before.get(k) ?? 0)]);
+  }
+  if (!rows.length) return null;
+  rows.sort((a, b) => a[0] - b[0]);
+  const total = rows.at(-1)[1];
+  if (!(total > 0)) return null;
+  const hit = rows.find(([, cum]) => cum >= q * total);
+  if (!hit) return null;
+  if (Number.isFinite(hit[0])) return { ms: hit[0] * 1000, over: false };
+  return Number.isFinite(maxMs) ? { ms: maxMs, over: true } : null;
+}
+const bucketQuantileMs = (...a) => bucketQuantile(...a)?.ms ?? null;
+
 function scrape(cmd) {
   try {
     const text = execSync(cmd, { encoding: 'utf8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -183,7 +227,17 @@ function metricSummary(before, after) {
     const missing = !after.has(`${name}_count`) && !after.has(`${name}_sum`) && !after.has(`${name}_max`);
     if (missing) missingMetrics.push(name);
     const c = delta(`${name}_count`);
-    return { count: c, meanMs: c ? (delta(`${name}_sum`) / c) * 1000 : null, maxMs: (after.get(`${name}_max`) ?? NaN) * 1000, missing };
+    const maxMs = (after.get(`${name}_max`) ?? NaN) * 1000;
+    return {
+      count: c,
+      meanMs: c ? (delta(`${name}_sum`) / c) * 1000 : null,
+      maxMs,
+      p50: bucketQuantileMs(before, after, name, 0.5, maxMs),
+      p99: bucketQuantileMs(before, after, name, 0.99, maxMs),
+      p50Over: bucketQuantile(before, after, name, 0.5, maxMs)?.over ?? false,
+      p99Over: bucketQuantile(before, after, name, 0.99, maxMs)?.over ?? false,
+      missing,
+    };
   };
   const counter = (key) => {
     const missing = !after.has(key);
@@ -217,6 +271,13 @@ function metricSummary(before, after) {
     overflow: counter('movement_outbox_overflow_total'),
     sendFailed: counter('movement_outbox_send_failed_total'),
     recheckSuspended: counter('movement_recheck_suspended_total'),
+    // 2270 — Micrometer 는 Counter·FunctionCounter 이름 뒤에 _total 을 붙인다(옛 이미지에는 없을 수 있다).
+    counters: {
+      tickDelayed: counter('movement_tick_delayed_total'),
+      tickSkipped: counter('movement_tick_skipped_total'),
+      snapshotSkipped: counter('movement_snapshot_skipped_total'),
+      intentRateLimited: counter('movement_intent_rate_limited_total'),
+    },
     gc: { maxMs: gcMax * 1000, count: gcCount, sumMs: gcSum * 1000 },
     missingMetrics,
   };
@@ -242,7 +303,10 @@ async function api(base, path, { method = 'GET', token, headers = {}, body } = {
   }
   if (!res.ok) {
     const err = json?.error ?? json ?? {};
-    throw new Error(`${method} ${path} → ${res.status} ${err.code ?? ''} ${err.message ?? text.slice(0, 120)}`.trim());
+    throw Object.assign(
+      new Error(`${method} ${path} → ${res.status} ${err.code ?? ''} ${err.message ?? text.slice(0, 120)}`.trim()),
+      { status: res.status },
+    );
   }
   return json && typeof json === 'object' && 'data' in json ? json.data : json;
 }
@@ -274,7 +338,10 @@ async function prepare(o, state, need, log) {
       state.accounts.push({ deviceId, userId: r.userId, accessToken: r.accessToken, refreshToken: r.refreshToken, islands: [] });
       log(`게스트 ${state.accounts.length}/${need} 발급`);
     } catch (e) {
-      accountError = `게스트 발급 실패: ${e.message}`;
+      accountError =
+        e.status === 429
+          ? '게스트 발급 429 — 로컬 data-api 에 AUTH_GUEST_RATE_LIMIT_MAX(_GLOBAL)(또는 완화 바인딩 AUTH_GUEST_RATE_LIMIT_MAX_PER_WINDOW) 를 크게 주거나 --state 로 계정을 이어 쓴다'
+          : `게스트 발급 실패: ${e.message}`;
       break;
     }
   }
@@ -325,6 +392,12 @@ class Session {
     this.snapBodyBytes = [];
     this.windowBytes = 0;
     this.windowBytesByKind = { snapshot: 0, movement: 0, other: 0 };
+    this.windowBytesByType = {}; // movement 토픽 프레임 전체 바이트를 본문 type 별로
+    this.snapHeaderBytes = 0; // Snapshot 프레임 − 본문
+    this.idleEntities = 0;
+    this.totalEntities = 0;
+    this.waypointLens = []; // 내 PathAccepted 의 waypoints.length (브로드캐스트 중복 방지로 내 것만)
+    this.pathAcceptedBodyBytes = [];
     this.window = [Infinity, Infinity];
     this.sent = 0;
     this.sendSkipped = 0;
@@ -357,7 +430,10 @@ class Session {
             const text = typeof ev.data === 'string' ? ev.data : Buffer.from(ev.data).toString('utf8');
             const bytes = typeof ev.data === 'string' ? Buffer.byteLength(ev.data) : (ev.data.byteLength ?? Buffer.byteLength(text));
             this.windowBytes += bytes;
-            this.windowBytesByKind[frameKind(text)] += bytes;
+            const f = classifyFrame(text, bytes);
+            this.windowBytesByKind[f.kind] += bytes;
+            if (f.type) this.windowBytesByType[f.type] = (this.windowBytesByType[f.type] ?? 0) + bytes;
+            if (f.headerBytes !== undefined) this.snapHeaderBytes += f.headerBytes;
           });
           ws.addEventListener('close', (ev) => {
             if (!this.closing) this.closes.push(`${ev.code} ${ev.reason || '(사유 없음)'}`);
@@ -405,6 +481,10 @@ class Session {
     }
     this.counts[b.type] = (this.counts[b.type] ?? 0) + 1;
     this.firstMovementType ??= b.type;
+    if (b.type === 'PathAccepted' && b.userId === this.userId && this.inWindow(t)) {
+      this.waypointLens.push((b.waypoints ?? []).length);
+      this.pathAcceptedBodyBytes.push(Buffer.byteLength(m.body));
+    }
     if (b.type === 'FullState' && this.subscribeToFullStateMs === null) {
       const me = (b.actors ?? []).find((a) => a.userId === this.userId);
       this.firstFullStateHasSelf = !!me;
@@ -435,6 +515,10 @@ class Session {
     const moving = (b.entities ?? []).some((e) => e.state === 'MOVING');
     if (this.inWindow(t)) {
       this.snapBodyBytes.push(Buffer.byteLength(m.body));
+      for (const e of b.entities ?? []) {
+        this.totalEntities++;
+        if (e.state === 'IDLE') this.idleEntities++;
+      }
       // 직전 Snapshot 에 걷는 주민이 있었을 때만 — 정지 뒤 공백(N15, 정지 방은 안 보낸다)은 간격이 아니다.
       if (this.lastSnap?.moving && this.inWindow(this.lastSnap.t)) this.snapIntervals.push(t - this.lastSnap.t);
     }
@@ -514,6 +598,13 @@ function summarize(r, o) {
     movement: meanOf(readySessions.map((s) => s.windowBytesByKind.movement / o.duration)),
     other: meanOf(readySessions.map((s) => s.windowBytesByKind.other / o.duration)),
   };
+  const typeNames = [...new Set(readySessions.flatMap((s) => Object.keys(s.windowBytesByType)))];
+  const bpsByType = Object.fromEntries(
+    typeNames.map((t) => [t, meanOf(readySessions.map((s) => (s.windowBytesByType[t] ?? 0) / o.duration))]),
+  );
+  const wps = readySessions.flatMap((s) => s.waypointLens);
+  const paBodies = readySessions.flatMap((s) => s.pathAcceptedBodyBytes);
+  const totalEntities = readySessions.reduce((a, s) => a + s.totalEntities, 0);
   const merge = (f) =>
     r.sessions.reduce((acc, s) => {
       for (const [k, v] of Object.entries(f(s))) acc[k] = (acc[k] ?? 0) + v;
@@ -541,6 +632,11 @@ function summarize(r, o) {
     },
     bytesPerSec: bps.length ? { mean: bps.reduce((a, v) => a + v, 0) / bps.length, min: Math.min(...bps), max: Math.max(...bps) } : null,
     bytesPerSecByKind: bps.length ? bpsByKind : null,
+    bytesPerSecByType: bps.length ? bpsByType : null,
+    snapshotHeaderBytesPerSec: bps.length ? meanOf(readySessions.map((s) => s.snapHeaderBytes / o.duration)) : null,
+    idleEntityRatio: totalEntities ? readySessions.reduce((a, s) => a + s.idleEntities, 0) / totalEntities : null,
+    waypoints: { count: wps.length, mean: meanOf(wps), max: wps.length ? Math.max(...wps) : null },
+    pathAcceptedBodyMean: meanOf(paBodies),
     snapBodyMean: bodies.length ? bodies.reduce((a, v) => a + v, 0) / bodies.length : null,
     closes: all((s) => s.closes),
     stompErrors: all((s) => s.stompErrors),
@@ -559,9 +655,11 @@ function summarize(r, o) {
     rtts,
     snapIntervals: intervals,
     bytesPerSecBySession: bps,
-    promBefore: r.before.ok ? Object.fromEntries(r.before.metrics) : r.before.error,
-    promAfter: r.after.ok ? Object.fromEntries(r.after.metrics) : r.after.error,
   };
+  if (o.keepRaw) {
+    out.raw.promBefore = r.before.ok ? Object.fromEntries(r.before.metrics) : r.before.error;
+    out.raw.promAfter = r.after.ok ? Object.fromEntries(r.after.metrics) : r.after.error;
+  }
   return out;
 }
 
@@ -570,11 +668,46 @@ const countText = (obj) =>
 // 지표 키 자체가 없을 때 표시 — Timer·DistributionSummary·Counter 모두 등록 즉시 찍히므로(Counter 는 0.0) 「없음」= 이름 오타·미등록.
 const MISSING_METRIC_TEXT = '지표 없음 — 스크레이프에 키가 없다(이름·등록 확인)';
 // --render 로 missing 추적이 생기기 전의 옛 원자료(카운터가 숫자 하나)를 찍을 때는 그 숫자를 그대로 Δ 로 보여준다.
+const NO_NEW_METRIC = '지표 없음 — 서버가 bucket/카운터를 안 내보냄';
+const ctr = (c) => (c.missing ? '—' : `Δ ${c.value}`);
 const counterText = (c) => (typeof c === 'number' ? `Δ ${c}` : c.missing ? MISSING_METRIC_TEXT : `Δ ${c.value}`);
+
+// --repeat k>1 결과를 N 별로 묶어 «각 수치의 중앙값» 한 건으로 합친다. 숫자는 중앙값, 객체는 키별 재귀,
+// 배열은 이어붙임, 그 밖(문자열·불리언·null)은 첫 유효값. 건너뛴 run 은 빼고, 전부 건너뛰었으면 첫 건을 그대로 쓴다.
+function medianOf(nums) {
+  const v = nums.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return nums.find((x) => typeof x === 'number');
+  if (v.length % 2) return v[(v.length - 1) / 2];
+  const m = (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  return v.every(Number.isInteger) ? Math.round(m) : m; // 정수 필드(카운트·Δ)는 .5 를 남기지 않는다
+}
+function mergeMedian(vals) {
+  const defined = vals.filter((v) => v !== undefined);
+  if (!defined.length) return undefined;
+  if (defined.every((v) => typeof v === 'number')) return medianOf(defined);
+  if (defined.every(Array.isArray)) return defined.flat();
+  const objs = defined.filter((v) => v && typeof v === 'object' && !Array.isArray(v));
+  if (objs.length === defined.length) {
+    const out = {};
+    for (const key of new Set(objs.flatMap(Object.keys))) out[key] = mergeMedian(objs.map((x) => x[key]));
+    return out;
+  }
+  return defined.find((v) => v !== null) ?? null;
+}
+function medianByN(results) {
+  const groups = new Map();
+  for (const r of results) groups.set(r.n, [...(groups.get(r.n) ?? []), r]);
+  return [...groups.values()].map((g) => {
+    const ok = g.filter((r) => !r.skipped);
+    return ok.length ? mergeMedian(ok) : g[0];
+  });
+}
 
 // name → {콜럼키: text} 로 모아 마지막에 N=1·N=5·N=15(결과 순서) 열로 한 번에 피벗 렌더.
 // n 이 열 목록(cols)에 없는 값(예: 'all')으로 push 되면 모든 열에 같은 텍스트를 보여준다 — N 과 무관한 공통 행용.
-function table(results, o) {
+function table(rawResults, o) {
+  const k = Math.max(1, ...rawResults.map((r) => r.run ?? 1));
+  const results = k > 1 ? medianByN(rawResults) : rawResults;
   const cols = results.map((r) => String(r.n));
   const order = [];
   const data = new Map();
@@ -637,11 +770,26 @@ function table(results, o) {
           s.bytesPerSecByKind
             ? ` · Snapshot 프레임 ${s.bytesPerSecByKind.snapshot.toFixed(0)} B/s · movement 프레임 ${s.bytesPerSecByKind.movement.toFixed(0)} B/s · 기타 ${s.bytesPerSecByKind.other.toFixed(0)} B/s`
             : '' // --render 로 옛 원자료를 찍을 땐 이 값이 없다
+        }${
+          s.bytesPerSecByType
+            ? `<br>movement 종류별 ${Object.entries(s.bytesPerSecByType).map(([t, v]) => `${t} ${v.toFixed(1)} B/s`).join(' · ') || '없음'} · Snapshot 헤더 몫 ${s.snapshotHeaderBytesPerSec == null ? '—' : s.snapshotHeaderBytesPerSec.toFixed(0) + ' B/s'}`
+            : ''
         }`
         : '측정 불가 — 준비된 세션 없음',
       s.n,
       `부하 ${o.duration}초 동안 WebSocket message 바이트(STOMP 헤더·하트비트 포함) ÷ ${o.duration}. 전 세션이 같은 브로드캐스트를 받아 세션 간 편차는 거의 없다`,
     );
+    if (s.waypoints || s.idleEntityRatio !== undefined) {
+      const w = s.waypoints;
+      push(
+        'Snapshot IDLE 비율·PathAccepted 크기',
+        `IDLE entity ${s.idleEntityRatio == null ? '—' : (s.idleEntityRatio * 100).toFixed(1) + '%'} · waypoints ${
+          w && w.count ? `평균 ${w.mean.toFixed(1)} · 최대 ${w.max} (표본 ${w.count})` : '—'
+        } · PathAccepted 본문 평균 ${s.pathAcceptedBodyMean == null ? '—' : s.pathAcceptedBodyMean.toFixed(0) + ' B'}`,
+        s.n,
+        '부하 구간 Snapshot entity 중 state=IDLE 몫(전체 entity 수 대비), 내 PathAccepted 의 waypoints.length·본문 바이트(브로드캐스트 중복 제외)',
+      );
+    }
     push(
       '끊김·ERROR',
       [
@@ -663,13 +811,17 @@ function table(results, o) {
       s.n,
       how,
     );
-    push('틱 p50·p99', '측정 불가 — movement.tick Timer 가 백분위·히스토그램을 내지 않는다(count·sum·max 만)', s.n, '—');
+    const quantileHow = '_bucket 전후 델타(누적)에서 그 분위를 처음 넘는 bucket 의 le(상한 보수값 — 표의 ≤, 보간 없음). le=+Inf 에 걸리면 _max(max 표기)';
+    const qv = (v, over) => (v == null ? '—' : over ? `max ${ms(v)}(bucket 상한 초과)` : `≤${ms(v)}`);
+    const quantileText = (t) => (t.p50 == null && t.p99 == null ? NO_NEW_METRIC : `p50 ${qv(t.p50, t.p50Over)} · p99 ${qv(t.p99, t.p99Over)}`);
+    push('틱 p50·p99', quantileText(m.tick), s.n, quantileHow);
     push(
       'movement_pathfind_seconds',
       m.pathfind.missing ? MISSING_METRIC_TEXT : `Δcount ${m.pathfind.count} · 평균 ${ms(m.pathfind.meanMs)} · 최대 ${ms(m.pathfind.maxMs)}`,
       s.n,
       how,
     );
+    push('pathfind p50·p99', quantileText(m.pathfind), s.n, quantileHow);
     push(
       'movement_outbox_reliable_depth',
       m.depth.missing
@@ -686,6 +838,15 @@ function table(results, o) {
       '큐 상한·넘기기 실패로 닫은 세션 수(전후 델타)',
     );
     push('movement_recheck_suspended_total', counterText(m.recheckSuspended), s.n, '강퇴 재검사로 멈춘 outbox 수(전후 델타)');
+    const c = m.counters;
+    push(
+      '틱 지연·틱 건너뜀·Snapshot 건너뜀·intent 속도제한 드롭',
+      !c || Object.values(c).every((x) => x.missing)
+        ? NO_NEW_METRIC
+        : `tick.delayed ${ctr(c.tickDelayed)} · tick.skipped ${ctr(c.tickSkipped)} · snapshot.skipped ${ctr(c.snapshotSkipped)} · intent.rate_limited ${ctr(c.intentRateLimited)}`,
+      s.n,
+      'movement_tick_delayed_total · movement_tick_skipped_total · movement_snapshot_skipped_total · movement_intent_rate_limited_total 전후 델타',
+    );
     push(
       'jvm_gc_pause_seconds',
       `_max 최대 ${ms(m.gc.maxMs)} · Δcount ${m.gc.count} · Δsum ${ms(m.gc.sumMs)}`,
@@ -693,21 +854,16 @@ function table(results, o) {
       '전 GC 계열 합산. _max 는 뒤 스크레이프 기준 최근 창',
     );
   }
-  push(
-    '틱 지연·catch-up·Snapshot 건너뜀·토큰 버킷 드롭',
-    '측정 불가 — MovementTicker(delayed·skippedSnapshot·skippedTick)·RoomRuntime(rateLimitedDrop) 카운터가 지표로 노출되지 않는다',
-    'all',
-    '—',
-  );
   const esc = (c) => String(c).replaceAll('|', '\\|');
-  const header = ['항목', ...cols.map((c) => `N=${c}`), '측정 방법'];
+  const header = ['항목', ...cols.map((c) => `N=${c}${k > 1 ? ` (${k}회 중앙값)` : ''}`), '측정 방법'];
   const lines = [header, header.map(() => '---')];
   for (const name of order) {
     const byCol = data.get(name);
     const cells = cols.map((c) => (byCol.has(c) ? byCol.get(c) : byCol.has('all') ? byCol.get('all') : '—'));
     lines.push([name, ...cells, hows.get(name)]);
   }
-  return lines.map((r) => `| ${r.map(esc).join(' | ')} |`).join('\n');
+  const md = lines.map((r) => `| ${r.map(esc).join(' | ')} |`).join('\n');
+  return k > 1 ? `p50/p99 는 각 run 의 값의 중앙값이다(전체 표본의 분위가 아님).\n\n${md}` : md;
 }
 
 function selfCheck(nav) {
@@ -745,8 +901,65 @@ function selfCheck(nav) {
       'movement_pathfind_seconds',
       'movement_recheck_suspended_total',
       'movement_outbox_snapshot_superseded_total',
+      'movement_tick_delayed_total',
+      'movement_tick_skipped_total',
+      'movement_snapshot_skipped_total',
+      'movement_intent_rate_limited_total',
     ].sort(),
   );
+  // bucket 분위 — 합성 before/after. Δ 누적 = le0.01:2, le0.025:8, le0.05:10, +Inf:10 → p50 은 5번째가 드는 0.025s, p99 는 0.05s.
+  const bk = (a, b, c, d) =>
+    new Map([
+      ['movement_tick_seconds_bucket{le="0.01"}', a],
+      ['movement_tick_seconds_bucket{le="0.025"}', b],
+      ['movement_tick_seconds_bucket{le="0.05"}', c],
+      ['movement_tick_seconds_bucket{le="+Inf"}', d],
+      ['movement_tick_seconds_count', d],
+      ['movement_tick_seconds_sum', 0.2],
+      ['movement_tick_seconds_max', 0.06],
+      ['movement_tick_delayed_total', d],
+      ['movement_tick_skipped_total', 0],
+      ['movement_snapshot_skipped_total', 1],
+      ['movement_intent_rate_limited_total', a],
+    ]);
+  const q = metricSummary(bk(5, 5, 5, 5), bk(7, 13, 15, 15));
+  assert.ok(Math.abs(q.tick.p50 - 25) < 1e-9);
+  assert.ok(Math.abs(q.tick.p99 - 50) < 1e-9);
+  assert.equal(q.counters.tickDelayed.value, 10); // 카운터 델타
+  assert.equal(q.counters.intentRateLimited.value, 2);
+  assert.equal(q.counters.tickSkipped.value, 0);
+  assert.equal(q.counters.snapshotSkipped.value, 0);
+  assert.equal(q.counters.tickDelayed.missing, false);
+  // 마지막 구간이 +Inf 에만 쌓이면 p99 는 le 대신 _max(60ms) 로 표기.
+  assert.ok(Math.abs(metricSummary(bk(0, 0, 0, 0), bk(1, 1, 1, 10)).tick.p99 - 60) < 1e-9);
+  assert.equal(metricSummary(bk(0, 0, 0, 0), bk(1, 1, 1, 10)).tick.p99Over, true);
+  assert.equal(metricSummary(bk(0, 0, 0, 0), bk(1, 1, 1, 10)).tick.p50Over, true);
+  // +Inf 줄이 중간에 와도(정렬이 스크레이프 순서에 안 기댐) 같은 결과.
+  const mid = new Map([
+    ['movement_tick_seconds_bucket{le="+Inf"}', 10],
+    ['movement_tick_seconds_bucket{le="0.05"}', 10],
+    ['movement_tick_seconds_bucket{le="0.01"}', 2],
+    ['movement_tick_seconds_bucket{le="0.025"}', 8],
+    ['movement_tick_seconds_max', 0.06],
+  ]);
+  assert.ok(Math.abs(bucketQuantileMs(new Map(), mid, 'movement_tick_seconds', 0.5, 60) - 25) < 1e-9);
+  assert.ok(Math.abs(bucketQuantileMs(new Map(), mid, 'movement_tick_seconds', 0.99, 60) - 50) < 1e-9);
+  assert.equal(mergeMedian([{ n: 1 }, { n: 2 }]).n, 2); // 짝수 k 정수 필드는 반올림(1.5→2)
+  assert.equal(metricSummary(new Map(), new Map([['movement_tick_seconds_count', 1]])).tick.p50, null); // bucket 없음
+  // 프레임 type 분리 — 합성 프레임 3종(PathAccepted·Arrived 는 movement, Snapshot 은 헤더 몫 따로).
+  const mf = (dest, body) => `MESSAGE\ndestination:/topic/islands/abc${dest}\nsubscription:s\ncontent-length:${body.length}\n\n${body}\u0000`;
+  const pa = mf('/movement', '{"type":"PathAccepted","waypoints":[1,2]}');
+  const ar = mf('/movement', '{"type":"Arrived"}');
+  const sn = mf('/movement/snapshot', '{"type":"Snapshot"}');
+  const cpa = classifyFrame(pa, Buffer.byteLength(pa));
+  assert.deepEqual([cpa.kind, cpa.type], ['movement', 'PathAccepted']);
+  assert.equal(classifyFrame(ar, Buffer.byteLength(ar)).type, 'Arrived');
+  const csn = classifyFrame(sn, Buffer.byteLength(sn));
+  assert.deepEqual([csn.kind, csn.type, csn.bodyBytes], ['snapshot', undefined, 19]);
+  assert.equal(csn.headerBytes + csn.bodyBytes, Buffer.byteLength(sn));
+  // --repeat 중앙값 — 숫자는 중앙값, 객체는 재귀.
+  const med = mergeMedian([{ rtt: { p50: 10 }, sent: 3 }, { rtt: { p50: 30 }, sent: 5 }, { rtt: { p50: 20 }, sent: 4 }]);
+  assert.deepEqual(med, { rtt: { p50: 20 }, sent: 4 });
   // frameKind — MESSAGE + destination 헤더로 snapshot·movement·other 3분기.
   assert.equal(frameKind('MESSAGE\ndestination:/topic/islands/abc/movement/snapshot\nsubscription:sub-0\ncontent-length:2\n\n{}\u0000'), 'snapshot');
   assert.equal(frameKind('MESSAGE\ndestination:/topic/islands/abc/movement\nsubscription:sub-1\ncontent-length:2\n\n{}\u0000'), 'movement');
@@ -789,7 +1002,8 @@ async function main() {
   const goals = spawnRegion(nav);
   log(`섬 ${state.islandId} · 계정 ${state.accounts.length} · 목적지 후보 ${goals.length}셀`);
   const results = [];
-  for (const [i, n] of o.users.entries()) {
+  const plan = o.users.flatMap((n) => Array.from({ length: o.repeat }, (_, j) => ({ n, run: j + 1 })));
+  for (const [i, { n, run }] of plan.entries()) {
     if (i > 0) await sleep(o.gap * 1000);
     let r;
     try {
@@ -798,7 +1012,7 @@ async function main() {
       r = { n, startedAt: new Date().toISOString(), skipped: `측정 불가 — ${e.message}` };
     }
     save();
-    results.push(summarize(r, o));
+    results.push({ ...summarize(r, o), run });
   }
   console.log(table(results, o));
   if (o.json) {

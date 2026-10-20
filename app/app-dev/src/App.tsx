@@ -43,6 +43,7 @@ import {
   syncLiveActivity,
 } from '@/services/liveActivity';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
+import { saveAccountGuides } from '@/services/accountGuides';
 import { reconcileTutorial } from '@/services/tutorial';
 import { syncIOSScreenTime } from '@/services/iosScreenTimeSync';
 import { reportScreenTime, subscribeScreenTimeReporting } from '@/services/screenTimeReporting';
@@ -379,8 +380,24 @@ function Gromo() {
     [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
-  const setGuideStep = (step: number, expected?: { step: number; revision: number }) =>
+  const tutorialOwner = getSession()?.userId;
+  const tutorialGeneration = sessionGeneration();
+  const setGuideStep = (step: number, expected?: { step: number; revision: number }) => {
+    if (sessionGeneration() !== tutorialGeneration || getSession()?.userId !== tutorialOwner)
+      return;
+    const current = stateRef.current;
+    if (
+      expected &&
+      ((current.tutorial?.step ?? 0) !== expected.step ||
+        (current.tutorialRevision ?? 0) !== expected.revision)
+    )
+      return;
+    const owner = getSession()?.userId;
+    if (step >= 22 && owner && !REVIEW && !DEMO) {
+      void saveAccountGuides(owner, { focusDone: true }).catch(() => notify(t('app.storageCheck')));
+    }
     dispatch({ type: 'GUIDE_STEP', step, expected });
+  };
   const tutorialBootReconciled = useRef(false);
   const previousTutorialRoute = useRef(route);
   const [liveCounts, setLiveCounts] = useState<{
@@ -473,6 +490,8 @@ function Gromo() {
   }, []);
   const island = currentIsland(state),
     qaBuildingsReady =
+      // 검수에서 주입한 미완공·공사 중 상태를 전체 완공 프리셋으로 덮지 않는다.
+      REVIEW ||
       (!REVIEW && !DEMO && hasServerSession) ||
       !TESTFLIGHT_ALL_BUILDINGS ||
       !state.onboarded ||
@@ -1934,7 +1953,8 @@ function Gromo() {
         setText(opts.text || '');
         setBody(opts.body || '');
         setRestTravel(!!opts.travel);
-        setGuideStep(opts.guideStep || 0);
+        // LOAD로 받은 진행도를 보존한다. 안내 단계는 명시한 검수 화면에서만 바꾼다.
+        if (opts.guideStep !== undefined) setGuideStep(opts.guideStep);
         setFailNext(!!opts.failNext);
         setWalkRequest(null);
       },
@@ -2027,6 +2047,7 @@ function Gromo() {
           route,
           termsVersion: TERMS_VERSION,
           routeTransitionShielded,
+          accountDataReady: storageOwnerReady,
           dispatch,
           go,
           replace,

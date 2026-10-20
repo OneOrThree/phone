@@ -1,15 +1,14 @@
+import { useAccountGuides } from '@/screens/island/useAccountGuides';
+import { useConstructionAnnouncements } from '@/screens/island/useConstructionAnnouncements';
+import { BuildingGuide, BuildingCompletionGuide } from '@/screens/island/NpcGuide';
 import { AndroidAppPicker } from '@/components/AndroidAppPicker';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { PermissionsAndroid } from 'react-native';
-import {
-  getScreenTimeReportingConsent,
-  setScreenTimeReportingConsent,
-} from '@/services/screenTimeReporting';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
-import { componentTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
@@ -26,6 +25,7 @@ import {
   Image,
   Keyboard,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -56,7 +56,6 @@ import {
   periodBounds,
   islandWeeklyAverage,
   hoursMinutes,
-  questMemberRate,
   trackNames,
   SERVER_VISIT_ROUTES,
 } from '@/services/model';
@@ -77,6 +76,7 @@ import {
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import { RestGroup } from '@/screens/focus/RestGroup';
+import { FocusResultSummary } from '@/screens/focus/FocusResultSummary';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
   FiButton,
@@ -281,7 +281,148 @@ export function CurrentScreens({ e }: any) {
     if (friends) dispatch({ type: 'FRIENDS_SYNC', friends });
   }, [dispatch, friendsScreen.data, serverIslands]);
 
-  return <CurrentScreensContent e={{ ...e, friendsScreen }} />;
+  const owner =
+    serverIslands && e.accountDataReady !== false ? (getSession()?.userId ?? null) : null;
+  const guides = useAccountGuides(owner, e.state, dispatch);
+  useEffect(() => {
+    if (guides.data?.focusDone && e.route === 'guide') e.reset('home');
+  }, [guides.data?.focusDone, e.route, e.reset]);
+  const { joined, built } = memberGate(e.state, !!serverIslands);
+  const islandId = e.state.serverIslands?.currentIslandId ?? null;
+  const announcements = useConstructionAnnouncements(
+    owner,
+    islandId,
+    built?.join(',') ?? '',
+    !!owner &&
+      joined &&
+      !e.state.visitingIslandId &&
+      !e.state.session &&
+      e.route === 'home' &&
+      (!e.state.tutorial || e.state.tutorial.step >= 22),
+  );
+  const completion =
+    guides.data &&
+    announcements.find((b) => !guides.data!.completions.includes(`${islandId}:${b}`));
+  const routeBuildings: Partial<Record<Route, Building>> = {
+    hall: 'hall',
+    board: 'board',
+    sound: 'gram',
+    library: 'library',
+    mail: 'mail',
+    tower: 'tower',
+    shop: 'shop',
+  };
+  // 건물 내부는 안내가 끝날 때까지 마운트하지 않는다. 고양이의 도착 요청만 보관한다.
+  const generation = sessionGeneration();
+  const [entry, setEntry] = useState<{
+    owner: string;
+    generation: number;
+    islandId: string | null;
+    building: Building;
+    route: Route;
+    args: any[];
+  } | null>(null);
+  const entryRef = useRef(entry);
+  entryRef.current = entry;
+  const eligible =
+    !!owner && joined && !e.state.visitingIslandId && !e.state.session && e.route === 'home';
+  const pending =
+    eligible &&
+    entry?.owner === owner &&
+    entry.generation === generation &&
+    entry.islandId === islandId &&
+    built?.includes(entry.building)
+      ? entry
+      : null;
+  useEffect(() => {
+    if (entry && !pending) {
+      entryRef.current = null;
+      setEntry(null);
+    }
+  }, [entry, pending]);
+  useEffect(() => {
+    if (!pending || !guides.data?.buildings.includes(pending.building)) return;
+    // 저장 성공 후에만 진입한다. 섬·계정이 바뀐 요청은 위에서 폐기한다.
+    if (entryRef.current !== pending || sessionGeneration() !== pending.generation) return;
+    entryRef.current = null;
+    setEntry(null);
+    e.go(pending.route, ...pending.args);
+  }, [pending, guides.data, e.go]);
+  const go = (route: Route, ...args: any[]) => {
+    const building = routeBuildings[route];
+    if (eligible && building && built?.includes(building)) {
+      if (entryRef.current) return false;
+      if (!guides.data || !guides.data.buildings.includes(building)) {
+        const next = { owner: owner!, generation, islandId, building, route, args };
+        entryRef.current = next;
+        setEntry(next);
+        return false;
+      }
+    }
+    return e.go(route, ...args);
+  };
+  const cancelEntry = () => {
+    entryRef.current = null;
+    setEntry(null);
+  };
+  if (
+    owner &&
+    !guides.data &&
+    (e.route === 'guide' || (e.route === 'home' && e.state.tutorial && e.state.tutorial.step < 22))
+  )
+    return (
+      <Overlay close={e.home}>
+        <Txt>{guides.error || '안내 이력을 확인하고 있어요.'}</Txt>
+        {!!guides.error && <Btn title="다시 시도" onPress={guides.retry} />}
+      </Overlay>
+    );
+  if (owner && guides.data?.focusDone && e.route === 'guide') return null;
+  return (
+    <>
+      <CurrentScreensContent e={{ ...e, go, friendsScreen }} />
+      {pending && !guides.data && (
+        <Modal
+          transparent
+          animationType="none"
+          testID="building-entry-pending"
+          onRequestClose={cancelEntry}
+        >
+          <View style={{ flex: 1, justifyContent: 'center', padding: semanticTokens.spacing.page }}>
+            <GuideBox
+              text={guides.error || '안내 이력을 확인하고 있어요.'}
+              style={{ position: 'relative' }}
+            >
+              {!!guides.error && <Btn title="다시 시도" onPress={guides.retry} />}
+              <Btn title={t('common.close')} kind="sec" onPress={cancelEntry} />
+            </GuideBox>
+          </View>
+        </Modal>
+      )}
+      {completion && (
+        <BuildingCompletionGuide
+          key={`${owner}:${islandId}:${completion}`}
+          building={completion}
+          blocked={e.routeTransitionShielded}
+          saving={guides.saving}
+          error={guides.error}
+          onDone={() => void guides.done({ completions: [`${islandId}:${completion}`] })}
+        />
+      )}
+      {pending &&
+        guides.data &&
+        !completion &&
+        !guides.data.buildings.includes(pending.building) && (
+          <BuildingGuide
+            key={`${owner}:${islandId}:${pending.building}`}
+            building={pending.building}
+            blocked={e.routeTransitionShielded}
+            saving={guides.saving}
+            error={guides.error}
+            onDone={() => void guides.done({ buildings: [pending.building] })}
+          />
+        )}
+    </>
+  );
 }
 
 export function friendsSnapshotForSync(data: FriendsScreenState['data']) {
@@ -620,75 +761,6 @@ function CurrentScreensContent({ e }: any) {
   return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today }} />;
 }
 
-function ScreenTimeReportingSettings({ e }: any) {
-  const [enabled, setEnabled] = useState(false);
-  const [busy, setBusy] = useState(true);
-  const owner = getSession()?.userId;
-  useEffect(() => {
-    let active = true;
-    setBusy(true);
-    setEnabled(false);
-    if (!owner) {
-      setBusy(false);
-      return;
-    }
-    getScreenTimeReportingConsent(owner)
-      .then((value) => {
-        if (active) setEnabled(value);
-      })
-      .catch(() => {
-        if (active) e.notify('전송 동의를 확인하지 못했어요.');
-      })
-      .finally(() => {
-        if (active) setBusy(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [owner]);
-  const change = async (value: boolean) => {
-    if (!owner || busy) return;
-    setBusy(true);
-    try {
-      await setScreenTimeReportingConsent(owner, value);
-      if (getSession()?.userId === owner) setEnabled(value);
-    } catch {
-      e.notify('전송 설정을 저장하지 못했어요. 다시 시도해 주세요.');
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (Platform.OS !== 'ios' && Platform.OS !== 'android') return null;
-  return (
-    <>
-      <Group>
-        <Row
-          title="통계·퀘스트에 사용"
-          sub="사용 시간과 측정 상태를 서버에 전송해요"
-          tail={
-            <Toggle
-              label="스크린타임 서버 전송 동의"
-              value={enabled}
-              disabled={busy || !owner}
-              onChange={change}
-            />
-          }
-        />
-      </Group>
-      <Txt kind="meta">
-        선택한 앱의 사용 시간을 통계와 폰 사용 퀘스트 보상 판정에 사용해요. 앱 이름은 보내지 않아요.
-        하루 기록은 한국 시각 오전 9시에 마감되고, 다음 앱 실행 시 전송해요. 언제든 여기서 전송을 끌
-        수 있어요.
-      </Txt>
-      {e.state.settings.screenTimeSyncError && (
-        <Txt kind="meta">
-          스크린타임을 확인하거나 전송하지 못했어요. 앱이 열려 있으면 다시 시도해요.
-        </Txt>
-      )}
-    </>
-  );
-}
-
 async function openScreenTimeSettings(notify: (message: string) => void) {
   try {
     if (Platform.OS === 'android') {
@@ -705,7 +777,7 @@ function ScreenTimePermissionHelp() {
   return (
     <Txt kind="meta">
       {Platform.OS === 'android'
-        ? '거절했거나 요청을 닫았어도 다시 연결할 수 있어요. 사용 정보 접근 설정에서 GROMO를 선택하고 허용해 주세요. 앱으로 돌아오면 권한을 다시 확인해요.'
+        ? '거절했거나 요청을 닫았어도 다시 연결할 수 있어요. 사용 정보 접근 설정에서 catus를 선택하고 허용해 주세요. 앱으로 돌아오면 권한을 다시 확인해요.'
         : '거절했거나 요청을 닫았어도 아래에서 다시 요청할 수 있어요. 허용 창에서 승인과 기기 인증을 마쳐 주세요. 창이 열리지 않으면 시스템 설정에서 이 앱의 스크린타임 접근 권한을 확인해 주세요. 해당 항목이 없으면 앱으로 돌아와 다시 요청해 주세요.'}
     </Txt>
   );
@@ -720,7 +792,6 @@ function AppPermissionManager({ e }: any) {
   const [allowedCount, setAllowedCount] = useState(0);
   const [allowedPicker, setAllowedPicker] = useState(false);
   const [overlayGranted, setOverlayGranted] = useState(false);
-  const [requestAttempted, setRequestAttempted] = useState(false);
   const unavailable = !isScreenTimeAvailable || status === 'unavailable';
   const approved = status === 'approved';
   const selectedCount = selectionCount(selection);
@@ -734,7 +805,14 @@ function AppPermissionManager({ e }: any) {
           : selectedCount
             ? `${selectedCount}개 선택됨${selection?.pending ? ' · 내일부터 적용' : ''}`
             : '아직 선택하지 않았어요';
-  const permissionDescription = approved ? '허용됨' : unavailable ? '사용 불가' : '허용 필요';
+  const permissionDescription =
+    status === 'loading'
+      ? '확인 중'
+      : approved
+        ? '연결됨'
+        : unavailable
+          ? '사용 불가'
+          : '연결 필요';
 
   useEffect(() => {
     let active = true;
@@ -805,7 +883,6 @@ function AppPermissionManager({ e }: any) {
     }
     if (busy) return;
     setBusy(true);
-    setRequestAttempted(true);
     try {
       await screenTime.requestAuthorization();
       const nextStatus = await screenTime.getAuthorizationStatus();
@@ -828,7 +905,7 @@ function AppPermissionManager({ e }: any) {
 
   const changeConnection = async (next: boolean) => {
     if (next) {
-      await requestConnection();
+      if (await requestConnection()) e.go('screenTimeApps', 'settings-auto');
       return;
     }
     // Family Controls 권한은 앱에서 직접 철회할 수 없어 시스템 설정으로 보낸다.
@@ -864,13 +941,15 @@ function AppPermissionManager({ e }: any) {
       <Group>
         <Row
           title="스크린타임 연결"
-          sub="폰 사용 퀘스트와 기록에 사용해요"
+          sub={`${permissionDescription} · 폰 사용 퀘스트와 기록에 사용해요`}
           tail={
             <Toggle
               label="스크린타임 연결"
               value={approved}
               disabled={busy || status === 'loading' || unavailable}
-              onChange={changeConnection}
+              onChange={(next: boolean) => {
+                void changeConnection(next);
+              }}
             />
           }
         />
@@ -883,17 +962,6 @@ function AppPermissionManager({ e }: any) {
         />
       </Group>
       <Txt kind="meta">연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.</Txt>
-      {!approved && !unavailable && (status === 'denied' || requestAttempted) && (
-        <>
-          <ScreenTimePermissionHelp />
-          <Btn
-            title={busy ? '권한 요청 중…' : '권한 다시 요청하기'}
-            disabled={busy}
-            onPress={requestConnection}
-          />
-          <Btn title="시스템 설정 열기" kind="sec" onPress={openSystemSettings} disabled={busy} />
-        </>
-      )}
       <Txt kind="section">집중 중 허용</Txt>
       <Group>
         <Row
@@ -975,24 +1043,6 @@ function AppPermissionManager({ e }: any) {
           />
         </Group>
       )}
-      <ScreenTimeReportingSettings e={e} />
-      <Txt kind="section">시스템 설정</Txt>
-      <Group>
-        <Row
-          title="측정 권한"
-          sub={
-            Platform.OS === 'ios'
-              ? '앱 설정의 스크린타임 접근 권한 확인'
-              : 'Android 설정 › 사용 정보 접근에서 변경'
-          }
-          accessibilityLabel={`측정 권한, ${permissionDescription}`}
-          right={<Badge soft>{permissionDescription}</Badge>}
-          chevron
-          disabled={unavailable}
-          onPress={openSystemSettings}
-        />
-      </Group>
-      <Txt kind="meta">권한이 없으면 기록을 0분으로 처리하지 않고 확인이 필요한 상태로 남겨요.</Txt>
     </Sheet>
   );
 }
@@ -1009,10 +1059,8 @@ function ScreenTimePermission({ e }: any) {
   const finish = () => {
     if (boardFirst) {
       e.replace('screenTimeApps', e.detail);
-    } else if (measuredApps) {
-      e.replace('screenTimeApps', 'settings');
     } else {
-      e.back();
+      e.replace('screenTimeApps', 'settings-auto');
     }
   };
   const skip = () => {
@@ -1104,8 +1152,8 @@ function ScreenTimePermission({ e }: any) {
       <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
       <Txt>
         {Platform.OS === 'android'
-          ? '설정의 사용 정보 접근에서 GROMO를 허용해 주세요. 선택한 앱의 사용 시간을 기록해요. 화면 내용은 읽지 않으며, 집중 중 앱 차단에는 별도의 표시 권한이 필요해요.'
-          : 'GROMO가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을 썼는지나 화면 내용은 볼 수 없어요.'}
+          ? '설정의 사용 정보 접근에서 catus를 허용해 주세요. 선택한 앱의 사용 시간을 기록해요. 화면 내용은 읽지 않으며, 집중 중 앱 차단에는 별도의 표시 권한이 필요해요.'
+          : 'catus가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을 썼는지나 화면 내용은 볼 수 없어요.'}
       </Txt>
       <Group flat>
         <Row
@@ -1185,15 +1233,13 @@ function MeasuredAppPicker({ e }: any) {
     return (
       <Sheet e={e} title="측정 앱" onBack={finish} onClose={finish}>
         <AndroidAppPicker mode="measured" notify={e.notify} onDone={finish} />
-        <ScreenTimeReportingSettings e={e} />
       </Sheet>
     );
   }
   return <IOSMeasuredAppPicker e={e} />;
 }
 function IOSMeasuredAppPicker({ e }: any) {
-  const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const pickerInFlight = useRef(false);
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gateParts = String(e.detail).split('|');
@@ -1217,11 +1263,9 @@ function IOSMeasuredAppPicker({ e }: any) {
     }
     setBusy(true);
     try {
-      const active = await screenTime.getMeasurementSelectionForEditing();
-      setSelection(active);
       const picked = await screenTime.presentAppPicker();
       if (!picked) {
-        if (boardFirst) finish();
+        finish();
         return;
       }
       const count = selectionCount(picked);
@@ -1238,8 +1282,7 @@ function IOSMeasuredAppPicker({ e }: any) {
       } else {
         e.notify(`측정 앱 ${count}개를 내일부터 적용해요.`);
       }
-      setSelection(picked);
-      if (!boardFirst) finish();
+      finish();
     } catch {
       e.notify('측정 앱 선택 화면을 열지 못했어요.');
     } finally {
@@ -1248,11 +1291,7 @@ function IOSMeasuredAppPicker({ e }: any) {
     }
   };
   useEffect(() => {
-    screenTime
-      .getMeasurementSelectionForEditing()
-      .then(setSelection)
-      .catch(() => {});
-    if (!boardFirst) return;
+    // 이전 시스템 권한창·앱 화면 전환이 닫힌 뒤 한 번만 네이티브 선택기를 띄운다.
     autoTimer.current = setTimeout(openPicker, 450);
     return () => {
       if (autoTimer.current) clearTimeout(autoTimer.current);
@@ -1265,44 +1304,11 @@ function IOSMeasuredAppPicker({ e }: any) {
       onBack={boardFirst ? finish : undefined}
       onClose={boardFirst ? finish : undefined}
     >
-      <Pic id="cat/black/sitting" w={82} />
-      <Txt kind="h17">줄이고 싶은 앱을 골라주세요</Txt>
-      <Txt>
-        선택한 앱과 카테고리의 사용 시간을 15분 단위로 기록해요. 앱 이름은 Apple 선택 화면 안에서만
-        보여요.
-      </Txt>
-      <Group flat>
-        <Row
-          title="저장한 측정 대상"
-          sub={selectionCount(selection) ? `${selectionCount(selection)}개 선택됨` : '아직 없음'}
-        />
-        <Row
-          title="변경 적용"
-          sub={
-            selection?.pending
-              ? '변경 예약됨 · 다음 날 한국 시각 자정부터 적용'
-              : selectionCount(selection)
-                ? '현재 적용 중 · 변경하면 다음 날 한국 시각 자정부터'
-                : '최초 선택은 바로 적용'
-          }
-        />
-      </Group>
-      <ScreenTimeReportingSettings e={e} />
-      <Btn
-        title={busy ? '선택 화면 여는 중…' : '측정 앱 고르기'}
-        disabled={busy}
-        onPress={openPicker}
-      />
-      {boardFirst && (
-        <Btn
-          title={selectionCount(selection) ? '게시판 열기' : '나중에 하고 게시판 열기'}
-          kind="ghost"
-          onPress={finish}
-        />
+      {busy ? (
+        <ActivityIndicator color={C.ink} />
+      ) : (
+        <Btn title="측정 앱 고르기" onPress={openPicker} />
       )}
-      <Txt kind="meta">
-        선택을 바꾸는 날에는 기존 앱 기준 기록을 유지하고, 자정부터 새 대상을 측정해요.
-      </Txt>
     </Sheet>
   );
 }
@@ -1735,12 +1741,11 @@ function FocusFlow({ e: environment }: any) {
   const setupInputTarget = useSpotlightTarget(tutorialStep === 7),
     setupStartTarget = useSpotlightTarget(tutorialStep === 8),
     pauseTarget = useSpotlightTarget(tutorialStep === 14),
-    endTarget = useSpotlightTarget(tutorialStep === 17),
-    confirmEndTarget = useSpotlightTarget(tutorialStep === 18),
+    endTarget = useSpotlightTarget(tutorialStep === 17 || tutorialStep === 18),
     resultTarget = useSpotlightTarget(tutorialStep === 21);
   const [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
-    [dialog, setDialog] = useState<'music' | 'end' | 'endRest' | 'reward' | null>(null),
+    [dialog, setDialog] = useState<'music' | 'reward' | null>(null),
     [error, setError] = useState(''),
     [setupHeight, setSetupHeight] = useState(0),
     // 화면 높이 대신 실제 영역 높이(키보드가 뜨면 줄어듦)로 준비 카드 위치를 잡는다
@@ -1761,6 +1766,10 @@ function FocusFlow({ e: environment }: any) {
     [tutorialCatchStart, setTutorialCatchStart] = useState<number | null>(null),
     // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
     [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
+  const returningFromArrival = useRef(false);
+  useEffect(() => {
+    if (r !== 'fishingArrival') returningFromArrival.current = false;
+  }, [r]);
   const tutorialRequest = useRef<string | null>(null);
   const tutorialRetryAt = useRef(0);
   const tutorialReelCancel = useRef<(() => void) | null>(null);
@@ -2156,6 +2165,7 @@ function FocusFlow({ e: environment }: any) {
     e.home();
   };
   const finish = () => {
+    if (tutorialStep === 11) return;
     if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
       const requestedSessionId = s.session?.id;
       setDialog(null);
@@ -2181,7 +2191,7 @@ function FocusFlow({ e: environment }: any) {
       e.focus
         .finish()
         .then(() => {
-          advanceTutorial(18, 19);
+          advanceTutorial(tutorialStep === 17 ? 17 : 18, 19);
           e.reset('focusResult');
         })
         .catch(async (error: any) => {
@@ -2203,7 +2213,7 @@ function FocusFlow({ e: environment }: any) {
       return;
     }
     e.dispatch({ type: 'FINISH' });
-    advanceTutorial(18, 19);
+    advanceTutorial(tutorialStep === 17 ? 17 : 18, 19);
     e.reset('focusResult');
   };
   // 내 자리: 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
@@ -2443,10 +2453,28 @@ function FocusFlow({ e: environment }: any) {
     advanceTutorial(15, 16);
     setVoyage('toSpot');
   };
-  // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
+  const returnFromArrival = () => {
+    if (
+      r !== 'fishingArrival' ||
+      returningFromArrival.current ||
+      (tutorialStep >= 5 && tutorialStep <= 21) ||
+      goldenCutsceneRef.current ||
+      goldenQueueTimerRef.current
+    )
+      return;
+    // 자리로 걷던 중에도 귀환할 수 있다. 기존 걷기 콜백을 취소하고 뗏목으로 향한다.
+    returningFromArrival.current = true;
+    const sail = () => latest.current.r === 'fishingArrival' && e.go('returnTravel');
+    if (!walkTo(LANDING, sail)) sail();
+  };
+  // 뒤로가기: 자리 선택 중에는 귀환하고, 나머지 걷기·항해 중에는 막는다. 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
     if (tutorialStep >= 5 && tutorialStep <= 21) return true;
     if (goldenCutsceneRef.current || goldenQueueTimerRef.current) return true;
+    if (r === 'fishingArrival') {
+      returnFromArrival();
+      return true;
+    }
     if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
       // 서버 수령은 명시적 버튼으로만 — 뒤로가기는 모달을 닫고 나간다
@@ -2473,7 +2501,7 @@ function FocusFlow({ e: environment }: any) {
       return true;
     }
     if (r === 'focus' && s.session) {
-      setDialog('end');
+      e.notify(t('focusFlow.common.holdEndHint'));
       return true;
     }
     return false;
@@ -2538,9 +2566,6 @@ function FocusFlow({ e: environment }: any) {
         live={liveIslandId ? live : null}
         home={e.home}
         resume={resume}
-        endRest={finish}
-        confirming={dialog === 'endRest'}
-        setConfirming={(open) => setDialog(open ? 'endRest' : null)}
         tutorial={
           tutorialStep === 15
             ? {
@@ -2572,7 +2597,14 @@ function FocusFlow({ e: environment }: any) {
       return t('focusFlow.spot.noCatchRoom');
     return null;
   };
+  const availableSpots =
+    r === 'fishingArrival'
+      ? [DEFAULT_SPOT, ...PEER_SPOTS]
+          .filter((p) => !spotError(p) && landPath(fishingGrid, walker.p, p).length > 0)
+          .slice(0, 8)
+      : [];
   const selectSpot = (p: Point) => {
+    if (returningFromArrival.current) return;
     const error = spotError(p);
     if (error) {
       e.notify(error);
@@ -2602,15 +2634,12 @@ function FocusFlow({ e: environment }: any) {
   const raft = () => {
     if (tutorialStep >= 5 && tutorialStep <= 21) return;
     if (r === 'fishingArrival') {
-      const sail = () => latest.current.r === 'fishingArrival' && e.go('returnTravel');
-      if (!walkTo(LANDING, sail)) sail();
-    } else if (r === 'focus' && s.session && !leg) setDialog('end');
+      returnFromArrival();
+    } else if (r === 'focus' && s.session && !leg) e.notify(t('focusFlow.common.holdEndHint'));
   };
   const start = () => {
-    if (!e.text.trim()) {
-      setError(t('focusFlow.setup.subjectRequired'));
-      return;
-    }
+    const subject = e.text.trim() || t('focusFlow.setup.defaultSubject');
+    Keyboard.dismiss();
     if (!e.focus && !i.joined) {
       e.notify(t('focusFlow.setup.needsIsland'));
       e.replace('chooseIsland');
@@ -2620,7 +2649,7 @@ function FocusFlow({ e: environment }: any) {
       // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
       setError('');
       e.focus
-        .start({ subject: e.text.trim() })
+        .start({ subject })
         .then(() => {
           advanceTutorial(8, 9);
           e.go('focus');
@@ -2628,28 +2657,21 @@ function FocusFlow({ e: environment }: any) {
         .catch((error: any) => setError(errorTextOr(error, 'focusFlow.setup.startFailed')));
       return;
     }
-    e.dispatch({ type: 'START', subject: e.text });
+    e.dispatch({ type: 'START', subject });
     advanceTutorial(8, 9);
     e.go('focus');
   };
   const finishInput = () => {
-    if (!e.text.trim()) {
-      setError(t('focusFlow.setup.subjectRequired'));
-      return;
-    }
     Keyboard.dismiss();
     e.setGuideStep(8);
   };
+  const closeSetup = () => {
+    Keyboard.dismiss();
+    setError('');
+    if (tutorialStep === 7 || tutorialStep === 8) e.setGuideStep(5);
+    e.replace('fishingArrival');
+  };
   const skipTutorial = () => e.setGuideStep(99);
-  const openEnd = () => {
-    if (tutorialStep === 11) return;
-    if (tutorialStep === 17) e.setGuideStep(18);
-    setDialog('end');
-  };
-  const cancelEnd = () => {
-    setDialog(null);
-    if (tutorialStep === 18) e.setGuideStep(17);
-  };
   const finishResult = () => {
     if (tutorialStep === 21) e.setGuideStep(22);
     done();
@@ -2659,123 +2681,18 @@ function FocusFlow({ e: environment }: any) {
     resultDay = dayKey(resultAt),
     focusQuests = i.quests.filter((q) => q.type === 'focus'),
     achieved = focusQuests.filter((q) => q.rounds?.[resultDay]?.achieved.includes('me'));
+  const achievedQuestTitles = serverQuests
+    ? boardQ.quests.filter((q) => q.claimable || q.claimed).map((q) => q.title)
+    : achieved.map((q) => q.title);
   const resultModal = (
-    <FiModal hidden={dialog === 'reward'}>
-      <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
-        {t('focusFlow.result.title')}
-      </Text>
-      <Text style={{ fontSize: 19, lineHeight: 30.4, fontWeight: '900', color: INK }}>
-        {result?.subject ?? t('focusFlow.result.defaultSubject')}
-      </Text>
-      <View style={{ gap: 8, marginVertical: wide ? 12 : 18 }}>
-        <View
-          style={{
-            backgroundColor: C.paper,
-            borderWidth: 2,
-            borderColor: OUTLINE,
-            borderRadius: 13,
-            paddingTop: 10,
-            paddingHorizontal: 8,
-            paddingBottom: 8,
-            alignItems: 'center',
-          }}
-        >
-          <Text
-            style={{
-              fontSize: wide ? 32 : 42,
-              lineHeight: (wide ? 32 : 42) * 1.1,
-              fontWeight: '900',
-              letterSpacing: -1.5,
-              fontVariant: ['tabular-nums'],
-              color: INK,
-            }}
-          >
-            {hms(result?.seconds ?? 0)}
-          </Text>
-          <Text style={{ fontSize: 11, lineHeight: 22.4, color: INK }}>
-            {t('focusFlow.result.durationLabel')}
-          </Text>
-        </View>
-        <View
-          style={{
-            alignSelf: 'center',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            paddingVertical: 4,
-            paddingHorizontal: 12,
-            backgroundColor: C.butter,
-            borderWidth: 2,
-            borderColor: OUTLINE,
-            borderRadius: 13,
-          }}
-        >
-          <Image source={art.fish} style={{ width: 26, height: 26 }} />
-          <Text style={{ fontSize: 15, lineHeight: 19.5, fontWeight: '900', color: INK }}>
-            {t('focusFlow.result.fishCount', { count: result?.fish ?? 0 })}
-          </Text>
-        </View>
-      </View>
-      {/* 퀘스트가 여럿이거나 화면이 낮으면 카드(FiModal) 안에서 통째로 스크롤한다 */}
-      <View
-        style={{
-          backgroundColor: C.paper,
-          borderWidth: 2,
-          borderColor: OUTLINE,
-          borderRadius: 13,
-          paddingVertical: 9,
-          paddingHorizontal: 12,
-        }}
-      >
-        <Text style={{ fontSize: 11, lineHeight: 17.6, fontWeight: '700', color: '#7C6857' }}>
-          {t('focusFlow.result.questsAchievedTitle')}
-        </Text>
-        <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
-          {serverQuests
-            ? // 서버 회차 — 달성은 claimable·claimed 플래그가 정본이다(rate 추정 금지).
-              boardQ.loading
-              ? t('focusFlow.result.checking')
-              : boardQ.error
-                ? t('focusFlow.result.checkFailed')
-                : boardQ.quests.filter((q) => q.claimable || q.claimed).length
-                  ? boardQ.quests
-                      .filter((q) => q.claimable || q.claimed)
-                      .map((q) => '✓ ' + q.title)
-                      .join('\n')
-                  : boardQ.quests[0]
-                    ? t('focusFlow.result.notYetServerRate', {
-                        title: boardQ.quests[0].title,
-                        rate:
-                          boardQ.quests[0].myRate == null
-                            ? t('focusFlow.result.notMeasuredYet')
-                            : `${boardQ.quests[0].myRate}%`,
-                      })
-                    : t('focusFlow.result.notYet')
-            : achieved.length
-              ? achieved.map((q) => '✓ ' + q.title).join('\n')
-              : focusQuests[0]
-                ? t('focusFlow.result.notYetLocalRate', {
-                    title: focusQuests[0].title,
-                    current: Math.floor(
-                      ((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) *
-                        focusQuests[0].target) /
-                        100,
-                    ),
-                    target: focusQuests[0].target,
-                  })
-                : t('focusFlow.result.notYet')}
-        </Text>
-      </View>
-      <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
-        <View
-          ref={resultTarget.ref}
-          collapsable={false}
-          onLayout={resultTarget.measure}
-          style={{ flex: 1 }}
-        >
+    <FiModal
+      hidden={dialog === 'reward'}
+      footer={
+        <View ref={resultTarget.ref} collapsable={false} onLayout={resultTarget.measure}>
           <FiButton
             primary
             id="result-done"
+            multiline
             title={
               s.resultFromRest || tutorialStep === 21
                 ? t('focusFlow.common.backToIsland')
@@ -2784,7 +2701,14 @@ function FocusFlow({ e: environment }: any) {
             onPress={finishResult}
           />
         </View>
-      </View>
+      }
+    >
+      <FocusResultSummary
+        subject={result?.subject ?? t('focusFlow.result.defaultSubject')}
+        seconds={result?.seconds ?? 0}
+        fish={result?.fish ?? 0}
+        questTitles={achievedQuestTitles}
+      />
     </FiModal>
   );
   const rewardModal =
@@ -2839,9 +2763,8 @@ function FocusFlow({ e: environment }: any) {
           text={t('focusFlow.tutorial.step7')}
         >
           <Btn
-            title={t('focusFlow.tutorial.step7Done')}
+            title={t(e.text.trim() ? 'focusFlow.tutorial.step7Done' : 'focusFlow.setup.skip')}
             small
-            disabled={!e.text.trim()}
             onPress={finishInput}
           />
         </TutorialSpotlight>
@@ -2870,22 +2793,17 @@ function FocusFlow({ e: environment }: any) {
       );
     if (r === 'focus' && tutorialStep === 16)
       return tutorialNext(t('focusFlow.tutorial.step16'), 17);
-    if (r === 'focus' && tutorialStep === 17)
+    if (r === 'focus' && (tutorialStep === 17 || tutorialStep === 18))
       return (
-        <TutorialSpotlight
-          target={endTarget.rect}
-          action={{ title: t('focusFlow.common.endFocus'), onPress: openEnd }}
-          text={t('focusFlow.tutorial.step17')}
-        />
-      );
-    if (r === 'focus' && tutorialStep === 18)
-      return (
-        <TutorialSpotlight
-          target={confirmEndTarget.rect}
-          text={t('focusFlow.tutorial.step18')}
-          action={{ title: t('focusFlow.common.endFocus'), onPress: finish }}
-        >
-          <Btn title={t('focusFlow.common.continueAction')} kind="ghost" onPress={cancelEnd} />
+        <TutorialSpotlight target={endTarget.rect} text={t('focusFlow.tutorial.step17')}>
+          {(screenReader || !endTarget.rect) && (
+            <FiButton
+              title={t('focusFlow.common.endFocus')}
+              holdToConfirm
+              haptics={s.settings.haptics}
+              onPress={finish}
+            />
+          )}
         </TutorialSpotlight>
       );
     if (r === 'focusResult' && tutorialStep === 19)
@@ -2999,17 +2917,20 @@ function FocusFlow({ e: environment }: any) {
             }}
           >
             <Text style={fiTitle(18)}>{t('focusFlow.setup.title')}</Text>
-            <View style={{ width: 44, height: 44, position: 'relative' }}>
-              <View style={{ position: 'absolute', left: 22, top: 36 }}>
-                <CatSprite
-                  color={s.color}
-                  motion="tilt"
-                  size={44}
-                  reduce={reduce}
-                  testID="focus-setup-cat"
-                />
-              </View>
-            </View>
+            <Pressable
+              testID="close-focus-setup"
+              accessibilityRole="button"
+              accessibilityLabel={t('focusFlow.setup.close')}
+              onPress={closeSetup}
+              style={{
+                minWidth: semanticTokens.size.tapMin,
+                minHeight: semanticTokens.size.tapMin,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={fiTitle(semanticTokens.typography.title)}>×</Text>
+            </Pressable>
           </View>
           <Text
             style={{
@@ -3056,18 +2977,18 @@ function FocusFlow({ e: environment }: any) {
             </Text>
           )}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <FiButton
-              title={t('focusFlow.setup.pickAnotherSpot')}
-              style={{ flex: 1 }}
-              onPress={e.back}
-            />
             <View
               ref={setupStartTarget.ref}
               collapsable={false}
               onLayout={setupStartTarget.measure}
               style={{ flex: 1 }}
             >
-              <FiButton primary title={t('focus.start')} id="start-focus" onPress={start} />
+              <FiButton
+                primary
+                title={t(e.text.trim() ? 'focus.start' : 'focusFlow.setup.skipAndStart')}
+                id="start-focus"
+                onPress={start}
+              />
             </View>
           </View>
         </View>
@@ -3121,7 +3042,43 @@ function FocusFlow({ e: environment }: any) {
           onGram={focusing ? () => setDialog('music') : undefined}
           seated={seated}
           inert={!!dialog || r === 'focusResult' || !!goldenCutscene}
-          overlay={r === 'focusSetup' ? setup : undefined}
+          overlayBlocksMap={r === 'focusSetup'}
+          overlay={
+            r === 'focusSetup'
+              ? setup
+              : r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21)
+                ? (toScreen) => (
+                    <View
+                      testID="focus-arrival-hint"
+                      pointerEvents="none"
+                      accessibilityLiveRegion="polite"
+                      style={{
+                        position: 'absolute',
+                        top: Math.min(
+                          toScreen({ x: 50, y: 100 }).y + semanticTokens.spacing.control,
+                          (boxHeight || L.height) -
+                            safe.bottom -
+                            componentTokens.focusArrival.bottomReserve,
+                        ),
+                        left: safe.left + semanticTokens.spacing.page,
+                        right: safe.right + semanticTokens.spacing.page,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          ...hudText,
+                          textAlign: 'center',
+                          fontSize: componentTokens.focusArrival.fontSize,
+                          lineHeight: componentTokens.focusArrival.lineHeight,
+                          fontWeight: componentTokens.focusArrival.fontWeight,
+                        }}
+                      >
+                        {t('focusFlow.spot.pickPrompt')}
+                      </Text>
+                    </View>
+                  )
+                : undefined
+          }
           goldenFish={goldenFish}
         >
           {(size, sizeY, zoom) => {
@@ -3161,6 +3118,30 @@ function FocusFlow({ e: environment }: any) {
             });
             return (
               <>
+                {availableSpots.map((spot, index) => {
+                  const diameter = componentTokens.focusArrival.markerSize;
+                  return (
+                    <Pressable
+                      key={`${spot.x}:${spot.y}`}
+                      testID={`focus-available-spot-${index}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('focusFlow.spot.available')}
+                      onPress={() => selectSpot(spot)}
+                      hitSlop={(semanticTokens.size.tapMin - diameter) / 2}
+                      style={{
+                        position: 'absolute',
+                        left: (size * spot.x) / 100 - diameter / 2,
+                        top: (sizeY * spot.y) / 100 - diameter / 2,
+                        width: diameter,
+                        height: diameter,
+                        borderRadius: diameter / 2,
+                        borderWidth: componentTokens.focusArrival.markerStroke,
+                        borderColor: componentTokens.focusArrival.markerColor,
+                        boxShadow: componentTokens.focusArrival.markerShadow,
+                      }}
+                    />
+                  );
+                })}
                 {peers.map((actor) => (
                   <FishingPeerActorView
                     key={actor.key}
@@ -3241,12 +3222,33 @@ function FocusFlow({ e: environment }: any) {
             );
           }}
         </FishingIsland>
+        {r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21) && (
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: 'absolute',
+              top: safe.top + semanticTokens.spacing.control,
+              left: safe.left + semanticTokens.spacing.page,
+              right: safe.right + semanticTokens.spacing.page,
+              gap: semanticTokens.spacing.control,
+              alignItems: 'flex-start',
+            }}
+          >
+            <FiButton
+              title={t('focusFlow.spot.backToMainIsland')}
+              id="leave-fishing-arrival"
+              onPress={returnFromArrival}
+            />
+          </View>
+        )}
         {liveIslandId && live.status === 'error' && (
           <View
             style={{
               position: 'absolute',
               zIndex: 5,
-              top: Math.max(56, safe.top + 8),
+              ...(r === 'fishingArrival'
+                ? { bottom: safe.bottom + semanticTokens.spacing.page }
+                : { top: Math.max(56, safe.top + 8) }),
               left: Math.max(18, safe.left + 8),
             }}
           >
@@ -3339,34 +3341,16 @@ function FocusFlow({ e: environment }: any) {
                 onLayout={endTarget.measure}
                 style={{ flex: 1 }}
               >
-                <FiButton title={t('focusFlow.common.endFocus')} id="end-focus" onPress={openEnd} />
+                <FiButton
+                  title={t('focusFlow.common.endFocus')}
+                  id="end-focus"
+                  key={s.session?.id}
+                  holdToConfirm
+                  haptics={s.settings.haptics}
+                  onPress={finish}
+                />
               </View>
             </View>
-            {dialog === 'end' && !goldenReeling && (
-              <FiModal>
-                <Text style={fiTitle(wide ? 19 : 22)}>{t('focusFlow.hud.endConfirmTitle')}</Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
-                  <FiButton
-                    title={t('focusFlow.common.continueAction')}
-                    style={{ flex: 1 }}
-                    onPress={cancelEnd}
-                  />
-                  <View
-                    ref={confirmEndTarget.ref}
-                    collapsable={false}
-                    onLayout={confirmEndTarget.measure}
-                    style={{ flex: 1 }}
-                  >
-                    <FiButton
-                      primary
-                      title={t('focusFlow.common.endFocus')}
-                      id="confirm-finish"
-                      onPress={finish}
-                    />
-                  </View>
-                </View>
-              </FiModal>
-            )}
             {dialog === 'music' && !goldenReeling && (
               <FiModal>
                 <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>

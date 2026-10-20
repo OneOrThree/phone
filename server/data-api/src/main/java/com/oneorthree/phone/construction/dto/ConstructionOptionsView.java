@@ -18,7 +18,8 @@ public record ConstructionOptionsView(
         long walletVersion,
         List<ConstructionOptionItem> items,
         ConstructionResidentProgress residentProgress,
-        ActiveConstruction activeConstruction) {
+        ActiveConstruction activeConstruction,
+        List<String> contributedCompletions) {
 
     /** 다른 기기에서도 진행 중인 공사를 식별하고 완공 여부를 재조회할 수 있는 구간. */
     public record ActiveConstruction(String buildingId, Instant startedAt, Instant completesAt) {

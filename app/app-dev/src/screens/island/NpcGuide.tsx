@@ -14,6 +14,7 @@ import {
   type LayoutRectangle,
   type ViewProps,
 } from 'react-native';
+import { buildingNames, type Building } from '@/services/model';
 import { assets } from '@/constants/assets';
 import { t } from '@/i18n';
 import { Btn, C, Txt } from '@/design-system/patterns';
@@ -329,27 +330,73 @@ export function TutorialSpotlight({
   );
 }
 
-const lines = [
-  '우체통이 생겼네!\n난 친구들의 편지를 배달하는 펠리컨이야.',
-  '여기서 섬 친구들과 이야기하고, 친구에게 편지도 보낼 수 있어.',
-  '친구에게 편지가 오면 내가 우체통 위에 앉아 있을게.\n그때 우체통을 눌러 봐!',
-];
+const buildingLines: Record<Building, string[]> = {
+  hall: [
+    '마을회관에서는 섬 정보와 주민, 공동 통장을 확인할 수 있어.',
+    '방장은 여기서 다음에 지을 건물을 고르고 섬을 관리할 수 있어.',
+  ],
+  board: [
+    '게시판에서는 섬 공지와 퀘스트를 확인할 수 있어.',
+    '공지에 댓글로 이야기하고, 퀘스트에 함께 참여해 봐!',
+  ],
+  gram: [
+    '축음기에서는 섬에서 함께 들을 음악을 고를 수 있어.',
+    '음악을 재생하거나 멈추면 같은 섬의 친구들에게도 함께 반영돼.',
+  ],
+  library: [
+    '도서관에서는 집중 기록과 휴대폰 사용 시간을 돌아볼 수 있어.',
+    '달력에서 날짜를 골라 기록을 확인해 봐!',
+  ],
+  mail: [
+    '난 친구들의 편지를 배달하는 펠리컨이야.',
+    '여기서 섬 친구들과 이야기하고, 친구에게 편지도 보낼 수 있어.',
+    '친구에게 편지가 오면 내가 우체통 위에 앉아 있을게.\n그때 우체통을 눌러 봐!',
+  ],
+  tower: [
+    '전망대에서는 다른 섬을 찾아보고 섬들의 순위를 볼 수 있어.',
+    '마음에 드는 섬을 발견하면 구경하러 가 봐!',
+  ],
+  shop: [
+    '강아지 상점에 어서 와!\n옷과 섬 꾸미기를 둘러볼 수 있어.',
+    '다 같이 모은 물고기로 마음에 드는 걸 골라 봐.\n이 섬을 너희답게 꾸며 보자!',
+  ],
+};
 
-export function MailboxGuide({
+function BuildingDialogue({
+  building,
+  lines,
   onDone,
+  onCancel = onDone,
   blocked = false,
+  error,
+  saving = false,
+  testID,
+  lastTitle = '확인',
 }: {
-  onDone: (openMailbox: boolean) => void;
+  building: Building;
+  lines: string[];
+  onDone: () => void;
+  onCancel?: () => void;
   blocked?: boolean;
+  error?: string;
+  saving?: boolean;
+  testID: string;
+  lastTitle?: string;
 }) {
   const [step, setStep] = useState(0);
   const layout = useAppLayout();
   const last = step === lines.length - 1;
+  const disabled = blocked || saving;
   return (
-    <Modal transparent animationType="none" onRequestClose={() => !blocked && onDone(false)}>
+    <Modal
+      transparent
+      animationType="none"
+      testID={testID}
+      onRequestClose={() => !disabled && onCancel()}
+    >
       <View
-        testID="mailbox-guide-overlay"
-        pointerEvents={blocked ? 'none' : 'auto'}
+        testID={`${testID}-overlay`}
+        pointerEvents={disabled ? 'none' : 'auto'}
         accessibilityElementsHidden={blocked}
         importantForAccessibility={blocked ? 'no-hide-descendants' : 'auto'}
         accessibilityViewIsModal
@@ -369,17 +416,24 @@ export function MailboxGuide({
           bounces={false}
         >
           <GuideBox
-            character="pelican"
+            character={building === 'mail' ? 'pelican' : building === 'shop' ? 'dog' : 'mongdol'}
             text={lines[step]}
-            style={styles.mailboxBox}
-            onSkip={() => onDone(false)}
-            skipTitle="건너뛰기"
+            style={building === 'shop' ? styles.shopBox : styles.mailboxBox}
+            onSkip={disabled ? undefined : onDone}
+            skipTitle="안내 그만 보기"
           >
+            {error && <Txt accessibilityRole="alert">{error}</Txt>}
             <Btn
-              title={last ? '우체통 열기' : '다음'}
+              title={saving ? '저장 중' : last ? lastTitle : '다음'}
+              disabled={disabled}
               dialog
               style={styles.next}
-              onPress={() => (last ? onDone(true) : setStep((current) => current + 1))}
+              onPress={() => {
+                if (!disabled) {
+                  if (last) onDone();
+                  else setStep(step + 1);
+                }
+              }}
             />
           </GuideBox>
         </ScrollView>
@@ -388,69 +442,74 @@ export function MailboxGuide({
   );
 }
 
-const shopLines = [
-  '드디어 마지막 건물까지 완성됐네!\n멀리서 이 섬이 자라는 걸 계속 보고 있었어.',
-  '상점이 열릴 날만 기다리면서\n옷이랑 섬 꾸미기를 한가득 모아 왔지.',
-  '다 같이 모은 물고기로 마음에 드는 걸 골라 봐.\n이제 이 섬을 너희답게 꾸밀 차례야!',
-];
+export function BuildingGuide(props: {
+  building: Building;
+  onDone: () => void;
+  blocked?: boolean;
+  saving?: boolean;
+  error?: string;
+}) {
+  return (
+    <BuildingDialogue {...props} lines={buildingLines[props.building]} testID="building-guide" />
+  );
+}
 
+export function BuildingCompletionGuide(props: {
+  building: Building;
+  onDone: () => void;
+  blocked?: boolean;
+  saving?: boolean;
+  error?: string;
+}) {
+  return (
+    <BuildingDialogue
+      {...props}
+      lines={[
+        `${buildingNames[props.building]} 공사가 끝났어!\n네가 모아 준 물고기가 힘이 되었어. 고마워!`,
+      ]}
+      testID="building-completion-guide"
+    />
+  );
+}
+
+export function MailboxGuide({
+  onDone,
+  blocked,
+}: {
+  onDone: (open: boolean) => void;
+  blocked?: boolean;
+}) {
+  return (
+    <BuildingDialogue
+      building="mail"
+      lines={buildingLines.mail}
+      onDone={() => onDone(true)}
+      onCancel={() => onDone(false)}
+      blocked={blocked}
+      testID="mailbox-guide"
+      lastTitle="우체통 열기"
+    />
+  );
+}
 export function ShopGuide({
   onDone,
   onCancel,
-  blocked = false,
+  blocked,
 }: {
   onDone: () => void;
   onCancel: () => void;
   blocked?: boolean;
 }) {
-  const [step, setStep] = useState(0);
-  const layout = useAppLayout();
-  const last = step === shopLines.length - 1;
   return (
-    <Modal
-      transparent
-      animationType="none"
+    <BuildingDialogue
+      building="shop"
+      lines={buildingLines.shop}
+      onDone={onDone}
+      onCancel={onCancel}
+      blocked={blocked}
       testID="shop-guide"
-      onRequestClose={() => !blocked && onCancel()}
-    >
-      <View
-        testID="shop-guide-overlay"
-        pointerEvents={blocked ? 'none' : 'auto'}
-        accessibilityElementsHidden={blocked}
-        importantForAccessibility={blocked ? 'no-hide-descendants' : 'auto'}
-        accessibilityViewIsModal
-        style={[
-          styles.overlay,
-          {
-            paddingTop: layout.insets.top + space[3],
-            paddingBottom: layout.insets.bottom + space[3],
-            paddingLeft: layout.insets.left + space[5],
-            paddingRight: layout.insets.right + space[5],
-          },
-        ]}
-      >
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          bounces={false}
-        >
-          <GuideBox
-            character="dog"
-            text={shopLines[step]}
-            style={styles.shopBox}
-            onSkip={onDone}
-            skipTitle="건너뛰기"
-          >
-            <Btn
-              title={last ? '상점 둘러보기' : '다음'}
-              dialog
-              style={styles.next}
-              onPress={() => (last ? onDone() : setStep((current) => current + 1))}
-            />
-          </GuideBox>
-        </ScrollView>
-      </View>
-    </Modal>
+      lastTitle="상점 둘러보기"
+    />
   );
 }
 

@@ -1,0 +1,99 @@
+{
+  "mode": "movement",
+  "trafficPattern": "aligned-periodic",
+  "runId": "67af2907-2f6f-466a-9a11-7ae3e8de0749",
+  "messageTypes": {
+    "FullState": 550,
+    "PathAccepted": 198840,
+    "Arrived": 32700,
+    "Snapshot": 41280
+  },
+  "targets": [
+    "ws://localhost:18088/ws/realtime"
+  ],
+  "userOffset": 0,
+  "serverConnections": [
+    {
+      "metric": {
+        "__name__": "realtime_websocket_sessions",
+        "instance": "realtime:9091",
+        "job": "realtime",
+        "service": "realtime"
+      },
+      "value": [
+        1792308100.938,
+        "100"
+      ]
+    },
+    {
+      "metric": {
+        "__name__": "realtime_websocket_sessions",
+        "instance": "realtime-2:9091",
+        "job": "realtime",
+        "service": "realtime"
+      },
+      "value": [
+        1792308100.938,
+        "0"
+      ]
+    }
+  ],
+  "eventWindowStart": 1792308077932,
+  "eventWindowEnd": 1792308097933,
+  "eventReceipts": [],
+  "receivedBytes": 226191160,
+  "sentBytes": 3533000,
+  "fullyDeliveredMessages": 19884,
+  "sendPerSecond": 994.1621700416895,
+  "deliveryPerSecond": 9941.621700416896,
+  "goodputPerSecond": 994.1621700416895,
+  "latestCommandConfirmed": 100,
+  "loadgen": {
+    "rssBytes": 230391808,
+    "cpuCores": 0.4631324521374216
+  },
+  "startedAt": "2026-10-18T07:21:15.751Z",
+  "endedAt": "2026-10-18T07:21:40.948Z",
+  "connections": 100,
+  "ready": 100,
+  "seconds": 20,
+  "frequency": 10,
+  "measurementMs": 20000.761042,
+  "sent": 19884,
+  "expectedDeliveries": 198840,
+  "delivered": 198840,
+  "missing": 0,
+  "duplicate": 0,
+  "frames": 273370,
+  "snapshots": 41280,
+  "errors": 0,
+  "rejected": 0,
+  "errorCodes": {},
+  "connectMs": {
+    "count": 100,
+    "p50": 2.6604579999999487,
+    "p95": 5.635667000000012,
+    "p99": 8.157332999999994,
+    "max": 20.783749999999998
+  },
+  "readyMs": {
+    "count": 100,
+    "p50": 32.22337499999992,
+    "p95": 54.933874999999944,
+    "p99": 58.67099999999999,
+    "max": 73.52033399999999
+  },
+  "deliveryMs": {
+    "count": 198840,
+    "p50": 53.50837499999761,
+    "p95": 69.04429199999959,
+    "p99": 72.58291599999939,
+    "max": 83.39104099999895
+  },
+  "eventLoopDelayMs": {
+    "mean": 20.79394993719008,
+    "max": 23.248895,
+    "p99": 22.675455
+  },
+  "valid": true
+}

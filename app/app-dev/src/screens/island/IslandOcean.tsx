@@ -1,6 +1,5 @@
-import React, { useId } from 'react';
-import { StyleSheet } from 'react-native';
-import Svg, { Defs, Image, Pattern, Rect } from 'react-native-svg';
+import React, { useState } from 'react';
+import { Image, PixelRatio, StyleSheet, View } from 'react-native';
 
 export const islandTerrain = {
   day: require('@/assets/backgrounds/island/ocean/home-day.png'),
@@ -12,7 +11,30 @@ const water = {
 };
 export const OCEAN_WORLD_SIZE = 512;
 
-/** 해안과 바다가 같은 월드 원점·배율을 쓴다. Android는 x/y 대신 셰이더 행렬로 원점을 옮긴다. */
+/** 화면에 걸치는 타일만 만든다. 인접 경계를 같이 반올림해 소수 배율에서도 빈 선이 없게 한다. */
+export function visibleOceanTiles(
+  width: number,
+  height: number,
+  left: number,
+  top: number,
+  scale: number,
+) {
+  const size = OCEAN_WORLD_SIZE * scale;
+  if (width <= 0 || height <= 0 || size <= 0) return [];
+  const tiles = [];
+  for (let row = Math.floor(-top / size); row < Math.ceil((height - top) / size); row++) {
+    const y = PixelRatio.roundToNearestPixel(top + row * size);
+    const bottom = PixelRatio.roundToNearestPixel(top + (row + 1) * size);
+    for (let col = Math.floor(-left / size); col < Math.ceil((width - left) / size); col++) {
+      const x = PixelRatio.roundToNearestPixel(left + col * size);
+      const right = PixelRatio.roundToNearestPixel(left + (col + 1) * size);
+      tiles.push({ key: `${col}:${row}`, left: x, top: y, width: right - x, height: bottom - y });
+    }
+  }
+  return tiles;
+}
+
+/** 해안과 바다가 같은 월드 원점·배율을 쓴다. SVG Pattern의 네이티브 이동 시 잘림을 피한다. */
 export function IslandOcean({
   left,
   top,
@@ -24,35 +46,38 @@ export function IslandOcean({
   scale: number;
   night?: boolean;
 }) {
-  const id = `island-ocean-${useId().replace(/:/g, '')}`;
-  const size = OCEAN_WORLD_SIZE * scale;
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const tiles = visibleOceanTiles(viewport.width, viewport.height, left, top, scale);
   return (
-    <Svg
+    <View
       testID="island-ocean"
       pointerEvents="none"
-      width="100%"
-      height="100%"
-      style={StyleSheet.absoluteFill}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={styles.viewport}
+      onLayout={({ nativeEvent: { layout } }) => {
+        setViewport((current) =>
+          current.width === layout.width && current.height === layout.height
+            ? current
+            : { width: layout.width, height: layout.height },
+        );
+      }}
     >
-      <Defs>
-        <Pattern
-          id={id}
-          x={0}
-          y={0}
-          width={size}
-          height={size}
-          patternTransform={`translate(${left} ${top})`}
-          patternUnits="userSpaceOnUse"
-        >
-          <Image
-            href={water[night ? 'night' : 'day']}
-            width={size}
-            height={size}
-            preserveAspectRatio="none"
-          />
-        </Pattern>
-      </Defs>
-      <Rect width="100%" height="100%" fill={`url(#${id})`} />
-    </Svg>
+      {tiles.map(({ key, ...box }) => (
+        <Image
+          key={key}
+          source={water[night ? 'night' : 'day']}
+          accessible={false}
+          fadeDuration={0}
+          resizeMode="stretch"
+          style={[styles.tile, box]}
+        />
+      ))}
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  viewport: { ...StyleSheet.absoluteFill, overflow: 'hidden' },
+  tile: { position: 'absolute' },
+});

@@ -19,9 +19,13 @@ jest.mock('@/services/api/islands', () => ({
   writeGuestbook: jest.fn(),
 }));
 jest.mock('@/screens/island/IslandSheet', () => ({
-  IslandSheet: ({ children }: any) => {
+  IslandSheet: ({ children, onScroll }: any) => {
     const { View } = require('react-native');
-    return <View>{children}</View>;
+    return (
+      <View testID="visitor-board-scroll" {...{ onScroll }}>
+        {children}
+      </View>
+    );
   },
 }));
 const list = listNotices as jest.Mock;
@@ -339,4 +343,30 @@ test('방명록의 쓰기 거절 안내는 앱 셸 알림(e.notify)으로 나간
   await fireEvent.changeText(screen.getByTestId('field-한마디 남기기'), '또 왔어요');
   await fireEvent.press(screen.getByTestId('guestbook-submit'));
   await waitFor(() => expect(e.notify).toHaveBeenCalledWith('소셜 로그인하면 이용할 수 있어요.'));
+});
+
+test('방문자 게시판 부모 스크롤 하단에서 방명록 다음 페이지를 불러온다', async () => {
+  list.mockResolvedValue({ items: [], nextCursor: null });
+  const note = (id: string) => ({
+    id,
+    authorId: 'u1',
+    authorName: '수아',
+    content: id,
+    createdAt: '2026-10-19T00:00:00Z',
+    mine: false,
+  });
+  guestbook
+    .mockResolvedValueOnce({ boardBuilt: true, items: [note('첫 페이지')], nextCursor: 'next' })
+    .mockResolvedValueOnce({ boardBuilt: true, items: [note('다음 페이지')], nextCursor: null });
+  const screen = await render(<VisitorBoard islandId="visitor" onClose={jest.fn()} />);
+  await screen.findByText('첫 페이지');
+  await fireEvent.scroll(screen.getByTestId('visitor-board-scroll'), {
+    nativeEvent: {
+      contentOffset: { y: 600 },
+      contentSize: { height: 1000 },
+      layoutMeasurement: { height: 400 },
+    },
+  });
+  await screen.findByText('다음 페이지');
+  expect(guestbook).toHaveBeenLastCalledWith('visitor', 'next');
 });

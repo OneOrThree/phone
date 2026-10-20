@@ -42,7 +42,7 @@ export function HomeNavigationHud({
           accessibilityLabel={t('home.a11y.todayFocusClock', { name, clock })}
           style={styles.info}
         >
-          <Txt numberOfLines={1} style={styles.title}>
+          <Txt numberOfLines={1} ellipsizeMode="tail" style={styles.title}>
             {name}
           </Txt>
           <Txt style={styles.clock}>{t('home.hud.todayFocusWithClock', { clock })}</Txt>
