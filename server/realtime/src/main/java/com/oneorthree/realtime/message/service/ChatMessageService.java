@@ -107,7 +107,7 @@ public class ChatMessageService {
         // 작업은 취소되지 않는다. 그래서 INSERT 직전에 같은 폐기 sid 펜스를 다시 본다. 인메모리라 저장당 Redis 는 없다(Redis 판은
         // 재시작·타 인스턴스의 CONNECT·REST 용). sid 는 STOMP 세션에 묶인 bearer 에서 푼다 — 프레임 헤더로 넘기는 것보다 호출부가 안 바뀐다.
         // ponytail: 이 검사와 INSERT 사이 수 ms 는 남는다 — 사용자 잠금 아래로 옮기려면 appender 트랜잭션 안으로 들인다.
-        if (isRevokedSession(bearerToken)) {
+        if (rejectAtStoreBoundary(senderId, bearerToken)) {
             throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
         }
 
@@ -121,10 +121,18 @@ public class ChatMessageService {
         return stored.message();
     }
 
-    private boolean isRevokedSession(String bearer) {
+    /**
+     * 저장 직전 세션 재검사 — 거절해야 하면 true. proof(sid 있는 현행 토큰)가 있으면 폐기 펜스를 보고, 없으면 «sid 없는 정상 구 토큰»과
+     * «만료·검증 실패»를 가른다: 대기 중에 AT 가 만료됐다면 proof 도 비어 있으므로, 비었다고 통과시키면 만료 토큰으로 저장·방송된다
+     * (CLAUDE.md 「만료 토큰 송수신 금지」). 구 토큰은 {@code extractUserId} 가 발신자와 같은 사용자를 돌려줄 때만 허용한다.
+     */
+    private boolean rejectAtStoreBoundary(UUID senderId, String bearer) {
         String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : bearer;
-        return jwtValidator.extractSessionProof(token)
-                .filter(proof -> chatUserFence.isRevoked(proof.sessionId())).isPresent();
+        var proof = jwtValidator.extractSessionProof(token);
+        if (proof.isPresent()) {
+            return chatUserFence.isRevoked(proof.get().sessionId());
+        }
+        return !jwtValidator.extractUserId(token).filter(senderId::equals).isPresent();
     }
 
     /**
