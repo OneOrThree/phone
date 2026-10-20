@@ -33,9 +33,9 @@ NODE_PATH=<앱 node_modules> node scripts/measure-movement.mjs \
 | 배터리 | 68% → 53% (15%p, 약 21분 연속 자동 걷기) |
 | 이동 체감 (MV-D05, 오너) | 꽤 자연스러움 |
 
-혼자(봇 없음) 대비: Snapshot p99 106 → 126 ms, ≥100 ms 1.8% → 5.2%. 폰이 남의 이동을 수신·소비하는 것이 수치에 잡힌다.
+혼자(봇 없음) 대비: 같은 세션의 WS 연결 직후 혼자 구간(약 1분, 표본 ≈240)에서 Snapshot p99 106 ms·≥100 ms 1.8% → 봇 공존 126 ms·5.2%. 다만 Snapshot 간격은 「직전에 MOVING entity 가 있을 때」만 세 공존에서 집계 구간 자체가 늘고, 서버 측 같은 정의 값은 p99 59.7 ms·≥100 ms 0.14% 라 폰 상승분엔 Wi-Fi·기기 JS 스레드 지연 몫이 크다. 공존 시 p99 상승이 관찰되었으나 단일 세션·표본 구성 차이·기기/망 지연이 섞여 인과는 단정하지 않는다.
 
-서버 측 교차(같은 섬 봇 6명, `measure-movement.mjs` 결과):
+서버 측 교차(같은 섬 봇 5명 — 방 6명(폰 포함). `measure-movement.mjs --users 5` 결과. 1,800건 = 봇 5 × 2초 간격 720초):
 
 | 항목 | 값 |
 | --- | --- |
@@ -53,4 +53,10 @@ NODE_PATH=<앱 node_modules> node scripts/measure-movement.mjs \
 
 ## 접속 함정 (측정 중 해소)
 
-홈 섬에 들어가도 RTT·Snapshot·WebSocket 이 0이었다. 원인은 로컬 realtime 이 **옛 IP 허용 목록**을 들고 있어 폰 WebSocket 핸드셰이크(`GET /ws/realtime`)를 403 으로 막은 것이다(403 은 nginx 가 아니라 realtime 이 낸다 — nginx 는 `172.24.0.5:8085` 로 프록시만). realtime `CHAT_WS_ALLOWED_ORIGINS` 에 현재 맥 IP(`http://<ip>:8088`)를 더해 realtime 컨테이너만 재기동하면(같은 고정 IP·네트워크) 바로 101 로 붙는다. Xcode 빌드 멈춤은 이날 재현되지 않았고, 첫 빌드의 ReactCodegen 입력 파일 경합(rc 65)은 `pod install` 재실행으로 코드젠을 다시 깔아 풀었다.
+홈 섬에 들어가도 RTT·Snapshot·WebSocket 이 0이었다. 원인은 로컬 realtime 이 **옛 IP 허용 목록**을 들고 있어 폰 WebSocket 핸드셰이크(`GET /ws/realtime`)를 403 으로 막은 것이다. 403 은 nginx 가 아니라 realtime 이 낸다 — nginx 는 그 경로를 `172.24.0.5:8085`(측정 당시 로컬 네트워크 `phone_default` 의 고정 IP, 환경 바뀌면 다르다)로 프록시만 한다.
+
+- **환경변수 위치**: realtime 의 `CHAT_WS_ALLOWED_ORIGINS`. 로컬 스택에선 `doc/local/stack/docker-compose.full.yml`(gitignored, MAIN 정본)의 realtime 서비스 env 에서 온다.
+- **처치(이번)**: 그 compose 파일을 만든 워크트리가 삭제돼 compose 로 재생성할 수 없어서, 실행 중인 컨테이너의 env 를 덤프해 현재 맥 IP(`http://<ip>:8088`)를 `CHAT_WS_ALLOWED_ORIGINS` 에 더한 뒤 `docker run` 으로 재생성했다 — 같은 네트워크 `phone_default`·같은 고정 IP `172.24.0.5`·별칭 `realtime`, 이미지 `phone-local/realtime`(2270 jar) 그대로(jar 재빌드 없음). compose 파일이 있으면 그 키를 고치고 `docker compose -p phone -f <local.yml> -f <full.yml> up -d --no-build realtime` 로 족하다.
+- **확인**: `docker logs --since 1m phone-nginx-local | grep /ws/realtime` 가 `403` → `101` 로 바뀐다. 폰 오버레이의 RTT·Snap 이 0 을 벗어나는 것으로도 보인다.
+
+빌드 메모(함정과 무관): Xcode 빌드 멈춤은 이날 재현되지 않았다. 첫 빌드만 ReactCodegen 입력 파일 경합(rc 65)이라 `pod install` 재실행으로 코드젠을 다시 깔아 풀었다. 앱 계기 커밋 `325e7214c`(`afeat/GROMO-2250-movement-device-stats`)는 이 PR 에 없다 — 앱 PR 은 별도(미개설).
