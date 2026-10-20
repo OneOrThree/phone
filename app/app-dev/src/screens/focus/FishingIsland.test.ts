@@ -1236,7 +1236,11 @@ describe('낚아올리기 연출: 재발생·내 고양이 전용·중단 뒤 �
     reduce: false,
   };
   const actor = (
-    over: Partial<typeof props> & { motion?: 'cast' | 'reel' | 'focus' } = {},
+    over: Partial<typeof props> & {
+      motion?: 'cast' | 'reel' | 'focus';
+      goldenFishCount?: number;
+      goldenCatchToken?: string | null;
+    } = {},
     active = true,
   ) =>
     React.createElement(
@@ -1353,6 +1357,50 @@ describe('낚아올리기 연출: 재발생·내 고양이 전용·중단 뒤 �
     expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
     await act(async () => jest.advanceTimersByTime(1500));
     expect(cat()).toMatchObject({ motion: 'focus', keyPoses: true });
+    await screen.unmount();
+  });
+
+  test('일반 reel 창이 남은 채 황금 reel 이 끼었다 끝나면 일반 연출을 처음부터 다시 틀지 않는다', async () => {
+    const screen = await render(actor());
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    // 황금 reel(0~2000ms) 도중 800ms 에 일반 한 마리(800~2800ms): 황금이 끝날 때 일반 창이 800ms 남는다.
+    await screen.rerender(actor({ goldenFishCount: 1, goldenCatchToken: 'g1' }));
+    await act(async () => jest.advanceTimersByTime(800));
+    await screen.rerender(
+      actor({ seconds: SECONDS_PER_FISH, goldenFishCount: 1, goldenCatchToken: 'g1' }),
+    );
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    await act(async () => jest.advanceTimersByTime(1200));
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: false });
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await act(async () => jest.advanceTimersByTime(800));
+    expect(cat()).toMatchObject({ motion: 'focus', keyPoses: true });
+    // 새 count(새 nonce)는 온전히 재생한다.
+    await screen.rerender(
+      actor({ seconds: SECONDS_PER_FISH * 2, goldenFishCount: 1, goldenCatchToken: 'g1' }),
+    );
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true, replayKey: 2 });
+    expect(screen.getByTestId('fishing-catch-motion')).toBeTruthy();
+    await screen.unmount();
+  });
+
+  test('일반 reel 도중 황금 reel 이 끼면 그 사건은 끊긴 것으로 두고 황금 뒤 다시 틀지 않는다', async () => {
+    const screen = await render(actor());
+    const cat = () => screen.getByTestId('fishing-actor-cat').props;
+    await screen.rerender(actor({ seconds: SECONDS_PER_FISH }));
+    await act(async () => jest.advanceTimersByTime(800));
+    await screen.rerender(
+      actor({ seconds: SECONDS_PER_FISH, goldenFishCount: 1, goldenCatchToken: 'g1' }),
+    );
+    await act(async () => jest.advanceTimersByTime(1200)); // 일반 창 종료(2000ms)
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await act(async () => jest.advanceTimersByTime(800)); // 황금 종료
+    expect(cat()).toMatchObject({ motion: 'focus', keyPoses: true });
+    expect(screen.queryByTestId('fishing-catch-motion')).toBeNull();
+    await screen.rerender(
+      actor({ seconds: SECONDS_PER_FISH * 2, goldenFishCount: 1, goldenCatchToken: 'g1' }),
+    );
+    expect(cat()).toMatchObject({ motion: 'reel', keyPoses: true, replayKey: 2 });
     await screen.unmount();
   });
 });
