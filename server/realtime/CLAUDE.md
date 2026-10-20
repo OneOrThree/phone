@@ -192,6 +192,20 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `realtime.outbound.send{destination_kind=chat|movement|events|sea|other}`, 인가 캐시 `realtime.outbound.authz.cache{result=hit|miss|evict}`.
   `queue_full` 이 0 이 아니면 실행기·느린 수신자부터 본다. heartbeat 프레임도 같은 실행기를 지난다 — 송신 시간은
   `destination_kind=other` 로 재고, 포화로 거부되면 다른 프레임과 같이 `queue_full` 로 세며 그 세션을 닫는다.
+  **포화 종료는 가해 세션을 먼저 닫는다** — 큐는 전역 하나라 넘친 프레임의 세션이 가해자가 아닐 수 있다. 그래서 세션별 대기 프레임 수
+  (실행 중 포함, 실행기 `TaskDecorator` 가 센다 — 인터셉터 쌍은 앞선 인터셉터가 버린 프레임에서 새서 쓰지 않는다)를 두고 선별한다.
+  선별은 **첫 거부**(`isConnected && closing.add`)에서만 한다. 후보는 연결된 세션(종료 예약 제외)이고 넘친 세션을 포함하며, 동률이면
+  넘친 세션이 이긴다(이땐 `overflow` 만 센다). 가해자는 **한 번에 하나**(단일 슬롯 CAS)다 — 소켓 종료 콜백이 슬롯을 풀고, 콜백이
+  안 오면 10 s 뒤 만료된다. 슬롯이 차 있는 동안의 거부는 넘친 세션만 닫는다. 가해자를 먼저, 넘친 세션을 그 다음에 같은
+  `OUTBOUND_QUEUE_FULL` 로 닫는다. 지표 `realtime.outbound.closed{selected=offender|overflow}` — `overflow` 에는 «프레임을 잃은
+  세션»뿐 아니라 «종료 ACK(DISCONNECT_ACK)를 잃은 세션»도 들어간다.
+  **지표 판독**: `realtime.outbound.offender.pending`(가해자를 선점한 순간 그 세션의 대기 프레임 수 분포)이 `queue-capacity` 의 절반
+  이상이면 단일 수신자(느린 소켓 한 명)가 큐를 채운 것이고, 작고 반복되면 전역 포화다 — 그땐 `executor.active == max-threads` 가 지속되는지,
+  `realtime.outbound.send` p99 가 정상인지 함께 본다.
+  **1008 vs 1002**: 원칙은 구분한다 — `OUTBOUND_QUEUE_FULL` 은 1008(`POLICY_VIOLATION`, 큐 포화), heartbeat 무활동은 1002. 다만 포화 중
+  heartbeat 타임아웃의 DISCONNECT_ACK 가 거부되면 그 무활동 종료도 1008 로 닫힌다(가해자 선별 없이 그 세션만, `overflow` 로 집계).
+  **재연결 지터 권고**: 포화로 한꺼번에 닫힌 세션이 같은 순간 다시 붙으면 포화가 되풀이된다 — 클라이언트 재연결은 5 s ± 50 % 같은
+  지터를 둔다. 현재 앱은 `reconnectDelay` 5000 ms 고정이다(앱 후속).
 
 ## 섬 이동 다중 인스턴스 (GROMO-2339, ADR A26)
 
@@ -290,6 +304,8 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `chat:movement:cmd:v1:{instanceId}` | realtime | pub/sub | 그 인스턴스(소유자) 앞 PING 대조 — 수신자 null PING 은 위 전원 채널 |
 | `chat:movement:frames:v1` | realtime | pub/sub | 소유자 → 전 인스턴스 이동 프레임(소유자 자신도 이 메아리로 받는다) |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
+
+`Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다 — Redis Cluster 로 옮기면 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다(해시 태그 `{userId}` 로 묶거나 두 번 읽어야 한다). 지금은 단일 노드(Sentinel 포함)라 무관하다.
 
 **ACL 이 걸리는 날 이동 다중 인스턴스에 필요한 것**(지금은 dev·prod 모두 realtime Redis 에 ACL 파일이 없어 고칠 파일이 없다 — GROMO-1744):
 키 `~movement:*`, 채널 `&chat:movement:*`, 명령 `+eval +evalsha +publish +subscribe +getdel +mget`(Lua 안의 `TIME`·`PEXPIRE` 는

@@ -52,8 +52,8 @@ import java.util.function.LongSupplier;
  * 판정이 Redis 캐시로 통과했다면 그 원본의 남은 수명이 1초일 수 있다. 거기에 새로 30초를 주면 사건 유실·relay OFF·Redis 삭제
  * 실패 때 원본이 만료돼 다시 물었어야 할 시점 뒤로 최대 29초 동안 강퇴자·차단한 발신자의 프레임이 나간다 — 「강퇴 반영 상한 =
  * 멤버십 TTL」「차단 TTL 백스톱」이 깨진다. 그래서 호출자가 판정에 쓴 원본 값과 <b>그 값의</b> 만료를 한 원자 단위로 읽어
- * ({@link Sourced}, Lua GET+PTTL) 절대 시각 {@code notAfterNanos} 로 넘기고, 여기서는 {@code min(지금 + 우리 TTL, notAfter)}
- * 까지만 담는다. 값과 PTTL 을 따로 읽으면 그 사이 다른 요청이 키를 새 값·새 TTL 로 갈아 끼워 옛 판정이 새 수명을 얻는다
+ * ({@link Sourced#read}) 절대 시각 {@code notAfterNanos} 로 넘기고, 여기서는 {@code min(지금 + 우리 TTL, notAfter)}
+ * 까지만 담는다. 값과 만료를 따로 읽으면 그 사이 다른 요청이 키를 새 값·새 TTL 로 갈아 끼워 옛 판정이 새 수명을 얻는다
  * (사건이 없으니 {@link #stamp} 도 못 막는다). 원본이 없거나 읽기가 실패하면 {@link Sourced#EXPIRED} — 담지 않는다. 이 클래스는
  * Redis 를 읽지 않는다.
  * <table>

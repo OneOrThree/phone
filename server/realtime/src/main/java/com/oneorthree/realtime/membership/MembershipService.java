@@ -173,12 +173,9 @@ public class MembershipService {
      * @throws RuntimeException Redis 실패 — 부르는 쪽은 담지 않는다
      */
     public Sourced<Set<UUID>> cachedGroupIdsSourced(UUID userId) {
-        long readStart = System.nanoTime();
-        @SuppressWarnings("unchecked")
-        List<Object> read = redis.execute(Sourced.GET_WITH_PTTL, List.of(RedisKeys.memberCache(userId)));
-        long expiresAt = Sourced.expiresAt(readStart, Long.parseLong(String.valueOf(read.get(1))));
-        return expiresAt == Sourced.EXPIRED ? new Sourced<>(null, Sourced.EXPIRED)
-                : new Sourced<>(parse(String.valueOf(read.get(0))), expiresAt);
+        Sourced<List<String>> read = Sourced.read(redis, RedisKeys.memberCache(userId));
+        return read.expiresAtNanos() == Sourced.EXPIRED ? new Sourced<>(null, Sourced.EXPIRED)
+                : new Sourced<>(parse(read.value().get(0)), read.expiresAtNanos());
     }
 
     /** 파싱 안 되는 조각은 조용히 버린다 — 이물질 하나가 판정 전체를 예외로 만들지 않게. */
