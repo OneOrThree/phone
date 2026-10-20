@@ -2666,6 +2666,13 @@ export function RedesignScreens({ e }: any) {
                 }
               : undefined
           }
+          friendRequestCount={
+            server
+              ? friendsScreen?.status === 'ready'
+                ? (friendsScreen.data?.friendRequests.length ?? 0)
+                : 0
+              : undefined
+          }
           boardStatus={e.boardStatus}
           libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
           showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
@@ -6536,6 +6543,15 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'settings') {
+    const primaryIslandName = server
+      ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
+        snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
+        t('account.boat.myIslandFallback'))
+      : (mainIsland(state)?.name ?? island.name);
+    const canChangeMainIsland =
+      (server
+        ? (snap?.memberships.length ?? 0)
+        : state.islands.filter((candidate) => candidate.joined && !candidate.closed).length) > 1;
     const toggle = (label: string, key: string, sub?: string) => (
       <SheetRow
         title={label}
@@ -6566,6 +6582,21 @@ export function RedesignScreens({ e }: any) {
         onBack={back}
         onClose={home}
       >
+        <SheetGroup>
+          <SheetRow
+            title={t('account.profile.title')}
+            sub={t('account.profile.sub')}
+            lead={<Pic id={'avatar/' + state.color} w={28} />}
+            chevron
+            onPress={() => go('profile')}
+          />
+          <SheetRow
+            title={t(canChangeMainIsland ? 'account.boat.changeMain' : 'account.boat.currentMain')}
+            sub={primaryIslandName}
+            chevron={canChangeMainIsland}
+            onPress={canChangeMainIsland ? () => go('mainIsland') : undefined}
+          />
+        </SheetGroup>
         {sec(t('settings.generalSection'))}
         <SheetGroup flat>
           {toggle(t('settings.notifications'), 'notifications')}

@@ -277,6 +277,7 @@ export type State = {
   version: 1;
   schema?: 2;
   friends?: Friend[];
+  lastRaftDestination?: string;
   rewards?: Reward[];
   screenDays?: Record<string, number | null>;
   screenTimeUnconfirmedDays?: string[];
@@ -2581,6 +2582,9 @@ export function reducer(state: State, a: Action): State {
         i.playing = !!a.value;
         if (!a.value) i.playbackReset = (i.playbackReset ?? 0) + 1;
       }
+      break;
+    case 'RAFT_DESTINATION':
+      s.lastRaftDestination = a.destination;
       break;
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;

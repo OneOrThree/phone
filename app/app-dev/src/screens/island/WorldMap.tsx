@@ -45,6 +45,7 @@ import {
   HomeQuestIndicator,
 } from '@/screens/island/HomeQuestIndicator';
 import { useAppLayout } from '@/utils/layout';
+import { HomeNavigationHud } from './HomeNavigationHud';
 import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
 import legacyDoorCoords from '@/constants/legacy-doors.json';
@@ -1204,6 +1205,7 @@ function FinalIslandScene({
   build,
   showHud = true,
   showActions = true,
+  friendRequestCount,
   request,
   notify,
   dispatch,
@@ -1231,6 +1233,7 @@ function FinalIslandScene({
   build: (b: Building) => void;
   showHud?: boolean;
   showActions?: boolean;
+  friendRequestCount?: number;
   request?: Route | null;
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
@@ -2240,7 +2243,8 @@ function FinalIslandScene({
     hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
     // 오른쪽 여백은 오른쪽 안전영역으로 따로 잡는다(노치가 오른쪽인 가로 방향) — 아래 집중 버튼과 같은 규칙
     hudRight = L.landscape ? Math.max(56, L.insets.right + 4) : 20,
-    hudMax = Math.max(0, Math.min(L.width / 2, L.width - hudLeft - hudRight)),
+    hudAvailable = Math.max(0, L.width - hudLeft - hudRight),
+    hudMax = visiting ? Math.min(L.width / 2, hudAvailable) : hudAvailable,
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
     showQuestIndicator =
       showHud &&
@@ -2306,88 +2310,46 @@ function FinalIslandScene({
             position: 'absolute',
             top: hudTop,
             left: hudLeft,
+            width: visiting ? undefined : hudMax,
             zIndex: 10,
             alignItems: 'flex-start',
           }}
         >
-          <View
-            testID="island-focus-pill"
-            pointerEvents="none"
-            // 섬 이름·오늘 집중·시간을 스크린리더가 한 번에 읽는다
-            accessible={!visiting}
-            accessibilityLabel={
-              visiting
-                ? undefined
-                : t('home.a11y.todayFocusClock', { name: i.name, clock: todayClock })
-            }
-            style={{
-              backgroundColor: '#FFFDFAB3',
-              borderRadius: 999,
-              paddingVertical: 6,
-              paddingLeft: 14,
-              paddingRight: 16,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 10,
-              // 섬 이름(최대 20자)이 길어도 화면 밖으로 밀리지 않게 폭을 묶어 이름만 말줄임한다.
-              // 아주 좁은 창에서 minWidth 가 maxWidth 를 이기지 않게 같은 상한으로 묶는다
-              minWidth: visiting ? undefined : Math.min(210, hudMax),
-              maxWidth: hudMax,
-            }}
-          >
-            {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
-            {visiting ? (
-              <View>
-                <Txt
-                  kind="meta"
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                  style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}
-                >
-                  {t('home.hud.visiting', { name: i.name })}
+          {!visiting ? (
+            <HomeNavigationHud
+              name={i.name}
+              clock={todayClock}
+              color={state.color}
+              requests={
+                friendRequestCount ??
+                (state.friends ?? []).filter((f) => f.status === 'received').length
+              }
+              go={go}
+              interactive={showActions}
+            />
+          ) : (
+            <View
+              pointerEvents="none"
+              style={{
+                backgroundColor: `${semanticTokens.color.surface}B3`,
+                borderRadius: semanticTokens.radius.full,
+                paddingVertical: primitiveTokens.space[2],
+                paddingHorizontal: semanticTokens.spacing.component,
+                maxWidth: hudMax,
+              }}
+            >
+              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                {t('home.hud.visiting', { name: i.name })}
+              </Txt>
+              {visitHud?.todayMinutes != null && (
+                <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                  {t('home.hud.todayFocusVisitor', {
+                    time: formatDuration(visitHud.todayMinutes * 60),
+                  })}
                 </Txt>
-                {visitHud?.todayMinutes != null && (
-                  <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
-                    {t('home.hud.todayFocusVisitor', {
-                      time: formatDuration(visitHud.todayMinutes * 60),
-                    })}
-                  </Txt>
-                )}
-              </View>
-            ) : (
-              <>
-                {/* 어느 섬의 홈인지 — 서버 모드는 스냅샷의 섬 이름(GROMO-2138) */}
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Txt
-                    kind="meta"
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                    style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '700' }}
-                  >
-                    {i.name}
-                  </Txt>
-                  <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
-                    {t('home.hud.todayFocus')}
-                  </Txt>
-                </View>
-                <Txt
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  style={{
-                    flexShrink: 1,
-                    minWidth: 0,
-                    fontSize: 22,
-                    lineHeight: 31.9,
-                    fontWeight: '700',
-                    fontVariant: ['tabular-nums'],
-                    marginLeft: 'auto',
-                  }}
-                >
-                  {todayClock}
-                </Txt>
-              </>
-            )}
-          </View>
+              )}
+            </View>
+          )}
           {visiting && visitHud && visitHud.focusCount !== null && (
             <Pressable
               testID="visit-focus-count"
@@ -2621,7 +2583,10 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
           style={{
             position: 'absolute',
             right: semanticTokens.spacing.page,
-            top: Math.max(L.insets.top, semanticTokens.spacing.page),
+            top:
+              Math.max(L.insets.top, semanticTokens.spacing.page) +
+              2 * semanticTokens.size.tapMin +
+              primitiveTokens.space[4],
             zIndex: 20,
           }}
         >

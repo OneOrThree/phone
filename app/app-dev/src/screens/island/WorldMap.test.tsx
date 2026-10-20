@@ -1264,7 +1264,7 @@ describe('en', () => {
     const state = initialState(true);
     const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
 
-    expect(screen.getByText('Focus today')).toBeTruthy();
+    expect(screen.getByText(/Focus today/)).toBeTruthy();
     expect(screen.getByLabelText('Raft')).toBeTruthy();
   });
 
@@ -1466,15 +1466,17 @@ test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되�
   await screen.unmount();
 });
 
-test('긴 섬 이름은 화면 절반 너비의 집중 알약 안에서 말줄임한다', async () => {
+test('긴 섬 이름은 홈 정보 안에서 말줄임하고 꾸미기·친구·설정 입구를 유지한다', async () => {
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
   island.name = '아주아주이름이긴우리들의고양이섬';
   const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
-  const pill = screen.getByTestId('island-focus-pill');
-  expect(StyleSheet.flatten(pill.props.style).maxWidth).toBe(201);
-  expect(pill.props.accessibilityLabel).toContain(island.name);
-  const name = within(pill).getByText(island.name);
+  const panel = screen.getByTestId('home-profile-panel');
+  expect(screen.getByLabelText(`${island.name} 오늘 집중 00:00:00`)).toBeTruthy();
+  expect(screen.getByRole('button', { name: '내 고양이 꾸미기' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /친구/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: '설정' })).toBeTruthy();
+  const name = within(panel).getByText(island.name);
   expect(name.props.numberOfLines).toBe(1);
   expect(name.props.ellipsizeMode).toBe('tail');
 });

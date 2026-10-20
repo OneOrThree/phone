@@ -222,7 +222,7 @@ test.each([true, false])(
   },
 );
 
-test('로컬 방문 중에도 뗏목 라우트는 막히지 않고 행선지 시트를 연다', async () => {
+test('로컬 방문 중에도 뗏목 라우트는 막히지 않고 뗏목 장면을 연다', async () => {
   const state = initialState(true);
   state.visitingIslandId = 'cloud';
   const screen = await render(
@@ -246,7 +246,7 @@ test('로컬 방문 중에도 뗏목 라우트는 막히지 않고 행선지 시
     />,
   );
   expect(screen.queryByText('주민만 이용할 수 있어요')).toBeNull();
-  expect(screen.getByText('뗏목')).toBeTruthy();
+  expect(screen.getByText('어디로 떠나볼까요?')).toBeTruthy();
   await screen.unmount();
 });
 

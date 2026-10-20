@@ -295,6 +295,33 @@ function Harness({
   );
 }
 
+test('설정에서 기존 내 정보·메인 섬 변경으로 이동하고 현재 메인 섬 이름을 보여 준다', async () => {
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="settings"
+      full
+      seed={(d: any) => {
+        const state = initialState(true);
+        state.islands[1].joined = true;
+        d({ type: 'LOAD', state });
+      }}
+      expose={(value: any) => (exposed = value)}
+    />,
+  );
+  expect(screen.getByText('소다 섬')).toBeTruthy();
+  await fireEvent.press(screen.getByText('내 정보'));
+  expect(exposed.go).toHaveBeenCalledWith('profile');
+  await fireEvent.press(screen.getByText('메인 섬 변경하기'));
+  expect(exposed.go).toHaveBeenCalledWith('mainIsland');
+});
+
+test('소속 섬이 하나면 설정에서 현재 메인 섬만 표시하고 변경 행동을 노출하지 않는다', async () => {
+  const screen = await render(<Harness route="settings" full />);
+  expect(screen.getByText('현재 내 메인 섬')).toBeTruthy();
+  expect(screen.queryByText('메인 섬 변경하기')).toBeNull();
+});
+
 test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 로컬 LOGIN은 하지 않는다', async () => {
   const startGuest = jest.fn();
   let exposed: any;
@@ -2326,7 +2353,7 @@ test('서버 모드 home 은 스냅샷의 완공 건물과 오늘 집중을 그�
   // 문은 스냅샷에서 완공된 건물만 열린다 — 회관은 있고 게시판은 없다
   s.getByLabelText(buildingNames.hall);
   assert.equal(s.queryByLabelText(buildingNames.board), null);
-  s.getByText('01:02:05');
+  s.getByText('오늘의 집중 01:02:05');
   // 홈 HUD 에 스냅샷의 섬 이름이 보인다
   s.getByText('복구 섬');
   // 스크린리더는 HUD 알약을 한 문장으로 읽는다
