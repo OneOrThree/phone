@@ -1,14 +1,8 @@
 import React, { memo, useEffect, useRef } from 'react';
-import { StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
-import { cancelAnimation, useDerivedValue, useSharedValue } from 'react-native-reanimated';
+import { Animated, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { VillageNotificationBadge } from './VillageNotificationBadge';
-import {
-  MotionFrameImage,
-  VillageThemeTint,
-  motionTick,
-  playMotion,
-  stopMotion,
-} from './VillageThemeTint';
+import { frameSteps, playMotion } from '../catMotion';
+import { MotionFrameImage, VillageThemeTint, type MotionStep } from './VillageThemeTint';
 
 export type LibraryMotionState = 'normal' | 'new-quest' | 'new-reading';
 
@@ -26,6 +20,9 @@ const nightFrames: readonly ImageSourcePropType[] = [
   require('@/assets/village-world/motion/library/night-frame-3.png'),
 ];
 const frameDurationMs = 120;
+// 진입 중이면 마지막 프레임(열린 문)에 머물고, 아니면 한 바퀴 뒤 닫힌 0번으로 돌아온다.
+const openSteps = frameSteps([0, 1, 2, 3], frameDurationMs);
+const closeSteps: readonly MotionStep[] = [...openSteps, [0, frameDurationMs]];
 
 /** 도서관 문 에셋을 한 번 재생한다. 좌표와 크기는 배치하는 부모가 결정한다. */
 export const LibraryMotion = memo(function LibraryMotionView({
@@ -54,35 +51,31 @@ export const LibraryMotion = memo(function LibraryMotionView({
   testID?: string;
 }) {
   const lastTrigger = useRef(trigger);
-  const elapsed = useSharedValue(0);
-  // 진입 중이면 마지막 프레임(열린 문)에 머물고, 아니면 한 바퀴 뒤 닫힌 0번으로 돌아온다.
-  const frame = useDerivedValue(() => {
-    const tick = motionTick(elapsed.value, frameDurationMs);
-    return entryActive ? Math.min(tick, frames.length - 1) : tick % frames.length;
-  });
+  const elapsed = useRef(new Animated.Value(0)).current;
+  const steps = entryActive ? openSteps : closeSteps;
 
   // 재생 효과보다 먼저 둔다. 같은 커밋에서 재생이 시작되면 0번으로 되돌린 뒤 재생한다.
   useEffect(() => {
-    if (!entryActive) stopMotion(elapsed);
+    if (!entryActive) elapsed.setValue(0);
   }, [elapsed, entryActive]);
 
   useEffect(() => {
     if (trigger < lastTrigger.current || trigger === 0) {
       lastTrigger.current = trigger;
-      stopMotion(elapsed);
+      elapsed.setValue(0);
       return;
     }
     if (reduceMotion || !showFrames) {
-      stopMotion(elapsed);
+      elapsed.setValue(0);
       if (trigger > lastTrigger.current) lastTrigger.current = trigger;
       return;
     }
     if (trigger <= lastTrigger.current) return;
     lastTrigger.current = trigger;
 
-    playMotion(elapsed, frames.length * frameDurationMs, false);
+    const animation = playMotion(elapsed, frames.length * frameDurationMs, false);
     // 의존값이 바뀌면 지금 프레임에서 멈춘다(예전 타이머 정리와 같다).
-    return () => cancelAnimation(elapsed);
+    return () => animation.stop();
   }, [elapsed, entryActive, reduceMotion, showFrames, trigger]);
 
   const stateLabel =
@@ -102,7 +95,8 @@ export const LibraryMotion = memo(function LibraryMotionView({
         (night ? nightFrames : frames).map((source, index) => (
           <MotionFrameImage
             key={index}
-            frame={frame}
+            elapsed={elapsed}
+            steps={steps}
             index={index}
             testID={`library-motion-frame-${index}`}
             source={source}
@@ -112,7 +106,8 @@ export const LibraryMotion = memo(function LibraryMotionView({
       {showFrames && themed && (
         <VillageThemeTint
           sources={night ? nightFrames : frames}
-          frame={frame}
+          elapsed={elapsed}
+          steps={steps}
           testID="library-motion-theme-tint"
         />
       )}

@@ -1,5 +1,6 @@
-import React, { memo, useEffect, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   AppState,
   StyleSheet,
   View,
@@ -7,8 +8,8 @@ import {
   type ImageSourcePropType,
   type ViewStyle,
 } from 'react-native';
-import { useDerivedValue, useSharedValue } from 'react-native-reanimated';
-import { MotionFrameImage, motionTick, playMotion, stopMotion } from './VillageThemeTint';
+import { frameSteps, playMotion } from '../catMotion';
+import { MotionFrameImage } from './VillageThemeTint';
 
 export type FireMotionMode = 'day' | 'evening';
 
@@ -26,6 +27,8 @@ const smokeFrames: readonly ImageSourcePropType[] = [
 ];
 const flameSequence = [1, 2, 3, 2] as const;
 const smokeSequence = [0, 1, 2, 3, 2, 1] as const;
+const smokeSteps = frameSteps(smokeSequence, 360);
+const flameSteps = frameSteps(flameSequence, 155);
 
 /** 모닥불 프레임. 부모의 레이아웃과 확대 배율을 그대로 채운다(기준 상자 비율 116:77). */
 export const FireMotion = memo(function FireMotionView({
@@ -42,16 +45,11 @@ export const FireMotion = memo(function FireMotionView({
   testID?: string;
 }) {
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
-  const elapsed = useSharedValue(0);
+  const elapsed = useRef(new Animated.Value(0)).current;
   const paused = reduceMotion || appState === 'background' || appState === 'inactive';
   const frames = mode === 'day' ? smokeFrames : flameFrames;
-  const sequence = mode === 'day' ? smokeSequence : flameSequence;
-  const frameDurationMs = mode === 'day' ? 360 : 155;
-  const stillFrame = mode === 'day' ? 0 : 1;
-  // 프레임 번호는 UI 스레드에서 경과 시간으로 고른다. 멈춰 있으면 정지 프레임이다.
-  const frame = useDerivedValue<number>(() =>
-    paused ? stillFrame : sequence[motionTick(elapsed.value, frameDurationMs) % sequence.length],
-  );
+  // 시간표 첫 칸(경과 0)이 정지 프레임이다(낮 0번 연기, 저녁 1번 불꽃).
+  const steps = mode === 'day' ? smokeSteps : flameSteps;
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
@@ -59,10 +57,13 @@ export const FireMotion = memo(function FireMotionView({
   }, []);
 
   useEffect(() => {
-    if (paused) return;
-    playMotion(elapsed, sequence.length * frameDurationMs, true);
-    return () => stopMotion(elapsed);
-  }, [elapsed, frameDurationMs, paused, sequence]);
+    if (paused) {
+      elapsed.setValue(0);
+      return;
+    }
+    const animation = playMotion(elapsed, steps.length * steps[0][1], true);
+    return () => animation.stop();
+  }, [elapsed, paused, steps]);
 
   const residentLabel =
     residentCount == null
@@ -89,7 +90,8 @@ export const FireMotion = memo(function FireMotionView({
       {frames.map((source, index) => (
         <MotionFrameImage
           key={index}
-          frame={frame}
+          elapsed={elapsed}
+          steps={steps}
           index={index}
           testID={`fire-motion-frame-${mode}-${index}`}
           source={source}

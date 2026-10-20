@@ -1,15 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, AppState, Image, View, type ImageSourcePropType } from 'react-native';
-import Reanimated, {
-  cancelAnimation,
-  Easing,
-  type SharedValue,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
 import { assets, cat } from '@/constants/assets';
 import {
   CAT_IDLE_ATLASES,
@@ -27,8 +17,11 @@ import {
   catFrameDelay,
   catKeyPoses,
   catSequenceLength,
+  frameOpacityRange,
+  frameSteps,
   nextIdleBehavior,
   normalizeCatMotion,
+  playMotion,
   IDLE_REST_DELAY_MS,
   INTERACTIVE_MOTION_CYCLES,
   interactiveMotionDurationMs,
@@ -64,31 +57,32 @@ export function catFrameBox(color: Color, motion: CatMotionInput, size: number) 
   };
 }
 
-/** 균일 간격 동작의 [셀, 유지 ms] 시간표. 렌더마다 새 배열이 생기지 않게 모듈에서 한 번 만든다. */
-const UNIFORM_STEPS = {} as Record<CatFrameMotion, readonly CatKeyPose[]>;
+/** 한 번 재생하고 끝나는 동작의 사이클 수(cast·상호작용). 반복 동작이면 undefined. */
+function oneShotCycles(motion: CatFrameMotion): number | undefined {
+  if (motion === 'cast') return 1;
+  return motion in INTERACTIVE_MOTION_CYCLES
+    ? INTERACTIVE_MOTION_CYCLES[motion as keyof typeof INTERACTIVE_MOTION_CYCLES]
+    : undefined;
+}
+
+// 동작별 [셀, 유지 ms] 시간표. 렌더마다 새 배열이 생기지 않게 모듈에서 한 번 만든다.
+// CYCLE_STEPS 는 한 바퀴(반복·idle 동작), ONE_SHOT_STEPS 는 사이클 수만큼 잇고 끝에 중립 0번 칸을 둔다.
+const CYCLE_STEPS = {} as Record<CatFrameMotion, readonly CatKeyPose[]>;
+const ONE_SHOT_STEPS = {} as Record<CatFrameMotion, readonly CatKeyPose[]>;
 for (const motion of Object.keys(CAT_FRAME_SEQUENCES) as CatFrameMotion[]) {
-  UNIFORM_STEPS[motion] = CAT_FRAME_SEQUENCES[motion].map((cell) => [cell, catFrameDelay(motion)]);
+  const cycle = frameSteps(CAT_FRAME_SEQUENCES[motion], catFrameDelay(motion));
+  CYCLE_STEPS[motion] = cycle;
+  ONE_SHOT_STEPS[motion] = [
+    ...Array.from({ length: oneShotCycles(motion) ?? 1 }, () => cycle).flat(),
+    [0, catFrameDelay(motion)],
+  ];
 }
 
 const motionCycleMs = (motion: CatFrameMotion) => catSequenceLength(motion) * catFrameDelay(motion);
 const posesMs = (poses: readonly CatKeyPose[]) => poses.reduce((sum, [, hold]) => sum + hold, 0);
 
-/** 경과 ms 에 보일 셀. 반복이면 주기로 되감고, 아니면 마지막 셀에 머문다. */
-function timelineCell(steps: readonly CatKeyPose[], loop: boolean, elapsedMs: number): number {
-  'worklet';
-  // 타이머와 같은 ms 경계에서 셀을 바꾼다(부동소수 오차로 경계 직전 셀이 남지 않게 반올림).
-  let t = Math.round(elapsedMs);
-  if (loop) {
-    let total = 0;
-    for (const [, hold] of steps) total += hold;
-    t %= total;
-  }
-  for (const [cell, hold] of steps) {
-    if (t < hold) return cell;
-    t -= hold;
-  }
-  return steps[steps.length - 1][0];
-}
+/** 재생 한 번: 시간표 이름과 그 재생의 경과 ms 값. 값은 네이티브 드라이버가 흘리고 JS 는 프레임마다 깨지 않는다. */
+type CatRun = { key: string; value: Animated.Value };
 
 function useCatPlayback(
   motion: CatMotionInput,
@@ -101,9 +95,8 @@ function useCatPlayback(
 ) {
   const normalized = normalizeCatMotion(motion);
   const [idleBehavior, setIdleBehavior] = useState<CatIdleBehavior>('blink');
-  // 재생 중인 시간표 이름과 경과 ms. 셀 전환은 UI 스레드가 이 두 값으로 고르고 React 는 다시 그리지 않는다.
-  const playing = useSharedValue('');
-  const elapsed = useSharedValue(0);
+  // 재생마다 한 번만 바뀐다. 그 사이 셀 전환은 네이티브 드라이버가 경과 값으로 하고 React 는 다시 그리지 않는다.
+  const [run, setRun] = useState<CatRun | null>(null);
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
 
@@ -114,26 +107,30 @@ function useCatPlayback(
       if (timer) clearTimeout(timer);
       timer = undefined;
     };
-    // 첫 셀(0번)에 멈춘다. 다른 시간표 이름이면 모든 레이어가 첫 셀을 보인다.
-    const still = () => {
-      cancelAnimation(elapsed);
-      playing.value = '';
+    let animation: Animated.CompositeAnimation | undefined;
+    let runToken: object | undefined;
+    const stopRun = () => {
+      runToken = undefined;
+      animation?.stop();
+      animation = undefined;
     };
-    // key 시간표를 durationMs 만큼 UI 스레드에서 재생한다. 한 번 재생이면 끝날 때만 JS 로 onEnd 를 부른다.
+    // 첫 셀(0번)에 멈춘다. 재생이 없으면 모든 레이어가 첫 셀을 보인다.
+    const still = () => {
+      stopRun();
+      setRun(null);
+    };
+    // key 시간표를 durationMs 만큼 네이티브 드라이버로 재생한다. 한 번 재생이면 끝날 때만 JS 로 onEnd 를 부른다.
     const play = (key: string, durationMs: number, repeat: boolean, onEnd?: () => void) => {
-      const end = () => {
-        if (!cancelled) onEnd?.();
-      };
-      const timing = withTiming(
-        durationMs,
-        { duration: durationMs, easing: Easing.linear },
-        (finished) => {
-          if (finished && onEnd) scheduleOnRN(end);
-        },
-      );
-      playing.value = key;
-      elapsed.value = 0;
-      elapsed.value = repeat ? withRepeat(timing, -1) : timing;
+      stopRun();
+      const token = {};
+      runToken = token;
+      const value = new Animated.Value(0);
+      setRun({ key, value });
+      const started = playMotion(value, durationMs, repeat, ({ finished }) => {
+        if (finished && !cancelled && runToken === token) onEnd?.();
+      });
+      // onEnd 가 곧바로 다음 재생을 시작했으면 그 재생을 남긴다.
+      if (runToken === token) animation = started;
     };
     const rest = (next: () => void) => {
       setIdleBehavior('blink');
@@ -176,33 +173,25 @@ function useCatPlayback(
         if (cancelled) return;
         const behavior = nextIdleBehavior(cycle++);
         setIdleBehavior(behavior);
-        play(behavior, motionCycleMs(behavior), false, () => rest(playIdle));
+        play(`idle:${behavior}`, motionCycleMs(behavior), false, () => rest(playIdle));
       };
       timer = setTimeout(playIdle, IDLE_REST_DELAY_MS);
     } else if (normalized === 'blink') {
       const playBlink = () => {
         if (cancelled) return;
-        play('blink', motionCycleMs('blink'), false, () => rest(playBlink));
+        play('idle:blink', motionCycleMs('blink'), false, () => rest(playBlink));
       };
       timer = setTimeout(playBlink, IDLE_REST_DELAY_MS);
     } else {
       const animatedMotion = normalized as CatFrameMotion;
       const cycleMs = motionCycleMs(animatedMotion);
-      const isInteractive =
-        animatedMotion === 'tilt' ||
-        animatedMotion === 'stretch' ||
-        animatedMotion === 'groom' ||
-        animatedMotion === 'yawn';
-      const targetCycles = isInteractive
-        ? (INTERACTIVE_MOTION_CYCLES[animatedMotion as keyof typeof INTERACTIVE_MOTION_CYCLES] ?? 1)
-        : animatedMotion === 'cast'
-          ? 1
-          : undefined;
+      const targetCycles = oneShotCycles(animatedMotion);
       if (targetCycles === undefined) {
         play(animatedMotion, cycleMs, true);
       } else {
-        // 동작 프레임을 다 돌면 시간표가 0번(중립) 셀에 닿는다.
-        play(animatedMotion, cycleMs * targetCycles, false, () => {
+        // 동작 프레임을 다 돌면 시간표가 끝의 0번(중립) 칸에 닿는다.
+        const key = `once:${animatedMotion}`;
+        play(key, cycleMs * targetCycles, false, () => {
           // 중립 프레임(0번)을 한 프레임 지연 시간 동안 노출한 뒤 onFinish를 호출한다.
           if (onFinishRef.current) {
             timer = setTimeout(() => {
@@ -212,7 +201,7 @@ function useCatPlayback(
             return;
           }
           // 완료 콜백이 없으면 cast 는 중립 프레임에 멈추고, 상호작용 동작은 이어서 반복한다.
-          if (animatedMotion !== 'cast') play(animatedMotion, cycleMs, true);
+          if (animatedMotion !== 'cast') play(key, cycleMs, true);
         });
       }
     }
@@ -220,52 +209,46 @@ function useCatPlayback(
     return () => {
       cancelled = true;
       clearTimer();
-      cancelAnimation(elapsed);
+      stopRun();
     };
-  }, [color, normalized, paused, generation, keyed, replayKey, playing, elapsed]);
+  }, [color, normalized, paused, generation, keyed, replayKey]);
 
-  return {
-    playing,
-    elapsed,
-    effectiveMotion: normalized === 'idle' ? idleBehavior : normalized,
-  };
+  return { run, effectiveMotion: normalized === 'idle' ? idleBehavior : normalized };
 }
 
-/** 한 셀을 미리 깔아 두고, 시간표가 그 셀을 가리킬 때만 UI 스레드에서 보이게 한다. */
+/** 한 셀을 미리 깔아 두고, 재생 경과 값이 그 셀 차례일 때만 보이게 한다(opacity 계단 함수). */
 function CatFrameLayer({
   cell,
-  playKey,
   steps,
-  loop,
-  playing,
-  elapsed,
+  value,
   source,
   imageStyle,
   viewportStyle,
   testID,
 }: {
   cell: number;
-  playKey: string;
   steps: readonly CatKeyPose[];
-  loop: boolean;
-  playing: SharedValue<string>;
-  elapsed: SharedValue<number>;
+  /** 이 시간표의 재생 값. 없으면(멈춤·다른 시간표 재생 중) 첫 셀을 보인다(동작 전환 직후에도 빈 화면이 없다). */
+  value?: Animated.Value;
   source: ImageSourcePropType;
   imageStyle: object;
   viewportStyle?: object;
   testID?: string;
 }) {
-  const visible = useAnimatedStyle(() => {
-    // 다른 시간표가 재생 중이거나 멈춰 있으면 첫 셀을 보인다(동작 전환 직후에도 빈 화면이 없다).
-    const shown =
-      playing.value === playKey ? timelineCell(steps, loop, elapsed.value) : steps[0][0];
-    return { opacity: shown === cell ? 1 : 0 };
-  });
+  const opacity = useMemo(
+    () =>
+      value
+        ? value.interpolate({ ...frameOpacityRange(steps, cell), extrapolate: 'clamp' })
+        : cell === steps[0][0]
+          ? 1
+          : 0,
+    [value, steps, cell],
+  );
   const image = (
-    <Reanimated.Image
+    <Animated.Image
       testID={testID}
       source={source}
-      style={[imageStyle, visible]}
+      style={[imageStyle, { opacity }]}
       resizeMode="stretch"
     />
   );
@@ -309,7 +292,7 @@ export function CatSprite({
 }) {
   const [appState, setAppState] = useState(AppState.currentState);
   const paused = reduce || reduceMotion || appState === 'background' || appState === 'inactive';
-  const { playing, elapsed, effectiveMotion } = useCatPlayback(
+  const { run, effectiveMotion } = useCatPlayback(
     motion,
     color,
     paused,
@@ -357,11 +340,19 @@ export function CatSprite({
   }, [isTilting, paused, questionAnim]);
 
   const frameMotion = effectiveMotion as CatFrameMotion;
-  // 재생 훅과 같은 시간표: 키 포즈(focus 반복·reel 한 번) 또는 catMotion 의 균일 간격 반복.
+  // 재생 훅과 같은 시간표: 키 포즈(focus 반복·reel 한 번), idle 동작 한 바퀴, 한 번 재생(cast·상호작용), 반복.
+  const idle = normalizeCatMotion(motion) === 'idle' || frameMotion === 'blink';
   const poses = keyPoses ? catKeyPoses(frameMotion) : undefined;
-  const playKey = poses ? `key:${frameMotion}` : frameMotion;
-  const steps = poses ?? UNIFORM_STEPS[frameMotion];
-  const loop = !poses || frameMotion === 'focus';
+  const oneShot = !idle && !poses && oneShotCycles(frameMotion) !== undefined;
+  const playKey = poses
+    ? `key:${frameMotion}`
+    : idle
+      ? `idle:${frameMotion}`
+      : oneShot
+        ? `once:${frameMotion}`
+        : frameMotion;
+  const steps = poses ?? (oneShot ? ONE_SHOT_STEPS : CYCLE_STEPS)[frameMotion];
+  const value = run?.key === playKey ? run.value : undefined;
   const cells = [...new Set(steps.map(([cell]) => cell))];
 
   const frameVisual = (displayedFrame: number) => {
@@ -436,11 +427,8 @@ export function CatSprite({
         <CatFrameLayer
           key={cell}
           cell={cell}
-          playKey={playKey}
           steps={steps}
-          loop={loop}
-          playing={playing}
-          elapsed={elapsed}
+          value={value}
           testID={testID ? `${testID}-frame-${cell}` : undefined}
           {...frameVisual(cell)}
         />

@@ -1,23 +1,28 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
-import { getAnimatedStyle } from 'react-native-reanimated';
+import { StyleSheet } from 'react-native';
+import { observeAnimatedOnJsDriver } from '../animatedJsDriver.testing';
 import { LibraryMotion } from './LibraryMotion';
 
 type MotionView = Awaited<ReturnType<typeof render>>;
 
 describe('LibraryMotion', () => {
-  beforeEach(() => jest.useFakeTimers());
+  beforeEach(() => {
+    jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
+  });
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
-  // 프레임 전환은 UI 스레드 애니메이션 스타일로만 바뀌므로 현재 애니메이션 값을 읽는다.
+  // 프레임은 겹친 레이어의 opacity 로 바뀐다. Jest 에서는 JS 드라이버로 진행을 관찰한다.
   const activeFrame = (view: MotionView) =>
     [0, 1, 2, 3].find(
       (index) =>
-        getAnimatedStyle(
-          view.getByTestId(`library-motion-frame-${index}`, { includeHiddenElements: true }),
+        StyleSheet.flatten(
+          view.getByTestId(`library-motion-frame-${index}`, { includeHiddenElements: true }).props
+            .style,
         ).opacity === 1,
     );
 
@@ -98,7 +103,6 @@ describe('LibraryMotion', () => {
       await act(async () => jest.advanceTimersByTime(240));
       expect(activeFrame(view)).toBe(2);
       await view.rerender(<LibraryMotion entryActive trigger={trigger} />);
-      await act(async () => jest.advanceTimersByTime(0));
       expect(activeFrame(view)).toBe(0);
       await act(async () => jest.advanceTimersByTime(1_000));
       expect(activeFrame(view)).toBe(0);

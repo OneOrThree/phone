@@ -50,6 +50,8 @@ beforeEach(() => {
         },
         stop: jest.fn(),
         reset: jest.fn(),
+        // Animated.loop 이 감싸도 JS 쪽으로 반복하게 한다(건물 모션 반복).
+        _isUsingNativeDriver: () => false,
       }) as unknown as Animated.CompositeAnimation,
   );
 });

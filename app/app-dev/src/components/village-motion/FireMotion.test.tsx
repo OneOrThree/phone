@@ -1,10 +1,10 @@
 import React, { Profiler } from 'react';
 import { act, configure, render } from '@testing-library/react-native';
-import { getAnimatedStyle } from 'react-native-reanimated';
 
 // 장식 모션은 스크린리더에서 숨기므로 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
-import { AppState, type AppStateStatus } from 'react-native';
+import { Animated, AppState, StyleSheet, type AppStateStatus } from 'react-native';
+import { observeAnimatedOnJsDriver } from '../animatedJsDriver.testing';
 import { FireMotion } from './FireMotion';
 
 type MotionView = Awaited<ReturnType<typeof render>>;
@@ -14,6 +14,7 @@ describe('FireMotion', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
     jest.spyOn(AppState, 'addEventListener').mockImplementation(((_event, listener) => {
       onAppStateChange = listener as (state: AppStateStatus) => void;
       return { remove: jest.fn() };
@@ -25,9 +26,10 @@ describe('FireMotion', () => {
     onAppStateChange = undefined;
   });
 
-  // 프레임 전환은 UI 스레드 애니메이션 스타일로만 바뀌므로 현재 애니메이션 값을 읽는다.
+  // 프레임은 겹친 레이어의 opacity 로 바뀐다. Jest 에서는 JS 드라이버로 진행을 관찰한다.
   const isShown = (view: MotionView, mode: 'day' | 'evening', index: number) =>
-    getAnimatedStyle(view.getByTestId(`fire-motion-frame-${mode}-${index}`)).opacity === 1;
+    StyleSheet.flatten(view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.style)
+      .opacity === 1;
   const activeFrame = (view: MotionView, mode: 'day' | 'evening') =>
     [0, 1, 2, 3].find((index) => isShown(view, mode, index));
   const visibleFrameCount = (view: MotionView, mode: 'day' | 'evening') =>
@@ -76,7 +78,6 @@ describe('FireMotion', () => {
     await act(async () => jest.advanceTimersByTime(155));
     expect(activeFrame(view, 'evening')).toBe(2);
     await act(async () => onAppStateChange?.('background'));
-    await act(async () => jest.advanceTimersByTime(0));
     expect(activeFrame(view, 'evening')).toBe(1);
     await act(async () => jest.advanceTimersByTime(5_000));
     expect(activeFrame(view, 'evening')).toBe(1);
@@ -104,18 +105,26 @@ describe('FireMotion', () => {
     await view.unmount();
   });
 
-  it('switches frames without React commits', async () => {
+  it('switches frames on the native driver without React commits', async () => {
+    // JS 드라이버 관찰을 풀고 실제 설정(네이티브 드라이버·선형 반복)으로 돌린다.
+    jest.mocked(Animated.timing).mockRestore();
+    const timing = jest.spyOn(Animated, 'timing');
     const onRender = jest.fn();
     const view = await render(
       <Profiler id="fire" onRender={onRender}>
         <FireMotion mode="evening" />
       </Profiler>,
     );
-    await act(async () => jest.advanceTimersByTime(0));
+    expect(timing).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ useNativeDriver: true, duration: 155 * 4, iterations: -1 }),
+    );
     const commits = onRender.mock.calls.length;
     expect(commits).toBeGreaterThan(0);
-    await act(async () => jest.advanceTimersByTime(155 * 6 + 60));
-    expect(activeFrame(view, 'evening')).toBe(3);
+    // 프레임마다 act 를 따로 닫아야 setState 타이머였다면 프레임마다 커밋이 잡힌다.
+    for (let frame = 0; frame < 6; frame += 1) {
+      await act(async () => jest.advanceTimersByTime(155));
+    }
     expect(onRender).toHaveBeenCalledTimes(commits);
     await view.unmount();
   });

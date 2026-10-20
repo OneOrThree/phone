@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, configure, render } from '@testing-library/react-native';
-import { getAnimatedStyle } from 'react-native-reanimated';
+import { StyleSheet } from 'react-native';
+import { observeAnimatedOnJsDriver } from '../animatedJsDriver.testing';
 
 // 장식 모션은 스크린리더에서 숨기므로 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
@@ -9,16 +10,21 @@ import { ShopMotion } from './ShopMotion';
 type MotionView = Awaited<ReturnType<typeof render>>;
 
 describe('ShopMotion', () => {
-  beforeEach(() => jest.useFakeTimers());
+  beforeEach(() => {
+    jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
+  });
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
-  // 프레임 전환은 UI 스레드 애니메이션 스타일로만 바뀌므로 현재 애니메이션 값을 읽는다.
+  // 프레임은 겹친 레이어의 opacity 로 바뀐다. Jest 에서는 JS 드라이버로 진행을 관찰한다.
   const activeFrame = (view: MotionView) =>
     [0, 1, 2, 3].find(
-      (index) => getAnimatedStyle(view.getByTestId(`shop-motion-frame-${index}`)).opacity === 1,
+      (index) =>
+        StyleSheet.flatten(view.getByTestId(`shop-motion-frame-${index}`).props.style).opacity ===
+        1,
     );
 
   it('plays four frames and waits exactly 20 seconds after a run ends', async () => {
@@ -52,7 +58,6 @@ describe('ShopMotion', () => {
     expect(activeFrame(view)).toBe(3);
 
     await view.rerender(<ShopMotion trigger={1} entryActive={false} />);
-    await act(async () => jest.advanceTimersByTime(0));
     expect(activeFrame(view)).toBe(0);
     await view.unmount();
   });

@@ -1,8 +1,8 @@
 import React, { Profiler } from 'react';
 import { act, render } from '@testing-library/react-native';
-import { AppState, StyleSheet } from 'react-native';
-import { getAnimatedStyle } from 'react-native-reanimated';
+import { Animated, AppState, Easing, StyleSheet } from 'react-native';
 import { cat } from '@/constants/assets';
+import { observeAnimatedOnJsDriver } from './animatedJsDriver.testing';
 import { CAT_IDLE_ATLASES } from '@/constants/cat-idle-atlases';
 import { CatSprite } from './CatSprite';
 import {
@@ -14,11 +14,11 @@ import {
 
 type SpriteView = Awaited<ReturnType<typeof render>>;
 
-/** 셀 레이어는 모두 깔려 있고 UI 스레드 스타일로 하나만 보인다. 지금 보이는 레이어를 돌려준다. */
+/** 셀 레이어는 모두 깔려 있고 opacity 로 하나만 보인다. 지금 보이는 레이어를 돌려준다. */
 const shownFrame = (view: SpriteView) => {
   const shown = view
     .getAllByTestId(/^cat-frame-/)
-    .filter((layer) => getAnimatedStyle(layer).opacity === 1);
+    .filter((layer) => StyleSheet.flatten(layer.props.style).opacity > 0.5);
   expect(shown).toHaveLength(1);
   return shown[0];
 };
@@ -30,6 +30,7 @@ describe('CatSprite 재생 제어', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
     jest.spyOn(AppState, 'addEventListener').mockImplementation(((_event, listener) => {
       onAppStateChange = listener as (state: 'active' | 'background' | 'inactive') => void;
       return { remove: jest.fn() };
@@ -60,18 +61,30 @@ describe('CatSprite 재생 제어', () => {
     await view.unmount();
   });
 
-  it('프레임 전환은 React 커밋 없이 UI 스레드 스타일만 바꾼다', async () => {
+  it('프레임 전환은 네이티브 드라이버가 맡아 재생 중 React 커밋이 없다', async () => {
+    // JS 드라이버 관찰을 풀고 실제 설정(네이티브 드라이버·선형)으로 돌린다.
+    jest.mocked(Animated.timing).mockRestore();
+    const timing = jest.spyOn(Animated, 'timing');
     const onRender = jest.fn();
     const view = await render(
       <Profiler id="cat" onRender={onRender}>
         <CatSprite color="black" motion="walk" testID="cat" />
       </Profiler>,
     );
+    expect(timing).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        useNativeDriver: true,
+        easing: Easing.linear,
+        duration: 750,
+        iterations: -1,
+      }),
+    );
     await advance(0);
     const commits = onRender.mock.calls.length;
     expect(commits).toBeGreaterThan(0);
-    await advance(125 * 7 + 60);
-    expect(shownCell(view)).toBe(1);
+    // 프레임마다 act 를 따로 닫아야 setState 타이머였다면 프레임마다 커밋이 잡힌다.
+    for (let frame = 0; frame < 7; frame += 1) await advance(125);
     expect(onRender).toHaveBeenCalledTimes(commits);
     await view.unmount();
   });
@@ -273,7 +286,10 @@ describe('CatSprite 재생 제어', () => {
 });
 
 describe('CatSprite 프레임 시간표는 catMotion.ts 값과 같다', () => {
-  beforeEach(() => jest.useFakeTimers());
+  beforeEach(() => {
+    jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
+  });
   afterEach(() => {
     jest.restoreAllMocks();
     jest.useRealTimers();

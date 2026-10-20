@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { act, render } from '@testing-library/react-native';
-import { getAnimatedStyle } from 'react-native-reanimated';
+import { observeAnimatedOnJsDriver } from '../animatedJsDriver.testing';
 import { MotionContext } from '@/design-system/primitives';
 import { componentTokens } from '@/design-system/tokens';
 import { Text } from '@/design-system/typography';
@@ -9,15 +9,22 @@ import { VillageHallMotion } from './VillageHallMotion';
 
 type MotionView = Awaited<ReturnType<typeof render>>;
 
-// 프레임 전환은 UI 스레드 애니메이션 스타일로만 바뀌므로 현재 애니메이션 값을 읽는다.
+// 프레임은 겹친 레이어의 opacity 로 바뀐다. Jest 에서는 JS 드라이버로 진행을 관찰한다.
 const activeFrame = (view: MotionView) =>
   [0, 1, 2, 3].find(
-    (index) => getAnimatedStyle(view.getByTestId(`village-hall-frame-${index}`)).opacity === 1,
+    (index) =>
+      StyleSheet.flatten(view.getByTestId(`village-hall-frame-${index}`).props.style).opacity === 1,
   );
 
 describe('VillageHallMotion', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
+  beforeEach(() => {
+    jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   it('opens and closes through all four source frames for record and weekly-goal states', async () => {
     const view = await render(<VillageHallMotion state="new-record" />);
@@ -31,7 +38,6 @@ describe('VillageHallMotion', () => {
     await act(async () => jest.advanceTimersByTime(180));
     expect(activeFrame(view)).toBe(2);
     await view.rerender(<VillageHallMotion state="weekly-goal" />);
-    await act(async () => jest.advanceTimersByTime(0));
     expect(activeFrame(view)).toBe(0);
     await view.unmount();
   });
@@ -54,7 +60,9 @@ describe('VillageHallMotion', () => {
     const view = await render(<VillageHallMotion state="arrival" themed />);
     const tintOpacities = () =>
       [0, 1, 2, 3].map(
-        (index) => getAnimatedStyle(view.getByTestId(`village-hall-theme-tint-${index}`)).opacity,
+        (index) =>
+          StyleSheet.flatten(view.getByTestId(`village-hall-theme-tint-${index}`).props.style)
+            .opacity,
       );
     const { opacity } = componentTokens.villageBuildingThemeTint;
     expect(activeFrame(view)).toBe(0);

@@ -9,7 +9,6 @@ import {
   renderHook,
 } from '@testing-library/react-native';
 import { Animated, PanResponder, Platform, StyleSheet } from 'react-native';
-import { getAnimatedStyle } from 'react-native-reanimated';
 import {
   constructionPlacement,
   createWorldProjector,
@@ -21,6 +20,7 @@ import { applyLocalePref } from '@/i18n';
 import { buildingNames, initialState, reducer } from '@/services/model';
 import { villageScene } from '@/utils/village-world';
 import { assets } from '@/constants/assets';
+import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
 import { semanticTokens } from '@/design-system/tokens';
 
 // 건물 모션·알림 배지는 장식 레이어라 스크린리더에서 숨긴다. 배치 검증을 위해 숨김 요소까지 조회한다.
@@ -180,6 +180,7 @@ test('방문 섬에는 내 섬 게시판과 도서관 알림을 표시하지 않
 });
 
 test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 대체하고 전환 세대마다 재생한다', async () => {
+  observeAnimatedOnJsDriver(); // 건물 모션 진행을 JS 드라이버로 관찰한다(GROMO-2375).
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
@@ -189,9 +190,7 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
 
   expect(screen.queryByTestId('world-static-building-hall')).toBeNull();
   const frame = screen.getByTestId('village-hall-frame-0');
-  expect(frame.props.style).toEqual(
-    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-  );
+  expect(StyleSheet.flatten(frame.props.style)).toMatchObject({ opacity: 1 });
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
   const worldLeft = 402 / 2 - 585 * worldScale;
   const worldTop = 874 / 2 - 430 * worldScale;
@@ -208,12 +207,14 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
   expect(screen.queryByTestId('village-hall-highlight')).toBeNull();
   expect(screen.queryByText('마을 회관에 들어가는 중')).toBeNull();
 
-  // 모션 프레임은 UI 스레드 애니메이션 스타일로만 바뀐다(GROMO-2375).
   await act(async () => jest.advanceTimersByTime(360));
-  expect(getAnimatedStyle(screen.getByTestId('village-hall-frame-2')).opacity).toBe(1);
+  expect(StyleSheet.flatten(screen.getByTestId('village-hall-frame-2').props.style)).toMatchObject({
+    opacity: 1,
+  });
   await screen.rerender(<WorldMap state={state} hallMotionActive hallMotionGeneration={2} />);
-  await act(async () => jest.advanceTimersByTime(0));
-  expect(getAnimatedStyle(screen.getByTestId('village-hall-frame-0')).opacity).toBe(1);
+  expect(StyleSheet.flatten(screen.getByTestId('village-hall-frame-0').props.style)).toMatchObject({
+    opacity: 1,
+  });
   await screen.unmount();
   jest.useRealTimers();
 });
@@ -393,6 +394,7 @@ test.each(['board'] as const)('%s에 도착하면 전환 대기 없이 라우트
 });
 
 test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에서만 프레임을 연다', async () => {
+  observeAnimatedOnJsDriver(); // 건물 모션 진행을 JS 드라이버로 관찰한다(GROMO-2375).
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
@@ -400,10 +402,10 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
   if (!island.buildings.includes('tower')) island.buildings.push('tower');
   const screen = await render(<WorldMap state={state} />);
   const activeFrame = () =>
-    [0, 1, 2, 3].find(
-      (index) =>
-        getAnimatedStyle(screen.getByTestId(`village-observatory-frame-${index}`)).opacity === 1,
-    );
+    [0, 1, 2, 3].find((index) => {
+      const style = screen.getByTestId(`village-observatory-frame-${index}`).props.style;
+      return StyleSheet.flatten(style).opacity === 1;
+    });
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
   const worldLeft = 402 / 2 - 585 * worldScale;
   const worldTop = 874 / 2 - 430 * worldScale;
@@ -543,6 +545,7 @@ test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다�
 });
 
 test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생한다', async () => {
+  observeAnimatedOnJsDriver(); // 건물 모션 진행을 JS 드라이버로 관찰한다(GROMO-2375).
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
@@ -550,7 +553,9 @@ test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생
 
   await screen.rerender(<WorldMap state={state} shopArrivalActive shopArrivalGeneration={1} />);
   await act(async () => jest.advanceTimersByTime(150));
-  expect(getAnimatedStyle(screen.getByTestId('shop-motion-frame-1')).opacity).toBe(1);
+  expect(StyleSheet.flatten(screen.getByTestId('shop-motion-frame-1').props.style)).toMatchObject({
+    opacity: 1,
+  });
 
   await screen.unmount();
   jest.useRealTimers();
@@ -650,6 +655,7 @@ test.each([false, true])(
 );
 
 test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
+  observeAnimatedOnJsDriver(); // 건물 모션 진행을 JS 드라이버로 관찰한다(GROMO-2375).
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
@@ -680,7 +686,9 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
     ]),
   );
   await act(async () => jest.advanceTimersByTime(360));
-  expect(getAnimatedStyle(screen.getByTestId('fire-motion-frame-day-1')).opacity).toBe(1);
+  expect(
+    StyleSheet.flatten(screen.getByTestId('fire-motion-frame-day-1').props.style),
+  ).toMatchObject({ opacity: 1 });
 
   await screen.unmount();
   jest.setSystemTime(new Date('2026-06-15T21:00:00'));
@@ -752,6 +760,7 @@ test('레이어드 마을에서도 게시판 상태를 VillageScenery 알림에 
 });
 
 test('레이어드 마을에서도 회관 진입 문 모션을 표시한다', async () => {
+  observeAnimatedOnJsDriver(); // 건물 모션 진행을 JS 드라이버로 관찰한다(GROMO-2375).
   jest.useFakeTimers();
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
@@ -769,7 +778,9 @@ test('레이어드 마을에서도 회관 진입 문 모션을 표시한다', as
   // 회관 상태는 이름표로 안내하므로 강조선을 그리지 않는다.
   expect(screen.queryByTestId('village-hall-highlight')).toBeNull();
   await act(async () => jest.advanceTimersByTime(180));
-  expect(getAnimatedStyle(screen.getByTestId('village-hall-frame-1')).opacity).toBe(1);
+  expect(StyleSheet.flatten(screen.getByTestId('village-hall-frame-1').props.style)).toMatchObject({
+    opacity: 1,
+  });
   await screen.unmount();
   jest.useRealTimers();
 });

@@ -1,3 +1,5 @@
+import { Animated, Easing, Platform } from 'react-native';
+
 /** 고양이 스프라이트의 프레임 순서와 재생 간격을 한곳에서 관리한다. */
 export type CatMotion =
   'idle' | 'walk' | 'read' | 'focus' | 'cast' | 'reel' | 'tilt' | 'yawn' | 'stretch' | 'groom';
@@ -129,6 +131,65 @@ export const REEL_KEY_POSES: readonly CatKeyPose[] = REEL_LAB_KEYS.map(([frame, 
     Math.round(((next - at) / (REEL_LAB_END_S - REEL_LAB_START_S)) * REEL_WINDOW_MS),
   ] as const;
 });
+
+/** sequence 를 frameMs 간격으로 도는 [프레임, 유지 ms] 시간표. */
+export const frameSteps = (sequence: readonly number[], frameMs: number): CatKeyPose[] =>
+  sequence.map((frame) => [frame, frameMs]);
+
+/**
+ * 경과 ms 값을 0 부터 durationMs 까지 네이티브 드라이버로 선형으로 흘린다. 프레임 전환은 이 값의
+ * opacity 계단 함수(frameOpacityRange)가 네이티브에서 하므로 JS·React 는 프레임마다 깨지 않는다.
+ * 반복은 네이티브 iterations(-1)로 돌아 바퀴마다 JS 를 거치지 않는다. 네이티브 드라이버가 없는 웹만
+ * Animated.loop 로 되감는다. 한 번 재생이면 끝날 때 onEnd 가 한 번 불린다(멈추면 finished=false).
+ */
+export function playMotion(
+  value: Animated.Value,
+  durationMs: number,
+  loop: boolean,
+  onEnd?: Animated.EndCallback,
+) {
+  value.setValue(0);
+  const config: Animated.TimingAnimationConfig & { iterations?: number } = {
+    toValue: durationMs,
+    duration: durationMs,
+    easing: Easing.linear,
+    useNativeDriver: true,
+    ...(loop && { iterations: -1 }),
+  };
+  const timing = Animated.timing(value, config);
+  const animation = loop && Platform.OS === 'web' ? Animated.loop(timing) : timing;
+  animation.start(onEnd);
+  return animation;
+}
+
+// 프레임 경계는 정수 ms 경계보다 반 ms 앞에서 바꾼다. 경과 값에 부동소수 오차(±1e-13)가 있어도
+// 정수 ms 에서는 opacity 가 0 또는 1 로 또렷하다. 앞뒤 칸이 맞바뀌는 폭은 아주 짧게 둔다
+// (interpolate 입력에 같은 값이 겹치면 안 된다).
+const FRAME_EDGE_LEAD_MS = 0.5;
+const FRAME_EDGE_MS = 0.001;
+
+/**
+ * [셀, 유지 ms] 시간표에서 cell 레이어의 opacity 계단 함수(Animated interpolate 의 inputRange·outputRange).
+ * 경과 ms 를 넣으면 cell 차례일 때만 1 이다. extrapolate 'clamp' 와 함께 쓰면 첫 칸은 0 이전으로,
+ * 마지막 칸은 끝 이후로 이어져 한 번 재생은 마지막 셀에 머물고, 어느 경과 값에서도 보이는 레이어는 하나다.
+ */
+export function frameOpacityRange(steps: readonly CatKeyPose[], cell: number) {
+  const inputRange: number[] = [];
+  const outputRange: number[] = [];
+  let boundary = 0;
+  for (let index = 1; index < steps.length; index += 1) {
+    boundary += steps[index - 1][1];
+    const before = steps[index - 1][0] === cell ? 1 : 0;
+    const after = steps[index][0] === cell ? 1 : 0;
+    if (before === after) continue;
+    const edge = boundary - FRAME_EDGE_LEAD_MS;
+    inputRange.push(edge - FRAME_EDGE_MS, edge);
+    outputRange.push(before, after);
+  }
+  if (inputRange.length > 0) return { inputRange, outputRange };
+  const shown = steps[0][0] === cell ? 1 : 0;
+  return { inputRange: [0, 1], outputRange: [shown, shown] };
+}
 
 /** 키 포즈 시간표가 있는 동작만 돌려준다. focus 는 12초 반복, reel 은 한 번 재생 후 마지막 셀 유지. */
 export function catKeyPoses(motion: ResolvedCatMotion): readonly CatKeyPose[] | undefined {

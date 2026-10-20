@@ -1,66 +1,56 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
+  Animated,
   StyleSheet,
   type ImageSourcePropType,
   type ImageStyle,
   type StyleProp,
 } from 'react-native';
-import Animated, {
-  cancelAnimation,
-  Easing,
-  useAnimatedStyle,
-  withRepeat,
-  withTiming,
-  type DerivedValue,
-  type SharedValue,
-} from 'react-native-reanimated';
 import { componentTokens } from '@/design-system/tokens';
+import { frameOpacityRange, type CatKeyPose } from '../catMotion';
 
 /*
- * 건물 모션 프레임은 모두 겹쳐 두고 UI 스레드에서 현재 프레임 하나만 보이게 한다.
- * 경과 시간(ms)을 Reanimated 로 흘리고 프레임 번호는 그 값에서 계산하므로 프레임마다 React 가 다시 그리지 않는다.
+ * 건물 모션 프레임은 모두 겹쳐 두고 현재 프레임 하나만 보이게 한다.
+ * 경과 시간(ms)을 네이티브 드라이버(Animated, catMotion 의 playMotion)로 흘리고 각 프레임의 opacity 는
+ * 그 값의 계단 함수라서 프레임마다 JS·React 가 깨지 않는다.
  */
 
-/** 경과 ms 를 frameMs 간격 tick 으로 바꾼다. 타이머와 같은 ms 경계에서 넘어가도록 부동소수 오차를 반올림한다. */
-export function motionTick(elapsedMs: number, frameMs: number): number {
-  'worklet';
-  return Math.floor(Math.round(elapsedMs) / frameMs);
-}
+/** [프레임 번호, 유지 ms] 시간표(catMotion 의 frameSteps·playMotion 으로 만들고 재생한다). 경과가 끝을 넘으면 마지막 프레임에 머문다. */
+export type MotionStep = CatKeyPose;
 
-/** elapsed 를 0 부터 durationMs 까지 UI 스레드에서 흘린다. loop 면 끝에서 0 으로 돌아가 반복한다. */
-export function playMotion(elapsed: SharedValue<number>, durationMs: number, loop: boolean) {
-  const timing = withTiming(durationMs, { duration: durationMs, easing: Easing.linear });
-  elapsed.value = 0;
-  elapsed.value = loop ? withRepeat(timing, -1) : timing;
-}
-
-/** 재생을 멈추고 경과 0(첫 프레임)으로 돌린다. */
-export function stopMotion(elapsed: SharedValue<number>) {
-  cancelAnimation(elapsed);
-  elapsed.value = 0;
-}
-
-/** 겹쳐 둔 프레임 한 장. frame 이 index 일 때만 visibleOpacity 로 보인다. */
+/** 겹쳐 둔 프레임 한 장. 경과 값이 steps 에서 index 차례일 때만 visibleOpacity 로 보인다. */
 export function MotionFrameImage({
-  frame,
+  elapsed,
+  steps,
   index,
   source,
   style,
   visibleOpacity = 1,
   testID,
 }: {
-  frame: DerivedValue<number>;
+  elapsed: Animated.Value;
+  steps: readonly MotionStep[];
   index: number;
   source: ImageSourcePropType;
   style: StyleProp<ImageStyle>;
   visibleOpacity?: number;
   testID?: string;
 }) {
-  const visible = useAnimatedStyle(() => ({
-    opacity: frame.value === index ? visibleOpacity : 0,
-  }));
+  const opacity = useMemo(() => {
+    const { inputRange, outputRange } = frameOpacityRange(steps, index);
+    return elapsed.interpolate({
+      inputRange,
+      outputRange: outputRange.map((shown) => shown * visibleOpacity),
+      extrapolate: 'clamp',
+    });
+  }, [elapsed, steps, index, visibleOpacity]);
   return (
-    <Animated.Image testID={testID} source={source} resizeMode="stretch" style={[style, visible]} />
+    <Animated.Image
+      testID={testID}
+      source={source}
+      resizeMode="stretch"
+      style={[style, { opacity }]}
+    />
   );
 }
 
@@ -71,17 +61,20 @@ export function MotionFrameImage({
  */
 export function VillageThemeTint({
   sources,
-  frame,
+  elapsed,
+  steps,
   testID,
 }: {
   sources: readonly ImageSourcePropType[];
-  frame: DerivedValue<number>;
+  elapsed: Animated.Value;
+  steps: readonly MotionStep[];
   testID?: string;
 }) {
   return sources.map((source, index) => (
     <MotionFrameImage
       key={index}
-      frame={frame}
+      elapsed={elapsed}
+      steps={steps}
       index={index}
       source={source}
       style={styles.tint}

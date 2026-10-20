@@ -1,14 +1,8 @@
-import React, { useContext, useEffect } from 'react';
-import { StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
-import { useDerivedValue, useSharedValue } from 'react-native-reanimated';
+import React, { useContext, useEffect, useRef } from 'react';
+import { Animated, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
-import {
-  MotionFrameImage,
-  VillageThemeTint,
-  motionTick,
-  playMotion,
-  stopMotion,
-} from './VillageThemeTint';
+import { frameSteps, playMotion } from '../catMotion';
+import { MotionFrameImage, VillageThemeTint, type MotionStep } from './VillageThemeTint';
 
 export type ObservatoryRankState = 'normal' | 'rank-updated' | 'rank-changed';
 export type ObservatoryDayNight = 'day' | 'night';
@@ -28,6 +22,11 @@ const nightFrames: readonly ImageSourcePropType[] = [
 ];
 const sequence = [0, 1, 2, 3] as const;
 const frameDuration = 220;
+// 한 번 열고 닫힌 기본 프레임(0번)으로 돌아와 머문다.
+const arrivalSteps: readonly MotionStep[] = [
+  ...frameSteps(sequence, frameDuration),
+  [0, frameDuration],
+];
 
 /** 전망대 진입 시 4프레임 모션을 한 번 재생하고 닫힌 기본 프레임으로 돌아간다. */
 export function VillageObservatoryMotion({
@@ -54,11 +53,7 @@ export function VillageObservatoryMotion({
   testID?: string;
 }) {
   const motionDisabled = useContext(MotionContext) || reduceMotion;
-  const elapsed = useSharedValue(0);
-  // 한 번 재생이 끝나면 경과가 한 바퀴에 닿아 닫힌 0번으로 돌아온다.
-  const frame = useDerivedValue<number>(
-    () => sequence[motionTick(elapsed.value, frameDuration) % sequence.length],
-  );
+  const elapsed = useRef(new Animated.Value(0)).current;
   const rankLabel =
     rankState === 'rank-updated'
       ? '주간 순위가 갱신되었습니다'
@@ -67,9 +62,12 @@ export function VillageObservatoryMotion({
         : undefined;
 
   useEffect(() => {
-    if (motionDisabled || generation === 0) return;
-    playMotion(elapsed, sequence.length * frameDuration, false);
-    return () => stopMotion(elapsed);
+    if (motionDisabled || generation === 0) {
+      elapsed.setValue(0);
+      return;
+    }
+    const animation = playMotion(elapsed, sequence.length * frameDuration, false);
+    return () => animation.stop();
   }, [dayNight, elapsed, generation, motionDisabled]);
 
   return (
@@ -87,7 +85,8 @@ export function VillageObservatoryMotion({
         (night ? nightFrames : frames).map((source, index) => (
           <MotionFrameImage
             key={index}
-            frame={frame}
+            elapsed={elapsed}
+            steps={arrivalSteps}
             index={index}
             testID={`village-observatory-frame-${index}`}
             source={source}
@@ -97,7 +96,8 @@ export function VillageObservatoryMotion({
       {showFrames && themed && (
         <VillageThemeTint
           sources={night ? nightFrames : frames}
-          frame={frame}
+          elapsed={elapsed}
+          steps={arrivalSteps}
           testID="village-observatory-theme-tint"
         />
       )}

@@ -50,10 +50,6 @@ jest.mock('@shopify/react-native-skia', () =>
   require('@shopify/react-native-skia/lib/commonjs/mock').Mock(global.CanvasKit),
 );
 
-// Reanimated 4 의 worklets 런타임은 네이티브라 공식 mock 으로 JS 스레드에서 돌린다. 애니메이션은 가짜 타이머로
-// 진행되고, 현재 애니메이션 스타일은 `getAnimatedStyle`(react-native-reanimated)로 읽는다.
-jest.mock('react-native-worklets', () => require('react-native-worklets/src/mock'));
-
 // expo-localization 은 네이티브 모듈이라 기기 언어를 ko-KR(테스트가 단언하는 정본 문구)로 고정한다.
 jest.mock('expo-localization', () => ({
   getLocales: jest.fn(() => [

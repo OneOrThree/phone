@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, configure, render } from '@testing-library/react-native';
-import { getAnimatedStyle } from 'react-native-reanimated';
+import { StyleSheet } from 'react-native';
+import { observeAnimatedOnJsDriver } from '../animatedJsDriver.testing';
 
 // 장식 모션은 스크린리더에서 숨기므로 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
@@ -9,16 +10,23 @@ import { VillageObservatoryMotion } from './VillageObservatoryMotion';
 
 type MotionView = Awaited<ReturnType<typeof render>>;
 
-// 프레임 전환은 UI 스레드 애니메이션 스타일로만 바뀌므로 현재 애니메이션 값을 읽는다.
+// 프레임은 겹친 레이어의 opacity 로 바뀐다. Jest 에서는 JS 드라이버로 진행을 관찰한다.
 const activeFrame = (view: MotionView) =>
   [0, 1, 2, 3].find(
     (index) =>
-      getAnimatedStyle(view.getByTestId(`village-observatory-frame-${index}`)).opacity === 1,
+      StyleSheet.flatten(view.getByTestId(`village-observatory-frame-${index}`).props.style)
+        .opacity === 1,
   );
 
 describe('VillageObservatoryMotion', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
+  beforeEach(() => {
+    jest.useFakeTimers();
+    observeAnimatedOnJsDriver();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
 
   it('keeps the door closed at idle and plays one arrival sequence without a rank badge', async () => {
     const view = await render(<VillageObservatoryMotion dayNight="night" />);
@@ -61,7 +69,6 @@ describe('VillageObservatoryMotion', () => {
         <VillageObservatoryMotion generation={1} />
       </MotionContext.Provider>,
     );
-    await act(async () => jest.advanceTimersByTime(0));
     expect(activeFrame(view)).toBe(0);
     await act(async () => jest.advanceTimersByTime(1000));
     expect(activeFrame(view)).toBe(0);
