@@ -240,30 +240,60 @@ class OutboundSendBudgetTest {
     }
 
     @Test
-    @DisplayName("DISCONNECT_ACK 거부는 선별도 종료도 하지 않는다 — afterConnectionClosed 가 sessions.closed 를 부르기 전 창")
-    void rejectedDisconnectAckClosesNobody() throws Exception {
+    @DisplayName("DISCONNECT_ACK 거부는 가해자를 고르지 않지만 그 세션은 닫는다 — heartbeat 타임아웃의 «소켓 닫기» 가 사라지지 않는다")
+    void rejectedDisconnectAckClosesOnlyItsOwnSession() throws Exception {
         start();
         WebSocketSession leaving = socket("leaving"); // 레지스트리는 아직 connected
         WebSocketSession healthy = socket("healthy");
-        String chat = "/topic/groups/" + UUID.randomUUID();
-        channel.send(frame("healthy", chat)); // 실행 중(막힘)
-        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
-        channel.send(frame("healthy", chat)); // 큐 — 가득
+        CountDownLatch leavingClosed = new CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            leavingClosed.countDown();
+            return null;
+        }).when(leaving).close(OutboundSendBudget.QUEUE_FULL);
+        fillWithHealthy();
 
-        SimpMessageHeaderAccessor ack = SimpMessageHeaderAccessor.create(SimpMessageType.DISCONNECT_ACK);
-        ack.setSessionId("leaving");
-        MessageHandlingRunnable late = mock(MessageHandlingRunnable.class);
-        when(late.getMessage()).thenAnswer(
-                invocation -> MessageBuilder.createMessage(new byte[0], ack.getMessageHeaders()));
-        budget.rejectedExecution(late, executor.getThreadPoolExecutor());
+        budget.rejectedExecution(disconnectAck("leaving"), executor.getThreadPoolExecutor());
+
+        assertThat(leavingClosed.await(2, TimeUnit.SECONDS)).isTrue();
+        verify(leaving).close(OutboundSendBudget.QUEUE_FULL);
+        verify(healthy, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
+        assertThat(meters.counter("realtime.outbound.dropped", "reason", "queue_full").count()).isEqualTo(1.0);
+        assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isZero();
+        assertThat(meters.counter("realtime.outbound.closed", "selected", "overflow").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("이미 끊긴 세션의 DISCONNECT_ACK 거부는 아무도 닫지 않는다")
+    void rejectedDisconnectAckOfAnAlreadyDisconnectedSessionClosesNobody() throws Exception {
+        start();
+        WebSocketSession leaving = socket("leaving");
+        WebSocketSession healthy = socket("healthy");
+        sessions.closed("leaving");
+        fillWithHealthy();
+
+        budget.rejectedExecution(disconnectAck("leaving"), executor.getThreadPoolExecutor());
 
         Thread.sleep(100); // closer 가 아무것도 하지 않음을 확인할 시간
         verify(healthy, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
         verify(leaving, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
         assertThat(budget.isClosing("leaving")).isFalse();
         assertThat(meters.counter("realtime.outbound.dropped", "reason", "queue_full").count()).isEqualTo(1.0);
-        assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isZero();
-        assertThat(meters.counter("realtime.outbound.closed", "selected", "overflow").count()).isZero();
+    }
+
+    private void fillWithHealthy() throws InterruptedException {
+        String chat = "/topic/groups/" + UUID.randomUUID();
+        channel.send(frame("healthy", chat)); // 실행 중(막힘)
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        channel.send(frame("healthy", chat)); // 큐 — 가득
+    }
+
+    private static MessageHandlingRunnable disconnectAck(String sessionId) {
+        SimpMessageHeaderAccessor ack = SimpMessageHeaderAccessor.create(SimpMessageType.DISCONNECT_ACK);
+        ack.setSessionId(sessionId);
+        MessageHandlingRunnable task = mock(MessageHandlingRunnable.class);
+        when(task.getMessage()).thenAnswer(
+                invocation -> MessageBuilder.createMessage(new byte[0], ack.getMessageHeaders()));
+        return task;
     }
 
     @Test

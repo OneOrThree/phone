@@ -231,19 +231,27 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         // 이미 끊긴 세션의 거부도 선별하지 않는다 — 소켓 종료 콜백(closed)이 먼저 끝나 예약이 지워진 뒤 브로커의 DISCONNECT_ACK 가
         // 포화 큐에서 거부되면 «새 거부»로 보여 다른 세션을 가해자로 닫고, 그 종료 ACK 가 또 거부돼 연쇄된다. 끊긴 세션은
         // closing 에 넣지도 않는다(넣으면 closer 가 헛도는 close 를 한다).
-        // DISCONNECT_ACK 도 건너뛴다 — WebSocketConfig.afterConnectionClosed 는 super 를 마친 «뒤에야» sessions.closed 를 부르므로
-        // 그 사이 브로커의 DISCONNECT_ACK 가 거부되면 소켓은 닫혔어도 isConnected 가 true 다. 이미 끊는 중인 세션이라 잃을
-        // 프레임이 없다. CONNECT_ACK 등 다른 제어 프레임은 잃으면 앱이 CONNECTED 를 못 받으니 그대로 닫는다.
+        // DISCONNECT_ACK 는 가해자를 고르지 않는다 — WebSocketConfig.afterConnectionClosed 는 super 를 마친 «뒤에야»
+        // sessions.closed 를 부르므로 그 사이 거부되면 닫힌 소켓도 isConnected 가 true 라 정상 세션을 가해자로 잘못 고른다.
+        // 그렇다고 버리기만 하면 안 된다 — heartbeat 타임아웃 경로는 SimpleBrokerMessageHandler.handleDisconnect 가 브로커 세션을
+        // 지운 뒤 DISCONNECT_ACK 를 보내 StompSubProtocolHandler 가 «열린 소켓을 닫게» 한다. 그 ACK 가 거부되면 소켓과
+        // 레지스트리 상태가 남으므로 대상 세션 자체는 닫는다(이미 닫힌 소켓이면 closeReserved 가 예약을 풀어 무시와 같다).
+        // CONNECT_ACK 등 다른 제어 프레임은 잃으면 앱이 CONNECTED 를 못 받으니 일반 경로로 닫는다.
         boolean leaving = message != null
                 && SimpMessageHeaderAccessor.getMessageType(message.getHeaders()) == SimpMessageType.DISCONNECT_ACK;
-        boolean fresh = sessionId != null && !leaving && sessions.isConnected(sessionId) && closing.add(sessionId);
+        boolean fresh = sessionId != null && sessions.isConnected(sessionId) && closing.add(sessionId);
         // 최대 점유자는 넘친 세션을 «포함해» 고른다 — 거부된 프레임도 그 세션이 잡으려 한 몫이라 센 채로 비교하고(장식기가 이미
         // +1 했다), 비교 «뒤에» 뺀다. 동률이면 넘친 세션이 이긴다(정상 세션을 불필요하게 닫지 않는다).
-        String heaviest = fresh ? heaviest(sessionId) : null;
+        String heaviest = fresh && !leaving ? heaviest(sessionId) : null;
         if (sessionId != null) {
             uncount(sessionId); // 큐에 못 들어갔다
         }
         if (!fresh) {
+            return;
+        }
+        if (leaving) {
+            closedOverflow.increment();
+            closer.execute(() -> closeReserved(sessionId));
             return;
         }
         // 최대 점유자가 넘친 세션 자신이면 한 번만 닫는다(overflow). 다르면 가해를 먼저, 넘친 세션을 그 다음에 —
