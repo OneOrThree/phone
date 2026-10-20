@@ -198,6 +198,23 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  departureStory: {
+    background: color.paper,
+    imageWidth: 1472,
+    imageHeight: 1069,
+    durationMs: 4200,
+    secondAtMs: 1300,
+    thirdAtMs: 2600,
+    fadeMs: 200,
+    footX: 0.5,
+    footY: 0.89,
+    leanDegrees: 4,
+    shots: [
+      { catWidth: 0.66, catX: 0.43, catY: 0.594, flip: 1 },
+      { catWidth: 0.72, catX: 0.53, catY: 0.686, flip: -1 },
+      { catWidth: 0.26, catX: 0.54, catY: 0.623, flip: 1 },
+    ],
+  },
   homeNavigation: {
     background: `${color.paper}AD`,
     border: `${color.brown}33`,

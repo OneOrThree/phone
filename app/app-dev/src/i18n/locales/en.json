@@ -1077,5 +1077,8 @@
     "blockBody": "Friend requests and letters from {{name}} will be hidden from your app list. Request notifications may still appear on your device. Content received while blocked may reappear after unblocking.",
     "blocked": "Blocked {{name}}.",
     "failed": "Couldn't complete this action. Check your connection and try again."
+  },
+  "departureStory": {
+    "label": "Preparing to depart for {{destination}}. Packing, casting off, and setting sail."
   }
 }
