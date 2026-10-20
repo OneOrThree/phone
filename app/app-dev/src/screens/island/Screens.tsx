@@ -160,6 +160,7 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
+import { openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
@@ -6355,8 +6356,6 @@ export function RedesignScreens({ e }: any) {
             visible
             targetUserId={safetyTarget.id}
             targetName={safetyTarget.name}
-            reportTargetType="USER"
-            reportTargetId={safetyTarget.id}
             onClose={() => setSafetyTarget(null)}
             onChanged={friendsScreen?.refresh ?? (() => {})}
             onMessage={notify}
@@ -6583,6 +6582,23 @@ export function RedesignScreens({ e }: any) {
             title={t('settings.permissionManage')}
             chevron
             onPress={() => go('permission', 'settings')}
+          />
+        </SheetGroup>
+        {sec(t('settings.safetySection'))}
+        <SheetGroup flat>
+          <SheetRow
+            title={t('settings.report.title')}
+            sub={t('settings.report.sub')}
+            chevron
+            onPress={() => {
+              openReportCenter().catch(() =>
+                confirm(
+                  t('settings.report.title'),
+                  t('settings.report.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                  () => {},
+                ),
+              );
+            }}
           />
         </SheetGroup>
         {sec(t('settings.privacySection'))}

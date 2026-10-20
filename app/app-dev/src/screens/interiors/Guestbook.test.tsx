@@ -1,4 +1,4 @@
-// 섬 방명록(GROMO-2263): 목록·쓰기 payload·섬장 버튼·게시판 없는 섬 숨김·쓰기 거절 안내(토스트·칸 아래 안내)·지우기·신고.
+// 섬 방명록(GROMO-2263): 목록·쓰기 payload·섬장 버튼·게시판 없는 섬 숨김·쓰기 거절 안내(토스트·칸 아래 안내)·지우기·차단.
 import React from 'react';
 import { AccessibilityInfo, Platform } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
@@ -101,25 +101,25 @@ test('빈 글·공백만이면 남기기 버튼이 막혀 있다', async () => {
   expect(screen.getByTestId('guestbook-submit').props.accessibilityState.disabled).toBe(false);
 });
 
-test('섬장에게는 항목마다 [지우기]·[신고] 두 버튼이 보이고 주민에게는 없다', async () => {
+test('섬장에게는 항목마다 [지우기]·[차단] 두 버튼이 보이고 주민에게는 없다', async () => {
   const hostScreen = (await mount(true)).screen;
   for (const id of ['g1', 'g2']) {
     expect(hostScreen.getByTestId(`guestbook-delete-${id}`)).toBeTruthy();
-    expect(hostScreen.getByTestId(`guestbook-report-${id}`)).toBeTruthy();
+    expect(hostScreen.getByTestId(`guestbook-block-${id}`)).toBeTruthy();
   }
   expect(hostScreen.getAllByText('지우기')).toHaveLength(2);
-  expect(hostScreen.getAllByText('신고')).toHaveLength(2);
+  expect(hostScreen.getAllByText('차단')).toHaveLength(2);
   await hostScreen.unmount();
 
   const resident = (await mount(false)).screen;
   expect(resident.getByText('g1 놀러 왔어요')).toBeTruthy();
   expect(resident.queryByTestId('guestbook-delete-g1')).toBeNull();
-  expect(resident.queryByTestId('guestbook-report-g1')).toBeNull();
+  expect(resident.queryByTestId('guestbook-block-g1')).toBeNull();
   expect(resident.queryByText('지우기')).toBeNull();
-  expect(resident.queryByText('신고')).toBeNull();
+  expect(resident.queryByText('차단')).toBeNull();
 });
 
-test('항목마다 [지우기]·[신고] 는 어느 글·누구인지 읽는 이름에 담고, 보이는 글자는 그대로다', async () => {
+test('항목마다 [지우기]·[차단] 는 어느 글·누구인지 읽는 이름에 담고, 보이는 글자는 그대로다', async () => {
   const { screen } = await mount(true, env(), [entry('g1'), entry('g2', { authorName: null })]);
   expect(screen.getByTestId('guestbook-delete-g1').props.accessibilityLabel).toBe(
     '지우기: g1 놀러 왔어요',
@@ -127,14 +127,12 @@ test('항목마다 [지우기]·[신고] 는 어느 글·누구인지 읽는 이
   expect(screen.getByTestId('guestbook-delete-g2').props.accessibilityLabel).toBe(
     '지우기: g2 놀러 왔어요',
   );
-  expect(screen.getByTestId('guestbook-report-g1').props.accessibilityLabel).toBe('신고: 수아');
+  expect(screen.getByTestId('guestbook-block-g1').props.accessibilityLabel).toBe('차단: 수아');
   // 이름이 없는 작성자는 화면에 보이는 「떠난 주민」과 같은 이름으로 읽힌다
-  expect(screen.getByTestId('guestbook-report-g2').props.accessibilityLabel).toBe(
-    '신고: 떠난 주민',
-  );
+  expect(screen.getByTestId('guestbook-block-g2').props.accessibilityLabel).toBe('차단: 떠난 주민');
   expect(screen.getByLabelText('지우기: g1 놀러 왔어요')).toBeTruthy();
   expect(screen.getAllByText('지우기')).toHaveLength(2);
-  expect(screen.getAllByText('신고')).toHaveLength(2);
+  expect(screen.getAllByText('차단')).toHaveLength(2);
 });
 
 test('게시판이 없는 섬(boardBuilt=false)이면 방명록을 통째로 숨긴다', async () => {
@@ -490,25 +488,23 @@ test('이미 지워진 글(404)을 지우면 목록에서도 빼고 안내한다
   expect(e.notify).toHaveBeenCalledWith('더 이상 볼 수 없는 내용이에요. 다시 불러와 주세요.');
 });
 
-test('섬장 본인이 쓴 글에는 [지우기]만 있고 [신고]는 없다', async () => {
+test('섬장 본인이 쓴 글에는 [지우기]만 있고 [차단]는 없다', async () => {
   const { screen } = await mount(true, env(), [entry('g1', { mine: true }), entry('g2')]);
   expect(screen.getByTestId('guestbook-delete-g1')).toBeTruthy();
-  expect(screen.queryByTestId('guestbook-report-g1')).toBeNull();
-  expect(screen.getByTestId('guestbook-report-g2')).toBeTruthy();
+  expect(screen.queryByTestId('guestbook-block-g1')).toBeNull();
+  expect(screen.getByTestId('guestbook-block-g2')).toBeTruthy();
 });
 
-test('[신고]는 기존 유저 신고 창을 그 글의 작성자·원문으로 연다', async () => {
+test('[차단]는 기존 유저 차단 확인을 그 글의 작성자로 열며 원문은 보내지 않는다', async () => {
   const { screen, e } = await mount(true);
   expect(screen.queryByTestId('user-safety')).toBeNull();
-  await fireEvent.press(screen.getByTestId('guestbook-report-g2'));
+  await fireEvent.press(screen.getByTestId('guestbook-block-g2'));
   expect(screen.getByTestId('user-safety')).toBeTruthy();
   expect(mockSafety).toMatchObject({
     visible: true,
     targetUserId: 'u-g2',
     targetName: '수아',
-    reportTargetType: 'USER',
-    reportTargetId: 'u-g2',
-    reportEvidence: 'g2 놀러 왔어요',
+    initialMode: 'block',
   });
   await act(async () => mockSafety.onMessage('메일 내용을 확인한 뒤 보내 주세요.'));
   expect(e.notify).toHaveBeenCalledWith('메일 내용을 확인한 뒤 보내 주세요.');
@@ -519,7 +515,7 @@ test('[신고]는 기존 유저 신고 창을 그 글의 작성자·원문으로
 test('닉네임이 없는 작성자는 「떠난 주민」으로 보인다', async () => {
   const { screen } = await mount(true, env(), [entry('g1', { authorName: null })]);
   expect(screen.getByText('떠난 주민')).toBeTruthy();
-  await fireEvent.press(screen.getByTestId('guestbook-report-g1'));
+  await fireEvent.press(screen.getByTestId('guestbook-block-g1'));
   expect(mockSafety.targetName).toBe('떠난 주민');
 });
 
@@ -569,11 +565,11 @@ test('영어 로케일에서 제목·입력·버튼·안내를 번역한다', as
   );
   expect(screen.getByText('Post')).toBeTruthy();
   expect(screen.getAllByText('Delete')).toHaveLength(2);
-  expect(screen.getAllByText('Report')).toHaveLength(2);
+  expect(screen.getAllByText('Block')).toHaveLength(2);
   expect(screen.getByTestId('guestbook-delete-g1').props.accessibilityLabel).toBe(
     'Delete: g1 놀러 왔어요',
   );
-  expect(screen.getByTestId('guestbook-report-g1').props.accessibilityLabel).toBe('Report: 수아');
+  expect(screen.getByTestId('guestbook-block-g1').props.accessibilityLabel).toBe('Block: 수아');
   writeMock.mockRejectedValue(new ApiError('GUESTBOOK_ALREADY_WRITTEN_TODAY', '오늘은', 409));
   await fireEvent.changeText(screen.getByTestId('field-Leave a note'), 'hi');
   await fireEvent.press(screen.getByTestId('guestbook-submit'));

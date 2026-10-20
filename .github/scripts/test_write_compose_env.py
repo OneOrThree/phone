@@ -337,6 +337,12 @@ class WriteComposeEnvTest(unittest.TestCase):
             with self.subTest(key=key):
                 self._assert_optional_data_api_switch(key)
 
+    def test_잡지_스위치는_data_api에_전달되고_기본_꺼짐과_서비스_격리를_유지한다(self) -> None:
+        self._assert_optional_data_api_switch("MAGAZINE_ENABLED")
+        for service in ("business-api", "notification"):
+            self.assertNotIn("MAGAZINE_ENABLED", MODULE.allowed_keys(service))
+        self.assertNotIn("MAGAZINE_ENABLED", MODULE.unused_secret_keys({"MAGAZINE_ENABLED": "true"}))
+
     def _assert_optional_data_api_switch(self, key: str) -> None:
         combined = secret(
             API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",

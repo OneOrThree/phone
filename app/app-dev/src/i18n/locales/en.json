@@ -106,6 +106,13 @@
     "replayTutorialSub": "Watch the Mongdol guide again from the start",
     "appInfoSection": "App Info",
     "version": "Version",
+    "report": {
+      "title": "Report center",
+      "sub": "Report by email",
+      "subject": "[catus report] Report center",
+      "body": "What happened:\n\nNickname or island name:\n\nWhen it happened:\n\nPlease attach screenshots to this email, if available.",
+      "openFailed": "Couldn't open your mail app. Set up a mail app and try again, or email us directly at:\n\n{{email}}"
+    },
     "generalSection": "General",
     "privacySection": "Privacy",
     "usageSharing": "Share usage time",
@@ -694,7 +701,6 @@
     "write": "Post",
     "writing": "Posting…",
     "delete": "Delete",
-    "report": "Report",
     "deleteTitle": "Delete this note?",
     "deleteBody": "This can't be undone.",
     "deleted": "Note deleted",
@@ -707,6 +713,7 @@
       "boardLocked": "You can write in the guestbook once the island builds a notice board",
       "alreadyWritten": "You've already left a note today"
     },
+    "block": "Block",
     "loadMoreFailed": "Could not load more guestbook notes."
   },
   "telescope": {
@@ -974,29 +981,6 @@
       "clock": "Alarm clock",
       "tomato-timer": "Tomato timer"
     },
-    "report": {
-      "action": "Report",
-      "title": "Report this ad",
-      "sub": "Tell us why you are reporting the {{name}} ad. If several people report it, the ad is hidden and our team reviews it.",
-      "submit": "Report",
-      "busy": "Sending…",
-      "done": "Reported. Our team will take a look.",
-      "already": "You already reported this ad. Our team is looking into it.",
-      "guest": "Sign in with a social account to report.",
-      "gone": "This ad is no longer available, so it can’t be reported.",
-      "ours": "You can’t report your own island’s ad.",
-      "failed": "Couldn’t send the report. Check your connection and try again.",
-      "reasons": {
-        "HARASSMENT": "Abuse · harassment",
-        "HATE": "Hate · discrimination",
-        "SPAM_FRAUD": "Spam · scam",
-        "SEXUAL": "Sexual content",
-        "CHILD_SAFETY": "Child safety",
-        "THREAT": "Threats",
-        "PRIVACY_IMPERSONATION": "Privacy · impersonation",
-        "OTHER": "Other"
-      }
-    },
     "ledger": {
       "promotionFee": "Magazine promotion"
     }
@@ -1065,5 +1049,13 @@
     "rewardsUnknown": "Checking. See your inventory.",
     "welcomeTitle": "Welcome!",
     "welcomeBody": "You arrived at \"{{island}}\" as a new resident."
+  },
+  "safety": {
+    "blockTitle": "Block user",
+    "blockAction": "Block",
+    "processing": "Working…",
+    "blockBody": "Friend requests and letters from {{name}} will be hidden from your app list. Request notifications may still appear on your device. Content received while blocked may reappear after unblocking.",
+    "blocked": "Blocked {{name}}.",
+    "failed": "Couldn't complete this action. Check your connection and try again."
   }
 }

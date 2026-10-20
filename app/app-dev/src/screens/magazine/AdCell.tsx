@@ -57,7 +57,6 @@ export function AdCell({
   corner: requestedCorner = null,
   onScope,
   onPress,
-  onReport,
   hideMeta = false,
   bodyInput,
   testID,
@@ -67,8 +66,6 @@ export function AdCell({
   corner?: 'scope' | 'ours' | null;
   onScope?: () => void;
   onPress?: () => void;
-  /** 신고 — 칸 길게 누르기와 스크린리더 「신고하기」 동작이 부른다. */
-  onReport?: () => void;
   /**
    * 「주민 N/정원 · 평균」 줄을 그리지 않는다 — 바로 아래에 지금 숫자가 따로 있는 곳(망원경 말풍선)에서
    * 실린 날 숫자와 지금 숫자가 같이 보이지 않게.
@@ -122,7 +119,7 @@ export function AdCell({
     color: semanticTokens.color.text,
     ...(lines ? { maxHeight: size * scale * m.lineHeight * lines } : null),
   });
-  const Body = onPress || onReport ? Pressable : View;
+  const Body = onPress ? Pressable : View;
   // 쓰는 중 겹친 입력 칸의 배율 — 표시용 글자가 자동 축소되면 그 배율(첫 줄 높이 ÷ 원래 줄 높이)로 입력 칸도 줄여
   // 커서·선택이 보이는 글자와 같은 자리에 오게 한다(축소가 없으면 1)
   const [inputScale, setInputScale] = useState(1);
@@ -136,13 +133,6 @@ export function AdCell({
         accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={label}
         onPress={onPress}
-        onLongPress={onReport}
-        accessibilityActions={
-          onReport ? [{ name: 'report', label: t('magazine.report.action') }] : undefined
-        }
-        onAccessibilityAction={
-          onReport && ((ev) => ev.nativeEvent.actionName === 'report' && onReport())
-        }
       >
         <Image
           source={frame.source}

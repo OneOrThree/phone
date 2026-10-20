@@ -106,6 +106,13 @@
     "replayTutorialSub": "몽돌 안내를 처음부터 다시 봐요",
     "appInfoSection": "앱 정보",
     "version": "버전",
+    "report": {
+      "title": "신고센터",
+      "sub": "이메일로 신고하기",
+      "subject": "[catus 신고] 신고센터",
+      "body": "신고 내용:\n\n상대 닉네임·섬 이름:\n\n발생 시각:\n\n캡처가 있다면 이 메일에 첨부해 주세요.",
+      "openFailed": "메일 앱을 열지 못했어요. 메일 앱을 설정한 뒤 다시 시도하거나, 아래 주소로 직접 메일을 보내 주세요.\n\n{{email}}"
+    },
     "generalSection": "기본 설정",
     "privacySection": "개인정보",
     "usageSharing": "사용 시간 공유",
@@ -667,7 +674,6 @@
     "write": "남기기",
     "writing": "남기는 중이에요",
     "delete": "지우기",
-    "report": "신고",
     "deleteTitle": "이 글을 지울까요?",
     "deleteBody": "지운 글은 되돌릴 수 없어요.",
     "deleted": "방명록 글을 지웠어요",
@@ -680,6 +686,7 @@
       "boardLocked": "게시판을 지으면 방명록을 쓸 수 있어요",
       "alreadyWritten": "오늘은 이미 남겼어요"
     },
+    "block": "차단",
     "loadMoreFailed": "방명록을 더 불러오지 못했어요."
   },
   "telescope": {
@@ -947,29 +954,6 @@
       "clock": "알람시계",
       "tomato-timer": "토마토 타이머"
     },
-    "report": {
-      "action": "신고하기",
-      "title": "홍보 칸 신고하기",
-      "sub": "{{name}} 홍보 칸을 신고하는 이유를 골라 주세요. 여러 사람이 신고하면 칸이 숨겨지고 운영팀이 확인해요.",
-      "submit": "신고하기",
-      "busy": "보내는 중…",
-      "done": "신고했어요. 운영팀이 살펴볼게요.",
-      "already": "이미 신고한 칸이에요. 운영팀이 살펴보고 있어요.",
-      "guest": "소셜 로그인하면 신고할 수 있어요.",
-      "gone": "이제 볼 수 없는 칸이라 신고할 수 없어요.",
-      "ours": "우리 섬 칸은 신고할 수 없어요.",
-      "failed": "신고하지 못했어요. 연결을 확인하고 다시 시도해 주세요.",
-      "reasons": {
-        "HARASSMENT": "욕설·괴롭힘",
-        "HATE": "혐오·차별",
-        "SPAM_FRAUD": "스팸·사기",
-        "SEXUAL": "성적 콘텐츠",
-        "CHILD_SAFETY": "아동 안전",
-        "THREAT": "위해 협박",
-        "PRIVACY_IMPERSONATION": "개인정보·사칭",
-        "OTHER": "기타"
-      }
-    },
     "ledger": {
       "promotionFee": "잡지 홍보"
     }
@@ -1038,5 +1022,13 @@
     "rewardsUnknown": "확인 중이에요. 인벤토리에서 확인해 주세요.",
     "welcomeTitle": "환영해요!",
     "welcomeBody": "「{{island}}」의 주민이 되어 처음 도착했어요."
+  },
+  "safety": {
+    "blockTitle": "차단하기",
+    "blockAction": "차단",
+    "processing": "처리 중…",
+    "blockBody": "{{name}}님의 친구 요청과 편지는 앱 목록에서 숨겨져요. 친구 요청 알림은 기기에 표시될 수 있어요. 차단 중 받은 내용은 해제하면 다시 보일 수 있어요.",
+    "blocked": "{{name}}님을 차단했어요.",
+    "failed": "처리하지 못했어요. 연결을 확인하고 다시 시도해 주세요."
   }
 }

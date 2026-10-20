@@ -299,7 +299,7 @@ test('열린 편지의 상대가 차단되면 무한 로딩 없이 받은 편지
   await ui.unmount();
 });
 
-test('받은 편지 상세 더보기에서 편지 신고·발신자 차단 시트로 진입한다', async () => {
+test('받은 편지 상세 더보기는 신고 없이 발신자 차단 시트로 진입한다', async () => {
   screenMock.mockResolvedValue(screen([letterItem()]));
   getLetterMock.mockResolvedValue(letterView());
   const ui = await renderMail(makeE());
@@ -309,61 +309,26 @@ test('받은 편지 상세 더보기에서 편지 신고·발신자 차단 시�
 
   await fireEvent.press(ui.getByLabelText('민지 더보기'));
 
-  assert.ok(ui.getByText('신고하기'));
+  assert.equal(ui.queryByText('신고하기'), null);
   assert.ok(ui.getByText('차단하기'));
   await ui.unmount();
 });
 
-test('편지 신고는 운영 메일 작성 화면을 열고 상세 화면을 유지한다', async () => {
-  screenMock.mockResolvedValue(screen([letterItem()]));
-  getLetterMock.mockResolvedValue(letterView());
-  const openUrl = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
-  const e = makeE();
-  const ui = await renderMail(e);
-  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
-  await fireEvent.press(ui.getByTestId('received-letter-0'));
-  await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
-  await fireEvent.press(ui.getByLabelText('민지 더보기'));
-  await fireEvent.press(ui.getByText('신고하기'));
-  await fireEvent.press(ui.getByText('이메일 작성'));
-
-  await waitFor(() => assert.equal(openUrl.mock.calls.length, 1));
-  const reportUrl = openUrl.mock.calls[0][0];
-  assert.ok(reportUrl.startsWith('mailto:nappaegonoljima@gmail.com?'));
-  assert.ok(decodeURIComponent(reportUrl).includes('[신고 대상 원문]\n반가워, 잘 지내?'));
-  assert.equal(e.route, 'mail');
-  assert.equal(e.tab, '받은 편지');
-  assert.equal(ui.queryByText('신고하기'), null);
-  openUrl.mockRestore();
-  await ui.unmount();
-});
-
-test('편지 신고 중 차단 뒤 메일 앱이 실패해도 신고 시트와 재시도를 유지한다', async () => {
+test('편지 더보기의 차단은 유지하고 개별 신고 메일은 열지 않는다', async () => {
   screenMock.mockResolvedValue(screen([letterItem()]));
   getLetterMock.mockResolvedValue(letterView());
   blockUserMock.mockResolvedValue(undefined);
-  const openUrl = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('no mail app'));
-  const e = makeE();
-  const ui = await renderMail(e);
+  const openUrl = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  const ui = await renderMail(makeE());
   await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
   await fireEvent.press(ui.getByTestId('received-letter-0'));
   await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
   await fireEvent.press(ui.getByLabelText('민지 더보기'));
-  await fireEvent.press(ui.getByText('신고하기'));
-  await fireEvent.press(ui.getByRole('switch', { name: '이 사용자도 차단' }));
-  await fireEvent.press(ui.getByText('이메일 작성'));
-
-  await waitFor(() => assert.ok(ui.getByText(/차단은 완료했지만 메일 앱을 열지 못했어요/)));
-  assert.ok(ui.getByText('이메일 작성'));
-  assert.equal(blockUserMock.mock.calls.length, 1);
-  assert.equal(e.route, 'mail');
-
-  await fireEvent.press(ui.getByText('이메일 작성'));
-
-  await waitFor(() => assert.equal(openUrl.mock.calls.length, 2));
-  assert.equal(blockUserMock.mock.calls.length, 1);
-  assert.equal(e.route, 'mail');
-  assert.equal(e.tab, '받은 편지');
+  assert.equal(ui.queryByText('신고하기'), null);
+  await fireEvent.press(ui.getByText('차단하기'));
+  await fireEvent.press(ui.getByText('차단'));
+  await waitFor(() => assert.equal(blockUserMock.mock.calls.length, 1));
+  assert.equal(openUrl.mock.calls.length, 0);
   openUrl.mockRestore();
   await ui.unmount();
 });

@@ -2314,7 +2314,7 @@ const guestbookEntry = (id: string) => ({
   mine: false,
 });
 
-test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기·신고 두 버튼을 본다', async () => {
+test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기·차단 두 버튼을 본다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host'));
   getGuestbookMock.mockResolvedValue({
     boardBuilt: true,
@@ -2337,9 +2337,10 @@ test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기·
   assert.equal(getGuestbookMock.mock.calls[0][0], ISLAND);
   assert.ok(screen.getByText('g2 놀러 왔어요'));
   assert.equal(screen.getAllByText('지우기').length, 2);
-  assert.equal(screen.getAllByText('신고').length, 2);
+  assert.equal(screen.getAllByText('차단').length, 2);
+  assert.equal(screen.queryByText('신고'), null);
   assert.ok(screen.getByTestId('guestbook-delete-g1'));
-  assert.ok(screen.getByTestId('guestbook-report-g2'));
+  assert.ok(screen.getByTestId('guestbook-block-g2'));
   // 방명록도 전환 화살표 없이 닫기만 제공한다.
   expect(screen.queryByTestId('board-panel-switch')).toBeNull();
   await fireEvent.press(screen.getByTestId('board-panel-close'));
@@ -2347,7 +2348,7 @@ test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기·
   await waitFor(() => expect(screen.queryByText('g1 놀러 왔어요')).toBeNull());
 });
 
-test('일반 주민은 방명록을 읽고 쓸 수 있지만 지우기·신고 버튼은 없다', async () => {
+test('일반 주민은 방명록을 읽고 쓸 수 있지만 지우기·차단 버튼은 없다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'member'));
   getGuestbookMock.mockResolvedValue({ boardBuilt: true, items: [guestbookEntry('g1')] });
   const screen = await renderBoard(makeE({ tab: '' }));
@@ -2356,9 +2357,10 @@ test('일반 주민은 방명록을 읽고 쓸 수 있지만 지우기·신고 �
   await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
   assert.ok(screen.getByTestId('guestbook-submit'));
   assert.equal(screen.queryByTestId('guestbook-delete-g1'), null);
-  assert.equal(screen.queryByTestId('guestbook-report-g1'), null);
+  assert.equal(screen.queryByTestId('guestbook-block-g1'), null);
   assert.equal(screen.queryByText('지우기'), null);
   assert.equal(screen.queryByText('신고'), null);
+  assert.equal(screen.queryByText('차단'), null);
 });
 
 // 키보드는 InteriorRoute 가 재는 높이를 줄여서 들어온다(iOS: App 루트 KeyboardAvoidingView padding, 안드로이드: adjustResize).
