@@ -109,7 +109,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     /** 섬별로 본 가장 큰 epoch — 그보다 작은 프레임은 옛 소유자의 것이다(relay-in 이 읽고 쓴다). */
     private final Map<UUID, Long> seenEpochs = new ConcurrentHashMap<>();
     /**
-     * 인스턴스별 «내게 온» 마지막 생존 신호 시각(nanoTime, relay-in 이 쓴다) — 내게 온 PING(수신자 null 포함)과 내게 보낸 명령.
+     * 인스턴스별 «내게 온» 마지막 PING 시각(nanoTime, relay-in 이 쓴다; 수신자 null 포함, 원격 JOIN 때 한 번 심는다).
      * 내게 PING 을 안 보내는 인스턴스(내 섬에 세션이 없다)의 actor 는 유령이라 {@code instance-stale-ms} 뒤 내보낸다.
      */
     private final Map<String, Long> lastPinged = new ConcurrentHashMap<>();
@@ -498,6 +498,10 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             staleEpoch.increment();
             return;
         }
+        if (command.type() == Type.JOIN) {
+            // 첫 PING(최대 1초) 전에 sweep 이 방금 들어온 actor 를 내보내지 않게 한 번 심는다. 이후 갱신은 PING 만 한다.
+            lastPinged.put(command.originInstanceId(), System.nanoTime());
+        }
         apply(command.islandId(), command.type(), command.userId(), command.sessionKey(), command.intent());
     }
 
@@ -610,8 +614,8 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
 
     /**
      * 내게 오는 PING 이 {@code instance-stale-ms} 넘게 끊긴 인스턴스의 세션 actor 를 내보낸다. {@code lastPinged} 가 없으면
-     * 죽은 것으로 보는데, 이는 «{@code remoteSessions} 의 키는 늘 그 인스턴스가 내게 보낸 명령을 받은({@code onCommand} 가
-     * {@code lastPinged} 를 채운) 뒤에만 생긴다»는 순서에 기댄다 — 원격 JOIN 적용({@link #applyForwarded})이 유일한 생성 경로다.
+     * 죽은 것으로 보는데, 이는 «{@code remoteSessions} 의 키는 늘 원격 JOIN 적용이 {@code lastPinged} 를 심은 뒤에만
+     * 생긴다»는 순서에 기댄다 — 원격 JOIN 적용({@link #applyForwarded})이 유일한 생성 경로다.
      */
     private void sweepDeadInstances() {
         long now = System.nanoTime();
@@ -685,9 +689,9 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
         if (me.equals(command.originInstanceId())) {
             return; // 자기 메아리 — RECHECK 는 이미 로컬에서 했다.
         }
-        // 내게 온 신호만 생존으로 센다 — 남에게 간 명령으로 갱신하면 내게 PING 을 안 보내는 유령이 영원히 안 지워진다.
-        if (command.type() == Type.PING ? command.ownerInstanceId() == null || me.equals(command.ownerInstanceId())
-                : me.equals(command.ownerInstanceId())) {
+        // 내게 온 PING 만 생존으로 센다 — 남에게 간 PING·FULL_STATE 재시도 같은 다른 명령으로 갱신하면 PING 목록에서 빠진 유령이 안 지워진다.
+        if (command.type() == Type.PING && (command.ownerInstanceId() == null
+                || me.equals(command.ownerInstanceId()))) {
             lastPinged.put(command.originInstanceId(), System.nanoTime());
         }
         if (command.type() == Type.RECHECK) {

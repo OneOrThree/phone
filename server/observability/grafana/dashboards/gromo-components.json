@@ -3587,7 +3587,7 @@
       "id": 92,
       "type": "timeseries",
       "title": "movement-cluster poll p95 · 최대",
-      "description": "1초 감시 한 틱 — submit 작업 미포함",
+      "description": "1초 감시 한 틱 — submit 작업 미포함(같은 스레드라 p95 가 낮아도 밀릴 수 있다)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

@@ -280,9 +280,13 @@ class MovementClusterTest {
         long soloStates = bodiesFor("s1").stream().filter(b -> "FullState".equals(b.get("type").stringValue())
                 && b.get("actors").size() == 1).count();
         command(new Command("ghost-x", "someone-else", 0, null, Type.PING, null, null, null, false, List.of()));
-        Thread.sleep(500);
+        // 센티널 — relay-in·submit 이 단일 스레드라 EVICTED(y)가 보이면 앞선 남 앞 PING 은 이미 처리됐다. 소유자 채널을 탄다.
+        relay.publishCommand(new Command("ghost-x", ownership.instanceId(), 0, null, Type.PING, null, null, null,
+                false, List.of(island + "|x", island + "|y")));
+        assertThat(awaitCommand(Type.EVICTED).sessions()).containsExactly(island + "|y");
         assertThat(bodiesFor("s1").stream().filter(b -> "FullState".equals(b.get("type").stringValue())
-                && b.get("actors").size() == 1).count()).as("남 앞 PING 은 대조하지 않는다").isEqualTo(soloStates);
+                && b.get("actors").size() == 1).count()).as("남 앞 PING 은 대조하지 않는다 — x 가 아직 있다")
+                .isEqualTo(soloStates);
 
         // 내 앞 PING — 운영 경로 그대로 relay 가 소유자 채널(chat:movement:cmd:v1:<me>)로 PUBLISH 하고 리스너가 받는다.
         relay.publishCommand(new Command("ghost-x", ownership.instanceId(), 0, null, Type.PING, null, null, null,

@@ -235,10 +235,10 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   **PING 은 소유자별 채널이다**(GROMO-2352): 비소유 인스턴스는 입장해 있는 섬의 소유자마다 그 소유자의 세션만 담은 PING 1건을
   `chat:movement:cmd:v1:<소유자 instanceId>` 로 보낸다(소유자를 모르는 섬은 빼고 `pendingRejoin` 이 덮는다). 채널 하나에 전원이
   구독하면 PING 을 나눠도 N 구독자가 전부 받아 바이트가 N×S 그대로라 채널을 나눴다. 각 인스턴스는 자기 이름 채널도 구독한다.
-  수신 쪽 생존은 `lastPinged`(origin → 내게 온 PING·내게 보낸 명령 시각)로 센다 — 남에게 간 명령으로 갱신하면 내게 PING 을 안
+  수신 쪽 생존은 `lastPinged`(origin → 내게 온 PING 시각, 원격 JOIN 때 한 번 심는다)로 센다 — 남에게 간 PING 이나 FULL_STATE 재시도 같은 다른 명령으로 갱신하면 내게 PING 을 안
   보내는(그 섬에 세션이 없는) 유령이 안 지워진다. 수신자 null PING(옛 버전·호환)은 전원 채널로 가고 전원이 대조한다.
   혼합 버전 한계: 옛 인스턴스는 소유자 채널을 구독하지 않아 새 인스턴스의 PING 을 못 받아 5초 뒤 그 세션 actor 를 내보낸다 —
-  업그레이드 뒤 PING 대조가 복구한다.
+  업그레이드 뒤 PING 대조가 복구한다. 비대칭: 옛→새 는 옛 인스턴스의 수신자 null PING 이 호환 경로(전원 채널)라 정상이고, 새→옛 만 끊기며 복구는 마지막 인스턴스가 올라온 뒤다.
 - **세션 한정 FullState 유실**: JOIN 은 됐는데 FULL_STATE 명령이나 그 응답을 잃으면 게이트가 닫힌 채 남는다(PING 대조는 actor 가
   있으니 정상으로 본다). 감시가 «게이트가 닫힌 지 2초 넘은» 내 세션의 FULL_STATE 를 상한 없이 약 2초마다(재요청이 시각을 다시 찍어 실제 2~3초)
   다시 요청한다
@@ -254,7 +254,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   콜백(`RoomRuntime.Listener.forRoom`)을 받는다. 리스를 잃고 다시 얻은 뒤 틱 스레드가 옛 방을 한 번 더 돌려도 그 사건은
   `routing.failed{stale_room}` 으로 버린다.
 - **지표**: `movement.owner.{acquire{trigger},lost{reason},islands,forward{type},forward.stale{reason}}`,
-  `movement.routing.failed{reason=redis|no_lease|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`, `movement.cluster.poll`(1초 감시 한 틱 Timer — submit 작업 제외).
+  `movement.routing.failed{reason=redis|no_lease|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`, `movement.cluster.poll`(1초 감시 한 틱 Timer — submit 작업 제외; `enabled=false` 여도 생성자에서 등록돼 0 샘플로 노출(무해). submit 작업은 같은 스레드의 다음 순번이라 poll p95 가 낮아도 스레드가 밀려 있을 수 있다).
 
 ## Redis keys (A19 namespace table)
 
