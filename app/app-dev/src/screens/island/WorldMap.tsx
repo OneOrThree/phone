@@ -1227,7 +1227,7 @@ function FinalIslandScene({
   navDebug = false,
 }: {
   state: State;
-  go: (r: Route, id?: string) => void;
+  go: (r: Route, id?: string) => boolean | void;
   build: (b: Building) => void;
   showHud?: boolean;
   showActions?: boolean;
@@ -1479,7 +1479,7 @@ function FinalIslandScene({
       onBuildingEntrySound?.(targetRoute, ++entryGeneration.current);
     }
     try {
-      go(targetRoute);
+      return go(targetRoute) !== false;
     } catch (error) {
       buildingEntryPending.current = false;
       throw error;
@@ -2019,10 +2019,7 @@ function FinalIslandScene({
               buildingEntryPending.current = true;
               return runBuildingEntryWalk(
                 (onArrival) => walk(d, onArrival),
-                () => {
-                  navigateOnArrival(d.r);
-                  return true;
-                },
+                () => navigateOnArrival(d.r),
                 () => {
                   buildingEntryPending.current = false;
                 },

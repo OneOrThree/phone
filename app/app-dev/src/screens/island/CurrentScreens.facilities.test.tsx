@@ -409,7 +409,7 @@ test.each(['닫기', '뒤로가기'])(
       .mockResolvedValue({ contributedCompletions: [] } as any);
     const e = env(withBuildings(['mail']), 'home');
     const screen = await render(<CurrentScreens e={e} />);
-    await fireEvent.press(screen.getByTestId('enter-mail'));
+    expect(await fireEvent(screen.getByTestId('enter-mail'), 'press')).toBe(false);
     await waitFor(() => expect(screen.getByText('다시 시도')).toBeTruthy());
     if (action === '닫기') await fireEvent.press(screen.getByText('닫기'));
     else await fireEvent(screen.getByTestId('building-entry-pending'), 'requestClose');
@@ -417,7 +417,7 @@ test.each(['닫기', '뒤로가기'])(
     expect(screen.getByTestId('screen-home')).toBeTruthy();
     expect(e.go).not.toHaveBeenCalled();
     expect(await AsyncStorage.getItem(key)).toBe('{broken');
-    await fireEvent.press(screen.getByTestId('enter-mail'));
+    expect(await fireEvent(screen.getByTestId('enter-mail'), 'press')).toBe(false);
     expect(screen.getByTestId('building-entry-pending')).toBeTruthy();
     expect(e.go).not.toHaveBeenCalled();
   },

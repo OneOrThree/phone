@@ -1016,6 +1016,30 @@ test('건물을 연타해도 한 번만 걷고 도착 즉시 내부를 연다', 
   }
 });
 
+test('안내 대기로 화면을 열지 않으면 다음 건물 진입과 집중하기를 잠그지 않는다', async () => {
+  jest.spyOn(Animated, 'timing').mockImplementation(
+    () =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  const state = initialState(true);
+  state.settings.reduceMotion = true;
+  const go = jest.fn().mockReturnValue(false);
+  const screen = await render(
+    <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} />,
+  );
+
+  await fireEvent.press(screen.getByLabelText(buildingNames.hall));
+  expect(go).toHaveBeenCalledTimes(1);
+  await fireEvent.press(screen.getByLabelText(buildingNames.hall));
+  expect(go).toHaveBeenCalledTimes(2);
+  await fireEvent.press(screen.getByTestId('depart-focus'));
+  expect(go).toHaveBeenLastCalledWith('focusTravel');
+});
+
 test('reduceMotion에서는 건물 도착 직후 overlay 없이 route를 연다', async () => {
   const timing = jest.spyOn(Animated, 'timing').mockImplementation(
     (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>

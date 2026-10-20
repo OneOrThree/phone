@@ -351,12 +351,12 @@ export function CurrentScreens({ e }: any) {
   const go = (route: Route, ...args: any[]) => {
     const building = routeBuildings[route];
     if (eligible && building && built?.includes(building)) {
-      if (entryRef.current) return;
+      if (entryRef.current) return false;
       if (!guides.data || !guides.data.buildings.includes(building)) {
         const next = { owner: owner!, generation, islandId, building, route, args };
         entryRef.current = next;
         setEntry(next);
-        return;
+        return false;
       }
     }
     return e.go(route, ...args);
