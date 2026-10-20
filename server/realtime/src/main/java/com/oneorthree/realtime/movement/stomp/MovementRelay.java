@@ -360,7 +360,9 @@ public class MovementRelay implements RoomRuntime.Listener {
     void publishCommand(Command command) {
         String payload = objectMapper.writeValueAsString(command);
         long now = System.nanoTime();
-        String channel = RedisKeys.MOVEMENT_CMD_CHANNEL;
+        // PING 은 소유자 채널로 — 채널이 하나면 N 구독자 전부가 모든 PING 을 받는다. 수신자 null(호환)은 전원 채널.
+        String channel = command.type() == Type.PING && command.ownerInstanceId() != null
+                ? RedisKeys.movementCmdChannel(command.ownerInstanceId()) : RedisKeys.MOVEMENT_CMD_CHANNEL;
         if (command.type() == Type.INTENT) {
             offer(queue, dropped, new Outgoing(channel, payload, now, null, null, null, 0));
         } else if (command.type() == Type.RESYNC) {

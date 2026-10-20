@@ -112,7 +112,7 @@ class MovementClusterTest {
         relayIn = container();
         relayIn.setTaskExecutor(cluster.relayInExecutor());
         relayIn.addMessageListener(cluster, List.of(new ChannelTopic(RedisKeys.MOVEMENT_CMD_CHANNEL),
-                new ChannelTopic(RedisKeys.MOVEMENT_FRAMES_CHANNEL)));
+                new ChannelTopic(RedisKeys.MOVEMENT_FRAMES_CHANNEL), new ChannelTopic(cluster.ownCmdChannel())));
         relayIn.afterPropertiesSet();
         relayIn.start();
         commandSpy = container();
@@ -269,6 +269,30 @@ class MovementClusterTest {
 
         List<String> ids = actorIdsOf(awaitFullStateWith("s1", 1, 2));
         assertThat(ids).as("PING 목록에 없는 ghost-5:x(%s)는 내보냈다", remoteUser).containsExactly(user.toString());
+    }
+
+    @Test
+    @DisplayName("남(다른 수신자)에게 간 빈 PING 은 내 방의 그 인스턴스 actor 를 지우지 않고, 내게 온 빈 PING 은 소켓 채널을 타고 지운다")
+    void pingForAnotherOwnerIsIgnoredButPingToMeReconciles() throws Exception {
+        becomeOwnerWithRemoteActor("ghost-x", "x");
+
+        // 남 앞 PING — 전원 채널로 흘려 보내 onCommand 의 수신자 검사를 탄다(소유자 채널은 아무도 듣지 않으니 거기선 검증이 안 된다).
+        long soloStates = bodiesFor("s1").stream().filter(b -> "FullState".equals(b.get("type").stringValue())
+                && b.get("actors").size() == 1).count();
+        command(new Command("ghost-x", "someone-else", 0, null, Type.PING, null, null, null, false, List.of()));
+        // 센티널 — relay-in·submit 이 단일 스레드라 EVICTED(y)가 보이면 앞선 남 앞 PING 은 이미 처리됐다. 소유자 채널을 탄다.
+        relay.publishCommand(new Command("ghost-x", ownership.instanceId(), 0, null, Type.PING, null, null, null,
+                false, List.of(island + "|x", island + "|y")));
+        assertThat(awaitCommand(Type.EVICTED).sessions()).containsExactly(island + "|y");
+        assertThat(bodiesFor("s1").stream().filter(b -> "FullState".equals(b.get("type").stringValue())
+                && b.get("actors").size() == 1).count()).as("남 앞 PING 은 대조하지 않는다 — x 가 아직 있다")
+                .isEqualTo(soloStates);
+
+        // 내 앞 PING — 운영 경로 그대로 relay 가 소유자 채널(chat:movement:cmd:v1:<me>)로 PUBLISH 하고 리스너가 받는다.
+        relay.publishCommand(new Command("ghost-x", ownership.instanceId(), 0, null, Type.PING, null, null, null,
+                false, List.of()));
+        assertThat(actorIdsOf(awaitFullStateWith("s1", 1, (int) soloStates + 1))).as("내 앞 빈 PING 은 유령 actor 를 지운다")
+                .containsExactly(user.toString());
     }
 
     @Test

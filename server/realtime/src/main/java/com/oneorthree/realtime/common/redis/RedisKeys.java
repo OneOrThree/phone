@@ -133,6 +133,11 @@ public final class RedisKeys {
     private RedisKeys() {
     }
 
+    /** 그 인스턴스 앞으로만 가는 이동 명령 채널 — PING 대조(GROMO-2352). 나머지 명령은 {@link #MOVEMENT_CMD_CHANNEL}. */
+    public static String movementCmdChannel(String instanceId) {
+        return MOVEMENT_CMD_CHANNEL + ":" + instanceId;
+    }
+
     /** 그 섬 이동 방의 소유자 리스 — 값 {@code <instanceId>:<epoch>}(GROMO-2339). */
     public static String movementOwner(UUID islandId) {
         return MOVEMENT_OWNER_PREFIX + islandId;
