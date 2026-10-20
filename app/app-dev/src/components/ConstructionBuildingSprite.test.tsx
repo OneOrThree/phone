@@ -120,19 +120,18 @@ describe('ConstructionBuildingSprite', () => {
     expect(view.getByTestId('construction-sprite').props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ transform: [{ translateX: 0 }] })]),
     );
-    expect(view.getByTestId('construction-effect-hall-foundation').props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 0 })]),
-    );
+    // 휴지기에는 효과 아틀라스를 투명하게 두지 않고 마운트를 풀어 디코드 메모리를 놓는다.
+    expect(view.queryByTestId('construction-effect-hall-foundation')).toBeNull();
 
     const rest = constructionRestMs('hall', 'foundation', 0);
     await act(async () => jest.advanceTimersByTime(rest - 1));
-    expect(view.getByTestId('construction-effect-hall-foundation').props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 0 })]),
-    );
+    expect(view.queryByTestId('construction-effect-hall-foundation')).toBeNull();
     await act(async () => jest.advanceTimersByTime(1));
-    expect(view.getByTestId('construction-effect-hall-foundation').props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+    const effect = view.getByTestId('construction-effect-hall-foundation');
+    expect(effect.props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ left: '0%' })]),
     );
+    expect(effect.props.fadeDuration).toBe(0);
     await view.unmount();
   });
 
@@ -151,12 +150,7 @@ describe('ConstructionBuildingSprite', () => {
     expect(view.getByTestId('construction-sprite').props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ transform: [{ translateX: 0 }] })]),
     );
-    expect(view.getByTestId('construction-effect-tower-structure').props.style).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ left: '0%', top: '-100%' }),
-        expect.objectContaining({ opacity: 0 }),
-      ]),
-    );
+    expect(view.queryByTestId('construction-effect-tower-structure')).toBeNull();
     await view.unmount();
   });
 
@@ -200,9 +194,7 @@ describe('ConstructionBuildingSprite', () => {
     expect(view.getByTestId('construction-sprite').props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ transform: [{ translateX: 0 }] })]),
     );
-    expect(view.getByTestId('construction-effect-library-structure').props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 0 })]),
-    );
+    expect(view.queryByTestId('construction-effect-library-structure')).toBeNull();
 
     // 낮으로 돌아오면 작업 burst 를 다시 시작한다.
     await act(async () => {
@@ -217,9 +209,7 @@ describe('ConstructionBuildingSprite', () => {
     expect(view.getByTestId('construction-sprite-library-structure').props.source).toBe(
       constructionBuildingMotion.library.structure.atlas,
     );
-    expect(view.getByTestId('construction-effect-library-structure').props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-    );
+    expect(view.getByTestId('construction-effect-library-structure')).toBeTruthy();
     await view.unmount();
   });
 });

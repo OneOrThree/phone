@@ -22,6 +22,11 @@ import { villageScene } from '@/utils/village-world';
 import { assets } from '@/constants/assets';
 import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
 import { semanticTokens } from '@/design-system/tokens';
+import { TILE_FACILITIES } from '@/screens/island/tileFacilities';
+import {
+  tileFacilityLayerSource,
+  tileFacilityOutlineSource,
+} from '@/screens/island/TileFacilityDecoration';
 
 // 건물 모션·알림 배지는 장식 레이어라 스크린리더에서 숨긴다. 배치 검증을 위해 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
@@ -1487,3 +1492,65 @@ test('긴 섬 이름은 화면 절반 너비의 집중 알약 안에서 말줄�
   expect(name.props.numberOfLines).toBe(1);
   expect(name.props.ellipsizeMode).toBe('tail');
 });
+
+test.each(['day', 'night'] as const)(
+  '%s: 게시판·축음기·우체통은 잘린 그림을 원화 rect 자리에 놓고 외곽선은 건물마다 한 장이다(GROMO-2378)',
+  async (dayNight) => {
+    const state = initialState(true);
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    for (const b of ['board', 'gram', 'mail', 'hall'] as const)
+      if (!island.buildings.includes(b)) island.buildings.push(b);
+    island.buildingThemes = { ...island.buildingThemes, board: 'rose', gram: 'rose', mail: 'rose' };
+    const night = dayNight === 'night';
+    const screen = await render(
+      <WorldMap state={state} dayNight={dayNight} showMailboxLetters={false} />,
+    );
+    const scale = ((402 / 1536) * 2.8 * 874) / 874;
+    const left = 402 / 2 - 585 * scale,
+      top = 874 / 2 - 430 * scale;
+    // 낮 게시판은 VillageBoardIndicator 가 그림을 그린다 — 정적 그림은 밤에만.
+    const statics = night ? ['board', 'gram', 'mail'] : ['gram', 'mail'];
+    for (const id of ['board', 'gram', 'mail']) {
+      const r = TILE_FACILITIES[id];
+      const box = {
+        position: 'absolute',
+        left: left + r.x * scale,
+        top: top + r.y * scale,
+        width: r.w * scale,
+        height: r.h * scale,
+      };
+      for (const testID of [
+        ...(statics.includes(id) ? [`world-static-building-${id}`] : []),
+        `world-building-theme-${id}`,
+      ]) {
+        const layer = screen.getByTestId(testID);
+        expect(layer.props.source).toBe(tileFacilityLayerSource(id, night));
+        const style = StyleSheet.flatten(layer.props.style);
+        for (const [k, v] of Object.entries(box))
+          expect([testID, k, style[k as keyof typeof style]]).toEqual([
+            testID,
+            k,
+            typeof v === 'number' ? expect.closeTo(v, 6) : v,
+          ]);
+      }
+    }
+    // 외곽선은 건물마다 Image 한 장(예전 8방향 복제 아님)이고 소스는 그 건물의 미리 그린 마스크다.
+    const find = (node: any, hit: (n: any) => boolean, out: any[] = []): any[] => {
+      if (Array.isArray(node)) node.forEach((child) => find(child, hit, out));
+      else if (node && typeof node === 'object') {
+        if (hit(node)) out.push(node);
+        (node.children ?? []).forEach((child: any) => find(child, hit, out));
+      }
+      return out;
+    };
+    const outlines = find(screen.toJSON(), (n) => n.props?.testID === 'native-facility-outline');
+    const built = island.buildings.filter((b) => TILE_FACILITIES[b]);
+    expect(outlines).toHaveLength(built.length);
+    const images = outlines.map((o) => find(o, (n) => n.type === 'Image'));
+    images.forEach((list) => expect(list).toHaveLength(1));
+    expect(images.map((list) => list[0].props.source)).toEqual(
+      expect.arrayContaining(built.map((b) => tileFacilityOutlineSource(b, night))),
+    );
+    await screen.unmount();
+  },
+);

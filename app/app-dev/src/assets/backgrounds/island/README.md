@@ -5,7 +5,7 @@
 - 캔버스: 1536 × 1024
 - `base/`: 건물 없는 낮·밤 섬
 - `growth/`: 확정본의 낮 건설 단계와 옛 참조용 호환 별칭. 밤은 `07-shop/night.jpg` 한 장만 쓴다. 투명 픽셀이 없어 JPG(품질 85)로 두고, 쓰지 않던 단계별 밤 그림은 지웠다(GROMO-2379)
-- `layers/`: 확정 좌표에 놓인 시설별 1536 × 1024 투명 레이어
+- `layers/`: 확정 좌표에 놓인 시설별 1536 × 1024 투명 레이어. 앱은 직접 쓰지 않고, `scripts/build-facility-crops.py`가 시설 rect 로 자른 `village-world/facility/`(그림·외곽선 마스크·지형 시설)를 쓴다(GROMO-2378, 디코드 메모리)
 - `placement.json`: 시설별 배치 좌표
 - 모닥불은 배경에 포함되어 `campfire-on.png`는 호환용 빈 레이어다.
 - 집중섬(`../fishing`)과 휴식섬(`../rest`)은 이 교체 대상이 아니다.

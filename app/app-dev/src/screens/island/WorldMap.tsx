@@ -128,6 +128,7 @@ import { RaftWaterMotion } from '@/components/village-motion/RaftWaterMotion';
 import {
   TileFacilityOutline,
   TileFacilitySign,
+  tileFacilityLayerSource,
   tileFacilityOutlineSource,
 } from './TileFacilityDecoration';
 import {
@@ -190,15 +191,6 @@ export function createWorldProjector(getViewport: () => WorldViewport) {
     };
   };
 }
-const layer: Record<Building, string> = {
-  hall: 'hall',
-  board: 'notice-board',
-  gram: 'gramophone',
-  library: 'library',
-  mail: 'mailbox',
-  tower: 'observatory',
-  shop: 'shop',
-};
 type Door = Point & {
   r: Route;
   label: string;
@@ -776,13 +768,18 @@ export function WorldMap({
     const o = buildingOffsets?.[b] ?? NO_OFFSET;
     return { left: left + o.x * scale, top: top + o.y * scale };
   };
-  const pressStyle = (id: string, fullLayer = false) => {
-    const r = TILE_FACILITIES[id];
-    return facilityPressStyle(
-      facilityDecorations && pressedFacility === id,
-      reduceFacilityMotion,
-      fullLayer && r ? [(r.x + r.w / 2) * scale, (r.y + r.h) * scale, 0] : undefined,
-    );
+  const pressStyle = (id: string) =>
+    facilityPressStyle(facilityDecorations && pressedFacility === id, reduceFacilityMotion);
+  // 잘린 정적 그림(GROMO-2378)은 원화 rect 자리에 rect 크기로 놓는다 — 1536×1024 레이어와 같은 픽셀 위치.
+  const facilityLayerBox = (b: Building) => {
+    const r = TILE_FACILITIES[b];
+    return {
+      position: 'absolute' as const,
+      left: at(b).left + r.x * scale,
+      top: at(b).top + r.y * scale,
+      width: r.w * scale,
+      height: r.h * scale,
+    };
   };
   // 끄는 동안에는 바다를 다시 깔지 않으므로, 카메라 한계(섬 안·최소 배율) 안에서 화면에 걸칠 수 있는 바다를 미리 깐다.
   const reachX = L.width / (2 * base * MIN_ZOOM),
@@ -913,7 +910,6 @@ export function WorldMap({
         </Pressable>
         {facilityDecorations && !tileTerrain && (
           <ImageTerrainFacilities
-            source={islandTerrain[dayNight]}
             left={left}
             top={top}
             scale={scale}
@@ -926,23 +922,16 @@ export function WorldMap({
         {facilityDecorations &&
           island.buildings.map((b) => {
             const pelican = b === 'mail' && mailboxLetters;
-            const croppedSource = tileFacilityOutlineSource(b, night);
             const rect = pelican ? TILE_MAILBOX_PELICAN_RECT : TILE_FACILITIES[b];
             return (
               rect && (
                 <TileFacilityOutline
                   key={b}
                   rect={rect}
-                  source={
-                    pelican
-                      ? assets['characters/pelican/npc/on-mailbox.png']
-                      : (croppedSource ??
-                        assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`])
-                  }
+                  source={tileFacilityOutlineSource(pelican ? 'mail-pelican' : b, night)}
                   left={at(b).left}
                   top={at(b).top}
                   scale={scale}
-                  cropped={pelican || !!croppedSource}
                   pressed={pressedFacility === b}
                   reduceMotion={reduceFacilityMotion}
                 />
@@ -962,14 +951,8 @@ export function WorldMap({
                 <Image
                   key={b}
                   testID={`world-static-building-${b}`}
-                  source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
-                  style={{
-                    position: 'absolute',
-                    ...at(b),
-                    ...pressStyle(b, true),
-                    width: grid.w * scale,
-                    height: grid.h * scale,
-                  }}
+                  source={tileFacilityLayerSource(b, night)}
+                  style={{ ...facilityLayerBox(b), ...pressStyle(b) }}
                   resizeMode="stretch"
                 />
               ))}
@@ -1168,13 +1151,10 @@ export function WorldMap({
                 <Image
                   key={b}
                   testID={`world-building-theme-${b}`}
-                  source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
+                  source={tileFacilityLayerSource(b, night)}
                   style={{
-                    position: 'absolute',
-                    ...at(b),
-                    ...pressStyle(b, true),
-                    width: grid.w * scale,
-                    height: grid.h * scale,
+                    ...facilityLayerBox(b),
+                    ...pressStyle(b),
                     tintColor: '#d7829b',
                     opacity: 0.3,
                   }}
