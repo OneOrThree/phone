@@ -160,7 +160,7 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
-import { openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
+import { openFeedbackMail, openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
@@ -6597,6 +6597,21 @@ export function RedesignScreens({ e }: any) {
                   t('settings.report.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
                   () => {},
                 ),
+              );
+            }}
+          />
+          <SheetRow
+            title={t('settings.feedback.title')}
+            sub={t('settings.feedback.sub')}
+            chevron
+            onPress={() => {
+              openFeedbackMail(Application.nativeApplicationVersion ?? appManifest.version).catch(
+                () =>
+                  confirm(
+                    t('settings.feedback.title'),
+                    t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                    () => {},
+                  ),
               );
             }}
           />

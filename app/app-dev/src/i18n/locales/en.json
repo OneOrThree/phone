@@ -113,6 +113,13 @@
       "body": "What happened:\n\nNickname or island name:\n\nWhen it happened:\n\nPlease attach screenshots to this email, if available.",
       "openFailed": "Couldn't open your mail app. Set up a mail app and try again, or email us directly at:\n\n{{email}}"
     },
+    "feedback": {
+      "title": "Contact us",
+      "sub": "Report a bug or suggest a feature",
+      "subject": "[catus feedback] Bug report · Feature suggestion",
+      "body": "Type (bug / suggestion):\n\nDetails:\n\nPlease attach screenshots to this email, if available.\n\nApp version: {{version}}\nDevice: {{os}}",
+      "openFailed": "Couldn't open your mail app. Set up a mail app and try again, or email us directly at:\n\n{{email}}"
+    },
     "generalSection": "General",
     "privacySection": "Privacy",
     "usageSharing": "Share usage time",

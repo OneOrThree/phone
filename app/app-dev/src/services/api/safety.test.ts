@@ -6,6 +6,8 @@ import { clearSession, saveSession } from '@/services/api/session';
 import {
   blockUser,
   getBlockedUsers,
+  feedbackEmailUrl,
+  openFeedbackMail,
   reportEmailUrl,
   openReportCenter,
   REPORT_EMAIL_RECIPIENT,
@@ -59,6 +61,22 @@ test('단일 신고 메일은 수신 주소와 작성 안내만 포함하고 사
   assert.ok(!decoded.includes('[신고 대상 원문]'));
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
   await openReportCenter();
+  assert.equal(open.mock.calls[0][0], url);
+  assert.equal(calls.length, 0);
+  open.mockRestore();
+  applyLocalePref('system');
+});
+
+test('문의 메일은 신고와 같은 주소에 문의 말머리·앱 버전·기기 OS를 채운다', async () => {
+  applyLocalePref('ko');
+  const url = feedbackEmailUrl('2.0.1');
+  const decoded = decodeURIComponent(url);
+  assert.ok(url.startsWith(`mailto:${REPORT_EMAIL_RECIPIENT}?`));
+  assert.ok(decoded.includes('subject=[catus 문의] 오류 제보·기능 제안'));
+  assert.ok(decoded.includes('앱 버전: 2.0.1'));
+  assert.match(decoded, /기기: (ios|android) \S+/);
+  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  await openFeedbackMail('2.0.1');
   assert.equal(open.mock.calls[0][0], url);
   assert.equal(calls.length, 0);
   open.mockRestore();
