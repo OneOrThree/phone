@@ -237,6 +237,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   구독하면 PING 을 나눠도 N 구독자가 전부 받아 바이트가 N×S 그대로라 채널을 나눴다. 각 인스턴스는 자기 이름 채널도 구독한다.
   수신 쪽 생존은 `lastPinged`(origin → 내게 온 PING 시각, 원격 JOIN 때 한 번 심는다)로 센다 — 남에게 간 PING 이나 FULL_STATE 재시도 같은 다른 명령으로 갱신하면 내게 PING 을 안
   보내는(그 섬에 세션이 없는) 유령이 안 지워진다. 수신자 null PING(옛 버전·호환)은 전원 채널로 가고 전원이 대조한다.
+  트레이드오프: 게이트가 닫힌(eligible 아님) 세션은 PING 목록에서 빠지므로 origin 이 살아 있어도 소유자가 5초 뒤 그 actor 를
+  내보낼 수 있다 — 게이트가 열려 목록에 다시 들어오면 「목록엔 있고 방엔 없음」으로 EVICTED → 재입장해 복구된다.
   혼합 버전 한계: 옛 인스턴스는 소유자 채널을 구독하지 않아 새 인스턴스의 PING 을 못 받아 5초 뒤 그 세션 actor 를 내보낸다 —
   업그레이드 뒤 PING 대조가 복구한다. 비대칭: 옛→새 는 옛 인스턴스의 수신자 null PING 이 호환 경로(전원 채널)라 정상이고, 새→옛 만 끊기며 복구는 마지막 인스턴스가 올라온 뒤다.
 - **세션 한정 FullState 유실**: JOIN 은 됐는데 FULL_STATE 명령이나 그 응답을 잃으면 게이트가 닫힌 채 남는다(PING 대조는 actor 가
