@@ -9,6 +9,7 @@ import {
   renderHook,
 } from '@testing-library/react-native';
 import { Animated, PanResponder, Platform, StyleSheet } from 'react-native';
+import { getAnimatedStyle } from 'react-native-reanimated';
 import {
   constructionPlacement,
   createWorldProjector,
@@ -207,14 +208,12 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
   expect(screen.queryByTestId('village-hall-highlight')).toBeNull();
   expect(screen.queryByText('마을 회관에 들어가는 중')).toBeNull();
 
+  // 모션 프레임은 UI 스레드 애니메이션 스타일로만 바뀐다(GROMO-2375).
   await act(async () => jest.advanceTimersByTime(360));
-  expect(screen.getByTestId('village-hall-frame-2').props.style).toEqual(
-    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-  );
+  expect(getAnimatedStyle(screen.getByTestId('village-hall-frame-2')).opacity).toBe(1);
   await screen.rerender(<WorldMap state={state} hallMotionActive hallMotionGeneration={2} />);
-  expect(screen.getByTestId('village-hall-frame-0').props.style).toEqual(
-    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-  );
+  await act(async () => jest.advanceTimersByTime(0));
+  expect(getAnimatedStyle(screen.getByTestId('village-hall-frame-0')).opacity).toBe(1);
   await screen.unmount();
   jest.useRealTimers();
 });
@@ -401,10 +400,10 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
   if (!island.buildings.includes('tower')) island.buildings.push('tower');
   const screen = await render(<WorldMap state={state} />);
   const activeFrame = () =>
-    [0, 1, 2, 3].find((index) => {
-      const style = screen.getByTestId(`village-observatory-frame-${index}`).props.style;
-      return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
-    });
+    [0, 1, 2, 3].find(
+      (index) =>
+        getAnimatedStyle(screen.getByTestId(`village-observatory-frame-${index}`)).opacity === 1,
+    );
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
   const worldLeft = 402 / 2 - 585 * worldScale;
   const worldTop = 874 / 2 - 430 * worldScale;
@@ -551,9 +550,7 @@ test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생
 
   await screen.rerender(<WorldMap state={state} shopArrivalActive shopArrivalGeneration={1} />);
   await act(async () => jest.advanceTimersByTime(150));
-  expect(screen.getByTestId('shop-motion-frame-1').props.style).toEqual(
-    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-  );
+  expect(getAnimatedStyle(screen.getByTestId('shop-motion-frame-1')).opacity).toBe(1);
 
   await screen.unmount();
   jest.useRealTimers();
@@ -683,9 +680,7 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
     ]),
   );
   await act(async () => jest.advanceTimersByTime(360));
-  expect(screen.getByTestId('fire-motion-frame-day-1').props.style).toEqual(
-    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-  );
+  expect(getAnimatedStyle(screen.getByTestId('fire-motion-frame-day-1')).opacity).toBe(1);
 
   await screen.unmount();
   jest.setSystemTime(new Date('2026-06-15T21:00:00'));
@@ -774,9 +769,7 @@ test('레이어드 마을에서도 회관 진입 문 모션을 표시한다', as
   // 회관 상태는 이름표로 안내하므로 강조선을 그리지 않는다.
   expect(screen.queryByTestId('village-hall-highlight')).toBeNull();
   await act(async () => jest.advanceTimersByTime(180));
-  expect(screen.getByTestId('village-hall-frame-1').props.style).toEqual(
-    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-  );
+  expect(getAnimatedStyle(screen.getByTestId('village-hall-frame-1')).opacity).toBe(1);
   await screen.unmount();
   jest.useRealTimers();
 });
@@ -792,7 +785,7 @@ test('테마 회관 진입 중에는 닫힌 문 테마 레이어 대신 현재 �
   const screen = await render(<WorldMap state={state} hallMotionActive />);
 
   expect(screen.queryByTestId('world-building-theme-hall')).toBeNull();
-  expect(screen.getByTestId('village-hall-theme-tint').props.source).toBe(
+  expect(screen.getByTestId('village-hall-theme-tint-0').props.source).toBe(
     screen.getByTestId('village-hall-frame-0').props.source,
   );
   await screen.unmount();
@@ -1118,11 +1111,12 @@ test('테마 회관·상점·전망대·도서관은 낮·밤 모두 정적 레�
   for (const building of ['hall', 'shop', 'tower', 'library']) {
     expect(day.queryByTestId(`world-building-theme-${building}`)).toBeNull();
   }
+  // 착색은 프레임마다 겹쳐 두고 현재 프레임 것만 보인다(`-프레임 번호`).
   for (const tint of [
-    'village-hall-theme-tint',
-    'shop-motion-theme-tint',
-    'village-observatory-theme-tint',
-    'library-motion-theme-tint',
+    'village-hall-theme-tint-0',
+    'shop-motion-theme-tint-0',
+    'village-observatory-theme-tint-0',
+    'library-motion-theme-tint-0',
   ]) {
     expect(day.getByTestId(tint)).toBeTruthy();
   }
@@ -1134,7 +1128,7 @@ test('테마 회관·상점·전망대·도서관은 낮·밤 모두 정적 레�
   for (const building of ['hall', 'shop', 'tower', 'library']) {
     expect(night.queryByTestId(`world-building-theme-${building}`)).toBeNull();
   }
-  expect(night.getByTestId('village-hall-theme-tint').props.source).toBe(
+  expect(night.getByTestId('village-hall-theme-tint-0').props.source).toBe(
     require('@/assets/village-world/motion/hall/night-frame-0.png'),
   );
   await night.unmount();

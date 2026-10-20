@@ -134,7 +134,3 @@ export const REEL_KEY_POSES: readonly CatKeyPose[] = REEL_LAB_KEYS.map(([frame, 
 export function catKeyPoses(motion: ResolvedCatMotion): readonly CatKeyPose[] | undefined {
   return motion === 'focus' ? FOCUS_KEY_POSES : motion === 'reel' ? REEL_KEY_POSES : undefined;
 }
-
-export function isFrameAnimated(motion: CatFrameMotion): boolean {
-  return CAT_FRAME_SEQUENCES[motion].length > 1;
-}

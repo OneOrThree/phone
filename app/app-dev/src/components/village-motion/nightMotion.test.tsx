@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, configure, render } from '@testing-library/react-native';
+import { getAnimatedStyle } from 'react-native-reanimated';
 import { LibraryMotion } from './LibraryMotion';
 import { ShopMotion } from './ShopMotion';
 import { VillageHallMotion } from './VillageHallMotion';
@@ -38,11 +39,10 @@ const nightFrames = {
 type View = Awaited<ReturnType<typeof render>>;
 const sources = (view: View, prefix: string) =>
   [0, 1, 2, 3].map((index) => view.getByTestId(`${prefix}-${index}`).props.source);
+// 프레임 전환은 UI 스레드 애니메이션 스타일로만 바뀌므로 현재 애니메이션 값을 읽는다.
 const activeFrame = (view: View, prefix: string) =>
-  [0, 1, 2, 3].find((index) =>
-    [view.getByTestId(`${prefix}-${index}`).props.style]
-      .flat(Infinity)
-      .some((entry) => entry?.opacity === 1),
+  [0, 1, 2, 3].find(
+    (index) => getAnimatedStyle(view.getByTestId(`${prefix}-${index}`)).opacity === 1,
   );
 
 describe('건물 모션 밤 프레임', () => {

@@ -1,10 +1,20 @@
 import React from 'react';
 import { act, configure, render } from '@testing-library/react-native';
+import { getAnimatedStyle } from 'react-native-reanimated';
 
 // 장식 모션은 스크린리더에서 숨기므로 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
 import { MotionContext } from '@/design-system/primitives';
 import { VillageObservatoryMotion } from './VillageObservatoryMotion';
+
+type MotionView = Awaited<ReturnType<typeof render>>;
+
+// 프레임 전환은 UI 스레드 애니메이션 스타일로만 바뀌므로 현재 애니메이션 값을 읽는다.
+const activeFrame = (view: MotionView) =>
+  [0, 1, 2, 3].find(
+    (index) =>
+      getAnimatedStyle(view.getByTestId(`village-observatory-frame-${index}`)).opacity === 1,
+  );
 
 describe('VillageObservatoryMotion', () => {
   beforeEach(() => jest.useFakeTimers());
@@ -12,15 +22,10 @@ describe('VillageObservatoryMotion', () => {
 
   it('keeps the door closed at idle and plays one arrival sequence without a rank badge', async () => {
     const view = await render(<VillageObservatoryMotion dayNight="night" />);
-    const activeFrame = () =>
-      [0, 1, 2, 3].find((index) => {
-        const style = view.getByTestId(`village-observatory-frame-${index}`).props.style;
-        return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
-      });
 
     expect(view.getByTestId('village-observatory-motion').props.accessibilityLabel).toContain('밤');
     await act(async () => jest.advanceTimersByTime(1000));
-    expect(activeFrame()).toBe(0);
+    expect(activeFrame(view)).toBe(0);
     expect(view.queryByTestId('village-observatory-rank-indicator')).toBeNull();
 
     await view.rerender(
@@ -28,11 +33,15 @@ describe('VillageObservatoryMotion', () => {
     );
     expect(view.queryByTestId('village-observatory-rank-indicator')).toBeNull();
     await act(async () => jest.advanceTimersByTime(220));
-    expect(activeFrame()).toBe(1);
+    expect(activeFrame(view)).toBe(1);
     await act(async () => jest.advanceTimersByTime(440));
-    expect(activeFrame()).toBe(3);
-    await act(async () => jest.advanceTimersByTime(220));
-    expect(activeFrame()).toBe(0);
+    expect(activeFrame(view)).toBe(3);
+    await act(async () => jest.advanceTimersByTime(219));
+    expect(activeFrame(view)).toBe(3);
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(activeFrame(view)).toBe(0);
+    await act(async () => jest.advanceTimersByTime(1000));
+    expect(activeFrame(view)).toBe(0);
 
     await view.rerender(
       <VillageObservatoryMotion rankState="rank-changed" generation={2} dayNight="day" />,
@@ -43,38 +52,33 @@ describe('VillageObservatoryMotion', () => {
     await view.unmount();
   });
 
-  it('holds on the initial frame and clears the interval when motion is reduced', async () => {
-    const clearTimeout = jest.spyOn(global, 'clearTimeout');
+  it('holds on the initial frame when motion is reduced', async () => {
     const view = await render(<VillageObservatoryMotion generation={1} />);
     await act(async () => jest.advanceTimersByTime(220));
-    expect(view.getByTestId('village-observatory-frame-1')).toBeTruthy();
+    expect(activeFrame(view)).toBe(1);
     await view.rerender(
       <MotionContext.Provider value>
         <VillageObservatoryMotion generation={1} />
       </MotionContext.Provider>,
     );
+    await act(async () => jest.advanceTimersByTime(0));
+    expect(activeFrame(view)).toBe(0);
     await act(async () => jest.advanceTimersByTime(1000));
-    expect(view.getByTestId('village-observatory-frame-0').props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-    );
-    expect(clearTimeout).toHaveBeenCalled();
+    expect(activeFrame(view)).toBe(0);
 
     await view.rerender(<VillageObservatoryMotion reduceMotion generation={2} />);
     await act(async () => jest.advanceTimersByTime(1000));
-    expect(view.getByTestId('village-observatory-frame-0').props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-    );
+    expect(activeFrame(view)).toBe(0);
     await view.unmount();
-    expect(clearTimeout).toHaveBeenCalled();
   });
 
   it('테마가 적용되면 현재 프레임 모양 그대로 착색 레이어를 덧입힌다', async () => {
     const view = await render(<VillageObservatoryMotion themed />);
-    expect(view.getByTestId('village-observatory-theme-tint').props.source).toBe(
+    expect(view.getByTestId('village-observatory-theme-tint-0').props.source).toBe(
       view.getByTestId('village-observatory-frame-0').props.source,
     );
     await view.rerender(<VillageObservatoryMotion themed showFrames={false} />);
-    expect(view.queryByTestId('village-observatory-theme-tint')).toBeNull();
+    expect(view.queryByTestId('village-observatory-theme-tint-0')).toBeNull();
     await view.unmount();
   });
 });

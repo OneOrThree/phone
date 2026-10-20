@@ -1,7 +1,14 @@
-import React, { useContext, useEffect, useState } from 'react';
-import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
+import React, { useContext, useEffect } from 'react';
+import { StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
+import { useDerivedValue, useSharedValue } from 'react-native-reanimated';
 import { MotionContext } from '@/design-system/primitives';
-import { VillageThemeTint } from './VillageThemeTint';
+import {
+  MotionFrameImage,
+  VillageThemeTint,
+  motionTick,
+  playMotion,
+  stopMotion,
+} from './VillageThemeTint';
 
 export type ObservatoryRankState = 'normal' | 'rank-updated' | 'rank-changed';
 export type ObservatoryDayNight = 'day' | 'night';
@@ -47,7 +54,11 @@ export function VillageObservatoryMotion({
   testID?: string;
 }) {
   const motionDisabled = useContext(MotionContext) || reduceMotion;
-  const [frame, setFrame] = useState(0);
+  const elapsed = useSharedValue(0);
+  // 한 번 재생이 끝나면 경과가 한 바퀴에 닿아 닫힌 0번으로 돌아온다.
+  const frame = useDerivedValue<number>(
+    () => sequence[motionTick(elapsed.value, frameDuration) % sequence.length],
+  );
   const rankLabel =
     rankState === 'rank-updated'
       ? '주간 순위가 갱신되었습니다'
@@ -56,16 +67,10 @@ export function VillageObservatoryMotion({
         : undefined;
 
   useEffect(() => {
-    setFrame(0);
     if (motionDisabled || generation === 0) return;
-    const timers = sequence
-      .slice(1)
-      .map((nextFrame, index) =>
-        setTimeout(() => setFrame(nextFrame), (index + 1) * frameDuration),
-      );
-    timers.push(setTimeout(() => setFrame(0), sequence.length * frameDuration));
-    return () => timers.forEach(clearTimeout);
-  }, [dayNight, generation, motionDisabled]);
+    playMotion(elapsed, sequence.length * frameDuration, false);
+    return () => stopMotion(elapsed);
+  }, [dayNight, elapsed, generation, motionDisabled]);
 
   return (
     <View
@@ -80,17 +85,19 @@ export function VillageObservatoryMotion({
     >
       {showFrames &&
         (night ? nightFrames : frames).map((source, index) => (
-          <Image
+          <MotionFrameImage
             key={index}
+            frame={frame}
+            index={index}
             testID={`village-observatory-frame-${index}`}
             source={source}
-            resizeMode="stretch"
-            style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
+            style={styles.frame}
           />
         ))}
       {showFrames && themed && (
         <VillageThemeTint
-          source={(night ? nightFrames : frames)[frame]}
+          sources={night ? nightFrames : frames}
+          frame={frame}
           testID="village-observatory-theme-tint"
         />
       )}
@@ -101,6 +108,4 @@ export function VillageObservatoryMotion({
 const styles = StyleSheet.create({
   root: { width: '100%', height: '100%', position: 'relative' },
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
-  visible: { opacity: 1 },
-  hidden: { opacity: 0 },
 });

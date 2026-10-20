@@ -1,7 +1,14 @@
-import React, { memo, useEffect, useRef, useState } from 'react';
-import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
+import React, { memo, useEffect, useRef } from 'react';
+import { StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
+import { cancelAnimation, useDerivedValue, useSharedValue } from 'react-native-reanimated';
 import { VillageNotificationBadge } from './VillageNotificationBadge';
-import { VillageThemeTint } from './VillageThemeTint';
+import {
+  MotionFrameImage,
+  VillageThemeTint,
+  motionTick,
+  playMotion,
+  stopMotion,
+} from './VillageThemeTint';
 
 export type LibraryMotionState = 'normal' | 'new-quest' | 'new-reading';
 
@@ -46,34 +53,37 @@ export const LibraryMotion = memo(function LibraryMotionView({
   style?: ViewStyle;
   testID?: string;
 }) {
-  const [frame, setFrame] = useState(0);
   const lastTrigger = useRef(trigger);
+  const elapsed = useSharedValue(0);
+  // 진입 중이면 마지막 프레임(열린 문)에 머물고, 아니면 한 바퀴 뒤 닫힌 0번으로 돌아온다.
+  const frame = useDerivedValue(() => {
+    const tick = motionTick(elapsed.value, frameDurationMs);
+    return entryActive ? Math.min(tick, frames.length - 1) : tick % frames.length;
+  });
+
+  // 재생 효과보다 먼저 둔다. 같은 커밋에서 재생이 시작되면 0번으로 되돌린 뒤 재생한다.
+  useEffect(() => {
+    if (!entryActive) stopMotion(elapsed);
+  }, [elapsed, entryActive]);
 
   useEffect(() => {
     if (trigger < lastTrigger.current || trigger === 0) {
       lastTrigger.current = trigger;
-      setFrame(0);
+      stopMotion(elapsed);
       return;
     }
     if (reduceMotion || !showFrames) {
-      setFrame(0);
+      stopMotion(elapsed);
       if (trigger > lastTrigger.current) lastTrigger.current = trigger;
       return;
     }
     if (trigger <= lastTrigger.current) return;
     lastTrigger.current = trigger;
 
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    frames.forEach((_, index) => {
-      timers.push(setTimeout(() => setFrame(index), index * frameDurationMs));
-    });
-    if (!entryActive) timers.push(setTimeout(() => setFrame(0), frames.length * frameDurationMs));
-    return () => timers.forEach(clearTimeout);
-  }, [entryActive, reduceMotion, showFrames, trigger]);
-
-  useEffect(() => {
-    if (!entryActive) setFrame(0);
-  }, [entryActive]);
+    playMotion(elapsed, frames.length * frameDurationMs, false);
+    // 의존값이 바뀌면 지금 프레임에서 멈춘다(예전 타이머 정리와 같다).
+    return () => cancelAnimation(elapsed);
+  }, [elapsed, entryActive, reduceMotion, showFrames, trigger]);
 
   const stateLabel =
     state === 'new-quest' ? '새 퀘스트' : state === 'new-reading' ? '새 읽을거리' : null;
@@ -90,17 +100,19 @@ export const LibraryMotion = memo(function LibraryMotionView({
     >
       {showFrames &&
         (night ? nightFrames : frames).map((source, index) => (
-          <Image
+          <MotionFrameImage
             key={index}
+            frame={frame}
+            index={index}
             testID={`library-motion-frame-${index}`}
             source={source}
-            resizeMode="stretch"
-            style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
+            style={styles.frame}
           />
         ))}
       {showFrames && themed && (
         <VillageThemeTint
-          source={(night ? nightFrames : frames)[frame]}
+          sources={night ? nightFrames : frames}
+          frame={frame}
           testID="library-motion-theme-tint"
         />
       )}
@@ -119,6 +131,4 @@ export const LibraryMotion = memo(function LibraryMotionView({
 const styles = StyleSheet.create({
   fill: { width: '100%', height: '100%' },
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
-  visible: { opacity: 1 },
-  hidden: { opacity: 0 },
 });

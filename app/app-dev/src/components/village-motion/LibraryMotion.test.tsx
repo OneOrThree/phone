@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
+import { getAnimatedStyle } from 'react-native-reanimated';
 import { LibraryMotion } from './LibraryMotion';
 
 type MotionView = Awaited<ReturnType<typeof render>>;
@@ -11,13 +12,14 @@ describe('LibraryMotion', () => {
     jest.restoreAllMocks();
   });
 
+  // 프레임 전환은 UI 스레드 애니메이션 스타일로만 바뀌므로 현재 애니메이션 값을 읽는다.
   const activeFrame = (view: MotionView) =>
-    [0, 1, 2, 3].find((index) => {
-      const style = view.getByTestId(`library-motion-frame-${index}`, {
-        includeHiddenElements: true,
-      }).props.style;
-      return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
-    });
+    [0, 1, 2, 3].find(
+      (index) =>
+        getAnimatedStyle(
+          view.getByTestId(`library-motion-frame-${index}`, { includeHiddenElements: true }),
+        ).opacity === 1,
+    );
 
   it('plays every door frame in order when triggered and returns to still', async () => {
     const view = await render(<LibraryMotion />);
@@ -96,6 +98,7 @@ describe('LibraryMotion', () => {
       await act(async () => jest.advanceTimersByTime(240));
       expect(activeFrame(view)).toBe(2);
       await view.rerender(<LibraryMotion entryActive trigger={trigger} />);
+      await act(async () => jest.advanceTimersByTime(0));
       expect(activeFrame(view)).toBe(0);
       await act(async () => jest.advanceTimersByTime(1_000));
       expect(activeFrame(view)).toBe(0);
@@ -109,7 +112,7 @@ describe('LibraryMotion', () => {
   it('테마가 적용되면 현재 프레임 모양 그대로 착색 레이어를 덧입힌다', async () => {
     const view = await render(<LibraryMotion themed />);
     const query = { includeHiddenElements: true };
-    expect(view.getByTestId('library-motion-theme-tint', query).props.source).toBe(
+    expect(view.getByTestId('library-motion-theme-tint-0', query).props.source).toBe(
       view.getByTestId('library-motion-frame-0', query).props.source,
     );
     await view.unmount();

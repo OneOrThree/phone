@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, configure, render } from '@testing-library/react-native';
+import { getAnimatedStyle } from 'react-native-reanimated';
 
 // 장식 모션은 스크린리더에서 숨기므로 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
@@ -14,11 +15,11 @@ describe('ShopMotion', () => {
     jest.restoreAllMocks();
   });
 
+  // 프레임 전환은 UI 스레드 애니메이션 스타일로만 바뀌므로 현재 애니메이션 값을 읽는다.
   const activeFrame = (view: MotionView) =>
-    [0, 1, 2, 3].find((index) => {
-      const style = view.getByTestId(`shop-motion-frame-${index}`).props.style;
-      return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
-    });
+    [0, 1, 2, 3].find(
+      (index) => getAnimatedStyle(view.getByTestId(`shop-motion-frame-${index}`)).opacity === 1,
+    );
 
   it('plays four frames and waits exactly 20 seconds after a run ends', async () => {
     const view = await render(<ShopMotion />);
@@ -51,6 +52,7 @@ describe('ShopMotion', () => {
     expect(activeFrame(view)).toBe(3);
 
     await view.rerender(<ShopMotion trigger={1} entryActive={false} />);
+    await act(async () => jest.advanceTimersByTime(0));
     expect(activeFrame(view)).toBe(0);
     await view.unmount();
   });
@@ -76,11 +78,11 @@ describe('ShopMotion', () => {
 
   it('테마가 적용되면 현재 프레임 모양 그대로 착색 레이어를 덧입힌다', async () => {
     const view = await render(<ShopMotion themed />);
-    expect(view.getByTestId('shop-motion-theme-tint').props.source).toBe(
+    expect(view.getByTestId('shop-motion-theme-tint-0').props.source).toBe(
       view.getByTestId('shop-motion-frame-0').props.source,
     );
     await view.rerender(<ShopMotion themed showFrames={false} />);
-    expect(view.queryByTestId('shop-motion-theme-tint')).toBeNull();
+    expect(view.queryByTestId('shop-motion-theme-tint-0')).toBeNull();
     await view.unmount();
   });
 });
