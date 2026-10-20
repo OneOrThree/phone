@@ -89,7 +89,7 @@ class StompAuthChannelInterceptorTest {
 
     private StompAuthChannelInterceptor interceptor;
     private RealtimeSessionRegistry registry;
-    private final ChatUserFence fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC());
+    private ChatUserFence fence;
 
     private UUID userId;
     private UUID groupId;
@@ -97,6 +97,7 @@ class StompAuthChannelInterceptorTest {
     @BeforeEach
     void setUp() {
         registry = new RealtimeSessionRegistry();
+        fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), redis);
         interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis,
                 movementSubscriptions, membershipService, seaRooms, meters, fence);
         userId = UUID.randomUUID();
@@ -155,7 +156,7 @@ class StompAuthChannelInterceptorTest {
                 new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, sid, 0L,
                         java.time.Instant.now().plusSeconds(600))));
         ChatUserFence racing = org.mockito.Mockito.mock(ChatUserFence.class);
-        given(racing.isRevoked(sid)).willReturn(false, true);
+        given(racing.isRevokedDurable(sid)).willReturn(false, true);
         StompAuthChannelInterceptor raced = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry,
                 focusSessions, redis, movementSubscriptions, membershipService, seaRooms, meters, racing);
         StompHeaderAccessor accessor = accessor(StompCommand.CONNECT);

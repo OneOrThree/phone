@@ -259,6 +259,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `cache:chat:member:{userId}` | chat | read/write | the user's island ids; service-private, never shared |
 | `cache:chat:block:{userId}` | realtime | read/write | 그 유저가 차단한 id 집합 + 적재 당시 세대 `<gen>\|<id>,…` (GROMO-2182). TTL 은 백스톱일 뿐 |
 | `cache:chat:blockgen:{userId}` | realtime | read/write | 그 유저의 차단 세대 — Data `user.blocks.updated` 수신마다 INCR, **수명 없음**(번호 재사용 금지). 캐시 세대와 다르면 캐시를 버린다 |
+| `cache:chat:revoked:{sessionId}` | realtime | read/write | 폐기된 로그인 세션 펜스(GROMO-2350) — `SET 1 PX <그 AT 의 최대 남은 수명>`. CONNECT 만 읽는다(프레임 검사는 인메모리). Redis 읽기 실패는 fail-open |
 | `chat:fanout` | chat | pub/sub | cross-instance delivery (채팅 전용 wire) |
 | `chat:events:v1` | realtime | pub/sub | cross-instance delivery of **island events**; `{originInstanceId,destination,event}` |
 | `lock:chat:emote:{islandId}:{userId}` | realtime | read/write | 응원 **성공** 창(3초). 존재가 곧 「이미 보냈다」 |

@@ -303,13 +303,46 @@ class ChatOutboundChannelInterceptorTest {
                 "{\"eventId\":\"" + eventId + "\",\"payload\":{}}"), null, null)).isNull();
     }
 
+    // ── GROMO-2350 폐기 sid 펜스 ───────────────────────────────────────────
+
+    @Test
+    void framesOfARevokedSessionAreDroppedAndTheSocketIsClosedEvenWhenTheEarlierCloseFailed() throws Exception {
+        UUID sid = UUID.randomUUID();
+        org.springframework.web.socket.WebSocketSession socket = mock(org.springframework.web.socket.WebSocketSession.class);
+        when(socket.getId()).thenReturn("socket");
+        when(socket.isOpen()).thenReturn(true);
+        sessions.opened(socket);
+        when(jwt.extractSessionProof("token")).thenReturn(Optional.of(new com.oneorthree.realtime.auth.VerifiedAccessIdentity(
+                user, sid, 0L, java.time.Instant.now().plusSeconds(600))));
+        var redis = mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        when(redis.opsForValue()).thenReturn(mock(org.springframework.data.redis.core.ValueOperations.class));
+        var fence = new com.oneorthree.realtime.message.service.ChatUserFence(null, null, null,
+                java.time.Clock.systemUTC(), redis);
+        ChatOutboundChannelInterceptor guarded = new ChatOutboundChannelInterceptor(sessions, jwt, guard, delivery,
+                new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms, meters, OutboundAuthzCache.disabled(),
+                null, fence);
+        UUID sender = UUID.randomUUID();
+        assertThat(guarded.beforeHandle(chat(sender), null, null)).isNotNull(); // 폐기 전엔 나간다
+
+        fence.revokeSession(sid, java.time.Instant.now().plusSeconds(600)); // 종료가 실패해 소켓은 열린 채 남은 상황
+
+        assertThat(guarded.beforeHandle(chat(sender), null, null)).isNull(); // 채팅
+        assertThat(guarded.beforeHandle(frame("socket", "/topic/islands/" + island + "/movement"), null, null)).isNull();
+        assertThat(guarded.beforeHandle(frame("socket", "/topic/islands/" + island + "/movement/snapshot"), null, null))
+                .isNull(); // 이동
+        verify(socket, org.mockito.Mockito.atLeastOnce()).close(
+                org.springframework.web.socket.CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+    }
+
     // ── GROMO-2340 허용 결정 캐시 ──────────────────────────────────────────
 
     private final OutboundAuthzCache cache = new OutboundAuthzCache(
             java.util.concurrent.TimeUnit.SECONDS.toNanos(30), System::nanoTime, meters);
     private final OutboundMembershipSource membershipSource = mock(OutboundMembershipSource.class);
     private final ChatOutboundChannelInterceptor cached = new ChatOutboundChannelInterceptor(sessions, jwt, guard,
-            delivery, new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms, meters, cache, membershipSource);
+            delivery, new tools.jackson.databind.ObjectMapper(), blockedUsers, seaRooms, meters, cache, membershipSource,
+            new com.oneorthree.realtime.message.service.ChatUserFence(null, null, null,
+                    java.time.Clock.systemUTC(), null));
 
     /** 캐시 켠 경로의 원본 만료 — 멤버십은 제한 없음, 차단은 같은 판정(hasBlocked 스텁)을 만료 제한 없이 돌려준다. */
     @BeforeEach

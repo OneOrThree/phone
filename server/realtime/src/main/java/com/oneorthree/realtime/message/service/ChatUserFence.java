@@ -5,13 +5,17 @@ import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.repository.ChatMessageRepository;
 import com.oneorthree.realtime.message.repository.ChatReadCursorRepository;
+import com.oneorthree.realtime.common.redis.RedisKeys;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -28,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * </ul>
  * 멤버십 캐시(최대 120초)가 탈퇴자를 통과시켜도 여기서 막힌다 — 캐시 무효화는 보조일 뿐이다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ChatUserFence {
@@ -36,13 +41,15 @@ public class ChatUserFence {
     private final ChatReadCursorRepository chatReadCursorRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final Clock clock;
+    private final StringRedisTemplate redis;
 
     /**
      * 폐기된 로그인 세션(AT 의 {@code sid}) → 그 AT 가 만료되는 시각(GROMO-2350). 기본 인가 OFF 모드는 전달 직전 인가가 sid 를 보지
      * 않아, 소켓을 닫아도 앱이 저장된 AT 로 재연결하면 같은 sid 가 되살아난다 — CONNECT 가 이 펜스로 거절한다.
      *
-     * <p>ponytail: 인메모리·JVM 로컬이다(탈퇴 tombstone 은 PostgreSQL 이지만 이쪽은 AT 만료로 스스로 닫히는 단명 상태라 키 공간·
-     * 마이그레이션을 늘리지 않는다). 사건이 닿지 않은 인스턴스는 모른다 — 다중 인스턴스에서 즉시성이 필요하면 Redis 키로 승급.
+     * <p>두 겹이다. 이 인메모리 맵은 <b>프레임마다</b> 보는 쪽(왕복 없음)이고, {@link RedisKeys#revokedSession} 키(TTL = 만료까지)는
+     * 재시작·다른 인스턴스의 <b>CONNECT</b> 가 보는 내구 쪽이다. 한계: 사건을 처리한 인스턴스에 «이미 붙어 있는» 세션만 닫힌다 — 다른
+     * 인스턴스에 이미 붙은 같은 sid 세션은 그 인스턴스가 인메모리 펜스를 모르므로 재연결 전까지 AT 만료까지 산다(Redis 는 CONNECT 에서만 본다).
      */
     private final Map<UUID, Instant> revokedSessions = new ConcurrentHashMap<>();
 
@@ -73,9 +80,34 @@ public class ChatUserFence {
         Instant now = clock.instant();
         revokedSessions.values().removeIf(expiry -> !expiry.isAfter(now));
         revokedSessions.merge(sessionId, until, (a, b) -> a.isAfter(b) ? a : b);
+        long ttlMillis = Duration.between(now, until).toMillis();
+        if (ttlMillis > 0) {
+            // 쓰기 실패는 던진다 — 호출한 수신 트랜잭션이 롤백돼 relay 가 다시 보낸다(인메모리 펜스는 이미 올라 있다).
+            redis.opsForValue().set(RedisKeys.revokedSession(sessionId), "1", Duration.ofMillis(ttlMillis));
+        }
     }
 
-    /** 이 sid 가 폐기돼 아직 AT 만료 전인가 — 만료 뒤엔 AT 자체가 거절되므로 항목을 지운다. */
+    /**
+     * CONNECT 용 — 인메모리 «또는» Redis(왕복 1회). 재시작·다른 인스턴스에서 올린 펜스까지 본다.
+     *
+     * <p>Redis 읽기 실패는 «폐기 아님»으로 두고 경고만 남긴다(fail-open). {@code MembershipService} 의 캐시 실패 처리와 같은 관례다 —
+     * 여기서 닫으면 Redis 장애 한 번이 모든 사용자의 접속을 끊는데, 열어 둬서 생기는 위험은 «폐기된 AT 가 만료 전까지 재연결»이고
+     * 그 사이에도 프레임 전달은 인메모리 펜스가 막는다. ({@code BlockedUsers} 의 fail-closed 는 «켜진 필터가 판정 못 내리면 프레임을
+     * 안 보낸다»는 별개 결정이다.)
+     */
+    public boolean isRevokedDurable(UUID sessionId) {
+        if (isRevoked(sessionId)) {
+            return true;
+        }
+        try {
+            return sessionId != null && Boolean.TRUE.equals(redis.hasKey(RedisKeys.revokedSession(sessionId)));
+        } catch (RuntimeException e) {
+            log.warn("폐기 세션 펜스 조회 실패 — 폐기 아님으로 둔다. cause={}", e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    /** 이 sid 가 폐기돼 아직 AT 만료 전인가(인메모리만 — 프레임마다 불러도 왕복이 없다). 만료 뒤엔 AT 자체가 거절되므로 항목을 지운다. */
     public boolean isRevoked(UUID sessionId) {
         Instant until = sessionId == null ? null : revokedSessions.get(sessionId);
         if (until == null) {

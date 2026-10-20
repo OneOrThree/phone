@@ -16,6 +16,8 @@ import java.util.UUID;
  *       <td>그 유저가 차단한 사용자 id 집합 + 적재 당시 세대(GROMO-2182). Data 정본의 사본이다</td></tr>
  *   <tr><td>{@code cache:chat:blockgen:{userId}}</td><td>실시간</td><td>읽기·쓰기</td>
  *       <td>그 유저의 차단 세대 — Data 의 {@code user.blocks.updated} 를 받을 때마다 1 오른다</td></tr>
+ *   <tr><td>{@code cache:chat:revoked:{sessionId}}</td><td>실시간</td><td>읽기·쓰기</td>
+ *       <td>폐기된 로그인 세션 펜스(GROMO-2350) — {@code SET 1 PX}(그 AT 의 남은 수명). CONNECT 가 재연결을 거절하는 데 쓴다</td></tr>
  *   <tr><td>{@code chat:fanout}</td><td>채팅</td><td>발행·구독</td>
  *       <td>인스턴스 간 메시지 전파(Pub/Sub). 저장하지 않는 채널이라 영속 데이터가 아니다</td></tr>
  *   <tr><td>{@code chat:events:v1}</td><td>실시간</td><td>발행·구독</td>
@@ -120,6 +122,7 @@ public final class RedisKeys {
     private static final String MEMBER_CACHE_PREFIX = "cache:chat:member:";
     private static final String BLOCK_CACHE_PREFIX = "cache:chat:block:";
     private static final String BLOCK_GENERATION_PREFIX = "cache:chat:blockgen:";
+    private static final String REVOKED_SESSION_PREFIX = "cache:chat:revoked:";
     private static final String FOCUS_PRESENCE_PREFIX = "presence:focus:";
     private static final String EMOTE_RATE_PREFIX = "lock:chat:emote:";
     private static final String EMOTE_ATTEMPT_PREFIX = "lock:chat:emote:try:";
@@ -154,6 +157,14 @@ public final class RedisKeys {
      */
     public static String blockCache(UUID userId) {
         return BLOCK_CACHE_PREFIX + userId;
+    }
+
+    /**
+     * 폐기된 로그인 세션 펜스(GROMO-2350) — 값 {@code 1}, TTL 이 곧 그 sid 의 AT 가 거절되기까지의 남은 시간. 재시작·다른 인스턴스의
+     * CONNECT 도 막는다. {@code cache:chat:*} 쓰기 패턴 안이라 ACL 을 늘리지 않는다.
+     */
+    public static String revokedSession(UUID sessionId) {
+        return REVOKED_SESSION_PREFIX + sessionId;
     }
 
     /**

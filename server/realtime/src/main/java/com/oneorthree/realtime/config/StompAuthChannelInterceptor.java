@@ -197,7 +197,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         // 폐기된 세션(auth.session.revoked, GROMO-2350)의 AT 는 만료 전이어도 재연결을 받지 않는다. sid 없는 구 토큰은 해당 없음.
         // JWT 는 한 번만 푼다 — 같은 sid 로 등록 전·후 두 번 검사한다.
         UUID sid = jwtValidator.extractSessionProof(token).map(VerifiedAccessIdentity::sessionId).orElse(null);
-        if (sid != null && chatUserFence.isRevoked(sid)) {
+        if (sid != null && chatUserFence.isRevokedDurable(sid)) {
             throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
         }
 
@@ -206,7 +206,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         sessions.register(accessor.getSessionId(), principal);
         // 등록 «뒤» 재검사 — 폐기 처리는 펜스를 올린 «다음에» 세션 목록을 뜬다. 그래서 어떤 인터리빙이든 이 CONNECT 가 펜스를 보거나
         // (여기서 거절) 그쪽 스냅샷에 이 등록이 보이거나(그쪽이 닫음) 둘 중 하나가 성립한다. 앞의 검사만으로는 둘 사이 창이 남는다.
-        if (sid != null && chatUserFence.isRevoked(sid)) {
+        if (sid != null && chatUserFence.isRevokedDurable(sid)) {
             sessions.closed(accessor.getSessionId()); // 등록을 되돌린다 — 수립 실패 정리(WebSocketConfig)와 같은 길
             throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
         }

@@ -2,11 +2,13 @@ package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.auth.VerifiedAccessIdentity;
 import com.oneorthree.realtime.block.BlockedUsers;
 import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
 import com.oneorthree.realtime.common.redis.Sourced;
 import com.oneorthree.realtime.event.RealtimeEventDelivery;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
+import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.sea.SeaRooms;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -20,6 +22,7 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.ExecutorChannelInterceptor;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -99,6 +102,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     private final SeaRooms seaRooms;
     private final OutboundAuthzCache authzCache;
     private final OutboundMembershipSource membershipSource;
+    private final ChatUserFence chatUserFence;
 
     /**
      * 바다 방 전달 직전 차단 건수 — {@code sea.deliver.dropped{reason=not_member|redis|jwt}}. debug 로그로는 Redis 장애 중
@@ -118,7 +122,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     public ChatOutboundChannelInterceptor(RealtimeSessionRegistry sessions, JwtValidator jwtValidator,
             ChatAccessGuard accessGuard, @Lazy RealtimeEventDelivery delivery, ObjectMapper objectMapper,
             BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry, OutboundAuthzCache authzCache,
-            OutboundMembershipSource membershipSource) {
+            OutboundMembershipSource membershipSource, ChatUserFence chatUserFence) {
         this.sessions = sessions;
         this.jwtValidator = jwtValidator;
         this.accessGuard = accessGuard;
@@ -128,6 +132,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         this.seaRooms = seaRooms;
         this.authzCache = authzCache;
         this.membershipSource = membershipSource;
+        this.chatUserFence = chatUserFence;
         this.seaDroppedNotMember = seaDropped(meterRegistry, "not_member");
         this.seaDroppedRedis = seaDropped(meterRegistry, "redis");
         this.seaDroppedJwt = seaDropped(meterRegistry, "jwt");
@@ -138,7 +143,8 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             ChatAccessGuard accessGuard, RealtimeEventDelivery delivery, ObjectMapper objectMapper,
             BlockedUsers blockedUsers, SeaRooms seaRooms, MeterRegistry meterRegistry) {
         this(sessions, jwtValidator, accessGuard, delivery, objectMapper, blockedUsers, seaRooms, meterRegistry,
-                OutboundAuthzCache.disabled(), null);
+                OutboundAuthzCache.disabled(), null,
+                new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), null));
     }
 
     private static Counter seaDropped(MeterRegistry registry, String reason) {
@@ -438,8 +444,18 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         String bearer = principal.bearer();
         String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : null;
         // 다른 기기가 캐시를 갱신해도 만료된 소켓의 인증 수명이 연장되면 안 된다.
-        if (jwtValidator.extractUserId(token).filter(principal.userId()::equals).isEmpty()) {
+        // JWT 는 한 번만 푼다 — sid 가 있는 현행 토큰은 proof 하나로 userId·sid 를 얻고, sid 없는 구 토큰만 extractUserId 로 간다.
+        var proof = jwtValidator.extractSessionProof(token);
+        UUID tokenUser = proof.map(VerifiedAccessIdentity::userId)
+                .or(() -> jwtValidator.extractUserId(token)).orElse(null);
+        if (!principal.userId().equals(tokenUser)) {
             sessions.closeUnauthorized(sessionId);
+            return null;
+        }
+        // 폐기된 sid(auth.session.revoked, GROMO-2350) — 종료가 실패해 소켓이 열려 있어도 프레임은 나가지 않는다. 인메모리 조회라
+        // 프레임당 비용은 맵 get 하나다(이동 20Hz 포함 — 이동 프레임도 이 길을 지난다).
+        if (proof.isPresent() && chatUserFence.isRevoked(proof.get().sessionId())) {
+            sessions.close(sessionId, CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
             return null;
         }
         return principal;

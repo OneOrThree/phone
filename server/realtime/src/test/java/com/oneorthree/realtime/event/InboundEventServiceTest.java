@@ -494,7 +494,7 @@ class InboundEventServiceTest {
         var decisions = mock(CurrentMembershipDecisionCache.class);
         var outbound = mock(OutboundAuthzCache.class);
         var registry = new RealtimeSessionRegistry();
-        ChatUserFence fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC());
+        ChatUserFence fence = new ChatUserFence(null, null, null, java.time.Clock.systemUTC(), redis);
         InboundEventService plain = new InboundEventService(plainJdbc, fence,
                 mock(EventRouter.class), mock(MembershipService.class), mock(BlockedUsers.class),
                 mock(MovementSubscriptionListener.class), mock(com.oneorthree.realtime.sea.SeaRooms.class), decisions,
@@ -569,6 +569,20 @@ class InboundEventServiceTest {
         order.verify(fence).revokeSession(org.mockito.ArgumentMatchers.eq(sid), any());
         order.verify(registry).sessionIdsOf(user);
         order.verify(registry).close("stomp-order", REVOKED);
+    }
+
+    @Test
+    @DisplayName("폐기 펜스는 Redis 로 내구화된다 — 새 ChatUserFence(재시작)도 CONNECT 용 조회에서 보고, TTL 이 지나면 사라진다")
+    void revokedSessionFenceSurvivesARestartUntilTheTtl() throws Exception {
+        java.time.Clock clock = java.time.Clock.systemUTC();
+        UUID sid = UUID.randomUUID();
+        new ChatUserFence(null, null, null, clock, redis).revokeSession(sid, clock.instant().plusMillis(800));
+
+        ChatUserFence restarted = new ChatUserFence(null, null, null, clock, redis); // 인메모리 맵이 빈 새 인스턴스
+        assertThat(restarted.isRevoked(sid)).isFalse(); // 프레임용 인메모리 검사는 모른다
+        assertThat(restarted.isRevokedDurable(sid)).isTrue(); // CONNECT 용은 Redis 로 본다
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(restarted.isRevokedDurable(sid)).isFalse());
     }
 
     @Test
