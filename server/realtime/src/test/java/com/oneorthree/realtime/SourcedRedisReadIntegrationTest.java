@@ -20,6 +20,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -140,9 +141,9 @@ class SourcedRedisReadIntegrationTest {
     @Test
     @DisplayName("키가 1~2개가 아니면 거부한다")
     void readRejectsUnsupportedKeyCounts() {
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> Sourced.read(redis))
+        assertThatThrownBy(() -> Sourced.read(redis))
                 .isInstanceOf(IllegalArgumentException.class);
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> Sourced.read(redis, "a", "b", "c"))
+        assertThatThrownBy(() -> Sourced.read(redis, "a", "b", "c"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

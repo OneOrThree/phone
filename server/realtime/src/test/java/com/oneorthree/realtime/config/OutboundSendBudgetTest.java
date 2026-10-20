@@ -348,6 +348,65 @@ class OutboundSendBudgetTest {
     }
 
     @Test
+    @DisplayName("가해자 슬롯은 하나다 — 차 있으면 두 번째 선점은 실패하고, 해제하면 다시 잡힌다")
+    void offenderSlotAdmitsOneClaimAtATime() {
+        assertThat(budget.claimOffender("a")).isNotNull();
+        assertThat(budget.claimOffender("b")).as("확인과 점유가 한 번이라 둘째는 못 잡는다").isNull();
+        budget.releaseOffender("b"); // 남의 슬롯은 풀지 않는다
+        assertThat(budget.claimOffender("c")).isNull();
+        budget.releaseOffender("a");
+        assertThat(budget.claimOffender("b")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("가해자 슬롯은 closed 가 안 와도 만료된다 — 영구히 차서 가해자 선별이 멈추지 않는다")
+    void offenderSlotExpiresWithoutClosedCallback() throws Exception {
+        OutboundSendBudget wide = new OutboundSendBudget(sessions, meters, 1, 1, 4);
+        wide.offenderTtlNanos = TimeUnit.MILLISECONDS.toNanos(50);
+        ThreadPoolTaskExecutor wideExecutor = wide.newExecutor();
+        wideExecutor.initialize();
+        try {
+            ExecutorSubscribableChannel wideChannel = new ExecutorSubscribableChannel(wideExecutor);
+            wideChannel.setInterceptors(List.of(wide));
+            wideChannel.subscribe(message -> {
+                entered.countDown();
+                try {
+                    release.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            socket("slow");
+            WebSocketSession keeper = socket("keeper");
+            socket("first");
+            WebSocketSession second = socket("second");
+            String chat = "/topic/groups/" + UUID.randomUUID();
+
+            wideChannel.send(frame("slow", chat)); // 실행 중(막힘)
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            wideChannel.send(frame("slow", chat));
+            wideChannel.send(frame("slow", chat));
+            wideChannel.send(frame("keeper", chat));
+            wideChannel.send(frame("keeper", chat));
+            wideChannel.send(frame("first", chat)); // 거부 → slow 가해자(슬롯 점유) + first
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (meters.counter("realtime.outbound.closed", "selected", "offender").count() < 1
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            Thread.sleep(100); // closed 콜백 없이 TTL(50ms)이 지났다
+
+            wideChannel.send(frame("second", chat)); // 슬롯이 만료돼 keeper 가 새 가해자로 선별된다
+            verify(keeper, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+            verify(second, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+            assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isEqualTo(2.0);
+        } finally {
+            release.countDown();
+            wideExecutor.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("끝난 프레임은 세션별 대기 수에서 빠진다 — 항목이 남아 새지 않는다")
     void drainedFramesLeaveThePendingCount() throws Exception {
         start();

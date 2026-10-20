@@ -30,6 +30,7 @@ import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
@@ -116,13 +117,19 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     private final ThreadLocal<Long> handleStart = new ThreadLocal<>();
     private final Set<String> closing = ConcurrentHashMap.newKeySet();
     /**
-     * 가해자로 예약했고 아직 끝나지 않은 세션 — 비어 있을 때만 새 가해자를 고른다. 가해자의 소켓이 닫히고 큐의 그 프레임이
+     * 가해자로 예약했고 아직 끝나지 않은 세션(단일 슬롯) — 비어 있을 때만 새 가해자를 고른다. 확인과 점유가 한 번의
+     * {@code compareAndSet} 이라 동시 거부가 둘을 고르지 못한다. 가해자의 소켓이 닫히고 큐의 그 프레임이
      * 빠지기 전(close ≤ 50ms, closer 가 막히면 더)에는 큐가 여전히 가득이라, 그동안의 거부마다 «프레임을 잃지 않은 다음
      * 최대 점유 세션»이 연쇄로 가해자가 되는 걸 막는다.
      * ponytail: 한 번에 가해자 하나 — 가해자가 둘 이상 필요한 포화(여럿이 동시에 느림)는 가해자 종료 뒤 다음 거부에서 하나씩
      * 처리된다. 종료가 늦는 동안엔 넘친 세션만 닫힌다. 병렬 선별이 필요하면 점유 비율 기준으로 올린다.
      */
-    private final Set<String> offenders = ConcurrentHashMap.newKeySet();
+    private final AtomicReference<Offender> offender = new AtomicReference<>();
+    /**
+     * 슬롯 만료 — close 한 건의 상한은 수십 ms(Tomcat 50ms)이고 closer 가 밀려도 수 초면 끝난다. 그 몇 배인 10초가 지나도
+     * {@code closed} 콜백이 없으면(close 는 true 인데 콜백이 영영 안 오는 경우) 슬롯이 영구히 차 가해자 선별이 멈추므로 만료로 본다.
+     */
+    long offenderTtlNanos = TimeUnit.SECONDS.toNanos(10);
     private final ExecutorService closer = Executors.newFixedThreadPool(2, daemon("realtime-outbound-close"));
 
     /**
@@ -266,8 +273,12 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         // 최대 점유자가 넘친 세션 자신이면 한 번만 닫는다(overflow). 다르면 가해를 먼저, 넘친 세션을 그 다음에 —
         // 한 작업에서 차례로 닫아 순서를 보장한다.
         List<String> victims = new ArrayList<>(2);
-        if (heaviest != null && !heaviest.equals(sessionId) && offenders.isEmpty() && closing.add(heaviest)) {
-            offenders.add(heaviest);
+        Offender claimed = heaviest != null && !heaviest.equals(sessionId) ? claimOffender(heaviest) : null;
+        if (claimed != null && !closing.add(heaviest)) {
+            offender.compareAndSet(claimed, null); // 이미 예약된 세션 — 슬롯을 되돌린다
+            claimed = null;
+        }
+        if (claimed != null) {
             closedOffender.increment();
             victims.add(heaviest);
             log.warn("아웃바운드 큐 포화 — 최대 점유 세션을 닫는다. pending={}", pending.get(heaviest));
@@ -293,6 +304,27 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
                 .map(Map.Entry::getKey).orElse(null);
     }
 
+    /** 가해자 슬롯 선점 — 비었거나 만료됐을 때만 성공한다(확인과 점유가 한 번의 CAS). */
+    Offender claimOffender(String sessionId) {
+        Offender current = offender.get();
+        long now = System.nanoTime();
+        if (current != null && now - current.reservedNanos() < offenderTtlNanos) {
+            return null;
+        }
+        Offender mine = new Offender(sessionId, now);
+        return offender.compareAndSet(current, mine) ? mine : null;
+    }
+
+    void releaseOffender(String sessionId) {
+        Offender current = offender.get();
+        if (current != null && current.sessionId().equals(sessionId)) {
+            offender.compareAndSet(current, null);
+        }
+    }
+
+    record Offender(String sessionId, long reservedNanos) {
+    }
+
     private void closeReserved(String sessionId) {
         // 정상이면 종료 경로(closed)가 지운다. 이미 끊긴 세션이었으면 그 경로가 먼저 지나갔으니 여기서 지운다.
         boolean closed = sessions.close(sessionId, QUEUE_FULL) || sessions.close(sessionId, QUEUE_FULL);
@@ -301,7 +333,7 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         }
         if (!closed || !sessions.isConnected(sessionId)) {
             closing.remove(sessionId);
-            offenders.remove(sessionId);
+            releaseOffender(sessionId);
         }
     }
 
@@ -309,7 +341,7 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     void closed(String sessionId, CloseStatus status) {
         if (sessionId != null) {
             closing.remove(sessionId);
-            offenders.remove(sessionId);
+            releaseOffender(sessionId);
             pending.remove(sessionId);
         }
         if (status != null && status.equalsCode(CloseStatus.SESSION_NOT_RELIABLE)) {
