@@ -4,6 +4,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -54,12 +55,15 @@ public record Sourced<T>(T value, long expiresAtNanos) {
      */
     @SuppressWarnings("unchecked")
     public static Sourced<List<String>> read(StringRedisTemplate redis, String... keys) {
+        if (keys.length < 1 || keys.length > 2) {
+            throw new IllegalArgumentException("키는 1~2개여야 합니다: " + keys.length);
+        }
         long readStart = System.nanoTime();
         List<Object> read = redis.execute(GET_WITH_PTTL, List.of(keys));
         if (read == null || read.size() != keys.length + 1) {
             throw new IllegalStateException("캐시 읽기 스크립트 응답이 비었다");
         }
-        List<String> values = new java.util.ArrayList<>(keys.length);
+        List<String> values = new ArrayList<>(keys.length);
         values.add(String.valueOf(read.get(0)));
         if (keys.length > 1) {
             values.add(String.valueOf(read.get(2)));

@@ -297,6 +297,57 @@ class OutboundSendBudgetTest {
     }
 
     @Test
+    @DisplayName("가해자 종료가 진행 중이면 새 가해자를 고르지 않는다 — 넘친 세션만 닫고, 가해자가 closed 되면 다음 거부에서 다시 고른다")
+    void noNewOffenderWhileTheFirstIsStillClosing() throws Exception {
+        OutboundSendBudget wide = new OutboundSendBudget(sessions, meters, 1, 1, 4);
+        ThreadPoolTaskExecutor wideExecutor = wide.newExecutor();
+        wideExecutor.initialize();
+        try {
+            ExecutorSubscribableChannel wideChannel = new ExecutorSubscribableChannel(wideExecutor);
+            wideChannel.setInterceptors(List.of(wide));
+            wideChannel.subscribe(message -> {
+                entered.countDown();
+                try {
+                    release.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            WebSocketSession slow = socket("slow");
+            WebSocketSession keeper = socket("keeper");
+            WebSocketSession first = socket("first");
+            WebSocketSession second = socket("second");
+            WebSocketSession third = socket("third");
+            String chat = "/topic/groups/" + UUID.randomUUID();
+
+            wideChannel.send(frame("slow", chat)); // 실행 중(막힘)
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            wideChannel.send(frame("slow", chat));
+            wideChannel.send(frame("slow", chat)); // slow 3건
+            wideChannel.send(frame("keeper", chat));
+            wideChannel.send(frame("keeper", chat)); // keeper 2건 — 큐 가득
+            wideChannel.send(frame("first", chat)); // 거부 → slow 가해자 + first
+            verify(first, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+            verify(slow, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+
+            wideChannel.send(frame("second", chat)); // slow 종료 진행 중 — keeper 를 가해자로 고르지 않는다
+            verify(second, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+            Thread.sleep(100);
+            verify(keeper, never()).close(org.mockito.ArgumentMatchers.any(CloseStatus.class));
+            assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isEqualTo(1.0);
+
+            wide.closed("slow", CloseStatus.POLICY_VIOLATION); // 가해자 종료가 끝났다
+            wideChannel.send(frame("third", chat)); // 다시 선별한다 — keeper 가 최대 점유
+            verify(keeper, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+            verify(third, timeout(2000)).close(OutboundSendBudget.QUEUE_FULL);
+            assertThat(meters.counter("realtime.outbound.closed", "selected", "offender").count()).isEqualTo(2.0);
+        } finally {
+            release.countDown();
+            wideExecutor.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("끝난 프레임은 세션별 대기 수에서 빠진다 — 항목이 남아 새지 않는다")
     void drainedFramesLeaveThePendingCount() throws Exception {
         start();

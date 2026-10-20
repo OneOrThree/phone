@@ -115,6 +115,14 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     private final Map<String, Timer> sendTimers;
     private final ThreadLocal<Long> handleStart = new ThreadLocal<>();
     private final Set<String> closing = ConcurrentHashMap.newKeySet();
+    /**
+     * 가해자로 예약했고 아직 끝나지 않은 세션 — 비어 있을 때만 새 가해자를 고른다. 가해자의 소켓이 닫히고 큐의 그 프레임이
+     * 빠지기 전(close ≤ 50ms, closer 가 막히면 더)에는 큐가 여전히 가득이라, 그동안의 거부마다 «프레임을 잃지 않은 다음
+     * 최대 점유 세션»이 연쇄로 가해자가 되는 걸 막는다.
+     * ponytail: 한 번에 가해자 하나 — 가해자가 둘 이상 필요한 포화(여럿이 동시에 느림)는 가해자 종료 뒤 다음 거부에서 하나씩
+     * 처리된다. 종료가 늦는 동안엔 넘친 세션만 닫힌다. 병렬 선별이 필요하면 점유 비율 기준으로 올린다.
+     */
+    private final Set<String> offenders = ConcurrentHashMap.newKeySet();
     private final ExecutorService closer = Executors.newFixedThreadPool(2, daemon("realtime-outbound-close"));
 
     /**
@@ -220,6 +228,7 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     @Override
     public void rejectedExecution(Runnable task, ThreadPoolExecutor executor) {
         if (executor.isShutdown()) {
+            // 종료 중이라 uncount 를 건너뛰어도 무해하다(카운터가 곧 버려진다) — Spring 의 «보낸 스레드에서 실행» 폴백을 탄다.
             throw new RejectedExecutionException("아웃바운드 실행기 종료 중");
         }
         queueFull.increment();
@@ -257,7 +266,8 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         // 최대 점유자가 넘친 세션 자신이면 한 번만 닫는다(overflow). 다르면 가해를 먼저, 넘친 세션을 그 다음에 —
         // 한 작업에서 차례로 닫아 순서를 보장한다.
         List<String> victims = new ArrayList<>(2);
-        if (heaviest != null && !heaviest.equals(sessionId) && closing.add(heaviest)) {
+        if (heaviest != null && !heaviest.equals(sessionId) && offenders.isEmpty() && closing.add(heaviest)) {
+            offenders.add(heaviest);
             closedOffender.increment();
             victims.add(heaviest);
             log.warn("아웃바운드 큐 포화 — 최대 점유 세션을 닫는다. pending={}", pending.get(heaviest));
@@ -270,9 +280,13 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
 
     // ponytail: 거부마다 세션 수만큼 훑는다(수천 세션 × 포화 폭풍이면 부담) — 이미 닫는 세션은 closing 으로 빠져 곧 줄어든다.
     // 부담이 측정되면 거부 간격 제한(예: 100ms 1회)을 둔다.
-    /** 종료 예약 세션은 제외하되, 방금 예약한 넘친 세션 자신은 후보다. */
+    /**
+     * 종료 예약 세션은 제외하되 방금 예약한 넘친 세션 자신은 후보다. 연결이 끊긴 세션도 제외한다 — 소켓은 닫혔는데 closed() 가 아직
+     * pending 을 안 지웠거나 closed() 뒤 들어온 프레임이 만든 일시 항목이 뽑히면 아무것도 안 닫고 진짜 가해자를 놓친다.
+     */
     private String heaviest(String overflowSessionId) {
         return pending.entrySet().stream()
+                .filter(e -> sessions.isConnected(e.getKey()))
                 .filter(e -> !closing.contains(e.getKey()) || e.getKey().equals(overflowSessionId))
                 .max(Comparator.<Map.Entry<String, Integer>, Integer>comparing(Map.Entry::getValue)
                         .thenComparing(e -> e.getKey().equals(overflowSessionId)))
@@ -287,6 +301,7 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         }
         if (!closed || !sessions.isConnected(sessionId)) {
             closing.remove(sessionId);
+            offenders.remove(sessionId);
         }
     }
 
@@ -294,6 +309,7 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     void closed(String sessionId, CloseStatus status) {
         if (sessionId != null) {
             closing.remove(sessionId);
+            offenders.remove(sessionId);
             pending.remove(sessionId);
         }
         if (status != null && status.equalsCode(CloseStatus.SESSION_NOT_RELIABLE)) {
