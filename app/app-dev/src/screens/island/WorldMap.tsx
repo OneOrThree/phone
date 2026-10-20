@@ -654,6 +654,9 @@ export function WorldMap({
   };
   const projectCurrentWorldPoint = useRef(createWorldProjector(() => current.current)).current;
   const gesture = useMapGesture(camera);
+  // 팬 핸들러는 첫 렌더에 한 번 만들어진다 — 타일 섬 여부는 ref 로 읽는다
+  const tileTerrainRef = useRef(tileTerrain);
+  tileTerrainRef.current = tileTerrain;
   const origin = useRef({ x: 0, y: 0, z: 1, dist: 0, anchorX: 0, anchorY: 0 }),
     frame = useRef({ x: 0, y: 0 }),
     drag = useRef(false),
@@ -666,6 +669,12 @@ export function WorldMap({
   });
   // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 배치를 c 카메라 자리로 옮겨 보이기만 한다.
   const show = (c: typeof camera) => {
+    // 타일 섬의 Skia 캔버스는 화면 크기 표면이라 컨테이너 transform 으로 옮기면 끄는 동안 가장자리가 빈다 —
+    // 그 경로(EXPO_PUBLIC_TILE_ISLAND)만 예전처럼 움직일 때마다 카메라를 커밋해 캔버스가 다시 그리게 한다
+    if (tileTerrainRef.current) {
+      setCamera(c);
+      return;
+    }
     const v = current.current,
       s = v.base * c.z;
     gesture.show(
