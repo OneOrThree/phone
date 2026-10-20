@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { Animated, AppState, type AppStateStatus } from 'react-native';
 import { act, render } from '@testing-library/react-native';
 import { Sailing, voyageTable } from '@/screens/world/WorldViews';
 import { initialState } from '@/services/model';
@@ -78,4 +78,53 @@ describe('Sailing', () => {
       w.x.forEach((x, i) => expect(x + w.len[i] / 2).toBeLessThanOrEqual(-300 + 1e-9));
     }
   });
+
+  // jest 의 Animated 는 한 프레임에 끝나 «남은 시간 뒤 도착»은 못 본다 — 대신 재개 때 만든 timing 의 duration(= 총 − 경과)을 본다.
+  // 장면의 다른 반복 모션 timing 과 섞이므로 다른 값과 겹치지 않는 2300 → 1400 으로 가른다
+  it('도착 전 background→active — 경과 시간이 누적돼 남은 시간만 이어 간다', async () => {
+    const timing = jest.spyOn(Animated, 'timing');
+    const durations = () => timing.mock.calls.map((c) => c[1].duration);
+    await render(
+      <Sailing state={stateWith(false)} destination="섬" duration={2300} onArrive={jest.fn()} />,
+    );
+    expect(durations()).toContain(2300);
+    expect(durations()).not.toContain(1400);
+    await act(async () => jest.advanceTimersByTime(900));
+    await cycle();
+    expect(durations()).toContain(1400);
+  });
+
+  it.each([false, true])(
+    'reduceMotion=%s — duration 이 바뀌면 도착을 리셋해 새 이동 끝에서 다시 한 번 부른다',
+    async (reduce) => {
+      const onArrive = jest.fn();
+      const ui = (d: number) => (
+        <Sailing state={stateWith(reduce)} destination="섬" duration={d} onArrive={onArrive} />
+      );
+      const view = await render(ui(1900));
+      await act(async () => jest.advanceTimersByTime(2100));
+      expect(onArrive).toHaveBeenCalledTimes(1);
+      await view.rerender(ui(1200));
+      await act(async () => jest.advanceTimersByTime(1400));
+      expect(onArrive).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([0.5, 1, 1.9, 7])(
+    'voyageTable(%s) — 표본이 유한하고 시작 −150·끝 150, 끝에서 잔흔들림 0',
+    (sec) => {
+      const tr = voyageTable(sec);
+      for (const v of Object.values(tr).flat()) {
+        for (const n of typeof v === 'object' && !Array.isArray(v)
+          ? Object.values(v).flat()
+          : [v].flat()) {
+          expect(Number.isFinite(n)).toBe(true);
+        }
+      }
+      expect(tr.x[0]).toBeCloseTo(-150, 9);
+      expect(tr.x.at(-1)).toBeCloseTo(150, 9);
+      // 끝: 속도 0 이라 lag = settle*0.025 → settle 이 접혀 0 이어야 lag 도 0
+      expect(tr.lag.at(-1)).toBeCloseTo(0, 9);
+    },
+  );
 });

@@ -250,7 +250,7 @@ export function Sailing({
     // 같은 시간 동안 "이동 중..."을 보여준 뒤 도착한다
     const done = elapsed.current,
       began = Date.now();
-    x.setValue(done / duration);
+    x.setValue(done / Math.max(1, duration)); // duration 0 이어도 NaN 이 되지 않게
     const animation = Animated.timing(x, {
       toValue: 1,
       duration: Math.max(0, duration - done),
