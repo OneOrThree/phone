@@ -71,6 +71,13 @@ class ChatMessageServiceTest {
     @Mock
     private WithdrawnSenders withdrawnSenders;
 
+    private static final String SECRET = "test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256";
+
+    private final com.oneorthree.realtime.message.service.ChatUserFence fence =
+            new com.oneorthree.realtime.message.service.ChatUserFence(null, null, null, Clock.systemUTC(),
+                    org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class,
+                            org.mockito.Mockito.RETURNS_DEEP_STUBS));
+
     private ChatMessageService chatMessageService;
 
     private UUID groupId;
@@ -81,7 +88,8 @@ class ChatMessageServiceTest {
         groupId = UUID.randomUUID();
         senderId = UUID.randomUUID();
         chatMessageService = new ChatMessageService(chatMessageRepository, chatMessageAppender, accessGuard, chatFanout,
-                Clock.fixed(NOW, ZoneOffset.UTC), withdrawnSenders);
+                Clock.fixed(NOW, ZoneOffset.UTC), withdrawnSenders,
+                new com.oneorthree.realtime.auth.JwtValidator(SECRET), fence);
     }
 
     @Test
@@ -95,6 +103,35 @@ class ChatMessageServiceTest {
 
         verify(chatMessageAppender, never()).append(any());
         verify(chatFanout, never()).broadcast(any());
+    }
+
+    @Test
+    @DisplayName("관문 통과 뒤 실행 전에 세션이 폐기되면(대기 중이던 SEND) 저장도 방송도 없이 거절한다, 다른 sid 는 저장된다")
+    void sessionRevokedWhileQueuedIsRejectedAtTheStoreBoundary() {
+        UUID revokedSid = UUID.randomUUID();
+        String revoked = sessionBearer(revokedSid);
+        // requireCanChat 는 통과(preSend 와 관문을 이미 지난 상태) → 그 뒤 펜스 등록 → 작업 실행
+        fence.revokeSession(revokedSid, java.time.Instant.now().plusSeconds(600));
+
+        assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("안녕"), revoked, SESSION_ID))
+                .isInstanceOf(ChatException.class)
+                .extracting(e -> ((ChatException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+
+        verify(chatMessageAppender, never()).append(any());
+        verify(chatFanout, never()).broadcast(any());
+
+        givenSaveEchoes();
+        assertThat(chatMessageService.send(groupId, senderId, request("안녕"), sessionBearer(UUID.randomUUID()),
+                SESSION_ID).content()).isEqualTo("안녕");
+    }
+
+    private String sessionBearer(UUID sid) {
+        return "Bearer " + io.jsonwebtoken.Jwts.builder().subject(senderId.toString()).claim("type", "access")
+                .claim("sid", sid.toString()).claim("gen", 0L)
+                .expiration(java.util.Date.from(java.time.Instant.now().plusSeconds(600)))
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                        SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8))).compact();
     }
 
     @Test

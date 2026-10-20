@@ -1,5 +1,6 @@
 package com.oneorthree.realtime.message.service;
 
+import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.message.dto.ChatHistoryResponse;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
@@ -59,6 +60,8 @@ public class ChatMessageService {
     private final ChatFanout chatFanout;
     private final Clock clock;
     private final WithdrawnSenders withdrawnSenders;
+    private final JwtValidator jwtValidator;
+    private final ChatUserFence chatUserFence;
 
     /**
      * 섬에 말 한 마디를 남기고 그 방 사람들에게 민다.
@@ -100,6 +103,14 @@ public class ChatMessageService {
 
         String content = normalizeContent(request.content());
 
+        // 저장 경계 재검사(GROMO-2350) — preSend 를 통과해 인바운드 실행기에서 기다리는 사이 세션이 폐기되면 소켓을 닫아도 예약된 이
+        // 작업은 취소되지 않는다. 그래서 INSERT 직전에 같은 폐기 sid 펜스를 다시 본다. 인메모리라 저장당 Redis 는 없다(Redis 판은
+        // 재시작·타 인스턴스의 CONNECT·REST 용). sid 는 STOMP 세션에 묶인 bearer 에서 푼다 — 프레임 헤더로 넘기는 것보다 호출부가 안 바뀐다.
+        // ponytail: 이 검사와 INSERT 사이 수 ms 는 남는다 — 사용자 잠금 아래로 옮기려면 appender 트랜잭션 안으로 들인다.
+        if (isRevokedSession(bearerToken)) {
+            throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
+        }
+
         Stored stored = insertOrFindExisting(groupId, senderId, request.clientMessageId(), content);
         if (stored.freshlyInserted()) {
             chatFanout.broadcast(stored.message());
@@ -108,6 +119,12 @@ public class ChatMessageService {
             chatFanout.deliverToSender(senderId, sessionId, stored.message());
         }
         return stored.message();
+    }
+
+    private boolean isRevokedSession(String bearer) {
+        String token = bearer != null && bearer.startsWith("Bearer ") ? bearer.substring(7) : bearer;
+        return jwtValidator.extractSessionProof(token)
+                .filter(proof -> chatUserFence.isRevoked(proof.sessionId())).isPresent();
     }
 
     /**

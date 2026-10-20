@@ -2,7 +2,9 @@ package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.auth.AuthAttributes;
 import com.oneorthree.realtime.auth.JwtValidator;
+import com.oneorthree.realtime.auth.VerifiedAccessIdentity;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
+import com.oneorthree.realtime.message.service.ChatUserFence;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,13 +32,19 @@ import java.util.UUID;
 public class JwtFilter extends OncePerRequestFilter {
 
     private final JwtValidator jwtValidator;
+    private final ChatUserFence chatUserFence;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
 
-        Optional<UUID> userId = jwtValidator.extractUserId(extractToken(request));
-        if (userId.isEmpty()) {
+        String token = extractToken(request);
+        // JWT 는 한 번만 푼다 — sid 가 있는 현행 토큰은 proof 하나로 userId·sid 를 얻고, sid 없는 구 토큰만 extractUserId 로 간다.
+        var proof = jwtValidator.extractSessionProof(token);
+        Optional<UUID> userId = proof.map(VerifiedAccessIdentity::userId).or(() -> jwtValidator.extractUserId(token));
+        // 폐기된 sid(auth.session.revoked, GROMO-2350)의 AT 는 만료 전이어도 REST 이력 조회를 받지 않는다. 멤버십 캐시(OFF 모드)가
+        // 남아 있어도 여기서 끊는다. 요청당 Redis 왕복 1회(인메모리 || Redis) — 재시작 뒤에도 막혀야 한다. 거절 모양은 만료·위조와 같다.
+        if (userId.isEmpty() || proof.isPresent() && chatUserFence.isRevokedDurable(proof.get().sessionId())) {
             sendUnauthorized(response);
             return;
         }
