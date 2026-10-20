@@ -163,6 +163,11 @@ jest.mock('@/services/sessionCommands', () => {
         commands: {
           ...result.commands,
           recover: (...recoverArgs: unknown[]) => mockRecoverFocus(...recoverArgs),
+          // 부팅은 조회를 먼저 시작하고 반영은 나중에 한다(GROMO-2377) — 시작 시점에 같은 mock 을 부른다
+          beginRecover: () => {
+            const read = mockRecoverFocus();
+            return () => read;
+          },
         },
       };
     },

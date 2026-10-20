@@ -130,7 +130,7 @@ import {
   CLIENT_TIMEOUT,
   uuid,
 } from '@/services/api/client';
-import { loadHomeSnapshot } from '@/services/homeSnapshot';
+import { type HomeSnapshot, loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getLastSessionUserId,
   isLocalDataOwnerUnknown,
@@ -770,12 +770,24 @@ function Gromo() {
     onHome,
     refreshKey: homeReload,
   });
+  // 부팅이 섬 동기화와 함께 미리 시작한 홈 스냅샷(GROMO-2377). loaded 뒤 첫 실행이 한 번만 가져가고,
+  // 그때 홈을 그리지 않으면 버린다 — 나중 진입이 오래된 응답을 쓰지 않게.
+  const bootHome = useRef<{ gen: number; date: string; request: Promise<HomeSnapshot> } | null>(
+    null,
+  );
   // 관리 화면도 needsHome이므로 홈 복귀 여부를 별도로 추적해 이름·인원·역할을 다시 읽는다.
   useEffect(() => {
+    const prefetched = bootHome.current;
+    if (loaded) bootHome.current = null;
     if (!loaded || !serverCurrent || !needsHome) return;
     let live = true;
     setHomeError(false);
-    loadHomeSnapshot({ date: dayKey(), timezone: 'Asia/Seoul', isCurrent: () => live })
+    const date = dayKey();
+    // 부팅 뒤 세션이 바뀌었거나 날짜가 넘어갔으면 미리 받은 것을 쓰지 않고 새로 읽는다
+    (prefetched?.gen === sessionGeneration() && prefetched.date === date
+      ? prefetched.request
+      : loadHomeSnapshot({ date, timezone: 'Asia/Seoul', isCurrent: () => live })
+    )
       .then((r) => {
         if (!live) return;
         // current 없음(서버 409) 또는 응답이 로컬이 아는 current 와 다른 섬(전환 경합) —
@@ -1436,16 +1448,29 @@ function Gromo() {
         // 부팅 인증 세대는 checkSession 결과 직후 포획한다 — 동기화 도중 401이 나면 세션 상실
         // 핸들러가 login으로 돌리고 세대가 올라가므로, stale account로 route를 덮어쓰지 않는다.
         const bootGen = sessionGeneration();
+        // GROMO-2377 섬 동기화·집중 복구·홈 스냅샷 조회는 서로의 응답을 쓰지 않는다 — 함께 시작해 부팅이
+        // 가장 느린 하나만큼만 기다리게 한다. 반영 순서는 그대로다: ISLAND_SYNC → owner 전환 → 집중 복구
+        // (ISLAND_SYNC 가 소속 밖 섬의 세션을 지우므로 SESSION_SYNC 가 뒤에 와야 한다) → loaded 뒤 홈 effect.
+        // /me 는 checkSession 이 읽은 계정을 섬 동기화에 넘겨 부팅에서 한 번만 부른다.
+        const serverBoot = !!(account && !mock);
+        const recoverRead = serverBoot ? focusCmds.current!.commands.beginRecover() : null;
+        if (serverBoot) {
+          const date = dayKey();
+          const request = loadHomeSnapshot({ date, timezone: 'Asia/Seoul' });
+          // 홈 effect 가 가져가기 전에 실패해도 처리되지 않은 거부로 남기지 않는다
+          request.catch(() => {});
+          bootHome.current = { gen: bootGen, date, request };
+        }
         let bootSyncSucceeded = false;
         const bootRoute = await decideBootRoute({
           saved: bootSaved,
           account,
           rejected,
-          serverMode: !!(account && !mock),
+          serverMode: serverBoot,
           bootGen,
           generation: sessionGeneration,
           syncIslands: async () => {
-            const result = await syncIslands();
+            const result = await syncIslands(account ?? undefined);
             bootSyncSucceeded = true;
             return result;
           },
@@ -1493,7 +1518,7 @@ function Gromo() {
                 serverMode: true,
                 bootGen: cleanBootGen,
                 generation: sessionGeneration,
-                syncIslands,
+                syncIslands: () => syncIslands(account),
                 onBootError: setIslandBootError,
               });
               // 두 번째 서버 동기화/route 결정도 await 경계다. 세션이 바뀌었다면 route와 owner를
@@ -1521,8 +1546,8 @@ function Gromo() {
         }
         // GROMO-2009 집중 세션 복구 — 서버 정본의 진행 세션(active→낚시, paused→모닥불)과
         // 자동 종료 미확인 결과(→결과창)를 부팅 경로보다 우선한다. 실패하면 부팅 경로를 유지한다.
-        if (account && !mock && sessionGeneration() === bootGen) {
-          const recovered = await focusCmds.current!.commands.recover().catch(() => null);
+        if (recoverRead && sessionGeneration() === bootGen) {
+          const recovered = await recoverRead().catch(() => null);
           if (recovered && sessionGeneration() === bootGen) setRoute(recovered);
         }
       })
