@@ -881,11 +881,18 @@ export function FishingActor({
     catching,
     nonce: reelNonce,
   });
+  // 일반 사건 창은 황금 reel 이 끼어드는 동안에도 흐른다(황금 여부와 무관하게 센다).
+  const eventWindow = isFishing && (motion === 'reel' || (motion == null && reeling));
   useEffect(() => {
-    // 사건이 끝나면 기록을 비운다(부모가 motion='reel' 을 줄 땐 nonce 가 안 올라 같은 nonce 가 재사용된다).
+    // 황금 reel 이 일반 사건 창을 덮으면 그 사건은 끊긴 것으로 기록한다(황금 뒤 창이 남아도 처음부터 다시 틀지 않는다).
+    if (goldenReeling) {
+      if (eventWindow) setInterruptedNonce(reelNonce);
+      return;
+    }
+    // 황금 구간엔 기록을 보존한다. 황금이 아닌데 사건이 없으면 비운다(부모가 motion='reel' 을 줄 땐 nonce 가 안 올라 같은 nonce 가 재사용된다).
     if (!reelEvent) setInterruptedNonce(null);
     else if (!reduce && !running) setInterruptedNonce(reelNonce);
-  }, [reelEvent, reduce, running, reelNonce]);
+  }, [goldenReeling, eventWindow, reelEvent, reduce, running, reelNonce]);
   const a = size * 0.077,
     face = spot.face,
     direction = castAngle(spot),

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
-import { Animated } from 'react-native';
+import { act, fireEvent, render, renderHook } from '@testing-library/react-native';
+import { Animated, AppState } from 'react-native';
 import { RestGroup, restSeats, seatBox } from '@/screens/focus/RestGroup';
-import { restPose } from '@/screens/focus/RestCampfireMotion';
+import { restPose, useRestClock } from '@/screens/focus/RestCampfireMotion';
 import { initialState } from '@/services/model';
 import { applyLocalePref } from '@/i18n';
 
@@ -199,6 +199,52 @@ test.each([
     screen.getByTestId('rest-campfire-front');
     await screen.unmount();
   } finally {
+    loop.mockRestore();
+  }
+});
+
+test('모닥불 시계: 백그라운드면 멈추고 활성이면 재시작, inactive 는 값을 0 으로 되돌리지 않고, 언마운트하면 정리한다', async () => {
+  const stop = jest.fn();
+  const loop = jest
+    .spyOn(Animated, 'loop')
+    .mockImplementation(() => ({ start: jest.fn(), stop, reset: jest.fn() }) as any);
+  const setValue = jest.spyOn(Animated.Value.prototype, 'setValue');
+  const remove = jest.fn();
+  let fire: (state: string) => void = () => {};
+  const add = jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+    _type: string,
+    cb: (state: string) => void,
+  ) => {
+    fire = cb;
+    return { remove };
+  }) as any);
+  const prev = AppState.currentState;
+  (AppState as any).currentState = 'active';
+  try {
+    const { unmount } = await renderHook(() => useRestClock(false));
+    expect(loop).toHaveBeenCalledTimes(1);
+    expect(stop).not.toHaveBeenCalled();
+
+    await act(() => fire('background'));
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(loop).toHaveBeenCalledTimes(1);
+
+    await act(() => fire('active'));
+    expect(loop).toHaveBeenCalledTimes(2);
+
+    // inactive 로 멈출 때는 값을 0 으로 되돌리지 않는다(재시작 때의 setValue(0) 호출 수 그대로)
+    const resets = setValue.mock.calls.length;
+    await act(() => fire('inactive'));
+    expect(stop).toHaveBeenCalledTimes(2);
+    expect(setValue).toHaveBeenCalledTimes(resets);
+
+    expect(remove).not.toHaveBeenCalled();
+    await unmount();
+    expect(remove).toHaveBeenCalledTimes(1);
+  } finally {
+    (AppState as any).currentState = prev;
+    add.mockRestore();
+    setValue.mockRestore();
     loop.mockRestore();
   }
 });
