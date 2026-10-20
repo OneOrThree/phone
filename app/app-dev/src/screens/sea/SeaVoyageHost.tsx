@@ -277,8 +277,13 @@ export function SeaVoyageHost({ e }: { e: any }) {
   const drifting = e.route === 'sea' && !session && !departFrom;
   const [delivering, setDelivering] = useState<string | null>(null);
   useEffect(() => {
-    if (!issue || wasDelivered(issue.issueId)) return;
-    setDelivering(drifting && !today?.receipt ? issue.issueId : null);
+    // 표류가 끝나면(다른 기기의 출항 포함) 이미 뜬 배달도 거둔다 — 다시 표류해도 같은 호는 다시 띄우지 않는다
+    if (!drifting || !issue) {
+      setDelivering(null);
+      return;
+    }
+    if (wasDelivered(issue.issueId)) return;
+    setDelivering(today?.receipt ? null : issue.issueId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drifting, issue?.issueId, today?.receipt]);
   const deliveryShown = () => {

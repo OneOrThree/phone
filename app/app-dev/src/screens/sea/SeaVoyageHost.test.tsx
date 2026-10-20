@@ -862,6 +862,21 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     expect(announce).toHaveBeenCalledTimes(2);
   });
 
+  test('펠리컨이 뜬 뒤 다른 기기에서 항해를 시작했다 끝내 다시 표류가 돼도 같은 호의 펠리컨은 다시 뜨지 않는다', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    const e = drift({ issue, receipt: null });
+    const screen = await render(<SeaVoyageHost e={e} />);
+    expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
+    await screen.rerender(
+      <SeaVoyageHost e={{ ...e, state: { ...e.state, session: seaSession() } }} />,
+    );
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    await screen.rerender(<SeaVoyageHost e={e} />);
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledTimes(1);
+  });
+
   test('항해를 그만두고 멀어지는 연출이 끝나 표류가 되면 그때 펠리컨이 뜬다', async () => {
     const e = env({ magazineToday: { issue, receipt: null } });
     e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
