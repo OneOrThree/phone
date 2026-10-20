@@ -1,6 +1,6 @@
 import { Text } from '@/design-system/typography';
 import { t } from '@/i18n';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
 import { getSession } from '@/services/api/session';
@@ -16,12 +16,19 @@ import {
   fiTitle,
   hms,
 } from '@/screens/focus/FishingIsland';
-import { C } from '@/design-system/primitives';
+import { C, MotionContext } from '@/design-system/primitives';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { CatSprite } from '@/components/CatSprite';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
+import {
+  RestCampfireBack,
+  RestCampfireFront,
+  RestCat,
+  restPose,
+  useRestClock,
+} from '@/screens/focus/RestCampfireMotion';
 
 // v2 시안 모닥불 전용 화면(GROMO-1862): 섬 지도가 아닌 모닥불 배경에 의자 없이 식빵 굽는 고양이만 앉힌다.
 // 배경 원본 1024×1024에서 돌 테두리 중심은 (482,600), 자리는 그 바깥 타원(가로 168·세로 125).
@@ -176,6 +183,9 @@ export function RestGroup({
   const resumeTarget = useSpotlightTarget(!!restTutorial);
   const [now, setNow] = useState(ended?.at ?? Date.now());
   // 내 휴식 시작: 휴식 중이면 세션, 결과창이면 마지막 집중 구간이 끝난 때
+  // GROMO-2361 휴식 장면 움직임: 동작 줄이기면 정지 1장면. 시계는 연출 전용이라 보상·집중 시간과 무관하다.
+  const still = useContext(MotionContext) || state.settings.reduceMotion;
+  const clock = useRestClock(still);
   const started = useRef(
     state.session?.restStartedAt || ended?.intervals?.at(-1)?.end || Date.now(),
   ).current;
@@ -190,6 +200,7 @@ export function RestGroup({
       ? live.rest
           .filter((m) => m.userId !== getSession()?.userId)
           .map((m) => ({
+            id: m.userId,
             name: m.name ?? t('focusFlow.common.resident'),
             color: catColor(m.catColor),
             restStartedAt: m.restStartedAt
@@ -215,6 +226,7 @@ export function RestGroup({
           {
             seat: 1,
             me: true,
+            id: getSession()?.userId ?? 'me',
             name: t('focusFlow.common.me'),
             color: state.color,
             restStartedAt: started,
@@ -281,6 +293,7 @@ export function RestGroup({
             height: 1024 * s,
           }}
         />
+        <RestCampfireBack t={clock} still={still} x0={x0} y0={y0} s={s} />
         {placed.map((a) =>
           a.me && goldenReeling ? (
             <View
@@ -327,22 +340,23 @@ export function RestGroup({
               )}
             </View>
           ) : (
-            <Image
+            // 자리 고양이(testID 는 자세와 무관하게 자리 번호). 자세는 멤버 식별자로 고정한다.
+            <RestCat
               key={a.seat}
               testID={`loaf-${a.seat}`}
-              source={loaf[a.color]}
-              style={{
-                position: 'absolute',
-                left: a.x - a.n / 2,
-                top: a.top,
-                width: a.n,
-                height: a.n,
-                // 오른쪽 자리는 불을 보게 좌우 반전
-                transform: [{ scaleX: a.dx > 0 ? -1 : 1 }],
-              }}
+              t={clock}
+              still={still}
+              pose={restPose(a.id)}
+              color={a.color}
+              loafSource={loaf[a.color]}
+              x={a.x}
+              top={a.top}
+              n={a.n}
+              flip={a.dx > 0}
             />
           ),
         )}
+        <RestCampfireFront t={clock} still={still} x0={x0} y0={y0} s={s} />
         {placed.map((a) => (
           <React.Fragment key={a.seat}>
             {/* 휴식 시간은 머리 위(반투명 배경), 이름은 발 아래(그림자 글자) */}

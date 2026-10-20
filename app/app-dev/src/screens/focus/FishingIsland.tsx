@@ -2,7 +2,7 @@ import { FocusEmoteBubble } from './FocusEmoteBubble';
 import * as Haptics from 'expo-haptics';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { IslandOcean } from '@/screens/island/IslandOcean';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
   Animated,
@@ -22,13 +22,20 @@ import Svg, { Ellipse, Path } from 'react-native-svg';
 import { Text } from '@/design-system/typography';
 import { assets } from '@/constants/assets';
 import { art } from '@/constants/art';
-import { C } from '@/design-system/primitives';
+import { C, MotionContext } from '@/design-system/primitives';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
 import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
 import land from '@/constants/fishing-island.json';
 import { catchAssetPath } from '@/screens/focus/catchAssets';
+import {
+  FishingCatchMotion,
+  FishingFloatMotion,
+  FishingSceneActive,
+  LAB_CAT_PX,
+  useFishingPose,
+} from '@/screens/focus/FishingSceneMotion';
 
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
 // 땅 격자는 시안 land_mask 와 같은 50×50 칸(파란 칸 = 물).
@@ -86,6 +93,8 @@ const raftBounds = {
 };
 // fishing-rod.png 장축은 오른쪽 위를 향한다. 찌 방향에 맞추려면 이 기준축을 보정한다.
 const FISHING_ROD_AXIS_ANGLE = -Math.PI / 4;
+// 움직임 검토실 line(): 줄 처짐 52 × (1 - tension .24) LAB px 를 고양이(지도 폭 7.7%) 비율로 옮긴 지도 세로 % 값.
+const LINE_SAG = ((52 * (1 - 0.24)) / LAB_CAT_PX) * 7.7 * FISHING_MAP_ASPECT;
 export const LANDING = nearestLand(fishingGrid, { x: RAFT.x, y: RAFT.y - 6 });
 // 우리 섬에 축음기를 지었으면 낚시섬에도 한 대(지도 폭 6% · 시안 CSS 17:03). 낚시 자리·뗏목·올라오는 길을 피한 남동쪽 풀밭.
 export const GRAM = { x: 50, y: 70, w: 6 };
@@ -487,6 +496,7 @@ export function FishingIsland({
   goldenFish?: boolean;
 }) {
   const L = useAppLayout();
+  const reduceMotion = useContext(MotionContext);
   const [cam, setCam] = useState({ zoom: 1, x: focus.x, y: focus.y });
   // 상태가 바뀌면(도착·준비·집중·결과) 다시 내 자리를 보여 준다. 확대 배율은 유지.
   useEffect(() => setCam((c) => ({ ...c, x: focus.x, y: focus.y })), [focus.x, focus.y, ratio]);
@@ -619,7 +629,9 @@ export function FishingIsland({
               return (
                 <React.Fragment key={n}>
                   <Path
-                    d={`M ${start.x} ${start.y} L ${s.bx} ${s.by}`}
+                    d={`M ${start.x} ${start.y} Q ${(start.x + s.bx!) / 2} ${
+                      (start.y + s.by!) / 2 + LINE_SAG
+                    } ${s.bx} ${s.by}`}
                     fill="none"
                     stroke="#fff5db"
                     strokeWidth={0.14}
@@ -637,6 +649,18 @@ export function FishingIsland({
               );
             })}
         </Svg>
+        <FishingFloatMotion
+          active={!inert && !reduceMotion}
+          spots={spots
+            .filter((s) => s.bx != null)
+            .map((s, n) => ({
+              key: String(n),
+              x: (size * s.bx!) / 100,
+              y: (sizeY * s.by!) / 100,
+              face: s.face < 0 ? -1 : 1,
+              k: (size * 0.077) / LAB_CAT_PX,
+            }))}
+        />
         {goldenFish && (
           <Image
             source={art['fish/gold']}
@@ -713,7 +737,9 @@ export function FishingIsland({
             />
           </Pressable>
         )}
-        {children(size, sizeY, cam.zoom)}
+        <FishingSceneActive.Provider value={!inert}>
+          {children(size, sizeY, cam.zoom)}
+        </FishingSceneActive.Provider>
       </View>
       {overlay?.((p) => ({ x: left + (size * p.x) / 100, y: top + (sizeY * p.y) / 100 }), size)}
     </View>
@@ -802,7 +828,11 @@ export function FishingActor({
   catchAvoidSpots?: Spot[];
 }) {
   const [reeling, setReeling] = useState(false),
-    [goldenReeling, setGoldenReeling] = useState(false);
+    [goldenReeling, setGoldenReeling] = useState(false),
+    // 한 마리 잡을 때마다 올린다. 2초 창 안에서 또 잡아도 키 포즈·몸 변환·물보라를 처음부터 다시 튼다.
+    [reelNonce, setReelNonce] = useState(0),
+    // 연출 도중 덮이거나(inert) 백그라운드로 끊긴 사건. 돌아와도 그 사건의 연출은 다시 틀지 않는다.
+    [interruptedNonce, setInterruptedNonce] = useState<number | null>(null);
   const count = caughtFish ?? Math.floor(seconds / SECONDS_PER_FISH) + (tutorialFish ? 1 : 0),
     last = useRef(count),
     // 이미 표시된 더미를 가진 채 재마운트되면 기존 사건을 새 당첨으로 재생하지 않는다.
@@ -820,6 +850,7 @@ export function FishingActor({
       return;
     }
     setReeling(true);
+    setReelNonce((n) => n + 1);
     return afterForegroundMs(() => setReeling(false), 2000);
   }, [count, reduce]);
   // 컷신이 닫힌 뒤 참여자만 기존 낚아올리기 스프라이트로 한 번 알린다.
@@ -838,9 +869,40 @@ export function FishingActor({
     setGoldenReeling(true);
     return afterForegroundMs(() => setGoldenReeling(false), 2000);
   }, [goldenFishCount, goldenCatchToken, reduce]);
+  const sceneActive = useContext(FishingSceneActive),
+    [appState, setAppState] = useState(AppState.currentState);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppState);
+    return () => subscription?.remove();
+  }, []);
+  // 황금 물고기 reel 은 기존 100ms 반복 그대로 두고, 일반 낚시 연출(키 포즈·몸 변환·물보라)은 끈다.
+  const isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
+    reelEvent = isFishing && !goldenReeling && (motion === 'reel' || (motion == null && reeling)),
+    // 덮인 채/백그라운드로 시작한 사건은 effect 를 기다리지 않고 첫 렌더부터 끊긴 것으로 본다.
+    running = isFishing && !goldenReeling && !reduce && sceneActive && appState === 'active',
+    interrupted = reelEvent && (interruptedNonce === reelNonce || (!reduce && !running)),
+    // 끊긴 사건은 남은 창 동안 기존 기본 reel(100ms 반복)로 두고, 끝나면 focus 키 포즈로 돌아간다.
+    keyed = isFishing && !goldenReeling && !interrupted,
+    catching = reelEvent && !interrupted;
+  const pose = useFishingPose({
+    active: isFishing && !goldenReeling && !reduce && sceneActive,
+    catching,
+    nonce: reelNonce,
+  });
+  // 일반 사건 창은 황금 reel 이 끼어드는 동안에도 흐른다(황금 여부와 무관하게 센다).
+  const eventWindow = isFishing && (motion === 'reel' || (motion == null && reeling));
+  useEffect(() => {
+    // 황금 reel 이 일반 사건 창을 덮으면 그 사건은 끊긴 것으로 기록한다(황금 뒤 창이 남아도 처음부터 다시 틀지 않는다).
+    if (goldenReeling) {
+      if (eventWindow) setInterruptedNonce(reelNonce);
+      return;
+    }
+    // 황금 구간엔 기록을 보존한다. 황금이 아닌데 사건이 없으면 비운다(부모가 motion='reel' 을 줄 땐 nonce 가 안 올라 같은 nonce 가 재사용된다).
+    if (!reelEvent) setInterruptedNonce(null);
+    else if (!reduce && !running) setInterruptedNonce(reelNonce);
+  }, [goldenReeling, eventWindow, reelEvent, reduce, running, reelNonce]);
   const a = size * 0.077,
     face = spot.face,
-    isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
     direction = castAngle(spot),
     rodSize = a * 0.6,
     rodTipDistance = (a * castReach(spot)) / 7.7,
@@ -897,6 +959,9 @@ export function FishingActor({
         anchored={false}
         onFinish={onMotionFinish}
         generation={generation}
+        keyPoses={keyed}
+        replayKey={keyed ? reelNonce : undefined}
+        poseTransform={keyed ? pose.body : undefined}
         testID="fishing-actor-cat"
       />
       {isFishing && (
@@ -916,6 +981,27 @@ export function FishingActor({
             ],
             transformOrigin: [rodSize * 0.96, rodSize * 0.04, 0],
           }}
+        />
+      )}
+      {/* DESIGN.md §8.3: 다른 주민의 물고기 획득은 공개하지 않는다 — 물보라·물고기는 내 고양이만. */}
+      {me && catching && !reduce && sceneActive && spot.bx != null && spot.by != null && (
+        <FishingCatchMotion
+          key={reelNonce}
+          reel={pose.reel}
+          k={a / LAB_CAT_PX}
+          face={face < 0 ? -1 : 1}
+          bob={{
+            x: (size * (spot.bx - spot.x)) / 100 + a / 2,
+            y: (sizeY * (spot.by - spot.y)) / 100 + a * 0.90625,
+          }}
+          home={
+            showsCatch && catchPlacement
+              ? {
+                  x: (catchPlacement.left + fishingCatchFrame.width / 2) * a,
+                  y: (catchPlacement.top + fishingCatchFrame.height / 2) * a,
+                }
+              : null
+          }
         />
       )}
       <View
