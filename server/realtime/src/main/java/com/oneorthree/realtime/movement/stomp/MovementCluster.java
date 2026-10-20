@@ -10,6 +10,7 @@ import com.oneorthree.realtime.movement.stomp.MovementRelay.Command;
 import com.oneorthree.realtime.movement.stomp.MovementRelay.Frame;
 import com.oneorthree.realtime.movement.stomp.MovementRelay.Type;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -107,8 +108,11 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     // ── 여러 스레드 ──
     /** 섬별로 본 가장 큰 epoch — 그보다 작은 프레임은 옛 소유자의 것이다(relay-in 이 읽고 쓴다). */
     private final Map<UUID, Long> seenEpochs = new ConcurrentHashMap<>();
-    /** 인스턴스별 마지막으로 무엇이든 받은 시각(nanoTime, relay-in 이 쓴다). */
-    private final Map<String, Long> lastHeard = new ConcurrentHashMap<>();
+    /**
+     * 인스턴스별 «내게 온» 마지막 생존 신호 시각(nanoTime, relay-in 이 쓴다) — 내게 온 PING(수신자 null 포함)과 내게 보낸 명령.
+     * 내게 PING 을 안 보내는 인스턴스(내 섬에 세션이 없다)의 actor 는 유령이라 {@code instance-stale-ms} 뒤 내보낸다.
+     */
+    private final Map<String, Long> lastPinged = new ConcurrentHashMap<>();
     /** 다른 인스턴스의 새 세션이 actor 를 가져간 내 세션({@code 섬|세션}) — 그 세션 intent 는 버린다. */
     private final Set<String> replaced = ConcurrentHashMap.newKeySet();
 
@@ -121,6 +125,9 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     private final Counter routingRedis;
     private final Counter relayStale;
     private final Counter fullStateRetried;
+    private final Timer pollTimer;
+    /** 내 앞으로 오는 PING 채널 — {@code RedisConfig} 가 구독한다. */
+    private final String ownCmdChannel;
     private final Map<Type, Counter> forwarded = new HashMap<>();
 
     /**
@@ -159,6 +166,10 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
                 .description("그 섬에서 본 epoch 보다 작은(옛 소유자) 프레임이라 버린 수").register(meters);
         this.fullStateRetried = Counter.builder("movement.fullstate.retry")
                 .description("세션 한정 FullState 를 2초 넘게 못 받아 다시 요청한 수(codex r1 P1)").register(meters);
+        this.ownCmdChannel = RedisKeys.movementCmdChannel(me);
+        this.pollTimer = Timer.builder("movement.cluster.poll")
+                .description("movement-cluster 1초 감시 한 틱(poll) 처리 시간 — submit 작업은 포함하지 않는다")
+                .publishPercentileHistogram().register(meters);
         for (Type type : Type.values()) {
             forwarded.put(type, Counter.builder("movement.owner.forward").tag("type", type.name())
                     .description("다른 인스턴스(소유자)로 보낸 이동 명령 수").register(meters));
@@ -495,6 +506,10 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
      * (RECHECK·RESYNC·FULL_STATE 재요청 — 다른 단계 예외에 막히면 안 된다) → 반납·소유자 감시·생존 신호·끊긴 인스턴스 정리.
      */
     void poll() {
+        pollTimer.record(this::pollOnce);
+    }
+
+    private void pollOnce() {
         step("renew", this::renewLeases);
         step("recheck-retry", () -> {
             for (Command recheck : relay.takeRechecks()) {
@@ -505,8 +520,8 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
         step("fullstate-retry", this::retryFullStates);
         step("release-idle", this::releaseIdle);
         step("watch-owners", this::watchOwners);
-        step("ping", () -> relay.publishCommand(
-                new Command(me, null, 0, null, Type.PING, null, null, null, false, joinedSessions())));
+        step("ping", () -> joinedSessionsByOwner().forEach((owner, sessions) -> relay.publishCommand(
+                new Command(me, owner, 0, null, Type.PING, null, null, null, false, sessions))));
         step("sweep-dead", this::sweepDeadInstances);
     }
 
@@ -594,15 +609,15 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     }
 
     /**
-     * PING 이 {@code instance-stale-ms} 넘게 끊긴 인스턴스의 세션 actor 를 내보낸다. {@code lastHeard} 가 없으면 죽은 것으로
-     * 보는데, 이는 «{@code remoteSessions} 의 키는 늘 그 인스턴스의 명령을 받은({@code onCommand} 가 {@code lastHeard} 를
-     * 채운) 뒤에만 생긴다»는 순서에 기댄다 — 원격 JOIN 적용({@link #applyForwarded})이 유일한 생성 경로다.
+     * 내게 오는 PING 이 {@code instance-stale-ms} 넘게 끊긴 인스턴스의 세션 actor 를 내보낸다. {@code lastPinged} 가 없으면
+     * 죽은 것으로 보는데, 이는 «{@code remoteSessions} 의 키는 늘 그 인스턴스가 내게 보낸 명령을 받은({@code onCommand} 가
+     * {@code lastPinged} 를 채운) 뒤에만 생긴다»는 순서에 기댄다 — 원격 JOIN 적용({@link #applyForwarded})이 유일한 생성 경로다.
      */
     private void sweepDeadInstances() {
         long now = System.nanoTime();
         for (Map.Entry<UUID, Set<String>> entry : remoteSessions.entrySet()) {
             entry.getValue().removeIf(sessionKey -> {
-                Long heard = lastHeard.get(MovementRelay.instanceOf(sessionKey));
+                Long heard = lastPinged.get(MovementRelay.instanceOf(sessionKey));
                 if (heard != null && now - heard <= instanceStaleNanos) {
                     return false;
                 }
@@ -614,13 +629,18 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
 
     // ── movement-relay-in 스레드 ────────────────────────────────────────
 
+    /** 이 인스턴스 앞으로 오는 명령 채널(소유자별 PING). */
+    public String ownCmdChannel() {
+        return ownCmdChannel;
+    }
+
     @Override
     public void onMessage(Message message, byte[] pattern) {
         try {
             String channel = new String(message.getChannel(), StandardCharsets.UTF_8);
             if (RedisKeys.MOVEMENT_FRAMES_CHANNEL.equals(channel)) {
                 onFrame(objectMapper.readValue(message.getBody(), Frame.class));
-            } else if (RedisKeys.MOVEMENT_CMD_CHANNEL.equals(channel)) {
+            } else if (RedisKeys.MOVEMENT_CMD_CHANNEL.equals(channel) || channel.equals(ownCmdChannel)) {
                 onCommand(objectMapper.readValue(message.getBody(), Command.class));
             }
         } catch (RuntimeException e) {
@@ -662,9 +682,13 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
     }
 
     void onCommand(Command command) {
-        lastHeard.put(command.originInstanceId(), System.nanoTime());
         if (me.equals(command.originInstanceId())) {
             return; // 자기 메아리 — RECHECK 는 이미 로컬에서 했다.
+        }
+        // 내게 온 신호만 생존으로 센다 — 남에게 간 명령으로 갱신하면 내게 PING 을 안 보내는 유령이 영원히 안 지워진다.
+        if (command.type() == Type.PING ? command.ownerInstanceId() == null || me.equals(command.ownerInstanceId())
+                : me.equals(command.ownerInstanceId())) {
+            lastPinged.put(command.originInstanceId(), System.nanoTime());
         }
         if (command.type() == Type.RECHECK) {
             MovementSubscriptionListener listener = listeners.getIfAvailable();
@@ -681,7 +705,10 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             }
             submit(() -> resyncIsland(command.islandId()));
         } else if (command.type() == Type.PING) {
-            submit(() -> reconcile(command.originInstanceId(), command.sessions()));
+            // 수신자 null = 옛 버전·호환 PING(전원 대조). 남에게 간 PING 은 내 방 대조에 쓰지 않는다.
+            if (command.ownerInstanceId() == null || me.equals(command.ownerInstanceId())) {
+                submit(() -> reconcile(command.originInstanceId(), command.sessions()));
+            }
         } else if (me.equals(command.ownerInstanceId())) {
             submit(command.type() == Type.EVICTED ? () -> rejoinEvicted(command.sessions())
                     : () -> applyForwarded(command));
@@ -692,17 +719,20 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
 
     /**
      * 이 인스턴스가 남의 방에 «입장해 있다고 믿는» 세션({@code 섬|세션}) — PING 에 실어 소유자가 대조한다. 내가 소유한 섬은
-     * 로컬이라 뺀다. ponytail: 1초마다 전부 싣는다(세션 수만큼 커진다). 커지면 섬별 해시로 줄인다.
+     * 로컬이라 뺀다. 소유자별로 묶어 그 소유자에게만 보낸다(소유자 채널) — 소유자를 모르는 섬은 뺀다({@code pendingRejoin} 이
+     * 덮는다). ponytail: 1초마다 소유자별로 전부 싣는다(세션 수만큼 커진다). 커지면 섬별 해시로 줄인다.
      */
-    private List<String> joinedSessions() {
-        List<String> joined = new ArrayList<>();
+    private Map<String, List<String>> joinedSessionsByOwner() {
+        Map<String, List<String>> joined = new HashMap<>();
         for (UUID islandId : publisher.islands()) {
             if (ownership.lease(islandId) != null) {
                 continue;
             }
             for (MovementOutbox outbox : publisher.outboxes(islandId)) {
-                if (eligible(islandId, outbox)) {
-                    joined.add(replacedKey(islandId, outbox.sessionId()));
+                Owner owner = owners.get(islandId);
+                if (owner != null && eligible(islandId, outbox)) {
+                    joined.computeIfAbsent(owner.instanceId(), k -> new ArrayList<>())
+                            .add(replacedKey(islandId, outbox.sessionId()));
                 }
             }
         }

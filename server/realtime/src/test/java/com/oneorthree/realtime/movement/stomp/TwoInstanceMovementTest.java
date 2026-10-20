@@ -343,7 +343,7 @@ class TwoInstanceMovementTest {
         relayA.stop(); // A 의 송신을 멈추고 제어 줄을 채운다
         try {
             while (metersA.counter("movement.relay.dropped", "kind", "control").count() == 0) {
-                // 채움용은 아무도 받지 않는 EVICTED — PING 으로 채우면 빈 세션 목록이라 소유자가 A 의 actor 를 유령으로 지운다.
+                // 채움용은 아무도 받지 않는 EVICTED — PING 으로 채우면(수신자 null·B 앞 모두) 빈 세션 목록이라 B 가 A 의 actor 를 유령으로 지운다.
                 relayA.publishCommand(new MovementRelay.Command(ownershipA.instanceId(), "nobody", 0, null,
                         MovementRelay.Type.EVICTED, null, null, null, false));
             }
