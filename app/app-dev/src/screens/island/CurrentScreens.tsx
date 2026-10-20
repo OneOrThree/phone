@@ -17,6 +17,7 @@ import {
   tutorialExperienceAction,
 } from '@/services/tutorialExperience';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
+import { Ticking } from '@/hooks/useNow';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -474,6 +475,14 @@ export function memberGate(state: State, server: boolean) {
     host: facts ? facts.home.island.role === 'host' : undefined,
   };
 }
+// 초 단위로 흐르는 시간을 쓰는 화면(집중 경과·실시간 주민 시간·공사 완공 확인)만 ms 마다 다시 그린다 —
+// App 은 분이 바뀔 때만 다시 그린다(GROMO-2372). e.now 와 이 시계 중 늦은 값을 넘겨 시각을 직접 주는 호출부도 그대로 둔다.
+function everySecond(base: any, screen: (timed: any) => React.ReactNode, ms: number | null = 1000) {
+  return (
+    <Ticking ms={ms}>{(now) => screen({ ...base, now: Math.max(base.now ?? 0, now) })}</Ticking>
+  );
+}
+
 function CurrentScreensContent({ e }: any) {
   const state: State = e.state,
     i = currentIsland(state),
@@ -557,7 +566,7 @@ function CurrentScreensContent({ e }: any) {
   // 바다 항해 집중(GROMO-2310) — 섬 소속·구경 여부와 무관한 바다 화면이라 아래 섬 관문보다 먼저 연다.
   // 계정이 바뀌면 사용자 ID 를 key 로 화면(바다 방 연결 포함)을 새로 만든다.
   if (r === 'sea' || r === 'seaArrival')
-    return <SeaVoyageHost key={getSession()?.userId ?? ''} e={e} />;
+    return everySecond(e, (timed) => <SeaVoyageHost key={getSession()?.userId ?? ''} e={timed} />);
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
@@ -684,17 +693,17 @@ function CurrentScreensContent({ e }: any) {
   }
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
-  if (r === 'focusVisit') return <FocusVisit e={e} />;
+  if (r === 'focusVisit') return everySecond(e, (timed) => <FocusVisit e={timed} />);
   if (r === 'visitIsland')
     return <VisitIsland e={screenE} onReturnFromVisit={e.islands ? endServerVisit : undefined} />;
   if (r === 'visitIslandFocus')
-    return (
+    return everySecond(e, (timed) => (
       <FocusVisit
-        e={e}
+        e={timed}
         islandId={e.detail || state.visitingIslandId}
         onBack={e.islands ? visitMap : e.back}
       />
-    );
+    ));
   if (
     [
       'focusTravel',
@@ -706,20 +715,36 @@ function CurrentScreensContent({ e }: any) {
       'rest',
     ].includes(r)
   )
-    return <FocusFlow e={e} />;
-  if (['library', 'diary', 'stats'].includes(r)) return <Library e={e} />;
-  if (['hall', 'manage', 'members', 'ledger', 'construction'].includes(r))
-    return (
-      <Hall
-        key={r}
-        e={e.islands && state.visitingIslandId ? { ...e, back: visitMap, home: visitMap } : e}
-      />
+    // 항해 연출·모닥불 휴식은 FocusFlow 가 시간을 쓰지 않는다(휴식 시간 글자는 RestGroup 이 스스로 센다)
+    return everySecond(
+      e,
+      (timed) => <FocusFlow e={timed} />,
+      ['focusTravel', 'returnTravel', 'rest'].includes(r) ? null : 1000,
     );
-  // 게시판·우체통은 건물 안 장면(BuildingInteriors)으로 그린다
+  if (['library', 'diary', 'stats'].includes(r)) return <Library e={e} />;
+  // 회관은 공사 화면만 초 단위(남은 시간·완공 확인 재조회)다
+  if (['hall', 'manage', 'members', 'ledger', 'construction'].includes(r))
+    return everySecond(
+      e,
+      (timed) => (
+        <Hall
+          key={r}
+          e={
+            e.islands && state.visitingIslandId
+              ? { ...timed, back: visitMap, home: visitMap }
+              : timed
+          }
+        />
+      ),
+      r === 'construction' ? 1000 : null,
+    );
+  // 게시판·우체통은 건물 안 장면(BuildingInteriors)으로 그린다. 게시판은 진행 중 집중 달성률·공사 진행률·완공 확인이 초 단위다
   if (['board', 'notice', 'noticeEdit', 'quest', 'questEdit'].includes(r))
     return (
       <>
-        <InteriorRoute e={screenE} modalAboveBoard={rewardModalOpen} />
+        {everySecond(screenE, (timed) => (
+          <InteriorRoute e={timed} modalAboveBoard={rewardModalOpen} />
+        ))}
         {/* 보상은 내 섬 퀘스트 몫이라 구경 중에는 띄우지 않는다 */}
         {!state.visitingIslandId && <RewardModal e={e} rewardIslandId={rewardIslandId} />}
       </>

@@ -548,10 +548,13 @@ test('로컬 receipt 없이 조회한 공사도 진행률을 표시하고 예정
     await act(async () => jest.advanceTimersByTime(1000));
     assert.equal(onChanged.mock.calls.length, 1);
     await act(async () => jest.advanceTimersByTime(COMPLETION_POLL_MS));
-    assert.equal(onChanged.mock.calls.length, 2);
+    // 카드는 스스로 매초 다시 그려진다(GROMO-2372 — 예전엔 App 이 매초 그려 같았다). 예정 시각이 지나면
+    // 완공 확인 재조회도 돌고, 그 사이 공사 구간이 잠깐 비었다 다시 서며 홈 재조회가 한 번 더 걸릴 수 있다.
+    assert.ok(onChanged.mock.calls.length >= 2);
+    const polled = onChanged.mock.calls.length;
     await screen.unmount();
     await act(async () => jest.advanceTimersByTime(COMPLETION_POLL_MS));
-    assert.equal(onChanged.mock.calls.length, 2);
+    assert.equal(onChanged.mock.calls.length, polled);
   } finally {
     jest.useRealTimers();
   }

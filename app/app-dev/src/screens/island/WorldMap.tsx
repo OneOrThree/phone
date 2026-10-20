@@ -52,6 +52,7 @@ import { MotionContext } from '@/design-system/primitives';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
+import { Ticking, useWakeAt } from '@/hooks/useNow';
 import {
   TileTerrainCanvas,
   navDebugText,
@@ -1286,14 +1287,27 @@ function FinalIslandScene({
       ? serverConstruction
       : null
     : (i.construction ?? null);
+  const renderedAt = Date.now();
   const progress = normalizedConstructionProgress(
     trackedConstruction
       ? { startedAt: trackedConstruction.startedAt, completesAt: trackedConstruction.endsAt }
       : null,
-    Date.now(),
+    renderedAt,
   );
   const activeBuilding =
     trackedConstruction && progress < 1 ? trackedConstruction.building : undefined;
+  // 공사 그림은 단계 경계(15%·75%·완공)에서만 바뀌므로 그때만 지도를 다시 그린다 — App 은 분마다만 그린다(GROMO-2372)
+  useWakeAt(
+    trackedConstruction && progress < 1
+      ? [0.15, 0.75, 1]
+          .map(
+            (f) =>
+              trackedConstruction.startedAt +
+              f * (trackedConstruction.endsAt - trackedConstruction.startedAt),
+          )
+          .find((at) => at > renderedAt)
+      : null,
+  );
   const sceneBuilding = trackedConstruction?.building;
   const layout = facts?.home?.layout;
   // villageScene 에 넘기는 것과 같은 완공 목록(공사 중인 건물 포함).
@@ -2471,14 +2485,21 @@ function FinalIslandScene({
                     fontVariant: ['tabular-nums'],
                   }}
                 >
-                  {i.construction
-                    ? t('home.buildMinutesLeft', {
-                        count: Math.max(0, Math.ceil((i.construction.endsAt - Date.now()) / 60000)),
-                      })
-                    : t('home.buildProgress', {
-                        current: balance(i),
-                        total: buildingCost(i, next!),
-                      })}
+                  {/* 공사 중 남은 분·진행 막대만 매초 다시 그린다(GROMO-2372) */}
+                  {i.construction ? (
+                    <Ticking>
+                      {(now) =>
+                        t('home.buildMinutesLeft', {
+                          count: Math.max(0, Math.ceil((i.construction!.endsAt - now) / 60000)),
+                        })
+                      }
+                    </Ticking>
+                  ) : (
+                    t('home.buildProgress', {
+                      current: balance(i),
+                      total: buildingCost(i, next!),
+                    })
+                  )}
                 </Txt>
               </View>
               <View
@@ -2489,13 +2510,17 @@ function FinalIslandScene({
                   overflow: 'hidden',
                 }}
               >
-                <View
-                  style={{
-                    height: '100%',
-                    width: `${i.construction ? Math.max(0, Math.min(100, (100 * (Date.now() - i.construction.startedAt)) / (i.construction.endsAt - i.construction.startedAt))) : Math.min(100, (balance(i) / buildingCost(i, next!)) * 100)}%`,
-                    backgroundColor: '#FFA6BC',
-                  }}
-                />
+                <Ticking ms={i.construction ? 1000 : null}>
+                  {(now) => (
+                    <View
+                      style={{
+                        height: '100%',
+                        width: `${i.construction ? Math.max(0, Math.min(100, (100 * (now - i.construction.startedAt)) / (i.construction.endsAt - i.construction.startedAt))) : Math.min(100, (balance(i) / buildingCost(i, next!)) * 100)}%`,
+                        backgroundColor: '#FFA6BC',
+                      }}
+                    />
+                  )}
+                </Ticking>
               </View>
               {!i.construction && next && balance(i) >= buildingCost(i, next) && isHost(i) && (
                 <Btn

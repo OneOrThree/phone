@@ -107,6 +107,7 @@ import {
   seaRouteHeld,
   visitRouteHeld,
   sessionRoute,
+  tickIdle,
 } from '@/services/model';
 import {
   checkSession,
@@ -191,6 +192,8 @@ const REVIEW_LANG =
 // 출시 빌드에서는 꺼지고, 개발 빌드나 EXPO_PUBLIC_QA=1 로 띄운 QA 빌드에서만 켠다(GROMO-2381).
 export const TESTFLIGHT_ALL_BUILDINGS = __DEV__ || process.env.EXPO_PUBLIC_QA === '1';
 const STORAGE = 'gromo-r61-user-v2';
+// 앱 state 저장은 바뀔 때마다가 아니라 이만큼 모아 마지막 것만 쓴다(GROMO-2372)
+const SAVE_DELAY_MS = 1000;
 // 채택 도중 세션 세대가 바뀌면(401 정리·다른 로그인) 남은 적용을 버리는 내부 신호. 호출부에는
 // 오류로 드러내지 않는다 — 새 세션의 화면이 이미 자기 흐름을 진행 중이다.
 const STALE_ADOPTION = Symbol('staleAdoption');
@@ -350,7 +353,9 @@ function Gromo() {
     [socialError, setSocialError] = useState(''),
     [approval, setApproval] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
-    [now, setNow] = useState(Date.now()),
+    // 화면 시계 — 분이 바뀔 때만 다시 그린다. 초 단위로 흐르는 표시는 각 화면이 useNow·Ticking 으로
+    // 스스로 다시 그린다(GROMO-2372). e.now 는 그릴 때의 시각이다.
+    [, setClockMinute] = useState(() => Math.floor(Date.now() / 60000)),
     [toast, setToast] = useState(''),
     // 편지 쓰기 등 키보드가 떠 있는 화면에서 알림 토스트가 소프트 키보드 밑에 가려지지 않게(GROMO-2169)
     [keyboardHeight, setKeyboardHeight] = useState(0),
@@ -409,9 +414,16 @@ function Gromo() {
   } | null>(null);
   const storageOwnerReadyRef = useRef(storageOwnerReady);
   const userStorageWriteQueue = useRef<Promise<void>>(Promise.resolve());
+  // 아직 쓰지 않은 저장 — SAVE_DELAY_MS 뒤(또는 배경 전환·종료 때) 마지막 state 를 쓴다(GROMO-2372)
+  const pendingSave = useRef<{ state: State; timer: ReturnType<typeof setTimeout> } | null>(null);
   const setStorageOwnerGate = (ready: boolean) => {
     // state render 전에 도착한 저장 effect도 새 gate 값을 보도록 ref를 먼저 바꾼다.
     storageOwnerReadyRef.current = ready;
+    // 닫히면 모아 둔 저장도 버린다 — 다른 계정으로 다시 열린 뒤 이전 계정 state 를 쓰지 않게.
+    if (!ready && pendingSave.current) {
+      clearTimeout(pendingSave.current.timer);
+      pendingSave.current = null;
+    }
     setStorageOwnerReady(ready);
   };
   const [incomingAppLink, setIncomingAppLink] = useState<string | null>(null);
@@ -900,6 +912,9 @@ function Gromo() {
     restRecovery.current = { sessionId, at, promise };
     return promise;
   };
+  // 1초 조회 타이머가 마지막 렌더의 화면 이동 함수로 복구하게 한다
+  const recoverExpiredRestRef = useRef(recoverExpiredRest);
+  recoverExpiredRestRef.current = recoverExpiredRest;
   const recoverExpiredRestConflict = (
     error: unknown,
     session: State['session'],
@@ -1597,6 +1612,21 @@ function Gromo() {
     state.lastResult,
     state.serverIslands?.currentIslandId,
   ]);
+  // 모아 둔 저장을 지금 줄에 세운다. 쓰는 순간에도 저장 gate 를 다시 본다(gate 가 닫히면 대기분은 이미 버려졌다).
+  const flushSave = () => {
+    const pending = pendingSave.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingSave.current = null;
+    const snapshot = JSON.stringify(pending.state);
+    const write = userStorageWriteQueue.current.then(async () => {
+      if (!storageOwnerReadyRef.current) return;
+      await AsyncStorage.setItem(STORAGE, snapshot);
+    });
+    userStorageWriteQueue.current = write.catch(() => {
+      notify(t('app.storageCheck'));
+    });
+  };
   useEffect(() => {
     if (
       loaded &&
@@ -1606,21 +1636,29 @@ function Gromo() {
       !REVIEW &&
       !DEMO
     ) {
-      const snapshot = JSON.stringify(state);
-      const write = userStorageWriteQueue.current.then(async () => {
-        if (!storageOwnerReadyRef.current) return;
-        await AsyncStorage.setItem(STORAGE, snapshot);
-      });
-      userStorageWriteQueue.current = write.catch(() => {
-        notify(t('app.storageCheck'));
-      });
+      // 바뀔 때마다 쓰지 않고 SAVE_DELAY_MS 동안 모아 마지막 state 만 쓴다(GROMO-2372)
+      if (pendingSave.current) pendingSave.current.state = state;
+      else pendingSave.current = { state, timer: setTimeout(flushSave, SAVE_DELAY_MS) };
     }
   }, [state, loaded, storageOwnerReady, qaBuildingsReady]);
   useEffect(() => {
+    // 배경으로 가거나 화면이 사라질 때는 기다리지 않고 바로 쓴다 — 앱이 그대로 종료돼도 잃지 않게
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'background' || next === 'inactive') flushSave();
+    });
+    return () => {
+      subscription.remove();
+      flushSave();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave 는 ref·notify 만 읽어 첫 렌더 것으로 충분하다
+  }, []);
+  useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();
-      setNow(now);
-      dispatch({ type: 'TICK', now });
+      // 같은 분이면 같은 값이라 다시 그리지 않는다
+      setClockMinute(Math.floor(now / 60000));
+      // 할 일 없는 TICK 은 보내지 않는다 — App 을 매초 다시 그리지 않게(GROMO-2372)
+      if (!tickIdle(stateRef.current, now)) dispatch({ type: 'TICK', now });
     }, 1000);
     return () => clearInterval(id);
   }, []);
@@ -1802,22 +1840,25 @@ function Gromo() {
   useEffect(() => {
     if (!loaded || !hasServerSession || REVIEW || DEMO) return;
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') {
-        setNow(Date.now());
-        setHomeReload((value) => value + 1);
-      }
+      if (nextState === 'active') setHomeReload((value) => value + 1);
     });
     return () => subscription.remove();
   }, [loaded, hasServerSession]);
   useEffect(() => {
-    if (!loaded || !hasServerSession || REVIEW || DEMO || AppState.currentState !== 'active')
-      return;
-    const session = stateRef.current.session;
-    if (session && shouldPollExpiredRest(session, now, restRecovery.current)) {
-      // 서버 자동 종료 스케줄러가 다음 분에 실행될 수 있어 만료 후에도 간격을 두고 재조회한다.
-      void recoverExpiredRest(session.id);
-    }
-  }, [loaded, hasServerSession, now]);
+    if (!loaded || !hasServerSession || REVIEW || DEMO) return;
+    // App 이 매초 다시 그리지 않으므로 자기 1초 타이머로 본다(GROMO-2372)
+    const poll = () => {
+      if (AppState.currentState !== 'active') return;
+      const session = stateRef.current.session;
+      if (session && shouldPollExpiredRest(session, Date.now(), restRecovery.current)) {
+        // 서버 자동 종료 스케줄러가 다음 분에 실행될 수 있어 만료 후에도 간격을 두고 재조회한다.
+        void recoverExpiredRestRef.current(session.id);
+      }
+    };
+    poll();
+    const id = setInterval(poll, 1000);
+    return () => clearInterval(id);
+  }, [loaded, hasServerSession]);
   useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();
@@ -2067,7 +2108,7 @@ function Gromo() {
           tab,
           setTab,
           detail,
-          now,
+          now: Date.now(),
           terms,
           setTerms,
           loginProviders: TERMS_VERSION ? loginProviders() : [],

@@ -23,6 +23,8 @@ import {
 } from '@/services/buildingTransition';
 
 let captured: any;
+// 앱 state 저장은 1초 모아 쓴다(GROMO-2372) — 저장본을 기다리는 waitFor 는 그보다 넉넉히 기다린다
+const SAVED_WRITE = { timeout: 3000 };
 const mockStartLiveActivityPushSync = jest.fn(() => jest.fn());
 jest.mock('@/services/liveActivityPush', () => ({
   startLiveActivityPushSync: () => mockStartLiveActivityPushSync(),
@@ -268,7 +270,7 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
     assert.equal(persisted.loggedIn, true);
     assert.equal(persisted.serverIslands.currentIslandId, 'server-island-b');
-  });
+  }, SAVED_WRITE);
 });
 
 // 위 테스트와 같은 owner 불일치 부팅 조건(transferOwner)에서, STORAGE 삭제가 기기 전역 언어
@@ -404,7 +406,7 @@ test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 �
     assert.equal(persisted.loggedIn, true);
     assert.notEqual(persisted.name, 'A-only-private-state');
     assert.equal(persisted.serverIslands.currentIslandId, 'server-island-b');
-  });
+  }, SAVED_WRITE);
 });
 
 test('두 번째 부팅 route await 중 generation이 바뀌면 stale route와 owner를 기록하지 않는다', async () => {
@@ -554,7 +556,7 @@ test('오프라인 mismatch 뒤 같은 owner로 로그인하면 보류한 저장
   await waitFor(async () => {
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
     assert.deepEqual(persisted.owned, ['a-only-item']);
-  });
+  }, SAVED_WRITE);
 
   assert.equal(captured.state.name, 'A');
   assert.equal(captured.state.settings.sound, false);
@@ -1399,7 +1401,7 @@ test('일반 로그인 뒤 owner 기록이 일시 실패하면 알리고 같은 
   await waitFor(async () => {
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2')) ?? 'null');
     assert.equal(persisted?.name, '저장확인');
-  });
+  }, SAVED_WRITE);
 });
 
 const staleAdoptionLogin = () => {
@@ -1625,7 +1627,7 @@ test.each([
     await waitFor(async () => {
       const stored = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
       expect(stored.tutorial).toEqual({ step: expected, sessionId: saved.session!.id });
-    });
+    }, SAVED_WRITE);
     await app.unmount();
   },
 );

@@ -91,6 +91,7 @@ import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
 import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
+import { Ticking } from '@/hooks/useNow';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
 import {
@@ -2793,7 +2794,8 @@ export function RedesignScreens({ e }: any) {
             textShadowRadius: 6,
           }}
         >
-          {clock(sessionSeconds(state.session, now))}
+          {/* 경과 시간 글자만 매초 다시 그린다(GROMO-2372) */}
+          <Ticking>{(at) => clock(sessionSeconds(state.session, at))}</Ticking>
         </Txt>
       </View>
       {island.buildings.includes('gram') && (
