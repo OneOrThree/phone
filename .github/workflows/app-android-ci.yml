@@ -68,6 +68,9 @@ jobs:
       id-token: write
     outputs:
       code: ${{ steps.version.outputs.code }}
+      posthog-project-token: ${{ steps.posthog.outputs.posthog-project-token }}
+      posthog-host: ${{ steps.posthog.outputs.posthog-host }}
+      posthog-cli-host: ${{ steps.posthog.outputs.posthog-cli-host }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -102,6 +105,14 @@ jobs:
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "versionCode=$code"
 
+      - name: PostHog SDK 공개 설정 읽기
+        id: posthog
+        # 기존 main 전용 AWS 작업에서 공개값만 전달한다. 빌드 작업에는 AWS 권한을 주지 않는다.
+        run: |
+          set -euo pipefail
+          aws secretsmanager get-secret-value --secret-id "$RELEASE_SECRET_ID" --query SecretString --output text \
+            | python3 .github/ci/posthog-sdk-config.py >> "$GITHUB_OUTPUT"
+
       - name: AWS 자격 증명 비우기
         # configure-aws-credentials 가 이후 스텝 env 로 내보낸 값 지움. 뒤 액션이 시크릿 다시 못 읽게
         run: for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
@@ -125,6 +136,25 @@ jobs:
       EXPO_PUBLIC_ENV: dev
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: PostHog SDK 설정 변환 검사
+        run: python3 -m unittest discover -s .github/ci -p 'test_posthog_sdk_config.py'
+
+      - name: PostHog SDK 설정 적용
+        if: env.IS_RELEASE == 'true'
+        env:
+          PROJECT_TOKEN: ${{ needs.version.outputs.posthog-project-token }}
+          SDK_HOST: ${{ needs.version.outputs.posthog-host }}
+          CLI_HOST: ${{ needs.version.outputs.posthog-cli-host }}
+        run: |
+          set -euo pipefail
+          [ -n "$PROJECT_TOKEN" ] && [ -n "$SDK_HOST" ] && [ -n "$CLI_HOST" ] \
+            || { echo "::error::PostHog SDK 공개 설정을 전달받지 못했습니다"; exit 1; }
+          {
+            echo "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN=$PROJECT_TOKEN"
+            echo "EXPO_PUBLIC_POSTHOG_HOST=$SDK_HOST"
+            echo "POSTHOG_CLI_HOST=$CLI_HOST"
+          } >> "$GITHUB_ENV"
 
       - name: 공개 릴리스 설정 읽기
         # 약관 버전·Datadog 공개 설정 정본은 iOS 와 같은 파일. 두 벌 두면 갈라짐.
@@ -172,6 +202,13 @@ jobs:
         working-directory: app/app-dev
         run: npm ci
 
+      - name: PostHog CLI 경로 등록
+        # npm ci가 설치한 고정 버전을 Gradle 네이티브 업로드 작업에서도 찾도록 한다.
+        run: echo "$GITHUB_WORKSPACE/app/app-dev/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: PostHog CLI 실행 확인
+        run: posthog-cli --version
+
       - name: 일회용 서명 키
         # build.gradle 가드가 android/credentials/prod 서명 파일을 요구. 업로드 키는 sign 잡에서만
         working-directory: app/app-dev/android
@@ -196,7 +233,6 @@ jobs:
           # PR/다른 브랜치에는 업로드 키를 주지 않는다. main 빌드만 심볼을 올린다.
           POSTHOG_CLI_API_KEY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.POSTHOG_CLI_API_KEY || '' }}
           POSTHOG_CLI_PROJECT_ID: "669473"
-          POSTHOG_CLI_HOST: https://us.posthog.com
         run: ./gradlew -I "$GITHUB_WORKSPACE/.github/ci/android-version-code.gradle" :app:bundleRelease
 
       - name: AAB 확인 (일회용 서명)
